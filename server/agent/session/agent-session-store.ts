@@ -6,9 +6,9 @@ import {
     acquireAgentSessionStoreLease,
     acquireAgentSessionStoreRuntimeLease,
     AGENT_SESSION_STORE_LEASE_RELATIVE_PATH,
+    AgentSessionStoreLeaseCompromisedError,
     agentSessionStoreLeasePath,
     isAgentSessionStoreLeaseCompromisedError,
-    type AgentSessionStoreLeaseCompromisedError,
     type AgentSessionStoreLeaseHandle,
     type AgentSessionStoreLeaseRelease,
 } from "nbook/server/agent/session/agent-session-store-lease";
@@ -130,7 +130,7 @@ type SharedRuntimeLease = {
 };
 
 /** HMR前一版本的物理lease形状；迁移时保留同一个Map对象，避免旧模块自持锁被当成外部锁。 */
-type LegacySharedRuntimeLease = {
+type PreviousSharedRuntimeLease = {
     refs: number;
     physicalLease: Promise<() => Promise<void>>;
     phase: "open" | "releasing" | "release_failed";
@@ -138,44 +138,54 @@ type LegacySharedRuntimeLease = {
 };
 
 type AgentSessionStoreGlobals = typeof globalThis & {
-    __nbookAgentSessionStoreRuntimeLeasesV1?: Map<string, LegacySharedRuntimeLease>;
+    __nbookAgentSessionStoreRuntimeLeasesV1?: Map<string, PreviousSharedRuntimeLease>;
     __nbookAgentSessionStoreRuntimeLeasesV2?: Map<string, SharedRuntimeLease>;
 };
 
 const storeGlobals = globalThis as AgentSessionStoreGlobals;
 const sharedRuntimeLeases = storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV2
-    ?? migrateLegacyRuntimeLeases(storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV1)
+    ?? migratePreviousRuntimeLeases(storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV1)
     ?? new Map<string, SharedRuntimeLease>();
 storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV2 = sharedRuntimeLeases;
 
-const NEVER_COMPROMISED = new Promise<AgentSessionStoreLeaseCompromisedError>(() => undefined);
-
 /** 把V1物理release包装成同时兼容旧函数调用和新handle调用的同一对象。 */
-function migrateLegacyRuntimeLeases(
-    legacy: Map<string, LegacySharedRuntimeLease> | undefined,
+function migratePreviousRuntimeLeases(
+    previous: Map<string, PreviousSharedRuntimeLease> | undefined,
 ): Map<string, SharedRuntimeLease> | null {
-    if (!legacy) return null;
-    for (const [key, entry] of legacy) {
-        const migrated: SharedRuntimeLease = {
-            refs: entry.refs,
-            physicalLease: entry.physicalLease.then(legacyPhysicalLease),
-            phase: entry.phase,
-            releasePromise: entry.releasePromise,
-            compromisedError: null,
+    if (!previous) return null;
+    for (const [rootWorkspace, entry] of previous) {
+        const candidate = entry as PreviousSharedRuntimeLease & {
+            compromisedError?: AgentSessionStoreLeaseCompromisedError | null;
         };
-        // globalThis上的Map来自旧HMR模块；这里保留同一个Map对象，不能创建第二份锁注册表。
-        legacy.set(key, migrated as unknown as LegacySharedRuntimeLease);
+        if (candidate.compromisedError !== undefined) continue;
+        // 旧模块没有把 proper-lockfile 的 onCompromised callback 放进全局状态，HMR后无法安全
+        // 恢复失效通知。宁可要求重启并保持旧锁不动，也不能把旧 capability 伪装成健康状态。
+        const compromised = new AgentSessionStoreLeaseCompromisedError(
+            agentSessionStoreLeasePath(rootWorkspace),
+            "runtime",
+            new Error("HMR重载后无法恢复旧版 runtime lease 的失效观察；请重启 NeuroBook。"),
+        );
+        candidate.physicalLease = candidate.physicalLease.then(
+            () => previousPhysicalLease(compromised),
+            () => previousPhysicalLease(compromised),
+        );
+        candidate.compromisedError = compromised;
+        (candidate as unknown as SharedRuntimeLease).phase = "compromised";
     }
-    return legacy as unknown as Map<string, SharedRuntimeLease>;
+    return previous as unknown as Map<string, SharedRuntimeLease>;
 }
 
-/** 旧模块只保存可调用release，新模块同时需要handle方法；两者指向同一个release。 */
-function legacyPhysicalLease(release: () => Promise<void>): AgentSessionStoreLeaseHandle {
-    const releaseHandle = async (): Promise<void> => release();
+type PreviousPhysicalLeaseHandle = AgentSessionStoreLeaseHandle & (() => Promise<void>);
+
+/** HMR无法证明旧锁仍归本进程所有，因此旧物理release必须保持终态no-op。 */
+function previousPhysicalLease(error: AgentSessionStoreLeaseCompromisedError): PreviousPhysicalLeaseHandle {
+    const releaseHandle = async (): Promise<void> => undefined;
     return Object.assign(releaseHandle, {
         release: releaseHandle,
-        compromised: NEVER_COMPROMISED,
-        assertHealthy: () => undefined,
+        compromised: Promise.resolve(error),
+        assertHealthy: () => {
+            throw error;
+        },
     });
 }
 
@@ -349,6 +359,8 @@ async function acquireSharedRuntimeLease(rootWorkspace: string): Promise<SharedR
         }
         if (existing.phase === "open") {
             const physicalLease = await existing.physicalLease;
+            // 等待physical lease期间，最后一个旧owner可能已经释放并移除了entry；此时不能复用已释放的锁。
+            if (sharedRuntimeLeases.get(key) !== existing || existing.phase !== "open") continue;
             try {
                 physicalLease.assertHealthy();
                 shared = existing;

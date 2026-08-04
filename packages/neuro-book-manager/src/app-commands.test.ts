@@ -94,6 +94,22 @@ describe("Product exit diagnostics", () => {
 });
 
 describe("Product ready退出诊断", () => {
+    it("ready前以0退出仍立即报告Product提前退出", async () => {
+        const root = await nativeProductRoot();
+        ownedProcess.spawn.mockReturnValue({
+            completion: Promise.resolve({exitCode: 0, signal: null}),
+            terminate: vi.fn(),
+        });
+        const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, {status: 503}));
+
+        try {
+            const launch = await launchApplication(root, productManifest());
+            await expect(launch.ready).rejects.toThrow("Product 在 ready 前退出：0");
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
     it("ready前以Session Store lease compromised退出时返回专用提示", async () => {
         const root = await nativeProductRoot();
         const terminate = vi.fn(async () => ({exitCode: 75, signal: null, terminationReason: "startup-failure" as const}));

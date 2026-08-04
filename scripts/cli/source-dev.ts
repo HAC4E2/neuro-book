@@ -2,7 +2,10 @@
 import {randomBytes} from "node:crypto";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
 import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
-import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "nbook/shared/product-runtime-contract";
+import {
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+    PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
+} from "nbook/shared/product-runtime-contract";
 
 export type SourceDevOptions = {
     cwd?: string;
@@ -75,7 +78,11 @@ export async function runSourceDev(options: SourceDevOptions = {}): Promise<numb
         const requestedShutdown = forcedShutdownPromise ?? shutdownPromise;
         if (requestedShutdown) {
             await requestedShutdown;
-            return 0;
+            const terminal = await completion;
+            return terminal.signal === null
+                && terminal.code === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED
+                ? PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED
+                : 0;
         }
         return ownedProcessExitCode(result);
     } finally {

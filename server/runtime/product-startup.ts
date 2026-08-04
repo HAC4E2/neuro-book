@@ -4,6 +4,8 @@ import {appLogger} from "nbook/server/app-logs/logger";
 import {
     AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
     AGENT_SESSION_STORE_LEASE_STALE_MS,
+    AgentSessionStoreLeaseCompromisedError,
+    isAgentSessionStoreLeaseCompromisedError,
 } from "nbook/server/agent/session/agent-session-store-lease";
 import {
     AgentSessionMigrationRequiredError,
@@ -53,6 +55,10 @@ export async function prepareProductRuntime(): Promise<void> {
     try {
         await startAgentSessionStoreRuntime(runtimePaths.workspaceRoot);
     } catch (error) {
+        if (isAgentSessionStoreLeaseCompromisedError(error)) {
+            requestLeaseCompromisedShutdown(error);
+            return;
+        }
         if (error instanceof AgentSessionMigrationRequiredError
             || error instanceof AgentSessionRecoveryRequiredError
             || error instanceof AgentSessionStoreCorruptError) {
@@ -63,22 +69,38 @@ export async function prepareProductRuntime(): Promise<void> {
         }
         throw error;
     }
-    void observeAgentSessionStoreRuntimeCompromised(runtimePaths.workspaceRoot).then((error) => {
-        appLogger.fatalSync(
-            "runtime.agentSessionStore.leaseCompromised",
-            {
-                leasePath: error.leasePath,
-                kind: error.kind,
-                staleMs: AGENT_SESSION_STORE_LEASE_STALE_MS,
-                heartbeatMs: AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
-            },
-            error,
-            "Agent Session Store runtime lease失去所有权，Product将有序关闭",
-        );
-        productShutdownController.requestProcessExit(
-            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
-        );
-    });
+    void Promise.resolve()
+        .then(() => observeAgentSessionStoreRuntimeCompromised(runtimePaths.workspaceRoot))
+        .then((error) => requestLeaseCompromisedShutdown(error))
+        .catch((error: unknown) => {
+            appLogger.fatalSync(
+                "runtime.agentSessionStore.leaseObserverFailed",
+                undefined,
+                error,
+                "Agent Session Store runtime lease失效观察器异常，Product将有序关闭",
+            );
+            productShutdownController.requestProcessExit(
+                PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+            );
+        });
+}
+
+/** 记录租约失效诊断并请求一次有序的专用退出。 */
+function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromisedError): void {
+    appLogger.fatalSync(
+        "runtime.agentSessionStore.leaseCompromised",
+        {
+            leasePath: error.leasePath,
+            kind: error.kind,
+            staleMs: AGENT_SESSION_STORE_LEASE_STALE_MS,
+            heartbeatMs: AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
+        },
+        error,
+        "Agent Session Store runtime lease失去所有权，Product将有序关闭",
+    );
+    productShutdownController.requestProcessExit(
+        PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+    );
 }
 
 /**

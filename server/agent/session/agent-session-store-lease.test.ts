@@ -8,6 +8,7 @@ import {
     AGENT_SESSION_STORE_LEASE_OWNER_SCHEMA,
     AgentSessionStoreLeaseHeldError,
     agentSessionStoreLeasePath,
+    runWithAgentSessionStoreLease,
     type AgentSessionStoreLeaseOwner,
 } from "nbook/server/agent/session/agent-session-store-lease";
 
@@ -119,6 +120,23 @@ describe("Agent Session Store runtime lease", () => {
         } finally {
             await release();
         }
+    });
+
+    it("任务失败与lease释放失败同时发生时保留两个原始原因", async () => {
+        const taskFailure = new Error("migration failed");
+        const releaseFailure = new Error("lease release failed");
+
+        const failure = await runWithAgentSessionStoreLease(
+            async () => {
+                throw releaseFailure;
+            },
+            async () => {
+                throw taskFailure;
+            },
+        ).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(AggregateError);
+        expect((failure as AggregateError).errors).toEqual([taskFailure, releaseFailure]);
     });
 
     /** 为每个用例建立仓库外隔离 Workspace Root。 */

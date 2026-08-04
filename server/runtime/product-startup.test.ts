@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
+import {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
 
 const mocks = vi.hoisted(() => ({
     mkdir: vi.fn(async () => undefined),
@@ -95,6 +96,46 @@ describe("Product startup", () => {
                 heartbeatMs: 15_000,
             }),
             error,
+            expect.stringContaining("有序关闭"),
+        );
+    });
+
+    it("ready校验期间runtime lease compromised也走专用退出且不发布ready", async () => {
+        const cause = new Error("heartbeat lost before ready");
+        const error = new AgentSessionStoreLeaseCompromisedError(
+            "C:/state/workspace/.nbook/agent/migrations/runtime.lease",
+            "runtime",
+            cause,
+        );
+        mocks.startAgentSessionStoreRuntime.mockRejectedValue(error);
+
+        await expect(prepareProductRuntime()).resolves.toBeUndefined();
+        expect(mocks.observeAgentSessionStoreRuntimeCompromised).not.toHaveBeenCalled();
+        expect(mocks.requestProcessExit).toHaveBeenCalledWith(
+            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+        );
+        expect(mocks.fatalSync).toHaveBeenCalledWith(
+            "runtime.agentSessionStore.leaseCompromised",
+            expect.objectContaining({leasePath: error.leasePath, kind: "runtime"}),
+            error,
+            expect.stringContaining("有序关闭"),
+        );
+    });
+
+    it("runtime lease observer同步抛错时也请求专用退出且不产生未处理rejection", async () => {
+        const observerFailure = new Error("runtime registry changed during startup");
+        mocks.observeAgentSessionStoreRuntimeCompromised.mockImplementation(() => {
+            throw observerFailure;
+        });
+
+        await prepareProductRuntime();
+        await vi.waitFor(() => expect(mocks.requestProcessExit).toHaveBeenCalledWith(
+            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+        ));
+        expect(mocks.fatalSync).toHaveBeenCalledWith(
+            "runtime.agentSessionStore.leaseObserverFailed",
+            undefined,
+            observerFailure,
             expect.stringContaining("有序关闭"),
         );
     });

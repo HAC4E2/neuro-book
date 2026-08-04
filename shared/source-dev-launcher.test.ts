@@ -1,6 +1,9 @@
 import type {OwnedProcessCompletion, OwnedProcessLease} from "@notnotype/owned-process";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "nbook/shared/product-runtime-contract";
+import {
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+    PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
+} from "nbook/shared/product-runtime-contract";
 
 const mocks = vi.hoisted(() => ({
     spawnOwnedProcess: vi.fn(),
@@ -79,6 +82,22 @@ describe("Source Dev launcher", () => {
 
         await expect(running).resolves.toBe(0);
         expect(mocks.shutdownNativeProduct).toHaveBeenCalledWith(expect.objectContaining({host: "localhost"}));
+    });
+
+    it("shutdown竞态中Product以75退出时保留专用退出码", async () => {
+        const terminal = deferred<OwnedProcessCompletion>();
+        mocks.spawnOwnedProcess.mockReturnValue(lease(terminal.promise));
+        mocks.shutdownNativeProduct.mockResolvedValue("forced");
+        const before = new Set(process.listeners("SIGINT"));
+        const running = runSourceDev({env: {PORT: "43135"}});
+
+        addedSignalListener("SIGINT", before)();
+        terminal.resolve({
+            exitCode: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+            signal: null,
+        });
+
+        await expect(running).resolves.toBe(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
     });
 
     it("第二次信号幂等地立即强制收口，不等待仍挂起的graceful请求", async () => {

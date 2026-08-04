@@ -1,4 +1,5 @@
 import {
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_PATH,
     PRODUCT_SHUTDOWN_TIMEOUT_MS,
 } from "nbook/shared/product-runtime-contract";
@@ -28,6 +29,15 @@ export type NativeProductShutdownResult = "graceful" | "forced";
 export async function shutdownNativeProduct(
     options: NativeProductShutdownOptions,
 ): Promise<NativeProductShutdownResult> {
+    let completionResult: NativeProductExit | null = null;
+    void options.completion.then(
+        (result) => completionResult = result,
+        () => undefined,
+    );
+    // 给已经settled的completion一次microtask机会，避免已退出75的Product仍被请求shutdown。
+    await Promise.resolve();
+    if (isLeaseCompromisedExit(completionResult)) return "forced";
+
     const timeoutMs = options.timeoutMs ?? PRODUCT_SHUTDOWN_TIMEOUT_MS;
     const deadline = Date.now() + timeoutMs;
     const host = options.host ?? "127.0.0.1";
@@ -42,6 +52,7 @@ export async function shutdownNativeProduct(
             throw new Error(`Product shutdown 返回 HTTP ${String(response.status)}`);
         }
         const result = await waitWithin(options.completion, Math.max(0, deadline - Date.now()), timeoutMs);
+        if (isLeaseCompromisedExit(result)) return "forced";
         if (result.signal !== null || result.code !== 0) {
             throw new Error(`Product graceful shutdown 异常退出：${result.signal ?? result.code}`);
         }
@@ -51,15 +62,27 @@ export async function shutdownNativeProduct(
         console.warn(`Product graceful shutdown 失败，转为强制收口：${errorMessage(error)}`);
     }
 
+    await Promise.resolve();
+    if (isLeaseCompromisedExit(completionResult)) return "forced";
+
     try {
         await options.forceTerminate();
     } catch (forceFailure) {
+        await Promise.resolve();
+        if (isLeaseCompromisedExit(completionResult)) return "forced";
         throw new AggregateError(
             [asError(gracefulFailure), asError(forceFailure)],
             "Product graceful shutdown 与强制收口均失败",
         );
     }
     return "forced";
+}
+
+/** 已知Product因runtime lease失效退出时，退出码75优先于关闭路径的次生失败。 */
+function isLeaseCompromisedExit(result: NativeProductExit | null): boolean {
+    return result !== null
+        && result.signal === null
+        && result.code === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED;
 }
 
 /** 在固定剩余窗口内等待 Product 进程终态。 */

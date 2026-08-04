@@ -1,5 +1,8 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {PRODUCT_SHUTDOWN_PATH} from "nbook/shared/product-runtime-contract";
+import {
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+    PRODUCT_SHUTDOWN_PATH,
+} from "nbook/shared/product-runtime-contract";
 import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
 
 describe("Product Runtime shutdown client", () => {
@@ -77,6 +80,38 @@ describe("Product Runtime shutdown client", () => {
             forceTerminate,
         })).resolves.toBe("forced");
         expect(forceTerminate).toHaveBeenCalledOnce();
+    });
+
+    it("Product已以75退出时不再请求force，关闭错误不覆盖专用退出结果", async () => {
+        const forceTerminate = vi.fn().mockRejectedValue(new Error("force failed"));
+        vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Product already exited")));
+
+        await expect(shutdownNativeProduct({
+            port: 43125,
+            token: "test-token",
+            completion: Promise.resolve({
+                code: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+                signal: null,
+            }),
+            forceTerminate,
+        })).resolves.toBe("forced");
+        expect(forceTerminate).not.toHaveBeenCalled();
+    });
+
+    it("202后Product以75退出时不触发force，即使force本身会失败也保留75", async () => {
+        const forceTerminate = vi.fn().mockRejectedValue(new Error("force failed"));
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {status: 202})));
+
+        await expect(shutdownNativeProduct({
+            port: 43126,
+            token: "test-token",
+            completion: Promise.resolve({
+                code: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+                signal: null,
+            }),
+            forceTerminate,
+        })).resolves.toBe("forced");
+        expect(forceTerminate).not.toHaveBeenCalled();
     });
 
     it("graceful与force同时失败时保留两条错误链", async () => {

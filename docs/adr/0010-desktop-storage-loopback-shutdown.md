@@ -71,7 +71,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 6. 每一步失败都继续执行后续步骤，最后返回带步骤身份的 `AggregateError`。并发关闭共享同一个结果。
 7. Manager 最多等待合同规定的 30 秒。只有退出码为 0 且没有 signal 才算 graceful；HTTP 失败、超时、非零退出、signal 或 Product crash 时调用 Owned Process 收口完整进程树，并明确记录 forced shutdown。
 8. Windows 不依赖 `SIGTERM`；POSIX Ctrl+C/SIGTERM 继续进入同一个 Nitro close hook 和 shutdown controller。
-9. Session Store runtime lease 的 heartbeat 失效或所有权被其他进程接管时，`proper-lockfile` 的 `ECOMPROMISED` 通过一次性 typed signal 进入同一 shutdown controller：立即 draining、记录完整诊断、按既有顺序关闭，并以退出码 75 结束。旧 owner 不自动抢锁、杀进程或删除 `.lock`；Manager 根据退出码提示用户关闭其他 NeuroBook/迁移程序或处理长时间暂停后重试。
+9. Session Store runtime lease 的 heartbeat 失效或所有权被其他进程接管时，`proper-lockfile` 的 `ECOMPROMISED` 通过一次性 typed signal 进入同一 shutdown controller：立即 draining、记录完整诊断、按既有顺序关闭，并以退出码 75 结束。旧 owner 不自动抢锁、杀进程或删除 `.lock`；Manager 根据退出码提示用户关闭其他 NeuroBook/迁移程序或处理长时间暂停后重试。旧 HMR registry 无法恢复历史 callback 时必须 fail closed，保留失效终态并要求重启，不得重新取得同一 runtime lease。
 
 #### Source Dev 入口
 
@@ -119,6 +119,7 @@ Session Store lease 的 mtime heartbeat 是跨进程所有权协议，不是正�
 - Windows 仓库外 Product smoke 已证明错误 token 不结束进程、正确 token 完成应用级关闭，随后端口关闭且 State Root 可移动和删除；Owned Process 仍只保留超时后的最终兜底职责。
 - Windows 自卸载有独立外置 Host，因此 Portable 可以删除正在承载 Manager/Bun 的程序目录；默认卸载和 `--delete-data` 必须分别通过最终 Portable Candidate 验收。
 - Session Store runtime lease 失效现在会留下 fatal 诊断、执行有序关闭并以退出码 75 交给 Manager；用户不需要也不应该手动删除 `runtime.lease.lock`。
+- Detached Container 的启动合同只负责发布 ready；其 ready 后的 Product 进程终态不进入 Manager 的 `null/null` ready-only completion，因此 Manager 不能从这条已脱离宿主的生命周期映射退出码 75。容器状态检查、下一次受管操作和日志仍是该边界外的诊断入口；这不改变 Native、Source Dev 和 Portable 前台路径必须传播具体退出码的合同。
 - 浏览器与 Tauri/Electron UI 尚未验收；本 ADR 只冻结共享 Product/Manager 生命周期，不提前冻结 Desktop Envelope 框架。
 
 ## 未采用方案

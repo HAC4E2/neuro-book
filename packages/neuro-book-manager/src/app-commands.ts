@@ -83,15 +83,34 @@ const AGENT_SESSION_STORE_LEASE_COMPROMISED_MESSAGE =
     "NeuroBook 服务因运行租约失去所有权而退出。可能有另一个 NeuroBook 实例或迁移程序正在使用同一工作区，也可能是当前进程或系统长时间暂停。"
     + "请关闭其他实例或迁移程序后重试；不要手动删除 runtime.lease.lock。";
 
+export type ProductExitResult = {
+    code: number | null;
+    signal: string | null;
+};
+
 /** 将Product跨进程退出结果转换为Manager用户可执行的错误提示。 */
 export function productExitErrorMessage(
-    result: {code: number | null; signal: string | null},
+    result: ProductExitResult,
     fallback: string,
 ): string {
     if (result.signal === null && result.code === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED) {
         return AGENT_SESSION_STORE_LEASE_COMPROMISED_MESSAGE;
     }
     return `${fallback}：${result.signal ?? result.code}`;
+}
+
+/** 统一判断Application是否以可接受的结果结束；容器ready-only completion允许null/null。 */
+export function assertProductExit(result: ProductExitResult, fallback: string): void {
+    if (result.signal !== null || result.code !== null && result.code !== 0) {
+        throw new Error(productExitErrorMessage(result, fallback));
+    }
+}
+
+/** Native Product与Portable必须报告具体的0退出码；75等专用码仍使用同一诊断文案。 */
+export function assertConcreteProductExit(result: ProductExitResult, fallback: string): void {
+    if (result.signal !== null || result.code !== 0) {
+        throw new Error(productExitErrorMessage(result, fallback));
+    }
 }
 
 /** 事务调用方持久化候选容器所有权所需的生命周期回调。 */
@@ -676,7 +695,5 @@ export async function runPortableForeground(
     if (healthCheck && !opened && !result.signal && result.exitCode === 0) {
         throw new Error("Windows Portable Product在通过健康检查前以退出码0结束。");
     }
-    if (result.signal || result.exitCode !== 0) {
-        throw new Error(productExitErrorMessage({code: result.exitCode, signal: result.signal}, "NeuroBook 服务退出"));
-    }
+    assertConcreteProductExit({code: result.exitCode, signal: result.signal}, "NeuroBook 服务退出");
 }

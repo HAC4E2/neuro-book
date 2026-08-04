@@ -4,6 +4,8 @@ import {
     acquireAgentSessionStoreLease,
     acquireAgentSessionStoreLeaseSync,
     AGENT_SESSION_STORE_LEASE_RELATIVE_PATH,
+    type AgentSessionStoreLeaseRelease,
+    type AgentSessionStoreLeaseSyncRelease,
 } from "nbook/server/agent/session/agent-session-store-lease";
 
 /** Attachment 硬切迁移使用的 Workspace Root 级 sentinel 相对路径。 */
@@ -15,7 +17,7 @@ export const ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH = join(
 );
 export const ATTACHMENT_RUNTIME_LEASE_RELATIVE_PATH = AGENT_SESSION_STORE_LEASE_RELATIVE_PATH;
 
-const runtimeSyncLeases = new Map<string, {release: () => void; refs: number}>();
+const runtimeSyncLeases = new Map<string, {release: AgentSessionStoreLeaseSyncRelease; refs: number}>();
 
 /** 迁移 sentinel 存在时，session repository 禁止继续写入。 */
 export class AttachmentMigrationInProgressError extends Error {
@@ -62,20 +64,28 @@ export class AttachmentMigrationGate {
      * 获取运行时全生命周期租约。相同进程内的多个 Harness 共享一个租约，
      * 迁移脚本无法在 Agent 仍运行时取得同一租约，从根上消除 sentinel TOCTOU。
      */
-    async acquireRuntimeLease(): Promise<() => Promise<void>> {
+    async acquireRuntimeLease(): Promise<AgentSessionStoreLeaseRelease> {
         return acquireAgentSessionStoreLease(this.rootWorkspace, "migration");
     }
 
     /** 同步获取启动期租约，保证 Harness 构造完成前迁移无法插入。 */
-    acquireRuntimeLeaseSync(): () => void {
+    acquireRuntimeLeaseSync(): AgentSessionStoreLeaseSyncRelease {
         const existing = runtimeSyncLeases.get(this.runtimeLeasePath);
         if (existing) {
             existing.refs += 1;
-            return () => this.releaseRuntimeLeaseSync(this.runtimeLeasePath);
+            const release = (): void => this.releaseRuntimeLeaseSync(this.runtimeLeasePath);
+            return Object.assign(release, {
+                compromised: existing.release.compromised,
+                assertHealthy: existing.release.assertHealthy,
+            });
         }
         const release = acquireAgentSessionStoreLeaseSync(this.rootWorkspace, "runtime");
         runtimeSyncLeases.set(this.runtimeLeasePath, {release, refs: 1});
-        return () => this.releaseRuntimeLeaseSync(this.runtimeLeasePath);
+        const releaseReference = (): void => this.releaseRuntimeLeaseSync(this.runtimeLeasePath);
+        return Object.assign(releaseReference, {
+            compromised: release.compromised,
+            assertHealthy: release.assertHealthy,
+        });
     }
 
     private releaseRuntimeLeaseSync(path: string): void {

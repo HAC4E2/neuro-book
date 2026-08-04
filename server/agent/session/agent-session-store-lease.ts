@@ -140,7 +140,7 @@ async function acquireAgentSessionStoreLeaseHandle(
         throw await leaseHeldError(path, error);
     }
     const lease = leaseHandle(releaseLock, signal);
-    await writeLeaseOwner(path, kind, lease.release);
+    await writeLeaseOwner(path, kind, lease);
     return lease;
 }
 
@@ -176,7 +176,9 @@ export function acquireAgentSessionStoreLeaseSync(
     }
     const release = syncLeaseHandle(releaseLock, signal);
     try {
+        release.assertHealthy();
         writeFileSync(path, `${JSON.stringify(currentOwner(kind), null, 2)}\n`, "utf8");
+        release.assertHealthy();
     } catch (error) {
         try {
             release();
@@ -189,6 +191,37 @@ export function acquireAgentSessionStoreLeaseSync(
         throw error;
     }
     return release;
+}
+
+/** 执行一个已持有Session Store lease的操作，并保留任务与释放同时失败的两个原因。 */
+export async function runWithAgentSessionStoreLease<T>(
+    release: () => Promise<void>,
+    task: () => Promise<T>,
+): Promise<T> {
+    let outcome: {ok: true; value: T} | {ok: false; error: unknown};
+    try {
+        outcome = {ok: true, value: await task()};
+    } catch (error) {
+        outcome = {ok: false, error};
+    }
+
+    let releaseResult: {ok: true} | {ok: false; error: unknown};
+    try {
+        await release();
+        releaseResult = {ok: true};
+    } catch (error) {
+        releaseResult = {ok: false, error};
+    }
+
+    if (!outcome.ok && !releaseResult.ok) {
+        throw new AggregateError(
+            [outcome.error, releaseResult.error],
+            "Session Store操作失败且lease释放失败。",
+        );
+    }
+    if (!outcome.ok) throw outcome.error;
+    if (!releaseResult.ok) throw releaseResult.error;
+    return outcome.value;
 }
 
 /** 构造不含 argv/env/cwd/token 的当前 owner。 */
@@ -218,13 +251,15 @@ async function ensureLeaseFile(rootWorkspace: string): Promise<string> {
 async function writeLeaseOwner(
     path: string,
     kind: AgentSessionStoreLeaseKind,
-    release: () => Promise<void>,
+    lease: AgentSessionStoreLeaseHandle,
 ): Promise<void> {
     try {
+        lease.assertHealthy();
         await writeFile(path, `${JSON.stringify(currentOwner(kind), null, 2)}\n`, "utf8");
+        lease.assertHealthy();
     } catch (error) {
         try {
-            await release();
+            await lease.release();
         } catch (releaseError) {
             throw new AggregateError(
                 [asError(error), asError(releaseError)],

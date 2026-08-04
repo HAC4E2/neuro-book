@@ -46,6 +46,7 @@ import {
     executeSessionTransaction,
     rollbackSessionTransaction,
 } from "nbook/server/agent/session/migrations/shared/transaction";
+import {runWithAgentSessionStoreLease} from "nbook/server/agent/session/agent-session-store-lease";
 import {
     checkpointManifest,
     loadManifest,
@@ -59,6 +60,7 @@ import {
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const SOURCE_SCHEMA_VERSION = 1;
 const TARGET_SCHEMA_VERSION = 2;
+type AssertLeaseHealthy = () => void;
 
 /**
  * 规划或执行 Session schema v1 -> v2 离线迁移。
@@ -79,22 +81,21 @@ export async function runSessionSchemaV2Migration(
         return reportFromPlans(runId, inventory.plans);
     }
     const releaseLease = await acquireAgentSessionStoreExclusiveLease(rootWorkspace);
-    try {
+    const assertHealthy: AssertLeaseHealthy = () => releaseLease.assertHealthy();
+    return runWithAgentSessionStoreLease(releaseLease, async () => {
         if (options.resume) {
             if (options.mode !== "apply") {
                 throw new Error("Session schema v2 --resume必须与apply一起使用");
             }
-            return await resumeApply(rootWorkspace, options);
+            return await resumeApply(rootWorkspace, options, assertHealthy);
         }
         const current = await readCompleteSessionSchemaV2Migration(rootWorkspace);
         if (current) {
             return reportFromManifest(current.manifest, options.mode, "already_current");
         }
         const inventory = await planWorkspace(rootWorkspace, options.migrationTimestamp ?? Date.now());
-        return startApply(rootWorkspace, runId, inventory, options);
-    } finally {
-        await releaseLease();
-    }
+        return startApply(rootWorkspace, runId, inventory, options, assertHealthy);
+    });
 }
 
 /**
@@ -108,9 +109,10 @@ export async function rollbackSessionSchemaV2Migration(
 ): Promise<SessionSchemaV2RollbackReport> {
     const rootWorkspace = resolve(options.rootWorkspace);
     const releaseLease = await acquireAgentSessionStoreExclusiveLease(rootWorkspace);
+    const assertHealthy: AssertLeaseHealthy = () => releaseLease.assertHealthy();
     let manifest: SessionSchemaV2Manifest | null = null;
     let paths: ReturnType<typeof migrationPaths> | null = null;
-    try {
+    return runWithAgentSessionStoreLease(releaseLease, async () => {
         let sentinel: AgentSessionStoreSentinel;
         try {
             sentinel = await readAgentSessionStoreSentinel(rootWorkspace);
@@ -122,7 +124,9 @@ export async function rollbackSessionSchemaV2Migration(
                 return {version: 1, runId, status: "not_started", restoredSessions: 0};
             }
             await loadUnpublishedInitialRun(paths);
+            assertHealthy();
             await rm(paths.runRoot, {recursive: true, force: true});
+            assertHealthy();
             return {version: 1, runId, status: "not_started", restoredSessions: 0};
         }
         const runId = validatedRunId(options.runId ?? sentinel.runId);
@@ -135,33 +139,33 @@ export async function rollbackSessionSchemaV2Migration(
         }
         manifest = await recoveryManifest(rootWorkspace, paths, sentinel);
         if (manifest.status === "rolled_back") {
-            await publishPreviousSchemaSentinel(rootWorkspace, paths, manifest);
+            await publishPreviousSchemaSentinel(rootWorkspace, paths, manifest, assertHealthy);
             return rollbackReport(manifest);
         }
 
         const rollbackInProgress = manifest.status === "rollback_running"
             || manifest.status === "failed" && manifest.resumeStatus === "rollback_running";
         if (!rollbackInProgress && manifest.status !== "report_written") {
-            await publishSentinel(rootWorkspace, paths, manifest, "applying", undefined);
+            await publishSentinel(rootWorkspace, paths, manifest, "applying", undefined, assertHealthy);
             if (manifest.status === "failed") {
                 if (!manifest.resumeStatus) throw new Error("failed Session migration缺少resumeStatus");
-                await transitionRun(paths, manifest, manifest.resumeStatus);
+                await advanceRun(paths, manifest, manifest.resumeStatus, undefined, assertHealthy);
             }
             await executeManifest(rootWorkspace, paths, manifest, {
                 rootWorkspace,
                 mode: "apply",
                 runId,
-            });
+            }, assertHealthy);
         }
 
-        await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", undefined);
+        await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", undefined, assertHealthy);
         if (manifest.status === "failed") {
             if (manifest.resumeStatus !== "rollback_running") {
                 throw new Error(`Session migration run ${runId}失败阶段不是rollback_running`);
             }
-            await transitionRun(paths, manifest, "rollback_running");
+            await advanceRun(paths, manifest, "rollback_running", undefined, assertHealthy);
         } else if (manifest.status === "report_written") {
-            await transitionRun(paths, manifest, "rollback_running");
+            await advanceRun(paths, manifest, "rollback_running", undefined, assertHealthy);
         }
         if (manifest.status !== "rollback_running") {
             throw new Error(`Session migration run ${runId}状态无法回滚：${manifest.status}`);
@@ -170,34 +174,39 @@ export async function rollbackSessionSchemaV2Migration(
         try {
             for (const session of manifest.sessions) {
                 if (!session.changed) continue;
-                await rollbackSession(rootWorkspace, paths, manifest, session, options.observer);
+                await rollbackSession(rootWorkspace, paths, manifest, session, options.observer, assertHealthy);
             }
             await verifyRollback(rootWorkspace, manifest);
-            await transitionRun(paths, manifest, "rolled_back");
+            await advanceRun(paths, manifest, "rolled_back", undefined, assertHealthy);
+            assertHealthy();
             await checkpointManifest(paths, manifest);
-            await publishPreviousSchemaSentinel(rootWorkspace, paths, manifest);
+            assertHealthy();
+            await publishPreviousSchemaSentinel(rootWorkspace, paths, manifest, assertHealthy);
             return rollbackReport(manifest);
         } catch (error) {
-            const failureRecorded = await recordFailure(paths, manifest, error).then(
+            const failureRecorded = await recordFailure(paths, manifest, error, assertHealthy).then(
                 () => true,
                 () => false,
             );
             if (failureRecorded) {
-                await checkpointManifest(paths, manifest).catch(() => undefined);
-                await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", undefined)
+                assertHealthy();
+                await checkpointManifest(paths, manifest).then(
+                    () => assertHealthy(),
+                    () => undefined,
+                );
+                await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", undefined, assertHealthy)
                     .catch(() => undefined);
             }
             throw error;
         }
-    } finally {
-        await releaseLease();
-    }
+    });
 }
 
 /** 显式恢复sentinel指向的唯一run，不按目录猜测或新建替代计划。 */
 async function resumeApply(
     rootWorkspace: string,
     options: RunSessionSchemaV2Options,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<SessionSchemaV2Report> {
     let sentinel: AgentSessionStoreSentinel;
     try {
@@ -207,7 +216,7 @@ async function resumeApply(
         const runId = validatedRunId(options.runId);
         const paths = migrationPaths(rootWorkspace, runId);
         const manifest = await loadUnpublishedInitialRun(paths);
-        await publishSentinel(rootWorkspace, paths, manifest, "pending", options.observer);
+        await publishSentinel(rootWorkspace, paths, manifest, "pending", options.observer, assertHealthy);
         sentinel = await readAgentSessionStoreSentinel(rootWorkspace);
     }
     if (sentinel.targetSchemaVersion !== TARGET_SCHEMA_VERSION
@@ -228,20 +237,23 @@ async function resumeApply(
         || manifest.status === "failed" && manifest.resumeStatus === "rollback_running") {
         throw new Error(`Session migration run ${manifest.runId}已经进入rollback，只能继续rollback`);
     }
-    await publishSentinel(rootWorkspace, paths, manifest, "applying", options.observer);
+    await publishSentinel(rootWorkspace, paths, manifest, "applying", options.observer, assertHealthy);
     if (manifest.status === "failed") {
         if (!manifest.resumeStatus) {
             throw new Error("failed Session migration缺少resumeStatus");
         }
-        await transitionRun(paths, manifest, manifest.resumeStatus);
+        await advanceRun(paths, manifest, manifest.resumeStatus, options.observer, assertHealthy);
     }
     try {
-        return await executeManifest(rootWorkspace, paths, manifest, options);
+        return await executeManifest(rootWorkspace, paths, manifest, options, assertHealthy);
     } catch (error) {
-        await recordFailure(paths, manifest, error).catch(() => undefined);
+        await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
         if (manifest.status === "failed") {
-            await checkpointManifest(paths, manifest).catch(() => undefined);
-            await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", options.observer)
+            await checkpointManifest(paths, manifest).then(
+                () => assertHealthy(),
+                () => undefined,
+            );
+            await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", options.observer, assertHealthy)
                 .catch(() => undefined);
         }
         throw error;
@@ -506,22 +518,28 @@ async function startApply(
     runId: string,
     inventory: Awaited<ReturnType<typeof planWorkspace>>,
     options: RunSessionSchemaV2Options,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<SessionSchemaV2Report> {
     const paths = migrationPaths(rootWorkspace, runId);
     if (await pathExists(paths.runRoot)) {
         throw new Error(`Session schema migration run ${runId} 已存在；未完成任务请使用 --resume`);
     }
     const manifest = createManifest(runId, inventory.plans, paths.runRootRelative);
+    assertHealthy();
     await writeInitialManifest(paths, manifest);
-    await publishSentinel(rootWorkspace, paths, manifest, "pending", options.observer);
+    assertHealthy();
+    await publishSentinel(rootWorkspace, paths, manifest, "pending", options.observer, assertHealthy);
     try {
-        await publishSentinel(rootWorkspace, paths, manifest, "applying", options.observer);
-        return await executeManifest(rootWorkspace, paths, manifest, options);
+        await publishSentinel(rootWorkspace, paths, manifest, "applying", options.observer, assertHealthy);
+        return await executeManifest(rootWorkspace, paths, manifest, options, assertHealthy);
     } catch (error) {
-        await recordFailure(paths, manifest, error).catch(() => undefined);
+        await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
         if (manifest.status === "failed") {
-            await checkpointManifest(paths, manifest).catch(() => undefined);
-            await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", options.observer)
+            await checkpointManifest(paths, manifest).then(
+                () => assertHealthy(),
+                () => undefined,
+            );
+            await publishSentinel(rootWorkspace, paths, manifest, "rollback_required", options.observer, assertHealthy)
                 .catch(() => undefined);
         }
         throw error;
@@ -575,28 +593,34 @@ async function executeManifest(
     paths: ReturnType<typeof migrationPaths>,
     manifest: SessionSchemaV2Manifest,
     options: RunSessionSchemaV2Options,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<SessionSchemaV2Report> {
     if (manifest.status === "running") {
         for (const session of manifest.sessions) {
-            await executeSession(rootWorkspace, paths, manifest, session, options.observer);
+            await executeSession(rootWorkspace, paths, manifest, session, options.observer, assertHealthy);
         }
         await fullScan(rootWorkspace, manifest);
-        await advanceRun(paths, manifest, "full_scan_verified", options.observer);
+        await advanceRun(paths, manifest, "full_scan_verified", options.observer, assertHealthy);
     }
     if (manifest.status === "full_scan_verified") {
-        await advanceRun(paths, manifest, "complete", options.observer);
+        await advanceRun(paths, manifest, "complete", options.observer, assertHealthy);
     }
     const report = reportFromManifest(manifest, "apply", "complete");
     if (manifest.status === "complete") {
+        assertHealthy();
         await writeDurableJson(paths.reportPath, report);
-        await advanceRun(paths, manifest, "report_written", options.observer);
+        assertHealthy();
+        await advanceRun(paths, manifest, "report_written", options.observer, assertHealthy);
     }
     if (manifest.status !== "report_written") {
         throw new Error(`Session schema migration run 状态无法完成：${manifest.status}`);
     }
+    assertHealthy();
     await writeDurableJson(paths.reportPath, report);
+    assertHealthy();
     await checkpointManifest(paths, manifest);
-    await publishSentinel(rootWorkspace, paths, manifest, "complete", options.observer);
+    assertHealthy();
+    await publishSentinel(rootWorkspace, paths, manifest, "complete", options.observer, assertHealthy);
     return report;
 }
 
@@ -607,6 +631,7 @@ async function executeSession(
     manifest: SessionSchemaV2Manifest,
     session: SessionSchemaV2State,
     observer: RunSessionSchemaV2Options["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await executeSessionTransaction({
         rootWorkspace,
@@ -623,6 +648,7 @@ async function executeSession(
             await transitionSession(paths, manifest, session, status);
             await observer?.({kind: "session", sourcePath: session.sourcePath, status});
         },
+        assertHealthy,
     });
 }
 
@@ -633,6 +659,7 @@ async function rollbackSession(
     manifest: SessionSchemaV2Manifest,
     session: SessionSchemaV2State,
     observer: RollbackSessionSchemaV2Options["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await rollbackSessionTransaction({
         rootWorkspace,
@@ -644,6 +671,7 @@ async function rollbackSession(
                 await observer?.({sourcePath: session.sourcePath, status});
             }
         },
+        assertHealthy,
     });
 }
 
@@ -832,8 +860,11 @@ async function advanceRun(
     manifest: SessionSchemaV2Manifest,
     status: SessionSchemaV2RunStatus,
     observer: RunSessionSchemaV2Options["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
+    assertHealthy();
     await transitionRun(paths, manifest, status);
+    assertHealthy();
     await observer?.({kind: "run", status});
 }
 
@@ -842,11 +873,14 @@ async function recordFailure(
     paths: ReturnType<typeof migrationPaths>,
     manifest: SessionSchemaV2Manifest,
     error: unknown,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     if (manifest.status === "failed" || manifest.status === "report_written" || manifest.status === "rolled_back") {
         return;
     }
+    assertHealthy();
     await transitionRun(paths, manifest, "failed", errorMessage(error));
+    assertHealthy();
 }
 
 /** 从manifest冻结字段恢复decoder统计。 */
@@ -925,6 +959,7 @@ async function publishSentinel(
     manifest: SessionSchemaV2Manifest,
     state: AgentSessionStoreSentinel["state"],
     observer: RunSessionSchemaV2Options["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await publishStoreSentinel(
         rootWorkspace,
@@ -933,6 +968,7 @@ async function publishSentinel(
         state,
         SOURCE_SCHEMA_VERSION,
         TARGET_SCHEMA_VERSION,
+        assertHealthy,
     );
     await observer?.({kind: "sentinel", state});
 }
@@ -942,6 +978,7 @@ async function publishPreviousSchemaSentinel(
     rootWorkspace: string,
     paths: ReturnType<typeof migrationPaths>,
     manifest: SessionSchemaV2Manifest,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await publishStoreSentinel(
         rootWorkspace,
@@ -950,6 +987,7 @@ async function publishPreviousSchemaSentinel(
         "complete",
         TARGET_SCHEMA_VERSION,
         SOURCE_SCHEMA_VERSION,
+        assertHealthy,
     );
 }
 
@@ -961,6 +999,7 @@ async function publishStoreSentinel(
     state: AgentSessionStoreSentinel["state"],
     sourceSchemaVersion: number,
     targetSchemaVersion: number,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     const bytes = await readFile(paths.manifestPath);
     let checkpoint: unknown;
@@ -984,7 +1023,9 @@ async function publishStoreSentinel(
         manifestHash: sha256(bytes),
         checkpointCursor: checkpoint.appliedSeq as number,
     };
+    assertHealthy();
     await writeAtomicDurableJson(agentSessionStoreSentinelPath(rootWorkspace), sentinel);
+    assertHealthy();
 }
 
 /** 把任意异常收口为有界journal文本输入。 */

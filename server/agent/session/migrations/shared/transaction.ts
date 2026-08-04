@@ -27,6 +27,8 @@ export type ExecuteSessionTransactionOptions<
     status: SessionFileTransactionStatuses<TStatus>;
     adapter: SessionFileTransactionAdapter<TPlan, TSession, TStatus>;
     transition(status: TStatus): Promise<void>;
+    /** 每个持久化边界前后确认迁移仍拥有 Workspace Root lease。 */
+    assertHealthy(): void;
 };
 
 /** rollback 状态机的依赖；只消费 manifest 冻结的路径与 hash。 */
@@ -38,6 +40,8 @@ export type RollbackSessionTransactionOptions<
     session: TSession;
     status: SessionFileTransactionStatuses<TStatus>;
     transition(status: TStatus): Promise<void>;
+    /** 每个持久化边界前后确认迁移仍拥有 Workspace Root lease。 */
+    assertHealthy(): void;
 };
 
 /**
@@ -51,13 +55,16 @@ export async function executeSessionTransaction<
     TSession extends SessionMigrationFileState<TStatus>,
     TStatus extends string,
 >(options: ExecuteSessionTransactionOptions<TPlan, TSession, TStatus>): Promise<void> {
-    const {rootWorkspace, session, status, adapter, transition} = options;
+    const {rootWorkspace, session, status, adapter, transition, assertHealthy} = options;
     while (session.status !== status.verified) {
+        assertHealthy();
         if (!session.changed && session.status === status.pending) {
             const plan = await adapter.loadPlan(session.sourcePath);
             adapter.assertPlan(session, plan);
             await adapter.verifyTarget(session, plan);
+            assertHealthy();
             await transition(status.verified);
+            assertHealthy();
             continue;
         }
         if (session.status === status.pending) {
@@ -66,21 +73,28 @@ export async function executeSessionTransaction<
             await assertFileHash(sourcePath, session.sourceHash, "迁移前 source 已变化");
             const backupHash = await optionalFileHash(backupPath);
             if (backupHash === null) {
+                assertHealthy();
                 await mkdir(dirname(backupPath), {recursive: true});
                 await copyFile(sourcePath, backupPath, constants.COPYFILE_EXCL);
                 await syncFile(backupPath);
+                assertHealthy();
             } else if (backupHash !== session.sourceHash) {
                 throw new Error(`${session.sourcePath}: 已存在 backup 与 source 不一致`);
             }
             await assertFileHash(backupPath, session.sourceHash, "backup hash 与 source 不一致");
+            assertHealthy();
             await transition(status.backedUp);
+            assertHealthy();
             continue;
         }
         if (session.status === status.backedUp) {
             const plan = await adapter.loadPlan(session.backupPath);
             adapter.assertPlan(session, plan);
+            assertHealthy();
             await adapter.prepareArtifacts(session, plan);
+            assertHealthy();
             await transition(status.prepared);
+            assertHealthy();
             continue;
         }
         if (session.status === status.prepared) {
@@ -89,7 +103,9 @@ export async function executeSessionTransaction<
             const stagePath = workspacePath(rootWorkspace, session.stagePath);
             const stageHash = await optionalFileHash(stagePath);
             if (stageHash === null) {
+                assertHealthy();
                 await writeDurableText(stagePath, adapter.targetText(session, plan), true);
+                assertHealthy();
             } else if (stageHash !== session.targetHash) {
                 throw new Error(`${session.sourcePath}: 已存在 stage 与目标计划不一致`);
             }
@@ -98,7 +114,9 @@ export async function executeSessionTransaction<
                 throw new Error(`${session.sourcePath}: stage 仍包含旧内容或 hash 不一致`);
             }
             await adapter.verifyTarget(session, staged);
+            assertHealthy();
             await transition(status.staged);
+            assertHealthy();
             continue;
         }
         if (session.status === status.staged) {
@@ -107,12 +125,17 @@ export async function executeSessionTransaction<
                 session.targetHash,
                 "stage hash 无效",
             );
+            assertHealthy();
             await transition(status.publishing);
+            assertHealthy();
             continue;
         }
         if (session.status === status.publishing) {
+            assertHealthy();
             const recovered = await recoverPublishing(rootWorkspace, session);
+            assertHealthy();
             await transition(recovered === "published" ? status.published : status.prepared);
+            assertHealthy();
             continue;
         }
         if (session.status === status.published) {
@@ -123,9 +146,12 @@ export async function executeSessionTransaction<
                 throw new Error(`${session.sourcePath}: published JSONL 仍包含旧内容`);
             }
             await adapter.verifyTarget(session, plan);
+            assertHealthy();
             await rm(workspacePath(rootWorkspace, session.rollbackPath), {force: true});
             await rm(workspacePath(rootWorkspace, session.stagePath), {force: true});
+            assertHealthy();
             await transition(status.verified);
+            assertHealthy();
             continue;
         }
         throw new Error(`${session.sourcePath}: session状态无法继续迁移：${session.status}`);
@@ -137,10 +163,13 @@ export async function rollbackSessionTransaction<
     TSession extends SessionMigrationFileState<TStatus>,
     TStatus extends string,
 >(options: RollbackSessionTransactionOptions<TSession, TStatus>): Promise<void> {
-    const {rootWorkspace, session, status, transition} = options;
+    const {rootWorkspace, session, status, transition, assertHealthy} = options;
     while (session.status !== status.rolledBack) {
+        assertHealthy();
         if (session.status === status.verified) {
+            assertHealthy();
             await transition(status.rollbackPending);
+            assertHealthy();
             continue;
         }
         if (session.status === status.rollbackPending) {
@@ -149,18 +178,25 @@ export async function rollbackSessionTransaction<
             await assertFileHash(backupPath, session.sourceHash, `${session.sourcePath}: rollback backup hash无效`);
             const stageHash = await optionalFileHash(stagePath);
             if (stageHash === null) {
+                assertHealthy();
                 await mkdir(dirname(stagePath), {recursive: true});
                 await copyFile(backupPath, stagePath, constants.COPYFILE_EXCL);
                 await syncFile(stagePath);
+                assertHealthy();
             } else if (stageHash !== session.sourceHash) {
                 throw new Error(`${session.sourcePath}: rollback stage内容无法识别`);
             }
+            assertHealthy();
             await transition(status.rollbackPublishing);
+            assertHealthy();
             continue;
         }
         if (session.status === status.rollbackPublishing) {
+            assertHealthy();
             await recoverRollbackPublishing(rootWorkspace, session);
+            assertHealthy();
             await transition(status.rolledBack);
+            assertHealthy();
             continue;
         }
         throw new Error(`${session.sourcePath}: session状态无法回滚：${session.status}`);

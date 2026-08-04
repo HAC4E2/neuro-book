@@ -2,13 +2,12 @@ import {randomUUID} from "node:crypto";
 import {join} from "node:path";
 import {
     applyApplicationStateMigration,
+    assertProductExit,
     launchApplication,
     planApplicationStateMigration,
-    productExitErrorMessage,
     terminateFailedLaunch,
     type StartApplicationOptions,
 } from "#manager/app-commands";
-import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
 import {ensureStateFiles} from "#manager/config";
 import {
     inspectDockerApplication,
@@ -241,11 +240,7 @@ export async function migrateCurrentApplicationState(
         const keepRunning = service.kind === "container" && service.inspection.status === "running";
         if (!keepRunning) {
             await launch.shutdown();
-            const result = await launch.completion;
-            if (result.signal === null
-                && result.code === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED) {
-                throw new Error(productExitErrorMessage(result, "NeuroBook 服务退出"));
-            }
+            assertProductExit(await launch.completion, "NeuroBook 服务退出");
             launch = null;
         }
         journal = await updateOperation(journal, "healthy");
@@ -347,7 +342,5 @@ export async function startInstallationApplication(
         process.removeListener("SIGTERM", shutdownOnSignal);
         options.shutdownSignal?.removeEventListener("abort", shutdownOnHost);
     }
-    if (result.signal || result.code !== 0 && result.code !== null) {
-        throw new Error(productExitErrorMessage(result, "NeuroBook 服务退出"));
-    }
+    assertProductExit(result, "NeuroBook 服务退出");
 }
