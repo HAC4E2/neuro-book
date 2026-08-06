@@ -235,6 +235,7 @@ describe("Product Release宿主合同", () => {
                     imageVariantSmoke: entry,
                     sqliteVecSmoke: entry,
                     webFetchSmoke: entry,
+                    worldEngineConfigSmoke: entry,
                 });
                 await writeFile(join(imageRoot, "server", "runtime-contract.json"), `${JSON.stringify(contract)}\n`, "utf8");
             },
@@ -579,13 +580,10 @@ describe("Product Release宿主合同", () => {
         ]) {
             expect(runtimeIslands).toContain(platformPackage);
         }
-        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
+        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check all");
         expect(releaseWorkflow).toContain(".output/server/commands/product-command.mjs");
-        expect(releaseWorkflow).toContain("check sharp-image-variant");
-        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
-        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check web-fetch");
-        expect(releaseWorkflow).toContain("check web-fetch");
-        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check web-fetch");
+        expect(releaseWorkflow).toContain("check all");
+        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check all");
         expect(posixVerify).toContain(".output/server/node_modules/@img/colour/");
         expect(posixVerify).toContain("verify-extracted-product.ts --product-root");
         expect(extractedVerifier).toContain("new ProductRuntimeImageVerifier().openVerified");
@@ -729,7 +727,7 @@ describe("Product Release宿主合同", () => {
         expect(candidateRun).toContain("Portable全量卸载Host结果失败");
         expect(candidateRun).toContain("Portable全量卸载没有在退出后删除Installation Root");
 
-        const restartVerifier = await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8");
+        const restartVerifier = (await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8")).replaceAll("\r\n", "\n");
         expect(restartVerifier).toContain("manifest.components.managerRuntime");
         expect(restartVerifier).toContain("manifest.components.manager.path");
         expect(restartVerifier).toContain("--shutdown-on-stdin-end");

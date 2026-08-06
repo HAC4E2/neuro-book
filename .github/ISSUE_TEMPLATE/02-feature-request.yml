@@ -54,6 +54,17 @@ body:
     attributes:
       label: "补充材料 / Additional context"
       description: "可选。可以提供脱敏后的示例、草图或相关链接 / Optional. Add redacted examples, sketches, or related links"
+  - type: dropdown
+    id: pr-intent
+    attributes:
+      label: "是否愿意实现并提交 PR？ / Do you plan to implement and submit a PR?"
+      description: "选择“愿意”后，请等待维护者授权（添加 status: claimed 标签）再开始，避免重复实现。 / If you plan to implement, wait for the maintainer to authorize you (by adding the status: claimed label) before starting, to avoid duplicate work."
+      options:
+        - "愿意，会等待维护者授权 / Yes, I'll wait for maintainer authorization"
+        - "愿意，但需要维护者引导 / Willing, but need maintainer guidance"
+        - "仅报告，不计划实现 / Reporting only, no implementation planned"
+    validations:
+      required: true
   - type: checkboxes
     id: privacy-confirmation
     attributes:

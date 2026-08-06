@@ -11,6 +11,7 @@
 - 拼写、失效链接和不改变含义的小型文档修正可以直接提交 PR。
 - 边界明确的小 Bug 应关联现有 Issue；没有对应 Issue 时，请提交“错误报告”。
 - 新功能、跨模块修改、数据结构调整、运行时合同变化和高成本重构必须先提交“功能建议”。维护者将需求标记为 `status: ready` 后再开始实现。
+- 在表单中声明愿意实现并提交 PR 的创建者，请等待维护者授权（添加 `status: claimed` 标签）后再开始，避免与已认领或正在进行的实现重复。
 - 优化或贡献 Profile、Skill、Workflow 和其它提示词时，请提交“提示词与内置 Agent 资产”。
 - 安装或使用问题请提交“使用与安装问题”，不需要前往外部社区。
 - 以上公开分类都不适用时，请使用“其它问题”结构化表单，不要借此绕过安全报告或必要的设计讨论。
@@ -116,7 +117,7 @@ bun run build
 
 ## Issue、Task 与架构记录
 
-Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的持续上下文。Task 不是 Issue 的副本。
+Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的持续上下文。Task 不是 Issue 的副本。TODO 与跟进事项的真相源是 Issue，不记录在 `PROJECT-STATUS.md`。
 
 ### 维护者分流
 
@@ -125,16 +126,17 @@ Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的
 - 每个开放 Issue 恰好保留一个 `type:*` 和一个 `status:*`；`area:*`、`platform:*` 可以按实际影响添加多个或不添加。
 - `status: needs-triage` 表示等待首次确认。信息不足时转为 `status: needs-info`；报告者补充后重新分流。
 - 方向、范围或合同未确定时使用 `status: needs-design`，此时不要开始实现。范围明确并得到维护者接受后转为 `status: ready`。
+- 创建者在表单中声明愿意实现，且范围经过讨论确认后，转为 `status: claimed` 作为该创建者的实现授权。`claimed` 表示已有指定实现者，其它贡献者不要并行实现同一 Issue。
 - 外部依赖或前置任务阻止继续时使用 `status: blocked`；阻塞解除后回到最符合当前情况的状态。
 - `help wanted` 和 `good first issue` 只用于 `status: ready` 的 Issue。后者还必须范围小、上下文完整，并有可独立验证的验收条件。
 
-`.github/labels.yml` 是标签清单真相源。维护者使用 `bun run github:labels -- check` 只读检查远端；使用 `bun run github:labels -- apply --yes` 创建或更新标签。清单外标签默认只报告，确认删除时才使用 `--delete-extra --yes`。标签改名必须先在 GitHub 原地重命名以保留历史关联，不要用“新建后删除旧标签”代替。
+`.github/labels.yml` 是标签清单真相源。维护者使用 `bun run github:labels -- check` 只读检查远端；使用 `bun run github:labels -- apply --yes` 创建或更新标签。清单外标签默认只报告，确认删除时才使用 `--delete-extra --yes`。标签改名必须先在 GitHub 原地重命名以保留历史关联，不要用“新建后删除旧标签”代替。`source: agent` 标记由开发 Agent 创建的 issue，便于区分机器起草与人工报告。
 
 | 改动类型 | Issue | Task walkthrough | `PROJECT-STATUS.md` |
 | --- | --- | --- | --- |
 | 拼写或小型文档修正 | 可选 | 不需要 | 不需要 |
 | 单点 Bug 或小功能 | 需要 | 通常不新建；已有相关 Task 时更新 | 模块状态未变化时不需要 |
-| 中型功能或跨组件修改 | 需要且已接受 | 由维护者决定复用或创建 | 状态或长期 TODO 改变时更新 |
+| 中型功能或跨组件修改 | 需要且已接受 | 由维护者决定复用或创建 | 模块状态改变时更新 |
 | 跨模块、架构或长期任务 | 必须 | 必须 | 必须 |
 | 发布、安装、迁移或数据生命周期 | 必须 | 必须复用相关 Task | 必须 |
 
@@ -145,6 +147,8 @@ Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的
 - 外部贡献者默认不修改 `RELEASE.md`。维护者会在发布时把已合并改动整理成面向用户的说明。
 
 ## Git 与提交
+
+维护者（含开发 Agent）多线并行开发的分支命名、worktree 与 squash 合并约定见 [`AGENTS.md`](AGENTS.md) 的「Git 工作流」；本节约束外部贡献者的主题分支 PR。
 
 - 从最新 `master` 创建主题分支。不要 force push 维护者分支或重写他人的提交。
 - 一个 PR 只解决一个连贯问题；不要顺手夹带其它修复、格式化、依赖升级、上游合并或无关 Task 文档。
@@ -163,6 +167,7 @@ docs(contributing): clarify task ownership
 PR 应使用仓库模板，并完整说明：
 
 - 按本指南要求先建 Issue 的改动应关联编号；允许直接提交的轻量文档修正写“无 / None”。
+- 开始实现前确认 Issue 未被认领：已标记 `status: claimed` 或已分配给他人时，不要并行提交重复实现；重复 PR 会被关闭或择优合并。
 - 范围内和明确不在范围内的内容。
 - 用户可见结果、技术实现和可能受影响的合同。
 - 实际执行的验证命令和结果。

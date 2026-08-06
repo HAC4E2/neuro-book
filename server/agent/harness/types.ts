@@ -3,7 +3,7 @@ import type {InvocationErrorInfo, InvocationErrorPhase, SessionEntryId, SessionM
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing-sink";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
+import type {AgentInvokeCaller, AgentMessageIdentity} from "nbook/server/agent/harness/invocation-caller";
 import type {
     AgentAbortRequestDto,
     AgentAbortResult,
@@ -60,6 +60,8 @@ export type InvokeAgentInput = {
     resolutions?: AgentResolution[];
     clientState?: ClientStateSnapshot;
     caller?: AgentInvokeCaller;
+    /** 内部 durable message 身份；缺失时按用户消息兼容，不从 caller.kind 推断。 */
+    messageIdentity?: AgentMessageIdentity;
     block?: boolean;
     /** false 时目标忙碌即拒绝，不写入 follow-up queue；供必须独占自身生命周期的后台 Job 使用。 */
     queueIfBusy?: boolean;
@@ -94,6 +96,13 @@ export type AgentInvocationResult = {
     error?: string;
     errorPhase?: InvocationErrorPhase;
     errorInfo?: InvocationErrorInfo;
+    /**
+     * true 表示这次运行是被取消的（用户点停止、父级撤销、宽限期强制收尾），不是失败。
+     *
+     * `status` 仍是 `"error"`，调用方默认按异常终止处理；面向用户的展示必须据此走「已停止」
+     * 而不是报错，因为 `error` 里是英文技术文本（Task 139）。
+     */
+    aborted?: boolean;
     usage?: Usage;
     elapsedMs?: number;
     queuedItem?: AgentQueuedMessageDto;

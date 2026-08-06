@@ -26,6 +26,8 @@ const props = withDefaults(defineProps<{
     readonly?: boolean;
     borderless?: boolean;
     submitOnEnter?: boolean;
+    /** 为 true 时，Ctrl/Meta+Enter 也提交；普通多行编辑器保持关闭。 */
+    submitOnModifierEnter?: boolean;
     enableQuickTriggers?: boolean;
     matchPopoverWidth?: boolean;
     menuRefreshKey?: string | number;
@@ -41,6 +43,7 @@ const props = withDefaults(defineProps<{
     readonly: false,
     borderless: false,
     submitOnEnter: false,
+    submitOnModifierEnter: false,
     enableQuickTriggers: false,
     matchPopoverWidth: false,
     menuRefreshKey: "",
@@ -196,7 +199,15 @@ const editor = useEditor({
                     emit("shift-tab");
                     return true;
                 }
-                if (props.submitOnEnter && event.key === "Enter" && !event.shiftKey && !menuVisible.value) {
+                if (
+                    event.key === "Enter"
+                    && !event.shiftKey
+                    && !menuVisible.value
+                    // 输入法候选确认也会产生 Enter keydown，组合态必须交回编辑器。
+                    && !event.isComposing
+                    && event.keyCode !== 229
+                    && (props.submitOnEnter || (props.submitOnModifierEnter && (event.ctrlKey || event.metaKey)))
+                ) {
                     event.preventDefault();
                     emit("submit", {ctrlKey: event.ctrlKey, metaKey: event.metaKey});
                     return true;

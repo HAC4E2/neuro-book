@@ -9,6 +9,7 @@ import {
     planJournaledApplicationMigrations,
 } from "#manager/migration-operation";
 import {
+    assertProductExit,
     launchApplication,
     terminateFailedLaunch,
     type ApplicationLaunch,
@@ -175,6 +176,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
                 && (mode === "fresh" || previousContainerState === "running");
             if (!keepContainerRunning) {
                 await healthLaunch.shutdown();
+                assertProductExit(await healthLaunch.completion, "NeuroBook 服务退出");
                 healthLaunch = null;
             }
             if (portable) {

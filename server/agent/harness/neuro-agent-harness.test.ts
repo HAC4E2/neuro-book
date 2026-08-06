@@ -32,7 +32,7 @@ import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from
 import type {AgentMessage, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
-import {AGENT_MODE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_TASKS_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_TASKS_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
@@ -360,6 +360,133 @@ describe("NeuroAgentHarness", () => {
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
     }, 10_000);
+
+    it("adhoc outputSchema 会让 report_result.data 在模型 schema 与执行层都必填", async () => {
+        const outputSchema = {
+            type: "object",
+            properties: {answer: {type: "string"}},
+            required: ["answer"],
+            additionalProperties: false,
+        };
+        let observedParameters: (TSchema & {properties?: Record<string, TSchema>; required?: string[]}) | undefined;
+        faux.setResponses([
+            (context) => {
+                observedParameters = context.tools?.find((tool) => tool.name === "report_result")?.parameters as typeof observedParameters;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "missing data"}, {id: "adhoc-missing-data"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {result: "ok", data: {answer: "structured"}}, {id: "adhoc-valid-data"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "adhoc",
+            initial: {
+                systemPrompt: "只返回结构化答案。",
+                outputSchema,
+            },
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "回答问题"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({result: "ok", data: {answer: "structured"}});
+        expect(observedParameters?.required).toEqual(expect.arrayContaining(["result", "data"]));
+        expect(observedParameters?.properties?.data).toEqual(outputSchema);
+        const reportResults = context.messages.filter((message): message is StoredToolResultMessage => {
+            return message.role === "toolResult" && message.toolName === "report_result";
+        });
+        expect(reportResults).toHaveLength(2);
+        expect(reportResults.map((message) => message.isError)).toEqual([true, false]);
+        expect(storedMessageText(reportResults[0]!)).toContain("report_result.data 必填");
+        expect(visibleMessageText(context.messages)).toContain("report_result.data 必填");
+    }, 20_000);
+
+    it("adhoc 显式空 outputSchema 仍要求 data，空对象可以通过校验", async () => {
+        const outputSchema = {
+            type: "object",
+            properties: {},
+            additionalProperties: false,
+        };
+        let observedParameters: (TSchema & {properties?: Record<string, TSchema>; required?: string[]}) | undefined;
+        faux.setResponses([
+            (context) => {
+                observedParameters = context.tools?.find((tool) => tool.name === "report_result")?.parameters as typeof observedParameters;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "missing data"}, {id: "adhoc-empty-missing-data"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {result: "ok", data: {}}, {id: "adhoc-empty-valid-data"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "adhoc",
+            initial: {
+                systemPrompt: "返回空结构化对象。",
+                outputSchema,
+            },
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "返回结果"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({result: "ok", data: {}});
+        expect(observedParameters?.required).toEqual(expect.arrayContaining(["result", "data"]));
+        expect(observedParameters?.properties?.data).toEqual(outputSchema);
+        const reportResults = context.messages.filter((message): message is StoredToolResultMessage => {
+            return message.role === "toolResult" && message.toolName === "report_result";
+        });
+        expect(reportResults).toHaveLength(2);
+        expect(reportResults.map((message) => message.isError)).toEqual([true, false]);
+        expect(storedMessageText(reportResults[0]!)).toContain("report_result.data 必填");
+        expect(visibleMessageText(context.messages)).toContain("report_result.data 必填");
+    }, 20_000);
+
+    it("adhoc 未声明 outputSchema 时仍允许只返回 result", async () => {
+        let observedParameters: (TSchema & {properties?: Record<string, TSchema>; required?: string[]}) | undefined;
+        faux.setResponses([
+            (context) => {
+                observedParameters = context.tools?.find((tool) => tool.name === "report_result")?.parameters as typeof observedParameters;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "text-only"}, {id: "adhoc-text-only"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "adhoc",
+            initial: {
+                systemPrompt: "只返回文本结论。",
+            },
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "返回结论"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({result: "text-only"});
+        expect(observedParameters?.required).toEqual(["result"]);
+        expect(observedParameters?.properties).not.toHaveProperty("data");
+        const reportResult = context.messages.find((message): message is StoredToolResultMessage => {
+            return message.role === "toolResult" && message.toolName === "report_result";
+        });
+        expect(reportResult?.isError).toBe(false);
+    }, 20_000);
 
     it("大 assistant 正文完整落库但 InvokeAgentResult 只返回有界 finalMessage 预览", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -3743,6 +3870,7 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(observedRequestOptions[0]).toEqual(expect.objectContaining({
+            maxRetries: 5,
             metadata: {
                 runtimeHookMarker: "turn-1",
             },
@@ -7913,6 +8041,133 @@ describe("NeuroAgentHarness", () => {
         }
     });
 
+    it("system followup 持久化调用方并以 custom_message 写入 durable entry", async () => {
+        const toolStarted = createDeferred();
+        const releaseTool = createDeferred();
+        harness.tools.register({
+            key: "system_followup_gate",
+            name: "system_followup_gate",
+            label: "System Follow-up Gate",
+            description: "让系统回流在当前 invocation 忙碌时排队。",
+            parameters: Type.Object({}),
+            async execute() {
+                toolStarted.resolve();
+                await releaseTool.promise;
+                return {
+                    content: [{type: "text", text: "released"}],
+                    details: {},
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.system-followup",
+                name: "System Follow-up",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["system_followup_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("system_followup_gate", {}, {id: "system-followup-gate"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("原始 invocation 完成"),
+            fauxAssistantMessage("已处理系统回流"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.system-followup",
+            initial: {},
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "开始后台任务"},
+        });
+        try {
+            await toolStarted.promise;
+            const queued = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "<system-reminder>后台 Workflow 完成</system-reminder>"},
+                caller: {kind: "system"},
+                messageIdentity: "system",
+            });
+            const queueItemId = queued.queuedItem?.id;
+            expect(queued).toMatchObject({
+                status: "waiting",
+                acceptance: {state: "queued"},
+                queuedItem: {kind: "followup"},
+            });
+            expect(queueItemId).toEqual(expect.any(String));
+            const queuedContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(queuedContext.customState[AGENT_FOLLOW_UP_QUEUE_STATE_KEY]).toMatchObject({
+                status: "ready",
+                items: [{id: queueItemId, caller: {kind: "system"}, messageIdentity: "system"}],
+            });
+
+            releaseTool.resolve();
+            await running;
+
+            const entries = (await harness.repo.readSession(created.sessionId)).entries;
+            expect(entries).toContainEqual(expect.objectContaining({
+                type: "custom_message",
+                visibleToModel: true,
+                sourceQueueItemId: queueItemId,
+                message: expect.objectContaining({role: "user"}),
+            }));
+            expect(entries).not.toContainEqual(expect.objectContaining({
+                type: "message",
+                sourceQueueItemId: queueItemId,
+            }));
+        } finally {
+            releaseTool.resolve();
+            await running.catch(() => undefined);
+        }
+    });
+
+    it("idle system invocation 直接写入 custom_message，不伪装成用户消息", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.system-direct",
+                name: "System Direct",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage("系统回流已收到")]);
+        const created = await harness.createAgent({
+            profileKey: "test.system-direct",
+            initial: {},
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "<system-reminder>后台 Workflow 完成</system-reminder>"},
+            caller: {kind: "system"},
+            messageIdentity: "system",
+        });
+        expect(result.status).toBe("completed");
+        const entries = (await harness.repo.readSession(created.sessionId)).entries;
+        expect(entries).toContainEqual(expect.objectContaining({
+            type: "custom_message",
+            visibleToModel: true,
+            message: expect.objectContaining({role: "user"}),
+        }));
+        expect(entries).not.toContainEqual(expect.objectContaining({
+            type: "message",
+            origin: "prompt",
+            message: expect.objectContaining({role: "user"}),
+        }));
+    });
+
     it("排队 followup 保留 invocation modelKey 且不修改 session 默认模型", async () => {
         const defaultModel = {
             ...faux.getModel(),
@@ -8196,6 +8451,68 @@ describe("NeuroAgentHarness", () => {
             invocationId: waiting.invocationId,
             status: "aborted",
         }));
+    });
+
+    it("取消保留已生成的半截正文，且 lifecycle 不写 provider 原文", async () => {
+        // 真实 provider SDK 取消时抛的是英文 "Request was aborted"。以前它被当成错误详情持久化，
+        // 同时半截正文整段丢失（实测 40 次取消 0 次保留）。这里锁住修好之后的两条契约（Task 139）。
+        faux.setResponses([
+            fauxAssistantMessage("写到一半就被停了", {stopReason: "aborted", errorMessage: "Request was aborted"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.drainBackgroundTasks();
+        const snapshot = await harness.repo.readSession(created.sessionId);
+
+        // 半截正文以 interrupted 落盘，成为可回溯的分支锚点。
+        const assistant = snapshot.entries.find((entry) => entry.type === "message" && entry.message.role === "assistant");
+        expect(assistant).toBeDefined();
+        expect(assistant).toEqual(expect.objectContaining({status: "interrupted"}));
+        expect(JSON.stringify(assistant)).toContain("写到一半就被停了");
+        // 错误详情不再挂在 assistant 上：那是 lifecycle 的职责，两处都写会渲染成两个气泡。
+        expect(JSON.stringify(assistant)).not.toContain("Request was aborted");
+
+        // lifecycle 只记「这是取消」，不夹带 provider 英文原文。
+        const lifecycle = snapshot.entries.find((entry) => entry.type === "invocation_lifecycle" && entry.status === "aborted");
+        expect(lifecycle).toBeDefined();
+        expect(JSON.stringify(lifecycle)).not.toContain("Request was aborted");
+    });
+
+    it("取消的阻塞 invoke 返回 aborted 标记，界面据此不弹错误", async () => {
+        // 取消结束的 invocation 依然是 status: "error"（调用方要按异常终止处理），但 error 里是英文技术
+        // 文本 "invocation aborted"。前端的兜底通知只认 status，于是每次点停止都会弹一条英文报错。
+        // aborted 标记是让「取消」在返回值里有独立身份的唯一手段（Task 139）。
+        faux.setResponses([
+            // provider 永不返回：这正是宽限期强制收尾（forceAbortInvocation）要兜住的「模型/工具卡住」场景。
+            () => new Promise<never>(() => {}),
+        ]);
+        const created = await harness.createAgent({profileKey: "leader.default", initial: {}});
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionRecovery(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
+        });
+
+        await harness.abortInvocation(created.sessionId, {});
+        const result = await running;
+
+        expect(result.aborted).toBe(true);
+        // 账本里不能出现 status: "error" 的 lifecycle，否则前端会额外渲染一张 Run Error 卡片。
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const lifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle");
+        expect(lifecycles.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : null)).toEqual(["start", "aborted"]);
     });
 
     it("abort clearQueue 会清空已持久化的 followUp queue projection", async () => {

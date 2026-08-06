@@ -6,11 +6,11 @@ import {spawnOwnedProcess} from "@notnotype/owned-process";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
-    PRODUCT_SHUTDOWN_PATH,
-    PRODUCT_SHUTDOWN_TIMEOUT_MS,
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
     type ProductRuntimeCommandId,
 } from "nbook/shared/product-runtime-contract";
+import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
 
 import {enableAuthentication, ensureWritableRuntimeRoots, loadStateEnv} from "#manager/config";
 import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
@@ -78,6 +78,40 @@ export type PortableForegroundOptions = StartApplicationOptions & {
     /** 健康检查总时长，缺省120秒；只有测试需要缩短，生产不传。 */
     startupTimeoutMs?: number;
 };
+
+const AGENT_SESSION_STORE_LEASE_COMPROMISED_MESSAGE =
+    "NeuroBook 服务因运行租约失去所有权而退出。可能有另一个 NeuroBook 实例或迁移程序正在使用同一工作区，也可能是当前进程或系统长时间暂停。"
+    + "请关闭其他实例或迁移程序后重试；不要手动删除 runtime.lease.lock。";
+
+export type ProductExitResult = {
+    code: number | null;
+    signal: string | null;
+};
+
+/** 将Product跨进程退出结果转换为Manager用户可执行的错误提示。 */
+export function productExitErrorMessage(
+    result: ProductExitResult,
+    fallback: string,
+): string {
+    if (result.signal === null && result.code === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED) {
+        return AGENT_SESSION_STORE_LEASE_COMPROMISED_MESSAGE;
+    }
+    return `${fallback}：${result.signal ?? result.code}`;
+}
+
+/** 统一判断Application是否以可接受的结果结束；容器ready-only completion允许null/null。 */
+export function assertProductExit(result: ProductExitResult, fallback: string): void {
+    if (result.signal !== null || result.code !== null && result.code !== 0) {
+        throw new Error(productExitErrorMessage(result, fallback));
+    }
+}
+
+/** Native Product与Portable必须报告具体的0退出码；75等专用码仍使用同一诊断文案。 */
+export function assertConcreteProductExit(result: ProductExitResult, fallback: string): void {
+    if (result.signal !== null || result.code !== 0) {
+        throw new Error(productExitErrorMessage(result, fallback));
+    }
+}
 
 /** 事务调用方持久化候选容器所有权所需的生命周期回调。 */
 export type ApplicationLaunchOptions = PortableForegroundOptions & {
@@ -183,7 +217,7 @@ export async function launchApplication(
     if (execution.kind === "native-product") delete env.NODE_PATH;
     const command = bun;
     const args = manifest.profile === "source-dev"
-        ? ["--no-install", "run", "dev"]
+        ? ["--no-install", "run", "dev:runtime"]
         : productCommandArgs(root, "start");
     if (manifest.profile !== "source-dev" && !await pathExists(productCommandPath(root))) {
         throw new Error("当前安装缺少 Product 启动入口，请执行 neuro-book update；应用更新始终按Profile原子执行。" );
@@ -222,14 +256,14 @@ export async function launchApplication(
         completion,
         shutdown: () => {
             if (!shutdownPromise) {
-                shutdownPromise = shutdownNativeApplication(
+                shutdownPromise = shutdownNativeProduct({
                     port,
-                    shutdownToken,
+                    token: shutdownToken,
                     completion,
-                    async () => {
+                    forceTerminate: async () => {
                         await lease.terminate("shutdown");
                     },
-                );
+                }).then(() => undefined);
             }
             return shutdownPromise;
         },
@@ -564,7 +598,7 @@ async function waitForApplicationReady(
     while (Date.now() < deadline) {
         if (completionState.error) throw completionState.error;
         if (completionState.terminal) {
-            throw new Error(`Product 在 ready 前退出：${completionState.terminal.signal ?? completionState.terminal.code}`);
+            throw new Error(productExitErrorMessage(completionState.terminal, "Product 在 ready 前退出"));
         }
         try {
             const response = await fetch(`http://127.0.0.1:${String(port)}/api/app/version`, {
@@ -589,53 +623,6 @@ async function waitForApplicationReady(
         await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
     }
     throw new Error(`Product HTTP 健康检查超时：${lastError}`);
-}
-
-/** 请求 Product 自己关闭；协议失败或 30 秒内未退出时由 Owned Process 强制收口。 */
-async function shutdownNativeApplication(
-    port: number,
-    token: string,
-    completion: Promise<{code: number | null; signal: string | null}>,
-    forceTerminate: () => Promise<void>,
-): Promise<void> {
-    const deadline = Date.now() + PRODUCT_SHUTDOWN_TIMEOUT_MS;
-    try {
-        const response = await fetch(`http://127.0.0.1:${String(port)}${PRODUCT_SHUTDOWN_PATH}`, {
-            method: "POST",
-            headers: {authorization: `Bearer ${token}`},
-            signal: AbortSignal.timeout(PRODUCT_SHUTDOWN_TIMEOUT_MS),
-        });
-        if (response.status !== 202) {
-            throw new Error(`Product shutdown 返回 HTTP ${String(response.status)}`);
-        }
-        const result = await waitWithin(completion, Math.max(0, deadline - Date.now()));
-        if (result.signal !== null || result.code !== 0) {
-            throw new Error(`Product graceful shutdown 异常退出：${result.signal ?? result.code}`);
-        }
-    } catch (error) {
-        console.warn(`Product graceful shutdown 失败，转为强制收口：${error instanceof Error ? error.message : String(error)}`);
-        await forceTerminate();
-    }
-}
-
-/** 在固定剩余窗口内等待 Promise，完成后立即释放 timer。 */
-function waitWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-    return new Promise<T>((resolvePromise, rejectPromise) => {
-        const timer = setTimeout(
-            () => rejectPromise(new Error(`Product shutdown 在 ${String(PRODUCT_SHUTDOWN_TIMEOUT_MS)}ms 内未退出`)),
-            timeoutMs,
-        );
-        void promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolvePromise(value);
-            },
-            (error: unknown) => {
-                clearTimeout(timer);
-                rejectPromise(error);
-            },
-        );
-    });
 }
 
 export async function runPortableForeground(
@@ -708,7 +695,5 @@ export async function runPortableForeground(
     if (healthCheck && !opened && !result.signal && result.exitCode === 0) {
         throw new Error("Windows Portable Product在通过健康检查前以退出码0结束。");
     }
-    if (result.signal || result.exitCode !== 0) {
-        throw new Error(`NeuroBook 服务退出：${result.signal ?? result.exitCode}`);
-    }
+    assertConcreteProductExit({code: result.exitCode, signal: result.signal}, "NeuroBook 服务退出");
 }

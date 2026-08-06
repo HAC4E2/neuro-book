@@ -16,6 +16,7 @@ import {
     executeSessionTransaction,
     rollbackSessionTransaction,
 } from "nbook/server/agent/session/migrations/shared/transaction";
+import {runWithAgentSessionStoreLease} from "nbook/server/agent/session/agent-session-store-lease";
 import {
     checkpointManifest,
     loadManifest,
@@ -31,10 +32,12 @@ import type {
     SessionV2ReviewRepairPlan,
     SessionV2ReviewRepairReport,
     SessionV2ReviewRepairRollbackReport,
+    SessionV2ReviewRepairRunStatus,
     SessionV2ReviewRepairState,
 } from "nbook/server/agent/session/migrations/session-v2-review-repair/types";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/u;
+type AssertLeaseHealthy = () => void;
 
 /**
  * 规划或执行 Session v2 历史 review/timestamp 修复。
@@ -53,13 +56,12 @@ export async function runSessionV2ReviewRepair(
         return reportFromPlans(runId, "dry-run", plans);
     }
     const releaseLease = await acquireAgentSessionStoreExclusiveLease(rootWorkspace);
-    try {
+    const assertHealthy: AssertLeaseHealthy = () => releaseLease.assertHealthy();
+    return runWithAgentSessionStoreLease(releaseLease, async () => {
         return options.resume
-            ? await resumeApply(rootWorkspace, runId)
-            : await startApply(rootWorkspace, runId);
-    } finally {
-        await releaseLease();
-    }
+            ? await resumeApply(rootWorkspace, runId, assertHealthy)
+            : await startApply(rootWorkspace, runId, assertHealthy);
+    });
 }
 
 /** 逐字节回滚一个 review repair run。 */
@@ -69,12 +71,13 @@ export async function rollbackSessionV2ReviewRepair(
 ): Promise<SessionV2ReviewRepairRollbackReport> {
     const rootWorkspace = resolve(rootWorkspaceInput);
     const runId = validatedRunId(runIdInput);
-    const paths = migrationPaths(rootWorkspace, runId);
-    if (!await pathExists(paths.runRoot)) {
-        return {version: 1, runId, status: "not_started", restoredSessions: 0};
-    }
     const releaseLease = await acquireAgentSessionStoreExclusiveLease(rootWorkspace);
-    try {
+    const assertHealthy: AssertLeaseHealthy = () => releaseLease.assertHealthy();
+    const paths = migrationPaths(rootWorkspace, runId);
+    return runWithAgentSessionStoreLease(releaseLease, async () => {
+        if (!await pathExists(paths.runRoot)) {
+            return {version: 1, runId, status: "not_started", restoredSessions: 0};
+        }
         let manifest = await requiredManifest(paths);
         const rollbackInProgress = manifest.status === "rollback_running"
             || manifest.status === "rolled_back"
@@ -82,10 +85,10 @@ export async function rollbackSessionV2ReviewRepair(
         if (!rollbackInProgress && manifest.status !== "report_written") {
             if (manifest.status === "failed") {
                 if (!manifest.resumeStatus) throw new Error("repair failed manifest 缺少 resumeStatus");
-                await transitionRun(paths, manifest, manifest.resumeStatus);
+                await advanceRun(paths, manifest, manifest.resumeStatus, assertHealthy);
             }
             const source = await requiredSourceMigration(rootWorkspace);
-            await executeManifest(rootWorkspace, paths, manifest, source.manifest);
+            await executeManifest(rootWorkspace, paths, manifest, source.manifest, assertHealthy);
             manifest = await requiredManifest(paths);
         }
         if (manifest.status === "rolled_back") return rollbackReport(manifest);
@@ -93,9 +96,9 @@ export async function rollbackSessionV2ReviewRepair(
             if (manifest.resumeStatus !== "rollback_running") {
                 throw new Error(`Session v2 review repair ${runId} 失败阶段不是 rollback_running`);
             }
-            await transitionRun(paths, manifest, "rollback_running");
+            await advanceRun(paths, manifest, "rollback_running", assertHealthy);
         } else if (manifest.status === "report_written") {
-            await transitionRun(paths, manifest, "rollback_running");
+            await advanceRun(paths, manifest, "rollback_running", assertHealthy);
         }
         if (manifest.status !== "rollback_running") {
             throw new Error(`Session v2 review repair ${runId} 无法回滚：${manifest.status}`);
@@ -108,6 +111,7 @@ export async function rollbackSessionV2ReviewRepair(
                     session,
                     status: SESSION_V2_REVIEW_REPAIR_STATUS.session,
                     transition: (status) => transitionSession(paths, manifest, session, status),
+                    assertHealthy,
                 });
             }
             for (const session of manifest.sessions) {
@@ -117,19 +121,23 @@ export async function rollbackSessionV2ReviewRepair(
                     `${session.sourcePath}: review repair rollback hash 无效`,
                 );
             }
-            await transitionRun(paths, manifest, "rolled_back");
+            await advanceRun(paths, manifest, "rolled_back", assertHealthy);
+            assertHealthy();
             await checkpointManifest(paths, manifest);
+            assertHealthy();
             return rollbackReport(manifest);
         } catch (error) {
-            await recordFailure(paths, manifest, error).catch(() => undefined);
+            await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
             throw error;
         }
-    } finally {
-        await releaseLease();
-    }
+    });
 }
 
-async function startApply(rootWorkspace: string, runId: string): Promise<SessionV2ReviewRepairReport> {
+async function startApply(
+    rootWorkspace: string,
+    runId: string,
+    assertHealthy: AssertLeaseHealthy,
+): Promise<SessionV2ReviewRepairReport> {
     const paths = migrationPaths(rootWorkspace, runId);
     if (await pathExists(paths.runRoot)) {
         throw new Error(`Session v2 review repair ${runId} 已存在；请使用 --resume`);
@@ -138,16 +146,22 @@ async function startApply(rootWorkspace: string, runId: string): Promise<Session
     const plans = await planWorkspace(rootWorkspace, source.manifest);
     if (plans.length === 0) return reportFromPlans(runId, "apply", plans, "already_current");
     const manifest = createManifest(runId, source.manifest.runId, plans, paths.runRootRelative);
+    assertHealthy();
     await writeInitialManifest(paths, manifest);
+    assertHealthy();
     try {
-        return await executeManifest(rootWorkspace, paths, manifest, source.manifest);
+        return await executeManifest(rootWorkspace, paths, manifest, source.manifest, assertHealthy);
     } catch (error) {
-        await recordFailure(paths, manifest, error).catch(() => undefined);
+        await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
         throw error;
     }
 }
 
-async function resumeApply(rootWorkspace: string, runId: string): Promise<SessionV2ReviewRepairReport> {
+async function resumeApply(
+    rootWorkspace: string,
+    runId: string,
+    assertHealthy: AssertLeaseHealthy,
+): Promise<SessionV2ReviewRepairReport> {
     const paths = migrationPaths(rootWorkspace, runId);
     const manifest = await requiredManifest(paths);
     if (manifest.status === "report_written") return reportFromManifest(manifest, "complete");
@@ -157,16 +171,18 @@ async function resumeApply(rootWorkspace: string, runId: string): Promise<Sessio
     }
     if (manifest.status === "failed") {
         if (!manifest.resumeStatus) throw new Error("repair failed manifest 缺少 resumeStatus");
-        await transitionRun(paths, manifest, manifest.resumeStatus);
+        assertHealthy();
+        await advanceRun(paths, manifest, manifest.resumeStatus, assertHealthy);
+        assertHealthy();
     }
     const source = await requiredSourceMigration(rootWorkspace);
     if (manifest.sessions.some((session) => session.sourceMigrationRunId !== source.manifest.runId)) {
         throw new Error("Session v2 review repair 的 source migration 已变化");
     }
     try {
-        return await executeManifest(rootWorkspace, paths, manifest, source.manifest);
+        return await executeManifest(rootWorkspace, paths, manifest, source.manifest, assertHealthy);
     } catch (error) {
-        await recordFailure(paths, manifest, error).catch(() => undefined);
+        await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
         throw error;
     }
 }
@@ -176,10 +192,11 @@ async function executeManifest(
     paths: ReturnType<typeof migrationPaths>,
     manifest: SessionV2ReviewRepairManifest,
     sourceManifest: SessionSchemaV2Manifest,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<SessionV2ReviewRepairReport> {
     if (manifest.status === "running") {
         for (const session of manifest.sessions) {
-            await executeSession(rootWorkspace, paths, manifest, sourceManifest, session);
+            await executeSession(rootWorkspace, paths, manifest, sourceManifest, session, assertHealthy);
         }
         for (const session of manifest.sessions) {
             await assertFileHash(
@@ -188,19 +205,24 @@ async function executeManifest(
                 `${session.sourcePath}: review repair full scan hash 无效`,
             );
         }
-        await transitionRun(paths, manifest, "full_scan_verified");
+        await advanceRun(paths, manifest, "full_scan_verified", assertHealthy);
     }
-    if (manifest.status === "full_scan_verified") await transitionRun(paths, manifest, "complete");
+    if (manifest.status === "full_scan_verified") await advanceRun(paths, manifest, "complete", assertHealthy);
     const report = reportFromManifest(manifest, "complete");
     if (manifest.status === "complete") {
+        assertHealthy();
         await writeDurableJson(paths.reportPath, report);
-        await transitionRun(paths, manifest, "report_written");
+        assertHealthy();
+        await advanceRun(paths, manifest, "report_written", assertHealthy);
     }
     if (manifest.status !== "report_written") {
         throw new Error(`Session v2 review repair 无法完成：${manifest.status}`);
     }
+    assertHealthy();
     await writeDurableJson(paths.reportPath, report);
+    assertHealthy();
     await checkpointManifest(paths, manifest);
+    assertHealthy();
     return report;
 }
 
@@ -210,6 +232,7 @@ async function executeSession(
     manifest: SessionV2ReviewRepairManifest,
     sourceManifest: SessionSchemaV2Manifest,
     session: SessionV2ReviewRepairState,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await executeSessionTransaction({
         rootWorkspace,
@@ -223,6 +246,7 @@ async function executeSession(
             targetText: (_state, plan) => plan.targetText,
         },
         transition: (status) => transitionSession(paths, manifest, session, status),
+        assertHealthy,
     });
 }
 
@@ -466,10 +490,26 @@ async function recordFailure(
     paths: SessionV2ReviewRepairJournalPaths,
     manifest: SessionV2ReviewRepairManifest,
     error: unknown,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     if (manifest.status === "failed" || manifest.status === "report_written" || manifest.status === "rolled_back") return;
+    assertHealthy();
     await transitionRun(paths, manifest, "failed", error instanceof Error ? error.message : String(error));
+    assertHealthy();
     await checkpointManifest(paths, manifest);
+    assertHealthy();
+}
+
+/** 在迁移 lease 仍有效时推进 run 状态，并在持久化后再次确认所有权。 */
+async function advanceRun(
+    paths: SessionV2ReviewRepairJournalPaths,
+    manifest: SessionV2ReviewRepairManifest,
+    status: SessionV2ReviewRepairRunStatus,
+    assertHealthy: AssertLeaseHealthy,
+): Promise<void> {
+    assertHealthy();
+    await transitionRun(paths, manifest, status);
+    assertHealthy();
 }
 
 async function requiredManifest(paths: SessionV2ReviewRepairJournalPaths): Promise<SessionV2ReviewRepairManifest> {

@@ -2,6 +2,7 @@ import {randomUUID} from "node:crypto";
 import {join} from "node:path";
 import {
     applyApplicationStateMigration,
+    assertProductExit,
     launchApplication,
     planApplicationStateMigration,
     terminateFailedLaunch,
@@ -239,6 +240,7 @@ export async function migrateCurrentApplicationState(
         const keepRunning = service.kind === "container" && service.inspection.status === "running";
         if (!keepRunning) {
             await launch.shutdown();
+            assertProductExit(await launch.completion, "NeuroBook 服务退出");
             launch = null;
         }
         journal = await updateOperation(journal, "healthy");
@@ -340,7 +342,5 @@ export async function startInstallationApplication(
         process.removeListener("SIGTERM", shutdownOnSignal);
         options.shutdownSignal?.removeEventListener("abort", shutdownOnHost);
     }
-    if (result.signal || result.code !== 0 && result.code !== null) {
-        throw new Error(`NeuroBook 服务退出：${result.signal ?? result.code}`);
-    }
+    assertProductExit(result, "NeuroBook 服务退出");
 }

@@ -45,8 +45,10 @@ import {
     executeSessionTransaction,
     rollbackSessionTransaction,
 } from "nbook/server/agent/session/migrations/shared/transaction";
+import {runWithAgentSessionStoreLease} from "nbook/server/agent/session/agent-session-store-lease";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+type AssertLeaseHealthy = () => void;
 
 type MigrationLock = {
     version: 1;
@@ -75,13 +77,12 @@ export async function runAgentAttachmentMigration(options: RunAttachmentMigratio
         return reportFromPlans(runId, "dry-run", "planned", plans);
     }
     const releaseRuntimeLease = await new AttachmentMigrationGate(rootWorkspace).acquireRuntimeLease();
-    try {
+    const assertHealthy: AssertLeaseHealthy = () => releaseRuntimeLease.assertHealthy();
+    return runWithAgentSessionStoreLease(releaseRuntimeLease, async () => {
         return options.resume
-            ? await resumeApply(rootWorkspace, options)
-            : await startApply(rootWorkspace, validatedRunId(options.runId ?? randomUUID()), options);
-    } finally {
-        await releaseRuntimeLease();
-    }
+            ? await resumeApply(rootWorkspace, options, assertHealthy)
+            : await startApply(rootWorkspace, validatedRunId(options.runId ?? randomUUID()), options, assertHealthy);
+    });
 }
 
 /**
@@ -96,45 +97,50 @@ export async function rollbackAgentAttachmentMigration(
     const rootWorkspace = resolve(options.rootWorkspace);
     const runId = validatedRunId(options.runId);
     const paths = migrationPaths(rootWorkspace, runId);
-    if (!await pathExists(paths.runRoot)) {
-        await clearUnstartedRunLock(rootWorkspace, paths, runId);
-        return {version: 1, runId, status: "not_started", restoredSessions: 0};
-    }
-
-    let manifest = await loadManifest(paths);
-    if (!manifest) {
-        await clearUnstartedRunLock(rootWorkspace, paths, runId);
-        await rm(paths.runRoot, {recursive: true, force: true});
-        return {version: 1, runId, status: "not_started", restoredSessions: 0};
-    }
-    const rollbackInProgress = manifest.status === "rollback_running"
-        || manifest.status === "rolled_back"
-        || manifest.status === "failed" && manifest.resumeStatus === "rollback_running";
-    if (!rollbackInProgress && manifest.status !== "report_written") {
-        await runAgentAttachmentMigration({
-            rootWorkspace,
-            mode: "apply",
-            runId,
-            resume: true,
-        });
-        manifest = await requiredManifest(paths);
-    }
-
     const releaseRuntimeLease = await new AttachmentMigrationGate(rootWorkspace).acquireRuntimeLease();
-    try {
-        await ensureRollbackLock(rootWorkspace, paths, runId);
+    const assertHealthy: AssertLeaseHealthy = () => releaseRuntimeLease.assertHealthy();
+    return runWithAgentSessionStoreLease(releaseRuntimeLease, async () => {
+        if (!await pathExists(paths.runRoot)) {
+            await clearUnstartedRunLock(rootWorkspace, paths, runId, assertHealthy);
+            return {version: 1, runId, status: "not_started", restoredSessions: 0};
+        }
+
+        let manifest = await loadManifest(paths);
+        if (!manifest) {
+            await clearUnstartedRunLock(rootWorkspace, paths, runId, assertHealthy);
+            assertHealthy();
+            await rm(paths.runRoot, {recursive: true, force: true});
+            assertHealthy();
+            return {version: 1, runId, status: "not_started", restoredSessions: 0};
+        }
+        const rollbackInProgress = manifest.status === "rollback_running"
+            || manifest.status === "rolled_back"
+            || manifest.status === "failed" && manifest.resumeStatus === "rollback_running";
+        if (!rollbackInProgress && manifest.status !== "report_written") {
+            await resumeApply(rootWorkspace, {
+                rootWorkspace,
+                mode: "apply",
+                runId,
+                resume: true,
+            }, assertHealthy);
+            manifest = await requiredManifest(paths);
+        }
+
+        await ensureRollbackLock(rootWorkspace, paths, runId, assertHealthy);
         manifest = await requiredManifest(paths);
         if (manifest.status === "rolled_back") {
+            assertHealthy();
             await rm(paths.lockPath, {force: true});
+            assertHealthy();
             return rollbackReport(manifest);
         }
         if (manifest.status === "failed") {
             if (manifest.resumeStatus !== "rollback_running") {
                 throw new Error(`Attachment migration run ${runId}失败阶段不是rollback_running`);
             }
-            await transitionRun(paths, manifest, "rollback_running");
+            await advanceRun(paths, manifest, "rollback_running", undefined, assertHealthy);
         } else if (manifest.status === "report_written") {
-            await transitionRun(paths, manifest, "rollback_running");
+            await advanceRun(paths, manifest, "rollback_running", undefined, assertHealthy);
         }
         if (manifest.status !== "rollback_running") {
             throw new Error(`Attachment migration run ${runId}状态无法回滚：${manifest.status}`);
@@ -142,7 +148,7 @@ export async function rollbackAgentAttachmentMigration(
         try {
             for (const session of manifest.sessions) {
                 if (!session.changed) continue;
-                await rollbackSession(rootWorkspace, paths, manifest, session, options.observer);
+                await rollbackSession(rootWorkspace, paths, manifest, session, options.observer, assertHealthy);
             }
             for (const session of manifest.sessions) {
                 if (!session.changed) continue;
@@ -152,17 +158,18 @@ export async function rollbackAgentAttachmentMigration(
                     `${session.sourcePath}: rollback后的source hash无效`,
                 );
             }
-            await transitionRun(paths, manifest, "rolled_back");
+            await advanceRun(paths, manifest, "rolled_back", undefined, assertHealthy);
+            assertHealthy();
             await checkpointManifest(paths, manifest);
+            assertHealthy();
             await rm(paths.lockPath, {force: true});
+            assertHealthy();
             return rollbackReport(manifest);
         } catch (error) {
-            await recordFailure(paths, manifest, error).catch(() => undefined);
+            await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
             throw error;
         }
-    } finally {
-        await releaseRuntimeLease();
-    }
+    });
 }
 
 /** 新 apply 先做零写入 preflight，再独占 lock，并在 lock 内重扫消除竞态。 */
@@ -170,6 +177,7 @@ async function startApply(
     rootWorkspace: string,
     runId: string,
     options: RunAttachmentMigrationOptions,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<AttachmentMigrationReport> {
     const preflight = await planWorkspace(rootWorkspace);
     await verifyPreflightStorage(rootWorkspace, preflight);
@@ -177,6 +185,7 @@ async function startApply(
     if (await pathExists(paths.runRoot)) {
         throw new Error(`migration run ${runId} 已存在；未完成任务请使用 --resume`);
     }
+    assertHealthy();
     await acquireLock(paths.lockPath, {
         version: 1,
         runId,
@@ -184,17 +193,20 @@ async function startApply(
         startedAt: new Date().toISOString(),
         manifestPath: portableRelative(rootWorkspace, paths.manifestPath),
     });
+    assertHealthy();
 
     let manifest: AttachmentMigrationManifest | undefined;
     try {
         const lockedPlans = await planWorkspace(rootWorkspace);
         await verifyPreflightStorage(rootWorkspace, lockedPlans);
         manifest = createManifest(runId, lockedPlans, paths.runRootRelative);
+        assertHealthy();
         await writeInitialManifest(paths, manifest);
-        return await executeManifest(rootWorkspace, paths, manifest, options);
+        assertHealthy();
+        return await executeManifest(rootWorkspace, paths, manifest, options, assertHealthy);
     } catch (error) {
         if (manifest) {
-            await recordFailure(paths, manifest, error).catch(() => undefined);
+            await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
         }
         throw error;
     }
@@ -204,6 +216,7 @@ async function startApply(
 async function resumeApply(
     rootWorkspace: string,
     options: RunAttachmentMigrationOptions,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<AttachmentMigrationReport> {
     const lockPath = resolve(rootWorkspace, ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH);
     const lock = await readLock(lockPath);
@@ -223,7 +236,9 @@ async function resumeApply(
         const plans = await planWorkspace(rootWorkspace);
         await verifyPreflightStorage(rootWorkspace, plans);
         manifest = createManifest(runId, plans, paths.runRootRelative);
+        assertHealthy();
         await writeInitialManifest(paths, manifest);
+        assertHealthy();
     }
     if (manifest.runId !== runId) {
         throw new Error("migration lock 与 manifest runId 不一致");
@@ -232,12 +247,12 @@ async function resumeApply(
         if (!manifest.resumeStatus) {
             throw new Error("failed migration 缺少可恢复阶段");
         }
-        await transitionRun(paths, manifest, manifest.resumeStatus);
+        await advanceRun(paths, manifest, manifest.resumeStatus, options.observer, assertHealthy);
     }
     try {
-        return await executeManifest(rootWorkspace, paths, manifest, options);
+        return await executeManifest(rootWorkspace, paths, manifest, options, assertHealthy);
     } catch (error) {
-        await recordFailure(paths, manifest, error).catch(() => undefined);
+        await recordFailure(paths, manifest, error, assertHealthy).catch(() => undefined);
         throw error;
     }
 }
@@ -247,30 +262,37 @@ async function executeManifest(
     paths: ReturnType<typeof migrationPaths>,
     manifest: AttachmentMigrationManifest,
     options: RunAttachmentMigrationOptions,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<AttachmentMigrationReport> {
     const store = new AttachmentStore(new LocalAttachmentBlobAdapter(resolve(rootWorkspace, ".nbook", "agent", "attachments")));
     if (manifest.status === "running") {
         for (const session of manifest.sessions) {
-            await executeSession(rootWorkspace, paths, manifest, session, store, options.observer);
+            await executeSession(rootWorkspace, paths, manifest, session, store, options.observer, assertHealthy);
         }
         await fullScan(rootWorkspace, manifest, store);
-        await advanceRun(paths, manifest, "full_scan_verified", options.observer);
+        await advanceRun(paths, manifest, "full_scan_verified", options.observer, assertHealthy);
     }
     if (manifest.status === "full_scan_verified") {
-        await advanceRun(paths, manifest, "complete", options.observer);
+        await advanceRun(paths, manifest, "complete", options.observer, assertHealthy);
     }
     const report = reportFromManifest(manifest);
     if (manifest.status === "complete") {
+        assertHealthy();
         await writeDurableJson(paths.reportPath, report);
-        await advanceRun(paths, manifest, "report_written", options.observer);
+        assertHealthy();
+        await advanceRun(paths, manifest, "report_written", options.observer, assertHealthy);
     }
     if (manifest.status !== "report_written") {
         throw new Error(`migration run 状态无法完成：${manifest.status}`);
     }
     // report 可由 manifest 确定性派生；恢复 report_written 时重写可修复缺失/半写报告。
+    assertHealthy();
     await writeDurableJson(paths.reportPath, report);
+    assertHealthy();
     await checkpointManifest(paths, manifest);
+    assertHealthy();
     await rm(paths.lockPath, {force: true});
+    assertHealthy();
     return report;
 }
 
@@ -354,6 +376,7 @@ async function executeSession(
     session: AttachmentSessionMigrationState,
     store: AttachmentStore,
     observer: RunAttachmentMigrationOptions["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await executeSessionTransaction({
         rootWorkspace,
@@ -364,7 +387,9 @@ async function executeSession(
             assertPlan: (state, plan) => assertPlanHashes(state, plan),
             prepareArtifacts: async (state, plan) => {
                 for (const attachment of plan.attachments) {
+                    assertHealthy();
                     const saved = await store.save({bytes: attachment.bytes, mimeType: attachment.ref.mimeType});
+                    assertHealthy();
                     if (saved.id !== attachment.ref.id || saved.bytes !== attachment.ref.bytes) {
                         throw new Error(`${state.sourcePath}: AttachmentStore 返回了不一致的引用`);
                     }
@@ -378,7 +403,8 @@ async function executeSession(
             verifyTarget: (_state, plan) => verifyPlanRefs(plan, store, new Set()),
             targetText: (_state, plan) => plan.targetText,
         },
-        transition: (status) => advanceSession(paths, manifest, session, status, observer),
+        transition: (status) => advanceSession(paths, manifest, session, status, observer, assertHealthy),
+        assertHealthy,
     });
 }
 
@@ -389,6 +415,7 @@ async function rollbackSession(
     manifest: AttachmentMigrationManifest,
     session: AttachmentSessionMigrationState,
     observer: RunAttachmentRollbackOptions["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     await rollbackSessionTransaction({
         rootWorkspace,
@@ -400,6 +427,7 @@ async function rollbackSession(
                 await observer?.({sourcePath: session.sourcePath, status});
             }
         },
+        assertHealthy,
     });
 }
 
@@ -408,6 +436,7 @@ async function ensureRollbackLock(
     rootWorkspace: string,
     paths: ReturnType<typeof migrationPaths>,
     runId: string,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     const manifestPath = portableRelative(rootWorkspace, paths.manifestPath);
     if (await pathExists(paths.lockPath)) {
@@ -417,6 +446,7 @@ async function ensureRollbackLock(
         }
         return;
     }
+    assertHealthy();
     await acquireLock(paths.lockPath, {
         version: 1,
         runId,
@@ -424,6 +454,7 @@ async function ensureRollbackLock(
         startedAt: new Date().toISOString(),
         manifestPath,
     });
+    assertHealthy();
 }
 
 /** initial manifest落盘前没有任何session变化，同run lock可安全视为未开始并清理。 */
@@ -431,6 +462,7 @@ async function clearUnstartedRunLock(
     rootWorkspace: string,
     paths: ReturnType<typeof migrationPaths>,
     runId: string,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     if (!await pathExists(paths.lockPath)) return;
     const lock = await readLock(paths.lockPath);
@@ -438,7 +470,9 @@ async function clearUnstartedRunLock(
     if (lock.runId !== runId || lock.manifestPath !== manifestPath) {
         throw new Error(`Attachment migration lock属于其他run：${lock.runId}`);
     }
+    assertHealthy();
     await rm(paths.lockPath, {force: true});
+    assertHealthy();
 }
 
 /** 读取必须存在的migration manifest。 */
@@ -469,8 +503,11 @@ async function advanceSession(
     session: AttachmentSessionMigrationState,
     status: AttachmentSessionMigrationStatus,
     observer: RunAttachmentMigrationOptions["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
+    assertHealthy();
     await transitionSession(paths, manifest, session, status);
+    assertHealthy();
     await observer?.({kind: "session", sourcePath: session.sourcePath, status});
 }
 
@@ -480,8 +517,11 @@ async function advanceRun(
     manifest: AttachmentMigrationManifest,
     status: AttachmentMigrationRunStatus,
     observer: RunAttachmentMigrationOptions["observer"],
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
+    assertHealthy();
     await transitionRun(paths, manifest, status);
+    assertHealthy();
     await observer?.({kind: "run", status});
 }
 
@@ -490,11 +530,14 @@ async function recordFailure(
     paths: ReturnType<typeof migrationPaths>,
     manifest: AttachmentMigrationManifest,
     error: unknown,
+    assertHealthy: AssertLeaseHealthy,
 ): Promise<void> {
     if (manifest.status === "failed" || manifest.status === "report_written") {
         return;
     }
+    assertHealthy();
     await transitionRun(paths, manifest, "failed", errorMessage(error));
+    assertHealthy();
 }
 
 async function fullScan(rootWorkspace: string, manifest: AttachmentMigrationManifest, store: AttachmentStore): Promise<void> {

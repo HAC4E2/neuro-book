@@ -31,7 +31,7 @@ describe("LocalProductPublisher", {timeout: 30_000}, () => {
         const root = await sourceFixture();
         const builder = new ProductRuntimeImageBuilder(root);
         const candidate = await candidateImage(builder, "explicit-output", "explicit");
-        const outputRoot = join(root, ".agent", "workspace", "manager-build", ".output");
+        const outputRoot = join(root, ".agent", "tmp", "manager-build", ".output");
         await mkdir(outputRoot, {recursive: true});
 
         const published = await new LocalProductPublisher(root, builder).publish({
@@ -73,7 +73,7 @@ describe("LocalProductPublisher", {timeout: 30_000}, () => {
         const root = await sourceFixture();
         const builder = new ProductRuntimeImageBuilder(root);
         const candidate = await candidateImage(builder, "occupied-output", "candidate");
-        const outputRoot = join(root, ".agent", "workspace", "occupied", ".output");
+        const outputRoot = join(root, ".agent", "tmp", "occupied", ".output");
         await mkdir(outputRoot, {recursive: true});
         await writeFile(join(outputRoot, "owned.txt"), "caller", "utf8");
 
@@ -199,6 +199,7 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
         imageVariantSmoke: "server/commands/sharp-image-variant.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec.mjs",
         webFetchSmoke: "server/commands/web-fetch.mjs",
+        worldEngineConfigSmoke: "server/commands/world-engine-config.mjs",
     };
     const contract = createProductRuntimeContract(entries);
     for (const path of new Set([PRODUCT_RUNTIME_COMMAND_BOOTSTRAP, ...Object.values(entries)])) {

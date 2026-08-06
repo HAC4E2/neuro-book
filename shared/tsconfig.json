@@ -19,6 +19,7 @@
     "include": [
         "product-runtime-contract.ts",
         "product-runtime-environment.ts",
-        "product-runtime-image-verifier.ts"
+        "product-runtime-image-verifier.ts",
+        "product-runtime-shutdown.ts"
     ]
 }

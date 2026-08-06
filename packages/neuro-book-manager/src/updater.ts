@@ -10,6 +10,7 @@ import {
     planJournaledApplicationMigrations,
 } from "#manager/migration-operation";
 import {
+    assertProductExit,
     launchApplication,
     terminateFailedLaunch,
     type ApplicationLaunch,
@@ -256,6 +257,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                     && operationEffect(journal, "compose")?.previousState === "running";
                 if (!keepContainerRunning) {
                     await healthLaunch.shutdown();
+                    assertProductExit(await healthLaunch.completion, "NeuroBook 服务退出");
                     healthLaunch = null;
                 }
             }

@@ -7,6 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     assertProductCommandOutputs,
     PRODUCT_COMMAND_SOURCES,
+    pruneEmptyProductCommandChunks,
     resolveProductCommandEntries,
 } from "nbook/scripts/build/product-command-bundle";
 
@@ -18,7 +19,7 @@ afterEach(async () => {
 
 describe("Product command metafile", () => {
     it("按 entryPoint 建立入口，不依赖输出文件名", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
 
         const entries = resolveProductCommandEntries(metafile, commandRoot);
@@ -30,7 +31,7 @@ describe("Product command metafile", () => {
     });
 
     it("按 commands root 解析 esbuild 返回的相对 output key 与 entryPoint", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile-relative", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative", "commands");
         const metafile = buildMetafile(commandRoot, true);
         for (const output of Object.values(metafile.outputs)) {
             output.entryPoint = relative(commandRoot, output.entryPoint!);
@@ -45,7 +46,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝 metafile entry output 逃逸 commands root", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -56,7 +57,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝相对 metafile output 通过上级目录逃逸", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile-relative-escape", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative-escape", "commands");
         const metafile = buildMetafile(commandRoot, true);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -93,6 +94,40 @@ describe("Product command metafile", () => {
             .rejects.toThrow("Product command output 不完整：start.mjs");
     });
 
+    it("清理纯 re-export 产生的零字节 shared chunk 及其副作用导入", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-empty-chunk-"));
+        temporaryRoots.push(root);
+        const commandRoot = join(root, "commands");
+        const emptyPath = join(commandRoot, "chunks", "command-shared-empty.mjs");
+        const entryPath = join(commandRoot, "start.mjs");
+        await mkdir(join(commandRoot, "chunks"), {recursive: true});
+        await writeFile(emptyPath, "", "utf8");
+        await writeFile(entryPath, 'import "./chunks/command-shared-empty.mjs";\nexport default true;\n', "utf8");
+        const metafile: Metafile = {
+            inputs: {},
+            outputs: {
+                [entryPath]: {
+                    bytes: 36,
+                    inputs: {},
+                    imports: [{path: "chunks/command-shared-empty.mjs", kind: "import-statement"}],
+                    exports: ["default"],
+                },
+                [emptyPath]: {
+                    bytes: 0,
+                    inputs: {"../../../node_modules/zod/index.js": {bytesInOutput: 0}},
+                    imports: [],
+                    exports: [],
+                },
+            },
+        };
+
+        await pruneEmptyProductCommandChunks(metafile, commandRoot);
+
+        await expect(readFile(entryPath, "utf8")).resolves.not.toContain("command-shared-empty");
+        await expect(readFile(emptyPath, "utf8")).rejects.toMatchObject({code: "ENOENT"});
+        expect(metafile.outputs[emptyPath]).toBeUndefined();
+    });
+
     it("Product正式命令实现归server领域Module，server不得反向依赖scripts", async () => {
         const orchestrationOnly = new Set([
             "prepare-system-assets",
@@ -100,6 +135,7 @@ describe("Product command metafile", () => {
             "product-variable-authoring-smoke",
             "product-image-variant-smoke",
             "sqlite-vec-smoke",
+            "product-world-engine-config-smoke",
         ]);
         for (const [id, source] of Object.entries(PRODUCT_COMMAND_SOURCES)) {
             if (orchestrationOnly.has(id)) continue;

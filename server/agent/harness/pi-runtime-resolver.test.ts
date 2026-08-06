@@ -78,6 +78,23 @@ describe("Pi runtime resolver", () => {
         }
     });
 
+    it("OpenAI Completions adapter 对无响应体的 500 按 maxRetries 重试", async () => {
+        const server = await startOpenAIServer("recovered", 1);
+        try {
+            const model = createModel("local-openai", "openai-completions", server.baseUrl);
+            const runtime = resolvePiModelsFromConfig(createConfig("local-openai", model), model);
+            const message = await runtime.completeSimple(model, {messages: []}, {
+                ...piRequestAuthOptions({api: model.api}),
+                maxRetries: 1,
+            });
+
+            expect(message.content).toEqual([{type: "text", text: "recovered"}]);
+            expect(server.authorization).toHaveLength(2);
+        } finally {
+            await server.close();
+        }
+    });
+
     it("自定义 OpenAI Responses 无 API key 时可连接无认证端点", async () => {
         const server = await startOpenAIResponsesServer("responses-no-auth");
         try {
@@ -144,10 +161,17 @@ function createModel(provider: string, api: string, baseUrl: string): Model<Api>
     };
 }
 
-async function startOpenAIServer(text: string): Promise<{baseUrl: string; authorization: string[]; close: () => Promise<void>}> {
+async function startOpenAIServer(text: string, failures = 0): Promise<{baseUrl: string; authorization: string[]; close: () => Promise<void>}> {
     const authorization: string[] = [];
+    let requestCount = 0;
     const server = createServer((request, response) => {
+        requestCount += 1;
         authorization.push(request.headers.authorization ?? "");
+        if (requestCount <= failures) {
+            response.writeHead(500);
+            response.end();
+            return;
+        }
         response.writeHead(200, {"content-type": "text/event-stream"});
         response.write(`data: ${JSON.stringify({id: text, object: "chat.completion.chunk", created: 1, model: "test-model", choices: [{index: 0, delta: {role: "assistant", content: text}, finish_reason: null}]})}\n\n`);
         response.write(`data: ${JSON.stringify({id: text, object: "chat.completion.chunk", created: 1, model: "test-model", choices: [{index: 0, delta: {}, finish_reason: "stop"}]})}\n\n`);

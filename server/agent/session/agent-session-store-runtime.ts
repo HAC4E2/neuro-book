@@ -5,22 +5,75 @@ import {
     type AgentSessionStoreRuntime,
     type ReadyAgentSessionStore,
 } from "nbook/server/agent/session/agent-session-store";
+import {
+    AgentSessionStoreLeaseCompromisedError,
+    agentSessionStoreLeasePath,
+} from "nbook/server/agent/session/agent-session-store-lease";
 
 type AgentSessionStoreRuntimeEntry = {
     rootWorkspace: string;
     active: AgentSessionStoreRuntime | null;
-    phase: "idle" | "starting" | "active" | "closing";
+    phase: "idle" | "starting" | "active" | "closing" | "compromised";
+    transition: Promise<void>;
+};
+
+/** HMR前一版本的runtime entry；旧active没有健康检查和compromised signal。 */
+type PreviousAgentSessionStoreRuntimeEntry = {
+    rootWorkspace: string;
+    active: {
+        readonly ready: ReadyAgentSessionStore;
+        release(): Promise<void>;
+        assertHealthy?: () => void;
+        compromised?: Promise<AgentSessionStoreLeaseCompromisedError>;
+    } | null;
+    phase: "idle" | "starting" | "active" | "closing" | "compromised";
     transition: Promise<void>;
 };
 
 type AgentSessionStoreRuntimeGlobals = typeof globalThis & {
-    __nbookAgentSessionStoreRuntimesV3?: Map<string, AgentSessionStoreRuntimeEntry>;
+    __nbookAgentSessionStoreRuntimesV3?: Map<string, PreviousAgentSessionStoreRuntimeEntry>;
+    __nbookAgentSessionStoreRuntimesV4?: Map<string, AgentSessionStoreRuntimeEntry>;
 };
 
 const runtimeGlobals = globalThis as AgentSessionStoreRuntimeGlobals;
-const runtimes = runtimeGlobals.__nbookAgentSessionStoreRuntimesV3
+const runtimes = runtimeGlobals.__nbookAgentSessionStoreRuntimesV4
+    ?? migratePreviousRuntimes(runtimeGlobals.__nbookAgentSessionStoreRuntimesV3)
     ?? new Map<string, AgentSessionStoreRuntimeEntry>();
-runtimeGlobals.__nbookAgentSessionStoreRuntimesV3 = runtimes;
+runtimeGlobals.__nbookAgentSessionStoreRuntimesV4 = runtimes;
+
+/** 保留V3的同一Map，但旧active无法恢复失效回调时必须fail closed并要求重启。 */
+function migratePreviousRuntimes(
+    previous: Map<string, PreviousAgentSessionStoreRuntimeEntry> | undefined,
+): Map<string, AgentSessionStoreRuntimeEntry> | null {
+    if (!previous) return null;
+    for (const entry of previous.values()) {
+        normalizeRuntimeEntry(entry as unknown as AgentSessionStoreRuntimeEntry);
+    }
+    // 原地升级entry；旧模块可能仍在pending transition中，替换Map value会让旧闭包与新模块各持一份状态。
+    return previous as unknown as Map<string, AgentSessionStoreRuntimeEntry>;
+}
+
+/** 将HMR前的active capability升级为当前运行时需要的fail-closed形状。 */
+function normalizeRuntimeEntry(entry: AgentSessionStoreRuntimeEntry): void {
+    if (!entry.active) return;
+    const active = entry.active as unknown as NonNullable<PreviousAgentSessionStoreRuntimeEntry["active"]>;
+    if (typeof active.assertHealthy === "function" && active.compromised) return;
+    const compromised = new AgentSessionStoreLeaseCompromisedError(
+        agentSessionStoreLeasePath(entry.rootWorkspace),
+        "runtime",
+        new Error("HMR重载后无法恢复旧版 runtime lease 的失效观察；请重启 NeuroBook。"),
+    );
+    entry.active = {
+        ready: active.ready,
+        // 旧proper-lockfile release可能删除新owner的锁；HMR迁移后的清理必须是no-op。
+        release: async () => undefined,
+        assertHealthy: () => {
+            throw compromised;
+        },
+        compromised: Promise.resolve(compromised),
+    } as unknown as AgentSessionStoreRuntime;
+    entry.phase = "compromised";
+}
 
 /**
  * 启动Workspace Root级Agent Session Store owner。
@@ -32,10 +85,18 @@ runtimeGlobals.__nbookAgentSessionStoreRuntimesV3 = runtimes;
 export async function startAgentSessionStoreRuntime(rootWorkspace: string): Promise<ReadyAgentSessionStore> {
     const entry = ensureEntry(rootWorkspace);
     return enqueueTransition(entry, async () => {
+        normalizeRuntimeEntry(entry);
         if (entry.phase === "closing") {
             throw new Error("Agent Session Store runtime仍在关闭，不能启动。");
         }
-        if (entry.phase === "active" && entry.active) return entry.active.ready;
+        if (entry.phase === "compromised") {
+            entry.active?.assertHealthy();
+            throw new Error("Agent Session Store runtime lease已失去所有权。");
+        }
+        if (entry.phase === "active" && entry.active) {
+            entry.active.assertHealthy();
+            return entry.active.ready;
+        }
         entry.phase = "starting";
         try {
             const active = await acquireReadyAgentSessionStore(entry.rootWorkspace);
@@ -58,10 +119,34 @@ export async function startAgentSessionStoreRuntime(rootWorkspace: string): Prom
  */
 export function requireReadyAgentSessionStore(rootWorkspace: string): ReadyAgentSessionStore {
     const entry = runtimes.get(agentSessionStoreKey(rootWorkspace));
-    if (!entry || entry.phase !== "active" || !entry.active) {
+    if (!entry) {
         throw new Error(`Agent Session Store runtime尚未完成启动：${resolve(rootWorkspace)}`);
     }
+    normalizeRuntimeEntry(entry);
+    if (entry.phase === "compromised" && entry.active) {
+        entry.active.assertHealthy();
+    }
+    if (entry.phase !== "active" || !entry.active) {
+        throw new Error(`Agent Session Store runtime尚未完成启动：${resolve(rootWorkspace)}`);
+    }
+    entry.active.assertHealthy();
     return entry.active.ready;
+}
+
+/** 返回runtime lease的一次性失效信号；该Promise只解析，不会产生未处理rejection。 */
+export function observeAgentSessionStoreRuntimeCompromised(
+    rootWorkspace: string,
+): Promise<AgentSessionStoreLeaseCompromisedError> {
+    const entry = runtimes.get(agentSessionStoreKey(rootWorkspace));
+    if (!entry) {
+        throw new Error(`Agent Session Store runtime尚未完成启动：${resolve(rootWorkspace)}`);
+    }
+    normalizeRuntimeEntry(entry);
+    if (entry.phase === "compromised" && entry.active) return entry.active.compromised;
+    if (entry.phase !== "active" || !entry.active) {
+        throw new Error(`Agent Session Store runtime尚未完成启动：${resolve(rootWorkspace)}`);
+    }
+    return entry.active.compromised;
 }
 
 /**
@@ -97,6 +182,8 @@ export async function stopAgentSessionStoreRuntime(rootWorkspace?: string): Prom
  */
 async function stopEntry(entry: AgentSessionStoreRuntimeEntry): Promise<void> {
     await enqueueTransition(entry, async () => {
+        normalizeRuntimeEntry(entry);
+        if (entry.phase === "compromised") return;
         const active = entry.active;
         if (!active) {
             entry.phase = "idle";
@@ -115,7 +202,10 @@ function ensureEntry(rootWorkspace: string): AgentSessionStoreRuntimeEntry {
     const resolvedRoot = resolve(rootWorkspace);
     const key = agentSessionStoreKey(resolvedRoot);
     const existing = runtimes.get(key);
-    if (existing) return existing;
+    if (existing) {
+        normalizeRuntimeEntry(existing);
+        return existing;
+    }
     const created: AgentSessionStoreRuntimeEntry = {
         rootWorkspace: resolvedRoot,
         active: null,

@@ -2,17 +2,28 @@ import {mkdir} from "node:fs/promises";
 
 import {appLogger} from "nbook/server/app-logs/logger";
 import {
+    AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
+    AGENT_SESSION_STORE_LEASE_STALE_MS,
+    AgentSessionStoreLeaseCompromisedError,
+    isAgentSessionStoreLeaseCompromisedError,
+} from "nbook/server/agent/session/agent-session-store-lease";
+import {
     AgentSessionMigrationRequiredError,
     AgentSessionRecoveryRequiredError,
     AgentSessionStoreCorruptError,
 } from "nbook/server/agent/session/agent-session-store";
-import {startAgentSessionStoreRuntime} from "nbook/server/agent/session/agent-session-store-runtime";
+import {
+    observeAgentSessionStoreRuntimeCompromised,
+    startAgentSessionStoreRuntime,
+} from "nbook/server/agent/session/agent-session-store-runtime";
 import {assertProductMigrationsReady} from "nbook/server/runtime/product-migration-gate";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
 import {
     inspectStateRootIntegrity,
     stateRootIntegrityFailed,
 } from "nbook/server/runtime/state-root-integrity";
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
 
 let startup: Promise<void> | null = null;
 
@@ -44,6 +55,10 @@ export async function prepareProductRuntime(): Promise<void> {
     try {
         await startAgentSessionStoreRuntime(runtimePaths.workspaceRoot);
     } catch (error) {
+        if (isAgentSessionStoreLeaseCompromisedError(error)) {
+            requestLeaseCompromisedShutdown(error);
+            return;
+        }
         if (error instanceof AgentSessionMigrationRequiredError
             || error instanceof AgentSessionRecoveryRequiredError
             || error instanceof AgentSessionStoreCorruptError) {
@@ -54,6 +69,38 @@ export async function prepareProductRuntime(): Promise<void> {
         }
         throw error;
     }
+    void Promise.resolve()
+        .then(() => observeAgentSessionStoreRuntimeCompromised(runtimePaths.workspaceRoot))
+        .then((error) => requestLeaseCompromisedShutdown(error))
+        .catch((error: unknown) => {
+            appLogger.fatalSync(
+                "runtime.agentSessionStore.leaseObserverFailed",
+                undefined,
+                error,
+                "Agent Session Store runtime lease失效观察器异常，Product将有序关闭",
+            );
+            productShutdownController.requestProcessExit(
+                PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+            );
+        });
+}
+
+/** 记录租约失效诊断并请求一次有序的专用退出。 */
+function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromisedError): void {
+    appLogger.fatalSync(
+        "runtime.agentSessionStore.leaseCompromised",
+        {
+            leasePath: error.leasePath,
+            kind: error.kind,
+            staleMs: AGENT_SESSION_STORE_LEASE_STALE_MS,
+            heartbeatMs: AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
+        },
+        error,
+        "Agent Session Store runtime lease失去所有权，Product将有序关闭",
+    );
+    productShutdownController.requestProcessExit(
+        PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+    );
 }
 
 /**

@@ -74,7 +74,6 @@ import {createBuiltinTools, createReportResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
 import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
-import type {ProfileToolBinding, ReportResultToolBinding} from "nbook/profile-sdk/contracts";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import {publicAgentUserInputFormSpec} from "nbook/server/agent/events/public-user-input-form";
@@ -109,7 +108,7 @@ import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-
 import {assertValidProfileStateWrite, buildPromptPrefixAttribution, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
-import {isEmptyObjectSchema, reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {isEmptyObjectSchema, isReportResultBinding, reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {assemblePersistedProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
@@ -154,7 +153,7 @@ import type {
     SessionQueryInput,
     SessionRecentMessageRole,
 } from "nbook/server/agent/harness/types";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
+import type {AgentInvokeCaller, AgentMessageIdentity} from "nbook/server/agent/harness/invocation-caller";
 import type {
     AgentAbortRequestDto,
     AgentAbortResult,
@@ -497,6 +496,7 @@ type PreparedInvocationInput = {
     message?: StoredAgentUserMessageInput;
     payload?: JsonValue;
     modelKey?: string;
+    messageIdentity: AgentMessageIdentity;
 };
 
 /** invocation 内可由 durable user entry commit 单向推进的 admission receipt。 */
@@ -1098,6 +1098,7 @@ export class NeuroAgentHarness {
         }
         const invokeTitle = this.normalizeInvokeTitle(input.title);
         const caller = this.normalizeInvokeCaller(input.caller);
+        const messageIdentity = this.normalizeMessageIdentity(input.messageIdentity);
         let admission: InvocationAdmission;
         if (preadmitted) {
             admission = preadmitted;
@@ -1221,6 +1222,7 @@ export class NeuroAgentHarness {
                 clientState: input.clientState,
                 runtimeState,
                 caller,
+                messageIdentity,
                 modelKey: invocationModelKey,
                 clientMessageId: input.clientMessageId,
                 intent: input.mode === "steer" ? "steer" : "normal",
@@ -1335,6 +1337,11 @@ export class NeuroAgentHarness {
 
     private normalizeInvokeCaller(caller: InvokeAgentInput["caller"]): AgentInvokeCaller {
         return caller ?? {kind: "user"};
+    }
+
+    /** durable 身份必须由显式 messageIdentity 决定；缺失时按用户消息兼容。 */
+    private normalizeMessageIdentity(identity: InvokeAgentInput["messageIdentity"]): AgentMessageIdentity {
+        return identity ?? "user";
     }
 
     /** 用户输入模式必须有稳定 clientMessageId；continue 不创建用户消息。 */
@@ -1458,6 +1465,8 @@ export class NeuroAgentHarness {
         let pendingPayload: JsonValue | undefined;
         let pendingResolutions: AgentResolution[] = [];
         let currentInvocation = this.activeInvocations.get(input.sessionId) ?? null;
+        const caller = this.normalizeInvokeCaller(input.caller);
+        const messageIdentity = this.normalizeMessageIdentity(input.messageIdentity);
         const clientMessageId = input.mode === "continue"
             ? undefined
             : this.requireClientMessageId(input.clientMessageId, input.mode);
@@ -1504,7 +1513,7 @@ export class NeuroAgentHarness {
                 if (!this.steerableSessions.has(input.sessionId)) {
                     throw new Error("steer_not_available");
                 }
-                const item = this.enqueueSteer(input.sessionId, await this.prepareInvocationInput(input));
+                const item = this.enqueueSteer(input.sessionId, await this.prepareInvocationInput(input, messageIdentity), caller, messageIdentity);
                 return {
                     queued: {
                         sessionId: input.sessionId,
@@ -1524,7 +1533,7 @@ export class NeuroAgentHarness {
                 if (input.queueIfBusy === false) {
                     throw new Error("active_invocation_exists");
                 }
-                const item = await this.enqueueFollowUp(input.sessionId, await this.prepareInvocationInput(input));
+                const item = await this.enqueueFollowUp(input.sessionId, await this.prepareInvocationInput(input, messageIdentity), caller, messageIdentity);
                 return {
                     queued: {
                         sessionId: input.sessionId,
@@ -1655,6 +1664,8 @@ export class NeuroAgentHarness {
                 error: result.errorInfo.message,
                 errorPhase: result.errorInfo.phase,
                 errorInfo: result.errorInfo,
+                // 取消与失败在这里必须区分开：调用方仍按异常终止处理，但界面据此走「已停止」而非报错。
+                ...(result.terminalStatus === "aborted" ? {aborted: true} : {}),
                 ...projectPublicFinalMessage(result.finalAssistant ? messageText(result.finalAssistant, {stripThinking: true}) : undefined),
                 usage: result.usage,
                 elapsedMs: Date.now() - input.startedAt,
@@ -1726,8 +1737,11 @@ export class NeuroAgentHarness {
             sessionId: input.sessionId,
             invocationId: input.invocationId,
             lifecycleStatus: aborted ? "aborted" : input.finalResult.status === "error" ? "error" : input.finalResult.status === "waiting" ? "waiting" : "end",
-            error: input.finalResult.error,
-            errorInfo: input.finalResult.errorInfo ?? (input.finalResult.error ? this.toInvocationErrorInfo(input.finalResult.error, input.finalResult.errorPhase ?? "unknown") : undefined),
+            // 取消不写正文，理由同 failInvocation：status: "aborted" 已经是全部事实，写 provider 原文会泄漏到界面。
+            error: aborted ? undefined : input.finalResult.error,
+            errorInfo: aborted
+                ? undefined
+                : input.finalResult.errorInfo ?? (input.finalResult.error ? this.toInvocationErrorInfo(input.finalResult.error, input.finalResult.errorPhase ?? "unknown") : undefined),
             ...(input.finalResult.status === "waiting"
                 ? {nextState: "waiting"}
                 : {nextState: "finished", pauseReason: input.finalResult.status === "error" ? aborted ? "aborted" : "error" : undefined}),
@@ -1783,12 +1797,15 @@ export class NeuroAgentHarness {
             return this.forcedAbortResult(input.sessionId, input.invocationId, input.startedAt);
         }
         const errorInfo = toRunKernelErrorInfo(input.error, input.aborted ? "unknown" : input.errorPhase);
+        // 用户主动取消不是错误：durable 只记 status: "aborted"，不写 provider 原文。
+        // SDK 抛的是英文 "Request was aborted"，以前它会被当成错误详情一路显示到界面上（Task 139）。
+        // 日志与调用方返回值仍保留技术细节，那是诊断面不是用户面。
         const committed = await this.commitInvocationState({
             sessionId: input.sessionId,
             invocationId: input.invocationId,
             lifecycleStatus: input.aborted ? "aborted" : "error",
-            error: errorInfo.message,
-            errorInfo,
+            error: input.aborted ? undefined : errorInfo.message,
+            errorInfo: input.aborted ? undefined : errorInfo,
             nextState: "finished",
             pauseReason: input.aborted ? "aborted" : "error",
         });
@@ -1811,6 +1828,7 @@ export class NeuroAgentHarness {
             error: errorInfo.message,
             errorPhase: errorInfo.phase,
             errorInfo,
+            ...(input.aborted ? {aborted: true} : {}),
             elapsedMs: Date.now() - input.startedAt,
         };
     }
@@ -1829,6 +1847,7 @@ export class NeuroAgentHarness {
         clientState?: ClientStateSnapshot;
         runtimeState: RunRuntimeState;
         caller: AgentInvokeCaller;
+        messageIdentity: AgentMessageIdentity;
         /** 本 invocation 的模型覆盖；只参与本次 prepare，不写 session model_change。 */
         modelKey?: string;
         /** 当前用户输入的稳定关联 ID；continue/resolution 为空。 */
@@ -1877,23 +1896,31 @@ export class NeuroAgentHarness {
 
         snapshot = await this.repo.readSession(input.sessionId);
         if (input.pendingUserMessage) {
+            const entry = input.messageIdentity === "system"
+                ? {
+                    type: "custom_message" as const,
+                    message: input.pendingUserMessage,
+                    visibleToModel: true,
+                    ...(input.sourceQueueItemId === undefined ? {} : {sourceQueueItemId: input.sourceQueueItemId}),
+                }
+                : {
+                    type: "message" as const,
+                    message: input.pendingUserMessage,
+                    origin: "prompt" as const,
+                    clientMessageId: this.requireClientMessageId(input.clientMessageId, "prompt"),
+                    intent: input.intent,
+                    ...(input.sourceQueueItemId === undefined ? {} : {sourceQueueItemId: input.sourceQueueItemId}),
+                    ...(input.userMessageParentId === undefined ? {} : {parentId: input.userMessageParentId}),
+                };
             const written = await this.executeWritePlan({
                 target: {sessionId: input.sessionId},
                 cause: "prompt",
                 ops: [{
                     kind: "appendMany",
-                    entries: [{
-                        type: "message",
-                        message: input.pendingUserMessage,
-                        origin: "prompt",
-                        clientMessageId: this.requireClientMessageId(input.clientMessageId, "prompt"),
-                        intent: input.intent,
-                        ...(input.sourceQueueItemId === undefined ? {} : {sourceQueueItemId: input.sourceQueueItemId}),
-                        ...(input.userMessageParentId === undefined ? {} : {parentId: input.userMessageParentId}),
-                    }],
+                    entries: [entry],
                 }],
             }, input.invocationId);
-            const userEntry = written.find((entry) => entry.type === "message" && entry.message.role === "user");
+            const userEntry = written.find((entry) => (entry.type === "message" || entry.type === "custom_message") && entry.message.role === "user");
             if (!userEntry) {
                 throw new Error("用户消息已写入但缺少 durable entry ID");
             }
@@ -3434,10 +3461,12 @@ export class NeuroAgentHarness {
                     await this.pauseFollowUps(sessionId, active.invocationId, "aborted");
                 }
                 await this.appendAbortResolution(sessionId, active.invocationId, body.reason);
-                await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason ?? "invocation aborted", {
-                    message: body.reason ?? "invocation aborted",
+                // 只在调用方显式给了 reason 时才写正文；没有 reason 时 status: "aborted" 本身就是全部事实。
+                // 以前这里兜底写的是英文 "invocation aborted"，会当成错误详情显示给用户（Task 139）。
+                await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason, body.reason ? {
+                    message: body.reason,
                     phase: "unknown",
-                });
+                } : undefined);
                 this.eventHub.publish({
                     sessionId,
                     invocationId: active.invocationId,
@@ -3448,6 +3477,9 @@ export class NeuroAgentHarness {
                     },
                 });
                 await this.finishInvocation(sessionId, active.invocationId);
+                // waiting 段的 runLoop 早已返回，不会再自己发终态；前端在 invocation_aborted 上进入 aborting，
+                // 必须由这里补一条 agent_end 让它回到 idle。
+                this.publishRuntimeEvent(sessionId, active.invocationId, {type: "agent_end", status: "aborted"});
                 return {
                     kind: "completed" as const,
                     result: {
@@ -3904,6 +3936,7 @@ export class NeuroAgentHarness {
                 sessionId: sourceSnapshot.metadata.sessionId,
                 profileKey: sourceSnapshot.metadata.profileKey,
             },
+            messageIdentity: "system",
             internalQueued: true,
         });
         if (result.status === "error") {
@@ -4427,6 +4460,21 @@ export class NeuroAgentHarness {
      * 再决定 waiting、failed 或准备下一轮。
      */
     private async runTurnTransaction(frame: RunFrame): Promise<RunTurnTransactionResult> {
+        // 取消可能落在上一轮的工具执行里：那一轮的结果已经 ingest 落盘，但不能再开新的一轮。
+        // 这里必须看 abortSignal 而不是 ownsInvocation —— 用户主动取消只把 active.status 改成 aborting，
+        // invocation 仍是本会话的当前运行，下面那个 ownsInvocation fence 恒为 true，挡不住用户取消。
+        if (frame.abortSignal?.aborted) {
+            return {
+                kind: "failed",
+                result: {
+                    status: "failed",
+                    finalAssistant: frame.finalAssistant,
+                    usage: frame.usage,
+                    errorInfo: {message: "", phase: "unknown"},
+                    terminalStatus: "aborted",
+                },
+            };
+        }
         frame.turnIndex += 1;
         await this.emitRuntimeEvent(frame, {type: "turn_start", turnIndex: frame.turnIndex});
         if (frame.turnIndex > 1) {
@@ -4687,7 +4735,11 @@ export class NeuroAgentHarness {
                 return {
                     kind: "failed",
                     phase: "provider",
-                    errorInfo: this.toInvocationErrorInfo(assistant.errorMessage || (assistant.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。"), "model"),
+                    // 取消不带正文：provider 抛的是英文原文，写进来就会被当成错误详情显示（Task 139）。
+                    // 界面文案由前端 i18n 承担，服务端只负责说清「这是取消，不是失败」。
+                    errorInfo: assistant.stopReason === "aborted"
+                        ? {message: "", phase: "model"}
+                        : this.toInvocationErrorInfo(assistant.errorMessage || "生成失败，provider 未返回错误详情。", "model"),
                     finalAssistant: assistant,
                     partialAssistant: sanitizePartialAssistant(assistant) ?? undefined,
                     messageStatus: assistant.stopReason === "aborted" ? "interrupted" : "partial",
@@ -5038,36 +5090,61 @@ export class NeuroAgentHarness {
         });
 
         let started = false;
-        for await (const event of stream) {
-            const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
-            if (event.type === "start" && message) {
-                started = true;
-                await input.emit({type: "message_start", message});
-                continue;
-            }
-            if (event.type === "done" || event.type === "error") {
-                const finalMessage = sanitizeProviderAssistant(await stream.result());
-                if (!started) {
-                    await input.emit({type: "message_start", message: finalMessage});
+        // provider SDK 用抛异常表达取消，异常一抛 stream.result() 就永远不会执行，已经收到的正文会烂在 stream 内部。
+        // 留住最后一份 partial，取消时才有内容可以闭合成 interrupted 消息（Task 07 的 turn commit 契约）。
+        let lastPartial: AssistantMessage | null = null;
+        try {
+            for await (const event of stream) {
+                const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
+                if (message && typeof message === "object" && "role" in message && message.role === "assistant") {
+                    lastPartial = message as AssistantMessage;
                 }
-                await input.emit({type: "message_end", message: finalMessage});
-                return finalMessage;
+                if (event.type === "start" && message) {
+                    started = true;
+                    await input.emit({type: "message_start", message});
+                    continue;
+                }
+                if (event.type === "done" || event.type === "error") {
+                    const finalMessage = sanitizeProviderAssistant(await stream.result());
+                    if (!started) {
+                        await input.emit({type: "message_start", message: finalMessage});
+                    }
+                    await input.emit({type: "message_end", message: finalMessage});
+                    return finalMessage;
+                }
+                if (message) {
+                    await input.emit({
+                        type: "message_update",
+                        message,
+                        assistantMessageEvent: event,
+                    });
+                }
             }
-            if (message) {
-                await input.emit({
-                    type: "message_update",
-                    message,
-                    assistantMessageEvent: event,
-                });
-            }
-        }
 
-        const finalMessage = sanitizeProviderAssistant(await stream.result());
-        if (!started) {
-            await input.emit({type: "message_start", message: finalMessage});
+            const finalMessage = sanitizeProviderAssistant(await stream.result());
+            if (!started) {
+                await input.emit({type: "message_start", message: finalMessage});
+            }
+            await input.emit({type: "message_end", message: finalMessage});
+            return finalMessage;
+        } catch (error) {
+            // 只接管「用户取消」：其余异常仍然按 provider 故障冒泡给 executeTurn。
+            if (!input.abortSignal?.aborted || !lastPartial) {
+                throw error;
+            }
+            // 不在这里跑 sanitizeProviderAssistant：流式中断处的 toolCall id 可能只收到一半，
+            // 会撞上它的 public id 校验。持久化形态由下游 sanitizePartialAssistant 负责（它先剥掉 toolCall 再校验）。
+            const abortedAssistant: AssistantMessage = {
+                ...lastPartial,
+                stopReason: "aborted",
+                errorMessage: undefined,
+            };
+            if (!started) {
+                await input.emit({type: "message_start", message: abortedAssistant});
+            }
+            await input.emit({type: "message_end", message: abortedAssistant});
+            return abortedAssistant;
         }
-        await input.emit({type: "message_end", message: finalMessage});
-        return finalMessage;
     }
 
     private async runToolBatch(input: {
@@ -5887,7 +5964,7 @@ export class NeuroAgentHarness {
         }
     }
 
-    private enqueueSteer(sessionId: number, input: PreparedInvocationInput): AgentQueuedInvocationTruth {
+    private enqueueSteer(sessionId: number, input: PreparedInvocationInput, caller: AgentInvokeCaller, messageIdentity: AgentMessageIdentity): AgentQueuedInvocationTruth {
         const item: AgentQueuedInvocationTruth = {
             id: randomUUID(),
             clientMessageId: input.clientMessageId,
@@ -5895,6 +5972,8 @@ export class NeuroAgentHarness {
             message: input.message,
             input: input.payload,
             modelKey: input.modelKey,
+            caller,
+            messageIdentity,
             createdAt: Date.now(),
         };
         const queue = this.steerQueues.get(sessionId) ?? [];
@@ -5911,7 +5990,7 @@ export class NeuroAgentHarness {
         return item;
     }
 
-    private async enqueueFollowUp(sessionId: number, input: PreparedInvocationInput): Promise<StoredFollowUpQueueItem> {
+    private async enqueueFollowUp(sessionId: number, input: PreparedInvocationInput, caller: AgentInvokeCaller, messageIdentity: AgentMessageIdentity): Promise<StoredFollowUpQueueItem> {
         const item: StoredFollowUpQueueItem = {
             id: randomUUID(),
             clientMessageId: input.clientMessageId,
@@ -5919,6 +5998,8 @@ export class NeuroAgentHarness {
             message: input.message,
             input: input.payload,
             modelKey: input.modelKey,
+            caller,
+            messageIdentity,
             createdAt: Date.now(),
         };
         const queue = this.followUpQueueState(sessionId);
@@ -5951,13 +6032,23 @@ export class NeuroAgentHarness {
         const entries: AppendManySessionEntryDraft[] = [];
         for (const item of queue) {
             const message = this.createQueuedUserMessage(item, "steer");
-            entries.push({
-                type: "message",
-                message,
-                origin: "harness",
-                clientMessageId: item.clientMessageId,
-                intent: "steer",
-            });
+            const messageIdentity = item.messageIdentity ?? "user";
+            if (messageIdentity === "system") {
+                entries.push({
+                    type: "custom_message",
+                    message,
+                    visibleToModel: true,
+                    sourceQueueItemId: item.id,
+                });
+            } else {
+                entries.push({
+                    type: "message",
+                    message,
+                    origin: "harness",
+                    clientMessageId: item.clientMessageId,
+                    intent: "steer",
+                });
+            }
             messages.push(message);
         }
         const written = await this.executeWritePlan({
@@ -5971,7 +6062,7 @@ export class NeuroAgentHarness {
         }, input.invocationId);
         return {
             messages,
-            leafId: written.findLast((entry) => entry.type === "message")?.id,
+            leafId: written.findLast((entry) => entry.type === "message" || entry.type === "custom_message")?.id,
         };
     }
 
@@ -5990,7 +6081,7 @@ export class NeuroAgentHarness {
             }
 
             const snapshot = await this.repo.readSession(sessionId);
-            const committed = snapshot.entries.some((entry) => entry.type === "message"
+            const committed = snapshot.entries.some((entry) => (entry.type === "message" || entry.type === "custom_message")
                 && entry.message.role === "user"
                 && entry.sourceQueueItemId === next.id);
             if (committed) {
@@ -6032,7 +6123,8 @@ export class NeuroAgentHarness {
                     message: prepared.message,
                     payload: prepared.payload,
                     modelKey: prepared.modelKey,
-                    caller: {kind: "system", sessionId},
+                    caller: next.caller ?? {kind: "user", sessionId},
+                    messageIdentity: next.messageIdentity ?? "user",
                     internalQueued: true,
                     sourceQueueItemId: next.id,
                 });
@@ -6071,6 +6163,7 @@ export class NeuroAgentHarness {
             ...(item.message ? {message: await this.authorizeStoredInvocationInput(sessionId, item.message)} : {}),
             ...(item.input === undefined ? {} : {payload: this.profiles.parsePayload(profile, item.input)}),
             ...(item.modelKey === undefined ? {} : {modelKey: item.modelKey}),
+            messageIdentity: item.messageIdentity ?? "user",
         };
     }
 
@@ -6104,7 +6197,7 @@ export class NeuroAgentHarness {
     /**
      * 入队前按当前 profile 校验结构化 payload，避免无效 input 滞留到后续 drain 才失败。
      */
-    private async prepareInvocationInput(input: InvocationCoreInput): Promise<PreparedInvocationInput> {
+    private async prepareInvocationInput(input: InvocationCoreInput, messageIdentity = this.normalizeMessageIdentity(input.messageIdentity)): Promise<PreparedInvocationInput> {
         if (input.source.kind === "stored") {
             const snapshot = await this.repo.readSession(input.sessionId);
             const profile = await this.profiles.get(this.repo.reduce(snapshot).profileKey);
@@ -6115,6 +6208,7 @@ export class NeuroAgentHarness {
                     : undefined,
                 payload: this.profiles.parsePayload(profile, input.payload),
                 modelKey: input.modelKey,
+                messageIdentity,
             };
         }
         const snapshot = await this.repo.readSession(input.sessionId);
@@ -6126,6 +6220,7 @@ export class NeuroAgentHarness {
                 : undefined,
             payload: this.profiles.parsePayload(profile, input.payload),
             modelKey: input.modelKey,
+            messageIdentity,
         };
     }
 
@@ -6267,14 +6362,18 @@ export class NeuroAgentHarness {
             if (!this.ownsInvocation(sessionId, invocationId)) {
                 return;
             }
-            const message = reason ?? "invocation aborted after cancellation grace period";
             const abortGate = this.invocationAbortGates.get(invocationId);
             await this.pauseFollowUps(sessionId, invocationId, "aborted");
-            await this.writeLifecycle(sessionId, invocationId, "aborted", message, {
-                message,
+            // 宽限期到点的强制取消也是取消，同样不写英文兜底正文（理由见 failInvocation）。
+            await this.writeLifecycle(sessionId, invocationId, "aborted", reason, reason ? {
+                message: reason,
                 phase: "unknown",
-            });
+            } : undefined);
             this.finishInvocationState(sessionId, invocationId);
+            // runLoop 可能仍卡在工具里。ownership 此刻已释放，它随后自己发的 agent_end 会被 emitRuntimeEvent 的
+            // fence 丢弃，前端就再也等不到终态。所以必须由取消侧补发，且必须在 finishInvocationState 之后补，
+            // 否则残留 runLoop 的 message_update 会抢在终态之后把前端重新拉回 running。
+            this.publishRuntimeEvent(sessionId, invocationId, {type: "agent_end", status: "aborted"});
             await this.publishSessionState(sessionId, invocationId);
             abortGate?.resolve(this.forcedAbortResult(sessionId, invocationId));
         });
@@ -6327,6 +6426,7 @@ export class NeuroAgentHarness {
             error: errorInfo.message,
             errorPhase: errorInfo.phase,
             errorInfo,
+            aborted: true,
             elapsedMs: Math.max(0, Date.now() - startedAt),
         };
     }
@@ -7941,10 +8041,6 @@ function resolveAgentModelLogName(model: Model<any>): string {
         }
     }
     return "unknown";
-}
-
-function isReportResultBinding(binding: ProfileToolBinding | undefined): binding is ReportResultToolBinding {
-    return Boolean(binding && typeof binding === "object" && binding.key === "report_result" && "dataSchema" in binding);
 }
 
 function stableJsonHash(value: JsonValue): string {

@@ -113,7 +113,7 @@ describe("Product build environment", () => {
         const [packageText, productEnv, attributes] = await Promise.all([
             readFile("package.json", "utf8"),
             readFile(".env.product", "utf8"),
-            readFile(".gitattributes", "utf8"),
+            readFile(".gitattributes", "utf8").then((text) => text.replaceAll("\r\n", "\n")),
         ]);
         const packageJson = JSON.parse(packageText) as {scripts: {"nuxt:build:raw": string}};
 

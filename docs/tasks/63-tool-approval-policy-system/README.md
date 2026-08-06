@@ -210,3 +210,59 @@ type UserInputFormSpec = {
 - Task 63/129 相邻回归：12 files / 118 tests 通过；新增用例覆盖引用 Markdown、selection chip、skill token 和多行文本从编辑器序列化到完整 resolution 的保真。
 - `bun run typecheck`：全仓通过，退出码 0。
 - 浏览器待验收：连续切换短问题/长选项/开放回答/表单时的同高；`@` 选择 chip、切走返回和提交规范化；普通 Composer 草稿隔离；明暗主题与 1440/390 视口。
+
+## 2026-08-03 Composer Enter 快捷键回归修复
+
+### 用户反馈与诊断
+
+- GitHub Issue [#44](https://github.com/notnotype/neuro-book/issues/44) 记录了普通 Composer 无法用 Enter 发送、Agent 运行期间无法用 Ctrl+Enter 发送 followup 的稳定回归。
+- `AgentComposerInput` 新增可选 Boolean prop `submitOnEnter` 后，使用 `props.submitOnEnter ?? !props.expanded` 计算默认行为。Vue 会把未传入的 Boolean prop 解析为 `false`，因此普通 Composer 永远无法回退到原来的 `!expanded`，底层编辑器不会发出 `submit`。
+- `AgentComposer.submitComposer()` 中的 send、steer 和 followup 分支没有丢失；问题发生在 `AgentComposerInput -> ReferencePlainTextEditor` 的键盘事件门禁。
+
+### 实现
+
+- `AgentComposerInput.submitOnEnter` 使用明确的 `true` 默认值，折叠输入框继续用 Enter 提交，展开输入框继续把普通 Enter 用作换行，不再依赖 Vue 对缺省 Boolean prop 的隐式投影。
+- `ReferencePlainTextEditor` 新增默认关闭的 `submitOnModifierEnter`。普通提交与 Ctrl/Meta+Enter 提交分别受独立门禁控制；Shift+Enter 和引用菜单打开时的 Enter 行为不变。
+- 普通 Composer 只在 Agent 正在运行且正文非空时开启 modifier 提交，使展开输入框也能用 Ctrl/Meta+Enter 发送 followup。pending 回答编辑器显式关闭两种提交，继续由面板按钮推进批次。
+- 没有修改消息 API、Session 状态、图片事务、数据结构、配置、安装或安全边界，也没有新增测试文件。
+
+### Verification
+
+- Vue SFC 编译探针通过：`submitOnEnter` 编译为 `default: true`，`submitOnModifierEnter` 编译为 `default: false`。
+- 新 worktree 首次 `bun run typecheck` 因缺少 `server/generated/prisma/client` 失败；执行既有 `bun run generate` 后重跑，`bun run typecheck` 全仓通过，退出码 0。失败没有修改后端业务文件。
+- 按用户要求没有新增或运行额外测试。按仓库规则没有自动运行浏览器验收；折叠/展开、空闲/运行中以及 Enter/Shift+Enter/Ctrl+Enter/Meta+Enter 的真实交互仍待用户验收。
+
+### 计划差异
+
+- 代码范围、快捷键合同、文档边界和不新增测试均与批准计划一致。唯一额外步骤是在新 worktree 中生成 typecheck 所需的 Prisma client；生成物未纳入本次改动。
+
+## 2026-08-04 Composer 输入门禁补漏
+
+### 诊断
+
+- 复查 https://github.com/notnotype/neuro-book/pull/45 合并后的真实调用链确认 Enter、steer 和 Ctrl/Meta+Enter followup 已恢复，但共享编辑器仍没有排除输入法组合态。Windows 中文输入法确认候选字也会产生 Enter keydown，可能被误判为提交。
+- 发送按钮已经阻止 pending 图片、未解析稳定图片、metadata error 和预算超限；`AgentComposer.submitComposer()` 只阻止 readonly 与 pending 图片，键盘入口因此可以绕过既有图片合同。
+- `AgentChatSurface` 在创建乐观消息前解析 Session 图片附件，但原解析异常不在错误出口内，失败时可能形成未处理 Promise。
+
+### 实现
+
+- `ReferencePlainTextEditor` 的提交门禁增加 `event.isComposing` 与 `keyCode === 229` 保护；普通 Enter、Shift+Enter、菜单选择和 Ctrl/Meta+Enter 合同不变。该组件被 Agent Composer 和 NovelPromptBar 共用，因此两条实际链路一起获得组合态保护。
+- `AgentComposer` 将 readonly、pending、未解析稳定图片、metadata error 和 budget error 收口为同一内部提交门禁，发送按钮与键盘 `send/steer/followup` 均消费该状态；停止按钮继续使用独立的 readonly-run 分支。
+- `AgentChatSurface` 为 prompt、steer 和 followup 共用附件解析错误出口。解析失败只发出通知并返回，不创建 `clientMessageId`、乐观消息、admission watcher 或 Session invoke。
+- 不扩展到 Markdown Studio/Monaco，不修改 API、DTO、数据库、图片事务模型或新增测试文件。
+
+### 复杂度取舍与计划差异
+
+1. 没有建立全局快捷键框架；组合态规则只放在本次实际复用的 `ReferencePlainTextEditor`，避免为未触发本问题的编辑器提前扩张范围。
+2. 没有复制图片门禁到多个调用点；按钮与键盘共享同一 computed 状态，后续新增客户端阻止条件只需维护一个边界。
+3. 继续遵守不新增测试的约束；通过现有聚焦测试、SFC 编译探针和 typecheck 验证，真实输入法与浏览器交互仍由用户验收。
+
+### Verification
+
+- `bun run generate`：通过，生成 SQLite 与 Project Prisma Client。
+- `bun run nuxt:prepare`：通过，生成 Vitest global setup 所需的 `.nuxt` tsconfig。
+- 既有聚焦回归：`useComposerImageTransaction.test.ts`、`agent-invocation-reconciliation.test.ts`、`agent-composer-draft.test.ts`，3 files / 16 tests 通过。
+- Vue SFC 编译探针：`ReferencePlainTextEditor.vue`、`AgentComposer.vue`、`AgentChatSurface.vue` 均通过。
+- `bun run typecheck`：通过，退出码 0。
+- 首次未执行 `nuxt prepare` 的测试尝试因仓库 global setup 找不到 tsconfig 失败；补齐生成文件后重跑通过，该失败不是本次代码断言失败。
+- 浏览器待验收：Windows 中文输入法选字、折叠/展开、空闲/运行中、Enter/Shift+Enter/Ctrl+Enter/Meta+Enter，以及图片校验失败时按钮与键盘入口一致阻止。

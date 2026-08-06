@@ -17,6 +17,7 @@ import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentSystemPromptPanel from "nbook/app/components/novel-ide/agent/AgentSystemPromptPanel.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
+import AgentWorkflowPendingPanel from "nbook/app/components/novel-ide/agent/AgentWorkflowPendingPanel.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
@@ -30,6 +31,7 @@ import {
     AgentSurfaceOperationController,
     isAgentSurfaceSupersededError,
     projectAgentComposerAvailability,
+    recoverMissingSessionSelection,
     watchAgentSurfaceActivation,
     type AgentComposerAvailability,
     type AgentComposerAvailabilityAction,
@@ -41,11 +43,11 @@ import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-i
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
-import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import {promptCacheHitRate, type PromptCacheUsage} from "nbook/app/utils/prompt-cache";
 import type {ConfigBootstrapDto, ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionAttachmentItemDto, AgentSessionInteractionDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionAttachmentItemDto, AgentSessionAttachmentResolveResultDto, AgentSessionInteractionDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
@@ -179,6 +181,7 @@ let defaultProfileResolveRequest = 0;
 let inlineEditorSessionRequestId = 0;
 let inlineEditorRecoveryRequestId = 0;
 let sessionAttachmentRequestId = 0;
+let sessionAttachmentGeneration = 0;
 let historyAttachmentInsertRequestId = 0;
 let sessionAttachmentSearchTimer: ReturnType<typeof setTimeout> | null = null;
 let composerDraftWarning = "";
@@ -1069,9 +1072,10 @@ async function clearComposerAfterAccepted(
     }
 }
 
-/** 重置附件分页状态；Session 切换时旧请求通过 requestId 失效。 */
+/** 重置附件分页状态；目录请求通过 requestId、Composer metadata 请求通过 generation 失效。 */
 function resetSessionAttachments(): void {
     sessionAttachmentRequestId += 1;
+    sessionAttachmentGeneration += 1;
     sessionAttachments.value = [];
     knownSessionAttachments.value = [];
     sessionAttachmentUniqueTotal.value = 0;
@@ -1094,6 +1098,7 @@ function invalidateSessionAttachments(): void {
         return;
     }
     sessionAttachmentRequestId += 1;
+    sessionAttachmentGeneration += 1;
     sessionAttachmentLoading.value = false;
     knownSessionAttachments.value = [];
     void loadSessionAttachments(true);
@@ -1203,9 +1208,10 @@ function insertSessionAttachment(item: AgentSessionAttachmentItemDto): void {
  */
 const loadSession = async (
     sessionId: number,
-    options: {attempt?: AgentSurfaceActivationAttempt} = {},
+    options: {attempt?: AgentSurfaceActivationAttempt; recoverMissing?: boolean} = {},
 ): Promise<boolean> => {
     const attempt = options.attempt ?? surfaceActivation.begin(sessionScopeKey.value);
+    const previousSessionId = activeSessionId.value;
     if (!options.attempt) {
         beginSurfaceOperations(attempt.scopeKey);
     }
@@ -1252,11 +1258,43 @@ const loadSession = async (
         if (!acceptsActivation(attempt) || activeSessionId.value !== sessionId) {
             return false;
         }
-        console.error(`加载 session ${String(sessionId)} 失败`, error);
         sessionStream.stop();
         activeSessionId.value = null;
         session.reset();
         syncSessionModelState(null);
+        if (resolveApiErrorCode(error) === "SESSION_NOT_FOUND" && options.recoverMissing !== false) {
+            if (readLastSessionId() === sessionId) {
+                localStorage.removeItem(`agent:last-session:${sessionMemoryScopeKey.value}`);
+            }
+            try {
+                const recovery = await recoverMissingSessionSelection({
+                    failedSessionId: sessionId,
+                    previousSessionId,
+                    accepts: () => acceptsActivation(attempt),
+                    refresh: () => refreshSessions(attempt),
+                    load: (fallbackSessionId) => loadSession(fallbackSessionId, {attempt, recoverMissing: false}),
+                });
+                if (recovery.status === "superseded" || recovery.status === "load_failed") {
+                    return false;
+                }
+                if (recovery.status === "empty") {
+                    surfaceActivation.markEmpty(attempt, sessionScopeKey.value);
+                    notification.warning("目标对话不在当前打开的 NeuroBook 中，当前没有可用对话。", {title: "对话已失效"});
+                    return false;
+                }
+                notification.warning("目标对话不在当前打开的 NeuroBook 中，已切换到可用对话。", {title: "对话已切换"});
+                return true;
+            } catch (refreshError) {
+                if (!acceptsActivation(attempt)) {
+                    return false;
+                }
+                console.error("失效 Session 的列表恢复失败", refreshError);
+                const message = notifyAgentError(refreshError, "目标对话已失效，刷新对话列表失败");
+                surfaceActivation.markError(attempt, sessionScopeKey.value, message);
+                return false;
+            }
+        }
+        console.error(`加载 session ${String(sessionId)} 失败`, error);
         const message = notifyAgentError(error, t("agent.chatSurface.loadSessionFailed"));
         surfaceActivation.markError(attempt, sessionScopeKey.value, message);
         return false;
@@ -1351,6 +1389,11 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
         return;
     }
     await syncActiveSessionRecovery("invoke_error_fallback");
+    // 用户取消不是错误：气泡上已经有「已停止生成」标记，这里再弹通知既重复，又会把
+    // result.error 里的英文技术文本（"invocation aborted" / provider 原文）带到界面上（Task 139）。
+    if (result.aborted) {
+        return;
+    }
     if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
         notification.error(result.error ?? t("agent.chatSurface.runFailed"), {title: t("agent.chatSurface.runFailed")});
     }
@@ -1378,7 +1421,11 @@ const handleInlineEditorInvokeResult = async (
     if (!acceptsSurfaceOperation(owner, sessionId)) {
         return {status: "superseded"};
     }
-    inlineEditorResultText.value = result.error ?? t("agent.chatSurface.runFailed");
+    // 取消同样走这个分支（停止按钮和 in-flight 阻塞 invoke 谁先返回是竞态），
+    // 但结果条不能显示 result.error 里的英文技术文本，用和停止按钮一致的说法（Task 139）。
+    inlineEditorResultText.value = result.aborted
+        ? t("agent.chatSurface.stopped")
+        : result.error ?? t("agent.chatSurface.runFailed");
     throw new Error(inlineEditorResultText.value);
 };
 
@@ -1517,7 +1564,9 @@ const submitPendingUserInput = async (): Promise<void> => {
         }
         publishPendingSubmissionIssue(operation, {
             kind: "error",
-            message: result.error || t("agent.chatSurface.submitAnswersFailed"),
+            message: result.aborted
+                ? t("agent.chatSurface.stopped")
+                : result.error || t("agent.chatSurface.submitAnswersFailed"),
         });
     } catch (error) {
         if (!acceptsPendingUserInputOperation(operation)) return;
@@ -1658,7 +1707,7 @@ const cycleAgentMode = async (): Promise<void> => {
 async function resolveComposerAttachmentItems(
     sessionId: number,
     markdown: string,
-): Promise<AgentSessionAttachmentItemDto[]> {
+): Promise<AgentSessionAttachmentItemDto[] | null> {
     const attachmentIds = [...new Set(parseAgentImageMarkdown(markdown).flatMap((part) => {
         if (part.type !== "image") {
             return [];
@@ -1669,7 +1718,24 @@ async function resolveComposerAttachmentItems(
     const byId = new Map(knownSessionAttachments.value.map((item) => [item.attachment.attachmentId, item]));
     const missingIds = attachmentIds.filter((attachmentId) => !byId.has(attachmentId));
     if (missingIds.length > 0) {
-        const resolved = await agentApi.resolveSessionAttachments(sessionId, missingIds);
+        const requestScopeKey = sessionScopeKey.value;
+        const requestSessionId = sessionId;
+        const requestGeneration = sessionAttachmentGeneration;
+        const isCurrent = (): boolean => sessionScopeKey.value === requestScopeKey
+            && activeSessionId.value === requestSessionId
+            && sessionAttachmentGeneration === requestGeneration;
+        let resolved: AgentSessionAttachmentResolveResultDto;
+        try {
+            resolved = await agentApi.resolveSessionAttachments(sessionId, missingIds);
+        } catch (error) {
+            if (!isCurrent()) {
+                return null;
+            }
+            throw error;
+        }
+        if (!isCurrent()) {
+            return null;
+        }
         rememberSessionAttachments(resolved.items);
         for (const item of resolved.items) {
             byId.set(item.attachment.attachmentId, item);
@@ -1679,6 +1745,20 @@ async function resolveComposerAttachmentItems(
         const item = byId.get(attachmentId);
         return item ? [item] : [];
     });
+}
+
+/** 附件 metadata 失败时不能进入乐观消息或 Session invoke。 */
+async function prepareComposerAttachmentItems(
+    sessionId: number,
+    markdown: string,
+): Promise<AgentSessionAttachmentItemDto[] | null> {
+    try {
+        return await resolveComposerAttachmentItems(sessionId, markdown);
+    } catch (error) {
+        console.error("校验 Agent 消息图片附件失败", error);
+        notifyAgentError(error, "校验 Session 图片失败");
+        return null;
+    }
 }
 
 /** 等待 durable user entry 或 queue item，二者都是输入已接受的 SSE 旁证。 */
@@ -1763,7 +1843,10 @@ const send = async (): Promise<void> => {
     }
 
     const prompt = inputText.value;
-    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    const attachmentItems = await prepareComposerAttachmentItems(sessionId, prompt);
+    if (!attachmentItems) {
+        return;
+    }
     if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
         return;
     }
@@ -1931,7 +2014,10 @@ const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => 
     }
     const sessionId = activeSessionId.value;
     const prompt = inputText.value;
-    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    const attachmentItems = await prepareComposerAttachmentItems(sessionId, prompt);
+    if (!attachmentItems) {
+        return;
+    }
     if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
         return;
     }
@@ -2074,6 +2160,21 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
             return true;
         }
         await renameSession(activeSessionId.value, title);
+        return true;
+    }
+    if (command === "/fork") {
+        if (!activeInteraction.value.canMutateHistory) {
+            return true;
+        }
+        try {
+            // fork 只以同 Profile 开一条新线并记录出处，不复制历史；同一会话内换版本请用消息上的分支切换。
+            const result = await agentApi.runCommand(activeSessionId.value, {command: "fork"});
+            await applyCommandResult(result);
+            notification.info(t("agent.chatSurface.forkCreated"), {title: t("agent.chatSurface.forkTitle")});
+        } catch (error) {
+            console.error("分叉 Session 失败", error);
+            notifyAgentError(error, t("agent.chatSurface.forkFailed"));
+        }
         return true;
     }
     if (command === "/summarize") {
@@ -2630,11 +2731,15 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
     }
 };
 
-const rollbackMessage = async (message: AgentMessage): Promise<void> => {
+/**
+ * 从这条消息新开一条分支：只把 active leaf 移到该消息，不删除任何历史。
+ * 原来的后续内容留在原地成为一条非活动分支，可通过气泡上的分支切换器切回。
+ */
+const branchFromMessage = async (message: AgentMessage): Promise<void> => {
     if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
-    const confirmed = await confirm(t("agent.chatSurface.rollbackConfirm"), t("agent.chatSurface.rollbackTitle"));
+    const confirmed = await confirm(t("agent.chatSurface.branchFromHereConfirm"), t("agent.chatSurface.branchFromHereTitle"));
     if (!confirmed) {
         return;
     }
@@ -2647,10 +2752,10 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
         session.applyLiveState(result.state);
         await syncMutationRecovery();
         cancelEditingMessage();
-        notification.success(t("agent.chatSurface.rollbackSuccess"));
+        notification.success(t("agent.chatSurface.branchFromHereSuccess"));
     } catch (error) {
-        console.error("回退消息失败", error);
-        notifyAgentError(error, t("agent.chatSurface.rollbackFailed"));
+        console.error("从消息分叉失败", error);
+        notifyAgentError(error, t("agent.chatSurface.branchFromHereFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -3411,11 +3516,13 @@ function saveLastSessionId(sessionId: number): void {
                 @cancel-edit="cancelEditingMessage"
                 @save-edit="void saveEditedMessage($event)"
                 @retry="void refreshMessage($event)"
-                @delete="void rollbackMessage($event)"
+                @branch-from-here="void branchFromMessage($event)"
                 @cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
                 @load-previous="void loadPreviousHistory()"
                 @attachment-registered="registerSessionAttachment"
             />
+
+            <AgentWorkflowPendingPanel :session-id="activeSessionId" />
 
             <AgentComposer
                 :key="composerContextGeneration"
