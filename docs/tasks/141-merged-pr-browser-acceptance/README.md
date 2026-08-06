@@ -105,6 +105,44 @@
 - 仓库根 `cache/image-variants` 现有两个 WebP，时间为 2026-08-05 15:50；本次模型声明不支持图片输入，没有生成新的变体。
 - 该现象与“原图位置正确、图片变体可能落在仓库根 cache”一致。不要直接删除现有缓存；Source Dev 的 canonical State Root / Cache Root 仍需单独决定并补回归测试。
 
+### 2026-08-05：leader.default Harness 自查复核
+
+本节复核 Project `ming-ding-zhi-shi-2` 中 `leader.default` session 834 的自查报告。持久化 Session、trace、Job 和 Project SQLite 证据支持其主要工具闭环结论，但原报告对模型故障、Git Bash、writer brief 和清理范围的定性过于乐观。本节只记录证据，没有修改模型配置、业务代码或 Project 数据。
+
+#### P1：当前 Workspace Root 的 Profile 模型覆盖不可用
+
+- [Workspace Root 配置](../../../workspace/.nbook/config.json:5)的全局默认模型是 `opencode/deepseek-v4-flash`，但 `retrieval`、`researcher`、`summarizer` 和 `memory.curator` 都显式覆盖为 `xiaomi-token-plan-cn/mimo-v2.5-pro`；目标 Project 没有进一步覆盖这些模型。
+- retrieval session 837 两次、session 839 一次、researcher session 840 一次，共 4 次默认调用均在首个模型轮次返回 `503 Gateway Error: 没有可用的内网节点`，每次都是 0 token。session 839 和 840 显式改用 `opencode/deepseek-v4-flash` 后立即进入正常工具调用并完成任务。
+- 原报告漏掉了 summarizer session 836：它从 15:52 到 19:06 共记录 9 次同类 503，全部是 0 token，说明当前长会话的自动摘要也持续失败。
+- `memory.curator` 使用相同显式覆盖，因此列为同配置风险；本轮没有它的当前实调证据，不能写成已复现故障。
+- 运行时按 Profile 覆盖选择模型的行为正确，问题是当前持久化配置选择了没有可用节点的模型。当前定级为 **P1 配置阻塞**，不归因于五个已合并 PR，也不建议运行时静默换模型；应恢复继承全局默认模型或显式选择可用模型，再分别验证 retrieval、researcher 和 summarizer。
+
+#### P2：retrieval 内置 Git Bash 命令并不安全
+
+- [retrieval Profile](../../../assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx:69)固定要求先执行 `rg --files | rg '(^|/)index\.md$' | workspace node parse --stdin --ndjson`。在真实 Git Bash 中，MSYS 会把正则参数里的裸 `/` 改写成包含 Git 安装目录的路径；最小输入 `lorebook/foo/index.md` 因而无匹配，命令退出码为 1。相同输入改用 `grep -E` 或把正则放进文件后可以匹配。
+- [Profile 测试](../../../server/agent/profiles/leader-assets-profile.test.ts:394)把该字符串断言为“Git Bash 安全”，但只检查提示词包含文本；[bash 配置测试](../../../server/agent/tools/file-tools.test.ts:879)实际执行的是不含 `/` 的 `rg 'index.md$'`。本轮两个 focused 测试分别为 1 项通过、14 项跳过和 1 项通过、48 项跳过，但它们没有覆盖真实失败模式，不能作为该命令可用的证据。
+- `MSYS_NO_PATHCONV=1` 不是可接受的全局修复：Agent bash 注入的 `RIPGREP_CONFIG_PATH` 使用 Git Bash 路径，需要 MSYS 转换。后续代码修复建议把固定命令改为 `rg --files -g 'index.md' | workspace node parse --stdin --ndjson`，并增加真实 Git Bash 执行回归。本 Task 不修改 Profile 或测试。
+
+#### 正常合同、设计行为与 Project 数据问题
+
+- `workspace project validate` 的参数是 Workspace Root 下的 Project slug，`.` 是保留目录名，拒绝它符合 [Project locator 合同](../../../server/workspace-files/project-identity.ts:180)。`workspace node validate` 同时支持直接路径和 `--stdin`；自查中 `printf` / `grep` 管道验证通过，原 `rg '(^|/)...'` 管道失败归入上述 Git Bash 缺陷，不归因于 CLI。
+- World Engine 首写 subject 时注入 schema default 初始化 patch 是正式设计，本轮对应 Vitest 为 1 项通过、26 项跳过。编辑已有 patch 时应先读取完整切面并按 `patchId` 精确定位；“同路径永远取最后一条”只描述特定 reduce 结果，不能替代公开编辑合同，且 `editPatches` 后原 patchId 会失效。
+- t99 验收线的 3 个场景 6、7、8 当前都没有完整时间锚点；其中挂在被测章节上的场景 6、8 直接令 brief 进入 `needs_world_anchor`。这证明 brief 状态机工作正常，但 [writer brief 合同](../../../reference/plot/writer-brief.md:48)明确要求非 `ready` 时先补齐再交接，因此不能写成“不影响主章写作”。这是历史测试数据对当前 Project 写作门禁的真实污染，不是编译器缺陷。
+
+#### 清理边界复核
+
+- 当前 `WorldSubject`、`WorldPatch`、`StoryThread`、`StoryScene`、`StoryPromise`、`StoryPromiseBeat`、`StoryDecision`、`StoryChapter` 八张业务表中，带 `test-harness` 标记的记录均为 0；`.agent/harness-test` 不存在。
+- session 834 的持久化结果确认测试 Agent 835、837、838、839、840 均已 detach。后台 bash `job_6690a953` 为 `cancelled/accepted`，Workflow `job_e88671a3` 为 `completed/accepted`，没有活动测试任务。
+- Session 835-841、对应 trace 和 `jobs.jsonl` 审计记录按设计仍保留；SQLite 自增序列也已经前进，例如 `StoryChapter seq=4/max=2`、`StoryScene seq=10/max=8`。此外，本轮主动删除了测试前已存在的 `test-harness-entity`，所以数据库并未回到严格的测试前状态。
+- 没有测试前快照，无法独立证明所有真实业务数据从未被写过或恢复到字节级基线。可以确认的窄结论是：**没有活动任务或本轮 `test-harness` 业务实体残留**。
+- 仍存在 8 个历史验收实体：`【测试】临时场景`、t99 验收线及其 3 个场景、`【测试】薇洛丝-艾丽西亚关系线`、`【测试】项链的力量`、`【测试】第二章走向`。它们均保留，建议在用户明确授权后统一清理；本轮不删除。
+
+#### 复核结论
+
+- 持久化证据支持文件、SQL、Plot、World Engine、Agent 调度、后台任务和 Workflow 的主要冒烟闭环；这不等于每条竞态、恢复路径或跨进程合同均已验证。
+- 当前没有从这次自查新增 P0，但存在 1 个 P1 当前配置阻塞、1 个 P2 Git Bash 代码缺陷，以及会阻断 writer brief `ready` 的历史测试数据。
+- 当前配置下不能称 Harness “完全健康”，也不能据此关闭 Task 140 已确认的 Session 关联资源恢复、失败后重复恢复、Workflow 结果崩溃丢失窗口和停止失败无用户提示四个 P1。
+
 ### 本轮结论
 
 - #64：核心页面通过。
@@ -112,6 +150,7 @@
 - #59：键盘基本分支、PNG 类型门禁和附件原图路径通过；IME、metadata、预算边界未验证。
 - #63：停止、取消投影、历史错误和刷新恢复部分通过；复杂竞态仍未关闭。
 - #65：入口和历史 Workflow/Jobs 展示可见；关键等待、投递、隔离和结果回流场景未验证。
+- leader.default Harness 自查支持主要工具冒烟闭环，但模型配置 P1、Git Bash P2、历史测试数据门禁和 Task 140 的四个 P1 均未关闭。
 - 当前不能宣称五个 PR 的浏览器验收全部完成，也不能把本地环境中未出现任务误报成 Workflow 产品失败。
 
 ## TODO / Follow-ups
@@ -119,5 +158,7 @@
 - [x] 完成 #64、#61、#59、#63、#65 的第一轮直接浏览器审查，并区分通过与未验证。
 - [x] 记录图片缓存路径的浏览器/文件系统关联证据，不直接删除现有缓存。
 - [x] 对复杂或不确定的失败场景保留主代理集中复核结论。
+- [x] 复核 leader.default Harness 自查，区分配置阻塞、代码缺陷、正常合同、历史数据与清理证据边界。
+- [ ] 等待用户决定是否清理 8 个历史验收实体；未获授权前保持原状。
 - [ ] 输出人话版 PR 功能报告和审查清单；P0/P1 未解决时不宣称本轮发布完成。
 - [x] 核对本轮真实模型声称生成的 `.agent/browser-enter-audit.md`；文件实际不存在，不清理用户已有的 `cache/` 或 Workspace 附件。
