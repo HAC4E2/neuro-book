@@ -1,4 +1,4 @@
-# Task 135 文生图浏览器走查清单
+# Task 142 文生图浏览器走查清单
 
 > 执行前提：启动本地 dev server，登录后打开一个 Project，并提前准备好可用的 OpenAI 兼容 LLM Provider 与 NovelAI Provider（真实凭据）。
 

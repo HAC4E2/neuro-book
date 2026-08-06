@@ -7,7 +7,7 @@
 
 - `docs/research/st-chatu8-capability-matrix.md`：chatu8 全部能力清单 + LLM 生图链路（移植逐项对照）。
 - `.agent/workspace/chatu8-presets/`：用户导出的 4 个 chatu8 上下文预设 JSON（+5 个旧版），即**已调教好的 LLM 输出契约**（正文生图五要素 `<image>`、`${}$` 角色调用、`<人物>/<服装>` 12+4 字段）；解析见能力矩阵第 12 节。
-- `docs/tasks/135-text-to-image-chatu8-port/README.md`：本计划。
+- `docs/tasks/142-text-to-image-chatu8-port/README.md`：本计划。
 - 参考源码：`/c/Users/admir/Desktop/Pi/neuro-book/.agent/st-chatu8/`（html/settings/*.html + index.js + tagData）。
 
 ## User Request / Topic
