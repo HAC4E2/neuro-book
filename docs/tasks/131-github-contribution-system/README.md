@@ -167,6 +167,26 @@
 - 本轮没有修改 `bun.lock`，没有触碰 Product Platform、发布工作流、branch rules 或 required-check 策略；早期审查为避免夹带 Task 129/130 在途实现而做的状态行索引补丁没有覆盖工作副本，后续对应任务提交已使这些状态行重新出现在远端，当前工作副本仍保留用户的完整改动。
 - 按仓库规则没有自动进行浏览器验收；Issue chooser 的登录后桌面/窄屏视觉检查，以及确认只显示一个原生 Security 入口，继续留作人工验收。
 
+## PR-Intent and Claimed Follow-up (2026-08-07)
+
+### Findings and Decisions
+
+- 2026-08-06 远端标签色板已按维度统一（type 蓝、status 绿、area 紫、platform 灰、pr 黄、priority 橙、source 粉），但 `.github/labels.yml` 未同步，且 `pr:*`、`priority:*` 六个标签从未登记进清单，`github:labels check` 持续报告元数据漂移与清单外标签。本次把清单对齐当前远端色板并补登缺失标签，恢复清单作为真相源。
+- 为减少重复 PR，四个表单（bug、feature、prompt、other）新增必选下拉 `pr-intent`：创建者声明是否愿意实现并提交 PR；support 问答表单不涉及代码实现，不添加。
+- 新增 `status: claimed` 作为实现授权信号：创建者在表单中声明愿意实现且范围确认后，维护者添加该标签作为授权，创建者才开始实现。已 `claimed` 的 Issue 不并行实现，重复 PR 会关闭或择优合并。
+
+### Implementation
+
+- `.github/labels.yml` 新增 `status: claimed`（绿 `0E8A16`），补登 `pr: pending-review`、`pr: blocked`、`priority: urgent/high/normal/low`，并把全部标签颜色对齐当前远端色板。
+- `01-bug-report.yml`、`02-feature-request.yml`、`03-prompt-contribution.yml`、`99-other-request.yml` 在隐私确认前插入必选 `pr-intent` 下拉；`04-support-request.yml` 不变。
+- 中英文贡献指南在「开始之前」「维护者分流」「Pull Request 要求」三处同步 `status: claimed` 与重复 PR 合同。
+
+### Verification
+
+- `bun run github:labels -- apply --yes` 创建 `status: claimed` 并保持其余标签与远端一致；`bun scripts/ci/validate-community-files.ts` 通过，标签清单、五个表单和 YAML 合同成立。
+- `bun run github:labels -- check` 的标签清单合同通过；开放 Issue 分流仍可能因未分流 Issue（如 #71 缺 type/status）报告违规，属独立分流事项。
+- 按仓库规则不自动执行浏览器验收；新表单字段在 Issue chooser 的实际呈现留作人工验收。
+
 ## TODO / Follow-ups
 
 - 修复类型检查和全量测试基线后，再讨论 required checks 与 `master` ruleset。

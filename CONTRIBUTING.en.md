@@ -11,6 +11,7 @@ Choose the path that matches the size of the change:
 - Typo fixes, broken links, and small documentation corrections that do not change meaning may go directly to a PR.
 - A small, well-defined bug fix should reference an existing issue. Use “Bug report” first if no issue exists.
 - New features, cross-module changes, data-shape changes, runtime contract changes, and high-cost refactors require a “Feature request” first. Start implementation after a maintainer marks it `status: ready`.
+- If you state in the form that you plan to implement and submit a PR, wait for maintainer authorization (the `status: claimed` label) before starting, to avoid duplicating work that is already claimed or in progress.
 - Use “Prompts and built-in Agent assets” to improve or contribute Profiles, Skills, Workflows, and other prompts.
 - Installation and usage questions belong in the “Usage and installation question” form and do not need to move to an external community.
 - If none of the public categories fit, use the structured “Other issue” form. It is not a way to bypass private security reporting or required design discussion.
@@ -125,6 +126,7 @@ The five issue forms automatically add one `type:*` label and `status: needs-tri
 - Every open issue keeps exactly one `type:*` and one `status:*`. Add zero or more `area:*` and `platform:*` labels according to the actual impact.
 - `status: needs-triage` means the first review is pending. Move an issue to `status: needs-info` when information is missing, then triage it again after the reporter responds.
 - Use `status: needs-design` while direction, scope, or contracts remain unsettled; implementation must not start in this state. Move it to `status: ready` after a maintainer accepts a clear scope.
+- When a creator states in the form that they will implement and the scope is confirmed through discussion, move the issue to `status: claimed` as that creator's implementation authorization. `claimed` means a specific implementer is assigned; do not start a parallel implementation of the same issue.
 - Use `status: blocked` when an external condition or prerequisite prevents progress. Return to the most accurate state after the blocker clears.
 - Use `help wanted` and `good first issue` only with `status: ready`. A good first issue must also be small, self-contained, and have independently verifiable acceptance criteria.
 
@@ -163,6 +165,7 @@ docs(contributing): clarify task ownership
 Use the repository PR template and explain:
 
 - Link the issue when this guide requires one; write “none” for a small documentation fix that may go directly to a PR.
+- Confirm before starting that the issue is not claimed: do not submit a parallel implementation for an issue marked `status: claimed` or already assigned to someone else. Duplicate PRs may be closed or merged selectively.
 - What is in scope and explicitly out of scope.
 - User-visible behavior, implementation details, and affected contracts.
 - Exact verification commands and results.
