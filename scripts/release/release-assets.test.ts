@@ -733,6 +733,9 @@ describe("Product Release宿主合同", () => {
         const restartVerifier = (await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8")).replaceAll("\r\n", "\n");
         expect(restartVerifier).toContain("manifest.components.managerRuntime");
         expect(restartVerifier).toContain("manifest.components.manager.path");
+        expect(restartVerifier).toContain('AUTH_ADMIN_PASSWORD: ADMIN_PASSWORD');
+        expect(restartVerifier).toContain('"admin",\n        "create",\n        ADMIN_USERNAME,');
+        expect(restartVerifier).not.toContain('"--password-stdin"');
         expect(restartVerifier).toContain("--shutdown-on-stdin-end");
         expect(restartVerifier).toContain("acquireAgentSessionStoreExclusiveLease");
         expect(restartVerifier).toContain("const STARTUP_TIMEOUT_MS = 150_000;");
