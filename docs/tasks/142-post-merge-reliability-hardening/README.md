@@ -53,3 +53,38 @@
 - [ ] 调整 Source Dev Cache Root 与 Profile 窄屏布局。
 - [ ] 复核 retrieval、researcher、summarizer 的真实默认模型调用和 memory.curator 的静态继承配置。
 - [ ] 完成 Task 141 遗留浏览器场景和最终整体门禁。
+
+### 2026-08-07：实现完成与最终验证
+
+本 Task 的实现已经进入最终 `master` `7b69328ccb5b0b048f0edbd35b9ea7afdf9bdfd0`；下面的实现状态覆盖上方早期 TODO，早期记录保留用于追溯。
+
+#### 已完成实现
+
+- retrieval 固定命令改为 `rg --files -g 'index.md' | workspace node parse --stdin --ndjson`，并用真实 Bash 工具执行回归。
+- 停止请求失败复用统一错误解析和通知出口，不再只写控制台。
+- Agent Job 终态、完整 `result`、kind detail、Session/usage 摘要和稳定回流身份写入 `<Workspace Root>/.nbook/agent/jobs/<jobId>.json`；终态 durable commit 先于终态 SSE，旧 `jobs.jsonl` 只迁移 active 行。
+- 重启时 `running/waiting` 转为 `interrupted`；已完成 Job 重新出现在列表并可读取完整结果；损坏单文件隔离，`deliveryStatus=pending` 的 Job 不可被“清除已结束”删除。完整设计见 [ADR 0014](../../adr/0014-agent-job-durable-history.md) 和 [Agent Jobs reference](../../reference/agent/jobs.md)。
+- Session recovery 只把关联目标缺失计入 `unavailableLinkedAgents`，主 Session 仍保持可用；自动 recovery 按连接代和原因最多尝试一次，失败后清理 latch 并恢复连接状态。
+- Source Dev 未显式指定 Cache Root 时注入 `<checkout>/.agent/cache`；显式 Cache Root 保持原值，通用 runtime fallback 不改写。
+- 配置中心在小于 `md` 的视口使用上下布局和横向紧凑导航；桌面 220px 侧栏保持不变。
+- clean-runner 先生成 Prisma/Nuxt 产物，并修复 POSIX runner 的真实临时路径合同；cover 路由冷导入预算调整为 30 秒。
+
+#### 自动验证
+
+- `bun run generate`、`bun run typecheck`、`git diff --check`：通过。
+- Agent/Workflow/Composer/Settings/Cache/Session focused：11 个文件、82 项通过；补充 recovery/path/image focused：5 个文件、48 项通过。
+- 本地 Windows 默认 Vitest pool 全量为 `495 passed / 1 skipped / 1 failed`（`3442 passed / 14 skipped / 1 failed`）；唯一失败为 `subject-memory-tools.test.ts` 的 File Index 时序敏感用例。单文件 `16/16` 通过；`--pool=forks` 全量为 `496 passed / 1 skipped`、`3443 passed / 14 skipped`。这项差异记录为 runner 调度敏感性，不放宽生产路径校验。
+- GitHub PR #86 的 Typecheck、Full tests advisory 和 Linux/macOS Product checks 已成功；`bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts` 通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成了同一构建，因此该项的内容验证通过、临时目录清理仍受本机环境限制。
+- `bun run manager:test`：`38 passed / 1 skipped` 个文件，`281 passed / 3 skipped` 项；Manager typecheck、pack check 和 Desktop Contract `7 files / 29 tests` 通过。
+- `bun run manager:verify-public` 未通过，原因是公开 npm Manager 的 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 早于当前构建输入；本轮没有发布 Manager canary，因此该项保留为发布前置。
+
+#### 当前剩余边界
+
+- 真实 provider 驱动的 retrieval、researcher、summarizer 调用和 Composer/Workflow 浏览器流程仍需人工重跑；隔离浏览器根没有复制凭证。
+- 完整 Workflow Run 历史、断点续跑、逐步 journal、时间线和 pending ask 持久化不属于本 Task；重启后只保证 Job 终态和结果可读。
+- Source Dev 旧仓库根 `cache/image-variants` 不自动迁移或删除，详见 [0.9.3-canary 迁移指南](../../migrations/0.9.3-canary.md)。
+
+### 结论
+
+- 本 Task 的代码范围 P0/P1 已收口，未新增必须立即修复的 P2。
+- 发布前仍有两个明确门禁：公开 Manager provenance 尚未刷新，以及真实 provider/人工浏览器验收未完成；两项均不通过“静默 fallback”或伪造测试结果解决。

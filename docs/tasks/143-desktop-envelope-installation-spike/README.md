@@ -221,3 +221,9 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 同一 CI run 的根 Typecheck 与 Full tests advisory 失败来自既有基线：Typecheck 是 Prisma generated client/隐式 `any` 缺失，Full tests 是 POSIX runner 使用 `C:/...` 伪路径；没有把这些与本轮 Desktop Contract 修复混报为桌面回归。
 - 提交 `25d5df8a` 的 CI 已完成：Desktop Envelope Contract 在 macOS x64、macOS arm64、Windows x64 全部通过；Product Platform 在 Linux x64、Linux arm64、macOS x64、macOS arm64 全部通过；Community and Docs Checks 通过。Code Baseline 仍为 advisory failure，实际为 25 个 full-test 文件 / 79 个测试因 POSIX `C:/...` fixture 被绝对路径门禁拒绝，及既有 Prisma generated client、两个 `transactionClient` 隐式 `any`；不属于本轮桌面修复回归。
 - 提交 `906271b4` 的最终 CI 已完成：Desktop Envelope Contract 在 Windows x64、macOS x64、macOS arm64 全部通过；Product Platform 在 Linux x64、Linux arm64、darwin x64、darwin arm64 全部通过；Community and Docs Checks 通过。Code Baseline 仍为 advisory failure：Typecheck 仍是 Prisma generated client 缺失和两个 `transactionClient` 隐式 `any`；Full tests 为 464 passed、3 skipped，24 个文件 / 78 个测试失败，均由 POSIX runner 使用 `C:/...` 伪路径触发绝对路径门禁；不属于本轮桌面回归。
+## Final master integration review (2026-08-07)
+
+- Desktop Workbench 当前 master 整合提交为 `78a5f4b6433829fb8261a2c6ac4ff4de34646091`；它进入最终 master，但不代表 Electron/Tauri 已被选为正式生产方案。
+- 当前 focused Desktop Contract 为 `7 files / 29 tests` 通过；Manager 为 `38 files / 281 passed / 3 skipped`，根 typecheck、Electron/Tauri 合同和文档门禁均通过。
+- 真实 Portable、签名安装器、updater、WebView2 分发、Tauri 原生拖动/菜单/托盘/Snap、Docker 和完整跨平台 crash/disconnect 矩阵仍保持原有非目标边界。
+- 最终发布材料把 Desktop 定义为 Windows-first spike 已进入主线，不把它包装成正式安装器或最终框架决策。

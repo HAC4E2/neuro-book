@@ -82,6 +82,39 @@
 - [ ] 更新 P1/P2 风险清单与对应 Task/Issue 公开记录。
 - [ ] 在没有 P0/P1 或已明确阻塞转交之前，不宣称本轮完成。
 
+### 2026-08-07：最终 master 整体审查与收口
+
+- 最终 `master` 与 `origin/master` 均为 `7b69328ccb5b0b048f0edbd35b9ea7afdf9bdfd0`。本轮进入主线的最终收口提交包括：
+  - `95fd1b0e`：停止请求失败进入用户可见通知；
+  - `2e0c94a6`：Job 终态、完整结果和回流身份写入 durable history；
+  - `1c0a13d0`：主 Session 与关联 Session 恢复分离，并按连接代限制自动恢复；
+  - `78a5f4b6`：Desktop Workbench 当前 master 整合；
+  - `34f0a73e`：retrieval 的 Git Bash 安全路径枚举；
+  - `2fbfa232`、`23b2a20c`、`8d19f362`、`7b69328c`：窄屏、clean-runner、Source Dev Cache Root 和冷启动测试预算收口。
+- GitHub 状态核对为：#80、#82、#84、#85、#86 已合并；#47 仍为 `OPEN` 且 `CONFLICTING`，#17 仍为 `OPEN`；#47、#17 本轮均不合并、不关闭。#68、#70、#72、#74 的功能已由当前 master 的干净 replay 提交进入主线，但原来源 PR 仍保留为历史审查对象，不把“功能已进入 master”改写成“来源 PR 已合并”。
+
+#### 复核结论
+
+- 原 Task 140 确认的四个运行时 P1 已有主线修复和 focused 证据：停止失败通知、Job durable history、Session/关联 Session 恢复语义、失败后的 recovery latch 清理。
+- 最终只读审查未新增 P0/P1。Job durable store 的单文件原子写、终态先 commit 再 SSE、重启恢复、稳定回流身份、损坏文件隔离和“pending 不可清除”均由 `agent-job-manager.test.ts`、`agent-job-durable-store.test.ts` 覆盖。
+- 本地 Windows 默认 Vitest thread pool 的全量测试出现 1 个非稳定失败：`server/agent/tools/subject-memory-tools.test.ts` 中 `subject_memory_update 调用真实 memory.curator profile，应用 JSON Patch 并标记 dirty` 首次检查时未看到刚写入的 File Index 节点；该文件单独运行 `16/16` 通过，使用 `--pool=forks` 的全量测试为 `496` 个文件通过、`1` 个跳过，`3443` 项通过、`14` 项跳过。GitHub PR #86 的 `Full tests (advisory)`、Typecheck 和四个平台 Product checks 均为成功。本地默认 runner 结果记录为环境/调度敏感性，不修改生产合同或放宽测试断言。
+- `bun run manager:verify-public` 未通过，原文为 `当前Manager构建输入晚于npm公开gitHead 4225c05ee02721fe96492f711d3c74eede6b47f9`。这是当前 Manager 源码尚未发布到 npm 公开 `gitHead` 的发布前置阻塞；本轮明确不发布 Manager canary，因此不能写成 Manager 公开验证通过。
+
+#### 最终验证记录
+
+- `bun run generate`：通过。
+- `bun run typecheck`：退出码 0。
+- Agent/Workflow/Composer/Settings/Cache/Session focused：11 个文件、82 项通过；补充 recovery/path/image focused：5 个文件、48 项通过。
+- Desktop Contract：7 个文件、29 项通过；Manager test：38 个文件、`281 passed / 3 skipped`；Manager typecheck、pack check：通过。
+- `bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts`：通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成同一构建，故文档内容通过、临时目录清理保留为环境限制。
+- `git diff --check`：通过。
+
+### 当前收口口径
+
+- 代码审查发现的 P0/P1 已关闭或有明确的发布前置阻塞，不宣称五 PR 的所有真实 provider/人工浏览器场景已完成。
+- #47 的最小关联 Session 降级合同已经由 #80 的主线提交覆盖，但 #47 本身仍不合并；若未来重开，必须重新验证其未被覆盖的独立合同。
+- `manager:verify-public`、未配置真实 provider 的 Agent 浏览器场景、正式 Release/Tag/签名安装器仍是发布前置，不在本 Task 中伪造为已通过。
+
 ### 2026-08-05：图片缓存路径专项浏览器审查
 
 - **确认行为：当前 Source Dev 会把图片变体写入仓库根 `cache`。** 现场存在两个新生成的 WebP：

@@ -162,3 +162,41 @@
 - [ ] 等待用户决定是否清理 8 个历史验收实体；未获授权前保持原状。
 - [ ] 输出人话版 PR 功能报告和审查清单；P0/P1 未解决时不宣称本轮发布完成。
 - [x] 核对本轮真实模型声称生成的 `.agent/browser-enter-audit.md`；文件实际不存在，不清理用户已有的 `cache/` 或 Workspace 附件。
+
+### 2026-08-07：隔离根最终浏览器复核
+
+本轮使用隔离根：
+
+```text
+C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp\t142-final-browser-c179997cd42e47a68f354006862d2412
+```
+
+应用状态迁移以 `bun run migrate:application-state -- --apply` 完成；隔离 Source Dev 在 `http://127.0.0.1:3002/?project=t142-browser-acceptance` 启动，并创建了临时 Project `T142 Browser Acceptance`。没有对真实 Project `ming-ding-zhi-shi-2` 发起写入请求。
+
+#### 已取得的浏览器证据
+
+- Source Dev 能完成迁移后启动，书架能打开临时 Project，文件树和 Novel IDE 主界面可见。
+- World Engine Workbench 能读取 `world-engine/schema/index.ts`、`world-engine/calendar.ts`，显示“已同步”；创建 `world` subject 后页面显示 init Slice、主体状态、变更 patch 和检查器 JSON。
+- 配置中心桌面视口可打开 Agent Profile 模型页面；390×844 下配置中心改为上下布局，页面和 `document.body` 均为 `clientWidth=390 / scrollWidth=390`，没有文档级横向溢出。证据截图：[evidence-settings-mobile.png](../../.agent/tmp/t142-final-browser-c179997cd42e47a68f354006862d2412/evidence-settings-mobile.png)。
+- Agent 面板、Workflow 待处理区和 Jobs 入口可见；隔离 Project 没有真实模型，所以发送按钮保持禁用，避免伪造 provider 结果。
+
+#### 仍未验证的场景
+
+- 中文 IME Enter、Shift+Enter、Ctrl/Meta+Enter 的真实发送；图片 metadata 失败、32 MiB 预算和失败时不创建乐观消息。
+- 停止失败通知与真实 provider 异常、半截正文、慢工具停止、取消后重试和刷新恢复。
+- 主 Session 有效但关联 Session 缺失、重复 SSE recovery、手动恢复。
+- 多 Workflow Run 分别应答、`wf.ask` 重复提交、结果回流、状态图、Job 详情和重启后刷新恢复。
+
+这些场景需要真实可用的 provider、已有 Session 或可控的 Workflow demo 数据；本轮隔离 State Root 没有复制用户凭证，也没有将真实 Project 的数据带入测试。因此它们保持“未验证”，不写成失败，也不写成通过。对应逻辑由 Task 140/142 的 focused、重启和 durable store 测试旁证。
+
+#### 图片缓存复核口径
+
+- 本轮显式设置隔离 `NEURO_BOOK_CACHE_ROOT`，未产生新的仓库根 `cache` 业务文件。
+- Source Dev 默认路径由 `scripts/cli/source-dev.ts` 和 `shared/source-dev-launcher.test.ts` 固定为 `<checkout>/.agent/cache`；显式 `NEURO_BOOK_CACHE_ROOT` 仍按原值使用。
+- 旧的仓库根 `cache/image-variants` 不自动迁移、不在本 Task 删除；停服后由迁移指南提供人工清理方式。
+
+### 本轮最终结论
+
+- 本 Task 取得了隔离 Source Dev、Project、World Engine、Profile 设置桌面/窄屏的真实浏览器证据。
+- 本 Task 没有取得真实模型驱动的 Composer、取消/错误恢复和 Workflow/Jobs 全流程证据；因此不能宣称五个 PR 已完成“全量浏览器验收”。
+- 浏览器未验证项不构成当前代码 P0/P1；发布口径必须把它们列为人工/真实 provider 前置。
