@@ -227,3 +227,8 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 当前 focused Desktop Contract 为 `7 files / 29 tests` 通过；Manager 为 `38 files / 281 passed / 3 skipped`，根 typecheck、Electron/Tauri 合同和文档门禁均通过。
 - 真实 Portable、签名安装器、updater、WebView2 分发、Tauri 原生拖动/菜单/托盘/Snap、Docker 和完整跨平台 crash/disconnect 矩阵仍保持原有非目标边界。
 - 最终发布材料把 Desktop 定义为 Windows-first spike 已进入主线，不把它包装成正式安装器或最终框架决策。
+
+## 2026-08-07 Canary release boundary
+
+- `v0.9.3-canary.20260807.175842Z.771ac42b` 的公开 Product/Portable 资产通过了发布 workflow，但这些资产不把 Electron/Tauri spike 晋级为正式 Desktop 发行方案。
+- 签名安装器、updater、WebView2 分发、Tauri 原生 OS 行为、Docker 和最终框架选择仍是本 Task 的明确非目标；后续 Desktop 工作必须继续沿用 verified Product、State/Cache Root 和原生行为单列验收边界。

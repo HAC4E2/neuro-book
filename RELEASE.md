@@ -2,9 +2,9 @@
 
 这里只放当前版本。更早的版本见 [docs/changelog/](docs/changelog/)。
 
-## 0.9.3-canary（限量 canary，待发布） - 2026-08-07
+## 0.9.3-canary（限量 canary，已发布） - 2026-08-07
 
-这一版收口了 Agent 停止、会话恢复、后台任务结果和 Source Dev 缓存的几个可靠性边界，也补上了配置中心窄屏布局和 Windows-first Desktop 壳实验。本轮按限量 canary 准备：真实 provider 和人工 Agent/Workflow 全流程仍未完全验证，不把它们写成全流程通过；Manager provenance、发布 workflow 和公开资产验证仍是发布硬门禁。
+这一版收口了 Agent 停止、会话恢复、后台任务结果和 Source Dev 缓存的几个可靠性边界，也补上了配置中心窄屏布局和 Windows-first Desktop 壳实验。它已于 2026-08-07 以限量 canary 公开发布，tag 为 `v0.9.3-canary.20260807.175842Z.771ac42b`；真实 provider 和人工 Agent/Workflow 全流程仍未完全验证，因此不把它们写成全流程通过。
 
 ### 新功能
 
@@ -32,4 +32,4 @@
 - 重启后会保留已完成 Job 的结果，但不会续跑旧 Workflow，也不会持久化完整 Workflow 图、逐步时间线或 pending ask。
 - Source Dev 旧的仓库根 `cache/image-variants` 不会自动迁移或删除；停服、确认没有自定义 Cache Root 后，再按迁移指南人工清理。
 - 显式 Profile 模型覆盖不可用时，请恢复继承全局默认模型或选择已确认可用的模型；本版本不做静默 fallback。
-- 当前文档只准备 `0.9.3-canary`，没有修改 `package.json` 版本、创建 tag 或发布 GitHub Release。真实 provider 和全量 Agent/Workflow 浏览器验收是限量 canary 的已知未完成项；Manager provenance、发布 workflow、公开资产和 GHCR 验证仍必须通过。签名安装器和最终 Desktop 选型不属于本次发布承诺。
+- 本次公开发布对应 [GitHub Release](https://github.com/notnotype/neuro-book/releases/tag/v0.9.3-canary.20260807.175842Z.771ac42b)，Manager provenance 使用 `manager-v0.1.0-canary.52` 并已通过。真实 provider 和全量 Agent/Workflow 浏览器验收仍是限量 canary 的已知未完成项；签名安装器和最终 Desktop 选型不属于本次发布承诺。

@@ -84,7 +84,7 @@
 
 ### 2026-08-07：最终 master 整体审查与收口
 
-- 最终 `master` 与 `origin/master` 均为 `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`。本轮进入主线的最终收口提交包括：
+- 本次整体审查的代码基线为 `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`；其后的发布收口最终落在 `69313ad5ccc0e54203daeeebe69589f108fa3572`。本轮进入主线的最终收口提交包括：
   - `95fd1b0e`：停止请求失败进入用户可见通知；
   - `2e0c94a6`：Job 终态、完整结果和回流身份写入 durable history；
   - `1c0a13d0`：主 Session 与关联 Session 恢复分离，并按连接代限制自动恢复；
@@ -114,7 +114,7 @@
 
 - 代码审查发现的 P0/P1 已关闭或有明确的发布前置阻塞，不宣称五 PR 的所有真实 provider/人工浏览器场景已完成。
 - #47 的最小关联 Session 降级合同已经由 #80 的主线提交覆盖，但 #47 本身仍不合并；若未来重开，必须重新验证其未被覆盖的独立合同。
-- `manager:verify-public`、未配置真实 provider 的 Agent 浏览器场景、正式 Release/Tag/签名安装器仍是发布前置，不在本 Task 中伪造为已通过。
+- `manager:verify-public`、正式 Release/Tag 的硬门禁已经通过；未配置真实 provider 的 Agent 浏览器场景和签名安装器仍保持未完成，不在本 Task 中伪造为已通过。
 
 ### 2026-08-05：图片缓存路径专项浏览器审查
 
@@ -145,3 +145,9 @@
 - **#65（Workflow/Jobs feedback loop）：阻塞。** 浏览器连接成功但标签列表为空，未成功建立目标标签页，因此 waiting Composer、多 Run 隔离、结果回流、状态图、Job center、`wf.ask` 重复提交、usage、详情和刷新恢复全部未验证。
 
 **批次结论：** 当前本地 `localhost:3000` 浏览器验收环境不稳定，至少出现导航超时、页面运行时超时和标签页为空三类阻塞。该结果只说明五个 PR 尚未取得浏览器证据，不能归因到任何一个 PR 的业务代码。修复/重启本地服务并确认浏览器可稳定加载后，应按同一清单重跑五项；在此之前不能宣称五个 PR 浏览器验收完成。
+
+### 2026-08-07：发布门禁最终收口
+
+- Manager `0.1.0-canary.52` 的公开 provenance 已通过；`manager-v0.1.0-canary.52` 与最终 NeuroBook revision `69313ad5ccc0e54203daeeebe69589f108fa3572` 一致。
+- `v0.9.3-canary.20260807.175842Z.771ac42b` 已公开为 prerelease。Release workflow `31204827527` 的五平台 Product、Windows Portable、容器、公开 payload、GHCR、Windows data reuse 和 tag activation 全部通过。
+- 本 Task 的审查结论仍不等于完整人工浏览器验收；真实 provider 驱动的 Composer/Workflow、签名安装器和最终 Desktop 方案继续保持未完成边界。

@@ -135,7 +135,7 @@
 - session 834 的持久化结果确认测试 Agent 835、837、838、839、840 均已 detach。后台 bash `job_6690a953` 为 `cancelled/accepted`，Workflow `job_e88671a3` 为 `completed/accepted`，没有活动测试任务。
 - Session 835-841、对应 trace 和 `jobs.jsonl` 审计记录按设计仍保留；SQLite 自增序列也已经前进，例如 `StoryChapter seq=4/max=2`、`StoryScene seq=10/max=8`。此外，本轮主动删除了测试前已存在的 `test-harness-entity`，所以数据库并未回到严格的测试前状态。
 - 没有测试前快照，无法独立证明所有真实业务数据从未被写过或恢复到字节级基线。可以确认的窄结论是：**没有活动任务或本轮 `test-harness` 业务实体残留**。
-- 仍存在 8 个历史验收实体：`【测试】临时场景`、t99 验收线及其 3 个场景、`【测试】薇洛丝-艾丽西亚关系线`、`【测试】项链的力量`、`【测试】第二章走向`。它们均保留，建议在用户明确授权后统一清理；本轮不删除。
+- 2026-08-07 复核确认，先前列出的 8 个历史验收实体已经不存在；本轮不再执行额外删除，也不重置 SQLite 自增序列。
 
 #### 复核结论
 
@@ -159,7 +159,7 @@
 - [x] 记录图片缓存路径的浏览器/文件系统关联证据，不直接删除现有缓存。
 - [x] 对复杂或不确定的失败场景保留主代理集中复核结论。
 - [x] 复核 leader.default Harness 自查，区分配置阻塞、代码缺陷、正常合同、历史数据与清理证据边界。
-- [ ] 等待用户决定是否清理 8 个历史验收实体；未获授权前保持原状。
+- [x] 复核 8 个历史验收实体的当前状态；确认已不存在，不执行额外清理。
 - [ ] 输出人话版 PR 功能报告和审查清单；P0/P1 未解决时不宣称本轮发布完成。
 - [x] 核对本轮真实模型声称生成的 `.agent/browser-enter-audit.md`；文件实际不存在，不清理用户已有的 `cache/` 或 Workspace 附件。
 
@@ -200,3 +200,9 @@ C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp
 - 本 Task 取得了隔离 Source Dev、Project、World Engine、Profile 设置桌面/窄屏的真实浏览器证据。
 - 本 Task 没有取得真实模型驱动的 Composer、取消/错误恢复和 Workflow/Jobs 全流程证据；因此不能宣称五个 PR 已完成“全量浏览器验收”。
 - 浏览器未验证项不构成当前代码 P0/P1；按本轮限量 canary 决策，它们作为已知未完成的人工/真实 provider 验收记录，不写成全流程通过。
+
+### 2026-08-07：限量 canary 发布后的验收口径
+
+- `v0.9.3-canary.20260807.175842Z.771ac42b` 已公开，Release workflow `31204827527` 的平台、Portable、公开 payload、GHCR 和 Windows data reuse 硬门禁全部通过。
+- 这次发布不改变本 Task 对浏览器证据的边界：隔离 Source Dev、World Engine、Profile 桌面和 390×844 窄屏已有真实证据；真实 provider 驱动的 Composer、取消/错误恢复、Workflow/Jobs 多 Run 和重启人工流程仍标记为未验证。
+- 该限量 canary 不宣称完整人工 Agent/Workflow 验收通过；后续补验应继续使用隔离 State Root 和临时 Project，不把 focused 测试替代浏览器证据。

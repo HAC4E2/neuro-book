@@ -56,7 +56,7 @@
 
 ### 2026-08-07：实现完成与最终验证
 
-本 Task 的实现已经进入最终 `master` `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`；下面的实现状态覆盖上方早期 TODO，早期记录保留用于追溯。
+本 Task 的实现基线先进入 `master` `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`；随后补上 clean-runner 和 Windows Portable 发布验收修复，最终 canary revision 为 `69313ad5ccc0e54203daeeebe69589f108fa3572`。下面的实现状态覆盖上方早期 TODO，早期记录保留用于追溯。
 
 #### 已完成实现
 
@@ -89,3 +89,10 @@
 
 - 本 Task 的代码范围 P0/P1 已收口，未新增必须立即修复的 P2。
 - 发布前的硬门禁是公开 Manager provenance、发布 workflow、公开资产和 GHCR 验证；真实 provider/人工浏览器验收按限量 canary 作为已知未完成项，不通过“静默 fallback”或伪造测试结果掩盖。
+
+### 2026-08-07：0.9.3-canary 发布收口
+
+- Manager `0.1.0-canary.51` 曾在 clean runner 因缺少 `.nuxt/tsconfig.json` 失败；补上 `nuxt:prepare` 后，`manager-v0.1.0-canary.52` 发布成功，`bun run manager:verify-public` 通过。
+- NeuroBook 候选 `v0.9.3-canary.20260807.173243Z.673c4bde` 曾在 Windows Portable 验收中暴露真实合同错误：脚本把 `--password-stdin` 传给不支持该参数的 Manager `admin create`。修复为通过 `AUTH_ADMIN_PASSWORD` 由 Manager 按既有 stdin 合同转交 Product 后，重新创建候选。
+- 最终 `v0.9.3-canary.20260807.175842Z.771ac42b` 已公开；Release workflow `31204827527` 的 preflight、五平台 Product、Portable、容器、公开 payload、GHCR、Windows data reuse、`publish-index` 和 `activate-container-tags` 全部通过。
+- 发布后仍保留明确边界：完整 Workflow Run 历史/断点续跑不属于本 Task；真实 provider 驱动的 Composer/Workflow 人工流程未写成全量通过；Source Dev 旧仓库根 `cache/image-variants` 不自动迁移或删除。
