@@ -56,7 +56,7 @@
 
 ### 2026-08-07：实现完成与最终验证
 
-本 Task 的实现已经进入最终 `master` `7b69328ccb5b0b048f0edbd35b9ea7afdf9bdfd0`；下面的实现状态覆盖上方早期 TODO，早期记录保留用于追溯。
+本 Task 的实现已经进入最终 `master` `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`；下面的实现状态覆盖上方早期 TODO，早期记录保留用于追溯。
 
 #### 已完成实现
 
@@ -74,7 +74,7 @@
 - `bun run generate`、`bun run typecheck`、`git diff --check`：通过。
 - Agent/Workflow/Composer/Settings/Cache/Session focused：11 个文件、82 项通过；补充 recovery/path/image focused：5 个文件、48 项通过。
 - 本地 Windows 默认 Vitest pool 全量为 `495 passed / 1 skipped / 1 failed`（`3442 passed / 14 skipped / 1 failed`）；唯一失败为 `subject-memory-tools.test.ts` 的 File Index 时序敏感用例。单文件 `16/16` 通过；`--pool=forks` 全量为 `496 passed / 1 skipped`、`3443 passed / 14 skipped`。这项差异记录为 runner 调度敏感性，不放宽生产路径校验。
-- GitHub PR #86 的 Typecheck、Full tests advisory 和 Linux/macOS Product checks 已成功；`bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts` 通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成了同一构建，因此该项的内容验证通过、临时目录清理仍受本机环境限制。
+- GitHub PR #83 和 #86 的 Typecheck、Full tests advisory 和四个平台 Product checks 已成功；`bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts` 通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成了同一构建，因此该项的内容验证通过、临时目录清理仍受本机环境限制。
 - `bun run manager:test`：`38 passed / 1 skipped` 个文件，`281 passed / 3 skipped` 项；Manager typecheck、pack check 和 Desktop Contract `7 files / 29 tests` 通过。
 - `bun run manager:verify-public` 未通过，原因是公开 npm Manager 的 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 早于当前构建输入；本轮没有发布 Manager canary，因此该项保留为发布前置。
 

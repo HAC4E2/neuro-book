@@ -67,9 +67,9 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - 本文件更新未自动运行测试或浏览器验收；详细命令、通过数量和未运行项以对应 Task walkthrough 为准。
 ## 2026-08-07 最终 master 收口状态
 
-- 最终 `master` 与 `origin/master` 为 `7b69328ccb5b0b048f0edbd35b9ea7afdf9bdfd0`。#80、#82、#84、#85、#86 已合并；#47 仍开放且冲突、#17 仍开放，均不在本轮合并链。
+- 最终 `master` 与 `origin/master` 为 `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`。#80、#82、#83、#84、#85、#86 已合并；#68、#70、#72、#74、#81 已标记为被当前 master 的替代提交取代并关闭；#47 仍开放且冲突、#17 仍开放，均不在本轮合并链。
 - Agent Session recovery、停止反馈、Job durable history、Git Bash retrieval、Source Dev Cache Root、Profile 窄屏和 clean-runner 收口已进入主线；相关 P0/P1 代码审查项没有新增未处理项。
 - 最终浏览器证据覆盖隔离 Source Dev、临时 Project、World Engine subject/Slice、Profile 设置桌面和 390×844 窄屏。真实 provider 驱动的 Composer、取消/错误恢复、Workflow/Jobs 多 Run 和重启人工流程仍未验证，不能写成全量浏览器通过。
-- 本地 Windows 默认 Vitest pool 全量测试有 1 个时序敏感失败；单文件和 `--pool=forks` 全量通过。GitHub PR #86 的 Typecheck、Full tests advisory 和 Product checks 通过。该项保留为 runner 证据差异，不改生产合同。
+- 本地 Windows 默认 Vitest pool 全量测试有 1 个时序敏感失败；单文件和 `--pool=forks` 全量通过。GitHub PR #83 的 Typecheck、Full tests advisory 和四个平台 Product checks，以及 PR #86 的对应检查均通过。该项保留为 runner 证据差异，不改生产合同。
 - `bun run manager:verify-public` 仍被 npm 公开 Manager 的旧 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 阻塞；当前包版本仍为 `0.9.2-canary.20260805.125926Z.39d220b7`，本轮只准备 `0.9.3-canary` 文档，不改版本、不创建 tag、不发布 Release。
 - Task 143 Desktop 仍是 Windows-first Electron/Tauri spike：已通过共享 Workbench Chrome 和合同验证，但签名发行、updater、WebView2、Tauri 原生 OS 行为、Docker 和最终框架选择未完成。
