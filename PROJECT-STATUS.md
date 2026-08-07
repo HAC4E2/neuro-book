@@ -73,5 +73,5 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - 最终浏览器证据覆盖隔离 Source Dev、临时 Project、World Engine subject/Slice、Profile 设置桌面和 390×844 窄屏。真实 provider 驱动的 Composer、取消/错误恢复、Workflow/Jobs 多 Run 和重启人工流程仍未验证，不能写成全量浏览器通过。
 - 本地 Windows 默认 Vitest pool 全量测试有 1 个时序敏感失败；单文件和 `--pool=forks` 全量通过。GitHub PR #83 的 Typecheck、Full tests advisory 和四个平台 Product checks，以及 PR #86 的对应检查均通过。该项保留为 runner 证据差异，不改生产合同。
 - `bun run manager:verify-public` 仍被 npm 公开 Manager 的旧 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 阻塞；当前包版本仍为 `0.9.2-canary.20260805.125926Z.39d220b7`，本轮只准备 `0.9.3-canary` 文档，不改版本、不创建 tag、不发布 Release。
-- `0.9.3-canary` 当前按限量 canary 准备：计划先发布 Manager `0.1.0-canary.51` 刷新 provenance，再由 release workflow 完成公开资产与 GHCR 验证。真实 provider 和人工 Agent/Workflow 全流程作为已知未完成项记录，不写成全量通过。
+- `0.9.3-canary` 当前按限量 canary 准备：Manager `0.1.0-canary.52` 已发布并通过公开 provenance；随后由 release workflow 完成 NeuroBook 公开资产与 GHCR 验证。真实 provider 和人工 Agent/Workflow 全流程作为已知未完成项记录，不写成全量通过。
 - Task 143 Desktop 仍是 Windows-first Electron/Tauri spike：已通过共享 Workbench Chrome 和合同验证，但签名发行、updater、WebView2、Tauri 原生 OS 行为、Docker 和最终框架选择未完成。

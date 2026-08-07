@@ -76,7 +76,8 @@
 - 本地 Windows 默认 Vitest pool 全量为 `495 passed / 1 skipped / 1 failed`（`3442 passed / 14 skipped / 1 failed`）；唯一失败为 `subject-memory-tools.test.ts` 的 File Index 时序敏感用例。单文件 `16/16` 通过；`--pool=forks` 全量为 `496 passed / 1 skipped`、`3443 passed / 14 skipped`。这项差异记录为 runner 调度敏感性，不放宽生产路径校验。
 - GitHub PR #83 和 #86 的 Typecheck、Full tests advisory 和四个平台 Product checks 已成功；`bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts` 通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成了同一构建，因此该项的内容验证通过、临时目录清理仍受本机环境限制。
 - `bun run manager:test`：`38 passed / 1 skipped` 个文件，`281 passed / 3 skipped` 项；Manager typecheck、pack check 和 Desktop Contract `7 files / 29 tests` 通过。
-- `bun run manager:verify-public` 未通过，原因是公开 npm Manager 的 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 早于当前构建输入；本轮准备先发布 Manager `0.1.0-canary.51` 刷新 provenance，未通过前不创建 NeuroBook Release。
+- `manager-v0.1.0-canary.51` 的 GitHub `release-manager.yml` 首次在 clean runner 的 Manager test 阶段失败：18 个 suite 因缺少 `.nuxt/tsconfig.json` 报 `Failed to load tsconfig for '../../shared/product-runtime-receipt.ts': Tsconfig not found`；随后补上 Manager release workflow 的 `bun run nuxt:prepare` 和 contract 回归，发布 `manager-v0.1.0-canary.52` 成功。
+- `bun run manager:verify-public` 现已通过：公开 npm Manager `0.1.0-canary.52` 的 `gitHead=470ad7ad271f10996ec8eab182fa170e151c2be5` 与当前构建输入一致。
 
 #### 当前剩余边界
 
