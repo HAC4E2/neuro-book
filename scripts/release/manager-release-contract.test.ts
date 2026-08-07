@@ -11,6 +11,8 @@ type RootPackage = {
     devDependencies: Record<string, string>;
 };
 
+type ReleaseWorkflow = string;
+
 type GeneratedTsConfig = {
     extends?: string;
     include?: string[];
@@ -25,6 +27,10 @@ describe("Manager release clean-checkout contract", () => {
         const packageJson = JSON.parse(
             await readFile(resolve(ROOT, "package.json"), "utf8"),
         ) as RootPackage;
+        const releaseWorkflow = await readFile(
+            resolve(ROOT, ".github", "workflows", "release-manager.yml"),
+            "utf8",
+        ) as ReleaseWorkflow;
         const generatedTsConfig = JSON.parse(
             (await readFile(resolve(ROOT, "server", "generated", "tsconfig.json"), "utf8"))
                 .replace(/^\s*\/\/.*$/gmu, ""),
@@ -38,6 +44,10 @@ describe("Manager release clean-checkout contract", () => {
         expect(packageJson.scripts["runtime:typecheck"]).toMatch(/^bun run generate && /u);
         expect(packageJson.scripts["manager:test"]).toContain("scripts/release/manager-release-contract.test.ts");
         expect(packageJson.scripts["manager:test"]).toContain("--config scripts/release/manager-release-vitest.config.ts");
+        expect(releaseWorkflow.indexOf("bun run nuxt:prepare")).toBeGreaterThan(-1);
+        expect(releaseWorkflow.indexOf("bun run nuxt:prepare")).toBeLessThan(
+            releaseWorkflow.indexOf("bun run manager:test"),
+        );
         expect(packageJson.devDependencies["@types/mdast"]).toBeTruthy();
         expect(generatedTsConfig.extends).toBeUndefined();
         expect(generatedTsConfig.compilerOptions).toMatchObject({
