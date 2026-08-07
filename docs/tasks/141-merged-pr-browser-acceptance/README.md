@@ -177,7 +177,7 @@ C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp
 
 - Source Dev 能完成迁移后启动，书架能打开临时 Project，文件树和 Novel IDE 主界面可见。
 - World Engine Workbench 能读取 `world-engine/schema/index.ts`、`world-engine/calendar.ts`，显示“已同步”；创建 `world` subject 后页面显示 init Slice、主体状态、变更 patch 和检查器 JSON。
-- 配置中心桌面视口可打开 Agent Profile 模型页面；390×844 下配置中心改为上下布局，页面和 `document.body` 均为 `clientWidth=390 / scrollWidth=390`，没有文档级横向溢出。证据截图：[evidence-settings-mobile.png](../../.agent/tmp/t142-final-browser-c179997cd42e47a68f354006862d2412/evidence-settings-mobile.png)。
+- 配置中心桌面视口可打开 Agent Profile 模型页面；390×844 下配置中心改为上下布局，页面和 `document.body` 均为 `clientWidth=390 / scrollWidth=390`，没有文档级横向溢出。证据截图：[evidence-settings-mobile.png](./evidence/evidence-settings-mobile.png)。
 - Agent 面板、Workflow 待处理区和 Jobs 入口可见；隔离 Project 没有真实模型，所以发送按钮保持禁用，避免伪造 provider 结果。
 
 #### 仍未验证的场景
