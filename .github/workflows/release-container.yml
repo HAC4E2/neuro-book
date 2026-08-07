@@ -352,7 +352,9 @@ jobs:
         run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Windows Manager adapters
-        run: bun run manager:test
+        run: |
+          bun run nuxt:prepare
+          bun run manager:test
       - name: Verify Windows Owned Process lifecycle
         run: bun run --cwd packages/owned-process test && bun run test:windows-owned-process
       - name: Verify Agent State Root paths

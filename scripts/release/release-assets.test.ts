@@ -456,7 +456,10 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun run manager:test");
+        expect(windowsRun).toContain("bun run nuxt:prepare");
+        expect(windowsRun.indexOf("bun run nuxt:prepare")).toBeLessThan(
+            windowsRun.indexOf("bun run manager:test"),
+        );
     });
 
     it("正式POSIX Product消费路径保留归档中的文件权限", async () => {
