@@ -57,7 +57,8 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - **产品验收**：多项 Task 的 focused tests 和 typecheck 已通过，但浏览器人工验收、真实 Project Workspace、真实 provider/model 和作者视角写作 smoke 不能由单测替代。
 - **写作产品线**：下一阶段重点是 dogfooding、章节写作与修订反馈、World Engine 体验打磨，以及 `memory.jsonl` / `state.md` 是否显式提交等产品决策，见 [#21](https://github.com/notnotype/neuro-book/issues/21)。
 - **未决方向**：一次性对话模型接入见 [#19](https://github.com/notnotype/neuro-book/issues/19)；整书导入见 [#22](https://github.com/notnotype/neuro-book/issues/22)；Session 摘要空闲触发见 [#23](https://github.com/notnotype/neuro-book/issues/23)。
-- **维护成本**：仓库结构优化的后续批次暂缓，先处理 Workflow、Product Runtime 和生命周期链路的集成与验收，见 [Task 123](docs/tasks/123-repo-structure-optimization/README.md)。
+- **维护成本**：仓库结构优化的后续批次暂缓，先处理 Workflow、Product Runtime 和生命周期链路的集成与验收，见 [Task 123](docs/tasks/123-repo-structure-optimization/README.md)。当前 master 的结构复核另外确认：shared/Manager 有真实运行时依赖环（P1 候选）、shared/`server/agent` 有循环类型依赖（P2）、核心 Facade 单体偏大（P2），以及 OpenAPI 生成物仍写回路由源码（P2）；这些是架构债务，不是当前已复现的运行时故障，处理边界见 [ADR 0015](docs/adr/0015-architecture-boundaries-and-deferred-structure.md)。
+- **已接受的架构边界**：文件系统、Project SQLite、History SQLite、Session JSONL 和 Job JSON 不提供全局原子事务；Electron/Tauri spike 保留部分跨语言重复实现。当前不为这两项建设分布式事务框架或复杂跨语言运行时。
 - **上游依赖**：Nitro dev source-map 临时补丁等待上游稳定版实际包含修复后移除，见 [#20](https://github.com/notnotype/neuro-book/issues/20)。
 
 ## 验证口径
@@ -72,4 +73,5 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - 最终浏览器证据覆盖隔离 Source Dev、临时 Project、World Engine subject/Slice、Profile 设置桌面和 390×844 窄屏。真实 provider 驱动的 Composer、取消/错误恢复、Workflow/Jobs 多 Run 和重启人工流程仍未验证，不能写成全量浏览器通过。
 - 本地 Windows 默认 Vitest pool 全量测试有 1 个时序敏感失败；单文件和 `--pool=forks` 全量通过。GitHub PR #83 的 Typecheck、Full tests advisory 和四个平台 Product checks，以及 PR #86 的对应检查均通过。该项保留为 runner 证据差异，不改生产合同。
 - `bun run manager:verify-public` 仍被 npm 公开 Manager 的旧 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 阻塞；当前包版本仍为 `0.9.2-canary.20260805.125926Z.39d220b7`，本轮只准备 `0.9.3-canary` 文档，不改版本、不创建 tag、不发布 Release。
+- `0.9.3-canary` 当前按限量 canary 准备：计划先发布 Manager `0.1.0-canary.51` 刷新 provenance，再由 release workflow 完成公开资产与 GHCR 验证。真实 provider 和人工 Agent/Workflow 全流程作为已知未完成项记录，不写成全量通过。
 - Task 143 Desktop 仍是 Windows-first Electron/Tauri spike：已通过共享 Workbench Chrome 和合同验证，但签名发行、updater、WebView2、Tauri 原生 OS 行为、Docker 和最终框架选择未完成。

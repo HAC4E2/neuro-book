@@ -199,4 +199,4 @@ C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp
 
 - 本 Task 取得了隔离 Source Dev、Project、World Engine、Profile 设置桌面/窄屏的真实浏览器证据。
 - 本 Task 没有取得真实模型驱动的 Composer、取消/错误恢复和 Workflow/Jobs 全流程证据；因此不能宣称五个 PR 已完成“全量浏览器验收”。
-- 浏览器未验证项不构成当前代码 P0/P1；发布口径必须把它们列为人工/真实 provider 前置。
+- 浏览器未验证项不构成当前代码 P0/P1；按本轮限量 canary 决策，它们作为已知未完成的人工/真实 provider 验收记录，不写成全流程通过。

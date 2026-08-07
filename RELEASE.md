@@ -2,9 +2,9 @@
 
 这里只放当前版本。更早的版本见 [docs/changelog/](docs/changelog/)。
 
-## 0.9.3-canary（待发布） - 2026-08-07
+## 0.9.3-canary（限量 canary，待发布） - 2026-08-07
 
-这一版收口了 Agent 停止、会话恢复、后台任务结果和 Source Dev 缓存的几个可靠性边界，也补上了配置中心窄屏布局和 Windows-first Desktop 壳实验。当前仍是待发布 canary：真实 provider、人工 Agent/Workflow 全流程、正式 Manager provenance、签名安装器和最终 Desktop 方案尚未完成。
+这一版收口了 Agent 停止、会话恢复、后台任务结果和 Source Dev 缓存的几个可靠性边界，也补上了配置中心窄屏布局和 Windows-first Desktop 壳实验。本轮按限量 canary 准备：真实 provider 和人工 Agent/Workflow 全流程仍未完全验证，不把它们写成全流程通过；Manager provenance、发布 workflow 和公开资产验证仍是发布硬门禁。
 
 ### 新功能
 
@@ -27,9 +27,9 @@
 
 ### 升级须知
 
-- 这是待发布 canary。升级前请备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`；完整步骤见 [0.9.3-canary 迁移指南](docs/migrations/0.9.3-canary.md)。
+- 这是限量 canary。升级前请备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`；完整步骤见 [0.9.3-canary 迁移指南](docs/migrations/0.9.3-canary.md)。
 - 本版本没有新的数据库 schema 迁移。旧 `jobs.jsonl` 只会把遗留 active Job 转为 `interrupted`，不能伪造旧 terminal result；新的 Job 历史位于 `<Workspace Root>/.nbook/agent/jobs/`。
 - 重启后会保留已完成 Job 的结果，但不会续跑旧 Workflow，也不会持久化完整 Workflow 图、逐步时间线或 pending ask。
 - Source Dev 旧的仓库根 `cache/image-variants` 不会自动迁移或删除；停服、确认没有自定义 Cache Root 后，再按迁移指南人工清理。
 - 显式 Profile 模型覆盖不可用时，请恢复继承全局默认模型或选择已确认可用的模型；本版本不做静默 fallback。
-- 当前文档只准备 `0.9.3-canary`，没有修改 `package.json` 版本、创建 tag 或发布 GitHub Release。真实 provider、全量 Agent/Workflow 浏览器验收、正式 Manager provenance、签名安装器和最终 Desktop 选型仍是发布前置。
+- 当前文档只准备 `0.9.3-canary`，没有修改 `package.json` 版本、创建 tag 或发布 GitHub Release。真实 provider 和全量 Agent/Workflow 浏览器验收是限量 canary 的已知未完成项；Manager provenance、发布 workflow、公开资产和 GHCR 验证仍必须通过。签名安装器和最终 Desktop 选型不属于本次发布承诺。

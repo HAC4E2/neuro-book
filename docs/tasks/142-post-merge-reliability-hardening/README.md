@@ -76,15 +76,15 @@
 - 本地 Windows 默认 Vitest pool 全量为 `495 passed / 1 skipped / 1 failed`（`3442 passed / 14 skipped / 1 failed`）；唯一失败为 `subject-memory-tools.test.ts` 的 File Index 时序敏感用例。单文件 `16/16` 通过；`--pool=forks` 全量为 `496 passed / 1 skipped`、`3443 passed / 14 skipped`。这项差异记录为 runner 调度敏感性，不放宽生产路径校验。
 - GitHub PR #83 和 #86 的 Typecheck、Full tests advisory 和四个平台 Product checks 已成功；`bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts` 通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成了同一构建，因此该项的内容验证通过、临时目录清理仍受本机环境限制。
 - `bun run manager:test`：`38 passed / 1 skipped` 个文件，`281 passed / 3 skipped` 项；Manager typecheck、pack check 和 Desktop Contract `7 files / 29 tests` 通过。
-- `bun run manager:verify-public` 未通过，原因是公开 npm Manager 的 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 早于当前构建输入；本轮没有发布 Manager canary，因此该项保留为发布前置。
+- `bun run manager:verify-public` 未通过，原因是公开 npm Manager 的 `gitHead=4225c05ee02721fe96492f711d3c74eede6b47f9` 早于当前构建输入；本轮准备先发布 Manager `0.1.0-canary.51` 刷新 provenance，未通过前不创建 NeuroBook Release。
 
 #### 当前剩余边界
 
-- 真实 provider 驱动的 retrieval、researcher、summarizer 调用和 Composer/Workflow 浏览器流程仍需人工重跑；隔离浏览器根没有复制凭证。
+- 真实 provider 驱动的 retrieval、researcher、summarizer 调用和 Composer/Workflow 浏览器流程仍需人工重跑；本轮限量 canary 允许在隔离 State Root 使用本机凭证 smoke，但未取得的证据仍记录为未验证。
 - 完整 Workflow Run 历史、断点续跑、逐步 journal、时间线和 pending ask 持久化不属于本 Task；重启后只保证 Job 终态和结果可读。
 - Source Dev 旧仓库根 `cache/image-variants` 不自动迁移或删除，详见 [0.9.3-canary 迁移指南](../../migrations/0.9.3-canary.md)。
 
 ### 结论
 
 - 本 Task 的代码范围 P0/P1 已收口，未新增必须立即修复的 P2。
-- 发布前仍有两个明确门禁：公开 Manager provenance 尚未刷新，以及真实 provider/人工浏览器验收未完成；两项均不通过“静默 fallback”或伪造测试结果解决。
+- 发布前的硬门禁是公开 Manager provenance、发布 workflow、公开资产和 GHCR 验证；真实 provider/人工浏览器验收按限量 canary 作为已知未完成项，不通过“静默 fallback”或伪造测试结果掩盖。
