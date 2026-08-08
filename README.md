@@ -73,6 +73,8 @@ bunx --bun @notnotype/neuro-book-manager@canary
 
 <details>
 
+<summary>点击打开</summary>
+
 ### 🌍 World Engine：不吃书的世界状态引擎
 
 长篇最大的敌人是设定漂移。World Engine 用「时间线 + 切面」做事件溯源：每个重要时间点记录一次状态变更，任意时刻的世界状态都由之前的切面推算得出——角色三个月前受的伤、王国十年前的国库存量，随时可查、不会漂移。补设定就是在合适的时间点插入一个切面，倒叙和回忆天然支持。
@@ -173,7 +175,8 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 参与项目贡献，请先阅读[贡献指南](CONTRIBUTING.md)。
 
-**加入 NeuroBook 项目组，成为核心开发者**
+> [!NOTE]
+> **加入 NeuroBook 项目组，成为核心开发者**
 
 如果你很看好 NeuroBook 的方向，并且充足的时间，希望深入参与到 NeuroBook 的开发中。欢迎加入 NeuroBook 项目。
 
