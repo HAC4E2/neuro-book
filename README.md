@@ -4,13 +4,15 @@
 
 **用工程的方法，写完你的长篇**
 
-> 设定不吃书 · 伏笔有账本 · 文字没 AI 味 · AI 听指挥
+> [!IMPORTANT]
+> 目前处于快速开发阶段，软件和接口可能不稳定，欢迎反馈。
+
+ 设定不吃书 · 伏笔有账本 · 文字没 AI 味 · AI 听指挥
 
 [下载 Windows 免安装包](https://github.com/notnotype/neuro-book/releases) · [文档](https://blog.notnotype.com/neuro-book/) · [Discord](https://discord.gg/bSQB7mNpHB) · QQ 群 287447372
 
 [![GitHub Release](https://img.shields.io/github/v/release/notnotype/neuro-book?include_prereleases&label=release)](https://github.com/notnotype/neuro-book/releases)
 [![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
-[![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-%E5%8A%A0%E5%85%A5%E7%A4%BE%E5%8C%BA-5865F2?logo=discord&logoColor=white)](https://discord.gg/bSQB7mNpHB)
 ![QQ Group](https://img.shields.io/badge/QQ%E7%BE%A4-287447372-12B7F5?logo=qq&logoColor=white)
@@ -20,6 +22,7 @@
 <img src="./docs/images/主页-dark.jpg" width="100%" alt="NeuroBook 主界面：左侧世界书文件树，中间正文编辑器，右侧 AI 写作助手" />
 
 </div>
+
 
 每个人心里都有一部长篇，但绝大多数死在半路——不是死于没天赋，是死于没有工程。NeuroBook 把软件工程三十年的实践和创意写作一百年的方法论，做成你和 AI 共用的同一套工具：世界状态由引擎推算而不是靠模型记忆，伏笔像技术债一样记账追踪，成稿用 360 条规则做 lint。你的作品是本地的 Markdown 文件和 SQLite，随时带走。
 
@@ -45,7 +48,7 @@ NeuroBook 把这些当作工程问题来解决——设定、剧情、正文、�
 
 ## 快速开始
 
-**Windows**：从 [Releases](https://github.com/notnotype/neuro-book/releases) 下载文件名准确为 `neuro-book-windows-x64.zip` 的压缩包（不要下 Source 或 Product overlay），解压后运行 `Start Neuro Book.cmd`。包内自带运行时和预构建产物，不装依赖、不在你的机器上编译，首次启动默认免密码直接用。
+**Windows**：从 [Releases](https://github.com/notnotype/neuro-book/releases) 下载文件名准确为 `neuro-book-windows-x64.zip` 的压缩包，解压后运行 `Start Neuro Book.cmd`。
 
 想要多实例、Docker 或从源码构建，改用 NeuroBook Manager：
 
@@ -69,6 +72,8 @@ bunx --bun @notnotype/neuro-book-manager@canary
 
 ## 四大核心能力
 
+<details>
+
 ### 🌍 World Engine：不吃书的世界状态引擎
 
 长篇最大的敌人是设定漂移。World Engine 用「时间线 + 切面」做事件溯源：每个重要时间点记录一次状态变更，任意时刻的世界状态都由之前的切面推算得出——角色三个月前受的伤、王国十年前的国库存量，随时可查、不会漂移。补设定就是在合适的时间点插入一个切面，倒叙和回忆天然支持。
@@ -79,7 +84,7 @@ bunx --bun @notnotype/neuro-book-manager@canary
 - 每次变更都是带时间戳的可审计记录：他什么时候获得了这把剑，完全可以查出来。
 - Agent 读写分权：leader 可写、writer 只读，写正文时不会误改世界。
 
-<img src="./docs/images/World%20Engine%20Workbench.jpg" width="100%" alt="World Engine 工作台：左侧主体列表，中间世界切片时间线，右侧状态快照与 subject 轨迹" />
+<img src="./docs/images/WorldEngine-dark.jpg" width="100%" alt="World Engine 工作台：左侧主体列表，中间世界切片时间线，右侧状态快照与 subject 轨迹" />
 
 ### 🧵 Plot Workbench：剧情工坊——伏笔有账本，决策有存档
 
@@ -137,7 +142,12 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 细节见 [Profile 介绍](docs/profile/index.md) 与 [Workflow 与 Job](docs/agent/workflow.md)。想参与 NeuroBook 本身的开发，见[参与贡献](CONTRIBUTING.md)。
 
+</details>
+
 ## 文档
+
+> [!WARNING]
+> 文档站目前绝大部分是由 AI 生成，获取更多帮助请加入社群
 
 **在线文档站：[中文](https://blog.notnotype.com/neuro-book/) ｜ [English](https://blog.notnotype.com/neuro-book/en/)**（带搜索和语言切换）。下面是仓库内的 Markdown 源文件：
 
@@ -156,13 +166,27 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 - LINUX DO：https://linux.do/
 - 💬 Discord：https://discord.gg/bSQB7mNpHB
-- 🐧 QQ 讨论群：287447372
+- 🐧 QQ 讨论群（有猫娘）：287447372
 
 欢迎来聊——功能建议、问题反馈，或者只是聊聊你正在写的书。
 
 ## 贡献
 
-想参与开发，请先阅读[贡献指南](CONTRIBUTING.md)，按 Issue 类型提交问题或建议，再从标记为 `status: ready` 的任务开始实现。NeuroBook 目前仍在快速迭代，提交时请写清实际验证过的命令和未验证的部分；希望长期维护模块或加入项目组，可以发邮件到 notnotype@gmail.com 说明方向和可投入的时间。
+参与项目贡献，请先阅读[贡献指南](CONTRIBUTING.md)。
+
+**加入 NeuroBook 项目组，成为核心开发者**
+
+如果你很看好 NeuroBook 的方向，并且充足的时间，希望深入参与到 NeuroBook 的开发中。欢迎加入 NeuroBook 项目。
+
+目前 NeuroBook 在这些地方需优化：
+
+- 提示词工程：需要写作专家和提示词专家来优化 NeuroBook 的提示词。跑通并优化小说创作流程
+- 前端、UI、设计：NeuroBook 的 UI 语言急需重新设计，并计划对客户端界面进行重构
+- 社区建设与管理
+- 文档与教程整理
+- 测试
+
+申请方式：发邮件到 notnotype@gmail.com 
 
 ## 许可证
 
