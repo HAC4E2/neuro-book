@@ -8,22 +8,23 @@
 
 ### 新功能
 
-- 后台任务完成后，完整结果会保留下来；服务重启后仍可从任务中心查看已完成任务。
-- Windows-first Desktop Workbench 实验进入主线，提供共享标题栏、Activity Bar、Agent/IDE 切换和 Electron/Tauri Envelope 合同验证。它仍是 spike，不是正式安装器或最终框架选择。
+- 后台任务完成后，完整结果会保留下来；服务重启后仍可从任务中心查看已完成任务 (#79)。
+- Windows-first Desktop Workbench 实验进入主线，提供共享标题栏、Activity Bar、Agent/IDE 切换和 Electron/Tauri Envelope 合同验证。它仍是 spike，不是正式安装器或最终框架选择 (#77)。
 
 ### 改进
 
-- Source Dev 未指定缓存目录时使用 checkout 下的 `.agent/cache`，不再把图片变体默认写入仓库根 `cache/`；显式 `NEURO_BOOK_CACHE_ROOT` 仍优先。
-- 配置中心在手机宽度下改为上下布局，Profile 导航使用可横向滚动的紧凑标签；桌面布局保持不变。
-- retrieval 的固定文件枚举命令改为 Git Bash 安全的 `rg --files -g 'index.md'` 形式。
-- clean-runner 会先生成 Prisma/Nuxt 产物，并使用宿主临时绝对路径运行跨平台测试；Source Dev 依赖安装固定使用 hoisted linker。
+- Source Dev 未指定缓存目录时使用 checkout 下的 `.agent/cache`，不再把图片变体默认写入仓库根 `cache/`；显式 `NEURO_BOOK_CACHE_ROOT` 仍优先 (#85)。
+- 配置中心在手机宽度下改为上下布局，Profile 导航使用可横向滚动的紧凑标签；桌面布局保持不变 (#82)。
+- retrieval 的固定文件枚举命令改为 Git Bash 安全的 `rg --files -g 'index.md'` 形式 (#69)。
+- clean-runner 会先生成 Prisma/Nuxt 产物，并使用宿主临时绝对路径运行跨平台测试；Source Dev 依赖安装固定使用 hoisted linker (#83, #75)。
+- 内部维护：跨平台 code baseline 修复与 clean-runner 测试预算调整 (#76, #84)。
 
 ### 修复
 
-- 停止请求失败现在会给出用户可见提示；主动取消、运行错误和半截正文继续保持不同语义。
-- 主 Session 的恢复不再因关联 Agent Session 缺失而被误判为失效；同一连接上的自动 recovery 失败后不会无限重复。
-- Job 终态会先完成 durable 保存再发布；损坏的单个 Job 文件会隔离，仍待结果回流的 Job 不会被清除。
-- cover 路由首次冷导入测试不再因 Windows 机器的合理启动时间误报超时。
+- 停止请求失败现在会给出用户可见提示；主动取消、运行错误和半截正文继续保持不同语义 (#78)。
+- 主 Session 的恢复不再因关联 Agent Session 缺失而被误判为失效；同一连接上的自动 recovery 失败后不会无限重复 (#80)。
+- Job 终态会先完成 durable 保存再发布；损坏的单个 Job 文件会隔离，仍待结果回流的 Job 不会被清除 (#79)。
+- cover 路由首次冷导入测试不再因 Windows 机器的合理启动时间误报超时 (#86)。
 
 ### 升级须知
 
