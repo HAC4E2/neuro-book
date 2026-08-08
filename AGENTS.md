@@ -12,7 +12,6 @@
 - 测试范围按风险匹配：复杂、共享合同和用户流程需要验证；简单文档或局部改动不主动扩展测试。除非用户授权，不自动进行浏览器验收。
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件。
 - 测试和运行产生的临时根放在 `.agent/tmp/<test-name>-<uuid>/`，不要在仓库、`.worktree/` 或快照目录创建业务临时数据。
-- 处理 Electron/Tauri 桌面 UI、Portable 产物、标题栏、窗口生命周期或打包后页面问题时，先阅读 [`docs/research/desktop/electron-debugging.md`](docs/research/desktop/electron-debugging.md)。该文档规定源码与实际产物的双重检查、CDP/Playwright 调试分层和 OS 级验收边界。
 
 ## 汇报与提问：让不读源码的人能拍板
 
@@ -53,13 +52,13 @@ GitHub Issue 承载需求与 TODO，task walkthrough 记录重大任务，独立
 
 ### 面向用户的文字
 
-适用于 README、`RELEASE.md`、changelog、页面文案和错误提示；不适用于 `PROJECT-STATUS.md`、task、reference 和代码注释。
+适用于 README、`RELEASE.md`、changelog、页面文案和错误提示；不适用于 `PROJECT-STATUS.md`、task、reference 和代码注释。「汇报与提问」的原则在这里收得更紧：读者没有仓库上下文，内部名词不是就地解释，而是尽量不出现。
 
-- 写用户能做什么，不写内部实现；避免无上下文的模块名、类名、文件名和 Task 编号。
-- 必须使用的术语当场解释一次；说明前后差异、限制、回退和未验证部分。
+- 写用户能做什么，不写内部实现；避免模块名、类名、文件名和 Task 编号，绕不开的术语当场解释一次。
+- 说明前后差异、限制、回退和未验证部分。
 - 每条 1–2 句，直接用动词描述行为，不写夸张宣传语。
 
-`RELEASE.md` 只保留当前版本，历史版本移至 `docs/changelog/` 和 `docs/en/changelog/`。版本段落按需包含以下小节，不保留空标题：
+`RELEASE.md` 只保留当前版本，历史版本移至 `docs/changelog/` 和 `docs/en/changelog/`。版本段落必须覆盖自上一次发布以来合并的全部 PR：面向用户的变更各写一条并在末尾标注 PR 号（如 `(#63)`），纯内部改动可合并为一条「内部维护」并列出 PR 号；task 不进正文，通过 PR 描述追溯。版本段落按需包含以下小节，不保留空标题：
 
 ```markdown
 ## <版本> - <日期>
@@ -101,7 +100,8 @@ GitHub Issue 承载需求与 TODO，task walkthrough 记录重大任务，独立
 
 ## 发布流程
 
-- 发布前阅读 `PROJECT-STATUS.md` 和相关 task walkthrough，确认本轮变更与验证记录，并更新 `RELEASE.md`。
+- 发布前用 `git log <上一个应用发布 tag>..origin/master --oneline` 枚举本轮合并的 PR，把 `RELEASE.md` 更新到本次版本号、日期并覆盖全部 PR。正文与上一版本相同即视为未更新，不得发布。基线 tag 用 `v*` 应用 tag，勿混用 `manager-v*` 等其他 tag 线。
+- 发布前阅读 `PROJECT-STATUS.md` 和相关 task walkthrough，确认验证记录与已知问题口径。
 - canary patch 使用 `bun run release -- canary --next patch --push --yes --no-watch`；canary minor 使用 `bun run release -- canary --next minor --push --yes --no-watch`。
 - 发布命令会更新版本、提交、push 并创建 GitHub prerelease；不要等待 Actions，报告 tag 和 Release URL 即可。
 - 命令中断后先检查工作区、最近提交和 `package.json.version`，再用 `gh release view <tag> --repo notnotype/neuro-book` 判断是否已经完成，避免重复发布。
