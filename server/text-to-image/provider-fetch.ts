@@ -1,7 +1,7 @@
 import type {LookupAddress} from "node:dns";
 import {lookup as dnsLookup} from "node:dns/promises";
 import type {LookupFunction} from "node:net";
-import {Agent, ProxyAgent, type Dispatcher} from "undici";
+import {Agent, type Dispatcher} from "undici";
 import {
     assertTextToImageProviderAddress,
     assertTextToImageProviderUrl,
@@ -19,6 +19,22 @@ export type TextToImageProviderFetch = (
 
 export type TextToImageProviderAddressResolver = (hostname: string) => Promise<LookupAddress[]>;
 
+export class TextToImageProviderConnectionError extends Error {
+    readonly code: string | undefined;
+    readonly targetHost: string;
+    readonly targetPort: string;
+
+    constructor(targetUrl: string, cause: unknown) {
+        const url = new URL(targetUrl);
+        super(`Provider 连接失败：${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`);
+        this.name = "TextToImageProviderConnectionError";
+        this.code = findErrorCode(cause);
+        this.targetHost = url.hostname;
+        this.targetPort = url.port || (url.protocol === "https:" ? "443" : "80");
+        this.cause = cause;
+    }
+}
+
 type ProviderFetchInit = RequestInit & {
     dispatcher?: Dispatcher;
 };
@@ -33,7 +49,6 @@ type ProviderFetchDependencies = {
 const maximumRedirects = 5;
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 const safeDispatcher = createTextToImageProviderDispatcher();
-let defaultProviderDispatcher: Dispatcher | undefined;
 
 /**
  * 创建把地址校验绑定到 net/tls socket lookup 的 Dispatcher。
@@ -99,7 +114,7 @@ export async function fetchTextToImageProvider(
     const fetchImpl = dependencies.fetchImpl ?? defaultHttpFetch;
     const dispatcher = policy.allowPrivateNetwork
         ? undefined
-        : dependencies.dispatcher ?? resolveDefaultProviderDispatcher();
+        : dependencies.dispatcher ?? (dependencies.fetchImpl ? undefined : safeDispatcher);
 
     for (let redirectCount = 0; redirectCount <= maximumRedirects; redirectCount += 1) {
         let response: Response;
@@ -113,7 +128,7 @@ export async function fetchTextToImageProvider(
             if (policyError) {
                 throw policyError;
             }
-            throw new Error("Provider 连接失败");
+            throw new TextToImageProviderConnectionError(currentUrl.toString(), error);
         }
         if (!redirectStatuses.has(response.status)) {
             return response;
@@ -167,13 +182,6 @@ export function resolveTextToImageEnvironmentProxyUrl(
     return null;
 }
 
-function resolveDefaultProviderDispatcher(): Dispatcher {
-    if (defaultProviderDispatcher) return defaultProviderDispatcher;
-    const proxyUrl = resolveTextToImageEnvironmentProxyUrl();
-    defaultProviderDispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : safeDispatcher;
-    return defaultProviderDispatcher;
-}
-
 async function resolveAddresses(hostname: string): Promise<LookupAddress[]> {
     return await dnsLookup(hostname, {all: true, verbatim: true});
 }
@@ -223,4 +231,16 @@ function findPolicyError(error: unknown): Error | null {
         current = current.cause;
     }
     return null;
+}
+
+function findErrorCode(error: unknown): string | undefined {
+    let current = error;
+    while (current instanceof Error) {
+        const code = (current as Error & {code?: unknown}).code;
+        if (typeof code === "string" && code.trim() !== "") {
+            return code;
+        }
+        current = current.cause;
+    }
+    return undefined;
 }

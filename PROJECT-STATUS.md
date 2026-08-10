@@ -112,3 +112,8 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 
 - Task 142 继续落地 chatu-8 兼容合同：Project 发送数据快照、中文内联 DNA、双大括号变量、统一图片输出解析、版本链预览，以及只在后处理成功后写回正文。
 - 本续批已通过聚焦测试和 `bun run typecheck`；浏览器人工验收、真实 LLM/NovelAI Provider 验收仍保持未完成。
+## 2026-08-10 NovelAI 专用代理自动发现
+
+- NovelAI 的 `/ai/generate-image` 与 `/ai/encode-vibe` 现在使用独立代理解析器：按环境变量、Windows 用户/WinHTTP 配置和受限本机端口顺序探测可用代理，并缓存成功的连接。
+- 通用 Provider、LLM 模型列表和 LLM 对话请求不读取这些代理设置；只有 NovelAI 请求携带代理 dispatcher。连接失败会保留目标主机和底层错误码并触发下次重新发现，HTTP `429` 等业务响应不会触发代理失效。
+- 自动化验证：代理发现/缓存 `6` 项、Provider 隔离与错误传播 `7` 项、NovelAI 请求链路 `6` 项，共 `19/19` 通过；文生图回归为 `46` 个测试文件、`219` 个测试通过，`bun run typecheck` 通过（`74.9` 秒），浏览器人工验收和真实 NovelAI 出图未执行。

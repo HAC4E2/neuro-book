@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest";
 import {requestNovelAiImages, type NovelAiImageInput} from "nbook/server/text-to-image/novelai-image-generation";
 import type {LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 import {NovelAiRequestScheduler} from "nbook/server/text-to-image/novelai-request-scheduler";
+import type {NovelAiProxyResolver} from "nbook/server/text-to-image/novelai-proxy";
 
 describe("requestNovelAiImages", () => {
     it("encodes structured character slots in the NAI4.5 v4 prompt", async () => {
@@ -137,6 +138,71 @@ describe("requestNovelAiImages", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+    it("uses one NovelAI dispatcher for Vibe encoding and image generation", async () => {
+        const dispatcher = {kind: "novelai-dispatcher"};
+        const dispatchersSeen: unknown[] = [];
+        const fetchImpl: LlmFetchImpl = async (value, init) => {
+            dispatchersSeen.push((init as RequestInit & {dispatcher?: unknown}).dispatcher);
+            if (value.toString().endsWith("/encode-vibe")) {
+                return new Response(new Uint8Array([1, 2, 3]), {status: 200});
+            }
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+        const proxyResolver: NovelAiProxyResolver = {
+            resolveDispatcher: vi.fn(async () => dispatcher as never),
+            invalidate: vi.fn(async () => {}),
+        };
+
+        await requestNovelAiImages(input({
+            fetchImpl,
+            proxyResolver,
+            vibe: {
+                enabled: true,
+                imageId: "assets/tti/reference.png",
+                informationExtracted: 0.3,
+                referenceStrength: 0.6,
+            },
+        }), {
+            readReference: async () => new Uint8Array([4, 5, 6]),
+        });
+
+        expect(dispatchersSeen).toEqual([dispatcher, dispatcher]);
+        expect(proxyResolver.resolveDispatcher).toHaveBeenCalledTimes(1);
+        expect(proxyResolver.invalidate).not.toHaveBeenCalled();
+    });
+
+    it("invalidates the NovelAI dispatcher only for connection failures", async () => {
+        const dispatcher = {kind: "novelai-dispatcher"};
+        const invalidate = vi.fn(async () => {});
+        const fetchImpl: LlmFetchImpl = async () => {
+            const error = new Error("Connect Timeout Error");
+            Object.assign(error, {code: "UND_ERR_CONNECT_TIMEOUT"});
+            throw error;
+        };
+        const proxyResolver: NovelAiProxyResolver = {
+            resolveDispatcher: vi.fn(async () => dispatcher as never),
+            invalidate,
+        };
+
+        await expect(requestNovelAiImages(input({fetchImpl, proxyResolver}))).rejects.toMatchObject({
+            name: "TextToImageProviderConnectionError",
+        });
+        expect(invalidate).toHaveBeenCalledTimes(1);
+
+        const httpErrorFetch: LlmFetchImpl = async () => new Response("rate limited", {status: 429});
+        const httpErrorResolver: NovelAiProxyResolver = {
+            resolveDispatcher: vi.fn(async () => dispatcher as never),
+            invalidate: vi.fn(async () => {}),
+        };
+        await expect(requestNovelAiImages(input({
+            fetchImpl: httpErrorFetch,
+            proxyResolver: httpErrorResolver,
+        }))).rejects.toMatchObject({status: 429});
+        expect(httpErrorResolver.invalidate).not.toHaveBeenCalled();
     });
 });
 

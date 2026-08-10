@@ -31,6 +31,38 @@ describe("text-to-image provider fetch", () => {
         })).toBeNull();
     });
 
+    it("does not apply environment proxy settings to a generic provider fetch", async () => {
+        const fetchImpl = vi.fn(async (_value: string, init: RequestInit & {dispatcher?: Dispatcher}) => {
+            expect(init.dispatcher?.constructor.name).not.toBe("ProxyAgent");
+            return new Response("ok", {status: 200});
+        });
+        vi.stubGlobal("fetch", fetchImpl);
+        try {
+            await fetchTextToImageProvider("https://provider.example/models", {}, {
+                allowPrivateNetwork: false,
+            });
+            expect(fetchImpl).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("preserves the underlying connection code and target host", async () => {
+        const fetchImpl = vi.fn(async () => {
+            const error = new Error("Connect Timeout Error");
+            Object.assign(error, {code: "UND_ERR_CONNECT_TIMEOUT"});
+            throw error;
+        });
+
+        await expect(fetchTextToImageProvider("https://image.novelai.net/ai/generate-image", {}, {
+            allowPrivateNetwork: false,
+        }, {fetchImpl})).rejects.toMatchObject({
+            name: "TextToImageProviderConnectionError",
+            code: "UND_ERR_CONNECT_TIMEOUT",
+            targetHost: "image.novelai.net",
+        });
+    });
+
     it("validates DNS results in the lookup used by the actual socket", async () => {
         const dispatcher = createTextToImageProviderDispatcher(async (): Promise<LookupAddress[]> => [{
             address: "127.0.0.1",

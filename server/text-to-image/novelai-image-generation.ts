@@ -1,7 +1,15 @@
 import {unzipSync} from "fflate";
-import {fetchTextToImageProvider} from "nbook/server/text-to-image/provider-fetch";
+import type {Dispatcher} from "undici";
+import {
+    fetchTextToImageProvider,
+    TextToImageProviderConnectionError,
+} from "nbook/server/text-to-image/provider-fetch";
 import type {LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 import {resolveNovelAiUcPreset} from "nbook/server/text-to-image/novelai-quality";
+import {
+    getNovelAiProxyResolver,
+    type NovelAiProxyResolver,
+} from "nbook/server/text-to-image/novelai-proxy";
 import {
     getNovelAiRequestScheduler,
     type NovelAiRequestScheduler,
@@ -85,6 +93,8 @@ export type NovelAiImageInput = {
     scheduler?: NovelAiRequestScheduler;
     /** 测试注入；生产由 provider-fetch 使用默认 fetch。 */
     fetchImpl?: LlmFetchImpl;
+    /** NovelAI 专用代理解析器；未注入时生产使用进程级解析器。 */
+    proxyResolver?: NovelAiProxyResolver;
 };
 
 export class NovelAiHttpError extends Error {
@@ -185,71 +195,85 @@ export async function requestNovelAiImages(
     }
 
     const scheduler = input.scheduler ?? getNovelAiRequestScheduler();
+    const proxyResolver = input.proxyResolver ?? (input.fetchImpl ? undefined : getNovelAiProxyResolver());
     return await scheduler.schedule({
         requestIntervalMs: input.requestIntervalMs ?? 15_000,
         signal: input.signal,
         run: async () => {
-            const vibe = await resolveVibeReferences(input, resolver, token);
-            const character = await resolveCharacterReferences(input, resolver);
-            Object.assign(parameters, buildNovelAiReferencePayload(
-                family,
-                {vibe, character},
-            ));
-            if (input.inpaint) {
-                if (!resolver) {
-                    throw new Error("局部重绘需要 readReference resolver");
+            const dispatcher = proxyResolver
+                ? await proxyResolver.resolveDispatcher()
+                : undefined;
+            try {
+                const vibe = await resolveVibeReferences(input, resolver, token, dispatcher);
+                const character = await resolveCharacterReferences(input, resolver);
+                Object.assign(parameters, buildNovelAiReferencePayload(
+                    family,
+                    {vibe, character},
+                ));
+                if (input.inpaint) {
+                    if (!resolver) {
+                        throw new Error("局部重绘需要 readReference resolver");
+                    }
+                    const [imageBytes, maskBytes] = await Promise.all([
+                        resolver.readReference(input.inpaint.imageId),
+                        resolver.readReference(input.inpaint.maskId),
+                    ]);
+                    parameters.image = Buffer.from(imageBytes).toString("base64");
+                    parameters.mask = Buffer.from(maskBytes).toString("base64");
+                    parameters.inpaintImg2ImgStrength = clampNumber(input.inpaint.strength, 0, 1, 0.54);
+                    parameters.add_original_image = true;
                 }
-                const [imageBytes, maskBytes] = await Promise.all([
-                    resolver.readReference(input.inpaint.imageId),
-                    resolver.readReference(input.inpaint.maskId),
-                ]);
-                parameters.image = Buffer.from(imageBytes).toString("base64");
-                parameters.mask = Buffer.from(maskBytes).toString("base64");
-                parameters.inpaintImg2ImgStrength = clampNumber(input.inpaint.strength, 0, 1, 0.54);
-                parameters.add_original_image = true;
-            }
 
-            const body = {
-                input: flatPrompt,
-                model: input.model,
-                action: "generate",
-                parameters,
-                use_new_shared_trial: true,
-            };
-            const response = await fetchTextToImageProvider(
-                `${baseUrl}/ai/generate-image`,
-                {
-                    method: "POST",
-                    headers: {
-                        authorization: `Bearer ${token}`,
-                        "content-type": "application/json",
-                        accept: "application/x-zip-compressed",
+                const body = {
+                    input: flatPrompt,
+                    model: input.model,
+                    action: "generate",
+                    parameters,
+                    use_new_shared_trial: true,
+                };
+                const response = await fetchTextToImageProvider(
+                    `${baseUrl}/ai/generate-image`,
+                    {
+                        method: "POST",
+                        headers: {
+                            authorization: `Bearer ${token}`,
+                            "content-type": "application/json",
+                            accept: "application/x-zip-compressed",
+                        },
+                        body: JSON.stringify(body),
+                        signal: input.signal,
                     },
-                    body: JSON.stringify(body),
-                    signal: input.signal,
-                },
-                {allowPrivateNetwork: false},
-                input.fetchImpl ? {fetchImpl: input.fetchImpl as never} : {},
-            );
-            if (!response.ok) {
-                throw new NovelAiHttpError(`NovelAI 生成失败：HTTP ${response.status}`, response.status);
-            }
-
-            const contentType = response.headers.get("content-type") ?? "";
-            if (contentType.includes("application/json")) {
-                const data = await response.json() as {images?: Array<string>};
-                const images = data.images ?? [];
-                if (images.length === 0) {
-                    throw new Error("NovelAI 未返回图片");
+                    {allowPrivateNetwork: false},
+                    {
+                        ...(dispatcher ? {dispatcher} : {}),
+                        ...(input.fetchImpl ? {fetchImpl: input.fetchImpl as never} : {}),
+                    },
+                );
+                if (!response.ok) {
+                    throw new NovelAiHttpError(`NovelAI 生成失败：HTTP ${response.status}`, response.status);
                 }
-                return images.map((base64) => Uint8Array.from(Buffer.from(base64, "base64")));
-            }
 
-            const extracted = extractNovelAiImages(Buffer.from(await response.arrayBuffer()));
-            if (extracted.length === 0) {
-                throw new Error("NovelAI 返回结果中没有找到图片");
+                const contentType = response.headers.get("content-type") ?? "";
+                if (contentType.includes("application/json")) {
+                    const data = await response.json() as {images?: Array<string>};
+                    const images = data.images ?? [];
+                    if (images.length === 0) {
+                        throw new Error("NovelAI 未返回图片");
+                    }
+                    return images.map((base64) => Uint8Array.from(Buffer.from(base64, "base64")));
+                }
+
+                const extracted = extractNovelAiImages(Buffer.from(await response.arrayBuffer()));
+                if (extracted.length === 0) {
+                    throw new Error("NovelAI 返回结果中没有找到图片");
+                }
+                return extracted.map((image) => image.data);
+            } catch (error) {
+                if (proxyResolver && error instanceof TextToImageProviderConnectionError) {
+                    await proxyResolver.invalidate();
+                }
+                throw error;
             }
-            return extracted.map((image) => image.data);
         },
     });
 }
@@ -264,6 +288,7 @@ async function resolveVibeReferences(
     input: NovelAiImageInput,
     resolver: TextToImageReferenceResolver | undefined,
     token: string,
+    dispatcher: Dispatcher | undefined,
 ): Promise<ResolvedVibeReference[]> {
     const imageIds: string[] = [];
     if (input.vibeGroup?.enabled) {
@@ -290,7 +315,14 @@ async function resolveVibeReferences(
     const result: ResolvedVibeReference[] = [];
     for (const imageId of imageIds) {
         const bytes = await resolver.readReference(imageId);
-        const encodingBytes = await encodeVibeFromBytes(token, bytes, input.model, informationExtracted, input);
+        const encodingBytes = await encodeVibeFromBytes(
+            token,
+            bytes,
+            input.model,
+            informationExtracted,
+            input,
+            dispatcher,
+        );
         result.push({
             encodingBase64: Buffer.from(encodingBytes).toString("base64"),
             strength,
@@ -343,6 +375,7 @@ async function encodeVibeFromBytes(
     model: string,
     informationExtracted: number,
     input: NovelAiImageInput,
+    dispatcher: Dispatcher | undefined,
 ): Promise<Uint8Array> {
     const baseUrl = input.baseUrl.replace(/\/+$/u, "");
     const response = await fetchTextToImageProvider(
@@ -361,7 +394,10 @@ async function encodeVibeFromBytes(
             signal: input.signal,
         },
         {allowPrivateNetwork: false},
-        input.fetchImpl ? {fetchImpl: input.fetchImpl as never} : {},
+        {
+            ...(dispatcher ? {dispatcher} : {}),
+            ...(input.fetchImpl ? {fetchImpl: input.fetchImpl as never} : {}),
+        },
     );
     if (!response.ok) {
         throw new NovelAiHttpError(`NovelAI Vibe 编码失败：HTTP ${response.status}`, response.status);

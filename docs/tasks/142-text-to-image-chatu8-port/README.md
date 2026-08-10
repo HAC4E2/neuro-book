@@ -390,3 +390,8 @@
 - 已补齐 chatu-8 兼容解析：中文内联角色/服装 DNA 字段、双大括号 `setvar/getvar`、XML/`image###...###` 图片输出块、思考外壳清理、分角色 Prompt 结构和同一位置历史资产筛选。
 - 后处理弹窗已加入同一 `sourceAnchorId` 的历史图片左右切换；切换只改变弹窗预览，只有 Tag、重 roll 或局部重绘成功后才向正文 CAS 写回当前引用。
 - 本续批验证：发送数据路由 2/2、内联角色与正文编译 16/16、LLM 输出与正文/角色解析 29/29、LLM 变量 6/6、资产服务 8/8；`bun run typecheck` 通过。浏览器人工验收和真实 Provider 验收仍未在本续批执行。
+## 2026-08-10 NovelAI 专用代理自动发现
+
+- NovelAI 的 `/ai/generate-image` 与 `/ai/encode-vibe` 使用独立代理解析器，依次检查环境变量、Windows 用户/WinHTTP 配置和受限的本机代理端口；发现成功后复用 dispatcher。
+- 通用 Provider 与 LLM 链路保持直连安全 dispatcher，不消费 NovelAI 代理；连接失败保留目标主机和底层错误码并让下次请求重新发现，HTTP `429`、`401` 等响应不触发失效。
+- 验证结果：代理发现/缓存 `6` 项、Provider 隔离与错误传播 `7` 项、NovelAI 请求链路 `6` 项，共 `19/19` 通过；文生图回归为 `46` 个测试文件、`219` 个测试通过，`bun run typecheck` 通过（`74.9` 秒）。浏览器人工验收和真实 NovelAI 出图未执行。
