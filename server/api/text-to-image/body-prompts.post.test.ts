@@ -155,6 +155,10 @@ describe("POST /api/text-to-image/body-prompts", () => {
             resolveTextToImageProjectRoot: vi.fn((value: string) => value),
         }));
         vi.doMock("nbook/server/text-to-image/chapter.service", () => ({
+            readSameVolumeHistory: vi.fn(async () => [{
+                path: "manuscript/001-volume/001-chapter/index.md",
+                content: "previous chapter",
+            }]),
             readChapterMarkdown: vi.fn(async () => {
                 throw new Error("磁盘章节不应被读取");
             }),
@@ -165,6 +169,19 @@ describe("POST /api/text-to-image/body-prompts", () => {
         vi.doMock("nbook/server/text-to-image/body-character-scanner", () => ({
             scanBodyCharactersFromProject,
             buildBodyCharacterSummary,
+            buildBodyOutfitSummary: vi.fn(() => ""),
+        }));
+        vi.doMock("nbook/server/text-to-image/project-send-data.service", () => ({
+            readProjectSendData: vi.fn(async () => ({
+                lorebookPaths: ["lorebook/world/setting/index.md"],
+                characterIds: [],
+                outfitSelections: [],
+            })),
+            readProjectSendDataSnapshot: vi.fn(async () => ({
+                lorebookEntries: [{path: "lorebook/world/setting/index.md", content: "setting snapshot"}],
+                characters: [],
+                outfits: [],
+            })),
         }));
         vi.doMock("nbook/server/text-to-image/body-session.service", () => ({
             generateBodyPrompts,
@@ -183,6 +200,10 @@ describe("POST /api/text-to-image/body-prompts", () => {
             chapterContent: "当前编辑器正文",
         });
         expect(generateBodyPrompts).toHaveBeenCalledWith(expect.objectContaining({
+            historyPrefill: [{
+                path: "manuscript/001-volume/001-chapter/index.md",
+                content: "previous chapter",
+            }],
             chapterContent: "当前编辑器正文",
             characterMatches: expect.arrayContaining([
                 expect.objectContaining({characterId: "hero", groupId: "default"}),
@@ -190,6 +211,11 @@ describe("POST /api/text-to-image/body-prompts", () => {
             runtime: expect.objectContaining({body: "当前编辑器正文", context: "服务端扫描摘要"}),
         }));
         expect(buildBodyCharacterSummary).toHaveBeenCalledOnce();
+        expect(generateBodyPrompts).toHaveBeenCalledWith(expect.objectContaining({
+            runtime: expect.objectContaining({
+                worldBook: '<lorebook path="lorebook/world/setting/index.md">\nsetting snapshot\n</lorebook>',
+            }),
+        }));
         expect(result).toMatchObject({
             content: "生成后的正文",
             matchedCharacters: [{characterId: "hero", groupId: "default"}],

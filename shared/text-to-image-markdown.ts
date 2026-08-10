@@ -1,6 +1,25 @@
 import {z} from "zod";
 import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
 
+export const TextToImageCharacterPromptSchema = z.object({
+    prompt: z.string(),
+    negativePrompt: z.string().default(""),
+    centerX: z.number().min(0).max(1).optional(),
+    centerY: z.number().min(0).max(1).optional(),
+}).strict();
+
+export type TextToImageCharacterPrompt = z.infer<typeof TextToImageCharacterPromptSchema>;
+
+/** Batch-scoped inline character DNA; it is stored in the placeholder only and never written to lorebook. */
+export const TextToImageTemporaryCharacterSchema = z.object({
+    schema: z.literal("nbook.character-visual/v1"),
+    characterId: z.string().trim().min(1),
+    character: z.record(z.string(), z.string()),
+    outfits: z.array(z.record(z.string(), z.string())).default([]),
+    photos: z.array(z.string()).default([]),
+}).strict();
+export type TextToImageTemporaryCharacter = z.infer<typeof TextToImageTemporaryCharacterSchema>;
+
 /** 正文占位符只保存定位与提示词，最终生成参数在队列编译时展开。 */
 export const TextToImagePromptPayloadSchema = z.object({
     schema: z.literal("nbook.text-to-image-prompt/v1"),
@@ -10,6 +29,8 @@ export const TextToImagePromptPayloadSchema = z.object({
     title: z.string().default(""),
     size: z.string().default(""),
     tagThink: z.string().default(""),
+    characterPrompts: z.array(TextToImageCharacterPromptSchema).max(4).optional(),
+    temporaryCharacters: z.array(TextToImageTemporaryCharacterSchema).max(32).optional(),
 }).strict();
 
 export type TextToImagePromptPayload = z.infer<typeof TextToImagePromptPayloadSchema> & {

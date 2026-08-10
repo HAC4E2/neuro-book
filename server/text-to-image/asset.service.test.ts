@@ -171,6 +171,23 @@ describe("listTextToImageAssets", () => {
         expect(page.items).toHaveLength(100);
         expect(page.hasMore).toBe(true);
     });
+
+    it("can list only the version chain for one source anchor", async () => {
+        const fake = new FakePrismaClient();
+        fake.assets.push({...fakeAssetRecord("anchor-2", new Date("2026-08-03T00:00:00.000Z")), sourceAnchorId: "p1"});
+        fake.assets.push({...fakeAssetRecord("other", new Date("2026-08-04T00:00:00.000Z")), sourceAnchorId: "p2"});
+        fake.assets.push({...fakeAssetRecord("anchor-1", new Date("2026-08-02T00:00:00.000Z")), sourceAnchorId: "p1"});
+
+        const page = await listTextToImageAssets({
+            projectPath: PROJECT_NAME,
+            sourceAnchorId: "p1",
+            pageSize: 10,
+            client: () => Promise.resolve(fake as unknown as PrismaClient),
+        });
+
+        expect(page.items.map((item) => item.id)).toEqual(["anchor-2", "anchor-1"]);
+        expect(page.hasMore).toBe(false);
+    });
 });
 
 describe("findTextToImageAssetByRelativePath", () => {
@@ -246,8 +263,11 @@ class FakePrismaClient {
             this.assets.push(record);
             return record;
         },
-        findMany: async ({skip = 0, take = this.assets.length}: {skip?: number; take?: number}): Promise<FakeAssetRecord[]> => {
-            const sorted = [...this.assets].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        findMany: async ({skip = 0, take = this.assets.length, where}: {skip?: number; take?: number; where?: {sourceAnchorId?: string}}): Promise<FakeAssetRecord[]> => {
+            const filtered = where?.sourceAnchorId === undefined
+                ? this.assets
+                : this.assets.filter((item) => item.sourceAnchorId === where.sourceAnchorId);
+            const sorted = [...filtered].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
             return sorted.slice(skip, skip + take);
         },
         findFirst: async ({where}: {where: {relativePath?: string; sourceAnchorId?: string}}): Promise<FakeAssetRecord | null> => {
@@ -257,7 +277,9 @@ class FakePrismaClient {
                 && (where.sourceAnchorId === undefined || item.sourceAnchorId === where.sourceAnchorId)
             )) ?? null;
         },
-        count: async (): Promise<number> => this.assets.length,
+        count: async ({where}: {where?: {sourceAnchorId?: string}} = {}): Promise<number> => where?.sourceAnchorId === undefined
+            ? this.assets.length
+            : this.assets.filter((item) => item.sourceAnchorId === where.sourceAnchorId).length,
     };
 }
 

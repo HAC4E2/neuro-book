@@ -8,9 +8,48 @@ import {
     buildCharacterVisualUserPrompt,
     generateCharacterVisualDraft,
     parseCharacterVisualDraft,
+    parseCharacterVisualDraftBatch,
 } from "nbook/server/text-to-image/character-visual-llm";
 
 describe("character visual llm", () => {
+    it("parses multiple character design results and keeps unassigned outfits as standalone drafts", () => {
+        const result = parseCharacterVisualDraftBatch(JSON.stringify({
+            characters: [
+                {characterId: "alice", character: {cnName: "Alice", enName: "Alice"}, outfits: [{cnName: "礼服", upper: "dress"}]},
+                {characterId: "bob", character: {cnName: "Bob", enName: "Bob"}},
+            ],
+            outfits: [
+                {cnName: "披风", enName: "Cape", upper: "red cape", owner: "Bob"},
+                {cnName: "通用制服", upper: "uniform"},
+            ],
+        }));
+
+        expect(result.drafts.map((draft) => draft.characterId)).toEqual(["alice", "bob"]);
+        expect(result.drafts[0]?.outfits.map((outfit) => outfit.cnName)).toEqual(["礼服"]);
+        expect(result.drafts[1]?.outfits.map((outfit) => outfit.cnName)).toEqual(["披风"]);
+        expect(result.standaloneOutfits.map((item) => item.outfit.cnName)).toEqual(["通用制服"]);
+        expect(result.standaloneOutfits[0]?.sourceOrder).toBeGreaterThan(result.drafts.length);
+    });
+
+    it("parses multiple labeled character blocks without truncating the first character", () => {
+        const result = parseCharacterVisualDraftBatch([
+            "<人物>",
+            "中文名称: Alice",
+            "英文名称: Alice",
+            "五官外貌: blue eyes",
+            "</人物>",
+            "<人物>",
+            "中文名称: Bob",
+            "英文名称: Bob",
+            "五官外貌: green eyes",
+            "</人物>",
+        ].join("\n"));
+
+        expect(result.drafts).toHaveLength(2);
+        expect(result.drafts[0]?.character.cnName).toBe("Alice");
+        expect(result.drafts[1]?.character.facialAppearance).toBe("green eyes");
+    });
+
     it("解析 JSON 角色草稿并映射中文字段", () => {
         const draft = parseCharacterVisualDraft(JSON.stringify({
             角色设计: {

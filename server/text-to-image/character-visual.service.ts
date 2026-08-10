@@ -24,6 +24,19 @@ export type CharacterDocumentLocation = {
     relativePath: string;
 };
 
+export class CharacterVisualConflictError extends Error {
+    readonly code = "TEXT_TO_IMAGE_CHARACTER_VISUAL_CONFLICT";
+    readonly characterId: string;
+    readonly locations: string[];
+
+    constructor(characterId: string, locations: string[]) {
+        super(`角色“${characterId}”存在多个视觉资料位置：${locations.join("、")}；请先完成迁移。`);
+        this.name = "CharacterVisualConflictError";
+        this.characterId = characterId;
+        this.locations = locations;
+    }
+}
+
 /**
  * 读写 Project 内 `lorebook/character/<groupId>/<characterId>/visual.json`。
  * 不传 groupId 时兼容旧单层路径 `lorebook/character/<characterId>/visual.json`。
@@ -49,17 +62,8 @@ export async function readCharacterVisual(
         return null;
     }
 
-    const legacy = await readVisualFile(path.join(characterRoot, characterId, VISUAL_FILE));
-    if (legacy !== null) {
-        return legacy;
-    }
-    for (const group of await listCharacterGroups(projectRoot)) {
-        const grouped = await readVisualFile(path.join(characterRoot, group.groupId, characterId, VISUAL_FILE));
-        if (grouped !== null) {
-            return grouped;
-        }
-    }
-    return null;
+    const location = await resolveProjectCharacterLocation(projectRoot, characterId);
+    return location ? readVisualFile(location.visualPath) : null;
 }
 
 /** 原子写入 visual.json；传入 groupId 时写入分组目录。 */
@@ -70,18 +74,36 @@ export async function writeCharacterVisual(
     groupId?: string,
 ): Promise<void> {
     assertValidId(characterId, "characterId");
+    const normalizedInput = normalizeCharacterIdentity(input);
     const characterRoot = characterRootOf(projectRoot);
+    const location = groupId ? null : await resolveProjectCharacterLocation(projectRoot, characterId);
     const targetDirectory = groupId
         ? path.join(characterRoot, groupId, characterId)
-        : path.join(characterRoot, characterId);
+        : location?.visualPath
+            ? path.dirname(location.visualPath)
+            : path.join(characterRoot, characterId);
     if (groupId) {
         assertValidId(groupId, "groupId");
     }
     await fs.mkdir(targetDirectory, {recursive: true});
     const filePath = path.join(targetDirectory, VISUAL_FILE);
     const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(temporaryPath, renderCharacterVisualJson(input), "utf8");
+    await fs.writeFile(temporaryPath, renderCharacterVisualJson(normalizedInput), "utf8");
     await fs.rename(temporaryPath, filePath);
+}
+
+function normalizeCharacterIdentity(input: CharacterVisualFile): CharacterVisualFile {
+    const triggerWords = [
+        ...(input.character.triggerWords ?? "").split(",").map((word) => word.trim()).filter((word) => word !== ""),
+        (input.character.cnName ?? "").trim(),
+    ];
+    return {
+        ...input,
+        character: {
+            ...input.character,
+            triggerWords: [...new Set(triggerWords)].join(", "),
+        },
+    };
 }
 
 /** 列出 Project 内的角色分组；旧单层角色目录不会被当作分组。 */
@@ -164,7 +186,10 @@ export async function deleteCharacterVisual(
         }
         return;
     }
-    await removeVisualFileAndPhotos(path.join(characterRoot, characterId, VISUAL_FILE), projectRoot);
+    const location = await resolveProjectCharacterLocation(projectRoot, characterId);
+    if (location) {
+        await removeVisualFileAndPhotos(location.visualPath, projectRoot);
+    }
 }
 
 /** 删除角色分组目录。 */
@@ -238,6 +263,58 @@ export async function listCharacterDocumentLocations(projectRoot: string): Promi
 
 function characterRootOf(projectRoot: string): string {
     return path.join(projectRoot, "lorebook", "character");
+}
+
+type ProjectCharacterVisualLocation = {
+    groupId: string | null;
+    visualPath: string;
+};
+
+async function resolveProjectCharacterLocation(
+    projectRoot: string,
+    characterId: string,
+): Promise<ProjectCharacterVisualLocation | null> {
+    const characterRoot = characterRootOf(projectRoot);
+    const candidates: ProjectCharacterVisualLocation[] = [];
+    const legacyPath = path.join(characterRoot, characterId, VISUAL_FILE);
+    if (await pathExists(legacyPath)) {
+        candidates.push({groupId: null, visualPath: legacyPath});
+    }
+    for (const group of await listCharacterGroups(projectRoot)) {
+        const visualPath = path.join(characterRoot, group.groupId, characterId, VISUAL_FILE);
+        if (await pathExists(visualPath)) {
+            candidates.push({groupId: group.groupId, visualPath});
+        }
+    }
+    if (candidates.length > 1) {
+        throw new CharacterVisualConflictError(
+            characterId,
+            candidates.map((candidate) => candidate.groupId ?? "default"),
+        );
+    }
+    if (candidates.length === 1) {
+        return candidates[0]!;
+    }
+
+    const documentLocations = (await listCharacterDocumentLocations(projectRoot))
+        .filter((document) => document.characterId === characterId);
+    if (documentLocations.length > 1) {
+        throw new CharacterVisualConflictError(
+            characterId,
+            documentLocations.map((document) => document.groupId ?? "default"),
+        );
+    }
+    const document = documentLocations[0];
+    return document
+        ? {
+            groupId: document.groupId,
+            visualPath: path.join(
+                projectRoot,
+                ...document.relativePath.split("/").slice(0, -1),
+                VISUAL_FILE,
+            ),
+        }
+        : null;
 }
 
 function assertValidId(value: string, label: string): void {

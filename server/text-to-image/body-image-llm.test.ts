@@ -34,6 +34,43 @@ const XML_BLOCK_2 = [
 ].join("\n");
 
 describe("body image llm", () => {
+    it("extracts scene prompt and up to four structured character slots", () => {
+        const block = parseBodyImageBlocks(`<content><images>${XML_BLOCK}</images></content>`)[0]!;
+
+        expect(block.prompt).toBe("classroom,morning light");
+        expect(block.characterPrompts).toEqual([{
+            prompt: "1girl,long black hair,blue eyes,standing by window",
+            negativePrompt: "",
+        }]);
+    });
+
+    it("includes same-volume history as prompt context without changing the current chapter prompt", async () => {
+        let lastInput: RequestLlmCompletionInput | undefined;
+        const complete: typeof requestLlmCompletion = async (input) => {
+            lastInput = input;
+            return `<content><images>${XML_BLOCK}</images></content>`;
+        };
+
+        await generateBodyImageBlocks({
+            provider: {
+                baseUrl: "https://api.example.com/v1",
+                credential: "sk-test",
+                settings: {baseUrl: "https://api.example.com/v1", model: "gpt-4o"},
+            },
+            chapterContent: "current chapter",
+            characterSummary: "",
+            historyPrefill: [{
+                path: "manuscript/001-volume/001-chapter/index.md",
+                content: "previous chapter",
+            }],
+            complete,
+        });
+
+        expect(lastInput?.messages.some((message) => String(message.content).includes("previous chapter"))).toBe(true);
+        expect(lastInput?.messages.at(-1)?.role).toBe("user");
+        expect(String(lastInput?.messages.at(-1)?.content)).toContain("current chapter");
+    });
+
     it("解析 <content>/<images>/<image> 五要素块", () => {
         const blocks = parseBodyImageBlocks(`<content><images>${XML_BLOCK}</images></content>`);
 
@@ -154,5 +191,19 @@ describe("body image llm", () => {
             complete,
         })).rejects.toThrow(/解析失败/);
         expect(calls).toBe(3);
+    });
+
+    it("rejects more than four character slots instead of silently truncating", () => {
+        const slots = Array.from({length: 5}, (_, index) => (
+            `<character_${index + 1}><prompt>character ${index + 1}</prompt></character_${index + 1}>`
+        )).join("");
+        expect(() => parseBodyImageBlocks(`<image><regex>anchor</regex><prompts>${slots}</prompts></image>`))
+            .toThrow(/4/);
+    });
+
+    it("rejects an explicitly invalid character center", () => {
+        expect(() => parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts><character_1><prompt>character</prompt><center>2,0.5</center></character_1></prompts></image>",
+        )).toThrow(/center/);
     });
 });

@@ -108,3 +108,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 
 - `0.9.3-canary` 已完成限量公开发布，硬门禁和公开资产可复核。
 - 真实 provider、完整人工浏览器流程和 stable/签名 Desktop 能力仍明确标记为未完成，不用 focused 测试或发布 workflow 结果替代它们。
+### 2026-08-10 文生图设计规格施工续批
+
+- Task 142 继续落地 chatu-8 兼容合同：Project 发送数据快照、中文内联 DNA、双大括号变量、统一图片输出解析、版本链预览，以及只在后处理成功后写回正文。
+- 本续批已通过聚焦测试和 `bun run typecheck`；浏览器人工验收、真实 LLM/NovelAI Provider 验收仍保持未完成。

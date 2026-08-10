@@ -13,6 +13,7 @@ import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-ima
 import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import {stripLlmReasoningBlocks} from "nbook/server/text-to-image/llm-output";
 import {
     buildCharacterVisualSystemPrompt,
     buildCharacterVisualUserPrompt,
@@ -75,6 +76,15 @@ type CharacterVisualDraft = {
     photos: string[];
 };
 
+export type CharacterVisualDraftBatch = {
+    drafts: CharacterVisualFile[];
+    standaloneOutfits: Array<{
+        outfit: OutfitVisual;
+        ownerHint: string | null;
+        sourceOrder: number;
+    }>;
+};
+
 /**
  * 解析 LLM 返回的角色视觉草稿。
  * 支持 JSON 对象（含中文标签/`角色设计` 包裹）与 `<人物>/<服装>` 行式；
@@ -90,6 +100,25 @@ export function parseCharacterVisualDraft(text: string): CharacterVisualFile {
         return parseLabeledDraft(cleaned);
     } catch (lineError) {
         throw new Error(buildParseError(cleaned, jsonResult.error, toError(lineError)));
+    }
+}
+
+/** 瑙ｆ瀽瑙掕壊璁捐棰勮涓殑澶氫釜浜虹墿涓庣嫭绔嬫湇瑁咃紝淇濈暀鍘熷椤哄簭涓庡綊灞炴彁绀恒€?*/
+export function parseCharacterVisualDraftBatch(text: string): CharacterVisualDraftBatch {
+    const cleaned = cleanDraftText(text);
+    const candidates = [cleaned, extractJsonText(cleaned)].filter((value): value is string => value !== null);
+    let firstError: Error | null = null;
+    for (const candidate of candidates) {
+        try {
+            return parseJsonDraftBatch(JSON.parse(candidate) as unknown);
+        } catch (error) {
+            firstError ??= toError(error);
+        }
+    }
+    try {
+        return parseLabeledDraftBatch(cleaned);
+    } catch (error) {
+        throw new Error(buildParseError(cleaned, firstError, toError(error)));
     }
 }
 
@@ -131,7 +160,11 @@ export async function generateCharacterVisualDraft(
             ],
         });
         try {
-            return finalizeDraft(parseCharacterVisualDraft(content), input, existing);
+            const batch = parseCharacterVisualDraftBatch(content);
+            if (batch.drafts.length !== 1) {
+                throw new Error(`角色设计返回了 ${batch.drafts.length} 个人物；当前角色编辑器要求一次只确认一个人物批次`);
+            }
+            return finalizeDraft(batch.drafts[0]!, input, existing);
         } catch (error) {
             lastError = toError(error);
         }
@@ -141,7 +174,7 @@ export async function generateCharacterVisualDraft(
 }
 
 function cleanDraftText(text: string): string {
-    return text
+    return stripLlmReasoningBlocks(text)
         .trim()
         .replace(/```json\s*/giu, "")
         .replace(/```/gu, "")
@@ -198,6 +231,57 @@ function parseDraftJsonObject(raw: unknown): CharacterVisualDraft {
         outfits,
         photos: normalizeStringArray(source.photos),
     };
+}
+
+function parseJsonDraftBatch(raw: unknown): CharacterVisualDraftBatch {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new Error("JSON root must be an object");
+    }
+    const source = unwrapDesignContainer(raw as Record<string, unknown>);
+    const characterItems = firstArray(source, ["characters", "\u4eba\u7269", "roles", "\u89d2\u8272", "\u4eba\u7269\u5217\u8868"]);
+    if (!characterItems) {
+        return {drafts: [parseDraftJsonObject(raw)], standaloneOutfits: []};
+    }
+    if (characterItems.length === 0) {
+        throw new Error("character design must contain at least one character");
+    }
+    const drafts = characterItems.map((item) => parseDraftJsonObject(item));
+    const standaloneOutfits: CharacterVisualDraftBatch["standaloneOutfits"] = [];
+    const globalOutfits = extractOutfits(source);
+    globalOutfits.forEach((rawOutfit, index) => {
+        const outfit = OutfitVisualSchema.parse(mapFields(rawOutfit, OUTFIT_FIELD_LABELS));
+        const ownerHint = extractOutfitOwner(rawOutfit);
+        const ownerIndex = ownerHint === null
+            ? -1
+            : drafts.findIndex((draft) => draftIdentityMatches(draft, ownerHint));
+        if (ownerIndex >= 0) {
+            drafts[ownerIndex]!.outfits.push(outfit);
+        } else {
+            standaloneOutfits.push({outfit, ownerHint, sourceOrder: drafts.length + index});
+        }
+    });
+    return {drafts, standaloneOutfits};
+}
+
+function firstArray(source: Record<string, unknown>, keys: string[]): unknown[] | null {
+    for (const key of keys) {
+        const value = source[key];
+        if (Array.isArray(value)) return value;
+    }
+    return null;
+}
+
+function extractOutfitOwner(raw: Record<string, unknown>): string | null {
+    for (const key of ["owner", "characterId", "character", "所属人物", "归属人物", "角色"]) {
+        const value = raw[key];
+        if (typeof value === "string" && value.trim() !== "") return value.trim();
+    }
+    return null;
+}
+
+function draftIdentityMatches(draft: CharacterVisualFile, ownerHint: string): boolean {
+    return [draft.characterId, draft.character.cnName, draft.character.enName]
+        .some((value) => value.trim() !== "" && value.trim() === ownerHint);
 }
 
 function unwrapDesignContainer(raw: Record<string, unknown>): Record<string, unknown> {
@@ -298,6 +382,41 @@ function parseLabeledDraft(text: string): CharacterVisualDraft {
         outfits,
         photos: [],
     };
+}
+
+function parseLabeledDraftBatch(text: string): CharacterVisualDraftBatch {
+    const characterBlocks = extractBlocks(text, "人物");
+    if (characterBlocks.length <= 1) {
+        return {drafts: [parseLabeledDraft(text)], standaloneOutfits: []};
+    }
+    const drafts: CharacterVisualFile[] = characterBlocks.map((block) => ({
+        schema: "nbook.character-visual/v1" as const,
+        characterId: "",
+        character: CharacterVisualFieldSchema.parse(parseLabeledLines(block, CHARACTER_FIELD_LABELS)),
+        outfits: [],
+        photos: [],
+    }));
+    const standaloneOutfits: CharacterVisualDraftBatch["standaloneOutfits"] = [];
+    extractBlocks(text, "服装").forEach((block, index) => {
+        const outfit = OutfitVisualSchema.parse(parseLabeledLines(block, OUTFIT_FIELD_LABELS));
+        const ownerHint = extractLabeledOutfitOwner(block);
+        const ownerIndex = ownerHint === null
+            ? -1
+            : drafts.findIndex((draft) => draftIdentityMatches(draft, ownerHint));
+        if (ownerIndex >= 0) {
+            drafts[ownerIndex]!.outfits.push(outfit);
+        } else if (ownerHint === null && drafts.length === 1) {
+            drafts[0]!.outfits.push(outfit);
+        } else {
+            standaloneOutfits.push({outfit, ownerHint, sourceOrder: drafts.length + index});
+        }
+    });
+    return {drafts, standaloneOutfits};
+}
+
+function extractLabeledOutfitOwner(block: string): string | null {
+    const match = /^\s*(?:owner|characterId|所属人物|归属人物|角色)\s*[:：]\s*(.+?)\s*$/imu.exec(block);
+    return match?.[1]?.trim() || null;
 }
 
 function extractBlocks(text: string, tag: string): string[] {

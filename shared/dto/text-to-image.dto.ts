@@ -238,5 +238,28 @@ export const TextToImageGlobalConfigSchema = z.object({
         default: {...DEFAULT_WORD_REPLACEMENT_PROFILE},
     })),
     currentWordReplacementProfile: z.string().default("default"),
+    historyPrefillDepth: z.number().int().min(0).max(20).default(1),
 });
 export type TextToImageGlobalConfig = z.infer<typeof TextToImageGlobalConfigSchema>;
+
+/** Project 鐨勫彂閫佹暟鎹繚瀛樻牱寮忥細鍓嶇鍙彂 ID 鍜?Project 鐩稿璺緞銆?*/
+export const TextToImageProjectOutfitSelectionSchema = z.object({
+    characterId: z.string().trim().min(1),
+    groupId: z.string().trim().nullable().optional(),
+    name: z.string().trim().min(1),
+}).strict();
+export type TextToImageProjectOutfitSelection = z.infer<typeof TextToImageProjectOutfitSelectionSchema>;
+
+export const TextToImageProjectCharacterSelectionSchema = z.object({
+    characterId: z.string().trim().min(1),
+    groupId: z.string().trim().nullable().default(null),
+}).strict();
+export type TextToImageProjectCharacterSelection = z.infer<typeof TextToImageProjectCharacterSelectionSchema>;
+
+export const TextToImageProjectSendDataSchema = z.object({
+    lorebookPaths: z.array(z.string().trim().min(1)).max(512).default([]),
+    characterIds: z.array(z.string().trim().min(1)).max(512).default([]),
+    characterSelections: z.array(TextToImageProjectCharacterSelectionSchema).max(512).default([]),
+    outfitSelections: z.array(TextToImageProjectOutfitSelectionSchema).max(512).default([]),
+}).strict();
+export type TextToImageProjectSendData = z.infer<typeof TextToImageProjectSendDataSchema>;

@@ -16,6 +16,10 @@ export function insertBodyImagePlaceholders(input: {
     const lines = input.chapterContent.split("\n");
     const insertions = new Map<number, TextToImagePromptPayload[]>();
     const placeholders: TextToImagePromptPayload[] = [];
+    const temporaryCharacters = [...new Map(
+        input.blocks.flatMap((block) => block.temporaryCharacters ?? [])
+            .map((character) => [character.characterId, character] as const),
+    ).values()];
 
     for (const block of input.blocks) {
         const anchor = block.regex.trim();
@@ -29,12 +33,16 @@ export function insertBodyImagePlaceholders(input: {
         const payload: TextToImagePromptPayload = {
             id: `tti-${randomUUID()}`,
             schema: "nbook.text-to-image-prompt/v1",
-            prompt: block.prompts,
+            prompt: block.prompt ?? block.prompts,
             negativePrompt: "",
             anchor,
             title: block.title,
             size: block.size,
             tagThink: block.tagThink,
+            ...(block.characterPrompts && block.characterPrompts.length > 0
+                ? {characterPrompts: block.characterPrompts}
+                : {}),
+            ...(temporaryCharacters.length > 0 ? {temporaryCharacters} : {}),
         };
         const existing = insertions.get(lineIndex) ?? [];
         existing.push(payload);

@@ -12,12 +12,11 @@ import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-
 
 const CharacterVisualListQuerySchema = z.object({
     projectRoot: z.string().trim().min(1),
-    groupId: z.string().trim().min(1).optional(),
     enabledOnly: z.preprocess(
         (value) => value === true || value === "true",
         z.boolean().default(false),
     ),
-});
+}).strict();
 
 export default defineEventHandler(async (event) => {
     await requireTextToImageUser(event);
@@ -33,35 +32,6 @@ export default defineEventHandler(async (event) => {
     const projectRoot = resolveTextToImageProjectRoot(query.data.projectRoot);
     const characters = [];
     const documents = await listCharacterDocumentLocations(projectRoot);
-    if (query.data.groupId) {
-        const seen = new Set<string>();
-        for (const characterId of await listCharacterVisualIds(projectRoot, query.data.groupId)) {
-            const visual = await readCharacterVisual(projectRoot, characterId, query.data.groupId);
-            if (visual === null) continue;
-            seen.add(characterId);
-            characters.push({
-                characterId,
-                groupId: query.data.groupId,
-                characterPage: documents.find((item) => item.characterId === characterId && item.groupId === query.data.groupId)?.relativePath ?? "",
-                cnName: visual.character.cnName,
-                enName: visual.character.enName,
-                triggerWords: visual.character.triggerWords,
-            });
-        }
-        for (const document of documents.filter((item) => item.groupId === query.data.groupId && !seen.has(item.characterId))) {
-            if (query.data.enabledOnly) continue;
-            characters.push({
-                characterId: document.characterId,
-                groupId: document.groupId,
-                characterPage: document.relativePath,
-                cnName: "",
-                enName: "",
-                triggerWords: "",
-            });
-        }
-        return {characters};
-    }
-
     const seen = new Set<string>();
     for (const group of await listCharacterGroups(projectRoot)) {
         for (const characterId of await listCharacterVisualIds(projectRoot, group.groupId)) {

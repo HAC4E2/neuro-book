@@ -39,6 +39,13 @@ export type NovelAiInpaintInput = {
     strength: number;
 };
 
+export type NovelAiCharacterPromptInput = {
+    prompt: string;
+    negativePrompt: string;
+    centerX?: number;
+    centerY?: number;
+};
+
 /** 参考图字节解析器；Vibe/角色参考/局部重绘启用时必须注入。 */
 export type TextToImageReferenceResolver = {
     readReference: (relativePath: string) => Promise<Uint8Array>;
@@ -50,6 +57,7 @@ export type NovelAiImageInput = {
     model: string;
     prompt: string;
     negativePrompt: string;
+    characterPrompts?: NovelAiCharacterPromptInput[];
     width: number;
     height: number;
     steps: number;
@@ -110,6 +118,13 @@ export async function requestNovelAiImages(
     const height = clampInteger(input.height, 64, 4096, 1216);
     const steps = clampInteger(input.steps, 1, 50, 28);
     const seed = clampInteger(input.seed, -1, MAX_SEED, 0);
+    const family = resolveNovelAiModelFamily(input.model);
+    const flatPrompt = family === "nai3"
+        ? joinPromptParts(input.prompt, ...(input.characterPrompts ?? []).map((item) => item.prompt))
+        : input.prompt;
+    const flatNegativePrompt = family === "nai3"
+        ? joinPromptParts(input.negativePrompt, ...(input.characterPrompts ?? []).map((item) => item.negativePrompt))
+        : input.negativePrompt;
     const baseUrl = input.baseUrl.replace(/\/+$/u, "");
     const parameters: Record<string, unknown> = {
         params_version: 3,
@@ -131,7 +146,7 @@ export async function requestNovelAiImages(
         normalize_reference_strength_multiple: true,
         inpaintImg2ImgStrength: 1,
         seed,
-        negative_prompt: input.negativePrompt,
+        negative_prompt: flatNegativePrompt,
         variety: input.variety,
         decrisp: input.decrisp,
         ai_default_character_position: input.aiDefaultCharacterPosition,
@@ -146,12 +161,20 @@ export async function requestNovelAiImages(
         parameters.legacy_v3_extend = false;
         parameters.legacy_uc = false;
         parameters.v4_prompt = {
-            caption: {base_caption: input.prompt, char_captions: []},
+            caption: {
+                base_caption: input.prompt,
+                char_captions: buildNovelAiCharacterCaptions(input.characterPrompts ?? []),
+            },
             use_coords: useCoords,
             use_order: true,
         };
         parameters.v4_negative_prompt = {
-            caption: {base_caption: input.negativePrompt, char_captions: []},
+            caption: {
+                base_caption: input.negativePrompt,
+                char_captions: (input.characterPrompts ?? []).map((item) => ({
+                    char_caption: {base_caption: item.negativePrompt},
+                })),
+            },
             legacy_uc: false,
         };
         parameters.characterPrompts = [];
@@ -169,7 +192,7 @@ export async function requestNovelAiImages(
             const vibe = await resolveVibeReferences(input, resolver, token);
             const character = await resolveCharacterReferences(input, resolver);
             Object.assign(parameters, buildNovelAiReferencePayload(
-                resolveNovelAiModelFamily(input.model),
+                family,
                 {vibe, character},
             ));
             if (input.inpaint) {
@@ -187,7 +210,7 @@ export async function requestNovelAiImages(
             }
 
             const body = {
-                input: input.prompt,
+                input: flatPrompt,
                 model: input.model,
                 action: "generate",
                 parameters,
@@ -373,6 +396,24 @@ function extractNovelAiImages(data: Buffer): ExtractedNovelAiImage[] {
                 mimeType: detectMimeType(buffer) ?? mimeTypeFromExtension(name),
             };
         });
+}
+
+function buildNovelAiCharacterCaptions(
+    characterPrompts: NovelAiCharacterPromptInput[],
+): Array<Record<string, unknown>> {
+    return characterPrompts.map((item) => ({
+        char_caption: {base_caption: item.prompt},
+        ...(item.centerX === undefined || item.centerY === undefined
+            ? {}
+            : {centers: [{x: item.centerX, y: item.centerY}]}),
+    }));
+}
+
+function joinPromptParts(...parts: Array<string | null | undefined>): string {
+    return parts
+        .map((part) => (part ?? "").trim().replace(/^,+|,+$/gu, ""))
+        .filter((part) => part !== "")
+        .join(", ");
 }
 
 function isNovelAiV4Model(model: string): boolean {

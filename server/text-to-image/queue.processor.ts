@@ -3,6 +3,7 @@ import {
     requestNovelAiImages,
     type NovelAiImageInput,
     type NovelAiInpaintInput,
+    type NovelAiCharacterPromptInput,
 } from "nbook/server/text-to-image/novelai-image-generation";
 import {
     saveTextToImageAsset,
@@ -30,6 +31,7 @@ export type TextToImageQueueDependencies = {
 type PersistedJobRequest = {
     prompt?: string;
     negativePrompt?: string;
+    characterPrompts?: NovelAiCharacterPromptInput[];
     novelAi?: Record<string, unknown>;
     inpaint?: NovelAiInpaintInput;
     /** 历史图片后处理传入最终组合 prompt，跳过固定前后缀与质量预设二次拼接。 */
@@ -99,6 +101,11 @@ async function processSingleJob(
         model,
         prompt,
         negativePrompt,
+        characterPrompts: request.characterPrompts?.map((characterPrompt) => ({
+            ...characterPrompt,
+            prompt: dedupeNovelAiPrompt(characterPrompt.prompt),
+            negativePrompt: dedupeNovelAiPrompt(characterPrompt.negativePrompt),
+        })),
         width: settings.width,
         height: settings.height,
         steps: settings.steps,

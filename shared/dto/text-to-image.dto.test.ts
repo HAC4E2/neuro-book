@@ -5,6 +5,7 @@ import {
     TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
     TextToImageNovelAiSettingsSchema,
+    TextToImageProjectSendDataSchema,
     TextToImageProviderKindSchema,
     TextToImageRequestTypeSchema,
     TextToImageWordReplacementProfileSchema,
@@ -57,6 +58,14 @@ describe("text-to-image DTO", () => {
             default: DEFAULT_WORD_REPLACEMENT_PROFILE,
         });
         expect(config.currentWordReplacementProfile).toBe("default");
+        expect(config.historyPrefillDepth).toBe(1);
+    });
+
+    it("历史前文回填深度默认为 1 且限制在 0 到 20 章", () => {
+        expect(TextToImageGlobalConfigSchema.parse({}).historyPrefillDepth).toBe(1);
+        expect(TextToImageGlobalConfigSchema.safeParse({historyPrefillDepth: -1}).success).toBe(false);
+        expect(TextToImageGlobalConfigSchema.safeParse({historyPrefillDepth: 21}).success).toBe(false);
+        expect(TextToImageGlobalConfigSchema.parse({historyPrefillDepth: 0}).historyPrefillDepth).toBe(0);
     });
 
     it("敏感词替换档案包含正文与 AI 两套规则", () => {
@@ -141,5 +150,23 @@ describe("text-to-image DTO", () => {
         });
         expect(parsed.activeGenerationRecipeId).toBe("cinematic");
         expect(parsed.generationRecipes.cinematic?.positive).toBe("cinematic lighting");
+    });
+
+    it("accepts project send-data IDs and rejects browser-supplied extra fields", () => {
+        expect(TextToImageProjectSendDataSchema.parse({
+            lorebookPaths: ["lorebook/world/setting/index.md"],
+            characterIds: ["lin-yanzhou"],
+            characterSelections: [{characterId: "lin-yanzhou", groupId: null}],
+            outfitSelections: [{characterId: "lin-yanzhou", name: "校服"}],
+        })).toEqual({
+            lorebookPaths: ["lorebook/world/setting/index.md"],
+            characterIds: ["lin-yanzhou"],
+            characterSelections: [{characterId: "lin-yanzhou", groupId: null}],
+            outfitSelections: [{characterId: "lin-yanzhou", name: "校服"}],
+        });
+        expect(() => TextToImageProjectSendDataSchema.parse({
+            characterIds: ["hero"],
+            projectRoot: "../../outside",
+        })).toThrow();
     });
 });

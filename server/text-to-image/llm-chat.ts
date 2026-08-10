@@ -1,6 +1,9 @@
 import {setTimeout as delay} from "node:timers/promises";
 import {fetchTextToImageProvider} from "nbook/server/text-to-image/provider-fetch";
-import {resolveTextToImageRuntimePlaceholders, type TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import {
+    resolveTextToImageRuntimePlaceholdersWithVariables,
+    type TextToImageRuntimePlaceholderContext,
+} from "nbook/server/text-to-image/runtime-placeholder";
 
 export type LlmChatContent = string | Array<Record<string, unknown>>;
 
@@ -104,21 +107,69 @@ function applyRuntimePlaceholders(
     messages: LlmChatMessage[],
     runtime: TextToImageRuntimePlaceholderContext | undefined,
 ): LlmChatMessage[] {
-    if (!runtime) {
-        return messages;
+    const effectiveRuntime = runtime ?? {};
+    const variables: Record<string, string> = {...(effectiveRuntime.variables ?? {})};
+    const worldVariables: Record<string, string> = {...(effectiveRuntime.worldVariables ?? {})};
+    const emittedCharacterSections = new Set<string>();
+    return messages.map((message) => {
+        const messageRuntime = resolveMessageRuntime(message.content, effectiveRuntime, emittedCharacterSections);
+        return {
+            ...message,
+            content: resolveMessageContent(message.content, messageRuntime, variables, worldVariables),
+        };
+    });
+}
+
+function resolveMessageRuntime(
+    content: LlmChatContent,
+    runtime: TextToImageRuntimePlaceholderContext,
+    emittedCharacterSections: Set<string>,
+): TextToImageRuntimePlaceholderContext {
+    const text = typeof content === "string"
+        ? content
+        : content
+            .filter((part) => typeof part === "object" && part !== null && "type" in part && part.type === "text")
+            .map((part) => "text" in part && typeof part.text === "string" ? part.text : "")
+            .join("\n");
+    if (text.includes("{{角色启用列表}}")) {
+        for (const section of extractCharacterSections(runtime.characterList ?? "")) {
+            emittedCharacterSections.add(normalizeCharacterSection(section));
+        }
     }
-    return messages.map((message) => ({
-        ...message,
-        content: resolveMessageContent(message.content, runtime),
-    }));
+    if (!text.includes("{{通用角色启用列表}}")) {
+        return runtime;
+    }
+    return {
+        ...runtime,
+        commonCharacterList: filterEmittedCharacterSections(runtime.commonCharacterList ?? "", emittedCharacterSections),
+    };
+}
+
+function extractCharacterSections(value: string): string[] {
+    return [...value.matchAll(/<人物>[\s\S]*?<\/人物>/gu)].map((match) => match[0] ?? "");
+}
+
+function filterEmittedCharacterSections(value: string, emitted: Set<string>): string {
+    return value
+        .replace(/<人物>[\s\S]*?<\/人物>/gu, (section) => (
+            emitted.has(normalizeCharacterSection(section)) ? "" : section
+        ))
+        .replace(/\n{3,}/gu, "\n\n")
+        .trim();
+}
+
+function normalizeCharacterSection(value: string): string {
+    return value.replace(/\s+/gu, " ").trim();
 }
 
 function resolveMessageContent(
     content: LlmChatContent,
     runtime: TextToImageRuntimePlaceholderContext,
+    variables: Record<string, string>,
+    worldVariables: Record<string, string>,
 ): LlmChatContent {
     if (typeof content === "string") {
-        return resolveTextToImageRuntimePlaceholders(content, runtime);
+        return resolveTextToImageRuntimePlaceholdersWithVariables(content, runtime, variables, worldVariables);
     }
     return content.map((part) => {
         if (typeof part !== "object" || part === null || !("type" in part) || part.type !== "text" || typeof part.text !== "string") {
@@ -126,7 +177,7 @@ function resolveMessageContent(
         }
         return {
             ...part,
-            text: resolveTextToImageRuntimePlaceholders(part.text, runtime),
+            text: resolveTextToImageRuntimePlaceholdersWithVariables(part.text, runtime, variables, worldVariables),
         };
     });
 }

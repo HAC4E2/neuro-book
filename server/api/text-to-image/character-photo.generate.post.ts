@@ -3,30 +3,26 @@ import {z} from "zod";
 import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {generateCharacterAvatar} from "nbook/server/text-to-image/character-photo.service";
-import {resolveTextToImageRequestProvider} from "nbook/server/text-to-image/llm-context";
+import {resolveBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-runtime";
 
 const CharacterPhotoGenerateBodySchema = z.object({
-    novelAiProviderId: z.number().int().positive(),
     projectRoot: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
-    groupId: z.string().trim().min(1).optional(),
     characterText: z.string().default(""),
     outfitText: z.string().default(""),
     userRequirement: z.string().default(""),
-});
+}).strict();
 
 export default defineEventHandler(async (event) => {
     const user = await requireTextToImageUser(event);
     const body = await validateBody(event, CharacterPhotoGenerateBodySchema);
-    const llmProvider = await resolveTextToImageRequestProvider(user.id, "char_display");
+    const llmRuntime = await resolveBoundTextToImageLlmRuntime(user.id, "char_display");
     try {
         return await generateCharacterAvatar({
             userId: user.id,
-            llmProviderId: llmProvider.providerId,
-            novelAiProviderId: body.novelAiProviderId,
+            llmRuntime,
             projectRoot: body.projectRoot,
             characterId: body.characterId,
-            groupId: body.groupId,
             characterText: body.characterText,
             outfitText: body.outfitText,
             userRequirement: body.userRequirement,

@@ -7,8 +7,7 @@ import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-
 const CharacterVisualDeleteQuerySchema = z.object({
     projectRoot: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
-    groupId: z.string().trim().min(1).optional(),
-});
+}).strict();
 
 export default defineEventHandler(async (event) => {
     await requireTextToImageUser(event);
@@ -23,7 +22,6 @@ export default defineEventHandler(async (event) => {
     await deleteCharacterVisual(
         resolveTextToImageProjectRoot(query.data.projectRoot),
         query.data.characterId,
-        query.data.groupId,
     );
     return {ok: true};
 });

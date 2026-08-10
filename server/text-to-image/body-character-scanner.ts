@@ -116,6 +116,11 @@ export function buildBodyCharacterSummary(matches: BodyCharacterMatch[]): string
     return sections.join("\n\n");
 }
 
+/** 鐙珛鏈嶈鍒楄〃鐨勫崰浣嶇灞曞紑锛屽叧鑱斿瓧娈靛彧浜х敓浜庡綋娆￠€夋嫨銆?*/
+export function buildBodyOutfitSummary(outfits: CharacterVisualFile["outfits"]): string {
+    return outfits.length > 0 ? renderOutfitSection(outfits) : "";
+}
+
 function renderCharacterSection(visual: CharacterVisualFile): string {
     const character = visual.character;
     return [

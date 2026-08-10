@@ -1,5 +1,6 @@
 import {generateBodyImageBlocks} from "nbook/server/text-to-image/body-image-llm";
 import type {BodyImageBlock} from "nbook/server/text-to-image/body-image-llm";
+import type {BodyImageHistoryPrefill} from "nbook/server/text-to-image/body-image-llm";
 import {insertBodyImagePlaceholders} from "nbook/server/text-to-image/body-image-insert.service";
 import {buildBodyCharacterSummary} from "nbook/server/text-to-image/body-character-scanner";
 import type {BodyCharacterMatch} from "nbook/server/text-to-image/body-character-scanner";
@@ -20,6 +21,7 @@ export type BodySessionServiceInput = {
     aiReplacementRules?: string;
     contextEntries?: TextToImageContextEntry[];
     runtime?: TextToImageRuntimePlaceholderContext;
+    historyPrefill?: BodyImageHistoryPrefill[];
     generate?: typeof generateBodyImageBlocks;
 };
 
@@ -45,6 +47,7 @@ export async function generateBodyPrompts(input: BodySessionServiceInput): Promi
         aiReplacementRules: input.aiReplacementRules,
         contextEntries: input.contextEntries,
         runtime: input.runtime,
+        historyPrefill: input.historyPrefill,
     });
     const inserted = insertBodyImagePlaceholders({
         chapterContent: input.chapterContent,

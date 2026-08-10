@@ -34,4 +34,11 @@ describe("resolveTextToImageRuntimePlaceholders", () => {
         expect(value).toBeGreaterThanOrEqual(1);
         expect(value).toBeLessThanOrEqual(6);
     });
+
+    it("keeps ordinary and world variables in separate scopes", () => {
+        const result = resolveTextToImageRuntimePlaceholders(
+            "{@setvar::theme::ordinary@}{@setworldvar::theme::world@}{@getvar::theme@}/{@getworldvar::theme@}",
+        );
+        expect(result).toBe("ordinary/world");
+    });
 });

@@ -6,14 +6,19 @@ import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-ima
 import {generateBodyPrompts} from "nbook/server/text-to-image/body-session.service";
 import {
     buildBodyCharacterSummary,
+    buildBodyOutfitSummary,
     scanBodyCharactersFromProject,
 } from "nbook/server/text-to-image/body-character-scanner";
 import type {BodyCharacterMatch} from "nbook/server/text-to-image/body-character-scanner";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
-import {readChapterMarkdown} from "nbook/server/text-to-image/chapter.service";
+import {readChapterMarkdown, readSameVolumeHistory} from "nbook/server/text-to-image/chapter.service";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {loadEffectiveConfig} from "nbook/server/config/config-service";
 import {resolveBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-runtime";
+import {
+    readProjectSendData,
+    readProjectSendDataSnapshot,
+} from "nbook/server/text-to-image/project-send-data.service";
 
 const BodyPromptsBodySchema = z.object({
     chapterContent: z.string().optional(),
@@ -34,7 +39,20 @@ export default defineEventHandler(async (event) => {
     const chapterContent = body.content
         ?? body.chapterContent
         ?? await readChapterMarkdown(absoluteFsPath(projectRoot), body.path);
-    const matchedCharacters = await scanBodyCharactersFromProject({
+    const historyPrefill = await readSameVolumeHistory(
+        absoluteFsPath(projectRoot),
+        body.path,
+        effective.textToImage.historyPrefillDepth,
+    );
+    const sendData = await readProjectSendData(projectRoot);
+    const sendSnapshot = await readProjectSendDataSnapshot(projectRoot, sendData);
+    if (sendSnapshot.missingItems?.length) {
+        throw createError({
+            statusCode: 409,
+            message: `发送数据中存在已失效条目：${sendSnapshot.missingItems.join(", ")}；请先更新发送数据选择`,
+        });
+    }
+    const scannedCharacters = await scanBodyCharactersFromProject({
         projectRoot,
         chapterContent,
     });
@@ -43,7 +61,18 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, message: "章节内容不能为空"});
     }
 
+    const selectedCharacters = sendSnapshot.characters.map((item) => ({
+        characterId: item.characterId,
+        groupId: item.groupId,
+        visual: item.visual,
+        matchedTrigger: "project-send-data",
+    }));
+    const matchedCharacters = mergeBodyCharacterMatches(scannedCharacters, selectedCharacters);
     const resolvedCharacterSummary = buildBodyCharacterSummary(matchedCharacters);
+    const selectedOutfits = sendSnapshot.outfits.map((item) => item.outfit);
+    const worldBook = sendSnapshot.lorebookEntries
+        .map((entry) => `<lorebook path="${entry.path}">\n${entry.content}\n</lorebook>`)
+        .join("\n\n");
     const result = await generateBodyPrompts({
         provider: {
             baseUrl: settings.baseUrl,
@@ -55,9 +84,14 @@ export default defineEventHandler(async (event) => {
         textReplacementRules: profile?.textReplacement ?? "",
         aiReplacementRules: profile?.aiReplacement ?? "",
         contextEntries: runtime.contextEntries,
+        historyPrefill,
         runtime: {
             body: chapterContent,
             context: resolvedCharacterSummary,
+            worldBook,
+            characterList: resolvedCharacterSummary,
+            commonCharacterList: resolvedCharacterSummary,
+            outfitList: buildBodyOutfitSummary(selectedOutfits),
             userDemand: "",
         },
     });
@@ -73,3 +107,17 @@ export default defineEventHandler(async (event) => {
         })),
     };
 });
+
+function mergeBodyCharacterMatches(
+    scanned: BodyCharacterMatch[],
+    selected: BodyCharacterMatch[],
+): BodyCharacterMatch[] {
+    const result = [...scanned];
+    const seen = new Set(scanned.map((match) => match.characterId));
+    for (const match of selected) {
+        if (seen.has(match.characterId)) continue;
+        seen.add(match.characterId);
+        result.push(match);
+    }
+    return result;
+}

@@ -34,6 +34,7 @@ export type ListTextToImageAssetsInput = {
     projectPath: string;
     page?: number;
     pageSize?: number;
+    sourceAnchorId?: string | null;
     client?: (projectPath: string) => Promise<PrismaClient>;
 };
 
@@ -124,13 +125,18 @@ export async function listTextToImageAssets(input: ListTextToImageAssetsInput): 
 
     return await withTextToImageAssetClient(input.projectPath, input.client, async (client) => {
         const skip = (page - 1) * pageSize;
+        const sourceAnchorId = input.sourceAnchorId?.trim() || undefined;
+        const where = sourceAnchorId ? {sourceAnchorId} : undefined;
         const [records, total] = await Promise.all([
             client.textToImageAsset.findMany({
+                ...(where ? {where} : {}),
                 orderBy: {createdAt: "desc"},
                 skip,
                 take: pageSize,
             }),
-            client.textToImageAsset.count(),
+            sourceAnchorId
+                ? client.textToImageAsset.count({where})
+                : client.textToImageAsset.count(),
         ]);
         return {
             items: records.map(toTextToImageAssetDto),

@@ -64,6 +64,7 @@ const requestBindings = ref<Record<TextToImageRequestType, TextToImageRequestBin
 });
 const wordReplacementProfiles = ref<TextToImageGlobalConfig["wordReplacementProfiles"]>({});
 const currentWordReplacementProfile = ref("default");
+const historyPrefillDepth = ref(1);
 
 const contextProfileKeys = computed(() => Object.keys(contextProfiles.value).sort());
 const selectedContextProfileId = ref("");
@@ -143,6 +144,7 @@ function syncConfigState(config: TextToImageGlobalConfig): void {
     }
     wordReplacementProfiles.value = ensureDefaultWordReplacementProfile(config.wordReplacementProfiles);
     currentWordReplacementProfile.value = config.currentWordReplacementProfile ?? "default";
+    historyPrefillDepth.value = config.historyPrefillDepth ?? 1;
     if (selectedContextProfileId.value && !contextProfiles.value[selectedContextProfileId.value]) {
         selectedContextProfileId.value = "";
         contextProfileDraft.value = emptyContextProfile();
@@ -361,6 +363,7 @@ function exportGlobalConfig(): void {
         requestTypeBindings: requestBindings.value,
         wordReplacementProfiles: wordReplacementProfiles.value,
         currentWordReplacementProfile: currentWordReplacementProfile.value,
+        historyPrefillDepth: historyPrefillDepth.value,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
     const url = URL.createObjectURL(blob);
@@ -404,12 +407,14 @@ async function importGlobalConfig(event: Event): Promise<void> {
         };
         wordReplacementProfiles.value = ensureDefaultWordReplacementProfile(parsed.wordReplacementProfiles);
         currentWordReplacementProfile.value = parsed.currentWordReplacementProfile ?? "default";
+        historyPrefillDepth.value = parsed.historyPrefillDepth;
         error.value = "";
         persistGlobal({
             contextProfiles: contextProfiles.value,
             requestTypeBindings: requestBindings.value,
             wordReplacementProfiles: wordReplacementProfiles.value,
             currentWordReplacementProfile: currentWordReplacementProfile.value,
+            historyPrefillDepth: historyPrefillDepth.value,
         });
         notification.success("全局配置导入成功");
     } catch (cause) {
@@ -460,6 +465,7 @@ function persistGlobal(patch: Partial<TextToImageGlobalConfig>): void {
         requestTypeBindings: requestBindings.value,
         wordReplacementProfiles: wordReplacementProfiles.value,
         currentWordReplacementProfile: currentWordReplacementProfile.value,
+        historyPrefillDepth: historyPrefillDepth.value,
         ...patch,
     });
 }
@@ -628,6 +634,21 @@ async function fetchModels(): Promise<void> {
                 </div>
             </div>
             <div class="grid grid-cols-1 gap-3">
+                <div class="rounded-md border border-[var(--border-color)] p-3">
+                    <label class="flex max-w-[360px] flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
+                        历史前文回填深度（同卷）
+                        <input
+                            v-model.number="historyPrefillDepth"
+                            type="number"
+                            min="0"
+                            max="20"
+                            step="1"
+                            class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]"
+                            @change="persistGlobal({historyPrefillDepth})"
+                        />
+                        <span class="text-[14px] text-[var(--text-muted)]">默认回填上一章；本卷第一章不会回填。0 表示关闭。</span>
+                    </label>
+                </div>
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <div class="mb-2 flex items-center justify-between gap-2">
                         <div class="flex items-center gap-2">

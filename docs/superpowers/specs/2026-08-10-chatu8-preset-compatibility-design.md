@@ -361,3 +361,4 @@ Job 保存足以复核的配置和编译摘要，但不因失败写入不存在�
 - NovelAI `429` 自动重试；
 - 因 token 数量截断、拒绝或阻止生图；
 - 整体复制 SillyTavern/chatu-8 的 localStorage 和消息数据模型。
+> Implementation status: construction in progress; current implementation and verification evidence are tracked in Task 142.

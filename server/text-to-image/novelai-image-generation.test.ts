@@ -4,6 +4,41 @@ import type {LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 import {NovelAiRequestScheduler} from "nbook/server/text-to-image/novelai-request-scheduler";
 
 describe("requestNovelAiImages", () => {
+    it("encodes structured character slots in the NAI4.5 v4 prompt", async () => {
+        const calls: Array<{init: RequestInit}> = [];
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            calls.push({init});
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+
+        await requestNovelAiImages(input({
+            fetchImpl,
+            characterPrompts: [{
+                prompt: "1girl, blue eyes",
+                negativePrompt: "blurry",
+                centerX: 0.3,
+                centerY: 0.5,
+            }],
+        }));
+
+        const body = JSON.parse(String(calls[0]?.init.body)) as {
+            parameters: {
+                v4_prompt: {caption: {char_captions: Array<{char_caption: {base_caption: string}; centers: Array<{x: number; y: number}>}>}};
+                v4_negative_prompt: {caption: {char_captions: Array<{char_caption: {base_caption: string}}>}};
+            };
+        };
+        expect(body.parameters.v4_prompt.caption.char_captions).toEqual([{
+            char_caption: {base_caption: "1girl, blue eyes"},
+            centers: [{x: 0.3, y: 0.5}],
+        }]);
+        expect(body.parameters.v4_negative_prompt.caption.char_captions).toEqual([{
+            char_caption: {base_caption: "blurry"},
+        }]);
+    });
+
     it("发送 JSON 请求并解码 base64 images", async () => {
         const calls: Array<{url: string; init: RequestInit}> = [];
         const pngBase64 = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64");

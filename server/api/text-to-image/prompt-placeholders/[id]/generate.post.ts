@@ -12,6 +12,7 @@ import {
     replacePromptPlaceholderWithAsset,
 } from "nbook/server/text-to-image/chapter.service";
 import {compileBodyPrompt} from "nbook/server/text-to-image/body-prompt-compiler";
+import {CharacterVisualFileSchema} from "nbook/server/text-to-image/character-visual.codec";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
 import {processTextToImageJobs} from "nbook/server/text-to-image/queue.processor";
@@ -50,7 +51,21 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 404, message: `未找到占位符：${placeholderId}`});
     }
 
-    const compiled = await compileBodyPrompt(projectRoot, matched.payload.prompt);
+    const temporaryCharacters = (matched.payload.temporaryCharacters ?? [])
+        .map((item) => CharacterVisualFileSchema.parse(item));
+    const compiled = await compileBodyPrompt(projectRoot, matched.payload.prompt, {temporaryCharacters});
+    const characterPrompts = await Promise.all((matched.payload.characterPrompts ?? []).map(async (characterPrompt) => {
+        const compiledPrompt = await compileBodyPrompt(projectRoot, characterPrompt.prompt, {temporaryCharacters});
+        const compiledNegative = await compileBodyPrompt(projectRoot, characterPrompt.negativePrompt, {temporaryCharacters});
+        return {
+            prompt: compiledPrompt.prompt,
+            negativePrompt: [compiledNegative.prompt, compiledNegative.negativePrompt]
+                .filter((part) => part.trim() !== "")
+                .join(", "),
+            ...(characterPrompt.centerX === undefined ? {} : {centerX: characterPrompt.centerX}),
+            ...(characterPrompt.centerY === undefined ? {} : {centerY: characterPrompt.centerY}),
+        };
+    }));
     const providerService = new TextToImageProviderService();
     const provider = (await providerService.list(user.id)).find(
         (item) => item.id === body.providerId && item.kind === "novelai",
@@ -72,6 +87,7 @@ export default defineEventHandler(async (event) => {
         requestJson: JSON.stringify({
             prompt: compiled.prompt,
             negativePrompt: matched.payload.negativePrompt || compiled.negativePrompt,
+            characterPrompts,
             novelAi: {
                 ...provider.settings,
                 ...sizeOverrides,
@@ -114,11 +130,16 @@ export default defineEventHandler(async (event) => {
     };
 });
 
-function parseTextToImageSize(size: string): {width?: number; height?: number} {
-    const matched = /^\s*(\d+)\s*x\s*(\d+)\s*$/iu.exec(size.trim());
-    if (!matched) return {};
-    const width = Number(matched[1]);
-    const height = Number(matched[2]);
-    if (!Number.isFinite(width) || !Number.isFinite(height)) return {};
-    return {width, height};
+export function parseTextToImageSize(size: string): {width?: number; height?: number} {
+    const matches = [...size.matchAll(/(\d{2,5})\s*(?:x|×|by)\s*(\d{2,5})/giu)];
+    for (const matched of matches.reverse()) {
+        const width = Number(matched[1]);
+        const height = Number(matched[2]);
+        if (Number.isInteger(width) && Number.isInteger(height)
+            && width >= 64 && width <= 4096
+            && height >= 64 && height <= 4096) {
+            return {width, height};
+        }
+    }
+    return {};
 }

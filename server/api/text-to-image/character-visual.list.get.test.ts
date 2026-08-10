@@ -18,6 +18,12 @@ afterEach(async () => {
 });
 
 describe("GET /api/text-to-image/character-visual.list", () => {
+    it("rejects a browser-supplied groupId because the UI exposes one Project collection", async () => {
+        const handler = await loadHandler({projectRoot: "demo", groupId: "legacy-group"});
+
+        await expect(handler({} as never)).rejects.toMatchObject({statusCode: 400});
+    });
+
     it("without groupId returns every project character while preserving group identity", async () => {
         const root = await createRoot();
         await createCharacterGroup(root, "fantasy", {name: "Fantasy"});
@@ -31,10 +37,10 @@ describe("GET /api/text-to-image/character-visual.list", () => {
 
         expect(result).toEqual({
             characters: [
-                expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice, alice-in-wonderland"}),
-                expect.objectContaining({characterId: "bob", groupId: "fantasy", triggerWords: ""}),
-                expect.objectContaining({characterId: "hero", groupId: null, triggerWords: "hero"}),
-                expect.objectContaining({characterId: "side", groupId: null, triggerWords: " "}),
+                expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice, alice-in-wonderland, Alice"}),
+                expect.objectContaining({characterId: "bob", groupId: "fantasy", triggerWords: "Bob"}),
+                expect.objectContaining({characterId: "hero", groupId: null, triggerWords: "hero, Hero"}),
+                expect.objectContaining({characterId: "side", groupId: null, triggerWords: "Side"}),
             ],
         });
     });
@@ -49,22 +55,8 @@ describe("GET /api/text-to-image/character-visual.list", () => {
         const result = await handler({} as never);
 
         expect(result.characters).toEqual([
-            expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice"}),
-        ]);
-    });
-
-    it("with groupId keeps full group character list", async () => {
-        const root = await createRoot();
-        await createCharacterGroup(root, "fantasy", {name: "Fantasy"});
-        await writeCharacterVisual(root, "alice", visual("Alice", "alice"), "fantasy");
-        await writeCharacterVisual(root, "bob", visual("Bob", ""), "fantasy");
-
-        const handler = await loadHandler({projectRoot: root, groupId: "fantasy"});
-        const result = await handler({} as never);
-
-        expect(result.characters).toEqual([
-            expect.objectContaining({characterId: "alice", triggerWords: "alice"}),
-            expect.objectContaining({characterId: "bob", triggerWords: ""}),
+            expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice, Alice"}),
+            expect.objectContaining({characterId: "bob", groupId: "fantasy", triggerWords: "Bob"}),
         ]);
     });
 

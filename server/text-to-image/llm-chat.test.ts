@@ -2,6 +2,78 @@ import {describe, expect, it} from "vitest";
 import {requestLlmCompletion, type LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 
 describe("requestLlmCompletion", () => {
+    it("resolves setvar in one context entry before getvar in a later entry", async () => {
+        let payload: {messages: Array<{content: string}>} | undefined;
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            payload = JSON.parse(String(init.body)) as {messages: Array<{content: string}>};
+            return new Response(JSON.stringify({choices: [{message: {content: "ok"}}]}), {status: 200});
+        };
+
+        await requestLlmCompletion({
+            baseUrl: "https://api.example.com/v1",
+            credential: "sk-test",
+            model: "gpt-4o",
+            messages: [
+                {role: "system", content: "{@setvar::scene::classroom@}"},
+                {role: "user", content: "scene={{getvar::scene}}"},
+            ],
+            runtime: {},
+            fetchImpl,
+        });
+
+        expect(payload?.messages[0]?.content).toBe("");
+        expect(payload?.messages[1]?.content).toBe("scene=classroom");
+    });
+
+    it("accepts double-brace chatu-8 setvar and worldvar syntax", async () => {
+        let payload: {messages: Array<{content: string}>} | undefined;
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            payload = JSON.parse(String(init.body)) as {messages: Array<{content: string}>};
+            return new Response(JSON.stringify({choices: [{message: {content: "ok"}}]}), {status: 200});
+        };
+
+        await requestLlmCompletion({
+            baseUrl: "https://api.example.com/v1",
+            credential: "sk-test",
+            model: "gpt-4o",
+            messages: [
+                {role: "system", content: "{{setvar::weather::rain}}"},
+                {role: "user", content: "{{setworldvar::place::school}}place={{getworldvar::place}}, weather={{getvar::weather}}"},
+            ],
+            fetchImpl,
+        });
+
+        expect(payload?.messages[0]?.content).toBe("");
+        expect(payload?.messages[1]?.content).toBe("place=school, weather=rain");
+    });
+
+    it("does not repeat a character in the common character list after a prior entry emitted it", async () => {
+        let payload: {messages: Array<{content: string}>} | undefined;
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            payload = JSON.parse(String(init.body)) as {messages: Array<{content: string}>};
+            return new Response(JSON.stringify({choices: [{message: {content: "ok"}}]}), {status: 200});
+        };
+
+        await requestLlmCompletion({
+            baseUrl: "https://api.example.com/v1",
+            credential: "sk-test",
+            model: "gpt-4o",
+            runtime: {
+                characterList: "<人物>\n中文名称：林砚舟\n英文名称：Lin Yanzhou\n</人物>",
+                commonCharacterList: "<人物>\n中文名称：林砚舟\n英文名称：Lin Yanzhou\n</人物>\n<人物>\n中文名称：小克\n</人物>",
+            },
+            messages: [
+                {role: "system", content: "{{角色启用列表}}"},
+                {role: "user", content: "{{通用角色启用列表}}"},
+            ],
+            fetchImpl,
+        });
+
+        expect(payload?.messages[0]?.content).toContain("林砚舟");
+        expect(payload?.messages[1]?.content).not.toContain("林砚舟");
+        expect(payload?.messages[1]?.content).toContain("小克");
+    });
+
     it("非流式请求返回 choices[0].message.content", async () => {
         const calls: Array<{url: string; init: RequestInit}> = [];
         const fetchImpl: LlmFetchImpl = async (value, init) => {

@@ -20,6 +20,50 @@ afterEach(async () => {
 });
 
 describe("compileBodyPrompt", () => {
+    it("compiles an inline temporary character without creating a project visual file", async () => {
+        const inlineCharacter = {
+            cnName: "临时人物",
+            enName: "Temp Hero",
+            profileTraits: "silver hair, amber eyes",
+            facialAppearance: "sharp eyes",
+            upperSfw: "black coat",
+            lowerSfw: "boots",
+        };
+        const code = `${"$"}{${JSON.stringify({
+            name: "Temp Hero",
+            character: inlineCharacter,
+            upperBody: "sfw",
+            lowerBody: "sfw",
+        })}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, `${code}, standing`);
+
+        expect(result.prompt).toContain("Temp Hero");
+        expect(result.prompt).toContain("silver hair, amber eyes");
+        expect(result.prompt).toContain("black coat");
+    });
+
+    it("compiles an independent outfit without requiring a character name", async () => {
+        const code = `${"$"}{${JSON.stringify({
+            outfit: {
+                cnName: "旅行装",
+                enName: "Travel Outfit",
+                upper: "white shirt",
+                upperBack: "shirt back",
+                lower: "cargo pants",
+                lowerBack: "pants back",
+            },
+            angle: "from back",
+            upperBody: "sfw",
+            lowerBody: "hidden",
+        })}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, code);
+
+        expect(result.prompt).toContain("shirt back");
+        expect(result.prompt).not.toContain("cargo pants");
+    });
+
     it("展开角色调用代码并收集负面提示词", async () => {
         await writeVisual("alice", {
             schema: "nbook.character-visual/v1",
@@ -236,6 +280,23 @@ describe("compileBodyPrompt", () => {
         expect(result.prompt).not.toContain("fantasy coat");
     });
 
+    it("rejects an ambiguous character alias instead of picking the first visual", async () => {
+        await createCharacterGroup(workspaceRoot, "fantasy");
+        await createCharacterGroup(workspaceRoot, "modern");
+        for (const groupId of ["fantasy", "modern"]) {
+            await writeCharacterVisual(workspaceRoot, "bob", {
+                schema: "nbook.character-visual/v1",
+                characterId: "bob",
+                character: {cnName: "Bob", enName: "Bob", triggerWords: "shared"},
+                outfits: [],
+                photos: [],
+            }, groupId);
+        }
+
+        const code = `${"$"}{${JSON.stringify({name: "shared", upperBody: "sfw", lowerBody: "sfw"})}}$`;
+        await expect(compileBodyPrompt(workspaceRoot, code)).rejects.toThrow(/多个候选/);
+    });
+
     it("expands the chatu-8 legacy upper-body invocation syntax", async () => {
         await writeVisual("alice", {
             schema: "nbook.character-visual/v1",
@@ -288,6 +349,92 @@ describe("compileBodyPrompt", () => {
         expect(result.prompt).toContain("blouse back");
         expect(result.prompt).toContain("skirt back");
         expect(result.prompt).not.toContain("blue eyes");
+    });
+    it("treats from behind as a back DNA call", async () => {
+        await writeVisual("alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {
+                cnName: "Alice",
+                enName: "Alice",
+                facialAppearance: "blue eyes",
+                facialBack: "long hair from behind",
+                upperBackSfw: "back blouse",
+            },
+            outfits: [],
+            photos: [],
+        });
+
+        const code = `${"$"}{${JSON.stringify({name: "Alice", angle: "from behind", upperBody: "sfw", lowerBody: "hidden"})}}$`;
+        await expect(compileBodyPrompt(workspaceRoot, code)).resolves.toMatchObject({
+            prompt: expect.stringContaining("long hair from behind"),
+        });
+    });
+
+    it("accepts chatu-8 Chinese inline DNA field labels", async () => {
+        const code = `${"$"}{${JSON.stringify({
+            name: "临时角色",
+            character: {
+                中文名称: "临时角色",
+                英文名称: "Temporary Hero",
+                角色特征: "silver hair, amber eyes",
+                五官外貌: "sharp eyes",
+                上半身SFW: "black coat",
+                下半身SFW: "boots",
+            },
+            upperBody: "sfw",
+            lowerBody: "sfw",
+        })}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, code);
+
+        expect(result.prompt).toContain("Temporary Hero");
+        expect(result.prompt).toContain("silver hair, amber eyes");
+        expect(result.prompt).toContain("black coat");
+        expect(result.prompt).toContain("boots");
+    });
+
+    it("accepts Chinese inline outfit field labels", async () => {
+        const code = `${"$"}{${JSON.stringify({
+            outfit: {
+                中文名称: "旅行装",
+                英文名称: "Travel Outfit",
+                上半身: "white shirt",
+                下半身: "cargo pants",
+            },
+            upperBody: "sfw",
+            lowerBody: "sfw",
+        })}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, code);
+
+        expect(result.prompt).toContain("white shirt");
+        expect(result.prompt).toContain("cargo pants");
+    });
+
+    it("reuses a batch-scoped temporary character without reading project storage", async () => {
+        const temporaryCharacter = {
+            schema: "nbook.character-visual/v1" as const,
+            characterId: "temporary:hero",
+            character: {
+                cnName: "临时英雄",
+                enName: "Temporary Hero",
+                triggerWords: "临时英雄, Temporary Hero",
+                profileTraits: "silver hair",
+                facialAppearance: "amber eyes",
+                upperSfw: "black coat",
+                lowerSfw: "boots",
+            },
+            outfits: [],
+            photos: [],
+        };
+        const code = `${"$"}{${JSON.stringify({name: "Temporary Hero", upperBody: "sfw", lowerBody: "sfw"})}}$`;
+        const result = await compileBodyPrompt(workspaceRoot, code, {
+            temporaryCharacters: [temporaryCharacter],
+        });
+
+        expect(result.prompt).toContain("silver hair");
+        expect(result.prompt).toContain("black coat");
     });
 });
 

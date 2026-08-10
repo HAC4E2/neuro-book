@@ -26,6 +26,15 @@ describe("character photo llm", () => {
         expect(() => extractCharacterPhotoPrompt("1girl,portrait")).toThrow(/image###/);
     });
 
+    it("takes the last valid image block and accepts the XML wrapper", () => {
+        expect(extractCharacterPhotoPrompt([
+            "image###first###",
+            "<images><image>second</image></images>",
+            "image###last###",
+        ].join("\n"))).toBe("last");
+        expect(extractCharacterPhotoPrompt("<image>xml prompt</image>")).toBe("xml prompt");
+    });
+
     it("generate 使用注入 complete 并固定 maxTokens/stream", async () => {
         let lastInput: RequestLlmCompletionInput | undefined;
         const complete: typeof requestLlmCompletion = async (input) => {

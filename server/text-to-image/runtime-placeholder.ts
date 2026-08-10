@@ -10,6 +10,7 @@ export type TextToImageRuntimePlaceholderContext = {
     currentCharacter?: string;
     currentOutfit?: string;
     variables?: Record<string, string>;
+    worldVariables?: Record<string, string>;
 };
 
 /**
@@ -24,6 +25,17 @@ export function resolveTextToImageRuntimePlaceholders(
     input: TextToImageRuntimePlaceholderContext = {},
 ): string {
     const variables: Record<string, string> = {...(input.variables ?? {})};
+    const worldVariables: Record<string, string> = {...(input.worldVariables ?? {})};
+    return resolveTextToImageRuntimePlaceholdersWithVariables(text, input, variables, worldVariables);
+}
+
+/** Resolve one message while preserving variable mutations for later messages in the same request. */
+export function resolveTextToImageRuntimePlaceholdersWithVariables(
+    text: string,
+    input: TextToImageRuntimePlaceholderContext,
+    variables: Record<string, string>,
+    worldVariables: Record<string, string> = {},
+): string {
     let result = text;
 
     result = result.replace(/\{@setvar::([^:@]+)::([\s\S]*?)@\}/gu, (match, name: string, value: string) => {
@@ -31,12 +43,21 @@ export function resolveTextToImageRuntimePlaceholders(
         return "";
     });
     result = result.replace(/\{@setworldvar::([^:@]+)::([\s\S]*?)@\}/gu, (match, name: string, value: string) => {
+        worldVariables[name.trim()] = value;
+        return "";
+    });
+    result = result.replace(/\{\{setvar::([^}:]+)::([\s\S]*?)\}\}/gu, (match, name: string, value: string) => {
         variables[name.trim()] = value;
         return "";
     });
+    result = result.replace(/\{\{setworldvar::([^}:]+)::([\s\S]*?)\}\}/gu, (match, name: string, value: string) => {
+        worldVariables[name.trim()] = value;
+        return "";
+    });
     result = result.replace(/\{@getvar::([^@]+)@\}/gu, (match, name: string) => variables[name.trim()] ?? "");
-    result = result.replace(/\{@getworldvar::([^@]+)@\}/gu, (match, name: string) => variables[name.trim()] ?? "");
+    result = result.replace(/\{@getworldvar::([^@]+)@\}/gu, (match, name: string) => worldVariables[name.trim()] ?? "");
     result = result.replace(/\{\{getvar::([^}]+)\}\}/gu, (match, name: string) => variables[name.trim()] ?? "");
+    result = result.replace(/\{\{getworldvar::([^}]+)\}\}/gu, (match, name: string) => worldVariables[name.trim()] ?? "");
 
     const standardReplacements: Record<string, string> = {
         "{{正文}}": input.body ?? "",

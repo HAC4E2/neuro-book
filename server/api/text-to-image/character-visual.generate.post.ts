@@ -14,10 +14,9 @@ import {resolveBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-
 const CharacterVisualGenerateBodySchema = z.object({
     projectRoot: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
-    groupId: z.string().trim().min(1).optional(),
     characterPage: z.string().trim().min(1),
     mode: z.enum(["fill_empty", "replace_visual"]),
-});
+}).strict();
 
 export default defineEventHandler(async (event) => {
     const user = await requireTextToImageUser(event);
@@ -25,7 +24,7 @@ export default defineEventHandler(async (event) => {
     const runtime = await resolveBoundTextToImageLlmRuntime(user.id, "char_design");
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
     const projectRoot = resolveTextToImageProjectRoot(body.projectRoot);
-    const existing = await readCharacterVisual(projectRoot, body.characterId, body.groupId);
+    const existing = await readCharacterVisual(projectRoot, body.characterId);
     const visual = await generateCharacterVisualDraft({
         provider: {
             baseUrl: settings.baseUrl,
@@ -42,6 +41,6 @@ export default defineEventHandler(async (event) => {
             userDemand: "",
         },
     });
-    await writeCharacterVisual(projectRoot, body.characterId, visual, body.groupId);
+    await writeCharacterVisual(projectRoot, body.characterId, visual);
     return {visual};
 });

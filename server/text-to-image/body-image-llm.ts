@@ -9,7 +9,10 @@ import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-ima
 import {applyReplacementProfile} from "nbook/server/text-to-image/sensitive-word-replacement";
 import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
+import type {TextToImageCharacterPrompt} from "nbook/shared/text-to-image-markdown";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import {extractTemporaryCharacterRegistry} from "nbook/server/text-to-image/body-prompt-compiler";
+import type {CharacterVisualFile} from "nbook/server/text-to-image/character-visual.codec";
 
 /** L1 正文生图块：五要素契约，不落盘。 */
 export type BodyImageBlock = {
@@ -18,6 +21,14 @@ export type BodyImageBlock = {
     tagThink: string;
     size: string;
     prompts: string;
+    prompt?: string;
+    characterPrompts?: TextToImageCharacterPrompt[];
+    temporaryCharacters?: CharacterVisualFile[];
+};
+
+export type BodyImageHistoryPrefill = {
+    path: string;
+    content: string;
 };
 
 const IMAGE_PATTERN = /<image>([\s\S]*?)<\/image>/giu;
@@ -50,6 +61,7 @@ export async function generateBodyImageBlocks(input: {
     aiReplacementRules?: string;
     contextEntries?: TextToImageContextEntry[];
     runtime?: TextToImageRuntimePlaceholderContext;
+    historyPrefill?: BodyImageHistoryPrefill[];
     complete?: typeof requestLlmCompletion;
 }): Promise<BodyImageBlock[]> {
     const settings = TextToImageLlmProviderSettingsSchema.parse(input.provider.settings);
@@ -80,15 +92,23 @@ export async function generateBodyImageBlocks(input: {
             runtime: input.runtime,
             messages: [
                 ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
+                ...buildHistoryPrefillMessages(input.historyPrefill ?? []),
                 {role: "system", content: systemPrompt},
                 {role: "user", content: userPrompt},
             ],
         });
         try {
-            return parseBodyImageBlocks(applyReplacementProfile({
+            const blocks = parseBodyImageBlocks(applyReplacementProfile({
                 text: content,
                 rulesText: input.aiReplacementRules ?? "",
                 kind: "ai",
+            }));
+            return blocks.map((block) => ({
+                ...block,
+                temporaryCharacters: mergeTemporaryCharacters([
+                    ...extractTemporaryCharacterRegistry(block.prompt ?? block.prompts),
+                    ...(block.characterPrompts ?? []).flatMap((item) => extractTemporaryCharacterRegistry(item.prompt)),
+                ]),
             }));
         } catch (error) {
             lastError = toError(error);
@@ -96,6 +116,19 @@ export async function generateBodyImageBlocks(input: {
     }
 
     throw new Error(`正文生图块解析失败：重试 2 次后仍未成功；最后原因：${lastError?.message ?? "未知"}`);
+}
+
+function buildHistoryPrefillMessages(history: BodyImageHistoryPrefill[]): Array<{role: "system"; content: string}> {
+    if (history.length === 0) {
+        return [];
+    }
+    const content = history
+        .map((entry) => `<history path="${entry.path}">\n${entry.content}\n</history>`)
+        .join("\n\n");
+    return [{
+        role: "system",
+        content: `以下是同一卷的历史前文，仅用于保持上下文连续性，不要为其中的 <image> 占位块生成图片：\n${content}`,
+    }];
 }
 
 function parseBodyImageBlock(block: string): BodyImageBlock {
@@ -110,7 +143,66 @@ function parseBodyImageBlock(block: string): BodyImageBlock {
         tagThink: extractTag(block, "Tag_think"),
         size: extractTag(block, "size"),
         prompts,
+        prompt: normalizeBodyPromptText(prompts),
+        characterPrompts: extractCharacterPrompts(prompts),
     };
+}
+
+function extractCharacterPrompts(prompts: string): TextToImageCharacterPrompt[] {
+    const result: TextToImageCharacterPrompt[] = [];
+    const matches = [...prompts.matchAll(/<character_\d+>([\s\S]*?)<\/character_\d+>/giu)];
+    if (matches.length > 4) {
+        throw new Error("分角色结构最多支持 4 个 character 槽位");
+    }
+    for (const match of matches) {
+        const block = match[1] ?? "";
+        const prompt = extractTag(block, "prompt");
+        if (prompt === "") {
+            continue;
+        }
+        const centerValue = extractTag(block, "center") || extractTag(block, "position");
+        const center = parseCharacterCenter(centerValue);
+        if (centerValue !== "" && center === null) {
+            throw new Error(`分角色 ${result.length + 1} 的 center 必须是 0 到 1 之间的两个数字`);
+        }
+        result.push({
+            prompt,
+            negativePrompt: extractTag(block, "uc") || extractTag(block, "negative_prompt"),
+            ...(center ? {centerX: center.x, centerY: center.y} : {}),
+        });
+        if (result.length >= 4) {
+            break;
+        }
+    }
+    return result;
+}
+
+function mergeTemporaryCharacters(characters: CharacterVisualFile[]): CharacterVisualFile[] {
+    return [...new Map(characters.map((item) => [item.characterId, item])).values()];
+}
+
+function parseCharacterCenter(value: string): {x: number; y: number} | null {
+    const numbers = value.match(/-?\d+(?:\.\d+)?/gu)?.map(Number) ?? [];
+    if (numbers.length < 2 || numbers.some((number) => !Number.isFinite(number))) {
+        return null;
+    }
+    const [x, y] = numbers;
+    if (x === undefined || y === undefined || x < 0 || x > 1 || y < 0 || y > 1) {
+        return null;
+    }
+    return {x, y};
+}
+
+function normalizeBodyPromptText(prompts: string): string {
+    const scene = extractTag(prompts, "scene_composition");
+    const withoutCharacters = prompts.replace(/<character_\d+>[\s\S]*?<\/character_\d+>/giu, "");
+    const withoutTags = withoutCharacters
+        .replace(/<scene_composition>[\s\S]*?<\/scene_composition>/giu, "")
+        .replace(/<[^>]+>[\s\S]*?<\/[^>]+>/gu, "");
+    return [scene, withoutTags]
+        .map((part) => part.trim())
+        .filter((part) => part !== "")
+        .join(", ");
 }
 
 function extractTag(block: string, tag: string): string {

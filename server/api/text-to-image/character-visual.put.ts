@@ -9,9 +9,8 @@ import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-
 const PutBodySchema = z.object({
     projectRoot: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
-    groupId: z.string().trim().min(1).optional(),
     visual: CharacterVisualFileSchema,
-});
+}).strict();
 
 export default defineEventHandler(async (event) => {
     await requireTextToImageUser(event);
@@ -21,7 +20,6 @@ export default defineEventHandler(async (event) => {
         resolveTextToImageProjectRoot(body.projectRoot),
         body.characterId,
         parsed,
-        body.groupId,
     );
     return {visual: parsed};
 });

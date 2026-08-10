@@ -15,15 +15,13 @@ import {
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {CharacterVisualFileSchema} from "nbook/server/text-to-image/character-visual.codec";
 import {generateCharacterPhotoPrompt} from "nbook/server/text-to-image/character-photo-llm";
-import {resolveTextToImageContextEntries} from "nbook/server/text-to-image/llm-context";
+import type {ResolvedBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-runtime";
 
 export type GenerateCharacterAvatarInput = {
     userId: number;
-    llmProviderId: number;
-    novelAiProviderId: number;
+    llmRuntime: ResolvedBoundTextToImageLlmRuntime;
     projectRoot: string;
     characterId: string;
-    groupId?: string;
     characterText: string;
     outfitText: string;
     userRequirement: string;
@@ -38,18 +36,17 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
     photo: string | null;
 }> {
     const providerService = new TextToImageProviderService();
-    const llmRuntime = await providerService.resolveRuntimeProvider(input.userId, input.llmProviderId);
-    const llmSettings = TextToImageLlmProviderSettingsSchema.parse(llmRuntime.settings);
+    const llmSettings = TextToImageLlmProviderSettingsSchema.parse(input.llmRuntime.settings);
     const prompt = await generateCharacterPhotoPrompt({
         provider: {
             baseUrl: llmSettings.baseUrl,
-            credential: llmRuntime.credential,
-            settings: llmRuntime.settings,
+            credential: input.llmRuntime.credential,
+            settings: input.llmRuntime.settings,
         },
         characterText: input.characterText,
         outfitText: input.outfitText,
         userRequirement: input.userRequirement,
-        contextEntries: await resolveTextToImageContextEntries("char_display"),
+        contextEntries: input.llmRuntime.contextEntries,
         runtime: {
             currentCharacter: input.characterText,
             currentOutfit: input.outfitText,
@@ -58,7 +55,7 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
     });
 
     const providers = await providerService.list(input.userId);
-    const novelAiProvider = providers.find((item) => item.id === input.novelAiProviderId);
+    const novelAiProvider = providers.find((item) => item.kind === "novelai");
     if (!novelAiProvider) {
         throw new Error("NovelAI Provider 不存在");
     }
@@ -99,7 +96,7 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
     }
     const photo = await findLatestCharacterPhoto(projectPath, input.characterId);
     if (photo) {
-        await appendCharacterPhoto(projectPath, input.characterId, photo, input.groupId);
+        await appendCharacterPhoto(projectPath, input.characterId, photo);
     }
     return {prompt, photo};
 }
@@ -119,10 +116,9 @@ async function appendCharacterPhoto(
     projectPath: string,
     characterId: string,
     photo: string,
-    groupId?: string,
 ): Promise<void> {
     const projectRoot = resolveTextToImageProjectRoot(projectPath);
-    const existing = await readCharacterVisual(projectRoot, characterId, groupId);
+    const existing = await readCharacterVisual(projectRoot, characterId);
     const visual = existing ?? CharacterVisualFileSchema.parse({
         schema: "nbook.character-visual/v1",
         characterId,
@@ -131,5 +127,5 @@ async function appendCharacterPhoto(
     });
     const photos = visual.photos.filter((item) => item !== photo);
     photos.push(photo);
-    await writeCharacterVisual(projectRoot, characterId, {...visual, photos}, groupId);
+    await writeCharacterVisual(projectRoot, characterId, {...visual, photos});
 }

@@ -7,6 +7,7 @@ const QuerySchema = z.object({
     projectRoot: z.string().trim().min(1),
     page: z.coerce.number().int().positive().optional(),
     pageSize: z.coerce.number().int().positive().optional(),
+    sourceAnchorId: z.string().trim().min(1).optional(),
 });
 
 export default defineEventHandler(async (event) => {
@@ -16,5 +17,6 @@ export default defineEventHandler(async (event) => {
         projectPath: `workspace/${query.projectRoot}`,
         page: query.page,
         pageSize: query.pageSize,
+        sourceAnchorId: query.sourceAnchorId,
     });
 });

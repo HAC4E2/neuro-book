@@ -5,6 +5,7 @@ import TextToImageLlmSettingsSection from "nbook/app/components/novel-ide/text-t
 import TextToImageNovelAiSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageNovelAiSettingsSection.vue";
 import TextToImageCharacterSection from "nbook/app/components/novel-ide/text-to-image/TextToImageCharacterSection.vue";
 import TextToImageHistorySection from "nbook/app/components/novel-ide/text-to-image/TextToImageHistorySection.vue";
+import TextToImageSendDataSection from "nbook/app/components/novel-ide/text-to-image/TextToImageSendDataSection.vue";
 import type {CharacterGenerationContext} from "nbook/app/components/novel-ide/text-to-image/character-context";
 import {
     TextToImageGlobalConfigSchema,
@@ -16,7 +17,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 const props = defineProps<{
     modelValue: boolean;
     projectRoot: string;
-    initialSection?: "llm" | "novelai" | "character" | "history";
+    initialSection?: "llm" | "novelai" | "character" | "send-data" | "history";
     initialCharacter?: CharacterGenerationContext | null;
 }>();
 
@@ -29,7 +30,7 @@ type WorkbenchSnapshot = {
     providers: TextToImageProviderDto[];
 };
 
-const activeSection = ref<"llm" | "novelai" | "character" | "history">("llm");
+const activeSection = ref<"llm" | "novelai" | "character" | "send-data" | "history">("llm");
 const snapshot = ref<WorkbenchSnapshot>({
     config: TextToImageGlobalConfigSchema.parse({}),
     providers: [],
@@ -148,6 +149,14 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     <span class="i-lucide-images h-4 w-4"></span>
                     历史图片
                 </button>
+                <button
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
+                    :class="activeSection === 'send-data' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                    @click="activeSection = 'send-data'"
+                >
+                    <span class="i-lucide-send h-4 w-4"></span>
+                    发送数据
+                </button>
             </nav>
 
             <!-- 右侧内容 -->
@@ -167,9 +176,12 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                 />
                 <TextToImageCharacterSection
                     v-else-if="activeSection === 'character'"
-                    :providers="snapshot.providers"
                     :project-root="props.projectRoot"
                     :initial-character="props.initialCharacter"
+                />
+                <TextToImageSendDataSection
+                    v-else-if="activeSection === 'send-data'"
+                    :project-root="props.projectRoot"
                 />
                 <TextToImageHistorySection v-else :project-root="props.projectRoot" />
             </div>

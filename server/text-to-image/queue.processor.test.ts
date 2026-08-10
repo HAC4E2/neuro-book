@@ -4,6 +4,41 @@ import {TextToImageNovelAiSettingsSchema} from "nbook/shared/dto/text-to-image.d
 import type {TextToImageJobDto} from "nbook/server/text-to-image/queue.service";
 
 describe("processTextToImageJobs", () => {
+    it("forwards structured character slots to the NovelAI generator", async () => {
+        const job = createJob({
+            requestJson: JSON.stringify({
+                prompt: "classroom",
+                negativePrompt: "bad",
+                characterPrompts: [{prompt: "1girl, blue eyes", negativePrompt: "blurry", centerX: 0.3, centerY: 0.5}],
+            }),
+        });
+        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const deps = createDependencies(job, generate);
+
+        await processTextToImageJobs("workspace/demo", deps);
+
+        expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+            characterPrompts: [{prompt: "1girl, blue eyes", negativePrompt: "blurry", centerX: 0.3, centerY: 0.5}],
+        }));
+    });
+
+    it("cleans duplicate tags inside each structured character slot before NovelAI", async () => {
+        const job = createJob({
+            requestJson: JSON.stringify({
+                prompt: "classroom",
+                characterPrompts: [{prompt: "1girl, blue eyes, 1girl", negativePrompt: "blurry, blurry"}],
+            }),
+        });
+        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const deps = createDependencies(job, generate);
+
+        await processTextToImageJobs("workspace/demo", deps);
+
+        expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+            characterPrompts: [{prompt: "1girl, blue eyes", negativePrompt: "blurry"}],
+        }));
+    });
+
     it("消费 queued job：生成、存资产、标记成功", async () => {
         const job = createJob();
         const markSucceeded = vi.fn(async () => true);
@@ -126,6 +161,24 @@ describe("processTextToImageJobs", () => {
         expect(deps.markSucceeded).not.toHaveBeenCalled();
     });
 });
+
+function createDependencies(
+    job: TextToImageJobDto,
+    generate: TextToImageQueueDependencies["generate"],
+): TextToImageQueueDependencies {
+    return {
+        listQueued: vi.fn(async () => [job]),
+        markRunning: vi.fn(async () => true),
+        markSucceeded: vi.fn(async () => true),
+        markFailed: vi.fn(async () => true),
+        resolveRuntime: vi.fn(async () => ({
+            credential: "pst-test",
+            settings: TextToImageNovelAiSettingsSchema.parse({}),
+        })),
+        generate,
+        saveAsset: vi.fn(async () => ({} as never)),
+    };
+}
 
 function createJob(overrides: Partial<TextToImageJobDto> = {}): TextToImageJobDto {
     return {

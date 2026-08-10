@@ -1,4 +1,5 @@
 import {
+    listCharacterGroups,
     listCharacterVisualIds,
     readCharacterVisual,
 } from "nbook/server/text-to-image/character-visual.service";
@@ -8,18 +9,59 @@ import type {
     CharacterVisualFile,
     OutfitVisual,
 } from "nbook/server/text-to-image/character-visual.codec";
+import {
+    CharacterVisualFieldSchema,
+    OutfitVisualSchema,
+} from "nbook/server/text-to-image/character-visual.codec";
 
 const BODY_PROMPT_CODE_PATTERN = /\$\{([\s\S]*?)\}\$|\$(?!\{)([^$\r\n]+)\$/gu;
 const LEGACY_BODY_MARKER_PATTERN = /(?:^|-)(?:sfw|nsfw|hidden|upperbody|lowerbody|front|back)(?:-|$)/iu;
+
+const INLINE_CHARACTER_FIELD_ALIASES: Record<string, keyof CharacterVisualField> = {
+    "中文名称": "cnName",
+    "中文名": "cnName",
+    "英文名称": "enName",
+    "英文名": "enName",
+    "触发名": "triggerWords",
+    "触发词": "triggerWords",
+    "角色特征": "profileTraits",
+    "五官外貌": "facialAppearance",
+    "五官外貌背面": "facialBack",
+    "上半身SFW": "upperSfw",
+    "上半身SFW背面": "upperBackSfw",
+    "下半身SFW": "lowerSfw",
+    "下半身SFW背面": "lowerBackSfw",
+    "上半身NSFW": "upperNsfw",
+    "上半身NSFW背面": "upperBackNsfw",
+    "下半身NSFW": "lowerNsfw",
+    "下半身NSFW背面": "lowerBackNsfw",
+    "负面": "negativePrompt",
+    "负面提示词": "negativePrompt",
+};
+
+const INLINE_OUTFIT_FIELD_ALIASES: Record<string, keyof OutfitVisual> = {
+    "中文名称": "cnName",
+    "中文名": "cnName",
+    "英文名称": "enName",
+    "英文名": "enName",
+    "服装名称": "cnName",
+    "上半身": "upper",
+    "上半身背面": "upperBack",
+    "下半身": "lower",
+    "下半身背面": "lowerBack",
+};
 
 type BodyPromptCode = {
     name: string;
     characterId: string | null;
     groupId: string | null;
     outfit: string | null;
+    inlineCharacter: CharacterVisualField | null;
+    inlineOutfit: OutfitVisual | null;
     angle: "front" | "back";
-    upperBody: "nsfw" | "sfw" | "hidden";
-    lowerBody: "nsfw" | "sfw" | "hidden";
+    angleText: string;
+    upperBody: "nsfw" | "sfw" | "visible" | "hidden";
+    lowerBody: "nsfw" | "sfw" | "visible" | "hidden";
 };
 
 export type CompiledBodyPrompt = {
@@ -34,6 +76,7 @@ export type CompiledBodyPrompt = {
 export async function compileBodyPrompt(
     projectRoot: string,
     prompt: string,
+    options: {temporaryCharacters?: CharacterVisualFile[]} = {},
 ): Promise<CompiledBodyPrompt> {
     const negativeParts: string[] = [];
     let output = "";
@@ -52,11 +95,11 @@ export async function compileBodyPrompt(
         const code = jsonCode !== undefined
             ? parseBodyPromptCode(jsonCode)
             : parseLegacyBodyPromptCode(legacyCode ?? "");
-        const visual = await resolveCharacterVisual(projectRoot, code);
-        const outfit = resolveOutfit(visual, code);
-        const tags = buildCharacterTags(visual.character, outfit, code);
-        if (visual.character.negativePrompt.trim() !== "") {
-            negativeParts.push(visual.character.negativePrompt.trim());
+        const visual = await resolveCharacterVisual(projectRoot, code, options.temporaryCharacters ?? []);
+        const outfit = await resolveOutfit(projectRoot, visual, code);
+        const tags = buildCharacterTags(visual, outfit, code);
+        if (visual && (visual.character.negativePrompt ?? "").trim() !== "") {
+            negativeParts.push((visual.character.negativePrompt ?? "").trim());
         }
         output += tags.join(", ");
         cursor = index + match[0].length;
@@ -72,6 +115,31 @@ export async function compileBodyPrompt(
         prompt: output,
         negativePrompt: negativeParts.join(", "),
     };
+}
+
+/** Collect inline character DNA from a single prompt without touching project storage. */
+export function extractTemporaryCharacterRegistry(prompt: string): CharacterVisualFile[] {
+    const result: CharacterVisualFile[] = [];
+    for (const match of prompt.matchAll(BODY_PROMPT_CODE_PATTERN)) {
+        const raw = match[1];
+        if (raw === undefined) continue;
+        try {
+            const code = parseBodyPromptCode(raw);
+            if (code.inlineCharacter === null) continue;
+            const characterId = code.characterId ?? `temporary:${code.name}`;
+            if (result.some((item) => item.characterId === characterId)) continue;
+            result.push({
+                schema: "nbook.character-visual/v1",
+                characterId,
+                character: code.inlineCharacter,
+                outfits: code.inlineOutfit ? [code.inlineOutfit] : [],
+                photos: [],
+            });
+        } catch {
+            // The normal compiler reports malformed calls with the source text.
+        }
+    }
+    return result;
 }
 
 function parseBodyPromptCode(raw: string): BodyPromptCode {
@@ -92,17 +160,23 @@ function parseBodyPromptCode(raw: string): BodyPromptCode {
         throw new Error(`角色调用代码必须是 JSON 对象：${raw}`);
     }
     const record = parsed as Record<string, unknown>;
-    const name = typeof record.name === "string" ? record.name.trim() : "";
-    if (name === "") {
+    const inlineCharacter = parseInlineCharacter(record.character, raw);
+    const inlineOutfit = parseInlineOutfit(record.outfit, raw);
+    const name = typeof record.name === "string" && record.name.trim() !== ""
+        ? record.name.trim()
+        : inlineCharacter?.enName || inlineCharacter?.cnName || "";
+    const outfitName = typeof record.outfit === "string" && record.outfit.trim() !== ""
+        ? record.outfit.trim()
+        : null;
+    if (name === "" && inlineOutfit === null && outfitName === null) {
         throw new Error(`角色调用代码缺少 name：${raw}`);
     }
-    const angle = record.angle === undefined
+    const angleValue = typeof record.angle === "string" ? record.angle.trim().toLowerCase() : "front";
+    const angle = angleValue === "front" || angleValue === "from front"
         ? "front"
-        : record.angle === "front" || record.angle === "from front"
-            ? "front"
-            : record.angle === "back" || record.angle === "from back"
-                ? "back"
-                : null;
+        : angleValue === "back" || angleValue === "from back" || angleValue === "from behind" || angleValue === "behind"
+            ? "back"
+            : null;
     if (angle === null) {
         throw new Error(`角色调用代码的 angle 无效：${raw}`);
     }
@@ -116,10 +190,11 @@ function parseBodyPromptCode(raw: string): BodyPromptCode {
         groupId: typeof record.groupId === "string" && record.groupId.trim() !== ""
             ? record.groupId.trim()
             : null,
-        outfit: typeof record.outfit === "string" && record.outfit.trim() !== ""
-            ? record.outfit.trim()
-            : null,
+        outfit: outfitName,
+        inlineCharacter,
+        inlineOutfit,
         angle,
+        angleText: typeof record.angle === "string" ? record.angle.trim() : "",
         upperBody,
         lowerBody,
     };
@@ -127,8 +202,65 @@ function parseBodyPromptCode(raw: string): BodyPromptCode {
 
 function resolveBodyState(value: unknown, field: string, raw: string): BodyPromptCode["upperBody"] {
     if (value === undefined) return "sfw";
-    if (value === "sfw" || value === "nsfw" || value === "hidden") return value;
+    if (value === "sfw" || value === "nsfw" || value === "visible" || value === "hidden") return value;
     throw new Error(`角色调用代码的 ${field} 无效：${raw}`);
+}
+
+function parseInlineCharacter(value: unknown, raw: string): CharacterVisualField | null {
+    if (value === undefined) {
+        return null;
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error(`inline character DNA must be an object: ${raw}`);
+    }
+    const character = CharacterVisualFieldSchema.parse(
+        mapInlineFields(value as Record<string, unknown>, INLINE_CHARACTER_FIELD_ALIASES),
+    );
+    const dnaFields = [
+        character.profileTraits,
+        character.facialAppearance,
+        character.facialBack,
+        character.upperSfw,
+        character.upperBackSfw,
+        character.lowerSfw,
+        character.lowerBackSfw,
+        character.upperNsfw,
+        character.upperBackNsfw,
+        character.lowerNsfw,
+        character.lowerBackNsfw,
+    ];
+    if ((character.enName || character.cnName).trim() === "" || !dnaFields.some((field) => field.trim() !== "")) {
+        throw new Error(`inline character DNA is incomplete: ${raw}`);
+    }
+    return character;
+}
+
+function parseInlineOutfit(value: unknown, raw: string): OutfitVisual | null {
+    if (value === undefined || typeof value === "string") {
+        return null;
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error(`inline outfit DNA must be an object: ${raw}`);
+    }
+    const outfit = OutfitVisualSchema.parse(
+        mapInlineFields(value as Record<string, unknown>, INLINE_OUTFIT_FIELD_ALIASES),
+    );
+    if ((outfit.enName || outfit.cnName).trim() === ""
+        || ![outfit.upper, outfit.upperBack, outfit.lower, outfit.lowerBack].some((field) => field.trim() !== "")) {
+        throw new Error(`inline outfit DNA is incomplete: ${raw}`);
+    }
+    return outfit;
+}
+
+function mapInlineFields<T extends string>(
+    value: Record<string, unknown>,
+    aliases: Record<string, T>,
+): Record<string, unknown> {
+    const mapped: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+        mapped[aliases[key] ?? key] = item;
+    }
+    return mapped;
 }
 
 function parseLegacyBodyPromptCode(raw: string): BodyPromptCode {
@@ -146,7 +278,10 @@ function parseLegacyBodyPromptCode(raw: string): BodyPromptCode {
         characterId: null,
         groupId: null,
         outfit: null,
+        inlineCharacter: null,
+        inlineOutfit: null,
         angle: "front",
+        angleText: "front",
         upperBody: "hidden",
         lowerBody: "hidden",
     };
@@ -188,21 +323,58 @@ function parseLegacyBodyPromptCode(raw: string): BodyPromptCode {
     return code;
 }
 
-async function resolveCharacterVisual(projectRoot: string, code: BodyPromptCode): Promise<CharacterVisualFile> {
-    const characterId = code.characterId ?? await findCharacterIdByName(projectRoot, code.name, code.groupId);
-    if (characterId === null) {
+async function resolveCharacterVisual(
+    projectRoot: string,
+    code: BodyPromptCode,
+    temporaryCharacters: CharacterVisualFile[],
+): Promise<CharacterVisualFile | null> {
+    if (code.inlineCharacter !== null) {
+        return {
+            schema: "nbook.character-visual/v1",
+            characterId: code.characterId ?? `temporary:${code.name}`,
+            character: code.inlineCharacter,
+            outfits: [],
+            photos: [],
+        };
+    }
+    if (code.name === "") {
+        return null;
+    }
+    const temporaryMatches = temporaryCharacters.filter((item) => (
+        buildCharacterTriggerWords(item.character).includes(code.name)
+    ));
+    if (temporaryMatches.length > 1) {
+        throw new Error(`临时角色“${code.name}”存在多个候选，请在调用中指定唯一名称`);
+    }
+    if (temporaryMatches.length === 1) {
+        return temporaryMatches[0]!;
+    }
+    const resolved = code.characterId
+        ? {characterId: code.characterId, groupId: code.groupId}
+        : await findCharacterVisualByName(projectRoot, code.name, code.groupId);
+    if (resolved === null) {
         throw new Error(`未找到角色“${code.name}”的 visual.json`);
     }
-    const visual = await readCharacterVisual(projectRoot, characterId, code.groupId ?? undefined);
+    const visual = await readCharacterVisual(projectRoot, resolved.characterId, resolved.groupId ?? undefined);
     if (visual === null) {
         throw new Error(`未找到角色“${code.name}”的 visual.json`);
     }
     return visual;
 }
 
-function resolveOutfit(visual: CharacterVisualFile, code: BodyPromptCode): OutfitVisual | null {
+async function resolveOutfit(
+    projectRoot: string,
+    visual: CharacterVisualFile | null,
+    code: BodyPromptCode,
+): Promise<OutfitVisual | null> {
+    if (code.inlineOutfit !== null) {
+        return code.inlineOutfit;
+    }
     if (code.outfit === null) {
         return null;
+    }
+    if (visual === null) {
+        return await findStandaloneOutfit(projectRoot, code.outfit);
     }
     const outfit = visual.outfits.find((item) => (
         item.cnName === code.outfit
@@ -214,22 +386,84 @@ function resolveOutfit(visual: CharacterVisualFile, code: BodyPromptCode): Outfi
     return outfit;
 }
 
-async function findCharacterIdByName(projectRoot: string, name: string, groupId: string | null): Promise<string | null> {
-    for (const characterId of await listCharacterVisualIds(projectRoot, groupId ?? undefined)) {
-        const visual = await readCharacterVisual(projectRoot, characterId, groupId ?? undefined).catch(() => null);
-        if (visual !== null && buildCharacterTriggerWords(visual.character).includes(name)) {
-            return characterId;
+async function findStandaloneOutfit(projectRoot: string, name: string): Promise<OutfitVisual> {
+    const candidates: OutfitVisual[] = [];
+    for (const item of await collectProjectVisuals(projectRoot)) {
+        const outfit = item.visual.outfits.find((candidate) => candidate.cnName === name || candidate.enName === name);
+        if (outfit) {
+            candidates.push(outfit);
         }
     }
-    return null;
+    if (candidates.length === 0) {
+        throw new Error(`未找到独立服装“${name}”`);
+    }
+    if (candidates.length > 1) {
+        throw new Error(`独立服装“${name}”存在多个候选`);
+    }
+    return candidates[0]!;
+}
+
+async function findCharacterVisualByName(
+    projectRoot: string,
+    name: string,
+    groupId: string | null,
+): Promise<{characterId: string; groupId: string | null} | null> {
+    const candidates = (await collectProjectVisuals(projectRoot, groupId))
+        .filter((item) => buildCharacterTriggerWords(item.visual.character).includes(name));
+    if (candidates.length > 1) {
+        throw new Error(`角色“${name}”存在多个候选：${candidates.map((item) => item.characterId).join(", ")}；请使用 characterId`);
+    }
+    const candidate = candidates[0];
+    return candidate ? {characterId: candidate.characterId, groupId: candidate.groupId} : null;
+}
+
+async function collectProjectVisuals(
+    projectRoot: string,
+    groupId?: string | null,
+): Promise<Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}>> {
+    const result: Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}> = [];
+    const seen = new Set<string>();
+    const groups = groupId
+        ? [{groupId}]
+        : await listCharacterGroups(projectRoot);
+    for (const group of groups) {
+        for (const characterId of await listCharacterVisualIds(projectRoot, group.groupId)) {
+            const visual = await readCharacterVisual(projectRoot, characterId, group.groupId).catch(() => null);
+            if (visual === null) continue;
+            const key = `${group.groupId}:${characterId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push({characterId, groupId: group.groupId, visual});
+        }
+    }
+    if (!groupId) {
+        for (const characterId of await listCharacterVisualIds(projectRoot)) {
+            if (result.some((item) => item.characterId === characterId && item.groupId !== null)) continue;
+            const visual = await readCharacterVisual(projectRoot, characterId).catch(() => null);
+            if (visual === null) continue;
+            const key = `legacy:${characterId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push({characterId, groupId: null, visual});
+        }
+    }
+    return result;
 }
 
 function buildCharacterTags(
-    character: CharacterVisualField,
+    visual: CharacterVisualFile | null,
     outfit: OutfitVisual | null,
     code: BodyPromptCode,
 ): string[] {
+    if (visual === null) {
+        if (outfit === null) {
+            throw new Error("调用代码没有可展开的角色或服装");
+        }
+        return buildOutfitTags(outfit, code);
+    }
+    const character = visual.character;
     const tags = [
+        code.angleText,
         character.enName || character.cnName,
         character.profileTraits,
         code.angle === "back" ? character.facialBack : character.facialAppearance,
@@ -250,6 +484,19 @@ function buildCharacterTags(
         if (lower.trim() !== "") tags.push(lower);
         const outfitLower = code.angle === "back" ? outfit?.lowerBack : outfit?.lower;
         if (outfitLower?.trim()) tags.push(outfitLower);
+    }
+    return tags;
+}
+
+function buildOutfitTags(outfit: OutfitVisual, code: BodyPromptCode): string[] {
+    const tags: string[] = [];
+    if (code.upperBody !== "hidden") {
+        const upper = code.angle === "back" ? outfit.upperBack : outfit.upper;
+        if (upper.trim() !== "") tags.push(upper);
+    }
+    if (code.lowerBody !== "hidden") {
+        const lower = code.angle === "back" ? outfit.lowerBack : outfit.lower;
+        if (lower.trim() !== "") tags.push(lower);
     }
     return tags;
 }

@@ -5,20 +5,33 @@ import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-ima
 import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
-
-const CHARACTER_PHOTO_PROMPT_PATTERN = /image###([\s\S]*?)###/iu;
+import {extractLastLlmImagePrompt} from "nbook/server/text-to-image/llm-output";
 
 /** 提取 LLM 回复中的角色照片完整 tag；找不到标记或内容为空时抛错。 */
 export function extractCharacterPhotoPrompt(text: string): string {
-    const match = CHARACTER_PHOTO_PROMPT_PATTERN.exec(text);
-    if (!match) {
-        throw new Error("角色照片 prompt 中未找到 image###...### 标记");
+    return extractLastLlmImagePrompt(text)!;
+    const candidates: Array<{index: number; prompt: string}> = [];
+    for (const match of text.matchAll(/image###([\s\S]*?)###/giu)) {
+        candidates.push({index: match.index ?? 0, prompt: (match[1] ?? "").trim()});
     }
-    const prompt = (match[1] ?? "").trim();
-    if (prompt === "") {
-        throw new Error("角色照片 prompt 的 image###...### 内容为空");
+    for (const match of text.matchAll(/<image>([\s\S]*?)<\/image>/giu)) {
+        candidates.push({index: match.index ?? 0, prompt: stripImagePromptWrapper(match[1] ?? "")});
     }
-    return prompt;
+    const prompt = candidates
+        .filter((candidate) => candidate.prompt !== "")
+        .sort((left, right) => left.index - right.index)
+        .at(-1)?.prompt;
+    if (!prompt) {
+        throw new Error("角色照片 prompt 中未找到合法 image###...### 或 <image>...</image>，内容为空或标记缺失");
+    }
+    return prompt!;
+}
+
+function stripImagePromptWrapper(value: string): string {
+    return value
+        .replace(/<prompts?>/giu, "")
+        .replace(/<\/prompts?>/giu, "")
+        .trim();
 }
 
 function buildCharacterPhotoSystemPrompt(): string {

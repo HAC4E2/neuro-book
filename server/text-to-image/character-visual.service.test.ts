@@ -32,6 +32,7 @@ describe("character visual service", () => {
 
         await writeCharacterVisual(root, "char-1", input);
         const read = await readCharacterVisual(root, "char-1");
+        expect(read?.character.triggerWords).toContain("小克");
 
         expect(read).toMatchObject({
             characterId: "char-1",
@@ -71,6 +72,39 @@ describe("character visual service", () => {
             name: "Fantasy",
             description: "",
         }]);
+    });
+
+    it("project-facing read/write/delete resolves a single legacy group without creating a second root record", async () => {
+        const root = await createRoot();
+        await createCharacterGroup(root, "fantasy");
+        const groupedDirectory = path.join(root, "lorebook", "character", "fantasy", "alice");
+        await mkdir(groupedDirectory, {recursive: true});
+        await writeFile(path.join(groupedDirectory, "index.md"), "# Alice\n", "utf8");
+        await writeCharacterVisual(root, "alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {cnName: "Alice"},
+            outfits: [],
+            photos: [],
+        }, "fantasy");
+
+        await writeCharacterVisual(root, "alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {cnName: "Alice Updated"},
+            outfits: [],
+            photos: [],
+        });
+
+        await expect(readCharacterVisual(root, "alice")).resolves.toMatchObject({
+            character: {cnName: "Alice Updated"},
+        });
+        await expect(access(path.join(root, "lorebook", "character", "alice", "visual.json"))).rejects.toThrow();
+
+        await deleteCharacterVisual(root, "alice");
+
+        await expect(readCharacterVisual(root, "alice")).resolves.toBeNull();
+        await expect(access(path.join(groupedDirectory, "index.md"))).resolves.toBeUndefined();
     });
 
     it("default group falls back to legacy single-level path", async () => {

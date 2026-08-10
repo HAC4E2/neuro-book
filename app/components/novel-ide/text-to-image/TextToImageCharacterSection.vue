@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {computed, onMounted, ref, watch} from "vue";
-import type {TextToImageProviderDto} from "nbook/shared/dto/text-to-image.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     characterListItemKey,
@@ -16,7 +15,6 @@ import {
 } from "nbook/app/components/novel-ide/text-to-image/character-workbench";
 
 const props = defineProps<{
-    providers: TextToImageProviderDto[];
     projectRoot: string;
     initialCharacter?: CharacterGenerationContext | null;
 }>();
@@ -80,7 +78,6 @@ const defaultOutfit: CharacterOutfit = {
     lowerBack: "",
 };
 
-const novelAiProviders = computed(() => props.providers.filter((provider) => provider.kind === "novelai"));
 const subTab = ref<CharacterWorkbenchSectionId>("character");
 const groups = ref<CharacterGroupInfo[]>([]);
 const activeGroupId = ref("");
@@ -94,7 +91,6 @@ const activeOutfitIndex = ref(-1);
 const outfitDraft = ref<CharacterOutfit>({...defaultOutfit});
 const photos = ref<string[]>([]);
 const characterPage = ref("");
-const novelAiProviderId = ref<number | null>(null);
 const userRequirement = ref("");
 const photoPrompt = ref("");
 const newGroupId = ref("");
@@ -141,10 +137,6 @@ watch(() => props.projectRoot, () => {
 watch(() => props.initialCharacter, () => {
     applyInitialCharacterContext();
 }, {immediate: true});
-
-watch(activeGroupId, () => {
-    syncGroupDraft();
-});
 
 watch([activeCharacterId, activeCharacterGroupId], () => {
     void loadVisual();
@@ -194,7 +186,6 @@ async function loadGroups(): Promise<void> {
     if (!groups.value.some((group) => group.groupId === activeGroupId.value)) {
         activeGroupId.value = groups.value[0]?.groupId ?? "";
     }
-    syncGroupDraft();
 }
 
 async function loadAllCharacters(): Promise<void> {
@@ -230,7 +221,6 @@ async function loadVisual(): Promise<void> {
             query: {
                 projectRoot: props.projectRoot,
                 characterId: activeCharacterId.value,
-                ...(activeCharacterGroupId.value ? {groupId: activeCharacterGroupId.value} : {}),
             },
         });
         if (result.visual) {
@@ -255,12 +245,6 @@ function resetCharacterForm(): void {
     outfitDraft.value = {...defaultOutfit};
     photos.value = [];
     photoPrompt.value = "";
-}
-
-function syncGroupDraft(): void {
-    const group = activeGroup.value;
-    groupNameDraft.value = group?.name ?? "";
-    groupDescriptionDraft.value = group?.description ?? "";
 }
 
 function syncOutfitDraft(): void {
@@ -407,7 +391,6 @@ async function deleteCharacter(): Promise<void> {
             query: {
                 projectRoot: props.projectRoot,
                 characterId,
-                ...(activeCharacterGroupId.value ? {groupId: activeCharacterGroupId.value} : {}),
             },
         });
         activeCharacterId.value = "";
@@ -433,7 +416,6 @@ async function saveVisual(): Promise<void> {
             body: {
                 projectRoot: props.projectRoot,
                 characterId: activeCharacterId.value,
-                ...(activeCharacterGroupId.value ? {groupId: activeCharacterGroupId.value} : {}),
                 visual: buildVisual(),
             },
         });
@@ -478,7 +460,6 @@ async function generateVisual(): Promise<void> {
             body: {
                 projectRoot: props.projectRoot,
                 characterId: activeCharacterId.value,
-                ...(activeCharacterGroupId.value ? {groupId: activeCharacterGroupId.value} : {}),
                 characterPage: characterPage.value,
                 mode: "fill_empty",
             },
@@ -513,7 +494,6 @@ async function generatePhotoPrompt(): Promise<void> {
 }
 
 async function generateAvatar(): Promise<void> {
-    if (novelAiProviderId.value === null) return;
     if (!activeCharacterId.value) {
         error.value = "请先选择角色";
         return;
@@ -525,10 +505,8 @@ async function generateAvatar(): Promise<void> {
         await $fetch("/api/text-to-image/character-photo.generate", {
             method: "POST",
             body: {
-                novelAiProviderId: novelAiProviderId.value,
                 projectRoot: props.projectRoot,
                 characterId: activeCharacterId.value,
-                ...(activeCharacterGroupId.value ? {groupId: activeCharacterGroupId.value} : {}),
                 characterText: JSON.stringify(character.value),
                 outfitText: JSON.stringify(activeOutfit.value ?? []),
                 userRequirement: userRequirement.value,
@@ -617,7 +595,8 @@ async function generateAvatar(): Promise<void> {
                     <p v-else class="rounded-md border border-dashed border-[var(--border-color)] p-3 text-[13px] text-[var(--text-muted)]">
                         当前项目下还没有角色。
                     </p>
-                    <div class="mt-3 space-y-2 border-t border-[var(--border-color)] pt-3">
+                    <!-- 瑙掕壊鐢熸垚浠庡師濮嬫枃浠跺紑濮嬶紝涓嶅湪瑙嗚绠＄悊涓柊寤洪櫤鏃朵汉鐗? -->
+                    <div v-if="false" class="mt-3 space-y-2 border-t border-[var(--border-color)] pt-3">
                         <input
                             v-model="newCharacterId"
                             class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]"
@@ -738,10 +717,6 @@ async function generateAvatar(): Promise<void> {
                                     <p class="mt-1 text-[13px] text-[var(--text-muted)]">照片生成仍由 LLM 生成 prompt，再由 NovelAI 后端完成出图。</p>
                                 </div>
                                 <div class="flex items-center gap-2">
-                                    <select v-model.number="novelAiProviderId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
-                                        <option :value="null">选择 NovelAI</option>
-                                        <option v-for="provider in novelAiProviders" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
-                                    </select>
                                     <button
                                         class="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
                                         :disabled="false"
@@ -752,7 +727,7 @@ async function generateAvatar(): Promise<void> {
                                     </button>
                                     <button
                                         class="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
-                                        :disabled="novelAiProviderId === null || saving"
+                                        :disabled="saving || !activeCharacterId"
                                         @click="generateAvatar"
                                     >
                                         <span class="i-lucide-image-plus h-3.5 w-3.5"></span>

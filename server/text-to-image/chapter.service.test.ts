@@ -1,9 +1,13 @@
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {readChapterMarkdown, replacePromptPlaceholderWithAsset} from "nbook/server/text-to-image/chapter.service";
+import {
+    readChapterMarkdown,
+    readSameVolumeHistory,
+    replacePromptPlaceholderWithAsset,
+} from "nbook/server/text-to-image/chapter.service";
 import {
     renderTextToImagePromptMarkdown,
     type TextToImagePromptPayload,
@@ -21,6 +25,34 @@ afterEach(async () => {
 });
 
 describe("chapter.service", () => {
+    it("reads same-volume history without mutating source files", async () => {
+        const volume = path.join(root, "manuscript", "001-volume");
+        await mkdir(path.join(volume, "001-chapter"), {recursive: true});
+        await mkdir(path.join(volume, "002-chapter"), {recursive: true});
+        await mkdir(path.join(root, "manuscript", "002-volume", "001-chapter"), {recursive: true});
+        const previousContent = "# previous\nbody\n<image>old prompt</image>\n## nearby";
+        await writeFile(path.join(volume, "001-chapter", "index.md"), previousContent, "utf8");
+        await writeFile(path.join(volume, "002-chapter", "index.md"), "# current", "utf8");
+        await writeFile(path.join(root, "manuscript", "002-volume", "001-chapter", "index.md"), "# other volume", "utf8");
+
+        const history = await readSameVolumeHistory(
+            absoluteFsPath(root),
+            "manuscript/001-volume/002-chapter/index.md",
+            1,
+        );
+
+        expect(history).toEqual([{
+            path: "manuscript/001-volume/001-chapter/index.md",
+            content: "# previous\nbody\n\n## nearby",
+        }]);
+        expect(await readFile(path.join(volume, "001-chapter", "index.md"), "utf8")).toBe(previousContent);
+        expect(await readSameVolumeHistory(
+            absoluteFsPath(root),
+            "manuscript/001-volume/001-chapter/index.md",
+            1,
+        )).toEqual([]);
+    });
+
     it("读取章节 Markdown", async () => {
         await writeFile(path.join(root, "chapter.md"), "# 第一章\n正文", "utf8");
         expect(await readChapterMarkdown(absoluteFsPath(root), "chapter.md")).toContain("第一章");
