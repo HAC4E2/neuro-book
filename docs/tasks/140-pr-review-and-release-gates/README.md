@@ -82,6 +82,40 @@
 - [ ] 更新 P1/P2 风险清单与对应 Task/Issue 公开记录。
 - [ ] 在没有 P0/P1 或已明确阻塞转交之前，不宣称本轮完成。
 
+### 2026-08-07：最终 master 整体审查与收口
+
+- 本次整体审查的代码基线为 `7f29bf8fbc6c4776702382dd9df33b0d006f16f2`；其后的发布收口最终落在 `69313ad5ccc0e54203daeeebe69589f108fa3572`。本轮进入主线的最终收口提交包括：
+  - `95fd1b0e`：停止请求失败进入用户可见通知；
+  - `2e0c94a6`：Job 终态、完整结果和回流身份写入 durable history；
+  - `1c0a13d0`：主 Session 与关联 Session 恢复分离，并按连接代限制自动恢复；
+  - `78a5f4b6`：Desktop Workbench 当前 master 整合；
+  - `34f0a73e`：retrieval 的 Git Bash 安全路径枚举；
+  - `2fbfa232`、`23b2a20c`、`8d19f362`、`7b69328c`：窄屏、clean-runner、Source Dev Cache Root 和冷启动测试预算收口。
+  - `7f29bf8f`：squash 合并 #83 clean-runner baseline；GitHub Typecheck、Full tests advisory 和四个平台 Product checks 均通过。
+- GitHub 状态核对为：#80、#82、#83、#84、#85、#86 已合并；#68、#70、#72、#74、#81 已关闭并标记为被当前 master 的替代提交取代；#47 仍为 `OPEN` 且 `CONFLICTING`，#17 仍为 `OPEN`；#47、#17 本轮均不合并、不关闭。
+
+#### 复核结论
+
+- 原 Task 140 确认的四个运行时 P1 已有主线修复和 focused 证据：停止失败通知、Job durable history、Session/关联 Session 恢复语义、失败后的 recovery latch 清理。
+- 最终只读审查未新增 P0/P1。Job durable store 的单文件原子写、终态先 commit 再 SSE、重启恢复、稳定回流身份、损坏文件隔离和“pending 不可清除”均由 `agent-job-manager.test.ts`、`agent-job-durable-store.test.ts` 覆盖。
+- 本地 Windows 默认 Vitest thread pool 的全量测试出现 1 个非稳定失败：`server/agent/tools/subject-memory-tools.test.ts` 中 `subject_memory_update 调用真实 memory.curator profile，应用 JSON Patch 并标记 dirty` 首次检查时未看到刚写入的 File Index 节点；该文件单独运行 `16/16` 通过，使用 `--pool=forks` 的全量测试为 `496` 个文件通过、`1` 个跳过，`3443` 项通过、`14` 项跳过。GitHub PR #83 和 #86 的 `Full tests (advisory)`、Typecheck 和四个平台 Product checks 均为成功。本地默认 runner 结果记录为环境/调度敏感性，不修改生产合同或放宽测试断言。
+- `bun run manager:verify-public` 未通过，原文为 `当前Manager构建输入晚于npm公开gitHead 4225c05ee02721fe96492f711d3c74eede6b47f9`。这是当前 Manager 源码尚未发布到 npm 公开 `gitHead` 的发布前置阻塞；本轮明确不发布 Manager canary，因此不能写成 Manager 公开验证通过。
+
+#### 最终验证记录
+
+- `bun run generate`：通过。
+- `bun run typecheck`：退出码 0。
+- Agent/Workflow/Composer/Settings/Cache/Session focused：11 个文件、82 项通过；补充 recovery/path/image focused：5 个文件、48 项通过。
+- Desktop Contract：7 个文件、29 项通过；Manager test：38 个文件、`281 passed / 3 skipped`；Manager typecheck、pack check：通过。
+- `bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts`：通过。`bun run docs:build` 的页面渲染和输出构建通过；普通 Windows 模式在清理 `docs/.vitepress/.temp` 时遇到 `EPERM`，用 `DEBUG=1`（保留 VitePress 临时目录）完成同一构建，故文档内容通过、临时目录清理保留为环境限制。
+- `git diff --check`：通过。
+
+### 当前收口口径
+
+- 代码审查发现的 P0/P1 已关闭或有明确的发布前置阻塞，不宣称五 PR 的所有真实 provider/人工浏览器场景已完成。
+- #47 的最小关联 Session 降级合同已经由 #80 的主线提交覆盖，但 #47 本身仍不合并；若未来重开，必须重新验证其未被覆盖的独立合同。
+- `manager:verify-public`、正式 Release/Tag 的硬门禁已经通过；未配置真实 provider 的 Agent 浏览器场景和签名安装器仍保持未完成，不在本 Task 中伪造为已通过。
+
 ### 2026-08-05：图片缓存路径专项浏览器审查
 
 - **确认行为：当前 Source Dev 会把图片变体写入仓库根 `cache`。** 现场存在两个新生成的 WebP：
@@ -111,3 +145,9 @@
 - **#65（Workflow/Jobs feedback loop）：阻塞。** 浏览器连接成功但标签列表为空，未成功建立目标标签页，因此 waiting Composer、多 Run 隔离、结果回流、状态图、Job center、`wf.ask` 重复提交、usage、详情和刷新恢复全部未验证。
 
 **批次结论：** 当前本地 `localhost:3000` 浏览器验收环境不稳定，至少出现导航超时、页面运行时超时和标签页为空三类阻塞。该结果只说明五个 PR 尚未取得浏览器证据，不能归因到任何一个 PR 的业务代码。修复/重启本地服务并确认浏览器可稳定加载后，应按同一清单重跑五项；在此之前不能宣称五个 PR 浏览器验收完成。
+
+### 2026-08-07：发布门禁最终收口
+
+- Manager `0.1.0-canary.52` 的公开 provenance 已通过；`manager-v0.1.0-canary.52` 与最终 NeuroBook revision `69313ad5ccc0e54203daeeebe69589f108fa3572` 一致。
+- `v0.9.3-canary.20260807.175842Z.771ac42b` 已公开为 prerelease。Release workflow `31204827527` 的五平台 Product、Windows Portable、容器、公开 payload、GHCR、Windows data reuse 和 tag activation 全部通过。
+- 本 Task 的审查结论仍不等于完整人工浏览器验收；真实 provider 驱动的 Composer/Workflow、签名安装器和最终 Desktop 方案继续保持未完成边界。

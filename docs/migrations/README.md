@@ -36,3 +36,4 @@ bun run migrate:application-state -- --rollback --run-id <runId>
 ## 版本索引
 
 - [0.9.0：Application State catalog v3 与 Agent Session v2](0.9.0-session-v2.md)
+- [0.9.3-canary：Job durable history、Source Dev Cache Root 与升级边界](0.9.3-canary.md)

@@ -1276,6 +1276,8 @@ describe("NeuroAgentHarness black-box contract", () => {
         }
     });
 
+    // 这两个用例的外层预算覆盖 full-suite 下的 Harness/Provider 初始化；
+    // 取消是否有界仍由用例内 300ms/1s race 精确约束。
     it("Running provider 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果", async () => {
         const profileKey = registerPlainProfile(harness, {
             key: "test.blackbox.forced-running-abort",
@@ -1325,7 +1327,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         const snapshot = await harness.repo.readSession(created.sessionId);
         expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late provider result");
         expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
-    });
+    }, 30_000);
 
     it("外部 signal 只取消 admission 接收的精确 invocation，不影响同 session 后续调用", async () => {
         const profileKey = registerPlainProfile(harness, {
@@ -1374,7 +1376,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         const snapshot = await harness.repo.readSession(created.sessionId);
         expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late exact-signal result");
         expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
-    });
+    }, 30_000);
 
     it("Running tool 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果", async () => {
         let releaseTool: (() => void) | undefined;

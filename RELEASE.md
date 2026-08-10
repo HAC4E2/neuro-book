@@ -2,15 +2,14 @@
 
 这里只放当前版本。更早的版本见 [docs/changelog/](docs/changelog/)。
 
-## 0.9.1-canary - 2026-08-03
+## 0.9.3-canary（限量 canary，已发布） - 2026-08-07
 
-这一版继续收紧运行时、安装和 Agent 资产的边界，并把 llmlint 的静态检查、检测和复测结果整理成可复查的报告。它仍是 canary 版本，正式发布前的平台和人工验收不会被本地结果替代。
+这一版收口了 Agent 停止、会话恢复、后台任务结果和 Source Dev 缓存的几个可靠性边界，也补上了配置中心窄屏布局和 Windows-first Desktop 壳实验。它已于 2026-08-07 以限量 canary 公开发布，tag 为 `v0.9.3-canary.20260807.175842Z.771ac42b`；真实 provider 和人工 Agent/Workflow 全流程仍未完全验证，因此不把它们写成全流程通过。
 
 ### 新功能
 
-- llmlint 增加审稿报告和轮次指标，能把规则命中、密度信号和复测结果放在同一份报告里。
-- Agent 资产和 Skill 现在有明确的安装、frontmatter 与运行时校验合同，内置资源发现异常时会直接报告原因。
-- 缺失的 Agent 对话会显示明确的恢复结果；重试、分支和 `/fork` 的语义保持可追踪，不会悄悄创建隐式会话。
+- 后台任务完成后，完整结果会保留下来；服务重启后仍可从任务中心查看已完成任务 (#79)。
+- Windows-first Desktop Workbench 实验进入主线，提供共享标题栏、Activity Bar、Agent/IDE 切换和 Electron/Tauri Envelope 合同验证。它仍是 spike，不是正式安装器或最终框架选择 (#77)。
 
 **文生图工作台**
 
@@ -18,22 +17,24 @@
 
 ### 改进
 
-- Windows Product Runtime Image 以 verified identity 为唯一输入，运行时、安装管理器、Portable 和容器不再从工作树猜测 `.output` 来源。
-- Profile/Variable 编译、安装更新、进程关闭和发布候选使用明确的 staging、lease、manifest 与恢复检查，减少中断后留下半成品的机会。
-- llmlint 的运行时快照从 sibling 仓库同步，发布包不再维护第二份独立源码。
+- Source Dev 未指定缓存目录时使用 checkout 下的 `.agent/cache`，不再把图片变体默认写入仓库根 `cache/`；显式 `NEURO_BOOK_CACHE_ROOT` 仍优先 (#85)。
+- 配置中心在手机宽度下改为上下布局，Profile 导航使用可横向滚动的紧凑标签；桌面布局保持不变 (#82)。
+- retrieval 的固定文件枚举命令改为 Git Bash 安全的 `rg --files -g 'index.md'` 形式 (#69)。
+- clean-runner 会先生成 Prisma/Nuxt 产物，并使用宿主临时绝对路径运行跨平台测试；Source Dev 依赖安装固定使用 hoisted linker (#83, #75)。
+- 内部维护：跨平台 code baseline 修复与 clean-runner 测试预算调整 (#76, #84)。
 
 ### 修复
 
-- 点停止后界面会真的停下来。以前如果正好卡在某个工具里，停止按钮会一直亮着、输入框一直不能用，只能切走对话再切回来。
-- 停止生成时会保留已经写出来的半截内容，并在下面标一行「已停止生成」。以前那半页会直接消失，刷新后什么都不剩。
-- 停止生成不再显示英文的 `Request was aborted`，也不再被当成报错标红。
-- 点停止后不再弹出红色的失败提示。以前每次主动停止，右上角都会冒出一条英文报错，看起来像是出了问题。编辑器里的划词 AI 同样如此，现在两处都只说「已请求停止」。
-- 同一个错误不再显示两遍。以前模型写到一半才出错时，会同时出现气泡里的红字和一张单独的错误卡片。
-- 修复 Profile/Variable authoring 在完整源码和 Product 目录同时存在时错误借用 Source worker 的问题。
-- 修复安装岛在干净 Bun 安装中依赖被提升到根 `node_modules` 后无法解析的问题。
-- 修复旧会话、Agent Skill frontmatter 和报告 JSON 字段容易被消费者误读的几类边界错误。
+- 停止请求失败现在会给出用户可见提示；主动取消、运行错误和半截正文继续保持不同语义 (#78)。
+- 主 Session 的恢复不再因关联 Agent Session 缺失而被误判为失效；同一连接上的自动 recovery 失败后不会无限重复 (#80)。
+- Job 终态会先完成 durable 保存再发布；损坏的单个 Job 文件会隔离，仍待结果回流的 Job 不会被清除 (#79)。
+- cover 路由首次冷导入测试不再因 Windows 机器的合理启动时间误报超时 (#86)。
 
 ### 升级须知
 
-- 这是 canary 版本。升级前请备份整个 `data/` 目录，并先在不重要的项目上验证启动、迁移和 Agent 编译。
-- 正式发布仍需等待五个平台、容器、Portable 和人工界面验收；本版本不能把这些未完成项当作已通过。
+- 这是限量 canary。升级前请备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`；完整步骤见 [0.9.3-canary 迁移指南](docs/migrations/0.9.3-canary.md)。
+- 本版本没有新的数据库 schema 迁移。旧 `jobs.jsonl` 只会把遗留 active Job 转为 `interrupted`，不能伪造旧 terminal result；新的 Job 历史位于 `<Workspace Root>/.nbook/agent/jobs/`。
+- 重启后会保留已完成 Job 的结果，但不会续跑旧 Workflow，也不会持久化完整 Workflow 图、逐步时间线或 pending ask。
+- Source Dev 旧的仓库根 `cache/image-variants` 不会自动迁移或删除；停服、确认没有自定义 Cache Root 后，再按迁移指南人工清理。
+- 显式 Profile 模型覆盖不可用时，请恢复继承全局默认模型或选择已确认可用的模型；本版本不做静默 fallback。
+- 本次公开发布对应 [GitHub Release](https://github.com/notnotype/neuro-book/releases/tag/v0.9.3-canary.20260807.175842Z.771ac42b)，Manager provenance 使用 `manager-v0.1.0-canary.52` 并已通过。真实 provider 和全量 Agent/Workflow 浏览器验收仍是限量 canary 的已知未完成项；签名安装器和最终 Desktop 选型不属于本次发布承诺。

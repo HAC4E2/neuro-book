@@ -553,7 +553,7 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 
 ### 2026-07-22：诊断、架构审计与计划
 
-- 阅读 `$diagnose`，按反馈环 → 复现 → 假设 → 探针顺序确认症状。
+- 阅读 `$diagnosing-bugs`，按反馈环 → 复现 → 假设 → 探针顺序确认症状。
 - 阅读 `$improve-codebase-architecture`，用 deletion test 约束 Module seam；没有把所有 `spawn` 纳入范围。
 - 核对 Bash schema、前后台调用、timeout/abort、Portable Manager、Product launcher 和 Windows 测试缺口。
 - 核对 Session 755：真实 `find` 是 abort 证据，不是 30 秒 timeout 证据。

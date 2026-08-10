@@ -120,6 +120,36 @@ server/api/config/editor-snapshot.get.ts     3429 行   ← 四个文件占 16,3
 
 `global.put.ts` 的真实业务逻辑只有开头的 import 和文件末尾的 handler，中间 5000 多行全是内联 JSON。
 
+## 当前 master 架构复核（2026-08-07）
+
+本轮只做结构与架构审查，不改变业务代码、公共 API、数据库结构、Manager 包结构或 Desktop 实现。结论是：核心生命周期、Job 终态持久化、Project Module Registry 和 Desktop Contract 方向基本成立；没有发现新的运行时 P0/P1。下面的项目属于维护边界风险或架构债务，不应直接写成当前用户已经遇到的运行时故障。
+
+### 已确认的正向结构
+
+- `server/workspace-files/project-module.ts` 已提供 Project Module Registry，并明确了模块注册、关闭和生命周期顺序。
+- `server/agent/jobs/agent-job-durable-store.ts` 使用单 Job 文件进行原子持久化；`server/agent/jobs/agent-job-manager.ts` 在发布终态 SSE 前先完成 durable commit，用户可见的 Job 终态不会先于持久化结果公开。
+- State Root、Cache Root、Installation Root 的边界已经在 ADR 0010、`reference/workspace/TERMS.md`、Task 142 和 Task 143 中写清楚。
+- vendor snapshot 有 `VENDOR.json` 和同步脚本，当前没有发现需要在本轮重新设计的快照边界。
+
+### 结构风险与置信度
+
+1. **P1 候选：shared 与 Manager 形成真实运行时依赖环。** `shared/product-runtime-image-verifier.ts:14-16` 运行时导入 `packages/neuro-book-manager/src/types.ts` 中的 `PRODUCT_PLATFORMS`，并从同一文件导入 `ProductPlatform` 类型；Manager 的 `packages/neuro-book-manager/src/product.ts:15` 又导入该 verifier。当前构建可以通过，但这说明“共享合同”和“可独立发布的 Manager”边界并不真实：以后若 Manager 需要脱离仓库独立打包，可能把宿主源码依赖一起带入或在独立构建时失败。**置信度：已从代码确认，影响级别为架构 P1 候选，不是已复现的运行时故障。**
+2. **P2：shared 与 `server/agent` 存在循环类型依赖。** `shared/dto/agent-session.dto.ts:2-4` 依赖 `server/agent/messages`、`session`、`variables` 的类型，而 `server/agent/session/types.ts:5` 又反向依赖该 DTO。当前是 `import type`，没有观察到运行时环；但 shared DTO 无法真正独立编译和复用。**置信度：已从代码确认，运行时影响未发现。**
+3. **P2：核心单体文件把维护风险集中在少数入口。** 当前 master 实测：`server/agent/harness/neuro-agent-harness.ts` 8,213 行、`server/workspace-files/project-lifecycle.ts` 2,759 行、`server/workspace-files/workspace-files.ts` 1,997 行、`app/pages/index.vue` 2,837 行、`app/stores/novel-ide.ts` 2,032 行、`app/components/novel-ide/agent/AgentChatSurface.vue` 2,978 行。它们仍可作为领域 Facade 使用，但跨模块修改时更容易产生回归；行数本身不是立即拆分的理由。**置信度：已测量文件规模，回归风险为结构推断。**
+4. **P2：OpenAPI 生成物仍大量写回路由源码。** `server/api/config/global.put.ts:7` 开始的自动生成 JSON 与业务 handler 混在同一个路由文件中；该问题已在本任务的 D1 记录，本轮不与可靠性修复混合处理。**置信度：已从代码确认。**
+
+### 本轮明确接受的边界
+
+- 文件系统、Project SQLite、History SQLite、Session JSONL 和 Job JSON 各自维护自己的生命周期与一致性；当前不建设跨存储全局事务或分布式事务框架。需要跨边界恢复时，继续使用已有的顺序、幂等和可诊断失败合同。
+- Electron/Tauri 目前仍是 Desktop spike。两套宿主重复处理配置、端口、Supervisor、关闭和窗口状态，是 Rust/TypeScript 双实现的现实成本；当前不提前抽象复杂的跨语言运行时。
+- 不因为单体文件超过某个行数就机械拆分。只有出现明确的运行时边界、发布边界或持续回归证据时，才单独开轮次处理。
+
+### 本轮验证边界
+
+- 直接运行 `node node_modules/nuxt/bin/nuxt.mjs typecheck --dotenv .env.typecheck --logLevel silent`：通过，退出码 0。
+- `bun run typecheck` 未进入 TypeScript，Bun 报告 `Bun failed to remap this bin to its proper location within node_modules.`，并提示 `corrupted node_modules directory`，退出码 255；这是本地依赖环境问题，不能归因于本轮架构结论。
+- 本轮未运行全仓测试、浏览器验收、真实 provider 或发布流程；这些结论不会替代相应的产品和发布门禁。
+
 ## 仓库其他层面的问题（非 server，长期 backlog）
 
 ### R1 · 13 个僵尸依赖
@@ -293,6 +323,24 @@ agent-profile-routing               agent-composer-plain-text-input
 3. 「`order` 使用两位数字」已与现实脱节（当前最大编号 123）。已改为「不足两位补零，超过 99 后自然使用三位」。
 4. 缺少防撞号机制。已加入硬性要求：**新建任务目录前必须先 `ls docs/tasks/` 确认编号未被占用，不要凭记忆推断**，并写明历史上已发生 `08`、`96`、`120` 三次撞号。
 
+### 轮次 3（2026-08-07）· 当前 master 代码结构与架构复核
+
+**做了什么**
+
+1. 以当前 `master` 为基线复核生命周期、Job durable history、Project Module Registry、Desktop Contract，以及 State/Cache/Installation Root 的边界。
+2. 记录 shared/Manager 的真实运行时依赖环、shared/`server/agent` 的循环类型依赖、核心单体文件规模和 OpenAPI 生成物回写路由源码四项结构风险。
+3. 将跨存储全局事务和 Electron/Tauri 跨语言统一运行时列为明确接受的边界，不把它们升级成当前技术债修复目标。
+4. 新增 [ADR 0015](../../adr/0015-architecture-boundaries-and-deferred-structure.md)，把本轮“不重构”的原因、后果和重新评估条件固定下来。
+
+**与计划的出入**
+
+- 没有代码、API、数据库或 Manager/Desktop 实现改动。
+- 没有运行全仓测试、浏览器、真实 provider 或发布流程；Nuxt 直接 typecheck 通过，root `bun run typecheck` 只因本地 `node_modules` bin metadata 损坏而未进入 TypeScript。
+
+**结论**
+
+本轮不关闭原有结构优化项，也不宣称仓库已经完成解环或完成单体拆分。后续只有在 ADR 0015 规定的触发条件出现时，才为单项问题另开任务和验证批次。
+
 ## TODO / Follow-ups
 
 按批次推进，每批完成后回写 walkthrough。
@@ -345,3 +393,5 @@ agent-profile-routing               agent-composer-plain-text-input
 - R3 前端单体入口与 800 行以上组件拆分（D4）。
 - `NeuroAgentHarness` 拆分（D2）。
 - `app/pages/*.preview.vue` 归位（D3）。
+- shared/Manager 依赖环与 shared/`server/agent` 循环类型依赖：本轮只记录，不新建 `runtime-contract` 包，也不做无证据的解环重构。
+- 跨存储全局事务与 Electron/Tauri 跨语言统一运行时：按 ADR 0015 保持接受边界，不作为结构优化 backlog 推进。

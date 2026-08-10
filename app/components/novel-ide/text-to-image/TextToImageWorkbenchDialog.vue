@@ -109,7 +109,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
         height="min(82vh, 1080px)"
         max-height="calc(100vh - 20px)"
         title="文生图工作台"
-        overlay-type="blur"
+        overlay-type="opaque"
         :body-class="'custom-scrollbar flex min-h-0 flex-1 flex-col overflow-hidden p-0'"
         @update:model-value="emit('update:modelValue', $event)"
     >

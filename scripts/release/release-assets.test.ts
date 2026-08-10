@@ -456,7 +456,10 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun run manager:test");
+        expect(windowsRun).toContain("bun run nuxt:prepare");
+        expect(windowsRun.indexOf("bun run nuxt:prepare")).toBeLessThan(
+            windowsRun.indexOf("bun run manager:test"),
+        );
     });
 
     it("正式POSIX Product消费路径保留归档中的文件权限", async () => {
@@ -730,6 +733,9 @@ describe("Product Release宿主合同", () => {
         const restartVerifier = (await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8")).replaceAll("\r\n", "\n");
         expect(restartVerifier).toContain("manifest.components.managerRuntime");
         expect(restartVerifier).toContain("manifest.components.manager.path");
+        expect(restartVerifier).toContain('AUTH_ADMIN_PASSWORD: ADMIN_PASSWORD');
+        expect(restartVerifier).toContain('"admin",\n        "create",\n        ADMIN_USERNAME,');
+        expect(restartVerifier).not.toContain('"--password-stdin"');
         expect(restartVerifier).toContain("--shutdown-on-stdin-end");
         expect(restartVerifier).toContain("acquireAgentSessionStoreExclusiveLease");
         expect(restartVerifier).toContain("const STARTUP_TIMEOUT_MS = 150_000;");

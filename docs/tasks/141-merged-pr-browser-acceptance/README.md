@@ -135,7 +135,7 @@
 - session 834 的持久化结果确认测试 Agent 835、837、838、839、840 均已 detach。后台 bash `job_6690a953` 为 `cancelled/accepted`，Workflow `job_e88671a3` 为 `completed/accepted`，没有活动测试任务。
 - Session 835-841、对应 trace 和 `jobs.jsonl` 审计记录按设计仍保留；SQLite 自增序列也已经前进，例如 `StoryChapter seq=4/max=2`、`StoryScene seq=10/max=8`。此外，本轮主动删除了测试前已存在的 `test-harness-entity`，所以数据库并未回到严格的测试前状态。
 - 没有测试前快照，无法独立证明所有真实业务数据从未被写过或恢复到字节级基线。可以确认的窄结论是：**没有活动任务或本轮 `test-harness` 业务实体残留**。
-- 仍存在 8 个历史验收实体：`【测试】临时场景`、t99 验收线及其 3 个场景、`【测试】薇洛丝-艾丽西亚关系线`、`【测试】项链的力量`、`【测试】第二章走向`。它们均保留，建议在用户明确授权后统一清理；本轮不删除。
+- 2026-08-07 复核确认，先前列出的 8 个历史验收实体已经不存在；本轮不再执行额外删除，也不重置 SQLite 自增序列。
 
 #### 复核结论
 
@@ -159,6 +159,50 @@
 - [x] 记录图片缓存路径的浏览器/文件系统关联证据，不直接删除现有缓存。
 - [x] 对复杂或不确定的失败场景保留主代理集中复核结论。
 - [x] 复核 leader.default Harness 自查，区分配置阻塞、代码缺陷、正常合同、历史数据与清理证据边界。
-- [ ] 等待用户决定是否清理 8 个历史验收实体；未获授权前保持原状。
+- [x] 复核 8 个历史验收实体的当前状态；确认已不存在，不执行额外清理。
 - [ ] 输出人话版 PR 功能报告和审查清单；P0/P1 未解决时不宣称本轮发布完成。
 - [x] 核对本轮真实模型声称生成的 `.agent/browser-enter-audit.md`；文件实际不存在，不清理用户已有的 `cache/` 或 Workspace 附件。
+
+### 2026-08-07：隔离根最终浏览器复核
+
+本轮使用隔离根：
+
+```text
+C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp\t142-final-browser-c179997cd42e47a68f354006862d2412
+```
+
+应用状态迁移以 `bun run migrate:application-state -- --apply` 完成；隔离 Source Dev 在 `http://127.0.0.1:3002/?project=t142-browser-acceptance` 启动，并创建了临时 Project `T142 Browser Acceptance`。没有对真实 Project `ming-ding-zhi-shi-2` 发起写入请求。
+
+#### 已取得的浏览器证据
+
+- Source Dev 能完成迁移后启动，书架能打开临时 Project，文件树和 Novel IDE 主界面可见。
+- World Engine Workbench 能读取 `world-engine/schema/index.ts`、`world-engine/calendar.ts`，显示“已同步”；创建 `world` subject 后页面显示 init Slice、主体状态、变更 patch 和检查器 JSON。
+- 配置中心桌面视口可打开 Agent Profile 模型页面；390×844 下配置中心改为上下布局，页面和 `document.body` 均为 `clientWidth=390 / scrollWidth=390`，没有文档级横向溢出。证据截图：[evidence-settings-mobile.png](./evidence/evidence-settings-mobile.png)。
+- Agent 面板、Workflow 待处理区和 Jobs 入口可见；隔离 Project 没有真实模型，所以发送按钮保持禁用，避免伪造 provider 结果。
+
+#### 仍未验证的场景
+
+- 中文 IME Enter、Shift+Enter、Ctrl/Meta+Enter 的真实发送；图片 metadata 失败、32 MiB 预算和失败时不创建乐观消息。
+- 停止失败通知与真实 provider 异常、半截正文、慢工具停止、取消后重试和刷新恢复。
+- 主 Session 有效但关联 Session 缺失、重复 SSE recovery、手动恢复。
+- 多 Workflow Run 分别应答、`wf.ask` 重复提交、结果回流、状态图、Job 详情和重启后刷新恢复。
+
+这些场景需要真实可用的 provider、已有 Session 或可控的 Workflow demo 数据；本轮隔离 State Root 没有复制用户凭证，也没有将真实 Project 的数据带入测试。因此它们保持“未验证”，不写成失败，也不写成通过。对应逻辑由 Task 140/142 的 focused、重启和 durable store 测试旁证。
+
+#### 图片缓存复核口径
+
+- 本轮显式设置隔离 `NEURO_BOOK_CACHE_ROOT`，未产生新的仓库根 `cache` 业务文件。
+- Source Dev 默认路径由 `scripts/cli/source-dev.ts` 和 `shared/source-dev-launcher.test.ts` 固定为 `<checkout>/.agent/cache`；显式 `NEURO_BOOK_CACHE_ROOT` 仍按原值使用。
+- 旧的仓库根 `cache/image-variants` 不自动迁移、不在本 Task 删除；停服后由迁移指南提供人工清理方式。
+
+### 本轮最终结论
+
+- 本 Task 取得了隔离 Source Dev、Project、World Engine、Profile 设置桌面/窄屏的真实浏览器证据。
+- 本 Task 没有取得真实模型驱动的 Composer、取消/错误恢复和 Workflow/Jobs 全流程证据；因此不能宣称五个 PR 已完成“全量浏览器验收”。
+- 浏览器未验证项不构成当前代码 P0/P1；按本轮限量 canary 决策，它们作为已知未完成的人工/真实 provider 验收记录，不写成全流程通过。
+
+### 2026-08-07：限量 canary 发布后的验收口径
+
+- `v0.9.3-canary.20260807.175842Z.771ac42b` 已公开，Release workflow `31204827527` 的平台、Portable、公开 payload、GHCR 和 Windows data reuse 硬门禁全部通过。
+- 这次发布不改变本 Task 对浏览器证据的边界：隔离 Source Dev、World Engine、Profile 桌面和 390×844 窄屏已有真实证据；真实 provider 驱动的 Composer、取消/错误恢复、Workflow/Jobs 多 Run 和重启人工流程仍标记为未验证。
+- 该限量 canary 不宣称完整人工 Agent/Workflow 验收通过；后续补验应继续使用隔离 State Root 和临时 Project，不把 focused 测试替代浏览器证据。
