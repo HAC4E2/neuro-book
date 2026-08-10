@@ -4,6 +4,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {
     createTextToImageProviderDispatcher,
     fetchTextToImageProvider,
+    resolveTextToImageEnvironmentProxyUrl,
 } from "nbook/server/text-to-image/provider-fetch";
 
 const dispatchers: Dispatcher[] = [];
@@ -13,6 +14,21 @@ describe("text-to-image provider fetch", () => {
         await Promise.all(dispatchers.splice(0).map(async (dispatcher) => {
             await dispatcher.close();
         }));
+    });
+
+    it("prefers HTTPS_PROXY and ignores unsupported proxy protocols", () => {
+        expect(resolveTextToImageEnvironmentProxyUrl({
+            HTTPS_PROXY: "  http://127.0.0.1:7897  ",
+            HTTP_PROXY: "http://127.0.0.1:7898",
+        })).toBe("http://127.0.0.1:7897/");
+        expect(resolveTextToImageEnvironmentProxyUrl({
+            HTTPS_PROXY: "socks5://127.0.0.1:7897",
+            HTTP_PROXY: "http://127.0.0.1:7898",
+        })).toBe("http://127.0.0.1:7898/");
+        expect(resolveTextToImageEnvironmentProxyUrl({
+            HTTPS_PROXY: "",
+            HTTP_PROXY: "",
+        })).toBeNull();
     });
 
     it("validates DNS results in the lookup used by the actual socket", async () => {

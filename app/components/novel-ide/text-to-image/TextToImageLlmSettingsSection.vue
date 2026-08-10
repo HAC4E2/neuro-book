@@ -5,6 +5,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import BooleanToggleButton from "nbook/app/components/common/form/BooleanToggleButton.vue";
 import {normalizeImportedContextProfiles} from "nbook/app/utils/text-to-image-context-import";
 import {
+    DEFAULT_WORD_REPLACEMENT_PROFILE,
     TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
     type TextToImageContextEntry,
@@ -35,22 +36,22 @@ const requestTypeOptions: Array<{value: TextToImageRequestType; label: string}> 
 ];
 
 const llmProviders = computed(() => props.providers.filter((provider) => provider.kind === "openai_compatible"));
+const modelOptions = ref<string[]>([]);
+const modelListOpen = ref(false);
 const selectedProviderId = ref<number | null>(null);
 const form = ref({
     name: "",
     baseUrl: "",
     model: "",
     credential: "",
-    temperature: 0.7,
+    temperature: 1,
     topP: 1,
-    maxTokens: 512,
+    maxTokens: 30000,
     stream: false,
     sendImages: false,
     mergeSystemUser: false,
     retryCount: 0,
-    historyDepth: 0,
     tagthinkEcho: false,
-    historyKeepImageTag: false,
 });
 
 const contextProfiles = ref<TextToImageGlobalConfig["contextProfiles"]>({});
@@ -62,14 +63,13 @@ const requestBindings = ref<Record<TextToImageRequestType, TextToImageRequestBin
     tag_modify: {providerId: null, contextProfileId: "default"},
 });
 const wordReplacementProfiles = ref<TextToImageGlobalConfig["wordReplacementProfiles"]>({});
-const wordReplacementText = ref("{}");
-const wordReplacementDirty = ref(false);
 const currentWordReplacementProfile = ref("default");
 
 const contextProfileKeys = computed(() => Object.keys(contextProfiles.value).sort());
 const selectedContextProfileId = ref("");
 const contextProfileDraft = ref<TextToImageContextProfile>(emptyContextProfile());
 const isNewContextProfile = ref(false);
+const contextProfilesExpanded = ref(false);
 
 let entryIdCounter = 0;
 
@@ -112,10 +112,9 @@ const testResult = ref("");
 const testPreview = ref("");
 const testRequestType = ref<TextToImageRequestType>("image_gen");
 const testStatus = ref<"idle" | "success" | "failure">("idle");
-const contextProfileExpanded = ref(false);
-const modelOptions = ref<string[]>([]);
 const fetchingModels = ref(false);
 const error = ref("");
+const modelError = ref("");
 const saving = ref(false);
 const contextProfileImportInput = ref<HTMLInputElement | null>(null);
 const globalConfigImportInput = ref<HTMLInputElement | null>(null);
@@ -124,6 +123,9 @@ const notification = useNotification();
 watch(() => props.providers, () => {
     if (selectedProviderId.value === null && llmProviders.value.length > 0) {
         selectProvider(llmProviders.value[0]!.id);
+    }
+    if (props.config) {
+        syncConfigState(props.config);
     }
 }, {immediate: true});
 
@@ -136,24 +138,44 @@ function syncConfigState(config: TextToImageGlobalConfig): void {
     for (const option of requestTypeOptions) {
         const binding = config.requestTypeBindings?.[option.value];
         requestBindings.value[option.value] = binding
-            ? {...binding}
+            ? normalizeRequestBinding(binding)
             : {providerId: null, contextProfileId: contextProfileKeys.value[0] ?? "default"};
     }
-    wordReplacementProfiles.value = {...(config.wordReplacementProfiles ?? {})};
+    wordReplacementProfiles.value = ensureDefaultWordReplacementProfile(config.wordReplacementProfiles);
     currentWordReplacementProfile.value = config.currentWordReplacementProfile ?? "default";
-    if (!wordReplacementDirty.value) {
-        wordReplacementText.value = JSON.stringify(wordReplacementProfiles.value, null, 2);
-    }
     if (selectedContextProfileId.value && !contextProfiles.value[selectedContextProfileId.value]) {
         selectedContextProfileId.value = "";
         contextProfileDraft.value = emptyContextProfile();
         isNewContextProfile.value = false;
     } else if (!selectedContextProfileId.value && !isNewContextProfile.value && contextProfileKeys.value.length > 0) {
-        selectContextProfile(contextProfileKeys.value[0]!);
+        selectContextProfile(contextProfileKeys.value[0]!, {expand: false});
     }
 }
 
+function normalizeRequestBinding(binding: TextToImageRequestBinding): TextToImageRequestBinding {
+    return {
+        ...binding,
+        providerId: binding.providerId !== null
+            && llmProviders.value.some((provider) => provider.id === binding.providerId)
+            ? binding.providerId
+            : null,
+    };
+}
+
+function ensureDefaultWordReplacementProfile(
+    profiles: TextToImageGlobalConfig["wordReplacementProfiles"],
+): TextToImageGlobalConfig["wordReplacementProfiles"] {
+    const next = {...(profiles ?? {})};
+    const current = next.default;
+    if (!current || ((current.textReplacement ?? "").trim() === "" && (current.aiReplacement ?? "").trim() === "")) {
+        next.default = {...DEFAULT_WORD_REPLACEMENT_PROFILE};
+    }
+    return next;
+}
+
 function selectProvider(id: number): void {
+    modelListOpen.value = false;
+    modelError.value = "";
     selectedProviderId.value = id;
     const provider = props.providers.find((item) => item.id === id);
     const settings = provider ? TextToImageLlmProviderSettingsSchema.parse(provider.settings) : TextToImageLlmProviderSettingsSchema.parse({});
@@ -170,29 +192,27 @@ function selectProvider(id: number): void {
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
-        historyDepth: typeof rawSettings.historyDepth === "number" ? rawSettings.historyDepth : 0,
         tagthinkEcho: rawSettings.tagthinkEcho === true,
-        historyKeepImageTag: rawSettings.historyKeepImageTag === true,
     };
 }
 
 function newProvider(): void {
+    modelListOpen.value = false;
+    modelError.value = "";
     selectedProviderId.value = null;
     form.value = {
         name: "",
         baseUrl: "",
         model: "",
         credential: "",
-        temperature: 0.7,
+        temperature: 1,
         topP: 1,
-        maxTokens: 512,
+        maxTokens: 30000,
         stream: false,
         sendImages: false,
         mergeSystemUser: false,
         retryCount: 0,
-        historyDepth: 0,
         tagthinkEcho: false,
-        historyKeepImageTag: false,
     };
 }
 
@@ -215,9 +235,7 @@ function saveProvider(): void {
     });
     const settings: Record<string, unknown> = {
         ...baseSettings,
-        historyDepth: form.value.historyDepth,
         tagthinkEcho: form.value.tagthinkEcho,
-        historyKeepImageTag: form.value.historyKeepImageTag,
     };
     emit("save-provider", {
         id: selectedProviderId.value ?? undefined,
@@ -230,6 +248,15 @@ function saveProvider(): void {
     });
 }
 
+function chooseModel(model: string): void {
+    form.value.model = model;
+    modelListOpen.value = false;
+    modelError.value = "";
+    if (selectedProviderId.value !== null) {
+        saveProvider();
+    }
+}
+
 function deleteProvider(): void {
     if (selectedProviderId.value !== null) {
         emit("delete-provider", selectedProviderId.value);
@@ -237,7 +264,7 @@ function deleteProvider(): void {
     }
 }
 
-function selectContextProfile(id: string): void {
+function selectContextProfile(id: string, options: {expand?: boolean} = {}): void {
     const profile = contextProfiles.value[id];
     if (!profile) {
         return;
@@ -245,12 +272,16 @@ function selectContextProfile(id: string): void {
     selectedContextProfileId.value = id;
     contextProfileDraft.value = cloneContextProfile(profile);
     isNewContextProfile.value = false;
+    if (options.expand !== false) {
+        contextProfilesExpanded.value = true;
+    }
 }
 
 function newContextProfile(): void {
     selectedContextProfileId.value = "";
     contextProfileDraft.value = {id: "", name: "", entries: [emptyContextEntry()]};
     isNewContextProfile.value = true;
+    contextProfilesExpanded.value = true;
 }
 
 function addContextEntry(): void {
@@ -312,18 +343,6 @@ function saveRequestBindings(): void {
     persistGlobal({requestTypeBindings: {...requestBindings.value}});
 }
 
-function saveWordReplacement(): void {
-    try {
-        const parsed = JSON.parse(wordReplacementText.value) as TextToImageGlobalConfig["wordReplacementProfiles"];
-        wordReplacementProfiles.value = parsed;
-        error.value = "";
-        wordReplacementDirty.value = false;
-        persistGlobal({wordReplacementProfiles: parsed});
-    } catch {
-        error.value = "敏感词替换 JSON 不合法";
-    }
-}
-
 function exportContextProfiles(): void {
     const blob = new Blob([JSON.stringify(contextProfiles.value, null, 2)], {type: "application/json"});
     const url = URL.createObjectURL(blob);
@@ -367,13 +386,23 @@ async function importGlobalConfig(event: Event): Promise<void> {
             });
         contextProfiles.value = {...parsed.contextProfiles};
         requestBindings.value = {
-            image_gen: parsed.requestTypeBindings?.image_gen ?? {providerId: null, contextProfileId: "default"},
-            char_design: parsed.requestTypeBindings?.char_design ?? {providerId: null, contextProfileId: "default"},
-            char_display: parsed.requestTypeBindings?.char_display ?? {providerId: null, contextProfileId: "default"},
-            char_modify: parsed.requestTypeBindings?.char_modify ?? {providerId: null, contextProfileId: "default"},
-            tag_modify: parsed.requestTypeBindings?.tag_modify ?? {providerId: null, contextProfileId: "default"},
+            image_gen: parsed.requestTypeBindings?.image_gen
+                ? normalizeRequestBinding(parsed.requestTypeBindings.image_gen)
+                : {providerId: null, contextProfileId: "default"},
+            char_design: parsed.requestTypeBindings?.char_design
+                ? normalizeRequestBinding(parsed.requestTypeBindings.char_design)
+                : {providerId: null, contextProfileId: "default"},
+            char_display: parsed.requestTypeBindings?.char_display
+                ? normalizeRequestBinding(parsed.requestTypeBindings.char_display)
+                : {providerId: null, contextProfileId: "default"},
+            char_modify: parsed.requestTypeBindings?.char_modify
+                ? normalizeRequestBinding(parsed.requestTypeBindings.char_modify)
+                : {providerId: null, contextProfileId: "default"},
+            tag_modify: parsed.requestTypeBindings?.tag_modify
+                ? normalizeRequestBinding(parsed.requestTypeBindings.tag_modify)
+                : {providerId: null, contextProfileId: "default"},
         };
-        wordReplacementProfiles.value = {...(parsed.wordReplacementProfiles ?? {})};
+        wordReplacementProfiles.value = ensureDefaultWordReplacementProfile(parsed.wordReplacementProfiles);
         currentWordReplacementProfile.value = parsed.currentWordReplacementProfile ?? "default";
         error.value = "";
         persistGlobal({
@@ -397,12 +426,18 @@ async function importContextProfiles(event: Event): Promise<void> {
     if (!file) return;
     try {
         const parsed = JSON.parse(await file.text()) as unknown;
+        const imported = normalizeImportedContextProfiles(parsed);
+        const importedIds = Object.keys(imported).filter((id) => !(id in contextProfiles.value));
         const next = {...contextProfiles.value};
-        Object.assign(next, normalizeImportedContextProfiles(parsed));
+        Object.assign(next, imported);
         contextProfiles.value = next;
         error.value = "";
         persistGlobal({contextProfiles: next});
         notification.success("上下文预设导入成功");
+        const firstImportedId = importedIds[0] ?? Object.keys(imported)[0];
+        if (firstImportedId) {
+            selectContextProfile(firstImportedId, {expand: false});
+        }
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "导入上下文预设失败");
         notification.error(error.value, {title: "导入上下文预设失败"});
@@ -472,12 +507,12 @@ function buildTestPreview(): void {
 }
 
 async function fetchModels(): Promise<void> {
+    modelError.value = "";
     if (selectedProviderId.value === null && form.value.baseUrl.trim() === "") {
-        error.value = "请先填写 Base URL";
+        modelError.value = "请先填写 Base URL";
         return;
     }
     fetchingModels.value = true;
-    error.value = "";
     try {
         const result = await $fetch<{models: string[]}>("/api/text-to-image/llm/models", {
             method: "POST",
@@ -489,17 +524,15 @@ async function fetchModels(): Promise<void> {
                 },
         });
         modelOptions.value = result.models;
+        modelListOpen.value = result.models.length > 0;
         if (result.models.length === 0) {
-            error.value = "模型列表为空";
+            modelError.value = "模型列表为空";
         } else {
-            if (!form.value.model) {
-                form.value.model = result.models[0]!;
-            }
             notification.success(`获取到 ${result.models.length} 个模型`);
         }
     } catch (cause) {
-        error.value = resolveApiErrorMessage(cause, "获取模型列表失败");
-        notification.error(error.value, {title: "获取模型列表失败"});
+        modelError.value = resolveApiErrorMessage(cause, "获取模型列表失败");
+        notification.error(modelError.value, {title: "获取模型列表失败"});
     } finally {
         fetchingModels.value = false;
     }
@@ -510,190 +543,191 @@ async function fetchModels(): Promise<void> {
     <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4">
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <div class="mb-2 flex items-center justify-between">
-                <h3 class="text-[13px] font-semibold text-[var(--text-main)]">LLM Provider</h3>
+                <h3 class="text-[17px] font-semibold text-[var(--text-main)]">LLM Provider</h3>
                 <div class="flex items-center gap-2">
-                    <select v-model.number="selectedProviderId" class="h-8 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" @change="selectedProviderId !== null && selectProvider(selectedProviderId)">
+                    <select v-model.number="selectedProviderId" class="h-9 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="selectedProviderId !== null && selectProvider(selectedProviderId)">
                         <option v-for="provider in llmProviders" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
                     </select>
-                    <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="newProvider">新建</button>
-                    <button class="h-8 rounded-md border border-[var(--danger-border)] px-2 text-[12px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" :disabled="selectedProviderId === null" @click="deleteProvider">删除</button>
+                    <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="newProvider">新建</button>
+                    <button class="h-9 rounded-md border border-[var(--danger-border)] px-2 text-[16px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" :disabled="selectedProviderId === null" @click="deleteProvider">删除</button>
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     名称
-                    <input v-model="form.name" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model="form.name" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     Base URL（含 /v1）
-                    <input v-model="form.baseUrl" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model="form.baseUrl" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <div class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     模型
                     <div class="flex gap-2">
-                        <input v-model="form.model" list="llm-model-options" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
-                        <datalist id="llm-model-options">
-                            <option v-for="model in modelOptions" :key="model" :value="model" />
-                        </datalist>
-                        <button class="h-8 shrink-0 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)]" :disabled="fetchingModels" @click="fetchModels">{{ fetchingModels ? "获取中..." : "获取模型" }}</button>
+                        <input v-model="form.model" placeholder="请先获取模型" class="h-9 min-w-0 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
+                        <button type="button" class="h-9 shrink-0 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)]" :disabled="fetchingModels" @click.stop="fetchModels">{{ fetchingModels ? "获取中..." : "获取模型" }}</button>
                     </div>
-                </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                    <div v-if="modelListOpen" class="custom-scrollbar max-h-56 overflow-y-auto rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-1 shadow">
+                        <button v-for="model in modelOptions" :key="model" type="button" class="block w-full rounded-md px-2 py-1 text-left text-[17px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]" @click="chooseModel(model)">{{ model }}</button>
+                    </div>
+                    <p v-if="modelError" class="text-[16px] text-[var(--danger-text)]">{{ modelError }}</p>
+                </div>
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     API Key（留空表示保留）
-                    <input v-model="form.credential" type="password" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model="form.credential" type="password" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     Temperature
-                    <input v-model.number="form.temperature" type="number" min="0" max="2" step="0.01" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model.number="form.temperature" type="number" min="0" max="2" step="0.01" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     Top P
-                    <input v-model.number="form.topP" type="number" min="0" max="1" step="0.01" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model.number="form.topP" type="number" min="0" max="1" step="0.01" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     Max Tokens
-                    <input v-model.number="form.maxTokens" type="number" min="1" max="30000" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model.number="form.maxTokens" type="number" min="1" max="30000" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     重试次数
-                    <input v-model.number="form.retryCount" type="number" min="0" max="5" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <input v-model.number="form.retryCount" type="number" min="0" max="5" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                 </label>
             </div>
             <div class="mt-3 grid grid-cols-3 gap-3">
-                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]">
                     流式生成
                     <BooleanToggleButton v-model="form.stream" />
                 </label>
-                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]">
                     发送图片
                     <BooleanToggleButton v-model="form.sendImages" />
                 </label>
-                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]">
                     合并 System/User
                     <BooleanToggleButton v-model="form.mergeSystemUser" />
                 </label>
             </div>
-            <div class="mt-3 grid grid-cols-3 gap-3">
-                <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
-                    上下文历史层数
-                    <input v-model.number="form.historyDepth" type="number" min="0" max="20" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
-                </label>
-                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+            <div class="mt-3 grid grid-cols-2 gap-3">
+                <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]">
                     Tagthink 回显
                     <BooleanToggleButton v-model="form.tagthinkEcho" />
                 </label>
-                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                    历史保留 &lt;image&gt; 标签
-                    <BooleanToggleButton v-model="form.historyKeepImageTag" />
-                </label>
             </div>
             <div class="mt-3 flex items-center gap-2">
-                <button class="h-8 rounded-md bg-[var(--accent-main)] px-3 text-[12px] font-medium text-[var(--text-inverse)]" @click="saveProvider">保存 Provider</button>
+                <button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)]" @click="saveProvider">保存 Provider</button>
             </div>
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <div class="mb-2 flex items-center justify-between">
-                <h3 class="text-[13px] font-semibold text-[var(--text-main)]">全局配置</h3>
+                <h3 class="text-[17px] font-semibold text-[var(--text-main)]">全局配置</h3>
                 <div class="flex items-center gap-2">
                     <input ref="globalConfigImportInput" type="file" accept="application/json" class="hidden" @change="importGlobalConfig" />
-                    <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="openGlobalConfigImport">导入</button>
-                    <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="exportGlobalConfig">导出全部</button>
+                    <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="openGlobalConfigImport">导入</button>
+                    <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="exportGlobalConfig">导出全部</button>
                 </div>
             </div>
             <div class="grid grid-cols-1 gap-3">
                 <div class="rounded-md border border-[var(--border-color)] p-3">
-                    <div class="mb-2 flex items-center justify-between">
+                    <div class="mb-2 flex items-center justify-between gap-2">
                         <div class="flex items-center gap-2">
-                            <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="contextProfileExpanded = !contextProfileExpanded">
-                                <span :class="contextProfileExpanded ? 'i-lucide-chevron-down h-3.5 w-3.5' : 'i-lucide-chevron-right h-3.5 w-3.5'"></span>
+                            <button
+                                type="button"
+                                class="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                                :aria-expanded="contextProfilesExpanded"
+                                :title="contextProfilesExpanded ? '折叠上下文预设' : '展开上下文预设'"
+                                @click="contextProfilesExpanded = !contextProfilesExpanded"
+                            >
+                                <span :class="contextProfilesExpanded ? 'i-lucide-chevron-down h-4 w-4' : 'i-lucide-chevron-right h-4 w-4'"></span>
                             </button>
-                            <h4 class="text-[12px] font-semibold text-[var(--text-main)]">上下文预设</h4>
-                            <span class="text-[11px] text-[var(--text-muted)]">{{ contextProfileKeys.length }} 个</span>
+                            <h4 class="text-[16px] font-semibold text-[var(--text-main)]">上下文预设</h4>
+                            <span class="text-[15px] text-[var(--text-muted)]">{{ contextProfileKeys.length }} 个</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <select v-model="selectedContextProfileId" class="h-8 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" @change="selectContextProfile(selectedContextProfileId)">
+                            <select v-model="selectedContextProfileId" class="h-9 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="selectContextProfile(selectedContextProfileId)">
                                 <option value="" disabled>选择预设</option>
                                 <option v-for="id in contextProfileKeys" :key="id" :value="id">{{ contextProfileLabel(id) }}</option>
                             </select>
-                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="newContextProfile">新建</button>
-                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="saveContextProfile">保存</button>
+                            <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="newContextProfile">新建</button>
+                            <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="saveContextProfile">保存</button>
                             <input ref="contextProfileImportInput" type="file" accept="application/json" class="hidden" @change="importContextProfiles" />
-                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="openContextProfileImport">导入</button>
-                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="exportContextProfiles">导出全部</button>
-                            <button class="h-8 rounded-md border border-[var(--danger-border)] px-2 text-[12px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" :disabled="!selectedContextProfileId" @click="deleteContextProfile">删除</button>
+                            <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="openContextProfileImport">导入</button>
+                            <button class="h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="exportContextProfiles">导出全部</button>
+                            <button class="h-9 rounded-md border border-[var(--danger-border)] px-2 text-[16px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" :disabled="!selectedContextProfileId" @click="deleteContextProfile">删除</button>
                         </div>
                     </div>
-                    <div v-show="contextProfileExpanded">
+                    <template v-if="contextProfilesExpanded">
                     <div class="grid grid-cols-2 gap-3">
-                        <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                        <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                             预设 ID
-                            <input v-model="contextProfileDraft.id" :disabled="selectedContextProfileId !== ''" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)] disabled:opacity-60" />
+                            <input v-model="contextProfileDraft.id" :disabled="selectedContextProfileId !== ''" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)] disabled:opacity-60" />
                         </label>
-                        <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                        <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                             预设名称
-                            <input v-model="contextProfileDraft.name" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                            <input v-model="contextProfileDraft.name" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                         </label>
                     </div>
+                    <button class="mt-2 h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="addContextEntry">添加条目</button>
+                    <div class="custom-scrollbar max-h-[400px] min-h-[220px] overflow-y-auto rounded-md border border-[var(--border-color)] p-2">
                     <div v-for="(entry, index) in contextProfileDraft.entries" :key="entry.id" class="mt-2 rounded-md border border-[var(--border-color)] p-2">
                         <div class="mb-1 flex items-center justify-between">
-                            <span class="text-[11px] text-[var(--text-muted)]">条目 {{ index + 1 }}</span>
-                            <button class="rounded-md border border-[var(--danger-border)] px-2 text-[11px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" @click="removeContextEntry(index)">删除</button>
+                            <span class="text-[15px] text-[var(--text-muted)]">条目 {{ index + 1 }}</span>
+                            <button class="rounded-md border border-[var(--danger-border)] px-2 text-[15px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" @click="removeContextEntry(index)">删除</button>
                         </div>
                         <div class="grid grid-cols-3 gap-2">
-                            <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                            <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                 role
-                                <select v-model="entry.role" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]">
+                                <select v-model="entry.role" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]">
                                     <option value="system">system</option>
                                     <option value="user">user</option>
                                     <option value="assistant">assistant</option>
                                 </select>
                             </label>
-                            <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                            <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                 triggerMode
-                                <select v-model="entry.triggerMode" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]">
+                                <select v-model="entry.triggerMode" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]">
                                     <option value="always">always</option>
                                     <option value="trigger">trigger</option>
                                 </select>
                             </label>
-                            <label class="flex items-end gap-2 pb-1 text-[11px] text-[var(--text-secondary)]">
+                            <label class="flex items-end gap-2 pb-1 text-[15px] text-[var(--text-secondary)]">
                                 enabled
                                 <BooleanToggleButton v-model="entry.enabled" />
                             </label>
-                            <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                            <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                 triggerWords
-                                <input v-model="entry.triggerWords" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]" />
+                                <input v-model="entry.triggerWords" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]" />
                             </label>
-                            <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                            <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                 andTriggerWords
-                                <input v-model="entry.andTriggerWords" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]" />
+                                <input v-model="entry.andTriggerWords" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]" />
                             </label>
                         </div>
-                        <label class="mt-2 flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                        <label class="mt-2 flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                             content
-                            <textarea v-model="entry.content" rows="3" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[12px] text-[var(--text-main)]" />
+                            <textarea v-model="entry.content" rows="2" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[16px] text-[var(--text-main)]" />
                         </label>
                     </div>
-                    <button class="mt-2 h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="addContextEntry">添加条目</button>
                     </div>
+                    </template>
                 </div>
 
                 <div class="rounded-md border border-[var(--border-color)] p-3">
-                    <h4 class="mb-2 text-[12px] font-semibold text-[var(--text-main)]">请求类型</h4>
+                    <h4 class="mb-2 text-[16px] font-semibold text-[var(--text-main)]">请求类型</h4>
                     <div class="grid grid-cols-2 gap-2">
                         <div v-for="option in requestTypeOptions" :key="option.value" class="rounded-md border border-[var(--border-color)] p-2">
-                            <p class="mb-1 text-[12px] font-medium text-[var(--text-main)]">{{ option.label }}</p>
+                            <p class="mb-1 text-[16px] font-medium text-[var(--text-main)]">{{ option.label }}</p>
                             <div class="grid grid-cols-2 gap-2">
-                                <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                                <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                     providerId
-                                    <select v-model="requestBindings[option.value].providerId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]" @change="saveRequestBindings">
+                                    <select v-model="requestBindings[option.value].providerId" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]" @change="saveRequestBindings">
                                         <option :value="null">未绑定</option>
-                                        <option v-for="provider in props.providers" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                                        <option v-for="provider in llmProviders" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
                                     </select>
                                 </label>
-                                <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
+                                <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                     contextProfileId
-                                    <select v-model="requestBindings[option.value].contextProfileId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]" @change="saveRequestBindings">
+                                    <select v-model="requestBindings[option.value].contextProfileId" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]" @change="saveRequestBindings">
                                         <option v-for="id in contextProfileOptions(requestBindings[option.value])" :key="id" :value="id">{{ contextProfileLabel(id) }}</option>
                                     </select>
                                 </label>
@@ -703,33 +737,33 @@ async function fetchModels(): Promise<void> {
                 </div>
 
                 <div class="rounded-md border border-[var(--border-color)] p-3">
-                    <div class="mb-2 flex items-center justify-between">
-                        <h4 class="text-[12px] font-semibold text-[var(--text-main)]">敏感词替换 JSON</h4>
-                        <button class="h-8 rounded-md bg-[var(--accent-main)] px-3 text-[12px] font-medium text-[var(--text-inverse)]" @click="saveWordReplacement">保存敏感词替换</button>
-                    </div>
-                    <textarea v-model="wordReplacementText" rows="6" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[12px] text-[var(--text-main)]" @input="wordReplacementDirty = true" />
+                    <h4 class="mb-2 text-[16px] font-semibold text-[var(--text-main)]">敏感词替换（内置规则）</h4>
+                    <p class="mb-1 text-[15px] text-[var(--text-muted)]">正文发送前替换</p>
+                    <pre class="mb-2 whitespace-pre-wrap rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[16px] text-[var(--text-main)]">{{ DEFAULT_WORD_REPLACEMENT_PROFILE.textReplacement }}</pre>
+                    <p class="mb-1 text-[15px] text-[var(--text-muted)]">AI 回复解析前替换</p>
+                    <pre class="whitespace-pre-wrap rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[16px] text-[var(--text-main)]">{{ DEFAULT_WORD_REPLACEMENT_PROFILE.aiReplacement }}</pre>
                 </div>
             </div>
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <div class="mb-2 flex items-center justify-between">
-                <h3 class="text-[13px] font-semibold text-[var(--text-main)]">测试工具</h3>
-                <span v-if="testStatus === 'success'" class="text-[12px] text-[var(--status-success)]">连接成功</span>
-                <span v-else-if="testStatus === 'failure'" class="text-[12px] text-[var(--danger-text)]">连接失败</span>
+                <h3 class="text-[17px] font-semibold text-[var(--text-main)]">测试工具</h3>
+                <span v-if="testStatus === 'success'" class="text-[16px] text-[var(--status-success)]">连接成功</span>
+                <span v-else-if="testStatus === 'failure'" class="text-[16px] text-[var(--danger-text)]">连接失败</span>
             </div>
             <div class="mb-2 flex flex-wrap items-center gap-2">
-                <select v-model="testRequestType" class="h-8 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
+                <select v-model="testRequestType" class="h-9 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
                     <option v-for="option in requestTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="buildTestPreview">组合提示词预览</button>
+                <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" @click="buildTestPreview">组合提示词预览</button>
             </div>
-            <textarea v-model="testPrompt" rows="4" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" placeholder="输入测试提示词（可选，留空则发送连接测试）" />
-            <button class="mt-2 h-8 rounded-md bg-[var(--accent-main)] px-3 text-[12px] font-medium text-[var(--text-inverse)]" :disabled="saving || selectedProviderId === null" @click="runTest">连接测试</button>
-            <textarea v-if="testPreview" v-model="testPreview" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" placeholder="组合提示词预览" />
-            <textarea v-model="testResult" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" placeholder="AI 回复将显示在这里" />
+            <textarea v-model="testPrompt" rows="4" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" placeholder="输入测试提示词（可选，留空则发送连接测试）" />
+            <button class="mt-2 h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)]" :disabled="saving || selectedProviderId === null" @click="runTest">连接测试</button>
+            <textarea v-if="testPreview" v-model="testPreview" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" placeholder="组合提示词预览" />
+            <textarea v-model="testResult" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" placeholder="AI 回复将显示在这里" />
         </div>
 
-        <p v-if="error" class="text-[12px] text-[var(--danger-text)]">{{ error }}</p>
+        <p v-if="error" class="text-[16px] text-[var(--danger-text)]">{{ error }}</p>
     </div>
 </template>

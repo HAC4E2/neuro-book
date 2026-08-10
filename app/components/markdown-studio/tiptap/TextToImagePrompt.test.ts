@@ -58,4 +58,31 @@ describe("TextToImagePrompt", () => {
 
         editor.destroy();
     });
+
+    it("生成 Promise 未完成时禁用按钮，失败后恢复为可重新生成", async () => {
+        let rejectGeneration!: (reason?: unknown) => void;
+        const onGenerate = vi.fn(() => new Promise<void>((_resolve, reject) => {
+            rejectGeneration = reject;
+        }));
+        const editor = new Editor({
+            element: document.createElement("div"),
+            content: renderTextToImagePromptMarkdown(payload),
+            contentType: "markdown",
+            extensions: [...createMarkdownDialectExtensions(), TextToImagePrompt.configure({onGenerate})],
+        });
+
+        const button = editor.view.dom.querySelector<HTMLButtonElement>(".nb-text-to-image-prompt-button");
+        const status = editor.view.dom.querySelector<HTMLElement>(".nb-text-to-image-prompt-status");
+        button?.click();
+        expect(button?.disabled).toBe(true);
+        expect(status?.textContent).toBe("排队或生成中");
+
+        rejectGeneration(new Error("429"));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(button?.disabled).toBe(false);
+        expect(status?.textContent).toBe("待生成");
+
+        editor.destroy();
+    });
 });

@@ -74,6 +74,23 @@ describe("TextToImageQueueService", () => {
         expect(store.records[0]?.startedAt).toBeTruthy();
         expect(store.records[0]?.finishedAt).toBeTruthy();
     });
+
+    it("同一个 queued Job 只允许被一个消费者领取", async () => {
+        const store = new InMemoryJobStore();
+        const service = new TextToImageQueueService(store);
+        const job = await service.enqueue({
+            projectPath: "workspace/demo",
+            providerId: 1,
+            providerOwnerUserId: 7,
+            providerCredentialRevision: 1,
+            kind: "manual",
+            requestJson: "{}",
+            providerSnapshotJson: "{}",
+        });
+
+        await expect(service.markRunning("workspace/demo", job.id)).resolves.toBe(true);
+        await expect(service.markRunning("workspace/demo", job.id)).resolves.toBe(false);
+    });
 });
 
 class InMemoryJobStore implements TextToImageJobStore {
@@ -102,6 +119,13 @@ class InMemoryJobStore implements TextToImageJobStore {
 
     async update(projectPath: string, id: string, patch: Partial<Omit<TextToImageJobRecord, "id" | "projectPath" | "createdAt">>): Promise<TextToImageJobRecord | null> {
         const index = this.records.findIndex((record) => record.projectPath === projectPath && record.id === id);
+        if (index < 0) return null;
+        this.records[index] = {...this.records[index]!, ...patch};
+        return this.records[index]!;
+    }
+
+    async updateIfStatus(projectPath: string, id: string, status: string, patch: Partial<Omit<TextToImageJobRecord, "id" | "projectPath" | "createdAt">>): Promise<TextToImageJobRecord | null> {
+        const index = this.records.findIndex((record) => record.projectPath === projectPath && record.id === id && record.status === status);
         if (index < 0) return null;
         this.records[index] = {...this.records[index]!, ...patch};
         return this.records[index]!;

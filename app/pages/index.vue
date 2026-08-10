@@ -13,6 +13,7 @@ import NovelIdeProfileDialog from "nbook/app/components/novel-ide/NovelIdeProfil
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import TextToImageWorkbenchDialog from "nbook/app/components/novel-ide/text-to-image/TextToImageWorkbenchDialog.vue";
+import TextToImageAssetActionDialog from "nbook/app/components/novel-ide/text-to-image/TextToImageAssetActionDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
@@ -51,7 +52,22 @@ import {
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
-import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
+import {
+    isBodyTextToImageEnabled,
+    isCharacterTagGenerateEnabled,
+} from "nbook/app/components/markdown-studio/markdown-studio-tool-availability";
+import {
+    resolveCharacterGenerationContext,
+    type CharacterGenerationContext,
+} from "nbook/app/components/novel-ide/text-to-image/character-context";
+import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
+import {
+    hasTextToImageGenerationMarkdown,
+    replaceTextToImageAssetMarkdown,
+    stripTextToImageGenerationMarkdown,
+    type TextToImageAssetActionTarget,
+    type TextToImagePromptPayload,
+} from "nbook/shared/text-to-image-markdown";
 
 type SameDocumentViewTransition = {
     ready: Promise<void>;
@@ -73,6 +89,12 @@ const currentUser = ref<AuthSessionDto["user"]>(null);
 const accountProfileOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const textToImageWorkbenchOpen = ref(false);
+const textToImageInitialSection = ref<"llm" | "novelai" | "character" | "history">("llm");
+const textToImageInitialCharacter = ref<CharacterGenerationContext | null>(null);
+const bodyTextToImageGenerating = ref(false);
+const assetActionDialogOpen = ref(false);
+const assetActionTarget = ref<TextToImageAssetActionTarget | null>(null);
+const assetActionAsset = ref<TextToImageAssetDto | null>(null);
 const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
 // 后台任务中心只在 Project 数据面内挂载。
@@ -236,7 +258,7 @@ const studio = useMarkdownStudioController({
 // store 在切文件 / 磁盘同步 / 保存前先结算编辑器防抖输入，防止防抖窗口内的输入被误判为「无修改」
 novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 
-const {choose, prompt} = useDialog();
+const {choose, confirm, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
 
@@ -408,6 +430,33 @@ const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => 
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
     ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
     : null);
+const selectedFrontmatterProfileKind = computed<FrontmatterProfileKind | null>(() => {
+    const type = selectedFileNode.value?.frontmatter?.type;
+    return type === "character" || type === "location" || type === "rule" ? type : null;
+});
+const bodyTextToImageEnabled = computed(() => isBodyTextToImageEnabled({
+    projectSurfaceActive: projectSurfaceActive.value,
+    userAssetsWorkspace: isUserAssetsWorkspace.value,
+    agentMode: isAgentMode.value,
+    editorKind: displayCurrentEditorKind.value,
+    currentMarkdownFile: isMarkdownFile.value && Boolean(selectedFilePath.value) && Boolean(selectedFileNode.value),
+    currentFileEditable: selectedFileNode.value?.editable === true,
+    currentContentNode: selectedFileNode.value?.contentNode === true,
+    currentEntryType: selectedFileNode.value?.entryType,
+    currentFilePath: selectedFilePath.value,
+}));
+const characterTagGenerateEnabled = computed(() => isCharacterTagGenerateEnabled({
+    projectSurfaceActive: projectSurfaceActive.value,
+    userAssetsWorkspace: isUserAssetsWorkspace.value,
+    agentMode: isAgentMode.value,
+    editorKind: displayCurrentEditorKind.value,
+    currentMarkdownFile: isMarkdownFile.value && Boolean(selectedFilePath.value) && Boolean(selectedFileNode.value),
+    currentFileEditable: selectedFileNode.value?.editable === true,
+    currentContentNode: selectedFileNode.value?.contentNode === true,
+    currentEntryType: selectedFileNode.value?.entryType,
+    currentFilePath: selectedFilePath.value,
+    frontmatterProfileKind: selectedFrontmatterProfileKind.value,
+}));
 const characterProfileVisible = computed({
     get: () => frontmatterProfileKind.value === "character",
     set: (visible: boolean): void => {
@@ -942,6 +991,110 @@ async function handleTextToImageGenerate(payload: TextToImagePromptPayload): Pro
     } catch (cause) {
         notification.error(resolveApiErrorMessage(cause, "生成图片失败"), {title: "生成失败"});
     }
+}
+
+/**
+ * 从主工作区发起正文生图：先经 LLM 生成 L1 块并落成占位符，再保存章节。
+ * 章节已有生图标记时先确认并清理前端标记，后端资产保留在历史中。
+ */
+async function handleBodyTextToImageGenerate(): Promise<void> {
+    if (!currentProjectRoot.value || !selectedFilePath.value) {
+        notification.error("请先打开项目并选中章节文件", {title: "生成失败"});
+        return;
+    }
+    if (bodyTextToImageGenerating.value) {
+        return;
+    }
+    bodyTextToImageGenerating.value = true;
+    try {
+        let content = selectedFileContent.value;
+        if (hasTextToImageGenerationMarkdown(content)) {
+            const confirmed = await confirm("正文中已有生图占位符或已生成图片，是否清理后重新生成？", "重新生成正文生图");
+            if (!confirmed) {
+                return;
+            }
+            content = stripTextToImageGenerationMarkdown(content);
+        }
+
+        const result = await $fetch<{content: string; placeholders: Array<{id: string}>}>("/api/text-to-image/body-prompts", {
+            method: "POST",
+            body: {
+                projectRoot: currentProjectRoot.value,
+                path: selectedFilePath.value,
+                content,
+            },
+        });
+        selectedFileContent.value = result.content;
+        await saveCurrentWorkspaceFile();
+        notification.success(`已生成 ${result.placeholders.length} 个正文生图占位符`);
+    } catch (cause) {
+        notification.error(resolveApiErrorMessage(cause, "正文生图失败"), {title: "生成失败"});
+    } finally {
+        bodyTextToImageGenerating.value = false;
+    }
+}
+
+/**
+ * 从角色详情页打开角色视觉管理，并将工作台定位到角色区。
+ */
+function handleCharacterTagGenerate(): void {
+    if (!characterTagGenerateEnabled.value) {
+        return;
+    }
+    const context = resolveCharacterGenerationContext(
+        selectedFilePath.value,
+        selectedFileContent.value,
+    );
+    if (!context) {
+        notification.error("请先选中角色详情 Markdown 文件", {title: "角色 Tag 生成不可用"});
+        return;
+    }
+    textToImageInitialCharacter.value = context;
+    textToImageInitialSection.value = "character";
+    textToImageWorkbenchOpen.value = true;
+}
+
+/**
+ * 长按正文图片后打开后处理对话框，并按相对路径解析当前资产。
+ */
+async function handleEditorAssetAction(target: TextToImageAssetActionTarget): Promise<void> {
+    if (!currentProjectRoot.value) {
+        notification.warning("请先打开项目", {title: "图片后处理不可用"});
+        return;
+    }
+    try {
+        const asset = await $fetch<TextToImageAssetDto>("/api/text-to-image/assets/by-path/detail", {
+            query: {
+                projectRoot: currentProjectRoot.value,
+                relativePath: target.relativePath,
+            },
+        });
+        assetActionTarget.value = target;
+        assetActionAsset.value = asset;
+        assetActionDialogOpen.value = true;
+    } catch (cause) {
+        notification.error(resolveApiErrorMessage(cause, "无法打开图片后处理"), {title: "图片后处理失败"});
+    }
+}
+
+/**
+ * 后处理完成后替换正文中的旧图片引用并保存文件。
+ */
+async function handleAssetActionCompleted(nextAsset: TextToImageAssetDto): Promise<void> {
+    const target = assetActionTarget.value;
+    assetActionDialogOpen.value = false;
+    assetActionTarget.value = null;
+    assetActionAsset.value = null;
+    if (!target || !selectedFileContent.value) {
+        return;
+    }
+    const nextContent = replaceTextToImageAssetMarkdown(selectedFileContent.value, target.relativePath, nextAsset);
+    if (nextContent === selectedFileContent.value) {
+        return;
+    }
+    selectedFileContent.value = nextContent;
+    await saveCurrentWorkspaceFile();
+    notification.success("正文图片已更新");
 }
 
 /**
@@ -2497,7 +2650,7 @@ onBeforeUnmount(() => {
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div v-if="projectSurfaceActive" class="flex min-h-0 flex-1 overflow-hidden">
-            <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" @open-text-to-image="textToImageWorkbenchOpen = true" />
+            <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" @open-text-to-image="textToImageInitialCharacter = null; textToImageInitialSection = 'llm'; textToImageWorkbenchOpen = true" />
 
             <AgentModeSessionSidebar
                 :sessions="agentModeSessions"
@@ -2561,6 +2714,7 @@ onBeforeUnmount(() => {
                             :controller="studio"
                             :tabs="displayWorkspaceTabs"
                             :active-path="displayActiveWorkspaceTabPath"
+                            :workspace-project-root="currentProjectRoot ?? ''"
                             :node="displaySelectedFileNode"
                             :editor-kind="displayCurrentEditorKind"
                             :workspace-view-mode="displayCurrentWorkspaceViewMode"
@@ -2579,6 +2733,9 @@ onBeforeUnmount(() => {
                             :inline-ai-highlight-reference="inlinePromptHoveredReference"
                             :enable-quick-triggers="true"
                             :on-text-to-image-generate="handleTextToImageGenerate"
+                            :text-to-image-busy="bodyTextToImageGenerating"
+                            :body-text-to-image-enabled="bodyTextToImageEnabled"
+                            :character-tag-generate-enabled="characterTagGenerateEnabled"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
                             @set-pin="setWorkspaceTabPinned"
@@ -2600,6 +2757,9 @@ onBeforeUnmount(() => {
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
                             @inline-ai-reference="addInlineAiReference"
+                            @body-text-to-image-generate="void handleBodyTextToImageGenerate()"
+                            @character-tag-generate="handleCharacterTagGenerate"
+                            @asset-action="void handleEditorAssetAction($event)"
                         />
                     </div>
                     <div
@@ -2694,7 +2854,20 @@ onBeforeUnmount(() => {
         </div>
 
         <NovelIdeSettingsDialog v-if="projectSurfaceActive" v-model="settingsDialogOpen" />
-        <TextToImageWorkbenchDialog v-if="projectSurfaceActive" v-model="textToImageWorkbenchOpen" />
+        <TextToImageWorkbenchDialog
+            v-if="projectSurfaceActive"
+            v-model="textToImageWorkbenchOpen"
+            :project-root="currentProjectRoot ?? ''"
+            :initial-section="textToImageInitialSection"
+            :initial-character="textToImageInitialCharacter"
+        />
+        <TextToImageAssetActionDialog
+            v-if="projectSurfaceActive"
+            v-model="assetActionDialogOpen"
+            :project-root="currentProjectRoot ?? ''"
+            :asset="assetActionAsset"
+            @success="void handleAssetActionCompleted($event)"
+        />
         <NovelIdeProfileDialog v-model="accountProfileOpen" />
         <AgentTraceViewerDialog v-if="projectSurfaceActive" v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
         <WorkspaceHistoryInboxDialog v-if="projectSurfaceActive" v-model="historyInboxOpen" :project-root="isUserAssetsWorkspace ? null : currentProjectRoot" :theme="activeThemeId" />

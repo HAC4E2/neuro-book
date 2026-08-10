@@ -7,6 +7,7 @@ import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-
 const CharacterVisualGetQuerySchema = z.object({
     projectRoot: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
+    groupId: z.string().trim().min(1).optional(),
 });
 
 export default defineEventHandler(async (event) => {
@@ -20,6 +21,10 @@ export default defineEventHandler(async (event) => {
         });
     }
     return {
-        visual: await readCharacterVisual(resolveTextToImageProjectRoot(query.data.projectRoot), query.data.characterId),
+        visual: await readCharacterVisual(
+            resolveTextToImageProjectRoot(query.data.projectRoot),
+            query.data.characterId,
+            query.data.groupId,
+        ),
     };
 });

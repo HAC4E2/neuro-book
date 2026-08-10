@@ -8,7 +8,7 @@ import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service"
 const EnqueueBodySchema = z.object({
     projectRoot: z.string().trim().min(1),
     providerId: z.number().int().positive(),
-    kind: z.enum(["manual", "body", "character", "reroll"]),
+    kind: z.enum(["manual", "body", "character", "reroll", "inpaint"]),
     requestJson: z.string(),
     sourcePath: z.string().trim().nullable().optional(),
     sourceAnchorId: z.string().trim().nullable().optional(),

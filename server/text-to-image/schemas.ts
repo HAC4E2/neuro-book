@@ -12,7 +12,7 @@ export const SaveTextToImageProviderSchema = z.object({
     baseUrl: z.string().trim().min(1),
     model: z.string().trim().nullable().optional(),
     credential: z.string().optional(),
-    settings: z.record(z.string(), z.unknown()).default({}),
+    settings: z.record(z.string(), z.unknown()).optional(),
 });
 export type SaveTextToImageProviderInput = z.infer<typeof SaveTextToImageProviderSchema>;
 

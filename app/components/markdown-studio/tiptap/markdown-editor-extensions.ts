@@ -1,6 +1,5 @@
 import {Placeholder} from "@tiptap/extension-placeholder";
 import {TableKit} from "@tiptap/extension-table";
-import {Image} from "@tiptap/extension-image";
 import type {AnyExtension} from "@tiptap/core";
 import {AgentHardBreak} from "nbook/app/components/novel-ide/agent/tiptap/AgentHardBreak";
 import {AgentSkill} from "nbook/app/components/novel-ide/agent/tiptap/AgentSkillNode";
@@ -15,6 +14,7 @@ import {MarkdownSlashCommand} from "nbook/app/components/markdown-studio/tiptap/
 import {TextToImagePrompt} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 import {createFallbackWorkspaceReferenceMeta, WorkspaceReference, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
+import {createWorkspaceMarkdownImage, type WorkspaceImageUrlResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceMarkdownImage";
 
 export interface MarkdownSuggestionController {
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
@@ -36,6 +36,7 @@ export interface MarkdownEditorExtensionOptions extends MarkdownSuggestionContro
     resolveHtmlEmbedDataApi?: HtmlEmbedDataApi;
     sourcePath?: string;
     resolveReference?: WorkspaceReferenceResolver;
+    resolveWorkspaceImageUrl?: WorkspaceImageUrlResolver;
     enableQuickTriggers?: boolean;
     onTextToImageGenerate?: (payload: TextToImagePromptPayload) => void;
 }
@@ -63,13 +64,7 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
             },
         }),
         TableKit,
-        Image.configure({
-            inline: true,
-            allowBase64: false,
-            HTMLAttributes: {
-                class: "nb-markdown-image-node",
-            },
-        }),
+        createWorkspaceMarkdownImage(options.resolveWorkspaceImageUrl),
         AgentHardBreak,
         Placeholder.configure({
             placeholder: options.placeholder,

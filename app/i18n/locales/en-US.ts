@@ -2373,6 +2373,8 @@ const enUS = {
             close: "Close",
             comments: "Comments",
             more: "More",
+            bodyTextToImage: "Generate Body Images",
+            characterTagGenerate: "Generate Character Tags",
         },
         selection: {
             editLinkPrompt: "Link URL. Leave empty to remove the link",

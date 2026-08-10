@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {
+    DEFAULT_WORD_REPLACEMENT_PROFILE,
     TextToImageContextProfileSchema,
     TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
@@ -48,11 +49,13 @@ describe("text-to-image DTO", () => {
         ]);
     });
 
-    it("全局配置默认给出空的上下文预设、绑定与替换词档案", () => {
+    it("全局配置默认给出空上下文、空绑定与内置替换词档案", () => {
         const config = TextToImageGlobalConfigSchema.parse({});
         expect(config.contextProfiles).toEqual({});
         expect(config.requestTypeBindings).toEqual({});
-        expect(config.wordReplacementProfiles).toEqual({});
+        expect(config.wordReplacementProfiles).toEqual({
+            default: DEFAULT_WORD_REPLACEMENT_PROFILE,
+        });
         expect(config.currentWordReplacementProfile).toBe("default");
     });
 
@@ -73,9 +76,9 @@ describe("text-to-image DTO", () => {
             model: "gpt-4o",
         });
         expect(settings).toMatchObject({
-            temperature: 0.7,
+            temperature: 1,
             topP: 1,
-            maxTokens: 512,
+            maxTokens: 30000,
             stream: false,
             sendImages: false,
             mergeSystemUser: false,
@@ -86,15 +89,57 @@ describe("text-to-image DTO", () => {
     it("NovelAI Provider 设置带 Vibe 与角色参考默认值", () => {
         const settings = TextToImageNovelAiSettingsSchema.parse({});
         expect(settings).toMatchObject({
+            requestIntervalMs: 15_000,
             model: "nai-diffusion-4-5-full",
-            sampler: "k_euler_ancestral",
+            sampler: "k_euler",
             noiseSchedule: "karras",
-            width: 832,
-            height: 1216,
+            promptGuidance: 10,
+            promptGuidanceRescale: 0.18,
+            smea: true,
+            width: 1024,
+            height: 1024,
             steps: 28,
-            seed: -1,
+            seed: 0,
+            negativeQualityPreset: "Heavy",
         });
         expect(settings.vibe.enabled).toBe(false);
+        expect(settings.vibe.informationExtracted).toBe(0.3);
         expect(settings.characterReference.enabled).toBe(false);
+    });
+
+    it("NovelAI 生图间隔最低为 15 秒并保留合法配置", () => {
+        expect(TextToImageNovelAiSettingsSchema.safeParse({requestIntervalMs: 14_999}).success).toBe(false);
+        expect(TextToImageNovelAiSettingsSchema.parse({requestIntervalMs: 20_000}).requestIntervalMs).toBe(20_000);
+    });
+
+    it("stores a combined active generation recipe", () => {
+        const parsed = TextToImageNovelAiSettingsSchema.parse({
+            activeGenerationRecipeId: "cinematic",
+            generationRecipes: {
+                cinematic: {
+                    model: "nai-diffusion-4-5-full",
+                    sampler: "k_euler",
+                    noiseSchedule: "karras",
+                    promptGuidance: 10,
+                    promptGuidanceRescale: 0.18,
+                    aiDefaultCharacterPosition: true,
+                    smea: true,
+                    smeaDyn: true,
+                    variety: true,
+                    decrisp: true,
+                    width: 1024,
+                    height: 1024,
+                    steps: 28,
+                    seed: 0,
+                    positiveQualityPreset: true,
+                    negativeQualityPreset: "Heavy",
+                    positive: "cinematic lighting",
+                    positiveEnd: "masterpiece",
+                    negative: "blurry",
+                },
+            },
+        });
+        expect(parsed.activeGenerationRecipeId).toBe("cinematic");
+        expect(parsed.generationRecipes.cinematic?.positive).toBe("cinematic lighting");
     });
 });

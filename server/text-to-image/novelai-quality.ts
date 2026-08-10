@@ -32,6 +32,9 @@ function resolveAqt(model: string): string {
     if (model === "nai-diffusion-4-5-curated") {
         return "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general";
     }
+    if (model === "nai-diffusion-furry-3") {
+        return "{best quality}, {amazing quality}";
+    }
     return "best quality, amazing quality, very aesthetic, absurdres";
 }
 
@@ -52,6 +55,46 @@ function resolveUcp(model: string, preset: string): string {
         "nai-diffusion-4-5-full:Heavy": "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page",
         "nai-diffusion-4-5-full:Light": "lowres, artistic error, scan artifacts, worst quality, bad quality, jpeg artifacts, multiple views, very displeasing, too many watermarks, negative space, blank page",
         "nai-diffusion-4-5-full:Furry Focus": "{worst quality}, distracting watermark, unfinished, bad quality, {widescreen}, upscale, {sequence}, {{grandfathered content}}, blurred foreground, chromatic aberration, sketch, everyone, [sketch background], simple, [flat colors], ych (character), outline, multiple scenes, [[horror (theme)]], comic",
+        "nai-diffusion-furry-3:Heavy": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast",
+        "nai-diffusion-furry-3:Light": "{worst quality}, guide lines, unfinished, bad, url, tall image, widescreen, compression artifacts, unknown text",
+        "nai-diffusion-furry-3:Furry Focus": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast",
+        "nai-diffusion-furry-3:Human Focus": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast",
     };
     return table[key] ?? "";
+}
+
+/** 按模型与负面预设解析 NovelAI 的 ucPreset 数值；未知组合回退到 Heavy。 */
+export function resolveNovelAiUcPreset(model: string, preset: string): number {
+    const table: Record<string, number> = {
+        "nai-diffusion-4-5-full:Heavy": 0,
+        "nai-diffusion-4-5-full:Light": 1,
+        "nai-diffusion-4-5-full:Furry Focus": 2,
+        "nai-diffusion-4-5-full:Human Focus": 3,
+        "nai-diffusion-4-5-full:none": 4,
+        "nai-diffusion-4-5-curated:Heavy": 0,
+        "nai-diffusion-4-5-curated:Light": 1,
+        "nai-diffusion-4-5-curated:Human Focus": 2,
+        "nai-diffusion-4-5-curated:none": 3,
+        "nai-diffusion-4-full:Heavy": 0,
+        "nai-diffusion-4-full:Light": 1,
+        "nai-diffusion-4-full:Human Focus": 2,
+        "nai-diffusion-4-full:Furry Focus": 2,
+        "nai-diffusion-4-full:none": 2,
+        "nai-diffusion-4-curated-preview:Heavy": 0,
+        "nai-diffusion-4-curated-preview:Light": 1,
+        "nai-diffusion-4-curated-preview:Human Focus": 2,
+        "nai-diffusion-4-curated-preview:Furry Focus": 2,
+        "nai-diffusion-4-curated-preview:none": 2,
+        "nai-diffusion-3:Heavy": 0,
+        "nai-diffusion-3:Light": 1,
+        "nai-diffusion-3:Human Focus": 2,
+        "nai-diffusion-3:Furry Focus": 0,
+        "nai-diffusion-3:none": 3,
+        "nai-diffusion-furry-3:Heavy": 0,
+        "nai-diffusion-furry-3:Light": 1,
+        "nai-diffusion-furry-3:Furry Focus": 0,
+        "nai-diffusion-furry-3:Human Focus": 0,
+        "nai-diffusion-furry-3:none": 2,
+    };
+    return table[`${model}:${preset}`] ?? 0;
 }

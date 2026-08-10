@@ -26,8 +26,10 @@ export async function requireTextToImageUser(event: H3Event): Promise<{id: numbe
             return {id: existing.id};
         }
         const passwordHash = await hashUserPassword(randomBytes(24).toString("hex"));
-        const created = await prisma.user.create({
-            data: {
+        const created = await prisma.user.upsert({
+            where: {username: LOCAL_TEXT_TO_IMAGE_USERNAME},
+            update: {},
+            create: {
                 username: LOCAL_TEXT_TO_IMAGE_USERNAME,
                 displayName: "本地文生图用户",
                 passwordHash,

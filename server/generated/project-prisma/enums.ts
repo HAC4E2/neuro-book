@@ -138,7 +138,8 @@ export const TextToImageJobKind = {
   manual: 'manual',
   body: 'body',
   character: 'character',
-  reroll: 'reroll'
+  reroll: 'reroll',
+  inpaint: 'inpaint'
 } as const
 
 export type TextToImageJobKind = (typeof TextToImageJobKind)[keyof typeof TextToImageJobKind]

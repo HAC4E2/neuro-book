@@ -4,6 +4,7 @@ import {tmpdir} from "node:os";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
+    findTextToImageAssetByRelativePath,
     listTextToImageAssets,
     saveTextToImageAsset,
 } from "nbook/server/text-to-image/asset.service";
@@ -172,6 +173,37 @@ describe("listTextToImageAssets", () => {
     });
 });
 
+describe("findTextToImageAssetByRelativePath", () => {
+    it("finds the newest asset record by relative path", async () => {
+        const fake = new FakePrismaClient();
+        fake.assets.push(fakeAssetRecord("asset-1", new Date("2026-08-02T00:00:00.000Z")));
+        fake.assets.push(fakeAssetRecord("asset-2", new Date("2026-08-01T00:00:00.000Z")));
+
+        const dto = await findTextToImageAssetByRelativePath(
+            PROJECT_NAME,
+            "assets/tti/asset-1.png",
+            () => Promise.resolve(fake as unknown as PrismaClient),
+        );
+
+        expect(dto).toMatchObject({
+            id: "asset-1",
+            relativePath: "assets/tti/asset-1.png",
+        });
+    });
+
+    it("returns null when no asset matches", async () => {
+        const fake = new FakePrismaClient();
+
+        const dto = await findTextToImageAssetByRelativePath(
+            PROJECT_NAME,
+            "assets/tti/missing.png",
+            () => Promise.resolve(fake as unknown as PrismaClient),
+        );
+
+        expect(dto).toBeNull();
+    });
+});
+
 type FakeAssetRecord = {
     id: string;
     jobId: string;
@@ -217,6 +249,13 @@ class FakePrismaClient {
         findMany: async ({skip = 0, take = this.assets.length}: {skip?: number; take?: number}): Promise<FakeAssetRecord[]> => {
             const sorted = [...this.assets].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
             return sorted.slice(skip, skip + take);
+        },
+        findFirst: async ({where}: {where: {relativePath?: string; sourceAnchorId?: string}}): Promise<FakeAssetRecord | null> => {
+            const sorted = [...this.assets].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+            return sorted.find((item) => (
+                (where.relativePath === undefined || item.relativePath === where.relativePath)
+                && (where.sourceAnchorId === undefined || item.sourceAnchorId === where.sourceAnchorId)
+            )) ?? null;
         },
         count: async (): Promise<number> => this.assets.length,
     };

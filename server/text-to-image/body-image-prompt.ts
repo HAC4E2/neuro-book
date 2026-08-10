@@ -22,7 +22,9 @@ export function buildBodyImageSystemPrompt(): string {
         "规则：",
         "<regex> 必须是正文中一字不差的挂载点文本，优先截取 10-20 字的最能代表画面视觉内容的短句，禁止概括、改写、补字、删字或拼接多个不相邻片段。",
         "<prompts> 必须是可直接交给 NovelAI 的最终英文 tag 串，使用英文逗号分隔；角色/服装可优先使用正文会话提供的 ${...}$ 调用代码，没有对应角色或服装时用原创特征 tag。",
+        "如果可用角色视觉摘要为空，表示本段没有可调用角色：只生成场景、镜头、环境 tag，不输出 ${...}$ 角色调用代码。",
         "不要输出解释文字，不要输出 <content>/<images>/<image> 以外的标签。",
+        "For a saved outfit, add an optional JSON field \"outfit\" to the ${...}$ character call; the backend resolves it from the same visual.json and selects its front/back upper/lower tags mechanically.",
     ].join("\n");
 }
 

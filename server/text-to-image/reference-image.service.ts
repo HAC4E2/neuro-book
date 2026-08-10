@@ -81,6 +81,12 @@ export async function resolveTextToImageReferenceImagePath(relativePath: string)
     return resolveContainedPath(root, relativePath);
 }
 
+/** 读取参考图原始字节；供 Vibe 编码与角色参考请求使用。 */
+export async function readTextToImageReferenceImageBytes(relativePath: string): Promise<Uint8Array> {
+    const root = await resolveReferenceImageRoot();
+    return new Uint8Array(await fs.readFile(resolveContainedPath(root, relativePath)));
+}
+
 async function resolveReferenceImageRoot(): Promise<string> {
     return path.join(resolveUserNbookRoot(), REFERENCE_ROOT_RELATIVE);
 }

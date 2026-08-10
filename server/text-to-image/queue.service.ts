@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import type {Prisma} from "nbook/server/generated/project-prisma/client";
 import {withEphemeralTextToImageProjectClient} from "nbook/server/text-to-image/project-client";
 
-export type TextToImageJobKind = "manual" | "body" | "character" | "reroll";
+export type TextToImageJobKind = "manual" | "body" | "character" | "reroll" | "inpaint";
 export type TextToImageJobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
 export type TextToImageSourceInsertStatus = "not_applicable" | "pending" | "inserted" | "missing";
 
@@ -69,6 +69,12 @@ export interface TextToImageJobStore {
         id: string,
         patch: Partial<Omit<TextToImageJobRecord, "id" | "projectPath" | "createdAt">>,
     ): Promise<TextToImageJobRecord | null>;
+    updateIfStatus(
+        projectPath: string,
+        id: string,
+        status: TextToImageJobStatus,
+        patch: Partial<Omit<TextToImageJobRecord, "id" | "projectPath" | "createdAt">>,
+    ): Promise<TextToImageJobRecord | null>;
 }
 
 /** 首版简化队列：Job 先落 Project SQLite，状态由服务显式推进。 */
@@ -108,7 +114,7 @@ export class TextToImageQueueService {
     }
 
     async markRunning(projectPath: string, id: string): Promise<boolean> {
-        const record = await this.store.update(projectPath, id, {
+        const record = await this.store.updateIfStatus(projectPath, id, "queued", {
             status: "running",
             startedAt: new Date(),
         });
@@ -230,6 +236,22 @@ class PrismaTextToImageJobStore implements TextToImageJobStore {
                 startedAt: updated.startedAt ?? null,
                 finishedAt: updated.finishedAt ?? null,
             } as unknown as TextToImageJobRecord;
+        });
+    }
+
+    async updateIfStatus(
+        projectPath: string,
+        id: string,
+        status: TextToImageJobStatus,
+        patch: Partial<Omit<TextToImageJobRecord, "id" | "projectPath" | "createdAt">>,
+    ): Promise<TextToImageJobRecord | null> {
+        return await withEphemeralTextToImageProjectClient(projectPath, async (client) => {
+            const result = await client.textToImageJob.updateMany({
+                where: {id, status},
+                data: patch,
+            });
+            if (result.count === 0) return null;
+            return await client.textToImageJob.findUnique({where: {id}}) as unknown as TextToImageJobRecord | null;
         });
     }
 }

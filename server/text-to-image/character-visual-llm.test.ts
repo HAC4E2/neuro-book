@@ -151,7 +151,7 @@ describe("character visual llm", () => {
                     model: "gpt-4o",
                     temperature: 0.8,
                     topP: 0.9,
-                    maxTokens: 4096,
+                    maxTokens: 12000,
                     stream: false,
                     sendImages: false,
                     mergeSystemUser: false,
@@ -169,7 +169,7 @@ describe("character visual llm", () => {
         expect(visual.outfits[0]?.upper).toBe("white shirt");
         expect(lastInput?.baseUrl).toBe("https://api.example.com/v1");
         expect(lastInput?.model).toBe("gpt-4o");
-        expect(lastInput?.maxTokens).toBe(4096);
+        expect(lastInput?.maxTokens).toBe(12000);
         expect(lastInput?.messages[0]?.role).toBe("system");
         expect(lastInput?.messages[1]?.role).toBe("user");
         expect(String(lastInput?.messages[1]?.content)).toContain("角色页");

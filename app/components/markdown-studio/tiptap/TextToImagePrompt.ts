@@ -8,7 +8,7 @@ import {
 
 export interface TextToImagePromptOptions {
     /** 点击“生成图片”按钮时回调当前占位符 payload */
-    onGenerate?: (payload: TextToImagePromptPayload) => void;
+    onGenerate?: (payload: TextToImagePromptPayload) => void | Promise<void>;
 }
 
 interface TextToImagePromptToken extends MarkdownToken {
@@ -93,19 +93,32 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
             const status = document.createElement("span");
             status.className = "nb-text-to-image-prompt-status";
             status.textContent = "待生成";
+            let generating = false;
 
             const button = document.createElement("button");
             button.type = "button";
             button.className = "nb-text-to-image-prompt-button";
             button.textContent = "生成图片";
-            button.addEventListener("click", (event) => {
+            button.addEventListener("click", async (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                this.options.onGenerate?.(textToImagePromptPayloadFromAttrs(currentNode.attrs));
+                if (generating) return;
+                generating = true;
+                render();
+                try {
+                    await this.options.onGenerate?.(textToImagePromptPayloadFromAttrs(currentNode.attrs));
+                } catch {
+                    // 宿主负责通知用户；节点只负责回到可重新提交状态。
+                } finally {
+                    generating = false;
+                    render();
+                }
             });
 
             const render = (): void => {
                 title.textContent = String(currentNode.attrs.title || "正文插图");
+                status.textContent = generating ? "排队或生成中" : "待生成";
+                button.disabled = generating;
             };
             render();
             wrapper.append(title, status, button);

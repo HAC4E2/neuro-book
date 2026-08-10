@@ -84,6 +84,7 @@
     "@dnd-kit/vue": "^0.3.2",
     "@earendil-works/pi-agent-core": "0.80.6",
     "@earendil-works/pi-ai": "0.80.6",
+    "@huggingface/transformers": "^4.2.0",
     "@iconify-json/lucide": "^1.2.95",
     "@img/colour": "^1.1.0",
     "@libsql/client": "^0.17.3",

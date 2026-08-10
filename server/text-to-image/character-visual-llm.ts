@@ -118,7 +118,7 @@ export async function generateCharacterVisualDraft(
             model: settings.model,
             temperature: settings.temperature,
             topP: settings.topP,
-            maxTokens: 4096,
+            maxTokens: settings.maxTokens,
             stream: settings.stream,
             sendImages: settings.sendImages,
             mergeSystemUser: settings.mergeSystemUser,

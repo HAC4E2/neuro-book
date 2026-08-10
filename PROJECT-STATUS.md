@@ -1,6 +1,6 @@
 # Project Status
 
-> 截至 2026-08-05。本文只记录仓库级现状，不替代 `docs/tasks/` 中的实现 walkthrough；具体 TODO 和后续安排以对应 Issue、Task 为准。
+> 截至 2026-08-10。本文只记录仓库级现状，不替代 `docs/tasks/` 中的实现 walkthrough；具体 TODO 和后续安排以对应 Issue、Task 为准。
 
 ## 一句话结论
 
@@ -19,7 +19,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 | 模块 | 当前状态 | 依据 |
 | --- | --- | --- |
 | 写作模式 v1 | 主路径阶段完成，进入体验打磨 | [Task 64](docs/tasks/64-world-engine-prompt-engineering/README.md)、[Task 87](docs/tasks/87-plot-two-trees-and-writer-modes/README.md)、[Task 124](docs/tasks/124-writing-pipeline-batch3/README.md) |
-| 文生图（chatu8 移植） | 本地已实现，typecheck + 219 focused tests 通过；浏览器人工验收待做 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
+| 文生图（chatu8 移植） | 本地链路已实现，正文生图、NovelAI 生成、图片后处理、Project 角色集合、统一 LLM 绑定、配方和串行队列已接通；typecheck + `49` 个测试文件 `220/220` 通过，浏览器/真实模型验收仍需单独执行 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
 | World Engine | 核心模型、API、Workbench 和作者主路径阶段完成 | [Task 56](docs/tasks/56-world-engine/README.md)、[Task 65](docs/tasks/65-world-engine-calendar-enhancement/README.md)、[Task 71](docs/tasks/71-world-engine-codeact-readwrite/README.md) |
 | Plot | 两棵树模型已落地：承载树负责章节呈现，因果树负责剧情组织，`StoryScene` 连接两者 | [Task 78](docs/tasks/78-plot-scene-world-engine-bridge/README.md)、[Task 93](docs/tasks/93-plot-planning-layer/README.md)、[Task 99](docs/tasks/99-plot-planning-ui/README.md) |
 | Agent / Workflow | 主要链路已实现；人工界面、真实 Project、provider 和模型验收待做 | [Task 111](docs/tasks/111-workflow-agent-integration/README.md)、[Task 116](docs/tasks/116-agent-workflow-reliability/README.md)、[Task 139](docs/tasks/139-agent-abort-error-projection/README.md) |
@@ -39,6 +39,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 
 ## 最新收口
 
+- [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) 已收口正文生图与角色管理链路：主工作区入口、当前章节 LLM 提示词、后端角色扫描与机械组装、正文占位符生成、整体 reroll、图片长按后处理、Project 角色集合、角色详情 Tag 生成、当前生图配方和 NovelAI FIFO 队列均已落地；当前相关自动化验证为 `49` 个测试文件、`220/220` 个断言通过；浏览器/真实模型验收仍需单独执行。
 - [Task 139](docs/tasks/139-agent-abort-error-projection/README.md) 将主动取消与运行错误分开：取消显示中性状态，保留已生成的半截正文，并避免重复错误气泡。
 - [Task 138](docs/tasks/138-agent-conversation-branch-projection/README.md) 将对话分支切换改为基于可见对话锚点的投影，运行期记账 entry 不再制造假分支。
 - [Task 111](docs/tasks/111-workflow-agent-integration/README.md) 已补齐 Workflow 的持久身份、公开投影、Job/Run 详情、`wf.ask` 和 Composer/Preview 防重复提交；动态 `outputSchema` 的 `report_result` 合同也已补齐。
@@ -54,8 +55,28 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - **维护成本**：仓库结构优化的后续批次暂缓，先处理 Workflow、Product Runtime 和生命周期链路的集成与验收，见 [Task 123](docs/tasks/123-repo-structure-optimization/README.md)。
 - **上游依赖**：Nitro dev source-map 临时补丁等待上游稳定版实际包含修复后移除，见 [#20](https://github.com/notnotype/neuro-book/issues/20)。
 
+## 2026-08-09 Task 142 真实 Provider 复核
+
+- 正文 LLM 已使用真实 ds-flash Provider 完成 L1 → L2，并将 1 个占位符写回 Project `ce-shi` 当前章节；全局 `image_gen` Provider 绑定解析与 Node 环境代理适配已补上回归测试。
+- 代理修复后，产品队列已实际访问 NovelAI；两次正式生成均收到 `NovelAI 生成失败：HTTP 429`，当前 Project 资产列表仍为 0，章节尚未替换为 Markdown 图片。
+- 因此真实 provider/model 的“可访问”已验证，但完整“NovelAI → 资产 → Markdown”端到端仍受上游限流阻塞；不能将 Task 142 浏览器走查标记为完成。
+
+## 2026-08-09 Task 142 429 循环重试后
+
+- 按 `HTTP 429` 每 `15s` 间隔执行产品接口循环；本次循环第 `1` 次请求成功，Job `d541d2b3-a4ba-4169-b316-8deea06e9d3d` 为 `succeeded`。
+- NovelAI 生成资产 `assets/tti/fd408d31-866a-4f2c-96f1-e1f1f1e35c8f.png` 已保存（`1216x832`、`2,235,299` 字节），并已写入 `ce-shi` 当前章节的标准 Markdown 图片引用。
+- HTTP/文件链路已验证；浏览器人工验收仍是独立缺口，不能仅凭本次 API 证据勾选完整浏览器走查。
+
+## 2026-08-10 Task 142 合同修正施工计划收口
+
+- 文生图链路已补齐请求类型绑定、Project 角色集合、原始角色 Markdown 与视觉资料隔离、统一角色别名、缺外层大括号修复、无角色段落语义、NovelAI 当前生图配方、最终 tag 去重、T5 token 估算、NAI3/4/4.5 payload 适配、全局 FIFO 队列和 15 秒最低间隔。
+- 429 当前任务只失败退出并回传 429，不自动重试；再次点击才创建新任务。间隔从上一 NovelAI 请求返回成功或错误时开始计算，Vibe 编码、角色照片、重绘和局部重绘也进入同一调度器。
+- 角色视觉删除只处理 `visual.json` 和其中登记的 `assets/tti/` 照片，不删除角色原始 `.md`。TipTap 对 `assets/tti/` 使用受控 API URL 渲染，但 Markdown 仍保留原始相对路径。
+- 自动化验证为相关测试 `49` 个文件、`219/219` 个断言通过；`bun run typecheck` 通过；`bun run generate` 在提升权限后成功；`git diff --check` 通过。
+- 本轮未执行浏览器人工验收，真实 Provider 的历史 API/文件证据不替代浏览器证据；`BROWSER-WALKTHROUGH.md` 中相关项继续保持未勾选。
+
 ## 验证口径
 
 - Task 中的 focused test、typecheck、构建、浏览器验收和真实模型验收分别记录，不能互相替代。
 - 最近 Workflow 收口记录了服务端 17 个文件 260 项、前端 5 个文件 39 项自动化验证通过；相关 `typecheck` 复跑退出码为 0。
-- 本文件更新未自动运行测试或浏览器验收；详细命令、通过数量和未运行项以对应 Task walkthrough 为准。
+- 本文件记录的自动化验证已在 2026-08-10 复跑通过；未执行新的浏览器人工验收，详细命令、通过数量和未运行项以对应 Task walkthrough 为准。

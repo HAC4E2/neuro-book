@@ -89,6 +89,7 @@ describe("body image llm", () => {
                     model: "gpt-4o",
                     temperature: 0.8,
                     topP: 0.9,
+                    maxTokens: 12345,
                     stream: false,
                     sendImages: false,
                     mergeSystemUser: false,
@@ -104,7 +105,7 @@ describe("body image llm", () => {
         expect(blocks[0]?.regex).toBe("她推开门走进教室");
         expect(lastInput?.baseUrl).toBe("https://api.example.com/v1");
         expect(lastInput?.model).toBe("gpt-4o");
-        expect(lastInput?.maxTokens).toBe(4096);
+        expect(lastInput?.maxTokens).toBe(12345);
         expect(lastInput?.stream).toBe(false);
         expect(lastInput?.messages[0]?.role).toBe("system");
         expect(lastInput?.messages[1]?.role).toBe("user");

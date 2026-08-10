@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, stat, writeFile} from "node:fs/promises";
+import {access, mkdir, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import os from "node:os";
 import {consola} from "consola";
@@ -116,6 +116,8 @@ describe("project-session production facade", () => {
             title: "Control Book",
             summary: "Before",
         });
+        await expect(access(join(workspaceRoot, "control-book", "lorebook", "character", "default", ".group.json")))
+            .resolves.toBeUndefined();
         await expect(listProjects()).resolves.toEqual(expect.objectContaining({
             projects: [expect.objectContaining({projectRoot: "control-book"})],
         }));

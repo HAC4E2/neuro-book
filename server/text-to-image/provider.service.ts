@@ -32,7 +32,7 @@ export type TextToImageProviderDto = {
     model: string | null;
     hasCredential: boolean;
     credentialRevision: number;
-    settings: Record<string, unknown>;
+    settings?: Record<string, unknown>;
     createdAt: string;
     updatedAt: string;
 };
@@ -67,7 +67,7 @@ export type SaveTextToImageProviderInput = {
     name: string;
     baseUrl: string;
     model?: string | null;
-    settings: Record<string, unknown>;
+    settings?: Record<string, unknown>;
     /** 传入非空值表示替换凭据；undefined 或空串表示保留已有密文。 */
     credential?: string;
 };
@@ -92,7 +92,9 @@ export class TextToImageProviderService {
     async save(ownerUserId: number, input: SaveTextToImageProviderInput): Promise<TextToImageProviderDto> {
         const existing = input.id !== undefined
             ? await this.store.find(ownerUserId, input.id)
-            : (await this.store.list(ownerUserId)).find((record) => record.name === input.name) ?? null;
+            : input.kind === "novelai"
+                ? (await this.store.list(ownerUserId)).find((record) => record.kind === "novelai") ?? null
+                : (await this.store.list(ownerUserId)).find((record) => record.name === input.name) ?? null;
         const credentialChanged = await resolveCredentialChange(existing, input.credential, this.keyPath);
         const sealed = credentialChanged.sealed;
         const revision = existing
@@ -105,7 +107,7 @@ export class TextToImageProviderService {
                 name: input.name,
                 baseUrl: input.baseUrl,
                 model: input.model ?? null,
-                settings: input.settings,
+                ...(input.settings !== undefined ? {settings: input.settings} : {}),
                 credentialCiphertext: sealed.ciphertext,
                 credentialIv: sealed.iv,
                 credentialTag: sealed.tag,
@@ -121,7 +123,7 @@ export class TextToImageProviderService {
                 credentialIv: sealed.iv,
                 credentialTag: sealed.tag,
                 credentialRevision: revision,
-                settings: input.settings,
+                settings: input.settings ?? {},
             });
         if (!record) {
             throw new TextToImageProviderNotConfiguredError();

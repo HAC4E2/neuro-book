@@ -2371,6 +2371,8 @@ const zhCN = {
             close: "关闭",
             comments: "评论视图",
             more: "更多",
+            bodyTextToImage: "正文生图",
+            characterTagGenerate: "生成角色 Tag",
         },
         selection: {
             editLinkPrompt: "链接地址，留空则移除链接",

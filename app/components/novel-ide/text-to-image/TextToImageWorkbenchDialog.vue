@@ -3,9 +3,9 @@ import {ref, watch} from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import TextToImageLlmSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageLlmSettingsSection.vue";
 import TextToImageNovelAiSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageNovelAiSettingsSection.vue";
-import TextToImageBodySessionSection from "nbook/app/components/novel-ide/text-to-image/TextToImageBodySessionSection.vue";
 import TextToImageCharacterSection from "nbook/app/components/novel-ide/text-to-image/TextToImageCharacterSection.vue";
 import TextToImageHistorySection from "nbook/app/components/novel-ide/text-to-image/TextToImageHistorySection.vue";
+import type {CharacterGenerationContext} from "nbook/app/components/novel-ide/text-to-image/character-context";
 import {
     TextToImageGlobalConfigSchema,
     type TextToImageGlobalConfig,
@@ -15,6 +15,9 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 
 const props = defineProps<{
     modelValue: boolean;
+    projectRoot: string;
+    initialSection?: "llm" | "novelai" | "character" | "history";
+    initialCharacter?: CharacterGenerationContext | null;
 }>();
 
 const emit = defineEmits<{
@@ -26,7 +29,7 @@ type WorkbenchSnapshot = {
     providers: TextToImageProviderDto[];
 };
 
-const activeSection = ref<"llm" | "novelai" | "body" | "character" | "history">("llm");
+const activeSection = ref<"llm" | "novelai" | "character" | "history">("llm");
 const snapshot = ref<WorkbenchSnapshot>({
     config: TextToImageGlobalConfigSchema.parse({}),
     providers: [],
@@ -36,6 +39,7 @@ const error = ref("");
 
 watch(() => props.modelValue, (open) => {
     if (open) {
+        activeSection.value = props.initialSection ?? "llm";
         void load();
     }
 }, {immediate: true});
@@ -101,7 +105,9 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
 <template>
     <Dialog
         :model-value="props.modelValue"
-        size="xl"
+        width="min(86vw, 1440px)"
+        height="min(82vh, 1080px)"
+        max-height="calc(100vh - 20px)"
         title="文生图工作台"
         overlay-type="blur"
         :body-class="'custom-scrollbar flex min-h-0 flex-1 flex-col overflow-hidden p-0'"
@@ -111,7 +117,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
             <!-- 左侧导航 -->
             <nav class="flex w-36 shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] p-2">
                 <button
-                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'llm' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
                     @click="activeSection = 'llm'"
                 >
@@ -119,7 +125,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     LLM
                 </button>
                 <button
-                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'novelai' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
                     @click="activeSection = 'novelai'"
                 >
@@ -127,15 +133,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     NovelAI
                 </button>
                 <button
-                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
-                    :class="activeSection === 'body' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeSection = 'body'"
-                >
-                    <span class="i-lucide-file-text h-4 w-4"></span>
-                    正文生图
-                </button>
-                <button
-                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'character' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
                     @click="activeSection = 'character'"
                 >
@@ -143,7 +141,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     角色管理
                 </button>
                 <button
-                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'history' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
                     @click="activeSection = 'history'"
                 >
@@ -166,20 +164,17 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     v-else-if="activeSection === 'novelai'"
                     :providers="snapshot.providers"
                     @save-provider="saveProvider"
-                    @delete-provider="deleteProvider"
-                />
-                <TextToImageBodySessionSection
-                    v-else-if="activeSection === 'body'"
-                    :providers="snapshot.providers"
                 />
                 <TextToImageCharacterSection
                     v-else-if="activeSection === 'character'"
                     :providers="snapshot.providers"
+                    :project-root="props.projectRoot"
+                    :initial-character="props.initialCharacter"
                 />
-                <TextToImageHistorySection v-else />
+                <TextToImageHistorySection v-else :project-root="props.projectRoot" />
             </div>
         </div>
-        <p v-if="error" class="border-t border-[var(--border-color)] px-4 py-2 text-[12px] text-[var(--danger-text)]">{{ error }}</p>
-        <p v-if="loading" class="border-t border-[var(--border-color)] px-4 py-2 text-[12px] text-[var(--text-muted)]">加载中...</p>
+        <p v-if="error" class="border-t border-[var(--border-color)] px-4 py-2 text-[13px] text-[var(--danger-text)]">{{ error }}</p>
+        <p v-if="loading" class="border-t border-[var(--border-color)] px-4 py-2 text-[13px] text-[var(--text-muted)]">加载中...</p>
     </Dialog>
 </template>

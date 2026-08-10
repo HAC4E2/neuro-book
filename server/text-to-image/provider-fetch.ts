@@ -1,7 +1,7 @@
 import type {LookupAddress} from "node:dns";
 import {lookup as dnsLookup} from "node:dns/promises";
 import type {LookupFunction} from "node:net";
-import {Agent, type Dispatcher} from "undici";
+import {Agent, ProxyAgent, type Dispatcher} from "undici";
 import {
     assertTextToImageProviderAddress,
     assertTextToImageProviderUrl,
@@ -33,6 +33,7 @@ type ProviderFetchDependencies = {
 const maximumRedirects = 5;
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 const safeDispatcher = createTextToImageProviderDispatcher();
+let defaultProviderDispatcher: Dispatcher | undefined;
 
 /**
  * 创建把地址校验绑定到 net/tls socket lookup 的 Dispatcher。
@@ -98,7 +99,7 @@ export async function fetchTextToImageProvider(
     const fetchImpl = dependencies.fetchImpl ?? defaultHttpFetch;
     const dispatcher = policy.allowPrivateNetwork
         ? undefined
-        : dependencies.dispatcher ?? safeDispatcher;
+        : dependencies.dispatcher ?? resolveDefaultProviderDispatcher();
 
     for (let redirectCount = 0; redirectCount <= maximumRedirects; redirectCount += 1) {
         let response: Response;
@@ -145,6 +146,32 @@ export async function fetchTextToImageProvider(
     }
 
     throw new Error("Provider 重定向次数过多");
+}
+
+/** 读取运行环境代理；Node fetch 不会像 Bun 一样自动消费这些变量。 */
+export function resolveTextToImageEnvironmentProxyUrl(
+    environment: Readonly<Record<string, string | undefined>> = process.env,
+): string | null {
+    for (const key of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]) {
+        const value = environment[key]?.trim() ?? "";
+        if (value === "") continue;
+        try {
+            const url = new URL(value);
+            if (url.protocol === "http:" || url.protocol === "https:") {
+                return url.toString();
+            }
+        } catch {
+            // 忽略无效代理，继续尝试下一个环境变量。
+        }
+    }
+    return null;
+}
+
+function resolveDefaultProviderDispatcher(): Dispatcher {
+    if (defaultProviderDispatcher) return defaultProviderDispatcher;
+    const proxyUrl = resolveTextToImageEnvironmentProxyUrl();
+    defaultProviderDispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : safeDispatcher;
+    return defaultProviderDispatcher;
 }
 
 async function resolveAddresses(hostname: string): Promise<LookupAddress[]> {

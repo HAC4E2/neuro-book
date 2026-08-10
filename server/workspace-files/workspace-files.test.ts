@@ -2058,6 +2058,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
         await expect(readWorkspaceTextFile(root, "lorebook/index.md")).resolves.toContain("## 目录用途");
         await expect(fs.access(path.join(root, "lorebook/world/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, "lorebook/character/.gitkeep")).then(() => true)).resolves.toBe(true);
+        await expect(fs.access(path.join(root, "lorebook/character/default/.group.json")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, "lorebook/location/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, "lorebook/faction/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, "lorebook/item/.gitkeep")).then(() => true)).resolves.toBe(true);

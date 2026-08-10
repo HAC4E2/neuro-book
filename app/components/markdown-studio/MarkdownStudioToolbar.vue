@@ -12,10 +12,16 @@ const props = withDefaults(defineProps<{
     commentViewOpen?: boolean;
     commentCount?: number;
     activeTabRows?: number;
+    textToImageBusy?: boolean;
+    bodyTextToImageEnabled?: boolean;
+    characterTagGenerateEnabled?: boolean;
 }>(), {
     commentViewOpen: false,
     commentCount: 0,
     activeTabRows: 3,
+    textToImageBusy: false,
+    bodyTextToImageEnabled: false,
+    characterTagGenerateEnabled: false,
 });
 
 const emit = defineEmits<{
@@ -27,6 +33,8 @@ const emit = defineEmits<{
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
     (e: "toggle-comment-view"): void;
     (e: "more"): void;
+    (e: "body-text-to-image-generate"): void;
+    (e: "character-tag-generate"): void;
 }>();
 
 const {t} = useI18n();
@@ -280,6 +288,26 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                         <span :class="button.iconClass" class="h-3.5 w-3.5"></span>
                     </button>
                 </div>
+                <button
+                    v-if="props.editorKind === 'markdown' && props.bodyTextToImageEnabled"
+                    type="button"
+                    class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
+                    :title="t('markdownStudio.toolbar.bodyTextToImage')"
+                    :disabled="props.textToImageBusy"
+                    @click="emit('body-text-to-image-generate')"
+                >
+                    <span class="i-lucide-image-plus h-4 w-4"></span>
+                </button>
+                <button
+                    v-if="props.editorKind === 'markdown' && props.characterTagGenerateEnabled"
+                    type="button"
+                    class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
+                    :title="t('markdownStudio.toolbar.characterTagGenerate')"
+                    :disabled="props.textToImageBusy"
+                    @click="emit('character-tag-generate')"
+                >
+                    <span class="i-lucide-user-round-plus h-4 w-4"></span>
+                </button>
                 <button
                     v-if="props.editorKind === 'markdown'"
                     type="button"

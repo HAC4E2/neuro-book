@@ -12,7 +12,7 @@ import MarkdownStudioToolbar from "nbook/app/components/markdown-studio/Markdown
 import MarkdownStudioWelcome from "nbook/app/components/markdown-studio/MarkdownStudioWelcome.vue";
 import MarkdownCommentFlowPanel from "nbook/app/components/markdown-studio/MarkdownCommentFlowPanel.vue";
 import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
-import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
+import type {TextToImageAssetActionTarget, TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 
 type WorkspaceMode = "novel" | "user-assets";
 
@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<{
     content: string;
     tabs: WorkspaceEditorTab[];
     activePath: string;
+    workspaceProjectRoot?: string;
     node: WorkspaceFileNode | null;
     editorKind: WorkspaceEditorKind;
     workspaceViewMode: WorkspaceEditorViewMode;
@@ -40,8 +41,12 @@ const props = withDefaults(defineProps<{
     inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
     onTextToImageGenerate?: (payload: TextToImagePromptPayload) => void;
+    textToImageBusy?: boolean;
+    bodyTextToImageEnabled?: boolean;
+    characterTagGenerateEnabled?: boolean;
 }>(), {
     activeTabRows: 3,
+    workspaceProjectRoot: "",
     agentModeActive: false,
     workspaceMode: "novel",
     referenceRefreshKey: "",
@@ -54,6 +59,9 @@ const props = withDefaults(defineProps<{
     inlineAiReferences: () => [],
     enableQuickTriggers: false,
     onTextToImageGenerate: undefined,
+    textToImageBusy: false,
+    bodyTextToImageEnabled: false,
+    characterTagGenerateEnabled: false,
 });
 
 const emit = defineEmits<{
@@ -80,6 +88,9 @@ const emit = defineEmits<{
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "body-text-to-image-generate"): void;
+    (e: "character-tag-generate"): void;
+    (e: "asset-action", target: TextToImageAssetActionTarget): void;
 }>();
 
 const isMarkdownFile = computed(() => resolveWorkspaceFileExtension(props.activePath) === ".md");
@@ -103,6 +114,9 @@ watch(() => props.activePath, () => {
             :comment-view-open="props.controller.commentViewOpen.value"
             :comment-count="props.controller.inlineComments.value.length"
             :active-tab-rows="props.activeTabRows"
+            :text-to-image-busy="props.textToImageBusy"
+            :body-text-to-image-enabled="props.bodyTextToImageEnabled"
+            :character-tag-generate-enabled="props.characterTagGenerateEnabled"
             @select-tab="emit('select-tab', $event)"
             @close-tab="emit('close-tab', $event)"
             @set-pin="(path, pinned) => emit('set-pin', path, pinned)"
@@ -111,6 +125,8 @@ watch(() => props.activePath, () => {
             @set-view-mode="emit('set-view-mode', $event)"
             @toggle-comment-view="props.controller.commentViewOpen.value ? props.controller.closeCommentView() : props.controller.openCommentView()"
             @more="emit('more')"
+            @body-text-to-image-generate="emit('body-text-to-image-generate')"
+            @character-tag-generate="emit('character-tag-generate')"
         />
 
         <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--editor-bg)]">
@@ -148,6 +164,7 @@ watch(() => props.activePath, () => {
                         :monaco-preferences="props.monacoPreferences"
                         :monaco-temporary-font-size="props.monacoTemporaryFontSize"
                         :active-path="props.activePath"
+                        :workspace-project-root="props.workspaceProjectRoot"
                         :reference-refresh-key="props.referenceRefreshKey"
                         :resolve-menu="props.resolveMenu"
                         :open-reference="props.openReference"
@@ -156,6 +173,7 @@ watch(() => props.activePath, () => {
                         :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                         :enable-quick-triggers="props.enableQuickTriggers"
                         :on-text-to-image-generate="props.onTextToImageGenerate"
+                        @asset-action="emit('asset-action', $event)"
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"

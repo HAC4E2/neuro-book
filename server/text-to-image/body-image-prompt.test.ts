@@ -45,4 +45,8 @@ describe("body image prompt", () => {
 
         expect(prompt).toContain("（无）");
     });
+
+    it("system prompt 明确无角色段落不输出角色调用代码", () => {
+        expect(buildBodyImageSystemPrompt()).toContain("只生成场景、镜头、环境 tag，不输出");
+    });
 });

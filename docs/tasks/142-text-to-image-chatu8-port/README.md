@@ -19,7 +19,7 @@
 
 ## Goal
 
-在干净上游代码上实现对标 chatu8 的文生图工作台，验证面为每阶段聚焦测试 GREEN + `bun run typecheck` + 浏览器走查清单（不做自动化浏览器验证）。约束：LLM 直调所需的 Provider 安全边界（AES-GCM 凭据、URL 策略、DNS 校验）必须从参考分支迁入并适配，不能当作干净仓库现有能力；角色视觉 JSON 是 Project 真相源；所有工作台配置全局生效（Workspace Root `.nbook/config.json`，不用 Project 的 `workspace/<project>/.nbook/config.json`）；不新增第三方 LLM 网关；不引入 localStorage 双真相。首版范围收敛为 P0–P3 + P4 基础角色头像（其中 NovelAI 配置全量移植），P4.5/P5 列入 Backlog。
+在干净上游代码上实现对标 chatu8 的文生图工作台，验证面为每阶段聚焦测试 GREEN + `bun run typecheck` + 浏览器走查清单（不做自动化浏览器验证）。约束：LLM 直调所需的 Provider 安全边界（AES-GCM 凭据、URL 策略、DNS 校验）必须从参考分支迁入并适配，不能当作干净仓库现有能力；角色视觉 JSON 是 Project 真相源；所有工作台配置全局生效（Workspace Root `.nbook/config.json`，不用 Project 的 `workspace/<project>/.nbook/config.json`）；不新增第三方 LLM 网关；不引入 localStorage 双真相。首版范围收敛为 P0–P3 + P4 基础角色头像 + P4.5 已生成图片后处理（其中 NovelAI 配置全量移植），P5 列入 Backlog。
 
 ## Current State
 
@@ -34,11 +34,11 @@
 - **D1：LLM 是内容生成者，director 是交互层。** 角色 tag = LLM 产出 JSON → director 写 `.md/.json`；正文 = LLM 产出 `<image>` 块 → director 插入正文 → 队列生成。无多轮工具推理。
 - **D2：独立工作台 Dialog（chatu8 settings.html 同构）。** 左侧导航 + 右侧内容区，入口在左侧「文生图」。内含 LLM 配置 / NovelAI 配置 / 角色管理 / 正文生图会话 / 历史图片 / 词库 / 生图日志。
 - **D3：工作台配置全局生效，但存储边界明确。** 非敏感配置（上下文预设、请求类型绑定、模型参数、采样参数）存 `StoredGlobalConfig.textToImage`，落 Workspace Root `.nbook/config.json`；Provider 记录与 AES-GCM 密文凭据存 App SQLite。不随 Project 变化，不写 Project 的 `workspace/<project>/.nbook/config.json`。
-- **D4：角色管理照搬 chatu8，JSON 真相源。** 角色视觉数据 = Project 内 JSON 文件（12 字段纯文本 tag + 服装 + 照片数组），LLM 正文生图直接读取；支持角色头像生成（LLM 照片 prompt → NovelAI 生图 → 存照片数组）。
+- **D4：角色管理照搬 chatu8，JSON 真相源。** 角色视觉数据 = Project 内 JSON 文件（12 字段纯文本 tag + 服装 + 照片数组），LLM 正文生图直接读取；角色按项目绑定的分组管理，新建项目自动拥有空白 `default` 分组；角色详情、服装详情和当前启用角色分开呈现；支持角色头像生成（LLM 照片 prompt → NovelAI 生图 → 存照片数组）。
 - **D5：`<image>` 块契约沿用 chatu8 格式。** `<image>...</image>` 块内：可选 `<imgthink>` 思考 + 插入定位（chatu8 用 regex 行；NeuroBook 用章节锚点/段落 ID）+ 最终 tag 串。
 - **D6：请求类型 × (API 档案 + 上下文预设) 为核心模型。** 先收敛 5 类：正文生图、角色 tag 生成、角色照片 prompt、角色/服装修改、Tag 修改。
 - **D7：只做 NovelAI 后端。** 不移植 SD/ComfyUI/Banana。
-- **D8：首版收敛。** 首版只做 P0–P3 + P4 基础角色头像；P4.5（重绘/编辑 tag/局部重绘）与 P5（Danbooru 词库/生图日志）列入 Backlog。TagIndex 首版用手动标签或轻量词库，不做 Danbooru 全量同步。
+- **D8：首版收敛。** 首版完成 P0–P3 + P4 基础角色头像 + P4.5（重绘/编辑 tag/局部重绘）；P5（Danbooru 词库/生图日志）列入 Backlog。TagIndex 首版用手动标签或轻量词库，不做 Danbooru 全量同步。
 - **D9：入口是新建项。** 干净仓库没有 `NovelTextToImagePanel.vue`，P1 必须新建左侧入口或直接接侧栏，不能假设已有面板。
 - **D10：NovelAI 配置全量移植，LLM 按扩展清单实现。** NovelAI 分页包含 Vibe Transfer、角色参考、Vibe 文件生成器、Vibe 组等全部能力；LLM 分页包含流式生成、发送图片、模型发现、完整上下文预设条目与运行时占位符。
 - **D11：敏感词替换移植，正则模块不移植。** `textReplacement` 用于发送正文前，`aiReplacement` 用于解析 LLM 图片回复前；`regex.html` 的前后正则、文字正则和测试模式不做。
@@ -133,7 +133,7 @@
 - **不迁入**：干净仓库没有 illustration.director / `useAgentHarness` 文生图调用；参考分支旧 Agent 链路只作能力对照，本阶段不涉及删除旧代码
 
 **UI**：
-- 工作台「角色管理」分页（照搬 chatu8 character.html）：角色列表 + 角色详细参数（12 字段表单，编辑 visual.json）+ 服装管理 + 「生成角色视觉」（LLM）按钮
+- 工作台「角色管理」分页（照搬 chatu8 character.html）：项目分组切换 + 角色详情 + 服装详情 + 当前启用角色；角色详情页编辑 visual.json 的 12 个字段并提供「生成角色 Tag」入口，服装详情独立编辑，不再从角色列表提供生成入口
 
 **验收**：角色管理窗口可编辑 12 字段并持久化到 visual.json；「生成角色视觉」调用 LLM 后 JSON 回填可确认写盘；vitest GREEN。
 
@@ -150,6 +150,7 @@
 
 **服务端**：
 - 新增 `server/text-to-image/body-image-prompt.ts`：system 契约，**对齐用户 chatu8 预设（第 12.2 节）**：L1 输出格式 + `${...}$` 角色/服装调用代码（`{"name":..,"angle":..,"upperBody":"nsfw/sfw/hidden","lowerBody":..}`）+ 角色来源三路线（列表调用/原创 `姓名 (original)`）+ 体位 Tag 库 trigger 条目 + 注入角色 visual.json 摘要 + Recipe 画风
+- 新增正文角色扫描与会话编译服务：正文只发送当前章节；角色触发、角色分组、角色/服装片段展开和提示词组装由工作台后端机械完成，不经过 Agent/LLM；显式 `${...}$` 调用支持指定 `groupId`
 - 新增 `server/text-to-image/body-image-llm.ts`：正文 → LLM → L1 `<image>` 块列表 + 锚点 → Zod 校验 → 重试
 - 敏感词替换：发送正文前应用 `textReplacement`；LLM 回复解析 `<image>` 块前应用 `aiReplacement`；规则档案复用 P1 配置；正则模块不移植
 - 新增 `server/text-to-image/body-image-insert.service.ts`：**把 L1 块转 L2 占位符**（提取 `<regex>` 定位锚点、`<prompts>` 存 prompt、`<title_styled>/<size>/<Tag_think>` 存元数据）→ 按锚点插入正文（tracked write + 章节哈希防冲突）；占位符 JSON 含 id + anchor + prompt + 元数据，`${...}$` 调用代码在队列编译时展开（解析 visual.json 对应角色/服装）
@@ -160,6 +161,7 @@
 
 **UI**：
 - 新增 TipTap Node 扩展（仿 `WorkspaceReference`）：`<text-to-image-prompt>` 占位符 → NodeView 渲染「生成图片」卡片（标题 + 状态 + 生成按钮），点击调 `/api/text-to-image/prompt-placeholders/[id]/generate`
+- 主工作区 Markdown 工具栏提供正文生图入口；本章已经存在图片标记时再次触发会先确认整体 reroll，确认后只清理前端正文中的占位符/图片标记，历史图片与后端资产保留
 - 工作台「正文生图会话」分页：章节选择 → 发 LLM → L1 块预览（展示五要素）→ 确认 → 转占位符插入正文 → 队列生成 → 历史查看
 
 **验收**：正文生图端到端（选章节 → LLM 出 L1 块 → 转 L2 占位符插入 → TipTap 渲染按钮 → 点击入队 → 资产 → 替换）；敏感词替换在正文发送前与 LLM 回复解析前生效；正则模块不进入正文；原始 XML 标签不残留正文；vitest GREEN。
@@ -182,22 +184,21 @@
 
 ---
 
-### P4.5（Backlog，首版不做）：已生成图片的后续操作（重绘 / 编辑 tag / 局部重绘）
+### P4.5（已实现）：已生成图片的后续操作（重绘 / 编辑 tag / 局部重绘）
 
-> 首版不实现；进入 Backlog 后再启动。以下保留为能力清单。
+> 首版范围内已实现；历史图片页长按图片可重绘 / 编辑 tag / 局部重绘。
 
 **目标**：对齐 chatu8 对已生成图片的交互能力（见 `docs/research/st-chatu8-capability-matrix.md` 第 11 节）。
 
 **服务端**：
-- `server/text-to-image/queue.service.ts` 新增 job kind：`reroll`（同 tag 重绘）、`inpaint`（局部重绘，带 image + mask + strength 参数，复用现有 job/asset 基建）
-- 新增 `server/text-to-image/reroll.service.ts`：原 tag → 新 job，旧 asset 保留（复用 queue 既有 reroll 语义）
-- 新增 `server/text-to-image/inpaint.service.ts`：mask 资产存储 + `requestNovelAiImages` 的 inpaint 分支（strength 默认 0.54，negative 默认 `blurry, lowres, bad quality`）
-- 新增 `server/text-to-image/tag-edit.service.ts`：编辑 tag → 校验 → 新 job；支持 `$变量$` 占位符高亮所需的解析
+- 新增 `server/text-to-image/asset-postprocess.service.ts`：`reroll`（原 tag 重绘）、`edit-tag`（替换 prompt 后重绘）、`inpaint`（局部重绘，带 image + mask + strength）
+- 新增 `server/text-to-image/mask.service.ts`：mask 数据处理与资产写入
 - API：`/api/text-to-image/assets/[id]/reroll.post.ts` / `inpaint.post.ts` / `edit-tag.post.ts`
 
 **UI**：
-- 历史图片 / 正文图片卡片加操作：**重绘**（按钮或双击）、**编辑 tag**（Dialog + 词库补全 + 翻译 + Tag 操作菜单）、**局部重绘**（画布涂抹 mask）
-- 编辑对话框复用工作台词库自动补全；长按发送可弹尺寸选择（可选）
+- 历史图片和正文内已生成图片长按弹出操作菜单：**重绘**、**编辑 tag**、**局部重绘**（画布涂抹 mask）
+- 局部重绘支持 strength（默认 0.54）与可选 prompt 覆盖
+- 点击「生成图片」时由工作台后端将占位符内容、当前画风串和 NovelAI 参数机械组合后入队；该步骤不再经过 Agent/LLM
 
 **验收**：图片卡片可重绘 / 编辑 tag 重生成 / 局部重绘；vitest GREEN。
 
@@ -226,7 +227,7 @@
 ### P6：全局配置收口 + 清理 + 全量回归
 
 - 全局配置（`StoredGlobalConfig.textToImage`）读写完整化：导入/导出、CAS 冲突
-- 移除 P0–P4 首版遗留死代码；不引入 `useAgentHarness` 文生图调用；P4.5/P5 代码不进入首版
+- 移除 P0–P4 首版遗留死代码；不引入 `useAgentHarness` 文生图调用；P4.5 已进入首版，P5 不进入首版
 - 全量文生图测试集回归 + `bun run typecheck` + `bun run generate`
 - 浏览器走查清单（用户授权后）
 - 更新 `PROJECT-STATUS.md`、`RELEASE.md` 文案（面向用户语言）
@@ -239,9 +240,9 @@
 - [x] P3 实现（正文生图 L1→L2、本地队列、TipTap 一键生成并替换正文）
 - [x] P4 基础角色头像实现
 - [x] P6 代码侧收尾（全局配置导入导出/CAS、清理审计、typecheck/generate/全量回归、文档更新）
-- [ ] Backlog：P4.5 已生成图片后续操作
+- [x] P4.5 已生成图片后续操作（重绘 / 编辑 tag / 局部重绘）
 - [ ] Backlog：P5 词库 / 历史图片 / 生图日志
-- [ ] 浏览器走查（清单见 `BROWSER-WALKTHROUGH.md`，待用户授权执行）
+- [ ] 浏览器走查（入口与布局已对齐；真实 Provider/完整出图仍待完成，见 `BROWSER-WALKTHROUGH.md`）
 
 ## 实施记录（2026-08-03）
 
@@ -268,3 +269,118 @@
 - `bun run generate`：通过（Prisma 两个客户端）。
 - 全量 `bun run test`：`3339/3358` 通过；剩余为本机/既有基线（Windows symlink EPERM、`.gitattributes` CRLF、release-assets、novel-data 文案）与一次 harness 全量顺序抖动，单跑通过。
 - 浏览器走查：清单已建，待用户授权执行。
+
+## 实施记录（2026-08-07）
+
+### 浏览器走查后对齐
+
+- LLM 模型获取改为点击按钮后展开候选列表，不再自动选中第一个模型。
+- 流式生成、发送图片改为带「已开启/已关闭」文字的胶囊开关，状态一眼可辨。
+- 上下文预设条目固定高度滚动，导入大量条目后不再拉长页面。
+- NovelAI 连接信息与画风参数分两次保存；`settings` 缺省时不再覆盖已有配置；NovelAI 无 id 时复用首个同类型 Provider。
+- 敏感词替换改为内置规则只读展示，保留 `textReplacement` / `aiReplacement` 语义。
+
+### 验证记录
+
+- `bun run typecheck`：通过。
+- `bunx vitest run server/text-to-image/provider.service.test.ts`：6/6 通过。
+
+### 2026-08-07 第二轮体验对齐
+
+- LLM「获取模型」改为普通块级列表，不再依赖绝对定位；未填 Base URL、列表为空、请求失败时错误就近显示在模型输入框下方。
+- 上下文预设条目容器固定为最高 400px 的窗口，内部小滚动条，导入大量条目后不再拉长页面。
+- 文生图工作台窗口放大到 `min(86vw, 1440px) × min(82vh, 1080px)`，五个分页的标签字号、输入控件字号与控件高度整体放大。
+- NovelAI 的 AI 默认角色位置、Variety、SMEA 等开关开启时，所在行增加强调底色与边框；布尔开关开启态增加光环，状态更醒目。
+- 无鉴权本地模式的兜底用户改为 `upsert`，降低并发创建同名用户导致的外键/唯一约束风险。
+
+### 验证记录
+
+- `bun run typecheck`：通过。
+- `bunx vitest run server/text-to-image/provider.service.test.ts app/utils/text-to-image-context-import.test.ts`：9/9 通过。
+
+### 2026-08-07 第三轮：chatu8 默认状态对齐 + 预设导入自动选中
+
+- LLM 新建档案默认值对齐 chatu8：`temperature: 1`、`max_tokens: 30000`，前端表单、DTO schema 与服务端兜底三处同步；`historyDepth` 统一为 2。
+- NovelAI 的 `informationExtracted` 默认值由 0.7 改为 chatu8 的 0.3。
+- 上下文预设导入成功后自动选中第一个新导入的档案并刷新右侧编辑区，避免导入后看起来像没有反应。
+- 用 `.agent/workspace/chatu8-presets/` 下的真实 chatu8 导出文件验证解析：全部 JSON 均可导入（最大 512 条 entry），无畸形 entry。
+
+### 验证记录
+
+- `bunx vitest run shared/dto/text-to-image.dto.test.ts app/utils/text-to-image-context-import.test.ts`：10/10 通过。
+- 临时真实文件导入验证测试：1/1 通过，已删除临时测试文件。
+- `bun run typecheck`：通过。
+
+## 实施记录（2026-08-08）
+
+### 浏览器实测收尾
+
+- 上下文预设导入用文件选择器实测：导入 `预设名 -> {entries}` 格式的临时 JSON 后自动选中、计数 1→2，右侧编辑区保持折叠；删除测试预设后恢复 1 个，未残留数据。
+- 流式生成、发送图片开关实测：点击后「已关闭 ↔ 已开启」，状态一眼可辨。
+- 「获取模型」按钮实测可点击：点击进入「获取中」，受限网络请求结束后恢复可点击；真实模型列表仍需有效凭据与网络，未做端到端断言。
+
+### 验证记录
+
+- 聚焦 vitest：7 个文生图相关测试文件 40/40 通过。
+- `bun run typecheck`：通过。
+
+### 正文与角色链路收口
+
+- 主工作区 Markdown 工具栏新增正文生图按钮；正文请求由工作台后端读取当前编辑器内容，限制为单章正文，并完成角色触发扫描、分组角色解析、角色/服装片段展开和正文提示词组装。
+- 正文 `<image>` 回复继续转换为正文占位符和「生成图片」按钮；占位符生成时由后端直接组合画风串、NovelAI 模型参数和角色片段后入本地队列，不经过 Agent 或第二次 LLM。
+- 本章已存在生图标记时再次点击正文生图会确认整体 reroll；确认只清理前端正文标记，历史图片和后端资产仍保留。
+- 正文和历史图片均支持长按操作菜单，提供 tag 重生成、图片 reroll 和局部重绘；局部重绘使用后端保存的 mask 资产和强度参数。
+- 角色管理增加项目绑定分组，新建项目自动复制空白 `default` 分组；角色详情、服装详情、当前启用角色分开管理，角色 Tag 生成入口移动到角色详情页；后端角色扫描携带 `groupId`，避免不同分组的同 ID 角色互相覆盖。
+
+### 验证记录
+
+- `bunx vitest run server/text-to-image/body-character-scanner.test.ts server/text-to-image/body-prompt-compiler.test.ts server/text-to-image/body-session.service.test.ts`：16/16 通过。
+- `bunx vitest run server/text-to-image/queue.processor.test.ts`：3/3 通过。
+- `bunx vitest run server/text-to-image/novelai-image-generation.test.ts server/text-to-image/queue.processor.test.ts`：5/5 通过。
+- `bunx vitest run server/api/text-to-image/body-prompts.post.test.ts`：2/2 通过。
+- `bunx vitest run server/api/text-to-image server/text-to-image shared/text-to-image-markdown.test.ts`：33 个测试文件，146/146 通过。
+- `bun run typecheck`：退出码 0。
+- `bun run generate` 首次在沙箱内返回 `Operation not permitted`；按权限流程提升权限重跑成功，Prisma Client `7.8.0` 两个 schema 均生成。
+
+## 实施记录（2026-08-08 角色工作台收口）
+
+- 角色管理界面按 chatu-8 交互拆成“角色详情 / 服装详情 / 当前启用角色”，左侧增加项目分组导航；支持分组新建、重命名、删除，以及角色新建、选择、保存和删除。
+- 角色 Tag 生成入口移至角色详情页；当前启用角色只展示带触发词的项目角色，并支持按角色名、触发词筛选。
+- 新增分组 PUT 路由合同测试，确认分组元数据更新不会移动分组内的角色 `visual.json`。
+- 修正角色视觉字段标签，区分 `lowerNsfw` 的正面与 `lowerBackNsfw` 的背面。
+
+### 验证记录
+
+- `bunx vitest run server/api/text-to-image server/text-to-image shared/text-to-image-markdown.test.ts app/components/novel-ide/text-to-image app/components/markdown-studio/markdown-studio-tool-availability.test.ts app/components/markdown-studio/load-monaco-editor.test.ts`：39 个测试文件，159/159 通过；缺参 API 测试保留预期的校验警告日志。
+- `bun run typecheck`：退出码 0。
+- `git diff --check`：通过，仅有仓库既有的 LF/CRLF 提示。
+- 本轮未执行新的浏览器人工验收，也未执行真实 LLM/NovelAI provider 端到端出图。
+
+## 实施记录（2026-08-09 真实 Provider 复核）
+
+- 真实 ds-flash LLM 已完成正文 L1 → L2，占位符写回 Project `ce-shi` 当前章节；全局 `image_gen` 绑定解析新增回归测试，避免多 Provider 时按列表首项误用。
+- Node 服务新增环境代理适配：在 `HTTPS_PROXY`/`HTTP_PROXY` 存在时使用 `ProxyAgent`，保留 Provider URL 与重定向校验；`provider-fetch.test.ts` 为 `5/5` 通过。
+- 代理修复后产品队列已实际访问 NovelAI，但 `2026-08-09T15:27:28.972Z` 和 `2026-08-09T15:29:06.504Z` 两次生成均返回 `NovelAI 生成失败：HTTP 429`；当前资产列表为空，Markdown 替换尚未完成。
+- 因此本记录不把 API/独立 Node 探测当作浏览器人工验收，BROWSER-WALKTHROUGH 第 4 节继续保持未勾选；待 NovelAI 限流窗口结束后，再重试一次产品队列即可完成最后两步核验。
+
+## 实施记录（2026-08-09 429 循环重试完成）
+
+- 产品队列按 `HTTP 429` 每 `15s` 间隔循环重试；本次循环第 `1` 次即成功，Job `d541d2b3-a4ba-4169-b316-8deea06e9d3d` 状态为 `succeeded`。
+- 资产 `assets/tti/fd408d31-866a-4f2c-96f1-e1f1f1e35c8f.png` 已保存，尺寸 `1216x832`、大小 `2,235,299` 字节；当前章节已通过 CAS 写入完成占位符到 Markdown 图片的替换。
+- 这证明真实 NovelAI → 本地资产 → 章节 Markdown 的 HTTP/文件链路已通过；BROWSER-WALKTHROUGH 的浏览器人工复核仍保持未勾选。
+
+## 实施记录（2026-08-10 合同修正施工计划收口）
+
+本轮施工计划记录在 [`docs/superpowers/plans/2026-08-10-text-to-image-contract-hardening-plan.md`](../../superpowers/plans/2026-08-10-text-to-image-contract-hardening-plan.md)。已完成的产品合同包括：
+
+- 角色设计、角色展示和正文 LLM 请求统一从全局请求类型绑定解析，只接受 `openai_compatible` Provider；NovelAI 只保留给生图。
+- 角色原始 Markdown 与 `visual.json`、受控照片资产隔离；删除视觉资料不递归删除角色档案。角色界面只展示当前 Project 角色集合，不再提供项目角色分组 CRUD。
+- 角色调用支持缺外层大括号的受控修复、中文名/英文名/触发名统一命中，并明确无角色段落只生成场景与环境 tag。
+- 画风串、模型参数、质量预设、替换规则、furry/Vibe/角色参考合并为 NovelAI 当前生图配方；旧档案和固定提示词预设会在运行时迁移为配方。
+- 最终正负提示词统一去重并写入资产元数据；token 估算使用 chatu-8 预处理后的 `Xenova/t5-small` tokenizer，界面显示加载中/不可用状态。
+- NovelAI NAI3/NAI4/NAI4.5 参考图字段按模型适配；所有 NovelAI 生成入口共用进程级 FIFO 队列，间隔从上一请求返回成功或错误时开始计算，429 不自动重试并保留真实错误状态。
+- Project 相对图片通过受控资产 API 在 TipTap 中渲染，保存 Markdown 时保留原始相对路径。
+
+自动化验证：相关测试 `49` 个文件、`220/220` 个断言通过；`bun run typecheck` 通过；提升权限后 `bun run generate` 成功生成两个 Prisma Client；`git diff --check` 通过。T5 tokenizer 运行时示例提示词返回 `9` 个 token。
+
+本轮没有执行新的浏览器人工验收，也没有把已有 API/文件复核证据冒充浏览器操作；真实 Provider、连续点击间隔和刷新后 TipTap 显示仍需按 `BROWSER-WALKTHROUGH.md` 人工确认。此前“429 循环重试”的记录是历史人工复核证据，已被当前产品合同替换为“429 失败退出、再次点击重新入队”。

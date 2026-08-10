@@ -7,6 +7,7 @@ import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service"
 import {processTextToImageJobs} from "nbook/server/text-to-image/queue.processor";
 import {requestNovelAiImages} from "nbook/server/text-to-image/novelai-image-generation";
 import {saveTextToImageAsset} from "nbook/server/text-to-image/asset.service";
+import {readTextToImageReferenceImageBytes} from "nbook/server/text-to-image/reference-image.service";
 
 const ProcessBodySchema = z.object({
     projectRoot: z.string().trim().min(1),
@@ -24,7 +25,9 @@ export default defineEventHandler(async (event) => {
         markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),
         markFailed: (projectPath, id, message) => queue.markFailed(projectPath, id, message),
         resolveRuntime: (ownerUserId, providerId) => providerService.resolveRuntimeProvider(ownerUserId, providerId),
-        generate: requestNovelAiImages,
+        generate: (input) => requestNovelAiImages(input, {
+            readReference: (relativePath) => readTextToImageReferenceImageBytes(relativePath),
+        }),
         saveAsset: saveTextToImageAsset,
     });
     return {processed};

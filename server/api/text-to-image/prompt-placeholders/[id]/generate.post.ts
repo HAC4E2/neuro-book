@@ -20,6 +20,7 @@ import {
     findLatestTextToImageAssetBySourceAnchorId,
     saveTextToImageAsset,
 } from "nbook/server/text-to-image/asset.service";
+import {readTextToImageReferenceImageBytes} from "nbook/server/text-to-image/reference-image.service";
 
 const GeneratePlaceholderBodySchema = z.object({
     projectRoot: z.string().trim().min(1),
@@ -58,6 +59,7 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, message: "NovelAI Provider 不存在"});
     }
 
+    const sizeOverrides = parseTextToImageSize(matched.payload.size);
     const queue = new TextToImageQueueService();
     const job = await queue.enqueue({
         projectPath,
@@ -70,7 +72,10 @@ export default defineEventHandler(async (event) => {
         requestJson: JSON.stringify({
             prompt: compiled.prompt,
             negativePrompt: matched.payload.negativePrompt || compiled.negativePrompt,
-            novelAi: {},
+            novelAi: {
+                ...provider.settings,
+                ...sizeOverrides,
+            },
         }),
         providerSnapshotJson: JSON.stringify({
             providerId: provider.id,
@@ -84,10 +89,20 @@ export default defineEventHandler(async (event) => {
         markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),
         markFailed: (projectPath, id, message) => queue.markFailed(projectPath, id, message),
         resolveRuntime: (ownerUserId, providerId) => providerService.resolveRuntimeProvider(ownerUserId, providerId),
-        generate: requestNovelAiImages,
+        generate: (input) => requestNovelAiImages(input, {
+            readReference: (relativePath) => readTextToImageReferenceImageBytes(relativePath),
+        }),
         saveAsset: saveTextToImageAsset,
     });
 
+    const completedJob = (await queue.list(projectPath)).find((item) => item.id === job.id);
+    if (completedJob?.status === "failed") {
+        const statusCode = completedJob.errorMessage?.includes("HTTP 429") ? 429 : 502;
+        throw createError({
+            statusCode,
+            message: completedJob.errorMessage ?? "NovelAI 生图失败",
+        });
+    }
     const asset = await findLatestTextToImageAssetBySourceAnchorId(projectPath, placeholderId);
     if (!asset) {
         throw createError({statusCode: 500, message: "队列处理完成但未找到生成资产"});
@@ -98,3 +113,12 @@ export default defineEventHandler(async (event) => {
         content: replacePromptPlaceholderWithAsset(content, placeholderId, asset),
     };
 });
+
+function parseTextToImageSize(size: string): {width?: number; height?: number} {
+    const matched = /^\s*(\d+)\s*x\s*(\d+)\s*$/iu.exec(size.trim());
+    if (!matched) return {};
+    const width = Number(matched[1]);
+    const height = Number(matched[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return {};
+    return {width, height};
+}

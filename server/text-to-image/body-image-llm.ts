@@ -72,7 +72,7 @@ export async function generateBodyImageBlocks(input: {
             model: settings.model,
             temperature: settings.temperature,
             topP: settings.topP,
-            maxTokens: 4096,
+            maxTokens: settings.maxTokens,
             stream: false,
             sendImages: settings.sendImages,
             mergeSystemUser: settings.mergeSystemUser,

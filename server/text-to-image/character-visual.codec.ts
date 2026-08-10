@@ -4,6 +4,8 @@ import {z} from "zod";
 export const CharacterVisualFieldSchema = z.object({
     cnName: z.string().default(""),
     enName: z.string().default(""),
+    /** 逗号分隔的正文触发词；为空时回退到中文名/英文名。 */
+    triggerWords: z.string().default(""),
     profileTraits: z.string().default(""),
     facialAppearance: z.string().default(""),
     facialBack: z.string().default(""),

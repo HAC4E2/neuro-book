@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {normalizeGlobalConfig, resolveEffectiveConfig} from "nbook/server/config/normalizer";
 import {GlobalConfigUpdateDtoSchema} from "nbook/shared/dto/config.dto";
+import {DEFAULT_WORD_REPLACEMENT_PROFILE} from "nbook/shared/dto/text-to-image.dto";
 import type {StoredProjectConfig} from "nbook/server/config/types";
 
 describe("config normalizer theme", () => {
@@ -158,6 +159,16 @@ describe("config normalizer profile runtime", () => {
 });
 
 describe("config normalizer text-to-image", () => {
+    it("显式保存空替换词档案时补回内置 default 档案", () => {
+        const global = normalizeGlobalConfig({
+            textToImage: {
+                wordReplacementProfiles: {},
+            },
+        });
+
+        expect(global.textToImage.wordReplacementProfiles.default).toEqual(DEFAULT_WORD_REPLACEMENT_PROFILE);
+    });
+
     it("normalizeGlobalConfig 保留 textToImage 上下文预设、请求绑定与敏感词档案", () => {
         const global = normalizeGlobalConfig({
             textToImage: {

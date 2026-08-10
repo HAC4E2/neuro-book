@@ -37,7 +37,11 @@ import {
 import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
-import {TextToImageGlobalConfigSchema, type TextToImageGlobalConfig} from "nbook/shared/dto/text-to-image.dto";
+import {
+    DEFAULT_WORD_REPLACEMENT_PROFILE,
+    TextToImageGlobalConfigSchema,
+    type TextToImageGlobalConfig,
+} from "nbook/shared/dto/text-to-image.dto";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
@@ -234,7 +238,14 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
 
 /** 规范化文生图全局配置；未知字段由 Zod 丢弃，缺失字段补默认值。 */
 function normalizeTextToImageGlobalConfig(input: Partial<TextToImageGlobalConfig> | undefined): TextToImageGlobalConfig {
-    return TextToImageGlobalConfigSchema.parse(input ?? {});
+    const parsed = TextToImageGlobalConfigSchema.parse(input ?? {});
+    if (!parsed.wordReplacementProfiles.default) {
+        parsed.wordReplacementProfiles = {
+            default: {...DEFAULT_WORD_REPLACEMENT_PROFILE},
+            ...parsed.wordReplacementProfiles,
+        };
+    }
+    return parsed;
 }
 
 /**

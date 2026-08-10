@@ -7,6 +7,7 @@ import {
     listTextToImageAssets,
     saveTextToImageAsset,
 } from "nbook/server/text-to-image/asset.service";
+import {readTextToImageReferenceImageBytes} from "nbook/server/text-to-image/reference-image.service";
 import {
     readCharacterVisual,
     writeCharacterVisual,
@@ -22,6 +23,7 @@ export type GenerateCharacterAvatarInput = {
     novelAiProviderId: number;
     projectRoot: string;
     characterId: string;
+    groupId?: string;
     characterText: string;
     outfitText: string;
     userRequirement: string;
@@ -63,7 +65,7 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
 
     const projectPath = `workspace/${input.projectRoot}`;
     const queue = new TextToImageQueueService();
-    await queue.enqueue({
+    const job = await queue.enqueue({
         projectPath,
         providerId: novelAiProvider.id,
         providerOwnerUserId: input.userId,
@@ -82,13 +84,22 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
         markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),
         markFailed: (projectPath, id, message) => queue.markFailed(projectPath, id, message),
         resolveRuntime: (ownerUserId, providerId) => providerService.resolveRuntimeProvider(ownerUserId, providerId),
-        generate: requestNovelAiImages,
+        generate: (input) => requestNovelAiImages(input, {
+            readReference: (relativePath) => readTextToImageReferenceImageBytes(relativePath),
+        }),
         saveAsset: saveTextToImageAsset,
     });
 
+    const completedJob = (await queue.list(projectPath)).find((item) => item.id === job.id);
+    if (!completedJob) {
+        throw new Error("队列处理完成但未找到角色照片任务");
+    }
+    if (completedJob.status === "failed") {
+        throw new Error(completedJob.errorMessage ?? "NovelAI 生图失败");
+    }
     const photo = await findLatestCharacterPhoto(projectPath, input.characterId);
     if (photo) {
-        await appendCharacterPhoto(projectPath, input.characterId, photo);
+        await appendCharacterPhoto(projectPath, input.characterId, photo, input.groupId);
     }
     return {prompt, photo};
 }
@@ -104,9 +115,14 @@ async function findLatestCharacterPhoto(projectPath: string, characterId: string
     }
 }
 
-async function appendCharacterPhoto(projectPath: string, characterId: string, photo: string): Promise<void> {
+async function appendCharacterPhoto(
+    projectPath: string,
+    characterId: string,
+    photo: string,
+    groupId?: string,
+): Promise<void> {
     const projectRoot = resolveTextToImageProjectRoot(projectPath);
-    const existing = await readCharacterVisual(projectRoot, characterId);
+    const existing = await readCharacterVisual(projectRoot, characterId, groupId);
     const visual = existing ?? CharacterVisualFileSchema.parse({
         schema: "nbook.character-visual/v1",
         characterId,
@@ -115,5 +131,5 @@ async function appendCharacterPhoto(projectPath: string, characterId: string, ph
     });
     const photos = visual.photos.filter((item) => item !== photo);
     photos.push(photo);
-    await writeCharacterVisual(projectRoot, characterId, {...visual, photos});
+    await writeCharacterVisual(projectRoot, characterId, {...visual, photos}, groupId);
 }

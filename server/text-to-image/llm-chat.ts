@@ -46,9 +46,9 @@ export async function requestLlmCompletion(input: RequestLlmCompletionInput): Pr
     });
     const body = {
         model: input.model,
-        temperature: input.temperature ?? 0.7,
+        temperature: input.temperature ?? 1,
         top_p: input.topP ?? 1,
-        max_tokens: input.maxTokens ?? 512,
+        max_tokens: input.maxTokens ?? 30000,
         stream: input.stream ?? false,
         messages,
     };

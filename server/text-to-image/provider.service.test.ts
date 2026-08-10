@@ -81,6 +81,49 @@ describe("TextToImageProviderService", () => {
         await expect(service.resolveCredential(7, provider.id)).resolves.toBe("token-two");
     });
 
+    it("settings 缺省时不覆盖已有配置", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        const provider = await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+            credential: "token",
+            settings: {requestIntervalMs: 15_000},
+        });
+
+        await service.save(7, {
+            id: provider.id,
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+        });
+
+        expect(store.records[0]?.settings).toEqual({requestIntervalMs: 15_000});
+    });
+
+    it("NovelAI 无 id 时复用首个同类型 Provider 不新建", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+            credential: "token",
+            settings: {requestIntervalMs: 15_000},
+        });
+
+        await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI 2",
+            baseUrl: "https://image.novelai.net",
+            settings: {requestIntervalMs: 20_000},
+        });
+
+        expect(store.records).toHaveLength(1);
+        expect(store.records[0]).toMatchObject({name: "NovelAI 2", settings: {requestIntervalMs: 20_000}});
+    });
+
     it("缺少完整凭据时拒绝读取并抛出稳定错误", async () => {
         const store = new InMemoryProviderStore();
         const service = new TextToImageProviderService(store, await createKeyPath());

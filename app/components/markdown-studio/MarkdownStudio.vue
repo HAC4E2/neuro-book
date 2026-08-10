@@ -6,7 +6,7 @@ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, 
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
-import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
+import type {TextToImageAssetActionTarget, TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 
 const props = withDefaults(defineProps<{
     controller: MarkdownStudioController;
@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
     monacoPreferences?: MonacoEditorPreferences;
     monacoTemporaryFontSize?: number | null;
     activePath?: string;
+    workspaceProjectRoot?: string;
     referenceRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
@@ -31,6 +32,7 @@ const props = withDefaults(defineProps<{
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     monacoTemporaryFontSize: null,
     activePath: "",
+    workspaceProjectRoot: "",
     referenceRefreshKey: "",
     resolveMenu: () => ({
         title: "",
@@ -61,6 +63,7 @@ const emit = defineEmits<{
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "asset-action", target: TextToImageAssetActionTarget): void;
 }>();
 
 /**
@@ -95,6 +98,7 @@ function handleSourceBlur(): void {
                     :visible="controller.isPreviewVisible.value"
                     :readonly="readonly || controller.editorsLocked.value"
                     :active-path="props.activePath"
+                    :workspace-project-root="props.workspaceProjectRoot"
                     :reference-refresh-key="props.referenceRefreshKey"
                     :resolve-menu="props.resolveMenu"
                     :open-reference="props.openReference"
@@ -111,6 +115,7 @@ function handleSourceBlur(): void {
                     @inline-comments-change="controller.setInlineComments"
                     @inline-comment-select="controller.activateInlineComment"
                     @inline-ai-reference="emit('inline-ai-reference', $event)"
+                    @asset-action="emit('asset-action', $event)"
                 />
                 <template #fallback>
                     <div class="flex min-h-[65vh] items-center justify-center text-[var(--text-muted)]">

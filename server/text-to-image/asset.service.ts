@@ -44,6 +44,17 @@ export type TextToImageAssetPage = {
     hasMore: boolean;
 };
 
+export type TextToImageAssetJobSnapshot = {
+    asset: TextToImageAssetDto;
+    job: {
+        providerId: number;
+        providerOwnerUserId: number;
+        providerCredentialRevision: number;
+        requestJson: string;
+        providerSnapshotJson: string;
+    };
+};
+
 /**
  * 校验 job 存在后原子写入资产文件，再创建 DB 记录；
  * DB 写入失败时删除已落盘文件，避免留下孤儿资产。
@@ -141,6 +152,71 @@ export async function findLatestTextToImageAssetBySourceAnchorId(
             orderBy: {createdAt: "desc"},
         });
         return record ? toTextToImageAssetDto(record) : null;
+    });
+}
+
+/** 按相对路径查找资产记录，供角色照片按路径读取内容。 */
+export async function findTextToImageAssetByRelativePath(
+    projectPath: string,
+    relativePath: string,
+    client?: (projectPath: string) => Promise<PrismaClient>,
+): Promise<TextToImageAssetDto | null> {
+    return await withTextToImageAssetClient(projectPath, client, async (prisma) => {
+        const record = await prisma.textToImageAsset.findFirst({
+            where: {relativePath},
+            orderBy: {createdAt: "desc"},
+        });
+        return record ? toTextToImageAssetDto(record) : null;
+    });
+}
+
+/** 按后处理 Job 查找新写入的资产，作为 sourceAnchorId 缺失时的回退。 */
+export async function findTextToImageAssetByJobId(
+    projectPath: string,
+    jobId: string,
+): Promise<TextToImageAssetDto | null> {
+    return await withTextToImageAssetClient(projectPath, undefined, async (client) => {
+        const record = await client.textToImageAsset.findFirst({
+            where: {jobId},
+            orderBy: {createdAt: "desc"},
+        });
+        return record ? toTextToImageAssetDto(record) : null;
+    });
+}
+
+/** 鎸夌浉瀵硅矾寰勮鍙栬祫浜у師濮嬪瓧鑺傦紱鐢ㄤ簬 Vibe/瑙掕壊鍙傝€冧笌灞€閮ㄩ噸缁樸€?*/
+export async function readTextToImageAssetBytesByRelativePath(
+    projectPath: string,
+    relativePath: string,
+): Promise<Uint8Array> {
+    const projectRoot = resolveTextToImageProjectRoot(projectPath);
+    return new Uint8Array(await fs.readFile(resolveTextToImageAssetPath(projectRoot, relativePath)));
+}
+
+/** 鑾峰彇璧勪骇鍙婂叾鏉ュ巻 Job 蹇叓锛屼緵 reroll / Tag 淇敼 / 灞€閮ㄩ噸缁樺叆闃熶娇鐢ㄣ€?*/
+export async function findTextToImageAssetJobSnapshot(
+    projectPath: string,
+    assetId: string,
+): Promise<TextToImageAssetJobSnapshot | null> {
+    return await withTextToImageAssetClient(projectPath, undefined, async (client) => {
+        const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
+        if (!asset) {
+            return null;
+        }
+        const job = await client.textToImageJob.findUnique({where: {id: asset.jobId}});
+        if (!job) {
+            throw new Error(`鏂囩敓鍥句换鍔′笉瀛樺湪锛?{asset.jobId}`);
+        }
+        return {
+            asset: toTextToImageAssetDto(asset),
+            job: {
+                providerId: job.providerId,
+                providerOwnerUserId: job.providerOwnerUserId,
+                providerCredentialRevision: job.providerCredentialRevision,
+                requestJson: job.requestJson,
+                providerSnapshotJson: job.providerSnapshotJson,
+            },
+        };
     });
 }
 

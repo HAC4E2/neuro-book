@@ -10,7 +10,8 @@ import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapF
 import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdown-studio/tiptap/Comment";
-import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
+import type {TextToImageAssetActionTarget, TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
+import {buildWorkspaceImageUrl} from "nbook/app/components/markdown-studio/tiptap/WorkspaceMarkdownImage";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -32,6 +33,7 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     autofocus?: boolean;
     activePath?: string;
+    workspaceProjectRoot?: string;
     inlineAiReferences?: InlineEditReference[];
     inlineAiHighlightReference?: InlineEditReference | null;
     referenceRefreshKey?: string | number;
@@ -53,6 +55,7 @@ const props = withDefaults(defineProps<{
     placeholder: "",
     autofocus: false,
     activePath: "",
+    workspaceProjectRoot: "",
     inlineAiReferences: () => [],
     inlineAiHighlightReference: null,
     referenceRefreshKey: "",
@@ -82,6 +85,7 @@ const emit = defineEmits<{
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
     (e: "inline-comment-select", index: number): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "asset-action", target: TextToImageAssetActionTarget): void;
 }>();
 
 const {prompt} = useDialog();
@@ -102,6 +106,9 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
 const skillTriggerStarted = ref(false);
+let assetPressTimer: ReturnType<typeof setTimeout> | undefined;
+let assetPressStartX = 0;
+let assetPressStartY = 0;
 const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(".novel-ide-theme") as HTMLElement | null);
 const editorPlaceholder = computed(() => props.placeholder || t("markdownStudio.editor.placeholder"));
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
@@ -242,6 +249,9 @@ const editor = useEditor({
             }),
             sourcePath: props.activePath,
             resolveReference: props.resolveReference,
+            resolveWorkspaceImageUrl: props.workspaceProjectRoot.trim()
+                ? (relativePath) => buildWorkspaceImageUrl(props.workspaceProjectRoot, relativePath)
+                : undefined,
             enableQuickTriggers: props.enableQuickTriggers,
             onTextToImageGenerate: props.onTextToImageGenerate,
         }),
@@ -263,6 +273,22 @@ const editor = useEditor({
                 focused.value = false;
                 flushPendingChange();
                 emit("blur");
+                return false;
+            },
+            pointerdown: (_view, event) => {
+                startAssetPress(event as PointerEvent);
+                return false;
+            },
+            pointermove: (_view, event) => {
+                cancelAssetPress(event as PointerEvent);
+                return false;
+            },
+            pointerup: () => {
+                cancelAssetPress();
+                return false;
+            },
+            pointerleave: () => {
+                cancelAssetPress();
                 return false;
             },
             keydown: (_view, event) => {
@@ -1025,6 +1051,48 @@ function openEditorContextMenu(event: MouseEvent): void {
     contextMenuVisible.value = true;
 }
 
+function startAssetPress(event: PointerEvent): void {
+    if (props.readonly || event.button !== 0 || !(event.target instanceof HTMLImageElement)) {
+        return;
+    }
+    const image = event.target;
+    if (!image.classList.contains("nb-markdown-image-node") || image.getAttribute("alt") !== "NovelAI 生成图片") {
+        return;
+    }
+    const relativePath = image.getAttribute("data-workspace-src") ?? image.getAttribute("src") ?? "";
+    if (!relativePath) {
+        return;
+    }
+    clearAssetPressTimer();
+    assetPressStartX = event.clientX;
+    assetPressStartY = event.clientY;
+    assetPressTimer = setTimeout(() => {
+        assetPressTimer = undefined;
+        emit("asset-action", {relativePath});
+    }, 550);
+}
+
+function cancelAssetPress(event?: PointerEvent): void {
+    if (!assetPressTimer) {
+        return;
+    }
+    if (event) {
+        const distance = Math.hypot(event.clientX - assetPressStartX, event.clientY - assetPressStartY);
+        if (distance > 8) {
+            clearAssetPressTimer();
+            return;
+        }
+    }
+    clearAssetPressTimer();
+}
+
+function clearAssetPressTimer(): void {
+    if (assetPressTimer !== undefined) {
+        clearTimeout(assetPressTimer);
+        assetPressTimer = undefined;
+    }
+}
+
 onMounted(() => {
     if (props.autofocus) {
         focus();
@@ -1035,6 +1103,7 @@ onBeforeUnmount(() => {
     // 卸载时 store 的活动文件可能已切换，emit change 会把内容写进别的文件（串位）。
     // 切换文件的入口统一由 store 的 activeEditorFlush 钩子在切换前 flush，这里只丢弃残余。
     changeDebounce.cancel();
+    clearAssetPressTimer();
 });
 
 defineExpose<MarkdownStudioEditorHandle>({
@@ -1490,6 +1559,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-radius: 4px;
     background: color-mix(in srgb, var(--source-bg) 88%, var(--shadow-color) 12%);
     object-fit: contain;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-drag: none;
 }
 
 :deep(.nb-markdown-editor p.is-editor-empty:first-child::before) {
