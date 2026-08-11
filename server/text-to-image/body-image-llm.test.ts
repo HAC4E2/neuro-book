@@ -206,4 +206,39 @@ describe("body image llm", () => {
             "<image><regex>anchor</regex><prompts><character_1><prompt>character</prompt><center>2,0.5</center></character_1></prompts></image>",
         )).toThrow(/center/);
     });
+
+    it("maps chatu-8 grid centers to normalized NovelAI coordinates", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<character_1><prompt>left character</prompt><centers>A1</centers></character_1>"
+            + "<character_2><prompt>right character</prompt><centers>E5</centers></character_2>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]?.characterPrompts).toEqual([
+            {prompt: "left character", negativePrompt: "", centerX: 0.1, centerY: 0.1},
+            {prompt: "right character", negativePrompt: "", centerX: 0.9, centerY: 0.9},
+        ]);
+    });
+
+    it("rejects an invalid chatu-8 grid center", () => {
+        expect(() => parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts><character_1><prompt>character</prompt><centers>Z9</centers></character_1></prompts></image>",
+        )).toThrow(/center/);
+    });
+
+    it("extracts and removes chatu-8 inline center markers", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<character_1><prompt>character tags |centers:C3;</prompt></character_1>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]?.characterPrompts).toEqual([{
+            prompt: "character tags",
+            negativePrompt: "",
+            centerX: 0.5,
+            centerY: 0.5,
+        }]);
+    });
 });

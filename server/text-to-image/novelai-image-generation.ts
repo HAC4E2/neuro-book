@@ -166,14 +166,16 @@ export async function requestNovelAiImages(
     };
 
     if (isNovelAiV4Model(input.model)) {
-        const useCoords = !input.aiDefaultCharacterPosition;
+        const characterPrompts = input.characterPrompts ?? [];
+        const useCoords = !input.aiDefaultCharacterPosition
+            && characterPrompts.every((item) => item.centerX !== undefined && item.centerY !== undefined);
         parameters.use_coords = useCoords;
         parameters.legacy_v3_extend = false;
         parameters.legacy_uc = false;
         parameters.v4_prompt = {
             caption: {
                 base_caption: input.prompt,
-                char_captions: buildNovelAiCharacterCaptions(input.characterPrompts ?? []),
+                char_captions: buildNovelAiCharacterCaptions(characterPrompts),
             },
             use_coords: useCoords,
             use_order: true,
@@ -181,9 +183,7 @@ export async function requestNovelAiImages(
         parameters.v4_negative_prompt = {
             caption: {
                 base_caption: input.negativePrompt,
-                char_captions: (input.characterPrompts ?? []).map((item) => ({
-                    char_caption: {base_caption: item.negativePrompt},
-                })),
+            char_captions: buildNovelAiCharacterCaptions(characterPrompts, true),
             },
             legacy_uc: false,
         };
@@ -250,6 +250,10 @@ export async function requestNovelAiImages(
                     },
                 );
                 if (!response.ok) {
+                    const detail = (await response.text().catch(() => "")).trim().slice(0, 1_000);
+                    if (detail !== "") {
+                        throw new NovelAiHttpError(`NovelAI 生成失败：HTTP ${response.status}：${detail}`, response.status);
+                    }
                     throw new NovelAiHttpError(`NovelAI 生成失败：HTTP ${response.status}`, response.status);
                 }
 
@@ -436,12 +440,14 @@ function extractNovelAiImages(data: Buffer): ExtractedNovelAiImage[] {
 
 function buildNovelAiCharacterCaptions(
     characterPrompts: NovelAiCharacterPromptInput[],
+    useNegativePrompt = false,
 ): Array<Record<string, unknown>> {
     return characterPrompts.map((item) => ({
-        char_caption: {base_caption: item.prompt},
-        ...(item.centerX === undefined || item.centerY === undefined
-            ? {}
-            : {centers: [{x: item.centerX, y: item.centerY}]}),
+        char_caption: useNegativePrompt ? item.negativePrompt : item.prompt,
+        centers: [{
+            ...(item.centerX === undefined ? {} : {x: item.centerX}),
+            ...(item.centerY === undefined ? {} : {y: item.centerY}),
+        }],
     }));
 }
 

@@ -65,9 +65,13 @@ async function processSingleJob(
 ): Promise<void> {
     const request = JSON.parse(job.requestJson) as PersistedJobRequest;
     const runtime = await deps.resolveRuntime(job.providerOwnerUserId, job.providerId);
+    const requestNovelAi = request.novelAi ?? {};
     const settings = resolveNovelAiGenerationSettings({
         ...runtime.settings,
-        ...(request.novelAi ?? {}),
+        ...requestNovelAi,
+    }, {
+        ...(typeof requestNovelAi.width === "number" ? {width: requestNovelAi.width} : {}),
+        ...(typeof requestNovelAi.height === "number" ? {height: requestNovelAi.height} : {}),
     });
     const basePrompt = applyPromptReplaceRules(request.prompt ?? "", settings.promptReplaceText);
     const mainPrompt = settings.furryDataset

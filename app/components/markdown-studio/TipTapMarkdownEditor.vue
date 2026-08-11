@@ -106,9 +106,6 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
 const skillTriggerStarted = ref(false);
-let assetPressTimer: ReturnType<typeof setTimeout> | undefined;
-let assetPressStartX = 0;
-let assetPressStartY = 0;
 const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(".novel-ide-theme") as HTMLElement | null);
 const editorPlaceholder = computed(() => props.placeholder || t("markdownStudio.editor.placeholder"));
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
@@ -275,20 +272,8 @@ const editor = useEditor({
                 emit("blur");
                 return false;
             },
-            pointerdown: (_view, event) => {
-                startAssetPress(event as PointerEvent);
-                return false;
-            },
-            pointermove: (_view, event) => {
-                cancelAssetPress(event as PointerEvent);
-                return false;
-            },
-            pointerup: () => {
-                cancelAssetPress();
-                return false;
-            },
-            pointerleave: () => {
-                cancelAssetPress();
+            dblclick: (_view, event) => {
+                handleAssetDoubleClick(event as MouseEvent);
                 return false;
             },
             keydown: (_view, event) => {
@@ -1051,8 +1036,8 @@ function openEditorContextMenu(event: MouseEvent): void {
     contextMenuVisible.value = true;
 }
 
-function startAssetPress(event: PointerEvent): void {
-    if (props.readonly || event.button !== 0 || !(event.target instanceof HTMLImageElement)) {
+function handleAssetDoubleClick(event: MouseEvent): void {
+    if (props.readonly || !(event.target instanceof HTMLImageElement)) {
         return;
     }
     const image = event.target;
@@ -1063,34 +1048,7 @@ function startAssetPress(event: PointerEvent): void {
     if (!relativePath) {
         return;
     }
-    clearAssetPressTimer();
-    assetPressStartX = event.clientX;
-    assetPressStartY = event.clientY;
-    assetPressTimer = setTimeout(() => {
-        assetPressTimer = undefined;
-        emit("asset-action", {relativePath});
-    }, 550);
-}
-
-function cancelAssetPress(event?: PointerEvent): void {
-    if (!assetPressTimer) {
-        return;
-    }
-    if (event) {
-        const distance = Math.hypot(event.clientX - assetPressStartX, event.clientY - assetPressStartY);
-        if (distance > 8) {
-            clearAssetPressTimer();
-            return;
-        }
-    }
-    clearAssetPressTimer();
-}
-
-function clearAssetPressTimer(): void {
-    if (assetPressTimer !== undefined) {
-        clearTimeout(assetPressTimer);
-        assetPressTimer = undefined;
-    }
+    emit("asset-action", {relativePath});
 }
 
 onMounted(() => {
@@ -1103,7 +1061,6 @@ onBeforeUnmount(() => {
     // 卸载时 store 的活动文件可能已切换，emit change 会把内容写进别的文件（串位）。
     // 切换文件的入口统一由 store 的 activeEditorFlush 钩子在切换前 flush，这里只丢弃残余。
     changeDebounce.cancel();
-    clearAssetPressTimer();
 });
 
 defineExpose<MarkdownStudioEditorHandle>({

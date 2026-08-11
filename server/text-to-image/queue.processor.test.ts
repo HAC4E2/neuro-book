@@ -39,6 +39,46 @@ describe("processTextToImageJobs", () => {
         }));
     });
 
+    it("keeps request-level dimensions when the active recipe has different dimensions", async () => {
+        const job = createJob({
+            requestJson: JSON.stringify({
+                prompt: "classroom",
+                novelAi: {width: 1216, height: 832},
+            }),
+        });
+        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const deps = createDependencies(job, generate, {
+            activeGenerationRecipeId: "default",
+            generationRecipes: {
+                default: {
+                    model: "nai-diffusion-4-5-full",
+                    sampler: "k_euler",
+                    noiseSchedule: "karras",
+                    promptGuidance: 10,
+                    promptGuidanceRescale: 0.18,
+                    aiDefaultCharacterPosition: true,
+                    smea: true,
+                    smeaDyn: true,
+                    variety: true,
+                    decrisp: true,
+                    width: 1024,
+                    height: 1024,
+                    steps: 28,
+                    seed: 0,
+                    positiveQualityPreset: true,
+                    negativeQualityPreset: "Heavy",
+                    positive: "",
+                    positiveEnd: "",
+                    negative: "",
+                },
+            },
+        });
+
+        await processTextToImageJobs("workspace/demo", deps);
+
+        expect(generate).toHaveBeenCalledWith(expect.objectContaining({width: 1216, height: 832}));
+    });
+
     it("消费 queued job：生成、存资产、标记成功", async () => {
         const job = createJob();
         const markSucceeded = vi.fn(async () => true);
@@ -165,6 +205,7 @@ describe("processTextToImageJobs", () => {
 function createDependencies(
     job: TextToImageJobDto,
     generate: TextToImageQueueDependencies["generate"],
+    settingsInput: Record<string, unknown> = {},
 ): TextToImageQueueDependencies {
     return {
         listQueued: vi.fn(async () => [job]),
@@ -173,7 +214,7 @@ function createDependencies(
         markFailed: vi.fn(async () => true),
         resolveRuntime: vi.fn(async () => ({
             credential: "pst-test",
-            settings: TextToImageNovelAiSettingsSchema.parse({}),
+            settings: TextToImageNovelAiSettingsSchema.parse(settingsInput),
         })),
         generate,
         saveAsset: vi.fn(async () => ({} as never)),

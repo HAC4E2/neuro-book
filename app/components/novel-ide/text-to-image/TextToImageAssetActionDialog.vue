@@ -3,6 +3,12 @@ import {computed, nextTick, ref, watch} from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {
+    clearPendingTextToImagePrompt,
+    resolvePendingTextToImagePrompt,
+    setPendingTextToImagePrompt,
+    type PendingTextToImagePrompts,
+} from "nbook/app/components/novel-ide/text-to-image/asset-action-state";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -21,6 +27,7 @@ const activeAction = ref<AssetAction>("menu");
 const busy = ref(false);
 const error = ref("");
 const tagDraft = ref("");
+const tagModificationRequest = ref("");
 const inpaintPrompt = ref("");
 const inpaintStrength = ref(0.54);
 const maskCanvas = ref<HTMLCanvasElement | null>(null);
@@ -29,6 +36,7 @@ const historyAssets = ref<TextToImageAssetDto[]>([]);
 const historyIndex = ref(0);
 const historyLoading = ref(false);
 const showPreset = ref(false);
+const pendingPrompts = ref<PendingTextToImagePrompts>({});
 
 const notification = useNotification();
 
@@ -39,8 +47,9 @@ watch(() => [props.modelValue, props.asset] as const, ([visible, asset]) => {
     activeAction.value = "menu";
     busy.value = false;
     error.value = "";
-    tagDraft.value = asset?.prompt ?? "";
-    inpaintPrompt.value = asset?.prompt ?? "";
+    tagModificationRequest.value = "";
+    tagDraft.value = asset ? resolvePendingTextToImagePrompt(asset, pendingPrompts.value) : "";
+    inpaintPrompt.value = asset ? resolvePendingTextToImagePrompt(asset, pendingPrompts.value) : "";
     inpaintStrength.value = 0.54;
     showPreset.value = false;
     void loadHistory(asset);
@@ -66,6 +75,7 @@ async function loadHistory(asset: TextToImageAssetDto | null): Promise<void> {
         historyAssets.value = [...new Map(items.map((item) => [item.id, item])).values()]
             .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
         historyIndex.value = Math.max(0, historyAssets.value.findIndex((item) => item.id === asset.id));
+        syncDraftWithActiveAsset();
     } catch {
         // The current asset remains usable when history lookup is unavailable.
     } finally {
@@ -80,8 +90,15 @@ function moveHistory(offset: number): void {
         Math.max(0, historyIndex.value + offset),
     );
     const asset = activeAsset.value;
-    tagDraft.value = asset?.prompt ?? "";
-    inpaintPrompt.value = asset?.prompt ?? "";
+    tagDraft.value = asset ? resolvePendingTextToImagePrompt(asset, pendingPrompts.value) : "";
+    inpaintPrompt.value = asset ? resolvePendingTextToImagePrompt(asset, pendingPrompts.value) : "";
+}
+
+function syncDraftWithActiveAsset(): void {
+    const asset = activeAsset.value;
+    if (!asset) return;
+    tagDraft.value = resolvePendingTextToImagePrompt(asset, pendingPrompts.value);
+    inpaintPrompt.value = resolvePendingTextToImagePrompt(asset, pendingPrompts.value);
 }
 
 function assetUrl(asset: TextToImageAssetDto): string {
@@ -100,59 +117,70 @@ function requestClose(): void {
 function openTagEdit(): void {
     const asset = activeAsset.value;
     if (!asset) return;
-    tagDraft.value = asset.prompt;
+    syncDraftWithActiveAsset();
+    tagModificationRequest.value = "";
+    error.value = "";
     activeAction.value = "tag";
 }
 
 async function submitTagEdit(): Promise<void> {
     const asset = activeAsset.value;
-    if (!asset || tagDraft.value.trim() === "") {
-        error.value = "Tag 不能为空";
+    if (!asset || tagModificationRequest.value.trim() === "") {
+        error.value = "请输入 Tag 修改要求";
+        return;
+    }
+    busy.value = true;
+    error.value = "";
+    try {
+        const result = await $fetch<{prompt: string}>(
+            `/api/text-to-image/assets/${asset.id}/edit-tag`,
+            {
+                method: "POST",
+                body: {
+                    projectRoot: props.projectRoot,
+                    modificationRequest: tagModificationRequest.value,
+                },
+            },
+        );
+        pendingPrompts.value = setPendingTextToImagePrompt(pendingPrompts.value, asset, result.prompt);
+        tagDraft.value = result.prompt;
+        notification.success("Tag 已更新，请点击发送生成图片");
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "Tag 修改失败");
+    } finally {
+        busy.value = false;
+    }
+}
+
+async function sendCurrentPrompt(): Promise<void> {
+    const asset = activeAsset.value;
+    if (!asset) return;
+    const prompt = activeAction.value === "tag"
+            ? tagDraft.value.trim()
+            : resolvePendingTextToImagePrompt(asset, pendingPrompts.value).trim();
+    if (prompt === "") {
+        error.value = "发送 Tag 不能为空";
         return;
     }
     busy.value = true;
     error.value = "";
     try {
         const result = await $fetch<{jobId: string; asset: TextToImageAssetDto}>(
-            `/api/text-to-image/assets/${asset.id}/edit-tag`,
+            `/api/text-to-image/assets/${asset.id}/send`,
             {
                 method: "POST",
                 body: {
                     projectRoot: props.projectRoot,
-                    newPrompt: tagDraft.value,
+                    prompt,
                 },
             },
         );
-        notification.success("Tag 已重新生成");
+        pendingPrompts.value = clearPendingTextToImagePrompt(pendingPrompts.value, asset);
+        notification.success("图片已发送并重新生成");
         emit("success", result.asset);
         emit("update:modelValue", false);
     } catch (cause) {
-        error.value = resolveApiErrorMessage(cause, "Tag 重新生成失败");
-    } finally {
-        busy.value = false;
-    }
-}
-
-async function reroll(): Promise<void> {
-    const asset = activeAsset.value;
-    if (!asset) return;
-    busy.value = true;
-    error.value = "";
-    try {
-        const result = await $fetch<{jobId: string; asset: TextToImageAssetDto}>(
-            `/api/text-to-image/assets/${asset.id}/reroll`,
-            {
-                method: "POST",
-                body: {
-                    projectRoot: props.projectRoot,
-                },
-            },
-        );
-        notification.success("图片已重新生成");
-        emit("success", result.asset);
-        emit("update:modelValue", false);
-    } catch (cause) {
-        error.value = resolveApiErrorMessage(cause, "重新生成失败");
+        error.value = resolveApiErrorMessage(cause, "发送图片失败");
     } finally {
         busy.value = false;
     }
@@ -161,7 +189,7 @@ async function reroll(): Promise<void> {
 async function openInpaint(): Promise<void> {
     const asset = activeAsset.value;
     if (!asset) return;
-    inpaintPrompt.value = asset.prompt;
+    inpaintPrompt.value = resolvePendingTextToImagePrompt(asset, pendingPrompts.value);
     inpaintStrength.value = 0.54;
     activeAction.value = "inpaint";
     await nextTick();
@@ -260,7 +288,7 @@ async function submitInpaint(): Promise<void> {
         title="图片后处理"
         :busy="busy"
         :show-footer="activeAction !== 'menu'"
-        @confirm="activeAction === 'tag' ? submitTagEdit() : submitInpaint()"
+        @confirm="activeAction === 'tag' ? sendCurrentPrompt() : submitInpaint()"
         @request-close="requestClose"
     >
         <div v-if="activeAsset" class="flex flex-col gap-3">
@@ -294,9 +322,9 @@ async function submitInpaint(): Promise<void> {
                         <span class="i-lucide-tags h-5 w-5"></span>
                         Tag
                     </button>
-                    <button class="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[13px] text-[var(--text-main)]" title="重新生成" @click="reroll">
+                    <button class="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[13px] text-[var(--text-main)]" title="发送" @click="sendCurrentPrompt">
                         <span class="i-lucide-refresh-cw h-5 w-5"></span>
-                        重 roll
+                        发送
                     </button>
                     <button class="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[13px] text-[var(--text-main)]" title="局部重绘" @click="openInpaint">
                         <span class="i-lucide-paintbrush h-5 w-5"></span>
@@ -314,10 +342,17 @@ async function submitInpaint(): Promise<void> {
                 <p class="whitespace-pre-wrap break-words font-mono text-[12px] text-[var(--text-main)]">{{ activeAsset.prompt }}</p>
             </div>
 
-            <label v-if="activeAction === 'tag'" class="flex flex-col gap-2 text-[15px] text-[var(--text-secondary)]">
-                完整 Tag
-                <textarea v-model="tagDraft" rows="10" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[14px] text-[var(--text-main)]" />
-            </label>
+            <template v-if="activeAction === 'tag'">
+                <label class="flex flex-col gap-2 text-[15px] text-[var(--text-secondary)]">
+                    当前待发送 Tag
+                    <textarea :value="tagDraft" rows="7" readonly class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[14px] text-[var(--text-main)]" />
+                </label>
+                <label class="flex flex-col gap-2 text-[15px] text-[var(--text-secondary)]">
+                    修改要求
+                    <textarea v-model="tagModificationRequest" rows="4" placeholder="例如：把黑色长发改成银色短发，保留人物姿态和构图" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" />
+                </label>
+                <p class="text-[13px] text-[var(--text-muted)]">请求 LLM 只更新待发送 Tag，图片不会立即变化；确认后点击“发送”才会请求 NovelAI。</p>
+            </template>
 
             <template v-else-if="activeAction === 'inpaint'">
                 <div class="relative h-[320px] overflow-hidden rounded-md border border-[var(--border-color)] bg-black">
@@ -346,6 +381,11 @@ async function submitInpaint(): Promise<void> {
 
             <p v-if="error" class="text-[15px] text-[var(--danger-text)]">{{ error }}</p>
         </div>
-        <p v-else class="text-[15px] text-[var(--text-muted)]">图片信息加载失败，请重新长按正文中的生成图片。</p>
+        <p v-else class="text-[15px] text-[var(--text-muted)]">图片信息加载失败，请重新双击正文中的生成图片。</p>
+        <template #footer="{confirm, cancel}">
+            <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-[13px] font-medium text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="busy" @click="cancel">取消</button>
+            <button v-if="activeAction === 'tag'" class="inline-flex h-8 items-center justify-center rounded-md border border-transparent bg-[var(--status-info)] px-4 text-[13px] font-medium text-[var(--text-inverse)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="busy" @click="submitTagEdit">请求 LLM</button>
+            <button class="inline-flex h-8 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-4 text-[13px] font-medium text-[var(--text-inverse)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="busy" @click="confirm">{{ activeAction === 'tag' ? '发送' : '确定' }}</button>
+        </template>
     </Dialog>
 </template>

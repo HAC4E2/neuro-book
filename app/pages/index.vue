@@ -1117,7 +1117,7 @@ function openTextToImageWorkbench(): void {
 }
 
 /**
- * 长按正文图片后打开后处理对话框，并按相对路径解析当前资产。
+ * 双击正文图片后打开后处理对话框，并按相对路径解析当前资产。
  */
 async function handleEditorAssetAction(target: TextToImageAssetActionTarget): Promise<void> {
     if (!textToImageProjectSurfaceActive.value || !currentProjectRoot.value) {

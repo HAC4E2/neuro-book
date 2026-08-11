@@ -6,14 +6,20 @@ import {
 /**
  * Resolve the one active NovelAI generation recipe before a queued request is built.
  * The persisted settings remain editable as individual fields, but the selected
- * recipe is the authoritative snapshot at generation time.
+ * recipe is the authoritative snapshot at generation time; explicit request dimensions
+ * remain authoritative so body `<size>` overrides are not lost.
  */
-export function resolveNovelAiGenerationSettings(input: Record<string, unknown>): TextToImageNovelAiSettings {
+export function resolveNovelAiGenerationSettings(
+    input: Record<string, unknown>,
+    explicitOverrides: Partial<Pick<TextToImageNovelAiSettings, "width" | "height">> = {},
+): TextToImageNovelAiSettings {
     const settings = normalizeNovelAiGenerationSettings(TextToImageNovelAiSettingsSchema.parse(input));
     const activeId = settings.activeGenerationRecipeId.trim();
     const recipeId = activeId || Object.keys(settings.generationRecipes).sort()[0] || "";
     const recipe = recipeId === "" ? undefined : settings.generationRecipes[recipeId];
-    if (!recipe) return settings;
+    if (!recipe) {
+        return TextToImageNovelAiSettingsSchema.parse({...settings, ...explicitOverrides});
+    }
 
     return TextToImageNovelAiSettingsSchema.parse({
         ...settings,
@@ -21,6 +27,7 @@ export function resolveNovelAiGenerationSettings(input: Record<string, unknown>)
         fixedPositivePrompt: recipe.positive,
         fixedPositivePromptEnd: recipe.positiveEnd,
         fixedNegativePrompt: recipe.negative,
+        ...explicitOverrides,
     });
 }
 

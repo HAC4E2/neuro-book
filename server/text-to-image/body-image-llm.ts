@@ -156,14 +156,22 @@ function extractCharacterPrompts(prompts: string): TextToImageCharacterPrompt[] 
     }
     for (const match of matches) {
         const block = match[1] ?? "";
-        const prompt = extractTag(block, "prompt");
+        const rawPrompt = extractTag(block, "prompt");
+        const inlineCenterMatch = /\|centers\s*:\s*([^;|]+)\s*;?/iu.exec(rawPrompt);
+        const inlineCenterValue = inlineCenterMatch?.[1]?.trim() ?? "";
+        const prompt = rawPrompt.replace(inlineCenterMatch?.[0] ?? "", "").trim();
         if (prompt === "") {
             continue;
         }
+        const gridCenterValue = extractTag(block, "centers");
         const centerValue = extractTag(block, "center") || extractTag(block, "position");
-        const center = parseCharacterCenter(centerValue);
-        if (centerValue !== "" && center === null) {
-            throw new Error(`分角色 ${result.length + 1} 的 center 必须是 0 到 1 之间的两个数字`);
+        const center = gridCenterValue !== ""
+            ? parseCharacterGridCenter(gridCenterValue)
+            : centerValue !== ""
+                ? parseCharacterCenter(centerValue)
+                : parseCharacterGridCenter(inlineCenterValue);
+        if ((gridCenterValue !== "" || centerValue !== "" || inlineCenterValue !== "") && center === null) {
+            throw new Error(`分角色 ${result.length + 1} 的 center 必须是 0 到 1 之间的两个数字或 A1-E5 网格坐标`);
         }
         result.push({
             prompt,
@@ -191,6 +199,19 @@ function parseCharacterCenter(value: string): {x: number; y: number} | null {
         return null;
     }
     return {x, y};
+}
+
+function parseCharacterGridCenter(value: string): {x: number; y: number} | null {
+    const match = /^([A-E])\s*([1-5])\s*;?$/iu.exec(value.trim());
+    if (!match) {
+        return null;
+    }
+    const column = match[1]!.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+    const row = Number(match[2]) - 1;
+    return {
+        x: 0.1 + column * 0.2,
+        y: 0.1 + row * 0.2,
+    };
 }
 
 function normalizeBodyPromptText(prompts: string): string {

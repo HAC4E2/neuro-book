@@ -20,7 +20,7 @@ export function createWorkspaceMarkdownImage(resolveWorkspaceImageUrl?: Workspac
                 attributes["data-workspace-src"] = source;
                 attributes.src = resolveWorkspaceImageUrl(source);
             }
-            return ["img", mergeAttributes(attributes)];
+            return ["img", mergeAttributes(this.options.HTMLAttributes, attributes)];
         },
     }).configure({
         inline: true,

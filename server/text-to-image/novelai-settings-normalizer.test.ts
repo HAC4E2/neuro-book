@@ -53,6 +53,40 @@ describe("resolveNovelAiGenerationSettings", () => {
         expect(settings.fixedPositivePrompt).toBe("live prompt");
     });
 
+    it("applies explicit request dimensions after the active recipe snapshot", () => {
+        const settings = resolveNovelAiGenerationSettings({
+            activeGenerationRecipeId: "default",
+            width: 1216,
+            height: 832,
+            generationRecipes: {
+                default: {
+                    model: "recipe-model",
+                    sampler: "k_euler",
+                    noiseSchedule: "karras",
+                    promptGuidance: 8,
+                    promptGuidanceRescale: 0.2,
+                    aiDefaultCharacterPosition: true,
+                    smea: true,
+                    smeaDyn: false,
+                    variety: true,
+                    decrisp: false,
+                    width: 1024,
+                    height: 1024,
+                    steps: 24,
+                    seed: 12,
+                    positiveQualityPreset: true,
+                    negativeQualityPreset: "Heavy",
+                    positive: "recipe prompt",
+                    positiveEnd: "recipe ending",
+                    negative: "recipe negative",
+                },
+            },
+        }, {width: 1216, height: 832});
+
+        expect(settings.width).toBe(1216);
+        expect(settings.height).toBe(832);
+    });
+
     it("migrates legacy profile and fixed prompt preset names into recipes", () => {
         const settings = normalizeNovelAiGenerationSettings({
             model: "live-model",

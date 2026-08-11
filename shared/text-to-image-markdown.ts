@@ -37,7 +37,7 @@ export type TextToImagePromptPayload = z.infer<typeof TextToImagePromptPayloadSc
     id: string;
 };
 
-/** 正文编辑器中可长按的生成图片引用。 */
+/** 正文编辑器中可双击的生成图片引用。 */
 export type TextToImageAssetActionTarget = {
     relativePath: string;
 };

@@ -27,17 +27,65 @@ describe("requestNovelAiImages", () => {
 
         const body = JSON.parse(String(calls[0]?.init.body)) as {
             parameters: {
-                v4_prompt: {caption: {char_captions: Array<{char_caption: {base_caption: string}; centers: Array<{x: number; y: number}>}>}};
-                v4_negative_prompt: {caption: {char_captions: Array<{char_caption: {base_caption: string}}>}};
+                v4_prompt: {caption: {char_captions: Array<{char_caption: string; centers: Array<{x: number; y: number}>}>}};
+                v4_negative_prompt: {caption: {char_captions: Array<{char_caption: string; centers: Array<{x: number; y: number}>}>}};
             };
         };
         expect(body.parameters.v4_prompt.caption.char_captions).toEqual([{
-            char_caption: {base_caption: "1girl, blue eyes"},
+            char_caption: "1girl, blue eyes",
             centers: [{x: 0.3, y: 0.5}],
         }]);
         expect(body.parameters.v4_negative_prompt.caption.char_captions).toEqual([{
-            char_caption: {base_caption: "blurry"},
+            char_caption: "blurry",
+            centers: [{x: 0.3, y: 0.5}],
         }]);
+    });
+
+    it("disables coordinate mode when a structured character has no center", async () => {
+        const calls: Array<{init: RequestInit}> = [];
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            calls.push({init});
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+
+        await requestNovelAiImages(input({
+            fetchImpl,
+            aiDefaultCharacterPosition: false,
+            characterPrompts: [
+                {prompt: "left character", negativePrompt: "", centerX: 0.3, centerY: 0.5},
+                {prompt: "right character", negativePrompt: ""},
+            ],
+        }));
+
+        const body = JSON.parse(String(calls[0]?.init.body)) as {
+            parameters: {
+                use_coords: boolean;
+                v4_prompt: {
+                    use_coords: boolean;
+                    caption: {char_captions: Array<Record<string, unknown>>};
+                };
+            };
+        };
+        expect(body.parameters.use_coords).toBe(false);
+        expect(body.parameters.v4_prompt.use_coords).toBe(false);
+        expect(body.parameters.v4_prompt.caption.char_captions).toEqual([
+            {char_caption: "left character", centers: [{x: 0.3, y: 0.5}]},
+            {char_caption: "right character", centers: [{}]},
+        ]);
+    });
+
+    it("includes a bounded NovelAI response detail for HTTP errors", async () => {
+        const fetchImpl: LlmFetchImpl = async () => new Response(
+            JSON.stringify({message: "invalid character centers"}),
+            {status: 500, headers: {"content-type": "application/json"}},
+        );
+
+        await expect(requestNovelAiImages(input({fetchImpl}))).rejects.toThrow(
+            "NovelAI 生成失败：HTTP 500：{\"message\":\"invalid character centers\"}",
+        );
     });
 
     it("发送 JSON 请求并解码 base64 images", async () => {

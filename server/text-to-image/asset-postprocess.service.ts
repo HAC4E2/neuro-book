@@ -10,9 +10,15 @@ import {
 } from "nbook/server/text-to-image/asset.service";
 import {saveTextToImageMask} from "nbook/server/text-to-image/mask.service";
 import {createTextToImageReferenceResolver} from "nbook/server/text-to-image/reference-resolver";
-import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
+import {
+    TextToImageLlmProviderSettingsSchema,
+    type TextToImageAssetDto,
+} from "nbook/shared/dto/text-to-image.dto";
+import {resolveBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-runtime";
+import {generateTagModifyPrompt} from "nbook/server/text-to-image/tag-modify-llm";
 
 type PersistedJobRequest = {
+    useFinalPrompt?: boolean;
     novelAi?: Record<string, unknown>;
 };
 
@@ -25,27 +31,43 @@ export async function rerollTextToImageAsset(input: {
     assetId: string;
 }): Promise<{jobId: string; asset: TextToImageAssetDto}> {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
-    const request = parsePersistedRequest(snapshot.job.requestJson);
-    return enqueueAndProcess({
+    return sendTextToImageAsset({
         projectPath: input.projectPath,
         assetId: input.assetId,
-        kind: "reroll",
-        requestJson: JSON.stringify({
-            prompt: snapshot.asset.prompt,
-            negativePrompt: snapshot.asset.negativePrompt,
-            useFinalPrompt: true,
-            novelAi: {
-                ...(request.novelAi ?? {}),
-                seed: -1,
-            },
-        }),
+        prompt: snapshot.asset.prompt,
     });
 }
 
 export async function editTextToImageAssetTag(input: {
     projectPath: string;
     assetId: string;
-    newPrompt: string;
+    userId: number;
+    modificationRequest: string;
+}): Promise<{prompt: string}> {
+    const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
+    const runtime = await resolveBoundTextToImageLlmRuntime(input.userId, "tag_modify");
+    const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
+    const prompt = await generateTagModifyPrompt({
+        provider: {
+            baseUrl: settings.baseUrl,
+            credential: runtime.credential,
+            settings: runtime.settings,
+        },
+        currentPrompt: snapshot.asset.prompt,
+        modificationRequest: input.modificationRequest,
+        contextEntries: runtime.contextEntries,
+        runtime: {
+            context: snapshot.asset.prompt,
+            userDemand: input.modificationRequest,
+        },
+    });
+    return {prompt};
+}
+
+export async function sendTextToImageAsset(input: {
+    projectPath: string;
+    assetId: string;
+    prompt: string;
 }): Promise<{jobId: string; asset: TextToImageAssetDto}> {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
     const request = parsePersistedRequest(snapshot.job.requestJson);
@@ -53,16 +75,37 @@ export async function editTextToImageAssetTag(input: {
         projectPath: input.projectPath,
         assetId: input.assetId,
         kind: "reroll",
-        requestJson: JSON.stringify({
-            prompt: input.newPrompt,
+        requestJson: JSON.stringify(buildAssetSendRequest({
+            prompt: input.prompt,
             negativePrompt: snapshot.asset.negativePrompt,
-            useFinalPrompt: true,
-            novelAi: {
-                ...(request.novelAi ?? {}),
-                seed: -1,
-            },
-        }),
+            persistedRequest: request,
+        })),
     });
+}
+
+export function buildAssetSendRequest(input: {
+    prompt: string;
+    negativePrompt: string;
+    persistedRequest: PersistedJobRequest;
+}): {
+    prompt: string;
+    negativePrompt: string;
+    useFinalPrompt: true;
+    novelAi: Record<string, unknown>;
+} {
+    const prompt = input.prompt.trim();
+    if (prompt === "") {
+        throw new Error("发送 Tag 不能为空");
+    }
+    return {
+        prompt,
+        negativePrompt: input.negativePrompt,
+        useFinalPrompt: true,
+        novelAi: {
+            ...(input.persistedRequest.novelAi ?? {}),
+            seed: -1,
+        },
+    };
 }
 
 export async function inpaintTextToImageAsset(input: {
