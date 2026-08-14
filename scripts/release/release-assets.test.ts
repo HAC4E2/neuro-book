@@ -721,6 +721,10 @@ describe("Product Release宿主合同", () => {
         const candidateRun = workflow.jobs["verify-windows"].steps.map((step) => step.run ?? "").join("\n");
         expect(candidateRun).toContain("verify-windows-portable-restart.ts");
         expect(candidateRun).not.toContain("Start-Process -FilePath $env:ComSpec");
+        expect(candidateRun).toContain('$launcher -notmatch "(?i)\\.runtime[\\\\/]bin[\\\\/]neuro-book\\.cmd"');
+        expect(candidateRun).toContain('$launcher -match "(?i)--root"');
+        expect(candidateRun).toContain("Portable Launcher未委托绑定Root的Manager wrapper");
+        expect(candidateRun).not.toContain('$launcher -notmatch "neuro-book\\.cmd" -or $launcher -notmatch "--root"');
         expect(candidateRun).not.toContain("Stop-Process -Id $managerProcess.Id -Force");
         expect(workflowText).toContain("${{ runner.temp }}/neuro-book-portable-smoke/data/logs/release-browser-smoke*");
         expect(workflowText).toContain("${{ runner.temp }}/neuro-book-portable-smoke/data/logs/release-auth-smoke*");
