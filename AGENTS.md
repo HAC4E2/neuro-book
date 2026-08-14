@@ -46,6 +46,7 @@ GitHub Issue 承载需求与 TODO，task walkthrough 记录重大任务，独立
 
 - `PROJECT-STATUS.md`：仓库现状、模块状态和风险；TODO 与跨任务跟进记录在 GitHub Issue。
 - `docs/README.md`：文档体系入口；`docs/modules`：模块说明和研究入口；`docs/tasks/README.md`：task walkthrough 规则。
+- `docs/manual-eval/`：用户视角人工评测体系；面向用户的说明在 `docs/manual-eval/README.md`，Agent 执行流程在 `docs/manual-eval/agent-guide.md`，判定口径在 `docs/manual-eval/criteria.md`，报告模板在 `docs/manual-eval/report-template.md`，评测旅程在 `docs/manual-eval/journeys/`。
 - `reference/README.md`：稳定参考入口；涉及 World Engine 先读 `reference/world-engine/README.md`；涉及 workspace 术语先读 `reference/workspace/TERMS.md`。
 - 重大任务持续更新同一个 task walkthrough，记录目标、计划与实际出入、决策、变更、验证和实现级后续；跨任务事项开 Issue。
 - `reference/` 只放稳定契约，`docs/research/` 放调研，`docs/drafts/` 放草案，`docs/archived/` 放仍有参考价值的旧文档。移动文档时同步更新链接。

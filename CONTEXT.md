@@ -260,6 +260,22 @@ _Avoid_: session entry, consumed event, chat message
 Agent session active path 中用户和 assistant 的可见正文文本，用于派生 session 展示元数据。
 _Avoid_: tool result tokens, thinking tokens, raw context tokens
 
+**Compaction Summary**:
+压缩后替代被裁掉的旧 Agent ReAct Loop 内容、供模型继续工作的纯文本连续性记录；其中的路径和符号是事实描述，不是文件读取命令或权限凭证。
+_Avoid_: executable file instruction, authorization token
+
+**Compaction Checkpoint**:
+Session 中代表一次上下文压缩边界的持久记录，至少包含摘要、保留起点和 token 统计；它可以携带不直接展示给模型的恢复 metadata。
+_Avoid_: provider response only, mutable transcript rewrite
+
+**Recovery Material**:
+压缩后为恢复当前工作而重新提供的、有界上下文内容或其引用；必须经过 Harness 的授权、存在性、内容版本和 token budget 校验。
+_Avoid_: arbitrary file injection, model-selected path
+
+**Recovery Reference**:
+指向已授权文件的稳定地址及读取时需要核对的版本信息；默认用于按需拉取，不承诺自动全文注入。
+_Avoid_: raw path string, Project identity
+
 **Agent Summarizer Profile**:
 用于维护另一个 Agent session 展示标题和摘要的后台 profile。
 _Avoid_: linked agent, visible subagent, user-facing agent
