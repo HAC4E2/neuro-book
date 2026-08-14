@@ -907,6 +907,7 @@ const enUS = {
         activityBar: {
             more: "More",
             moreActions: "More workbench actions",
+            needOpenProject: "Please open a Project first",
         },
         header: {
             openAdmin: "Admin Console",
@@ -1587,6 +1588,7 @@ const enUS = {
             syncDetailsTitle: "User Assets Sync Details",
             syncDetailsDescription: "The following user overrides were kept, and system versions were not applied automatically. Open a diff to inspect changes.",
             userOverrideDiff: "User Override Diff",
+            collapsePanel: "Collapse panel",
             close: "Close",
         },
         bookshelf: {
