@@ -4,6 +4,7 @@ import {describe, expect, it} from "vitest";
 
 const activityBarPath = fileURLToPath(new URL("../NovelIdeActivityBar.vue", import.meta.url));
 const indexPagePath = fileURLToPath(new URL("../../../pages/index.vue", import.meta.url));
+const characterSectionPath = fileURLToPath(new URL("./TextToImageCharacterSection.vue", import.meta.url));
 
 describe("text-to-image workbench entry contract", () => {
     it("forwards the Activity Bar action through the page-owned opener", async () => {
@@ -38,5 +39,21 @@ describe("text-to-image workbench entry contract", () => {
         expect(cleanupWatch).toContain("assetActionTarget.value = null;");
         expect(cleanupWatch).toContain("assetActionAsset.value = null;");
         expect(indexPage.match(/v-if="textToImageProjectSurfaceActive"/g)).toHaveLength(2);
+    });
+
+    it("uses the generated Nitro paths for character library actions", async () => {
+        const characterSection = await readFile(characterSectionPath, "utf8");
+
+        for (const route of [
+            "/api/text-to-image/character-library.activation",
+            "/api/text-to-image/character-library/groups.reorder",
+            "/api/text-to-image/character-library/visual.active",
+            "/api/text-to-image/character-library/visual.copy",
+            "/api/text-to-image/character-library/visual.delete",
+            "/api/text-to-image/character-library/visual.rename",
+        ]) {
+            expect(characterSection).toContain(`$fetch("${route}"`);
+        }
+        expect(characterSection).not.toMatch(/character-library\/(?:activation|groups\/reorder|visual\/(?:active|copy|delete|rename))/);
     });
 });

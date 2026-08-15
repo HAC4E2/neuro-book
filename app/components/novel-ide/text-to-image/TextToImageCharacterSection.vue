@@ -197,7 +197,8 @@ async function loadLibrary(): Promise<void> {
                 await selectVisual(firstGroup.groupId, firstCharacter.characterId, firstFile.visualId);
             }
         } else {
-            const current = activeCharacter?.files.find((file) => file.visualId === activeVisualId.value) ?? activeCharacter?.files[0];
+            const current = activeCharacter.value?.files.find((file) => file.visualId === activeVisualId.value)
+                ?? activeCharacter.value?.files[0];
             if (current) await selectVisual(activeGroupId.value, activeCharacterId.value, current.visualId);
         }
     } catch (cause) {
@@ -356,7 +357,7 @@ async function renameVisual(): Promise<void> {
     saving.value = true;
     error.value = "";
     try {
-        await $fetch("/api/text-to-image/character-library/visual/rename", {
+        await $fetch("/api/text-to-image/character-library/visual.rename", {
             method: "POST",
             body: {
                 projectRoot: props.projectRoot,
@@ -380,7 +381,7 @@ async function deleteVisual(): Promise<void> {
     saving.value = true;
     error.value = "";
     try {
-        await $fetch("/api/text-to-image/character-library/visual/delete", {
+        await $fetch("/api/text-to-image/character-library/visual.delete", {
             method: "POST",
             body: {
                 projectRoot: props.projectRoot,
@@ -405,7 +406,7 @@ async function setActiveVisual(): Promise<void> {
     saving.value = true;
     error.value = "";
     try {
-        await $fetch("/api/text-to-image/character-library/visual/active", {
+        await $fetch("/api/text-to-image/character-library/visual.active", {
             method: "PUT",
             body: {
                 projectRoot: props.projectRoot,
@@ -431,7 +432,7 @@ async function copyVisualToGroup(): Promise<void> {
     saving.value = true;
     error.value = "";
     try {
-        await $fetch("/api/text-to-image/character-library/visual/copy", {
+        await $fetch("/api/text-to-image/character-library/visual.copy", {
             method: "POST",
             body: {
                 projectRoot: props.projectRoot,
@@ -516,7 +517,7 @@ async function moveGroup(group: CharacterGroup, direction: -1 | 1): Promise<void
     [ordered[index], ordered[target]] = [ordered[target]!, ordered[index]!];
     saving.value = true;
     try {
-        await $fetch("/api/text-to-image/character-library/groups/reorder", {
+        await $fetch("/api/text-to-image/character-library/groups.reorder", {
             method: "PUT",
             body: {projectRoot: props.projectRoot, orderedGroupIds: ordered.map((item) => item.groupId)},
         });
@@ -532,12 +533,12 @@ async function toggleGroupEnabled(group: CharacterGroup): Promise<void> {
     saving.value = true;
     error.value = "";
     try {
-        const enabledGroupIds = group.enabled
+        const nextEnabledGroupIds = group.enabled
             ? enabledGroupIds.value.filter((id) => id !== group.groupId)
             : [...enabledGroupIds.value, group.groupId];
-        await $fetch("/api/text-to-image/character-library/activation", {
+        await $fetch("/api/text-to-image/character-library.activation", {
             method: "PUT",
-            body: {projectRoot: props.projectRoot, enabledGroupIds},
+            body: {projectRoot: props.projectRoot, enabledGroupIds: nextEnabledGroupIds},
         });
         await loadLibrary();
     } catch (cause) {
@@ -550,7 +551,7 @@ async function toggleGroupEnabled(group: CharacterGroup): Promise<void> {
 async function enableOnly(group: CharacterGroup): Promise<void> {
     saving.value = true;
     try {
-        await $fetch("/api/text-to-image/character-library/activation", {
+        await $fetch("/api/text-to-image/character-library.activation", {
             method: "PUT",
             body: {projectRoot: props.projectRoot, enabledGroupIds: [group.groupId]},
         });

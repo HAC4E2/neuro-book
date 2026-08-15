@@ -408,3 +408,10 @@
 自动化验证：Node 官方运行时下角色视觉/照片/分组 API、LLM、NovelAI、DTO、工作台等 `11` 个文件 `44/44` 通过；正文扫描/编译/发送数据 `31/31` 通过；正文 API、队列和图片链路 `25/25` 通过；旧视觉服务回归 `17/17` 通过。直接 `tsc --noEmit --pretty false` 与 `vue-tsc --noEmit --pretty false` 通过。
 
 全量 Vitest 已按官方配置运行至 `300` 秒，仓库仍有既有的 workspace-files、world-engine、agent harness/profile 等失败及两个黑盒超时，未发现本轮角色视觉聚焦测试失败；因此不能把全量结果表述为全绿。浏览器人工操作、真实 LLM/NovelAI 端到端和开发服务器偶发 `worker entry not found` 场景仍未在本轮自动化中验证。
+
+## 实施记录（2026-08-15 合并上游 master）
+
+- 将 `origin/master` 的 `306e563ad7a4d4a58354fa8d582ad9aa9b886e8c` 合入 `new-text-to-picture`，保留 Task 142 的角色分组、视觉版本、LLM 修改确认和 NovelAI 画风串功能。
+- 冲突限于 `PROJECT-STATUS.md` 和中英文 Activity Bar 文案：状态文档同时保留上游 `0.9.6-canary` 发布证据与 Task 142 验证记录；Activity Bar 同时保留文生图入口和上游 Project 未打开提示。
+- 上游 Nuxt 类型生成暴露角色工作台的 API 路径与服务端文件路由不一致；客户端已改用生成合同中的 `character-library.activation`、`groups.reorder` 和 `visual.*` 路径，并补充合同测试，操作语义不变。
+- 自动化验证：文生图、角色管理、Activity Bar 和共享合同 `61` 个测试文件、`291/291` 项通过；`bun run typecheck` 通过，包含上游新增的 `desktop/electron` typecheck；`git diff --check` 通过。未执行浏览器人工验收或真实 Provider 请求。
