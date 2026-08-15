@@ -280,7 +280,7 @@ describe("compileBodyPrompt", () => {
         expect(result.prompt).not.toContain("fantasy coat");
     });
 
-    it("rejects an ambiguous character alias instead of picking the first visual", async () => {
+    it("uses the priority visual when an id is present in multiple enabled groups", async () => {
         await createCharacterGroup(workspaceRoot, "fantasy");
         await createCharacterGroup(workspaceRoot, "modern");
         for (const groupId of ["fantasy", "modern"]) {
@@ -293,6 +293,27 @@ describe("compileBodyPrompt", () => {
             }, groupId);
         }
 
+        const code = `${"$"}{${JSON.stringify({name: "shared", upperBody: "sfw", lowerBody: "sfw"})}}$`;
+        await expect(compileBodyPrompt(workspaceRoot, code)).resolves.toMatchObject({prompt: "Bob"});
+    });
+
+    it("rejects an ambiguous alias shared by different logical characters", async () => {
+        await createCharacterGroup(workspaceRoot, "fantasy");
+        await createCharacterGroup(workspaceRoot, "modern");
+        await writeCharacterVisual(workspaceRoot, "alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {cnName: "Alice", triggerWords: "shared", upperSfw: "dress"},
+            outfits: [],
+            photos: [],
+        }, "fantasy");
+        await writeCharacterVisual(workspaceRoot, "bob", {
+            schema: "nbook.character-visual/v1",
+            characterId: "bob",
+            character: {cnName: "Bob", triggerWords: "shared", upperSfw: "coat"},
+            outfits: [],
+            photos: [],
+        }, "modern");
         const code = `${"$"}{${JSON.stringify({name: "shared", upperBody: "sfw", lowerBody: "sfw"})}}$`;
         await expect(compileBodyPrompt(workspaceRoot, code)).rejects.toThrow(/多个候选/);
     });

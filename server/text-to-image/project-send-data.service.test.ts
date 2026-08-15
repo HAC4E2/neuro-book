@@ -56,13 +56,14 @@ describe("project send data service", () => {
 
         const options = await listProjectSendDataOptions(root);
         expect(options.lorebookEntries).toEqual([{path: "lorebook/world/setting/index.md", title: "世界设定"}]);
-        expect(options.characters).toEqual([{
+        expect(options.characters).toEqual([expect.objectContaining({
             characterId: "lin-yanzhou",
-            groupId: null,
+            groupId: "default",
             cnName: "林砚舟",
             enName: "Lin Yanzhou",
             outfits: [{name: "校服", cnName: "校服", enName: "school uniform"}],
-        }]);
+        })]);
+        expect(options.characters[0]?.visualId).toMatch(/^[0-9a-f-]{36}$/u);
     });
 
     it("freezes selected content server-side and ignores stale files", async () => {
@@ -80,7 +81,7 @@ describe("project send data service", () => {
         expect(snapshot.outfits).toEqual([]);
         expect(snapshot.missingItems).toEqual([
             "lorebook/world/missing/index.md",
-            "character:legacy/missing",
+            "character:default/missing",
         ]);
     });
 

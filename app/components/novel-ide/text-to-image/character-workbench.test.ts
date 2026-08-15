@@ -12,11 +12,13 @@ describe("character workbench layout contract", () => {
             "character",
             "outfit",
             "enabled",
+            "photo",
         ]);
         expect(characterWorkbenchSections.map((section) => section.label)).toEqual([
             "角色详情",
             "服装详情",
             "当前启用角色",
+            "角色照片",
         ]);
         expect(outfitDetailFields.map((field) => field.key)).toEqual([
             "cnName",

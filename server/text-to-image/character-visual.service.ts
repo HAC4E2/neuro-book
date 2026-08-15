@@ -8,7 +8,6 @@ import {
 import {resolveTextToImageAssetPath} from "nbook/server/text-to-image/asset-path";
 
 const GROUP_ID_PATTERN = /^[A-Za-z0-9._-]+$/u;
-const CHARACTER_ID_PATTERN = /^[A-Za-z0-9._-]+$/u;
 const VISUAL_FILE = "visual.json";
 const GROUP_FILE = ".group.json";
 
@@ -318,8 +317,18 @@ async function resolveProjectCharacterLocation(
 }
 
 function assertValidId(value: string, label: string): void {
-    const pattern = label === "groupId" ? GROUP_ID_PATTERN : CHARACTER_ID_PATTERN;
-    if (!pattern.test(value)) {
+    // characterId 来自 Project 角色目录名，中文和其他 Unicode 字符是合法身份；
+    // 这里只允许安全的单路径段，避免把路径穿越风险与“必须 ASCII”混为一谈。
+    const isSafeSegment = value.length > 0
+        && value === value.trim()
+        && value !== "."
+        && value !== ".."
+        && !/[\\/\u0000]/u.test(value)
+        && !/[\u0000-\u001f<>:"|?*]/u.test(value)
+        && !/[. ]$/u.test(value)
+        && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(value);
+    const isValid = label === "groupId" ? GROUP_ID_PATTERN.test(value) && isSafeSegment : isSafeSegment;
+    if (!isValid) {
         throw new Error(`非法 ${label}：${value}`);
     }
 }

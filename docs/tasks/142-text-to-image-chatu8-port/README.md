@@ -5,6 +5,7 @@
 
 ## Relative documents refs
 
+- [`施工计划.md`](施工计划.md)：2026-08-15 角色分组、视觉 JSON 版本、LLM 修改确认和 NovelAI 画风串重构的后续施工合同。
 - `docs/research/st-chatu8-capability-matrix.md`：chatu8 全部能力清单 + LLM 生图链路（移植逐项对照）。
 - `.agent/workspace/chatu8-presets/`：用户导出的 4 个 chatu8 上下文预设 JSON（+5 个旧版），即**已调教好的 LLM 输出契约**（正文生图五要素 `<image>`、`${}$` 角色调用、`<人物>/<服装>` 12+4 字段）；解析见能力矩阵第 12 节。
 - `docs/tasks/142-text-to-image-chatu8-port/README.md`：本计划。
@@ -395,3 +396,15 @@
 - NovelAI 的 `/ai/generate-image` 与 `/ai/encode-vibe` 使用独立代理解析器，依次检查环境变量、Windows 用户/WinHTTP 配置和受限的本机代理端口；发现成功后复用 dispatcher。
 - 通用 Provider 与 LLM 链路保持直连安全 dispatcher，不消费 NovelAI 代理；连接失败保留目标主机和底层错误码并让下次请求重新发现，HTTP `429`、`401` 等响应不触发失效。
 - 验证结果：代理发现/缓存 `6` 项、Provider 隔离与错误传播 `7` 项、NovelAI 请求链路 `6` 项，共 `19/19` 通过；文生图回归为 `46` 个测试文件、`219` 个测试通过，`bun run typecheck` 通过（`74.9` 秒）。浏览器人工验收和真实 NovelAI 出图未执行。
+
+## 实施记录（2026-08-15 角色视觉资料分组重构）
+
+- 已按 [`施工计划.md`](施工计划.md) 落地 Project 级多角色分组、分组启用与优先级；未手动分组的旧资料会迁移到 `default`，旧分组默认保持启用以避免已有正文结果改变。
+- 视觉资料改为 `manifest.json` 索引 + `visual.json` 当前文件 + `visual-时间戳-UUID.json` 版本文件；所有读取、重命名、复制、激活、删除和迁移都由同一服务端库校验 `groupId`、Unicode `characterId`、`visualId` 与并发版本号。
+- 角色工作台侧栏现在只展示已有视觉资料，并按“分组 → 角色 → JSON 文件”折叠；点击文件切换资料，支持重命名、设为当前、复制到其他分组和分组启用。角色视觉 LLM 修改先返回草稿，用户可选择覆盖、新建版本或取消，未确认不会写本地 JSON。
+- 正文扫描、Prompt 编译、发送数据快照和角色照片链路均携带 `groupId`/`visualId`，启用分组按优先级去重；NovelAI 顶部“生图方案组”已合并为“画风串和模型参数配置”，保留分组和自命名画风串，并兼容旧配置迁移。
+- 兼容保留旧 `character-visual.*` API，新增库式 API 供工作台使用；视觉 JSON 继续接受并输出既有 `nbook.character-visual/v1` 字段合同，`visualId` 作为版本索引字段，不破坏已有调用方。
+
+自动化验证：Node 官方运行时下角色视觉/照片/分组 API、LLM、NovelAI、DTO、工作台等 `11` 个文件 `44/44` 通过；正文扫描/编译/发送数据 `31/31` 通过；正文 API、队列和图片链路 `25/25` 通过；旧视觉服务回归 `17/17` 通过。直接 `tsc --noEmit --pretty false` 与 `vue-tsc --noEmit --pretty false` 通过。
+
+全量 Vitest 已按官方配置运行至 `300` 秒，仓库仍有既有的 workspace-files、world-engine、agent harness/profile 等失败及两个黑盒超时，未发现本轮角色视觉聚焦测试失败；因此不能把全量结果表述为全绿。浏览器人工操作、真实 LLM/NovelAI 端到端和开发服务器偶发 `worker entry not found` 场景仍未在本轮自动化中验证。

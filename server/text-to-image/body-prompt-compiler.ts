@@ -1,8 +1,4 @@
-import {
-    listCharacterGroups,
-    listCharacterVisualIds,
-    readCharacterVisual,
-} from "nbook/server/text-to-image/character-visual.service";
+import {CharacterVisualLibraryService} from "nbook/server/text-to-image/character-visual-library.service";
 import {buildCharacterTriggerWords} from "nbook/server/text-to-image/body-character-scanner";
 import type {
     CharacterVisualField,
@@ -55,6 +51,7 @@ type BodyPromptCode = {
     name: string;
     characterId: string | null;
     groupId: string | null;
+    visualId: string | null;
     outfit: string | null;
     inlineCharacter: CharacterVisualField | null;
     inlineOutfit: OutfitVisual | null;
@@ -190,6 +187,9 @@ function parseBodyPromptCode(raw: string): BodyPromptCode {
         groupId: typeof record.groupId === "string" && record.groupId.trim() !== ""
             ? record.groupId.trim()
             : null,
+        visualId: typeof record.visualId === "string" && record.visualId.trim() !== ""
+            ? record.visualId.trim()
+            : null,
         outfit: outfitName,
         inlineCharacter,
         inlineOutfit,
@@ -277,6 +277,7 @@ function parseLegacyBodyPromptCode(raw: string): BodyPromptCode {
         name,
         characterId: null,
         groupId: null,
+        visualId: null,
         outfit: null,
         inlineCharacter: null,
         inlineOutfit: null,
@@ -355,7 +356,11 @@ async function resolveCharacterVisual(
     if (resolved === null) {
         throw new Error(`未找到角色“${code.name}”的 visual.json`);
     }
-    const visual = await readCharacterVisual(projectRoot, resolved.characterId, resolved.groupId ?? undefined);
+    const visual = await new CharacterVisualLibraryService().read(projectRoot, {
+        characterId: resolved.characterId,
+        groupId: resolved.groupId ?? "default",
+        visualId: code.visualId ?? undefined,
+    });
     if (visual === null) {
         throw new Error(`未找到角色“${code.name}”的 visual.json`);
     }
@@ -421,31 +426,24 @@ async function collectProjectVisuals(
     projectRoot: string,
     groupId?: string | null,
 ): Promise<Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}>> {
-    const result: Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}> = [];
-    const seen = new Set<string>();
-    const groups = groupId
-        ? [{groupId}]
-        : await listCharacterGroups(projectRoot);
-    for (const group of groups) {
-        for (const characterId of await listCharacterVisualIds(projectRoot, group.groupId)) {
-            const visual = await readCharacterVisual(projectRoot, characterId, group.groupId).catch(() => null);
-            if (visual === null) continue;
-            const key = `${group.groupId}:${characterId}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            result.push({characterId, groupId: group.groupId, visual});
-        }
-    }
+    const library = new CharacterVisualLibraryService();
     if (!groupId) {
-        for (const characterId of await listCharacterVisualIds(projectRoot)) {
-            if (result.some((item) => item.characterId === characterId && item.groupId !== null)) continue;
-            const visual = await readCharacterVisual(projectRoot, characterId).catch(() => null);
-            if (visual === null) continue;
-            const key = `legacy:${characterId}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            result.push({characterId, groupId: null, visual});
-        }
+        return (await library.getEffectiveVisuals(projectRoot)).map((item) => ({
+            characterId: item.characterId,
+            groupId: item.groupId,
+            visual: item.visual,
+        }));
+    }
+    const result: Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}> = [];
+    for (const character of await library.listCharacters(projectRoot, groupId)) {
+        const active = character.files.find((file) => file.active) ?? character.files[0];
+        if (!active) continue;
+        const visual = await library.read(projectRoot, {
+            groupId,
+            characterId: character.characterId,
+            visualId: active.visualId,
+        });
+        if (visual) result.push({characterId: character.characterId, groupId, visual});
     }
     return result;
 }

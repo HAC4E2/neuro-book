@@ -113,11 +113,15 @@ function mergeBodyCharacterMatches(
     selected: BodyCharacterMatch[],
 ): BodyCharacterMatch[] {
     const result = [...scanned];
-    const seen = new Set(scanned.map((match) => match.characterId));
+    const indexes = new Map(scanned.map((match, index) => [match.characterId, index]));
     for (const match of selected) {
-        if (seen.has(match.characterId)) continue;
-        seen.add(match.characterId);
-        result.push(match);
+        const index = indexes.get(match.characterId);
+        if (index === undefined) {
+            indexes.set(match.characterId, result.length);
+            result.push(match);
+        } else {
+            result[index] = match;
+        }
     }
     return result;
 }

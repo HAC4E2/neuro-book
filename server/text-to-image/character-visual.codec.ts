@@ -32,9 +32,10 @@ export const OutfitVisualSchema = z.object({
 });
 export type OutfitVisual = z.infer<typeof OutfitVisualSchema>;
 
-/** `visual.json` 文件真相源。 */
+/** `visual.json` 文件真相源；visualId 是在 v1 文件合同上增加的稳定版本标识。 */
 export const CharacterVisualFileSchema = z.object({
     schema: z.literal("nbook.character-visual/v1"),
+    visualId: z.string().uuid().optional(),
     characterId: z.string().trim().min(1),
     character: CharacterVisualFieldSchema,
     outfits: z.array(OutfitVisualSchema).default([]),
@@ -44,7 +45,11 @@ export type CharacterVisualFile = z.infer<typeof CharacterVisualFileSchema>;
 
 /** 解析 visual.json 文本；格式不合法时抛 ZodError。 */
 export function parseCharacterVisualJson(text: string): CharacterVisualFile {
-    return CharacterVisualFileSchema.parse(JSON.parse(text) as unknown);
+    const raw = JSON.parse(text) as unknown;
+    if (typeof raw === "object" && raw !== null && "schema" in raw && raw.schema === "nbook.character-visual/v2") {
+        return CharacterVisualFileSchema.parse({...raw, schema: "nbook.character-visual/v1"});
+    }
+    return CharacterVisualFileSchema.parse(raw);
 }
 
 /** 规范渲染 visual.json 文本。 */

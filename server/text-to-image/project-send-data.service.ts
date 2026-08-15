@@ -5,12 +5,7 @@ import {
     type TextToImageProjectOutfitSelection,
     type TextToImageProjectSendData,
 } from "nbook/shared/dto/text-to-image.dto";
-import {
-    listCharacterGroups,
-    listLegacyCharacterVisualIds,
-    listCharacterVisualIds,
-    readCharacterVisual,
-} from "nbook/server/text-to-image/character-visual.service";
+import {CharacterVisualLibraryService} from "nbook/server/text-to-image/character-visual-library.service";
 import type {CharacterVisualFile, OutfitVisual} from "nbook/server/text-to-image/character-visual.codec";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
@@ -23,6 +18,7 @@ export type ProjectSendDataOptions = {
     characters: Array<{
         characterId: string;
         groupId: string | null;
+        visualId: string;
         cnName: string;
         enName: string;
         outfits: Array<{name: string; cnName: string; enName: string}>;
@@ -31,8 +27,8 @@ export type ProjectSendDataOptions = {
 
 export type ProjectSendDataSnapshot = {
     lorebookEntries: Array<{path: string; content: string}>;
-    characters: Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}>;
-    outfits: Array<{characterId: string; outfit: OutfitVisual}>;
+    characters: Array<{characterId: string; groupId: string | null; visualId: string; visual: CharacterVisualFile}>;
+    outfits: Array<{characterId: string; groupId: string | null; visualId: string; outfit: OutfitVisual}>;
     missingItems: string[];
 };
 
@@ -65,33 +61,32 @@ export async function writeProjectSendData(
 export async function listProjectSendDataOptions(projectRoot: string): Promise<ProjectSendDataOptions> {
     const lorebookEntries = await listLorebookEntries(projectRoot);
     const characters: ProjectSendDataOptions["characters"] = [];
-    const locations = new Map<string, string | null>();
-    for (const group of await listCharacterGroups(projectRoot)) {
-        for (const characterId of await listCharacterVisualIds(projectRoot, group.groupId)) {
-            locations.set(`${group.groupId}\u0000${characterId}`, group.groupId);
+    const library = new CharacterVisualLibraryService();
+    for (const group of await library.listTree(projectRoot)) {
+        for (const character of group.characters) {
+            const file = character.files.find((item) => item.active) ?? character.files[0];
+            if (!file) continue;
+            const visual = await library.read(projectRoot, {
+                groupId: group.groupId,
+                characterId: character.characterId,
+                visualId: file.visualId,
+            });
+            if (!visual) continue;
+            characters.push({
+                characterId: character.characterId,
+                groupId: group.groupId,
+                visualId: file.visualId,
+                cnName: visual.character.cnName,
+                enName: visual.character.enName,
+                outfits: visual.outfits.map((outfit) => ({
+                    name: outfit.cnName || outfit.enName,
+                    cnName: outfit.cnName,
+                    enName: outfit.enName,
+                })).filter((outfit) => outfit.name !== ""),
+            });
         }
     }
-    for (const characterId of await listLegacyCharacterVisualIds(projectRoot)) {
-        if (locations.has(`default\u0000${characterId}`)) continue;
-        locations.set(`legacy\u0000${characterId}`, null);
-    }
-    for (const [key, groupId] of locations) {
-        const characterId = key.split("\u0000").at(-1) ?? "";
-        const visual = await readCharacterVisual(projectRoot, characterId, groupId ?? undefined);
-        if (visual === null) continue;
-        characters.push({
-            characterId,
-            groupId,
-            cnName: visual.character.cnName,
-            enName: visual.character.enName,
-            outfits: visual.outfits.map((outfit) => ({
-                name: outfit.cnName || outfit.enName,
-                cnName: outfit.cnName,
-                enName: outfit.enName,
-            })).filter((outfit) => outfit.name !== ""),
-        });
-    }
-    characters.sort((left, right) => `${left.groupId ?? ""}/${left.characterId}`.localeCompare(`${right.groupId ?? ""}/${right.characterId}`));
+    characters.sort((left, right) => `${left.groupId}/${left.characterId}`.localeCompare(`${right.groupId}/${right.characterId}`));
     return {
         lorebookEntries,
         characters,
@@ -118,30 +113,44 @@ export async function readProjectSendDataSnapshot(
     }
 
     const visualCache = new Map<string, CharacterVisualFile | null>();
-    const readVisual = async (characterId: string, groupId: string | null = null): Promise<CharacterVisualFile | null> => {
-        const key = `${groupId ?? ""}\u0000${characterId}`;
+    const library = new CharacterVisualLibraryService();
+    const readVisual = async (characterId: string, groupId: string | null = null, visualId?: string): Promise<CharacterVisualFile | null> => {
+        const key = `${groupId ?? ""}\u0000${characterId}\u0000${visualId ?? ""}`;
         if (!visualCache.has(key)) {
-            visualCache.set(key, await readCharacterVisual(projectRoot, characterId, groupId ?? undefined));
+            const visual = groupId
+                ? await library.read(projectRoot, {characterId, groupId, visualId})
+                : (await library.getEffectiveVisuals(projectRoot)).find((item) => item.characterId === characterId)?.visual ?? null;
+            visualCache.set(key, visual);
         }
         return visualCache.get(key) ?? null;
     };
 
     const characters: ProjectSendDataSnapshot["characters"] = [];
     for (const selection of data.characterSelections) {
-        const visual = await readCharacterVisual(projectRoot, selection.characterId, selection.groupId ?? undefined);
+        const visual = await readVisual(selection.characterId, selection.groupId ?? null, selection.visualId);
         if (visual !== null) {
-            characters.push({characterId: selection.characterId, groupId: selection.groupId, visual});
+            characters.push({
+                characterId: selection.characterId,
+                groupId: selection.groupId,
+                visualId: selection.visualId ?? visual?.visualId ?? "",
+                visual,
+            });
         } else {
-            missingItems.push(`character:${selection.groupId ?? "legacy"}/${selection.characterId}`);
+            missingItems.push(`character:${selection.groupId ?? "default"}/${selection.characterId}`);
         }
     }
 
     const outfits: ProjectSendDataSnapshot["outfits"] = [];
     for (const selection of data.outfitSelections) {
-        const visual = await readVisual(selection.characterId, selection.groupId ?? null);
+        const visual = await readVisual(selection.characterId, selection.groupId ?? null, selection.visualId);
         const outfit = visual?.outfits.find((candidate) => matchesOutfit(candidate, selection.name));
         if (outfit) {
-            outfits.push({characterId: selection.characterId, outfit});
+            outfits.push({
+                characterId: selection.characterId,
+                groupId: selection.groupId ?? null,
+                visualId: selection.visualId ?? visual?.visualId ?? "",
+                outfit,
+            });
         } else {
             missingItems.push(`outfit:${selection.characterId}/${selection.name}`);
         }
@@ -174,7 +183,7 @@ function normalizeLorebookPath(value: string): string {
 function uniqueOutfitSelections(input: TextToImageProjectOutfitSelection[]): TextToImageProjectOutfitSelection[] {
     const seen = new Set<string>();
     return input.map((selection) => ({...selection, groupId: selection.groupId ?? null})).filter((selection) => {
-        const key = `${selection.groupId}\u0000${selection.characterId}\u0000${selection.name}`;
+        const key = `${selection.groupId}\u0000${selection.characterId}\u0000${selection.visualId ?? ""}\u0000${selection.name}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -184,7 +193,7 @@ function uniqueOutfitSelections(input: TextToImageProjectOutfitSelection[]): Tex
 function uniqueCharacterSelections(input: TextToImageProjectSendData["characterSelections"]): TextToImageProjectSendData["characterSelections"] {
     const seen = new Set<string>();
     return input.filter((selection) => {
-        const key = `${selection.groupId ?? ""}\u0000${selection.characterId}`;
+        const key = `${selection.groupId ?? ""}\u0000${selection.characterId}\u0000${selection.visualId ?? ""}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;

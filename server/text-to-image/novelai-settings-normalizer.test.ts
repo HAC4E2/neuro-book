@@ -116,8 +116,9 @@ describe("resolveNovelAiGenerationSettings", () => {
             },
         });
 
-        expect(settings.activeGenerationRecipeId).toBe("cinematic");
-        expect(settings.generationRecipes.cinematic?.model).toBe("profile-model");
-        expect(settings.generationRecipes.cinematic?.positive).toBe("cinematic");
+        expect(settings.activeGenerationRecipeId).toBe("style-cinematic");
+        expect(settings.generationRecipes["style-cinematic"]?.model).toBe("profile-model");
+        expect(settings.generationRecipes["style-cinematic"]?.positive).toBe("cinematic");
+        expect(settings.generationRecipeMeta["style-cinematic"]).toEqual({name: "cinematic", groupId: "default"});
     });
 });

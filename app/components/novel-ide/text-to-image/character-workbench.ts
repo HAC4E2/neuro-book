@@ -1,9 +1,10 @@
-export type CharacterWorkbenchSectionId = "character" | "outfit" | "enabled";
+export type CharacterWorkbenchSectionId = "character" | "outfit" | "enabled" | "photo";
 
 export const characterWorkbenchSections = [
     {id: "character", label: "角色详情", icon: "i-lucide-user-round"},
     {id: "outfit", label: "服装详情", icon: "i-lucide-shirt"},
     {id: "enabled", label: "当前启用角色", icon: "i-lucide-badge-check"},
+    {id: "photo", label: "角色照片", icon: "i-lucide-image"},
 ] as const satisfies ReadonlyArray<{
     id: CharacterWorkbenchSectionId;
     label: string;

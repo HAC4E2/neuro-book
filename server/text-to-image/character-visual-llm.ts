@@ -32,6 +32,7 @@ export type GenerateCharacterVisualDraftInput = {
     characterPage: string;
     existingSummary: string;
     mode: CharacterVisualDraftMode;
+    userRequirement?: string;
     contextEntries?: TextToImageContextEntry[];
     runtime?: TextToImageRuntimePlaceholderContext;
 };

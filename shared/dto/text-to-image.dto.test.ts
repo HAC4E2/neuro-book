@@ -147,9 +147,41 @@ describe("text-to-image DTO", () => {
                     negative: "blurry",
                 },
             },
+            generationRecipeMeta: {cinematic: {name: "电影感", groupId: "default"}},
         });
         expect(parsed.activeGenerationRecipeId).toBe("cinematic");
         expect(parsed.generationRecipes.cinematic?.positive).toBe("cinematic lighting");
+        expect(parsed.generationRecipeGroups.default?.name).toBe("默认");
+        expect(parsed.generationRecipeMeta.cinematic).toEqual({name: "电影感", groupId: "default"});
+    });
+
+    it("keeps stable recipe IDs separate from custom names and groups", () => {
+        const parsed = TextToImageNovelAiSettingsSchema.parse({
+            generationRecipes: {
+                "style-soft": {
+                    model: "nai-diffusion-4-5-full",
+                    sampler: "k_euler",
+                    noiseSchedule: "karras",
+                    promptGuidance: 10,
+                    promptGuidanceRescale: 0.18,
+                    aiDefaultCharacterPosition: true,
+                    smea: true,
+                    smeaDyn: true,
+                    variety: true,
+                    decrisp: true,
+                    width: 1024,
+                    height: 1024,
+                    steps: 28,
+                    seed: 0,
+                    positiveQualityPreset: true,
+                    negativeQualityPreset: "Heavy",
+                },
+            },
+            generationRecipeGroups: {illustration: {name: "插画", sortOrder: 1}},
+            generationRecipeMeta: {"style-soft": {name: "柔和厚涂", groupId: "illustration"}},
+        });
+        expect(parsed.generationRecipeMeta["style-soft"]).toEqual({name: "柔和厚涂", groupId: "illustration"});
+        expect(parsed.generationRecipeGroups.illustration?.name).toBe("插画");
     });
 
     it("accepts project send-data IDs and rejects browser-supplied extra fields", () => {

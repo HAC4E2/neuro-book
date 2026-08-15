@@ -19,7 +19,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 | 模块 | 当前状态 | 依据 |
 | --- | --- | --- |
 | 写作模式 v1 | 主路径阶段完成，进入体验打磨 | [Task 64](docs/tasks/64-world-engine-prompt-engineering/README.md)、[Task 87](docs/tasks/87-plot-two-trees-and-writer-modes/README.md)、[Task 124](docs/tasks/124-writing-pipeline-batch3/README.md) |
-| 文生图（chatu8 移植） | 本地链路已实现，正文生图、NovelAI 生成、图片后处理、Project 角色集合、统一 LLM 绑定、配方和串行队列已接通；typecheck + `49` 个测试文件 `220/220` 通过，浏览器/真实模型验收仍需单独执行 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
+| 文生图（chatu8 移植） | 本地链路已实现；角色视觉资料已支持 Project 多分组、分组启用/优先级、JSON 版本确认、正文/照片精确引用和 NovelAI 画风串分组；聚焦回归通过，仓库全量测试仍有既有 workspace/world-engine/agent 基线失败，浏览器/真实模型验收仍需单独执行 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
 | World Engine | 核心模型、API、Workbench 和作者主路径阶段完成 | [Task 56](docs/tasks/56-world-engine/README.md)、[Task 65](docs/tasks/65-world-engine-calendar-enhancement/README.md)、[Task 71](docs/tasks/71-world-engine-codeact-readwrite/README.md) |
 | Plot | 两棵树模型已落地：承载树负责章节呈现，因果树负责剧情组织，`StoryScene` 连接两者 | [Task 78](docs/tasks/78-plot-scene-world-engine-bridge/README.md)、[Task 93](docs/tasks/93-plot-planning-layer/README.md)、[Task 99](docs/tasks/99-plot-planning-ui/README.md) |
 | Agent / Workflow | 主要链路已实现；人工界面、真实 Project、provider 和模型验收待做 | [Task 111](docs/tasks/111-workflow-agent-integration/README.md)、[Task 116](docs/tasks/116-agent-workflow-reliability/README.md)、[Task 139](docs/tasks/139-agent-abort-error-projection/README.md) |
@@ -41,6 +41,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 ## 最新收口
 
 - [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) 已收口正文生图与角色管理链路：主工作区入口、当前章节 LLM 提示词、后端角色扫描与机械组装、正文占位符生成、整体 reroll、图片长按后处理、Project 角色集合、角色详情 Tag 生成、当前生图配方和 NovelAI FIFO 队列均已落地；当前相关自动化验证为 `49` 个测试文件、`220/220` 个断言通过；浏览器/真实模型验收仍需单独执行。
+- Task 142 的角色视觉资料重构已落地：Project 可维护多个角色分组并独立启用、同一角色支持多个 JSON 版本和显式 `visualId`，LLM 修改必须确认覆盖/新建/取消，正文扫描与角色照片不会跨版本串写；工作台侧栏按分组/角色/JSON 文件切换，NovelAI 画风串保留分组和自命名。该批次聚焦回归为 `11` 个文件 `44/44`、正文扫描/编译/发送数据 `31/31`、正文 API/队列/图片链路 `25/25`、旧视觉服务 `17/17`，直接 TypeScript/Vue 类型检查通过；全量 Vitest 仍暴露仓库既有基线失败，详见 Task 142 记录。
 - [Task 139](docs/tasks/139-agent-abort-error-projection/README.md) 将主动取消与运行错误分开：取消显示中性状态，保留已生成的半截正文，并避免重复错误气泡。
 - [Task 138](docs/tasks/138-agent-conversation-branch-projection/README.md) 将对话分支切换改为基于可见对话锚点的投影，运行期记账 entry 不再制造假分支。
 - [Task 111](docs/tasks/111-workflow-agent-integration/README.md) 已补齐 Workflow 的持久身份、公开投影、Job/Run 详情、`wf.ask` 和 Composer/Preview 防重复提交；动态 `outputSchema` 的 `report_result` 合同也已补齐。

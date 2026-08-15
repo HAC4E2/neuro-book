@@ -36,11 +36,19 @@ export function normalizeNovelAiGenerationSettings(
     input: TextToImageNovelAiSettings | Record<string, unknown>,
 ): TextToImageNovelAiSettings {
     const settings = TextToImageNovelAiSettingsSchema.parse(input);
+    const groups = normalizeRecipeGroups(settings);
+    const meta = normalizeRecipeMeta(settings);
     const existingNames = Object.keys(settings.generationRecipes);
     if (existingNames.length > 0) {
-        return settings.activeGenerationRecipeId === ""
-            ? {...settings, activeGenerationRecipeId: existingNames.sort()[0] ?? ""}
-            : settings;
+        const hasLegacyEntries = existingNames.some((id) => !settings.generationRecipeMeta[id]);
+        if (hasLegacyEntries) {
+            const migrated = migrateRecipeIds(settings, groups);
+            return {...settings, ...migrated};
+        }
+        const activeId = settings.activeGenerationRecipeId !== "" && settings.generationRecipes[settings.activeGenerationRecipeId]
+            ? settings.activeGenerationRecipeId
+            : existingNames.sort()[0] ?? "";
+        return {...settings, generationRecipeGroups: groups, generationRecipeMeta: meta, activeGenerationRecipeId: activeId};
     }
 
     const legacyNames = new Set([
@@ -78,9 +86,67 @@ export function normalizeNovelAiGenerationSettings(
             vibeGroup: settings.vibeGroup,
         }];
     }));
-    return TextToImageNovelAiSettingsSchema.parse({
+    const generated = TextToImageNovelAiSettingsSchema.parse({
         ...settings,
         generationRecipes,
+        generationRecipeGroups: groups,
+        generationRecipeMeta: {},
         activeGenerationRecipeId: settings.activeGenerationRecipeId || names[0],
     });
+    return TextToImageNovelAiSettingsSchema.parse({
+        ...generated,
+        ...migrateRecipeIds(generated, groups),
+    });
+}
+
+function migrateRecipeIds(
+    settings: TextToImageNovelAiSettings,
+    groups: TextToImageNovelAiSettings["generationRecipeGroups"],
+): Pick<TextToImageNovelAiSettings, "generationRecipes" | "generationRecipeGroups" | "generationRecipeMeta" | "activeGenerationRecipeId"> {
+    const recipes: TextToImageNovelAiSettings["generationRecipes"] = {};
+    const nextMeta: TextToImageNovelAiSettings["generationRecipeMeta"] = {};
+    const used = new Set<string>();
+    const idMap = new Map<string, string>();
+    for (const [legacyId, recipe] of Object.entries(settings.generationRecipes)) {
+        const legacyMeta = settings.generationRecipeMeta[legacyId];
+        const nextId = legacyMeta ? uniqueRecipeId(legacyId, used) : uniqueRecipeId(`style-${slugifyRecipeName(legacyId)}`, used);
+        used.add(nextId);
+        idMap.set(legacyId, nextId);
+        recipes[nextId] = recipe;
+        nextMeta[nextId] = legacyMeta ?? {name: legacyId, groupId: "default"};
+    }
+    const activeGenerationRecipeId = idMap.get(settings.activeGenerationRecipeId)
+        ?? Object.keys(recipes)[0]
+        ?? "";
+    return {
+        generationRecipes: recipes,
+        generationRecipeGroups: groups,
+        generationRecipeMeta: nextMeta,
+        activeGenerationRecipeId,
+    };
+}
+
+function slugifyRecipeName(value: string): string {
+    return value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "") || "style";
+}
+
+function uniqueRecipeId(candidate: string, used: Set<string>): string {
+    let id = candidate || "style";
+    let index = 2;
+    while (used.has(id)) id = `${candidate}-${index++}`;
+    return id;
+}
+
+function normalizeRecipeGroups(settings: TextToImageNovelAiSettings): TextToImageNovelAiSettings["generationRecipeGroups"] {
+    const groups = {...settings.generationRecipeGroups};
+    if (!groups.default) groups.default = {name: "默认", sortOrder: 0};
+    return groups;
+}
+
+function normalizeRecipeMeta(settings: TextToImageNovelAiSettings): TextToImageNovelAiSettings["generationRecipeMeta"] {
+    const meta = {...settings.generationRecipeMeta};
+    for (const id of Object.keys(settings.generationRecipes)) {
+        if (!meta[id]) meta[id] = {name: id, groupId: "default"};
+    }
+    return meta;
 }

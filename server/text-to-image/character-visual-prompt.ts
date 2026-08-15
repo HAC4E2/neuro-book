@@ -58,6 +58,7 @@ export function buildCharacterVisualUserPrompt(input: {
     characterPage: string;
     existingSummary: string;
     mode: CharacterVisualDraftMode;
+    userRequirement?: string;
 }): string {
     const modeInstruction = input.mode === "fill_empty"
         ? "本次是补全模式：只补全为空或缺失的字段；已有非空内容必须逐字保留，不要改写、精简或删除。"
@@ -71,6 +72,7 @@ export function buildCharacterVisualUserPrompt(input: {
         input.existingSummary.trim() === "" ? "（无）" : input.existingSummary,
         "---",
         modeInstruction,
+        input.userRequirement?.trim() ? `本次用户修改要求：${input.userRequirement.trim()}` : "",
         "请只输出 <人物>...</人物> 与 <服装>...</服装> 或 JSON 对象。",
     ].join("\n");
 }

@@ -24,6 +24,17 @@ describe("character generation context", () => {
         });
     });
 
+    it("保留中文和 Unicode 标点角色目录名", () => {
+        expect(resolveCharacterGenerationContext(
+            "lorebook/character/艾璃丝·赛瑞利亚/index.md",
+            "# 艾璃丝·赛瑞利亚",
+        )).toEqual({
+            characterId: "艾璃丝·赛瑞利亚",
+            groupId: null,
+            characterPage: "# 艾璃丝·赛瑞利亚",
+        });
+    });
+
     it("rejects non-character markdown files and blank content", () => {
         expect(resolveCharacterGenerationContext("manuscript/chapter-1.md", "text")).toBeNull();
         expect(resolveCharacterGenerationContext("lorebook/character/alice/index.md", "  ")).toBeNull();

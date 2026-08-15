@@ -154,6 +154,20 @@ export const TextToImageNovelAiGenerationRecipeSchema = TextToImageNovelAiProfil
 });
 export type TextToImageNovelAiGenerationRecipe = z.infer<typeof TextToImageNovelAiGenerationRecipeSchema>;
 
+/** 画风串分组；分组只负责组织和筛选，不改变配方快照内容。 */
+export const TextToImageNovelAiGenerationRecipeGroupSchema = z.object({
+    name: z.string().trim().min(1),
+    sortOrder: z.number().int().min(0).default(0),
+});
+export type TextToImageNovelAiGenerationRecipeGroup = z.infer<typeof TextToImageNovelAiGenerationRecipeGroupSchema>;
+
+/** 画风串的显示元数据；record key 是稳定 ID，改名不会改变引用。 */
+export const TextToImageNovelAiGenerationRecipeMetaSchema = z.object({
+    name: z.string().trim().min(1),
+    groupId: z.string().trim().min(1).default("default"),
+});
+export type TextToImageNovelAiGenerationRecipeMeta = z.infer<typeof TextToImageNovelAiGenerationRecipeMetaSchema>;
+
 /** NovelAI Provider 的运行参数；凭据不进入该 schema。 */
 export const TextToImageNovelAiSettingsSchema = z.object({
     baseUrl: z.string().trim().default("https://image.novelai.net"),
@@ -181,6 +195,8 @@ export const TextToImageNovelAiSettingsSchema = z.object({
     negativeQualityPreset: z.string().default("Heavy"),
     profiles: z.record(z.string(), TextToImageNovelAiProfileSchema).default({}),
     generationRecipes: z.record(z.string(), TextToImageNovelAiGenerationRecipeSchema).default({}),
+    generationRecipeGroups: z.record(z.string(), TextToImageNovelAiGenerationRecipeGroupSchema).default({default: {name: "默认", sortOrder: 0}}),
+    generationRecipeMeta: z.record(z.string(), TextToImageNovelAiGenerationRecipeMetaSchema).default({}),
     activeGenerationRecipeId: z.string().default(""),
     fixedPromptPresets: z.record(z.string(), z.object({
         positive: z.string().default(""),
@@ -246,6 +262,7 @@ export type TextToImageGlobalConfig = z.infer<typeof TextToImageGlobalConfigSche
 export const TextToImageProjectOutfitSelectionSchema = z.object({
     characterId: z.string().trim().min(1),
     groupId: z.string().trim().nullable().optional(),
+    visualId: z.string().uuid().optional(),
     name: z.string().trim().min(1),
 }).strict();
 export type TextToImageProjectOutfitSelection = z.infer<typeof TextToImageProjectOutfitSelectionSchema>;
@@ -253,6 +270,7 @@ export type TextToImageProjectOutfitSelection = z.infer<typeof TextToImageProjec
 export const TextToImageProjectCharacterSelectionSchema = z.object({
     characterId: z.string().trim().min(1),
     groupId: z.string().trim().nullable().default(null),
+    visualId: z.string().uuid().optional(),
 }).strict();
 export type TextToImageProjectCharacterSelection = z.infer<typeof TextToImageProjectCharacterSelectionSchema>;
 

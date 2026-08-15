@@ -170,6 +170,12 @@ describe("character visual llm", () => {
         expect(fill).toContain("只补全为空");
         expect(replace).toContain("整体重写");
         expect(fill).toContain("角色页");
+        expect(buildCharacterVisualUserPrompt({
+            characterPage: "角色页",
+            existingSummary: "{}",
+            mode: "replace_visual",
+            userRequirement: "改成黑色礼服",
+        })).toContain("本次用户修改要求：改成黑色礼服");
     });
 
     it("generateCharacterVisualDraft 使用注入 complete 并返回完整文件", async () => {

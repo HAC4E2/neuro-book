@@ -1,8 +1,4 @@
-import {
-    listCharacterGroups,
-    listCharacterVisualIds,
-    readCharacterVisual,
-} from "nbook/server/text-to-image/character-visual.service";
+import {CharacterVisualLibraryService} from "nbook/server/text-to-image/character-visual-library.service";
 import type {CharacterVisualFile} from "nbook/server/text-to-image/character-visual.codec";
 
 export type BodyCharacterMatch = {
@@ -54,12 +50,19 @@ export async function scanBodyCharactersFromProject(input: {
     characterIds?: string[];
     groupId?: string;
 }): Promise<BodyCharacterMatch[]> {
+    const library = new CharacterVisualLibraryService();
     if (input.characterIds) {
-        const characters = [];
+        const characters: Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}> = [];
+        const effective = input.groupId ? null : await library.getEffectiveVisuals(input.projectRoot);
         for (const characterId of input.characterIds) {
-            const visual = await readCharacterVisual(input.projectRoot, characterId, input.groupId);
-            if (visual !== null) {
-                characters.push({characterId, groupId: input.groupId ?? null, visual});
+            if (input.groupId) {
+                const visual = await library.read(input.projectRoot, {groupId: input.groupId, characterId});
+                if (visual !== null) characters.push({characterId, groupId: input.groupId, visual});
+                continue;
+            }
+            const item = effective?.find((candidate) => candidate.characterId === characterId);
+            if (item) {
+                characters.push({characterId, groupId: item.groupId, visual: item.visual});
             }
         }
         return scanBodyCharacters({
@@ -69,31 +72,20 @@ export async function scanBodyCharactersFromProject(input: {
     }
 
     const characters: Array<{characterId: string; groupId: string | null; visual: CharacterVisualFile}> = [];
-    const groupedCharacterIds = new Set<string>();
     if (input.groupId) {
-        for (const characterId of await listCharacterVisualIds(input.projectRoot, input.groupId)) {
-            const visual = await readCharacterVisual(input.projectRoot, characterId, input.groupId);
-            if (visual !== null) {
-                characters.push({characterId, groupId: input.groupId, visual});
-            }
+        for (const character of await library.listCharacters(input.projectRoot, input.groupId)) {
+            const active = character.files.find((file) => file.active) ?? character.files[0];
+            if (!active) continue;
+            const visual = await library.read(input.projectRoot, {
+                groupId: input.groupId,
+                characterId: character.characterId,
+                visualId: active.visualId,
+            });
+            if (visual !== null) characters.push({characterId: character.characterId, groupId: input.groupId, visual});
         }
     } else {
-        for (const group of await listCharacterGroups(input.projectRoot)) {
-            for (const characterId of await listCharacterVisualIds(input.projectRoot, group.groupId)) {
-                const visual = await readCharacterVisual(input.projectRoot, characterId, group.groupId);
-                if (visual !== null) {
-                    characters.push({characterId, groupId: group.groupId, visual});
-                    groupedCharacterIds.add(characterId);
-                }
-            }
-        }
-
-        for (const characterId of await listCharacterVisualIds(input.projectRoot)) {
-            if (groupedCharacterIds.has(characterId)) continue;
-            const visual = await readCharacterVisual(input.projectRoot, characterId);
-            if (visual !== null) {
-                characters.push({characterId, groupId: null, visual});
-            }
+        for (const item of await library.getEffectiveVisuals(input.projectRoot)) {
+            characters.push({characterId: item.characterId, groupId: item.groupId, visual: item.visual});
         }
     }
 

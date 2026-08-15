@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
             characters.push({
                 characterId,
                 groupId: group.groupId,
-                characterPage: documents.find((item) => item.characterId === characterId && item.groupId === group.groupId)?.relativePath ?? "",
+                characterPagePath: documents.find((item) => item.characterId === characterId && item.groupId === group.groupId)?.relativePath ?? "",
                 cnName: visual.character.cnName,
                 enName: visual.character.enName,
                 triggerWords: visual.character.triggerWords,
@@ -57,7 +57,7 @@ export default defineEventHandler(async (event) => {
         characters.push({
             characterId,
             groupId: null,
-            characterPage: documents.find((item) => item.characterId === characterId && item.groupId === null)?.relativePath ?? "",
+            characterPagePath: documents.find((item) => item.characterId === characterId && item.groupId === null)?.relativePath ?? "",
             cnName: visual.character.cnName,
             enName: visual.character.enName,
             triggerWords: visual.character.triggerWords,
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
         characters.push({
             characterId: document.characterId,
             groupId: document.groupId,
-            characterPage: document.relativePath,
+            characterPagePath: document.relativePath,
             cnName: "",
             enName: "",
             triggerWords: "",

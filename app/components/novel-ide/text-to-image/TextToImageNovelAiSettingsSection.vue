@@ -44,6 +44,9 @@ const generationRecipeName = ref("");
 const referenceImages = ref<ReferenceImageMeta[]>([]);
 const referenceLibraryLoading = ref(false);
 const referenceUploadInput = ref<HTMLInputElement | null>(null);
+const generationRecipeId = ref("");
+const generationRecipeGroupId = ref("default");
+const generationRecipeGroupName = ref("");
 
 const vibeGroupNames = computed(() => Object.keys(form.value.vibeGroups ?? {}));
 const characterGroupNames = computed(() => Object.keys(form.value.characterGroups ?? {}));
@@ -55,6 +58,13 @@ const requestIntervalSeconds = computed({
     },
 });
 const generationRecipeNames = computed(() => Object.keys(form.value.generationRecipes ?? {}));
+const generationRecipeGroupNames = computed(() => Object.entries(form.value.generationRecipeGroups ?? {})
+    .sort((left, right) => left[1].sortOrder - right[1].sortOrder || left[0].localeCompare(right[0]))
+    .map(([id, group]) => ({id, name: group.name})));
+const generationRecipeIdsInSelectedGroup = computed(() => generationRecipeNames.value.filter((id) => (
+    (form.value.generationRecipeMeta[id]?.groupId ?? "default") === generationRecipeGroupId.value
+)));
+const generationRecipeDisplayName = (id: string): string => form.value.generationRecipeMeta[id]?.name ?? id;
 const positiveTokenCount = ref<number | null>(null);
 const negativeTokenCount = ref<number | null>(null);
 const tokenCounterLoading = ref(false);
@@ -140,10 +150,60 @@ function selectProvider(id: number): void {
     form.value = provider
         ? TextToImageNovelAiSettingsSchema.parse(provider.settings)
         : TextToImageNovelAiSettingsSchema.parse({});
+    ensureGenerationRecipeMetadata();
     vibePreviewUrl.value = form.value.vibe.imageId
         ? referenceImageUrl(form.value.vibe.imageId)
         : null;
+    generationRecipeId.value = form.value.activeGenerationRecipeId;
+    generationRecipeName.value = generationRecipeId.value
+        ? form.value.generationRecipeMeta[generationRecipeId.value]?.name ?? generationRecipeId.value
+        : "";
+    generationRecipeGroupId.value = generationRecipeId.value
+        ? form.value.generationRecipeMeta[generationRecipeId.value]?.groupId ?? "default"
+        : "default";
+    generationRecipeGroupName.value = form.value.generationRecipeGroups[generationRecipeGroupId.value]?.name ?? generationRecipeGroupId.value;
     credential.value = "";
+}
+
+function ensureGenerationRecipeMetadata(): void {
+    form.value.generationRecipeGroups = {
+        default: {name: "默认", sortOrder: 0},
+        ...form.value.generationRecipeGroups,
+    };
+    const originalMeta = form.value.generationRecipeMeta;
+    const ids = Object.keys(form.value.generationRecipes);
+    if (ids.some((id) => !originalMeta[id])) {
+        const recipes: typeof form.value.generationRecipes = {};
+        const meta: typeof form.value.generationRecipeMeta = {};
+        const used = new Set<string>();
+        const idMap = new Map<string, string>();
+        for (const id of ids) {
+            const nextId = originalMeta[id] ? uniqueGenerationRecipeId(id, used) : uniqueGenerationRecipeId(`style-${slugifyGenerationRecipeName(id)}`, used);
+            used.add(nextId);
+            idMap.set(id, nextId);
+            recipes[nextId] = form.value.generationRecipes[id]!;
+            meta[nextId] = originalMeta[id] ?? {name: id, groupId: "default"};
+        }
+        form.value.generationRecipes = recipes;
+        form.value.generationRecipeMeta = meta;
+        form.value.activeGenerationRecipeId = idMap.get(form.value.activeGenerationRecipeId) ?? Object.keys(recipes)[0] ?? "";
+    } else {
+        form.value.generationRecipeMeta = {...originalMeta};
+    }
+    if (!form.value.activeGenerationRecipeId || !form.value.generationRecipes[form.value.activeGenerationRecipeId]) {
+        form.value.activeGenerationRecipeId = Object.keys(form.value.generationRecipes)[0] ?? "";
+    }
+}
+
+function slugifyGenerationRecipeName(value: string): string {
+    return value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "") || "style";
+}
+
+function uniqueGenerationRecipeId(candidate: string, used: Set<string>): string {
+    let id = candidate || "style";
+    let index = 2;
+    while (used.has(id)) id = `${candidate}-${index++}`;
+    return id;
 }
 
 function saveConnection(): void {
@@ -168,14 +228,33 @@ function saveStyle(): void {
         return;
     }
     if (Object.keys(form.value.generationRecipes).length === 0) {
-        form.value.generationRecipes = {default: snapshotGenerationRecipe()};
-        form.value.activeGenerationRecipeId = "default";
+        const id = createGenerationRecipeId("default");
+        form.value.generationRecipes = {[id]: snapshotGenerationRecipe()};
+        form.value.generationRecipeGroups = {
+            ...form.value.generationRecipeGroups,
+            default: form.value.generationRecipeGroups.default ?? {name: "默认", sortOrder: 0},
+        };
+        form.value.generationRecipeMeta = {
+            ...form.value.generationRecipeMeta,
+            [id]: {name: "默认", groupId: "default"},
+        };
+        form.value.activeGenerationRecipeId = id;
+        generationRecipeId.value = id;
+        generationRecipeName.value = "默认";
+        generationRecipeGroupId.value = "default";
     }
     const activeRecipeId = form.value.activeGenerationRecipeId.trim();
     if (activeRecipeId) {
         form.value.generationRecipes = {
             ...form.value.generationRecipes,
             [activeRecipeId]: snapshotGenerationRecipe(),
+        };
+        form.value.generationRecipeMeta = {
+            ...form.value.generationRecipeMeta,
+            [activeRecipeId]: form.value.generationRecipeMeta[activeRecipeId] ?? {
+                name: generationRecipeName.value.trim() || activeRecipeId,
+                groupId: generationRecipeGroupId.value || "default",
+            },
         };
     }
     error.value = "";
@@ -422,8 +501,16 @@ function applyProfileValues(profile: TextToImageNovelAiProfile): void {
     form.value.negativeQualityPreset = profile.negativeQualityPreset;
 }
 
-function applyGenerationRecipe(name: string): void {
-    const recipe = form.value.generationRecipes[name];
+function selectGenerationRecipe(id: string): void {
+    if (!id) return;
+    generationRecipeId.value = id;
+    generationRecipeName.value = generationRecipeDisplayName(id);
+    generationRecipeGroupId.value = form.value.generationRecipeMeta[id]?.groupId ?? "default";
+    applyGenerationRecipe(id);
+}
+
+function applyGenerationRecipe(id: string): void {
+    const recipe = form.value.generationRecipes[id];
     if (!recipe) return;
     applyProfileValues(recipe);
     form.value.fixedPositivePrompt = recipe.positive;
@@ -434,32 +521,78 @@ function applyGenerationRecipe(name: string): void {
     form.value.vibe = {...recipe.vibe};
     form.value.characterReference = {...recipe.characterReference};
     form.value.vibeGroup = {...recipe.vibeGroup};
-    form.value.activeGenerationRecipeId = name;
+    form.value.activeGenerationRecipeId = id;
     saveStyle();
 }
 
 function saveGenerationRecipe(): void {
     const name = generationRecipeName.value.trim();
     if (!name) return;
+    const id = generationRecipeId.value || createGenerationRecipeId(name);
     form.value.generationRecipes = {
         ...form.value.generationRecipes,
-        [name]: snapshotGenerationRecipe(),
+        [id]: snapshotGenerationRecipe(),
     };
-    form.value.activeGenerationRecipeId = name;
+    form.value.generationRecipeGroups = {
+        ...form.value.generationRecipeGroups,
+        [generationRecipeGroupId.value]: form.value.generationRecipeGroups[generationRecipeGroupId.value] ?? {
+            name: generationRecipeGroupName.value.trim() || generationRecipeGroupId.value,
+            sortOrder: Object.keys(form.value.generationRecipeGroups).length,
+        },
+    };
+    form.value.generationRecipeMeta = {
+        ...form.value.generationRecipeMeta,
+        [id]: {name, groupId: generationRecipeGroupId.value || "default"},
+    };
+    generationRecipeId.value = id;
+    form.value.activeGenerationRecipeId = id;
     saveStyle();
 }
 
-function deleteGenerationRecipe(name: string): void {
+function renameGenerationRecipe(): void {
+    const id = generationRecipeId.value;
+    const name = generationRecipeName.value.trim();
+    if (!id || !name || !form.value.generationRecipes[id]) return;
+    form.value.generationRecipeMeta = {
+        ...form.value.generationRecipeMeta,
+        [id]: {name, groupId: form.value.generationRecipeMeta[id]?.groupId ?? (generationRecipeGroupId.value || "default")},
+    };
+    saveStyle();
+}
+
+function deleteGenerationRecipe(id: string): void {
     const next = {...form.value.generationRecipes};
-    delete next[name];
+    delete next[id];
     form.value.generationRecipes = next;
-    if (form.value.activeGenerationRecipeId === name) {
-        form.value.activeGenerationRecipeId = "";
-    }
-    if (generationRecipeName.value === name) {
-        generationRecipeName.value = "";
+    const nextMeta = {...form.value.generationRecipeMeta};
+    delete nextMeta[id];
+    form.value.generationRecipeMeta = nextMeta;
+    if (form.value.activeGenerationRecipeId === id) {
+        const replacement = Object.keys(next)[0] ?? "";
+        form.value.activeGenerationRecipeId = replacement;
+        generationRecipeId.value = replacement;
+        generationRecipeName.value = replacement ? generationRecipeDisplayName(replacement) : "";
     }
     saveStyle();
+}
+
+function addGenerationRecipeGroup(): void {
+    const id = generationRecipeGroupId.value.trim();
+    if (!id || form.value.generationRecipeGroups[id]) return;
+    form.value.generationRecipeGroups = {
+        ...form.value.generationRecipeGroups,
+        [id]: {name: generationRecipeGroupName.value.trim() || id, sortOrder: Object.keys(form.value.generationRecipeGroups).length},
+    };
+    generationRecipeGroupName.value = generationRecipeGroupName.value.trim() || id;
+    saveStyle();
+}
+
+function createGenerationRecipeId(name: string): string {
+    const slug = name.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "") || "style";
+    let id = `style-${slug}`;
+    let index = 2;
+    while (form.value.generationRecipes[id]) id = `style-${slug}-${index++}`;
+    return id;
 }
 
 function snapshotProfile(): TextToImageNovelAiProfile {
@@ -595,24 +728,6 @@ function downloadVibeFile(): void {
 <template>
     <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4">
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-            <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">生图方案组</h3>
-            <p class="mb-2 text-[15px] text-[var(--text-muted)]">将画风串、固定提示词与模型参数保存为一组；当前选中的方案就是生图时生效的方案。</p>
-            <div class="flex items-center gap-2">
-                <input v-model="generationRecipeName" class="h-9 w-44 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" placeholder="方案名称" />
-                <select v-model="generationRecipeName" class="h-9 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="generationRecipeName && applyGenerationRecipe(generationRecipeName)">
-                    <option value="">选择方案</option>
-                    <option v-for="name in generationRecipeNames" :key="name" :value="name">{{ name }}</option>
-                </select>
-            </div>
-            <div class="mt-2 flex items-center gap-2">
-                <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" :disabled="!generationRecipeName" @click="generationRecipeName && applyGenerationRecipe(generationRecipeName)">应用</button>
-                <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" :disabled="!generationRecipeName" @click="saveGenerationRecipe">保存当前方案</button>
-                <button class="h-9 rounded-md border border-[var(--danger-border)] px-3 text-[16px] text-[var(--danger-text)]" :disabled="!generationRecipeName" @click="generationRecipeName && deleteGenerationRecipe(generationRecipeName)">删除</button>
-                <span v-if="form.activeGenerationRecipeId" class="text-[14px] text-[var(--accent-text)]">当前：{{ form.activeGenerationRecipeId }}</span>
-            </div>
-        </div>
-
-        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">NovelAI 连接</h3>
             <div class="grid grid-cols-2 gap-3">
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
@@ -631,7 +746,36 @@ function downloadVibeFile(): void {
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-            <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">画风串和模型参数设置</h3>
+            <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">画风串和模型参数配置</h3>
+            <p class="mb-3 text-[13px] text-[var(--text-muted)]">画风串会连同模型参数、固定提示词和参考图选择一起保存；改名不会影响已保存的稳定 ID。</p>
+            <div class="mb-4 grid gap-2 rounded-md border border-[var(--border-color)] p-3 md:grid-cols-[180px_minmax(0,1fr)_180px]">
+                <label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">画风串分组
+                    <select v-model="generationRecipeGroupId" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]">
+                        <option v-for="group in generationRecipeGroupNames" :key="group.id" :value="group.id">{{ group.name }}</option>
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">画风串
+                    <select v-model="generationRecipeId" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]" @change="selectGenerationRecipe(generationRecipeId)">
+                        <option value="">新建画风串</option>
+                        <option v-for="id in generationRecipeIdsInSelectedGroup" :key="id" :value="id">{{ generationRecipeDisplayName(id) }}</option>
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">自定义名称
+                    <input v-model="generationRecipeName" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]" placeholder="例如：柔和厚涂" />
+                </label>
+                <div class="flex flex-wrap items-center gap-2 md:col-span-3">
+                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="!generationRecipeId" @click="selectGenerationRecipe(generationRecipeId)">应用</button>
+                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="!generationRecipeName" @click="saveGenerationRecipe">保存画风串</button>
+                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="!generationRecipeId || !generationRecipeName" @click="renameGenerationRecipe">重命名</button>
+                    <button class="h-8 rounded-md border border-[var(--danger-border)] px-3 text-[13px] text-[var(--danger-text)]" :disabled="!generationRecipeId" @click="deleteGenerationRecipe(generationRecipeId)">删除</button>
+                    <span v-if="form.activeGenerationRecipeId" class="text-[12px] text-[var(--accent-text)]">当前：{{ generationRecipeDisplayName(form.activeGenerationRecipeId) }}</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 md:col-span-3">
+                    <input v-model="generationRecipeGroupId" class="h-8 w-40 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="新分组 ID" />
+                    <input v-model="generationRecipeGroupName" class="h-8 w-40 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="分组显示名称" />
+                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" @click="addGenerationRecipeGroup">新建分组</button>
+                </div>
+            </div>
             <div class="grid grid-cols-3 gap-3">
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     模型

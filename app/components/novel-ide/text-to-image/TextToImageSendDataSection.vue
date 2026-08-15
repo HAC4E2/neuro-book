@@ -16,6 +16,7 @@ type SendDataResponse = {
     characters: Array<{
         characterId: string;
         groupId: string | null;
+        visualId: string;
         cnName: string;
         enName: string;
         outfits: Array<{name: string; cnName: string; enName: string}>;
@@ -79,42 +80,39 @@ function toggleLorebook(relativePath: string): void {
     sendData.value.lorebookPaths = toggleValue(sendData.value.lorebookPaths, relativePath);
 }
 
-function toggleCharacter(characterId: string, groupId: string | null): void {
-    const characterItem = characters.value.find((item) => item.characterId === characterId && item.groupId === groupId);
+function toggleCharacter(characterId: string, groupId: string | null, visualId: string): void {
+    const characterItem = characters.value.find((item) => item.characterId === characterId && item.groupId === groupId && item.visualId === visualId);
     if (!characterItem) return;
-    const selection = {characterId, groupId: characterItem.groupId};
+    const selection = {characterId, groupId: characterItem.groupId, visualId: characterItem.visualId};
     const exists = sendData.value.characterSelections.some((item) => (
-        item.characterId === selection.characterId && item.groupId === selection.groupId
+        item.characterId === selection.characterId && item.groupId === selection.groupId && item.visualId === selection.visualId
     ));
     sendData.value.characterSelections = exists
         ? sendData.value.characterSelections.filter((item) => (
-            item.characterId !== selection.characterId || item.groupId !== selection.groupId
+            item.characterId !== selection.characterId || item.groupId !== selection.groupId || item.visualId !== selection.visualId
         ))
         : [...sendData.value.characterSelections, selection];
     sendData.value.characterIds = [...new Set(sendData.value.characterSelections.map((item) => item.characterId))];
 }
 
-function toggleOutfit(characterId: string, name: string): void {
-    const characterItem = characters.value.find((item) => item.characterId === characterId);
-    const groupId = characterItem?.groupId ?? null;
-    const exists = sendData.value.outfitSelections.some((item) => item.characterId === characterId && item.groupId === groupId && item.name === name);
+function toggleOutfit(characterId: string, name: string, groupId: string | null, visualId: string): void {
+    const characterItem = characters.value.find((item) => item.characterId === characterId && item.groupId === groupId && item.visualId === visualId);
+    const exists = sendData.value.outfitSelections.some((item) => item.characterId === characterId && item.groupId === groupId && item.visualId === visualId && item.name === name);
     sendData.value.outfitSelections = exists
-        ? sendData.value.outfitSelections.filter((item) => !(item.characterId === characterId && item.groupId === groupId && item.name === name))
-        : [...sendData.value.outfitSelections, {characterId, groupId, name}];
+        ? sendData.value.outfitSelections.filter((item) => !(item.characterId === characterId && item.groupId === groupId && item.visualId === visualId && item.name === name))
+        : [...sendData.value.outfitSelections, {characterId, groupId: characterItem?.groupId ?? groupId, visualId, name}];
 }
 
 function toggleValue(values: string[], value: string): string[] {
     return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
-function isOutfitSelected(characterId: string, name: string): boolean {
-    const characterItem = characters.value.find((item) => item.characterId === characterId);
-    const groupId = characterItem?.groupId ?? null;
-    return sendData.value.outfitSelections.some((item) => item.characterId === characterId && item.groupId === groupId && item.name === name);
+function isOutfitSelected(characterId: string, name: string, groupId: string | null, visualId: string): boolean {
+    return sendData.value.outfitSelections.some((item) => item.characterId === characterId && item.groupId === groupId && item.visualId === visualId && item.name === name);
 }
 
-function isCharacterSelected(characterId: string, groupId: string | null): boolean {
-    return sendData.value.characterSelections.some((item) => item.characterId === characterId && item.groupId === groupId);
+function isCharacterSelected(characterId: string, groupId: string | null, visualId: string): boolean {
+    return sendData.value.characterSelections.some((item) => item.characterId === characterId && item.groupId === groupId && item.visualId === visualId);
 }
 </script>
 
@@ -146,21 +144,21 @@ function isCharacterSelected(characterId: string, groupId: string | null): boole
                 <div class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] p-4">
                     <h4 class="mb-3 text-[15px] font-semibold text-[var(--text-main)]">角色启用列表</h4>
                     <div v-if="characters.length === 0" class="text-[13px] text-[var(--text-muted)]">当前 Project 没有视觉角色资料。</div>
-                    <label v-for="characterItem in characters" :key="`${characterItem.groupId ?? 'legacy'}-${characterItem.characterId}`" class="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-[var(--text-secondary)]">
-                        <input class="accent-[var(--accent-bg)]" type="checkbox" :checked="isCharacterSelected(characterItem.characterId, characterItem.groupId)" @change="toggleCharacter(characterItem.characterId, characterItem.groupId)">
+                    <label v-for="characterItem in characters" :key="`${characterItem.groupId ?? 'legacy'}-${characterItem.characterId}-${characterItem.visualId}`" class="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-[var(--text-secondary)]">
+                        <input class="accent-[var(--accent-bg)]" type="checkbox" :checked="isCharacterSelected(characterItem.characterId, characterItem.groupId, characterItem.visualId)" @change="toggleCharacter(characterItem.characterId, characterItem.groupId, characterItem.visualId)">
                         <span class="truncate text-[var(--text-main)]">{{ characterItem.cnName || characterItem.enName || characterItem.characterId }}</span>
                         <span v-if="characterItem.enName" class="truncate text-[11px] text-[var(--text-muted)]">{{ characterItem.enName }}</span>
-                        <span class="truncate text-[11px] text-[var(--text-muted)]">{{ characterItem.groupId ?? "旧版" }}</span>
+                        <span class="truncate text-[11px] text-[var(--text-muted)]">{{ characterItem.groupId ?? "旧版" }} · {{ characterItem.visualId.slice(0, 8) }}</span>
                     </label>
                 </div>
 
                 <div class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] p-4">
                     <h4 class="mb-3 text-[15px] font-semibold text-[var(--text-main)]">独立服装列表</h4>
                     <div v-if="characters.every((item) => item.outfits.length === 0)" class="text-[13px] text-[var(--text-muted)]">当前 Project 没有可发送服装。</div>
-                    <template v-for="characterItem in characters" :key="`${characterItem.groupId ?? 'legacy'}-${characterItem.characterId}-outfits`">
+                    <template v-for="characterItem in characters" :key="`${characterItem.groupId ?? 'legacy'}-${characterItem.characterId}-${characterItem.visualId}-outfits`">
                         <p v-if="characterItem.outfits.length > 0" class="mb-1 mt-3 text-[12px] text-[var(--text-muted)]">{{ characterItem.cnName || characterItem.enName || characterItem.characterId }}</p>
-                        <label v-for="outfit in characterItem.outfits" :key="`${characterItem.characterId}-${outfit.name}`" class="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-[var(--text-secondary)]">
-                            <input class="accent-[var(--accent-bg)]" type="checkbox" :checked="isOutfitSelected(characterItem.characterId, outfit.name)" @change="toggleOutfit(characterItem.characterId, outfit.name)">
+                        <label v-for="outfit in characterItem.outfits" :key="`${characterItem.characterId}-${characterItem.visualId}-${outfit.name}`" class="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-[var(--text-secondary)]">
+                            <input class="accent-[var(--accent-bg)]" type="checkbox" :checked="isOutfitSelected(characterItem.characterId, outfit.name, characterItem.groupId, characterItem.visualId)" @change="toggleOutfit(characterItem.characterId, outfit.name, characterItem.groupId, characterItem.visualId)">
                             <span class="truncate text-[var(--text-main)]">{{ outfit.cnName || outfit.enName }}</span>
                             <span v-if="outfit.enName && outfit.cnName" class="truncate text-[11px] text-[var(--text-muted)]">{{ outfit.enName }}</span>
                         </label>

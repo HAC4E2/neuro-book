@@ -40,6 +40,35 @@ describe("character visual service", () => {
         });
     });
 
+    it("保留中文角色目录名作为 characterId", async () => {
+        const root = await createRoot();
+        const characterId = "艾璃丝·赛瑞利亚";
+        const input: CharacterVisualFile = {
+            schema: "nbook.character-visual/v1",
+            characterId,
+            character: {cnName: characterId},
+            outfits: [],
+            photos: [],
+        };
+
+        await writeCharacterVisual(root, characterId, input);
+
+        await expect(readCharacterVisual(root, characterId)).resolves.toMatchObject({
+            characterId,
+            character: {cnName: characterId},
+        });
+        await expect(access(path.join(root, "lorebook", "character", characterId, "visual.json"))).resolves.toBeUndefined();
+    });
+
+    it.each([".", "..", "../escape", "nested/character", "nested\\character", "CON"])(
+        "拒绝不安全的角色目录段 %s",
+        async (characterId) => {
+            const root = await createRoot();
+
+            await expect(readCharacterVisual(root, characterId)).rejects.toThrow(`非法 characterId：${characterId}`);
+        },
+    );
+
     it("文件不存在返回 null", async () => {
         const root = await createRoot();
         await expect(readCharacterVisual(root, "missing")).resolves.toBeNull();

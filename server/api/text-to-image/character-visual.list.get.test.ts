@@ -73,7 +73,7 @@ describe("GET /api/text-to-image/character-visual.list", () => {
             expect.objectContaining({
                 characterId: "hero",
                 groupId: null,
-                characterPage: "lorebook/character/hero/index.md",
+                characterPagePath: "lorebook/character/hero/index.md",
             }),
         ]);
     });

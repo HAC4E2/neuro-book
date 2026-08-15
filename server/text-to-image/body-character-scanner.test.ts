@@ -160,7 +160,7 @@ describe("scanBodyCharactersFromProject", () => {
         expect(matches.map((match) => match.characterId)).toEqual(["xiao-ke"]);
     });
 
-    it("keeps matching characters with the same id in different groups", async () => {
+    it("uses the highest-priority enabled group when the same id appears in multiple groups", async () => {
         const root = await createRoot();
         await createCharacterGroup(root, "fantasy");
         await createCharacterGroup(root, "modern");
@@ -182,7 +182,6 @@ describe("scanBodyCharactersFromProject", () => {
 
         expect(matches).toEqual([
             expect.objectContaining({characterId: "hero", groupId: "fantasy"}),
-            expect.objectContaining({characterId: "hero", groupId: "modern"}),
         ]);
     });
 
