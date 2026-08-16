@@ -4,11 +4,11 @@
 
 ## 基线快照
 
-- 当前 root 分支：`master`
-- 当前 `HEAD`：`306e563ad7a4d4a58354fa8d582ad9aa9b886e8c`
-- 已获取 `origin/master`；执行前以当前引用重新读取。
-- 当前工作树存在 994 个暂存路径、543 个未暂存路径和 247 个未跟踪路径计数（Git 状态分层必须保留，不能 reset/stash/checkout 清理）。
-- `.agents/tasks/.migration-complete` 记录上一轮治理迁移的来源修订与清单摘要；其列出的 local-only benchmark JSON 不得提交。
+- 当前 root 工作树提交：`d1772041a8d41fb2d819287e0acca9f01336ed0e`。
+- baseline tag：`monorepo-main-app-migration-baseline-d1772041a8d41fb2d819287e0acca9f01336ed0e`。
+- 迁移分支：`chore/t149-monorepo-workspace`；worktree：`.worktree/monorepo-main-app-migration`。
+- `origin/master`：`5e55c54e13cd67f6e19c5361931fca1fe9ae4241`；baseline 不追赶远端，也不覆盖 root 用户改动。
+- baseline 提交只包含已完成治理迁移、任务合同与 S0 摘要证据；root 未暂存用户改动不在其中。
 
 ## 任务输入
 
@@ -29,9 +29,9 @@
 
 所有 Agent/test/fixture/browser/build scratch 使用系统临时根或明确 owner 目录。任何失败创建 `recovery/monorepo-main-app-migration-<phase>-<timestamp>` 现场并从上一绿色检查点新建修复 worktree；禁止 reset、stash、checkout 清理或 junction。
 
-## S0 待办
+## S0 结果
 
-1. 记录 root 工作树 status、暂存/未暂存 binary diff hash、未跟踪文件 path/bytes/SHA-256。
-2. 运行基线 governance、test、docs build、diff check；失败保留原始结果。
-3. 在得到用户批准的范围内提交当前已完成治理迁移作为 baseline，并创建迁移分支/worktree；不把未暂存用户改动带入 baseline。
-4. 重新核对六个原 checkout 的 branch/HEAD/upstream/dirty/status，并在系统临时根建立逐文件 import manifest；原仓只读验证。
+1. root 工作树的 status、暂存/未暂存 diff hash、未跟踪文件 path/bytes/SHA-256已记录在 `evidences/s0-baseline-summary.json` 及其系统临时 full evidence。
+2. `bun run governance:check`、`bun run test`、`bun run docs:build`、`git diff --check && git diff --cached --check`均退出 0。
+3. baseline commit/tag/worktree已创建，原 root 工作树未 reset、stash、checkout 或清理。
+4. 下一步重新核对六个原 checkout 并建立只读 import manifest；任何原仓聚焦验证失败都停止该包收编。

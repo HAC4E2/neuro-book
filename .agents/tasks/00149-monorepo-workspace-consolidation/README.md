@@ -2,11 +2,11 @@
 schema: nbook.task/v1
 taskId: 00149-monorepo-workspace-consolidation
 actionIssueId: null
-worktreeId: null
-branchId: null
+worktreeId: .worktree/monorepo-main-app-migration
+branchId: chore/t149-monorepo-workspace
 status: in-progress
 createdAt: 2026-08-16T14:59:07Z
-updatedAt: 2026-08-16T14:59:07Z
+updatedAt: 2026-08-16T15:20:00Z
 ---
 
 # NeuroBook Workspace 收敛与主应用迁移
@@ -38,4 +38,4 @@ updatedAt: 2026-08-16T14:59:07Z
 
 ## 当前状态
 
-已获用户批准，正在建立 S0 基线证据。当前 root worktree 含已暂存治理迁移和未暂存用户改动，二者必须分离保存；原工作树不得作为实现 worktree。
+已获用户批准，S0 已完成基线提交、annotated tag 与专用迁移 worktree 创建。后续实现只在 `chore/t149-monorepo-workspace` / `.worktree/monorepo-main-app-migration` 进行；root 用户 worktree 的 543 个未暂存改动和未跟踪用户目录保持原地。
