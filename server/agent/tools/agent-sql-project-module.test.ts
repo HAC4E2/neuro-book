@@ -5,7 +5,7 @@ import {
     projectAgentSqlModule,
 } from "nbook/server/agent/tools/agent-sql-project-module";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {
     PROJECT_DATABASE_MODULE_TOKEN,
     type ProjectDatabaseModuleHandle,

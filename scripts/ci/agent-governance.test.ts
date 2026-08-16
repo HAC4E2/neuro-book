@@ -6,7 +6,7 @@ import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {verifyTaskMigration} from "nbook/scripts/ci/agent-governance-contract";
-import {createTestTmpRoot} from "nbook/server/workspace-files/test-tmp-sweep";
+import { createTestTmpRoot } from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
 const fixtureRoots: string[] = [];

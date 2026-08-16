@@ -10,7 +10,7 @@ import {
     resolveAgentTestRoot,
     resolveAgentWorktreeRoot,
     resolveSystemTempRoot,
-} from "nbook/scripts/utils/agent-paths";
+} from "@notnotype/neuro-book-test-support/paths";
 
 const env = (values: Record<string, string | undefined> = {}): NodeJS.ProcessEnv => values;
 
@@ -27,6 +27,7 @@ describe("Agent 路径解析", () => {
         expect(() => resolveAgentTempRoot(env({NBOOK_AGENT_TEMP_ROOT: resolve(systemRoot, "..", "outside")}))).toThrow("受控根");
         expect(() => resolveAgentTempRoot(env({NBOOK_AGENT_TEMP_ROOT: "relative-temp"}))).toThrow("绝对路径");
     });
+
     it("worker Temp 改写为 Agent run 根时仍使用稳定宿主 Temp locator", () => {
         const hostRoot = resolveSystemTempRoot(env());
         const agentRoot = join(hostRoot, "neuro-book");

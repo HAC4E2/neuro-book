@@ -14,8 +14,8 @@ export const releaseAssetsVitestConfig = {
     },
     test: {
         environment: "node",
-        setupFiles: ["server/workspace-files/vitest-tmpdir-setup.ts"],
-        globalSetup: ["server/workspace-files/vitest-global-setup.ts"],
+        setupFiles: ["@notnotype/neuro-book-test-support/vitest"],
+        globalSetup: ["@notnotype/neuro-book-test-support/vitest"],
         maxWorkers: 1,
         include: [
             "scripts/release/install-dependencies.test.ts",

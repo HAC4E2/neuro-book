@@ -1,5 +1,5 @@
 import {describe, expect, it, vi, beforeEach} from "vitest";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 
 describe("POST /api/workspace-files/upload-file", () => {
     beforeEach(() => {

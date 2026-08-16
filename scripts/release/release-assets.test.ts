@@ -443,8 +443,8 @@ describe("Product Release宿主合同", () => {
             "scripts/release/release-checksums.test.ts",
         ]);
         // Release preflight 只加载受控临时根基础设施，不加载 Agent/Nuxt 全局 fixture。
-        expect(releaseAssetsVitestConfig.test.globalSetup).toEqual(["server/workspace-files/vitest-global-setup.ts"]);
-        expect(releaseAssetsVitestConfig.test.setupFiles).toEqual(["server/workspace-files/vitest-tmpdir-setup.ts"]);
+        expect(releaseAssetsVitestConfig.test.globalSetup).toEqual(["@notnotype/neuro-book-test-support/vitest"]);
+        expect(releaseAssetsVitestConfig.test.setupFiles).toEqual(["@notnotype/neuro-book-test-support/vitest"]);
         expect(workflow.jobs["build-container"].needs).toBe("preflight");
         expect(workflow.jobs["merge-container-images"].needs).toBe("build-container");
         expect(workflow.jobs.source.needs).toBe("preflight");

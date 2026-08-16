@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from "vitest";
 import {readFile} from "node:fs/promises";
 import path from "node:path";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

@@ -27,10 +27,10 @@ export default defineConfig({
         // run 级：先由 Agent fixture 设置 runId，再注册受控临时根清理；teardown 逆序执行。
         globalSetup: [
             "server/agent/test/global-setup.ts",
-            "server/workspace-files/vitest-global-setup.ts",
+            "@notnotype/neuro-book-test-support/vitest",
         ],
         setupFiles: [
-            "server/workspace-files/vitest-tmpdir-setup.ts",
+            "@notnotype/neuro-book-test-support/vitest",
             "server/agent/test/setup.ts",
         ],
         include: [

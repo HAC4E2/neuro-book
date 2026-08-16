@@ -1,4 +1,4 @@
-import {lstat, mkdir, mkdtemp, readdir, readFile, rm, rmdir, symlink, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, symlink} from "node:fs/promises";
 import {execFile} from "node:child_process";
 import {tmpdir} from "node:os";
 import path from "node:path";
@@ -17,23 +17,37 @@ import {
     setWorkspaceRuntimeRootContextForTest,
     type WorkspaceRuntimeRootContext,
 } from "nbook/server/workspace-files/workspace-runtime-root";
+import {
+    FIXTURE_MARKER_FILE,
+    FIXTURE_MARKER_SCHEMA_VERSION,
+    FIXTURE_ROOT_PREFIX,
+    SNAPSHOT_ROOT_PREFIX,
+    TEST_RUN_ID_ENV,
+    removeFixtureTree,
+    sweepStaleFixtureRoots,
+    writeFixtureMarker,
+    type SystemAssetsMode,
+} from "@notnotype/neuro-book-test-support/tmp";
+export {
+    FIXTURE_MARKER_FILE,
+    FIXTURE_MARKER_SCHEMA_VERSION,
+    FIXTURE_ROOT_PREFIX,
+    SNAPSHOT_ROOT_PREFIX,
+    TEST_RUN_ID_ENV,
+    removeFixtureTree,
+    sweepStaleFixtureRoots,
+} from "@notnotype/neuro-book-test-support/tmp";
+export type {
+    FixtureSweepReport,
+    FixtureSweepRetainReason,
+    SystemAssetsMode,
+    TestWorkspaceFixtureMarker,
+} from "@notnotype/neuro-book-test-support/tmp";
 
-/** fixture 临时 root 的固定前缀；sweep 只认这个前缀。 */
-export const FIXTURE_ROOT_PREFIX = "nbook-workspace-assets-";
-/** run 级共享只读 system assets snapshot 的固定前缀。 */
-export const SNAPSHOT_ROOT_PREFIX = "nbook-workspace-snapshot-";
-/** owner marker 文件名。 */
-export const FIXTURE_MARKER_FILE = ".nbook-fixture.json";
-/** marker 结构版本；sweep 只回收版本完全一致的 root。 */
-export const FIXTURE_MARKER_SCHEMA_VERSION = 1;
-/** 保守回收窗口：只有超过该时长且 owner 不活跃的 root 才允许回收。 */
-export const FIXTURE_STALE_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** 共享 snapshot 的投影字节预算；超出说明有人又把不可达 artifact 放回了模板。 */
 export const SHARED_SNAPSHOT_BYTE_BUDGET = 512 * 1024 * 1024;
 /** globalSetup 把共享 snapshot 路径通过该环境变量传给各测试 fork。 */
 export const TEST_SYSTEM_ASSETS_SNAPSHOT_ENV = "NBOOK_TEST_SYSTEM_ASSETS_SNAPSHOT";
-/** globalSetup 生成的单次 run 标识，写进 marker 便于把残留 root 归组。 */
-export const TEST_RUN_ID_ENV = "NBOOK_TEST_RUN_ID";
 
 /** 进程内 fallback run id：没有 globalSetup 时（例如单文件直跑）仍然要能写出 marker。 */
 const processRunId = randomUUID();
@@ -46,7 +60,6 @@ const systemAssetsProjection = new SystemAssetsProjection();
  *   只有内容寻址的不可变 artifact 走硬链接（约 382 MiB 共享 inode）。
  * - `isolated`：整棵树真实拷贝，供**会写入 system `.compiled` artifact** 的测试独占。
  */
-export type SystemAssetsMode = "shared" | "isolated";
 
 export type IsolatedWorkspaceAssets = {
     root: string;
@@ -72,36 +85,6 @@ export type IsolatedWorkspaceAssetsOptions = {
      * 写进 owner marker 的用途标签，仅用于诊断残留 root；为空时按 vitest worker 编号生成。
      */
     purpose?: string;
-};
-
-/**
- * fixture root 的 owner marker。sweep 只在这些字段全部可证明安全时才回收目录。
- */
-export type TestWorkspaceFixtureMarker = {
-    /** marker 结构版本；不一致一律保留并报告，不回收。 */
-    schemaVersion: number;
-    /** 创建时刻 ISO 字符串；用于保守回收窗口判定。 */
-    createdAt: string;
-    /** 创建进程 PID；仍存活时绝不回收。 */
-    pid: number;
-    /** 单次 Vitest run 标识；用于把同一 run 的 root 归组诊断。 */
-    runId: string;
-    /** 用途标签，仅用于诊断。 */
-    purpose: string;
-    /** system assets 投影方式，用于诊断哪些 root 真的复制了模板。 */
-    systemAssets: SystemAssetsMode;
-};
-
-/** sweep 判定保留某个 root 的原因。 */
-export type FixtureSweepRetainReason = "no_marker" | "schema_mismatch" | "owner_alive" | "within_window" | "unreadable";
-
-export type FixtureSweepReport = {
-    /** 已成功回收的 root 绝对路径。 */
-    removed: string[];
-    /** 匹配前缀但无法证明可安全回收的 root 及原因。 */
-    retained: {root: string; reason: FixtureSweepRetainReason}[];
-    /** 回收过程中的失败项；不阻断本次 run。 */
-    failures: {root: string; message: string}[];
 };
 
 /**
@@ -352,152 +335,6 @@ async function ensurePublishedSystemArtifactsFresh(systemNbookRoot: string): Pro
  * 必须先 `lstat` 判定 reparse point 只解链接本身。Windows junction 在 Node 中
  * 同样报告 `isSymbolicLink() === true`，跟随它递归删除会删掉仓库源码。
  */
-export async function removeFixtureTree(root: string): Promise<void> {
-    const entries = await readdir(root, {withFileTypes: true}).catch(() => []);
-    const failures: unknown[] = [];
-    for (const entry of entries) {
-        // marker 必须最后删除；否则某个 junction/文件删除失败后只剩无 owner 的半棵目录，
-        // 后续 sweep 将永远无法证明它可安全回收。
-        if (entry.name === FIXTURE_MARKER_FILE) {
-            continue;
-        }
-        const target = path.join(root, entry.name);
-        try {
-            const stats = await lstat(target);
-            if (stats.isSymbolicLink()) {
-                // 必须带 recursive：Windows 目录 junction 不能用非递归 rm 解除（会 EFAULT/EPERM）。
-                // `fs.rm` 对 symlink/junction 只解链接、不进入目标，所以这里不会删到仓库本体。
-                await rm(target, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
-                continue;
-            }
-            await rm(target, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
-        } catch (error) {
-            failures.push(error);
-        }
-    }
-    if (failures.length > 0) {
-        throw new AggregateError(failures, `fixture root 清理存在失败项：${root}`);
-    }
-
-    const markerPath = path.join(root, FIXTURE_MARKER_FILE);
-    const markerText = await readFile(markerPath, "utf8").catch(() => null);
-    await rm(markerPath, {force: true, maxRetries: 10, retryDelay: 100});
-    try {
-        await rmdir(root);
-    } catch (error) {
-        if (markerText !== null) {
-            await writeFile(markerPath, markerText, "utf8").catch((restoreError: unknown) => {
-                throw new AggregateError([error, restoreError], `fixture root 清理失败且无法恢复owner marker：${root}`);
-            });
-        }
-        throw new AggregateError([error], `fixture root 清理存在失败项：${root}`);
-    }
-}
-
-/**
- * 回收上一次运行留下的 fixture root。
- *
- * 判定链上任何一步无法证明安全，一律保留并报告，绝不删除：
- * 必须是真实目录（不跟随同名 symlink）→ marker 可读且 schema 一致 →
- * 超过保守窗口 → owner 进程已不活跃。
- */
-export async function sweepStaleFixtureRoots(now: number = Date.now()): Promise<FixtureSweepReport> {
-    const report: FixtureSweepReport = {removed: [], retained: [], failures: []};
-    const tempRoot = tmpdir();
-    const entries = await readdir(tempRoot, {withFileTypes: true}).catch(() => []);
-    for (const entry of entries) {
-        if (!entry.name.startsWith(FIXTURE_ROOT_PREFIX) && !entry.name.startsWith(SNAPSHOT_ROOT_PREFIX)) {
-            continue;
-        }
-        const root = path.join(tempRoot, entry.name);
-        const stats = await lstat(root).catch(() => null);
-        if (!stats || stats.isSymbolicLink() || !stats.isDirectory()) {
-            report.retained.push({root, reason: "unreadable"});
-            continue;
-        }
-        const marker = await readFixtureMarker(root);
-        if (!marker) {
-            report.retained.push({root, reason: "no_marker"});
-            continue;
-        }
-        if (marker.schemaVersion !== FIXTURE_MARKER_SCHEMA_VERSION) {
-            report.retained.push({root, reason: "schema_mismatch"});
-            continue;
-        }
-        const createdAt = Date.parse(marker.createdAt);
-        if (!Number.isFinite(createdAt) || now - createdAt < FIXTURE_STALE_WINDOW_MS) {
-            report.retained.push({root, reason: "within_window"});
-            continue;
-        }
-        if (isProcessAlive(marker.pid)) {
-            report.retained.push({root, reason: "owner_alive"});
-            continue;
-        }
-        try {
-            await removeFixtureTree(root);
-            report.removed.push(root);
-        } catch (error) {
-            report.failures.push({root, message: error instanceof Error ? error.message : String(error)});
-        }
-    }
-    return report;
-}
-
-/** 写入 owner marker。 */
-async function writeFixtureMarker(root: string, marker: TestWorkspaceFixtureMarker): Promise<void> {
-    await writeFile(path.join(root, FIXTURE_MARKER_FILE), `${JSON.stringify(marker, null, 4)}\n`, "utf8");
-}
-
-/** 读取并逐字段窄化 owner marker；任何字段不合法都返回 null，交由调用方保留目录。 */
-async function readFixtureMarker(root: string): Promise<TestWorkspaceFixtureMarker | null> {
-    const text = await readFile(path.join(root, FIXTURE_MARKER_FILE), "utf8").catch(() => null);
-    if (text === null) {
-        return null;
-    }
-    let value: unknown;
-    try {
-        // marker 是磁盘上的外部数据，解析前形态未知，这里是 unknown 的正当用法。
-        value = JSON.parse(text) as unknown;
-    } catch {
-        return null;
-    }
-    if (typeof value !== "object" || value === null) {
-        return null;
-    }
-    const candidate = value as Partial<Record<keyof TestWorkspaceFixtureMarker, unknown>>;
-    if (typeof candidate.schemaVersion !== "number"
-        || typeof candidate.createdAt !== "string"
-        || typeof candidate.pid !== "number"
-        || typeof candidate.runId !== "string"
-        || typeof candidate.purpose !== "string"
-        || (candidate.systemAssets !== "shared" && candidate.systemAssets !== "isolated")) {
-        return null;
-    }
-    return {
-        schemaVersion: candidate.schemaVersion,
-        createdAt: candidate.createdAt,
-        pid: candidate.pid,
-        runId: candidate.runId,
-        purpose: candidate.purpose,
-        systemAssets: candidate.systemAssets,
-    };
-}
-
-/**
- * 判断 owner 进程是否仍活跃。
- * ESRCH 表示进程不存在；EPERM 表示存在但无权限，视为存活。无法判定一律视为存活。
- */
-export function isProcessAlive(pid: number): boolean {
-    if (!Number.isInteger(pid) || pid <= 0) {
-        return true;
-    }
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return !(typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH");
-    }
-}
 
 // 这些条目必须覆盖 profile manifest 里依赖路径的全部顶层前缀：
 // 依赖按 cwd 相对记录（`normalizeArtifactPath`），fixture 内解析不到就会被判成

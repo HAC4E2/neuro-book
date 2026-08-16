@@ -2,7 +2,7 @@
   "schema": "nbook.task-migration/v1",
   "sourceRevision": "306e563ad7a4d4a58354fa8d582ad9aa9b886e8c",
   "fileCount": 992,
-  "manifestSha256": "sha256:6bd71aa032d0f6b1b5d302d874e44285283499e7fe60c796e30ddb012f2ffbf6",
+  "manifestSha256": "sha256:5a73648d411f5de7152605b2c678d503760f75e86c56b1ed4a4ba6c99247d193",
   "completedAt": "2026-08-15T15:05:32.712Z",
   "repositoryLinkRewrites": [
     "PROJECT-STATUS.md",

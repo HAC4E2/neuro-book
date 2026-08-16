@@ -6,21 +6,21 @@
 
 **原则：任何人 clone 后运行 `bun run test`，不应在系统 Temp 根、用户目录或项目业务目录留下文件。**
 
-1. **测试临时根统一在 `<系统Temp>/neuro-book-vitest/<runId>/`**：
-   - 由 `server/workspace-files/vitest-tmpdir-setup.ts` 在每个 Vitest worker 启动时把
+1. **测试临时根统一在 `<系统Temp>/neuro-book/vitest/<runId>/`**：
+   - 由 `@notnotype/neuro-book-test-support/vitest` 在每个 Vitest worker 启动时把
      `TMPDIR`/`TEMP`/`TMP` 指向该目录；测试里 `os.tmpdir()` / `mkdtemp(tmpdir()...)`
      运行期自动收敛；
    - 受控根不放在仓库 `.agent/tmp`：worktree 深路径叠加测试内部 UUID 目录名会超过
      Windows MAX_PATH（git 对象与 release staging 报 "Filename too long" /
      ENAMETOOLONG），系统 Temp 路径最短且 OS 会定期清理；
-   - 每次 run 结束由 `server/workspace-files/vitest-global-setup.ts` 的 teardown 删除
+   - 每次 run 结束由 `@notnotype/neuro-book-test-support/vitest` 的 teardown 删除
      本 run 目录；并行 run 因 runId（8 位 hex）互不干扰；进程被强杀时由下一次 run 的
      setup 按 24 小时超窗兜底回收；
    - 所有 Vitest 配置的 `setupFiles` 第一项必须是该 setup 文件、`globalSetup` 必须包含
      该 globalSetup（含独立包配置）。
 2. **测试自身必须清理自己创建的目录**：`afterEach` 收集并 `rm`。清理失败视为测试问题，
    不依赖全局清理兜底。
-3. **进程被强杀等异常残留**由 `server/workspace-files/test-tmp-sweep.ts` 的
+3. **进程被强杀等异常残留**由 `@notnotype/neuro-book-test-support/tmp` 的
    `sweepStaleTmpRoots()` 在每次 run 起点回收：无 owner marker 的目录超过 24 小时才回收；
    有 marker 的目录要求 owner 进程已死且超窗。新增「目录 + marker」的测试根应使用
    `createTestTmpRoot(repoRoot, name, purpose)`。

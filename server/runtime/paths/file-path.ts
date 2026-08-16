@@ -2,10 +2,8 @@ import {homedir} from "node:os";
 import path from "node:path";
 import {lstat, realpath} from "node:fs/promises";
 
-declare const absoluteFsPathBrand: unique symbol;
-
-/** 已规范化的文件系统绝对路径。 */
-export type AbsoluteFsPath = string & {readonly [absoluteFsPathBrand]: "absolute-fs-path"};
+/** 已规范化的文件系统绝对路径品牌；测试支持包可在不依赖应用源码的情况下构造同一合同。 */
+export type AbsoluteFsPath = string & {readonly __absoluteFsPath: "absolute-fs-path"};
 
 /**
  * 校验并规范化绝对文件系统路径。

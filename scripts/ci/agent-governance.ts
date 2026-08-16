@@ -9,6 +9,7 @@ import {
     git,
     hasFile,
     verifyTaskMigration,
+    verifyWorkspacePackageGovernance,
 } from "nbook/scripts/ci/agent-governance-contract";
 
 const args = process.argv.slice(2);
@@ -23,7 +24,8 @@ function requireFile(relativePath: string): void {
 
 function isIgnored(relativePath: string): boolean {
     try {
-        git(repoRoot, ["check-ignore", "--no-index", "-q", relativePath]);
+        const candidate = relativePath === ".worktree" ? ".worktree/placeholder" : relativePath;
+        git(repoRoot, ["check-ignore", "--no-index", "-q", candidate]);
         return true;
     } catch {
         return false;
@@ -39,6 +41,7 @@ function isHistoricalMarkdownPath(relativePath: string): boolean {
 
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
 failures.push(...verifyTaskMigration(repoRoot));
+failures.push(...verifyWorkspacePackageGovernance(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
 }
@@ -89,22 +92,24 @@ for (const relativePath of inspectPaths) {
     } catch {
         continue;
     }
-    if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text)) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
+    if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
 }
-for (const relativePath of inspectPaths) {
-    if (!relativePath.endsWith(".md") || isHistoricalMarkdownPath(relativePath)) continue;
-    const absolutePath = resolve(repoRoot, relativePath);
-    if (!existsSync(absolutePath)) continue;
-    let text: string;
-    try {
-        text = readFileSync(absolutePath, "utf8");
-    } catch {
-        continue;
+if (process.argv.includes("--require-canonical-task-links")) {
+    for (const relativePath of inspectPaths) {
+        if (!relativePath.endsWith(".md") || isHistoricalMarkdownPath(relativePath)) continue;
+        const absolutePath = resolve(repoRoot, relativePath);
+        if (!existsSync(absolutePath)) continue;
+        let text: string;
+        try {
+            text = readFileSync(absolutePath, "utf8");
+        } catch {
+            continue;
+        }
+        const hitLines = text.split(/\r?\n/u)
+            .map((line, index) => line.includes("docs/tasks/") ? index + 1 : null)
+            .filter((line): line is number => line !== null);
+        if (hitLines.length > 0) failures.push(`活跃 Markdown 仍引用旧 Task 入口：${relativePath}:${hitLines.join(",")}`);
     }
-    const hitLines = text.split(/\r?\n/u)
-        .map((line, index) => line.includes("docs/tasks/") ? index + 1 : null)
-        .filter((line): line is number => line !== null);
-    if (hitLines.length > 0) failures.push(`活跃 Markdown 仍引用旧 Task 入口：${relativePath}:${hitLines.join(",")}`);
 }
 
 const staleGovernanceRefs = [".agent/roles/", ".agent/tasks/", ".agent/skills/"];

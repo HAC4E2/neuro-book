@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 const PROJECT_REF = {projectRoot: "rag-ready"};

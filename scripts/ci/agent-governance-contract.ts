@@ -1,9 +1,9 @@
 import {createHash} from "node:crypto";
 import {execFileSync} from "node:child_process";
-import {existsSync, lstatSync, readFileSync} from "node:fs";
+import {existsSync, lstatSync, readFileSync, readdirSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot} from "nbook/scripts/utils/agent-paths";
+import { resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot } from "@notnotype/neuro-book-test-support/paths";
 
 export const GOVERNANCE_SCHEMA = "nbook.governance/v1";
 export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
@@ -183,14 +183,15 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     }
     for (const mapping of mappings) {
         const destinationPath = resolve(repoRoot, mapping.destination);
+        const sourceTracked = Boolean(baselineTracked[mapping.source]);
+        const sourceLocalOnly = Boolean(localOnlySources[mapping.source]);
         if (!hasFile(repoRoot, mapping.destination)) {
+            if (sourceLocalOnly && isGitIgnored(repoRoot, mapping.destination)) continue;
             failures.push(`迁移目标缺失或不是普通文件：${mapping.destination}`);
             continue;
         }
         const actual = `sha256:${createHash("sha256").update(readFileSync(destinationPath)).digest("hex")}`;
         if (actual !== mapping.destinationSha256) failures.push(`迁移目标 hash 不一致：${mapping.destination}`);
-        const sourceTracked = Boolean(baselineTracked[mapping.source]);
-        const sourceLocalOnly = Boolean(localOnlySources[mapping.source]);
         if (sourceTracked && sourceLocalOnly) failures.push(`tracked Task 被错误标记 localOnly：${mapping.source}`);
         if (sourceLocalOnly && sourceTracked) failures.push(`localOnly Task 与 baseline tracked 冲突：${mapping.source}`);
         if (!sourceLocalOnly && !stagedOrTracked[mapping.destination]) failures.push(`canonical Task 尚未进入 Git index：${mapping.destination}`);
@@ -199,7 +200,90 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     }
     if (Object.keys(localOnlySources).length !== index.localOnlyFiles.length) failures.push("迁移 localOnlyFiles 含重复路径");
     if (index.localOnlyFiles.some((source) => baselineTracked[source])) failures.push("迁移 localOnlyFiles 包含 baseline tracked 路径");
+
     return failures;
+}
+
+/**
+ * 校验 workspace 运行垃圾与自治项目治理资产归属。
+ * 当前阶段允许自治项目尚未收编；一旦包目录存在，就必须满足完整归属合同。
+ */
+export function verifyWorkspacePackageGovernance(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const packagesRoot = resolve(repoRoot, "packages");
+    const packageNames = existsSync(packagesRoot)
+        ? readdirSync(packagesRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+        : [];
+    const autonomous = new Set(["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"]);
+    const internal = new Set(["neuro-book", "neuro-book-manager", "owned-process", "file-snapshot-cache", "neuro-book-test-support"]);
+
+    for (const packageName of packageNames) {
+        const packageRoot = resolve(packagesRoot, packageName);
+        for (const runtimeName of [".agent", ".local", ".worktree"]) {
+            const runtimePath = resolve(packageRoot, runtimeName);
+            if (!pathEntryExists(runtimePath)) continue;
+            failures.push(`workspace包包含运行态目录：packages/${packageName}/${runtimeName}`);
+        }
+        const taskRoot = resolve(packageRoot, ".agents", "tasks");
+        const docsRoot = resolve(packageRoot, "docs");
+        const statusPath = resolve(packageRoot, "PROJECT-STATUS.md");
+        const agentsPath = resolve(packageRoot, "AGENTS.md");
+        if (autonomous.has(packageName)) {
+            for (const required of [[taskRoot, `.agents/tasks`], [docsRoot, "docs"], [statusPath, "PROJECT-STATUS.md"]] as const) {
+                if (!pathEntryExists(required[0])) failures.push(`自治workspace包缺少归属资产：packages/${packageName}/${required[1]}`);
+            }
+            if (!pathEntryExists(agentsPath)) {
+                failures.push(`自治workspace包缺少AGENTS.md：packages/${packageName}/AGENTS.md`);
+            } else {
+                const text = readFileSync(agentsPath, "utf8");
+                if (!text.includes("../../AGENTS.md") && !text.includes("根共享") && !text.includes("shared Rule")) {
+                    failures.push(`自治workspace包AGENTS.md未引用根共享规则：packages/${packageName}/AGENTS.md`);
+                }
+            }
+            failures.push(...verifyPackageTaskIds(packageRoot, packageName));
+        } else if (internal.has(packageName)) {
+            for (const [entryPath, label] of [[taskRoot, ".agents/tasks"], [docsRoot, "docs"], [statusPath, "PROJECT-STATUS.md"]] as const) {
+                if (pathEntryExists(entryPath)) failures.push(`NeuroBook内部包不得建立第二治理根：packages/${packageName}/${label}`);
+            }
+        }
+    }
+    return failures;
+}
+
+function pathEntryExists(path: string): boolean {
+    try {
+        lstatSync(path);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function verifyPackageTaskIds(packageRoot: string, packageName: string): string[] {
+    const failures: string[] = [];
+    const taskRoot = resolve(packageRoot, ".agents", "tasks");
+    if (!pathEntryExists(taskRoot)) return failures;
+    const ids = new Set<string>();
+    const files = collectMarkdownFiles(taskRoot);
+    for (const file of files) {
+        const text = readFileSync(file, "utf8");
+        for (const match of text.matchAll(/\btaskId:\s*["']?([A-Za-z0-9._-]+)["']?/gu)) {
+            const taskId = match[1];
+            if (ids.has(taskId)) failures.push(`自治workspace包Task编号重复：packages/${packageName}/${taskId}`);
+            ids.add(taskId);
+        }
+    }
+    return failures;
+}
+
+function collectMarkdownFiles(root: string): string[] {
+    const files: string[] = [];
+    for (const entry of readdirSync(root, {withFileTypes: true})) {
+        const path = resolve(root, entry.name);
+        if (entry.isDirectory()) files.push(...collectMarkdownFiles(path));
+        else if (entry.isFile() && entry.name.endsWith(".md")) files.push(path);
+    }
+    return files;
 }
 
 

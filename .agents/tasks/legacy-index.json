@@ -1,7 +1,7 @@
 {
   "schema": "nbook.task-migration-index/v1",
   "sourceRevision": "306e563ad7a4d4a58354fa8d582ad9aa9b886e8c",
-  "manifestSha256": "sha256:6bd71aa032d0f6b1b5d302d874e44285283499e7fe60c796e30ddb012f2ffbf6",
+  "manifestSha256": "sha256:5a73648d411f5de7152605b2c678d503760f75e86c56b1ed4a4ba6c99247d193",
   "migratedAt": "2026-08-15T15:05:32.708Z",
   "mappings": [
     {
@@ -768,7 +768,7 @@
       "source": "docs/tasks/133-style-eval/README.md",
       "destination": ".agents/tasks/133-style-eval/README.md",
       "sourceSha256": "sha256:8c7ff43da50dd77072392690f1c40d94915405278f7e8aaa26bd3fd605178ed4",
-      "destinationSha256": "sha256:8c7ff43da50dd77072392690f1c40d94915405278f7e8aaa26bd3fd605178ed4",
+      "destinationSha256": "sha256:8cc73e2a0a7218bb07f40368e4f304dc851e3bede8da317ee16b3a8e6fe71910",
       "kind": "file",
       "linkRewrite": false
     },

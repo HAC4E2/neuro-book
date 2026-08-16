@@ -1,5 +1,5 @@
 import {describe, expect, it, vi, beforeEach} from "vitest";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 
 const root = testAbsoluteFsPath("workspace-upload-project", "workspace", "novel-7");
 

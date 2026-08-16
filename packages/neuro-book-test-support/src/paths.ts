@@ -188,7 +188,6 @@ function comparablePath(pathValue: string): string {
     return process.platform === "win32" ? normalized.toLocaleLowerCase("en-US") : normalized;
 }
 
-
 function assertSafeSegment(value: string, label: string): void {
     if (!SAFE_SEGMENT_PATTERN.test(value) || value === "." || value === "..") {
         throw new Error(`${label} 含有非法路径段：${value}`);

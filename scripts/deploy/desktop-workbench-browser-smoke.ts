@@ -4,6 +4,7 @@ import {pathToFileURL} from "node:url";
 
 import {chromium, type BrowserContext, type Page} from "playwright-core";
 
+import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
 type SmokeOptions = {
     url: string;
     browserExecutable: string;
@@ -643,7 +644,7 @@ function parseOptions(args: string[]): SmokeOptions {
     return {
         url: new URL(url).href,
         browserExecutable: resolve(browserExecutable),
-        evidenceDir: resolve(values.get("--evidence-dir") ?? ".agent/tmp/desktop-workbench-browser-smoke"),
+        evidenceDir: resolve(values.get("--evidence-dir") ?? resolveAgentAcceptanceRoot()),
         headless,
     };
 }

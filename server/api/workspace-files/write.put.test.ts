@@ -5,7 +5,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {statWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import {WorkspaceWriteConflictDtoSchema} from "nbook/shared/dto/workspace-file-conflict.dto";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const createdRoots: string[] = [];

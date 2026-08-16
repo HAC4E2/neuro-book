@@ -2,7 +2,7 @@ import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
 import {spawnWorkflowJob} from "nbook/server/agent/workflow/workflow-job";
 import {createDefaultEffectiveConfig} from "nbook/server/config/normalizer";
 import type {RunView, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

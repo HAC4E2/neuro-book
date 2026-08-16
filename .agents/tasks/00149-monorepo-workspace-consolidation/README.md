@@ -6,7 +6,7 @@ worktreeId: .worktree/monorepo-main-app-migration
 branchId: chore/t149-monorepo-workspace
 status: in-progress
 createdAt: 2026-08-16T14:59:07Z
-updatedAt: 2026-08-16T15:20:00Z
+updatedAt: 2026-08-16T17:26:39Z
 ---
 
 # NeuroBook Workspace 收敛与主应用迁移
@@ -38,4 +38,4 @@ updatedAt: 2026-08-16T15:20:00Z
 
 ## 当前状态
 
-已获用户批准，S0 已完成基线提交、annotated tag 与专用迁移 worktree 创建。后续实现只在 `chore/t149-monorepo-workspace` / `.worktree/monorepo-main-app-migration` 进行；root 用户 worktree 的 543 个未暂存改动和未跟踪用户目录保持原地。
+S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支持、治理门禁、显式 workspace 清单和冻结安装已完成，下一检查点为六个自治项目收编。后续实现仍只在 `chore/t149-monorepo-workspace` / `.worktree/monorepo-main-app-migration` 进行；root 用户 worktree 的既有改动和六个原仓保持原地。

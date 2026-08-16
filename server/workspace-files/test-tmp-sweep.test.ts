@@ -2,13 +2,11 @@ import {access, lstat, mkdir, readFile, rm, symlink, utimes, writeFile} from "no
 import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import {
-    createTestTmpRoot,
-    sweepStaleTmpRoots,
-    TMP_MARKER_FILE,
-    TMP_MARKER_SCHEMA_VERSION,
-    type TestTmpRootMarker,
-} from "nbook/server/workspace-files/test-tmp-sweep";
+import { createTestTmpRoot,
+sweepStaleTmpRoots,
+TMP_MARKER_FILE,
+TMP_MARKER_SCHEMA_VERSION,
+type TestTmpRootMarker, } from "@notnotype/neuro-book-test-support/tmp";
 
 /** 仓库根：`server/workspace-files/` 向上两级。 */
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");

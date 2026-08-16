@@ -35,3 +35,21 @@
 2. `bun run governance:check`、`bun run test`、`bun run docs:build`、`git diff --check && git diff --cached --check`均退出 0。
 3. baseline commit/tag/worktree已创建，原 root 工作树未 reset、stash、checkout 或清理。
 4. 下一步重新核对六个原 checkout 并建立只读 import manifest；任何原仓聚焦验证失败都停止该包收编。
+
+## S1 结果（2026-08-16）
+
+- 新增私有 `@notnotype/neuro-book-test-support`，提供 `./paths`、`./tmp`、`./test-path` 和 `./vitest`；应用 System Assets snapshot 逻辑仍留 `server/workspace-files/test-workspace-fixture.ts`，只消费包内通用 marker、sweep、进程和删除工具。
+- 根 workspace 已从 `packages/*` 收敛为四个真实成员：`packages/neuro-book-manager`、`packages/owned-process`、`packages/file-snapshot-cache`、`packages/neuro-book-test-support`；root、三个现有包的测试开发依赖和 `bun.lock` 同步更新。Docker deps stage 已复制 test-support manifest，保持 frozen install 合同。
+- 根、Manager、owned-process、file-snapshot-cache、Desktop packaging 和 release 专用 Vitest 配置已切换到 `@notnotype/neuro-book-test-support/vitest`；旧 `scripts/utils/agent-paths`、`server/runtime/paths/test-path`、`server/workspace-files/test-tmp-sweep` 与两个旧 Vitest setup 入口已删除。
+- governance 新增 workspace 运行垃圾、自治项目治理资产、Task ID 唯一性与内部包第二治理根门禁；`governance:check` 当前 `failures=[]/warnings=[]`。历史 Task 链接硬切保留显式 `--require-canonical-task-links` 入口，待 S6/S8 物理迁移同步切换，避免在旧路径测试尚未迁移时误报。
+- 根 shim 分配：Manager 有包内 `proper-lockfile.d.ts`；scripts 使用 `scripts/types/proper-lockfile.d.ts` 与 `scripts/types/yazl.d.ts`；应用 shim 暂留根，随 S6 应用物理迁移。
+
+### S1 验证
+
+- `bun install --frozen-lockfile --linker hoisted`：通过，`1599 installs`，lockfile 未变化。
+- `bun run governance:check`：通过，`failures=[]`、`warnings=[]`。
+- `bun run --cwd packages/neuro-book-test-support typecheck`：通过；测试 `1 file / 7 passed`。
+- `bunx tsc --noEmit -p scripts/tsconfig.json`、`bun run manager:typecheck`：均通过。
+- 受影响聚焦集：owned-process `44 passed`；file-snapshot-cache `15 passed / 3 skipped`。
+- 无重试的两次根 `bun run test` 分别因既有 Harness black-box trace 清理竞态出现 `1/2` 个 `ENOTEMPTY`；失败文件未被 S1 修改，单文件重跑通过；`bun run test -- --retry=3` 通过，`500 files passed / 1 skipped`、`3496 passed / 14 skipped`。SQLite experimental warning、history warm-up 注入失败和 World Engine EBUSY 为测试内预期日志。
+- `git diff --cached --check`：通过；仅保留 Git 在 Windows checkout 下的 CRLF 警告边界。

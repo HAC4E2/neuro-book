@@ -44,7 +44,7 @@ test("reference issues 文档不再声明双真相源", () => {
 });
 
 test("任务 56 的 World Issue reference 链接指向真实文件", () => {
-    const taskPath = join(process.cwd(), "docs/tasks/56-world-engine/README.md");
+    const taskPath = join(process.cwd(), ".agents/tasks/56-world-engine/README.md");
     const markdown = readFileSync(taskPath, "utf8");
     const match = markdown.match(/\[reference\/world-engine\/issues\.md\]\(([^)]+)\)/);
     expect(match?.[1]).toBeTruthy();

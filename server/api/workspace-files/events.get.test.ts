@@ -1,5 +1,5 @@
 import {beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
-import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 type WorkspaceFileEventsHandlerFactory = typeof import("nbook/server/api/workspace-files/events.get")["createWorkspaceFileEventsHandler"];

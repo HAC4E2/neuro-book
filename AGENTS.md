@@ -11,7 +11,7 @@
 - 修复和重构应解决合同或设计问题，不用 hack 绕过类型系统或制造技术债；不能兼容时说明取舍。
 - 测试范围按风险匹配：复杂、共享合同和用户流程需要验证；简单文档或局部改动不主动扩展测试。除非用户授权，不自动进行浏览器验收。
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件。
-- 测试和运行产生的临时根放在 `.agent/tmp/<test-name>-<uuid>/`，不要在仓库、`.worktree/` 或快照目录创建业务临时数据；测试的 `os.tmpdir()` 由 Vitest setup 统一收敛到系统 Temp 的 `neuro-book-vitest/<runId>/`（详见 `docs/testing/README.md`）。
+- 测试和运行产生的临时根放在 `.agent/tmp/<test-name>-<uuid>/`，不要在仓库、`.worktree/` 或快照目录创建业务临时数据；测试的 `os.tmpdir()` 由 `@notnotype/neuro-book-test-support/vitest` 统一收敛到系统 Temp 的 `neuro-book/vitest/<runId>/`（详见 `docs/testing/README.md`).
 
 ## 汇报与提问：让不读源码的人能拍板
 
@@ -45,7 +45,7 @@ GitHub Issue 承载需求与 TODO，task walkthrough 记录重大任务，独立
 ## 文档
 
 - `PROJECT-STATUS.md`：仓库现状、模块状态和风险；TODO 与跨任务跟进记录在 GitHub Issue。
-- `docs/README.md`：文档体系入口；`docs/modules`：模块说明和研究入口；`docs/tasks/README.md`：task walkthrough 规则。
+- `docs/README.md`：文档体系入口；`docs/modules`：模块说明和研究入口；`.agents/tasks/README.md`：task walkthrough 规则。
 - `docs/manual-eval/`：用户视角人工评测体系；面向用户的说明在 `docs/manual-eval/README.md`，Agent 执行流程在 `docs/manual-eval/agent-guide.md`，判定口径在 `docs/manual-eval/criteria.md`，报告模板在 `docs/manual-eval/report-template.md`，评测旅程在 `docs/manual-eval/journeys/`。
 - `reference/README.md`：稳定参考入口；涉及 World Engine 先读 `reference/world-engine/README.md`；涉及 workspace 术语先读 `reference/workspace/TERMS.md`。
 - 重大任务持续更新同一个 task walkthrough，记录目标、计划与实际出入、决策、变更、验证和实现级后续；跨任务事项开 Issue。

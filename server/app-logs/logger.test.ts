@@ -11,7 +11,7 @@ import {
     sanitizeAppLogValue,
     serializeAppLogError,
 } from "nbook/server/app-logs/logger";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path";
 
 const cleanupRoots: string[] = [];
 

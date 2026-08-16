@@ -1,14 +1,16 @@
-import {randomUUID} from "node:crypto";
+import {randomBytes} from "node:crypto";
 import {fileURLToPath} from "node:url";
 import {dirname, resolve} from "node:path";
 import {
     createSharedSystemAssetsSnapshot,
     removeFixtureTree,
-    sweepStaleFixtureRoots,
-    TEST_RUN_ID_ENV,
     TEST_SYSTEM_ASSETS_SNAPSHOT_ENV,
 } from "nbook/server/workspace-files/test-workspace-fixture";
-import {sweepStaleTmpRoots} from "nbook/server/workspace-files/test-tmp-sweep";
+import {
+    sweepStaleFixtureRoots,
+    sweepStaleTmpRoots,
+    TEST_RUN_ID_ENV,
+} from "@notnotype/neuro-book-test-support/tmp";
 
 /** 本次 run 建立的共享 snapshot；teardown 时删除。 */
 let snapshotRoot: string | null = null;
@@ -19,12 +21,12 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 /**
  * Vitest run 级准备。
  *
- * 先保守回收上一次运行留下的 fixture 残留与 `.agent/tmp/` 测试临时残留，再建立一份
+ * 先保守回收上一次运行留下的 fixture 残留与测试临时残留，再建立一份
  * run 级共享只读 system assets snapshot，通过环境变量传给各测试 fork。这样单次 run
  * 只投影一份 system 模板，而不是每个用例复制一份完整 `.nbook`。
  */
 export async function setup(): Promise<void> {
-    process.env[TEST_RUN_ID_ENV] = randomUUID();
+    process.env[TEST_RUN_ID_ENV] = randomBytes(4).toString("hex");
     const sweep = await sweepStaleFixtureRoots();
     if (sweep.removed.length > 0 || sweep.failures.length > 0) {
         console.info(`[fixture] 回收残留 root ${sweep.removed.length} 个，保留 ${sweep.retained.length} 个，失败 ${sweep.failures.length} 个`);
