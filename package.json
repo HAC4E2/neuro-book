@@ -11,7 +11,13 @@
     "packages/neuro-book-manager",
     "packages/owned-process",
     "packages/file-snapshot-cache",
-    "packages/neuro-book-test-support"
+    "packages/neuro-book-test-support",
+    "packages/nb-history",
+    "packages/nb-workflow",
+    "packages/nb-memory",
+    "packages/nb-ui",
+    "packages/neuro-agent-harness",
+    "packages/llmlint"
   ],
   "type": "module",
   "scripts": {

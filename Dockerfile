@@ -20,6 +20,12 @@ COPY packages/file-snapshot-cache/package.json ./packages/file-snapshot-cache/pa
 COPY packages/neuro-book-manager/package.json ./packages/neuro-book-manager/package.json
 COPY packages/owned-process/package.json ./packages/owned-process/package.json
 COPY packages/neuro-book-test-support/package.json ./packages/neuro-book-test-support/package.json
+COPY packages/nb-history/package.json ./packages/nb-history/package.json
+COPY packages/nb-workflow/package.json ./packages/nb-workflow/package.json
+COPY packages/nb-memory/package.json ./packages/nb-memory/package.json
+COPY packages/nb-ui/package.json ./packages/nb-ui/package.json
+COPY packages/neuro-agent-harness/package.json ./packages/neuro-agent-harness/package.json
+COPY packages/llmlint/package.json ./packages/llmlint/package.json
 COPY patches ./patches
 RUN cp bun.lock /tmp/bun.lock \
     && bun install --frozen-lockfile --linker hoisted \

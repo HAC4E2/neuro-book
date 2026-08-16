@@ -53,3 +53,11 @@
 - 受影响聚焦集：owned-process `44 passed`；file-snapshot-cache `15 passed / 3 skipped`。
 - 无重试的两次根 `bun run test` 分别因既有 Harness black-box trace 清理竞态出现 `1/2` 个 `ENOTEMPTY`；失败文件未被 S1 修改，单文件重跑通过；`bun run test -- --retry=3` 通过，`500 files passed / 1 skipped`、`3496 passed / 14 skipped`。SQLite experimental warning、history warm-up 注入失败和 World Engine EBUSY 为测试内预期日志。
 - `git diff --cached --check`：通过；仅保留 Git 在 Windows checkout 下的 CRLF 警告边界。
+
+## S2 结果（2026-08-16）
+
+- 六个 S0 snapshot 已导入 `packages/nb-history`、`packages/nb-workflow`、`packages/nb-memory`、`packages/nb-ui`、`packages/neuro-agent-harness`、`packages/llmlint`；源 checkout 均未写入。
+- 逐文件证据 `evidences/s2-import-summary.json`：included 1264/1264 source bytes+SHA-256 通过；exact 1225、Task relocation 140、受控变更 26、策略跳过 13、manifest excluded 71，missing/mismatch/sourceDrift 全为 0。llmlint `web`/`skill` lockfile 保留，六包根 lockfile 不导入；nb-ui PolyForm 官方 SHA-256 已核对。
+- 根 workspace 已显式列 10 个成员，根 `bun.lock` SHA-256 为 `1433b696f687d2d7942c50386846a286ae5bdf77780e3b674f12e17fde490ff8`；root frozen install 检查 `1680 installs / 1938 packages` 无变化。Docker deps stage 已加入六个包 manifest。
+- 包验证：nb-history 49 tests、nb-workflow 18 tests+demo、nb-memory 86 tests、nb-ui 185 tests+CSS+Playground 1280/390 smoke、Harness 529 tests+verify+pack smoke 均通过；llmlint Skill CLI 和 Web island 门禁通过。
+- llmlint 根 `verify` 仍为 S0 已记录的继承缺口：367 pass / 7 fail / 7 errors，未通过的模块别名为 `llmlint/fix`、`evals-generator/agent-loop`、`#shared/analysis`；未修改业务代码掩盖。root typecheck（先安装 desktop/electron island）和 root `bun run test -- --retry=3` 均通过。

@@ -1,0 +1,102 @@
+<script setup lang="ts">
+import {computed, useSlots} from "vue";
+import {useFormFieldContext} from "./form-field-context";
+
+export type FormInputType = "text" | "search" | "password" | "number";
+
+const props = withDefaults(defineProps<{
+    modelValue: string;
+    id?: string;
+    name?: string;
+    type?: FormInputType;
+    placeholder?: string;
+    disabled?: boolean;
+    readonly?: boolean;
+    required?: boolean;
+    autofocus?: boolean;
+    autocomplete?: string;
+    inputmode?: "none" | "text" | "decimal" | "numeric" | "tel" | "search" | "email" | "url";
+    minlength?: number;
+    maxlength?: number;
+    step?: string;
+    min?: string;
+    max?: string;
+}>(), {
+    id: "",
+    name: "",
+    type: "text",
+    placeholder: "",
+    disabled: false,
+    readonly: false,
+    required: false,
+    autofocus: false,
+    autocomplete: "",
+});
+
+const emit = defineEmits<{
+    (e: "update:modelValue", value: string): void;
+    (e: "focus", event: FocusEvent): void;
+}>();
+
+const field = useFormFieldContext();
+const slots = useSlots();
+const hasPrefix = computed(() => Boolean(slots.prefix));
+</script>
+
+<template>
+    <div
+        v-if="hasPrefix"
+        class="nb-ui-control nb-ui-control-h-md nb-ui-control-px flex w-full items-center gap-2 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-sm text-[var(--text-main)] transition-colors focus-within:outline-none"
+        :class="[field?.invalid.value ? 'nb-ui-control-invalid' : '', props.disabled || props.readonly ? 'cursor-default opacity-80' : '']"
+    >
+        <slot name="prefix"></slot>
+        <input
+            :value="props.modelValue"
+            :id="props.id || field?.inputId.value || undefined"
+            :name="props.name || undefined"
+            :type="props.type"
+            :placeholder="props.placeholder"
+            :disabled="props.disabled"
+            :readonly="props.readonly"
+            :required="props.required || field?.required.value"
+            :autofocus="props.autofocus"
+            :autocomplete="props.autocomplete || undefined"
+            :inputmode="props.inputmode"
+            :minlength="props.minlength"
+            :maxlength="props.maxlength"
+            :step="props.step"
+            :min="props.min"
+            :max="props.max"
+            :aria-describedby="field?.ariaDescribedby.value"
+            :aria-invalid="field?.invalid.value || undefined"
+            class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+            @focus="emit('focus', $event)"
+            @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+        >
+    </div>
+    <input
+        v-else
+        :value="props.modelValue"
+        :id="props.id || field?.inputId.value || undefined"
+        :name="props.name || undefined"
+        :type="props.type"
+        :placeholder="props.placeholder"
+        :disabled="props.disabled"
+        :readonly="props.readonly"
+        :required="props.required || field?.required.value"
+        :autofocus="props.autofocus"
+        :autocomplete="props.autocomplete || undefined"
+        :inputmode="props.inputmode"
+        :minlength="props.minlength"
+        :maxlength="props.maxlength"
+        :step="props.step"
+        :min="props.min"
+        :max="props.max"
+        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-invalid="field?.invalid.value || undefined"
+        class="nb-ui-control nb-ui-control-h-md nb-ui-control-px w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-sm text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        :class="[field?.invalid.value ? 'nb-ui-control-invalid' : '', props.disabled || props.readonly ? 'cursor-default opacity-80' : '']"
+        @focus="emit('focus', $event)"
+        @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+    >
+</template>
