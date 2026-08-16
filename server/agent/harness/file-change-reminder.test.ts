@@ -15,7 +15,7 @@ import {createUserMessage, messageText} from "nbook/server/agent/messages/messag
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {buildFileChangeReminder, mergeProfileTurnContextMessages} from "nbook/server/agent/profiles/profile-turn-context";
 import type {AgentChangeDiffDetail} from "nbook/server/workspace-history/agent-change-diff";
-import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
+import type {UnseenGroup} from "@notnotype/nb-history";
 import {closeAllProjects,
     requireReadyModuleHandle,
     requireActiveReadyProject,

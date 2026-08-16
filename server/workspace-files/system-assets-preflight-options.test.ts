@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
         definitions: [],
     })),
     syncSystemAssetsToUserAssets: vi.fn(),
+    projectLlmlintSkill: vi.fn(async () => ({sourceFiles: 0, copied: 0, unchanged: 0, removed: 0, bytes: 0, manifestSha256: "test"})),
     resolveSystemNbookRoot: vi.fn(() => "C:/nbook-source/assets/workspace/.nbook"),
     runtimePathsFromEnv: vi.fn(() => ({applicationRoot: "C:/nbook-app"})),
 }));
@@ -30,6 +31,9 @@ vi.mock("nbook/server/agent/profiles/profile-artifact-compiler", () => ({
 }));
 vi.mock("nbook/server/agent/variables/definition-artifact", () => ({
     compileVariableDefinitions: mocks.compileVariableDefinitions,
+}));
+vi.mock("nbook/server/workspace-files/llmlint-skill-projection", () => ({
+    projectLlmlintSkill: mocks.projectLlmlintSkill,
 }));
 vi.mock("nbook/server/workspace-files/novel-workspace", () => ({
     syncSystemAssetsToUserAssets: mocks.syncSystemAssetsToUserAssets,

@@ -7,7 +7,7 @@ import {useAgentJob} from "nbook/app/composables/useAgentJob";
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import {shouldPollWorkflowRun, workflowPendingAskSignature} from "nbook/app/components/novel-ide/agent/workflow-bubble";
 import type {WorkflowDemoRunState} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {JsonValue, WorkflowEvent} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue, WorkflowEvent} from "@notnotype/nb-workflow";
 import type {AgentJobEventCursor} from "nbook/shared/dto/agent-job.dto";
 
 /**

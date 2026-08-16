@@ -137,15 +137,9 @@ bun run web:dev          # 等价，在仓库根执行（另有 web:generate / w
 
 ---
 
-## 同步到 NeuroBook
+## NeuroBook 系统资产
 
-NeuroBook 内置副本**不是**开发真相源。修改 [`skill/`](./skill/) 后，从仓库根执行：
-
-```bash
-bun run sync:neuro-book
-```
-
-它会把 `skill/` 镜像到 sibling NeuroBook 仓库的 `assets/workspace/.nbook/agent/skills/llmlint/`。该同步逻辑由 NeuroBook 侧维护，不在本仓职责内。
+[`skill/`](./skill/) 是 llmlint Skill 的唯一源码。NeuroBook monorepo 在准备 Source/Product system assets 时从该目录投影运行时资产；不再维护 sibling 仓镜像或手工同步命令。
 
 ---
 

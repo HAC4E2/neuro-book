@@ -1,5 +1,5 @@
-import {traceGraph} from "nbook/server/vendor/nb-workflow/index";
-import type {ActivityRecord, JsonValue, RunView, WorkflowEvent} from "nbook/server/vendor/nb-workflow/index";
+import {traceGraph} from "@notnotype/nb-workflow";
+import type {ActivityRecord, JsonValue, RunView, WorkflowEvent} from "@notnotype/nb-workflow";
 import {PROFILE_NAMES} from "nbook/server/agent/workflow/workflow-demo-scenarios";
 
 /**

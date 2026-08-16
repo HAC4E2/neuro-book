@@ -5,18 +5,19 @@ import {tmpdir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {runCli} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/cli";
-import {loadConfig} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/config";
-import {importCuratedRulesets} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/curated-import";
-import {CURATED_RULE_SLUGS} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/curated-slugs";
-import {computeMaskedRanges, isMasked} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/markdown-mask";
-import {formatCheckReport} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/reporter";
-import {loadRules} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/rules";
-import {scanText} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/scanner";
-import type {LintRuleRecord} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/types";
+import {runCli} from "nbook/packages/llmlint/skill/src/cli";
+import {loadConfig} from "nbook/packages/llmlint/skill/src/config";
+import {importCuratedRulesets} from "nbook/packages/llmlint/skill/src/curated-import";
+import {CURATED_RULE_SLUGS} from "nbook/packages/llmlint/skill/src/curated-slugs";
+import {computeMaskedRanges, isMasked} from "nbook/packages/llmlint/skill/src/markdown-mask";
+import {formatCheckReport} from "nbook/packages/llmlint/skill/src/reporter";
+import {loadRules} from "nbook/packages/llmlint/skill/src/rules";
+import {scanText} from "nbook/packages/llmlint/skill/src/scanner";
+import type {LintRuleRecord} from "nbook/packages/llmlint/skill/src/types";
 
-const RULESETS_ROOT = resolve("assets/workspace/.nbook/agent/skills/llmlint/rulesets");
-const LLMLINT_BIN = resolve("assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts");
+const LLMLINT_SOURCE_ROOT = resolve("packages/llmlint/skill");
+const RULESETS_ROOT = join(LLMLINT_SOURCE_ROOT, "rulesets");
+const LLMLINT_BIN = join(LLMLINT_SOURCE_ROOT, "bin", "llmlint.ts");
 const CURATED_SOURCE_FILES = [
     "轻量规则集1.2.json",
     "轻量规则集v1.1.json",
@@ -491,7 +492,7 @@ describe("llmlint", () => {
     it("CLI 不再支持 llmlint <file> 旧 positional 用法", async () => {
         const result = await runFailedCommand([
             LLMLINT_BIN,
-            "assets/workspace/.nbook/agent/skills/llmlint/SKILL.md",
+            join(LLMLINT_SOURCE_ROOT, "SKILL.md"),
         ]);
 
         expect(result.code).not.toBe(0);
@@ -499,7 +500,7 @@ describe("llmlint", () => {
     });
 
     it("llmlint 源码不保留旧规则导入入口", async () => {
-        const root = resolve("assets/workspace/.nbook/agent/skills/llmlint");
+        const root = LLMLINT_SOURCE_ROOT;
         const files = await listFiles(root);
         const fileNames = files.map((file) => file.replace(/\\/g, "/"));
         const source = (await Promise.all(files

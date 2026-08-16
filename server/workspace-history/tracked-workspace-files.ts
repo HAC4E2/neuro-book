@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import {consola} from "consola";
-import type {OperationActor} from "nbook/server/vendor/nb-history/index";
+import type {OperationActor} from "@notnotype/nb-history";
 import {
     convertWorkspaceFileToDirectory,
     createWorkspaceDirectory,

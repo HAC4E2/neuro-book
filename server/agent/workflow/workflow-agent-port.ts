@@ -1,6 +1,6 @@
 import {WORKFLOW_DEMO_PROFILE_PREFIX} from "nbook/server/agent/workflow/workflow-session-port";
-import type {AgentInvokeOutcome, AgentInvokeUsage, AgentPort, EntryId, InvokeOptions, JsonValue, SessionId, SessionPort} from "nbook/server/vendor/nb-workflow/index";
-import type {MockAgentPort} from "nbook/server/vendor/nb-workflow/index";
+import type {AgentInvokeOutcome, AgentInvokeUsage, AgentPort, EntryId, InvokeOptions, JsonValue, SessionId, SessionPort} from "@notnotype/nb-workflow";
+import type {MockAgentPort} from "@notnotype/nb-workflow";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 
 /**

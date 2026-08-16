@@ -9,7 +9,7 @@ import type {EffectiveConfig} from "nbook/server/config/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
-import type {JsonValue, RunView, WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue, RunView, WorkflowDefinition, WorkspacePort} from "@notnotype/nb-workflow";
 import type {RuntimeConfigTarget} from "nbook/server/config/types";
 import {
     createProjectWorkspaceKey,

@@ -1,7 +1,7 @@
 import {structuredPatch} from "diff";
 import type {ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
 import {readWorkspaceHistoryDiff} from "nbook/server/workspace-history/history-diff";
-import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
+import type {UnseenGroup} from "@notnotype/nb-history";
 import type {WorkspaceHistoryDiffDto} from "nbook/shared/dto/workspace-history.dto";
 import {
     agentDiffLineLimit,

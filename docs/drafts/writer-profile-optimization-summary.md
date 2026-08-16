@@ -169,7 +169,7 @@ bun run typecheck
 - ✅ `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx` - 已修改
 - 📖 `assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile.tsx` - 参考文件
 - 📖 `reference/agent/rp-tick/writer-brief.md` - Writer Brief 格式参考
-- 📖 `assets/workspace/.nbook/agent/skills/llmlint/SKILL.md` - llmlint 工具文档
+- 📖 `packages/llmlint/skill/SKILL.md` - llmlint 工具文档
 
 ## 后续建议
 

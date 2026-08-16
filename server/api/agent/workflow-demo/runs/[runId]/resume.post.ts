@@ -1,6 +1,6 @@
 import {createError, getRouterParam, readBody} from "h3";
 import {useWorkflowDemoService} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {JsonValue} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue} from "@notnotype/nb-workflow";
 
 /** Workflow demo：应答 pending ask 并续跑（后台执行，前端继续轮询） */
 export default defineEventHandler(async (event) => {

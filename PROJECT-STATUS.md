@@ -27,7 +27,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 | Task 143 Desktop Envelope | Windows-first Electron/Tauri spike 已完成合同和共享 Workbench Chrome 验收；内部 Desktop 产品化证据继续由 Task 145维护 | [Task 143](docs/tasks/143-desktop-envelope-installation-spike/README.md)、[Task 145](docs/tasks/145-electron-desktop-productization/README.md) |
 | Task 145 Electron Desktop Productization | Windows x64 内部 Desktop beta 的安装、UAC、Repair、卸载和 Sandbox `--delete-data` 验收已收口；公开 Application Canary `v0.9.6-canary.20260814.024826Z.9653191d` 已发布，但不包含 Electron Desktop ZIP/Depot。原生 Snap、真实外部 Provider、公开签名、updater 和 macOS 实包仍未完成 | [Task 145](docs/tasks/145-electron-desktop-productization/README.md)、[ADR 0014](docs/adr/0014-electron-desktop-productization.md)、[ADR 0016](docs/adr/0016-windows-desktop-uac-broker.md)、[#87](https://github.com/notnotype/neuro-book/issues/87) |
 | Agent 资产安装协议 | 方案已起草并完成自审，尚未实施 | [Task 135](docs/tasks/135-agent-asset-install-protocol/README.md) |
-| llmlint | 3.0.0 已同步到 sibling、内置 vendored runtime 和 user runtime | [Task 51](docs/tasks/51-anti-ai-slop-skill/README.md) |
+| llmlint | 3.0.0 收编到 workspace；`packages/llmlint/skill` 是唯一运行时 Skill 源，由 system assets projection 生成目标模板 | [Task 51](docs/tasks/51-anti-ai-slop-skill/README.md) |
 
 ## 关键实现合同
 

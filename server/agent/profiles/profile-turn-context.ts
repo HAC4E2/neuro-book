@@ -18,7 +18,7 @@ import {
     MAX_AGENT_CHANGE_LISTED_FILES,
     MAX_AGENT_CHANGE_NOTICE_CHARS,
 } from "nbook/shared/agent/file-change-policy";
-import type {OperationActor, UnseenGroup} from "nbook/server/vendor/nb-history/index";
+import type {OperationActor, UnseenGroup} from "@notnotype/nb-history";
 
 export type FileChangeAwareness = "off" | "minimal" | "full";
 

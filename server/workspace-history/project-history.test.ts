@@ -3,7 +3,7 @@ import {mkdir, rm, writeFile, unlink} from "node:fs/promises";
 import {join} from "node:path";
 import os from "node:os";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
+import {WorkspaceHistory} from "@notnotype/nb-history";
 import {
     closeAllProjects,
     requireReadyModuleHandle,

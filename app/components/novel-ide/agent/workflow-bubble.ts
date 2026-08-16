@@ -1,6 +1,6 @@
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {AgentJobEventCursor, AgentJobStatus} from "nbook/shared/dto/agent-job.dto";
-import type {PendingAsk, RunStatus} from "nbook/server/vendor/nb-workflow/index";
+import type {PendingAsk, RunStatus} from "@notnotype/nb-workflow";
 
 /** run_workflow 工具参数的前端展示模型。 */
 export type RunWorkflowArgs = {

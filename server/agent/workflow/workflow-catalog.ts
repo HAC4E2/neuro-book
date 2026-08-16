@@ -4,7 +4,7 @@ import {createRequire} from "node:module";
 import {join, resolve} from "node:path";
 import {Type} from "typebox";
 import type * as TypeScript from "typescript";
-import type {WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
+import type {WorkflowDefinition} from "@notnotype/nb-workflow";
 import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 // F9：typescript 包禁顶层 ESM import（Nitro dev rollup 会解析 9MB 包致 OOM），必须 require

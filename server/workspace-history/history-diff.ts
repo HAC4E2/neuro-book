@@ -1,4 +1,4 @@
-import type {TextDiffResult, WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
+import type {TextDiffResult, WorkspaceHistory} from "@notnotype/nb-history";
 import type {WorkspaceHistoryInboxGroupDto, WorkspaceHistoryDiffDto} from "nbook/shared/dto/workspace-history.dto";
 
 export type WorkspaceHistoryDiffMode = "inline" | "full";

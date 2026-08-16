@@ -5,7 +5,7 @@ import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import {workflowPendingAskSignature} from "nbook/app/components/novel-ide/agent/workflow-bubble";
 import type {WorkflowDemoRunState} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {JsonValue, PendingAsk} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue, PendingAsk} from "@notnotype/nb-workflow";
 import type {AgentJobSnapshot} from "nbook/shared/dto/agent-job.dto";
 
 const props = defineProps<{

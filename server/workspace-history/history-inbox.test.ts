@@ -4,7 +4,7 @@ import {
     workspaceHistoryGroupRevision,
     workspaceHistoryInboxRevision,
 } from "nbook/server/workspace-history/history-inbox";
-import type {InboxGroup, OperationLogEntry} from "nbook/server/vendor/nb-history/index";
+import type {InboxGroup, OperationLogEntry} from "@notnotype/nb-history";
 
 describe("workspace history inbox revision", () => {
     it("使用分组最大 entry id 作为 group revision，并计算 inbox revision", () => {

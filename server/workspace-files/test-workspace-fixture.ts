@@ -5,6 +5,7 @@ import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {readProfileArtifactManifest} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
+import {projectLlmlintSkill} from "nbook/server/workspace-files/llmlint-skill-projection";
 import {
     getSystemWorkspaceAssetContextForTest,
     resolveApplicationRoot,
@@ -240,6 +241,10 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
         const applicationRoot = resolveApplicationRoot();
         const sourceSystemNbookRoot = resolveSystemNbookRoot();
         const targetSystemNbookRoot = path.join(snapshotRoot, "assets", "workspace", ".nbook");
+        await projectLlmlintSkill({
+            sourceRoot: path.join(applicationRoot, "packages", "llmlint", "skill"),
+            targetRoot: path.join(sourceSystemNbookRoot, "agent", "skills", "llmlint"),
+        });
         await ensurePublishedSystemArtifactsFresh(sourceSystemNbookRoot);
         await systemAssetsProjection.copyToEmpty({
             sourceRoot: sourceSystemNbookRoot,

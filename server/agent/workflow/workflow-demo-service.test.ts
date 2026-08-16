@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
 import {spawnWorkflowJob} from "nbook/server/agent/workflow/workflow-job";
 import type {WorkflowRunStart} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {ActivityRecord, AgentInvokeUsage, JsonValue, PendingAsk, RunView, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
+import type {ActivityRecord, AgentInvokeUsage, JsonValue, PendingAsk, RunView, WorkflowDefinition} from "@notnotype/nb-workflow";
 import {createDefaultEffectiveConfig} from "nbook/server/config/normalizer";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 

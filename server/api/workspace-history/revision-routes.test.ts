@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import type {InboxGroup, OperationLogEntry} from "nbook/server/vendor/nb-history/index";
+import type {InboxGroup, OperationLogEntry} from "@notnotype/nb-history";
 type MockHistoryDependencies = {
     readonly mutate: ReturnType<typeof vi.fn>;
     readonly requireProjectHandles: ReturnType<typeof vi.fn>;
@@ -121,7 +121,7 @@ describe("workspace history revision routes", () => {
 
 /** 使用与动态 route import 相同的模块实例构造稳定收件箱错误。 */
 async function inboxMutationError(code: "missing" | "stale"): Promise<Error> {
-    const {HistoryInboxMutationError} = await import("nbook/server/vendor/nb-history/index");
+    const {HistoryInboxMutationError} = await import("@notnotype/nb-history");
     return new HistoryInboxMutationError(code, code);
 }
 

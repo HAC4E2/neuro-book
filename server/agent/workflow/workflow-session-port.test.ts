@@ -4,8 +4,8 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {NeuroWorkflowSessionPort} from "nbook/server/agent/workflow/workflow-session-port";
-import {MockAgentPort, SessionBusyError, WorkflowRunner} from "nbook/server/vendor/nb-workflow/index";
-import type {JsonValue, Wf, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
+import {MockAgentPort, SessionBusyError, WorkflowRunner} from "@notnotype/nb-workflow";
+import type {JsonValue, Wf, WorkflowDefinition} from "@notnotype/nb-workflow";
 
 /**
  * Task 110 初步接入的核心验证：nb-workflow 内核跑在真实 JsonlSessionRepository 上。

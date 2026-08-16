@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
-import type {WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
+import type {UnseenGroup} from "@notnotype/nb-history";
+import type {WorkspaceHistory} from "@notnotype/nb-history";
 import type {ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
 
 describe("agent change diff 整轮预算", () => {

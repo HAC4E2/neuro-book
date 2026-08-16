@@ -1,4 +1,4 @@
-import type {InboxGroup, OperationActor, OperationLogEntry} from "nbook/server/vendor/nb-history/index";
+import type {InboxGroup, OperationActor, OperationLogEntry} from "@notnotype/nb-history";
 import {workspaceHistoryGroupRevision} from "nbook/server/workspace-history/history-inbox";
 import type {WorkspaceHistoryEntryDto, WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-history.dto";
 

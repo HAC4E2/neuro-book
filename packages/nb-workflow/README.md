@@ -2,7 +2,7 @@
 
 NeuroBook Agent Workflow 编排系统 **spike**（对应主仓 `.agents/tasks/110-agent-workflow-orchestration/`）。
 
-验证 Task 110「V1 收敛」的脚本式 durable-execution 核心 API：不接入 NeuroBook，用内存 SessionStore + mock responder 顶替真实 harness/模型，把四个真实场景全流程跑通。
+验证 Task 110「V1 收敛」的脚本式 durable-execution 核心 API：包自身用内存 SessionStore + mock responder 顶替真实 harness/模型，把四个真实场景全流程跑通；NeuroBook 主应用在 S3 起从本包正式入口直接消费内核。
 
 ## 结构
 
@@ -40,7 +40,7 @@ await wf.agents.acquire({ profileKey, tag, parent? }); // 持久参与者：找�
 await wf.sessions.open(id);  await wf.caller();        // 面 B/C
 await wf.map(items, fn, { concurrency });              // thunk 化分支，seq 与完成序无关
 await wf.all([() => ..., () => ...]);                  // 必须传 thunk（见发现 F3）
-await wf.ask({ kind, title, options?, multi? });       // 挂起点
+await wf.ask({ kind, title, description?, options?, multi? });       // 挂起点
 
 const h: SessionHandle;
 h.leaf();                          // 同步派生态游标

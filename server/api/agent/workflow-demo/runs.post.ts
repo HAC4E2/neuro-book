@@ -1,6 +1,6 @@
 import {createError, readBody} from "h3";
 import {useWorkflowDemoService} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {JsonValue} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue} from "@notnotype/nb-workflow";
 
 /** Workflow demo：启动一次 run（立即返回 runId，执行在后台） */
 export default defineEventHandler(async (event) => {

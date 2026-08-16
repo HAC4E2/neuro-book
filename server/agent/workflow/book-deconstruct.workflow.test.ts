@@ -8,7 +8,7 @@ import {
     createMemoryWorkspace,
     type JsonValue,
     type WorkflowDefinition,
-} from "nbook/server/vendor/nb-workflow/index";
+} from "@notnotype/nb-workflow";
 
 /**
  * book-deconstruct 内置 workflow 的无模型运行级回归：

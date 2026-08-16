@@ -6,7 +6,7 @@ import {
     WorkspaceHistory,
     type OperationActor,
     type UnseenGroup,
-} from "nbook/server/vendor/nb-history/index";
+} from "@notnotype/nb-history";
 import type {SnapshotRawEventBatch} from "nbook/packages/file-snapshot-cache/src/index";
 import {
     projectModuleToken,
@@ -357,7 +357,7 @@ async function openHistoryInstance(
     signal?.throwIfAborted();
     const history = await WorkspaceHistory.open({
         databasePath,
-        workspaceRoot: projectWorkspaceRoot,
+        resolvePath: (relativePath) => path.join(projectWorkspaceRoot, ...relativePath.split("/")),
         config: {
             retentionFullDays: config.retentionFullDays,
             keepDailyLastAfterWindow: config.keepDailyLastAfterWindow,
@@ -523,7 +523,7 @@ export async function readUnseenForAgent(
         try {
             return await history.unseenChanges(String(sessionId));
         } catch (error) {
-            // 与 vendored 模块的错误文案耦合（VENDOR.json 锁定版本）：游标未初始化 = 会话首次接触该项目。
+            // 与 nb-history 正式包的错误文案耦合：游标未初始化 = 会话首次接触该项目。
             if (error instanceof HistoryError && error.message.includes("游标未初始化")) {
                 await history.initCursor(String(sessionId));
                 return [];

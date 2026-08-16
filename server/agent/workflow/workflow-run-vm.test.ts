@@ -1,6 +1,6 @@
 import {describe, expect, test} from "vitest";
-import {MemorySessionStore, MockAgentPort, WorkflowRunner} from "nbook/server/vendor/nb-workflow/index";
-import type {JsonValue, Wf, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
+import {MemorySessionStore, MockAgentPort, WorkflowRunner} from "@notnotype/nb-workflow";
+import type {JsonValue, Wf, WorkflowDefinition} from "@notnotype/nb-workflow";
 import {buildRunVm, collectSessionNaming} from "nbook/server/agent/workflow/workflow-run-vm";
 import type {TimedEvent} from "nbook/server/agent/workflow/workflow-run-vm";
 

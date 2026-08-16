@@ -1,4 +1,4 @@
-import type {JsonValue, MockAgentPort, Wf, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue, MockAgentPort, Wf, WorkflowDefinition} from "@notnotype/nb-workflow";
 import {WORKFLOW_DEMO_PROFILE_PREFIX} from "nbook/server/agent/workflow/workflow-session-port";
 
 /** mock profile 键（带 demo 前缀，分流到 mock responder，且不会与真实 profile 撞名） */

@@ -61,3 +61,11 @@
 - 根 workspace 已显式列 10 个成员，根 `bun.lock` SHA-256 为 `1433b696f687d2d7942c50386846a286ae5bdf77780e3b674f12e17fde490ff8`；root frozen install 检查 `1680 installs / 1938 packages` 无变化。Docker deps stage 已加入六个包 manifest。
 - 包验证：nb-history 49 tests、nb-workflow 18 tests+demo、nb-memory 86 tests、nb-ui 185 tests+CSS+Playground 1280/390 smoke、Harness 529 tests+verify+pack smoke 均通过；llmlint Skill CLI 和 Web island 门禁通过。
 - llmlint 根 `verify` 仍为 S0 已记录的继承缺口：367 pass / 7 fail / 7 errors，未通过的模块别名为 `llmlint/fix`、`evals-generator/agent-loop`、`#shared/analysis`；未修改业务代码掩盖。root typecheck（先安装 desktop/electron island）和 root `bun run test -- --retry=3` 均通过。
+
+## S3 结果（2026-08-16）
+
+- 主应用所有 History/Workflow callsite 已改为 `@notnotype/nb-history` / `@notnotype/nb-workflow`；History 按 `resolvePath` 适配当前 v0.2 API，Workflow 正式入口声明 `exports["."]`，CFG 改为静态包入口。
+- `server/vendor/nb-history`、`server/vendor/nb-workflow`、两个 `VENDOR.json`、三个同步脚本、root `sync:nb-*` 命令和 tracked `assets/workspace/.nbook/agent/skills/llmlint` 镜像已删除。`packages/llmlint/skill` 成为唯一 Skill source；system assets prepare/test snapshot 共用 manifest 校验投影器，生成目标由 root `.gitignore` 忽略。
+- 证据 `evidences/s3-single-source-summary.json`：真实 system-assets prepare 投影 llmlint 123 files / 921649 bytes，manifest SHA-256=`ddfe2ab5c59d7a15dbacc7d9d7d062bd605be885245206b1002889654f13c111`；运行态目标已在验证后清除。
+- S3 验证：`governance:check` 通过且 failures/warnings 为空；`bun run typecheck` 通过；frozen install `1680 installs / 1938 packages` 且 lock SHA-256 前后均为 `79a377863680ae48265ebc4277d44e5df1dce832e0b441f4b5c8ade1bb19f3a8`；History `5 files / 29 tests`、Workflow `5 / 29`、llmlint `2 / 56`、System Assets `5 / 11`、Product closure `6 / 28` 均通过；root retry=3 全量 `501 files passed / 1 skipped`、`3498 passed / 14 skipped`。
+- `bun pm untrusted` 列出 5 个被阻塞第三方生命周期脚本；没有 S3 验证路径需要信任，保持 fail-closed。真实 provider/model、私有 corpus、Docker、远端部署、发布和生产 Product measurement 未验收，Product owner baseline 未更新。

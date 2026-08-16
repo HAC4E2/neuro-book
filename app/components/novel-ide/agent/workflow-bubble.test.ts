@@ -11,7 +11,7 @@ import {
     workflowPendingAskSignature,
     workflowPollDelay,
 } from "nbook/app/components/novel-ide/agent/workflow-bubble";
-import type {PendingAsk} from "nbook/server/vendor/nb-workflow/index";
+import type {PendingAsk} from "@notnotype/nb-workflow";
 
 const usage = (inputTokens: number, outputTokens: number) => ({
     inputTokens,

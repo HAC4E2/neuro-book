@@ -6,7 +6,7 @@ worktreeId: .worktree/monorepo-main-app-migration
 branchId: chore/t149-monorepo-workspace
 status: in-progress
 createdAt: 2026-08-16T14:59:07Z
-updatedAt: 2026-08-16T17:26:39Z
+updatedAt: 2026-08-16T20:05:00Z
 ---
 
 # NeuroBook Workspace 收敛与主应用迁移
@@ -38,4 +38,4 @@ updatedAt: 2026-08-16T17:26:39Z
 
 ## 当前状态
 
-S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支持、治理门禁、显式 workspace 清单和冻结安装已完成；S2 已按 S0 manifest 将六个自治项目收编到 `packages/*`，保留 llmlint 的 `web`/`skill` 独立安装岛，完成逐文件摘要复核、自治治理资产、根忽略和 workspace lock 更新。nb-history、nb-workflow、nb-memory、nb-ui、neuro-agent-harness 的目标验证通过；llmlint 根 `verify` 保留 S0 已记录的 367 pass / 7 fail / 7 errors 别名缺口，Skill CLI 与 Web 岛屿门禁通过。下一检查点为删除 vendor 与同步真相源；后续实现仍只在 `chore/t149-monorepo-workspace` / `.worktree/monorepo-main-app-migration` 进行，root 用户 worktree 的既有改动和六个原仓保持原地。
+S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支持、治理门禁、显式 workspace 清单和冻结安装已完成；S2 已按 S0 manifest 将六个自治项目收编到 `packages/*`，保留 llmlint 的 `web`/`skill` 独立安装岛，完成逐文件摘要复核、自治治理资产、根忽略和 workspace lock 更新；S3 已删除 History/Workflow vendor、同步脚本和 llmlint tracked mirror，主应用切换正式 workspace 包入口，`packages/llmlint/skill` 成为唯一 Skill source 并接入 system assets projection，History/Workflow/llmlint/Product closure 与 root 全量回归通过。下一检查点为 S4 contracts 与 Manager/Desktop/scripts 边界拆分；后续实现仍只在 `chore/t149-monorepo-workspace` / `.worktree/monorepo-main-app-migration` 进行，root 用户 worktree 的既有改动和六个原仓保持原地。

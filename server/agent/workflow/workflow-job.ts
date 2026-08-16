@@ -1,7 +1,7 @@
 import {AgentJobCancelledError, type AgentJobManager, type AgentJobSnapshot} from "nbook/server/agent/jobs/agent-job-manager";
 import type {AgentJobEventCursor} from "nbook/shared/dto/agent-job.dto";
 import type {WorkflowDemoRunState, WorkflowRunStart, WorkflowRunSummary} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {JsonValue, RunView, SessionId, WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue, RunView, SessionId, WorkflowDefinition, WorkspacePort} from "@notnotype/nb-workflow";
 import type {EffectiveConfig} from "nbook/server/config/types";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 

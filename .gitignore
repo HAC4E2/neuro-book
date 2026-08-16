@@ -56,8 +56,8 @@ assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
 /assets/workspace/.nbook/agent/writing-presets/references/
 /assets/workspace/.nbook/agent/writing-presets/styles/
 /ACKNOWLEDGEMENTS.md
-# llmlint 评测 harness（消费侧代码）：本地运行，不进 git
-assets/workspace/.nbook/agent/skills/llmlint/evals/
+# llmlint skill 由 packages/llmlint/skill 在 system assets prepare 时投影，不进 git
+/assets/workspace/.nbook/agent/skills/llmlint/
 # AIGC 检测 reference 语料（104 本版权书，I11 合规边界）：正文绝不入 git；catalog.json 元数据可进
 datasets/aigc-detection/books/
 datasets/aigc-detection/converted/

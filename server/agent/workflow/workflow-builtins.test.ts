@@ -9,7 +9,7 @@ import {
     type JsonValue,
     type WorkflowDefinition,
     type WorkflowEvent,
-} from "nbook/server/vendor/nb-workflow/index";
+} from "@notnotype/nb-workflow";
 
 /**
  * 内置 workflow 的无模型运行级回归：catalog 真编译 Type 注入源码，MockAgentPort 执行真实控制流。

@@ -9,7 +9,7 @@ import {
     type JsonValue,
     type WorkflowDefinition,
     type WorkflowEvent,
-} from "nbook/server/vendor/nb-workflow/index";
+} from "@notnotype/nb-workflow";
 
 /**
  * chapter-write-review-revise 的无模型运行级回归：

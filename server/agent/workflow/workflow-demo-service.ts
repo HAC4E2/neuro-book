@@ -1,8 +1,8 @@
 import {AsyncLocalStorage} from "node:async_hooks";
 import {useAgentHarness} from "nbook/server/agent/http";
 import {consola} from "consola";
-import {MockAgentPort, WorkflowRunner, createMemoryWorkspace, skeletonMermaid} from "nbook/server/vendor/nb-workflow/index";
-import type {ActivityRecord, AgentInvokeUsage, JsonValue, PendingAsk, RunView, SessionId, WorkflowDefinition, WorkflowEvent, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import {MockAgentPort, WorkflowRunner, createMemoryWorkspace, extractCfg, skeletonMermaid} from "@notnotype/nb-workflow";
+import type {ActivityRecord, AgentInvokeUsage, JsonValue, PendingAsk, RunView, SessionId, WorkflowDefinition, WorkflowEvent, WorkspacePort} from "@notnotype/nb-workflow";
 import {NeuroWorkflowSessionPort} from "nbook/server/agent/workflow/workflow-session-port";
 import {HarnessAgentPort, RoutingAgentPort} from "nbook/server/agent/workflow/workflow-agent-port";
 import {
@@ -338,10 +338,9 @@ class WorkflowDemoService {
         if (event.type === "status" && event.status !== "running") running.clear();
     }
 
-    /** 场景列表（骨架 + CFG + 源码惰性计算并缓存；CFG 依赖 typescript 包，走动态 import） */
+    /** 场景列表（骨架 + CFG + 源码惰性计算并缓存；CFG 来自 nb-workflow 正式包入口） */
     async listScenarios(): Promise<WorkflowDemoScenarioDto[]> {
         if (this.scenarioDtos) return this.scenarioDtos;
-        const {extractCfg} = await import("nbook/server/vendor/nb-workflow/projection/cfg");
         this.scenarioDtos = Object.entries(DEMO_SCENARIOS).map(([key, scenario]) => ({
             key,
             title: scenario.title,

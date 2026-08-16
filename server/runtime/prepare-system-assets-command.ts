@@ -12,6 +12,9 @@ export async function runPrepareSystemAssetsCommand(args = process.argv.slice(2)
 
     console.log(`prepared system variable definitions: ${result.variableManifest.definitions.length} definition file(s)`);
     console.log(`prepared system profiles: ${result.profileResult.manifest.profiles.length} profile(s), compiled ${result.profileResult.compiled.length} stale profile(s)`);
+    if (result.llmlintSkill) {
+        console.log(`projected llmlint skill: ${result.llmlintSkill.sourceFiles} file(s), ${result.llmlintSkill.bytes} byte(s), manifest=${result.llmlintSkill.manifestSha256}`);
+    }
     if (result.userAssetsSync) {
         console.log(`synced user assets: copied ${result.userAssetsSync.copied}, updated profiles ${result.userAssetsSync.updatedProfiles ?? 0}, updated assets ${result.userAssetsSync.updatedAssets ?? 0}, skipped ${result.userAssetsSync.skipped}`);
         for (const warning of result.userAssetsSync.profileWarnings ?? []) {

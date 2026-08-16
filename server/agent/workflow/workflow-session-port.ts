@@ -1,7 +1,7 @@
 import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
-import {SessionBusyError} from "nbook/server/vendor/nb-workflow/index";
-import type {EntryId, JsonValue, SessionEntry, SessionId, SessionMeta, SessionPort} from "nbook/server/vendor/nb-workflow/index";
+import {SessionBusyError} from "@notnotype/nb-workflow";
+import type {EntryId, JsonValue, SessionEntry, SessionId, SessionMeta, SessionPort} from "@notnotype/nb-workflow";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionSnapshot, SessionEntry as NbSessionEntry} from "nbook/server/agent/session/types";
 import type {AssistantMessage} from "nbook/server/agent/messages/types";

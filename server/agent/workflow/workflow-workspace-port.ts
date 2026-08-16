@@ -3,7 +3,7 @@ import {
     assertRealPathContained,
     resolveContainedFilePath,
 } from "nbook/server/runtime/paths/file-path";
-import type {WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {WorkspacePort} from "@notnotype/nb-workflow";
 import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 /**

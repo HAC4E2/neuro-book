@@ -8,7 +8,7 @@ import {createClient} from "@libsql/client";
 import {unzipSync} from "fflate";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {WorkspaceHistory} from "nbook/server/vendor/nb-history/workspace-history";
+import {WorkspaceHistory} from "@notnotype/nb-history";
 import {
     createProjectWorkspaceZipStream,
     createWorkspaceZipStream,
@@ -93,7 +93,7 @@ describe("workspace-archive", () => {
         const historyDatabasePath = path.join(root, ".nbook", "history.sqlite");
         const history = await WorkspaceHistory.open({
             databasePath: historyDatabasePath,
-            workspaceRoot: root,
+            resolvePath: (relativePath) => path.join(root, ...relativePath.split("/")),
         });
         const acceptedEntry = await history.performWrite(
             {kind: "agent", sessionId: "writer"},

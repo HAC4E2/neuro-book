@@ -8,7 +8,7 @@ import {ProjectLifecycle, type PreparedProjectOpen} from "nbook/server/workspace
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {ProjectModuleContext} from "nbook/server/workspace-files/project-module";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
-import {WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
+import {WorkspaceHistory} from "@notnotype/nb-history";
 import {
     LOCAL_USER_ID,
     PROJECT_HISTORY_MODULE_TOKEN,
@@ -55,7 +55,7 @@ describe("History ProjectModule", () => {
         const lifecycleTemp = ".nbook-project-lifecycle-v1-123e4567-e89b-42d3-a456-426614174003.tmp";
         const seeded = await WorkspaceHistory.open({
             databasePath,
-            workspaceRoot: prepared.workspace.root,
+            resolvePath: (relativePath) => path.join(prepared.workspace.root, ...relativePath.split("/")),
             config: {retentionFullDays: 30, keepDailyLastAfterWindow: true},
         });
         await seeded.performWrite({kind: "agent", sessionId: "seed"}, stalePath, "stale");

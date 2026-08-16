@@ -20,7 +20,7 @@ import {
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {WorkflowDemoRunState} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {JsonValue, PendingAsk} from "nbook/server/vendor/nb-workflow/index";
+import type {JsonValue, PendingAsk} from "@notnotype/nb-workflow";
 
 const props = defineProps<{
     toolCall: AgentToolCall;

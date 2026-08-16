@@ -1,4 +1,4 @@
-import type {InboxGroup} from "nbook/server/vendor/nb-history/index";
+import type {InboxGroup} from "@notnotype/nb-history";
 
 export type WorkspaceHistoryInboxGroupMatch =
     | {kind: "matched"; group: InboxGroup}

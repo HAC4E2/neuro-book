@@ -4,8 +4,8 @@
 
 - **身份**：`@notnotype/nb-workflow`，版本 `0.1.0`，Agent Workflow 编排 spike。
 - **状态**：已按 S0 import manifest 收编到 monorepo；源 checkout 保持不变，不作为本包的开发路径。
-- **范围**：保留脚本式 durable-execution 核心 API、demo、源码和测试；本次收编不声明接入 NeuroBook 主应用，也不扩展产品 API。
-- **包治理**：monorepo 包设为 `private: true`；源 manifest 没有 `publishConfig` 或自动发布脚本入口，因此未引入发布语义变化。原有 `test`、`demo` scripts、依赖和路径保持不变。
+- **范围**：保留脚本式 durable-execution 核心 API、demo、源码和测试；S3 起 NeuroBook 主应用直接消费本包正式入口，不扩展公开产品 API。
+- **包治理**：monorepo 包设为 `private: true`；源 manifest 没有 `publishConfig` 或自动发布脚本入口，因此未引入发布语义变化。正式入口由 `exports["."]` 指向 `src/index.ts`，原有 `test`、`demo` scripts 与依赖保持不变。
 
 ## S0 导入验证
 

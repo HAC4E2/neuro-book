@@ -3,7 +3,7 @@ import {createError} from "h3";
 import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
 import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
-import {HistoryInboxMutationError} from "nbook/server/vendor/nb-history/index";
+import {HistoryInboxMutationError} from "@notnotype/nb-history";
 
 const RevertBodySchema = z.object({
     projectRoot: ProjectRootDtoSchema,

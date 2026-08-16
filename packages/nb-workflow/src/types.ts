@@ -85,6 +85,8 @@ export type PendingAsk = {
 export type AskSpec = {
     kind: "select" | "text" | "approve";
     title: string;
+    /** 可选 Markdown 说明；用于前端展示完整审批/提问上下文。 */
+    description?: string;
     options?: { id: string; label: string }[];
     multi?: boolean;
 };

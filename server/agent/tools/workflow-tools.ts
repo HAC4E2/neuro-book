@@ -8,7 +8,7 @@ import {assertVisibleModel, resolveAgentVisibleModels} from "nbook/server/agent/
 import {spawnWorkflowJob} from "nbook/server/agent/workflow/workflow-job";
 import {createProjectWorkflowWorkspace} from "nbook/server/agent/workflow/workflow-workspace-port";
 import type {JsonValue} from "nbook/server/agent/messages/types";
-import type {WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {WorkflowDefinition, WorkspacePort} from "@notnotype/nb-workflow";
 import type {WorkflowUsage} from "nbook/server/agent/workflow/workflow-demo-service";
 
 const RunWorkflowSchema = Type.Object({

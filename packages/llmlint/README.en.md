@@ -130,15 +130,9 @@ Further reading:
 
 ---
 
-## Sync to NeuroBook
+## NeuroBook system assets
 
-The bundled NeuroBook copy is **not** the source of truth. After editing [`skill/`](./skill/), run this from the repository root:
-
-```bash
-bun run sync:neuro-book
-```
-
-It mirrors `skill/` into the sibling NeuroBook repository at `assets/workspace/.nbook/agent/skills/llmlint/`. The synchronization logic is maintained by NeuroBook.
+[`skill/`](./skill/) is the sole llmlint Skill source. The NeuroBook monorepo projects runtime assets from this directory while preparing Source/Product system assets; no sibling mirror or manual sync command is maintained.
 
 ---
 
