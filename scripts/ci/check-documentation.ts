@@ -26,9 +26,11 @@ const REQUIRED_DOC_INDEXES = [
     "docs/archived/README.md",
 ] as const;
 const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md", "docs/specs/TEMPLATE.md"] as const;
-const SPEC_SUPPORT_FILES = new Set(["docs/specs/README.md", ...REQUIRED_SPEC_GOVERNANCE]);
+const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md", "TEMPLATE.md"]);
 const SPEC_KINDS = new Set(["behavior", "architecture", "glossary"]);
 const SPEC_STATUSES = new Set(["planned", "implemented"]);
+const SPEC_PLACEHOLDER_CAPABILITY = "replace.with-stable-capability";
+const SPEC_PLACEHOLDER_OWNER = "replace-with-owning-module";
 const BEHAVIOR_SPEC_HEADINGS = [
     "目标与非目标",
     "术语与参与者",
@@ -40,6 +42,7 @@ const BEHAVIOR_SPEC_HEADINGS = [
     "边界与兼容",
     "验收与 Smoke",
 ] as const;
+const PLACEHOLDER_SECTION_PATTERN = /^(?:(?:TODO|FIXME|TBD|WIP|待补(?:充)?|待定|占位(?:内容)?|尚未实现|无内容)\s*)+$/iu;
 
 type SpecMetadata = {
     kind: string;
@@ -47,14 +50,6 @@ type SpecMetadata = {
     capability: string;
 };
 
-const FROZEN_REFERENCE_DOMAINS: Record<string, true> = {
-    agent: true,
-    content: true,
-    "world-engine": true,
-    plot: true,
-    theme: true,
-    media: true,
-};
 const ROOT_DOCUMENTS: Record<string, true> = {
     "AGENTS.md": true,
     "CLAUDE.md": true,
@@ -70,8 +65,8 @@ const ROOT_DOCUMENTS: Record<string, true> = {
 
 export function checkDocumentation(repoRoot: string, paths?: readonly string[]): DocumentationCheckReport {
     const normalizedRoot = resolve(repoRoot);
-    const candidates = paths ?? git(normalizedRoot, ["ls-files", "--cached", "--others", "--exclude-standard"])
-        .split(/\r?\n/u)
+    const candidates = paths ?? git(normalizedRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+        .split("\0")
         .filter(Boolean);
     const files = [...new Set(candidates.map(normalizeRepoPath))]
         .filter((path) => isRegularFile(normalizedRoot, path))
@@ -86,7 +81,8 @@ export function checkDocumentation(repoRoot: string, paths?: readonly string[]):
     checkActiveLinks(normalizedRoot, files, fileSet, failures);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
     checkSpecs(normalizedRoot, files, failures);
-    checkFrozenReference(files, failures);
+    checkFrozenReference(normalizedRoot, files, failures);
+    checkCurrentTaskContracts(normalizedRoot, files, fileSet, failures);
 
     return {failures, checkedFiles: files.length};
 }
@@ -149,7 +145,7 @@ function checkAdrs(repoRoot: string, files: readonly string[], failures: string[
 }
 
 function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
-    for (const source of files.filter(isActiveMarkdown)) {
+    for (const source of files.filter((path) => isActiveMarkdown(path) || isCurrentTaskContract(repoRoot, path))) {
         const text = readFileSync(resolve(repoRoot, source), "utf8");
         let tree: Root;
         try {
@@ -158,7 +154,11 @@ function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: R
             failures.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
-        for (const url of collectLinkUrls(tree)) {
+        for (const url of collectLinkUrls(tree, true)) {
+            if (url.includes("\\")) {
+                failures.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
+                continue;
+            }
             const target = resolveRelativeLink(source, url);
             if (target === null) continue;
             if (target.startsWith("../") || target === "..") {
@@ -182,10 +182,44 @@ function isActiveMarkdown(path: string): boolean {
     return path.startsWith(".agents/roles/") || path.startsWith(".agents/skills/");
 }
 
-function collectLinkUrls(tree: Root): string[] {
+function isCurrentTaskContract(repoRoot: string, path: string): boolean {
+    if (!/^\.agents\/tasks\/[^/]+\/README\.md$/u.test(path)) return false;
+    const text = readFileSync(resolve(repoRoot, path), "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text)?.[1];
+    if (!frontmatter) return false;
+    try {
+        const metadata = parseYaml(frontmatter) as {schema?: unknown} | null;
+        return metadata?.schema === "nbook.task/v1";
+    } catch {
+        return false;
+    }
+}
+
+function checkCurrentTaskContracts(
+    repoRoot: string,
+    files: readonly string[],
+    fileSet: ReadonlySet<string>,
+    failures: string[],
+): void {
+    for (const path of files.filter((candidate) => isCurrentTaskContract(repoRoot, candidate))) {
+        const text = readFileSync(resolve(repoRoot, path), "utf8");
+        const links = collectLinkUrls(fromMarkdown(text));
+        const hasConcreteSpec = links.some((url) => {
+            const target = resolveRelativeLink(path, url);
+            if (target === null) return false;
+            const candidate = target.endsWith(".md") ? target : `${target}.md`;
+            return isSpecDocument(candidate) && fileSet.has(candidate);
+        });
+        if (!hasConcreteSpec && !text.includes("行为合同未变")) {
+            failures.push(`新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：${path}`);
+        }
+    }
+}
+
+function collectLinkUrls(tree: Root, includeImages = false): string[] {
     const urls: string[] = [];
     const visit = (node: Nodes | Root): void => {
-        if (node.type === "link" || node.type === "definition") urls.push(node.url);
+        if (node.type === "link" || node.type === "definition" || (includeImages && node.type === "image")) urls.push(node.url);
         if ("children" in node) for (const child of node.children) visit(child);
     };
     visit(tree);
@@ -207,15 +241,14 @@ function resolveRelativeLink(source: string, rawUrl: string): string | null {
     return posix.normalize(posix.join(posix.dirname(source), decoded));
 }
 
-function linkTargetExists(repoRoot: string, target: string, fileSet: ReadonlySet<string>): boolean {
-    const candidates = [target];
-    if (!target.endsWith(".md")) candidates.push(`${target}.md`);
-    candidates.push(`${target}/README.md`, `${target}/index.md`);
-    if (candidates.some((candidate) => fileSet.has(normalizeRepoPath(candidate)))) return true;
-    return candidates.some((candidate) => {
-        const absolutePath = resolve(repoRoot, candidate);
-        return existsSync(absolutePath) && !lstatSync(absolutePath).isSymbolicLink();
-    });
+function linkTargetExists(_repoRoot: string, target: string, fileSet: ReadonlySet<string>): boolean {
+    const normalizedTarget = normalizeRepoPath(target).replace(/\/$/u, "");
+    const candidates = [normalizedTarget];
+    if (!normalizedTarget.endsWith(".md")) candidates.push(`${normalizedTarget}.md`);
+    candidates.push(`${normalizedTarget}/README.md`, `${normalizedTarget}/index.md`);
+    if (candidates.some((candidate) => fileSet.has(candidate))) return true;
+    const directoryPrefix = `${normalizedTarget}/`;
+    return [...fileSet].some((candidate) => candidate.startsWith(directoryPrefix));
 }
 
 function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failures: string[]): void {
@@ -237,11 +270,13 @@ function checkSpecs(repoRoot: string, files: readonly string[], failures: string
     const registryPath = "docs/specs/README.md";
     if (!files.includes(registryPath)) return;
     const registry = readFileSync(resolve(repoRoot, registryPath), "utf8");
-    const implementedTargets = registeredSpecTargets(registryPath, registry, "已实现规范", failures);
-    const plannedTargets = registeredSpecTargets(registryPath, registry, "待实现规范", failures);
+    const specPaths = files.filter(isSpecDocument);
+    const specPathSet = new Set(specPaths);
+    const implementedTargets = registeredSpecTargets(registryPath, registry, "已实现规范", specPathSet, failures);
+    const plannedTargets = registeredSpecTargets(registryPath, registry, "待实现规范", specPathSet, failures);
     const byCapability = new Map<string, string[]>();
 
-    for (const path of files.filter((candidate) => candidate.startsWith("docs/specs/") && candidate.endsWith(".md") && !SPEC_SUPPORT_FILES.has(candidate))) {
+    for (const path of specPaths) {
         const text = readFileSync(resolve(repoRoot, path), "utf8");
         const metadata = parseSpecMetadata(path, text, failures);
         if (metadata === null) continue;
@@ -254,15 +289,18 @@ function checkSpecs(repoRoot: string, files: readonly string[], failures: string
         const otherTargets = metadata.status === "implemented" ? plannedTargets : implementedTargets;
         if (!expectedTargets.has(path)) failures.push(`Spec 未登记在“${expectedSection}”：${path}`);
         if (otherTargets.has(path)) failures.push(`Spec 登记的成熟度与 frontmatter 不一致：${path}（${metadata.status}）`);
+        if (text.includes("本模板中的说明在填写后删除")) failures.push(`Spec 仍包含模板说明：${path}`);
 
         if (metadata.kind === "behavior") {
-            const headings = new Set([...text.matchAll(/^## (.+)$/gmu)].map((match) => match[1].trim()));
-            for (const heading of BEHAVIOR_SPEC_HEADINGS) {
-                if (!headings.has(heading)) failures.push(`Behavior Spec 缺少“${heading}”章节：${path}`);
-            }
+            const sections = markdownSections(text);
+            for (const heading of BEHAVIOR_SPEC_HEADINGS) checkRequiredSpecSection(path, sections, heading, "Behavior Spec", failures);
+            checkRequiredSpecSection(path, sections, "证据", metadata.status === "implemented" ? "Implemented Spec" : "Planned Spec", failures);
             if (metadata.status === "implemented") {
-                for (const heading of ["实现合同", "证据"] as const) {
-                    if (!headings.has(heading)) failures.push(`Implemented Spec 缺少“${heading}”章节：${path}`);
+                checkRequiredSpecSection(path, sections, "实现合同", "Implemented Spec", failures);
+                const evidence = sections.get("证据");
+                const evidenceLinks = evidence === undefined ? [] : collectLinkUrls(fromMarkdown(evidence));
+                if (evidence !== undefined && evidenceLinks.every((url) => resolveRelativeLink(path, url) === null)) {
+                    failures.push(`Implemented Spec 的“证据”必须链接仓库内实现或验证入口：${path}`);
                 }
             }
         }
@@ -273,23 +311,99 @@ function checkSpecs(repoRoot: string, files: readonly string[], failures: string
     }
 }
 
-function markdownSection(text: string, heading: string): string | null {
-    const marker = `## ${heading}`;
-    const start = text.indexOf(marker);
-    if (start < 0) return null;
-    const next = text.indexOf("\n## ", start + marker.length);
-    return text.slice(start, next >= 0 ? next : undefined);
+function isSpecDocument(path: string): boolean {
+    if (!path.startsWith("docs/specs/") || !path.endsWith(".md")) return false;
+    return !SPEC_SUPPORT_FILENAMES.has(posix.basename(path));
 }
 
-function registeredSpecTargets(registryPath: string, registry: string, heading: string, failures: string[]): ReadonlySet<string> {
+function checkRequiredSpecSection(
+    path: string,
+    sections: ReadonlyMap<string, string>,
+    heading: string,
+    label: string,
+    failures: string[],
+): void {
+    const section = sections.get(heading);
+    if (section === undefined) {
+        failures.push(`${label} 缺少“${heading}”章节：${path}`);
+        return;
+    }
+    const content = markdownPlainText(section);
+    if (!content || PLACEHOLDER_SECTION_PATTERN.test(content)) failures.push(`${label} 的“${heading}”章节没有实义内容：${path}`);
+}
+
+function markdownSection(text: string, heading: string): string | null {
+    return markdownSections(text).get(heading) ?? null;
+}
+
+function markdownSections(text: string): ReadonlyMap<string, string> {
+    let tree: Root;
+    try {
+        tree = fromMarkdown(text);
+    } catch {
+        return new Map();
+    }
+    const headings = tree.children.filter((node) => node.type === "heading" && node.depth === 2);
+    const sections = new Map<string, string>();
+    for (let index = 0; index < headings.length; index++) {
+        const heading = headings[index];
+        const name = markdownNodeText(heading).trim();
+        const bodyStart = heading.position?.end.offset;
+        const bodyEnd = headings[index + 1]?.position?.start.offset ?? text.length;
+        if (!name || bodyStart === undefined || bodyEnd === undefined) continue;
+        sections.set(name, text.slice(bodyStart, bodyEnd));
+    }
+    return sections;
+}
+
+function markdownNodeText(node: Nodes | Root): string {
+    if (node.type === "text" || node.type === "inlineCode" || node.type === "code") return node.value;
+    if (!("children" in node)) return "";
+    return node.children.map(markdownNodeText).join("");
+}
+
+function markdownPlainText(markdown: string): string {
+    let tree: Root;
+    try {
+        tree = fromMarkdown(markdown);
+    } catch {
+        return "";
+    }
+    const values: string[] = [];
+    const visit = (node: Nodes | Root): void => {
+        if (node.type === "text" || node.type === "inlineCode" || node.type === "code") values.push(node.value);
+        if ("children" in node) for (const child of node.children) visit(child);
+    };
+    visit(tree);
+    return values.join(" ").trim();
+}
+
+function registeredSpecTargets(
+    registryPath: string,
+    registry: string,
+    heading: string,
+    specPaths: ReadonlySet<string>,
+    failures: string[],
+): ReadonlySet<string> {
     const section = markdownSection(registry, heading);
     if (section === null) {
         failures.push(`${registryPath} 缺少“${heading}”章节`);
         return new Set();
     }
-    return new Set(collectLinkUrls(fromMarkdown(section))
-        .map((url) => resolveRelativeLink(registryPath, url))
-        .filter((target): target is string => target !== null && target.startsWith("docs/specs/") && target.endsWith(".md")));
+    const targets = new Set<string>();
+    for (const url of collectLinkUrls(fromMarkdown(section))) {
+        const resolved = resolveRelativeLink(registryPath, url);
+        if (resolved === null || !resolved.startsWith("docs/specs/")) continue;
+        const candidates = resolved.endsWith(".md") ? [resolved] : [`${resolved}.md`];
+        const target = candidates.find((candidate) => specPaths.has(candidate));
+        if (target === undefined) {
+            failures.push(`“${heading}”只能登记具体 Spec 文件：${registryPath} -> ${url}`);
+            continue;
+        }
+        if (targets.has(target)) failures.push(`“${heading}”重复登记 Spec：${target}`);
+        targets.add(target);
+    }
+    return targets;
 }
 
 function parseSpecMetadata(path: string, text: string, failures: string[]): SpecMetadata | null {
@@ -319,17 +433,31 @@ function parseSpecMetadata(path: string, text: string, failures: string[]): Spec
     if (typeof kind !== "string" || !SPEC_KINDS.has(kind)) failures.push(`Spec kind 必须是 behavior、architecture 或 glossary：${path}`);
     if (typeof status !== "string" || !SPEC_STATUSES.has(status)) failures.push(`Spec status 必须是 planned 或 implemented：${path}`);
     if (typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)) failures.push(`Spec capability 必须是稳定的点分小写标识：${path}`);
+    if (capability === SPEC_PLACEHOLDER_CAPABILITY) failures.push(`Spec capability 仍是模板占位值：${path}`);
     if (!Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())) {
         failures.push(`Spec owners 必须是非空模块列表：${path}`);
+    } else if (owners.includes(SPEC_PLACEHOLDER_OWNER)) {
+        failures.push(`Spec owners 仍包含模板占位值：${path}`);
     }
     if (schema !== "nbook.spec/v1" || typeof kind !== "string" || !SPEC_KINDS.has(kind)
         || typeof status !== "string" || !SPEC_STATUSES.has(status)
         || typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)
-        || !Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())) return null;
+        || capability === SPEC_PLACEHOLDER_CAPABILITY
+        || !Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())
+        || owners.includes(SPEC_PLACEHOLDER_OWNER)) return null;
     return {kind, status, capability};
 }
 
-function checkFrozenReference(files: readonly string[], failures: string[]): void {
+function checkFrozenReference(repoRoot: string, files: readonly string[], failures: string[]): void {
+    const registryPath = resolve(repoRoot, "docs/specs/README.md");
+    const registry = existsSync(registryPath) ? readFileSync(registryPath, "utf8") : "";
+    const frozenSection = markdownSection(registry, "冻结过渡规范") ?? "";
+    const registeredDomains = new Set(collectLinkUrls(fromMarkdown(frozenSection))
+        .map((url) => resolveRelativeLink("docs/specs/README.md", url))
+        .filter((target): target is string => target?.startsWith("reference/") === true)
+        .map((target) => target.split("/")[1])
+        .filter((domain): domain is string => Boolean(domain)));
+
     for (const path of files.filter((candidate) => candidate.startsWith("reference/") && candidate.endsWith(".md"))) {
         const segments = path.split("/");
         if (path === "reference/README.md") continue;
@@ -337,7 +465,7 @@ function checkFrozenReference(files: readonly string[], failures: string[]): voi
             failures.push(`已迁移的 reference/workspace 不得重新出现：${path}`);
             continue;
         }
-        if (!FROZEN_REFERENCE_DOMAINS[segments[1]]) failures.push(`reference 出现未登记顶层域：${path}`);
+        if (!registeredDomains.has(segments[1])) failures.push(`reference 出现未登记顶层域：${path}`);
     }
 }
 

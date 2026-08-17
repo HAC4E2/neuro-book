@@ -26,7 +26,7 @@ updatedAt: 2026-08-16T14:59:07Z
 
 - 批准计划：`local://monorepo-main-app-migration-plan.md`
 - 当前治理规则：根 `AGENTS.md`、`.agents/tasks/README.md`、`.agents/tasks/AGENTS.md`、相关作用域 `AGENTS.md`
-- 当前产品规范：`docs/specs/` 注册表及其指向正文
+- 当前产品规范：[`architecture.monorepo-boundaries`](../../../docs/specs/architecture/monorepo-boundaries.md)（`planned`）
 
 ## 检查点
 
