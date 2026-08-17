@@ -1,5 +1,5 @@
 import type {OwnedProcessCompletion, OwnedProcessLease} from "@notnotype/owned-process";
-import {resolve} from "node:path";
+import {isAbsolute, relative, resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
@@ -18,7 +18,7 @@ vi.mock("nbook/server/runtime/shutdown/product-shutdown-client", () => ({
     shutdownNativeProduct: mocks.shutdownNativeProduct,
 }));
 
-import {runSourceDev} from "nbook/scripts/cli/source-dev";
+import {resolveSourceDevUserRoots, runSourceDev} from "nbook/scripts/cli/source-dev";
 
 describe("Source Dev launcher", () => {
     afterEach(() => {
@@ -28,10 +28,12 @@ describe("Source Dev launcher", () => {
     it("公开入口以Owned Process启动内部dev:runtime并传播自然退出码", async () => {
         mocks.spawnOwnedProcess.mockReturnValue(lease(Promise.resolve({exitCode: 7, signal: null})));
         const sourceCheckout = process.cwd();
+        const sourceEnvironment = {PORT: "43130", SOURCE_DEV_MARKER: "kept"};
+        const userRoots = resolveSourceDevUserRoots({environment: sourceEnvironment});
 
         await expect(runSourceDev({
             cwd: sourceCheckout,
-            env: {PORT: "43130", SOURCE_DEV_MARKER: "kept"},
+            env: sourceEnvironment,
         })).resolves.toBe(7);
 
         expect(mocks.spawnOwnedProcess).toHaveBeenCalledWith(expect.objectContaining({
@@ -43,13 +45,18 @@ describe("Source Dev launcher", () => {
                 SOURCE_DEV_MARKER: "kept",
                 HOST: "127.0.0.1",
                 NITRO_HOST: "127.0.0.1",
-                NEURO_BOOK_CACHE_ROOT: resolve(sourceCheckout, ".agent", "cache"),
+                NEURO_BOOK_STATE_ROOT: userRoots.stateRoot,
+                NEURO_BOOK_CACHE_ROOT: userRoots.cacheRoot,
+                NEURO_BOOK_APPLICATION_ROOT: sourceCheckout,
                 [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/u),
             }),
             stdin: "inherit",
             stdout: "inherit",
             stderr: "inherit",
         }));
+
+        expect(isWithin(sourceCheckout, userRoots.stateRoot)).toBe(false);
+        expect(isWithin(sourceCheckout, userRoots.cacheRoot)).toBe(false);
     });
 
     it("显式Cache Root保持原值，不由Source Dev launcher重写", async () => {
@@ -157,7 +164,31 @@ describe("Source Dev launcher", () => {
 
         await expect(running).rejects.toBe(failure);
     });
+
+    it("平台默认 State/Cache 根不依赖 checkout", () => {
+        expect(resolveSourceDevUserRoots({
+            platform: "win32",
+            environment: {LOCALAPPDATA: "C:/Users/test/AppData/Local"},
+            homeDirectory: "C:/Users/test",
+        })).toEqual({
+            stateRoot: resolve("C:/Users/test/AppData/Local/NeuroBook/data"),
+            cacheRoot: resolve("C:/Users/test/AppData/Local/NeuroBook/cache"),
+        });
+        expect(resolveSourceDevUserRoots({
+            platform: "linux",
+            environment: {XDG_DATA_HOME: "/tmp/nbook-data", XDG_CACHE_HOME: "/tmp/nbook-cache"},
+            homeDirectory: "/home/test",
+        })).toEqual({
+            stateRoot: resolve("/tmp/nbook-data/NeuroBook/data"),
+            cacheRoot: resolve("/tmp/nbook-cache/NeuroBook"),
+        });
+    });
 });
+
+function isWithin(root: string, candidate: string): boolean {
+    const escaped = relative(resolve(root), resolve(candidate));
+    return escaped === "" || (!escaped.startsWith("..") && !isAbsolute(escaped));
+}
 
 /** 构造测试用 Owned Process lease。 */
 function lease(completion: Promise<OwnedProcessCompletion>): OwnedProcessLease & {terminate: ReturnType<typeof vi.fn>} {

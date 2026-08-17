@@ -1,10 +1,14 @@
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
-import {defineConfig, env} from "prisma/config";
+import {fileURLToPath} from "node:url";
 import * as yaml from "yaml";
+import {defineConfig, env} from "prisma/config";
 
-const databaseUrl = resolveDatabaseUrl();
+const moduleRoot = path.dirname(fileURLToPath(import.meta.url));
+const applicationRoot = path.resolve(process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || moduleRoot);
+const databaseUrl = resolveDatabaseUrl(applicationRoot);
+process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
 process.env.DATABASE_KIND = "sqlite";
 process.env.DATABASE_URL = databaseUrl;
 
@@ -18,9 +22,9 @@ export default defineConfig({
     },
 });
 
-function resolveDatabaseUrl(): string {
+function resolveDatabaseUrl(applicationRoot: string): string {
     const envUrl = normalizeText(process.env.DATABASE_URL);
-    const bootUrl = normalizeText(readBootDatabaseConfig().url);
+    const bootUrl = normalizeText(readBootDatabaseConfig(applicationRoot).url);
     const url = envUrl || bootUrl || "file:./workspace/.nbook/neuro-book.sqlite";
     if (!url.startsWith("file:")) {
         throw new Error(`Prisma App SQLite 只支持 file: URL，当前为：${url}`);
@@ -28,8 +32,8 @@ function resolveDatabaseUrl(): string {
     return url;
 }
 
-function readBootDatabaseConfig(): {url?: unknown} {
-    const configPath = path.resolve(process.cwd(), "config.yaml");
+function readBootDatabaseConfig(applicationRoot: string): {url?: unknown} {
+    const configPath = path.resolve(applicationRoot, "config.yaml");
     if (!fs.existsSync(configPath)) {
         return {};
     }

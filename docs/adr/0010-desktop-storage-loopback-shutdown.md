@@ -79,7 +79,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 2. launcher 与 Manager 复用同一 `shutdownNativeProduct()`：首次 Ctrl+C/SIGTERM 请求认证 loopback shutdown，第二次信号立即强制收口；graceful 与 force 同时失败必须聚合报告。launcher 自身异常退出时由监督 IPC 断连收口后代树。
 3. Source Dev 未显式声明监听 host 时固定使用 `127.0.0.1`。显式 `localhost` 或 IPv6 loopback 时，shutdown client 必须请求同一 loopback 地址；不得因地址族不一致把正常数据 flush 静默降级为强杀。
 4. Agent Session Store 的 `runtime.lease` owner metadata 只用于竞争错误诊断。互斥、15 秒 heartbeat、30 秒 stale 接管仍由 `proper-lockfile` 决定；禁止按 metadata PID 自动杀进程、提前抢锁或删除 `.lock`。普通 `ELOCKED` 表示获取时已有 owner；`ECOMPROMISED` 表示当前 owner 已失去所有权，两者都不得被解释为普通正文文件占用。
-5. Source Dev launcher 在未显式配置 `NEURO_BOOK_CACHE_ROOT` 时向内部 `dev:runtime` 注入 `<checkout>/.agent/cache`；显式配置保持原值。这样 Source Dev 的图片变体和其它可重建缓存不会落到 checkout 根目录的 `cache/`，同时不改变通用 Runtime Paths 对直接启动和隔离测试的 `State Root/cache` 回退。
+5. Source Dev launcher 在未显式配置 `NEURO_BOOK_STATE_ROOT` / `NEURO_BOOK_CACHE_ROOT` 时，向内部 `dev:runtime` 注入平台用户级根：Windows 为 `%LOCALAPPDATA%/NeuroBook/{data,cache}`，macOS 为 `~/Library/Application Support/NeuroBook/data` 与 `~/Library/Caches/NeuroBook`，Linux/其他 POSIX 为 `${XDG_DATA_HOME:-~/.local/share}/NeuroBook/data` 与 `${XDG_CACHE_HOME:-~/.cache}/NeuroBook`。显式配置保持原值；这些默认根不得落入 repository/application source root。通用 Runtime Paths 的直接启动 fallback 仍不代表 Source Dev launcher 合同。
 
 ### Secret 传递
 

@@ -4,6 +4,7 @@ import {dirname, resolve} from "node:path";
 import {parseArgs} from "node:util";
 
 import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";
 import {
     buildProductRuntimePayload,
     prepareProductRuntimeSource,
@@ -27,14 +28,17 @@ export interface ProductRuntimeMeasurementOptions {
 export async function measureProductRuntimeImage(
     options: ProductRuntimeMeasurementOptions = {},
 ): Promise<{outputPath: string; report: ProductRuntimeMeasurementReport}> {
-    const projectRoot = process.cwd();
-    return await withProductBuildLease(projectRoot, async () => {
+    const roots = resolveWorkspaceRoots();
+    return await withProductBuildLease(roots.repositoryRoot, async () => {
         const platform = currentProductPlatform();
-        const buildEnvironment = productBuildEnvironment(process.env);
+        const buildEnvironment = {
+            ...productBuildEnvironment(process.env, roots.repositoryRoot),
+            NEURO_BOOK_APPLICATION_ROOT: roots.applicationSourceRoot,
+        };
         await prepareProductRuntimeSource(buildEnvironment);
         const explicitRevision = process.env.NEURO_BOOK_SOURCE_REVISION?.trim();
         const operationId = `measure-${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-        const report = await new ProductRuntimeImageBuilder(projectRoot).measureCandidate({
+        const report = await new ProductRuntimeImageBuilder(roots.repositoryRoot).measureCandidate({
             operationId,
             platform,
             expectedSource: explicitRevision ? {revision: explicitRevision, dirty: false} : undefined,
@@ -43,7 +47,7 @@ export async function measureProductRuntimeImage(
             },
         });
         const outputPath = resolve(options.outputPath?.trim() || resolve(
-            projectRoot,
+            roots.repositoryRoot,
             ".deploy",
             "measurements",
             `${platform}-${operationId}.json`,

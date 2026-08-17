@@ -1,13 +1,22 @@
 #!/usr/bin/env bun
 import {spawn} from "node:child_process";
 import {setTimeout as sleep} from "node:timers/promises";
+import {dirname, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {preparePrismaEnv} from "./prisma-env.mjs";
 
-const env = preparePrismaEnv();
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const scriptApplicationRoot = resolve(scriptDir, "..", "..");
+const applicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim()
+    ? resolve(process.env.NEURO_BOOK_APPLICATION_ROOT)
+    : scriptApplicationRoot;
+const configRoot = await existingConfigRoot(applicationRoot, scriptApplicationRoot);
+const configPath = resolve(configRoot, "prisma.config.ts");
+const env = preparePrismaEnv({applicationRoot});
 const bunCommand = process.execPath;
 
-await runPrismaGenerate("./prisma/schema.sqlite.prisma");
-await runPrismaGenerate("./prisma/project.schema.prisma");
+await runPrismaGenerate(resolve(configRoot, "prisma", "schema.sqlite.prisma"));
+await runPrismaGenerate(resolve(configRoot, "prisma", "project.schema.prisma"));
 
 /** 顺序生成App与Project Client，任一schema失败都立即终止发布链。 */
 async function runPrismaGenerate(schema) {
@@ -39,10 +48,11 @@ async function spawnPrismaGenerate(schema) {
         "prisma",
         "generate",
         "--config",
-        "./prisma.config.ts",
+        configPath,
         "--schema",
         schema,
     ], {
+        cwd: applicationRoot,
         env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
         stdio: ["inherit", "inherit", "pipe"],
     });
@@ -52,8 +62,18 @@ async function spawnPrismaGenerate(schema) {
         stderr += chunk;
         process.stderr.write(chunk);
     });
-    const result = await new Promise((resolve) => {
-        child.once("exit", (code, signal) => resolve({code, signal}));
+    const result = await new Promise((resolvePromise) => {
+        child.once("exit", (code, signal) => resolvePromise({code, signal}));
     });
     return {...result, stderr};
+}
+
+async function existingConfigRoot(primary, fallback) {
+    const {access} = await import("node:fs/promises");
+    try {
+        await access(resolve(primary, "prisma.config.ts"));
+        return primary;
+    } catch {
+        return fallback;
+    }
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import {randomBytes} from "node:crypto";
+import {homedir} from "node:os";
 import {resolve} from "node:path";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
 import {shutdownNativeProduct} from "nbook/server/runtime/shutdown/product-shutdown-client";
@@ -7,11 +8,51 @@ import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
 } from "@notnotype/neuro-book-contracts/product-runtime";
+import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";
+import type {WorkspaceRoots} from "#scripts/utils/workspace-roots";
 
 export type SourceDevOptions = {
+    /** 显式 repository root；仅为测试和 Manager adapter 提供起点。 */
+    repositoryRoot?: string;
+    /** 显式 application source root；迁移后与 repository root 分离。 */
+    applicationSourceRoot?: string;
+    /** 兼容现有内部调用的显式 root，不再作为 cwd 猜测。 */
     cwd?: string;
     env?: NodeJS.ProcessEnv;
 };
+
+export type SourceDevUserRootsOptions = {
+    platform?: NodeJS.Platform;
+    environment?: NodeJS.ProcessEnv;
+    homeDirectory?: string;
+};
+
+export type SourceDevUserRoots = Readonly<{
+    stateRoot: string;
+    cacheRoot: string;
+}>;
+
+/** Source Dev 未显式配置时使用的用户级 State/Cache 根；绝不落入 Source roots。 */
+export function resolveSourceDevUserRoots(
+    options: SourceDevUserRootsOptions = {},
+): SourceDevUserRoots {
+    const platform = options.platform ?? process.platform;
+    const environment = options.environment ?? process.env;
+    const home = options.homeDirectory ?? homedir();
+    if (platform === "win32") {
+        const localAppData = resolve(environment.LOCALAPPDATA ?? resolve(home, "AppData", "Local"));
+        const base = resolve(localAppData, "NeuroBook");
+        return {stateRoot: resolve(base, "data"), cacheRoot: resolve(base, "cache")};
+    }
+    if (platform === "darwin") {
+        const support = resolve(environment.HOME ?? home, "Library", "Application Support", "NeuroBook");
+        const cache = resolve(environment.HOME ?? home, "Library", "Caches", "NeuroBook");
+        return {stateRoot: resolve(support, "data"), cacheRoot: cache};
+    }
+    const stateBase = resolve(environment.XDG_DATA_HOME ?? resolve(home, ".local", "share"), "NeuroBook");
+    const cacheBase = resolve(environment.XDG_CACHE_HOME ?? resolve(home, ".cache"), "NeuroBook");
+    return {stateRoot: resolve(stateBase, "data"), cacheRoot: cacheBase};
+}
 
 /**
  * 运行公开 Source Dev 入口。
@@ -20,16 +61,25 @@ export type SourceDevOptions = {
  * graceful shutdown、宿主断连兜底和真实退出码传播。Manager 会直接拥有内部入口。
  */
 export async function runSourceDev(options: SourceDevOptions = {}): Promise<number> {
-    const cwd = options.cwd ?? process.cwd();
+    const roots: WorkspaceRoots = resolveWorkspaceRoots({
+        repositoryRoot: options.repositoryRoot ?? options.cwd,
+        applicationSourceRoot: options.applicationSourceRoot,
+    });
+    const cwd = roots.applicationSourceRoot;
     const inherited = options.env ?? process.env;
     const token = randomBytes(32).toString("base64url");
     const configuredHost = inherited.NITRO_HOST?.trim() || inherited.HOST?.trim();
+    const userRoots = resolveSourceDevUserRoots({environment: inherited});
     const env = {
         ...inherited,
         ...configuredHost ? {} : {HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1"},
+        NEURO_BOOK_APPLICATION_ROOT: roots.applicationSourceRoot,
+        NEURO_BOOK_STATE_ROOT: inherited.NEURO_BOOK_STATE_ROOT?.trim()
+            ? inherited.NEURO_BOOK_STATE_ROOT
+            : userRoots.stateRoot,
         NEURO_BOOK_CACHE_ROOT: inherited.NEURO_BOOK_CACHE_ROOT?.trim()
             ? inherited.NEURO_BOOK_CACHE_ROOT
-            : resolve(cwd, ".agent", "cache"),
+            : userRoots.cacheRoot,
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: token,
     };
     const port = sourceDevPort(env);

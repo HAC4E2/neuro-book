@@ -1,0 +1,11 @@
+{
+    "name": "@notnotype/neuro-book",
+    "version": "0.9.5-canary.20260814.021137Z.323410b8",
+    "private": true,
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/notnotype/neuro-book.git",
+        "directory": "packages/neuro-book"
+    }
+}

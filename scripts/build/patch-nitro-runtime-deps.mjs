@@ -18,6 +18,7 @@ import {
 } from "@notnotype/neuro-book-contracts/product-runtime";
 
 const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
+const applicationSourceRoot = resolve(process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || process.cwd());
 const productArtifactGeneratedAt = new Date(0).toISOString();
 const serverRoot = resolve(outputRoot, "server");
 const productAgentRoot = resolve(serverRoot, "assets", "workspace", ".nbook", "agent");
@@ -136,7 +137,7 @@ function assertRawOutput() {
 
 /** Product 内所有可执行命令只指向预编译入口。 */
 async function writeProductPackageJson() {
-    const source = JSON.parse(await readFile(resolve("package.json"), "utf8"));
+    const source = JSON.parse(await readFile(resolve(applicationSourceRoot, "package.json"), "utf8"));
     const packageJson = {
         name: "neuro-book-output",
         version: source.version ?? "0.0.0",

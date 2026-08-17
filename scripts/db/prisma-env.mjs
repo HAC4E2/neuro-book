@@ -1,14 +1,14 @@
 import "dotenv/config";
 import {existsSync, mkdirSync, readFileSync} from "node:fs";
-import {dirname} from "node:path";
+import {dirname, resolve} from "node:path";
 import * as yaml from "yaml";
 import {resolveAppSqliteLocation, selectAppSqliteUrl} from "nbook/server/runtime/app-sqlite-location";
 import {resolveBootConfigPath, resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
-export function resolveDatabaseKind() {
+export function resolveDatabaseKind(applicationRoot) {
     const rawKind = process.env.DATABASE_KIND?.trim().toLowerCase();
     const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
-    const bootDatabase = readBootDatabaseConfig();
+    const bootDatabase = readBootDatabaseConfig(applicationRoot);
     const bootKind = normalizeKind(bootDatabase.kind);
     const bootUrl = normalizeText(bootDatabase.url);
 
@@ -33,9 +33,13 @@ export function resolveDatabaseKind() {
     return "sqlite";
 }
 
-export function preparePrismaEnv() {
-    const kind = resolveDatabaseKind();
-    const bootDatabase = readBootDatabaseConfig();
+export function preparePrismaEnv(options = {}) {
+    const applicationRoot = resolveApplicationRootOption(options.applicationRoot);
+    if (applicationRoot) {
+        process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
+    }
+    const kind = resolveDatabaseKind(applicationRoot);
+    const bootDatabase = readBootDatabaseConfig(applicationRoot);
     const bootUrl = normalizeText(bootDatabase.url);
     process.env.DATABASE_KIND = kind;
     if (!process.env.DATABASE_URL) {
@@ -46,14 +50,22 @@ export function preparePrismaEnv() {
     if (!configuredUrl.startsWith("file:")) {
         throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${configuredUrl || "<empty>"}`);
     }
-    const location = resolveAppSqliteLocation(configuredUrl, resolveStateRoot());
+    const location = resolveAppSqliteLocation(
+        configuredUrl,
+        resolveStateRoot(applicationRoot ?? undefined),
+    );
     process.env.DATABASE_URL = location.connectionUrl;
     mkdirSync(dirname(location.hostPath), {recursive: true});
-    return {kind, databaseUrl: location.connectionUrl};
+    return {kind, databaseUrl: location.connectionUrl, applicationRoot: applicationRoot ?? undefined};
 }
 
-function readBootDatabaseConfig() {
-    const bootConfigPath = resolveBootConfigPath();
+function resolveApplicationRootOption(input) {
+    const value = normalizeText(input);
+    return value ? resolve(value) : undefined;
+}
+
+function readBootDatabaseConfig(applicationRoot) {
+    const bootConfigPath = resolveBootConfigPath(applicationRoot ?? undefined);
     if (!existsSync(bootConfigPath)) {
         return {};
     }
@@ -63,7 +75,6 @@ function readBootDatabaseConfig() {
     const parsed = yaml.parse(expanded);
     return parsed?.database && typeof parsed.database === "object" ? parsed.database : {};
 }
-
 function expandEnvTemplates(input) {
     return input.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}/g, (_match, name, fallback) => {
         const value = process.env[name];

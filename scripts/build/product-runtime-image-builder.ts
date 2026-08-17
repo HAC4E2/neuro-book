@@ -10,10 +10,13 @@ import {
     stat,
     writeFile,
 } from "node:fs/promises";
-import {resolve} from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
+import {resolve} from "node:path";
+import {existsSync as existsSyncPath} from "node:fs";
 import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {readApplicationPackageManifest} from "#scripts/utils/application-package";
+import {SOURCE_APPLICATION_RELATIVE_PATH} from "#scripts/utils/workspace-roots";
 import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 import {
     parseProductRuntimeContract,
@@ -95,10 +98,9 @@ const GITLESS_SOURCE_EXCLUDES = new Set([
     "coverage", "dist", "logs", "node_modules", "tmp", "workspace",
 ]);
 const GITLESS_SOURCE_PATH_EXCLUDES = new Set(["server/generated/prisma"]);
-
 /** 调用方在构建前已经锁定、需要 Builder 复核的 Source 身份。 */
 export interface ProductRuntimeBuildExpectation {
-    /** 未提供时使用 Source package.json 中的版本。 */
+    /** 未提供时使用应用 identity manifest 中的版本。 */
     version?: string;
     /** 未提供时使用当前 Git HEAD。 */
     revision?: string;
@@ -202,11 +204,16 @@ interface ReadyMarker {
  * 调用方不能绕过 Source 竞态检查自行写 manifest，也不能把“目录存在”误当成 ready。
  */
 export class ProductRuntimeImageBuilder {
-    private readonly projectRoot: string;
+    private readonly repositoryRoot: string;
+    private readonly applicationSourceRoot: string;
 
-    /** 绑定一个 Source Root；候选始终写入该根的 `.deploy/staging`。 */
+    /** 绑定 repository root 与 application source root；候选写入 repository 的 `.deploy/staging`。 */
     constructor(projectRoot = process.cwd()) {
-        this.projectRoot = resolve(projectRoot);
+        this.repositoryRoot = resolve(projectRoot);
+        const migratedApplicationRoot = resolve(this.repositoryRoot, SOURCE_APPLICATION_RELATIVE_PATH);
+        this.applicationSourceRoot = existsSyncPath(resolve(migratedApplicationRoot, "nuxt.config.ts"))
+            ? migratedApplicationRoot
+            : this.repositoryRoot;
     }
 
     /**
@@ -295,7 +302,7 @@ export class ProductRuntimeImageBuilder {
             assertGlobalBudget(candidate.inspection, globalBudget);
             const moduleClosure = await assertProductRuntimeModuleClosure({
                 imageRoot: candidate.imageRoot,
-                buildRoots: [this.projectRoot],
+                buildRoots: [this.repositoryRoot, this.applicationSourceRoot],
                 expectedPlatform: request.platform,
             });
             return {
@@ -343,9 +350,8 @@ export class ProductRuntimeImageBuilder {
         retainCandidate: boolean,
         finalize: (candidate: InspectedProductRuntimeCandidate) => Promise<T>,
     ): Promise<T> {
-
-        const stagingRoot = resolve(this.projectRoot, ".deploy", "staging");
-        const stagingLeaseRoot = resolve(this.projectRoot, ".deploy", "staging-leases");
+        const stagingRoot = resolve(this.repositoryRoot, ".deploy", "staging");
+        const stagingLeaseRoot = resolve(this.repositoryRoot, ".deploy", "staging-leases");
         const imageRoot = resolve(stagingRoot, request.operationId);
         const scratchRoot = resolve(imageRoot, ".build-scratch");
         const leaseTarget = resolve(stagingLeaseRoot, request.operationId);
@@ -533,14 +539,19 @@ export class ProductRuntimeImageBuilder {
         platform: ProductPlatform,
         expectation?: ProductRuntimeBuildExpectation,
     ): Promise<SourceSnapshot> {
-        const packagePath = resolve(this.projectRoot, "package.json");
-        const lockfilePath = resolve(this.projectRoot, "bun.lock");
+        const identityManifestPath = resolve(this.repositoryRoot, SOURCE_APPLICATION_RELATIVE_PATH, "package.json");
+        const packagePath = existsSyncPath(identityManifestPath)
+            ? identityManifestPath
+            : resolve(this.applicationSourceRoot, "package.json");
+        const lockfilePath = resolve(this.repositoryRoot, "bun.lock");
         const [packageText, lockfileSha256] = await Promise.all([
             readFile(packagePath, "utf8"),
             sha256File(lockfilePath),
         ]);
-        const version = packageVersion(packageText, packagePath);
-        const gitBacked = await pathExists(resolve(this.projectRoot, ".git"));
+        const version = packagePath === identityManifestPath
+            ? (await readApplicationPackageManifest(this.repositoryRoot)).version
+            : packageVersion(packageText, packagePath);
+        const gitBacked = await pathExists(resolve(this.repositoryRoot, ".git"));
         let revision: string;
         let dirty: boolean;
         let statusResult: string;
@@ -549,7 +560,7 @@ export class ProductRuntimeImageBuilder {
             // porcelain v2 的 branch.oid 与变更集合来自同一次 index snapshot，避免分开读取形成混合身份。
             statusResult = await runCapture("git", [
                 "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all",
-            ], this.projectRoot);
+            ], this.repositoryRoot);
             revision = statusResult.split("\0")
                 .find((entry) => entry.startsWith("# branch.oid "))
                 ?.slice("# branch.oid ".length)
@@ -559,7 +570,7 @@ export class ProductRuntimeImageBuilder {
             const trackedResult = await runCapture(
                 "git",
                 ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-                this.projectRoot,
+                this.repositoryRoot,
             );
             sourcePaths = [...new Set([
                 ...trackedResult.split("\0").filter(Boolean),
@@ -573,8 +584,7 @@ export class ProductRuntimeImageBuilder {
             revision = expectation.revision;
             dirty = false;
             statusResult = "gitless-source\0";
-            // Git-less Docker context 没有 porcelain 变化集合，因此每次都重新枚举以发现新增和删除。
-            sourcePaths = await gitlessSourcePaths(this.projectRoot);
+            sourcePaths = await gitlessSourcePaths(this.repositoryRoot);
         }
         if (!/^[0-9a-f]{40,64}$/i.test(revision)) {
             throw new Error(`无法读取有效 Source revision：${revision || "empty"}`);
@@ -585,8 +595,8 @@ export class ProductRuntimeImageBuilder {
         sourceHash.update(`platform\0${platform}\0revision\0${revision}\0dirty\0${dirty ? "1" : "0"}\0`);
         for (const trackedPath of sourcePaths) {
             const normalized = normalizeRelativePath(trackedPath, "Git Source input");
-            const absolutePath = resolve(this.projectRoot, ...normalized.split("/"));
-            assertContainedPath(this.projectRoot, absolutePath, `Git Source input ${normalized}`);
+            const absolutePath = resolve(this.repositoryRoot, ...normalized.split("/"));
+            assertContainedPath(this.repositoryRoot, absolutePath, `Git Source input ${normalized}`);
             let info: Awaited<ReturnType<typeof lstat>>;
             try {
                 info = await lstat(absolutePath);
@@ -625,13 +635,13 @@ export class ProductRuntimeImageBuilder {
     /** 从真实构建宿主和已安装包读取版本，不接受调用方伪造。 */
     private async runtimeVersions(): Promise<ProductRuntimeImageManifest["runtime"]> {
         const bun = process.versions.bun
-            ?? (await runCapture("bun", ["--version"], this.projectRoot)).trim();
+            ?? (await runCapture("bun", ["--version"], this.applicationSourceRoot)).trim();
         if (!bun) {
             throw new Error("无法读取 Bun 版本。");
         }
         const [nuxt, nitro] = await Promise.all([
-            installedPackageVersion(this.projectRoot, "nuxt"),
-            installedPackageVersion(this.projectRoot, "nitropack"),
+            installedPackageVersion(this.applicationSourceRoot, "nuxt"),
+            installedPackageVersion(this.applicationSourceRoot, "nitropack"),
         ]);
         return {bun, nuxt, nitro};
     }
