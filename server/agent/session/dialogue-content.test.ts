@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {resolve} from "node:path";
@@ -13,7 +14,7 @@ describe("Agent Dialogue Content", () => {
     let repo: JsonlSessionRepository;
 
     beforeEach(() => {
-        root = absoluteFsPath(resolve(".agent", "dialogue-content-test", randomUUID()));
+        root = testAbsoluteFsPath("dialogue-content-test", randomUUID());
         repo = new JsonlSessionRepository(root);
     });
 

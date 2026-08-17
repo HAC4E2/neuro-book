@@ -1,6 +1,6 @@
 import {mkdtemp, rm, mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {afterEach, describe, expect, test} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
@@ -13,7 +13,7 @@ describe("WorldSchemaLoader", () => {
     });
 
     test("从单文件 Zod schema 生成运行时 projection", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-world-schema-loader-"));
+        const root = await mkdtemp(testHostPath("nbook-world-schema-loader-"));
         roots.push(root);
         const schemaRoot = join(root, "world-engine", "schema");
         await mkdir(schemaRoot, {recursive: true});
@@ -31,7 +31,7 @@ describe("WorldSchemaLoader", () => {
     });
 
     test("缺少 schema/index.ts 时返回空 schema，不再读取 YAML", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-world-schema-empty-"));
+        const root = await mkdtemp(testHostPath("nbook-world-schema-empty-"));
         roots.push(root);
         await mkdir(join(root, "world-engine"), {recursive: true});
         await writeFile(join(root, "world-engine", "schema.yaml"), "subjectTypes: {}\n", "utf8");

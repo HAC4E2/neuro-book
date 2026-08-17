@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {closeWorkspaceTreeIndex, readPlainWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 
 const createdRoots: AbsoluteFsPath[] = [];
 
@@ -29,7 +30,7 @@ describe("workspace file events", () => {
     });
 
     it("tree index 会推送外部文件新增和修改事件", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "workspace-file-events-test", randomUUID()));
+        const root = testAbsoluteFsPath("workspace-file-events-test", randomUUID());
         const target = {kind: "workspace-root" as const, root};
         createdRoots.push(root);
         await fs.mkdir(root, {recursive: true});
@@ -55,7 +56,7 @@ describe("workspace file events", () => {
     });
 
     it("tree index 会推送外部目录删除事件并移除缓存中的子树", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "workspace-file-events-test", randomUUID()));
+        const root = testAbsoluteFsPath("workspace-file-events-test", randomUUID());
         const target = {kind: "workspace-root" as const, root};
         createdRoots.push(root);
         await fs.mkdir(path.join(root, "reference", "silly-tavern"), {recursive: true});

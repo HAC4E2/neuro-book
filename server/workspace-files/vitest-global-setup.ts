@@ -1,41 +1,57 @@
-import {mkdir, readdir, rm, stat} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {mkdir} from "node:fs/promises";
 import {randomBytes} from "node:crypto";
-import {join} from "node:path";
+import {resolve} from "node:path";
+import {resolveAgentTempRoot, resolveAgentTestRoot, resolveSystemTempRoot} from "nbook/scripts/utils/agent-paths";
+import {
+    removeMarkedTmpRoot,
+    sweepStaleTmpRoots,
+    TMP_MARKER_FILE,
+    TMP_MARKER_SCHEMA_VERSION,
+    writeTmpMarker,
+} from "nbook/server/workspace-files/test-tmp-sweep";
 
 /**
  * 受控测试临时根的 run 级清理（仓库级 Vitest globalSetup）。
  *
- * - setup：生成短 runId（8 位 hex，避免路径超 Windows MAX_PATH），写入
- *   `NBOOK_TEST_RUN_ID`，并回收 `neuro-book-vitest/` 下超过 24 小时的旧 run
- *   残留（并行 run 的活跃目录因时间窗口保留）。
- * - teardown：删除本 run 的 `neuro-book-vitest/<runId>` 目录。worker 级
- *   afterAll 在 Vitest 回收 worker 时不可靠，因此清理集中在 run 结束；
- *   并行 run 因 runId 不同互不干扰。进程被强杀时这里不执行，由下一次 run
- *   的 setup 按超窗兜底。
+ * setup 只回收 `<agent-root>/vitest/` 下带合法 marker、owner 已退出且超过 24 小时的 root；
+ * teardown 只删除本次 run 的 marker-owned root。未知目录、symlink 和不完整 marker 一律保留。
  */
-const STALE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const BASE_TMP = tmpdir();
-const VITEST_TMP_ROOT = join(BASE_TMP, "neuro-book-vitest");
-
-let runId: string | null = null;
-
+let runRoot: string | null = null;
 export async function setup(): Promise<void> {
-    runId = randomBytes(4).toString("hex");
+    const hostSystemTempRoot = resolveSystemTempRoot();
+    const configuredAgentRoot = resolveAgentTempRoot();
+    process.env.NBOOK_HOST_SYSTEM_TEMP_ROOT = hostSystemTempRoot;
+    process.env.NBOOK_AGENT_TEMP_ROOT = configuredAgentRoot;
+    const configuredRunId = process.env.NBOOK_TEST_RUN_ID?.trim();
+    const runId = configuredRunId && /^[a-f0-9]{8}$/u.test(configuredRunId)
+        ? configuredRunId
+        : randomBytes(4).toString("hex");
     process.env.NBOOK_TEST_RUN_ID = runId;
-    await mkdir(VITEST_TMP_ROOT, {recursive: true});
-    const now = Date.now();
-    const entries = await readdir(VITEST_TMP_ROOT).catch(() => []);
-    await Promise.all(entries.map(async (name) => {
-        if (name === runId) return;
-        const info = await stat(join(VITEST_TMP_ROOT, name)).catch(() => null);
-        if (info?.isDirectory() && now - info.mtimeMs > STALE_WINDOW_MS) {
-            await rm(join(VITEST_TMP_ROOT, name), {recursive: true, force: true}).catch(() => undefined);
-        }
-    }));
+    const agentRoot = resolveAgentTempRoot();
+    const vitestRoot = resolve(agentRoot, "vitest");
+    await mkdir(vitestRoot, {recursive: true});
+    const report = await sweepStaleTmpRoots(vitestRoot);
+    if (report.retained.length > 0 || report.failures.length > 0) {
+        console.warn(`[vitest-tmp-sweep] ${JSON.stringify(report)}`);
+    }
+    runRoot = resolveAgentTestRoot(runId);
+    await mkdir(runRoot, {recursive: true});
+    await writeTmpMarker(runRoot, {
+        schemaVersion: TMP_MARKER_SCHEMA_VERSION,
+        createdAt: new Date().toISOString(),
+        pid: process.pid,
+        runId,
+        purpose: "vitest-run",
+    });
 }
 
 export async function teardown(): Promise<void> {
-    if (!runId) return;
-    await rm(join(VITEST_TMP_ROOT, runId), {recursive: true, force: true}).catch(() => undefined);
+    const currentRoot = runRoot;
+    runRoot = null;
+    if (!currentRoot) return;
+    try {
+        await removeMarkedTmpRoot(currentRoot, resolve(currentRoot, TMP_MARKER_FILE));
+    } catch (error) {
+        console.error(`[vitest-tmp-teardown] ${error instanceof Error ? error.message : String(error)}`);
+    }
 }

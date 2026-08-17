@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -17,7 +18,7 @@ describe("NeuroAgentHarness session query", () => {
     });
 
     it("recovery 在读取 JSONL 前捕获 event cursor，期间 append/publish 不会被跳过", async () => {
-        const root = absoluteFsPath(resolve(".agent", "session-query-test", randomUUID()));
+        const root = testAbsoluteFsPath("session-query-test", randomUUID());
         roots.push(root);
         const repo = new JsonlSessionRepository(root);
         const harness = new NeuroAgentHarness({
@@ -82,7 +83,7 @@ describe("NeuroAgentHarness session query", () => {
     });
 
     it("active-path mutation 只返回 live state，不内嵌 recovery", async () => {
-        const root = absoluteFsPath(resolve(".agent", "session-query-test", randomUUID()));
+        const root = testAbsoluteFsPath("session-query-test", randomUUID());
         roots.push(root);
         const repo = new JsonlSessionRepository(root);
         const harness = new NeuroAgentHarness({

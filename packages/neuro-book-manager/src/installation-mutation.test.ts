@@ -1,6 +1,7 @@
 import {mkdir, rm, stat, utimes, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {installationLeasePath, mutateFreshInstallation, mutateInstallation} from "#manager/installation-mutation";
@@ -182,7 +183,7 @@ describe("InstallationMutation", () => {
 });
 
 function testSandbox(name: string): string {
-    const sandbox = join(process.cwd(), ".agent", `${name}-${crypto.randomUUID()}`);
+    const sandbox = testHostPath(`${name}-${crypto.randomUUID()}`);
     cleanupRoots.push(sandbox);
     vi.stubEnv("NEURO_BOOK_MANAGER_CONFIG", join(sandbox, "manager-user", "config.json"));
     vi.stubEnv("LOCALAPPDATA", join(sandbox, "local-app-data"));

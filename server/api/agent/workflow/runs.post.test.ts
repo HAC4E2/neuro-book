@@ -8,6 +8,7 @@ import type {WorkflowRunStart} from "nbook/server/agent/workflow/workflow-demo-s
 import type {EffectiveConfig} from "nbook/server/config/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import type {JsonValue, RunView, WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
 import type {RuntimeConfigTarget} from "nbook/server/config/types";
@@ -42,7 +43,7 @@ type RouteFixture = {
 };
 
 describe("POST /api/agent/workflow/runs", () => {
-    const testRoot = resolve(".agent", "tmp", "workflow-runs-post-test");
+    const testRoot = testHostPath("tmp", "workflow-runs-post-test");
     const cleanupRoots: string[] = [];
 
     beforeAll(async () => {

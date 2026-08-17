@@ -1,13 +1,13 @@
 # Agent Tasks
 
-这里保存 NeuroBook 开发 Agent 的任务合同、角色交接和正式证据。Task 记录一次实现，不承担产品规范；当前行为从 [`../../docs/specs/`](../../docs/specs/) 的注册表进入。
+这里保存 NeuroBook 开发 Agent 的任务合同、角色交接和正式证据。Task 记录一次实现，不承担产品规范；能力合同和成熟度从 [`../../docs/specs/`](../../docs/specs/) 进入。
 
 ## 真相源分工
 
 - GitHub Issue：公开反馈、需求、决策去向和实现授权。
 - GitHub Project：优先级、迭代、负责人和交付状态。
-- `docs/specs/`：功能当前行为、状态、数据、接口、失败语义和验收真相源。
-- `docs/proposals/`：尚未生效的跨模块方案；批准后先沉淀到规范。
+- `docs/specs/`：`planned` 目标合同与 `implemented` 当前合同的唯一真相源。
+- `docs/proposals/`：把原始需求整理成待决策方案；accepted 后沉淀为 `planned` Spec。
 - `.agents/tasks/<task>/README.md`：一次实现任务的执行合同。
 - `.agents/tasks/<task>/walkthroughs/`：PM、Leader、Tasker、Reviewer 的追加式过程报告。
 - `.agents/tasks/<task>/evidences/`：可被报告引用的截图、日志、JSON 和发布产物。
@@ -62,13 +62,13 @@ updatedAt: 2026-08-15T00:00:00Z
 
 ## 新建任务
 
-1. 人类批准 Issue 的目标、范围和验收条件；跨模块长期方案已经完成 Proposal/ADR 决策。
-2. Leader 在 `docs/specs/README.md` 找到当前规范归属；新功能没有规范时先创建或更新规范。
+1. 人类批准 Issue 的目标、范围和验收条件；有产品歧义或长期取舍时先完成 Proposal/ADR 决策。
+2. Leader 在 `docs/specs/README.md` 找到 capability。新能力创建单一 `planned` Spec；已有行为读取 `implemented` Spec；code-first 修复也必须在 Task 完成前补齐 Spec。
 3. Leader 检查任务编号并创建五位编号目录：`00000-kebab-case-title/`。
-4. Leader 创建带 frontmatter 的 README，并记录 `taskId`、`actionIssueId`、`worktreeId`、`branchId` 和 `status`，链接当前规范与相关 Proposal/ADR。
+4. Leader 创建带 frontmatter 的 README，记录 `taskId`、`actionIssueId`、`worktreeId`、`branchId` 和 `status`，并链接具体 Spec 与相关 Proposal/ADR。
 5. Leader 生成当前 `context.md`。
-6. Tasker 读取角色规则、当前规范、任务 README 和 context 后开始实现。
-7. 每个角色将结果写成独立 walkthrough；Reviewer 核对代码、测试与规范一致后才提交人类合并决策。
+6. Tasker 读取角色规则、Spec、任务 README 和 context 后开始实现；Spec 不够明确时先补合同，不在代码中发明行为。
+7. 每个角色写独立 walkthrough；Reviewer 核对实现、测试、smoke 与 Spec 一致。全部合同有证据后，原 Spec 晋升为 `implemented`，再提交人类合并决策。
 
 ## 历史任务
 

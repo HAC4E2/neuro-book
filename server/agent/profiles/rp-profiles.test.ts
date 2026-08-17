@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, resolve} from "node:path";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
@@ -42,7 +43,7 @@ describe("RP builtin profiles", () => {
     it("catalog 加载 rp.leader、simulator.leader、simulator.actor、rp.writer，不再加载 leader.rp", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
         catalog.enableRuntimeRegistry();

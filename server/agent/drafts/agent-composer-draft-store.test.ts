@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {AgentComposerDraftStore} from "nbook/server/agent/drafts/agent-composer-draft-store";
@@ -75,7 +75,7 @@ describe("AgentComposerDraftStore", () => {
 });
 
 async function fixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-composer-drafts-"));
+    const root = await mkdtemp(testHostPath("nbook-composer-drafts-"));
     roots.push(root);
     return root;
 }

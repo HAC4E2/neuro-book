@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {build} from "esbuild";
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("Runtime Artifact bundle plugin", () => {
     it("批准包根缺少依赖时不向 importer 祖先回退", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-authoring-plugin-"));
+        const root = await mkdtemp(testHostPath("nbook-authoring-plugin-"));
         roots.push(root);
         const packageRoot = join(root, "authoring", "package.json");
         await mkdir(join(root, "authoring"), {recursive: true});

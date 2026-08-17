@@ -1,6 +1,7 @@
 import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {installationLeasePath} from "#manager/installation-mutation";
@@ -193,7 +194,7 @@ describe("Manager uninstall lifecycle", () => {
 });
 
 function testSandbox(name: string): string {
-    const sandbox = join(process.cwd(), ".agent", `${name}-${crypto.randomUUID()}`);
+    const sandbox = testHostPath(`${name}-${crypto.randomUUID()}`);
     cleanupRoots.push(sandbox);
     vi.stubEnv("NEURO_BOOK_MANAGER_CONFIG", join(sandbox, "manager-user", "config.json"));
     return sandbox;

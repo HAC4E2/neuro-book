@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {basename, dirname, join, resolve} from "node:path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
@@ -83,7 +84,7 @@ describe("assets builtin v3 profiles", () => {
     it("leader.default 从 assets/workspace/.nbook 加载并使用 v3 工具名", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
 
@@ -394,7 +395,7 @@ describe("assets builtin v3 profiles", () => {
     it("retrieval profile 使用 Git Bash 安全的路径枚举提示", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
         const profile = await catalog.get("retrieval");
@@ -443,7 +444,7 @@ describe("assets builtin v3 profiles", () => {
     it("leader.assets 从 assets/workspace/.nbook 加载并使用用户资产提示词", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
 
@@ -592,7 +593,7 @@ describe("assets builtin v3 profiles", () => {
     it("leader.assets settings 注入置顶提示词且 skill 白名单过滤 catalog", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
 
@@ -702,7 +703,7 @@ describe("assets builtin v3 profiles", () => {
     it("researcher profile 只允许 web 工具且不使用 report_result", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
         const profile = await catalog.get("researcher");
@@ -769,7 +770,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("writer writing presets 使用用户目录覆盖系统同名文件", async () => {
-        const root = resolve(".agent", "tmp", "writer-preset-test", randomUUID());
+        const root = testHostPath("tmp", "writer-preset-test", randomUUID());
         const systemStyleRoot = join(root, "system", "styles");
         const userStyleRoot = join(root, "user", "styles");
         const systemReferenceRoot = join(root, "system", "references");
@@ -997,8 +998,8 @@ describe("assets builtin v3 profiles", () => {
 
     it("leader.default settings 注入自定义槽位、人设和行为偏好", async () => {
         const catalog = new AgentProfileCatalog(
-            resolve(".agent", "missing-system-profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-system-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(leaderDefaultProfile);
         const snapshot = await catalog.snapshot();
@@ -1045,7 +1046,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("leader.default Project home 初始化默认人设资源并可通过 resource-preset 校验", async () => {
-        const projectRoot = resolve(".agent", "tmp", "leader-default-home-test", randomUUID());
+        const projectRoot = testHostPath("tmp", "leader-default-home-test", randomUUID());
         await mkdir(projectRoot, {recursive: true});
         try {
             const projectRef = projectWorkspaceRef(basename(projectRoot));

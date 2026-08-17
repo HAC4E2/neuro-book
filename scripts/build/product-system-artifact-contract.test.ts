@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {assertProductSystemArtifactModulePaths} from "nbook/scripts/build/product-system-artifact-contract";
@@ -55,7 +55,7 @@ describe("Product system artifact path gate", () => {
 });
 
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-system-artifact-contract-"));
+    const root = await mkdtemp(testHostPath("nbook-system-artifact-contract-"));
     roots.push(root);
     await mkdir(root, {recursive: true});
     return root;

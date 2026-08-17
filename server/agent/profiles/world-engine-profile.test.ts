@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import worldEngineProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/world.engine.profile";
@@ -14,7 +15,7 @@ describe("world.engine profile", () => {
     it("catalog 可以加载 world.engine runtime artifact", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
+            testHostPath("missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
 

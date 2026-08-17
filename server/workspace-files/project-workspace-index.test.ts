@@ -2,6 +2,7 @@ import path from "node:path";
 import {describe, expect, it, vi} from "vitest";
 import {SnapshotClosedError} from "@notnotype/file-snapshot-cache";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -25,7 +26,7 @@ describe("ProjectFileIndexAdapter Project Module handle", () => {
     it("Project target缺少generation handle时fail closed，不降级为plain Workspace", async () => {
         const target = {
             kind: "project-workspace" as const,
-            root: absoluteFsPath(path.resolve(".agent", "missing-project-handle")),
+            root: testAbsoluteFsPath("missing-project-handle"),
             projectPath: "workspace/missing-project-handle",
         };
 
@@ -46,7 +47,7 @@ describe("ProjectFileIndexAdapter Project Module handle", () => {
     });
 
     it("最低 ready 只等待 watcher，完整树构建作为共享 warm-up 在后台运行", async () => {
-        const workspaceRoot = absoluteFsPath(path.resolve(".agent", "project-file-index-test"));
+        const workspaceRoot = testAbsoluteFsPath("project-file-index-test");
         const ref = projectWorkspaceRef("novel-a");
         const workspace = resolvedProjectWorkspace(
             ref,
@@ -79,7 +80,7 @@ describe("ProjectFileIndexAdapter Project Module handle", () => {
     });
 
     it("Project mutation 与当前 generation build 串行，完成后 read 自动重建", async () => {
-        const workspaceRoot = absoluteFsPath(path.resolve(".agent", "project-file-index-mutation-test"));
+        const workspaceRoot = testAbsoluteFsPath("project-file-index-mutation-test");
         const ref = projectWorkspaceRef("novel-a");
         const workspace = resolvedProjectWorkspace(
             ref,
@@ -125,7 +126,7 @@ describe("ProjectFileIndexAdapter Project Module handle", () => {
     });
 
     it("watcher raw batch 在完整树重建前交给当前 generation 的 History seam", async () => {
-        const workspaceRoot = absoluteFsPath(path.resolve(".agent", "project-file-index-raw-test"));
+        const workspaceRoot = testAbsoluteFsPath("project-file-index-raw-test");
         const ref = projectWorkspaceRef("novel-a");
         const workspace = resolvedProjectWorkspace(
             ref,
@@ -167,7 +168,7 @@ describe("ProjectFileIndexAdapter Project Module handle", () => {
 
 describe("ProjectFileIndexAdapter plain Workspace", () => {
     it("host订阅不等待watcher ready，ready失败会释放当前consumer", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "plain-file-index-opening-subscribe-test"));
+        const root = testAbsoluteFsPath("plain-file-index-opening-subscribe-test");
         const target = {kind: "workspace-root" as const, root};
         const unsubscribe = vi.fn();
         let rejectReady: (error: Error) => void = () => undefined;
@@ -192,7 +193,7 @@ describe("ProjectFileIndexAdapter plain Workspace", () => {
     });
 
     it("one-shot read 构建 snapshot 但不隐式打开 watcher", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "plain-file-index-test"));
+        const root = testAbsoluteFsPath("plain-file-index-test");
         const build = vi.fn(async () => ({nodes: [], issues: []}));
         const openWatcher = vi.fn(() => ({close: vi.fn()}));
         const adapter = new ProjectFileIndexAdapter({build, openWatcher});
@@ -208,7 +209,7 @@ describe("ProjectFileIndexAdapter plain Workspace", () => {
     });
 
     it("SSE 订阅引用计数持有同一 activation，最后一个消费者释放 watcher", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "plain-file-index-subscribe-test"));
+        const root = testAbsoluteFsPath("plain-file-index-subscribe-test");
         const closeWatcher = vi.fn(async () => {});
         const build = vi.fn(async () => ({nodes: [], issues: []}));
         const openWatcher = vi.fn(() => ({close: closeWatcher}));
@@ -241,7 +242,7 @@ describe("ProjectFileIndexAdapter plain Workspace", () => {
     });
 
     it("watcher close 失败后保留精确 activation，显式 close 可重试同一 handle", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "plain-file-index-close-retry-test"));
+        const root = testAbsoluteFsPath("plain-file-index-close-retry-test");
         const closeWatcher = vi.fn()
             .mockRejectedValueOnce(new Error("close failed"))
             .mockResolvedValueOnce(undefined);
@@ -269,7 +270,7 @@ describe("ProjectFileIndexAdapter plain Workspace", () => {
     });
 
     it("plain mutation 会等待关闭窗口，并在 watcher close 失败后重试精确 handle", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "plain-file-index-mutation-close-test"));
+        const root = testAbsoluteFsPath("plain-file-index-mutation-close-test");
         const closeWatcher = vi.fn()
             .mockRejectedValueOnce(new Error("close failed"))
             .mockResolvedValueOnce(undefined);
@@ -306,7 +307,7 @@ describe("ProjectFileIndexAdapter plain Workspace", () => {
         });
         const target = {
             kind: "workspace-root" as const,
-            root: absoluteFsPath(path.resolve(".agent", "plain-file-index-no-replay-test")),
+            root: testAbsoluteFsPath("plain-file-index-no-replay-test"),
         };
         const operation = vi.fn(async () => {
             throw new SnapshotClosedError("operation failed");

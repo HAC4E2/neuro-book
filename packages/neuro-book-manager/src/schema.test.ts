@@ -1,4 +1,4 @@
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
@@ -10,7 +10,7 @@ import {PRODUCT_PLATFORMS} from "#manager/types";
 
 const SHA = "a".repeat(64);
 const REVISION = "b".repeat(40);
-const JOURNAL_ROOT = join(tmpdir(), "neuro-book-schema-fixture");
+const JOURNAL_ROOT = testHostPath("neuro-book-schema-fixture");
 
 describe("Manager manifest schemas", () => {
     it("接受 Product Bun 的固定组件结构", () => {

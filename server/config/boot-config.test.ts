@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
@@ -51,7 +51,7 @@ describe("Boot Config auth", () => {
 });
 
 async function useConfig(text: string): Promise<void> {
-    tempDir = await mkdtemp(join(tmpdir(), "nbook-boot-config-"));
+    tempDir = await mkdtemp(testHostPath("nbook-boot-config-"));
     process.chdir(tempDir);
     await writeFile("config.yaml", text, "utf-8");
 }

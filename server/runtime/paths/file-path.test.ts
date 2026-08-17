@@ -1,4 +1,4 @@
-import {homedir, tmpdir} from "node:os";
+import {homedir} from "node:os";
 import path from "node:path";
 import {mkdtemp, mkdir, rm, symlink} from "node:fs/promises";
 import {afterEach, describe, expect, it} from "vitest";
@@ -10,9 +10,10 @@ import {
     resolveContainedFilePath,
     resolveFilePath,
 } from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath, testHostPath} from "nbook/server/runtime/paths/test-path";
 
 describe("通用文件系统路径解析", () => {
-    const root = absoluteFsPath(path.resolve(".agent", "file-path-root"));
+    const root = testAbsoluteFsPath("file-path-root");
     const cleanupRoots: string[] = [];
 
     afterEach(async () => {
@@ -52,7 +53,7 @@ describe("通用文件系统路径解析", () => {
     });
 
     it("真实路径检查拒绝通过symlink或junction逃逸", async () => {
-        const fixture = await mkdtemp(path.join(tmpdir(), "nbook-file-path-"));
+        const fixture = await mkdtemp(testHostPath("nbook-file-path-"));
         cleanupRoots.push(fixture);
         const safeRoot = absoluteFsPath(path.join(fixture, "safe"));
         const outsideRoot = path.join(fixture, "outside");
@@ -68,7 +69,7 @@ describe("通用文件系统路径解析", () => {
     });
 
     it("目录项操作只验证真实父目录，不跟随目标链接", async () => {
-        const fixture = await mkdtemp(path.join(tmpdir(), "nbook-file-entry-"));
+        const fixture = await mkdtemp(testHostPath("nbook-file-entry-"));
         cleanupRoots.push(fixture);
         const safeRoot = absoluteFsPath(path.join(fixture, "safe"));
         const outsideRoot = path.join(fixture, "outside");

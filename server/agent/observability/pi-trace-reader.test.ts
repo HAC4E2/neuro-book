@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {appendFile, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -23,7 +24,7 @@ describe("PiTraceReader", () => {
     let reader: PiTraceReader;
 
     beforeEach(() => {
-        root = resolve(".agent", "pi-trace-reader-test", randomUUID());
+        root = testHostPath("pi-trace-reader-test", randomUUID());
         const tracesRoot = join(root, ".nbook", "agent", "traces");
         recorder = new PiRequestRecorder({tracesRoot});
         reader = new PiTraceReader({tracesRoot});

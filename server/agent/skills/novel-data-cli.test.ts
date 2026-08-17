@@ -1,7 +1,7 @@
 import {createServer, type Server} from "node:http";
 import {execFile} from "node:child_process";
 import {cp, mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {promisify} from "node:util";
 import {join, relative, resolve, sep} from "node:path";
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "vitest";
@@ -14,7 +14,7 @@ let isolatedRoot = "";
 let scriptPath = "";
 
 beforeAll(async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "nbook-novel-data-skill-"));
+    const tempRoot = await mkdtemp(testHostPath("nbook-novel-data-skill-"));
     isolatedRoot = join(tempRoot, "novel-data");
     await cp(SKILL_ROOT, isolatedRoot, {
         recursive: true,

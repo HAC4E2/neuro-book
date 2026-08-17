@@ -1,7 +1,7 @@
 import {spawn, type ChildProcess} from "node:child_process";
 import {createServer} from "node:http";
 import {mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
@@ -20,7 +20,7 @@ describe("Source Dev launcher process lifecycle", () => {
     it.runIf(process.platform === "win32")(
         "宿主异常退出会收口持有TCP和Runtime lease的完整后代树",
         async () => {
-            const root = await mkdtemp(join(tmpdir(), "nbook-source-dev-owner-"));
+            const root = await mkdtemp(testHostPath("nbook-source-dev-owner-"));
             roots.push(root);
             const sourceRoot = join(root, "source");
             const rootWorkspace = join(root, "workspace");

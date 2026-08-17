@@ -12,6 +12,7 @@ yarn-error.log*
 
 .vscode/*
 .env
+.env.local
 config.yaml
 !assets/workspace/.nbook/templates/project-directory-templates/simulation/config.yaml
 dist/
@@ -31,21 +32,33 @@ product/
 # IDE
 .idea
 .claude/settings.local.json
-.agent/generated/
-.agent/diagnostics/
-.agent/agent-smoke/
-.agent/agent-*/
+.claude/worktrees/
+# 开发 Agent 治理真相源：只跟踪 .agents，仓库运行态全部留在系统 Temp
+/.agent/
+# 用户管理的本地资产：只跟踪约定文件
+/.local/*
+!/.local/README.md
+/.agents/*
+!/.agents/AGENTS.md
+!/.agents/README.md
+!/.agents/roles/
+!/.agents/roles/**
+!/.agents/skills/
+!/.agents/skills/**
+# playwright-cli 默认生成的浏览器快照与 console 产物，不进入 Git
+!/.agents/tasks/
+!/.agents/tasks/**
+/.agents/tasks/**/benchmarks/results/*.json
 .playwright-cli/
 # 外部工具产生的调试 trace（与运行时 .nbook/agent/traces 无关）
 .traces/
-.agent/manual-retrieval-e2e-build-check/
 /workspace/
 /logs/
 /coverage/
-/.agent/
+**/AGENTS.LOCAL.md
 /.worktree/
-docs/.vitepress/dist
-docs/.vitepress/cache
+vitepress/.vitepress/dist
+vitepress/.vitepress/cache
 assets/workspace/.nbook/agent/profiles/.compiled/
 assets/workspace/.nbook/agent/variables/.compiled/
 # Profile / Variable 编译的 staging 中间产物：进程崩溃时会残留，永远不进 git
@@ -57,9 +70,7 @@ assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
 /ACKNOWLEDGEMENTS.md
 # llmlint 评测 harness（消费侧代码）：本地运行，不进 git
 assets/workspace/.nbook/agent/skills/llmlint/evals/
-# AIGC 检测 reference 语料（104 本版权书，I11 合规边界）：正文绝不入 git；catalog.json 元数据可进
-datasets/aigc-detection/books/
-datasets/aigc-detection/converted/
+# AIGC 检测 reference 语料统一迁入用户本地资产，不进入 Git
 server/agent/variables/generated-profile-variable-types.d.ts
 # 基准测试的原始结果：带本机 CPU 型号、内存、OS build 和绝对路径，只保留同目录 .md 摘要
 **/benchmarks/results/*.json

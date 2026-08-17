@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {resolve} from "node:path";
@@ -21,7 +22,7 @@ describe("NeuroAgentHarness invocation payload", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-harness-payload-test", randomUUID());
+        root = testHostPath("agent-harness-payload-test", randomUUID());
         faux = createFauxModels();
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({

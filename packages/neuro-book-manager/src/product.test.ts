@@ -1,5 +1,5 @@
 import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -58,7 +58,7 @@ describe("Manager Product Runtime Image control plane", () => {
 
 /** 创建 Manager 控制面所需的最小 verified-image fixture。 */
 async function runtimeImageFixture() {
-    const sourceRoot = await mkdtemp(join(tmpdir(), "nbook-manager-runtime-image-"));
+    const sourceRoot = await mkdtemp(testHostPath("nbook-manager-runtime-image-"));
     roots.push(sourceRoot);
     const platform = TEST_RUNTIME_IMAGE_PLATFORM;
     const image = await buildTestRuntimeImage({sourceRoot, version: "0.8.0", revision: REVISION, platform});

@@ -1,6 +1,6 @@
 import {createRequire} from "node:module";
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("Product package-island imports", () => {
     it("按每个 importer 深度改写，并为 exports 拒绝的 Sharp/sqlite-vec subpath 回退到 package root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-package-island-imports-"));
+        const root = await mkdtemp(testHostPath("nbook-package-island-imports-"));
         temporaryRoots.push(root);
         const serverRoot = join(root, "server");
         const sourceRequire = createRequire(import.meta.url);
@@ -65,7 +65,7 @@ describe("Product package-island imports", () => {
     });
 
     it("拒绝改写到 package root 外或不存在的目标", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-package-island-invalid-"));
+        const root = await mkdtemp(testHostPath("nbook-package-island-invalid-"));
         temporaryRoots.push(root);
         const serverRoot = join(root, "server");
         await Promise.all([

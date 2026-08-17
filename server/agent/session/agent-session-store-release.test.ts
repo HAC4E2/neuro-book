@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {createHash, randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
@@ -228,7 +229,7 @@ describe("Agent Session Store release failure", () => {
 
     /** 创建当前schema complete sentinel的隔离Workspace Root。 */
     async function readyRoot(): Promise<string> {
-        const root = resolve(".agent", "agent-session-store-release-test", randomUUID());
+        const root = testHostPath("agent-session-store-release-test", randomUUID());
         roots.push(root);
         const path = agentSessionStoreSentinelPath(root);
         const sentinel: AgentSessionStoreSentinel = {

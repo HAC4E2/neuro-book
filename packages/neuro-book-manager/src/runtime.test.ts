@@ -1,6 +1,6 @@
 import {chmod, mkdtemp, mkdir, readFile, realpath, writeFile} from "node:fs/promises";
 import {execFile} from "node:child_process";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it, vi} from "vitest";
@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("portable manager wrapper", () => {
     it("不写入 staging 绝对路径", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-wrapper-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-wrapper-"));
         roots.push(root);
         const source = join(root, "manager-source.mjs");
         const bun = join(root, ".runtime", "bun", "1.0.0", process.platform === "win32" ? "bun.exe" : "bun");
@@ -45,7 +45,7 @@ describe("portable manager wrapper", () => {
     });
 
     it.runIf(process.platform === "win32")("machine wrapper 从校验后的用户 Cache 投影执行 Manager", async () => {
-        const sandbox = await mkdtemp(join(tmpdir(), "nbook-machine-manager-wrapper-"));
+        const sandbox = await mkdtemp(testHostPath("nbook-machine-manager-wrapper-"));
         roots.push(sandbox);
         const programFiles = join(sandbox, "Program Files");
         const root = join(programFiles, "NeuroBook");
@@ -109,7 +109,7 @@ describe("portable manager wrapper", () => {
     });
 
     it("校验并接管 Stage 0 Bun", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-stage0-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-stage0-"));
         roots.push(root);
         // Windows直接使用当前Bun作为Stage 0来源，避免在并行suite中为同一大文件做两次复制。
         const source = process.platform === "win32" ? process.execPath : join(root, "cache-bun");

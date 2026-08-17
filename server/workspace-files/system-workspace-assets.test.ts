@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
@@ -10,7 +10,7 @@ afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recurs
 
 describe("System Workspace assets", () => {
     it("无根node_modules时使用Product内已修补的系统模板", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-assets-"));
+        const root = await mkdtemp(testHostPath("nbook-product-assets-"));
         roots.push(root);
         await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
         const productRoot = join(root, ".output", "server", "assets", "workspace", ".nbook");
@@ -20,7 +20,7 @@ describe("System Workspace assets", () => {
     });
 
     it("源码Application Root存在node_modules时使用bundled系统模板", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-source-assets-"));
+        const root = await mkdtemp(testHostPath("nbook-source-assets-"));
         roots.push(root);
         const sourceRoot = join(root, "assets", "workspace", ".nbook");
         await mkdir(sourceRoot, {recursive: true});

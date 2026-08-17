@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath, testHostPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -14,7 +14,7 @@ import {
 } from "nbook/server/workspace-files/project-file-index";
 
 describe("Project File Index watcher Path Policy", () => {
-    const workspaceRoot = absoluteFsPath(path.resolve(".agent", "project-file-index-policy-test"));
+    const workspaceRoot = testAbsoluteFsPath("project-file-index-policy-test");
     const ref = projectWorkspaceRef("novel-a");
     const workspace = resolvedProjectWorkspace(
         ref,
@@ -56,7 +56,7 @@ describe("Project File Index watcher Path Policy", () => {
     });
 
     it("Project cold snapshot与watcher共用Path Policy并保留普通内容", async () => {
-        const runtimeWorkspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-index-policy-"));
+        const runtimeWorkspaceRoot = await fs.mkdtemp(testHostPath("nbook-project-index-policy-"));
         const runtimeRef = projectWorkspaceRef("novel-a");
         const projectRoot = path.join(runtimeWorkspaceRoot, runtimeRef.projectRoot);
         const runtimeWorkspace = resolvedProjectWorkspace(
@@ -99,7 +99,7 @@ describe("Project File Index watcher Path Policy", () => {
     }, 15_000);
 
     it("plain Workspace cold snapshot不应用Project Path Policy", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-plain-index-policy-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-plain-index-policy-"));
         const target = {kind: "workspace-root" as const, root: absoluteFsPath(root)};
         const lifecycleTemp = ".nbook-project-lifecycle-v1-123e4567-e89b-42d3-a456-426614174000.tmp";
         await Promise.all([

@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {Type} from "typebox";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
@@ -44,7 +44,7 @@ describe("subject memory tools", () => {
 
     beforeEach(async () => {
         setHistoryEnabledOverrideForTest(true);
-        root = await mkdtemp(join(tmpdir(), "nbook-subject-memory-tools-test-"));
+        root = await mkdtemp(testHostPath("nbook-subject-memory-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(join(workspaceRoot, "demo"), {recursive: true});
         const runtimePaths = createRuntimePaths({

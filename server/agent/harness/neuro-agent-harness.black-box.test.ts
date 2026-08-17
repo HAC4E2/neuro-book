@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -208,7 +209,7 @@ describe("NeuroAgentHarness black-box contract", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-harness-black-box-test", randomUUID());
+        root = testHostPath("agent-harness-black-box-test", randomUUID());
         faux = createFauxModels({
             models: [{
                 id: `faux-${randomUUID()}`,

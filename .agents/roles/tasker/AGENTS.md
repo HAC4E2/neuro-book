@@ -6,10 +6,10 @@
 
 ## 开始工作
 
-1. 读取仓库根目录 `AGENTS.md` 和 `CONTRIBUTING.md`。
-2. 读取 `.agents/roles/tasker/AGENTS.md`。
+1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md` 和当前路径最近的作用域 `AGENTS.md`。
+2. 读取 `.agents/roles/tasker/AGENTS.md` 与 `.agents/tasks/AGENTS.md`。
 3. 读取指定 Task 的 `README.md`、`context.md` 和最新 Leader walkthrough。
-4. 读取任务引用的模块文档、Reference、ADR 和测试。
+4. 读取 Task 引用的当前 spec、ADR 和测试；只有准备公开 PR 时才读根 `CONTRIBUTING.md`。
 5. 确认当前基线 revision、branch 和 worktree 与任务记录一致。
 
 如果任务上下文缺失、过期或相互矛盾，先写阻塞报告，不开始实现。

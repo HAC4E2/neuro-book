@@ -1,7 +1,7 @@
 import {access, mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
     openProjectForTest,
@@ -15,7 +15,7 @@ describe("Project Session测试边界", () => {
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
-        tempRoot = join(tmpdir(), `nbook-project-test-utils-${randomUUID()}`);
+        tempRoot = testHostPath(`nbook-project-test-utils-${randomUUID()}`);
         await mkdir(tempRoot, {recursive: true});
         setWorkspaceRuntimeRootContextForTest(null);
     });

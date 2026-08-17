@@ -186,7 +186,12 @@ const codeBaselinePaths = [
 ];
 
 const docsRuntimePaths = [
+    ".omp/**",
+    "WATCHDOG.md",
+    "CONTEXT.md",
+    "RELEASE.md",
     "patches/**",
+    "scripts/ci/check-documentation*",
     "scripts/ci/validate-nitropack-patch.ts",
     "nuxt.config.ts",
     "tsconfig.json",
@@ -195,6 +200,7 @@ const docsRuntimePaths = [
 ];
 
 const nitroPatchTestCommand = "bun scripts/ci/validate-nitropack-patch.ts";
+const documentationCheckCommand = "bun run docs:check";
 
 /** 读取仓库内的 UTF-8 文本文件。 */
 async function readRepoFile(path: string): Promise<string> {
@@ -297,8 +303,28 @@ async function validateGuides(): Promise<void> {
 
     const chineseHeadings = chinese.match(/^## .+$/gm) ?? [];
     const englishHeadings = english.match(/^## .+$/gm) ?? [];
-    ensure(chineseHeadings.length === 10, `中文贡献指南应有 10 个二级章节，实际 ${chineseHeadings.length}`);
-    ensure(englishHeadings.length === chineseHeadings.length, "中英文贡献指南二级章节数量不一致");
+    const expectedChineseHeadings = [
+        "## 开始之前",
+        "## 本地开发",
+        "## 找到正确规范",
+        "## Issue 与实现授权",
+        "## 准备变更",
+        "## Pull Request",
+        "## Review 与合并",
+        "## 许可证",
+    ];
+    const expectedEnglishHeadings = [
+        "## Before You Start",
+        "## Local Development",
+        "## Find the Right Specification",
+        "## Issues and Implementation Authorization",
+        "## Prepare a Change",
+        "## Pull Request",
+        "## Review and Merge",
+        "## License",
+    ];
+    ensure(JSON.stringify(chineseHeadings) === JSON.stringify(expectedChineseHeadings), `中文贡献指南二级章节不匹配：${chineseHeadings.join(", ")}`);
+    ensure(JSON.stringify(englishHeadings) === JSON.stringify(expectedEnglishHeadings), `英文贡献指南二级章节不匹配：${englishHeadings.join(", ")}`);
     for (const phrase of [
         "needs-triage",
         "needs-info",
@@ -419,6 +445,7 @@ async function validateWorkflows(): Promise<void> {
         nitroPatchTestCommand,
         "bun run nuxt:prepare",
         "bun scripts/ci/validate-community-files.ts",
+        documentationCheckCommand,
         "bun run docs:build",
     ], "Community workflow");
 
@@ -439,6 +466,7 @@ async function validateWorkflows(): Promise<void> {
         "bun install --frozen-lockfile",
         nitroPatchTestCommand,
         "bun run nuxt:prepare",
+        documentationCheckCommand,
         "bun run docs:build",
     ], "Deploy Docs");
 

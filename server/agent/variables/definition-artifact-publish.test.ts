@@ -3,6 +3,7 @@ import {access, mkdir, readFile, rm, utimes, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 const faults = vi.hoisted(() => ({
     failArtifactCopy: false,
@@ -159,7 +160,7 @@ describe("Variable definition 原子发布", () => {
 });
 
 async function createFixture(key: string): Promise<{root: string}> {
-    const root = resolve(".agent", "tmp", "variable-publish-test", randomUUID());
+    const root = testHostPath("variable-publish-test", randomUUID());
     roots.push(root);
     await mkdir(root, {recursive: true});
     await writeDefinition(root, key);

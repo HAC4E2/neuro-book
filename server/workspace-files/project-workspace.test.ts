@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {createClient} from "@libsql/client";
 import {describe, expect, it} from "vitest";
@@ -15,7 +15,7 @@ import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity
 
 describe("assertProjectWorkspaceDirectory", () => {
     it("Project root 指向不存在目录时返回稳定 404", async () => {
-        const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-workspace-root-"));
+        const workspaceRoot = await fs.mkdtemp(testHostPath("nbook-project-workspace-root-"));
         const projectRoot = `missing-${randomUUID()}`;
         try {
             await expect(assertProjectWorkspaceDirectory(
@@ -33,7 +33,7 @@ describe("assertProjectWorkspaceDirectory", () => {
 
 describe("initProjectDatabaseAtRoot", () => {
     it("会把旧 StoryPlot 备份并合并到 Scene，同时清理 plot ref", async () => {
-        const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-migration-"));
+        const projectRoot = await fs.mkdtemp(testHostPath("nbook-project-migration-"));
         try {
             const databasePath = path.join(projectRoot, ".nbook", "project.sqlite");
             await fs.mkdir(path.dirname(databasePath), {recursive: true});

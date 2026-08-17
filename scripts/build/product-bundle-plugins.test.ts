@@ -1,6 +1,5 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
@@ -8,12 +7,13 @@ import {promisify} from "node:util";
 import {build} from "esbuild";
 import {describe, expect, it} from "vitest";
 import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 const execFileAsync = promisify(execFile);
 
 describe("Product bundle plugins", () => {
     it("在 gaxios 稳定源码路径内投影 node-fetch fallback", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-gaxios-plugin-"));
+        const root = await mkdtemp(testHostPath("nbook-gaxios-plugin-"));
         try {
             const sourcePath = join(root, "gaxios", "build", "cjs", "src", "gaxios.js");
             await mkdir(join(root, "gaxios", "build", "cjs", "src"), {recursive: true});
@@ -56,7 +56,7 @@ describe("Product bundle plugins", () => {
     });
 
     it("为code splitting后的Web提取CommonJS入口保留命名导出", async () => {
-        const workspaceRoot = resolve(".agent", "tmp");
+        const workspaceRoot = testHostPath("product-bundle-plugins");
         await mkdir(workspaceRoot, {recursive: true});
         const root = await mkdtemp(join(workspaceRoot, "readability-interop-"));
         const sourceRoot = join(root, "source");

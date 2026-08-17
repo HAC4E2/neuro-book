@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {basename, dirname, join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -62,7 +62,7 @@ afterEach(async () => {
 
 describe("managed Tool", () => {
     it("只有Manifest证明的ripgrep通过checksum和版本检查后才复用", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-rg-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-rg-"));
         roots.push(root);
         const first = await installManagedTool(root, "rg");
         mocks.downloadVerified.mockClear();
@@ -81,7 +81,7 @@ describe("managed Tool", () => {
     });
 
     it.runIf(process.platform === "win32")("同时验证PortableGit的Git与Bash", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-git-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-git-"));
         roots.push(root);
         const installed = await installManagedTool(root, "git");
 

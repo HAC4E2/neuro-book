@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText} from "@earendil-works/pi-ai";
@@ -32,7 +32,7 @@ describe("tracedStreamSimple", () => {
     let faux: FauxModelsFixture;
 
     beforeEach(async () => {
-        root = await mkdtemp(join(tmpdir(), "traced-provider-"));
+        root = await mkdtemp(testHostPath("traced-provider-"));
         recorder = new PiRequestRecorder({tracesRoot: join(root, ".nbook", "agent", "traces")});
         faux = createFauxModels({models: [{id: `faux-${Date.now()}`, contextWindow: 128_000, maxTokens: 8_000}]});
     });

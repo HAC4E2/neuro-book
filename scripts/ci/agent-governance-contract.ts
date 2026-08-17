@@ -9,6 +9,12 @@ export const GOVERNANCE_SCHEMA = "nbook.governance/v1";
 export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
 export type CanonicalRole = typeof CANONICAL_ROLES[number];
 
+export const GOVERNANCE_NON_EMPTY_LINE_LIMITS = {
+    "AGENTS.md": 220,
+    ".omp/RULES.md": 80,
+    "WATCHDOG.md": 40,
+} as const;
+
 type TaskMigrationMapping = {
     source: string;
     destination: string;
@@ -90,6 +96,9 @@ export function governanceRoots(repoRoot: string, env: NodeJS.ProcessEnv = proce
 
 export function expectedGovernanceFiles(): readonly string[] {
     return [
+        "AGENTS.md",
+        ".omp/RULES.md",
+        "WATCHDOG.md",
         ".agents/AGENTS.md",
         ".agents/README.md",
         ".agents/tasks/AGENTS.md",
@@ -113,6 +122,19 @@ export function isPathInside(relativePath: string, parent: string): boolean {
     const normalized = relativePath.replaceAll("\\", "/");
     const normalizedParent = parent.replaceAll("\\", "/").replace(/\/$/u, "");
     return normalized === normalizedParent || normalized.startsWith(`${normalizedParent}/`);
+}
+
+export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
+    const failures: string[] = [];
+    for (const [relativePath, limit] of Object.entries(GOVERNANCE_NON_EMPTY_LINE_LIMITS)) {
+        if (!hasFile(repoRoot, relativePath)) continue;
+        const actual = readRepoText(repoRoot, relativePath)
+            .split(/\r?\n/u)
+            .filter((line) => line.trim().length > 0)
+            .length;
+        if (actual > limit) failures.push(`治理入口超过非空行上限：${relativePath} ${String(actual)} > ${String(limit)}`);
+    }
+    return failures;
 }
 
 /** 校验历史 Task 迁移是否同时具备磁盘、hash、Git index 和 clean-cutover 证据。 */

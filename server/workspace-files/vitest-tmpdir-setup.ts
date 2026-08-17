@@ -1,27 +1,27 @@
-import {mkdtempSync, mkdirSync} from "node:fs";
-import {tmpdir} from "node:os";
+import {mkdirSync} from "node:fs";
 import {randomBytes} from "node:crypto";
-import {join} from "node:path";
+import {resolveAgentScratchPath, resolveAgentTempRoot, resolveAgentTestRoot, resolveSystemTempRoot} from "nbook/scripts/utils/agent-paths";
 
 /**
  * 受控测试临时根（仓库级 Vitest setup）。
  *
- * 所有使用 `os.tmpdir()` / `mkdtemp(tmpdir()...)` 的测试目录统一收敛到
- * `<系统Temp>/neuro-book-vitest/<runId>/`，不再散落系统 Temp 根。
- * 位置选在系统 Temp 而不是仓库 `.agent/tmp`：worktree 深路径叠加测试内部
- * UUID 目录名会超过 Windows MAX_PATH（git 对象与 release staging 报
- * "Filename too long" / ENAMETOOLONG）。runId 由 `vitest-global-setup.ts`
- * 生成（8 位 hex）；每次 run 结束 teardown 删除，强杀残留由下一次 run 的
- * setup 按超窗清理，系统 Temp 根保持只有一个 `neuro-book-vitest` 目录。
- * 本文件必须是各 Vitest 配置 setupFiles 的第一项：后续 setup 与测试模块在
- * 运行时读取的 `os.tmpdir()` 都会拿到受控根（Node/Bun 每次调用动态读
- * TMPDIR/TEMP/TMP）。
+ * setup 必须是各 Vitest 配置的第一项：先解析 Agent 根，再把 Node/Bun 的临时
+ * 环境变量收敛到本次 run。这样测试内的 `os.tmpdir()` 和 `mkdtemp(tmpdir())`
+ * 都不会写回仓库或系统 Temp 顶层。
  */
-const BASE_TMP = tmpdir();
-const RUN_ID = process.env.NBOOK_TEST_RUN_ID ?? randomBytes(4).toString("hex");
-const CONTROLLED_TMP_ROOT = join(BASE_TMP, "neuro-book-vitest", RUN_ID);
+const hostSystemTempRoot = resolveSystemTempRoot();
+const configuredAgentRoot = resolveAgentTempRoot();
+process.env.NBOOK_HOST_SYSTEM_TEMP_ROOT = hostSystemTempRoot;
+process.env.NBOOK_AGENT_TEMP_ROOT = configuredAgentRoot;
+const configuredRunId = process.env.NBOOK_TEST_RUN_ID;
+const RUN_ID = configuredRunId && /^[a-f0-9]{8}$/u.test(configuredRunId)
+    ? configuredRunId
+    : randomBytes(4).toString("hex");
+const CONTROLLED_TMP_ROOT = resolveAgentTestRoot(RUN_ID);
 mkdirSync(CONTROLLED_TMP_ROOT, {recursive: true});
+mkdirSync(resolveAgentScratchPath("test-paths"), {recursive: true});
 
+process.env.NBOOK_TEST_RUN_ID = RUN_ID;
 process.env.TMPDIR = CONTROLLED_TMP_ROOT;
 process.env.TEMP = CONTROLLED_TMP_ROOT;
 process.env.TMP = CONTROLLED_TMP_ROOT;

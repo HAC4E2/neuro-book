@@ -1,6 +1,6 @@
 import type {OwnedProcessCompletion, OwnedProcessLease} from "@notnotype/owned-process";
-import {resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {resolveAgentCacheRoot} from "nbook/scripts/utils/agent-paths";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
@@ -43,7 +43,7 @@ describe("Source Dev launcher", () => {
                 SOURCE_DEV_MARKER: "kept",
                 HOST: "127.0.0.1",
                 NITRO_HOST: "127.0.0.1",
-                NEURO_BOOK_CACHE_ROOT: resolve(sourceCheckout, ".agent", "cache"),
+                NEURO_BOOK_CACHE_ROOT: resolveAgentCacheRoot("source-dev", {}),
                 [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/u),
             }),
             stdin: "inherit",

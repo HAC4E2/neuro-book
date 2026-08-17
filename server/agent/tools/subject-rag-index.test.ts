@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {appLogger} from "nbook/server/app-logs/logger";
@@ -24,7 +24,7 @@ describe("subject RAG dirty state", () => {
     let ragStatePath: string;
 
     beforeEach(async () => {
-        root = await mkdtemp(path.join(tmpdir(), "nbook-subject-rag-dirty-"));
+        root = await mkdtemp(testHostPath("nbook-subject-rag-dirty-"));
         ragStatePath = path.join(root, ".nbook", "subject-rag-dirty.json");
         vi.spyOn(appLogger, "warn").mockResolvedValue();
     });

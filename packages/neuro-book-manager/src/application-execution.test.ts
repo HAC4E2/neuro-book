@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rename, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {verifyApplicationExecution} from "#manager/application-execution";
@@ -137,7 +137,7 @@ describe("Verified Application Execution", () => {
     });
 
     it("Source Dev 明确跳过 Runtime Image 验证", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-source-execution-"));
+        const root = await mkdtemp(testHostPath("manager-source-execution-"));
         roots.push(root);
         const manifest = installationManifest(undefined);
         manifest.profile = "source-dev";
@@ -152,7 +152,7 @@ describe("Verified Application Execution", () => {
 
 /** 使用正式 Builder 生成可由 Installation Manifest 外部身份验证的 Native Product。 */
 async function nativeFixture(): Promise<NativeFixture> {
-    const root = await mkdtemp(join(tmpdir(), "manager-verified-execution-"));
+    const root = await mkdtemp(testHostPath("manager-verified-execution-"));
     roots.push(root);
     const sourceRoot = join(root, "source-fixture");
     await mkdir(sourceRoot, {recursive: true});

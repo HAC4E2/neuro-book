@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -150,7 +150,7 @@ describe("Docker Installation Health", () => {
 });
 
 async function fixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-health-docker-"));
+    const root = await mkdtemp(testHostPath("nbook-health-docker-"));
     roots.push(root);
     await writeFile(join(root, ".env"), "NUXT_PORT=19374\n", "utf8");
     return root;

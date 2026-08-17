@@ -1,5 +1,5 @@
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {basename, dirname, join} from "node:path";
 
 import {zipSync} from "fflate";
@@ -40,7 +40,7 @@ afterEach(async () => {
 
 describePosix("POSIX Managed Bun", () => {
     it("恢复执行位、验证版本并重建损坏缓存", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-bun-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-bun-"));
         roots.push(root);
         const archiveName = BUN_ASSET_NAMES[currentProductPlatform()];
         const archiveRoot = basename(archiveName, ".zip");
@@ -69,7 +69,7 @@ describePosix("POSIX Managed Bun", () => {
     });
 
     it("拒绝版本错误的下载且不提交Runtime目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-bun-invalid-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-bun-invalid-"));
         roots.push(root);
         const archiveName = BUN_ASSET_NAMES[currentProductPlatform()];
         const archiveRoot = basename(archiveName, ".zip");

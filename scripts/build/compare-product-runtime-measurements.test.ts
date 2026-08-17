@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -99,7 +99,7 @@ describe("Product Runtime measurement A/B", () => {
 
 /** 创建隔离measurement fixture目录。 */
 async function sandbox(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-product-measurement-"));
+    const root = await mkdtemp(testHostPath("nbook-product-measurement-"));
     roots.push(root);
     return root;
 }

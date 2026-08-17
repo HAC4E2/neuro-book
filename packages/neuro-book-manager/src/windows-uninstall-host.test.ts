@@ -2,6 +2,7 @@ import {spawn} from "node:child_process";
 import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 import {pathExists, sha256File} from "#manager/files";
 import {
@@ -242,7 +243,7 @@ async function runHost(input: {
 }
 
 function testSandbox(name: string): string {
-    const sandbox = join(process.cwd(), ".agent", `${name}-${crypto.randomUUID()}`);
+    const sandbox = testHostPath(`${name}-${crypto.randomUUID()}`);
     cleanupRoots.push(sandbox);
     vi.stubEnv("LOCALAPPDATA", join(sandbox, "Local"));
     return sandbox;

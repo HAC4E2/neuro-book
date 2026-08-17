@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -73,7 +73,7 @@ async function createFixture(options: {
     mappings?: Array<{sessionId: number; entryId: string; providerConfigId: string; modelId: string}>;
     providerConfigId?: string;
 } = {}): Promise<{workspaceRoot: string; sessionPath: string; mappingPath: string}> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), "nbook-model-ref-migration-"));
+    const workspaceRoot = await mkdtemp(testHostPath("nbook-model-ref-migration-"));
     roots.push(workspaceRoot);
     const nbookRoot = join(workspaceRoot, ".nbook");
     const sessionsRoot = join(nbookRoot, "agent", "sessions");

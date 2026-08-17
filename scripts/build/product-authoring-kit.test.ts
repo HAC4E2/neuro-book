@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {access, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
@@ -29,7 +29,7 @@ describe("Product Profile Authoring Kit", () => {
     });
 
     it("只投影 compiler、SDK 与可达声明图", async () => {
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-authoring-kit-"));
+        const outputRoot = await mkdtemp(testHostPath("nbook-product-authoring-kit-"));
         temporaryRoots.push(outputRoot);
 
         await execFileAsync("bun", ["scripts/build/product-authoring-kit.ts"], {

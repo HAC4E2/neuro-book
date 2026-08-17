@@ -8,4 +8,7 @@
 
 产品运行时的 Agent Skill 位于 `assets/workspace/.nbook/agent/skills/`，不要把开发流程角色混入产品资产。
 
-- 本目录保留可复用的开发 Skill 适配层；当前已纳入本地副本：[`diagnosing-bugs/SKILL.md`](diagnosing-bugs/SKILL.md)。它服务开发 Agent 的报错与性能回归诊断，不属于产品运行时 Skill。
+- [`diagnosing-bugs/SKILL.md`](diagnosing-bugs/SKILL.md)：报错、失败和性能回归的诊断循环。
+- [`writing-for-agents/SKILL.md`](writing-for-agents/SKILL.md)：编写 Agent 消费的 Skill、`AGENTS.md`、`CLAUDE.md` 与触发式上下文文档；修改 Skill 时同时读取 [`SKILL-MECHANICS.md`](writing-for-agents/SKILL-MECHANICS.md)。
+
+这些是开发 Agent 的仓库内副本，不属于产品运行时 Skill。

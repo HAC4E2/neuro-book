@@ -1,6 +1,7 @@
 import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -15,7 +16,7 @@ type ProjectFileIndexBuildResult = Awaited<ReturnType<ProjectFileIndexBuild>>;
 
 describe("ProjectFileIndexAdapter warm-up", () => {
     it("warm-up 失败进入 cache diagnostics，下一批 read 共享一次重试", async () => {
-        const workspaceRoot = absoluteFsPath(path.resolve(".agent", "project-file-index-warmup-test"));
+        const workspaceRoot = testAbsoluteFsPath("project-file-index-warmup-test");
         const ref = projectWorkspaceRef("novel-a");
         const workspace = resolvedProjectWorkspace(
             ref,

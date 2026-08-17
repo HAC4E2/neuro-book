@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -170,7 +170,7 @@ type CliResult = {
 };
 
 async function createFixture(): Promise<Fixture> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-workspace-command-"));
+    const root = await mkdtemp(testHostPath("nbook-workspace-command-"));
     roots.push(root);
     const stateRoot = join(root, "state");
     const workspaceRoot = join(stateRoot, "workspace");

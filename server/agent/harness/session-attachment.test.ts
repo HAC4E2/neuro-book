@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
@@ -40,7 +41,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
 
     beforeEach(() => {
         resetProjectSessionsForTest();
-        root = absoluteFsPath(resolve(".agent", "session-attachment-test", randomUUID()));
+        root = testAbsoluteFsPath("session-attachment-test", randomUUID());
         repo = new JsonlSessionRepository(root);
         attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({

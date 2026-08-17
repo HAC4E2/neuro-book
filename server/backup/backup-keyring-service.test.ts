@@ -1,6 +1,6 @@
 import {createHash, randomBytes} from "node:crypto";
 import {mkdtemp, readFile, rm, stat} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -24,7 +24,7 @@ afterEach(async () => {
  * 创建隔离 State Root 与对应 Runtime Paths。
  */
 async function fixturePaths() {
-    const root = await mkdtemp(join(tmpdir(), "nbook-keyring-"));
+    const root = await mkdtemp(testHostPath("nbook-keyring-"));
     cleanupRoots.push(root);
     return createRuntimePaths({applicationRoot: absoluteFsPath(root), stateRoot: absoluteFsPath(root)});
 }

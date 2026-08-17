@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
@@ -39,7 +40,7 @@ describe("Agent Session Store HMR registry", () => {
     });
 
     it("旧runtime registry升级后fail closed并保留同一Map", async () => {
-        const root = resolve(".agent", "tmp", `hmr-runtime-${randomUUID()}`);
+        const root = testHostPath("tmp", `hmr-runtime-${randomUUID()}`);
         const key = runtimeKey(root);
         const ready = {schemaVersion: 2, rootWorkspace: root} as unknown as ReadyAgentSessionStore;
         const release = vi.fn(async () => undefined);
@@ -75,7 +76,7 @@ describe("Agent Session Store HMR registry", () => {
     });
 
     it("HMR重载期间starting transition完成前不重复取得runtime lease", async () => {
-        const root = resolve(".agent", "tmp", `hmr-starting-${randomUUID()}`);
+        const root = testHostPath("tmp", `hmr-starting-${randomUUID()}`);
         const ready = {schemaVersion: 2, rootWorkspace: root} as unknown as ReadyAgentSessionStore;
         const release = vi.fn(async () => undefined);
         const active = {
@@ -121,7 +122,7 @@ describe("Agent Session Store HMR registry", () => {
     });
 
     it("HMR重载期间closing transition完成前不提前释放或改变runtime", async () => {
-        const root = resolve(".agent", "tmp", `hmr-closing-${randomUUID()}`);
+        const root = testHostPath("tmp", `hmr-closing-${randomUUID()}`);
         const ready = {schemaVersion: 2, rootWorkspace: root} as unknown as ReadyAgentSessionStore;
         const release = vi.fn(async () => undefined);
         const active = {
@@ -170,7 +171,7 @@ describe("Agent Session Store HMR registry", () => {
     });
 
     it("旧shared runtime lease升级后release为no-op并保留失效信号", async () => {
-        const root = resolve(".agent", "tmp", `hmr-lease-${randomUUID()}`);
+        const root = testHostPath("tmp", `hmr-lease-${randomUUID()}`);
         const key = runtimeKey(root);
         const release = vi.fn(async () => undefined);
         const entry: SharedLeaseEntry = {
@@ -204,7 +205,7 @@ describe("Agent Session Store HMR registry", () => {
     });
 
     it("旧shared runtime lease的rejected Promise迁移后不会产生未处理rejection", async () => {
-        const root = resolve(".agent", "tmp", `hmr-rejected-lease-${randomUUID()}`);
+        const root = testHostPath("tmp", `hmr-rejected-lease-${randomUUID()}`);
         const key = runtimeKey(root);
         const physicalFailure = new Error("old physical lease acquisition failed");
         const unhandled: unknown[] = [];

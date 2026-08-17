@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {Type} from "typebox";
 import {afterEach, describe, expect, it} from "vitest";
@@ -184,7 +184,7 @@ async function expectPreviewRoot(
 
 /** 创建隔离Runtime fixture。 */
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(path.join(tmpdir(), "nbook-profile-preview-path-"));
+    const root = await mkdtemp(testHostPath("nbook-profile-preview-path-"));
     roots.push(root);
     return root;
 }

@@ -1,8 +1,8 @@
 import {createHash} from "node:crypto";
 import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
 import {LocalAttachmentBlobAdapter} from "nbook/server/agent/attachments/local-attachment-blob-adapter";
 import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
@@ -15,7 +15,7 @@ describe("AttachmentStore", () => {
     });
 
     it("保存后可由重建的 Store 按内容引用读取原始 bytes", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachments-"));
+        const root = await mkdtemp(testHostPath("nbook-attachments-"));
         roots.push(root);
         const bytes = new TextEncoder().encode("attachment body");
         const store = new AttachmentStore(new LocalAttachmentBlobAdapter(root));

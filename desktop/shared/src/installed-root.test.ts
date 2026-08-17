@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 
 import {describe, expect, it} from "vitest";
@@ -8,7 +8,7 @@ import {requireInstalledManifest} from "./installed-root";
 
 describe("installed Desktop root manifest gate", () => {
     it("fails closed when a canonical root has a locator but no installation manifest", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-installed-root-"));
+        const root = await mkdtemp(testHostPath("nbook-installed-root-"));
         const desktopRoot = join(root, "user-desktop");
         try {
             await mkdir(desktopRoot, {recursive: true});
@@ -23,7 +23,7 @@ describe("installed Desktop root manifest gate", () => {
     });
 
     it("rejects a manifest whose scope does not match the canonical root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-installed-root-"));
+        const root = await mkdtemp(testHostPath("nbook-installed-root-"));
         const desktopRoot = join(root, "user-desktop");
         try {
             await mkdir(desktopRoot, {recursive: true});

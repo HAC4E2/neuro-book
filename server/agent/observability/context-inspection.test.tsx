@@ -1,5 +1,6 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 /**
  * `getSessionContextInspection` 的端到端装配验证（Task 126 批次 D）。
  *
@@ -39,7 +40,7 @@ describe("getSessionContextInspection", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
-        root = resolve(".agent", "context-inspection-test", randomUUID());
+        root = testHostPath("context-inspection-test", randomUUID());
         faux = createFauxModels({models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}]});
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({

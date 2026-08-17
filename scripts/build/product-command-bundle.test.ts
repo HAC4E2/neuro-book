@@ -1,7 +1,7 @@
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 import type {Metafile} from "esbuild";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("Product command metafile", () => {
     it("按 entryPoint 建立入口，不依赖输出文件名", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
 
         const entries = resolveProductCommandEntries(metafile, commandRoot);
@@ -31,7 +31,7 @@ describe("Product command metafile", () => {
     });
 
     it("按 commands root 解析 esbuild 返回的相对 output key 与 entryPoint", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile-relative", "commands");
         const metafile = buildMetafile(commandRoot, true);
         for (const output of Object.values(metafile.outputs)) {
             output.entryPoint = relative(commandRoot, output.entryPoint!);
@@ -46,7 +46,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝 metafile entry output 逃逸 commands root", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -57,7 +57,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝相对 metafile output 通过上级目录逃逸", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative-escape", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile-relative-escape", "commands");
         const metafile = buildMetafile(commandRoot, true);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -68,7 +68,7 @@ describe("Product command metafile", () => {
     });
 
     it("验证esbuild outdir已完整落盘并拒绝self-write造成的空文件", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-output-"));
+        const root = await mkdtemp(testHostPath("nbook-product-command-output-"));
         temporaryRoots.push(root);
         const commandRoot = join(root, "commands");
         const outputPath = join(commandRoot, "start.mjs");
@@ -95,7 +95,7 @@ describe("Product command metafile", () => {
     });
 
     it("清理纯 re-export 产生的零字节 shared chunk 及其副作用导入", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-empty-chunk-"));
+        const root = await mkdtemp(testHostPath("nbook-product-command-empty-chunk-"));
         temporaryRoots.push(root);
         const commandRoot = join(root, "commands");
         const emptyPath = join(commandRoot, "chunks", "command-shared-empty.mjs");
@@ -143,10 +143,19 @@ describe("Product command metafile", () => {
         }
         expect(PRODUCT_COMMAND_SOURCES["prepare-system-assets"])
             .toBe("server/runtime/prepare-system-assets-command.ts");
-
         const offenders: string[] = [];
         const files = await readdir("server", {recursive: true});
+
+        const serverTestSupportFiles = new Set([
+            "runtime/paths/test-path.ts",
+            "workspace-files/test-tmp-sweep.ts",
+            "workspace-files/test-workspace-fixture.ts",
+            "workspace-files/vitest-global-setup.ts",
+            "workspace-files/vitest-tmpdir-setup.ts",
+        ]);
         for (const relativePath of files.filter((fileName) => /\.(?:ts|mjs)$/u.test(fileName))) {
+            const normalizedPath = relativePath.replaceAll("\\", "/");
+            if (normalizedPath.includes(".test.") || serverTestSupportFiles.has(normalizedPath)) continue;
             const fileName = resolve("server", relativePath);
             if ((await readFile(fileName, "utf8")).includes("nbook/scripts/")) offenders.push(fileName);
         }

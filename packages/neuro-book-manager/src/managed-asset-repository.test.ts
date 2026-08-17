@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {dirname, join} from "node:path";
 
 import {afterEach, describe, expect, it, vi} from "vitest";
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("Managed Asset Repository", () => {
     it("只复用Manifest证明且文件身份完整的版本目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-asset-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-asset-"));
         roots.push(root);
         const targetRoot = join(root, ".runtime", "tools", "demo", "1.0.0");
         const fetch = vi.fn(async (target: string) => {
@@ -61,7 +61,7 @@ describe("Managed Asset Repository", () => {
     });
 
     it("没有Manifest身份时重建既有同版本目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-untrusted-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-untrusted-"));
         roots.push(root);
         const targetRoot = join(root, ".runtime", "demo", "1.0.0");
         await mkdir(targetRoot, {recursive: true});
@@ -89,7 +89,7 @@ describe("Managed Asset Repository", () => {
     });
 
     it("验证失败不提交版本目录并清理staging", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-failure-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-failure-"));
         roots.push(root);
         const targetRoot = join(root, ".runtime", "demo", "broken");
 
@@ -113,7 +113,7 @@ describe("Managed Asset Repository", () => {
     });
 
     it("可信旧代次损坏且新下载失败时完整保留旧目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-preserve-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-preserve-"));
         roots.push(root);
         const targetRoot = join(root, ".runtime", "demo", "1.0.0");
         await mkdir(targetRoot, {recursive: true});
@@ -141,7 +141,7 @@ describe("Managed Asset Repository", () => {
     });
 
     it("新代次提交后Journal记账失败时删除未提交代次并保留旧目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-managed-journal-failure-"));
+        const root = await mkdtemp(testHostPath("nbook-managed-journal-failure-"));
         roots.push(root);
         const targetRoot = join(root, ".runtime", "demo", "1.0.0");
         await mkdir(targetRoot, {recursive: true});

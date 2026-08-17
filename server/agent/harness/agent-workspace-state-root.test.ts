@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {access, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -38,7 +39,7 @@ describe("Agent State Root工具链", () => {
     });
 
     it("session保存workspace逻辑引用时，write/apply_patch/bash只写入Portable data/workspace", async () => {
-        const installationRoot = resolve(".agent", `agent-state-root-${randomUUID()}`);
+        const installationRoot = testHostPath(`agent-state-root-${randomUUID()}`);
         const runtimePaths = createRuntimePaths({
             applicationRoot: absoluteFsPath(installationRoot),
             stateRoot: absoluteFsPath(join(installationRoot, "data")),
@@ -99,7 +100,7 @@ describe("Agent State Root工具链", () => {
     }, 30_000);
 
     it("生产RuntimePaths与显式Session Repository Root不一致时立即拒绝", () => {
-        const installationRoot = resolve(".agent", `agent-runtime-root-mismatch-${randomUUID()}`);
+        const installationRoot = testHostPath(`agent-runtime-root-mismatch-${randomUUID()}`);
         const runtimePaths = createRuntimePaths({
             applicationRoot: absoluteFsPath(installationRoot),
             stateRoot: absoluteFsPath(join(installationRoot, "data")),
@@ -114,7 +115,7 @@ describe("Agent State Root工具链", () => {
     });
 
     it("Project-bound session的文件工具与bash共用Portable内Project Workspace File Scope", async () => {
-        const installationRoot = resolve(".agent", `agent-project-scope-${randomUUID()}`);
+        const installationRoot = testHostPath(`agent-project-scope-${randomUUID()}`);
         const runtimePaths = createRuntimePaths({
             applicationRoot: absoluteFsPath(installationRoot),
             stateRoot: absoluteFsPath(join(installationRoot, "data")),

@@ -3,6 +3,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {consola} from "consola";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
@@ -13,7 +14,7 @@ describe("SkillCatalog", () => {
     let userRoot: string;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-skill-catalog-test", randomUUID());
+        root = testHostPath("agent-skill-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "skills");
         userRoot = join(root, "workspace", ".nbook", "agent", "skills");
     });

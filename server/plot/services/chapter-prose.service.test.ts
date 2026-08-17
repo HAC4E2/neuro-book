@@ -3,6 +3,7 @@ import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-fil
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import path from "node:path";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import type {ProjectFileIndexHandle} from "nbook/server/workspace-files/project-file-index";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
@@ -23,7 +24,7 @@ function node(patch: Partial<WorkspaceFileNode>): WorkspaceFileNode {
 }
 
 describe("ChapterProseService", () => {
-    const workspaceRoot = absoluteFsPath(path.resolve(".agent", "chapter-prose-service-test", "workspace"));
+    const workspaceRoot = testAbsoluteFsPath("chapter-prose-service-test", "workspace");
     const fileIndex = {} as ProjectFileIndexHandle;
     const target = {
         kind: "project-workspace" as const,

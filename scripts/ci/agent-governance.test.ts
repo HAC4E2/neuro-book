@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {verifyTaskMigration} from "nbook/scripts/ci/agent-governance-contract";
+import {GOVERNANCE_NON_EMPTY_LINE_LIMITS, verifyGovernanceDocumentLimits, verifyTaskMigration} from "nbook/scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "nbook/server/workspace-files/test-tmp-sweep";
 
 const execFile = promisify(execFileCallback);
@@ -49,6 +49,34 @@ describe("agent governance task migration gate", () => {
         expect(verifyTaskMigration(repoRoot)).toEqual([]);
     });
 });
+
+describe("agent governance document limits", () => {
+    it("非空行数达到上限时通过", async () => {
+        const root = await createLimitFixture(0);
+
+        expect(verifyGovernanceDocumentLimits(root)).toEqual([]);
+    });
+
+    it("超过一行时报告文件、实际行数与上限", async () => {
+        const root = await createLimitFixture(1);
+
+        expect(verifyGovernanceDocumentLimits(root)).toEqual([
+            "治理入口超过非空行上限：AGENTS.md 221 > 220",
+            "治理入口超过非空行上限：.omp/RULES.md 81 > 80",
+            "治理入口超过非空行上限：WATCHDOG.md 41 > 40",
+        ]);
+    });
+});
+
+async function createLimitFixture(extraLines: number): Promise<string> {
+    const root = await createTestTmpRoot("governance-limits", "governance-limits-test");
+    fixtureRoots.push(root);
+    await Promise.all(Object.entries(GOVERNANCE_NON_EMPTY_LINE_LIMITS).map(async ([relativePath, limit]) => {
+        const content = Array.from({length: limit + extraLines}, (_, index) => `line ${String(index + 1)}`).join("\n");
+        await writeText(root, relativePath, `${content}\n`);
+    }));
+    return root;
+}
 
 async function createFixture(options: {stageTargets: boolean; retainLegacy: boolean; commitCutover?: boolean}): Promise<string> {
 

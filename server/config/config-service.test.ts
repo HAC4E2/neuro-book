@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
@@ -1113,7 +1113,7 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     it("Agent runtime 配置读取拒绝绝对 currentProjectRoot", async () => {
-        const externalProjectRoot = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "nbook-external-project-")), "external-project");
+        const externalProjectRoot = path.join(await fs.mkdtemp(testHostPath("nbook-external-project-")), "external-project");
         createdRoots.push(path.dirname(externalProjectRoot));
         await fs.mkdir(path.join(externalProjectRoot, ".nbook"), {recursive: true});
         await fs.writeFile(path.join(externalProjectRoot, "project.yaml"), [

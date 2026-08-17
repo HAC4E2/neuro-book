@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
@@ -13,7 +13,7 @@ describe("World Engine 单文件 runtime artifact cleanup", () => {
     });
 
     it("新路径导入失败时保留源码旁旧 cache", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-import-fail-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-world-engine-import-fail-"));
         tempRoots.push(root);
         const filePath = path.join(root, "world-engine", "calendar.ts");
         const oldCachePath = path.join(path.dirname(filePath), ".runtime-artifact-import-cache");
@@ -31,7 +31,7 @@ describe("World Engine 单文件 runtime artifact cleanup", () => {
     });
 
     it("旧 cache 首次清理失败时不阻断加载，同 hash 后续加载会重试", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-cleanup-retry-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-world-engine-cleanup-retry-"));
         tempRoots.push(root);
         const filePath = path.join(root, "world-engine", "calendar.ts");
         const oldCachePath = path.join(path.dirname(filePath), ".runtime-artifact-import-cache");
@@ -65,7 +65,7 @@ describe("World Engine 单文件 runtime artifact cleanup", () => {
     });
 
     it("staging 写入部分内容后失败时清理文件并保留原始 I/O 错误", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-write-fail-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-world-engine-write-fail-"));
         tempRoots.push(root);
         const filePath = path.join(root, "world-engine", "calendar.ts");
         const runtimeCacheRoot = path.join(root, ".nbook", "runtime-artifact-import-cache");
@@ -94,7 +94,7 @@ describe("World Engine 单文件 runtime artifact cleanup", () => {
     });
 
     it("Product candidate 在没有根 node_modules 时内联 Zod 与 World Engine helper", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-product-authoring-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-world-engine-product-authoring-"));
         tempRoots.push(root);
         const outputRoot = path.join(root, ".output");
         const serverRoot = path.join(outputRoot, "server");
@@ -153,7 +153,7 @@ describe("World Engine 单文件 runtime artifact cleanup", () => {
     });
 
     it("World Engine 配置拒绝未登记裸包", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-package-policy-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-world-engine-package-policy-"));
         tempRoots.push(root);
         const filePath = path.join(root, "world-engine", "calendar.ts");
         await fs.mkdir(path.dirname(filePath), {recursive: true});

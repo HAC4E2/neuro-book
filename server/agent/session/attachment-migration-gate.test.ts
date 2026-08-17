@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -13,7 +14,7 @@ describe("AttachmentMigrationGate", () => {
     let root: AbsoluteFsPath;
 
     beforeEach(() => {
-        root = absoluteFsPath(resolve(".agent", "attachment-migration-gate-test", randomUUID()));
+        root = testAbsoluteFsPath("attachment-migration-gate-test", randomUUID());
     });
 
     afterEach(async () => {

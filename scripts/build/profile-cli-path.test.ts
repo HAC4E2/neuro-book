@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
@@ -124,7 +124,7 @@ function reportScript(): string {
 }
 
 async function temporaryRoot(prefix: string): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), prefix));
+    const root = await mkdtemp(testHostPath(prefix));
     temporaryRoots.push(root);
     return root;
 }

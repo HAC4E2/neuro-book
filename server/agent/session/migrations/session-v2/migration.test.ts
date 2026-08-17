@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {createHash, randomUUID} from "node:crypto";
 import {access, appendFile, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
@@ -441,7 +442,7 @@ describe("Session schema v2 offline migration", () => {
 
     /** 为当前用例分配隔离 Workspace Root。 */
     function nextRoot(): string {
-        const root = resolve(".agent", "session-v2-migration-test", randomUUID());
+        const root = testHostPath("session-v2-migration-test", randomUUID());
         roots.push(root);
         return root;
     }

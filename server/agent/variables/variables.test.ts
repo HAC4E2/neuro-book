@@ -13,6 +13,7 @@ import {defineClientVariable, defineProjectVariable, defineSessionVariable, defi
 import {createVariableTools} from "nbook/server/agent/variables/tools";
 import type {VariableInvocationState} from "nbook/server/agent/variables/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -22,7 +23,7 @@ import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-
 
 describe("Agent variable system", () => {
     it("未绑定Project的Session始终使用Workspace Root存储global变量", async () => {
-        const workspaceRoot = resolve(".agent", "tmp", "variable-global-root-test", randomUUID());
+        const workspaceRoot = testHostPath("tmp", "variable-global-root-test", randomUUID());
         await mkdir(workspaceRoot, {recursive: true});
         try {
             const repo = new JsonlSessionRepository(workspaceRoot);
@@ -128,7 +129,7 @@ describe("Agent variable system", () => {
     });
 
     it("读取子路径时会使用注册根 default 的子字段", async () => {
-        const root = resolve(".agent", "tmp", "variable-default-test", randomUUID());
+        const root = testHostPath("tmp", "variable-default-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -160,7 +161,7 @@ describe("Agent variable system", () => {
     });
 
     it("session variable_patch 跟随 active path reduce", async () => {
-        const root = resolve(".agent", "tmp", "variable-session-test", randomUUID());
+        const root = testHostPath("tmp", "variable-session-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -200,7 +201,7 @@ describe("Agent variable system", () => {
     });
 
     it("patch 后值不符合注册 schema 时阻塞写入", async () => {
-        const root = resolve(".agent", "tmp", "variable-schema-test", randomUUID());
+        const root = testHostPath("tmp", "variable-schema-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -238,7 +239,7 @@ describe("Agent variable system", () => {
     });
 
     it("变量文件 JSON 损坏时返回 storage_error，而不是 not_registered", async () => {
-        const root = resolve(".agent", "tmp", "variable-storage-error-test", randomUUID());
+        const root = testHostPath("tmp", "variable-storage-error-test", randomUUID());
         const projectRoot = resolve(root, "project-a");
         await mkdir(resolve(projectRoot, ".nbook", "agent"), {recursive: true});
         await writeFile(resolve(projectRoot, ".nbook", "agent", "variables.json"), "{ broken", "utf8");
@@ -277,7 +278,7 @@ describe("Agent variable system", () => {
     });
 
     it("project.* 固定使用invocation捕获的Current Project，client overlay不能重绑定", async () => {
-        const root = resolve(".agent", "tmp", "variable-project-capture-test", randomUUID());
+        const root = testHostPath("tmp", "variable-project-capture-test", randomUUID());
         const projectA = resolve(root, "project-a");
         const projectB = resolve(root, "project-b");
         await Promise.all([
@@ -329,7 +330,7 @@ describe("Agent variable system", () => {
     });
 
     it("variable_patch schema mismatch 会抛错，交给 harness 生成 error tool result", async () => {
-        const root = resolve(".agent", "tmp", "variable-tool-error-test", randomUUID());
+        const root = testHostPath("tmp", "variable-tool-error-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -367,7 +368,7 @@ describe("Agent variable system", () => {
     });
 
     it("Agent patch 必须先在同一 invocation 读取变量", async () => {
-        const root = resolve(".agent", "tmp", "variable-read-before-patch-test", randomUUID());
+        const root = testHostPath("tmp", "variable-read-before-patch-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -422,7 +423,7 @@ describe("Agent variable system", () => {
     });
 
     it("client.* patch ack 后同一 invocation 的新 accessor 能 read-after-write", async () => {
-        const root = resolve(".agent", "tmp", "variable-client-overlay-test", randomUUID());
+        const root = testHostPath("tmp", "variable-client-overlay-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -485,7 +486,7 @@ describe("Agent variable system", () => {
     });
 
     it("global/project 变量文件已写但 audit 失败时返回明确半提交错误", async () => {
-        const root = resolve(".agent", "tmp", "variable-audit-failure-test", randomUUID());
+        const root = testHostPath("tmp", "variable-audit-failure-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -567,7 +568,7 @@ describe("Agent variable system", () => {
             path: "project.definitions.ts",
             message: "project definition 已过期",
         }]);
-        const root = resolve(".agent", "tmp", "variable-schema-issue-test", randomUUID());
+        const root = testHostPath("tmp", "variable-schema-issue-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -591,7 +592,7 @@ describe("Agent variable system", () => {
     });
 
     it("project.* 缺少本轮 Project Workspace 时返回 unavailable", async () => {
-        const root = resolve(".agent", "tmp", "variable-project-test", randomUUID());
+        const root = testHostPath("tmp", "variable-project-test", randomUUID());
         await mkdir(root, {recursive: true});
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
@@ -627,7 +628,7 @@ describe("Agent variable system", () => {
     });
 
     it("Workspace Root / Project definition 只加载 hash 匹配的 .compiled artifact", async () => {
-        const root = resolve(".agent", "tmp", "variable-definition-test", randomUUID());
+        const root = testHostPath("tmp", "variable-definition-test", randomUUID());
         await mkdir(root, {recursive: true});
         const definitionPath = resolve(root, "definitions.ts");
         await writeFile(definitionPath, [
@@ -670,7 +671,7 @@ describe("Agent variable system", () => {
     });
 
     it("variable definition full compile 使用内容寻址文件名且不读取旧固定产物", async () => {
-        const root = resolve(".agent", "tmp", "variable-definition-prune-test", randomUUID());
+        const root = testHostPath("tmp", "variable-definition-prune-test", randomUUID());
         await mkdir(resolve(root, ".compiled"), {recursive: true});
         await writeFile(resolve(root, "definitions.ts"), [
             "import {Type, defineWorkspaceRootVariable} from \"nbook/variable-sdk\";",
@@ -696,7 +697,7 @@ describe("Agent variable system", () => {
     });
 
     it("variable definition manifest 未变化时保留 generatedAt", async () => {
-        const root = resolve(".agent", "tmp", "variable-definition-generated-at-test", randomUUID());
+        const root = testHostPath("tmp", "variable-definition-generated-at-test", randomUUID());
         const definitionPath = resolve(root, "definitions.ts");
         const manifestPath = resolve(root, ".compiled", "manifest.json");
         await mkdir(root, {recursive: true});
@@ -732,7 +733,7 @@ describe("Agent variable system", () => {
     }, 15_000);
 
     it("skipFresh 会在 type artifact 缺失时重新编译 variable definition", async () => {
-        const root = resolve(".agent", "tmp", "variable-definition-skip-type-test", randomUUID());
+        const root = testHostPath("tmp", "variable-definition-skip-type-test", randomUUID());
         const definitionPath = resolve(root, "definitions.ts");
         await mkdir(root, {recursive: true});
         await writeFile(definitionPath, [
@@ -760,7 +761,7 @@ describe("Agent variable system", () => {
     }, 15_000);
 
     it("只读 Product variable definition 新鲜时零写入，过期时要求重建", async () => {
-        const root = resolve(".agent", "tmp", "variable-definition-readonly-test", randomUUID());
+        const root = testHostPath("tmp", "variable-definition-readonly-test", randomUUID());
         const stagingRoot = resolve(root, "runtime-staging");
         const definitionPath = resolve(root, "definitions.ts");
         const manifestPath = resolve(root, ".compiled", "manifest.json");
@@ -804,7 +805,7 @@ describe("Agent variable system", () => {
     });
 
     it("Product variable definition只记录.output/server自包含依赖", async () => {
-        const productRoot = resolve(".agent", "tmp", "variable-product-context-test", randomUUID());
+        const productRoot = testHostPath("tmp", "variable-product-context-test", randomUUID());
         const outputRoot = join(productRoot, ".output", "server");
         const authoringRoot = join(outputRoot, "authoring");
         const definitionRoot = join(outputRoot, "assets", "workspace", ".nbook", "agent", "variables");
@@ -854,8 +855,8 @@ describe("Agent variable system", () => {
 
     it("不同物理 Product root 生成相同 variable artifact", async () => {
         const roots = [
-            resolve(".agent", "tmp", "variable-product-determinism-a", randomUUID()),
-            resolve(".agent", "tmp", "variable-product-determinism-b", randomUUID()),
+            testHostPath("tmp", "variable-product-determinism-a", randomUUID()),
+            testHostPath("tmp", "variable-product-determinism-b", randomUUID()),
         ];
         const previousCwd = process.cwd();
         const previousImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;

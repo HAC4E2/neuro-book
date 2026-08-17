@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, relative, resolve} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -121,7 +121,7 @@ describe("Release output generation", () => {
 
 /** 创建最小干净 Git Source，dist 保持 ignored，模拟正式 Release checkout。 */
 async function releaseOutputFixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-release-output-"));
+    const root = await mkdtemp(testHostPath("nbook-release-output-"));
     roots.push(root);
     await mkdir(join(root, "scripts"), {recursive: true});
     await Promise.all([

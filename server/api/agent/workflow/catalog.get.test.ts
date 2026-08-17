@@ -5,6 +5,7 @@ import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -23,7 +24,7 @@ describe("GET /api/agent/workflow/catalog", () => {
     });
 
     it("从显式 Project Workspace 读取项目 workflow，且无项目查询不泄漏", async () => {
-        const root = resolve(".agent", "workflow-catalog-route-test", randomUUID());
+        const root = testHostPath("workflow-catalog-route-test", randomUUID());
         cleanupRoots.push(root);
         const runtimePaths = createRuntimePaths({
             applicationRoot: absoluteFsPath(root),

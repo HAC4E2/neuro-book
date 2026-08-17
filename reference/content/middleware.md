@@ -13,7 +13,7 @@
 相关文档：
 
 - [内容引用规范](content-references.md)
-- [AI 表单批注规范](./ai-annotation.md)
+- [AI 表单批注历史（已归档）](../../docs/archived/ai-annotation.md)；它不是当前内容规范。
 
 ---
 

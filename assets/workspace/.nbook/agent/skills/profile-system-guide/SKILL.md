@@ -41,10 +41,10 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - Profile templates: `assets/workspace/.nbook/agent/profile-templates/`
 - Content/project templates (not profile templates): `workspace/.nbook/templates/{content-node-templates,project-directory-templates}/`
 - TSX profile authoring docs: `docs/profile-tsx/`
-- TSX Profile Workbench task notes: `docs/tasks/04-tsx-profile-workbench/README.md`
-- Settings form task notes: `docs/tasks/58-agent-profile-settings-low-code/README.md`
-- Profile home task notes: `docs/tasks/60-agent-profile-home/README.md`, `docs/tasks/68-global-profile-home-resource-preset/README.md`
-- Agent migration/runtime notes: `docs/tasks/02-pi-agent-harness-migration/README.md`
+- TSX Profile Workbench task notes: `.agents/tasks/04-tsx-profile-workbench/README.md`
+- Settings form task notes: `.agents/tasks/58-agent-profile-settings-low-code/README.md`
+- Profile home task notes: `.agents/tasks/60-agent-profile-home/README.md`, `.agents/tasks/68-global-profile-home-resource-preset/README.md`
+- Agent migration/runtime notes: `.agents/tasks/02-pi-agent-harness-migration/README.md`
 - Workspace terms: `reference/workspace/TERMS.md`
 - Detailed reference for this skill: `assets/workspace/.nbook/agent/skills/profile-system-guide/references/harness-profile-system.md`
 

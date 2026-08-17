@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {copyFile, cp, mkdir, readFile, readdir, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {dirname, join, relative, resolve} from "node:path";
@@ -55,7 +56,7 @@ describe("AgentProfileCatalog", {timeout: 15_000}, () => {
         applicationRootBeforeTest = process.env.NEURO_BOOK_APPLICATION_ROOT;
         productImageRootBeforeTest = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
         productBuildBeforeTest = process.env.NEURO_BOOK_PRODUCT_BUILD;
-        root = resolve(".agent", "tmp", "agent-profile-catalog-test", randomUUID());
+        root = testHostPath("tmp", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(systemRoot, {recursive: true});
@@ -1198,13 +1199,24 @@ describe("AgentProfileCatalog", {timeout: 15_000}, () => {
             compiledArtifactPath(systemRoot, systemItem),
             compiledArtifactPath(userRoot, systemItem),
         );
-        expect(systemItem.typeFileName).toMatch(/types\.d\.ts$/);
+        expect(systemItem.typeFileName).toMatch(/types\.d\.ts$/u);
+        const sourceDependency = systemItem.dependencies.find((dependency) =>
+            dependency.path.replace(/[\\/]+/gu, "/").endsWith(`/${systemItem.fileName}`),
+        );
+        if (!sourceDependency) {
+            throw new Error(`profile ${systemItem.fileName} 缺少入口源码依赖`);
+        }
+        const sourceDependencyPath = sourceDependency.path.replace(/[\\/]+/gu, "/");
+        const sourceSuffix = `/${systemItem.fileName}`;
+        const userRootLabel = userRoot.replace(/[\\/]+/gu, "/");
         const userItem = rehomeProfileArtifactItem(systemItem, {
-            fromRootLabel: relative(process.cwd(), systemRoot).split(/[\\/]+/).join("/"),
-            toRootLabel: relative(process.cwd(), userRoot).split(/[\\/]+/).join("/"),
+            fromRootLabel: sourceDependencyPath.slice(0, -sourceSuffix.length),
+            toRootLabel: userRootLabel,
         });
 
-        expect(userItem.dependencies.some((dependency) => dependency.path.endsWith("workspace/.nbook/agent/profiles/builtin/custom.synced.profile.tsx"))).toBe(true);
+        expect(userItem.dependencies.some((dependency) =>
+            dependency.path.replace(/[\\/]+/gu, "/") === `${userRootLabel}/${systemItem.fileName}`,
+        )).toBe(true);
         await expect(validateProfileArtifact(userRoot, userItem)).resolves.toEqual({fresh: true});
     });
 

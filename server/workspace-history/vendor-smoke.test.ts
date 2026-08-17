@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {afterAll, describe, expect, it} from "vitest";
 import {WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
@@ -19,7 +19,7 @@ describe("vendored nb-history 冒烟", () => {
     });
 
     it("open → performWrite → timeline → textDiff → close → 库文件可删", async () => {
-        const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nb-history-vendor-smoke-"));
+        const workspaceRoot = await fs.mkdtemp(testHostPath("nb-history-vendor-smoke-"));
         tempRoots.push(workspaceRoot);
         const databasePath = path.join(workspaceRoot, ".nbook", "history.sqlite");
         await fs.mkdir(path.dirname(databasePath), {recursive: true});

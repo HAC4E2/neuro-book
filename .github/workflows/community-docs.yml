@@ -10,11 +10,17 @@ on:
       - "README.en.md"
       - "AGENTS.md"
       - "PROJECT-STATUS.md"
+      - "WATCHDOG.md"
+      - "CONTEXT.md"
+      - "RELEASE.md"
+      - ".omp/**"
       - "docs/**"
+      - "vitepress/**"
       - "reference/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
       - "scripts/ci/validate-nitropack-patch.ts"
+      - "scripts/ci/check-documentation*"
       - "patches/**"
       - "nuxt.config.ts"
       - "tsconfig.json"
@@ -28,11 +34,17 @@ on:
       - "README.en.md"
       - "AGENTS.md"
       - "PROJECT-STATUS.md"
+      - "WATCHDOG.md"
+      - "CONTEXT.md"
+      - "RELEASE.md"
+      - ".omp/**"
       - "docs/**"
+      - "vitepress/**"
       - "reference/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
       - "scripts/ci/validate-nitropack-patch.ts"
+      - "scripts/ci/check-documentation*"
       - "patches/**"
       - "nuxt.config.ts"
       - "tsconfig.json"
@@ -72,5 +84,7 @@ jobs:
         run: bun run nuxt:prepare
       - name: Validate community files
         run: bun scripts/ci/validate-community-files.ts
+      - name: Check documentation governance
+        run: bun run docs:check
       - name: Build documentation
         run: bun run docs:build

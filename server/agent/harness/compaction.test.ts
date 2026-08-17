@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -18,7 +19,7 @@ describe("compaction", () => {
     let faux: FauxModelsFixture;
 
     beforeEach(() => {
-        root = absoluteFsPath(resolve(".agent", "agent-compaction-test", randomUUID()));
+        root = testAbsoluteFsPath("agent-compaction-test", randomUUID());
         repo = new JsonlSessionRepository(root);
         faux = createFauxModels({
             models: [{

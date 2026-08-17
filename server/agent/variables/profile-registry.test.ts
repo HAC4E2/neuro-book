@@ -3,6 +3,7 @@ import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -30,8 +31,8 @@ afterEach(() => {
 
 describe("Session Variable Registry路径", () => {
     it("Global与Current Project定义使用调用方注入的结构化runtime identity", async () => {
-        const workspaceRoot = absoluteFsPath(path.resolve(".agent", "variable-registry-runtime", "workspace"));
-        process.env.NEURO_BOOK_STATE_ROOT = path.resolve(".agent", "unrelated-state-root");
+        const workspaceRoot = absoluteFsPath(testHostPath("variable-registry-runtime", "workspace"));
+        process.env.NEURO_BOOK_STATE_ROOT = testHostPath("unrelated-state-root");
         const profile = defineAgentProfile({
             manifest: {key: "test.variable-registry", name: "Variable Registry"},
             initialSchema: Type.Object({}),

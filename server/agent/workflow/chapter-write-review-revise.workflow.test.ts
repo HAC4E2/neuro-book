@@ -1,5 +1,6 @@
 import {resolve} from "node:path";
 import {describe, expect, test} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {
     MemorySessionStore,
@@ -18,7 +19,7 @@ import {
 describe("chapter-write-review-revise workflow", () => {
     const catalog = new WorkflowCatalog(
         resolve("assets", "workspace", ".nbook", "agent", "workflows"),
-        resolve(".agent", "tmp", "chapter-wrr-test", "no-user-root"),
+        testHostPath("tmp", "chapter-wrr-test", "no-user-root"),
     );
     const chapterPath = "manuscript/001-volume/001-chapter/index.md";
     const chapterBody = "# 第一章 星陨遗迹\n薇洛丝在遗迹深处解开了封印。";

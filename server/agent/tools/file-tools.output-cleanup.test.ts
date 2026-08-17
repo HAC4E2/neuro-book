@@ -1,5 +1,5 @@
 import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -51,7 +51,7 @@ describe("bash OutputAccumulator cleanup", () => {
     let root: string;
 
     beforeEach(async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-bash-output-cleanup-"));
+        root = await mkdtemp(testHostPath("nbook-bash-output-cleanup-"));
         ownedProcess.spawn.mockImplementation(() => ({
             completion: Promise.reject(new Error("owned process failed")),
             terminate: vi.fn(),

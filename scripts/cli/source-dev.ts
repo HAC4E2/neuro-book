@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import {randomBytes} from "node:crypto";
 import {resolve} from "node:path";
+import {resolveAgentCacheRoot} from "nbook/scripts/utils/agent-paths";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
 import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
 import {
@@ -29,7 +30,7 @@ export async function runSourceDev(options: SourceDevOptions = {}): Promise<numb
         ...configuredHost ? {} : {HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1"},
         NEURO_BOOK_CACHE_ROOT: inherited.NEURO_BOOK_CACHE_ROOT?.trim()
             ? inherited.NEURO_BOOK_CACHE_ROOT
-            : resolve(cwd, ".agent", "cache"),
+            : resolveAgentCacheRoot("source-dev", inherited),
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: token,
     };
     const port = sourceDevPort(env);

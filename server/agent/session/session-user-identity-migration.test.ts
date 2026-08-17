@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
@@ -110,7 +111,7 @@ function userEntry(id: string, content: string) {
 
 /** 写入隔离 JSONL fixture。 */
 async function writeSession(records: object[]): Promise<string> {
-    const root = resolve(".agent", "session-user-identity-migration-test", randomUUID());
+    const root = testHostPath("session-user-identity-migration-test", randomUUID());
     roots.push(root);
     await mkdir(root, {recursive: true});
     const filePath = resolve(root, "42.jsonl");

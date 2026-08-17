@@ -5,6 +5,7 @@ import path from "node:path";
 import {promisify} from "node:util";
 import YAML from "yaml";
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
@@ -60,7 +61,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     // 这里不再 per-file 复制并编译一份完整 `.nbook`。
     beforeEach(async () => {
         assets = await createIsolatedWorkspaceAssets({useAsCwd: true});
-        root = absoluteFsPath(path.resolve(".agent", "workspace-files-test", randomUUID()));
+        root = testAbsoluteFsPath("workspace-files-test", randomUUID());
         await fs.mkdir(root, {recursive: true});
     }, 60_000);
 

@@ -46,6 +46,7 @@ export default defineConfig({
             "scripts/install/**/*.test.ts",
             "scripts/maintenance/**/*.test.ts",
             "scripts/release/**/*.test.ts",
+            "scripts/utils/**/*.test.ts",
             "server/**/*.test.ts",
             // Profile DSL 用 JSX，相关测试必须是 .tsx 才能被 oxc 解析。
             "server/**/*.test.tsx",

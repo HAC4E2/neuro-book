@@ -1,6 +1,7 @@
 import {createHash} from "node:crypto";
 import {mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {relative, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {strToU8, zipSync} from "fflate";
@@ -411,7 +412,7 @@ function releaseBuildId(revision = REVISION): string {
 }
 
 async function temporaryRoot(): Promise<string> {
-    const root = await mkdtemp(resolve(tmpdir(), "nbook-portable-provenance-"));
+    const root = await mkdtemp(testHostPath("nbook-portable-provenance-"));
     cleanupRoots.push(root);
     return root;
 }

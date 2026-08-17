@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, realpath, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -64,7 +64,7 @@ describe("Product Runtime package island graph", () => {
 async function createSourceFixture(options: {
     jsdomDependencies: Record<string, string>;
 }): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-runtime-islands-"));
+    const root = await mkdtemp(testHostPath("nbook-runtime-islands-"));
     temporaryRoots.push(root);
     await writeFile(join(root, "package.json"), `${JSON.stringify({name: "fixture", private: true})}\n`, "utf8");
     await writePackage(join(root, "node_modules"), "jsdom", "1.0.0", {

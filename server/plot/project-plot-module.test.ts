@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {PrismaClient} from "nbook/server/generated/project-prisma/client";
@@ -154,7 +154,7 @@ describe("Plot/World ProjectModule", () => {
 
     /** 创建真实一级Project root，但不执行任何模块初始化。 */
     async function createPreparedProject(projectRoot: string): Promise<PreparedProjectOpen> {
-        const tempRoot = await mkdtemp(path.join(os.tmpdir(), "nbook-plot-world-module-"));
+        const tempRoot = await mkdtemp(testHostPath("nbook-plot-world-module-"));
         tempRoots.push(tempRoot);
         const workspaceRoot = absoluteFsPath(path.join(tempRoot, "workspace"));
         const root = absoluteFsPath(path.join(workspaceRoot, projectRoot));

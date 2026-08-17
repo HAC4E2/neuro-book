@@ -6,8 +6,8 @@
 
 ## 开始工作
 
-1. 读取仓库根目录 `AGENTS.md`、`CONTRIBUTING.md` 和相关测试规范。
-2. 读取 `.agents/tasks/AGENTS.md`。
+1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md`、相关当前规范和测试规范。
+2. 读取 `.agents/tasks/AGENTS.md`；审查公开 PR 时再读根 `CONTRIBUTING.md`。
 3. 读取 Task README、Leader 计划、Tasker 报告、PR diff 和人类决策。
 4. 确认被验证的 source revision、环境和测试范围。
 

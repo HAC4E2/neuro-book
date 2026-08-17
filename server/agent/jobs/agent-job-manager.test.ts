@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
@@ -260,7 +261,7 @@ describe("AgentJobManager", () => {
     });
 
     it("shutdown 期间完成的 Job 保留 pending，交给下次启动幂等回流", async () => {
-        const root = resolve(".agent", "agent-job-shutdown-test", randomUUID());
+        const root = testHostPath("agent-job-shutdown-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         const enqueueDurableSystemFollowUp = vi.fn();
         const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, registryPath);
@@ -366,7 +367,7 @@ describe("AgentJobManager", () => {
     });
 
     it("每个 Job 只保留最新 durable 文件，旧 jobs.jsonl 不再追加", async () => {
-        const root = resolve(".agent", "agent-job-manager-test", randomUUID());
+        const root = testHostPath("agent-job-manager-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         await mkdir(root, {recursive: true});
         await writeFile(registryPath, "legacy-audit\n", "utf8");
@@ -404,7 +405,7 @@ describe("AgentJobManager", () => {
     });
 
     it("旧 jobs.jsonl 只迁移 active Job，并独立处理每条中断通知", async () => {
-        const root = resolve(".agent", "agent-job-recovery-test", randomUUID());
+        const root = testHostPath("agent-job-recovery-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         await mkdir(root, {recursive: true});
         await writeFile(registryPath, [
@@ -446,7 +447,7 @@ describe("AgentJobManager", () => {
     });
 
     it("进程重启后恢复终态列表、完整 result 和 kind detail", async () => {
-        const root = resolve(".agent", "agent-job-history-test", randomUUID());
+        const root = testHostPath("agent-job-history-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         const first = new AgentJobManager(() => {
             throw new Error("ownerless 测试不应投递");
@@ -483,7 +484,7 @@ describe("AgentJobManager", () => {
     });
 
     it("恢复时隔离损坏的单 Job 文件并继续加载其它历史", async () => {
-        const root = resolve(".agent", "agent-job-corrupt-history-test", randomUUID());
+        const root = testHostPath("agent-job-corrupt-history-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         const store = new AgentJobDurableStore(resolve(root, "jobs"));
         await mkdir(resolve(root, "jobs"), {recursive: true});
@@ -506,7 +507,7 @@ describe("AgentJobManager", () => {
     });
 
     it("terminal pending 在重启后使用原稳定 ID 重投并更新为 accepted", async () => {
-        const root = resolve(".agent", "agent-job-pending-test", randomUUID());
+        const root = testHostPath("agent-job-pending-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         const store = new AgentJobDurableStore(resolve(root, "jobs"));
         const durable = durableCompletedRecord("job_pending", {
@@ -542,7 +543,7 @@ describe("AgentJobManager", () => {
     });
 
     it("accepted=queued 的历史在重启后重新触发 drain，已提交时升级私有证据", async () => {
-        const root = resolve(".agent", "agent-job-accepted-queue-test", randomUUID());
+        const root = testHostPath("agent-job-accepted-queue-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         const store = new AgentJobDurableStore(resolve(root, "jobs"));
         const durable = durableCompletedRecord("job_accepted_queue", {
@@ -574,7 +575,7 @@ describe("AgentJobManager", () => {
     });
 
     it("terminal durable commit 失败时不发布 completed，而是收口为持久化失败", async () => {
-        const root = resolve(".agent", "agent-job-persist-failure-test", randomUUID());
+        const root = testHostPath("agent-job-persist-failure-test", randomUUID());
         class TerminalFailingStore extends AgentJobDurableStore {
             private failed = false;
 
@@ -619,7 +620,7 @@ describe("AgentJobManager", () => {
     });
 
     it("terminal durable commit 完成前，列表和 SSE 都不公开 completed", async () => {
-        const root = resolve(".agent", "agent-job-terminal-gate-test", randomUUID());
+        const root = testHostPath("agent-job-terminal-gate-test", randomUUID());
         let releaseTerminal!: () => void;
         const terminalGate = new Promise<void>((resolveGate) => {
             releaseTerminal = resolveGate;
@@ -703,7 +704,7 @@ describe("AgentJobManager", () => {
     });
 
     it("delivery pending 不能清除，accepted 后删除 durable 记录且重启不再出现", async () => {
-        const root = resolve(".agent", "agent-job-clear-test", randomUUID());
+        const root = testHostPath("agent-job-clear-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         let releaseDelivery!: () => void;
         const delivery = new Promise<void>((resolve) => {

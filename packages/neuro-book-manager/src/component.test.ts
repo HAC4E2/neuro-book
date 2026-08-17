@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, relative} from "node:path";
 import {zipSync, strToU8} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("Release Source component", () => {
     it("只替换 Source 拥有的文件并可回滚", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-source-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-source-"));
         roots.push(root);
         await writeFile(join(root, "old.txt"), "old", "utf8");
         await writeFile(join(root, "config.yaml"), "user", "utf8");
@@ -61,7 +61,7 @@ describe("Release Source component", () => {
     });
 
     it("拒绝归档覆盖用户状态", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-source-forbidden-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-source-forbidden-"));
         roots.push(root);
         const bytes = zipSync({"workspace/project.txt": strToU8("bad")});
         await expect(stageReleaseSource({
@@ -77,7 +77,7 @@ describe("Release Source component", () => {
 
 describe("Product component rollback", () => {
     it("下载后验证 Runtime Image identity 与 ready marker", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-product-archive-"));
+        const root = await mkdtemp(testHostPath("manager-product-archive-"));
         roots.push(root);
         const revision = "b".repeat(40);
         const platform = TEST_RUNTIME_IMAGE_PLATFORM;
@@ -106,8 +106,8 @@ describe("Product component rollback", () => {
     });
 
     it("首次安装没有旧 Product 时删除已切换的新 Product", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-product-root-"));
-        const backup = await mkdtemp(join(tmpdir(), "manager-product-backup-"));
+        const root = await mkdtemp(testHostPath("manager-product-root-"));
+        const backup = await mkdtemp(testHostPath("manager-product-backup-"));
         roots.push(root, backup);
         await mkdir(join(root, ".output"), {recursive: true});
         await writeFile(join(root, ".output", "new.txt"), "new", "utf8");
@@ -118,7 +118,7 @@ describe("Product component rollback", () => {
     });
 
     it("激活副本完成两次 rename 后仍保留 Operation-owned migration runner", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-product-activation-"));
+        const root = await mkdtemp(testHostPath("manager-product-activation-"));
         roots.push(root);
         const stagedOutput = join(root, ".deploy", "staging", "operation", "migration-runner", ".output");
         const backup = join(root, ".deploy", "backups", "operation", "product");
@@ -138,8 +138,8 @@ describe("Product component rollback", () => {
     });
 
     it("更新失败时恢复旧 Product", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-product-root-"));
-        const backup = await mkdtemp(join(tmpdir(), "manager-product-backup-"));
+        const root = await mkdtemp(testHostPath("manager-product-root-"));
+        const backup = await mkdtemp(testHostPath("manager-product-backup-"));
         roots.push(root, backup);
         await mkdir(join(root, ".output"), {recursive: true});
         await mkdir(join(backup, ".output"), {recursive: true});

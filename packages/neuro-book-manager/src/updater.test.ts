@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
@@ -351,7 +351,7 @@ describe("Source Dev Update恢复", () => {
 });
 
 async function fixtureRoot(): Promise<string> {
-    const fixture = await mkdtemp(join(tmpdir(), "nbook-manager-update-"));
+    const fixture = await mkdtemp(testHostPath("nbook-manager-update-"));
     await mkdir(join(fixture, ".deploy"), {recursive: true});
     await writeFile(join(fixture, "manager-source.mjs"), MANAGER_SOURCE, "utf8");
     await writeInstallationManifest(installationPaths(fixture).manifest, productManifest());

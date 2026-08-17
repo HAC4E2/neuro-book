@@ -443,7 +443,7 @@ function containsPair(segments: string[], left: string, right: string): boolean 
 /** 只排除 VitePress 的 cache/dist/temp，保留 config 与 theme 源码。 */
 function isVitePressGenerated(segments: string[]): boolean {
     return segments.some((segment, index) =>
-        segment === "docs"
+        segment === "vitepress"
         && segments[index + 1] === ".vitepress"
         && VITEPRESS_GENERATED_SEGMENTS.has(segments[index + 2] ?? ""));
 }

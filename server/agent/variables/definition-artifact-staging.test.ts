@@ -1,5 +1,5 @@
 import {access, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {afterEach, describe, expect, it} from "vitest";
@@ -23,7 +23,7 @@ afterEach(async () => {
 
 /** 创建测试 staging 根。 */
 async function createStagingRoot(): Promise<{root: string; stagingRoot: string}> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-variable-staging-"));
+    const root = await mkdtemp(testHostPath("nbook-variable-staging-"));
     roots.push(root);
     return {root, stagingRoot: join(root, ".staging")};
 }

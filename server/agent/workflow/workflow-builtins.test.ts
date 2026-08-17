@@ -1,5 +1,6 @@
 import {resolve} from "node:path";
 import {describe, expect, test} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {
     MemorySessionStore,
@@ -17,7 +18,7 @@ import {
 describe("bundled workflows", () => {
     const catalog = new WorkflowCatalog(
         resolve("assets", "workspace", ".nbook", "agent", "workflows"),
-        resolve(".agent", "tmp", "workflow-builtins-test", "no-user-root"),
+        testHostPath("tmp", "workflow-builtins-test", "no-user-root"),
     );
 
     /** 从 catalog 取定义；缺失时让测试以明确错误失败。 */

@@ -1,5 +1,6 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 /**
  * 上下文分区归因的端到端落盘验证（Task 126）。
  *
@@ -41,7 +42,7 @@ describe("上下文分区归因 → trace segments", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
-        root = resolve(".agent", "harness-trace-segments-test", randomUUID());
+        root = testHostPath("harness-trace-segments-test", randomUUID());
         faux = createFauxModels({models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}]});
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({

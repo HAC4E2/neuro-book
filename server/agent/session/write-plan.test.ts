@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {readFile, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -18,7 +19,7 @@ describe("SessionWriteExecutor", () => {
     let liveStateCalls: number;
 
     beforeEach(() => {
-        root = absoluteFsPath(resolve(".agent", "agent-write-plan-test", randomUUID()));
+        root = testAbsoluteFsPath("agent-write-plan-test", randomUUID());
         repo = new JsonlSessionRepository(root);
         eventHub = new AgentSessionEventHub();
         liveStateCalls = 0;

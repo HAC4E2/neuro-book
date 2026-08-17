@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import {spawn, type ChildProcessWithoutNullStreams} from "node:child_process";
 import fs, {access, mkdir, mkdtemp, readFile, readdir, realpath, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {createInterface} from "node:readline";
 import {lock as acquireFileLock} from "proper-lockfile";
@@ -92,7 +92,7 @@ afterEach(async () => {
 
 describe("ProjectLockModule", () => {
     it("Occupancy Lock 对同一 canonical Project fail-fast，并只暴露 opaque artifact", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-"));
         roots.push(workspaceRoot);
         await mkdir(path.join(workspaceRoot, "occupied"));
         const firstModule = new ProjectLockModule(absoluteFsPath(workspaceRoot));
@@ -143,7 +143,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("目标目录不存在时 prospective Occupancy 仍能预占同一 Project locator", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-"));
         roots.push(workspaceRoot);
         const firstModule = new ProjectLockModule(absoluteFsPath(workspaceRoot));
         const secondModule = new ProjectLockModule(absoluteFsPath(workspaceRoot));
@@ -168,7 +168,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("真实过期的 proper-lockfile Occupancy artifact 可由公开接口恢复并释放", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-stale-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-stale-"));
         roots.push(workspaceRoot);
         const ref = projectWorkspaceRef("stale-occupancy");
         const lockDirectory = path.join(workspaceRoot, ".nbook", "locks", "projects");
@@ -196,7 +196,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("两个真实进程竞争不存在target的prospective Occupancy时只允许一个owner", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-process-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-process-"));
         roots.push(workspaceRoot);
         const projectRoot = "future-cross-process";
         const fixturePath = path.resolve(
@@ -271,7 +271,7 @@ describe("ProjectLockModule", () => {
     }, 20_000);
 
     it("Project key 与 Occupancy artifact 使用冻结的 canonical locator digest", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-digest-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-digest-"));
         roots.push(workspaceRoot);
         const projectRoot = "Digest-Project";
         await mkdir(path.join(workspaceRoot, projectRoot));
@@ -304,7 +304,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("Workspace mutation lock 有界等待并在前一 handle release 后串行进入", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-"));
         roots.push(workspaceRoot);
         const firstModule = new ProjectLockModule(absoluteFsPath(workspaceRoot));
         const secondModule = new ProjectLockModule(absoluteFsPath(workspaceRoot));
@@ -330,7 +330,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("compromised 会同步关闭提交门禁并保留 typed failure", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-"));
         roots.push(workspaceRoot);
         let compromise: ((error: Error) => void) | null = null;
         const adapter: ProjectLockAdapter = {
@@ -358,7 +358,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("release failure 进入 terminal 状态且旧 handle 不清理新 owner sidecar", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-"));
         roots.push(workspaceRoot);
         let acquisition = 0;
         const adapter: ProjectLockAdapter = {
@@ -413,7 +413,7 @@ describe("ProjectLockModule", () => {
     });
 
     it("metadata写入与release同时失败时保留typed顶层和两个原始cause", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lock-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lock-"));
         roots.push(workspaceRoot);
         const metadataFailure = Object.assign(new Error("injected metadata failure"), {code: "ENOSPC"});
         const releaseFailure = Object.assign(new Error("injected release failure"), {code: "EIO"});

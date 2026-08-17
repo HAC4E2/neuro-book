@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
@@ -58,7 +58,7 @@ describe("Release resolver", () => {
     });
 
     it("可从本地候选Manifest解析尚未公开最终索引的Release", async () => {
-        temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-"));
+        temporaryRoot = await mkdtemp(testHostPath("manager-release-manifest-"));
         const candidate = release("v1.1.0-beta.2", true).manifest;
         const manifestPath = join(temporaryRoot, "release-manifest.json");
         await writeFile(manifestPath, JSON.stringify(candidate), "utf8");
@@ -69,7 +69,7 @@ describe("Release resolver", () => {
     });
 
     it("显式Manifest与version互斥且不能绕过channel", async () => {
-        temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-"));
+        temporaryRoot = await mkdtemp(testHostPath("manager-release-manifest-"));
         const candidate = release("v1.1.0-beta.2", true).manifest;
         const manifestPath = join(temporaryRoot, "release-manifest.json");
         await writeFile(manifestPath, JSON.stringify(candidate), "utf8");
@@ -79,7 +79,7 @@ describe("Release resolver", () => {
     });
 
     it("未来显式schema先根据envelope提示升级Manager", async () => {
-        temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-future-"));
+        temporaryRoot = await mkdtemp(testHostPath("manager-release-manifest-future-"));
         const manifestPath = join(temporaryRoot, "release-manifest.json");
         await writeFile(manifestPath, JSON.stringify({schemaVersion: 99, minManagerVersion: "99.0.0"}), "utf8");
 

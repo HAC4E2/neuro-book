@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 
 import {strToU8, zipSync} from "fflate";
@@ -100,7 +100,7 @@ describe("Verified Release download", () => {
 
 /** 创建每项测试独占的归档根。 */
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-manager-download-"));
+    const root = await mkdtemp(testHostPath("nbook-manager-download-"));
     roots.push(root);
     return root;
 }

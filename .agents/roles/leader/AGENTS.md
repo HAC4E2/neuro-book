@@ -6,11 +6,11 @@
 
 ## 开始工作
 
-1. 读取仓库根目录 `AGENTS.md`、`CONTRIBUTING.md` 和相关 Reference。
-2. 读取 `.agents/tasks/AGENTS.md`。
+1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md` 和相关当前规范。
+2. 读取 `.agents/tasks/AGENTS.md` 与 [`docs/standards/repository-workflow.md`](../../../docs/standards/repository-workflow.md)；准备公开 Issue 或 PR 时再读根 `CONTRIBUTING.md`。
 3. 读取已批准的 Task README、`context.md`、Issue、相关 PR 和 Task walkthrough。
 4. 确认当前分支、worktree、基线 revision 与任务记录一致。
-5. 确认本次工作是否仍在已批准范围内。
+5. 确认本次工作仍在已批准范围内。
 
 ## 人类批准前
 

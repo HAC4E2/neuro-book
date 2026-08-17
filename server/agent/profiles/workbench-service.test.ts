@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, stat} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -32,18 +33,18 @@ describe("profile workbench service", () => {
 
     it("拒绝越界 fileName", async () => {
         const catalog = new AgentProfileCatalog(
-            resolve(".agent", "tmp", "profile-workbench-invalid-system"),
-            resolve(".agent", "tmp", "profile-workbench-invalid-user"),
+            testHostPath("tmp", "profile-workbench-invalid-system"),
+            testHostPath("tmp", "profile-workbench-invalid-user"),
         );
 
         await expect(saveProfileSource(catalog, {
             fileName: "../bad.profile.tsx",
             source: "",
-        }, workbenchRoots(resolve(".agent", "tmp", "profile-workbench-invalid")))).rejects.toThrow("相对路径");
+        }, workbenchRoots(testHostPath("tmp", "profile-workbench-invalid")))).rejects.toThrow("相对路径");
     });
 
     it("从模板创建的 profile 编译后可被 catalog 加载", async () => {
-        const root = resolve(".agent", "tmp", "profile-workbench-test", randomUUID());
+        const root = testHostPath("tmp", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(userRoot, {recursive: true});
         const catalog = new AgentProfileCatalog(join(root, "assets", ".nbook", "agent", "profiles"), userRoot);
@@ -72,7 +73,7 @@ describe("profile workbench service", () => {
     }, 30_000);
 
     it("轻量 draft 读取不触发 runtime catalog", async () => {
-        const root = resolve(".agent", "tmp", "profile-workbench-test", randomUUID());
+        const root = testHostPath("tmp", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         const roots = {
             ...workbenchRoots(userRoot),
@@ -108,7 +109,7 @@ describe("profile workbench service", () => {
     }, 30_000);
 
     it("删除用户 profile 后触发全量 build 以移除 manifest entry", async () => {
-        const root = resolve(".agent", "tmp", "profile-workbench-test", randomUUID());
+        const root = testHostPath("tmp", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         const fileName = "agent.deleted.profile.tsx";
         const enqueued: Array<{fileName?: string; reason: string}> = [];
@@ -259,7 +260,7 @@ export default defineAgentProfile({
     }, 30_000);
 
     it("source-draft 是未保存源码预览入口，不写入真实用户 profile 文件", async () => {
-        const root = resolve(".agent", "tmp", "profile-workbench-test", randomUUID());
+        const root = testHostPath("tmp", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(userRoot, {recursive: true});
         try {

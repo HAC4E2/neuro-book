@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {createHash} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
@@ -155,7 +156,7 @@ describe("Agent Session Store", () => {
 
     /** 为当前用例分配隔离Workspace Root。 */
     function nextRoot(): string {
-        const root = resolve(".agent", "agent-session-store-test", randomUUID());
+        const root = testHostPath("agent-session-store-test", randomUUID());
         roots.push(root);
         return root;
     }

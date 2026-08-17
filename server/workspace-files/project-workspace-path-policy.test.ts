@@ -1,6 +1,7 @@
 import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -11,7 +12,7 @@ import {
     type ProjectWorkspacePathConsumer,
 } from "nbook/server/workspace-files/project-workspace-path-policy";
 
-const workspaceRoot = absoluteFsPath(path.resolve(".agent", "tmp", "path-policy"));
+const workspaceRoot = testAbsoluteFsPath("tmp", "path-policy");
 const ref = projectWorkspaceRef("project");
 const workspace = resolvedProjectWorkspace(
     ref,

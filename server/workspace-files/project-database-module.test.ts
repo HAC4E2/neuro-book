@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {createClient} from "@libsql/client";
 import {describe, expect, it} from "vitest";
@@ -176,7 +176,7 @@ function projectModuleContext(projectRoot: string, signal: AbortSignal): Project
 
 /** 创建位于临时Workspace Root一级目录下的Project root。 */
 async function createTempProjectRoot(label: string): Promise<string> {
-    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), `nbook-database-module-${label}-`));
+    const workspaceRoot = await fs.mkdtemp(testHostPath(`nbook-database-module-${label}-`));
     const projectRoot = path.join(workspaceRoot, "project");
     await fs.mkdir(projectRoot);
     return projectRoot;

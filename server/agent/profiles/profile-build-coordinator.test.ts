@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -12,7 +13,7 @@ describe("ProfileBuildCoordinator", () => {
     let userRoot: string;
 
     beforeEach(async () => {
-        root = resolve(".agent", "tmp", "profile-build-coordinator-test", randomUUID());
+        root = testHostPath("tmp", "profile-build-coordinator-test", randomUUID());
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(userRoot, {recursive: true});
     });

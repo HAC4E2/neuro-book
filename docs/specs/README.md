@@ -1,65 +1,134 @@
-# 当前规范注册表
+# NeuroBook 规范编程
 
-`docs/specs/` 是 NeuroBook 功能规范的统一入口。目标是让维护者或 Agent 只读取规范、ADR 和公开接口，就能重建模块的可观察行为；实现代码仍是执行载体，不承担未记录的产品决策。
+`docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言连接模糊需求与确定代码：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。
 
-本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向现有 `reference/`、`docs/modules/`、`docs/testing/` 或根规范文件。
+Spec 描述“系统承诺什么”。Proposal 记录尚未决定的方案，Task 记录一次实现过程，ADR 解释难以逆转的取舍，测试与代码提供实现证据；它们都不能替代 Spec。
 
-## 规范应回答什么
+## 两种成熟度，一个文件
 
-每个功能规范至少说明：
+每个可独立验收的能力只有一个稳定 Spec 文件，使用 `status` 表示成熟度：
 
-- 用户目标、术语和不在范围内的内容；
-- 可观察行为、状态转移、权限和失败语义；
-- 持久化数据、文件、接口、事件和兼容承诺；
-- 模块所有者、依赖方向和禁止依赖；
-- 验收场景、验证入口和仍未覆盖的风险；
-- 关联 ADR、migration、proposal 和实现入口。
+| 状态 | 含义 | 权威边界 |
+|---|---|---|
+| `planned` | 已批准、尚无代码完整支持的目标合同 | 规定下一次实现必须达到的行为；不能用来宣称当前产品已有该能力 |
+| `implemented` | 已由代码和验证证据支持的当前合同 | 规定当前产品行为；与代码或测试冲突时视为缺陷并停止猜测，核实后修正错误的一侧 |
 
-实现细节只有在调用方必须依赖时才进入规范。文件清单、阶段进度、临时诊断和角色交接属于 Task，不写入功能规范。
+不创建 `*-draft.md` 与 `*-current.md` 两份正文。能力实现后，原文件从 `planned` 原地晋升为 `implemented`，补充实现合同和证据。一个模块同时包含已实现与未实现内容时，按可独立验收的能力拆成多个 Spec，而不是在同一文件标记“部分实现”。
 
-## 当前真相源
+Proposal 的 `draft` / `reviewing` 表示方案尚未批准；Spec 的 `planned` 表示目标行为已经批准。未批准需求不能进入 `planned` Spec。
+
+## 共同行为合同
+
+所有 `kind: behavior` 的 Spec，无论成熟度，都必须使用黑盒语言说明：
+
+1. **目标与非目标**：解决什么问题，明确不承诺什么。
+2. **术语与参与者**：消除同义词、角色和对象边界。
+3. **输入与前置条件**：触发方式、数据形状、权限、有效范围与约束。
+4. **输出与可观察行为**：返回结果、界面反馈和外部可见变化。
+5. **状态与转换**：初始状态、事件、下一状态、幂等与并发语义。
+6. **副作用与数据**：持久化、文件、事件、网络、缓存和清理责任。
+7. **失败与恢复**：校验失败、部分失败、重试、回滚和 fail-closed 边界。
+8. **边界与兼容**：模块所有权、权限、安全、版本与迁移影响。
+9. **验收与 Smoke**：能直接观察输入、输出、状态和副作用的场景。
+
+`planned` Spec 把实现当作黑盒，不指定类名、函数名、算法、目录布局、框架技巧或逐文件改法。它允许约束公开接口、持久化格式和必须维持的架构边界，因为这些本身就是外部合同。
+
+## Implemented Spec 的内部信息
+
+`implemented` Spec 仍以共同的可观察行为为主体。它额外记录未来维护者必须知道、且代码阅读成本高的内部合同：
+
+- 实现 owner、数据 owner 和依赖方向；
+- 公开接口、事件、持久化 schema 与事务边界；
+- 决定失败恢复、并发、安全或兼容性的关键不变量；
+- 实现入口、合同测试和实际 smoke 命令。
+
+逐函数控制流、文件改动清单、临时诊断、实现日志和“先改 A 再改 B”的过程属于代码或 Task。难以逆转且需要解释原因的内部取舍进入 ADR。这样重构内部实现时，只要行为和关键不变量不变，Spec 无需跟随文件结构改写。
+
+## 文件格式
+
+新 Spec 从 [`TEMPLATE.md`](TEMPLATE.md) 开始，文件名和目录使用英文 kebab-case。除 `README.md`、`AGENTS.md` 和 `TEMPLATE.md` 外，每个 Markdown Spec 都必须包含：
+
+```yaml
+---
+schema: nbook.spec/v1
+kind: behavior
+status: planned
+capability: editor.html-mode
+owners:
+  - markdown-studio
+---
+```
+
+- `kind`：`behavior`、`architecture` 或 `glossary`。
+- `status`：只允许 `planned` 或 `implemented`。
+- `capability`：仓库内唯一、稳定的点分标识；文件移动时不改变。
+- `owners`：对行为与数据边界负责的一个或多个模块，不写临时执行人。
+
+`architecture` 和 `glossary` 可使用与内容匹配的章节，但同样必须登记成熟度、稳定 capability 和 owner。`kind: behavior` 使用模板的完整行为合同。
+
+## 流水线
+
+### 新功能或长期行为变化
+
+1. 原始自然语言进入 [`../proposals/`](../proposals/)；补齐歧义、备选方案和影响。
+2. 人类接受 Proposal 后，创建或更新 `planned` Spec，把目标写成黑盒行为与验收场景。
+3. `.agents/tasks/` 引用 Proposal 和 Spec，记录具体实现、验证和交接。
+4. 代码、测试和 Spec 在同一交付中收敛；证据支持全部合同后，将原 Spec 晋升为 `implemented`。
+
+### Bug
+
+- 代码偏离 `implemented` Spec：Spec 保持目标不变，Task 修复代码并验证回归。
+- Spec 与已验证产品行为不符：Task 修正规范，并说明为何原规范失真。
+- 期望行为仍有产品歧义：先写 Proposal，不把诊断结论伪装成当前规范。
+
+### Code-first 与重构
+
+紧急修复或既有未记录行为可以先改代码，但同一 Task 完成前必须补齐或更新 `implemented` Spec；“代码已合并、以后补文档”不是完成状态。纯内部重构若不改变可观察行为，只需核对现有 Spec 仍成立，在 Task 中记录验证，不为文件移动重写 Spec。
+
+## 已实现规范
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| Agent Runtime 与 Profile | [`../../reference/agent/`](../../reference/agent/) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
-| 内容与 Project Workspace | [`../../reference/content/`](../../reference/content/)、[`../../reference/workspace/TERMS.md`](../../reference/workspace/TERMS.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
-| World Engine | [`../../reference/world-engine/`](../../reference/world-engine/) | 时间线、slice、subject、schema、calendar 与写作协作 |
-| Plot | [`../../reference/plot/`](../../reference/plot/) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
-| Theme | [`../../reference/theme/`](../../reference/theme/) | 主题变量和消费规则 |
-| Media | [`../../reference/media/`](../../reference/media/) | 图片原图、变体、缓存和 Project 封面 |
-| Character | [`../modules/character/requirements.md`](../modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
-| Monorepo / Module | [`../modules/monorepo-boundaries.md`](../modules/monorepo-boundaries.md) | 当前逻辑模块和未来 `packages/neuro-book` 边界 |
-| 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
-| 人工评测 | [`../manual-eval/README.md`](../manual-eval/README.md) | 用户视角旅程、判定口径和报告结构 |
-| 数据迁移 | [`../migrations/README.md`](../migrations/README.md) | 有状态升级、备份和回滚入口 |
-| 贡献与交付 | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
+| Foundation / Workspace 术语 | [`foundation/terminology.md`](foundation/terminology.md) | 已由当前产品合同消费的统一术语 |
 
-## 尚未覆盖的功能域
+## 待实现规范
 
-以下功能已有代码、测试或 ADR，但还没有足以重建当前行为的完整规范。相关行为变更必须先补规范归属，不能只引用 ADR 或 Task：
+| 功能域 | 目标规范 | 说明 |
+|---|---|---|
+| Monorepo / Module | [`architecture/monorepo-boundaries.md`](architecture/monorepo-boundaries.md) | 主应用迁入 `packages/neuro-book` 的已批准目标；物理迁移尚未实施 |
+
+## 冻结过渡规范
+
+以下正文描述已有实现，但仍被产品 Profile、资产投影、测试或打包流程直接消费。它们在迁入 `docs/specs/` 前保持冻结，不是新规范落点：
+
+| 功能域 | 当前规范 | 固定目标 |
+|---|---|---|
+| Agent Runtime 与 Profile | [`../../reference/agent/`](../../reference/agent/) | `docs/specs/agent/` |
+| Content / Project Workspace | [`../../reference/content/`](../../reference/content/) | `docs/specs/content/` |
+| World Engine | [`../../reference/world-engine/`](../../reference/world-engine/) | `docs/specs/world-engine/` |
+| Plot | [`../../reference/plot/`](../../reference/plot/) | `docs/specs/plot/` |
+| Theme | [`../../reference/theme/`](../../reference/theme/) | `docs/specs/theme/` |
+| Media | [`../../reference/media/`](../../reference/media/) | `docs/specs/media/` |
+
+## 规范缺口
+
+以下功能已有代码、测试、ADR 或 Proposal，但缺少足以判断当前行为的 `implemented` Spec。修改这些功能前先建立规范归属：
 
 | 优先级 | 功能域 | 现有证据 | 缺口 |
 |---|---|---|---|
-| P0 | Desktop、安装与 Product Runtime | `docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载和失败恢复未汇成当前规范 |
-| P0 | 应用状态、备份与数据迁移 | `docs/adr/0005-*`、`0008-*`、`0012-*`，`server/backup/`、`server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
-| P0 | Agent Session 持久化与历史 | `docs/adr/0003-*`、`0014-agent-job-*`，`server/agent/session/`、`server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |
-| P1 | 配置、模型与凭据 | `server/config/`、`server/models/`、`shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、provider identity、错误和 UI 行为没有单一规范 |
-| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/core/markdown-studio.md`](../../vitepress/core/markdown-studio.md)、[`../archived/plan/06-editor-workbench.md`](../archived/plan/06-editor-workbench.md)、`shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
-| P1 | Passport 与身份 | `server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储和失败语义缺少当前规范 |
-| P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查和发布门禁分散 |
-| P2 | Character 与 Low-code Form | `docs/modules/character/requirements.md`、`server/low-code-form/` | 需求存在，但状态、校验、持久化、权限和失败语义不完整 |
+| P0 | Desktop、安装与 Product Runtime | `docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载与失败恢复未汇成当前规范 |
+| P0 | 应用状态、备份与数据迁移 | `docs/adr/0005-*`、`0008-*`、`0012-*`，`server/backup/`、`server/database/` | 数据所有权、备份恢复、catalog 演进与 release activation 未形成端到端规范 |
+| P0 | Agent Session 持久化与历史 | `docs/adr/0003-*`、`0017-agent-job-*`，`server/agent/session/`、`server/workspace-history/` | durable event、Job 历史、附件、租约与文件历史缺少统一状态和恢复规范 |
+| P1 | 配置、模型与凭据 | `server/config/`、`server/models/`、`shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、Provider identity、错误与 UI 行为没有单一规范 |
+| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/core/markdown-studio.md`](../../vitepress/core/markdown-studio.md)、`shared/editor-workbench.ts` | 用户文档和代码存在，尚未转为内部当前规范 |
+| P1 | Passport 与身份 | `server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储与失败语义缺少当前规范 |
+| P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查与发布门禁分散 |
+| P2 | Character 与 Low-code Form | [`../proposals/character-workbench.md`](../proposals/character-workbench.md)、`server/low-code-form/` 与现有测试 | Proposal 仍在 reviewing；状态、校验、持久化、权限与失败语义不完整 |
 
-补齐顺序先覆盖会影响数据安全、安装与恢复的 P0，再覆盖外部配置与发布的 P1，最后补齐 P2 产品模块。
+## Reference 迁移合同
 
-## 生命周期
+每个待迁域必须一次性完成正文分类、Profile Import、产品投影、合同测试、文档链接、工作流与打包入口切换，然后删除旧 `reference/<domain>/`。不保留两份可独立修改的正文。Project Workspace 内的 `reference/` 是用户素材协议，不属于本迁移目标。
 
-1. 新功能先检查本表是否已有规范归属。
-2. 尚未决定的跨模块方案写入 [`../proposals/`](../proposals/)；小型、可逆且不改变长期合同的工作可直接更新现有规范。
-3. 提案获批后，先更新或创建当前规范，再创建 `.agents/tasks/` 实现合同。
-4. 实现期间如果行为变化，规范和代码在同一变更中更新。
-5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。
-6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和 proposal 保留历史但不再作为当前行为依据。
+## 完成门禁
 
-## 迁移原则
-
-`reference/` 目前会被产品 Agent/Profile 的 Import、资产投影和测试直接消费，不能机械搬迁。本表是过渡期唯一索引。后续按功能域逐个执行 clean cutover：先确认消费者与链接，再移动正文并同步导入、测试、打包、VitePress 和规则指针，最后删除旧入口；任何时刻都不保留两份可独立修改的规范。
+Spec 变更完成时必须同时满足：文件元数据有效；能力在正确成熟度表登记；每项输入、输出、状态、副作用和失败都有明确合同；planned 内容不泄漏实现步骤；implemented 内容有代码、测试和 smoke 证据；相关 Proposal、Task、ADR 或 migration 使用链接而非复制正文；`bun run docs:check` 通过。

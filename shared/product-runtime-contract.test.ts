@@ -12,6 +12,7 @@ import {
     resolveProductRuntimeCommand,
     resolveProductRuntimeChecks,
 } from "nbook/shared/product-runtime-contract";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 describe("Product Runtime Contract", () => {
     const roots: string[] = [];
@@ -76,7 +77,7 @@ describe("Product Runtime Contract", () => {
     });
 
     it("验证 bootstrap 与所有合同入口实际存在", async () => {
-        const root = resolve(".agent", "tmp", "product-contract-test", randomUUID());
+        const root = testHostPath("tmp", "product-contract-test", randomUUID());
         roots.push(root);
         const contract = contractFixture();
         const entries = new Set([

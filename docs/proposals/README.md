@@ -1,6 +1,12 @@
 # 项目提案
 
-`docs/proposals/` 保存尚未生效、需要评审的产品或工程方案。Proposal 用来决定“应该采用什么长期行为”，不是当前规范、实现 Task、待办清单或过程日志。
+`docs/proposals/` 保存尚未生效、需要评审的产品或工程方案。Proposal 把原始自然语言整理成问题、目标、备选方案和影响，用来决定“应该采用什么长期行为”；它不是 Spec、实现 Task、待办清单或过程日志。
+
+当前活跃提案：
+
+- [`character-workbench.md`](character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
+
+已完成沉淀的信息架构提案见 [`../archived/proposals/documentation-information-architecture.md`](../archived/proposals/documentation-information-architecture.md)。
 
 ## 何时需要 Proposal
 
@@ -11,7 +17,7 @@
 - 改变持久化格式、公开接口、权限、安全、安装、发布或兼容承诺；
 - 存在两个以上长期方案，需要记录取舍和放弃原因。
 
-局部修复、机械迁移和现有规范内的实现不单独创建 Proposal；它们直接进入 Task，并在需要时同步当前规范。
+局部修复、机械迁移和现有 `implemented` Spec 内的实现不单独创建 Proposal；它们直接进入 Task，并在需要时同步 Spec。期望行为仍有歧义的 bug 先进入 Proposal，不能由实现者猜测。
 
 ## 最小结构
 
@@ -23,13 +29,13 @@
 4. `当前行为与证据`；
 5. `方案、备选方案和取舍`；
 6. `数据、接口、安全、迁移、发布与回滚影响`；
-7. `对当前规范的预期改动`；
+7. `对 Spec 的预期改动`：目标 capability、输入、输出、状态、副作用、失败与验收；
 8. `决策记录`：日期、决策者和结论。
 
 ## 生效规则
 
-- `draft` 和 `reviewing` 只供讨论，不能被代码、测试或 Agent 当作当前行为依据。
-- `accepted` 只是批准修改规范和创建实现 Task；Proposal 本身不会自动成为规范。
-- 实施前把被批准行为写入 [`../specs/`](../specs/) 注册的当前规范，并在 Proposal 中链接具体规范位置。
-- `.agents/tasks/` 记录一次实现的范围、步骤、交接和证据；Task 引用 Proposal 与规范，不复制两者全文。
-- `rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../archived/`](../archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。
+- `draft` 和 `reviewing` 只供讨论，不能被代码、测试或 Agent 当作产品合同。
+- `accepted` 只表示目标行为获准进入 `planned` Spec 和实现 Task；Proposal 本身不会自动成为规范。
+- 实施前或实施开始时，把批准行为写入 [`../specs/`](../specs/) 的单一 `planned` Spec；Spec 与 Task 可以同批创建，但代码完成前必须已有足够明确的黑盒合同。
+- `.agents/tasks/` 引用 Proposal 与 Spec，记录一次实现的范围、步骤、交接和证据，不复制两者全文。代码和验证闭合后，原 Spec 原地晋升为 `implemented`。
+- `rejected`、`superseded` 和已完成沉淀的 Proposal 移入 [`../archived/`](../archived/) 下的 proposals 分类；Spec 不依赖归档内容才能被理解。

@@ -1,6 +1,7 @@
 import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath, testHostPath} from "nbook/server/runtime/paths/test-path";
 import {
     createRuntimePaths,
     runtimePathsFromEnv,
@@ -8,8 +9,8 @@ import {
 
 describe("Runtime Paths Module", () => {
     it("从显式Application Root与State Root建立不可变路径集合", () => {
-        const applicationRoot = absoluteFsPath(path.resolve(".agent", "runtime-paths", "app"));
-        const stateRoot = absoluteFsPath(path.resolve(".agent", "runtime-paths", "state"));
+        const applicationRoot = testAbsoluteFsPath("runtime-paths", "app");
+        const stateRoot = testAbsoluteFsPath("runtime-paths", "state");
         const paths = createRuntimePaths({applicationRoot, stateRoot});
 
         expect(paths).toEqual({
@@ -33,7 +34,7 @@ describe("Runtime Paths Module", () => {
     });
 
     it("环境Adapter允许Cache Root与State Root物理分离", () => {
-        const startRoot = path.resolve(".agent", "runtime-paths", "installation");
+        const startRoot = testHostPath("runtime-paths", "installation");
         const paths = runtimePathsFromEnv(startRoot, {
             NEURO_BOOK_STATE_ROOT: "data",
             NEURO_BOOK_CACHE_ROOT: ".cache",
@@ -47,17 +48,17 @@ describe("Runtime Paths Module", () => {
     });
 
     it("环境Adapter支持默认根、Portable data和绝对外部State Root", () => {
-        const startRoot = path.resolve(".agent", "runtime-paths", "installation");
+        const startRoot = testHostPath("runtime-paths", "installation");
         expect(runtimePathsFromEnv(startRoot, {}).stateRoot).toBe(startRoot);
         expect(runtimePathsFromEnv(startRoot, {NEURO_BOOK_STATE_ROOT: "data"}).stateRoot)
             .toBe(path.join(startRoot, "data"));
-        const externalStateRoot = path.resolve(".agent", "runtime-paths", "external-state");
+        const externalStateRoot = testHostPath("runtime-paths", "external-state");
         expect(runtimePathsFromEnv(startRoot, {NEURO_BOOK_STATE_ROOT: externalStateRoot}).stateRoot)
             .toBe(externalStateRoot);
     });
 
     it("相对Application Root先相对startPath解析", () => {
-        const startRoot = path.resolve(".agent", "runtime-paths", "launcher");
+        const startRoot = testHostPath("runtime-paths", "launcher");
         const paths = runtimePathsFromEnv(startRoot, {
             NEURO_BOOK_APPLICATION_ROOT: "app",
             NEURO_BOOK_STATE_ROOT: "data",

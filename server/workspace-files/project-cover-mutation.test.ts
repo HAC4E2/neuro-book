@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it, vi} from "vitest";
@@ -180,7 +180,7 @@ async function createProject(projectName: string, cover?: string): Promise<{
     workspaceRoot: string;
     projectRoot: string;
 }> {
-    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-cover-mutation-"));
+    const workspaceRoot = await fs.mkdtemp(testHostPath("nbook-project-cover-mutation-"));
     roots.push(workspaceRoot);
     const projectRoot = path.join(workspaceRoot, projectName);
     await fs.mkdir(projectRoot);

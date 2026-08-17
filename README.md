@@ -20,7 +20,7 @@
 
 **简体中文** · [English](README.en.md)
 
-<img src="./docs/images/主页-dark.jpg" width="100%" alt="NeuroBook 主界面：左侧世界书文件树，中间正文编辑器，右侧 AI 写作助手" />
+<img src="./vitepress/images/主页-dark.jpg" width="100%" alt="NeuroBook 主界面：左侧世界书文件树，中间正文编辑器，右侧 AI 写作助手" />
 
 </div>
 
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts
 bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
-安装器会引导你选择目录、端口、更新通道和鉴权方式，确认前统一做一次环境检查。多实例管理、Docker 部署、从源码构建等六种方式，以及引导脚本的 SHA256 审计方法，见[部署文档](docs/deployment.md)。想让别的 AI Agent 帮你部署或排障，把 [docs/operator-bridge.md](docs/operator-bridge.md) 发给它即可。
+安装器会引导你选择目录、端口、更新通道和鉴权方式，确认前统一做一次环境检查。多实例管理、Docker 部署、从源码构建等六种方式，以及引导脚本的 SHA256 审计方法，见[部署文档](vitepress/deployment.md)。想让别的 AI Agent 帮你部署或排障，把 [vitepress/operator-bridge.md](vitepress/operator-bridge.md) 发给它即可。
 
 ## 四大核心能力
 
@@ -87,7 +87,7 @@ bunx --bun @notnotype/neuro-book-manager@canary
 - 每次变更都是带时间戳的可审计记录：他什么时候获得了这把剑，完全可以查出来。
 - Agent 读写分权：leader 可写、writer 只读，写正文时不会误改世界。
 
-<img src="./docs/images/WorldEngine-dark.jpg" width="100%" alt="World Engine 工作台：左侧主体列表，中间世界切片时间线，右侧状态快照与 subject 轨迹" />
+<img src="./vitepress/images/WorldEngine-dark.jpg" width="100%" alt="World Engine 工作台：左侧主体列表，中间世界切片时间线，右侧状态快照与 subject 轨迹" />
 
 ### 🧵 Plot Workbench：剧情工坊——伏笔有账本，决策有存档
 
@@ -98,7 +98,7 @@ bunx --bun @notnotype/neuro-book-manager@canary
 - **章节信息控制**：读者知道什么、主角知道什么、必须隐瞒什么、只能暗示什么——希区柯克的悬念理论，做成了字段。
 - 场景直接锚定世界时间轴、地点和出场角色，剧情规划与世界状态互相咬合。
 
-<img src="./docs/images/剧情工作台.jpg" width="100%" alt="剧情工坊：左侧线程列表，中间场景卡片与时间区间，右侧写作提示和 World Engine 上下文" />
+<img src="./vitepress/images/剧情工作台.jpg" width="100%" alt="剧情工坊：左侧线程列表，中间场景卡片与时间区间，右侧写作提示和 World Engine 上下文" />
 
 ### ✍️ 多 Agent 写作工作室：好马配好鞍
 
@@ -141,9 +141,9 @@ NeuroBook 的核心功能不是拍脑袋想出来的——一边是软件工程�
 
 AI 助手干活的规矩是可以改的，而且不用写代码。每个助手都有一份 Profile——决定它能用哪些工具、看得到哪些上下文、按什么规矩写。你可以在可视化编辑器里直接改，也可以让内置的「用户资产助手」替你改。想把「写正文 → 检查 → 修订」这种多步骤的活儿打包成一条命令，用工作流编排就行。
 
-<img src="./docs/images/TSX可视化编辑器.png" width="100%" alt="Profile 可视化编辑器：以节点树的形式编辑 AI 助手的上下文结构并实时预览" />
+<img src="./vitepress/images/TSX可视化编辑器.png" width="100%" alt="Profile 可视化编辑器：以节点树的形式编辑 AI 助手的上下文结构并实时预览" />
 
-细节见 [Profile 介绍](docs/profile/index.md) 与 [Workflow 与 Job](docs/agent/workflow.md)。想参与 NeuroBook 本身的开发，见[参与贡献](CONTRIBUTING.md)。
+细节见 [Profile 介绍](vitepress/profile/index.md) 与 [Workflow 与 Job](vitepress/agent/workflow.md)。想参与 NeuroBook 本身的开发，见[参与贡献](CONTRIBUTING.md)。
 
 </details>
 
@@ -154,13 +154,13 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 **在线文档站：[中文](https://blog.notnotype.com/neuro-book/) ｜ [English](https://blog.notnotype.com/neuro-book/en/)**（带搜索和语言切换）。下面是仓库内的 Markdown 源文件：
 
-- [官网文档首页](docs/index.md)
-- [快速开始](docs/quick-start.md)
-- [基础教程：从第一本书到前三章](docs/tutorials/index.md)
-- 核心能力：[World Engine](docs/core/world-engine.md) / [Plot 剧情工坊](docs/core/plot-workbench.md) / [Markdown Studio](docs/core/markdown-studio.md) / [llmlint](docs/core/llmlint.md)
-- [部署方式](docs/deployment.md) / [运行、数据与隐私](docs/operations.md)
-- [Agent 心智模型](docs/agent/index.md) / [Workflow 与 Job](docs/agent/workflow.md) / [三种模式](docs/agent/modes.md)
-- [Profile 介绍](docs/profile/index.md) / [从零写一个 Profile](docs/profile-tsx/authoring.md)
+- [官网文档首页](vitepress/index.md)
+- [快速开始](vitepress/quick-start.md)
+- [基础教程：从第一本书到前三章](vitepress/tutorials/index.md)
+- 核心能力：[World Engine](vitepress/core/world-engine.md) / [Plot 剧情工坊](vitepress/core/plot-workbench.md) / [Markdown Studio](vitepress/core/markdown-studio.md) / [llmlint](vitepress/core/llmlint.md)
+- [部署方式](vitepress/deployment.md) / [运行、数据与隐私](vitepress/operations.md)
+- [Agent 心智模型](vitepress/agent/index.md) / [Workflow 与 Job](vitepress/agent/workflow.md) / [三种模式](vitepress/agent/modes.md)
+- [Profile 介绍](vitepress/profile/index.md) / [从零写一个 Profile](vitepress/profile-tsx/authoring.md)
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 - [参与贡献](CONTRIBUTING.md)：Issue、开发规范、Agent 协作、Task 与 PR 流程

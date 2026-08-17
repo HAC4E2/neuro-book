@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -102,7 +102,7 @@ describe("OutputAccumulator Bash cache", () => {
 
 /** 创建隔离Cache Root。 */
 async function temporaryRoot(): Promise<string> {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-bash-output-"));
+    const root = await fs.mkdtemp(testHostPath("nbook-bash-output-"));
     roots.push(root);
     return root;
 }

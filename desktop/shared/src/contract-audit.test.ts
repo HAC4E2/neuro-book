@@ -4,6 +4,7 @@ import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
 import {auditProductContract} from "./contract-audit";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 /** 仓库根：`desktop/shared/src/` 向上三级。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -16,7 +17,7 @@ describe("Task 143 Product Contract adapter", () => {
     });
 
     it("只接受 v5 commands 下的可迁移入口，并返回可脱敏审计结果", async () => {
-        const root = join(REPO_ROOT, ".agent", "tmp", "desktop-contract-audit", `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        const root = testHostPath("tmp", "desktop-contract-audit", `${Date.now()}-${Math.random().toString(16).slice(2)}`);
         roots.push(root);
         await mkdir(resolve(root, "server"), {recursive: true});
         await writeFile(resolve(root, "server", "runtime-contract.json"), JSON.stringify(createProductRuntimeContract({

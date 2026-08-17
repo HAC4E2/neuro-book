@@ -8,6 +8,7 @@ import {
     expectedGovernanceFiles,
     git,
     hasFile,
+    verifyGovernanceDocumentLimits,
     verifyTaskMigration,
 } from "nbook/scripts/ci/agent-governance-contract";
 
@@ -39,10 +40,11 @@ function isHistoricalMarkdownPath(relativePath: string): boolean {
 
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
 failures.push(...verifyTaskMigration(repoRoot));
+failures.push(...verifyGovernanceDocumentLimits(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
 }
-for (const relativePath of [".agents/AGENTS.md", ".agents/README.md", ".agents/tasks/README.md"]) {
+for (const relativePath of ["AGENTS.md", ".omp/RULES.md", "WATCHDOG.md", ".agents/AGENTS.md", ".agents/README.md", ".agents/tasks/README.md"]) {
     if (isIgnored(relativePath)) failures.push(`治理入口被错误忽略：${relativePath}`);
 }
 

@@ -2,6 +2,7 @@ import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
@@ -16,7 +17,7 @@ describe("Product system assets preflight", () => {
     });
 
     it("只读 Product Root 的新鲜 system assets 零写入，过期时明确拒绝", async () => {
-        const root = resolve(".agent", "tmp", "system-assets-preflight-test", randomUUID());
+        const root = testHostPath("tmp", "system-assets-preflight-test", randomUUID());
         const applicationRoot = join(root, "product");
         const stateRoot = join(root, "state");
         const systemNbookRoot = join(applicationRoot, ".output", "server", "assets", "workspace", ".nbook");

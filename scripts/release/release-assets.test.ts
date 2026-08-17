@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join, resolve} from "node:path";
 
 import {strToU8, unzipSync, zipSync} from "fflate";
@@ -114,7 +114,7 @@ describe("Product Release宿主合同", () => {
             guide: "docs/migrations/0.9.0-session-v2.md",
         });
 
-        const fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-release-state-migration-"));
+        const fixtureRoot = await mkdtemp(testHostPath("nbook-release-state-migration-"));
         roots.push(fixtureRoot);
         await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).rejects.toThrow("缺少有状态升级声明");
 
@@ -131,7 +131,7 @@ describe("Product Release宿主合同", () => {
     });
 
     it("Release 构建边界拒绝 automatic 声明引用当前 Product catalog 不存在的 step", async () => {
-        const fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-release-state-migration-catalog-"));
+        const fixtureRoot = await mkdtemp(testHostPath("nbook-release-state-migration-catalog-"));
         roots.push(fixtureRoot);
         await writeFile(join(fixtureRoot, "release-state-migration.json"), `${JSON.stringify({
             policy: "automatic",
@@ -670,7 +670,7 @@ describe("Product Release宿主合同", () => {
     });
 
     it("GHCR崩溃恢复fixture不依赖Source node_modules", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-release-recovery-fixture-"));
+        const root = await mkdtemp(testHostPath("nbook-release-recovery-fixture-"));
         roots.push(root);
         await mkdir(join(root, ".deploy"), {recursive: true});
         await writeFile(
@@ -764,7 +764,7 @@ describe("Product Release宿主合同", () => {
 
 /** 创建最小、干净且能运行 ProductRuntimeImageBuilder 的 Git Source fixture。 */
 async function releaseRepositoryFixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-release-identity-"));
+    const root = await mkdtemp(testHostPath("nbook-release-identity-"));
     roots.push(root);
     const files = new Map<string, string>([
         [".gitignore", "node_modules/\n.deploy/\n.output/\ndist/\nartifacts/\n"],

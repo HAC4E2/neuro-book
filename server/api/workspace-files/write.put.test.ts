@@ -60,7 +60,7 @@ describe("PUT /api/workspace-files/write", () => {
     });
 
     it("真实文件版本变化时会返回写入冲突", async () => {
-        const root = absoluteFsPath(path.resolve(".agent", "workspace-write-conflict-test", randomUUID()));
+        const root = testAbsoluteFsPath("workspace-write-conflict-test", randomUUID());
         const filePath = "note.md";
         createdRoots.push(root);
         await fs.mkdir(root, {recursive: true});

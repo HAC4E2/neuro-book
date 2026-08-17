@@ -1,35 +1,65 @@
 # NeuroBook 测试规范
 
-本文件是仓库测试约定真相源。所有 Vitest 配置、测试编写和验收脚本遵守这里；规则有冲突时以本文件为准，冲突本身按「变更本文件」处理。
+本文件是仓库测试、临时根、环境和验收约定的真相源。所有 Vitest 配置、测试编写、fixture 和验收脚本遵守这里；规则冲突时先更新本文件，不在 `AGENTS.md` 维护第二份正文。
 
-## 临时目录与生命周期
+## 用户视角人工评测
 
-**原则：任何人 clone 后运行 `bun run test`，不应在系统 Temp 根、用户目录或项目业务目录留下文件。**
+[`manual-eval/README.md`](manual-eval/README.md) 是测试体系中的人工验收子系统：`criteria.md` 定义判定与证据合同，`journeys/` 保存用户旅程用例，`agent-guide.md` 定义一次评测的执行步骤，`report-template.md` 约束结果格式。它不属于 `docs/runbooks/`，因为整套资产不仅包含操作步骤，还包含测试判据、用例和报告合同。
 
-1. **测试临时根统一在 `<系统Temp>/neuro-book-vitest/<runId>/`**：
-   - 由 `server/workspace-files/vitest-tmpdir-setup.ts` 在每个 Vitest worker 启动时把
-     `TMPDIR`/`TEMP`/`TMP` 指向该目录；测试里 `os.tmpdir()` / `mkdtemp(tmpdir()...)`
-     运行期自动收敛；
-   - 受控根不放在仓库 `.agent/tmp`：worktree 深路径叠加测试内部 UUID 目录名会超过
-     Windows MAX_PATH（git 对象与 release staging 报 "Filename too long" /
-     ENAMETOOLONG），系统 Temp 路径最短且 OS 会定期清理；
-   - 每次 run 结束由 `server/workspace-files/vitest-global-setup.ts` 的 teardown 删除
-     本 run 目录；并行 run 因 runId（8 位 hex）互不干扰；进程被强杀时由下一次 run 的
-     setup 按 24 小时超窗兜底回收；
-   - 所有 Vitest 配置的 `setupFiles` 第一项必须是该 setup 文件、`globalSetup` 必须包含
-     该 globalSetup（含独立包配置）。
-2. **测试自身必须清理自己创建的目录**：`afterEach` 收集并 `rm`。清理失败视为测试问题，
-   不依赖全局清理兜底。
-3. **进程被强杀等异常残留**由 `server/workspace-files/test-tmp-sweep.ts` 的
-   `sweepStaleTmpRoots()` 在每次 run 起点回收：无 owner marker 的目录超过 24 小时才回收；
-   有 marker 的目录要求 owner 进程已死且超窗。新增「目录 + marker」的测试根应使用
-   `createTestTmpRoot(repoRoot, name, purpose)`。
-4. **禁止在仓库根、`.worktree/`、快照目录或系统 Temp 创建业务临时数据**；仓库根下的
-   `cache/`、`workspace/`、`logs/` 等业务目录不能被测试写入。
-5. **脚本（非测试）的临时根**使用仓库 `.agent/tmp/`，并且必须在 `finally` 中清理
-   （参见 `packages/neuro-book-manager/scripts/pack-check.mjs`）。
-6. **验收/沙盒脚本**默认输出到 `.agent/tmp/<task>-<uuid>/`，禁止把用户公共目录写为默认值；
-   需要仓库外路径（如 Windows Sandbox 映射）时通过参数显式传入，并在脚本结尾打印实际路径。
+## 临时根合同
+
+所有 Agent、Vitest、fixture、验收、缓存、browser smoke 和 scratch 数据通过 `scripts/utils/agent-paths.ts` 的 resolver 进入系统临时目录：
+
+```text
+<agent-temp-root>/
+├── vitest/<runId>/                 Vitest run
+├── fixtures/<taskId>/<runId>/      测试 fixture
+├── runs/<taskId>/<runId>/          一次性脚本和 scratch
+├── acceptance/product-runtime/     Product Runtime 验收
+├── cache/<name>/                   可重建开发缓存
+└── browser/                        browser smoke 临时产物
+```
+
+- `NBOOK_AGENT_TEMP_ROOT` 未设置时解析为 `resolve(os.tmpdir(), "neuro-book")`。显式值必须是系统临时目录的绝对后代，并通过 containment、合法路径段和 Windows 短路径检查；相对、越界或过长路径直接失败，不回退仓库。
+- `NBOOK_AGENT_WORKTREE_ROOT` 独立控制 worktree，默认是仓库 `.worktree/`，不属于临时根。仓库 `.agent/`、`.local/`、`.worktree/`、`workspace/` 和用户公共目录都不能作为运行临时根。
+- 每个可回收根写入 `.nbook-tmp.json`，包含 schema、owner、PID、runId 和 purpose。调用方在 `afterEach`、teardown 或 `finally` 清理。
+- fail-closed sweep 只有在 marker 合法、owner 已退出且最后活动超过 24 小时时回收。schema 不匹配、owner 存活、symlink/reparse、普通文件、marker 不可读或安全性无法证明时保留并报告。
+
+## 开发时加载环境变量
+
+直接运行 OMP 时，它与启动的 Agent 继承启动终端的 `process.env`；项目不从 Markdown、仓库 `config.yaml` 或 `.env.local` 加载 `NBOOK_AGENT_TEMP_ROOT`。需要显式值时，在启动 OMP 前设置当前 shell、用户环境或 CI `env`。
+
+当前 PowerShell 会话：
+
+```powershell
+$env:NBOOK_AGENT_TEMP_ROOT = Join-Path ([System.IO.Path]::GetTempPath()) "neuro-book"
+omp
+```
+
+以后新开的终端也生效时写入 Windows 用户环境，然后重新打开终端、IDE 和 OMP：
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    "NBOOK_AGENT_TEMP_ROOT",
+    (Join-Path ([System.IO.Path]::GetTempPath()) "neuro-book"),
+    "User"
+)
+```
+
+Bash 只在 `TMPDIR` 已设置时使用 `export NBOOK_AGENT_TEMP_ROOT="$TMPDIR/neuro-book"`；未设置时由 resolver 取默认值。CI 在 job 的 `env` 中设置。
+
+## 证据与秘密
+
+- 正式证据只把脱敏结果放入 `.agents/tasks/<task>/evidences/`。
+- 凭据、API Key、Token、Session、小说正文、完整提示词、原始 Provider 请求、未脱敏日志和 trace 不进入仓库。
+- 不提交 `.env`、`.env.local`、`config.yaml`、数据库、构建缓存、浏览器产物或本机基准原始结果。
+- 用户下载产物和正式发布资产不属于测试临时数据；按发布合同记录 SHA-256、revision 或 image identity，中间日志留在系统临时根。
+
+## Vitest 运行时合同
+
+- 所有 Vitest 配置的 `setupFiles` 第一项必须是 `server/workspace-files/vitest-tmpdir-setup.ts`，`globalSetup` 必须包含 `server/workspace-files/vitest-global-setup.ts`。
+- worker 内的 `TMPDIR`、`TEMP`、`TMP` 和 `NBOOK_TEST_TMPDIR` 指向同一受控 run 根；runId 使用 8 位 hex，避免并行冲突和 Windows 路径过长。
+- 新增需要“目录 + marker”的测试根使用 `createTestTmpRoot(name, purpose)`，由测试 teardown 与 fail-closed sweep 按上述生命周期回收。
 
 ## 测试文件组织
 
@@ -54,10 +84,10 @@
 
 ## 验收脚本（Task 145 及后续 Desktop 任务）
 
-- `prepare-host.ps1` 等宿主机准备脚本：输入/证据默认落在 `<repoRoot>/.agent/tmp/`，
+- `prepare-host.ps1` 等宿主机准备脚本：输入/证据默认落在系统 Temp 下的 Agent 受控目录，
   所有路径可参数化；`.wsb` 等模板文件不得写死本机路径，运行说明要求按脚本输出修改。
-- 面向用户的下载产物（如最终 ZIP）不属于测试临时数据：放 `.agent/artifacts/` 或用户
-  指定目录，并同时给出 SHA-256 与构建身份（revision/imageId），不与其他 quick 构建混放。
+- 面向用户的下载产物（如最终 ZIP）不属于测试临时数据：放用户指定目录，并同时给出
+  SHA-256 与构建身份（revision/imageId），不与其他 quick 构建混放。
 
 ## 验证门禁
 

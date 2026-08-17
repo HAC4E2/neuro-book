@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {readFile, readdir, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -31,7 +32,7 @@ describe("harness → pi trace 集成", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
-        root = resolve(".agent", "harness-trace-test", randomUUID());
+        root = testHostPath("harness-trace-test", randomUUID());
         faux = createFauxModels({models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}]});
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({

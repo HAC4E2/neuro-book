@@ -3,6 +3,7 @@ import {readFile, readdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {describe, expect, it} from "vitest";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 import {
     isProductRuntimeIslandModule,
@@ -48,7 +49,7 @@ describe("Nuxt raw Product output", () => {
     });
 
     it("保留 Builder 候选目录并使用 Source digest 派生稳定 build ID", async () => {
-        const candidate = resolve(".agent", "tmp", "nuxt-output-contract", ".output");
+        const candidate = join(testHostPath("nuxt-output-contract"), ".output");
         const sourceDigest = `sha256:${"a".repeat(64)}`;
         const {stdout} = await execFileAsync("bun", ["-e", configProbe], {
             cwd: process.cwd(),
@@ -71,12 +72,12 @@ describe("Nuxt raw Product output", () => {
     });
 
     it.each([
-        ["只设置 output root", resolve(".agent", "tmp", "nuxt-output-only"), "", "同时注入"],
-        ["只设置 image root", "", resolve(".agent", "tmp", "nuxt-image-only"), "同时注入"],
+        ["只设置 output root", join(testHostPath("nuxt-output-only"), ".output"), "", "同时注入"],
+        ["只设置 image root", "", join(testHostPath("nuxt-image-only"), ".output"), "同时注入"],
         [
             "注入不一致的两个 root",
-            resolve(".agent", "tmp", "nuxt-output-mismatch"),
-            resolve(".agent", "tmp", "nuxt-image-mismatch"),
+            join(testHostPath("nuxt-output-mismatch"), ".output"),
+            join(testHostPath("nuxt-image-mismatch"), ".output"),
             "不一致",
         ],
     ])("%s 时拒绝 raw Product build", async (_label, outputRoot, imageRoot, expectedMessage) => {
@@ -96,7 +97,7 @@ describe("Nuxt raw Product output", () => {
         ["缺少", ""],
         ["无效", "sha256:bad"],
     ])("%s Source digest 时拒绝 raw Product build", async (_label, sourceDigest) => {
-        const candidate = resolve(".agent", "tmp", "nuxt-output-digest");
+        const candidate = join(testHostPath("nuxt-output-digest"), ".output");
         await expect(execFileAsync("bun", ["-e", configProbe], {
             cwd: process.cwd(),
             env: {

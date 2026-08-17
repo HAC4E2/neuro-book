@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {mkdir, readdir, rm, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
@@ -9,7 +10,7 @@ import {
 
 describe("AgentJobDurableStore", () => {
     it("以同目录临时文件、fsync 和原子替换保存最新记录", async () => {
-        const root = resolve(".agent", "agent-job-store-test", randomUUID());
+        const root = testHostPath("agent-job-store-test", randomUUID());
         const store = new AgentJobDurableStore(root);
         const initial = record("job_store", "running");
         await store.write(initial);
@@ -39,7 +40,7 @@ describe("AgentJobDurableStore", () => {
     });
 
     it("拒绝损坏记录和不安全的 Job ID", async () => {
-        const root = resolve(".agent", "agent-job-store-test", randomUUID());
+        const root = testHostPath("agent-job-store-test", randomUUID());
         const store = new AgentJobDurableStore(root);
         await expect(store.write(record("../escape", "running"))).rejects.toThrow("不能用于 durable 文件名");
 

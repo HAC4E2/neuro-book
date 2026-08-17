@@ -2,8 +2,8 @@
 
 - 状态：Accepted
 - 日期：2026-08-07
-- 关联任务：[Task 123](../tasks/123-repo-structure-optimization/README.md)、[Task 142](../tasks/142-post-merge-reliability-hardening/README.md)、[Task 143](../tasks/143-desktop-envelope-installation-spike/README.md)
-- 相关决策：[ADR 0010](0010-desktop-storage-loopback-shutdown.md)、[ADR 0014](0014-agent-job-durable-history.md)
+- 关联任务：[Task 123](../../.agents/tasks/123-repo-structure-optimization/README.md)、[Task 142](../../.agents/tasks/142-post-merge-reliability-hardening/README.md)、[Task 143](../../.agents/tasks/143-desktop-envelope-installation-spike/README.md)
+- 相关决策：[ADR 0010](0010-desktop-storage-loopback-shutdown.md)、[ADR 0017](0017-agent-job-durable-history.md)
 
 ## 背景
 
@@ -12,6 +12,14 @@
 这些问题主要影响独立发布、后续维护和审查成本，不等同于已经复现的用户运行时故障。本 ADR 记录本轮为什么不把所有结构问题一次性改掉，也避免为了“看起来干净”引入更大的迁移风险。
 
 ## 决策
+### 0. 主应用包边界保持为后续迁移目标
+
+当前根 `package.json` 仍是 Nuxt 应用与 workspace 的共同入口，`app/`、`server/`、`shared/`、`assets/`、`world-engine/`、`scripts/` 和 `desktop/` 尚未物理迁入 `packages/neuro-book`。根 `tsconfig.json` 的 `nbook/*` alias 仍指向仓库根；它是当前源码导入约定，不是已经发布的包 Interface。
+
+目标状态是根 `package.json` 只做 private workspace orchestrator，`packages/neuro-book` 承担主应用；Source Dev、Nuxt、Vitest、Product、Manager 和 Desktop 必须各自消费明确入口。迁移前必须完成 Module Owner、Interface、依赖方向、数据所有权、生成物边界和 focused/integration 验证，禁止以批量移动目录或 alias fallback 代替迁移。详细步骤见 [Monorepo Module 边界与迁移规范](../specs/architecture/monorepo-boundaries.md)。
+
+本轮不搬移主应用源码、不批量改写 `nbook/*` 导入、不新增 `runtime-contract` 包，也不改变当前 Manager、Product Runtime 和 Desktop 的独立发布边界。
+
 
 ### 1. 暂不新建 `runtime-contract` 包
 
@@ -53,6 +61,7 @@ Electron 和 Tauri 目前仍是 Desktop spike。配置、端口、Supervisor、�
 
 ## 后果
 
+- 主应用未来的物理包迁移是独立的跨 Module 任务；在目标包入口、依赖图和生成物回写路径未被 focused 与集成验证覆盖前，不得把目标目录创建或 workspace 声明写成迁移完成。
 - 当前 master 不会因为“结构看起来不够理想”而引入新的公共包、类型复制、全局事务框架或跨语言抽象。
 - 独立 Manager 发布仍依赖当前仓库的 shared/`nbook/*` 边界；这被明确记录为 P1 架构候选，而不是被包装成已解决。
 - 大单体和 OpenAPI 生成物仍会增加后续修改的审查成本；它们保留在 Task 123 的长期 backlog 中。

@@ -1,3 +1,4 @@
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {createHash} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
@@ -103,7 +104,7 @@ describe("Agent Session Store runtime owner", () => {
 
     /** 创建带schema v2 complete sentinel的隔离Workspace Root。 */
     async function readyRoot(): Promise<string> {
-        const root = resolve(".agent", "agent-session-store-runtime-test", randomUUID());
+        const root = testHostPath("agent-session-store-runtime-test", randomUUID());
         roots.push(root);
         const path = agentSessionStoreSentinelPath(root);
         await mkdir(dirname(path), {recursive: true});

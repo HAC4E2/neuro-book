@@ -5,6 +5,7 @@ import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-
 import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -564,7 +565,7 @@ function testContext(harness: NeuroAgentHarness, profileKey = "leader.default"):
         harness,
         sessionId: 1,
         profileKey,
-        workspaceRoot: absoluteFsPath(path.resolve(".agent", "plot-tools-test")),
+        workspaceRoot: testAbsoluteFsPath("plot-tools-test"),
         currentProject: currentReady,
         invocationId: "plot-tools-test-invocation",
     };

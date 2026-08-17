@@ -1,6 +1,6 @@
 import path from "node:path";
 import {mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
     inspectCard,
@@ -54,7 +54,7 @@ describe("silly-tavern-card cli helpers", () => {
     });
 
     it("暴露为 v3 skill catalog 可发现的系统 skill", async () => {
-        const emptyUserRoot = await mkdtemp(path.join(tmpdir(), "st-card-empty-user-skills-"));
+        const emptyUserRoot = await mkdtemp(testHostPath("st-card-empty-user-skills-"));
         tempRoots.push(emptyUserRoot);
         const catalog = new SkillCatalog(
             path.resolve("assets/workspace/.nbook/agent/skills"),
@@ -270,7 +270,7 @@ describe("silly-tavern-card cli helpers", () => {
     });
 
     it("拒绝非 Project Workspace", async () => {
-        const notWorkspace = await mkdtemp(path.join(tmpdir(), "st-card-not-workspace-"));
+        const notWorkspace = await mkdtemp(testHostPath("st-card-not-workspace-"));
         tempRoots.push(notWorkspace);
         const input = await createSyntheticCard(tempRoots);
 
@@ -279,7 +279,7 @@ describe("silly-tavern-card cli helpers", () => {
 });
 
 async function createProjectWorkspace(tempRoots: string[]): Promise<string> {
-    const workspace = await mkdtemp(path.join(tmpdir(), "st-card-workspace-"));
+    const workspace = await mkdtemp(testHostPath("st-card-workspace-"));
     tempRoots.push(workspace);
     await writeFile(path.join(workspace, "project.yaml"), "kind: novel\ntitle: Test\n", "utf-8");
     return workspace;
@@ -320,7 +320,7 @@ async function listIndexFiles(rootPath: string): Promise<string[]> {
 }
 
 async function createSyntheticCard(tempRoots: string[]): Promise<string> {
-    const root = await mkdtemp(path.join(tmpdir(), "st-card-synthetic-"));
+    const root = await mkdtemp(testHostPath("st-card-synthetic-"));
     tempRoots.push(root);
     const file = path.join(root, "synthetic.raw.json");
     await writeFile(file, JSON.stringify({
@@ -367,7 +367,7 @@ async function createSyntheticCard(tempRoots: string[]): Promise<string> {
 }
 
 async function createSyntheticPreset(tempRoots: string[]): Promise<string> {
-    const root = await mkdtemp(path.join(tmpdir(), "st-card-preset-"));
+    const root = await mkdtemp(testHostPath("st-card-preset-"));
     tempRoots.push(root);
     const file = path.join(root, "synthetic-preset.json");
     await writeFile(file, `${JSON.stringify({

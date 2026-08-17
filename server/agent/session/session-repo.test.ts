@@ -1,3 +1,4 @@
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {randomUUID} from "node:crypto";
 import {appendFile, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -31,7 +32,7 @@ describe("JsonlSessionRepository", () => {
     let repo: JsonlSessionRepository;
 
     beforeEach(() => {
-        root = absoluteFsPath(resolve(".agent", "agent-session-test", randomUUID()));
+        root = testAbsoluteFsPath("agent-session-test", randomUUID());
         repo = new JsonlSessionRepository(root);
     });
 

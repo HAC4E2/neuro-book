@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
@@ -41,7 +41,7 @@ describe("database config", () => {
     });
 
     it("Boot Config 可以选择自定义 SQLite 文件路径", async () => {
-        tempDir = await mkdtemp(join(tmpdir(), "nbook-db-config-"));
+        tempDir = await mkdtemp(testHostPath("nbook-db-config-"));
         process.chdir(tempDir);
         delete process.env.DATABASE_KIND;
         delete process.env.DATABASE_URL;
@@ -61,7 +61,7 @@ describe("database config", () => {
     });
 
     it("env 覆盖 Boot Config", async () => {
-        tempDir = await mkdtemp(join(tmpdir(), "nbook-db-config-"));
+        tempDir = await mkdtemp(testHostPath("nbook-db-config-"));
         process.chdir(tempDir);
         process.env.DATABASE_KIND = "sqlite";
         process.env.DATABASE_URL = "file:./workspace/.nbook/env.sqlite";
@@ -80,7 +80,7 @@ describe("database config", () => {
     });
 
     it("相对 SQLite 路径基于 State Root 解析", async () => {
-        tempDir = await mkdtemp(join(tmpdir(), "nbook-db-state-root-"));
+        tempDir = await mkdtemp(testHostPath("nbook-db-state-root-"));
         const stateRoot = join(tempDir, "data");
         process.env.NEURO_BOOK_APPLICATION_ROOT = tempDir;
         process.env.NEURO_BOOK_STATE_ROOT = stateRoot;

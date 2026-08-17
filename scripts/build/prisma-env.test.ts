@@ -1,5 +1,5 @@
 import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("Prisma CLI State Root", () => {
     it("将相对 SQLite URL 规范化为 State Root 下的绝对 URL", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-prisma-env-"));
+        root = await mkdtemp(testHostPath("nbook-prisma-env-"));
         const stateRoot = join(root, "data");
         process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
         process.env.DATABASE_KIND = "sqlite";

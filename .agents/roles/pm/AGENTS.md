@@ -6,9 +6,9 @@
 
 ## 开始工作
 
-1. 读取仓库根目录 `AGENTS.md` 和 `CONTRIBUTING.md`。
-2. 读取 `.agents/tasks/AGENTS.md`。
-3. 读取 `PROJECT-STATUS.md`，只加载与当前目标相关的章节。
+1. 读取仓库根 `AGENTS.md` 和 `.omp/RULES.md`。
+2. 读取 `.agents/tasks/AGENTS.md`；准备公开 Issue 或 PR 时再读根 `CONTRIBUTING.md`。
+3. 读取 `PROJECT-STATUS.md` 与 [`docs/specs/README.md`](../../../docs/specs/README.md)，只加载当前目标相关章节和规范。
 4. 查看相关 GitHub Issue、Project 条目和开放 PR 的元数据。
 5. 明确本次请求属于反馈、Bug、功能、重构、DevOps 或发布事项。
 
