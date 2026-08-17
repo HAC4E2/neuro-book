@@ -34,9 +34,13 @@ createdAt: 2026-08-16T20:05:00Z
 | release focused tests | `bun x vitest run scripts/release/windows-portable-manager.test.ts scripts/release/verify-extracted-product.test.ts scripts/release/release-assets.test.ts`：3 files passed；29 tests passed |
 | Manager build/pack | `bun run manager:build`、`bun run manager:pack`：通过；pack tarball 含 7 files，安装 smoke 通过 |
 | Electron 门禁 | `bun run --cwd desktop/electron typecheck`、`build`、`audit`：通过 |
+| Desktop 安全审计 | `bun desktop/packaging/security-audit.mjs`：全部 22 checks 为 `true` |
 | frozen 安装 | root、`desktop/electron`、`packages/llmlint/web`、`packages/llmlint/skill` frozen install：均通过 |
 | governance | `bun run governance:check`：`failures=[]`、`warnings=[]` |
 | diff whitespace | `git diff --check`：目标范围通过；Windows LF/CRLF 转换提示保留 |
+| S4 clean worktree | 从 `00dacf89` 新建 `.worktree/s4-clean-verify`；四份 lock SHA-256 前后不变；最终 `git status --short` 为空 |
+| S4 clean 阶段测试 | contracts `6 files / 32 tests`、Desktop `13 files / 41 tests`、Manager `41 files / 330 passed / 3 skipped`：通过 |
+
 ## 未验收边界
 
 - 未运行 S4 阶段要求之外的全量 workspace 回归、真实 Product/Provider、Docker、Windows runner、远端部署或发布；这些按计划在后续阶段执行。
@@ -44,4 +48,4 @@ createdAt: 2026-08-16T20:05:00Z
 
 ## 检查点
 
-S4 `cross-host-boundaries` 阶段门禁已通过，具备 checkpoint 提交条件；S5 从应用 identity-only manifest 与双根解析器开始。
+S4 `cross-host-boundaries` checkpoint 已由 `00dacf89` 的 clean worktree 验证确认绿色；S5 从应用 identity-only manifest 与双根解析器开始。
