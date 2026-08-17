@@ -24,32 +24,32 @@ import {Unzip, UnzipInflate} from "fflate";
 import {ensureStateFiles} from "nbook/packages/neuro-book-manager/src/config";
 import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
 import {writePortableLaunchers} from "nbook/packages/neuro-book-manager/src/portable-launchers";
-import {PORTABLE_ROOT_LOCATORS} from "nbook/packages/neuro-book-manager/src/root-locators";
 import {installManagedBun, installManagerExecutable, writeManagerWrapper, writeRuntimeWrapper} from "nbook/packages/neuro-book-manager/src/runtime";
 import {installManagedTool, writeManagedToolWrappers} from "nbook/packages/neuro-book-manager/src/tools";
-import type {
-    InstallationManifest,
-    ProductComponent,
-    SourceComponent,
-} from "nbook/packages/neuro-book-manager/src/types";
+import {
+    PORTABLE_ROOT_LOCATORS,
+    type InstallationManifest,
+    type ProductComponent,
+    type SourceComponent,
+} from "@notnotype/neuro-book-contracts/installation";
+import {PRODUCT_ASSET_NAMES, type ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {MANAGER_VERSION} from "nbook/packages/neuro-book-manager/src/version-info";
 import {
     ProductRuntimeImageBuilder,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
-import {materializePublicManagerPackage} from "nbook/scripts/release/public-manager-package";
+} from "#scripts/build/product-runtime-image-builder";
+import {materializePublicManagerPackage} from "#scripts/release/public-manager-package";
 import {
     parseReleaseBuild,
     type ReleaseBuild,
     type ReleaseProductBuild,
     type ReleaseSourceBuild,
-} from "nbook/scripts/release/release-assets";
-import {runCapture} from "nbook/scripts/utils/process.mjs";
-import {writeZipArchive} from "nbook/scripts/utils/zip";
+} from "#scripts/release/release-assets";
+import {runCapture} from "#scripts/utils/process.mjs";
+import {writeZipArchive} from "#scripts/utils/zip";
 import {sanitizeZipEntryName} from "nbook/server/backup/backup-archive-rules";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const WINDOWS_PRODUCT_PLATFORM = "windows-x64";
+const WINDOWS_PRODUCT_PLATFORM: ProductPlatform = "windows-x64";
 const SOURCE_BUILD_FILE = "source-build.json";
 const PRODUCT_BUILD_FILE = "product-build.json";
 const MAX_ZIP_COMMENT_BYTES = 65_535;
@@ -209,7 +209,7 @@ export function portableArchiveComponents(identity: PortableArchiveIdentity): {
             path: ".output",
             platform: WINDOWS_PRODUCT_PLATFORM,
             archiveSha256: identity.productArchiveSha256,
-            sourceUrl: `${releaseRoot}/neuro-book-product-windows-x64.zip`,
+            sourceUrl: `${releaseRoot}/${PRODUCT_ASSET_NAMES[WINDOWS_PRODUCT_PLATFORM]}`,
             license: "AGPL-3.0-only",
             redistribution: "Windows Portable 内置 Windows x64 Product overlay。",
             imageId: identity.runtimeImage.imageId,

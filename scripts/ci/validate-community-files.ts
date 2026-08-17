@@ -2,7 +2,7 @@ import {readdir, readFile} from "node:fs/promises";
 import {basename, resolve} from "node:path";
 import {parse} from "yaml";
 
-import {readLabelManifest} from "nbook/scripts/ci/community-labels";
+import {readLabelManifest} from "#scripts/ci/community-labels";
 
 interface FormOption {
     label: string;

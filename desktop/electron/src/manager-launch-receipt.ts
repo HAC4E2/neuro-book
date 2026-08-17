@@ -3,7 +3,7 @@ import * as nodeFileSystem from "node:fs";
 import {homedir} from "node:os";
 import {isAbsolute, join, relative, resolve} from "node:path";
 
-import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
+import {parseDesktopInstallationManifest} from "@notnotype/neuro-book-contracts/desktop";
 
 export type ManagerLaunchReceipt = {
     installationRoot: string;

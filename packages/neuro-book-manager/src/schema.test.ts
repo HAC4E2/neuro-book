@@ -3,10 +3,11 @@ import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
-import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {INSTALLED_MACOS_ROOT_LOCATORS, INSTALLED_WINDOWS_ROOT_LOCATORS, INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import {migrateOperationJournal, parseInstallationManifest, parseOperationJournal, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
-import {PRODUCT_PLATFORMS} from "#manager/types";
+import {PRODUCT_ASSET_NAMES, PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
+import {INSTALLED_MACOS_ROOT_LOCATORS, INSTALLED_WINDOWS_ROOT_LOCATORS, INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import {parseReleaseManifest, parseReleaseManifestEnvelope} from "@notnotype/neuro-book-contracts/release";
+import {migrateOperationJournal, parseOperationJournal} from "#manager/schema";
 
 const SHA = "a".repeat(64);
 const REVISION = "b".repeat(40);

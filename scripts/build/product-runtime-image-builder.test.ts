@@ -6,7 +6,7 @@ import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 import {
     hasProductRuntimeBuildPolicy,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
@@ -18,13 +18,13 @@ import {
     type ProductRuntimeExpectedIdentity,
     type ProductRuntimeImageBudget,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     type ProductRuntimeEntryMap,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];

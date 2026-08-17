@@ -2,12 +2,9 @@ import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_PATH,
     PRODUCT_SHUTDOWN_TIMEOUT_MS,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import type {NativeProductExit, NativeProductShutdownResult} from "@notnotype/neuro-book-contracts/product-runtime";
 
-export type NativeProductExit = {
-    code: number | null;
-    signal: string | null;
-};
 
 export type NativeProductShutdownOptions = {
     port: number;
@@ -20,7 +17,6 @@ export type NativeProductShutdownOptions = {
     timeoutMs?: number;
 };
 
-export type NativeProductShutdownResult = "graceful" | "forced";
 
 /**
  * 先请求 Product 按领域顺序关闭；协议失败或超时后由 Owned Process 强制收口。

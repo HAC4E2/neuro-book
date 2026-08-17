@@ -1,7 +1,7 @@
 import {readFile} from "node:fs/promises";
 import {describe, expect, it} from "vitest";
 
-import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 
 describe("Product Runtime Image measurement contracts", () => {
     it("package 暴露独立 measurement 与正式 policy preflight", async () => {

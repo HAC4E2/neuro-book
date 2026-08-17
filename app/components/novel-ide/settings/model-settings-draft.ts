@@ -15,7 +15,7 @@ import {
     type ProviderConfigIssue,
     type ProviderConfigInput,
     type SupportedPiApi,
-} from "nbook/shared/models/provider-config-contract";
+} from "@notnotype/neuro-book-contracts/provider-config";
 
 /** 设置页用于业务校验的最小模型草稿。 */
 export type ContractModelDraft = {

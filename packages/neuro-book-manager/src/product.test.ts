@@ -5,15 +5,16 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {verifyInstalledProductRuntimeImage, verifyProductRuntimeControlPlane, verifyProductRuntimeImage} from "#manager/product";
-import type {ProductComponent} from "#manager/types";
+import type {ProductComponent} from "@notnotype/neuro-book-contracts/installation";
+import {inspectProductRuntimeImage} from "#manager/product-runtime-image-verifier";
 import {
-    inspectProductRuntimeImage,
+    PRODUCT_RUNTIME_CONTRACT_PATH,
+    PRODUCT_RUNTIME_IMAGE_READY_SCHEMA,
+    PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA,
     productRuntimeManifestImageId,
     sha256ProductRuntimeText,
-    PRODUCT_RUNTIME_IMAGE_READY_SCHEMA,
-    type ProductRuntimeImageManifest,
-} from "nbook/shared/product-runtime-image-verifier";
-import {PRODUCT_RUNTIME_CONTRACT_PATH, PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA, type ProductRuntimeContract} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import type {ProductRuntimeContract, ProductRuntimeImageManifest} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 const REVISION = "b".repeat(40);

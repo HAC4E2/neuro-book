@@ -13,15 +13,14 @@ import {
     type DesktopUacBrokerEvent,
     type DesktopUacBrokerRequest,
     type DesktopUacBrokerSecretHello,
-} from "nbook/shared/desktop-uac-broker";
-import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop-uac";
+import {parseDesktopInstallationManifest} from "@notnotype/neuro-book-contracts/desktop";
 import {spawnOwnedProcess, type OwnedProcessLease} from "@notnotype/owned-process";
+import {parseDesktopDelegatedUninstallReceipt, type DesktopDelegatedUninstallReceipt} from "@notnotype/neuro-book-contracts/desktop";
 import {
-    parseDesktopDelegatedUninstallReceipt,
     removeDesktopMachineUninstallLauncher,
     waitForWindowsUninstallHostResult,
-    type DesktopDelegatedUninstallReceipt,
-} from "nbook/desktop/shared/src/windows-uninstall-result";
+} from "#manager/windows-uninstall-result";
 
 type BrokerOptions = {
     pipe: string;

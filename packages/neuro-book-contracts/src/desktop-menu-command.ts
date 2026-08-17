@@ -1,4 +1,4 @@
-import type {DesktopMenuCommandId} from "nbook/shared/desktop-contract";
+import type {DesktopMenuCommandId} from "./desktop-contract";
 
 /** Desktop 菜单命令的页面侧行为；宿主只负责把命令可靠地送到当前页面。 */
 export type DesktopMenuCommandHandlers = {

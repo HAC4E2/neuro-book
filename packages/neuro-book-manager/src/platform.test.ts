@@ -1,16 +1,15 @@
 import {describe, expect, it} from "vitest";
 
+import {assertInstallationHostCompatible, assertManagerPlatform, inspectHostPlatform, supportedProfiles} from "#manager/platform";
 import {
-    assertInstallationHostCompatible,
-    assertManagerPlatform,
     PRODUCT_ASSET_NAMES,
-    inspectHostPlatform,
+    PRODUCT_PLATFORMS,
     productPlatform,
-    supportedProfiles,
-} from "#manager/platform";
-import {BUN_ASSET_NAMES} from "#manager/runtime";
+    type HostPlatform,
+} from "@notnotype/neuro-book-contracts/platform";
 import {RIPGREP_ASSET_SUFFIXES} from "#manager/tools";
-import {PRODUCT_PLATFORMS, type HostPlatform, type InstallationManifest} from "#manager/types";
+import {BUN_ASSET_NAMES} from "#manager/runtime";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 describe("Manager平台矩阵", () => {
     it.each([

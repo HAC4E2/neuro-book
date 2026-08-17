@@ -10,8 +10,8 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE,
     WINDOWS_PRODUCT_RELEASE_CHECKS,
-} from "nbook/scripts/release/verify-windows-product";
-import {PRODUCT_RUNTIME_CHECK_IDS} from "nbook/shared/product-runtime-contract";
+} from "#scripts/release/verify-windows-product";
+import {PRODUCT_RUNTIME_CHECK_IDS} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 const executeFile = promisify(execFile);

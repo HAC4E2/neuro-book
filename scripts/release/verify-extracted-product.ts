@@ -1,9 +1,9 @@
 import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {parseArgs} from "node:util";
-import {parseReleaseBuild} from "nbook/scripts/release/release-assets";
-import {ProductRuntimeImageVerifier} from "nbook/shared/product-runtime-image-verifier";
-import type {VerifiedProductRuntimeImage} from "nbook/scripts/build/product-runtime-image-builder";
+import {parseReleaseBuild} from "#scripts/release/release-assets";
+import {ProductRuntimeImageVerifier} from "nbook/server/interfaces/product-runtime-image-verifier";
+import type {VerifiedProductRuntimeImage} from "#scripts/build/product-runtime-image-builder";
 
 const PRODUCT_BUILD_FILE = "product-build.json";
 

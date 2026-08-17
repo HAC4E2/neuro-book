@@ -3,7 +3,7 @@ import {createServer} from "node:http";
 import {once} from "node:events";
 import type {Api, Model} from "@earendil-works/pi-ai";
 import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
-import {SUPPORTED_PI_APIS} from "nbook/shared/models/provider-config-contract";
+import {SUPPORTED_PI_APIS} from "@notnotype/neuro-book-contracts/provider-config";
 import {piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 import type {EffectiveConfig} from "nbook/server/config/types";
 

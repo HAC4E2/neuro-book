@@ -10,10 +10,10 @@ import {doctor} from "#manager/installation-health";
 import {installationStatus} from "#manager/maintenance";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
 import {currentProductPlatform} from "#manager/platform";
 import {renderManagerWrapper} from "#manager/runtime";
-import type {InstallationManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 

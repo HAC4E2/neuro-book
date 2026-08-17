@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {extractReleaseNotes} from "nbook/scripts/release/release-notes";
+import {extractReleaseNotes} from "#scripts/release/release-notes";
 
 describe("extractReleaseNotes", () => {
     it("提取第一个二级标题之后到文末的内容", () => {

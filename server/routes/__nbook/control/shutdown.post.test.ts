@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {EventEmitter} from "node:events";
-import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const mocks = vi.hoisted(() => ({requestProcessExit: vi.fn()}));
 const originalHost = process.env.HOST;

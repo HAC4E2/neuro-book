@@ -6,7 +6,7 @@ import {
     type ModelReferenceInput,
     type ModelSettingsContractInput,
     type ProviderConfigInput,
-} from "nbook/shared/models/provider-config-contract";
+} from "@notnotype/neuro-book-contracts/provider-config";
 
 /** 模型配置错误。运行时携带首个字段级问题，不引入额外错误层级。 */
 export class ModelConfigError extends Error {

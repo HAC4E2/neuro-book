@@ -1,6 +1,6 @@
-import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {parseInstallationManifest, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
-import type {InstallationManifest, ReleaseChannel, ReleaseManifest} from "#manager/types";
+import {PRODUCT_ASSET_NAMES} from "@notnotype/neuro-book-contracts/platform";
+import {parseInstallationManifest, type InstallationManifest, type ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
+import {parseReleaseManifest, parseReleaseManifestEnvelope, type ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {readJson, writeJsonAtomic} from "#manager/files";
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";

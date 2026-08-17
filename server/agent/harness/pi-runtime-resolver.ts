@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type {Api, Models, Model, ProviderStreams} from "@earendil-works/pi-ai";
 import type {EffectiveConfig} from "nbook/server/config/types";
-import {isSupportedPiApi, type SupportedPiApi} from "nbook/shared/models/provider-config-contract";
+import {isSupportedPiApi, type SupportedPiApi} from "@notnotype/neuro-book-contracts/provider-config";
 
 const CUSTOM_API_STREAMS = {
     "openai-completions": lazyApi(() => import("@earendil-works/pi-ai/api/openai-completions")),

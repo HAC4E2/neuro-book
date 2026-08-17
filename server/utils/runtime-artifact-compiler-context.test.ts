@@ -17,7 +17,7 @@ const verifier = {
     })),
 };
 
-vi.mock("nbook/shared/product-runtime-image-verifier", () => ({
+vi.mock("nbook/server/interfaces/product-runtime-image-verifier", () => ({
     ProductRuntimeImageVerifier: class {
         openSelfVerified = verifier.openSelfVerified;
     },

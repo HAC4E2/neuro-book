@@ -6,7 +6,7 @@ import {Database} from "bun:sqlite";
 
 import {loadStateEnv, resolveStateDatabaseUrl} from "#manager/config";
 import {ensureDirectory, pathExists} from "#manager/files";
-import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
+import {resolveAppSqliteLocation} from "#manager/app-sqlite-location";
 
 /** 更新原生 Product 前确认端口未被运行中的服务占用。 */
 export async function assertNativeProductStopped(stateRoot: string): Promise<void> {

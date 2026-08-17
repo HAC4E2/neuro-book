@@ -4,7 +4,7 @@ import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {rewriteProductPackageIslandImports} from "nbook/scripts/build/product-package-island-imports";
+import {rewriteProductPackageIslandImports} from "#scripts/build/product-package-island-imports";
 
 const temporaryRoots: string[] = [];
 

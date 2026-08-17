@@ -1,4 +1,5 @@
-import type {InstallProfile, ProfileDefinition} from "#manager/types";
+import type {ProfileDefinition} from "#manager/types";
+import type {InstallProfile} from "@notnotype/neuro-book-contracts/installation";
 
 const PROFILE_DEFINITIONS: Record<InstallProfile, ProfileDefinition> = {
     "source-dev": {

@@ -1,0 +1,40 @@
+{
+    "schema": "nbook.evidence/v1",
+    "taskId": "00149-monorepo-workspace-consolidation",
+    "phase": "S4-cross-host-boundaries",
+    "status": "implementation-complete-checkpoint-pending",
+    "contracts": {
+        "desktopAggregateDepot": "packages/neuro-book-contracts/src/desktop-aggregate-depot.ts",
+        "desktopUninstall": "packages/neuro-book-contracts/src/desktop-uninstall.ts",
+        "exports": ["./desktop", "./desktop-aggregate-depot", "./desktop-uninstall"]
+    },
+    "formalEntry": {
+        "desktopPortablePackager": "@notnotype/neuro-book-manager/desktop-installation",
+        "managerBuildEntry": "packages/neuro-book-manager/src/desktop-installation-entry.ts"
+    },
+    "retainedManagerDeepImports": {
+        "scripts/deploy/windows-portable-manager.ts": [
+            "src/config",
+            "src/manifest-store",
+            "src/portable-launchers",
+            "src/runtime",
+            "src/tools",
+            "src/version-info"
+        ],
+        "scripts/release/verify-windows-portable-restart.ts": ["src/manifest-store", "src/paths"],
+        "scripts/release/verify-windows-portable.ts": ["src/product"],
+        "scripts/release/verify-windows-product.ts": ["src/product"],
+        "scripts/release/windows-portable-manager.test.ts": ["src/manifest-store"]
+    },
+    "verification": {
+        "contractsTypecheck": "passed",
+        "managerTypecheck": "passed",
+        "scriptsTypecheck": "passed",
+        "desktopContractSuite": {"files": 13, "tests": 41, "status": "passed"},
+        "uninstallFocused": {"files": 1, "tests": 3, "status": "passed"},
+        "releaseFocused": {"files": 3, "tests": 29, "status": "passed"},
+        "managerBuild": "passed",
+        "workspaceInstall": "passed"
+    },
+    "knownBoundary": "S4 stage-level frozen install, full workspace regression, Docker/Windows runner, real provider/model, remote deployment, publication and production Product measurement remain unverified."
+}

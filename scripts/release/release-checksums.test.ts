@@ -3,7 +3,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {verifyReleaseChecksums, writeReleaseChecksums} from "nbook/scripts/release/release-checksums";
+import {verifyReleaseChecksums, writeReleaseChecksums} from "#scripts/release/release-checksums";
 
 const temporaryRoots: string[] = [];
 

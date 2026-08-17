@@ -14,7 +14,13 @@
     },
     "exports": {
         ".": "./dist/neuro-book.mjs",
-        "./schema": "./dist/schema.mjs"
+        "./schema": "./dist/schema.mjs",
+        "./runtime-projection": {
+            "types": "./src/runtime-projection.ts",
+            "import": "./dist/runtime-projection.mjs",
+            "default": "./dist/runtime-projection.mjs"
+        },
+        "./desktop-installation": "./dist/desktop-installation-entry.mjs"
     },
     "files": [
         "dist",
@@ -33,7 +39,7 @@
         "pack:check": "bun run build && bun scripts/pack-check.mjs"
     },
     "devDependencies": {
-        "@notnotype/owned-process": "workspace:*",
+        "@notnotype/owned-process": "file:../owned-process",
         "@clack/prompts": "^1.0.0",
         "@types/blessed": "^0.1.27",
         "@types/bun": "^1.3.14",
@@ -46,12 +52,13 @@
         "typescript": "^5.9.3",
         "vitest": "^4.1.2",
         "yaml": "^2.8.2",
-        "@notnotype/neuro-book-test-support": "workspace:*"
+        "@notnotype/neuro-book-test-support": "file:../neuro-book-test-support"
     },
     "publishConfig": {
         "access": "public"
     },
     "dependencies": {
+        "@notnotype/neuro-book-contracts": "file:../neuro-book-contracts",
         "proper-lockfile": "^4.1.2",
         "semver": "^7.8.5"
     }

@@ -29,7 +29,7 @@ import {
 } from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import type {CheckProviderReferencesResponseDto, ConfiguredModelDto, EnabledModelOptionDto, ModelLibraryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
-import {selectModelApi, type ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
+import {selectModelApi, type ModelReferenceInput} from "@notnotype/neuro-book-contracts/provider-config";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 export type ModelSettingsScope = "global" | "project";

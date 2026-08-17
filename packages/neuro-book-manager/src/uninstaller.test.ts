@@ -5,8 +5,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {installationLeasePath} from "#manager/installation-mutation";
 import {writeInstallationManifest} from "#manager/manifest-store";
-import {INSTALLED_WINDOWS_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {INSTALLED_WINDOWS_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 
 const execution = vi.hoisted(() => ({verify: vi.fn()}));

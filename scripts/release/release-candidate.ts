@@ -1,4 +1,4 @@
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {run, runCapture} from "#scripts/utils/process.mjs";
 
 type ReleaseView = {
     draft: boolean;

@@ -3,7 +3,7 @@ import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-runtime-module-closure.mjs";
+import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 
 const temporaryRoots: string[] = [];
 

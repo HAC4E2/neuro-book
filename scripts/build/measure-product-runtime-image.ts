@@ -3,17 +3,17 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {parseArgs} from "node:util";
 
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
 import {
     buildProductRuntimePayload,
     prepareProductRuntimeSource,
     productBuildEnvironment,
     withProductBuildLease,
-} from "nbook/scripts/build/build-product-runtime-image";
+} from "#scripts/build/build-product-runtime-image";
 import {
     ProductRuntimeImageBuilder,
     type ProductRuntimeMeasurementReport,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 
 /** measurement CLI 的输入；outputPath 未提供时写入 ignored `.deploy/measurements`。 */
 export interface ProductRuntimeMeasurementOptions {

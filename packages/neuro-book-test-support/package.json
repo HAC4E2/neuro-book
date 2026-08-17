@@ -1,6 +1,7 @@
 {
     "name": "@notnotype/neuro-book-test-support",
     "private": true,
+    "version": "0.1.0",
     "type": "module",
     "exports": {
         "./paths": "./src/paths.ts",

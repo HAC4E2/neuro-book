@@ -7,7 +7,7 @@ import {
     productRuntimeIslandDefinitions,
     productRuntimeIslandPackageNames,
     productRuntimeIslandSourceRoot,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 
 const temporaryRoots: string[] = [];
 

@@ -5,13 +5,13 @@ import {afterEach, describe, expect, it} from "vitest";
 import {verifyApplicationExecution} from "#manager/application-execution";
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {issueInstalledProductRuntimeReceipt} from "#manager/product";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {
     authorizeProductRuntimeReceiptControlPlane,
     authorizeProductRuntimeReceiptFully,
     verifyProductRuntimeReceiptFully,
-} from "nbook/shared/product-runtime-receipt";
+} from "#manager/product-verification";
 
 const roots: string[] = [];
 const VERSION = "0.8.0-canary.1";

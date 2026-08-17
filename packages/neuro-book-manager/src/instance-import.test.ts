@@ -10,10 +10,10 @@ import {inspectInstance} from "#manager/instance-discovery";
 import {importInstallation, inspectImport} from "#manager/instance-import";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
 import {currentProductPlatform} from "#manager/platform";
 import {renderManagerWrapper} from "#manager/runtime";
-import type {InstallationManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));

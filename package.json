@@ -11,6 +11,7 @@
     "packages/neuro-book-manager",
     "packages/owned-process",
     "packages/file-snapshot-cache",
+    "packages/neuro-book-contracts",
     "packages/neuro-book-test-support",
     "packages/nb-history",
     "packages/nb-workflow",
@@ -20,6 +21,9 @@
     "packages/llmlint"
   ],
   "type": "module",
+  "imports": {
+    "#scripts/*": "./scripts/*"
+  },
   "scripts": {
     "dev": "bun scripts/cli/source-dev.ts",
     "dev:runtime": "bun run migration:check && nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets && nuxt dev --no-fork",
@@ -108,9 +112,9 @@
     "@milkdown/plugin-slash": "^7.19.0",
     "@milkdown/plugin-tooltip": "^7.19.0",
     "@milkdown/preset-commonmark": "^7.19.0",
-    "@milkdown/vue": "^7.19.0",
     "@mozilla/readability": "^0.6.0",
     "@notnotype/file-snapshot-cache": "workspace:*",
+    "@notnotype/neuro-book-contracts": "workspace:*",
     "@notnotype/nb-history": "workspace:*",
     "@notnotype/nb-workflow": "workspace:*",
     "@notnotype/owned-process": "workspace:*",

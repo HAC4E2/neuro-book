@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from "vitest";
-import {PRODUCT_SHUTDOWN_PATH} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_SHUTDOWN_PATH} from "@notnotype/neuro-book-contracts/product-runtime";
 
 describe("auth middleware user session exemptions", () => {
     it("允许部署健康检查读取应用版本，但不放开其他应用接口", async () => {

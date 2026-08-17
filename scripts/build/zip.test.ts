@@ -4,7 +4,7 @@ import {join} from "node:path";
 import {unzipSync} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {writeZipArchive} from "nbook/scripts/utils/zip";
+import {writeZipArchive} from "#scripts/utils/zip";
 
 const temporaryRoots: string[] = [];
 

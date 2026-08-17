@@ -6,9 +6,9 @@ import {fileURLToPath} from "node:url";
 
 import {Command} from "commander";
 
-import {createReleaseCandidate} from "nbook/scripts/release/release-candidate";
-import {readReleaseNotesBody} from "nbook/scripts/release/release-notes";
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {createReleaseCandidate} from "#scripts/release/release-candidate";
+import {readReleaseNotesBody} from "#scripts/release/release-notes";
+import {run, runCapture} from "#scripts/utils/process.mjs";
 
 type CommonOptions = {
     dryRun: boolean;

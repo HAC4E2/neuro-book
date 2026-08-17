@@ -18,7 +18,7 @@ import {
     verifyRunningDockerApplication,
     type VerifiedContainerImage,
 } from "#manager/docker";
-import type {ContainerEngine, ProductComponent} from "#manager/types";
+import type {ContainerEngine, ProductComponent} from "@notnotype/neuro-book-contracts/installation";
 
 const processCommands = vi.hoisted(() => ({
     available: vi.fn(),

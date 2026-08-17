@@ -16,14 +16,14 @@ import {
 } from "#manager/app-commands";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {currentProductPlatform} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {ContainerEngine, InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {ContainerEngine, InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_PATH,
     PRODUCT_SHUTDOWN_TIMEOUT_MS,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const processCommands = vi.hoisted(() => ({
     capture: vi.fn(),

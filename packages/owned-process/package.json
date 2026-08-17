@@ -19,6 +19,6 @@
         "@types/node": "^25.6.0",
         "typescript": "^5.9.3",
         "vitest": "^4.1.2",
-        "@notnotype/neuro-book-test-support": "workspace:*"
+        "@notnotype/neuro-book-test-support": "file:../neuro-book-test-support"
     }
 }

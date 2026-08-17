@@ -8,7 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {rollbackProduct, rollbackReleaseSource, stageReleaseProduct, stageReleaseSource, switchProduct, switchReleaseSource} from "#manager/component";
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
-import type {VerifiedProductRuntimeImage} from "nbook/scripts/build/product-runtime-image-builder";
+import type {VerifiedProductRuntimeImage} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 

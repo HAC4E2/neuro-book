@@ -1,7 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, DiscoveryDiagnosticsDtoSchema, DiscoverProviderModelsResponseDtoSchema, EnabledModelOptionDtoSchema, ModelProviderDraftDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
-import {inspectModelSettings} from "nbook/shared/models/provider-config-contract";
+import {inspectModelSettings} from "@notnotype/neuro-book-contracts/provider-config";
 
 describe("Pi settings contracts", () => {
     it("thinking level 接受 max", () => {

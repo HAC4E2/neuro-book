@@ -1,9 +1,5 @@
-import {mkdir, rm, writeFile} from "node:fs/promises";
-import {resolve} from "node:path";
-import {randomUUID} from "node:crypto";
-import {afterEach, describe, expect, it} from "vitest";
+import {describe, expect, it} from "vitest";
 import {
-    assertProductRuntimeContractFiles,
     createProductRuntimeContract,
     parseProductRuntimeContract,
     PRODUCT_BUN_RUNTIME_ARGS,
@@ -11,14 +7,9 @@ import {
     productRuntimeCwd,
     resolveProductRuntimeCommand,
     resolveProductRuntimeChecks,
-} from "nbook/shared/product-runtime-contract";
+} from "./contract";
 
 describe("Product Runtime Contract", () => {
-    const roots: string[] = [];
-
-    afterEach(async () => {
-        await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
-    });
 
     it("Bun Product 禁止自动安装和隐式加载 cwd .env", () => {
         expect(PRODUCT_BUN_RUNTIME_ARGS).toEqual(["--no-install", "--no-env-file"]);
@@ -75,25 +66,6 @@ describe("Product Runtime Contract", () => {
             .toEqual(["--plan"]);
     });
 
-    it("验证 bootstrap 与所有合同入口实际存在", async () => {
-        const root = resolve(".agent", "tmp", "product-contract-test", randomUUID());
-        roots.push(root);
-        const contract = contractFixture();
-        const entries = new Set([
-            "server/commands/product-command.mjs",
-            ...Object.values(contract.commands).map((item) => item.entry),
-            ...Object.values(contract.internal).map((item) => item.entry),
-            ...Object.values(contract.checks).map((item) => item.entry),
-        ]);
-        for (const entry of entries) {
-            const path = resolve(root, ...entry.split("/"));
-            await mkdir(resolve(path, ".."), {recursive: true});
-            await writeFile(path, "export {};\n", "utf8");
-        }
-        await expect(assertProductRuntimeContractFiles(contract, root)).resolves.toBeUndefined();
-        await rm(resolve(root, "server", "commands", "profile.mjs"));
-        await expect(assertProductRuntimeContractFiles(contract, root)).rejects.toThrow("入口不存在");
-    });
 });
 
 function contractFixture() {

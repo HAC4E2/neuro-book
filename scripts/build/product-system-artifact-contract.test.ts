@@ -3,7 +3,7 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {assertProductSystemArtifactModulePaths} from "nbook/scripts/build/product-system-artifact-contract";
+import {assertProductSystemArtifactModulePaths} from "#scripts/build/product-system-artifact-contract";
 
 const roots: string[] = [];
 

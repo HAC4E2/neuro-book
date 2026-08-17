@@ -13,14 +13,13 @@ import {
 import {resolve} from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
-import type {ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
-import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-runtime-module-closure.mjs";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 import {
-    assertProductRuntimeContractFiles,
     parseProductRuntimeContract,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     productRuntimeContractSha256,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
     assertProductRuntimeBudget as assertBudget,
     assertProductRuntimeContainedPath as assertContainedPath,
@@ -30,32 +29,37 @@ import {
     canonicalProductRuntimeJson as canonicalJson,
     createProductRuntimePolicy as runtimeImagePolicy,
     hasProductRuntimeBuildPolicy,
-    inspectProductRuntimeImage as inspectRuntimeImage,
     normalizeProductRuntimeBudget as normalizeBudget,
     normalizeProductRuntimeOwners as normalizeOwners,
     normalizeProductRuntimeRelativePath as normalizeRelativePath,
     productRuntimeBuildPolicy,
     productRuntimeOwners,
-    productRuntimeFileDigest as sha256File,
-    readProductRuntimeControlFile as readControlFile,
-    ProductRuntimeImageVerifier,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     PRODUCT_RUNTIME_IMAGE_MANIFEST_SCHEMA,
     PRODUCT_RUNTIME_IMAGE_READY_SCHEMA,
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
     sha256ProductRuntimeText as sha256Text,
-    type ProductRuntimeBuildPolicy,
-    type ProductRuntimeExpectedIdentity,
-    type ProductRuntimeGlobalBudget,
-    type ProductRuntimeImageBudget,
-    type ProductRuntimeImageManifest,
-    type ProductRuntimeImageOwner,
-    type ProductRuntimeFileRecord,
-    type ProductRuntimeInspection,
-    type ProductRuntimeOwnerBaseline,
-    type VerifiedProductRuntimeImage,
-} from "nbook/shared/product-runtime-image-verifier";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {
+    assertProductRuntimeContractFiles,
+    inspectProductRuntimeImage as inspectRuntimeImage,
+    productRuntimeFileDigest as sha256File,
+    readProductRuntimeControlFile as readControlFile,
+    ProductRuntimeImageVerifier,
+} from "nbook/server/interfaces/product-runtime-image-verifier";
+import type {
+    ProductRuntimeBuildPolicy,
+    ProductRuntimeExpectedIdentity,
+    ProductRuntimeGlobalBudget,
+    ProductRuntimeImageBudget,
+    ProductRuntimeImageManifest,
+    ProductRuntimeImageOwner,
+    ProductRuntimeFileRecord,
+    ProductRuntimeInspection,
+    ProductRuntimeOwnerBaseline,
+    VerifiedProductRuntimeImage,
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 export {
     hasProductRuntimeBuildPolicy,
@@ -63,7 +67,7 @@ export {
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
-};
+} from "@notnotype/neuro-book-contracts/product-runtime";
 export type {
     ProductRuntimeBuildPolicy,
     ProductRuntimeExpectedIdentity,
@@ -73,7 +77,8 @@ export type {
     ProductRuntimeImageOwner,
     ProductRuntimeOwnerBaseline,
     VerifiedProductRuntimeImage,
-} from "nbook/shared/product-runtime-image-verifier";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+
 
 const execFileAsync = promisify(execFile);
 const MANIFEST_FILE = "runtime-image.json";
@@ -519,7 +524,7 @@ export class ProductRuntimeImageBuilder {
     async openControlPlane(
         imagePath: string,
         expectedIdentity: ProductRuntimeExpectedIdentity,
-    ): Promise<import("nbook/shared/product-runtime-image-verifier").ProductRuntimeImageControlPlane> {
+    ): Promise<import("@notnotype/neuro-book-contracts/product-runtime").ProductRuntimeImageControlPlane> {
         return await new ProductRuntimeImageVerifier().openControlPlane(imagePath, expectedIdentity);
     }
 

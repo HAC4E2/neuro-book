@@ -9,7 +9,7 @@ import {readInstallationManifest} from "#manager/manifest-store";
 import {recoverInterruptedOperations} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import {installationRootLocators, localAppDataRoot} from "#manager/root-locators";
-import type {InstallProfile, InstallationManifest} from "#manager/types";
+import type {InstallProfile, InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {pendingWindowsUninstall, type WindowsUninstallIntent} from "#manager/windows-uninstall-host";
 
 const LEASE_STALE_MS = 60_000;

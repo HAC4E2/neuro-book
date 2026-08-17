@@ -2,11 +2,11 @@
 import {randomBytes} from "node:crypto";
 import {resolve} from "node:path";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
-import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
+import {shutdownNativeProduct} from "nbook/server/runtime/shutdown/product-shutdown-client";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 export type SourceDevOptions = {
     cwd?: string;

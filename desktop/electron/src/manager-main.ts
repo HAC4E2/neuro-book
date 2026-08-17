@@ -14,14 +14,11 @@ import {
     runDesktopUacClient,
     type DesktopUacClientEvent,
     type DesktopUacClientInvocation,
-} from "nbook/desktop/shared/src/desktop-uac-client";
-import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
-import {materializeMachineManagerScript} from "nbook/desktop/shared/src/manager-runtime";
-import {
-    parseDesktopDelegatedUninstallReceipt,
-    waitForWindowsUninstallHostResult,
-    type DesktopDelegatedUninstallReceipt,
-} from "nbook/desktop/shared/src/windows-uninstall-result";
+} from "../../shared/src/desktop-uac-client";
+import {parseDesktopInstallationManifest} from "@notnotype/neuro-book-contracts/desktop";
+import {materializeMachineManagerScript} from "../../shared/src/manager-runtime";
+import {parseDesktopDelegatedUninstallReceipt, type DesktopDelegatedUninstallReceipt} from "@notnotype/neuro-book-contracts/desktop";
+import {waitForWindowsUninstallHostResult} from "../../shared/src/windows-uninstall-result";
 import type {
     ManagerCliInvocation,
     ManagerGuiLocalSourceKind,

@@ -4,7 +4,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const mocks = vi.hoisted(() => ({
     spawnOwnedProcess: vi.fn(),
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@notnotype/owned-process", () => ({
     spawnOwnedProcess: mocks.spawnOwnedProcess,
 }));
-vi.mock("nbook/shared/product-runtime-shutdown", () => ({
+vi.mock("nbook/server/runtime/shutdown/product-shutdown-client", () => ({
     shutdownNativeProduct: mocks.shutdownNativeProduct,
 }));
 

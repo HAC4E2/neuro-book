@@ -1,7 +1,7 @@
 import {join} from "node:path";
 
 import {describe, expect, it} from "vitest";
-import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
+import {createProductRuntimeEnvironment} from "./environment";
 
 describe("Product runtime environment", () => {
     it("State 环境覆盖普通配置，但不能覆盖受管 root 与工具路径", () => {

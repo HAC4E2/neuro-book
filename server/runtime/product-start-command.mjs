@@ -9,8 +9,8 @@ import {
     PRODUCT_BUN_RUNTIME_ARGS,
     readProductRuntimeContract,
     resolveProductRuntimeInternal,
-} from "nbook/shared/product-runtime-contract";
-import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {createProductRuntimeEnvironment} from "@notnotype/neuro-book-contracts/environment";
 
 const productImageRoot = resolveProductImageRoot();
 const applicationRoot = resolveApplicationRoot(productImageRoot);

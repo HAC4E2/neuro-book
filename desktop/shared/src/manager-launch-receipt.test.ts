@@ -9,7 +9,7 @@ import {describe, expect, it} from "vitest";
 import {
     createManagerLaunchReceipt,
     sameManagerLaunchReceipt,
-} from "nbook/desktop/electron/src/manager-launch-receipt";
+} from "../../electron/src/manager-launch-receipt";
 
 describe("Manager Electron launch receipt", () => {
     it("同时绑定 Electron executable 与 app.asar，任一壳代码篡改都 fail closed", async () => {

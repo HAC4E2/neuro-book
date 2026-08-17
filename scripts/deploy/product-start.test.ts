@@ -5,8 +5,8 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
-import {buildProductCommands} from "nbook/scripts/build/product-command-bundle";
-import {PRODUCT_RUNTIME_CONTRACT_PATH} from "nbook/shared/product-runtime-contract";
+import {buildProductCommands} from "#scripts/build/product-command-bundle";
+import {PRODUCT_RUNTIME_CONTRACT_PATH} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 

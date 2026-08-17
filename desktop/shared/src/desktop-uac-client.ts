@@ -12,7 +12,7 @@ import {
     parseDesktopUacBrokerLine,
     type DesktopUacBrokerAction,
     type DesktopUacBrokerEvent,
-} from "nbook/shared/desktop-uac-broker";
+} from "@notnotype/neuro-book-contracts/desktop-uac";
 
 export type DesktopUacClientBinding = {
     installationId: string | null;

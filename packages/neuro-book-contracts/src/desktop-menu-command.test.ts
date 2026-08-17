@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
-import {DESKTOP_MENU_COMMAND_IDS} from "nbook/shared/desktop-contract";
-import {dispatchDesktopMenuCommand, type DesktopMenuCommandHandlers} from "nbook/shared/desktop-menu-command";
+import {DESKTOP_MENU_COMMAND_IDS} from "./desktop-contract";
+import {dispatchDesktopMenuCommand, type DesktopMenuCommandHandlers} from "./desktop-menu-command";
 
 describe("Desktop menu command dispatch", () => {
     it("每个公开命令都调用对应行为，不会静默 no-op", async () => {

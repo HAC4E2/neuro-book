@@ -2,7 +2,7 @@
 import {createHash, randomBytes} from "node:crypto";
 import {lstat, mkdir, readdir, readFile, rm, rmdir, stat, writeFile} from "node:fs/promises";
 import {dirname, relative, resolve, sep} from "node:path";
-import {defaultRepoRoot, git, gitRevision} from "nbook/scripts/ci/agent-governance-contract";
+import {defaultRepoRoot, git, gitRevision} from "#scripts/ci/agent-governance-contract";
 import { resolveAgentRunRoot } from "@notnotype/neuro-book-test-support/paths";
 
 type Mapping = {

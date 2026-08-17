@@ -1,7 +1,7 @@
 import {timingSafeEqual} from "node:crypto";
 import {createError, defineEventHandler, getHeader, setResponseStatus} from "h3";
 import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
-import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "@notnotype/neuro-book-contracts/product-runtime";
 
 /** 只接受内核报告的本机地址，不信任任何代理转发头。 */
 function isLoopbackAddress(address: string | undefined): boolean {

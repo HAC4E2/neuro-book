@@ -11,6 +11,9 @@
         ],
         "baseUrl": "..",
         "paths": {
+            "#scripts/*": [
+                "./scripts/*"
+            ],
             "nbook/*": [
                 "./*"
             ]

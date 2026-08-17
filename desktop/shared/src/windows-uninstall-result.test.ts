@@ -4,11 +4,11 @@ import {dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {parseDesktopDelegatedUninstallReceipt} from "@notnotype/neuro-book-contracts/desktop";
 import {
-    parseDesktopDelegatedUninstallReceipt,
     removeDesktopMachineUninstallLauncher,
     waitForWindowsUninstallHostResult,
-} from "nbook/desktop/shared/src/windows-uninstall-result";
+} from "./windows-uninstall-result";
 
 const roots: string[] = [];
 

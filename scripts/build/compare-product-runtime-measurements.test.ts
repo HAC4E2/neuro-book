@@ -4,16 +4,16 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {compareProductRuntimeMeasurements} from "nbook/scripts/build/compare-product-runtime-measurements";
+import {compareProductRuntimeMeasurements} from "#scripts/build/compare-product-runtime-measurements";
 import {
     PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
     type ProductRuntimeMeasurementReport,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
-} from "nbook/shared/product-runtime-image-verifier";
+} from "nbook/server/interfaces/product-runtime-image-verifier";
 
 const roots: string[] = [];
 

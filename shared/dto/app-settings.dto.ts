@@ -1,6 +1,6 @@
 import {z} from "zod";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
-import {PROVIDER_CONFIG_ISSUE_CODES, SUPPORTED_PI_APIS} from "nbook/shared/models/provider-config-contract";
+import {PROVIDER_CONFIG_ISSUE_CODES, SUPPORTED_PI_APIS} from "@notnotype/neuro-book-contracts/provider-config";
 
 const ProviderIdSchema = z.string().trim().min(1, "providerId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "providerId 格式不合法");
 const ModelIdSchema = z.string().trim().min(1, "modelId 不能为空");

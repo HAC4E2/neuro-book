@@ -48,14 +48,14 @@ import {
     parseDesktopPortableManifest,
     type DesktopInstallationManifest,
     type DesktopPortableArchiveManifest,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
     DESKTOP_AGGREGATE_DEPOT_ENTRIES,
     DESKTOP_AGGREGATE_DEPOT_MANIFEST,
-} from "nbook/desktop/shared/src/desktop-aggregate-depot";
-import type {InstallationComponents, InstallationManifest} from "#manager/types";
+} from "@notnotype/neuro-book-contracts/desktop";
+import type {InstallationComponents, InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 const originalPlatform = process.platform;

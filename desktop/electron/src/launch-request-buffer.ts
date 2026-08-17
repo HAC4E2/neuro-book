@@ -1,7 +1,7 @@
 import {
     parseDesktopLaunchRequest,
     type DesktopLaunchRequest,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 
 /** 在启动页、导航和 Vue 订阅之间保存有限数量的外部启动请求。 */
 export class DesktopLaunchRequestBuffer {

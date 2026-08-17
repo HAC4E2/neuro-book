@@ -10,7 +10,7 @@ import {
     validateVariableDefinitionArtifact,
     type VariableDefinitionValidation,
 } from "nbook/server/agent/variables/definition-artifact";
-import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
+import {containsSourceRootDescendant} from "#scripts/build/product-source-path-contract";
 
 /**
  * 验证最终 `.output` 内置 artifact 完全依赖 Product runtime 自身。

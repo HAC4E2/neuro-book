@@ -4,7 +4,7 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {runSessionModelRefMigration} from "nbook/scripts/maintenance/migrate-session-model-refs";
+import {runSessionModelRefMigration} from "#scripts/maintenance/migrate-session-model-refs";
 
 const roots: string[] = [];
 

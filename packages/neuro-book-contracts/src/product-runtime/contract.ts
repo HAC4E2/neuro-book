@@ -1,6 +1,5 @@
 import {createHash} from "node:crypto";
-import {readFile, stat} from "node:fs/promises";
-import {isAbsolute, posix, resolve, win32} from "node:path";
+import {isAbsolute, posix, win32} from "node:path";
 
 export const PRODUCT_RUNTIME_CONTRACT_PATH = "server/runtime-contract.json";
 export const PRODUCT_RUNTIME_COMMAND_BOOTSTRAP = "server/commands/product-command.mjs";
@@ -214,16 +213,6 @@ function parseStartup(value: unknown): ProductRuntimeContract["startup"] {
     };
 }
 
-/** 读取并严格解析一个 Runtime Image 的运行合同。 */
-export async function readProductRuntimeContract(imageRoot: string): Promise<ProductRuntimeContract>;
-export async function readProductRuntimeContract(imageRoot: string, options: {allowPrevious: true}): Promise<ParsedProductRuntimeContract>;
-export async function readProductRuntimeContract(
-    imageRoot: string,
-    options: {allowPrevious?: boolean} = {},
-): Promise<ParsedProductRuntimeContract> {
-    const text = await readFile(resolve(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/")), "utf8");
-    return parseProductRuntimeContract(JSON.parse(text) as unknown, options as {allowPrevious: true});
-}
 
 /** 解析公开逻辑命令，并执行额外参数策略。 */
 export function resolveProductRuntimeCommand(
@@ -280,24 +269,6 @@ export function resolveProductRuntimeInternal(
     return invocation(contract.internal[id], [], `internal ${id}`);
 }
 
-/** 验证合同中每个入口都存在于 Runtime Image 且是普通文件。 */
-export async function assertProductRuntimeContractFiles(
-    contract: ParsedProductRuntimeContract,
-    imageRoot: string,
-): Promise<void> {
-    const entries = new Set([
-        PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
-        ...Object.values(contract.commands).map((item) => item.entry),
-        ...Object.values(contract.internal).map((item) => item.entry),
-        ...Object.values(contract.checks).map((item) => item.entry),
-    ]);
-    for (const entry of entries) {
-        const info = await stat(resolve(imageRoot, ...entry.split("/"))).catch(() => null);
-        if (!info?.isFile()) {
-            throw new Error(`Product Runtime Contract 入口不存在：${entry}`);
-        }
-    }
-}
 
 /** 生成 Runtime Image manifest 使用的稳定合同摘要。 */
 export function productRuntimeContractSha256(text: string): string {

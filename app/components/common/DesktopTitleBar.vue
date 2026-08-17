@@ -6,7 +6,7 @@ import {
     parseDesktopStatus,
     type DesktopMenuCommandId,
     type DesktopStatus,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 import {
     resolveTitleBarMenuPresentation,
     type TitleBarMenuPresentation,

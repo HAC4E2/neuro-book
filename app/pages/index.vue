@@ -49,8 +49,8 @@ import {
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
-import type {DesktopMenuCommandId} from "nbook/shared/desktop-contract";
-import {dispatchDesktopMenuCommand} from "nbook/shared/desktop-menu-command";
+import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
+import {dispatchDesktopMenuCommand} from "@notnotype/neuro-book-contracts/desktop";
 
 type SameDocumentViewTransition = {
     ready: Promise<void>;

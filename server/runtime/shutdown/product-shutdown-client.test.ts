@@ -2,8 +2,8 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_PATH,
-} from "nbook/shared/product-runtime-contract";
-import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {shutdownNativeProduct} from "./product-shutdown-client";
 
 describe("Product Runtime shutdown client", () => {
     afterEach(() => {

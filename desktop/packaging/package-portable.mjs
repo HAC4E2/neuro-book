@@ -29,10 +29,12 @@ import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
     DESKTOP_AGGREGATE_DEPOT_ENTRIES,
+} from "@notnotype/neuro-book-contracts/desktop";
+import {
     createDesktopAggregateDepotManifest,
     inspectDesktopAggregateDepot,
 } from "../shared/src/desktop-aggregate-depot.ts";
-import {writeDesktopRuntimeWrappers} from "nbook/packages/neuro-book-manager/src/desktop-installation";
+import {writeDesktopRuntimeWrappers} from "@notnotype/neuro-book-manager/desktop-installation";
 
 const execFileAsync = promisify(execFile);
 const PORTABLE_SCHEMA = "nbook.desktop-portable/v1";

@@ -6,18 +6,18 @@ import ts from "typescript";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
-} from "nbook/scripts/build/product-bundle-plugins";
+} from "#scripts/build/product-bundle-plugins";
 import {
     bundleProductJavaScript,
     productBundleOutputText,
-} from "nbook/scripts/build/product-reproducible-bundle";
-import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
-import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
+} from "#scripts/build/product-reproducible-bundle";
+import {productRuntimeIslandPackageNames} from "#scripts/build/product-runtime-islands";
+import {containsSourceRootDescendant} from "#scripts/build/product-source-path-contract";
 import {
     projectAuthoringDependencies,
     type AuthoringDependencyRegistration,
     type ProjectedAuthoringDependency,
-} from "nbook/scripts/build/product-authoring-type-projection";
+} from "#scripts/build/product-authoring-type-projection";
 
 export type ProductAuthoringKitResult = {
     compilerBytes: number;

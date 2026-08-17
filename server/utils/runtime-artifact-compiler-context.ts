@@ -2,10 +2,8 @@ import {existsSync, readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {isAbsolute, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {
-    ProductRuntimeImageVerifier,
-    type ProductRuntimeImageManifest,
-} from "nbook/shared/product-runtime-image-verifier";
+import {ProductRuntimeImageVerifier} from "nbook/server/interfaces/product-runtime-image-verifier";
+import type {ProductRuntimeImageManifest} from "@notnotype/neuro-book-contracts/product-runtime";
 
 type RuntimeArtifactCompilerPaths = Readonly<{
     root: string;

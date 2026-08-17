@@ -8,7 +8,7 @@ import {
     type ProviderTemplateLibraryDto,
 } from "nbook/shared/dto/app-settings.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
-import {isSupportedPiApi, type SupportedPiApi} from "nbook/shared/models/provider-config-contract";
+import {isSupportedPiApi, type SupportedPiApi} from "@notnotype/neuro-book-contracts/provider-config";
 
 const TEMPLATE_PROVIDER_IDS = new Set([
     "anthropic", "openai", "google", "deepseek", "xai", "xiaomi", "mistral", "minimax", "minimax-cn",

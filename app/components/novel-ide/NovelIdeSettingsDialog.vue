@@ -20,7 +20,7 @@ import {createCustomThemeId, themeVarsToCustomVars} from "nbook/app/utils/theme/
 import {downloadThemeJson, parseThemeJson} from "nbook/app/utils/theme/theme-io";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
-import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "nbook/shared/desktop-contract";
+import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";

@@ -3,19 +3,21 @@ import {dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
-import {writeZipArchive} from "nbook/scripts/utils/zip";
+import {writeZipArchive} from "#scripts/utils/zip";
 import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
-    DESKTOP_AGGREGATE_DEPOT_MANIFEST,
     DESKTOP_AGGREGATE_DEPOT_ENTRIES,
+    DESKTOP_AGGREGATE_DEPOT_MANIFEST,
+} from "@notnotype/neuro-book-contracts/desktop";
+import {
     createDesktopAggregateDepotManifest,
     inspectDesktopAggregateDepot,
     validateDesktopAggregateDepotEntries,
     verifyDesktopAggregateDepot,
     verifyDesktopAggregateDepotArchive,
     type DesktopAggregateDirectoryEntry,
-} from "nbook/desktop/shared/src/desktop-aggregate-depot";
-import {assertPowerShellBom} from "nbook/desktop/shared/src/powershell-bom";
+} from "./desktop-aggregate-depot";
+import {assertPowerShellBom} from "./powershell-bom";
 
 async function fixture(): Promise<{root: string; stagingRoot: string; archivePath: string; manifestPath: string}> {
     // 仓库根：`desktop/shared/src/` 向上三级；不依赖 process.cwd()。

@@ -70,7 +70,7 @@ import {
     inspectProviderConfigDocument,
     type ModelReferenceInput,
     type ModelSettingsContractInput,
-} from "nbook/shared/models/provider-config-contract";
+} from "@notnotype/neuro-book-contracts/provider-config";
 import {
     isProjectNotOpenError,
     listProjects,

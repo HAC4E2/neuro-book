@@ -2,7 +2,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
-import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
+import {createProductRuntimeContract} from "@notnotype/neuro-book-contracts/product-runtime";
 import {auditProductContract} from "./contract-audit";
 
 /** 仓库根：`desktop/shared/src/` 向上三级。 */

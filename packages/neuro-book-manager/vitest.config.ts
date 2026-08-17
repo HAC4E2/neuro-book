@@ -15,10 +15,11 @@ export default defineConfig({
             enforce: "pre",
             async transform(code, id) {
                 const normalizedId = id.replaceAll("\\", "/");
+                const isInternalPackage = /\/node_modules\/@notnotype\/(?:neuro-book-test-support|neuro-book-contracts|owned-process)\//u.test(normalizedId);
                 if (
-                    normalizedId.includes("/node_modules/") ||
-                    !/\.(?:[cm]?ts|tsx)$/u.test(normalizedId) ||
-                    normalizedId.endsWith(".d.ts")
+                    normalizedId.includes("/node_modules/") && !isInternalPackage
+                    || !/\.(?:[cm]?ts|tsx)$/u.test(normalizedId)
+                    || normalizedId.endsWith(".d.ts")
                 ) {
                     return;
                 }

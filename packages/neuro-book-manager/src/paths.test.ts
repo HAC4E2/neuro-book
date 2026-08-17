@@ -8,6 +8,8 @@ import {
     INSTALLED_WINDOWS_ROOT_LOCATORS,
     INSTALLATION_SCOPED_ROOT_LOCATORS,
     PORTABLE_ROOT_LOCATORS,
+} from "@notnotype/neuro-book-contracts/installation";
+import {
     installationRootLocators,
     localAppDataRoot,
     macosDesktopInstallationRoot,

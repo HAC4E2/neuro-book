@@ -6,14 +6,14 @@ import {strToU8, unzipSync, zipSync} from "fflate";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {parse} from "yaml";
 
-import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {PRODUCT_ASSET_NAMES, PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 import {
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
-import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
+} from "#scripts/build/product-runtime-image-builder";
+import {createProductRuntimeContract} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
     buildProductArchive,
     buildReleaseManifest,
@@ -21,15 +21,15 @@ import {
     parseReleaseBuild,
     readReleaseBuildArchive,
     releaseBuildId,
-} from "nbook/scripts/release/release-assets";
-import {runCapture} from "nbook/scripts/utils/process.mjs";
+} from "#scripts/release/release-assets";
+import {runCapture} from "#scripts/utils/process.mjs";
 import {
     assertStateMigrationSourceFiles,
     readReleaseStateMigrationDeclaration,
-} from "nbook/scripts/release/state-migration-declaration";
-import {releaseAssetsVitestConfig} from "nbook/scripts/release/release-assets-vitest.config";
+} from "#scripts/release/state-migration-declaration";
+import {releaseAssetsVitestConfig} from "#scripts/release/release-assets-vitest.config";
 
-vi.mock("nbook/scripts/build/product-system-artifact-contract", () => ({
+vi.mock("#scripts/build/product-system-artifact-contract", () => ({
     assertProductSystemArtifactContract: vi.fn(async () => undefined),
 }));
 

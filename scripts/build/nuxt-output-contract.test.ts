@@ -7,7 +7,7 @@ import {describe, expect, it} from "vitest";
 import {
     isProductRuntimeIslandModule,
     productRuntimeIslandPackageNames,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 
 const execFileAsync = promisify(execFile);
 const configProbe = [

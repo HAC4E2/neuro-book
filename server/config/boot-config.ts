@@ -1,21 +1,9 @@
 import fs from "node:fs";
-import * as yaml from "yaml";
-import {expandEnvTemplate} from "nbook/server/utils/env-template";
+import {parseBootConfigText} from "@notnotype/neuro-book-contracts/installation";
+import type {BootConfig} from "@notnotype/neuro-book-contracts/installation";
 import {resolveBootConfigPath} from "nbook/server/runtime/installation-paths";
+export {parseBootConfigText};
 
-export type BootConfig = {
-    auth?: {
-        enabled?: boolean;
-    };
-    server?: {
-        host?: string;
-        port?: number;
-    };
-    database?: {
-        kind?: string;
-        url?: string;
-    };
-};
 
 let cachedAuthEnabled: boolean | null = null;
 
@@ -36,24 +24,6 @@ export function loadBootConfigSync(): BootConfig {
     return parseBootConfigText(text, process.env);
 }
 
-/**
- * 解析指定文本形式的 Boot Config。
- *
- * Manager 在接管保留的 State Root 前复用该合同，避免仅凭同名文件存在
- * 就把任意非空目录认作 NeuroBook 用户数据。
- */
-export function parseBootConfigText(text: string, environment: NodeJS.ProcessEnv = process.env): BootConfig {
-    const parsed = yaml.parse(expandEnvTemplate(text, environment)) as unknown;
-    if (parsed === null || parsed === undefined) {
-        return {};
-    }
-    if (!isRecord(parsed)) {
-        throw new Error("config.yaml 顶层必须是对象。");
-    }
-
-    validateAuthConfig(parsed.auth);
-    return parsed as BootConfig;
-}
 
 /**
  * 解析全站鉴权开关。显式配置优先；缺省时开发环境关闭、其他环境开启。
@@ -73,18 +43,3 @@ export function loadBootAuthEnabledSync(): boolean {
     return cachedAuthEnabled;
 }
 
-function validateAuthConfig(input: unknown): void {
-    if (input === undefined) {
-        return;
-    }
-    if (!isRecord(input)) {
-        throw new Error("config.yaml auth 必须是对象。");
-    }
-    if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
-        throw new Error("config.yaml auth.enabled 必须是 boolean。");
-    }
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-    return typeof input === "object" && input !== null && !Array.isArray(input);
-}

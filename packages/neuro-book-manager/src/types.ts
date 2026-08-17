@@ -1,19 +1,30 @@
-import type {StateRootIntegrityResult} from "nbook/server/runtime/state-root-integrity";
+import type {HostArchitecture, HostOperatingSystem, HostPlatform, ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import type {
+    ApplicationRuntimeComponent,
+    ContainerEngine,
+    InstallProfile,
+    InstallationComponents,
+    InstallationManifest,
+    InstallationRootLocators,
+    ManagedGitToolComponent,
+    ManagedRuntimeComponent,
+    ManagedToolComponent,
+    ManagerComponent,
+    ManagerRuntimeComponent,
+    ProductComponent,
+    ProductRuntimeImageIdentity,
+    ReleaseChannel,
+    RootLocator,
+    RootLocatorBase,
+    SourceComponent,
+    SystemRuntimeComponent,
+    SystemToolComponent,
+    ToolComponents,
+} from "@notnotype/neuro-book-contracts/installation";
+import type {ProductReleaseAsset, ReleaseAsset, ReleaseImage, ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
+import type {StateRootIntegrityResult} from "#manager/state-integrity";
 
-/** NeuroBook Manager 支持的安装 Profile。 */
-export type InstallProfile =
-    | "source-dev"
-    | "source-product"
-    | "product-bun"
-    | "windows-portable"
-    | "source-docker"
-    | "ghcr";
 
-/** Release channel。canary 表示全部受支持 prerelease。 */
-export type ReleaseChannel = "stable" | "canary";
-
-/** 受管容器部署使用的宿主引擎。 */
-export type ContainerEngine = "docker" | "podman";
 
 /** 用户级 Manager 配置中的安装偏好。 */
 export type ManagerPreferences = {
@@ -146,54 +157,6 @@ export type ManagerConfig = {
     instances: ManagerInstance[];
 };
 
-/** 当前支持的Product平台唯一枚举。 */
-export const PRODUCT_PLATFORMS = [
-    "windows-x64",
-    "linux-x64-glibc",
-    "linux-aarch64-glibc",
-    "darwin-x64",
-    "darwin-aarch64",
-] as const;
-
-/** 当前支持的 Product 平台。 */
-export type ProductPlatform = typeof PRODUCT_PLATFORMS[number];
-
-/** Manager当前支持的宿主操作系统。 */
-export type HostOperatingSystem = "windows" | "linux" | "macos";
-
-/** Manager当前支持的原生与进程架构。 */
-export type HostArchitecture = "x64" | "arm64";
-
-/**
- * 当前Manager进程所在的宿主平台。
- *
- * `nativeArch`描述机器原生架构，`processArch`描述当前Bun进程架构；两者不一致时
- * 仅允许展示诊断，不允许执行安装或维护操作。
- */
-export type HostPlatform = {
-    os: HostOperatingSystem;
-    nativeArch: HostArchitecture;
-    processArch: HostArchitecture;
-    productPlatform: ProductPlatform;
-    libc: "glibc" | null;
-};
-
-/** Root Locator 的物理基准；清单不持久化不可迁移的绝对路径。 */
-export type RootLocatorBase = "installation-root" | "local-app-data" | "user-app-data" | "user-cache";
-
-/** 从受控物理基准定位一个非根目录。 */
-export type RootLocator = {
-    base: RootLocatorBase;
-    path: string;
-};
-
-/** Installation Manifest 持久化的四类数据根。 */
-export type InstallationRootLocators = {
-    state: RootLocator;
-    cache: RootLocator;
-    desktop: RootLocator;
-    webview: RootLocator;
-};
 
 /** 当前机器上解析后的四类绝对数据根。 */
 export type ResolvedInstallationRoots = {
@@ -202,201 +165,6 @@ export type ResolvedInstallationRoots = {
     desktop: string;
     webview: string;
 };
-
-/** 托管下载资产必须保存的审计信息。 */
-export type ManagedAssetMetadata = {
-    archiveSha256: string;
-    sourceUrl: string;
-    license: string;
-    redistribution: string;
-};
-
-/** Product Runtime Image 由 Builder 生成并由消费方原样持久化的代次身份。 */
-export type ProductRuntimeImageIdentity = {
-    imageId: string;
-    sourceDigest: string;
-    lockfileSha256: string;
-    builderContractVersion: string;
-};
-
-export type SourceComponent =
-    | {
-        provider: "git";
-        version: string;
-        revision: string;
-        path: ".";
-        repository: string;
-        branch: string;
-    }
-    | ({
-        provider: "release";
-        buildId: string;
-        version: string;
-        revision: string;
-        path: ".";
-        files: string[];
-    } & ManagedAssetMetadata)
-    | {
-        provider: "container";
-        version: string;
-        revision: string;
-        path: "/app";
-    };
-
-export type ProductComponent =
-    | ({
-        provider: "git";
-        version: string;
-        revision: string;
-        path: ".output";
-        platform: ProductPlatform;
-    } & ProductRuntimeImageIdentity)
-    | ({
-        provider: "release";
-        buildId: string;
-        version: string;
-        revision: string;
-        path: ".output";
-        platform: ProductPlatform;
-    } & ManagedAssetMetadata & ProductRuntimeImageIdentity)
-    | {
-        provider: "container";
-        version: string;
-        revision: string;
-        image: string;
-        /** GHCR 必填，并作为容器 Product 的外层内容寻址 identity。 */
-        digest?: string;
-        /** Source Docker 必填，钉死本次本地 build 的 Container Engine image ID。 */
-        containerImageId?: string;
-        /** 单平台容器若能读取镜像内 manifest，可附带 Builder identity；OCI digest 已是外层真相源。 */
-        imageId?: string;
-        sourceDigest?: string;
-        lockfileSha256?: string;
-        builderContractVersion?: string;
-    };
-
-export type ManagerComponent = {
-    provider: "managed";
-    version: string;
-    path: string;
-    bundleSha256: string;
-};
-
-export type SystemRuntimeComponent = {
-    provider: "system";
-    version: string;
-    executable: string;
-};
-
-export type ManagedRuntimeComponent = {
-    provider: "managed";
-    version: string;
-    path: string;
-    executableSha256: string;
-} & ManagedAssetMetadata;
-
-export type ManagerRuntimeComponent = SystemRuntimeComponent | ManagedRuntimeComponent;
-
-export type ApplicationRuntimeComponent = ManagerRuntimeComponent | {
-    provider: "container";
-    version: string;
-};
-
-export type SystemToolComponent = {
-    provider: "system";
-    version: string;
-    executable: string;
-};
-
-export type ManagedToolComponent = {
-    provider: "managed";
-    version: string;
-    path: string;
-    executableSha256: string;
-} & ManagedAssetMetadata;
-
-export type ManagedGitToolComponent = Omit<ManagedToolComponent, "executableSha256"> & {
-    distribution: "PortableGit";
-    bashPath: string;
-    gitSha256: string;
-    bashSha256: string;
-};
-
-export type ContainerToolComponent = {
-    provider: "container";
-    version: string;
-};
-
-export type ToolComponents = {
-    rg?: SystemToolComponent | ManagedToolComponent | ContainerToolComponent;
-    git?: SystemToolComponent | ManagedGitToolComponent | ContainerToolComponent;
-    python?: SystemToolComponent | ContainerToolComponent;
-};
-
-export type InstallationComponents = {
-    source: SourceComponent;
-    product?: ProductComponent;
-    manager: ManagerComponent;
-    managerRuntime: ManagerRuntimeComponent;
-    applicationRuntime: ApplicationRuntimeComponent;
-    tools: ToolComponents;
-};
-
-/** 本机安装状态真相源。 */
-export type InstallationManifest = {
-    schemaVersion: 5;
-    profile: InstallProfile;
-    /** Container Profile记录实际引擎；原生Profile固定为null。 */
-    containerEngine: ContainerEngine | null;
-    managerVersion: string;
-    appVersion: string;
-    channel: ReleaseChannel;
-    sourceRevision: string;
-    roots: InstallationRootLocators;
-    components: InstallationComponents;
-    installedAt: string;
-    updatedAt: string;
-};
-
-/** Release 中的可下载资产。 */
-export type ReleaseAsset = {
-    url: string;
-    sha256: string;
-    bytes: number;
-};
-
-/** 平台 Product 资产。 */
-export type ProductReleaseAsset = ReleaseAsset & ProductRuntimeImageIdentity & {
-    platform: ProductPlatform;
-    sourceRevision: string;
-};
-
-/** GHCR 多架构镜像使用 OCI digest 作为等价的不可变 Product identity。 */
-export type ReleaseImage = {
-    ref: string;
-    digest: string;
-    sourceRevision: string;
-};
-
-/** GitHub Release 附带的统一组件清单。 */
-export type ReleaseManifest = {
-    schemaVersion: 5;
-    buildId: string;
-    version: string;
-    channel: ReleaseChannel;
-    sourceRevision: string;
-    minManagerVersion: string;
-    source: ReleaseAsset;
-    products: ProductReleaseAsset[];
-    windowsPortable: ReleaseAsset;
-    ghcr: ReleaseImage;
-    stateMigration: {
-        policy: "none" | "automatic" | "manual";
-        steps: string[];
-        guide?: string;
-    };
-};
-
 /** Profile 对组件来源的声明。 */
 export type ProfileDefinition = {
     profile: InstallProfile;

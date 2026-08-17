@@ -1,3 +1,4 @@
+import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {defineConfig} from "vitest/config";
@@ -9,6 +10,7 @@ export const releaseAssetsVitestConfig = {
     root: rootDir,
     resolve: {
         alias: {
+            "#scripts": resolve(rootDir, "scripts"),
             nbook: rootDir,
         },
     },

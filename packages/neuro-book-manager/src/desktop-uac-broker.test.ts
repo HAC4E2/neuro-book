@@ -7,7 +7,7 @@ import {createInterface} from "node:readline";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DESKTOP_UAC_BROKER_SCHEMA, DESKTOP_UAC_MAX_SECRET_BYTES, type DesktopUacBrokerRequest} from "nbook/shared/desktop-uac-broker";
+import {DESKTOP_UAC_BROKER_SCHEMA, DESKTOP_UAC_MAX_SECRET_BYTES, type DesktopUacBrokerRequest} from "@notnotype/neuro-book-contracts/desktop-uac";
 import {
     runDesktopUacBroker,
     validateDesktopUacBrokerRequest,

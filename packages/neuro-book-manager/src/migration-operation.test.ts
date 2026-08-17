@@ -15,10 +15,10 @@ import {mutateInstallation} from "#manager/installation-mutation";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {createOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
 import type {ApplicationLaunchOptions} from "#manager/app-commands";
-import type {InstallationManifest} from "#manager/types";
-import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const migrations = vi.hoisted(() => ({
     plan: vi.fn(),

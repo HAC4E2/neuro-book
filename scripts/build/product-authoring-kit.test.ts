@@ -5,7 +5,7 @@ import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
-import {assertAuthoringDeclarationSourcePaths} from "nbook/scripts/build/product-authoring-kit";
+import {assertAuthoringDeclarationSourcePaths} from "#scripts/build/product-authoring-kit";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);

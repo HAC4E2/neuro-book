@@ -12,8 +12,8 @@ import {
     parseRemoteLabels,
     readLabelManifest,
     type LabelDrift,
-} from "nbook/scripts/ci/community-labels";
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+} from "#scripts/ci/community-labels";
+import {run, runCapture} from "#scripts/utils/process.mjs";
 
 interface CommonOptions {
     repo: string;

@@ -4,7 +4,7 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it, vi} from "vitest";
 
-import {DraftReleaseAssets} from "nbook/scripts/release/draft-release-assets";
+import {DraftReleaseAssets} from "#scripts/release/draft-release-assets";
 
 const roots: string[] = [];
 

@@ -22,8 +22,8 @@ vi.mock("#manager/docker", () => ({
 }));
 
 import {inspectInstallationService} from "#manager/installation-health";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 const digest = `sha256:${"a".repeat(64)}`;

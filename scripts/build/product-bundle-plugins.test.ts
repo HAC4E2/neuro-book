@@ -7,7 +7,7 @@ import {promisify} from "node:util";
 
 import {build} from "esbuild";
 import {describe, expect, it} from "vitest";
-import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {productRuntimeCompatibilityPlugin} from "#scripts/build/product-bundle-plugins";
 
 const execFileAsync = promisify(execFile);
 
@@ -103,7 +103,7 @@ const BUN_PLUGIN_PROBE = String.raw`
 import {resolve} from "node:path";
 import {build} from "esbuild";
 import {init, parse} from "es-module-lexer";
-import {productPiAiImportPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {productPiAiImportPlugin} from "#scripts/build/product-bundle-plugins";
 await init;
 const result = await build({
     entryPoints: [

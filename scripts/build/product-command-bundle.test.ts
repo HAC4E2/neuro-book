@@ -9,7 +9,7 @@ import {
     PRODUCT_COMMAND_SOURCES,
     pruneEmptyProductCommandChunks,
     resolveProductCommandEntries,
-} from "nbook/scripts/build/product-command-bundle";
+} from "#scripts/build/product-command-bundle";
 
 const temporaryRoots: string[] = [];
 

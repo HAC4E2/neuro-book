@@ -1,4 +1,4 @@
-import type {DesktopBridge} from "nbook/shared/desktop-contract";
+import type {DesktopBridge} from "@notnotype/neuro-book-contracts/desktop";
 
 declare global {
     interface Window {

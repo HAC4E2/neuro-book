@@ -5,7 +5,9 @@ import {assertManagerUpgrade} from "#manager/runtime";
 import {planGitProfileUpdate, planReleaseProfileUpdate} from "#manager/update-planner";
 import type {GitUpdateTarget} from "#manager/git";
 import type {ProfileUpdatePlan} from "#manager/update-planner";
-import type {InstallationManifest, OperationEffect, ReleaseChannel, ReleaseManifest} from "#manager/types";
+import type {InstallationManifest, ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
+import type {OperationEffect} from "#manager/types";
 import {MANAGER_VERSION} from "#manager/version-info";
 import {lt} from "semver";
 

@@ -8,25 +8,25 @@ import {strToU8, zipSync} from "fflate";
 import {
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
-import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {PORTABLE_ROOT_LOCATORS} from "nbook/packages/neuro-book-manager/src/root-locators";
-import {PRODUCT_PLATFORMS, type InstallationManifest, type ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_ASSET_NAMES, PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
+import {PORTABLE_ROOT_LOCATORS, type InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {
     createPortableOperation,
     materializePortableArchives,
     PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT,
     portableArchiveComponents,
-} from "nbook/scripts/deploy/windows-portable-manager";
-import {releaseBuildId as computeReleaseBuildId} from "nbook/scripts/release/release-output";
-import {verifyWindowsPortable} from "nbook/scripts/release/verify-windows-portable";
-import {writeZipArchive, type ZipEntry} from "nbook/scripts/utils/zip";
+} from "#scripts/deploy/windows-portable-manager";
+import {releaseBuildId as computeReleaseBuildId} from "#scripts/release/release-output";
+import {verifyWindowsPortable} from "#scripts/release/verify-windows-portable";
+import {writeZipArchive, type ZipEntry} from "#scripts/utils/zip";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const VERSION = "1.2.3-canary.1";
 const REVISION = "a".repeat(40);

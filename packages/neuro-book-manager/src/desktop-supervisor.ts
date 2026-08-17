@@ -6,19 +6,19 @@ import {
     parseDesktopSupervisorRequest,
     type DesktopSupervisorEvent,
     type DesktopSupervisorRequest,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 import {
     authorizeProductRuntimeReceiptControlPlane,
     verifyProductRuntimeReceiptFully,
-} from "nbook/shared/product-runtime-receipt";
-import type {ProductRuntimeExpectedIdentity} from "nbook/shared/product-runtime-image-verifier";
+} from "#manager/product-verification";
+import type {ProductRuntimeExpectedIdentity} from "@notnotype/neuro-book-contracts/product-runtime";
 
 import {startInstallationApplication} from "#manager/migration-operation";
 import {mutateInstallation} from "#manager/installation-mutation";
 import {installationPaths} from "#manager/paths";
 import {issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {repairDesktopRuntimeState} from "#manager/desktop-installation";
-import type {InstallationManifest, ProductComponent} from "#manager/types";
+import type {InstallationManifest, ProductComponent} from "@notnotype/neuro-book-contracts/installation";
 
 export type DesktopSupervisorOptions = {
     root: string;

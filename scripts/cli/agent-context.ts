@@ -8,7 +8,7 @@ import {
     gitBranch,
     gitRevision,
     governanceRoots,
-} from "nbook/scripts/ci/agent-governance-contract";
+} from "#scripts/ci/agent-governance-contract";
 
 const args = process.argv.slice(2);
 const repoArgument = args.indexOf("--repo-root");

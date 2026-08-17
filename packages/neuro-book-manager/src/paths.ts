@@ -2,8 +2,9 @@ import {existsSync} from "node:fs";
 import {homedir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 
-import {INSTALLATION_SCOPED_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
-import type {InstallationRootLocators} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import {resolveInstallationRoots} from "#manager/root-locators";
+import type {InstallationRootLocators} from "@notnotype/neuro-book-contracts/installation";
 
 /** Manager 的标准目录集合。 */
 export type InstallationPaths = {

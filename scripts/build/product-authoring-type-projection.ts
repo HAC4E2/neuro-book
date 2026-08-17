@@ -7,7 +7,7 @@ import ts from "typescript";
 import {
     bundleProductJavaScript,
     productBundleOutputText,
-} from "nbook/scripts/build/product-reproducible-bundle";
+} from "#scripts/build/product-reproducible-bundle";
 
 export type AuthoringDependencyRegistration = {
     name: string;

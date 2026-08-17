@@ -3,7 +3,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
-import {isRuntimeTestSourcePath, pruneRuntimeTestSources} from "nbook/scripts/utils/runtime-source-prune.mjs";
+import {isRuntimeTestSourcePath, pruneRuntimeTestSources} from "#scripts/utils/runtime-source-prune.mjs";
 
 describe("Product runtime源码清理", () => {
     it("识别跨平台测试源码路径", () => {

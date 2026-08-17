@@ -6,18 +6,18 @@ import type {Metafile} from "esbuild";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
-} from "nbook/scripts/build/product-bundle-plugins";
-import {bundleProductJavaScript} from "nbook/scripts/build/product-reproducible-bundle";
+} from "#scripts/build/product-bundle-plugins";
+import {bundleProductJavaScript} from "#scripts/build/product-reproducible-bundle";
 import {
     PRODUCT_COMMAND_CHUNK_BASENAME,
     productRuntimeIslandPackageNames,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     type ProductRuntimeContract,
     type ProductRuntimeEntryMap,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 export const PRODUCT_COMMAND_SOURCES = {
     "product-start": "server/runtime/product-start-command.mjs",

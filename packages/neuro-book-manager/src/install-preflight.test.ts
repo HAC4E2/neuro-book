@@ -21,7 +21,7 @@ import {
     type InstallEnvironmentInspection,
 } from "#manager/install-preflight";
 import {inspectHostPlatform} from "#manager/platform";
-import type {ReleaseManifest} from "#manager/types";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const roots: string[] = [];

@@ -1,11 +1,9 @@
 import {resolve} from "node:path";
 import {verifyInstalledProductRuntimeImage, type VerifiedRuntimeImageIdentity} from "#manager/product";
 import {verifyContainerProductImage, type VerifiedContainerImage} from "#manager/docker";
-import type {ContainerEngine, InstallationManifest, ProductComponent} from "#manager/types";
-import {
-    verifyAuthorizedProductRuntimeReceiptControlPlane,
-    type ProductRuntimeReceiptAuthorization,
-} from "nbook/shared/product-runtime-receipt";
+import type {ContainerEngine, InstallationManifest, ProductComponent} from "@notnotype/neuro-book-contracts/installation";
+import {verifyAuthorizedProductRuntimeReceiptControlPlane} from "#manager/product-verification";
+import type {ProductRuntimeReceiptAuthorization} from "@notnotype/neuro-book-contracts/product-runtime";
 
 /** 所有 Application 子进程只能消费的已验证执行身份。 */
 export type VerifiedApplicationExecution =

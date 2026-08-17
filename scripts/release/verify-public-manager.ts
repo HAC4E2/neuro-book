@@ -3,8 +3,8 @@ import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 
-import {materializePublicManagerPackage} from "nbook/scripts/release/public-manager-package";
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {materializePublicManagerPackage} from "#scripts/release/public-manager-package";
+import {run, runCapture} from "#scripts/utils/process.mjs";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 const PACKAGE_ROOT = resolve(ROOT, "packages", "neuro-book-manager");

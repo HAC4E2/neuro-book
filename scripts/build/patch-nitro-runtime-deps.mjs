@@ -2,20 +2,20 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
-import {assertProductSystemArtifactContract} from "nbook/scripts/build/product-system-artifact-contract";
-import {buildProductAuthoringKit} from "nbook/scripts/build/product-authoring-kit";
-import {buildProductCommands} from "nbook/scripts/build/product-command-bundle";
-import {bundleProductRuntime} from "nbook/scripts/build/product-runtime-bundle";
-import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-runtime-module-closure.mjs";
+import {assertProductSystemArtifactContract} from "#scripts/build/product-system-artifact-contract";
+import {buildProductAuthoringKit} from "#scripts/build/product-authoring-kit";
+import {buildProductCommands} from "#scripts/build/product-command-bundle";
+import {bundleProductRuntime} from "#scripts/build/product-runtime-bundle";
+import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 import {
     assertProductRuntimeContractFiles,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     readProductRuntimeContract,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
 const productArtifactGeneratedAt = new Date(0).toISOString();

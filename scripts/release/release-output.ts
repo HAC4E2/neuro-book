@@ -6,8 +6,8 @@ import process from "node:process";
 
 import {Command} from "commander";
 
-import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {runCapture} from "nbook/scripts/utils/process.mjs";
+import {PRODUCT_ASSET_NAMES} from "@notnotype/neuro-book-contracts/platform";
+import {runCapture} from "#scripts/utils/process.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const RELEASE_OUTPUT_ROOT = "dist";

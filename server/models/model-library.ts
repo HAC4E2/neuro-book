@@ -5,7 +5,7 @@ import {
     type ModelLibraryDto,
     type ModelLibraryEntryDto,
 } from "nbook/shared/dto/app-settings.dto";
-import {isSupportedPiApi} from "nbook/shared/models/provider-config-contract";
+import {isSupportedPiApi} from "@notnotype/neuro-book-contracts/provider-config";
 
 const PROVIDER_SOURCE_PRIORITY = [
     "anthropic", "openai", "google", "deepseek", "xai", "xiaomi", "mistral", "minimax", "minimax-cn",

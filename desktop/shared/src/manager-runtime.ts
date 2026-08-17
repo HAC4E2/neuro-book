@@ -4,7 +4,7 @@ import {join, relative, resolve} from "node:path";
 export {
     isCanonicalMachineManagerPath,
     materializeMachineManagerScript,
-} from "nbook/packages/neuro-book-manager/src/manager-runtime-projection";
+} from "@notnotype/neuro-book-manager/runtime-projection";
 
 /**
  * Bun 在 Windows Program Files 中直接加载 Product `.mjs` 也可能返回

@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from "vitest";
-import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 import {ProductShutdownController} from "nbook/server/runtime/shutdown/product-shutdown-controller";
 
 describe("ProductShutdownController", () => {

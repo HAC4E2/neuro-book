@@ -7,12 +7,12 @@ import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
-import {assertBundledRuntimeSourcePaths} from "nbook/scripts/build/product-runtime-bundle";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {assertBundledRuntimeSourcePaths} from "#scripts/build/product-runtime-bundle";
 import {
     PRODUCT_COMMAND_CHUNK_BASENAME,
     productOpaqueImportDefinitions,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);

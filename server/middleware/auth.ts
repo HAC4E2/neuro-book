@@ -1,5 +1,5 @@
 import {getCurrentUser, isAuthEnabled} from "nbook/server/utils/auth";
-import {PRODUCT_SHUTDOWN_PATH} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_SHUTDOWN_PATH} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const publicApiPaths = new Set([
     "/api/app/version",

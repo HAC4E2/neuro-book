@@ -4,16 +4,13 @@ import {fileURLToPath} from "node:url";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
     productRuntimeCwd,
-    readProductRuntimeContract,
+    productRuntimeReceiptAuthorizationFromEnvironment,
     resolveProductRuntimeChecks,
     resolveProductRuntimeCheck,
     resolveProductRuntimeCommand,
-} from "nbook/shared/product-runtime-contract";
-import {ProductRuntimeImageVerifier} from "nbook/shared/product-runtime-image-verifier";
-import {
-    productRuntimeReceiptAuthorizationFromEnvironment,
-    verifyAuthorizedProductRuntimeReceiptControlPlane,
-} from "nbook/shared/product-runtime-receipt";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {ProductRuntimeImageVerifier, readProductRuntimeContract} from "nbook/server/interfaces/product-runtime-image-verifier";
+import {verifyAuthorizedProductRuntimeReceiptControlPlane} from "nbook/server/interfaces/product-verification";
 
 /** 固定 bootstrap：把逻辑 command/check ID 解析成当前镜像的实际 bundle 入口。 */
 async function main(): Promise<void> {

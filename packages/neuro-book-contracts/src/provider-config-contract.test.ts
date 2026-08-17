@@ -3,7 +3,7 @@ import {
     inspectProviderConfigDocument,
     type ProviderConfigInput,
     type ProviderConfigModelInput,
-} from "nbook/shared/models/provider-config-contract";
+} from "./provider-config-contract";
 
 type MutableInput = {
     defaultModelKey: string | null;

@@ -10,6 +10,8 @@ const result = await Bun.build({
     entrypoints: [
         resolve(packageRoot, "src", "neuro-book.ts"),
         resolve(packageRoot, "src", "schema.ts"),
+        resolve(packageRoot, "src", "runtime-projection.ts"),
+        resolve(packageRoot, "src", "desktop-installation-entry.ts"),
     ],
     outdir,
     target: "bun",

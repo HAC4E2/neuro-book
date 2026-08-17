@@ -7,7 +7,7 @@ import {parse as parseYaml, stringify as stringifyYaml} from "yaml";
 
 import {readInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
 import {installationPaths} from "nbook/packages/neuro-book-manager/src/paths";
-import type {InstallationManifest} from "nbook/packages/neuro-book-manager/src/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {acquireAgentSessionStoreExclusiveLease} from "nbook/server/agent/session/agent-session-store";
 
 const PORT = 39_123;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import {resolve} from "node:path";
-import {defaultRepoRoot, git, gitBranch, governanceRoots} from "nbook/scripts/ci/agent-governance-contract";
+import {defaultRepoRoot, git, gitBranch, governanceRoots} from "#scripts/ci/agent-governance-contract";
 
 const args = process.argv.slice(2);
 const repoArgument = args.indexOf("--repo-root");

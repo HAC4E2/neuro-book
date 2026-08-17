@@ -3,9 +3,9 @@ import {randomUUID} from "node:crypto";
 import {mkdir, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {lock as acquireFileLock} from "proper-lockfile";
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
-import type {ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
-import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {LocalProductPublisher} from "#scripts/build/local-product-publisher";
 import {
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
@@ -13,7 +13,7 @@ import {
     productRuntimeBuildPolicy,
     type ProductRuntimeBuildContext,
     type ProductRuntimeOwnerBaseline,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 
 export {PRODUCT_RUNTIME_MAX_BYTES, PRODUCT_RUNTIME_MAX_FILES};
 export const PRODUCT_SOURCE_DATE_EPOCH = "0";

@@ -8,7 +8,7 @@ import {
     isCanonicalMachineProductImagePath,
     materializeMachineManagerScript,
     materializeMachineProductImage,
-} from "nbook/desktop/shared/src/manager-runtime";
+} from "./manager-runtime";
 
 const roots: string[] = [];
 const originalPlatform = process.platform;

@@ -1,8 +1,7 @@
 import {readFile, stat} from "node:fs/promises";
 import {isAbsolute, relative, resolve} from "node:path";
 
-import {parseReleaseStateMigration} from "nbook/packages/neuro-book-manager/src/schema";
-import type {ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
+import {parseReleaseStateMigration, type ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {APPLICATION_STATE_MIGRATION_STEP_IDS} from "nbook/server/runtime/application-state-migration/catalog";
 
 export const RELEASE_STATE_MIGRATION_DECLARATION = "release-state-migration.json";

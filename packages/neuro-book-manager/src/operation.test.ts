@@ -23,10 +23,10 @@ import {
     INSTALLED_WINDOWS_ROOT_LOCATORS,
     INSTALLATION_SCOPED_ROOT_LOCATORS,
     PORTABLE_ROOT_LOCATORS,
-} from "#manager/root-locators";
+} from "@notnotype/neuro-book-contracts/installation";
 import {parseOperationJournal} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
-import type {InstallationManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const docker = vi.hoisted(() => ({
     removeDeployment: vi.fn(),

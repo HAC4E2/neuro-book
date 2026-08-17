@@ -4,29 +4,29 @@ import {existsSync} from "node:fs";
 import {copyFile, cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
 import {
     analyzeRuntimeModuleSource,
     assertRuntimeModuleFiles,
     assertRuntimePackageIdentity,
-} from "nbook/scripts/build/nitro-runtime-module-specifier.mjs";
+} from "#scripts/build/nitro-runtime-module-specifier.mjs";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
-} from "nbook/scripts/build/product-bundle-plugins";
-import {rewriteProductPackageIslandImports} from "nbook/scripts/build/product-package-island-imports";
-import {bundleProductJavaScript} from "nbook/scripts/build/product-reproducible-bundle";
+} from "#scripts/build/product-bundle-plugins";
+import {rewriteProductPackageIslandImports} from "#scripts/build/product-package-island-imports";
+import {bundleProductJavaScript} from "#scripts/build/product-reproducible-bundle";
 import {
     productOpaqueImportDefinitions,
     productRuntimeIslandDefinitions,
     productRuntimeIslandPackageNames,
     productRuntimeIslandSourceRoot,
-} from "nbook/scripts/build/product-runtime-islands";
-import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
+} from "#scripts/build/product-runtime-islands";
+import {containsSourceRootDescendant} from "#scripts/build/product-source-path-contract";
 import {
     projectTypeScriptRuntime,
     type TypeScriptRuntimeProjection,
-} from "nbook/scripts/build/typescript-runtime-projection";
+} from "#scripts/build/typescript-runtime-projection";
 
 const NATIVE_ISLAND_SCHEMA = "nbook.product-native-islands/v2";
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");

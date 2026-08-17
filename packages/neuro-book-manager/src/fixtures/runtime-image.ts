@@ -2,7 +2,8 @@ import {randomUUID} from "node:crypto";
 import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {ProductPlatform, ProductRuntimeImageIdentity} from "#manager/types";
+import type {ProductRuntimeImageIdentity} from "@notnotype/neuro-book-contracts/installation";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {
     hasProductRuntimeBuildPolicy,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
@@ -14,7 +15,7 @@ import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 /** 与宿主无关的Verifier/归档测试固定消费已审查的最小规范平台。 */
 export const TEST_RUNTIME_IMAGE_PLATFORM = "windows-x64" satisfies ProductPlatform;

@@ -3,7 +3,7 @@ import type {
     DiscoveredProviderModelDto,
     ModelLibraryEntryDto,
 } from "nbook/shared/dto/app-settings.dto";
-import {inspectModelCapability, selectModelApi} from "nbook/shared/models/provider-config-contract";
+import {inspectModelCapability, selectModelApi} from "@notnotype/neuro-book-contracts/provider-config";
 
 export type ModelCandidateSource = "remote" | "model-library" | "provider-config" | "provider-template" | "user";
 

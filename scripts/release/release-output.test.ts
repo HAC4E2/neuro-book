@@ -11,8 +11,8 @@ import {
     prepareReleaseOutput,
     readReleaseGeneration,
     releaseBuildId,
-} from "nbook/scripts/release/release-output";
-import {runCapture} from "nbook/scripts/utils/process.mjs";
+} from "#scripts/release/release-output";
+import {runCapture} from "#scripts/utils/process.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const roots: string[] = [];

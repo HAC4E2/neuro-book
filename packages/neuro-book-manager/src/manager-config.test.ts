@@ -9,8 +9,8 @@ import {addDiscoveryRoot, defaultManagerConfig, forgetManagerInstance, readManag
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {currentProductPlatform} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 

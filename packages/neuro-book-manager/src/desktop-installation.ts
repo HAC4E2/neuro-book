@@ -22,7 +22,7 @@ import {
     type DesktopProviderLocator,
     type DesktopToolProviderLocator,
     type DesktopShellArchiveManifest,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 
 import {downloadVerified, extractZip} from "#manager/download";
 import {createAdmin} from "#manager/app-commands";
@@ -33,9 +33,10 @@ import {
     prepareInstalledApplication,
     type InstallationApplicationPreparation,
 } from "#manager/migration-operation";
-import {INSTALLED_WINDOWS_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
+import {INSTALLED_WINDOWS_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import {resolveInstallationRoots} from "#manager/root-locators";
 import {writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
-import {parseInstallationManifest} from "#manager/schema";
+import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {run, runCaptureResult, type RunCaptureResult} from "#manager/process";
 import {verifyInstalledProductRuntimeImage} from "#manager/product";
 import {writeManagedToolWrappers} from "#manager/tools";
@@ -45,15 +46,17 @@ import type {
     InstallationManifest,
     InstallationRootLocators,
     ToolComponents,
-} from "#manager/types";
-import {parseBootConfigText} from "nbook/server/config/boot-config";
+} from "@notnotype/neuro-book-contracts/installation";
 import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
     DESKTOP_AGGREGATE_DEPOT_MANIFEST,
+} from "@notnotype/neuro-book-contracts/desktop";
+import {parseBootConfigText} from "@notnotype/neuro-book-contracts/installation";
+import {
     verifyDesktopAggregateDepot,
     verifyDesktopAggregateDepotArchive,
-} from "nbook/desktop/shared/src/desktop-aggregate-depot";
+} from "#manager/desktop-aggregate-depot";
 
 const DESKTOP_RUNTIME_SCHEMA = "nbook.desktop-installation-runtime/v1" as const;
 const DESKTOP_INSTALLATION_FILE = "desktop-installation.json";

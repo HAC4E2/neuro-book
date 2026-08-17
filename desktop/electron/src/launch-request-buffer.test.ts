@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {DesktopLaunchRequestBuffer} from "nbook/desktop/electron/src/launch-request-buffer";
+import {DesktopLaunchRequestBuffer} from "./launch-request-buffer";
 
 describe("Desktop launch request buffer", () => {
     it("在 Renderer 尚未就绪时保留最新请求并一次 drain", () => {

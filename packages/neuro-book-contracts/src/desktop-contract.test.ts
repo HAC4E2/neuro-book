@@ -21,7 +21,7 @@ import {
     parseDesktopSupervisorEvent,
     parseDesktopSupervisorRequest,
     patchDesktopSettings,
-} from "nbook/shared/desktop-contract";
+} from "./desktop-contract";
 
 describe("Desktop contracts", () => {
     it("接受本地 depot 与 HTTPS 组件并拒绝路径逃逸和重复组件", () => {

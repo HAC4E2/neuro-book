@@ -8,7 +8,7 @@ import {
     encodeDesktopUacBrokerLine,
     parseDesktopUacBrokerLine,
     type DesktopUacBrokerRequest,
-} from "nbook/shared/desktop-uac-broker";
+} from "./desktop-uac-broker";
 
 describe("Desktop UAC Broker protocol", () => {
     it("round-trips hello, request and event messages without carrying secret bytes", () => {

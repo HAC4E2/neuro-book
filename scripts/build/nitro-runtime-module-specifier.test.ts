@@ -7,7 +7,7 @@ import {
     analyzeRuntimeModuleSource,
     assertRuntimeModuleFiles,
     assertRuntimePackageIdentity,
-} from "nbook/scripts/build/nitro-runtime-module-specifier.mjs";
+} from "#scripts/build/nitro-runtime-module-specifier.mjs";
 
 const temporaryRoots: string[] = [];
 

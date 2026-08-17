@@ -7,19 +7,20 @@ import {afterEach, describe, expect, it} from "vitest";
 import {buildTestRuntimeImage} from "nbook/packages/neuro-book-manager/src/fixtures/runtime-image";
 
 import {
-    authorizeProductRuntimeReceiptControlPlane,
     createProductRuntimeVerificationReceipt,
     PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT,
     PRODUCT_RUNTIME_RECEIPT_SHA256_ENVIRONMENT,
     PRODUCT_RUNTIME_RECEIPT_SCHEMA,
     productRuntimeReceiptAuthorizationFromEnvironment,
     productRuntimeReceiptEnvironment,
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {
+    authorizeProductRuntimeReceiptControlPlane,
     readProductRuntimeVerificationReceipt,
     verifyAuthorizedProductRuntimeReceiptControlPlane,
     writeProductRuntimeVerificationReceipt,
-} from "nbook/shared/product-runtime-receipt";
-
-import type {ProductRuntimeExpectedIdentity, ProductRuntimeImageManifest} from "nbook/shared/product-runtime-image-verifier";
+} from "nbook/server/interfaces/product-verification";
+import type {ProductRuntimeExpectedIdentity, ProductRuntimeImageManifest} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 

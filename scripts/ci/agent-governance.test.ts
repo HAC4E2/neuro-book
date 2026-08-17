@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {verifyTaskMigration} from "nbook/scripts/ci/agent-governance-contract";
+import {verifyTaskMigration} from "#scripts/ci/agent-governance-contract";
 import { createTestTmpRoot } from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);

@@ -7,7 +7,8 @@ import {run, runCapture} from "#manager/process";
 import {managedAssetRoot, materializeManagedAsset, type TrustedManagedAssetIdentity} from "#manager/managed-asset-repository";
 import {currentProductPlatform} from "#manager/platform";
 import {findNamedFile, prependExecutablePath} from "#manager/runtime";
-import type {ManagedGitToolComponent, ManagedToolComponent, ProductPlatform, ToolComponents} from "#manager/types";
+import type {ManagedGitToolComponent, ManagedToolComponent, ToolComponents} from "@notnotype/neuro-book-contracts/installation";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 
 export type ManagedToolName = "rg" | "git";
 
