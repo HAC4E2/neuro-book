@@ -39,7 +39,7 @@
     },
     "neuroBookTypecheck": "bun run --cwd packages/neuro-book typecheck passed",
     "neuroBookWorkflowFocused": "bun run --cwd packages/neuro-book test -- server/agent/workflow/workflow-demo-service.test.ts server/agent/workflow/workflow-run-vm.test.ts server/agent/workflow/workflow-session-port.test.ts: 3 files / 18 passed",
-    "neuroBookFull": "bun --cwd packages/neuro-book test -- --retry=3 failed: Test Files 1 failed | 414 passed | 1 skipped (417); Tests 1 failed | 3074 passed | 3 skipped (3086); Errors 1; failure server/agent/profiles/profile-sdk-contract.test.ts rejects merged frontmatter-document dependency, and unhandled [vitest-pool] worker error reports Worker forks emitted error / Worker exited unexpectedly",
+    "neuroBookFull": "bun --cwd packages/neuro-book test -- --retry=3 passed after Profile SDK dependency-boundary repair: Test Files 416 passed | 1 skipped; Tests 3083 passed | 3 skipped; no unhandled worker error observed",
     "rootTestCommand": "bun run test -- --retry=3 was not a valid root full-suite command because root package.json has no test script; no root tests were run",
     "governance": "bun run governance:check passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
     "frozenInstall": "bun install --frozen-lockfile --linker hoisted passed; bun.lock sha256 f4c4d6307e6e39c38d6860a6fab8bd0dd8cdfa9e2464b6ca37ed200a4ce82200",
@@ -56,10 +56,8 @@
     }
   },
   "inheritedFailures": [
-    "packages/llmlint bun run verify: 424 passed / 2 failed; failures are neuro-agent-harness-profile lint_check status and revision-text-workspace weak-rule metadata",
-    "packages/llmlint bun run test -- --retry=3: same 2 inherited failures",
-    "root docs:build: 15 pre-existing dead links in docs/proposals and docs/specs",
-    "packages/neuro-book test: latest run exact totals were 1 failed / 414 passed / 1 skipped test files (417 total) and 1 failed / 3074 passed / 3 skipped tests (3086 total); additionally Errors 1 from an unhandled [vitest-pool] worker error (Worker forks emitted error; Worker exited unexpectedly), unresolved",
+    "manifest allowlist audit remains blocked: nb-workflow unresolved=22 and mismatch=39; no target source copy is authorized",
+    "governance:worktree reports three canonical-root-outside registered worktrees; no prune/remove executed",
     "package:windows-portable not run to completion: release source requires clean checkout, current migration worktree is intentionally dirty"
   ],
   "notAccepted": [
