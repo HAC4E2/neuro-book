@@ -37,7 +37,7 @@ createdAt: 2026-08-18T11:05:00Z
 
 - `packages/nb-workflow`: 实际命令 `bun test`，103 pass / 0 fail；`bunx tsc --noEmit` 通过。
 - `packages/neuro-book`: 实际命令 `bun run --cwd packages/neuro-book typecheck` 通过；workflow 聚焦命令 `bun run --cwd packages/neuro-book test -- server/agent/workflow/workflow-demo-service.test.ts server/agent/workflow/workflow-run-vm.test.ts server/agent/workflow/workflow-session-port.test.ts` 为 3 files / 18 passed。
-- 主应用全量实际命令为 `bun --cwd packages/neuro-book test -- --retry=3`，结果为 1 file failed / 415 passed / 1 skipped；3082 passed / 3 skipped。失败文件是 `server/agent/profiles/profile-sdk-contract.test.ts`，`director.profile.tsx` 的依赖包含 `server/utils/frontmatter-document.ts`。
+ - 主应用全量实际命令为 `bun --cwd packages/neuro-book test -- --retry=3`；原始 Vitest 结果为 `Test Files 1 failed | 414 passed | 1 skipped (417)`、`Tests 1 failed | 3074 passed | 3 skipped (3086)`，另有 `Errors 1`。失败文件是 `server/agent/profiles/profile-sdk-contract.test.ts`，`director.profile.tsx` 的依赖包含 `server/utils/frontmatter-document.ts`；同时存在未处理的 `[vitest-pool] Worker forks emitted error` / `Worker exited unexpectedly`，因此该全量结果不通过。
 - 根 `package.json` 没有 `test` script；`bun run test -- --retry=3` 没有执行根全量测试，不作为通过证据。
 - 端到端 smoke 观察到 `fingerprint=sha256:<64 lowercase hex>`，ActivityRecord 与 `activity_started` 均含 canonical `params`。
 - 公共投影回归证明 journal/event 不含 `params`，invocation usage.cost 被移除，用户自定义 result.cost 保留。
