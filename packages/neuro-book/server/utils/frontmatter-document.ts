@@ -1,6 +1,6 @@
 import {z} from "zod";
 import * as yaml from "yaml";
-
+import {splitFrontmatterBoundary} from "nbook/server/utils/frontmatter-body";
 type ParsedFrontmatterDocument<T> = {
     metadata: T;
     body: string;
@@ -9,7 +9,6 @@ type ParsedFrontmatterDocument<T> = {
     rawFrontmatterText: string;
 };
 
-const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 /**
  * 解析 Markdown 文档中的 YAML frontmatter。
@@ -18,8 +17,8 @@ export function parseFrontmatterDocument<T>(
     content: string,
     schema: z.ZodSchema<T>,
 ): ParsedFrontmatterDocument<T> {
-    const match = content.match(FRONTMATTER_PATTERN);
-    if (!match) {
+    const boundary = splitFrontmatterBoundary(content);
+    if (!boundary) {
         return {
             metadata: schema.parse({}),
             body: content,
@@ -29,8 +28,8 @@ export function parseFrontmatterDocument<T>(
         };
     }
 
-    const frontmatterText = match[1] ?? "";
-    const body = match[2] ?? "";
+    const frontmatterText = boundary.frontmatterText;
+    const body = boundary.body;
     const parsedFrontmatter = yaml.parse(frontmatterText, {logLevel: "silent"});
     const rawFrontmatter = isRecord(parsedFrontmatter) ? parsedFrontmatter : {};
 
@@ -63,14 +62,6 @@ export function assertNoReadonlyFrontmatterKeys(
             throw new Error(`frontmatter 不允许写入只读字段 "${key}"`);
         }
     }
-}
-
-/**
- * 剥离 YAML frontmatter，仅返回正文部分；无 frontmatter 时原样返回。
- */
-export function stripFrontmatterBody(content: string): string {
-    const match = content.match(FRONTMATTER_PATTERN);
-    return match ? match[2] ?? "" : content;
 }
 
 /**

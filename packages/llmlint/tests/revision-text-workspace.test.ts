@@ -79,18 +79,33 @@ describe("RevisionTextWorkspace", () => {
     });
 
     it("lint_check 将强判别和 AI 敏感词标为必修，弱判别留给语境判断", async () => {
-        const body = "不是因为天气，而是因为心情。\n他笑了一声。\n他的脊柱发紧。";
-        const workspace = new RevisionTextWorkspace({current: {revisionId: "r2", ordinal: 2, body}, source: fakeSource()});
+        type RegistryWithOptionalVerdicts = typeof registryData & {
+            ruleVerdicts?: Record<string, {verdict: "weak" | "insufficient"; effectiveLift: number | null}>;
+        };
+        const registry = registryData as RegistryWithOptionalVerdicts;
+        const previousVerdicts = registry.ruleVerdicts;
+        registry.ruleVerdicts = {
+            ...(previousVerdicts ?? {}),
+            "cn.sound.once.laugh-one-sound": {verdict: "weak", effectiveLift: 0.42},
+            "cn.vocabulary.body.spine-column": {verdict: "insufficient", effectiveLift: 0.01},
+        };
+        try {
+            const body = "不是因为天气，而是因为心情。\n他笑了一声。\n他的脊柱发紧。";
+            const workspace = new RevisionTextWorkspace({current: {revisionId: "r2", ordinal: 2, body}, source: fakeSource()});
 
-        const checked = await workspace.lintCheck({review: "all", showLines: true});
+            const checked = await workspace.lintCheck({review: "all", showLines: true});
 
-        expect(checked.report).toContain("story-deslop.not-is-comparison");
-        expect(checked.issues.find((issue) => issue.rule.id === "story-deslop.not-is-comparison")?.repairPolicy)
-            .toEqual({required: true, reason: "strong", verdict: null, effectiveLift: null});
-        expect(checked.issues.find((issue) => issue.rule.id === "cn.sound.once.laugh-one-sound")?.repairPolicy)
-            .toEqual({required: false, reason: "weak", verdict: "weak", effectiveLift: expect.any(Number)});
-        expect(checked.issues.find((issue) => issue.rule.id === "cn.vocabulary.body.spine-column")?.repairPolicy)
-            .toEqual({required: true, reason: "sensitive_vocabulary", verdict: "insufficient", effectiveLift: expect.any(Number)});
+            expect(checked.report).toContain("story-deslop.not-is-comparison");
+            expect(checked.issues.find((issue) => issue.rule.id === "story-deslop.not-is-comparison")?.repairPolicy)
+                .toEqual({required: true, reason: "strong", verdict: null, effectiveLift: null});
+            expect(checked.issues.find((issue) => issue.rule.id === "cn.sound.once.laugh-one-sound")?.repairPolicy)
+                .toEqual({required: false, reason: "weak", verdict: "weak", effectiveLift: 0.42});
+            expect(checked.issues.find((issue) => issue.rule.id === "cn.vocabulary.body.spine-column")?.repairPolicy)
+                .toEqual({required: true, reason: "sensitive_vocabulary", verdict: "insufficient", effectiveLift: 0.01});
+        } finally {
+            if (previousVerdicts === undefined) Reflect.deleteProperty(registry, "ruleVerdicts");
+            else registry.ruleVerdicts = previousVerdicts;
+        }
     });
 
     it("评测报告缺失时降级为上下文判断，AI 敏感词仍保持必修", async () => {

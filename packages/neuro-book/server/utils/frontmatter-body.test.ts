@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {stripFrontmatterBody} from "nbook/server/utils/frontmatter-document";
+import {stripFrontmatterBody} from "nbook/server/utils/frontmatter-body";
 
 describe("stripFrontmatterBody", () => {
     it("剥离 LF 与 CRLF frontmatter，返回正文", () => {

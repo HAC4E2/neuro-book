@@ -1,4 +1,5 @@
 import {describe, expect, it} from "vitest";
+import registryData from "../web/app/data/registry.json";
 import {NeuroAgentHarness, ProfileRegistry, type JsonObject} from "@notnotype/neuro-agent-harness";
 import {MemorySessionStore} from "@notnotype/neuro-agent-harness/storage/memory";
 import {ScriptedModelRuntime} from "@notnotype/neuro-agent-harness/testing";
@@ -86,27 +87,42 @@ describe("llmlint NeuroAgentHarness Profile", () => {
     });
 
     it("lint_check 向模型公开强判别、AI 敏感词与弱判别优先级", async () => {
-        const body = "不是因为天气，而是因为心情。\n他笑了一声。\n他的脊柱发紧。";
-        const model = new ScriptedModelRuntime<LlmlintModelConfig>([
-            {message: {role: "assistant", content: [{type: "toolCall", call: {id: "lint", name: "lint_check", arguments: {review: "all"}}}], timestamp: 1}},
-            (request) => {
-                const toolResult = request.messages.findLast((message) => message.role === "toolResult");
-                const content = toolResult?.role === "toolResult" ? toolResult.content : "";
-                expect(content).toContain("必修：强判别");
-                expect(content).toContain("必修：AI 敏感词");
-                expect(content).toContain("酌情：弱判别");
-                return {message: {role: "assistant", content: [{type: "toolCall", call: {id: "edit", name: "edit", arguments: {edits: [{oldText: body, newText: "雨停后，他终于笑了。"}]}}}], timestamp: 2}};
-            },
-            {message: {role: "assistant", content: [{type: "toolCall", call: {id: "finish", name: "finish", arguments: {summary: "完成风险润色"}}}], timestamp: 3}},
-        ]);
-        const store = new MemorySessionStore<string, LlmlintSessionInitial>({idKind: "custom", allocateId: () => "session-priority"});
-        const profiles = new ProfileRegistry<string, LlmlintSessionInitial, LlmlintModelConfig>().add(createLlmlintProfile({repairModelKey: "test/model"}));
-        const harness = new NeuroAgentHarness({store, profiles, model, capabilities: [unusedAnalysisProvider(), revisionProvider(body)]});
-        await harness.createSession({profileKey: "llmlint.review", initial: {revisionId: "revision-priority", userId: 1}, hostContext: {revisionId: "revision-priority", userId: 1}});
+        type RegistryWithOptionalVerdicts = typeof registryData & {
+            ruleVerdicts?: Record<string, {verdict: "weak" | "insufficient"; effectiveLift: number | null}>;
+        };
+        const registry = registryData as RegistryWithOptionalVerdicts;
+        const previousVerdicts = registry.ruleVerdicts;
+        registry.ruleVerdicts = {
+            ...(previousVerdicts ?? {}),
+            "cn.sound.once.laugh-one-sound": {verdict: "weak", effectiveLift: 0.42},
+            "cn.vocabulary.body.spine-column": {verdict: "insufficient", effectiveLift: 0.01},
+        };
+        try {
+            const body = "不是因为天气，而是因为心情。\n他笑了一声。\n他的脊柱发紧。";
+            const model = new ScriptedModelRuntime<LlmlintModelConfig>([
+                {message: {role: "assistant", content: [{type: "toolCall", call: {id: "lint", name: "lint_check", arguments: {review: "all"}}}], timestamp: 1}},
+                (request) => {
+                    const toolResult = request.messages.findLast((message) => message.role === "toolResult");
+                    const content = toolResult?.role === "toolResult" ? toolResult.content : "";
+                    expect(content).toContain("必修：强判别");
+                    expect(content).toContain("必修：AI 敏感词");
+                    expect(content).toContain("酌情：弱判别");
+                    return {message: {role: "assistant", content: [{type: "toolCall", call: {id: "edit", name: "edit", arguments: {edits: [{oldText: body, newText: "雨停后，他终于笑了。"}]}}}], timestamp: 2}};
+                },
+                {message: {role: "assistant", content: [{type: "toolCall", call: {id: "finish", name: "finish", arguments: {summary: "完成风险润色"}}}], timestamp: 3}},
+            ]);
+            const store = new MemorySessionStore<string, LlmlintSessionInitial>({idKind: "custom", allocateId: () => "session-priority"});
+            const profiles = new ProfileRegistry<string, LlmlintSessionInitial, LlmlintModelConfig>().add(createLlmlintProfile({repairModelKey: "test/model"}));
+            const harness = new NeuroAgentHarness({store, profiles, model, capabilities: [unusedAnalysisProvider(), revisionProvider(body)]});
+            await harness.createSession({profileKey: "llmlint.review", initial: {revisionId: "revision-priority", userId: 1}, hostContext: {revisionId: "revision-priority", userId: 1}});
 
-        const result = await (await harness.invoke({sessionId: "session-priority", payload: {mode: "prompt", phase: "optimize", revisionId: "revision-priority", message: "润色高风险段落", body}})).result();
+            const result = await (await harness.invoke({sessionId: "session-priority", payload: {mode: "prompt", phase: "optimize", revisionId: "revision-priority", message: "润色高风险段落", body}})).result();
 
-        expect(result.status).toBe("completed");
+            expect(result.status).toBe("completed");
+        } finally {
+            if (previousVerdicts === undefined) Reflect.deleteProperty(registry, "ruleVerdicts");
+            else registry.ruleVerdicts = previousVerdicts;
+        }
     });
 
     it("通过 edit/finish 完成 optimize，并持久化编辑事实", async () => {
