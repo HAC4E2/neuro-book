@@ -3,7 +3,7 @@ schema: nbook.walkthrough/v1
 taskId: 00149-monorepo-workspace-consolidation
 sequence: 010
 role: leader
-status: green-focused-with-inherited-blockers
+status: blocked
 createdAt: 2026-08-18T11:05:00Z
 ---
 
@@ -37,7 +37,7 @@ createdAt: 2026-08-18T11:05:00Z
 
 - `packages/nb-workflow`: 实际命令 `bun test`，103 pass / 0 fail；`bunx tsc --noEmit` 通过。
 - `packages/neuro-book`: 实际命令 `bun run --cwd packages/neuro-book typecheck` 通过；workflow 聚焦命令 `bun run --cwd packages/neuro-book test -- server/agent/workflow/workflow-demo-service.test.ts server/agent/workflow/workflow-run-vm.test.ts server/agent/workflow/workflow-session-port.test.ts` 为 3 files / 18 passed。
- - 主应用全量实际命令为 `bun --cwd packages/neuro-book test -- --retry=3`；原始 Vitest 结果为 `Test Files 1 failed | 414 passed | 1 skipped (417)`、`Tests 1 failed | 3074 passed | 3 skipped (3086)`，另有 `Errors 1`。失败文件是 `server/agent/profiles/profile-sdk-contract.test.ts`，`director.profile.tsx` 的依赖包含 `server/utils/frontmatter-document.ts`；同时存在未处理的 `[vitest-pool] Worker forks emitted error` / `Worker exited unexpectedly`，因此该全量结果不通过。
+- 主应用全量实际命令为 `bun --cwd packages/neuro-book test -- --retry=3`；原始 Vitest 结果为 `Test Files 1 failed | 414 passed | 1 skipped (417)`、`Tests 1 failed | 3074 passed | 3 skipped (3086)`，另有 `Errors 1`。失败文件是 `server/agent/profiles/profile-sdk-contract.test.ts`，`director.profile.tsx` 的依赖包含 `server/utils/frontmatter-document.ts`；同时存在未处理的 `[vitest-pool] Worker forks emitted error` / `Worker exited unexpectedly`，因此该全量结果不通过。
 - 根 `package.json` 没有 `test` script；`bun run test -- --retry=3` 没有执行根全量测试，不作为通过证据。
 - 端到端 smoke 观察到 `fingerprint=sha256:<64 lowercase hex>`，ActivityRecord 与 `activity_started` 均含 canonical `params`。
 - 公共投影回归证明 journal/event 不含 `params`，invocation usage.cost 被移除，用户自定义 result.cost 保留。
@@ -51,4 +51,4 @@ createdAt: 2026-08-18T11:05:00Z
 - 主应用全量回归的 profile SDK 依赖边界失败尚未修复；未将它误记为通过。
 - Windows portable release 要求 clean checkout；当前迁移 worktree 按计划保持 dirty，未执行强行清理。
 - 用户已选择“批准并继续”：允许承认已发生的 `0fdec90bac0456b67045185c99cb8b829e75bd6c` 计划外源仓提交，并仅使用其等价内容作为迁移输入；不允许新的原仓写操作。
-- 原仓 T02 immutability gate 不宣称 clean-green，作为用户批准的计划外例外保留；主仓本地迁移提交 `ba694892a21fec57cfc176f43819f84fef3fdbc1` 已完成，显式 merge `origin/master` 生成 `da3343919b52a482d562140517f8e4cd6229b9e3`，但 S6 当前只保留为 `green-focused-with-inherited-blockers`，不宣称绿色验收。
+- 原仓 T02 immutability gate 不宣称 clean-green，作为用户批准的计划外例外保留；主仓本地迁移提交 `ba694892a21fec57cfc176f43819f84fef3fdbc1` 已完成，显式 merge `origin/master` 生成 `da3343919b52a482d562140517f8e4cd6229b9e3`；S6 当前因主应用失败、未处理 worker error、llmlint 与 docs 边界阻塞，保持 `blocked`，不创建最终 tag、不宣称绿色验收。

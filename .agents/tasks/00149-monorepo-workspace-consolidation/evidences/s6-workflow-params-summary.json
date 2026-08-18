@@ -2,7 +2,7 @@
   "schema": "nbook.evidence/v1",
   "taskId": "00149-monorepo-workspace-consolidation",
   "phase": "S6-workflow-params-side-channel",
-  "status": "green-focused-with-inherited-blockers",
+  "status": "blocked",
   "implementationScope": [
     "packages/nb-workflow/src/fingerprint.ts",
     "packages/nb-workflow/src/runtime.ts",
@@ -72,12 +72,11 @@
   ],
   "checkpoint": {
     "mainRepositoryMerge": "da3343919b52a482d562140517f8e4cd6229b9e3; parents ba694892a21fec57cfc176f43819f84fef3fdbc1 and 5e55c54e13cd67f6e19c5361931fca1fe9ae4241",
-    "checkpointCommit": "4f39cf8c94b365306f70def7eab7844460d87d3c",
-    "checkpointTag": "t149-s6-main-app-physical-cutover-4f39cf8c",
-    "evidenceCommit": "3d99b10ed64bf0bebc189eb93bb44f227c1c17f5 (substantive count correction)",
-    "status": "not-green; checkpoint evidence retained for physical cutover with inherited blockers",
-    "workingTree": "clean after final evidence commit; verified by git status",
-    "governance": "bun run governance:check passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
+    "checkpointCommit": "pending final blocked-state checkpoint",
+    "checkpointTag": "t149-s6-main-app-physical-cutover-4f39cf8c (retained historical tag; not final)",
+    "status": "blocked; checkpoint evidence retained for physical cutover with unresolved inherited failures",
+    "workingTree": "pending final evidence commit",
+    "governance": "bun run governance:check last passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
     "desktopContract": "bun run test:desktop-contract passed; 11 files / 37 tests",
     "diffCheck": "git diff --check && git diff --cached --check passed"
   }
