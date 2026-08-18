@@ -162,7 +162,7 @@ describe("compileBodyPrompt", () => {
             character: {
                 cnName: "林砚舟",
                 enName: "Lin Yanzhou",
-                triggerWords: "砚舟, 阿舟",
+                triggerWords: "砚舟 | 阿舟",
                 profileTraits: "calm, intelligent",
                 facialAppearance: "black hair, brown eyes",
                 upperSfw: "white shirt",
@@ -186,7 +186,7 @@ describe("compileBodyPrompt", () => {
             character: {
                 cnName: "林砚舟",
                 enName: "Lin Yanzhou",
-                triggerWords: "砚舟, 阿舟",
+                triggerWords: "砚舟 | 阿舟",
                 profileTraits: "calm",
                 facialAppearance: "black hair",
                 upperSfw: "white shirt",
@@ -204,9 +204,25 @@ describe("compileBodyPrompt", () => {
         }
     });
 
-    it("拒绝截断 JSON 和存在但非法的调用字段", async () => {
+    it("拒绝截断 JSON 并接受自由角度调用", async () => {
         await expect(compileBodyPrompt(workspaceRoot, `${"$"}{"name":"林砚舟"$`)).rejects.toThrow(/不是合法 JSON/);
-        await expect(compileBodyPrompt(workspaceRoot, `${"$"}{${JSON.stringify({name: "林砚舟", angle: "side"})}}$`)).rejects.toThrow(/angle/);
+        await writeVisual("lin-yanzhou", {
+            schema: "nbook.character-visual/v1",
+            characterId: "lin-yanzhou",
+            character: {
+                cnName: "林砚舟",
+                enName: "Lin Yanzhou",
+                facialAppearance: "blue eyes",
+                upperSfw: "white shirt",
+                lowerSfw: "black trousers",
+            },
+            outfits: [],
+            photos: [],
+        });
+        await expect(compileBodyPrompt(
+            workspaceRoot,
+            `${"$"}{${JSON.stringify({name: "林砚舟", angle: "from side", upperBody: "sfw", lowerBody: "sfw"})}}$`,
+        )).resolves.toMatchObject({prompt: expect.stringContaining("from side")});
     });
 
     it("resolves character codes inside grouped paths", async () => {
@@ -392,6 +408,167 @@ describe("compileBodyPrompt", () => {
         });
     });
 
+    it("treats from side as a front DNA call and preserves the angle tag", async () => {
+        await writeVisual("alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {
+                cnName: "Alice",
+                enName: "Alice",
+                facialAppearance: "blue eyes",
+                facialBack: "hair from behind",
+                upperSfw: "white shirt",
+                upperBackSfw: "shirt back",
+            },
+            outfits: [],
+            photos: [],
+        });
+
+        const code = `${"$"}{${JSON.stringify({name: "Alice", angle: "from side", upperBody: "sfw", lowerBody: "hidden"})}}$`;
+        const result = await compileBodyPrompt(workspaceRoot, code);
+
+        expect(result.prompt).toContain("from side");
+        expect(result.prompt).toContain("blue eyes");
+        expect(result.prompt).toContain("white shirt");
+        expect(result.prompt).not.toContain("hair from behind");
+        expect(result.prompt).not.toContain("shirt back");
+    });
+
+    it("resolves a chatu-8 standalone outfit after a from side character", async () => {
+        await writeVisual("saki", {
+            schema: "nbook.character-visual/v1",
+            characterId: "saki",
+            character: {
+                cnName: "寺島佐紀",
+                enName: "Saki Terashima",
+                profileTraits: "office lady",
+                facialAppearance: "pale face",
+                facialBack: "pale face from behind",
+                upperSfw: "white blouse",
+                upperBackSfw: "blouse back",
+                lowerSfw: "black skirt",
+                lowerBackSfw: "skirt back",
+            },
+            outfits: [{
+                cnName: "通勤装",
+                enName: "office lady smart casual outfit",
+                upper: "grey casual blazer",
+                upperBack: "blazer back",
+                lower: "grey high-waisted trousers",
+                lowerBack: "trousers back",
+            }],
+            photos: [],
+        });
+        const role = `${"$"}{${JSON.stringify({
+            name: "Saki Terashima",
+            angle: "from side",
+            upperBody: "sfw",
+            lowerBody: "sfw",
+        })}}$`;
+        const outfit = `${"$"}{${JSON.stringify({
+            name: "office lady smart casual outfit",
+            upperBody: "visible",
+            lowerBody: "visible",
+        })}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, `${role}, ${outfit}, standing on deck`);
+
+        expect(result.prompt).toContain("from side");
+        expect(result.prompt).toContain("grey casual blazer");
+        expect(result.prompt).toContain("grey high-waisted trousers");
+        expect(result.prompt).not.toContain("blazer back");
+        expect(result.prompt).not.toContain("trousers back");
+        expect(result.prompt).not.toMatch(/\$\{/u);
+        expect(result.warnings).toEqual([]);
+    });
+
+    it("inherits back DNA for a standalone outfit after from behind", async () => {
+        await writeVisual("alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {
+                cnName: "爱丽丝",
+                enName: "Alice",
+                profileTraits: "calm",
+                facialAppearance: "front face",
+                facialBack: "back face",
+                upperSfw: "front top",
+                upperBackSfw: "back top",
+                lowerSfw: "front bottom",
+                lowerBackSfw: "back bottom",
+            },
+            outfits: [{
+                cnName: "背面装",
+                enName: "Back Outfit",
+                upper: "front outfit top",
+                upperBack: "back outfit top",
+                lower: "front outfit bottom",
+                lowerBack: "back outfit bottom",
+            }],
+            photos: [],
+        });
+        const role = `${"$"}{${JSON.stringify({name: "Alice", angle: "from behind", upperBody: "sfw", lowerBody: "hidden"})}}$`;
+        const outfit = `${"$"}{${JSON.stringify({name: "Back Outfit", upperBody: "visible", lowerBody: "visible"})}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, `${role}, ${outfit}`);
+
+        expect(result.prompt).toContain("back outfit top");
+        expect(result.prompt).toContain("back outfit bottom");
+        expect(result.prompt).not.toContain("front outfit top");
+        expect(result.prompt).not.toContain("front outfit bottom");
+    });
+
+    it("reports a name collision between a character and outfit", async () => {
+        await writeVisual("shared", {
+            schema: "nbook.character-visual/v1",
+            characterId: "shared",
+            character: {
+                cnName: "Shared",
+                enName: "Shared",
+                profileTraits: "person",
+                facialAppearance: "face",
+                upperSfw: "shirt",
+                lowerSfw: "pants",
+            },
+            outfits: [{
+                cnName: "Shared",
+                enName: "Shared",
+                upper: "shared outfit top",
+                upperBack: "",
+                lower: "shared outfit bottom",
+                lowerBack: "",
+            }],
+            photos: [],
+        });
+        const code = `${"$"}{${JSON.stringify({name: "Shared", upperBody: "visible", lowerBody: "visible"})}}$`;
+
+        await expect(compileBodyPrompt(workspaceRoot, code)).rejects.toThrow(/同时命中角色与服装/);
+    });
+
+    it("uses front DNA and warns when an independent outfit has no preceding role", async () => {
+        await writeVisual("alice", {
+            schema: "nbook.character-visual/v1",
+            characterId: "alice",
+            character: {cnName: "Alice", enName: "Alice", upperSfw: "shirt", lowerSfw: "pants"},
+            outfits: [{
+                cnName: "旅行装",
+                enName: "Travel Outfit",
+                upper: "front travel top",
+                upperBack: "back travel top",
+                lower: "front travel bottom",
+                lowerBack: "back travel bottom",
+            }],
+            photos: [],
+        });
+        const code = `${"$"}{${JSON.stringify({kind: "outfit", name: "Travel Outfit", upperBody: "visible", lowerBody: "visible"})}}$`;
+
+        const result = await compileBodyPrompt(workspaceRoot, code);
+
+        expect(result.prompt).toContain("front travel top");
+        expect(result.prompt).toContain("front travel bottom");
+        expect(result.warnings).toEqual(["独立服装“Travel Outfit”没有前序角色调用，已使用正面素材"]);
+    });
+
     it("accepts chatu-8 Chinese inline DNA field labels", async () => {
         const code = `${"$"}{${JSON.stringify({
             name: "临时角色",
@@ -440,7 +617,7 @@ describe("compileBodyPrompt", () => {
             character: {
                 cnName: "临时英雄",
                 enName: "Temporary Hero",
-                triggerWords: "临时英雄, Temporary Hero",
+                triggerWords: "临时英雄 | Temporary Hero",
                 profileTraits: "silver hair",
                 facialAppearance: "amber eyes",
                 upperSfw: "black coat",

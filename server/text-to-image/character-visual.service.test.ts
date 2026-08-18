@@ -32,7 +32,8 @@ describe("character visual service", () => {
 
         await writeCharacterVisual(root, "char-1", input);
         const read = await readCharacterVisual(root, "char-1");
-        expect(read?.character.triggerWords).toContain("小克");
+        // 严格合同：保存不再自动把中文名追加进触发词。
+        expect(read?.character.triggerWords).toBe("");
 
         expect(read).toMatchObject({
             characterId: "char-1",

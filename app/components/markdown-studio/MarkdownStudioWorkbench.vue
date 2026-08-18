@@ -148,6 +148,7 @@ watch(() => props.activePath, () => {
                         class="ide-editor-shell min-w-0"
                         :class="props.controller.commentViewOpen.value ? 'markdown-comment-layout__editor' : 'flex-1'"
                         :controller="props.controller"
+                        :readonly="props.textToImageBusy"
                         :theme="props.theme"
                         :editor-preferences="props.editorPreferences"
                         :monaco-preferences="props.monacoPreferences"

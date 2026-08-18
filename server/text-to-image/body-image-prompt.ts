@@ -22,9 +22,13 @@ export function buildBodyImageSystemPrompt(): string {
         "规则：",
         "<regex> 必须是正文中一字不差的挂载点文本，优先截取 10-20 字的最能代表画面视觉内容的短句，禁止概括、改写、补字、删字或拼接多个不相邻片段。",
         "<prompts> 必须是可直接交给 NovelAI 的最终英文 tag 串，使用英文逗号分隔；角色/服装可优先使用正文会话提供的 ${...}$ 调用代码，没有对应角色或服装时用原创特征 tag。",
+        "角色调用中的 angle 可以填写实际镜头角度，例如 from front、from side、side view 或 three-quarter view；只有 from behind、from back、back、behind 选择背面视觉资料，其余非空角度使用正面视觉资料。",
+        "每个角色调用必须完整包在成对的 ${ 与 }$ 中，格式为 ${\"name\":\"角色名\",\"angle\":\"from side\",\"upperBody\":\"sfw\",\"lowerBody\":\"sfw\"}$；不要遗漏结尾的 `$`。",
+        "新输出优先为角色调用增加 kind=\"character\"，独立服装调用增加 kind=\"outfit\"；独立服装也可兼容无 kind 格式，例如 ${\"kind\":\"outfit\",\"name\":\"office lady smart casual outfit\",\"upperBody\":\"visible\",\"lowerBody\":\"visible\"}$。",
+        "独立服装调用不要把服装名写成角色名，也不要添加 angle；没有 angle 的旧格式会按当前 visual 中的精确角色/服装名称判定，并继承同一 prompts 中前一个角色的朝向。",
         "如果可用角色视觉摘要为空，表示本段没有可调用角色：只生成场景、镜头、环境 tag，不输出 ${...}$ 角色调用代码。",
         "不要输出解释文字，不要输出 <content>/<images>/<image> 以外的标签。",
-        "For a saved outfit, add an optional JSON field \"outfit\" to the ${...}$ character call; the backend resolves it from the same visual.json and selects its front/back upper/lower tags mechanically.",
+        "For a saved outfit attached to a character, the legacy optional JSON field \"outfit\" remains supported; the backend resolves it from the same visual.json and selects its front/back upper/lower tags mechanically.",
     ].join("\n");
 }
 

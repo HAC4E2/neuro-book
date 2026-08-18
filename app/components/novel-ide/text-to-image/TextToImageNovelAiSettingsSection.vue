@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import Dialog from "nbook/app/components/common/Dialog.vue";
 import BooleanToggleButton from "nbook/app/components/common/form/BooleanToggleButton.vue";
 import {
+    DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT,
     TextToImageNovelAiSettingsSchema,
     type TextToImageNovelAiProfile,
     type TextToImageNovelAiGenerationRecipe,
     type TextToImageProviderDto,
 } from "nbook/shared/dto/text-to-image.dto";
 import {estimateNovelAiTokens} from "nbook/app/utils/novelai-token-counter";
+import {validatePromptReplacementRules} from "nbook/shared/text-to-image-prompt-replacement";
 
 const props = defineProps<{
     providers: TextToImageProviderDto[];
@@ -23,15 +26,21 @@ type ReferenceImageMeta = {
 
 const emit = defineEmits<{
     (e: "save-provider", input: Record<string, unknown>): void;
+    (e: "refresh-providers"): void;
 }>();
 
 const novelAiProviders = computed(() => props.providers.filter((provider) => provider.kind === "novelai"));
 const llmProviders = computed(() => props.providers.filter((provider) => provider.kind === "openai_compatible"));
 const selectedProviderId = ref<number | null>(null);
+const selectedProvider = computed(() => props.providers.find((provider) => provider.id === selectedProviderId.value) ?? null);
 const translateLlmProviderId = ref<number | null>(null);
 const form = ref(TextToImageNovelAiSettingsSchema.parse({}));
 const credential = ref("");
 const error = ref("");
+type CredentialUiState = "unconfigured" | "saved" | "replacing" | "saving" | "deleting";
+const credentialUiState = ref<CredentialUiState>("unconfigured");
+const credentialDeleteDialogOpen = ref(false);
+const promptRuleErrors = computed(() => validatePromptReplacementRules(form.value.promptReplaceText));
 const vibeGroupName = ref("");
 const characterGroupName = ref("");
 const vibeGroupEntryDrafts = ref<Record<string, string>>({});
@@ -96,6 +105,7 @@ watch(() => props.providers, () => {
         selectedProviderId.value = null;
         form.value = TextToImageNovelAiSettingsSchema.parse({});
         credential.value = "";
+        credentialUiState.value = "unconfigured";
     }
     if (translateLlmProviderId.value === null && llmProviders.value.length > 0) {
         translateLlmProviderId.value = llmProviders.value[0]!.id;
@@ -163,6 +173,7 @@ function selectProvider(id: number): void {
         : "default";
     generationRecipeGroupName.value = form.value.generationRecipeGroups[generationRecipeGroupId.value]?.name ?? generationRecipeGroupId.value;
     credential.value = "";
+    credentialUiState.value = provider?.hasCredential ? "saved" : "unconfigured";
 }
 
 function ensureGenerationRecipeMetadata(): void {
@@ -218,7 +229,80 @@ function saveConnection(): void {
         name: "NovelAI",
         baseUrl: form.value.baseUrl,
         settings: form.value,
-        credential: credential.value || undefined,
+    });
+}
+
+async function saveCredential(): Promise<void> {
+    const value = credential.value.trim();
+    if (!value) { error.value = "请输入新的 API Key"; return; }
+    if (!form.value.baseUrl.trim()) { error.value = "站点地址不能为空"; return; }
+    credentialUiState.value = "saving";
+    error.value = "";
+    try {
+        const path = selectedProviderId.value === null ? "/api/text-to-image/providers" : "/api/text-to-image/providers/" + String(selectedProviderId.value);
+        const saved = await $fetch<TextToImageProviderDto>(path, {
+            method: selectedProviderId.value === null ? "POST" : "PUT",
+            body: {
+                id: selectedProviderId.value ?? undefined,
+                kind: "novelai",
+                name: "NovelAI",
+                baseUrl: form.value.baseUrl,
+                settings: form.value,
+                credentialUpdate: {mode: "replace", value},
+            },
+        });
+        selectedProviderId.value = saved.id;
+        credential.value = "";
+        credentialUiState.value = saved.hasCredential ? "saved" : "unconfigured";
+        emit("refresh-providers");
+    } catch (cause) {
+        credentialUiState.value = selectedProvider.value?.hasCredential ? "saved" : "replacing";
+        error.value = resolveApiErrorMessage(cause, "保存 API Key 失败");
+    }
+}
+
+function beginReplaceCredential(): void {
+    credential.value = "";
+    credentialUiState.value = "replacing";
+}
+
+function cancelReplaceCredential(): void {
+    credential.value = "";
+    credentialUiState.value = selectedProvider.value?.hasCredential ? "saved" : "unconfigured";
+}
+
+async function confirmDeleteCredential(): Promise<void> {
+    if (selectedProviderId.value === null) return;
+    credentialUiState.value = "deleting";
+    error.value = "";
+    try {
+        await $fetch("/api/text-to-image/providers/" + String(selectedProviderId.value) + "/credential", {method: "DELETE"});
+        credential.value = "";
+        credentialUiState.value = "unconfigured";
+        credentialDeleteDialogOpen.value = false;
+        emit("refresh-providers");
+    } catch (cause) {
+        credentialUiState.value = "saved";
+        error.value = resolveApiErrorMessage(cause, "删除 API Key 失败");
+    }
+}
+
+function saveGlobalRules(): void {
+    if (promptRuleErrors.value.length > 0) {
+        error.value = promptRuleErrors.value.map((item) => item.message).join("；");
+        return;
+    }
+    if (!form.value.baseUrl.trim()) {
+        error.value = "站点地址不能为空";
+        return;
+    }
+    error.value = "";
+    emit("save-provider", {
+        id: selectedProviderId.value ?? undefined,
+        kind: "novelai",
+        name: "NovelAI",
+        baseUrl: form.value.baseUrl,
+        settings: form.value,
     });
 }
 
@@ -474,7 +558,6 @@ function snapshotGenerationRecipe(): TextToImageNovelAiGenerationRecipe {
         positive: form.value.fixedPositivePrompt,
         positiveEnd: form.value.fixedPositivePromptEnd,
         negative: form.value.fixedNegativePrompt,
-        promptReplaceText: form.value.promptReplaceText,
         furryDataset: form.value.furryDataset,
         vibe: {...form.value.vibe},
         characterReference: {...form.value.characterReference},
@@ -489,8 +572,6 @@ function applyProfileValues(profile: TextToImageNovelAiProfile): void {
     form.value.promptGuidance = profile.promptGuidance;
     form.value.promptGuidanceRescale = profile.promptGuidanceRescale;
     form.value.aiDefaultCharacterPosition = profile.aiDefaultCharacterPosition;
-    form.value.smea = profile.smea;
-    form.value.smeaDyn = profile.smeaDyn;
     form.value.variety = profile.variety;
     form.value.decrisp = profile.decrisp;
     form.value.width = profile.width;
@@ -516,7 +597,6 @@ function applyGenerationRecipe(id: string): void {
     form.value.fixedPositivePrompt = recipe.positive;
     form.value.fixedPositivePromptEnd = recipe.positiveEnd;
     form.value.fixedNegativePrompt = recipe.negative;
-    form.value.promptReplaceText = recipe.promptReplaceText;
     form.value.furryDataset = recipe.furryDataset;
     form.value.vibe = {...recipe.vibe};
     form.value.characterReference = {...recipe.characterReference};
@@ -603,8 +683,6 @@ function snapshotProfile(): TextToImageNovelAiProfile {
         promptGuidance: form.value.promptGuidance,
         promptGuidanceRescale: form.value.promptGuidanceRescale,
         aiDefaultCharacterPosition: form.value.aiDefaultCharacterPosition,
-        smea: form.value.smea,
-        smeaDyn: form.value.smeaDyn,
         variety: form.value.variety,
         decrisp: form.value.decrisp,
         width: form.value.width,
@@ -734,10 +812,26 @@ function downloadVibeFile(): void {
                     站点
                     <input v-model="form.baseUrl" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="saveConnection" />
                 </label>
-                <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
-                    API Key（留空表示保留）
-                    <input v-model="credential" type="password" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="saveConnection" />
-                </label>
+                <div class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
+                    <span>API Key</span>
+                    <div v-if="credentialUiState === 'saved'" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-2">
+                        <span aria-label="API Key 已保存并使用中" class="select-none text-[17px] tracking-[0.2em] text-[var(--text-main)]" @copy.prevent>········</span>
+                        <span class="ml-2 text-[13px] text-[var(--success-text)]">已保存并使用中</span>
+                        <div class="mt-2 flex gap-2">
+                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[13px] text-[var(--text-secondary)]" @click="beginReplaceCredential">替换 Key</button>
+                            <button class="h-8 rounded-md border border-[var(--danger-border)] px-2 text-[13px] text-[var(--danger-text)]" @click="credentialDeleteDialogOpen = true">删除 Key</button>
+                        </div>
+                    </div>
+                    <div v-else-if="credentialUiState === 'unconfigured'" class="flex items-center gap-2 rounded-md border border-[var(--warning-border)] bg-[var(--warning-bg)] px-2 py-2">
+                        <span class="text-[14px] text-[var(--warning-text)]">未配置 API Key</span>
+                        <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[13px] text-[var(--text-secondary)]" @click="beginReplaceCredential">添加 Key</button>
+                    </div>
+                    <div v-else class="flex items-center gap-2">
+                        <input v-model="credential" type="password" autocomplete="new-password" spellcheck="false" class="h-9 min-w-0 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" placeholder="粘贴新的 API Key" @copy.prevent @cut.prevent />
+                        <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="credentialUiState === 'saving' || credentialUiState === 'deleting'" @click="saveCredential">{{ credentialUiState === 'saving' ? "保存中…" : "保存新 Key" }}</button>
+                        <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="credentialUiState === 'saving'" @click="cancelReplaceCredential">取消</button>
+                    </div>
+                </div>
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     生图间隔（秒，最低 15）
                     <input v-model.number="requestIntervalSeconds" type="number" min="15" step="1" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="saveConnection" />
@@ -780,9 +874,6 @@ function downloadVibeFile(): void {
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     模型
                     <select v-model="form.model" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
-                        <option>nai-diffusion-3</option>
-                        <option>nai-diffusion-4-full</option>
-                        <option>nai-diffusion-4-curated-preview</option>
                         <option>nai-diffusion-4-5-curated</option>
                         <option>nai-diffusion-4-5-full</option>
                     </select>
@@ -842,14 +933,6 @@ function downloadVibeFile(): void {
                     <BooleanToggleButton v-model="form.aiDefaultCharacterPosition" />
                     AI 默认角色位置
                 </label>
-                <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]" :class="toggleFieldClass(form.smea)">
-                    <BooleanToggleButton v-model="form.smea" />
-                    SMEA
-                </label>
-                <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]" :class="toggleFieldClass(form.smeaDyn)">
-                    <BooleanToggleButton v-model="form.smeaDyn" />
-                    SMEA DYN
-                </label>
                 <label class="flex items-center gap-2 text-[16px] text-[var(--text-secondary)]" :class="toggleFieldClass(form.variety)">
                     <BooleanToggleButton v-model="form.variety" />
                     Variety
@@ -905,12 +988,19 @@ function downloadVibeFile(): void {
                 </datalist>
                 <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" @click="appendTag">追加 Tag</button>
             </div>
-            <label class="mt-3 flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
-                提示词替换规则
-                <textarea v-model="form.promptReplaceText" rows="3" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" />
-            </label>
             <div class="mt-3 flex items-center gap-2">
                 <button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)]" @click="saveStyle">保存画风串和模型参数</button>
+            </div>
+        </div>
+
+        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+            <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">全局提示词替换规则</h3>
+            <p class="mb-2 text-[13px] text-[var(--text-muted)]">规则属于当前 NovelAI Provider，所有使用该 Provider 的新生图请求统一生效；切换、保存或删除画风串不会改变它。每行一条：触发词=动作|插入词。动作：前置前 / 前置后 / 替换 / 替换分角色 / 后置前 / 后置后 / 最后置；其中 替换| 表示删除触发词。</p>
+            <textarea v-model="form.promptReplaceText" rows="9" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[14px] text-[var(--text-main)]" spellcheck="false" />
+            <p v-if="promptRuleErrors.length" class="mt-1 text-[13px] text-[var(--danger-text)]">{{ promptRuleErrors.map((item) => item.message).join("；") }}</p>
+            <div class="mt-2 flex items-center gap-2">
+                <button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="promptRuleErrors.length > 0" @click="saveGlobalRules">保存全局规则</button>
+                <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" @click="form.promptReplaceText = DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT">恢复内置示例</button>
             </div>
         </div>
 
@@ -1079,6 +1169,10 @@ function downloadVibeFile(): void {
             </div>
         </div>
 
+
+        <Dialog v-model="credentialDeleteDialogOpen" title="删除 API Key" :teleport-target="false" :busy="credentialUiState === 'deleting'" @confirm="confirmDeleteCredential">
+            <p class="text-[14px] text-[var(--text-secondary)]">删除后，排队任务和新请求将不能使用该 Provider；站点、画风串和模型参数都会保留。</p>
+        </Dialog>
         <p v-if="error" class="text-[16px] text-[var(--danger-text)]">{{ error }}</p>
     </div>
 </template>

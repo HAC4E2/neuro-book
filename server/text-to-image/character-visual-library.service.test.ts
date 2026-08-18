@@ -27,27 +27,19 @@ describe("CharacterVisualLibraryService", () => {
         await expect(service.read(root, result.ref)).resolves.toMatchObject({characterId: visual.characterId});
     });
 
-    it("supports multiple groups, enabled priority and copying a visual", async () => {
+    it("supports multiple groups and enabled priority", async () => {
         const root = await createRoot();
         const service = new CharacterVisualLibraryService();
-        await service.createGroup(root, "late", {name: "故事后期"});
+        const late = await service.createGroup(root, {name: "故事后期"});
         await service.write(root, {groupId: "default", characterId: "hero"}, makeVisual("hero", "default"));
-        await service.write(root, {groupId: "late", characterId: "hero"}, makeVisual("hero", "late"));
-        await service.setEnabledGroups(root, ["default", "late"]);
-        await service.reorderGroups(root, ["late", "default"]);
+        await service.write(root, {groupId: late.groupId, characterId: "hero"}, makeVisual("hero", "late"));
+        await service.setEnabledGroups(root, ["default", late.groupId]);
+        await service.reorderGroups(root, [late.groupId, "default"]);
 
         const effective = await service.getEffectiveVisuals(root);
         expect(effective).toHaveLength(1);
-        expect(effective[0]).toMatchObject({groupId: "late", characterId: "hero", visual: {character: {profileTraits: "late"}}});
-
-        const source = (await service.readWithInfo(root, {groupId: "late", characterId: "hero"}))!;
-        const copied = await service.createCopy(root, {
-            groupId: "late",
-            characterId: "hero",
-            visualId: source.info.visualId,
-        }, {groupId: "default", characterId: "side"});
-        expect(copied.info.fileName).toBe("visual.json");
-        expect((await service.listCharacters(root, "default")).map((item) => item.characterId)).toEqual(["hero", "side"]);
+        expect(effective[0]).toMatchObject({groupId: late.groupId, characterId: "hero", visual: {character: {profileTraits: "late"}}});
+        expect((await service.listCharacters(root, "default")).map((item) => item.characterId)).toEqual(["hero"]);
     });
 
     it("creates collision-free versions, renames safely and rejects stale writes", async () => {

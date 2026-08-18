@@ -3,6 +3,8 @@ import {tmpdir} from "node:os";
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
+    TextToImageProviderCredentialRequiredError,
+    TextToImageProviderMaskSentinelError,
     TextToImageProviderNotConfiguredError,
     TextToImageProviderService,
     type TextToImageProviderRecord,
@@ -167,6 +169,43 @@ describe("TextToImageProviderService", () => {
         expect(providers).toHaveLength(1);
         expect(providers[0]).toMatchObject({name: "NovelAI", hasCredential: true});
         expect(JSON.stringify(providers)).not.toContain("token");
+    });
+
+    it("严格三态合同：preserve 不改变 Key，replace/delete 各自递增 revision", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        const provider = await service.save(7, {
+            kind: "novelai", name: "NovelAI", baseUrl: "https://image.novelai.net",
+            credentialUpdate: {mode: "replace", value: "token-a"},
+            settings: {requestIntervalMs: 15_000},
+        });
+        await service.save(7, {id: provider.id, kind: "novelai", name: "NovelAI", baseUrl: provider.baseUrl, credentialUpdate: {mode: "preserve"}});
+        expect(store.records[0]?.credentialRevision).toBe(1);
+        await expect(service.resolveCredential(7, provider.id)).resolves.toBe("token-a");
+
+        await service.save(7, {id: provider.id, kind: "novelai", name: "NovelAI", baseUrl: provider.baseUrl, credentialUpdate: {mode: "replace", value: "token-b"}});
+        expect(store.records[0]?.credentialRevision).toBe(2);
+        await expect(service.resolveCredential(7, provider.id)).resolves.toBe("token-b");
+
+        const deleted = await service.deleteCredential(7, provider.id);
+        expect(deleted.hasCredential).toBe(false);
+        expect(store.records[0]).toMatchObject({name: "NovelAI", settings: {requestIntervalMs: 15_000}});
+        expect(store.records[0]?.credentialRevision).toBe(3);
+        await expect(service.resolveCredential(7, provider.id)).rejects.toBeInstanceOf(TextToImageProviderNotConfiguredError);
+    });
+
+    it("新建 Provider 必须 replace，遮罩哨兵拒绝为真实 Key", async () => {
+        const service = new TextToImageProviderService(new InMemoryProviderStore(), await createKeyPath());
+        await expect(service.save(7, {kind: "novelai", name: "NovelAI", baseUrl: "https://image.novelai.net", credentialUpdate: {mode: "preserve"}}))
+            .rejects.toBeInstanceOf(TextToImageProviderCredentialRequiredError);
+        await expect(service.save(7, {kind: "novelai", name: "NovelAI", baseUrl: "https://image.novelai.net", credentialUpdate: {mode: "replace", value: "········"}}))
+            .rejects.toBeInstanceOf(TextToImageProviderMaskSentinelError);
+    });
+
+    it("resolveRuntimeProvider 返回 revision 供队列消费校验", async () => {
+        const service = new TextToImageProviderService(new InMemoryProviderStore(), await createKeyPath());
+        const provider = await service.save(7, {kind: "novelai", name: "NovelAI", baseUrl: "https://image.novelai.net", credential: "token"});
+        await expect(service.resolveRuntimeProvider(7, provider.id)).resolves.toMatchObject({credential: "token", credentialRevision: 1});
     });
 });
 

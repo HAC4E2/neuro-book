@@ -1,5 +1,9 @@
 import {loadEffectiveConfig} from "nbook/server/config/config-service";
-import type {TextToImageContextEntry, TextToImageRequestType} from "nbook/shared/dto/text-to-image.dto";
+import type {
+    TextToImageContextEntry,
+    TextToImageContextProfile,
+    TextToImageRequestType,
+} from "nbook/shared/dto/text-to-image.dto";
 import type {LlmChatMessage} from "nbook/server/text-to-image/llm-chat";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
@@ -9,6 +13,8 @@ export type ResolvedTextToImageRequestProvider = {
     settings: Record<string, unknown>;
     credential: string;
 };
+
+export type TextToImagePromptMode = TextToImageContextProfile["promptMode"];
 
 /** 根据 LLM 管理中的请求类型绑定解析运行时 Provider，业务页面不再重复选择模型。 */
 export async function resolveTextToImageRequestProvider(
@@ -37,10 +43,22 @@ export async function resolveTextToImageRequestProvider(
 export async function resolveTextToImageContextEntries(
     requestType: TextToImageRequestType,
 ): Promise<TextToImageContextEntry[]> {
+    return (await resolveTextToImageContextProfile(requestType)).entries;
+}
+
+/** 按请求类型读取完整上下文预设；调用方必须同时消费 promptMode。 */
+export async function resolveTextToImageContextProfile(
+    requestType: TextToImageRequestType,
+): Promise<TextToImageContextProfile> {
     const effective = await loadEffectiveConfig({workspaceKind: "user-assets"});
     const binding = effective.textToImage.requestTypeBindings?.[requestType];
     const profileId = binding?.contextProfileId ?? "default";
-    return effective.textToImage.contextProfiles?.[profileId]?.entries ?? [];
+    return effective.textToImage.contextProfiles?.[profileId] ?? {
+        id: profileId,
+        name: profileId,
+        promptMode: "augment",
+        entries: [],
+    };
 }
 
 /** 把启用的上下文预设条目转成 LLM 消息，插到任务 system/user 前。 */
@@ -56,6 +74,20 @@ export function buildContextMessages(
         }));
 }
 
+/**
+ * 组装某类请求的最终消息前半段。
+ * complete 预设是完整消息合同，只执行条目过滤与占位符替换；augment 才追加内置任务消息。
+ */
+export function buildRequestMessages(
+    entries: TextToImageContextEntry[],
+    runtime: TextToImageRuntimePlaceholderContext,
+    builtinMessages: LlmChatMessage[],
+    promptMode: TextToImagePromptMode = "augment",
+): LlmChatMessage[] {
+    const customMessages = buildContextMessages(entries, runtime);
+    return promptMode === "complete" ? customMessages : [...customMessages, ...builtinMessages];
+}
+
 /** 按 triggerMode/triggerWords/andTriggerWords 判断条目是否进入本次请求。 */
 export function shouldIncludeContextEntry(
     entry: TextToImageContextEntry,
@@ -68,6 +100,7 @@ export function shouldIncludeContextEntry(
         return true;
     }
     const haystack = [
+        runtime.triggerText ?? "",
         runtime.body ?? "",
         runtime.context ?? "",
         runtime.userDemand ?? "",

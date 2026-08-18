@@ -27,7 +27,7 @@ describe("GET /api/text-to-image/character-visual.list", () => {
     it("without groupId returns every project character while preserving group identity", async () => {
         const root = await createRoot();
         await createCharacterGroup(root, "fantasy", {name: "Fantasy"});
-        await writeCharacterVisual(root, "alice", visual("Alice", "alice, alice-in-wonderland"), "fantasy");
+        await writeCharacterVisual(root, "alice", visual("Alice", "alice | alice-in-wonderland"), "fantasy");
         await writeCharacterVisual(root, "bob", visual("Bob", ""), "fantasy");
         await writeCharacterVisual(root, "hero", visual("Hero", "hero"), undefined);
         await writeCharacterVisual(root, "side", visual("Side", " "), undefined);
@@ -35,12 +35,13 @@ describe("GET /api/text-to-image/character-visual.list", () => {
         const handler = await loadHandler({projectRoot: root});
         const result = await handler({} as never);
 
+        // 严格合同：保存不追加中文名或英文名，触发词保持 `|` 格式。
         expect(result).toEqual({
             characters: [
-                expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice, alice-in-wonderland, Alice"}),
-                expect.objectContaining({characterId: "bob", groupId: "fantasy", triggerWords: "Bob"}),
-                expect.objectContaining({characterId: "hero", groupId: null, triggerWords: "hero, Hero"}),
-                expect.objectContaining({characterId: "side", groupId: null, triggerWords: "Side"}),
+                expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice | alice-in-wonderland"}),
+                expect.objectContaining({characterId: "bob", groupId: "fantasy", triggerWords: ""}),
+                expect.objectContaining({characterId: "hero", groupId: null, triggerWords: "hero"}),
+                expect.objectContaining({characterId: "side", groupId: null, triggerWords: ""}),
             ],
         });
     });
@@ -55,8 +56,7 @@ describe("GET /api/text-to-image/character-visual.list", () => {
         const result = await handler({} as never);
 
         expect(result.characters).toEqual([
-            expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice, Alice"}),
-            expect.objectContaining({characterId: "bob", groupId: "fantasy", triggerWords: "Bob"}),
+            expect.objectContaining({characterId: "alice", groupId: "fantasy", triggerWords: "alice"}),
         ]);
     });
 

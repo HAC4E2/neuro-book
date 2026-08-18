@@ -1,7 +1,7 @@
-export type CharacterVisualDraftMode = "fill_empty" | "replace_visual";
+export type CharacterVisualDraftMode = "fill_empty" | "replace_visual" | "modify_visual";
 
 /**
- * 角色视觉 system prompt：对齐 chatu8 角色/服装设计预设的 12+4 字段契约，
+ * 角色视觉 system prompt：对齐当前 visual.json 的 15+6 字段契约，
  * 输出同时接受 `<人物>/<服装>` 行式或 JSON 对象。
  */
 export function buildCharacterVisualSystemPrompt(): string {
@@ -43,6 +43,7 @@ export function buildCharacterVisualSystemPrompt(): string {
         "Tag 语法：",
         "(tag) 表示轻微强调，(tag:1.5) 表示精确权重；多个词组成的特征用空格连接，多个 tag 用英文逗号分隔；避免中文 tag。",
         "角色设计只描述静态外貌特征，不包含表情、动作、姿势。每个字段控制在 10 个 tag 以内。",
+        "触发词字段使用半角竖线 | 分隔每个触发词，例如 `艾莉希雅 | 爱莉 | Elysia`，不要使用逗号。",
         "",
         "输出格式：",
         "只输出一组 <人物>...</人物> 与 <服装>...</服装>（字段行格式 `字段名:内容`），",
@@ -62,6 +63,8 @@ export function buildCharacterVisualUserPrompt(input: {
 }): string {
     const modeInstruction = input.mode === "fill_empty"
         ? "本次是补全模式：只补全为空或缺失的字段；已有非空内容必须逐字保留，不要改写、精简或删除。"
+        : input.mode === "modify_visual"
+            ? "本次是局部修改模式：只修改与用户要求直接相关的字段；没有返回的字段视为未修改，不能清空。中文名称、英文名称和触发词属于身份字段，禁止修改。服装块只在能确定目标服装时生效。"
         : "本次是整体重写模式：根据角色资料重新设计全部字段，不受既有内容限制。";
     return [
         "以下是角色资料页：",

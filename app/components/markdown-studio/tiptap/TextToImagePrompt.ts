@@ -102,6 +102,7 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
             button.addEventListener("click", async (event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                // 正文生图期间编辑器可以只读，但其它占位符仍必须能够入队。
                 if (generating) return;
                 generating = true;
                 render();

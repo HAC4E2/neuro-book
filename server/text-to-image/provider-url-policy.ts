@@ -25,7 +25,7 @@ export function assertTextToImageProviderUrl(value: string, policy: {allowPrivat
 
 function isPrivateNetworkHost(hostname: string): boolean {
     const host = normalizeHostname(hostname);
-    if (host === "localhost" || host.endsWith(".localhost")) {
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
         return true;
     }
     if (isIP(host) === 4) {
@@ -55,6 +55,7 @@ function isPrivateIpv4(value: string): boolean {
     const octets = value.split(".").map((segment) => Number.parseInt(segment, 10));
     const first = octets[0] ?? -1;
     const second = octets[1] ?? -1;
+    const third = octets[2] ?? -1;
     return first === 0
         || first === 10
         || first === 127
@@ -62,7 +63,12 @@ function isPrivateIpv4(value: string): boolean {
         || (first === 100 && second >= 64 && second <= 127)
         || (first === 169 && second === 254)
         || (first === 172 && second >= 16 && second <= 31)
-        || (first === 192 && second === 168);
+        || (first === 192 && second === 168)
+        || (first === 192 && second === 0 && third === 0)
+        || (first === 192 && second === 0 && third === 2)
+        || (first === 198 && second >= 18 && second <= 19)
+        || (first === 198 && second === 51 && third === 100)
+        || (first === 203 && second === 0 && third === 113);
 }
 
 function isPrivateIpv6(value: string): boolean {

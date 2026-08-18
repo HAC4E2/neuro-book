@@ -2,9 +2,10 @@ import {
     requestLlmCompletion,
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
-import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import {buildRequestMessages, type TextToImagePromptMode} from "nbook/server/text-to-image/llm-context";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-trace";
 import {extractLastLlmImagePrompt} from "nbook/server/text-to-image/llm-output";
 
 /** 提取 LLM 回复中的角色照片完整 tag；找不到标记或内容为空时抛错。 */
@@ -89,7 +90,9 @@ export async function generateCharacterPhotoPrompt(input: {
     outfitText: string;
     userRequirement: string;
     contextEntries?: TextToImageContextEntry[];
+    promptMode?: TextToImagePromptMode;
     runtime?: TextToImageRuntimePlaceholderContext;
+    trace?: TextToImageLlmTraceHandle;
     complete?: typeof requestLlmCompletion;
 }): Promise<string> {
     // provider.baseUrl 是运行时显式传入的连接地址；settings 里同名字段仅作兼容备件。
@@ -104,17 +107,17 @@ export async function generateCharacterPhotoPrompt(input: {
         model: settings.model,
         temperature: settings.temperature,
         topP: settings.topP,
-        maxTokens: 2048,
-        stream: false,
+        maxTokens: settings.maxTokens,
+        stream: settings.stream,
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
         runtime: input.runtime,
-        messages: [
-            ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
+        trace: input.trace,
+        messages: buildRequestMessages(input.contextEntries ?? [], input.runtime ?? {}, [
             {role: "system", content: buildCharacterPhotoSystemPrompt()},
             {role: "user", content: buildCharacterPhotoUserPrompt(input)},
-        ],
+        ], input.promptMode),
     });
     return extractCharacterPhotoPrompt(content);
 }

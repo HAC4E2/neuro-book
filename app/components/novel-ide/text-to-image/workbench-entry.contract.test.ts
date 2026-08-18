@@ -5,6 +5,7 @@ import {describe, expect, it} from "vitest";
 const activityBarPath = fileURLToPath(new URL("../NovelIdeActivityBar.vue", import.meta.url));
 const indexPagePath = fileURLToPath(new URL("../../../pages/index.vue", import.meta.url));
 const characterSectionPath = fileURLToPath(new URL("./TextToImageCharacterSection.vue", import.meta.url));
+const llmSettingsSectionPath = fileURLToPath(new URL("./TextToImageLlmSettingsSection.vue", import.meta.url));
 
 describe("text-to-image workbench entry contract", () => {
     it("forwards the Activity Bar action through the page-owned opener", async () => {
@@ -48,12 +49,65 @@ describe("text-to-image workbench entry contract", () => {
             "/api/text-to-image/character-library.activation",
             "/api/text-to-image/character-library/groups.reorder",
             "/api/text-to-image/character-library/visual.active",
-            "/api/text-to-image/character-library/visual.copy",
+            "/api/text-to-image/character-library/visual.move",
+            "/api/text-to-image/character-library/visual.move-preview",
             "/api/text-to-image/character-library/visual.delete",
             "/api/text-to-image/character-library/visual.rename",
         ]) {
-            expect(characterSection).toContain(`$fetch("${route}"`);
+            expect(characterSection).toContain(`$fetch`);
+            expect(characterSection).toContain(`"${route}"`);
         }
-        expect(characterSection).not.toMatch(/character-library\/(?:activation|groups\/reorder|visual\/(?:active|copy|delete|rename))/);
+        expect(characterSection).not.toMatch(/character-library\/(?:activation|groups\/reorder|visual\/(?:active|move|delete|rename))/);
+        expect(characterSection).not.toContain("visual.copy");
+    });
+
+    it("forbids event expressions that only read a function reference instead of calling it", async () => {
+        const [characterSection, llmSettingsSection] = await Promise.all([
+            readFile(characterSectionPath, "utf8"),
+            readFile(llmSettingsSectionPath, "utf8"),
+        ]);
+
+        // `void functionName`（不带括号）只读取并丢弃函数引用，不会调用；
+        // 带括号的 `void functionName()` 是真实调用，不在此门禁内。
+        for (const source of [characterSection, llmSettingsSection]) {
+            expect(source).not.toMatch(/@\w+="void [A-Za-z_$][A-Za-z0-9_$]*"/u);
+        }
+    });
+
+    it("binds the six confirmed interactive buttons to real calls", async () => {
+        const [characterSection, llmSettingsSection] = await Promise.all([
+            readFile(characterSectionPath, "utf8"),
+            readFile(llmSettingsSectionPath, "utf8"),
+        ]);
+
+        for (const binding of [
+            '@click="deleteVisual"',
+            '@click="generateVisual"',
+            '@click="moveVisualToGroup"',
+            '@click="generatePhotoPrompt"',
+            '@click="generateAvatar"',
+        ]) {
+            expect(characterSection).toContain(binding);
+        }
+        expect(llmSettingsSection).toContain('@click="buildTestPreview"');
+    });
+
+    it("renders every group including empty groups and keeps the create form name-only", async () => {
+        const characterSection = await readFile(characterSectionPath, "utf8");
+
+        expect(characterSection).toContain('v-for="group in groups"');
+        expect(characterSection).not.toContain("visualGroups");
+        expect(characterSection).toContain("暂无视觉资料");
+        expect(characterSection).not.toContain("newGroupId");
+        expect(characterSection).toContain('placeholder="分组名称');
+        expect(characterSection).not.toContain('placeholder="分组 ID');
+    });
+
+    it("wires the delete preview and revision-confirmed deletion contract", async () => {
+        const characterSection = await readFile(characterSectionPath, "utf8");
+
+        expect(characterSection).toContain('$fetch<DeleteGroupPreview>("/api/text-to-image/character-library/groups.delete-preview"');
+        expect(characterSection).toContain("expectedRevision: preview.revision");
+        expect(characterSection).toContain("视觉资料将移动到默认分组");
     });
 });

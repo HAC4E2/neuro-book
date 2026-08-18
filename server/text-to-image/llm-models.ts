@@ -1,4 +1,7 @@
-import {fetchTextToImageProvider} from "nbook/server/text-to-image/provider-fetch";
+import {
+    fetchTextToImageProvider,
+    resolveTextToImageOutboundPolicy,
+} from "nbook/server/text-to-image/provider-fetch";
 import type {LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 
 export type FetchLlmModelsInput = {
@@ -16,7 +19,10 @@ export async function fetchLlmModels(input: FetchLlmModelsInput): Promise<string
             method: "GET",
             headers: {authorization: `Bearer ${input.credential}`},
         },
-        {allowPrivateNetwork: false},
+        {
+            ...resolveTextToImageOutboundPolicy(),
+            allowPrivateNetwork: false,
+        },
         input.fetchImpl ? {fetchImpl: input.fetchImpl as never} : {},
     );
     if (!response.ok) {

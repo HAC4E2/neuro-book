@@ -1,13 +1,10 @@
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
-import {processTextToImageJobs} from "nbook/server/text-to-image/queue.processor";
-import {requestNovelAiImages} from "nbook/server/text-to-image/novelai-image-generation";
 import {
     listTextToImageAssets,
-    saveTextToImageAsset,
 } from "nbook/server/text-to-image/asset.service";
-import {readTextToImageReferenceImageBytes} from "nbook/server/text-to-image/reference-image.service";
+import {kickTextToImageQueue} from "nbook/server/text-to-image/queue-runtime";
 import {
     CharacterVisualLibraryService,
     type CharacterVisualRef,
@@ -15,6 +12,7 @@ import {
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {generateCharacterPhotoPrompt} from "nbook/server/text-to-image/character-photo-llm";
 import type {ResolvedBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-runtime";
+import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-trace";
 
 export type GenerateCharacterAvatarInput = {
     userId: number;
@@ -23,9 +21,9 @@ export type GenerateCharacterAvatarInput = {
     groupId: string;
     characterId: string;
     visualId: string;
-    characterText: string;
-    outfitText: string;
+    selectedOutfitIndex: number | null;
     userRequirement: string;
+    trace?: TextToImageLlmTraceHandle;
 };
 
 /**
@@ -38,29 +36,6 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
 }> {
     const providerService = new TextToImageProviderService();
     const llmSettings = TextToImageLlmProviderSettingsSchema.parse(input.llmRuntime.settings);
-    const prompt = await generateCharacterPhotoPrompt({
-        provider: {
-            baseUrl: llmSettings.baseUrl,
-            credential: input.llmRuntime.credential,
-            settings: input.llmRuntime.settings,
-        },
-        characterText: input.characterText,
-        outfitText: input.outfitText,
-        userRequirement: input.userRequirement,
-        contextEntries: input.llmRuntime.contextEntries,
-        runtime: {
-            currentCharacter: input.characterText,
-            currentOutfit: input.outfitText,
-            userDemand: input.userRequirement,
-        },
-    });
-
-    const providers = await providerService.list(input.userId);
-    const novelAiProvider = providers.find((item) => item.kind === "novelai");
-    if (!novelAiProvider) {
-        throw new Error("NovelAI Provider 不存在");
-    }
-
     const visualRef: CharacterVisualRef = {
         groupId: input.groupId,
         characterId: input.characterId,
@@ -70,6 +45,39 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
     const library = new CharacterVisualLibraryService();
     const before = await library.readWithInfo(projectRoot, visualRef);
     if (!before) throw new Error("未找到当前角色视觉资料");
+    if (input.selectedOutfitIndex !== null && input.selectedOutfitIndex >= before.visual.outfits.length) {
+        throw new Error(`selectedOutfitIndex 超出当前服装范围：${input.selectedOutfitIndex}`);
+    }
+    const characterText = JSON.stringify(before.visual.character);
+    const outfitText = input.selectedOutfitIndex === null
+        ? ""
+        : JSON.stringify(before.visual.outfits[input.selectedOutfitIndex]);
+    const prompt = await generateCharacterPhotoPrompt({
+        provider: {
+            baseUrl: llmSettings.baseUrl,
+            credential: input.llmRuntime.credential,
+            settings: input.llmRuntime.settings,
+        },
+        characterText,
+        outfitText,
+        userRequirement: input.userRequirement,
+        contextEntries: input.llmRuntime.contextEntries,
+        promptMode: input.llmRuntime.promptMode,
+        trace: input.trace,
+        runtime: {
+            currentCharacter: characterText,
+            currentOutfit: outfitText,
+            outfitList: JSON.stringify(before.visual.outfits),
+            userDemand: input.userRequirement,
+            triggerText: `${characterText}\n${outfitText}\n${input.userRequirement}`,
+        },
+    });
+
+    const providers = await providerService.list(input.userId);
+    const novelAiProvider = providers.find((item) => item.kind === "novelai");
+    if (!novelAiProvider) {
+        throw new Error("NovelAI Provider 不存在");
+    }
 
     const projectPath = input.projectRoot.startsWith("workspace/")
         ? input.projectRoot
@@ -88,17 +96,7 @@ export async function generateCharacterAvatar(input: GenerateCharacterAvatarInpu
             credentialRevision: novelAiProvider.credentialRevision,
         }),
     });
-    await processTextToImageJobs(projectPath, {
-        listQueued: (projectPath) => queue.list(projectPath, "queued"),
-        markRunning: (projectPath, id) => queue.markRunning(projectPath, id),
-        markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),
-        markFailed: (projectPath, id, message) => queue.markFailed(projectPath, id, message),
-        resolveRuntime: (ownerUserId, providerId) => providerService.resolveRuntimeProvider(ownerUserId, providerId),
-        generate: (input) => requestNovelAiImages(input, {
-            readReference: (relativePath) => readTextToImageReferenceImageBytes(relativePath),
-        }),
-        saveAsset: saveTextToImageAsset,
-    });
+    await kickTextToImageQueue(projectPath);
 
     const completedJob = (await queue.list(projectPath)).find((item) => item.id === job.id);
     if (!completedJob) {

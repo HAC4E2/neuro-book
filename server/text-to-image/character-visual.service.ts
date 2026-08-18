@@ -6,6 +6,7 @@ import {
     type CharacterVisualFile,
 } from "nbook/server/text-to-image/character-visual.codec";
 import {resolveTextToImageAssetPath} from "nbook/server/text-to-image/asset-path";
+import {canonicalizeTriggerWords} from "nbook/server/text-to-image/character-trigger-words";
 
 const GROUP_ID_PATTERN = /^[A-Za-z0-9._-]+$/u;
 const VISUAL_FILE = "visual.json";
@@ -92,15 +93,12 @@ export async function writeCharacterVisual(
 }
 
 function normalizeCharacterIdentity(input: CharacterVisualFile): CharacterVisualFile {
-    const triggerWords = [
-        ...(input.character.triggerWords ?? "").split(",").map((word) => word.trim()).filter((word) => word !== ""),
-        (input.character.cnName ?? "").trim(),
-    ];
     return {
         ...input,
         character: {
             ...input.character,
-            triggerWords: [...new Set(triggerWords)].join(", "),
+            // 严格 `|` 合同：逗号输入直接抛错，不再追加中文名或英文名。
+            triggerWords: canonicalizeTriggerWords(input.character.triggerWords ?? ""),
         },
     };
 }

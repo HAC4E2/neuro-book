@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {
+    DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT,
     DEFAULT_WORD_REPLACEMENT_PROFILE,
     TextToImageContextProfileSchema,
     TextToImageGlobalConfigSchema,
@@ -104,7 +105,6 @@ describe("text-to-image DTO", () => {
             noiseSchedule: "karras",
             promptGuidance: 10,
             promptGuidanceRescale: 0.18,
-            smea: true,
             width: 1024,
             height: 1024,
             steps: 28,
@@ -132,8 +132,6 @@ describe("text-to-image DTO", () => {
                     promptGuidance: 10,
                     promptGuidanceRescale: 0.18,
                     aiDefaultCharacterPosition: true,
-                    smea: true,
-                    smeaDyn: true,
                     variety: true,
                     decrisp: true,
                     width: 1024,
@@ -165,8 +163,6 @@ describe("text-to-image DTO", () => {
                     promptGuidance: 10,
                     promptGuidanceRescale: 0.18,
                     aiDefaultCharacterPosition: true,
-                    smea: true,
-                    smeaDyn: true,
                     variety: true,
                     decrisp: true,
                     width: 1024,
@@ -200,5 +196,20 @@ describe("text-to-image DTO", () => {
             characterIds: ["hero"],
             projectRoot: "../../outside",
         })).toThrow();
+    });
+
+    it("内置八行替换规则是唯一默认常量，字段缺失时进入新 Provider 配置", () => {
+        expect(DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT).toBe([
+            "触发词1=前置前|插入词1",
+            "触发词2=前置后|插入词2",
+            "触发词3=替换|替换词3",
+            "触发词4=替换|",
+            "触发词5=替换分角色|替换词5",
+            "触发词6=后置前|插入词6",
+            "触发词7=后置后|插入词7",
+            "触发词8=最后置|插入词8",
+        ].join("\n"));
+        expect(TextToImageNovelAiSettingsSchema.parse({}).promptReplaceText).toBe(DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT);
+        expect(TextToImageNovelAiSettingsSchema.parse({promptReplaceText: ""}).promptReplaceText).toBe("");
     });
 });

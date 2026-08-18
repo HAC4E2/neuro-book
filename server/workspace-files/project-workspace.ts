@@ -299,6 +299,7 @@ CREATE TABLE IF NOT EXISTS "TextToImageAsset" (
     "seed" INTEGER NOT NULL,
     "prompt" TEXT NOT NULL,
     "negativePrompt" TEXT NOT NULL,
+    "finalPromptBundleJson" TEXT,
     "sourceKind" TEXT NOT NULL,
     "sourcePath" TEXT,
     "sourceAnchorId" TEXT,
@@ -410,6 +411,7 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         await migrateStorySceneChapterEntity(client);
         await ensureWorldSliceSummaryColumn(client);
         await ensurePlanningLayerColumns(client);
+        await ensureTextToImageAssetColumns(client);
     } finally {
         await client.close();
         collectReleasedSqliteHandles();
@@ -453,6 +455,14 @@ async function ensurePlanningLayerColumns(client: Client): Promise<void> {
     }
     if (!sceneColumns.has("pacingRole")) {
         await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "pacingRole" TEXT`);
+    }
+}
+
+/** 补齐正文生图资产的最终 Prompt Bundle 快照列。新库由建表 SQL 直接带上。 */
+async function ensureTextToImageAssetColumns(client: Client): Promise<void> {
+    const columns = await tableColumns(client, "TextToImageAsset");
+    if (!columns.has("finalPromptBundleJson")) {
+        await client.execute(`ALTER TABLE "TextToImageAsset" ADD COLUMN "finalPromptBundleJson" TEXT`);
     }
 }
 

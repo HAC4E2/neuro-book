@@ -7,6 +7,7 @@ import {generateBodyPrompts} from "nbook/server/text-to-image/body-session.servi
 import {
     buildBodyCharacterSummary,
     buildBodyOutfitSummary,
+    CharacterTriggerAmbiguityError,
     scanBodyCharactersFromProject,
 } from "nbook/server/text-to-image/body-character-scanner";
 import type {BodyCharacterMatch} from "nbook/server/text-to-image/body-character-scanner";
@@ -19,6 +20,7 @@ import {
     readProjectSendData,
     readProjectSendDataSnapshot,
 } from "nbook/server/text-to-image/project-send-data.service";
+import {textToImageLlmTraceHub} from "nbook/server/text-to-image/llm-trace";
 
 const BodyPromptsBodySchema = z.object({
     chapterContent: z.string().optional(),
@@ -32,6 +34,7 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, BodyPromptsBodySchema);
     const runtime = await resolveBoundTextToImageLlmRuntime(user.id, "image_gen");
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
+    const trace = textToImageLlmTraceHub.start(user.id, {requestType: "image_gen", profileId: runtime.profileId, model: settings.model});
     const effective = await loadEffectiveConfig({workspaceKind: "user-assets"});
     const profileName = effective.textToImage.currentWordReplacementProfile;
     const profile = effective.textToImage.wordReplacementProfiles[profileName];
@@ -55,6 +58,12 @@ export default defineEventHandler(async (event) => {
     const scannedCharacters = await scanBodyCharactersFromProject({
         projectRoot,
         chapterContent,
+    }).catch((cause: unknown) => {
+        if (cause instanceof CharacterTriggerAmbiguityError) {
+            // 歧义错误不能静默按遍历顺序选择，也不能进入 LLM。
+            throw createError({statusCode: 409, message: cause.message});
+        }
+        throw cause;
     });
 
     if (chapterContent.trim() === "") {
@@ -66,6 +75,8 @@ export default defineEventHandler(async (event) => {
         groupId: item.groupId,
         visual: item.visual,
         matchedTrigger: "project-send-data",
+        matchedTriggers: [],
+        source: "project-send-data" as const,
     }));
     const matchedCharacters = mergeBodyCharacterMatches(scannedCharacters, selectedCharacters);
     const resolvedCharacterSummary = buildBodyCharacterSummary(matchedCharacters);
@@ -73,28 +84,42 @@ export default defineEventHandler(async (event) => {
     const worldBook = sendSnapshot.lorebookEntries
         .map((entry) => `<lorebook path="${entry.path}">\n${entry.content}\n</lorebook>`)
         .join("\n\n");
-    const result = await generateBodyPrompts({
-        provider: {
-            baseUrl: settings.baseUrl,
-            credential: runtime.credential,
-            settings: runtime.settings,
-        },
-        chapterContent,
-        characterMatches: matchedCharacters,
-        textReplacementRules: profile?.textReplacement ?? "",
-        aiReplacementRules: profile?.aiReplacement ?? "",
-        contextEntries: runtime.contextEntries,
-        historyPrefill,
-        runtime: {
-            body: chapterContent,
-            context: resolvedCharacterSummary,
-            worldBook,
-            characterList: resolvedCharacterSummary,
-            commonCharacterList: resolvedCharacterSummary,
-            outfitList: buildBodyOutfitSummary(selectedOutfits),
-            userDemand: "",
-        },
-    });
+    let result: Awaited<ReturnType<typeof generateBodyPrompts>>;
+    try {
+        result = await generateBodyPrompts({
+            provider: {
+                baseUrl: settings.baseUrl,
+                credential: runtime.credential,
+                settings: runtime.settings,
+            },
+            chapterContent,
+            characterMatches: matchedCharacters,
+            textReplacementRules: profile?.textReplacement ?? "",
+            aiReplacementRules: profile?.aiReplacement ?? "",
+            contextEntries: runtime.contextEntries,
+            promptMode: runtime.promptMode,
+            trace,
+            historyPrefill,
+            runtime: {
+                body: chapterContent,
+                context: resolvedCharacterSummary,
+                worldBook,
+                characterList: resolvedCharacterSummary,
+                commonCharacterList: resolvedCharacterSummary,
+                outfitList: buildBodyOutfitSummary(selectedOutfits),
+                userDemand: "",
+                triggerText: `${chapterContent}\n${resolvedCharacterSummary}\n${worldBook}`,
+            },
+        });
+    } catch (cause) {
+        if (isBodyImagePlanningFormatError(cause)) {
+            throw createError({
+                statusCode: 422,
+                message: "正文生图规划格式不完整，已重试 2 次；请重新点击“生成图片”",
+            });
+        }
+        throw cause;
+    }
     return {
         blocks: result.blocks,
         content: result.content,
@@ -104,9 +129,17 @@ export default defineEventHandler(async (event) => {
             characterId: match.characterId,
             groupId: match.groupId,
             matchedTrigger: match.matchedTrigger,
+            source: match.source,
         })),
     };
 });
+
+function isBodyImagePlanningFormatError(error: unknown): boolean {
+    return error instanceof Error
+        && (/正文生图块解析失败/u.test(error.message)
+            || /角色调用格式无效/u.test(error.message)
+            || /角色调用格式门禁/u.test(error.message));
+}
 
 function mergeBodyCharacterMatches(
     scanned: BodyCharacterMatch[],

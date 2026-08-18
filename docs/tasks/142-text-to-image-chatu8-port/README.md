@@ -415,3 +415,166 @@
 - 冲突限于 `PROJECT-STATUS.md` 和中英文 Activity Bar 文案：状态文档同时保留上游 `0.9.6-canary` 发布证据与 Task 142 验证记录；Activity Bar 同时保留文生图入口和上游 Project 未打开提示。
 - 上游 Nuxt 类型生成暴露角色工作台的 API 路径与服务端文件路由不一致；客户端已改用生成合同中的 `character-library.activation`、`groups.reorder` 和 `visual.*` 路径，并补充合同测试，操作语义不变。
 - 自动化验证：文生图、角色管理、Activity Bar 和共享合同 `61` 个测试文件、`291/291` 项通过；`bun run typecheck` 通过，包含上游新增的 `desktop/electron` typecheck；`git diff --check` 通过。未执行浏览器人工验收或真实 Provider 请求。
+
+## 实施记录（2026-08-15 角色管理交互与分组修复施工）
+
+本轮依据 [`docs/drafts/角色管理交互与分组修复施工计划.md`](../../drafts/角色管理交互与分组修复施工计划.md) 独立施工，未扩写本 Task 总计划。范围：按钮事件真实调用与交互状态、分组显示/创建/删除（含迁移事务）、Provider Fake-IP/受控 loopback 代理；未触碰正文生图、角色预设解析、NovelAI 画风串和 `worker entry not found`。
+
+### 已落地
+
+- **六个无效按钮修复**：`TextToImageCharacterSection.vue` 与 `TextToImageLlmSettingsSection.vue` 中 `@click="void <函数名>"`（只取函数引用、不调用）全部改为真实调用；全部写操作收敛到 `beginAction`/`endAction`（同一面板同时只允许一个写操作，`finally` 清理，双击只产生一次请求）。
+- **分组显示与创建**：侧栏遍历完整 `groups`（空分组显示 `0` 与“暂无视觉资料”），角色层仍只显示已有视觉 JSON 的角色；创建表单只保留“分组名称”，服务端生成 `group-<uuid>` ID（碰撞重试），规范化显示名唯一（创建/重命名同名 409），重命名不改 ID；创建成功后自动展开新分组。
+- **分组删除迁移**：两步 API——`GET character-library/groups.delete-preview`（只读摘要 + revision）与 `DELETE character-library/groups`（`expectedRevision` CAS，过期 409）。`default` 永不删除；非空组先把全部视觉资料无损迁移到 `default`（整目录 rename 或 manifest 合并），大小写文件名冲突生成 `<主体>-moved-<8位>.json`，`visualId` 冲突生成确定性新 UUID 并同步改写内容，损坏 JSON 按原始字节迁移，目标已有生效视觉保持不变、否则继承来源生效视觉；照片引用、角色 Markdown、历史 Job 不动；`.nbook/text-to-image-send-data.json` 中固定 `groupId/visualId` 引用按 ref 映射更新；已启用来源组删除后只从启用集合移除，`default` 不被隐式启用。事务走 Project 级写锁 + `.nbook/text-to-image/.txn/` 事务目录（备份 rename → 逐层提交 → 校验 → 删来源 → 清理），任一步失败按日志回滚，`ensure()` 会恢复未完成事务。
+- **Provider 出站**：URL 策略补齐 `198.18.0.0/15`、TEST-NET、`192.0.0.0/24` 与 `.local`/`.localhost` 拒绝；新增统一出站策略 `resolveTextToImageOutboundPolicy()`（模型发现与正式 LLM 请求共用），只自动信任可达的 loopback 环境代理（`127.0.0.1`/`[::1]`/`localhost`），代理模式用 `ProxyAgent` 委托 DNS、仍拒绝私网字面量与跨源凭据重定向，不可达退回直连且不放松任何校验；代理连接失败映射为可区分错误，不泄漏凭据。
+- **门禁**：静态契约测试禁止 `@\w+="void <函数名>"` 表达式并断言六个按钮的真实绑定；新增 jsdom + plugin-vue 的 `workbench-click.contract.test.ts` 挂载真实 SFC 点击六个按钮断言各只发送一次请求；服务/API 测试覆盖名称建组、409、迁移合并、冲突、revision 与全部故障注入点。
+
+### 验证记录
+
+- 聚焦测试：`server/text-to-image` + `server/api/text-to-image` + `app/components/novel-ide/text-to-image` 共 `59` 个文件 `314/314` 通过；其中 DOM 点击契约 `9/9`、分组迁移（含 7 个故障注入、重启恢复与 ID 碰撞重试）`28/28`、分组端点 `6/6`、Provider 侧 `47/47`。
+- 沙箱内 `bun run vitest` 会因 vite 的 `spawn EPERM` 失败，实际命令为 `node --require .agent/tmp/spawn-shim-probe/spawn-shim.cjs node_modules/vitest/vitest.mjs run --configLoader=native --pool=threads <files>`（shim 只中和 vite 的 pipe 探测与 `.vite-temp` 写入，不影响断言）。
+- 类型检查：`bunx nuxt prepare --dotenv .env.typecheck`（2s）+ `bunx vue-tsc --noEmit`（30s）退出码 0——本轮改动以及顺手修复的 3 个同域既有类型错误（`llm/preview.post.ts` 的 `.default({})`、`llm/response-events.get.ts` 的 `() => undefined` 契约、`TextToImageLlmSettingsSection.vue` 的 `newContextProfile` 缺 `promptMode`）全部通过。`bun run typecheck` 脚本包装在本会话沙箱内会反复重印脚本行并长时间不返回，故用等价底层命令验证；`desktop/electron` 部分因该工作副本未安装 `desktop/electron/node_modules`（缺 `electron` 类型）无法验证，与本轮改动无关。
+- 真实网络验证（子代理执行）：经 `127.0.0.1:7897` 请求 `https://opencode.ai/zen/go/v1/models` 返回 26 个模型。
+- 未执行：浏览器人工走查、真实 Project 上的删除迁移、真实 LLM 端到端出图。
+
+### 偏差与风险
+
+- 当前目录无 `.git`（非仓库检出副本），无法按仓库约定创建 worktree/分支/PR；改动直接在源码目录完成，由后续具备 git 的会话提交。
+- 迁移计划的冲突解（重命名后缀、新 `visualId`）由状态内容确定性推导，保证预检与提交两次计划完全一致；提交前 revision 仍以完整状态哈希 CAS 兜底。
+- 删除分组后照片资产内的 `sourceAnchorId`（含旧 `groupId`）保持历史值不重写，历史图片后处理按旧锚点仍可定位；新增照片会使用新锚点。
+
+## 实施记录（2026-08-15 发送数据状态、角色分组移动与触发词修复施工）
+
+本轮依据 [`docs/drafts/发送数据分组移动与角色触发词修复施工计划.md`](../../drafts/发送数据分组移动与角色触发词修复施工计划.md) 独立施工，未扩写本 Task 总计划。范围：发送数据选中/保存双层状态、角色分组启用标识、视觉资料跨组移动、触发词严格 `|` 合同与一次性迁移、角色身份跨版本一致性、正文扫描歧义；未触碰 LLM Provider、模型发现、NovelAI 参数、画风串、15 个角色 Tag 字段含义与 `worker entry not found`。
+
+### 已落地
+
+- **触发词 `|` 严格合同（Phase 1）**：新增 `server/text-to-image/character-trigger-words.ts` 领域模块——`parsePipeCharacterTriggers` 只允许 `.split("|")`，逗号/连续空项/首尾空项抛 `TriggerWordFormatError`；NFKC + 大小写折叠匹配；`buildEffectiveCharacterTriggers` 只在显式列表为空时回退中英文名，`buildCharacterReferenceTerms` 供 `${角色:名}` 显式引用（名称永远参与查找）。旧逗号解析只存在于 `trigger-words-migration.ts` 的私有函数中，一次性迁移按 `[,，|]` 拆分后输出 ` | `，不追加名称，写入前备份、复读校验后才提交 `triggerWordsFormat: "pipe-v1"` 标记，失败全量回滚，`ensure()` 会恢复未完成迁移；源码门禁测试禁止运行时模块出现逗号拆分并断言迁移器只导出两个入口。新库与旧 `character-visual.service.ts` 写入口均执行严格校验，移除中英文名自动追加。
+- **正文扫描修复（Phase 1）**：英文匹配 NFKC + 不区分大小写；不同 `characterId` 被同一规范化触发词命中时抛 `CharacterTriggerAmbiguityError`（列出显示名与触发词），`body-prompts.post.ts` 映射为 409，不进入 LLM；同一角色多触发词只注入一次，`matchedTrigger` 按正文最早出现、等位置取更长、再按配置顺序稳定选择；`matchedCharacters` 响应新增 `source`（`trigger` / `project-send-data`）用于 trace 区分来源。
+- **角色身份一致性（Phase 2）**：新增 `character-identity.service.ts`（身份 revision + Project 写锁事务）与 `character-library/identity.get|put` API；身份保存按 `characterId` 枚举全部分组/版本的 JSON，先校验 revision 与选中视觉 `updatedAt`，同一事务更新身份并可一并提交当前视觉的非身份修改，损坏 JSON 整体失败并列出安全标识，失败回滚；`CharacterVisualLibraryService.write()` 增加身份守卫，普通视觉保存改写中文名/英文名/触发词时抛 `CharacterIdentityFieldConflictError`（API 409），杜绝单 JSON 身份分叉。
+- **视觉资料跨组移动（Phase 3）**：新增 `character-visual-move.service.ts` 与 `visual.move-preview.get|move.post` API，删除 `visual.copy` API 与 `createCopy()`。预检返回影响摘要与 revision；提交冻结来源 `groupId+characterId+visualId+updatedAt` 与目标分组，目标等价内容（指纹忽略 `visualId`/文件名/时间戳/来源）直接合并到已有 ref，多份等价返回 409 冲突；文件名/`visualId` 冲突确定性改名/换新 ID；`.nbook/text-to-image-send-data.json` 的固定 `groupId/visualId` 引用同步映射，仅 `characterId` 的跟随引用不动；移动不复制/不删除照片，照片路径做 containment 校验；来源最后一份移动后整个角色目录移除，否则按 `updatedAt`/`visualId` 确定 fallback 生效项；事务走写锁 + `.txn/` 日志，`crash` 故障注入模拟进程中断后由恢复逻辑回滚。
+- **发送数据双层状态（Phase 4）**：`TextToImageSendDataSection.vue` 保存快照与编辑副本分离，稳定选择键计算 `dirty`；未保存显示 warning“有未保存更改，尚不会发送给 LLM”，保存按钮仅在有修改时可用；三栏条目改为整行可点击、`role="checkbox"` + `aria-checked` + 图标 + “固定发送/未固定发送”徽标，标题带“已选 N / M”，角色区改名“角色固定发送列表”，服装徽标“固定发送服装”；保存失败保留编辑状态；Project 切换用令牌丢弃旧响应。
+- **启用分组 UI（Phase 4）**：标题显示“已启用 N / M 个分组”；卡片用 accent 边框/背景 + check 图标 + “已启用/未启用”徽标（非纯颜色），点击整卡切换；零启用显示“正文不会自动注入角色，只生成场景内容”警示；“仅启用此组”在唯一启用时显示“当前唯一启用”并禁用；更新期间只有目标卡片显示 spinner + “正在更新…”，成功后只以 API 返回的启用状态合并，失败保持服务端原状态并通知；侧栏分组节点新增可读“启用”徽标。
+- **统一离开保护（Phase 4）**：新增 `app/components/novel-ide/text-to-image/leave-guard.ts`（保存/放弃/取消），发送数据与角色工作台通过 `defineExpose` 暴露 `guard()`，工作台 Dialog 的 `request-close`、左侧分页切换和 Project 切换均先过保护；角色工作台身份修改与视觉修改分开追踪，保存身份先读取同步范围摘要，确认 Dialog 展示“将同步 N 个分组、M 份 JSON”；触发词输入实时拒绝 `,`、`，`、连续空项与首尾竖线并展示规范化预览，标签改为“触发词（使用 | 分隔）”；LLM 修改预览继续锁定身份字段（`character-visual-llm.ts` 的 `finalizeDraft` 对触发词执行严格规范化，逗号输出触发重试）。
+
+### 验证记录
+
+#### 最终门禁
+
+- 聚焦测试（完整文生图范围，含服务/API/组件/DTO）：`bun run test -- server/text-to-image server/api/text-to-image app/components/novel-ide/text-to-image shared/text-to-image-novelai-prompt.test.ts shared/dto/text-to-image.dto.test.ts`，`72` 个测试文件、`415/415` 通过。NovelAI 提示词替换/凭据三态/最终 Tag 链路施工后的新增关键套件包括：统一事务恢复调度 `4/4`、严格凭据三态 `9/9`、结构化替换规则 `7/7`、最终 Prompt Bundle `4/4`、V4.5 payload `10/10`、发送数据 Project 切换取消 `6/6`、API Key 三态 UI `3/3`、离开保护续接 `3/3`；根 `nuxt typecheck` 退出码 0，浏览器人工验收、真实 NovelAI 请求对照与真实 Project 迁移未执行。
+- 类型检查：`bunx nuxt typecheck --dotenv .env.typecheck --logLevel silent` 退出码 `0`（覆盖 app/server/shared 与全部测试文件）。`bun run typecheck` 组合脚本中 `desktop/electron` 部分仍因该工作副本未安装 `desktop/electron/node_modules`（缺 `electron` 类型）失败，错误全部位于 `desktop/electron/src/*`，与本轮改动无关，沿用上轮口径。
+- 触发词迁移统计口径：迁移器统计扫描/转换/未修改/损坏文件数并写入 `pipe-v1` 标记；本轮无真实用户 Project 数据，上述数字均来自测试夹具（转换 `4` 个夹具文件、损坏 `1` 个、回滚注入 `1` 次），未对用户 Project 执行真实迁移。
+- 源码搜索证明：运行时路径不再存在逗号触发词拆分（`trigger-word-source-gate.test.ts` 逐一读取 10 个运行时模块断言无 `.split(",")`/`.split("，")`/宽松分隔正则；唯一例外是 `trigger-words-migration.ts` 的私有旧格式解析，模块导出仅 `migrateProjectTriggerWords` 与 `recoverUnfinishedTriggerWordMigrations`）。
+- `git diff --check`：本工作目录无 `.git`，未执行；上轮记录同口径。
+- 未执行：浏览器人工验收、真实 LLM/NovelAI 请求、真实用户 Project 的逗号迁移、真实 Project 上的跨组移动与身份同步——均明确为“未执行”，不能用聚焦测试替代。
+
+### 偏差与风险
+
+- 本工作目录无 `.git`，沿用上轮口径：无法创建 worktree/分支/PR，改动直接落地源码目录。
+- 迁移器除按计划识别 `,`/`，` 外，也一并拆分已手写的 `|`（新合同里竖线是分隔符，不能残留在值内部），保证输出能通过严格解析器往返；该函数私有且不导出。
+- 等价合并/移动的事务日志按 `kind` 字段与分组删除、触发词迁移、身份事务区分，恢复各自只处理自己的日志。
+- 发送数据“未保存即离开”的保存路径与后端无冲突 CAS：保存失败时离开保护不解除，用户只能重试或放弃。
+
+## 实施记录（2026-08-17 正文角色调用格式与侧面视角合同施工）
+
+本轮依据 [`正文生图导演格式修复与侧面视角合同施工计划.md`](../../drafts/正文生图导演格式修复与侧面视角合同施工计划.md) 落地，范围限定为 LLM 回复格式门禁、`from side` 角度语义和写入前校验；未执行浏览器、真实 LLM 或 NovelAI 验收。
+
+### 已落地
+
+- 新增 `body-prompt-call.codec.ts`，用平衡扫描替代角色调用正则与 `lastIndexOf()` 未闭合判断；共享 JSON/旧式调用解析、身体状态校验和 front/back 视觉方向推导。
+- 新增 `illustration-director.ts`，在 L1 进入 L2 前检查基础 Prompt、分角色正向 Prompt 和负向 Prompt；仅对完整且边界安全的缺尾 `$` 做幂等修复，不可安全修复时交给现有重试。
+- `from side`、`side view`、`three-quarter view` 等非背面角度选择正面视觉资料并保留原始 Tag；`from behind`、`from back`、`back`、`behind` 选择背面资料。
+- 正文占位符写入前增加严格门禁，生成编译器不再隐式修复，API 将连续规划格式失败映射为可理解的 `422` 错误。
+
+### 验证记录
+
+- 聚焦实现回归（共享 codec、director、正文编译、L1 解析、占位符写入、会话）：`6` 个测试文件、`49/49` 通过；临时测试配置仅为规避本机 Vite/Zod ESM 加载问题，不修改仓库测试配置。
+- 文生图相关回归：`63` 个测试文件、`374/379` 通过；剩余 `5` 项为既有 `character-visual.service` 路径断言、代理 dispatcher close 和 provider-fetch 网络 mock 失败，与本轮改动无关。
+- `bun --bun node_modules/typescript/bin/tsc --noEmit --pretty false` 通过。
+- 未执行：标准 `bun run test`（Bun 可执行映射仍报损坏）、浏览器人工验收、真实 LLM/NovelAI 请求和当前失败章节整体 reroll。
+
+## 实施记录（2026-08-17 独立服装调用解析修复）
+
+本轮依据 [`docs/drafts/正文生图独立服装调用解析修复施工计划.md`](../../drafts/正文生图独立服装调用解析修复施工计划.md) 落地。根因是 codec 将无 `angle` 的 `name` 无条件写入角色字段，导致 `office lady smart casual outfit` 在编译时被当成角色查找；实际服装数据存在于当前角色 visual 中。
+
+### 已落地
+
+- `body-prompt-call.codec.ts` 保留可选 `kind: "character" | "outfit"`，无项目上下文时只产生未决调用；显式 outfit 默认使用 `visible`，旧 inline outfit 的既有字段继续兼容。
+- `body-prompt-compiler.ts` 按调用顺序进行语义解析：显式 `kind` 优先；无 `kind` 时在有效 visual 内精确匹配角色/服装，角色与服装同名返回歧义；无角度独立服装优先继承前序角色的 front/back 方向，缺少前序角色时使用 front 并返回 warning。
+- `illustration.director` 与正文生图 system prompt 增加显式 `kind` 示例，同时保留旧的无 `kind` 输入和角色内 `outfit` 字段。
+- 生图 API 将 `call_invalid` 映射为 `422`、引用缺失/歧义映射为 `409`，并在编译失败时阻止创建队列任务；编译结果增加残留调用硬门禁。
+- 新增独立服装、前序 `from side` / `from behind` 继承、名称歧义、无前序 warning、codec kind 和 API 入队边界回归测试。
+
+### 验证记录
+
+- Node 驱动 Vitest 聚焦：新增合同相关 `8` 个测试文件、`62/62` 通过；文生图相关全范围 `75` 个测试文件、`435/435` 通过，覆盖 codec、compiler、director、正文 LLM、占位符插入、正文 API、生成端点、工作台与 DTO。
+- Node 驱动 Nuxt typecheck：退出码 `0`。
+- `bun run test` 未运行成功：Bun 报 `node_modules` 可执行映射损坏；`bun install --force` 又因 `bun is unable to write files to tempdir: AccessDenied` 失败。未将该环境故障记为业务测试失败。
+- 文档构建未通过：VitePress 报告已有规格页 JavaScript 表达式解析错误及中英文教程图片路径缺失；本轮新增文档未出现在错误列表中，未扩大范围修复。
+- 纯编译 fixture 已验证现有合同：`from side` 角色 + `office lady smart casual outfit` 独立服装会展开为正面角色/服装 Tag，不再查询名为该服装的角色；真实用户章节未执行供应商出图。
+- 未执行：浏览器人工验收、真实 LLM/NovelAI 请求和当前 Project 的实际队列生成。
+
+### 偏差与风险
+
+- 当前工作目录无 `.git`，无法按仓库约定创建 worktree、分支或 PR；改动直接落在源码目录，需后续在具备 Git 元数据的工作区审查提交。
+- 本轮保留了旧 inline outfit 使用 `sfw/nsfw` 身体状态的兼容路径；名称引用的独立服装严格使用 `visible/hidden`，新导演输出统一推荐显式 `kind`。
+
+## 实施记录（2026-08-17 正文图片写回可靠性与正文宽度修复）
+
+本轮落地第 20 节施工计划，范围限定为正文图片生成后的持久化、并发覆盖、插入状态和正文图片宽度；未修改 NovelAI Tag 编译、角色视觉资料和 Project SQLite schema。
+
+### 已落地
+
+- 新增 `server/text-to-image/body-image-writeback.service.ts`：服务端从最新章节读取正文，按占位符 ID 局部替换图片；写入经过 Project mutation/history，文件版本变化时有界重试，不再依赖浏览器整篇旧正文。
+- `prompt-placeholders/:id/generate` 生成前只读取最新磁盘正文，生成后按本次 Job 查找资产并由服务端写回；占位符已被同来源图片替换时返回 `already_inserted`，占位符确实消失时返回 `missing`，不依据旧浏览器快照重复生图。
+- 前端生成前先刷新并保存当前章节，生成期间锁定当前章节编辑器和正文生图按钮，服务端写入后只同步权威正文，不再二次保存整篇旧内容；保存失败不显示成功通知。
+- `TextToImageQueueService` 增加 `sourceInsertStatus` 的 `inserted` / `missing` 推进；新增 `prompt-placeholders/:id/recover` 免生图恢复端点，使用已有成功资产写回正文。
+- 正文图片改为 `width: 100%`、`height: auto`、取消固定 `560px/360px` 上限，保持正文栏宽度和原始比例。
+
+### 当前 Project dry run
+
+只读检查 `workspace/zai-jie-fan-xiao-dao-shang-de-hou-gong-sheng-huo/manuscript/001-volume/001-chapter/index.md`：
+
+- 当前正文 `4` 个图片引用、`4` 个占位符；
+- Project 有 `13` 个成功资产，`9` 个未被当前正文引用；
+- `4` 个剩余占位符均有成功资产候选；
+- 默认恢复候选为每个来源最近一次成功资产：`tti-dc8a…`、`tti-1e4e…`、`tti-874d…`、`tti-531f…`；
+- 已通过一次性 Project Session 维护测试调用正式写回服务完成恢复：正文图片引用 `4→8`、占位符 `4→0`、成功资产保持 `13`，对应 `4` 个 Job 的 `sourceInsertStatus` 已改为 `inserted`；没有新增 NovelAI 请求。
+
+### 验证记录
+
+- 文生图与 Markdown 聚焦回归：`60` 个测试文件、`400/400` 个断言通过。
+- 新增正文写回服务测试：覆盖文件版本变化重试、已插入幂等和占位符消失保留资产。
+- Node 驱动 Nuxt typecheck：退出码 `0`。
+- `bun run typecheck` 未运行成功：本机 Bun 报 `node_modules` 可执行映射损坏；使用等价 Node Nuxt typecheck 验证 app/server/shared 与测试文件。
+- 未执行：浏览器人工验收、真实 LLM/NovelAI 出图；当前 Project 的实际恢复写回已完成，并通过 Workspace history 记录。
+
+### 偏差与风险
+
+- 当前工作目录无 `.git`，无法创建 worktree、分支或 PR；改动直接落在源码目录，需后续在具备 Git 元数据的工作区审查提交。
+- 当前章节其余历史失败/未引用 Job 仍可能有 `sourceInsertStatus=pending`；本轮只更新了实际写入的 `4` 个 Job，未绕过 Workspace history 批量改写其余历史记录。
+- 第一版生成期间锁定当前章节编辑器，以保证未保存 TipTap 内容不会覆盖服务端写回；若未来允许边生成边编辑，需要另行实现增量合并合同。
+
+## 实施记录（2026-08-18 图片块队列恢复与自动保存冲突修复）
+
+本轮针对“一个图片块排队时其它图片块不可用”“偶发提示当前章节尚未成功保存”以及服务端写回后反复出现真实文件冲突，落地队列消费者与前端保存协作修复；未修改 NovelAI 最终 Tag 组合合同和数据库 schema。
+
+### 已落地
+
+- **Project 级单消费者 FIFO**：新增 `queue-runtime.ts` 作为所有入口的唯一消费者；队列处理器按 `createdAt` 升序、ID 作为稳定 tie-breaker，避免 Prisma 最新优先查询造成 LIFO。正文生成接口只创建 Job 并返回 `202`，NovelAI、资产保存和正文写回全部在消费者完成；通用 Job 入队、角色头像和历史图片后处理也复用同一消费者。
+- **图片块独立入队**：新增 Job 状态查询端点。前端每个图片卡片只维护自己的“排队或生成中”状态并轮询自己的 Job；编辑器整体仍保持正文写回保护，但其它图片卡片在编辑器只读期间仍可点击入队，不再被全局 `editor.isEditable` 拦截。
+- **写回版本接纳**：Job 终态返回服务端实际写回的章节内容和文件节点，前端原子更新正文、buffer、tab 与同步 mtime，清理本地冲突状态；服务端自己写入的 mtime 不再被下一次保存误判为外部冲突。
+- **保存竞态收口**：所有保存请求串行化；图片卡片失焦触发的自动保存在正文未 dirty 时直接跳过，不再重复提交相同 `expectedMtime`。已有自动保存会先被等待，已同步正文不会为每个图片块再次写文件。
+- **终态保护与故障收口**：取消后的 Job 不会被迟到的成功/失败结果覆盖；消费者级数据库/依赖故障会尽力把尚未领取的 queued Job 标记为 failed，避免前端永久轮询。
+
+### 验证记录
+
+- 队列、正文生成端点、Markdown NodeView、Store 聚焦回归：`5` 个文件、`36/36` 通过（另补充正文 Job 写回、状态投影故障和只读卡片独立入队断言）。
+- 文生图、正文 API 与 Markdown TipTap 全部聚焦回归：`68` 个文件、`415/415` 通过。
+- Node `tsc --noEmit --pretty false -p tsconfig.json`：通过。
+- Node Nuxt typecheck（`.env.typecheck`）：退出码 `0`。
+- 未执行：浏览器人工走查、真实 LLM/NovelAI 请求和当前用户 Project 的长时间队列运行；这些不能用聚焦测试替代。
+
+### 偏差与风险
+
+- 当前工作目录无 `.git`，无法创建 worktree、分支或 PR；改动直接落在源码目录，需后续在具备 Git 元数据的工作区审查提交。
+- 生成期间正文编辑仍保持只读，以保证服务端按占位符局部写回不覆盖未保存文本；本轮只放开其它图片卡片的入队按钮，允许正文边生成边编辑仍需另行设计增量合并合同。

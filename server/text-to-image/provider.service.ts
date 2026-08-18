@@ -60,6 +60,11 @@ export class TextToImageProviderNotConfiguredError extends Error {
     }
 }
 
+export type TextToImageCredentialUpdate =
+    | {mode: "preserve"}
+    | {mode: "replace"; value: string}
+    | {mode: "delete"};
+
 export type SaveTextToImageProviderInput = {
     /** 更新已有 Provider 时必填；缺省时按 name 匹配。 */
     id?: number;
@@ -68,9 +73,29 @@ export type SaveTextToImageProviderInput = {
     baseUrl: string;
     model?: string | null;
     settings?: Record<string, unknown>;
-    /** 传入非空值表示替换凭据；undefined 或空串表示保留已有密文。 */
+    /** 严格的三态凭据合同；NovelAI 必须使用它，不允许空串承担隐式含义。 */
+    credentialUpdate?: TextToImageCredentialUpdate;
+    /** 兼容 OpenAI 兼容 Provider 的旧表单；非空表示替换，空值在已有 Provider 上表示保留。 */
     credential?: string;
 };
+
+export class TextToImageProviderCredentialRequiredError extends Error {
+    readonly code = "TEXT_TO_IMAGE_PROVIDER_CREDENTIAL_REQUIRED";
+
+    constructor() {
+        super("新建文生图 Provider 必须提供真实 API Key。");
+        this.name = "TextToImageProviderCredentialRequiredError";
+    }
+}
+
+export class TextToImageProviderMaskSentinelError extends Error {
+    readonly code = "TEXT_TO_IMAGE_PROVIDER_MASK_SENTINEL";
+
+    constructor() {
+        super("API Key 不能是遮罩字符；请粘贴真实 Key。");
+        this.name = "TextToImageProviderMaskSentinelError";
+    }
+}
 
 /**
  * 文生图 Provider 服务：凭据密封/打开、修订版本号和脱敏 DTO。
@@ -95,7 +120,10 @@ export class TextToImageProviderService {
             : input.kind === "novelai"
                 ? (await this.store.list(ownerUserId)).find((record) => record.kind === "novelai") ?? null
                 : (await this.store.list(ownerUserId)).find((record) => record.name === input.name) ?? null;
-        const credentialChanged = await resolveCredentialChange(existing, input.credential, this.keyPath);
+        if (!existing && input.credentialUpdate?.mode !== "replace" && !(input.credential && input.credential.trim() !== "")) {
+            throw new TextToImageProviderCredentialRequiredError();
+        }
+        const credentialChanged = await resolveCredentialChange(existing, input.credential, input.credentialUpdate, this.keyPath);
         const sealed = credentialChanged.sealed;
         const revision = existing
             ? existing.credentialRevision + (credentialChanged.changed ? 1 : 0)
@@ -108,9 +136,9 @@ export class TextToImageProviderService {
                 baseUrl: input.baseUrl,
                 model: input.model ?? null,
                 ...(input.settings !== undefined ? {settings: input.settings} : {}),
-                credentialCiphertext: sealed.ciphertext,
-                credentialIv: sealed.iv,
-                credentialTag: sealed.tag,
+                credentialCiphertext: sealed?.ciphertext ?? "",
+                credentialIv: sealed?.iv ?? "",
+                credentialTag: sealed?.tag ?? "",
                 credentialRevision: revision,
             })
             : await this.store.create({
@@ -119,9 +147,9 @@ export class TextToImageProviderService {
                 name: input.name,
                 baseUrl: input.baseUrl,
                 model: input.model ?? null,
-                credentialCiphertext: sealed.ciphertext,
-                credentialIv: sealed.iv,
-                credentialTag: sealed.tag,
+                credentialCiphertext: sealed?.ciphertext ?? "",
+                credentialIv: sealed?.iv ?? "",
+                credentialTag: sealed?.tag ?? "",
                 credentialRevision: revision,
                 settings: input.settings ?? {},
             });
@@ -134,6 +162,20 @@ export class TextToImageProviderService {
     /** 删除 Provider。 */
     async remove(ownerUserId: number, id: number): Promise<boolean> {
         return this.store.delete(ownerUserId, id);
+    }
+
+    /** 只删除凭据，保留 Provider 与全部非敏感配置；revision 加一。 */
+    async deleteCredential(ownerUserId: number, id: number): Promise<TextToImageProviderDto> {
+        const record = await this.store.find(ownerUserId, id);
+        if (!record) throw new TextToImageProviderNotConfiguredError();
+        const updated = await this.store.update(ownerUserId, id, {
+            credentialCiphertext: "",
+            credentialIv: "",
+            credentialTag: "",
+            credentialRevision: record.credentialRevision + (hasCompleteCredential(record) ? 1 : 0),
+        });
+        if (!updated) throw new TextToImageProviderNotConfiguredError();
+        return toProviderDto(updated);
     }
 
     /** 打开凭据；密文缺失或无法解密时抛出稳定错误。 */
@@ -153,8 +195,8 @@ export class TextToImageProviderService {
         }
     }
 
-    /** 返回运行直调所需的设置与明文凭据。 */
-    async resolveRuntimeProvider(ownerUserId: number, id: number): Promise<{settings: Record<string, unknown>; credential: string}> {
+    /** 返回运行直调所需的设置、明文凭据和 revision，供队列消费时校验。 */
+    async resolveRuntimeProvider(ownerUserId: number, id: number): Promise<{settings: Record<string, unknown>; credential: string; credentialRevision: number}> {
         const record = await this.store.find(ownerUserId, id);
         if (!record) {
             throw new TextToImageProviderNotConfiguredError();
@@ -162,23 +204,39 @@ export class TextToImageProviderService {
         return {
             settings: record.settings,
             credential: await this.resolveCredential(ownerUserId, id),
+            credentialRevision: record.credentialRevision,
         };
     }
 }
 
+type ResolvedCredentialChange = {
+    sealed: {ciphertext: string; iv: string; tag: string} | null;
+    changed: boolean;
+};
+
 async function resolveCredentialChange(
     existing: TextToImageProviderRecord | null,
     credential: string | undefined,
+    credentialUpdate: TextToImageCredentialUpdate | undefined,
     keyPath: string | undefined,
-): Promise<{sealed: {ciphertext: string; iv: string; tag: string}; changed: boolean}> {
-    if (credential && credential.trim() !== "") {
+): Promise<ResolvedCredentialChange> {
+    const mode = credentialUpdate?.mode ?? (credential && credential.trim() !== "" ? "replace" : "preserve");
+    if (mode === "delete") {
+        if (!existing || !hasCompleteCredential(existing)) {
+            throw new TextToImageProviderNotConfiguredError();
+        }
+        return {sealed: null, changed: true};
+    }
+    if (mode === "replace") {
+        const value = (credentialUpdate?.mode === "replace" ? credentialUpdate.value : credential) ?? "";
+        assertValidCredentialValue(value);
         if (existing && hasCompleteCredential(existing)) {
             const previous = await openTextToImageCredential({
                 ciphertext: existing.credentialCiphertext,
                 iv: existing.credentialIv,
                 tag: existing.credentialTag,
             }, keyPath).catch(() => "");
-            if (previous === credential) {
+            if (previous === value) {
                 return {
                     sealed: {
                         ciphertext: existing.credentialCiphertext,
@@ -190,7 +248,7 @@ async function resolveCredentialChange(
             }
         }
         return {
-            sealed: await sealTextToImageCredential(credential, keyPath),
+            sealed: await sealTextToImageCredential(value, keyPath),
             changed: true,
         };
     }
@@ -205,6 +263,16 @@ async function resolveCredentialChange(
         },
         changed: false,
     };
+}
+
+function assertValidCredentialValue(value: string): void {
+    const normalized = value.trim();
+    if (normalized === "") {
+        throw new TextToImageProviderCredentialRequiredError();
+    }
+    if (/^[\s·•*●]+$/u.test(normalized) || normalized.startsWith("····")) {
+        throw new TextToImageProviderMaskSentinelError();
+    }
 }
 
 function hasCompleteCredential(record: TextToImageProviderRecord): boolean {

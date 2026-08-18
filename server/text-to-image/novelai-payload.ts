@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 
-export type NovelAiModelFamily = "nai3" | "nai4" | "nai45";
+export type NovelAiModelFamily = "nai45";
 
 export type NovelAiResolvedVibe = {
     encodingBase64: string;
@@ -14,36 +14,33 @@ export type NovelAiResolvedCharacter = {
     informationExtracted: number;
 };
 
+const NOVEL_AI_V45_MODELS = new Set([
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-4-5-curated",
+]);
+
+/** 只接受 V4.5 Full/Curated；旧模型在进入生成器前必须已规范化。 */
 export function resolveNovelAiModelFamily(model: string): NovelAiModelFamily {
-    if (model === "nai-diffusion-3") return "nai3";
-    if (model.includes("nai-diffusion-4-5")) return "nai45";
-    if (model.includes("nai-diffusion-4")) return "nai4";
-    throw new Error(`不支持的 NovelAI 模型：${model}`);
+    if (!NOVEL_AI_V45_MODELS.has(model)) {
+        throw new Error(`不支持的 NovelAI 模型：${model}；仅支持 NAI4.5 Full/Curated`);
+    }
+    return "nai45";
 }
 
 export function buildNovelAiReferencePayload(
-    family: NovelAiModelFamily,
+    _family: NovelAiModelFamily,
     references: {vibe: NovelAiResolvedVibe[]; character: NovelAiResolvedCharacter[]},
 ): Record<string, unknown> {
     const payload: Record<string, unknown> = {};
     if (references.vibe.length > 0) {
-        if (family === "nai3") {
-            payload.reference_image_multiple = references.vibe.map((item) => item.encodingBase64);
-            payload.reference_strength_multiple = references.vibe.map((item) => item.strength);
-            payload.reference_information_extracted_multiple = references.vibe.map((item) => item.informationExtracted);
-        } else {
-            payload.reference_image_multiple_cached = references.vibe.map((item) => ({
-                cache_secret_key: randomUUID(),
-                data: item.encodingBase64,
-            }));
-            payload.reference_strength_multiple = references.vibe.map((item) => item.strength);
-        }
+        payload.reference_image_multiple_cached = references.vibe.map((item) => ({
+            cache_secret_key: randomUUID(),
+            data: item.encodingBase64,
+        }));
+        payload.reference_strength_multiple = references.vibe.map((item) => item.strength);
     }
 
     if (references.character.length > 0) {
-        if (family !== "nai45") {
-            throw new Error("角色参考仅支持 NAI4.5");
-        }
         payload.director_reference_images_cached = references.character.map((item) => ({
             cache_secret_key: randomUUID(),
             data: item.imageBase64,
@@ -57,7 +54,7 @@ export function buildNovelAiReferencePayload(
         payload.director_reference_secondary_strength_values = references.character.map((item) => Number((1 - item.strength).toFixed(6)));
     }
 
-    validateNovelAiPayload(family, {
+    validateNovelAiPayload("nai45", {
         width: 1,
         height: 1,
         scale: 1,
@@ -69,43 +66,26 @@ export function buildNovelAiReferencePayload(
     return payload;
 }
 
-export function validateNovelAiPayload(family: NovelAiModelFamily, payload: Record<string, unknown>): void {
+export function validateNovelAiPayload(_family: NovelAiModelFamily, payload: Record<string, unknown>): void {
     for (const field of ["width", "height", "scale", "sampler", "steps", "seed"]) {
         if (payload[field] === undefined || payload[field] === null) {
             throw new Error(`NovelAI payload 缺少字段：${field}`);
         }
     }
-
-    if (family === "nai3") {
-        assertEqualArrayLengths(payload, [
-            "reference_image_multiple",
-            "reference_information_extracted_multiple",
-            "reference_strength_multiple",
-        ]);
-        if (payload.reference_image_multiple_cached !== undefined) {
-            throw new Error("NAI3 不支持 reference_image_multiple_cached");
-        }
-    } else {
-        assertEqualArrayLengths(payload, [
-            "reference_image_multiple_cached",
-            "reference_strength_multiple",
-        ]);
-        if (payload.reference_image_multiple !== undefined || payload.reference_information_extracted_multiple !== undefined) {
-            throw new Error("NAI4/4.5 不支持 NAI3 Vibe 数组");
-        }
+    assertEqualArrayLengths(payload, [
+        "reference_image_multiple_cached",
+        "reference_strength_multiple",
+    ]);
+    if (payload.reference_image_multiple !== undefined || payload.reference_information_extracted_multiple !== undefined) {
+        throw new Error("NAI4.5 不支持 NAI3 Vibe 数组");
     }
-
-    if (family === "nai45") {
-        assertEqualArrayLengths(payload, [
-            "director_reference_images_cached",
-            "director_reference_descriptions",
-            "director_reference_information_extracted",
-            "director_reference_strength_values",
-            "director_reference_secondary_strength_values",
-        ]);
-    } else if (payload.director_reference_images_cached !== undefined) {
-        throw new Error("角色参考仅支持 NAI4.5");
-    }
+    assertEqualArrayLengths(payload, [
+        "director_reference_images_cached",
+        "director_reference_descriptions",
+        "director_reference_information_extracted",
+        "director_reference_strength_values",
+        "director_reference_secondary_strength_values",
+    ]);
 }
 
 function assertEqualArrayLengths(payload: Record<string, unknown>, fields: string[]): void {

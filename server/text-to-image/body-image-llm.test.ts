@@ -173,6 +173,34 @@ describe("body image llm", () => {
         expect(blocks[0]?.regex).toBe("她推开门走进教室");
     });
 
+    it("在 L1 返回时修复角色调用缺失的结尾 `$` 并保留 from side", async () => {
+        const missingDollar = `${"$"}{"name":"Saki Terashima","angle":"from side","upperBody":"sfw","lowerBody":"sfw"},standing on deck`;
+        const content = [
+            "<image>",
+            "<regex>她抓住栏杆</regex>",
+            "<title_styled>甲板侧面</title_styled>",
+            "<Tag_think>侧面、晕船</Tag_think>",
+            "<size>832x1216</size>",
+            `<prompts>${missingDollar},pale face,seasick</prompts>`,
+            "</image>",
+        ].join("\n");
+
+        const blocks = await generateBodyImageBlocks({
+            provider: {
+                baseUrl: "https://api.example.com/v1",
+                credential: "sk-test",
+                settings: {baseUrl: "https://api.example.com/v1", model: "gpt-4o"},
+            },
+            chapterContent: "正文",
+            characterSummary: "Saki Terashima",
+            complete: async () => content,
+        });
+
+        expect(blocks[0]?.prompt).toContain("from side");
+        expect(blocks[0]?.prompt).toContain("}$");
+        expect(blocks[0]?.prompt).toContain("pale face,seasick");
+    });
+
     it("连续解析失败抛错", async () => {
         let calls = 0;
         const complete: typeof requestLlmCompletion = async () => {

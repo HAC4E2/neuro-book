@@ -6,34 +6,29 @@ import {
 } from "nbook/server/text-to-image/novelai-payload";
 
 describe("NovelAI payload adapter", () => {
-    it("按模型识别 NAI3、NAI4 和 NAI4.5", () => {
-        expect(resolveNovelAiModelFamily("nai-diffusion-3")).toBe("nai3");
-        expect(resolveNovelAiModelFamily("nai-diffusion-4-full")).toBe("nai4");
+    it("只接受 NAI4.5 Full/Curated 模型", () => {
         expect(resolveNovelAiModelFamily("nai-diffusion-4-5-full")).toBe("nai45");
+        expect(resolveNovelAiModelFamily("nai-diffusion-4-5-curated")).toBe("nai45");
+        expect(() => resolveNovelAiModelFamily("nai-diffusion-3")).toThrow(/NAI4.5/u);
+        expect(() => resolveNovelAiModelFamily("nai-diffusion-4-full")).toThrow(/NAI4.5/u);
     });
 
-    it("NAI3 使用 direct Vibe 数组，NAI4/4.5 使用 cached Vibe 数组", () => {
+    it("NAI4.5 使用 cached Vibe 数组", () => {
         const refs = {
             vibe: [{encodingBase64: "vibe", strength: 0.6, informationExtracted: 0.3}],
             character: [],
         };
-        expect(buildNovelAiReferencePayload("nai3", refs)).toMatchObject({
-            reference_image_multiple: ["vibe"],
-            reference_strength_multiple: [0.6],
-            reference_information_extracted_multiple: [0.3],
-        });
-        expect(buildNovelAiReferencePayload("nai4", refs)).toMatchObject({
+        expect(buildNovelAiReferencePayload("nai45", refs)).toMatchObject({
             reference_image_multiple_cached: [{data: "vibe"}],
             reference_strength_multiple: [0.6],
         });
     });
 
-    it("只有 NAI4.5 接受五组角色参考数组", () => {
+    it("NAI4.5 接受五组角色参考数组", () => {
         const refs = {
             vibe: [],
             character: [{imageBase64: "char", strength: 0.7, informationExtracted: 1}],
         };
-        expect(() => buildNovelAiReferencePayload("nai4", refs)).toThrow(/NAI4.5/u);
         expect(buildNovelAiReferencePayload("nai45", refs)).toMatchObject({
             director_reference_images_cached: [{data: "char"}],
             director_reference_descriptions: [{caption: {base_caption: "character"}}],

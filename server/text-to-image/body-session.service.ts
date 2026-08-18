@@ -6,6 +6,8 @@ import {buildBodyCharacterSummary} from "nbook/server/text-to-image/body-charact
 import type {BodyCharacterMatch} from "nbook/server/text-to-image/body-character-scanner";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import type {TextToImagePromptMode} from "nbook/server/text-to-image/llm-context";
+import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-trace";
 
 export type BodySessionServiceInput = {
     provider: {
@@ -20,7 +22,9 @@ export type BodySessionServiceInput = {
     textReplacementRules?: string;
     aiReplacementRules?: string;
     contextEntries?: TextToImageContextEntry[];
+    promptMode?: TextToImagePromptMode;
     runtime?: TextToImageRuntimePlaceholderContext;
+    trace?: TextToImageLlmTraceHandle;
     historyPrefill?: BodyImageHistoryPrefill[];
     generate?: typeof generateBodyImageBlocks;
 };
@@ -46,7 +50,9 @@ export async function generateBodyPrompts(input: BodySessionServiceInput): Promi
         textReplacementRules: input.textReplacementRules,
         aiReplacementRules: input.aiReplacementRules,
         contextEntries: input.contextEntries,
+        promptMode: input.promptMode,
         runtime: input.runtime,
+        trace: input.trace,
         historyPrefill: input.historyPrefill,
     });
     const inserted = insertBodyImagePlaceholders({

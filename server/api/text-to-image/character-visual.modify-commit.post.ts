@@ -3,7 +3,9 @@ import {z} from "zod";
 import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {CharacterVisualFileSchema} from "nbook/server/text-to-image/character-visual.codec";
+import {TriggerWordFormatError} from "nbook/server/text-to-image/character-trigger-words";
 import {
+    CharacterIdentityFieldConflictError,
     CharacterVisualLibraryService,
     CharacterVisualRevisionConflictError,
 } from "nbook/server/text-to-image/character-visual-library.service";
@@ -50,8 +52,12 @@ export default defineEventHandler(async (event) => {
             setActive: true,
         });
     } catch (cause) {
-        if (cause instanceof CharacterVisualRevisionConflictError) {
+        if (cause instanceof CharacterVisualRevisionConflictError
+            || cause instanceof CharacterIdentityFieldConflictError) {
             throw createError({statusCode: 409, message: cause.message});
+        }
+        if (cause instanceof TriggerWordFormatError) {
+            throw createError({statusCode: 400, message: cause.message});
         }
         throw cause;
     }

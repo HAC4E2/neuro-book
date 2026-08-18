@@ -9,7 +9,10 @@ import {
     saveTextToImageAsset,
 } from "nbook/server/text-to-image/asset.service";
 import type {PrismaClient} from "nbook/server/generated/project-prisma/client";
+import {initProjectDatabaseAtRoot} from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {withEphemeralTextToImageProjectClient} from "nbook/server/text-to-image/project-client";
 
 const PROJECT_NAME = "demo-project";
 
@@ -24,10 +27,53 @@ beforeEach(async () => {
 
 afterEach(async () => {
     setWorkspaceRuntimeRootContextForTest(null);
+    collectReleasedSqliteHandles({force: true});
     await rm(workspaceRoot, {recursive: true, force: true});
 });
 
 describe("saveTextToImageAsset", () => {
+    it("使用真实 Project Prisma Client 保存最终 Prompt Bundle", async () => {
+        await initProjectDatabaseAtRoot(projectRoot);
+        const bundle = JSON.stringify({
+            version: 1,
+            modelFamily: "nai4",
+            actualInput: "1girl, from side",
+            actualNegativeInput: "lowres",
+            characters: [],
+        });
+
+        await withEphemeralTextToImageProjectClient(PROJECT_NAME, async (client) => {
+            await client.textToImageJob.create({
+                data: {
+                    id: "job-real-prisma",
+                    providerId: 1,
+                    providerOwnerUserId: 1,
+                    kind: "body",
+                    requestJson: "{}",
+                },
+            });
+        });
+
+        const dto = await saveTextToImageAsset({
+            projectPath: PROJECT_NAME,
+            jobId: "job-real-prisma",
+            bytes: new TextEncoder().encode("fake-png-bytes"),
+            mimeType: "image/png",
+            width: 832,
+            height: 1216,
+            model: "nai-diffusion-4-5-full",
+            seed: 42,
+            prompt: "1girl, from side",
+            negativePrompt: "lowres",
+            finalPromptBundleJson: bundle,
+            sourceKind: "body",
+            sourcePath: "manuscript/chapter-1.md",
+            sourceAnchorId: "p_0001",
+        });
+
+        expect(dto.finalPromptBundleJson).toBe(bundle);
+    });
+
     it("写入文件、创建 DB 记录并返回 DTO", async () => {
         const fake = new FakePrismaClient();
         fake.jobs.set("job-1", {id: "job-1"});

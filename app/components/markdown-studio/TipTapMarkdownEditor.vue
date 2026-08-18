@@ -1509,8 +1509,10 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 
 :deep(.nb-markdown-editor img.nb-markdown-image-node) {
     display: block;
-    max-width: min(100%, 560px);
-    max-height: 360px;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    max-height: none;
     margin: 0.25rem 0 1rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;

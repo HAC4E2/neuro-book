@@ -53,6 +53,7 @@ export type TextToImageAssetMinAggregateOutputType = {
   seed: number | null
   prompt: string | null
   negativePrompt: string | null
+  finalPromptBundleJson: string | null
   sourceKind: string | null
   sourcePath: string | null
   sourceAnchorId: string | null
@@ -73,6 +74,7 @@ export type TextToImageAssetMaxAggregateOutputType = {
   seed: number | null
   prompt: string | null
   negativePrompt: string | null
+  finalPromptBundleJson: string | null
   sourceKind: string | null
   sourcePath: string | null
   sourceAnchorId: string | null
@@ -93,6 +95,7 @@ export type TextToImageAssetCountAggregateOutputType = {
   seed: number
   prompt: number
   negativePrompt: number
+  finalPromptBundleJson: number
   sourceKind: number
   sourcePath: number
   sourceAnchorId: number
@@ -129,6 +132,7 @@ export type TextToImageAssetMinAggregateInputType = {
   seed?: true
   prompt?: true
   negativePrompt?: true
+  finalPromptBundleJson?: true
   sourceKind?: true
   sourcePath?: true
   sourceAnchorId?: true
@@ -149,6 +153,7 @@ export type TextToImageAssetMaxAggregateInputType = {
   seed?: true
   prompt?: true
   negativePrompt?: true
+  finalPromptBundleJson?: true
   sourceKind?: true
   sourcePath?: true
   sourceAnchorId?: true
@@ -169,6 +174,7 @@ export type TextToImageAssetCountAggregateInputType = {
   seed?: true
   prompt?: true
   negativePrompt?: true
+  finalPromptBundleJson?: true
   sourceKind?: true
   sourcePath?: true
   sourceAnchorId?: true
@@ -276,6 +282,7 @@ export type TextToImageAssetGroupByOutputType = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson: string | null
   sourceKind: string
   sourcePath: string | null
   sourceAnchorId: string | null
@@ -319,6 +326,7 @@ export type TextToImageAssetWhereInput = {
   seed?: Prisma.IntFilter<"TextToImageAsset"> | number
   prompt?: Prisma.StringFilter<"TextToImageAsset"> | string
   negativePrompt?: Prisma.StringFilter<"TextToImageAsset"> | string
+  finalPromptBundleJson?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceKind?: Prisma.StringFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
@@ -340,6 +348,7 @@ export type TextToImageAssetOrderByWithRelationInput = {
   seed?: Prisma.SortOrder
   prompt?: Prisma.SortOrder
   negativePrompt?: Prisma.SortOrder
+  finalPromptBundleJson?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -364,6 +373,7 @@ export type TextToImageAssetWhereUniqueInput = Prisma.AtLeast<{
   seed?: Prisma.IntFilter<"TextToImageAsset"> | number
   prompt?: Prisma.StringFilter<"TextToImageAsset"> | string
   negativePrompt?: Prisma.StringFilter<"TextToImageAsset"> | string
+  finalPromptBundleJson?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceKind?: Prisma.StringFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
@@ -385,6 +395,7 @@ export type TextToImageAssetOrderByWithAggregationInput = {
   seed?: Prisma.SortOrder
   prompt?: Prisma.SortOrder
   negativePrompt?: Prisma.SortOrder
+  finalPromptBundleJson?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -413,6 +424,7 @@ export type TextToImageAssetScalarWhereWithAggregatesInput = {
   seed?: Prisma.IntWithAggregatesFilter<"TextToImageAsset"> | number
   prompt?: Prisma.StringWithAggregatesFilter<"TextToImageAsset"> | string
   negativePrompt?: Prisma.StringWithAggregatesFilter<"TextToImageAsset"> | string
+  finalPromptBundleJson?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
   sourceKind?: Prisma.StringWithAggregatesFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
@@ -432,6 +444,7 @@ export type TextToImageAssetCreateInput = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson?: string | null
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
@@ -453,6 +466,7 @@ export type TextToImageAssetUncheckedCreateInput = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson?: string | null
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
@@ -472,6 +486,7 @@ export type TextToImageAssetUpdateInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -493,6 +508,7 @@ export type TextToImageAssetUncheckedUpdateInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -513,6 +529,7 @@ export type TextToImageAssetCreateManyInput = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson?: string | null
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
@@ -532,6 +549,7 @@ export type TextToImageAssetUpdateManyMutationInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -552,6 +570,7 @@ export type TextToImageAssetUncheckedUpdateManyInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -582,6 +601,7 @@ export type TextToImageAssetCountOrderByAggregateInput = {
   seed?: Prisma.SortOrder
   prompt?: Prisma.SortOrder
   negativePrompt?: Prisma.SortOrder
+  finalPromptBundleJson?: Prisma.SortOrder
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
@@ -609,6 +629,7 @@ export type TextToImageAssetMaxOrderByAggregateInput = {
   seed?: Prisma.SortOrder
   prompt?: Prisma.SortOrder
   negativePrompt?: Prisma.SortOrder
+  finalPromptBundleJson?: Prisma.SortOrder
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
@@ -629,6 +650,7 @@ export type TextToImageAssetMinOrderByAggregateInput = {
   seed?: Prisma.SortOrder
   prompt?: Prisma.SortOrder
   negativePrompt?: Prisma.SortOrder
+  finalPromptBundleJson?: Prisma.SortOrder
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
@@ -697,6 +719,7 @@ export type TextToImageAssetCreateWithoutJobInput = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson?: string | null
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
@@ -716,6 +739,7 @@ export type TextToImageAssetUncheckedCreateWithoutJobInput = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson?: string | null
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
@@ -764,6 +788,7 @@ export type TextToImageAssetScalarWhereInput = {
   seed?: Prisma.IntFilter<"TextToImageAsset"> | number
   prompt?: Prisma.StringFilter<"TextToImageAsset"> | string
   negativePrompt?: Prisma.StringFilter<"TextToImageAsset"> | string
+  finalPromptBundleJson?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceKind?: Prisma.StringFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
@@ -783,6 +808,7 @@ export type TextToImageAssetCreateManyJobInput = {
   seed: number
   prompt: string
   negativePrompt: string
+  finalPromptBundleJson?: string | null
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
@@ -802,6 +828,7 @@ export type TextToImageAssetUpdateWithoutJobInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -821,6 +848,7 @@ export type TextToImageAssetUncheckedUpdateWithoutJobInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -840,6 +868,7 @@ export type TextToImageAssetUncheckedUpdateManyWithoutJobInput = {
   seed?: Prisma.IntFieldUpdateOperationsInput | number
   prompt?: Prisma.StringFieldUpdateOperationsInput | string
   negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  finalPromptBundleJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -862,6 +891,7 @@ export type TextToImageAssetSelect<ExtArgs extends runtime.Types.Extensions.Inte
   seed?: boolean
   prompt?: boolean
   negativePrompt?: boolean
+  finalPromptBundleJson?: boolean
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
@@ -883,6 +913,7 @@ export type TextToImageAssetSelectCreateManyAndReturn<ExtArgs extends runtime.Ty
   seed?: boolean
   prompt?: boolean
   negativePrompt?: boolean
+  finalPromptBundleJson?: boolean
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
@@ -904,6 +935,7 @@ export type TextToImageAssetSelectUpdateManyAndReturn<ExtArgs extends runtime.Ty
   seed?: boolean
   prompt?: boolean
   negativePrompt?: boolean
+  finalPromptBundleJson?: boolean
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
@@ -925,6 +957,7 @@ export type TextToImageAssetSelectScalar = {
   seed?: boolean
   prompt?: boolean
   negativePrompt?: boolean
+  finalPromptBundleJson?: boolean
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
@@ -932,7 +965,7 @@ export type TextToImageAssetSelectScalar = {
   createdAt?: boolean
 }
 
-export type TextToImageAssetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "jobId" | "relativePath" | "fileName" | "mimeType" | "byteLength" | "width" | "height" | "model" | "seed" | "prompt" | "negativePrompt" | "sourceKind" | "sourcePath" | "sourceAnchorId" | "contentHash" | "createdAt", ExtArgs["result"]["textToImageAsset"]>
+export type TextToImageAssetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "jobId" | "relativePath" | "fileName" | "mimeType" | "byteLength" | "width" | "height" | "model" | "seed" | "prompt" | "negativePrompt" | "finalPromptBundleJson" | "sourceKind" | "sourcePath" | "sourceAnchorId" | "contentHash" | "createdAt", ExtArgs["result"]["textToImageAsset"]>
 export type TextToImageAssetInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   job?: boolean | Prisma.TextToImageJobDefaultArgs<ExtArgs>
 }
@@ -961,6 +994,7 @@ export type $TextToImageAssetPayload<ExtArgs extends runtime.Types.Extensions.In
     seed: number
     prompt: string
     negativePrompt: string
+    finalPromptBundleJson: string | null
     sourceKind: string
     sourcePath: string | null
     sourceAnchorId: string | null
@@ -1402,6 +1436,7 @@ export interface TextToImageAssetFieldRefs {
   readonly seed: Prisma.FieldRef<"TextToImageAsset", 'Int'>
   readonly prompt: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly negativePrompt: Prisma.FieldRef<"TextToImageAsset", 'String'>
+  readonly finalPromptBundleJson: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly sourceKind: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly sourcePath: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly sourceAnchorId: Prisma.FieldRef<"TextToImageAsset", 'String'>

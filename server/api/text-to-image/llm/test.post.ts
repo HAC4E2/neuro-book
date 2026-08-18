@@ -5,7 +5,8 @@ import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {requestLlmCompletion} from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema, TextToImageRequestTypeSchema} from "nbook/shared/dto/text-to-image.dto";
-import {buildContextMessages, resolveTextToImageContextEntries} from "nbook/server/text-to-image/llm-context";
+import {buildRequestMessages, resolveTextToImageContextProfile} from "nbook/server/text-to-image/llm-context";
+import {textToImageLlmTraceHub} from "nbook/server/text-to-image/llm-trace";
 
 const LlmTestBodySchema = z.object({
     providerId: z.number().int().positive(),
@@ -17,11 +18,27 @@ const LlmTestBodySchema = z.object({
         context: z.string().optional().default(""),
         userDemand: z.string().optional().default(""),
         worldBook: z.string().optional().default(""),
+        characterList: z.string().optional().default(""),
+        commonCharacterList: z.string().optional().default(""),
+        outfitList: z.string().optional().default(""),
+        currentCharacter: z.string().optional().default(""),
+        currentOutfit: z.string().optional().default(""),
+        characterSource: z.string().optional().default(""),
+        currentTag: z.string().optional().default(""),
+        triggerText: z.string().optional().default(""),
     }).optional().default({
         body: "",
         context: "",
         userDemand: "",
         worldBook: "",
+        characterList: "",
+        commonCharacterList: "",
+        outfitList: "",
+        currentCharacter: "",
+        currentOutfit: "",
+        characterSource: "",
+        currentTag: "",
+        triggerText: "",
     }),
 });
 
@@ -30,6 +47,8 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, LlmTestBodySchema);
     const runtime = await new TextToImageProviderService().resolveRuntimeProvider(user.id, body.providerId);
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
+    const contextProfile = await resolveTextToImageContextProfile(body.requestType);
+    const trace = textToImageLlmTraceHub.start(user.id, {requestType: body.requestType, profileId: contextProfile.id, model: settings.model});
     const content = await requestLlmCompletion({
         baseUrl: settings.baseUrl,
         credential: runtime.credential,
@@ -42,10 +61,10 @@ export default defineEventHandler(async (event) => {
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
         runtime: body.runtime,
-        messages: [
-            ...buildContextMessages(await resolveTextToImageContextEntries(body.requestType), body.runtime),
+        trace,
+        messages: buildRequestMessages(contextProfile.entries, body.runtime, [
             {role: "user", content: body.prompt},
-        ],
+        ], contextProfile.promptMode),
     });
     return {content};
 });

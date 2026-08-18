@@ -17,6 +17,8 @@ export function normalizeImportedContextProfiles(parsed: unknown): Record<string
         const profile = TextToImageContextProfileSchema.parse({
             id: typeof raw.id === "string" && raw.id.trim() !== "" ? raw.id : key,
             name: typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name : key,
+            // chatu8 导入的完整消息模板不能再被业务内置提示词重复包裹。
+            promptMode: raw.promptMode === "augment" ? "augment" : "complete",
             entries: entries.map((entry, index) => {
                 if (typeof entry !== "object" || entry === null) {
                     throw new Error(`预设「${key}」第 ${index + 1} 条不是对象`);

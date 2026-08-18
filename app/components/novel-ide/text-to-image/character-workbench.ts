@@ -63,7 +63,7 @@ export const characterDetailFieldGroups = [
 export const characterDetailFieldLabels: Record<CharacterFieldKey, string> = {
     cnName: "角色中文名",
     enName: "角色英文名",
-    triggerWords: "触发词（逗号分隔）",
+    triggerWords: "触发词（使用 | 分隔）",
     profileTraits: "角色特征",
     facialAppearance: "五官正面",
     facialBack: "五官背面",

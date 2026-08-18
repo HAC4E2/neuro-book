@@ -7,11 +7,42 @@ import {
     buildCharacterVisualSystemPrompt,
     buildCharacterVisualUserPrompt,
     generateCharacterVisualDraft,
+    mergeCharacterVisualPatch,
+    parseCharacterVisualDraftPresence,
     parseCharacterVisualDraft,
     parseCharacterVisualDraftBatch,
 } from "nbook/server/text-to-image/character-visual-llm";
 
 describe("character visual llm", () => {
+    it("modify_visual 只应用返回中出现的字段，并锁定角色身份与指定服装", () => {
+        const current = parseCharacterVisualDraft(JSON.stringify({
+            characterId: "xiaoke",
+            character: {
+                cnName: "小克",
+                enName: "Xiao Ke",
+                triggerWords: "小克, Xiao Ke",
+                facialAppearance: "long black hair",
+                profileTraits: "gentle",
+            },
+            outfits: [{cnName: "校服", enName: "School Uniform", upper: "white shirt", lower: "navy skirt"}],
+            photos: ["assets/tti/keep.png"],
+        }));
+        const presence = parseCharacterVisualDraftPresence(JSON.stringify({
+            character: {cnName: "别改我", profileTraits: "brave"},
+            outfits: [{upper: "black coat"}],
+        }));
+
+        const result = mergeCharacterVisualPatch(current, presence, 0);
+
+        expect(result.visual.character.cnName).toBe("小克");
+        expect(result.visual.character.facialAppearance).toBe("long black hair");
+        expect(result.visual.character.profileTraits).toBe("brave");
+        expect(result.visual.outfits[0]?.upper).toBe("black coat");
+        expect(result.visual.outfits[0]?.lower).toBe("navy skirt");
+        expect(result.visual.photos).toEqual(["assets/tti/keep.png"]);
+        expect(result.warnings.length).toBeGreaterThan(0);
+    });
+
     it("parses multiple character design results and keeps unassigned outfits as standalone drafts", () => {
         const result = parseCharacterVisualDraftBatch(JSON.stringify({
             characters: [

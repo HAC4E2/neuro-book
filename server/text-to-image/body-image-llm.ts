@@ -7,12 +7,14 @@ import {
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
 import {applyReplacementProfile} from "nbook/server/text-to-image/sensitive-word-replacement";
-import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import {buildRequestMessages, type TextToImagePromptMode} from "nbook/server/text-to-image/llm-context";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageCharacterPrompt} from "nbook/shared/text-to-image-markdown";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-trace";
 import {extractTemporaryCharacterRegistry} from "nbook/server/text-to-image/body-prompt-compiler";
 import type {CharacterVisualFile} from "nbook/server/text-to-image/character-visual.codec";
+import {IllustrationDirector} from "nbook/server/text-to-image/illustration-director";
 
 /** L1 正文生图块：五要素契约，不落盘。 */
 export type BodyImageBlock = {
@@ -60,7 +62,9 @@ export async function generateBodyImageBlocks(input: {
     textReplacementRules?: string;
     aiReplacementRules?: string;
     contextEntries?: TextToImageContextEntry[];
+    promptMode?: TextToImagePromptMode;
     runtime?: TextToImageRuntimePlaceholderContext;
+    trace?: TextToImageLlmTraceHandle;
     historyPrefill?: BodyImageHistoryPrefill[];
     complete?: typeof requestLlmCompletion;
 }): Promise<BodyImageBlock[]> {
@@ -76,6 +80,7 @@ export async function generateBodyImageBlocks(input: {
         characterSummary: input.characterSummary,
     });
     let lastError: Error | null = null;
+    const director = new IllustrationDirector();
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
         const content = await complete({
@@ -85,24 +90,25 @@ export async function generateBodyImageBlocks(input: {
             temperature: settings.temperature,
             topP: settings.topP,
             maxTokens: settings.maxTokens,
-            stream: false,
+            stream: settings.stream,
             sendImages: settings.sendImages,
             mergeSystemUser: settings.mergeSystemUser,
             retryCount: settings.retryCount,
             runtime: input.runtime,
-            messages: [
-                ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
+            trace: input.trace,
+            messages: buildRequestMessages(input.contextEntries ?? [], input.runtime ?? {}, [
                 ...buildHistoryPrefillMessages(input.historyPrefill ?? []),
                 {role: "system", content: systemPrompt},
                 {role: "user", content: userPrompt},
-            ],
+            ], input.promptMode),
         });
         try {
-            const blocks = parseBodyImageBlocks(applyReplacementProfile({
+            const parsedBlocks = parseBodyImageBlocks(applyReplacementProfile({
                 text: content,
                 rulesText: input.aiReplacementRules ?? "",
                 kind: "ai",
             }));
+            const blocks = director.normalize(parsedBlocks).blocks;
             return blocks.map((block) => ({
                 ...block,
                 temporaryCharacters: mergeTemporaryCharacters([

@@ -1,25 +1,24 @@
-import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
+import type {FinalNovelAiPromptBundle} from "nbook/shared/text-to-image-novelai-prompt";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
-import {processTextToImageJobs} from "nbook/server/text-to-image/queue.processor";
-import {requestNovelAiImages} from "nbook/server/text-to-image/novelai-image-generation";
+import {kickTextToImageQueue} from "nbook/server/text-to-image/queue-runtime";
 import {
     findTextToImageAssetJobSnapshot,
     findLatestTextToImageAssetBySourceAnchorId,
     findTextToImageAssetByJobId,
-    saveTextToImageAsset,
 } from "nbook/server/text-to-image/asset.service";
 import {saveTextToImageMask} from "nbook/server/text-to-image/mask.service";
-import {createTextToImageReferenceResolver} from "nbook/server/text-to-image/reference-resolver";
 import {
     TextToImageLlmProviderSettingsSchema,
     type TextToImageAssetDto,
 } from "nbook/shared/dto/text-to-image.dto";
 import {resolveBoundTextToImageLlmRuntime} from "nbook/server/text-to-image/llm-runtime";
 import {generateTagModifyPrompt} from "nbook/server/text-to-image/tag-modify-llm";
+import {textToImageLlmTraceHub} from "nbook/server/text-to-image/llm-trace";
 
 type PersistedJobRequest = {
     useFinalPrompt?: boolean;
     novelAi?: Record<string, unknown>;
+    finalPromptBundle?: FinalNovelAiPromptBundle;
 };
 
 /**
@@ -31,10 +30,11 @@ export async function rerollTextToImageAsset(input: {
     assetId: string;
 }): Promise<{jobId: string; asset: TextToImageAssetDto}> {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
+    const bundle = parseAssetFinalBundle(snapshot.asset.finalPromptBundleJson);
     return sendTextToImageAsset({
         projectPath: input.projectPath,
         assetId: input.assetId,
-        prompt: snapshot.asset.prompt,
+        prompt: bundle?.actualInput ?? parsePersistedRequest(snapshot.job.requestJson).finalPromptBundle?.actualInput ?? snapshot.asset.prompt,
     });
 }
 
@@ -47,6 +47,7 @@ export async function editTextToImageAssetTag(input: {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
     const runtime = await resolveBoundTextToImageLlmRuntime(input.userId, "tag_modify");
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
+    const trace = textToImageLlmTraceHub.start(input.userId, {requestType: "tag_modify", profileId: runtime.profileId, model: settings.model});
     const prompt = await generateTagModifyPrompt({
         provider: {
             baseUrl: settings.baseUrl,
@@ -56,9 +57,13 @@ export async function editTextToImageAssetTag(input: {
         currentPrompt: snapshot.asset.prompt,
         modificationRequest: input.modificationRequest,
         contextEntries: runtime.contextEntries,
+        promptMode: runtime.promptMode,
+        trace,
         runtime: {
             context: snapshot.asset.prompt,
+            currentTag: snapshot.asset.prompt,
             userDemand: input.modificationRequest,
+            triggerText: `${snapshot.asset.prompt}\n${input.modificationRequest}`,
         },
     });
     return {prompt};
@@ -71,6 +76,7 @@ export async function sendTextToImageAsset(input: {
 }): Promise<{jobId: string; asset: TextToImageAssetDto}> {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
     const request = parsePersistedRequest(snapshot.job.requestJson);
+    const assetBundle = parseAssetFinalBundle(snapshot.asset.finalPromptBundleJson);
     return enqueueAndProcess({
         projectPath: input.projectPath,
         assetId: input.assetId,
@@ -78,7 +84,7 @@ export async function sendTextToImageAsset(input: {
         requestJson: JSON.stringify(buildAssetSendRequest({
             prompt: input.prompt,
             negativePrompt: snapshot.asset.negativePrompt,
-            persistedRequest: request,
+            persistedRequest: {...request, finalPromptBundle: request.finalPromptBundle ?? assetBundle ?? undefined},
         })),
     });
 }
@@ -92,19 +98,22 @@ export function buildAssetSendRequest(input: {
     negativePrompt: string;
     useFinalPrompt: true;
     novelAi: Record<string, unknown>;
+    finalPromptBundle?: FinalNovelAiPromptBundle;
 } {
     const prompt = input.prompt.trim();
     if (prompt === "") {
         throw new Error("发送 Tag 不能为空");
     }
+    const bundle = input.persistedRequest.finalPromptBundle;
     return {
-        prompt,
-        negativePrompt: input.negativePrompt,
+        prompt: bundle?.actualInput ?? prompt,
+        negativePrompt: bundle?.actualNegativeInput ?? input.negativePrompt,
         useFinalPrompt: true,
         novelAi: {
             ...(input.persistedRequest.novelAi ?? {}),
             seed: -1,
         },
+        ...(bundle ? {finalPromptBundle: bundle} : {}),
     };
 }
 
@@ -117,6 +126,8 @@ export async function inpaintTextToImageAsset(input: {
 }): Promise<{jobId: string; asset: TextToImageAssetDto}> {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
     const request = parsePersistedRequest(snapshot.job.requestJson);
+    const assetBundle = parseAssetFinalBundle(snapshot.asset.finalPromptBundleJson);
+    const requestBundle = request.finalPromptBundle ?? assetBundle;
     const maskBytes = decodeBase64Png(input.maskBase64);
     const mask = await saveTextToImageMask({
         projectPath: input.projectPath,
@@ -135,6 +146,9 @@ export async function inpaintTextToImageAsset(input: {
                 : snapshot.asset.prompt,
             negativePrompt: snapshot.asset.negativePrompt,
             useFinalPrompt: true,
+            ...(requestBundle ? {finalPromptBundle: input.newPrompt?.trim()
+                ? {...requestBundle, basePositive: input.newPrompt.trim(), actualInput: input.newPrompt.trim()}
+                : requestBundle} : {}),
             novelAi: {
                 ...(request.novelAi ?? {}),
                 seed: -1,
@@ -146,6 +160,20 @@ export async function inpaintTextToImageAsset(input: {
             },
         }),
     });
+}
+
+function parseAssetFinalBundle(json: string | null | undefined): FinalNovelAiPromptBundle | null {
+    if (!json) return null;
+    try {
+        const value = JSON.parse(json) as Partial<FinalNovelAiPromptBundle>;
+        return value.version === 1 && value.modelFamily === "nai4"
+            && typeof value.actualInput === "string" && typeof value.actualNegativeInput === "string"
+            && Array.isArray(value.characters)
+            ? value as FinalNovelAiPromptBundle
+            : null;
+    } catch {
+        return null;
+    }
 }
 
 async function requireAssetJobSnapshot(projectPath: string, assetId: string) {
@@ -179,7 +207,6 @@ async function enqueueAndProcess(input: {
 }): Promise<{jobId: string; asset: TextToImageAssetDto}> {
     const snapshot = await requireAssetJobSnapshot(input.projectPath, input.assetId);
     const queue = new TextToImageQueueService();
-    const providerService = new TextToImageProviderService();
     const job = await queue.enqueue({
         projectPath: input.projectPath,
         providerId: snapshot.job.providerId,
@@ -191,18 +218,7 @@ async function enqueueAndProcess(input: {
         requestJson: input.requestJson,
         providerSnapshotJson: snapshot.job.providerSnapshotJson,
     });
-    await processTextToImageJobs(input.projectPath, {
-        listQueued: (projectPath) => queue.list(projectPath, "queued"),
-        markRunning: (projectPath, id) => queue.markRunning(projectPath, id),
-        markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),
-        markFailed: (projectPath, id, message) => queue.markFailed(projectPath, id, message),
-        resolveRuntime: (ownerUserId, providerId) => providerService.resolveRuntimeProvider(ownerUserId, providerId),
-        generate: (generateInput) => requestNovelAiImages(
-            generateInput,
-            createTextToImageReferenceResolver(input.projectPath),
-        ),
-        saveAsset: saveTextToImageAsset,
-    });
+    await kickTextToImageQueue(input.projectPath);
     const asset = await findPostprocessedAsset(input.projectPath, snapshot.asset.sourceAnchorId, job.id);
     if (!asset) {
         throw new Error(`文生图后处理任务已完成但未找到新图片：${job.id}`);

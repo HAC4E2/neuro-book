@@ -7,6 +7,29 @@ import {
     type CharacterVisualFile,
 } from "nbook/server/text-to-image/character-visual.codec";
 import {resolveTextToImageAssetPath} from "nbook/server/text-to-image/asset-path";
+import {canonicalizeTriggerWords} from "nbook/server/text-to-image/character-trigger-words";
+import {recoverIdentityJournal} from "nbook/server/text-to-image/character-identity.service";
+import {recoverVisualMoveJournal} from "nbook/server/text-to-image/character-visual-move.service";
+import {
+    migrateProjectTriggerWords,
+    recoverTriggerWordsMigrationJournal,
+} from "nbook/server/text-to-image/trigger-words-migration";
+import {
+    buildGroupMigrationPlan,
+    commitGroupMigration,
+    GroupMigrationRevisionConflictError,
+    readMigrationGroups,
+    readMigrationSendData,
+    recoverGroupMigrationJournal,
+    withGroupMigrationLock,
+    type GroupMigrationDependencies,
+    type GroupMigrationPlan,
+    type GroupMigrationRefMapping,
+} from "nbook/server/text-to-image/character-group-migration";
+import {
+    recoverUnfinishedTransactions,
+    withVisualLibraryProjectLock,
+} from "nbook/server/text-to-image/transaction-journal";
 
 const LIBRARY_DIRECTORY = path.join(".nbook", "text-to-image");
 const GROUPS_FILE = "character-groups.json";
@@ -59,6 +82,8 @@ type GroupsFile = {
         enabled: boolean;
         sortOrder: number;
     }>;
+    /** 触发词一次性迁移完成后的格式标记；缺失视为待迁移。 */
+    triggerWordsFormat?: string;
 };
 
 type ManifestFile = {
@@ -80,29 +105,68 @@ type LegacyVisualLocation = {
     filePath: string;
 };
 
+export type DeleteGroupPreview = {
+    groupId: string;
+    revision: string;
+    characterCount: number;
+    visualCount: number;
+    invalidFileCount: number;
+    fileNameConflictCount: number;
+    visualIdConflictCount: number;
+    managedReferenceCount: number;
+    defaultEnabled: boolean;
+};
+
+export type DeleteGroupResult = {
+    moved: {characterCount: number; visualCount: number};
+    refMap: GroupMigrationRefMapping[];
+};
+
+export class GroupNameConflictError extends Error {
+    readonly code = "TEXT_TO_IMAGE_GROUP_NAME_CONFLICT";
+    readonly groupName: string;
+
+    constructor(name: string) {
+        super(`已存在同名分组：${name}`);
+        this.name = "GroupNameConflictError";
+        this.groupName = name;
+    }
+}
+
 /**
  * v2 视觉资料库。旧的 lorebook/character 目录只作为迁移输入，迁移成功后
  * 运行时只读取 `.nbook/text-to-image/character-groups`。
  */
 export class CharacterVisualLibraryService {
     async ensure(projectRoot: string): Promise<void> {
+        // 恢复、迁移与写入使用同一把 Project 级排他锁；统一调度器按 envelope kind 分派。
+        await withVisualLibraryProjectLock(projectRoot, async () => {
+            await recoverUnfinishedTransactions(projectRoot, {
+                "group-migration-v1": recoverGroupMigrationJournal,
+                "visual-move-v1": recoverVisualMoveJournal,
+                "identity-v1": recoverIdentityJournal,
+                "trigger-words-v1": recoverTriggerWordsMigrationJournal,
+            });
+        });
         const root = libraryRoot(projectRoot);
         await fs.mkdir(path.join(root, GROUP_DIRECTORY), {recursive: true});
         const groupsPath = path.join(root, GROUPS_FILE);
-        if (await pathExists(groupsPath)) return;
-
-        const groups: GroupsFile = {
-            schema: "nbook.character-groups/v2",
-            groups: [{
-                groupId: "default",
-                name: "默认分组",
-                description: "未手动分组的角色视觉资料",
-                enabled: true,
-                sortOrder: 0,
-            }],
-        };
-        await writeJsonAtomic(groupsPath, groups);
-        await this.migrateLegacy(projectRoot, groups);
+        if (!await pathExists(groupsPath)) {
+            const groups: GroupsFile = {
+                schema: "nbook.character-groups/v2",
+                groups: [{
+                    groupId: "default",
+                    name: "默认分组",
+                    description: "未手动分组的角色视觉资料",
+                    enabled: true,
+                    sortOrder: 0,
+                }],
+            };
+            await writeJsonAtomic(groupsPath, groups);
+            await this.migrateLegacy(projectRoot, groups);
+        }
+        // 历史逗号触发词的一次性迁移：标记缺失时转换全部合法 JSON，成功后写入格式标记。
+        await migrateProjectTriggerWords(projectRoot);
     }
 
     async listGroups(projectRoot: string): Promise<CharacterGroupInfo[]> {
@@ -120,20 +184,25 @@ export class CharacterVisualLibraryService {
 
     async createGroup(
         projectRoot: string,
-        groupId: string,
-        input?: {name?: string; description?: string},
+        input: {name: string; description?: string},
+        options?: {nextGroupId?: () => string},
     ): Promise<CharacterGroupInfo> {
-        assertGroupId(groupId);
+        const name = normalizeDisplayName(input.name, "");
+        if (!name) throw new Error("分组名称不能为空");
         await this.ensure(projectRoot);
         const groups = await readGroups(projectRoot);
-        if (groups.groups.some((group) => group.groupId === groupId)) {
-            throw new Error(`角色分组已存在：${groupId}`);
+        assertGroupNameAvailable(groups, name);
+        // 服务端生成稳定且不冲突的内部 ID；显示名不作为目录名。碰撞时重新生成。
+        const nextGroupId = options?.nextGroupId ?? (() => `group-${randomUUID()}`);
+        let groupId = nextGroupId();
+        while (groups.groups.some((group) => group.groupId === groupId)) {
+            groupId = nextGroupId();
         }
         const nextOrder = groups.groups.reduce((max, group) => Math.max(max, group.sortOrder), -1) + 1;
         const group = {
             groupId,
-            name: normalizeDisplayName(input?.name, groupId),
-            description: input?.description?.trim() ?? "",
+            name,
+            description: input.description?.trim() ?? "",
             enabled: false,
             sortOrder: nextOrder,
         };
@@ -153,7 +222,13 @@ export class CharacterVisualLibraryService {
         const groups = await readGroups(projectRoot);
         const group = groups.groups.find((item) => item.groupId === groupId);
         if (!group) throw new Error(`未找到角色分组“${groupId}”`);
-        if (input.name !== undefined) group.name = normalizeDisplayName(input.name, groupId);
+        if (input.name !== undefined) {
+            const name = normalizeDisplayName(input.name, "");
+            if (!name) throw new Error("分组名称不能为空");
+            assertGroupNameAvailable(groups, name, groupId);
+            // 重命名只改显示名，groupId 与目录保持不变。
+            group.name = name;
+        }
         if (input.description !== undefined) group.description = input.description.trim();
         if (input.enabled !== undefined) group.enabled = input.enabled;
         if (input.sortOrder !== undefined) group.sortOrder = normalizeSortOrder(input.sortOrder);
@@ -191,20 +266,56 @@ export class CharacterVisualLibraryService {
         return this.listGroups(projectRoot);
     }
 
-    async deleteGroup(projectRoot: string, groupId: string): Promise<void> {
+    /** 只读预检：返回删除影响摘要和 revision，不修改任何文件。 */
+    async previewDeleteGroup(projectRoot: string, groupId: string): Promise<DeleteGroupPreview> {
         assertGroupId(groupId);
         if (groupId === "default") throw new Error("default 分组不能删除");
         await this.ensure(projectRoot);
         const groups = await readGroups(projectRoot);
-        const index = groups.groups.findIndex((group) => group.groupId === groupId);
-        if (index < 0) return;
-        const characters = await this.listCharacters(projectRoot, groupId);
-        if (characters.length > 0) {
-            throw new Error(`分组“${groupId}”仍有 ${characters.length} 个角色，请先移出或迁移视觉资料`);
+        if (!groups.groups.some((group) => group.groupId === groupId)) {
+            throw new Error(`未找到角色分组“${groupId}”`);
         }
-        groups.groups.splice(index, 1);
-        await writeGroups(projectRoot, groups);
-        await fs.rm(groupDirectory(projectRoot, groupId), {recursive: true, force: true});
+        const plan = await buildGroupMigrationPlan(projectRoot, groupId, groups, {
+            sendData: await readMigrationSendData(projectRoot),
+        });
+        return {
+            groupId,
+            revision: plan.revision,
+            ...plan.stats,
+        };
+    }
+
+    /**
+     * 迁移删除：非 default 分组无论是否为空都可删除；非空组先把全部视觉资料
+     * 无损迁移到 default，确认迁移成功后才删除来源分组。任一步失败回滚。
+     */
+    async deleteGroupWithMigration(
+        projectRoot: string,
+        groupId: string,
+        expectedRevision: string,
+        options: GroupMigrationDependencies = {},
+    ): Promise<DeleteGroupResult> {
+        assertGroupId(groupId);
+        if (groupId === "default") throw new Error("default 分组不能删除");
+        await this.ensure(projectRoot);
+        const groups = await readGroups(projectRoot);
+        if (!groups.groups.some((group) => group.groupId === groupId)) {
+            throw new Error(`未找到角色分组“${groupId}”`);
+        }
+        return withGroupMigrationLock(projectRoot, async () => {
+            // 提交前重新生成确定性计划；任何预检后的变化都会让 revision 不一致。
+            const plan: GroupMigrationPlan = await buildGroupMigrationPlan(projectRoot, groupId, await readGroups(projectRoot), {
+                sendData: await readMigrationSendData(projectRoot),
+            });
+            if (plan.revision !== expectedRevision) {
+                throw new GroupMigrationRevisionConflictError(groupId);
+            }
+            await commitGroupMigration(projectRoot, plan, options);
+            return {
+                moved: {characterCount: plan.stats.characterCount, visualCount: plan.stats.visualCount},
+                refMap: plan.refMap,
+            };
+        }, options);
     }
 
     async listCharacters(projectRoot: string, groupId: string): Promise<CharacterVisualTreeCharacter[]> {
@@ -309,6 +420,7 @@ export class CharacterVisualLibraryService {
         }
         const now = new Date().toISOString();
         const normalized = normalizeVisualIdentity(input, ref.characterId, visualId);
+        await assertIdentityMatchesDisk(directory, manifest, current, normalized, ref.characterId);
         await writeJsonAtomic(path.join(directory, fileName), normalized);
         const info: CharacterVisualFileInfo = {
             visualId,
@@ -336,27 +448,6 @@ export class CharacterVisualLibraryService {
             info: {...info, active: manifest.activeVisualId === visualId},
             visual: normalized,
         };
-    }
-
-    async createCopy(
-        projectRoot: string,
-        source: CharacterVisualRef,
-        target: {groupId: string; characterId?: string},
-        options?: {fileName?: string},
-    ): Promise<{ref: CharacterVisualRef; info: CharacterVisualFileInfo; visual: CharacterVisualFile}> {
-        const visual = await this.read(projectRoot, source);
-        if (!visual) throw new Error("未找到要复制的视觉资料");
-        const characterId = target.characterId ?? source.characterId;
-        const targetDirectory = characterDirectory(projectRoot, target.groupId, characterId);
-        const targetManifest = await readManifest(targetDirectory, characterId);
-        const fileName = options?.fileName
-            ?? (targetManifest?.visuals.length ? await allocateVisualFileName(targetDirectory, undefined) : DEFAULT_VISUAL_FILE);
-        const visualId = randomUUID();
-        return this.write(projectRoot, {
-            groupId: target.groupId,
-            characterId,
-            visualId,
-        }, visual, {fileName, source: "copy", setActive: true, allowCreate: true});
     }
 
     async createNewVersion(
@@ -480,7 +571,14 @@ export class CharacterVisualLibraryService {
             }
             if (!visual) continue;
             const visualId = randomUUID();
-            const normalized = normalizeVisualIdentity(visual, location.characterId, visualId);
+            // 旧版视觉的触发词保持原始文本：随后在 ensure() 的一次性触发词迁移中统一
+            // 转换为 `|` 格式；这里不调用严格规范化，避免旧逗号数据阻塞整个旧库迁移。
+            const normalized: CharacterVisualFile = {
+                ...visual,
+                schema: "nbook.character-visual/v1",
+                visualId,
+                characterId: location.characterId,
+            };
             const now = new Date().toISOString();
             await fs.mkdir(target, {recursive: true});
             await writeJsonAtomic(path.join(target, DEFAULT_VISUAL_FILE), normalized);
@@ -537,6 +635,16 @@ export class CharacterVisualRevisionConflictError extends Error {
     }
 }
 
+/** 普通视觉保存试图改写身份字段时抛出；身份必须通过身份保存同步全部版本。 */
+export class CharacterIdentityFieldConflictError extends Error {
+    readonly code = "TEXT_TO_IMAGE_IDENTITY_FIELD_CONFLICT";
+
+    constructor(readonly characterId: string) {
+        super(`中文名、英文名和触发词属于角色“${characterId}”的逻辑身份，请通过身份保存同步修改该角色的全部视觉 JSON。`);
+        this.name = "CharacterIdentityFieldConflictError";
+    }
+}
+
 function libraryRoot(projectRoot: string): string {
     return path.join(projectRoot, LIBRARY_DIRECTORY);
 }
@@ -551,6 +659,14 @@ function characterDirectory(projectRoot: string, groupId: string, characterId: s
 
 function normalizeDisplayName(value: string | undefined, fallback: string): string {
     return value?.trim() || fallback;
+}
+
+/** 同一 Project 内规范化后的显示名称必须唯一（大小写不敏感）。 */
+function assertGroupNameAvailable(groups: GroupsFile, name: string, excludeGroupId?: string): void {
+    const normalized = name.toLocaleLowerCase();
+    if (groups.groups.some((group) => group.groupId !== excludeGroupId && group.name.toLocaleLowerCase() === normalized)) {
+        throw new GroupNameConflictError(name);
+    }
 }
 
 function normalizeSortOrder(value: number): number {
@@ -589,11 +705,32 @@ function normalizeVisualFileName(value: string): string {
     return fileName;
 }
 
+/**
+ * 普通视觉保存的身份守卫：写入现有视觉或为已有角色创建新版本时，
+ * 身份三元组必须与磁盘基线一致；不一致说明调用方绕过了身份保存，直接拒绝。
+ */
+async function assertIdentityMatchesDisk(
+    directory: string,
+    manifest: ManifestFile,
+    current: ManifestFile["visuals"][number] | undefined,
+    input: CharacterVisualFile,
+    characterId: string,
+): Promise<void> {
+    const baseline = current
+        ?? manifest.visuals.find((visual) => visual.visualId === manifest.activeVisualId)
+        ?? manifest.visuals[0];
+    if (!baseline) return;
+    const disk = await readVisualFile(path.join(directory, baseline.fileName));
+    if (!disk) return;
+    const same = (left: string | undefined, right: string | undefined): boolean => (left ?? "").trim() === (right ?? "").trim();
+    if (!same(disk.character.cnName, input.character.cnName)
+        || !same(disk.character.enName, input.character.enName)
+        || canonicalizeTriggerWords(disk.character.triggerWords ?? "") !== canonicalizeTriggerWords(input.character.triggerWords ?? "")) {
+        throw new CharacterIdentityFieldConflictError(characterId);
+    }
+}
+
 function normalizeVisualIdentity(input: CharacterVisualFile, characterId: string, visualId: string): CharacterVisualFile {
-    const triggerWords = [
-        ...(input.character.triggerWords ?? "").split(",").map((word) => word.trim()).filter(Boolean),
-        (input.character.cnName ?? "").trim(),
-    ];
     return {
         ...input,
         schema: "nbook.character-visual/v1",
@@ -601,7 +738,8 @@ function normalizeVisualIdentity(input: CharacterVisualFile, characterId: string
         characterId,
         character: {
             ...input.character,
-            triggerWords: [...new Set(triggerWords)].join(", "),
+            // 严格 `|` 合同：只规范化触发词空白格式，绝不追加中文名或英文名。
+            triggerWords: canonicalizeTriggerWords(input.character.triggerWords ?? ""),
         },
     };
 }
@@ -641,6 +779,7 @@ async function readGroups(projectRoot: string): Promise<GroupsFile> {
         return {
             schema: "nbook.character-groups/v2",
             groups: normalizedGroups,
+            triggerWordsFormat: typeof parsed.triggerWordsFormat === "string" ? parsed.triggerWordsFormat : undefined,
         };
     } catch (error) {
         if (isErrorCode(error, "ENOENT")) {

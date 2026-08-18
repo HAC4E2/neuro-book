@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {readSseStream} from "nbook/app/utils/http/read-sse";
 import BooleanToggleButton from "nbook/app/components/common/form/BooleanToggleButton.vue";
 import {normalizeImportedContextProfiles} from "nbook/app/utils/text-to-image-context-import";
 import {
@@ -93,13 +94,14 @@ function emptyContextEntry(): TextToImageContextEntry {
 }
 
 function emptyContextProfile(): TextToImageContextProfile {
-    return {id: "", name: "", entries: []};
+    return {id: "", name: "", promptMode: "augment", entries: []};
 }
 
 function cloneContextProfile(profile: TextToImageContextProfile): TextToImageContextProfile {
     return {
         id: profile.id,
         name: profile.name,
+        promptMode: profile.promptMode,
         entries: profile.entries.map((entry) => ({...entry})),
     };
 }
@@ -113,6 +115,7 @@ const testResult = ref("");
 const testPreview = ref("");
 const testRequestType = ref<TextToImageRequestType>("image_gen");
 const testStatus = ref<"idle" | "success" | "failure">("idle");
+const previewing = ref(false);
 const fetchingModels = ref(false);
 const error = ref("");
 const modelError = ref("");
@@ -120,6 +123,22 @@ const saving = ref(false);
 const contextProfileImportInput = ref<HTMLInputElement | null>(null);
 const globalConfigImportInput = ref<HTMLInputElement | null>(null);
 const notification = useNotification();
+type LlmTraceEvent = {
+    traceId: string;
+    seq: number;
+    kind: "started" | "delta" | "retrying" | "completed" | "failed";
+    requestType: TextToImageRequestType | null;
+    profileId: string | null;
+    model: string;
+    attempt: number;
+    at: string;
+    delta?: string;
+    content?: string;
+    error?: string;
+    truncated?: boolean;
+};
+const latestTrace = ref<LlmTraceEvent | null>(null);
+let traceAbortController: AbortController | null = null;
 
 watch(() => props.providers, () => {
     if (selectedProviderId.value === null && llmProviders.value.length > 0) {
@@ -133,6 +152,36 @@ watch(() => props.providers, () => {
 watch(() => props.config, (config) => {
     syncConfigState(config);
 }, {immediate: true});
+
+onMounted(() => {
+    void startTraceFeed();
+});
+
+onBeforeUnmount(() => {
+    traceAbortController?.abort();
+    traceAbortController = null;
+});
+
+async function startTraceFeed(): Promise<void> {
+    try {
+        const latest = await $fetch<{trace: LlmTraceEvent | null}>("/api/text-to-image/llm/latest-response");
+        latestTrace.value = latest.trace;
+        traceAbortController?.abort();
+        const controller = new AbortController();
+        traceAbortController = controller;
+        const response = await fetch("/api/text-to-image/llm/response-events", {signal: controller.signal});
+        await readSseStream<{traceId?: string; seq?: number; kind?: LlmTraceEvent["kind"]} & Partial<LlmTraceEvent>>(response, (event) => {
+            if (typeof event.traceId !== "string" || typeof event.seq !== "number" || typeof event.kind !== "string") return;
+            latestTrace.value = event as LlmTraceEvent;
+            if (event.content !== undefined) testResult.value = event.content;
+        });
+    } catch (cause) {
+        if (!traceAbortController?.signal.aborted) {
+            // 调试面板断开不应覆盖当前业务错误；下一次打开页面会重新订阅。
+            console.warn("文生图 LLM 回复流断开", cause);
+        }
+    }
+}
 
 function syncConfigState(config: TextToImageGlobalConfig): void {
     contextProfiles.value = {...(config.contextProfiles ?? {})};
@@ -281,7 +330,7 @@ function selectContextProfile(id: string, options: {expand?: boolean} = {}): voi
 
 function newContextProfile(): void {
     selectedContextProfileId.value = "";
-    contextProfileDraft.value = {id: "", name: "", entries: [emptyContextEntry()]};
+    contextProfileDraft.value = {id: "", name: "", promptMode: "augment", entries: [emptyContextEntry()]};
     isNewContextProfile.value = true;
     contextProfilesExpanded.value = true;
 }
@@ -305,6 +354,7 @@ function saveContextProfile(): void {
     const profile: TextToImageContextProfile = {
         id,
         name,
+        promptMode: contextProfileDraft.value.promptMode,
         entries: contextProfileDraft.value.entries.map((entry) => ({
             ...entry,
             id: entry.id.trim() || nextEntryId(),
@@ -498,18 +548,30 @@ async function runTest(): Promise<void> {
     }
 }
 
-function buildTestPreview(): void {
-    const binding = requestBindings.value[testRequestType.value];
-    const profileId = binding?.contextProfileId ?? "default";
-    const entries = (contextProfiles.value[profileId]?.entries ?? [])
-        .filter((entry) => entry.enabled)
-        .map((entry) => `[${entry.role}] ${entry.content}`)
-        .join("\n");
-    testPreview.value = [
-        entries,
-        "---",
-        testPrompt.value.trim() || "连接测试",
-    ].filter((part) => part !== "").join("\n");
+async function buildTestPreview(): Promise<void> {
+    if (selectedProviderId.value === null) {
+        error.value = "请先选择 Provider";
+        return;
+    }
+    previewing.value = true;
+    error.value = "";
+    try {
+        const result = await $fetch<{messages: Array<{role: string; content: unknown}>; promptMode: string; profileId: string}>("/api/text-to-image/llm/preview", {
+            method: "POST",
+            body: {
+                providerId: selectedProviderId.value,
+                requestType: testRequestType.value,
+                prompt: testPrompt.value.trim() || "连接测试",
+                runtime: {},
+            },
+        });
+        testPreview.value = `[${result.promptMode}] ${result.profileId}\n\n${result.messages.map((message) => `[${message.role}] ${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}`).join("\n\n")}`;
+    } catch (cause) {
+        testPreview.value = "";
+        error.value = resolveApiErrorMessage(cause, "组合提示词预览失败");
+    } finally {
+        previewing.value = false;
+    }
 }
 
 async function fetchModels(): Promise<void> {
@@ -687,6 +749,13 @@ async function fetchModels(): Promise<void> {
                             预设名称
                             <input v-model="contextProfileDraft.name" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" />
                         </label>
+                        <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
+                            消息模式
+                            <select v-model="contextProfileDraft.promptMode" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
+                                <option value="complete">完整预设（不追加内置提示词）</option>
+                                <option value="augment">增补预设（追加内置任务提示词）</option>
+                            </select>
+                        </label>
                     </div>
                     <button class="mt-2 h-9 rounded-md border border-[var(--border-color)] px-2 text-[16px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="addContextEntry">添加条目</button>
                     <div class="custom-scrollbar max-h-[400px] min-h-[220px] overflow-y-auto rounded-md border border-[var(--border-color)] p-2">
@@ -777,12 +846,22 @@ async function fetchModels(): Promise<void> {
                 <select v-model="testRequestType" class="h-9 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
                     <option v-for="option in requestTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-                <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" @click="buildTestPreview">组合提示词预览</button>
+                <button class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="previewing || selectedProviderId === null" @click="buildTestPreview"><span v-if="previewing" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>{{ previewing ? "正在准备消息…" : "组合提示词预览" }}</button>
             </div>
             <textarea v-model="testPrompt" rows="4" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" placeholder="输入测试提示词（可选，留空则发送连接测试）" />
-            <button class="mt-2 h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)]" :disabled="saving || selectedProviderId === null" @click="runTest">连接测试</button>
+            <button class="mt-2 inline-flex h-9 items-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving || selectedProviderId === null" @click="runTest"><span v-if="saving" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>{{ saving ? "正在等待 LLM 回复…" : "连接测试" }}</button>
             <textarea v-if="testPreview" v-model="testPreview" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" placeholder="组合提示词预览" />
             <textarea v-model="testResult" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[17px] text-[var(--text-main)]" placeholder="AI 回复将显示在这里" />
+            <section class="mt-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3">
+                <div class="flex items-center justify-between gap-2">
+                    <h4 class="text-[15px] font-medium text-[var(--text-main)]">最近一次 LLM 原生回复</h4>
+                    <span v-if="latestTrace" class="text-[12px] text-[var(--text-muted)]">{{ latestTrace.kind }} · 第 {{ latestTrace.attempt }} 次尝试</span>
+                </div>
+                <p v-if="latestTrace" class="mt-1 text-[12px] text-[var(--text-muted)]">{{ latestTrace.requestType || "未知请求" }} · {{ latestTrace.model }} · {{ latestTrace.truncated ? "显示已截断" : "完整显示" }}</p>
+                <pre v-if="latestTrace?.content" class="mt-2 max-h-80 overflow-auto whitespace-pre-wrap text-[14px] leading-5 text-[var(--text-main)]">{{ latestTrace.content }}</pre>
+                <p v-else class="mt-2 text-[13px] text-[var(--text-muted)]">尚未收到 LLM 回复；点击连接测试后会实时显示流式内容。</p>
+                <p v-if="latestTrace?.error" class="mt-2 text-[13px] text-[var(--danger-text)]">{{ latestTrace.error }}</p>
+            </section>
         </div>
 
         <p v-if="error" class="text-[16px] text-[var(--danger-text)]">{{ error }}</p>

@@ -1,10 +1,10 @@
 import {z} from "zod";
 
-/** 角色视觉 12 字段；全部为纯文本 tag，LLM 正文生图时直接读取。 */
+/** 角色视觉 15 字段；全部为纯文本 tag，LLM 正文生图时直接读取。 */
 export const CharacterVisualFieldSchema = z.object({
     cnName: z.string().default(""),
     enName: z.string().default(""),
-    /** 逗号分隔的正文触发词；为空时回退到中文名/英文名。 */
+    /** 半角竖线 `|` 分隔的正文触发词；为空时正文扫描回退到中文名/英文名，回退结果不写回。 */
     triggerWords: z.string().default(""),
     profileTraits: z.string().default(""),
     facialAppearance: z.string().default(""),
@@ -21,7 +21,7 @@ export const CharacterVisualFieldSchema = z.object({
 });
 export type CharacterVisualField = z.infer<typeof CharacterVisualFieldSchema>;
 
-/** 服装视觉 4 字段。 */
+/** 服装视觉 6 字段。 */
 export const OutfitVisualSchema = z.object({
     cnName: z.string().default(""),
     enName: z.string().default(""),

@@ -252,6 +252,34 @@ describe("requestNovelAiImages", () => {
         }))).rejects.toMatchObject({status: 429});
         expect(httpErrorResolver.invalidate).not.toHaveBeenCalled();
     });
+
+    it("V4.5 payload 不发送 sm/sm_dyn/decrisp，Decrisp 只映射 dynamic_thresholding", async () => {
+        const calls: Array<{init: RequestInit}> = [];
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            calls.push({init});
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+        await requestNovelAiImages(input({fetchImpl, model: "nai-diffusion-4-5-full", decrisp: true}));
+        await requestNovelAiImages(input({fetchImpl, model: "nai-diffusion-4-5-curated", decrisp: false}));
+
+        const full = JSON.parse(String(calls[0]?.init.body)) as {parameters: Record<string, unknown>};
+        const curated = JSON.parse(String(calls[1]?.init.body)) as {parameters: Record<string, unknown>};
+        expect(full.parameters.dynamic_thresholding).toBe(true);
+        expect(curated.parameters.dynamic_thresholding).toBe(false);
+        for (const body of [full.parameters, curated.parameters]) {
+            expect(body).not.toHaveProperty("sm");
+            expect(body).not.toHaveProperty("sm_dyn");
+            expect(body).not.toHaveProperty("decrisp");
+        }
+    });
+
+    it("拒绝 V4.5 之外的模型", async () => {
+        const fetchImpl: LlmFetchImpl = async () => new Response("{}", {status: 200});
+        await expect(requestNovelAiImages(input({fetchImpl, model: "nai-diffusion-3"}))).rejects.toThrow(/NAI4.5/u);
+    });
 });
 
 function input(overrides: Partial<NovelAiImageInput>): NovelAiImageInput {
@@ -269,8 +297,6 @@ function input(overrides: Partial<NovelAiImageInput>): NovelAiImageInput {
         noiseSchedule: "karras",
         scale: 5,
         cfgRescale: 0,
-        smea: false,
-        smeaDyn: false,
         variety: false,
         decrisp: false,
         aiDefaultCharacterPosition: true,

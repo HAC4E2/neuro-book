@@ -32,6 +32,70 @@ describe("assertProjectWorkspaceDirectory", () => {
 });
 
 describe("initProjectDatabaseAtRoot", () => {
+    it("新建 Project SQLite 会包含文生图最终 Prompt Bundle 列", async () => {
+        const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-schema-"));
+        try {
+            const databasePath = await initProjectDatabaseAtRoot(projectRoot);
+            const client = createClient({url: toSqliteFileUrl(databasePath)});
+            try {
+                const columns = await client.execute(`PRAGMA table_info("TextToImageAsset")`);
+                expect(columns.rows.map((row) => String(row.name))).toContain("finalPromptBundleJson");
+            } finally {
+                client.close();
+            }
+        } finally {
+            await removeTempProject(projectRoot);
+        }
+    });
+
+    it("旧 Project SQLite 缺少最终 Prompt Bundle 列时会幂等补齐且保留已有资产", async () => {
+        const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-asset-migration-"));
+        const databasePath = path.join(projectRoot, ".nbook", "project.sqlite");
+        try {
+            await fs.mkdir(path.dirname(databasePath), {recursive: true});
+            const client = createClient({url: toSqliteFileUrl(databasePath)});
+            try {
+                await client.execute(`CREATE TABLE "TextToImageAsset" (
+                    "id" TEXT NOT NULL PRIMARY KEY,
+                    "jobId" TEXT NOT NULL,
+                    "relativePath" TEXT NOT NULL,
+                    "fileName" TEXT NOT NULL,
+                    "mimeType" TEXT NOT NULL,
+                    "byteLength" INTEGER NOT NULL,
+                    "width" INTEGER NOT NULL,
+                    "height" INTEGER NOT NULL,
+                    "model" TEXT NOT NULL,
+                    "seed" INTEGER NOT NULL,
+                    "prompt" TEXT NOT NULL,
+                    "negativePrompt" TEXT NOT NULL,
+                    "sourceKind" TEXT NOT NULL,
+                    "sourcePath" TEXT,
+                    "sourceAnchorId" TEXT,
+                    "contentHash" TEXT NOT NULL,
+                    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )`);
+                await client.execute(`INSERT INTO "TextToImageAsset" ("id", "jobId", "relativePath", "fileName", "mimeType", "byteLength", "width", "height", "model", "seed", "prompt", "negativePrompt", "sourceKind", "contentHash") VALUES ('legacy-asset', 'legacy-job', 'assets/tti/legacy.png', 'legacy.png', 'image/png', 1, 1, 1, 'model', 1, 'prompt', '', 'manual', 'hash')`);
+            } finally {
+                client.close();
+            }
+
+            await initProjectDatabaseAtRoot(projectRoot);
+            await initProjectDatabaseAtRoot(projectRoot);
+
+            const migratedClient = createClient({url: toSqliteFileUrl(databasePath)});
+            try {
+                const columns = await migratedClient.execute(`PRAGMA table_info("TextToImageAsset")`);
+                expect(columns.rows.map((row) => String(row.name))).toContain("finalPromptBundleJson");
+                const asset = await migratedClient.execute(`SELECT "id", "finalPromptBundleJson" FROM "TextToImageAsset" WHERE "id" = 'legacy-asset'`);
+                expect(asset.rows).toEqual([{id: "legacy-asset", finalPromptBundleJson: null}]);
+            } finally {
+                migratedClient.close();
+            }
+        } finally {
+            await removeTempProject(projectRoot);
+        }
+    });
+
     it("会把旧 StoryPlot 备份并合并到 Scene，同时清理 plot ref", async () => {
         const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-migration-"));
         try {

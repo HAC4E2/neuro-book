@@ -19,7 +19,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 | 模块 | 当前状态 | 依据 |
 | --- | --- | --- |
 | 写作模式 v1 | 主路径阶段完成，进入体验打磨 | [Task 64](docs/tasks/64-world-engine-prompt-engineering/README.md)、[Task 87](docs/tasks/87-plot-two-trees-and-writer-modes/README.md)、[Task 124](docs/tasks/124-writing-pipeline-batch3/README.md) |
-| 文生图（chatu8 移植） | 本地链路已实现；角色视觉资料已支持 Project 多分组、分组启用/优先级、JSON 版本确认、正文/照片精确引用和 NovelAI 画风串分组；聚焦回归通过，仓库全量测试仍有既有 workspace/world-engine/agent 基线失败，浏览器/真实模型验收仍需单独执行 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
+| 文生图（chatu8 移植） | 本地链路已实现；角色视觉资料已支持 Project 多分组、分组启用/优先级、JSON 版本确认、正文/照片精确引用、NovelAI 画风串分组、触发词 `\|` 严格合同与一次性迁移、角色身份跨版本同步和视觉资料跨组移动；正文图片生成后的写回已收归服务端并接入 Project history、乐观重试、章节级互斥和免生图恢复；聚焦回归通过，仓库全量测试仍有既有 workspace/world-engine/agent 基线失败，浏览器/真实模型验收仍需单独执行 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
 | World Engine | 核心模型、API、Workbench 和作者主路径阶段完成 | [Task 56](docs/tasks/56-world-engine/README.md)、[Task 65](docs/tasks/65-world-engine-calendar-enhancement/README.md)、[Task 71](docs/tasks/71-world-engine-codeact-readwrite/README.md) |
 | Plot | 两棵树模型已落地：承载树负责章节呈现，因果树负责剧情组织，`StoryScene` 连接两者 | [Task 78](docs/tasks/78-plot-scene-world-engine-bridge/README.md)、[Task 93](docs/tasks/93-plot-planning-layer/README.md)、[Task 99](docs/tasks/99-plot-planning-ui/README.md) |
 | Agent / Workflow | 主要链路已实现；Provider API / Automatic Model Discovery 已在 PR #101 合并并完成 Task 104 收尾，真实 Project、外部 Provider 和完整浏览器产品流程仍待做 | [Task 104](docs/tasks/104-pi-models-runtime-upgrade/README.md)、[Task 111](docs/tasks/111-workflow-agent-integration/README.md)、[Task 116](docs/tasks/116-agent-workflow-reliability/README.md)、[Task 139](docs/tasks/139-agent-abort-error-projection/README.md) |
@@ -42,6 +42,11 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 ## 最新收口
 
 - [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) 已收口正文生图与角色管理链路：主工作区入口、当前章节 LLM 提示词、后端角色扫描与机械组装、正文占位符生成、整体 reroll、图片长按后处理、Project 角色集合、角色详情 Tag 生成、当前生图配方和 NovelAI FIFO 队列均已落地；当前相关自动化验证为 `49` 个测试文件、`220/220` 个断言通过；浏览器/真实模型验收仍需单独执行。
+- 2026-08-17 新增正文生图角色调用合同门禁：`illustration.director` 在 L1→L2 边界修复可确定的缺尾 `$`，`from side` 等非背面角度使用正面视觉资料并保留角度 Tag；共享 codec、写入前门禁和不可修复重试已落地，真实 LLM/NovelAI 与浏览器验收仍未执行。
+- 2026-08-17 补齐 chatu8 独立服装调用解析：无 `kind` 的 `name + visible/hidden` 调用按当前 visual 精确区分角色与服装，服装继承前序角色朝向；`kind: "character" | "outfit"` 成为新输出推荐格式，引用缺失/歧义在入队前返回稳定错误。当前章节 3 处调用已由等价 visual fixture 验证无需重抽取即可展开；真实 Project 队列与供应商尚未执行。新增合同聚焦 `8` 个测试文件、`62/62` 通过，文生图相关全范围 `75` 个测试文件、`435/435` 通过；Node 运行 Nuxt typecheck 通过。
+- 2026-08-17 修复 `TextToImageAsset.finalPromptBundleJson` 的 Project SQLite schema 漂移：新库建表、旧库幂等补列和离线 Workspace 迁移已统一；两个现有 Project 已完成列迁移并通过 `PRAGMA integrity_check`，真实 NovelAI 重试仍未执行。
+- 2026-08-17 修复正文图片生成后的写回竞态：服务端按最新章节和占位符 ID 持久化，前端不再二次保存旧整篇正文；新增 `inserted` / `already_inserted` / `missing` 结果、`sourceInsertStatus` 推进、已有资产恢复端点和正文栏宽度自适应。文生图与 Markdown 聚焦回归 `60` 个测试文件、`400/400` 通过；当前章节已通过 Project history 恢复为 `8` 个图片引用、`0` 个占位符，资产保持 `13`，未执行浏览器或真实 NovelAI 验收。
+- 2026-08-18 恢复正文图片块的 Project 级 FIFO 消费者：每个占位符独立创建并轮询 Job，编辑器只读期间其它图片卡片仍可入队；服务端写回版本由前端原子接纳，保存请求串行化且无 dirty 内容不重复写盘，取消/消费者故障不会把 Job 留在无限 queued。新增队列顺序、正文消费者写回、只读卡片点击和保存竞态相关回归；未执行浏览器或真实 NovelAI 长队列验收，详见 [Task 142 实施记录](docs/tasks/142-text-to-image-chatu8-port/README.md)。
 - Task 142 的角色视觉资料重构已落地：Project 可维护多个角色分组并独立启用、同一角色支持多个 JSON 版本和显式 `visualId`，LLM 修改必须确认覆盖/新建/取消，正文扫描与角色照片不会跨版本串写；工作台侧栏按分组/角色/JSON 文件切换，NovelAI 画风串保留分组和自命名。该批次聚焦回归为 `11` 个文件 `44/44`、正文扫描/编译/发送数据 `31/31`、正文 API/队列/图片链路 `25/25`、旧视觉服务 `17/17`，直接 TypeScript/Vue 类型检查通过；全量 Vitest 仍暴露仓库既有基线失败，详见 Task 142 记录。
 - [Task 139](docs/tasks/139-agent-abort-error-projection/README.md) 将主动取消与运行错误分开：取消显示中性状态，保留已生成的半截正文，并避免重复错误气泡。
 - [Task 138](docs/tasks/138-agent-conversation-branch-projection/README.md) 将对话分支切换改为基于可见对话锚点的投影，运行期记账 entry 不再制造假分支。
@@ -134,3 +139,19 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - NovelAI 的 `/ai/generate-image` 与 `/ai/encode-vibe` 现在使用独立代理解析器：按环境变量、Windows 用户/WinHTTP 配置和受限本机端口顺序探测可用代理，并缓存成功的连接。
 - 通用 Provider、LLM 模型列表和 LLM 对话请求不读取这些代理设置；只有 NovelAI 请求携带代理 dispatcher。连接失败会保留目标主机和底层错误码并触发下次重新发现，HTTP `429` 等业务响应不会触发代理失效。
 - 自动化验证：代理发现/缓存 `6` 项、Provider 隔离与错误传播 `7` 项、NovelAI 请求链路 `6` 项，共 `19/19` 通过；文生图回归为 `46` 个测试文件、`219` 个测试通过，`bun run typecheck` 通过（`74.9` 秒），浏览器人工验收和真实 NovelAI 出图未执行。
+### 2026-08-15 角色管理交互与分组修复施工
+
+- 修复文生图工作台六个按钮的 `void <函数名>` 事件表达式（此前点击不产生请求），全部写操作增加单飞锁、spinner、禁用与 `finally` 清理，双击只发一次请求。
+- 侧栏现在显示全部分组（含空分组与“暂无视觉资料”空状态）；新建分组只填名称，服务端生成稳定 `group-<uuid>` ID，同名创建/重命名返回 409。
+- 删除非 `default` 分组改为两步迁移删除：只读预检摘要 + `expectedRevision` 确认；非空组全部视觉资料无损迁移到 `default`（manifest 合并、大小写冲突重命名、`visualId` 冲突换新 ID），损坏 JSON 按原始字节迁移，角色 Markdown、照片资产与历史 Job 不变；事务写锁 + 事务目录 + 失败回滚 + 重启恢复。
+- Provider 出站统一策略：模型发现与正式 LLM 请求共用，补全 `198.18.0.0/15` 等保留地址与 `.local`/`.localhost` 拒绝；Fake-IP 环境自动信任可达的 loopback 环境代理（`127.0.0.1:7897`），非 loopback 代理不接收 Provider 凭据，私网字面量、跨源凭据重定向与 HTTPS 降级继续拒绝。
+- 自动化：文生图聚焦 `59` 个文件 `314/314` 通过（含新增 DOM 真实点击门禁、迁移故障注入与 Provider 代理矩阵）；`nuxt prepare` + `vue-tsc --noEmit` 退出码 0；真实网络验证经本机代理拉取 `opencode.ai` 模型列表返回 26 个模型。浏览器人工走查与真实 Project 删除迁移未执行，见 [Task 142 实施记录](docs/tasks/142-text-to-image-chatu8-port/README.md)。
+
+### 2026-08-15 发送数据状态、分组移动与触发词修复施工
+
+- 发送数据改为服务端快照 + 页面编辑副本双层状态：未保存修改显示 warning 且不进入下一次请求；三栏条目整行可点击，用边框、图标、徽标和 `aria-checked` 明确“固定发送 / 未固定发送”，标题显示“已选 N / M”，页面文案说明启用分组负责自动扫描、本页负责无条件固定发送；Project 快速切换丢弃旧响应。
+- “加入分组”复制入口已删除，替换为“移动到分组”：移动预检 + 提交事务只移动当前视觉 JSON，来源最后一份移动后角色节点消失，来源生效项按 `updatedAt`/`visualId` 确定性回退；目标等价内容合并到已有 ref 不生成第三份，文件名/视觉 ID 冲突确定性改名/换新 ID，固定发送引用同步映射，照片不复制不删除，故障注入与重启恢复全部回滚。
+- 触发词统一只允许半角竖线 `|` 分隔：英文逗号、中文逗号和连续空项直接校验失败；历史逗号格式由一次性迁移转换（备份 + 校验 + `pipe-v1` 标记，失败回滚）；保存不再自动追加中文名或英文名；英文匹配不区分大小写并做 NFKC 兼容规范化，不同角色同触发词命中在调用 LLM 前返回歧义错误。
+- 中文名、英文名、触发词作为逻辑角色身份跨分组、跨 JSON 版本同步保存（revision CAS + 事务，损坏文件整体失败）；普通视觉编辑改写身份字段会被拒绝，不再产生身份分叉。
+- 启用分组卡片使用 accent 边框/背景、check 图标和“已启用/未启用”徽标，标题显示“已启用 N / M”，零启用显示正文只生成场景内容的警示，“仅启用此组”在唯一启用时禁用，更新期间只有目标卡片显示进度；工作台关闭、页面切换和 Project 切换统一使用“保存、放弃、取消”离开保护。
+- 验证：NovelAI 提示词替换/凭据三态/最终 Tag 链路施工后的文生图聚焦测试为 `72` 个文件、`415/415` 通过（服务、API、组件与 DTO 四侧）；根 `nuxt typecheck` 退出码 0；浏览器人工验收、真实 NovelAI 请求对照与真实 Project 迁移未执行。

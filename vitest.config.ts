@@ -1,11 +1,15 @@
 import {fileURLToPath} from "node:url";
 import {defineConfig} from "vitest/config";
+import vue from "@vitejs/plugin-vue";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 
 /**
  * 当前测试先聚焦后端 Agent 与 Agent 前端纯逻辑投影。
  * 统一使用 Node 环境，避免前端测试依赖和 Nuxt 浏览器运行时混进来。
+ * 文生图工作台 DOM 交互测试是例外：通过文件级 @vitest-environment jsdom +
+ * plugin-vue 挂载真实 SFC，$fetch 自动导入由下方 shim 收敛到 globalThis，
+ * 测试用 vi.stubGlobal("$fetch") 注入请求桩。
  */
 export default defineConfig({
     root: rootDir,
@@ -14,6 +18,17 @@ export default defineConfig({
             nbook: rootDir,
         },
     },
+    plugins: [
+        vue(),
+        {
+            name: "nbook-dom-test-auto-import-shim",
+            enforce: "post",
+            transform(code, id) {
+                if (!id.includes("text-to-image") || !id.endsWith(".vue")) return null;
+                return code.replace(/(?<![\w.$])\$fetch(?=\s*\()/gu, "globalThis.$fetch");
+            },
+        },
+    ],
     test: {
         environment: "node",
         globals: true,

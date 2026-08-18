@@ -477,6 +477,7 @@ model TextToImageAsset {
   seed           Int
   prompt         String
   negativePrompt String
+  finalPromptBundleJson String?
   sourceKind     String
   sourcePath     String?
   sourceAnchorId String?

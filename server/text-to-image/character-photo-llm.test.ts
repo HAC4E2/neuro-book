@@ -66,7 +66,7 @@ describe("character photo llm", () => {
         expect(prompt).toBe("1girl,long black hair,blue eyes,portrait,soft lighting,smile");
         expect(lastInput?.baseUrl).toBe("https://api.example.com/v1");
         expect(lastInput?.model).toBe("gpt-4o");
-        expect(lastInput?.maxTokens).toBe(2048);
+        expect(lastInput?.maxTokens).toBe(4096);
         expect(lastInput?.stream).toBe(false);
         expect(lastInput?.messages[0]?.role).toBe("system");
         expect(String(lastInput?.messages[0]?.content)).toContain("image###");

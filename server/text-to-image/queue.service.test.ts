@@ -91,6 +91,64 @@ describe("TextToImageQueueService", () => {
         await expect(service.markRunning("workspace/demo", job.id)).resolves.toBe(true);
         await expect(service.markRunning("workspace/demo", job.id)).resolves.toBe(false);
     });
+
+    it("正文写回后推进 sourceInsertStatus", async () => {
+        const store = new InMemoryJobStore();
+        const service = new TextToImageQueueService(store);
+        const job = await service.enqueue({
+            projectPath: "workspace/demo",
+            providerId: 1,
+            providerOwnerUserId: 7,
+            providerCredentialRevision: 1,
+            kind: "body",
+            requestJson: "{}",
+            providerSnapshotJson: "{}",
+            sourcePath: "manuscript/chapter-1.md",
+            sourceAnchorId: "tti-1",
+        });
+
+        await expect(service.markSourceInserted("workspace/demo", job.id)).resolves.toBe(true);
+        expect(store.records[0]?.sourceInsertStatus).toBe("inserted");
+        await expect(service.markSourceMissing("workspace/demo", job.id)).resolves.toBe(true);
+        expect(store.records[0]?.sourceInsertStatus).toBe("missing");
+    });
+
+    it("终态 Job 不会被取消或迟到的处理结果改写", async () => {
+        const store = new InMemoryJobStore();
+        const service = new TextToImageQueueService(store);
+        const job = await service.enqueue({
+            projectPath: "workspace/demo",
+            providerId: 1,
+            providerOwnerUserId: 7,
+            providerCredentialRevision: 1,
+            kind: "manual",
+            requestJson: "{}",
+            providerSnapshotJson: "{}",
+        });
+
+        await expect(service.markRunning("workspace/demo", job.id)).resolves.toBe(true);
+        await expect(service.cancel("workspace/demo", job.id)).resolves.toBe(true);
+        await expect(service.markSucceeded("workspace/demo", job.id)).resolves.toBe(false);
+        await expect(service.markFailed("workspace/demo", job.id, "late failure")).resolves.toBe(false);
+        expect(store.records[0]?.status).toBe("canceled");
+    });
+
+    it("消费者级故障可以把尚未领取的 queued Job 标记失败", async () => {
+        const store = new InMemoryJobStore();
+        const service = new TextToImageQueueService(store);
+        const job = await service.enqueue({
+            projectPath: "workspace/demo",
+            providerId: 1,
+            providerOwnerUserId: 7,
+            providerCredentialRevision: 1,
+            kind: "body",
+            requestJson: "{}",
+            providerSnapshotJson: "{}",
+        });
+
+        await expect(service.markFailed("workspace/demo", job.id, "数据库暂不可用")).resolves.toBe(true);
+        expect(store.records[0]).toMatchObject({status: "failed", errorMessage: "数据库暂不可用"});
+    });
 });
 
 class InMemoryJobStore implements TextToImageJobStore {

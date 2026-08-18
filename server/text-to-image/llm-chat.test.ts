@@ -1,7 +1,19 @@
-import {describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {requestLlmCompletion, type LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 
 describe("requestLlmCompletion", () => {
+    beforeEach(() => {
+        // 屏蔽宿主环境代理，避免默认可达性探测产生真实网络访问。
+        vi.stubEnv("HTTPS_PROXY", "");
+        vi.stubEnv("https_proxy", "");
+        vi.stubEnv("HTTP_PROXY", "");
+        vi.stubEnv("http_proxy", "");
+    });
+
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it("resolves setvar in one context entry before getvar in a later entry", async () => {
         let payload: {messages: Array<{content: string}>} | undefined;
         const fetchImpl: LlmFetchImpl = async (_value, init) => {
@@ -152,5 +164,24 @@ describe("requestLlmCompletion", () => {
         });
 
         expect(result).toBe("hello");
+    });
+
+    it("stream keeps the last delta when the provider omits the trailing blank line", async () => {
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: {\"choices\":[{\"delta\":{\"content\":\"tail\"}}]}"));
+                controller.close();
+            },
+        });
+        const result = await requestLlmCompletion({
+            baseUrl: "https://api.example.com/v1",
+            credential: "sk-test",
+            model: "gpt-4o",
+            messages: [{role: "user", content: "hi"}],
+            stream: true,
+            fetchImpl: async () => new Response(stream, {status: 200}),
+        });
+
+        expect(result).toBe("tail");
     });
 });

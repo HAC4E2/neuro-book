@@ -84,14 +84,22 @@ describe("body image insert service", () => {
         expect(result.placeholders[0]?.id).not.toBe(result.placeholders[1]?.id);
     });
 
-    it("匹配不到 regex 时跳过该块", () => {
+    it("匹配不到 regex 时显式失败且不写入正文", () => {
         const chapterContent = "正文没有任何挂载点。";
-        const result = insertBodyImagePlaceholders({
+        expect(() => insertBodyImagePlaceholders({
             chapterContent,
             blocks: [{...CLASSROOM_BLOCK, regex: "不存在的文本"}],
-        });
+        })).toThrow(/未命中/);
+    });
 
-        expect(result.content).toBe(chapterContent);
-        expect(result.placeholders).toEqual([]);
+    it("写入前拒绝未闭合的角色调用", () => {
+        const chapterContent = "她推开门走进教室。";
+        const block = {
+            ...CLASSROOM_BLOCK,
+            prompts: `${"$"}{"name":"Saki Terashima","angle":"from side","upperBody":"sfw","lowerBody":"sfw"},standing`,
+        };
+
+        expect(() => insertBodyImagePlaceholders({chapterContent, blocks: [block]}))
+            .toThrow(/门禁|不是合法 JSON/);
     });
 });

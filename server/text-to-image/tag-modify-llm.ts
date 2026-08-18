@@ -1,4 +1,4 @@
-import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import {buildRequestMessages, type TextToImagePromptMode} from "nbook/server/text-to-image/llm-context";
 import {
     requestLlmCompletion,
     type RequestLlmCompletionInput,
@@ -7,6 +7,7 @@ import {extractLlmImagePrompts, stripLlmReasoningBlocks} from "nbook/server/text
 import type {TextToImageContextEntry, TextToImageLlmProviderSettings} from "nbook/shared/dto/text-to-image.dto";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-trace";
 
 export function extractTagModifyPrompt(text: string): string {
     const cleaned = stripLlmReasoningBlocks(text);
@@ -64,7 +65,9 @@ export async function generateTagModifyPrompt(input: {
     currentPrompt: string;
     modificationRequest: string;
     contextEntries?: TextToImageContextEntry[];
+    promptMode?: TextToImagePromptMode;
     runtime?: TextToImageRuntimePlaceholderContext;
+    trace?: TextToImageLlmTraceHandle;
     complete?: typeof requestLlmCompletion;
 }): Promise<string> {
     const settings = TextToImageLlmProviderSettingsSchema.parse({
@@ -80,13 +83,13 @@ export async function generateTagModifyPrompt(input: {
         temperature: settings.temperature,
         topP: settings.topP,
         maxTokens: settings.maxTokens,
-        stream: false,
+        stream: settings.stream,
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
         runtime,
-        messages: [
-            ...buildContextMessages(input.contextEntries ?? [], runtime),
+        trace: input.trace,
+        messages: buildRequestMessages(input.contextEntries ?? [], runtime, [
             {role: "system", content: buildTagModifySystemPrompt()},
             {
                 role: "user",
@@ -95,7 +98,7 @@ export async function generateTagModifyPrompt(input: {
                     modificationRequest: input.modificationRequest,
                 }),
             },
-        ],
+        ], input.promptMode),
     });
     return extractTagModifyPrompt(content);
 }

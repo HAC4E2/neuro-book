@@ -24,6 +24,7 @@ export type SaveTextToImageAssetInput = {
     seed: number;
     prompt: string;
     negativePrompt: string;
+    finalPromptBundleJson?: string | null;
     sourceKind: string;
     sourcePath: string | null;
     sourceAnchorId: string | null;
@@ -99,6 +100,7 @@ export async function saveTextToImageAsset(input: SaveTextToImageAssetInput): Pr
                     seed: input.seed,
                     prompt: input.prompt,
                     negativePrompt: input.negativePrompt,
+                    finalPromptBundleJson: input.finalPromptBundleJson ?? null,
                     sourceKind: input.sourceKind,
                     sourcePath: input.sourcePath,
                     sourceAnchorId: input.sourceAnchorId,
@@ -161,6 +163,21 @@ export async function findLatestTextToImageAssetBySourceAnchorId(
     });
 }
 
+/** 按来源锚点列出成功资产，供正文写回识别重复插入和免生图恢复。 */
+export async function listTextToImageAssetsBySourceAnchorId(
+    projectPath: string,
+    sourceAnchorId: string,
+): Promise<TextToImageAssetDto[]> {
+    return await withTextToImageAssetClient(projectPath, undefined, async (client) => {
+        const records = await client.textToImageAsset.findMany({
+            where: {sourceAnchorId},
+            orderBy: {createdAt: "desc"},
+            take: 100,
+        });
+        return records.map(toTextToImageAssetDto);
+    });
+}
+
 /** 按相对路径查找资产记录，供角色照片按路径读取内容。 */
 export async function findTextToImageAssetByRelativePath(
     projectPath: string,
@@ -172,6 +189,17 @@ export async function findTextToImageAssetByRelativePath(
             where: {relativePath},
             orderBy: {createdAt: "desc"},
         });
+        return record ? toTextToImageAssetDto(record) : null;
+    });
+}
+
+/** 按资产 ID 读取单个图片，供正文免生图恢复使用。 */
+export async function findTextToImageAssetById(
+    projectPath: string,
+    assetId: string,
+): Promise<TextToImageAssetDto | null> {
+    return await withTextToImageAssetClient(projectPath, undefined, async (client) => {
+        const record = await client.textToImageAsset.findUnique({where: {id: assetId}});
         return record ? toTextToImageAssetDto(record) : null;
     });
 }
@@ -240,6 +268,7 @@ function toTextToImageAssetDto(record: TextToImageAsset): TextToImageAssetDto {
         seed: record.seed,
         prompt: record.prompt,
         negativePrompt: record.negativePrompt,
+        finalPromptBundleJson: record.finalPromptBundleJson,
         sourceKind: record.sourceKind,
         sourcePath: record.sourcePath,
         sourceAnchorId: record.sourceAnchorId,

@@ -74,8 +74,6 @@ export type NovelAiImageInput = {
     noiseSchedule: string;
     scale: number;
     cfgRescale: number;
-    smea: boolean;
-    smeaDyn: boolean;
     variety: boolean;
     decrisp: boolean;
     aiDefaultCharacterPosition: boolean;
@@ -105,13 +103,6 @@ export class NovelAiHttpError extends Error {
 }
 
 const MAX_SEED = 4294967295;
-const NOVEL_AI_V4_MODELS = new Set([
-    "nai-diffusion-4-curated-preview",
-    "nai-diffusion-4-full",
-    "nai-diffusion-4-5-full",
-    "nai-diffusion-4-5-curated",
-]);
-
 /**
  * NovelAI `/ai/generate-image` 直调。
  * 默认接收 zip 图片包，兼容 JSON `images[]` base64；安全出站复用 provider-fetch。
@@ -129,12 +120,8 @@ export async function requestNovelAiImages(
     const steps = clampInteger(input.steps, 1, 50, 28);
     const seed = clampInteger(input.seed, -1, MAX_SEED, 0);
     const family = resolveNovelAiModelFamily(input.model);
-    const flatPrompt = family === "nai3"
-        ? joinPromptParts(input.prompt, ...(input.characterPrompts ?? []).map((item) => item.prompt))
-        : input.prompt;
-    const flatNegativePrompt = family === "nai3"
-        ? joinPromptParts(input.negativePrompt, ...(input.characterPrompts ?? []).map((item) => item.negativePrompt))
-        : input.negativePrompt;
+    const flatPrompt = input.prompt;
+    const flatNegativePrompt = input.negativePrompt;
     const baseUrl = input.baseUrl.replace(/\/+$/u, "");
     const parameters: Record<string, unknown> = {
         params_version: 3,
@@ -146,7 +133,6 @@ export async function requestNovelAiImages(
         n_samples: 1,
         ucPreset: input.ucPreset ?? resolveNovelAiUcPreset(input.model, "Heavy"),
         qualityToggle: input.positiveQualityPreset ?? true,
-        autoSmea: false,
         dynamic_thresholding: input.decrisp,
         controlnet_strength: 1,
         legacy: false,
@@ -158,41 +144,34 @@ export async function requestNovelAiImages(
         seed,
         negative_prompt: flatNegativePrompt,
         variety: input.variety,
-        decrisp: input.decrisp,
         ai_default_character_position: input.aiDefaultCharacterPosition,
         deliberate_euler_ancestral_bug: false,
         prefer_brownian: true,
         skip_cfg_above_sigma: input.variety ? calculateVarietySigma(width, height) : null,
     };
 
-    if (isNovelAiV4Model(input.model)) {
-        const characterPrompts = input.characterPrompts ?? [];
-        const useCoords = !input.aiDefaultCharacterPosition
-            && characterPrompts.every((item) => item.centerX !== undefined && item.centerY !== undefined);
-        parameters.use_coords = useCoords;
-        parameters.legacy_v3_extend = false;
-        parameters.legacy_uc = false;
-        parameters.v4_prompt = {
-            caption: {
-                base_caption: input.prompt,
-                char_captions: buildNovelAiCharacterCaptions(characterPrompts),
-            },
-            use_coords: useCoords,
-            use_order: true,
-        };
-        parameters.v4_negative_prompt = {
-            caption: {
-                base_caption: input.negativePrompt,
+    const characterPrompts = input.characterPrompts ?? [];
+    const useCoords = !input.aiDefaultCharacterPosition
+        && characterPrompts.every((item) => item.centerX !== undefined && item.centerY !== undefined);
+    parameters.use_coords = useCoords;
+    parameters.legacy_v3_extend = false;
+    parameters.legacy_uc = false;
+    parameters.v4_prompt = {
+        caption: {
+            base_caption: input.prompt,
+            char_captions: buildNovelAiCharacterCaptions(characterPrompts),
+        },
+        use_coords: useCoords,
+        use_order: true,
+    };
+    parameters.v4_negative_prompt = {
+        caption: {
+            base_caption: input.negativePrompt,
             char_captions: buildNovelAiCharacterCaptions(characterPrompts, true),
-            },
-            legacy_uc: false,
-        };
-        parameters.characterPrompts = [];
-    } else {
-        parameters.sm = input.smea;
-        parameters.sm_dyn = input.smeaDyn;
-        parameters.uc = input.negativePrompt;
-    }
+        },
+        legacy_uc: false,
+    };
+    parameters.characterPrompts = [];
 
     const scheduler = input.scheduler ?? getNovelAiRequestScheduler();
     const proxyResolver = input.proxyResolver ?? (input.fetchImpl ? undefined : getNovelAiProxyResolver());
@@ -451,17 +430,6 @@ function buildNovelAiCharacterCaptions(
     }));
 }
 
-function joinPromptParts(...parts: Array<string | null | undefined>): string {
-    return parts
-        .map((part) => (part ?? "").trim().replace(/^,+|,+$/gu, ""))
-        .filter((part) => part !== "")
-        .join(", ");
-}
-
-function isNovelAiV4Model(model: string): boolean {
-    return NOVEL_AI_V4_MODELS.has(model);
-}
-
 function randomGroupId(groups: Record<string, string[]>): string | null {
     const keys = Object.keys(groups);
     if (keys.length === 0) {
@@ -480,10 +448,6 @@ function normalizeNovelAiToken(token: string): string {
         normalized = normalized.replace(/^Bearer\s+/iu, "").trim();
     }
     return normalized;
-}
-
-function randomSeed(): number {
-    return Math.floor(Math.random() * MAX_SEED);
 }
 
 function clampInteger(value: number, min: number, max: number, fallback: number): number {

@@ -1,8 +1,20 @@
-import {describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {fetchLlmModels} from "nbook/server/text-to-image/llm-models";
 import type {LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 
 describe("fetchLlmModels", () => {
+    beforeEach(() => {
+        // 屏蔽宿主环境代理，避免默认可达性探测产生真实网络访问。
+        vi.stubEnv("HTTPS_PROXY", "");
+        vi.stubEnv("https_proxy", "");
+        vi.stubEnv("HTTP_PROXY", "");
+        vi.stubEnv("http_proxy", "");
+    });
+
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it("请求 /models 并返回 data[].id", async () => {
         const calls: string[] = [];
         const fetchImpl: LlmFetchImpl = async (value, init) => {

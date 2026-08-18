@@ -75,6 +75,13 @@ export type WorkspaceFileNode = {
     issueSummary?: WorkspaceIssueSummaryDto;
 };
 
+/** 服务端已写入的文件版本；正文生成写回后由编辑器原子接纳。 */
+export type WorkspaceFileRevision = {
+    path: string;
+    content: string;
+    node: WorkspaceFileNode;
+};
+
 export type WorkspaceFileIssue = {
     level: "P1" | "P2" | "P3" | "WARN";
     code: string;
@@ -217,6 +224,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const loadingWorkspaceTree = ref(false);
     const restoringWorkspaceFile = ref(false);
     const savingFile = ref(false);
+    let activeSavePromise: Promise<WorkspaceFileNode | null> | null = null;
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
@@ -910,11 +918,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 保存当前工作区文件。
      */
-    const saveCurrentFile = async (options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
+    const performSaveCurrentFile = async (options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
         // 先结算防抖输入，保证保存的是编辑器最新内容（flush 会替换 activeWorkspaceFile 对象，必须在取快照前）
-        flushActiveEditorPending();
+        // 显式传入 content 时，调用方已经提供了权威快照；此时再 flush 可能把旧 TipTap
+        // 内容写回 activeWorkspaceFile，导致服务端刚返回的正文被覆盖。
+        if (options.content === undefined) {
+            flushActiveEditorPending();
+        }
         const activeFile = activeWorkspaceFile.value;
-        if (!activeFile?.node.editable || savingFile.value) {
+        if (!activeFile?.node.editable) {
             return null;
         }
 
@@ -973,6 +985,83 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         } finally {
             savingFile.value = false;
         }
+    };
+
+    /**
+     * 串行化所有保存请求。编辑器按钮失焦会先触发自动保存，后续业务动作必须等待它，
+     * 不能把 savingFile=true 误判成保存失败。
+     */
+    const saveCurrentFile = async (options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
+        if (activeSavePromise) {
+            await activeSavePromise;
+        }
+        const savePromise = performSaveCurrentFile(options);
+        activeSavePromise = savePromise;
+        try {
+            return await savePromise;
+        } finally {
+            if (activeSavePromise === savePromise) {
+                activeSavePromise = null;
+            }
+        }
+    };
+
+    /**
+     * 保存当前文件并确认正文与服务端基线一致；用于创建依赖落盘章节快照的任务。
+     */
+    const ensureCurrentFileSaved = async (): Promise<WorkspaceFileNode | null> => {
+        // 先等待可能由失焦自动保存发起的请求；否则第二个图片块会拿旧 mtime
+        // 再写一次相同正文，恰好撞上第一个 Job 的服务端写回并被误判成冲突。
+        flushActiveEditorPending();
+        if (activeSavePromise) {
+            await activeSavePromise;
+        }
+        const activeFile = activeWorkspaceFile.value;
+        if (!activeFile?.node.editable) {
+            return null;
+        }
+        // 正文已经与最后一次成功写盘的版本一致时，不再制造一次无意义的
+        // expectedMtime CAS；服务端入队/写回会自行读取最新章节版本。
+        if (activeFile.content === activeFile.lastSyncedContent) {
+            return activeFile.node;
+        }
+        const savedNode = await saveCurrentFile();
+        if (!savedNode || selectedFileContent.value !== lastSyncedFileContent.value) {
+            return null;
+        }
+        return savedNode;
+    };
+
+    /**
+     * 原子接纳服务端写回的正文和文件版本，避免把服务端自己的写入误报成外部冲突。
+     */
+    const adoptWorkspaceFileRevision = (revision: WorkspaceFileRevision): boolean => {
+        const activeFile = activeWorkspaceFile.value;
+        if (!activeFile || activeFile.node.path !== revision.path) {
+            return false;
+        }
+        activeWorkspaceFile.value = {
+            node: revision.node,
+            content: revision.content,
+            lastSyncedContent: revision.content,
+            lastSyncedMtimeMs: revision.node.mtimeMs,
+        };
+        workspaceBuffers.value = {
+            ...workspaceBuffers.value,
+            [revision.path]: {
+                node: revision.node,
+                content: revision.content,
+                lastSyncedContent: revision.content,
+                lastSyncedMtimeMs: revision.node.mtimeMs,
+            },
+        };
+        workspaceTree.value = workspaceTree.value.map((node) => node.path === revision.path ? revision.node : node);
+        const currentTab = workspaceTabs.value.find((tab) => tab.path === revision.path);
+        upsertWorkspaceTab(revision.node, currentTab?.preview ? "preview" : "permanent");
+        syncWorkspaceTabDirty(revision.path);
+        workspaceWriteConflict.value = null;
+        workspaceConflictDialogOpen.value = false;
+        return true;
     };
 
     /**
@@ -1942,6 +2031,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         bumpConfigRevision,
         reasoningOptions,
         saveCurrentFile,
+        ensureCurrentFileSaved,
+        adoptWorkspaceFileRevision,
         saveDirtyWorkspaceFiles,
         selectedStoryThreadId,
         selectedStorySceneId,

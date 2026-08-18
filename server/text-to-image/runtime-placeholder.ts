@@ -9,6 +9,12 @@ export type TextToImageRuntimePlaceholderContext = {
     outfitList?: string;
     currentCharacter?: string;
     currentOutfit?: string;
+    /** 当前角色的原始 Markdown；与当前视觉 JSON 有意分开。 */
+    characterSource?: string;
+    /** 当前正文/资产的原始 Tag；只供 tag_modify。 */
+    currentTag?: string;
+    /** 触发预设条目时使用的请求专属语料，不直接替代正文。 */
+    triggerText?: string;
     variables?: Record<string, string>;
     worldVariables?: Record<string, string>;
 };
@@ -70,6 +76,8 @@ export function resolveTextToImageRuntimePlaceholdersWithVariables(
         "{{当前角色}}": input.currentCharacter ?? "",
         "{{当前服装}}": input.currentOutfit ?? "",
         "{{服装列表}}": input.outfitList ?? "",
+        "{{角色原始档案}}": input.characterSource ?? "",
+        "{{当前tag}}": input.currentTag ?? "",
     };
     for (const [placeholder, value] of Object.entries(standardReplacements)) {
         result = result.replaceAll(placeholder, value);

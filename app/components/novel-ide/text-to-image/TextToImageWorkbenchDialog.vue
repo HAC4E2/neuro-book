@@ -25,6 +25,13 @@ const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
 }>();
 
+type SectionGuard = {
+    guard: (message: string) => Promise<boolean>;
+};
+
+const characterSection = ref<SectionGuard | null>(null);
+const sendDataSection = ref<SectionGuard | null>(null);
+
 type WorkbenchSnapshot = {
     config: TextToImageGlobalConfig;
     providers: TextToImageProviderDto[];
@@ -37,13 +44,30 @@ const snapshot = ref<WorkbenchSnapshot>({
 });
 const loading = ref(false);
 const error = ref("");
+/** 实际传给子页面的 Project 根：父级 prop 先变时先询问当前分区，确认后才提交给子组件。 */
+const boundProjectRoot = ref(props.projectRoot);
 
 watch(() => props.modelValue, (open) => {
     if (open) {
+        boundProjectRoot.value = props.projectRoot;
         activeSection.value = props.initialSection ?? "llm";
         void load();
     }
 }, {immediate: true});
+
+watch(() => props.projectRoot, async (next, previous) => {
+    if (!previous || next === previous || next === boundProjectRoot.value) return;
+    if (!props.modelValue) {
+        boundProjectRoot.value = next;
+        return;
+    }
+    if (await guardActiveSection()) {
+        boundProjectRoot.value = next;
+        return;
+    }
+    error.value = "Project 切换已取消，工作台不会把旧页面写入新 Project";
+    emit("update:modelValue", false);
+});
 
 async function load(): Promise<void> {
     loading.value = true;
@@ -87,6 +111,26 @@ async function deleteProvider(id: number): Promise<void> {
     }
 }
 
+/** 页面切换与工作台关闭复用各分区的“保存、放弃、取消”保护。 */
+async function guardActiveSection(): Promise<boolean> {
+    const guard = activeSection.value === "character"
+        ? characterSection.value
+        : activeSection.value === "send-data"
+            ? sendDataSection.value
+            : null;
+    if (!guard) return true;
+    return guard.guard("离开前请先处理未保存修改");
+}
+
+async function switchSection(section: typeof activeSection.value): Promise<void> {
+    if (section === activeSection.value) return;
+    if (await guardActiveSection()) activeSection.value = section;
+}
+
+async function handleRequestClose(): Promise<void> {
+    if (await guardActiveSection()) emit("update:modelValue", false);
+}
+
 async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void> {
     error.value = "";
     try {
@@ -113,6 +157,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
         overlay-type="opaque"
         :body-class="'custom-scrollbar flex min-h-0 flex-1 flex-col overflow-hidden p-0'"
         @update:model-value="emit('update:modelValue', $event)"
+        @request-close="handleRequestClose"
     >
         <div class="flex h-full min-h-0 flex-1">
             <!-- 左侧导航 -->
@@ -120,7 +165,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                 <button
                     class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'llm' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeSection = 'llm'"
+                    @click="switchSection('llm')"
                 >
                     <span class="i-lucide-bot h-4 w-4"></span>
                     LLM
@@ -128,7 +173,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                 <button
                     class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'novelai' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeSection = 'novelai'"
+                    @click="switchSection('novelai')"
                 >
                     <span class="i-lucide-image h-4 w-4"></span>
                     NovelAI
@@ -136,7 +181,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                 <button
                     class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'character' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeSection = 'character'"
+                    @click="switchSection('character')"
                 >
                     <span class="i-lucide-users-round h-4 w-4"></span>
                     角色管理
@@ -144,7 +189,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                 <button
                     class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'history' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeSection = 'history'"
+                    @click="switchSection('history')"
                 >
                     <span class="i-lucide-images h-4 w-4"></span>
                     历史图片
@@ -152,7 +197,7 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                 <button
                     class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[15px]"
                     :class="activeSection === 'send-data' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeSection = 'send-data'"
+                    @click="switchSection('send-data')"
                 >
                     <span class="i-lucide-send h-4 w-4"></span>
                     发送数据
@@ -173,17 +218,20 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     v-else-if="activeSection === 'novelai'"
                     :providers="snapshot.providers"
                     @save-provider="saveProvider"
+                    @refresh-providers="load"
                 />
                 <TextToImageCharacterSection
                     v-else-if="activeSection === 'character'"
-                    :project-root="props.projectRoot"
+                    ref="characterSection"
+                    :project-root="boundProjectRoot"
                     :initial-character="props.initialCharacter"
                 />
                 <TextToImageSendDataSection
                     v-else-if="activeSection === 'send-data'"
-                    :project-root="props.projectRoot"
+                    ref="sendDataSection"
+                    :project-root="boundProjectRoot"
                 />
-                <TextToImageHistorySection v-else :project-root="props.projectRoot" />
+                <TextToImageHistorySection v-else :project-root="boundProjectRoot" />
             </div>
         </div>
         <p v-if="error" class="border-t border-[var(--border-color)] px-4 py-2 text-[13px] text-[var(--danger-text)]">{{ error }}</p>

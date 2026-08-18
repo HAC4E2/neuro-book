@@ -31,6 +31,8 @@ export type TextToImageContextEntry = z.infer<typeof TextToImageContextEntrySche
 export const TextToImageContextProfileSchema = z.object({
     id: z.string().trim().min(1),
     name: z.string().trim().min(1),
+    /** complete 由导入预设完全负责消息合同；augment 才允许产品追加内置任务消息。 */
+    promptMode: z.enum(["complete", "augment"]).default("augment"),
     entries: z.array(TextToImageContextEntrySchema).default([]),
 });
 export type TextToImageContextProfile = z.infer<typeof TextToImageContextProfileSchema>;
@@ -116,16 +118,33 @@ export const TextToImageNovelAiVibeGroupSettingsSchema = z.object({
 });
 export type TextToImageNovelAiVibeGroupSettings = z.infer<typeof TextToImageNovelAiVibeGroupSettingsSchema>;
 
+/** 仅支持的 NovelAI 生成模型：V4.5 Full/Curated；旧模型在规范化时确定映射。 */
+export const TextToImageNovelAiV45ModelSchema = z.enum([
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-4-5-curated",
+]);
+export type TextToImageNovelAiV45Model = z.infer<typeof TextToImageNovelAiV45ModelSchema>;
+
+/** 内置提示词替换规则模板；该常量是唯一真相源，禁止在组件或测试中复制多份字符串。 */
+export const DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT = [
+    "触发词1=前置前|插入词1",
+    "触发词2=前置后|插入词2",
+    "触发词3=替换|替换词3",
+    "触发词4=替换|",
+    "触发词5=替换分角色|替换词5",
+    "触发词6=后置前|插入词6",
+    "触发词7=后置后|插入词7",
+    "触发词8=最后置|插入词8",
+].join("\n");
 /** NovelAI 配置档案：模型/采样/参数快照，可独立读取、另存为、删除。 */
+
 export const TextToImageNovelAiProfileSchema = z.object({
-    model: z.string(),
+    model: TextToImageNovelAiV45ModelSchema,
     sampler: z.string(),
     noiseSchedule: z.string(),
     promptGuidance: z.number(),
     promptGuidanceRescale: z.number(),
     aiDefaultCharacterPosition: z.boolean(),
-    smea: z.boolean(),
-    smeaDyn: z.boolean(),
     variety: z.boolean(),
     decrisp: z.boolean(),
     width: z.number(),
@@ -146,7 +165,6 @@ export const TextToImageNovelAiGenerationRecipeSchema = TextToImageNovelAiProfil
     positive: z.string().default(""),
     positiveEnd: z.string().default(""),
     negative: z.string().default(""),
-    promptReplaceText: z.string().default(""),
     furryDataset: z.boolean().default(false),
     vibe: TextToImageNovelAiVibeSettingsSchema.default(DEFAULT_NOVEL_AI_VIBE),
     characterReference: TextToImageCharacterReferenceSettingsSchema.default(DEFAULT_CHARACTER_REFERENCE),
@@ -172,14 +190,12 @@ export type TextToImageNovelAiGenerationRecipeMeta = z.infer<typeof TextToImageN
 export const TextToImageNovelAiSettingsSchema = z.object({
     baseUrl: z.string().trim().default("https://image.novelai.net"),
     requestIntervalMs: z.number().int().min(15_000).default(15_000),
-    model: z.string().default("nai-diffusion-4-5-full"),
+    model: TextToImageNovelAiV45ModelSchema.default("nai-diffusion-4-5-full"),
     sampler: z.string().default("k_euler"),
     noiseSchedule: z.string().default("karras"),
     promptGuidance: z.number().default(10),
     promptGuidanceRescale: z.number().default(0.18),
     aiDefaultCharacterPosition: z.boolean().default(true),
-    smea: z.boolean().default(true),
-    smeaDyn: z.boolean().default(true),
     variety: z.boolean().default(true),
     decrisp: z.boolean().default(true),
     width: z.number().int().min(64).max(4096).default(1024),
@@ -189,7 +205,7 @@ export const TextToImageNovelAiSettingsSchema = z.object({
     fixedPositivePrompt: z.string().default(""),
     fixedPositivePromptEnd: z.string().default(""),
     fixedNegativePrompt: z.string().default(""),
-    promptReplaceText: z.string().default(""),
+    promptReplaceText: z.string().default(DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT),
     furryDataset: z.boolean().default(false),
     positiveQualityPreset: z.boolean().default(true),
     negativeQualityPreset: z.string().default("Heavy"),
@@ -240,6 +256,7 @@ export type TextToImageAssetDto = {
     seed: number;
     prompt: string;
     negativePrompt: string;
+    finalPromptBundleJson?: string | null;
     sourceKind: string;
     sourcePath: string | null;
     sourceAnchorId: string | null;

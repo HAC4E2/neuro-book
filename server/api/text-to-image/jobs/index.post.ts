@@ -4,6 +4,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
+import {kickTextToImageQueue} from "nbook/server/text-to-image/queue-runtime";
 
 const EnqueueBodySchema = z.object({
     projectRoot: z.string().trim().min(1),
@@ -22,8 +23,9 @@ export default defineEventHandler(async (event) => {
     if (!provider) {
         throw new Error("Provider 不存在");
     }
-    return await new TextToImageQueueService().enqueue({
-        projectPath: `workspace/${body.projectRoot}`,
+    const projectPath = `workspace/${body.projectRoot}`;
+    const job = await new TextToImageQueueService().enqueue({
+        projectPath,
         providerId: body.providerId,
         providerOwnerUserId: user.id,
         providerCredentialRevision: provider.credentialRevision,
@@ -36,4 +38,6 @@ export default defineEventHandler(async (event) => {
         sourcePath: body.sourcePath,
         sourceAnchorId: body.sourceAnchorId,
     });
+    void kickTextToImageQueue(projectPath).catch(() => undefined);
+    return job;
 });

@@ -1,5 +1,6 @@
 import {
     CharacterVisualFieldSchema,
+    CharacterVisualFileSchema,
     OutfitVisualSchema,
     parseCharacterVisualJson,
     type CharacterVisualField,
@@ -10,15 +11,17 @@ import {
     requestLlmCompletion,
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
-import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import {buildRequestMessages, type TextToImagePromptMode} from "nbook/server/text-to-image/llm-context";
 import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
+import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-trace";
 import {stripLlmReasoningBlocks} from "nbook/server/text-to-image/llm-output";
 import {
     buildCharacterVisualSystemPrompt,
     buildCharacterVisualUserPrompt,
     type CharacterVisualDraftMode,
 } from "nbook/server/text-to-image/character-visual-prompt";
+import {canonicalizeTriggerWords} from "nbook/server/text-to-image/character-trigger-words";
 
 export {buildCharacterVisualSystemPrompt, buildCharacterVisualUserPrompt, type CharacterVisualDraftMode} from "nbook/server/text-to-image/character-visual-prompt";
 
@@ -34,13 +37,17 @@ export type GenerateCharacterVisualDraftInput = {
     mode: CharacterVisualDraftMode;
     userRequirement?: string;
     contextEntries?: TextToImageContextEntry[];
+    promptMode?: TextToImagePromptMode;
     runtime?: TextToImageRuntimePlaceholderContext;
+    trace?: TextToImageLlmTraceHandle;
 };
 
 /** 角色字段中文标签 -> schema 键。 */
 const CHARACTER_FIELD_LABELS: Record<string, keyof CharacterVisualField> = {
     "中文名称": "cnName",
     "英文名称": "enName",
+    "触发词": "triggerWords",
+    "角色触发词": "triggerWords",
     "角色特征": "profileTraits",
     "五官外貌": "facialAppearance",
     "五官外貌背面": "facialBack",
@@ -86,6 +93,18 @@ export type CharacterVisualDraftBatch = {
     }>;
 };
 
+export type CharacterVisualDraftPresence = {
+    draft: CharacterVisualFile;
+    characterFields: Set<keyof CharacterVisualField>;
+    outfitFields: Array<Set<keyof OutfitVisual>>;
+};
+
+export type CharacterVisualModifyResult = {
+    visual: CharacterVisualFile;
+    warnings: string[];
+    changedFields: string[];
+};
+
 /**
  * 解析 LLM 返回的角色视觉草稿。
  * 支持 JSON 对象（含中文标签/`角色设计` 包裹）与 `<人物>/<服装>` 行式；
@@ -123,6 +142,97 @@ export function parseCharacterVisualDraftBatch(text: string): CharacterVisualDra
     }
 }
 
+/** 解析局部修改并保留“字段是否出现”的信息，避免完整 schema 的默认空字符串清空现有资料。 */
+export function parseCharacterVisualDraftPresence(text: string): CharacterVisualDraftPresence {
+    const draft = parseCharacterVisualDraft(text);
+    const cleaned = cleanDraftText(text);
+    const characterFields = new Set<keyof CharacterVisualField>();
+    const outfitFields: Array<Set<keyof OutfitVisual>> = [];
+    const jsonText = extractJsonText(cleaned);
+    if (jsonText) {
+        try {
+            const raw = JSON.parse(jsonText) as unknown;
+            const source = typeof raw === "object" && raw !== null && !Array.isArray(raw)
+                ? unwrapDesignContainer(raw as Record<string, unknown>)
+                : {};
+            const characterSource = extractSection(source, "character", "人物")
+                ?? (hasCharacterLabels(source) ? source : null);
+            collectPresentFields(characterSource, CHARACTER_FIELD_LABELS, characterFields);
+            for (const item of extractOutfits(source)) {
+                const fields = new Set<keyof OutfitVisual>();
+                collectPresentFields(item, OUTFIT_FIELD_LABELS, fields);
+                outfitFields.push(fields);
+            }
+        } catch {
+            // parseCharacterVisualDraft 已经给出结构错误；这里只保留可解析的行式回退。
+        }
+    }
+    if (characterFields.size === 0 && /<人物>/u.test(cleaned)) {
+        const block = extractFirstBlock(cleaned, "人物");
+        if (block) collectLabeledPresentFields(block, CHARACTER_FIELD_LABELS, characterFields);
+    }
+    if (outfitFields.length === 0) {
+        for (const block of extractBlocks(cleaned, "服装")) {
+            const fields = new Set<keyof OutfitVisual>();
+            collectLabeledPresentFields(block, OUTFIT_FIELD_LABELS, fields);
+            outfitFields.push(fields);
+        }
+    }
+    return {draft, characterFields, outfitFields};
+}
+
+/** 将 char_modify 的局部结果合并到指定视觉版本；身份、照片和未出现字段永远由现有文件保留。 */
+export function mergeCharacterVisualPatch(
+    current: CharacterVisualFile,
+    parsed: CharacterVisualDraftPresence,
+    selectedOutfitIndex: number | null = null,
+): CharacterVisualModifyResult {
+    const warnings: string[] = [];
+    const changedFields: string[] = [];
+    const character = {...current.character};
+    const lockedFields = new Set<keyof CharacterVisualField>(["cnName", "enName", "triggerWords"]);
+    for (const field of parsed.characterFields) {
+        if (lockedFields.has(field)) {
+            if (parsed.draft.character[field] !== current.character[field]) {
+                warnings.push(`身份字段 ${field} 已保留当前值`);
+            }
+            continue;
+        }
+        const value = parsed.draft.character[field];
+        if (value !== current.character[field]) changedFields.push(`character.${field}`);
+        character[field] = value;
+    }
+
+    const outfits = current.outfits.map((outfit) => ({...outfit}));
+    parsed.draft.outfits.forEach((draftOutfit, index) => {
+        const fields = parsed.outfitFields[index] ?? new Set<keyof OutfitVisual>();
+        if (fields.size === 0) {
+            return;
+        }
+        const targetIndex = resolveOutfitTarget(outfits, draftOutfit, index, selectedOutfitIndex, warnings);
+        if (targetIndex === null) {
+            const created = OutfitVisualSchema.parse({});
+            for (const field of fields) created[field] = draftOutfit[field];
+            outfits.push(created);
+            changedFields.push(`outfits[${outfits.length - 1}]`);
+            return;
+        }
+        const target = outfits[targetIndex]!;
+        for (const field of fields) {
+            const value = draftOutfit[field];
+            if (value !== target[field]) changedFields.push(`outfits[${targetIndex}].${field}`);
+            target[field] = value;
+        }
+    });
+
+    const visual = CharacterVisualFileSchema.parse({
+        ...current,
+        character,
+        outfits,
+    });
+    return {visual, warnings, changedFields};
+}
+
 /**
  * 调用 LLM 生成角色视觉草稿并解析。
  * complete 供测试注入；解析失败最多重试 2 次，仍失败抛错。
@@ -154,11 +264,11 @@ export async function generateCharacterVisualDraft(
             mergeSystemUser: settings.mergeSystemUser,
             retryCount: settings.retryCount,
             runtime: input.runtime,
-            messages: [
-                ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
+            trace: input.trace,
+            messages: buildRequestMessages(input.contextEntries ?? [], input.runtime ?? {}, [
                 {role: "system", content: systemPrompt},
                 {role: "user", content: userPrompt},
-            ],
+            ], input.promptMode),
         });
         try {
             const batch = parseCharacterVisualDraftBatch(content);
@@ -172,6 +282,51 @@ export async function generateCharacterVisualDraft(
     }
 
     throw new Error(`角色视觉草稿解析失败：重试 2 次后仍未成功；最后原因：${lastError?.message ?? "未知"}`);
+}
+
+/** 生成已有视觉资料的局部修改预览；LLM 未返回的字段不会参与覆盖。 */
+export async function generateCharacterVisualModifyPreview(
+    input: GenerateCharacterVisualDraftInput & {selectedOutfitIndex?: number | null},
+    complete: typeof requestLlmCompletion = requestLlmCompletion,
+): Promise<CharacterVisualModifyResult> {
+    const current = parseCharacterVisualJson(input.existingSummary);
+    const settings = TextToImageLlmProviderSettingsSchema.parse({
+        ...input.provider.settings,
+        baseUrl: input.provider.baseUrl,
+    });
+    const systemPrompt = buildCharacterVisualSystemPrompt();
+    const userPrompt = buildCharacterVisualUserPrompt({...input, mode: "modify_visual"});
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const content = await complete({
+            baseUrl: input.provider.baseUrl,
+            credential: input.provider.credential,
+            model: settings.model,
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            stream: settings.stream,
+            sendImages: settings.sendImages,
+            mergeSystemUser: settings.mergeSystemUser,
+            retryCount: settings.retryCount,
+            runtime: input.runtime,
+            trace: input.trace,
+            messages: buildRequestMessages(input.contextEntries ?? [], input.runtime ?? {}, [
+                {role: "system", content: systemPrompt},
+                {role: "user", content: userPrompt},
+            ], input.promptMode),
+        });
+        try {
+            return mergeCharacterVisualPatch(
+                current,
+                parseCharacterVisualDraftPresence(content),
+                input.selectedOutfitIndex ?? null,
+            );
+        } catch (error) {
+            lastError = toError(error);
+        }
+    }
+    throw new Error(`角色视觉修改解析失败：重试 2 次后仍未成功；最后原因：${lastError?.message ?? "未知"}`);
 }
 
 function cleanDraftText(text: string): string {
@@ -334,6 +489,60 @@ function hasOutfitLabels(raw: Record<string, unknown>): boolean {
     return Object.keys(raw).some((key) => key in OUTFIT_FIELD_LABELS);
 }
 
+function collectPresentFields<T extends string>(
+    raw: Record<string, unknown> | null,
+    labels: Record<string, T>,
+    target: Set<T>,
+): void {
+    if (!raw) return;
+    for (const key of Object.keys(raw)) {
+        const mapped = labels[key] ?? (Object.values(labels).includes(key as T) ? key as T : undefined);
+        if (mapped !== undefined) target.add(mapped);
+    }
+}
+
+function collectLabeledPresentFields<T extends string>(
+    block: string,
+    labels: Record<string, T>,
+    target: Set<T>,
+): void {
+    for (const line of block.split(/\r?\n/u)) {
+        const match = /^\s*([^:：]{1,40})\s*[:：]/u.exec(line);
+        if (!match) continue;
+        const label = match[1]?.trim() ?? "";
+        const mapped = labels[label];
+        if (mapped) target.add(mapped);
+    }
+}
+
+function resolveOutfitTarget(
+    outfits: OutfitVisual[],
+    draft: OutfitVisual,
+    draftIndex: number,
+    selectedOutfitIndex: number | null,
+    warnings: string[],
+): number | null {
+    if (draftIndex === 0 && selectedOutfitIndex !== null) {
+        if (selectedOutfitIndex < 0 || selectedOutfitIndex >= outfits.length) {
+            throw new Error(`selectedOutfitIndex 超出当前服装范围：${selectedOutfitIndex}`);
+        }
+        return selectedOutfitIndex;
+    }
+    const names = [draft.cnName, draft.enName].map((value) => value.trim()).filter(Boolean);
+    if (names.length > 0) {
+        const matches = outfits
+            .map((outfit, index) => ({outfit, index}))
+            .filter(({outfit}) => names.includes(outfit.cnName) || names.includes(outfit.enName));
+        if (matches.length === 1) return matches[0]!.index;
+        if (matches.length > 1) throw new Error(`服装“${names.join(" / ")}”匹配到多个现有服装`);
+        warnings.push(`未找到服装“${names.join(" / ")}”，将创建新服装`);
+        return null;
+    }
+    if (outfits.length === 1) return 0;
+    if (outfits.length === 0) return null;
+    throw new Error("返回服装未包含名称，无法确定要修改的服装");
+}
+
 function mapFields(
     raw: Record<string, unknown>,
     labels: Record<string, string>,
@@ -446,6 +655,9 @@ function parseLabeledLines(
         const label = match[1]?.trim() ?? "";
         const fieldKey = labels[label];
         if (fieldKey) {
+            if (fieldKey in result) {
+                throw new Error(`字段“${label}”重复出现`);
+            }
             result[fieldKey] = (match[2] ?? "").trim();
         }
     }
@@ -491,7 +703,11 @@ function finalizeDraft(
     return {
         schema: "nbook.character-visual/v1",
         characterId: input.characterId,
-        character,
+        character: {
+            ...character,
+            // 严格 `|` 合同：LLM 输出逗号触发词时抛错触发重试，而不是把逗号数据写进 Project。
+            triggerWords: canonicalizeTriggerWords(character.triggerWords ?? ""),
+        },
         outfits,
         photos: draft.photos.length > 0 ? draft.photos : existing?.photos ?? [],
     };

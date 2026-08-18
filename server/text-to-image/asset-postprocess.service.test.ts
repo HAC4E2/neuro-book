@@ -29,4 +29,29 @@ describe("asset postprocess send request", () => {
             },
         });
     });
+
+    it("历史最终 bundle 优先于资产 prompt，角色槽继续保留", () => {
+        const bundle = {
+            version: 1 as const,
+            modelFamily: "nai4" as const,
+            basePositive: "style, 1girl",
+            baseNegative: "blurry",
+            characters: [{positive: "1girl", negative: "bad"}],
+            actualInput: "style, 1girl",
+            actualNegativeInput: "blurry",
+            appliedRuleLines: [1],
+        };
+        const request = buildAssetSendRequest({
+            prompt: "stale prompt",
+            negativePrompt: "stale negative",
+            persistedRequest: {useFinalPrompt: true, finalPromptBundle: bundle},
+        });
+
+        expect(request).toMatchObject({
+            prompt: "style, 1girl",
+            negativePrompt: "blurry",
+            useFinalPrompt: true,
+            finalPromptBundle: bundle,
+        });
+    });
 });

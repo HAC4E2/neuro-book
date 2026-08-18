@@ -59,6 +59,24 @@ describe("TextToImagePrompt", () => {
         editor.destroy();
     });
 
+    it("编辑器只读时其它占位符仍可独立入队", () => {
+        const onGenerate = vi.fn();
+        const editor = new Editor({
+            element: document.createElement("div"),
+            content: renderTextToImagePromptMarkdown(payload),
+            contentType: "markdown",
+            extensions: [...createMarkdownDialectExtensions(), TextToImagePrompt.configure({onGenerate})],
+        });
+        editor.setEditable(false);
+
+        const button = editor.view.dom.querySelector<HTMLButtonElement>(".nb-text-to-image-prompt-button");
+        expect(button?.disabled).toBe(false);
+        button?.click();
+
+        expect(onGenerate).toHaveBeenCalledWith(payload);
+        editor.destroy();
+    });
+
     it("生成 Promise 未完成时禁用按钮，失败后恢复为可重新生成", async () => {
         let rejectGeneration!: (reason?: unknown) => void;
         const onGenerate = vi.fn(() => new Promise<void>((_resolve, reject) => {

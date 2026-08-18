@@ -41,6 +41,8 @@ const match: BodyCharacterMatch = {
     groupId: null,
     visual: xiaoKe,
     matchedTrigger: "小克",
+    matchedTriggers: ["小克"],
+    source: "trigger",
 };
 
 const provider = {
@@ -75,7 +77,7 @@ describe("body session service", () => {
 
         const result = await generateBodyPrompts({
             provider,
-            chapterContent: "正文。",
+            chapterContent: "她推开门走进教室，正文。",
             characterMatches: [match],
             characterSummary: "显式摘要",
             generate,

@@ -5,6 +5,13 @@ import {
 } from "nbook/shared/dto/text-to-image.dto";
 
 /** Provider 新建/更新入参；credential 缺省表示保留已有密文。 */
+export const TextToImageCredentialUpdateSchema = z.discriminatedUnion("mode", [
+    z.object({mode: z.literal("preserve")}),
+    z.object({mode: z.literal("replace"), value: z.string().trim().min(1)}),
+    z.object({mode: z.literal("delete")}),
+]);
+
+/** Provider 新建/更新入参；credentialUpdate 是严格三态合同，旧 credential 仅兼容 LLM 表单。 */
 export const SaveTextToImageProviderSchema = z.object({
     id: z.number().int().optional(),
     kind: TextToImageProviderKindSchema,
@@ -12,6 +19,7 @@ export const SaveTextToImageProviderSchema = z.object({
     baseUrl: z.string().trim().min(1),
     model: z.string().trim().nullable().optional(),
     credential: z.string().optional(),
+    credentialUpdate: TextToImageCredentialUpdateSchema.optional(),
     settings: z.record(z.string(), z.unknown()).optional(),
 });
 export type SaveTextToImageProviderInput = z.infer<typeof SaveTextToImageProviderSchema>;

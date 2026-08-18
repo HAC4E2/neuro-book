@@ -36,7 +36,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {useInlineEditorAgentController} from "nbook/app/composables/useInlineEditorAgentController";
 import {useWorkbenchChromeRegistration} from "nbook/app/composables/useWorkbenchChrome";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
-import {useNovelIdeStore, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {useNovelIdeStore, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode, type WorkspaceFileRevision} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
@@ -94,7 +94,9 @@ const settingsDialogOpen = ref(false);
 const textToImageWorkbenchOpen = ref(false);
 const textToImageInitialSection = ref<"llm" | "novelai" | "character" | "history">("llm");
 const textToImageInitialCharacter = ref<CharacterGenerationContext | null>(null);
-const bodyTextToImageGenerating = ref(false);
+const bodyTextToImageWholeChapterGenerating = ref(false);
+const activeBodyTextToImageRequests = ref(0);
+const bodyTextToImageGenerating = computed(() => bodyTextToImageWholeChapterGenerating.value || activeBodyTextToImageRequests.value > 0);
 const assetActionDialogOpen = ref(false);
 const assetActionTarget = ref<TextToImageAssetActionTarget | null>(null);
 const assetActionAsset = ref<TextToImageAssetDto | null>(null);
@@ -178,6 +180,8 @@ const {
     initializeWorkspace,
     loadWorkspaceTree,
     saveCurrentFile,
+    ensureCurrentFileSaved,
+    adoptWorkspaceFileRevision,
     saveDirtyWorkspaceFiles,
     closeWorkspaceTab,
     keepWorkspaceTab,
@@ -997,6 +1001,13 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
     if (!initialized.value || !selectedFileNode.value?.editable) {
         return;
     }
+    // 失焦并不代表正文发生了变化。图片卡片按钮被点击时编辑器可能先触发
+    // blur；没有 dirty 内容就不要再次提交同一个 expectedMtime，避免和服务端
+    // 刚完成的图片写回互相制造“真实文件已变化”的伪冲突。
+    studio.flushActiveEditor();
+    if (selectedFileContent.value === lastSyncedFileContent.value) {
+        return;
+    }
     if (savingFile.value) {
         saveQueued.value = true;
         return;
@@ -1016,38 +1027,97 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
     }
 };
 
+type BodyImageJobStatusResponse = {
+    job: {
+        id: string;
+        status: "queued" | "running" | "succeeded" | "failed" | "canceled";
+        errorMessage: string | null;
+        sourceInsertStatus: "not_applicable" | "pending" | "inserted" | "missing";
+    };
+    asset: {relativePath: string} | null;
+    chapterRevision: WorkspaceFileRevision | null;
+};
+
+/** 等待单张正文图片 Job 进入终态；其它占位符可在此期间独立入队。 */
+async function waitForBodyImageJob(
+    projectRoot: string,
+    path: string,
+    jobId: string,
+): Promise<BodyImageJobStatusResponse> {
+    while (true) {
+        const result = await $fetch<BodyImageJobStatusResponse>(`/api/text-to-image/jobs/${encodeURIComponent(jobId)}`, {
+            query: {projectRoot, path},
+        });
+        if (result.job.status === "queued" || result.job.status === "running") {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 750));
+            continue;
+        }
+        return result;
+    }
+}
+
 /**
- * 从正文占位符卡片发起端到端生成：入队 → 消费队列 → 替换占位符 → 保存文件。
+ * 从正文占位符卡片发起：保存当前章节 → 创建 Job → 轮询终态 → 接纳服务端写回版本。
  */
 async function handleTextToImageGenerate(payload: TextToImagePromptPayload): Promise<void> {
     if (!textToImageProjectSurfaceActive.value || !currentProjectRoot.value || !selectedFilePath.value) {
         notification.error("请先打开项目并选中章节文件", {title: "生成失败"});
         return;
     }
+    const projectRoot = currentProjectRoot.value;
+    const path = selectedFilePath.value;
+    studio.flushActiveEditor();
+    activeBodyTextToImageRequests.value += 1;
     try {
+        const savedNode = await ensureCurrentFileSaved();
+        if (!savedNode) {
+            throw new Error("当前章节尚未成功保存，已取消生成图片");
+        }
         const snapshot = await $fetch<{providers: Array<{id: number; kind: string}>}>("/api/text-to-image/workbench/config");
         const provider = snapshot.providers.find((item) => item.kind === "novelai");
         if (!provider) {
             notification.error("请先在文生图工作台配置 NovelAI Provider", {title: "生成失败"});
             return;
         }
-        const result = await $fetch<{content: string; asset: {relativePath: string}}>(
+        const enqueued = await $fetch<{
+            status: "queued" | "already_inserted";
+            jobId: string;
+            placeholderId: string;
+            queuePosition: number | null;
+        }>(
             `/api/text-to-image/prompt-placeholders/${encodeURIComponent(payload.id)}/generate`,
             {
                 method: "POST",
                 body: {
-                    projectRoot: currentProjectRoot.value,
-                    path: selectedFilePath.value,
+                    projectRoot,
+                    path,
                     providerId: provider.id,
-                    content: selectedFileContent.value,
                 },
             },
         );
-        selectedFileContent.value = result.content;
-        await saveCurrentWorkspaceFile();
-        notification.success("图片已生成并插入正文");
+        const result = await waitForBodyImageJob(projectRoot, path, enqueued.jobId);
+        if (result.job.status === "failed") {
+            throw new Error(result.job.errorMessage ?? "NovelAI 生图失败");
+        }
+        if (result.job.status === "canceled") {
+            throw new Error("生图任务已取消");
+        }
+        if (result.chapterRevision) {
+            adoptWorkspaceFileRevision(result.chapterRevision);
+        }
+        if (enqueued.status === "already_inserted") {
+            notification.info("图片已经插入正文，无需重复生成");
+        } else if (result.job.sourceInsertStatus === "inserted") {
+            notification.success("图片已生成并插入正文");
+        } else if (result.job.sourceInsertStatus === "missing") {
+            notification.warning("图片已生成，但正文中的原占位符已不存在，可从已有图片恢复");
+        } else {
+            notification.warning("图片任务已完成，但正文插入状态需要恢复");
+        }
     } catch (cause) {
         notification.error(resolveApiErrorMessage(cause, "生成图片失败"), {title: "生成失败"});
+    } finally {
+        activeBodyTextToImageRequests.value = Math.max(0, activeBodyTextToImageRequests.value - 1);
     }
 }
 
@@ -1063,7 +1133,8 @@ async function handleBodyTextToImageGenerate(): Promise<void> {
     if (bodyTextToImageGenerating.value) {
         return;
     }
-    bodyTextToImageGenerating.value = true;
+    studio.flushActiveEditor();
+    bodyTextToImageWholeChapterGenerating.value = true;
     try {
         let content = selectedFileContent.value;
         if (hasTextToImageGenerationMarkdown(content)) {
@@ -1083,12 +1154,15 @@ async function handleBodyTextToImageGenerate(): Promise<void> {
             },
         });
         selectedFileContent.value = result.content;
-        await saveCurrentWorkspaceFile();
+        const savedNode = await saveCurrentFile({content: result.content});
+        if (!savedNode || selectedFileContent.value !== lastSyncedFileContent.value) {
+            throw new Error("正文生图占位符未成功保存，已取消完成提示");
+        }
         notification.success(`已生成 ${result.placeholders.length} 个正文生图占位符`);
     } catch (cause) {
         notification.error(resolveApiErrorMessage(cause, "正文生图失败"), {title: "生成失败"});
     } finally {
-        bodyTextToImageGenerating.value = false;
+        bodyTextToImageWholeChapterGenerating.value = false;
     }
 }
 

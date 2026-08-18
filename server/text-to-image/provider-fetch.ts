@@ -1,7 +1,7 @@
 import type {LookupAddress} from "node:dns";
 import {lookup as dnsLookup} from "node:dns/promises";
-import type {LookupFunction} from "node:net";
-import {Agent, type Dispatcher} from "undici";
+import {connect as netConnect, type LookupFunction, type Socket} from "node:net";
+import {Agent, ProxyAgent, type Dispatcher} from "undici";
 import {
     assertTextToImageProviderAddress,
     assertTextToImageProviderUrl,
@@ -9,6 +9,11 @@ import {
 
 export type TextToImageProviderFetchPolicy = {
     allowPrivateNetwork: boolean;
+    /**
+     * 受信任本机代理地址；非空且可达时，目标域名解析委托给该代理，
+     * 不再用 safeDispatcher 校验 socket 连接地址。为空时保持直连 + DNS 校验。
+     */
+    proxyUrl?: string | null;
 };
 
 export type TextToImageProviderFetch = (
@@ -35,6 +40,26 @@ export class TextToImageProviderConnectionError extends Error {
     }
 }
 
+/**
+ * 代理模式下请求失败（非 URL 策略错误）的可区分错误；
+ * message 只包含代理 host:port，不包含代理凭据或 Provider 凭据。
+ */
+export class TextToImageProviderProxyError extends Error {
+    readonly code: string | undefined;
+    readonly proxyHost: string;
+    readonly proxyPort: string;
+
+    constructor(proxyUrl: string, cause: unknown) {
+        const url = new URL(proxyUrl);
+        super(`Provider 代理连接失败：${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`);
+        this.name = "TextToImageProviderProxyError";
+        this.code = findErrorCode(cause);
+        this.proxyHost = url.hostname;
+        this.proxyPort = url.port || (url.protocol === "https:" ? "443" : "80");
+        this.cause = cause;
+    }
+}
+
 type ProviderFetchInit = RequestInit & {
     dispatcher?: Dispatcher;
 };
@@ -44,11 +69,19 @@ type ProviderHttpFetch = (value: string, init: ProviderFetchInit) => Promise<Res
 type ProviderFetchDependencies = {
     dispatcher?: Dispatcher;
     fetchImpl?: ProviderHttpFetch;
+    /**
+     * 代理可达性检查；缺省用 net.connect 探测并按代理 URL 做进程内缓存。
+     * 只有明确配置且可达的代理才被信任。
+     */
+    isProxyReachable?: (proxyUrl: URL) => Promise<boolean>;
 };
 
 const maximumRedirects = 5;
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+const proxyReachabilityTimeoutMs = 1_500;
 const safeDispatcher = createTextToImageProviderDispatcher();
+const proxyReachabilityCache = new Map<string, boolean>();
+const trustedProxyDispatchers = new Map<string, ProxyAgent>();
 
 /**
  * 创建把地址校验绑定到 net/tls socket lookup 的 Dispatcher。
@@ -97,7 +130,9 @@ export function createTextToImageProviderDispatcher(
 }
 
 /**
- * Provider 安全出站请求：socket lookup 校验与重定向策略在同一入口执行。
+ * Provider 安全出站请求：URL 校验、代理决策与重定向策略在同一入口执行。
+ * proxyUrl 非空且可达时走受信任本机代理，DNS 解析委托给代理；
+ * 否则直连并用 socket lookup 校验每个连接地址。
  */
 export async function fetchTextToImageProvider(
     value: string | URL,
@@ -112,9 +147,7 @@ export async function fetchTextToImageProvider(
         redirect: "manual",
     };
     const fetchImpl = dependencies.fetchImpl ?? defaultHttpFetch;
-    const dispatcher = policy.allowPrivateNetwork
-        ? undefined
-        : dependencies.dispatcher ?? (dependencies.fetchImpl ? undefined : safeDispatcher);
+    const {dispatcher, proxyUrl} = await resolveProviderDispatcher(policy, dependencies);
 
     for (let redirectCount = 0; redirectCount <= maximumRedirects; redirectCount += 1) {
         let response: Response;
@@ -127,6 +160,9 @@ export async function fetchTextToImageProvider(
             const policyError = findPolicyError(error);
             if (policyError) {
                 throw policyError;
+            }
+            if (proxyUrl) {
+                throw new TextToImageProviderProxyError(proxyUrl, error);
             }
             throw new TextToImageProviderConnectionError(currentUrl.toString(), error);
         }
@@ -180,6 +216,93 @@ export function resolveTextToImageEnvironmentProxyUrl(
         }
     }
     return null;
+}
+
+/**
+ * Provider 出站策略统一解析：模型发现与正式 LLM 请求共用。
+ * 只自动信任 loopback 主机（127.0.0.1、[::1]、localhost）的 http/https 环境代理；
+ * 非 loopback 环境代理被忽略，避免把 Provider API Key 交给任意远程代理。
+ */
+export function resolveTextToImageOutboundPolicy(
+    environment: Readonly<Record<string, string | undefined>> = process.env,
+): {allowPrivateNetwork: false; proxyUrl: string | null} {
+    const proxyUrl = resolveTextToImageEnvironmentProxyUrl(environment);
+    if (proxyUrl && isTrustedLoopbackProxyHostname(normalizeProxyHostname(new URL(proxyUrl).hostname))) {
+        return {allowPrivateNetwork: false, proxyUrl};
+    }
+    return {allowPrivateNetwork: false, proxyUrl: null};
+}
+
+async function resolveProviderDispatcher(
+    policy: TextToImageProviderFetchPolicy,
+    dependencies: ProviderFetchDependencies,
+): Promise<{dispatcher: Dispatcher | undefined; proxyUrl: string | null}> {
+    if (policy.allowPrivateNetwork) {
+        return {dispatcher: undefined, proxyUrl: null};
+    }
+    const proxyUrl = policy.proxyUrl?.trim() || null;
+    if (proxyUrl) {
+        const reachable = dependencies.isProxyReachable
+            ? await dependencies.isProxyReachable(new URL(proxyUrl))
+            : await defaultProxyReachabilityCheck(new URL(proxyUrl));
+        if (reachable && !dependencies.dispatcher) {
+            return {dispatcher: getOrCreateTrustedProxyDispatcher(proxyUrl), proxyUrl};
+        }
+        // 代理明确配置但不可达（或调用方显式注入了 dispatcher）时退回直连：
+        // 直连模式仍保留全部 URL/DNS/socket 地址校验，这不是放宽私网安全。
+    }
+    return {
+        dispatcher: dependencies.dispatcher ?? (dependencies.fetchImpl ? undefined : safeDispatcher),
+        proxyUrl: null,
+    };
+}
+
+function isTrustedLoopbackProxyHostname(hostname: string): boolean {
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function normalizeProxyHostname(value: string): string {
+    return value.replace(/^\[|\]$/gu, "").toLowerCase().replace(/\.+$/u, "");
+}
+
+function getOrCreateTrustedProxyDispatcher(proxyUrl: string): ProxyAgent {
+    let dispatcher = trustedProxyDispatchers.get(proxyUrl);
+    if (!dispatcher) {
+        dispatcher = new ProxyAgent(proxyUrl);
+        trustedProxyDispatchers.set(proxyUrl, dispatcher);
+    }
+    return dispatcher;
+}
+
+async function defaultProxyReachabilityCheck(proxyUrl: URL): Promise<boolean> {
+    const key = proxyUrl.toString();
+    const cached = proxyReachabilityCache.get(key);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const result = await probeProxyTcp(proxyUrl);
+    proxyReachabilityCache.set(key, result);
+    return result;
+}
+
+function probeProxyTcp(proxyUrl: URL): Promise<boolean> {
+    return new Promise((resolve) => {
+        let socket: Socket;
+        let settled = false;
+        const finish = (result: boolean) => {
+            if (settled) return;
+            settled = true;
+            socket.destroy();
+            resolve(result);
+        };
+        socket = netConnect({
+            host: proxyUrl.hostname.replace(/^\[|\]$/gu, ""),
+            port: Number(proxyUrl.port || (proxyUrl.protocol === "https:" ? 443 : 80)),
+        });
+        socket.setTimeout(proxyReachabilityTimeoutMs, () => finish(false));
+        socket.once("connect", () => finish(true));
+        socket.once("error", () => finish(false));
+    });
 }
 
 async function resolveAddresses(hostname: string): Promise<LookupAddress[]> {

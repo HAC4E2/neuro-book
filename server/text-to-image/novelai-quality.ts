@@ -9,45 +9,25 @@ export type NovelAiQualityResult = {
     ucp: string;
 };
 
-/** 按模型解析 NovelAI AQT/UCP 质量预设，与 chatu8 内置映射对齐。 */
+/** 只解析 NAI4.5 Full/Curated 的 AQT/UCP；旧模型进入组装器前必须已规范化。 */
 export function resolveNovelAiQualityPresets(input: NovelAiQualityInput): NovelAiQualityResult {
-    const model = input.model;
-    const aqt = input.positiveEnabled
-        ? resolveAqt(model)
-        : "";
-    const ucp = resolveUcp(model, input.negativePreset);
+    const aqt = input.positiveEnabled ? resolveAqt(input.model) : "";
+    const ucp = resolveUcp(input.model, input.negativePreset);
     return {aqt, ucp};
 }
 
 function resolveAqt(model: string): string {
-    if (model === "nai-diffusion-4-curated-preview") {
-        return "rating:general, best quality, very aesthetic, absurdres";
-    }
-    if (model === "nai-diffusion-4-full") {
-        return "no text, best quality, very aesthetic, absurdres";
-    }
     if (model === "nai-diffusion-4-5-full") {
         return "very aesthetic, masterpiece, no text";
     }
     if (model === "nai-diffusion-4-5-curated") {
         return "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general";
     }
-    if (model === "nai-diffusion-furry-3") {
-        return "{best quality}, {amazing quality}";
-    }
-    return "best quality, amazing quality, very aesthetic, absurdres";
+    return "very aesthetic, masterpiece, no text";
 }
 
 function resolveUcp(model: string, preset: string): string {
-    const key = `${model}:${preset}`;
     const table: Record<string, string> = {
-        "nai-diffusion-3:Heavy": "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract]",
-        "nai-diffusion-3:Light": "lowres, jpeg artifacts, worst quality, watermark, blurry, very displeasing",
-        "nai-diffusion-3:Human Focus": "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract], bad anatomy, bad hands, @_@, mismatched pupils, heart-shaped pupils, glowing eyes",
-        "nai-diffusion-4-full:Heavy": "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, white blank page, blank page",
-        "nai-diffusion-4-full:Light": "blurry, lowres, error, worst quality, bad quality, jpeg artifacts, very displeasing, white blank page, blank page",
-        "nai-diffusion-4-curated-preview:Heavy": "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, logo, dated, signature, multiple views, gigantic breasts, white blank page, blank page",
-        "nai-diffusion-4-curated-preview:Light": "blurry, lowres, error, worst quality, bad quality, jpeg artifacts, very displeasing, logo, dated, signature, white blank page, blank page",
         "nai-diffusion-4-5-curated:Human Focus": "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, bad anatomy, bad hands, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, @_@, mismatched pupils, glowing eyes, negative space, blank page",
         "nai-diffusion-4-5-curated:Heavy": "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page",
         "nai-diffusion-4-5-curated:Light": "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page",
@@ -55,15 +35,11 @@ function resolveUcp(model: string, preset: string): string {
         "nai-diffusion-4-5-full:Heavy": "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page",
         "nai-diffusion-4-5-full:Light": "lowres, artistic error, scan artifacts, worst quality, bad quality, jpeg artifacts, multiple views, very displeasing, too many watermarks, negative space, blank page",
         "nai-diffusion-4-5-full:Furry Focus": "{worst quality}, distracting watermark, unfinished, bad quality, {widescreen}, upscale, {sequence}, {{grandfathered content}}, blurred foreground, chromatic aberration, sketch, everyone, [sketch background], simple, [flat colors], ych (character), outline, multiple scenes, [[horror (theme)]], comic",
-        "nai-diffusion-furry-3:Heavy": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast",
-        "nai-diffusion-furry-3:Light": "{worst quality}, guide lines, unfinished, bad, url, tall image, widescreen, compression artifacts, unknown text",
-        "nai-diffusion-furry-3:Furry Focus": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast",
-        "nai-diffusion-furry-3:Human Focus": "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast",
     };
-    return table[key] ?? "";
+    return table[`${model}:${preset}`] ?? "";
 }
 
-/** 按模型与负面预设解析 NovelAI 的 ucPreset 数值；未知组合回退到 Heavy。 */
+/** 只解析 NAI4.5 Full/Curated 的 ucPreset 数值；未知组合回退 Heavy。 */
 export function resolveNovelAiUcPreset(model: string, preset: string): number {
     const table: Record<string, number> = {
         "nai-diffusion-4-5-full:Heavy": 0,
@@ -75,26 +51,6 @@ export function resolveNovelAiUcPreset(model: string, preset: string): number {
         "nai-diffusion-4-5-curated:Light": 1,
         "nai-diffusion-4-5-curated:Human Focus": 2,
         "nai-diffusion-4-5-curated:none": 3,
-        "nai-diffusion-4-full:Heavy": 0,
-        "nai-diffusion-4-full:Light": 1,
-        "nai-diffusion-4-full:Human Focus": 2,
-        "nai-diffusion-4-full:Furry Focus": 2,
-        "nai-diffusion-4-full:none": 2,
-        "nai-diffusion-4-curated-preview:Heavy": 0,
-        "nai-diffusion-4-curated-preview:Light": 1,
-        "nai-diffusion-4-curated-preview:Human Focus": 2,
-        "nai-diffusion-4-curated-preview:Furry Focus": 2,
-        "nai-diffusion-4-curated-preview:none": 2,
-        "nai-diffusion-3:Heavy": 0,
-        "nai-diffusion-3:Light": 1,
-        "nai-diffusion-3:Human Focus": 2,
-        "nai-diffusion-3:Furry Focus": 0,
-        "nai-diffusion-3:none": 3,
-        "nai-diffusion-furry-3:Heavy": 0,
-        "nai-diffusion-furry-3:Light": 1,
-        "nai-diffusion-furry-3:Furry Focus": 0,
-        "nai-diffusion-furry-3:Human Focus": 0,
-        "nai-diffusion-furry-3:none": 2,
     };
     return table[`${model}:${preset}`] ?? 0;
 }

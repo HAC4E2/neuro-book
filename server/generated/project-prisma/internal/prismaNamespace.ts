@@ -2003,6 +2003,7 @@ export const TextToImageAssetScalarFieldEnum = {
   seed: 'seed',
   prompt: 'prompt',
   negativePrompt: 'negativePrompt',
+  finalPromptBundleJson: 'finalPromptBundleJson',
   sourceKind: 'sourceKind',
   sourcePath: 'sourcePath',
   sourceAnchorId: 'sourceAnchorId',

@@ -71,7 +71,7 @@ describe("tag modify llm", () => {
         expect(prompt).toBe("1girl, silver hair, blue eyes");
         expect(captured?.model).toBe("tag-model");
         expect(captured?.maxTokens).toBe(512);
-        expect(captured?.stream).toBe(false);
+        expect(captured?.stream).toBe(true);
         expect(captured?.messages[0]?.content).toContain("Use English NovelAI tags.");
         expect(captured?.messages.at(-1)?.content).toContain("1girl, black hair, blue eyes");
         expect(captured?.messages.at(-1)?.content).toContain("把头发改成银色");

@@ -106,11 +106,14 @@ export class TextToImageQueueService {
     }
 
     async cancel(projectPath: string, id: string): Promise<boolean> {
-        const record = await this.store.update(projectPath, id, {
+        const patch = {
             status: "canceled",
             finishedAt: new Date(),
-        });
-        return record !== null;
+        } as const;
+        const queued = await this.store.updateIfStatus(projectPath, id, "queued", patch);
+        if (queued) return true;
+        const running = await this.store.updateIfStatus(projectPath, id, "running", patch);
+        return running !== null;
     }
 
     async markRunning(projectPath: string, id: string): Promise<boolean> {
@@ -122,7 +125,7 @@ export class TextToImageQueueService {
     }
 
     async markSucceeded(projectPath: string, id: string): Promise<boolean> {
-        const record = await this.store.update(projectPath, id, {
+        const record = await this.store.updateIfStatus(projectPath, id, "running", {
             status: "succeeded",
             finishedAt: new Date(),
         });
@@ -130,10 +133,29 @@ export class TextToImageQueueService {
     }
 
     async markFailed(projectPath: string, id: string, message: string): Promise<boolean> {
-        const record = await this.store.update(projectPath, id, {
+        const patch = {
             status: "failed",
             errorMessage: message,
             finishedAt: new Date(),
+        } as const;
+        const running = await this.store.updateIfStatus(projectPath, id, "running", patch);
+        if (running) return true;
+        // 消费者在领取 Job 前发生数据库/依赖故障时，也要让 queued Job 进入
+        // 可见终态，避免前端无限轮询；已取消/其它终态仍不会被覆盖。
+        const queued = await this.store.updateIfStatus(projectPath, id, "queued", patch);
+        return queued !== null;
+    }
+
+    async markSourceInserted(projectPath: string, id: string): Promise<boolean> {
+        const record = await this.store.update(projectPath, id, {
+            sourceInsertStatus: "inserted",
+        });
+        return record !== null;
+    }
+
+    async markSourceMissing(projectPath: string, id: string): Promise<boolean> {
+        const record = await this.store.update(projectPath, id, {
+            sourceInsertStatus: "missing",
         });
         return record !== null;
     }

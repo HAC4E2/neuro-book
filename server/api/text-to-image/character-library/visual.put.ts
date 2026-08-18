@@ -2,7 +2,12 @@ import {createError, defineEventHandler} from "h3";
 import {z} from "zod";
 import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {CharacterVisualFileSchema} from "nbook/server/text-to-image/character-visual.codec";
-import {CharacterVisualLibraryService} from "nbook/server/text-to-image/character-visual-library.service";
+import {
+    CharacterIdentityFieldConflictError,
+    CharacterVisualLibraryService,
+    CharacterVisualRevisionConflictError,
+} from "nbook/server/text-to-image/character-visual-library.service";
+import {TriggerWordFormatError} from "nbook/server/text-to-image/character-trigger-words";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
@@ -26,6 +31,13 @@ export default defineEventHandler(async (event) => {
             setActive: body.setActive,
         });
     } catch (cause) {
+        if (cause instanceof TriggerWordFormatError) {
+            throw createError({statusCode: 400, message: cause.message});
+        }
+        if (cause instanceof CharacterIdentityFieldConflictError
+            || cause instanceof CharacterVisualRevisionConflictError) {
+            throw createError({statusCode: 409, message: cause.message});
+        }
         const message = cause instanceof Error ? cause.message : "保存视觉资料失败";
         throw createError({statusCode: message.includes("在生成期间") ? 409 : 400, message});
     }
