@@ -74,7 +74,7 @@
     "mainRepositoryMerge": "da3343919b52a482d562140517f8e4cd6229b9e3; parents ba694892a21fec57cfc176f43819f84fef3fdbc1 and 5e55c54e13cd67f6e19c5361931fca1fe9ae4241",
     "checkpointCommit": "4f39cf8c94b365306f70def7eab7844460d87d3c",
     "checkpointTag": "t149-s6-main-app-physical-cutover-4f39cf8c",
-    "evidenceCommit": "3d99b10ed64bf0bebc189eb93bb44f227c1c17f5",
+    "evidenceCommit": "pending final count-evidence pin",
     "status": "not-green; checkpoint evidence retained for physical cutover with inherited blockers",
     "governance": "bun run governance:check passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
     "desktopContract": "bun run test:desktop-contract passed; 11 files / 37 tests",
