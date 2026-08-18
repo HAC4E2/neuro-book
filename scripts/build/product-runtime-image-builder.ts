@@ -98,6 +98,13 @@ const GITLESS_SOURCE_EXCLUDES = new Set([
     "coverage", "dist", "logs", "node_modules", "tmp", "workspace",
 ]);
 const GITLESS_SOURCE_PATH_EXCLUDES = new Set(["server/generated/prisma"]);
+
+function isGitlessSourceExcluded(segments: readonly string[], entryName: string): boolean {
+    const relativePath = [...segments, entryName].join("/");
+    return GITLESS_SOURCE_PATH_EXCLUDES.has(relativePath)
+        || (segments[0] === "packages" && (entryName === "data.db" || entryName.startsWith("data.db-")))
+        || (segments[0] === "packages" && relativePath.endsWith("/server/generated/prisma"));
+}
 /** 调用方在构建前已经锁定、需要 Builder 复核的 Source 身份。 */
 export interface ProductRuntimeBuildExpectation {
     /** 未提供时使用应用 identity manifest 中的版本。 */
@@ -770,8 +777,8 @@ async function gitlessSourcePaths(projectRoot: string): Promise<string[]> {
             if (segments.length === 0 && GITLESS_SOURCE_EXCLUDES.has(entry.name)) continue;
             const nextSegments = [...segments, entry.name];
             const absolutePath = resolve(directory, entry.name);
+            if (isGitlessSourceExcluded(segments, entry.name)) continue;
             if (entry.isDirectory()) {
-                if (GITLESS_SOURCE_PATH_EXCLUDES.has(nextSegments.join("/"))) continue;
                 await walk(absolutePath, nextSegments);
             } else if (entry.isFile() || entry.isSymbolicLink()) {
                 paths.push(nextSegments.join("/"));

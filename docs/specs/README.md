@@ -2,7 +2,7 @@
 
 `docs/specs/` 是 NeuroBook 功能规范的统一入口。目标是让维护者或 Agent 只读取规范、ADR 和公开接口，就能重建模块的可观察行为；实现代码仍是执行载体，不承担未记录的产品决策。
 
-本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向现有 `reference/`、`docs/modules/`、`docs/testing/` 或根规范文件。
+本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向现有 `reference/`、`docs/modules/`、`docs/testing/` 或根规范文件。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
 
 ## 规范应回答什么
 
@@ -21,18 +21,18 @@
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| Agent Runtime 与 Profile | [`../../reference/agent/`](../../reference/agent/) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
-| 内容与 Project Workspace | [`../../reference/content/`](../../reference/content/)、[`../../reference/workspace/TERMS.md`](../../reference/workspace/TERMS.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
-| World Engine | [`../../reference/world-engine/`](../../reference/world-engine/) | 时间线、slice、subject、schema、calendar 与写作协作 |
-| Plot | [`../../reference/plot/`](../../reference/plot/) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
-| Theme | [`../../reference/theme/`](../../reference/theme/) | 主题变量和消费规则 |
-| Media | [`../../reference/media/`](../../reference/media/) | 图片原图、变体、缓存和 Project 封面 |
-| Character | [`../modules/character/requirements.md`](../modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
-| Monorepo / Module | [`../modules/monorepo-boundaries.md`](../modules/monorepo-boundaries.md) | 当前逻辑模块和未来 `packages/neuro-book` 边界 |
+| Agent Runtime 与 Profile | [Reference: Agent](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
+| 内容与 Project Workspace | [Reference: Content](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md)、[Workspace TERMS](https://github.com/notnotype/neuro-book/blob/master/reference/workspace/TERMS.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
+| World Engine | [Reference: World Engine](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
+| Plot | [Reference: Plot](https://github.com/notnotype/neuro-book/blob/master/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
+| Theme | [Reference: Theme](https://github.com/notnotype/neuro-book/blob/master/reference/theme/system.md) | 主题变量和消费规则 |
+| Media | [Reference: Media](https://github.com/notnotype/neuro-book/blob/master/reference/media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
+| Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
+| Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
 | 人工评测 | [`../manual-eval/README.md`](../manual-eval/README.md) | 用户视角旅程、判定口径和报告结构 |
 | 数据迁移 | [`../migrations/README.md`](../migrations/README.md) | 有状态升级、备份和回滚入口 |
-| 贡献与交付 | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
+| 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
 
 ## 尚未覆盖的功能域
 
@@ -44,7 +44,7 @@
 | P0 | 应用状态、备份与数据迁移 | `docs/adr/0005-*`、`0008-*`、`0012-*`，`server/backup/`、`server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
 | P0 | Agent Session 持久化与历史 | `docs/adr/0003-*`、`0014-agent-job-*`，`server/agent/session/`、`server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |
 | P1 | 配置、模型与凭据 | `server/config/`、`server/models/`、`shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、provider identity、错误和 UI 行为没有单一规范 |
-| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/core/markdown-studio.md`](../../vitepress/core/markdown-studio.md)、[`../archived/plan/06-editor-workbench.md`](../archived/plan/06-editor-workbench.md)、`shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
+| P1 | Markdown Studio 与编辑工作台 | [`../core/markdown-studio.md`](../core/markdown-studio.md)、[历史 editor plan](https://github.com/notnotype/neuro-book/blob/master/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
 | P1 | Passport 与身份 | `server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储和失败语义缺少当前规范 |
 | P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查和发布门禁分散 |
 | P2 | Character 与 Low-code Form | `docs/modules/character/requirements.md`、`server/low-code-form/` | 需求存在，但状态、校验、持久化、权限和失败语义不完整 |
@@ -54,7 +54,7 @@
 ## 生命周期
 
 1. 新功能先检查本表是否已有规范归属。
-2. 尚未决定的跨模块方案写入 [`../proposals/`](../proposals/)；小型、可逆且不改变长期合同的工作可直接更新现有规范。
+2. 尚未决定的跨模块方案写入 [`../proposals/README.md`](../proposals/README.md)；小型、可逆且不改变长期合同的工作可直接更新现有规范。
 3. 提案获批后，先更新或创建当前规范，再创建 `.agents/tasks/` 实现合同。
 4. 实现期间如果行为变化，规范和代码在同一变更中更新。
 5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。

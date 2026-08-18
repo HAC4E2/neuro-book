@@ -54,9 +54,13 @@ describe("Docker Product runtime contract", () => {
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(runnerStage).toContain("LABEL org.opencontainers.image.revision=${NEURO_BOOK_SOURCE_REVISION}");
         expect(dockerfile).toContain("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build");
-        expect(dockerignore.split(/\r?\n/u)).toContain("logs");
-        expect(dockerfile).toContain("test -f .output/runtime-image.json && test -f .output/runtime-image.ready");
-        expect(dockerfile).toContain("COPY --from=build /app/.output ./.output");
+        const dockerignoreEntries = dockerignore.split(/\r?\n/u);
+        expect(dockerignoreEntries).toContain("logs");
+        expect(dockerignoreEntries).toContain("packages/**/data.db");
+        expect(dockerignoreEntries).toContain("packages/**/data.db-*");
+        expect(dockerignoreEntries).toContain("packages/**/server/generated/prisma");
+        expect(dockerignoreEntries).toContain("server/generated/prisma");
+        expect(dockerignoreEntries).not.toContain("packages/llmlint/web/data.db");
         expect(dockerfile).toContain("COPY --from=build /app/scripts/deploy/docker-product-entrypoint.sh ./docker-product-entrypoint.sh");
         expect(dockerfile).toContain('ENTRYPOINT ["sh", "./docker-product-entrypoint.sh"]');
         for (const sourceDirectory of ["/app/app", "/app/server", "/app/shared", "/app/scripts ./scripts", "/app/docs", "/app/assets"]) {

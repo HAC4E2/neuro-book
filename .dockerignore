@@ -10,6 +10,9 @@
 .nitro
 .nuxt
 .output
+packages/*/.nuxt
+packages/*/.output
+packages/*/.data
 .runtime
 coverage
 dist
@@ -17,6 +20,9 @@ logs
 node_modules
 out-tsc
 server/generated/prisma
+packages/**/data.db
+packages/**/data.db-*
+packages/**/server/generated/prisma
 tmp
 workspace
 config.yaml

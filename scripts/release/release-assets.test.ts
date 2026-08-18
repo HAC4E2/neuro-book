@@ -423,7 +423,7 @@ describe("Product Release宿主合同", () => {
         expect(publicManagerVerifier).toContain('["cat-file", "-e", `${publicPackage.gitHead}^{commit}`]');
         expect(publicManagerVerifier).toContain('["fetch", "--no-tags", "origin", publicPackage.gitHead]');
         expect(publicManagerVerifier).not.toContain('"--depth=1"');
-        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run generate");
+        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun --cwd packages/neuro-book run generate");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
         const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("product-agent-state-root-smoke.ts"));
         expect(generatedSourcesStep).toBeGreaterThan(-1);
@@ -459,8 +459,8 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun run nuxt:prepare");
-        expect(windowsRun.indexOf("bun run nuxt:prepare")).toBeLessThan(
+        expect(windowsRun).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
+        expect(windowsRun.indexOf("bun --cwd packages/neuro-book run nuxt:prepare")).toBeLessThan(
             windowsRun.indexOf("bun run manager:test"),
         );
     });
@@ -487,7 +487,7 @@ describe("Product Release宿主合同", () => {
         expect(cache?.with?.path).toContain("node_modules");
         expect(cache?.with?.path).toContain("~/.bun/install/cache");
         expect(cache?.with?.key).toContain("steps.setup-bun.outputs.bun-version");
-        expect(cache?.with?.key).toContain("hashFiles('bun.lock', 'package.json', 'packages/neuro-book-manager/package.json')");
+        expect(cache?.with?.key).toContain("hashFiles('bun.lock', 'package.json', 'packages/neuro-book/package.json', 'packages/neuro-book-contracts/package.json', 'packages/neuro-book-manager/package.json')");
         expect(workflow.jobs["product-windows"].steps).toContainEqual(expect.objectContaining({
             run: "bun scripts/release/install-dependencies.ts --linker hoisted",
         }));

@@ -1,0 +1,103 @@
+name: Workspace Packages
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/workspace-packages.yml"
+      - "package.json"
+      - "bun.lock"
+      - "packages/nb-history/**"
+      - "packages/nb-workflow/**"
+      - "packages/nb-memory/**"
+      - "packages/nb-ui/**"
+      - "packages/neuro-agent-harness/**"
+      - "packages/llmlint/**"
+      - "packages/llmlint/web/**"
+      - "packages/llmlint/skill/**"
+      - "packages/llmlint/evals/report/**"
+      - "packages/neuro-book-test-support/**"
+      - "packages/neuro-book-contracts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nb-history
+            directory: packages/nb-history
+            commands: |
+              bun run typecheck
+              bun run test
+          - name: nb-workflow
+            directory: packages/nb-workflow
+            commands: bun run test
+          - name: nb-memory
+            directory: packages/nb-memory
+            commands: |
+              bun run typecheck
+              bun run test
+          - name: nb-ui
+            directory: packages/nb-ui
+            commands: |
+              bun run test
+              bun run typecheck
+              bun run build:css
+              bun run build
+          - name: neuro-agent-harness
+            directory: packages/neuro-agent-harness
+            commands: |
+              bun run verify
+              bun run pack:smoke
+          - name: llmlint
+            directory: packages/llmlint
+            commands: bun run verify
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Run package checks
+        working-directory: ${{ matrix.directory }}
+        run: ${{ matrix.commands }}
+
+  llmlint-web:
+    name: llmlint web island
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Install root workspace dependencies
+        run: bun install --frozen-lockfile --linker hoisted
+      - name: Install web island dependencies
+        working-directory: packages/llmlint/web
+        run: bun install --frozen-lockfile
+      - name: Prepare Nuxt types
+        working-directory: packages/llmlint/web
+        run: bunx nuxt prepare
+      - name: Prepare registry and Nuxt types
+        working-directory: packages/llmlint/web
+        run: bun run typecheck
+      - name: Prepare server types
+        working-directory: packages/llmlint/web
+        run: bun run typecheck:server
+      - name: Build web island
+        working-directory: packages/llmlint/web
+        run: bun run build
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmlint-web-output
+          include-hidden-files: true
+          if-no-files-found: error
+          path: packages/llmlint/web/.output

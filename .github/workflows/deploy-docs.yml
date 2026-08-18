@@ -9,8 +9,9 @@ on:
       - .github/workflows/deploy-docs.yml
       - patches/**
       - scripts/ci/validate-nitropack-patch.ts
-      - nuxt.config.ts
-      - tsconfig.json
+      - packages/neuro-book/**
+      - packages/neuro-book/nuxt.config.ts
+      - packages/neuro-book/tsconfig.json
       - package.json
       - bun.lock
   workflow_dispatch:
@@ -55,7 +56,7 @@ jobs:
         run: bun scripts/ci/validate-nitropack-patch.ts
 
       - name: Prepare Nuxt types
-        run: bun run nuxt:prepare
+        run: bun --cwd packages/neuro-book run nuxt:prepare
 
       - name: Build with VitePress
         env:

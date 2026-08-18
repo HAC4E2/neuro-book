@@ -30,6 +30,6 @@
 
 - `draft` 和 `reviewing` 只供讨论，不能被代码、测试或 Agent 当作当前行为依据。
 - `accepted` 只是批准修改规范和创建实现 Task；Proposal 本身不会自动成为规范。
-- 实施前把被批准行为写入 [`../specs/`](../specs/) 注册的当前规范，并在 Proposal 中链接具体规范位置。
-- `.agents/tasks/` 记录一次实现的范围、步骤、交接和证据；Task 引用 Proposal 与规范，不复制两者全文。
-- `rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../archived/`](../archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。
+实施前把被批准行为写入 [`../specs/README.md`](../specs/README.md) 注册的当前规范，并在 Proposal 中链接具体规范位置。
+.agents/tasks/ 记录一次实现的范围、步骤、交接和证据；Task 引用 Proposal 与规范，不复制两者全文。
+`rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [docs/archived/](https://github.com/notnotype/neuro-book/tree/master/docs/archived) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。
