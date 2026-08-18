@@ -17,13 +17,4 @@
 
 ## 编码触发器
 
-完整规范见 [`../docs/standards/code.md`](../docs/standards/code.md)。
-
-- TypeScript/JavaScript：严格类型、既有绝对导入、4 空格；外部输入在边界校验，复用现有类型、错误、日志和测试模式。
-- Vue：复用现有组件、主题、通知和面板工具；说明桌面/窄屏影响；`.vue` 达到 800 行先按职责拆分。
-- PowerShell/CMD：兼容 Windows PowerShell 5.1，使用 literal path 并传递退出码；含非 ASCII 的发行 `.ps1` 使用 UTF-8 BOM。
-- Bash：正式脚本使用 `set -euo pipefail`、引用变量并声明平台边界。
-- Python：只维护所属 Skill 的工具脚本，不引入仓库级 Python 运行时。
-- Rust：限 `desktop/tauri`，遵循 crate 门禁，跨语言合同以 `desktop/shared` 为准。
-- Prisma/SQL：schema、migration、生成入口、所有权和测试同步更新；不手改生成 client。
-- 注释：只解释合同、所有权、时序、平台差异与非显然取舍，不复述控制流或审查历史。
+修改源码、脚本、schema、配置或 migration 前，按 [`../docs/standards/code/README.md`](../docs/standards/code/README.md) 的路径表读取且只读取本次改动所需的通用、语言与领域规范；跨领域改动合并对应行。每个改动文件都必须被路由覆盖，advisor 使用同一路由复核。

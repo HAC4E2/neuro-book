@@ -49,7 +49,7 @@ Confirm the current contract before editing:
 |---|---|
 | [`docs/specs/README.md`](docs/specs/README.md) | Registry for current behavior, data, interfaces, failures, and acceptance |
 | [`docs/specs/foundation/terminology.md`](docs/specs/foundation/terminology.md) | Standard Workspace, runtime, storage, and Agent terminology |
-| [`docs/standards/code.md`](docs/standards/code.md) | TypeScript, Vue, scripting, Rust, Prisma/SQL, and comment rules |
+| [`docs/standards/code/README.md`](docs/standards/code/README.md) | Route changes to frontend, server, desktop, scripts, database, or package standards |
 | [`docs/testing/README.md`](docs/testing/README.md) | Tests, temporary roots, environment, acceptance, and evidence |
 | [`docs/adr/`](docs/adr/) | Reasons behind accepted architecture decisions |
 | [`.agents/tasks/`](.agents/tasks/README.md) | Scope, process, and evidence for major implementations |

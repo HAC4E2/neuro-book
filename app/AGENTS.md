@@ -1,10 +1,8 @@
 # app 目录规则
 
+修改 `app/**` 前读取 [`../docs/standards/code/common.md`](../docs/standards/code/common.md)、[`../docs/standards/code/languages/typescript.md`](../docs/standards/code/languages/typescript.md) 和 [`../docs/standards/code/frontend.md`](../docs/standards/code/frontend.md)。完成标准以 `frontend.md` 为准；本文件只补充 NeuroBook 前端的具体组件和主题入口。
+
 - 这是 NeuroBook 当前根应用的前端目录；本轮不把它物理搬到 `packages/neuro-book`。
-- Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色只消费 `app/utils/theme/README.md` 登记的变量。
-- 普通界面复用 `app/components/common` 与现有通知、Dialog、Tooltip、可调整面板能力。
-- 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。
-- 修改 UI 后按根规则选择聚焦测试；未经明确授权不自动执行浏览器人工验收。
 
 ## 前端规范
 
@@ -16,4 +14,3 @@
 - 前端 API 错误使用 `resolveApiErrorMessage(error, fallback)`；跨入口、后台动作和完成后 Dialog 会关闭的反馈使用 `useNotification()`，当前表单可恢复的错误使用局部 `error` state。
 - 可调整面板统一使用 `app/composables/useResizablePanel.ts`，尺寸由宿主保存，组件通过 `update:width` / `update:height` 回传。
 - 用户可见文案面向第一次使用 NeuroBook 的普通作者，不出现内部类名、文件名、Task 或 Phase 编号。
-- 前端改动应说明桌面和窄屏影响；未经明确授权不把 focused 测试写成浏览器验收，实际浏览器验收需记录截图、录屏或“未运行”。

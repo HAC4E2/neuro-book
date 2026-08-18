@@ -17,9 +17,9 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 | PM、Leader、Tasker、Reviewer | [`.agents/roles/<role>/AGENTS.md`](.agents/roles/)、[`.agents/tasks/AGENTS.md`](.agents/tasks/AGENTS.md) 和具体 Task |
 | 测试、fixture、验收、缓存、临时数据 | [`docs/testing/README.md`](docs/testing/README.md) |
 | 新功能、bug 期望不明确或长期行为变化 | [`docs/proposals/README.md`](docs/proposals/README.md)、[`docs/specs/AGENTS.md`](docs/specs/AGENTS.md)、相关 Spec 与 ADR |
-| 源码、脚本、schema 或 migration | [`docs/standards/code.md`](docs/standards/code.md) 中与改动文件类型匹配的章节 |
+| 源码、脚本、schema 或 migration | [`docs/standards/code/README.md`](docs/standards/code/README.md)；按改动路径只读取表中列出的领域与语言规范 |
 | Git、Issue、Task、PR、合并或发布 | [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)；公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-| 前端、脚本、发布、包 | [`app/AGENTS.md`](app/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
+| 前端、服务端、桌面、数据库、脚本、发布、包 | [`app/AGENTS.md`](app/AGENTS.md)、[`server/AGENTS.md`](server/AGENTS.md)、[`desktop/AGENTS.md`](desktop/AGENTS.md)、[`prisma/AGENTS.md`](prisma/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
 | Agent 消费的规则、Skill、AGENTS.md 或 CLAUDE.md | [`.agents/skills/writing-for-agents/SKILL.md`](.agents/skills/writing-for-agents/SKILL.md)；修改 Skill 时再读同目录 `SKILL-MECHANICS.md` |
 
 ## 汇报与提问
@@ -131,7 +131,7 @@ workspace/                     本地开发用 Project Workspace 数据
 - [`docs/README.md`](docs/README.md)：文档职责、优先级、生命周期和 Reference 迁移规则。
 - [`docs/specs/README.md`](docs/specs/README.md)：规范编程模型、`planned` / `implemented` 成熟度、capability 注册表和 Reference 迁移状态。
 - [`docs/specs/foundation/terminology.md`](docs/specs/foundation/terminology.md)：Workspace、运行时、存储、Agent 和产品标准术语。
-- [`docs/standards/code.md`](docs/standards/code.md)：按文件类型触发的编码与审查标准。
+- [`docs/standards/code/README.md`](docs/standards/code/README.md)：按改动路径分流的编码与审查规范。
 - [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)：维护者 Git、Issue、Task、PR、合并和发布流程。
 - [`docs/testing/README.md`](docs/testing/README.md)：测试、临时根、环境、验收和证据。
 - [`PROJECT-STATUS.md`](PROJECT-STATUS.md)：当前仓库状态与验收缺口。

@@ -13,6 +13,7 @@ const REQUIRED_INDEXES = [
     "docs/specs/AGENTS.md",
     "docs/specs/TEMPLATE.md",
     "docs/standards/README.md",
+    "docs/standards/code/README.md",
     "docs/proposals/README.md",
     "docs/adr/README.md",
     "docs/testing/README.md",
@@ -134,6 +135,16 @@ describe("documentation governance gate", () => {
         const report = checkDocumentation(fixture.root, fixture.paths);
 
         expect(report.failures).toContain("人工评测已迁入 docs/testing/manual-eval：docs/manual-eval/README.md");
+    });
+
+    it("拒绝重新创建平面编码规范", async () => {
+        const fixture = await createDocumentationFixture({
+            "docs/standards/code.md": "# Retired code standard\n",
+        });
+
+        const report = checkDocumentation(fixture.root, fixture.paths);
+
+        expect(report.failures).toContain("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
     });
 
 

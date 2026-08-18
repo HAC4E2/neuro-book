@@ -16,6 +16,7 @@ export type DocumentationCheckReport = {
 const REQUIRED_DOC_INDEXES = [
     "docs/specs/README.md",
     "docs/standards/README.md",
+    "docs/standards/code/README.md",
     "docs/proposals/README.md",
     "docs/adr/README.md",
     "docs/testing/README.md",
@@ -120,6 +121,9 @@ function checkDocsRoot(files: readonly string[], failures: string[]): void {
 function checkRetiredDocumentationPaths(files: readonly string[], failures: string[]): void {
     for (const path of files.filter((candidate) => candidate.startsWith("docs/manual-eval/"))) {
         failures.push(`人工评测已迁入 docs/testing/manual-eval：${path}`);
+    }
+    if (files.includes("docs/standards/code.md")) {
+        failures.push("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
     }
 }
 
