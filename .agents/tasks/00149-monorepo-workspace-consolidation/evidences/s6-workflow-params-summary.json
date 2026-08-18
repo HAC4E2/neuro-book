@@ -75,7 +75,7 @@
     "checkpointCommit": "4f39cf8c94b365306f70def7eab7844460d87d3c",
     "checkpointTag": "t149-s6-main-app-physical-cutover-4f39cf8c",
     "status": "not-green; checkpoint evidence retained for physical cutover with inherited blockers",
-    "workingTree": "runtime directory removed; evidence files modified and pending commit",
+    "workingTree": "clean after evidence commit ca7f76b0a55df008959fb2d56cf8475a05393588",
     "governance": "bun run governance:check passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
     "desktopContract": "bun run test:desktop-contract passed; 11 files / 37 tests",
     "diffCheck": "git diff --check && git diff --cached --check passed"
