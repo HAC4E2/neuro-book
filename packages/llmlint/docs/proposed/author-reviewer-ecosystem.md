@@ -69,7 +69,7 @@ llmlint 当前已经能检测文本、保存不可变修订谱系、采集机器
 - `web/prisma/schema.prisma`
 - `CONTEXT.md`
 - `evals/METHODOLOGY.md`
-- `.agents/tasks/12-unified-data-model/README.md`
+- `docs/tasks/12-unified-data-model/README.md`
 
 ### 3.2 当前能力不能被误读成什么
 

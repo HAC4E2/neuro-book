@@ -20,7 +20,14 @@
             "import": "./dist/runtime-projection.mjs",
             "default": "./dist/runtime-projection.mjs"
         },
-        "./desktop-installation": "./dist/desktop-installation-entry.mjs"
+        "./desktop-installation": "./dist/desktop-installation-entry.mjs",
+        "./portable": "./dist/portable.mjs",
+        "./installation": {
+            "types": "./src/installation-entry.ts",
+            "import": "./dist/installation-entry.mjs",
+            "default": "./dist/installation-entry.mjs"
+        },
+        "./test-support": "./src/fixtures/runtime-image.ts"
     },
     "files": [
         "dist",

@@ -2,7 +2,7 @@
 
 > 状态：第二轮前端旅程与 `DocumentEditorSurface` 组件合同已 Accepted；实现尚未开始。  
 > 日期：2026-08-16。  
-> 规范入口：[`docs/specs/README.md`](../../specs/README.md)。
+> 规范入口：[`docs/specs/README.md`](../../docs/specs/README.md)。
 
 ## User Request / Topic
 
@@ -43,7 +43,7 @@
 - 当前热力图默认消费 `detects[0]`，多 detector 选择无合同。
 - 当前 `/style-review` 只服务私有固定题库；公开 Arena 尚未实现。
 
-详见 [`docs/specs/current-state/web-workbench.md`](../../specs/current-state/web-workbench.md)。
+详见 [`docs/specs/current-state/web-workbench.md`](../../docs/specs/current-state/web-workbench.md)。
 
 ### evals
 
@@ -101,7 +101,7 @@ Accepted 基线的后续变更必须新增版本或将受影响 spec 标为 `Sup
 
 - 扫描 `docs/specs/**/*.md` 与本文件，共 17 份 Markdown；相对链接、目标锚点、代码 fence 和重复标题均为零错误，E2E-01 至 E2E-15 编号连续。
 - `WorkspaceQuery`、`WorkspaceStage`、`WorkspaceCommand`、`InitialWorkPanelId`、`WorkspaceSnapshotDto`、`DraftSessionDto`、`DraftWorkingState`、Operation 和正文组件核心类型均只有一个 canonical 定义位置。
-- `llmlint check docs/specs docs/tasks/25-architecture-specs/README.md --format json` 返回零 diagnostics、零命中。
+- `llmlint check docs/specs .agents/tasks/25-architecture-specs/README.md --format json` 返回零 diagnostics、零命中。
 - 业务代码尚未按第二轮合同迁移，因此不标 `Implemented`，不运行业务测试。
 
 ## Plan vs Result

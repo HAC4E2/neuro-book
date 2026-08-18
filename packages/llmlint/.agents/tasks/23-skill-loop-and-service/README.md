@@ -1,6 +1,6 @@
 # Skill 闭环与服务接入（初始化 / 检测 / 修复 / 疑难片段 / 学习）
 
-> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
+> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `.agents/tasks/archived/<task-slug>/`.
 
 ## Relative documents refs
 

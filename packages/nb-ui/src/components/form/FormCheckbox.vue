@@ -23,11 +23,12 @@ const emit = defineEmits<{
 }>();
 
 const field = useFormFieldContext();
+// 无 label 时回退显示当前布尔值，保留语义的同时让值可见
 const displayLabel = computed(() => props.label || (props.modelValue ? "true" : "false"));
 </script>
 
 <template>
-    <component :is="field ? 'div' : 'label'" class="inline-flex items-center gap-2 text-sm text-[var(--text-main)]" :class="props.disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'">
+    <label class="inline-flex items-center gap-[var(--space-2)] text-[var(--text-sm)] text-[var(--text-main)]" :class="props.disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'">
         <input
             type="checkbox"
             :id="props.id || field?.inputId.value || undefined"
@@ -41,9 +42,9 @@ const displayLabel = computed(() => props.label || (props.modelValue ? "true" : 
             @focus="emit('focus', $event)"
             @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
         >
-        <span class="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border bg-[var(--control-surface)] text-transparent transition-colors peer-checked:border-[var(--accent-main)] peer-checked:bg-[var(--accent-main)] peer-checked:text-[var(--text-inverse)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--accent-main)]" :class="field?.invalid.value ? 'border-[var(--status-danger)]' : 'border-[var(--control-outline)]'">
-            <span class="i-lucide-check h-2.5 w-2.5" aria-hidden="true"></span>
+        <span class="inline-flex h-[calc(var(--control-h-sm)*0.5)] w-[calc(var(--control-h-sm)*0.5)] shrink-0 items-center justify-center rounded-[calc(var(--radius-control)*0.6)] border-[length:var(--border-w)] bg-[var(--control-surface)] text-transparent transition-colors peer-checked:border-[color:var(--accent-main)] peer-checked:bg-[var(--accent-main)] peer-checked:text-[var(--text-inverse)] peer-focus-visible:border-[color:var(--focus-outline)] peer-focus-visible:shadow-[var(--focus-ring)]" :class="field?.invalid.value ? 'border-[color:var(--status-danger)]' : 'border-[color:var(--control-outline)]'">
+            <span class="i-lucide-check h-[0.9em] w-[0.9em]" aria-hidden="true"></span>
         </span>
         <span>{{ displayLabel }}</span>
-    </component>
+    </label>
 </template>

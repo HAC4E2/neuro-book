@@ -1,19 +1,19 @@
 import {readFile} from "node:fs/promises";
-import {describe, expect, it} from "vitest";
+import {resolve} from "node:path";
 
 import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 
 describe("Product Runtime Image measurement contracts", () => {
-    it("package 暴露独立 measurement 与正式 policy preflight", async () => {
-        const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
-            scripts: {[name: string]: string};
-        };
+    it("根编排器持有 measurement 与 policy preflight，应用包持有 Nuxt build", async () => {
+        const [rootPackage, applicationPackage] = await Promise.all([
+            readFile("package.json", "utf8").then((source) => JSON.parse(source) as {scripts: Record<string, string>}),
+            readFile(resolve("packages", "neuro-book", "package.json"), "utf8")
+                .then((source) => JSON.parse(source) as {scripts: Record<string, string>}),
+        ]);
 
-        expect(packageJson.scripts["product:measure"]).toBe(
-            "bun scripts/build/measure-product-runtime-image.ts",
-        );
-        expect(packageJson.scripts["product:policy:check"]).toContain("--require-all");
-        expect(packageJson.scripts["nuxt:build"]).toBe("bun scripts/build/build-product-runtime-image.ts");
+        expect(rootPackage.scripts["product:measure"]).toBe("bun scripts/build/measure-product-runtime-image.ts");
+        expect(rootPackage.scripts["product:policy:check"]).toBe("bun scripts/build/check-product-runtime-policies.ts --require-all");
+        expect(applicationPackage.scripts["nuxt:build"]).toBe("bun ../../scripts/build/build-product-runtime-image.ts");
     });
 
     it("手动 workflow 覆盖全部平台且只上传 measurement report", async () => {

@@ -1,6 +1,6 @@
 # <Task Title>
 
-> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
+> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `.agents/tasks/archived/<task-slug>/`.
 
 ## Relative documents refs
 

@@ -2,7 +2,7 @@ import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {parseArgs} from "node:util";
 import {parseReleaseBuild} from "#scripts/release/release-assets";
-import {ProductRuntimeImageVerifier} from "nbook/server/interfaces/product-runtime-image-verifier";
+import {ProductRuntimeImageVerifier} from "@notnotype/neuro-book/product-verification";
 import type {VerifiedProductRuntimeImage} from "#scripts/build/product-runtime-image-builder";
 
 const PRODUCT_BUILD_FILE = "product-build.json";

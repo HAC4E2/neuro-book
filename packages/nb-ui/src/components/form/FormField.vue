@@ -35,11 +35,11 @@ provide(NB_FORM_FIELD_CONTEXT_KEY, {
 
 <template>
     <label class="block space-y-1.5" :for="inputId">
-        <span v-if="props.label" class="block text-sm font-medium text-[var(--text-main)]">
+        <span v-if="props.label" class="block text-[var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)]">
             {{ props.label }}<span v-if="props.required" class="ml-1 text-[var(--status-danger)]">*</span>
         </span>
         <slot :input-id="inputId" :description-id="descriptionId" :error-id="errorId" :aria-describedby="ariaDescribedby" :invalid="invalid" />
-        <span v-if="props.error" :id="errorId" class="block text-xs text-[var(--status-danger)]">{{ props.error }}</span>
-        <span v-else-if="props.description" :id="descriptionId" class="block text-xs text-[var(--text-muted)]">{{ props.description }}</span>
+        <span v-if="props.error" :id="errorId" class="block text-[var(--text-xs)] text-[var(--status-danger)]">{{ props.error }}</span>
+        <span v-else-if="props.description" :id="descriptionId" class="block text-[var(--text-xs)] text-[var(--text-muted)]">{{ props.description }}</span>
     </label>
 </template>

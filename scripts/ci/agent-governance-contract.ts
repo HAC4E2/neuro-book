@@ -98,7 +98,7 @@ export function expectedGovernanceFiles(): readonly string[] {
         ".agents/tasks/legacy-index.json",
         ...CANONICAL_ROLES.map((role) => `.agents/roles/${role}/AGENTS.md`),
         ".agents/skills/README.md",
-        "app/AGENTS.md",
+        "packages/neuro-book/AGENTS.md",
         "scripts/AGENTS.md",
         "scripts/release/AGENTS.md",
         "packages/AGENTS.md",

@@ -118,7 +118,8 @@ describe("Product Release宿主合同", () => {
         roots.push(fixtureRoot);
         await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).rejects.toThrow("缺少有状态升级声明");
 
-        await writeFile(join(fixtureRoot, "release-state-migration.json"), JSON.stringify({
+        await mkdir(join(fixtureRoot, "packages", "neuro-book"), {recursive: true});
+        await writeFile(join(fixtureRoot, "packages", "neuro-book", "release-state-migration.json"), JSON.stringify({
             policy: "manual",
             steps: [],
             guide: "docs/migrations/manual.md",
@@ -133,7 +134,8 @@ describe("Product Release宿主合同", () => {
     it("Release 构建边界拒绝 automatic 声明引用当前 Product catalog 不存在的 step", async () => {
         const fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-release-state-migration-catalog-"));
         roots.push(fixtureRoot);
-        await writeFile(join(fixtureRoot, "release-state-migration.json"), `${JSON.stringify({
+        await mkdir(join(fixtureRoot, "packages", "neuro-book"), {recursive: true});
+        await writeFile(join(fixtureRoot, "packages", "neuro-book", "release-state-migration.json"), `${JSON.stringify({
             policy: "automatic",
             steps: ["future-step"],
         })}\n`, "utf8");
@@ -148,24 +150,24 @@ describe("Product Release宿主合同", () => {
             guide: "docs/migrations/0.9.0-session-v2.md",
         };
         const files = [
-            "release-state-migration.json",
+            "packages/neuro-book/release-state-migration.json",
             "docs/migrations/README.md",
             "docs/migrations/0.9.0-session-v2.md",
-            "scripts/db/migrate-application-state.ts",
-            "server/runtime/application-state-command.ts",
-            "server/runtime/application-state-migration/app-sqlite-step.ts",
-            "server/runtime/application-state-migration/catalog-registry.ts",
-            "server/runtime/application-state-migration/catalog.ts",
-            "server/runtime/application-state-migration/lease.ts",
-            "server/runtime/application-state-migration/runner.ts",
-            "server/runtime/application-state-migration/types.ts",
-            "server/agent/session/migrations/session-v2-review-repair/journal.ts",
-            "server/agent/session/migrations/session-v2-review-repair/migration.ts",
-            "server/agent/session/migrations/session-v2-review-repair/types.ts",
+            "packages/neuro-book/scripts/db/migrate-application-state.ts",
+            "packages/neuro-book/server/runtime/application-state-command.ts",
+            "packages/neuro-book/server/runtime/application-state-migration/app-sqlite-step.ts",
+            "packages/neuro-book/server/runtime/application-state-migration/catalog-registry.ts",
+            "packages/neuro-book/server/runtime/application-state-migration/catalog.ts",
+            "packages/neuro-book/server/runtime/application-state-migration/lease.ts",
+            "packages/neuro-book/server/runtime/application-state-migration/runner.ts",
+            "packages/neuro-book/server/runtime/application-state-migration/types.ts",
+            "packages/neuro-book/server/agent/session/migrations/session-v2-review-repair/journal.ts",
+            "packages/neuro-book/server/agent/session/migrations/session-v2-review-repair/migration.ts",
+            "packages/neuro-book/server/agent/session/migrations/session-v2-review-repair/types.ts",
         ];
         expect(() => assertStateMigrationSourceFiles(files, declaration)).not.toThrow();
         expect(() => assertStateMigrationSourceFiles(
-            files.filter((path) => path !== "server/runtime/application-state-migration/runner.ts"),
+            files.filter((path) => path !== "packages/neuro-book/server/runtime/application-state-migration/runner.ts"),
             declaration,
         )).toThrow("Source archive 缺少 Application State migration 文件");
     });
@@ -559,7 +561,7 @@ describe("Product Release宿主合同", () => {
 
     it("五平台 Product 与 GHCR 必须携带 sharp native island 并执行最终图片命令", async () => {
         const [nuxtConfig, commandBundle, runtimeIslands, posixVerify, releaseWorkflow, ghcrVerify, extractedVerifier] = await Promise.all([
-            readFile(resolve(ROOT, "nuxt.config.ts"), "utf8"),
+            readFile(resolve(ROOT, "packages", "neuro-book", "nuxt.config.ts"), "utf8"),
             readFile(resolve(ROOT, "scripts/build/product-command-bundle.ts"), "utf8"),
             readFile(resolve(ROOT, "scripts/build/product-runtime-islands.ts"), "utf8"),
             readFile(resolve(ROOT, "scripts/release/verify-posix-product.sh"), "utf8"),
@@ -568,7 +570,7 @@ describe("Product Release宿主合同", () => {
             readFile(resolve(ROOT, "scripts/release/verify-extracted-product.ts"), "utf8"),
         ]);
 
-        expect(nuxtConfig).toContain("...productRuntimeIslandPackageNames()");
+        expect(nuxtConfig).toContain("...productRuntimeIslandPackageNames(repositoryRoot)");
         expect(runtimeIslands).toContain('packages: ["sharp", "@img/colour", "semver"]');
         expect(commandBundle).toContain('"product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts"');
         for (const platformPackage of [
@@ -768,21 +770,22 @@ async function releaseRepositoryFixture(): Promise<string> {
     roots.push(root);
     const files = new Map<string, string>([
         [".gitignore", "node_modules/\n.deploy/\n.output/\ndist/\nartifacts/\n"],
-        ["package.json", `${JSON.stringify({name: "fixture", version: "1.2.3"})}\n`],
+        ["package.json", `${JSON.stringify({name: "neuro-book-workspace", private: true})}\n`],
         ["bun.lock", "fixture-lock\n"],
-        ["release-state-migration.json", `${JSON.stringify({policy: "none", steps: []})}\n`],
+        ["packages/neuro-book/package.json", `${JSON.stringify({name: "@notnotype/neuro-book", version: "1.2.3", private: true, type: "module"})}\n`],
+        ["packages/neuro-book/release-state-migration.json", `${JSON.stringify({policy: "none", steps: []})}\n`],
         ["docs/migrations/README.md", "# Migrations\n"],
-        ["scripts/db/migrate-application-state.ts", "export {};\n"],
-        ["server/runtime/application-state-command.ts", "export {};\n"],
-        ["server/runtime/application-state-migration/app-sqlite-step.ts", "export {};\n"],
-        ["server/runtime/application-state-migration/catalog-registry.ts", "export {};\n"],
-        ["server/runtime/application-state-migration/catalog.ts", "export {};\n"],
-        ["server/runtime/application-state-migration/lease.ts", "export {};\n"],
-        ["server/runtime/application-state-migration/runner.ts", "export {};\n"],
-        ["server/runtime/application-state-migration/types.ts", "export {};\n"],
-        ["server/agent/session/migrations/session-v2-review-repair/journal.ts", "export {};\n"],
-        ["server/agent/session/migrations/session-v2-review-repair/migration.ts", "export {};\n"],
-        ["server/agent/session/migrations/session-v2-review-repair/types.ts", "export {};\n"],
+        ["packages/neuro-book/scripts/db/migrate-application-state.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-command.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-migration/app-sqlite-step.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-migration/catalog-registry.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-migration/catalog.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-migration/lease.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-migration/runner.ts", "export {};\n"],
+        ["packages/neuro-book/server/runtime/application-state-migration/types.ts", "export {};\n"],
+        ["packages/neuro-book/server/agent/session/migrations/session-v2-review-repair/journal.ts", "export {};\n"],
+        ["packages/neuro-book/server/agent/session/migrations/session-v2-review-repair/migration.ts", "export {};\n"],
+        ["packages/neuro-book/server/agent/session/migrations/session-v2-review-repair/types.ts", "export {};\n"],
         ["node_modules/nuxt/package.json", `${JSON.stringify({name: "nuxt", version: "4.3.1"})}\n`],
         ["node_modules/nitropack/package.json", `${JSON.stringify({name: "nitropack", version: "2.13.4"})}\n`],
     ]);

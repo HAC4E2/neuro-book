@@ -10,7 +10,7 @@ import {
 import {
     canonicalProductRuntimeJson,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
-} from "nbook/server/interfaces/product-runtime-image-verifier";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 type MeasurementIdentity = Omit<ProductRuntimeMeasurementReport, "measuredAt">;
 

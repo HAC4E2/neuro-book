@@ -24,46 +24,60 @@ const props = withDefaults(defineProps<{
 
 const toneClass = computed(() => `nb-badge--${props.tone}`);
 const variantClass = computed(() => `nb-badge--${props.variant}`);
-const sizeClass = computed(() => (props.size === "sm" ? "h-5 gap-1 px-2 text-[11px]" : "h-6 gap-1.5 px-2.5 text-xs"));
+// 尺寸从控件高度 token 推导（对照页 sc-badge 配方），主题改密度时徽章跟着走
+const sizeClass = computed(() => (props.size === "sm"
+    ? "h-[calc(var(--control-h-sm)*0.6)] gap-[var(--space-1)] px-[calc(var(--control-px)*0.45)] text-[var(--text-2xs)]"
+    : "h-[calc(var(--control-h-sm)*0.72)] gap-[var(--space-2)] px-[calc(var(--control-px)*0.6)] text-[var(--text-2xs)]"));
 </script>
 
 <template>
-    <span class="nb-badge inline-flex shrink-0 items-center whitespace-nowrap rounded-full border font-medium" :class="[toneClass, variantClass, sizeClass]">
-        <span v-if="props.dot" class="h-1.5 w-1.5 shrink-0 rounded-full bg-current"></span>
-        <span v-if="props.iconClass" :class="props.iconClass" class="h-3.5 w-3.5 shrink-0"></span>
+    <span class="nb-badge inline-flex shrink-0 items-center whitespace-nowrap rounded-[var(--radius-pill)] border-[length:var(--border-w)] [font-weight:var(--weight-medium)]" :class="[toneClass, variantClass, sizeClass]">
+        <span v-if="props.dot" class="h-[var(--space-2)] w-[var(--space-2)] shrink-0 rounded-[var(--radius-pill)] bg-current"></span>
+        <span v-if="props.iconClass" :class="props.iconClass" class="h-[1.2em] w-[1.2em] shrink-0"></span>
         <slot />
     </span>
 </template>
 
 <style scoped>
+/* 色调 = 状态三件套（主色/底色/边框色）的角色映射，与对照页 sc-badge 同源 */
 .nb-badge {
     --nb-badge-tone: var(--text-secondary);
+    --nb-badge-tone-bg: var(--bg-subtle);
+    --nb-badge-tone-border: var(--border-color);
 }
 
 .nb-badge--accent {
     --nb-badge-tone: var(--accent-main);
+    --nb-badge-tone-bg: var(--accent-bg);
+    --nb-badge-tone-border: var(--border-accent);
 }
 
 .nb-badge--success {
     --nb-badge-tone: var(--status-success);
+    --nb-badge-tone-bg: var(--status-success-bg);
+    --nb-badge-tone-border: var(--status-success-border);
 }
 
 .nb-badge--warning {
     --nb-badge-tone: var(--status-warning);
+    --nb-badge-tone-bg: var(--status-warning-bg);
+    --nb-badge-tone-border: var(--status-warning-border);
 }
 
 .nb-badge--danger {
     --nb-badge-tone: var(--status-danger);
+    --nb-badge-tone-bg: var(--status-danger-bg);
+    --nb-badge-tone-border: var(--status-danger-border);
 }
 
 .nb-badge--soft {
-    border-color: transparent;
-    background: color-mix(in srgb, var(--nb-badge-tone) 13%, transparent);
+    border-color: var(--nb-badge-tone-border);
+    background: var(--nb-badge-tone-bg);
     color: var(--nb-badge-tone);
 }
 
 .nb-badge--outline {
-    border-color: color-mix(in srgb, var(--nb-badge-tone) 45%, transparent);
+    border-color: var(--nb-badge-tone-border);
     background: transparent;
     color: var(--nb-badge-tone);
 }

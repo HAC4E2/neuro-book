@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import {mkdirSync, writeFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
-import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {prisma} from "../server/database/prisma";
 import {listStyleReviewRecords, STYLE_REVIEW_ARMS, STYLE_REVIEW_MODEL, type StyleReviewArm, type StyleReviewRecord} from "../server/utils/style-review";
 
@@ -62,8 +62,8 @@ type StyleReviewReport = {
     notes: string[];
 };
 
-const defaultOutput = resolve(dirname(fileURLToPath(import.meta.url)), "../../evals/report/style-review-report.json");
-const {values} = parseArgs({options: {out: {type: "string", default: defaultOutput}}});
+const {values} = parseArgs({options: {out: {type: "string"}}});
+const defaultOutput = resolveAgentScratchPath("llmlint", "style-review", "style-review-report.json");
 
 function median(values: number[]): number | null {
     if (values.length === 0) return null;

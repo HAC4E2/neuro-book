@@ -146,7 +146,7 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
                     <FormField label="框架（Combobox，↑↓/Enter/Esc）">
                         <Combobox v-model="framework" :options="['Vue', 'React', 'Svelte', 'Solid', 'Nuxt']" placeholder="搜索…" />
                     </FormField>
-                    <FormField label="格式（富选项 / ↑↓）">
+                    <FormField label="格式（富选项 / 固定向下展开）">
                         <FormSelect v-model="format" :options="formatOptions" placeholder="选择格式" dropdown-direction="down" />
                     </FormField>
                     <FormField label="标签（TagInput，Enter/逗号添加）">

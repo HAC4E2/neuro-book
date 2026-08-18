@@ -7,7 +7,7 @@ import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 
 const execFileAsync = promisify(execFile);
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "packages", "neuro-book");
 const roots: string[] = [];
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));

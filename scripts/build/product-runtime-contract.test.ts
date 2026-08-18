@@ -1,6 +1,8 @@
 import {readFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {dirname, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
+
+const applicationRoot = resolve(dirname(import.meta.dirname), "..", "packages", "neuro-book");
 
 describe("Product 临时验收实例合同", () => {
     it("只复制 verified .output，并通过 bundle commands 运行", async () => {
@@ -21,8 +23,8 @@ describe("Product 临时验收实例合同", () => {
 
     it("bootstrap、启动器与验收实例的Bun子进程都禁止自动安装", async () => {
         const [bootstrap, start, acceptance] = await Promise.all([
-            readFile(resolve("server", "runtime", "product-command.ts"), "utf8"),
-            readFile(resolve("server", "runtime", "product-start-command.mjs"), "utf8"),
+            readFile(resolve(applicationRoot, "server", "runtime", "product-command.ts"), "utf8"),
+            readFile(resolve(applicationRoot, "server", "runtime", "product-start-command.mjs"), "utf8"),
             readFile(resolve("scripts", "deploy", "product-runtime.mjs"), "utf8"),
         ]);
 

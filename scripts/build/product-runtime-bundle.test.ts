@@ -2,7 +2,7 @@ import {execFile} from "node:child_process";
 import {createRequire} from "node:module";
 import {access, mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {dirname, join} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
@@ -48,14 +48,16 @@ describe("Product Runtime bundle", () => {
     });
 
     it("server runtime 只通过 package island require TypeScript", async () => {
-        const sourceFiles = (await readdir("server", {recursive: true}))
+        const applicationRoot = resolve(dirname(import.meta.dirname), "..", "packages", "neuro-book");
+        const serverRoot = resolve(applicationRoot, "server");
+        const sourceFiles = (await readdir(serverRoot, {recursive: true}))
             .filter((filePath) => filePath.endsWith(".ts")
                 && !filePath.endsWith(".test.ts")
                 && !filePath.endsWith(".d.ts"))
             .sort((left, right) => left.localeCompare(right));
         const forbiddenImport = /^\s*import\s+(?!type\b)(?:[^;\n]*\sfrom\s+)?["']typescript["'];?|\bimport\(\s*["']typescript["']\s*\)/mu;
         for (const relativePath of sourceFiles) {
-            const source = await readFile(join("server", relativePath), "utf8");
+            const source = await readFile(join(serverRoot, relativePath), "utf8");
             expect(source, `${relativePath} 不得把 TypeScript compiler 放入 Nitro module graph`)
                 .not.toMatch(forbiddenImport);
         }

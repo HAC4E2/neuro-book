@@ -4,9 +4,9 @@ taskId: 00149-monorepo-workspace-consolidation
 actionIssueId: null
 worktreeId: .worktree/monorepo-main-app-migration
 branchId: chore/t149-monorepo-workspace
-status: in-progress
+status: verifying
 createdAt: 2026-08-16T14:59:07Z
-updatedAt: 2026-08-16T20:16:00Z
+updatedAt: 2026-08-18T03:17:07Z
 ---
 
 # NeuroBook Workspace 收敛与主应用迁移
@@ -38,4 +38,11 @@ updatedAt: 2026-08-16T20:16:00Z
 
 ## 当前状态
 
-S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支持、治理门禁、显式 workspace 清单和冻结安装已完成；S2 已按 S0 manifest 将六个自治项目收编到 `packages/*`，保留 llmlint 的 `web`/`skill` 独立安装岛，完成逐文件摘要复核、自治治理资产、根忽略和 workspace lock 更新；S3 已删除 History/Workflow vendor、同步脚本和 llmlint tracked mirror，主应用切换正式 workspace 包入口，`packages/llmlint/skill` 成为唯一 Skill source 并接入 system assets projection，History/Workflow/llmlint/Product closure 与 root 全量回归通过；S4 已完成 Desktop 聚合 depot/卸载回执纯合同抽取、Shared/Manager 宿主适配器切换、Portable packager Manager 正式子路径入口和 scripts 可承载项迁移，并由 clean worktree 确认 checkpoint `00dacf89`；S5 已完成应用 identity-only manifest、repository/application 双根 resolver、平台用户级 Source Dev State/Cache 默认、Prisma application-root 路径和 Manager fixture 解耦，并由 clean worktree 确认 checkpoint `b3d202ff`。当前进入 S6 主应用物理迁移；实现仍只在 `chore/t149-monorepo-workspace` / `.worktree/monorepo-main-app-migration` 进行，root 用户 worktree 的既有改动和六个原仓保持原地。
+S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支持、治理门禁、显式 workspace 清单和冻结安装已完成；S2 已按 S0 manifest 将六个自治项目收编到 `packages/*`，保留 llmlint 的 `web`/`skill` 独立安装岛，完成逐文件摘要复核、自治治理资产、根忽略和 workspace lock 更新；S3 已删除 History/Workflow vendor、同步脚本和 llmlint tracked mirror，主应用切换正式 workspace 包入口，`packages/llmlint/skill` 成为唯一 Skill source 并接入 system assets projection，History/Workflow/llmlint/Product closure 与 root 全量回归通过；S4 已完成 Desktop 聚合 depot/卸载回执纯合同抽取、Shared/Manager 宿主适配器切换、Portable packager Manager 正式子路径入口和 scripts 可承载项迁移，并由 clean worktree 确认 checkpoint `00dacf89`；S5 已完成应用 identity-only manifest、repository/application 双根 resolver、平台用户级 Source Dev State/Cache 默认、Prisma application-root 路径和 Manager fixture 解耦，并由 clean worktree 确认 checkpoint `b3d202ff`。S6 workflow 侧道已完成：nb-workflow 0.2.0 SHA-256 fingerprint 与 canonical `params` 观测侧道已接入 NeuroBook，公共 Run/event projection 保持 prompt/正文隐私，应用与包验证完成；当前进入主仓提交、显式 merge 与最终 checkpoint 收敛。
+## S6 证据
+
+- `evidences/s6-workflow-params-summary.json` 记录 fingerprint/params 合同、包验证、已批准 T02 计划外例外和未验收边界。
+- `walkthroughs/010-leader-2026-08-18-workflow-params-side-channel.md` 记录本轮实现、验证与 T02 处置更新。
+- 用户已选择“批准并继续”：允许承认已发生的 `0fdec90bac0456b67045185c99cb8b829e75bd6c` 计划外源仓提交，并仅使用其等价内容作为迁移输入；不允许新的原仓写操作。
+- 原仓 T02 immutability gate 不宣称 clean-green，作为用户批准的计划外例外保留；当前迁移继续执行主仓本地提交、显式 merge `origin/master` 与 checkpoint。
+- `docs:build`、`test:desktop-contract` 与 `packages/llmlint` 两个测试失败均已实跑并记录，未用修改掩盖。

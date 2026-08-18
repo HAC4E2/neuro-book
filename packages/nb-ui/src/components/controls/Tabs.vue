@@ -75,15 +75,15 @@ function handleKeydown(event: KeyboardEvent): void {
 
 function tabClass(item: TabsItem): string {
     if (isSelected(item)) {
-        return "border-[var(--accent-main)] text-[var(--text-main)]";
+        return "text-[var(--text-main)] after:bg-[var(--accent-main)]";
     }
-    return "border-transparent text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-main)]";
+    return "text-[var(--text-secondary)] hover:text-[var(--text-main)] after:bg-transparent";
 }
 </script>
 
 <template>
-    <!-- 标签栏：底边线 + 选中项指示线 -->
-    <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-1 overflow-x-auto border-b border-[var(--border-color)]" @keydown="handleKeydown">
+    <!-- 标签栏：底边线 + 选中项指示线（指示线绝对定位压在边线上，不用负 margin——负 margin 会制造 1px 滚动溢出） -->
+    <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto border-b-[length:var(--border-w)] border-[color:var(--divider)]" @keydown="handleKeydown">
         <button
             v-for="item in props.items"
             :key="item.value"
@@ -93,13 +93,13 @@ function tabClass(item: TabsItem): string {
             :aria-selected="isSelected(item)"
             :tabindex="isSelected(item) ? 0 : -1"
             :disabled="item.disabled"
-            class="nb-ui-focus-ring -mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45"
-            :class="[props.size === 'sm' ? 'h-8 px-2.5 text-xs' : 'h-9 px-3 text-sm', tabClass(item)]"
+            class="nb-ui-focus-ring relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors after:absolute after:inset-x-0 after:bottom-[calc(var(--border-w)*-1)] after:h-0.5 after:transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+            :class="[props.size === 'sm' ? 'h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]' : 'h-[var(--control-h-md)] px-[var(--control-px)] text-[var(--text-sm)]', tabClass(item)]"
             @click="select(item)"
         >
-            <span v-if="item.iconClass" :class="item.iconClass" class="h-4 w-4 shrink-0"></span>
+            <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
             <span>{{ item.label }}</span>
-            <span v-if="item.count !== undefined" class="rounded-full bg-[var(--bg-subtle)] px-1.5 font-mono text-[10px] leading-4 text-[var(--text-muted)]">{{ item.count }}</span>
+            <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
         </button>
     </div>
 </template>

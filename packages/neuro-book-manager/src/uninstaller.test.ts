@@ -1,3 +1,4 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -193,7 +194,7 @@ describe("Manager uninstall lifecycle", () => {
 });
 
 function testSandbox(name: string): string {
-    const sandbox = join(process.cwd(), ".agent", `${name}-${crypto.randomUUID()}`);
+    const sandbox = testHostPath(`${name}-${crypto.randomUUID()}`);
     cleanupRoots.push(sandbox);
     vi.stubEnv("NEURO_BOOK_MANAGER_CONFIG", join(sandbox, "manager-user", "config.json"));
     return sandbox;

@@ -22,7 +22,8 @@
         "build": "bun run build:css && nuxt build playground",
         "build:css": "tailwindcss -i ./src/tailwind.css -o ./dist/nb-ui.css",
         "typecheck": "nuxt prepare playground && vue-tsc --noEmit",
-        "test": "vitest run"
+        "test": "vitest run",
+        "test:e2e": "node node_modules/@playwright/test/cli.js test"
     },
     "peerDependencies": {
         "nuxt": "^4.3.1",
@@ -38,6 +39,7 @@
     },
     "devDependencies": {
         "@iconify-json/lucide": "^1.2.95",
+        "@playwright/test": "^1.62.1",
         "@iconify/tailwind4": "^1.2.3",
         "@nuxt/cli": "^3.36.1",
         "@tailwindcss/cli": "^4.3.3",

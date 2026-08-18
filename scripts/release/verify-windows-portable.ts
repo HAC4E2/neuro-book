@@ -8,7 +8,7 @@ import {parseArgs} from "node:util";
 import {parseInstallationManifest, type InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {parseReleaseManifest, type ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {PRODUCT_ASSET_NAMES, type ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
-import {verifyInstalledProductRuntimeImage} from "nbook/packages/neuro-book-manager/src/product";
+import {verifyInstalledProductRuntimeImage} from "@notnotype/neuro-book/product-verification";
 import {parseReleaseBuild} from "#scripts/release/release-assets";
 
 const WINDOWS_PRODUCT_PLATFORM: ProductPlatform = "windows-x64";

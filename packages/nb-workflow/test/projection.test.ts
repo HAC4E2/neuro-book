@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
 import { createMemoryWorkspace, extractCfg, skeletonMermaid, traceGraph } from "../src/index";
-import type { Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    Wf,
+} from "../src/index";
 
 /** 三种投影：声明骨架（运行前）/ AST 近似 CFG（静态尽力）/ 动态 trace（精确执行图） */
 describe("三种投影", () => {
@@ -65,5 +68,47 @@ describe("三种投影", () => {
         const joinEdges = trace.edges.filter(([from, to]) => from.includes(":") && to === "root#2");
         expect(joinEdges).toHaveLength(3);
         expect(trace.mermaid).toContain("agents.invoke");
+    });
+
+    test("投影三：嵌套 map 分支按真实父路径解析派生与汇合边", () => {
+        const record = (
+            key: string,
+            path: string,
+            seq: number,
+            kind: string,
+        ) => ({
+            key,
+            path,
+            seq,
+            kind,
+            fingerprint: "sha256:test",
+            result: {
+                kind: "inline" as const,
+                value: null,
+            },
+        });
+        const journal = [
+            record("root#0", "root", 0, "action"),
+            record("root#1", "root", 1, "kernel.map"),
+            record("root/1:0#0", "root/1:0", 0, "action"),
+            record("root/1:0#1", "root/1:0", 1, "kernel.map"),
+            record("root/1:0/1:0#0", "root/1:0/1:0", 0, "action"),
+            record("root/1:0/2:0#0", "root/1:0/2:0", 0, "action"),
+            record("root/1:0#2", "root/1:0", 2, "action"),
+            record("root/1:1#0", "root/1:1", 0, "action"),
+            record("root#2", "root", 2, "action"),
+        ];
+
+        const trace = traceGraph(journal);
+
+        expect(trace.edges).toContainEqual([
+            "root/1:0#0",
+            "root/1:0/1:0#0",
+        ]);
+        expect(trace.edges).toContainEqual([
+            "root/1:0/1:0#0",
+            "root/1:0#2",
+        ]);
+        expect(trace.mermaid).toContain("并行 ×2（root/1:0）");
     });
 });

@@ -27,9 +27,10 @@ import {
     projectTypeScriptRuntime,
     type TypeScriptRuntimeProjection,
 } from "#scripts/build/typescript-runtime-projection";
-
 const NATIVE_ISLAND_SCHEMA = "nbook.product-native-islands/v2";
-const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const APPLICATION_SOURCE_ROOT = resolve(REPOSITORY_ROOT, "packages", "neuro-book");
+const SOURCE_ROOT = APPLICATION_SOURCE_ROOT;
 const NITRO_IMPORT_META_FALLBACK = "file:///_entry.js";
 const NITRO_IMPORT_META_FALLBACK_SHAPE = '{url:"file:///_entry.js",env:process.env}';
 const NITRO_RELATIVE_ENTRY_URL = /new URL\(\s*(["'])(?:\.\.\/)+index\.mjs\1\s*,\s*import\.meta\.url\s*\)\.href/u;
@@ -91,7 +92,7 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
                 ...builtinModules.map((name) => `node:${name}`),
                 "bun",
                 "bun:*",
-                ...productRuntimeIslandPackageNames().flatMap((packageName) => [packageName, `${packageName}/*`]),
+                ...productRuntimeIslandPackageNames(REPOSITORY_ROOT).flatMap((packageName) => [packageName, `${packageName}/*`]),
             ],
         });
         if (!existsSync(temporaryEntry)) {
@@ -110,7 +111,7 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
         const islandInventory = await copyNativeIslands(serverRoot);
         const islandImports = await rewriteProductPackageIslandImports({
             serverRoot,
-            sourceRoot: SOURCE_ROOT,
+            sourceRoot: REPOSITORY_ROOT,
             packageNames: islandInventory.packages,
         });
         await assertBundledRuntimeClosure(serverRoot);
@@ -150,7 +151,7 @@ function normalizePackageManagerMetadata(source: string): string {
  * native island 使用 bare subpath 交给 bundler external，其余路径落到当前 raw vendor 供 bundle 读取。
  */
 async function normalizeRawRuntimeImports(serverRoot: string): Promise<{files: number; seeds: string[]; rewrites: number}> {
-    const nativePackages = new Set(productRuntimeIslandPackageNames());
+    const nativePackages = new Set(productRuntimeIslandPackageNames(REPOSITORY_ROOT));
     const files = [resolve(serverRoot, "index.mjs"), ...await listMjsFiles(resolve(serverRoot, "chunks"))];
     const seeds = new Set<string>();
     let rewrites = 0;
@@ -161,7 +162,7 @@ async function normalizeRawRuntimeImports(serverRoot: string): Promise<{files: n
             source: importMetaNormalized,
             importerPath: filePath,
             serverRoot,
-            projectRoot: SOURCE_ROOT,
+            projectRoot: REPOSITORY_ROOT,
         });
         for (const seed of analysis.seeds) seeds.add(seed);
         rewrites += analysis.rewriteCount;
@@ -169,7 +170,7 @@ async function normalizeRawRuntimeImports(serverRoot: string): Promise<{files: n
         const replacements = new Map<string, string>();
         for (const reference of analysis.references) {
             if (reference.kind !== "path") continue;
-            await assertRuntimePackageIdentity(reference, SOURCE_ROOT);
+            await assertRuntimePackageIdentity(reference, REPOSITORY_ROOT);
             const buildSpecifier = nativePackages.has(reference.packageName)
                 ? reference.packageSubpath
                     ? `${reference.packageName}/${reference.packageSubpath}${reference.suffix}`
@@ -241,7 +242,7 @@ function sourcePackageSpecifier(
     },
 ): string {
     const target = resolve(
-        SOURCE_ROOT,
+        REPOSITORY_ROOT,
         "node_modules",
         ...reference.packageName.split("/"),
         ...(reference.packageSubpath ? reference.packageSubpath.split("/") : []),
@@ -273,11 +274,11 @@ async function copyNativeIslands(serverRoot: string): Promise<{
     typescriptProjection: TypeScriptRuntimeProjection;
     msvcRuntime?: ProductMsvcRuntimeResult;
 }> {
-    const definitions = productRuntimeIslandDefinitions();
-    const packages = productRuntimeIslandPackageNames();
+    const definitions = productRuntimeIslandDefinitions(REPOSITORY_ROOT);
+    const packages = productRuntimeIslandPackageNames(REPOSITORY_ROOT);
     let typescriptProjection: TypeScriptRuntimeProjection | null = null;
     for (const packageName of packages) {
-        const source = productRuntimeIslandSourceRoot(packageName, SOURCE_ROOT);
+        const source = productRuntimeIslandSourceRoot(packageName, REPOSITORY_ROOT);
         const target = resolve(serverRoot, "node_modules", ...packageName.split("/"));
         await mkdir(dirname(target), {recursive: true});
         if (packageName === "typescript") {
@@ -314,7 +315,7 @@ async function copyNativeIslands(serverRoot: string): Promise<{
  */
 const MSVC_RUNTIME_DLLS = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"] as const;
 /** Fixed-version MSVC Runtime as a repo build input (scripts/build/inputs/msvc-runtime); local and CI Windows builds share the same bytes. NEURO_BOOK_MSVC_RUNTIME_DIR can override it. */
-const MSVC_RUNTIME_DEFAULT_DIR = resolve(SOURCE_ROOT, "scripts", "build", "inputs", "msvc-runtime");
+const MSVC_RUNTIME_DEFAULT_DIR = resolve(REPOSITORY_ROOT, "scripts", "build", "inputs", "msvc-runtime");
 
 async function copyMsvcRuntime(serverRoot: string): Promise<ProductMsvcRuntimeResult> {
     const runtimeDir = process.env.NEURO_BOOK_MSVC_RUNTIME_DIR?.trim() || MSVC_RUNTIME_DEFAULT_DIR;
@@ -369,7 +370,7 @@ async function assertBundledRuntimeClosure(serverRoot: string): Promise<void> {
         source,
         importerPath: entry,
         serverRoot,
-        projectRoot: SOURCE_ROOT,
+        projectRoot: REPOSITORY_ROOT,
     });
     if (analysis.source !== source || analysis.rewriteCount > 0) {
         throw new Error("Product bundle 仍含包管理器物理路径或构建机 node_modules 路径。");
@@ -377,8 +378,11 @@ async function assertBundledRuntimeClosure(serverRoot: string): Promise<void> {
     if (hasNitroImportMetaFallback(source)) {
         throw new Error("Product bundle 仍含 Nitro 非法 import.meta fallback。");
     }
-    await assertRuntimeModuleFiles({filePaths: [entry], serverRoot, projectRoot: SOURCE_ROOT});
+    await assertRuntimeModuleFiles({filePaths: [entry], serverRoot, projectRoot: REPOSITORY_ROOT});
     assertBundledRuntimeSourcePaths(source, SOURCE_ROOT);
+    if (containsSourceRootDescendant(source, REPOSITORY_ROOT)) {
+        throw new Error("Product bundle 泄漏了仓库绝对路径。");
+    }
 }
 
 /** 验证最终 bundle 没有携带包管理器目录或 Source Root 下的构建文件路径。 */

@@ -24,9 +24,9 @@ const props = withDefaults(defineProps<{
         :title="props.title"
         :aria-label="props.ariaLabel || props.title"
         :disabled="props.disabled"
-        class="nb-ui-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--radius-control)] transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+        class="nb-ui-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color:transparent] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:opacity-45"
         :class="[
-            props.size === 'sm' ? 'h-6 w-6' : 'h-7 w-7',
+            props.size === 'sm' ? 'h-[var(--control-h-sm)] w-[var(--control-h-sm)]' : 'h-[var(--control-h-md)] w-[var(--control-h-md)]',
             props.variant === 'danger'
                 ? 'text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] hover:text-[var(--status-danger)]'
                 : props.variant === 'accent'

@@ -80,6 +80,7 @@ t16-editor-heat.png
 /packages/nb-history/*.sqlite-wal
 /packages/nb-history/*.sqlite-shm
 /packages/nb-history/.tmp/
+/packages/*/.agent/
 /packages/nb-memory/*.log
 /packages/nb-ui/.nuxt/
 /packages/nb-ui/.output/
@@ -123,3 +124,14 @@ t16-editor-heat.png
 /packages/llmlint/web/public/report.json
 /packages/llmlint/web/*.log
 /packages/*/bun.lock
+# Migrated application generated assets
+/packages/neuro-book/server/generated/prisma/
+/packages/neuro-book/assets/workspace/.nbook/agent/profiles/.compiled/
+/packages/neuro-book/assets/workspace/.nbook/agent/variables/.compiled/
+/packages/neuro-book/assets/workspace/.nbook/agent/.staging/
+/packages/neuro-book/assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
+/packages/neuro-book/assets/workspace/.nbook/agent/skills/llmlint/
+/packages/neuro-book/assets/workspace/.nbook/agent/assets/
+# Manager test bundle outputs
+/.tmp-manager-external-yaml/
+/.tmp-manager-node-build/

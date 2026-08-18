@@ -153,24 +153,24 @@ onClickOutside(rootRef, close);
                 :style="{maxHeight: props.menuMaxHeight, borderRadius: 'var(--nb-popover-inner-radius)'}"
             >
                 <template v-for="item in props.items" :key="item.value">
-                    <div v-if="item.separator" role="separator" class="mx-2 my-1 border-t border-[var(--border-color)]"></div>
+                    <div v-if="item.separator" role="separator" class="mx-[var(--space-2)] my-[var(--space-1)] border-t-[length:var(--border-w)] border-[color:var(--divider)]"></div>
                     <button
                         v-else
                         type="button"
                         role="menuitem"
-                        class="nb-ui-popover-item mb-1 flex w-full items-center justify-between gap-3 px-2.5 text-left transition-colors last:mb-0 disabled:cursor-not-allowed disabled:opacity-45"
+                        class="nb-ui-popover-item mb-1 flex h-[var(--control-h-sm)] w-full items-center justify-between gap-[var(--space-3)] rounded-[max(2px,calc(var(--radius-panel)-var(--space-2)))] px-[var(--space-4)] text-left transition-colors last:mb-0 disabled:cursor-not-allowed disabled:opacity-45"
                         :class="[
-                            props.compact ? 'py-1.5 text-[12px]' : 'py-1.5 text-sm',
+                            props.compact ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]',
                             itemClass(item),
                         ]"
                         :disabled="item.disabled"
                         @click.stop="select(item)"
                     >
-                        <span class="inline-flex min-w-0 items-center gap-2">
-                            <span v-if="item.iconClass" class="h-4 w-4 shrink-0" :class="[item.iconClass, item.tone === 'danger' ? 'text-current opacity-90' : 'text-[var(--text-muted)]']"></span>
+                        <span class="inline-flex min-w-0 items-center gap-[var(--space-2)]">
+                            <span v-if="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0" :class="[item.iconClass, item.tone === 'danger' ? 'text-current opacity-90' : 'text-[var(--text-muted)]']"></span>
                             <span class="truncate">{{ item.label }}</span>
                         </span>
-                        <span v-if="item.rightIconClass" :class="item.rightIconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                        <span v-if="item.rightIconClass" :class="item.rightIconClass" class="h-[1.15em] w-[1.15em] shrink-0 text-[var(--accent-text)]"></span>
                     </button>
                 </template>
             </div>

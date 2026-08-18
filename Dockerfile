@@ -20,6 +20,8 @@ COPY packages/file-snapshot-cache/package.json ./packages/file-snapshot-cache/pa
 COPY packages/neuro-book-manager/package.json ./packages/neuro-book-manager/package.json
 COPY packages/owned-process/package.json ./packages/owned-process/package.json
 COPY packages/neuro-book-test-support/package.json ./packages/neuro-book-test-support/package.json
+COPY packages/neuro-book-contracts/package.json ./packages/neuro-book-contracts/package.json
+COPY packages/neuro-book/package.json ./packages/neuro-book/package.json
 COPY packages/nb-history/package.json ./packages/nb-history/package.json
 COPY packages/nb-workflow/package.json ./packages/nb-workflow/package.json
 COPY packages/nb-memory/package.json ./packages/nb-memory/package.json
@@ -41,7 +43,7 @@ ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run nuxt:build
+RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build
 RUN test -f .output/runtime-image.json && test -f .output/runtime-image.ready
 
 FROM runtime-base AS runner

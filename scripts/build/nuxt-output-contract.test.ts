@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {readFile, readdir} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {describe, expect, it} from "vitest";
 
@@ -10,6 +10,7 @@ import {
 } from "#scripts/build/product-runtime-islands";
 
 const execFileAsync = promisify(execFile);
+const applicationRoot = resolve(dirname(import.meta.dirname), "..", "packages", "neuro-book");
 const configProbe = [
     "import {loadNuxtConfig} from '@nuxt/kit';",
     "const config = await loadNuxtConfig({cwd: process.cwd()});",
@@ -29,9 +30,10 @@ type NuxtProductConfigProbe = {
 describe("Nuxt raw Product output", () => {
     it("没有 Builder 注入输出目录时只写 Developer Build State", async () => {
         const {stdout} = await execFileAsync("bun", ["-e", configProbe], {
-            cwd: process.cwd(),
+            cwd: applicationRoot,
             env: {
                 ...process.env,
+                NEURO_BOOK_REPOSITORY_ROOT: resolve(applicationRoot, "..", ".."),
                 NEURO_BOOK_OUTPUT_DIR: "",
                 NEURO_BOOK_PRODUCT_IMAGE_ROOT: "",
                 NEURO_BOOK_PRODUCT_SOURCE_DIGEST: "",
@@ -40,20 +42,21 @@ describe("Nuxt raw Product output", () => {
         });
 
         const config = JSON.parse(stdout) as NuxtProductConfigProbe;
-        expect(config.outputDir).toBe(resolve(".nuxt", "product-raw"));
-        expect(config.outputDir).not.toBe(resolve(".output"));
+        expect(config.outputDir).toBe(resolve(applicationRoot, ".nuxt", "product-raw"));
+        expect(config.outputDir).not.toBe(resolve(applicationRoot, ".output"));
         expect(config.appManifest).toBe(true);
-        expect(config.external).toEqual(expect.arrayContaining(productRuntimeIslandPackageNames()));
+        expect(config.external).toEqual(expect.arrayContaining(productRuntimeIslandPackageNames(resolve(applicationRoot, "..", ".."))));
         expect(config.externalTypeScript).toBe(true);
     });
 
     it("保留 Builder 候选目录并使用 Source digest 派生稳定 build ID", async () => {
-        const candidate = resolve(".agent", "tmp", "nuxt-output-contract", ".output");
+        const candidate = resolve(applicationRoot, ".agent", "tmp", "nuxt-output-contract", ".output");
         const sourceDigest = `sha256:${"a".repeat(64)}`;
         const {stdout} = await execFileAsync("bun", ["-e", configProbe], {
-            cwd: process.cwd(),
+            cwd: applicationRoot,
             env: {
                 ...process.env,
+                NEURO_BOOK_REPOSITORY_ROOT: resolve(applicationRoot, "..", ".."),
                 NEURO_BOOK_OUTPUT_DIR: candidate,
                 NEURO_BOOK_PRODUCT_IMAGE_ROOT: candidate,
                 NEURO_BOOK_PRODUCT_SOURCE_DIGEST: sourceDigest,
@@ -65,25 +68,26 @@ describe("Nuxt raw Product output", () => {
             outputDir: candidate,
             buildId: sourceDigest.slice("sha256:".length),
             appManifest: false,
-            external: expect.arrayContaining(productRuntimeIslandPackageNames()),
+            external: expect.arrayContaining(productRuntimeIslandPackageNames(resolve(applicationRoot, "..", ".."))),
             externalTypeScript: true,
         });
     });
 
     it.each([
-        ["只设置 output root", resolve(".agent", "tmp", "nuxt-output-only"), "", "同时注入"],
-        ["只设置 image root", "", resolve(".agent", "tmp", "nuxt-image-only"), "同时注入"],
+        ["只设置 output root", resolve(applicationRoot, ".agent", "tmp", "nuxt-output-only"), "", "同时注入"],
+        ["只设置 image root", "", resolve(applicationRoot, ".agent", "tmp", "nuxt-image-only"), "同时注入"],
         [
             "注入不一致的两个 root",
-            resolve(".agent", "tmp", "nuxt-output-mismatch"),
-            resolve(".agent", "tmp", "nuxt-image-mismatch"),
+            resolve(applicationRoot, ".agent", "tmp", "nuxt-output-mismatch"),
+            resolve(applicationRoot, ".agent", "tmp", "nuxt-image-mismatch"),
             "不一致",
         ],
     ])("%s 时拒绝 raw Product build", async (_label, outputRoot, imageRoot, expectedMessage) => {
         await expect(execFileAsync("bun", ["-e", configProbe], {
-            cwd: process.cwd(),
+            cwd: applicationRoot,
             env: {
                 ...process.env,
+                NEURO_BOOK_REPOSITORY_ROOT: resolve(applicationRoot, "..", ".."),
                 NEURO_BOOK_OUTPUT_DIR: outputRoot,
                 NEURO_BOOK_PRODUCT_IMAGE_ROOT: imageRoot,
                 NEURO_BOOK_PRODUCT_SOURCE_DIGEST: "",
@@ -96,11 +100,12 @@ describe("Nuxt raw Product output", () => {
         ["缺少", ""],
         ["无效", "sha256:bad"],
     ])("%s Source digest 时拒绝 raw Product build", async (_label, sourceDigest) => {
-        const candidate = resolve(".agent", "tmp", "nuxt-output-digest");
+        const candidate = resolve(applicationRoot, ".agent", "tmp", "nuxt-output-digest");
         await expect(execFileAsync("bun", ["-e", configProbe], {
-            cwd: process.cwd(),
+            cwd: applicationRoot,
             env: {
                 ...process.env,
+                NEURO_BOOK_REPOSITORY_ROOT: resolve(applicationRoot, "..", ".."),
                 NEURO_BOOK_OUTPUT_DIR: candidate,
                 NEURO_BOOK_PRODUCT_IMAGE_ROOT: candidate,
                 NEURO_BOOK_PRODUCT_SOURCE_DIGEST: sourceDigest,
@@ -110,7 +115,7 @@ describe("Nuxt raw Product output", () => {
     });
 
     it("Product island matcher 覆盖 bare、Bun、pnpm 与 scoped package", () => {
-        const sharpPlatformPackage = productRuntimeIslandPackageNames()
+        const sharpPlatformPackage = productRuntimeIslandPackageNames(resolve(applicationRoot, "..", ".."))
             .find((packageName) => packageName.startsWith("@img/sharp-"));
         expect(sharpPlatformPackage).toBeTruthy();
         expect(isProductRuntimeIslandModule("typescript")).toBe(true);
@@ -126,7 +131,7 @@ describe("Nuxt raw Product output", () => {
     });
 
     it("Nitro plugin 不得用不会被 runtime 等待的 async callback 启动后台门禁", async () => {
-        const pluginRoot = resolve("server", "plugins");
+        const pluginRoot = resolve(applicationRoot, "server", "plugins");
         const pluginFiles = (await readdir(pluginRoot))
             .filter((fileName) => fileName.endsWith(".ts") && !fileName.endsWith(".test.ts"));
         const invalid: string[] = [];
@@ -136,7 +141,7 @@ describe("Nuxt raw Product output", () => {
         }
 
         expect(invalid).toEqual([]);
-        const startup = await readFile(resolve("server", "middleware", "00-product-startup.ts"), "utf8");
+        const startup = await readFile(resolve(applicationRoot, "server", "middleware", "00-product-startup.ts"), "utf8");
         expect(startup).toContain("const startup = productRuntimeReady()");
         expect(startup).toContain("await startup");
     });

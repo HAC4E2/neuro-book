@@ -5,8 +5,7 @@ import {fileURLToPath} from "node:url";
 import {parse as parseDotenv} from "dotenv";
 import {parse as parseYaml, stringify as stringifyYaml} from "yaml";
 
-import {readInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
-import {installationPaths} from "nbook/packages/neuro-book-manager/src/paths";
+import {readInstallationManifest, installationPaths} from "@notnotype/neuro-book-manager/installation";
 import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {acquireAgentSessionStoreExclusiveLease} from "nbook/server/agent/session/agent-session-store";
 

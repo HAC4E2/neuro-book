@@ -1,3 +1,4 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, rm, symlink} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -81,7 +82,7 @@ describe("State Root完整性", () => {
 });
 
 async function fixture(name: string): Promise<string> {
-    const root = join(process.cwd(), ".agent", `manager-state-${name}-${crypto.randomUUID()}`);
+    const root = testHostPath(`manager-state-${name}-${crypto.randomUUID()}`);
     roots.push(root);
     await mkdir(root, {recursive: true});
     return root;

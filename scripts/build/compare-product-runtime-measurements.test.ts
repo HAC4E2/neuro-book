@@ -13,7 +13,7 @@ import {
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
-} from "nbook/server/interfaces/product-runtime-image-verifier";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 

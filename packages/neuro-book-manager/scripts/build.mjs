@@ -12,11 +12,14 @@ const result = await Bun.build({
         resolve(packageRoot, "src", "schema.ts"),
         resolve(packageRoot, "src", "runtime-projection.ts"),
         resolve(packageRoot, "src", "desktop-installation-entry.ts"),
+        resolve(packageRoot, "src", "installation-entry.ts"),
+        resolve(packageRoot, "src", "portable.ts"),
     ],
     outdir,
     target: "bun",
     format: "esm",
     naming: "[name].mjs",
+    external: ["yaml"],
     minify: true,
 });
 if (!result.success) {

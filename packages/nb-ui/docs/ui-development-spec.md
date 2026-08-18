@@ -15,7 +15,6 @@
 | 组件导出 | `src/components/index.ts` |
 | 主题可覆盖组件 | `src/theme/contracts.ts` |
 | 组件交互合同 | 组件导出的 props/emits/types 与对应行为测试 |
-| 组件调试登记 | `playground/app/component-lab/registry.ts` |
 
 同一规则只在表中指定的位置维护。README 只描述公开用法，playground 只提供可运行证据。
 
@@ -64,59 +63,8 @@ NeuroBook 主仓存在同名组件时，阶段 2 的公开功能不得低于主�
 4. 只读不等于禁用：只读字段可聚焦、可复制，不提交值变化；禁用控件不响应指针或键盘，也不进入正常 Tab 顺序。
 5. `prefers-reduced-motion` 与 `prefers-reduced-transparency` 的公共降级规则优先于主题。动效只解释出现、消失、位置或状态变化，不承担必要信息。
 
-## 6. 组件调试工作台
 
-`/lab` 是逐组件诊断面，`/components` 是全量组合画廊，`/workbench` 是产品设计语言切片。三个页面职责不得合并。
-
-### 登记合同
-
-新增或修改公共组件时，必须在 `playground/app/component-lab/registry.ts` 登记：
-
-- 稳定组件 id、名称与分组；
-- 至少一个默认场景和一个边界/状态场景；
-- 场景需要暴露的 props 控件；
-- 预览中用于计算样式和结构检查的真实目标元素；
-- 用户可观察事件。
-
-工作台首批登记 `FormInput`、`FormNumberInput`、`FormSelect`、`FormCheckbox`。后续批次在同一注册表扩展，不能另建组件专属调试页。
-
-### 状态所有权
-
-| 状态 | 所有者 |
-| --- | --- |
-| 当前组件、场景、预览宽度 | URL query，可复制和恢复 |
-| 当前主题与配色 | 现有 `useTheme` / `useColorway` store，并镜像到 URL |
-| 场景 props 与组件值 | 页面会话；切换场景时恢复场景默认值 |
-| CSS 变量覆盖 | `localStorage` 草稿 + 仅 `/lab` 存活的覆盖层 |
-| 事件日志与结构检查结果 | 页面内存，不持久化 |
-
-变量编辑器从三张登记表读取变量：`nbColorwayVarKeys`、`nbDesignTokens`、`nbThemeTokens`，再合并已安装主题 manifest 的 `declares`。离开 `/lab` 必须移除覆盖层；重新进入时可恢复本地草稿。覆盖层不得调用主题/配色 store 改写源数据。
-
-导入导出格式固定为：
-
-```json
-{
-  "schema": "nb-ui-component-lab-overrides",
-  "version": 1,
-  "overrides": {"--radius-control": "8px"}
-}
-```
-
-导入只接受已登记变量、字符串值和版本 1。值禁止包含声明分隔符或规则边界，单值最长 512 字符；任一项无效时整份拒绝，不做半导入。
-
-### 诊断输出
-
-工作台必须同时提供：
-
-- 场景 props 控制与真实 emits 日志；
-- responsive、390px、768px 三档预览宽度；
-- CSS 变量搜索、当前计算值、覆盖值、单项/全部重置、JSON 导入导出；
-- 目标元素的尺寸、颜色、边框、圆角、阴影、排版与 ARIA 读数；
-- 可访问名称、重复 id、invalid 语义、combobox 展开状态的结构检查。
-
-这些读数用于定位，不替代浏览器验收。最终判据读取真实组件计算样式，并检查控制台和页面错误。
-
-## 7. 测试与交付
+## 6. 测试与交付
 
 行为测试只守可观察合同：值变化、边界、键盘、焦点、ARIA、打开后的 portal 内容、滚动和错误状态。不得以源代码字符串或无意义的 class 快照代替行为；外观来源和公共登记类可以用窄断言防止职责回流。
 
@@ -124,7 +72,7 @@ NeuroBook 主仓存在同名组件时，阶段 2 的公开功能不得低于主�
 
 1. 更新组件类型、所有本仓调用方和 barrel 导出；
 2. 增加或更新覆盖新合同的 happy-dom 测试；
-3. 更新 `/lab` 登记与 `/components` 组合画廊；
+3. 在 `/components` 组合画廊完成组件组合验收；
 4. 同步 README 的公开用法；
 5. 依次运行 `bun run test`、`bun run typecheck`、`bun run build:css`、`git diff --check`；
 6. 在真实 playground 验收桌面和 390px 窄屏，记录主题 × 配色、计算样式、键盘路径、控制台与页面错误；

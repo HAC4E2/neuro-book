@@ -6,7 +6,7 @@ import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "packages", "neuro-book");
 const agentBinRoot = join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin");
 const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];

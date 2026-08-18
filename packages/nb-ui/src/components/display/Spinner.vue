@@ -17,18 +17,18 @@ const props = withDefaults(defineProps<{
 
 const iconSizeClass = computed(() => {
     if (props.size === "sm") {
-        return "h-3.5 w-3.5";
+        return "h-[calc(var(--control-h-sm)*0.5)] w-[calc(var(--control-h-sm)*0.5)]";
     }
     if (props.size === "lg") {
-        return "h-6 w-6";
+        return "h-[var(--control-h-sm)] w-[var(--control-h-sm)]";
     }
-    return "h-4 w-4";
+    return "h-[calc(var(--control-h-sm)*0.64)] w-[calc(var(--control-h-sm)*0.64)]";
 });
 </script>
 
 <template>
-    <span role="status" :aria-label="props.label" class="inline-flex items-center gap-2 text-[var(--text-muted)]">
+    <span role="status" :aria-label="props.label" class="inline-flex items-center gap-[var(--space-2)] text-[var(--text-muted)]">
         <span class="i-lucide-loader-2 shrink-0 animate-spin" :class="iconSizeClass"></span>
-        <span v-if="props.showLabel" class="text-sm">{{ props.label }}</span>
+        <span v-if="props.showLabel" class="text-[var(--text-sm)]">{{ props.label }}</span>
     </span>
 </template>

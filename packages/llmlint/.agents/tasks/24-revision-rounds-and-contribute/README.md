@@ -1,6 +1,6 @@
 # 多轮修订谱系与数据收集通道（本地优先）
 
-> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
+> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `.agents/tasks/archived/<task-slug>/`.
 
 ## Relative documents refs
 
@@ -9,7 +9,7 @@
 - [web/scripts/import-corpus.ts](../../../web/scripts/import-corpus.ts)：语料导入脚本（盲评种子导入的扩展基座，幂等 + 强制 private + 导入同步 MachineScan）
 - [skill/SKILL.md](../../../skill/SKILL.md) / [skill/references/workflow.md](../../../skill/references/workflow.md)：依赖门、五步流程与台账 v3
 - [skill/src/user-state.ts](../../../skill/src/user-state.ts)：四档共享同意（off/stats/fragments/full + ask/auto）；`contribute` 只导出到本地 outbox，仍无发送通道
-- [docs/tasks/03-llmlint-eval-harness/data-acquisition.md](../03-llmlint-eval-harness/data-acquisition.md)：语料合规边界（:47 转公开红线）
+- [.agents/tasks/03-llmlint-eval-harness/data-acquisition.md](../03-llmlint-eval-harness/data-acquisition.md)：语料合规边界（:47 转公开红线）
 - `evals/experiments/guide-arm/` + `evals/experiments/arm-corpus.ts` + `evals/experiments/guide-arm-report/detector-scores.json`：盲评种子数据源（78 对 × 2 臂 = 156 篇，detector 分数已有）
 
 ## User Request / Topic

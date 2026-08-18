@@ -1,6 +1,6 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 
 import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
@@ -128,8 +128,8 @@ describe("Product build environment", () => {
 
     it("raw Nuxt pipeline 只读取 tracked 的空 Product dotenv", async () => {
         const [packageText, productEnv, attributes] = await Promise.all([
-            readFile("package.json", "utf8"),
-            readFile(".env.product", "utf8"),
+            readFile(resolve("packages/neuro-book", "package.json"), "utf8"),
+            readFile(resolve("packages/neuro-book", ".env.product"), "utf8"),
             readFile(".gitattributes", "utf8").then((text) => text.replaceAll("\r\n", "\n")),
         ]);
         const packageJson = JSON.parse(packageText) as {scripts: {"nuxt:build:raw": string}};

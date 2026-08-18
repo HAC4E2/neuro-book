@@ -8,10 +8,10 @@ import {
     PRODUCT_RUNTIME_CHECK_IDS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
-    readProductRuntimeContract,
 } from "@notnotype/neuro-book-contracts/product-runtime";
+import {readProductRuntimeContract} from "@notnotype/neuro-book/product-verification";
 import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
-import {verifyInstalledProductRuntimeImage} from "nbook/packages/neuro-book-manager/src/product";
+import {verifyInstalledProductRuntimeImage} from "@notnotype/neuro-book/product-verification";
 import {openVerifiedExtractedProduct} from "#scripts/release/verify-extracted-product";
 
 type ProductProcess = ReturnType<typeof Bun.spawn>;

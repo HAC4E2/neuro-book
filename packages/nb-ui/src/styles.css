@@ -2,9 +2,11 @@
     color-scheme: var(--color-scheme, light dark);
 }
 
+/* 焦点环走主题装饰 token（--focus-ring/--focus-outline），与对照页 sc-* 同一配方 */
 .nb-ui-focus-ring:focus-visible {
-    outline: 2px solid var(--accent-main);
-    outline-offset: 2px;
+    outline: none;
+    border-color: var(--focus-outline);
+    box-shadow: var(--focus-ring);
 }
 
 /*
@@ -34,12 +36,14 @@
 
 .nb-ui-control {
     border-color: var(--control-outline, var(--border-color));
+    /* sc-input 常态就有内阴影（凹陷质感由主题装饰 token 决定，低装饰主题为 none） */
+    box-shadow: var(--inset-shadow);
 }
 
 .nb-ui-control:focus,
 .nb-ui-control:focus-within {
-    border-color: var(--accent-main);
-    box-shadow: 0 0 0 3px var(--accent-bg);
+    border-color: var(--focus-outline);
+    box-shadow: var(--inset-shadow), var(--focus-ring);
 }
 
 /* 双类选择器抬高特异性，保证 invalid 边框压过组件上的 hover:border-* 原子类 */
@@ -52,7 +56,7 @@
 
 .nb-ui-control.nb-ui-control-invalid:focus,
 .nb-ui-control.nb-ui-control-invalid:focus-within {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-danger) 18%, transparent);
+    box-shadow: var(--inset-shadow), 0 0 0 3px color-mix(in srgb, var(--status-danger) 24%, transparent);
 }
 
 /*

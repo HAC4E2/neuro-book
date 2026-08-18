@@ -50,7 +50,7 @@ import {
     productRuntimeFileDigest as sha256File,
     readProductRuntimeControlFile as readControlFile,
     ProductRuntimeImageVerifier,
-} from "nbook/server/interfaces/product-runtime-image-verifier";
+} from "@notnotype/neuro-book/product-verification";
 import type {
     ProductRuntimeBuildPolicy,
     ProductRuntimeExpectedIdentity,
@@ -203,17 +203,31 @@ interface ReadyMarker {
  * 写侧区分正式 `buildCandidate` 与不可发布的 `measureCandidate`；只读验证委托给共享 Verifier。
  * 调用方不能绕过 Source 竞态检查自行写 manifest，也不能把“目录存在”误当成 ready。
  */
+export type ProductRuntimeImageBuilderOptions = Readonly<{
+    repositoryRoot: string;
+    applicationSourceRoot: string;
+    deployRoot?: string;
+}>;
+
 export class ProductRuntimeImageBuilder {
     private readonly repositoryRoot: string;
     private readonly applicationSourceRoot: string;
+    private readonly deployRoot: string;
 
-    /** 绑定 repository root 与 application source root；候选写入 repository 的 `.deploy/staging`。 */
-    constructor(projectRoot = process.cwd()) {
-        this.repositoryRoot = resolve(projectRoot);
-        const migratedApplicationRoot = resolve(this.repositoryRoot, SOURCE_APPLICATION_RELATIVE_PATH);
-        this.applicationSourceRoot = existsSyncPath(resolve(migratedApplicationRoot, "nuxt.config.ts"))
-            ? migratedApplicationRoot
-            : this.repositoryRoot;
+    /** 绑定 repository/application source/deploy 三个 owner 根；字符串仅保留 fixture 兼容。 */
+    constructor(options: ProductRuntimeImageBuilderOptions | string) {
+        if (typeof options === "string") {
+            this.repositoryRoot = resolve(options);
+            const migratedApplicationRoot = resolve(this.repositoryRoot, SOURCE_APPLICATION_RELATIVE_PATH);
+            this.applicationSourceRoot = existsSyncPath(resolve(migratedApplicationRoot, "nuxt.config.ts"))
+                ? migratedApplicationRoot
+                : this.repositoryRoot;
+            this.deployRoot = resolve(this.repositoryRoot, ".deploy");
+            return;
+        }
+        this.repositoryRoot = resolve(options.repositoryRoot);
+        this.applicationSourceRoot = resolve(options.applicationSourceRoot);
+        this.deployRoot = resolve(options.deployRoot ?? this.repositoryRoot);
     }
 
     /**
@@ -350,8 +364,8 @@ export class ProductRuntimeImageBuilder {
         retainCandidate: boolean,
         finalize: (candidate: InspectedProductRuntimeCandidate) => Promise<T>,
     ): Promise<T> {
-        const stagingRoot = resolve(this.repositoryRoot, ".deploy", "staging");
-        const stagingLeaseRoot = resolve(this.repositoryRoot, ".deploy", "staging-leases");
+        const stagingRoot = resolve(this.deployRoot, "staging");
+        const stagingLeaseRoot = resolve(this.deployRoot, "staging-leases");
         const imageRoot = resolve(stagingRoot, request.operationId);
         const scratchRoot = resolve(imageRoot, ".build-scratch");
         const leaseTarget = resolve(stagingLeaseRoot, request.operationId);

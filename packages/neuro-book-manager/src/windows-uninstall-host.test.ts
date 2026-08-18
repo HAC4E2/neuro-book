@@ -1,3 +1,4 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {spawn} from "node:child_process";
 import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
@@ -242,7 +243,7 @@ async function runHost(input: {
 }
 
 function testSandbox(name: string): string {
-    const sandbox = join(process.cwd(), ".agent", `${name}-${crypto.randomUUID()}`);
+    const sandbox = testHostPath(`${name}-${crypto.randomUUID()}`);
     cleanupRoots.push(sandbox);
     vi.stubEnv("LOCALAPPDATA", join(sandbox, "Local"));
     return sandbox;

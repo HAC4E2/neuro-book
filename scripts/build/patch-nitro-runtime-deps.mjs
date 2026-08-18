@@ -3,9 +3,11 @@ import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
 import {currentProductPlatform} from "#scripts/utils/product-platform";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
-import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
+import {
+    compileProfileArtifacts,
+    compileVariableDefinitions,
+    SystemAssetsProjection,
+} from "@notnotype/neuro-book/build";
 import {assertProductSystemArtifactContract} from "#scripts/build/product-system-artifact-contract";
 import {buildProductAuthoringKit} from "#scripts/build/product-authoring-kit";
 import {buildProductCommands} from "#scripts/build/product-command-bundle";
@@ -42,7 +44,7 @@ await measure("project static system assets", async () => {
     const target = resolve(serverRoot, "assets", "workspace", ".nbook");
     await rm(resolve(serverRoot, "assets"), {recursive: true, force: true});
     await new SystemAssetsProjection().copyToEmpty({
-        sourceRoot: resolve("assets", "workspace", ".nbook"),
+        sourceRoot: resolve(applicationSourceRoot, "assets", "workspace", ".nbook"),
         targetRoot: target,
         compiledArtifactMode: "exclude",
     });
@@ -89,7 +91,7 @@ await measure("compile clean Product system artifacts", async () => {
 });
 
 const commands = await measure("bundle Product commands", async () => {
-    return await buildProductCommands(outputRoot);
+    return await buildProductCommands(outputRoot, applicationSourceRoot);
 });
 await measure("write Product Runtime Contract", async () => {
     await writeFile(

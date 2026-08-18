@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { directChat, makeEnv } from "./helpers";
 import { SessionBusyError } from "../src/index";
-import type { JsonValue, Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    JsonValue,
+    Wf,
+} from "../src/index";
 
 /**
  * 场景三：角色扮演的持久参与者。

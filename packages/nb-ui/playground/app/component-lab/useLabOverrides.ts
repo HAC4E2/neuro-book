@@ -6,8 +6,21 @@ import {
 } from "./lab-overrides";
 
 const STORAGE_KEY = "nb-ui-component-lab-overrides-v1";
-const STYLE_ID = "nb-ui-component-lab-overrides";
 
+/** e2e 与调试共用的断言锚点：离开 /lab 后这两样都必须不存在 */
+export const LAB_STYLE_ID = "nb-ui-component-lab-overrides";
+export const LAB_ACTIVE_ATTR = "data-nb-lab-active";
+
+/**
+ * /lab 的 CSS 变量覆盖层。
+ *
+ * 合同四条：
+ * 1. 只在 /lab 生效——覆盖写进独立 <style>，挂 `:root[data-nb-lab-active]` 作用域，
+ *    不碰主题 store 的 data-nb-theme 与配色 store 的 data-nb-appearance，源数据零交集。
+ * 2. 本地草稿持久化在 localStorage，进入页面时恢复；草稿损坏只警告不阻塞。
+ * 3. 离开页面（组件卸载）立即移除 style 元素与 data 属性，无残留。
+ * 4. 导入是原子的：整份快照校验通过才替换，任何非法项拒绝且旧覆盖保持不变。
+ */
 export function useLabOverrides(allowedNames: ComputedRef<ReadonlySet<string>>) {
     const overrides = ref<Record<string, string>>({});
     const hydrated = ref(false);
@@ -15,10 +28,10 @@ export function useLabOverrides(allowedNames: ComputedRef<ReadonlySet<string>>) 
 
     function renderLayer(): void {
         if (typeof document === "undefined") return;
-        let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+        let style = document.getElementById(LAB_STYLE_ID) as HTMLStyleElement | null;
         if (style === null) {
             style = document.createElement("style");
-            style.id = STYLE_ID;
+            style.id = LAB_STYLE_ID;
             document.head.appendChild(style);
         }
         const declarations = Object.entries(overrides.value)
@@ -88,7 +101,7 @@ export function useLabOverrides(allowedNames: ComputedRef<ReadonlySet<string>>) 
 
     onBeforeUnmount(() => {
         if (typeof document === "undefined") return;
-        document.getElementById(STYLE_ID)?.remove();
+        document.getElementById(LAB_STYLE_ID)?.remove();
         delete document.documentElement.dataset.nbLabActive;
     });
 

@@ -4,7 +4,7 @@
 
 ## 目录分工
 
-- `.agents/tasks/`：重大任务的持续 walkthrough；active task 使用 `{order}-{slug}`，已归档任务放入 `.agents/tasks/archived/`。
+- `docs/tasks/`：重大任务的持续 walkthrough；active task 使用 `{order}-{slug}`，已归档任务放入 `docs/tasks/archived/`。
 - `docs/adr/`：已经拍板且会约束实现或部署的架构决策。
 - `docs/research/`：第三方库、外部资料和方案调研。
 - `docs/drafts/`：未定稿草案。
@@ -32,5 +32,5 @@
 
 - 新文档先判断用途：稳定运行时契约进入 `skill/references/`，跨任务架构与产品合同进入 `docs/specs/`，面向立项但未实施的方案进入 `docs/proposed/`，过程性未定稿内容进入 `docs/drafts/`。
 - 外部资料和技术选型调研进入 `docs/research/`，不要混入稳定参考。
-- 重大任务完成后更新 `PROJECT-STATUS.md` 和对应 active `.agents/tasks/<order>-<task-slug>/README.md` 或 archived `.agents/tasks/archived/<task-slug>/README.md`。
+- 重大任务完成后更新 `PROJECT-STATUS.md` 和对应 active `docs/tasks/<order>-<task-slug>/README.md` 或 archived `docs/tasks/archived/<task-slug>/README.md`。
 - 同一功能的后续调整继续更新原任务 walkthrough，除非目标已经明显独立。

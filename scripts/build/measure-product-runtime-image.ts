@@ -38,7 +38,11 @@ export async function measureProductRuntimeImage(
         await prepareProductRuntimeSource(buildEnvironment);
         const explicitRevision = process.env.NEURO_BOOK_SOURCE_REVISION?.trim();
         const operationId = `measure-${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-        const report = await new ProductRuntimeImageBuilder(roots.repositoryRoot).measureCandidate({
+        const report = await new ProductRuntimeImageBuilder({
+            repositoryRoot: roots.repositoryRoot,
+            applicationSourceRoot: roots.applicationSourceRoot,
+            deployRoot: resolve(roots.repositoryRoot, ".deploy"),
+        }).measureCandidate({
             operationId,
             platform,
             expectedSource: explicitRevision ? {revision: explicitRevision, dirty: false} : undefined,

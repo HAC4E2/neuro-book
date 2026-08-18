@@ -84,8 +84,9 @@ export async function projectAuthoringDependencies(input: {
     targetNodeModulesRoot: string;
     registrations: readonly AuthoringDependencyRegistration[];
     importerPath: string;
+    sourceRoot: string;
 }): Promise<AuthoringDependencyProjection> {
-    const packages = await sourcePackages(input.registrations, input.targetNodeModulesRoot);
+    const packages = await sourcePackages(input.registrations, input.targetNodeModulesRoot, input.sourceRoot);
     const packageByName = new Map(packages.map((entry) => [entry.registration.name, entry]));
     const packageInstances = new Map(packages.map((entry) => [packageInstanceKey(entry.targetRoot, entry.version), entry]));
     const queue: PendingDeclaration[] = [];
@@ -175,8 +176,9 @@ export async function projectAuthoringDependencies(input: {
 async function sourcePackages(
     registrations: readonly AuthoringDependencyRegistration[],
     targetNodeModulesRoot: string,
+    sourceRoot: string,
 ): Promise<SourcePackage[]> {
-    const requireFromSource = createRequire(pathToFileURL(resolve("package.json")));
+    const requireFromSource = createRequire(pathToFileURL(resolve(sourceRoot, "package.json")));
     const seen = new Set<string>();
     const entries: SourcePackage[] = [];
     for (const registration of registrations) {
@@ -444,7 +446,7 @@ async function copyDeclaration(owner: SourcePackage, sourcePath: string, source:
 
 /** 为批准的运行 dependency 生成单文件 ESM 实现，并保留已投影的声明入口。 */
 async function bundleRuntimePackage(entry: SourcePackage, targetRoot: string, declarationPath: string): Promise<void> {
-    const requireFromSource = createRequire(pathToFileURL(resolve("package.json")));
+    const requireFromSource = createRequire(pathToFileURL(resolve(entry.sourceRoot, "package.json")));
     const runtimeEntry = requireFromSource.resolve(entry.registration.name);
     const runtimeOutput = resolve(targetRoot, "index.mjs");
     const result = await bundleProductJavaScript({

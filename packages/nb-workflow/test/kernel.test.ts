@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
-import {MemorySessionStore, WorkflowRunner} from "../src/index";
-import type {AgentPort, JsonValue, Wf, WorkflowDefinition} from "../src/index";
+import { MemorySessionStore, WorkflowRunner } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    AgentPort,
+    JsonValue,
+    Wf,
+} from "../src/index";
 
 /** journal / 重放 / 并发 / 挂起 的内核语义 */
 describe("journal 内核", () => {
@@ -27,15 +32,23 @@ describe("journal 内核", () => {
         const { runner } = makeEnv();
         const def: WorkflowDefinition = {
             key: "cancel-waiting",
-            run: async (wf: Wf) => await wf.ask({kind: "approve", title: "继续？"}),
+            run: async (wf: Wf) => await wf.ask({
+                kind: "approve",
+                title: "继续？",
+            }),
         };
         const waiting = await runner.start(def, null);
         expect(waiting.status).toBe("waiting");
 
-        runner.cancel(waiting.runId);
-        const cancelled = runner.view(waiting.runId);
-        expect(cancelled).toMatchObject({status: "cancelled", pendingAsks: []});
-        await expect(runner.resume(waiting.runId, {})).rejects.toThrow(/非 waiting 状态/);
+        await runner.cancel(waiting.runId);
+
+        expect(runner.view(waiting.runId)).toMatchObject({
+            status: "cancelled",
+            pendingAsks: [],
+        });
+        await expect(runner.resume(waiting.runId, {})).rejects.toThrow(
+            /非 waiting 状态/,
+        );
         await expect(runner.rerun(waiting.runId)).rejects.toThrow(/已取消/);
     });
 
@@ -47,23 +60,28 @@ describe("journal 内核", () => {
         });
         agents.register("slow", async () => {
             await gate;
-            return {message: "late success"};
+            return { message: "late success" };
         });
         const def: WorkflowDefinition = {
             key: "cancel-last-activity",
             run: async (wf: Wf) => {
                 const agent = await wf.agents.create("slow");
-                return await agent.invoke({message: "wait"}) as unknown as JsonValue;
+                return await agent.invoke({ message: "wait" }) as unknown as JsonValue;
             },
         };
-        const {runId, done} = runner.begin(def, null);
+        const { runId, done } = runner.begin(def, null);
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        runner.cancel(runId);
+        await runner.cancel(runId);
         release!();
-        await expect(done).resolves.toMatchObject({status: "cancelled"});
+
+        await expect(done).resolves.toMatchObject({ status: "cancelled" });
         expect(runner.view(runId).result).toBeUndefined();
-        expect(runner.view(runId).journal.some((record) => record.kind === "agents.invoke")).toBe(false);
+        expect(
+            runner.view(runId).journal.some(
+                (record) => record.kind === "agents.invoke",
+            ),
+        ).toBe(false);
     });
 
     test("Run cancel 将同一个 signal 传给当前 Agent activity 并有界收口", async () => {
@@ -71,32 +89,45 @@ describe("journal 内核", () => {
         let observedSignal: AbortSignal | undefined;
         const agents: AgentPort = {
             async profileInfo(profileKey) {
-                return {profileKey};
+                return { profileKey };
             },
-            async invoke(sessionId, fromLeaf, opts) {
+            async invoke(_sessionId, fromLeaf, opts) {
                 observedSignal = opts.signal;
                 await new Promise<void>((_resolve, reject) => {
-                    opts.signal?.addEventListener("abort", () => reject(new Error("agent aborted")), {once: true});
+                    opts.signal?.addEventListener(
+                        "abort",
+                        () => reject(new Error("agent aborted")),
+                        { once: true },
+                    );
                 });
-                return {status: "completed", message: "unreachable", data: null, newLeaf: fromLeaf};
+                return {
+                    status: "completed",
+                    message: "unreachable",
+                    data: null,
+                    newLeaf: fromLeaf,
+                };
             },
         };
-        const runner = new WorkflowRunner({sessions: store, agents});
+        const runner = new WorkflowRunner({ sessions: store, agents });
         const def: WorkflowDefinition = {
             key: "cancel-agent-signal",
             run: async (wf: Wf) => {
                 const agent = await wf.agents.create("slow");
-                return await agent.invoke({message: "wait"}) as unknown as JsonValue;
+                return await agent.invoke({ message: "wait" }) as unknown as JsonValue;
             },
         };
-        const {runId, done} = runner.begin(def, null);
+        const { runId, done } = runner.begin(def, null);
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        runner.cancel(runId);
+        await runner.cancel(runId);
 
         expect(observedSignal?.aborted).toBe(true);
-        await expect(done).resolves.toMatchObject({status: "cancelled"});
-        expect(runner.view(runId).journal.some((record) => record.kind === "agents.invoke")).toBe(false);
+        await expect(done).resolves.toMatchObject({ status: "cancelled" });
+        expect(
+            runner.view(runId).journal.some(
+                (record) => record.kind === "agents.invoke",
+            ),
+        ).toBe(false);
     });
 
     test("Run cancel 同时取消 wf.all 的全部并发 Agent activity", async () => {
@@ -108,19 +139,32 @@ describe("journal 内核", () => {
         });
         const agents: AgentPort = {
             async profileInfo(profileKey) {
-                return {profileKey};
+                return { profileKey };
             },
             async invoke(_sessionId, fromLeaf, opts) {
-                if (!opts.signal) throw new Error("并发 Agent activity 缺少 Run signal");
+                if (!opts.signal) {
+                    throw new Error("并发 Agent activity 缺少 Run signal");
+                }
                 observedSignals.push(opts.signal);
-                if (observedSignals.length === 3) markAllStarted!();
+                if (observedSignals.length === 3) {
+                    markAllStarted!();
+                }
                 await new Promise<void>((_resolve, reject) => {
-                    opts.signal!.addEventListener("abort", () => reject(new Error("agent aborted")), {once: true});
+                    opts.signal!.addEventListener(
+                        "abort",
+                        () => reject(new Error("agent aborted")),
+                        { once: true },
+                    );
                 });
-                return {status: "completed", message: "unreachable", data: null, newLeaf: fromLeaf};
+                return {
+                    status: "completed",
+                    message: "unreachable",
+                    data: null,
+                    newLeaf: fromLeaf,
+                };
             },
         };
-        const runner = new WorkflowRunner({sessions: store, agents});
+        const runner = new WorkflowRunner({ sessions: store, agents });
         const def: WorkflowDefinition = {
             key: "cancel-concurrent-agents",
             run: async (wf: Wf) => {
@@ -129,19 +173,27 @@ describe("journal 内核", () => {
                     wf.agents.create("slow"),
                     wf.agents.create("slow"),
                 ]);
-                return await wf.all(workers.map((worker) => () => worker.invoke({message: "wait"}))) as unknown as JsonValue;
+                return await wf.all(
+                    workers.map(
+                        (worker) => () => worker.invoke({ message: "wait" }),
+                    ),
+                ) as unknown as JsonValue;
             },
         };
-        const {runId, done} = runner.begin(def, null);
+        const { runId, done } = runner.begin(def, null);
         await allStarted;
 
-        runner.cancel(runId);
+        await runner.cancel(runId);
 
         expect(observedSignals).toHaveLength(3);
         expect(new Set(observedSignals).size).toBe(1);
         expect(observedSignals.every((signal) => signal.aborted)).toBe(true);
-        await expect(done).resolves.toMatchObject({status: "cancelled"});
-        expect(runner.view(runId).journal.some((record) => record.kind === "agents.invoke")).toBe(false);
+        await expect(done).resolves.toMatchObject({ status: "cancelled" });
+        expect(
+            runner.view(runId).journal.some(
+                (record) => record.kind === "agents.invoke",
+            ),
+        ).toBe(false);
     });
 
     test("崩溃后 rerun：已完成 Activity 命中缓存不重跑", async () => {
@@ -205,6 +257,46 @@ describe("journal 内核", () => {
         expect(seen).toEqual(["A", "B", "B2"]); // A 命中；B2 指纹不匹配转真跑
     });
 
+    test("参数变化会从 journal 中移除不再执行的同路径后缀", async () => {
+        const { agents, runner } = makeEnv();
+        agents.register("echo", ({ message }) => ({
+            message: `echo:${message}`,
+        }));
+        let shortVersion = false;
+        const definition: WorkflowDefinition = {
+            key: "prune-stale-suffix",
+            run: async (wf) => {
+                const agent = await wf.agents.create("echo");
+                await agent.invoke({ message: "A" });
+                await agent.invoke({ message: shortVersion ? "B2" : "B" });
+                if (!shortVersion) {
+                    await agent.invoke({ message: "C" });
+                    throw new Error("rerun with shorter suffix");
+                }
+                return null;
+            },
+        };
+        const first = await runner.start(definition, null);
+        expect(first.status).toBe("failed");
+
+        shortVersion = true;
+        const second = await runner.rerun(first.runId);
+
+        expect(second.status).toBe("completed");
+        expect(
+            second.journal
+                .filter((record) => record.kind === "agents.invoke")
+                .map((record) => {
+                    if (record.result.kind !== "inline") {
+                        throw new Error("small mock output should be inline");
+                    }
+                    return (
+                        record.result.value as { message: string }
+                    ).message;
+                }),
+        ).toEqual(["echo:A", "echo:B2"]);
+    });
+
     test("map：并发上限生效，分支路径 seq 与完成顺序无关", async () => {
         const { agents, runner } = makeEnv();
         let inFlight = 0;
@@ -237,6 +329,43 @@ describe("journal 内核", () => {
         expect([...paths].filter((p) => p.includes(":")).length).toBe(8);
     });
 
+    test("map 输入缩短后会移除已不存在分支的 journal", async () => {
+        const { agents, runner } = makeEnv();
+        agents.register("worker", ({ input }) => ({
+            message: `done:${input}`,
+        }));
+        let items = [1, 2, 3];
+        let failOnce = true;
+        const definition: WorkflowDefinition = {
+            key: "map-prunes-removed-branches",
+            run: async (wf) => {
+                const result = await wf.map(items, async (item) => {
+                    const worker = await wf.agents.create("worker");
+                    return await worker.invoke({ input: item });
+                });
+                if (failOnce) {
+                    failOnce = false;
+                    throw new Error("shorten map input");
+                }
+                return result as unknown as JsonValue;
+            },
+        };
+        const first = await runner.start(definition, null);
+        expect(first.status).toBe("failed");
+
+        items = [1];
+        const second = await runner.rerun(first.runId);
+
+        expect(second.status).toBe("completed");
+        expect(
+            [...new Set(
+                second.journal
+                    .filter((record) => record.path.includes(":"))
+                    .map((record) => record.path),
+            )],
+        ).toEqual(["root/0:0"]);
+    });
+
     test("ask：挂起 → resume 应答进 journal → 续跑不重跑前缀", async () => {
         const { agents, runner } = makeEnv();
         let calls = 0;
@@ -249,7 +378,11 @@ describe("journal 内核", () => {
             run: async (wf: Wf) => {
                 const a = await wf.agents.create("echo", {});
                 await a.invoke({ message: "before" });
-                const answer = await wf.ask({ kind: "text", title: "叫什么名字？" });
+                const answer = await wf.ask({
+                    kind: "text",
+                    title: "叫什么名字？",
+                    description: "请填写 **显示名称**。",
+                });
                 const r = await a.invoke({ message: `hello ${answer}` });
                 return r.result.message;
             },
@@ -258,6 +391,9 @@ describe("journal 内核", () => {
         expect(v1.status).toBe("waiting");
         expect(v1.pendingAsks).toHaveLength(1);
         expect(v1.pendingAsks[0]!.spec.title).toBe("叫什么名字？");
+        expect(v1.pendingAsks[0]!.spec.description).toBe(
+            "请填写 **显示名称**。",
+        );
         expect(calls).toBe(1);
 
         const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0]!.key]: "艾丽丝" });

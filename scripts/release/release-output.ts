@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import {createHash} from "node:crypto";
 import {appendFile, lstat, mkdir, readFile, readdir, rm} from "node:fs/promises";
+import {existsSync} from "node:fs";
 import {relative, resolve} from "node:path";
 import process from "node:process";
 
@@ -78,8 +79,12 @@ export function releaseBuildId(identity: {version: string; revision: string; loc
 
 /** 从干净 Git checkout 读取唯一的 Release generation identity。 */
 export async function readReleaseGeneration(projectRoot: string): Promise<ReleaseGenerationIdentity> {
+    const applicationPackagePath = resolve(projectRoot, "packages", "neuro-book", "package.json");
+    const packagePath = existsSync(applicationPackagePath)
+        ? applicationPackagePath
+        : resolve(projectRoot, "package.json");
     const [packageText, revisionOutput, statusOutput, lockfile] = await Promise.all([
-        readFile(resolve(projectRoot, "package.json"), "utf8"),
+        readFile(packagePath, "utf8"),
         runCapture("git", ["rev-parse", "HEAD"], {cwd: projectRoot}),
         runCapture("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {cwd: projectRoot}),
         readFile(resolve(projectRoot, "bun.lock")),
@@ -91,7 +96,7 @@ export async function readReleaseGeneration(projectRoot: string): Promise<Releas
     if (!/^[0-9a-f]{40,64}$/iu.test(revision)) {
         throw new Error(`Release Source revision 无效：${revision || "empty"}`);
     }
-    const version = parsePackageVersion(packageText, resolve(projectRoot, "package.json"));
+    const version = parsePackageVersion(packageText, packagePath);
     const lockfileSha256 = `sha256:${createHash("sha256").update(lockfile).digest("hex")}`;
     return {
         version,

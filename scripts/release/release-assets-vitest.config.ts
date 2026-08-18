@@ -11,7 +11,7 @@ export const releaseAssetsVitestConfig = {
     resolve: {
         alias: {
             "#scripts": resolve(rootDir, "scripts"),
-            nbook: rootDir,
+            nbook: resolve(rootDir, "packages/neuro-book"),
         },
     },
     test: {

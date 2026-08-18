@@ -6,7 +6,7 @@
 - `../../../package.json`
 - `../../../skill/LICENSE`
 - `../../../skill/package.json`
-- sibling NeuroBook `docs/tasks/103-agpl-license-migration/README.md`
+- sibling NeuroBook `.agents/tasks/103-agpl-license-migration/README.md`
 
 ## User Request / Topic
 

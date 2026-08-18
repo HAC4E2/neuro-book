@@ -40,16 +40,18 @@ const emit = defineEmits<{
 }>();
 
 const field = useFormFieldContext();
-const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-2 text-xs" : "nb-ui-control-h-md nb-ui-control-px text-sm");
+const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[var(--text-xs)]" : "nb-ui-control-h-md nb-ui-control-px text-[var(--text-sm)]");
 const stepAmount = computed(() => {
     const parsed = Number.parseFloat(props.step || "1");
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 });
 
+/** 写入用户输入，保留中间态如空字符串、负号和小数点。 */
 function updateValue(value: string): void {
     emit("update:modelValue", value);
 }
 
+/** 根据 step / min / max 执行一次上下步进。 */
 function stepValueBy(direction: StepDirection): void {
     if (props.disabled || props.readonly) return;
     const current = Number.parseFloat(props.modelValue);
@@ -59,6 +61,7 @@ function stepValueBy(direction: StepDirection): void {
     emit("update:modelValue", formatSteppedNumber(clampNumber(base + delta)));
 }
 
+/** Enter 提交、方向键步进，与步进按钮共用同一套逻辑。 */
 function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter") {
         event.preventDefault();
@@ -76,6 +79,7 @@ function handleKeydown(event: KeyboardEvent): void {
     }
 }
 
+/** 限制数字在 min / max 范围内。 */
 function clampNumber(value: number): number {
     const min = minNumber();
     const max = maxNumber();
@@ -84,21 +88,25 @@ function clampNumber(value: number): number {
     return value;
 }
 
+/** 格式化步进后的数字，避免 0.1 + 0.2 一类浮点尾巴暴露到 UI。 */
 function formatSteppedNumber(value: number): string {
     const decimals = decimalPlaces(props.step || "1");
     return decimals > 0 ? Number(value.toFixed(decimals)).toString() : Math.trunc(value).toString();
 }
 
+/** 解析 min。 */
 function minNumber(): number | null {
     const parsed = Number.parseFloat(props.min ?? "");
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** 解析 max。 */
 function maxNumber(): number | null {
     const parsed = Number.parseFloat(props.max ?? "");
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** 读取小数位数，用于步进后输出。 */
 function decimalPlaces(value: string): number {
     const [, decimal = ""] = value.split(".");
     return decimal.length;
@@ -106,6 +114,7 @@ function decimalPlaces(value: string): number {
 </script>
 
 <template>
+    <!-- 用自定义步进按钮替代浏览器原生 spinner：原生 spinner 的样式任何 CSS 都够不着 -->
     <div
         class="nb-ui-control flex w-full min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] transition-colors focus-within:outline-none"
         :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '', props.disabled || props.readonly ? 'cursor-default opacity-60' : '']"
@@ -128,12 +137,12 @@ function decimalPlaces(value: string): number {
             @input="updateValue(($event.target as HTMLInputElement).value)"
             @keydown="handleKeydown"
         >
-        <span class="ml-1 flex h-5 w-4 shrink-0 flex-col overflow-hidden rounded-sm border border-[var(--control-outline)] bg-[var(--bg-panel)]">
+        <span class="ml-[var(--space-1)] flex h-[calc(var(--control-h-sm)*0.8)] w-[calc(var(--control-h-sm)*0.64)] shrink-0 flex-col overflow-hidden rounded-[calc(var(--radius-control)*0.5)] border-[length:var(--border-w)] border-[color:var(--control-outline)] bg-[var(--bg-panel)]">
             <button type="button" aria-label="增加" title="增加" class="flex h-1/2 items-center justify-center text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.disabled || props.readonly" @click="stepValueBy('up')">
-                <span class="i-lucide-chevron-up h-2.5 w-2.5" aria-hidden="true"></span>
+                <span class="i-lucide-chevron-up h-[1em] w-[1em]" aria-hidden="true"></span>
             </button>
-            <button type="button" aria-label="减少" title="减少" class="flex h-1/2 items-center justify-center border-t border-[var(--control-outline)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.disabled || props.readonly" @click="stepValueBy('down')">
-                <span class="i-lucide-chevron-down h-2.5 w-2.5" aria-hidden="true"></span>
+            <button type="button" aria-label="减少" title="减少" class="flex h-1/2 items-center justify-center border-t-[length:var(--border-w)] border-[color:var(--control-outline)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.disabled || props.readonly" @click="stepValueBy('down')">
+                <span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
             </button>
         </span>
     </div>

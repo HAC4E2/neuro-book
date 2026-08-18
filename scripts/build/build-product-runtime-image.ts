@@ -20,6 +20,8 @@ export {PRODUCT_RUNTIME_MAX_BYTES, PRODUCT_RUNTIME_MAX_FILES};
 export const PRODUCT_SOURCE_DATE_EPOCH = "0";
 export const PRODUCT_NODE_OPTIONS = "--max-old-space-size=4096";
 const NUXT_CLI_ENTRY = "node_modules/nuxt/bin/nuxt.mjs";
+const PREPARE_SYSTEM_ASSETS_ENTRY = "../../scripts/build/prepare-system-assets.ts";
+const PATCH_NITRO_RUNTIME_DEPS_ENTRY = "../../scripts/build/patch-nitro-runtime-deps.mjs";
 const PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT = new Set([
     "APPDATA",
     "COMSPEC",
@@ -54,7 +56,11 @@ export async function buildProductRuntimeImage(): Promise<void> {
         await prepareProductRuntimeSource(buildEnvironment);
         const explicitRevision = process.env.NEURO_BOOK_SOURCE_REVISION?.trim();
         const operationId = `${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-        const builder = new ProductRuntimeImageBuilder(roots.repositoryRoot);
+        const builder = new ProductRuntimeImageBuilder({
+            repositoryRoot: roots.repositoryRoot,
+            applicationSourceRoot: roots.applicationSourceRoot,
+            deployRoot: resolve(roots.repositoryRoot, ".deploy"),
+        });
         const candidate = await builder.buildCandidate({
             operationId,
             platform,
@@ -82,7 +88,7 @@ export async function buildProductRuntimeImage(): Promise<void> {
 export async function prepareProductRuntimeSource(buildEnvironment: NodeJS.ProcessEnv): Promise<void> {
     await run("bun", [NUXT_CLI_ENTRY, "prepare", "--dotenv", ".env.product"], buildEnvironment);
     await run("bun", ["run", "generate"], buildEnvironment);
-    await run("bun", ["scripts/build/prepare-system-assets.ts"], buildEnvironment);
+    await run("bun", [PREPARE_SYSTEM_ASSETS_ENTRY], buildEnvironment);
 }
 
 /**
@@ -99,7 +105,7 @@ export async function buildProductRuntimePayload(
         NEURO_BOOK_PRODUCT_IMAGE_ROOT: context.imageRoot,
         NEURO_BOOK_PRODUCT_SOURCE_DIGEST: context.sourceDigest,
     });
-    await run("bun", ["scripts/build/patch-nitro-runtime-deps.mjs"], {
+    await run("bun", [PATCH_NITRO_RUNTIME_DEPS_ENTRY], {
         ...buildEnvironment,
         NEURO_BOOK_OUTPUT_DIR: context.imageRoot,
         NEURO_BOOK_PRODUCT_SCRATCH_ROOT: context.scratchRoot,
