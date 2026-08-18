@@ -1,6 +1,6 @@
 # packages/neuro-book 规则
 
-- 这是 NeuroBook 主应用 package；前端、server、shared、assets、Prisma 与 Nuxt 配置均由本 package 拥有。
+仓库共享协作、安全、Git、临时目录、报告和通用 TypeScript 规则见 [`../../AGENTS.md`](../../AGENTS.md)；本文件只补充主应用包的项目专属合同。
 - Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色只消费 `app/utils/theme/README.md` 登记的变量。
 - 普通界面复用 `app/components/common` 与现有通知、Dialog、Tooltip、可调整面板能力。
 - 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。

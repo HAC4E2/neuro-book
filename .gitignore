@@ -81,6 +81,8 @@ t16-editor-heat.png
 /packages/nb-history/*.sqlite-shm
 /packages/nb-history/.tmp/
 /packages/*/.agent/
+/packages/*/.local/
+/packages/*/.worktree/
 /packages/nb-memory/*.log
 /packages/nb-ui/.nuxt/
 /packages/nb-ui/.output/

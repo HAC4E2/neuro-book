@@ -5,8 +5,8 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {verifyTaskMigration} from "#scripts/ci/agent-governance-contract";
-import { createTestTmpRoot } from "@notnotype/neuro-book-test-support/tmp";
+import {primaryCheckoutRoot, verifyMonorepoWorktreeLayout, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
 const fixtureRoots: string[] = [];
@@ -49,6 +49,86 @@ describe("agent governance task migration gate", () => {
         expect(verifyTaskMigration(repoRoot)).toEqual([]);
     });
 });
+
+describe("workspace 包级治理门禁", () => {
+    it("允许带根继承链接的可选包治理资产", async () => {
+        const repoRoot = await createPackageFixture({runtime: null, autonomous: false});
+
+        expect(verifyWorkspacePackageGovernance(repoRoot)).toEqual([]);
+    });
+
+    it("自治包缺少 docs、Task 或状态资产时失败", async () => {
+        const repoRoot = await createPackageFixture({runtime: null, autonomous: true});
+
+        expect(verifyWorkspacePackageGovernance(repoRoot)).toEqual([
+            "包级治理资产缺少 AGENTS.md：packages/nb-history/AGENTS.md",
+            "自治workspace包缺少归属资产：packages/nb-history/.agents/tasks",
+            "自治workspace包缺少归属资产：packages/nb-history/docs",
+            "自治workspace包缺少归属资产：packages/nb-history/PROJECT-STATUS.md",
+        ]);
+    });
+
+    it("允许被忽略且未跟踪的包级 .local，拒绝被跟踪的运行态", async () => {
+        const ignoredRoot = await createPackageFixture({runtime: ".local", autonomous: false});
+        expect(verifyWorkspacePackageGovernance(ignoredRoot)).toEqual([]);
+
+        const trackedRoot = await createPackageFixture({runtime: ".agent", autonomous: false, trackRuntime: true});
+        expect(verifyWorkspacePackageGovernance(trackedRoot)).toContain("包级运行态被 Git 跟踪：packages/sample/.agent");
+    });
+});
+
+describe("monorepo worktree 根门禁", () => {
+    it("解析 linked worktree 的主 checkout，并拒绝 canonical 根外 worktree", async () => {
+        const {primary, linked, outside} = await createWorktreeFixture();
+        try {
+            expect(primaryCheckoutRoot(linked)).toBe(primary);
+            expect(verifyMonorepoWorktreeLayout(linked).some((failure) => failure.includes("monorepo worktree 位置违规"))).toBe(true);
+        } finally {
+            await runGit(primary, ["worktree", "remove", "--force", linked]);
+            await runGit(primary, ["worktree", "remove", "--force", outside]);
+        }
+    });
+});
+
+async function createPackageFixture(options: {runtime: ".agent" | ".local" | ".worktree" | null; autonomous: boolean; trackRuntime?: boolean}): Promise<string> {
+    const root = await createTestTmpRoot("governance-package", "governance-package-test");
+    fixtureRoots.push(root);
+    const packageName = options.autonomous ? "nb-history" : "sample";
+    await writeText(root, ".gitignore", "/packages/*/.agent/\n/packages/*/.local/\n/packages/*/.worktree/\n");
+    await writeText(root, `packages/${packageName}/package.json`, JSON.stringify({name: options.autonomous ? "@notnotype/nb-history" : "@notnotype/sample", version: "0.0.0"}));
+    if (!options.autonomous) {
+        await writeText(root, `packages/${packageName}/AGENTS.md`, "共享规则见 ../../AGENTS.md\n");
+        await writeText(root, `packages/${packageName}/.agents/tasks/README.md`, "# Tasks\n");
+        await writeText(root, `packages/${packageName}/.agents/tasks/one.md`, "taskId: sample-1\n");
+        await writeText(root, `packages/${packageName}/docs/README.md`, "# Docs\n");
+        await writeText(root, `packages/${packageName}/PROJECT-STATUS.md`, "# Status\n");
+    }
+    if (options.runtime) await writeText(root, `packages/${packageName}/${options.runtime}/state.json`, "{}\n");
+    await runGit(root, ["init", "--initial-branch", "master"]);
+    await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
+    await runGit(root, ["config", "user.name", "Governance Test"]);
+    await runGit(root, ["add", ".gitignore", "packages"]);
+    if (options.trackRuntime) await runGit(root, ["add", "-f", `packages/${packageName}/${options.runtime}`]);
+    await runGit(root, ["commit", "-m", "fixture"]);
+    return root;
+}
+
+async function createWorktreeFixture(): Promise<{primary: string; linked: string; outside: string}> {
+    const primary = await createTestTmpRoot("governance-worktree", "governance-worktree-test");
+    fixtureRoots.push(primary);
+    await mkdir(join(primary, ".worktree"), {recursive: true});
+    const linked = join(primary, ".worktree", "inside");
+    const outside = `${primary}-outside`;
+    await writeText(primary, "README.md", "fixture\n");
+    await runGit(primary, ["init", "--initial-branch", "master"]);
+    await runGit(primary, ["config", "user.email", "governance-test@example.invalid"]);
+    await runGit(primary, ["config", "user.name", "Governance Test"]);
+    await runGit(primary, ["add", "README.md"]);
+    await runGit(primary, ["commit", "-m", "fixture"]);
+    await runGit(primary, ["worktree", "add", "--detach", linked]);
+    await runGit(primary, ["worktree", "add", "--detach", outside]);
+    return {primary, linked, outside};
+}
 
 async function createFixture(options: {stageTargets: boolean; retainLegacy: boolean; commitCutover?: boolean}): Promise<string> {
 

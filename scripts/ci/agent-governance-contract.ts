@@ -1,9 +1,9 @@
 import {createHash} from "node:crypto";
 import {execFileSync} from "node:child_process";
 import {existsSync, lstatSync, readFileSync, readdirSync} from "node:fs";
-import {dirname, resolve} from "node:path";
+import {dirname, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import { resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot } from "@notnotype/neuro-book-test-support/paths";
+import {resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot} from "@notnotype/neuro-book-test-support/paths";
 
 export const GOVERNANCE_SCHEMA = "nbook.governance/v1";
 export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
@@ -84,8 +84,51 @@ export function governanceRoots(repoRoot: string, env: NodeJS.ProcessEnv = proce
         testRoot: resolveAgentTestRoot(env.NBOOK_TEST_RUN_ID && /^[a-f0-9]{8}$/u.test(env.NBOOK_TEST_RUN_ID) ? env.NBOOK_TEST_RUN_ID : "00000000", env),
         acceptanceRoot: resolveAgentAcceptanceRoot(env),
         cacheRoot: resolveAgentCacheRoot("source-dev", env),
-        worktreeRoot: resolveAgentWorktreeRoot(repoRoot, env),
+        worktreeRoot: resolveAgentWorktreeRoot(primaryCheckoutRoot(repoRoot), env),
     };
+}
+
+/** 返回共享 Git common dir 对应的主 checkout，避免 linked worktree 内嵌套 `.worktree/.worktree`。 */
+export function primaryCheckoutRoot(repoRoot: string): string {
+    const commonDir = resolve(repoRoot, git(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+    return dirname(commonDir);
+}
+
+/** 校验 monorepo registered worktree 只位于主 checkout 的 canonical `.worktree/` 下。 */
+export function verifyMonorepoWorktreeLayout(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const primaryRoot = primaryCheckoutRoot(repoRoot);
+    const canonicalRoot = resolve(primaryRoot, ".worktree");
+    for (const entry of parseWorktreeEntries(git(repoRoot, ["worktree", "list", "--porcelain"]))) {
+        const worktree = typeof entry.worktree === "string" ? entry.worktree : null;
+        if (!worktree || samePath(worktree, primaryRoot)) continue;
+        if (!isAbsoluteInside(worktree, canonicalRoot)) failures.push(`monorepo worktree 位置违规：${worktree}（应位于 ${canonicalRoot}）`);
+    }
+    if (!samePath(repoRoot, primaryRoot) && !isAbsoluteInside(repoRoot, canonicalRoot)) {
+        failures.push(`当前 worktree 不在主 checkout 的 canonical 根下：${repoRoot}`);
+    }
+    return failures;
+}
+
+function parseWorktreeEntries(text: string): Array<Record<string, string | true>> {
+    return text.split(/\n\n/u).filter(Boolean).map((block) => Object.fromEntries(block.split(/\r?\n/u).map((line) => {
+        const separator = line.indexOf(" ");
+        return separator < 0 ? [line, true] : [line.slice(0, separator), line.slice(separator + 1)];
+    })));
+}
+
+function samePath(left: string, right: string): boolean {
+    return normalizePath(left) === normalizePath(right);
+}
+
+function isAbsoluteInside(path: string, parent: string): boolean {
+    const remainder = relative(normalizePath(parent), normalizePath(path));
+    return remainder !== "" && !remainder.startsWith("..") && !remainder.startsWith("/") && !/^[A-Za-z]:/u.test(remainder);
+}
+
+function normalizePath(path: string): string {
+    const normalized = resolve(path).replaceAll("\\", "/");
+    return process.platform === "win32" ? normalized.toLocaleLowerCase("en-US") : normalized;
 }
 
 export function expectedGovernanceFiles(): readonly string[] {
@@ -205,8 +248,8 @@ export function verifyTaskMigration(repoRoot: string): string[] {
 }
 
 /**
- * 校验 workspace 运行垃圾与自治项目治理资产归属。
- * 当前阶段允许自治项目尚未收编；一旦包目录存在，就必须满足完整归属合同。
+ * 校验所有 workspace 包的继承/覆盖规则、运行态边界和自治包归属资产。
+ * 自治包保留项目 docs/Task/status；其他包可选建立同类专属资产，但不得复制根治理正文。
  */
 export function verifyWorkspacePackageGovernance(repoRoot: string): string[] {
     const failures: string[] = [];
@@ -215,39 +258,68 @@ export function verifyWorkspacePackageGovernance(repoRoot: string): string[] {
         ? readdirSync(packagesRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
         : [];
     const autonomous = new Set(["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"]);
-    const internal = new Set(["neuro-book", "neuro-book-manager", "owned-process", "file-snapshot-cache", "neuro-book-test-support"]);
+    const manifestNames = new Map<string, string>();
+    const manifests = new Map<string, Record<string, unknown>>();
 
     for (const packageName of packageNames) {
         const packageRoot = resolve(packagesRoot, packageName);
-        for (const runtimeName of [".agent", ".local", ".worktree"]) {
+        const manifest = readJson<Record<string, unknown>>(resolve(packageRoot, "package.json"), failures, `packages/${packageName}/package.json`);
+        if (!manifest) continue;
+        manifests.set(packageName, manifest);
+        if (typeof manifest.name !== "string" || !manifest.name) failures.push(`workspace包 package.json 缺少 name：packages/${packageName}/package.json`);
+        else if (manifestNames.has(manifest.name)) failures.push(`workspace包 package name 重复：${manifest.name}`);
+        else manifestNames.set(manifest.name, packageName);
+    }
+
+    for (const packageName of packageNames) {
+        const packageRoot = resolve(packagesRoot, packageName);
+        const manifest = manifests.get(packageName);
+        if (!manifest) continue;
+        for (const runtimeName of [".agent", ".local", ".worktree"] as const) {
             const runtimePath = resolve(packageRoot, runtimeName);
             if (!pathEntryExists(runtimePath)) continue;
-            failures.push(`workspace包包含运行态目录：packages/${packageName}/${runtimeName}`);
+            const relativePath = `packages/${packageName}/${runtimeName}`;
+            if (!isGitIgnored(repoRoot, `${relativePath}/placeholder`)) failures.push(`包级运行态未被忽略：${relativePath}`);
+            if (trackedPathExists(repoRoot, relativePath)) failures.push(`包级运行态被 Git 跟踪：${relativePath}`);
+            if (runtimeName === ".worktree") failures.push(`临时 package worktree 尚未清理：${relativePath}`);
         }
+
+        const agentsPath = resolve(packageRoot, "AGENTS.md");
         const taskRoot = resolve(packageRoot, ".agents", "tasks");
         const docsRoot = resolve(packageRoot, "docs");
         const statusPath = resolve(packageRoot, "PROJECT-STATUS.md");
-        const agentsPath = resolve(packageRoot, "AGENTS.md");
-        if (autonomous.has(packageName)) {
-            for (const required of [[taskRoot, `.agents/tasks`], [docsRoot, "docs"], [statusPath, "PROJECT-STATUS.md"]] as const) {
-                if (!pathEntryExists(required[0])) failures.push(`自治workspace包缺少归属资产：packages/${packageName}/${required[1]}`);
-            }
-            if (!pathEntryExists(agentsPath)) {
-                failures.push(`自治workspace包缺少AGENTS.md：packages/${packageName}/AGENTS.md`);
-            } else {
-                const text = readFileSync(agentsPath, "utf8");
-                if (!text.includes("../../AGENTS.md") && !text.includes("根共享") && !text.includes("shared Rule")) {
-                    failures.push(`自治workspace包AGENTS.md未引用根共享规则：packages/${packageName}/AGENTS.md`);
-                }
-            }
+        const hasLocalGovernance = pathEntryExists(agentsPath) || pathEntryExists(taskRoot) || pathEntryExists(docsRoot) || pathEntryExists(statusPath);
+        if (hasLocalGovernance || autonomous.has(packageName)) {
+            if (!pathEntryExists(agentsPath)) failures.push(`包级治理资产缺少 AGENTS.md：packages/${packageName}/AGENTS.md`);
+            else if (!readFileSync(agentsPath, "utf8").includes("../../AGENTS.md")) failures.push(`包级 AGENTS.md 未引用根共享规则：packages/${packageName}/AGENTS.md`);
             failures.push(...verifyPackageTaskIds(packageRoot, packageName));
-        } else if (internal.has(packageName)) {
+        }
+        if (autonomous.has(packageName)) {
             for (const [entryPath, label] of [[taskRoot, ".agents/tasks"], [docsRoot, "docs"], [statusPath, "PROJECT-STATUS.md"]] as const) {
-                if (pathEntryExists(entryPath)) failures.push(`NeuroBook内部包不得建立第二治理根：packages/${packageName}/${label}`);
+                if (!pathEntryExists(entryPath)) failures.push(`自治workspace包缺少归属资产：packages/${packageName}/${label}`);
             }
+        }
+
+        for (const dependencyName of workspaceDependencies(manifest)) {
+            if (!manifestNames.has(dependencyName)) failures.push(`workspace依赖未对应本地包：packages/${packageName} -> ${dependencyName}`);
+        }
+        if (packageName !== "neuro-book" && workspaceDependencies(manifest).includes("@notnotype/neuro-book")) {
+            failures.push(`自治或内部包不得依赖主应用：packages/${packageName} -> @notnotype/neuro-book`);
         }
     }
     return failures;
+}
+
+function workspaceDependencies(manifest: Record<string, unknown>): string[] {
+    const names = new Set<string>();
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+        const value = manifest[field];
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        for (const [name, version] of Object.entries(value)) {
+            if (typeof version === "string" && (version.startsWith("workspace:") || version.startsWith("file:../"))) names.add(name);
+        }
+    }
+    return [...names];
 }
 
 function pathEntryExists(path: string): boolean {
@@ -274,6 +346,13 @@ function verifyPackageTaskIds(packageRoot: string, packageName: string): string[
         }
     }
     return failures;
+}
+function trackedPathExists(repoRoot: string, relativePath: string): boolean {
+    try {
+        return Boolean(git(repoRoot, ["ls-files", "--", relativePath, `${relativePath}/`]).trim());
+    } catch {
+        return false;
+    }
 }
 
 function collectMarkdownFiles(root: string): string[] {
