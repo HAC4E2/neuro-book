@@ -51,4 +51,8 @@ createdAt: 2026-08-18T11:05:00Z
 - 主应用全量回归的 profile SDK 依赖边界失败尚未修复；未将它误记为通过。
 - Windows portable release 要求 clean checkout；当前迁移 worktree 按计划保持 dirty，未执行强行清理。
 - 用户已选择“批准并继续”：允许承认已发生的 `0fdec90bac0456b67045185c99cb8b829e75bd6c` 计划外源仓提交，并仅使用其等价内容作为迁移输入；不允许新的原仓写操作。
+
+## 证据纠正
+
+2026-08-18：在继续子项目同步前，复核 `git status --porcelain=v1 --untracked-files=all`、`git diff --check`、`git diff --cached --check` 和 `bun run governance:check`。本次只把 S6 evidence 的 `checkpoint.workingTree` 改为实际 clean 状态并移除无法写入自身的 pending checkpoint commit 字段；S6 仍为 `blocked`，既有失败、未验收边界、T02 批准例外和历史非最终 tag 均保持不变。
 - 原仓 T02 immutability gate 不宣称 clean-green，作为用户批准的计划外例外保留；主仓本地迁移提交 `ba694892a21fec57cfc176f43819f84fef3fdbc1` 已完成，显式 merge `origin/master` 生成 `da3343919b52a482d562140517f8e4cd6229b9e3`；S6 当前因主应用失败、未处理 worker error、llmlint 与 docs 边界阻塞，保持 `blocked`，不创建最终 tag、不宣称绿色验收。

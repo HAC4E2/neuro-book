@@ -72,10 +72,9 @@
   ],
   "checkpoint": {
     "mainRepositoryMerge": "da3343919b52a482d562140517f8e4cd6229b9e3; parents ba694892a21fec57cfc176f43819f84fef3fdbc1 and 5e55c54e13cd67f6e19c5361931fca1fe9ae4241",
-    "checkpointCommit": "pending final blocked-state checkpoint",
     "checkpointTag": "t149-s6-main-app-physical-cutover-4f39cf8c (retained historical tag; not final)",
     "status": "blocked; checkpoint evidence retained for physical cutover with unresolved inherited failures",
-    "workingTree": "pending final evidence commit",
+    "workingTree": "clean; verified by git status --porcelain=v1 --untracked-files=all (no output) before and after this evidence correction commit; not a final green checkpoint",
     "governance": "bun run governance:check last passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
     "desktopContract": "bun run test:desktop-contract passed; 11 files / 37 tests",
     "diffCheck": "git diff --check && git diff --cached --check passed"
