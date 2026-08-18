@@ -35,17 +35,20 @@ createdAt: 2026-08-18T11:05:00Z
 
 ## 已验证
 
-- `packages/nb-workflow`: `bun test` 103 pass / 0 fail；`bunx tsc --noEmit` 通过。
-- `packages/neuro-book`: `bun run typecheck` 通过；workflow 聚焦集 49 pass / 0 fail；全量 `bun run test -- --retry=3` 为 3078 pass / 3 skip。
+- `packages/nb-workflow`: 实际命令 `bun test`，103 pass / 0 fail；`bunx tsc --noEmit` 通过。
+- `packages/neuro-book`: 实际命令 `bun run --cwd packages/neuro-book typecheck` 通过；workflow 聚焦命令 `bun run --cwd packages/neuro-book test -- server/agent/workflow/workflow-demo-service.test.ts server/agent/workflow/workflow-run-vm.test.ts server/agent/workflow/workflow-session-port.test.ts` 为 3 files / 18 passed。
+- 主应用全量实际命令为 `bun --cwd packages/neuro-book test -- --retry=3`，结果为 1 file failed / 415 passed / 1 skipped；3082 passed / 3 skipped。失败文件是 `server/agent/profiles/profile-sdk-contract.test.ts`，`director.profile.tsx` 的依赖包含 `server/utils/frontmatter-document.ts`。
+- 根 `package.json` 没有 `test` script；`bun run test -- --retry=3` 没有执行根全量测试，不作为通过证据。
 - 端到端 smoke 观察到 `fingerprint=sha256:<64 lowercase hex>`，ActivityRecord 与 `activity_started` 均含 canonical `params`。
 - 公共投影回归证明 journal/event 不含 `params`，invocation usage.cost 被移除，用户自定义 result.cost 保留。
-- `bun run governance:check` 通过，frozen install 通过。
+- `bun run governance:check` 首次在主应用全量测试后因生成的未跟踪运行态目录 `packages/neuro-book/.agent` 失败；删除该目录后重新运行同命令，结果为 `failures=[]`、`warnings=[]`。
+- `bun run test:desktop-contract` 实际为 11 files / 37 tests passed；此前记录的 4 个 ENOENT 属于路径修复前结果，已不再列为当前失败。
 
 ## 未通过或未验收
 
-- `packages/llmlint bun run verify` 仍有 2 个继承失败；`bun run test -- --retry=3` 复现同两项。
+- `packages/llmlint bun run verify` 仍有 2 个继承失败；`bun run --cwd packages/llmlint test -- --retry=3` 复现同两项。
 - `docs:build` 仍有 15 个既有 dead links。
-- `test:desktop-contract` 仍有 4 个因根路径解析旧于 `packages/neuro-book` 迁移的 ENOENT。
+- 主应用全量回归的 profile SDK 依赖边界失败尚未修复；未将它误记为通过。
 - Windows portable release 要求 clean checkout；当前迁移 worktree 按计划保持 dirty，未执行强行清理。
 - 用户已选择“批准并继续”：允许承认已发生的 `0fdec90bac0456b67045185c99cb8b829e75bd6c` 计划外源仓提交，并仅使用其等价内容作为迁移输入；不允许新的原仓写操作。
-- 原仓 T02 immutability gate 不宣称 clean-green，作为用户批准的计划外例外保留；主仓 merge/checkpoint 尚未执行，待本轮收敛。
+- 原仓 T02 immutability gate 不宣称 clean-green，作为用户批准的计划外例外保留；主仓本地迁移提交 `ba694892a21fec57cfc176f43819f84fef3fdbc1` 已完成，显式 merge `origin/master` 生成 `da3343919b52a482d562140517f8e4cd6229b9e3`，但 S6 当前只保留为 `green-focused-with-inherited-blockers`，不宣称绿色验收。

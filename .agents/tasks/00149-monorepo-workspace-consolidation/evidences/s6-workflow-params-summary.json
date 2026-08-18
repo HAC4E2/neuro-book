@@ -37,10 +37,11 @@
       "activityRecordParams": "canonical JSON present",
       "activityStartedParams": "canonical JSON present"
     },
-    "neuroBookTypecheck": "passed",
-    "neuroBookWorkflowFocused": "49 passed / 0 failed across 12 files",
-    "neuroBookFull": "3078 passed / 3 skipped across 416 files with --retry=3",
-    "governance": "failures=[]; warnings=[]",
+    "neuroBookTypecheck": "bun run --cwd packages/neuro-book typecheck passed",
+    "neuroBookWorkflowFocused": "bun run --cwd packages/neuro-book test -- server/agent/workflow/workflow-demo-service.test.ts server/agent/workflow/workflow-run-vm.test.ts server/agent/workflow/workflow-session-port.test.ts: 3 files / 18 passed",
+    "neuroBookFull": "bun --cwd packages/neuro-book test -- --retry=3 failed: 1 file / 1 failed / 415 passed / 1 skipped; 3082 passed / 3 skipped; profile-sdk-contract.test.ts rejects merged frontmatter-document dependency",
+    "rootTestCommand": "bun run test -- --retry=3 was not a valid root full-suite command because root package.json has no test script; no root tests were run",
+    "governance": "bun run governance:check passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
     "frozenInstall": "bun install --frozen-lockfile --linker hoisted passed; bun.lock sha256 f4c4d6307e6e39c38d6860a6fab8bd0dd8cdfa9e2464b6ca37ed200a4ce82200",
     "otherWorkspacePackages": {
       "nb-history": "49 passed / typecheck passed",
@@ -56,9 +57,9 @@
   },
   "inheritedFailures": [
     "packages/llmlint bun run verify: 424 passed / 2 failed; failures are neuro-agent-harness-profile lint_check status and revision-text-workspace weak-rule metadata",
+    "packages/llmlint bun run test -- --retry=3: same 2 inherited failures",
     "root docs:build: 15 pre-existing dead links in docs/proposals and docs/specs",
-    "root test:desktop-contract: 4 path-resolution ENOENT failures because the package was moved under packages/neuro-book while this contract suite still resolves repository-root app paths",
-    "packages/llmlint bun run test: same 2 inherited failures",
+    "packages/neuro-book test: 1 inherited/merge-adjacent failure in profile-sdk-contract.test.ts; director.profile.tsx dependency includes server/utils/frontmatter-document.ts",
     "package:windows-portable not run to completion: release source requires clean checkout, current migration worktree is intentionally dirty"
   ],
   "notAccepted": [
@@ -70,7 +71,13 @@
     "signed/public release"
   ],
   "checkpoint": {
-    "mainRepositoryMerge": "pending in this worktree",
-    "checkpointCommit": "pending in this worktree"
+    "mainRepositoryMerge": "da3343919b52a482d562140517f8e4cd6229b9e3; parents ba694892a21fec57cfc176f43819f84fef3fdbc1 and 5e55c54e13cd67f6e19c5361931fca1fe9ae4241",
+    "checkpointCommit": "4f39cf8c94b365306f70def7eab7844460d87d3c",
+    "checkpointTag": "t149-s6-main-app-physical-cutover-4f39cf8c",
+    "status": "not-green; checkpoint evidence retained for physical cutover with inherited blockers",
+    "workingTree": "runtime directory removed; evidence files modified and pending commit",
+    "governance": "bun run governance:check passed after removing packages/neuro-book/.agent; failures=[]; warnings=[]",
+    "desktopContract": "bun run test:desktop-contract passed; 11 files / 37 tests",
+    "diffCheck": "git diff --check && git diff --cached --check passed"
   }
 }
