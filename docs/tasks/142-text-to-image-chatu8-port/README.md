@@ -578,3 +578,20 @@
 
 - 当前工作目录无 `.git`，无法创建 worktree、分支或 PR；改动直接落在源码目录，需后续在具备 Git 元数据的工作区审查提交。
 - 生成期间正文编辑仍保持只读，以保证服务端按占位符局部写回不覆盖未保存文本；本轮只放开其它图片卡片的入队按钮，允许正文边生成边编辑仍需另行设计增量合并合同。
+
+## 实施记录（2026-08-18 同步上游 master）
+
+本轮将 `origin/master` 的 `5e55c54e13cd67f6e19c5361931fca1fe9ae4241` 合并到 `new-text-to-picture`，保留正文文生图功能，并接入上游 lorebook 类型卡片、frontmatter 工具抽取和 Manager Podman Compose 输出更新。
+
+### 冲突处理
+
+- 唯一文本冲突位于 `app/pages/index.vue`：合并后的 `useDialog()` 同时保留上游 `chooseCards` 和本地文生图整章重生成使用的 `confirm`，两条用户流程均未回退。
+- 删除残留的 `character-library/visual.copy` API。该入口对应的 `createCopy()` 已在视觉资料跨组移动施工中被正式移除，原源码目录也已删除此文件；本次隔离克隆暴露出此前同步提交漏带删除记录，若保留会导致整仓类型检查失败并重新暴露已废弃的浅复制合同。
+- 其余上游文件由 Git 自动合并；未改写上游 Manager/Podman、frontmatter 和 lorebook 实现。
+
+### 验证记录
+
+- 文生图、正文 API、前端合同、DTO 与上游 frontmatter 聚焦回归：`77` 个测试文件、`451/451` 通过。
+- 上游 Manager/Podman 聚焦回归：`2` 个测试文件、`59/59` 通过（使用 Bun，覆盖 `bun:sqlite`）。
+- Node 驱动 Nuxt typecheck：退出码 `0`。
+- 未执行：浏览器人工验收、真实 LLM/NovelAI 请求、真实用户 Project 的长期队列运行。
