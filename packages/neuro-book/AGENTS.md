@@ -1,6 +1,11 @@
 # packages/neuro-book 规则
 
 仓库共享协作、安全、Git、临时目录、报告和通用 TypeScript 规则见 [`../../AGENTS.md`](../../AGENTS.md)；本文件只补充主应用包的项目专属合同。
+
+## 包内文档
+
+- 主应用专属文档位于 [`docs/`](docs/)：`docs/adr/` 架构决策、`docs/migrations/` 数据迁移、`docs/runbooks/` 操作手册、`docs/research/` 与 `docs/archived/` 非规范资料、`docs/specs/foundation/` 术语与 capability Spec、`docs/proposals/` 产品提案。
+- monorepo 级治理仍在根 [`docs/`](../../docs/)（specs 注册表、standards、testing、modules 边界正文与提案流程）；判断当前行为只依据根注册表登记的 `implemented` Spec。
 - Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色只消费 `app/utils/theme/README.md` 登记的变量。
 - 普通界面复用 `app/components/common` 与现有通知、Dialog、Tooltip、可调整面板能力。
 - 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。

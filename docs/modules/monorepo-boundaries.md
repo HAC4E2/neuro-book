@@ -53,7 +53,7 @@ Source / Product / Desktop / Release 宿主 adapter
 - `packages/neuro-book/server/runtime/commands/` 只适配 Product Runtime Contract；Workspace CLI 的实现归 Workspace Module。
 - Manager 通过稳定的 Product/Release/Installation 合同消费应用产物，不导入 Nuxt 页面或根应用特例。
 - Desktop Envelope 只拥有宿主窗口、Supervisor、安装和退出协议；不复制 Product Runtime 合同。
-- 共享 DTO 或 verifier 只有在实际存在跨宿主复用且不会形成反向环时才下沉。当前依赖环和 type-only 环按 [ADR 0015](../adr/0015-architecture-boundaries-and-deferred-structure.md) 保持记录，不为“看起来干净”提前抽包。
+- 共享 DTO 或 verifier 只有在实际存在跨宿主复用且不会形成反向环时才下沉。当前依赖环和 type-only 环按 [ADR 0015](../../packages/neuro-book/docs/adr/0015-architecture-boundaries-and-deferred-structure.md) 保持记录，不为“看起来干净”提前抽包。
 
 ## 物理迁移步骤
 
@@ -86,4 +86,4 @@ Source / Product / Desktop / Release 宿主 adapter
 - focused Module tests、应用集成测试、typecheck 和必要的平台门禁均有真实命令和证据。
 - Task、ADR、Reference、CI workflow、包发布合同和回滚说明同步完成。
 
-相关长期边界见根 [AGENTS.md](../../AGENTS.md)、[packages/AGENTS.md](../../packages/AGENTS.md)、[ADR 0015](../adr/0015-architecture-boundaries-and-deferred-structure.md) 和 [ADR 0009](../adr/0009-product-runtime-image-generation.md)。当前规范注册表继续以本文件为 Monorepo / Module 唯一正文，不创建 `docs/specs/architecture/monorepo-boundaries.md` 副本。
+相关长期边界见根 [AGENTS.md](../../AGENTS.md)、[packages/AGENTS.md](../../packages/AGENTS.md)、[ADR 0015](../../packages/neuro-book/docs/adr/0015-architecture-boundaries-and-deferred-structure.md) 和 [ADR 0009](../../packages/neuro-book/docs/adr/0009-product-runtime-image-generation.md)。当前规范注册表继续以本文件为 Monorepo / Module 唯一正文，不创建 `docs/specs/architecture/monorepo-boundaries.md` 副本。

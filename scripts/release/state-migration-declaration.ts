@@ -9,7 +9,7 @@ export const RELEASE_STATE_MIGRATION_DECLARATION = "release-state-migration.json
 const APPLICATION_ROOT_RELATIVE_PATH = "packages/neuro-book";
 const REQUIRED_SOURCE_MIGRATION_FILES = [
     `${APPLICATION_ROOT_RELATIVE_PATH}/${RELEASE_STATE_MIGRATION_DECLARATION}`,
-    "docs/migrations/README.md",
+    `${APPLICATION_ROOT_RELATIVE_PATH}/docs/migrations/README.md`,
     `${APPLICATION_ROOT_RELATIVE_PATH}/scripts/db/migrate-application-state.ts`,
     `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-command.ts`,
     `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/app-sqlite-step.ts`,
@@ -52,12 +52,12 @@ export async function readReleaseStateMigrationDeclaration(
     }
 
     if (declaration.guide) {
-        const migrationsRoot = resolve(root, "docs", "migrations");
-        const guidePath = resolve(migrationsRoot, declaration.guide.replace(/^docs[\\/]migrations[\\/]/u, ""));
+        const migrationsRoot = resolve(applicationRoot, "docs", "migrations");
+        const guidePath = resolve(migrationsRoot, declaration.guide.replace(/^packages[\\/]neuro-book[\\/]docs[\\/]migrations[\\/]/u, ""));
         const guideRelativePath = relative(migrationsRoot, guidePath);
         if (!guideRelativePath || guideRelativePath === ".." || guideRelativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
             || isAbsolute(guideRelativePath)) {
-            throw new Error("state migration guide 必须位于 docs/migrations/。");
+            throw new Error("state migration guide 必须位于 packages/neuro-book/docs/migrations/。");
         }
         const guideStat = await stat(guidePath).catch(() => null);
         if (!guideStat?.isFile()) {

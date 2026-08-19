@@ -141,7 +141,7 @@ type AgentJobEventDto = {
 - `available`：无创建游标但列表已有 Job，或同 epoch 已覆盖创建点且 Job 存在；
 - `unavailable`：同 epoch 已覆盖创建点但 Job 不存在，或 epoch 不同且随后一次快照恢复成功。
 
-不同 epoch 初见时先恢复快照，不能直接判 unavailable。跨 epoch 恢复证据绑定完整目标 `{jobId, eventEpoch, after}` 与恢复开始时的快照 revision；观察目标在首次 consumer 快照应用前已登记时，该初始原子快照本身可以推进 revision 并完成收敛，不再重复 GET。切换 Job 即使复用相同游标也必须重新收敛，不能沿用前一个 Job 的证据。旧工具结果没有创建游标时，不允许以 loaded、延时或 missing 猜测不可用。完整决策见 [ADR 0003](../../docs/adr/0003-agent-job-observation-causality.md)。
+不同 epoch 初见时先恢复快照，不能直接判 unavailable。跨 epoch 恢复证据绑定完整目标 `{jobId, eventEpoch, after}` 与恢复开始时的快照 revision；观察目标在首次 consumer 快照应用前已登记时，该初始原子快照本身可以推进 revision 并完成收敛，不再重复 GET。切换 Job 即使复用相同游标也必须重新收敛，不能沿用前一个 Job 的证据。旧工具结果没有创建游标时，不允许以 loaded、延时或 missing 猜测不可用。完整决策见 [ADR 0003](../../packages/neuro-book/docs/adr/0003-agent-job-observation-causality.md)。
 
 Workflow RunView 是 Workflow 状态、结果和错误的唯一真相源，也是另一套更细的状态图/日志/待应答观察面。当前仍轮询 `/api/agent/workflow/runs/:runId`；Job 不可查询只关闭取消与 preview，不停止 Run 观察，也不覆盖 Run 终态。Job error 只能显示在明确标注的“后台任务”区域，不能进入 Workflow error。应答、重放与 Run 切换只重启 Run 轮询，不刷新 Jobs。不得把 Run 误记为已迁移到 Jobs SSE。
 

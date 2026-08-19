@@ -27,7 +27,7 @@
 }
 ```
 
-- `name` 是唯一安装身份，不新增 `assetKey`，也不使用 Workshop slug 代替。完整决策见 [ADR 0011](../../docs/adr/0011-agent-asset-install-identity.md)。
+- `name` 是唯一安装身份，不新增 `assetKey`，也不使用 Workshop slug 代替。完整决策见 [ADR 0011](../../packages/neuro-book/docs/adr/0011-agent-asset-install-identity.md)。
 - Skill / Workflow 的 `name` 必须是 kebab-case。Profile 允许 `leader.default` 形式的小写点分 key，每段只使用字母、数字和连字符。
 - `version` 必须是 canonical SemVer。后续发布必须按 SemVer precedence 严格大于当前版本；只修改 build metadata 不算升级。
 - `type` 固定为 `module`。

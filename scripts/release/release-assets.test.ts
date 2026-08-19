@@ -111,7 +111,7 @@ describe("Product Release宿主合同", () => {
                 "agent-session-v2",
                 "agent-session-v2-review-repair",
             ],
-            guide: "docs/migrations/0.9.0-session-v2.md",
+            guide: "packages/neuro-book/docs/migrations/0.9.0-session-v2.md",
         });
 
         const fixtureRoot = await mkdtemp(testHostPath("nbook-release-state-migration-"));
@@ -122,12 +122,12 @@ describe("Product Release宿主合同", () => {
         await writeFile(join(fixtureRoot, "packages", "neuro-book", "release-state-migration.json"), JSON.stringify({
             policy: "manual",
             steps: [],
-            guide: "docs/migrations/manual.md",
+            guide: "packages/neuro-book/docs/migrations/manual.md",
         }), "utf8");
         await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).rejects.toThrow("guide 不存在");
 
-        await mkdir(join(fixtureRoot, "docs", "migrations"), {recursive: true});
-        await writeFile(join(fixtureRoot, "docs", "migrations", "manual.md"), "# Manual\n", "utf8");
+        await mkdir(join(fixtureRoot, "packages", "neuro-book", "docs", "migrations"), {recursive: true});
+        await writeFile(join(fixtureRoot, "packages", "neuro-book", "docs", "migrations", "manual.md"), "# Manual\n", "utf8");
         await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).resolves.toMatchObject({policy: "manual"});
     });
 
@@ -147,12 +147,12 @@ describe("Product Release宿主合同", () => {
         const declaration = {
             policy: "automatic" as const,
             steps: ["app-sqlite" as const],
-            guide: "docs/migrations/0.9.0-session-v2.md",
+            guide: "packages/neuro-book/docs/migrations/0.9.0-session-v2.md",
         };
         const files = [
             "packages/neuro-book/release-state-migration.json",
-            "docs/migrations/README.md",
-            "docs/migrations/0.9.0-session-v2.md",
+            "packages/neuro-book/docs/migrations/README.md",
+            "packages/neuro-book/docs/migrations/0.9.0-session-v2.md",
             "packages/neuro-book/scripts/db/migrate-application-state.ts",
             "packages/neuro-book/server/runtime/application-state-command.ts",
             "packages/neuro-book/server/runtime/application-state-migration/app-sqlite-step.ts",
@@ -774,7 +774,7 @@ async function releaseRepositoryFixture(): Promise<string> {
         ["bun.lock", "fixture-lock\n"],
         ["packages/neuro-book/package.json", `${JSON.stringify({name: "@notnotype/neuro-book", version: "1.2.3", private: true, type: "module"})}\n`],
         ["packages/neuro-book/release-state-migration.json", `${JSON.stringify({policy: "none", steps: []})}\n`],
-        ["docs/migrations/README.md", "# Migrations\n"],
+        ["packages/neuro-book/docs/migrations/README.md", "# Migrations\n"],
         ["packages/neuro-book/scripts/db/migrate-application-state.ts", "export {};\n"],
         ["packages/neuro-book/server/runtime/application-state-command.ts", "export {};\n"],
         ["packages/neuro-book/server/runtime/application-state-migration/app-sqlite-step.ts", "export {};\n"],

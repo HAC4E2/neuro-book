@@ -4,7 +4,7 @@
 
 ## 用户视角人工评测
 
-[`manual-eval/README.md`](manual-eval/README.md) 是测试体系中的人工验收子系统：`criteria.md` 定义判定与证据合同，`journeys/` 保存用户旅程用例，`agent-guide.md` 定义一次评测的执行步骤，`report-template.md` 约束结果格式。它不属于 `docs/runbooks/`，因为整套资产不仅包含操作步骤，还包含测试判据、用例和报告合同。
+[`manual-eval/README.md`](manual-eval/README.md) 是测试体系中的人工验收子系统：`criteria.md` 定义判定与证据合同，`journeys/` 保存用户旅程用例，`agent-guide.md` 定义一次评测的执行步骤，`report-template.md` 约束结果格式。它不属于 `packages/neuro-book/docs/runbooks/`，因为整套资产不仅包含操作步骤，还包含测试判据、用例和报告合同。
 
 1. **测试临时根统一在 `<系统Temp>/neuro-book/vitest/<runId>/`**：
    - 由 `@notnotype/neuro-book-test-support/vitest` 在每个 Vitest worker 启动时把

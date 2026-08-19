@@ -133,7 +133,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 
 - [`docs/README.md`](docs/README.md)：文档职责、优先级、生命周期和 Reference 迁移规则。
 - [`docs/specs/README.md`](docs/specs/README.md)：规范编程模型、`planned` / `implemented` 成熟度、capability 注册表和 Reference 迁移状态。
-- [`docs/specs/foundation/terminology.md`](docs/specs/foundation/terminology.md)：Workspace、运行时、存储、Agent 和产品标准术语。
+- [`packages/neuro-book/docs/specs/foundation/terminology.md`](packages/neuro-book/docs/specs/foundation/terminology.md)：Workspace、运行时、存储、Agent 和产品标准术语。
 - [`docs/standards/code/README.md`](docs/standards/code/README.md)：按改动路径分流的编码与审查规范。
 - [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)：维护者 Git、Issue、Task、PR、合并和发布流程。
 - [`docs/testing/README.md`](docs/testing/README.md)：测试、临时根、环境、验收和证据。

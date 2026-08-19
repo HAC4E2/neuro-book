@@ -4,9 +4,9 @@
 
 当前活跃提案：
 
-- [`character-workbench.md`](character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
+- [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
 
-已完成沉淀的信息架构提案见 [`../archived/proposals/documentation-information-architecture.md`](../archived/proposals/documentation-information-architecture.md)。
+已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
 ## 何时需要 Proposal
 
@@ -38,4 +38,4 @@
 - `accepted` 只是批准修改规范和创建实现 Task；Proposal 本身不会自动成为规范。
 实施前把被批准行为写入 [`../specs/README.md`](../specs/README.md) 注册的当前规范，并在 Proposal 中链接具体规范位置。
 .agents/tasks/ 记录一次实现的范围、步骤、交接和证据；Task 引用 Proposal 与规范，不复制两者全文。
-`rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [docs/archived/](https://github.com/notnotype/neuro-book/tree/master/docs/archived) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。
+`rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../packages/neuro-book/docs/archived/`](../../packages/neuro-book/docs/archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。

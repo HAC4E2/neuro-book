@@ -39,6 +39,8 @@ function isHistoricalMarkdownPath(relativePath: string): boolean {
         || relativePath.includes("/.agents/tasks/")
         || relativePath.startsWith("docs/archived/")
         || relativePath.startsWith("docs/research/")
+        || relativePath.startsWith("packages/neuro-book/docs/archived/")
+        || relativePath.startsWith("packages/neuro-book/docs/research/")
         || relativePath.startsWith("vitepress/changelog/")
         || relativePath.startsWith("vitepress/en/changelog/");
 }
