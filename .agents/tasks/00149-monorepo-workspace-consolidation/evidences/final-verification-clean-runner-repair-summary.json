@@ -4,11 +4,12 @@
   "stage": "final-verification-clean-runner-repair-and-docs-cutover",
   "worktree": ".worktree/monorepo-main-app-migration",
   "branch": "chore/t149-monorepo-workspace",
-  "checkedAt": "2026-08-19T10:30:00Z",
+  "checkedAt": "2026-08-19T02:53:17Z",
   "scope": "Clean-checkout owner verification on the migration worktree after the generated-artifact validation worktree (t149-final-verify-3) was declared unreliable. Repairs the fresh-clone prerequisites and completes the main-app docs cutover requested by the user. All reruns use log-file capture with the real exit code recorded, not tail-piped status.",
   "commits": {
     "5ac495a6": "docs(main-app): move application docs under packages/neuro-book/docs",
-    "8bbf5296": "fix: repair fresh-clone prerequisites in manager and llmlint"
+    "8bbf5296": "fix: repair fresh-clone prerequisites in manager and llmlint",
+    "2ec6e5be": "fix: repair application package test drift after workspace merge"
   },
   "repairs": [
     {
@@ -40,12 +41,52 @@
       "file": "packages/neuro-book-test-support/src/{test-path.ts,vitest.ts}",
       "change": "Advisory-confirmed fresh-host defect: testHostPath resolves <agent-temp>/test-paths but nothing created it, so the first mkdtemp(testHostPath(...)) on a fresh host fails with ENOENT; existing host residue masked it. Global vitest setup now creates the TEST_HOST_PATHS_DIR directory, and the constant is shared between test-path.ts and vitest.ts. Regression test added: packages/neuro-book-test-support/tests/vitest.test.ts.",
       "verification": "NBOOK_AGENT_TEMP_ROOT=<fresh empty dir> bun run test -- docker.test.ts (2 files / 38 tests, exit 0); test-support suite 2 files / 8 tests exit 0"
+    },
+    {
+      "id": "app-duplicate-imports",
+      "file": "packages/neuro-book server/agent, server/api, server/workspace-files, server/low-code-form, server/utils, server/workspace-history (17 test files)",
+      "change": "Removed leftover duplicate testHostPath imports (same mechanical residue as manager; tsc only reported 12, the esbuild transform surfaced 5 more).",
+      "verification": "bun run typecheck exit 0; isolated suites pass"
+    },
+    {
+      "id": "nb-history-smoke-stale-os",
+      "file": "packages/neuro-book/server/workspace-history/nb-history-package-smoke.test.ts",
+      "change": "Replaced stale os.tmpdir() reference with the already-imported testHostPath.",
+      "verification": "isolated suite passes"
+    },
+    {
+      "id": "workspace-archive-missing-import-and-libsql-path",
+      "file": "packages/neuro-book/server/workspace-files/workspace-archive.test.ts",
+      "change": "Restored missing testHostPath import; corrupt-archive child script resolves @libsql/client via import.meta.resolve instead of the hardcoded hoisted lib-esm/node.js path (broke after hoisting + 0.17.4 layout).",
+      "verification": "workspace-archive 4/4 passed"
+    },
+    {
+      "id": "fixture-sweep-scan-root",
+      "file": "packages/neuro-book-test-support/src/tmp.ts",
+      "change": "sweepStaleFixtureRoots scanned the raw system temp dir while fixture roots are created under the agent temp fixtures root; aligned to the actual creation root.",
+      "verification": "test-workspace-fixture sweep test passes"
     }
   ],
   "docsCutover": {
     "movedTo": "packages/neuro-book/docs/",
-    "directories": ["adr", "archived", "migrations", "research", "runbooks", "specs/foundation", "proposals/character-workbench.md"],
-    "keptAtRoot": ["README.md", "AGENTS.md", "standards", "testing", "modules", "specs/{README,AGENTS,TEMPLATE}.md", "proposals/README.md"],
+    "directories": [
+      "adr",
+      "archived",
+      "migrations",
+      "research",
+      "runbooks",
+      "specs/foundation",
+      "proposals/character-workbench.md"
+    ],
+    "keptAtRoot": [
+      "README.md",
+      "AGENTS.md",
+      "standards",
+      "testing",
+      "modules",
+      "specs/{README,AGENTS,TEMPLATE}.md",
+      "proposals/README.md"
+    ],
     "gainedFiles": [
       "packages/neuro-book/docs/research/deepseek-harness-testing-strategy.md",
       "packages/neuro-book/docs/research/vscode-extension-system.md",
@@ -65,13 +106,15 @@
     "llmlint": "verify full chain real exit 0 (registry:build -> tsc -> vitest/bun tests -> --version -> rules json -> guide); fresh registry deletion -> typecheck real exit 0",
     "desktop": "typecheck exit 0; build real exit 0; audit real exit 0",
     "testSupport": "test + typecheck real exit 0 (2 files / 8 tests)",
-    "docs": "bun run docs:check 5046 files, failures=[]",
+    "docs": "bun run docs:check 5047 files, failures=[]",
     "governance": "bun run governance:check failures=[] warnings=[]",
     "governanceTests": "3 files / 35 tests passed (check-documentation, agent-governance, workspace-workflows)",
     "releaseTests": "scripts/release/release-assets.test.ts 1 file / 21 tests passed",
     "managerDockerTests": "packages/neuro-book-manager src/docker.test.ts 1 file / 30 tests passed",
     "scriptsTsc": "exit 0",
-    "docsSite": "bun run docs:build complete (existing chunk-size advisory only)"
+    "docsSite": "bun run docs:build complete (existing chunk-size advisory only)",
+    "appFlaky": "An earlier full-suite run intermittently exposed three Harness cases (two abort-queue assertions and one black-box external-signal cleanup ENOTEMPTY); each affected case passed when isolated or on a later focused run. The final full application rerun below passed, so no failure remains in the recorded final run; the timing sensitivity remains a pre-existing residual risk and is not attributed to this change set.",
+    "appTestRerunResult": "packages/neuro-book: bun run test -- --reporter=dot, real exit 0; 416 test files passed / 1 skipped; 3084 tests passed / 3 skipped; command output captured in the run log."
   },
   "notExecuted": [
     "Real Docker image build (docker unavailable on this host)",

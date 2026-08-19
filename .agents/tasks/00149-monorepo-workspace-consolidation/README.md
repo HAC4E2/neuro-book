@@ -58,9 +58,9 @@ S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支
 
 ## 最终洁净验证与主应用文档切换
 
-- `evidences/final-verification-clean-runner-repair-summary.json` 记录 clean-runner 复现、四类前置缺陷修复、主应用 docs 切换与全部验证结果；过程见 `walkthroughs/011-leader-2026-08-19-final-clean-runner-repair-and-docs-cutover.md`。
-- 迁移 worktree 自身（HEAD 当时 `820fa427`）复现出：Manager 14 类型诊断（5 个测试文件重复导入、3 个安装合同类型未导出、1 个陈旧 `tmpdir()`）；llmlint 根 `typecheck` 缺 gitignored registry.json 前置（4x TS2307）；advisory 复核发现 `testHostPath` 的 `test-paths` 父目录无创建者（fresh-host 首个 mkdtemp 会 ENOENT，本机残留目录掩盖）；Desktop 原诊断不成立（build/typecheck/audit 全绿）。
-- 修复：Manager 重复导入删除、合同类型改从 `@notnotype/neuro-book-contracts/installation`、Podman 用例改用 `testHostPath`；llmlint 根 `typecheck` 加 `registry:build` 前置；`test-paths` 目录由 `vitest.ts` global setup 创建并新增回归测试。提交 `8bbf5296` 与 test-support 修复。
-- 用户追加要求已完成：主应用专属文档迁入 `packages/neuro-book/docs/`（adr、archived、migrations、research、runbooks、specs/foundation、character-workbench 提案），根 `docs/` 只留 monorepo 治理；`docs/migrations/` 的发布合同（state migration declaration、声明 JSON、release 合同测试）同步切换；提交 `5ac495a6`。
-- 验证（真实退出码）：Manager typecheck/test/build（41 files / 336 tests）、Manager fresh-host（38 tests）、llmlint verify 全链、Desktop build/audit、测试支持包 8 tests、`docs:check`（5046 files）、`governance:check`（failures=[]）、治理测试 35、release 合同 21、scripts tsc、`docs:build` 全部通过。
+- `evidences/final-verification-clean-runner-repair-summary.json` 记录 clean-runner 复现、前置缺陷修复、主应用 docs 切换与最终全量重跑结果；过程见 `walkthroughs/011-leader-2026-08-19-final-clean-runner-repair-and-docs-cutover.md`。
+- 迁移 worktree 自身复现出：Manager 14 个类型诊断；llmlint 根 `typecheck` 缺 gitignored registry.json 前置；`testHostPath` 的 `test-paths` 父目录无创建者；Desktop 原诊断不成立。另发现应用包 17 个重复导入及 3 个迁移后测试缺陷，均已修复。
+- 修复提交：`8bbf5296`（Manager/llmlint）、`fefbc81b`（test-support 父目录）、`5ac495a6`（主应用 docs）、`2ec6e5be`（应用测试漂移）。
+- 最终验证（真实退出码）：Manager typecheck/test/build、Manager fresh-host、llmlint verify、Desktop build/audit、test-support、`docs:check`（5046 files）、`governance:check`、治理/发布合同、scripts tsc、`docs:build` 全部通过；主应用 `bun run test -- --reporter=dot` 退出码 0，416 files passed / 1 skipped，3084 tests passed / 3 skipped。
+- 早期全量负载下曾观察到 3 个 Harness 时序敏感用例失败，隔离重跑及最终全量重跑均通过；作为既有残余风险记录，不归因于本轮变更。
 - Task 继续保持 `blocked`：真实 Docker 镜像构建、Windows runner、浏览器人工验收、真实 Provider、Windows portable 和最终绿色 tag 仍未执行或未授权。

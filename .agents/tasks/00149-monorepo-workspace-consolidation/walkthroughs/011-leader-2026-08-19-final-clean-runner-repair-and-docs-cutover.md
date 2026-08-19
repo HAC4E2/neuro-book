@@ -24,6 +24,12 @@ clean checkout 实测 `bun run build` / `typecheck` / `audit` 全绿：`desktop/
 
 `test-path.ts` 只把 `testHostPath` 拼成 `<agent-temp>/test-paths`，而 `vitest.ts` 的 global setup 只创建 `vitest/<runId>` 根，没有任何代码创建 `test-paths`。本机已有历史残留目录，掩盖了 fresh-host 上首个 `mkdtemp(testHostPath(...))` 的 ENOENT。修复：`TEST_HOST_PATHS_DIR` 常量由 `test-path.ts` 导出，`vitest.ts` 的 `setup()` 每次 run 前 `mkdir(..., {recursive: true})`；新增回归测试 `packages/neuro-book-test-support/tests/vitest.test.ts`，用全新 `NBOOK_AGENT_TEMP_ROOT` 验证 setup 后 `mkdtemp(testHostPath(...))` 直接可用。
 
+### 5. 应用包测试漂移（同一批改的完整面）
+
+应用包 `bun run test` 在干净检出暴露了同族遗留：tsc 报 12 个文件的重复 `testHostPath` 导入（24 诊断），esbuild transform 又抓出 5 个 tsc 未覆盖的文件；另有三个确定性缺陷——`nb-history-package-smoke` 残留 `os.tmpdir()` 引用、`workspace-archive` 丢失 `testHostPath` 导入且 corrupt-archive 子脚本硬编码旧版 `@libsql/client/lib-esm/node.js`（hoisting + 0.17.4 布局变化后失效，改用 `import.meta.resolve("@libsql/client")` 注入）、`sweepStaleFixtureRoots` 扫描系统 Temp 根而 fixture 实际创建在 agent temp fixtures 根。修复提交 `2ec6e5be`，三套件隔离跑绿。
+
+Harness 的 abort 队列两例与 black-box 外部 signal 例在全量负载下偶发失败（ENOTEMPTY 锁释放竞态 / queue projection 时序），单跑通过；按 `docs/testing/README` 的既有 advisory 口径登记，不作为本轮变更回归。
+
 ## 主应用文档切换
 
 按用户要求把主应用专属文档迁入 `packages/neuro-book/docs/`：
@@ -48,7 +54,8 @@ clean checkout 实测 `bun run build` / `typecheck` / `audit` 全绿：`desktop/
 
 - `5ac495a6` docs(main-app): move application docs under packages/neuro-book/docs
 - `8bbf5296` fix: repair fresh-clone prerequisites in manager and llmlint
-- test-support `test-paths` 创建修复、回归测试与证据更新在同一收口提交中落盘
+- `fefbc81b` fix(test-support): create testHostPath parent in vitest global setup
+- `2ec6e5be` fix: repair application package test drift after workspace merge
 
 ## 未运行/阻塞
 
