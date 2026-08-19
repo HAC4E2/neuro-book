@@ -311,7 +311,7 @@ describe("Application State migration command", () => {
         ]);
     });
     it("容忍Podman Compose在迁移报告前输出容器ID", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-podman-migration-noise-"));
+        const root = await mkdtemp(testHostPath("manager-podman-migration-noise-"));
         roots.push(root);
         docker.command.mockResolvedValue(`${"f".repeat(64)}\n${JSON.stringify(applicationMigrationReport("podman-state", "plan", "planned", 1))}`);
 

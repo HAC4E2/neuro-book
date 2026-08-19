@@ -2,7 +2,6 @@ import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, rm, stat, utimes, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {installationLeasePath, mutateFreshInstallation, mutateInstallation} from "#manager/installation-mutation";
