@@ -3,9 +3,10 @@ import {randomUUID} from "node:crypto";
 import {mkdir, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {lock as acquireFileLock} from "proper-lockfile";
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
-import type {ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
-import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {LocalProductPublisher} from "#scripts/build/local-product-publisher";
 import {
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
@@ -13,12 +14,14 @@ import {
     productRuntimeBuildPolicy,
     type ProductRuntimeBuildContext,
     type ProductRuntimeOwnerBaseline,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 
 export {PRODUCT_RUNTIME_MAX_BYTES, PRODUCT_RUNTIME_MAX_FILES};
 export const PRODUCT_SOURCE_DATE_EPOCH = "0";
 export const PRODUCT_NODE_OPTIONS = "--max-old-space-size=4096";
 const NUXT_CLI_ENTRY = "node_modules/nuxt/bin/nuxt.mjs";
+const PREPARE_SYSTEM_ASSETS_ENTRY = "../../scripts/build/prepare-system-assets.ts";
+const PATCH_NITRO_RUNTIME_DEPS_ENTRY = "../../scripts/build/patch-nitro-runtime-deps.mjs";
 const PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT = new Set([
     "APPDATA",
     "COMSPEC",
@@ -42,15 +45,22 @@ export const PRODUCT_RUNTIME_OWNERS = productRuntimeBuildPolicy("windows-x64").o
 
 /** 统一执行 Nuxt raw build、Product 后处理、Runtime Image 验证与本地发布。 */
 export async function buildProductRuntimeImage(): Promise<void> {
-    const projectRoot = process.cwd();
-    await withProductBuildLease(projectRoot, async () => {
+    const roots = resolveWorkspaceRoots();
+    await withProductBuildLease(roots.repositoryRoot, async () => {
         const platform = currentProductPlatform();
         const policy = productRuntimeBuildPolicy(platform);
-        const buildEnvironment = productBuildEnvironment(process.env);
+        const buildEnvironment = {
+            ...productBuildEnvironment(process.env, roots.repositoryRoot),
+            NEURO_BOOK_APPLICATION_ROOT: roots.applicationSourceRoot,
+        };
         await prepareProductRuntimeSource(buildEnvironment);
         const explicitRevision = process.env.NEURO_BOOK_SOURCE_REVISION?.trim();
         const operationId = `${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-        const builder = new ProductRuntimeImageBuilder(projectRoot);
+        const builder = new ProductRuntimeImageBuilder({
+            repositoryRoot: roots.repositoryRoot,
+            applicationSourceRoot: roots.applicationSourceRoot,
+            deployRoot: resolve(roots.repositoryRoot, ".deploy"),
+        });
         const candidate = await builder.buildCandidate({
             operationId,
             platform,
@@ -61,7 +71,7 @@ export async function buildProductRuntimeImage(): Promise<void> {
                 await buildProductRuntimePayload(context, buildEnvironment);
             },
         });
-        const published = await new LocalProductPublisher(projectRoot, builder).publish({
+        const published = await new LocalProductPublisher(roots.repositoryRoot, builder).publish({
             candidate,
             explicitOutputRoot: process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || undefined,
         });
@@ -78,7 +88,7 @@ export async function buildProductRuntimeImage(): Promise<void> {
 export async function prepareProductRuntimeSource(buildEnvironment: NodeJS.ProcessEnv): Promise<void> {
     await run("bun", [NUXT_CLI_ENTRY, "prepare", "--dotenv", ".env.product"], buildEnvironment);
     await run("bun", ["run", "generate"], buildEnvironment);
-    await run("bun", ["scripts/build/prepare-system-assets.ts"], buildEnvironment);
+    await run("bun", [PREPARE_SYSTEM_ASSETS_ENTRY], buildEnvironment);
 }
 
 /**
@@ -95,7 +105,7 @@ export async function buildProductRuntimePayload(
         NEURO_BOOK_PRODUCT_IMAGE_ROOT: context.imageRoot,
         NEURO_BOOK_PRODUCT_SOURCE_DIGEST: context.sourceDigest,
     });
-    await run("bun", ["scripts/build/patch-nitro-runtime-deps.mjs"], {
+    await run("bun", [PATCH_NITRO_RUNTIME_DEPS_ENTRY], {
         ...buildEnvironment,
         NEURO_BOOK_OUTPUT_DIR: context.imageRoot,
         NEURO_BOOK_PRODUCT_SCRATCH_ROOT: context.scratchRoot,
@@ -137,7 +147,10 @@ export async function withProductBuildLease<T>(projectRoot: string, operation: (
  * 只透传进程启动和临时目录所需的 OS 变量；任意宿主 `NUXT_*`、`NITRO_*`、
  * `VITE_*` 或运行期 Secret 都不能静默改变同一 Source identity 的 payload。
  */
-export function productBuildEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function productBuildEnvironment(
+    source: NodeJS.ProcessEnv,
+    repositoryRoot = process.cwd(),
+): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(source)) {
         if (value !== undefined && PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT.has(name.toUpperCase())) {
@@ -145,11 +158,10 @@ export function productBuildEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
         }
     }
     // MSVC Runtime DLL 是 win32-x64 发行镜像的固定构建输入（app-local 部署，
-    // 见 product-runtime-bundle.ts 的 copyMsvcRuntime）。默认使用仓库内固定版本
-    // scripts/build/inputs/msvc-runtime（本地与 CI 同一字节）；可用
-    // NEURO_BOOK_MSVC_RUNTIME_DIR 显式覆盖。目录/文件缺失由 copyMsvcRuntime fail closed。
+    // 见 product-runtime-bundle.ts 的 copyMsvcRuntime）。默认使用 repository 内固定版本；
+    // 可用 NEURO_BOOK_MSVC_RUNTIME_DIR 显式覆盖。目录/文件缺失由 copyMsvcRuntime fail closed。
     const msvcRuntimeDir = source.NEURO_BOOK_MSVC_RUNTIME_DIR?.trim()
-        || resolve(process.cwd(), "scripts", "build", "inputs", "msvc-runtime");
+        || resolve(repositoryRoot, "scripts", "build", "inputs", "msvc-runtime");
     if (process.platform === "win32" && process.arch === "x64") {
         environment.NEURO_BOOK_MSVC_RUNTIME_DIR = msvcRuntimeDir;
     }
@@ -174,8 +186,9 @@ export function productRuntimeOwnerBaselines(platform: ProductPlatform): readonl
 }
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+    const cwd = resolve(env.NEURO_BOOK_APPLICATION_ROOT?.trim() || process.cwd());
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(command, args, {cwd: process.cwd(), env, stdio: "inherit", windowsHide: true});
+        const child = spawn(command, args, {cwd, env, stdio: "inherit", windowsHide: true});
         child.on("error", rejectPromise);
         child.on("exit", (code, signal) => {
             if (signal) {

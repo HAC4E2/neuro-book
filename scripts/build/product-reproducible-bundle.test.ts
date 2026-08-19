@@ -4,7 +4,7 @@ import {describe, expect, it} from "vitest";
 import {
     bundleProductJavaScript,
     productBundleOutputText,
-} from "nbook/scripts/build/product-reproducible-bundle";
+} from "#scripts/build/product-reproducible-bundle";
 
 describe("Product reproducible bundle", () => {
     it("相同 ESM graph 产生逐字节一致的链接与压缩输出", async () => {

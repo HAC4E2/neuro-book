@@ -2,10 +2,12 @@ import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 
+const applicationRoot = resolve("packages/neuro-book");
+
 describe("Desktop UI shell contract", () => {
     it("keeps the custom title bar in document flow so it cannot cover the page", async () => {
-        const titleBar = await readFile(resolve("app/components/common/DesktopTitleBar.vue"), "utf8");
-        const appShell = await readFile(resolve("app/app.vue"), "utf8");
+        const titleBar = await readFile(resolve(applicationRoot, "app/components/common/DesktopTitleBar.vue"), "utf8");
+        const appShell = await readFile(resolve(applicationRoot, "app/app.vue"), "utf8");
 
         expect(titleBar).not.toMatch(/position:\s*fixed/u);
         expect(titleBar).toMatch(/position:\s*relative/u);
@@ -71,11 +73,10 @@ describe("Desktop UI shell contract", () => {
         expect(supervisor).toContain('stage: "full-verify"');
         expect(supervisor).toContain('verification: "full"');
     });
-
     it("uses one persistent Activity Bar instead of page-owned horizontal headers", async () => {
-        const indexPage = await readFile(resolve("app/pages/index.vue"), "utf8");
-        const picker = await readFile(resolve("app/components/novel-ide/ProjectPickerScreen.vue"), "utf8");
-        const activityBar = await readFile(resolve("app/components/novel-ide/NovelIdeActivityBar.vue"), "utf8");
+        const indexPage = await readFile(resolve(applicationRoot, "app/pages/index.vue"), "utf8");
+        const picker = await readFile(resolve(applicationRoot, "app/components/novel-ide/ProjectPickerScreen.vue"), "utf8");
+        const activityBar = await readFile(resolve(applicationRoot, "app/components/novel-ide/NovelIdeActivityBar.vue"), "utf8");
 
         expect(indexPage).toContain("NovelIdeActivityBar");
         expect(indexPage).not.toContain("NovelIdeHeader");
@@ -91,9 +92,9 @@ describe("Desktop UI shell contract", () => {
     });
 
     it("keeps title-bar menus responsive and exposes project, search, and Agent panel controls", async () => {
-        const titleBar = await readFile(resolve("app/components/common/DesktopTitleBar.vue"), "utf8");
-        const indexPage = await readFile(resolve("app/pages/index.vue"), "utf8");
-        const welcome = await readFile(resolve("app/components/markdown-studio/MarkdownStudioWelcome.vue"), "utf8");
+        const titleBar = await readFile(resolve(applicationRoot, "app/components/common/DesktopTitleBar.vue"), "utf8");
+        const indexPage = await readFile(resolve(applicationRoot, "app/pages/index.vue"), "utf8");
+        const welcome = await readFile(resolve(applicationRoot, "app/components/markdown-studio/MarkdownStudioWelcome.vue"), "utf8");
 
         expect(titleBar).toContain("useWorkbenchChrome");
         expect(titleBar).toContain("resolveTitleBarMenuPresentation");
@@ -120,8 +121,8 @@ describe("Desktop UI shell contract", () => {
     });
 
     it("uses one opaque dialog surface language without blur and keeps full dialogs inset", async () => {
-        const dialog = await readFile(resolve("app/components/common/Dialog.vue"), "utf8");
-        const dialogWindow = await readFile(resolve("app/components/common/DialogWindow.vue"), "utf8");
+        const dialog = await readFile(resolve(applicationRoot, "app/components/common/Dialog.vue"), "utf8");
+        const dialogWindow = await readFile(resolve(applicationRoot, "app/components/common/DialogWindow.vue"), "utf8");
 
         expect(dialog).toContain('overlayType: "opaque"');
         expect(dialog).not.toContain('"blur"');

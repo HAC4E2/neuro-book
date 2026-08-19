@@ -11,18 +11,13 @@ import {installationTarget} from "#manager/installation-path";
 import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {installSourceDependencies} from "#manager/product";
-import {resolveInstallationRoots, rootLocatorsEqual} from "#manager/root-locators";
+import {resolveInstallationRoots} from "#manager/root-locators";
+import {rootLocatorsEqual} from "@notnotype/neuro-book-contracts/installation";
 import {runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {migrateOperationJournal, parseOperationJournal} from "#manager/schema";
 import {writeManagedToolWrappers} from "#manager/tools";
-import type {
-    InstallationManifest,
-    InstallationRootLocators,
-    OperationEffect,
-    OperationJournal,
-    OperationPathOwner,
-    OperationPhase,
-} from "#manager/types";
+import type {InstallationManifest, InstallationRootLocators} from "@notnotype/neuro-book-contracts/installation";
+import type {OperationEffect, OperationJournal, OperationPathOwner, OperationPhase} from "#manager/types";
 
 type OperationInput = Omit<OperationJournal, "schemaVersion" | "phase" | "effects" | "createdAt" | "updatedAt"> & {
     effects?: OperationEffect[];

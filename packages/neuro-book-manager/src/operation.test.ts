@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rename, stat, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -23,10 +23,10 @@ import {
     INSTALLED_WINDOWS_ROOT_LOCATORS,
     INSTALLATION_SCOPED_ROOT_LOCATORS,
     PORTABLE_ROOT_LOCATORS,
-} from "#manager/root-locators";
+} from "@notnotype/neuro-book-contracts/installation";
 import {parseOperationJournal} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
-import type {InstallationManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const docker = vi.hoisted(() => ({
     removeDeployment: vi.fn(),

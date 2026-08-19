@@ -1,7 +1,7 @@
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {join, relative, resolve} from "node:path";
 import type {Metafile} from "esbuild";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -9,7 +9,7 @@ import {
     PRODUCT_COMMAND_SOURCES,
     pruneEmptyProductCommandChunks,
     resolveProductCommandEntries,
-} from "nbook/scripts/build/product-command-bundle";
+} from "#scripts/build/product-command-bundle";
 
 const temporaryRoots: string[] = [];
 
@@ -144,38 +144,30 @@ describe("Product command metafile", () => {
         expect(PRODUCT_COMMAND_SOURCES["prepare-system-assets"])
             .toBe("server/runtime/prepare-system-assets-command.ts");
         const offenders: string[] = [];
-        const files = await readdir("server", {recursive: true});
-
-        const serverTestSupportFiles = new Set([
-            "runtime/paths/test-path.ts",
-            "workspace-files/test-tmp-sweep.ts",
-            "workspace-files/test-workspace-fixture.ts",
-            "workspace-files/vitest-global-setup.ts",
-            "workspace-files/vitest-tmpdir-setup.ts",
-        ]);
-        for (const relativePath of files.filter((fileName) => /\.(?:ts|mjs)$/u.test(fileName))) {
-            const normalizedPath = relativePath.replaceAll("\\", "/");
-            if (normalizedPath.includes(".test.") || serverTestSupportFiles.has(normalizedPath)) continue;
-            const fileName = resolve("server", relativePath);
+        const applicationRoot = resolve("packages/neuro-book");
+        const files = await readdir(resolve(applicationRoot, "server"), {recursive: true});
+        for (const relativePath of files.filter((fileName) => /(?:\.ts|\.mjs)$/u.test(fileName))) {
+            const fileName = resolve(applicationRoot, "server", relativePath);
             if ((await readFile(fileName, "utf8")).includes("nbook/scripts/")) offenders.push(fileName);
         }
         expect(offenders).toEqual([]);
     });
 
     it("Product bootstrap只依赖共享只读Verifier，不把Builder带入命令bundle", async () => {
+        const applicationRoot = resolve("packages/neuro-book");
         const [bootstrap, verifier, builder] = await Promise.all([
-            readFile("server/runtime/product-command.ts", "utf8"),
-            readFile("shared/product-runtime-image-verifier.ts", "utf8"),
-            readFile("scripts/build/product-runtime-image-builder.ts", "utf8"),
+            readFile(resolve(applicationRoot, "server", "runtime", "product-command.ts"), "utf8"),
+            readFile(resolve(applicationRoot, "server", "interfaces", "product-runtime-image-verifier.ts"), "utf8"),
+            readFile(resolve("scripts", "build", "product-runtime-image-builder.ts"), "utf8"),
         ]);
 
-        expect(bootstrap).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(bootstrap).toContain('from "nbook/server/interfaces/product-runtime-image-verifier"');
         expect(bootstrap).toContain("productRuntimeReceiptAuthorizationFromEnvironment");
         expect(bootstrap).toContain("verifyAuthorizedProductRuntimeReceiptControlPlane");
         expect(bootstrap).toContain("openSelfVerified");
         expect(verifier).not.toContain("product-runtime-image-builder");
         expect(verifier).not.toContain("proper-lockfile");
-        expect(builder).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(builder).toContain('from "@notnotype/neuro-book/product-verification"');
         expect(builder).toContain("new ProductRuntimeImageVerifier().openVerified");
     });
 });

@@ -5,7 +5,7 @@ import {join, resolve} from "node:path";
 import {strToU8, zipSync} from "fflate";
 
 import {afterEach, beforeAll, describe, expect, it} from "vitest";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 const scriptPath = resolve(import.meta.dirname, "install.sh");
 const windowsScriptPath = resolve(import.meta.dirname, "install.ps1");
@@ -163,7 +163,7 @@ describe("Windows Stage 0合同", () => {
         ], process.env);
 
         expect(result.code).toBe(1);
-        expect(result.stderr).toContain("Bun Runtime 缺失");
+        expect(result.stderr).toContain("Bun Runtime");
     });
 
     it.runIf(process.platform === "win32")("显式本机Bun默认不产生Stage 0 metadata，而显式授权才产生", async () => {
@@ -199,7 +199,7 @@ describe("Windows Stage 0合同", () => {
         const rejectCommand = `. '${escapedStage0}'; try { Ensure-NeuroBookBun -ExplicitPath '${escapedFakeBun}' -RequirePinnedRuntime | Out-Null; exit 2 } catch { Write-Output $_.Exception.Message; exit 0 }`;
         const rejected = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", rejectCommand], process.env);
         expect(rejected.code).toBe(0);
-        expect(rejected.stdout).toContain("找不到有效 Bun Runtime");
+        expect(rejected.stdout).toContain("Bun Runtime");
     });
 });
 

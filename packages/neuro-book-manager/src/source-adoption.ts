@@ -5,7 +5,8 @@ import {inspectInstance} from "#manager/instance-discovery";
 import {installSourceAdoption, type AdoptSourceOptions} from "#manager/installer";
 import {registerManagerInstance} from "#manager/manager-config";
 import {assertProfileSupported} from "#manager/platform";
-import type {InspectionIssue, InstallationManifest, ManagerInstance, OfflineInspection} from "#manager/types";
+import type {InspectionIssue, ManagerInstance, OfflineInspection} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 export type AdoptionProfile = "source-dev" | "source-product" | "source-docker";
 

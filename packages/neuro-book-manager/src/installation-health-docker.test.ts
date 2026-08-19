@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -22,8 +22,8 @@ vi.mock("#manager/docker", () => ({
 }));
 
 import {inspectInstallationService} from "#manager/installation-health";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 const digest = `sha256:${"a".repeat(64)}`;

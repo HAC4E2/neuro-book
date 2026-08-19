@@ -3,23 +3,19 @@ import {createHash} from "node:crypto";
 import {lstat, readdir, readFile} from "node:fs/promises";
 import {basename, resolve} from "node:path";
 
-export const DESKTOP_AGGREGATE_DEPOT_SCHEMA = "nbook.desktop-depot/v1" as const;
-export const DESKTOP_DISTRIBUTION_SCHEMA = "nbook.desktop-distribution/v1" as const;
-export const DESKTOP_AGGREGATE_DEPOT_PLATFORM = "windows-x64" as const;
-export const DESKTOP_AGGREGATE_DEPOT_ARCHIVE = "neuro-book-desktop-depot-win-x64.zip";
-export const DESKTOP_AGGREGATE_DEPOT_MANIFEST = "neuro-book-desktop-depot-win-x64.manifest.json";
-export const DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST = "neuro-book-desktop-depot-win-x64.distribution.json";
-
-/** Electron 内部 beta depot 的固定顶层载荷；Product、Bun、Tool Pack 不在此层重复展开。 */
-export const DESKTOP_AGGREGATE_DEPOT_ENTRIES = [
-    "install-desktop.ps1",
-    "windows-bun-stage0.ps1",
+import {
+    DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
-    "neuro-book-electron-portable-win-x64.zip",
-    "neuro-book-electron-portable-win-x64.manifest.json",
-] as const;
+    DESKTOP_AGGREGATE_DEPOT_ENTRIES,
+    DESKTOP_AGGREGATE_DEPOT_MANIFEST,
+    DESKTOP_AGGREGATE_DEPOT_PLATFORM,
+    DESKTOP_DISTRIBUTION_SCHEMA,
+    parseDesktopAggregateDepotManifest,
+    type DesktopAggregateDepotManifest,
+} from "@notnotype/neuro-book-contracts/desktop";
 
 type AggregateDepotEntryName = typeof DESKTOP_AGGREGATE_DEPOT_ENTRIES[number];
+
 
 export type DesktopAggregateZipEntry = {
     kind: "file";
@@ -40,23 +36,6 @@ export type DesktopAggregatePayload = {
     files: number;
     bytes: number;
     entries: DesktopAggregateZipEntry[];
-};
-
-export type DesktopAggregateDepotManifest = {
-    schema: typeof DESKTOP_AGGREGATE_DEPOT_SCHEMA;
-    platform: typeof DESKTOP_AGGREGATE_DEPOT_PLATFORM;
-    distributionManifest: typeof DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST;
-    entries: AggregateDepotEntryName[];
-    payload: {
-        files: number;
-        bytes: number;
-    };
-    archive: {
-        path: typeof DESKTOP_AGGREGATE_DEPOT_ARCHIVE;
-        bytes: number;
-        sha256: `sha256:${string}`;
-    };
-    distributionSchema: typeof DESKTOP_DISTRIBUTION_SCHEMA;
 };
 
 function expectedEntrySet(): Set<string> {
@@ -131,59 +110,6 @@ async function sha256File(path: string): Promise<string> {
     return hash.digest("hex");
 }
 
-function isSha256(value: string): value is `sha256:${string}` {
-    return /^sha256:[0-9a-f]{64}$/u.test(value);
-}
-
-/** 从 JSON 边界解析 sidecar，拒绝 schema、路径、列表和摘要的任意放宽。 */
-export function parseDesktopAggregateDepotManifest(input: unknown): DesktopAggregateDepotManifest {
-    if (!input || typeof input !== "object") throw new Error("Desktop aggregate depot manifest 必须是对象。" );
-    const value = input as {schema?: unknown; platform?: unknown; distributionManifest?: unknown; entries?: unknown; payload?: unknown; archive?: unknown; distributionSchema?: unknown};
-    if (value.schema !== DESKTOP_AGGREGATE_DEPOT_SCHEMA
-        || value.platform !== DESKTOP_AGGREGATE_DEPOT_PLATFORM
-        || value.distributionManifest !== DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST
-        || value.distributionSchema !== DESKTOP_DISTRIBUTION_SCHEMA) {
-        throw new Error("Desktop aggregate depot manifest schema 或 platform 不受支持。" );
-    }
-    if (!Array.isArray(value.entries)
-        || value.entries.length !== DESKTOP_AGGREGATE_DEPOT_ENTRIES.length
-        || value.entries.some((entry) => typeof entry !== "string")
-        || value.entries.some((entry, index) => entry !== DESKTOP_AGGREGATE_DEPOT_ENTRIES[index])) {
-        throw new Error("Desktop aggregate depot manifest entries 不符合固定合同。" );
-    }
-    if (!value.payload || typeof value.payload !== "object") throw new Error("Desktop aggregate depot manifest 缺少 payload。" );
-    const payload = value.payload as {files?: unknown; bytes?: unknown};
-    if (payload.files !== DESKTOP_AGGREGATE_DEPOT_ENTRIES.length
-        || typeof payload.bytes !== "number"
-        || !Number.isSafeInteger(payload.bytes)
-        || payload.bytes < 0) {
-        throw new Error("Desktop aggregate depot manifest payload 不符合固定合同。" );
-    }
-    if (!value.archive || typeof value.archive !== "object") throw new Error("Desktop aggregate depot manifest 缺少 archive。" );
-    const archive = value.archive as {path?: unknown; bytes?: unknown; sha256?: unknown};
-    if (archive.path !== DESKTOP_AGGREGATE_DEPOT_ARCHIVE
-        || typeof archive.bytes !== "number"
-        || !Number.isSafeInteger(archive.bytes)
-        || archive.bytes < 0
-        || typeof archive.sha256 !== "string"
-        || !isSha256(archive.sha256)) {
-        throw new Error("Desktop aggregate depot manifest archive 不符合固定合同。" );
-    }
-    return {
-        schema: DESKTOP_AGGREGATE_DEPOT_SCHEMA,
-        platform: DESKTOP_AGGREGATE_DEPOT_PLATFORM,
-        distributionManifest: DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
-        entries: [...DESKTOP_AGGREGATE_DEPOT_ENTRIES],
-        payload: {files: payload.files, bytes: payload.bytes},
-        archive: {
-            path: DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
-            bytes: archive.bytes,
-            sha256: archive.sha256,
-        },
-        distributionSchema: DESKTOP_DISTRIBUTION_SCHEMA,
-    };
-}
-
 /** 在 ZIP 已写出后构造 sidecar，并再次以实际文件内容计算 archive identity。 */
 export async function createDesktopAggregateDepotManifest(input: {
     stagingRoot: string;
@@ -199,7 +125,7 @@ export async function createDesktopAggregateDepotManifest(input: {
         throw new Error(`Desktop aggregate depot archive 文件名不符合合同：${basename(archivePath)}`);
     }
     return {
-        schema: DESKTOP_AGGREGATE_DEPOT_SCHEMA,
+        schema: "nbook.desktop-depot/v1",
         platform: DESKTOP_AGGREGATE_DEPOT_PLATFORM,
         distributionManifest: DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
         entries: [...DESKTOP_AGGREGATE_DEPOT_ENTRIES],

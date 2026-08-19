@@ -11,14 +11,13 @@ import {runCapture} from "#manager/process";
 import type {
     CommandInspection,
     ComponentSourceSummary,
-    HostPlatform,
     InspectionIssue,
     InstallCommandInspection,
     InstallPreflightReport,
-    InstallProfile,
-    ReleaseChannel,
-    ReleaseManifest,
 } from "#manager/types";
+import type {InstallProfile, ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
+import type {HostPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 /** 预检所需的稳定安装输入；不包含任何执行开关。 */

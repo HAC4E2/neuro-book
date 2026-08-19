@@ -22,8 +22,9 @@ on:
       - "scripts/ci/validate-nitropack-patch.ts"
       - "scripts/ci/check-documentation*"
       - "patches/**"
-      - "nuxt.config.ts"
-      - "tsconfig.json"
+      - "packages/neuro-book/**"
+      - "packages/neuro-book/nuxt.config.ts"
+      - "packages/neuro-book/tsconfig.json"
       - "package.json"
       - "bun.lock"
   pull_request:
@@ -46,8 +47,9 @@ on:
       - "scripts/ci/validate-nitropack-patch.ts"
       - "scripts/ci/check-documentation*"
       - "patches/**"
-      - "nuxt.config.ts"
-      - "tsconfig.json"
+      - "packages/neuro-book/**"
+      - "packages/neuro-book/nuxt.config.ts"
+      - "packages/neuro-book/tsconfig.json"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:
@@ -81,7 +83,7 @@ jobs:
       - name: Check patched Nitro modules
         run: bun scripts/ci/validate-nitropack-patch.ts
       - name: Prepare Nuxt types
-        run: bun run nuxt:prepare
+        run: bun --cwd packages/neuro-book run nuxt:prepare
       - name: Validate community files
         run: bun scripts/ci/validate-community-files.ts
       - name: Check documentation governance

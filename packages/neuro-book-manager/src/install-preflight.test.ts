@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
 import {createServer, type Server} from "node:net";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -21,7 +21,7 @@ import {
     type InstallEnvironmentInspection,
 } from "#manager/install-preflight";
 import {inspectHostPlatform} from "#manager/platform";
-import type {ReleaseManifest} from "#manager/types";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const roots: string[] = [];

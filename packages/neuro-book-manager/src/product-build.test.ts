@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rename, rm, stat} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 

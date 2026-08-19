@@ -6,7 +6,7 @@ import {
     ProductRuntimeImageBuilder,
     type ProductRuntimeExpectedIdentity,
     type VerifiedProductRuntimeImage,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 
 /** 本地 Publisher 的发布请求；显式 output 与 checkout `.output` 是两种不同合同。 */
 export type LocalProductPublishRequest = Readonly<{

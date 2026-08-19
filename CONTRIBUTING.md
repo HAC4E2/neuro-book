@@ -48,10 +48,10 @@ PR 列出实际命令和结果；没有执行的检查写“未运行”。聚�
 | 入口 | 用途 |
 |---|---|
 | [`docs/specs/README.md`](docs/specs/README.md) | 产品行为、数据、接口、失败和验收的当前规范注册表 |
-| [`docs/specs/foundation/terminology.md`](docs/specs/foundation/terminology.md) | Workspace、运行时、存储与 Agent 标准术语 |
+| [`packages/neuro-book/docs/specs/foundation/terminology.md`](packages/neuro-book/docs/specs/foundation/terminology.md) | Workspace、运行时、存储与 Agent 标准术语 |
 | [`docs/standards/code/README.md`](docs/standards/code/README.md) | 按改动路径选择前端、服务端、桌面、脚本、数据库或包规范 |
 | [`docs/testing/README.md`](docs/testing/README.md) | 测试、临时根、环境、验收和证据 |
-| [`docs/adr/`](docs/adr/) | 已接受架构决策的理由 |
+| [`packages/neuro-book/docs/adr/`](packages/neuro-book/docs/adr/) | 已接受架构决策的理由 |
 | [`.agents/tasks/`](.agents/tasks/README.md) | 重大实现的范围、过程和证据 |
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | 仓库现状与当前验收缺口 |
 | [`RELEASE.md`](RELEASE.md) | 发布程序消费的当前版本说明 |

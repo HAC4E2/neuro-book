@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {strToU8, zipSync} from "fflate";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -48,14 +48,14 @@ import {
     parseDesktopPortableManifest,
     type DesktopInstallationManifest,
     type DesktopPortableArchiveManifest,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
     DESKTOP_AGGREGATE_DEPOT_ENTRIES,
     DESKTOP_AGGREGATE_DEPOT_MANIFEST,
-} from "nbook/desktop/shared/src/desktop-aggregate-depot";
-import type {InstallationComponents, InstallationManifest} from "#manager/types";
+} from "@notnotype/neuro-book-contracts/desktop";
+import type {InstallationComponents, InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 const originalPlatform = process.platform;

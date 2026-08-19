@@ -24,13 +24,17 @@ describe("Docker Product runtime contract", () => {
         expect(dependencyStage).toBeDefined();
         const installIndex = dependencyStage!.indexOf("bun install --frozen-lockfile --linker hoisted");
         expect(dependencyStage!.indexOf("COPY patches ./patches")).toBeLessThan(installIndex);
+        expect(dependencyStage!.indexOf("COPY packages/neuro-agent-harness/src ./packages/neuro-agent-harness/src")).toBeLessThan(installIndex);
+        expect(dependencyStage!.indexOf("COPY packages/neuro-agent-harness/tsconfig.json packages/neuro-agent-harness/tsconfig.build.json")).toBeLessThan(installIndex);
         const manifests = [rootManifest, ...workspaceManifests].map((source) => JSON.parse(source) as {
             name: string;
+            scripts?: Record<string, string>;
             dependencies?: Record<string, string>;
             devDependencies?: Record<string, string>;
             optionalDependencies?: Record<string, string>;
             peerDependencies?: Record<string, string>;
         });
+        expect(manifests[0]?.scripts?.postinstall).toBe("bun run --cwd packages/neuro-agent-harness build");
         const manifestPathByName = new Map(workspaceManifests.map((source, index) => [
             (JSON.parse(source) as {name: string}).name,
             `packages/${packageDirectories[index]}/package.json`,
@@ -49,14 +53,26 @@ describe("Docker Product runtime contract", () => {
             expect(copyIndex, `${dependency} manifest必须在frozen install前复制`).toBeGreaterThan(-1);
             expect(copyIndex).toBeLessThan(installIndex);
         }
+        const buildStage = dockerfile.split("FROM runtime-base AS build")[1]?.split("FROM runtime-base AS runner")[0];
+        expect(buildStage).toBeDefined();
+        const sourceCopyIndex = buildStage!.indexOf("COPY . .");
+        const harnessBuildIndex = buildStage!.indexOf("RUN bun run --cwd packages/neuro-agent-harness build");
+        const productBuildIndex = buildStage!.indexOf("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build");
+        expect(sourceCopyIndex).toBeGreaterThan(-1);
+        expect(harnessBuildIndex).toBeGreaterThan(sourceCopyIndex);
+        expect(productBuildIndex).toBeGreaterThan(harnessBuildIndex);
         const runnerStage = dockerfile.split("FROM runtime-base AS runner")[1];
         expect(runnerStage).toBeDefined();
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(runnerStage).toContain("LABEL org.opencontainers.image.revision=${NEURO_BOOK_SOURCE_REVISION}");
-        expect(dockerfile).toContain("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run nuxt:build");
-        expect(dockerignore.split(/\r?\n/u)).toContain("logs");
-        expect(dockerfile).toContain("test -f .output/runtime-image.json && test -f .output/runtime-image.ready");
-        expect(dockerfile).toContain("COPY --from=build /app/.output ./.output");
+        expect(dockerfile).toContain("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build");
+        const dockerignoreEntries = dockerignore.split(/\r?\n/u);
+        expect(dockerignoreEntries).toContain("logs");
+        expect(dockerignoreEntries).toContain("packages/**/data.db");
+        expect(dockerignoreEntries).toContain("packages/**/data.db-*");
+        expect(dockerignoreEntries).toContain("packages/**/server/generated/prisma");
+        expect(dockerignoreEntries).toContain("server/generated/prisma");
+        expect(dockerignoreEntries).not.toContain("packages/llmlint/web/data.db");
         expect(dockerfile).toContain("COPY --from=build /app/scripts/deploy/docker-product-entrypoint.sh ./docker-product-entrypoint.sh");
         expect(dockerfile).toContain('ENTRYPOINT ["sh", "./docker-product-entrypoint.sh"]');
         for (const sourceDirectory of ["/app/app", "/app/server", "/app/shared", "/app/scripts ./scripts", "/app/docs", "/app/assets"]) {

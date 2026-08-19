@@ -2,7 +2,7 @@ import {mkdir} from "node:fs/promises";
 import {randomBytes} from "node:crypto";
 import {dirname, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {resolveAgentScratchPath} from "nbook/scripts/utils/agent-paths";
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {chromium, type Browser, type ConsoleMessage, type Page, type Request, type Response} from "playwright-core";
 
 type SmokeOptions = {

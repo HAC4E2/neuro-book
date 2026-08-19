@@ -6,7 +6,7 @@ import type {Nodes, Root} from "mdast";
 import {fromMarkdown} from "mdast-util-from-markdown";
 import {parse as parseYaml} from "yaml";
 
-import {defaultRepoRoot, git} from "nbook/scripts/ci/agent-governance-contract";
+import {defaultRepoRoot, git} from "#scripts/ci/agent-governance-contract";
 
 export type DocumentationCheckReport = {
     failures: string[];
@@ -18,13 +18,13 @@ const REQUIRED_DOC_INDEXES = [
     "docs/standards/README.md",
     "docs/standards/code/README.md",
     "docs/proposals/README.md",
-    "docs/adr/README.md",
     "docs/testing/README.md",
     "docs/testing/manual-eval/README.md",
-    "docs/migrations/README.md",
-    "docs/runbooks/README.md",
-    "docs/research/README.md",
-    "docs/archived/README.md",
+    "packages/neuro-book/docs/adr/README.md",
+    "packages/neuro-book/docs/migrations/README.md",
+    "packages/neuro-book/docs/runbooks/README.md",
+    "packages/neuro-book/docs/research/README.md",
+    "packages/neuro-book/docs/archived/README.md",
 ] as const;
 const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md", "docs/specs/TEMPLATE.md"] as const;
 const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md", "TEMPLATE.md"]);
@@ -129,8 +129,8 @@ function checkRetiredDocumentationPaths(files: readonly string[], failures: stri
 
 function checkAdrs(repoRoot: string, files: readonly string[], failures: string[]): void {
     const byNumber = new Map<string, string[]>();
-    for (const path of files.filter((candidate) => candidate.startsWith("docs/adr/") && candidate.endsWith(".md") && candidate !== "docs/adr/README.md")) {
-        const filename = path.slice("docs/adr/".length);
+    for (const path of files.filter((candidate) => candidate.startsWith("packages/neuro-book/docs/adr/") && candidate.endsWith(".md") && candidate !== "packages/neuro-book/docs/adr/README.md")) {
+        const filename = path.slice("packages/neuro-book/docs/adr/".length);
         const match = /^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.exec(filename);
         if (!match) {
             failures.push(`ADR 文件名必须为 NNNN-kebab-case.md：${path}`);
@@ -178,6 +178,7 @@ function isActiveMarkdown(path: string): boolean {
     if (!path.endsWith(".md")) return false;
     if (ROOT_DOCUMENTS[path] || path === ".omp/RULES.md") return true;
     if (path.startsWith("docs/")) return !path.startsWith("docs/archived/") && !path.startsWith("docs/research/");
+    if (path.startsWith("packages/neuro-book/docs/")) return !path.startsWith("packages/neuro-book/docs/archived/") && !path.startsWith("packages/neuro-book/docs/research/");
     if (path.startsWith("reference/")) return true;
     if (path.startsWith("vitepress/")) return !path.startsWith("vitepress/changelog/")
         && !path.startsWith("vitepress/en/changelog/")
@@ -264,7 +265,7 @@ function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failu
     for (const url of collectLinkUrls(fromMarkdown(frozenSection ?? ""))) {
         const target = resolveRelativeLink(registryPath, url);
         if (target === null) continue;
-        if (["docs/proposals/", "docs/research/", "docs/archived/", ".agents/tasks/"].some((prefix) => target.startsWith(prefix))) {
+        if (["docs/proposals/", "docs/research/", "docs/archived/", "packages/neuro-book/docs/proposals/", "packages/neuro-book/docs/research/", "packages/neuro-book/docs/archived/", ".agents/tasks/"].some((prefix) => target.startsWith(prefix))) {
             failures.push(`冻结过渡规范指向非规范资料：${registryPath} -> ${url}（${target}）`);
         }
     }
@@ -316,7 +317,7 @@ function checkSpecs(repoRoot: string, files: readonly string[], failures: string
 }
 
 function isSpecDocument(path: string): boolean {
-    if (!path.startsWith("docs/specs/") || !path.endsWith(".md")) return false;
+    if (!(path.startsWith("docs/specs/") || path.startsWith("packages/neuro-book/docs/specs/")) || !path.endsWith(".md")) return false;
     return !SPEC_SUPPORT_FILENAMES.has(posix.basename(path));
 }
 
@@ -397,7 +398,7 @@ function registeredSpecTargets(
     const targets = new Set<string>();
     for (const url of collectLinkUrls(fromMarkdown(section))) {
         const resolved = resolveRelativeLink(registryPath, url);
-        if (resolved === null || !resolved.startsWith("docs/specs/")) continue;
+        if (resolved === null || !(resolved.startsWith("docs/specs/") || resolved.startsWith("packages/neuro-book/docs/specs/"))) continue;
         const candidates = resolved.endsWith(".md") ? [resolved] : [`${resolved}.md`];
         const target = candidates.find((candidate) => specPaths.has(candidate));
         if (target === undefined) {

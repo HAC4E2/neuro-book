@@ -7,7 +7,7 @@ import {
     parseRemoteLabels,
     type LabelDefinition,
     type RemoteLabel,
-} from "nbook/scripts/ci/community-labels";
+} from "#scripts/ci/community-labels";
 
 const expected: readonly LabelDefinition[] = [
     {name: "type: bug", color: "D73A4A", description: "缺陷 / Bug"},

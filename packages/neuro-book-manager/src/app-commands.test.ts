@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -16,14 +16,14 @@ import {
 } from "#manager/app-commands";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {currentProductPlatform} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {ContainerEngine, InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {ContainerEngine, InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_PATH,
     PRODUCT_SHUTDOWN_TIMEOUT_MS,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const processCommands = vi.hoisted(() => ({
     capture: vi.fn(),
@@ -310,7 +310,14 @@ describe("Application State migration command", () => {
             "docker-state",
         ]);
     });
+    it("容忍Podman Compose在迁移报告前输出容器ID", async () => {
+        const root = await mkdtemp(testHostPath("manager-podman-migration-noise-"));
+        roots.push(root);
+        docker.command.mockResolvedValue(`${"f".repeat(64)}\n${JSON.stringify(applicationMigrationReport("podman-state", "plan", "planned", 1))}`);
 
+        await expect(planApplicationStateMigration(root, {...dockerManifest(), containerEngine: "podman"}, "podman-state"))
+            .resolves.toMatchObject({runId: "podman-state", status: "planned"});
+    });
     it("拒绝错误runId与宽松JSON报告", async () => {
         const root = await nativeProductRoot();
         processCommands.capture.mockResolvedValueOnce(JSON.stringify(applicationMigrationReport("other-run", "plan", "planned", 1)));

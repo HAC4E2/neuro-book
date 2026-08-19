@@ -1,4 +1,5 @@
-import type {InstallationManifest, ReleaseChannel, ReleaseManifest} from "#manager/types";
+import type {InstallationManifest, ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 
 /** Profile应用更新的固定原子范围。 */
 export type ApplicationUpdateComponent = "source" | "product";

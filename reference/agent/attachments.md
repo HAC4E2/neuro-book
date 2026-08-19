@@ -135,7 +135,7 @@ archive 只写当前 Session 的 `session_archived`，restore 只写 `session_re
 - unknown attempt 不持久化。页面刷新后只恢复纯文本草稿；该限制是明确产品语义，不是待补兼容层。
 - follow-up 消费顺序固定为 peek → admission → durable user commit → queue ack；user entry 的 `sourceQueueItemId` 用于 commit/ack 间恢复，禁止重复运行。
 
-完整 transport unknown 取舍见 [ADR 0001](../../docs/adr/0001-agent-input-transport-unknown.md)。
+完整 transport unknown 取舍见 [ADR 0001](../../packages/neuro-book/docs/adr/0001-agent-input-transport-unknown.md)。
 
 ## 模型与预算
 

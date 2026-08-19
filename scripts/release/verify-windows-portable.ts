@@ -5,13 +5,13 @@ import {lstat, readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {parseArgs} from "node:util";
 
-import {parseInstallationManifest, parseReleaseManifest} from "nbook/packages/neuro-book-manager/src/schema";
-import {verifyInstalledProductRuntimeImage} from "nbook/packages/neuro-book-manager/src/product";
-import type {InstallationManifest, ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
-import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {parseReleaseBuild} from "nbook/scripts/release/release-assets";
+import {parseInstallationManifest, type InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import {parseReleaseManifest, type ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
+import {PRODUCT_ASSET_NAMES, type ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {verifyInstalledProductRuntimeImage} from "@notnotype/neuro-book/product-verification";
+import {parseReleaseBuild} from "#scripts/release/release-assets";
 
-const WINDOWS_PRODUCT_PLATFORM = "windows-x64";
+const WINDOWS_PRODUCT_PLATFORM: ProductPlatform = "windows-x64";
 
 export type VerifiedWindowsPortable = Readonly<{
     buildId: string;

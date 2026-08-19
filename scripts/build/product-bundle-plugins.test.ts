@@ -1,13 +1,13 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {tmpdir} from "node:os";
+import {join, resolve, dirname} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 
 import {build} from "esbuild";
 import {describe, expect, it} from "vitest";
-import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import {productRuntimeCompatibilityPlugin} from "#scripts/build/product-bundle-plugins";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,7 +37,8 @@ describe("Product bundle plugins", () => {
 
     it("统一静态化pi-ai已知loader，只保留auth context opaque seam", async () => {
         const probe = await execFileAsync("bun", ["-e", BUN_PLUGIN_PROBE], {
-            cwd: process.cwd(),
+            cwd: resolve(dirname(import.meta.dirname), ".."),
+            env: {...process.env, NODE_PATH: "", NEURO_BOOK_REPOSITORY_ROOT: resolve(dirname(import.meta.dirname), "..")},
             windowsHide: true,
             maxBuffer: 16 * 1024 * 1024,
         });
@@ -101,9 +102,13 @@ describe("Product bundle plugins", () => {
 
 const BUN_PLUGIN_PROBE = String.raw`
 import {resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {build} from "esbuild";
 import {init, parse} from "es-module-lexer";
-import {productPiAiImportPlugin} from "nbook/scripts/build/product-bundle-plugins";
+const {productPiAiImportPlugin} = await import(pathToFileURL(resolve(
+    process.env.NEURO_BOOK_REPOSITORY_ROOT!,
+    "scripts/build/product-bundle-plugins.ts",
+)).href);
 await init;
 const result = await build({
     entryPoints: [

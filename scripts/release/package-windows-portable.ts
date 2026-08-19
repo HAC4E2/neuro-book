@@ -3,9 +3,9 @@ import {randomUUID} from "node:crypto";
 import {link, lstat, mkdtemp, rm} from "node:fs/promises";
 import {basename, dirname, relative, resolve} from "node:path";
 
-import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {packagePortable} from "nbook/scripts/deploy/windows-portable-manager";
-import {openReleaseOutput} from "nbook/scripts/release/release-output";
+import {PRODUCT_ASSET_NAMES} from "@notnotype/neuro-book-contracts/platform";
+import {packagePortable} from "#scripts/deploy/windows-portable-manager";
+import {openReleaseOutput} from "#scripts/release/release-output";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 

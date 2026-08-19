@@ -4,7 +4,7 @@ import {join} from "node:path";
 import {parse, stringify} from "yaml";
 
 import {ensureDirectory, pathExists, writeJsonAtomic, writeTextAtomic} from "#manager/files";
-import {selectAppSqliteUrl} from "nbook/server/runtime/app-sqlite-location";
+import {selectAppSqliteUrl} from "#manager/app-sqlite-location";
 
 /** 初始化 State Root，并返回本次新建的路径供事务回滚。 */
 export async function ensureStateFiles(

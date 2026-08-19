@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import {mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {relative, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {strToU8, zipSync} from "fflate";
@@ -9,25 +9,25 @@ import {strToU8, zipSync} from "fflate";
 import {
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
-} from "nbook/scripts/build/product-runtime-image-builder";
-import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
-import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {PORTABLE_ROOT_LOCATORS} from "nbook/packages/neuro-book-manager/src/root-locators";
-import {PRODUCT_PLATFORMS, type InstallationManifest, type ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
+} from "#scripts/build/product-runtime-image-builder";
+import {writeInstallationManifest} from "@notnotype/neuro-book-manager/installation";
+import {PRODUCT_ASSET_NAMES, PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
+import {PORTABLE_ROOT_LOCATORS, type InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {
     createPortableOperation,
     materializePortableArchives,
     PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT,
     portableArchiveComponents,
-} from "nbook/scripts/deploy/windows-portable-manager";
-import {releaseBuildId as computeReleaseBuildId} from "nbook/scripts/release/release-output";
-import {verifyWindowsPortable} from "nbook/scripts/release/verify-windows-portable";
-import {writeZipArchive, type ZipEntry} from "nbook/scripts/utils/zip";
+} from "#scripts/deploy/windows-portable-manager";
+import {releaseBuildId as computeReleaseBuildId} from "#scripts/release/release-output";
+import {verifyWindowsPortable} from "#scripts/release/verify-windows-portable";
+import {writeZipArchive, type ZipEntry} from "#scripts/utils/zip";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const VERSION = "1.2.3-canary.1";
 const REVISION = "a".repeat(40);
@@ -80,7 +80,7 @@ describe("Windows Portable archive provenance", () => {
         expect(identity.sourceArchiveSha256).toBe(createHash("sha256").update(await readFile(archives.source)).digest("hex"));
         expect(identity.productArchiveSha256).toBe(createHash("sha256").update(await readFile(archives.product)).digest("hex"));
         expect(identity.runtimeImage.imageId).toMatch(/^sha256:[0-9a-f]{64}$/u);
-        expect(identity.sourceFiles).toEqual(["archive-only.txt", "bun.lock", "package.json", "source-build.json"]);
+        expect(identity.sourceFiles).toEqual(["archive-only.txt", "bun.lock", "package.json", "packages/neuro-book/package.json", "source-build.json"]);
         expect(await readFile(resolve(stage, "archive-only.txt"), "utf8")).toBe("archive source");
         expect(await readFile(resolve(stage, ".output", "server", "index.mjs"), "utf8")).toBe("export const origin = 'archive product';\n");
         expect(await readdir(stage)).not.toContain("live-only.txt");
@@ -246,6 +246,7 @@ async function writeValidArchives(
     const sourceRoot = resolve(root, "source");
     await mkdir(sourceRoot, {recursive: true});
     const packagePath = resolve(sourceRoot, "package.json");
+    const applicationPackagePath = resolve(sourceRoot, "packages", "neuro-book", "package.json");
     const lockfilePath = resolve(sourceRoot, "bun.lock");
     const markerPath = resolve(sourceRoot, "archive-only.txt");
     const sourceBuildPath = resolve(sourceRoot, "source-build.json");
@@ -253,7 +254,9 @@ async function writeValidArchives(
         mkdir(resolve(sourceRoot, "node_modules", "nuxt"), {recursive: true}),
         mkdir(resolve(sourceRoot, "node_modules", "nitropack"), {recursive: true}),
     ]);
-    await writeFile(packagePath, `${JSON.stringify({name: "neuro-book", version: VERSION}, null, 4)}\n`, "utf8");
+    await writeFile(packagePath, `${JSON.stringify({name: "neuro-book-workspace"}, null, 4)}\n`, "utf8");
+    await mkdir(resolve(sourceRoot, "packages", "neuro-book"), {recursive: true});
+    await writeFile(applicationPackagePath, `${JSON.stringify({name: "@notnotype/neuro-book", version: VERSION, private: true, type: "module"}, null, 4)}\n`, "utf8");
     await writeFile(lockfilePath, LOCKFILE, "utf8");
     await writeFile(markerPath, "archive source", "utf8");
     await Promise.all([
@@ -335,6 +338,7 @@ async function writeValidArchives(
     const productArchive = resolve(root, "product.zip");
     await writeZipArchive(sourceArchive, [
         {kind: "file", source: packagePath, archivePath: "package.json"},
+        {kind: "file", source: applicationPackagePath, archivePath: "packages/neuro-book/package.json"},
         {kind: "file", source: lockfilePath, archivePath: "bun.lock"},
         {kind: "file", source: markerPath, archivePath: "archive-only.txt"},
         {kind: "file", source: sourceBuildPath, archivePath: "source-build.json"},

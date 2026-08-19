@@ -1,12 +1,13 @@
 import {spawn} from "node:child_process";
 import {mkdir, mkdtemp, readdir, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
 const roots: string[] = [];
-const profileCommand = resolve("server", "agent", "profiles", "profile-command.ts");
-const variableCommand = resolve("server", "agent", "variables", "variable-command.ts");
+const applicationRoot = resolve(dirname(import.meta.dirname), "..", "packages", "neuro-book");
+const profileCommand = resolve(applicationRoot, "server", "agent", "profiles", "profile-command.ts");
+const variableCommand = resolve(applicationRoot, "server", "agent", "variables", "variable-command.ts");
 
 afterEach(async () => {
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
@@ -118,7 +119,7 @@ async function authoringFixture(): Promise<AuthoringFixture> {
     await Promise.all([mkdir(stateRoot, {recursive: true}), mkdir(cacheRoot, {recursive: true})]);
     const env: NodeJS.ProcessEnv = {
         ...process.env,
-        NEURO_BOOK_APPLICATION_ROOT: resolve("."),
+        NEURO_BOOK_APPLICATION_ROOT: applicationRoot,
         NEURO_BOOK_STATE_ROOT: stateRoot,
         NEURO_BOOK_CACHE_ROOT: cacheRoot,
         NODE_PATH: "",
@@ -132,7 +133,7 @@ async function runCli(
     entry: string,
     args: string[],
     fixture: AuthoringFixture,
-    cwd = resolve("."),
+    cwd = applicationRoot,
 ): Promise<CliResult> {
     return await new Promise((resolvePromise, rejectPromise) => {
         const stdout: Buffer[] = [];

@@ -1,9 +1,9 @@
 import {createHash} from "node:crypto";
 import {execFileSync} from "node:child_process";
-import {existsSync, lstatSync, readFileSync} from "node:fs";
-import {dirname, resolve} from "node:path";
+import {existsSync, lstatSync, readFileSync, readdirSync} from "node:fs";
+import {dirname, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot} from "nbook/scripts/utils/agent-paths";
+import {resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot} from "@notnotype/neuro-book-test-support/paths";
 
 export const GOVERNANCE_SCHEMA = "nbook.governance/v1";
 export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
@@ -49,6 +49,56 @@ type TaskMigrationMarker = {
     localOnlyFiles: string[];
 };
 
+type SiblingResyncResolution = {
+    schema: string;
+    status: string;
+    policy: {copyActions: number};
+    inputs: Record<string, string>;
+    projects: Record<string, {
+        allowlist: number;
+        exact: number;
+        missing: unknown[];
+        deletionCandidates: unknown[];
+        decisions: Array<{kind: string; paths: string[]; action: string}>;
+        unclassifiedAllowlistDifferences: number;
+    }>;
+    totals: {
+        allowlist: number;
+        exact: number;
+        classifiedAllowlistDifferences: number;
+        unclassifiedAllowlistDifferences: number;
+        missing: number;
+        deletionCandidates: number;
+        copyActions: number;
+    };
+};
+
+const SIBLING_RESYNC_INPUT_HASHES: Record<string, string> = {
+    "sibling-import-manifest.json": "sha256:56a995fc67795985d887bfaf4086eb9c22c08adf8dd0b0a9c899d2219e3f0023",
+    "manifest-allowlist-audit-v1.json": "sha256:158d5143fb4311671335793d17a1452ae4ff2c437774eb600bf5ad29d57af201",
+    "source-immutability-comparison-v3.json": "sha256:a49151152a9c09fc4816468ea5cb5c94d3445af6ca04e167bc9899b833b3c3b4",
+    "invalidated-reports.json": "sha256:699c488b3a4b2fcbed23a52d6860b33ddc6d1190646dca10184e934535a30e61",
+};
+
+const SIBLING_RESYNC_PROJECT_COUNTS: Record<string, {allowlist: number; exact: number; classified: number}> = {
+    "nb-history": {allowlist: 28, exact: 25, classified: 3},
+    "nb-workflow": {allowlist: 78, exact: 17, classified: 61},
+    "nb-ui": {allowlist: 156, exact: 153, classified: 3},
+    llmlint: {allowlist: 739, exact: 720, classified: 19},
+    "neuro-agent-harness": {allowlist: 296, exact: 292, classified: 4},
+    "nb-memory": {allowlist: 35, exact: 32, classified: 3},
+};
+
+const SIBLING_RESYNC_TOTALS = {
+    allowlist: 1332,
+    exact: 1239,
+    classifiedAllowlistDifferences: 93,
+    unclassifiedAllowlistDifferences: 0,
+    missing: 0,
+    deletionCandidates: 0,
+    copyActions: 0,
+} as const;
+
 export function defaultRepoRoot(moduleUrl: string): string {
     return resolve(dirname(fileURLToPath(moduleUrl)), "..", "..");
 }
@@ -90,8 +140,51 @@ export function governanceRoots(repoRoot: string, env: NodeJS.ProcessEnv = proce
         testRoot: resolveAgentTestRoot(env.NBOOK_TEST_RUN_ID && /^[a-f0-9]{8}$/u.test(env.NBOOK_TEST_RUN_ID) ? env.NBOOK_TEST_RUN_ID : "00000000", env),
         acceptanceRoot: resolveAgentAcceptanceRoot(env),
         cacheRoot: resolveAgentCacheRoot("source-dev", env),
-        worktreeRoot: resolveAgentWorktreeRoot(repoRoot, env),
+        worktreeRoot: resolveAgentWorktreeRoot(primaryCheckoutRoot(repoRoot), env),
     };
+}
+
+/** 返回共享 Git common dir 对应的主 checkout，避免 linked worktree 内嵌套 `.worktree/.worktree`。 */
+export function primaryCheckoutRoot(repoRoot: string): string {
+    const commonDir = resolve(repoRoot, git(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+    return dirname(commonDir);
+}
+
+/** 校验 monorepo registered worktree 只位于主 checkout 的 canonical `.worktree/` 下。 */
+export function verifyMonorepoWorktreeLayout(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const primaryRoot = primaryCheckoutRoot(repoRoot);
+    const canonicalRoot = resolve(primaryRoot, ".worktree");
+    for (const entry of parseWorktreeEntries(git(repoRoot, ["worktree", "list", "--porcelain"]))) {
+        const worktree = typeof entry.worktree === "string" ? entry.worktree : null;
+        if (!worktree || samePath(worktree, primaryRoot)) continue;
+        if (!isAbsoluteInside(worktree, canonicalRoot)) failures.push(`monorepo worktree 位置违规：${worktree}（应位于 ${canonicalRoot}）`);
+    }
+    if (!samePath(repoRoot, primaryRoot) && !isAbsoluteInside(repoRoot, canonicalRoot)) {
+        failures.push(`当前 worktree 不在主 checkout 的 canonical 根下：${repoRoot}`);
+    }
+    return failures;
+}
+
+function parseWorktreeEntries(text: string): Array<Record<string, string | true>> {
+    return text.split(/\n\n/u).filter(Boolean).map((block) => Object.fromEntries(block.split(/\r?\n/u).map((line) => {
+        const separator = line.indexOf(" ");
+        return separator < 0 ? [line, true] : [line.slice(0, separator), line.slice(separator + 1)];
+    })));
+}
+
+function samePath(left: string, right: string): boolean {
+    return normalizePath(left) === normalizePath(right);
+}
+
+function isAbsoluteInside(path: string, parent: string): boolean {
+    const remainder = relative(normalizePath(parent), normalizePath(path));
+    return remainder !== "" && !remainder.startsWith("..") && !remainder.startsWith("/") && !/^[A-Za-z]:/u.test(remainder);
+}
+
+function normalizePath(path: string): string {
+    const normalized = resolve(path).replaceAll("\\", "/");
+    return process.platform === "win32" ? normalized.toLocaleLowerCase("en-US") : normalized;
 }
 
 export function expectedGovernanceFiles(): readonly string[] {
@@ -107,10 +200,7 @@ export function expectedGovernanceFiles(): readonly string[] {
         ".agents/tasks/legacy-index.json",
         ...CANONICAL_ROLES.map((role) => `.agents/roles/${role}/AGENTS.md`),
         ".agents/skills/README.md",
-        "app/AGENTS.md",
-        "server/AGENTS.md",
-        "desktop/AGENTS.md",
-        "prisma/AGENTS.md",
+        "packages/neuro-book/AGENTS.md",
         "scripts/AGENTS.md",
         "scripts/release/AGENTS.md",
         "packages/AGENTS.md",
@@ -137,6 +227,85 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
             .length;
         if (actual > limit) failures.push(`治理入口超过非空行上限：${relativePath} ${String(actual)} > ${String(limit)}`);
     }
+    return failures;
+}
+
+/** 校验 sibling 导入差异均已归类，且迁移收口没有隐式复制或删除。 */
+export function verifySiblingResyncResolution(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const relativePath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
+    const report = readJson<SiblingResyncResolution>(resolve(repoRoot, relativePath), failures, relativePath);
+    if (!report) return failures;
+    if (report.schema !== "nbook.sibling-resync-resolution/v1") failures.push("sibling resync resolution schema 不匹配");
+    if (report.status !== "resolved-no-copy") failures.push(`sibling resync 尚未闭合：${report.status}`);
+    for (const [name, expected] of Object.entries(SIBLING_RESYNC_INPUT_HASHES)) {
+        if (report.inputs[name] !== expected) failures.push(`sibling resync 输入 hash 不匹配：${name}`);
+    }
+    const projectNames = Object.keys(report.projects).sort();
+    const expectedProjectNames = Object.keys(SIBLING_RESYNC_PROJECT_COUNTS).sort();
+    if (projectNames.join("\0") !== expectedProjectNames.join("\0")) {
+        failures.push(`sibling resync 项目集合不匹配：${projectNames.join(",")}`);
+    }
+    let allowlist = 0;
+    let exact = 0;
+    let classified = 0;
+    let unclassified = 0;
+    let missing = 0;
+    let deletionCandidates = 0;
+    for (const [project, entry] of Object.entries(report.projects)) {
+        const expected = SIBLING_RESYNC_PROJECT_COUNTS[project];
+        allowlist += entry.allowlist;
+        exact += entry.exact;
+        missing += entry.missing.length;
+        deletionCandidates += entry.deletionCandidates.length;
+        unclassified += entry.unclassifiedAllowlistDifferences;
+        let projectClassified = 0;
+        for (const decision of entry.decisions) {
+            if (decision.action !== "keep-target") failures.push(`sibling resync 存在非保留动作：${project}/${decision.kind}`);
+            if (decision.kind !== "workspace-island-lockfile") projectClassified += decision.paths.length;
+        }
+        classified += projectClassified;
+        if (expected && (entry.allowlist !== expected.allowlist || entry.exact !== expected.exact || projectClassified !== expected.classified)) {
+            failures.push(`sibling resync 项目计数不匹配：${project}`);
+        }
+    }
+    const actual = {allowlist, exact, classifiedAllowlistDifferences: classified, unclassifiedAllowlistDifferences: unclassified, missing, deletionCandidates};
+    for (const [key, value] of Object.entries(actual)) {
+        if (report.totals[key as keyof typeof actual] !== value) failures.push(`sibling resync 汇总不一致：${key}`);
+    }
+    for (const [key, expected] of Object.entries(SIBLING_RESYNC_TOTALS)) {
+        if (report.totals[key as keyof typeof SIBLING_RESYNC_TOTALS] !== expected) failures.push(`sibling resync 固定总数不匹配：${key}`);
+    }
+    if (allowlist !== exact + classified + unclassified) failures.push("sibling resync allowlist 分类算术不闭合");
+    if (unclassified !== 0 || missing !== 0 || deletionCandidates !== 0) failures.push("sibling resync 仍含未分类、缺失或删除候选");
+    if (report.policy.copyActions !== 0 || report.totals.copyActions !== 0) failures.push("sibling resync 仍声明复制动作");
+    return failures;
+}
+
+/** 拒绝重新引入迁移前根应用、同步脚本或第二份边界规范。 */
+export function verifyMonorepoCutover(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const tracked = new Set(git(repoRoot, ["ls-files"]).split(/\r?\n/u).filter(Boolean));
+    for (const path of tracked) {
+        if (/^(?:app|server|shared|profile-sdk|variable-sdk|world-engine|prisma)(?:\/|$)/u.test(path)) failures.push(`旧根应用路径重新出现：${path}`);
+    }
+    for (const path of [
+        "nuxt.config.ts",
+        "prisma.config.ts",
+        "vitest.config.ts",
+        "uno.config.ts",
+        "docs/specs/architecture/monorepo-boundaries.md",
+        "scripts/cli/sync-nb-history.ts",
+        "scripts/cli/sync-nb-workflow.ts",
+        "scripts/cli/sync-llmlint-skill.ts",
+    ]) {
+        if (tracked.has(path)) failures.push(`迁移前入口重新出现：${path}`);
+    }
+    const rootManifest = readJson<{version?: unknown; scripts?: Record<string, string>}>(resolve(repoRoot, "package.json"), failures, "package.json");
+    if (!rootManifest) return failures;
+    if (rootManifest.version !== undefined) failures.push("根 workspace orchestrator 不得声明产品 version");
+    const forbiddenScripts = ["dev", "dev:runtime", "build", "typecheck", "test", "generate", "migration:check", "sync:nb-history", "sync:nb-workflow"];
+    for (const name of forbiddenScripts) if (rootManifest.scripts?.[name]) failures.push(`根 workspace 保留应用或同步命令：${name}`);
     return failures;
 }
 
@@ -208,14 +377,15 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     }
     for (const mapping of mappings) {
         const destinationPath = resolve(repoRoot, mapping.destination);
+        const sourceTracked = Boolean(baselineTracked[mapping.source]);
+        const sourceLocalOnly = Boolean(localOnlySources[mapping.source]);
         if (!hasFile(repoRoot, mapping.destination)) {
+            if (sourceLocalOnly && isGitIgnored(repoRoot, mapping.destination)) continue;
             failures.push(`迁移目标缺失或不是普通文件：${mapping.destination}`);
             continue;
         }
         const actual = `sha256:${createHash("sha256").update(readFileSync(destinationPath)).digest("hex")}`;
         if (actual !== mapping.destinationSha256) failures.push(`迁移目标 hash 不一致：${mapping.destination}`);
-        const sourceTracked = Boolean(baselineTracked[mapping.source]);
-        const sourceLocalOnly = Boolean(localOnlySources[mapping.source]);
         if (sourceTracked && sourceLocalOnly) failures.push(`tracked Task 被错误标记 localOnly：${mapping.source}`);
         if (sourceLocalOnly && sourceTracked) failures.push(`localOnly Task 与 baseline tracked 冲突：${mapping.source}`);
         if (!sourceLocalOnly && !stagedOrTracked[mapping.destination]) failures.push(`canonical Task 尚未进入 Git index：${mapping.destination}`);
@@ -224,7 +394,126 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     }
     if (Object.keys(localOnlySources).length !== index.localOnlyFiles.length) failures.push("迁移 localOnlyFiles 含重复路径");
     if (index.localOnlyFiles.some((source) => baselineTracked[source])) failures.push("迁移 localOnlyFiles 包含 baseline tracked 路径");
+
     return failures;
+}
+
+/**
+ * 校验所有 workspace 包的继承/覆盖规则、运行态边界和自治包归属资产。
+ * 自治包保留项目 docs/Task/status；其他包可选建立同类专属资产，但不得复制根治理正文。
+ */
+export function verifyWorkspacePackageGovernance(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const packagesRoot = resolve(repoRoot, "packages");
+    const packageNames = existsSync(packagesRoot)
+        ? readdirSync(packagesRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+        : [];
+    const autonomous = new Set(["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"]);
+    const manifestNames = new Map<string, string>();
+    const manifests = new Map<string, Record<string, unknown>>();
+
+    for (const packageName of packageNames) {
+        const packageRoot = resolve(packagesRoot, packageName);
+        const manifest = readJson<Record<string, unknown>>(resolve(packageRoot, "package.json"), failures, `packages/${packageName}/package.json`);
+        if (!manifest) continue;
+        manifests.set(packageName, manifest);
+        if (typeof manifest.name !== "string" || !manifest.name) failures.push(`workspace包 package.json 缺少 name：packages/${packageName}/package.json`);
+        else if (manifestNames.has(manifest.name)) failures.push(`workspace包 package name 重复：${manifest.name}`);
+        else manifestNames.set(manifest.name, packageName);
+    }
+
+    for (const packageName of packageNames) {
+        const packageRoot = resolve(packagesRoot, packageName);
+        const manifest = manifests.get(packageName);
+        if (!manifest) continue;
+        for (const runtimeName of [".agent", ".local", ".worktree"] as const) {
+            const runtimePath = resolve(packageRoot, runtimeName);
+            if (!pathEntryExists(runtimePath)) continue;
+            const relativePath = `packages/${packageName}/${runtimeName}`;
+            if (!isGitIgnored(repoRoot, `${relativePath}/placeholder`)) failures.push(`包级运行态未被忽略：${relativePath}`);
+            if (trackedPathExists(repoRoot, relativePath)) failures.push(`包级运行态被 Git 跟踪：${relativePath}`);
+            if (runtimeName === ".worktree") failures.push(`临时 package worktree 尚未清理：${relativePath}`);
+        }
+
+        const agentsPath = resolve(packageRoot, "AGENTS.md");
+        const taskRoot = resolve(packageRoot, ".agents", "tasks");
+        const docsRoot = resolve(packageRoot, "docs");
+        const statusPath = resolve(packageRoot, "PROJECT-STATUS.md");
+        const hasLocalGovernance = pathEntryExists(agentsPath) || pathEntryExists(taskRoot) || pathEntryExists(docsRoot) || pathEntryExists(statusPath);
+        if (hasLocalGovernance || autonomous.has(packageName)) {
+            if (!pathEntryExists(agentsPath)) failures.push(`包级治理资产缺少 AGENTS.md：packages/${packageName}/AGENTS.md`);
+            else if (!readFileSync(agentsPath, "utf8").includes("../../AGENTS.md")) failures.push(`包级 AGENTS.md 未引用根共享规则：packages/${packageName}/AGENTS.md`);
+            failures.push(...verifyPackageTaskIds(packageRoot, packageName));
+        }
+        if (autonomous.has(packageName)) {
+            for (const [entryPath, label] of [[taskRoot, ".agents/tasks"], [docsRoot, "docs"], [statusPath, "PROJECT-STATUS.md"]] as const) {
+                if (!pathEntryExists(entryPath)) failures.push(`自治workspace包缺少归属资产：packages/${packageName}/${label}`);
+            }
+        }
+
+        for (const dependencyName of workspaceDependencies(manifest)) {
+            if (!manifestNames.has(dependencyName)) failures.push(`workspace依赖未对应本地包：packages/${packageName} -> ${dependencyName}`);
+        }
+        if (packageName !== "neuro-book" && workspaceDependencies(manifest).includes("@notnotype/neuro-book")) {
+            failures.push(`自治或内部包不得依赖主应用：packages/${packageName} -> @notnotype/neuro-book`);
+        }
+    }
+    return failures;
+}
+
+function workspaceDependencies(manifest: Record<string, unknown>): string[] {
+    const names = new Set<string>();
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+        const value = manifest[field];
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        for (const [name, version] of Object.entries(value)) {
+            if (typeof version === "string" && (version.startsWith("workspace:") || version.startsWith("file:../"))) names.add(name);
+        }
+    }
+    return [...names];
+}
+
+function pathEntryExists(path: string): boolean {
+    try {
+        lstatSync(path);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function verifyPackageTaskIds(packageRoot: string, packageName: string): string[] {
+    const failures: string[] = [];
+    const taskRoot = resolve(packageRoot, ".agents", "tasks");
+    if (!pathEntryExists(taskRoot)) return failures;
+    const ids = new Set<string>();
+    const files = collectMarkdownFiles(taskRoot);
+    for (const file of files) {
+        const text = readFileSync(file, "utf8");
+        for (const match of text.matchAll(/\btaskId:\s*["']?([A-Za-z0-9._-]+)["']?/gu)) {
+            const taskId = match[1];
+            if (ids.has(taskId)) failures.push(`自治workspace包Task编号重复：packages/${packageName}/${taskId}`);
+            ids.add(taskId);
+        }
+    }
+    return failures;
+}
+function trackedPathExists(repoRoot: string, relativePath: string): boolean {
+    try {
+        return Boolean(git(repoRoot, ["ls-files", "--", relativePath, `${relativePath}/`]).trim());
+    } catch {
+        return false;
+    }
+}
+
+function collectMarkdownFiles(root: string): string[] {
+    const files: string[] = [];
+    for (const entry of readdirSync(root, {withFileTypes: true})) {
+        const path = resolve(root, entry.name);
+        if (entry.isDirectory()) files.push(...collectMarkdownFiles(path));
+        else if (entry.isFile() && entry.name.endsWith(".md")) files.push(path);
+    }
+    return files;
 }
 
 

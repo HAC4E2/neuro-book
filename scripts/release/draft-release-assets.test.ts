@@ -1,10 +1,10 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it, vi} from "vitest";
 
-import {DraftReleaseAssets} from "nbook/scripts/release/draft-release-assets";
+import {DraftReleaseAssets} from "#scripts/release/draft-release-assets";
 
 const roots: string[] = [];
 

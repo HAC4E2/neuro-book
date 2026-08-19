@@ -4,8 +4,8 @@ import {parseArgs} from "node:util";
 import {
     PRODUCT_PLATFORMS,
     type ProductPlatform,
-} from "nbook/packages/neuro-book-manager/src/types";
-import {hasProductRuntimeBuildPolicy} from "nbook/scripts/build/product-runtime-image-builder";
+} from "@notnotype/neuro-book-contracts/platform";
+import {hasProductRuntimeBuildPolicy} from "#scripts/build/product-runtime-image-builder";
 
 /** 返回当前仍缺少 approved Product Runtime Image policy 的平台。 */
 export function missingProductRuntimeBuildPolicies(): ProductPlatform[] {

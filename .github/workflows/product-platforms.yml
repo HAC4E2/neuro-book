@@ -6,15 +6,20 @@ on:
       - ".github/workflows/product-platforms.yml"
       - ".github/workflows/release-container.yml"
       - "Dockerfile"
-      - "app/**"
-      - "assets/**"
-      - "packages/**"
-      - "prisma/**"
+      - "packages/neuro-book/**"
+      - "packages/neuro-book-contracts/**"
+      - "packages/neuro-book-test-support/**"
+      - "packages/neuro-book-manager/**"
+      - "packages/owned-process/**"
+      - "packages/file-snapshot-cache/**"
+      - "packages/nb-history/**"
+      - "packages/nb-workflow/**"
+      - "packages/nb-memory/**"
+      - "packages/nb-ui/**"
+      - "packages/neuro-agent-harness/**"
+      - "packages/llmlint/**"
       - "scripts/**"
-      - "server/**"
-      - "shared/**"
       - "bun.lock"
-      - "nuxt.config.ts"
       - "package.json"
   workflow_dispatch:
 
@@ -91,7 +96,7 @@ jobs:
         run: bun run --cwd packages/owned-process test
       - name: Build approved Product Runtime Image
         if: steps.runtime_policy.outputs.registered == 'true'
-        run: bun run nuxt:build
+        run: bun --cwd packages/neuro-book run nuxt:build
       - name: Build Source archive for native verification
         if: steps.runtime_policy.outputs.registered == 'true'
         run: bun run release:source
@@ -105,7 +110,7 @@ jobs:
         if: steps.runtime_policy.outputs.registered == 'true'
         shell: bash
         run: |
-          version="$(bun -e 'console.log(require("./package.json").version)')"
+          version="$(bun -e 'console.log(require("./packages/neuro-book/package.json").version)')"
           bash scripts/release/verify-posix-product.sh \
             "${{ matrix.platform }}" \
             "${NEURO_BOOK_RELEASE_DIR}/neuro-book-source.zip" \

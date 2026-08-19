@@ -1,7 +1,7 @@
 {
   "schema": "nbook.task-migration-index/v1",
   "sourceRevision": "306e563ad7a4d4a58354fa8d582ad9aa9b886e8c",
-  "manifestSha256": "sha256:6bd71aa032d0f6b1b5d302d874e44285283499e7fe60c796e30ddb012f2ffbf6",
+  "manifestSha256": "sha256:1bc9acbf92612a99dfa5407967aed2fa791ee371690ce1e954dbcc746f190c00",
   "migratedAt": "2026-08-15T15:05:32.708Z",
   "mappings": [
     {
@@ -128,7 +128,7 @@
       "source": "docs/tasks/105-unified-installation-manager/README.md",
       "destination": ".agents/tasks/105-unified-installation-manager/README.md",
       "sourceSha256": "sha256:a59f8bbce8ee4e81f3fdf638b75d65509a642567d01dbf63fcb1fd8343f10102",
-      "destinationSha256": "sha256:a59f8bbce8ee4e81f3fdf638b75d65509a642567d01dbf63fcb1fd8343f10102",
+      "destinationSha256": "sha256:4f40b2a43d702fd4afeac96906c798eac695d7df81b422d0fe96a5505870ffd7",
       "kind": "file",
       "linkRewrite": false
     },
@@ -768,7 +768,7 @@
       "source": "docs/tasks/133-style-eval/README.md",
       "destination": ".agents/tasks/133-style-eval/README.md",
       "sourceSha256": "sha256:8c7ff43da50dd77072392690f1c40d94915405278f7e8aaa26bd3fd605178ed4",
-      "destinationSha256": "sha256:8c7ff43da50dd77072392690f1c40d94915405278f7e8aaa26bd3fd605178ed4",
+      "destinationSha256": "sha256:8cc73e2a0a7218bb07f40368e4f304dc851e3bede8da317ee16b3a8e6fe71910",
       "kind": "file",
       "linkRewrite": false
     },

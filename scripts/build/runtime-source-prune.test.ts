@@ -1,9 +1,9 @@
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
-import {isRuntimeTestSourcePath, pruneRuntimeTestSources} from "nbook/scripts/utils/runtime-source-prune.mjs";
+import {isRuntimeTestSourcePath, pruneRuntimeTestSources} from "#scripts/utils/runtime-source-prune.mjs";
 
 describe("Product runtime源码清理", () => {
     it("识别跨平台测试源码路径", () => {

@@ -2,13 +2,13 @@ import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
+import {parseDesktopDelegatedUninstallReceipt} from "@notnotype/neuro-book-contracts/desktop";
 import {
-    parseDesktopDelegatedUninstallReceipt,
     removeDesktopMachineUninstallLauncher,
     waitForWindowsUninstallHostResult,
-} from "nbook/desktop/shared/src/windows-uninstall-result";
+} from "./windows-uninstall-result";
 
 const roots: string[] = [];
 

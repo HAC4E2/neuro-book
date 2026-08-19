@@ -3,7 +3,7 @@ import {createRequire} from "node:module";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import {init, parse} from "es-module-lexer";
-import {productRuntimeIslandSourceRoot} from "nbook/scripts/build/product-runtime-islands";
+import {productRuntimeIslandSourceRoot} from "#scripts/build/product-runtime-islands";
 
 export type ProductPackageIslandRewriteResult = {
     scannedFiles: number;

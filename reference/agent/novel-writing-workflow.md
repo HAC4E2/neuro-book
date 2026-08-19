@@ -1,6 +1,6 @@
 # Novel Writing Workflow
 
-本文定义普通写作模式的 skill 体系和主协作链。World Engine 是写作模式下动态世界状态与时间线的唯一真相源；旧 `simulation/` / `emulation` 流程只作为 legacy RP 或历史维护资料保留（skill 已归档到 `docs/archived/skills/`）。Plot System 在普通写作模式下只作为 Scene / Chapter 结构层，由 `leader.default` 管理，不保存第二份动态世界状态。
+本文定义普通写作模式的 skill 体系和主协作链。World Engine 是写作模式下动态世界状态与时间线的唯一真相源；旧 `simulation/` / `emulation` 流程只作为 legacy RP 或历史维护资料保留（skill 已归档到 `packages/neuro-book/docs/archived/skills/`）。Plot System 在普通写作模式下只作为 Scene / Chapter 结构层，由 `leader.default` 管理，不保存第二份动态世界状态。
 
 完整 World Engine 原理与 leader/writer 协作契约见 [../world-engine/workflow.md](../world-engine/workflow.md)。写作 skill 的全局路线图是 Bundled Workspace Template 中的 `novel-guide` skill；本文与它保持同一口径。
 
@@ -44,7 +44,7 @@ Bundled Workspace Template 中的写作 skill 分三层（详见 `novel-guide`�
 | `novel-writing` | 创作流程 | 剧情写作循环：剧情设计 → 拍板落库 → 正文/评审/修订；开局模式覆盖黄金三章。 |
 | `novel-writer-execution` | writer 内部 | Writer 执行手册，writer profile 内部参考，leader 不直接调用。 |
 
-Legacy（已归档到 `docs/archived/skills/`，不进 skill catalog）：`novel-workflow-05-emulation-bootstrap`、`novel-workflow-06-emulation-tick`。
+Legacy（已归档到 `packages/neuro-book/docs/archived/skills/`，不进 skill catalog）：`novel-workflow-05-emulation-bootstrap`、`novel-workflow-06-emulation-tick`。
 
 ## Writer Handoff
 

@@ -15,10 +15,11 @@ export default defineConfig({
             enforce: "pre",
             async transform(code, id) {
                 const normalizedId = id.replaceAll("\\", "/");
+                const isInternalPackage = /\/node_modules\/@notnotype\/(?:neuro-book-test-support|neuro-book-contracts|owned-process)\//u.test(normalizedId);
                 if (
-                    normalizedId.includes("/node_modules/") ||
-                    !/\.(?:[cm]?ts|tsx)$/u.test(normalizedId) ||
-                    normalizedId.endsWith(".d.ts")
+                    normalizedId.includes("/node_modules/") && !isInternalPackage
+                    || !/\.(?:[cm]?ts|tsx)$/u.test(normalizedId)
+                    || normalizedId.endsWith(".d.ts")
                 ) {
                     return;
                 }
@@ -57,8 +58,8 @@ export default defineConfig({
     test: {
         include: ["src/**/*.test.ts"],
         environment: "node",
-        setupFiles: ["../../server/workspace-files/vitest-tmpdir-setup.ts"],
-        globalSetup: ["../../server/workspace-files/vitest-global-setup.ts"],
+        setupFiles: ["@notnotype/neuro-book-test-support/vitest"],
+        globalSetup: ["@notnotype/neuro-book-test-support/vitest"],
         // Manager回归包含真实Git、PowerShell和子进程冷启动；共享runner负载下5秒不足以区分慢启动与挂死。
         testTimeout: 20_000,
     },

@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
@@ -8,7 +8,7 @@ import {
     isCanonicalMachineProductImagePath,
     materializeMachineManagerScript,
     materializeMachineProductImage,
-} from "nbook/desktop/shared/src/manager-runtime";
+} from "./manager-runtime";
 
 const roots: string[] = [];
 const originalPlatform = process.platform;

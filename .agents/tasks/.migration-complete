@@ -2,8 +2,8 @@
   "schema": "nbook.task-migration/v1",
   "sourceRevision": "306e563ad7a4d4a58354fa8d582ad9aa9b886e8c",
   "fileCount": 992,
-  "manifestSha256": "sha256:6bd71aa032d0f6b1b5d302d874e44285283499e7fe60c796e30ddb012f2ffbf6",
-  "completedAt": "2026-08-15T15:05:32.712Z",
+  "manifestSha256": "sha256:1bc9acbf92612a99dfa5407967aed2fa791ee371690ce1e954dbcc746f190c00",
+  "completedAt": "2026-08-18T03:17:07Z",
   "repositoryLinkRewrites": [
     "PROJECT-STATUS.md",
     "docs/adr/0001-agent-input-transport-unknown.md",

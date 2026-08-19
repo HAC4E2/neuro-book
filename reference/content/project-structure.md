@@ -76,7 +76,7 @@ The top-level directories are extensible, but the default template should stay s
 | `simulation/` | World runtime state, subjects, entities and run artifacts. | [simulation.md](simulation.md) |
 | `reference/` | External raw materials, import archives and low-confidence migration inputs. | This file |
 | `upload/` | Uploaded files and project-local intake material awaiting organization. | This file |
-| `.nbook/` | Project config, Project SQLite and control files. | [NeuroBook terminology](../../docs/specs/foundation/terminology.md) |
+| `.nbook/` | Project config, Project SQLite and control files. | [NeuroBook terminology](../../packages/neuro-book/docs/specs/foundation/terminology.md) |
 | `.agent/` | Temporary execution notes, plans and caches. | Agent docs |
 
 Keep the boundary simple:

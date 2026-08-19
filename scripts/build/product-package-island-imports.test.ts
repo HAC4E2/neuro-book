@@ -1,10 +1,10 @@
 import {createRequire} from "node:module";
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {rewriteProductPackageIslandImports} from "nbook/scripts/build/product-package-island-imports";
+import {rewriteProductPackageIslandImports} from "#scripts/build/product-package-island-imports";
 
 const temporaryRoots: string[] = [];
 

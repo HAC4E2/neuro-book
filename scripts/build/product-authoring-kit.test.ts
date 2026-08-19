@@ -1,11 +1,11 @@
 import {execFile} from "node:child_process";
 import {access, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
-import {assertAuthoringDeclarationSourcePaths} from "nbook/scripts/build/product-authoring-kit";
+import {assertAuthoringDeclarationSourcePaths} from "#scripts/build/product-authoring-kit";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);

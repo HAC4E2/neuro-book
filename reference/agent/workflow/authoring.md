@@ -173,7 +173,7 @@ return {
 
 ## 确定性与重放
 
-Activity 的身份由分支路径、路径内序号、操作种类和参数指纹共同决定。恢复或重跑时，已完成且指纹相同的 Activity 命中 journal，不会再次执行副作用。
+Activity 的身份由分支路径、路径内序号、操作种类和规范化参数的 SHA-256 指纹共同决定。恢复或重跑时，已完成且指纹相同的 Activity 命中 journal，不会再次执行副作用；参数正文仅通过内核生成的 `params` 观测字段供内部观测使用，不属于 identity。
 
 必须遵守：
 
@@ -181,7 +181,7 @@ Activity 的身份由分支路径、路径内序号、操作种类和参数指�
 - 外部读取、agent 创建/调用、人类提问都走 `wf` API；
 - 并发只用 `wf.map` 或 `wf.all`；
 - 不要按并发完成先后决定下一步；
-- 把会改变结果的内容放进 `args`、`message`、`input` 或其他 `wf` API 参数，使变化进入指纹；
+- 把会改变结果的内容放进 `args`、`message`、`input` 或其他 `wf` API 参数，使变化进入 SHA-256 指纹；不要自行把原始 JSON 写入 `fingerprint`；
 - 循环次数、数组顺序和分支 key 必须来自稳定输入，不能来自时间或随机数。
 
 `wf.log`、`wf.progress` 与 `wf.chart` 是观测事件，不写 journal。代码重放时会按同一控制流重新发出，因此它们也必须使用稳定 key、token 与顺序。

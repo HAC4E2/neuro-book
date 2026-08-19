@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
 
 const mocks = vi.hoisted(() => ({
     assertManagerUpgrade: vi.fn(),
@@ -13,7 +13,8 @@ vi.mock("#manager/git", () => ({fetchUpdateTarget: mocks.fetchUpdateTarget}));
 vi.mock("#manager/manifest-store", () => ({resolveReleaseManifest: mocks.resolveReleaseManifest}));
 
 import {inspectUpdatePreflight} from "#manager/update-preflight";
-import type {InstallationManifest, ReleaseManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const SHA = "a".repeat(64);

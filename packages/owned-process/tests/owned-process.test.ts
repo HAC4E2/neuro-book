@@ -1,7 +1,7 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {spawn} from "node:child_process";
 import {createServer} from "node:net";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 

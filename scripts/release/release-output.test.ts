@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, relative, resolve} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -11,8 +11,8 @@ import {
     prepareReleaseOutput,
     readReleaseGeneration,
     releaseBuildId,
-} from "nbook/scripts/release/release-output";
-import {runCapture} from "nbook/scripts/utils/process.mjs";
+} from "#scripts/release/release-output";
+import {runCapture} from "#scripts/utils/process.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const roots: string[] = [];

@@ -9,23 +9,22 @@ import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
     PRODUCT_STARTUP_NONCE_ENVIRONMENT,
-    type ProductRuntimeCommandId,
-} from "nbook/shared/product-runtime-contract";
-import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
-import {
     productRuntimeReceiptEnvironment,
+    type ProductRuntimeCommandId,
     type ProductRuntimeReceiptAuthorization,
-} from "nbook/shared/product-runtime-receipt";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {shutdownNativeProduct} from "#manager/product-shutdown";
 
 import {enableAuthentication, ensureWritableRuntimeRoots, loadStateEnv} from "#manager/config";
-import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
+import {createProductRuntimeEnvironment} from "@notnotype/neuro-book-contracts/environment";
 import {containerComposeOptions, runDockerApplicationCommand, startDocker, stopDockerContainer, verifyRunningDockerApplication} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {assertInstallationHostCompatible} from "#manager/platform";
 import {commandAvailable, run, runCapture, runWithInput} from "#manager/process";
 import {resolveInstallationRoots} from "#manager/root-locators";
 import {activateManagedTools} from "#manager/tools";
-import type {CommandInspection, InstallationManifest} from "#manager/types";
+import type {CommandInspection} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
 import {verifyApplicationExecution} from "#manager/application-execution";
 
@@ -418,7 +417,7 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
             ...(username ? [username] : []),
             ...passwordArgs,
         ];
-        const options = withoutAdminPassword(containerComposeOptions(execution.engine, root));
+        const options = withoutAdminPassword(await containerComposeOptions(execution.engine, root));
         if (passwordInput) await runWithInput(execution.engine, args, passwordInput, options);
         else await run(execution.engine, args, options);
         return;
@@ -592,7 +591,10 @@ async function runApplicationMigrationCommand(
         containerStateRoot,
         productRuntimeReceipt,
     );
-    const value: unknown = JSON.parse(output);
+    // podman-compose 会在 compose run 的 stdout 前输出 pod ID；只从首个 JSON 行开始解析报告。
+    const jsonStart = output.search(/(?:^|\r?\n)[\t ]*\{/u);
+    const jsonOutput = jsonStart >= 0 ? output.slice(jsonStart).trimStart() : output;
+    const value: unknown = JSON.parse(jsonOutput);
     if (!Value.Check(ApplicationMigrationReportSchema, value)) {
         throw new Error("Application State migration 返回了无效报告。");
     }

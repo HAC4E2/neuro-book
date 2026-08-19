@@ -1,13 +1,13 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {sha256File} from "#manager/files";
 import {doctor, installationStatus} from "#manager/maintenance";
-import {PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {PORTABLE_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 

@@ -9,8 +9,11 @@ import {
     git,
     hasFile,
     verifyGovernanceDocumentLimits,
+    verifyMonorepoCutover,
+    verifySiblingResyncResolution,
     verifyTaskMigration,
-} from "nbook/scripts/ci/agent-governance-contract";
+    verifyWorkspacePackageGovernance,
+} from "#scripts/ci/agent-governance-contract";
 
 const args = process.argv.slice(2);
 const repoArgument = args.indexOf("--repo-root");
@@ -24,7 +27,8 @@ function requireFile(relativePath: string): void {
 
 function isIgnored(relativePath: string): boolean {
     try {
-        git(repoRoot, ["check-ignore", "--no-index", "-q", relativePath]);
+        const candidate = relativePath === ".worktree" ? ".worktree/placeholder" : relativePath;
+        git(repoRoot, ["check-ignore", "--no-index", "-q", candidate]);
         return true;
     } catch {
         return false;
@@ -32,14 +36,20 @@ function isIgnored(relativePath: string): boolean {
 }
 function isHistoricalMarkdownPath(relativePath: string): boolean {
     return relativePath.startsWith(".agents/tasks/")
+        || relativePath.includes("/.agents/tasks/")
         || relativePath.startsWith("docs/archived/")
         || relativePath.startsWith("docs/research/")
+        || relativePath.startsWith("packages/neuro-book/docs/archived/")
+        || relativePath.startsWith("packages/neuro-book/docs/research/")
         || relativePath.startsWith("vitepress/changelog/")
         || relativePath.startsWith("vitepress/en/changelog/");
 }
 
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
 failures.push(...verifyTaskMigration(repoRoot));
+failures.push(...verifyWorkspacePackageGovernance(repoRoot));
+failures.push(...verifyMonorepoCutover(repoRoot));
+failures.push(...verifySiblingResyncResolution(repoRoot));
 failures.push(...verifyGovernanceDocumentLimits(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
@@ -91,7 +101,7 @@ for (const relativePath of inspectPaths) {
     } catch {
         continue;
     }
-    if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text)) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
+    if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
 }
 for (const relativePath of inspectPaths) {
     if (!relativePath.endsWith(".md") || isHistoricalMarkdownPath(relativePath)) continue;

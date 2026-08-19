@@ -2,8 +2,8 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {verifyTutorialAssets} from "nbook/scripts/ci/tutorial-assets";
-import {createTestTmpRoot} from "nbook/server/workspace-files/test-tmp-sweep";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {verifyTutorialAssets} from "#scripts/ci/tutorial-assets";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const assets = [

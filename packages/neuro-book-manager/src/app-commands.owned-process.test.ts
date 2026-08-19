@@ -1,6 +1,6 @@
 import {readFile, rm} from "node:fs/promises";
 import {createServer} from "node:net";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";

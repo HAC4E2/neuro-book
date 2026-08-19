@@ -14,8 +14,8 @@ export default defineConfig({
     },
     test: {
         environment: "node",
-        setupFiles: ["server/workspace-files/vitest-tmpdir-setup.ts"],
-        globalSetup: ["server/workspace-files/vitest-global-setup.ts"],
+        setupFiles: ["@notnotype/neuro-book-test-support/vitest"],
+        globalSetup: ["@notnotype/neuro-book-test-support/vitest"],
         include: ["scripts/release/manager-release-contract.test.ts"],
     },
 });

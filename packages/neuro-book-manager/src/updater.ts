@@ -54,18 +54,12 @@ import {installationPaths} from "#manager/paths";
 import {buildSourceProduct, installSourceDependencies, issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {installManagerExecutable, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {writeManagedToolWrappers} from "#manager/tools";
-import {parseInstallationManifest} from "#manager/schema";
+import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {sourceDockerImageName} from "#manager/source-docker-image";
 import {type ApplicationUpdateComponent} from "#manager/update-planner";
 import {resolveUpdatePreflight} from "#manager/update-preflight";
-import type {
-    InstallationManifest,
-    ProductComponent,
-    ManagerComponent,
-    ReleaseChannel,
-    ReleaseManifest,
-    SourceComponent,
-} from "#manager/types";
+import type {InstallationManifest, ProductComponent, ManagerComponent, ReleaseChannel, SourceComponent} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 
 import {MANAGER_VERSION} from "#manager/version-info";
 

@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, stat, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, relative} from "node:path";
 import {zipSync, strToU8} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
@@ -8,7 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {rollbackProduct, rollbackReleaseSource, stageReleaseProduct, stageReleaseSource, switchProduct, switchReleaseSource} from "#manager/component";
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
-import type {VerifiedProductRuntimeImage} from "nbook/scripts/build/product-runtime-image-builder";
+import type {VerifiedProductRuntimeImage} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 

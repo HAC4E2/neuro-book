@@ -21,8 +21,9 @@ on:
       - patches/**
       - scripts/ci/validate-nitropack-patch.ts
       - scripts/ci/check-documentation*
-      - nuxt.config.ts
-      - tsconfig.json
+      - packages/neuro-book/**
+      - packages/neuro-book/nuxt.config.ts
+      - packages/neuro-book/tsconfig.json
       - package.json
       - bun.lock
   workflow_dispatch:
@@ -67,10 +68,10 @@ jobs:
         run: bun scripts/ci/validate-nitropack-patch.ts
 
       - name: Prepare Nuxt types
-        run: bun run nuxt:prepare
+        run: bun --cwd packages/neuro-book run nuxt:prepare
+
       - name: Check documentation governance
         run: bun run docs:check
-
 
       - name: Build with VitePress
         env:

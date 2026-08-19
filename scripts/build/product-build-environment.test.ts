@@ -1,20 +1,20 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
-import {join} from "node:path";
+import {tmpdir} from "node:os";
+import {join, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 
-import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 import {
     PRODUCT_SOURCE_DATE_EPOCH,
     PRODUCT_NODE_OPTIONS,
     productBuildEnvironment,
     productRuntimeOwnerBaselines,
     withProductBuildLease,
-} from "nbook/scripts/build/build-product-runtime-image";
+} from "#scripts/build/build-product-runtime-image";
 import {
     assertAllProductRuntimeBuildPolicies,
     missingProductRuntimeBuildPolicies,
-} from "nbook/scripts/build/check-product-runtime-policies";
+} from "#scripts/build/check-product-runtime-policies";
 
 describe("Product build environment", () => {
     it("只透传 OS 启动变量，并固定所有会改变 Nuxt/Nitro payload 的输入", () => {
@@ -128,8 +128,8 @@ describe("Product build environment", () => {
 
     it("raw Nuxt pipeline 只读取 tracked 的空 Product dotenv", async () => {
         const [packageText, productEnv, attributes] = await Promise.all([
-            readFile("package.json", "utf8"),
-            readFile(".env.product", "utf8"),
+            readFile(resolve("packages/neuro-book", "package.json"), "utf8"),
+            readFile(resolve("packages/neuro-book", ".env.product"), "utf8"),
             readFile(".gitattributes", "utf8").then((text) => text.replaceAll("\r\n", "\n")),
         ]);
         const packageJson = JSON.parse(packageText) as {scripts: {"nuxt:build:raw": string}};

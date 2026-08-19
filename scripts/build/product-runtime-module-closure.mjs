@@ -3,7 +3,7 @@ import {lstat, readFile, readdir, realpath} from "node:fs/promises";
 import {builtinModules} from "node:module";
 import {dirname, extname, isAbsolute, relative, resolve} from "node:path";
 import {init, parse} from "es-module-lexer";
-import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
+import {containsSourceRootDescendant} from "#scripts/build/product-source-path-contract";
 
 const NATIVE_ISLAND_SCHEMA = "nbook.product-native-islands/v2";
 const executableExtensions = new Set([".cjs", ".js", ".mjs"]);

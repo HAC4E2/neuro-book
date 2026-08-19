@@ -1,7 +1,7 @@
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {isSupportedPiApi} from "nbook/shared/models/provider-config-contract";
+import {isSupportedPiApi} from "@notnotype/neuro-book-contracts/provider-config";
 
 import {writeJsonAtomic} from "#manager/files";
 

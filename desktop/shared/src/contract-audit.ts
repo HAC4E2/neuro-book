@@ -1,6 +1,6 @@
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
-import {parseProductRuntimeContract, type ProductRuntimeContract} from "nbook/shared/product-runtime-contract";
+import {parseProductRuntimeContract, type ProductRuntimeContract} from "@notnotype/neuro-book-contracts/product-runtime";
 
 export type ContractAudit = {
     imageRoot: string;

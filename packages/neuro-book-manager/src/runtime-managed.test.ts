@@ -1,5 +1,5 @@
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {basename, dirname, join} from "node:path";
 
 import {zipSync} from "fflate";

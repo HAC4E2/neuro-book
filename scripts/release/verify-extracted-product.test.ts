@@ -1,12 +1,23 @@
+import {randomUUID} from "node:crypto";
 import {cp, mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {buildTestRuntimeImage} from "nbook/packages/neuro-book-manager/src/fixtures/runtime-image";
-import {releaseBuildId, type ReleaseProductBuild} from "nbook/scripts/release/release-assets";
-import {openVerifiedExtractedProduct} from "nbook/scripts/release/verify-extracted-product";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {
+    createProductRuntimeContract,
+    PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
+    PRODUCT_RUNTIME_CONTRACT_PATH,
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {
+    ProductRuntimeImageBuilder,
+    productRuntimeBuildPolicy,
+    type VerifiedProductRuntimeImage,
+} from "#scripts/build/product-runtime-image-builder";
+import {releaseBuildId, type ReleaseProductBuild} from "#scripts/release/release-assets";
+import {openVerifiedExtractedProduct} from "#scripts/release/verify-extracted-product";
 
 const roots: string[] = [];
 
@@ -50,7 +61,7 @@ async function archiveFixture(): Promise<{archiveRoot: string; metadata: Release
     const sourceRoot = join(root, "source");
     const archiveRoot = join(root, "archive");
     await Promise.all([mkdir(sourceRoot, {recursive: true}), mkdir(archiveRoot, {recursive: true})]);
-    const image = await buildTestRuntimeImage({
+    const image = await buildRuntimeImageFixture({
         sourceRoot,
         version: "0.9.0",
         revision: "a".repeat(40),
@@ -76,4 +87,77 @@ async function archiveFixture(): Promise<{archiveRoot: string; metadata: Release
     };
     await writeFile(join(archiveRoot, "product-build.json"), `${JSON.stringify(metadata, null, 4)}\n`, "utf8");
     return {archiveRoot, metadata};
+}
+
+async function buildRuntimeImageFixture(input: {
+    sourceRoot: string;
+    version: string;
+    revision: string;
+    platform: ProductPlatform;
+    operationId?: string;
+}): Promise<VerifiedProductRuntimeImage> {
+    const policy = productRuntimeBuildPolicy(input.platform);
+    await Promise.all([
+        mkdir(join(input.sourceRoot, "node_modules", "nuxt"), {recursive: true}),
+        mkdir(join(input.sourceRoot, "node_modules", "nitropack"), {recursive: true}),
+    ]);
+    await Promise.all([
+        writeFile(join(input.sourceRoot, "package.json"), `${JSON.stringify({
+            name: "nbook-extracted-product-runtime-image-fixture",
+            version: input.version,
+        })}\n`, "utf8"),
+        writeFile(join(input.sourceRoot, "bun.lock"), "fixture-lock\n", "utf8"),
+        writeFile(join(input.sourceRoot, "node_modules", "nuxt", "package.json"), `${JSON.stringify({
+            name: "nuxt",
+            version: "4.3.1",
+        })}\n`, "utf8"),
+        writeFile(join(input.sourceRoot, "node_modules", "nitropack", "package.json"), `${JSON.stringify({
+            name: "nitropack",
+            version: "2.13.4",
+        })}\n`, "utf8"),
+    ]);
+
+    return await new ProductRuntimeImageBuilder(input.sourceRoot).buildCandidate({
+        operationId: input.operationId ?? `extracted-product-fixture-${randomUUID()}`,
+        platform: input.platform,
+        expectedSource: {
+            version: input.version,
+            revision: input.revision,
+            dirty: false,
+        },
+        owners: policy.owners,
+        budget: policy.budget,
+        async build({imageRoot}) {
+            const entry = "server/commands/all.mjs";
+            const contract = createProductRuntimeContract({
+                productStart: entry,
+                sqliteMigrate: entry,
+                applicationStateMigration: entry,
+                createAdmin: entry,
+                profile: entry,
+                variable: entry,
+                workspace: entry,
+                prepareSystemAssets: entry,
+                checkMigrations: entry,
+                profileAuthoringSmoke: entry,
+                variableAuthoringSmoke: entry,
+                imageVariantSmoke: entry,
+                sqliteVecSmoke: entry,
+                webFetchSmoke: entry,
+                worldEngineConfigSmoke: entry,
+            });
+            await mkdir(join(imageRoot, "server", "commands"), {recursive: true});
+            await Promise.all([
+                writeFile(join(imageRoot, "server", "index.mjs"), "export {};\n", "utf8"),
+                writeFile(join(imageRoot, ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/")), "export {};\n", "utf8"),
+                writeFile(join(imageRoot, ...entry.split("/")), "export {};\n", "utf8"),
+                writeFile(join(imageRoot, "server", "commands", "fixture-payload.mjs"), "export const fixturePayload = true;\n", "utf8"),
+                writeFile(
+                    join(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/")),
+                    `${JSON.stringify(contract, null, 2)}\n`,
+                    "utf8",
+                ),
+            ]);
+        },
+    });
 }

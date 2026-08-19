@@ -1,39 +1,32 @@
 # NeuroBook 项目文档
 
-`docs/` 保存 NeuroBook 的 Spec、工程标准、操作手册、架构决策、测试与迁移合同，以及明确标注为非规范的提案、调研和归档。维护者或 Agent 应从 [`specs/`](specs/) 定位相关 capability 及其 `planned` / `implemented` 成熟度，再按任务触发读取其它资料。
+根 `docs/` 保存 monorepo 级治理：Spec 注册表、工程标准、测试合同、边界正文和提案流程。主应用专属文档（ADR、数据迁移、runbook、调研、归档、产品提案与术语）位于 [`../packages/neuro-book/docs/`](../packages/neuro-book/docs/)；维护者或 Agent 应从 [`specs/`](specs/) 定位相关 capability 及其 `planned` / `implemented` 成熟度，再按任务触发读取其它资料。
 
 VitePress 源码位于 [`../vitepress/`](../vitepress/)，面向用户发布，不是内部规范真相源；一次实现的 Task、过程和证据位于 [`../.agents/tasks/`](../.agents/tasks/)，也不代替当前规范。
 
 ## 真相源优先级
-
 1. [`specs/`](specs/)：已批准的 `planned` 目标合同与代码支持的 `implemented` 当前合同；功能行为、状态、数据、接口、失败语义和验收依据只在这里维护。
-2. [`adr/`](adr/)：已接受架构决策及理由；ADR 不复制完整功能行为。
-3. [`migrations/`](migrations/)：有状态升级、备份与回滚步骤。
+2. [`../packages/neuro-book/docs/adr/`](../packages/neuro-book/docs/adr/)：已接受架构决策及理由；ADR 不复制完整功能行为。
+3. [`../packages/neuro-book/docs/migrations/`](../packages/neuro-book/docs/migrations/)：有状态升级、备份与回滚步骤。
 4. [`standards/`](standards/) 与 [`testing/`](testing/)：编码、仓库流程、测试、临时根和证据合同。
-5. [`runbooks/`](runbooks/)：基于已批准合同执行的开发、诊断和运维步骤。
+5. [`../packages/neuro-book/docs/runbooks/`](../packages/neuro-book/docs/runbooks/)：基于已批准合同执行的开发、诊断和运维步骤。
 6. [`proposals/`](proposals/)：尚未生效的方案；accepted 只授权更新规范与创建 Task。
 7. [`../.agents/tasks/`](../.agents/tasks/)：一次实现的范围、交接和证据。
-8. [`research/`](research/) 与 [`archived/`](archived/)：非规范资料，不用于判断当前行为。
+8. [`../packages/neuro-book/docs/research/`](../packages/neuro-book/docs/research/) 与 [`../packages/neuro-book/docs/archived/`](../packages/neuro-book/docs/archived/)：非规范资料，不用于判断当前行为。
 
 同一 capability 只维护一个 Spec 文件；成熟度在原文件中从 `planned` 晋升为 `implemented`。其它入口只写摘要和链接；判断当前产品已有行为时只使用 `implemented` Spec 或注册的冻结过渡规范。
 
 ## 目录分工
 
 ```text
-docs/
-├── README.md        文档职责、真相源、生命周期和迁移规则
-├── specs/           planned 目标合同、implemented 当前合同与统一术语
-├── standards/       编码与仓库协作流程
-├── proposals/       尚未生效或正在评审的长期方案
-├── adr/             已接受架构决策
-├── testing/         自动测试、人工评测、临时根、验收与证据合同
-├── migrations/      数据升级、备份与回滚
-├── runbooks/        当前有效的开发、诊断和运维操作手册
-├── research/        外部资料与未验证调研
-└── archived/        已失效材料和历史实现记录
+docs/                          根文档治理：README、AGENTS、specs 注册表、standards、
+                               testing、modules、proposals 索引
+packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec、adr、
+                               migrations、runbooks、research、proposals、archived
 ```
 
-旧 `docs/modules/` 过渡层已删除：当前规范进入 `specs/`，未批准需求进入 `proposals/`，过时模型进入 `archived/`。根 [`../reference/`](../reference/) 仍被产品 Agent/Profile 消费，处于冻结过渡期。
+`docs/modules/` 仅保留已登记的现有模块正文；Monorepo / Module 边界的唯一正文是 [`modules/monorepo-boundaries.md`](modules/monorepo-boundaries.md)。其它当前规范进入 `specs/`，未批准需求进入 `proposals/`，过时模型进入包内 `archived/`。根 [`../reference/`](../reference/) 仍被产品 Agent/Profile 消费，处于冻结过渡期。
+
 
 ## 仓库其它文档
 
@@ -47,10 +40,10 @@ docs/
 - [规范编程与注册表](specs/README.md)：Spec 成熟度、格式、流水线、capability 归属和 Reference 迁移状态。
 - [编码与仓库标准](standards/README.md)：按语言触发的编码规范和维护者仓库流程。
 - [Proposal 规则](proposals/README.md)：原始需求如何结构化、评审、批准并沉淀为 `planned` Spec。
-- [ADR 索引](adr/README.md)：长期架构决策。
+- [ADR 索引](../packages/neuro-book/docs/adr/README.md)：长期架构决策。
 - [测试与验收](testing/README.md)：自动测试、人工评测、临时根和证据合同；[人工评测体系](testing/manual-eval/README.md)定义用户旅程、判定口径与执行手册。
-- [迁移入口](migrations/README.md)：数据升级、备份与回滚。
-- [操作手册](runbooks/README.md)：基于既有合同执行的当前操作步骤。
+- [迁移入口](../packages/neuro-book/docs/migrations/README.md)：数据升级、备份与回滚。
+- [操作手册](../packages/neuro-book/docs/runbooks/README.md)：基于既有合同执行的当前操作步骤。
 - [Reference 过渡入口](../reference/README.md)：仍被产品消费的规范正文。
 - [人类贡献指南](../CONTRIBUTING.md)：Issue、开发和 Pull Request 快速流程。
 - [项目状态](../PROJECT-STATUS.md)：仓库现状与验收缺口。

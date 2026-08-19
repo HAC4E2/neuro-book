@@ -10,7 +10,8 @@ import {readJson, writeJsonAtomic} from "#manager/files";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {localAppDataRoot} from "#manager/root-locators";
-import type {ManagerConfig, ManagerInstance, ManagerPreferences, ReleaseChannel} from "#manager/types";
+import type {ManagerConfig, ManagerInstance, ManagerPreferences} from "#manager/types";
+import type {ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const ISO_DATE_PATTERN = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$";

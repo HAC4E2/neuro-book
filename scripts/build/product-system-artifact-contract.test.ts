@@ -1,9 +1,9 @@
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, describe, expect, it} from "vitest";
 
-import {assertProductSystemArtifactModulePaths} from "nbook/scripts/build/product-system-artifact-contract";
+import {assertProductSystemArtifactModulePaths} from "#scripts/build/product-system-artifact-contract";
 
 const roots: string[] = [];
 

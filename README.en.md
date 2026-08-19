@@ -153,6 +153,16 @@ The public documentation sources live under [`vitepress/en/`](vitepress/en/) (En
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 - [Contributing](CONTRIBUTING.en.md): issues, development conventions, coding-agent collaboration, tasks, and pull requests
 
+## Workspace Map
+
+All further development happens in these 12 workspaces. The pre-migration sibling checkouts are no longer development entry points.
+
+- Application and host: [main application](packages/neuro-book/AGENTS.md) · [Manager](packages/neuro-book-manager/README.md)
+- Internal packages: [Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
+- Autonomous packages: [History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
+
+See the [Monorepo Module boundaries](docs/modules/monorepo-boundaries.md) and [package governance](packages/AGENTS.md) for dependency direction, inherited governance, and runtime-state ownership.
+
 ## Community
 
 - 💬 Discord: https://discord.gg/bSQB7mNpHB

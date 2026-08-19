@@ -1,6 +1,6 @@
 # 图片原图与变体
 
-本文是 NeuroBook 图片原图所有权、授权 Adapter、变体参数、缓存和 Project 封面的稳定实现契约。取舍原因见 [ADR 0006](../../docs/adr/0006-image-variant-and-original-ownership.md)，受管 Cache Root 的物理 locator 见 [ADR 0010](../../docs/adr/0010-desktop-storage-loopback-shutdown.md)。
+本文是 NeuroBook 图片原图所有权、授权 Adapter、变体参数、缓存和 Project 封面的稳定实现契约。取舍原因见 [ADR 0006](../../packages/neuro-book/docs/adr/0006-image-variant-and-original-ownership.md)，受管 Cache Root 的物理 locator 见 [ADR 0010](../../packages/neuro-book/docs/adr/0010-desktop-storage-loopback-shutdown.md)。
 
 ## 所有权边界
 

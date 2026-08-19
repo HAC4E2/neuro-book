@@ -1,12 +1,12 @@
 import {spawn} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
-import {buildProductCommands} from "nbook/scripts/build/product-command-bundle";
-import {PRODUCT_RUNTIME_CONTRACT_PATH} from "nbook/shared/product-runtime-contract";
+import {buildProductCommands} from "#scripts/build/product-command-bundle";
+import {PRODUCT_RUNTIME_CONTRACT_PATH} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 

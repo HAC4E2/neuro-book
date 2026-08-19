@@ -2,7 +2,7 @@
 
 `docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言连接模糊需求与确定代码：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。
 
-Spec 描述“系统承诺什么”。Proposal 记录尚未决定的方案，Task 记录一次实现过程，ADR 解释难以逆转的取舍，测试与代码提供实现证据；它们都不能替代 Spec。
+本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向现有 `reference/`、`docs/modules/`、`docs/testing/` 或根规范文件。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
 
 ## 两种成熟度，一个文件
 
@@ -84,19 +84,31 @@ owners:
 
 ### Code-first 与重构
 Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、Task 范围或 Proposal 门禁。紧急修复或既有未记录行为可以先修代码，但同一 Task 完成前必须补齐或更新 `implemented` Spec；修复中出现产品歧义时先采用现有合同可推出的 fail-closed 行为，无法推出则停止请求决策。纯内部重构若不改变可观察行为，只核对现有 Spec 仍成立并在 Task 中记录行为基线；行为章节发生变化时不再属于纯重构，必须按行为变化流程处理。
-紧急修复或既有未记录行为可以先改代码，但同一 Task 完成前必须补齐或更新 `implemented` Spec；“代码已合并、以后补文档”不是完成状态。纯内部重构若不改变可观察行为，只需核对现有 Spec 仍成立，在 Task 中记录验证，不为文件移动重写 Spec。
 
 ## 已实现规范
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| Foundation / Workspace 术语 | [`foundation/terminology.md`](foundation/terminology.md) | 已由当前产品合同消费的统一术语 |
+| 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
+| Agent Runtime 与 Profile | [Reference: Agent](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
+| 内容与 Project Workspace | [Reference: Content](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md)、[Workspace TERMS](https://github.com/notnotype/neuro-book/blob/master/reference/workspace/TERMS.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
+| World Engine | [Reference: World Engine](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
+| Plot | [Reference: Plot](https://github.com/notnotype/neuro-book/blob/master/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
+| Theme | [Reference: Theme](https://github.com/notnotype/neuro-book/blob/master/reference/theme/system.md) | 主题变量和消费规则 |
+| Media | [Reference: Media](https://github.com/notnotype/neuro-book/blob/master/reference/media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
+| Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
+| Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
+| 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
+| 人工评测 | [`../testing/manual-eval/README.md`](../testing/manual-eval/README.md) | 用户视角旅程、判定口径和报告结构 |
+| 数据迁移 | [`../packages/neuro-book/docs/migrations/README.md`](../../packages/neuro-book/docs/migrations/README.md) | 有状态升级、备份和回滚入口 |
+| 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
 
 ## 待实现规范
 
-| 功能域 | 目标规范 | 说明 |
+当前没有已批准但尚未实现的具体 Spec。新的 `planned` Spec 必须在 Proposal 获批后登记到本节。
+
+| 功能域 | 目标规范 | 批准依据 |
 |---|---|---|
-| Monorepo / Module | [`architecture/monorepo-boundaries.md`](architecture/monorepo-boundaries.md) | 主应用迁入 `packages/neuro-book` 的已批准目标；物理迁移尚未实施 |
 
 ## 冻结过渡规范
 
@@ -117,20 +129,25 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 | 优先级 | 功能域 | 现有证据 | 缺口 |
 |---|---|---|---|
-| P0 | Desktop、安装与 Product Runtime | `docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载与失败恢复未汇成当前规范 |
-| P0 | 应用状态、备份与数据迁移 | `docs/adr/0005-*`、`0008-*`、`0012-*`，`server/backup/`、`server/database/` | 数据所有权、备份恢复、catalog 演进与 release activation 未形成端到端规范 |
-| P0 | Agent Session 持久化与历史 | `docs/adr/0003-*`、`0017-agent-job-*`，`server/agent/session/`、`server/workspace-history/` | durable event、Job 历史、附件、租约与文件历史缺少统一状态和恢复规范 |
-| P1 | 配置、模型与凭据 | `server/config/`、`server/models/`、`shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、Provider identity、错误与 UI 行为没有单一规范 |
-| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/core/markdown-studio.md`](../../vitepress/core/markdown-studio.md)、`shared/editor-workbench.ts` | 用户文档和代码存在，尚未转为内部当前规范 |
-| P1 | Passport 与身份 | `server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储与失败语义缺少当前规范 |
-| P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查与发布门禁分散 |
-| P2 | Character 与 Low-code Form | [`../proposals/character-workbench.md`](../proposals/character-workbench.md)、`server/low-code-form/` 与现有测试 | Proposal 仍在 reviewing；状态、校验、持久化、权限与失败语义不完整 |
+| P0 | Desktop、安装与 Product Runtime | `packages/neuro-book/docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载和失败恢复未汇成当前规范 |
+| P0 | 应用状态、备份与数据迁移 | `packages/neuro-book/docs/adr/0005-*`、`0008-*`、`0012-*`，`packages/neuro-book/server/backup/`、`packages/neuro-book/server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
+| P0 | Agent Session 持久化与历史 | `packages/neuro-book/docs/adr/0003-*`、`0014-agent-job-*`，`packages/neuro-book/server/agent/session/`、`packages/neuro-book/server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |
+| P1 | 配置、模型与凭据 | `packages/neuro-book/server/config/`、`packages/neuro-book/server/models/`、`packages/neuro-book/shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、provider identity、错误和 UI 行为没有单一规范 |
+| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/core/markdown-studio.md`](../../vitepress/core/markdown-studio.md)、[历史 editor plan](../../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
+| P1 | Passport 与身份 | `packages/neuro-book/server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储和失败语义缺少当前规范 |
+| P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查和发布门禁分散 |
+| P2 | Character 与 Low-code Form | `docs/modules/character/requirements.md`、`packages/neuro-book/server/low-code-form/` | 需求存在，但状态、校验、持久化、权限和失败语义不完整 |
 
 ## Reference 迁移合同
 
 每个待迁域必须一次性完成正文分类、Profile Import、产品投影、合同测试、文档链接、工作流与打包入口切换，然后删除旧 `reference/<domain>/`。不保留两份可独立修改的正文。Project Workspace 内的 `reference/` 是用户素材协议，不属于本迁移目标。
 
-## 完成门禁
+1. 新功能先检查本表是否已有规范归属。
+2. 尚未决定的跨模块方案写入 [`../proposals/README.md`](../proposals/README.md)；小型、可逆且不改变长期合同的工作可直接更新现有规范。
+3. 提案获批后，先更新或创建当前规范，再创建 `.agents/tasks/` 实现合同。
+4. 实现期间如果行为变化，规范和代码在同一变更中更新。
+5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。
+6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和 proposal 保留历史但不再作为当前行为依据。
 
 `bun run docs:check` 只负责确定性结构：元数据、模板占位、必需章节的实义内容、成熟度登记、capability 精确唯一、implemented 证据链接和活跃相对链接。它不判断自然语言是否互相矛盾、owner 是否真实、两个近义 capability 是否重叠，也不推断代码 diff 是否改变行为。
 

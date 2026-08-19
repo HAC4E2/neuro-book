@@ -2,22 +2,25 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
-import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
-import {assertProductSystemArtifactContract} from "nbook/scripts/build/product-system-artifact-contract";
-import {buildProductAuthoringKit} from "nbook/scripts/build/product-authoring-kit";
-import {buildProductCommands} from "nbook/scripts/build/product-command-bundle";
-import {bundleProductRuntime} from "nbook/scripts/build/product-runtime-bundle";
-import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-runtime-module-closure.mjs";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {
+    compileProfileArtifacts,
+    compileVariableDefinitions,
+    SystemAssetsProjection,
+} from "@notnotype/neuro-book/build";
+import {assertProductSystemArtifactContract} from "#scripts/build/product-system-artifact-contract";
+import {buildProductAuthoringKit} from "#scripts/build/product-authoring-kit";
+import {buildProductCommands} from "#scripts/build/product-command-bundle";
+import {bundleProductRuntime} from "#scripts/build/product-runtime-bundle";
+import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 import {
     assertProductRuntimeContractFiles,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     readProductRuntimeContract,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
+const applicationSourceRoot = resolve(process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || process.cwd());
 const productArtifactGeneratedAt = new Date(0).toISOString();
 const serverRoot = resolve(outputRoot, "server");
 const productAgentRoot = resolve(serverRoot, "assets", "workspace", ".nbook", "agent");
@@ -41,7 +44,7 @@ await measure("project static system assets", async () => {
     const target = resolve(serverRoot, "assets", "workspace", ".nbook");
     await rm(resolve(serverRoot, "assets"), {recursive: true, force: true});
     await new SystemAssetsProjection().copyToEmpty({
-        sourceRoot: resolve("assets", "workspace", ".nbook"),
+        sourceRoot: resolve(applicationSourceRoot, "assets", "workspace", ".nbook"),
         targetRoot: target,
         compiledArtifactMode: "exclude",
     });
@@ -88,7 +91,7 @@ await measure("compile clean Product system artifacts", async () => {
 });
 
 const commands = await measure("bundle Product commands", async () => {
-    return await buildProductCommands(outputRoot);
+    return await buildProductCommands(outputRoot, applicationSourceRoot);
 });
 await measure("write Product Runtime Contract", async () => {
     await writeFile(
@@ -136,7 +139,7 @@ function assertRawOutput() {
 
 /** Product 内所有可执行命令只指向预编译入口。 */
 async function writeProductPackageJson() {
-    const source = JSON.parse(await readFile(resolve("package.json"), "utf8"));
+    const source = JSON.parse(await readFile(resolve(applicationSourceRoot, "package.json"), "utf8"));
     const packageJson = {
         name: "neuro-book-output",
         version: source.version ?? "0.0.0",

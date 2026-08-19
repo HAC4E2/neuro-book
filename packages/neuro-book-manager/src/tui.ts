@@ -14,7 +14,8 @@ import {doctor, installationStatus} from "#manager/maintenance";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {startInstallationApplication} from "#manager/migration-operation";
-import type {DoctorReport, InstallationManifest, InstallationStatus, ManagerConfig, ManagerInstance, OfflineInspection} from "#manager/types";
+import type {DoctorReport, InstallationStatus, ManagerConfig, ManagerInstance, OfflineInspection} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {updateInstallation} from "#manager/updater";
 import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight, type AdoptionProfile} from "#manager/source-adoption";
 

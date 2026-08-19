@@ -60,8 +60,8 @@ export default defineConfig({
     },
     test: {
         environment: "node",
-        setupFiles: ["server/workspace-files/vitest-tmpdir-setup.ts"],
-        globalSetup: ["server/workspace-files/vitest-global-setup.ts"],
+        setupFiles: ["@notnotype/neuro-book-test-support/vitest"],
+        globalSetup: ["@notnotype/neuro-book-test-support/vitest"],
         include: [
             "shared/desktop-contract.test.ts",
             "shared/desktop-uac-broker.test.ts",

@@ -1,13 +1,13 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 
 const execFileAsync = promisify(execFile);
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "packages", "neuro-book");
 const roots: string[] = [];
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));

@@ -1,10 +1,10 @@
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {unzipSync} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {writeZipArchive} from "nbook/scripts/utils/zip";
+import {writeZipArchive} from "#scripts/utils/zip";
 
 const temporaryRoots: string[] = [];
 

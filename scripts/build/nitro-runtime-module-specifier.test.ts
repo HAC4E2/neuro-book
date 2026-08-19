@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -7,7 +7,7 @@ import {
     analyzeRuntimeModuleSource,
     assertRuntimeModuleFiles,
     assertRuntimePackageIdentity,
-} from "nbook/scripts/build/nitro-runtime-module-specifier.mjs";
+} from "#scripts/build/nitro-runtime-module-specifier.mjs";
 
 const temporaryRoots: string[] = [];
 

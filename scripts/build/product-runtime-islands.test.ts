@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, realpath, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -7,7 +7,7 @@ import {
     productRuntimeIslandDefinitions,
     productRuntimeIslandPackageNames,
     productRuntimeIslandSourceRoot,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 
 const temporaryRoots: string[] = [];
 

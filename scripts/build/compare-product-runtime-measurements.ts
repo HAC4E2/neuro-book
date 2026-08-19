@@ -2,18 +2,15 @@ import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {parseArgs} from "node:util";
 
-import {
-    PRODUCT_PLATFORMS,
-    type ProductPlatform,
-} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_PLATFORMS, type ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {
     PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
     type ProductRuntimeMeasurementReport,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     canonicalProductRuntimeJson,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
-} from "nbook/shared/product-runtime-image-verifier";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 type MeasurementIdentity = Omit<ProductRuntimeMeasurementReport, "measuredAt">;
 

@@ -1,7 +1,7 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, rm, symlink} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {
     formatStateRootIntegrityWarning,

@@ -1,13 +1,13 @@
 import {createServer, type Server, type Socket} from "node:net";
 import {randomUUID} from "node:crypto";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {createInterface} from "node:readline";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DESKTOP_UAC_BROKER_SCHEMA, DESKTOP_UAC_MAX_SECRET_BYTES, type DesktopUacBrokerRequest} from "nbook/shared/desktop-uac-broker";
+import {DESKTOP_UAC_BROKER_SCHEMA, DESKTOP_UAC_MAX_SECRET_BYTES, type DesktopUacBrokerRequest} from "@notnotype/neuro-book-contracts/desktop-uac";
 import {
     runDesktopUacBroker,
     validateDesktopUacBrokerRequest,

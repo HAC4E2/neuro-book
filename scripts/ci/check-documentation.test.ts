@@ -2,8 +2,8 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {checkDocumentation} from "nbook/scripts/ci/check-documentation";
-import {createTestTmpRoot} from "nbook/server/workspace-files/test-tmp-sweep";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {checkDocumentation} from "#scripts/ci/check-documentation";
 
 const fixtureRoots: string[] = [];
 const REQUIRED_INDEXES = [
@@ -15,13 +15,13 @@ const REQUIRED_INDEXES = [
     "docs/standards/README.md",
     "docs/standards/code/README.md",
     "docs/proposals/README.md",
-    "docs/adr/README.md",
     "docs/testing/README.md",
     "docs/testing/manual-eval/README.md",
-    "docs/migrations/README.md",
-    "docs/runbooks/README.md",
-    "docs/research/README.md",
-    "docs/archived/README.md",
+    "packages/neuro-book/docs/adr/README.md",
+    "packages/neuro-book/docs/migrations/README.md",
+    "packages/neuro-book/docs/runbooks/README.md",
+    "packages/neuro-book/docs/research/README.md",
+    "packages/neuro-book/docs/archived/README.md",
 ] as const;
 
 const SPEC_REGISTRY = `# NeuroBook 规范编程
@@ -83,7 +83,7 @@ describe("documentation governance gate", () => {
         const fixture = await createDocumentationFixture({
             "docs/standards/rules.md": "# Rules\n\n[Architecture](../specs/architecture.md)\n",
             "docs/specs/architecture.md": specDocument({capability: "test.architecture"}),
-            "docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
+            "packages/neuro-book/docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
         }, {
             planned: ["docs/specs/architecture.md"],
         });
@@ -106,13 +106,13 @@ describe("documentation governance gate", () => {
 
     it("重复 ADR 编号同时报告两个文件", async () => {
         const fixture = await createDocumentationFixture({
-            "docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
-            "docs/adr/0001-second-decision.md": "# ADR 0001：Second decision\n",
+            "packages/neuro-book/docs/adr/0001-first-decision.md": "# ADR 0001：First decision\n",
+            "packages/neuro-book/docs/adr/0001-second-decision.md": "# ADR 0001：Second decision\n",
         });
 
         const report = checkDocumentation(fixture.root, fixture.paths);
 
-        expect(report.failures).toContain("ADR 编号重复 0001：docs/adr/0001-first-decision.md, docs/adr/0001-second-decision.md");
+        expect(report.failures).toContain("ADR 编号重复 0001：packages/neuro-book/docs/adr/0001-first-decision.md, packages/neuro-book/docs/adr/0001-second-decision.md");
     });
 
     it("拒绝 docs 根层正文和已迁移 Workspace Reference", async () => {

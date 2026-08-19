@@ -2,10 +2,11 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {randomBytes} from "node:crypto";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {resolveAgentScratchPath} from "nbook/scripts/utils/agent-paths";
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 
 import {chromium, type BrowserContext, type Page} from "playwright-core";
 
+import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
 type SmokeOptions = {
     url: string;
     browserExecutable: string;
@@ -646,7 +647,7 @@ function parseOptions(args: string[]): SmokeOptions {
     return {
         url: new URL(url).href,
         browserExecutable: resolve(browserExecutable),
-        evidenceDir: resolve(values.get("--evidence-dir") ?? resolveAgentScratchPath("browser", "desktop-workbench-browser-smoke", runId)),
+        evidenceDir: resolve(values.get("--evidence-dir") ?? resolveAgentAcceptanceRoot()),
         headless,
     };
 }

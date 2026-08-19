@@ -4,21 +4,21 @@ import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises
 import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
-import { testHostPath } from "nbook/server/runtime/paths/test-path"
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
-import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
+import {LocalProductPublisher} from "#scripts/build/local-product-publisher";
 import {
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
     type ProductRuntimeExpectedIdentity,
     type VerifiedProductRuntimeImage,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     type ProductRuntimeEntryMap,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
