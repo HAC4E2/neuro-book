@@ -6,21 +6,21 @@ import {fileURLToPath} from "node:url";
 import {preparePrismaEnv} from "./prisma-env.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(scriptDir, "..", "..");
-const scriptApplicationRoot = resolve(repositoryRoot, "packages", "neuro-book");
+const applicationPackageRoot = resolve(scriptDir, "..", "..");
 const applicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim()
     ? resolve(process.env.NEURO_BOOK_APPLICATION_ROOT)
-    : scriptApplicationRoot;
+    : applicationPackageRoot;
 const configRoot = existsSync(resolve(applicationRoot, "prisma.config.ts"))
     ? applicationRoot
-    : scriptApplicationRoot;
+    : applicationPackageRoot;
 const configPath = resolve(configRoot, "prisma.config.ts");
 const env = preparePrismaEnv({applicationRoot});
+const bunCommand = Bun.which("bun") ?? process.execPath;
 const mode = process.argv.includes("--deploy") ? "deploy" : "dev";
 // 额外参数透传给 prisma CLI（如 --name xxx），--deploy 是本脚本自己的开关不下传
 const extraArgs = process.argv.slice(2).filter((arg) => arg !== "--deploy");
 if (mode === "deploy") {
-    const child = spawn(process.execPath, [resolve(scriptDir, "sqlite-migrate.mjs")], {
+    const child = spawn(bunCommand, [resolve(scriptDir, "sqlite-migrate.mjs")], {
         cwd: applicationRoot,
         env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
         stdio: "inherit",
@@ -38,7 +38,6 @@ if (mode === "deploy") {
     });
 } else {
     const args = ["prisma", "migrate", mode, "--config", configPath, ...extraArgs];
-    const bunCommand = process.execPath;
     const child = spawn(bunCommand, ["x", ...args], {
         cwd: applicationRoot,
         env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
