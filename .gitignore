@@ -60,6 +60,7 @@ product/
 .env.local
 docs/.vitepress/dist
 docs/.vitepress/cache
+vitepress/.vitepress/cache
 assets/workspace/.nbook/agent/profiles/.compiled/
 assets/workspace/.nbook/agent/variables/.compiled/
 # Profile / Variable 编译的 staging 中间产物：进程崩溃时会残留，永远不进 git

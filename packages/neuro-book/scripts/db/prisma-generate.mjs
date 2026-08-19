@@ -6,15 +6,14 @@ import {fileURLToPath} from "node:url";
 import {preparePrismaEnv} from "./prisma-env.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(scriptDir, "..", "..");
-const scriptApplicationRoot = resolve(repositoryRoot, "packages", "neuro-book");
+const applicationPackageRoot = resolve(scriptDir, "..", "..");
 const applicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim()
     ? resolve(process.env.NEURO_BOOK_APPLICATION_ROOT)
-    : scriptApplicationRoot;
-const configRoot = await existingConfigRoot(applicationRoot, scriptApplicationRoot);
+    : applicationPackageRoot;
+const configRoot = await existingConfigRoot(applicationRoot, applicationPackageRoot);
 const configPath = resolve(configRoot, "prisma.config.ts");
 const env = preparePrismaEnv({applicationRoot});
-const bunCommand = process.execPath;
+const bunCommand = Bun.which("bun") ?? process.execPath;
 
 await runPrismaGenerate(resolve(configRoot, "prisma", "schema.sqlite.prisma"));
 await runPrismaGenerate(resolve(configRoot, "prisma", "project.schema.prisma"));

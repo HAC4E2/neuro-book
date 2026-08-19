@@ -3,7 +3,7 @@ import {z} from "zod";
 import {
     generateDefineRouteMetaCall,
     selectRouteMetaRepresentatives,
-} from "../../../../scripts/build/generate-openapi-meta";
+} from "../../scripts/build/generate-openapi-meta";
 import type {RouteMetaEntry} from "./route-map";
 
 describe("selectRouteMetaRepresentatives", () => {
