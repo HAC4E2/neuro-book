@@ -4,7 +4,6 @@ import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

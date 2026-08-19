@@ -139,7 +139,7 @@ export async function writeTmpMarker(root: string, marker: TestTmpRootMarker): P
 
 export async function sweepStaleFixtureRoots(now: number = Date.now()): Promise<FixtureSweepReport> {
     const report: FixtureSweepReport = {removed: [], retained: [], failures: []};
-    const tempRoot = tmpdir();
+    const tempRoot = resolve(resolveAgentTempRoot(), "fixtures");
     const entries = await readdir(tempRoot, {withFileTypes: true}).catch(() => []);
     for (const entry of entries) {
         if (!entry.name.startsWith(FIXTURE_ROOT_PREFIX) && !entry.name.startsWith(SNAPSHOT_ROOT_PREFIX)) continue;

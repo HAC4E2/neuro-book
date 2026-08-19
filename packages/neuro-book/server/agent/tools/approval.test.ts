@@ -1,7 +1,6 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";

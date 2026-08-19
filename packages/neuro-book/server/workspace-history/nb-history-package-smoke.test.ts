@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import path from "node:path";
 import {afterAll, describe, expect, it} from "vitest";
 import {WorkspaceHistory} from "@notnotype/nb-history";
@@ -19,7 +19,7 @@ describe("nb-history workspace 包冒烟", () => {
     });
 
     it("open → performWrite → timeline → textDiff → close → 库文件可删", async () => {
-        const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nb-history-package-smoke-"));
+        const workspaceRoot = await fs.mkdtemp(testHostPath("nb-history-package-smoke-"));
         tempRoots.push(workspaceRoot);
         const databasePath = path.join(workspaceRoot, ".nbook", "history.sqlite");
         await fs.mkdir(path.dirname(databasePath), {recursive: true});

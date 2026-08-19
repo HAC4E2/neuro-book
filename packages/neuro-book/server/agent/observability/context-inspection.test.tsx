@@ -1,6 +1,5 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 /**
  * `getSessionContextInspection` 的端到端装配验证（Task 126 批次 D）。
  *

@@ -8,6 +8,7 @@ import {pathToFileURL} from "node:url";
 import {createClient} from "@libsql/client";
 import {unzipSync} from "fflate";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {WorkspaceHistory} from "@notnotype/nb-history";
 import {
@@ -312,7 +313,7 @@ function corruptArchiveChildScript(): string {
     return `
 import fs from "node:fs/promises";
 import path from "node:path";
-import {createClient} from ${JSON.stringify(pathToFileURL(path.resolve("node_modules/@libsql/client/lib-esm/node.js")).href)};
+import {createClient} from ${JSON.stringify(import.meta.resolve("@libsql/client"))};
 import {absoluteFsPath} from ${JSON.stringify(pathToFileURL(path.resolve("server/runtime/paths/file-path.ts")).href)};
 import {createProjectWorkspaceZipStream} from ${JSON.stringify(pathToFileURL(path.resolve("server/workspace-files/workspace-archive.ts")).href)};
 import {toSqliteFileUrl} from ${JSON.stringify(pathToFileURL(path.resolve("server/workspace-files/project-workspace.ts")).href)};

@@ -15,7 +15,6 @@ import {
 } from "nbook/server/low-code-form";
 import {ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

@@ -4,7 +4,6 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {consola} from "consola";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
