@@ -654,8 +654,8 @@
 .bg-\[var\(--control-surface\)\] {
   background-color: var(--control-surface);
 }
-.bg-\[var\(--overlay-bg\,rgba\(0\,0\,0\,0\.4\)\)\] {
-  background-color: var(--overlay-bg,rgba(0,0,0,0.4));
+.bg-\[var\(--overlay-bg\)\] {
+  background-color: var(--overlay-bg);
 }
 .bg-\[var\(--overlay-item-active\)\] {
   background-color: var(--overlay-item-active);
@@ -900,8 +900,8 @@
   --tw-shadow: var(--elevation-raised);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
-.shadow-\[var\(--shadow-panel\,0_8px_24px_-14px_rgba\(0\,0\,0\,0\.55\)\)\] {
-  --tw-shadow: var(--shadow-panel,0 8px 24px -14px rgba(0,0,0,0.55));
+.shadow-\[var\(--shadow-panel\)\] {
+  --tw-shadow: var(--shadow-panel);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
 .shadow-lg {
@@ -948,6 +948,11 @@
 }
 .transition-\[left\] {
   transition-property: left;
+  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+  transition-duration: var(--tw-duration, var(--default-transition-duration));
+}
+.transition-all {
+  transition-property: all;
   transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
   transition-duration: var(--tw-duration, var(--default-transition-duration));
 }

@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
                 -->
                 <div
                     class="absolute inset-0 transition-colors [transition-duration:var(--motion-base)]"
-                    :class="overlayType === 'transparent' ? 'bg-transparent' : overlayType === 'blur' ? 'bg-[var(--overlay-bg,rgba(0,0,0,0.4))] backdrop-blur-sm' : 'bg-[var(--overlay-bg,rgba(0,0,0,0.4))]'"
+                    :class="overlayType === 'transparent' ? 'bg-transparent' : overlayType === 'blur' ? 'bg-[var(--overlay-bg)] backdrop-blur-sm' : 'bg-[var(--overlay-bg)]'"
                     @pointerdown="handleOverlayPointerDown"
                     @pointerup="handleOverlayPointerUp"
                     @contextmenu="handleOverlayContextMenu"

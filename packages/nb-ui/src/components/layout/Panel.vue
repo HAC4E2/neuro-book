@@ -29,7 +29,7 @@ function paddingClass(): string {
         :is="props.as"
         class="rounded-lg border border-[var(--panel-outline)]"
         :class="[
-            props.tone === 'subtle' ? 'bg-[var(--bg-subtle)]' : 'bg-[var(--panel-surface)] shadow-[var(--shadow-panel,0_8px_24px_-14px_rgba(0,0,0,0.55))]',
+            props.tone === 'subtle' ? 'bg-[var(--bg-subtle)]' : 'bg-[var(--panel-surface)] shadow-[var(--shadow-panel)]',
             paddingClass(),
         ]"
     >
