@@ -5,6 +5,7 @@ import {
     resolveAgentTempRoot,
     resolveAgentTestRoot,
 } from "./paths";
+import {TEST_HOST_PATHS_DIR} from "./test-path";
 import {TEST_RUN_ID_ENV} from "./process";
 
 const STALE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -24,6 +25,7 @@ export async function setup(): Promise<void> {
     const root = resolveAgentTestRoot(runId);
     await mkdir(root, {recursive: true});
     process.env.NBOOK_TEST_TMPDIR = root;
+    await mkdir(join(resolveAgentTempRoot(), TEST_HOST_PATHS_DIR), {recursive: true});
 
     const testRoot = join(resolveAgentTempRoot(), TEST_RUN_DIR);
     await mkdir(testRoot, {recursive: true});

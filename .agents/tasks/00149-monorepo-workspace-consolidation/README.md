@@ -6,7 +6,7 @@ worktreeId: .worktree/monorepo-main-app-migration
 branchId: chore/t149-monorepo-workspace
 status: blocked
 createdAt: 2026-08-16T14:59:07Z
-updatedAt: 2026-08-19T00:24:00Z
+updatedAt: 2026-08-19T10:35:00Z
 ---
 
 # NeuroBook Workspace 收敛与主应用迁移
@@ -55,3 +55,12 @@ S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支
 - `evidences/s7-build-release-ci-summary.json` 记录 workflow cwd 迁移、六包 matrix、llmlint Web island、Docker/Git-less 数据边界、文档 canonical link 修复和本地验证结果。
 - 本轮已验证 `bun scripts/ci/validate-community-files.ts`（31 个标签、5 个 Issue Form、16 个 YAML）、`bun run docs:build`（构建完成，仅既有 chunk size warning）、九 workflow 结构合同（1 file / 7 tests）、Product/Docker/Git-less 合同（4 files / 28 tests）、Manager release 合同（1 file / 1 test）、release assets 合同（4 files / 32 tests）、Desktop 合同（11 files / 37 tests）、scripts typecheck、`bun run governance:check`（failures=[]、warnings=[]）和 `git diff --check`（退出码 0，保留预期 CRLF 警告）。
 - S7 只证明迁移后的本地可执行合同；未执行或未接受项仍见 evidence 的 `notAccepted`，不把静态 CI 合同等同于远端 runner、真实 Docker、Windows portable、浏览器人工验收或发布成功。
+
+## 最终洁净验证与主应用文档切换
+
+- `evidences/final-verification-clean-runner-repair-summary.json` 记录 clean-runner 复现、四类前置缺陷修复、主应用 docs 切换与全部验证结果；过程见 `walkthroughs/011-leader-2026-08-19-final-clean-runner-repair-and-docs-cutover.md`。
+- 迁移 worktree 自身（HEAD 当时 `820fa427`）复现出：Manager 14 类型诊断（5 个测试文件重复导入、3 个安装合同类型未导出、1 个陈旧 `tmpdir()`）；llmlint 根 `typecheck` 缺 gitignored registry.json 前置（4x TS2307）；advisory 复核发现 `testHostPath` 的 `test-paths` 父目录无创建者（fresh-host 首个 mkdtemp 会 ENOENT，本机残留目录掩盖）；Desktop 原诊断不成立（build/typecheck/audit 全绿）。
+- 修复：Manager 重复导入删除、合同类型改从 `@notnotype/neuro-book-contracts/installation`、Podman 用例改用 `testHostPath`；llmlint 根 `typecheck` 加 `registry:build` 前置；`test-paths` 目录由 `vitest.ts` global setup 创建并新增回归测试。提交 `8bbf5296` 与 test-support 修复。
+- 用户追加要求已完成：主应用专属文档迁入 `packages/neuro-book/docs/`（adr、archived、migrations、research、runbooks、specs/foundation、character-workbench 提案），根 `docs/` 只留 monorepo 治理；`docs/migrations/` 的发布合同（state migration declaration、声明 JSON、release 合同测试）同步切换；提交 `5ac495a6`。
+- 验证（真实退出码）：Manager typecheck/test/build（41 files / 336 tests）、Manager fresh-host（38 tests）、llmlint verify 全链、Desktop build/audit、测试支持包 8 tests、`docs:check`（5046 files）、`governance:check`（failures=[]）、治理测试 35、release 合同 21、scripts tsc、`docs:build` 全部通过。
+- Task 继续保持 `blocked`：真实 Docker 镜像构建、Windows runner、浏览器人工验收、真实 Provider、Windows portable 和最终绿色 tag 仍未执行或未授权。
