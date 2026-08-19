@@ -61,6 +61,7 @@ S0 已完成基线提交、annotated tag 与专用迁移 worktree；S1 测试支
 - `evidences/final-verification-clean-runner-repair-summary.json` 记录 clean-runner 复现、前置缺陷修复、主应用 docs 切换与最终全量重跑结果；过程见 `walkthroughs/011-leader-2026-08-19-final-clean-runner-repair-and-docs-cutover.md`。
 - 迁移 worktree 自身复现出：Manager 14 个类型诊断；llmlint 根 `typecheck` 缺 gitignored registry.json 前置；`testHostPath` 的 `test-paths` 父目录无创建者；Desktop 原诊断不成立。另发现应用包 17 个重复导入及 3 个迁移后测试缺陷，均已修复。
 - 修复提交：`8bbf5296`（Manager/llmlint）、`fefbc81b`（test-support 父目录）、`5ac495a6`（主应用 docs）、`2ec6e5be`（应用测试漂移）。
-- 最终验证（真实退出码）：Manager typecheck/test/build、Manager fresh-host、llmlint verify、Desktop build/audit、test-support、`docs:check`（5046 files）、`governance:check`、治理/发布合同、scripts tsc、`docs:build` 全部通过；主应用 `bun run test -- --reporter=dot` 退出码 0，416 files passed / 1 skipped，3084 tests passed / 3 skipped。
-- 早期全量负载下曾观察到 3 个 Harness 时序敏感用例失败，隔离重跑及最终全量重跑均通过；作为既有残余风险记录，不归因于本轮变更。
+- 最终验证（真实退出码）：Manager typecheck/test/build、Manager fresh-host、llmlint verify、Desktop build/audit、test-support、`docs:check`（5047 files，当前最终运行）、`governance:check`、治理/发布合同、scripts tsc、`docs:build` 全部通过；主应用 `bun run test -- --reporter=dot` 退出码 0，416 files passed / 1 skipped，3084 tests passed / 3 skipped。
+- 早期文档切换运行曾记录 `docs:check` 为 5046 files；后续资源审计新增最终证据记录后，当前重跑实际为 5047 files。最终收口统一以 5047 files 为准。
 - Task 继续保持 `blocked`：真实 Docker 镜像构建、Windows runner、浏览器人工验收、真实 Provider、Windows portable 和最终绿色 tag 仍未执行或未授权。
+- 目录边界复核：`packages/neuro-book/assets/` 是主应用系统资产 canonical root；`desktop/` 保持根级 Desktop Envelope（Electron/Tauri）宿主；根 `assets/` 当前无 tracked 文件，观察到内容为被忽略的本机生成/运行残留；根 `reference/` 是仓库级 Reference Bookshelf；根 `patches/` 是 workspace patched dependency 输入。上述目录均非遗漏的主应用源码目录。

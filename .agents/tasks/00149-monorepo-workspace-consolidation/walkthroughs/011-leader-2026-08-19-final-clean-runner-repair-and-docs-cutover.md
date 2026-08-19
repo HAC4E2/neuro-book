@@ -48,7 +48,7 @@ Harness 的 abort 队列两例与 black-box 外部 signal 例在全量负载下�
 - llmlint：`bun run verify` 全链真实 exit 0；删除 registry 后 typecheck 真实 exit 0。
 - Desktop：typecheck / build / audit 全绿（真实 exit 0）。
 - 测试支持包：test + typecheck 真实 exit 0（2 files / 8 tests）。
-- 文档与治理：`docs:check` 5046 文件 failures=[]；`governance:check` failures=[]、warnings=[]；check-documentation + agent-governance + workspace-workflows 3 files / 35 tests；release-assets 21 tests；docker.test 30 tests；scripts tsc exit 0；`docs:build` 完成（仅既有 chunk size advisory）。
+- 早期文档切换验证：`docs:check` 5046 文件 failures=[]；`governance:check` failures=[]、warnings=[]；check-documentation + agent-governance + workspace-workflows 3 files / 35 tests；release-assets 21 tests；docker.test 30 tests；scripts tsc exit 0；`docs:build` 完成（仅既有 chunk size advisory）。
 
 ## 提交
 
@@ -66,6 +66,7 @@ Harness 的 abort 队列两例与 black-box 外部 signal 例在全量负载下�
 - `packages/neuro-book/assets/` 是主应用系统资产 canonical root；本机 `dev:runtime` 日志确认从这里完成 `1` 个变量定义 manifest、`14` 个 profile 准备，并完成 llmlint skill projection 与 user asset sync。
 - `patches/nitropack@2.13.4.patch` 是根 Bun workspace 的 patched dependency 输入，由根 `package.json`、Docker dependency stage 和 CI patch validator 共同消费；迁入应用包会破坏 workspace 安装边界。
 - 计数证据：根 `reference/` 为 `67` 个 tracked 文件，包内 `assets/` 为 `224` 个 tracked 文件，根 `patches/` 为 `1` 个 tracked 文件；`packages/neuro-book/reference/` 与 `packages/neuro-book/patches/` 无 tracked 文件。
+- Desktop 边界：`desktop/` 保留 49 个 tracked 文件，作为根级 Desktop Envelope（Electron/Tauri）宿主，不属于 `packages/neuro-book` 应用源码；根 `assets/` 无 tracked 文件，当前观察到的是被忽略的本机生成/运行残留。
 
 在当前 `master` 运行：
 
@@ -76,3 +77,9 @@ Harness 的 abort 队列两例与 black-box 外部 signal 例在全量负载下�
 本次验证产生的 Prisma generated client 差异已恢复；资源审计未发现需要修改的源码路径，因此没有新增代码迁移提交。
 
 真实 Docker 镜像构建、Windows runner、浏览器人工验收、真实 Provider、Windows portable 与最终绿色 tag 仍按计划记录为阻塞；Task 保持 `blocked`。
+
+## 文档计数与目录边界收口
+
+- 早期文档切换验证记录 `docs:check` 为 5046 files，发生在资源审计证据加入前；该数字保留为历史运行记录，不代表最终收口计数。
+- 资源审计后的最新实际 `bun run docs:check` 输出为 `checkedFiles: 5047`、`failures: []`；README 与 evidence 均以 5047 files 作为最终收口记录。
+- 目录归属最终确认：`packages/neuro-book/assets/` 为主应用系统资产 canonical root；`desktop/` 保持根级 Desktop Envelope；根 `reference/` 与 `patches/` 分别保持仓库级 Reference Bookshelf 和 workspace patched dependency 输入；根 `assets/` 无 tracked 文件且不作为迁移源。
