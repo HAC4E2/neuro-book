@@ -1,4 +1,13 @@
-# 001-leader-2026-08-19-unified-docs-site.md
+---
+schema: nbook.walkthrough/v1
+taskId: 00150-monorepo-boundary-convergence
+sequence: 001
+role: leader
+status: complete
+createdAt: 2026-08-19T10:25:57Z
+---
+
+# 001-leader-2026-08-19_10-25-unified-docs-site.md
 
 ## 范围
 
@@ -15,11 +24,11 @@
 
 `scripts/ci/stage-docs-locales.ts` 每次清空 staged，再复制中文到根、英文到 `en/`、public 到 `public/`，最后写 `.staging-complete.json`。`docs:dev` 与 `docs:build` 均先执行 `docs:stage`；`docs:preview` 只预览既有 dist。
 
-第一版 watcher 让 Vite 同时观察 staged，clean rebuild 的删除窗口触发了真实错误：`Failed to resolve import "/images/tutorial-api-config-step-01-provider.png"`，HTTP 出现 500。最终实现让 Vite watcher 永久忽略 `**/.vitepress/staged/**`；canonical watcher 串行防抖执行完整 staging，完成后调用 `server.moduleGraph.invalidateAll()` 并发送 `full-reload`。不再暂停/恢复 Chokidar watcher。
+第一版 watcher 让 Vite 同时观察 staged，clean rebuild 的删除窗口在诊断轮 PID `46464` 触发了真实错误：`Failed to resolve import "/images/tutorial-api-config-step-01-provider.png"`，HTTP 出现 500。最终实现让 Vite watcher 永久忽略 `**/.vitepress/staged/**`；canonical watcher 串行防抖执行完整 staging，完成后调用 `server.moduleGraph.invalidateAll()` 并发送 `full-reload`。不再暂停/恢复 Chokidar watcher。
 
 真实 watcher smoke 使用当前 checkout：
 
-- `hub describe docs-dev`：PID `33300`，command `bun run docs:dev`，cwd 为当前仓库根。
+- 最终验证轮 `hub describe docs-dev`：PID `33300`，command `bun run docs:dev`，cwd 为当前仓库根；PID `46464` 仅为修复前诊断轮，未作为通过证据。
 - 新增 `vitepress/locales/zh-Hans/watcher-smoke.md` 后，staged 文件逐字出现，`GET /neuro-book/watcher-smoke.md` 返回唯一正文 `watcher isolated evidence 2026-08-19`。
 - 删除 canonical 文件后，staged 文件不存在；VitePress dev 对不存在 URL 使用 HTTP 200 SPA shell，不能用状态码判定。自动化 Chromium 渲染后标题为 `404 | NeuroBook`，正文含 `PAGE NOT FOUND` 且不含 smoke 标识。
 - 新增/删除全过程日志均未出现 `Internal server error`、`Failed to resolve` 或 `Docs locale staging failed`。临时 smoke 文件已删除，服务与自动化浏览器均已关闭。

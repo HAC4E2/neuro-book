@@ -12,7 +12,8 @@
     "fixtureTests": "passed",
     "watcherSmoke": {
       "checkoutVerified": true,
-      "serverPid": 33300,
+      "diagnosticServerPid": 46464,
+      "verifiedServerPid": 33300,
       "createPropagated": true,
       "deletePropagated": true,
       "intermediateResolveErrors": 0,
