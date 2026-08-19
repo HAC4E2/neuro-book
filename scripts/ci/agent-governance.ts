@@ -41,8 +41,8 @@ function isHistoricalMarkdownPath(relativePath: string): boolean {
         || relativePath.startsWith("docs/research/")
         || relativePath.startsWith("packages/neuro-book/docs/archived/")
         || relativePath.startsWith("packages/neuro-book/docs/research/")
-        || relativePath.startsWith("vitepress/changelog/")
-        || relativePath.startsWith("vitepress/en/changelog/");
+        || relativePath.startsWith("vitepress/locales/zh-Hans/changelog/")
+        || relativePath.startsWith("vitepress/locales/en-US/changelog/");
 }
 
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
@@ -92,7 +92,7 @@ const inspectPaths = [...new Set([
 const runtimeExtensions = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".ps1", ".sh", ".json", ".toml"];
 for (const relativePath of inspectPaths) {
     if (!runtimeExtensions.some((extension) => relativePath.endsWith(extension))) continue;
-    if (relativePath.startsWith("docs/tasks/") || relativePath.startsWith(".agents/tasks/") || relativePath.startsWith("vitepress/changelog/") || relativePath.startsWith("vitepress/en/changelog/") || relativePath.startsWith("docs/archived/")) continue;
+    if (relativePath.startsWith("docs/tasks/") || relativePath.startsWith(".agents/tasks/") || relativePath.startsWith("vitepress/locales/zh-Hans/changelog/") || relativePath.startsWith("vitepress/locales/en-US/changelog/") || relativePath.startsWith("docs/archived/")) continue;
     const absolutePath = resolve(repoRoot, relativePath);
     if (!existsSync(absolutePath)) continue;
     let text: string;

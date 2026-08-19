@@ -1,6 +1,6 @@
 # 工作台漫游
 
-> 依据：`vitepress/tutorials/01-studio-tour.md`
+> 依据：`vitepress/locales/zh-Hans/tutorials/01-studio-tour.md`
 > 目的：界面各区域是否可靠、可发现，编辑器基本编辑链路是否闭环。
 
 ## 前置

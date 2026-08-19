@@ -8,10 +8,10 @@ const REQUIRED_TUTORIAL_ASSETS = [
     "tutorial-api-config-step-04-model.png",
 ] as const;
 const TUTORIAL_DOCUMENTS = [
-    "vitepress/quick-start.md",
-    "vitepress/tutorials/00-before-you-start.md",
-    "vitepress/en/quick-start.md",
-    "vitepress/en/tutorials/00-before-you-start.md",
+    "vitepress/locales/zh-Hans/quick-start.md",
+    "vitepress/locales/zh-Hans/tutorials/00-before-you-start.md",
+    "vitepress/locales/en-US/quick-start.md",
+    "vitepress/locales/en-US/tutorials/00-before-you-start.md",
 ] as const;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const IMAGE_REFERENCE_PATTERN = /!\[[^\]]*\]\(([^)]+)\)/gu;
@@ -19,17 +19,17 @@ const IMAGE_REFERENCE_PATTERN = /!\[[^\]]*\]\(([^)]+)\)/gu;
 export async function verifyTutorialAssets(repoRoot: string): Promise<string[]> {
     const root = resolve(repoRoot);
     const failures: string[] = [];
-    const imageRoot = join(root, "vitepress", "images");
+    const imageRoot = join(root, "vitepress", "public", "images");
 
     for (const asset of REQUIRED_TUTORIAL_ASSETS) {
         const path = join(imageRoot, asset);
         try {
             const bytes = await readFile(path);
             if (!bytes.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) {
-                failures.push(`教程图片不是 PNG：vitepress/images/${asset}`);
+                failures.push(`教程图片不是 PNG：vitepress/public/images/${asset}`);
             }
         } catch {
-            failures.push(`教程图片缺失：vitepress/images/${asset}`);
+            failures.push(`教程图片缺失：vitepress/public/images/${asset}`);
         }
     }
 
@@ -46,7 +46,9 @@ export async function verifyTutorialAssets(repoRoot: string): Promise<string[]> 
         const references = [...source.matchAll(IMAGE_REFERENCE_PATTERN)].map((match) => match[1]);
         for (const reference of references) {
             if (!reference || reference.startsWith("http://") || reference.startsWith("https://")) continue;
-            const target = resolve(dirname(path), reference);
+            const target = reference.startsWith("/")
+                ? resolve(root, "vitepress/public", reference.slice(1))
+                : resolve(dirname(path), reference);
             if (!isContained(root, target)) {
                 failures.push(`教程图片引用越界：${document} -> ${reference}`);
                 continue;

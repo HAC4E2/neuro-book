@@ -26,7 +26,7 @@ The first time you create a project, do it in this order:
 5. Check that the file tree on the left shows `project.yaml`, `lorebook/`, `manuscript/` and `world-engine/`.
 6. Click the button at the far right of the top bar to open the **Agent panel** (the right-hand drawer).
 
-![The NeuroBook workspace and file tree](../../images/首页-2-文件树展开.jpg)
+![The NeuroBook workspace and file tree](/images/首页-2-文件树展开.jpg)
 
 From left to right the top bar is: Bookshelf, World (World Engine), Plot (the Plot Workbench), Trace (request tracing), Jobs (background jobs), Changes (file history) and User Assets, with the Agent panel toggle and the account menu at the far right. Some buttons collapse when the window is narrow.
 

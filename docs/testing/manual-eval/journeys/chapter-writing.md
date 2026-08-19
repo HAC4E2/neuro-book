@@ -1,6 +1,6 @@
 # 章节写作
 
-> 依据：`vitepress/tutorials/04-first-three-chapters.md`
+> 依据：`vitepress/locales/zh-Hans/tutorials/04-first-three-chapters.md`
 > 目的：核心写作链是否闭环——设计 → 确认 → 正文落盘 → 状态回写 → 可审查可撤回。
 > 依赖：真实 provider；「Skill 初始化」已完成（至少 World Engine 已初始化）。
 

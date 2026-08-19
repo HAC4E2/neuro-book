@@ -57,7 +57,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已收敛到 Novel 写作
 
 ## 当前风险与验收缺口
 
-- **发布**：当前公开版本仍是 canary；stable、公开签名、后台 updater 与正式 Desktop 发行未完成。历史版本和精确资产身份见 `vitepress/changelog/` 与对应 Task。
+- **发布**：当前公开版本仍是 canary；stable、公开签名、后台 updater 与正式 Desktop 发行未完成。历史版本和精确资产身份见 `vitepress/locales/zh-Hans/changelog/` 与对应 Task。
 - **产品验收**：聚焦测试、typecheck 和构建不能代替浏览器、真实 Project Workspace、真实 Provider/Model 与作者视角写作 smoke。
 - **Desktop**：Windows x64 内部 beta 已有阶段证据；原生 Snap、完整 SSE/WebSocket 断连矩阵、macOS 实包和公开 Desktop 资产仍缺。
 - **写作产品线**：下一阶段是 dogfooding、章节写作与修订反馈、World Engine 体验，以及运行状态是否显式提交等产品决策。

@@ -8,13 +8,13 @@
 ## 发布流程
 
 - 发布、推送资产、创建 Release 或删除历史发布数据需要 H3 批准；本文件只定义门禁，不代表已获批准。
-- 发布前读取 `PROJECT-STATUS.md` 和相关 Task walkthrough；用 `git log <上一个应用发布 tag>..origin/master --oneline` 核对合并范围，并把用户可见变化写入当前 `RELEASE.md`。正文与上一版本相同即视为未更新，不得发布；基线 tag 使用 `v*` 应用 tag，不混用 `manager-v*` 等其它 tag 线。历史版本放在 `vitepress/changelog/` 和 `vitepress/en/changelog/`。
+- 发布前读取 `PROJECT-STATUS.md` 和相关 Task walkthrough；用 `git log <上一个应用发布 tag>..origin/master --oneline` 核对合并范围，并把用户可见变化写入当前 `RELEASE.md`。正文与上一版本相同即视为未更新，不得发布；基线 tag 使用 `v*` 应用 tag，不混用 `manager-v*` 等其它 tag 线。历史版本放在 `vitepress/locales/{zh-Hans,en-US}/changelog/`。
 - Canary 命令只能在 H3 批准后执行：`bun run release -- canary --next patch --push --yes --no-watch` 或对应 minor 命令。命令会更新版本、提交、push 并创建 GitHub prerelease，不得把未获批准的命令写成已运行。
 - 命令中断后先检查工作区、最近提交和 `package.json` 版本，再用 `gh release view <tag> --repo notnotype/neuro-book` 判断是否已经完成，避免重复发布。
 
 ## RELEASE.md 内容
 
-- `RELEASE.md` 只保留当前版本；历史版本进入 `vitepress/changelog/` 和 `vitepress/en/changelog/`。版本段落必须覆盖自上一次发布以来合并的全部 PR；面向用户的变更各写一条并在末尾标注 PR 号（如 `(#63)`），纯内部改动可合并为一条“内部维护”并列出 PR 号；Task 不进入正文，通过 PR 描述追溯。
+- `RELEASE.md` 只保留当前版本；历史版本进入 `vitepress/locales/{zh-Hans,en-US}/changelog/`。版本段落必须覆盖自上一次发布以来合并的全部 PR；面向用户的变更各写一条并在末尾标注 PR 号（如 `(#63)`），纯内部改动可合并为一条“内部维护”并列出 PR 号；Task 不进入正文，通过 PR 描述追溯。
 - 版本段落按需包含以下小节，不保留空标题：
 
 ```markdown

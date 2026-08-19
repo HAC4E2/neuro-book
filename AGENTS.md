@@ -73,7 +73,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 说明前后差异、限制、回退和未验证部分。
 - 每条 1–2 句，直接用动词描述行为，不写夸张宣传语。
 
-`RELEASE.md` 只保留当前版本，历史版本移至 `vitepress/changelog/` 和 `vitepress/en/changelog/`。版本段落必须覆盖自上一次发布以来合并的全部 PR：面向用户的变更各写一条并在末尾标注 PR 号（如 `(#63)`），纯内部改动可合并为一条「内部维护」并列出 PR 号；Task 不进正文，通过 PR 描述追溯。版本段落按需包含以下小节，不保留空标题：
+`RELEASE.md` 只保留当前版本，历史版本移至 `vitepress/locales/{zh-Hans,en-US}/changelog/`。版本段落必须覆盖自上一次发布以来合并的全部 PR：面向用户的变更各写一条并在末尾标注 PR 号（如 `(#63)`），纯内部改动可合并为一条「内部维护」并列出 PR 号；Task 不进正文，通过 PR 描述追溯。版本段落按需包含以下小节，不保留空标题：
 
 ```markdown
 ## <版本> - <日期>
@@ -86,7 +86,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 ### 升级须知
 ```
 
-生成物包括 `packages/neuro-book/.nuxt/`、`packages/neuro-book/.output/`、`packages/neuro-book/server/generated/` 和 `vitepress/.vitepress/{cache,dist}/`，只由对应命令产生，不手改。`.local/` 和 Workspace 内容由用户管理。
+生成物包括 `packages/neuro-book/.nuxt/`、`packages/neuro-book/.output/`、`packages/neuro-book/server/generated/` 和 `vitepress/.vitepress/{cache,dist,staged}/`，只由对应命令产生，不手改。`.local/` 和 Workspace 内容由用户管理。
 
 ## 常用命令
 

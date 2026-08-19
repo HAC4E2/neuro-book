@@ -30,7 +30,7 @@ http://localhost:3000
 
 The first launch initializes the `data/` directory automatically — your work, configuration and logs all live in there. The Windows portable build **needs no password by default**; it works straight away.
 
-![The NeuroBook main interface](../images/主页.png)
+![The NeuroBook main interface](/images/主页.png)
 
 **Step 5: Configure an AI model**
 
@@ -84,10 +84,10 @@ NeuroBook provides no AI of its own; it calls the **model provider** you configu
 
 After launching, go to **Settings → Models** and complete the fields in this order: choose the provider, fill in the API Base and API format, enter the API key, then confirm the model entry. Each step has its own annotated image:
 
-1. Choose the provider: ![Choose the provider](../images/tutorial-api-config-step-01-provider.png)
-2. Fill in the API Base and format: ![Fill in the API Base and format](../images/tutorial-api-config-step-02-endpoint.png)
-3. Enter the API key: ![Enter the API key](../images/tutorial-api-config-step-03-api-key.png)
-4. Confirm the model entry: ![Confirm the model entry](../images/tutorial-api-config-step-04-model.png)
+1. Choose the provider: ![Choose the provider](/images/tutorial-api-config-step-01-provider.png)
+2. Fill in the API Base and format: ![Fill in the API Base and format](/images/tutorial-api-config-step-02-endpoint.png)
+3. Enter the API key: ![Enter the API key](/images/tutorial-api-config-step-03-api-key.png)
+4. Confirm the model entry: ![Confirm the model entry](/images/tutorial-api-config-step-04-model.png)
 
 The tutorial images show only a redacted placeholder; never put a real API key in chat, screenshots or the repository. The same page also lets you assign a model per Agent — a stronger model for writer, who writes the prose, and a cheap one for summaries.
 

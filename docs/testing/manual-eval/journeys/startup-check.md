@@ -1,6 +1,6 @@
 # 启动检查
 
-> 依据：`vitepress/tutorials/00-before-you-start.md`
+> 依据：`vitepress/locales/zh-Hans/tutorials/00-before-you-start.md`
 > 目的：新用户打开应用后能否确认「应用能用、AI 能工作」。
 
 ## 前置

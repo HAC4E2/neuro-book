@@ -94,6 +94,32 @@ describe("documentation governance gate", () => {
         });
     });
 
+    it("拒绝 VitePress 旧根、缺页、locale public、tracked staged 与缺失图片", async () => {
+        const fixture = await createDocumentationFixture({
+            "vitepress/index.md": "# Old root\n",
+            "vitepress/en/index.md": "# Old English\n",
+            "vitepress/images/old.png": "old",
+            "vitepress/.vitepress/staged/index.md": "# generated\n",
+            "vitepress/locales/zh-Hans/index.md": "# 中文\n\n![missing](/images/missing.png)\n",
+            "vitepress/locales/zh-Hans/only-zh.md": "# 仅中文\n",
+            "vitepress/locales/en-US/index.md": "# English\n",
+            "vitepress/locales/en-US/only-en.md": "# English only\n",
+            "vitepress/locales/en-US/public/asset.txt": "bad",
+        });
+
+        const failures = checkDocumentation(fixture.root, fixture.paths).failures;
+        expect(failures).toEqual(expect.arrayContaining([
+            "VitePress 正文必须位于 locales/<BCP47>：vitepress/index.md",
+            "英文正文已迁入 locales/en-US：vitepress/en/index.md",
+            "VitePress 静态图片必须位于 public/images：vitepress/images/old.png",
+            "VitePress staged 生成物不得跟踪：vitepress/.vitepress/staged/index.md",
+            "VitePress locale 内不得包含 public：vitepress/locales/en-US/public/asset.txt",
+            "VitePress 英文 locale 缺少对等页面：only-zh.md",
+            "VitePress 中文 locale 缺少对等页面：only-en.md",
+            "VitePress public 图片不存在：vitepress/locales/zh-Hans/index.md -> /images/missing.png（vitepress/public/images/missing.png）",
+        ]));
+    });
+
     it("坏相对链接报告来源和解析目标", async () => {
         const fixture = await createDocumentationFixture({
             "docs/standards/rules.md": "# Rules\n\n[Missing](missing.md)\n",

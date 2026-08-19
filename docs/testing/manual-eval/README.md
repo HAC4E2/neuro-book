@@ -11,7 +11,7 @@
 
 | 资产 | 角色 |
 | --- | --- |
-| `vitepress/tutorials/`（六篇教程） | 用户旅程步骤的权威来源，旅程按教程的黄金路径组织 |
+| `vitepress/locales/zh-Hans/tutorials/`（六篇教程） | 用户旅程步骤的权威来源，旅程按教程的黄金路径组织 |
 | Task 141 浏览器验收 | 判定口径（通过/未验证/环境阻塞/发现问题）与 P2 实例的来源 |
 | Task 56 真实作者流 runbook | 后续 World Engine 工作台旅程的素材 |
 | Task 82 / nb-memory-bench 评测方法论 | 教训：具体问题清单比拍脑袋分数有用，本体系不设总分 |

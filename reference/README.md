@@ -25,7 +25,7 @@ Project Workspace 内的 `{project}/reference/` 是用户导入素材协议，�
 - [plot/](plot/)：Project SQLite 剧情系统、Story / Phase / Thread / Scene 合同和 Agent 消费方式。Scene 是最小剧情单位，通过 World Anchor 连接 World Engine。
 - [world-engine/](world-engine/)：World Engine 世界引擎——写作模式动态世界状态 + 时间线真相源。slice / subject / instant / reduce 模型、schema、记录原则、Calendar 和 leader/writer 协作。
 - [NeuroBook 术语](../packages/neuro-book/docs/specs/foundation/terminology.md)：Workspace Root、Project Workspace、user-assets、Agent、运行时与存储的标准术语。
-- Markdown Studio 当前只有[用户文档](../vitepress/core/markdown-studio.md)和[历史工作台计划](../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)；内部规范缺口登记在 [`docs/specs/`](../docs/specs/) 中。
+- Markdown Studio 当前只有[用户文档](../vitepress/locales/zh-Hans/core/markdown-studio.md)和[历史工作台计划](../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)；内部规范缺口登记在 [`docs/specs/`](../docs/specs/) 中。
 - [theme/](theme/)：主题系统规则。
 - [media/image-variants.md](media/image-variants.md)：图片原图所有权、授权 Adapter、变体参数、有界缓存和 Project 封面合同。
 

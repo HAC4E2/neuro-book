@@ -133,7 +133,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | P0 | 应用状态、备份与数据迁移 | `packages/neuro-book/docs/adr/0005-*`、`0008-*`、`0012-*`，`packages/neuro-book/server/backup/`、`packages/neuro-book/server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
 | P0 | Agent Session 持久化与历史 | `packages/neuro-book/docs/adr/0003-*`、`0014-agent-job-*`，`packages/neuro-book/server/agent/session/`、`packages/neuro-book/server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |
 | P1 | 配置、模型与凭据 | `packages/neuro-book/server/config/`、`packages/neuro-book/server/models/`、`packages/neuro-book/shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、provider identity、错误和 UI 行为没有单一规范 |
-| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/core/markdown-studio.md`](../../vitepress/core/markdown-studio.md)、[历史 editor plan](../../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
+| P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/locales/zh-Hans/core/markdown-studio.md`](../../vitepress/locales/zh-Hans/core/markdown-studio.md)、[历史 editor plan](../../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |
 | P1 | Passport 与身份 | `packages/neuro-book/server/passport/`、相关 migration 与测试 | 登录、官方 origin、凭据存储和失败语义缺少当前规范 |
 | P1 | Manager 与发布资产 | `packages/neuro-book-manager/`、`scripts/release/`、`RELEASE.md` | 安装身份、manifest、资产、健康检查和发布门禁分散 |
 | P2 | Character 与 Low-code Form | `docs/modules/character/requirements.md`、`packages/neuro-book/server/low-code-form/` | 需求存在，但状态、校验、持久化、权限和失败语义不完整 |

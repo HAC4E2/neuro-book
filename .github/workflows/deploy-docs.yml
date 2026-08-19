@@ -21,6 +21,7 @@ on:
       - patches/**
       - scripts/ci/validate-nitropack-patch.ts
       - scripts/ci/check-documentation*
+      - scripts/ci/stage-docs-locales*
       - packages/neuro-book/**
       - packages/neuro-book/nuxt.config.ts
       - packages/neuro-book/tsconfig.json

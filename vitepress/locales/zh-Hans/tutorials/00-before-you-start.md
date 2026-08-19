@@ -17,10 +17,10 @@
 
 点顶栏最右侧的**账号头像 → 设置**，进入设置页的**模型**分区，按顺序完成四步：选择 Provider、填写 API Base 与接口格式、填写 API Key、确认模型条目。四张图分别对应一个操作；图片中的密钥是脱敏占位，不能照抄到真实配置。
 
-1. 选择 Provider：![选择 Provider](../images/tutorial-api-config-step-01-provider.png)
-2. 填写 API Base 与接口格式：![填写 API Base 与接口格式](../images/tutorial-api-config-step-02-endpoint.png)
-3. 填写 API Key：![填写 API Key](../images/tutorial-api-config-step-03-api-key.png)
-4. 确认模型条目：![确认模型条目](../images/tutorial-api-config-step-04-model.png)
+1. 选择 Provider：![选择 Provider](/images/tutorial-api-config-step-01-provider.png)
+2. 填写 API Base 与接口格式：![填写 API Base](/images/tutorial-api-config-step-02-endpoint.png)
+3. 填写 API Key：![填写 API Key](/images/tutorial-api-config-step-03-api-key.png)
+4. 确认模型条目：![确认模型条目](/images/tutorial-api-config-step-04-model.png)
 
 部署脚本不会替你保存 API Key；Agent 能不能工作，完全取决于这里是否配置成功。
 

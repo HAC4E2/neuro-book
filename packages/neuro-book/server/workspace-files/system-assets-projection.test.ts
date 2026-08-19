@@ -112,6 +112,7 @@ describe("SystemAssetsProjection", () => {
         await writeAsset(source, "vitepress/.vitepress/theme/index.ts", "export {};\n");
         await writeAsset(source, "vitepress/.vitepress/cache/cache.bin");
         await writeAsset(source, "vitepress/.vitepress/dist/index.html");
+        await writeAsset(source, "vitepress/.vitepress/staged/index.md", "# staged\n");
         await writeAsset(source, "unmanaged/.compiled/generated.mjs");
 
         const result = await projection.copyToEmpty({sourceRoot: source, targetRoot: target});
@@ -136,6 +137,7 @@ describe("SystemAssetsProjection", () => {
             "server/.agent",
             "vitepress/.vitepress/cache",
             "vitepress/.vitepress/dist",
+            "vitepress/.vitepress/staged",
             "unmanaged/.compiled",
         ]) {
             await expectMissing(target, excluded);

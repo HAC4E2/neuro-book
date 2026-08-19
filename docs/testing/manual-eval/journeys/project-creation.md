@@ -1,6 +1,6 @@
 # 项目创建
 
-> 依据：`vitepress/tutorials/02-first-project.md`
+> 依据：`vitepress/locales/zh-Hans/tutorials/02-first-project.md`
 > 目的：第一本书能否顺利建出来，Agent 能否识别当前项目。
 
 ## 前置

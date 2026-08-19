@@ -20,18 +20,15 @@ import {Fragment, jsx} from "nbook/server/agent/profiles/profile-dsl/jsx-runtime
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
 
 /**
- * 扫描范围必须同时覆盖文档站和 reference 真相源。
+ * 扫描范围必须同时覆盖双语文档站和 reference 真相源。
  *
- * 第一版只扫 `vitepress/profile-tsx`，结果漏掉了 reference/agent/profile-guide.md 里同一类的
- * `WorkdirReminder` / `ProjectWorkspaceReminder` 幽灵节点——而文档站正是链到那份 guide
- * 让读者「看完整合同」的。真相源过时比文档过时更糟，所以两边一起守。
- *
- * 文档站出英文版后，`vitepress/en/profile-tsx` 也必须进扫描范围：翻译同样会抄错节点名，
- * 而英文读者一样会复制粘贴。
+ * 第一版只扫中文 Profile TSX，结果漏掉了 reference/agent/profile-guide.md 里同一类的
+ * `WorkdirReminder` / `ProjectWorkspaceReminder` 幽灵节点。英文页面也必须纳入扫描，
+ * 因为翻译中的错误节点名同样会被读者复制粘贴。
  */
 const scanDirs = [
-    path.join(repoRoot, "vitepress", "profile-tsx"),
-    path.join(repoRoot, "vitepress", "en", "profile-tsx"),
+    path.join(repoRoot, "vitepress", "locales", "zh-Hans", "profile-tsx"),
+    path.join(repoRoot, "vitepress", "locales", "en-US", "profile-tsx"),
     path.join(repoRoot, "reference", "agent"),
 ];
 

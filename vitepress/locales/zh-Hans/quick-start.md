@@ -30,7 +30,7 @@ http://localhost:3000
 
 首次启动会自动初始化 `data/` 目录（你的作品、配置和日志都在这里面）。Windows 解压版**默认不需要密码**，直接就能用。
 
-![NeuroBook 主界面](./images/主页.png)
+![NeuroBook 主界面](/images/主页.png)
 
 **第 5 步：配置 AI 模型**
 
@@ -84,10 +84,10 @@ NeuroBook 自己不提供 AI 能力，它调用你配置的**模型 Provider**�
 
 启动后进入**设置页 → 模型**，按下面的顺序完成配置：先选择 Provider，再填写 API Base 和接口格式，随后填写 API Key，最后确认模型条目。每一步都有独立标注图：
 
-1. 选择 Provider：![选择 Provider](./images/tutorial-api-config-step-01-provider.png)
-2. 填写 API Base 与接口格式：![填写 API Base 与接口格式](./images/tutorial-api-config-step-02-endpoint.png)
-3. 填写 API Key：![填写 API Key](./images/tutorial-api-config-step-03-api-key.png)
-4. 确认模型条目：![确认模型条目](./images/tutorial-api-config-step-04-model.png)
+1. 选择 Provider：![选择 Provider](/images/tutorial-api-config-step-01-provider.png)
+2. 填写 API Base 与接口格式：![填写 API Base 与接口格式](/images/tutorial-api-config-step-02-endpoint.png)
+3. 填写 API Key：![填写 API Key](/images/tutorial-api-config-step-03-api-key.png)
+4. 确认模型条目：![确认模型条目](/images/tutorial-api-config-step-04-model.png)
 
 教程图片只展示脱敏占位；不要把真实 API Key 发到聊天、截图或仓库中。同一个设置页里还能给不同 Agent 单独指定模型（例如让写正文的 writer 用更强的模型，让摘要用便宜的）。
 

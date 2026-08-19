@@ -15,7 +15,7 @@ import {
 const PROFILE_ROOT_SEGMENTS = ["agent", "profiles"] as const;
 const VARIABLE_ROOT_SEGMENTS = ["agent", "variables"] as const;
 const RUNTIME_CACHE_SEGMENTS = new Set([".runtime-artifact-import-cache", "runtime-artifact-import-cache"]);
-const VITEPRESS_GENERATED_SEGMENTS = new Set(["cache", "dist", "temp"]);
+const VITEPRESS_GENERATED_SEGMENTS = new Set(["cache", "dist", "staged", "temp"]);
 
 export type SystemAssetsProjectionInventory = {
     fileCount: number;
@@ -440,7 +440,7 @@ function containsPair(segments: string[], left: string, right: string): boolean 
     return segments.some((segment, index) => segment === left && segments[index + 1] === right);
 }
 
-/** 只排除 VitePress 的 cache/dist/temp，保留 config 与 theme 源码。 */
+/** 排除 VitePress 的生成目录，保留 config、locale 导航与 theme 源码。 */
 function isVitePressGenerated(segments: string[]): boolean {
     return segments.some((segment, index) =>
         segment === "vitepress"

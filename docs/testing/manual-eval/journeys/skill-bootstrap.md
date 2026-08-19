@@ -1,6 +1,6 @@
 # Skill 初始化
 
-> 依据：`vitepress/tutorials/03-skills-bootstrap.md`
+> 依据：`vitepress/locales/zh-Hans/tutorials/03-skills-bootstrap.md`
 > 目的：novel-setup 四阶段是否真正把灵感落成项目文件，而不是只聊天。
 > 依赖：全部检查项需要真实 provider；provider 不可用时整体标「未验证」。
 

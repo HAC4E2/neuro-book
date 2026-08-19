@@ -89,9 +89,10 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         ]) {
             expect(triggerPaths).toContain(required);
         }
-        for (const governancePath of [".agents/**", ".omp/**", "AGENTS.md", "docs/**", "PROJECT-STATUS.md"]) {
+        for (const governancePath of [".agents/**", ".omp/**", "AGENTS.md", "docs/**", "PROJECT-STATUS.md", "packages/neuro-book/assets/**"]) {
             expect(triggerPaths).toContain(governancePath);
         }
+        expect(triggerPaths).not.toContain("assets/**");
         for (const stale of [
             "*.d.ts",
             ".env.example",
@@ -122,6 +123,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
             "packages/neuro-book/**",
             "packages/neuro-book/tsconfig.json",
+            "scripts/ci/stage-docs-locales*",
             "package.json",
             "bun.lock",
         ]));
@@ -130,6 +132,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(paths(deploy)).toEqual(expect.arrayContaining([
             "packages/neuro-book/**",
             "packages/neuro-book/tsconfig.json",
+            "scripts/ci/stage-docs-locales*",
             "package.json",
             "bun.lock",
         ]));

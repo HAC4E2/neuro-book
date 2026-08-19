@@ -4,7 +4,7 @@ By the end of this section you will know what each main area of the NeuroBook pa
 
 NeuroBook is closer to a novel IDE than to a chat box. It keeps prose, worldbuilding, story structure and Agent collaboration in the same local workspace. You can edit the files directly, and you can also let the Agent read, organize and write those files within clear boundaries.
 
-![The NeuroBook workspace](../../images/首页-2-文件树展开.jpg)
+![The NeuroBook workspace](/images/首页-2-文件树展开.jpg)
 
 If you are configuring a model, start with the [four configuration steps in Quick Start](/en/quick-start#configure-an-ai-model): each action has its own annotated PNG.
 

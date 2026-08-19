@@ -17,10 +17,10 @@ If you have not got the app running yet, go back to [Quick Start](/en/quick-star
 
 Click the **account avatar → Settings** at the far right of the top bar, open the **Models** section, and complete four steps in order: choose the provider, fill in the API Base and format, enter the API key, and confirm the model entry. Each image covers one action; the key shown in the images is a redacted placeholder and must not be copied into a real configuration.
 
-1. Choose the provider: ![Choose the provider](../../images/tutorial-api-config-step-01-provider.png)
-2. Fill in the API Base and format: ![Fill in the API Base and format](../../images/tutorial-api-config-step-02-endpoint.png)
-3. Enter the API key: ![Enter the API key](../../images/tutorial-api-config-step-03-api-key.png)
-4. Confirm the model entry: ![Confirm the model entry](../../images/tutorial-api-config-step-04-model.png)
+1. Choose the provider: ![Choose the provider](/images/tutorial-api-config-step-01-provider.png)
+2. Fill in the API Base and format: ![Fill in the API Base and format](/images/tutorial-api-config-step-02-endpoint.png)
+3. Enter the API key: ![Enter the API key](/images/tutorial-api-config-step-03-api-key.png)
+4. Confirm the model entry: ![Confirm the model entry](/images/tutorial-api-config-step-04-model.png)
 
 The deployment scripts do not save an API key for you; whether the Agent works at all depends entirely on getting this right.
 

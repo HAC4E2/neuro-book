@@ -78,6 +78,7 @@ export function checkDocumentation(repoRoot: string, paths?: readonly string[]):
     checkRequiredIndexes(fileSet, failures);
     checkDocsRoot(files, failures);
     checkRetiredDocumentationPaths(files, failures);
+    checkVitepressStructure(normalizedRoot, files, fileSet, failures);
     checkAdrs(normalizedRoot, files, failures);
     checkActiveLinks(normalizedRoot, files, fileSet, failures);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
@@ -124,6 +125,50 @@ function checkRetiredDocumentationPaths(files: readonly string[], failures: stri
     }
     if (files.includes("docs/standards/code.md")) {
         failures.push("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
+    }
+}
+
+function checkVitepressStructure(
+    repoRoot: string,
+    files: readonly string[],
+    fileSet: ReadonlySet<string>,
+    failures: string[],
+): void {
+    const localeRoots = ["zh-Hans", "en-US"] as const;
+    const markdownByLocale = new Map(localeRoots.map((locale) => [locale, new Set<string>()]));
+
+    for (const path of files.filter((candidate) => candidate.startsWith("vitepress/"))) {
+        if (path.startsWith("vitepress/.vitepress/staged/")) {
+            failures.push(`VitePress staged 生成物不得跟踪：${path}`);
+        }
+        if (path.startsWith("vitepress/en/")) failures.push(`英文正文已迁入 locales/en-US：${path}`);
+        if (path.startsWith("vitepress/images/")) failures.push(`VitePress 静态图片必须位于 public/images：${path}`);
+        if (/^vitepress\/(?!locales\/|public\/|\.vitepress\/).+\.md$/u.test(path)) {
+            failures.push(`VitePress 正文必须位于 locales/<BCP47>：${path}`);
+        }
+        const localeMatch = /^vitepress\/locales\/([^/]+)\/(.+)$/u.exec(path);
+        if (!localeMatch) continue;
+        const [, locale, relativePath] = localeMatch;
+        if (!localeRoots.includes(locale as typeof localeRoots[number])) {
+            failures.push(`VitePress locale 未登记：${path}`);
+            continue;
+        }
+        if (relativePath.startsWith("public/")) failures.push(`VitePress locale 内不得包含 public：${path}`);
+        if (relativePath.endsWith(".md")) markdownByLocale.get(locale as typeof localeRoots[number])!.add(relativePath);
+    }
+
+    const zhPaths = markdownByLocale.get("zh-Hans")!;
+    const enPaths = markdownByLocale.get("en-US")!;
+    for (const path of zhPaths) if (!enPaths.has(path)) failures.push(`VitePress 英文 locale 缺少对等页面：${path}`);
+    for (const path of enPaths) if (!zhPaths.has(path)) failures.push(`VitePress 中文 locale 缺少对等页面：${path}`);
+
+    for (const source of files.filter((path) => /^vitepress\/locales\/(?:zh-Hans|en-US)\/.+\.md$/u.test(path))) {
+        const tree = fromMarkdown(readFileSync(resolve(repoRoot, source), "utf8"));
+        for (const url of collectImageUrls(tree)) {
+            if (!url.startsWith("/")) continue;
+            const target = `vitepress/public/${url.slice(1).split("#", 1)[0].split("?", 1)[0]}`;
+            if (!fileSet.has(target)) failures.push(`VitePress public 图片不存在：${source} -> ${url}（${target}）`);
+        }
     }
 }
 
@@ -180,9 +225,9 @@ function isActiveMarkdown(path: string): boolean {
     if (path.startsWith("docs/")) return !path.startsWith("docs/archived/") && !path.startsWith("docs/research/");
     if (path.startsWith("packages/neuro-book/docs/")) return !path.startsWith("packages/neuro-book/docs/archived/") && !path.startsWith("packages/neuro-book/docs/research/");
     if (path.startsWith("reference/")) return true;
-    if (path.startsWith("vitepress/")) return !path.startsWith("vitepress/changelog/")
-        && !path.startsWith("vitepress/en/changelog/")
-        && !path.startsWith("vitepress/public/");
+    if (path.startsWith("vitepress/locales/")) return !path.startsWith("vitepress/locales/zh-Hans/changelog/")
+        && !path.startsWith("vitepress/locales/en-US/changelog/");
+    if (path.startsWith("vitepress/")) return !path.startsWith("vitepress/public/");
     if (path === ".agents/README.md" || path === ".agents/AGENTS.md") return true;
     return path.startsWith(".agents/roles/") || path.startsWith(".agents/skills/");
 }
@@ -225,6 +270,16 @@ function collectLinkUrls(tree: Root, includeImages = false): string[] {
     const urls: string[] = [];
     const visit = (node: Nodes | Root): void => {
         if (node.type === "link" || node.type === "definition" || (includeImages && node.type === "image")) urls.push(node.url);
+        if ("children" in node) for (const child of node.children) visit(child);
+    };
+    visit(tree);
+    return urls;
+}
+
+function collectImageUrls(tree: Root): string[] {
+    const urls: string[] = [];
+    const visit = (node: Nodes | Root): void => {
+        if (node.type === "image") urls.push(node.url);
         if ("children" in node) for (const child of node.children) visit(child);
     };
     visit(tree);

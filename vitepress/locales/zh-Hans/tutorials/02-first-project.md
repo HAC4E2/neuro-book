@@ -26,7 +26,7 @@
 5. 确认左侧文件树里能看到 `project.yaml`、`lorebook/`、`manuscript/`、`world-engine/`。
 6. 点顶栏最右侧的按钮展开 **Agent 面板**（右侧抽屉）。
 
-![NeuroBook 工作区与文件树](../images/首页-2-文件树展开.jpg)
+![NeuroBook 工作区与文件树](/images/首页-2-文件树展开.jpg)
 
 顶栏从左到右依次是：书架、World（世界引擎）、Plot（剧情工坊）、Trace（请求追踪）、Jobs（后台任务）、变更（文件历史）、用户资产，最右侧是 Agent 面板开关和账号菜单。窗口较窄时部分按钮会收起。
 
