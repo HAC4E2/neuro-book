@@ -58,5 +58,21 @@ Harness 的 abort 队列两例与 black-box 外部 signal 例在全量负载下�
 - `2ec6e5be` fix: repair application package test drift after workspace merge
 
 ## 未运行/阻塞
+## 资源边界审计与本机启动 Smoke
+
+用户追加要求是确认 `reference`、`assets`、`patches` 未随主应用目录迁移是否会阻止启动。审计结论：不迁移这三类目录。
+
+- `reference/` 保持仓库级 Reference Bookshelf：`profile-dsl.ts` 通过 `NEURO_BOOK_REPOSITORY_ROOT` 解析 `reference/**`；现有 `leader-owned-plot-reference.test.ts` 以仓库根读取并通过。
+- `packages/neuro-book/assets/` 是主应用系统资产 canonical root；本机 `dev:runtime` 日志确认从这里完成 `1` 个变量定义 manifest、`14` 个 profile 准备，并完成 llmlint skill projection 与 user asset sync。
+- `patches/nitropack@2.13.4.patch` 是根 Bun workspace 的 patched dependency 输入，由根 `package.json`、Docker dependency stage 和 CI patch validator 共同消费；迁入应用包会破坏 workspace 安装边界。
+- 计数证据：根 `reference/` 为 `67` 个 tracked 文件，包内 `assets/` 为 `224` 个 tracked 文件，根 `patches/` 为 `1` 个 tracked 文件；`packages/neuro-book/reference/` 与 `packages/neuro-book/patches/` 无 tracked 文件。
+
+在当前 `master` 运行：
+
+- `bun run --cwd packages/neuro-book nuxt:prepare && bun run --cwd packages/neuro-book generate && bun run --cwd packages/neuro-book typecheck`：真实退出码 `0`。
+- `bun run --cwd packages/neuro-book test -- server/agent/profiles/leader-owned-plot-reference.test.ts server/agent/profiles/leader-assets-profile.test.ts --reporter=dot`：`2 files / 18 tests passed`。
+- `PORT=3149 NUXT_PORT=3149 NITRO_PORT=3149 bun run --cwd packages/neuro-book dev`：Nuxt/Nitro 监听 `127.0.0.1:3149`；随后 `GET /`、`GET /api/hello`、`GET /api/app/version`、`GET /api/agent/skills`、`GET /api/agent/profiles/catalog`、`GET /api/agent/workflow/catalog` 均返回 HTTP `200`。`/api/hello` 返回 `Hello from Nuxt server api` 及时间戳。
+
+本次验证产生的 Prisma generated client 差异已恢复；资源审计未发现需要修改的源码路径，因此没有新增代码迁移提交。
 
 真实 Docker 镜像构建、Windows runner、浏览器人工验收、真实 Provider、Windows portable 与最终绿色 tag 仍按计划记录为阻塞；Task 保持 `blocked`。

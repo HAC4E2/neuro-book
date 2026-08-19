@@ -116,6 +116,17 @@
     "appFlaky": "An earlier full-suite run intermittently exposed three Harness cases (two abort-queue assertions and one black-box external-signal cleanup ENOTEMPTY); each affected case passed when isolated or on a later focused run. The final full application rerun below passed, so no failure remains in the recorded final run; the timing sensitivity remains a pre-existing residual risk and is not attributed to this change set.",
     "appTestRerunResult": "packages/neuro-book: bun run test -- --reporter=dot, real exit 0; 416 test files passed / 1 skipped; 3084 tests passed / 3 skipped; command output captured in the run log."
   },
+  "resourceAudit": {
+    "checkedAt": "2026-08-19T05:30:39Z",
+    "rootReference": "67 tracked files remain at repository root reference/; Profile DSL resolves them from NEURO_BOOK_REPOSITORY_ROOT. This is the repository-level Reference Bookshelf boundary.",
+    "applicationAssets": "224 tracked files are under packages/neuro-book/assets/; Source Dev prepare resolved this package-owned system asset root and prepared 1 variable definition manifest plus 14 profiles.",
+    "rootPatches": "1 tracked file remains at patches/nitropack@2.13.4.patch; root package.json patchedDependencies, Dockerfile dependency stage, and root CI validation consume this workspace-level dependency patch.",
+    "packageReferenceOrPatches": "0 tracked files under packages/neuro-book/reference/ and packages/neuro-book/patches/; this is intentional ownership, not a missing application runtime directory.",
+    "sourceDevSmoke": "bun run --cwd packages/neuro-book dev with PORT=3149 started Nuxt/Nitro at 127.0.0.1:3149; startup logs showed Prisma generation, system asset preparation, llmlint projection, and user asset sync.",
+    "httpSmoke": "GET /, /api/hello, /api/app/version, /api/agent/skills, /api/agent/profiles/catalog, and /api/agent/workflow/catalog each returned HTTP 200; /api/hello returned the expected message and timestamp JSON.",
+    "referenceFocusedTests": "server/agent/profiles/leader-owned-plot-reference.test.ts and leader-assets-profile.test.ts: 2 files, 18 tests passed.",
+    "worktreeAfterSmoke": "Generated project Prisma output was restored after verification; no source, tracked generated file, or untracked file remains modified."
+  },
   "notExecuted": [
     "Real Docker image build (docker unavailable on this host)",
     "Windows runner, browser manual acceptance, real provider/model",
