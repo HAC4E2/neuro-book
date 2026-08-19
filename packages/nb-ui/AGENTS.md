@@ -26,6 +26,7 @@
 bun run test
 bun run typecheck
 bun run build:css
+bun run test:e2e
 git diff --check
 ```
 

@@ -23,7 +23,7 @@
         "build:css": "tailwindcss -i ./src/tailwind.css -o ./dist/nb-ui.css",
         "typecheck": "nuxt prepare playground && vue-tsc --noEmit",
         "test": "nuxt prepare playground && vitest run",
-        "test:e2e": "node node_modules/@playwright/test/cli.js test"
+        "test:e2e": "playwright test"
     },
     "peerDependencies": {
         "nuxt": "^4.3.1",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, useSlots} from "vue";
+import {computed} from "vue";
 import {useFormFieldContext} from "./form-field-context";
 
 export type FormInputType = "text" | "search" | "password" | "number";
@@ -39,8 +39,9 @@ const emit = defineEmits<{
 }>();
 
 const field = useFormFieldContext();
-const slots = useSlots();
-const hasPrefix = computed(() => Boolean(slots.prefix));
+// prefix 分支判定用模板里的 $slots.prefix，不用 computed 包 slots——
+// useSlots() 不是响应式源，computed 会把「挂载后才出现的条件插槽」缓存成 false（e2e 实测：
+// /lab 切到 prefix 场景后前缀永远不渲染）。模板里每次渲染重读 $slots 才对。
 
 // prefix 与裸 input 两个分支共享同一份属性绑定，写两遍必漂移
 const inputAttrs = computed(() => ({
@@ -67,7 +68,7 @@ const inputAttrs = computed(() => ({
 
 <template>
     <div
-        v-if="hasPrefix"
+        v-if="$slots.prefix"
         class="nb-ui-control nb-ui-control-h-md nb-ui-control-px flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-sm)] text-[var(--text-main)] transition-colors focus-within:outline-none"
         :class="field?.invalid.value ? 'nb-ui-control-invalid' : ''"
     >

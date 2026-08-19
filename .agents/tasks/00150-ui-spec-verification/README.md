@@ -4,9 +4,9 @@ taskId: 00150-ui-spec-verification
 actionIssueId: null
 worktreeId: .worktree/t150-ui-spec-verification
 branchId: feat/t150-ui-spec-verification
-status: in-progress
+status: completed
 createdAt: 2026-08-19T07:39:57Z
-updatedAt: 2026-08-19T07:39:57Z
+updatedAt: 2026-08-19T12:41:00Z
 ---
 
 # nb-ui UI 规范与验证体系补齐
