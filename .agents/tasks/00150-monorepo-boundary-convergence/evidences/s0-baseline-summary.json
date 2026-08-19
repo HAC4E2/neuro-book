@@ -7,6 +7,7 @@
   "trackedFiles": {
     "count": 5047,
     "command": "git ls-files",
+    "path": "baseline-tracked-files.txt",
     "sha256": "5278b8c9791d23b956dadac63947387fc3397734492258c97dd43f15c9a3adf5"
   },
   "dirtyFiles": [

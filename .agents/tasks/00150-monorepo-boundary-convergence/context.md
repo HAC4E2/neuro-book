@@ -7,7 +7,7 @@
 - 当前 checkout：仓库主工作区；分支 `master`。
 - 当前 HEAD：`679621e5ff6a516b0a45873f21369d4913ea0567`。
 - 分支状态：`master...origin/master [ahead 44]`；按批准约束不 fetch、不合并远端、不 push。
-- tracked 文件：5047；`git ls-files` 输出 SHA-256 为 `5278b8c9791d23b956dadac63947387fc3397734492258c97dd43f15c9a3adf5`，可从当前 Git 索引复算。
+- tracked 文件：5047；精确路径清单见 `evidences/baseline-tracked-files.txt`，该文件 SHA-256 为 `5278b8c9791d23b956dadac63947387fc3397734492258c97dd43f15c9a3adf5`。
 
 ## 用户已有改动
 
