@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {dirname, join, resolve} from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {afterEach, describe, expect, it} from "vitest";

@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {afterEach, describe, expect, it} from "vitest";
 
 import {assertProductSystemArtifactModulePaths} from "nbook/scripts/build/product-system-artifact-contract";

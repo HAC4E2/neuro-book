@@ -1,7 +1,7 @@
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {join, relative, resolve} from "node:path";
 import type {Metafile} from "esbuild";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {afterEach, describe, expect, it} from "vitest";
 import {

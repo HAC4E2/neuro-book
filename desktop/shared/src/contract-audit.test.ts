@@ -4,7 +4,7 @@ import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
 import {auditProductContract} from "./contract-audit";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 /** 仓库根：`desktop/shared/src/` 向上三级。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");

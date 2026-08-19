@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join, resolve} from "node:path";
 
 import {strToU8, unzipSync, zipSync} from "fflate";

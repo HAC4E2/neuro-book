@@ -4,7 +4,7 @@ import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises
 import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
 import {

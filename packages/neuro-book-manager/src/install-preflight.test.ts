@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
 import {createServer, type Server} from "node:net";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";

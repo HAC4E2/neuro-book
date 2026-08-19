@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join} from "node:path";
 
 import {strToU8, zipSync} from "fflate";

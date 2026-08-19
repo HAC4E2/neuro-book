@@ -2,7 +2,7 @@ import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {
     parseDesktopDelegatedUninstallReceipt,

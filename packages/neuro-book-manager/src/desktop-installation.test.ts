@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {dirname, join} from "node:path";
 import {strToU8, zipSync} from "fflate";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";

@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {mkdir, mkdtemp, readdir, rm, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 

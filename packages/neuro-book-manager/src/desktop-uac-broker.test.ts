@@ -1,7 +1,7 @@
 import {createServer, type Server, type Socket} from "node:net";
 import {randomUUID} from "node:crypto";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join} from "node:path";
 import {createInterface} from "node:readline";
 

@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {dirname, join, resolve} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {promisify} from "node:util";

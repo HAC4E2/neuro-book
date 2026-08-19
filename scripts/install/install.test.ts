@@ -5,7 +5,7 @@ import {join, resolve} from "node:path";
 import {strToU8, zipSync} from "fflate";
 
 import {afterEach, beforeAll, describe, expect, it} from "vitest";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 const scriptPath = resolve(import.meta.dirname, "install.sh");
 const windowsScriptPath = resolve(import.meta.dirname, "install.ps1");

@@ -1,7 +1,7 @@
 import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {installationLeasePath} from "#manager/installation-mutation";

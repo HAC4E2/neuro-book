@@ -1,7 +1,7 @@
 import {execFile} from "node:child_process";
 import {createRequire} from "node:module";
 import {access, mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {dirname, join} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";

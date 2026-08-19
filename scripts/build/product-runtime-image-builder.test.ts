@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {access, mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join, relative, resolve} from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";

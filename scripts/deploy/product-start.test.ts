@@ -1,7 +1,7 @@
 import {spawn} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";

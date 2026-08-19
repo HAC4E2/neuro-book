@@ -7,7 +7,7 @@ import {promisify} from "node:util";
 import {build} from "esbuild";
 import {describe, expect, it} from "vitest";
 import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 const execFileAsync = promisify(execFile);
 

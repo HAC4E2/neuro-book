@@ -1,6 +1,6 @@
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {describe, expect, it} from "vitest";
 
 import {writeZipArchive} from "nbook/scripts/utils/zip";

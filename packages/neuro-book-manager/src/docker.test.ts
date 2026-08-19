@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, realpath, rm} from "node:fs/promises";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";

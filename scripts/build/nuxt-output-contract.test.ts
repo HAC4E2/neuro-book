@@ -3,7 +3,7 @@ import {readFile, readdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {describe, expect, it} from "vitest";
-import {testHostPath} from "nbook/server/runtime/paths/test-path";
+import { testHostPath } from "nbook/server/runtime/paths/test-path"
 
 import {
     isProductRuntimeIslandModule,
