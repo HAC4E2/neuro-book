@@ -426,7 +426,78 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 ---
 
-## 七、踩过的坑
+## 七、动效
+
+动效只解释空间关系和状态变化，不做装饰（`src/tokens.css` 的原话）。这一节规定
+时长刻度、缓动和浮层编排；每一条都能用计算样式或静态扫描证伪。
+
+### 时长只有三档，按语义选，不按感觉选
+
+| 档 | 语义 | 用在哪 |
+| --- | --- | --- |
+| `--motion-fast` | 状态反馈 | hover / 按压变色、chevron 旋转、选项高亮 |
+| `--motion-base` | 控件形变 | 开关滑球与轨道、分段控件与标签页指示线移动、对话框进出 |
+| `--motion-enter` | 浮层入场 | 菜单、下拉、气泡、时间选择器的出现 |
+
+**`fast < base < enter` 这个顺序是合同，绝对值归主题。** 当前登记值：
+裸基线 120 / 180 / 220ms；nbook 与 macos 90 / 140 / 180ms；aurora 100 / 160 / 240ms；
+editorial 同裸基线。这些数值是**目测决定，没有可引的规范**——Apple 没有公开过
+时长刻度。主题可以改值，但不能打破大小顺序；新主题登记时按这条审。
+
+「状态反馈最快、浮层入场最慢」不是拍脑袋：反馈是确认已经发生的事，拖长了像卡顿；
+入场是建立「这层东西从哪来」的空间关系，眼睛需要时间去追踪。把两档对调，
+界面会同时显得迟钝和突兀。
+
+### 缓动只有一个来源
+
+组件只消费 `--ease-standard`，不得在组件里写 `cubic-bezier(...)` 字面量。
+主题可以覆盖这个变量（nbook / macos 取 `cubic-bezier(0.25, 0.1, 0.25, 1)`，
+裸基线取 `cubic-bezier(0.2, 0, 0, 1)`），同样是目测决定。
+
+本库曾经有过一条回弹曲线（`cubic-bezier(0.34, 1.15, 0.64, 1)`，只被 DialogWindow
+一处消费），本轮归并进 `--ease-standard`：单一消费点不够格登记 token
+（`ui-development-spec §2.6`），而且回弹的趣味感和这套器械语言不是一回事。
+如果哪天要让「弹性」成为正式词汇，先登记 token 并接上至少两个消费方，再写进这一节。
+
+### 浮层入退场的编排是固定的
+
+1. **入场 = opacity + scale(0.96 → 1)**，时长 `--motion-enter`。不加位移——
+   浮层贴着触发器出现，位移会读成「从别处滑进来」而不是「从这里展开」。
+2. **transform-origin 在贴触发器的那一头。** Reka 把方向算好暴露在
+   `--reka-select-content-transform-origin` / `--reka-dropdown-menu-content-transform-origin`
+   这类变量上，**消费它，不要自己根据 placement 推**——推一遍就是把原语已经解决的
+   碰撞翻转逻辑再抄错一次。
+3. **退场同配方，时长 `--motion-fast`。** 退场是「这件事结束了」，不需要入场那样的
+   追踪时间；拖长的退场读作迟疑。
+4. **退场动画靠原语的 Presence 续命**：CSS animation 挂在 `[data-state=open]` /
+   `[data-state=closed]` 上，Reka 等到 `animationend` 才卸载内容树。
+   判据：关闭浮层后目标元素在 DOM 里存活到动画结束才被移除（e2e 可断言）。
+   若原语行为变了（不再等待），退回 Vue `<Transition>` 包装，并在坑节记录。
+5. 共享实现只有一个登记处：`src/styles.css` 的 `.nb-ui-popover-motion` modifier，
+   挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
+   （Combobox / ContextMenu / Tooltip / DialogWindow / TimePicker / Dialog）不挂它，
+   避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
+
+### 禁条
+
+- **组件不得写死时长或缓动**：`duration-200`、`0.15s`、`transition: all 0.18s ease`
+  这类字面量一律违规。`src/components/token-consumption.test.ts` 静态扫描归零。
+- **禁 `transition-all` / `transition: all`**：它把布局属性也卷进过渡（尺寸变化被
+  意外动画），并且让审查看不出「到底什么在变」。transition 的属性列表必须显式。
+- 动效不承担必要信息（`ui-development-spec §5`）：状态必须同时有不依赖动画的表达。
+- `prefers-reduced-motion` 下三个时长归零由库负责（`src/tokens.css`，带 `!important`）；
+  **主题自己新增的动效变量由主题自己关**（见 §六），这是新增变量的配套义务。
+
+### 判据
+
+- 读**元素的计算样式**：`transition-duration` 必须等于对应 token 的解析值，
+  不是「大概 0.2s」。
+- 切主题 / 开浮层之后等 ≥500ms 再读数（坑 #18），否则读到的是过渡中间态。
+- 入场方向看截图：origin 错了，浮层会从错误的一头长出来，计算样式看不出来。
+
+---
+
+## 八、踩过的坑
 
 每条写「现象 → 根因 → 判据」。**判据是这一节的重点**——多数坑之所以活很久，
 是因为当时用的判据本身是错的。
@@ -843,7 +914,7 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 
 ---
 
-## 八、给 UI agent 的检查表
+## 九、给 UI agent 的检查表
 
 动完界面，逐条过：
 - [ ] 模糊半径克制：真实浮层 `--overlay-blur` 为纯 `blur(8px)`；大容器完整折射强档约 14px（坑 #28 / #45）
@@ -889,6 +960,12 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 - [ ] 字距为 0，没有给汉字上负字距
 - [ ] 强调用楷体，没有用 `font-style: italic`
 
+**动效**（合同见 §七）
+- [ ] 时长按语义选档：状态反馈 `--motion-fast`、控件形变 `--motion-base`、浮层入场 `--motion-enter`，
+      没有写死的 `duration-*` / `0.15s` / `cubic-bezier(...)` 字面量（静态扫描归零）
+- [ ] 没有 `transition-all` / `transition: all`；transition 属性列表显式
+- [ ] 缓动只消费 `--ease-standard`
+
 **弹出层**
 - [ ] 传送到 body（`Teleport` 或原语的 Portal），不是原地绝对定位
 - [ ] 点外面能关，且**不回滚值**（回滚是 Esc 的语义）
@@ -901,7 +978,8 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 - [ ] 非模态的浮层（下拉 / 菜单）关掉了原语的 `body-lock` 与 `disable-outside-pointer-events`——
       默认值都是 true，开着的时候整页既不能滚也不能点（坑 #33）
 - [ ] 有交互态的选项外观走类不走内联 `:style`，否则 `:hover` 永远做不出来（坑 #34）
-- [ ] 浮层有入场 / 退场过渡，缩放原点在贴着触发器的那一头
+- [ ] 浮层有入场 / 退场过渡（入场 enter 档 = opacity + scale，退场 fast 档），
+      缩放原点消费 Reka 的 `--reka-*-content-transform-origin`，不是自己推方向（§七）
 - [ ] 对话框的头尾没有常驻细线，分隔由滚动状态驱动（坑 #32）
 
 **对话框的解剖**（三条里中一条就还是个 Web 盒子，见坑 #35）
