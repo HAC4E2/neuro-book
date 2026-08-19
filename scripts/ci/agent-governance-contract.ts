@@ -80,6 +80,25 @@ const SIBLING_RESYNC_INPUT_HASHES: Record<string, string> = {
     "invalidated-reports.json": "sha256:699c488b3a4b2fcbed23a52d6860b33ddc6d1190646dca10184e934535a30e61",
 };
 
+const SIBLING_RESYNC_PROJECT_COUNTS: Record<string, {allowlist: number; exact: number; classified: number}> = {
+    "nb-history": {allowlist: 28, exact: 25, classified: 3},
+    "nb-workflow": {allowlist: 78, exact: 17, classified: 61},
+    "nb-ui": {allowlist: 156, exact: 153, classified: 3},
+    llmlint: {allowlist: 739, exact: 720, classified: 19},
+    "neuro-agent-harness": {allowlist: 296, exact: 292, classified: 4},
+    "nb-memory": {allowlist: 35, exact: 32, classified: 3},
+};
+
+const SIBLING_RESYNC_TOTALS = {
+    allowlist: 1332,
+    exact: 1239,
+    classifiedAllowlistDifferences: 93,
+    unclassifiedAllowlistDifferences: 0,
+    missing: 0,
+    deletionCandidates: 0,
+    copyActions: 0,
+} as const;
+
 export function defaultRepoRoot(moduleUrl: string): string {
     return resolve(dirname(fileURLToPath(moduleUrl)), "..", "..");
 }
@@ -222,6 +241,11 @@ export function verifySiblingResyncResolution(repoRoot: string): string[] {
     for (const [name, expected] of Object.entries(SIBLING_RESYNC_INPUT_HASHES)) {
         if (report.inputs[name] !== expected) failures.push(`sibling resync 输入 hash 不匹配：${name}`);
     }
+    const projectNames = Object.keys(report.projects).sort();
+    const expectedProjectNames = Object.keys(SIBLING_RESYNC_PROJECT_COUNTS).sort();
+    if (projectNames.join("\0") !== expectedProjectNames.join("\0")) {
+        failures.push(`sibling resync 项目集合不匹配：${projectNames.join(",")}`);
+    }
     let allowlist = 0;
     let exact = 0;
     let classified = 0;
@@ -229,19 +253,28 @@ export function verifySiblingResyncResolution(repoRoot: string): string[] {
     let missing = 0;
     let deletionCandidates = 0;
     for (const [project, entry] of Object.entries(report.projects)) {
+        const expected = SIBLING_RESYNC_PROJECT_COUNTS[project];
         allowlist += entry.allowlist;
         exact += entry.exact;
         missing += entry.missing.length;
         deletionCandidates += entry.deletionCandidates.length;
         unclassified += entry.unclassifiedAllowlistDifferences;
+        let projectClassified = 0;
         for (const decision of entry.decisions) {
             if (decision.action !== "keep-target") failures.push(`sibling resync 存在非保留动作：${project}/${decision.kind}`);
-            if (decision.kind !== "workspace-island-lockfile") classified += decision.paths.length;
+            if (decision.kind !== "workspace-island-lockfile") projectClassified += decision.paths.length;
+        }
+        classified += projectClassified;
+        if (expected && (entry.allowlist !== expected.allowlist || entry.exact !== expected.exact || projectClassified !== expected.classified)) {
+            failures.push(`sibling resync 项目计数不匹配：${project}`);
         }
     }
     const actual = {allowlist, exact, classifiedAllowlistDifferences: classified, unclassifiedAllowlistDifferences: unclassified, missing, deletionCandidates};
     for (const [key, value] of Object.entries(actual)) {
         if (report.totals[key as keyof typeof actual] !== value) failures.push(`sibling resync 汇总不一致：${key}`);
+    }
+    for (const [key, expected] of Object.entries(SIBLING_RESYNC_TOTALS)) {
+        if (report.totals[key as keyof typeof SIBLING_RESYNC_TOTALS] !== expected) failures.push(`sibling resync 固定总数不匹配：${key}`);
     }
     if (allowlist !== exact + classified + unclassified) failures.push("sibling resync allowlist 分类算术不闭合");
     if (unclassified !== 0 || missing !== 0 || deletionCandidates !== 0) failures.push("sibling resync 仍含未分类、缺失或删除候选");

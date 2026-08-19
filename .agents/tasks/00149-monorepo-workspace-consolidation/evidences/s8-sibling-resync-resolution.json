@@ -281,5 +281,18 @@
     "deletionCandidates": 0,
     "copyActions": 0
   },
+  "verificationContract": {
+    "requiredProjects": ["nb-history", "nb-workflow", "nb-ui", "llmlint", "neuro-agent-harness", "nb-memory"],
+    "fixedProjectCounts": {
+      "nb-history": {"allowlist": 28, "exact": 25, "classified": 3},
+      "nb-workflow": {"allowlist": 78, "exact": 17, "classified": 61},
+      "nb-ui": {"allowlist": 156, "exact": 153, "classified": 3},
+      "llmlint": {"allowlist": 739, "exact": 720, "classified": 19},
+      "neuro-agent-harness": {"allowlist": 296, "exact": 292, "classified": 4},
+      "nb-memory": {"allowlist": 35, "exact": 32, "classified": 3}
+    },
+    "fixedTotals": {"allowlist": 1332, "exact": 1239, "classified": 93, "unclassified": 0, "missing": 0, "deletionCandidates": 0, "copyActions": 0},
+    "negativeCoverage": ["empty-project-set", "single-project-count-drift", "input-hash-drift"]
+  },
   "result": "All admissible B paths are present. Non-exact paths are classified as controlled import changes, selected T02/0.2.0 content, normalized EOL equivalence, target evolution, or target-owned island lockfiles. No source file is copied or deleted."
 }

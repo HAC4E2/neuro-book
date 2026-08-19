@@ -109,6 +109,48 @@ describe("最终 monorepo 收敛门禁", () => {
 
         expect(verifySiblingResyncResolution(repoRoot)).toContain("sibling resync 输入 hash 不匹配：sibling-import-manifest.json");
     });
+
+    it("拒绝 sibling 单包计数被重写", async () => {
+        const repoRoot = await createTestTmpRoot("governance-resync-count", "governance-resync-count-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
+        const report = JSON.parse(await readFile(join(repositoryRoot, relativePath), "utf8")) as {
+            projects: Record<string, {allowlist: number; exact: number}>;
+            totals: {allowlist: number; exact: number};
+        };
+        report.projects["nb-history"].allowlist -= 1;
+        report.projects["nb-history"].exact -= 1;
+        report.totals.allowlist -= 1;
+        report.totals.exact -= 1;
+        await writeText(repoRoot, relativePath, `${JSON.stringify(report)}\n`);
+
+        expect(verifySiblingResyncResolution(repoRoot)).toContain("sibling resync 项目计数不匹配：nb-history");
+    });
+
+    it("拒绝仅保留输入 hash 的空 sibling 对账报告", async () => {
+        const repoRoot = await createTestTmpRoot("governance-resync-empty", "governance-resync-empty-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
+        const report = JSON.parse(await readFile(join(repositoryRoot, relativePath), "utf8")) as {
+            projects: Record<string, unknown>;
+            totals: Record<string, number>;
+        };
+        report.projects = {};
+        report.totals = {
+            allowlist: 0,
+            exact: 0,
+            classifiedAllowlistDifferences: 0,
+            unclassifiedAllowlistDifferences: 0,
+            missing: 0,
+            deletionCandidates: 0,
+            copyActions: 0,
+        };
+        await writeText(repoRoot, relativePath, `${JSON.stringify(report)}\n`);
+
+        const failures = verifySiblingResyncResolution(repoRoot);
+        expect(failures).toContain("sibling resync 项目集合不匹配：");
+        expect(failures).toContain("sibling resync 固定总数不匹配：allowlist");
+    });
 });
 
 describe("monorepo worktree 根门禁", () => {
