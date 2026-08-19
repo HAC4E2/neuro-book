@@ -10,15 +10,16 @@ NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Des
 
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
-| 根应用 | `packages/neuro-book/package.json`、`packages/neuro-book/app/`、`packages/neuro-book/server/`、`packages/neuro-book/shared/`、`packages/neuro-book/nuxt.config.ts` | `bun --cwd packages/neuro-book ...`、Nuxt、根脚本和 Vitest | 已迁入 `packages/neuro-book`；根不再承载应用源码 |
-| Source Dev | `scripts/cli/source-dev.ts` 与 `scripts/cli/` | 根 `package.json` 的 Source Dev 入口 | 继续作为宿主适配层，指向应用包公开入口 |
-| Agent Runtime | `packages/neuro-book/server/agent/`、相关 DTO 和稳定 `reference/agent/` | Agent API、Harness、Profile runtime | 保持应用逻辑 Module；跨包能力从公开 workspace 入口消费 |
+| 主应用 | `packages/neuro-book/package.json`、`app/`、`server/`、`shared/`、`assets/` 与包内 `scripts/`、`.agents/tasks/` | `bun --cwd packages/neuro-book ...`、Nuxt、应用 Vitest、Product 宿主 | 应用源码、专属脚本、Task 和运行期参考书由应用包持有；根不承载应用实现 |
+| Source Dev | `packages/neuro-book/scripts/cli/source-dev.ts` | 应用 `dev` 命令 | 应用拥有启动编排；唯一允许的根 bridge 是只读复用 `scripts/utils/workspace-roots.ts` 定位 repository/application roots |
+| 用户文档站 | `vitepress/locales/{zh-Hans,en-US}/`、`vitepress/public/`、`vitepress/.vitepress/` | 根 `docs:*` 命令与 docs workflows | 整个 monorepo 的中英文用户文档投影；公开 URL 固定为中文 `/`、英文 `/en/`，工程 Spec 留在 owner 文档根 |
+| Agent Runtime | `packages/neuro-book/server/agent/`、相关 DTO 与 `packages/neuro-book/assets/reference/agent/` | Agent API、Harness、Profile runtime | 保持应用逻辑 Module；逻辑 `reference/**` 在 Source/Product 均解析到应用持有的只读书架 |
 | Project / Workspace | `packages/neuro-book/server/workspace-files/`、Project SQLite、Workspace 文件协议 | Project API、文件工具、Workspace CLI | 由 Project Workspace Module 持有数据和授权；不由 UI 或脚本直接拼路径 |
-| World Engine | `packages/neuro-book/world-engine/` 与 `reference/world-engine/` | Plot、Agent tools、写作流程 | 保持独立领域 Module；Product runtime 通过显式 runtime island 消费 |
-| Product Runtime / Release | `packages/neuro-book/server/runtime/`、根 `scripts/build/`、`scripts/deploy/`、`scripts/release/` | Product、Portable、Container、Release | 共享验证和发布入口保持单一 owner；脚本只做宿主适配 |
-| Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；包级治理资产覆盖专属行为，不复制根治理正文 |
-| Manager | `packages/neuro-book-manager/` | `@notnotype/neuro-book-manager`、`neuro-book` bin | 独立包；不得反向依赖 Nuxt 页面或主应用特例 |
-| Desktop Envelope | `desktop/`、共享 Desktop Contract、Manager adapter | Electron/Tauri、Desktop Contract | 保持独立安装图；跨语言重复只有在合同漂移证据出现后才抽取 |
+| World Engine | `packages/neuro-book/world-engine/` 与 `packages/neuro-book/assets/reference/world-engine/` | Plot、Agent tools、写作流程 | 保持独立领域 Module；Product runtime 通过显式 runtime island 消费 |
+| Product Runtime / Release | `packages/neuro-book/server/runtime/`、根 `scripts/build/`、`scripts/deploy/`、`scripts/release/` | Product、Portable、Container、Release | 共享验证和发布入口保持根宿主 owner；应用运行期书架投影到 Product `server/assets/reference/` |
+| Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；包级治理资产覆盖专属行为，统一文档站只投影用户入口 |
+| Manager | `packages/neuro-book-manager/` | `@notnotype/neuro-book-manager`、`neuro-book` bin、Desktop 正式 subpath | 独立包；拥有 UAC client/broker 与 Product verifier，exports 的 types/runtime 条件必须同时覆盖真实消费者 |
+| Desktop Envelope | `desktop/` 与 `packages/neuro-book-contracts/src/desktop*` | Electron/Tauri、Manager、Desktop Contract | 保持根级独立安装图；宿主实现通过 contracts 或 Manager 正式 subpath 消费，不深导入应用或 sibling 源码 |
 
 所有 `packages/*` 默认继承根 Rule/Skill/Role、临时根、安全和 Git 规则。包可以建立自己的 `AGENTS.md`、`docs/`、`.agents/tasks/` 和 `PROJECT-STATUS.md`，但 `AGENTS.md` 必须引用 `../../AGENTS.md`；`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
 
@@ -49,10 +50,10 @@ Source / Product / Desktop / Release 宿主 adapter
 ```
 
 - UI、HTTP route 和 CLI 负责解析输入、授权、错误映射和编排；领域 Module 负责业务规则和数据所有权。
-- `scripts/` 保持宿主适配职责；迁移时把领域逻辑移入对应 Module，不为单次调用增加 wrapper。
+- 根 `scripts/` 保持跨 workspace 的 CI、构建、部署、安装、发布和治理宿主；应用专属 smoke、seed、warmup 进入应用包。
 - `packages/neuro-book/server/runtime/commands/` 只适配 Product Runtime Contract；Workspace CLI 的实现归 Workspace Module。
-- Manager 通过稳定的 Product/Release/Installation 合同消费应用产物，不导入 Nuxt 页面或根应用特例。
-- Desktop Envelope 只拥有宿主窗口、Supervisor、安装和退出协议；不复制 Product Runtime 合同。
+- Manager 通过稳定的 Product/Release/Installation/Desktop subpath 消费能力，不导入 Nuxt 页面、主应用特例或 `desktop/**` 源码。
+- Desktop Envelope 只拥有宿主窗口、Supervisor、安装编排和退出协议；UAC 实现归 Manager，线协议归 contracts，不复制 Product Runtime 合同。
 - 共享 DTO 或 verifier 只有在实际存在跨宿主复用且不会形成反向环时才下沉。当前依赖环和 type-only 环按 [ADR 0015](../../packages/neuro-book/docs/adr/0015-architecture-boundaries-and-deferred-structure.md) 保持记录，不为“看起来干净”提前抽包。
 
 ## 物理迁移步骤
@@ -81,9 +82,9 @@ Source / Product / Desktop / Release 宿主 adapter
 
 - 根 workspace orchestrator、`packages/neuro-book` 和所有现存包的依赖图无反向环；领域包不得依赖主应用。
 - Source Dev、Nuxt、Vitest、Product build、Manager 和 Desktop Contract 都从明确入口工作。
-- `nbook/*` 由应用包内 alias 或公开 exports 承接，且不存在 root-only fallback。
-- 生成的 Nuxt、Prisma、OpenAPI、Profile/Variable artifact 和 Product staging 不回写错误的根目录。
+- `nbook/*` 由应用包内 alias 或公开 exports 承接；应用 `#scripts/*` 只允许已登记的 root locator bridge，不形成通用 root runtime fallback。
+- 生成的 Nuxt、Prisma、OpenAPI、Profile/Variable artifact、VitePress staging 和 Product staging 不回写错误的 owner 根。
 - focused Module tests、应用集成测试、typecheck 和必要的平台门禁均有真实命令和证据。
-- Task、ADR、Reference、CI workflow、包发布合同和回滚说明同步完成。
+- Task、ADR、运行期 Reference、CI workflow、包发布合同和回滚说明同步完成。
 
 相关长期边界见根 [AGENTS.md](../../AGENTS.md)、[packages/AGENTS.md](../../packages/AGENTS.md)、[ADR 0015](../../packages/neuro-book/docs/adr/0015-architecture-boundaries-and-deferred-structure.md) 和 [ADR 0009](../../packages/neuro-book/docs/adr/0009-product-runtime-image-generation.md)。当前规范注册表继续以本文件为 Monorepo / Module 唯一正文，不创建 `docs/specs/architecture/monorepo-boundaries.md` 副本。
