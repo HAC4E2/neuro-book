@@ -1,6 +1,7 @@
 import type {OwnedProcessCompletion, OwnedProcessLease} from "@notnotype/owned-process";
 import {isAbsolute, relative, resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {resolveAgentCacheRoot} from "@notnotype/neuro-book-test-support/paths";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,

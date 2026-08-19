@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
@@ -376,7 +376,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
     beforeEach(async () => {
         resetProjectSessionsForTest();
         setHistoryEnabledOverrideForTest(true);
-        tempRoot = join(os.tmpdir(), `nb-file-change-notice-${randomUUID()}`);
+        tempRoot = testHostPath(`nb-file-change-notice-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
         workspaceRoot = absoluteFsPath(join(tempRoot, "workspace"));
         setWorkspaceRuntimeRootContextForTest({workspaceRoot});

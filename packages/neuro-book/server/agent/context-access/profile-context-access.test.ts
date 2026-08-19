@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -40,7 +40,7 @@ describe("profile context access", () => {
             _ready: ReadyProjectSessionRef,
             operation: () => Promise<unknown>,
         ) => operation());
-        projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-context-access-"));
+        projectRoot = await mkdtemp(testHostPath("nbook-context-access-"));
         const workspaceRoot = absoluteFsPath(path.dirname(projectRoot));
         const ref = projectWorkspaceRef("novel-1");
         project = {

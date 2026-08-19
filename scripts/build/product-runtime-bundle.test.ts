@@ -19,7 +19,7 @@ const execFileAsync = promisify(execFile);
 
 /** win32-x64 构建要求显式 MSVC Runtime DLL 目录；测试用假 DLL 覆盖复制路径。 */
 async function createFakeMsvcRuntimeDir(): Promise<string> {
-    const msvcRuntimeDir = await mkdtemp(join(tmpdir(), "nbook-msvc-runtime-"));
+    const msvcRuntimeDir = await mkdtemp(testHostPath("nbook-msvc-runtime-"));
     temporaryRoots.push(msvcRuntimeDir);
     await Promise.all(["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"].map((name) =>
         writeFile(join(msvcRuntimeDir, name), `fake-${name}`, "utf8")));
@@ -64,7 +64,7 @@ describe("Product Runtime bundle", () => {
     });
 
     it("把 native 物理 URL 收敛到镜像内 package island，并清除 package manager metadata", async () => {
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-"));
+        const outputRoot = await mkdtemp(testHostPath("nbook-product-runtime-bundle-"));
         temporaryRoots.push(outputRoot);
         const msvcRuntimeDir = process.platform === "win32" && process.arch === "x64"
             ? await createFakeMsvcRuntimeDir()
@@ -171,8 +171,8 @@ describe("Product Runtime bundle", () => {
     }, 60_000);
 
     it("拒绝候选镜像外的 runtime bundle scratch", async () => {
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-image-"));
-        const scratchRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-scratch-"));
+        const outputRoot = await mkdtemp(testHostPath("nbook-product-runtime-bundle-image-"));
+        const scratchRoot = await mkdtemp(testHostPath("nbook-product-runtime-bundle-scratch-"));
         temporaryRoots.push(outputRoot, scratchRoot);
         const msvcRuntimeDir = process.platform === "win32" && process.arch === "x64"
             ? await createFakeMsvcRuntimeDir()

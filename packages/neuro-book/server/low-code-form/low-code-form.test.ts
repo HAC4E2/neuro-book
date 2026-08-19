@@ -1,7 +1,6 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdtemp, rm} from "node:fs/promises";
 import path from "node:path";
-import {tmpdir} from "node:os";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {
@@ -16,6 +15,7 @@ import {
 } from "nbook/server/low-code-form";
 import {ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -241,7 +241,7 @@ describe("low-code form", () => {
     });
 
     it("Global scope 下 resource-preset 使用 Global profile home", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-low-code-global-resource-"));
         try {
             const home = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
             await home.writeText("styles/global.md", "---\ntitle: \"全局文风\"\n---\n\n正文", {mode: "overwrite"});
@@ -261,7 +261,7 @@ describe("low-code form", () => {
     });
 
     it("Project scope 下 resource-preset 列出 Markdown 资源并校验 selected key", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/plain.md", "---\ntitle: \"朴素\"\n---\n\n正文", {mode: "overwrite"});
@@ -282,8 +282,8 @@ describe("low-code form", () => {
     });
 
     it("Project scope 下展示 Global resource 为只读继承资源", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-low-code-global-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             const globalHome = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
@@ -310,7 +310,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 先执行，再允许 selected key 通过校验", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             const form = resourceForm();
@@ -334,7 +334,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 禁止删除当前 selected key", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/plain.md", "正文", {mode: "overwrite"});
@@ -352,7 +352,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 新建目标已存在时失败且不覆盖原文件", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/new.md", "旧正文", {mode: "overwrite"});
@@ -373,7 +373,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 重命名目标已存在时失败且不修改目标文件", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/source.md", "源正文", {mode: "overwrite"});
@@ -396,7 +396,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 执行前先整批校验，后续失败时前面的新建也不落盘", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/taken.md", "已有正文", {mode: "overwrite"});
@@ -424,7 +424,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 预校验使用 resolver key 规则，非法 slug 不会导致前序新建落盘", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
 
@@ -450,7 +450,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 支持新建后编辑再重命名并保留最终内容", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
 
@@ -486,7 +486,7 @@ describe("low-code form", () => {
     });
 
     it("resource mutations 支持连续重命名后编辑最终 key", async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const projectRoot = await mkdtemp(testHostPath("nbook-low-code-resource-"));
         try {
             const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/source.md", "源正文", {mode: "overwrite"});

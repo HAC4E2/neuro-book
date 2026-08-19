@@ -1,9 +1,9 @@
 # scripts/release 目录规则
 
-- 保持 Source、Product、Manager、Desktop 的现有发布入口和外部命令参数，不把测试临时产物写入仓库 `.agent/`。
-- 中间 staging、browser smoke、pack 和验证日志使用系统 Temp 下的受控 Agent 子目录；最终发布资产遵循既有 release output 合同。
-- 修改发布复制闭包、安装器路径、workflow 命令或版本身份时，必须同步更新对应 contract test 和工作流断言。
-- 未经 H3 批准不运行发布、推送资产、创建 Release 或删除历史发布数据。
+- 保持 Source、Product、Manager、Desktop 的现有发布入口和外部命令参数。
+- 中间 staging、browser smoke、pack 与验证日志按 [`../../docs/testing/README.md`](../../docs/testing/README.md) 使用系统临时根；最终发布资产遵循既有 release output 合同。
+- 修改发布复制闭包、安装器路径、workflow 命令或版本身份时，同步对应 contract test 和工作流断言。
+- 未经 H3 批准，不运行发布、不推送资产、不创建 Release、不删除历史发布数据。
 
 ## 发布流程
 

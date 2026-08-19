@@ -1,7 +1,7 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {spawn} from "node:child_process";
 import {createServer} from "node:net";
-import {tmpdir} from "node:os";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -49,7 +49,7 @@ describe("Owned Process", () => {
     });
 
     it("终止 lease 会清理完整孙进程并释放端口", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-owned-process-"));
+        const root = await mkdtemp(testHostPath("nbook-owned-process-"));
         roots.push(root);
         const statePath = join(root, "state.json");
         const lease = spawnFixture(statePath);
@@ -66,7 +66,7 @@ describe("Owned Process", () => {
     });
 
     it.runIf(process.platform === "win32")("TerminateJobObject失败会报告Win32错误并通过关闭Job收口后代", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-owned-terminate-failure-"));
+        const root = await mkdtemp(testHostPath("nbook-owned-terminate-failure-"));
         roots.push(root);
         const statePath = join(root, "state.json");
         const lease = spawnWindowsOwnedProcess({
@@ -92,7 +92,7 @@ describe("Owned Process", () => {
     });
 
     it("根进程自然退出也会清理仍持有stdio和端口的后台后代", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-owned-natural-exit-"));
+        const root = await mkdtemp(testHostPath("nbook-owned-natural-exit-"));
         roots.push(root);
         const statePath = join(root, "state.json");
         const lease = spawnOwnedProcess({
@@ -112,7 +112,7 @@ describe("Owned Process", () => {
     });
 
     it("并发 lease 彼此隔离", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-owned-isolation-"));
+        const root = await mkdtemp(testHostPath("nbook-owned-isolation-"));
         roots.push(root);
         const leftPath = join(root, "left.json");
         const rightPath = join(root, "right.json");
@@ -148,7 +148,7 @@ describe("Owned Process", () => {
     });
 
     it("宿主异常退出会通过监督IPC断连清理完整进程树", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-owned-disconnect-"));
+        const root = await mkdtemp(testHostPath("nbook-owned-disconnect-"));
         roots.push(root);
         const statePath = join(root, "state.json");
         const owner = spawn(process.execPath, [
@@ -168,7 +168,7 @@ describe("Owned Process", () => {
     });
 
     it.runIf(process.platform === "win32")("Portable Product外层Job终止会收口内层Agent Bash Job", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-owned-nested-"));
+        const root = await mkdtemp(testHostPath("nbook-owned-nested-"));
         roots.push(root);
         const statePath = join(root, "state.json");
         const outer = spawnOwnedProcess({

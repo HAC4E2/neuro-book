@@ -5,10 +5,22 @@ on:
     branches: [master]
     paths:
       - docs/**
+      - vitepress/**
       - reference/**
+      - AGENTS.md
+      - WATCHDOG.md
+      - CONTEXT.md
+      - CONTRIBUTING.md
+      - CONTRIBUTING.en.md
+      - PROJECT-STATUS.md
+      - README.md
+      - README.en.md
+      - RELEASE.md
+      - .omp/**
       - .github/workflows/deploy-docs.yml
       - patches/**
       - scripts/ci/validate-nitropack-patch.ts
+      - scripts/ci/check-documentation*
       - packages/neuro-book/**
       - packages/neuro-book/nuxt.config.ts
       - packages/neuro-book/tsconfig.json
@@ -58,6 +70,9 @@ jobs:
       - name: Prepare Nuxt types
         run: bun --cwd packages/neuro-book run nuxt:prepare
 
+      - name: Check documentation governance
+        run: bun run docs:check
+
       - name: Build with VitePress
         env:
           PAGES_BASE_PATH: /${{ github.event.repository.name }}/
@@ -66,7 +81,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/.vitepress/dist
+          path: vitepress/.vitepress/dist
 
   deploy:
     environment:

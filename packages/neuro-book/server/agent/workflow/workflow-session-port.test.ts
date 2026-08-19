@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, test} from "vitest";
 import {mkdtemp} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {NeuroWorkflowSessionPort} from "nbook/server/agent/workflow/workflow-session-port";
@@ -19,7 +19,7 @@ describe("NeuroWorkflowSessionPort × workflow 内核", () => {
     let runner: WorkflowRunner;
 
     beforeEach(async () => {
-        const root = await mkdtemp(join(tmpdir(), "nb-workflow-port-"));
+        const root = await mkdtemp(testHostPath("nb-workflow-port-"));
         repo = new JsonlSessionRepository(root);
         port = new NeuroWorkflowSessionPort(repo);
         mock = new MockAgentPort(port);

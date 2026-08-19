@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -135,7 +135,7 @@ describe("Journaled application migration", () => {
     });
 
     it("同版本migration-only update先plan，already current时不创建Journal", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-migration-only-current-"));
+        const root = await mkdtemp(testHostPath("manager-migration-only-current-"));
         roots.push(root);
         const manifest = productManifest();
         migrations.plan.mockImplementation(async (_root, _manifest, runId) => ({
@@ -152,7 +152,7 @@ describe("Journaled application migration", () => {
     });
 
     it("同版本migration-only update在plan后执行完整事务并关闭验证进程", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-migration-only-planned-"));
+        const root = await mkdtemp(testHostPath("manager-migration-only-planned-"));
         roots.push(root);
         const manifest = productManifest();
         const shutdown = vi.fn().mockResolvedValue(undefined);
@@ -180,7 +180,7 @@ describe("Journaled application migration", () => {
     });
 
     it("migration验证进程丢失Session Store lease时不提交成功结果", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-migration-only-compromised-"));
+        const root = await mkdtemp(testHostPath("manager-migration-only-compromised-"));
         roots.push(root);
         const manifest = productManifest();
         migrations.plan.mockImplementation(async (_root, _manifest, runId) => ({
@@ -212,7 +212,7 @@ describe("Journaled application migration", () => {
     });
 
     it("start在maintenance journal提交后才运行前台应用", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-migration-"));
+        const root = await mkdtemp(testHostPath("manager-start-migration-"));
         roots.push(root);
         const manifest = productManifest();
         migrations.plan.mockResolvedValue({runId: "start-current", status: "already_current", steps: migrationSteps("start-current")});
@@ -232,7 +232,7 @@ describe("Journaled application migration", () => {
     });
 
     it("native start 在 Application State apply 前持久化SQLite backup", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-native-backup-"));
+        const root = await mkdtemp(testHostPath("manager-start-native-backup-"));
         roots.push(root);
         const manifest = productManifest();
         const databasePath = join(root, "data", "app.sqlite");
@@ -275,7 +275,7 @@ describe("Journaled application migration", () => {
     });
 
     it("container start 有迁移时先记录并停止running容器，再备份和apply", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-container-transaction-"));
+        const root = await mkdtemp(testHostPath("manager-start-container-transaction-"));
         roots.push(root);
         const manifest = dockerManifest();
         const containerId = "e".repeat(64);
@@ -310,7 +310,7 @@ describe("Journaled application migration", () => {
     });
 
     it("前台 Manager 收到 signal 时请求 graceful shutdown 并移除监听器", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-signal-"));
+        const root = await mkdtemp(testHostPath("manager-start-signal-"));
         roots.push(root);
         const manifest = productManifest();
         const terminal = deferred<{code: number | null; signal: string | null}>();
@@ -349,7 +349,7 @@ describe("Journaled application migration", () => {
     });
 
     it("Desktop Supervisor 的动态端口会写入首次 State Root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-dynamic-port-"));
+        const root = await mkdtemp(testHostPath("manager-start-dynamic-port-"));
         roots.push(root);
         const manifest = productManifest();
         const port = 43127;
@@ -369,7 +369,7 @@ describe("Journaled application migration", () => {
     });
 
     it("宿主 ready 回调只在 Installation lease 释放后触发", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-ready-after-lease-"));
+        const root = await mkdtemp(testHostPath("manager-start-ready-after-lease-"));
         roots.push(root);
         const manifest = productManifest();
         const terminal = deferred<{code: number | null; signal: string | null}>();
@@ -396,7 +396,7 @@ describe("Journaled application migration", () => {
     });
 
     it("嵌入宿主关闭生命周期信号时请求 graceful shutdown 并等待 Product 终态", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-host-lifecycle-"));
+        const root = await mkdtemp(testHostPath("manager-start-host-lifecycle-"));
         roots.push(root);
         const manifest = productManifest();
         const terminal = deferred<{code: number | null; signal: string | null}>();
@@ -430,7 +430,7 @@ describe("Journaled application migration", () => {
     });
 
     it("容器start在健康检查前持久化候选身份并随Operation提交", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-container-"));
+        const root = await mkdtemp(testHostPath("manager-start-container-"));
         roots.push(root);
         const manifest = dockerManifest();
         const containerId = "d".repeat(64);
@@ -466,7 +466,7 @@ describe("Journaled application migration", () => {
     });
 
     it("ready 前失败会终止候选并回滚未提交 start operation", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-ready-failure-"));
+        const root = await mkdtemp(testHostPath("manager-start-ready-failure-"));
         roots.push(root);
         const terminate = vi.fn().mockResolvedValue(undefined);
         migrations.plan.mockResolvedValue({runId: "start-current", status: "already_current", steps: migrationSteps("start-current")});
@@ -484,7 +484,7 @@ describe("Journaled application migration", () => {
     });
 
     it("窗口 ready 后宿主完整复核失败仍终止候选并回滚 start operation", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-on-ready-failure-"));
+        const root = await mkdtemp(testHostPath("manager-start-on-ready-failure-"));
         roots.push(root);
         const terminate = vi.fn().mockResolvedValue(undefined);
         migrations.plan.mockResolvedValue({runId: "start-on-ready-failure", status: "already_current", steps: migrationSteps("start-on-ready-failure")});
@@ -507,7 +507,7 @@ describe("Journaled application migration", () => {
     });
 
     it("ready后以Session Store lease compromised退出时返回专用提示", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-ready-compromised-"));
+        const root = await mkdtemp(testHostPath("manager-start-ready-compromised-"));
         roots.push(root);
         const manifest = productManifest();
         migrations.plan.mockResolvedValue({runId: "start-compromised", status: "already_current", steps: migrationSteps("start-compromised")});
@@ -523,7 +523,7 @@ describe("Journaled application migration", () => {
     });
 
     it("候选终止失败时保留未提交 Journal 并禁止状态回滚", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-terminate-failure-"));
+        const root = await mkdtemp(testHostPath("manager-start-terminate-failure-"));
         roots.push(root);
         const terminate = vi.fn().mockRejectedValue(new Error("container stop failed"));
         migrations.plan.mockResolvedValue({runId: "start-terminate-failure", status: "planned", steps: migrationSteps("start-terminate-failure")});
@@ -554,7 +554,7 @@ describe("Journaled application migration", () => {
     });
 
     it("非Windows Portable关闭健康检查时在迁移前拒绝", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-start-no-health-check-"));
+        const root = await mkdtemp(testHostPath("manager-start-no-health-check-"));
         roots.push(root);
         const manifest = productManifest();
 
@@ -566,7 +566,7 @@ describe("Journaled application migration", () => {
     });
 
     it("安装准备复用 migration/start 合同，在动态端口 ready 后立即 graceful shutdown", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-install-prepare-"));
+        const root = await mkdtemp(testHostPath("manager-install-prepare-"));
         roots.push(root);
         const manifest = productManifest();
         await writeInstallationManifest(join(root, ".deploy", "installation.json"), manifest);
@@ -608,7 +608,7 @@ describe("Journaled application migration", () => {
 });
 
 async function fixture(id: string) {
-    const root = await mkdtemp(join(tmpdir(), "manager-migration-operation-"));
+    const root = await mkdtemp(testHostPath("manager-migration-operation-"));
     roots.push(root);
     const manifest = productManifest();
     const journal = await createOperation({

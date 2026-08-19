@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rename, rm, stat} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
@@ -20,7 +20,7 @@ afterEach(async () => {
 
 describe("Manager source Product build", () => {
     it.runIf(hostRuntimeImageFixtureAvailable(currentProductPlatform()))("调用统一 nuxt:build 并只返回 staging verified image", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-product-build-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-product-build-"));
         roots.push(root);
         const sourceRoot = join(root, "source");
         const staging = join(root, "operation", "build");

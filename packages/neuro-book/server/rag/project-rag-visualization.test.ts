@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {parseSubjectEventsJsonl, parseSubjectMemoriesJsonl} from "nbook/server/agent/tools/subject-memory";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
@@ -25,7 +25,7 @@ describe("project RAG visualization service", () => {
     beforeEach(async () => {
         originalCwd = process.cwd();
         originalFetch = globalThis.fetch;
-        root = await mkdtemp(join(tmpdir(), "nbook-project-rag-visual-test-"));
+        root = await mkdtemp(testHostPath("nbook-project-rag-visual-test-"));
         process.chdir(root);
         await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
         vi.resetModules();

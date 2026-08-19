@@ -69,6 +69,6 @@ Profile 可通过 `ProfileTurnPlan.turnContexts` 声明依赖运行时外部数�
 - tool-side save point writes 排入当前 `RunFrame.pendingWritePlans`，在 turn save point 与 transcript 同 batch flush。
 - provider context、runtime messages、session history 必须分开理解。
 - 当前用户输入是 Harness durable prompt，不是 Profile `AppendingSet` 数据；Profile 不应复制 `ctx.invocation.message`。
-- 新 hook 能力要先对照 [harness-black-box-contract.md](harness-black-box-contract.md) 检查外部行为。
+- 新 hook 能力要先对照 [Agent Runtime 与 Profile 当前规范入口](../../docs/specs/README.md) 和相邻 Harness 合同测试检查外部行为。
 
-历史设计过程见 [../../docs/tasks/18-agent-runtime-pipeline-hooks/README.md](../../docs/tasks/18-agent-runtime-pipeline-hooks/README.md)。
+- 历史设计过程见 [`.agents/tasks/18-agent-runtime-pipeline-hooks/README.md`](../../.agents/tasks/18-agent-runtime-pipeline-hooks/README.md)。

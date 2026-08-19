@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -27,7 +27,7 @@ afterEach(async () => {
 
 /** 建一个 `.compiled` 目录，写入若干 artifact，返回目录路径。 */
 async function createCompiledDir(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-profile-gc-"));
+    const root = await mkdtemp(testHostPath("nbook-profile-gc-"));
     roots.push(root);
     const compiledDir = join(root, ".compiled");
     await mkdir(join(compiledDir, PROFILE_COMPILED_ARTIFACTS_DIR_NAME), {recursive: true});

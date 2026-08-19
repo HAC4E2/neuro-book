@@ -10,11 +10,17 @@ on:
       - "README.en.md"
       - "AGENTS.md"
       - "PROJECT-STATUS.md"
+      - "WATCHDOG.md"
+      - "CONTEXT.md"
+      - "RELEASE.md"
+      - ".omp/**"
       - "docs/**"
+      - "vitepress/**"
       - "reference/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
       - "scripts/ci/validate-nitropack-patch.ts"
+      - "scripts/ci/check-documentation*"
       - "patches/**"
       - "packages/neuro-book/**"
       - "packages/neuro-book/nuxt.config.ts"
@@ -29,11 +35,17 @@ on:
       - "README.en.md"
       - "AGENTS.md"
       - "PROJECT-STATUS.md"
+      - "WATCHDOG.md"
+      - "CONTEXT.md"
+      - "RELEASE.md"
+      - ".omp/**"
       - "docs/**"
+      - "vitepress/**"
       - "reference/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
       - "scripts/ci/validate-nitropack-patch.ts"
+      - "scripts/ci/check-documentation*"
       - "patches/**"
       - "packages/neuro-book/**"
       - "packages/neuro-book/nuxt.config.ts"
@@ -74,5 +86,7 @@ jobs:
         run: bun --cwd packages/neuro-book run nuxt:prepare
       - name: Validate community files
         run: bun scripts/ci/validate-community-files.ts
+      - name: Check documentation governance
+        run: bun run docs:check
       - name: Build documentation
         run: bun run docs:build

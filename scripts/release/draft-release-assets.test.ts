@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it, vi} from "vitest";
@@ -49,7 +49,7 @@ describe("Draft Release assets", () => {
 
 /** 创建测试资产并登记清理。 */
 async function fixture(name: string, content: string): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-draft-assets-"));
+    const root = await mkdtemp(testHostPath("nbook-draft-assets-"));
     roots.push(root);
     const path = join(root, name);
     await writeFile(path, content, "utf8");

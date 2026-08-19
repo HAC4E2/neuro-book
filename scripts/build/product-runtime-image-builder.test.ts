@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {access, mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, relative, resolve} from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
@@ -583,7 +583,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
 
 /** 建立最小、干净且可由 Builder 读取实际版本的 Git Source fixture。 */
 async function sourceFixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-runtime-image-"));
+    const root = await mkdtemp(testHostPath("nbook-runtime-image-"));
     temporaryRoots.push(root);
     await mkdir(join(root, "src"), {recursive: true});
     await mkdir(join(root, "node_modules", "nuxt"), {recursive: true});

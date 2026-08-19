@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rename, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -23,7 +23,7 @@ afterEach(async () => {
 
 describe("ProjectLifecycle production shallow watcher", () => {
     it("真实chokidar ready后把一级Project事件收敛为完整浅重扫", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-watch-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-watch-"));
         roots.push(workspaceRoot);
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
 
@@ -56,7 +56,7 @@ describe("ProjectLifecycle production shallow watcher", () => {
     });
 
     it("真实浅watcher识别同路径ABA replacement并关闭已打开Session", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-root-replaced-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-root-replaced-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "open-project");
         const movedRoot = path.join(workspaceRoot, "open-project-moved");
@@ -105,7 +105,7 @@ describe("ProjectLifecycle production shallow watcher", () => {
     });
 
     it("真实外部删除Project root后关闭Session并释放Occupancy", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-root-removed-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-root-removed-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "open-project");
         await mkdir(projectRoot);

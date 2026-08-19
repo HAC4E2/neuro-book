@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -111,7 +111,7 @@ describe("Runtime Artifact Authoring Interface", () => {
 
 /** 创建自动清理的 authoring fixture root。 */
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-authoring-interface-"));
+    const root = await mkdtemp(testHostPath("nbook-authoring-interface-"));
     roots.push(root);
     return root;
 }

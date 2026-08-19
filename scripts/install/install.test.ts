@@ -1,11 +1,11 @@
 import {spawn} from "node:child_process";
 import {createHash} from "node:crypto";
 import {chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {strToU8, zipSync} from "fflate";
 
 import {afterEach, beforeAll, describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 const scriptPath = resolve(import.meta.dirname, "install.sh");
 const windowsScriptPath = resolve(import.meta.dirname, "install.ps1");
@@ -118,9 +118,9 @@ describe("Windows Stage 0合同", () => {
     });
 
     it.runIf(process.platform === "win32")("离线 Bootstrap 在执行本地 Manager 前拒绝缺失的 Bun 载荷", async () => {
-        const parent = resolve(".agent/tmp");
+        const parent = testHostPath("install-offline-bootstrap");
         await mkdir(parent, {recursive: true});
-        const root = await mkdtemp(join(parent, "desktop-offline-bootstrap-"));
+        const root = await mkdtemp(join(parent, "fixture-"));
         roots.push(root);
         const archive = join(root, "neuro-book-electron-portable-win-x64.zip");
         const manager = strToU8("console.log('manager')\n");
@@ -167,9 +167,9 @@ describe("Windows Stage 0合同", () => {
     });
 
     it.runIf(process.platform === "win32")("显式本机Bun默认不产生Stage 0 metadata，而显式授权才产生", async () => {
-        const parent = resolve(".agent/tmp");
+        const parent = testHostPath("install-windows-stage0");
         await mkdir(parent, {recursive: true});
-        const root = await mkdtemp(join(parent, "windows-stage0-explicit-"));
+        const root = await mkdtemp(join(parent, "fixture-"));
         roots.push(root);
         const fakeBun = join(root, "bun.cmd");
         await writeFile(fakeBun, [
@@ -262,7 +262,7 @@ describePosix("POSIX Stage 0行为", () => {
     });
 
     it("缺少curl时在创建缓存或临时目录前失败", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-stage0-missing-tool-"));
+        const root = await mkdtemp(testHostPath("nbook-stage0-missing-tool-"));
         roots.push(root);
         const bin = join(root, "bin");
         await mkdir(bin, {recursive: true});
@@ -290,7 +290,7 @@ type RunOptions = {
 };
 
 async function runStage0(platformCase: PlatformCase, options: RunOptions = {}) {
-    const root = options.root ?? await mkdtemp(join(tmpdir(), "nbook-stage0-harness-"));
+    const root = options.root ?? await mkdtemp(testHostPath("nbook-stage0-harness-"));
     if (!options.root) roots.push(root);
     const bin = join(root, "bin");
     const home = join(root, "home");

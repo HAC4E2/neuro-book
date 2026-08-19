@@ -430,11 +430,11 @@ Primary docs:
 
 - `docs/profile-tsx/`
 - `docs/research/pi-agent-harness.md`
-- `docs/tasks/02-pi-agent-harness-migration/README.md`
-- `docs/tasks/04-tsx-profile-workbench/README.md`
-- `docs/tasks/05-leader-profile-v2-adaptation/README.md`
-- `docs/tasks/58-agent-profile-settings-low-code/README.md`
-- `docs/tasks/60-agent-profile-home/README.md`
-- `docs/tasks/68-global-profile-home-resource-preset/README.md`
-- `docs/tasks/archived/user-assets-workspace/README.md`
+- `.agents/tasks/02-pi-agent-harness-migration/README.md`
+- `.agents/tasks/04-tsx-profile-workbench/README.md`
+- `.agents/tasks/05-leader-profile-v2-adaptation/README.md`
+- `.agents/tasks/58-agent-profile-settings-low-code/README.md`
+- `.agents/tasks/60-agent-profile-home/README.md`
+- `.agents/tasks/68-global-profile-home-resource-preset/README.md`
+- `.agents/tasks/archived/user-assets-workspace/README.md`
 - `reference/workspace/TERMS.md`

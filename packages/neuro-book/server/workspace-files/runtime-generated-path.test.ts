@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -33,7 +33,7 @@ describe("Project Workspace File Index runtime artifact 排除", () => {
     });
 
     it("完整扫描保留源码与 Project Config，但隐藏新旧 runtime artifact", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-runtime-path-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-runtime-path-"));
         tempRoots.push(root);
         await write(root, "world-engine/calendar.ts", "export default {};");
         await write(root, "world-engine/.runtime-artifact-import-cache/world-engine-calendar/a.mjs", "export {};");
@@ -54,7 +54,7 @@ describe("Project Workspace File Index runtime artifact 排除", () => {
     });
 
     it("显式 target 扫描与递归校验也不能重新纳入 runtime artifact", async () => {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-runtime-target-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-runtime-target-"));
         tempRoots.push(root);
         const artifactDirectory = ".nbook/runtime-artifact-import-cache/world-engine-calendar";
         const artifactFile = `${artifactDirectory}/a.mjs`;

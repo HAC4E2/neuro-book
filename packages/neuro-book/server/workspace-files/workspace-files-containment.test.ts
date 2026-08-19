@@ -1,5 +1,5 @@
 import {access, mkdir, mkdtemp, rm, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -78,7 +78,7 @@ describe("Workspace文件操作真实路径范围", () => {
 
 /** 创建隔离Application Root。 */
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(path.join(tmpdir(), "nbook-workspace-containment-"));
+    const root = await mkdtemp(testHostPath("nbook-workspace-containment-"));
     roots.push(root);
     return root;
 }

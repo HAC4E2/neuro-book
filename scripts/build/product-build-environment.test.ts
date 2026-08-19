@@ -144,7 +144,7 @@ describe("Product build environment", () => {
     });
 
     it("整个 Product pipeline 共用一个 fail-fast build lease", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-build-lease-"));
+        const root = await mkdtemp(testHostPath("nbook-product-build-lease-"));
         let enterFirst!: () => void;
         let releaseFirst!: () => void;
         const firstStarted = new Promise<void>((resolvePromise) => {

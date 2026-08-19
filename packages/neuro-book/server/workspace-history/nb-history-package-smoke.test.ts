@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterAll, describe, expect, it} from "vitest";
 import {WorkspaceHistory} from "@notnotype/nb-history";

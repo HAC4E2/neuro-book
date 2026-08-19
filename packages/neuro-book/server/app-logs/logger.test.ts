@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import {resolveStateLogRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {
@@ -25,7 +24,7 @@ afterEach(async () => {
  * 创建临时日志根目录。
  */
 async function tempLogRoot(): Promise<string> {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-app-logs-"));
+    const root = await fs.mkdtemp(testHostPath("nbook-app-logs-"));
     cleanupRoots.push(root);
     return root;
 }

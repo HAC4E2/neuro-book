@@ -1,12 +1,12 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
+import {resolveAgentCacheRoot} from "../../../scripts/utils/agent-paths.ts";
 
 const packageRoot = resolve(import.meta.dir, "..");
-// 仓库根：`packages/neuro-book-manager/scripts/` 向上三级。
-const repoRoot = resolve(import.meta.dir, "..", "..", "..");
-const managedTmpRoot = join(repoRoot, ".agent", "tmp");
+// 仅使用系统受控 cache；pack 产物可回收，不污染仓库 `.agent/tmp`。
+const managedTmpRoot = resolveAgentCacheRoot("manager-pack");
 await mkdir(managedTmpRoot, {recursive: true});
-const temporaryRoot = await mkdtemp(join(managedTmpRoot, "manager-pack-"));
+const temporaryRoot = await mkdtemp(join(managedTmpRoot, "run-"));
 
 try {
     await run(["bun", "pm", "pack", "--destination", temporaryRoot], packageRoot);

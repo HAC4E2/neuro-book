@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
@@ -16,7 +16,7 @@ describe("Product runtime源码清理", () => {
     });
 
     it("删除测试文件和测试目录并保留运行源码", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-source-prune-"));
+        const root = await mkdtemp(testHostPath("nbook-runtime-source-prune-"));
         try {
             await mkdir(join(root, "server", "feature", "__tests__"), {recursive: true});
             await mkdir(join(root, "server", "feature", "test"), {recursive: true});

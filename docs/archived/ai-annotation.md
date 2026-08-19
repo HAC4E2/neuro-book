@@ -1,23 +1,13 @@
-# AI 表单批注规范（已废弃）
+# AI 表单批注历史
 
-旧版 `%{...}%` / `%!{...}%` inline AI 批注已经废弃，不再作为编辑器语法实现。
+状态：archived
 
-当前项目统一使用 Markdown inline comment 表达轻量批注：
+本文件只记录已退出的批注语法，不是当前编辑器规范。
 
-```md
-<inline-comment body="这里需要改得更口语">被评论的文本</inline-comment>
-```
+## 已淘汰语法
 
-## 当前规则
+- `%{...}%`：旧版 inline AI 批注。
+- `%!{...}%`：旧版高优先级 AI 批注。
+- `<inline-comment body="...">...</inline-comment>`：曾用于轻量 Markdown 批注，当前不再由本文件声明为产品合同。
 
-- `body` 是评论文本，通常是一句话。
-- 标签包裹的内容是被评论正文。
-- 评论直接存储在 Markdown 正文里，不再通过 frontmatter `comments` 或 id 索引。
-- 本语法不绑定 AI；AI 后续如需参与，应先读写同一套 inline comment 语法。
-- 不引入 Tiptap 官方 Comments / Thread / Cloud 能力。
-
-## 迁移说明
-
-- 新代码不要再生成 `%{...}%` 或 `%!{...}%`。
-- 旧 AI 表单批注接口与 UI 后续应单独清理或重命名。
-- 如果需要结构化“错别字修正/替换建议”，应另建 suggestion/diagnostic 模型，不复用本文件的旧 AI annotation 设计。
+当前 Markdown 方言与编辑器行为以 [`../../reference/content/markdown-dialect.md`](../../reference/content/markdown-dialect.md) 和 [`../specs/README.md`](../specs/README.md) 登记的规范为准。需要 suggestion、diagnostic 或 comment 能力时先建立当前 spec，不复用本归档作为实现依据。

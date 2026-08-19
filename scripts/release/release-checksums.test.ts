@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -30,7 +30,7 @@ describe("Release SHA256SUMS", () => {
 
 /** 创建最小Release资产集合。 */
 async function fixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-release-checksums-"));
+    const root = await mkdtemp(testHostPath("nbook-release-checksums-"));
     temporaryRoots.push(root);
     const paths = [
         join(root, "release-manifest.json"),

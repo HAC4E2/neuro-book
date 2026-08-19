@@ -59,9 +59,10 @@
     "manager:pack": "bun run --cwd packages/neuro-book-manager pack:check",
     "manager:verify-public": "bun scripts/release/verify-public-manager.ts",
     "test:desktop-contract": "bun --bun node_modules/vitest/vitest.mjs run --config scripts/release/desktop-contract-vitest.config.ts",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:dev": "vitepress dev vitepress",
+    "docs:build": "vitepress build vitepress",
+    "docs:preview": "vitepress preview vitepress",
+    "docs:check": "bun scripts/ci/check-documentation.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",

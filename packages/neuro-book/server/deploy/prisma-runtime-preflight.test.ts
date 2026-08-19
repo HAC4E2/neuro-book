@@ -1,14 +1,14 @@
 import {afterEach, describe, expect, it} from "vitest";
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {ensurePrismaRuntime, resolvePrismaRuntimePlan} from "nbook/server/deploy/prisma-runtime-preflight";
 
 const tempRoots: string[] = [];
 
 async function tempRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-prisma-preflight-"));
+    const root = await mkdtemp(testHostPath("nbook-prisma-preflight-"));
     tempRoots.push(root);
     return root;
 }

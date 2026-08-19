@@ -6,6 +6,7 @@ import path from "node:path";
 import {promisify} from "node:util";
 import YAML from "yaml";
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";

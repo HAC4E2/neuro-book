@@ -1,5 +1,5 @@
 import {access, mkdir, mkdtemp, realpath, rename, rm, symlink} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -12,7 +12,7 @@ afterEach(async () => {
 
 describe("Project identity", () => {
     it("稳定Workspace Root alias共享Project key与Occupancy identity", async () => {
-        const containerRoot = await mkdtemp(path.join(tmpdir(), "nbook-workspace-alias-"));
+        const containerRoot = await mkdtemp(testHostPath("nbook-workspace-alias-"));
         roots.push(containerRoot);
         const physicalWorkspaceRoot = path.join(containerRoot, "physical-workspace");
         const aliasWorkspaceRoot = path.join(containerRoot, "workspace-alias");
@@ -49,7 +49,7 @@ describe("Project identity", () => {
     });
 
     it("Portable State Root关闭后移动时按projectRoot重建新Lifecycle identity", async () => {
-        const containerRoot = await mkdtemp(path.join(tmpdir(), "nbook-portable-move-"));
+        const containerRoot = await mkdtemp(testHostPath("nbook-portable-move-"));
         roots.push(containerRoot);
         const oldStateRoot = path.join(containerRoot, "state-a");
         const newStateRoot = path.join(containerRoot, "state-b");
@@ -83,7 +83,7 @@ describe("Project identity", () => {
     });
 
     it("连续HMR Lifecycle generation关闭旧浅watcher后不残留active handle", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-hmr-watcher-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-hmr-watcher-"));
         roots.push(workspaceRoot);
         let watcherOpenCount = 0;
         let watcherCloseCount = 0;
@@ -126,7 +126,7 @@ describe("Project identity", () => {
     });
 
     it("ProjectWorkspaceKey 在模块重新加载后仍是同一 symbol", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-hmr-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-hmr-"));
         roots.push(workspaceRoot);
         await mkdir(path.join(workspaceRoot, "alpha"));
 

@@ -1,7 +1,7 @@
 import {createHash, randomBytes} from "node:crypto";
 import {createServer, type Server} from "node:http";
 import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {strToU8, zipSync} from "fflate";
 import {afterAll, beforeAll, beforeEach, describe, expect, it} from "vitest";
@@ -52,7 +52,7 @@ function sha256Hex(bytes: Uint8Array): string {
 }
 
 beforeAll(async () => {
-    parentDir = await mkdtemp(join(tmpdir(), "nbook-restore-"));
+    parentDir = await mkdtemp(testHostPath("nbook-restore-"));
     stateRoot = join(parentDir, "data");
 
     httpServer = createServer((request, response) => {

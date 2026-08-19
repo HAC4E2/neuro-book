@@ -7,7 +7,7 @@ describe("extractReleaseNotes", () => {
         const markdown = [
             "# 更新日志",
             "",
-            "历史版本见 docs/changelog/。",
+            "历史版本见 vitepress/changelog/。",
             "",
             "## 0.9.0-canary - 2026-08-02",
             "",

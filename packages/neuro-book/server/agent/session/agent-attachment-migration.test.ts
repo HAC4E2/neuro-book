@@ -1,6 +1,6 @@
 import {createHash, randomUUID} from "node:crypto";
 import {appendFile, copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -33,7 +33,7 @@ describe("Agent Attachment v1 migration", () => {
     });
 
     it("全新 Workspace Root 没有 Agent 目录时 dry-run 返回空计划且不创建目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-agent-attachment-empty-"));
+        const root = await mkdtemp(testHostPath("nbook-agent-attachment-empty-"));
         roots.push(root);
 
         const report = await runAgentAttachmentMigration({
@@ -358,7 +358,7 @@ describe("Agent Attachment v1 migration", () => {
         const runId = `manifest-link-${randomUUID()}`;
         await interruptAtPublishing(root, runId);
         const sessionsRoot = join(root, ".nbook", "agent", "sessions");
-        const externalRoot = await mkdtemp(join(tmpdir(), "nbook-attachment-external-"));
+        const externalRoot = await mkdtemp(testHostPath("nbook-attachment-external-"));
         roots.push(externalRoot);
         await copyFile(join(sessionsRoot, "41.jsonl"), join(externalRoot, "41.jsonl"));
         await rm(sessionsRoot, {recursive: true, force: true});
@@ -568,7 +568,7 @@ describe("Agent Attachment v1 migration", () => {
 
 /** 创建只包含 Agent session 根的隔离 Workspace Root。 */
 async function createWorkspace(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-agent-attachment-migration-"));
+    const root = await mkdtemp(testHostPath("nbook-agent-attachment-migration-"));
     await mkdir(join(root, ".nbook", "agent", "sessions"), {recursive: true});
     return root;
 }

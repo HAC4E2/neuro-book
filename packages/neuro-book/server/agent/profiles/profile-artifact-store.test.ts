@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 /** 在临时 profile root 里写一个 `.compiled/artifacts/<sha>.mjs`，返回 root 与 manifest item。 */
 async function seedArtifact(source: string): Promise<{profileRoot: string; item: ProfileArtifactManifestItem}> {
-    const profileRoot = await mkdtemp(join(tmpdir(), "nbook-artifact-store-"));
+    const profileRoot = await mkdtemp(testHostPath("nbook-artifact-store-"));
     roots.push(profileRoot);
     const sha = `sha${roots.length}${Date.now()}`;
     const artifactFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${sha}.mjs`;

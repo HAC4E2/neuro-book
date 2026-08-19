@@ -1,5 +1,5 @@
 import {mkdtemp, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 import {
@@ -10,7 +10,7 @@ import {
 
 describe("importRuntimeArtifact", () => {
     it("通过原生动态 import 加载运行时生成的 mjs artifact", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-artifact-"));
+        const root = await mkdtemp(testHostPath("nbook-runtime-artifact-"));
         try {
             const artifactPath = join(root, "runtime artifact.mjs");
             await writeFile(artifactPath, "export const value = 'loaded'; export default {answer: 42};\n", "utf8");
@@ -25,7 +25,7 @@ describe("importRuntimeArtifact", () => {
     });
 
     it("用物理 cache key 区分同一路径 artifact", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-artifact-query-"));
+        const root = await mkdtemp(testHostPath("nbook-runtime-artifact-query-"));
         const cacheBase = join(root, "runtime-artifact-import-cache");
         const cacheRoot = join(cacheBase, "test");
         try {
@@ -63,7 +63,7 @@ describe("importRuntimeArtifact", () => {
     });
 
     it("retention 达到条目上限后按最旧优先驱逐，且不驱逐本次导入的副本", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-artifact-retention-"));
+        const root = await mkdtemp(testHostPath("nbook-runtime-artifact-retention-"));
         const cacheBase = join(root, "runtime-artifact-import-cache");
         const cacheRoot = join(cacheBase, "test");
         const retention: RuntimeArtifactRetention = {maxEntries: 2, maxBytes: 1024 * 1024};
@@ -94,7 +94,7 @@ describe("importRuntimeArtifact", () => {
     });
 
     it("字节预算比条目上限更严格时同样收敛", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-artifact-bytes-"));
+        const root = await mkdtemp(testHostPath("nbook-runtime-artifact-bytes-"));
         const cacheBase = join(root, "runtime-artifact-import-cache");
         const cacheRoot = join(cacheBase, "test");
         try {

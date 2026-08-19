@@ -9,6 +9,12 @@ export const GOVERNANCE_SCHEMA = "nbook.governance/v1";
 export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
 export type CanonicalRole = typeof CANONICAL_ROLES[number];
 
+export const GOVERNANCE_NON_EMPTY_LINE_LIMITS = {
+    "AGENTS.md": 220,
+    ".omp/RULES.md": 80,
+    "WATCHDOG.md": 40,
+} as const;
+
 type TaskMigrationMapping = {
     source: string;
     destination: string;
@@ -41,6 +47,37 @@ type TaskMigrationMarker = {
     preservedSourceFiles: string[];
     trackedFileCount: number;
     localOnlyFiles: string[];
+};
+
+type SiblingResyncResolution = {
+    schema: string;
+    status: string;
+    policy: {copyActions: number};
+    inputs: Record<string, string>;
+    projects: Record<string, {
+        allowlist: number;
+        exact: number;
+        missing: unknown[];
+        deletionCandidates: unknown[];
+        decisions: Array<{kind: string; paths: string[]; action: string}>;
+        unclassifiedAllowlistDifferences: number;
+    }>;
+    totals: {
+        allowlist: number;
+        exact: number;
+        classifiedAllowlistDifferences: number;
+        unclassifiedAllowlistDifferences: number;
+        missing: number;
+        deletionCandidates: number;
+        copyActions: number;
+    };
+};
+
+const SIBLING_RESYNC_INPUT_HASHES: Record<string, string> = {
+    "sibling-import-manifest.json": "sha256:56a995fc67795985d887bfaf4086eb9c22c08adf8dd0b0a9c899d2219e3f0023",
+    "manifest-allowlist-audit-v1.json": "sha256:158d5143fb4311671335793d17a1452ae4ff2c437774eb600bf5ad29d57af201",
+    "source-immutability-comparison-v3.json": "sha256:a49151152a9c09fc4816468ea5cb5c94d3445af6ca04e167bc9899b833b3c3b4",
+    "invalidated-reports.json": "sha256:699c488b3a4b2fcbed23a52d6860b33ddc6d1190646dca10184e934535a30e61",
 };
 
 export function defaultRepoRoot(moduleUrl: string): string {
@@ -133,6 +170,9 @@ function normalizePath(path: string): string {
 
 export function expectedGovernanceFiles(): readonly string[] {
     return [
+        "AGENTS.md",
+        ".omp/RULES.md",
+        "WATCHDOG.md",
         ".agents/AGENTS.md",
         ".agents/README.md",
         ".agents/tasks/AGENTS.md",
@@ -156,6 +196,84 @@ export function isPathInside(relativePath: string, parent: string): boolean {
     const normalized = relativePath.replaceAll("\\", "/");
     const normalizedParent = parent.replaceAll("\\", "/").replace(/\/$/u, "");
     return normalized === normalizedParent || normalized.startsWith(`${normalizedParent}/`);
+}
+
+export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
+    const failures: string[] = [];
+    for (const [relativePath, limit] of Object.entries(GOVERNANCE_NON_EMPTY_LINE_LIMITS)) {
+        if (!hasFile(repoRoot, relativePath)) continue;
+        const actual = readRepoText(repoRoot, relativePath)
+            .split(/\r?\n/u)
+            .filter((line) => line.trim().length > 0)
+            .length;
+        if (actual > limit) failures.push(`治理入口超过非空行上限：${relativePath} ${String(actual)} > ${String(limit)}`);
+    }
+    return failures;
+}
+
+/** 校验 sibling 导入差异均已归类，且迁移收口没有隐式复制或删除。 */
+export function verifySiblingResyncResolution(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const relativePath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
+    const report = readJson<SiblingResyncResolution>(resolve(repoRoot, relativePath), failures, relativePath);
+    if (!report) return failures;
+    if (report.schema !== "nbook.sibling-resync-resolution/v1") failures.push("sibling resync resolution schema 不匹配");
+    if (report.status !== "resolved-no-copy") failures.push(`sibling resync 尚未闭合：${report.status}`);
+    for (const [name, expected] of Object.entries(SIBLING_RESYNC_INPUT_HASHES)) {
+        if (report.inputs[name] !== expected) failures.push(`sibling resync 输入 hash 不匹配：${name}`);
+    }
+    let allowlist = 0;
+    let exact = 0;
+    let classified = 0;
+    let unclassified = 0;
+    let missing = 0;
+    let deletionCandidates = 0;
+    for (const [project, entry] of Object.entries(report.projects)) {
+        allowlist += entry.allowlist;
+        exact += entry.exact;
+        missing += entry.missing.length;
+        deletionCandidates += entry.deletionCandidates.length;
+        unclassified += entry.unclassifiedAllowlistDifferences;
+        for (const decision of entry.decisions) {
+            if (decision.action !== "keep-target") failures.push(`sibling resync 存在非保留动作：${project}/${decision.kind}`);
+            if (decision.kind !== "workspace-island-lockfile") classified += decision.paths.length;
+        }
+    }
+    const actual = {allowlist, exact, classifiedAllowlistDifferences: classified, unclassifiedAllowlistDifferences: unclassified, missing, deletionCandidates};
+    for (const [key, value] of Object.entries(actual)) {
+        if (report.totals[key as keyof typeof actual] !== value) failures.push(`sibling resync 汇总不一致：${key}`);
+    }
+    if (allowlist !== exact + classified + unclassified) failures.push("sibling resync allowlist 分类算术不闭合");
+    if (unclassified !== 0 || missing !== 0 || deletionCandidates !== 0) failures.push("sibling resync 仍含未分类、缺失或删除候选");
+    if (report.policy.copyActions !== 0 || report.totals.copyActions !== 0) failures.push("sibling resync 仍声明复制动作");
+    return failures;
+}
+
+/** 拒绝重新引入迁移前根应用、同步脚本或第二份边界规范。 */
+export function verifyMonorepoCutover(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const tracked = new Set(git(repoRoot, ["ls-files"]).split(/\r?\n/u).filter(Boolean));
+    for (const path of tracked) {
+        if (/^(?:app|server|shared|profile-sdk|variable-sdk|world-engine|prisma)(?:\/|$)/u.test(path)) failures.push(`旧根应用路径重新出现：${path}`);
+    }
+    for (const path of [
+        "nuxt.config.ts",
+        "prisma.config.ts",
+        "vitest.config.ts",
+        "uno.config.ts",
+        "docs/specs/architecture/monorepo-boundaries.md",
+        "scripts/cli/sync-nb-history.ts",
+        "scripts/cli/sync-nb-workflow.ts",
+        "scripts/cli/sync-llmlint-skill.ts",
+    ]) {
+        if (tracked.has(path)) failures.push(`迁移前入口重新出现：${path}`);
+    }
+    const rootManifest = readJson<{version?: unknown; scripts?: Record<string, string>}>(resolve(repoRoot, "package.json"), failures, "package.json");
+    if (!rootManifest) return failures;
+    if (rootManifest.version !== undefined) failures.push("根 workspace orchestrator 不得声明产品 version");
+    const forbiddenScripts = ["dev", "dev:runtime", "build", "typecheck", "test", "generate", "migration:check", "sync:nb-history", "sync:nb-workflow"];
+    for (const name of forbiddenScripts) if (rootManifest.scripts?.[name]) failures.push(`根 workspace 保留应用或同步命令：${name}`);
+    return failures;
 }
 
 /** 校验历史 Task 迁移是否同时具备磁盘、hash、Git index 和 clean-cutover 证据。 */

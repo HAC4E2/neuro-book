@@ -1,5 +1,5 @@
 import {readFile, mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {createClient} from "@libsql/client";
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe("official Passport origin migration", () => {
     it("只保留官网凭据并删除 siteBaseUrl 列", async () => {
-        fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-passport-migration-"));
+        fixtureRoot = await mkdtemp(testHostPath("nbook-passport-migration-"));
         const databasePath = join(fixtureRoot, "app.sqlite").replaceAll("\\", "/");
         const client = createClient({url: `file:${databasePath}`});
         try {

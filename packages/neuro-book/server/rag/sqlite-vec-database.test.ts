@@ -1,5 +1,5 @@
 import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("SQLite Vec Database", () => {
     it("使用跨平台libsql驱动加载扩展并执行向量召回", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-sqlite-vec-query-"));
+        const root = await mkdtemp(testHostPath("nbook-sqlite-vec-query-"));
         roots.push(root);
         const db = await openSqliteVecDatabase({path: join(root, "vec.sqlite"), loadExtension: true});
         try {
@@ -33,7 +33,7 @@ describe("SQLite Vec Database", () => {
     });
 
     it("初始化失败时释放数据库句柄", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-sqlite-vec-"));
+        const root = await mkdtemp(testHostPath("nbook-sqlite-vec-"));
         roots.push(root);
         const path = join(root, "vec.sqlite");
 
@@ -51,7 +51,7 @@ describe("SQLite Vec Database", () => {
     });
 
     it("只读连接拒绝写入且不会创建缺失数据库", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-sqlite-vec-readonly-"));
+        const root = await mkdtemp(testHostPath("nbook-sqlite-vec-readonly-"));
         roots.push(root);
         const path = join(root, "vec.sqlite");
         const writable = await openSqliteVecDatabase({path, loadExtension: false});

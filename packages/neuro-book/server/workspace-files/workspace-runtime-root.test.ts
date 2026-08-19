@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe("Workspace runtime root", () => {
     it("显式State Root不被祖先workspace目录覆盖", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-workspace-parent-"));
+        const root = await mkdtemp(testHostPath("nbook-workspace-parent-"));
         roots.push(root);
         const applicationRoot = join(root, "workspace", "portable");
         const stateRoot = join(applicationRoot, "data");
@@ -36,7 +36,7 @@ describe("Workspace runtime root", () => {
     });
 
     it("测试Adapter只覆盖用户Runtime Root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-root-context-"));
+        const root = await mkdtemp(testHostPath("nbook-runtime-root-context-"));
         roots.push(root);
         const workspaceRoot = join(root, "workspace");
         setWorkspaceRuntimeRootContextForTest({workspaceRoot});

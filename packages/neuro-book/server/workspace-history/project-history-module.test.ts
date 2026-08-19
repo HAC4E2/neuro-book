@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, stat, writeFile} from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {ProjectLifecycle, type PreparedProjectOpen} from "nbook/server/workspace-files/project-lifecycle";
@@ -26,7 +26,7 @@ describe("History ProjectModule", () => {
     const opened: Array<{prepared: PreparedProjectOpen; handle: ProjectHistoryHandle}> = [];
 
     beforeEach(async () => {
-        tempRoot = path.join(os.tmpdir(), `neuro-book-history-module-${randomUUID()}`);
+        tempRoot = testHostPath(`neuro-book-history-module-${randomUUID()}`);
         workspaceRoot = absoluteFsPath(path.join(tempRoot, "workspace"));
         await mkdir(workspaceRoot, {recursive: true});
         lifecycle = new ProjectLifecycle(workspaceRoot);

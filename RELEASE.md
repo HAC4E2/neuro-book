@@ -1,6 +1,6 @@
 # 更新日志
 
-这里只放当前版本。更早的版本见 [docs/changelog/](docs/changelog/)。
+这里只放当前版本。更早的版本见 [vitepress/changelog/](vitepress/changelog/)。
 
 ## 0.9.6-canary（限量 canary） - 2026-08-14
 

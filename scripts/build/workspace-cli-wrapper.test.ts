@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
@@ -81,7 +81,7 @@ type WrapperResult = {
 
 /** 建立Application Root、外置State Root与调用目录彼此分离的包装器fixture。 */
 async function wrapperFixture(name: "workspace" | "workspace.cmd", withProductBundle: boolean): Promise<WrapperFixture> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-workspace-wrapper-"));
+    const root = await mkdtemp(testHostPath("nbook-workspace-wrapper-"));
     roots.push(root);
     const applicationRoot = join(root, "application root");
     const stateRoot = join(root, "state root");

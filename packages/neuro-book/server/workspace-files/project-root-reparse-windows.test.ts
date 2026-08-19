@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, symlink} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -17,7 +17,7 @@ describe("Windows Project root reparse detector", () => {
     it.runIf(process.platform === "win32" && "bun" in process.versions)(
         "真实kernel attributes区分普通目录与junction",
         async () => {
-            const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-reparse-"));
+            const workspaceRoot = await mkdtemp(testHostPath("nbook-project-reparse-"));
             roots.push(workspaceRoot);
             const normalRoot = path.join(workspaceRoot, "normal-root");
             const junctionRoot = path.join(workspaceRoot, "junction-root");

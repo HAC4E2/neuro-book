@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {setTimeout} from "node:timers/promises";
 import {promisify} from "node:util";
+import {pathToFileURL} from "node:url";
 import {createClient} from "@libsql/client";
 import {unzipSync} from "fflate";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -28,7 +29,7 @@ describe("workspace-archive", () => {
     let root: string;
 
     beforeEach(async () => {
-        root = path.join(".agent", "workspace-archive-test", randomUUID());
+        root = testHostPath("workspace-archive-test", randomUUID());
         await fs.mkdir(root, {recursive: true});
     });
 
@@ -311,11 +312,11 @@ function corruptArchiveChildScript(): string {
     return `
 import fs from "node:fs/promises";
 import path from "node:path";
-import {createClient} from "@libsql/client";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {createProjectWorkspaceZipStream} from "nbook/server/workspace-files/workspace-archive";
-import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
-import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
+import {createClient} from ${JSON.stringify(pathToFileURL(path.resolve("node_modules/@libsql/client/lib-esm/node.js")).href)};
+import {absoluteFsPath} from ${JSON.stringify(pathToFileURL(path.resolve("server/runtime/paths/file-path.ts")).href)};
+import {createProjectWorkspaceZipStream} from ${JSON.stringify(pathToFileURL(path.resolve("server/workspace-files/workspace-archive.ts")).href)};
+import {toSqliteFileUrl} from ${JSON.stringify(pathToFileURL(path.resolve("server/workspace-files/project-workspace.ts")).href)};
+import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from ${JSON.stringify(pathToFileURL(path.resolve("server/workspace-files/project-identity.ts")).href)};
 
 const root = process.argv[2];
 if (!root) throw new Error("missing root");

@@ -40,7 +40,7 @@ export async function setup(): Promise<void> {
     if (sweep.removed.length > 0 || sweep.failures.length > 0) {
         console.info(`[fixture] 回收残留 root ${sweep.removed.length} 个，保留 ${sweep.retained.length} 个，失败 ${sweep.failures.length} 个`);
     }
-    const tmpSweep = await sweepStaleTmpRoots(REPO_ROOT);
+    const tmpSweep = await sweepStaleTmpRoots();
     if (tmpSweep.removed.length > 0 || tmpSweep.failures.length > 0) {
         console.info(`[test-tmp] 回收残留目录 ${tmpSweep.removed.length} 个，保留 ${tmpSweep.retained.length} 个，失败 ${tmpSweep.failures.length} 个`);
     }

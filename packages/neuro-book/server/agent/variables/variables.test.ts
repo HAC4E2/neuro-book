@@ -14,6 +14,7 @@ import {defineClientVariable, defineProjectVariable, defineSessionVariable, defi
 import {createVariableTools} from "nbook/server/agent/variables/tools";
 import type {VariableInvocationState} from "nbook/server/agent/variables/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -166,7 +166,7 @@ describe("scanWorkspaceTree 取消", () => {
 
     /** 创建隔离 Project Workspace 根。 */
     async function createRoot(): Promise<string> {
-        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-tree-abort-"));
+        const root = await fs.mkdtemp(testHostPath("nbook-tree-abort-"));
         tempRoots.push(root);
         return root;
     }

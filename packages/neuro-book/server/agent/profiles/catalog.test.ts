@@ -1199,13 +1199,24 @@ describe("AgentProfileCatalog", {timeout: 15_000}, () => {
             compiledArtifactPath(systemRoot, systemItem),
             compiledArtifactPath(userRoot, systemItem),
         );
-        expect(systemItem.typeFileName).toMatch(/types\.d\.ts$/);
+        expect(systemItem.typeFileName).toMatch(/types\.d\.ts$/u);
+        const sourceDependency = systemItem.dependencies.find((dependency) =>
+            dependency.path.replace(/[\\/]+/gu, "/").endsWith(`/${systemItem.fileName}`),
+        );
+        if (!sourceDependency) {
+            throw new Error(`profile ${systemItem.fileName} 缺少入口源码依赖`);
+        }
+        const sourceDependencyPath = sourceDependency.path.replace(/[\\/]+/gu, "/");
+        const sourceSuffix = `/${systemItem.fileName}`;
+        const userRootLabel = userRoot.replace(/[\\/]+/gu, "/");
         const userItem = rehomeProfileArtifactItem(systemItem, {
             fromRootLabel: systemRoot,
             toRootLabel: userRoot,
         });
 
-        expect(userItem.dependencies.some((dependency) => dependency.path.endsWith("workspace/.nbook/agent/profiles/builtin/custom.synced.profile.tsx"))).toBe(true);
+        expect(userItem.dependencies.some((dependency) =>
+            dependency.path.replace(/[\\/]+/gu, "/") === `${userRootLabel}/${systemItem.fileName}`,
+        )).toBe(true);
         await expect(validateProfileArtifact(userRoot, userItem)).resolves.toEqual({fresh: true});
     });
 

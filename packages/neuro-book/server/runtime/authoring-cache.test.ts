@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {access, mkdir, mkdtemp, readFile, readdir, rm, truncate, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {
@@ -39,7 +39,7 @@ afterEach(async () => {
 
 /** 创建隔离 Cache Root。 */
 async function cacheRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-authoring-cache-"));
+    const root = await mkdtemp(testHostPath("nbook-authoring-cache-"));
     roots.push(root);
     return root;
 }

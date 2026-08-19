@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile, unlink} from "node:fs/promises";
 import {join} from "node:path";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {WorkspaceHistory} from "@notnotype/nb-history";
 import {
@@ -79,7 +79,7 @@ describe("workspace-history 门面", () => {
     beforeEach(async () => {
         resetProjectSessionsForTest();
         setHistoryEnabledOverrideForTest(true);
-        tempRoot = join(os.tmpdir(), `neuro-book-workspace-history-test-${randomUUID()}`);
+        tempRoot = testHostPath(`neuro-book-workspace-history-test-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
         setWorkspaceRuntimeRootContextForTest({workspaceRoot: join(tempRoot, "workspace")});
     });

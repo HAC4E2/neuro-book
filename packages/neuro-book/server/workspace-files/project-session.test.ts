@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {consola} from "consola";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -45,7 +45,7 @@ describe("project-session production facade", () => {
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
-        tempRoot = join(os.tmpdir(), `neuro-book-project-session-test-${randomUUID()}`);
+        tempRoot = testHostPath(`neuro-book-project-session-test-${randomUUID()}`);
         workspaceRoot = absoluteFsPath(join(tempRoot, "workspace"));
         await mkdir(workspaceRoot, {recursive: true});
         setWorkspaceRuntimeRootContextForTest({workspaceRoot});

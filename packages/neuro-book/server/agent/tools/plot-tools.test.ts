@@ -6,6 +6,7 @@ import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-
 import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 

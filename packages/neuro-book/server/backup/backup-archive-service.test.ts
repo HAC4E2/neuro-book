@@ -1,6 +1,6 @@
 import {createHash, randomBytes} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {createClient} from "@libsql/client";
 import {strFromU8, unzipSync} from "fflate";
@@ -23,8 +23,8 @@ let fixtureRoot = "";
 let tmpDir = "";
 
 beforeAll(async () => {
-    fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-archive-fixture-"));
-    tmpDir = await mkdtemp(join(tmpdir(), "nbook-archive-out-"));
+    fixtureRoot = await mkdtemp(testHostPath("nbook-archive-fixture-"));
+    tmpDir = await mkdtemp(testHostPath("nbook-archive-out-"));
 
     // 假 State Root：workspace 正文 + 应用库（真 SQLite）+ 顶层 config/.env + 应排除物
     await mkdir(join(fixtureRoot, "workspace", "novel-a", "manuscript"), {recursive: true});

@@ -1,5 +1,6 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 /**
  * 上下文分区归因的端到端落盘验证（Task 126）。
  *

@@ -2,6 +2,7 @@ import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

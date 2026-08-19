@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {
     closeAllProjects,
@@ -62,7 +62,7 @@ describe("tracked-workspace-files 写面记账", () => {
     beforeEach(async () => {
         resetProjectSessionsForTest();
         setHistoryEnabledOverrideForTest(true);
-        tempRoot = join(os.tmpdir(), `neuro-book-tracked-files-test-${randomUUID()}`);
+        tempRoot = testHostPath(`neuro-book-tracked-files-test-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
         setWorkspaceRuntimeRootContextForTest({workspaceRoot: join(tempRoot, "workspace")});
         // 测试只将 Runtime Workspace Root 指到临时根，Project identity 保持单段 root。

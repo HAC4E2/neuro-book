@@ -1,3 +1,4 @@
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {randomUUID} from "node:crypto";
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";

@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {mkdir, mkdtemp, rm, symlink} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("SQLite Location", () => {
     it("相对URL只基于State Root解析", async () => {
-        tempRoot = await mkdtemp(path.join(tmpdir(), "nbook-sqlite-location-"));
+        tempRoot = await mkdtemp(testHostPath("nbook-sqlite-location-"));
         const stateRoot = path.join(tempRoot, "data");
 
         const location = resolveAppSqliteLocation("file:./workspace/.nbook/neuro-book.sqlite", stateRoot);
@@ -28,7 +28,7 @@ describe("SQLite Location", () => {
     });
 
     it("拒绝越过State Root的相对URL", async () => {
-        tempRoot = await mkdtemp(path.join(tmpdir(), "nbook-sqlite-location-"));
+        tempRoot = await mkdtemp(testHostPath("nbook-sqlite-location-"));
         const stateRoot = path.join(tempRoot, "data");
 
         expect(() => resolveAppSqliteLocation("file:../../outside/neuro-book.sqlite", stateRoot))
@@ -36,7 +36,7 @@ describe("SQLite Location", () => {
     });
 
     it("拒绝相对URL通过junction或symlink逃出State Root", async () => {
-        tempRoot = await mkdtemp(path.join(tmpdir(), "nbook-sqlite-location-"));
+        tempRoot = await mkdtemp(testHostPath("nbook-sqlite-location-"));
         const stateRoot = path.join(tempRoot, "data");
         const externalRoot = path.join(tempRoot, "external");
         await mkdir(stateRoot, {recursive: true});
@@ -48,7 +48,7 @@ describe("SQLite Location", () => {
     });
 
     it("绝对URL不受cwd和Application Root影响", async () => {
-        tempRoot = await mkdtemp(path.join(tmpdir(), "nbook-sqlite-location-"));
+        tempRoot = await mkdtemp(testHostPath("nbook-sqlite-location-"));
         const databasePath = path.join(tempRoot, "external", "app.sqlite");
 
         const location = resolveAppSqliteLocation(fileUrl(databasePath), path.join(tempRoot, "data"));
@@ -68,7 +68,7 @@ describe("SQLite Location", () => {
     });
 
     it("规范化URL可以由PrismaLibSql真实连接", async () => {
-        tempRoot = await mkdtemp(path.join(tmpdir(), "nbook-sqlite-location-"));
+        tempRoot = await mkdtemp(testHostPath("nbook-sqlite-location-"));
         const location = resolveAppSqliteLocation("file:./workspace/.nbook/app.sqlite", path.join(tempRoot, "data"));
         await mkdir(path.dirname(location.hostPath), {recursive: true});
         const result = await runBun(["-e", [

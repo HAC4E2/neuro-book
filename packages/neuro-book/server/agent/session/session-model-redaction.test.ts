@@ -1,6 +1,6 @@
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, describe, expect, it} from "vitest";
 import {migrateSessionJsonlModels, parseDurableSessionModelRef, toDurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 
@@ -68,7 +68,7 @@ describe("Session model redaction", () => {
 });
 
 async function writeSession(records: unknown[], pretty = false): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-session-model-"));
+    const root = await mkdtemp(testHostPath("nbook-session-model-"));
     roots.push(root);
     const filePath = join(root, "1.jsonl");
     const content = records.map((record) => pretty ? `  ${JSON.stringify(record)}  ` : JSON.stringify(record)).join("\n") + "\n";

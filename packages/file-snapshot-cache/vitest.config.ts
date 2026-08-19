@@ -1,8 +1,15 @@
 import {fileURLToPath} from "node:url";
 import {defineConfig} from "vitest/config";
 
+const rootDir = fileURLToPath(new URL("../..", import.meta.url));
+
 export default defineConfig({
-    root: fileURLToPath(new URL("../..", import.meta.url)),
+    root: rootDir,
+    resolve: {
+        alias: {
+            nbook: rootDir,
+        },
+    },
     test: {
         include: ["packages/file-snapshot-cache/tests/**/*.test.ts"],
         environment: "node",

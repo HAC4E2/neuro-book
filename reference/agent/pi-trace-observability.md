@@ -2,7 +2,7 @@
 
 ## Status
 
-本文档是 Pi 请求可观测层（trace 记录 / 查看 / 清理）的稳定契约与将来抽独立库的 runbook。历史决策与实现过程见 `docs/tasks/86-pi-request-observability/`。
+本文档是 Pi 请求可观测层（trace 记录 / 查看 / 清理）的稳定契约与将来抽独立库的 runbook。历史决策与实现过程见 `.agents/tasks/86-pi-request-observability/`。
 
 ## 模块分层
 

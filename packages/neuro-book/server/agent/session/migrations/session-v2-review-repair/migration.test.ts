@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -71,7 +71,7 @@ describe("Session v2 review repair", () => {
 });
 
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-session-v2-review-repair-"));
+    const root = await mkdtemp(testHostPath("nbook-session-v2-review-repair-"));
     roots.push(root);
     return root;
 }

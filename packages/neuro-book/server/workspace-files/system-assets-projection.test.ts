@@ -1,5 +1,5 @@
 import {access, mkdir, mkdtemp, rm, unlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {PROFILE_ARTIFACT_COMPILER_VERSION} from "nbook/server/agent/profiles/profile-artifact-compiler";
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 /** 创建一组来源和目标路径，目标默认不存在。 */
 async function projectionRoots(): Promise<{container: string; source: string; target: string}> {
-    const container = await mkdtemp(join(tmpdir(), "nbook-system-assets-projection-"));
+    const container = await mkdtemp(testHostPath("nbook-system-assets-projection-"));
     scratchRoots.push(container);
     const source = join(container, "source");
     await mkdir(source, {recursive: true});
@@ -108,10 +108,10 @@ describe("SystemAssetsProjection", () => {
         await writeAsset(source, "agent/runtime-artifact-import-cache/profile/cache.mjs");
         await writeAsset(source, "server/runtime.ts", "export {};\n");
         await writeAsset(source, "server/.agent/private.log");
-        await writeAsset(source, "docs/.vitepress/config.ts", "export default {};\n");
-        await writeAsset(source, "docs/.vitepress/theme/index.ts", "export {};\n");
-        await writeAsset(source, "docs/.vitepress/cache/cache.bin");
-        await writeAsset(source, "docs/.vitepress/dist/index.html");
+        await writeAsset(source, "vitepress/.vitepress/config.ts", "export default {};\n");
+        await writeAsset(source, "vitepress/.vitepress/theme/index.ts", "export {};\n");
+        await writeAsset(source, "vitepress/.vitepress/cache/cache.bin");
+        await writeAsset(source, "vitepress/.vitepress/dist/index.html");
         await writeAsset(source, "unmanaged/.compiled/generated.mjs");
 
         const result = await projection.copyToEmpty({sourceRoot: source, targetRoot: target});
@@ -121,8 +121,8 @@ describe("SystemAssetsProjection", () => {
         await expectExists(target, "agent/variables/.compiled/definitions.mjs");
         await expectExists(target, "agent/skills/demo/SKILL.md");
         await expectExists(target, "server/runtime.ts");
-        await expectExists(target, "docs/.vitepress/config.ts");
-        await expectExists(target, "docs/.vitepress/theme/index.ts");
+        await expectExists(target, "vitepress/.vitepress/config.ts");
+        await expectExists(target, "vitepress/.vitepress/theme/index.ts");
 
         for (const excluded of [
             "agent/profiles/.compiled/artifacts/orphan.mjs",
@@ -134,8 +134,8 @@ describe("SystemAssetsProjection", () => {
             "agent/.runtime-artifact-import-cache",
             "agent/runtime-artifact-import-cache",
             "server/.agent",
-            "docs/.vitepress/cache",
-            "docs/.vitepress/dist",
+            "vitepress/.vitepress/cache",
+            "vitepress/.vitepress/dist",
             "unmanaged/.compiled",
         ]) {
             await expectMissing(target, excluded);

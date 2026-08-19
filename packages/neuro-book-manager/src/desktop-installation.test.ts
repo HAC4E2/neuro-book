@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {strToU8, zipSync} from "fflate";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -66,7 +66,7 @@ const originalLocalAppData = process.env.LOCALAPPDATA;
 const originalProgramFiles = process.env.ProgramFiles;
 
 beforeEach(() => {
-    process.env.ProgramFiles = join(tmpdir(), `nbook-desktop-test-program-files-${String(process.pid)}`);
+    process.env.ProgramFiles = testHostPath(`nbook-desktop-test-program-files-${String(process.pid)}`);
     processMocks.run.mockReset().mockResolvedValue(undefined);
     processMocks.runCapture.mockReset().mockResolvedValue("");
     processMocks.runCaptureResult.mockReset().mockResolvedValue({stdout: "", stderr: "", exitCode: 1, signal: null});
@@ -176,7 +176,7 @@ describe("Desktop Portable manifest", () => {
     });
 
     it("校验 Product、运行时、Tool Pack 和 Envelope 的实际 checksum", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-payload-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-payload-"));
         roots.push(root);
         const paths = [
             ".runtime/manager/neuro-book.mjs",
@@ -212,7 +212,7 @@ describe("Desktop installation lifecycle", () => {
     it("本地安装允许默认关闭 auth，并拒绝远端携带密码", async () => {
         setWindowsHost();
         const base = {
-            archivePath: join(tmpdir(), "does-not-exist.zip"),
+            archivePath: testHostPath("does-not-exist.zip"),
             envelope: "electron" as const,
             channel: "canary" as const,
             addCliToUserPath: false,
@@ -225,7 +225,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("本地安装创建管理员时显式使用默认用户名，避免密码 stdin 被用户名提示消费", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-admin-username-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-admin-username-"));
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
         const portable = portableManifest("electron");
@@ -260,7 +260,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("migration 或健康检查失败时撤销系统注册、安装根和本事务创建的用户 Root", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-health-rollback-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-health-rollback-"));
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
         const localAppData = join(root, "LocalAppData");
@@ -292,7 +292,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("Portable 内嵌 channel 与命令选择不一致时在移动安装根前失败", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-channel-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-channel-"));
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
         roots.push(root);
@@ -314,7 +314,7 @@ describe("Desktop installation lifecycle", () => {
 
     it.runIf(process.platform === "win32")("canonical user 与 machine 程序根不能同时指向同一组用户数据", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-scope-conflict-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-scope-conflict-"));
         const localAppData = join(root, "LocalAppData");
         const programFiles = join(root, "ProgramFiles");
         const userInstallRoot = join(localAppData, "Programs", "NeuroBook");
@@ -346,7 +346,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("从固定五项 aggregate Depot 校验 sidecar 后安装内置 Electron Portable", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-aggregate-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-aggregate-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(root, "Installation");
         roots.push(root);
@@ -370,7 +370,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("aggregate Depot 对 sidecar、固定形状、路径逃逸和 channel 全部 fail closed 并回收 staging", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-aggregate-invalid-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-aggregate-invalid-"));
         const localAppData = join(root, "LocalAppData");
         roots.push(root);
         process.env.LOCALAPPDATA = localAppData;
@@ -433,7 +433,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("HTTPS distribution 对同长度篡改缓存重新校验并下载", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-https-cache-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-https-cache-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
@@ -485,7 +485,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("HTTPS distribution 的错误组件摘要失败且 HTTP manifest 不发起请求", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-https-checksum-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-https-checksum-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
@@ -532,7 +532,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("Product Bun、Git/Bash 和 rg provider 可以独立选择", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-independent-providers-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-independent-providers-"));
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
         roots.push(root);
@@ -600,7 +600,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("system provider 拒绝过旧 Bun 和伪造的工具版本输出", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-system-provider-version-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-system-provider-version-"));
         const archive = join(root, "electron.zip");
         roots.push(root);
         process.env.LOCALAPPDATA = join(root, "LocalAppData");
@@ -647,7 +647,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("默认卸载留下的空 State Root 允许重新安装，但不会放行非空用户数据", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-reinstall-empty-state-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-reinstall-empty-state-"));
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
         roots.push(root);
@@ -724,7 +724,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("State Root 本身是 symlink 或 junction 时拒绝接管", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-reinstall-linked-state-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-reinstall-linked-state-"));
         const localAppData = join(root, "LocalAppData");
         const stateRoot = join(localAppData, "NeuroBook", "data");
         const externalStateRoot = join(root, "ExternalState");
@@ -754,7 +754,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("安装目标在校验后被其他进程抢先创建时不删除对方目录", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-install-race-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-install-race-"));
         const installRoot = join(root, "Installation");
         const archive = join(root, "electron.zip");
         roots.push(root);
@@ -780,7 +780,7 @@ describe("Desktop installation lifecycle", () => {
 
     it.runIf(process.platform === "win32")("repair 从缺失 locator 状态重建 Installed runtime，而不回退 Portable root", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-locator-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-repair-locator-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(localAppData, "Programs", "NeuroBook");
         const archive = join(root, "electron.zip");
@@ -812,7 +812,7 @@ describe("Desktop installation lifecycle", () => {
 
     it.runIf(process.platform === "win32")("repair 在 app.asar 被篡改时 fail closed，不重建 locator 或注册项", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-app-integrity-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-repair-app-integrity-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(localAppData, "Programs", "NeuroBook");
         const archive = join(root, "electron.zip");
@@ -842,7 +842,7 @@ describe("Desktop installation lifecycle", () => {
 
     it.runIf(process.platform === "win32")("repair 在同一 v3 合同内把旧候选的 Product Bun 重新投影为 system provider", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-provider-projection-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-repair-provider-projection-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(localAppData, "Programs", "NeuroBook");
         const archive = join(root, "electron.zip");
@@ -896,7 +896,7 @@ describe("Desktop installation lifecycle", () => {
     });
 
     it.runIf(process.platform === "win32")("Desktop runtime wrappers 复用统一模板且只使用相对 Installation Root 路径", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-wrapper-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-wrapper-"));
         roots.push(root);
         await writeDesktopRuntimeWrappers(root, {
             components: {
@@ -960,7 +960,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("远端模式只安装 shell、探测 capability，并拒绝 Product/Tool Pack 载荷", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-remote-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-remote-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(root, "Installation");
         const archive = join(root, "shell.zip");
@@ -1057,7 +1057,7 @@ describe("Desktop installation lifecycle", () => {
     });
 
     it("shell depot 拒绝 Product 等禁止的顶层 owner", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-shell-owner-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-shell-owner-"));
         roots.push(root);
         const executable = join(root, "desktop", "NeuroBook-Electron.exe");
         await mkdir(dirname(executable), {recursive: true});
@@ -1079,7 +1079,7 @@ describe("Desktop installation lifecycle", () => {
     });
 
     it("shell depot 缺少 manifest 时 fail closed", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-shell-no-manifest-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-shell-no-manifest-"));
         roots.push(root);
         const executable = join(root, "desktop", "NeuroBook-Electron.exe");
         await mkdir(dirname(executable), {recursive: true});
@@ -1100,7 +1100,7 @@ describe("Desktop installation lifecycle", () => {
     });
 
     it("shell depot 不能把 Product 藏在 Envelope 目录内", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-shell-nested-owner-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-shell-nested-owner-"));
         roots.push(root);
         const executable = join(root, "desktop", "NeuroBook-Electron.exe");
         await mkdir(dirname(executable), {recursive: true});
@@ -1124,7 +1124,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("注册失败会回滚快捷方式和注册项，卸载会清理同一组资源", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-registration-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-registration-"));
         const appData = join(root, "AppData");
         const userProfile = join(root, "User");
         roots.push(root);
@@ -1152,7 +1152,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("machine 安装注册失败时清理本事务创建的外置 launcher", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-launcher-rollback-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-machine-launcher-rollback-"));
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(root, "ProgramFiles", "NeuroBook");
         const archive = join(root, "electron.zip");
@@ -1182,7 +1182,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("注册表卸载项使用安装根内的 Manager wrapper", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-uninstall-command-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-uninstall-command-"));
         roots.push(root);
         process.env.APPDATA = join(root, "AppData");
         process.env.USERPROFILE = join(root, "User");
@@ -1198,7 +1198,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("machine scope 的 Programs and Features 卸载项使用安装根外 launcher", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-launcher-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-machine-launcher-"));
         const installationRoot = join(root, "Installation");
         roots.push(root);
         process.env.LOCALAPPDATA = join(root, "LocalAppData");
@@ -1273,7 +1273,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("machine scope 使用 HKLM 和公共快捷方式根", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-registration-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-machine-registration-"));
         roots.push(root);
         process.env.ProgramData = join(root, "ProgramData");
         process.env.PUBLIC = join(root, "Public");
@@ -1290,7 +1290,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("旧 Product-only 安装没有 Desktop manifest 时，只按 HKLM InstallLocation 清理注册", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-legacy-product-machine-"));
+        const root = await mkdtemp(testHostPath("nbook-legacy-product-machine-"));
         roots.push(root);
         process.env.ProgramData = join(root, "ProgramData");
         process.env.PUBLIC = join(root, "Public");
@@ -1320,7 +1320,7 @@ describe("Desktop installation lifecycle", () => {
 
     it("旧注册项同时匹配 user 和 machine 时拒绝猜测清理范围", async () => {
         setWindowsHost();
-        const root = await mkdtemp(join(tmpdir(), "nbook-legacy-ambiguous-"));
+        const root = await mkdtemp(testHostPath("nbook-legacy-ambiguous-"));
         roots.push(root);
         processMocks.runCaptureResult.mockResolvedValue({
             stdout: `    InstallLocation    REG_SZ    ${root}\r\n`,

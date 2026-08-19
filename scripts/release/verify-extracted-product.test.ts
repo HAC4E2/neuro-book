@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {cp, mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -56,7 +56,7 @@ describe("openVerifiedExtractedProduct", {timeout: 30_000}, () => {
 
 /** 构建正式 Builder 产物并投影归档外部身份。 */
 async function archiveFixture(): Promise<{archiveRoot: string; metadata: ReleaseProductBuild}> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-extracted-product-"));
+    const root = await mkdtemp(testHostPath("nbook-extracted-product-"));
     roots.push(root);
     const sourceRoot = join(root, "source");
     const archiveRoot = join(root, "archive");

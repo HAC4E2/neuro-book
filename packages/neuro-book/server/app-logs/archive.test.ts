@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {Readable} from "node:stream";
 import {afterEach, describe, expect, it} from "vitest";
@@ -18,7 +18,7 @@ afterEach(async () => {
  * 创建临时日志根目录。
  */
 async function tempLogRoot(): Promise<string> {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-app-log-archive-"));
+    const root = await fs.mkdtemp(testHostPath("nbook-app-log-archive-"));
     cleanupRoots.push(root);
     return root;
 }

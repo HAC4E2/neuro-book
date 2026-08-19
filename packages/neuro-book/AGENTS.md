@@ -16,4 +16,3 @@
 - 前端 API 错误使用 `resolveApiErrorMessage(error, fallback)`；跨入口、后台动作和完成后 Dialog 会关闭的反馈使用 `useNotification()`，当前表单可恢复的错误使用局部 `error` state。
 - 可调整面板统一使用 `app/composables/useResizablePanel.ts`，尺寸由宿主保存，组件通过 `update:width` / `update:height` 回传。
 - 用户可见文案面向第一次使用 NeuroBook 的普通作者，不出现内部类名、文件名、Task 或 Phase 编号。
-- 前端改动应说明桌面和窄屏影响；未经明确授权不把 focused 测试写成浏览器验收，实际浏览器验收需记录截图、录屏或“未运行”。

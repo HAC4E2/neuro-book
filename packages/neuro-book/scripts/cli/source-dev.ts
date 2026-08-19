@@ -3,6 +3,7 @@ import {randomBytes} from "node:crypto";
 import {existsSync} from "node:fs";
 import {homedir} from "node:os";
 import {resolve} from "node:path";
+import {resolveAgentCacheRoot} from "@notnotype/neuro-book-test-support/paths";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
 import {shutdownNativeProduct} from "nbook/server/runtime/shutdown/product-shutdown-client";
 import {

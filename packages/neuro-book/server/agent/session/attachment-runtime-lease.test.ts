@@ -1,5 +1,5 @@
 import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {AttachmentMigrationGate} from "nbook/server/agent/session/attachment-migration-gate";
@@ -12,7 +12,7 @@ describe("Attachment runtime lease", () => {
     });
 
     it("runtime 生命周期租约阻止 migration apply 取得同一 Workspace Root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachment-runtime-lease-"));
+        const root = await mkdtemp(testHostPath("nbook-attachment-runtime-lease-"));
         roots.push(root);
         const gate = new AttachmentMigrationGate(root);
         const releaseRuntime = gate.acquireRuntimeLeaseSync();

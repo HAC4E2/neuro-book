@@ -4,6 +4,7 @@ import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-fil
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import path from "node:path";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 import type {ProjectFileIndexHandle} from "nbook/server/workspace-files/project-file-index";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 

@@ -1,6 +1,6 @@
 import {mkdtemp, mkdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
@@ -142,7 +142,7 @@ describe("Authorized File Operation", () => {
     }
 
     async function temporaryRoot(): Promise<string> {
-        const root = await mkdtemp(join(tmpdir(), "nbook-authorized-file-operation-"));
+        const root = await mkdtemp(testHostPath("nbook-authorized-file-operation-"));
         roots.push(root);
         return root;
     }

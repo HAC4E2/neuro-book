@@ -1,5 +1,5 @@
 import {access, mkdir, mkdtemp, readFile, rm, symlink} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -76,7 +76,7 @@ describe("VariableFileStorage文件范围", () => {
 
 /** 创建隔离Runtime根。 */
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(path.join(tmpdir(), "nbook-variable-storage-"));
+    const root = await mkdtemp(testHostPath("nbook-variable-storage-"));
     roots.push(root);
     return root;
 }

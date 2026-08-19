@@ -1,5 +1,5 @@
 import {cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {setTimeout as sleep} from "node:timers/promises";
@@ -206,7 +206,7 @@ describe("profile compile worker runtime", () => {
     }, 120000);
 
     it("full compile 发布前能发现 profile 源文件集合变化", async () => {
-        const profileRoot = await mkdtemp(join(tmpdir(), "nbook-profile-source-set-"));
+        const profileRoot = await mkdtemp(testHostPath("nbook-profile-source-set-"));
         const firstPath = resolve(profileRoot, "codex.source-set.one.profile.tsx");
         const secondPath = resolve(profileRoot, "codex.source-set.two.profile.tsx");
         try {
@@ -229,7 +229,7 @@ describe("profile compile worker runtime", () => {
     });
 
     it("full compile 发布前能发现同名 profile 源码内容变化", async () => {
-        const profileRoot = await mkdtemp(join(tmpdir(), "nbook-profile-source-content-"));
+        const profileRoot = await mkdtemp(testHostPath("nbook-profile-source-content-"));
         const fileName = "codex.source-content.profile.tsx";
         const sourcePath = resolve(profileRoot, fileName);
         const stagedDirs: string[] = [];
@@ -531,7 +531,7 @@ async function waitForPath(filePath: string, timeoutMs = 20_000): Promise<void> 
 }
 
 async function createProductWorkerFixture(): Promise<string> {
-    const productRoot = await mkdtemp(resolve(tmpdir(), "nbook-profile-product-"));
+    const productRoot = await mkdtemp(testHostPath("nbook-profile-product-"));
     const outputRoot = resolve(productRoot, ".output", "server");
     await mkdir(resolve(outputRoot, "authoring"), {recursive: true});
     await writeFile(resolve(outputRoot, "index.mjs"), "", "utf8");

@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {access, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
@@ -65,7 +65,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ProjectLifecycle不公开通用resolve接口", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
 
@@ -77,8 +77,8 @@ describe("ProjectLifecycle", () => {
     });
 
     it("同一 Project locator 的 key 跨 Lifecycle 实例稳定且不泄漏裸路径", async () => {
-        const firstWorkspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-key-"));
-        const secondWorkspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-key-"));
+        const firstWorkspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-key-"));
+        const secondWorkspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-key-"));
         roots.push(firstWorkspaceRoot, secondWorkspaceRoot);
         await Promise.all([
             mkdir(path.join(firstWorkspaceRoot, "alpha")),
@@ -114,7 +114,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("从同一次浅扫描发布合法 Project 与候选目录，并在 ensure 后同步发布新 revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
 
         const alphaRoot = path.join(workspaceRoot, "alpha");
@@ -174,7 +174,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("snapshot TTL从成功发布时间计算且普通读取不续期", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let now = 10_000;
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot), {
@@ -212,7 +212,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("snapshot TTL到期后的并发Project与candidate读取共享同一次浅扫描", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "ttl-shared-refresh");
         await mkdir(projectRoot);
@@ -278,7 +278,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("唯一浅watcher收到一级目录事件后防抖执行完整重扫", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let emitEvent: ((event: ProjectLifecycleWatchEvent) => void) | null = null;
         let watcherOpenCount = 0;
@@ -329,7 +329,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("watcher失败时TTL前保留cache且每个TTL窗口最多重试一次", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let now = 0;
         let watcherOpenCount = 0;
@@ -387,7 +387,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("watcher运行时失败且close拒绝时保留句柄并禁止启动replacement", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let now = 0;
         let watcherOpenCount = 0;
@@ -481,7 +481,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("diagnostics同步投影cache时效、刷新元数据与watcher状态", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let now = 100;
         let resolveReady: (() => void) | null = null;
@@ -566,7 +566,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("TTL刷新失败时保留旧revision并记录typed refresh error", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "ttl-refresh-error");
         await mkdir(projectRoot);
@@ -620,7 +620,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("readProjects发布snapshot后mutation release失败时保留fresh cache与terminal diagnostics", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const releaseFailure = Object.assign(new Error("测试注入的snapshot mutation release失败"), {code: "EIO"});
         let adapterReleaseCalls = 0;
@@ -696,7 +696,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("readProjects取得mutation失败时记录initial refresh diagnostics", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const acquireFailure = Object.assign(new Error("测试注入的snapshot mutation acquire失败"), {code: "EIO"});
         class FailingProjectLocks extends ProjectLockModule {
@@ -734,7 +734,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("close清除watcher debounce并拒绝迟到ready与event发布revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let emitEvent: ((event: ProjectLifecycleWatchEvent) => void) | null = null;
         let resolveReady: (() => void) | null = null;
@@ -782,7 +782,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("浅watcher忽略正文与深层事件并把连续manifest事件合并为一次重扫", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let emitEvent: ((event: ProjectLifecycleWatchEvent) => void) | null = null;
         const watcherAdapter: ProjectLifecycleWatcherAdapter = {
@@ -832,7 +832,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("watcher事件发生在浅扫描期间时当前读取丢弃旧generation并重扫", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "watch-scan-race");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -914,7 +914,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure对缺失root使用私有staging发布最小Project并释放锁", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
         const competitor = new ProjectLockModule(absoluteFsPath(workspaceRoot));
@@ -947,7 +947,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure最终发布preflight看到同名外部目录时转入静默修复且保留内容", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectName = "ensure-final-preflight";
         const projectRoot = path.join(workspaceRoot, projectName);
@@ -987,7 +987,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("普通ensure结果不泄漏进程内workspace identity", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
 
@@ -1004,7 +1004,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure缺失root在snapshot失败时回滚root并保留旧revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "rollback-ensure");
         const scanFailure = Object.assign(new Error("injected snapshot read failure"), {code: "EIO"});
@@ -1055,7 +1055,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure回滚前发现target已被外部替换时不移动replacement", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "rollback-owner-check");
         const movedPublishedRoot = path.join(workspaceRoot, "rollback-owner-check-moved");
@@ -1102,7 +1102,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("staging rename返回前target被换入合法replacement时不得提交replacement", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "publish-return-replacement");
         const movedPublishedRoot = path.join(workspaceRoot, "publish-return-replacement-moved");
@@ -1150,7 +1150,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("staging rename物理成功但Promise失败时按physical token安全回滚", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "publish-rename-threw-after-move");
         const renameFailure = Object.assign(new Error("rename threw after physical move"), {code: "EIO"});
@@ -1189,7 +1189,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("未提交root的snapshot refresh与并发健康ensure串行", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "snapshot-publish-lane");
         const scanFailure = Object.assign(new Error("injected provisional snapshot failure"), {code: "EIO"});
@@ -1255,7 +1255,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure已经发布snapshot并释放锁后遇到close仍返回已提交结果", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let lifecycle: ProjectLifecycle;
         class CloseAfterCommittedEnsureLocks extends ProjectLockModule {
@@ -1296,7 +1296,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure提交后锁释放失败保留typed code并标记committed true", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const releaseFailure = Object.assign(new Error("injected ensure release failure"), {code: "EIO"});
         let mutationReleaseCalls = 0;
@@ -1336,7 +1336,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create只在私有staging物化模板并由Lifecycle写入manifest后发布", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const materialize = vi.fn(async (input: ProjectTemplateMaterializeInput) => {
             const {stagingRoot} = input;
@@ -1382,7 +1382,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("两个Lifecycle并发create同一locator时只线性化一个Project发布", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let stagedCount = 0;
         let notifyBothStaged: () => void = () => undefined;
@@ -1468,7 +1468,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create从公开Interface在snapshot失败时回滚已发布root", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "create-snapshot-rollback");
         const scanFailure = Object.assign(new Error("测试注入的create snapshot失败"), {code: "EIO"});
@@ -1521,7 +1521,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create最终发布preflight看到同名外部目录时返回PROJECT_EXISTS且不覆盖", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectName = "create-final-preflight";
         const projectRoot = path.join(workspaceRoot, projectName);
@@ -1570,7 +1570,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create最终发布preflight看到case variant时拒绝发布并保留外部目录", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectName = "Create-Final-Case";
         const externalName = "create-final-case";
@@ -1619,7 +1619,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create最终preflight后出现非空同名目录时发布失败且保留外部内容", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectName = "create-nonempty-publish-race";
         const projectRoot = path.join(workspaceRoot, projectName);
@@ -1674,7 +1674,7 @@ describe("ProjectLifecycle", () => {
     it.skipIf(process.platform === "win32")(
         "POSIX best-effort边界：最终preflight后出现空同名目录时portable rename可能替换它",
         async () => {
-            const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+            const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
             roots.push(workspaceRoot);
             const projectName = "create-empty-publish-race";
             const projectRoot = path.join(workspaceRoot, projectName);
@@ -1722,7 +1722,7 @@ describe("ProjectLifecycle", () => {
     );
 
     it("create发布窗口出现case variant目录时回滚自己的target且保留外部目录", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         if (process.platform === "win32") {
             await execFileAsync(
@@ -1793,7 +1793,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject在私有staging物化内容并由Lifecycle发布源manifest", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const sourceManifest = Buffer.from([
             "# archive source",
@@ -1843,7 +1843,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject从公开Interface在snapshot失败时回滚已发布root", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "import-snapshot-rollback");
         const scanFailure = Object.assign(new Error("测试注入的import snapshot失败"), {code: "EIO"});
@@ -1904,7 +1904,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject最终发布preflight看到同名外部目录时返回PROJECT_EXISTS且不合并", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectName = "import-final-preflight";
         const projectRoot = path.join(workspaceRoot, projectName);
@@ -1958,7 +1958,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject发布窗口出现case variant目录时回滚自己的target且保留外部目录", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         if (process.platform === "win32") {
             await execFileAsync(
@@ -2033,7 +2033,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject拒绝source直接写入project.yaml且不发布root或revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
         const ref = projectWorkspaceRef("import-source-owned-manifest");
@@ -2067,7 +2067,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject在source缺少manifest时静默创建最小manifest", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
         const ref = projectWorkspaceRef("import-without-manifest");
@@ -2099,7 +2099,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("importProject静默恢复损坏manifest并把原始bytes随Project发布", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const corruptManifest = Buffer.from("broken: [\n", "utf8");
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
@@ -2130,7 +2130,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create拒绝模板携带project.yaml且不发布root或revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const templateAdapter: ProjectTemplateAdapter = {
             materialize: async ({stagingRoot}) => {
@@ -2161,7 +2161,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create已经发布snapshot并释放锁后遇到close仍返回已提交结果", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let lifecycle: ProjectLifecycle;
         class CloseAfterCommittedCreateLocks extends ProjectLockModule {
@@ -2209,7 +2209,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create提交后锁释放失败保留typed code并标记committed true", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const releaseFailure = Object.assign(new Error("injected committed release failure"), {code: "EIO"});
         let mutationReleaseCalls = 0;
@@ -2253,7 +2253,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create提交后不对已经移动的staging owner路径执行递归cleanup", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const cleanupFailure = Object.assign(new Error("injected staging cleanup failure"), {code: "EIO"});
         let stagingCleanupCalls = 0;
@@ -2295,7 +2295,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create失败时保留主错误并把owned staging清理失败记录进diagnostics", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const materializeFailure = new Error("injected template materialize failure");
         const cleanupFailure = Object.assign(new Error("injected staging cleanup failure"), {code: "EIO"});
@@ -2349,7 +2349,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("cleanup diagnostics只保留最近64条并累计淘汰数量", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const cleanupPaths: string[] = [];
         const manifestAdapter: ProjectManifestAdapter = {
@@ -2395,7 +2395,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("create成功后不清理被外部替换的staging token路径", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         let externalMarker: string | null = null;
         const manifestAdapter: ProjectManifestAdapter = {
@@ -2441,7 +2441,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("staging mkdir未成功返回时Lifecycle不清理未取得所有权的token路径", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const mkdirFailure = Object.assign(new Error("injected staging ownership failure"), {code: "EEXIST"});
         let foreignMarker: string | null = null;
@@ -2484,7 +2484,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("staging physical token捕获失败时不执行无token递归删除并记录ownership诊断", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const inspectionFailure = Object.assign(new Error("injected staging physical inspection failure"), {
             code: "EACCES",
@@ -2542,7 +2542,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete把已关闭Project移入tokenized tombstone并发布absence revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-project");
         await mkdir(path.join(projectRoot, "manuscript"), {recursive: true});
@@ -2573,7 +2573,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete不等待tombstone清理但close会等待并保留后台cleanup诊断", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-cleanup-diagnostic");
         await mkdir(projectRoot);
@@ -2638,7 +2638,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete已经发布absence并释放锁后遇到close仍返回已提交结果", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-committed-before-close");
         await mkdir(projectRoot);
@@ -2683,7 +2683,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete提交后锁释放失败保留typed code并标记committed true", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-committed-release-failure");
         await mkdir(projectRoot);
@@ -2729,7 +2729,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete回滚前发现原路径已被外部替换时不覆盖replacement", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-rollback-owner-check");
         const sentinelRoot = path.join(workspaceRoot, "delete-rollback-sentinel");
@@ -2802,7 +2802,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete rename返回前tombstone被替换时不得提交absence或清理replacement", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-tombstone-replacement");
         const movedTombstone = path.join(workspaceRoot, ".nbook", "deleted-projects", "external-moved-original");
@@ -2855,7 +2855,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("delete rename物理成功但Promise失败时按physical token恢复原root", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "delete-rename-threw-after-move");
         const manifest = 'kind: novel\ntitle: Delete Rename Threw After Move\nsummary: ""\n';
@@ -2901,7 +2901,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("浅扫描不把真实root I/O失败吞成空列表", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "root-io");
         await mkdir(projectRoot);
@@ -2926,7 +2926,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("浅扫描的case collision membership只统计一级物理目录", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         if (process.platform === "win32") {
             await execFileAsync(
@@ -2953,7 +2953,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("浅扫描把case collision去重为一条diagnostic并排除全部成员", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         if (process.platform === "win32") {
             await execFileAsync(
@@ -2989,7 +2989,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure 归一化可解析 manifest 时保留未知 YAML 内容并先备份原始 bytes", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "repairable");
         await mkdir(projectRoot);
@@ -3032,7 +3032,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("ensure 恢复无法解析的 manifest 时逐字节备份原文件", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "corrupt");
         await mkdir(projectRoot);
@@ -3058,7 +3058,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("manifest 原子替换失败时保留原文件与旧 revision，并清理临时文件", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "atomic-failure");
         await mkdir(projectRoot);
@@ -3101,7 +3101,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("manifest原子替换与temp清理同时失败时保留主错误并记录cleanup诊断", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "manifest-cleanup-double-failure");
         await mkdir(projectRoot);
@@ -3159,7 +3159,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("manifest在ensure期间被外部修改时返回typed conflict且不覆盖", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "manifest-conflict");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -3198,7 +3198,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("recovery 备份写入失败时禁止进入 manifest replace", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "backup-failure");
         await mkdir(projectRoot);
@@ -3237,7 +3237,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("recovery发布与temp清理同时失败时保留备份主错误并记录cleanup诊断", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "recovery-cleanup-double-failure");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -3302,7 +3302,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen只接受一级物理目录，并把canonical identity与进程内key留在DTO之外", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const physicalRoot = path.join(workspaceRoot, "physical");
         await mkdir(physicalRoot);
@@ -3356,8 +3356,8 @@ describe("ProjectLifecycle", () => {
     });
 
     it("manifest gate 不跟随指向 Workspace Root 外部的文件 symlink", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
-        const outsideRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-manifest-outside-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
+        const outsideRoot = await mkdtemp(testHostPath("nbook-project-manifest-outside-"));
         roots.push(workspaceRoot, outsideRoot);
         const projectRoot = path.join(workspaceRoot, "linked-manifest");
         const outsideManifest = path.join(outsideRoot, "project.yaml");
@@ -3393,7 +3393,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("健康 ensure 即使不改写 manifest 也会发布当前磁盘事实的新 revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "externally-created");
         await mkdir(projectRoot);
@@ -3422,7 +3422,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("冷扫描持有mutation期间ensure等待，随后发布新的snapshot revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "scan-race");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -3476,7 +3476,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("close 进入 closing 后拒绝新操作，并等待已开始的浅扫描收口", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "close-scan");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -3532,7 +3532,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("可解析 manifest 只修复非法核心字段并保留其余合法值", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "field-merge");
         await mkdir(projectRoot);
@@ -3562,7 +3562,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("validate报告可修复字段且不加锁、不写入、不推进revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "validate-field");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -3610,7 +3610,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("validate把真实manifest读取失败收口为typed I/O error", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "validate-io");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -3642,7 +3642,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("Project 与 candidate snapshot 不能被调用方修改后污染 cache", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "immutable");
         await mkdir(projectRoot);
@@ -3664,7 +3664,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen 按锁序 ensure 并把同一 Occupancy handle 移交给调用方", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "prepare-open");
         await mkdir(projectRoot);
@@ -3698,7 +3698,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("运行中metadata update借用prepareOpen的Occupancy并发布新revision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "metadata-borrowed-occupancy");
         const originalManifest = Buffer.from([
@@ -3762,7 +3762,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("metadata读取后root被替换时不向replacement写入recovery", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "metadata-root-replaced");
         const movedOriginalRoot = path.join(workspaceRoot, "metadata-root-replaced-original");
@@ -3816,7 +3816,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("metadata写入前失败且锁释放失败时保留operation与committed false", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "metadata-release-failure");
         const originalManifest = 'kind: novel\ntitle: Before\nsummary: ""\n';
@@ -3878,7 +3878,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen 在目标缺失时先竞争 prospective Occupancy", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const ref = projectWorkspaceRef("future-project");
         const holder = new ProjectLockModule(absoluteFsPath(workspaceRoot));
@@ -3900,7 +3900,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen Promise 履行后 Occupancy 只归调用方", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         await mkdir(path.join(workspaceRoot, "handoff-owner"));
         const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
@@ -3924,7 +3924,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen在mutation release期间root被替换时拒绝handoff并释放Occupancy", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "replace-during-release");
         const movedRoot = path.join(workspaceRoot, "replace-during-release-moved");
@@ -3994,7 +3994,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen的mutation release失败时不重复release并释放未移交Occupancy", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "prepare-open-release-failure");
         await mkdir(projectRoot);
@@ -4062,7 +4062,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("close 在 prepareOpen 最终 mutation release 期间阻止 Occupancy handoff", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         await mkdir(path.join(workspaceRoot, "close-handoff"));
         let notifyMutationRelease: () => void = () => undefined;
@@ -4114,7 +4114,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("close 插入 prepareOpen 内层完成与公开 Promise 履行之间时释放未移交的 Occupancy", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         await mkdir(path.join(workspaceRoot, "close-before-fulfillment"));
         let lifecycle: ProjectLifecycle;
@@ -4151,7 +4151,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen 检测同路径root替换，不写入replacement且不移交Occupancy", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "replace-root");
         const movedRoot = path.join(workspaceRoot, "replace-root-moved");
@@ -4201,7 +4201,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("Occupancy compromised 在 manifest rename 前关闭提交门禁", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "compromised-commit");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -4253,7 +4253,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("manifest rename成功后门禁失败返回部分提交的transaction error", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "manifest-post-rename-gate");
         const manifestPath = path.join(projectRoot, "project.yaml");
@@ -4315,7 +4315,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("Occupancy compromised 在 shallow snapshot commit 前阻止revision发布", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "compromised-snapshot");
         await mkdir(projectRoot);
@@ -4368,7 +4368,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("Occupancy compromised 在 mutation release 后阻止最终handoff", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "compromised-handoff");
         await mkdir(projectRoot);
@@ -4408,7 +4408,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("prepareOpen失败且锁释放不完整时保留PROJECT_LOCK_RELEASE_FAILED顶层code", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const adapter: ProjectLockAdapter = {
             acquire: async (file, options) => {
@@ -4448,7 +4448,7 @@ describe("ProjectLifecycle", () => {
     });
 
     it("Occupancy fail-fast 时不改写 manifest，并立即释放先取得的 mutation lock", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-lifecycle-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "lock-order");
         await mkdir(projectRoot);

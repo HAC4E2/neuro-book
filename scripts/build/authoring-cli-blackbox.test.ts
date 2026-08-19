@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {mkdir, mkdtemp, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -112,7 +112,7 @@ type CliResult = {
 
 /** 建立 Application、State、Cache 彼此显式分离的 CLI 环境。 */
 async function authoringFixture(): Promise<AuthoringFixture> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-authoring-cli-"));
+    const root = await mkdtemp(testHostPath("nbook-authoring-cli-"));
     roots.push(root);
     const stateRoot = join(root, "state");
     const cacheRoot = join(root, "cache");

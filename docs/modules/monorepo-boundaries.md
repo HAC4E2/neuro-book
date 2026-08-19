@@ -14,7 +14,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Des
 | Source Dev | `scripts/cli/source-dev.ts` 与 `scripts/cli/` | 根 `package.json` 的 Source Dev 入口 | 继续作为宿主适配层，指向应用包公开入口 |
 | Agent Runtime | `packages/neuro-book/server/agent/`、相关 DTO 和稳定 `reference/agent/` | Agent API、Harness、Profile runtime | 保持应用逻辑 Module；跨包能力从公开 workspace 入口消费 |
 | Project / Workspace | `packages/neuro-book/server/workspace-files/`、Project SQLite、Workspace 文件协议 | Project API、文件工具、Workspace CLI | 由 Project Workspace Module 持有数据和授权；不由 UI 或脚本直接拼路径 |
-| World Engine | `packages/neuro-book/world-engine/` 与 `packages/neuro-book/reference/world-engine/` | Plot、Agent tools、写作流程 | 保持独立领域 Module；Product runtime 通过显式 runtime island 消费 |
+| World Engine | `packages/neuro-book/world-engine/` 与 `reference/world-engine/` | Plot、Agent tools、写作流程 | 保持独立领域 Module；Product runtime 通过显式 runtime island 消费 |
 | Product Runtime / Release | `packages/neuro-book/server/runtime/`、根 `scripts/build/`、`scripts/deploy/`、`scripts/release/` | Product、Portable、Container、Release | 共享验证和发布入口保持单一 owner；脚本只做宿主适配 |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；包级治理资产覆盖专属行为，不复制根治理正文 |
 | Manager | `packages/neuro-book-manager/` | `@notnotype/neuro-book-manager`、`neuro-book` bin | 独立包；不得反向依赖 Nuxt 页面或主应用特例 |
@@ -50,7 +50,7 @@ Source / Product / Desktop / Release 宿主 adapter
 
 - UI、HTTP route 和 CLI 负责解析输入、授权、错误映射和编排；领域 Module 负责业务规则和数据所有权。
 - `scripts/` 保持宿主适配职责；迁移时把领域逻辑移入对应 Module，不为单次调用增加 wrapper。
-- `server/runtime/commands/` 只适配 Product Runtime Contract；Workspace CLI 的实现归 Workspace Module。
+- `packages/neuro-book/server/runtime/commands/` 只适配 Product Runtime Contract；Workspace CLI 的实现归 Workspace Module。
 - Manager 通过稳定的 Product/Release/Installation 合同消费应用产物，不导入 Nuxt 页面或根应用特例。
 - Desktop Envelope 只拥有宿主窗口、Supervisor、安装和退出协议；不复制 Product Runtime 合同。
 - 共享 DTO 或 verifier 只有在实际存在跨宿主复用且不会形成反向环时才下沉。当前依赖环和 type-only 环按 [ADR 0015](../adr/0015-architecture-boundaries-and-deferred-structure.md) 保持记录，不为“看起来干净”提前抽包。
@@ -70,8 +70,8 @@ Source / Product / Desktop / Release 宿主 adapter
 
 - 不把主应用再次物理移动；当前应用 owner 已是 `packages/neuro-book`。
 - 不把根 `package.json` 改成不含产品、治理、桌面和发布编排的空壳。
-- 不批量重写约 4,400+ 个已由应用包 alias 承接的 `nbook/*` 导入。
-- 不新建 `runtime-contract` 包、跨存储事务框架或跨语言生成层。
+- 不批量重写已由应用包 alias 承接的 `nbook/*` 导入。
+- 不新建 runtime contract 平行包、跨存储事务框架或跨语言生成层。
 - 不把 `.agent/plan`、产品模板、用户内容或产品 Skill 路径改名为 `.agents/`。
 - 不以发布、浏览器、真实 Provider 或数据迁移结果替代 Module focused verification。
 

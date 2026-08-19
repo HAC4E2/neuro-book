@@ -9,6 +9,7 @@ import type {WorkflowRunStart} from "nbook/server/agent/workflow/workflow-demo-s
 import type {EffectiveConfig} from "nbook/server/config/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import type {JsonValue, RunView, WorkflowDefinition, WorkspacePort} from "@notnotype/nb-workflow";
 import type {RuntimeConfigTarget} from "nbook/server/config/types";

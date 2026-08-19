@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {zipSync} from "fflate";
 import {
     PROJECT_UPLOAD_LIMIT_BYTES,
@@ -15,7 +16,7 @@ describe("workspace-upload", () => {
     let root: string;
 
     beforeEach(async () => {
-        root = path.join(".agent", "workspace-upload-test", randomUUID());
+        root = testHostPath("workspace-upload-test", randomUUID());
         await fs.mkdir(root, {recursive: true});
     });
 

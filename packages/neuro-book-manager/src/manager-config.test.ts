@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -77,7 +77,7 @@ describe("用户级 Manager 配置", () => {
 });
 
 async function temporaryRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "neuro-book-manager-config-"));
+    const root = await mkdtemp(testHostPath("neuro-book-manager-config-"));
     roots.push(root);
     return root;
 }

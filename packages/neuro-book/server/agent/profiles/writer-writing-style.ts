@@ -5,7 +5,7 @@ import {assetResolver} from "nbook/server/assets/asset-resolver";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 
-export const DEFAULT_WRITING_STYLE_PRESET = "styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md";
+export const DEFAULT_WRITING_STYLE_PRESET = "styles/distilled-light-comic-close-perspective.style.md";
 
 const WritingStyleFrontmatterSchema = z.object({
     key: z.string().min(1),

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -63,7 +63,7 @@ describe("Project cover", () => {
 
 /** 建立隔离 Workspace Root。 */
 async function createWorkspace(): Promise<string> {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-cover-"));
+    const root = await fs.mkdtemp(testHostPath("nbook-project-cover-"));
     roots.push(root);
     return root;
 }

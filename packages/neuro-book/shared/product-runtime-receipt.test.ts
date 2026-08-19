@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -30,7 +30,7 @@ describe("Product Runtime verification receipt", () => {
     });
 
     it("原子写入并严格读取，不携带绝对路径", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-receipt-"));
+        const root = await mkdtemp(testHostPath("nbook-receipt-"));
         roots.push(root);
         const path = join(root, ".deploy", "product-runtime-receipt.json");
         const receipt = {
@@ -144,7 +144,7 @@ async function runtimeFixture(): Promise<{
     runtimeContractPath: string;
     expectedIdentity: ProductRuntimeExpectedIdentity;
 }> {
-    const applicationRoot = await mkdtemp(join(tmpdir(), "nbook-receipt-image-"));
+    const applicationRoot = await mkdtemp(testHostPath("nbook-receipt-image-"));
     roots.push(applicationRoot);
     const image = await buildTestRuntimeImage({
         sourceRoot: applicationRoot,

@@ -1,5 +1,5 @@
 import {mkdtemp, readdir, readFile, rm, copyFile, mkdir, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {basename, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
@@ -59,7 +59,7 @@ describe("Profile SDK 稳定入口", () => {
     });
 
     it("编译器拒绝 Profile 绕过 SDK 导入 server 实现", async () => {
-        const temporaryRoot = await mkdtemp(join(tmpdir(), "nbook-profile-sdk-gate-"));
+        const temporaryRoot = await mkdtemp(testHostPath("nbook-profile-sdk-gate-"));
         temporaryRoots.push(temporaryRoot);
         const profileRoot = join(temporaryRoot, "profiles");
         await mkdir(profileRoot, {recursive: true});
@@ -97,7 +97,7 @@ export default defineAgentProfile({
     });
 
     it("编译器拒绝 Profile 导入 Authoring Kit 未提供的第三方包", async () => {
-        const temporaryRoot = await mkdtemp(join(tmpdir(), "nbook-profile-sdk-package-gate-"));
+        const temporaryRoot = await mkdtemp(testHostPath("nbook-profile-sdk-package-gate-"));
         temporaryRoots.push(temporaryRoot);
         const profileRoot = join(temporaryRoot, "profiles");
         await mkdir(profileRoot, {recursive: true});
@@ -127,7 +127,7 @@ export default defineAgentProfile({
     });
 
     it("编译器只放行正式 writing SDK 子入口", async () => {
-        const temporaryRoot = await mkdtemp(join(tmpdir(), "nbook-profile-sdk-writing-gate-"));
+        const temporaryRoot = await mkdtemp(testHostPath("nbook-profile-sdk-writing-gate-"));
         temporaryRoots.push(temporaryRoot);
         const profileRoot = join(temporaryRoot, "profiles");
         await mkdir(profileRoot, {recursive: true});
@@ -170,7 +170,7 @@ export default defineAgentProfile({
     });
 
     it("14 个内置 Profile 只通过 SDK 完成空目标编译", async () => {
-        const temporaryRoot = await mkdtemp(join(tmpdir(), "nbook-profile-sdk-"));
+        const temporaryRoot = await mkdtemp(testHostPath("nbook-profile-sdk-"));
         temporaryRoots.push(temporaryRoot);
         const profileRoot = join(temporaryRoot, "profiles");
         const stagingRoot = join(temporaryRoot, "staging");

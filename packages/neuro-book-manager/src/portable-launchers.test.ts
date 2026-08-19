@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("Windows Portable Launcher", () => {
     it("六个入口都只委托绑定自身Root的稳定Manager wrapper并传递退出码", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-portable-launchers-"));
+        const root = await mkdtemp(testHostPath("nbook-portable-launchers-"));
         temporaryRoots.push(root);
 
         await writePortableLaunchers(root);
@@ -44,7 +44,7 @@ describe("Windows Portable Launcher", () => {
 
     it("CMD入口只把完整子命令传给已绑定Root的稳定wrapper", async () => {
         if (process.platform !== "win32") return;
-        const root = await mkdtemp(join(tmpdir(), "nbook-portable-cmd-"));
+        const root = await mkdtemp(testHostPath("nbook-portable-cmd-"));
         temporaryRoots.push(root);
         const binRoot = join(root, ".runtime", "bin");
         await mkdir(binRoot, {recursive: true});
@@ -83,7 +83,7 @@ describe("Windows Portable Launcher", () => {
 
     it("CMD入口在Manager失败时保留退出码并等待用户确认", async () => {
         if (process.platform !== "win32") return;
-        const root = await mkdtemp(join(tmpdir(), "nbook-portable-cmd-error-"));
+        const root = await mkdtemp(testHostPath("nbook-portable-cmd-error-"));
         temporaryRoots.push(root);
         const binRoot = join(root, ".runtime", "bin");
         await mkdir(binRoot, {recursive: true});

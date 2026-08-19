@@ -3,6 +3,7 @@ import {spawn} from "node:child_process";
 import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {pathExists, sha256File} from "#manager/files";
 import {

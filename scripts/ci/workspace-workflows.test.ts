@@ -89,6 +89,9 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         ]) {
             expect(triggerPaths).toContain(required);
         }
+        for (const governancePath of [".agents/**", ".omp/**", "AGENTS.md", "docs/**", "PROJECT-STATUS.md"]) {
+            expect(triggerPaths).toContain(governancePath);
+        }
         for (const stale of [
             "*.d.ts",
             ".env.example",
@@ -103,6 +106,14 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(workflow)).toContain("bun --cwd packages/neuro-book run generate");
         expect(commands(workflow)).toContain("bun --cwd packages/neuro-book run typecheck");
         expect(commands(workflow)).toContain("bun --cwd packages/neuro-book run test -- --reporter=dot");
+        expect(workflow.name).toBe("Code Baseline");
+        expect(Object.keys(workflow.jobs)).toContain("governance");
+        expect(commands(workflow)).toContain("bun run governance:check");
+        expect(commands(workflow)).toContain("bun x tsc --noEmit -p scripts/tsconfig.json");
+        expect(commands(workflow)).toContain("scripts/ci/agent-governance.test.ts");
+        expect(commands(workflow)).toContain("scripts/ci/workspace-workflows.test.ts");
+        expect(commands(workflow)).toContain("scripts/build/dockerfile-contract.test.ts");
+        expect(Object.values(workflow.jobs).map((job) => job.name ?? "").join(" ")).not.toContain("advisory");
     });
 
     it("Community 与 Deploy Docs 的 push/PR 或 runtime paths 指向应用 owner", async () => {
@@ -123,6 +134,8 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "bun.lock",
         ]));
         expect(commands(deploy)).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
+        expect(commands(community)).toContain("bun run docs:check");
+        expect(commands(deploy)).toContain("bun run docs:check");
     });
 
     it("六自治包 matrix 与 llmlint Web island 保留 owner、命令、路径和 artifact", async () => {

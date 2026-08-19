@@ -1,8 +1,8 @@
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
-import {dirname, join, resolve} from "node:path";
-import {fileURLToPath} from "node:url";
+import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {parseDesktopDelegatedUninstallReceipt} from "@notnotype/neuro-book-contracts/desktop";
 import {
@@ -100,11 +100,9 @@ describe("Windows Desktop uninstall final result", () => {
 });
 
 async function fixtureRoot(prefix: string): Promise<string> {
-    // 仓库根：`desktop/shared/src/` 向上三级；不依赖 process.cwd()。
-    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-    const base = join(repoRoot, ".agent", "tmp");
+    const base = testHostPath("desktop-uninstall", prefix);
     await mkdir(base, {recursive: true});
-    const root = await mkdtemp(join(base, prefix));
+    const root = await mkdtemp(join(base, "fixture-"));
     roots.push(root);
     return root;
 }

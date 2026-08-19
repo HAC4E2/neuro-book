@@ -2,8 +2,8 @@
 
 - 状态：Accepted
 - 日期：2026-08-07
-- 关联任务：[Task 123](../tasks/123-repo-structure-optimization/README.md)、[Task 142](../tasks/142-post-merge-reliability-hardening/README.md)、[Task 143](../tasks/143-desktop-envelope-installation-spike/README.md)
-- 相关决策：[ADR 0010](0010-desktop-storage-loopback-shutdown.md)、[ADR 0014](0014-agent-job-durable-history.md)
+- 关联任务：[Task 123](../../.agents/tasks/123-repo-structure-optimization/README.md)、[Task 142](../../.agents/tasks/142-post-merge-reliability-hardening/README.md)、[Task 143](../../.agents/tasks/143-desktop-envelope-installation-spike/README.md)
+- 相关决策：[ADR 0010](0010-desktop-storage-loopback-shutdown.md)、[ADR 0017](0017-agent-job-durable-history.md)
 
 ## 背景
 
@@ -12,6 +12,12 @@
 这些问题主要影响独立发布、后续维护和审查成本，不等同于已经复现的用户运行时故障。本 ADR 记录本轮为什么不把所有结构问题一次性改掉，也避免为了“看起来干净”引入更大的迁移风险。
 
 ## 决策
+### 0. 主应用包边界已由 Task 149 完成
+
+本 ADR 当时记录的后续目标已在 Task 149 落地：根 `package.json` 现在只做 private workspace orchestrator，主应用源码、Nuxt、Vitest 与 Prisma 配置位于 `packages/neuro-book`；根 `scripts/` 与 `desktop/` 继续承担跨包产品、发布和宿主适配职责。
+
+根与应用包内的 `nbook/*` alias 指向 `packages/neuro-book`，只作为应用源码导入约定；其他 workspace 必须通过公开包入口消费能力。Source Dev、Product、Manager、Desktop 与测试的当前 Owner、Interface、数据边界和验证入口见 [Monorepo Module 边界与迁移规范](../modules/monorepo-boundaries.md)。迁移没有新增旧根路径 alias、兼容 re-export 或静默 fallback。
+
 
 ### 1. 暂不新建 `runtime-contract` 包
 
@@ -53,8 +59,8 @@ Electron 和 Tauri 目前仍是 Desktop spike。配置、端口、Supervisor、�
 
 ## 后果
 
-- 当前 master 不会因为“结构看起来不够理想”而引入新的公共包、类型复制、全局事务框架或跨语言抽象。
-- 独立 Manager 发布仍依赖当前仓库的 shared/`nbook/*` 边界；这被明确记录为 P1 架构候选，而不是被包装成已解决。
+- 主应用物理包迁移已完成；根 workspace orchestrator、`packages/neuro-book` 与各 workspace 包的持续边界由 [Monorepo Module 边界与迁移规范](../modules/monorepo-boundaries.md) 和治理门禁维护。
+- 独立 Manager 发布只消费公开 Product/Release/Installation 合同；不得重新依赖迁移前根应用路径或 Nuxt 私有实现。
 - 大单体和 OpenAPI 生成物仍会增加后续修改的审查成本；它们保留在 Task 123 的长期 backlog 中。
 - 跨存储操作仍只保证各自模块的合同和已有补偿路径，不承诺全局原子性。
 - Desktop 继续是 Windows-first spike；本 ADR 不改变其未完成的签名安装器、updater、跨平台正式包和最终框架选择边界。

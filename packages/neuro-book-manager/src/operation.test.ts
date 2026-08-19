@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rename, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -54,8 +54,8 @@ vi.mock("#manager/git", () => ({
 vi.mock("#manager/application-execution", () => ({verifyApplicationExecution: execution.verify}));
 
 const roots: string[] = [];
-const JOURNAL_ROOT = join(tmpdir(), "neuro-book-operation-fixture");
-const OUTSIDE_ROOT = join(tmpdir(), "neuro-book-operation-outside");
+const JOURNAL_ROOT = testHostPath("neuro-book-operation-fixture");
+const OUTSIDE_ROOT = testHostPath("neuro-book-operation-outside");
 const CONTAINER_IMAGE_ID = `sha256:${"8".repeat(64)}`;
 
 type CreateOperationInput = Parameters<typeof createOperationWithRoots>[0];
@@ -104,7 +104,7 @@ beforeEach(() => {
 
 describe("Operation recovery", () => {
     it.runIf(process.platform === "win32")("Installed Windows 将运行期 journal 保存在 Desktop Local Root", async () => {
-        const sandbox = await mkdtemp(join(tmpdir(), "manager-operation-installed-"));
+        const sandbox = await mkdtemp(testHostPath("manager-operation-installed-"));
         roots.push(sandbox);
         const root = join(sandbox, "Program Files", "NeuroBook");
         const localData = join(sandbox, "LocalAppData");
@@ -136,7 +136,7 @@ describe("Operation recovery", () => {
     });
 
     it.runIf(process.platform === "win32")("Installed Windows 从 Desktop Local Root 恢复未完成 journal", async () => {
-        const sandbox = await mkdtemp(join(tmpdir(), "manager-operation-installed-recovery-"));
+        const sandbox = await mkdtemp(testHostPath("manager-operation-installed-recovery-"));
         roots.push(sandbox);
         const root = join(sandbox, "Program Files", "NeuroBook");
         const localData = join(sandbox, "LocalAppData");
@@ -164,7 +164,7 @@ describe("Operation recovery", () => {
     });
 
     it.runIf(process.platform === "win32")("Installed Windows 将旧 v5 Program Files journal 迁移到外置恢复路径", async () => {
-        const sandbox = await mkdtemp(join(tmpdir(), "manager-operation-installed-v5-"));
+        const sandbox = await mkdtemp(testHostPath("manager-operation-installed-v5-"));
         roots.push(sandbox);
         const root = join(sandbox, "Program Files", "NeuroBook");
         const localData = join(sandbox, "LocalAppData");
@@ -464,7 +464,7 @@ describe("Operation recovery", () => {
     });
 
     it("commit point 前删除本次创建路径并在恢复完成后删除 journal", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-operation-"));
+        const root = await mkdtemp(testHostPath("manager-operation-"));
         roots.push(root);
         const created = join(root, ".runtime", "tools", "demo", "temporary");
         await mkdir(created, {recursive: true});
@@ -988,7 +988,7 @@ describe("Operation recovery", () => {
 });
 
 async function operationRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "manager-operation-"));
+    const root = await mkdtemp(testHostPath("manager-operation-"));
     roots.push(root);
     await mkdir(join(root, ".deploy", "operations"), {recursive: true});
     return root;

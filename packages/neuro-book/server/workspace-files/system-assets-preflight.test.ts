@@ -3,6 +3,7 @@ import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";

@@ -1,6 +1,6 @@
 import {access, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import path from "node:path";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {createLayeredProfileHomeFacade, defineProfileHome, ensureGlobalProfileHome, ensureProfileHome, resetProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -16,7 +16,7 @@ describe("profile home", () => {
     let workspace: ResolvedProjectWorkspace;
 
     beforeEach(async () => {
-        projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-profile-home-"));
+        projectRoot = await mkdtemp(testHostPath("nbook-profile-home-"));
         const ref = projectWorkspaceRef(path.basename(projectRoot));
         workspace = resolvedProjectWorkspace(
             ref,
@@ -113,7 +113,7 @@ describe("profile home", () => {
     });
 
     it("初始化 Global profile home 到 Workspace Root .nbook/agents", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-global-profile-home-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-global-profile-home-"));
         try {
             const calls: string[] = [];
             const home = await ensureGlobalProfileHome({
@@ -137,7 +137,7 @@ describe("profile home", () => {
     });
 
     it("层叠 home 读取 Project 优先并用 Global 兜底", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-layered-profile-home-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-layered-profile-home-"));
         try {
             const globalHome = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
             const projectHome = await ensureProfileHome({workspace, profileKey: "writer", profileVersion: 1});

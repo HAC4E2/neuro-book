@@ -3,6 +3,7 @@ import {readFile, readdir} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {
     isProductRuntimeIslandModule,

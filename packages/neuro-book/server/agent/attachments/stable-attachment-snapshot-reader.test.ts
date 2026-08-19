@@ -1,9 +1,9 @@
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {StableAttachmentSnapshotReader} from "nbook/server/agent/attachments/stable-attachment-snapshot-reader";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 describe("StableAttachmentSnapshotReader", () => {
     const roots: string[] = [];
@@ -13,7 +13,7 @@ describe("StableAttachmentSnapshotReader", () => {
     });
 
     it("使用同一 FileHandle 读取不超过上限的稳定文件", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachment-snapshot-"));
+        const root = await mkdtemp(testHostPath("nbook-attachment-snapshot-"));
         roots.push(root);
         const attachmentRoot = join(root, "attachments");
         const source = join(root, "source.png");
@@ -26,7 +26,7 @@ describe("StableAttachmentSnapshotReader", () => {
     });
 
     it("拒绝 Attachment Store 内路径与超过上限的源文件", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachment-snapshot-"));
+        const root = await mkdtemp(testHostPath("nbook-attachment-snapshot-"));
         roots.push(root);
         const attachmentRoot = join(root, "attachments");
         const stored = join(attachmentRoot, "stored.png");

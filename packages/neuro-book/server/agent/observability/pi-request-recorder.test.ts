@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
@@ -27,7 +27,7 @@ describe("PiRequestRecorder", () => {
     let tracesRoot: string;
 
     beforeEach(async () => {
-        root = await mkdtemp(join(tmpdir(), "pi-trace-"));
+        root = await mkdtemp(testHostPath("pi-trace-"));
         tracesRoot = join(root, ".nbook", "agent", "traces");
     });
 

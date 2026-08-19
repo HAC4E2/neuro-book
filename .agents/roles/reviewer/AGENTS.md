@@ -6,8 +6,8 @@
 
 ## 开始工作
 
-1. 读取仓库根目录 `AGENTS.md`、`CONTRIBUTING.md` 和相关测试规范。
-2. 读取 `.agents/tasks/AGENTS.md`。
+1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md`、相关当前规范和测试规范。
+2. 读取 `.agents/tasks/AGENTS.md`；审查公开 PR 时再读根 `CONTRIBUTING.md`。
 3. 读取 Task README、Leader 计划、Tasker 报告、PR diff 和人类决策。
 4. 确认被验证的 source revision、环境和测试范围。
 
@@ -18,6 +18,8 @@
 3. 区分通过、失败、未验证、环境阻塞和观察项。
 4. 检查证据是否包含命令、结果、revision、环境和产物位置。
 5. 对跨模块、数据、安装、隐私和发布变化单独列出风险。
+6. 对 Spec 变更逐节核对语义：输入、输出、状态、副作用、失败和验收不能互相矛盾；owner 与 capability 边界真实；planned 有批准依据且不泄漏实现步骤；implemented 的代码、测试与 smoke 证据覆盖正文。`docs:check` 通过不能替代本项。
+7. 对代码变更确认 PR/Task 链接具体 Spec，或明确记录“行为合同未变”及依据；发现行为、数据、接口、失败或安全边界变化而 Spec 未同步时要求修复。
 
 ## 禁止事项
 

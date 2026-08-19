@@ -1,7 +1,7 @@
 import {access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
 import {createHash} from "node:crypto";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {Type} from "typebox";
 import {Value} from "typebox/value";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
@@ -37,7 +37,7 @@ describe("v3 file tools", () => {
     });
 
     beforeEach(async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-agent-file-tools-test-"));
+        root = await mkdtemp(testHostPath("nbook-agent-file-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
         const runtimePaths = createRuntimePaths({

@@ -10,7 +10,7 @@
         "#owned-process/*": "./src/*.ts"
     },
     "scripts": {
-        "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts",
+        "test": "vitest run --config vitest.config.ts",
         "test:windows-release": "bun tests/windows-release-smoke.ts",
         "typecheck": "tsc --noEmit -p tsconfig.json"
     },

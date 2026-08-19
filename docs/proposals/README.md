@@ -1,6 +1,12 @@
 # 项目提案
 
-`docs/proposals/` 保存尚未生效、需要评审的产品或工程方案。Proposal 用来决定“应该采用什么长期行为”，不是当前规范、实现 Task、待办清单或过程日志。
+`docs/proposals/` 保存尚未生效、需要评审的产品或工程方案。Proposal 把原始自然语言整理成问题、目标、备选方案和影响，用来决定“应该采用什么长期行为”；它不是 Spec、实现 Task、待办清单或过程日志。
+
+当前活跃提案：
+
+- [`character-workbench.md`](character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
+
+已完成沉淀的信息架构提案见 [`../archived/proposals/documentation-information-architecture.md`](../archived/proposals/documentation-information-architecture.md)。
 
 ## 何时需要 Proposal
 
@@ -11,7 +17,7 @@
 - 改变持久化格式、公开接口、权限、安全、安装、发布或兼容承诺；
 - 存在两个以上长期方案，需要记录取舍和放弃原因。
 
-局部修复、机械迁移和现有规范内的实现不单独创建 Proposal；它们直接进入 Task，并在需要时同步当前规范。
+局部修复、机械迁移和现有 `implemented` Spec 内的实现不单独创建 Proposal；它们直接进入 Task，并在需要时同步 Spec。期望行为仍有歧义的 bug 先进入 Proposal，不能由实现者猜测。
 
 ## 最小结构
 
@@ -23,7 +29,7 @@
 4. `当前行为与证据`；
 5. `方案、备选方案和取舍`；
 6. `数据、接口、安全、迁移、发布与回滚影响`；
-7. `对当前规范的预期改动`；
+7. `对 Spec 的预期改动`：目标 capability、输入、输出、状态、副作用、失败与验收；
 8. `决策记录`：日期、决策者和结论。
 
 ## 生效规则

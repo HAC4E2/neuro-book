@@ -1,7 +1,7 @@
 import {access, mkdir, mkdtemp, readdir, rm, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {LocalAttachmentBlobAdapter} from "nbook/server/agent/attachments/local-attachment-blob-adapter";
 
 describe("LocalAttachmentBlobAdapter", () => {
@@ -12,7 +12,7 @@ describe("LocalAttachmentBlobAdapter", () => {
     });
 
     it("同一 key 已存在不同 bytes 时拒绝覆盖", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachment-adapter-"));
+        const root = await mkdtemp(testHostPath("nbook-attachment-adapter-"));
         roots.push(root);
         const adapter = new LocalAttachmentBlobAdapter(root);
         await adapter.put("sha256/aa/blob", new Uint8Array([1, 2, 3]));
@@ -24,7 +24,7 @@ describe("LocalAttachmentBlobAdapter", () => {
     });
 
     it("32 路相同内容并发只发布一个完整 blob 且不留下 temp", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachment-adapter-"));
+        const root = await mkdtemp(testHostPath("nbook-attachment-adapter-"));
         roots.push(root);
         const adapter = new LocalAttachmentBlobAdapter(root);
         const bytes = new Uint8Array(2 * 1024 * 1024).fill(173);
@@ -36,7 +36,7 @@ describe("LocalAttachmentBlobAdapter", () => {
     }, 10_000);
 
     it("两个 Adapter 并发发布不同 bytes 时不覆盖已发布目标", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-attachment-adapter-"));
+        const root = await mkdtemp(testHostPath("nbook-attachment-adapter-"));
         roots.push(root);
         const first = new LocalAttachmentBlobAdapter(root);
         const second = new LocalAttachmentBlobAdapter(root);
@@ -54,7 +54,7 @@ describe("LocalAttachmentBlobAdapter", () => {
     });
 
     it("拒绝沿Store内部junction或symlink读写外部目录", async () => {
-        const fixture = await mkdtemp(join(tmpdir(), "nbook-attachment-link-"));
+        const fixture = await mkdtemp(testHostPath("nbook-attachment-link-"));
         roots.push(fixture);
         const root = join(fixture, "store");
         const outside = join(fixture, "outside");
@@ -71,7 +71,7 @@ describe("LocalAttachmentBlobAdapter", () => {
     });
 
     it("拒绝Attachment Store根本身是链接目录", async () => {
-        const fixture = await mkdtemp(join(tmpdir(), "nbook-attachment-root-link-"));
+        const fixture = await mkdtemp(testHostPath("nbook-attachment-root-link-"));
         roots.push(fixture);
         const outside = join(fixture, "outside");
         const root = join(fixture, "store");

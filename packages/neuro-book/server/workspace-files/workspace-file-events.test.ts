@@ -6,6 +6,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {closeWorkspaceTreeIndex, readPlainWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 
 const createdRoots: AbsoluteFsPath[] = [];
 

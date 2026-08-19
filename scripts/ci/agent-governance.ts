@@ -8,6 +8,9 @@ import {
     expectedGovernanceFiles,
     git,
     hasFile,
+    verifyGovernanceDocumentLimits,
+    verifyMonorepoCutover,
+    verifySiblingResyncResolution,
     verifyTaskMigration,
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
@@ -33,6 +36,7 @@ function isIgnored(relativePath: string): boolean {
 }
 function isHistoricalMarkdownPath(relativePath: string): boolean {
     return relativePath.startsWith(".agents/tasks/")
+        || relativePath.includes("/.agents/tasks/")
         || relativePath.startsWith("docs/archived/")
         || relativePath.startsWith("docs/research/")
         || relativePath.startsWith("vitepress/changelog/")
@@ -42,10 +46,13 @@ function isHistoricalMarkdownPath(relativePath: string): boolean {
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
 failures.push(...verifyTaskMigration(repoRoot));
 failures.push(...verifyWorkspacePackageGovernance(repoRoot));
+failures.push(...verifyMonorepoCutover(repoRoot));
+failures.push(...verifySiblingResyncResolution(repoRoot));
+failures.push(...verifyGovernanceDocumentLimits(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
 }
-for (const relativePath of [".agents/AGENTS.md", ".agents/README.md", ".agents/tasks/README.md"]) {
+for (const relativePath of ["AGENTS.md", ".omp/RULES.md", "WATCHDOG.md", ".agents/AGENTS.md", ".agents/README.md", ".agents/tasks/README.md"]) {
     if (isIgnored(relativePath)) failures.push(`治理入口被错误忽略：${relativePath}`);
 }
 
@@ -94,22 +101,20 @@ for (const relativePath of inspectPaths) {
     }
     if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
 }
-if (process.argv.includes("--require-canonical-task-links")) {
-    for (const relativePath of inspectPaths) {
-        if (!relativePath.endsWith(".md") || isHistoricalMarkdownPath(relativePath)) continue;
-        const absolutePath = resolve(repoRoot, relativePath);
-        if (!existsSync(absolutePath)) continue;
-        let text: string;
-        try {
-            text = readFileSync(absolutePath, "utf8");
-        } catch {
-            continue;
-        }
-        const hitLines = text.split(/\r?\n/u)
-            .map((line, index) => line.includes("docs/tasks/") ? index + 1 : null)
-            .filter((line): line is number => line !== null);
-        if (hitLines.length > 0) failures.push(`活跃 Markdown 仍引用旧 Task 入口：${relativePath}:${hitLines.join(",")}`);
+for (const relativePath of inspectPaths) {
+    if (!relativePath.endsWith(".md") || isHistoricalMarkdownPath(relativePath)) continue;
+    const absolutePath = resolve(repoRoot, relativePath);
+    if (!existsSync(absolutePath)) continue;
+    let text: string;
+    try {
+        text = readFileSync(absolutePath, "utf8");
+    } catch {
+        continue;
     }
+    const hitLines = text.split(/\r?\n/u)
+        .map((line, index) => line.includes("docs/tasks/") ? index + 1 : null)
+        .filter((line): line is number => line !== null);
+    if (hitLines.length > 0) failures.push(`活跃 Markdown 仍引用旧 Task 入口：${relativePath}:${hitLines.join(",")}`);
 }
 
 const staleGovernanceRefs = [".agent/roles/", ".agent/tasks/", ".agent/skills/"];

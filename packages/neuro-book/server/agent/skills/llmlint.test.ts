@@ -1,7 +1,7 @@
 import {execFile} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
@@ -63,7 +63,7 @@ describe("llmlint", () => {
     });
 
     it("rules 和中文 namespace alias 能关闭和改写规则级别", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-config-"));
+        const root = await mkdtemp(testHostPath("llmlint-config-"));
         tempRoots.push(root);
         const configPath = join(root, "llmlint.config.ts");
         await writeFile(configPath, `export default {
@@ -386,7 +386,7 @@ describe("llmlint", () => {
     });
 
     it("配置 output json 时 CLI 输出 check JSON，包含 registry 和 diagnostics", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-json-output-"));
+        const root = await mkdtemp(testHostPath("llmlint-json-output-"));
         tempRoots.push(root);
         const configPath = join(root, "llmlint.config.ts");
         const textPath = join(root, "input.md");
@@ -421,7 +421,7 @@ describe("llmlint", () => {
 
     it("JSON check 输出保留 context 并包含结束位置", async () => {
         const rulesetId = `test/${randomUUID()}`;
-        const root = await mkdtemp(join(tmpdir(), "llmlint-json-issue-"));
+        const root = await mkdtemp(testHostPath("llmlint-json-issue-"));
         tempRoots.push(root, join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [
             regexRule("test.json.issue", "test.output", "JSON 规则", "高风险词"),
@@ -453,7 +453,7 @@ describe("llmlint", () => {
 
     it("CLI check 支持按最低级别过滤输出", async () => {
         const rulesetId = `test/${randomUUID()}`;
-        const root = await mkdtemp(join(tmpdir(), "llmlint-min-level-"));
+        const root = await mkdtemp(testHostPath("llmlint-min-level-"));
         tempRoots.push(root, join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [
             {...regexRule("test.high.filter", "test.output", "高等级过滤", "高风险词"), level: "high"},
@@ -520,7 +520,7 @@ describe("llmlint", () => {
     });
 
     it("curated import 会生成按 namespace 拆分的内置默认 ruleset", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-curated-"));
+        const root = await mkdtemp(testHostPath("llmlint-curated-"));
         tempRoots.push(root);
         const sourceRoot = join(root, "source");
         await writeCuratedSourceFixture(sourceRoot);
@@ -580,7 +580,7 @@ describe("llmlint", () => {
     });
 
     it("curated import 遇到缺失 slug 映射会失败", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-curated-missing-slug-"));
+        const root = await mkdtemp(testHostPath("llmlint-curated-missing-slug-"));
         tempRoots.push(root);
         const sourceRoot = join(root, "source");
         await writeCuratedSourceFixture(sourceRoot);
@@ -658,7 +658,7 @@ describe("llmlint", () => {
 
     it("CLI check 默认按 review=agent 过滤，--review human 显示人工桶", async () => {
         const rulesetId = `test/${randomUUID()}`;
-        const root = await mkdtemp(join(tmpdir(), "llmlint-review-"));
+        const root = await mkdtemp(testHostPath("llmlint-review-"));
         tempRoots.push(root, join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [
             regexRule("test.review.agent", "test.plain", "Agent 桶", "甲词"),
@@ -685,7 +685,7 @@ describe("llmlint", () => {
 
     it("JSON check filter 暴露 review 过滤与隐藏统计，rules 字典带 review/fixability", async () => {
         const rulesetId = `test/${randomUUID()}`;
-        const root = await mkdtemp(join(tmpdir(), "llmlint-review-json-"));
+        const root = await mkdtemp(testHostPath("llmlint-review-json-"));
         tempRoots.push(root, join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [
             regexRule("test.json.agent", "test.plain", "Agent 桶", "甲词"),
@@ -711,7 +711,7 @@ describe("llmlint", () => {
     });
 
     it("config review 非法值返回明确 schema 错误", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-bad-review-"));
+        const root = await mkdtemp(testHostPath("llmlint-bad-review-"));
         tempRoots.push(root);
         const configPath = join(root, "llmlint.config.ts");
         await writeFile(configPath, `export default {\n    rulesets: ["builtin/default"],\n    rules: {"filler-word-actually": {review: "robot"}},\n};\n`, "utf-8");
@@ -774,7 +774,7 @@ describe("llmlint", () => {
 
     it("config 文件中的字符串简写仍能启用被关闭 ruleset 的规则", async () => {
         const rulesetId = `test/${randomUUID()}`;
-        const root = await mkdtemp(join(tmpdir(), "llmlint-sugar-"));
+        const root = await mkdtemp(testHostPath("llmlint-sugar-"));
         tempRoots.push(root, join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [
             regexRule("test.sugar.rule", "test.sugar", "规则", "甲词"),
@@ -791,7 +791,7 @@ describe("llmlint", () => {
     it("显式配置路径不存在时返回明确错误", async () => {
         await expect(loadConfig({
             cwd: process.cwd(),
-            configPath: join(tmpdir(), "missing-llmlint.config.ts"),
+            configPath: testHostPath("missing-llmlint.config.ts"),
         })).rejects.toThrow("配置文件不存在");
     });
 
@@ -831,7 +831,7 @@ describe("llmlint", () => {
     });
 
     it("CLI check 单文件 JSON 仍为 check 形态（回归保护）", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-single-"));
+        const root = await mkdtemp(testHostPath("llmlint-single-"));
         tempRoots.push(root);
         const textPath = join(root, "input.md");
         await writeFile(textPath, "其实甲。", "utf-8");
@@ -846,7 +846,7 @@ describe("llmlint", () => {
     });
 
     it("CLI check 多文件目录递归聚合，JSON 为 check-multi 形态", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-multi-"));
+        const root = await mkdtemp(testHostPath("llmlint-multi-"));
         tempRoots.push(root);
         await writeFile(join(root, "a.md"), "其实甲。", "utf-8");
         await mkdir(join(root, "sub"), {recursive: true});
@@ -863,7 +863,7 @@ describe("llmlint", () => {
     });
 
     it("CLI check --scan-all 关闭 Markdown 遮罩，代码块命中回来", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-scanall-"));
+        const root = await mkdtemp(testHostPath("llmlint-scanall-"));
         tempRoots.push(root);
         const textPath = join(root, "input.md");
         await writeFile(textPath, "正文。\n\n```\n其实代码\n```\n", "utf-8");
@@ -880,14 +880,14 @@ describe("llmlint", () => {
     });
 
     it("CLI check 输入路径不存在时报错并非零退出", async () => {
-        const result = await runFailedCommand([LLMLINT_BIN, "check", join(tmpdir(), `missing-${randomUUID()}.md`)]);
+        const result = await runFailedCommand([LLMLINT_BIN, "check", testHostPath(`missing-${randomUUID()}.md`)]);
 
         expect(result.code).not.toBe(0);
         expect(result.stderr).toContain("不存在");
     });
 
     it("fix dry-run 检出 auto 修复但不改文件，退出码非零", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-dry-"));
+        const root = await mkdtemp(testHostPath("llmlint-fix-dry-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
         const zwsp = String.fromCharCode(0x200B);
@@ -903,7 +903,7 @@ describe("llmlint", () => {
     });
 
     it("fix --write 落盘：删零宽但保留需人工判断的连续符号", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-write-"));
+        const root = await mkdtemp(testHostPath("llmlint-fix-write-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
         const zwsp = String.fromCharCode(0x200B);
@@ -917,7 +917,7 @@ describe("llmlint", () => {
     });
 
     it("fix 尊重 Markdown 遮罩：代码块内零宽字符不被修复", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-mask-"));
+        const root = await mkdtemp(testHostPath("llmlint-fix-mask-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
         const zwsp = String.fromCharCode(0x200B);
@@ -932,7 +932,7 @@ describe("llmlint", () => {
     });
 
     it("fix 不自动应用 candidate 规则（filler 其实 不被删）", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-candidate-"));
+        const root = await mkdtemp(testHostPath("llmlint-fix-candidate-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
         await writeFile(filePath, "其实没什么。\n", "utf-8");
@@ -944,7 +944,7 @@ describe("llmlint", () => {
     });
 
     it("fix --format json 输出 kind:fix 与逐文件计数", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-json-"));
+        const root = await mkdtemp(testHostPath("llmlint-fix-json-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
         await writeFile(filePath, `正文${String.fromCharCode(0x200B)}有零宽。\n`, "utf-8");
@@ -991,7 +991,7 @@ describe("llmlint", () => {
     });
 
     it("CLI check 被抓取（非 TTY）输出纯文本，无 ANSI", async () => {
-        const root = await mkdtemp(join(tmpdir(), "llmlint-noansi-"));
+        const root = await mkdtemp(testHostPath("llmlint-noansi-"));
         tempRoots.push(root);
         const filePath = join(root, "input.md");
         await writeFile(filePath, "其实甲。", "utf-8");

@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
     closeAllProjects,
@@ -37,7 +37,7 @@ describe("recordAgentWorkspaceWrite 归因记账", () => {
     beforeEach(async () => {
         resetProjectSessionsForTest();
         setHistoryEnabledOverrideForTest(true);
-        tempRoot = join(os.tmpdir(), `neuro-book-agent-recorder-test-${randomUUID()}`);
+        tempRoot = testHostPath(`neuro-book-agent-recorder-test-${randomUUID()}`);
         workspaceRoot = absoluteFsPath(join(tempRoot, "workspace"));
         await mkdir(workspaceRoot, {recursive: true});
         setWorkspaceRuntimeRootContextForTest({workspaceRoot});

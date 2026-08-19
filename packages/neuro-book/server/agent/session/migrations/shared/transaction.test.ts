@@ -1,5 +1,5 @@
 import {access, mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {
@@ -116,7 +116,7 @@ describe("shared Session file transaction lease gates", () => {
     });
 
     async function nextRoot(): Promise<string> {
-        const root = await mkdtemp(join(tmpdir(), "nbook-session-transaction-"));
+        const root = await mkdtemp(testHostPath("nbook-session-transaction-"));
         roots.push(root);
         return root;
     }

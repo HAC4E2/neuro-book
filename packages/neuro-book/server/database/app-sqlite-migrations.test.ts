@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {afterEach, describe, expect, it} from "vitest";
@@ -31,7 +31,7 @@ afterEach(async () => {
 
 describe("App SQLite migration gate", () => {
     it("旧 Passport schema 被只读门禁阻止，统一 apply 后 no-op check 零写入", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-app-sqlite-gate-"));
+        const root = await mkdtemp(testHostPath("nbook-app-sqlite-gate-"));
         roots.push(root);
         const stateRoot = join(root, "state");
         const workspaceRoot = join(stateRoot, "workspace");

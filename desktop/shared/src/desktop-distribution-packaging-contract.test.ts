@@ -1,6 +1,6 @@
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
-import {fileURLToPath} from "node:url";
+import {join} from "node:path";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {describe, expect, it} from "vitest";
 
 import {writeZipArchive} from "#scripts/utils/zip";
@@ -20,11 +20,9 @@ import {
 import {assertPowerShellBom} from "./powershell-bom";
 
 async function fixture(): Promise<{root: string; stagingRoot: string; archivePath: string; manifestPath: string}> {
-    // 仓库根：`desktop/shared/src/` 向上三级；不依赖 process.cwd()。
-    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-    const tempRoot = join(repoRoot, ".agent", "tmp");
+    const tempRoot = testHostPath("desktop-aggregate-contract");
     await mkdir(tempRoot, {recursive: true});
-    const root = await mkdtemp(join(tempRoot, "desktop-aggregate-contract-"));
+    const root = await mkdtemp(join(tempRoot, "fixture-"));
     const staging = join(root, "staging");
     await mkdir(staging, {recursive: true});
     for (const entry of DESKTOP_AGGREGATE_DEPOT_ENTRIES) {

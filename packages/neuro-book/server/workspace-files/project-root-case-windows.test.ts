@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdir, mkdtemp, readdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
@@ -19,7 +19,7 @@ describe("Windows Project root case collision", () => {
     it.runIf(process.platform === "win32")(
         "真实NTFS大小写双目录共享locator并被direct resolve拒绝",
         async () => {
-            const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-case-"));
+            const workspaceRoot = await mkdtemp(testHostPath("nbook-project-case-"));
             roots.push(workspaceRoot);
             await execFileAsync(
                 "fsutil",

@@ -1,8 +1,8 @@
 import {mkdir, mkdtemp, symlink} from "node:fs/promises";
 import {execFile} from "node:child_process";
-import {tmpdir} from "node:os";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
+import {resolveAgentTempRoot} from "@notnotype/neuro-book-test-support/paths";
 import {readProfileArtifactManifest} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
 import {projectLlmlintSkill} from "nbook/server/workspace-files/llmlint-skill-projection";
@@ -110,7 +110,9 @@ export async function withIsolatedWorkspaceAssets<T>(
  * 调用方永远不会因为拿不到 `dispose()` 而泄漏临时目录。
  */
 export async function createIsolatedWorkspaceAssets(options: IsolatedWorkspaceAssetsOptions = {}): Promise<IsolatedWorkspaceAssets> {
-    const root = await mkdtemp(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
+    const fixturesRoot = path.join(resolveAgentTempRoot(), "fixtures");
+    await mkdir(fixturesRoot, {recursive: true});
+    const root = await mkdtemp(path.join(fixturesRoot, FIXTURE_ROOT_PREFIX));
     try {
         return await initializeFixture(root, options);
     } catch (error) {
@@ -228,7 +230,9 @@ function resolveSharedSnapshotRoot(): string {
  * 系统 assets 的编译由 `bun run dev` / `system-assets:prepare` 负责。
  */
 export async function createSharedSystemAssetsSnapshot(): Promise<string> {
-    const snapshotRoot = await mkdtemp(path.join(tmpdir(), SNAPSHOT_ROOT_PREFIX));
+    const fixturesRoot = path.join(resolveAgentTempRoot(), "fixtures");
+    await mkdir(fixturesRoot, {recursive: true});
+    const snapshotRoot = await mkdtemp(path.join(fixturesRoot, SNAPSHOT_ROOT_PREFIX));
     try {
         await writeFixtureMarker(snapshotRoot, {
             schemaVersion: FIXTURE_MARKER_SCHEMA_VERSION,

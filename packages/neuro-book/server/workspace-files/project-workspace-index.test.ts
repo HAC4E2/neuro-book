@@ -3,6 +3,7 @@ import path from "node:path";
 import {describe, expect, it, vi} from "vitest";
 import {SnapshotClosedError} from "@notnotype/file-snapshot-cache";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

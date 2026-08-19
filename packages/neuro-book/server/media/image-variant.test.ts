@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import sharp from "sharp";
 import {afterEach, describe, expect, it, vi} from "vitest";
@@ -341,7 +341,7 @@ describe("ImageVariantModule", () => {
 
 /** 建立单测专用 cache root。 */
 async function temporaryRoot(): Promise<string> {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-image-variant-"));
+    const root = await fs.mkdtemp(testHostPath("nbook-image-variant-"));
     roots.push(root);
     return root;
 }

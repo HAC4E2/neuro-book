@@ -30,7 +30,7 @@ Tool inputs and profile initial values often need different path shapes:
 | Plot stored chapter path | `manuscript/001-volume/001-chapter/` |
 | Human-facing explanation | readable project or chapter name first, path only when useful |
 
-See `reference/workspace/TERMS.md` for canonical workspace terminology.
+See the [NeuroBook terminology specification](../../docs/specs/foundation/terminology.md) for canonical workspace terms.
 
 The cwd is only the base for relative paths, not an access boundary. An absolute path outside the current Project is treated as an external filesystem address and does not acquire managed Project identity by physical-location guessing. Use `workspace/{project}/...` when the operation should participate in that Project's lifecycle and bookkeeping.
 
@@ -242,7 +242,7 @@ Agent runtime config makes `rg --files` output use `/` paths. Shell examples sho
 
 ## Cross References
 
-- Workspace terms: `reference/workspace/TERMS.md`
+- [NeuroBook terminology](../../docs/specs/foundation/terminology.md)
 - Project structure: `reference/content/project-structure.md`
 - Directory protocol: `reference/content/directory-protocol.md`
 - Manual directory: `reference/content/manual.md`

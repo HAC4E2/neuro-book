@@ -1,7 +1,8 @@
 import {mkdir} from "node:fs/promises";
+import {randomBytes} from "node:crypto";
 import {dirname, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {chromium, type Browser, type ConsoleMessage, type Page, type Request, type Response} from "playwright-core";
 
 type SmokeOptions = {
@@ -113,11 +114,12 @@ function parseOptions(args: string[]): SmokeOptions {
     if (!url || !expectedVersion || !browserExecutable) {
         throw new Error("用法：node --import tsx scripts/deploy/product-browser-smoke.ts --url <url> --expected-version <version> --browser-executable <path> [--screenshot <path>]");
     }
+    const runId = randomBytes(4).toString("hex");
     return {
         url: new URL(url).href,
         expectedVersion,
         browserExecutable: resolve(browserExecutable),
-        screenshot: resolve(values.get("--screenshot") ?? ".agent/product-browser-smoke-failure.png"),
+        screenshot: resolve(values.get("--screenshot") ?? resolveAgentScratchPath("browser", "product-browser-smoke", runId, "product-browser-smoke-failure.png")),
     };
 }
 

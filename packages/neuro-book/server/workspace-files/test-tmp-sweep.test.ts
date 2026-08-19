@@ -2,15 +2,19 @@ import {access, lstat, mkdir, readFile, rm, symlink, utimes, writeFile} from "no
 import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import { createTestTmpRoot,
-sweepStaleTmpRoots,
-TMP_MARKER_FILE,
-TMP_MARKER_SCHEMA_VERSION,
-type TestTmpRootMarker, } from "@notnotype/neuro-book-test-support/tmp";
+import {
+    createTestTmpRoot,
+    removeMarkedTmpRoot,
+    resolveTmpRoot,
+    sweepStaleTmpRoots,
+    TMP_MARKER_FILE,
+    TMP_MARKER_SCHEMA_VERSION,
+    type TestTmpRootMarker,
+    writeTmpMarker,
+} from "@notnotype/neuro-book-test-support/tmp";
 
-/** 仓库根：`server/workspace-files/` 向上两级。 */
-const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
-const TMP_ROOT = resolve(REPO_ROOT, ".agent", "tmp");
+/** 系统 Temp 下的 Agent 测试临时根。 */
+const TMP_ROOT = resolveTmpRoot();
 
 /** 本次测试创建的临时根；afterEach 清理，失败中断时由下次 run 的 sweep 兜底。 */
 const cleanedRoots: string[] = [];
@@ -37,7 +41,7 @@ async function fakeTmpRoot(marker: Partial<TestTmpRootMarker>): Promise<string> 
         purpose: "sweep-test",
         ...marker,
     };
-    await writeFile(resolve(root, TMP_MARKER_FILE), JSON.stringify(full), "utf8");
+    await writeTmpMarker(root, full);
     return root;
 }
 
@@ -62,48 +66,44 @@ function deadPid(): number {
 }
 
 describe("测试临时根 sweep 兜底清理", () => {
-    it("sweep 只回收「无 marker 超窗」与「有 marker 超窗且 owner 已死」的 root", async () => {
+    it("sweep 只回收合法 marker 的死 owner root，无 marker 一律保留", async () => {
         const dayMs = 24 * 60 * 60 * 1000;
         const old = new Date(Date.now() - 3 * dayMs).toISOString();
         const aliveOwner = await fakeTmpRoot({createdAt: old, pid: process.pid});
         const withinWindow = await fakeTmpRoot({createdAt: new Date().toISOString(), pid: deadPid()});
         const schemaMismatch = await fakeTmpRoot({createdAt: old, pid: deadPid(), schemaVersion: 999});
         const markedReclaimable = await fakeTmpRoot({createdAt: old, pid: deadPid()});
-        // 无 marker 的存量测试目录：靠 mtime 超窗回收。
         const noMarkerReclaimable = await tmpDir("no-marker");
         await ageDir(noMarkerReclaimable);
-        // 无 marker 但 mtime 仍在窗口内：保留（可能是并行 run 的活动目录）。
         const noMarkerFresh = await tmpDir("no-marker");
 
-        const report = await sweepStaleTmpRoots(REPO_ROOT);
+        const report = await sweepStaleTmpRoots(TMP_ROOT);
 
-        for (const root of [markedReclaimable, noMarkerReclaimable]) {
-            expect(report.removed).toContain(root);
-            await expect(access(root)).rejects.toMatchObject({code: "ENOENT"});
-        }
-        // 其余都必须原样保留：无法证明安全就不删。
+        expect(report.removed).toContain(markedReclaimable);
+        await expect(access(markedReclaimable)).rejects.toMatchObject({code: "ENOENT"});
         for (const [root, reason] of [
             [aliveOwner, "owner_alive"],
             [withinWindow, "within_window"],
             [schemaMismatch, "schema_mismatch"],
-            [noMarkerFresh, "within_window"],
+            [noMarkerReclaimable, "no_marker"],
+            [noMarkerFresh, "no_marker"],
         ] as const) {
             await expect(access(root)).resolves.toBeUndefined();
             expect(report.retained).toContainEqual({root, reason});
         }
     });
 
-    it("sweep 对 .agent/tmp 下的 symlink 与普通文件一律保留（unreadable）", async () => {
+    it("sweep 对 Agent 根下的 symlink 与普通文件一律保留（unreadable）", async () => {
         const target = await tmpDir("symlink-target");
         const linkRoot = resolve(TMP_ROOT, `sweep-symlink-${randomUUID()}`);
-        await symlink(target, linkRoot, "junction");
+        await symlink(target, linkRoot, process.platform === "win32" ? "junction" : "dir");
         cleanedRoots.push(linkRoot);
 
         const fileRoot = resolve(TMP_ROOT, `sweep-file-${randomUUID()}`);
         await writeFile(fileRoot, "not a dir\n", "utf8");
         cleanedRoots.push(fileRoot);
 
-        const report = await sweepStaleTmpRoots(REPO_ROOT);
+        const report = await sweepStaleTmpRoots(TMP_ROOT);
 
         expect(report.removed).not.toContain(linkRoot);
         expect(report.removed).not.toContain(fileRoot);
@@ -113,10 +113,21 @@ describe("测试临时根 sweep 兜底清理", () => {
         await expect(access(fileRoot)).resolves.toBeUndefined();
     });
 
+    it("marker-owned teardown 拒绝被替换成链接的 root", async () => {
+        const target = await tmpDir("replacement-target");
+        await writeFile(resolve(target, "keep.txt"), "keep\n", "utf8");
+        const replacedRoot = await fakeTmpRoot({purpose: "teardown-replacement"});
+        await rm(replacedRoot, {recursive: true, force: true});
+        await symlink(target, replacedRoot, process.platform === "win32" ? "junction" : "dir");
+
+        await expect(removeMarkedTmpRoot(replacedRoot, resolve(replacedRoot, TMP_MARKER_FILE))).rejects.toThrow("真实目录");
+        await expect(readFile(resolve(target, "keep.txt"), "utf8")).resolves.toBe("keep\n");
+    });
+
+
     it("createTestTmpRoot 创建带 owner marker 的临时根，purpose 可指定", async () => {
-        const root = await createTestTmpRoot(REPO_ROOT, "create-test", "purpose-check");
+        const root = await createTestTmpRoot("create-test", "purpose-check");
         try {
-            expect(root.startsWith(resolve(TMP_ROOT, "create-test-"))).toBe(true);
             const marker = JSON.parse(await readFile(resolve(root, TMP_MARKER_FILE), "utf8")) as TestTmpRootMarker;
             expect(marker.schemaVersion).toBe(TMP_MARKER_SCHEMA_VERSION);
             expect(marker.pid).toBe(process.pid);
@@ -126,13 +137,13 @@ describe("测试临时根 sweep 兜底清理", () => {
         }
     });
 
-    it("sweep 不越界：只扫 .agent/tmp，不动 .agent 下其它临时目录", async () => {
-        const outside = resolve(REPO_ROOT, ".agent", "outside-tmp-dir");
+    it("sweep 不越界：只扫 Agent 根，不动系统 Temp 其它目录", async () => {
+        const outside = resolve(TMP_ROOT, "..", `outside-agent-${randomUUID()}`);
         await mkdir(outside, {recursive: true});
         cleanedRoots.push(outside);
         await writeFile(resolve(outside, "keep.txt"), "keep\n", "utf8");
 
-        await sweepStaleTmpRoots(REPO_ROOT);
+        await sweepStaleTmpRoots();
 
         await expect(access(resolve(outside, "keep.txt"))).resolves.toBeUndefined();
     });

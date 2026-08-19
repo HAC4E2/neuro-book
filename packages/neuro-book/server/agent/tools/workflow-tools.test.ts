@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -58,7 +59,7 @@ describe("run_workflow cancellation propagation", () => {
             }),
         }));
         const workspaceRoot = absoluteFsPath(process.cwd());
-        const ready = readyProject(workspaceRoot, absoluteFsPath(join(workspaceRoot, ".agent", "workflow-tools-signal-project")));
+        const ready = readyProject(workspaceRoot, testAbsoluteFsPath("workflow-tools-signal-project"));
         const targetMocks = mockWorkflowProject(ready, workspaceRoot);
 
         const {createWorkflowTools} = await import("nbook/server/agent/tools/workflow-tools");
@@ -131,7 +132,7 @@ describe("run_workflow cancellation propagation", () => {
             useWorkflowDemoService: () => ({startWorkflowRun, cancelRun}),
         }));
         const workspaceRoot = absoluteFsPath(process.cwd());
-        const ready = readyProject(workspaceRoot, absoluteFsPath(join(workspaceRoot, ".agent", "workflow-tools-wait-ask-project")));
+        const ready = readyProject(workspaceRoot, testAbsoluteFsPath("workflow-tools-wait-ask-project"));
         const targetMocks = mockWorkflowProject(ready, workspaceRoot);
         const spawn = vi.fn();
 
@@ -173,7 +174,7 @@ describe("run_workflow cancellation propagation", () => {
 
     it("后台启动 details 返回首次 Job 事件的因果游标", async () => {
         const workspaceRoot = absoluteFsPath(process.cwd());
-        const ready = readyProject(workspaceRoot, absoluteFsPath(join(workspaceRoot, ".agent", "workflow-tools-cursor-project")));
+        const ready = readyProject(workspaceRoot, testAbsoluteFsPath("workflow-tools-cursor-project"));
         const targetMocks = mockWorkflowProject(ready, workspaceRoot);
         const startWorkflowRun = vi.fn(() => ({runId: "run-causal", done: new Promise(() => {})}));
         vi.doMock("nbook/server/agent/workflow/workflow-demo-service", () => ({

@@ -1,7 +1,7 @@
 import {access, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {basename, join, sep} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import {resolveAgentTempRoot} from "@notnotype/neuro-book-test-support/paths";
 import {
     createIsolatedWorkspaceAssets,
     FIXTURE_MARKER_FILE,
@@ -20,7 +20,9 @@ afterEach(async () => {
 });
 
 async function scratchDir(prefix: string): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), prefix));
+    const fixturesRoot = join(resolveAgentTempRoot(), "fixtures");
+    await mkdir(fixturesRoot, {recursive: true});
+    const root = await mkdtemp(join(fixturesRoot, prefix));
     scratchRoots.push(root);
     return root;
 }
@@ -64,7 +66,7 @@ describe("Test Workspace Fixture 所有权", () => {
         await mkdir(join(sentinelRoot, "nested"), {recursive: true});
         await writeFile(join(sentinelRoot, "nested", "deep.txt"), "deep\n", "utf8");
 
-        const root = await mkdtemp(join(tmpdir(), FIXTURE_ROOT_PREFIX));
+        const root = await scratchDir(FIXTURE_ROOT_PREFIX);
         await symlink(sentinelRoot, join(root, "linked"), "junction");
 
         await removeFixtureTree(root);
@@ -76,10 +78,12 @@ describe("Test Workspace Fixture 所有权", () => {
 
     it("初始化失败时自行回收已创建的 root，不留残留", async () => {
         const previous = process.env[TEST_SYSTEM_ASSETS_SNAPSHOT_ENV];
+        const fixturesRoot = join(resolveAgentTempRoot(), "fixtures");
+        await mkdir(fixturesRoot, {recursive: true});
         // 指向不存在的 snapshot：这是投影阶段的自然失败路径，不需要在生产代码里开注入口。
-        process.env[TEST_SYSTEM_ASSETS_SNAPSHOT_ENV] = join(tmpdir(), "nbook-missing-snapshot-does-not-exist");
+        process.env[TEST_SYSTEM_ASSETS_SNAPSHOT_ENV] = join(fixturesRoot, "nbook-missing-snapshot-does-not-exist");
         const countRoots = async (): Promise<number> =>
-            (await readdir(tmpdir())).filter((name) => name.startsWith(FIXTURE_ROOT_PREFIX)).length;
+            (await readdir(fixturesRoot)).filter((name) => name.startsWith(FIXTURE_ROOT_PREFIX)).length;
         const before = await countRoots();
         try {
             await expect(createIsolatedWorkspaceAssets({})).rejects.toThrow();

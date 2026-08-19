@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -186,7 +186,7 @@ describe("Product ready退出诊断", () => {
 
 describe("Application State migration command", () => {
     it("Manager统一注入Product、llmlint与Bun的State/Cache Root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-runtime-env-"));
+        const root = await mkdtemp(testHostPath("manager-runtime-env-"));
         const stateRoot = join(root, "data");
         const cacheRoot = join(root, ".cache");
         roots.push(root);
@@ -245,7 +245,7 @@ describe("Application State migration command", () => {
     });
 
     it("Source运行分支同样禁止Bun隐式安装", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-source-migration-"));
+        const root = await mkdtemp(testHostPath("manager-source-migration-"));
         roots.push(root);
         await mkdir(join(root, "scripts", "db"), {recursive: true});
         await writeFile(join(root, "scripts", "db", "migrate-application-state.ts"), "", "utf8");
@@ -275,7 +275,7 @@ describe("Application State migration command", () => {
     });
 
     it("Product缺少migration脚本时fail closed", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-missing-migration-"));
+        const root = await mkdtemp(testHostPath("manager-missing-migration-"));
         roots.push(root);
 
         await expect(planApplicationStateMigration(root, productManifest(), "missing-script"))
@@ -284,7 +284,7 @@ describe("Application State migration command", () => {
     });
 
     it("容器Profile通过Compose一次性app执行相同协议", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-container-migration-"));
+        const root = await mkdtemp(testHostPath("manager-container-migration-"));
         roots.push(root);
         docker.command.mockImplementation(async (_engine: string, _root: string, _stateRoot: string, args: string[]) => {
             const action = args.includes("--rollback") ? "rollback" : args.includes("--apply") ? "apply" : "plan";
@@ -341,7 +341,7 @@ describe("Application State migration command", () => {
 
 describe("容器管理员命令", () => {
     it("启动前由Manager建立宿主用户拥有的Cache Root与tool-state", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-container-writable-roots-"));
+        const root = await mkdtemp(testHostPath("manager-container-writable-roots-"));
         roots.push(root);
         docker.start.mockResolvedValue(undefined);
 
@@ -353,7 +353,7 @@ describe("容器管理员命令", () => {
     });
 
     it("launch handle 在ready失败后只终止回调发布的精确候选容器", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-container-launch-"));
+        const root = await mkdtemp(testHostPath("manager-container-launch-"));
         roots.push(root);
         const containerId = "c".repeat(64);
         docker.start.mockImplementation(async (
@@ -395,7 +395,7 @@ describe("容器管理员命令", () => {
     });
 
     it.each(["docker", "podman"] as const)("%s只使用Manifest固定engine和公共Compose参数", async (engine) => {
-        const root = await mkdtemp(join(tmpdir(), "manager-container-admin-"));
+        const root = await mkdtemp(testHostPath("manager-container-admin-"));
         roots.push(root);
         const manifest = {...dockerManifest(), containerEngine: engine as ContainerEngine};
 
@@ -412,7 +412,7 @@ describe("容器管理员命令", () => {
     });
 
     it("容器管理员密码只经stdin传递，argv和子进程env不含明文", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-container-admin-password-"));
+        const root = await mkdtemp(testHostPath("manager-container-admin-password-"));
         roots.push(root);
         const password = "测试-password\n";
         process.env.AUTH_ADMIN_PASSWORD = password;
@@ -630,7 +630,7 @@ describe("Windows Portable前台启动", () => {
 
 describe("Manager Bun运行策略", () => {
     it("Source启动和管理员命令都显式禁止自动安装", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-source-runtime-"));
+        const root = await mkdtemp(testHostPath("manager-source-runtime-"));
         roots.push(root);
         const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
             Response.json({versionLabel: "v0.8.0-canary.1"}),
@@ -708,7 +708,7 @@ describe("Manager Bun运行策略", () => {
 });
 
 async function nativeProductRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "manager-native-migration-"));
+    const root = await mkdtemp(testHostPath("manager-native-migration-"));
     roots.push(root);
     const script = join(root, ".output", "server", "commands", "product-command.mjs");
     await mkdir(join(script, ".."), {recursive: true});

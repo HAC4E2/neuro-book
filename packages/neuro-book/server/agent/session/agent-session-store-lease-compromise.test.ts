@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -46,7 +46,7 @@ describe("Agent Session Store lease compromise during acquisition", () => {
     });
 
     it("owner metadata写入期间失效时保留typed cause且不调用旧release", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-session-lease-compromise-"));
+        const root = await mkdtemp(testHostPath("nbook-session-lease-compromise-"));
         roots.push(root);
         const cause = new Error("heartbeat lost while writing owner metadata");
         const unhandled: unknown[] = [];

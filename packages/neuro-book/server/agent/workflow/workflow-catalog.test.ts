@@ -5,6 +5,7 @@ import {randomUUID} from "node:crypto";
 import {afterAll, describe, expect, test} from "vitest";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

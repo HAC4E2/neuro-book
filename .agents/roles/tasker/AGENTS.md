@@ -6,10 +6,10 @@
 
 ## 开始工作
 
-1. 读取仓库根目录 `AGENTS.md` 和 `CONTRIBUTING.md`。
-2. 读取 `.agents/roles/tasker/AGENTS.md`。
+1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md` 和当前路径最近的作用域 `AGENTS.md`。
+2. 读取 `.agents/roles/tasker/AGENTS.md` 与 `.agents/tasks/AGENTS.md`。
 3. 读取指定 Task 的 `README.md`、`context.md` 和最新 Leader walkthrough。
-4. 读取任务引用的模块文档、Reference、ADR 和测试。
+4. 读取 Task 引用的当前 spec、ADR 和测试；只有准备公开 PR 时才读根 `CONTRIBUTING.md`。
 5. 确认当前基线 revision、branch 和 worktree 与任务记录一致。
 
 如果任务上下文缺失、过期或相互矛盾，先写阻塞报告，不开始实现。
@@ -27,7 +27,7 @@
 
 以下情况立即停止并写 `status: blocked` 或 `status: needs-decision` 的报告：
 
-- 需要修改未批准的模块或公开合同；
+- 需要修改 Spec 未覆盖、或批准范围之外的模块与公开合同；修复实现偏离已批准 Spec 不属于本项；
 - 需要改变数据库、安装、权限或数据生命周期；
 - 原验收条件无法执行；
 - 发现现有计划的根因判断不成立；

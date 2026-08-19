@@ -26,7 +26,8 @@ updatedAt: 2026-08-19T00:24:00Z
 
 - 批准计划：`local://monorepo-main-app-migration-plan.md`
 - 当前治理规则：根 `AGENTS.md`、`.agents/tasks/README.md`、`.agents/tasks/AGENTS.md`、相关作用域 `AGENTS.md`
-- 当前产品规范：`docs/specs/` 注册表及其指向正文
+- 当前产品规范：[Monorepo Module 边界与迁移规范](../../../docs/modules/monorepo-boundaries.md)
+- 本任务只改变仓库物理边界、开发入口和治理方式；产品行为合同未变。
 
 ## 检查点
 

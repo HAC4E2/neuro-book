@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
@@ -16,7 +16,7 @@ describe("task tools", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-task-tools-test-"));
+        root = await mkdtemp(testHostPath("nbook-task-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
         harness = new NeuroAgentHarness({

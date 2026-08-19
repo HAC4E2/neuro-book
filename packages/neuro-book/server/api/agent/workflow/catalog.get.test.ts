@@ -6,6 +6,7 @@ import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,

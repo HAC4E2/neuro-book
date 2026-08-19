@@ -1,11 +1,11 @@
 import {createHash} from "node:crypto";
 import {execFile as execFileCallback} from "node:child_process";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {primaryCheckoutRoot, verifyMonorepoWorktreeLayout, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {primaryCheckoutRoot, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -14,6 +14,7 @@ const sourceFiles = [
     {source: "docs/tasks/alpha/README.md", destination: ".agents/tasks/alpha/README.md", content: "alpha baseline\n"},
     {source: "docs/tasks/beta/README.md", destination: ".agents/tasks/beta/README.md", content: "beta baseline\n"},
 ] as const;
+const repositoryRoot = join(import.meta.dirname, "..", "..");
 
 afterEach(async () => {
     await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
@@ -77,11 +78,44 @@ describe("workspace 包级治理门禁", () => {
     });
 });
 
+describe("最终 monorepo 收敛门禁", () => {
+    it("当前迁移结果的旧根入口与 sibling 对账均闭合", () => {
+        expect(verifyMonorepoCutover(repositoryRoot)).toEqual([]);
+        expect(verifySiblingResyncResolution(repositoryRoot)).toEqual([]);
+    });
+
+    it("拒绝旧根应用源码和根应用命令重新出现", async () => {
+        const repoRoot = await createTestTmpRoot("governance-cutover", "governance-cutover-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, "package.json", JSON.stringify({name: "fixture", version: "1.0.0", scripts: {dev: "nuxt dev"}}));
+        await writeText(repoRoot, "server/index.ts", "export {};\n");
+        await runGit(repoRoot, ["init", "--initial-branch", "master"]);
+        await runGit(repoRoot, ["add", "."]);
+
+        expect(verifyMonorepoCutover(repoRoot)).toEqual(expect.arrayContaining([
+            "旧根应用路径重新出现：server/index.ts",
+            "根 workspace orchestrator 不得声明产品 version",
+            "根 workspace 保留应用或同步命令：dev",
+        ]));
+    });
+
+    it("拒绝 sibling 对账输入 hash 被改写", async () => {
+        const repoRoot = await createTestTmpRoot("governance-resync", "governance-resync-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
+        const report = JSON.parse(await readFile(join(repositoryRoot, relativePath), "utf8")) as {inputs: Record<string, string>};
+        report.inputs["sibling-import-manifest.json"] = "sha256:invalid";
+        await writeText(repoRoot, relativePath, `${JSON.stringify(report)}\n`);
+
+        expect(verifySiblingResyncResolution(repoRoot)).toContain("sibling resync 输入 hash 不匹配：sibling-import-manifest.json");
+    });
+});
+
 describe("monorepo worktree 根门禁", () => {
     it("解析 linked worktree 的主 checkout，并拒绝 canonical 根外 worktree", async () => {
         const {primary, linked, outside} = await createWorktreeFixture();
         try {
-            expect(primaryCheckoutRoot(linked)).toBe(primary);
+            expect(primaryCheckoutRoot(linked)).toBe(await realpath(primary));
             expect(verifyMonorepoWorktreeLayout(linked).some((failure) => failure.includes("monorepo worktree 位置违规"))).toBe(true);
         } finally {
             await runGit(primary, ["worktree", "remove", "--force", linked]);

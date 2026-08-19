@@ -1,9 +1,9 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {join} from "node:path";
 import {randomUUID} from "node:crypto";
 import {afterEach, describe, expect, it, vi} from "vitest";
-
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 const verifier = {
     openSelfVerified: vi.fn(async (path: string) => ({
         path,

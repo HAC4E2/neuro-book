@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {afterEach, describe, expect, it} from "vitest";
@@ -367,7 +367,7 @@ describe("Application State migration runner", () => {
 });
 
 async function stateRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-application-state-"));
+    const root = await mkdtemp(testHostPath("nbook-application-state-"));
     roots.push(root);
     process.env.DATABASE_URL = `file:${join(root, "app.sqlite").replaceAll("\\", "/")}`;
     process.env.NEURO_BOOK_APPLICATION_ROOT = resolve(import.meta.dirname, "../..");

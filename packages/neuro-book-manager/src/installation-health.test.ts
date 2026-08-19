@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {cp, mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -50,7 +50,7 @@ describe.runIf(hostRuntimeImageFixtureAvailable(currentProductPlatform()))("Inst
 });
 
 async function fixture(): Promise<{root: string; manifest: InstallationManifest}> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-health-"));
+    const root = await mkdtemp(testHostPath("nbook-health-"));
     roots.push(root);
     const managerPath = join(root, ".runtime", "manager", "0.1.0", "neuro-book.mjs");
     const wrapperPath = join(root, ".runtime", "bin", process.platform === "win32" ? "neuro-book.cmd" : "neuro-book");

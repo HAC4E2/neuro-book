@@ -1,6 +1,6 @@
 import {createRequire} from "node:module";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {projectTypeScriptRuntime} from "#scripts/build/typescript-runtime-projection";
@@ -91,7 +91,7 @@ async function writeFixture(root: string): Promise<void> {
 }
 
 async function temporaryRoot(prefix: string): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), prefix));
+    const root = await mkdtemp(testHostPath(prefix));
     roots.push(root);
     return root;
 }

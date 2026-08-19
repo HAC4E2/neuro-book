@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rename, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("ProjectRootIdentityModule", () => {
     it("普通内容变化保持root identity，同路径替换会fail closed", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-root-identity-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-root-identity-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "alpha");
         const movedRoot = path.join(workspaceRoot, "alpha-moved");
@@ -33,7 +33,7 @@ describe("ProjectRootIdentityModule", () => {
     });
 
     it("普通目录被平台检测为reparse point时拒绝建立root identity", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-root-identity-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-root-identity-"));
         roots.push(workspaceRoot);
         const projectRoot = path.join(workspaceRoot, "reparse-root");
         await mkdir(projectRoot);
@@ -47,7 +47,7 @@ describe("ProjectRootIdentityModule", () => {
     });
 
     it("大小写不敏感策略把同locator的多个真实拼写判为collision", async () => {
-        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-project-root-identity-"));
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-root-identity-"));
         roots.push(workspaceRoot);
         await mkdir(path.join(workspaceRoot, "Alpha"));
         const readDirectoryNames = vi.fn(async () => ["Alpha", "alpha"] as const);

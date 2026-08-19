@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, rm, symlink} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -85,7 +85,7 @@ describe("State Root integrity", () => {
 
 /** 创建隔离Installation Root。 */
 async function fixtureRoot(): Promise<string> {
-    const root = await mkdtemp(path.join(tmpdir(), "nbook-state-integrity-"));
+    const root = await mkdtemp(testHostPath("nbook-state-integrity-"));
     roots.push(root);
     return root;
 }

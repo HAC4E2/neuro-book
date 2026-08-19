@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -141,7 +141,7 @@ describe("Agent Session Store runtime lease", () => {
 
     /** 为每个用例建立仓库外隔离 Workspace Root。 */
     async function nextRoot(): Promise<string> {
-        const root = await mkdtemp(join(tmpdir(), "nbook-session-store-lease-"));
+        const root = await mkdtemp(testHostPath("nbook-session-store-lease-"));
         roots.push(root);
         return root;
     }

@@ -1,6 +1,6 @@
 import {randomBytes} from "node:crypto";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {backupKeyId, type BackupEncryptionKey} from "nbook/server/backup/backup-keyring-service";
@@ -39,7 +39,7 @@ function encrypt(payload: Uint8Array, key: BackupEncryptionKey): Buffer {
  * 将测试密文写入隔离文件。
  */
 async function writeEnvelope(bytes: Uint8Array): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-envelope-"));
+    const root = await mkdtemp(testHostPath("nbook-envelope-"));
     cleanupRoots.push(root);
     const path = join(root, "backup.nbbackup");
     await writeFile(path, bytes);

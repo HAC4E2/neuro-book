@@ -1,7 +1,7 @@
 import {spawn} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -14,7 +14,7 @@ afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recurs
 
 describe("Product start生命周期", () => {
     it.skipIf(process.platform === "win32")("SIGTERM会转发给Nitro子进程并在超时前退出", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-signal-"));
+        const root = await mkdtemp(testHostPath("nbook-product-signal-"));
         roots.push(root);
         const outputRoot = join(root, ".output");
         const serverRoot = join(outputRoot, "server");
