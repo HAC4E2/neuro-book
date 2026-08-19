@@ -212,7 +212,7 @@ const optionSizeClass = computed(() => (props.size === "sm" ? "px-2 py-1.5 text-
                 aria-label="展开选项"
                 @click.stop="toggle"
             >
-                <span class="i-lucide-chevron-down h-4 w-4 transition-transform duration-200" :class="open ? '-rotate-180' : ''"></span>
+                <span class="i-lucide-chevron-down h-4 w-4 transition-transform [transition-duration:var(--motion-fast)]" :class="open ? '-rotate-180' : ''"></span>
             </button>
         </div>
 
@@ -263,14 +263,23 @@ const optionSizeClass = computed(() => (props.size === "sm" ? "px-2 py-1.5 text-
 </template>
 
 <style scoped>
-.nb-combobox-enter-active,
+.nb-combobox-enter-active {
+    transition:
+        opacity var(--motion-enter) var(--ease-standard),
+        transform var(--motion-enter) var(--ease-standard);
+    transform-origin: top center;
+}
+
 .nb-combobox-leave-active {
-    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+        opacity var(--motion-fast) var(--ease-standard),
+        transform var(--motion-fast) var(--ease-standard);
+    transform-origin: top center;
 }
 
 .nb-combobox-enter-from,
 .nb-combobox-leave-to {
     opacity: 0;
-    transform: translateY(-4px) scaleY(0.96);
+    transform: scale(0.96);
 }
 </style>

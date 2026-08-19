@@ -57,9 +57,17 @@ function toneClass(item: NotificationItem): NotificationTone {
 </template>
 
 <style scoped>
-.nb-notice-enter-active,
+/* 通知不贴触发器，从边缘滑入（translateY）合法，见 design-language.md 动效节。 */
+.nb-notice-enter-active {
+    transition:
+        opacity var(--motion-enter) var(--ease-standard),
+        transform var(--motion-enter) var(--ease-standard);
+}
+
 .nb-notice-leave-active {
-    transition: all 0.18s ease;
+    transition:
+        opacity var(--motion-fast) var(--ease-standard),
+        transform var(--motion-fast) var(--ease-standard);
 }
 
 .nb-notice-enter-from,

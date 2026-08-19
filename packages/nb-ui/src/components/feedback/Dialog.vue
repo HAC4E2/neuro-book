@@ -307,7 +307,7 @@ onBeforeUnmount(() => {
                     .self 修饰符随之去掉：遮罩现在没有子元素，落在它上面的指针事件必然是「点在外面」。
                 -->
                 <div
-                    class="absolute inset-0 transition-colors duration-200"
+                    class="absolute inset-0 transition-colors [transition-duration:var(--motion-base)]"
                     :class="overlayType === 'transparent' ? 'bg-transparent' : overlayType === 'blur' ? 'bg-[var(--overlay-bg,rgba(0,0,0,0.4))] backdrop-blur-sm' : 'bg-[var(--overlay-bg,rgba(0,0,0,0.4))]'"
                     @pointerdown="handleOverlayPointerDown"
                     @pointerup="handleOverlayPointerUp"

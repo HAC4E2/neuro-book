@@ -84,9 +84,13 @@ onBeforeUnmount(clearTimer);
 </template>
 
 <style scoped>
-.nb-tooltip-enter-active,
+/* Tooltip 跟随 macOS 行为只淡入淡出，不做缩放（见 design-language.md 动效节）。 */
+.nb-tooltip-enter-active {
+    transition: opacity var(--motion-enter) var(--ease-standard);
+}
+
 .nb-tooltip-leave-active {
-    transition: opacity 0.12s ease, transform 0.12s ease;
+    transition: opacity var(--motion-fast) var(--ease-standard);
 }
 
 .nb-tooltip-enter-from,

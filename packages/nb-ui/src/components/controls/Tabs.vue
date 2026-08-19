@@ -93,7 +93,7 @@ function tabClass(item: TabsItem): string {
             :aria-selected="isSelected(item)"
             :tabindex="isSelected(item) ? 0 : -1"
             :disabled="item.disabled"
-            class="nb-ui-focus-ring relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors after:absolute after:inset-x-0 after:bottom-[calc(var(--border-w)*-1)] after:h-0.5 after:transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+            class="nb-ui-focus-ring relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-[calc(var(--border-w)*-1)] after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
             :class="[props.size === 'sm' ? 'h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]' : 'h-[var(--control-h-md)] px-[var(--control-px)] text-[var(--text-sm)]', tabClass(item)]"
             @click="select(item)"
         >

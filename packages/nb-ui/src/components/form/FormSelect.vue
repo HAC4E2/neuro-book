@@ -162,7 +162,7 @@ function handleUpdate(value: unknown): void {
                 :body-lock="false"
                 :disable-outside-pointer-events="false"
                 :style="{zIndex: NB_Z_INDEX.popover, minWidth: 'var(--reka-select-trigger-width)'}"
-                class="nb-ui-popover-surface nb-ui-menu-surface max-h-[calc(var(--control-h-sm)*8)] overflow-hidden p-[var(--space-2)]"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion max-h-[calc(var(--control-h-sm)*8)] overflow-hidden p-[var(--space-2)]"
             >
                 <!--
                     滚动交给内部这一层，不加在浮层本体上：否则滚动条画进 --radius-panel 的圆角里，

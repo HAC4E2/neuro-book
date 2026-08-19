@@ -176,14 +176,23 @@ onMounted(() => {
     box-shadow: var(--elevation-popover);
 }
 
-.nb-dialog-window-enter-active,
+/* 对话框进出走 --motion-base（控件形变档）；缓动统一 --ease-standard，
+   回弹曲线已归并（见 design-language.md 动效节）。 */
+.nb-dialog-window-enter-active {
+    transition:
+        opacity var(--motion-base) var(--ease-standard),
+        transform var(--motion-base) var(--ease-standard);
+}
+
 .nb-dialog-window-leave-active {
-    transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.34, 1.15, 0.64, 1);
+    transition:
+        opacity var(--motion-fast) var(--ease-standard),
+        transform var(--motion-fast) var(--ease-standard);
 }
 
 .nb-dialog-window-enter-from,
 .nb-dialog-window-leave-to {
     opacity: 0;
-    transform: scale(0.96) translateY(8px);
+    transform: scale(0.96);
 }
 </style>

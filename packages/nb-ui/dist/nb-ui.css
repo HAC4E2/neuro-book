@@ -966,10 +966,6 @@
   transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
   transition-duration: var(--tw-duration, var(--default-transition-duration));
 }
-.duration-200 {
-  --tw-duration: 200ms;
-  transition-duration: 200ms;
-}
 .\[transition-duration\:var\(--motion-base\)\] {
   transition-duration: var(--motion-base);
 }
@@ -1089,6 +1085,10 @@
   transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to;
   transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
   transition-duration: var(--tw-duration, var(--default-transition-duration));
+}
+.after\:\[transition-duration\:var\(--motion-fast\)\]::after {
+  content: var(--tw-content);
+  transition-duration: var(--motion-fast);
 }
 .last\:mb-0:last-child {
   margin-bottom: 0px;
@@ -1358,6 +1358,27 @@
 .nb-ui-popover-item {
   border-radius: var(--nb-popover-inner-radius, 6px);
 }
+@keyframes nb-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes nb-popover-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+.nb-ui-popover-motion {
+  transform-origin: var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center));
+}
+.nb-ui-popover-motion[data-state="open"], .nb-ui-popover-motion.nb-popover-enter-active {
+  animation: nb-popover-in var(--motion-enter) var(--ease-standard);
+}
+.nb-ui-popover-motion[data-state="closed"], .nb-ui-popover-motion.nb-popover-leave-active {
+  animation: nb-popover-out var(--motion-fast) var(--ease-standard);
+}
 .nb-ui-dialog-surface {
   border-radius: var(--radius-dialog);
   box-shadow: var(--elevation-dialog);
@@ -1601,10 +1622,6 @@
   syntax: "*";
   inherits: false;
 }
-@property --tw-duration {
-  syntax: "*";
-  inherits: false;
-}
 @property --tw-content {
   syntax: "*";
   initial-value: "";
@@ -1672,7 +1689,6 @@
       --tw-backdrop-opacity: initial;
       --tw-backdrop-saturate: initial;
       --tw-backdrop-sepia: initial;
-      --tw-duration: initial;
       --tw-content: "";
     }
   }

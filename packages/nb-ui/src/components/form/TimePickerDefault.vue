@@ -269,10 +269,17 @@ function select(value: string): void {
  * 入场 / 退场。浮层从触发器那儿「长出来」，所以缩放的原点在顶端而不是中心——
  * 中心缩放会让浮层看起来是凭空浮现在半空中，而它明明贴着输入框。
  *
- * 时长走 --motion-fast：这是「一个下拉打开了」这种轻量位移，不是对话框那种场景切换。
+ * 时长按 design-language.md 动效节分档：入场 = 浮层出现走 --motion-enter，
+ * 退场是「这件事结束了」走 --motion-fast。
  * 三个时长在 prefers-reduced-motion 下被库归零（带 !important），所以这里不必自己再关一次。
  */
-.nb-time-popup-enter-active,
+.nb-time-popup-enter-active {
+    transition:
+        opacity var(--motion-enter) var(--ease-standard),
+        transform var(--motion-enter) var(--ease-standard);
+    transform-origin: top center;
+}
+
 .nb-time-popup-leave-active {
     transition:
         opacity var(--motion-fast) var(--ease-standard),
@@ -283,7 +290,7 @@ function select(value: string): void {
 .nb-time-popup-enter-from,
 .nb-time-popup-leave-to {
     opacity: 0;
-    transform: scale(0.96) translateY(-4px);
+    transform: scale(0.96);
 }
 
 .nb-time-option {

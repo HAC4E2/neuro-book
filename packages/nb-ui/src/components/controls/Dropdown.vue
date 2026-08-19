@@ -128,13 +128,14 @@ onClickOutside(rootRef, close);
         <div ref="triggerRef" class="w-full" aria-haspopup="menu" :aria-expanded="open" :aria-controls="menuId" @click.stop="toggle" @keydown.down="handleTriggerArrowDown" @keydown.up="handleTriggerArrowUp">
             <slot />
         </div>
+        <Transition name="nb-popover">
         <div
             v-if="open"
             :id="menuId"
             ref="menuRef"
             role="menu"
             :style="{zIndex: NB_Z_INDEX.popover}"
-            class="nb-ui-popover-surface nb-ui-menu-surface absolute overflow-hidden p-1.5"
+            class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion absolute overflow-hidden p-1.5"
             :class="props.menuClass"
             @keydown="handleMenuKeydown"
         >
@@ -175,5 +176,6 @@ onClickOutside(rootRef, close);
                 </template>
             </div>
         </div>
+        </Transition>
     </div>
 </template>

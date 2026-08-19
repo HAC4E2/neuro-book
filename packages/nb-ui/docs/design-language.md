@@ -463,6 +463,8 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 
 1. **入场 = opacity + scale(0.96 → 1)**，时长 `--motion-enter`。不加位移——
    浮层贴着触发器出现，位移会读成「从别处滑进来」而不是「从这里展开」。
+   两个例外：通知横幅不贴触发器，从边缘滑入（translateY）是合法配方；
+   Tooltip 跟随 macOS 的行为只淡入淡出，不做缩放。
 2. **transform-origin 在贴触发器的那一头。** Reka 把方向算好暴露在
    `--reka-select-content-transform-origin` / `--reka-dropdown-menu-content-transform-origin`
    这类变量上，**消费它，不要自己根据 placement 推**——推一遍就是把原语已经解决的

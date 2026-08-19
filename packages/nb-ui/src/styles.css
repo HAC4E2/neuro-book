@@ -133,6 +133,48 @@
 }
 
 /*
+ * 浮层入退场 modifier（合同见 design-language.md 动效节）：
+ * 入场 = opacity + scale(0.96 → 1)，--motion-enter；退场同配方，--motion-fast。
+ *
+ * 两条挂载通道共用这个登记处：
+ * 1. Reka 原语（FormSelect 等）——内容树由原语的 Presence 持有，挂 [data-state]，
+ *    Presence 等到 animationend 才卸载；缩放原点消费原语算好的
+ *    --reka-*-content-transform-origin（它已经处理了碰撞翻转，不要自己推方向）。
+ * 2. 手写 v-if 浮层（Dropdown）——配 Vue <Transition name="nb-popover"> 使用，
+ *    enter/leave-active 期间直接播同两条 keyframes，原点给 top center 兜底。
+ *
+ * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / DialogWindow / TimePicker）
+ * 不挂这个 modifier，避免两层动画叠加。
+ */
+@keyframes nb-popover-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+@keyframes nb-popover-out {
+    to {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+.nb-ui-popover-motion {
+    transform-origin: var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center));
+}
+
+.nb-ui-popover-motion[data-state="open"],
+.nb-ui-popover-motion.nb-popover-enter-active {
+    animation: nb-popover-in var(--motion-enter) var(--ease-standard);
+}
+
+.nb-ui-popover-motion[data-state="closed"],
+.nb-ui-popover-motion.nb-popover-leave-active {
+    animation: nb-popover-out var(--motion-fast) var(--ease-standard);
+}
+
+/*
  * 这里**曾经**有一条 `corner-shape: squircle`（Apple 的角是超椭圆不是正圆弧，官方
  * macOS 27 UI Kit 把 Save Dialog 记作「Radius 26 / Smooth / Apple (60%)」）。已撤掉。
  *

@@ -205,9 +205,18 @@ watch(activeSubmenuIndex, () => {
 </template>
 
 <style scoped>
-.nb-context-menu-enter-active,
+.nb-context-menu-enter-active {
+    transition:
+        opacity var(--motion-enter) var(--ease-standard),
+        transform var(--motion-enter) var(--ease-standard);
+    transform-origin: var(--reka-context-menu-content-transform-origin, top left);
+}
+
 .nb-context-menu-leave-active {
-    transition: opacity 0.15s ease, transform 0.15s ease;
+    transition:
+        opacity var(--motion-fast) var(--ease-standard),
+        transform var(--motion-fast) var(--ease-standard);
+    transform-origin: var(--reka-context-menu-content-transform-origin, top left);
 }
 
 .nb-context-menu-enter-from,
