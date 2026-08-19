@@ -23,6 +23,7 @@ export default defineConfig({
         include: [
             "scripts/build/**/*.test.ts",
             "scripts/ci/**/*.test.ts",
+            "scripts/deploy/**/*.test.ts",
             "scripts/install/**/*.test.ts",
             "scripts/maintenance/**/*.test.ts",
             "scripts/release/**/*.test.ts",

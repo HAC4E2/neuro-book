@@ -66,6 +66,7 @@ function parseArgs(args: string[]): CliOptions {
     let migrationTimestamp: number | undefined;
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
+        if (arg === undefined) throw new UsageError("命令行参数解析越界");
         if (arg === "--rollback") {
             action = "rollback";
             // rollback 的 runId 可省略：runner 会回滚 sentinel 当前指向的 run。

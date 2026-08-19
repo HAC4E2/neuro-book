@@ -30,7 +30,7 @@ export const PRODUCT_COMMAND_SOURCES = {
     "product-profile-authoring-smoke": "scripts/deploy/product-profile-authoring-smoke.ts",
     "product-variable-authoring-smoke": "scripts/deploy/product-variable-authoring-smoke.ts",
     "product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts",
-    "sqlite-vec-smoke": "scripts/smoke/sqlite-vec-smoke.ts",
+    "sqlite-vec-smoke": "scripts/smoke/sqlite-vec.ts",
     "product-web-fetch-smoke": "server/runtime/web-fetch-check.ts",
     "product-world-engine-config-smoke": "scripts/deploy/product-world-engine-config-smoke.ts",
     "profile": "server/agent/profiles/profile-command.ts",

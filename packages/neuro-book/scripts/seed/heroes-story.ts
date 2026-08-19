@@ -35,10 +35,14 @@ const context: ToolExecutionContext = {
     invocationId: "seed-heroes-story",
 };
 
-function mustTool(key: string): NeuroAgentTool {
-    const tool = tools.find((t) => t.key === key);
+type ExecutableWorldTool = NeuroAgentTool & {
+    executeWithContext: NonNullable<NeuroAgentTool["executeWithContext"]>;
+};
+
+function mustTool(key: string): ExecutableWorldTool {
+    const tool = tools.find((candidate) => candidate.key === key);
     if (!tool?.executeWithContext) throw new Error(`缺少 World Engine 工具：${key}`);
-    return tool;
+    return tool as ExecutableWorldTool;
 }
 
 type WorldIssue = {code: string; subjectId?: string; attr?: string; message: string};

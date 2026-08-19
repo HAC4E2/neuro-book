@@ -1,4 +1,4 @@
-import {ensurePrismaRuntime} from "./prisma-runtime-preflight";
+import {ensurePrismaRuntime} from "nbook/server/deploy/prisma-runtime-preflight";
 
 type PrismaClientInstance = typeof import("nbook/server/utils/prisma").prisma;
 let prisma: PrismaClientInstance | null = null;

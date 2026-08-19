@@ -86,7 +86,10 @@ export default defineAgentProfile({
     await lease.verifyForConsumption();
     const item = result.compiled[0];
     if (result.compiled.length !== 1 || !item) {
-        const issue = result.manifest.entries[0]?.issues?.[0]?.message ?? "没有生成 artifact";
+        const manifestEntry = result.manifest.entries[0];
+        const issue = manifestEntry?.status === "compile_failed"
+            ? manifestEntry.issues[0]?.message ?? "没有生成 artifact"
+            : "没有生成 artifact";
         throw new Error(`Profile authoring smoke 编译失败：${issue}`);
     }
     const validation = await validateProfileArtifact(profileRoot, item);

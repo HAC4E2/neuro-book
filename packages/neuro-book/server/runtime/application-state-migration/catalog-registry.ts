@@ -142,6 +142,7 @@ function parseSteps(values: unknown[], runId: string, descriptor: ApplicationSta
         const object = objectValue(value, "Application State step");
         assertExactKeys(object, ["id", "runId", "status", "changedItems", "reviewItems"]);
         const expectedId = descriptor.steps[index];
+        if (expectedId === undefined) throw new Error("Application State step 索引越界");
         if (object.id !== expectedId || object.runId !== historicalStepRunId(runId, expectedId)
             || !isStepState(object.status) || !isNonNegativeInteger(object.changedItems)
             || !isNonNegativeInteger(object.reviewItems)) {

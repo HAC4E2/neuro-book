@@ -9,6 +9,7 @@ import {
     git,
     hasFile,
     verifyGovernanceDocumentLimits,
+    verifyApplicationScriptBoundary,
     verifyMonorepoCutover,
     verifySiblingResyncResolution,
     verifyTaskMigration,
@@ -49,6 +50,7 @@ for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
 failures.push(...verifyTaskMigration(repoRoot));
 failures.push(...verifyWorkspacePackageGovernance(repoRoot));
 failures.push(...verifyMonorepoCutover(repoRoot));
+failures.push(...verifyApplicationScriptBoundary(repoRoot));
 failures.push(...verifySiblingResyncResolution(repoRoot));
 failures.push(...verifyGovernanceDocumentLimits(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {

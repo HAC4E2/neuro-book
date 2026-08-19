@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {resolveAgentCacheRoot} from "../../../scripts/utils/agent-paths.ts";
+import {resolveAgentCacheRoot} from "@notnotype/neuro-book-test-support/paths";
 
 const packageRoot = resolve(import.meta.dir, "..");
 // 仅使用系统受控 cache；pack 产物可回收，不污染仓库 `.agent/tmp`。

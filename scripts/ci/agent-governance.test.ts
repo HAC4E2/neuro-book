@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {primaryCheckoutRoot, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {primaryCheckoutRoot, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -79,8 +79,9 @@ describe("workspace 包级治理门禁", () => {
 });
 
 describe("最终 monorepo 收敛门禁", () => {
-    it("当前迁移结果的旧根入口与 sibling 对账均闭合", () => {
+    it("当前迁移结果的旧根入口、应用脚本边界与 sibling 对账均闭合", () => {
         expect(verifyMonorepoCutover(repositoryRoot)).toEqual([]);
+        expect(verifyApplicationScriptBoundary(repositoryRoot)).toEqual([]);
         expect(verifySiblingResyncResolution(repositoryRoot)).toEqual([]);
     });
 
@@ -97,6 +98,24 @@ describe("最终 monorepo 收敛门禁", () => {
             "根 workspace orchestrator 不得声明产品 version",
             "根 workspace 保留应用或同步命令：dev",
         ]));
+    });
+
+    it("只允许 source-dev 读取根 workspace locator", async () => {
+        const repoRoot = await createTestTmpRoot("governance-app-scripts", "governance-app-scripts-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, "packages/neuro-book/scripts/cli/source-dev.ts", [
+            'import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";',
+            'import type {WorkspaceRoots} from "#scripts/utils/workspace-roots";',
+            "export {resolveWorkspaceRoots};",
+        ].join("\n"));
+        expect(verifyApplicationScriptBoundary(repoRoot)).toEqual([]);
+
+        await writeText(repoRoot, "packages/neuro-book/scripts/smoke/agent.ts", 'import "#scripts/utils/workspace-roots";\n');
+        await writeText(repoRoot, "packages/neuro-book/scripts/cli/source-dev.ts", 'import "#scripts/utils/process.mjs";\n');
+        expect(verifyApplicationScriptBoundary(repoRoot)).toEqual([
+            "应用跨根 #scripts 导入违规：packages/neuro-book/scripts/cli/source-dev.ts -> #scripts/utils/process.mjs",
+            "应用跨根 #scripts 导入违规：packages/neuro-book/scripts/smoke/agent.ts -> #scripts/utils/workspace-roots",
+        ]);
     });
 
     it("拒绝 sibling 对账输入 hash 被改写", async () => {

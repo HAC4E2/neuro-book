@@ -37,6 +37,7 @@ function parseArgs(args: string[]): CliOptions {
     let runId: string | undefined;
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
+        if (arg === undefined) throw new UsageError("命令行参数解析越界。");
         if (arg === "--plan" || arg === "--apply" || arg === "--resume" || arg === "--rollback") {
             if (action) throw new UsageError("--plan/--apply/--resume/--rollback 只能选择一个。");
             action = arg.slice(2) as ApplicationStateMigrationAction;

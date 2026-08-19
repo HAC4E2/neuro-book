@@ -9,7 +9,7 @@
  *      因此本脚本同时是读写合一 CodeAct 工具的端到端冒烟验证入口。
  *
  * 用法（bun 命令需在沙盒外提权执行）：
- *   bun scripts/seed-world-engine-demo.ts [projectRoot] [--verify-only] [--keep]
+ *   bun run seed:world-engine-demo -- [projectRoot] [--verify-only] [--keep]
  *     projectRoot    默认 ming-ding-zhi-shi-2
  *     --verify-only  跳过清空与写入，仅运行只读查询断言
  *     --keep         跳过清空（在已有数据上追加，可能与现有 id 冲突）

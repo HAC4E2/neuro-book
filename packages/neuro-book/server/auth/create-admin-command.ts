@@ -33,12 +33,13 @@ async function readUsername(options: CreateAdminCliOptions): Promise<string> {
     const input = await text({
         message: "管理员用户名",
         placeholder: "admin",
-        validate: (value) => value.trim() ? undefined : "用户名不能为空",
+        validate: (value) => typeof value === "string" && value.trim() ? undefined : "用户名不能为空",
     });
     if (isCancel(input)) {
         cancel("已取消创建管理员");
         process.exit(1);
     }
+    if (typeof input !== "string") throw new Error("管理员用户名输入无效");
     return input.trim();
 }
 
@@ -51,12 +52,13 @@ async function readPassword(options: CreateAdminCliOptions): Promise<string> {
     }
     const input = await promptPassword({
         message: "管理员密码",
-        validate: (value) => value.length >= 8 ? undefined : "管理员密码至少 8 个字符",
+        validate: (value) => typeof value === "string" && value.length >= 8 ? undefined : "管理员密码至少 8 个字符",
     });
     if (isCancel(input)) {
         cancel("已取消创建管理员");
         process.exit(1);
     }
+    if (typeof input !== "string") throw new Error("管理员密码输入无效");
     return input;
 }
 

@@ -1,6 +1,6 @@
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {tmpdir} from "node:os";
+import {resolveAgentTempRoot} from "@notnotype/neuro-book-test-support/paths";
 import {
     markSubjectRagDirty,
     searchSubjectRag,
@@ -14,7 +14,9 @@ import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity
  * Bun runtime 下验证 subject RAG 能加载 sqlite-vec、调用 embedding、建索引并检索。
  */
 async function main(): Promise<void> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-subject-rag-smoke-"));
+    const agentTempRoot = resolveAgentTempRoot();
+    await mkdir(agentTempRoot, {recursive: true});
+    const root = await mkdtemp(join(agentTempRoot, "subject-rag-smoke-"));
     const workspaceRoot = absoluteFsPath(join(root, "workspace"));
     const projectRef = projectWorkspaceRef("demo");
     const projectDirectory = join(workspaceRoot, projectRef.projectRoot);
@@ -95,18 +97,29 @@ async function main(): Promise<void> {
             memoryPath: join(subjectRoot, "memory.jsonl"),
             ragStatePath: join(projectDirectory, ".nbook", "subject-rag-dirty.json"),
         };
-        const candidates = await searchSubjectRag({
+        const eventCandidates = await searchSubjectRag({
             configTarget,
             subject,
             query: "艾琳娜",
-            sources: ["events", "memory"],
+            sources: ["events"],
             limit: 3,
         });
-        const text = JSON.stringify(candidates);
-        if (!text.includes("粉色头发同学") || !text.includes("避免迟到")) {
-            throw new Error(`subject RAG smoke 召回内容异常：${text}`);
+        const memoryCandidates = await searchSubjectRag({
+            configTarget,
+            subject,
+            query: "艾琳娜",
+            sources: ["memory"],
+            limit: 3,
+        });
+        const eventText = JSON.stringify(eventCandidates);
+        const memoryText = JSON.stringify(memoryCandidates);
+        if (!eventText.includes("避免迟到")) {
+            throw new Error(`subject RAG smoke events 召回内容异常：${eventText}`);
         }
-        if (text.includes("这条属于 other")) {
+        if (!memoryText.includes("粉色头发同学")) {
+            throw new Error(`subject RAG smoke memory 召回内容异常：${memoryText}`);
+        }
+        if (eventText.includes("这条属于 other") || memoryText.includes("这条属于 other")) {
             throw new Error("subject RAG smoke 跨 subject 泄露了 other 记忆。");
         }
         const memoryOnlyCandidates = await searchSubjectRag({

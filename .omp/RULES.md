@@ -13,7 +13,7 @@
 
 ## 临时根与证据
 
-测试、fixture、验收、缓存、browser smoke 和 scratch 数据使用 `scripts/utils/agent-paths.ts` 解析的系统临时根。默认值、containment、marker、owner、24 小时回收和秘密边界见 [`../docs/testing/README.md`](../docs/testing/README.md)；正式证据只提交脱敏结果。
+- 测试、fixture、验收、缓存、browser smoke 和 scratch 数据使用 `@notnotype/neuro-book-test-support/paths` 解析的系统临时根。默认值、containment、marker、owner、24 小时回收和秘密边界见 [`../docs/testing/README.md`](../docs/testing/README.md)；正式证据只提交脱敏结果。
 
 ## 编码触发器
 

@@ -19,7 +19,7 @@ const result = await Bun.build({
     target: "bun",
     format: "esm",
     naming: "[name].mjs",
-    external: ["yaml"],
+    external: ["yaml", "semver"],
     minify: true,
 });
 if (!result.success) {

@@ -12,15 +12,15 @@
  * - --project 使用单段 Project Root，直接透传给 POST /api/agent/workflow/runs；本地检查与写盘结果从
  *   <State Root>/workspace/<projectRoot> 读取，因此脚本与 dev server 必须使用同一 State Root。
  *
- * 用法示例（在仓库根执行）：
- *   bun scripts/smoke/writing-workflow-smoke.ts --help
- *   bun scripts/smoke/writing-workflow-smoke.ts --project ming-ding-zhi-shi-2 \
+ * 用法示例（在应用包目录执行）：
+ *   bun run smoke:writing-workflow -- --help
+ *   bun run smoke:writing-workflow -- --project ming-ding-zhi-shi-2 \
  *     --chapters manuscript/001-volume/001-chapter/index.md,manuscript/001-volume/002-chapter/index.md \
  *     --write-chapter manuscript/001-volume/003-chapter/index.md \
  *     --brief "写一段冒烟测试用的过场戏"
  *
  * 环境变量：
- *   AGENT_HTTP_BASE_URL   dev server 地址，默认 http://localhost:3000（与 smoke-agent-http.ts 同口径）。
+ *   AGENT_HTTP_BASE_URL   dev server 地址，默认 http://localhost:3000（与 agent-http.ts 同口径）。
  */
 
 import {existsSync, statSync} from "node:fs";
@@ -171,7 +171,7 @@ function printUsage(): void {
         "写作 workflow 端到端冒烟（真实模型，Task 122 + Task 116 cancel）",
         "",
         "用法：",
-        "  bun scripts/smoke/writing-workflow-smoke.ts --project <project-root> [options]",
+        "  bun run smoke:writing-workflow -- --project <project-root> [options]",
         "",
         "参数：",
         "  --project <root>        必填。测试项目的单段 Project Root",
@@ -372,7 +372,7 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 与 smoke-agent-http.ts 同口径的最小 fetch 封装。 */
+/** 与 agent-http.ts 同口径的最小 fetch 封装。 */
 async function requestJson(pathname: string, input: {method: "GET" | "POST"; body?: unknown}): Promise<unknown> {
     const response = await fetch(`${BASE_URL}${pathname}`, {
         method: input.method,

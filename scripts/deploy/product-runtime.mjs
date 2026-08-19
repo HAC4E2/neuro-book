@@ -6,7 +6,7 @@ import {cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile} from "node:f
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {check as checkLock, lock as acquireLock} from "proper-lockfile";
-import {resolveAgentAcceptanceRoot} from "../utils/agent-paths.ts";
+import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BUILD_OUTPUT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || ".output");

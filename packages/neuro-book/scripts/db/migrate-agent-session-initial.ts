@@ -84,7 +84,9 @@ async function migrateSessionFile(filePath: string, dryRun: boolean): Promise<"m
         throw new Error("缺少 header record");
     }
 
-    const header = JSON.parse(lines[headerIndex]) as {
+    const headerLine = lines[headerIndex];
+    if (headerLine === undefined) throw new Error("header record 索引越界");
+    const header = JSON.parse(headerLine) as {
         kind: "header";
         metadata?: Record<string, unknown>;
     };
@@ -125,6 +127,7 @@ function parseArgs(args: string[]): MigrationOptions {
     let dryRun = false;
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
+        if (arg === undefined) throw new Error("命令行参数解析越界");
         if (arg === "--dry-run") {
             dryRun = true;
             continue;

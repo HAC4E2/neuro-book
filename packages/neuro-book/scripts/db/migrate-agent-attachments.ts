@@ -49,6 +49,7 @@ function parseArgs(args: string[]): CliOptions {
     let runId: string | undefined;
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
+        if (arg === undefined) throw new UsageError("命令行参数解析越界");
         if (arg === "--rollback") {
             const value = args[index + 1];
             if (!value || value.startsWith("--")) {
