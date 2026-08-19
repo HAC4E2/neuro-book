@@ -27,6 +27,8 @@ COPY packages/nb-workflow/package.json ./packages/nb-workflow/package.json
 COPY packages/nb-memory/package.json ./packages/nb-memory/package.json
 COPY packages/nb-ui/package.json ./packages/nb-ui/package.json
 COPY packages/neuro-agent-harness/package.json ./packages/neuro-agent-harness/package.json
+COPY packages/neuro-agent-harness/tsconfig.json packages/neuro-agent-harness/tsconfig.build.json ./packages/neuro-agent-harness/
+COPY packages/neuro-agent-harness/src ./packages/neuro-agent-harness/src
 COPY packages/llmlint/package.json ./packages/llmlint/package.json
 COPY patches ./patches
 RUN cp bun.lock /tmp/bun.lock \
@@ -43,6 +45,7 @@ ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN bun run --cwd packages/neuro-agent-harness build
 RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build
 RUN test -f .output/runtime-image.json && test -f .output/runtime-image.ready
 

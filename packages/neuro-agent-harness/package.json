@@ -42,10 +42,10 @@
     ],
     "scripts": {
         "build": "tsc -p tsconfig.build.json",
-        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "typecheck": "bun run build && tsc --noEmit -p tsconfig.json",
         "test": "bun test --parallel=1",
         "test:bounded": "bun scripts/test-with-timeout.ts",
-        "verify": "bun run typecheck && bun run build && bun test --parallel=1",
+        "verify": "bun run typecheck && bun test --parallel=1",
         "pack:smoke": "bun scripts/pack-smoke.ts",
         "prepack": "bun run verify"
     },

@@ -42,7 +42,9 @@ describe("规则模型活契约文档", () => {
         // `reverse-not-is`，那其实是规则 id）。只看 handler 那张表，别把基座字段表也算进来。
         const sectionStart = doc.indexOf("当前已注册的 handler：");
         expect(sectionStart, "文档缺少 handler 名单小节").toBeGreaterThan(-1);
-        const section = doc.slice(sectionStart, doc.indexOf("\n\n", doc.indexOf("|", sectionStart)) + 1);
+        const tableStart = doc.indexOf("|", sectionStart);
+        const tableEndOffset = doc.slice(tableStart).search(/\r?\n\r?\n/u);
+        const section = doc.slice(sectionStart, tableEndOffset < 0 ? undefined : tableStart + tableEndOffset);
         const listed = [...section.matchAll(/^\|\s*`([a-z][a-z0-9-]*)`\s*\|/gmu)].map((match) => match[1]!).sort();
         expect(listed.length, "未能从文档解析出 handler 表格，表格格式可能已变").toBeGreaterThanOrEqual(registered.length);
 

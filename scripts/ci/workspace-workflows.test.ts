@@ -154,6 +154,10 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             expect(row.directory).toBe(`packages/${row.name as string}`);
             expect(String(row.commands ?? "").trim()).not.toBe("");
         }
+        const harnessRow = rows.find((row) => row.name === "neuro-agent-harness");
+        expect(String(harnessRow?.commands ?? "")).toContain("bun run verify");
+        const uiRow = rows.find((row) => row.name === "nb-ui");
+        expect(String(uiRow?.commands ?? "")).toContain("bun run test");
         const packageStep = packageJob?.steps?.find((step) => step.name === "Run package checks");
         expect(packageStep).toMatchObject({"working-directory": "${{ matrix.directory }}", run: "${{ matrix.commands }}"});
         const webSteps = workflow.jobs["llmlint-web"].steps ?? [];
