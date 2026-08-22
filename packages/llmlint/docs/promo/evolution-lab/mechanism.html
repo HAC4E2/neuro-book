@@ -282,6 +282,44 @@
     .recycle.on { background: rgba(232, 170, 35, .28); box-shadow: inset 0 0 0 2px var(--coral-deep); }
     .demo-hint { margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center; }
     .demo-hint b { color: var(--teal-deep); }
+    /* ── 名册聚光灯 ── */
+    .roster { transition: box-shadow .35s ease, transform .35s ease; }
+    .roster.on { transform: translate(-2px, -2px); box-shadow: 8px 8px 0 var(--coral-deep); }
+
+    /* ── 进化沙盘 ── */
+    .sandbox { margin-top: 30px; background: var(--paper); border: 3px solid var(--ink); box-shadow: 8px 8px 0 var(--ink); padding: 22px; }
+    .sb-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .sb-round { background: var(--ink); color: #fff; font-weight: 900; padding: 3px 14px; letter-spacing: .15em; }
+    .sb-round b { color: var(--gold); font-size: 1.2em; }
+    .sb-phase { font-weight: 900; font-size: 20px; color: var(--coral-deep); }
+    .sb-note { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+    .sb-arena { display: flex; gap: 20px; align-items: stretch; }
+    .sb-lanes { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .sb-lane { position: relative; border: 3px solid var(--ink); background: var(--bg-main); padding: 14px 10px 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 158px; transition: box-shadow .45s ease, filter .45s ease; }
+    .sb-cricket { background: var(--ink); color: #fff; font-weight: 900; padding: 3px 12px; letter-spacing: .1em; transition: opacity .45s ease; }
+    .sb-paper { border: 2px dashed var(--muted); background: #fff; width: 100%; text-align: center; padding: 14px 6px; font-weight: 800; font-size: 13px; }
+    .sb-score { min-height: 24px; font-weight: 900; color: var(--teal-deep); opacity: 0; transition: opacity .45s ease; }
+    .sb-mark { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 32px; font-weight: 900; color: var(--coral-deep); background: rgba(238, 242, 245, .85); letter-spacing: .08em; }
+    .sb-lane.sb-dead .sb-paper, .sb-lane.sb-dead .sb-cricket { filter: grayscale(1); opacity: .55; }
+    .sb-lane.sb-dead .sb-mark { display: flex; }
+    .sb-lane.sb-alive { box-shadow: 0 0 0 3px var(--gold); }
+    .sb-lane.sb-alive::after { content: "存活"; position: absolute; top: -12px; right: -8px; background: var(--teal); color: #fff; font-size: 12px; font-weight: 900; padding: 2px 8px; transform: rotate(6deg); border: 2px solid var(--ink); }
+    .sandbox.sb-blind .sb-cricket { opacity: .25; }
+    .sb-score { opacity: 1; }
+    .sandbox:not(.sb-blind) .sb-score:empty { opacity: 0; }
+    .sb-side { width: 190px; display: flex; flex-direction: column; gap: 14px; justify-content: center; }
+    .sb-official { border: 3px solid var(--ink); background: var(--paper); padding: 12px 14px; opacity: .35; transition: all .45s ease; }
+    .sb-official b { display: block; font-size: 15px; }
+    .sb-official small { color: var(--muted); font-size: 12px; }
+    .sb-official.on { opacity: 1; box-shadow: 5px 5px 0 var(--gold); transform: translate(-2px, -2px); }
+    @media (max-width: 860px) {
+        .sb-arena { flex-direction: column; }
+        .sb-side { width: auto; flex-direction: row; }
+        .sb-side .sb-official { flex: 1; }
+    }
+    @media (max-width: 520px) {
+        .sb-lanes { grid-template-columns: 1fr; }
+    }
 
     a:focus-visible { outline: 3px dashed var(--teal-deep); outline-offset: 3px; }
 
@@ -331,7 +369,7 @@
     <div class="wrap">
         <span class="kicker">全场名册</span>
         <h2>四个位置，<span class="hl">各就各位</span></h2>
-        <p class="sub">先把最容易混淆的角色钉死——尤其 Critic，它不当裁判：</p>
+        <p class="sub">先把最容易混淆的角色钉死——尤其 Critic，它不当裁判。四张卡会轮流点亮帮你认人：</p>
         <div class="duo">
             <div class="card roster">
                 <span class="tag">人类</span>
@@ -439,6 +477,41 @@
         </div>
         <div class="recycle">↺ 幸存者变异出新候选、场外新鲜血液报名进场——回到第 1 步，下一轮开卷。</div>
         <div class="honor"><b>为什么不让作者和裁判互相喂着进化？</b>因为会闭环：作者学会讨好裁判 → 裁判在讨好稿上显得越来越准 → 双方一起飘离真人口味。所以两池交替更新——裁判的资格只由封存的真人考卷决定，作者的生死只由真人评分决定，谁也别想绕过人类发奖。</div>
+        <!-- 动画演示 · 一轮进化沙盘 -->
+        <div class="sandbox" id="evoStage">
+            <div class="sb-head">
+                <span class="sb-round">第 <b id="sbGen">1</b> 轮</span>
+                <span class="sb-phase" id="sbPhase">生成</span>
+                <span class="sb-note">自动演示 · 循环播放 · 数据为虚构示例</span>
+            </div>
+            <div class="sb-arena">
+                <div class="sb-lanes">
+                    <div class="sb-lane">
+                        <span class="sb-cricket">蛐蛐甲</span>
+                        <span class="sb-paper">蛐蛐甲的文稿</span>
+                        <span class="sb-score"></span>
+                        <span class="sb-mark">✕ 淘汰</span>
+                    </div>
+                    <div class="sb-lane">
+                        <span class="sb-cricket">蛐蛐乙</span>
+                        <span class="sb-paper">蛐蛐乙的文稿</span>
+                        <span class="sb-score"></span>
+                        <span class="sb-mark">✕ 淘汰</span>
+                    </div>
+                    <div class="sb-lane">
+                        <span class="sb-cricket">蛐蛐丙</span>
+                        <span class="sb-paper">蛐蛐丙的文稿</span>
+                        <span class="sb-score"></span>
+                        <span class="sb-mark">✕ 淘汰</span>
+                    </div>
+                </div>
+                <div class="sb-side">
+                    <div class="sb-official sb-human"><b>真人评委团</b><small>匿名盲评 · 唯一真值</small></div>
+                    <div class="sb-official sb-reviewer"><b>AI 裁判</b><small>影子记账 · 不判生死</small></div>
+                </div>
+            </div>
+            <p class="demo-hint">沙盘自动循环：<b>每轮淘汰一名最低分，幸存者变异并迎来新选手</b>；真人打分永远发生在 AI 记账之前——这就是「有武德的残酷」。</p>
+        </div>
     </div>
 </section>
 
@@ -618,6 +691,109 @@
             if (nodes[cur]) nodes[cur].classList.add("on");
         }, 1150);
     }
+})();
+</script>
+<script>
+(function () {
+    "use strict";
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // 演示一：全场名册轮流点亮
+    var cards = [].slice.call(document.querySelectorAll("#roster .roster"));
+    if (cards.length && !reduced && ("IntersectionObserver" in window)) {
+        var rVisible = false, ri = -1;
+        new IntersectionObserver(function (es) {
+            es.forEach(function (en) { rVisible = en.isIntersecting; });
+        }, { threshold: 0.2 }).observe(cards[0]);
+        setInterval(function () {
+            if (!rVisible) return;
+            if (ri >= 0) cards[ri].classList.remove("on");
+            ri = (ri + 1) % cards.length;
+            cards[ri].classList.add("on");
+        }, 1500);
+    }
+
+    // 演示二：一轮进化沙盘
+    var stage = document.getElementById("evoStage");
+    if (!stage) return;
+    var genEl = document.getElementById("sbGen");
+    var phaseEl = document.getElementById("sbPhase");
+    var lanes = [].slice.call(stage.querySelectorAll(".sb-lane"));
+    var human = stage.querySelector(".sb-human");
+    var reviewer = stage.querySelector(".sb-reviewer");
+    var names = ["蛐蛐甲", "蛐蛐乙", "蛐蛐丙"];
+    var pool = ["蛐蛐丁", "蛐蛐戊", "蛐蛐己", "蛐蛐庚"];
+    var scoreSets = [["想读 4.6", "想读 3.9", "想读 2.8"], ["想读 4.1", "想读 2.9", "想读 4.4"], ["想读 3.3", "想读 4.2", "想读 3.8"]];
+
+    function applyScores() {
+        var set = scoreSets[(gen - 1) % scoreSets.length];
+        lanes.forEach(function (l, i) { l.querySelector(".sb-score").textContent = set[i]; });
+        return set;
+    }
+    function clearMarks() {
+        lanes.forEach(function (l) { l.classList.remove("sb-dead"); l.classList.remove("sb-alive"); });
+    }
+
+    if (reduced) {
+        // 静态海报：定格在「匿名盲评」
+        stage.classList.add("sb-blind");
+        lanes.forEach(function (l, i) {
+            l.querySelector(".sb-paper").textContent = "匿名稿 " + "ABC"[i];
+            l.querySelector(".sb-score").textContent = scoreSets[0][i];
+        });
+        human.classList.add("on");
+        phaseEl.textContent = "匿名盲评";
+        return;
+    }
+
+    var gen = 1, poolIdx = 0, visible = false, pi = -1;
+    new IntersectionObserver(function (es) {
+        es.forEach(function (en) { visible = en.isIntersecting; });
+    }, { threshold: 0.2 }).observe(stage);
+
+    var phases = [
+        { label: "生成", ms: 1700, enter: function () {
+            stage.classList.remove("sb-blind");
+            clearMarks();
+            lanes.forEach(function (l, i) {
+                l.querySelector(".sb-cricket").textContent = names[i];
+                l.querySelector(".sb-paper").textContent = names[i] + "的文稿";
+                l.querySelector(".sb-score").textContent = "";
+            });
+            human.classList.remove("on"); reviewer.classList.remove("on");
+            genEl.textContent = gen;
+        } },
+        { label: "匿名盲评", ms: 2200, enter: function () {
+            stage.classList.add("sb-blind");
+            lanes.forEach(function (l, i) { l.querySelector(".sb-paper").textContent = "匿名稿 " + "ABC"[i]; });
+            applyScores();
+            human.classList.add("on");
+        } },
+        { label: "筛选", ms: 2200, enter: function () {
+            var set = applyScores();
+            var dead = set.indexOf(Math.min.apply(null, set));
+            lanes.forEach(function (l, i) { l.classList.add(i === dead ? "sb-dead" : "sb-alive"); });
+        } },
+        { label: "变异 · 新人入场", ms: 1900, enter: function () {
+            var set = scoreSets[(gen - 1) % scoreSets.length];
+            var dead = set.indexOf(Math.min.apply(null, set));
+            names[dead] = pool[poolIdx++ % pool.length];
+            gen += 1;
+            clearMarks();
+        } },
+        { label: "AI 裁判影子记账", ms: 1900, enter: function () {
+            reviewer.classList.add("on");
+        } }
+    ];
+
+    setTimeout(function next() {
+        if (!visible) { setTimeout(next, 500); return; }
+        pi = (pi + 1) % phases.length;
+        var p = phases[pi];
+        p.enter();
+        phaseEl.textContent = p.label;
+        setTimeout(next, p.ms);
+    }, 600);
 })();
 </script>
 </body>
