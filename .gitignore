@@ -134,3 +134,11 @@ t16-editor-heat.png
 # Manager test bundle outputs
 /.tmp-manager-external-yaml/
 /.tmp-manager-node-build/
+
+# 全局兜底：构建增量缓存、运行日志与 OS 残留；已跟踪文件不受 gitignore 影响。
+*.log
+*.tsbuildinfo
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
