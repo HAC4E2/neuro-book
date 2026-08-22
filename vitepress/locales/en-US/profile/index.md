@@ -81,4 +81,4 @@ There is one more kind that never lands in a directory: the **adhoc profile**, a
 - [Leader](./leader.md): how the default leader dispatches writing, retrieval, research and RP.
 - [Writer](./writer.md): the prose-writing boundaries of the ordinary writer.
 - [Other Profiles](./other-profiles.md): retrieval, summarizer, assets and the RP profiles.
-- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md): the main entry point for profile authors.
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md): the main entry point for profile authors.

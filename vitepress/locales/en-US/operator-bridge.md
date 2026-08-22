@@ -210,7 +210,7 @@ docker compose --env-file .env -f .deploy/docker-compose.generated.yml ps
 docker compose --env-file .env -f .deploy/docker-compose.generated.yml logs --tail 200 app
 ```
 
-On Windows Portable, `.env` lives in `data/`; Docker profiles default to the Installation Root. GHCR should show a digest-pinned image; Source Docker should show the root Dockerfile as the build context, not the deleted source runtime Dockerfile.
+On Windows Portable, `.env` lives in `data/`; Docker profiles default to the Installation Root. GHCR should show a digest-pinned image; Source Docker uses the monorepo root as build context and builds from `packages/neuro-book/Dockerfile`, not a root Dockerfile.
 
 ## Git Troubleshooting
 

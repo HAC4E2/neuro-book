@@ -31,6 +31,7 @@
     "governance:context": "bun scripts/cli/agent-context.ts",
     "governance:worktree": "bun scripts/cli/create-agent-worktree.ts",
     "governance:migrate-tasks": "bun scripts/maintenance/migrate-agent-tasks.ts",
+    "governance:migrate-task-ownership": "bun scripts/maintenance/migrate-task-ownership.ts",
     "product:measure": "bun scripts/build/measure-product-runtime-image.ts",
     "product:policy:check": "bun scripts/build/check-product-runtime-policies.ts --require-all",
     "docker:publish": "bun scripts/deploy/publish-ghcr-image.mjs",
@@ -120,7 +121,7 @@
     "commander": "^14.0.2",
     "consola": "^3.4.2",
     "dayjs": "^1.11.19",
-    "diff": "^8.0.3",
+    "diff": "^9.0.0",
     "dompurify": "^3.3.3",
     "dotenv": "^17.2.3",
     "esbuild": "^0.27.2",
@@ -183,6 +184,9 @@
     "vitest": "^4.1.2",
     "vue-tsc": "^3.3.7",
     "@notnotype/neuro-book-test-support": "workspace:*"
+  },
+  "overrides": {
+    "diff": "9.0.0"
   },
   "private": true,
   "patchedDependencies": {

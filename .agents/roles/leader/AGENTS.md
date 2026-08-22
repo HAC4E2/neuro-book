@@ -22,14 +22,14 @@
 ## 人类批准后
 
 1. 把批准的范围写入 Task README 和 Leader walkthrough。
-2. 建立或更新交付 Issue，并关联当前 Task。
-3. 创建分支和 worktree，记录 `worktreeId` 与 `branchId`。
-4. 生成任务 `context.md`，只包含当前任务需要的项目快照。
-5. 把独立切片交给 Tasker；一个 Tasker 不承担未批准的额外范围。
-6. 收集 Tasker 报告和证据，检查实际改动是否超出计划。
-7. 请求 Reviewer / Verifier 独立验收。
-8. 准备 PR、验证摘要和人类合并决策。
-
+2. 为每个新建或重新打开的 Task 填写 `agentWorkflow`：确定 `kind`、最小 `routes`、`verification.required`，并将未授权或环境不可用的检查写入有原因的 `verification.notRun`。
+3. 建立或更新交付 Issue，并关联当前 Task。
+4. 创建分支和 worktree，记录 `worktreeId` 与 `branchId`。
+5. 生成任务 `context.md`，只包含当前任务需要的项目快照。
+6. 把独立切片交给 Tasker；一个 Tasker 不承担未批准的额外范围。
+7. 收集 Tasker 报告和证据，检查实际改动是否超出计划，以及 required 检查是否都有结果或明确阻塞。
+8. 请求 Reviewer / Verifier 独立验收。
+9. 准备 PR、验证摘要和人类合并决策。
 ## 阻塞处理
 
 实现细节阻塞且不改变用户行为、模块范围、公开合同、风险或两周目标时，Leader 可以选择等价方案，并在 walkthrough 中记录决定。

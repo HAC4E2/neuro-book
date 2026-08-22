@@ -12,10 +12,12 @@ import {
 } from "../../../src/theme/tokens";
 
 export type LabComponentId =
-    | "form-input" | "form-number-input" | "form-select" | "form-checkbox" | "time-picker"
-    | "button" | "icon-button" | "segmented-control" | "switch-field" | "dropdown" | "tabs"
-    | "badge" | "spinner"
-    | "pagination";
+    | "form-input" | "form-number-input" | "form-select" | "form-checkbox" | "time-picker" | "radio-group" | "slider" | "pin-input" | "calendar" | "date-picker" | "range-calendar" | "date-range-picker" | "date-field" | "time-field" | "month-picker" | "year-picker" | "listbox" | "color-picker" | "autocomplete" | "checkbox-group"
+    | "button" | "icon-button" | "segmented-control" | "toggle-group" | "switch" | "switch-field" | "dropdown" | "tabs" | "toolbar" | "menubar" | "editable" | "stepper"
+    | "badge" | "avatar" | "progress" | "kbd" | "spinner" | "rating"
+    | "pagination" | "breadcrumb" | "navigation-menu" | "tree"
+    | "splitter" | "accordion" | "scroll-area"
+    | "drawer" | "popover" | "alert-dialog";
 export type LabViewportId = "responsive" | "phone" | "tablet";
 export type LabControlType = "boolean" | "text" | "select";
 
@@ -365,6 +367,663 @@ export const labComponents: LabComponentDefinition[] = [
         ],
         targetSelector: "#nb-lab-target",
         events: ["update:page"],
+    },
+    {
+        id: "slider",
+        label: "Slider",
+        labelZh: "滑动条",
+        group: "表单",
+        description: "连续数值/范围调节滑动条；支持单值/双滑块范围、水平/垂直方向与多档尺寸。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "紧凑", value: "sm"},
+                {label: "默认", value: "md"},
+                {label: "大", value: "lg"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "radio-group",
+        label: "RadioGroup",
+        labelZh: "单选组",
+        group: "表单",
+        description: "单选选项组；支持纵向/横向排布、富描述文本与无障碍单选语义。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "orientation", label: "排布方向", type: "select", defaultValue: "vertical", options: [
+                {label: "纵向", value: "vertical"},
+                {label: "横向", value: "horizontal"},
+            ]},
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "紧凑", value: "sm"},
+                {label: "默认", value: "md"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "pin-input",
+        label: "PinInput",
+        labelZh: "验证码输入",
+        group: "表单",
+        description: "分格 PIN 码与加密口令输入；支持掩码模式、退格自动聚焦与完成回调。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "mask", label: "密文掩码", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue", "complete"],
+    },
+    {
+        id: "calendar",
+        label: "Calendar",
+        labelZh: "日历选择",
+        group: "表单",
+        description: "无障碍网格日历选择器；支持月份翻页、今日标记与键盘焦点导航。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "toggle-group",
+        label: "ToggleGroup",
+        labelZh: "切换组",
+        group: "控件",
+        description: "单选/多选切换按钮组；适配富文本排版操作栏与多重样式叠加。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [],
+        targetSelector: "#nb-lab-target",
+        events: ["update:formatting", "update:alignment"],
+    },
+    {
+        id: "switch",
+        label: "Switch",
+        labelZh: "开关",
+        group: "控件",
+        description: "现代胶囊开关控件；支持三档尺寸与平滑物理过渡动效。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "紧凑", value: "sm"},
+                {label: "默认", value: "md"},
+                {label: "大", value: "lg"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "toolbar",
+        label: "Toolbar",
+        labelZh: "工具栏",
+        group: "控件",
+        description: "编辑器操作工具栏容器；内置 Roving Focus 与语义分组支持。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "orientation", label: "方向", type: "select", defaultValue: "horizontal", options: [
+                {label: "水平", value: "horizontal"},
+                {label: "垂直", value: "vertical"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: [],
+    },
+    {
+        id: "avatar",
+        label: "Avatar",
+        labelZh: "头像",
+        group: "显示",
+        description: "人物与势力头像；支持图片加载平滑降级 Fallback 与现代超椭圆形态。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "shape", label: "形态", type: "select", defaultValue: "squircle", options: [
+                {label: "超椭圆 (Squircle)", value: "squircle"},
+                {label: "圆形 (Circle)", value: "circle"},
+            ]},
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "极小 (xs)", value: "xs"},
+                {label: "紧凑 (sm)", value: "sm"},
+                {label: "默认 (md)", value: "md"},
+                {label: "大 (lg)", value: "lg"},
+                {label: "特大 (xl)", value: "xl"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: [],
+    },
+    {
+        id: "progress",
+        label: "Progress",
+        labelZh: "进度条",
+        group: "显示",
+        description: "全胶囊圆角进度条；支持 4 种语义状态色与平滑位移动效。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "tone", label: "语调", type: "select", defaultValue: "accent", options: [
+                {label: "强调 (Accent)", value: "accent"},
+                {label: "成功 (Success)", value: "success"},
+                {label: "警告 (Warning)", value: "warning"},
+                {label: "危险 (Danger)", value: "danger"},
+            ]},
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "紧凑", value: "sm"},
+                {label: "默认", value: "md"},
+                {label: "大", value: "lg"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: [],
+    },
+    {
+        id: "kbd",
+        label: "Kbd",
+        labelZh: "快捷键帽",
+        group: "显示",
+        description: "实体物理键帽质感快捷键展示；支持等宽排版与三档尺寸。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "紧凑", value: "sm"},
+                {label: "默认", value: "md"},
+                {label: "大", value: "lg"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: [],
+    },
+    {
+        id: "breadcrumb",
+        label: "Breadcrumb",
+        labelZh: "面包屑",
+        group: "导航",
+        description: "层级目录与书库导航栏；支持图标、链接跳转与当前页无障碍标记。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [],
+        targetSelector: "#nb-lab-target",
+        events: ["click"],
+    },
+    {
+        id: "splitter",
+        label: "Splitter",
+        labelZh: "多栏分割",
+        group: "布局",
+        description: "多栏可调节分割工作区；支持水平/垂直方向、面板折叠与平滑拖拽吸附。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "direction", label: "方向", type: "select", defaultValue: "horizontal", options: [
+                {label: "水平", value: "horizontal"},
+                {label: "垂直", value: "vertical"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["layout"],
+    },
+    {
+        id: "accordion",
+        label: "Accordion",
+        labelZh: "手风琴折叠",
+        group: "布局",
+        description: "大纲章节手风琴折叠面板与轻量 Collapsible 容器；平滑高度动效。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "type", label: "展开模式", type: "select", defaultValue: "single", options: [
+                {label: "单项展开", value: "single"},
+                {label: "多项展开", value: "multiple"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "scroll-area",
+        label: "ScrollArea",
+        labelZh: "滚动区域",
+        group: "布局",
+        description: "平滑自定义滚动容器；内置自适应悬浮 macOS 胶囊滑块。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [],
+        targetSelector: "#nb-lab-target",
+        events: [],
+    },
+    {
+        id: "drawer",
+        label: "Drawer",
+        labelZh: "抽屉面板",
+        group: "浮层",
+        description: "四向滑出侧边抽屉；支持磨砂遮罩模糊与长篇设定集快速预览。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "direction", label: "弹出方向", type: "select", defaultValue: "right", options: [
+                {label: "右侧", value: "right"},
+                {label: "左侧", value: "left"},
+                {label: "底部", value: "bottom"},
+                {label: "顶部", value: "top"},
+            ]},
+            {id: "handle", label: "拖拽把手", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:open"],
+    },
+    {
+        id: "popover",
+        label: "Popover",
+        labelZh: "气泡与悬浮卡片",
+        group: "浮层",
+        description: "通用磨砂气泡卡片 (Popover) 与长文写作划词预览卡片 (HoverCard)。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "side", label: "弹出方位", type: "select", defaultValue: "bottom", options: [
+                {label: "下方", value: "bottom"},
+                {label: "上方", value: "top"},
+                {label: "左侧", value: "left"},
+                {label: "右侧", value: "right"},
+            ]},
+            {id: "arrow", label: "指示箭头", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:open"],
+    },
+    {
+        id: "alert-dialog",
+        label: "AlertDialog",
+        labelZh: "警示弹窗",
+        group: "浮层",
+        description: "破坏性操作二次确认模态窗；强制提供明确操作出口与多档语调。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "tone", label: "警示语调", type: "select", defaultValue: "danger", options: [
+                {label: "危险 (Danger)", value: "danger"},
+                {label: "警告 (Warning)", value: "warning"},
+                {label: "主要 (Accent)", value: "accent"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["confirm", "cancel"],
+    },
+    {
+        id: "menubar",
+        label: "Menubar",
+        labelZh: "桌面主菜单栏",
+        group: "控件",
+        description: "桌面端长篇写作与全屏工作区应用级主菜单栏，支持横向键盘无缝穿梭与子菜单快捷键。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+            ]},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["select"],
+    },
+    {
+        id: "editable",
+        label: "Editable",
+        labelZh: "行内即时编辑",
+        group: "控件",
+        description: "双击或点击即时切换编辑输入框，用于大纲章节名、角色名快速就地重命名。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "突出 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["submit"],
+    },
+    {
+        id: "stepper",
+        label: "Stepper",
+        labelZh: "步骤向导器",
+        group: "控件",
+        description: "新建作品向导、多格式电子书导出流程与发布流水线步骤指示器。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [
+            {id: "orientation", label: "排布方向", type: "select", defaultValue: "horizontal", options: [
+                {label: "水平排布", value: "horizontal"},
+                {label: "垂直排布", value: "vertical"},
+            ]},
+            {id: "linear", label: "线性约束", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "date-picker",
+        label: "DatePicker",
+        labelZh: "复合日期选择器",
+        group: "表单",
+        description: "输入框触发器与磨砂日历网格浮层，支持作品定档与发布计划选择。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "range-calendar",
+        label: "RangeCalendar",
+        labelZh: "区间选择日历",
+        group: "表单",
+        description: "在单个日历网格中连续选择起止日期区间，用于写作打卡统计与字数统计周期过滤。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "listbox",
+        label: "Listbox",
+        labelZh: "高级列表选择框",
+        group: "表单",
+        description: "长篇大纲章节批量选择、设定集人物/标签多选池，支持紧凑行、富实体卡片与分卷分组。",
+        scenes: [
+            {id: "default", label: "方案 1: macOS 经典紧凑检查器"},
+            {id: "card", label: "方案 2: 现代富实体卡片"},
+            {id: "grouped", label: "方案 3: 分段多组折叠大纲"},
+            {id: "transfer", label: "方案 4: 双栏穿梭流转分配器"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "variant", label: "展示形态", type: "select", defaultValue: "compact", options: [
+                {label: "紧凑列表 (Compact)", value: "compact"},
+                {label: "富实体卡片 (Card)", value: "card"},
+            ]},
+            {id: "multiple", label: "多选模式", type: "boolean", defaultValue: true},
+            {id: "showFilter", label: "搜索过滤条", type: "boolean", defaultValue: true},
+            {id: "showActionBar", label: "底部统计与全选栏", type: "boolean", defaultValue: true},
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "color-picker",
+        label: "ColorPicker",
+        labelZh: "取色器与调色板",
+        group: "表单",
+        description: "主题包定制调色与标签自定义色彩选择器，集成预设色板与 Hex 实时微调。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "rating",
+        label: "Rating",
+        labelZh: "星级评分条",
+        group: "显示",
+        description: "角色设定重要度评级、章节张力与满意度打分，支持悬浮动态弹性微动效。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "navigation-menu",
+        label: "NavigationMenu",
+        labelZh: "多栏形变导航菜单",
+        group: "导航",
+        description: "带平滑共享视口与指示器的高级导航菜单，支持鼠标滑动自适应平移与宽高形变过渡。",
+        scenes: [
+            {id: "default", label: "默认"},
+        ],
+        controls: [],
+        targetSelector: "#nb-lab-target",
+        events: ["select", "update:modelValue"],
+    },
+    {
+        id: "tree",
+        label: "Tree",
+        labelZh: "通用无限层级树",
+        group: "导航",
+        description: "无限层级大纲目录树，支持虚拟化滚动渲染、多选与无障碍键盘快捷遍历。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "multiple", label: "多选模式", type: "boolean"},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["select", "update:modelValue", "update:expanded"],
+    },
+    {
+        id: "date-range-picker",
+        label: "DateRangePicker",
+        labelZh: "复合日期区间选择器",
+        group: "表单",
+        description: "输入框触发器与磨砂区间日历浮层，支持作品活动与连载起止日期快速圈选。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "date-field",
+        label: "DateField",
+        labelZh: "分段日期输入框",
+        group: "表单",
+        description: "年/月/日分段独立输入框，支持 Tab 快速切换与上下键微调。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "time-field",
+        label: "TimeField",
+        labelZh: "分段时间输入框",
+        group: "表单",
+        description: "时/分/秒独立段落键盘快速键入，无需弹层即可精准输入时间。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "month-picker",
+        label: "MonthPicker",
+        labelZh: "月份与区间选择器",
+        group: "表单",
+        description: "月份网格与跨月区间选择，用于创作月报与月度字数统计分析。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "year-picker",
+        label: "YearPicker",
+        labelZh: "年份与跨年选择器",
+        group: "表单",
+        description: "年份网格与跨年代区间选择，用于宏观时间轴与编年史设定管理。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
+    },
+    {
+        id: "autocomplete",
+        label: "Autocomplete",
+        labelZh: "自动联想输入框",
+        group: "表单",
+        description: "设定集词条、人名与专有名词就地智能输入联想补全。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "size", label: "尺寸", type: "select", defaultValue: "md", options: [
+                {label: "标准 (Medium)", value: "md"},
+                {label: "紧凑 (Small)", value: "sm"},
+                {label: "大号 (Large)", value: "lg"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["select", "update:modelValue"],
+    },
+    {
+        id: "checkbox-group",
+        label: "CheckboxGroup",
+        labelZh: "复选框受控组合",
+        group: "表单",
+        description: "统一受控数组管理的多 Checkbox 容器，支持水平/垂直排布。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "disabled", label: "禁用", disabled: true},
+        ],
+        controls: [
+            {id: "orientation", label: "排布方向", type: "select", defaultValue: "vertical", options: [
+                {label: "垂直排布", value: "vertical"},
+                {label: "水平排布", value: "horizontal"},
+            ]},
+            {id: "disabled", label: "禁用状态", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue"],
     },
 ];
 

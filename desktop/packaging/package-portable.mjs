@@ -21,10 +21,13 @@ import {promisify} from "node:util";
 import {createPackage} from "../electron/node_modules/@electron/asar/lib/asar.js";
 import {assertPowerShellBom} from "../shared/src/powershell-bom.ts";
 import {writeZipArchive} from "../../scripts/utils/zip.ts";
-import {parseDesktopPortableManifest} from "../../shared/desktop-contract.ts";
-import {ProductRuntimeImageVerifier} from "../../shared/product-runtime-image-verifier.ts";
-import {readProductRuntimeContract} from "../../shared/product-runtime-contract.ts";
-import {createProductRuntimeVerificationReceipt, writeProductRuntimeVerificationReceipt} from "../../shared/product-runtime-receipt.ts";
+import {parseDesktopPortableManifest} from "@notnotype/neuro-book-contracts/desktop";
+import {createProductRuntimeVerificationReceipt} from "@notnotype/neuro-book-contracts/product-runtime";
+import {
+    ProductRuntimeImageVerifier,
+    readProductRuntimeContract,
+    writeProductRuntimeVerificationReceipt,
+} from "@notnotype/neuro-book-manager/product-runtime-verifier";
 import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,

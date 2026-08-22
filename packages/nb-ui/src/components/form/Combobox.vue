@@ -11,7 +11,7 @@ import type {FormSelectOption} from "./FormSelect.vue";
 export type ComboboxSize = "default" | "sm";
 
 const props = withDefaults(defineProps<{
-    modelValue: string | null;
+    modelValue?: string | null;
     options: (string | FormSelectOption)[];
     id?: string;
     name?: string;
@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
     required?: boolean;
     size?: ComboboxSize;
 }>(), {
+    modelValue: null,
     id: "",
     name: "",
     placeholder: "",

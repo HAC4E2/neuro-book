@@ -55,4 +55,4 @@
 ## 继续阅读
 
 - [设置中心](/guide/settings)
-- [主题系统参考](https://github.com/notnotype/neuro-book/blob/master/reference/theme/system.md)
+- [主题系统参考](https://github.com/notnotype/neuro-book/blob/master/docs/specs/theme/system.md)

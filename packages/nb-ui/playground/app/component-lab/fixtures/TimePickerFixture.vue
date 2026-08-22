@@ -47,22 +47,28 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <FormField
-            label="提醒时间"
-            for="nb-lab-target"
-            :error="scene.invalid ? '请选择有效时间' : ''"
-            description="切到 macOS 主题时这里变成滚轮实现，v-model 契约不变。"
-        >
-            <TimePicker
-                id="nb-lab-target"
-                v-model="value"
-                :min="String(controls.min ?? '08:00')"
-                :max="String(controls.max ?? '20:00')"
-                :step="stepMinutes"
-                :invalid="scene.invalid === true"
-                :disabled="scene.disabled === true"
-                @update:model-value="report('update:modelValue', {value: $event})"
-            />
-        </FormField>
+        <div class="macos-compact-card space-y-4">
+            <h3 class="text-sm font-bold text-[var(--text-main)] pb-2 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)]">
+                时间选择器 (TimePicker)
+            </h3>
+
+            <FormField
+                label="提醒时间"
+                for="nb-lab-target"
+                :error="scene.invalid ? '请选择有效时间' : ''"
+                description="切到 macOS 主题时这里变成滚轮实现，v-model 契约不变。"
+            >
+                <TimePicker
+                    id="nb-lab-target"
+                    v-model="value"
+                    :min="String(controls.min ?? '08:00')"
+                    :max="String(controls.max ?? '20:00')"
+                    :step="stepMinutes"
+                    :invalid="scene.invalid === true"
+                    :disabled="scene.disabled === true"
+                    @update:model-value="report('update:modelValue', {value: $event})"
+                />
+            </FormField>
+        </div>
     </FixtureShell>
 </template>

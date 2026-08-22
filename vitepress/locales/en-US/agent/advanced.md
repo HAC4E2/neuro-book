@@ -29,7 +29,7 @@ Agent sessions use JSONL append-only storage, and the frontend syncs current sta
 
 ## Keep Reading
 
-- [Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/reference/agent/runtime-hooks.md): implementation reference for the five lifecycle stages.
-- [Agent SSE](https://github.com/notnotype/neuro-book/blob/master/reference/agent/sse.md): the frontend sync event contract.
-- [Harness Black-Box Contract](https://github.com/notnotype/neuro-book/blob/master/.agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md): the external behavior contract for prompt / continue / steer / followup.
-- [How Agent Context Is Assembled](https://github.com/notnotype/neuro-book/blob/master/reference/agent/context.md): how the context for one invocation is put together.
+- [Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/runtime-hooks.md): implementation reference for the five lifecycle stages.
+- [Agent SSE](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/sse.md): the frontend sync event contract.
+- [Harness Black-Box Contract](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/.agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md): the external behavior contract for prompt / continue / steer / followup.
+- [How Agent Context Is Assembled](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/context.md): how the context for one invocation is put together.

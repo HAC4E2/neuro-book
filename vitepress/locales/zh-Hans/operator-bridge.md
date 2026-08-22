@@ -210,7 +210,7 @@ docker compose --env-file .env -f .deploy/docker-compose.generated.yml ps
 docker compose --env-file .env -f .deploy/docker-compose.generated.yml logs --tail 200 app
 ```
 
-Windows Portable 的 `.env` 在 `data/`；Docker Profile 默认在 Installation Root。GHCR 应看到 digest 固定镜像；Source Docker 应看到根 Dockerfile build context，而不是已删除的 source runtime Dockerfile。
+Windows Portable 的 `.env` 在 `data/`；Docker Profile 默认在 Installation Root。GHCR 应看到 digest 固定镜像；Source Docker 使用 monorepo 根作为 build context，并从 `packages/neuro-book/Dockerfile` 构建，不再使用已删除的根 Dockerfile。
 
 ## Git 排障
 

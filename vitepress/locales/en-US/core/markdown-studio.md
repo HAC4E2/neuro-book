@@ -87,6 +87,6 @@ Agents read and write through the same paths. **What you see and what the AI see
 
 ## Further reading
 
-- [Full Markdown Dialect Spec](https://github.com/notnotype/neuro-book/blob/master/reference/content/markdown-dialect.md)
+- [Full Markdown Dialect Spec](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/content/markdown-dialect.md)
 - [llmlint Prose Linting](/en/core/llmlint): lint the manuscript once it is written.
 - [Meet Your Novel Studio](/en/tutorials/01-studio-tour): a tour of the interface.

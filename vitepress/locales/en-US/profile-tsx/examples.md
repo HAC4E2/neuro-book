@@ -1,6 +1,6 @@
 # Examples
 
-This page collects a few common ways to write a Profile TSX file. The [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md) is the authority on the full contract.
+This page collects a few common ways to write a Profile TSX file. The [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md) is the authority on the full contract.
 
 ## Minimal profile
 

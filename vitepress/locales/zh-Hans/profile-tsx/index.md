@@ -59,5 +59,5 @@ bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system
 - [从零写一个 Profile](./authoring.md)
 - [节点说明](./nodes.md)
 - [示例](./examples.md)
-- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)
-- [Agent 上下文构成](https://github.com/notnotype/neuro-book/blob/master/reference/agent/context.md)
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md)
+- [Agent 上下文构成](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/context.md)

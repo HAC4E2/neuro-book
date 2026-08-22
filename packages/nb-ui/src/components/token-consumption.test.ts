@@ -28,6 +28,10 @@ const LITERAL_RADIUS_ALLOWLIST = new Map<string, string>([
     ["feedback/DialogWindow.vue", "窗口外框圆角是否消费 --radius-dialog 是独立设计决策，未裁决前登记在此"],
 ]);
 
+const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([
+    ["form/ColorPicker.vue", "ColorPicker 是取色器与调色板，预设色板需要字面色彩常量"],
+]);
+
 function collectVueFiles(dir: string): string[] {
     const out: string[] = [];
     for (const entry of readdirSync(dir, {withFileTypes: true})) {
@@ -78,6 +82,7 @@ const RULES: Rule[] = [
         name: "组件不写字面颜色",
         pattern: /#[0-9a-fA-F]{3,8}\b|\brgba?\(/,
         reason: "颜色来自配色变量或 token（ui-development-spec §2.2）",
+        allowlist: LITERAL_COLOR_ALLOWLIST,
     },
     {
         name: "禁 transition-all",
@@ -116,7 +121,7 @@ describe("组件 token 消费静态扫描", () => {
 
     it("豁免清单里的文件仍然存在（防止豁免变成死条目）", () => {
         const existing = new Set(files.map((path) => join(path).slice(COMPONENTS_DIR.length + 1).replaceAll("\\", "/")));
-        for (const rel of LITERAL_RADIUS_ALLOWLIST.keys()) {
+        for (const rel of [...LITERAL_RADIUS_ALLOWLIST.keys(), ...LITERAL_COLOR_ALLOWLIST.keys()]) {
             expect(existing.has(rel), `${rel} 已不存在，应从豁免清单移除`).toBe(true);
         }
     });

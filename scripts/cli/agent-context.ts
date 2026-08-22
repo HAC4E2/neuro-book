@@ -8,6 +8,7 @@ import {
     gitBranch,
     gitRevision,
     governanceRoots,
+    resolveTaskReadmePath,
 } from "#scripts/ci/agent-governance-contract";
 
 const args = process.argv.slice(2);
@@ -26,9 +27,13 @@ if (task && !/^(?:\d{2,5}-[A-Za-z0-9][A-Za-z0-9._-]*|archived\/[A-Za-z0-9][A-Za-
     failures.push(`Task 标识格式无效：${task}`);
 }
 
-const taskPath = task ? resolve(repoRoot, ".agents", "tasks", task, "README.md") : null;
-const taskExists = taskPath !== null && existsSync(taskPath);
-if (task && !taskExists) failures.push(`Task README 不存在：.agents/tasks/${task}/README.md`);
+function findTaskReadmePath(repoRoot: string, task: string): {path: string | null; checkedRoots: string[]; failures: string[]} {
+    return resolveTaskReadmePath(repoRoot, task);
+}
+
+const taskResolution = task ? findTaskReadmePath(repoRoot, task) : {path: null, checkedRoots: [], failures: []};
+failures.push(...taskResolution.failures);
+if (task && !taskResolution.path) failures.push(`Task README 不存在：${task}；已检查 root：${taskResolution.checkedRoots.join(", ") || "无"}`);
 
 const statusText = existsSync(resolve(repoRoot, "PROJECT-STATUS.md"))
     ? readFileSync(resolve(repoRoot, "PROJECT-STATUS.md"), "utf8")
@@ -46,7 +51,8 @@ const report = {
     worktree: worktreePath,
     role: role ?? null,
     task: task ?? null,
-    taskReadme: taskExists ? taskPath : null,
+    taskReadme: taskResolution.path,
+    taskReadmeCheckedRoots: taskResolution.checkedRoots,
     status: statusLine.replace(/^>\s*/u, "").trim(),
     roots,
     trackedChanges: git(repoRoot, ["status", "--short"]),

@@ -44,5 +44,5 @@ The researcher normally returns plain Markdown results with source links rather 
 
 ## Keep Reading
 
-- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/README.md)
 - [Agent Workflows and Jobs](/en/agent/workflow)

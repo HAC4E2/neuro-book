@@ -66,6 +66,6 @@ SillyTavern character card import **still works**: an `inspect → unpack → im
 ## More Entry Points
 
 - [Release History](/en/changelog/): what changed in past versions and what to watch out for when upgrading.
-- [NeuroBook Reference Bookshelf](https://github.com/notnotype/neuro-book/blob/master/reference/README.md): stable references written for implementers.
-- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md): implementation contracts for sessions, profiles, tools, skills and workflows.
+- [NeuroBook Reference Bookshelf](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/README.md): stable references written for implementers.
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/README.md): implementation contracts for sessions, profiles, tools, skills and workflows.
 - [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md): the project's English entry on GitHub.

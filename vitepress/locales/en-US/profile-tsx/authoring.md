@@ -108,5 +108,5 @@ A profile carries a status and a set of issue codes. The common ones:
 
 - [Node Reference](./nodes.md): the 28 DSL nodes and the rules for which layer they belong to.
 - [Examples](./examples.md): skeletons you can copy directly.
-- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md): the full contract.
-- [Compiled Artifacts](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-compiled-artifacts.md): the `.compiled` format and the release flow.
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md): the full contract.
+- [Compiled Artifacts](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-compiled-artifacts.md): the `.compiled` format and the release flow.

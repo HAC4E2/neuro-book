@@ -46,13 +46,19 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <div class="lab-fixture__center">
-            <Pagination
-                id="nb-lab-target"
-                v-model:page="page"
-                :page-count="pageCount"
-                @update:page="report('update:page', {value: $event})"
-            />
+        <div class="macos-compact-card space-y-4">
+            <h3 class="text-sm font-bold text-[var(--text-main)] pb-2 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)]">
+                分页控制器 (Pagination)
+            </h3>
+
+            <div class="lab-fixture__center">
+                <Pagination
+                    id="nb-lab-target"
+                    v-model:page="page"
+                    :page-count="pageCount"
+                    @update:page="report('update:page', {value: $event})"
+                />
+            </div>
         </div>
     </FixtureShell>
 </template>

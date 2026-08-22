@@ -13,6 +13,7 @@
 
 ## 实施
 
+- 规范与代码同步演进：开发、审查、微调或重构组件时，随时主动更新 [`docs/ui-development-spec.md`](docs/ui-development-spec.md) 与相关 UI 规范，使规范文档始终作为活文档与代码实现严格对齐。
 - 公共交互优先由 Reka UI 原语承担；原生元素已经提供完整语义和键盘行为时保留原生实现。
 - 组件只消费已登记的语义 token 与 `src/styles.css` 公共基座。新增变量先判断归属，禁止为单个消费点增加公共 token。
 - playground 调试代码留在 `playground/`，不从包入口导出。组件实验必须在 `/lab` 登记；完整组合仍在 `/components` 验收。

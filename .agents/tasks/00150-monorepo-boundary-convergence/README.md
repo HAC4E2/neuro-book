@@ -4,9 +4,9 @@ taskId: 00150-monorepo-boundary-convergence
 actionIssueId: null
 worktreeId: null
 branchId: master
-status: in-progress
+status: completed
 createdAt: 2026-08-19T08:29:41Z
-updatedAt: 2026-08-19T08:29:41Z
+updatedAt: 2026-08-20T08:41:47Z
 ---
 
 # Monorepo 边界收敛
@@ -33,3 +33,7 @@ updatedAt: 2026-08-19T08:29:41Z
 ## 完成标准
 
 批准计划的六个迁移阶段完成 clean cutover；所有旧入口和物理根消费者删除；文档、脚本、Task、Reference、Manager/Desktop 的聚焦验证通过；全局治理、文档构建、应用和 scripts 类型检查通过。未授权的真实 Provider、Docker、Windows runner/portable、浏览器人工验收、发布、部署、tag、数据库 migration 和旧 worktree 删除继续明确记录为未执行。
+
+## 追加边界收敛
+
+在原计划完成后继续收敛应用交付配置：`Dockerfile*`、`docker-compose.yml`、`.env.docker.example` 与包级 `.gitignore` 归 `packages/neuro-book`；根 `.dockerignore` 因 Docker build context 仍是 monorepo 根而保留。State Root 的 `.env`、`config.yaml` 和 checkout 根 `assets/`、`workspace/` 是本机运行数据，不作为源码迁移物，不覆盖或删除。

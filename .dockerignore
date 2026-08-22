@@ -5,7 +5,9 @@
 .env
 .env.*
 !.env.example
-!.env.docker.example
+!packages/neuro-book/.env.example
+!packages/neuro-book/.env.docker.example
+!packages/neuro-book/.env.product
 .idea
 .nitro
 .nuxt

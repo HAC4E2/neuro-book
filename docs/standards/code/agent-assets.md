@@ -1,6 +1,6 @@
 # 产品 Agent 资产规范
 
-适用：`assets/workspace/.nbook/agent/**` 中的 Profile、Workflow、Skill、变量和模板源码。TypeScript/TSX 同时读取 [`common.md`](common.md) 与 [`languages/typescript.md`](languages/typescript.md)；Python Skill 工具追加 [`scripts/python.md`](scripts/python.md)。
+适用：`packages/neuro-book/assets/workspace/.nbook/agent/**` 中的 Profile、Workflow、Skill、变量和模板源码。TypeScript/TSX 同时读取 [`common.md`](common.md) 与 [`languages/typescript.md`](languages/typescript.md)；Python Skill 工具追加 [`scripts/python.md`](scripts/python.md)。
 
 - `builtin/`、Workflow、Skill 和变量源码是可编辑真相源；`.compiled/`、`.staging/`、artifact hash 文件和生成类型只由现有资产生成命令更新。
 - Profile TSX 使用 `profile-sdk` 公开入口，Import path 必须通过产品 allowlist；引用规范路径时同步 Profile 合同测试、资产投影和打包消费者。

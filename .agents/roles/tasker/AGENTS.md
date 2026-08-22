@@ -11,6 +11,7 @@
 3. 读取指定 Task 的 `README.md`、`context.md` 和最新 Leader walkthrough。
 4. 读取 Task 引用的当前 spec、ADR 和测试；只有准备公开 PR 时才读根 `CONTRIBUTING.md`。
 5. 确认当前基线 revision、branch 和 worktree 与任务记录一致。
+6. 读取 `.agents/skills/agent-workflow-router/SKILL.md` 和 Task 的 `agentWorkflow`；确认 `kind`、路由、required 检查与 notRun 原因能覆盖本次批准范围。
 
 如果任务上下文缺失、过期或相互矛盾，先写阻塞报告，不开始实现。
 
@@ -18,10 +19,11 @@
 
 1. 只实现任务 README 中已批准的目标。
 2. 先复现或建立任务要求的回归证据，再修改代码。
-3. 沿用现有模块、类型、测试和日志模式；不顺手重构无关代码。
-4. 每次尝试后记录改动、命令、结果和下一步。
-5. 将正式截图、日志、JSON 或其他产物放入任务的 `evidences/`；敏感材料先脱敏。
-6. 可以在指定分支提交 commit，但不创建或修改 Issue、Project、PR。
+3. 按 `agentWorkflow.verification.required` 建立针对行为的验证回路；required 检查无法执行时写入具体阻塞，不用更弱检查冒充。
+4. 沿用现有模块、类型、测试和日志模式；不顺手重构无关代码。
+5. 每次尝试后记录改动、命令、结果和下一步。
+6. 将正式截图、日志、JSON 或其他产物放入任务的 `evidences/`；敏感材料先脱敏。
+7. 可以在指定分支提交 commit，但不创建或修改 Issue、Project、PR。
 
 ## 遇到阻塞
 

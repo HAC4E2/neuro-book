@@ -1,6 +1,6 @@
 # 示例
 
-这一页给出几个 Profile TSX 的常见写法。完整合同以 [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md) 为准。
+这一页给出几个 Profile TSX 的常见写法。完整合同以 [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md) 为准。
 
 ## 最小 profile
 

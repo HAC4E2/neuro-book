@@ -108,5 +108,5 @@ profile 会带一个状态和一组 issue code。常见的：
 
 - [节点说明](./nodes.md)：28 个 DSL 节点与分层放置规则。
 - [示例](./examples.md)：可直接复制的骨架。
-- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：完整合同。
-- [编译产物机制](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-compiled-artifacts.md)：`.compiled` 格式与发布流程。
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md)：完整合同。
+- [编译产物机制](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-compiled-artifacts.md)：`.compiled` 格式与发布流程。

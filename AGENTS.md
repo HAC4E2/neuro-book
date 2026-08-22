@@ -11,7 +11,8 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 修复和重构应解决合同或设计问题，不用 hack 绕过类型系统或制造技术债；不能兼容时说明取舍。
 - 测试范围按风险匹配：复杂、共享合同和用户流程需要验证；简单文档或局部改动不主动扩展测试。除非用户授权，不自动进行浏览器验收。
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件。
-- 测试、fixture、验收、缓存和 scratch 使用 `@notnotype/neuro-book-test-support/paths` 解析的系统临时根，不在仓库、`.agent/tmp/`、`.worktree/` 或源码包内创建业务临时数据；详见 [`docs/testing/README.md`](docs/testing/README.md)。
+- 测试、fixture、验收、缓存和 scratch 使用 `@notnotype/neuro-book-test-support/paths` 解析的系统临时根。详见 [`docs/testing/README.md`](docs/testing/README.md)。
+- A comment states the non-obvious reason at the owning boundary. Include a constraint or invalidation condition only when a maintainer needs it to know when the rationale or code stops being valid. Do not restate the operation, preserve intermediate attempts, or list speculative future work.
 
 1. 把用户请求转换成可观察结果、影响范围和授权边界；已有改动、未跟踪文件和本地证据属于输入。
 2. 从 [`docs/specs/README.md`](docs/specs/README.md) 找到相关 capability，区分 `planned` 目标合同与 `implemented` 当前合同，再读相邻实现、测试、Task 和必要 ADR；不按目录名猜合同。
@@ -63,9 +64,9 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - `PROJECT-STATUS.md`：仓库现状、模块状态和风险；TODO 与跨任务跟进记录在 GitHub Issue。
 - `docs/README.md`：文档体系入口；`docs/specs/README.md`：规范注册表；`.agents/tasks/README.md`：Task walkthrough 规则。
 - `docs/testing/manual-eval/`：用户视角人工评测体系；入口、执行流程、判定口径、报告模板和旅程都在该目录。
-- `reference/README.md`：仍被产品消费的冻结规范入口；重大任务持续更新同一个 Task walkthrough，跨任务事项开 Issue。
+- `packages/neuro-book/assets/reference/README.md`：运行期 Reference 的应用资产入口；Theme/Media 规范位于 `docs/specs/`。
 
-### 面向用户的文字
+## 面向用户的文字
 
 适用于 README、`RELEASE.md`、changelog、页面文案和错误提示；不适用于 `PROJECT-STATUS.md`、task、reference 和代码注释。「汇报与提问」的原则在这里收得更紧：读者没有仓库上下文，内部名词不是就地解释，而是尽量不出现。
 
@@ -139,10 +140,6 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - [`docs/testing/README.md`](docs/testing/README.md)：测试、临时根、环境、验收和证据。
 - [`PROJECT-STATUS.md`](PROJECT-STATUS.md)：当前仓库状态与验收缺口。
 - [`.agents/README.md`](.agents/README.md)：角色、Task、证据和 Skill 的开发治理入口。
-- [`reference/README.md`](reference/README.md)：仍被产品消费的冻结规范；迁移必须逐域 clean cutover。
+- [`packages/neuro-book/assets/reference/README.md`](packages/neuro-book/assets/reference/README.md)：运行期 Reference 入口；正文由应用包持有，迁移必须逐域 clean cutover。
 
 `CLAUDE.md` 仅兼容指向本文件。`WATCHDOG.md` 是 advisor 复核清单，不进入主 Agent 普通上下文。`RELEASE.md` 是发布程序消费的当前版本载荷；完整发布规则见 [`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)。
-
-## 面向用户的文字
-
-README、`RELEASE.md`、changelog、页面文案和错误提示应写用户能做什么、前后差异、限制、回退和未验证部分；尽量不出现模块名、类名、文件名、Task 或 Phase 编号。每条一至两句，直接描述行为，不写宣传语。发布载荷的结构与追溯规则见 [`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)。

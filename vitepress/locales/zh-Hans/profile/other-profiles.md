@@ -44,5 +44,5 @@ researcher 通常返回普通 Markdown 结果和来源链接，不使用 `report
 
 ## 继续阅读
 
-- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/README.md)
 - [Agent Workflow 与 Job](/agent/workflow)

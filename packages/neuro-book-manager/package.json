@@ -21,6 +21,16 @@
             "default": "./dist/runtime-projection.mjs"
         },
         "./desktop-installation": "./dist/desktop-installation-entry.mjs",
+        "./desktop-uac-client": {
+            "types": "./src/desktop-uac-client-entry.ts",
+            "import": "./dist/desktop-uac-client-entry.mjs",
+            "default": "./dist/desktop-uac-client-entry.mjs"
+        },
+        "./product-runtime-verifier": {
+            "types": "./src/product-runtime-verifier-entry.ts",
+            "import": "./dist/product-runtime-verifier-entry.mjs",
+            "default": "./dist/product-runtime-verifier-entry.mjs"
+        },
         "./portable": "./dist/portable.mjs",
         "./installation": {
             "types": "./src/installation-entry.ts",

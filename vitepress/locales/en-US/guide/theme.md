@@ -55,4 +55,4 @@ Theme system v2.1 and the custom theme editor are implemented; full browser acce
 ## Keep Reading
 
 - [Settings](/en/guide/settings)
-- [Theme System Reference](https://github.com/notnotype/neuro-book/blob/master/reference/theme/system.md)
+- [Theme System Reference](https://github.com/notnotype/neuro-book/blob/master/docs/specs/theme/system.md)

@@ -96,7 +96,7 @@ NeuroBook 把每个伏笔当作**对读者的一笔欠债**来记账：
 
 ## 继续阅读
 
-- [Plot Reference](https://github.com/notnotype/neuro-book/blob/master/reference/plot/system.md)：完整数据模型与字段合同。
-- [Agent 剧情工具规范](https://github.com/notnotype/neuro-book/blob/master/reference/plot/agent-spec.md)：Agent 能对剧情做什么。
-- [章节写作指令](https://github.com/notnotype/neuro-book/blob/master/reference/plot/writer-brief.md)：指令怎么编译进 writer 的任务。
+- [Plot Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/plot/system.md)：完整数据模型与字段合同。
+- [Agent 剧情工具规范](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/plot/agent-spec.md)：Agent 能对剧情做什么。
+- [章节写作指令](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/plot/writer-brief.md)：指令怎么编译进 writer 的任务。
 - [World Engine](/core/world-engine)：场景锚定的世界状态真相源。

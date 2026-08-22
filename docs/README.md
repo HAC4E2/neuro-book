@@ -25,7 +25,7 @@ packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec
                                migrations、runbooks、research、proposals、archived
 ```
 
-`docs/modules/` 仅保留已登记的现有模块正文；Monorepo / Module 边界的唯一正文是 [`modules/monorepo-boundaries.md`](modules/monorepo-boundaries.md)。其它当前规范进入 `specs/`，未批准需求进入 `proposals/`，过时模型进入包内 `archived/`。根 [`../reference/`](../reference/) 仍被产品 Agent/Profile 消费，处于冻结过渡期。
+`docs/modules/` 仅保留已登记的现有模块正文；Monorepo / Module 边界的唯一正文是 [`modules/monorepo-boundaries.md`](modules/monorepo-boundaries.md)。其它当前规范进入 `specs/`，未批准需求进入 `proposals/`，过时模型进入包内 `archived/`。运行期 Reference 正文由 [`../packages/neuro-book/assets/reference/`](../packages/neuro-book/assets/reference/) 持有。
 
 
 ## 仓库其它文档
@@ -33,7 +33,7 @@ packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec
 - 根目录大写 Markdown 是产品、人类、Agent 或机器消费的入口；正文下沉到对应真相源。`RELEASE.md` 等被程序直接读取的文件可以保留完整机器载荷。
 - [`../.agents/tasks/`](../.agents/tasks/) 保存一次实现的范围、walkthrough 和证据；Task 完成不改变当前规范的优先级。
 - [`../vitepress/`](../vitepress/) 保存用户文档站投影；它描述稳定用户流程，不承担内部工程合同。
-- [`../reference/`](../reference/) 是仍被产品 Agent/Profile 直接消费的冻结过渡层；它不是新规范的落点。
+- [`../packages/neuro-book/assets/reference/`](../packages/neuro-book/assets/reference/) 是运行期 Reference 资产根；它不是新规范的落点。
 
 ## 当前入口
 
@@ -44,7 +44,7 @@ packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec
 - [测试与验收](testing/README.md)：自动测试、人工评测、临时根和证据合同；[人工评测体系](testing/manual-eval/README.md)定义用户旅程、判定口径与执行手册。
 - [迁移入口](../packages/neuro-book/docs/migrations/README.md)：数据升级、备份与回滚。
 - [操作手册](../packages/neuro-book/docs/runbooks/README.md)：基于既有合同执行的当前操作步骤。
-- [Reference 过渡入口](../reference/README.md)：仍被产品消费的规范正文。
+- [Reference Bookshelf](../packages/neuro-book/assets/reference/README.md)：运行期 Reference 的应用资产入口。
 - [人类贡献指南](../CONTRIBUTING.md)：Issue、开发和 Pull Request 快速流程。
 - [项目状态](../PROJECT-STATUS.md)：仓库现状与验收缺口。
 

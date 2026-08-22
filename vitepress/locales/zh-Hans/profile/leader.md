@@ -27,7 +27,7 @@ Leader profile 负责理解用户意图、选择流程、调用 Skill 和协调�
 ## simulator.leader（入口已下线）
 
 ::: warning
-`simulator.leader` 是 RP / 世界模拟的调度者，**已从新建 Agent 菜单隐藏**，正在重新设计。历史会话与 profile 文件保留。RP Tick 协议仍记录在 [rp-tick reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/rp-tick/README.md)。
+`simulator.leader` 是 RP / 世界模拟的调度者，**已从新建 Agent 菜单隐藏**，正在重新设计。历史会话与 profile 文件保留。RP Tick 协议仍记录在 [rp-tick reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/rp-tick/README.md)。
 :::
 
 ## leader.assets
@@ -38,5 +38,5 @@ Leader profile 负责理解用户意图、选择流程、调用 Skill 和协调�
 
 ## 继续阅读
 
-- [Leader Default Operational Protocol](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)
-- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)
+- [Leader Default Operational Protocol](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/leader-default.md)
+- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/novel-writing-workflow.md)

@@ -512,7 +512,7 @@ describe("Docker Compose部署合同", () => {
         expect(processCommands.run).toHaveBeenCalledWith("docker", [
             "build",
             "--file",
-            join(sourceRoot, "Dockerfile"),
+            join(sourceRoot, "packages", "neuro-book", "Dockerfile"),
             "--build-arg",
             `NEURO_BOOK_SOURCE_REVISION=${revision}`,
             "--tag",

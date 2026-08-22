@@ -12,6 +12,8 @@ const result = await Bun.build({
         resolve(packageRoot, "src", "schema.ts"),
         resolve(packageRoot, "src", "runtime-projection.ts"),
         resolve(packageRoot, "src", "desktop-installation-entry.ts"),
+        resolve(packageRoot, "src", "desktop-uac-client-entry.ts"),
+        resolve(packageRoot, "src", "product-runtime-verifier-entry.ts"),
         resolve(packageRoot, "src", "installation-entry.ts"),
         resolve(packageRoot, "src", "portable.ts"),
     ],

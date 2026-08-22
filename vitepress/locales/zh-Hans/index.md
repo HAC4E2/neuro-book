@@ -66,6 +66,6 @@ SillyTavern 角色卡导入功能**仍然可用**：`inspect → unpack → impo
 
 ## 更多入口
 
-- [NeuroBook Reference Bookshelf](https://github.com/notnotype/neuro-book/blob/master/reference/README.md)：面向实现者的稳定参考。
-- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)：session、profile、tool、skill、workflow 的实现合同。
+- [NeuroBook Reference Bookshelf](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/README.md)：面向实现者的稳定参考。
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/README.md)：session、profile、tool、skill、workflow 的实现合同。
 - [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md)：英文项目入口。

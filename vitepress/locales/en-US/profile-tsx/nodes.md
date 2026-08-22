@@ -120,5 +120,5 @@ Both belong in `ModelContext` or `AppendingSet`, never in `HistorySet`.
 
 ## Keep Reading
 
-- [Profile Import Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-import.md)
-- [Agent Context Composition](https://github.com/notnotype/neuro-book/blob/master/reference/agent/context.md)
+- [Profile Import Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-import.md)
+- [Agent Context Composition](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/context.md)

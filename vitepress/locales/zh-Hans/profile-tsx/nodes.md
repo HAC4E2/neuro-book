@@ -120,5 +120,5 @@ V1 允许路径：
 
 ## 继续阅读
 
-- [Profile Import Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-import.md)
-- [Agent 上下文构成](https://github.com/notnotype/neuro-book/blob/master/reference/agent/context.md)
+- [Profile Import Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-import.md)
+- [Agent 上下文构成](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/context.md)

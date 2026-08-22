@@ -63,21 +63,56 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 ## Components
 
-- `Button`：primary / secondary / subtle / danger / ghost variants, `sm` / `md` sizes, block and loading states.
-- `Panel`：shared bordered panel surface. `padding="none"` removes padding and clips content for full-bleed tables/lists.
-- `Badge`：status label with `neutral / accent / success / warning / danger` tones, `soft / outline / solid` variants, optional dot and icon.
-- `Tabs`：line-style tab bar (tab semantics, arrow-key / Home / End navigation); content panels are rendered by the consumer.
-- `Pagination`：page numbers with ellipsis folding (`paginationRange` is exported for custom renders), prev/next buttons.
-- `Table`：presentational data table with typed column config, `cell-<key>` slots, loading and empty states. Sorting/selection stay in the consumer.
-- `FileTree`：controlled file/directory tree with selection, expansion, keyboard navigation, optional drag-and-drop move intents, context-menu events, and node slots. Data mutation stays in the consumer.
-- `Spinner` / `Skeleton` / `EmptyState`：async-state primitives for panels, tables, and lists.
-- `Tooltip`：hover (delayed) / focus (immediate) tooltip with `top / bottom / left / right` placement; no collision flipping.
-- `Dialog` / `Notification` / `NotificationViewport`：feedback primitives. Dialog traps focus (Tab cycles inside, focus restored on close) and locks body scroll while open. Toast notifications pause auto-dismiss while hovered.
-- `DialogWindow`：non-modal draggable floating window (frosted glass, keeps a corner inside the viewport). Set `closeOnEsc: false` when stacked with a modal Dialog.
-- `ContextMenu`：right-click menu with one-level submenus, shortcuts, danger tone, and viewport-edge flipping (`ContextMenuItem`).
-- `Dropdown` / `IconButton` / `SegmentedControl` / `SwitchField`：compact controls with stable ids and basic ARIA semantics. `DropdownItem` supports `separator: true` rows and `tone: "danger"`; the menu is fully keyboard navigable (arrows / Home / End / Esc).
-- `FormField` / `FormInput` / `FormNumberInput` / `FormSelect` / `FormTextarea` / `FormCheckbox` / `Combobox` / `TagInput`：form primitives with common HTML attributes. `FormField` provides generated input ids, `required`, `aria-describedby`, and `aria-invalid` to nested form inputs; inputs inside an errored field render a `--status-danger` border and danger focus glow automatically. `FormInput` also supports a `prefix` slot, numeric `step` / `min` / `max` attributes, and a `focus` event. `FormNumberInput` keeps string editing states, custom step controls, ArrowUp/Down, and `submit` on Enter. `FormSelect` is Reka-backed and supports placeholder, rich options, `sm` sizing, fixed dropdown direction, hidden checkmarks, and `focus`; `Combobox` supports full keyboard navigation (arrows / Home / End / Enter / Esc with `aria-activedescendant`). `FormCheckbox` accepts an optional label and displays `true` / `false` when omitted.
+### 基础交互与控制 (Controls & Form)
+- `Button`：primary / secondary / subtle / danger / ghost 变体，`sm` (26px) / `md` (32px) / `lg` (38px) 尺寸，支持 block、loading 与反色文字。
+- `IconButton`：紧凑图标操作按钮，`sm` / `md` / `lg` 尺寸，高精度触觉反馈与零尺寸抖动。
+- `Menubar`：桌面应用级主菜单栏（文件/编辑/视图/写作/帮助），支持横向方向键无缝穿梭与子菜单快捷键。
+- `Editable`：行内即时编辑组件（大纲章节名/角色名就地重命名，Enter/Blur 提交，Esc 撤销）。
+- `Stepper`：步骤向导器（作品新建向导、多格式电子书导出流程与发布流水线指示）。
+- `SegmentedControl`：分段选择器，支持智能隐藏相邻分隔线、阻尼滑动高亮与多选模式。
+- `ToggleGroup`：单选 / 多选切换按钮组，适配富文本排版操作栏。
+- `Switch` / `SwitchField`：现代胶囊开关控件与带标签的表单开关字段。
+- `Slider`：连续与离散滑动条（支持单值/范围双滑块、垂直/水平方向、`sm`/`md`/`lg` 尺寸）。
+- `RadioGroup`：单选选项组，支持纵向/横向排布与富描述文本。
+- `CheckboxGroup`：复选框受控组合容器（支持水平/垂直排布）。
+- `FormField` / `FormInput` / `FormNumberInput` / `FormSelect` / `FormTextarea` / `FormCheckbox` / `Combobox` / `Autocomplete` / `TagInput` / `PinInput`：全套无障碍表单控件与就地自动联想输入。
+- `DatePicker` / `DateRangePicker` / `Calendar` / `RangeCalendar`：复合日期选择器、区间选择器、网格日历与起止区间日历。
+- `DateField` / `DateRangeField` / `TimeField` / `TimeRangeField`：分段日期/时间精准光标输入框（支持 Tab 快速段落跳转与微调）。
+- `MonthPicker` / `MonthRangePicker` / `YearPicker` / `YearRangePicker`：宏观月份/年份网格与跨月/跨年代区间聚合选择器。
+- `Listbox`：高级无障碍列表选择框（支持多选、Shift 连选与即时搜索过滤）。
+- `ColorPicker`：综合取色器与调色板（预设色板网格、实时取色与 Hex 格式微调）。
 - `TimePicker`：`HH:mm` 字符串 `v-model`，支持 min / max / step、disabled / invalid、ArrowUp/Down、Enter、Escape 和关闭后焦点归还；主题可通过 `time-picker@1` 契约替换实现。
+
+### 工作区布局与导航 (Layout & Navigation)
+- `Panel`：标准面板容器，支持 `subtle` / `solid` / `glass` 质感与 `none` / `sm` / `md` / `lg` 内边距。
+- `Splitter`：多栏可调节分割面板（SplitterGroup / SplitterPanel / SplitterResizeHandle），支持水平/垂直方向与拖拽吸附。
+- `ScrollArea`：平滑滚动容器，内置自适应悬浮滚动条。
+- `Accordion`：手风琴折叠面板（支持单选/多选展开，平滑高度动效与旋转角标）。
+- `Collapsible`：受控折叠展开容器。
+- `AspectRatio`：固定宽高比容器（默认 16:9）。
+- `Separator`：水平 / 垂直语义分隔线。
+- `NavigationMenu`：多栏视口形变导航菜单（支持鼠标移动共享视口平滑位移与宽高渐变过渡）。
+- `Tree`：通用无限层级虚拟化大纲树（支持几万节点高性能渲染与快捷键盘遍历）。
+- `Breadcrumb`：面包屑导航栏。
+- `FileTree`：受控文件与大纲目录树。
+- `Tabs` / `Pagination`：选项卡栏与分页控制器。
+
+### 弹层与反馈 (Feedback & Overlays)
+- `Dialog` / `DialogWindow`：模态对话框与非模态可拖拽浮动窗口。
+- `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
+- `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
+- `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
+- `HoverCard`：划词/悬浮卡片（适用于设定集词条、人物资料与超链接预览）。
+- `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
+- `Notification` / `NotificationViewport`：全局 Toast 通知。
+
+### 数据展示 (Display)
+- `Badge`：超椭圆现代状态徽章（支持 `dot` 发光点、`iconClass` 与温润深琥珀 Warning 调色）。
+- `Avatar`：头像组件（支持图片加载失败平滑降级 Fallback 与 `squircle` / `circle` 形态）。
+- `Progress`：进度条（支持 `accent` / `success` / `warning` / `danger` 语调与平滑位移动效）。
+- `Rating`：星级评分组件（支持半星与悬浮微缩放弹性动效）。
+- `Kbd`：实体键盘键帽快捷键展示组件（`sm` / `md` / `lg`）。
+- `Table` / `Spinner` / `Skeleton` / `EmptyState`：数据表格与异步骨架/空状态指示。
 
 Icons used inside nb-ui components need no registration by the host app. nb-ui ships compiled CSS
 (`dist/nb-ui.css`, produced by `bun run build:css`) that already contains the icon rules and the mask
@@ -256,7 +291,10 @@ extension point at once, so a theme author can read one package instead of four.
 defaults in `src/tokens.css` apply, so the UI works, it just has no design character.
 
 Every loader check rejects with a readable reason rather than degrading silently, and the manifest is
-pure data so a marketplace can index a theme without executing it. To write one, see
-[docs/authoring-themes.md](docs/authoring-themes.md). For the design language behind the default
-theme — what is glass and what is never glass, the Chinese-typography rules, and a list of the traps
-that cost us a round each — see [docs/design-language.md](docs/design-language.md).
+pure data so a marketplace can index a theme without executing it.
+
+## Documentation
+
+- [UI Development Specification](docs/ui-development-spec.md) — Comprehensive engineering contracts, token consumption, core component specifications (Button, IconButton, SegmentedControl, FormCheckbox, FormSelect, Dropdown, Listbox, ScrollArea), and Component Lab (`/lab`) development guidelines.
+- [Design Language](docs/design-language.md) — The rationale behind materials, layers, paper vs chrome, Chinese typography, and motion physics.
+- [Theme Authoring Guide](docs/authoring-themes.md) — Theme manifest structure, contracts, and override mechanisms.

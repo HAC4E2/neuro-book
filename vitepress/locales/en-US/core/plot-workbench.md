@@ -96,7 +96,7 @@ The planning layer — promise ledger, decision records, pacing fields — is im
 
 ## Further reading
 
-- [Plot Reference](https://github.com/notnotype/neuro-book/blob/master/reference/plot/system.md): the full data model and field contracts.
-- [Agent Plot Tool Spec](https://github.com/notnotype/neuro-book/blob/master/reference/plot/agent-spec.md): what an Agent is allowed to do to the plot.
-- [Chapter Brief](https://github.com/notnotype/neuro-book/blob/master/reference/plot/writer-brief.md): how a brief is compiled into writer's task.
+- [Plot Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/plot/system.md): the full data model and field contracts.
+- [Agent Plot Tool Spec](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/plot/agent-spec.md): what an Agent is allowed to do to the plot.
+- [Chapter Brief](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/plot/writer-brief.md): how a brief is compiled into writer's task.
 - [World Engine](/en/core/world-engine): the source of truth for the world state a scene anchors to.

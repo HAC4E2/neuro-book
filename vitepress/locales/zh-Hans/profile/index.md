@@ -81,4 +81,4 @@ workspace/.nbook/agent/profiles/
 - [Leader](./leader.md)：默认 leader 如何调度写作、检索、研究和 RP。
 - [Writer](./writer.md)：普通 writer 的正文写作边界。
 - [其他 Profile](./other-profiles.md)：retrieval、summarizer、assets、RP profiles。
-- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：profile 作者主入口。
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md)：profile 作者主入口。

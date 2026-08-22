@@ -31,7 +31,7 @@ After finishing this series you will have:
 
 The tutorials only cover how to get started. When you want to know why the system organizes files the way it does, or you need the Agent to change the project more precisely, go to the Reference:
 
-- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md): Agent, profile, Skill, Workflow, Job and Harness.
-- [Project Workspace Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/project-workspace-guide.md): project files, content nodes and the semantics of Agent file access.
-- [Content Reference](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md): `lorebook/`, `world-engine/`, retrieval and information control.
-- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md): the main collaboration chain in writing mode, the writer handoff, and the three tiers of writing skills.
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/README.md): Agent, profile, Skill, Workflow, Job and Harness.
+- [Project Workspace Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/project-workspace-guide.md): project files, content nodes and the semantics of Agent file access.
+- [Content Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/content/README.md): `lorebook/`, `world-engine/`, retrieval and information control.
+- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/novel-writing-workflow.md): the main collaboration chain in writing mode, the writer handoff, and the three tiers of writing skills.

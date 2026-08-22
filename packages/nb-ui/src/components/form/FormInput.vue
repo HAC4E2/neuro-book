@@ -3,13 +3,15 @@ import {computed} from "vue";
 import {useFormFieldContext} from "./form-field-context";
 
 export type FormInputType = "text" | "search" | "password" | "number";
+export type FormInputSize = "default" | "sm" | "md";
 
 const props = withDefaults(defineProps<{
-    modelValue: string;
+    modelValue?: string;
     id?: string;
     name?: string;
     type?: FormInputType;
     placeholder?: string;
+    size?: FormInputSize;
     disabled?: boolean;
     readonly?: boolean;
     required?: boolean;
@@ -22,10 +24,12 @@ const props = withDefaults(defineProps<{
     min?: string;
     max?: string;
 }>(), {
+    modelValue: "",
     id: "",
     name: "",
     type: "text",
     placeholder: "",
+    size: "default",
     disabled: false,
     readonly: false,
     required: false,
@@ -39,11 +43,13 @@ const emit = defineEmits<{
 }>();
 
 const field = useFormFieldContext();
-// prefix 分支判定用模板里的 $slots.prefix，不用 computed 包 slots——
-// useSlots() 不是响应式源，computed 会把「挂载后才出现的条件插槽」缓存成 false（e2e 实测：
-// /lab 切到 prefix 场景后前缀永远不渲染）。模板里每次渲染重读 $slots 才对。
 
-// prefix 与裸 input 两个分支共享同一份属性绑定，写两遍必漂移
+const isSmall = computed(() => props.size === "sm");
+const controlSizeClass = computed(() => isSmall.value
+    ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[var(--text-xs)]"
+    : "nb-ui-control-h-md nb-ui-control-px text-[var(--text-sm)]");
+
+// prefix 与裸 input 两个分支共享同一份属性绑定，排除组件层 size prop 避免原生 HTMLInputElement size 属性类型冲突
 const inputAttrs = computed(() => ({
     value: props.modelValue,
     id: props.id || field?.inputId.value || undefined,
@@ -69,13 +75,13 @@ const inputAttrs = computed(() => ({
 <template>
     <div
         v-if="$slots.prefix"
-        class="nb-ui-control nb-ui-control-h-md nb-ui-control-px flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-sm)] text-[var(--text-main)] transition-colors focus-within:outline-none"
-        :class="field?.invalid.value ? 'nb-ui-control-invalid' : ''"
+        class="nb-ui-control flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
+        :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '']"
     >
         <slot name="prefix"></slot>
         <input
             v-bind="inputAttrs"
-            class="min-w-0 flex-1 bg-transparent text-[var(--text-sm)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+            class="min-w-0 flex-1 bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
             @focus="emit('focus', $event)"
             @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         >
@@ -83,8 +89,8 @@ const inputAttrs = computed(() => ({
     <input
         v-else
         v-bind="inputAttrs"
-        class="nb-ui-control nb-ui-control-h-md nb-ui-control-px w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-sm)] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
-        :class="field?.invalid.value ? 'nb-ui-control-invalid' : ''"
+        class="nb-ui-control w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '']"
         @focus="emit('focus', $event)"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     >

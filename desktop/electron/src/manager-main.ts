@@ -14,7 +14,7 @@ import {
     runDesktopUacClient,
     type DesktopUacClientEvent,
     type DesktopUacClientInvocation,
-} from "../../shared/src/desktop-uac-client";
+} from "@notnotype/neuro-book-manager/desktop-uac-client";
 import {parseDesktopInstallationManifest} from "@notnotype/neuro-book-contracts/desktop";
 import {materializeMachineManagerScript} from "../../shared/src/manager-runtime";
 import {parseDesktopDelegatedUninstallReceipt, type DesktopDelegatedUninstallReceipt} from "@notnotype/neuro-book-contracts/desktop";

@@ -89,8 +89,8 @@ If drafting produces new facts — you decide mid-scene to injure a supporting c
 
 ## Further reading
 
-- [World Engine Reference](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/README.md): the full shelf of principles and contracts.
-- [Recording Principles](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/recording-principles.md): what to record and at what granularity — the key to not over-modeling.
-- [Schema System](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/schema-system.md): how subject structure is defined.
-- [Calendar System](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/calendar-system.md): time expression and the three calendar strategies.
+- [World Engine Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/README.md): the full shelf of principles and contracts.
+- [Recording Principles](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/recording-principles.md): what to record and at what granularity — the key to not over-modeling.
+- [Schema System](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/schema-system.md): how subject structure is defined.
+- [Calendar System](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/calendar-system.md): time expression and the three calendar strategies.
 - [Plot Workbench](/en/core/plot-workbench): the story structure layer, meshed with World Engine at the scene level.

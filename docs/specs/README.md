@@ -2,7 +2,7 @@
 
 `docs/specs/` 是 NeuroBook 产品、模块和组件规范的唯一落点。Spec 用受约束的自然语言连接模糊需求与确定代码：人类不必阅读全部实现，Agent 也不能只凭一句需求猜测输入、状态、副作用或失败语义。
 
-本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向现有 `reference/`、`docs/modules/`、`docs/testing/` 或根规范文件。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
+本目录当前先做注册表，不复制现有正文。每项功能只有一个当前真相源；迁移完成前，注册表指向应用持有的 [`../packages/neuro-book/assets/reference/`](../../packages/neuro-book/assets/reference/)、`docs/modules/`、`docs/testing/` 或根规范文件。Monorepo / Module 的唯一正文仍在 [docs/modules/monorepo-boundaries.md](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md)，不得另建 `docs/specs/architecture/monorepo-boundaries.md`。
 
 ## 两种成熟度，一个文件
 
@@ -90,12 +90,13 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
 | 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
-| Agent Runtime 与 Profile | [Reference: Agent](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
-| 内容与 Project Workspace | [Reference: Content](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md)、[Workspace TERMS](https://github.com/notnotype/neuro-book/blob/master/reference/workspace/TERMS.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
-| World Engine | [Reference: World Engine](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
-| Plot | [Reference: Plot](https://github.com/notnotype/neuro-book/blob/master/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
-| Theme | [Reference: Theme](https://github.com/notnotype/neuro-book/blob/master/reference/theme/system.md) | 主题变量和消费规则 |
-| Media | [Reference: Media](https://github.com/notnotype/neuro-book/blob/master/reference/media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
+| Agent Runtime 与 Profile | [Reference: Agent](../../packages/neuro-book/assets/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
+| Agent 资产运行期安装与 Catalog 根 | [`agent/asset-install-runtime.md`](agent/asset-install-runtime.md) | State Root Install Root、Runtime Reference Root、Install → Project 覆盖和显式 artifact context 已由代码与合同测试支持 |
+| 内容与 Project Workspace | [Reference: Content](../../packages/neuro-book/assets/reference/content/README.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
+| World Engine | [Reference: World Engine](../../packages/neuro-book/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
+| Plot | [Reference: Plot](../../packages/neuro-book/assets/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
+| Theme | [`theme/system.md`](theme/system.md) | 主题变量和消费规则 |
+| Media | [`media/image-variants.md`](media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
 | Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
 | Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
@@ -105,23 +106,20 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 ## 待实现规范
 
-当前没有已批准但尚未实现的具体 Spec。新的 `planned` Spec 必须在 Proposal 获批后登记到本节。
+以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
 
 | 功能域 | 目标规范 | 批准依据 |
 |---|---|---|
-
 ## 冻结过渡规范
 
 以下正文描述已有实现，但仍被产品 Profile、资产投影、测试或打包流程直接消费。它们在迁入 `docs/specs/` 前保持冻结，不是新规范落点：
 
 | 功能域 | 当前规范 | 固定目标 |
 |---|---|---|
-| Agent Runtime 与 Profile | [`../../reference/agent/`](../../reference/agent/) | `docs/specs/agent/` |
-| Content / Project Workspace | [`../../reference/content/`](../../reference/content/) | `docs/specs/content/` |
-| World Engine | [`../../reference/world-engine/`](../../reference/world-engine/) | `docs/specs/world-engine/` |
-| Plot | [`../../reference/plot/`](../../reference/plot/) | `docs/specs/plot/` |
-| Theme | [`../../reference/theme/`](../../reference/theme/) | `docs/specs/theme/` |
-| Media | [`../../reference/media/`](../../reference/media/) | `docs/specs/media/` |
+| Agent Runtime 与 Profile | [`../../packages/neuro-book/assets/reference/agent/`](../../packages/neuro-book/assets/reference/agent/) | `docs/specs/agent/` |
+| Content / Project Workspace | [`../../packages/neuro-book/assets/reference/content/`](../../packages/neuro-book/assets/reference/content/) | `docs/specs/content/` |
+| World Engine | [`../../packages/neuro-book/assets/reference/world-engine/`](../../packages/neuro-book/assets/reference/world-engine/) | `docs/specs/world-engine/` |
+| Plot | [`../../packages/neuro-book/assets/reference/plot/`](../../packages/neuro-book/assets/reference/plot/) | `docs/specs/plot/` |
 
 ## 规范缺口
 

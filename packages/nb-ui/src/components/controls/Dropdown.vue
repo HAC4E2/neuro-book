@@ -1,8 +1,24 @@
 <script setup lang="ts">
-import {onClickOutside} from "@vueuse/core";
-import {nextTick, ref, useId} from "vue";
+import {computed} from "vue";
+import {
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuPortal,
+    DropdownMenuRoot,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "reka-ui";
 import {NB_Z_INDEX} from "../../theme/z-index";
+import {useFloatingScrollbar} from "../../composables/useFloatingScrollbar";
 import type {DropdownItem} from "./dropdown.types";
+
+/**
+ * 下拉菜单（Dropdown · 65% 磨砂、8px 模糊与即时感知 macOS 悬浮滚动条）。
+ *
+ * 浮层基于 Reka DropdownMenu 原语与 Popper 定位构建，
+ * 100% 对齐 FormSelect 磨砂视觉规范（65% 面色、8px 模糊、130% 饱和、1.0 亮度），
+ * 支持 4px 悬浮 macOS 胶囊滚动条与自适应双向渐隐。
+ */
 
 const props = withDefaults(defineProps<{
     items: DropdownItem[];
@@ -10,172 +26,151 @@ const props = withDefaults(defineProps<{
     menuMaxHeight?: string;
     rootClass?: string;
     compact?: boolean;
+    align?: "start" | "center" | "end";
+    side?: "top" | "right" | "bottom" | "left";
+    sideOffset?: number;
+    disabled?: boolean;
+    popoverStyle?: Record<string, string | number>;
 }>(), {
-    menuClass: "left-0 top-full mt-2 min-w-full",
-    menuMaxHeight: "none",
-    rootClass: "relative w-full",
+    menuClass: "min-w-[190px]",
+    menuMaxHeight: "210px",
+    rootClass: "",
     compact: false,
+    align: "start",
+    side: "bottom",
+    sideOffset: 7,
+    disabled: false,
 });
 
 const emit = defineEmits<{
     (e: "select", value: string): void;
+    (e: "focus", event: FocusEvent): void;
 }>();
 
-const open = ref(false);
-const rootRef = ref<HTMLDivElement | null>(null);
-const triggerRef = ref<HTMLDivElement | null>(null);
-const menuRef = ref<HTMLDivElement | null>(null);
-const menuId = `nb-dropdown-${useId()}`;
-
-function toggle(): void {
-    open.value = !open.value;
-}
-
-function close(): void {
-    open.value = false;
-}
-
-function select(item: DropdownItem): void {
-    if (item.disabled) {
-        return;
-    }
+function handleSelect(item: DropdownItem): void {
+    if (item.disabled) return;
     emit("select", item.value);
-    open.value = false;
-    void nextTick(focusTrigger);
 }
 
-/** 把焦点归还给触发器内第一个可聚焦元素 */
-function focusTrigger(): void {
-    triggerRef.value?.querySelector<HTMLElement>("button,a,[tabindex]")?.focus();
-}
+// 悬浮 macOS 滚动条与自适应双向渐隐（挂载即时感知）
+const {
+    scrollThumbTop,
+    scrollThumbHeight,
+    isScrollable,
+    isDragging,
+    scrollFadeClass,
+    setViewportRef,
+    handleViewportScroll,
+    handleThumbMouseDown,
+} = useFloatingScrollbar();
 
-/** 菜单内可聚焦的菜单项（separator 是 div，天然不在列） */
-function menuItems(): HTMLButtonElement[] {
-    return Array.from(menuRef.value?.querySelectorAll<HTMLButtonElement>("button[role='menuitem']:not(:disabled)") ?? []);
-}
+const popoverPanelStyle = computed(() => ({
+    zIndex: NB_Z_INDEX.popover,
+    backgroundColor: "color-mix(in srgb, var(--bg-panel) 65%, transparent)",
+    backdropFilter: "blur(8px) saturate(130%) brightness(1.0)",
+    WebkitBackdropFilter: "blur(8px) saturate(130%) brightness(1.0)",
+    boxShadow: "0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)",
+    borderRadius: "10px",
+    border: "1px solid color-mix(in srgb, var(--text-main) 12%, transparent)",
+    ...props.popoverStyle,
+}));
 
-function focusItemAt(position: "first" | "last"): void {
-    void nextTick(() => {
-        const items = menuItems();
-        (position === "first" ? items[0] : items[items.length - 1])?.focus();
-    });
-}
-
-function handleTriggerArrowDown(event: KeyboardEvent): void {
-    event.preventDefault();
-    open.value = true;
-    focusItemAt("first");
-}
-
-function handleTriggerArrowUp(event: KeyboardEvent): void {
-    event.preventDefault();
-    open.value = true;
-    focusItemAt("last");
-}
-
-/** 菜单内键盘导航：方向键循环、Home/End 跳边界、Tab 关闭 */
-function handleMenuKeydown(event: KeyboardEvent): void {
-    if (event.key === "Tab") {
-        open.value = false;
-        return;
-    }
-    const items = menuItems();
-    if (items.length === 0) {
-        return;
-    }
-    let next: HTMLButtonElement | undefined;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        const delta = event.key === "ArrowDown" ? 1 : -1;
-        const current = items.indexOf(document.activeElement as HTMLButtonElement);
-        next = current === -1 ? items[0] : items[(current + delta + items.length) % items.length];
-    } else if (event.key === "Home") {
-        next = items[0];
-    } else if (event.key === "End") {
-        next = items[items.length - 1];
-    }
-    if (next) {
-        event.preventDefault();
-        next.focus();
-    }
-}
-
-/** Esc 关闭菜单并把焦点归还触发器 */
-function handleEscape(): void {
-    const wasOpen = open.value;
-    close();
-    if (wasOpen) {
-        focusTrigger();
-    }
-}
-
-/** 菜单项外观：danger 走共享的危险菜单项基座，用于破坏性动作 */
 function itemClass(item: DropdownItem): string {
     if (item.tone === "danger") {
-        return "nb-ui-menu-item-danger";
+        return "text-[var(--status-danger)] hover:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] data-[highlighted]:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] data-[highlighted]:text-[var(--status-danger)]";
     }
     if (item.active) {
-        return "bg-[var(--overlay-item-active)] text-[var(--text-main)]";
+        return "bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] text-[var(--text-main)] font-medium";
     }
-    return "text-[var(--text-secondary)] hover:bg-[var(--overlay-item-active)] hover:text-[var(--text-main)]";
+    return "text-[var(--text-main)] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] data-[highlighted]:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] data-[highlighted]:text-[var(--text-main)]";
 }
-
-onClickOutside(rootRef, close);
 </script>
 
 <template>
-    <!-- 下拉菜单容器 -->
-    <div ref="rootRef" :class="props.rootClass" @keydown.esc.prevent.stop="handleEscape">
-        <div ref="triggerRef" class="w-full" aria-haspopup="menu" :aria-expanded="open" :aria-controls="menuId" @click.stop="toggle" @keydown.down="handleTriggerArrowDown" @keydown.up="handleTriggerArrowUp">
+    <DropdownMenuRoot :modal="false">
+        <DropdownMenuTrigger as-child :disabled="props.disabled" :class="props.rootClass">
             <slot />
-        </div>
-        <Transition name="nb-popover">
-        <div
-            v-if="open"
-            :id="menuId"
-            ref="menuRef"
-            role="menu"
-            :style="{zIndex: NB_Z_INDEX.popover}"
-            class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion absolute overflow-hidden p-1.5"
-            :class="props.menuClass"
-            @keydown="handleMenuKeydown"
-        >
-            <!--
-                滚动挂在**内层**，不挂在浮层本体上。挂本体上同时坏两件事：滚动条画进 --radius-panel
-                的圆角里被弧线削掉两头（看起来像描边裂了个口子），首尾两项也会贴着圆角被横切。
-                判据与完整理由见 styles.css 的 .nb-ui-popover-scroll。
+        </DropdownMenuTrigger>
 
-                role="none" 是给这层包装用的：菜单项仍要读作 role="menu" 的项，
-                中间这一层不该出现在无障碍树里。键盘导航走 querySelectorAll（后代查询），
-                多一层包装不影响。
-            -->
-            <div
-                role="none"
-                class="nb-ui-popover-scroll"
-                :style="{maxHeight: props.menuMaxHeight, borderRadius: 'var(--nb-popover-inner-radius)'}"
+        <DropdownMenuPortal>
+            <DropdownMenuContent
+                position="popper"
+                :align="props.align"
+                :side="props.side"
+                :side-offset="props.sideOffset"
+                :avoid-collisions="true"
+                :collision-padding="8"
+                :style="popoverPanelStyle"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative overflow-hidden p-1.5"
+                :class="props.menuClass"
+                @close-auto-focus="(e) => e.preventDefault()"
             >
-                <template v-for="item in props.items" :key="item.value">
-                    <div v-if="item.separator" role="separator" class="mx-[var(--space-2)] my-[var(--space-1)] border-t-[length:var(--border-w)] border-[color:var(--divider)]"></div>
-                    <button
-                        v-else
-                        type="button"
-                        role="menuitem"
-                        class="nb-ui-popover-item mb-1 flex h-[var(--control-h-sm)] w-full items-center justify-between gap-[var(--space-3)] rounded-[max(2px,calc(var(--radius-panel)-var(--space-2)))] px-[var(--space-4)] text-left transition-colors last:mb-0 disabled:cursor-not-allowed disabled:opacity-45"
-                        :class="[
-                            props.compact ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]',
-                            itemClass(item),
-                        ]"
-                        :disabled="item.disabled"
-                        @click.stop="select(item)"
-                    >
-                        <span class="inline-flex min-w-0 items-center gap-[var(--space-2)]">
-                            <span v-if="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0" :class="[item.iconClass, item.tone === 'danger' ? 'text-current opacity-90' : 'text-[var(--text-muted)]']"></span>
-                            <span class="truncate">{{ item.label }}</span>
-                        </span>
-                        <span v-if="item.rightIconClass" :class="item.rightIconClass" class="h-[1.15em] w-[1.15em] shrink-0 text-[var(--accent-text)]"></span>
-                    </button>
-                </template>
-            </div>
-        </div>
-        </Transition>
-    </div>
+                <!-- 滚动视口（自适应双向渐隐 + 隐藏原生滚动条） -->
+                <div
+                    :ref="setViewportRef"
+                    class="clean-dropdown-viewport w-full"
+                    :class="[scrollFadeClass, isScrollable ? 'pr-1.5' : '']"
+                    :style="{
+                        maxHeight: props.menuMaxHeight,
+                    }"
+                    @scroll="handleViewportScroll"
+                >
+                    <template v-for="item in props.items" :key="item.value">
+                        <DropdownMenuSeparator
+                            v-if="item.separator"
+                            class="h-[1px] my-1 mx-1 bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)]"
+                        />
+                        <DropdownMenuItem
+                            v-else
+                            :disabled="item.disabled"
+                            class="nb-ui-popover-item mb-1 flex h-[var(--control-h-sm)] w-full items-center justify-between gap-2.5 rounded-[calc(var(--radius-control)*0.75)] px-2.5 text-left outline-none cursor-pointer select-none transition-colors last:mb-0 data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed text-[13px]"
+                            :class="[
+                                props.compact ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]',
+                                itemClass(item),
+                            ]"
+                            @select="handleSelect(item)"
+                        >
+                            <span class="inline-flex min-w-0 items-center gap-2">
+                                <span v-if="item.iconClass" :class="[item.iconClass, 'h-4 w-4 shrink-0 opacity-80']"></span>
+                                <span class="truncate">{{ item.label }}</span>
+                            </span>
+
+                            <span v-if="item.rightIconClass" :class="[item.rightIconClass, 'h-3.5 w-3.5 shrink-0 opacity-70']"></span>
+                            <span v-else-if="item.shortcut" class="font-mono text-[10px] text-[var(--text-muted)] tracking-wider">
+                                {{ item.shortcut }}
+                            </span>
+                        </DropdownMenuItem>
+                    </template>
+                </div>
+
+                <!-- 100% 绝对可见、100% 鼠标完全可按住拖拽的 macOS 4px 悬浮胶囊滑块 -->
+                <div
+                    v-if="isScrollable"
+                    class="absolute right-[3px] top-1.5 bottom-1.5 w-1 z-20 flex flex-col justify-start"
+                >
+                    <div
+                        class="w-1 rounded-full cursor-pointer transition-colors"
+                        :class="isDragging ? 'bg-[color-mix(in_srgb,var(--text-main)_75%,transparent)]' : 'bg-[color-mix(in_srgb,var(--text-main)_45%,transparent)] hover:bg-[color-mix(in_srgb,var(--text-main)_70%,transparent)]'"
+                        :style="{
+                            height: `${scrollThumbHeight}px`,
+                            transform: `translateY(${scrollThumbTop}px)`,
+                        }"
+                        @mousedown="handleThumbMouseDown"
+                    ></div>
+                </div>
+            </DropdownMenuContent>
+        </DropdownMenuPortal>
+    </DropdownMenuRoot>
 </template>
+
+<style scoped>
+.clean-dropdown-viewport {
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.clean-dropdown-viewport::-webkit-scrollbar {
+    display: none;
+}
+</style>

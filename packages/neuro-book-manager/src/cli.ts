@@ -42,7 +42,7 @@ import {
     testDesktopProvider,
 } from "#manager/desktop-provider";
 import {runDesktopUacBroker} from "#manager/desktop-uac-broker";
-import {runDesktopUacClient} from "nbook/desktop/shared/src/desktop-uac-client";
+import {runDesktopUacClient} from "#manager/desktop-uac-client";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";

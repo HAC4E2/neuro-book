@@ -149,7 +149,7 @@ For details see [What is a profile](https://blog.notnotype.com/neuro-book/en/pro
 
 The public documentation sources live under [`vitepress/locales/en-US/`](vitepress/locales/en-US/) (English) and [`vitepress/locales/zh-Hans/`](vitepress/locales/zh-Hans/) (Simplified Chinese). Deeper implementation references remain in their owning package or root engineering documentation:
 
-- [NeuroBook Reference Bookshelf](reference/README.md)
+- [NeuroBook Reference Bookshelf](packages/neuro-book/assets/reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 - [Contributing](CONTRIBUTING.en.md): issues, development conventions, coding-agent collaboration, tasks, and pull requests
 

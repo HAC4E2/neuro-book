@@ -56,7 +56,7 @@ Confirm the current contract before editing:
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | Repository state and current acceptance gaps |
 | [`RELEASE.md`](RELEASE.md) | Current release payload consumed by release tooling |
 
-`reference/` remains a frozen product Agent/Profile transition layer; the spec registry tracks its migration. Do not infer a full current contract from an issue title, one code path, a Proposal, or a Task.
+`packages/neuro-book/assets/reference/` is the application seed source for product Agent/Profile Reference; Profiles keep the logical `reference/**` paths, while explicit Runtime resolves the physical root through the Runtime Asset Adapter. The spec registry tracks its migration. Do not infer a full current contract from an issue title, one code path, a Proposal, or a Task.
 
 ## Issues and Implementation Authorization
 

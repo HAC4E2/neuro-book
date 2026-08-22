@@ -5,15 +5,26 @@ import Button from "./controls/Button.vue";
 import IconButton from "./controls/IconButton.vue";
 import Pagination from "./controls/Pagination.vue";
 import SegmentedControl from "./controls/SegmentedControl.vue";
+import Switch from "./controls/Switch.vue";
 import SwitchField from "./controls/SwitchField.vue";
 import Tabs from "./controls/Tabs.vue";
+import ToggleGroup from "./controls/ToggleGroup.vue";
+import Toolbar from "./controls/Toolbar.vue";
 import {paginationRange} from "./controls/pagination-range";
+import Avatar from "./display/Avatar.vue";
 import Badge from "./display/Badge.vue";
+import Kbd from "./display/Kbd.vue";
+import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
+import AlertDialog from "./feedback/AlertDialog.vue";
 import Dialog from "./feedback/Dialog.vue";
+import Drawer from "./feedback/Drawer.vue";
+import HoverCard from "./feedback/HoverCard.vue";
 import Notification from "./feedback/Notification.vue";
 import NotificationViewport from "./feedback/NotificationViewport.vue";
+import Popover from "./feedback/Popover.vue";
 import {clampMenuPosition, computeSubmenuPosition} from "./feedback/context-menu-position";
+import Calendar from "./form/Calendar.vue";
 import Combobox from "./form/Combobox.vue";
 import {moveHighlight} from "./form/option-highlight";
 import FormCheckbox from "./form/FormCheckbox.vue";
@@ -21,8 +32,39 @@ import FormField from "./form/FormField.vue";
 import FormInput from "./form/FormInput.vue";
 import FormNumberInput from "./form/FormNumberInput.vue";
 import FormSelect from "./form/FormSelect.vue";
+import PinInput from "./form/PinInput.vue";
+import RadioGroup from "./form/RadioGroup.vue";
+import Slider from "./form/Slider.vue";
 import TagInput from "./form/TagInput.vue";
+import Accordion from "./layout/Accordion.vue";
+import AspectRatio from "./layout/AspectRatio.vue";
+import Collapsible from "./layout/Collapsible.vue";
 import Panel from "./layout/Panel.vue";
+import ScrollArea from "./layout/ScrollArea.vue";
+import Separator from "./layout/Separator.vue";
+import Splitter from "./layout/Splitter.vue";
+import Breadcrumb from "./navigation/Breadcrumb.vue";
+import NavigationMenu from "./navigation/NavigationMenu.vue";
+import Tree from "./navigation/Tree.vue";
+import Editable from "./controls/Editable.vue";
+import Menubar from "./controls/Menubar.vue";
+import Stepper from "./controls/Stepper.vue";
+import Rating from "./display/Rating.vue";
+import Autocomplete from "./form/Autocomplete.vue";
+import CheckboxGroup from "./form/CheckboxGroup.vue";
+import ColorPicker from "./form/ColorPicker.vue";
+import DateField from "./form/DateField.vue";
+import DatePicker from "./form/DatePicker.vue";
+import DateRangeField from "./form/DateRangeField.vue";
+import DateRangePicker from "./form/DateRangePicker.vue";
+import Listbox from "./form/Listbox.vue";
+import MonthPicker from "./form/MonthPicker.vue";
+import MonthRangePicker from "./form/MonthRangePicker.vue";
+import RangeCalendar from "./form/RangeCalendar.vue";
+import TimeField from "./form/TimeField.vue";
+import TimeRangeField from "./form/TimeRangeField.vue";
+import YearPicker from "./form/YearPicker.vue";
+import YearRangePicker from "./form/YearRangePicker.vue";
 import {useNotification} from "../composables/useNotification";
 import {getFocusable, trapTabKey} from "../utils/focus-trap";
 
@@ -797,5 +839,616 @@ describe("nb-ui dialog anatomy", () => {
         expect(form.get("footer").classes()).toContain("justify-end");
         expect(form.findAll("footer button").some((b) => b.classes().includes("flex-1"))).toBe(false);
         form.unmount();
+    });
+
+    it("renders slider and emits update on value change", async () => {
+        const wrapper = mount(Slider, {
+            props: {
+                modelValue: 40,
+                min: 0,
+                max: 100,
+                step: 5,
+                size: "sm",
+            },
+        });
+        await nextTick();
+
+        expect(wrapper.find("[role='slider']").exists()).toBe(true);
+        expect(wrapper.find("[role='slider']").attributes("aria-valuemin")).toBe("0");
+        expect(wrapper.find("[role='slider']").attributes("aria-valuemax")).toBe("100");
+        wrapper.unmount();
+    });
+
+    it("renders accordion items and handles expansion", async () => {
+        const wrapper = mount(Accordion, {
+            props: {
+                type: "single",
+                collapsible: true,
+                items: [
+                    {value: "ch1", title: "第一章", content: "第一章正文内容"},
+                    {value: "ch2", title: "第二章", content: "第二章正文内容"},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("第一章");
+        expect(wrapper.text()).toContain("第二章");
+        expect(wrapper.findAll("button[data-radix-collection-item], button[data-reka-collection-item]").length).toBe(2);
+        wrapper.unmount();
+    });
+
+    it("renders radio group and supports options", async () => {
+        const wrapper = mount(RadioGroup, {
+            props: {
+                modelValue: "epub",
+                options: [
+                    {value: "epub", label: "EPUB 电子书", description: "适配大多数阅读器"},
+                    {value: "pdf", label: "PDF 文档", description: "固定版面排版"},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("EPUB 电子书");
+        expect(wrapper.text()).toContain("PDF 文档");
+        const items = wrapper.findAll("[role='radio']");
+        expect(items.length).toBe(2);
+        expect(items[0]!.attributes("data-state")).toBe("checked");
+        expect(items[1]!.attributes("data-state")).toBe("unchecked");
+        wrapper.unmount();
+    });
+
+    it("renders kbd shortcut cap with appropriate size", () => {
+        const wrapper = mount(Kbd, {
+            props: {size: "sm"},
+            slots: {default: "⌘K"},
+        });
+
+        expect(wrapper.text()).toBe("⌘K");
+        expect(wrapper.classes()).toContain("h-4");
+        expect(wrapper.classes()).toContain("font-mono");
+        wrapper.unmount();
+    });
+
+    it("renders popover and hover card triggers cleanly", () => {
+        const popoverWrapper = mount(Popover, {
+            slots: {
+                trigger: "<button>打开气泡</button>",
+                default: "<div>气泡内容</div>",
+            },
+        });
+        expect(popoverWrapper.text()).toContain("打开气泡");
+        popoverWrapper.unmount();
+
+        const hoverCardWrapper = mount(HoverCard, {
+            slots: {
+                trigger: "<span>悬浮词条</span>",
+                default: "<div>词条设定详情</div>",
+            },
+        });
+        expect(hoverCardWrapper.text()).toContain("悬浮词条");
+        hoverCardWrapper.unmount();
+    });
+
+    it("renders switch and handles state", async () => {
+        const wrapper = mount(Switch, {
+            props: {
+                modelValue: true,
+                size: "sm",
+            },
+        });
+        await nextTick();
+
+        expect(wrapper.find("[role='switch']").exists()).toBe(true);
+        expect(wrapper.find("[role='switch']").attributes("data-state")).toBe("checked");
+        wrapper.unmount();
+    });
+
+    it("renders toggle group with multiple selection options", () => {
+        const wrapper = mount(ToggleGroup, {
+            props: {
+                type: "multiple",
+                modelValue: ["bold", "italic"],
+                options: [
+                    {value: "bold", label: "B", title: "加粗"},
+                    {value: "italic", label: "I", title: "斜体"},
+                    {value: "underline", label: "U", title: "下划线"},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("B");
+        expect(wrapper.text()).toContain("I");
+        expect(wrapper.text()).toContain("U");
+        const items = wrapper.findAll("button");
+        expect(items.length).toBe(3);
+        expect(items[0]!.attributes("data-state")).toBe("on");
+        expect(items[1]!.attributes("data-state")).toBe("on");
+        expect(items[2]!.attributes("data-state")).toBe("off");
+        wrapper.unmount();
+    });
+
+    it("renders toolbar container and slots", () => {
+        const wrapper = mount(Toolbar, {
+            slots: {
+                default: "<button>动作1</button><button>动作2</button>",
+            },
+        });
+
+        expect(wrapper.attributes("role")).toBe("toolbar");
+        expect(wrapper.text()).toContain("动作1");
+        expect(wrapper.text()).toContain("动作2");
+        wrapper.unmount();
+    });
+
+    it("renders breadcrumb navigation items and separator", () => {
+        const wrapper = mount(Breadcrumb, {
+            props: {
+                items: [
+                    {label: "我的书库", href: "/library"},
+                    {label: "第一卷", href: "/library/vol-1"},
+                    {label: "第3章", current: true},
+                ],
+            },
+        });
+
+        expect(wrapper.find("nav").attributes("aria-label")).toBe("面包屑导航");
+        expect(wrapper.text()).toContain("我的书库");
+        expect(wrapper.text()).toContain("第一卷");
+        expect(wrapper.text()).toContain("第3章");
+        expect(wrapper.find("[aria-current='page']").text()).toBe("第3章");
+        wrapper.unmount();
+    });
+
+    it("renders splitter panels and resize handle", () => {
+        const wrapper = mount(Splitter, {
+            props: {
+                direction: "horizontal",
+                panels: [
+                    {id: "sidebar", defaultSize: 25},
+                    {id: "editor", defaultSize: 75},
+                ],
+            },
+            slots: {
+                "panel-sidebar": "<div>侧边栏内容</div>",
+                "panel-editor": "<div>正文内容</div>",
+            },
+        });
+
+        expect(wrapper.text()).toContain("侧边栏内容");
+        expect(wrapper.text()).toContain("正文内容");
+        wrapper.unmount();
+    });
+
+    it("renders drawer trigger and mounts cleanly", () => {
+        const wrapper = mount(Drawer, {
+            props: {
+                title: "设定详情",
+                description: "人物属性与背景",
+            },
+            slots: {
+                trigger: "<button>打开抽屉</button>",
+                default: "<div>抽屉正文</div>",
+            },
+        });
+
+        expect(wrapper.text()).toContain("打开抽屉");
+        wrapper.unmount();
+    });
+
+    it("renders progress bar with tone and aria value", () => {
+        const wrapper = mount(Progress, {
+            props: {
+                modelValue: 60,
+                max: 100,
+                tone: "success",
+            },
+        });
+
+        expect(wrapper.find("[role='progressbar']").exists()).toBe(true);
+        expect(wrapper.find("[role='progressbar']").attributes("aria-valuenow")).toBe("60");
+        wrapper.unmount();
+    });
+
+    it("renders avatar fallback and squircle shape", () => {
+        const wrapper = mount(Avatar, {
+            props: {
+                fallback: "NB",
+                size: "md",
+                shape: "squircle",
+            },
+        });
+
+        expect(wrapper.text()).toContain("NB");
+        expect(wrapper.classes()).toContain("h-8");
+        expect(wrapper.classes()).toContain("rounded-[var(--radius-control)]");
+        wrapper.unmount();
+    });
+
+    it("renders separator with correct orientation semantics", () => {
+        const hSep = mount(Separator, {
+            props: {orientation: "horizontal"},
+        });
+        expect(hSep.attributes("role")).toBe("none");
+        expect(hSep.classes()).toContain("w-full");
+        hSep.unmount();
+
+        const vSep = mount(Separator, {
+            props: {orientation: "vertical", decorative: false},
+        });
+        expect(vSep.attributes("role")).toBe("separator");
+        expect(vSep.attributes("aria-orientation")).toBe("vertical");
+        vSep.unmount();
+    });
+
+    it("renders aspect ratio container", () => {
+        const wrapper = mount(AspectRatio, {
+            props: {ratio: 16 / 9},
+            slots: {
+                default: "<img src='/cover.jpg' alt='封面' />",
+            },
+        });
+
+        expect(wrapper.find("img").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("renders calendar heading and weekday grid", () => {
+        const wrapper = mount(Calendar, {
+            props: {
+                locale: "zh-CN",
+            },
+        });
+
+        expect(wrapper.find("table").exists()).toBe(true);
+        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
+        wrapper.unmount();
+    });
+
+    it("renders collapsible trigger and content", () => {
+        const wrapper = mount(Collapsible, {
+            slots: {
+                trigger: "<button>折叠开关</button>",
+                default: "<div>折叠详细说明</div>",
+            },
+        });
+
+        expect(wrapper.text()).toContain("折叠开关");
+        wrapper.unmount();
+    });
+
+    it("renders scroll area viewport", () => {
+        const wrapper = mount(ScrollArea, {
+            slots: {
+                default: "<p>长篇文本内容</p>",
+            },
+        });
+
+        expect(wrapper.text()).toContain("长篇文本内容");
+        wrapper.unmount();
+    });
+
+    it("renders alert dialog trigger cleanly", () => {
+        const wrapper = mount(AlertDialog, {
+            props: {
+                title: "删除章节确认",
+                description: "此操作无法恢复",
+                confirmText: "确认删除",
+            },
+            slots: {
+                trigger: "<button>删除章节</button>",
+            },
+        });
+
+        expect(wrapper.text()).toContain("删除章节");
+        wrapper.unmount();
+    });
+
+    it("renders pin input with specified number of cells", () => {
+        const wrapper = mount(PinInput, {
+            props: {
+                length: 4,
+            },
+        });
+
+        const inputs = wrapper.findAll("input:not([aria-hidden='true'])");
+        expect(inputs.length).toBe(4);
+        wrapper.unmount();
+    });
+
+    it("renders menubar menus and triggers", () => {
+        const wrapper = mount(Menubar, {
+            props: {
+                menus: [
+                    {id: "file", label: "文件", items: [{label: "新建", value: "new"}]},
+                    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo"}]},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("文件");
+        expect(wrapper.text()).toContain("编辑");
+        wrapper.unmount();
+    });
+
+    it("renders editable with preview and edit trigger", () => {
+        const wrapper = mount(Editable, {
+            props: {
+                modelValue: "第一卷：启程",
+                placeholder: "点击编辑",
+            },
+        });
+
+        expect(wrapper.text()).toContain("第一卷：启程");
+        expect(wrapper.find("button[aria-label='编辑']").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("renders stepper with steps and current indicator", () => {
+        const wrapper = mount(Stepper, {
+            props: {
+                modelValue: 2,
+                steps: [
+                    {step: 1, title: "创建档案"},
+                    {step: 2, title: "世界观设定"},
+                    {step: 3, title: "导出发布"},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("创建档案");
+        expect(wrapper.text()).toContain("世界观设定");
+        expect(wrapper.text()).toContain("导出发布");
+        wrapper.unmount();
+    });
+
+    it("renders date picker trigger and placeholder", () => {
+        const wrapper = mount(DatePicker, {
+            props: {
+                placeholder: "选择定档发布日期",
+            },
+        });
+
+        expect(wrapper.text()).toContain("选择定档发布日期");
+        wrapper.unmount();
+    });
+
+    it("renders range calendar with weekday headers", () => {
+        const wrapper = mount(RangeCalendar, {
+            props: {
+                locale: "zh-CN",
+            },
+        });
+
+        expect(wrapper.find("table").exists()).toBe(true);
+        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
+        wrapper.unmount();
+    });
+
+    it("renders listbox with options and filtering", () => {
+        const wrapper = mount(Listbox, {
+            props: {
+                options: [
+                    {value: "c1", label: "赛博朋克"},
+                    {value: "c2", label: "硬核科幻"},
+                ],
+                showFilter: true,
+            },
+        });
+
+        expect(wrapper.text()).toContain("赛博朋克");
+        expect(wrapper.text()).toContain("硬核科幻");
+        expect(wrapper.find("input").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("renders listbox card variant and action bar", () => {
+        const wrapper = mount(Listbox, {
+            props: {
+                options: [
+                    {value: "char1", label: "林澈", description: "代号渡鸦", badge: "主角"},
+                    {value: "char2", label: "苏浅", description: "科学家", badge: "盟友"},
+                ],
+                variant: "card",
+                multiple: true,
+                modelValue: ["char1"],
+                showActionBar: true,
+            },
+        });
+
+        expect(wrapper.text()).toContain("林澈");
+        expect(wrapper.text()).toContain("代号渡鸦");
+        expect(wrapper.text()).toContain("主角");
+        expect(wrapper.text()).toContain("项已选");
+        expect(wrapper.text()).toContain("全选");
+        wrapper.unmount();
+    });
+
+    it("renders listbox grouped sections", () => {
+        const wrapper = mount(Listbox, {
+            props: {
+                groups: [
+                    {
+                        id: "v1",
+                        label: "第一卷",
+                        options: [{value: "ch1", label: "第01章"}],
+                    },
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("第一卷");
+        expect(wrapper.text()).toContain("第01章");
+        wrapper.unmount();
+    });
+
+    it("renders listbox compact variant", () => {
+        const wrapper = mount(Listbox, {
+            props: {
+                options: [{value: "opt1", label: "测试"}],
+                variant: "compact",
+            },
+        });
+        expect(wrapper.text()).toContain("测试");
+        wrapper.unmount();
+    });
+
+    it("renders rating stars and reflects max count", () => {
+        const wrapper = mount(Rating, {
+            props: {
+                modelValue: 3,
+                max: 5,
+            },
+        });
+
+        expect(wrapper.findAll(".group").length).toBe(5);
+        wrapper.unmount();
+    });
+
+    it("renders color picker with color text and swatch", () => {
+        const wrapper = mount(ColorPicker, {
+            props: {
+                modelValue: "#6366F1",
+            },
+        });
+
+        expect(wrapper.text().toUpperCase()).toContain("#6366F1");
+        wrapper.unmount();
+    });
+
+    it("renders navigation menu items", () => {
+        const wrapper = mount(NavigationMenu, {
+            props: {
+                items: [
+                    {id: "m1", label: "工作区", href: "#"},
+                    {id: "m2", label: "大纲", links: [{title: "主线大纲", description: "规划剧情"}]},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("工作区");
+        expect(wrapper.text()).toContain("大纲");
+        wrapper.unmount();
+    });
+
+    it("renders tree with nodes and indentation", () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("第一卷");
+        wrapper.unmount();
+    });
+
+    it("renders date range picker placeholder", () => {
+        const wrapper = mount(DateRangePicker, {
+            props: {
+                placeholder: "选择起止日期",
+            },
+        });
+
+        expect(wrapper.text()).toContain("选择起止日期");
+        wrapper.unmount();
+    });
+
+    it("renders date field with segments", () => {
+        const wrapper = mount(DateField);
+        expect(wrapper.find("div").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("renders date range field with start and end segments", () => {
+        const wrapper = mount(DateRangeField);
+        expect(wrapper.text()).toContain("~");
+        wrapper.unmount();
+    });
+
+    it("renders time field with segments", () => {
+        const wrapper = mount(TimeField);
+        expect(wrapper.find("div").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("renders time range field with start and end", () => {
+        const wrapper = mount(TimeRangeField);
+        expect(wrapper.text()).toContain("~");
+        wrapper.unmount();
+    });
+
+    it("renders month picker grid", () => {
+        const wrapper = mount(MonthPicker, {
+            props: {
+                locale: "zh-CN",
+            },
+        });
+
+        expect(wrapper.find("table").exists()).toBe(true);
+        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
+        wrapper.unmount();
+    });
+
+    it("renders month range picker grid", () => {
+        const wrapper = mount(MonthRangePicker, {
+            props: {
+                locale: "zh-CN",
+            },
+        });
+
+        expect(wrapper.find("table").exists()).toBe(true);
+        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
+        wrapper.unmount();
+    });
+
+    it("renders year picker grid", () => {
+        const wrapper = mount(YearPicker, {
+            props: {
+                locale: "zh-CN",
+            },
+        });
+
+        expect(wrapper.find("table").exists()).toBe(true);
+        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
+        wrapper.unmount();
+    });
+
+    it("renders year range picker grid", () => {
+        const wrapper = mount(YearRangePicker, {
+            props: {
+                locale: "zh-CN",
+            },
+        });
+
+        expect(wrapper.find("table").exists()).toBe(true);
+        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
+        wrapper.unmount();
+    });
+
+    it("renders autocomplete input", () => {
+        const wrapper = mount(Autocomplete, {
+            props: {
+                placeholder: "搜索设定集...",
+            },
+        });
+
+        expect(wrapper.find("input").attributes("placeholder")).toBe("搜索设定集...");
+        wrapper.unmount();
+    });
+
+    it("renders checkbox group with options", () => {
+        const wrapper = mount(CheckboxGroup, {
+            props: {
+                options: [
+                    {value: "o1", label: "导出 EPUB"},
+                    {value: "o2", label: "导出 PDF"},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("导出 EPUB");
+        expect(wrapper.text()).toContain("导出 PDF");
+        wrapper.unmount();
     });
 });

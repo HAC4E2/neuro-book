@@ -2,7 +2,7 @@
 import {useFormFieldContext} from "./form-field-context";
 
 const props = withDefaults(defineProps<{
-    modelValue: string;
+    modelValue?: string;
     id?: string;
     name?: string;
     placeholder?: string;
@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
     minlength?: number;
     maxlength?: number;
 }>(), {
+    modelValue: "",
     id: "",
     name: "",
     placeholder: "",

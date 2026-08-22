@@ -7,6 +7,8 @@
     outline: none;
     border-color: var(--focus-outline);
     box-shadow: var(--focus-ring);
+    transition: border-color var(--motion-base) var(--ease-standard),
+                box-shadow var(--motion-base) var(--ease-standard);
 }
 
 /*
@@ -38,12 +40,42 @@
     border-color: var(--control-outline, var(--border-color));
     /* sc-input 常态就有内阴影（凹陷质感由主题装饰 token 决定，低装饰主题为 none） */
     box-shadow: var(--inset-shadow);
+    transition: border-color var(--motion-base) var(--ease-standard),
+                box-shadow var(--motion-base) var(--ease-standard),
+                background-color var(--motion-base) var(--ease-standard),
+                color var(--motion-base) var(--ease-standard);
 }
 
 .nb-ui-control:focus,
-.nb-ui-control:focus-within {
+.nb-ui-control:focus-within,
+.nb-ui-control[data-state="open"] {
     border-color: var(--focus-outline);
     box-shadow: var(--inset-shadow), var(--focus-ring);
+}
+
+/*
+ * 只读与禁用状态：绝对不展示编辑态高亮边框与 Focus 辉光。
+ * 针对 input[readonly]/input:disabled 精准重置，不误伤包含 button/span 等非编辑子节点的容器。
+ */
+input.nb-ui-control:read-only,
+textarea.nb-ui-control:read-only,
+.nb-ui-control[readonly],
+.nb-ui-control:disabled,
+.nb-ui-control:has(input[readonly]),
+.nb-ui-control:has(input:disabled),
+.nb-ui-control:has(textarea[readonly]),
+.nb-ui-control:has(textarea:disabled),
+input.nb-ui-control:read-only:focus,
+textarea.nb-ui-control:read-only:focus,
+.nb-ui-control[readonly]:focus,
+.nb-ui-control:disabled:focus,
+.nb-ui-control:has(input[readonly]):focus-within,
+.nb-ui-control:has(input:disabled):focus-within,
+.nb-ui-control:has(textarea[readonly]):focus-within,
+.nb-ui-control:has(textarea:disabled):focus-within {
+    border-color: var(--control-outline, var(--border-color));
+    box-shadow: var(--inset-shadow);
+    outline: none;
 }
 
 /* 双类选择器抬高特异性，保证 invalid 边框压过组件上的 hover:border-* 原子类 */
@@ -54,9 +86,9 @@
     border-color: var(--status-danger);
 }
 
-.nb-ui-control.nb-ui-control-invalid:focus,
-.nb-ui-control.nb-ui-control-invalid:focus-within {
-    box-shadow: var(--inset-shadow), 0 0 0 3px color-mix(in srgb, var(--status-danger) 24%, transparent);
+.nb-ui-control.nb-ui-control-invalid:focus:not(:read-only):not([readonly]),
+.nb-ui-control.nb-ui-control-invalid:focus-within:not(:has(:read-only)):not(:has([readonly])) {
+    box-shadow: var(--inset-shadow), 0 0 0 3px color-mix(in srgb, var(--status-danger) 18%, transparent);
 }
 
 /*
@@ -161,7 +193,7 @@
 }
 
 .nb-ui-popover-motion {
-    transform-origin: var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center));
+    transform-origin: var(--reka-popover-content-transform-origin, var(--reka-hover-card-content-transform-origin, var(--reka-menubar-content-transform-origin, var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center)))));
 }
 
 .nb-ui-popover-motion[data-state="open"],
@@ -246,9 +278,48 @@
  * mask-image 属于「看不见的透明度」，reduced-transparency 下要一起收掉——
  * 库只把三个时长归零，不会替你关掉这个。
  */
-.nb-ui-popover-scroll-fade {
-    --nb-scroll-fade: var(--space-4, 8px);
+.nb-ui-popover-scroll-fade-top {
+    --nb-scroll-fade: 8px;
     mask-image: linear-gradient(
+        to bottom,
+        transparent 0,
+        #000 var(--nb-scroll-fade),
+        #000 100%
+    );
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        transparent 0,
+        #000 var(--nb-scroll-fade),
+        #000 100%
+    );
+}
+
+.nb-ui-popover-scroll-fade-bottom {
+    --nb-scroll-fade: 8px;
+    mask-image: linear-gradient(
+        to bottom,
+        #000 0,
+        #000 calc(100% - var(--nb-scroll-fade)),
+        transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        #000 0,
+        #000 calc(100% - var(--nb-scroll-fade)),
+        transparent 100%
+    );
+}
+
+.nb-ui-popover-scroll-fade-both {
+    --nb-scroll-fade: 8px;
+    mask-image: linear-gradient(
+        to bottom,
+        transparent 0,
+        #000 var(--nb-scroll-fade),
+        #000 calc(100% - var(--nb-scroll-fade)),
+        transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
         to bottom,
         transparent 0,
         #000 var(--nb-scroll-fade),
@@ -258,8 +329,12 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-    .nb-ui-popover-scroll-fade {
-        mask-image: none;
+    .nb-ui-popover-scroll-fade,
+    .nb-ui-popover-scroll-fade-top,
+    .nb-ui-popover-scroll-fade-bottom,
+    .nb-ui-popover-scroll-fade-both {
+        mask-image: none !important;
+        -webkit-mask-image: none !important;
     }
 }
 

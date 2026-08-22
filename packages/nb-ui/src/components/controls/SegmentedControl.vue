@@ -1,7 +1,20 @@
 <script setup lang="ts">
+import {computed} from "vue";
+
+/**
+ * 分段选择器（SegmentedControl · 方案 2-A 经典 macOS 系统蓝平滑滑动体系）。
+ *
+ * 视觉与动效规范：
+ * 1. 底座：饱满超椭圆（Squircle，消费 var(--radius-control)），10% 柔灰实底 + 1px 细微反光外框；
+ * 2. 指示块：纯正 Apple 蓝（var(--accent-main)）+ 纯白反色文字 + 300ms 舒缓物理滑动动画（消费 var(--motion-base) 与 var(--ease-standard)）；
+ * 3. 分隔线：未选中项之间配备 1px 细微竖向分隔线，在选中项相邻两侧智能平滑消隐；
+ * 4. 支持纯单选、图标、Count 徽标与禁用态。
+ */
+
 export type SegmentedControlValue = string | number | boolean | null;
 export type SegmentedControlSize = "xs" | "sm";
 export type SegmentedControlTone = "default" | "accent" | "warning";
+
 export type SegmentedControlOption = {
     count?: number | string;
     disabled?: boolean;
@@ -20,11 +33,13 @@ const props = withDefaults(defineProps<{
     size?: SegmentedControlSize;
     tone?: SegmentedControlTone;
     wrap?: boolean;
+    fullWidth?: boolean;
 }>(), {
     ariaLabel: "",
     size: "sm",
     tone: "default",
-    wrap: true,
+    wrap: false,
+    fullWidth: false,
 });
 
 const emit = defineEmits<{
@@ -35,28 +50,11 @@ function optionKey(option: SegmentedControlOption): string {
     return `${typeof option.value}:${String(option.value)}`;
 }
 
-function optionTone(option: SegmentedControlOption): SegmentedControlTone {
-    return option.tone ?? props.tone;
-}
-
 function isSelected(option: SegmentedControlOption): boolean {
     return option.value === props.modelValue;
 }
 
-function buttonClass(option: SegmentedControlOption): string {
-    if (isSelected(option)) {
-        // 选中段：面板色 + 渐变抬起 + 阴影（对照页 sc-seg 配方）
-        const surface = "bg-[var(--bg-panel)] bg-[image:var(--surface-raise)] shadow-[var(--elevation-raised)]";
-        if (optionTone(option) === "warning") {
-            return `${surface} text-[var(--status-warning)]`;
-        }
-        if (optionTone(option) === "accent") {
-            return `${surface} text-[var(--accent-main)]`;
-        }
-        return `${surface} text-[var(--text-main)]`;
-    }
-    return "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]";
-}
+const selectedIndex = computed(() => props.options.findIndex((opt) => opt.value === props.modelValue));
 
 function selectOption(option: SegmentedControlOption): void {
     if (option.disabled) {
@@ -67,29 +65,58 @@ function selectOption(option: SegmentedControlOption): void {
 </script>
 
 <template>
-    <!-- 互斥的紧凑模式切换控件 -->
-    <div role="group" :aria-label="props.ariaLabel || undefined" class="inline-flex max-w-full gap-[var(--space-1)] rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color:var(--control-outline)] bg-[var(--bg-subtle)] p-[var(--space-1)]" :class="props.wrap ? 'flex-wrap' : 'flex-nowrap'">
-        <!--
-            段的圆角由外框推出来，不取控件档：选中段贴着外框内缘，
-            两个圆角不同心时缝在直边和角上不一致，看起来像段"顶破"了外框。
-            判据与完整推导见 docs/design-language.md 的同心圆角一节。
-            max() 兜底：主题若把 --radius-control 调到比 padding 还小，负值会让整条声明作废（变方角）。
-        -->
+    <div
+        role="group"
+        :aria-label="props.ariaLabel || undefined"
+        class="relative inline-flex max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border"
+        :class="[
+            props.fullWidth ? 'w-full flex' : 'inline-flex',
+            props.wrap ? 'flex-wrap' : 'flex-nowrap',
+        ]"
+    >
+        <!-- 300ms 舒缓平滑滑动背景指示块（单选且选项固定等分时连续滑动） -->
+        <div
+            v-if="selectedIndex >= 0 && !props.wrap"
+            class="absolute top-[2px] bottom-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
+            :style="{
+                width: `calc((100% - 4px) / ${props.options.length})`,
+                transform: `translateX(calc(${selectedIndex} * 100%))`,
+            }"
+        ></div>
+
+        <!-- 选项按钮列表 -->
         <button
-            v-for="option in props.options"
+            v-for="(option, idx) in props.options"
             :key="optionKey(option)"
             type="button"
-            class="nb-ui-focus-ring inline-flex min-w-0 items-center justify-center gap-[var(--space-2)] rounded-[max(2px,calc(var(--radius-control)-var(--space-1)))] [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
-            :class="[props.size === 'xs' ? 'h-[calc(var(--control-h-sm)-var(--space-1)*3)] px-[calc(var(--control-px)*0.6)] text-[var(--text-2xs)]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]', buttonClass(option)]"
+            class="nb-ui-focus-ring relative z-10 flex-1 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent cursor-pointer"
+            :class="[
+                props.size === 'xs'
+                    ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[11px]'
+                    : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs',
+                isSelected(option)
+                    ? 'text-[var(--text-inverse)] font-semibold'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)]',
+            ]"
             :aria-pressed="isSelected(option)"
             :data-testid="option.testId"
             :disabled="option.disabled"
             :title="option.title"
             @click="selectOption(option)"
         >
-            <span v-if="option.iconClass" class="h-[1.2em] w-[1.2em] shrink-0" :class="option.iconClass"></span>
+            <!-- 选项间细分隔线（选中项两侧自动隐去） -->
+            <span
+                v-if="idx > 0 && selectedIndex !== idx && selectedIndex !== idx - 1"
+                class="absolute left-0 top-1.5 bottom-1.5 w-[1px] bg-[color-mix(in_srgb,var(--text-main)_14%,transparent)] pointer-events-none"
+            ></span>
+
+            <span v-if="option.iconClass" class="h-3.5 w-3.5 shrink-0 opacity-90" :class="option.iconClass"></span>
             <span class="truncate">{{ option.label }}</span>
-            <span v-if="option.count !== undefined" class="shrink-0 font-mono text-[var(--text-2xs)] opacity-80">{{ option.count }}</span>
+            <span
+                v-if="option.count !== undefined"
+                class="shrink-0 font-mono text-[10px] px-1.5 py-0.2 rounded-full"
+                :class="isSelected(option) ? 'bg-white/20 text-white' : 'bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] text-[var(--text-muted)]'"
+            >{{ option.count }}</span>
         </button>
     </div>
 </template>

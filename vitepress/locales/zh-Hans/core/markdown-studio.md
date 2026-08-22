@@ -87,6 +87,6 @@ Agent 也按同样的路径读写。**你看到的和 AI 看到的是同一套�
 
 ## 继续阅读
 
-- [Markdown 方言完整规范](https://github.com/notnotype/neuro-book/blob/master/reference/content/markdown-dialect.md)
+- [Markdown 方言完整规范](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/content/markdown-dialect.md)
 - [llmlint 文风检查](/core/llmlint)：写完之后给稿子做 lint。
 - [认识你的小说工作台](/tutorials/01-studio-tour)：界面导览。

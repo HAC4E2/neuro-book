@@ -6,7 +6,7 @@ export type NumberInputSize = "default" | "sm";
 type StepDirection = "down" | "up";
 
 const props = withDefaults(defineProps<{
-    modelValue: string;
+    modelValue?: string;
     id?: string;
     name?: string;
     placeholder?: string;
@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
     size?: NumberInputSize;
     title?: string;
 }>(), {
+    modelValue: "",
     id: "",
     name: "",
     placeholder: "",
@@ -116,7 +117,7 @@ function decimalPlaces(value: string): number {
 <template>
     <!-- 用自定义步进按钮替代浏览器原生 spinner：原生 spinner 的样式任何 CSS 都够不着 -->
     <div
-        class="nb-ui-control flex w-full min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] transition-colors focus-within:outline-none"
+        class="nb-ui-control flex w-full min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
         :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '', props.disabled || props.readonly ? 'cursor-default opacity-60' : '']"
         :title="props.title"
     >
@@ -137,13 +138,30 @@ function decimalPlaces(value: string): number {
             @input="updateValue(($event.target as HTMLInputElement).value)"
             @keydown="handleKeydown"
         >
-        <span class="ml-[var(--space-1)] flex h-[calc(var(--control-h-sm)*0.8)] w-[calc(var(--control-h-sm)*0.64)] shrink-0 flex-col overflow-hidden rounded-[calc(var(--radius-control)*0.5)] border-[length:var(--border-w)] border-[color:var(--control-outline)] bg-[var(--bg-panel)]">
-            <button type="button" aria-label="增加" title="增加" class="flex h-1/2 items-center justify-center text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.disabled || props.readonly" @click="stepValueBy('up')">
-                <span class="i-lucide-chevron-up h-[1em] w-[1em]" aria-hidden="true"></span>
+        <!-- 方案 C：极简悬停无框轻量微调器 -->
+        <div class="flex flex-col items-center justify-center -mr-1 shrink-0">
+            <button
+                type="button"
+                aria-label="增加"
+                title="增加"
+                tabindex="-1"
+                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="props.disabled || props.readonly"
+                @click="stepValueBy('up')"
+            >
+                <span class="i-lucide-chevron-up h-3.5 w-3.5" aria-hidden="true"></span>
             </button>
-            <button type="button" aria-label="减少" title="减少" class="flex h-1/2 items-center justify-center border-t-[length:var(--border-w)] border-[color:var(--control-outline)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.disabled || props.readonly" @click="stepValueBy('down')">
-                <span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
+            <button
+                type="button"
+                aria-label="减少"
+                title="减少"
+                tabindex="-1"
+                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="props.disabled || props.readonly"
+                @click="stepValueBy('down')"
+            >
+                <span class="i-lucide-chevron-down h-3.5 w-3.5" aria-hidden="true"></span>
             </button>
-        </span>
+        </div>
     </div>
 </template>

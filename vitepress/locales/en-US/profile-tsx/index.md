@@ -59,5 +59,5 @@ For visual editing, use the TSX Profile workbench. Its entry point only appears 
 - [Write a Profile from Scratch](./authoring.md)
 - [Node Reference](./nodes.md)
 - [Examples](./examples.md)
-- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)
-- [Agent Context Composition](https://github.com/notnotype/neuro-book/blob/master/reference/agent/context.md)
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/profile-guide.md)
+- [Agent Context Composition](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/context.md)

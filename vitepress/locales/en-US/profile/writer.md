@@ -103,6 +103,6 @@ If the plot state has not been settled yet, run the World Engine advance flow fi
 
 ## Keep Reading
 
-- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)
+- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/novel-writing-workflow.md)
 - [Write the First Three Chapters](/en/tutorials/04-first-three-chapters)
-- [Leader Collaboration Protocol](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)
+- [Leader Collaboration Protocol](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/leader-default.md)

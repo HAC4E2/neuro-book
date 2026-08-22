@@ -89,8 +89,8 @@ flowchart LR
 
 ## 继续阅读
 
-- [World Engine Reference](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/README.md)：完整原理与契约书架。
-- [记录原则](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/recording-principles.md)：什么该记、记到什么粒度——避免过度建模的关键。
-- [Schema 系统](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/schema-system.md)：主体结构怎么定义。
-- [历法系统](https://github.com/notnotype/neuro-book/blob/master/reference/world-engine/calendar-system.md)：时间表达与三种历法策略。
+- [World Engine Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/README.md)：完整原理与契约书架。
+- [记录原则](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/recording-principles.md)：什么该记、记到什么粒度——避免过度建模的关键。
+- [Schema 系统](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/schema-system.md)：主体结构怎么定义。
+- [历法系统](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/world-engine/calendar-system.md)：时间表达与三种历法策略。
 - [Plot 剧情工坊](/core/plot-workbench)：剧情结构层，和 World Engine 在场景上咬合。

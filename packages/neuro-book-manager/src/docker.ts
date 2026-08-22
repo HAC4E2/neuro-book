@@ -348,7 +348,7 @@ export async function buildSourceDockerImage(engine: ContainerEngine, sourceRoot
     await run(engine, [
         "build",
         "--file",
-        join(sourceRoot, "Dockerfile"),
+        join(sourceRoot, "packages", "neuro-book", "Dockerfile"),
         "--build-arg",
         `NEURO_BOOK_SOURCE_REVISION=${revision}`,
         "--tag",

@@ -32,13 +32,19 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <div class="lab-fixture__center">
-            <Spinner
-                id="nb-lab-target"
-                :size="(controls.size ?? 'md') as SpinnerSize"
-                label="加载中"
-                :show-label="sceneId === 'labeled'"
-            />
+        <div class="macos-compact-card space-y-4">
+            <h3 class="text-sm font-bold text-[var(--text-main)] pb-2 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)]">
+                加载指示器 (Spinner)
+            </h3>
+
+            <div class="lab-fixture__center py-6">
+                <Spinner
+                    id="nb-lab-target"
+                    :size="(controls.size ?? 'md') as SpinnerSize"
+                    label="加载中"
+                    :show-label="sceneId === 'labeled'"
+                />
+            </div>
         </div>
     </FixtureShell>
 </template>

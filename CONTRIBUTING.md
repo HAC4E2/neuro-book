@@ -56,7 +56,7 @@ PR 列出实际命令和结果；没有执行的检查写“未运行”。聚�
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | 仓库现状与当前验收缺口 |
 | [`RELEASE.md`](RELEASE.md) | 发布程序消费的当前版本说明 |
 
-`reference/` 仍是产品 Agent/Profile 的冻结过渡层；其迁移状态由规范注册表登记。不要只依据 Issue 标题、单个代码路径、Proposal 或 Task 推断完整当前合同。
+`packages/neuro-book/assets/reference/` 是产品 Agent/Profile Reference 的应用 Seed Source；Profile 的逻辑路径仍为 `reference/**`，显式 Runtime 的物理根由 Runtime Asset Adapter 解析。其迁移状态由规范注册表登记。不要只依据 Issue 标题、单个代码路径、Proposal 或 Task 推断完整当前合同。
 
 ## Issue 与实现授权
 

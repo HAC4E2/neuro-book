@@ -10,11 +10,11 @@ NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Des
 
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
-| 主应用 | `packages/neuro-book/package.json`、`app/`、`server/`、`shared/`、`assets/` 与包内 `scripts/`、`.agents/tasks/` | `bun --cwd packages/neuro-book ...`、Nuxt、应用 Vitest、Product 宿主 | 应用源码、专属脚本、Task 和运行期参考书由应用包持有；根不承载应用实现 |
+| 主应用 | `packages/neuro-book/package.json`、`app/`、`server/`、`shared/`、`assets/`、包内 `scripts/`、`.agents/tasks/`、`Dockerfile*`、`docker-compose.yml`、`.env.docker.example`、`.gitignore` 与 `config.example.yaml` | `bun --cwd packages/neuro-book ...`、Nuxt、应用 Vitest、Product 宿主 | 应用源码、专属脚本、Task、运行期参考书、分发资产和应用交付配置由应用包持有；根不承载应用实现或应用容器入口 |
 | Source Dev | `packages/neuro-book/scripts/cli/source-dev.ts` | 应用 `dev` 命令 | 应用拥有启动编排；唯一允许的根 bridge 是只读复用 `scripts/utils/workspace-roots.ts` 定位 repository/application roots |
 | 用户文档站 | `vitepress/locales/{zh-Hans,en-US}/`、`vitepress/public/`、`vitepress/.vitepress/` | 根 `docs:*` 命令与 docs workflows | 整个 monorepo 的中英文用户文档投影；公开 URL 固定为中文 `/`、英文 `/en/`，工程 Spec 留在 owner 文档根 |
 | Agent Runtime | `packages/neuro-book/server/agent/`、相关 DTO 与 `packages/neuro-book/assets/reference/agent/` | Agent API、Harness、Profile runtime | 保持应用逻辑 Module；逻辑 `reference/**` 在 Source/Product 均解析到应用持有的只读书架 |
-| Project / Workspace | `packages/neuro-book/server/workspace-files/`、Project SQLite、Workspace 文件协议 | Project API、文件工具、Workspace CLI | 由 Project Workspace Module 持有数据和授权；不由 UI 或脚本直接拼路径 |
+| Project / Workspace | `packages/neuro-book/server/workspace-files/`、State Root 的 `workspace/`、Project SQLite、Workspace 文件协议 | Project API、文件工具、Workspace CLI | `workspace/` 是运行时逻辑前缀；Source Dev 默认把物理 State Root 放在 Windows `%LOCALAPPDATA%/NeuroBook/data`、macOS `~/Library/Application Support/NeuroBook/data`、Linux `$XDG_DATA_HOME/NeuroBook/data`，不使用 checkout 根 `workspace/` |
 | World Engine | `packages/neuro-book/world-engine/` 与 `packages/neuro-book/assets/reference/world-engine/` | Plot、Agent tools、写作流程 | 保持独立领域 Module；Product runtime 通过显式 runtime island 消费 |
 | Product Runtime / Release | `packages/neuro-book/server/runtime/`、根 `scripts/build/`、`scripts/deploy/`、`scripts/release/` | Product、Portable、Container、Release | 共享验证和发布入口保持根宿主 owner；应用运行期书架投影到 Product `server/assets/reference/` |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；包级治理资产覆盖专属行为，统一文档站只投影用户入口 |
@@ -22,6 +22,14 @@ NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Des
 | Desktop Envelope | `desktop/` 与 `packages/neuro-book-contracts/src/desktop*` | Electron/Tauri、Manager、Desktop Contract | 保持根级独立安装图；宿主实现通过 contracts 或 Manager 正式 subpath 消费，不深导入应用或 sibling 源码 |
 
 所有 `packages/*` 默认继承根 Rule/Skill/Role、临时根、安全和 Git 规则。包可以建立自己的 `AGENTS.md`、`docs/`、`.agents/tasks/` 和 `PROJECT-STATUS.md`，但 `AGENTS.md` 必须引用 `../../AGENTS.md`；`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
+
+### 运行时路径与源码资产
+
+- `packages/neuro-book/assets/` 是已跟踪的主应用分发资产：`assets/workspace/` 提供系统 `.nbook` 模板/profile/skill，`assets/reference/` 提供运行期 Reference。它不是用户 Workspace，也不应被启动进程写入。
+- checkout 根 `assets/` 与 `workspace/` 仅是本机旧运行残留/用户数据隔离区；均不属于当前 Source owner。根 `workspace/` 被 `.gitignore` 忽略，不能通过目录搬家覆盖或删除其中的用户 SQLite、会话和 Project 文件。
+- Source Dev 由 `packages/neuro-book/scripts/cli/source-dev.ts` 注入 `NEURO_BOOK_STATE_ROOT`；当前默认物理 Workspace 是平台用户数据根下的 `workspace/`。只有显式设置 `NEURO_BOOK_STATE_ROOT` 时才改变该位置。
+- `.env` 与 `config.yaml` 是 State Root 的本机运行配置，不是源码包内的提交文件；仓库只提交 `packages/neuro-book/.env.example`、`.env.product`、`.env.typecheck`、`.env.docker.example` 和 `config.example.yaml`。
+- Docker build context 仍是 monorepo 根，以便一次安装全部 workspace；因此根 `.dockerignore` 是交付宿主配置，Dockerfile 本身和 Compose/env 示例归主应用包。
 
 根 `tsconfig.json` 和应用包配置中的 `nbook/*` alias 指向 `packages/neuro-book`；它是应用源码的绝对导入约定，不等于可供其他包深导入的内部路径。跨包依赖必须通过 workspace package 名和声明版本进入公开入口。
 

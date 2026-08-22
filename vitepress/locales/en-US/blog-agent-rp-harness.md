@@ -272,8 +272,8 @@ The goal is not to have the AI generate a longer block of text in one shot. It i
 
 ## Keep Reading
 
-- [Agent Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/reference/agent/runtime-hooks.md)
-- [Subject RAG Memory](https://github.com/notnotype/neuro-book/blob/master/reference/content/subject-rag-memory.md)
-- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)
-- [Content Reference](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md)
-- [Agent RP Mode Task](https://github.com/notnotype/neuro-book/blob/master/.agents/tasks/01-agent-roleplay-mode/README.md)
+- [Agent Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/runtime-hooks.md)
+- [Subject RAG Memory](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/content/subject-rag-memory.md)
+- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/novel-writing-workflow.md)
+- [Content Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/content/README.md)
+- [Agent RP Mode Task](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/.agents/tasks/01-agent-roleplay-mode/README.md)

@@ -31,7 +31,7 @@
 
 教程只讲“怎么开始”。当你想知道系统为什么这样组织文件，或者要让 Agent 更精确地改项目时，再读 Reference：
 
-- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)：Agent、profile、Skill、Workflow、Job 和 Harness。
-- [Project Workspace Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/project-workspace-guide.md)：项目文件、内容节点和 Agent 文件语义。
-- [Content Reference](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md)：`lorebook/`、`world-engine/`、retrieval 和信息控制。
-- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)：写作模式主协作链、writer handoff 和写作 skill 三层体系。
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/README.md)：Agent、profile、Skill、Workflow、Job 和 Harness。
+- [Project Workspace Guide](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/project-workspace-guide.md)：项目文件、内容节点和 Agent 文件语义。
+- [Content Reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/content/README.md)：`lorebook/`、`world-engine/`、retrieval 和信息控制。
+- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/novel-writing-workflow.md)：写作模式主协作链、writer handoff 和写作 skill 三层体系。

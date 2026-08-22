@@ -39,13 +39,19 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <SwitchField
-            id="nb-lab-target"
-            v-model="value"
-            label="自动同步"
-            :description="String(controls.description ?? '')"
-            :disabled="sceneId === 'disabled'"
-            @update:model-value="report('update:modelValue', {value: $event})"
-        />
+        <div class="macos-compact-card space-y-4">
+            <h3 class="text-sm font-bold text-[var(--text-main)] pb-2 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)]">
+                表单开关字段 (SwitchField)
+            </h3>
+
+            <SwitchField
+                id="nb-lab-target"
+                v-model="value"
+                label="自动同步"
+                :description="String(controls.description ?? '')"
+                :disabled="sceneId === 'disabled'"
+                @update:model-value="report('update:modelValue', {value: $event})"
+            />
+        </div>
     </FixtureShell>
 </template>

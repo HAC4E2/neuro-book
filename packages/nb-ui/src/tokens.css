@@ -133,8 +133,11 @@
     --inset-shadow: none;
     --elevation-raised: none;
 
-    --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent-main) 20%, transparent);
-    --focus-outline: var(--accent-main);
+    --focus-ring:
+        0 0 0 1px color-mix(in srgb, var(--accent-main) 35%, transparent),
+        0 0 0 3.5px color-mix(in srgb, var(--accent-main) 18%, transparent),
+        0 1px 6px color-mix(in srgb, var(--accent-main) 22%, transparent);
+    --focus-outline: color-mix(in srgb, var(--accent-main) 80%, var(--control-outline, var(--border-color)));
 
     /* 角色映射——本轮最容易被忽略的一层。
        控件的面用哪个配色变量、描边用不用色、分隔靠线还是靠底色，这是**主题决策不是颜色决策**；

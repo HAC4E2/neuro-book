@@ -27,7 +27,7 @@ story design → you sign off → advance World Engine → update plot structure
 ## simulator.leader (entry point taken down)
 
 ::: warning
-`simulator.leader` is the dispatcher for RP / world simulation. It is **hidden from the New Agent menu** and is being redesigned. Existing sessions and the profile files are kept. The RP Tick protocol is still documented in the [rp-tick reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/rp-tick/README.md).
+`simulator.leader` is the dispatcher for RP / world simulation. It is **hidden from the New Agent menu** and is being redesigned. Existing sessions and the profile files are kept. The RP Tick protocol is still documented in the [rp-tick reference](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/rp-tick/README.md).
 :::
 
 ## leader.assets
@@ -38,5 +38,5 @@ It is not the same thing as the ordinary novel leader, and it should not take on
 
 ## Keep Reading
 
-- [Leader Default Operational Protocol](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)
-- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)
+- [Leader Default Operational Protocol](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/leader-default.md)
+- [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/packages/neuro-book/assets/reference/agent/novel-writing-workflow.md)

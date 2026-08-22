@@ -20,14 +20,17 @@ Task 不复制 Issue 的 `module`、`priority`、labels 或 iteration；变化�
 .agents/tasks/
 ├── AGENTS.md
 ├── README.md
+├── ownership.json
 └── 00000-task-title/
     ├── README.md
     ├── context.md
     ├── evidences/
     └── 00000-role-YYYY-MM-DD_HH-mm-title.md
-```
 
-新任务使用五位数字编号和英文 kebab-case 标题。历史迁移任务保留原编号、目录名和正文，不为了格式统一重编号。
+packages/neuro-book/.agents/tasks/
+└── <ownership.json 登记的应用 Task 目录>
+
+根 `.agents/tasks/ownership.json` 是双根 owner 选择的唯一索引：登记的稳定 Task 名解析到应用包 root，未登记 Task 解析到根 root；解析器不得按候选路径 fallback。
 
 ## Task README
 
@@ -43,6 +46,21 @@ branchId: null
 status: planned
 createdAt: 2026-08-15T00:00:00Z
 updatedAt: 2026-08-15T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: bug
+  routes:
+    - diagnosing-bugs
+    - test-driven-development
+    - code-review-and-quality
+  verification:
+    required:
+      - regression-test
+      - focused-test
+      - diff-check
+    notRun:
+      - check: browser
+        reason: 未获浏览器人工验收授权
 ---
 ```
 
@@ -51,6 +69,14 @@ updatedAt: 2026-08-15T00:00:00Z
 - `worktreeId`、`branchId`：实现 worktree 和分支身份，没有时为 `null`。
 - `status`：`draft`、`planned`、`in-progress`、`blocked`、`verifying`、`completed` 或 `abandoned`。
 - `createdAt`、`updatedAt`：任务记录时间。
+- `agentWorkflow`：Proposal accepted 后新建或重新打开 Task 的工作法与验证画像；历史 Task 可以暂不包含该字段。
+- `agentWorkflow.profile`：必须为 `nbook.agent-skills/v1`。
+- `agentWorkflow.kind`：只能是 `feedback`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。
+- `agentWorkflow.routes`：非空、无重复的 Skill kebab-case 名称列表，记录本任务采用的最小充分路由。
+- `agentWorkflow.verification.required`：非空、无重复的必须完成检查；允许 `focused-test`、`regression-test`、`typecheck`、`build`、`diff-check`、`smoke`、`browser`、`security-review`、`performance-baseline`、`release-check`、`docs-check`、`governance-check`。
+- `agentWorkflow.verification.notRun`：字段必须存在且为数组，数组可为空；每项必须有 `check` 和非空 `reason`，且不得与 `required` 重叠。
+
+Task README 只记录执行合同；实际命令、结果、revision、环境、截图、日志和正式产物仍写入追加式 walkthrough / evidence。Task 不复制 Issue / Project 的 `module`、`priority`、labels 或 iteration。
 
 状态只描述本次执行记录，不替代 Issue 或 Project 状态。
 

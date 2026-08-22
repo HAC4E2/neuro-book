@@ -161,7 +161,7 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 - [部署方式](vitepress/locales/zh-Hans/deployment.md) / [运行、数据与隐私](vitepress/locales/zh-Hans/operations.md)
 - [Agent 心智模型](vitepress/locales/zh-Hans/agent/index.md) / [Workflow 与 Job](vitepress/locales/zh-Hans/agent/workflow.md) / [三种模式](vitepress/locales/zh-Hans/agent/modes.md)
 - [Profile 介绍](vitepress/locales/zh-Hans/profile/index.md) / [从零写一个 Profile](vitepress/locales/zh-Hans/profile-tsx/authoring.md)
-- [NeuroBook Reference Bookshelf](reference/README.md)
+- [NeuroBook Reference Bookshelf](packages/neuro-book/assets/reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 - [参与贡献](CONTRIBUTING.md)：Issue、开发规范、Agent 协作、Task 与 PR 流程
 
