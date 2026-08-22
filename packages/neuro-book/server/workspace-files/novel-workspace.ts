@@ -6,21 +6,29 @@ import {pinyin} from "pinyin-pro";
 import {
     PROFILE_COMPILED_DIR_NAME,
     ProfileReleasePublisher,
+    SYSTEM_PROFILE_ARTIFACT_ROOT_LABEL,
     isProfileReleaseCommittedButRegistryFailedError,
     readProfileArtifactManifest,
     rehomeProfileArtifactItem,
+    resolveProfileArtifactPathContext,
     validateProfileArtifact,
     type ProfileArtifactManifest,
     type ProfileArtifactManifestEntry,
     type ProfileArtifactManifestItem,
     type ProfileReleasePublishOptions,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
+import {
+    readVariableDefinitionManifest,
+    resolveVariableDefinitionArtifactPathContext,
+    SYSTEM_VARIABLE_DEFINITION_ROOT_LABEL,
+    validateVariableDefinitionArtifact,
+    type VariableDefinitionManifestItem,
+} from "nbook/server/agent/variables/definition-artifact";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath, assertRealPathContained, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {isRuntimeAgentAssetInstallMode, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
@@ -95,6 +103,7 @@ export function setUserAssetsSyncStateWriteHookForTest(hook: (() => Promise<void
 export function setUserAssetsProfileArtifactStagedHookForTest(hook: ((fileName: string) => Promise<void> | void) | null): void {
     userAssetsProfileArtifactStagedHookForTest = hook;
 }
+
 const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/llmlint/.git/",
     "agent/skills/llmlint/evals/",
@@ -138,36 +147,52 @@ const SKILL_PACKAGE_INSTALL_FIELDS = [
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
 
-function systemNbookRoot(): string {
-    return resolveSystemNbookRoot();
+function systemNbookRoot(explicitRoot?: string): string {
+    return explicitRoot ? path.resolve(explicitRoot) : resolveSystemNbookRoot();
 }
 
-function userNbookAbsoluteRoot(): string {
-    return resolveUserNbookRoot();
+function userNbookAbsoluteRoot(explicitRoot?: string): string {
+    return explicitRoot ? path.resolve(explicitRoot) : resolveUserNbookRoot();
 }
 
-function systemProfileRoot(): string {
-    return path.join(systemNbookRoot(), "agent", "profiles");
+function systemProfileRoot(explicitRoot?: string): string {
+    return path.join(systemNbookRoot(explicitRoot), "agent", "profiles");
 }
 
-function userProfileRoot(): string {
-    return path.join(userNbookAbsoluteRoot(), "agent", "profiles");
+function userProfileRoot(explicitRoot?: string): string {
+    return path.join(userNbookAbsoluteRoot(explicitRoot), "agent", "profiles");
 }
 
-function systemVariableDefinitionRoot(): string {
-    return path.join(systemNbookRoot(), "agent", "variables");
+function systemProfileArtifactPathContext(explicitRoot?: string): Promise<Awaited<ReturnType<typeof resolveProfileArtifactPathContext>>> {
+    return resolveProfileArtifactPathContext(
+        systemProfileRoot(explicitRoot),
+        SYSTEM_PROFILE_ARTIFACT_ROOT_LABEL,
+        runtimePathsFromEnv().applicationRoot,
+    );
 }
 
-function userVariableDefinitionRoot(): string {
-    return path.join(userNbookAbsoluteRoot(), "agent", "variables");
+function userProfileArtifactPathContext(explicitRoot?: string): Promise<Awaited<ReturnType<typeof resolveProfileArtifactPathContext>>> {
+    return resolveProfileArtifactPathContext(userProfileRoot(explicitRoot), "workspace/.nbook/agent/profiles", runtimePathsFromEnv().applicationRoot);
 }
 
-function userSystemAssetsSyncStatePath(): string {
-    return path.join(userNbookAbsoluteRoot(), ".system-assets-sync-state.json");
+function normalizeArtifactRootLabel(value: string): string {
+    return value.replace(/[\\/]+/g, "/").replace(/^\/+|\/+$/g, "");
 }
 
-function projectDirectoryTemplateRoot(): string {
-    return path.join(systemNbookRoot(), "templates", "project-directory-templates");
+function systemVariableDefinitionRoot(explicitRoot?: string): string {
+    return path.join(systemNbookRoot(explicitRoot), "agent", "variables");
+}
+
+function userVariableDefinitionRoot(explicitRoot?: string): string {
+    return path.join(userNbookAbsoluteRoot(explicitRoot), "agent", "variables");
+}
+
+function userSystemAssetsSyncStatePath(explicitRoot?: string): string {
+    return path.join(userNbookAbsoluteRoot(explicitRoot), ".system-assets-sync-state.json");
+}
+
+function projectDirectoryTemplateRoot(explicitRoot?: string): string {
+    return path.join(systemNbookRoot(explicitRoot), "templates", "project-directory-templates");
 }
 
 function userProjectDirectoryTemplateRoot(userNbookRoot = userNbookAbsoluteRoot()): string {
@@ -179,14 +204,24 @@ export type UserAssetsSyncResult = UserAssetsSyncResultDto;
 export type UserAssetsProfileSyncWarning = UserAssetsProfileSyncWarningDto;
 export type UserAssetsAssetSyncWarning = UserAssetsAssetSyncWarningDto;
 export type UserAssetsSyncOptions = {
-    /**
-     * 为 true 时覆盖用户侧受管系统资源。默认 false，保留用户手改内容。
-     */
+    /** 为 true 时覆盖用户侧受管系统资源。默认 false，保留用户手改内容。 */
     force?: boolean;
-    /**
-     * 为空时走 CLI/preflight disk-only 发布；HTTP runtime 传 in-process 以同步翻转 Registry。
-     */
+    /** 为空时走 CLI/preflight disk-only 发布；HTTP runtime 传 in-process 以同步翻转 Registry。 */
     profileRelease?: ProfileReleasePublishOptions;
+    /** legacy projection 的只读来源 `.nbook`；Runtime install 模式必须显式提供。 */
+    sourceNbookRoot?: string;
+    /** legacy projection 的可写目标 `.nbook`；Runtime install 模式必须显式提供。 */
+    targetNbookRoot?: string;
+    /** 是否同步旧的 templates/bin/config 等文件；Agent 三类包由 seeder/ledger 管理。 */
+    syncManagedAssets?: boolean;
+    /** 是否同步旧 profile shadow projection。Runtime Install Root 不走该旧路径。 */
+    syncProfiles?: boolean;
+    /** 是否同步旧 variable definition source projection。 */
+    syncVariableDefinitions?: boolean;
+    /** Runtime legacy projection 可显式跳过 Seed compiled；默认 Source/HTTP 同步仍会同步。 */
+    syncVariableCompiledArtifacts?: boolean;
+    /** Runtime legacy projection 专用：不触碰 skills/workflows/profiles package unit。 */
+    excludeAgentPackages?: boolean;
 };
 
 export type SystemProfileMetadata = {
@@ -343,32 +378,77 @@ export async function resolveWorkspaceFileTarget(
         root: runtimePaths.workspaceRoot,
     };
 }
-
 /**
- * 在显式Runtime Paths下确保全局用户assets工作区存在。
+ * 读取系统 profile metadata。不存在时返回空 metadata，兼容开发期首次生成前的状态。
  */
+export async function readSystemProfileMetadata(sourceNbookRoot?: string): Promise<SystemProfileMetadata> {
+    const profileRoot = systemProfileRoot(sourceNbookRoot);
+    const manifest = await readProfileArtifactManifest(profileRoot, await systemProfileArtifactPathContext(sourceNbookRoot));
+    return {
+        generatedAt: manifest.generatedAt,
+        profilesRoot: manifest.profilesRoot,
+        profiles: manifest.profiles.map((profile) => ({
+            fileName: profile.fileName,
+            profileKey: profile.profileKey,
+            sha256: profile.sourceSha256,
+            bytes: profile.sourceBytes,
+        })).sort((left, right) => left.fileName.localeCompare(right.fileName)),
+    };
+}
+
+/** 计算文件 sha256。系统 profile metadata 与用户 sync state 共用这一判断。 */
+export async function sha256File(filePath: string): Promise<{sha256: string; bytes: number}> {
+    const buffer = await fs.readFile(filePath);
+    return {
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+        bytes: buffer.byteLength,
+    };
+}
 export async function ensureUserAssetsWorkspaceRootAt(runtimePaths: RuntimePaths): Promise<AbsoluteFsPath> {
     await fs.mkdir(runtimePaths.userNbookRoot, {recursive: true});
     return runtimePaths.userNbookRoot;
 }
 
-/** 进程Adapter：为启动期assets同步解析当前用户assets根。 */
 export async function ensureUserAssetsWorkspaceRoot(): Promise<AbsoluteFsPath> {
     return ensureUserAssetsWorkspaceRootAt(runtimePathsFromEnv());
 }
 
-/**
- * 将系统 assets 同步到用户 assets。默认只补缺失和仍跟随上游的文件；
- * options.force 为 true 时覆盖用户侧受管系统资源。
- */
-export async function syncSystemAssetsToUserAssets(options: UserAssetsSyncOptions = {}): Promise<UserAssetsSyncResult> {
-    await ensureUserAssetsWorkspaceRoot();
-    const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: [], updatedAssets: 0, assetWarnings: []};
-    if (await isDirectory(systemNbookRoot())) {
-        await syncManagedSystemAssetsToUserAssets(result, options);
+type LegacyProjectionRoots = Readonly<{
+    sourceNbookRoot: string;
+    targetNbookRoot: string;
+}>;
+
+function resolveLegacyProjectionRoots(options: UserAssetsSyncOptions): LegacyProjectionRoots {
+    const sourceNbookRoot = path.resolve(options.sourceNbookRoot ?? systemNbookRoot());
+    const targetNbookRoot = path.resolve(options.targetNbookRoot ?? userNbookAbsoluteRoot());
+    if (isRuntimeAgentAssetInstallMode() && (!options.sourceNbookRoot || !options.targetNbookRoot)) {
+        throw new Error("Runtime Agent legacy projection 需要显式 sourceNbookRoot 和 targetNbookRoot。");
     }
-    await syncSystemProfilesToUserAssets(result, options);
-    await syncSystemVariableDefinitionsToUserAssets(result, options);
+    if (sourceNbookRoot === targetNbookRoot) {
+        throw new Error(`Runtime Agent legacy projection source/target 不能相同：${sourceNbookRoot}`);
+    }
+    return {sourceNbookRoot, targetNbookRoot};
+}
+export async function syncSystemAssetsToUserAssets(options: UserAssetsSyncOptions = {}): Promise<UserAssetsSyncResult> {
+    const roots = resolveLegacyProjectionRoots(options);
+    await fs.mkdir(roots.targetNbookRoot, {recursive: true});
+    const result: UserAssetsSyncResult = {
+        copied: 0,
+        skipped: 0,
+        updatedProfiles: 0,
+        profileWarnings: [],
+        updatedAssets: 0,
+        assetWarnings: [],
+    };
+    if (options.syncManagedAssets !== false && await isDirectory(roots.sourceNbookRoot)) {
+        await syncManagedSystemAssetsToUserAssets(result, options, roots);
+    }
+    if (options.syncProfiles !== false) {
+        await syncSystemProfilesToUserAssets(result, options, roots);
+    }
+    if (options.syncVariableDefinitions !== false) {
+        await syncSystemVariableDefinitionsToUserAssets(result, options, roots);
+    }
     return result;
 }
 
@@ -412,7 +492,6 @@ export async function readUserAssetsSyncConflictDetail(input: {
             reason: systemFile.reason ?? userFile.reason,
         };
     }
-
     const assetPath = normalizeSafeRelativePath(input.assetPath ?? "");
     if (!assetPath) {
         throw new Error("assetPath 不能为空或包含非法片段");
@@ -440,34 +519,6 @@ export async function readUserAssetsSyncConflictDetail(input: {
         upstreamHash: stateItem?.upstreamHash,
         diffable: systemFile.diffable && userFile.diffable,
         reason: systemFile.reason ?? userFile.reason,
-    };
-}
-
-/**
- * 读取系统 profile metadata。不存在时返回空 metadata，兼容开发期首次生成前的状态。
- */
-export async function readSystemProfileMetadata(): Promise<SystemProfileMetadata> {
-    const manifest = await readProfileArtifactManifest(systemProfileRoot());
-    return {
-        generatedAt: manifest.generatedAt,
-        profilesRoot: manifest.profilesRoot,
-        profiles: manifest.profiles.map((profile) => ({
-            fileName: profile.fileName,
-            profileKey: profile.profileKey,
-            sha256: profile.sourceSha256,
-            bytes: profile.sourceBytes,
-        })).sort((left, right) => left.fileName.localeCompare(right.fileName)),
-    };
-}
-
-/**
- * 计算文件 sha256。系统 profile metadata 与用户 sync state 共用这一判断。
- */
-export async function sha256File(filePath: string): Promise<{sha256: string; bytes: number}> {
-    const buffer = await fs.readFile(filePath);
-    return {
-        sha256: createHash("sha256").update(buffer).digest("hex"),
-        bytes: buffer.byteLength,
     };
 }
 
@@ -531,15 +582,17 @@ async function normalizeNovelDirectoryTemplateArtifacts(templateRoot: string): P
 /**
  * 同步系统 .nbook 内默认受管理资源；黑名单只保留本地状态、运行记录和编译产物。
  */
-async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
-    const syncState = await readUserSystemAssetsSyncState();
-    const assets = await listManagedSystemAssets();
+async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions, roots: LegacyProjectionRoots): Promise<void> {
+    const syncState = await readUserSystemAssetsSyncState(roots.targetNbookRoot);
+    const assets = await listManagedSystemAssets(roots.sourceNbookRoot, {
+        excludeAgentPackages: options.excludeAgentPackages === true,
+    });
     const activeAssetPaths = new Set(assets.map((asset) => asset.assetPath));
     const invalidatedSkills = new Set<string>();
     let stateChanged = false;
     for (const item of assets) {
-        const systemPath = resolveInsideRoot(systemNbookRoot(), item.assetPath);
-        const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), item.assetPath);
+        const systemPath = resolveInsideRoot(roots.sourceNbookRoot, item.assetPath);
+        const userPath = resolveInsideRoot(roots.targetNbookRoot, item.assetPath);
         const stateItem = findUserAssetSyncState(syncState, item.assetPath);
         const dependencySkillKey = skillDependencyKey(item.assetPath);
         if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
@@ -613,13 +666,14 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
         result.updatedAssets = (result.updatedAssets ?? 0) + 1;
         stateChanged = true;
     }
-    await invalidateSkillDependencies(invalidatedSkills);
+    await invalidateSkillDependencies(invalidatedSkills, roots.targetNbookRoot);
     const preservedDeletedAssetPaths = new Set<string>();
-    stateChanged = await removeDeletedManagedSystemAssets(syncState, activeAssetPaths, result, preservedDeletedAssetPaths) || stateChanged;
-    stateChanged = await removeHardCutDeletedManagedSystemAssetPrefixes(syncState, result, preservedDeletedAssetPaths) || stateChanged;
-    stateChanged = await removeStaleManagedSystemAssets(syncState, activeAssetPaths, result, preservedDeletedAssetPaths) || stateChanged;
+    const excludeAgentPackages = options.excludeAgentPackages === true;
+    stateChanged = await removeDeletedManagedSystemAssets(syncState, activeAssetPaths, result, preservedDeletedAssetPaths, roots.targetNbookRoot, excludeAgentPackages) || stateChanged;
+    stateChanged = await removeHardCutDeletedManagedSystemAssetPrefixes(syncState, result, preservedDeletedAssetPaths, roots.targetNbookRoot, excludeAgentPackages) || stateChanged;
+    stateChanged = await removeStaleManagedSystemAssets(syncState, activeAssetPaths, result, preservedDeletedAssetPaths, roots.targetNbookRoot, excludeAgentPackages) || stateChanged;
     if (stateChanged) {
-        await writeUserSystemAssetsSyncState(syncState);
+        await writeUserSystemAssetsSyncState(syncState, roots.targetNbookRoot);
     }
 }
 
@@ -688,20 +742,19 @@ function stableSkillPackageJson(value: SkillPackageJsonValue): string {
 /**
  * 仅在依赖合同已发布到用户目录时失效对应 Skill 的本地派生依赖。
  */
-async function invalidateSkillDependencies(skillKeys: ReadonlySet<string>): Promise<void> {
+async function invalidateSkillDependencies(skillKeys: ReadonlySet<string>, targetNbookRoot = userNbookAbsoluteRoot()): Promise<void> {
     for (const skillKey of skillKeys) {
-        const nodeModulesPath = resolveInsideRoot(userNbookAbsoluteRoot(), `agent/skills/${skillKey}/node_modules`);
+        const nodeModulesPath = resolveInsideRoot(targetNbookRoot, `agent/skills/${skillKey}/node_modules`);
         await fs.rm(nodeModulesPath, {recursive: true, force: true});
     }
 }
-
-async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncState, activeAssetPaths: Set<string>, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>): Promise<boolean> {
+async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncState, activeAssetPaths: Set<string>, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>, targetNbookRoot = userNbookAbsoluteRoot(), excludeAgentPackages = false): Promise<boolean> {
     let changed = false;
     for (const item of [...syncState.assets ?? []]) {
-        if (activeAssetPaths.has(item.assetPath) || !isDeletedManagedSystemAssetPath(item.assetPath)) {
+        if ((excludeAgentPackages && isAgentPackageAssetPath(item.assetPath)) || activeAssetPaths.has(item.assetPath) || !isDeletedManagedSystemAssetPath(item.assetPath)) {
             continue;
         }
-        const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), item.assetPath);
+        const userPath = resolveInsideRoot(targetNbookRoot, item.assetPath);
         if (!await pathExists(userPath)) {
             removeUserAssetSyncState(syncState, item.assetPath);
             changed = true;
@@ -728,13 +781,15 @@ async function removeStaleManagedSystemAssets(
     activeAssetPaths: Set<string>,
     result: UserAssetsSyncResult,
     preservedDeletedAssetPaths: Set<string>,
+    targetNbookRoot = userNbookAbsoluteRoot(),
+    excludeAgentPackages = false,
 ): Promise<boolean> {
     let changed = false;
     for (const item of [...syncState.assets ?? []]) {
-        if (activeAssetPaths.has(item.assetPath) || !STALE_MANAGED_SYSTEM_ASSET_PREFIXES.some((prefix) => item.assetPath.startsWith(prefix))) {
+        if ((excludeAgentPackages && isAgentPackageAssetPath(item.assetPath)) || activeAssetPaths.has(item.assetPath) || !STALE_MANAGED_SYSTEM_ASSET_PREFIXES.some((prefix) => item.assetPath.startsWith(prefix))) {
             continue;
         }
-        const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), item.assetPath);
+        const userPath = resolveInsideRoot(targetNbookRoot, item.assetPath);
         if (!await pathExists(userPath)) {
             removeUserAssetSyncState(syncState, item.assetPath);
             changed = true;
@@ -756,7 +811,10 @@ async function removeStaleManagedSystemAssets(
         preservedDeletedAssetPaths.add(item.assetPath);
     }
     for (const assetPrefix of STALE_MANAGED_SYSTEM_ASSET_PREFIXES) {
-        const userPrefixPath = resolveInsideRoot(userNbookAbsoluteRoot(), assetPrefix);
+        if (excludeAgentPackages && isAgentPackageAssetPath(assetPrefix)) {
+            continue;
+        }
+        const userPrefixPath = resolveInsideRoot(targetNbookRoot, assetPrefix);
         changed = await removeEmptyDirectories(userPrefixPath) || changed;
     }
     return changed;
@@ -769,10 +827,13 @@ async function removeStaleManagedSystemAssets(
  * “文件残留但 state 不完整”的半同步状态。这里仅扫描明确登记的官方旧路径，
  * 不触碰用户自建脚本或user ruleset。
  */
-async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSystemAssetsSyncState, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>): Promise<boolean> {
+async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSystemAssetsSyncState, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>, targetNbookRoot = userNbookAbsoluteRoot(), excludeAgentPackages = false): Promise<boolean> {
     let changed = false;
     for (const assetPath of HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS) {
-        const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), assetPath);
+        if (excludeAgentPackages && isAgentPackageAssetPath(assetPath)) {
+            continue;
+        }
+        const userPath = resolveInsideRoot(targetNbookRoot, assetPath);
         if (!await pathExists(userPath)) {
             continue;
         }
@@ -794,13 +855,13 @@ async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSys
         changed = true;
     }
     for (const assetPrefix of HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES) {
-        const userPrefixPath = resolveInsideRoot(userNbookAbsoluteRoot(), assetPrefix);
-        if (!await pathExists(userPrefixPath)) {
+        if (excludeAgentPackages && isAgentPackageAssetPath(assetPrefix)) {
             continue;
         }
+        const userPrefixPath = resolveInsideRoot(targetNbookRoot, assetPrefix);
 
-        for (const assetPath of await listUserAssetFilesUnderPrefix(assetPrefix)) {
-            const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), assetPath);
+        for (const assetPath of await listUserAssetFilesUnderPrefix(assetPrefix, targetNbookRoot)) {
+            const userPath = resolveInsideRoot(targetNbookRoot, assetPath);
             const stateItem = syncState.assets?.find((item) => item.assetPath === assetPath);
             if (stateItem) {
                 const currentUserHash = (await sha256File(userPath)).sha256;
@@ -823,29 +884,28 @@ async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSys
     }
     return changed;
 }
-
-async function listUserAssetFilesUnderPrefix(assetPrefix: string): Promise<string[]> {
-    const root = resolveInsideRoot(userNbookAbsoluteRoot(), assetPrefix);
+async function listUserAssetFilesUnderPrefix(assetPrefix: string, targetNbookRoot = userNbookAbsoluteRoot()): Promise<string[]> {
+    const root = resolveInsideRoot(targetNbookRoot, assetPrefix);
     if (!await pathExists(root)) {
         return [];
     }
     const result: string[] = [];
-    await collectUserAssetFiles(root, result);
+    await collectUserAssetFiles(root, result, targetNbookRoot);
     return result;
 }
 
-async function collectUserAssetFiles(root: string, result: string[]): Promise<void> {
+async function collectUserAssetFiles(root: string, result: string[], targetNbookRoot: string): Promise<void> {
     const entries = await fs.readdir(root, {withFileTypes: true});
     for (const entry of entries) {
         const entryPath = path.join(root, entry.name);
         if (entry.isDirectory()) {
-            await collectUserAssetFiles(entryPath, result);
+            await collectUserAssetFiles(entryPath, result, targetNbookRoot);
             continue;
         }
         if (!entry.isFile()) {
             continue;
         }
-        result.push(path.relative(userNbookAbsoluteRoot(), entryPath).split(path.sep).join("/"));
+        result.push(path.relative(targetNbookRoot, entryPath).split(path.sep).join("/"));
     }
 }
 
@@ -874,8 +934,8 @@ function isDeletedManagedSystemAssetPath(assetPath: string): boolean {
         || DELETED_MANAGED_SYSTEM_ASSET_PREFIXES.some((prefix) => assetPath.startsWith(prefix));
 }
 
-async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
-    const metadata = await readSystemProfileMetadata();
+async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions, roots: LegacyProjectionRoots): Promise<void> {
+    const metadata = await readSystemProfileMetadata(roots.sourceNbookRoot);
     if (metadata.profiles.length === 0) {
         return;
     }
@@ -883,19 +943,19 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
     if (profileRelease.mode === "in_process" && !profileRelease.registry) {
         throw new Error("HTTP runtime 同步 user profile assets 必须提供 ProfileRegistry sink。");
     }
-    const syncState = await readUserSystemAssetsSyncState();
-    const artifactBatch = await createProfileArtifactSyncBatch();
+    const syncState = await readUserSystemAssetsSyncState(roots.targetNbookRoot);
+    const artifactBatch = await createProfileArtifactSyncBatch(roots);
     const sourceReplacements: PendingSourceReplacement[] = [];
     let stateChanged = false;
     let profileReleaseState: "not_started" | "disk_committed" = "not_started";
     try {
         for (const item of metadata.profiles) {
-            const systemPath = path.join(systemProfileRoot(), item.fileName);
-            const userPath = path.join(userProfileRoot(), item.fileName);
+            const systemPath = path.join(roots.sourceNbookRoot, "agent", "profiles", item.fileName);
+            const userPath = path.join(roots.targetNbookRoot, "agent", "profiles", item.fileName);
             const stateItem = syncState.profiles.find((profile) => profile.fileName === item.fileName);
             if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
                 const hash = await sha256File(userPath);
-                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName);
+                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName, roots);
                 if (!artifactSync.ok) {
                     result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
                     continue;
@@ -907,7 +967,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
             if (!await pathExists(userPath)) {
                 await fs.mkdir(path.dirname(userPath), {recursive: true});
                 const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
-                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName);
+                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName, roots);
                 if (!artifactSync.ok) {
                     await sourceCopy.rollback();
                     result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
@@ -922,7 +982,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
             }
             const currentUserHash = (await sha256File(userPath)).sha256;
             if (currentUserHash === item.sha256) {
-                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName);
+                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName, roots);
                 if (!artifactSync.ok) {
                     result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
                     continue;
@@ -933,7 +993,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
             }
             if (options.force) {
                 const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
-                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName);
+                const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName, roots);
                 if (!artifactSync.ok) {
                     await sourceCopy.rollback();
                     result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
@@ -968,7 +1028,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
                 continue;
             }
             const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
-            const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName);
+            const artifactSync = await stageCompiledProfileArtifact(artifactBatch, item.fileName, roots);
             if (!artifactSync.ok) {
                 await sourceCopy.rollback();
                 result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
@@ -981,15 +1041,16 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
             stateChanged = true;
         }
         if (artifactBatch.stagedProfiles.length > 0) {
-            await assertProfileArtifactBatchSourcesFresh(artifactBatch);
+            await assertProfileArtifactBatchSourcesFresh(artifactBatch, roots.targetNbookRoot);
             try {
+                const artifactPathContext = await userProfileArtifactPathContext(roots.targetNbookRoot);
                 await new ProfileReleasePublisher({
-                    profileRoot: userProfileRoot(),
+                    profileRoot: userProfileRoot(roots.targetNbookRoot),
+                    artifactPathContext,
                     ...profileRelease,
                 }).publishStagedEntries(
                     artifactBatch.buildCompiledDir,
                     artifactBatch.stagedProfiles.map((profile) => profile.entry),
-                    "workspace/.nbook/agent/profiles",
                 );
                 profileReleaseState = "disk_committed";
             } catch (error) {
@@ -1002,7 +1063,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
                 if (staged.entry.status === "compile_failed") {
                     continue;
                 }
-                const validation = await validateProfileArtifact(userProfileRoot(), staged.entry).catch((error) => ({
+                const validation = await validateProfileArtifact(userProfileRoot(roots.targetNbookRoot), staged.entry, await userProfileArtifactPathContext(roots.targetNbookRoot)).catch((error) => ({
                     fresh: false,
                     reason: error instanceof Error ? error.message : String(error),
                 }));
@@ -1023,7 +1084,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
             });
         }
         if (stateChanged) {
-            await writeUserSystemAssetsSyncState(syncState);
+            await writeUserSystemAssetsSyncState(syncState, roots.targetNbookRoot);
         }
     } catch (error) {
         if (profileReleaseState === "disk_committed") {
@@ -1048,11 +1109,13 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, opti
             });
         });
     }
-    await removeCopiedSystemMetadata();
+    await removeCopiedSystemMetadata(roots.targetNbookRoot);
 }
 
-async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
-    const systemPath = path.join(systemVariableDefinitionRoot(), "definitions.ts");
+async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions, roots: LegacyProjectionRoots): Promise<void> {
+    const systemRoot = systemVariableDefinitionRoot(roots.sourceNbookRoot);
+    const targetRoot = userVariableDefinitionRoot(roots.targetNbookRoot);
+    const systemPath = path.join(systemRoot, "definitions.ts");
     if (!await pathExists(systemPath)) {
         return;
     }
@@ -1060,33 +1123,36 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
         assetPath: "agent/variables/definitions.ts",
         ...await sha256File(systemPath),
     };
-    const userPath = path.join(userVariableDefinitionRoot(), "definitions.ts");
-    const syncState = await readUserSystemAssetsSyncState();
+    const userPath = path.join(targetRoot, "definitions.ts");
+    const syncState = await readUserSystemAssetsSyncState(roots.targetNbookRoot);
     const stateItem = findUserAssetSyncState(syncState, item.assetPath);
     let stateChanged = false;
-    if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
-        const hash = await sha256File(userPath);
-        const artifactSync = await syncCompiledVariableDefinitionArtifact();
+    const syncArtifact = async (): Promise<boolean> => {
+        if (options.syncVariableCompiledArtifacts === false) {
+            return true;
+        }
+        const artifactSync = await syncCompiledVariableDefinitionArtifact(roots);
         if (!artifactSync.ok) {
             result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
-        } else {
-            if (artifactSync.warning) {
-                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
-            }
+            return false;
+        }
+        if (artifactSync.warning) {
+            result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
+        }
+        return true;
+    };
+    if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
+        const hash = await sha256File(userPath);
+        if (await syncArtifact()) {
             upsertUserAssetSyncState(syncState, item, hash.sha256);
             stateChanged = true;
         }
     } else if (!await pathExists(userPath)) {
         await fs.mkdir(path.dirname(userPath), {recursive: true});
         const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
-        const artifactSync = await syncCompiledVariableDefinitionArtifact();
-        if (!artifactSync.ok) {
+        if (!await syncArtifact()) {
             await sourceCopy.rollback();
-            result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
         } else {
-            if (artifactSync.warning) {
-                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
-            }
             await sourceCopy.commit();
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
@@ -1096,26 +1162,15 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
     } else {
         const currentUserHash = (await sha256File(userPath)).sha256;
         if (currentUserHash === item.sha256) {
-            const artifactSync = await syncCompiledVariableDefinitionArtifact();
-            if (!artifactSync.ok) {
-                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
-            } else {
-                if (artifactSync.warning) {
-                    result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
-                }
+            if (await syncArtifact()) {
                 upsertUserAssetSyncState(syncState, item, currentUserHash);
                 stateChanged = true;
             }
         } else if (options.force) {
             const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
-            const artifactSync = await syncCompiledVariableDefinitionArtifact();
-            if (!artifactSync.ok) {
+            if (!await syncArtifact()) {
                 await sourceCopy.rollback();
-                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
             } else {
-                if (artifactSync.warning) {
-                    result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
-                }
                 await sourceCopy.commit();
                 const hash = await sha256File(userPath);
                 upsertUserAssetSyncState(syncState, item, hash.sha256);
@@ -1136,14 +1191,9 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
             }
         } else if (item.sha256 !== stateItem.upstreamHash) {
             const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
-            const artifactSync = await syncCompiledVariableDefinitionArtifact();
-            if (!artifactSync.ok) {
+            if (!await syncArtifact()) {
                 await sourceCopy.rollback();
-                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
             } else {
-                if (artifactSync.warning) {
-                    result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
-                }
                 await sourceCopy.commit();
                 const hash = await sha256File(userPath);
                 upsertUserAssetSyncState(syncState, item, hash.sha256);
@@ -1153,38 +1203,37 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
         }
     }
     if (stateChanged) {
-        await writeUserSystemAssetsSyncState(syncState);
+        await writeUserSystemAssetsSyncState(syncState, roots.targetNbookRoot);
     }
 }
 
-async function listManagedSystemAssets(): Promise<SystemManagedAssetItem[]> {
+async function listManagedSystemAssets(sourceNbookRoot = systemNbookRoot(), options: {excludeAgentPackages?: boolean} = {}): Promise<SystemManagedAssetItem[]> {
     const result: SystemManagedAssetItem[] = [];
-    await collectManagedSystemAssets(systemNbookRoot(), "", result);
+    await collectManagedSystemAssets(sourceNbookRoot, "", result, options);
     return result.sort((left, right) => left.assetPath.localeCompare(right.assetPath));
 }
 
-async function collectManagedSystemAssets(root: string, relativeRoot: string, result: SystemManagedAssetItem[]): Promise<void> {
+async function collectManagedSystemAssets(root: string, relativeRoot: string, result: SystemManagedAssetItem[], options: {excludeAgentPackages?: boolean}): Promise<void> {
     const entries = await fs.readdir(path.join(root, relativeRoot), {withFileTypes: true});
     for (const entry of entries) {
         const relativePath = path.posix.join(relativeRoot.split(path.sep).join("/"), entry.name);
         if (entry.isDirectory()) {
-            await collectManagedSystemAssets(root, relativePath, result);
+            await collectManagedSystemAssets(root, relativePath, result, options);
             continue;
         }
-        if (!entry.isFile() || isManagedAssetBlacklisted(relativePath)) {
+        if (!entry.isFile() || isManagedAssetBlacklisted(relativePath, options)) {
             continue;
         }
         const absolutePath = path.join(root, relativePath);
-        result.push({
-            assetPath: relativePath,
-            ...await sha256File(absolutePath),
-        });
+        result.push({assetPath: relativePath, ...await sha256File(absolutePath)});
     }
 }
 
-function isManagedAssetBlacklisted(assetPath: string): boolean {
+function isManagedAssetBlacklisted(assetPath: string, options: {excludeAgentPackages?: boolean} = {}): boolean {
     const normalized = assetPath.replaceAll("\\", "/");
     const parts = normalized.split("/");
+    const isAgentPackage = parts[0] === "agent"
+        && (parts[1] === "skills" || parts[1] === "workflows" || parts[1] === "profiles");
     return normalized === "config.json"
         || normalized === "neuro-book.sqlite"
         || normalized === ".system-assets-sync-state.json"
@@ -1193,14 +1242,20 @@ function isManagedAssetBlacklisted(assetPath: string): boolean {
         || normalized === "agent/profiles/.system-profile-metadata.json"
         || normalized.startsWith("agent/sessions/")
         || (normalized.startsWith("agent/profiles/") && !normalized.startsWith("agent/profiles/builtin/writer.home/"))
+        || (options.excludeAgentPackages === true && isAgentPackage)
         || normalized === "agent/variables/definitions.ts"
-        // llmlint 独立仓开发资产不随系统 assets 同步到用户 workspace。
         || normalized.startsWith("agent/skills/llmlint/.git/")
         || (parts[0] === "agent" && parts[1] === "skills" && parts[3] === "node_modules")
         || normalized.startsWith("agent/skills/llmlint/evals/")
         || parts.includes(".compiled")
         || parts.includes(".staging");
 }
+function isAgentPackageAssetPath(assetPath: string): boolean {
+    const parts = assetPath.replaceAll("\\", "/").split("/");
+    return parts[0] === "agent"
+        && (parts[1] === "skills" || parts[1] === "workflows" || parts[1] === "profiles");
+}
+
 
 async function assertReadableUserAssetsSyncAssetPath(assetPath: string): Promise<void> {
     if (assetPath === "agent/variables/definitions.ts") {
@@ -1211,123 +1266,112 @@ async function assertReadableUserAssetsSyncAssetPath(assetPath: string): Promise
         throw new Error(`assetPath 不属于可读取的系统同步资源: ${assetPath}`);
     }
 }
-
-async function createProfileArtifactSyncBatch(): Promise<ProfileArtifactSyncBatch> {
-    const systemManifest = await readProfileArtifactManifest(systemProfileRoot());
+async function createProfileArtifactSyncBatch(roots: LegacyProjectionRoots): Promise<ProfileArtifactSyncBatch> {
+    const systemProfileRootPath = systemProfileRoot(roots.sourceNbookRoot);
+    const userProfileRootPath = userProfileRoot(roots.targetNbookRoot);
+    const systemManifest = await readProfileArtifactManifest(systemProfileRootPath, await systemProfileArtifactPathContext(roots.sourceNbookRoot));
     return {
         systemManifest,
-        buildCompiledDir: path.join(path.dirname(userProfileRoot()), ".staging", "profile-artifact-sync", randomUUID()),
+        buildCompiledDir: path.join(path.dirname(userProfileRootPath), ".staging", "profile-artifact-sync", randomUUID()),
         stagedProfiles: [],
     };
 }
 
-async function stageCompiledProfileArtifact(batch: ProfileArtifactSyncBatch, fileName: string): Promise<CompiledArtifactSyncResult> {
+async function stageCompiledProfileArtifact(batch: ProfileArtifactSyncBatch, fileName: string, roots: LegacyProjectionRoots): Promise<CompiledArtifactSyncResult> {
     const item = batch.systemManifest.profiles.find((profile) => profile.fileName === fileName);
     if (!item) {
         return {ok: false, message: `系统 profile ${fileName} 缺少 compiled manifest entry，未同步 compiled artifact。`};
     }
-    const userSourceHash = await sha256File(path.join(userProfileRoot(), item.fileName));
+    const userSourceHash = await sha256File(path.join(userProfileRoot(roots.targetNbookRoot), item.fileName));
+    const systemRootLabel = normalizeArtifactRootLabel(batch.systemManifest.profilesRoot);
+    const userRootLabel = "workspace/.nbook/agent/profiles";
     const userItem = rehomeProfileArtifactItem(item, {
-        fromRootLabel: "assets/workspace/.nbook/agent/profiles",
-        toRootLabel: "workspace/.nbook/agent/profiles",
+        fromRootLabel: systemRootLabel,
+        toRootLabel: userRootLabel,
     });
+    const userSourceDependencyPath = `${userRootLabel}/${item.fileName}`;
     const nextEntry: ProfileArtifactManifestItem = {
         ...userItem,
         sourceSha256: userSourceHash.sha256,
         sourceBytes: userSourceHash.bytes,
-        dependencies: userItem.dependencies.map((dependency) => dependency.path.replace(/[\\/]+/g, "/") === `workspace/.nbook/agent/profiles/${item.fileName}`
+        dependencies: userItem.dependencies.map((dependency) => dependency.path.replace(/[\\/]+/g, "/") === userSourceDependencyPath
             ? {...dependency, sha256: userSourceHash.sha256, bytes: userSourceHash.bytes}
             : dependency),
     };
     try {
-        await copyProfileArtifactToStaging(batch.buildCompiledDir, item.artifactFileName);
+        await copyProfileArtifactToStaging(batch.buildCompiledDir, item.artifactFileName, roots.sourceNbookRoot);
         if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
-            await copyProfileArtifactToStaging(batch.buildCompiledDir, item.typeFileName);
+            await copyProfileArtifactToStaging(batch.buildCompiledDir, item.typeFileName, roots.sourceNbookRoot);
         }
     } catch (error) {
-        return {
-            ok: false,
-            message: error instanceof Error ? error.message : String(error),
-        };
+        return {ok: false, message: error instanceof Error ? error.message : String(error)};
     }
     batch.stagedProfiles.push({fileName: item.fileName, profileKey: item.profileKey, entry: nextEntry});
     await userAssetsProfileArtifactStagedHookForTest?.(item.fileName);
     return {ok: true};
 }
 
-async function assertProfileArtifactBatchSourcesFresh(batch: ProfileArtifactSyncBatch): Promise<void> {
+async function assertProfileArtifactBatchSourcesFresh(batch: ProfileArtifactSyncBatch, targetNbookRoot: string): Promise<void> {
     for (const staged of batch.stagedProfiles) {
         if (staged.entry.status === "compile_failed") {
             continue;
         }
-        const current = await sha256File(path.join(userProfileRoot(), staged.entry.fileName));
+        const current = await sha256File(path.join(userProfileRoot(targetNbookRoot), staged.entry.fileName));
         if (current.sha256 !== staged.entry.sourceSha256 || current.bytes !== staged.entry.sourceBytes) {
             throw new Error(`系统 profile ${staged.profileKey} 同步发布前源码又发生变化，已放弃本轮 compiled artifact 发布。`);
         }
     }
 }
 
-async function copyProfileArtifactToStaging(buildCompiledDir: string, artifactFileName: string): Promise<void> {
-    const sourcePath = path.join(systemProfileRoot(), PROFILE_COMPILED_DIR_NAME, ...artifactFileName.split("/"));
+async function copyProfileArtifactToStaging(buildCompiledDir: string, artifactFileName: string, sourceNbookRoot: string): Promise<void> {
+    const sourcePath = path.join(systemProfileRoot(sourceNbookRoot), PROFILE_COMPILED_DIR_NAME, ...artifactFileName.split("/"));
     const targetPath = path.join(buildCompiledDir, ...artifactFileName.split("/"));
     await fs.mkdir(path.dirname(targetPath), {recursive: true});
     await fs.copyFile(sourcePath, targetPath);
 }
 
-async function syncCompiledVariableDefinitionArtifact(): Promise<CompiledArtifactSyncResult> {
-    const systemManifest = await readVariableDefinitionManifest(systemVariableDefinitionRoot());
+async function syncCompiledVariableDefinitionArtifact(roots: LegacyProjectionRoots): Promise<CompiledArtifactSyncResult> {
+    const runtimePaths = runtimePathsFromEnv();
+    const systemRoot = systemVariableDefinitionRoot(roots.sourceNbookRoot);
+    const userRoot = userVariableDefinitionRoot(roots.targetNbookRoot);
+    const systemContext = await resolveVariableDefinitionArtifactPathContext(systemRoot, SYSTEM_VARIABLE_DEFINITION_ROOT_LABEL, runtimePaths.applicationRoot);
+    const userContext = await resolveVariableDefinitionArtifactPathContext(userRoot, "workspace/.nbook/agent/variables", runtimePaths.applicationRoot);
+    const systemManifest = await readVariableDefinitionManifest(systemRoot, systemContext);
     const item = systemManifest.definitions.find((definition) => definition.fileName === "definitions.ts");
-    if (!item) {
-        return {ok: false, message: "系统 variable definition 缺少 compiled manifest entry，未同步 compiled artifact。"};
-    }
-    const userCompiledRoot = path.join(userVariableDefinitionRoot(), ".compiled");
+    if (!item) return {ok: false, message: "系统 variable definition 缺少 compiled manifest entry，未同步 compiled artifact。"};
+    const userCompiledRoot = path.join(userRoot, ".compiled");
     await fs.mkdir(userCompiledRoot, {recursive: true});
-    const userManifest = await readVariableDefinitionManifest(userVariableDefinitionRoot());
-    const userSourceHash = await sha256File(path.join(userVariableDefinitionRoot(), item.fileName));
+    const userManifest = await readVariableDefinitionManifest(userRoot, userContext);
+    const userSourceHash = await sha256File(path.join(userRoot, item.fileName));
+    const systemRootLabel = normalizeArtifactRootLabel(systemManifest.definitionsRoot);
+    const userRootLabel = "workspace/.nbook/agent/variables";
+    const sourcePrefixes = [systemRootLabel, `.output/server/${systemRootLabel}`];
+    const userSourceDependencyPath = `${userRootLabel}/${item.fileName}`;
     const nextItem = {
         ...item,
         sourceSha256: userSourceHash.sha256,
         sourceBytes: userSourceHash.bytes,
         dependencies: item.dependencies.map((dependency) => {
             const dependencyPath = dependency.path.replace(/[\\/]+/g, "/");
-            if (dependencyPath === `assets/workspace/.nbook/agent/variables/${item.fileName}`) {
-                return {
-                    ...dependency,
-                    path: `workspace/.nbook/agent/variables/${item.fileName}`,
-                    sha256: userSourceHash.sha256,
-                    bytes: userSourceHash.bytes,
-                };
-            }
-            return dependency;
+            return sourcePrefixes.some((prefix) => dependencyPath === `${prefix}/${item.fileName}`)
+                ? {...dependency, path: userSourceDependencyPath, sha256: userSourceHash.sha256, bytes: userSourceHash.bytes}
+                : dependency;
         }),
     };
     const nextManifest = {
         ...userManifest,
-        generatedAt: userManifest.generatedAt,
-        definitionsRoot: "workspace/.nbook/agent/variables",
+        definitionsRoot: userRootLabel,
         definitions: [
             ...userManifest.definitions.filter((definition) => definition.fileName !== item.fileName),
             nextItem,
         ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
     };
     nextManifest.generatedAt = JSON.stringify(userManifest.definitions) === JSON.stringify(nextManifest.definitions) ? userManifest.generatedAt : new Date().toISOString();
-    const artifactSync = await stageVerifiedArtifact(
-        path.join(systemVariableDefinitionRoot(), ".compiled", item.artifactFileName),
-        path.join(userCompiledRoot, item.artifactFileName),
-        item,
-        "artifact",
-    );
-    if (!artifactSync.ok) {
-        return {ok: false, message: `系统 variable definition compiled artifact 同步失败：${artifactSync.message}`};
-    }
+    const artifactSync = await stageVerifiedArtifact(path.join(systemRoot, ".compiled", item.artifactFileName), path.join(userCompiledRoot, item.artifactFileName), item, "artifact");
+    if (!artifactSync.ok) return {ok: false, message: `系统 variable definition compiled artifact 同步失败：${artifactSync.message}`};
     const stagedReplacements: StagedFileReplacement[] = [artifactSync.file];
     if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
-        const typeSync = await stageVerifiedArtifact(
-            path.join(systemVariableDefinitionRoot(), ".compiled", item.typeFileName),
-            path.join(userCompiledRoot, item.typeFileName),
-            item,
-            "type",
-        );
+        const typeSync = await stageVerifiedArtifact(path.join(systemRoot, ".compiled", item.typeFileName), path.join(userCompiledRoot, item.typeFileName), item, "type");
         if (!typeSync.ok) {
             await cleanupStagedReplacements(stagedReplacements);
             return {ok: false, message: `系统 variable definition type artifact 同步失败：${typeSync.message}`};
@@ -1340,10 +1384,8 @@ async function syncCompiledVariableDefinitionArtifact(): Promise<CompiledArtifac
     stagedReplacements.push({sourcePath: manifestStagePath, targetPath: manifestPath});
     await replaceFilesWithRollback(stagedReplacements);
     await pruneCompiledDirectory(userCompiledRoot, nextManifest.definitions.flatMap((definition) => [definition.artifactFileName, definition.typeFileName]));
-    const validation = await validateVariableDefinitionArtifact(userVariableDefinitionRoot(), nextItem);
-    if (!validation.fresh && validation.reason !== "dependency_changed") {
-        return {ok: true, warning: `系统 variable definition 同步后仍不可运行：${validation.reason ?? "unknown"}。`};
-    }
+    const validation = await validateVariableDefinitionArtifact(userRoot, nextItem, userContext);
+    if (!validation.fresh && validation.reason !== "dependency_changed") return {ok: true, warning: `系统 variable definition 同步后仍不可运行：${validation.reason ?? "unknown"}。`};
     return {ok: true};
 }
 
@@ -1454,13 +1496,10 @@ async function pruneCompiledDirectory(compiledRoot: string, referencedFiles: Arr
         .map((entry) => fs.rm(path.join(compiledRoot, entry.name), {force: true})));
 }
 
-async function readUserSystemAssetsSyncState(): Promise<UserSystemAssetsSyncState> {
+async function readUserSystemAssetsSyncState(targetNbookRoot = userNbookAbsoluteRoot()): Promise<UserSystemAssetsSyncState> {
     try {
-        const parsed = JSON.parse(await fs.readFile(userSystemAssetsSyncStatePath(), "utf-8")) as UserSystemAssetsSyncState;
-        return {
-            profiles: parsed.profiles ?? [],
-            assets: parsed.assets ?? [],
-        };
+        const parsed = JSON.parse(await fs.readFile(userSystemAssetsSyncStatePath(targetNbookRoot), "utf-8")) as UserSystemAssetsSyncState;
+        return {profiles: parsed.profiles ?? [], assets: parsed.assets ?? []};
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
             return {profiles: [], assets: []};
@@ -1469,10 +1508,11 @@ async function readUserSystemAssetsSyncState(): Promise<UserSystemAssetsSyncStat
     }
 }
 
-async function writeUserSystemAssetsSyncState(syncState: UserSystemAssetsSyncState): Promise<void> {
+async function writeUserSystemAssetsSyncState(syncState: UserSystemAssetsSyncState, targetNbookRoot = userNbookAbsoluteRoot()): Promise<void> {
     await userAssetsSyncStateWriteHookForTest?.();
-    await fs.mkdir(path.dirname(userSystemAssetsSyncStatePath()), {recursive: true});
-    await fs.writeFile(userSystemAssetsSyncStatePath(), `${JSON.stringify(syncState, null, 2)}\n`, "utf-8");
+    const statePath = userSystemAssetsSyncStatePath(targetNbookRoot);
+    await fs.mkdir(path.dirname(statePath), {recursive: true});
+    await fs.writeFile(statePath, `${JSON.stringify(syncState, null, 2)}\n`, "utf-8");
 }
 
 function upsertUserProfileSyncState(syncState: UserSystemAssetsSyncState, metadata: SystemProfileMetadataItem, userHash: string): void {
@@ -1552,8 +1592,8 @@ async function sameFile(leftPath: string, rightPath: string): Promise<boolean> {
 /**
  * 读取当前 Git HEAD 中的系统 asset hash，用于迁移缺少 sync state 的未手改旧副本。
  */
-async function removeCopiedSystemMetadata(): Promise<void> {
-    const copiedMetadataPath = path.join(userProfileRoot(), ".system-profile-metadata.json");
+async function removeCopiedSystemMetadata(targetNbookRoot = userNbookAbsoluteRoot()): Promise<void> {
+    const copiedMetadataPath = path.join(userProfileRoot(targetNbookRoot), ".system-profile-metadata.json");
     await fs.rm(copiedMetadataPath, {force: true});
 }
 

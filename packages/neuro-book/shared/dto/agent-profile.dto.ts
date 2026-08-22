@@ -15,7 +15,7 @@ const AgentProfilePromptNodeDtoSchema: z.ZodType<any> = z.lazy(() => z.object({
     }).optional(),
 }));
 
-export const AgentProfileSourceSchema = z.enum(["system", "user", "contract"]);
+export const AgentProfileSourceSchema = z.enum(["memory", "install", "project"]);
 export const AgentProfileKindSchema = z.enum(["agent"]);
 export const AgentProfileLoadStatusSchema = z.enum([
     "loaded",
@@ -27,7 +27,7 @@ export const AgentProfileLoadStatusSchema = z.enum([
     "source_error",
     "missing",
 ]);
-export const AgentProfileOverrideStateSchema = z.enum(["system", "user_override", "user_only", "contract_only"]);
+export const AgentProfileOverrideStateSchema = z.enum(["contract_only", "install_only", "project_only"]);
 export const AgentProfileSchemaEditModeSchema = z.enum(["locked", "source", "unavailable"]);
 export type AgentProfileSchemaJsonValue = z.infer<ReturnType<typeof z.json>>;
 

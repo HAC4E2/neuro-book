@@ -21,17 +21,11 @@ describe("Product 临时验收实例合同", () => {
         expect(source).not.toContain("prepareProductSystemAssets");
     });
 
-    it("bootstrap、启动器与验收实例的Bun子进程都禁止自动安装", async () => {
-        const [bootstrap, start, acceptance] = await Promise.all([
-            readFile(resolve(applicationRoot, "server", "runtime", "product-command.ts"), "utf8"),
-            readFile(resolve(applicationRoot, "server", "runtime", "product-start-command.mjs"), "utf8"),
-            readFile(resolve("scripts", "deploy", "product-runtime.mjs"), "utf8"),
-        ]);
-
-        expect(bootstrap).toContain("[...PRODUCT_BUN_RUNTIME_ARGS, entry, ...args]");
-        expect(start).toContain("[...PRODUCT_BUN_RUNTIME_ARGS, entry, ...process.argv.slice(2)]");
-        expect(start).toContain("...PRODUCT_BUN_RUNTIME_ARGS,");
-        expect(acceptance).toContain("await run(process.execPath, [");
-        expect(acceptance).toContain("...PRODUCT_BUN_RUNTIME_ARGS,");
+    it("Product wrapper 在 Nitro 前完成唯一 seed 步骤并标记 Runtime install 模式", async () => {
+        const start = await readFile(resolve(applicationRoot, "server", "runtime", "product-start-command.mjs"), "utf8");
+        expect(start).toContain("await seedSystemAssets({applicationRoot, stateRoot, seed: seedPaths});");
+        expect(start).toContain('NEURO_BOOK_RUNTIME_ASSET_MODE: "install"');
+        expect(start.indexOf("await seedSystemAssets")).toBeLessThan(start.indexOf("const child = spawn"));
+        expect(start).not.toContain("productRuntimeReady");
     });
 });

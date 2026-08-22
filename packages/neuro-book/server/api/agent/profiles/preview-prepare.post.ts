@@ -2,6 +2,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 import {useAgentHarness} from "nbook/server/agent/http";
 import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
 import {useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
+import {profileWorkbenchRootsFromRuntime} from "nbook/server/agent/profiles/profile-workbench-roots";
 import {AgentProfilePreparePreviewRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
 import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
@@ -14,7 +15,12 @@ export default defineEventHandler((event) => withProjectHttpError(async () => {
     if (!body.sourceOverride) {
         return previewAgentProfilePrepare(harness, body);
     }
-    const result = await useProfileCompileWorker().compile({
+    const runtimePaths = harness.runtimePaths;
+    if (!runtimePaths) {
+        throw new Error("Profile preview API 需要显式 RuntimePaths。");
+    }
+    const roots = profileWorkbenchRootsFromRuntime(runtimePaths);
+    const result = await useProfileCompileWorker(roots.profileRoot, runtimePaths, "workspace/.nbook/agent/profiles").compile({
         fileName: body.sourceOverride.fileName,
         source: body.sourceOverride.source,
         dryRun: true,

@@ -1,5 +1,5 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
-import {mkdir, rm, stat, utimes, writeFile} from "node:fs/promises";
+import {mkdir, rm, stat, utimes, writeFile, cp} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import {afterAll, describe, expect, test} from "vitest";
@@ -12,13 +12,9 @@ import {
     type ResolvedProjectWorkspace,
 } from "nbook/server/workspace-files/project-identity";
 
-/**
- * WorkflowCatalog：双根覆盖 + workflow.ts 转译加载 + 内联编译边界。
- */
 describe("WorkflowCatalog", () => {
     const root = testHostPath("tmp", "workflow-catalog-test", randomUUID());
-    const systemRoot = join(root, "system");
-    const userRoot = join(root, "user");
+    const installRoot = join(root, "install");
     const projectRoot = join(root, "project");
 
     afterAll(async () => {
@@ -38,7 +34,6 @@ describe("WorkflowCatalog", () => {
         ].join("\n"), "utf8");
     }
 
-    /** 构造一次 ProjectSession generation 捕获的结构化 Workspace。 */
     function projectWorkspaceForTest(): ResolvedProjectWorkspace {
         const workspaceRoot = absoluteFsPath(root);
         const ref = projectWorkspaceRef("project");
@@ -49,29 +44,29 @@ describe("WorkflowCatalog", () => {
         );
     }
 
-    test("双根覆盖：用户同名目录覆盖系统；目录名是稳定 key", async () => {
-        await writeWorkflow(systemRoot, "alpha", "系统版");
-        await writeWorkflow(systemRoot, "beta", "系统 beta");
-        await writeWorkflow(userRoot, "alpha", "用户版");
-        const catalog = new WorkflowCatalog(systemRoot, userRoot);
-        const items = await catalog.list();
-        expect(items.map((i) => `${i.key}:${i.title}:${i.source}`)).toEqual([
-            "alpha:用户版:user",
-            "beta:系统 beta:system",
+    test("Install 同名目录被当前 Project 整体覆盖；目录名是稳定 key", async () => {
+        await writeWorkflow(installRoot, "alpha", "Install 版");
+        await writeWorkflow(installRoot, "beta", "Install beta");
+        await writeWorkflow(join(projectRoot, ".nbook", "agent", "workflows"), "alpha", "Project 版");
+        const catalog = new WorkflowCatalog(installRoot);
+        const project = projectWorkspaceForTest();
+        const items = await catalog.list(project);
+
+        expect(items.map((item) => `${item.key}:${item.title}:${item.source}`)).toEqual([
+            "alpha:Project 版:project",
+            "beta:Install beta:install",
         ]);
-        // 文件内 key 被目录名覆盖
-        expect((await catalog.get("alpha"))?.def.key).toBe("alpha");
+        expect((await catalog.get("alpha", project))?.def.key).toBe("alpha");
     });
 
-    test("Project Workspace 同名目录覆盖 user/system，且项目独有 workflow 可见", async () => {
-        await writeWorkflow(systemRoot, "alpha", "系统版");
-        await writeWorkflow(userRoot, "alpha", "用户版");
-        await writeWorkflow(join(projectRoot, ".nbook", "agent", "workflows"), "alpha", "项目版");
+    test("Project Workspace 可见独有 workflow，解绑后不可见", async () => {
+        await writeWorkflow(installRoot, "alpha", "Install 版");
+        await writeWorkflow(join(projectRoot, ".nbook", "agent", "workflows"), "alpha", "Project 版");
         await writeWorkflow(join(projectRoot, ".nbook", "agent", "workflows"), "brainstorm-opening", "开篇脑暴");
-        const catalog = new WorkflowCatalog(systemRoot, userRoot);
+        const catalog = new WorkflowCatalog(installRoot);
         const project = projectWorkspaceForTest();
 
-        expect((await catalog.get("alpha", project))?.title).toBe("项目版");
+        expect((await catalog.get("alpha", project))?.title).toBe("Project 版");
         expect((await catalog.get("alpha", project))?.source).toBe("project");
         expect((await catalog.list(project)).map((item) => item.key)).toContain("brainstorm-opening");
         expect(await catalog.get("brainstorm-opening")).toBeNull();
@@ -81,18 +76,19 @@ describe("WorkflowCatalog", () => {
         const workflowsRoot = join(projectRoot, ".nbook", "agent", "workflows");
         const entryPath = join(workflowsRoot, "generation", "workflow.ts");
         await writeWorkflow(workflowsRoot, "generation", "第一代");
-        const catalog = new WorkflowCatalog(systemRoot, userRoot);
-        expect((await catalog.get("generation", projectWorkspaceForTest()))?.title).toBe("第一代");
+        const catalog = new WorkflowCatalog(installRoot);
+        const project = projectWorkspaceForTest();
+        expect((await catalog.get("generation", project))?.title).toBe("第一代");
 
         const timestamp = await stat(entryPath);
         await writeWorkflow(workflowsRoot, "generation", "第二代");
         await utimes(entryPath, timestamp.atime, timestamp.mtime);
 
-        expect((await catalog.get("generation", projectWorkspaceForTest()))?.title).toBe("第二代");
+        expect((await catalog.get("generation", project))?.title).toBe("第二代");
     });
 
     test("compileInline：注入 Type 构造 JSON Schema；require 仍被拒绝", () => {
-        const catalog = new WorkflowCatalog(systemRoot, userRoot);
+        const catalog = new WorkflowCatalog(installRoot);
         const def = catalog.compileInline(`export default {key: "adhoc", run: async () => 1};`);
         expect(def.key).toBe("adhoc");
         const typed = catalog.compileInline([
@@ -104,7 +100,6 @@ describe("WorkflowCatalog", () => {
             properties: {answer: {type: "string"}},
             additionalProperties: false,
         });
-        // 注意：未使用的 import 会被 TS 转译消除，必须真的使用才会触发 require 拒绝
         expect(() => catalog.compileInline(`import fs from "node:fs";\nexport default {key: "x", data: fs.constants, run: async () => 1};`))
             .toThrow(/不允许 import/);
         expect(() => catalog.compileInline(`export default {key: "x"};`)).toThrow(/run 函数/);
@@ -112,9 +107,12 @@ describe("WorkflowCatalog", () => {
             .toThrow(/argsHint/);
     });
 
-    test("bundled 系统 workflow 均可加载，且目录元数据完整", async () => {
-        const catalog = new WorkflowCatalog(resolve("assets", "workspace", ".nbook", "agent", "workflows"), join(root, "nope"));
+    test("bundled workflow 投影到隔离 Install Root 后可加载", async () => {
+        const bundledInstallRoot = join(root, "bundled-install");
+        await cp(resolve("assets", "workspace", ".nbook", "agent", "workflows"), bundledInstallRoot, {recursive: true});
+        const catalog = new WorkflowCatalog(bundledInstallRoot);
         const items = await catalog.list();
+
         expect(items.map((item) => item.key)).toEqual(expect.arrayContaining([
             "book-deconstruct",
             "chapter-write-review-revise",
@@ -124,6 +122,8 @@ describe("WorkflowCatalog", () => {
             "split-book",
             "write-review-loop",
         ]));
+        expect(items.every((item) => item.source === "install")).toBe(true);
+        expect(items.every((item) => item.entryPath.replaceAll("\\", "/").includes("bundled-install/"))).toBe(true);
 
         const expectedPhases = {
             "book-deconstruct": ["collect", "analyze", "synthesize"],

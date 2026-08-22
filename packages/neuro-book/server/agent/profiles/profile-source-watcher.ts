@@ -12,7 +12,7 @@ const PROFILE_WATCH_AWAIT_WRITE_MS = 200;
 export type ProfileSourceWatchEvent = {
     eventName: string;
     changedPath: string;
-    kind: "user_profile" | "user_dependency" | "other";
+    kind: "install_profile" | "install_dependency" | "project_profile" | "project_dependency" | "other";
     fileName?: string;
 };
 
@@ -25,8 +25,8 @@ export class ProfileSourceWatcher {
     private watcherStart?: Promise<void>;
 
     constructor(readonly input: {
-        systemRoot: string;
-        userRoot: string;
+        installRoot: string;
+        projectRoot?: string;
         onEvent(event: ProfileSourceWatchEvent): void;
         onError(error: Error, startup: boolean): void;
     }) {}
@@ -41,7 +41,7 @@ export class ProfileSourceWatcher {
         if (this.watcher) {
             return;
         }
-        const roots = [...new Set([this.input.systemRoot, this.input.userRoot])];
+        const roots = [...new Set([this.input.installRoot, this.input.projectRoot].filter((root): root is string => Boolean(root)))];
         let resolveReady: () => void = () => {};
         let rejectReady: (error: Error) => void = () => {};
         let readySettled = false;
@@ -108,14 +108,46 @@ export class ProfileSourceWatcher {
     }
 
     private classifyEvent(eventName: string, changedPath: string): ProfileSourceWatchEvent {
-        const fileName = this.userProfileFileNameFromWatchPath(changedPath);
-        if (fileName !== null) {
-            return {eventName, changedPath, kind: "user_profile", fileName};
+        const watchedRoot = this.watchedRootForPath(changedPath);
+        if (!watchedRoot) {
+            return {eventName, changedPath, kind: "other"};
         }
-        if (this.isUserProfileDependencyWatchPath(changedPath)) {
-            return {eventName, changedPath, kind: "user_dependency"};
+        const fileName = this.profileFileNameFromWatchPath(changedPath, watchedRoot.path);
+        if (fileName !== null) {
+            return {eventName, changedPath, kind: `${watchedRoot.kind}_profile`, fileName};
+        }
+        if (this.isProfileDependencyWatchPath(changedPath, watchedRoot.path)) {
+            return {eventName, changedPath, kind: `${watchedRoot.kind}_dependency`};
         }
         return {eventName, changedPath, kind: "other"};
+    }
+
+    private watchedRootForPath(changedPath: string): {kind: "install" | "project"; path: string} | null {
+        const normalizedChangedPath = changedPath.replace(/[\\/]+/g, "/");
+        const roots: Array<{kind: "install" | "project"; path: string}> = [
+            ...(this.input.projectRoot ? [{kind: "project" as const, path: this.input.projectRoot}] : []),
+            {kind: "install", path: this.input.installRoot},
+        ];
+        return roots.find(({path}) => {
+            const normalizedRoot = path.replace(/[\\/]+/g, "/").replace(/\/$/u, "");
+            return normalizedChangedPath === normalizedRoot || normalizedChangedPath.startsWith(`${normalizedRoot}/`);
+        }) ?? null;
+    }
+
+    private profileFileNameFromWatchPath(changedPath: string, root: string): string | null {
+        const relativePath = relative(root, changedPath).split(/[\\/]+/).join("/");
+        if (!relativePath || relativePath.startsWith("../") || relativePath === ".." || /^[A-Za-z]:/.test(relativePath)) {
+            return null;
+        }
+        return /\.profile\.(tsx|ts|mjs|js)$/u.test(relativePath) ? relativePath : null;
+    }
+
+    private isProfileDependencyWatchPath(changedPath: string, root: string): boolean {
+        const relativePath = relative(root, changedPath).split(/[\\/]+/).join("/");
+        if (!relativePath || relativePath.startsWith("../") || relativePath === ".." || /^[A-Za-z]:/.test(relativePath)) {
+            return false;
+        }
+        return !relativePath.startsWith(`${PROFILE_COMPILED_DIR_NAME}/`);
     }
 
     private isIgnoredWatchPath(changedPath: string): boolean {
@@ -129,22 +161,6 @@ export class ProfileSourceWatcher {
         return normalized.includes(`/${PROFILE_COMPILED_DIR_NAME}/${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/`)
             || normalized.endsWith(".tmp")
             || normalized.endsWith(`.${VARIABLE_TYPES_FILE_NAME}`);
-    }
-
-    private userProfileFileNameFromWatchPath(changedPath: string): string | null {
-        const relativePath = relative(this.input.userRoot, changedPath).split(/[\\/]+/).join("/");
-        if (!relativePath || relativePath.startsWith("../") || relativePath === ".." || /^[A-Za-z]:/.test(relativePath)) {
-            return null;
-        }
-        return /\.profile\.(tsx|ts|mjs|js)$/u.test(relativePath) ? relativePath : null;
-    }
-
-    private isUserProfileDependencyWatchPath(changedPath: string): boolean {
-        const relativePath = relative(this.input.userRoot, changedPath).split(/[\\/]+/).join("/");
-        if (!relativePath || relativePath.startsWith("../") || relativePath === ".." || /^[A-Za-z]:/.test(relativePath)) {
-            return false;
-        }
-        return !relativePath.startsWith(`${PROFILE_COMPILED_DIR_NAME}/`);
     }
 
     private closeFailedWatcher(watcher: FSWatcher): void {

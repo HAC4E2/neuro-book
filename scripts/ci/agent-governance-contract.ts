@@ -4,10 +4,39 @@ import {existsSync, lstatSync, readFileSync, readdirSync} from "node:fs";
 import {dirname, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot} from "@notnotype/neuro-book-test-support/paths";
+import ts from "typescript";
+import {parse as parseYaml} from "yaml";
 
-export const GOVERNANCE_SCHEMA = "nbook.governance/v1";
+
 export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
 export type CanonicalRole = typeof CANONICAL_ROLES[number];
+
+const AGENT_SKILLS_ADAPTATION_PROPOSAL = "packages/neuro-book/docs/proposals/agent-skills-adaptation.md";
+const AGENT_WORKFLOW_ROUTER = ".agents/skills/agent-workflow-router/SKILL.md";
+const AGENT_WORKFLOW_PROFILE = "nbook.agent-skills/v1";
+const AGENT_WORKFLOW_KINDS = new Set([
+    "feedback",
+    "bug",
+    "feature",
+    "refactor",
+    "docs",
+    "release",
+    "migration",
+]);
+const AGENT_WORKFLOW_CHECKS = new Set([
+    "focused-test",
+    "regression-test",
+    "typecheck",
+    "build",
+    "diff-check",
+    "smoke",
+    "browser",
+    "security-review",
+    "performance-baseline",
+    "release-check",
+    "docs-check",
+    "governance-check",
+]);
 
 export const GOVERNANCE_NON_EMPTY_LINE_LIMITS = {
     "AGENTS.md": 220,
@@ -47,6 +76,29 @@ type TaskMigrationMarker = {
     preservedSourceFiles: string[];
     trackedFileCount: number;
     localOnlyFiles: string[];
+};
+export const APPLICATION_TASK_OWNER_ROOT = "packages/neuro-book/.agents/tasks";
+export const ROOT_TASK_OWNER_ROOT = ".agents/tasks";
+export const TASK_OWNERSHIP_SCHEMA = "nbook.task-ownership/v1";
+
+export type TaskOwnershipFile = {
+    path: string;
+    legacyDestination: string;
+    sha256: string;
+};
+
+export type TaskOwnershipEntry = {
+    taskId: string;
+    ownerRoot: string;
+    files: TaskOwnershipFile[];
+};
+
+export type TaskOwnershipManifest = {
+    schema: string;
+    ownerRoot: string;
+    taskCount: number;
+    fileCount: number;
+    tasks: TaskOwnershipEntry[];
 };
 
 type SiblingResyncResolution = {
@@ -113,10 +165,6 @@ export function gitRevision(repoRoot: string): string {
 
 export function gitBranch(repoRoot: string): string {
     return git(repoRoot, ["branch", "--show-current"]) || "detached";
-}
-
-export function gitStatus(repoRoot: string): string {
-    return git(repoRoot, ["status", "--short"]);
 }
 
 export function readRepoText(repoRoot: string, relativePath: string): string {
@@ -198,6 +246,7 @@ export function expectedGovernanceFiles(): readonly string[] {
         ".agents/tasks/README.md",
         ".agents/tasks/.migration-complete",
         ".agents/tasks/legacy-index.json",
+        ".agents/tasks/ownership.json",
         ...CANONICAL_ROLES.map((role) => `.agents/roles/${role}/AGENTS.md`),
         ".agents/skills/README.md",
         "packages/neuro-book/AGENTS.md",
@@ -205,16 +254,6 @@ export function expectedGovernanceFiles(): readonly string[] {
         "scripts/release/AGENTS.md",
         "packages/AGENTS.md",
     ];
-}
-
-export function containsLine(text: string, line: string): boolean {
-    return text.split(/\r?\n/u).some((candidate) => candidate.trim() === line);
-}
-
-export function isPathInside(relativePath: string, parent: string): boolean {
-    const normalized = relativePath.replaceAll("\\", "/");
-    const normalizedParent = parent.replaceAll("\\", "/").replace(/\/$/u, "");
-    return normalized === normalizedParent || normalized.startsWith(`${normalizedParent}/`);
 }
 
 export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
@@ -309,14 +348,459 @@ export function verifyMonorepoCutover(repoRoot: string): string[] {
     return failures;
 }
 
-/** 校验历史 Task 迁移是否同时具备磁盘、hash、Git index 和 clean-cutover 证据。 */
+/** 应用只允许 Source Dev 通过 #scripts 读取根 workspace locator。 */
+export function verifyApplicationScriptBoundary(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const applicationRoot = resolve(repoRoot, "packages", "neuro-book");
+    const allowedPath = "scripts/cli/source-dev.ts";
+    const allowedImport = "#scripts/utils/workspace-roots";
+    for (const relativePath of walkSourceFiles(applicationRoot)) {
+        const text = readFileSync(resolve(applicationRoot, relativePath), "utf8");
+        const imports = [...text.matchAll(/["'](#scripts\/[^"']+)["']/gu)].map((match) => match[1]);
+        if (imports.length === 0) continue;
+        if (relativePath !== allowedPath || imports.some((specifier) => specifier !== allowedImport)) {
+            failures.push(`应用跨根 #scripts 导入违规：packages/neuro-book/${relativePath} -> ${imports.join(", ")}`);
+        }
+    }
+    return failures;
+}
+
+function walkSourceFiles(root: string, relativeRoot = ""): string[] {
+    const absoluteRoot = resolve(root, relativeRoot);
+    if (!existsSync(absoluteRoot)) return [];
+    const files: string[] = [];
+    for (const entry of readdirSync(absoluteRoot, {withFileTypes: true})) {
+        const relativePath = relativeRoot ? `${relativeRoot}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+            if ([".nuxt", ".output", "node_modules", ".compiled", ".staging"].includes(entry.name)) continue;
+            files.push(...walkSourceFiles(root, relativePath));
+        } else if (/\.(?:ts|tsx|js|mjs|cjs)$/u.test(entry.name)) {
+            files.push(relativePath);
+        }
+    }
+    return files;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSafeTaskRelativePath(value: unknown): value is string {
+    return typeof value === "string"
+        && value.length > 0
+        && !value.startsWith("/")
+        && !/^[A-Za-z]:/u.test(value)
+        && !value.split("/").includes("..")
+        && !value.split("/").includes("");
+}
+
+function validateTaskOwnershipManifest(manifest: TaskOwnershipManifest, failures: string[]): void {
+    if (manifest.schema !== TASK_OWNERSHIP_SCHEMA) failures.push("ownership.json schema 不匹配");
+    if (manifest.ownerRoot !== APPLICATION_TASK_OWNER_ROOT) failures.push("ownership.json ownerRoot 不匹配");
+    if (!Number.isInteger(manifest.taskCount)) failures.push("ownership.json 缺少整数 taskCount");
+    if (!Number.isInteger(manifest.fileCount)) failures.push("ownership.json 缺少整数 fileCount");
+    if (!Array.isArray(manifest.tasks)) {
+        failures.push("ownership.json tasks 不是数组");
+        return;
+    }
+    const taskIds = new Set<string>();
+    const paths = new Set<string>();
+    let fileCount = 0;
+    for (const rawEntry of manifest.tasks) {
+        if (!isRecord(rawEntry)) {
+            failures.push("ownership.json 包含无效 Task entry");
+            continue;
+        }
+        const taskId = rawEntry.taskId;
+        const ownerRoot = rawEntry.ownerRoot;
+        const files = rawEntry.files;
+        if (typeof taskId !== "string" || !/^\d{2,5}-[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(taskId)) failures.push(`ownership Task 标识无效：${String(taskId)}`);
+        else if (taskIds.has(taskId)) failures.push(`ownership Task 编号重复：${taskId}`);
+        else taskIds.add(taskId);
+        if (ownerRoot !== APPLICATION_TASK_OWNER_ROOT) failures.push(`ownership Task ownerRoot 无效：${String(taskId)}`);
+        if (!Array.isArray(files)) {
+            failures.push(`ownership Task files 不是数组：${String(taskId)}`);
+            continue;
+        }
+        for (const rawFile of files) {
+            fileCount += 1;
+            if (!isRecord(rawFile)) {
+                failures.push(`ownership Task 文件 entry 无效：${String(taskId)}`);
+                continue;
+            }
+            const path = rawFile.path;
+            const legacyDestination = rawFile.legacyDestination;
+            const sha256 = rawFile.sha256;
+            if (!isSafeTaskRelativePath(path) || !path.startsWith(`${String(taskId)}/`)) failures.push(`ownership Task path 无效：${String(path)}`);
+            if (typeof path === "string" && legacyDestination !== `.agents/tasks/${path}`) failures.push(`ownership legacyDestination 不匹配：${String(path)}`);
+            if (typeof path === "string" && paths.has(path)) failures.push(`ownership 文件路径重复：${path}`);
+            else if (typeof path === "string") paths.add(path);
+            if (typeof sha256 !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(sha256)) failures.push(`ownership SHA-256 无效：${String(path)}`);
+        }
+    }
+    if (manifest.taskCount !== taskIds.size) failures.push(`ownership taskCount 与 tasks 不一致：${String(manifest.taskCount)} != ${String(taskIds.size)}`);
+    if (manifest.fileCount !== fileCount) failures.push(`ownership fileCount 与 files 不一致：${String(manifest.fileCount)} != ${String(fileCount)}`);
+}
+
+export function readTaskOwnershipManifest(repoRoot: string): {manifest: TaskOwnershipManifest | null; failures: string[]} {
+    const failures: string[] = [];
+    const manifest = readJson<TaskOwnershipManifest>(resolve(repoRoot, ".agents", "tasks", "ownership.json"), failures, "ownership.json");
+    if (!manifest) return {manifest: null, failures};
+    validateTaskOwnershipManifest(manifest, failures);
+    return {manifest: failures.length === 0 ? manifest : null, failures};
+}
+
+export function resolveTaskReadmePath(repoRoot: string, taskId: string): {path: string | null; checkedRoots: string[]; failures: string[]} {
+    const loaded = readTaskOwnershipManifest(repoRoot);
+    if (!loaded.manifest) return {path: null, checkedRoots: [], failures: loaded.failures};
+    const entry = loaded.manifest.tasks.find((candidate) => candidate.taskId === taskId);
+    const ownerRoot = entry?.ownerRoot ?? ROOT_TASK_OWNER_ROOT;
+    const checkedRoots = [ownerRoot];
+    const relativePath = `${ownerRoot}/${taskId}/README.md`;
+    const candidate = resolve(repoRoot, relativePath);
+    return {path: hasFile(repoRoot, relativePath) ? candidate : null, checkedRoots, failures: []};
+}
+function readTaskFrontmatter(text: string, relativePath: string, failures: string[]): Record<string, unknown> | null {
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text);
+    if (!match) return null;
+    try {
+        const value = parseYaml(match[1]) as unknown;
+        if (!isRecord(value)) failures.push(`Task frontmatter 必须是对象：${relativePath}`);
+        return isRecord(value) ? value : null;
+    } catch (error) {
+        failures.push(`Task frontmatter 无法解析：${relativePath}：${String(error)}`);
+        return null;
+    }
+}
+function taskAgentWorkflowReadmePaths(repoRoot: string, ownership: TaskOwnershipManifest): string[] {
+    const rootTaskRoot = resolve(repoRoot, ROOT_TASK_OWNER_ROOT);
+    const rootTaskIds = existsSync(rootTaskRoot)
+        ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name)
+        : [];
+    return [
+        ...rootTaskIds.map((taskId) => `${ROOT_TASK_OWNER_ROOT}/${taskId}/README.md`),
+        ...ownership.tasks.map((entry) => `${APPLICATION_TASK_OWNER_ROOT}/${entry.taskId}/README.md`),
+    ];
+}
+
+function hasTaskAgentWorkflowProfile(repoRoot: string): boolean {
+    const ownershipLoaded = readTaskOwnershipManifest(repoRoot);
+    if (!ownershipLoaded.manifest) return false;
+    for (const relativePath of taskAgentWorkflowReadmePaths(repoRoot, ownershipLoaded.manifest)) {
+        if (!hasFile(repoRoot, relativePath)) continue;
+        const metadata = readTaskFrontmatter(readRepoText(repoRoot, relativePath), relativePath, []);
+        if (metadata?.schema === "nbook.task/v1" && Object.hasOwn(metadata, "agentWorkflow")) return true;
+    }
+    return false;
+}
+
+
+function hasTextMarkers(repoRoot: string, relativePath: string, markers: readonly string[]): boolean {
+    if (!hasFile(repoRoot, relativePath)) return false;
+    const text = readRepoText(repoRoot, relativePath);
+    return markers.every((marker) => text.includes(marker));
+}
+
+function hasAgentWorkflowRouterFrontmatter(repoRoot: string): boolean {
+    if (!hasFile(repoRoot, AGENT_WORKFLOW_ROUTER)) return false;
+    const text = readRepoText(repoRoot, AGENT_WORKFLOW_ROUTER);
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text);
+    if (!match) return false;
+    try {
+        const metadata = parseYaml(match[1]) as unknown;
+        return isRecord(metadata)
+            && metadata.name === "agent-workflow-router"
+            && typeof metadata.description === "string"
+            && metadata.description.trim().length > 0;
+    } catch {
+        return false;
+    }
+}
+
+function agentSkillsImplementationPresent(repoRoot: string): boolean {
+    return [
+        hasFile(repoRoot, AGENT_WORKFLOW_ROUTER),
+        hasTaskAgentWorkflowProfile(repoRoot),
+        hasTextMarkers(repoRoot, ".agents/skills/README.md", ["agent-workflow-router"]),
+        hasTextMarkers(repoRoot, "docs/standards/code/README.md", [".agents/skills/**/*.md"]),
+        hasTextMarkers(repoRoot, ".agents/tasks/README.md", ["agentWorkflow"]),
+        hasTextMarkers(repoRoot, ".agents/tasks/AGENTS.md", ["agent-workflow-router"]),
+        ...CANONICAL_ROLES.map((role) => hasTextMarkers(repoRoot, `.agents/roles/${role}/AGENTS.md`, ["agentWorkflow"])),
+        hasTextMarkers(repoRoot, "scripts/ci/agent-governance-contract.ts", ["verifyAgentSkillsAdaptation"]),
+        hasTextMarkers(repoRoot, "scripts/ci/agent-governance.ts", ["verifyAgentSkillsAdaptation"]),
+    ].some(Boolean);
+}
+
+function hasTaskAgentWorkflowContract(repoRoot: string): boolean {
+    if (!hasFile(repoRoot, ".agents/tasks/README.md")) return false;
+    const text = readRepoText(repoRoot, ".agents/tasks/README.md");
+    const yamlBlocks = [...text.matchAll(/^```yaml\r?\n([\s\S]*?)\r?\n```/gmu)].map((match) => match[1]);
+    for (const rawBlock of yamlBlocks) {
+        const block = rawBlock.trim().replace(/^---\r?\n/u, "").replace(/\r?\n---$/u, "");
+        try {
+            const metadata = parseYaml(block) as unknown;
+            if (!isRecord(metadata) || !isRecord(metadata.agentWorkflow)) continue;
+            const workflow = metadata.agentWorkflow;
+            const verification = workflow.verification;
+            if (workflow.profile !== "nbook.agent-skills/v1" || typeof workflow.kind !== "string" || !Array.isArray(workflow.routes) || !isRecord(verification)) continue;
+            if (!Array.isArray(verification.required) || !Array.isArray(verification.notRun)) continue;
+            return true;
+        } catch {
+            continue;
+        }
+    }
+    return false;
+}
+
+function hasGovernanceContractExports(repoRoot: string): boolean {
+    if (!hasFile(repoRoot, "scripts/ci/agent-governance-contract.ts")) return false;
+    const source = readRepoText(repoRoot, "scripts/ci/agent-governance-contract.ts");
+    const sourceFile = ts.createSourceFile("agent-governance-contract.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const exports = new Set<string>();
+    for (const statement of sourceFile.statements) {
+        if (!ts.isFunctionDeclaration(statement)
+            || !statement.name
+            || !(ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Export)) continue;
+        exports.add(statement.name.text);
+    }
+    return exports.has("verifyAgentSkillsAdaptation") && exports.has("verifyTaskAgentWorkflowProfiles");
+}
+
+function hasGovernanceCliCalls(repoRoot: string): boolean {
+    if (!hasFile(repoRoot, "scripts/ci/agent-governance.ts")) return false;
+    const source = readRepoText(repoRoot, "scripts/ci/agent-governance.ts");
+    const fileName = "agent-governance.ts";
+    const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const compilerOptions: ts.CompilerOptions = {
+        target: ts.ScriptTarget.Latest,
+        module: ts.ModuleKind.ESNext,
+        noLib: true,
+        noResolve: true,
+    };
+    const compilerHost = ts.createCompilerHost(compilerOptions);
+    const originalGetSourceFile = compilerHost.getSourceFile;
+    compilerHost.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) => name === fileName
+        ? sourceFile
+        : originalGetSourceFile(name, languageVersion, onError, shouldCreateNewSourceFile);
+    const checker = ts.createProgram([fileName], compilerOptions, compilerHost).getTypeChecker();
+    const importedBindings = new Map<string, {importedName: string; specifier: ts.ImportSpecifier}>();
+    for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement)
+            || !ts.isStringLiteral(statement.moduleSpecifier)
+            || statement.moduleSpecifier.text !== "#scripts/ci/agent-governance-contract") continue;
+        const importClause = statement.importClause;
+        if (!importClause || importClause.isTypeOnly || !importClause.namedBindings || !ts.isNamedImports(importClause.namedBindings)) continue;
+        for (const element of importClause.namedBindings.elements) {
+            if (element.isTypeOnly) continue;
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (importedName === "verifyAgentSkillsAdaptation" || importedName === "verifyTaskAgentWorkflowProfiles") {
+                importedBindings.set(element.name.text, {importedName, specifier: element});
+            }
+        }
+    }
+    const calls = new Set<string>();
+    function visit(node: ts.Node): void {
+        if (ts.isFunctionLike(node)) return;
+        if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)) {
+            const push = node.expression;
+            if (ts.isPropertyAccessExpression(push.expression)
+                && ts.isIdentifier(push.expression.expression)
+                && push.expression.expression.text === "failures"
+                && push.expression.name.text === "push"
+                && push.arguments.length === 1) {
+                const spread = push.arguments[0];
+                if (ts.isSpreadElement(spread)
+                    && ts.isCallExpression(spread.expression)
+                    && ts.isIdentifier(spread.expression.expression)
+                    && spread.expression.arguments.length === 1
+                    && ts.isIdentifier(spread.expression.arguments[0])
+                    && spread.expression.arguments[0].text === "repoRoot") {
+                    const binding = importedBindings.get(spread.expression.expression.text);
+                    const symbol = checker.getSymbolAtLocation(spread.expression.expression);
+                    if (binding && symbol?.declarations?.some((declaration) => declaration === binding.specifier)) {
+                        calls.add(binding.importedName);
+                    }
+                }
+            }
+        }
+        ts.forEachChild(node, visit);
+    }
+    ts.forEachChild(sourceFile, visit);
+    return calls.has("verifyAgentSkillsAdaptation") && calls.has("verifyTaskAgentWorkflowProfiles");
+}
+
+type AgentSkillsMarker = {
+    failure: string;
+    present: boolean;
+};
+
+function agentSkillsImplementationMarkers(repoRoot: string): AgentSkillsMarker[] {
+    return [
+        {failure: "路由 Skill 缺少有效 frontmatter", present: hasAgentWorkflowRouterFrontmatter(repoRoot)},
+        {failure: "Skill 索引缺少 agent-workflow-router", present: hasTextMarkers(repoRoot, ".agents/skills/README.md", ["- [", "agent-workflow-router/SKILL.md"])},
+        {failure: "编码路由缺少 .agents/skills/**/*.md 或 Agent 文档规范", present: hasTextMarkers(repoRoot, "docs/standards/code/README.md", [".agents/skills/**/*.md", "writing-for-agents/SKILL.md", "SKILL-MECHANICS.md"])},
+        {failure: "Task 合同缺少完整 agentWorkflow 字段", present: hasTaskAgentWorkflowContract(repoRoot)},
+        {failure: "Task 执行规则缺少完整 agentWorkflow 验证要求", present: hasTextMarkers(repoRoot, ".agents/tasks/AGENTS.md", ["agentWorkflow", ".agents/skills/agent-workflow-router/SKILL.md", "verification.required", "verification.notRun"])},
+        ...CANONICAL_ROLES.map((role): AgentSkillsMarker => ({
+            failure: `角色合同缺少完整 agentWorkflow：${role}`,
+            present: hasTextMarkers(repoRoot, `.agents/roles/${role}/AGENTS.md`, ["agentWorkflow", "required", "notRun"]),
+        })),
+        {failure: "治理合同缺少完整 Agent Skills 校验", present: hasGovernanceContractExports(repoRoot)},
+        {failure: "治理入口缺少 Agent Skills 校验调用", present: hasGovernanceCliCalls(repoRoot)},
+    ];
+}
+
+function validateAgentWorkflow(relativePath: string, raw: unknown, failures: string[]): void {
+    if (!isRecord(raw)) {
+        failures.push(`Task agentWorkflow 必须是对象：${relativePath}`);
+        return;
+    }
+    if (raw.profile !== AGENT_WORKFLOW_PROFILE) failures.push(`Task agentWorkflow.profile 无效：${relativePath}`);
+
+    const kind = raw.kind;
+    if (typeof kind !== "string" || !AGENT_WORKFLOW_KINDS.has(kind)) failures.push(`Task agentWorkflow.kind 无效：${relativePath}`);
+
+    const routes = raw.routes;
+    if (!Array.isArray(routes) || routes.length === 0) {
+        failures.push(`Task agentWorkflow.routes 必须是非空数组：${relativePath}`);
+    } else {
+        const seenRoutes = new Set<string>();
+        routes.forEach((route, index) => {
+            if (typeof route !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(route)) {
+                failures.push(`Task agentWorkflow.routes[${String(index)}] 无效：${relativePath}`);
+                return;
+            }
+            if (seenRoutes.has(route)) failures.push(`Task agentWorkflow.routes 含重复项：${relativePath}`);
+            seenRoutes.add(route);
+        });
+    }
+
+    const verification = raw.verification;
+    if (!isRecord(verification)) {
+        failures.push(`Task agentWorkflow.verification 必须是对象：${relativePath}`);
+        return;
+    }
+    const required = verification.required;
+    const requiredValues = new Set<string>();
+    if (!Array.isArray(required) || required.length === 0) {
+        failures.push(`Task verification.required 必须是非空数组：${relativePath}`);
+    } else {
+        required.forEach((check, index) => {
+            if (typeof check !== "string" || !AGENT_WORKFLOW_CHECKS.has(check)) {
+                failures.push(`Task verification.required[${String(index)}] 无效：${relativePath}`);
+                return;
+            }
+            if (requiredValues.has(check)) failures.push(`Task verification.required 含重复项：${relativePath}`);
+            requiredValues.add(check);
+        });
+    }
+
+    if (!("notRun" in verification)) {
+        failures.push(`Task verification.notRun 必须显式提供：${relativePath}`);
+        return;
+    }
+    const notRun = verification.notRun;
+    if (!Array.isArray(notRun)) {
+        failures.push(`Task verification.notRun 必须是数组：${relativePath}`);
+        return;
+    }
+    const notRunValues = new Set<string>();
+    notRun.forEach((entry, index) => {
+        if (!isRecord(entry)) {
+            failures.push(`Task verification.notRun[${String(index)}] 必须是对象：${relativePath}`);
+            return;
+        }
+        const check = entry.check;
+        const reason = entry.reason;
+        if (typeof check !== "string" || !AGENT_WORKFLOW_CHECKS.has(check)) failures.push(`Task verification.notRun[${String(index)}] check 无效：${relativePath}`);
+        if (typeof reason !== "string" || reason.trim().length === 0) failures.push(`Task verification.notRun[${String(index)}] 缺少非空 reason：${relativePath}`);
+        if (typeof check === "string") {
+            if (notRunValues.has(check)) failures.push(`Task verification.notRun 含重复项：${relativePath}`);
+            notRunValues.add(check);
+            if (requiredValues.has(check)) failures.push(`Task verification.required 与 verification.notRun 重叠：${relativePath}`);
+        }
+    });
+}
+
+/** 校验 Agent Skills Proposal 的生效状态和适配入口是否一致。 */
+export function verifyAgentSkillsAdaptation(repoRoot: string): string[] {
+    const failures: string[] = [];
+    if (!hasFile(repoRoot, AGENT_SKILLS_ADAPTATION_PROPOSAL)) {
+        failures.push(`缺少 Agent Skills 适配 Proposal：${AGENT_SKILLS_ADAPTATION_PROPOSAL}`);
+        return failures;
+    }
+    const proposal = readRepoText(repoRoot, AGENT_SKILLS_ADAPTATION_PROPOSAL);
+    const status = /^状态：\s*(\S.*?)\s*$/mu.exec(proposal)?.[1]?.trim();
+    if (!status) {
+        failures.push(`Agent Skills 适配 Proposal 缺少状态：${AGENT_SKILLS_ADAPTATION_PROPOSAL}`);
+        return failures;
+    }
+    const markers = agentSkillsImplementationMarkers(repoRoot);
+    const implementationPresent = agentSkillsImplementationPresent(repoRoot);
+    if (status === "draft") {
+        if (implementationPresent) failures.push("Agent Skills Proposal 仍为 draft，但适配实现已出现");
+        return failures;
+    }
+    if (status !== "accepted") {
+        if (implementationPresent) failures.push(`Agent Skills Proposal 状态为 ${status}，但适配实现已出现`);
+        return failures;
+    }
+
+    for (const marker of markers) if (!marker.present) failures.push(marker.failure);
+
+    const adaptedPaths = [
+        AGENT_WORKFLOW_ROUTER,
+        ".agents/skills/README.md",
+        ".agents/tasks/README.md",
+        ".agents/tasks/AGENTS.md",
+        ...CANONICAL_ROLES.map((role) => `.agents/roles/${role}/AGENTS.md`),
+        "scripts/ci/agent-governance-contract.ts",
+        "scripts/ci/agent-governance.ts",
+    ];
+    const missingDefinitionOfDonePath = ["..", "..", "references", "definition-of-done.md"].join("/");
+    for (const path of adaptedPaths) {
+        if (hasFile(repoRoot, path) && readRepoText(repoRoot, path).includes(missingDefinitionOfDonePath)) {
+            failures.push(`适配文件不得引用缺失的通用 DoD：${path}`);
+        }
+    }
+    return failures;
+}
+
+/** 校验当前 Task 中可选的 agentWorkflow 验证画像。 */
+export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const ownershipLoaded = readTaskOwnershipManifest(repoRoot);
+    failures.push(...ownershipLoaded.failures);
+    if (!ownershipLoaded.manifest) return failures;
+
+    const rootTaskRoot = resolve(repoRoot, ROOT_TASK_OWNER_ROOT);
+    const appTaskRoot = resolve(repoRoot, APPLICATION_TASK_OWNER_ROOT);
+    const rootTaskIds = existsSync(rootTaskRoot)
+        ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name)
+        : [];
+    const appTaskIds = ownershipLoaded.manifest.tasks.map((entry) => entry.taskId);
+    for (const [ownerRoot, taskIds] of [[ROOT_TASK_OWNER_ROOT, rootTaskIds], [APPLICATION_TASK_OWNER_ROOT, appTaskIds]] as const) {
+        for (const taskId of taskIds) {
+            const relativePath = `${ownerRoot}/${taskId}/README.md`;
+            if (!hasFile(repoRoot, relativePath)) continue;
+            const metadata = readTaskFrontmatter(readRepoText(repoRoot, relativePath), relativePath, failures);
+            if (!metadata || metadata.schema !== "nbook.task/v1" || !("agentWorkflow" in metadata)) continue;
+            validateAgentWorkflow(relativePath, metadata.agentWorkflow, failures);
+        }
+    }
+    return failures;
+}
+
 export function verifyTaskMigration(repoRoot: string): string[] {
     const failures: string[] = [];
     const indexPath = resolve(repoRoot, ".agents", "tasks", "legacy-index.json");
     const markerPath = resolve(repoRoot, ".agents", "tasks", ".migration-complete");
     const index = readJson<TaskMigrationIndex>(indexPath, failures, "legacy-index.json");
     const marker = readJson<TaskMigrationMarker>(markerPath, failures, ".migration-complete");
-    if (!index || !marker) return failures;
+    const ownershipLoaded = readTaskOwnershipManifest(repoRoot);
+    failures.push(...ownershipLoaded.failures);
+    if (!index || !marker || !ownershipLoaded.manifest) return failures;
+    const ownership = ownershipLoaded.manifest;
 
     if (index.schema !== "nbook.task-migration-index/v1") failures.push("legacy-index.json schema 不匹配");
     if (marker.schema !== "nbook.task-migration/v1") failures.push(".migration-complete schema 不匹配");
@@ -339,10 +823,10 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     }
     const mappings = index.mappings;
     const mappingSources = Object.fromEntries(mappings.map((mapping) => [mapping.source, true])) as Record<string, true>;
-    const mappingDestinations = Object.fromEntries(mappings.map((mapping) => [mapping.destination, true])) as Record<string, true>;
+    const mappingDestinations = new Map(mappings.map((mapping) => [mapping.destination, mapping]));
     const localOnlySources = Object.fromEntries(index.localOnlyFiles.map((source) => [source, true])) as Record<string, true>;
     const stagedOrTracked = Object.fromEntries(git(repoRoot, ["ls-files", "--cached"]).split(/\r?\n/u).filter(Boolean).map((path) => [path, true])) as Record<string, true>;
-    const stagedLegacyDeletes = Object.fromEntries(git(repoRoot, ["diff", "--cached", "--name-only", "--diff-filter=D", "--", "docs/tasks"]).split(/\r?\n/u).filter(Boolean).map((path) => [path, true])) as Record<string, true>;
+    const stagedLegacyDeletes = Object.fromEntries(git(repoRoot, ["diff", "--cached", "--name-only", "--diff-filter=D", "--", "docs/tasks"]).split(/\r?\n/u).filter(Boolean).map((path) => [path, true]));
 
     if (index.fileCount !== mappings.length) failures.push(`迁移 index fileCount 与 mappings 不一致：${String(index.fileCount)} != ${String(mappings.length)}`);
     if (marker.fileCount !== mappings.length) failures.push(`迁移 marker fileCount 与 mappings 不一致：${String(marker.fileCount)} != ${String(mappings.length)}`);
@@ -353,7 +837,7 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     if (JSON.stringify(marker.repositoryLinkRewrites) !== JSON.stringify(index.repositoryLinkRewrites)) failures.push("迁移 marker repositoryLinkRewrites 与 index 不一致");
     if (JSON.stringify(marker.preservedSourceFiles) !== JSON.stringify(index.preservedSourceFiles)) failures.push("迁移 marker preservedSourceFiles 与 index 不一致");
     if (Object.keys(mappingSources).length !== mappings.length) failures.push("迁移 mappings 含重复 source");
-    if (Object.keys(mappingDestinations).length !== mappings.length) failures.push("迁移 mappings 含重复 destination");
+    if (mappingDestinations.size !== mappings.length) failures.push("迁移 mappings 含重复 destination");
     if (Object.keys(baselineTracked).length !== index.trackedFileCount) failures.push(`迁移 trackedFileCount 与 baseline 不一致：${String(index.trackedFileCount)} != ${String(Object.keys(baselineTracked).length)}`);
 
     const manifest = {
@@ -366,6 +850,71 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     const manifestSha256 = `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
     if (manifestSha256 !== index.manifestSha256) failures.push(`迁移 manifest SHA-256 不一致：${manifestSha256} != ${index.manifestSha256}`);
 
+    const ownershipByDestination = new Map<string, {entry: TaskOwnershipEntry; file: TaskOwnershipFile}>();
+    for (const entry of ownership.tasks) {
+        const taskRoot = `${entry.ownerRoot}/${entry.taskId}`;
+        if (!hasDirectory(repoRoot, taskRoot)) failures.push(`ownership Task 目录缺失：${taskRoot}`);
+        for (const file of entry.files) {
+            if (ownershipByDestination.has(file.legacyDestination)) failures.push(`ownership legacyDestination 重复：${file.legacyDestination}`);
+            ownershipByDestination.set(file.legacyDestination, {entry, file});
+            const mapping = mappingDestinations.get(file.legacyDestination);
+            if (!mapping) {
+                failures.push(`ownership 文件没有 legacy mapping：${file.legacyDestination}`);
+                continue;
+            }
+            if (file.sha256 !== mapping.destinationSha256) failures.push(`ownership 与 legacy destination hash 不一致：${file.legacyDestination}`);
+            const physicalRel = `${entry.ownerRoot}/${file.path}`;
+            if (!hasFile(repoRoot, physicalRel)) {
+                failures.push(`ownership 文件缺失：${physicalRel}`);
+                continue;
+            }
+            const actual = `sha256:${createHash("sha256").update(readFileSync(resolve(repoRoot, physicalRel))).digest("hex")}`;
+            if (actual !== file.sha256) failures.push(`ownership 文件 hash 不一致：${physicalRel}`);
+            if (!stagedOrTracked[physicalRel]) failures.push(`ownership 文件尚未进入 Git index：${physicalRel}`);
+            if (isGitIgnored(repoRoot, physicalRel)) failures.push(`ownership tracked Task 被 .gitignore：${physicalRel}`);
+        }
+    }
+    if (ownershipByDestination.size !== ownership.fileCount) failures.push("ownership fileCount 与唯一 legacyDestination 不一致");
+
+    const appTaskIds = new Set(ownership.tasks.map((entry) => entry.taskId));
+    const appTaskRoot = resolve(repoRoot, APPLICATION_TASK_OWNER_ROOT);
+    const rootTaskRoot = resolve(repoRoot, ROOT_TASK_OWNER_ROOT);
+    const appTaskDirectories = new Set(existsSync(appTaskRoot)
+        ? readdirSync(appTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+        : []);
+    const rootTaskIds = new Set(existsSync(rootTaskRoot)
+        ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name)
+        : []);
+    for (const taskId of appTaskIds) {
+        if (!appTaskDirectories.has(taskId)) failures.push(`ownership Task 目录缺失：${APPLICATION_TASK_OWNER_ROOT}/${taskId}`);
+        if (rootTaskIds.has(taskId)) failures.push(`Task 同时存在根与应用 root：${taskId}`);
+    }
+    for (const taskId of appTaskDirectories) if (!appTaskIds.has(taskId)) failures.push(`应用 Task 目录未登记 ownership：${APPLICATION_TASK_OWNER_ROOT}/${taskId}`);
+
+    const taskContracts = new Map<string, string>();
+    const registerTaskContract = (ownerRoot: string, taskId: string, readmePath: string): void => {
+        const previous = taskContracts.get(taskId);
+        if (previous && previous !== readmePath) failures.push(`全仓 Task ID 重复：${taskId}（${previous}、${readmePath}）`);
+        else taskContracts.set(taskId, readmePath);
+        if (ownerRoot === APPLICATION_TASK_OWNER_ROOT && !appTaskIds.has(taskId)) failures.push(`应用 Task README 未登记 ownership：${readmePath}`);
+        if (ownerRoot === ROOT_TASK_OWNER_ROOT && appTaskIds.has(taskId)) failures.push(`根 Task README 错置应用 owner：${readmePath}`);
+    };
+    for (const [ownerRoot, taskDirectories] of [[ROOT_TASK_OWNER_ROOT, rootTaskIds], [APPLICATION_TASK_OWNER_ROOT, appTaskDirectories]] as const) {
+        for (const directory of taskDirectories) {
+            const readmeRelative = `${ownerRoot}/${directory}/README.md`;
+            if (!hasFile(repoRoot, readmeRelative)) continue;
+            const text = readRepoText(repoRoot, readmeRelative);
+            const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text)?.[1];
+            if (!frontmatter || !/^schema:\s*["']?nbook\.task\/v1["']?\s*$/mu.test(frontmatter)) continue;
+            const taskId = /^taskId:\s*["']?([A-Za-z0-9._-]+)["']?\s*$/mu.exec(frontmatter)?.[1];
+            if (!taskId) {
+                failures.push(`Task README frontmatter 缺少 taskId：${readmeRelative}`);
+                continue;
+            }
+            registerTaskContract(ownerRoot, taskId, readmeRelative);
+        }
+    }
+
     for (const source of Object.keys(baselineTracked)) {
         if (!mappingSources[source]) failures.push(`baseline tracked Task 缺少 mapping：${source}`);
         if (existsSync(resolve(repoRoot, source))) failures.push(`旧 Task 文件仍存在：${source}`);
@@ -376,25 +925,32 @@ export function verifyTaskMigration(repoRoot: string): string[] {
         if (!mappingSources[source]) failures.push(`迁移 localOnlyFiles 缺少 mapping：${source}`);
     }
     for (const mapping of mappings) {
-        const destinationPath = resolve(repoRoot, mapping.destination);
+        const legacyRelative = mapping.destination.replace(/^\.agents\/tasks\//u, "");
+        const taskId = legacyRelative.split("/")[0] ?? "";
+        const ownerEntry = ownership.tasks.find((entry) => entry.taskId === taskId);
+        const ownerRoot = ownerEntry?.ownerRoot ?? ROOT_TASK_OWNER_ROOT;
+        const actualRelPath = `${ownerRoot}/${legacyRelative}`;
+        const otherRoot = ownerRoot === APPLICATION_TASK_OWNER_ROOT ? ROOT_TASK_OWNER_ROOT : APPLICATION_TASK_OWNER_ROOT;
+        const otherRelPath = `${otherRoot}/${legacyRelative}`;
+        const destinationPath = resolve(repoRoot, actualRelPath);
         const sourceTracked = Boolean(baselineTracked[mapping.source]);
         const sourceLocalOnly = Boolean(localOnlySources[mapping.source]);
-        if (!hasFile(repoRoot, mapping.destination)) {
-            if (sourceLocalOnly && isGitIgnored(repoRoot, mapping.destination)) continue;
-            failures.push(`迁移目标缺失或不是普通文件：${mapping.destination}`);
+        if (ownerEntry && !ownershipByDestination.has(mapping.destination)) failures.push(`ownership Task 缺少 mapping 文件：${mapping.destination}`);
+        if (!hasFile(repoRoot, actualRelPath)) {
+            if (sourceLocalOnly && isGitIgnored(repoRoot, actualRelPath)) continue;
+            failures.push(`迁移目标缺失或不是普通文件：${actualRelPath}`);
             continue;
         }
+        if (hasFile(repoRoot, otherRelPath)) failures.push(`Task 同时存在双 root：${actualRelPath} 与 ${otherRelPath}`);
         const actual = `sha256:${createHash("sha256").update(readFileSync(destinationPath)).digest("hex")}`;
-        if (actual !== mapping.destinationSha256) failures.push(`迁移目标 hash 不一致：${mapping.destination}`);
+        if (actual !== mapping.destinationSha256) failures.push(`迁移目标 hash 不一致：${actualRelPath}`);
         if (sourceTracked && sourceLocalOnly) failures.push(`tracked Task 被错误标记 localOnly：${mapping.source}`);
         if (sourceLocalOnly && sourceTracked) failures.push(`localOnly Task 与 baseline tracked 冲突：${mapping.source}`);
-        if (!sourceLocalOnly && !stagedOrTracked[mapping.destination]) failures.push(`canonical Task 尚未进入 Git index：${mapping.destination}`);
-        if (!sourceLocalOnly && isGitIgnored(repoRoot, mapping.destination)) failures.push(`canonical tracked Task 被 .gitignore：${mapping.destination}`);
-        if (sourceLocalOnly && !isGitIgnored(repoRoot, mapping.destination)) failures.push(`localOnly Task 未被 .gitignore：${mapping.destination}`);
+        if (!sourceLocalOnly && !stagedOrTracked[actualRelPath]) failures.push(`canonical Task 尚未进入 Git index：${actualRelPath}`);
+        if (!sourceLocalOnly && isGitIgnored(repoRoot, actualRelPath)) failures.push(`canonical tracked Task 被 .gitignore：${actualRelPath}`);
+        if (sourceLocalOnly && !isGitIgnored(repoRoot, actualRelPath)) failures.push(`localOnly Task 未被 .gitignore：${actualRelPath}`);
     }
-    if (Object.keys(localOnlySources).length !== index.localOnlyFiles.length) failures.push("迁移 localOnlyFiles 含重复路径");
     if (index.localOnlyFiles.some((source) => baselineTracked[source])) failures.push("迁移 localOnlyFiles 包含 baseline tracked 路径");
-
     return failures;
 }
 

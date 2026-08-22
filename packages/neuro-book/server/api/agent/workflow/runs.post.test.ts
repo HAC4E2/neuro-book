@@ -130,7 +130,7 @@ describe("POST /api/agent/workflow/runs", () => {
             runtimePaths: project.runtimePaths,
             config: visibleModelConfig(),
             ready: project.ready,
-            workflowCatalog: new WorkflowCatalog(join(project.runtimePaths.applicationRoot, "system"), join(project.runtimePaths.applicationRoot, "user")),
+            workflowCatalog: new WorkflowCatalog(join(project.runtimePaths.applicationRoot, "install")),
         });
 
         const response = await fixture.handler(routeEvent());

@@ -1,10 +1,12 @@
 import {mkdtemp, rm, mkdir, writeFile} from "node:fs/promises";
-import {join} from "node:path";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
+import {join, resolve} from "node:path";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {afterEach, describe, expect, test} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
 
+const TEST_COMPILER_ROOT = resolve(import.meta.dirname, "../../");
 describe("WorldSchemaLoader", () => {
     const roots: string[] = [];
 
@@ -24,8 +26,7 @@ describe("WorldSchemaLoader", () => {
             "export default {character: Character};",
             "",
         ].join("\n"), "utf8");
-
-        const schema = await new WorldSchemaLoader().load(absoluteFsPath(root));
+        const schema = await new WorldSchemaLoader(resolveRuntimeArtifactCompilerContext(TEST_COMPILER_ROOT)).load(absoluteFsPath(root));
         expect(schema.subjectTypes.character.attrs.name).toMatchObject({kind: "scalar", type: "string"});
         expect(schema.subjectTypes.character.attrs.mentor).toMatchObject({kind: "scalar", type: "ref(character)"});
     });
@@ -35,7 +36,6 @@ describe("WorldSchemaLoader", () => {
         roots.push(root);
         await mkdir(join(root, "world-engine"), {recursive: true});
         await writeFile(join(root, "world-engine", "schema.yaml"), "subjectTypes: {}\n", "utf8");
-
-        await expect(new WorldSchemaLoader().load(absoluteFsPath(root))).rejects.toThrow("schema.yaml");
+        await expect(new WorldSchemaLoader(resolveRuntimeArtifactCompilerContext(TEST_COMPILER_ROOT)).load(absoluteFsPath(root))).rejects.toThrow("schema.yaml");
     });
 });

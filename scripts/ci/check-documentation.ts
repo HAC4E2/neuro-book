@@ -223,7 +223,7 @@ function isActiveMarkdown(path: string): boolean {
     if (!path.endsWith(".md")) return false;
     if (ROOT_DOCUMENTS[path] || path === ".omp/RULES.md") return true;
     if (path.startsWith("docs/")) return !path.startsWith("docs/archived/") && !path.startsWith("docs/research/");
-    if (path.startsWith("packages/neuro-book/docs/")) return !path.startsWith("packages/neuro-book/docs/archived/") && !path.startsWith("packages/neuro-book/docs/research/");
+    if (path.startsWith("packages/neuro-book/assets/reference/")) return true;
     if (path.startsWith("reference/")) return true;
     if (path.startsWith("vitepress/locales/")) return !path.startsWith("vitepress/locales/zh-Hans/changelog/")
         && !path.startsWith("vitepress/locales/en-US/changelog/");
@@ -233,7 +233,7 @@ function isActiveMarkdown(path: string): boolean {
 }
 
 function isCurrentTaskContract(repoRoot: string, path: string): boolean {
-    if (!/^\.agents\/tasks\/[^/]+\/README\.md$/u.test(path)) return false;
+    if (!/^(?:\.agents\/tasks|packages\/neuro-book\/.agents\/tasks)\/[^/]+\/README\.md$/u.test(path)) return false;
     const text = readFileSync(resolve(repoRoot, path), "utf8");
     const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text)?.[1];
     if (!frontmatter) return false;
@@ -508,24 +508,9 @@ function parseSpecMetadata(path: string, text: string, failures: string[]): Spec
     return {kind, status, capability};
 }
 
-function checkFrozenReference(repoRoot: string, files: readonly string[], failures: string[]): void {
-    const registryPath = resolve(repoRoot, "docs/specs/README.md");
-    const registry = existsSync(registryPath) ? readFileSync(registryPath, "utf8") : "";
-    const frozenSection = markdownSection(registry, "冻结过渡规范") ?? "";
-    const registeredDomains = new Set(collectLinkUrls(fromMarkdown(frozenSection))
-        .map((url) => resolveRelativeLink("docs/specs/README.md", url))
-        .filter((target): target is string => target?.startsWith("reference/") === true)
-        .map((target) => target.split("/")[1])
-        .filter((domain): domain is string => Boolean(domain)));
-
-    for (const path of files.filter((candidate) => candidate.startsWith("reference/") && candidate.endsWith(".md"))) {
-        const segments = path.split("/");
-        if (path === "reference/README.md") continue;
-        if (segments[1] === "workspace") {
-            failures.push(`已迁移的 reference/workspace 不得重新出现：${path}`);
-            continue;
-        }
-        if (!registeredDomains.has(segments[1])) failures.push(`reference 出现未登记顶层域：${path}`);
+function checkFrozenReference(_repoRoot: string, files: readonly string[], failures: string[]): void {
+    for (const path of files.filter((candidate) => candidate.startsWith("reference/"))) {
+        failures.push(`运行期 Reference 必须位于 packages/neuro-book/assets/reference：${path}`);
     }
 }
 

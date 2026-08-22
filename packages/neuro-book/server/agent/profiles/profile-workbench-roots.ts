@@ -1,18 +1,20 @@
 import {join} from "node:path";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {resolveAgentInstallRoot, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import type {WorkbenchRoots} from "nbook/server/agent/profiles/workbench-service";
 
 /**
- * HTTP/CLI Adapter：从已经确定的 RuntimePaths 与系统模板根构造 Workbench roots。
- * Workbench Module 本身不读取 cwd、State Root 或环境变量。
+ * HTTP/CLI Adapter：Profile 运行根来自显式 RuntimePaths 的 State Root Install；
+ * 模板是非 runtime authoring 资产，当前仍从显式 Application Seed 读取。
  */
 export function profileWorkbenchRootsFromRuntime(runtimePaths: RuntimePaths = runtimePathsFromEnv()): WorkbenchRoots {
-    const systemNbookRoot = resolveSystemNbookRoot();
+    const installRoot = resolveAgentInstallRoot(runtimePaths);
+    const seedRoot = resolveSystemNbookRoot(runtimePaths.applicationRoot);
     return {
-        systemProfileRoot: join(systemNbookRoot, "agent", "profiles"),
-        userProfileRoot: join(runtimePaths.userNbookRoot, "agent", "profiles"),
-        templateRoot: join(systemNbookRoot, "agent", "profile-templates"),
+        profileRoot: join(installRoot, "profiles"),
+        templateRoot: join(seedRoot, "agent", "profile-templates"),
+        artifactPathContextResolver: createProfileArtifactPathContextResolver(runtimePaths.applicationRoot),
     };
 }

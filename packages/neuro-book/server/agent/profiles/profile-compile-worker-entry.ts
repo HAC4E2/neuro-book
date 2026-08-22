@@ -8,7 +8,11 @@ import type {
 type WorkerRequest = {
     id: number;
     mode?: "single" | "all" | "entry";
-    input: (AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto) & {userProfileRoot?: string};
+    input: (AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto) & {
+        profileRoot?: string;
+        profileRootLabel?: string;
+        runtimePaths?: import("nbook/server/runtime/paths/runtime-paths").RuntimePaths;
+    };
 };
 
 if (!parentPort) {

@@ -1,11 +1,11 @@
 import {readFile, readdir, stat} from "node:fs/promises";
 import {basename, join, relative, resolve} from "node:path";
 import {AgentProfileCatalog, type AgentProfileBuildCoordinatorPort, type AgentProfileBuildState} from "nbook/server/agent/profiles/catalog";
-import {hashFile, readProfileArtifactManifest, validateProfileArtifact} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {hashFile, readProfileArtifactManifest, resolveProfileArtifactPathContext, validateProfileArtifact} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompilePublishOptions} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {appLogger} from "nbook/server/app-logs/logger";
+import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -41,14 +41,14 @@ export class ProfileBuildCoordinator implements AgentProfileBuildCoordinatorPort
 
     constructor(readonly input: {
         catalog: AgentProfileCatalog;
-        userProfileRoot?: string;
+        profileRoot: string;
+        profileRootLabel?: string;
+        runtimePaths: RuntimePaths;
         debounceMs?: number;
         worker?: ProfileBuildWorkerPort;
     }) {}
 
-    /**
-     * 读取 profile 当前构建状态。
-     */
+    /** 读取 profile 当前构建状态。 */
     stateFor(profileKey: string): AgentProfileBuildState {
         return this.states.get(profileKey) ?? idleProfileBuildState();
     }
@@ -99,12 +99,16 @@ export class ProfileBuildCoordinator implements AgentProfileBuildCoordinatorPort
 
     /** 执行启动对账；关闭开始后结束扫描，不再产生新队列。 */
     private async bootSweepOpen(): Promise<void> {
-        const profileRoot = resolve(this.input.userProfileRoot ?? defaultUserProfileRoot());
+        const profileRoot = resolve(this.input.profileRoot);
+        const artifactPathContext = await resolveProfileArtifactPathContext(
+            profileRoot,
+            this.input.profileRootLabel ?? "workspace/.nbook/agent/profiles",
+            this.input.runtimePaths.applicationRoot,
+        );
         const [files, manifest] = await Promise.all([
             this.findProfileFiles(profileRoot),
-            readProfileArtifactManifest(profileRoot),
+            readProfileArtifactManifest(profileRoot, artifactPathContext),
         ]);
-        if (this.closing) return;
         for (const file of files) {
             if (this.closing) return;
             const entry = manifest.entries.find((item) => item.fileName === file.fileName);
@@ -235,7 +239,9 @@ export class ProfileBuildCoordinator implements AgentProfileBuildCoordinatorPort
                     });
                 }
             }
-            const worker = this.input.worker ?? useProfileCompileWorker();
+            const profileRoot = resolve(this.input.profileRoot);
+            const profileRootLabel = this.input.profileRootLabel ?? "workspace/.nbook/agent/profiles";
+            const worker = this.input.worker ?? useProfileCompileWorker(profileRoot, this.input.runtimePaths, profileRootLabel);
             const publish: ProfileCompilePublishOptions = {
                 mode: "in_process",
                 registry: this.input.catalog,
@@ -334,25 +340,30 @@ export class ProfileBuildCoordinator implements AgentProfileBuildCoordinatorPort
     }
 
     private async profileKeyFromFile(fileName: string): Promise<string> {
-        const sourcePath = resolve(this.input.userProfileRoot ?? defaultUserProfileRoot(), ...fileName.split("/"));
+        const sourcePath = resolve(this.input.profileRoot, ...fileName.split("/"));
         const source = await readFile(sourcePath, "utf8").catch(() => "");
         const match = source.match(/\bkey\s*:\s*["'`]([^"'`]+)["'`]/u);
         return match?.[1] ?? basename(fileName).replace(/\.profile\.(tsx|ts|mjs|js)$/u, "");
     }
 
     private async profileSourceExists(fileName: string): Promise<boolean> {
-        const sourcePath = resolve(this.input.userProfileRoot ?? defaultUserProfileRoot(), ...fileName.split("/"));
+        const sourcePath = resolve(this.input.profileRoot, ...fileName.split("/"));
         return stat(sourcePath).then(() => true, () => false);
     }
 
     private async profileEntryIsFresh(fileName: string): Promise<boolean> {
-        const profileRoot = resolve(this.input.userProfileRoot ?? defaultUserProfileRoot());
-        const manifest = await readProfileArtifactManifest(profileRoot).catch(() => null);
+        const profileRoot = resolve(this.input.profileRoot);
+        const artifactPathContext = await resolveProfileArtifactPathContext(
+            profileRoot,
+            this.input.profileRootLabel ?? "workspace/.nbook/agent/profiles",
+            this.input.runtimePaths.applicationRoot,
+        );
+        const manifest = await readProfileArtifactManifest(profileRoot, artifactPathContext).catch(() => null);
         const entry = manifest?.entries.find((item) => item.fileName === fileName);
         if (!entry || entry.status === "compile_failed") {
             return false;
         }
-        const validation = await validateProfileArtifact(profileRoot, entry, {
+        const validation = await validateProfileArtifact(profileRoot, entry, artifactPathContext, {
             requireTypeArtifact: true,
             checkDependencies: false,
         });
@@ -362,7 +373,7 @@ export class ProfileBuildCoordinator implements AgentProfileBuildCoordinatorPort
     private async profileKeysForFullBuild(): Promise<string[]> {
         const snapshot = await this.input.catalog.snapshot({includeFileIssues: false}).catch(() => null);
         const keys = snapshot?.profiles
-            .filter((profile) => profile.source === "user")
+            .filter((profile) => profile.source === "project")
             .map((profile) => profile.key) ?? [];
         return keys.length > 0 ? keys : ["*"];
     }
@@ -396,8 +407,4 @@ function idleProfileBuildState(): AgentProfileBuildState {
         reason: null,
         updatedAt: null,
     };
-}
-
-function defaultUserProfileRoot(): string {
-    return resolve(resolveUserNbookRoot(), "agent", "profiles");
 }

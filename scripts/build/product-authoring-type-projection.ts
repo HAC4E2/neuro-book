@@ -184,7 +184,7 @@ async function sourcePackages(
     for (const registration of registrations) {
         if (seen.has(registration.name)) throw new Error(`Authoring dependency 重复登记：${registration.name}`);
         seen.add(registration.name);
-        const packageJsonPath = requireFromSource.resolve(`${registration.name}/package.json`);
+        const packageJsonPath = resolveAuthoringDependencyManifest(requireFromSource, registration.name);
         const manifest = JSON.parse(await readFile(packageJsonPath, "utf8")) as PackageManifest;
         if (manifest.name !== registration.name || typeof manifest.version !== "string" || !manifest.version) {
             throw new Error(`Authoring dependency identity 无效：${registration.name}`);
@@ -199,6 +199,33 @@ async function sourcePackages(
         });
     }
     return entries;
+}
+
+function resolveAuthoringDependencyManifest(requireFromSource: NodeRequire, packageName: string): string {
+    try {
+        return requireFromSource.resolve(`${packageName}/package.json`);
+    } catch (packageJsonError) {
+        let entryPath: string;
+        try {
+            entryPath = requireFromSource.resolve(packageName);
+        } catch (entryError) {
+            throw new Error(`Authoring dependency 无法解析：${packageName}`, {cause: entryError});
+        }
+        let directory = dirname(entryPath);
+        while (true) {
+            const candidate = resolve(directory, "package.json");
+            try {
+                const manifest = require(candidate) as PackageManifest;
+                if (manifest.name === packageName) return candidate;
+            } catch {
+                // 入口所属 package 的 manifest 是唯一可接受身份；其它目录继续向上探测。
+            }
+            const parent = dirname(directory);
+            if (parent === directory) break;
+            directory = parent;
+        }
+        throw new Error(`Authoring dependency 无法定位 manifest：${packageName}`, {cause: packageJsonError});
+    }
 }
 
 /** 使用 TypeScript 的 package exports/types 规则解析声明入口，并核对 package identity。 */

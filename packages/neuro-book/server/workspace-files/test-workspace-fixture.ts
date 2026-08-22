@@ -3,7 +3,8 @@ import {execFile} from "node:child_process";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {resolveAgentTempRoot} from "@notnotype/neuro-book-test-support/paths";
-import {readProfileArtifactManifest} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {createProfileArtifactPathContextResolver, readProfileArtifactManifest} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {readVariableDefinitionManifest, resolveVariableDefinitionArtifactPathContext, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
 import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
 import {projectLlmlintSkill} from "nbook/server/workspace-files/llmlint-skill-projection";
 import {
@@ -279,27 +280,31 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
  */
 async function ensurePublishedSystemArtifactsFresh(systemNbookRoot: string, applicationRoot: string): Promise<void> {
     const {ProfileFreshnessChecker} = await import("nbook/server/agent/profiles/profile-freshness-checker");
-    const {readVariableDefinitionManifest, validateVariableDefinitionArtifact} = await import("nbook/server/agent/variables/definition-artifact");
     const profileRoot = path.join(systemNbookRoot, "agent", "profiles");
     const variableRoot = path.join(systemNbookRoot, "agent", "variables");
-    const checker = new ProfileFreshnessChecker();
+    const profileContextResolver = createProfileArtifactPathContextResolver(applicationRoot);
+    const profileRootLabel = "assets/workspace/.nbook/agent/profiles";
+    const variableRootLabel = "assets/workspace/.nbook/agent/variables";
+    const profileContext = await profileContextResolver(profileRoot, profileRootLabel);
+    const variableContext = await resolveVariableDefinitionArtifactPathContext(variableRoot, variableRootLabel, applicationRoot);
+    const checker = new ProfileFreshnessChecker(profileContextResolver);
     const probeProfile = async (): Promise<{fresh: boolean; detail: string} | null> => {
-        const manifest = await readProfileArtifactManifest(profileRoot).catch(() => null);
+        const manifest = await readProfileArtifactManifest(profileRoot, profileContext).catch(() => null);
         const probe = manifest?.profiles[0];
         if (!probe) {
             return null;
         }
-        const result = await checker.validate(profileRoot, probe, {checkDependencies: true});
+        const result = await checker.validate(profileRoot, profileRootLabel, probe, {checkDependencies: true});
         const detail = result.dependency ? `${result.reason}: ${result.dependency.path}` : result.reason ?? "unknown";
         return {fresh: result.fresh, detail: `${probe.fileName}，${detail}`};
     };
     const probeVariable = async (): Promise<{fresh: boolean; detail: string} | null> => {
-        const manifest = await readVariableDefinitionManifest(variableRoot).catch(() => null);
+        const manifest = await readVariableDefinitionManifest(variableRoot, variableContext).catch(() => null);
         const probe = manifest?.definitions[0];
         if (!probe) {
             return null;
         }
-        const result = await validateVariableDefinitionArtifact(variableRoot, probe, {requireTypeArtifact: true});
+        const result = await validateVariableDefinitionArtifact(variableRoot, probe, variableContext, {requireTypeArtifact: true});
         const detail = result.dependency ? `${result.reason}: ${result.dependency.path}` : result.reason ?? "unknown";
         return {fresh: result.fresh, detail: `${probe.fileName}，${detail}`};
     };

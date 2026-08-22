@@ -425,13 +425,13 @@ function formatCatalogDescription(item: AgentProfileCatalogItemDto | undefined):
     if (!item) {
         return "";
     }
-    const sourceText = item.overrideState === "user_override"
-        ? "用户覆盖"
-        : item.source === "system"
-            ? "系统"
-            : item.source === "user"
-                ? "用户"
-                : "静态契约";
+    const sourceText = item.overrideState === "project_only"
+        ? "项目覆盖"
+        : item.source === "install"
+            ? "已安装"
+            : item.source === "project"
+                ? "项目覆盖"
+                : "内存契约";
     const statusText = formatLoadStatus(item.loadStatus);
     return `${sourceText} · ${item.kind ?? "unknown"} · ${statusText}`;
 }
@@ -655,8 +655,8 @@ function fileItemToCatalogItem(item: AgentProfileFileItemDto): AgentProfileCatal
         name: item.name,
         description: null,
         fileName: item.fileName,
-        source: "user",
-        overrideState: "user_only",
+        source: "project",
+        overrideState: "project_only",
         creationMode: "public",
         loadStatus: item.loadStatus,
         schemaLocked: false,
@@ -981,8 +981,8 @@ function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfile
             name: selectedTemplate.value,
             description: null,
             fileName: selectedTemplate.value,
-            source: "user",
-            overrideState: "user_only",
+            source: "project",
+            overrideState: "project_only",
             creationMode: "public",
             loadStatus: "source_error",
             schemaLocked: false,

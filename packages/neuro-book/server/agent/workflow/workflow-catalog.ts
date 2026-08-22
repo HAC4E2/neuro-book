@@ -10,18 +10,13 @@ import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/projec
 // F9：typescript 包禁顶层 ESM import（Nitro dev rollup 会解析 9MB 包致 OOM），必须 require
 const require = createRequire(import.meta.url);
 
-export type WorkflowCatalogSource = "system" | "user" | "project";
+export type WorkflowCatalogSource = "install" | "project";
 
-/**
- * workflow 目录里 workflow.ts 的导出形状：WorkflowDefinition 加目录元数据。
- * def.key 以目录名为准（目录名是稳定 key，文件内 key 不一致时被覆盖）。
- */
+/** workflow.ts 的导出形状。 */
 export type WorkflowFileDef = AgentWorkflowDefinition & {
     title?: string;
     description?: string;
-    /** leader 选用依据：什么场景该跑这个 workflow */
     whenToUse?: string;
-    /** args 表单提示（用户主动触发时前端渲染输入框用） */
     argsHint?: {name: string; label: string; defaultValue: string}[];
 };
 
@@ -37,50 +32,37 @@ export type WorkflowCatalogItem = {
     def: AgentWorkflowDefinition;
 };
 
-/** 转译缓存条目：mtime 变化即失效（用户改文件立刻生效） */
 type CacheEntry = {mtimeMs: number; item: WorkflowCatalogItem};
 
-/**
- * Workflow catalog：system → Workspace Root user-assets → Project Workspace 三层覆盖。
- * 每个 workflow 一个目录，入口固定 `workflow.ts`（default export 一个 WorkflowFileDef 对象字面量）。
- *
- * 加载方式：typescript.transpileModule → CommonJS → 受限求值（不提供 require——workflow 源码
- * V1 不允许 import，任何依赖都通过 wf API 注入；这是沙盒化 V1 的最小边界，工具面另有用户审批门）。
- */
+/** Workflow catalog：Install Root → 当前 Project Root 的整体覆盖。 */
 export class WorkflowCatalog {
-    private readonly systemRoot: string;
-    private readonly userRoot: string;
+    private readonly installRoot: string;
+    private readonly configuredProjectRoot?: string;
     private readonly cache = new Map<string, CacheEntry>();
     private ts: typeof TypeScript | null = null;
 
-    /** roots 必须由宿主显式决定（与 SkillCatalog 同约定：本模块不发现 cwd 或环境） */
-    constructor(systemRoot: string, userRoot: string) {
-        this.systemRoot = resolve(systemRoot);
-        this.userRoot = resolve(userRoot);
+    /** configuredProjectRoot 是 Project Workspace 根，不是 `.nbook/agent` 子根。 */
+    constructor(installRoot: string, configuredProjectRoot?: string) {
+        this.installRoot = resolve(installRoot);
+        this.configuredProjectRoot = configuredProjectRoot ? resolve(configuredProjectRoot) : undefined;
     }
 
-    /** 列出当前可见 workflow；Project层只消费调用方捕获的结构化workspace。 */
     async list(project?: ResolvedProjectWorkspace): Promise<WorkflowCatalogItem[]> {
         const items = new Map<string, WorkflowCatalogItem>();
-        for (const item of await this.loadRoot(this.systemRoot, "system")) items.set(item.key, item);
-        for (const item of await this.loadRoot(this.userRoot, "user")) items.set(item.key, item);
-        if (project) {
-            for (const item of await this.loadRoot(join(project.root, ".nbook", "agent", "workflows"), "project")) {
+        for (const item of await this.loadRoot(this.installRoot, "install")) items.set(item.key, item);
+        const projectRoot = project?.root ?? this.configuredProjectRoot;
+        if (projectRoot) {
+            for (const item of await this.loadRoot(join(projectRoot, ".nbook", "agent", "workflows"), "project")) {
                 items.set(item.key, item);
             }
         }
         return [...items.values()].sort((a, b) => a.key.localeCompare(b.key));
     }
 
-    /** 读取单个 workflow。null 表示不可见 */
     async get(workflowKey: string, project?: ResolvedProjectWorkspace): Promise<WorkflowCatalogItem | null> {
         return (await this.list(project)).find((item) => item.key === workflowKey) ?? null;
     }
 
-    /**
-     * 编译一段内联 workflow 源码（agent 随机应变写的脚本）。
-     * 与目录加载共用同一套转译/求值边界；key 固定为 "inline"。
-     */
     compileInline(source: string): AgentWorkflowDefinition {
         const def = this.evaluate(source, "inline.workflow.ts");
         return {...def, key: def.key || "inline"};
@@ -106,7 +88,6 @@ export class WorkflowCatalog {
 
     private async loadItem(key: string, source: WorkflowCatalogSource, rootPath: string, entryPath: string): Promise<WorkflowCatalogItem> {
         const mtimeMs = statSync(entryPath).mtimeMs;
-        // Project workflow属于当前ProjectSession generation，不跨generation复用Catalog缓存。
         const cached = source === "project" ? undefined : this.cache.get(entryPath);
         if (cached && cached.mtimeMs === mtimeMs) return cached.item;
         const def = this.evaluate(await readFile(entryPath, "utf8"), entryPath);
@@ -119,16 +100,12 @@ export class WorkflowCatalog {
             source,
             rootPath,
             entryPath,
-            // 目录名是稳定 key：覆盖文件内 key，保证 catalog 寻址一致
             def: {...def, key},
         };
-        if (source !== "project") {
-            this.cache.set(entryPath, {mtimeMs, item});
-        }
+        if (source !== "project") this.cache.set(entryPath, {mtimeMs, item});
         return item;
     }
 
-    /** 转译 + 受限求值：CommonJS 模块壳，无 require、无 process/fs 注入；宿主注入 typebox Type（outputSchema/结构化定义用） */
     private evaluate(sourceText: string, fileName: string): WorkflowFileDef {
         if (!this.ts) this.ts = require("typescript") as typeof TypeScript;
         const js = this.ts.transpileModule(sourceText, {
@@ -142,7 +119,7 @@ export class WorkflowCatalog {
         const restrictedRequire = () => {
             throw new Error("workflow 源码不允许 import/require：所有能力通过 wf API 提供");
         };
-        // eslint-disable-next-line no-new-func -- workflow 源码求值边界（用户审批门 + 无 require 白名单）
+        // eslint-disable-next-line no-new-func -- workflow 源码求值边界
         const factory = new Function("exports", "module", "require", "Type", js);
         factory(moduleShell.exports, moduleShell, restrictedRequire, Type);
         const def = moduleShell.exports.default;

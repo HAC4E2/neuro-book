@@ -56,6 +56,7 @@ export const projectPlotWorldModule: ProjectModule<ProjectPlotWorldHandle> = Obj
             context.prepared.workspaceRoot,
             context.prepared.workspace,
             database,
+            context.compilerContext ?? Promise.reject(new Error("World Engine 需要显式 Runtime Artifact Compiler Context。")),
         );
         const plot = new PlotFacade(
             context.prepared.workspace,

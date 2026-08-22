@@ -1,5 +1,7 @@
 import {cp, mkdir, readFile, readdir, rm, stat} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
@@ -13,29 +15,42 @@ describe("profile compile worker preview 与 lifecycle", () => {
     // 用户源码与 `.compiled` 由本文件后面的 preview 用例覆盖。
 
     it("worker crash 返回结构化 issue，不向 endpoint 抛 rejected promise", async () => {
-        const worker = new ProfileCompileWorkerService("test-crash");
-        const running = worker.compile({
-            fileName: "builtin/leader.default.profile.tsx",
-            source: "export default null;",
-            dryRun: false,
-            preview: false,
-        });
-
-        worker.dispose();
-        const result = await running;
-
-        expect(result).toEqual(expect.objectContaining({
-            ok: false,
-            stale: false,
-            detail: null,
-        }));
-        expect(result.issues).toEqual([
-            expect.objectContaining({
-                severity: "error",
-                code: "compile_worker_failed",
+        await withIsolatedWorkspaceAssets({purpose: "profile-worker-crash"}, async (assets) => {
+            const runtimePaths = createRuntimePaths({
+                applicationRoot: absoluteFsPath(assets.applicationRoot),
+                stateRoot: absoluteFsPath(assets.root),
+            });
+            const worker = new ProfileCompileWorkerService(
+                "test-crash",
+                1,
+                undefined,
+                assets.userProfileRoot,
+                "workspace/.nbook/agent/profiles",
+                runtimePaths,
+            );
+            const running = worker.compile({
                 fileName: "builtin/leader.default.profile.tsx",
-            }),
-        ]);
+                source: "export default null;",
+                dryRun: false,
+                preview: false,
+            });
+
+            worker.dispose();
+            const result = await running;
+
+            expect(result).toEqual(expect.objectContaining({
+                ok: false,
+                stale: false,
+                detail: null,
+            }));
+            expect(result.issues).toEqual([
+                expect.objectContaining({
+                    severity: "error",
+                    code: "compile_worker_failed",
+                    fileName: "builtin/leader.default.profile.tsx",
+                }),
+            ]);
+        });
     });
 
     it("dry-run preview 不写入真实用户源码或 compiled artifact", async () => {
@@ -50,7 +65,11 @@ describe("profile compile worker preview 与 lifecycle", () => {
                 source: source.replace("Neuro Book", "Dry Run Neuro Book"),
                 dryRun: true,
                 preview: true,
-                userProfileRoot: assets.userProfileRoot,
+                profileRoot: assets.userProfileRoot,
+                runtimePaths: createRuntimePaths({
+                    applicationRoot: absoluteFsPath(assets.applicationRoot),
+                    stateRoot: absoluteFsPath(assets.root),
+                }),
             });
 
             expect(result.ok).toBe(true);

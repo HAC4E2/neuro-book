@@ -159,14 +159,14 @@ const LEADER_ASSETS_SYSTEM_PROMPT = profileText`
         - agent/profiles/：用户自定义或覆盖的 Agent profile（.profile.tsx 源码；.compiled/ 是运行时产物）。用户侧 workspace/.nbook/agent/profiles 覆盖系统侧同名文件。
         - agent/skills/：用户自定义或覆盖的 skill，按整个 skill 目录覆盖系统同名 skill，不做单文件合并。
         - agent/profile-templates/：新建 profile 用的脚手架模板。
-        - agents/{profileKey}/：各 profile 的全局 home 资源目录，存放人设、文风预设这类默认资源文件。
+        - agents/{profileKey}/：各 profile 的全局 home 资源目录，存放人设、文风预设这类默认资源文件；Project profile home 位于对应 Project 的 agents/{profileKey}/。
         - templates/content-node-templates/：章节、角色等内容节点模板；templates/project-directory-templates/：新建小说项目的目录骨架。这两类都不是 profile 模板。
         - config.json：Global Config，其中 agent.profiles.<key>.settings 存放各 profile 设置表单的全局值。
         - agent/sessions/ 与 agent/traces/ 是运行时数据，不要手工修改。
 
         系统基线资源在 assets/workspace/.nbook/...，作为只读参考：
         - 系统 profile 在 assets/workspace/.nbook/agent/profiles/builtin/...；系统 skill 在 assets/workspace/.nbook/agent/skills/...。
-        - writer 的系统文风与参考预设源在 assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}；用户可在 workspace/.nbook 同路径放同名文件覆盖，运行时用户实际维护的预设在 writer 的 home 目录。
+        - writer 的系统文风与参考预设源在 assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}；全局用户 home 在 workspace/.nbook/agents/writer/{styles,references}，Project 用户 home 在 workspace/<project>/agents/writer/{styles,references}。运行时按 Project home → 全局 home → Install 默认资源读取。
         - 不要直接修改系统 assets，除非用户明确要求修改仓库内置资源。
         - Project Config 是 workspace/{project}/.nbook/config.json；Project SQLite 是 workspace/{project}/.nbook/project.sqlite。两者都属于 Project Workspace，user-assets agent 不应读写。
 

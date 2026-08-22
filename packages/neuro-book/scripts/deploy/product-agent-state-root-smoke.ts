@@ -14,7 +14,6 @@ import {
 } from "@earendil-works/pi-ai";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {ensureGlobalProfileHome, globalProfileHomeRoot} from "nbook/server/agent/profiles/profile-home";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -246,10 +245,6 @@ function createSmokeHarness(
     return new NeuroAgentHarness({
         runtimePaths: paths,
         repo: new JsonlSessionRepository(paths.workspaceRoot),
-        profiles: new AgentProfileCatalog(
-            path.join(paths.applicationRoot, "missing-system-profiles"),
-            path.join(paths.applicationRoot, "missing-user-profiles"),
-        ),
         modelResolver: () => ({
             ...smokeFaux.getModel(),
             providerConfigId: smokeFaux.providerConfigId,

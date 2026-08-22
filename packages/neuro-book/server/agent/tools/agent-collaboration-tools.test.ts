@@ -280,7 +280,7 @@ describe("agent collaboration tool definitions", () => {
                             description: "Write prose",
                             loadStatus: "loaded",
                             creationMode: "public" as const,
-                            source: "system",
+                            source: "install",
                             initialSchema: Type.Object({}),
                             payloadSchema: Type.Object({path: Type.String()}),
                             outputSchema: Type.Object({path: Type.String()}),

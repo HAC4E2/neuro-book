@@ -9,6 +9,7 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {closeAllProjects,
@@ -46,7 +47,14 @@ describe("NeuroAgentHarness session attachment locator", () => {
         attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({
             repo,
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            profiles: new AgentProfileCatalog(
+                join(root, "system-profiles"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             enableSessionSummarizer: false,
             attachmentStore: new AttachmentStore(attachmentAdapter),
         });

@@ -2,6 +2,7 @@
 import {randomBytes} from "node:crypto";
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
+import {mkdir} from "node:fs/promises";
 import {readFileSync, writeFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -9,25 +10,34 @@ import {
     PRODUCT_BUN_RUNTIME_ARGS,
     resolveProductRuntimeInternal,
 } from "@notnotype/neuro-book-contracts/product-runtime";
+import {createProductRuntimeEnvironment} from "@notnotype/neuro-book-contracts/environment";
+import {getSystemAssetSeedPaths, seedSystemAssets} from "nbook/server/workspace-files/system-asset-installation";
 import {readProductRuntimeContract} from "nbook/server/interfaces/product-runtime-image-verifier";
-
 const productImageRoot = resolveProductImageRoot();
 const applicationRoot = resolveApplicationRoot(productImageRoot);
 const entry = resolve(productImageRoot, "server", "index.mjs");
 const stateRoot = resolveStateRoot(applicationRoot);
 const cacheRoot = resolveCacheRoot(applicationRoot, stateRoot);
+await mkdir(stateRoot, {recursive: true});
+await mkdir(cacheRoot, {recursive: true});
 const stateEnv = ensureProductEnv(stateRoot);
-const productEnv = createProductRuntimeEnvironment({
-    applicationRoot,
-    productImageRoot,
-    stateRoot,
-    cacheRoot,
-    development: false,
-    inheritedEnvironment: process.env,
-    stateEnvironment: stateEnv,
-    host: process.env.NITRO_HOST?.trim() || process.env.HOST?.trim(),
-    runtimeExecutable: process.execPath,
-});
+const productEnv = {
+    ...createProductRuntimeEnvironment({
+        applicationRoot,
+        productImageRoot,
+        stateRoot,
+        cacheRoot,
+        development: false,
+        inheritedEnvironment: process.env,
+        stateEnvironment: stateEnv,
+        host: process.env.NITRO_HOST?.trim() || process.env.HOST?.trim(),
+        runtimeExecutable: process.execPath,
+    }),
+    NEURO_BOOK_RUNTIME_ASSET_MODE: "install",
+};
+
+const seedPaths = getSystemAssetSeedPaths(applicationRoot, productEnv);
+await seedSystemAssets({applicationRoot, stateRoot, seed: seedPaths});
 
 await runInternal(productImageRoot, applicationRoot, productEnv, "check-migrations");
 await runInternal(productImageRoot, applicationRoot, productEnv, "prepare-system-assets");

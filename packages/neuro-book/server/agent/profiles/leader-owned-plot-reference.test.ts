@@ -36,5 +36,5 @@ describe("leader-owned Plot reference contract", () => {
 });
 
 async function readReference(path: string): Promise<string> {
-    return await readFile(resolve(repositoryRoot, path), "utf8");
+    return await readFile(resolve(repositoryRoot, "packages", "neuro-book", "assets", path), "utf8");
 }

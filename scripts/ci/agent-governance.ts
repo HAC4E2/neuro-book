@@ -3,15 +3,16 @@ import {existsSync, readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {
     CANONICAL_ROLES,
-    containsLine,
     defaultRepoRoot,
     expectedGovernanceFiles,
     git,
     hasFile,
+    verifyAgentSkillsAdaptation,
     verifyGovernanceDocumentLimits,
     verifyApplicationScriptBoundary,
     verifyMonorepoCutover,
     verifySiblingResyncResolution,
+    verifyTaskAgentWorkflowProfiles,
     verifyTaskMigration,
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
@@ -21,6 +22,9 @@ const repoArgument = args.indexOf("--repo-root");
 const repoRoot = resolve(repoArgument >= 0 ? args[repoArgument + 1] ?? "" : defaultRepoRoot(import.meta.url));
 const failures: string[] = [];
 const warnings: string[] = [];
+
+failures.push(...verifyAgentSkillsAdaptation(repoRoot));
+failures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));
 
 function requireFile(relativePath: string): void {
     if (!hasFile(repoRoot, relativePath)) failures.push(`缺少治理文件：${relativePath}`);
@@ -74,6 +78,7 @@ for (const [name, expected] of [
     ["governance:context", "scripts/cli/agent-context.ts"],
     ["governance:worktree", "scripts/cli/create-agent-worktree.ts"],
     ["governance:migrate-tasks", "scripts/maintenance/migrate-agent-tasks.ts"],
+    ["governance:migrate-task-ownership", "scripts/maintenance/migrate-task-ownership.ts"],
 ] as const) {
     if (!scripts[name]?.includes(expected)) failures.push(`package.json 缺少命令入口：${name} -> ${expected}`);
 }

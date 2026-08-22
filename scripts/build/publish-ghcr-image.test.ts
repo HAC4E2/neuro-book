@@ -19,6 +19,8 @@ describe("GHCR发布Source revision合同", () => {
             "--push",
             "--build-arg",
             `NEURO_BOOK_SOURCE_REVISION=${revision.toLowerCase()}`,
+            "--file",
+            "packages/neuro-book/Dockerfile",
             "-t",
             "ghcr.io/notnotype/neuro-book:candidate-release-123",
             ".",

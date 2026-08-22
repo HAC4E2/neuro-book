@@ -7,15 +7,20 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {PROFILE_ARTIFACT_COMPILER_VERSION} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {ProfileBuildCoordinator, type ProfileBuildWorkerPort} from "nbook/server/agent/profiles/profile-build-coordinator";
 import type {AgentProfileCompileResultDto} from "nbook/shared/dto/agent-profile.dto";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
+function runtimePathsFor(root: string): RuntimePaths {
+    return createRuntimePaths({applicationRoot: absoluteFsPath(root), stateRoot: absoluteFsPath(root)});
+}
 describe("ProfileBuildCoordinator", () => {
     let root: string;
-    let userRoot: string;
+    let projectRoot: string;
 
     beforeEach(async () => {
         root = testHostPath("tmp", "profile-build-coordinator-test", randomUUID());
-        userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(userRoot, {recursive: true});
+        projectRoot = join(root, "workspace", "project", ".nbook", "agent", "profiles");
+        await mkdir(projectRoot, {recursive: true});
     });
 
     afterEach(async () => {
@@ -40,8 +45,8 @@ describe("ProfileBuildCoordinator", () => {
                 }]);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.auto.profile.tsx", reason: "profile_source_saved"});
@@ -74,8 +79,8 @@ describe("ProfileBuildCoordinator", () => {
                 ]);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1_000, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1_000, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.one.profile.tsx", reason: "watch:change"});
@@ -99,8 +104,8 @@ describe("ProfileBuildCoordinator", () => {
                 return compileResult(true, []);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
@@ -129,8 +134,8 @@ describe("ProfileBuildCoordinator", () => {
                 }]);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
@@ -151,8 +156,8 @@ describe("ProfileBuildCoordinator", () => {
                 }]);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await coordinator.bootSweep();
@@ -169,8 +174,8 @@ describe("ProfileBuildCoordinator", () => {
         const fileName = "custom.bump.profile.tsx";
         const source = `export const profileManifest = { key: "custom.bump", name: "Bump" } as const;`;
         await writeProfile(fileName, source);
-        await mkdir(join(userRoot, ".compiled"), {recursive: true});
-        await writeFile(join(userRoot, ".compiled", "manifest.json"), JSON.stringify({
+        await mkdir(join(projectRoot, ".compiled"), {recursive: true});
+        await writeFile(join(projectRoot, ".compiled", "manifest.json"), JSON.stringify({
             compilerVersion: 5,
             generatedAt: "2026-01-01T00:00:00.000Z",
             profilesRoot: "workspace/.nbook/agent/profiles",
@@ -199,13 +204,13 @@ describe("ProfileBuildCoordinator", () => {
                 }]);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 50, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 50, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await coordinator.bootSweep();
 
-        await expect(readFile(join(userRoot, fileName), "utf8")).resolves.toBe(source);
+        await expect(readFile(join(projectRoot, fileName), "utf8")).resolves.toBe(source);
         expect(catalog.buildStateFor("custom.bump")).toEqual(expect.objectContaining({
             queued: true,
             reason: "profile_boot_sweep",
@@ -233,8 +238,8 @@ describe("ProfileBuildCoordinator", () => {
                 }]);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.stale.profile.tsx", reason: "profile_source_saved"});
@@ -255,7 +260,7 @@ describe("ProfileBuildCoordinator", () => {
         const worker = fakeWorker({
             compile: async (input) => {
                 compileCalls.push(input.fileName);
-                await rm(join(userRoot, input.fileName), {force: true});
+                await rm(join(projectRoot, input.fileName), {force: true});
                 return {
                     ...compileResult(false, []),
                     stale: true,
@@ -266,8 +271,8 @@ describe("ProfileBuildCoordinator", () => {
                 return compileResult(true, []);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
@@ -282,11 +287,11 @@ describe("ProfileBuildCoordinator", () => {
         await writeProfile(fileName, source);
         await writeFreshManifest(fileName, "custom.freshness", source);
         const artifactSha = createHash("sha256").update("test").digest("hex");
-        const artifactPath = join(userRoot, ".compiled", "artifacts", `${artifactSha}.mjs`);
+        const artifactPath = join(projectRoot, ".compiled", "artifacts", `${artifactSha}.mjs`);
         await rm(artifactPath);
         await mkdir(artifactPath);
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker: fakeWorker({})});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker: fakeWorker({})});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
@@ -320,7 +325,7 @@ describe("ProfileBuildCoordinator", () => {
                 return {profiles: []};
             },
         } as unknown as AgentProfileCatalog;
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, worker: fakeWorker({})});
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), worker: fakeWorker({})});
 
         const enqueue = coordinator.enqueue({reason: "profile_boot_sweep"});
         await snapshotStarted;
@@ -345,8 +350,8 @@ describe("ProfileBuildCoordinator", () => {
                 issues: [{severity: "error", message: "类型检查失败"}],
             }),
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
@@ -374,8 +379,8 @@ describe("ProfileBuildCoordinator", () => {
                 return {...compileResult(false, []), stale: true};
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
@@ -407,8 +412,8 @@ describe("ProfileBuildCoordinator", () => {
                 return compileResult(true, []);
             },
         });
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const catalog = new AgentProfileCatalog("__missing_system__", projectRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, profileRoot: projectRoot, runtimePaths: runtimePathsFor(root), debounceMs: 1, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
@@ -427,7 +432,7 @@ describe("ProfileBuildCoordinator", () => {
     });
 
     async function writeProfile(fileName: string, source: string): Promise<void> {
-        await writeFile(join(userRoot, fileName), source, "utf8");
+        await writeFile(join(projectRoot, fileName), source, "utf8");
     }
 
     async function writeFreshManifest(fileName: string, profileKey: string, source: string, options: {createArtifacts?: boolean} = {}): Promise<void> {
@@ -436,13 +441,13 @@ describe("ProfileBuildCoordinator", () => {
         const artifactSha = createHash("sha256").update(artifactSource).digest("hex");
         const artifactFileName = `artifacts/${artifactSha}.mjs`;
         const typeFileName = `artifacts/${artifactSha}.types.d.ts`;
-        await mkdir(join(userRoot, ".compiled"), {recursive: true});
+        await mkdir(join(projectRoot, ".compiled"), {recursive: true});
         if (options.createArtifacts !== false) {
-            await mkdir(join(userRoot, ".compiled", "artifacts"), {recursive: true});
-            await writeFile(join(userRoot, ".compiled", artifactFileName), artifactSource, "utf8");
-            await writeFile(join(userRoot, ".compiled", typeFileName), artifactSource, "utf8");
+            await mkdir(join(projectRoot, ".compiled", "artifacts"), {recursive: true});
+            await writeFile(join(projectRoot, ".compiled", artifactFileName), artifactSource, "utf8");
+            await writeFile(join(projectRoot, ".compiled", typeFileName), artifactSource, "utf8");
         }
-        await writeFile(join(userRoot, ".compiled", "manifest.json"), JSON.stringify({
+        await writeFile(join(projectRoot, ".compiled", "manifest.json"), JSON.stringify({
             compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
             generatedAt: "2026-01-01T00:00:00.000Z",
             profilesRoot: "workspace/.nbook/agent/profiles",

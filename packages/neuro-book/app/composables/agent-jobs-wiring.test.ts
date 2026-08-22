@@ -32,13 +32,18 @@ describe("Jobs feed 页面接线合同", () => {
         expect(indexPage).toContain("if (!active) agentPanelOpen.value = false;");
     });
 
-    it("开发命令固定经过Source Dev launcher，并由内部入口启动单进程 Nuxt", async () => {
-        const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
-            scripts: {dev: string; "dev:runtime": string};
-        };
-
-        expect(packageJson.scripts.dev).toBe("bun scripts/cli/source-dev.ts");
-        expect(packageJson.scripts["dev:runtime"].endsWith("nuxt dev --no-fork")).toBe(true);
+    it("开发命令固定经过Source Dev launcher，并由内部入口最终启动 Nuxt", async () => {
+        const [packageJson, runtimeSource] = await Promise.all([
+            readFile(packagePath, "utf8"),
+            readFile(fileURLToPath(new URL("../../scripts/cli/source-runtime.ts", import.meta.url)), "utf8"),
+        ]);
+        const parsed = JSON.parse(packageJson) as {scripts: {dev: string; "dev:runtime": string}};
+        expect(parsed.scripts.dev).toBe("bun scripts/cli/source-dev.ts");
+        expect(parsed.scripts["dev:runtime"]).toBe("bun scripts/cli/source-runtime.ts");
+        expect(runtimeSource).toContain('["--no-install", "x", "nuxt", "dev", "--no-fork"]');
+        expect(runtimeSource.lastIndexOf('"nuxt", "dev", "--no-fork"')).toBeGreaterThan(
+            runtimeSource.indexOf("await seedSystemAssets"),
+        );
     });
 
     it("单 Job 观察器不暴露全局刷新，Workflow 动作只重启 Run 轮询", async () => {

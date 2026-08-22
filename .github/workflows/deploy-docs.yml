@@ -6,7 +6,7 @@ on:
     paths:
       - docs/**
       - vitepress/**
-      - reference/**
+      - packages/neuro-book/assets/reference/**
       - AGENTS.md
       - WATCHDOG.md
       - CONTEXT.md

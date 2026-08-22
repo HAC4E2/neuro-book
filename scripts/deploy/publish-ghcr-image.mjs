@@ -103,6 +103,7 @@ export function buildArgs({candidate, image, platform, sourceRevision}) {
     if (sourceRevision) {
         args.push("--build-arg", `NEURO_BOOK_SOURCE_REVISION=${normalizeSourceRevision(sourceRevision)}`);
     }
+    args.push("--file", "packages/neuro-book/Dockerfile");
     args.push("-t", `${image}:${candidateTag(candidate)}`);
     args.push(".");
     return args;

@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-
 /**
  * 可解析的 assets 来源。
  */
@@ -34,21 +34,23 @@ export type ResolvedAssetDirectory = {
  */
 export class AssetResolver {
     constructor(
-        private readonly workspaceRoot = process.cwd(),
+        private readonly startPath?: string,
+        private readonly runtimePaths?: RuntimePaths,
     ) {}
 
-    /**
-     * 系统 assets 根目录。
-     */
-    get systemRoot(): string {
-        return resolveSystemNbookRoot(this.workspaceRoot);
+    /** 解析器只保存入口提示，不缓存 cwd 或运行根；每次读取使用当前 Runtime 环境。 */
+    private get runtimeStartPath(): string {
+        return this.startPath ?? process.cwd();
     }
 
-    /**
-     * 用户 assets 根目录。
-     */
+    /** Install Root；非 Agent legacy assets 仍与 user overlay 共用 State `.nbook`。 */
+    get systemRoot(): string {
+        return this.runtimePaths?.userNbookRoot ?? resolveSystemNbookRoot(this.runtimeStartPath);
+    }
+
+    /** Legacy user assets 根目录。 */
     get userRoot(): string {
-        return resolveUserNbookRoot(this.workspaceRoot);
+        return this.runtimePaths?.userNbookRoot ?? resolveUserNbookRoot(this.runtimeStartPath);
     }
 
     /**

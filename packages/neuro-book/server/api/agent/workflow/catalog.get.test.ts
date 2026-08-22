@@ -34,7 +34,7 @@ describe("GET /api/agent/workflow/catalog", () => {
         const workflowRoot = join(projectRoot, ".nbook", "agent", "workflows", "brainstorm-opening");
         await mkdir(workflowRoot, {recursive: true});
         await writeFile(join(workflowRoot, "workflow.ts"), "export default { title: '开篇脑暴', run: async () => null };\n", "utf8");
-        const catalog = new WorkflowCatalog(join(root, "system"), join(root, "user"));
+        const catalog = new WorkflowCatalog(join(root, "install"));
         const listWorkflows = vi.spyOn(catalog, "list");
         const ref = projectWorkspaceRef("catalog-project");
         const ready: ReadyProjectSessionRef = {

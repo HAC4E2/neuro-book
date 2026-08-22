@@ -43,11 +43,25 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import {
-    compileVariableDefinitions,
-    readVariableDefinitionManifest,
+    compileVariableDefinitions as compileVariableDefinitionsWithContext,
+    readVariableDefinitionManifest as readVariableDefinitionManifestWithContext,
+    resolveVariableDefinitionArtifactPathContext,
     VARIABLE_DEFINITION_ORPHAN_MIN_AGE_MS,
 } from "nbook/server/agent/variables/definition-artifact";
 
+const testCompilerRoot = resolve(import.meta.dirname, "../../..");
+async function artifactPathContext(root: string) {
+    return resolveVariableDefinitionArtifactPathContext(root, "test/workspace/.nbook/agent/variables", testCompilerRoot);
+}
+async function compileVariableDefinitions(options: Omit<Parameters<typeof compileVariableDefinitionsWithContext>[0], "artifactPathContext">) {
+    return compileVariableDefinitionsWithContext({
+        ...options,
+        artifactPathContext: await artifactPathContext(options.definitionRoot),
+    });
+}
+async function readVariableDefinitionManifest(root: string) {
+    return readVariableDefinitionManifestWithContext(root, await artifactPathContext(root));
+}
 const roots: string[] = [];
 
 afterEach(async () => {

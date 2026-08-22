@@ -2,8 +2,8 @@
 
 - 状态：Accepted
 - 日期：2026-08-07
-- 关联任务：[Task 142](../../../../.agents/tasks/142-post-merge-reliability-hardening/README.md)、[Task 111 Workflow 接入](../../../../.agents/tasks/111-workflow-agent-integration/README.md)
-- 相关参考：[Agent Jobs](../../../../reference/agent/jobs.md)
+- 关联任务：[Task 142](../../../../.agents/tasks/142-post-merge-reliability-hardening/README.md)、[Task 111 Workflow 接入](../../.agents/tasks/111-workflow-agent-integration/README.md)
+- 相关参考：[Agent Jobs](../../assets/reference/agent/jobs.md)
 
 ## 背景
 

@@ -13,6 +13,7 @@ import type {ProfileVariablePathInput} from "nbook/server/agent/variables/types"
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {FileChangeAwareness} from "nbook/server/agent/profiles/profile-turn-context";
 import {absoluteFsPath, resolveContainedFilePath} from "nbook/server/runtime/paths/file-path";
+import {resolveApplicationRoot, resolveSystemNbookRoot, resolveSystemReferenceRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import type {
     ModeSlotKind,
     ProfileBuiltinNode,
@@ -1761,19 +1762,33 @@ function linkedAgentsSummaryText(session: NeuroSessionContext): string {
     return `Linked agents:\n${linkedAgentItemsText(session)}`;
 }
 
-/** Repo/Application Root import只服务静态AGENTS/reference/docs/system skill资源。 */
-function resolveApplicationImportPath(path: string): string {
-    const configuredRepositoryRoot = process.env.NEURO_BOOK_REPOSITORY_ROOT?.trim();
-    const repositoryRoot = configuredRepositoryRoot
-        ? resolve(configuredRepositoryRoot)
-        : resolve(import.meta.dirname, "..", "..", "..", "..", "..");
-    const applicationRoot = resolve(repositoryRoot, "packages", "neuro-book");
-    const baseRoot = path.startsWith("assets/workspace/.nbook/") ? applicationRoot : repositoryRoot;
-    const target = resolve(baseRoot, path);
-    if (relative(baseRoot, target).split(/[\\/]/).includes("..")) {
-        throw new Error(`Import.path 解析后越界：${path}`);
-    }
+/** Repo/Application Root import 只服务静态 AGENTS/docs；系统资产与 Reference 始终从发布根解析。 */
+function resolveApplicationImportPath(importPath: string): string {
+    const applicationRoot = resolveApplicationRootForImport();
+    const isReferenceImport = importPath.startsWith("reference/");
+    const isSystemAssetImport = importPath.startsWith("assets/workspace/.nbook/");
+    const baseRoot = isReferenceImport
+        ? resolveSystemReferenceRoot(applicationRoot)
+        : isSystemAssetImport
+            ? resolveSystemNbookRoot(applicationRoot)
+            : resolveRepositoryRootForImport();
+    const relativeImportPath = isReferenceImport
+        ? importPath.slice("reference/".length)
+        : isSystemAssetImport
+            ? importPath.slice("assets/workspace/.nbook/".length)
+            : importPath;
+    const target = resolve(baseRoot, relativeImportPath);
+    if (relative(baseRoot, target).split(/[\\/]/u).includes("..")) throw new Error(`Import.path 解析后越界：${importPath}`);
     return target;
+}
+
+function resolveApplicationRootForImport(): string {
+    return resolve(resolveApplicationRoot());
+}
+
+function resolveRepositoryRootForImport(): string {
+    const configuredRepositoryRoot = process.env.NEURO_BOOK_REPOSITORY_ROOT?.trim();
+    return configuredRepositoryRoot ? resolve(configuredRepositoryRoot) : resolve(import.meta.dirname, "..", "..", "..", "..", "..");
 }
 
 /** 已关联 agent 列表正文；标题由具体消费方决定。 */

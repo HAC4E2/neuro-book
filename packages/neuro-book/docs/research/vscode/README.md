@@ -1,8 +1,8 @@
 # VS Code 架构深挖：从打开窗口到首次插件调用
 
-> 调研状态：research；不是 NeuroBook 当前产品合同。  
-> 调研问题：打开 VS Code 后，哪些进程、宿主、服务、状态模型和插件边界共同把用户动作变成可见结果？这些机制对 NeuroBook 的渐进式插件系统与可重排工作台有什么启发？  
-> 证据标签：**已验证** = 固定 commit 源码或官方文档直接确认；**从源码推断** = 多个已验证事实的关系归纳；**未验证** = 本轮没有构建、启动或真实远程环境观察。
+> 调研状态：research；不是 NeuroBook 当前产品合同。
+> 调研问题：打开 VS Code 后，哪些进程、宿主、服务、状态模型和插件边界共同把用户动作变成可见结果？这些机制对 NeuroBook 的渐进式扩展控制面、可重排工作台和双向图像能力有什么启发？
+> 证据标签：VS Code 章节的 **已验证** 表示固定 commit 源码或官方文档直接确认；NeuroBook 映射统一使用 **已验证当前实现**、**已批准但未实施的目标合同**、**研究建议**、**未验证/候选**。研究建议不能替代 Proposal、Spec 或 ADR。
 
 ## 结论先行
 
@@ -17,6 +17,14 @@ VS Code 不是“一个 Electron 页面加若干插件回调”。它是一个�
 5. **边界与故障**：Extension Host 是故障隔离和能力代理边界，但不是恶意代码安全沙箱；NeuroBook 的第三方可执行资产必须另做威胁模型。
 
 这份报告是研究映射，不把这些启发写成 NeuroBook 已批准的 API。采用某条行为时，仍需另建 Proposal/Spec/ADR。
+## 后续 NeuroBook 决策研究
+
+本组 `01–10` 章节继续保留 VS Code `1.133.0` 的固定 SHA 取证身份；以下章节是基于当前 monorepo 的后续映射，不修改 VS Code 历史结论，也不是产品合同。
+
+阅读顺序：先看 [08 NeuroBook 映射](./08-neurobook-mapping.md) 的三项 capability map，再看 [11 图像输入到文本当前旅程](./11-image-input-to-text-current-journey.md) 的已实现主链、[12 Workbench View 宿主重构](./12-workbench-view-host-refactor.md)、[13 扩展控制面重构](./13-extension-control-plane-refactor.md)、[14 双向图像边界](./14-bidirectional-image-system-boundaries.md) 和 [15 重构顺序与决策门](./15-refactor-sequence-and-decision-gates.md)。[09 文生图旅程](./09-text-to-image-plugin-journey.md) 只作为候选反向链边界检查。
+
+研究结论要进入实现，必须先按 Proposal → capability Spec → Task 建立当前合同。`docs/specs/README.md` 当前“待实现规范”为空；因此本组不会把 capability 写成已登记的 `planned` Spec。
+
 
 ## 一页人话模型
 
@@ -216,19 +224,20 @@ sequenceDiagram
 
 | 用户动作 | 主报告/图 | 固定 SHA 证据 | 成功链 | 失败触发与可见结果 | 文档验收动作 |
 | --- | --- | --- | --- | --- | --- |
-| 桌面打开一个 Workspace | [01 启动时序](./01-modules-bootstrap-di.md#旅程桌面打开一个-workspace)、启动时序图 | `src/vs/code/electron-main/main.ts::CodeMain.startup`；`src/vs/workbench/electron-browser/desktop.main.ts::DesktopMain.open`；`src/vs/workbench/browser/workbench.ts::Workbench.startup` | main 建服务 → 单实例 → renderer → Workbench 服务/Parts → 布局恢复 → 编辑器恢复 | data 目录初始化、服务缺失、循环依赖、窗口恢复异常会记录错误或中止关键启动；真实 UI 未验证 | 顺着图核对入口、宿主、服务、状态、失败节点 |
+| 桌面打开一个 Workspace | [01 启动时序](./01-modules-bootstrap-di.md#旅程-桌面打开一个-workspace)、启动时序图 | `src/vs/code/electron-main/main.ts::CodeMain.startup`；`src/vs/workbench/electron-browser/desktop.main.ts::DesktopMain.open`；`src/vs/workbench/browser/workbench.ts::Workbench.startup` | main 建服务 → 单实例 → renderer → Workbench 服务/Parts → 布局恢复 → 编辑器恢复 | data 目录初始化、服务缺失、循环依赖、窗口恢复异常会记录错误或中止关键启动；真实 UI 未验证 | 顺着图核对入口、宿主、服务、状态、失败节点 |
 | 浏览器连接微软 Server | [02 Server 生命周期](./02-hosts-web-remote-server.md#连接生命周期) | `src/vs/workbench/browser/web.main.ts::BrowserMain.open`；`src/vs/server/node/server.main.ts::createServer`；`remoteExtensionHostAgentServer.ts::RemoteExtensionHostAgentServer._handleWebSocketConnection` | Web Workbench → authority resolver → auth/sign/connectionType → Management/ExtensionHost channel → 远程文件/终端 | server 不在、token 错、commit mismatch、重连 token 无效、Tunnel 失败；源码错误原因已列，真实页面未验证 | 逐项核对连接表和失败表 |
-| Ctrl+P 打开文件 | [04 Quick Access](./04-quick-access-commands.md#旅程输入文件名打开资源) | `src/vs/workbench/browser/parts/editor/editorQuickAccess.ts`；Quick Access Registry；`EditorService` | keybinding → Quick Access provider → 模糊匹配 → URI → EditorInput → EditorPane/model | provider 无结果、URI 无 provider、打开失败触发 `onDidOpenEditorFail`；未实机验证 | 检查输入、provider、EditorInput、失败事件是否闭环 |
-| Ctrl+Shift+P 执行内置命令 | [04 命令旅程](./04-quick-access-commands.md#旅程输入--搜索并执行内置命令) | `src/vs/platform/commands/common/commands.ts::CommandsRegistry`；`src/vs/workbench/services/commands/common/commandService.ts::CommandService.executeCommand` | `>` provider → command metadata → `CommandsRegistry` → `ICommandService` → handler | 未注册命令先触发 activation，最终仍找不到时报 `command '<id>' not found` | 核对 command/menu/keybinding/context key 分层 |
-| 读取、写入并监听配置 | [05 配置](./05-configuration-system.md#旅程同一个设置键的最终值) | `configuration.ts::ConfigurationTarget`；`configurationModels.ts::Configuration`/`ConfigurationInspectValue`；`configurationService.ts::ConfigurationService.updateValue` | schema/default → policy/user/workspace/folder/memory 合并 → `getValue/inspect` → `ConfigurationEditing` → reload/event | policy 值不可写、非法 target、文件变更 reload；未实机验证 | 使用同一键核对每层和 change event |
-| 打开、修改、保存和恢复文本文件 | [06 编辑器](./06-editor-architecture.md#旅程打开一个-uri-文件) | `EditorService`；`TextResourceEditorInput.resolve`；`AbstractTextResourceEditor.setInput`；`EditorPart` | URI → EditorInput → model reference → EditorPane → Monaco `ICodeEditor.setModel` → working copy save/backup | provider 缺失、解析类型错误、取消、保存取消/失败；源码链已验证，真实 UI 未验证 | 核对 input/model/pane/group 和脏状态路径 |
-| 移动侧栏/Panel 位置 | [03 布局](./03-workbench-layout-views.md#旅程移动一个-view-container) | `layoutService.ts::Parts/Position/PanelAlignment`；`Layout`；`ViewDescriptorService.moveViewContainerToLocation` | 宿主命令 → Part/ViewContainer location → SerializableGrid/layout → Profile storage | 非法位置、Sessions window 禁止移动、恢复状态损坏；未实机验证 | 分别核对容器位置与 Part 几何 |
-| 同容器内重排 View | [03 View](./03-workbench-layout-views.md#旅程同一容器内重排) | `ViewContainerModel`；`PaneView`；`CompositeDragAndDropObserver`（索引见 [10](./10-source-index-and-glossary.md)） | drag intent → 宿主校验 → ViewContainerModel 顺序/可见性 → Profile storage | 不可移动 View、目标不是同容器、空容器清理；未实机验证 | 检查排序不被误写成二维 Grid |
-| 跨容器移动 View | [03 View](./03-workbench-layout-views.md#旅程跨容器迁移) | `ViewDescriptorService.moveViewsToContainer`；`views.customizations` | view → generated container/目标容器 → cleanup source → 保存 customizations | Sessions window 禁止；非法目标或扩展移除后回默认 | 核对 `viewLocations`、generated container 和回滚默认 |
-| Split 编辑器 | [03 编辑器分屏](./03-workbench-layout-views.md#旅程编辑器分屏) | `editorPart.ts::EditorPart`；`SerializableGrid<IEditorGroupView>`；`editorpart.state` | split intent → EditorGroup → 二维 Grid → memento 恢复 | 最小尺寸、空组、恢复数据无效；未实机验证 | 确认与 Sidebar/Panel 一维模型分开 |
-| 首次执行扩展 command | [07 扩展](./07-extension-system-deep-dive.md#旅程首次执行扩展-command) | `CommandService`；`mainThreadCommands.ts`；`ExtensionDescriptionRegistry`；`ExtensionsActivator` | manifest/command description → registry → `onCommand:<id>` → Extension Host → MainThread/ExtHost RPC → handler | 缺依赖、禁用、激活异常、宿主 crash/version mismatch；恢复链已验证，真实插件未安装 | 逐节点核对激活状态和 RPC |
-| 首次打开扩展 View | [07 扩展 View](./07-extension-system-deep-dive.md#旅程首次打开扩展-view) | `AbstractExtensionService`；`ViewDescriptorService`；`PaneView`；`WebWorkerExtensionHost`/`RemoteExtensionHost` | View description 已登记 → UI 宿主创建 Pane → activation event → 扩展填充内容 | View 不可用、workspace trust、运行位置不可用、宿主失败 | 检查“先描述后激活”而非直接执行 |
-| 当前章节请求生成一张角色插图 | [09 文生图压力测试](./09-text-to-image-plugin-journey.md#端到端时序) | NeuroBook `AgentJobManager.spawn`、`AgentToolRegistry`、`SessionAttachmentAuthority`、`recordProjectWrite`、`readConfigSnapshot` | 命令/View → 规划/schema → 权限 → durable job → Provider（候选）→ 资产/历史 → 正文刷新（候选） | schema 错、取消、Provider 失败、重复 job、外部修改、部分发布；既有能力与缺口逐项列出 | 任何“已支持文生图”表述均判失败 |
+| Ctrl+P 打开文件 | [04 Quick Access](./04-quick-access-commands.md#旅程-输入文件名打开资源) | `src/vs/workbench/browser/parts/editor/editorQuickAccess.ts`；Quick Access Registry；`EditorService` | keybinding → Quick Access provider → 模糊匹配 → URI → EditorInput → EditorPane/model | provider 无结果、URI 无 provider、打开失败触发 `onDidOpenEditorFail`；未实机验证 | 检查输入、provider、EditorInput、失败事件是否闭环 |
+| Ctrl+Shift+P 执行内置命令 | [04 命令旅程](./04-quick-access-commands.md#旅程-输入-搜索并执行内置命令) | `src/vs/platform/commands/common/commands.ts::CommandsRegistry`；`src/vs/workbench/services/commands/common/commandService.ts::CommandService.executeCommand` | `>` provider → command metadata → `CommandsRegistry` → `ICommandService` → handler | 未注册命令先触发 activation，最终仍找不到时报 `command '<id>' not found` | 核对 command/menu/keybinding/context key 分层 |
+| 读取、写入并监听配置 | [05 配置](./05-configuration-system.md#_7-旅程-同一个设置键从声明到-change-event) | `configuration.ts::ConfigurationTarget`；`configurationModels.ts::Configuration`/`ConfigurationInspectValue`；`configurationService.ts::ConfigurationService.updateValue` | schema/default → policy/user/workspace/folder/memory 合并 → `getValue/inspect` → `ConfigurationEditing` → reload/event | policy 值不可写、非法 target、文件变更 reload；未实机验证 | 使用同一键核对每层和 change event |
+| 打开、修改、保存和恢复文本文件 | [06 编辑器](./06-editor-architecture.md#旅程-打开一个-uri-文件) | `EditorService`；`TextResourceEditorInput.resolve`；`AbstractTextResourceEditor.setInput`；`EditorPart` | URI → EditorInput → model reference → EditorPane → Monaco `ICodeEditor.setModel` → working copy save/backup | provider 缺失、解析类型错误、取消、保存取消/失败；源码链已验证，真实 UI 未验证 | 核对 input/model/pane/group 和脏状态路径 |
+| 移动侧栏/Panel 位置 | [03 布局](./03-workbench-layout-views.md#旅程-移动一个-view-container) | `layoutService.ts::Parts/Position/PanelAlignment`；`Layout`；`ViewDescriptorService.moveViewContainerToLocation` | 宿主命令 → Part/ViewContainer location → SerializableGrid/layout → Profile storage | 非法位置、Sessions window 禁止移动、恢复状态损坏；未实机验证 | 分别核对容器位置与 Part 几何 |
+| 同容器内重排 View | [03 View](./03-workbench-layout-views.md#旅程-同一容器内重排) | `ViewContainerModel`；`PaneView`；`CompositeDragAndDropObserver`（索引见 [10](./10-source-index-and-glossary.md)） | drag intent → 宿主校验 → ViewContainerModel 顺序/可见性 → Profile storage | 不可移动 View、目标不是同容器、空容器清理；未实机验证 | 检查排序不被误写成二维 Grid |
+| 跨容器移动 View | [03 View](./03-workbench-layout-views.md#旅程-跨容器迁移) | `ViewDescriptorService.moveViewsToContainer`；`views.customizations` | view → generated container/目标容器 → cleanup source → 保存 customizations | Sessions window 禁止；非法目标或扩展移除后回默认 | 核对 `viewLocations`、generated container 和回滚默认 |
+| Split 编辑器 | [03 编辑器分屏](./03-workbench-layout-views.md#旅程-编辑器分屏) | `editorPart.ts::EditorPart`；`SerializableGrid<IEditorGroupView>`；`editorpart.state` | split intent → EditorGroup → 二维 Grid → memento 恢复 | 最小尺寸、空组、恢复数据无效；未实机验证 | 确认与 Sidebar/Panel 一维模型分开 |
+| 首次执行扩展 command | [07 扩展](./07-extension-system-deep-dive.md#旅程-a-首次执行扩展-command) | `CommandService`；`mainThreadCommands.ts`；`ExtensionDescriptionRegistry`；`ExtensionsActivator` | manifest/command description → registry → `onCommand:<id>` → Extension Host → MainThread/ExtHost RPC → handler | 缺依赖、禁用、激活异常、宿主 crash/version mismatch；恢复链已验证，真实插件未安装 | 逐节点核对激活状态和 RPC |
+| 首次打开扩展 View | [07 扩展 View](./07-extension-system-deep-dive.md#旅程-b-首次打开扩展-view) | `AbstractExtensionService`；`ViewDescriptorService`；`PaneView`；`WebWorkerExtensionHost`/`RemoteExtensionHost` | View description 已登记 → UI 宿主创建 Pane → activation event → 扩展填充内容 | View 不可用、workspace trust、运行位置不可用、宿主失败 | 检查“先描述后激活”而非直接执行 |
+| 用户在 Agent 会话提供角色参考图并要求生成外观描述 | [11 图像输入到文本当前旅程](./11-image-input-to-text-current-journey.md#_1-主旅程) | `packages/neuro-book/server/agent/attachments/agent-attachment-codec.ts::AgentAttachmentCodec.saveImage/hydrateForProvider`；`SessionAttachmentAuthority`；`neuro-agent-harness.ts` | 图片 bytes → 校验/内容寻址 → Session JSONL ownership → Project/Session 授权 → `model.input.includes("image")` → Provider image content → 文本结果 | MIME/魔数、16 MiB/64 MP、图片预算、跨 Session/Project 引用、非视觉模型和 Provider 失败均 fail closed 或降级 marker；结构化 Project 写入未实现 | 必须逐节点回链当前包内代码；不能把普通视觉聊天写成专用结构化工作流 |
+| 未来根据角色描述生成插图并插入章节 | [09 文生图候选旅程](./09-text-to-image-plugin-journey.md#_2-一次-当前章节生成一张角色插图-的端到端时序)；[14 双向图像边界](./14-bidirectional-image-system-boundaries.md#_1-2-文生图-候选反向链) | `AgentJobManager`、`AgentToolRegistry`、`recordProjectWrite` 只提供通用宿主先例；真实生成 Provider/Project 图片资产 authority 未发现 | 命令/View → schema/审批 → candidate durable Job → candidate Provider → candidate Project asset → candidate 正文引用 | provider outcome unknown、幂等、资产孤儿、正文冲突和部分发布必须单独建模；不得声称已支持文生图 | 只做候选边界审阅，不运行 fake/real Provider smoke；任何“已支持文生图”表述均判失败 |
 
 ## 阅读顺序
 
@@ -239,19 +248,23 @@ sequenceDiagram
 5. [05 配置系统](./05-configuration-system.md)：回答“设置如何合并、写回、变更”。
 6. [06 编辑器架构](./06-editor-architecture.md)：回答“文件如何从 URI 变成可编辑文本”。
 7. [07 扩展系统深挖](./07-extension-system-deep-dive.md)：回答“首次调用插件发生什么”。
-8. [08 NeuroBook 映射](./08-neurobook-mapping.md)：把机制转成渐进式观察框架，不生成产品合同。
-9. [09 文生图旅程](./09-text-to-image-plugin-journey.md)：用复杂案例压力测试边界。
-10. [10 源码索引与术语](./10-source-index-and-glossary.md)：按固定 SHA 复查。
+8. [08 NeuroBook 映射](./08-neurobook-mapping.md)：把机制转成三项 capability 的渐进式观察框架，不生成产品合同。
+9. [09 文生图旅程](./09-text-to-image-plugin-journey.md)：保留为未实现的候选反向链压力测试。
+10. [10 源码索引与术语](./10-source-index-and-glossary.md)：按固定 SHA 和当前包路径复查。
+11. [11 图像输入到文本当前旅程](./11-image-input-to-text-current-journey.md)：验证当前图片输入→视觉模型→文本结果主链。
+12. [12 Workbench View 宿主重构](./12-workbench-view-host-refactor.md)：把固定槽位映射为宿主拥有的 View/Container/Editor 边界。
+13. [13 扩展控制面重构](./13-extension-control-plane-refactor.md)：联邦现有 Catalog 的描述快照、权限和激活边界。
+14. [14 双向图像边界](./14-bidirectional-image-system-boundaries.md)：分开图生文与候选文生图的 Provider/Job/asset-state。
+15. [15 重构顺序与决策门](./15-refactor-sequence-and-decision-gates.md)：供后续 Proposal 直接审阅的顺序和证据门。
 
-## NeuroBook 当前事实（用于映射，不是建议合同）
-
-- `server/agent/http.ts::useAgentHarness()` 提供 `globalThis` 单例入口，并配合构造器注入；没有 VS Code 式统一 IoC 容器。
-- `AgentProfileCatalog`、Profile artifact、`ProfileRegistry.publish()`、`AgentToolRegistry`、Runtime Hook、资产安装 provenance 已提供若干控制平面零件；没有统一 Description Registry 或插件 activation state machine。
-- `app/pages/index.vue` 与 `app/stores/novel-ide.ts` 仍以固定槽位和 local/session 持久化组织工作台；`app/composables/useResizablePanel.ts` 是唯一 resize 边界。
-- `server/media/image-variant.ts::ImageVariantModule` 是受限图片变体处理先例（`MAX_ACTIVE_JOBS = 2`、`MAX_QUEUED_JOBS = 64`），不是 AI 生图 Provider，也不是通用 Project FIFO。
+- `packages/neuro-book/server/agent/http.ts::useAgentHarness()` 提供 `globalThis` 单例入口，并配合构造器注入；没有 VS Code 式统一 IoC 容器。
+- `packages/neuro-book/server/agent/profiles/catalog.ts::AgentProfileCatalog`、Profile artifact、`ProfileRegistry.publish()`、`AgentToolRegistry`、Runtime Hook 已提供若干控制平面零件；没有统一 Description Registry 或插件 activation state machine。`docs/specs/README.md` 当前待实现规范为空。
+- `packages/neuro-book/app/pages/index.vue` 与 `app/stores/novel-ide.ts` 仍以固定槽位和 local/session 持久化组织工作台；`app/composables/useResizablePanel.ts` 是唯一 resize 边界；现有 `useWorkbenchChrome` 只是 app-scoped Chrome 单槽注册表，不是 View Registry。
+- `packages/neuro-book/server/agent/attachments/agent-attachment-codec.ts` 与 `SessionAttachmentAuthority` 已形成图片输入到视觉模型的当前链；它不提供 OCR、图片到结构化 Project 写入或文生图。
+- `packages/neuro-book/server/media/image-variant.ts::ImageVariantModule` 是受限图片变体处理先例（`MAX_ACTIVE_JOBS = 2`、`MAX_QUEUED_JOBS = 64`），不是 AI 生图 Provider，也不是通用 Project FIFO。
 
 这些事实来自本轮读取的 NeuroBook 源码；跨模块“下一步应该如何解耦”集中写在 [08](./08-neurobook-mapping.md)，并标注研究置信度。
 
 ## 检查边界与状态
 
-本组报告不修改产品代码、Spec、ADR 或现有扩展研究文件。没有在真实桌面、浏览器远程连接、第三方扩展安装、真实 Provider 或 Marketplace 上执行操作；因此所有旅程都是源码追踪验收，不冒充运行时 smoke。最终验收需要通过仓库文档检查、专题相对链接检查、固定 SHA 路径检查、矩阵逐行检查和七类核心图抽查。
+本组报告不修改产品代码、Spec、ADR、Proposal、Reference 或 Task。VS Code 章节没有在真实桌面、浏览器远程连接、第三方扩展安装或 Marketplace 上执行操作；NeuroBook 章节没有启动真实 Provider/Model、写入真实 Project 数据或做浏览器人工验收。因此当前图生文章节只能做源码与现有测试证据闭环，文生图只能做候选边界审阅。研究目录位于 `packages/neuro-book/docs/research/vscode/`；仓库 `docs:check` 明确排除 research 的相对链接，交付前另跑该目录的一次性相对链接检查。

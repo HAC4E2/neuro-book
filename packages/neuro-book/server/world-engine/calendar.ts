@@ -8,7 +8,7 @@ import {SimpleCalendar, normalizeSimpleCalendarConfig} from "nbook/server/world-
 import {GregorianCalendar, normalizeGregorianCalendarConfig} from "nbook/server/world-engine/calendars/gregorian";
 import {CustomCalendar, normalizeCustomCalendarConfig} from "nbook/server/world-engine/calendars/custom";
 import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
-import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
+import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 /**
  * WorldCalendar Facade
@@ -42,6 +42,8 @@ export class WorldCalendar {
  * calendar.yaml 已废弃，不再支持。
  */
 export class WorldCalendarLoader {
+    constructor(private readonly compilerContext: RuntimeArtifactCompilerContext | Promise<RuntimeArtifactCompilerContext>) {}
+
     async load(projectRoot: AbsoluteFsPath): Promise<WorldCalendar> {
         // 只支持 calendar.ts
         const tsPath = path.join(projectRoot, "world-engine", "calendar.ts");
@@ -63,7 +65,7 @@ export class WorldCalendarLoader {
                 filePath: tsPath,
                 label: "calendar",
                 runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
-                compilerContext: await resolveRuntimeArtifactCompilerContext(),
+                compilerContext: await this.compilerContext,
             });
             const config = module.default;
 

@@ -20,6 +20,7 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {AgentCatalog, AppendingSet, HistorySet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {AgentContextInspectionDto} from "nbook/shared/dto/agent-context-inspection.dto";
 
 /** trace 是 fire-and-forget，轮询到端点能看见 turn 记录为止。 */
@@ -45,7 +46,14 @@ describe("getSessionContextInspection", () => {
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
+            profiles: new AgentProfileCatalog(
+                join(root, "profiles-system"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,

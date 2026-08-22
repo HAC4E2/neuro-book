@@ -29,7 +29,7 @@ const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
 const scanDirs = [
     path.join(repoRoot, "vitepress", "locales", "zh-Hans", "profile-tsx"),
     path.join(repoRoot, "vitepress", "locales", "en-US", "profile-tsx"),
-    path.join(repoRoot, "reference", "agent"),
+    path.join(repoRoot, "packages", "neuro-book", "assets", "reference", "agent"),
 ];
 
 /** 读取扫描范围内全部 Markdown，返回 [仓库相对路径, 正文]。 */

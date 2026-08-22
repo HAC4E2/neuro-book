@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {z} from "zod";
-import {assetResolver} from "nbook/server/assets/asset-resolver";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 
@@ -34,8 +34,7 @@ type WritingStyleFile = {
  */
 export async function loadWritingStylePresets(candidates?: readonly string[]): Promise<WritingStyleDefinition[]> {
     const roots = candidates ?? [
-        path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
-        path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
+        path.join(resolveSystemNbookRoot(), "agent", "profiles", "builtin", "writer.home", "styles"),
     ];
     const styleFiles = await listMergedWritingStyleFiles(roots);
     const styles: WritingStyleDefinition[] = [];

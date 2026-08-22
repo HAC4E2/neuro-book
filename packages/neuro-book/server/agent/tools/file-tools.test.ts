@@ -1,4 +1,4 @@
-import {access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {access, chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
 import {createHash} from "node:crypto";
 import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
@@ -12,6 +12,7 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
 import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
@@ -44,11 +45,28 @@ describe("v3 file tools", () => {
             applicationRoot: absoluteFsPath(resolve(".")),
             stateRoot: absoluteFsPath(root),
         });
+        await cp(
+            join(runtimePaths.applicationRoot, "assets", "workspace", ".nbook", "agent", "bin"),
+            join(runtimePaths.userNbookRoot, "agent", "bin"),
+            {recursive: true},
+        );
+        await cp(
+            join(runtimePaths.applicationRoot, "assets", "workspace", ".nbook", "agent", "config"),
+            join(runtimePaths.userNbookRoot, "agent", "config"),
+            {recursive: true},
+        );
         attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),
             runtimePaths,
-            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
+            profiles: new AgentProfileCatalog(
+                join(root, "profiles-system"),
+                undefined,
+                undefined,
+                undefined,
+                createProfileArtifactPathContextResolver(runtimePaths.applicationRoot),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             attachmentStore: new AttachmentStore(attachmentAdapter),
         });
         harness.profiles.register(defineAgentProfile({

@@ -1,3 +1,8 @@
+import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {getSystemWorkspaceAssetContextForTest, setSystemWorkspaceAssetContextForTest} from "nbook/server/workspace-files/system-workspace-assets";
+import {getWorkspaceRuntimeRootContextForTest, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
@@ -22,11 +27,12 @@ import {
     ProfilePrompt,
     Reminder,
     SqlSchemaSummary,
-    System,
     SkillCatalog,
+    System,
     TaskReminder,
     ToolCall,
     ToolResult,
+    compileProfileSystemPrompt,
     validateProfileTurnPlan,
     Watch,
     WorkflowCatalog,
@@ -584,6 +590,89 @@ describe("profile TSX DSL", () => {
         ]);
     });
 
+    it("显式 Runtime 下 Import 从 system asset root 读取而非 cwd/application root", async () => {
+        const root = await mkdtemp(testHostPath("nbook-profile-import-runtime-"));
+        const applicationRoot = resolve(root, "application");
+        const systemNbookRoot = resolve(root, "state", "workspace", ".system", ".nbook");
+        const workspaceRoot = resolve(root, "state", "workspace");
+        const assetPath = resolve(systemNbookRoot, "agent", "skills", "runtime-skill", "SKILL.md");
+        const previousSystemContext = getSystemWorkspaceAssetContextForTest();
+        const previousRuntimeContext = getWorkspaceRuntimeRootContextForTest();
+        try {
+            await mkdir(resolve(applicationRoot, "assets", "workspace", ".nbook", "agent", "skills", "runtime-skill"), {recursive: true});
+            await mkdir(resolve(systemNbookRoot, "agent", "skills", "runtime-skill"), {recursive: true});
+            await mkdir(workspaceRoot, {recursive: true});
+            await writeFile(assetPath, "# State Root Skill\n", "utf8");
+            setSystemWorkspaceAssetContextForTest({applicationRoot, systemNbookRoot});
+            setWorkspaceRuntimeRootContextForTest({workspaceRoot});
+            const profile = defineAgentProfile({
+                manifest: {key: "test.import-runtime-system", name: "Runtime System Import"},
+                initialSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context() {
+                    return ProfilePrompt({children: HistorySet({children: Message({children: Import({
+                        path: "assets/workspace/.nbook/agent/skills/runtime-skill/SKILL.md",
+                        required: true,
+                    })})})});
+                },
+            });
+            const plan = await profile.prepare!(context());
+            expect((plan.historyInitMessages ?? []).map(messageText).join("\n")).toContain("# State Root Skill");
+        } finally {
+            setSystemWorkspaceAssetContextForTest(previousSystemContext);
+            setWorkspaceRuntimeRootContextForTest(previousRuntimeContext);
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+    it("显式 Runtime 下 reference Import 只读取 State Root 副本", async () => {
+        const root = await mkdtemp(testHostPath("nbook-profile-reference-runtime-"));
+        const applicationRoot = resolve(root, "application");
+        const stateRoot = resolve(root, "state");
+        const checkoutReference = resolve(root, "reference");
+        const runtimeReference = resolve(stateRoot, "workspace", ".nbook", "reference");
+        await mkdir(resolve(applicationRoot, "assets", "reference"), {recursive: true});
+        await mkdir(checkoutReference, {recursive: true});
+        await mkdir(runtimeReference, {recursive: true});
+        await writeFile(resolve(applicationRoot, "assets", "reference", "runtime.md"), "seed", "utf8");
+        await writeFile(resolve(checkoutReference, "runtime.md"), "checkout", "utf8");
+        await writeFile(resolve(runtimeReference, "runtime.md"), "state", "utf8");
+        const previousEnv = {
+            applicationRoot: process.env.NEURO_BOOK_APPLICATION_ROOT,
+            stateRoot: process.env.NEURO_BOOK_STATE_ROOT,
+            runtimeMode: process.env.NEURO_BOOK_RUNTIME_ASSET_MODE,
+        };
+        process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
+        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+        process.env.NEURO_BOOK_RUNTIME_ASSET_MODE = "install";
+        const previousSystemContext = getSystemWorkspaceAssetContextForTest();
+        const previousWorkspaceContext = getWorkspaceRuntimeRootContextForTest();
+        setSystemWorkspaceAssetContextForTest({applicationRoot});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: resolve(stateRoot, "workspace")});
+        try {
+            const profile = defineAgentProfile({
+                manifest: {key: "test.reference.runtime", name: "Reference Runtime"},
+                initialSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context: () => ProfilePrompt({children: System({children: Import({path: "reference/runtime.md"})})}),
+            });
+            const profileContext = {
+                ...context(),
+                session: createTestRuntimeSession({workspaceRoot: absoluteFsPath(resolve(stateRoot, "workspace"))}),
+            };
+            const rendered = await compileProfileSystemPrompt(profile, profileContext, await profile.context!(profileContext));
+            expect(rendered).toContain("state");
+            expect(rendered).not.toContain("seed");
+            expect(rendered).not.toContain("checkout");
+        } finally {
+            setSystemWorkspaceAssetContextForTest(previousSystemContext);
+            setWorkspaceRuntimeRootContextForTest(previousWorkspaceContext);
+            restoreEnv("NEURO_BOOK_APPLICATION_ROOT", previousEnv.applicationRoot);
+            restoreEnv("NEURO_BOOK_STATE_ROOT", previousEnv.stateRoot);
+            restoreEnv("NEURO_BOOK_RUNTIME_ASSET_MODE", previousEnv.runtimeMode);
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
     it("Import 可导入共享 Markdown，并支持 heading 与 maxBytes", async () => {
         const profile = defineAgentProfile({
             manifest: {
@@ -758,7 +847,7 @@ describe("profile TSX DSL", () => {
                     key: "writer",
                     name: "Writer",
                     description: "agent profile",
-                    source: "system",
+                    source: "install",
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
@@ -773,7 +862,7 @@ describe("profile TSX DSL", () => {
                 description: "Write a draft.",
                 whenToUse: "用户需要起草正文时",
                 version: "1.2.3",
-                source: "system",
+                source: "install",
                 rootPath: "assets/workspace/.nbook/agent/skills/draft",
                 skillPath: "assets/workspace/.nbook/agent/skills/draft/SKILL.md",
             }],
@@ -819,7 +908,7 @@ describe("profile TSX DSL", () => {
                     key: "draft",
                     name: "Draft Skill",
                     description: "Write a draft.",
-                    source: "system",
+                    source: "install",
                     rootPath: "assets/workspace/.nbook/agent/skills/draft",
                     skillPath: "assets/workspace/.nbook/agent/skills/draft/SKILL.md",
                 }],
@@ -860,7 +949,7 @@ describe("profile TSX DSL", () => {
                 title: "拆书",
                 description: "并行分析章节",
                 whenToUse: "需要分析整本书",
-                source: "system",
+                source: "install",
             }],
             agentVisibleModels: [
                 {modelKey: "fast/coder", note: "高性能编码"},
@@ -911,14 +1000,14 @@ describe("profile TSX DSL", () => {
                 key: "profile-system-guide",
                 name: "Profile System Guide",
                 description: "Profile 系统指南。",
-                source: "system",
+                source: "install",
                 rootPath: "assets/workspace/.nbook/agent/skills/profile-system-guide",
                 skillPath: "assets/workspace/.nbook/agent/skills/profile-system-guide/SKILL.md",
             }, {
                 key: "novel-writing",
                 name: "Novel Writing",
                 description: "剧情写作循环流程。",
-                source: "system",
+                source: "install",
                 rootPath: "assets/workspace/.nbook/agent/skills/novel-writing",
                 skillPath: "assets/workspace/.nbook/agent/skills/novel-writing/SKILL.md",
             }],
@@ -984,7 +1073,7 @@ describe("profile TSX DSL", () => {
                         summary: Type.String({description: "写作摘要。"}),
                     }),
                     toolKeys: ["read", "write"],
-                    source: "system",
+                    source: "install",
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
@@ -994,7 +1083,7 @@ describe("profile TSX DSL", () => {
                     key: "summarizer",
                     name: "Summarizer",
                     description: "后台摘要",
-                    source: "system",
+                    source: "install",
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
@@ -1525,4 +1614,9 @@ function modeContext(mode: "normal" | "discuss" | "plan", phase: string, fromMod
             },
         },
     };
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
 }

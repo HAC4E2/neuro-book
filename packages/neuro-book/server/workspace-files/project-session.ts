@@ -1,5 +1,6 @@
 import path from "node:path";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {
     projectWorkspaceRef,
     type ProjectWorkspaceRef,
@@ -22,6 +23,7 @@ import type {
 } from "nbook/server/workspace-files/project-module";
 import {
     PROJECT_GRACE_MS,
+    ProjectSessionRuntime,
     type ProjectOperationStart,
     type ProjectSessionCloseReason,
     type ReadyProjectSessionRef,
@@ -34,6 +36,7 @@ import {
 } from "nbook/server/workspace-files/project-session-service";
 import type {ProjectOpener} from "nbook/server/workspace-files/project-session-types";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 // Production composition root：required与lazy descriptor在任何Project open前完成注册。
@@ -52,6 +55,8 @@ type ProjectSessionGlobalState = {
     lifecycle: ProjectLifecycle | null;
     service: ProjectSessionService | null;
     workspaceRoot: AbsoluteFsPath | null;
+    compilerRoot: AbsoluteFsPath | null;
+    compilerContext: ReturnType<typeof resolveRuntimeArtifactCompilerContext> | null;
     agentProbe: ((session: ReadyProjectSessionRef) => boolean) | null;
     maintenanceTimer: ReturnType<typeof setInterval> | null;
     sweepInFlight: boolean;
@@ -76,6 +81,8 @@ const globalState = globalForProjectSession.__nbookProjectSessionV2 ??= {
     lifecycle: null,
     service: null,
     workspaceRoot: null,
+    compilerRoot: null,
+    compilerContext: null,
     agentProbe: null,
     maintenanceTimer: null,
     sweepInFlight: false,
@@ -306,6 +313,8 @@ export async function closeAllProjects(): Promise<void> {
         globalState.lifecycle = null;
         globalState.service = null;
         globalState.workspaceRoot = null;
+        globalState.compilerRoot = null;
+        globalState.compilerContext = null;
     }
     collectReleasedSqliteHandles({force: true});
 }
@@ -319,27 +328,38 @@ export function resetProjectSessionsForTest(): void {
     globalState.lifecycle = null;
     globalState.service = null;
     globalState.workspaceRoot = null;
+    globalState.compilerRoot = null;
+    globalState.compilerContext = null;
     globalState.agentProbe = null;
     globalState.sweepInFlight = false;
 }
 
-/** 创建或返回绑定同一Runtime Workspace Root的HMR稳定Service。 */
+/** 创建或返回绑定同一Runtime Workspace Root与Application Root的HMR稳定Service。 */
 function serviceFor(workspaceRoot: AbsoluteFsPath): ProjectSessionService {
+    const compilerRoot = runtimePathsFromEnv().applicationRoot;
     if (globalState.service) {
         if (workspaceRootIdentity(globalState.workspaceRoot!) !== workspaceRootIdentity(workspaceRoot)) {
             throw new Error("ProjectSession Service已经绑定到另一个Workspace Root");
         }
+        if (workspaceRootIdentity(globalState.compilerRoot!) !== workspaceRootIdentity(compilerRoot)) {
+            throw new Error("ProjectSession Service已经绑定到另一个Application Root");
+        }
         return globalState.service;
     }
     const lifecycle = new ProjectLifecycle(workspaceRoot);
-    const service = new ProjectSessionService(workspaceRoot, {lifecycle});
+    const compilerContext = resolveRuntimeArtifactCompilerContext(compilerRoot);
+    const service = new ProjectSessionService(workspaceRoot, {
+        lifecycle,
+        runtime: new ProjectSessionRuntime({compilerContext}),
+    });
     service.registerAgentPresenceProbe(globalState.agentProbe);
     globalState.lifecycle = lifecycle;
     globalState.service = service;
     globalState.workspaceRoot = workspaceRoot;
+    globalState.compilerRoot = compilerRoot;
+    globalState.compilerContext = compilerContext;
     return service;
 }
-
 /** 比较单进程Service的Workspace Root绑定，Windows按文件系统大小写语义处理。 */
 function workspaceRootIdentity(workspaceRoot: AbsoluteFsPath): string {
     const resolved = path.resolve(workspaceRoot);

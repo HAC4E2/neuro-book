@@ -6,23 +6,24 @@ import process from "node:process";
 import type * as TypeScript from "typescript";
 import {
     compileProfileArtifacts,
+    createProfileArtifactPathContextResolver,
     readProfileArtifactManifest,
     validateProfileArtifact,
     type ProfileArtifactManifestFailureItem,
+    type ProfileArtifactPathContext,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
-import {previewAgentProfilePrepare, readAgentProfileDetail} from "nbook/server/agent/profiles/profile-http-service";
+import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {generateBuiltinVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {builtinVariableDefinitions} from "nbook/server/agent/variables/registry";
-import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "nbook/server/agent/variables/definition-artifact";
-import {resolveApplicationRoot, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
+import {readVariableDefinitionManifest, resolveVariableDefinitionArtifactPathContext, VARIABLE_DEFINITION_COMPILED_DIR, type VariableDefinitionArtifactPathContext} from "nbook/server/agent/variables/definition-artifact";
+import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {resolveAgentInstallRoot, resolveApplicationRoot, resolveProjectAgentRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
-import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {prepareAuthoringCacheLease} from "nbook/server/runtime/authoring-cache";
 import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
 
@@ -35,22 +36,31 @@ type CliOptions = {
     command: ProfileCommand;
     target?: string;
     all: boolean;
-    system: boolean;
     input?: JsonValue;
     sessionId?: string;
     projectRoot?: string;
     strictVariables: boolean;
 };
 
+type ProfileTarget = {
+    root: string;
+    rootKind: "install" | "project";
+    rootLabel: string;
+    artifactPathContext: ProfileArtifactPathContext;
+    installRoot: string;
+    projectRoot?: string;
+    installVariableRoot: string;
+    projectVariableRoot?: string;
+    projectVariableRootLabel?: string;
+    runtimePaths: RuntimePaths;
+    fileName?: string;
+    filePath?: string;
+    profileKey?: string;
+    manifestProfileKey?: string;
+    cleanup: () => Promise<void>;
+};
 const APPLICATION_ROOT = resolveApplicationRoot();
 process.chdir(APPLICATION_ROOT);
-
-const SYSTEM_NBOOK_ROOT = resolveSystemNbookRoot(APPLICATION_ROOT);
-const USER_NBOOK_ROOT = resolveUserNbookRoot(APPLICATION_ROOT);
-const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
-const USER_PROFILE_ROOT = path.join(USER_NBOOK_ROOT, "agent", "profiles");
-const SYSTEM_VARIABLE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "variables");
-const USER_VARIABLE_ROOT = path.join(USER_NBOOK_ROOT, "agent", "variables");
 
 await main();
 
@@ -90,7 +100,6 @@ function parseArgs(args: string[]): CliOptions | null {
     const options: CliOptions = {
         command,
         all: false,
-        system: false,
         strictVariables: false,
     };
     while (args.length > 0) {
@@ -104,10 +113,6 @@ function parseArgs(args: string[]): CliOptions | null {
         }
         if (arg === "--all") {
             options.all = true;
-            continue;
-        }
-        if (arg === "--system") {
-            options.system = true;
             continue;
         }
         if (arg === "--strict-variables") {
@@ -138,6 +143,9 @@ function parseArgs(args: string[]): CliOptions | null {
             options.sessionId = value;
             continue;
         }
+        if (arg === "--system") {
+            throw new Error("--system 已移除；运行期 Profile 只使用 Install Root，可用 --project 选择 Project Root。");
+        }
         if (arg.startsWith("--")) {
             throw new Error(`未知参数：${arg}`);
         }
@@ -149,131 +157,128 @@ function parseArgs(args: string[]): CliOptions | null {
     if (!options.all && !options.target) {
         throw new Error(`${command} 需要指定 fileName/profileKey，或使用 --all。`);
     }
+    if (options.all && options.projectRoot) {
+        throw new Error("--all 不能与 --project 同时使用；Project profile 必须指定单个目标。");
+    }
     return options;
 }
 
 async function runStatus(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    const manifest = await readProfileArtifactManifest(target.root);
-    const sourceFiles = options.all ? await findProfileFiles(target.root) : target.fileName ? [target.fileName] : [];
-    const entries = options.all
-        ? manifest.entries.filter((item) => sourceFiles.includes(item.fileName))
-        : manifest.entries.filter((item) => item.fileName === target.fileName || item.profileKey === target.profileKey);
-    const missingFiles = sourceFiles.filter((fileName) => !entries.some((item) => item.fileName === fileName));
-    if (entries.length === 0 && missingFiles.length === 0) {
-        console.log("profile status: not_compiled");
-        console.log(`profile root: ${target.rootKind}`);
-        if (target.fileName) {
-            console.log(`profile fileName: ${target.fileName}`);
+    try {
+        const manifest = await readProfileArtifactManifest(target.root, target.artifactPathContext);
+        const sourceFiles = options.all ? await findProfileFiles(target.root) : target.fileName ? [target.fileName] : [];
+        const entries = options.all
+            ? manifest.entries.filter((item) => sourceFiles.includes(item.fileName))
+            : manifest.entries.filter((item) => item.fileName === target.fileName || item.profileKey === target.profileKey);
+        const missingFiles = sourceFiles.filter((fileName) => !entries.some((item) => item.fileName === fileName));
+        if (entries.length === 0 && missingFiles.length === 0) {
+            console.log("profile status: not_compiled");
+            console.log(`profile root: ${target.rootKind}`);
+            if (target.fileName) console.log(`profile fileName: ${target.fileName}`);
+            process.exitCode = 1;
+            return;
         }
-        process.exitCode = 1;
-        return;
-    }
-    let failed = false;
-    for (const fileName of missingFiles) {
-        console.log(`${fileName}: not_compiled`);
-        failed = true;
-    }
-    for (const item of entries) {
-        if (item.status === "compile_failed") {
-            console.log(`${item.profileKey}: compile_failed`);
+        let failed = false;
+        for (const fileName of missingFiles) {
+            console.log(`${fileName}: not_compiled`);
+            failed = true;
+        }
+        for (const item of entries) {
+            if (item.status === "compile_failed") {
+                console.log(`${item.profileKey}: compile_failed`);
+                console.log(`  fileName: ${item.fileName}`);
+                for (const issue of item.issues) console.log(`  [${issue.code}] ${issue.message}`);
+                failed = true;
+                continue;
+            }
+            const validation = await validateProfileArtifact(target.root, item, target.artifactPathContext);
+            console.log(`${item.profileKey}: ${validation.fresh ? "loaded" : "compile_stale"}`);
             console.log(`  fileName: ${item.fileName}`);
-            for (const issue of item.issues) console.log(`  [${issue.code}] ${issue.message}`);
-            failed = true;
-            continue;
+            console.log(`  artifact: ${item.artifactFileName}`);
+            if (!validation.fresh) {
+                failed = true;
+                console.log(`  reason: ${validation.reason}`);
+            }
         }
-        const validation = await validateProfileArtifact(target.root, item);
-        console.log(`${item.profileKey}: ${validation.fresh ? "loaded" : "compile_stale"}`);
-        console.log(`  fileName: ${item.fileName}`);
-        console.log(`  artifact: ${item.artifactFileName}`);
-        if (!validation.fresh) {
-            failed = true;
-            console.log(`  reason: ${validation.reason}`);
-        }
+        if (failed) process.exitCode = 1;
+    } finally {
+        await target.cleanup();
     }
-    if (failed) process.exitCode = 1;
 }
 
 async function runCheck(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    if (!await runTypechecks(target, options)) {
-        process.exitCode = 1;
-        return;
+    try {
+        if (!await runTypechecks(target, options)) {
+            process.exitCode = 1;
+            return;
+        }
+        const snapshot = await catalogForTarget(target).snapshot();
+        const issueTarget = target.profileKey ?? target.fileName;
+        const issues = snapshot.issues.filter((issue) => issue.profileKey === issueTarget || relativeInside(target.root, issue.sourcePath ?? "") === target.fileName);
+        for (const issue of issues) console.log(`[${issue.code}] ${issue.message}`);
+        if (issues.some((issue) => issue.code !== "filename_mismatch" && issue.code !== "builtin_schema_locked" && issue.code !== "not_compiled" && issue.code !== "compile_stale")) {
+            process.exitCode = 1;
+            return;
+        }
+        console.log("profile check passed");
+    } finally {
+        await target.cleanup();
     }
-    const catalog = catalogForOptions(options);
-    const snapshot = await catalog.snapshot();
-    const issueTarget = target.profileKey ?? target.fileName;
-    const issues = snapshot.issues.filter((issue) => issue.profileKey === issueTarget || relativeInside(target.root, issue.sourcePath ?? "") === target.fileName);
-    for (const issue of issues) {
-        console.log(`[${issue.code}] ${issue.message}`);
-    }
-    if (issues.some((issue) => issue.code !== "filename_mismatch" && issue.code !== "builtin_schema_locked" && issue.code !== "system_profile_shadowed" && issue.code !== "not_compiled" && issue.code !== "compile_stale")) {
-        process.exitCode = 1;
-        return;
-    }
-    console.log("profile check passed");
 }
 
 async function runCompile(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    if (!await runTypechecks(target, options)) {
-        process.exitCode = 1;
-        return;
-    }
-    const result = await compileProfileArtifacts({
-        profileRoot: target.root,
-        fileName: options.all ? undefined : target.fileName,
-        rootLabel: target.rootKind === "system" ? "assets/workspace/.nbook/agent/profiles" : "workspace/.nbook/agent/profiles",
-    });
-    const failures = result.manifest.entries.filter((item): item is ProfileArtifactManifestFailureItem => item.status === "compile_failed"
-        && (options.all || item.fileName === target.fileName || item.profileKey === target.profileKey));
-    console.log(`profile compile wrote ${result.compiled.length} artifact(s)`);
-    for (const item of result.compiled) {
-        console.log(`- ${item.profileKey}: ${item.fileName} -> .compiled/${item.artifactFileName}`);
-        if (item.typeFileName) {
-            console.log(`  types: .compiled/${item.typeFileName}`);
+    try {
+        if (!await runTypechecks(target, options)) {
+            process.exitCode = 1;
+            return;
         }
-        for (const diagnostic of item.typeDiagnostics ?? []) {
-            console.log(`  [${diagnostic.severity}] ${diagnostic.message}`);
+        const result = await compileProfileArtifacts({
+            profileRoot: target.root,
+            fileName: options.all ? undefined : target.fileName,
+            artifactPathContext: target.artifactPathContext,
+        });
+        const failures = result.manifest.entries.filter((item): item is ProfileArtifactManifestFailureItem => item.status === "compile_failed"
+            && (options.all || item.fileName === target.fileName || item.profileKey === target.profileKey));
+        console.log(`profile compile wrote ${result.compiled.length} artifact(s)`);
+        for (const item of result.compiled) {
+            console.log(`- ${item.profileKey}: ${item.fileName} -> .compiled/${item.artifactFileName}`);
+            if (item.typeFileName) console.log(`  types: .compiled/${item.typeFileName}`);
+            for (const diagnostic of item.typeDiagnostics ?? []) console.log(`  [${diagnostic.severity}] ${diagnostic.message}`);
         }
+        for (const item of failures) {
+            console.log(`- ${item.profileKey}: ${item.fileName} -> compile_failed`);
+            for (const issue of item.issues) console.log(`  [${issue.code}] ${issue.message}`);
+        }
+        if (failures.length > 0) process.exitCode = 1;
+    } finally {
+        await target.cleanup();
     }
-    for (const item of failures) {
-        console.log(`- ${item.profileKey}: ${item.fileName} -> compile_failed`);
-        for (const issue of item.issues) console.log(`  [${issue.code}] ${issue.message}`);
-    }
-    if (failures.length > 0) process.exitCode = 1;
 }
-
 async function runPreview(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    if (options.all) {
-        throw new Error("profile preview 不支持 --all，请指定一个 fileName 或 profileKey。");
+    try {
+        if (options.all) throw new Error("profile preview 不支持 --all，请指定一个 fileName 或 profileKey。");
+        const {catalog, profileKey, cleanup: cleanupPreview} = await compilePreviewCatalog(target);
+        try {
+            const preview = await previewAgentProfilePrepare(
+                new NeuroAgentHarness({runtimePaths: target.runtimePaths, profiles: catalog}),
+                {profileKey, initial: options.input, sessionId: options.sessionId},
+            );
+            console.log(`preview ok: ${preview.ok ? "yes" : "no"}`);
+            for (const issue of preview.issues) console.log(`[${issue.severity}] ${issue.code ?? "issue"}: ${issue.message}`);
+            for (const message of preview.messages) console.log(`\n## ${message.source ?? message.role}\n${message.text}`);
+            if (!preview.ok || preview.issues.some((issue) => issue.severity === "error")) process.exitCode = 1;
+        } finally {
+            await cleanupPreview();
+        }
+    } finally {
+        await target.cleanup();
     }
-    const {catalog, profileKey, cleanup} = await compilePreviewCatalog(options, target);
-    const runtimePaths = runtimePathsFromEnv();
-    const preview = await previewAgentProfilePrepare(
-        new NeuroAgentHarness({runtimePaths, profiles: catalog}),
-        {
-            profileKey,
-            initial: options.input,
-            sessionId: options.sessionId,
-        },
-    ).finally(cleanup);
-    console.log(`preview ok: ${preview.ok ? "yes" : "no"}`);
-    for (const issue of preview.issues) {
-        console.log(`[${issue.severity}] ${issue.code ?? "issue"}: ${issue.message}`);
-    }
-    for (const message of preview.messages) {
-        console.log(`\n## ${message.source ?? message.role}`);
-        console.log(message.text);
-    }
-    if (!preview.ok || preview.issues.some((issue) => issue.severity === "error")) process.exitCode = 1;
 }
-
-async function compilePreviewCatalog(
-    options: CliOptions,
-    target: Awaited<ReturnType<typeof resolveTarget>>,
-): Promise<{
+async function compilePreviewCatalog(target: ProfileTarget): Promise<{
     catalog: AgentProfileCatalog;
     profileKey: string;
     cleanup: () => Promise<void>;
@@ -281,15 +286,15 @@ async function compilePreviewCatalog(
     if (!target.fileName || !target.filePath) {
         throw new Error("profile preview 需要能定位到源码文件，请传 fileName 或可从源码定位的 profileKey。");
     }
-    return prepareAuthoringCacheLease(runtimePathsFromEnv().cacheRoot, "profile-preview", async (lease) => {
+    return prepareAuthoringCacheLease(target.runtimePaths.cacheRoot, "profile-preview", async (lease) => {
         const temporaryRoot = lease.root;
-        const systemRoot = options.system ? temporaryRoot : SYSTEM_PROFILE_ROOT;
-        const userRoot = options.system ? path.resolve(".agent", "missing-user-profiles") : temporaryRoot;
         await fsp.cp(target.root, temporaryRoot, {recursive: true, force: true});
+        const resolver = createProfileArtifactPathContextResolver(target.runtimePaths.applicationRoot);
+        const artifactPathContext = await resolver(temporaryRoot, "temporary-profile-cli-preview");
         const result = await compileProfileArtifacts({
             profileRoot: temporaryRoot,
             fileName: target.fileName,
-            rootLabel: "temporary-profile-cli-preview",
+            artifactPathContext,
         });
         const failed = result.manifest.entries.find((entry): entry is ProfileArtifactManifestFailureItem => entry.fileName === target.fileName
             && entry.status === "compile_failed");
@@ -302,66 +307,155 @@ async function compilePreviewCatalog(
         if (!result.compiled.some((entry) => entry.fileName === target.fileName)) {
             throw new Error(`profile preview 没有生成目标 artifact：${target.fileName}`);
         }
-        const manifest = await readProfileArtifactManifest(temporaryRoot);
+        const manifest = await readProfileArtifactManifest(temporaryRoot, artifactPathContext);
         const item = manifest.profiles.find((profile) => profile.fileName === target.fileName);
         if (!item) {
             throw new Error(`profile preview 无法从源码读取 profile key：${target.fileName}`);
         }
+        const catalog = target.projectRoot
+            ? target.rootKind === "project"
+                ? new AgentProfileCatalog(target.installRoot, temporaryRoot, undefined, undefined, resolver, {
+                    install: "workspace/.nbook/agent/profiles",
+                    project: "temporary-profile-cli-preview",
+                })
+                : new AgentProfileCatalog(temporaryRoot, target.projectRoot, undefined, undefined, resolver, {
+                    install: "temporary-profile-cli-preview",
+                    project: target.rootLabel,
+                })
+            : new AgentProfileCatalog(temporaryRoot, undefined, undefined, undefined, resolver, {
+                install: "temporary-profile-cli-preview",
+            });
         return {
-            catalog: new AgentProfileCatalog(systemRoot, userRoot),
+            catalog,
             profileKey: item.profileKey,
             cleanup: lease.close,
         };
     });
 }
 
-function catalogForOptions(options: CliOptions): AgentProfileCatalog {
-    if (options.system) {
-        return new AgentProfileCatalog(SYSTEM_PROFILE_ROOT, path.resolve(".agent", "missing-user-profiles"));
-    }
-    return new AgentProfileCatalog(SYSTEM_PROFILE_ROOT, USER_PROFILE_ROOT);
+function catalogForTarget(target: ProfileTarget): AgentProfileCatalog {
+    const resolver = createProfileArtifactPathContextResolver(target.runtimePaths.applicationRoot);
+    return target.projectRoot
+        ? new AgentProfileCatalog(
+            target.installRoot,
+            target.projectRoot,
+            undefined,
+            undefined,
+            resolver,
+            {
+                install: "workspace/.nbook/agent/profiles",
+                project: target.rootKind === "project" ? target.rootLabel : undefined,
+            },
+        )
+        : new AgentProfileCatalog(
+            target.installRoot,
+            undefined,
+            undefined,
+            undefined,
+            resolver,
+            {install: "workspace/.nbook/agent/profiles"},
+        );
 }
-
-async function resolveTarget(options: CliOptions): Promise<{
-    root: string;
-    rootKind: "system" | "user";
-    fileName?: string;
-    filePath?: string;
-    profileKey?: string;
-    manifestProfileKey?: string;
-}> {
-    const root = options.system ? SYSTEM_PROFILE_ROOT : USER_PROFILE_ROOT;
-    const rootKind = options.system ? "system" as const : "user" as const;
-    if (options.all) {
-        return {root, rootKind};
-    }
-    const target = options.target!;
-    const fileName = await resolveFileName(root, target);
-    if (fileName) {
-        const manifest = await readProfileArtifactManifest(root);
-        const manifestItem = manifest.profiles.find((item) => item.fileName === fileName);
+async function resolveTarget(options: CliOptions): Promise<ProfileTarget> {
+    const runtimePaths = runtimePathsFromEnv(APPLICATION_ROOT);
+    const installAgentRoot = resolveAgentInstallRoot(runtimePaths);
+    const installRoot = path.join(installAgentRoot, "profiles");
+    const installVariableRoot = path.join(installAgentRoot, "variables");
+    const projectRef = options.projectRoot ? projectWorkspaceRef(options.projectRoot) : undefined;
+    let openedProject: Awaited<ReturnType<typeof openProject>> | undefined;
+    let cleanupPromise: Promise<void> | undefined;
+    const cleanup = async (): Promise<void> => {
+        if (!openedProject) return;
+        cleanupPromise ??= closeProject(openedProject.workspace.ref, "shutdown");
+        await cleanupPromise;
+        openedProject = undefined;
+    };
+    try {
+        openedProject = projectRef
+            ? await openProject(projectRef, {kind: "job", source: "profile-cli"}, runtimePaths.workspaceRoot)
+            : undefined;
+        const projectRoot = openedProject
+            ? path.join(resolveProjectAgentRoot(openedProject.workspace), "profiles")
+            : undefined;
+        const projectVariableRoot = openedProject
+            ? path.join(resolveProjectAgentRoot(openedProject.workspace), "variables")
+            : undefined;
+        const rootLabelFor = (rootKind: "install" | "project"): string => rootKind === "project"
+            ? `workspace/${options.projectRoot}/.nbook/agent/profiles`
+            : "workspace/.nbook/agent/profiles";
+        const contextResolver = createProfileArtifactPathContextResolver(runtimePaths.applicationRoot);
+        const installArtifactPathContext = await contextResolver(installRoot, rootLabelFor("install"));
+        const projectArtifactPathContext = projectRoot
+            ? await contextResolver(projectRoot, rootLabelFor("project"))
+            : undefined;
+        const base: Omit<ProfileTarget, "root" | "rootKind" | "rootLabel" | "artifactPathContext"> = {
+            installRoot,
+            projectRoot,
+            installVariableRoot,
+            projectVariableRoot,
+            projectVariableRootLabel: options.projectRoot,
+            runtimePaths,
+            cleanup,
+        };
+        if (options.all) {
+            return {
+                ...base,
+                root: installRoot,
+                rootKind: "install",
+                rootLabel: rootLabelFor("install"),
+                artifactPathContext: installArtifactPathContext,
+            };
+        }
+        const target = options.target!;
+        const projectMatch = projectRoot
+            ? await resolveProfileSource(projectRoot, target, projectArtifactPathContext!)
+            : null;
+        const installMatch = projectMatch
+            ? null
+            : await resolveProfileSource(installRoot, target, installArtifactPathContext);
+        const projectOverride = projectRoot && installMatch?.profileKey
+            ? await resolveProfileSource(projectRoot, installMatch.profileKey, projectArtifactPathContext!)
+            : null;
+        const selected = projectMatch
+            ? {root: projectRoot!, rootKind: "project" as const, source: projectMatch, artifactPathContext: projectArtifactPathContext!}
+            : projectOverride
+                ? {root: projectRoot!, rootKind: "project" as const, source: projectOverride, artifactPathContext: projectArtifactPathContext!}
+                : installMatch
+                    ? {root: installRoot, rootKind: "install" as const, source: installMatch, artifactPathContext: installArtifactPathContext}
+                    : null;
+        if (!selected) {
+            throw new Error(`未找到 agent profile：${target}`);
+        }
+        const manifest = await readProfileArtifactManifest(selected.root, selected.artifactPathContext);
+        const manifestItem = manifest.entries.find((item) => item.fileName === selected.source.fileName);
         return {
-            root,
-            rootKind,
-            fileName,
-            filePath: path.join(root, ...fileName.split("/")),
+            ...base,
+            root: selected.root,
+            rootKind: selected.rootKind,
+            rootLabel: rootLabelFor(selected.rootKind),
+            artifactPathContext: selected.artifactPathContext,
+            fileName: selected.source.fileName,
+            filePath: path.join(selected.root, ...selected.source.fileName.split("/")),
+            profileKey: selected.source.profileKey,
             manifestProfileKey: manifestItem?.profileKey,
         };
+    } catch (error) {
+        try {
+            await cleanup();
+        } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], "Profile CLI Project 清理失败", {cause: error});
+        }
+        throw error;
     }
-    return {
-        root,
-        rootKind,
-        profileKey: target,
-    };
 }
 
-async function resolveFileName(root: string, target: string): Promise<string | null> {
+async function resolveFileName(root: string, target: string, artifactPathContext: ProfileArtifactPathContext): Promise<string | null> {
     const normalized = target.split(/[\\/]+/).filter(Boolean).join("/");
     const direct = path.join(root, ...normalized.split("/"));
     if (/\.profile\.(tsx|ts|mjs|js)$/.test(path.basename(normalized)) && fs.existsSync(direct)) {
         return normalized;
     }
-    const manifest = await readProfileArtifactManifest(root);
+    const manifest = await readProfileArtifactManifest(root, artifactPathContext);
     const manifestItem = manifest.profiles.find((item) => item.profileKey === target);
     if (manifestItem) {
         return manifestItem.fileName;
@@ -369,19 +463,41 @@ async function resolveFileName(root: string, target: string): Promise<string | n
     return findProfileByKey(root, target);
 }
 
+async function resolveProfileSource(root: string, target: string, artifactPathContext: ProfileArtifactPathContext): Promise<{
+    fileName: string;
+    profileKey?: string;
+} | null> {
+    const fileName = await resolveFileName(root, target, artifactPathContext);
+    if (!fileName) return null;
+    const manifest = await readProfileArtifactManifest(root, artifactPathContext);
+    const manifestItem = manifest.entries.find((item) => item.fileName === fileName);
+    const source = await fsp.readFile(path.join(root, ...fileName.split("/")), "utf8").catch(() => "");
+    return {
+        fileName,
+        profileKey: manifestItem?.profileKey ?? profileKeyFromSource(source),
+    };
+}
+
 async function findProfileByKey(root: string, profileKey: string): Promise<string | null> {
     const direct = `${profileKey}.profile.tsx`;
     if (fs.existsSync(path.join(root, direct))) {
-        return direct;
+        const source = await fsp.readFile(path.join(root, direct), "utf8").catch(() => "");
+        if (profileKeyFromSource(source) === profileKey) {
+            return direct;
+        }
     }
     const files = await findProfileFiles(root);
     for (const fileName of files) {
         const source = await fsp.readFile(path.join(root, ...fileName.split("/")), "utf8").catch(() => "");
-        if (source.includes(`key: ${JSON.stringify(profileKey)}`) || source.includes(`key:${JSON.stringify(profileKey)}`)) {
+        if (profileKeyFromSource(source) === profileKey) {
             return fileName;
         }
     }
     return null;
+}
+
+function profileKeyFromSource(source: string): string | undefined {
+    return source.match(/\bkey\s*:\s*["'`]([^"'`]+)["'`]/u)?.[1];
 }
 
 async function findProfileFiles(root: string, current: string = root): Promise<string[]> {
@@ -403,19 +519,19 @@ async function findProfileFiles(root: string, current: string = root): Promise<s
     return result.sort((left, right) => left.localeCompare(right));
 }
 
+
 type VariableTypeEnvironment = {
     typeFiles: string[];
     knownPaths: Set<string>;
     cleanup: () => Promise<void>;
 };
-
 type VariablePathDiagnostic = {
     severity: "warning" | "error";
     path: string;
     message: string;
 };
 
-async function runTypechecks(target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<boolean> {
+async function runTypechecks(target: ProfileTarget, options: CliOptions): Promise<boolean> {
     if (target.filePath) {
         return runTypecheckFiles([target.filePath], target, options);
     }
@@ -426,7 +542,7 @@ async function runTypechecks(target: Awaited<ReturnType<typeof resolveTarget>>, 
     return runTypecheckFiles(files.map((fileName) => path.join(target.root, ...fileName.split("/"))), target, options);
 }
 
-async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<boolean> {
+async function runTypecheckFiles(filePaths: string[], target: ProfileTarget, options: CliOptions): Promise<boolean> {
     const checkedFilePaths = filePaths.filter((filePath) => /\.(tsx|ts)$/.test(filePath));
     if (checkedFilePaths.length === 0) {
         return true;
@@ -441,7 +557,7 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
     }
     const variableTypes = await prepareVariableTypeEnvironment(target, options);
     try {
-        const configPath = (await resolveRuntimeArtifactCompilerContext()).tsconfigPath;
+        const configPath = (await resolveRuntimeArtifactCompilerContext(target.runtimePaths.applicationRoot)).tsconfigPath;
         if (!configPath) {
             console.error("未找到 tsconfig.json");
             return false;
@@ -456,7 +572,7 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
             ...config.options,
             noEmit: true,
             skipLibCheck: true,
-        }, configPath);
+        }, configPath, target.runtimePaths.applicationRoot);
         const program = ts.createProgram({
             rootNames: [...checkedFilePaths, ...config.fileNames.filter((item) => item.endsWith(".d.ts")), ...variableTypes.typeFiles],
             options: compilerOptions,
@@ -466,7 +582,7 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
             const fileName = diagnostic.file?.fileName;
             return !fileName
                 || generatedTypeFiles.has(path.resolve(fileName))
-                || Boolean(relativeInside(SYSTEM_PROFILE_ROOT, fileName) || relativeInside(USER_PROFILE_ROOT, fileName));
+                || relativeInside(target.root, fileName) !== null;
         });
         const variableDiagnostics = checkedFilePaths.flatMap((filePath) => collectVariablePathDiagnostics(filePath, variableTypes.knownPaths, options.strictVariables));
         if (diagnostics.length > 0) {
@@ -486,11 +602,12 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
  * Product Root 不带根 node_modules；profile typecheck 需要从 Nitro vendor
  * 解析第三方类型声明。
  */
-function withRuntimeTypecheckPaths(options: TypeScript.CompilerOptions, configPath: string): TypeScript.CompilerOptions {
-    if (fs.existsSync(path.resolve(process.cwd(), "node_modules"))) {
+function withRuntimeTypecheckPaths(options: TypeScript.CompilerOptions, configPath: string, applicationRoot: string): TypeScript.CompilerOptions {
+    const applicationNodeModules = path.resolve(applicationRoot, "node_modules");
+    if (fs.existsSync(applicationNodeModules)) {
         return options;
     }
-    const runtimeNodeModules = path.resolve(process.cwd(), ".output", "server", "node_modules");
+    const runtimeNodeModules = path.resolve(applicationRoot, ".output", "server", "node_modules");
     if (!fs.existsSync(runtimeNodeModules)) {
         return options;
     }
@@ -509,8 +626,8 @@ function withRuntimeTypecheckPaths(options: TypeScript.CompilerOptions, configPa
     };
 }
 
-async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<VariableTypeEnvironment> {
-    return prepareAuthoringCacheLease(runtimePathsFromEnv().cacheRoot, "profile-variable-types", async (lease) => {
+async function prepareVariableTypeEnvironment(target: ProfileTarget, _options: CliOptions): Promise<VariableTypeEnvironment> {
+    return prepareAuthoringCacheLease(target.runtimePaths.cacheRoot, "profile-variable-types", async (lease) => {
         const tempRoot = lease.root;
         const typeFiles: string[] = [];
         const knownPaths = new Set<string>();
@@ -526,26 +643,41 @@ async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof 
             console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
         }
 
-        await collectVariableDefinitionTypes(options.system ? SYSTEM_VARIABLE_ROOT : USER_VARIABLE_ROOT, knownPaths, typeFiles);
-        if (options.projectRoot) {
+        await collectVariableDefinitionTypes(
+            target.installVariableRoot,
+            knownPaths,
+            typeFiles,
+            await resolveVariableDefinitionArtifactPathContext(
+                target.installVariableRoot,
+                "workspace/.nbook/agent/variables",
+                target.runtimePaths.applicationRoot,
+            ),
+        );
+        if (target.projectVariableRoot) {
             await collectVariableDefinitionTypes(
-                path.resolve(resolveStateRoot(), "workspace", options.projectRoot, ".nbook", "agent", "variables"),
+                target.projectVariableRoot,
                 knownPaths,
                 typeFiles,
+                await resolveVariableDefinitionArtifactPathContext(
+                    target.projectVariableRoot,
+                    `workspace/${target.projectVariableRootLabel ?? "project"}/.nbook/agent/variables`,
+                    target.runtimePaths.applicationRoot,
+                ),
             );
         }
         await collectProfileSessionTypes(target, knownPaths, typeFiles, tempRoot);
 
-        return {
-            typeFiles,
-            knownPaths,
-            cleanup: lease.close,
-        };
+        return {typeFiles, knownPaths, cleanup: lease.close};
     });
 }
 
-async function collectVariableDefinitionTypes(root: string, knownPaths: Set<string>, typeFiles: string[]): Promise<void> {
-    const manifest = await readVariableDefinitionManifest(root);
+async function collectVariableDefinitionTypes(
+    root: string,
+    knownPaths: Set<string>,
+    typeFiles: string[],
+    artifactPathContext: VariableDefinitionArtifactPathContext,
+): Promise<void> {
+    const manifest = await readVariableDefinitionManifest(root, artifactPathContext);
     for (const item of manifest.definitions) {
         for (const registeredPath of item.registeredPaths) {
             knownPaths.add(registeredPath);
@@ -562,22 +694,22 @@ async function collectVariableDefinitionTypes(root: string, knownPaths: Set<stri
     }
 }
 
-async function collectProfileSessionTypes(target: Awaited<ReturnType<typeof resolveTarget>>, knownPaths: Set<string>, typeFiles: string[], tempRoot: string): Promise<void> {
+async function collectProfileSessionTypes(target: ProfileTarget, knownPaths: Set<string>, typeFiles: string[], tempRoot: string): Promise<void> {
     const temporaryProfileRoot = target.fileName || !target.profileKey ? path.join(tempRoot, "profiles") : null;
     const manifestRoot = temporaryProfileRoot ?? target.root;
+    const resolver = createProfileArtifactPathContextResolver(target.runtimePaths.applicationRoot);
+    const manifestContext = temporaryProfileRoot
+        ? await resolver(temporaryProfileRoot, "temporary-profile-variable-types")
+        : target.artifactPathContext;
     if (temporaryProfileRoot) {
-        try {
-            await fsp.cp(target.root, temporaryProfileRoot, {recursive: true, force: true});
-            await compileProfileArtifacts({
-                profileRoot: temporaryProfileRoot,
-                fileName: target.fileName,
-                rootLabel: "temporary-profile-variable-types",
-            });
-        } catch {
-            // Type extraction is best-effort. The normal profile typecheck/catalog path reports real errors.
-        }
+        await fsp.cp(target.root, temporaryProfileRoot, {recursive: true, force: true});
+        await compileProfileArtifacts({
+            profileRoot: temporaryProfileRoot,
+            fileName: target.fileName,
+            artifactPathContext: manifestContext,
+        });
     }
-    const manifest = await readProfileArtifactManifest(manifestRoot);
+    const manifest = await readProfileArtifactManifest(manifestRoot, manifestContext);
     const items = target.fileName
         ? manifest.profiles.filter((profile) => profile.fileName === target.fileName)
         : target.profileKey
@@ -598,6 +730,7 @@ async function collectProfileSessionTypes(target: Awaited<ReturnType<typeof reso
         }
     }
 }
+
 
 function collectVariablePathDiagnostics(filePath: string, knownPaths: Set<string>, strict: boolean): VariablePathDiagnostic[] {
     const sourceText = fs.readFileSync(filePath, "utf8");
@@ -737,6 +870,6 @@ function relativeInside(root: string, filePath: string): string | null {
 }
 
 function printUsage(): void {
-    console.error("用法：profile <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectRoot>] [--strict-variables]");
-    console.error("示例：profile compile builtin/leader.default.profile.tsx --system");
+    console.error("用法：profile <status|check|compile|preview> <fileName|profileKey> [--all] [--project <projectRoot>] [--strict-variables]");
+    console.error("示例：profile compile builtin/leader.default.profile.tsx");
 }

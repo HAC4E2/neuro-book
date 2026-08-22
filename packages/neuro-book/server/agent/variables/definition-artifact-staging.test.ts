@@ -1,19 +1,28 @@
 import {access, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile} from "node:fs/promises";
 import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {afterEach, describe, expect, it} from "vitest";
 import {
-    compileVariableDefinitions,
+    compileVariableDefinitions as compileVariableDefinitionsWithContext,
     VARIABLE_DEFINITION_STAGING_DIR_NAME,
     VARIABLE_DEFINITION_STAGING_LEASE_LOCK,
     VARIABLE_DEFINITION_STAGING_MAX_AGE_MS,
     VARIABLE_DEFINITION_STAGING_OWNER,
     VARIABLE_DEFINITION_STAGING_OWNER_FILE,
     VARIABLE_DEFINITION_STAGING_OWNER_SCHEMA,
+    resolveVariableDefinitionArtifactPathContext,
     sweepVariableDefinitionStaging,
     type VariableDefinitionStagingOwner,
 } from "nbook/server/agent/variables/definition-artifact";
+
+const testCompilerRoot = resolve(import.meta.dirname, "../../..");
+async function compileVariableDefinitions(options: Omit<Parameters<typeof compileVariableDefinitionsWithContext>[0], "artifactPathContext">) {
+    return compileVariableDefinitionsWithContext({
+        ...options,
+        artifactPathContext: await resolveVariableDefinitionArtifactPathContext(options.definitionRoot, "test/workspace/.nbook/agent/variables", testCompilerRoot),
+    });
+}
 
 const roots: string[] = [];
 

@@ -8,6 +8,7 @@ import rpWriterProfileDefinition from "../../../assets/workspace/.nbook/agent/pr
 import simulatorActorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import simulatorLeaderProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {RpLeaderInitialSchema, RpLeaderOutputSchema, RpWriterInitialSchema, RpWriterOutputSchema, SimulatorLeaderInitialSchema, SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
@@ -43,9 +44,12 @@ describe("RP builtin profiles", () => {
     it("catalog 加载 rp.leader、simulator.leader、simulator.actor、rp.writer，不再加载 leader.rp", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
+            undefined,
+            undefined,
+            undefined,
+            (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, resolve(import.meta.dirname, "../../..")),
+            {install: "assets/workspace/.nbook/agent/profiles"},
         );
-        catalog.register(defaultAgentProfile);
         catalog.enableRuntimeRegistry();
         const snapshot = await catalog.snapshot();
         const profileKeys = snapshot.profiles.map((profile) => profile.key);

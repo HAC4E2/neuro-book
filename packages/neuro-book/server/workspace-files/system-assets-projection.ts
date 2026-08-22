@@ -5,12 +5,17 @@ import {
     PROFILE_COMPILED_DIR_NAME,
     PROFILE_COMPILED_MANIFEST_FILE,
     readProfileArtifactManifest,
+    resolveProfileArtifactPathContext,
+    SYSTEM_PROFILE_ARTIFACT_ROOT_LABEL,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {
     readVariableDefinitionManifest,
+    resolveVariableDefinitionArtifactPathContext,
+    SYSTEM_VARIABLE_DEFINITION_ROOT_LABEL,
     VARIABLE_DEFINITION_COMPILED_DIR,
     VARIABLE_DEFINITION_MANIFEST_FILE,
 } from "nbook/server/agent/variables/definition-artifact";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 const PROFILE_ROOT_SEGMENTS = ["agent", "profiles"] as const;
 const VARIABLE_ROOT_SEGMENTS = ["agent", "variables"] as const;
@@ -204,14 +209,17 @@ async function buildProjectionPlan(
         },
     };
 }
-
-/** 读取两类 manifest，并把所有 current 引用规范化成 `.compiled` 相对路径。 */
 async function readProjectionSelection(sourceRoot: string): Promise<ProjectionSelection> {
     const profileRoot = path.join(sourceRoot, ...PROFILE_ROOT_SEGMENTS);
     const variableRoot = path.join(sourceRoot, ...VARIABLE_ROOT_SEGMENTS);
+    const compilerRoot = runtimePathsFromEnv().applicationRoot;
+    const [profileArtifactPathContext, variableArtifactPathContext] = await Promise.all([
+        resolveProfileArtifactPathContext(profileRoot, SYSTEM_PROFILE_ARTIFACT_ROOT_LABEL, compilerRoot),
+        resolveVariableDefinitionArtifactPathContext(variableRoot, SYSTEM_VARIABLE_DEFINITION_ROOT_LABEL, compilerRoot),
+    ]);
     const [profileManifest, variableManifest, profileManifestExists, variableManifestExists] = await Promise.all([
-        readProfileArtifactManifest(profileRoot),
-        readVariableDefinitionManifest(variableRoot),
+        readProfileArtifactManifest(profileRoot, profileArtifactPathContext),
+        readVariableDefinitionManifest(variableRoot, variableArtifactPathContext),
         regularFileExists(path.join(profileRoot, PROFILE_COMPILED_DIR_NAME, PROFILE_COMPILED_MANIFEST_FILE)),
         regularFileExists(path.join(variableRoot, VARIABLE_DEFINITION_COMPILED_DIR, VARIABLE_DEFINITION_MANIFEST_FILE)),
     ]);

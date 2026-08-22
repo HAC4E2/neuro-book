@@ -3,6 +3,7 @@ import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import type {ProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {buildSystemPromptRoot, readAgentProfileDetail} from "nbook/server/agent/profiles/profile-http-service";
 import type {
     AgentProfileCreateRequestDto,
@@ -17,9 +18,12 @@ import type {
 import type {ProfileTemplateDetailDto} from "nbook/shared/dto/profile-template.dto";
 
 export type WorkbenchRoots = {
-    userProfileRoot: string;
-    systemProfileRoot: string;
+    /** Install Root 下可编辑的 profile 目录；Workbench 不编辑 Project profile。 */
+    profileRoot: string;
+    /** 模板属于 Seed 的非 runtime authoring 资产，不进入 Agent Catalog。 */
     templateRoot: string;
+    /** Runtime Catalog 的显式 artifact path context resolver。 */
+    artifactPathContextResolver: ProfileArtifactPathContextResolver;
 };
 
 /**
@@ -43,14 +47,14 @@ export async function listProfileTemplates(roots: Pick<WorkbenchRoots, "template
  * 列出用户 profile root 下的源码文件，包含坏文件。这里只读取 compiled-only catalog 状态，
  * 不触发 TSX profile 编译。
  */
-export async function listProfileFiles(roots: Pick<WorkbenchRoots, "userProfileRoot" | "systemProfileRoot">): Promise<AgentProfileFileItemDto[]> {
-    const userProfileRoot = roots.userProfileRoot;
-    const files = await findProfileFiles(userProfileRoot);
-    const catalog = await new AgentProfileCatalog(roots.systemProfileRoot, userProfileRoot).snapshot().catch(() => null);
+export async function listProfileFiles(roots: Pick<WorkbenchRoots, "profileRoot" | "artifactPathContextResolver">): Promise<AgentProfileFileItemDto[]> {
+    const profileRoot = resolve(roots.profileRoot);
+    const files = await findProfileFiles(profileRoot);
+    const catalog = await new AgentProfileCatalog(profileRoot, undefined, undefined, undefined, roots.artifactPathContextResolver).snapshot().catch(() => null);
     const items: AgentProfileFileItemDto[] = [];
     for (const fileName of files) {
-        const filePath = join(userProfileRoot, ...fileName.split("/"));
-        const source = await readFile(join(userProfileRoot, fileName), "utf8").catch(() => "");
+        const filePath = join(profileRoot, ...fileName.split("/"));
+        const source = await readFile(join(profileRoot, fileName), "utf8").catch(() => "");
         const manifest = readManifestSummary(source);
         const catalogItem = catalog?.profiles.find((profile) => profile.sourcePath === filePath);
         const catalogIssues = catalog?.issues.filter((issue) => issue.sourcePath === filePath) ?? [];
@@ -74,9 +78,9 @@ export async function listProfileFiles(roots: Pick<WorkbenchRoots, "userProfileR
 /**
  * 轻量读取 profile 源码草稿。只解析 TSX DSL tree，不加载 runtime catalog。
  */
-export async function readProfileSourceDraft(request: AgentProfileSourceDraftRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<ProfileTemplateDetailDto> {
-    const userProfileRoot = roots.userProfileRoot;
-    const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
+export async function readProfileSourceDraft(request: AgentProfileSourceDraftRequestDto, roots: Pick<WorkbenchRoots, "profileRoot">): Promise<ProfileTemplateDetailDto> {
+    const profileRoot = roots.profileRoot;
+    const filePath = resolveProfilePath(request.fileName, profileRoot);
     if (!existsSync(filePath)) {
         throw createError({
             statusCode: 404,
@@ -91,9 +95,9 @@ export async function readProfileSourceDraft(request: AgentProfileSourceDraftReq
 /**
  * 按 fileName 读取用户 profile 源码详情。
  */
-export async function readProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<AgentProfileDetailDto> {
-    const userProfileRoot = roots.userProfileRoot;
-    const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
+export async function readProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: Pick<WorkbenchRoots, "profileRoot">): Promise<AgentProfileDetailDto> {
+    const profileRoot = roots.profileRoot;
+    const filePath = resolveProfilePath(request.fileName, profileRoot);
     if (!existsSync(filePath)) {
         throw createError({
             statusCode: 404,
@@ -132,8 +136,8 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
                 name: request.fileName,
                 description: null,
                 fileName: request.fileName,
-                source: "user",
-                overrideState: "user_only",
+                source: "project",
+                overrideState: "project_only",
                 creationMode: "public",
                 loadStatus: "source_error",
                 schemaLocked: false,
@@ -174,9 +178,9 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
 /**
  * 保存用户 profile 源码并返回最新源码详情。
  */
-export async function saveProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSaveRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<AgentProfileDetailDto> {
-    const userProfileRoot = roots.userProfileRoot;
-    const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
+export async function saveProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSaveRequestDto, roots: Pick<WorkbenchRoots, "profileRoot">): Promise<AgentProfileDetailDto> {
+    const profileRoot = roots.profileRoot;
+    const filePath = resolveProfilePath(request.fileName, profileRoot);
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, request.source, "utf8");
     await profiles.enqueueBuild({fileName: request.fileName, reason: "profile_source_saved"});
@@ -186,9 +190,9 @@ export async function saveProfileSource(profiles: AgentProfileCatalog, request: 
 /**
  * 保存用户 profile 源码并返回轻量草稿解析结果。
  */
-export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<ProfileTemplateDetailDto> {
-    const userProfileRoot = roots.userProfileRoot;
-    const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
+export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto, roots: Pick<WorkbenchRoots, "profileRoot">): Promise<ProfileTemplateDetailDto> {
+    const profileRoot = roots.profileRoot;
+    const filePath = resolveProfilePath(request.fileName, profileRoot);
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, request.source, "utf8");
     return buildProfileSourceDraft(request.fileName, request.source);
@@ -197,25 +201,17 @@ export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto
 /**
  * 从模板创建用户 profile。
  */
-export async function createProfileSource(profiles: AgentProfileCatalog, request: AgentProfileCreateRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot" | "templateRoot">): Promise<AgentProfileDetailDto> {
-    const userProfileRoot = roots.userProfileRoot;
+export async function createProfileSource(profiles: AgentProfileCatalog, request: AgentProfileCreateRequestDto, roots: Pick<WorkbenchRoots, "profileRoot" | "templateRoot">): Promise<AgentProfileDetailDto> {
+    const profileRoot = roots.profileRoot;
     const templateRoot = roots.templateRoot;
     const fileName = request.fileName ?? `${request.profileKey}.profile.tsx`;
-    const filePath = resolveUserProfilePath(fileName, userProfileRoot);
+    const filePath = resolveProfilePath(fileName, profileRoot);
     if (existsSync(filePath)) {
-        throw createError({
-            statusCode: 409,
-            statusMessage: "fileName_conflict",
-            message: `profile 文件已存在：${fileName}`,
-        });
+        throw createError({statusCode: 409, statusMessage: "fileName_conflict", message: `profile 文件已存在：${fileName}`});
     }
     const snapshot = await profiles.snapshot();
     if (snapshot.profiles.some((profile) => profile.key === request.profileKey)) {
-        throw createError({
-            statusCode: 409,
-            statusMessage: "profileKey_conflict",
-            message: `profileKey 已存在：${request.profileKey}`,
-        });
+        throw createError({statusCode: 409, statusMessage: "profileKey_conflict", message: `profileKey 已存在：${request.profileKey}`});
     }
     const template = await readFile(resolveTemplatePath(`${request.templateName}.profile-template.tsx`, templateRoot), "utf8");
     const source = renderTemplate(template, request);
@@ -228,17 +224,13 @@ export async function createProfileSource(profiles: AgentProfileCatalog, request
 /**
  * 从模板创建用户 profile，并返回轻量草稿解析结果。
  */
-export async function createProfileSourceDraft(request: AgentProfileCreateRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot" | "templateRoot">): Promise<ProfileTemplateDetailDto> {
-    const userProfileRoot = roots.userProfileRoot;
+export async function createProfileSourceDraft(request: AgentProfileCreateRequestDto, roots: Pick<WorkbenchRoots, "profileRoot" | "templateRoot">): Promise<ProfileTemplateDetailDto> {
+    const profileRoot = roots.profileRoot;
     const templateRoot = roots.templateRoot;
     const fileName = request.fileName ?? `${request.profileKey}.profile.tsx`;
-    const filePath = resolveUserProfilePath(fileName, userProfileRoot);
+    const filePath = resolveProfilePath(fileName, profileRoot);
     if (existsSync(filePath)) {
-        throw createError({
-            statusCode: 409,
-            statusMessage: "fileName_conflict",
-            message: `profile 文件已存在：${fileName}`,
-        });
+        throw createError({statusCode: 409, statusMessage: "fileName_conflict", message: `profile 文件已存在：${fileName}`});
     }
     const template = await readFile(resolveTemplatePath(`${request.templateName}.profile-template.tsx`, templateRoot), "utf8");
     const source = renderTemplate(template, request);
@@ -250,26 +242,20 @@ export async function createProfileSourceDraft(request: AgentProfileCreateReques
 /**
  * 删除用户 profile 文件，用于恢复系统同 key/profile，并触发全量发布移除旧 manifest entry。
  */
-export async function deleteProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<{fileName: string; deleted: boolean}> {
-    const filePath = resolveUserProfilePath(request.fileName, roots.userProfileRoot);
+export async function deleteProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: Pick<WorkbenchRoots, "profileRoot">): Promise<{fileName: string; deleted: boolean}> {
+    const filePath = resolveProfilePath(request.fileName, roots.profileRoot);
     if (!existsSync(filePath)) {
-        return {
-            fileName: request.fileName,
-            deleted: false,
-        };
+        return {fileName: request.fileName, deleted: false};
     }
     await rm(filePath, {force: true});
     await profiles.enqueueBuild({reason: "profile_source_deleted"});
-    return {
-        fileName: request.fileName,
-        deleted: true,
-    };
+    return {fileName: request.fileName, deleted: true};
 }
 
 /**
  * 将用户输入的相对 fileName 解析到用户 profile root 内。
  */
-function resolveUserProfilePath(fileName: string, userProfileRoot: string): string {
+function resolveProfilePath(fileName: string, profileRoot: string): string {
     const normalized = fileName.split(/[\\/]+/).filter(Boolean).join(sep);
     if (!normalized || normalized.startsWith("..") || normalized.includes(`..${sep}`) || /^[A-Za-z]:/.test(fileName) || fileName.startsWith("/") || fileName.startsWith("\\")) {
         throw createError({
@@ -285,8 +271,8 @@ function resolveUserProfilePath(fileName: string, userProfileRoot: string): stri
             message: "profile 文件名必须使用 .profile.tsx/.profile.ts/.profile.mjs/.profile.js。",
         });
     }
-    const resolved = resolve(userProfileRoot, normalized);
-    const relativePath = relative(userProfileRoot, resolved);
+    const resolved = resolve(profileRoot, normalized);
+    const relativePath = relative(profileRoot, resolved);
     if (relativePath.startsWith("..") || relativePath === "" || /^[A-Za-z]:/.test(relativePath)) {
         throw createError({
             statusCode: 400,

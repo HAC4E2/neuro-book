@@ -6,6 +6,8 @@
 
 - 主应用专属文档位于 [`docs/`](docs/)：`docs/adr/` 架构决策、`docs/migrations/` 数据迁移、`docs/runbooks/` 操作手册、`docs/research/` 与 `docs/archived/` 非规范资料、`docs/specs/foundation/` 术语与 capability Spec、`docs/proposals/` 产品提案。
 - monorepo 级治理仍在根 [`docs/`](../../docs/)（specs 注册表、standards、testing、modules 边界正文与提案流程）；判断当前行为只依据根注册表登记的 `implemented` Spec。
+- 主应用交付配置归本包：`Dockerfile*`、`docker-compose*.yml`、`.env.docker.example`、`.env.example`、`.env.product`、`.env.typecheck`、`config.example.yaml` 与包级 `.gitignore`。Docker build context 仍由根 monorepo 提供，根 `.dockerignore` 是 context 过滤器，不是应用源码入口。
+- `.env` 与 `config.yaml` 是 State Root 的本机运行文件，不提交到源码包；Source Dev 默认把 State Root 放在平台用户数据目录，运行时 Workspace 为 State Root 下的 `workspace/`。checkout 根的 `assets/`、`workspace/` 只作为历史/用户数据隔离区，不得当作应用源码或通过启动 fallback 读取。
 - Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色只消费 `app/utils/theme/README.md` 登记的变量。
 - 普通界面复用 `app/components/common` 与现有通知、Dialog、Tooltip、可调整面板能力。
 - 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。

@@ -203,7 +203,7 @@ export type AgentProfileManifest<TKey extends string = string> = {
     version?: number;
 };
 
-export type AgentProfileSourceKind = "memory" | "system" | "user";
+export type AgentProfileSourceKind = "memory" | "install" | "project";
 export type AgentProfileCreationMode = "public" | "system_only";
 export type AgentProfileLoadStatus = "loaded" | "compiling" | "compile_failed" | "not_compiled" | "compile_stale" | "compiled_load_failed" | "source_error";
 export type AgentProfileIssueCode = "load_failed" | "invalid_export" | "schema_missing" | "builtin_schema_locked" | "filename_mismatch" | "system_profile_shadowed" | "file_missing" | "not_compiled" | "compile_failed" | "compile_stale" | "source_stale" | "dependency_stale" | "compiled_load_failed" | "source_error";
@@ -463,8 +463,8 @@ export type ProfilePrepareContext<TInitial = ProfileJsonValue, TPayload = Profil
     invocation?: {payload?: TPayload; message?: string; clientState?: ClientStateSnapshot; caller: AgentInvokeCaller};
     vars: ProfileVariableAccessor;
     catalog: AgentCatalogSnapshot;
-    skills: Array<{key: string; name: string; description?: string; whenToUse?: string; version?: string; source: "system" | "user"; rootPath: string; skillPath: string}>;
-    workflows?: Array<{key: string; title: string; description: string; whenToUse?: string; source: "system" | "user" | "project"}>;
+    skills: Array<{key: string; name: string; description?: string; whenToUse?: string; version?: string; source: "install" | "project"; rootPath: string; skillPath: string}>;
+    workflows?: Array<{key: string; title: string; description: string; whenToUse?: string; source: "install" | "project"}>;
     agentVisibleModels?: Array<{modelKey: string; note: string}>;
     runtime?: {now: string; promptUserTurnCount: number; currentProject?: ReadyProjectSessionRef | null; pendingUserMessage?: ProfileUserMessage; sqlSchemaSummary?: () => Promise<string>};
     home?: ProfileHomeFacade;

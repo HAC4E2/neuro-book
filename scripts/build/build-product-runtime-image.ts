@@ -19,8 +19,8 @@ import {
 export {PRODUCT_RUNTIME_MAX_BYTES, PRODUCT_RUNTIME_MAX_FILES};
 export const PRODUCT_SOURCE_DATE_EPOCH = "0";
 export const PRODUCT_NODE_OPTIONS = "--max-old-space-size=4096";
-const NUXT_CLI_ENTRY = "node_modules/nuxt/bin/nuxt.mjs";
-const PREPARE_SYSTEM_ASSETS_ENTRY = "../../scripts/build/prepare-system-assets.ts";
+const NUXT_CLI_ENTRY = "../../node_modules/nuxt/bin/nuxt.mjs";
+const PREPARE_SYSTEM_ASSETS_ENTRY = "scripts/build/prepare-system-assets.ts";
 const PATCH_NITRO_RUNTIME_DEPS_ENTRY = "../../scripts/build/patch-nitro-runtime-deps.mjs";
 const PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT = new Set([
     "APPDATA",

@@ -1,11 +1,16 @@
 import {existsSync, readFileSync} from "node:fs";
 import {createRequire} from "node:module";
-import {isAbsolute, join, relative, resolve} from "node:path";
+import {dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import {ProductRuntimeImageVerifier} from "nbook/server/interfaces/product-runtime-image-verifier";
 import type {ProductRuntimeImageManifest} from "@notnotype/neuro-book-contracts/product-runtime";
 
-type RuntimeArtifactCompilerPaths = Readonly<{
+export type RuntimeArtifactPathMapping = Readonly<{
+    physicalRoot: string;
+    logicalRoot: string;
+}>;
+
+export type RuntimeArtifactCompilerPaths = Readonly<{
     root: string;
     outputRoot: string;
     nbookRoot: string;
@@ -16,7 +21,10 @@ type RuntimeArtifactCompilerPaths = Readonly<{
     /** 已生成 artifact 在 Product 运行时建立 require 的根。 */
     artifactRuntimeRequireRoot: string;
     tsconfigPath: string;
+    /** 将编译输入物理根映射为 manifest 稳定逻辑路径。 */
+    sourcePathMappings: readonly RuntimeArtifactPathMapping[];
 }>;
+
 
 /** Source Dev 的 authoring 身份；只能消费当前 checkout 的显式开发依赖。 */
 export type SourceRuntimeArtifactAuthoringContext = RuntimeArtifactCompilerPaths & Readonly<{
@@ -45,19 +53,19 @@ export type ProductRuntimeArtifactCandidateContext = RuntimeArtifactCompilerPath
     imageRoot: string;
 }>;
 
-/** Runtime artifact 编译器共用上下文；candidate 分支不对运行期调用方公开为 Authoring Context。 */
+/** Source、verified Product 与 Product candidate 的统一编译上下文。 */
 export type RuntimeArtifactCompilerContext = RuntimeArtifactAuthoringContext | ProductRuntimeArtifactCandidateContext;
+
+/** Runtime artifact 的物理↔逻辑路径映射上下文。 */
+export type RuntimeArtifactPathContext = Readonly<{
+    compilerContext: RuntimeArtifactCompilerContext;
+    mappings: readonly RuntimeArtifactPathMapping[];
+}>;
 
 const verifiedContexts = new Map<string, Promise<ProductRuntimeArtifactAuthoringContext>>();
 
-/**
- * 解析 Profile、Variable 等 Runtime artifact 的编译上下文。
- *
- * Source 开发直接使用 checkout；Product 必须完全绑定 `.output/server`，禁止
- * freshness manifest 记录最终安装包中不存在的根 `node_modules` 或生成源码。
- */
 export async function resolveRuntimeArtifactCompilerContext(
-    root = process.cwd(),
+    root: string,
     env: NodeJS.ProcessEnv = process.env,
 ): Promise<RuntimeArtifactCompilerContext> {
     const absoluteRoot = resolve(root);
@@ -78,6 +86,7 @@ export async function resolveRuntimeArtifactCompilerContext(
             compilerNodeModulesRoot: resolve(absoluteRoot, "node_modules"),
             artifactRuntimeRequireRoot: resolve(absoluteRoot, "package.json"),
             tsconfigPath: resolve(absoluteRoot, "tsconfig.json"),
+            sourcePathMappings: sourcePathMappingsFor(absoluteRoot),
         });
     }
 
@@ -129,7 +138,6 @@ async function openVerifiedProductContext(
     });
 }
 
-/** Product Authoring Kit 的物理路径只从指定 image root 派生。 */
 function productCompilerPaths(root: string, outputRoot: string, outputEntry: string): RuntimeArtifactCompilerPaths {
     const authoringRoot = resolve(outputRoot, "authoring");
     const tsconfigPath = resolve(authoringRoot, "tsconfig.json");
@@ -146,6 +154,9 @@ function productCompilerPaths(root: string, outputRoot: string, outputEntry: str
         compilerNodeModulesRoot: resolve(authoringRoot, "node_modules"),
         artifactRuntimeRequireRoot: outputEntry,
         tsconfigPath,
+        sourcePathMappings: Object.freeze([
+            {physicalRoot: resolve(outputRoot), logicalRoot: ".output/server"},
+        ]),
     };
 }
 
@@ -159,26 +170,84 @@ function assertProductCompilerShape(imageRoot: string, outputEntry: string, outp
     }
 }
 
-/** 把 staging image 内的物理依赖路径稳定写成激活后的 `.output/server/**` 身份。 */
+/** Source checkout 保留空逻辑根，并显式覆盖应用包与 workspace hoisted node_modules。 */
+function sourcePathMappingsFor(applicationRoot: string): readonly RuntimeArtifactPathMapping[] {
+    const absoluteApplicationRoot = resolve(applicationRoot);
+    const mappings: RuntimeArtifactPathMapping[] = [{physicalRoot: absoluteApplicationRoot, logicalRoot: ""}];
+    const applicationNodeModules = join(absoluteApplicationRoot, "node_modules");
+    if (existsSync(applicationNodeModules)) {
+        mappings.push({physicalRoot: applicationNodeModules, logicalRoot: "node_modules"});
+    }
+    let current = dirname(absoluteApplicationRoot);
+    while (true) {
+        const nodeModulesRoot = join(current, "node_modules");
+        if (existsSync(nodeModulesRoot)) {
+            mappings.push({physicalRoot: nodeModulesRoot, logicalRoot: "node_modules"});
+            mappings.push({physicalRoot: current, logicalRoot: ""});
+            break;
+        }
+        const parent = dirname(current);
+        if (parent === current) {
+            break;
+        }
+        current = parent;
+    }
+    return Object.freeze(mappings);
+}
+
+/** 把显式编译上下文内的物理路径稳定写成 manifest 逻辑身份。 */
 export function normalizeRuntimeArtifactPath(
     filePath: string,
-    context?: RuntimeArtifactCompilerContext,
+    context: RuntimeArtifactCompilerContext | RuntimeArtifactPathContext,
 ): string {
     const absolutePath = resolve(filePath);
-    const explicitImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
-    const outputRoot = context?.outputRoot ?? (explicitImageRoot ? resolve(explicitImageRoot, "server") : null);
-    if (outputRoot) {
-        const outputRelative = relative(outputRoot, absolutePath);
-        if (outputRelative === "" || outputRelative === ".") return ".output/server";
-        if (!outputRelative.startsWith("..") && !isAbsolute(outputRelative)) {
-            return `.output/server/${outputRelative.split(/[\\/]+/u).join("/")}`;
+    const mappings = "compilerContext" in context
+        ? context.mappings
+        : context.sourcePathMappings;
+    for (const mapping of [...mappings]
+        .map((item) => ({...item, physicalRoot: resolve(item.physicalRoot)}))
+        .sort((left, right) => right.physicalRoot.length - left.physicalRoot.length)) {
+        const outputRelative = relative(mapping.physicalRoot, absolutePath);
+        if (outputRelative === "" || (outputRelative !== ".." && !outputRelative.startsWith(`..${sep}`) && !isAbsolute(outputRelative))) {
+            const logicalRoot = mapping.logicalRoot.replace(/[\\/]+/gu, "/").replace(/\/$/u, "");
+            const suffix = outputRelative === "" ? "" : `/${outputRelative.split(/[\\/]+/u).join("/")}`;
+            return `${logicalRoot}${suffix}`.replace(/^\//u, "") || ".";
         }
     }
-    const cwdRelative = relative(process.cwd(), absolutePath);
-    if (cwdRelative && !cwdRelative.startsWith("..") && !isAbsolute(cwdRelative)) {
-        return cwdRelative.split(/[\\/]+/u).join("/");
+    throw new Error(`Runtime artifact 路径未映射到稳定逻辑根：${absolutePath}`);
+}
+/** 将 manifest 逻辑依赖路径反解到当前编译上下文的物理根。 */
+export function resolveRuntimeArtifactPath(
+    filePath: string,
+    context: RuntimeArtifactCompilerContext | RuntimeArtifactPathContext,
+): string {
+    if (isAbsolute(filePath) || /^[A-Za-z]:[\\/]/u.test(filePath)) {
+        return resolve(filePath);
     }
-    return absolutePath.split(/[\\/]+/u).join("/");
+    const logicalPath = filePath.replace(/[\\/]+/gu, "/").replace(/^\.\//u, "");
+    const mappings = "compilerContext" in context
+        ? context.mappings
+        : context.sourcePathMappings;
+    const candidates = [...mappings]
+        .map((mapping) => ({
+            ...mapping,
+            physicalRoot: resolve(mapping.physicalRoot),
+            logicalRoot: mapping.logicalRoot.replace(/[\\/]+/gu, "/").replace(/^\/+|\/+$/gu, ""),
+        }))
+        .filter((mapping) => mapping.logicalRoot === ""
+            || logicalPath === mapping.logicalRoot
+            || logicalPath.startsWith(`${mapping.logicalRoot}/`))
+        .sort((left, right) => right.logicalRoot.length - left.logicalRoot.length);
+    for (const mapping of candidates) {
+        const suffix = mapping.logicalRoot === ""
+            ? logicalPath
+            : logicalPath.slice(mapping.logicalRoot.length).replace(/^\//u, "");
+        const candidate = resolve(mapping.physicalRoot, ...suffix.split("/").filter(Boolean));
+        if (existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    throw new Error(`Runtime artifact 逻辑路径未映射：${filePath}`);
 }
 
 /** 从当前编译上下文解析 `nbook/*` 包级源码。 */

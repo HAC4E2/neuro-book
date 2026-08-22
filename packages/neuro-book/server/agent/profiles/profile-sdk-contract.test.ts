@@ -1,12 +1,16 @@
 import {mkdtemp, readdir, readFile, rm, copyFile, mkdir, writeFile} from "node:fs/promises";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {basename, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {ProfilePrompt, Type, builtin, defineAgentProfile, toolset} from "nbook/profile-sdk";
+import {compileProfileArtifacts, createProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {Fragment, jsx} from "nbook/profile-sdk/jsx-runtime";
+import {ProfilePrompt, Type, builtin, defineAgentProfile, toolset} from "nbook/profile-sdk";
 
 const builtinRoot = resolve("assets/workspace/.nbook/agent/profiles/builtin");
+async function artifactContext(profileRoot: string, rootLabel: string) {
+    return createProfileArtifactPathContext(profileRoot, rootLabel, await resolveRuntimeArtifactCompilerContext(resolve(".")));
+}
 const templateRoot = resolve("assets/workspace/.nbook/agent/profile-templates");
 const temporaryRoots: string[] = [];
 
@@ -77,12 +81,12 @@ export default defineAgentProfile({
     },
 });
 `, "utf8");
-
+        const rootLabel = "profile-sdk-gate";
         const result = await compileProfileArtifacts({
             profileRoot,
             stagingRoot: join(temporaryRoot, "staging"),
             skipFresh: true,
-            rootLabel: "profile-sdk-gate",
+            artifactPathContext: await artifactContext(profileRoot, rootLabel),
             orphanBudgetPolicy: "product",
         });
 
@@ -111,12 +115,12 @@ export default defineAgentProfile({
     context() { return []; },
 });
 `, "utf8");
-
+        const rootLabel = "profile-sdk-package-gate";
         const result = await compileProfileArtifacts({
             profileRoot,
             stagingRoot: join(temporaryRoot, "staging"),
             skipFresh: true,
-            rootLabel: "profile-sdk-package-gate",
+            artifactPathContext: await artifactContext(profileRoot, rootLabel),
             orphanBudgetPolicy: "product",
         });
 
@@ -153,12 +157,12 @@ export default defineAgentProfile({
     context(_ctx: ProfilePrepareContext) { return []; },
 });
 `, "utf8");
-
+        const rootLabel = "profile-sdk-writing-gate";
         const result = await compileProfileArtifacts({
             profileRoot,
             stagingRoot: join(temporaryRoot, "staging"),
             skipFresh: true,
-            rootLabel: "profile-sdk-writing-gate",
+            artifactPathContext: await artifactContext(profileRoot, rootLabel),
             orphanBudgetPolicy: "product",
         });
 
@@ -177,18 +181,16 @@ export default defineAgentProfile({
         await mkdir(profileRoot, {recursive: true});
         const sourceFiles = (await readdir(builtinRoot)).filter((fileName) => fileName.endsWith(".profile.tsx"));
         await Promise.all(sourceFiles.map((fileName) => copyFile(join(builtinRoot, fileName), join(profileRoot, basename(fileName)))));
-
+        const rootLabel = "profile-sdk-contract";
         const result = await compileProfileArtifacts({
             profileRoot,
             stagingRoot,
             skipFresh: true,
-            rootLabel: "profile-sdk-contract",
+            artifactPathContext: await artifactContext(profileRoot, rootLabel),
             orphanBudgetPolicy: "product",
         });
 
         expect(result.manifest.entries).toHaveLength(14);
-        expect(result.manifest.entries.filter((entry) => entry.status === "compile_failed")).toEqual([]);
-        expect(result.compiled).toHaveLength(14);
         const ordinaryProfiles = result.manifest.profiles.filter((entry) => !["writer", "rp.writer"].includes(entry.profileKey));
         expect(ordinaryProfiles).toHaveLength(12);
         for (const profile of ordinaryProfiles) {

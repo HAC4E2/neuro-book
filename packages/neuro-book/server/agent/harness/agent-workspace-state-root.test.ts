@@ -6,8 +6,10 @@ import {Type} from "typebox";
 import {afterEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {createFauxModels, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
@@ -54,7 +56,15 @@ describe("Agent State Root工具链", () => {
         harness = new NeuroAgentHarness({
             runtimePaths,
             repo: new JsonlSessionRepository(workspaceFsRoot),
-            profiles: new AgentProfileCatalog(join(installationRoot, "missing-system"), join(installationRoot, "missing-user")),
+            profiles: new AgentProfileCatalog(
+                join(installationRoot, "missing-system"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, installationRoot),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(installationRoot),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -132,7 +142,15 @@ describe("Agent State Root工具链", () => {
         harness = new NeuroAgentHarness({
             runtimePaths,
             repo: new JsonlSessionRepository(workspaceRoot),
-            profiles: new AgentProfileCatalog(join(installationRoot, "missing-system"), join(installationRoot, "missing-user")),
+            profiles: new AgentProfileCatalog(
+                join(installationRoot, "missing-system"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, installationRoot),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(installationRoot),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,

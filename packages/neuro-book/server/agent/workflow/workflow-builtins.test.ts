@@ -1,6 +1,7 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {cp, rm} from "node:fs/promises";
 import {resolve} from "node:path";
-import {describe, expect, test} from "vitest";
+import {afterAll, beforeAll, describe, expect, test} from "vitest";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {
     MemorySessionStore,
@@ -17,12 +18,16 @@ import {
  * 内置 workflow 的无模型运行级回归：catalog 真编译 Type 注入源码，MockAgentPort 执行真实控制流。
  */
 describe("bundled workflows", () => {
-    const catalog = new WorkflowCatalog(
-        resolve("assets", "workspace", ".nbook", "agent", "workflows"),
-        testHostPath("tmp", "workflow-builtins-test", "no-user-root"),
-    );
-
-    /** 从 catalog 取定义；缺失时让测试以明确错误失败。 */
+    const installRoot = testHostPath("tmp", "workflow-builtins-install");
+    let catalog: WorkflowCatalog;
+    beforeAll(async () => {
+        await rm(installRoot, {recursive: true, force: true});
+        await cp(resolve("assets", "workspace", ".nbook", "agent", "workflows"), installRoot, {recursive: true});
+        catalog = new WorkflowCatalog(installRoot);
+    });
+    afterAll(async () => {
+        await rm(installRoot, {recursive: true, force: true});
+    });
     async function workflow(key: string): Promise<AgentWorkflowDefinition> {
         const item = await catalog.get(key);
         if (!item) throw new Error(`测试所需 workflow 不存在：${key}`);

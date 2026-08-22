@@ -14,15 +14,17 @@ import {
     profileFullReleaseChangedSinceCompile,
     ProfileReleasePublisher,
     readProfileArtifactManifest,
+    resolveProfileArtifactPathContext,
     type ProfileArtifactManifest,
     type ProfileArtifactManifestEntry,
     type ProfileArtifactManifestItem,
+    type ProfileArtifactPathContext,
     type ProfileArtifactSourceFile,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {appLogger} from "nbook/server/app-logs/logger";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {
     isProjectNotOpenError,
     ProjectNotOpenError,
@@ -34,7 +36,6 @@ import type {
     AgentProfileIssueDto,
 } from "nbook/shared/dto/agent-profile.dto";
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
-import {resolveApplicationRoot} from "nbook/server/workspace-files/system-workspace-assets";
 
 type CompileTask = {
     id: number;
@@ -78,16 +79,14 @@ type CleanupStagedDir = (dir: string) => Promise<void>;
 let service: ProfileCompileWorkerService | undefined;
 const WORKER_VERSION = "profile-compile-worker-v2";
 const MAX_DEFAULT_COMPILE_WORKERS = 4;
-const USER_PROFILE_ROOT_LABEL = "workspace/.nbook/agent/profiles";
+const DEFAULT_PROFILE_ROOT_LABEL = "workspace/.nbook/agent/profiles";
 
-/**
- * 获取 profile 编译 worker 单例。
- */
-export function useProfileCompileWorker(): ProfileCompileWorkerService {
-    const userProfileRoot = defaultUserProfileRoot();
-    if (!service || service.version !== WORKER_VERSION || service.userProfileRoot !== userProfileRoot) {
+/** 获取指定 physical root 的编译 worker；Install Profile Root 与 RuntimePaths 均由调用方提供。 */
+export function useProfileCompileWorker(profileRoot: string, runtimePaths: RuntimePaths, profileRootLabel = DEFAULT_PROFILE_ROOT_LABEL): ProfileCompileWorkerService {
+    const normalizedRoot = resolve(profileRoot);
+    if (!service || service.version !== WORKER_VERSION || service.profileRoot !== normalizedRoot || service.profileRootLabel !== profileRootLabel || !sameRuntimePaths(service.runtimePaths, runtimePaths)) {
         service?.dispose();
-        service = new ProfileCompileWorkerService(WORKER_VERSION, undefined, undefined, userProfileRoot);
+        service = new ProfileCompileWorkerService(WORKER_VERSION, undefined, undefined, normalizedRoot, profileRootLabel, runtimePaths);
     }
     return service;
 }
@@ -111,9 +110,17 @@ export class ProfileCompileWorkerService {
         readonly version = WORKER_VERSION,
         maxWorkers = defaultCompileWorkerCount(),
         private readonly cleanupStagedDir: CleanupStagedDir = defaultCleanupStagedDir,
-        readonly userProfileRoot = defaultUserProfileRoot(),
+        readonly profileRoot: string,
+        readonly profileRootLabel = DEFAULT_PROFILE_ROOT_LABEL,
+        readonly runtimePaths?: RuntimePaths,
     ) {
         this.maxWorkers = Math.max(1, maxWorkers);
+    }
+    private async resolveArtifactPathContext(profileRoot = this.profileRoot, rootLabel = this.profileRootLabel): Promise<ProfileArtifactPathContext> {
+        if (!this.runtimePaths) {
+            throw new Error("Profile compile worker 需要显式 RuntimePaths。");
+        }
+        return resolveProfileArtifactPathContext(profileRoot, rootLabel, this.runtimePaths.applicationRoot);
     }
 
     /**
@@ -242,7 +249,7 @@ export class ProfileCompileWorkerService {
             slot.worker.postMessage({
                 id: task.id,
                 mode: task.mode,
-                input: withWorkerRoot(task.input, this.userProfileRoot),
+                input: withWorkerRoot(task.input, this.profileRoot, this.profileRootLabel, this.runtimePaths),
             });
         }
     }
@@ -285,7 +292,7 @@ export class ProfileCompileWorkerService {
         }
         const slot: CompileWorkerSlot = {
             id: this.nextWorkerId++,
-            worker: await createCompileWorker(),
+            worker: await createCompileWorker(this.runtimePaths),
             task: null,
         };
         if (this.disposed) {
@@ -316,21 +323,28 @@ export class ProfileCompileWorkerService {
             this.schedulePump();
             return;
         }
-        void publishWorkerResult(task, message.result, this.cleanupStagedDir).then((result) => {
-            slot.task = null;
-            this.running.delete(task.id);
-            task.resolve(result);
-            this.schedulePump();
-        }, (error) => {
-            slot.task = null;
-            this.running.delete(task.id);
-            if (isProjectNotOpenError(error)) {
-                task.reject(error);
-            } else {
-                task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
+        void (async () => {
+            try {
+                const staged = message.result.stagedRelease;
+                const artifactPathContext = await this.resolveArtifactPathContext(
+                    staged?.profileRoot ?? this.profileRoot,
+                    staged?.manifest.profilesRoot ?? this.profileRootLabel,
+                );
+                const result = await publishWorkerResult(task, message.result, artifactPathContext, this.cleanupStagedDir);
+                slot.task = null;
+                this.running.delete(task.id);
+                task.resolve(result);
+            } catch (error) {
+                slot.task = null;
+                this.running.delete(task.id);
+                if (isProjectNotOpenError(error)) {
+                    task.reject(error);
+                } else {
+                    task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
+                }
             }
             this.schedulePump();
-        });
+        })();
     }
 
     private handleCrash(slot: CompileWorkerSlot, error: Error): void {
@@ -375,12 +389,13 @@ export class ProfileCompileWorkerService {
 
     private async runCompileAllFanout(task: CompileTask): Promise<AgentProfileCompileResultDto> {
         const startedAt = performance.now();
-        const buildCompiledDir = join(dirname(this.userProfileRoot), ".staging", "profile-artifact-fan-in", randomUUID());
+        const buildCompiledDir = join(dirname(this.profileRoot), ".staging", "profile-artifact-fan-in", randomUUID());
         const stagedDirs: string[] = [buildCompiledDir];
         try {
+            const artifactPathContext = await this.resolveArtifactPathContext();
             const [files, existingManifest] = await Promise.all([
-                listProfileArtifactSourceFiles(this.userProfileRoot),
-                readProfileArtifactManifest(this.userProfileRoot),
+                listProfileArtifactSourceFiles(this.profileRoot),
+                readProfileArtifactManifest(this.profileRoot, artifactPathContext),
             ]);
             await mkdir(buildCompiledDir, {recursive: true});
             const workerResults = await this.compileEntriesInWorkerPool(files);
@@ -400,7 +415,7 @@ export class ProfileCompileWorkerService {
                     await copyCompiledEntryArtifacts(result.stagedRelease.buildCompiledDir, buildCompiledDir, entry);
                 }
             }
-            if (await profileFullReleaseChangedSinceCompile(this.userProfileRoot, files, entries)) {
+            if (await profileFullReleaseChangedSinceCompile(this.profileRoot, files, entries)) {
                 return {
                     ok: false,
                     stale: true,
@@ -416,12 +431,13 @@ export class ProfileCompileWorkerService {
             const manifest: ProfileArtifactManifest = {
                 compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
                 generatedAt: JSON.stringify(existingManifest.entries) === JSON.stringify(nextEntries) ? existingManifest.generatedAt : new Date().toISOString(),
-                profilesRoot: USER_PROFILE_ROOT_LABEL,
+                profilesRoot: this.profileRootLabel,
                 entries: nextEntries,
                 profiles: nextEntries.filter(isLoadedManifestEntry),
             };
             await new ProfileReleasePublisher({
-                profileRoot: this.userProfileRoot,
+                profileRoot: this.profileRoot,
+                artifactPathContext,
                 mode: task.publish?.mode ?? "disk_only",
                 registry: task.publish?.registry,
             }).publishStaged(buildCompiledDir, manifest);
@@ -490,11 +506,11 @@ export class ProfileCompileWorkerService {
         }
         slot.task = task;
         this.running.set(task.id, task);
-        slot.worker.postMessage({
-            id: task.id,
-            mode: task.mode,
-            input: withWorkerRoot(task.input, this.userProfileRoot),
-        });
+            slot.worker.postMessage({
+                id: task.id,
+                mode: task.mode,
+                input: withWorkerRoot(task.input, this.profileRoot, this.profileRootLabel, this.runtimePaths),
+            });
         return promise;
     }
 }
@@ -502,7 +518,12 @@ export class ProfileCompileWorkerService {
 /**
  * 在主线程发布 worker 生成的 staging release，并清理临时目录。
  */
-async function publishWorkerResult(task: CompileTask, result: ProfileCompileWorkerResult, cleanupStagedDir: CleanupStagedDir = defaultCleanupStagedDir): Promise<AgentProfileCompileResultDto> {
+async function publishWorkerResult(
+    task: CompileTask,
+    result: ProfileCompileWorkerResult,
+    artifactPathContext: ProfileArtifactPathContext,
+    cleanupStagedDir: CleanupStagedDir = defaultCleanupStagedDir,
+): Promise<AgentProfileCompileResultDto> {
     throwLifecycleError(result);
     const staged = result.stagedRelease;
     if (!staged) {
@@ -519,6 +540,7 @@ async function publishWorkerResult(task: CompileTask, result: ProfileCompileWork
         }
         const publisher = new ProfileReleasePublisher({
             profileRoot: staged.profileRoot,
+            artifactPathContext,
             mode: task.publish?.mode ?? "disk_only",
             registry: task.publish?.registry,
         });
@@ -527,7 +549,7 @@ async function publishWorkerResult(task: CompileTask, result: ProfileCompileWork
             if (!entry || staged.manifest.entries.length !== 1) {
                 throw new Error("single profile compile worker 未返回单文件 staging entry。");
             }
-            await publisher.publishStagedEntry(staged.buildCompiledDir, entry, staged.manifest.profilesRoot);
+            await publisher.publishStagedEntry(staged.buildCompiledDir, entry);
         } else {
             await publisher.publishStaged(staged.buildCompiledDir, staged.manifest);
         }
@@ -699,19 +721,24 @@ function defaultCompileWorkerCount(): number {
     return Math.max(1, Math.min(MAX_DEFAULT_COMPILE_WORKERS, availableParallelism() - 2));
 }
 
-function defaultUserProfileRoot(): string {
-    return resolve(resolveUserNbookRoot(), "agent", "profiles");
-}
 
-function withWorkerRoot<T extends AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto>(input: T, userProfileRoot: string): T & {userProfileRoot: string} {
+function withWorkerRoot<T extends AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto>(input: T, profileRoot: string, profileRootLabel: string, runtimePaths?: RuntimePaths): T & {profileRoot: string; profileRootLabel: string; runtimePaths?: RuntimePaths} {
     return {
         ...input,
-        userProfileRoot,
+        profileRoot,
+        profileRootLabel,
+        runtimePaths,
     };
 }
+function sameRuntimePaths(left: RuntimePaths | undefined, right: RuntimePaths | undefined): boolean {
+    return left?.applicationRoot === right?.applicationRoot
+        && left?.stateRoot === right?.stateRoot
+        && left?.workspaceRoot === right?.workspaceRoot
+        && left?.userNbookRoot === right?.userNbookRoot;
+}
 
-async function createCompileWorker(): Promise<Worker> {
-    const workerPaths = await resolveCompileWorkerPaths();
+async function createCompileWorker(runtimePaths?: RuntimePaths): Promise<Worker> {
+    const workerPaths = await resolveCompileWorkerPaths(runtimePaths);
     if (workerPaths.precompiled) {
         return new Worker(pathToFileURL(workerPaths.entry));
     }
@@ -720,8 +747,11 @@ async function createCompileWorker(): Promise<Worker> {
     });
 }
 
-async function resolveCompileWorkerPaths(root = resolveApplicationRoot()): Promise<CompileWorkerPaths> {
-    return await resolveProfileCompileWorkerPathsForRoot(root, process.env);
+async function resolveCompileWorkerPaths(runtimePaths?: RuntimePaths): Promise<CompileWorkerPaths> {
+    if (!runtimePaths) {
+        throw new Error("Profile compile worker 需要显式 RuntimePaths。");
+    }
+    return await resolveProfileCompileWorkerPathsForRoot(runtimePaths.applicationRoot, process.env);
 }
 
 /**

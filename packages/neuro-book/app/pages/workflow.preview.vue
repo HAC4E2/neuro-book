@@ -20,7 +20,7 @@ type WorkflowCatalogItemDto = {
     description: string;
     whenToUse: string | null;
     argsHint: Array<{name: string; label: string; defaultValue: string}>;
-    source: "system" | "user" | "project";
+    source: "install" | "project";
 };
 
 type WorkflowCatalogDto = {
@@ -466,7 +466,7 @@ watch(formalProjectSession.state, (next, previous) => {
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="text-sm font-semibold text-[var(--text-main)]">{{ workflow.title }}</span>
                             <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-muted)]">{{ workflow.key }}</span>
-                            <span v-if="workflow.source === 'user'" class="rounded border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-info)]">用户覆盖</span>
+                            <span v-if="workflow.source === 'install'" class="rounded border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-info)]">已安装</span>
                             <span v-else-if="workflow.source === 'project'" class="rounded border border-[var(--accent-main)] bg-[var(--accent-bg)] px-1.5 py-0.5 text-[10px] text-[var(--accent-text)]">项目覆盖</span>
                         </div>
                         <p class="mt-2 text-xs leading-5 text-[var(--text-secondary)]">{{ workflow.description }}</p>

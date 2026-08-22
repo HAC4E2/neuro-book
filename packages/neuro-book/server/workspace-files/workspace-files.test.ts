@@ -7,8 +7,8 @@ import {promisify} from "node:util";
 import YAML from "yaml";
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path"
-import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, resolveProfileArtifactPathContext, validateProfileArtifact, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {compileVariableDefinitions, resolveVariableDefinitionArtifactPathContext} from "nbook/server/agent/variables/definition-artifact";
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
@@ -32,8 +32,8 @@ import {
 import {closeWorkspaceTreeIndex, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex, type ProjectWorkspaceTreeIndexOptions} from "nbook/server/workspace-files/project-workspace-index";
 import {PROJECT_FILE_INDEX_MODULE_TOKEN, setProjectFileIndexCommitHookForTest} from "nbook/server/workspace-files/project-file-index";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {resolveRuntimeWorkspaceRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {getSystemWorkspaceAssetContextForTest, resolveSystemNbookRoot, setSystemWorkspaceAssetContextForTest} from "nbook/server/workspace-files/system-workspace-assets";
+import {getWorkspaceRuntimeRootContextForTest, resolveRuntimeWorkspaceRoot, resolveUserNbookRoot, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
@@ -1349,6 +1349,32 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(userPresetPath, backup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
+    });
+    it("Runtime legacy projection 不复制 Agent package，也不覆盖 Install Root ledger 内容", async () => {
+        const sourceRoot = path.join(assets.systemNbookRoot);
+        const targetRoot = path.join(assets.userNbookRoot);
+        const skillPath = path.join(targetRoot, "agent", "skills", "runtime-skill", "SKILL.md");
+        const workflowPath = path.join(targetRoot, "agent", "workflows", "runtime-workflow", "workflow.ts");
+        const profilePath = path.join(targetRoot, "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        await fs.mkdir(path.dirname(skillPath), {recursive: true});
+        await fs.mkdir(path.dirname(workflowPath), {recursive: true});
+        await fs.mkdir(path.dirname(profilePath), {recursive: true});
+        await fs.writeFile(skillPath, "local skill\n", "utf-8");
+        await fs.writeFile(workflowPath, "export const local = true;\n", "utf-8");
+        await fs.writeFile(profilePath, "local profile\n", "utf-8");
+        const result = await syncSystemAssetsToUserAssets({
+            sourceNbookRoot: sourceRoot,
+            targetNbookRoot: targetRoot,
+            syncManagedAssets: true,
+            excludeAgentPackages: true,
+            syncProfiles: false,
+            syncVariableDefinitions: true,
+            syncVariableCompiledArtifacts: false,
+        });
+        expect(result.profileWarnings).toEqual([]);
+        await expect(fs.readFile(skillPath, "utf-8")).resolves.toBe("local skill\n");
+        await expect(fs.readFile(workflowPath, "utf-8")).resolves.toBe("export const local = true;\n");
+        await expect(fs.readFile(profilePath, "utf-8")).resolves.toBe("local profile\n");
     });
 
     it("同步系统 assets 会保留手改 wrapper，并硬切缺少 sync state 的旧 scripts", async () => {

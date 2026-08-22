@@ -3,6 +3,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
 import {WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
 import {z} from "zod";
@@ -37,12 +38,13 @@ try {
         "};",
         "",
     ].join("\n"), "utf8");
-    const schema = await new WorldSchemaLoader().load(absoluteFsPath(root));
+    const compilerContext = resolveRuntimeArtifactCompilerContext(runtimePaths.applicationRoot);
+    const schema = await new WorldSchemaLoader(compilerContext).load(absoluteFsPath(root));
     const character = schema.subjectTypes.character;
     if (!character || character.attrs.name?.type !== "string" || character.attrs.mentor?.type !== "ref(character)") {
         throw new Error("World Engine Product schema smoke 未得到预期 schema projection。");
     }
-    const calendar = await new WorldCalendarLoader().load(absoluteFsPath(root));
+    const calendar = await new WorldCalendarLoader(compilerContext).load(absoluteFsPath(root));
     const instant = calendar.parse("Product1 00:00:00");
     const formatted = calendar.format(instant);
     if (instant !== 0n || formatted !== "Product1 00:00:00") {

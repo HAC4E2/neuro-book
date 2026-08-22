@@ -15,6 +15,8 @@ import {createFauxModels, fauxProviderConfig, type FauxModelsFixture} from "nboo
 import {Type} from "typebox";
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
+import type {AgentMessage, Usage} from "nbook/server/agent/messages/types";
+import type {Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -32,12 +34,13 @@ import type {StoredAgentMessage, StoredToolResultMessage} from "nbook/server/age
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {encodeFollowUpQueue} from "nbook/server/agent/messages/stored-message-codec";
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
-import type {AgentMessage, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_TASKS_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
-import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {compileVariableDefinitions, resolveVariableDefinitionArtifactPathContext} from "nbook/server/agent/variables/definition-artifact";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {closeAllProjects, openProject, projectOccupancy, ProjectNotOpenError, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
@@ -146,8 +149,8 @@ function visibleMessageText(messages: Array<AgentMessage | StoredAgentMessage>):
 }
 
 class BrokenProfileCatalog extends AgentProfileCatalog {
-    constructor(systemRoot: string, userRoot: string, private readonly issueMessage = "源码错误") {
-        super(systemRoot, userRoot);
+    constructor(systemRoot: string, _userRoot: string, private readonly issueMessage = "源码错误") {
+        super(systemRoot, undefined, undefined, undefined, (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, systemRoot), {install: "workspace/.nbook/agent/profiles"});
     }
 
     override async get(profileKey: string): Promise<AgentProfile> {
@@ -165,7 +168,7 @@ class BrokenProfileCatalog extends AgentProfileCatalog {
                 {
                     key: "test.unloadable",
                     name: "Broken Profile",
-                    source: "user",
+                    source: "project",
                     builtin: false,
                     loadStatus: "source_error",
                     hasSettingsForm: false,
@@ -175,13 +178,34 @@ class BrokenProfileCatalog extends AgentProfileCatalog {
                         code: "source_error",
                         message: this.issueMessage,
                         profileKey: "test.unloadable",
-                        source: "user",
+                        source: "project",
                     },
                 },
             ],
             issues: snapshot.issues,
         };
     }
+}
+const testArtifactCompilerRoot = resolve(import.meta.dirname, "../../..");
+
+function createTestProfileCatalog(systemRoot: string, compilerRoot = testArtifactCompilerRoot): AgentProfileCatalog {
+    return new AgentProfileCatalog(
+        systemRoot,
+        undefined,
+        undefined,
+        undefined,
+        (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, compilerRoot),
+        {install: "workspace/.nbook/agent/profiles"},
+    );
+}
+
+function createTestHarness(options: ConstructorParameters<typeof NeuroAgentHarness>[0]): NeuroAgentHarness {
+    const definitionArtifactPathContextProvider = options.definitionArtifactPathContextProvider
+        ?? createVariableDefinitionArtifactPathContextResolver(testArtifactCompilerRoot);
+    return new NeuroAgentHarness({
+        ...options,
+        definitionArtifactPathContextProvider,
+    });
 }
 
 async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<ReturnType<JsonlSessionRepository["reduce"]>> {
@@ -244,9 +268,9 @@ describe("NeuroAgentHarness", () => {
                 models: [{id: fauxModel.id, name: fauxModel.name, enabled: true, api: fauxModel.api, contextWindowTokens: fauxModel.contextWindow, maxTokens: fauxModel.maxTokens}],
             }],
         }}), "utf8");
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -570,7 +594,7 @@ describe("NeuroAgentHarness", () => {
     it.each(["iterator", "result"] as const)("provider %s rejection 释放 admission 并只写一个 error lifecycle", async (kind) => {
         await harness.dispose();
         const restoreProvider = installBrokenProviderStream(faux, kind);
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -1775,9 +1799,9 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "need input"},
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "page-missing-system-profiles"), join(root, "page-missing-user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "page-missing-system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -1953,9 +1977,9 @@ describe("NeuroAgentHarness", () => {
             profileKey: "test.page-missing",
             initial: {},
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "deleted-system-profiles"), join(root, "deleted-user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "deleted-system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -2005,9 +2029,9 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "need input"},
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "deleted-system-profiles"), join(root, "deleted-user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "deleted-system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -2087,9 +2111,9 @@ describe("NeuroAgentHarness", () => {
             invocationId: waiting.invocationId,
             status: "resumed",
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "restored-system-profiles"), join(root, "restored-user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "restored-system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -2142,7 +2166,7 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "need input"},
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -2200,7 +2224,7 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "need input"},
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -2253,7 +2277,7 @@ describe("NeuroAgentHarness", () => {
             invocationId: "lost-running",
             status: "start",
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -2752,7 +2776,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("harness toolExecution=sequential 会强制 parallel 工具串行执行", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -2985,7 +3009,7 @@ describe("NeuroAgentHarness", () => {
     }, 10_000);
 
     it("显式关闭 compaction 且上下文超出模型窗口时 run 失败", async () => {
-        const smallWindowHarness = new NeuroAgentHarness({
+        const smallWindowHarness = createTestHarness({
             repo: harness.repo,
             modelResolver: () => ({
                 ...faux.getModel(),
@@ -3055,7 +3079,7 @@ describe("NeuroAgentHarness", () => {
                 return fauxAssistantMessage(fauxText("done"));
             },
         ]);
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => ({
@@ -3206,7 +3230,7 @@ describe("NeuroAgentHarness", () => {
                 return fauxAssistantMessage(fauxText("back to profile"));
             },
         ]);
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => ({
@@ -3290,7 +3314,7 @@ describe("NeuroAgentHarness", () => {
                 return {};
             },
         }), false);
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => ({
@@ -3327,7 +3351,7 @@ describe("NeuroAgentHarness", () => {
                 return {};
             },
         }), false);
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => {
@@ -3356,7 +3380,7 @@ describe("NeuroAgentHarness", () => {
             baseUrl: "https://private-provider.example/v1",
             headers: {Authorization: "Bearer private-token"},
         };
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => defaultModel,
@@ -3399,7 +3423,7 @@ describe("NeuroAgentHarness", () => {
             provider: "explicit-provider",
             providerConfigId: "explicit-provider",
         };
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => {
@@ -3455,7 +3479,7 @@ describe("NeuroAgentHarness", () => {
             providerConfigId: "faux",
         };
         const runtimeModelIds: string[] = [];
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => {
@@ -3547,7 +3571,7 @@ describe("NeuroAgentHarness", () => {
             providerConfigId: "deleted-provider",
         };
         let providerDeleted = false;
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => {
@@ -3628,7 +3652,7 @@ describe("NeuroAgentHarness", () => {
             contextWindow: 128000,
             maxTokens: 8000,
         };
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => resolvedModel,
@@ -3675,7 +3699,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("没有可用默认模型时新 session 保持空模型并在运行时报配置错误", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => {
@@ -3708,7 +3732,7 @@ describe("NeuroAgentHarness", () => {
             provider: "deleted-provider",
             providerConfigId: "deleted-provider",
         };
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => {
@@ -5230,7 +5254,7 @@ describe("NeuroAgentHarness", () => {
     }, 30_000);
 
     it("source profile completed 后会后台运行 summarizer 并写回 active leaf title/summary", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -5327,7 +5351,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer 写回前 source leaf 变化时只标 dirty 不覆盖当前 title/summary", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -5412,7 +5436,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer preflight 超过 Agent Dialogue Content token 上限时只写状态不启动 hidden run", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -5480,7 +5504,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer sourceInvocation interval 会按 source prompt turn 间隔触发", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -5563,7 +5587,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer 运行失败后同一份 Agent Dialogue Content 可以重试", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -5639,7 +5663,7 @@ describe("NeuroAgentHarness", () => {
     }, 20_000);
 
     it("rename 命令锁定标题后 summarizer 只更新 summary，summarize 命令解锁并立即重跑", async () => {
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -6442,9 +6466,9 @@ describe("NeuroAgentHarness", () => {
         expect(waiting.status).toBe("waiting");
 
         // 模拟服务重启：新 harness 读取同一 JSONL store，activeInvocations 为空，只能走列表恢复路径
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "restart-system-profiles"), join(root, "restart-user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "restart-system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -7236,7 +7260,7 @@ describe("NeuroAgentHarness", () => {
             reason: "legacy archive without detach",
         });
 
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -7486,7 +7510,7 @@ describe("NeuroAgentHarness", () => {
         await expectRelationsMatchSessionLedger(harness, parent.sessionId);
         await expectRelationsMatchSessionLedger(harness, child.sessionId);
 
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -7594,7 +7618,7 @@ describe("NeuroAgentHarness", () => {
         }, null, 4), "utf8");
 
         const observedDefaultModelKeys: Array<string | null> = [];
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (config, profileKey, override) => {
@@ -8307,9 +8331,9 @@ describe("NeuroAgentHarness", () => {
         });
         await harness.dispose();
         faux.setResponses([fauxAssistantMessage("重启回流已处理")]);
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -8377,7 +8401,7 @@ describe("NeuroAgentHarness", () => {
             providerConfigId: "faux",
         };
         const runtimeModelIds: string[] = [];
-        harness = new NeuroAgentHarness({
+        harness = createTestHarness({
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => {
@@ -8746,9 +8770,9 @@ describe("NeuroAgentHarness", () => {
         await running;
         releaseProvider!();
         await harness.drainBackgroundTasks();
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "restored-system-profiles"), join(root, "restored-user-profiles")),
+            profiles: createTestProfileCatalog(join(root, "restored-system-profiles"), root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -8931,7 +8955,7 @@ describe("NeuroAgentHarness", () => {
             });
             releaseProvider.resolve();
             const result = await running;
-            const restored = new NeuroAgentHarness({
+            const restored = createTestHarness({
                 repo: new JsonlSessionRepository(root),
                 modelResolver: () => faux.getModel(),
                 runtimeResolver: () => faux.runtime,
@@ -9300,7 +9324,7 @@ describe("NeuroAgentHarness", () => {
         });
         await harness.detachAgent(child.sessionId, parent.sessionId);
 
-        const nextHarness = new NeuroAgentHarness({
+        const nextHarness = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -9349,7 +9373,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         const childSnapshot = await harness.getSessionRecovery(child.sessionId);
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -9470,7 +9494,7 @@ describe("NeuroAgentHarness", () => {
             message: {text: "wait"},
         });
 
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -9583,7 +9607,7 @@ describe("NeuroAgentHarness", () => {
             profileKey: "test.unloadable",
             initial: {},
         });
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             profiles: new BrokenProfileCatalog(join(root, "broken-system-profiles"), join(root, "broken-user-profiles")),
             modelResolver: () => faux.getModel(),
@@ -9631,7 +9655,7 @@ describe("NeuroAgentHarness", () => {
             initial: {},
         });
         const issueMessage = "加载错误".repeat(30_000);
-        const restored = new NeuroAgentHarness({
+        const restored = createTestHarness({
             repo: new JsonlSessionRepository(root),
             profiles: new BrokenProfileCatalog(join(root, "large-error-system-profiles"), join(root, "large-error-user-profiles"), issueMessage),
             modelResolver: () => faux.getModel(),
@@ -10281,7 +10305,14 @@ describe("NeuroAgentHarness", () => {
                 schemaVersion: 1,
                 variables: {scope: value},
             }, null, 2)}\n`, "utf8");
-            await compileVariableDefinitions({definitionRoot});
+            await compileVariableDefinitions({
+                definitionRoot,
+                artifactPathContext: await resolveVariableDefinitionArtifactPathContext(
+                    definitionRoot,
+                    `workspace/${value}/.nbook/agent/variables`,
+                    testArtifactCompilerRoot,
+                ),
+            });
         }
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.project-vars", name: "Project Vars"},

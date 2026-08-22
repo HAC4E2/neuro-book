@@ -1,5 +1,5 @@
 import path from "node:path";
-import {mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {cp, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -56,13 +56,13 @@ describe("silly-tavern-card cli helpers", () => {
     it("暴露为 v3 skill catalog 可发现的系统 skill", async () => {
         const emptyUserRoot = await mkdtemp(testHostPath("st-card-empty-user-skills-"));
         tempRoots.push(emptyUserRoot);
-        const catalog = new SkillCatalog(
-            path.resolve("assets/workspace/.nbook/agent/skills"),
-            emptyUserRoot,
-        );
+        const installRoot = await mkdtemp(testHostPath("st-card-install-skills-"));
+        tempRoots.push(installRoot);
+        await cp(path.resolve("assets/workspace/.nbook/agent/skills"), installRoot, {recursive: true});
+        const catalog = new SkillCatalog(installRoot);
         const canonicalSkill = await catalog.get("novel-import-silly-tavern-card");
 
-        expect(canonicalSkill?.source).toBe("system");
+        expect(canonicalSkill?.source).toBe("install");
         expect(canonicalSkill?.description).toContain("SillyTavern");
         expect(canonicalSkill?.description).toContain("worldbooks");
     });

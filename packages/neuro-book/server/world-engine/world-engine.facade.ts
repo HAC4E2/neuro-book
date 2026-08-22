@@ -3,6 +3,7 @@ import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
 import type {WorldCalendar} from "nbook/server/world-engine/calendar";
 import {flattenAttrs, WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
 import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
+import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {WorldEngineService} from "nbook/server/world-engine/world-engine.service";
 import {executeCodeAct} from "nbook/server/world-engine/codeact-sandbox";
 import {createWorldApi} from "nbook/server/world-engine/codeact-api";
@@ -52,8 +53,8 @@ export type ExecuteWorldOptions = {
 
 /** 世界引擎后端门面。 */
 export class WorldEngineFacade {
-    private readonly schemaLoader = new WorldSchemaLoader();
-    private readonly calendarLoader = new WorldCalendarLoader();
+    private readonly schemaLoader: WorldSchemaLoader;
+    private readonly calendarLoader: WorldCalendarLoader;
     private readonly clients = new Set<WorldEngineClientEntry>();
     private accepting = true;
     private closed = false;
@@ -63,7 +64,11 @@ export class WorldEngineFacade {
         private readonly workspaceRoot: AbsoluteFsPath,
         private readonly workspace: ResolvedProjectWorkspace,
         private readonly database: ProjectDatabaseModuleHandle,
-    ) {}
+        compilerContext: RuntimeArtifactCompilerContext | Promise<RuntimeArtifactCompilerContext>,
+    ) {
+        this.schemaLoader = new WorldSchemaLoader(compilerContext);
+        this.calendarLoader = new WorldCalendarLoader(compilerContext);
+    }
 
     /**
      * 关闭当前generation仍持有的全部World Engine client。

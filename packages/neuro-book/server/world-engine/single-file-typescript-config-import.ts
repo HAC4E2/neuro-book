@@ -9,7 +9,6 @@ import {init as initModuleLexer, parse as parseModuleImports} from "es-module-le
 import type * as TypeScript from "typescript";
 import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 import {
-    resolveRuntimeArtifactCompilerContext,
     resolveRuntimeArtifactNbookPath,
     resolveRuntimeArtifactPackagePath,
     type RuntimeArtifactCompilerContext,
@@ -30,8 +29,8 @@ type SingleFileTypeScriptConfigImport = {
     label: WorldEngineConfigLabel;
     /** Project Workspace `.nbook` 内由调用方显式决定的可写 runtime cache 根。 */
     runtimeCacheRoot: string;
-    /** Source 或 verified Product 的唯一模块解析合同。 */
-    compilerContext?: RuntimeArtifactCompilerContext;
+    /** Source 或 verified Product 的唯一模块解析合同；必须由调用方显式传入。 */
+    compilerContext: RuntimeArtifactCompilerContext;
 };
 
 /**
@@ -44,7 +43,7 @@ type SingleFileTypeScriptConfigImport = {
 export async function importSingleFileTypeScriptConfig<TModule extends object>(
     input: SingleFileTypeScriptConfigImport,
 ): Promise<TModule> {
-    const compilerContext = input.compilerContext ?? await resolveRuntimeArtifactCompilerContext();
+    const compilerContext = input.compilerContext;
     const content = await fs.readFile(input.filePath);
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
     const cachePath = path.join(input.runtimeCacheRoot, ".staging", `.world-engine-${input.label}-${hash}.mjs`);

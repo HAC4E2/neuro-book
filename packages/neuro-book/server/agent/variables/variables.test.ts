@@ -7,7 +7,14 @@ import {Type} from "typebox";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
 import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
-import {compileVariableDefinitions, loadCompiledVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
+import {
+    compileVariableDefinitions as compileVariableDefinitionsWithContext,
+    loadCompiledVariableDefinitions as loadCompiledVariableDefinitionsWithContext,
+    readVariableDefinitionManifest as readVariableDefinitionManifestWithContext,
+    validateVariableDefinitionArtifact as validateVariableDefinitionArtifactWithContext,
+    resolveVariableDefinitionArtifactPathContext,
+    type VariableDefinitionArtifactPathContext,
+} from "nbook/server/agent/variables/definition-artifact";
 import {generateVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {applyVariableJsonPatch} from "nbook/server/agent/variables/json-patch";
 import {defineClientVariable, defineProjectVariable, defineSessionVariable, defineWorkspaceRootVariable, VariableRegistry} from "nbook/server/agent/variables/registry";
@@ -20,6 +27,54 @@ import {
     resolvedProjectWorkspace,
 } from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+const TEST_COMPILER_ROOT = resolve(import.meta.dirname, "../../..");
+type VariableDefinitionTestCompileOptions = Omit<Parameters<typeof compileVariableDefinitionsWithContext>[0], "artifactPathContext"> & {
+    rootLabel?: string;
+};
+
+async function variableDefinitionArtifactPathContext(
+    definitionRoot: string,
+    rootLabel = "test/workspace/.nbook/agent/variables",
+): Promise<VariableDefinitionArtifactPathContext> {
+    return resolveVariableDefinitionArtifactPathContext(definitionRoot, rootLabel, TEST_COMPILER_ROOT);
+}
+
+async function compileVariableDefinitions(options: VariableDefinitionTestCompileOptions) {
+    const {rootLabel, ...compileOptions} = options;
+    return compileVariableDefinitionsWithContext({
+        ...compileOptions,
+        artifactPathContext: await variableDefinitionArtifactPathContext(options.definitionRoot, rootLabel),
+    });
+}
+
+async function readVariableDefinitionManifest(definitionRoot: string, rootLabel?: string) {
+    return readVariableDefinitionManifestWithContext(
+        definitionRoot,
+        await variableDefinitionArtifactPathContext(definitionRoot, rootLabel),
+    );
+}
+
+async function validateVariableDefinitionArtifact(
+    definitionRoot: string,
+    item: Parameters<typeof validateVariableDefinitionArtifactWithContext>[1],
+    options: Parameters<typeof validateVariableDefinitionArtifactWithContext>[3] = {},
+    rootLabel?: string,
+) {
+    return validateVariableDefinitionArtifactWithContext(
+        definitionRoot,
+        item,
+        await variableDefinitionArtifactPathContext(definitionRoot, rootLabel),
+        options,
+    );
+}
+
+async function loadCompiledVariableDefinitions(input: Omit<Parameters<typeof loadCompiledVariableDefinitionsWithContext>[0], "artifactPathContext"> & {rootLabel?: string}) {
+    return loadCompiledVariableDefinitionsWithContext({
+        definitionRoot: input.definitionRoot,
+        namespace: input.namespace,
+        artifactPathContext: await variableDefinitionArtifactPathContext(input.definitionRoot, input.rootLabel),
+    });
+}
 
 describe("Agent variable system", () => {
     it("未绑定Project的Session始终使用Workspace Root存储global变量", async () => {
@@ -835,14 +890,16 @@ describe("Agent variable system", () => {
             process.chdir(productRoot);
             process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
             process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
-            const manifest = await compileVariableDefinitions({
+            const artifactPathContext = await resolveVariableDefinitionArtifactPathContext(
                 definitionRoot,
-                rootLabel: "assets/workspace/.nbook/agent/variables",
-            });
+                "assets/workspace/.nbook/agent/variables",
+                productRoot,
+            );
+            const manifest = await compileVariableDefinitionsWithContext({definitionRoot, artifactPathContext});
             const item = manifest.definitions[0]!;
 
             expect(item.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
-            await expect(validateVariableDefinitionArtifact(definitionRoot, item, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
+            await expect(validateVariableDefinitionArtifactWithContext(definitionRoot, item, artifactPathContext, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
         } finally {
             if (previousImageRoot === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
             else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = previousImageRoot;
@@ -889,9 +946,13 @@ describe("Agent variable system", () => {
                 process.chdir(productRoot);
                 process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
                 process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
-                const manifest = await compileVariableDefinitions({
+                const artifactPathContext = await variableDefinitionArtifactPathContext(
                     definitionRoot,
-                    rootLabel: "assets/workspace/.nbook/agent/variables",
+                    "assets/workspace/.nbook/agent/variables",
+                );
+                const manifest = await compileVariableDefinitionsWithContext({
+                    definitionRoot,
+                    artifactPathContext,
                     manifestGeneratedAt: new Date(0).toISOString(),
                 });
                 results.push({

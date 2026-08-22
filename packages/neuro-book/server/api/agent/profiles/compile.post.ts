@@ -13,11 +13,16 @@ import {profileWorkbenchRootsFromRuntime} from "nbook/server/agent/profiles/prof
 export default defineEventHandler((event) => withProjectHttpError(async () => {
     const body = await validateBody(event, AgentProfileCompileRequestDtoSchema);
     const harness = useAgentHarness();
-    const result = await useProfileCompileWorker().compile(body, {
+    const runtimePaths = harness.runtimePaths;
+    if (!runtimePaths) {
+        throw new Error("Profile compile API 需要显式 RuntimePaths。");
+    }
+    const roots = profileWorkbenchRootsFromRuntime(runtimePaths);
+    const result = await useProfileCompileWorker(roots.profileRoot, runtimePaths, "workspace/.nbook/agent/profiles").compile(body, {
         mode: "in_process",
         registry: harness.profiles,
     });
-    const detail = await readProfileSource(harness.profiles, {fileName: body.fileName}, profileWorkbenchRootsFromRuntime(harness.runtimePaths)).catch(() => result.detail);
+    const detail = await readProfileSource(harness.profiles, {fileName: body.fileName}, roots).catch(() => result.detail);
     const preview = body.preview && detail?.manifest?.key
         ? await previewAgentProfilePrepare(harness, {
             profileKey: detail.manifest.key,

@@ -7,6 +7,7 @@ import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {defineAgentProfile, normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -73,7 +74,11 @@ describe("subject memory tools", () => {
         }}), "utf8");
         const profiles = new AgentProfileCatalog(
             join(root, "missing-system-profiles"),
-            join(root, "missing-user-profiles"),
+            undefined,
+            undefined,
+            undefined,
+            createProfileArtifactPathContextResolver(runtimePaths.applicationRoot),
+            {install: "workspace/.nbook/agent/profiles"},
         );
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),

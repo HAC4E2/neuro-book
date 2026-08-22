@@ -425,7 +425,7 @@ describe("Product Release宿主合同", () => {
         expect(publicManagerVerifier).not.toContain('"--depth=1"');
         const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun --cwd packages/neuro-book run generate");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
-        const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("product-agent-state-root-smoke.ts"));
+        const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts"));
         expect(generatedSourcesStep).toBeGreaterThan(-1);
         expect(productGraphStep).toBeGreaterThan(generatedSourcesStep);
         expect(agentStateRootStep?.["timeout-minutes"]).toBe(10);
@@ -435,7 +435,7 @@ describe("Product Release宿主合同", () => {
         expect(preflightRun).toContain("bun x tsc --noEmit -p scripts/tsconfig.json");
         expect(preflightRun).toContain("bun run --cwd packages/owned-process typecheck");
         expect(preflightRun).toContain("scripts/deploy/product-start.test.ts");
-        expect(preflightRun).toContain("product-agent-state-root-smoke.ts");
+        expect(preflightRun).toContain("packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts");
         expect(preflightRun).toContain("--config scripts/release/release-assets-vitest.config.ts");
         expect(scriptsTsconfig.include).toContain("deploy/windows-owned-process-smoke.ts");
         expect(releaseAssetsVitestConfig.test.include).toEqual([

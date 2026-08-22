@@ -4,6 +4,7 @@ import {join} from "node:path";
 import {
     compileVariableDefinitions,
     loadCompiledVariableDefinitions,
+    resolveVariableDefinitionArtifactPathContext,
     validateVariableDefinitionArtifact,
 } from "nbook/server/agent/variables/definition-artifact";
 import {createAuthoringCacheLease} from "nbook/server/runtime/authoring-cache";
@@ -18,6 +19,11 @@ if (!compiler.productRuntime) {
 
 const lease = await createAuthoringCacheLease(runtimePaths.cacheRoot, "variable-authoring-check");
 const definitionRoot = join(lease.root, "definitions");
+const artifactPathContext = await resolveVariableDefinitionArtifactPathContext(
+    definitionRoot,
+    "cache/authoring/variable-authoring-check",
+    runtimePaths.applicationRoot,
+);
 try {
     await mkdir(definitionRoot, {recursive: true});
     await writeFile(join(definitionRoot, "definitions.ts"), `
@@ -31,7 +37,7 @@ export default [defineWorkspaceRootVariable({
 `, "utf8");
     const manifest = await compileVariableDefinitions({
         definitionRoot,
-        rootLabel: "cache/authoring/variable-authoring-check",
+        artifactPathContext,
     });
     await lease.verifyForConsumption();
     const item = manifest.definitions[0];
@@ -41,11 +47,11 @@ export default [defineWorkspaceRootVariable({
     if (item.registeredPaths.length !== 1 || item.registeredPaths[0] !== "global.release-check") {
         throw new Error(`Variable authoring smoke manifest 注册路径异常：${item.registeredPaths.join(", ") || "none"}`);
     }
-    const validation = await validateVariableDefinitionArtifact(definitionRoot, item);
+    const validation = await validateVariableDefinitionArtifact(definitionRoot, item, artifactPathContext);
     if (!validation.fresh) {
         throw new Error(`Variable authoring smoke artifact 无效：${validation.reason}`);
     }
-    const loaded = await loadCompiledVariableDefinitions({definitionRoot, namespace: "global"});
+    const loaded = await loadCompiledVariableDefinitions({definitionRoot, artifactPathContext, namespace: "global"});
     const definition = loaded.definitions[0];
     if (loaded.issues.length > 0 || loaded.definitions.length !== 1
         || definition?.namespace !== "global" || definition.key !== "release-check") {

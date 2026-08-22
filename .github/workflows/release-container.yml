@@ -68,7 +68,7 @@ jobs:
           mkdir -p "${smoke_root}/application"
           NEURO_BOOK_APPLICATION_ROOT="${smoke_root}/application" \
           NEURO_BOOK_STATE_ROOT="${smoke_root}/state" \
-          bun scripts/deploy/product-agent-state-root-smoke.ts
+          bun packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts
       - name: Verify release asset contracts
         run: bun node_modules/vitest/vitest.mjs run --config scripts/release/release-assets-vitest.config.ts
 
@@ -114,6 +114,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: packages/neuro-book/Dockerfile
           platforms: ${{ matrix.platform }}
           build-args: |
             NEURO_BOOK_SOURCE_REVISION=${{ inputs.revision }}

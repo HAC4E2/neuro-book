@@ -213,8 +213,8 @@ describe("迁移后九个 CI 工作流结构合同", () => {
     it("Desktop、Manager 与 Release workflow 使用正确 owner 命令和产物边界", async () => {
         const desktop = await readWorkflow("desktop-envelope-contract.yml");
         expect(paths(desktop)).toEqual(expect.arrayContaining([
-            "packages/neuro-book/shared/desktop-contract.ts",
-            "packages/neuro-book/shared/desktop-uac-broker.ts",
+            "packages/neuro-book-contracts/src/desktop-*.ts",
+            "packages/neuro-book-manager/src/desktop-uac-client*.ts",
             "packages/neuro-book-manager/**",
         ]));
         expect(commands(desktop)).toContain("bun x vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-bundle.test.ts scripts/build/product-build-environment.test.ts");

@@ -21,6 +21,11 @@
 | 首次执行扩展 command | [07](./07-extension-system-deep-dive.md) | scan → registry → `onCommand` → `ExtensionsActivator` → `MainThreadCommands` | description/control plane → Extension Host → RPC → Workbench command | [`extensionService.ts`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/workbench/services/extensions/browser/extensionService.ts)、[`extensionDescriptionRegistry.ts`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/workbench/services/extensions/common/extensionDescriptionRegistry.ts)、[`extHostExtensionActivator.ts`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/workbench/api/common/extHostExtensionActivator.ts)、[`mainThreadCommands.ts`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/workbench/api/browser/mainThreadCommands.ts) |
 | 首次打开扩展 View | [07](./07-extension-system-deep-dive.md) | View descriptor → `onView:<id>` → host/provider | View model → activation → Tree/Webview provider | [`viewDescriptorService.ts`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/workbench/services/views/browser/viewDescriptorService.ts)、[`abstractExtensionService.ts`](https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/src/vs/workbench/services/extensions/common/abstractExtensionService.ts) |
 | 当前章节生成角色插图 | [09](./09-text-to-image-plugin-journey.md) | Job/Tool/Attachment/History 现状 + 未实现 Provider 边界 | command → schema/approval → durable job → candidate provider → authority | NeuroBook 证据见 [08](./08-neurobook-mapping.md) 与 [09](./09-text-to-image-plugin-journey.md) |
+| 图片输入到视觉模型 | [11](./11-image-input-to-text-current-journey.md) | `AgentAttachmentCodec`、`SessionAttachmentAuthority`、`hydrateForProvider`、Session transcript | 图片 bytes → Session ownership → 视觉模型 → 文本结果 | 当前包源码/测试 |
+| 第一方 Workbench View 宿主 | [12](./12-workbench-view-host-refactor.md) | 固定槽位、Activity/Chrome、Novel IDE layout、resize boundary | Activity/descriptor → Container/View → Project/Session context | 当前包源码；View Registry 为研究建议 |
+| 扩展控制面联邦描述快照 | [13](./13-extension-control-plane-refactor.md) | Profile/Skill/Workflow/Tool Catalog、Job、RuntimePaths | 各领域 owner → 只读 description snapshot → Host consumer | 当前包源码；统一快照为研究建议 |
+| 双向图像系统边界 | [14](./14-bidirectional-image-system-boundaries.md) | 当前图生文链 + 候选文生图缺口 | 图生文 Session message；文生图 Provider/Job/Project asset 候选链 | 当前包源码与研究映射 |
+| 重构顺序与决策门 | [15](./15-refactor-sequence-and-decision-gates.md) | capability 归属、迁移消费者、authority 和停止条件 | View Host → Description Snapshot → 图生文 → 独立文生图合同 | 研究建议；不替代 Proposal/Spec/Task |
 
 ## 2. 按 VS Code 模块索引
 
@@ -185,13 +190,17 @@
 | Profile（NeuroBook） | Agent 能力、schema、工具和运行入口的业务资产 | 不应因同名而当作 VS Code User Data Profile |
 | durable job | 有持久记录、状态、恢复和结果/回流语义的后台任务 | 不保证外部 side effect 可安全重放 |
 | authority boundary | 某类状态或副作用的唯一允许读写守门边界 | UI preview 不等于 authority commit |
+| first-party View Host | 宿主拥有的第一方 View descriptor、Container、生命周期和布局边界 | 第一阶段不接收第三方 Vue component、render function、HTML/CSS 或任意模块路径 |
+| federated Description Snapshot | 把各领域稳定描述投影成只读宿主视图 | 不接管 Profile/Skill/Workflow/Tool 的加载、覆盖、编译、执行或持久化真相 |
+| Session Attachment authority | 校验 Session JSONL 对附件的 durable ownership、locator、canonical metadata 和 Provider admission | `AttachmentRef`/locator 不等于 Project canonical asset |
+| Project canonical image asset | 经 Project authority 校验、hash、metadata 和提交后的图片原图 | Provider bytes、预览、Session attachment 或 WebP variant 都不自动等于该状态 |
 ## 5. 源码锚点与检查边界
 
 ### 已验证
 
 - 固定 SHA 路径存在，关键 symbol 可由 GitHub `blob/<full-sha>/...` 链接复查；
 - 本组 01–07 逐章列出源码锚点与未读边界；
-- NeuroBook 08–09 只把实际读取到的路径标为当前现状；
+- NeuroBook 08–15 分别标注当前源码证据、目标合同、研究建议和未验证候选，不把研究建议当作当前现状。
 - 既有 [`../vscode-extension-system.md`](../vscode-extension-system.md) 继续保留研究证据身份，新专题引用而不复制其正文。
 
 ### 从源码推断
@@ -222,12 +231,14 @@
 
 交付前应检查：
 
-1. 01–10 每章存在；README 阅读顺序和用户旅程矩阵链接到对应章节；
-2. 每条 VS Code 主源码路径在固定 SHA commit tree 中存在，链接不使用 `main`；
-3. README 矩阵每一行都能找到入口、宿主、服务/模型、状态/持久化、成功和失败闭环；
-4. 07 的 command/View 时序都明确“描述已登记”与“运行代码已激活”的差异；
-5. 09 的边界表没有“NeuroBook 已支持文生图”或“ImageVariantModule 是生图队列”等超范围声称；
-6. `docs:check` 通过后，另跑研究目录专用相对链接检查，因为仓库文档脚本可能排除 `docs/research/`；
-7. 变更范围只包含 `docs/research/vscode/**`，保留用户已有的 `docs/research/vscode-extension-system.md` 和其他未跟踪文件。
+1. 01–15 每章存在；README 阅读顺序和用户旅程矩阵链接到对应章节。
+2. 每条 VS Code 主源码路径在固定 SHA commit tree 中存在，链接不使用 `main`。
+3. README 矩阵每一行都能找到入口、宿主、服务/模型、状态/持久化、成功和失败闭环。
+4. 07 的 command/View 时序都明确“描述已登记”与“运行代码已激活”的差异。
+5. 09 的边界表没有“NeuroBook 已支持文生图”或“ImageVariantModule 是生图队列”等超范围声称。
+6. 11 的主旅程闭环图片 bytes、Attachment/Session authority、视觉模型 hydration、文本结果和 Session 事件/消息。
+7. 12–15 明确当前证据、研究建议、失败/恢复和源码锚点；13/15 不把 Task 135 或空 Spec 注册表写成当前实现。
+8. `docs:check` 通过后，另跑研究目录专用相对链接检查，因为仓库文档脚本可能排除 `docs/research/`。
+9. 变更范围只包含 `packages/neuro-book/docs/research/vscode/**`；保留用户已有的 `packages/neuro-book/docs/research/vscode-extension-system.md` 和其他未跟踪文件。
 
 本索引不替代固定 SHA 源码本身。若后续报告引用了本章术语，应同时保留章节证据状态和对应源码链接。

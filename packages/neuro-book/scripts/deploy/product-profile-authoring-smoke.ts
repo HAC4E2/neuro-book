@@ -4,6 +4,7 @@ import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {
     compileProfileArtifacts,
+    createProfileArtifactPathContext,
     validateProfileArtifact,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
@@ -74,11 +75,15 @@ export default defineAgentProfile({
     context() { return []; },
 });
 `, "utf8");
-
+    const artifactPathContext = createProfileArtifactPathContext(
+        profileRoot,
+        "cache/release-checks/profile-authoring",
+        compilerContext,
+    );
     const result = await compileProfileArtifacts({
         profileRoot,
         fileName,
-        rootLabel: "cache/release-checks/profile-authoring",
+        artifactPathContext,
         stagingRoot: join(runRoot, "staging"),
         skipFresh: true,
         orphanBudgetPolicy: "product",
@@ -92,7 +97,7 @@ export default defineAgentProfile({
             : "没有生成 artifact";
         throw new Error(`Profile authoring smoke 编译失败：${issue}`);
     }
-    const validation = await validateProfileArtifact(profileRoot, item);
+    const validation = await validateProfileArtifact(profileRoot, item, artifactPathContext);
     if (!validation.fresh) {
         throw new Error(`Profile authoring smoke artifact 无效：${validation.reason}`);
     }

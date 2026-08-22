@@ -5,25 +5,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {WorldEngineFacade} from "nbook/server/world-engine/world-engine.facade";
 import type {JsonValue} from "nbook/server/world-engine/types";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {PROJECT_DATABASE_MODULE_TOKEN} from "nbook/server/workspace-files/project-database-module";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
-import {
-    ProjectNotOpenError,
-    requireActiveReadyProject,
-    requireReadyModuleHandle,
-} from "nbook/server/workspace-files/project-session";
-import {
-    openProjectForTest,
-    removeProjectWorkspaceForTest,
-} from "nbook/server/workspace-files/project-session-test-utils";
+import {ProjectNotOpenError, requireActiveReadyProject, requireReadyModuleHandle} from "nbook/server/workspace-files/project-session";
+import {openProjectForTest, removeProjectWorkspaceForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
-import {
-    createIsolatedWorkspaceAssets,
-    type IsolatedWorkspaceAssets,
-} from "nbook/server/workspace-files/test-workspace-fixture";
+import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 
 const createdProjects: string[] = [];
 const createdFacades: WorldEngineFacade[] = [];
@@ -698,7 +689,12 @@ function createFacade(projectRoot = createdProjects.at(-1)): WorldEngineFacade {
     }
     const ready = requireActiveReadyProject(projectWorkspaceRef(projectRoot));
     const database = requireReadyModuleHandle(ready, PROJECT_DATABASE_MODULE_TOKEN);
-    const facade = new WorldEngineFacade(resolveRuntimeWorkspaceRoot(), ready.workspace, database);
+    const facade = new WorldEngineFacade(
+        resolveRuntimeWorkspaceRoot(),
+        ready.workspace,
+        database,
+        resolveRuntimeArtifactCompilerContext(path.resolve(import.meta.dirname, "../../")),
+    );
     createdFacades.push(facade);
     return facade;
 }

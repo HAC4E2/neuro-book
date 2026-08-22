@@ -1,7 +1,7 @@
 # 08 NeuroBook 映射：先借控制平面，再决定是否开放执行
 
-> 本章是研究映射，不是产品 Spec、Proposal 或 ADR。  
-> 证据标签：**已验证** = 当前 NeuroBook 源码直接确认；**从代码推断** = 多个事实的关系归纳；**候选** = 可研究方向；**未验证** = 本轮没有运行或没有对应实现。
+> 本章是研究映射，不是产品 Spec、Proposal 或 ADR。`docs/specs/README.md` 当前“待实现规范”为空；本章提出的 capability 均是研究建议，不写成 `planned` 或 `implemented`。
+> 证据标签：**已验证当前实现** = 当前 NeuroBook 源码与已读测试直接确认；**已批准但未实施的目标合同** = Reference/Task 明确批准但尚无代码证据；**研究建议** = 本轮映射结论；**未验证/候选** = 当前没有足够源码、测试或运行证据。
 
 ## 结论先行
 
@@ -17,6 +17,32 @@ L0  声明和快照统一
 ```
 
 现在适合研究 L0，谨慎研究 L1；不能把 VS Code 的 Extension Host 当作 NeuroBook 第一步的安全执行方案。所有“建议”都需要后续 Proposal/Spec/ADR 才能变成合同。
+## 本轮三项 capability map
+
+本轮不把“扩展系统”设计成一个新造的万能 `Plugin` 类，也不把已有 Catalog 的 owner、覆盖、编译、安装和执行语义抹平。三项 capability 的关系固定如下：
+
+```text
+workbench-view-host（研究建议）
+  └─ 提供宿主拥有的 View/Container/Editor 位置与生命周期边界
+extension-control-plane（研究建议）
+  └─ 索引 Profile/Skill/Workflow/Tool 与第一方 View/Command 的描述，不接管各领域真相源
+bidirectional-image-workflows（研究建议；内部拆为两条独立链）
+  ├─ image-understanding：当前图片输入→视觉模型→文本结果链的结构化研究
+  └─ image-generation：候选文本→生成 Provider→Project 图片资产链
+```
+
+依赖方向是 `workbench-view-host` 与 `extension-control-plane` 共同支撑 `bidirectional-image-workflows`。图生文与文生图不共用 Provider、Job、资产提交状态：前者当前已有 Session Attachment/视觉模型链，后者仍无生成 Provider、生成 schema 或 Project 图片资产 authority 的实现证据。
+
+### 当前实现、目标合同和研究建议不能混用
+
+| 对象 | 当前可写成什么 | 不能写成什么 | 证据边界 |
+| --- | --- | --- | --- |
+| 图片输入到视觉模型 | **已验证当前实现** | 专用 OCR、结构化角色卡写入或文生图 | `packages/neuro-book/server/agent/attachments/agent-attachment-codec.ts`、`SessionAttachmentAuthority`、Harness hydration 与 Task 108 测试 |
+| Profile Catalog/Registry、Skill Catalog、Workflow Catalog、Tool Registry、Agent Job | **已验证当前实现**，各自语义独立 | 统一 Description Registry、统一 activation 状态机或第三方插件沙箱 | 当前源码与测试；没有统一贡献代码面 |
+| `reference/agent/agent-asset-install.md` 的 Install Root/`installed.json`/provenance ledger | **已批准但未实施的目标合同** | 当前安装器、已实现账本或 Seed Root 已完成切换 | Task 135 README 明示协议尚未实施；产品代码未发现对应实现 |
+| `workbench-view-host`、`extension-control-plane`、双向图像 capability | **研究建议** | 已登记 `planned` Spec 或当前产品合同 | `docs/specs/README.md` 的待实现规范表当前为空 |
+
+因此后续章节的“阶段”“门”都是研究验收顺序，不是已经批准的 Spec 版本；接受其中任一行为前，必须另建 Proposal、登记唯一 capability 的 `planned` Spec，再创建 Task。
 
 ### 本章术语的使用边界
 
@@ -40,21 +66,21 @@ L0  声明和快照统一
 
 ## 1. 现状底图：已有零件分别守什么边界
 
-| NeuroBook 现状 | 已验证证据 | 它实际守住的边界 | 不能据此声称 |
+| NeuroBook 现状 | 已验证当前实现证据 | 它实际守住的边界 | 不能据此声称 |
 | --- | --- | --- | --- |
-| Harness 单例 | `server/agent/http.ts::useAgentHarness` | HTTP 入口共享运行期事件中心和依赖；创建时传入 `RuntimePaths`、JSONL repo、`watchProfiles` | 没有统一 IoC 容器；也不是可执行插件沙箱 |
-| RuntimePaths | `server/runtime/paths/runtime-paths.ts::createRuntimePaths` | 显式决定 application/state/cache/workspace/secrets 等根，模块从同一组物理边界取路径 | 不能让插件自行发现 cwd、环境或任意根目录 |
-| Profile Catalog | `server/agent/profiles/catalog.ts::AgentProfileCatalog` | system/user root 按 key 覆盖；Runtime 只加载 `.compiled` artifact；snapshot 暴露 load status、schema、toolKeys | 不是通用 extension registry；不代表第三方代码已开放 |
-| Profile Registry | `server/agent/profiles/profile-registry.ts::ProfileRegistry.publish` | 内存 catalog 原子替换并递增 epoch；不读盘、不 import | 不等于 durable transaction；磁盘和内存翻转仍可能出现 committed-but-registry-failed |
-| Profile 发布 | `profile-artifact-compiler.ts::ProfileReleasePublisher` | staging artifact、publish queue/lock、manifest 原子替换；in-process 模式随后翻 Registry | 不保证任意 Provider 或插件执行安全 |
-| Tool Registry | `server/agent/tools/tool-registry.ts::AgentToolRegistry` | `allowed()` 只向 Provider 提供 tool schema；执行硬权限由 `executionToolKeys` 等调用上下文决定 | schema 可见不等于执行授权；Profile 不能绕过 Harness 拿函数 |
-| Durable Job | `server/agent/jobs/agent-job-manager.ts::AgentJobManager.spawn` | running snapshot、AbortSignal、preview/waiting、durable record、恢复和 delivery | 不是 Provider FIFO；Job 恢复不等于外部副作用自动可重放 |
-| Session Attachment | `server/agent/attachments/session-attachment-authority.ts::SessionAttachmentAuthority` | JSONL 是唯一持久真相；内存 index 可按签名重建；引用和 Project 门禁 fail closed | 不是项目资产库；不能把公开 locator 当授权 |
-| Project History | `server/workspace-history/project-history.ts::recordProjectWrite` | 写入收口后记账；失败 fail-open，watcher/reconcile 补 external 历史 | 不能保证正文回写与资产写入自动组成一个事务 |
-| Workbench | `app/pages/index.vue`、`app/stores/novel-ide.ts` | 固定 Activity item、editor tabs、layout mode、多个 panel width 的前端状态 | 不是通用 View Registry；第三方 Vue 组件不可直接注入主布局 |
-| Resize 宿主 | `app/composables/useResizablePanel.ts::useResizablePanel` | 统一边缘拖拽、clamp、动画帧合并、结束时提交尺寸 | 不能让每个插件再私有一套面板尺寸持久化 |
-| Config Service | `server/config/config-service.ts::readConfigSnapshot/saveGlobalConfig/saveProjectConfig` | global/project 读取、effective merge、target 校验、Provider connection stability、Profile settings mutation | 不是 VS Code `contributes.configuration`；没有开放式 schema registry |
-| 图片变体 | `server/media/image-variant.ts::ImageVariantModule` | 已授权 source 的受限 WebP 变体队列、cache/dedupe、`activeJobs=2`、`queuedJobs=64` | 不是 AI 生图 Provider、Project FIFO 或图片资产发布 authority |
+| Harness 单例 | `packages/neuro-book/server/agent/http.ts::useAgentHarness` | HTTP 入口共享运行期事件中心和依赖；创建时传入 `RuntimePaths`、JSONL repo、`watchProfiles` | 没有统一 IoC 容器；也不是可执行插件沙箱 |
+| RuntimePaths | `packages/neuro-book/server/runtime/paths/runtime-paths.ts::createRuntimePaths` | 显式决定 application/state/cache/workspace/secrets 等根，模块从同一组物理边界取路径 | 不能让插件自行发现 cwd/环境或任意根目录 |
+| Profile Catalog | `packages/neuro-book/server/agent/profiles/catalog.ts::AgentProfileCatalog` | system/user root 按 key 覆盖；Runtime 只加载 `.compiled` artifact；snapshot 暴露 load status、schema、toolKeys | 不是通用 extension registry；不代表第三方代码已开放 |
+| Profile Registry | `packages/neuro-book/server/agent/profiles/profile-registry.ts::ProfileRegistry.publish` | 内存 catalog 原子替换并递增 epoch；不读盘、不 import | 不等于 durable transaction；磁盘和内存翻转仍可能出现 committed-but-registry-failed |
+| Profile 发布 | `packages/neuro-book/server/agent/profiles/profile-artifact-compiler.ts::ProfileReleasePublisher` | staging artifact、publish queue/lock、manifest 原子替换；in-process 模式随后翻 Registry | 不保证任意 Provider 或插件执行安全 |
+| Tool Registry | `packages/neuro-book/server/agent/tools/tool-registry.ts::AgentToolRegistry` | `allowed()` 只向 Provider 提供 tool schema；执行硬权限由 `executionToolKeys` 等调用上下文决定 | schema 可见不等于执行授权；Profile 不能绕过 Harness 拿函数 |
+| Durable Job | `packages/neuro-book/server/agent/jobs/agent-job-manager.ts::AgentJobManager.spawn` | running snapshot、AbortSignal、preview/waiting、durable record、恢复和 delivery | 不是 Provider FIFO；Job 恢复不等于外部副作用自动可重放 |
+| Session Attachment | `packages/neuro-book/server/agent/attachments/session-attachment-authority.ts::SessionAttachmentAuthority` | JSONL 是唯一持久真相；内存 index 可按签名重建；引用和 Project 门禁 fail closed | 不是项目资产库；不能把公开 locator 当授权 |
+| Project History | `packages/neuro-book/server/workspace-history/project-history.ts::recordProjectWrite` | 写入收口后记账；失败 fail-open，watcher/reconcile 补 external 历史 | 不能保证正文回写与资产写入自动组成一个事务 |
+| Workbench | `packages/neuro-book/app/pages/index.vue`、`app/stores/novel-ide.ts` | 固定 Activity item、editor tabs、layout mode、多个 panel width 的前端状态 | 不是通用 View Registry；第三方 Vue 组件不可直接注入主布局 |
+| Resize 宿主 | `packages/neuro-book/app/composables/useResizablePanel.ts::useResizablePanel` | 统一边缘拖拽、clamp、动画帧合并、结束时提交尺寸 | 不能让每个插件再私有一套面板尺寸持久化 |
+| Config Service | `packages/neuro-book/server/config/config-service.ts::readConfigSnapshot/saveGlobalConfig/saveProjectConfig` | global/project 读取、effective merge、target 校验、Provider connection stability、Profile settings mutation | 不是 VS Code `contributes.configuration`；没有开放式 schema registry |
+| 图片变体 | `packages/neuro-book/server/media/image-variant.ts::ImageVariantModule` | 已授权 source 的受限 WebP 变体队列、cache/dedupe、`activeJobs=2`、`queuedJobs=64` | 不是 AI 生图 Provider、Project FIFO 或图片资产发布 authority |
 
 ## 2. NeuroBook 当前最接近 VS Code 的不是代码加载，而是边界分离
 
@@ -275,20 +301,20 @@ active but provider/job failed
 
 ### NeuroBook 主证据
 
-- [`server/agent/http.ts`](../../../server/agent/http.ts)：`useAgentHarness` 的 globalThis 单例与显式 Harness 装配。
-- [`server/runtime/paths/runtime-paths.ts`](../../../server/runtime/paths/runtime-paths.ts)：`RuntimePaths` 与 `createRuntimePaths` 的物理根集合。
-- [`server/agent/profiles/catalog.ts`](../../../server/agent/profiles/catalog.ts)：`AgentProfileCatalog` 的 compiled catalog、snapshot、runtime registry refresh/publish。
-- [`server/agent/profiles/profile-registry.ts`](../../../server/agent/profiles/profile-registry.ts)：`ProfileRegistry.publish` 的内存视图/epoch。
-- [`server/agent/profiles/profile-artifact-compiler.ts`](../../../server/agent/profiles/profile-artifact-compiler.ts)：Profile release staging、manifest 原子替换与 Registry 翻转失败状态。
-- [`server/agent/tools/tool-registry.ts`](../../../server/agent/tools/tool-registry.ts)：`AgentToolRegistry.allowed/allowedWithOverrides` 的 schema projection。
-- [`server/agent/jobs/agent-job-manager.ts`](../../../server/agent/jobs/agent-job-manager.ts)：`AgentJobManager.spawn/cancel/recoverInterrupted/commitTerminal`。
-- [`server/agent/attachments/session-attachment-authority.ts`](../../../server/agent/attachments/session-attachment-authority.ts)：Session JSONL attachment authority、canonical ownership 和 Project 门禁。
-- [`server/workspace-history/project-history.ts`](../../../server/workspace-history/project-history.ts)：`recordProjectWrite/Delete/Rename` 与 fail-open/reconcile 边界。
-- [`server/config/config-service.ts`](../../../server/config/config-service.ts)：`readConfigSnapshot/saveGlobalConfig/saveProjectConfig` 的 global/project target。
-- [`server/media/image-variant.ts`](../../../server/media/image-variant.ts)：`ImageVariantModule.render` 的受限变体 cache/queue，不是生图 Provider。
-- [`app/pages/index.vue`](../../../app/pages/index.vue)、[`app/stores/novel-ide.ts`](../../../app/stores/novel-ide.ts)：当前固定槽位、editor tabs、layout mode 与 panel state。
-- [`app/composables/useResizablePanel.ts`](../../../app/composables/useResizablePanel.ts)：唯一 resize 宿主边界。
-- [`app/utils/workbench-chrome.ts`](../../../app/utils/workbench-chrome.ts)：固定 Activity Bar capability 枚举。
+- [`../../../server/agent/http.ts`](../../../server/agent/http.ts)：`useAgentHarness` 的 globalThis 单例与显式 Harness 装配。
+- [`../../../server/runtime/paths/runtime-paths.ts`](../../../server/runtime/paths/runtime-paths.ts)：`RuntimePaths` 与 `createRuntimePaths` 的物理根集合。
+- [`../../../server/agent/profiles/catalog.ts`](../../../server/agent/profiles/catalog.ts)：`AgentProfileCatalog` 的 compiled catalog、snapshot、runtime registry refresh/publish。
+- [`../../../server/agent/profiles/profile-registry.ts`](../../../server/agent/profiles/profile-registry.ts)：`ProfileRegistry.publish` 的内存视图/epoch。
+- [`../../../server/agent/profiles/profile-artifact-compiler.ts`](../../../server/agent/profiles/profile-artifact-compiler.ts)：Profile release staging、manifest 原子替换与 Registry 翻转失败状态。
+- [`../../../server/agent/tools/tool-registry.ts`](../../../server/agent/tools/tool-registry.ts)：`AgentToolRegistry.allowed/allowedWithOverrides` 的 schema projection。
+- [`../../../server/agent/jobs/agent-job-manager.ts`](../../../server/agent/jobs/agent-job-manager.ts)：`AgentJobManager.spawn/cancel/recoverInterrupted/commitTerminal`。
+- [`../../../server/agent/attachments/session-attachment-authority.ts`](../../../server/agent/attachments/session-attachment-authority.ts)：Session JSONL attachment authority、canonical ownership 和 Project 门禁。
+- [`../../../server/workspace-history/project-history.ts`](../../../server/workspace-history/project-history.ts)：`recordProjectWrite/Delete/Rename` 与 fail-open/reconcile 边界。
+- [`../../../server/config/config-service.ts`](../../../server/config/config-service.ts)：`readConfigSnapshot/saveGlobalConfig/saveProjectConfig` 的 global/project target。
+- [`../../../server/media/image-variant.ts`](../../../server/media/image-variant.ts)：`ImageVariantModule.render` 的受限变体 cache/queue，不是生图 Provider。
+- [`../../../app/pages/index.vue`](../../../app/pages/index.vue)、[`../../../app/stores/novel-ide.ts`](../../../app/stores/novel-ide.ts)：当前固定槽位、editor tabs、layout mode 与 panel state。
+- [`../../../app/composables/useResizablePanel.ts`](../../../app/composables/useResizablePanel.ts)：唯一 resize 宿主边界。
+- [`../../../app/utils/workbench-chrome.ts`](../../../app/utils/workbench-chrome.ts)：固定 Activity Bar capability 枚举。
 
 ### 检查边界
 

@@ -10,17 +10,10 @@ import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {PROJECT_DATABASE_MODULE_TOKEN} from "nbook/server/workspace-files/project-database-module";
-import {
-    requireReadyModuleHandle,
-} from "nbook/server/workspace-files/project-session";
-import {
-    openProjectForTest,
-    removeProjectWorkspaceForTest,
-} from "nbook/server/workspace-files/project-session-test-utils";
-import {
-    createIsolatedWorkspaceAssets,
-    type IsolatedWorkspaceAssets,
-} from "nbook/server/workspace-files/test-workspace-fixture";
+import {requireReadyModuleHandle} from "nbook/server/workspace-files/project-session";
+import {openProjectForTest, removeProjectWorkspaceForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {WorldEngineFacade} from "./world-engine.facade";
 
 describe("CodeAct Integration", {timeout: 30_000}, () => {
@@ -48,19 +41,13 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), calendarFixture(), "utf-8");
 
         const ready = await openProjectForTest(testProjectRoot);
+        const compilerContext = resolveRuntimeArtifactCompilerContext(assets.applicationRoot);
         facade = new WorldEngineFacade(
             resolveRuntimeWorkspaceRoot(),
             ready.workspace,
             requireReadyModuleHandle(ready, PROJECT_DATABASE_MODULE_TOKEN),
+            compilerContext,
         );
-    }, 30_000);
-
-    afterEach(async () => {
-        await facade.close();
-        if (testProjectRoot) {
-            await removeProjectWorkspaceForTest(testProjectRoot);
-            testProjectRoot = "";
-        }
     }, 30_000);
 
     afterAll(async () => {

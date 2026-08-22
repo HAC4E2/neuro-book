@@ -17,7 +17,7 @@ import {
 import type {NeuroAgentTool, NeuroToolResult, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch, extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveAgentInstallRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {
     authorizeFileOperation,
@@ -615,20 +615,18 @@ function resolveBashPath(): string {
     return found;
 }
 
-/**
- * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
- */
+/** 注入 Agent assets 的 bin 目录。Runtime install 模式只从 State Root 读取系统 bin。 */
 function createBashEnvironment(context: ToolExecutionContext): NodeJS.ProcessEnv {
     const runtimePaths = context.harness.runtimePaths;
-    const userNbookRoot = context.harness.runtimePaths?.userNbookRoot
+    const userNbookRoot = runtimePaths?.userNbookRoot
         ?? resolve(context.harness.workspaceRoot, ".nbook");
-    const systemNbookRoot = context.harness.runtimePaths
-        ? resolveSystemNbookRoot(context.harness.runtimePaths.applicationRoot)
-        : resolve(context.harness.workspaceRoot, ".nbook", "agent", "system");
+    const agentRoot = runtimePaths
+        ? resolveAgentInstallRoot(runtimePaths)
+        : resolve(context.harness.workspaceRoot, ".nbook", "agent");
     const userAgentBin = resolve(userNbookRoot, "agent", "bin");
-    const systemAgentBin = resolve(systemNbookRoot, "agent", "bin");
+    const systemAgentBin = resolve(agentRoot, "bin");
     const userRipgrepConfig = resolve(userNbookRoot, "agent", "config", "ripgreprc");
-    const systemRipgrepConfig = resolve(systemNbookRoot, "agent", "config", "ripgreprc");
+    const systemRipgrepConfig = resolve(agentRoot, "config", "ripgreprc");
     const ripgrepConfig = existsSync(userRipgrepConfig) ? userRipgrepConfig : systemRipgrepConfig;
     const currentPath = process.env.PATH ?? process.env.Path ?? "";
     return {

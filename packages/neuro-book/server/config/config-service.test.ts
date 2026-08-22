@@ -7,6 +7,7 @@ import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {toolset} from "nbook/server/agent/profiles/profile-tools";
 import {defineLowCodeForm, defineResourcePreset, profileHomeResource, type LowCodeFieldDefinition} from "nbook/server/low-code-form";
 import {
@@ -1928,7 +1929,14 @@ function createCatalog(
     profileKeys: string[],
     options: {writingStyleOptions?: LowCodeFieldDefinition["options"]; writingStyleResource?: boolean; customWritingStyleResourceWithoutValidateKey?: boolean; homeReset?: boolean} = {},
 ): AgentProfileCatalog {
-    const profileCatalog = new AgentProfileCatalog("__missing_system__", "__missing_user__");
+    const profileCatalog = new AgentProfileCatalog(
+        "__missing_system__",
+        undefined,
+        undefined,
+        undefined,
+        createProfileArtifactPathContextResolver(path.resolve(import.meta.dirname, "../..")),
+        {install: "workspace/.nbook/agent/profiles"},
+    );
     const writerSettingsForm = defineLowCodeForm({
         schema: Type.Object({
             writingStylePreset: Type.String(),

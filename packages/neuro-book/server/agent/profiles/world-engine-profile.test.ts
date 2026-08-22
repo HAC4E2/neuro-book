@@ -3,6 +3,7 @@ import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import worldEngineProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/world.engine.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
@@ -15,7 +16,14 @@ describe("world.engine profile", () => {
     it("catalog 可以加载 world.engine runtime artifact", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
+            testHostPath("world-engine-workspace", "workspace", "world-engine-project", ".nbook", "agent", "profiles"),
+            undefined,
+            undefined,
+            (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, resolve(import.meta.dirname, "../../..")),
+            {
+                install: "assets/workspace/.nbook/agent/profiles",
+                project: "workspace/world-engine-project/.nbook/agent/profiles",
+            },
         );
         catalog.register(defaultAgentProfile);
 

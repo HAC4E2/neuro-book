@@ -4,8 +4,8 @@ import {createRequire} from "node:module";
 import path from "node:path";
 import process from "node:process";
 import type * as TypeScript from "typescript";
-import {compileVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
-import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {compileVariableDefinitions, loadCompiledVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
+import {resolveVariableDefinitionArtifactPathContext} from "nbook/server/agent/variables/definition-artifact";
 import type {VariableNamespace} from "nbook/server/agent/variables/types";
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
@@ -22,6 +22,13 @@ type CliOptions = {
     command: DefinitionCommand;
     scope?: "global" | "project";
     projectRoot?: string;
+};
+
+type DefinitionTarget = {
+    root: string;
+    label: string;
+    namespace: Extract<VariableNamespace, "global" | "project">;
+    artifactPathContext: Awaited<ReturnType<typeof resolveVariableDefinitionArtifactPathContext>>;
 };
 
 const APPLICATION_ROOT = resolveApplicationRoot();
@@ -97,14 +104,14 @@ function parseArgs(args: string[]): CliOptions | null {
 }
 
 async function runStatus(options: CliOptions): Promise<void> {
-    const target = definitionTarget(options);
+    const target = await definitionTarget(options);
     const files = await findDefinitionFiles(target.root);
     if (files.length === 0) {
         console.log("variable definition status: no source");
         console.log(`definition root: ${target.label}`);
         return;
     }
-    const manifest = await readVariableDefinitionManifest(target.root);
+    const manifest = await readVariableDefinitionManifest(target.root, target.artifactPathContext);
     let failed = false;
     for (const fileName of files) {
         const item = manifest.definitions.find((entry) => entry.fileName === fileName);
@@ -113,7 +120,7 @@ async function runStatus(options: CliOptions): Promise<void> {
             failed = true;
             continue;
         }
-        const validation = await validateVariableDefinitionArtifact(target.root, item);
+        const validation = await validateVariableDefinitionArtifact(target.root, item, target.artifactPathContext);
         console.log(`${fileName}: ${validation.fresh ? "loaded" : "compile_stale"}`);
         console.log(`  artifact: ${item.artifactFileName}`);
         if (item.typeFileName) {
@@ -133,7 +140,7 @@ async function runStatus(options: CliOptions): Promise<void> {
 }
 
 async function runCheck(options: CliOptions): Promise<void> {
-    const target = definitionTarget(options);
+    const target = await definitionTarget(options);
     const files = await findDefinitionFiles(target.root);
     for (const fileName of files) {
         if (!await runTypecheck(path.join(target.root, fileName))) {
@@ -143,6 +150,7 @@ async function runCheck(options: CliOptions): Promise<void> {
     }
     const loaded = await loadCompiledVariableDefinitions({
         definitionRoot: target.root,
+        artifactPathContext: target.artifactPathContext,
         namespace: target.namespace,
     });
     for (const issue of loaded.issues) {
@@ -156,7 +164,7 @@ async function runCheck(options: CliOptions): Promise<void> {
 }
 
 async function runCompile(options: CliOptions): Promise<void> {
-    const target = definitionTarget(options);
+    const target = await definitionTarget(options);
     const files = await findDefinitionFiles(target.root);
     for (const fileName of files) {
         if (!await runTypecheck(path.join(target.root, fileName))) {
@@ -166,7 +174,7 @@ async function runCompile(options: CliOptions): Promise<void> {
     }
     const manifest = await compileVariableDefinitions({
         definitionRoot: target.root,
-        rootLabel: target.label,
+        artifactPathContext: target.artifactPathContext,
     });
     console.log(`variable definition compile wrote ${manifest.definitions.length} artifact(s)`);
     for (const item of manifest.definitions) {
@@ -180,22 +188,22 @@ async function runCompile(options: CliOptions): Promise<void> {
     }
 }
 
-function definitionTarget(options: CliOptions): {root: string; label: string; namespace: Extract<VariableNamespace, "global" | "project">} {
-    const runtimePaths = runtimePathsFromEnv();
-    if (options.scope === "project") {
-        const projectRoot = options.projectRoot!;
-        return {
-            root: path.join(runtimePaths.workspaceRoot, projectRoot, ".nbook", "agent", "variables"),
-            label: `workspace/${projectRoot}/.nbook/agent/variables`,
-            namespace: "project",
-        };
-    }
+async function definitionTarget(options: CliOptions): Promise<DefinitionTarget> {
+    const runtimePaths = runtimePathsFromEnv(APPLICATION_ROOT);
+    const root = options.scope === "project"
+        ? path.join(runtimePaths.workspaceRoot, options.projectRoot!, ".nbook", "agent", "variables")
+        : path.join(runtimePaths.userNbookRoot, "agent", "variables");
+    const label = options.scope === "project"
+        ? `workspace/${options.projectRoot}/.nbook/agent/variables`
+        : "workspace/.nbook/agent/variables";
     return {
-        root: path.join(runtimePaths.userNbookRoot, "agent", "variables"),
-        label: "workspace/.nbook/agent/variables",
-        namespace: "global",
+        root,
+        label,
+        namespace: options.scope === "project" ? "project" : "global",
+        artifactPathContext: await resolveVariableDefinitionArtifactPathContext(root, label, runtimePaths.applicationRoot),
     };
 }
+
 
 async function findDefinitionFiles(root: string): Promise<string[]> {
     const entries = await fsp.readdir(root, {withFileTypes: true}).catch(() => []);
@@ -215,7 +223,7 @@ async function runTypecheck(filePath: string): Promise<boolean> {
         entry: filePath,
         allowedSdkSpecifiers: ["nbook/variable-sdk"],
     });
-    const configPath = (await resolveRuntimeArtifactCompilerContext()).tsconfigPath;
+    const configPath = (await resolveRuntimeArtifactCompilerContext(APPLICATION_ROOT)).tsconfigPath;
     if (!configPath) {
         console.error("未找到 tsconfig.json");
         return false;

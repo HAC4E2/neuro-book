@@ -6,6 +6,7 @@ import {afterAll, beforeAll, describe, expect, it, vi} from "vitest";
 import leaderDefaultProfileDefinition, {LeaderDefaultSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile";
 import writerProfileDefinition, {WriterSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
@@ -13,7 +14,7 @@ import {createTestRuntimeSession as testSession} from "nbook/server/agent/profil
 import {DEFAULT_WRITING_REFERENCE_PRESET, homeReferenceKeyToLegacyKey, loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET, homeStyleKeyToLegacyKey, loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
-import {ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {validateLowCodeFormValue} from "nbook/server/low-code-form";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
@@ -26,6 +27,18 @@ import {
 
 const leaderDefaultProfile = normalizeAgentProfile(leaderDefaultProfileDefinition);
 const writerProfile = normalizeAgentProfile(writerProfileDefinition);
+
+function testProfileCatalog(installRoot: string, rootLabel = "assets/workspace/.nbook/agent/profiles"): AgentProfileCatalog {
+    const compilerRoot = resolve(import.meta.dirname, "../../..");
+    return new AgentProfileCatalog(
+        installRoot,
+        undefined,
+        undefined,
+        undefined,
+        (profileRoot, label) => resolveProfileArtifactPathContext(profileRoot, label, compilerRoot),
+        {install: rootLabel},
+    );
+}
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: {
@@ -82,11 +95,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("leader.default 从 assets/workspace/.nbook 加载并使用 v3 工具名", async () => {
-        const catalog = new AgentProfileCatalog(
-            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
-        );
-        catalog.register(defaultAgentProfile);
+        const catalog = testProfileCatalog(resolve("assets", "workspace", ".nbook", "agent", "profiles"));
 
         const profile = await catalog.get("leader.default");
         const prepared = await profile.prepare!({
@@ -108,7 +117,7 @@ describe("assets builtin v3 profiles", () => {
                 key: "draft",
                 name: "Draft Skill",
                 description: "写作流程 skill",
-                source: "system",
+                source: "install",
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "draft"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "draft", "SKILL.md"),
             }],
@@ -393,11 +402,7 @@ describe("assets builtin v3 profiles", () => {
     }, 20_000);
 
     it("retrieval profile 使用 Git Bash 安全的路径枚举提示", async () => {
-        const catalog = new AgentProfileCatalog(
-            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
-        );
-        catalog.register(defaultAgentProfile);
+        const catalog = testProfileCatalog(resolve("assets", "workspace", ".nbook", "agent", "profiles"));
         const profile = await catalog.get("retrieval");
         const prepared = await profile.prepare!({
             session: testSession({
@@ -442,11 +447,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("leader.assets 从 assets/workspace/.nbook 加载并使用用户资产提示词", async () => {
-        const catalog = new AgentProfileCatalog(
-            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
-        );
-        catalog.register(defaultAgentProfile);
+        const catalog = testProfileCatalog(resolve("assets", "workspace", ".nbook", "agent", "profiles"));
 
         const profile = await catalog.get("leader.assets");
         const prepared = await profile.prepare!({
@@ -469,7 +470,7 @@ describe("assets builtin v3 profiles", () => {
                 name: "profile-system-guide",
                 description: "Guide users and agents through Neuro Book harness, TSX profiles, skills, profile checks, templates, and safe profile editing.",
                 whenToUse: "用户想创建、修改、诊断或理解 agent/profile/.profile.tsx。",
-                source: "system",
+                source: "install",
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             }],
@@ -591,11 +592,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("leader.assets settings 注入置顶提示词且 skill 白名单过滤 catalog", async () => {
-        const catalog = new AgentProfileCatalog(
-            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
-        );
-        catalog.register(defaultAgentProfile);
+        const catalog = testProfileCatalog(resolve("assets", "workspace", ".nbook", "agent", "profiles"));
 
         const profile = await catalog.get("leader.assets");
         const prepared = await profile.prepare!({
@@ -609,14 +606,14 @@ describe("assets builtin v3 profiles", () => {
                 key: "profile-system-guide",
                 name: "profile-system-guide",
                 description: "Profile 系统指南。",
-                source: "system",
+                source: "install",
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             }, {
                 key: "novel-writing",
                 name: "剧情写作循环",
                 description: "剧情写作循环流程。",
-                source: "system",
+                source: "install",
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-writing"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-writing", "SKILL.md"),
             }],
@@ -701,11 +698,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("researcher profile 只允许 web 工具且不使用 report_result", async () => {
-        const catalog = new AgentProfileCatalog(
-            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            testHostPath("missing-user-profiles"),
-        );
-        catalog.register(defaultAgentProfile);
+        const catalog = testProfileCatalog(resolve("assets", "workspace", ".nbook", "agent", "profiles"));
         const profile = await catalog.get("researcher");
         const prepared = await profile.prepare!({
             session: testSession({
@@ -769,7 +762,7 @@ describe("assets builtin v3 profiles", () => {
         expect(properties).not.toHaveProperty("prompt");
     });
 
-    it("writer writing presets 使用用户目录覆盖系统同名文件", async () => {
+    it("writer writing presets 使用候选目录后层覆盖前层同名文件", async () => {
         const root = testHostPath("tmp", "writer-preset-test", randomUUID());
         const systemStyleRoot = join(root, "system", "styles");
         const userStyleRoot = join(root, "user", "styles");
@@ -834,6 +827,18 @@ describe("assets builtin v3 profiles", () => {
             expect(references.find((item) => item.key === "same")?.content).toContain("用户参考正文");
         } finally {
             await rm(root, {recursive: true, force: true});
+        }
+    });
+    it("writer 默认 preset 只从 Install Root 读取，不读取用户旧 overlay", async () => {
+        const oldUserRoot = join(assets.userNbookRoot, "agent", "profiles", "builtin", "writer.home", "styles");
+        await mkdir(oldUserRoot, {recursive: true});
+        const oldPath = join(oldUserRoot, "runtime-only.md");
+        await writeFile(oldPath, "---\nkey: runtime-only\nlabel: 旧用户层\nsourcePreset: old\nidentifier: old\nname: old\nenabled: true\nrole: null\n---\n旧正文", "utf8");
+        try {
+            const styles = await loadWritingStylePresets();
+            expect(styles.some((item) => item.key === "runtime-only")).toBe(false);
+        } finally {
+            await rm(oldPath, {force: true});
         }
     });
 
@@ -905,7 +910,7 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer settings 会切换文风参考、文风预设和默认人称", async () => {
         const referenceKey = `test-reference-${randomUUID()}`;
-        const referenceDir = join(assets.userNbookRoot, "agent", "profiles", "builtin", "writer.home", "references");
+        const referenceDir = join(assets.systemNbookRoot, "agent", "profiles", "builtin", "writer.home", "references");
         const referenceFile = join(referenceDir, `${referenceKey}.md`);
         await mkdir(referenceDir, {recursive: true});
         await writeFile(referenceFile, [
@@ -997,10 +1002,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("leader.default settings 注入自定义槽位、人设和行为偏好", async () => {
-        const catalog = new AgentProfileCatalog(
-            testHostPath("missing-system-profiles"),
-            testHostPath("missing-user-profiles"),
-        );
+        const catalog = testProfileCatalog(testHostPath("missing-system-profiles"), "workspace/.nbook/agent/profiles");
         catalog.register(leaderDefaultProfile);
         const snapshot = await catalog.snapshot();
         const leader = snapshot.profiles.find((profile) => profile.key === "leader.default");
@@ -1099,6 +1101,45 @@ describe("assets builtin v3 profiles", () => {
             expect(prepared.systemPrompt).toContain("少问，优先给建议和默认路径");
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
+        }
+    });
+    it("writer Project home 不复制 Install 默认资源，层叠读取 Global 默认并允许项目覆盖", async () => {
+        const root = testHostPath("tmp", "writer-layered-home-test", randomUUID());
+        const workspaceRoot = join(root, "workspace");
+        const projectRoot = join(workspaceRoot, "project");
+        await mkdir(projectRoot, {recursive: true});
+        const projectRef = projectWorkspaceRef("project");
+        const projectWorkspace = resolvedProjectWorkspace(
+            projectRef,
+            absoluteFsPath(projectRoot),
+            createProjectWorkspaceKey(absoluteFsPath(workspaceRoot), projectRef),
+        );
+        try {
+            const globalHome = await ensureGlobalProfileHome({
+                workspaceRoot: absoluteFsPath(workspaceRoot),
+                profileKey: "writer",
+                profileVersion: writerProfile.manifest.version ?? 1,
+                definition: writerProfile.home,
+            });
+            const projectHome = await ensureProfileHome({
+                workspace: projectWorkspace,
+                profileKey: "writer",
+                profileVersion: writerProfile.manifest.version ?? 1,
+                definition: writerProfile.home,
+            });
+            await globalHome.writeText(DEFAULT_WRITING_STYLE_PRESET, "global default", {mode: "overwrite"});
+            await globalHome.writeText(DEFAULT_WRITING_REFERENCE_PRESET, "global reference", {mode: "overwrite"});
+            const layered = createLayeredProfileHomeFacade(projectHome, globalHome);
+
+            expect(await projectHome.exists(DEFAULT_WRITING_STYLE_PRESET)).toBe(false);
+            expect(await projectHome.exists(DEFAULT_WRITING_REFERENCE_PRESET)).toBe(false);
+            await expect(layered.readText(DEFAULT_WRITING_STYLE_PRESET)).resolves.toBe("global default");
+            await expect(layered.readText(DEFAULT_WRITING_REFERENCE_PRESET)).resolves.toBe("global reference");
+
+            await projectHome.writeText(DEFAULT_WRITING_STYLE_PRESET, "project override", {mode: "overwrite"});
+            await expect(layered.readText(DEFAULT_WRITING_STYLE_PRESET)).resolves.toBe("project override");
+        } finally {
+            await rm(root, {recursive: true, force: true});
         }
     });
 

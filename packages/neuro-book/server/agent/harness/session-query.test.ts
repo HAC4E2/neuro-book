@@ -8,6 +8,7 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import type {AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("NeuroAgentHarness session query", () => {
@@ -23,7 +24,14 @@ describe("NeuroAgentHarness session query", () => {
         const repo = new JsonlSessionRepository(root);
         const harness = new NeuroAgentHarness({
             repo,
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            profiles: new AgentProfileCatalog(
+                join(root, "system-profiles"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             enableSessionSummarizer: false,
         });
         const created = await repo.createSession({
@@ -88,7 +96,14 @@ describe("NeuroAgentHarness session query", () => {
         const repo = new JsonlSessionRepository(root);
         const harness = new NeuroAgentHarness({
             repo,
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            profiles: new AgentProfileCatalog(
+                join(root, "system-profiles"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             enableSessionSummarizer: false,
         });
         const created = await repo.createSession({

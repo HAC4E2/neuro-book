@@ -5,7 +5,7 @@ on:
     paths:
       - ".github/workflows/product-platforms.yml"
       - ".github/workflows/release-container.yml"
-      - "Dockerfile"
+      - "packages/neuro-book/Dockerfile*"
       - "packages/neuro-book/**"
       - "packages/neuro-book-contracts/**"
       - "packages/neuro-book-test-support/**"

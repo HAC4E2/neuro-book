@@ -159,7 +159,7 @@ const PRODUCT_RUNTIME_OWNERS: readonly ProductRuntimeImageOwner[] = [
     {name: "runtime-meta", paths: ["nitro.json", "server/package.json", "server/runtime-contract.json"]},
 ] as const;
 
-// 2026-08-02：五个平台在 clean Source 上完成 A/B measurement、owner 与 native island 审查。
+// 2026-08-20：Reference 书架归位后在当前 Windows Source 上重新完成 Product measurement；其余平台 baseline 保留各自最近一次已审查值。
 const PRODUCT_RUNTIME_OWNER_BASELINES: Partial<Record<ProductPlatform, readonly ProductRuntimeOwnerBaseline[]>> = {
     "windows-x64": [
         {name: "frontend", files: 177, bytes: 15_272_680},
@@ -167,7 +167,7 @@ const PRODUCT_RUNTIME_OWNER_BASELINES: Partial<Record<ProductPlatform, readonly 
         {name: "commands", files: 116, bytes: 10_865_638},
         {name: "authoring-kit", files: 509, bytes: 14_477_260},
         {name: "native-islands", files: 2_059, bytes: 75_260_630},
-        {name: "system-assets", files: 373, bytes: 5_274_435},
+        {name: "system-assets", files: 442, bytes: 5_919_094},
         {name: "runtime-meta", files: 3, bytes: 4_762},
     ],
     "linux-x64-glibc": [

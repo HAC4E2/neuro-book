@@ -6,7 +6,7 @@ import {defineAgentProfile} from "nbook/profile-sdk";
 import {builtin, plotReadBindings, toolset} from "nbook/profile-sdk";
 import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/profile-sdk";
 import {AppendingSet, FileChangeNotice, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/profile-sdk";
-import type {ProfilePrepareContext} from "nbook/profile-sdk";
+import type {ProfileHomeContext, ProfilePrepareContext} from "nbook/profile-sdk";
 import {profileText} from "nbook/profile-sdk";
 import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/profile-sdk/writing";
 import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/profile-sdk/writing";
@@ -179,16 +179,19 @@ type WriterPayloadTarget = {
     chapterPath: string | null;
 };
 
-async function initializeWriterHome(home: NonNullable<ProfilePrepareContext<Initial, Payload, Settings>["home"]>): Promise<void> {
+async function initializeWriterHome(ctx: ProfileHomeContext): Promise<void> {
+    if (ctx.scope !== "global") {
+        return;
+    }
     const [styles, references] = await Promise.all([
         loadWritingStylePresets(),
         loadWritingReferencePresets(),
     ]);
     for (const style of styles) {
-        await home.writeText(legacyStyleKeyToHomeKey(style.key), renderStyleResource(style), {mode: "create"});
+        await ctx.home.writeText(legacyStyleKeyToHomeKey(style.key), renderStyleResource(style), {mode: "create"});
     }
     for (const reference of references) {
-        await home.writeText(legacyReferenceKeyToHomeKey(reference.key), renderReferenceResource(reference), {mode: "create"});
+        await ctx.home.writeText(legacyReferenceKeyToHomeKey(reference.key), renderReferenceResource(reference), {mode: "create"});
     }
 }
 
@@ -232,14 +235,14 @@ export default defineAgentProfile({
     settingsForm: WriterSettingsForm,
     home: defineProfileHome({
         async init(ctx) {
-            await initializeWriterHome(ctx.home);
+            await initializeWriterHome(ctx);
         },
         async upgrade(ctx) {
-            await initializeWriterHome(ctx.home);
+            await initializeWriterHome(ctx);
         },
         async reset(ctx) {
             await ctx.home.clear();
-            await initializeWriterHome(ctx.home);
+            await initializeWriterHome(ctx);
         },
     }),
     tools: toolset(

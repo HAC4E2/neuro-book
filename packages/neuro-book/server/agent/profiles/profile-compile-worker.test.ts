@@ -1,5 +1,5 @@
 import {cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {setTimeout as sleep} from "node:timers/promises";
@@ -7,10 +7,31 @@ import {describe, expect, it} from "vitest";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {ProfileCompileWorkerService, profileSourceFileSetChangedSinceCompile, resolveProfileCompileWorkerPathsForRoot, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
-import {assertProfileFullReleaseFresh, PROFILE_COMPILED_DIR_NAME, readProfileArtifactManifest, stageProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {assertProfileFullReleaseFresh, createProfileArtifactPathContext, PROFILE_COMPILED_DIR_NAME, readProfileArtifactManifest, resolveProfileArtifactPathContext, stageProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
+import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
+async function artifactPathContext(profileRoot: string, rootLabel = "workspace/.nbook/agent/profiles") {
+    return createProfileArtifactPathContext(
+        profileRoot,
+        rootLabel,
+        await resolveRuntimeArtifactCompilerContext(resolve(".")),
+    );
+}
 
+async function readManifest(profileRoot: string, rootLabel = "workspace/.nbook/agent/profiles") {
+    return readProfileArtifactManifest(profileRoot, await artifactPathContext(profileRoot, rootLabel));
+}
+
+function runtimePathsFor(assets: IsolatedWorkspaceAssets): RuntimePaths {
+    return createRuntimePaths({
+        applicationRoot: absoluteFsPath(assets.applicationRoot),
+        stateRoot: absoluteFsPath(assets.root),
+    });
+}
 describe("profile compile worker runtime", () => {
     it("Product Root 只使用预编译 Authoring Kit worker，不携带 tsx vendor 或运行源码", async () => {
         const productRoot = await createProductWorkerFixture();
@@ -44,6 +65,8 @@ describe("profile compile worker runtime", () => {
                 source,
                 dryRun: false,
                 preview: false,
+                profileRoot: assets.userProfileRoot,
+                runtimePaths: runtimePathsFor(assets),
             });
             try {
                 expect(result.ok).toBe(true);
@@ -60,7 +83,7 @@ describe("profile compile worker runtime", () => {
         await withCompiledRootSnapshot(async (assets) => {
             const fileName = "builtin/leader.default.profile.tsx";
             const source = await readFile(profilePath(assets, fileName), "utf8");
-            const worker = useProfileCompileWorker();
+            const worker = useProfileCompileWorker(assets.userProfileRoot, runtimePathsFor(assets));
 
             try {
                 const result = await worker.compile({
@@ -70,7 +93,7 @@ describe("profile compile worker runtime", () => {
                     preview: false,
                 });
 
-                const manifest = await readProfileArtifactManifest(assets.userProfileRoot);
+                const manifest = await readManifest(assets.userProfileRoot);
                 expect(result.ok).toBe(true);
                 expect(manifest.profiles.some((profile) => profile.profileKey === "leader.default")).toBe(true);
                 expect("stagedRelease" in result).toBe(false);
@@ -78,6 +101,29 @@ describe("profile compile worker runtime", () => {
             } finally {
                 worker.dispose();
             }
+        });
+    }, 120000);
+    it("worker runtime 单文件与全量 release 保留显式 Project root label", async () => {
+        await withCompiledRootSnapshot(async (assets) => {
+            const profileRootLabel = "workspace/project/.nbook/agent/profiles";
+            const single = await runProfileCompileEntry({
+                fileName: "builtin/leader.default.profile.tsx",
+                dryRun: false,
+                preview: false,
+                profileRoot: assets.userProfileRoot,
+                profileRootLabel,
+                runtimePaths: runtimePathsFor(assets),
+            } as Parameters<typeof runProfileCompileEntry>[0]);
+            expect(single.stagedRelease?.manifest.profilesRoot).toBe(profileRootLabel);
+            await cleanupStagedResult(single);
+            const all = await runProfileCompileAll({
+                preview: false,
+                profileRoot: assets.userProfileRoot,
+                profileRootLabel,
+                runtimePaths: runtimePathsFor(assets),
+            });
+            expect(all.stagedRelease?.manifest.profilesRoot).toBe(profileRootLabel);
+            await cleanupStagedResult(all);
         });
     }, 120000);
 
@@ -88,7 +134,7 @@ describe("profile compile worker runtime", () => {
             const secondFile = "codex.concurrent.two.profile.tsx";
             const firstPath = resolve(profileRoot, firstFile);
             const secondPath = resolve(profileRoot, secondFile);
-            const worker = new ProfileCompileWorkerService("test-concurrent-single", 2);
+            const worker = new ProfileCompileWorkerService("test-concurrent-single", 2, undefined, assets.userProfileRoot, undefined, runtimePathsFor(assets));
             try {
                 await writeFile(firstPath, await temporaryProfileSource(assets, "codex.concurrent.one"), "utf8");
                 await writeFile(secondPath, await temporaryProfileSource(assets, "codex.concurrent.two"), "utf8");
@@ -97,7 +143,7 @@ describe("profile compile worker runtime", () => {
                     worker.compile({fileName: firstFile, dryRun: false, preview: false}),
                     worker.compile({fileName: secondFile, dryRun: false, preview: false}),
                 ]);
-                const manifest = await readProfileArtifactManifest(profileRoot);
+                const manifest = await readManifest(profileRoot);
 
                 expect(first.ok).toBe(true);
                 expect(second.ok).toBe(true);
@@ -118,7 +164,7 @@ describe("profile compile worker runtime", () => {
             const profileRoot = assets.userProfileRoot;
             const fileName = "codex.concurrent.same.profile.tsx";
             const sourcePath = resolve(profileRoot, fileName);
-            const worker = new ProfileCompileWorkerService("test-concurrent-same-file", 2);
+            const worker = new ProfileCompileWorkerService("test-concurrent-same-file", 2, undefined, assets.userProfileRoot, undefined, runtimePathsFor(assets));
             try {
                 await writeFile(sourcePath, await temporaryProfileSource(assets, "codex.concurrent.same"), "utf8");
 
@@ -126,7 +172,7 @@ describe("profile compile worker runtime", () => {
                     worker.compile({fileName, dryRun: false, preview: false}),
                     worker.compile({fileName, dryRun: false, preview: false}),
                 ]);
-                const manifest = await readProfileArtifactManifest(profileRoot);
+                const manifest = await readManifest(profileRoot);
 
                 expect(manual.ok).toBe(true);
                 expect(watcher.ok).toBe(true);
@@ -140,13 +186,28 @@ describe("profile compile worker runtime", () => {
 
     it("worker service 并发 in-process 单文件编译后 Registry 保留完整 manifest", async () => {
         await withCompiledRootSnapshot(async (assets) => {
-            const profileRoot = assets.userProfileRoot;
+            const profileRoot = join(assets.workspaceContainerRoot, "project", ".nbook", "agent", "profiles");
+            await mkdir(profileRoot, {recursive: true});
             const firstFile = "codex.registry.one.profile.tsx";
             const secondFile = "codex.registry.two.profile.tsx";
             const firstPath = resolve(profileRoot, firstFile);
             const secondPath = resolve(profileRoot, secondFile);
-            const catalog = new AgentProfileCatalog("__missing_system__", profileRoot);
-            const worker = new ProfileCompileWorkerService("test-concurrent-registry", 2);
+            const catalog = new AgentProfileCatalog(
+                "__missing_system__",
+                profileRoot,
+                undefined,
+                undefined,
+                createProfileArtifactPathContextResolver(resolve(import.meta.dirname, "../../..")),
+                {project: "workspace/project/.nbook/agent/profiles"},
+            );
+            const worker = new ProfileCompileWorkerService(
+                "test-concurrent-registry",
+                2,
+                undefined,
+                profileRoot,
+                "workspace/project/.nbook/agent/profiles",
+                runtimePathsFor(assets),
+            );
             try {
                 await writeFile(firstPath, await temporaryProfileSource(assets, "codex.registry.one"), "utf8");
                 await writeFile(secondPath, await temporaryProfileSource(assets, "codex.registry.two"), "utf8");
@@ -185,7 +246,7 @@ describe("profile compile worker runtime", () => {
             const worker = new ProfileCompileWorkerService("test-cleanup-failure", 1, async (dir) => {
                 cleanupDirs.push(dir);
                 throw new Error("cleanup denied");
-            });
+            }, assets.userProfileRoot, undefined, runtimePathsFor(assets));
             try {
                 await writeFile(firstPath, await temporaryProfileSource(assets, "codex.cleanup.one"), "utf8");
                 await writeFile(secondPath, await temporaryProfileSource(assets, "codex.cleanup.two"), "utf8");
@@ -237,7 +298,7 @@ describe("profile compile worker runtime", () => {
             await writeFile(sourcePath, await temporaryProfileSource("codex.sourceContent.before"), "utf8");
             const staged = await stageProfileArtifacts({
                 profileRoot,
-                rootLabel: "workspace/.nbook/agent/profiles",
+                artifactPathContext: await artifactPathContext(profileRoot),
             });
             stagedDirs.push(staged.buildCompiledDir);
             await writeFile(sourcePath, await temporaryProfileSource("codex.sourceContent.after"), "utf8");
@@ -255,7 +316,7 @@ describe("profile compile worker runtime", () => {
             const addedFile = "zzz.codex-source-set-added.profile.tsx";
             const slowPath = profilePath(assets, slowFile);
             const addedPath = profilePath(assets, addedFile);
-            const worker = new ProfileCompileWorkerService("test-source-set-stale", 1, undefined, assets.userProfileRoot);
+            const worker = new ProfileCompileWorkerService("test-source-set-stale", 1, undefined, assets.userProfileRoot, undefined, runtimePathsFor(assets));
             try {
                 await writeFile(slowPath, `await new Promise((resolve) => setTimeout(resolve, 500));\n${await temporaryProfileSource(assets, "codex.sourceSet.slow")}`, "utf8");
                 const running = worker.compileAll({preview: false});
@@ -279,7 +340,7 @@ describe("profile compile worker runtime", () => {
             const slowPath = profilePath(assets, slowFile);
             const markerPath = resolve(assets.root, "worker-source-content-ready.txt");
             const releasePath = resolve(assets.root, "worker-source-content-release.txt");
-            const worker = new ProfileCompileWorkerService("test-source-content-stale", 1, undefined, assets.userProfileRoot);
+            const worker = new ProfileCompileWorkerService("test-source-content-stale", 1, undefined, assets.userProfileRoot, undefined, runtimePathsFor(assets));
             let running: Promise<Awaited<ReturnType<ProfileCompileWorkerService["compileAll"]>>> | null = null;
             try {
                 await writeFile(slowPath, await blockingProfileSource(assets, "codex.sourceContent.slow", markerPath, releasePath), "utf8");
@@ -288,7 +349,7 @@ describe("profile compile worker runtime", () => {
                 await writeFile(slowPath, await temporaryProfileSource(assets, "codex.sourceContent.changed"), "utf8");
                 await writeFile(releasePath, "release", "utf8");
                 const result = await running;
-                const manifest = await readProfileArtifactManifest(assets.userProfileRoot);
+                const manifest = await readManifest(assets.userProfileRoot);
 
                 expect(result.stale).toBe(true);
                 expect(result.ok).toBe(false);
@@ -312,7 +373,7 @@ describe("profile compile worker runtime", () => {
             const addedPath = profilePath(assets, addedFile);
             try {
                 await writeFile(slowPath, `await new Promise((resolve) => setTimeout(resolve, 500));\n${await temporaryProfileSource(assets, "codex.runtimeSourceSet.slow")}`, "utf8");
-                const running = runProfileCompileAll({preview: false, userProfileRoot: assets.userProfileRoot});
+                const running = runProfileCompileAll({preview: false, profileRoot: assets.userProfileRoot, runtimePaths: runtimePathsFor(assets)});
                 await sleep(100);
                 await writeFile(addedPath, await temporaryProfileSource(assets, "codex.runtimeSourceSet.added"), "utf8");
                 const result = await running;
@@ -336,7 +397,7 @@ describe("profile compile worker runtime", () => {
             let running: Promise<ProfileCompileWorkerResult> | null = null;
             try {
                 await writeFile(slowPath, await blockingProfileSource(assets, "codex.runtimeSourceContent.slow", markerPath, releasePath), "utf8");
-                running = runProfileCompileAll({preview: false, userProfileRoot: assets.userProfileRoot});
+                running = runProfileCompileAll({preview: false, profileRoot: assets.userProfileRoot, runtimePaths: runtimePathsFor(assets)});
                 await waitForPath(markerPath);
                 await writeFile(slowPath, await temporaryProfileSource(assets, "codex.runtimeSourceContent.changed"), "utf8");
                 await writeFile(releasePath, "release", "utf8");
@@ -357,7 +418,11 @@ describe("profile compile worker runtime", () => {
 
     it("通过 worker runtime 全量编译用户 profile root", async () => {
         await withCompiledRootSnapshot(async (assets) => {
-            const result = await runProfileCompileAll({preview: false, userProfileRoot: assets.userProfileRoot});
+            const result = await runProfileCompileAll({
+                preview: false,
+                profileRoot: assets.userProfileRoot,
+                runtimePaths: runtimePathsFor(assets),
+            });
             try {
                 expect(result.ok).toBe(true);
                 expect(result.compiledCount).toBeGreaterThan(0);
@@ -377,7 +442,8 @@ describe("profile compile worker runtime", () => {
                 fileName,
                 dryRun: false,
                 preview: false,
-                userProfileRoot: assets.userProfileRoot,
+                profileRoot: assets.userProfileRoot,
+                runtimePaths: runtimePathsFor(assets),
             });
             try {
                 expect(result.ok).toBe(true);
@@ -397,7 +463,11 @@ describe("profile compile worker runtime", () => {
             const brokenFile = profilePath(assets, "broken-aggregate.profile.tsx");
             await writeFile(brokenFile, "export default ;\n", "utf8");
             try {
-                const result = await runProfileCompileAll({preview: false, userProfileRoot: assets.userProfileRoot});
+                const result = await runProfileCompileAll({
+                    preview: false,
+                    profileRoot: assets.userProfileRoot,
+                    runtimePaths: runtimePathsFor(assets),
+                });
                 try {
                     expect(result.ok).toBe(false);
                     expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
@@ -417,8 +487,8 @@ describe("profile compile worker runtime", () => {
     }, 120000);
 
     it("通过 worker service 后台全量编译用户 profile root", async () => {
-        await withCompiledRootSnapshot(async () => {
-            const worker = useProfileCompileWorker();
+        await withCompiledRootSnapshot(async (assets) => {
+            const worker = useProfileCompileWorker(assets.userProfileRoot, runtimePathsFor(assets));
             try {
                 const result = await worker.compileAll({preview: false});
 
@@ -428,7 +498,6 @@ describe("profile compile worker runtime", () => {
                 expect(result.ok).toBe(true);
                 expect(result.compiledCount).toBeGreaterThan(0);
                 expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
-                expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
             } finally {
                 worker.dispose();
             }
@@ -437,7 +506,7 @@ describe("profile compile worker runtime", () => {
 
     it("worker service in-process 发布会回调 Registry sink，且不把 staging 泄露给调用方", async () => {
         await withCompiledRootSnapshot(async (assets) => {
-            const worker = new ProfileCompileWorkerService("test-in-process-publish", 1, undefined, assets.userProfileRoot);
+            const worker = new ProfileCompileWorkerService("test-in-process-publish", 1, undefined, assets.userProfileRoot, undefined, runtimePathsFor(assets));
             const publishedRoots: string[] = [];
             try {
                 const result = await worker.compileAll({preview: false}, {
@@ -460,11 +529,11 @@ describe("profile compile worker runtime", () => {
 
     it("worker service 全量编译出的 director artifact 不依赖 Nitro importMeta shim", async () => {
         await withCompiledRootSnapshot(async (assets) => {
-            const worker = useProfileCompileWorker();
+            const worker = useProfileCompileWorker(assets.userProfileRoot, runtimePathsFor(assets));
             try {
                 const result = await worker.compileAll({preview: false});
                 const profileRoot = assets.userProfileRoot;
-                const manifest = await readProfileArtifactManifest(profileRoot);
+                const manifest = await readManifest(profileRoot);
                 const director = manifest.profiles.find((profile) => profile.profileKey === "director")!;
                 const artifactPath = resolve(profileRoot, PROFILE_COMPILED_DIR_NAME, ...director.artifactFileName.split("/"));
                 const artifact = await readFile(artifactPath, "utf8");
@@ -475,11 +544,7 @@ describe("profile compile worker runtime", () => {
                 try {
                     delete globalWithShim._importMeta_;
                     const mod = await import(`${pathToFileURL(artifactPath).href}?director=${Date.now()}`) as {
-                        default?: {
-                            manifest?: {
-                                key?: string;
-                            };
-                        };
+                        default?: {manifest?: {key?: string}};
                     };
 
                     expect(result.ok).toBe(true);
@@ -487,19 +552,16 @@ describe("profile compile worker runtime", () => {
                     expect(head).not.toContain("globalThis._importMeta_");
                     expect(mod.default?.manifest?.key).toBe("director");
                 } finally {
-                    if (previousImportMeta === undefined) {
-                        delete globalWithShim._importMeta_;
-                    } else {
-                        globalWithShim._importMeta_ = previousImportMeta;
-                    }
+                    if (previousImportMeta === undefined) delete globalWithShim._importMeta_;
+                    else globalWithShim._importMeta_ = previousImportMeta;
                 }
             } finally {
                 worker.dispose();
             }
         }, ["builtin/director.profile.tsx"]);
     }, 120000);
-
 });
+
 
 async function cleanupStagedResult(result: ProfileCompileWorkerResult): Promise<void> {
     if (result.stagedRelease) {

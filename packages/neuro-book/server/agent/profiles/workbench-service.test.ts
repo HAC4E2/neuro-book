@@ -1,10 +1,10 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm, stat} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
+import {mkdir, readFile, rm, stat} from "node:fs/promises";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {compileProfileArtifacts, resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {buildSystemPromptRoot} from "nbook/server/agent/profiles/profile-http-service";
 import {
     createProfileSource,
@@ -17,37 +17,56 @@ import {
     saveProfileSource,
 } from "nbook/server/agent/profiles/workbench-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
-import {profileWorkbenchRootsFromRuntime} from "nbook/server/agent/profiles/profile-workbench-roots";
+function workbenchRoots(profileRoot: string, templateRoot = testTemplateRoot()) {
+    return {
+        profileRoot,
+        templateRoot,
+        artifactPathContextResolver: (root: string, rootLabel: string) => resolveProfileArtifactPathContext(root, rootLabel, resolve(import.meta.dirname, "../../..")),
+    };
+}
 
-function workbenchRoots(userProfileRoot: string) {
-    return {...profileWorkbenchRootsFromRuntime(), userProfileRoot};
+function testTemplateRoot(): string {
+    return resolve("assets", "workspace", ".nbook", "agent", "profile-templates");
+}
+
+async function artifactPathContext(profileRoot: string) {
+    return resolveProfileArtifactPathContext(
+        profileRoot,
+        "workspace/.nbook/agent/profiles",
+        resolve(import.meta.dirname, "../../.."),
+    );
+}
+
+function testCatalog(profileRoot: string): AgentProfileCatalog {
+    return new AgentProfileCatalog(
+        profileRoot,
+        undefined,
+        undefined,
+        undefined,
+        (root, rootLabel) => resolveProfileArtifactPathContext(root, rootLabel, resolve(import.meta.dirname, "../../..")),
+    );
 }
 
 describe("profile workbench service", () => {
-    it("列出系统 profile 模板", async () => {
-        await expect(listProfileTemplates(profileWorkbenchRootsFromRuntime())).resolves.toEqual(expect.arrayContaining([
+    it("列出显式 Seed profile 模板", async () => {
+        await expect(listProfileTemplates({templateRoot: testTemplateRoot()})).resolves.toEqual(expect.arrayContaining([
             expect.objectContaining({name: "basic-agent"}),
             expect.objectContaining({name: "report-agent"}),
         ]));
     });
 
     it("拒绝越界 fileName", async () => {
-        const catalog = new AgentProfileCatalog(
-            testHostPath("tmp", "profile-workbench-invalid-system"),
-            testHostPath("tmp", "profile-workbench-invalid-user"),
-        );
-
+        const root = testHostPath("tmp", "profile-workbench-invalid");
+        const catalog = testCatalog(root);
         await expect(saveProfileSource(catalog, {
             fileName: "../bad.profile.tsx",
             source: "",
-        }, workbenchRoots(testHostPath("tmp", "profile-workbench-invalid")))).rejects.toThrow("相对路径");
+        }, workbenchRoots(root))).rejects.toThrow("相对路径");
     });
-
     it("从模板创建的 profile 编译后可被 catalog 加载", async () => {
         const root = testHostPath("tmp", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(userRoot, {recursive: true});
-        const catalog = new AgentProfileCatalog(join(root, "assets", ".nbook", "agent", "profiles"), userRoot);
+        const catalog = testCatalog(userRoot);
         try {
             const created = await createProfileSourceDraft({
                 profileKey: "agent.created",
@@ -61,6 +80,7 @@ describe("profile workbench service", () => {
             await compileProfileArtifacts({
                 profileRoot: userRoot,
                 fileName: "agent.created.profile.tsx",
+                artifactPathContext: await artifactPathContext(userRoot),
             });
             catalog.invalidate();
             await expect(catalog.get("agent.created")).resolves.toEqual(expect.objectContaining({
@@ -75,10 +95,7 @@ describe("profile workbench service", () => {
     it("轻量 draft 读取不触发 runtime catalog", async () => {
         const root = testHostPath("tmp", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
-        const roots = {
-            ...workbenchRoots(userRoot),
-            systemProfileRoot: join(root, "system-profiles"),
-        };
+        const roots = workbenchRoots(userRoot);
         await mkdir(userRoot, {recursive: true});
         try {
             const created = await createProfileSourceDraft({
@@ -114,7 +131,7 @@ describe("profile workbench service", () => {
         const fileName = "agent.deleted.profile.tsx";
         const enqueued: Array<{fileName?: string; reason: string}> = [];
         await mkdir(userRoot, {recursive: true});
-        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
+        const catalog = testCatalog(userRoot);
         catalog.attachBuildCoordinator({
             stateFor() {
                 return {

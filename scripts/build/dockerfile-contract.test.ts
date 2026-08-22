@@ -9,7 +9,7 @@ describe("Docker Product runtime contract", () => {
             .map((entry) => entry.name)
             .sort();
         const [dockerfile, dockerignore, entrypoint, releaseWorkflow, posixVerify, rootManifest, ...workspaceManifests] = await Promise.all([
-            readFile(resolve("Dockerfile"), "utf8"),
+            readFile(resolve("packages", "neuro-book", "Dockerfile"), "utf8"),
             readFile(resolve(".dockerignore"), "utf8"),
             readFile(resolve("scripts", "deploy", "docker-product-entrypoint.sh"), "utf8"),
             readFile(resolve(".github", "workflows", "release-container.yml"), "utf8"),
@@ -17,6 +17,7 @@ describe("Docker Product runtime contract", () => {
             readFile(resolve("package.json"), "utf8"),
             ...packageDirectories.map((directory) => readFile(resolve("packages", directory, "package.json"), "utf8")),
         ]);
+        await expect(readFile(resolve("Dockerfile"), "utf8")).rejects.toThrow();
 
         expect(dockerfile).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(dockerfile).toContain("ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}");
@@ -72,6 +73,7 @@ describe("Docker Product runtime contract", () => {
         expect(dockerignoreEntries).toContain("packages/**/data.db-*");
         expect(dockerignoreEntries).toContain("packages/**/server/generated/prisma");
         expect(dockerignoreEntries).toContain("server/generated/prisma");
+        expect(dockerignoreEntries).toContain("!packages/neuro-book/.env.docker.example");
         expect(dockerignoreEntries).not.toContain("packages/llmlint/web/data.db");
         expect(dockerfile).toContain("COPY --from=build /app/scripts/deploy/docker-product-entrypoint.sh ./docker-product-entrypoint.sh");
         expect(dockerfile).toContain('ENTRYPOINT ["sh", "./docker-product-entrypoint.sh"]');
@@ -79,6 +81,10 @@ describe("Docker Product runtime contract", () => {
             expect(dockerfile).not.toContain(sourceDirectory);
         }
         expect(dockerfile).not.toContain("prepare-system-assets.ts --force --product-build");
+        expect(releaseWorkflow.replaceAll("\r\n", "\n")).toContain([
+            "          context: .",
+            "          file: packages/neuro-book/Dockerfile",
+        ].join("\n"));
         expect(releaseWorkflow.replaceAll("\r\n", "\n")).toContain([
             "build-args: |",
             "            NEURO_BOOK_SOURCE_REVISION=${{ inputs.revision }}",

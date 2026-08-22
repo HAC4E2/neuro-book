@@ -1,19 +1,29 @@
 import {access, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile} from "node:fs/promises";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
-import {basename, join} from "node:path";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {basename, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
     cleanupProfileArtifactStaging,
+    createProfileArtifactPathContext,
     PROFILE_ARTIFACT_STAGING_DIR_NAME,
     PROFILE_ARTIFACT_STAGING_LEASE_LOCK,
     PROFILE_ARTIFACT_STAGING_MAX_AGE_MS,
     PROFILE_ARTIFACT_STAGING_OWNER,
     PROFILE_ARTIFACT_STAGING_OWNER_FILE,
     PROFILE_ARTIFACT_STAGING_OWNER_SCHEMA,
+    resolveProfileArtifactPathContext,
     stageProfileArtifactEntry,
     sweepProfileArtifactStaging,
+    type ProfileArtifactPathContext,
     type ProfileArtifactStagingOwner,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
+
+const TEST_COMPILER_ROOT = resolve(import.meta.dirname, "../../..");
+
+async function artifactPathContext(profileRoot: string): Promise<ProfileArtifactPathContext> {
+    return resolveProfileArtifactPathContext(profileRoot, "workspace/.nbook/agent/profiles", TEST_COMPILER_ROOT);
+}
 
 const roots: string[] = [];
 const leasedDirs: string[] = [];
@@ -81,6 +91,7 @@ describe("Profile artifact staging lifecycle", () => {
             profileRoot,
             fileName: "active.profile.ts",
             stagingRoot,
+            artifactPathContext: await artifactPathContext(profileRoot),
         });
         leasedDirs.push(staged.buildCompiledDir);
         const markerPath = join(staged.buildCompiledDir, PROFILE_ARTIFACT_STAGING_OWNER_FILE);

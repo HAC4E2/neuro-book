@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 import {existsSync} from "node:fs";
-import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
 import {currentProductPlatform} from "#scripts/utils/product-platform";
 import {
     compileProfileArtifacts,
     compileVariableDefinitions,
+    resolveProfileArtifactPathContext,
+    resolveVariableDefinitionArtifactPathContext,
     SystemAssetsProjection,
 } from "@notnotype/neuro-book/build";
 import {assertProductSystemArtifactContract} from "#scripts/build/product-system-artifact-contract";
@@ -13,11 +15,11 @@ import {buildProductAuthoringKit} from "#scripts/build/product-authoring-kit";
 import {buildProductCommands} from "#scripts/build/product-command-bundle";
 import {bundleProductRuntime} from "#scripts/build/product-runtime-bundle";
 import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
+import {PRODUCT_RUNTIME_CONTRACT_PATH} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
     assertProductRuntimeContractFiles,
-    PRODUCT_RUNTIME_CONTRACT_PATH,
     readProductRuntimeContract,
-} from "@notnotype/neuro-book-contracts/product-runtime";
+} from "@notnotype/neuro-book/product-verification";
 
 const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
 const applicationSourceRoot = resolve(process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || process.cwd());
@@ -48,6 +50,9 @@ await measure("project static system assets", async () => {
         targetRoot: target,
         compiledArtifactMode: "exclude",
     });
+    const referenceSource = resolve(applicationSourceRoot, "assets", "reference");
+    if (!existsSync(referenceSource)) throw new Error(`缺少应用运行期 Reference 书架：${referenceSource}`);
+    await cp(referenceSource, resolve(serverRoot, "assets", "reference"), {recursive: true, force: true});
 });
 
 await measure("build Profile Authoring Kit", async () => {
@@ -64,23 +69,35 @@ await measure("compile clean Product system artifacts", async () => {
     process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = outputRoot;
     await rm(buildStateRoot, {recursive: true, force: true});
     try {
+        const variableRoot = resolve(productAgentRoot, "variables");
+        const variableArtifactPathContext = await resolveVariableDefinitionArtifactPathContext(
+            variableRoot,
+            "assets/workspace/.nbook/agent/variables",
+            applicationSourceRoot,
+        );
         await compileVariableDefinitions({
-            definitionRoot: resolve(productAgentRoot, "variables"),
-            rootLabel: "assets/workspace/.nbook/agent/variables",
+            definitionRoot: variableRoot,
+            artifactPathContext: variableArtifactPathContext,
             skipFresh: false,
             manifestGeneratedAt: productArtifactGeneratedAt,
             stagingRoot: buildStateRoot,
         });
+        const profileRoot = resolve(productAgentRoot, "profiles");
+        const profileArtifactPathContext = await resolveProfileArtifactPathContext(
+            profileRoot,
+            "assets/workspace/.nbook/agent/profiles",
+            applicationSourceRoot,
+        );
         await compileProfileArtifacts({
-            profileRoot: resolve(productAgentRoot, "profiles"),
-            rootLabel: "assets/workspace/.nbook/agent/profiles",
+            profileRoot,
+            artifactPathContext: profileArtifactPathContext,
             skipFresh: false,
             manifestGeneratedAt: productArtifactGeneratedAt,
             stagingRoot: buildStateRoot,
             orphanBudgetPolicy: "product",
         });
         await new SystemAssetsProjection().verify(resolve(serverRoot, "assets", "workspace", ".nbook"));
-        await assertProductSystemArtifactContract(process.cwd(), outputRoot);
+        await assertProductSystemArtifactContract(applicationSourceRoot, outputRoot);
     } finally {
         await rm(buildStateRoot, {recursive: true, force: true});
         if (previousProductBuild === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
@@ -89,7 +106,6 @@ await measure("compile clean Product system artifacts", async () => {
         else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = previousImageRoot;
     }
 });
-
 const commands = await measure("bundle Product commands", async () => {
     return await buildProductCommands(outputRoot, applicationSourceRoot);
 });

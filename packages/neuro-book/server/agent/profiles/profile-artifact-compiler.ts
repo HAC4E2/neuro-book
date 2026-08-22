@@ -1,7 +1,7 @@
 import {createHash, randomUUID} from "node:crypto";
 import {existsSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile} from "node:fs/promises";
-import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
+import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 import {availableParallelism} from "node:os";
 import {setTimeout as sleep} from "node:timers/promises";
 import {build, type Metafile} from "esbuild";
@@ -17,11 +17,13 @@ import {
     validateRuntimeArtifactAuthoring,
 } from "nbook/server/utils/runtime-artifact-authoring-interface";
 import {
-    resolveRuntimeArtifactCompilerContext,
     normalizeRuntimeArtifactPath,
+    resolveRuntimeArtifactCompilerContext,
+    resolveRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
+    type RuntimeArtifactPathContext,
+    type RuntimeArtifactPathMapping,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
-import {resolveApplicationRoot} from "nbook/server/workspace-files/system-workspace-assets";
 
 // Profile artifact 从 v11 起只保存 authoring 声明；宿主在 import 后统一 materialize/normalize。
 export const PROFILE_ARTIFACT_COMPILER_VERSION = 11;
@@ -68,6 +70,7 @@ export function profileArtifactOrphanBudget(policy: ProfileArtifactOrphanBudgetP
     }
     return PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES;
 }
+export const SYSTEM_PROFILE_ARTIFACT_ROOT_LABEL = "assets/workspace/.nbook/agent/profiles";
 
 export type ProfileArtifactDependency = {
     path: string;
@@ -179,11 +182,61 @@ export type ProfileArtifactManifest = {
     /** 仅包含 loaded entry 的数组视图，供运行时 artifact 读取与旧调用点逐步迁移。 */
     profiles: ProfileArtifactManifestItem[];
 };
+export type ProfileArtifactPathContext = RuntimeArtifactPathContext & Readonly<{
+    rootLabel: string;
+}>;
+
+export type ProfileArtifactPathContextResolver = (
+    profileRoot: string,
+    rootLabel: string,
+) => Promise<ProfileArtifactPathContext>;
+
+export function createProfileArtifactPathContext(
+    profileRoot: string,
+    rootLabel: string,
+    compilerContext: RuntimeArtifactCompilerContext,
+): ProfileArtifactPathContext {
+    const normalizedRootLabel = rootLabel.replace(/[\\/]+/gu, "/").replace(/^\/+|\/+$/gu, "");
+    const profileRootPath = resolve(profileRoot);
+    const compilerOutputRoot = resolve(compilerContext.outputRoot);
+    const outputRelative = relative(compilerOutputRoot, profileRootPath);
+    const profileInsideCompilerOutput = outputRelative === ""
+        || (outputRelative !== ".." && !outputRelative.startsWith(`..${sep}`) && !isAbsolute(outputRelative));
+    const profileMapping: RuntimeArtifactPathMapping = {
+        physicalRoot: profileRootPath,
+        logicalRoot: normalizedRootLabel,
+    };
+    const mappings = profileInsideCompilerOutput
+        ? compilerContext.sourcePathMappings
+        : [profileMapping, ...compilerContext.sourcePathMappings];
+    return Object.freeze({
+        compilerContext,
+        mappings: Object.freeze(mappings),
+        rootLabel: normalizedRootLabel,
+    });
+}
+
+/** 用调用方显式指定的 compiler root 建立稳定 Profile artifact 路径上下文。 */
+export async function resolveProfileArtifactPathContext(
+    profileRoot: string,
+    rootLabel: string,
+    compilerRoot: string,
+): Promise<ProfileArtifactPathContext> {
+    const compilerContext = await resolveRuntimeArtifactCompilerContext(resolve(compilerRoot));
+    return createProfileArtifactPathContext(profileRoot, rootLabel, compilerContext);
+}
+
+/** 缓存一次显式 compiler root 的解析，供 Catalog 的 install/project 两层共用。 */
+export function createProfileArtifactPathContextResolver(compilerRoot: string): ProfileArtifactPathContextResolver {
+    const compilerContext = resolveRuntimeArtifactCompilerContext(resolve(compilerRoot));
+    return async (profileRoot: string, rootLabel: string): Promise<ProfileArtifactPathContext> =>
+        createProfileArtifactPathContext(profileRoot, rootLabel, await compilerContext);
+}
 
 export type CompileProfileArtifactsOptions = {
     profileRoot: string;
+    artifactPathContext: ProfileArtifactPathContext;
     fileName?: string;
-    rootLabel?: string;
     skipFresh?: boolean;
     /** Product 可复现构建传入固定时间；普通 Source/User 编译为空并记录真实发布时间。 */
     manifestGeneratedAt?: string;
@@ -322,56 +375,49 @@ export class ProfileArtifactSourceMissingError extends Error {}
 export class ProfileReleaseStore {
     constructor(
         readonly profileRoot: string,
+        readonly artifactPathContext: ProfileArtifactPathContext,
         readonly orphanBudgetBytes: number = PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES,
     ) {}
 
-    /**
-     * 读取当前 profile release。返回值是规范化视图，包含 entries 与 loaded profiles 两个视图。
-     */
+    /** 读取当前 profile release。 */
     async read(): Promise<ProfileArtifactManifest> {
-        return readProfileArtifactManifest(this.profileRoot);
+        return readProfileArtifactManifest(this.profileRoot, this.artifactPathContext);
     }
 
-    /**
-     * 将 staging 中的不可变 artifact 安装到真实 `.compiled`，再原子替换 manifest 指针。
-     */
+    /** 将 staging 中的不可变 artifact 安装到真实 `.compiled`。 */
     async publishStaged(buildCompiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {
         await commitCompiledArtifacts(
             buildCompiledDir,
             join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME),
             manifest,
             this.orphanBudgetBytes,
+            this.artifactPathContext,
         );
     }
 
-    /**
-     * 将单个 profile entry 合并进当前 manifest。合并在 publish lock 内完成，
-     * 避免并发单文件编译用旧 manifest 互相覆盖。
-     */
-    async publishStagedEntry(buildCompiledDir: string, entry: ProfileArtifactManifestEntry, profilesRoot?: string): Promise<ProfileArtifactManifest> {
+    /** 将单个 profile entry 合并进当前 manifest。 */
+    async publishStagedEntry(buildCompiledDir: string, entry: ProfileArtifactManifestEntry): Promise<ProfileArtifactManifest> {
         return commitCompiledArtifactEntry(
             buildCompiledDir,
             join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME),
             entry,
-            profilesRoot,
             this.orphanBudgetBytes,
+            this.artifactPathContext,
         );
     }
 
-    /**
-     * 将一批 profile entries 合并进当前 manifest。只替换同 fileName entry，
-     * 保留发布期间其它写入方已经提交的账本项。
-     */
-    async publishStagedEntries(buildCompiledDir: string, entries: ProfileArtifactManifestEntry[], profilesRoot?: string): Promise<ProfileArtifactManifest> {
+    /** 将一批 profile entries 合并进当前 manifest。 */
+    async publishStagedEntries(buildCompiledDir: string, entries: ProfileArtifactManifestEntry[]): Promise<ProfileArtifactManifest> {
         return commitCompiledArtifactEntries(
             buildCompiledDir,
             join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME),
             entries,
-            profilesRoot,
             this.orphanBudgetBytes,
+            this.artifactPathContext,
         );
     }
 }
+
 
 /**
  * profile release 的唯一发布入口。CLI/preflight 使用 disk-only 模式；
@@ -382,6 +428,7 @@ export class ProfileReleasePublisher {
 
     constructor(readonly input: {
         profileRoot: string;
+        artifactPathContext: ProfileArtifactPathContext;
         orphanBudgetPolicy?: ProfileArtifactOrphanBudgetPolicy;
     } & ProfileReleasePublishOptions) {
         if (input.mode === "in_process" && !input.registry) {
@@ -389,13 +436,12 @@ export class ProfileReleasePublisher {
         }
         this.store = new ProfileReleaseStore(
             input.profileRoot,
+            input.artifactPathContext,
             profileArtifactOrphanBudget(input.orphanBudgetPolicy ?? "user"),
         );
     }
 
-    /**
-     * 发布 staging 编译结果。磁盘提交完成后，in-process 模式才翻转 Registry。
-     */
+    /** 发布 staging 编译结果。 */
     async publishStaged(buildCompiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {
         await withProfileReleaseQueue(this.input.profileRoot, async () => {
             await this.store.publishStaged(buildCompiledDir, manifest);
@@ -403,32 +449,25 @@ export class ProfileReleasePublisher {
         });
     }
 
-    /**
-     * 发布单文件 staging entry。Publisher 是唯一允许把 entry 合并入 manifest 的 seam。
-     */
-    async publishStagedEntry(buildCompiledDir: string, entry: ProfileArtifactManifestEntry, profilesRoot?: string): Promise<ProfileArtifactManifest> {
+    /** 发布单文件 staging entry。 */
+    async publishStagedEntry(buildCompiledDir: string, entry: ProfileArtifactManifestEntry): Promise<ProfileArtifactManifest> {
         return withProfileReleaseQueue(this.input.profileRoot, async () => {
-            const manifest = await this.store.publishStagedEntry(buildCompiledDir, entry, profilesRoot);
+            const manifest = await this.store.publishStagedEntry(buildCompiledDir, entry);
             await this.publishRegistry(manifest, "single");
             return manifest;
         });
     }
 
-    /**
-     * 发布一批 staging entries。用于 assets sync 这类 patch release，
-     * 避免用旧 full manifest 覆盖并发发布。
-     */
-    async publishStagedEntries(buildCompiledDir: string, entries: ProfileArtifactManifestEntry[], profilesRoot?: string): Promise<ProfileArtifactManifest> {
+    /** 发布一批 staging entries。 */
+    async publishStagedEntries(buildCompiledDir: string, entries: ProfileArtifactManifestEntry[]): Promise<ProfileArtifactManifest> {
         return withProfileReleaseQueue(this.input.profileRoot, async () => {
-            const manifest = await this.store.publishStagedEntries(buildCompiledDir, entries, profilesRoot);
+            const manifest = await this.store.publishStagedEntries(buildCompiledDir, entries);
             await this.publishRegistry(manifest, "batch");
             return manifest;
         });
     }
 
-    /**
-     * 磁盘 release 已经提交后翻转 Registry；失败时只允许抛 committed error。
-     */
+    /** 磁盘 release 已提交后翻转 Registry；失败时只允许抛 committed error。 */
     private async publishRegistry(manifest: ProfileArtifactManifest, operation: ProfileReleaseOperation): Promise<void> {
         if (this.input.mode !== "in_process") {
             return;
@@ -458,10 +497,7 @@ export class ProfileReleasePublisher {
         });
     }
 }
-
-/**
- * 编译 profile root 下的 profile 源码，生成 runtime 可加载的 `.compiled` 产物。
- */
+/** 编译 profile root 下的 profile 源码，生成 runtime 可加载的 `.compiled` 产物。 */
 export async function compileProfileArtifacts(options: CompileProfileArtifactsOptions): Promise<CompileProfileArtifactsResult> {
     const staged = await stageProfileArtifacts(options);
     try {
@@ -469,13 +505,11 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
             await assertProfileFullReleaseFresh(staged.profileRoot, staged.sourceFilesAtStart, staged.manifest.entries);
         }
         if (!staged.publishRequired) {
-            // 零写入路径也必须能回收。发布时被最小安全年龄地板挡下的 orphan，
-            // 只有等下一次真实发布才会被重新考虑；如果之后长期没有发布，这份超预算
-            // 会一直留在盘上。实测到过 765 MiB 可驱逐 orphan 停在 512 MiB 预算之上。
             const gc = options.writePolicy === "forbid"
                 ? undefined
                 : await sweepProfileArtifactBudget(
                     staged.profileRoot,
+                    options.artifactPathContext,
                     profileArtifactOrphanBudget(options.orphanBudgetPolicy ?? "user"),
                 );
             return {
@@ -488,6 +522,7 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
         }
         await new ProfileReleasePublisher({
             profileRoot: staged.profileRoot,
+            artifactPathContext: options.artifactPathContext,
             mode: options.publish?.mode ?? "disk_only",
             registry: options.publish?.registry,
             orphanBudgetPolicy: options.orphanBudgetPolicy,
@@ -502,13 +537,13 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
         await cleanupProfileArtifactStaging(staged.buildCompiledDir);
     }
 }
-
 /**
  * 只生成 staging artifact 与下一版 manifest，不发布到真实 `.compiled`。
  * HTTP runtime worker 使用该函数把发布权交回 server 主线程。
  */
 export async function stageProfileArtifacts(options: CompileProfileArtifactsOptions): Promise<StagedProfileArtifactsResult> {
     const profileRoot = resolve(options.profileRoot);
+    const pathContext = options.artifactPathContext;
     const compiledDir = join(profileRoot, PROFILE_COMPILED_DIR_NAME);
     const fullCompile = !options.fileName;
     const stagingRoot = resolve(options.stagingRoot ?? join(dirname(profileRoot), ".staging"));
@@ -516,7 +551,7 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
     const operationId = randomUUID();
     const buildCompiledDir = join(stagingRoot, PROFILE_ARTIFACT_STAGING_DIR_NAME, operationId);
     let stagingReady: Promise<void> | undefined;
-    const existingManifest = await readProfileArtifactManifest(profileRoot);
+    const existingManifest = await readProfileArtifactManifest(profileRoot, pathContext);
     const targetFiles = options.fileName
         ? [resolveProfileFile(profileRoot, options.fileName)]
         : await findProfileFiles(profileRoot);
@@ -528,10 +563,8 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
             const existingItem = existingManifest.profiles.find((item) => item.fileName === file.fileName);
             let validation: ProfileArtifactValidation | undefined;
             if ((options.skipFresh || options.writePolicy === "forbid") && existingItem) {
-                validation = await validateProfileArtifact(profileRoot, existingItem, {requireTypeArtifact: true});
-                if (validation.fresh) {
-                    return {entry: existingItem};
-                }
+                validation = await validateProfileArtifact(profileRoot, existingItem, pathContext, {requireTypeArtifact: true});
+                if (validation.fresh) return {entry: existingItem};
             }
             if (options.writePolicy === "forbid") {
                 const detail = validation?.dependency
@@ -542,7 +575,7 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
             try {
                 stagingReady ??= createProfileArtifactStaging(buildCompiledDir, operationId);
                 await stagingReady;
-                const item = await compileProfileFile(profileRoot, buildCompiledDir, file);
+                const item = await compileProfileFile(profileRoot, buildCompiledDir, file, pathContext);
                 return {entry: item, compiled: item};
             } catch (error) {
                 return {entry: await compileFailureEntry(file, error)};
@@ -567,7 +600,7 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
             generatedAt: profilesEqual(existingManifest.entries, nextEntries)
                 ? existingManifest.generatedAt
                 : options.manifestGeneratedAt ?? new Date().toISOString(),
-            profilesRoot: options.rootLabel ?? normalizeArtifactPath(profileRoot),
+            profilesRoot: pathContext.rootLabel,
             entries: nextEntries,
             profiles: nextProfiles,
         };
@@ -880,6 +913,7 @@ export async function cleanupProfileArtifactStaging(buildCompiledDir: string): P
 export async function stageProfileArtifactEntry(options: {
     profileRoot: string;
     fileName: string;
+    artifactPathContext: ProfileArtifactPathContext;
     stagingRoot?: string;
 }): Promise<StagedProfileArtifactEntryResult> {
     const profileRoot = resolve(options.profileRoot);
@@ -891,7 +925,7 @@ export async function stageProfileArtifactEntry(options: {
     try {
         const file = resolveProfileFile(profileRoot, options.fileName);
         try {
-            const item = await compileProfileFile(profileRoot, buildCompiledDir, file);
+            const item = await compileProfileFile(profileRoot, buildCompiledDir, file, options.artifactPathContext);
             return {
                 profileRoot,
                 buildCompiledDir,
@@ -921,51 +955,49 @@ export async function listProfileArtifactSourceFiles(profileRoot: string): Promi
 /**
  * 读取 `.compiled/manifest.json`。缺失或格式不匹配时返回空 manifest。
  */
-export async function readProfileArtifactManifest(profileRoot: string): Promise<ProfileArtifactManifest> {
+export async function readProfileArtifactManifest(profileRoot: string, artifactPathContext: ProfileArtifactPathContext): Promise<ProfileArtifactManifest> {
     const root = resolve(profileRoot);
     try {
         const value = JSON.parse(await readFile(profileArtifactManifestPath(root), "utf8")) as unknown;
         if (!value || typeof value !== "object" || Array.isArray(value)) {
-            return emptyArtifactManifest(root);
+            return emptyArtifactManifest(artifactPathContext);
         }
         const record = value as Record<string, unknown>;
         if (record.compilerVersion !== PROFILE_ARTIFACT_COMPILER_VERSION) {
-            return emptyArtifactManifest(root);
+            return emptyArtifactManifest(artifactPathContext);
         }
         const rawEntries = normalizeManifestProfileEntries(record.profiles);
         if (!rawEntries) {
-            return emptyArtifactManifest(root);
+            return emptyArtifactManifest(artifactPathContext);
         }
         const entries = rawEntries.flatMap(parseManifestEntry);
         if (entries.length !== rawEntries.length) {
-            return emptyArtifactManifest(root);
+            return emptyArtifactManifest(artifactPathContext);
         }
         const profiles = entries.filter(isLoadedManifestEntry);
         return {
             compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
             generatedAt: typeof record.generatedAt === "string" ? record.generatedAt : new Date(0).toISOString(),
-            profilesRoot: typeof record.profilesRoot === "string" ? record.profilesRoot : normalizeArtifactPath(root),
+            profilesRoot: typeof record.profilesRoot === "string" ? record.profilesRoot : artifactPathContext.rootLabel,
             entries,
             profiles,
         };
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return emptyArtifactManifest(root);
+            return emptyArtifactManifest(artifactPathContext);
         }
         throw error;
     }
 }
-
 function normalizeManifestProfileEntries(value: unknown): unknown[] | null {
     if (Array.isArray(value)) {
         return value;
     }
-    if (!value || typeof value !== "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
         return null;
     }
     return Object.values(value);
 }
-
 function parseManifestEntry(item: unknown): ProfileArtifactManifestEntry[] {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
         return [];
@@ -1085,10 +1117,12 @@ export function profileArtifactManifestPath(profileRoot: string): string {
 /**
  * 验证 manifest item 对应的源码、依赖和 artifact 是否仍然新鲜。
  */
-export async function validateProfileArtifact(profileRoot: string, item: ProfileArtifactManifestItem, options: {
-    requireTypeArtifact?: boolean;
-    checkDependencies?: boolean;
-} = {}): Promise<ProfileArtifactValidation> {
+export async function validateProfileArtifact(
+    profileRoot: string,
+    item: ProfileArtifactManifestItem,
+    artifactPathContext: ProfileArtifactPathContext,
+    options: {requireTypeArtifact?: boolean; checkDependencies?: boolean} = {},
+): Promise<ProfileArtifactValidation> {
     const root = resolve(profileRoot);
     const sourcePath = join(root, ...item.fileName.split("/"));
     const sourceHash = await hashFile(sourcePath).catch(() => null);
@@ -1106,14 +1140,14 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (await artifactHasNitroImportMetaShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
-    if ((await resolveRuntimeArtifactCompilerContext()).productRuntime && !await artifactHasProductRequireShim(artifactPath)) {
+    if (artifactPathContext.compilerContext.productRuntime && !await artifactHasProductRequireShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
     if (!options.requireTypeArtifact) {
         if (options.checkDependencies === false) {
             return {fresh: true};
         }
-        return validateProfileArtifactDependencies(item);
+        return validateProfileArtifactDependencies(item, artifactPathContext);
     }
     if (!item.typeFileName || !item.typeSha256 || item.typeBytes === undefined) {
         return {fresh: false, reason: "type_artifact_missing"};
@@ -1128,16 +1162,16 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (options.checkDependencies === false) {
         return {fresh: true};
     }
-    return validateProfileArtifactDependencies(item);
+    return validateProfileArtifactDependencies(item, artifactPathContext);
 }
 
-async function validateProfileArtifactDependencies(item: ProfileArtifactManifestItem): Promise<{
+async function validateProfileArtifactDependencies(item: ProfileArtifactManifestItem, artifactPathContext: ProfileArtifactPathContext): Promise<{
     fresh: boolean;
     reason?: "dependency_changed";
     dependency?: ProfileArtifactDependencyMismatch;
 }> {
     for (const dependency of item.dependencies) {
-        const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
+        const current = await hashFile(resolveRuntimeArtifactPath(dependency.path, artifactPathContext)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
             return {
                 fresh: false,
@@ -1163,34 +1197,23 @@ export function rehomeProfileArtifactItem(item: ProfileArtifactManifestItem, inp
 }): ProfileArtifactManifestItem {
     const fromPrefix = input.fromRootLabel.replace(/[\\/]+/g, "/").replace(/\/+$/, "");
     const toPrefix = input.toRootLabel.replace(/[\\/]+/g, "/").replace(/\/+$/, "");
+    const sourcePrefixes = [fromPrefix, `.output/server/${fromPrefix}`];
     return {
         ...item,
         dependencies: item.dependencies.map((dependency) => {
             const dependencyPath = dependency.path.replace(/[\\/]+/g, "/");
-            if (dependencyPath === `${fromPrefix}/${item.fileName}`) {
-                return {
-                    ...dependency,
-                    path: `${toPrefix}/${item.fileName}`,
-                };
+            const sourcePrefix = sourcePrefixes.find((prefix) => dependencyPath === `${prefix}/${item.fileName}`);
+            if (!sourcePrefix) {
+                return dependency;
             }
-            return dependency;
+            return {
+                ...dependency,
+                path: `${toPrefix}/${item.fileName}`,
+            };
         }),
     };
 }
 
-/**
- * 将 artifact manifest 里的依赖路径解析回当前 checkout 下的真实路径。
- */
-export function resolveArtifactPath(filePath: string): string {
-    if (isAbsolute(filePath) || /^[A-Za-z]:\//.test(filePath)) {
-        return resolve(filePath);
-    }
-    const explicitImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
-    if (explicitImageRoot && filePath.replaceAll("\\", "/").startsWith(".output/server/")) {
-        return resolve(explicitImageRoot, "server", filePath.replaceAll("\\", "/").slice(".output/server/".length));
-    }
-    return resolve(process.cwd(), filePath);
-}
 
 /**
  * 计算文件 sha256 与大小。
@@ -1357,8 +1380,7 @@ async function profileKeyFromSource(file: ProfileFileEntry): Promise<string> {
 function profileKeyFromFileName(fileName: string): string {
     return basename(fileName).replace(/\.profile\.(tsx|ts|mjs|js)$/u, "");
 }
-
-async function compileProfileFile(profileRoot: string, compiledDir: string, file: ProfileFileEntry): Promise<ProfileArtifactManifestItem> {
+async function compileProfileFile(profileRoot: string, compiledDir: string, file: ProfileFileEntry, artifactPathContext: ProfileArtifactPathContext): Promise<ProfileArtifactManifestItem> {
     const sourceHash = await hashFile(file.absolutePath);
     const authoringGraph = await validateRuntimeArtifactAuthoring({
         kind: "profile",
@@ -1369,7 +1391,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
     const temporaryStem = stableArtifactStem(file.fileName, /\.profile\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
-    const compilerContext = await resolveRuntimeArtifactCompilerContext(resolveApplicationRoot());
+    const compilerContext = artifactPathContext.compilerContext;
     const tsconfigPath = compilerContext.tsconfigPath;
     let dependencies: ProfileArtifactDependency[];
 
@@ -1399,8 +1421,8 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
             throw new Error(`profile ${file.fileName} 编译缺少 esbuild metafile。`);
         }
         await assertRuntimeArtifactAuthoringMetafile(authoringGraph, result.metafile, profileRoot);
-        dependencies = await readArtifactDependencies(result.metafile, tsconfigPath, profileRoot);
-        const dependencyHash = hashArtifactDependencies(file.absolutePath, dependencies);
+        dependencies = await readArtifactDependencies(result.metafile, tsconfigPath, profileRoot, artifactPathContext);
+        const dependencyHash = hashArtifactDependencies(file.absolutePath, dependencies, artifactPathContext);
         const artifactHash = await hashFile(temporaryOutputPath);
         assertProfileArtifactDependencyGate(file.fileName, dependencies, artifactHash.bytes);
         const artifactFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${artifactHash.sha256}.mjs`;
@@ -1516,11 +1538,11 @@ function resolveProfileFile(profileRoot: string, fileName: string): ProfileFileE
         absolutePath,
     };
 }
-
 async function readArtifactDependencies(
     metafile: Metafile,
     tsconfigPath: string,
     metafileWorkingDir: string,
+    artifactPathContext: ProfileArtifactPathContext,
 ): Promise<ProfileArtifactDependency[]> {
     const paths = new Set<string>([tsconfigPath]);
     for (const inputPath of Object.keys(metafile.inputs)) {
@@ -1531,27 +1553,27 @@ async function readArtifactDependencies(
     const dependencies = await mapConcurrent(
         [...paths].sort((left, right) => left.localeCompare(right)),
         PROFILE_DEPENDENCY_HASH_CONCURRENCY,
-        artifactDependency,
+        (filePath) => artifactDependency(filePath, artifactPathContext),
     );
     return dependencies.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function artifactDependency(filePath: string): Promise<ProfileArtifactDependency> {
+async function artifactDependency(filePath: string, artifactPathContext: ProfileArtifactPathContext): Promise<ProfileArtifactDependency> {
     const hash = await hashFile(filePath);
     return {
-        path: normalizeArtifactPath(filePath),
+        path: normalizeArtifactPath(filePath, artifactPathContext),
         sha256: hash.sha256,
         bytes: hash.bytes,
     };
 }
 
-function hashArtifactDependencies(sourcePath: string, dependencies: ProfileArtifactDependency[]): string {
+function hashArtifactDependencies(sourcePath: string, dependencies: ProfileArtifactDependency[], artifactPathContext: ProfileArtifactPathContext): string {
     const hash = createHash("sha256")
         .update("profile-artifact")
         .update("\0")
         .update(String(PROFILE_ARTIFACT_COMPILER_VERSION))
         .update("\0")
-        .update(normalizeArtifactPath(sourcePath));
+        .update(normalizeArtifactPath(sourcePath, artifactPathContext));
     for (const dependency of dependencies) {
         hash.update("\0")
             .update(dependency.path)
@@ -1562,7 +1584,6 @@ function hashArtifactDependencies(sourcePath: string, dependencies: ProfileArtif
     }
     return hash.digest("hex").slice(0, 24);
 }
-
 async function promoteImmutableArtifact(temporaryOutputPath: string, outputPath: string, expected: {sha256: string; bytes: number}): Promise<boolean> {
     const previous = artifactPromotionLocks.get(outputPath) ?? Promise.resolve();
     let release: () => void = () => {};
@@ -1600,6 +1621,7 @@ async function commitCompiledArtifacts(
     compiledDir: string,
     manifest: ProfileArtifactManifest,
     orphanBudgetBytes: number,
+    artifactPathContext: ProfileArtifactPathContext,
 ): Promise<void> {
     await mkdir(compiledDir, {recursive: true});
     await withCompiledPublishLock(compiledDir, async () => {
@@ -1615,22 +1637,22 @@ async function commitCompiledArtifactEntry(
     buildCompiledDir: string,
     compiledDir: string,
     entry: ProfileArtifactManifestEntry,
-    profilesRoot: string | undefined,
     orphanBudgetBytes: number,
+    artifactPathContext: ProfileArtifactPathContext,
 ): Promise<ProfileArtifactManifest> {
-    return commitCompiledArtifactEntries(buildCompiledDir, compiledDir, [entry], profilesRoot, orphanBudgetBytes);
+    return commitCompiledArtifactEntries(buildCompiledDir, compiledDir, [entry], orphanBudgetBytes, artifactPathContext);
 }
 
 async function commitCompiledArtifactEntries(
     buildCompiledDir: string,
     compiledDir: string,
     entries: ProfileArtifactManifestEntry[],
-    profilesRoot: string | undefined,
     orphanBudgetBytes: number,
+    artifactPathContext: ProfileArtifactPathContext,
 ): Promise<ProfileArtifactManifest> {
     await mkdir(compiledDir, {recursive: true});
     return withCompiledPublishLock(compiledDir, async () => {
-        const existingManifest = await readProfileArtifactManifest(dirname(compiledDir));
+        const existingManifest = await readProfileArtifactManifest(dirname(compiledDir), artifactPathContext);
         for (const entry of entries) {
             if (entry.status === "compile_failed") {
                 continue;
@@ -1645,7 +1667,7 @@ async function commitCompiledArtifactEntries(
         const manifest: ProfileArtifactManifest = {
             compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
             generatedAt: profilesEqual(existingManifest.entries, nextEntries) ? existingManifest.generatedAt : new Date().toISOString(),
-            profilesRoot: existingManifest.entries.length > 0 ? existingManifest.profilesRoot : profilesRoot ?? existingManifest.profilesRoot,
+            profilesRoot: existingManifest.entries.length > 0 ? existingManifest.profilesRoot : artifactPathContext.rootLabel,
             entries: nextEntries,
             profiles: nextEntries.filter(isLoadedManifestEntry),
         };
@@ -1669,6 +1691,7 @@ async function commitCompiledArtifactEntries(
  */
 export async function sweepProfileArtifactBudget(
     profileRoot: string,
+    artifactPathContext: ProfileArtifactPathContext,
     budgetBytes: number = PROFILE_COMPILED_ORPHAN_BUDGET_BYTES,
 ): Promise<ProfileArtifactGcReport | null> {
     const compiledDir = join(resolve(profileRoot), PROFILE_COMPILED_DIR_NAME);
@@ -1677,7 +1700,7 @@ export async function sweepProfileArtifactBudget(
     if (names.length === 0) {
         return null;
     }
-    const preflight = await readProfileArtifactManifest(dirname(compiledDir)).catch(() => null);
+    const preflight = await readProfileArtifactManifest(dirname(compiledDir), artifactPathContext).catch(() => null);
     if (!preflight) {
         return null;
     }
@@ -1688,7 +1711,7 @@ export async function sweepProfileArtifactBudget(
         return null;
     }
     return withCompiledPublishLock(compiledDir, async () => {
-        const manifest = await readProfileArtifactManifest(dirname(compiledDir));
+        const manifest = await readProfileArtifactManifest(dirname(compiledDir), artifactPathContext);
         const report = await pruneCompiledArtifacts(compiledDir, manifest, "sweep", budgetBytes);
         logProfileArtifactGc(compiledDir, report);
         return report;
@@ -2008,7 +2031,7 @@ function runtimeRequireBanner(context: RuntimeArtifactCompilerContext): string {
         'import {createRequire as __nbookCreateRequire} from "node:module";',
         'import {existsSync as __nbookExistsSync} from "node:fs";',
         'import {resolve as __nbookResolve} from "node:path";',
-        'function __nbookResolveProductRequireRoot(){const applicationRoot=process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();const buildImageRoot=process.env.NEURO_BOOK_PRODUCT_BUILD==="1"?process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim():"";const entry=applicationRoot?__nbookResolve(applicationRoot,".output","server","index.mjs"):buildImageRoot?__nbookResolve(buildImageRoot,"server","index.mjs"):"";if(!entry||!__nbookExistsSync(entry))throw new Error("Product Profile artifact 缺少 NEURO_BOOK_APPLICATION_ROOT 或已验证的 runtime require root。");return entry;}',
+        'function __nbookResolveProductRequireRoot(){const applicationRoot=process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();const buildImageRoot=process.env.NEURO_BOOK_PRODUCT_BUILD==="1"?process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim():"";const entry=buildImageRoot?__nbookResolve(buildImageRoot,"server","index.mjs"):applicationRoot?__nbookResolve(applicationRoot,".output","server","index.mjs"):"";if(!entry||!__nbookExistsSync(entry))throw new Error("Product Profile artifact 缺少 NEURO_BOOK_APPLICATION_ROOT 或已验证的 runtime require root。");return entry;}',
         "const require=__nbookCreateRequire(__nbookResolveProductRequireRoot());",
     ].join("");
 }
@@ -2017,11 +2040,11 @@ function runtimeImportMetaUrlExpression(): string {
     return ["import", ".", "meta", ".", "url"].join("");
 }
 
-function emptyArtifactManifest(profileRoot: string): ProfileArtifactManifest {
+function emptyArtifactManifest(artifactPathContext: ProfileArtifactPathContext): ProfileArtifactManifest {
     return {
         compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
         generatedAt: new Date(0).toISOString(),
-        profilesRoot: normalizeArtifactPath(profileRoot),
+        profilesRoot: artifactPathContext.rootLabel,
         entries: [],
         profiles: [],
     };
@@ -2042,6 +2065,6 @@ function stableArtifactStem(fileName: string, extensionPattern: RegExp): string 
     return stem || "artifact";
 }
 
-function normalizeArtifactPath(filePath: string): string {
-    return normalizeRuntimeArtifactPath(filePath);
+function normalizeArtifactPath(filePath: string, artifactPathContext: ProfileArtifactPathContext): string {
+    return normalizeRuntimeArtifactPath(filePath, artifactPathContext);
 }

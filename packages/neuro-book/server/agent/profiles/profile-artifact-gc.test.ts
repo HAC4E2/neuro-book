@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile} from "node:fs/promises";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
-import {join} from "node:path";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
     PROFILE_ARTIFACT_COMPILER_VERSION,
@@ -14,10 +14,18 @@ import {
     PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES,
     profileArtifactOrphanBudget,
     pruneCompiledArtifacts,
+    resolveProfileArtifactPathContext,
     sweepProfileArtifactBudget,
     type ProfileArtifactManifest,
     type ProfileArtifactManifestItem,
+    type ProfileArtifactPathContext,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
+
+const TEST_COMPILER_ROOT = resolve(import.meta.dirname, "../../..");
+
+async function artifactPathContext(profileRoot: string): Promise<ProfileArtifactPathContext> {
+    return resolveProfileArtifactPathContext(profileRoot, "workspace/.nbook/agent/profiles", TEST_COMPILER_ROOT);
+}
 
 const roots: string[] = [];
 
@@ -220,7 +228,7 @@ describe("Profile artifact GC", () => {
         await writeArtifact(compiledDir, "stale2", 100, 4 * hour);
         await writeFile(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), JSON.stringify(serializedManifest(["current"])), "utf8");
 
-        const report = await sweepProfileArtifactBudget(profileRoot, 100);
+        const report = await sweepProfileArtifactBudget(profileRoot, await artifactPathContext(profileRoot), 100);
 
         expect(report).not.toBeNull();
         expect(report?.trigger).toBe("sweep");
@@ -233,7 +241,7 @@ describe("Profile artifact GC", () => {
         await writeArtifact(compiledDir, "current", 100, 60 * 60 * 1000);
         await writeFile(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), JSON.stringify(serializedManifest(["current"])), "utf8");
 
-        await expect(sweepProfileArtifactBudget(profileRoot, 1)).resolves.toBeNull();
+        await expect(sweepProfileArtifactBudget(profileRoot, await artifactPathContext(profileRoot), 1)).resolves.toBeNull();
         // 没取过锁：稳态下每次启动只付一次 readdir。
         await expect(stat(join(compiledDir, PROFILE_COMPILED_PUBLISH_LOCK))).rejects.toMatchObject({code: "ENOENT"});
     });

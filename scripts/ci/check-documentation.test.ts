@@ -141,7 +141,7 @@ describe("documentation governance gate", () => {
         expect(report.failures).toContain("ADR 编号重复 0001：packages/neuro-book/docs/adr/0001-first-decision.md, packages/neuro-book/docs/adr/0001-second-decision.md");
     });
 
-    it("拒绝 docs 根层正文和已迁移 Workspace Reference", async () => {
+    it("拒绝 docs 根层正文和已迁移 Reference", async () => {
         const fixture = await createDocumentationFixture({
             "docs/stray.md": "# Stray\n",
             "reference/workspace/TERMS.md": "# Workspace Terms\n",
@@ -150,7 +150,7 @@ describe("documentation governance gate", () => {
         const report = checkDocumentation(fixture.root, fixture.paths);
 
         expect(report.failures).toContain("docs 根层只允许 README.md 和 AGENTS.md：docs/stray.md");
-        expect(report.failures).toContain("已迁移的 reference/workspace 不得重新出现：reference/workspace/TERMS.md");
+        expect(report.failures).toContain("运行期 Reference 必须位于 packages/neuro-book/assets/reference：reference/workspace/TERMS.md");
     });
 
     it("拒绝重新创建旧人工评测顶层目录", async () => {
@@ -296,14 +296,18 @@ describe("documentation governance gate", () => {
         expect(report.failures).toContain("Behavior Spec 缺少“目标与非目标”章节：docs/specs/editor/code-headings.md");
     });
 
-    it("冻结 Reference 域以注册表为唯一白名单", async () => {
+    it("拒绝重新创建根 Reference 域或索引", async () => {
         const fixture = await createDocumentationFixture({
+            "reference/README.md": "# Legacy\n",
             "reference/new-domain/contract.md": "# Contract\n",
-        }, {
-            frozen: ["reference/new-domain/"],
         });
+        expect(checkDocumentation(fixture.root, fixture.paths).failures).toContain(
+            "运行期 Reference 必须位于 packages/neuro-book/assets/reference：reference/README.md",
+        );
 
-        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([]);
+        expect(checkDocumentation(fixture.root, fixture.paths).failures).toContain(
+            "运行期 Reference 必须位于 packages/neuro-book/assets/reference：reference/new-domain/contract.md",
+        );
     });
 
     it("只校验新 schema Task 的具体 Spec 绑定和活跃链接", async () => {
@@ -311,7 +315,7 @@ describe("documentation governance gate", () => {
             ".agents/tasks/00150-valid/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../docs/specs/editor/html.md)\n",
             ".agents/tasks/00151-no-behavior-change/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n本任务行为合同未变。\n",
             ".agents/tasks/00152-broken/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../docs/specs/editor/missing.md)\n",
-            ".agents/tasks/42-history/README.md": "# Historical Task\n\n[Old](../../../docs/tasks/missing.md)\n",
+            "packages/neuro-book/.agents/tasks/00153-package-valid/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../../../docs/specs/editor/html.md)\n",
             "docs/specs/editor/html.md": specDocument({capability: "editor.html"}),
         }, {
             planned: ["docs/specs/editor/html.md"],
@@ -324,6 +328,7 @@ describe("documentation governance gate", () => {
         expect(report.failures.some((failure) => failure.includes("42-history"))).toBe(false);
         expect(report.failures.some((failure) => failure.includes("00150-valid"))).toBe(false);
         expect(report.failures.some((failure) => failure.includes("00151-no-behavior-change"))).toBe(false);
+        expect(report.failures.some((failure) => failure.includes("00153-package-valid"))).toBe(false);
     });
 
     it("图片链接和路径大小写使用受管文件集合校验", async () => {

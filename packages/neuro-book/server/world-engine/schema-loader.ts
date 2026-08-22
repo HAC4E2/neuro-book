@@ -3,7 +3,7 @@ import path from "node:path";
 import {createError} from "h3";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
-import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
+import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {
     collectZodDefaults,
     extractRefs,
@@ -31,6 +31,8 @@ const SCHEMA_TS_PATH = "world-engine/schema/index.ts";
  * 但由 Zod 无损派生：EmbeddingText 容器被标记为一等的 `embedding` 字段。
  */
 export class WorldSchemaLoader {
+    constructor(private readonly compilerContext: RuntimeArtifactCompilerContext | Promise<RuntimeArtifactCompilerContext>) {}
+
     async load(projectRoot: AbsoluteFsPath): Promise<WorldSchema> {
         const tsSchemaPath = path.join(projectRoot, SCHEMA_TS_PATH);
 
@@ -64,13 +66,12 @@ export class WorldSchemaLoader {
                 message: `无法访问 schema: ${error instanceof Error ? error.message : String(error)}`,
             });
         }
-
         try {
             const schemaModule = await importSingleFileTypeScriptConfig<{default?: unknown; WorldSchema?: unknown}>({
                 filePath: tsSchemaPath,
                 label: "schema",
                 runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
-                compilerContext: await resolveRuntimeArtifactCompilerContext(),
+                compilerContext: await this.compilerContext,
             });
             const exportedSchema = schemaModule.default ?? schemaModule.WorldSchema;
             if (!exportedSchema || typeof exportedSchema !== "object") {

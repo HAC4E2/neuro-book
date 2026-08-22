@@ -11,6 +11,8 @@ import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-ht
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
@@ -53,7 +55,11 @@ describe("Profile prepare preview物理Workspace Root", () => {
             repo,
             profiles: new AgentProfileCatalog(
                 path.join(fixture, "missing-system-profiles"),
-                path.join(fixture, "missing-user-profiles"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, path.join(fixture, "application")),
+                {install: "workspace/.nbook/agent/profiles"},
             ),
             enableSessionSummarizer: false,
         });
@@ -120,13 +126,15 @@ describe("Profile prepare preview物理Workspace Root", () => {
             runtimePaths,
             repo,
             profiles: new AgentProfileCatalog(
-                path.join(fixture, "missing-system-profiles"),
-                path.join(fixture, "missing-user-profiles"),
+                path.join(fixture, "missing-install-profiles"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, path.join(fixture, "application")),
+                {install: "workspace/.nbook/agent/profiles"},
             ),
-            workflows: new WorkflowCatalog(
-                path.join(fixture, "missing-system-workflows"),
-                path.join(fixture, "missing-user-workflows"),
-            ),
+            workflows: new WorkflowCatalog(path.join(fixture, "missing-install-workflows")),
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(path.join(fixture, "application")),
             enableSessionSummarizer: false,
         });
         harness.profiles.register(defineAgentProfile({

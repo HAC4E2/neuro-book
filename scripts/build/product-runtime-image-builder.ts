@@ -661,8 +661,8 @@ export class ProductRuntimeImageBuilder {
             throw new Error("无法读取 Bun 版本。");
         }
         const [nuxt, nitro] = await Promise.all([
-            installedPackageVersion(this.applicationSourceRoot, "nuxt"),
-            installedPackageVersion(this.applicationSourceRoot, "nitropack"),
+            installedPackageVersion(this.repositoryRoot, "nuxt"),
+            installedPackageVersion(this.repositoryRoot, "nitropack"),
         ]);
         return {bun, nuxt, nitro};
     }

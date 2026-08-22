@@ -2,22 +2,25 @@ import {readFile, readdir} from "node:fs/promises";
 import {resolve} from "node:path";
 import {
     readProfileArtifactManifest,
+    resolveProfileArtifactPathContext,
     validateProfileArtifact,
     type ProfileArtifactValidation,
 } from "../server/agent/profiles/profile-artifact-compiler";
 import {
     readVariableDefinitionManifest,
+    resolveVariableDefinitionArtifactPathContext,
     validateVariableDefinitionArtifact,
     type VariableDefinitionValidation,
 } from "../server/agent/variables/definition-artifact";
 
-export {compileProfileArtifacts} from "../server/agent/profiles/profile-artifact-compiler";
-export {compileVariableDefinitions} from "../server/agent/variables/definition-artifact";
+export {compileProfileArtifacts, resolveProfileArtifactPathContext} from "../server/agent/profiles/profile-artifact-compiler";
+export {compileVariableDefinitions, resolveVariableDefinitionArtifactPathContext} from "../server/agent/variables/definition-artifact";
 export {SystemAssetsProjection} from "../server/workspace-files/system-assets-projection";
 
 export {PROFILE_VARIABLE_IDE_TYPES_FILE} from "../server/agent/variables/generated-types";
 export {generateProfileVariableIdeTypes} from "../server/agent/variables/ide-types";
 export {APPLICATION_STATE_MIGRATION_STEP_IDS} from "../server/runtime/application-state-migration/catalog";
+
 /** 验证最终 Product system artifacts 只依赖 Product runtime 自身。 */
 export async function assertProductSystemArtifactContract(
     applicationRoot = process.cwd(),
@@ -32,7 +35,12 @@ export async function assertProductSystemArtifactContract(
     process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = productImageRoot;
     try {
         const profileRoot = resolve(agentRoot, "profiles");
-        const profileManifest = await readProfileArtifactManifest(profileRoot);
+        const profileArtifactPathContext = await resolveProfileArtifactPathContext(
+            profileRoot,
+            "assets/workspace/.nbook/agent/profiles",
+            root,
+        );
+        const profileManifest = await readProfileArtifactManifest(profileRoot, profileArtifactPathContext);
         if (profileManifest.profiles.length === 0) {
             throw new Error("Product system profile manifest 为空。请重新执行完整 Product build。");
         }
@@ -41,14 +49,19 @@ export async function assertProductSystemArtifactContract(
         }
         for (const profile of profileManifest.profiles) {
             assertProductDependencies(profile.fileName, profile.dependencies);
-            const validation = await validateProfileArtifact(profileRoot, profile, {requireTypeArtifact: true});
+            const validation = await validateProfileArtifact(profileRoot, profile, profileArtifactPathContext, {requireTypeArtifact: true});
             if (!validation.fresh) {
                 throw new Error(`Product system profile artifact 无效：${profile.fileName}（${validationDetail(validation)}）`);
             }
         }
 
         const variableRoot = resolve(agentRoot, "variables");
-        const variableManifest = await readVariableDefinitionManifest(variableRoot);
+        const variableArtifactPathContext = await resolveVariableDefinitionArtifactPathContext(
+            variableRoot,
+            "assets/workspace/.nbook/agent/variables",
+            root,
+        );
+        const variableManifest = await readVariableDefinitionManifest(variableRoot, variableArtifactPathContext);
         if (variableManifest.definitions.length === 0) {
             throw new Error("Product system variable definition manifest 为空。请重新执行完整 Product build。");
         }
@@ -57,7 +70,7 @@ export async function assertProductSystemArtifactContract(
         }
         for (const definition of variableManifest.definitions) {
             assertProductDependencies(definition.fileName, definition.dependencies);
-            const validation = await validateVariableDefinitionArtifact(variableRoot, definition, {requireTypeArtifact: true});
+            const validation = await validateVariableDefinitionArtifact(variableRoot, definition, variableArtifactPathContext, {requireTypeArtifact: true});
             if (!validation.fresh) {
                 throw new Error(`Product system variable definition artifact 无效：${definition.fileName}（${validationDetail(validation)}）`);
             }

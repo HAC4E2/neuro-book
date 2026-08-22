@@ -16,10 +16,15 @@
             ],
             "nbook/*": [
                 "./packages/neuro-book/*"
+            ],
+            "@notnotype/neuro-book/*": [
+                "./packages/neuro-book/interfaces/*.ts"
             ]
         }
     },
     "include": [
+        "ci/agent-governance-contract.ts",
+        "ci/agent-governance.ts",
         "types/proper-lockfile.d.ts",
         "types/yazl.d.ts",
         "../packages/neuro-book/server/agent/tools/web-extraction-modules.d.ts",

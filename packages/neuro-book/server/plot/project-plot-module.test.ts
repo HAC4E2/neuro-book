@@ -1,41 +1,19 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {PrismaClient} from "nbook/server/generated/project-prisma/client";
-import {
-    PROJECT_PLOT_WORLD_MODULE_TOKEN,
-    projectPlotWorldModule,
-    type ProjectPlotWorldHandle,
-} from "nbook/server/plot";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN, projectPlotWorldModule, type ProjectPlotWorldHandle} from "nbook/server/plot";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {
-    createProjectWorkspaceKey,
-    projectWorkspaceRef,
-    resolvedProjectWorkspace,
-} from "nbook/server/workspace-files/project-identity";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
+import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 import type {PreparedProjectOpen} from "nbook/server/workspace-files/project-lifecycle";
-import {
-    PROJECT_DATABASE_MODULE_TOKEN,
-    type ProjectDatabaseModuleHandle,
-} from "nbook/server/workspace-files/project-database-module";
-import {
-    projectModuleRegistry,
-    type ProjectModuleContext,
-    type ProjectModuleHandle,
-    type ProjectModuleToken,
-} from "nbook/server/workspace-files/project-module";
+import {PROJECT_DATABASE_MODULE_TOKEN, type ProjectDatabaseModuleHandle} from "nbook/server/workspace-files/project-database-module";
+import {projectModuleRegistry, type ProjectModuleContext, type ProjectModuleHandle, type ProjectModuleToken} from "nbook/server/workspace-files/project-module";
 import type {ProjectOccupancyHandle} from "nbook/server/workspace-files/project-lock";
-import {
-    PROJECT_FILE_INDEX_MODULE_TOKEN,
-    type ProjectFileIndexHandle,
-} from "nbook/server/workspace-files/project-file-index";
+import {PROJECT_FILE_INDEX_MODULE_TOKEN, type ProjectFileIndexHandle} from "nbook/server/workspace-files/project-file-index";
 import {initProjectDatabaseAtRoot} from "nbook/server/workspace-files/project-workspace";
-import {
-    PROJECT_HISTORY_MODULE_TOKEN,
-    type ProjectHistoryHandle,
-} from "nbook/server/workspace-history/project-history";
-
+import {PROJECT_HISTORY_MODULE_TOKEN, type ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
 describe("Plot/World ProjectModule", () => {
     const tempRoots: string[] = [];
     const handles: ProjectPlotWorldHandle[] = [];
@@ -213,6 +191,7 @@ function moduleContext(prepared: PreparedProjectOpen): ProjectModuleContext {
             throw new Error("本测试未订阅File Index");
         },
     };
+    const compilerContext = resolveRuntimeArtifactCompilerContext(path.resolve(import.meta.dirname, "../../"));
     const history: ProjectHistoryHandle = {
         history: Promise.resolve(null),
         ready: Promise.resolve(),
@@ -241,6 +220,7 @@ function moduleContext(prepared: PreparedProjectOpen): ProjectModuleContext {
         prepared,
         opener: {kind: "job", source: "project-plot-module.test"},
         signal: new AbortController().signal,
+        compilerContext,
         require<THandle extends ProjectModuleHandle>(token: ProjectModuleToken<THandle>): THandle {
             if (token.name === PROJECT_DATABASE_MODULE_TOKEN.name) {
                 return database as ProjectModuleHandle as THandle;

@@ -4,13 +4,16 @@ import {existsSync} from "node:fs";
 import {dirname, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {
+    compileProfileArtifacts,
+    createProfileArtifactPathContextResolver,
+} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveAgentInstallRoot} from "nbook/server/workspace-files/system-workspace-assets";
 
 export type ProfileSourceCheckRoots = {
-    systemProfileRoot?: string;
-    userProfileRoot?: string;
+    profileRoot?: string;
+    runtimePaths?: RuntimePaths;
 };
 
 /**
@@ -22,10 +25,13 @@ export async function withProfileSourceOverride<T>(
         source: string;
         roots?: ProfileSourceCheckRoots;
     },
-    callback: (catalog: AgentProfileCatalog, userProfileRoot: string) => Promise<T>,
+    callback: (catalog: AgentProfileCatalog, profileRoot: string) => Promise<T>,
 ): Promise<T> {
-    const sourceRoot = input.roots?.userProfileRoot ?? defaultUserProfileRoot();
-    const systemRoot = input.roots?.systemProfileRoot ?? defaultSystemProfileRoot();
+    const sourceRoot = input.roots?.profileRoot
+        ?? (input.roots?.runtimePaths ? resolve(resolveAgentInstallRoot(input.roots.runtimePaths), "profiles") : null);
+    if (!sourceRoot) {
+        throw new Error("Profile source check 需要显式 Profile Root 或 RuntimePaths。");
+    }
     const temporaryRoot = resolve(dirname(sourceRoot), ".staging", "profile-source-check", randomUUID());
     try {
         if (existsSync(sourceRoot)) {
@@ -34,13 +40,25 @@ export async function withProfileSourceOverride<T>(
         const targetPath = resolveProfileFilePath(input.fileName, temporaryRoot);
         await mkdir(dirname(targetPath), {recursive: true});
         await writeFile(targetPath, input.source, "utf8");
+        const compilerRoot = input.roots?.runtimePaths?.applicationRoot;
+        if (!compilerRoot) {
+            throw new Error("Profile source check 需要显式 RuntimePaths 才能建立 artifact path context。");
+        }
+        const resolver = createProfileArtifactPathContextResolver(compilerRoot);
+        const artifactPathContext = await resolver(temporaryRoot, "temporary-profile-source-check");
         await compileProfileArtifacts({
             profileRoot: temporaryRoot,
             fileName: input.fileName,
-            rootLabel: "temporary-profile-source-check",
+            artifactPathContext,
         });
-        const catalog = new AgentProfileCatalog(systemRoot, temporaryRoot);
-        return await callback(catalog, temporaryRoot);
+        return await callback(new AgentProfileCatalog(
+            temporaryRoot,
+            undefined,
+            undefined,
+            undefined,
+            resolver,
+            {install: "temporary-profile-source-check"},
+        ), temporaryRoot);
     } finally {
         await rm(temporaryRoot, {recursive: true, force: true});
     }
@@ -68,12 +86,4 @@ function resolveProfileFilePath(fileName: string, root: string): string {
         });
     }
     return resolved;
-}
-
-function defaultSystemProfileRoot(): string {
-    return resolve(resolveSystemNbookRoot(), "agent", "profiles");
-}
-
-function defaultUserProfileRoot(): string {
-    return resolve(resolveUserNbookRoot(), "agent", "profiles");
 }

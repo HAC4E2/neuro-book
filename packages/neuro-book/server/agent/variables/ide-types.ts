@@ -1,14 +1,20 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
-import {PROFILE_COMPILED_DIR_NAME, readProfileArtifactManifest} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {PROFILE_COMPILED_DIR_NAME, readProfileArtifactManifest, type ProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateBuiltinVariableTypes, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
-import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "nbook/server/agent/variables/definition-artifact";
+import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR, type VariableDefinitionArtifactPathContext} from "nbook/server/agent/variables/definition-artifact";
 
 export type GenerateProfileVariableIdeTypesOptions = {
     outputPath: string;
-    variableDefinitionRoots: string[];
-    profileRoots: string[];
+    variableDefinitionRoots: ReadonlyArray<{
+        root: string;
+        artifactPathContext: VariableDefinitionArtifactPathContext;
+    }>;
+    profileRoots: ReadonlyArray<{
+        root: string;
+        artifactPathContext: ProfileArtifactPathContext;
+    }>;
 };
 
 /**
@@ -25,14 +31,13 @@ export async function generateProfileVariableIdeTypes(options: GenerateProfileVa
     const builtinTypes = generateBuiltinVariableTypes();
     const sections = [builtinTypes.text];
     diagnostics.push(...builtinTypes.diagnostics);
-
-    for (const root of options.variableDefinitionRoots) {
-        const manifest = await readVariableDefinitionManifest(root);
+    for (const target of options.variableDefinitionRoots) {
+        const manifest = await readVariableDefinitionManifest(target.root, target.artifactPathContext);
         for (const item of manifest.definitions) {
             if (!item.typeFileName) {
                 continue;
             }
-            const typePath = join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.typeFileName);
+            const typePath = join(target.root, VARIABLE_DEFINITION_COMPILED_DIR, item.typeFileName);
             if (!existsSync(typePath)) {
                 continue;
             }
@@ -42,13 +47,13 @@ export async function generateProfileVariableIdeTypes(options: GenerateProfileVa
         }
     }
 
-    for (const root of options.profileRoots) {
-        const manifest = await readProfileArtifactManifest(root);
+    for (const target of options.profileRoots) {
+        const manifest = await readProfileArtifactManifest(target.root, target.artifactPathContext);
         for (const item of manifest.profiles) {
             if (!item.typeFileName) {
                 continue;
             }
-            const typePath = join(root, PROFILE_COMPILED_DIR_NAME, item.typeFileName);
+            const typePath = join(target.root, PROFILE_COMPILED_DIR_NAME, item.typeFileName);
             if (!existsSync(typePath)) {
                 continue;
             }

@@ -1,6 +1,8 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
@@ -42,7 +44,11 @@ describe("profile compile worker Project lifecycle", () => {
                 dryRun: true,
                 preview: true,
                 sessionId: String(sessionId),
-                userProfileRoot: assets.userProfileRoot,
+                profileRoot: assets.userProfileRoot,
+                runtimePaths: createRuntimePaths({
+                    applicationRoot: absoluteFsPath(assets.applicationRoot),
+                    stateRoot: absoluteFsPath(assets.root),
+                }),
             });
 
             expect(result.lifecycleError).toEqual({
@@ -58,13 +64,15 @@ describe("profile compile worker Project lifecycle", () => {
             ), "utf8")).rejects.toMatchObject({code: "ENOENT"});
         });
     }, 120_000);
-
     it("worker service 将 Project lifecycle error 重新抛为 ProjectNotOpenError", async () => {
         await withLifecycleProfile(async (assets) => {
             const {projectRoot, sessionId} = await createUnopenedProjectSession(assets);
             const fileName = PROFILE_FILE_NAME;
             const source = await readFile(profilePath(assets, fileName), "utf8");
-            const worker = new ProfileCompileWorkerService("test-project-lifecycle-error", 1, undefined, assets.userProfileRoot);
+            const worker = new ProfileCompileWorkerService("test-project-lifecycle-error", 1, undefined, assets.userProfileRoot, "workspace/.nbook/agent/profiles", createRuntimePaths({
+                applicationRoot: absoluteFsPath(assets.applicationRoot),
+                stateRoot: absoluteFsPath(assets.root),
+            }));
             try {
                 await worker.compile({
                     fileName,

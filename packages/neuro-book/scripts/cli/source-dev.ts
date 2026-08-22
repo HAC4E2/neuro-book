@@ -3,7 +3,6 @@ import {randomBytes} from "node:crypto";
 import {existsSync} from "node:fs";
 import {homedir} from "node:os";
 import {resolve} from "node:path";
-import {resolveAgentCacheRoot} from "@notnotype/neuro-book-test-support/paths";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
 import {shutdownNativeProduct} from "nbook/server/runtime/shutdown/product-shutdown-client";
 import {
@@ -59,7 +58,7 @@ export function resolveSourceDevUserRoots(
 /**
  * 运行公开 Source Dev 入口。
  *
- * `dev:runtime` 只负责既有准备和 Nuxt 启动；本函数是唯一直接 CLI owner，负责
+ * `dev:runtime` 负责安装、准备和 Nuxt 启动；本函数是唯一直接 CLI owner，负责
  * graceful shutdown、宿主断连兜底和真实退出码传播。Manager 会直接拥有内部入口。
  */
 export async function runSourceDev(options: SourceDevOptions = {}): Promise<number> {
@@ -78,14 +77,15 @@ export async function runSourceDev(options: SourceDevOptions = {}): Promise<numb
     const token = randomBytes(32).toString("base64url");
     const configuredHost = inherited.NITRO_HOST?.trim() || inherited.HOST?.trim();
     const userRoots = resolveSourceDevUserRoots({environment: inherited});
+    const stateRoot = inherited.NEURO_BOOK_STATE_ROOT?.trim()
+        ? resolve(inherited.NEURO_BOOK_STATE_ROOT)
+        : userRoots.stateRoot;
     const env = {
         ...inherited,
         ...configuredHost ? {} : {HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1"},
         NEURO_BOOK_REPOSITORY_ROOT: roots.repositoryRoot,
         NEURO_BOOK_APPLICATION_ROOT: roots.applicationSourceRoot,
-        NEURO_BOOK_STATE_ROOT: inherited.NEURO_BOOK_STATE_ROOT?.trim()
-            ? inherited.NEURO_BOOK_STATE_ROOT
-            : userRoots.stateRoot,
+        NEURO_BOOK_STATE_ROOT: stateRoot,
         NEURO_BOOK_CACHE_ROOT: inherited.NEURO_BOOK_CACHE_ROOT?.trim()
             ? inherited.NEURO_BOOK_CACHE_ROOT
             : userRoots.cacheRoot,

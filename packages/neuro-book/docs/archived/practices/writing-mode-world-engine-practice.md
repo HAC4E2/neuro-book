@@ -126,7 +126,7 @@ lorebook/character/{name}/
 
 ### 创建种子脚本
 
-复用 `scripts/seed-world-engine-demo.ts` 的结构，创建 `scripts/seed-heroes-story.ts`。
+复用 `packages/neuro-book/scripts/seed/world-engine-demo.ts` 的结构，创建 `packages/neuro-book/scripts/seed/heroes-story.ts`。
 
 ### 初始数据集（12 个切片）
 
@@ -393,13 +393,13 @@ lorebook/character/{name}/
 ### 种子脚本（完整初始化）
 
 ```bash
-bun scripts/seed-heroes-story.ts workspace/ming-ding-zhi-shi-2
+bun --cwd packages/neuro-book run seed:heroes-story -- workspace/ming-ding-zhi-shi-2
 ```
 
 ### 第一章切片写入
 
 ```bash
-bun scripts/write-chapter-01-slices.ts
+bun --cwd packages/neuro-book run seed:chapter-01-slices
 ```
 
 ### 查询世界状态

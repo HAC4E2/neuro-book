@@ -22,7 +22,7 @@ test("WorldIssue catalog 覆盖所有稳定 code 且字段完整", () => {
 });
 
 test("reference issues 表逐字段镜像运行时 catalog", () => {
-    const markdown = readFileSync(join(repositoryRoot, "reference/world-engine/issues.md"), "utf8");
+    const markdown = readFileSync(join(repositoryRoot, "packages/neuro-book/assets/reference/world-engine/issues.md"), "utf8");
     const referenceRows = parseIssueCatalogRows(markdown);
     const expectedRows = Object.values(WORLD_ISSUE_CATALOG).map((item) => ({
         label: item.label,
@@ -39,13 +39,13 @@ test("reference issues 表逐字段镜像运行时 catalog", () => {
 });
 
 test("reference issues 文档不再声明双真相源", () => {
-    const markdown = readFileSync(join(repositoryRoot, "reference/world-engine/issues.md"), "utf8");
+    const markdown = readFileSync(join(repositoryRoot, "packages/neuro-book/assets/reference/world-engine/issues.md"), "utf8");
     expect(markdown).not.toContain("唯一人读真相源");
     expect(markdown).not.toContain("运行时代码真相源");
 });
 
 test("任务 56 的 World Issue reference 链接指向真实文件", () => {
-    const taskPath = join(repositoryRoot, ".agents/tasks/56-world-engine/README.md");
+    const taskPath = join(repositoryRoot, "packages/neuro-book/.agents/tasks/56-world-engine/README.md");
     const markdown = readFileSync(taskPath, "utf8");
     const match = markdown.match(/\[reference\/world-engine\/issues\.md\]\(([^)]+)\)/);
     expect(match?.[1]).toBeTruthy();

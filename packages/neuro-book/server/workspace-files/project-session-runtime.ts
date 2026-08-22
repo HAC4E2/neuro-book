@@ -1,5 +1,6 @@
 import type {ProjectWorkspaceKey} from "nbook/server/workspace-files/project-identity";
 import type {PreparedProjectOpen} from "nbook/server/workspace-files/project-lifecycle";
+import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {
     isProjectDomainError,
     ProjectDomainError,
@@ -139,6 +140,8 @@ export type ProjectSessionRuntimeOptions = {
     readonly registryProvider?: () => ProjectModuleRegistrySnapshot;
     readonly now?: () => number;
     readonly graceMs?: number;
+    /** 由组合根预先决定的 Source/Product compiler context；不从 cwd 推导。 */
+    readonly compilerContext?: Promise<RuntimeArtifactCompilerContext>;
 };
 
 /** 长生命周期数据面启动结果：result同步返回调用方，completion只在业务terminal时settle。 */
@@ -193,6 +196,7 @@ export class ProjectSessionRuntime {
     private readonly registryProvider: () => ProjectModuleRegistrySnapshot;
     private readonly now: () => number;
     private readonly graceMs: number;
+    private readonly compilerContext?: Promise<RuntimeArtifactCompilerContext>;
     private agentPresenceProbe: ((session: ReadyProjectSessionRef) => boolean) | null = null;
     private generation = 0;
     private state: "running" | "closing" | "closed" = "running";
@@ -203,6 +207,7 @@ export class ProjectSessionRuntime {
         this.registryProvider = options.registryProvider ?? projectModuleRegistry;
         this.now = options.now ?? Date.now;
         this.graceMs = options.graceMs ?? PROJECT_GRACE_MS;
+        this.compilerContext = options.compilerContext;
     }
 
     /**
@@ -617,6 +622,7 @@ export class ProjectSessionRuntime {
             prepared: record.prepared,
             opener: record.opener,
             signal: record.controller.signal,
+            compilerContext: this.compilerContext,
             require: <THandle extends ProjectModuleHandle>(token: ProjectModuleToken<THandle>): THandle => {
                 const dependency = record.modules.find(({module: started}) => started.token.name === token.name);
                 if (!dependency || dependency.closed) {

@@ -1,6 +1,6 @@
 import type {PreparedProjectOpen} from "nbook/server/workspace-files/project-lifecycle";
 import type {ProjectOpener} from "nbook/server/workspace-files/project-session-types";
-
+import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 declare const projectModuleTokenBrand: unique symbol;
 
 /** 内置Project Module的稳定名称；required顺序同时定义失败回滚的逆序依赖。 */
@@ -11,6 +11,8 @@ export type ProjectModuleContext = {
     readonly prepared: PreparedProjectOpen;
     readonly opener: ProjectOpener;
     readonly signal: AbortSignal;
+    /** World/Profile runtime compiler context；缺失时依赖该能力的Module必须 fail-closed。 */
+    readonly compilerContext?: Promise<RuntimeArtifactCompilerContext>;
     /** 只取得本generation中按依赖顺序已经同步start并被Session捕获的精确handle。 */
     require<THandle extends ProjectModuleHandle>(token: ProjectModuleToken<THandle>): THandle;
 };

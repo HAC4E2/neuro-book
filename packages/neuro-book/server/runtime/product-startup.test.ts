@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
     fatalSync: vi.fn(),
     requestProcessExit: vi.fn(),
 }));
-
 vi.mock("node:fs/promises", () => ({mkdir: mocks.mkdir}));
 vi.mock("nbook/server/runtime/paths/runtime-paths", () => ({
     runtimePathsFromEnv: () => ({
@@ -52,7 +51,6 @@ describe("Product startup", () => {
         mocks.startAgentSessionStoreRuntime.mockResolvedValue({rootWorkspace: "C:/state/workspace"});
         mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(new Promise(() => undefined));
     });
-
     it("按 Workspace、migration、Session Store 顺序完成完整 ready 门禁", async () => {
         await prepareProductRuntime();
 

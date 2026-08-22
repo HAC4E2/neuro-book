@@ -1,6 +1,7 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {cp, rm} from "node:fs/promises";
 import {resolve} from "node:path";
-import {describe, expect, test} from "vitest";
+import {afterAll, beforeAll, describe, expect, test} from "vitest";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {
     MemorySessionStore,
@@ -18,13 +19,18 @@ import {
  * catalog 真编译 Type 注入源码，MockAgentPort 按 message 前缀 / mode 分流真实控制流。
  */
 describe("chapter-write-review-revise workflow", () => {
-    const catalog = new WorkflowCatalog(
-        resolve("assets", "workspace", ".nbook", "agent", "workflows"),
-        testHostPath("tmp", "chapter-wrr-test", "no-user-root"),
-    );
+    const installRoot = testHostPath("tmp", "chapter-wrr-install");
+    let catalog: WorkflowCatalog;
+    beforeAll(async () => {
+        await rm(installRoot, {recursive: true, force: true});
+        await cp(resolve("assets", "workspace", ".nbook", "agent", "workflows"), installRoot, {recursive: true});
+        catalog = new WorkflowCatalog(installRoot);
+    });
+    afterAll(async () => {
+        await rm(installRoot, {recursive: true, force: true});
+    });
     const chapterPath = "manuscript/001-volume/001-chapter/index.md";
     const chapterBody = "# 第一章 星陨遗迹\n薇洛丝在遗迹深处解开了封印。";
-
     /** 从 catalog 取定义；缺失时让测试以明确错误失败。 */
     async function workflow(key: string): Promise<AgentWorkflowDefinition> {
         const item = await catalog.get(key);

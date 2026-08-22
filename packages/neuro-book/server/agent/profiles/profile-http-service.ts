@@ -38,6 +38,7 @@ import {mergeProfileTurnContextMessages, previewProfileTurnContexts} from "nbook
 import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {resolveAgentVisibleModels} from "nbook/server/agent/harness/agent-visible-models";
 
@@ -114,17 +115,18 @@ export async function previewAgentProfilePrepare(
     harness: NeuroAgentHarness,
     request: AgentProfilePreparePreviewRequestDto,
 ): Promise<AgentProfilePreparePreviewDto> {
-    const profile = await harness.profiles.get(request.profileKey);
-    const initial = harness.profiles.parseInitial(profile, buildPreviewInitial(request));
     const previewSnapshot = request.sessionId ? await harness.repo.readSession(Number(request.sessionId)).catch(() => null) : null;
     const sessionContext = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
     const workspaceRoot = absoluteFsPath(harness.repo.rootWorkspace);
     const readyProject = sessionContext.currentProjectRoot
         ? requireActiveReadyProject(projectWorkspaceRef(sessionContext.currentProjectRoot))
         : null;
+    const profiles = readyProject ? harness.profiles.forProjectWorkspace(readyProject.workspace) : harness.profiles;
+    const profile = await profiles.get(request.profileKey);
+    const initial = profiles.parseInitial(profile, buildPreviewInitial(request));
     const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext, workspaceRoot, readyProject);
-    const catalog = await harness.profiles.snapshot();
-    const skills = await harness.skills.list();
+    const catalog = await profiles.snapshot();
+    const skills = await harness.skills.list(readyProject?.workspace.root);
     const needsHome = profileNeedsHome(profile);
     const prepare = async (): Promise<AgentProfilePreparePreviewDto> => {
         const projectWorkspace = readyProject?.workspace;
@@ -176,7 +178,7 @@ export async function previewAgentProfilePrepare(
                 vars: createProfileVariableAccessor({
                     repo: harness.repo,
                     snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),
-                    registry: await createPreviewVariableRegistry(profile, absoluteFsPath(harness.repo.rootWorkspace)),
+                    registry: await createPreviewVariableRegistry(profile, absoluteFsPath(harness.repo.rootWorkspace), harness.runtimePaths ?? (() => { throw new Error("Profile preview 需要显式 RuntimePaths 才能加载 variable definitions。"); })(), readyProject),
                     dryRun: true,
                 }),
                 catalog,
@@ -270,7 +272,6 @@ function toCatalogItem(profiles: AgentProfileCatalog, snapshot: AgentCatalogSnap
     const issues = snapshot.issues
         .filter((issue) => issue.profileKey === profile.key || issue.sourcePath === profile.sourcePath)
         .map((issue) => toProfileIssueDto(issue, profile.key, fileName));
-    const source = profile.source === "memory" ? "contract" : profile.source;
 
     return {
         profileKey: profile.key,
@@ -278,11 +279,11 @@ function toCatalogItem(profiles: AgentProfileCatalog, snapshot: AgentCatalogSnap
         name: profile.name,
         description: profile.description ?? null,
         fileName,
-        source,
+        source: profile.source,
         overrideState: resolveOverrideState(profile),
         loadStatus: profile.loadStatus,
         schemaLocked: profile.builtin,
-        canEdit: source === "user" && Boolean(fileName),
+        canEdit: profile.source === "project" && Boolean(fileName),
         canRestore: false,
         creationMode: profile.creationMode,
         issues,
@@ -554,8 +555,22 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
     return groups;
 }
 
-async function createPreviewVariableRegistry(profile: AgentProfile, globalWorkspaceRoot: AbsoluteFsPath): Promise<VariableRegistry> {
-    return createVariableRegistryForSession({profile, globalWorkspaceRoot, currentProject: null});
+async function createPreviewVariableRegistry(
+    profile: AgentProfile,
+    globalWorkspaceRoot: AbsoluteFsPath,
+    runtimePaths: RuntimePaths,
+    currentProject: ReadyProjectSessionRef | null,
+): Promise<VariableRegistry> {
+    return createVariableRegistryForSession({
+        profile,
+        globalWorkspaceRoot,
+        currentProject,
+        runtimePaths,
+        globalDefinitionRootLabel: "workspace/.nbook/agent/variables",
+        projectDefinitionRootLabel: currentProject
+            ? `workspace/${currentProject.workspace.ref.projectRoot}/.nbook/agent/variables`
+            : undefined,
+    });
 }
 
 /** Profile Preview也从当前Config按durable selection重新解析完整模型。 */
@@ -611,13 +626,11 @@ function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {
  * 解析 profile 覆盖状态。
  */
 function resolveOverrideState(profile: AgentCatalogItem): AgentProfileCatalogItemDto["overrideState"] {
-    if (profile.source === "memory") {
-        return "contract_only";
+    switch (profile.source) {
+        case "memory": return "contract_only";
+        case "project": return "project_only";
+        case "install": return "install_only";
     }
-    if (profile.source === "user") {
-        return "user_only";
-    }
-    return "system";
 }
 
 /**

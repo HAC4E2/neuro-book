@@ -22,6 +22,7 @@ import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import type {PiTraceRecord} from "nbook/server/agent/observability/pi-request-recorder";
 import {AgentCatalog, AppendingSet, HistorySet, Message, ProfilePrompt, SkillCatalog, System} from "nbook/server/agent/profiles/profile-dsl";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 
 /** 轮询等待 trace 落盘（record 是 fire-and-forget）。 */
 async function waitForTrace(root: string, sessionId: number): Promise<PiTraceRecord[]> {
@@ -47,7 +48,14 @@ describe("上下文分区归因 → trace segments", () => {
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
+            profiles: new AgentProfileCatalog(
+                join(root, "profiles-system"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,

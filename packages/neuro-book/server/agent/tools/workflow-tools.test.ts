@@ -220,8 +220,7 @@ describe("run_workflow cancellation propagation", () => {
     it("list_workflows 使用当前 Project Workspace 的三层 catalog", async () => {
         const root = await mkdtemp(testHostPath("workflow-tools-catalog-"));
         try {
-            const systemRoot = join(root, "system");
-            const userRoot = join(root, "user");
+            const systemRoot = join(root, "install");
             const projectRoot = join(root, "project");
             await mkdir(join(projectRoot, ".nbook", "agent", "workflows", "brainstorm-opening"), {recursive: true});
             await writeFile(join(projectRoot, ".nbook", "agent", "workflows", "brainstorm-opening", "workflow.ts"), [
@@ -237,7 +236,7 @@ describe("run_workflow cancellation propagation", () => {
 
             const {createWorkflowTools} = await import("nbook/server/agent/tools/workflow-tools");
             const tool = createWorkflowTools().listWorkflows.runtime();
-            const catalog = new WorkflowCatalog(systemRoot, userRoot);
+            const catalog = new WorkflowCatalog(systemRoot);
             const listWorkflows = vi.spyOn(catalog, "list");
             const context = {
                 harness: {
@@ -274,8 +273,7 @@ describe("run_workflow cancellation propagation", () => {
     it("run_workflow 使用同一个 Project Workspace Catalog 解析项目 workflow", async () => {
         const root = await mkdtemp(testHostPath("workflow-tools-run-catalog-"));
         try {
-            const systemRoot = join(root, "system");
-            const userRoot = join(root, "user");
+            const systemRoot = join(root, "install");
             const projectRoot = join(root, "project");
             await mkdir(join(projectRoot, ".nbook", "agent", "workflows", "brainstorm-opening"), {recursive: true});
             await writeFile(join(projectRoot, ".nbook", "agent", "workflows", "brainstorm-opening", "workflow.ts"), [
@@ -310,7 +308,7 @@ describe("run_workflow cancellation propagation", () => {
             }));
 
             const {createWorkflowTools} = await import("nbook/server/agent/tools/workflow-tools");
-            const catalog = new WorkflowCatalog(systemRoot, userRoot);
+            const catalog = new WorkflowCatalog(systemRoot);
             const getWorkflow = vi.spyOn(catalog, "get");
             const context = {
                 harness: {

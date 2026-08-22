@@ -11,6 +11,8 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import type {JsonValue, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
@@ -27,7 +29,15 @@ describe("NeuroAgentHarness invocation payload", () => {
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(resolve(root, "profiles-system"), resolve(root, "profiles-user")),
+            profiles: new AgentProfileCatalog(
+                resolve(root, "profiles-system"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(root),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
         });
@@ -112,7 +122,6 @@ describe("NeuroAgentHarness invocation payload", () => {
             payload: {plotId: "plot-1"},
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-
         expect(result.status).toBe("completed");
         expect(observedMessage).toBeUndefined();
         expect(observedPayload).toEqual({plotId: "plot-1"});

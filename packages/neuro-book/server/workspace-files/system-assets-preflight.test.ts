@@ -3,17 +3,21 @@ import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {compileProfileArtifacts, resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {compileVariableDefinitions, resolveVariableDefinitionArtifactPathContext} from "nbook/server/agent/variables/definition-artifact";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
 
 describe("Product system assets preflight", () => {
     const originalApplicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT;
     const originalStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
+    const originalProductImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+    const originalProductBuild = process.env.NEURO_BOOK_PRODUCT_BUILD;
 
     afterEach(() => {
         restoreEnv("NEURO_BOOK_APPLICATION_ROOT", originalApplicationRoot);
         restoreEnv("NEURO_BOOK_STATE_ROOT", originalStateRoot);
+        restoreEnv("NEURO_BOOK_PRODUCT_IMAGE_ROOT", originalProductImageRoot);
+        restoreEnv("NEURO_BOOK_PRODUCT_BUILD", originalProductBuild);
     });
 
     it("只读 Product Root 的新鲜 system assets 零写入，过期时明确拒绝", async () => {
@@ -24,12 +28,18 @@ describe("Product system assets preflight", () => {
         const profileRoot = join(systemNbookRoot, "agent", "profiles");
         const variableRoot = join(systemNbookRoot, "agent", "variables");
         const profilePath = join(profileRoot, "builtin", "readonly.profile.mjs");
-        const variablePath = join(variableRoot, "definitions.mjs");
+        const variablePath = join(variableRoot, "definitions.ts");
+        await mkdir(join(applicationRoot, ".output", "server", "authoring"), {recursive: true});
         await Promise.all([
-            mkdir(join(applicationRoot, ".output", "server"), {recursive: true}),
             mkdir(join(profileRoot, "builtin"), {recursive: true}),
             mkdir(variableRoot, {recursive: true}),
             mkdir(stateRoot, {recursive: true}),
+            writeFile(join(applicationRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8"),
+            writeFile(join(applicationRoot, ".output", "server", "package.json"), '{"name":"neuro-book-output","type":"module"}\n', "utf8"),
+            writeFile(join(applicationRoot, ".output", "server", "index.mjs"), "", "utf8"),
+            writeFile(join(applicationRoot, ".output", "server", "authoring", "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit","private":true,"type":"module"}\n', "utf8"),
+            writeFile(join(applicationRoot, ".output", "server", "authoring", "tsconfig.json"), "{}\n", "utf8"),
+            writeFile(join(applicationRoot, ".output", "server", "authoring", "profile-compile-worker.mjs"), "export {};\n", "utf8"),
         ]);
         await writeFile(profilePath, [
             "export default {",
@@ -53,13 +63,27 @@ describe("Product system assets preflight", () => {
         ].join("\n"), "utf8");
 
         try {
+            process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
+            process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+            process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(applicationRoot, ".output");
+            process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
+            const variableArtifactPathContext = await resolveVariableDefinitionArtifactPathContext(
+                variableRoot,
+                "assets/workspace/.nbook/agent/variables",
+                applicationRoot,
+            );
+            const profileArtifactPathContext = await resolveProfileArtifactPathContext(
+                profileRoot,
+                "assets/workspace/.nbook/agent/profiles",
+                applicationRoot,
+            );
             await compileVariableDefinitions({
                 definitionRoot: variableRoot,
-                rootLabel: "assets/workspace/.nbook/agent/variables",
+                artifactPathContext: variableArtifactPathContext,
             });
             await compileProfileArtifacts({
                 profileRoot,
-                rootLabel: "assets/workspace/.nbook/agent/profiles",
+                artifactPathContext: profileArtifactPathContext,
             });
             await rm(join(systemNbookRoot, "agent", ".staging"), {recursive: true, force: true});
             const variableManifestPath = join(variableRoot, ".compiled", "manifest.json");

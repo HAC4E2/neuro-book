@@ -7,13 +7,18 @@ import {build, type Metafile} from "esbuild";
 import {lock as lockFile, type LockOptions} from "proper-lockfile";
 import {appLogger} from "nbook/server/app-logs/logger";
 import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from "nbook/server/agent/variables/types";
-import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {
+    createProfileArtifactPathContext,
+    hashFile,
+    type ProfileArtifactPathContext,
+} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact, type RuntimeArtifactCacheSpec} from "nbook/server/utils/runtime-artifact-import";
 import {runtimeArtifactBundlePlugin} from "nbook/server/utils/runtime-artifact-bundle-plugin";
 import {
-    resolveRuntimeArtifactCompilerContext,
     normalizeRuntimeArtifactPath,
+    resolveRuntimeArtifactCompilerContext,
+    resolveRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
 import {
@@ -77,6 +82,40 @@ export type VariableDefinitionManifest = {
     definitionsRoot: string;
     definitions: VariableDefinitionManifestItem[];
 };
+export const SYSTEM_VARIABLE_DEFINITION_ROOT_LABEL = "assets/workspace/.nbook/agent/variables";
+export type VariableDefinitionArtifactPathContext = ProfileArtifactPathContext;
+
+export function createVariableDefinitionArtifactPathContext(
+    definitionRoot: string,
+    rootLabel: string,
+    compilerContext: RuntimeArtifactCompilerContext,
+): VariableDefinitionArtifactPathContext {
+    return createProfileArtifactPathContext(definitionRoot, rootLabel, compilerContext);
+}
+
+export async function resolveVariableDefinitionArtifactPathContext(
+    definitionRoot: string,
+    rootLabel: string,
+    compilerRoot: string,
+): Promise<VariableDefinitionArtifactPathContext> {
+    return createVariableDefinitionArtifactPathContext(
+        definitionRoot,
+        rootLabel,
+        await resolveRuntimeArtifactCompilerContext(resolve(compilerRoot)),
+    );
+}
+export type VariableDefinitionArtifactPathContextResolver = (
+    definitionRoot: string,
+    rootLabel: string,
+) => Promise<VariableDefinitionArtifactPathContext>;
+
+export function createVariableDefinitionArtifactPathContextResolver(
+    compilerRoot: string,
+): VariableDefinitionArtifactPathContextResolver {
+    const compilerContext = resolveRuntimeArtifactCompilerContext(resolve(compilerRoot));
+    return async (definitionRoot: string, rootLabel: string) =>
+        createVariableDefinitionArtifactPathContext(definitionRoot, rootLabel, await compilerContext);
+}
 
 /** Variable definition staging owner marker 的稳定磁盘格式。 */
 export type VariableDefinitionStagingOwner = {
@@ -334,7 +373,7 @@ export async function cleanupVariableDefinitionStaging(buildCompiledDir: string)
  */
 export async function compileVariableDefinitions(options: {
     definitionRoot: string;
-    rootLabel?: string;
+    artifactPathContext: VariableDefinitionArtifactPathContext;
     skipFresh?: boolean;
     /** Product 可复现构建传入固定时间；普通 Source/User 编译为空并记录真实发布时间。 */
     manifestGeneratedAt?: string;
@@ -349,7 +388,7 @@ export async function compileVariableDefinitions(options: {
     await sweepVariableDefinitionStaging(stagingRoot);
     const operationId = randomUUID();
     const buildCompiledDir = join(stagingRoot, VARIABLE_DEFINITION_STAGING_DIR_NAME, operationId);
-    const existingManifest = await readVariableDefinitionManifest(definitionRoot);
+    const existingManifest = await readVariableDefinitionManifest(definitionRoot, options.artifactPathContext);
     const files = await findDefinitionFiles(definitionRoot);
     const definitions: VariableDefinitionManifestItem[] = [];
     let compiledCount = 0;
@@ -359,7 +398,7 @@ export async function compileVariableDefinitions(options: {
             const existingItem = existingManifest.definitions.find((item) => item.fileName === file.fileName);
             let validation: VariableDefinitionValidation | undefined;
             if ((options.skipFresh || options.writePolicy === "forbid") && existingItem) {
-                validation = await validateVariableDefinitionArtifact(definitionRoot, existingItem, {requireTypeArtifact: true});
+                validation = await validateVariableDefinitionArtifact(definitionRoot, existingItem, options.artifactPathContext, {requireTypeArtifact: true});
                 if (validation.fresh) {
                     definitions.push(existingItem);
                     continue;
@@ -375,7 +414,7 @@ export async function compileVariableDefinitions(options: {
                 await createVariableDefinitionStaging(buildCompiledDir, operationId);
                 stagingCreated = true;
             }
-            definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file));
+            definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file, options.artifactPathContext));
             compiledCount += 1;
         }
         const nextDefinitions = definitions.sort((left, right) => left.fileName.localeCompare(right.fileName));
@@ -384,7 +423,7 @@ export async function compileVariableDefinitions(options: {
             generatedAt: definitionsEqual(existingManifest.definitions, nextDefinitions)
                 ? existingManifest.generatedAt
                 : options.manifestGeneratedAt ?? new Date().toISOString(),
-            definitionsRoot: options.rootLabel ?? normalizeArtifactPath(definitionRoot),
+            definitionsRoot: options.artifactPathContext.rootLabel,
             definitions: nextDefinitions,
         };
         const publishRequired = compiledCount > 0
@@ -396,7 +435,7 @@ export async function compileVariableDefinitions(options: {
         if (options.writePolicy === "forbid") {
             throw new Error("Product 内置 variable definition manifest 与源码不匹配。请重新构建或安装与源码匹配的 Product。");
         }
-        await commitArtifacts(definitionRoot, buildCompiledDir, compiledDir, manifest);
+        await commitArtifacts(definitionRoot, buildCompiledDir, compiledDir, manifest, options.artifactPathContext);
         return manifest;
     } finally {
         if (stagingCreated) {
@@ -410,11 +449,12 @@ export async function compileVariableDefinitions(options: {
  */
 export async function loadCompiledVariableDefinitions(input: {
     definitionRoot: string;
+    artifactPathContext: VariableDefinitionArtifactPathContext;
     namespace: Extract<VariableNamespace, "global" | "project">;
 }): Promise<{definitions: VariableDefinition[]; issues: VariableAccessorIssue[]}> {
     const root = resolve(input.definitionRoot);
     const sourceFiles = await findDefinitionFiles(root);
-    const manifest = await readVariableDefinitionManifest(root);
+    const manifest = await readVariableDefinitionManifest(root, input.artifactPathContext);
     const definitions: VariableDefinition[] = [];
     const issues: VariableAccessorIssue[] = [];
     for (const file of sourceFiles) {
@@ -423,7 +463,7 @@ export async function loadCompiledVariableDefinitions(input: {
             issues.push(issue("not_compiled", input.namespace, file.fileName, `变量 definition 未编译：${file.fileName}`));
             continue;
         }
-        const validation = await validateVariableDefinitionArtifact(root, item);
+        const validation = await validateVariableDefinitionArtifact(root, item, input.artifactPathContext);
         if (!validation.fresh) {
             issues.push(issue("compile_stale", input.namespace, file.fileName, `变量 definition 已过期：${file.fileName} (${validation.reason})`));
             continue;
@@ -449,30 +489,36 @@ export async function loadCompiledVariableDefinitions(input: {
     return {definitions, issues};
 }
 
-export async function readVariableDefinitionManifest(definitionRoot: string): Promise<VariableDefinitionManifest> {
+export async function readVariableDefinitionManifest(
+    definitionRoot: string,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
+): Promise<VariableDefinitionManifest> {
     const root = resolve(definitionRoot);
     try {
         const value = JSON.parse(await readFile(join(root, VARIABLE_DEFINITION_COMPILED_DIR, VARIABLE_DEFINITION_MANIFEST_FILE), "utf8")) as Partial<VariableDefinitionManifest>;
         if (value.compilerVersion !== VARIABLE_DEFINITION_COMPILER_VERSION || !Array.isArray(value.definitions)) {
-            return emptyManifest(root);
+            return emptyManifest(artifactPathContext);
         }
         return {
             compilerVersion: VARIABLE_DEFINITION_COMPILER_VERSION,
             generatedAt: typeof value.generatedAt === "string" ? value.generatedAt : new Date(0).toISOString(),
-            definitionsRoot: typeof value.definitionsRoot === "string" ? value.definitionsRoot : normalizeArtifactPath(root),
+            definitionsRoot: typeof value.definitionsRoot === "string" ? value.definitionsRoot : artifactPathContext.rootLabel,
             definitions: value.definitions.filter(isManifestItem),
         };
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return emptyManifest(root);
+            return emptyManifest(artifactPathContext);
         }
         throw error;
     }
 }
 
-export async function validateVariableDefinitionArtifact(root: string, item: VariableDefinitionManifestItem, options: {
-    requireTypeArtifact?: boolean;
-} = {}): Promise<VariableDefinitionValidation> {
+export async function validateVariableDefinitionArtifact(
+    root: string,
+    item: VariableDefinitionManifestItem,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
+    options: {requireTypeArtifact?: boolean} = {},
+): Promise<VariableDefinitionValidation> {
     const sourceHash = await hashFile(join(root, ...item.fileName.split("/"))).catch(() => null);
     if (!sourceHash || sourceHash.sha256 !== item.sourceSha256 || sourceHash.bytes !== item.sourceBytes) {
         return {fresh: false, reason: "source_changed"};
@@ -485,7 +531,7 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
         return {fresh: false, reason: "artifact_changed"};
     }
     if (!options.requireTypeArtifact) {
-        return validateVariableDefinitionDependencies(item);
+        return validateVariableDefinitionDependencies(item, artifactPathContext);
     }
     if (!item.typeFileName || !item.typeSha256 || item.typeBytes === undefined) {
         return {fresh: false, reason: "type_artifact_missing"};
@@ -497,12 +543,15 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     if (typeArtifactHash.sha256 !== item.typeSha256 || typeArtifactHash.bytes !== item.typeBytes) {
         return {fresh: false, reason: "type_artifact_changed"};
     }
-    return validateVariableDefinitionDependencies(item);
+    return validateVariableDefinitionDependencies(item, artifactPathContext);
 }
 
-async function validateVariableDefinitionDependencies(item: VariableDefinitionManifestItem): Promise<VariableDefinitionValidation> {
+async function validateVariableDefinitionDependencies(
+    item: VariableDefinitionManifestItem,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
+): Promise<VariableDefinitionValidation> {
     for (const dependency of item.dependencies) {
-        const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
+        const current = await hashFile(resolveRuntimeArtifactPath(dependency.path, artifactPathContext)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
             return {
                 fresh: false,
@@ -518,7 +567,16 @@ async function validateVariableDefinitionDependencies(item: VariableDefinitionMa
     return {fresh: true};
 }
 
-async function compileDefinitionFile(root: string, compiledDir: string, file: DefinitionFileEntry): Promise<VariableDefinitionManifestItem> {
+/**
+ * 加载 hash 匹配的 definition artifact。
+ */
+
+async function compileDefinitionFile(
+    root: string,
+    compiledDir: string,
+    file: DefinitionFileEntry,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
+): Promise<VariableDefinitionManifestItem> {
     const authoringGraph = await validateRuntimeArtifactAuthoring({
         kind: "variable",
         root,
@@ -529,7 +587,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
     const artifactStem = stableArtifactStem(file.fileName, /\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
-    const compilerContext = await resolveRuntimeArtifactCompilerContext();
+    const compilerContext = artifactPathContext.compilerContext;
     const tsconfigPath = compilerContext.tsconfigPath;
     try {
         const result = await build({
@@ -552,12 +610,11 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
             throw new Error(`variable definition ${file.fileName} 编译缺少 esbuild metafile。`);
         }
         await assertRuntimeArtifactAuthoringMetafile(authoringGraph, result.metafile, root);
-        const dependencies = await readDependencies(result.metafile, tsconfigPath, root);
-        const dependencyHash = hashDependencies(file.absolutePath, dependencies);
+        const dependencies = await readDependencies(result.metafile, tsconfigPath, root, artifactPathContext);
+        const dependencyHash = hashDependencies(file.absolutePath, dependencies, artifactPathContext);
         const artifactHash = await hashFile(temporaryOutputPath);
         const artifactFileName = `${VARIABLE_DEFINITION_ARTIFACTS_DIR}/${artifactHash.sha256}.mjs`;
         const artifactPath = join(compiledDir, artifactFileName);
-        // 源路径已含 randomUUID()，每轮编译都不同，不需要物理副本换路径。
         const definitions = await importDefinitions(temporaryOutputPath);
         const generatedTypes = generateVariableTypes(definitions, {
             header: `Variable definition types generated from ${file.fileName}.`,
@@ -633,6 +690,7 @@ async function readDependencies(
     metafile: Metafile,
     tsconfigPath: string,
     metafileWorkingDir: string,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
 ): Promise<VariableDefinitionDependency[]> {
     const paths = new Set<string>([tsconfigPath]);
     for (const inputPath of Object.keys(metafile.inputs)) {
@@ -641,18 +699,22 @@ async function readDependencies(
         }
     }
     return Promise.all([...paths].sort((left, right) => left.localeCompare(right)).map(async (filePath) => ({
-        path: normalizeArtifactPath(filePath),
+        path: normalizeArtifactPath(filePath, artifactPathContext),
         ...await hashFile(filePath),
     })));
 }
 
-function hashDependencies(sourcePath: string, dependencies: VariableDefinitionDependency[]): string {
+function hashDependencies(
+    sourcePath: string,
+    dependencies: VariableDefinitionDependency[],
+    artifactPathContext: VariableDefinitionArtifactPathContext,
+): string {
     const hash = createHash("sha256")
         .update("variable-definition-artifact")
         .update("\0")
         .update(String(VARIABLE_DEFINITION_COMPILER_VERSION))
         .update("\0")
-        .update(normalizeArtifactPath(sourcePath));
+        .update(normalizeArtifactPath(sourcePath, artifactPathContext));
     for (const dependency of dependencies) {
         hash.update("\0").update(dependency.path).update("\0").update(dependency.sha256).update("\0").update(String(dependency.bytes));
     }
@@ -682,11 +744,12 @@ async function commitArtifacts(
     buildDir: string,
     compiledDir: string,
     manifest: VariableDefinitionManifest,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
 ): Promise<void> {
     await mkdir(compiledDir, {recursive: true});
     await withVariablePublishLock(compiledDir, async () => {
-        const previousManifest = await readVariableDefinitionManifest(definitionRoot);
-        await assertVariableReleaseFresh(definitionRoot, manifest);
+        const previousManifest = await readVariableDefinitionManifest(definitionRoot, artifactPathContext);
+        await assertVariableReleaseFresh(definitionRoot, manifest, artifactPathContext);
         for (const item of manifest.definitions) {
             await installImmutableArtifact(buildDir, compiledDir, item.artifactFileName, {
                 sha256: item.artifactSha256,
@@ -700,7 +763,7 @@ async function commitArtifacts(
             }
         }
         // artifact 安装期间作者仍可能改源码；manifest 翻转前必须再次关闭 TOCTOU 窗口。
-        await assertVariableReleaseFresh(definitionRoot, manifest);
+        await assertVariableReleaseFresh(definitionRoot, manifest, artifactPathContext);
         await protectPreviousGeneration(compiledDir, previousManifest, manifest);
         await writeJsonIfChanged(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), manifest);
         await pruneArtifacts(compiledDir, manifest);
@@ -770,6 +833,7 @@ function manifestArtifactPaths(manifest: VariableDefinitionManifest): string[] {
 async function assertVariableReleaseFresh(
     definitionRoot: string,
     manifest: VariableDefinitionManifest,
+    artifactPathContext: VariableDefinitionArtifactPathContext,
 ): Promise<void> {
     const currentFiles = await findDefinitionFiles(definitionRoot);
     const currentNames = currentFiles.map((file) => file.fileName);
@@ -782,7 +846,7 @@ async function assertVariableReleaseFresh(
         if (!source || source.sha256 !== item.sourceSha256 || source.bytes !== item.sourceBytes) {
             throw new Error(`Variable definition 发布期间源码发生变化：${item.fileName}`);
         }
-        const dependency = await validateVariableDefinitionDependencies(item);
+        const dependency = await validateVariableDefinitionDependencies(item, artifactPathContext);
         if (!dependency.fresh) {
             throw new Error(`Variable definition 发布期间依赖发生变化：${dependency.dependency?.path ?? item.fileName}`);
         }
@@ -869,15 +933,15 @@ function typeHashFileStem(source: string): string {
     return createHash("sha256").update(source, "utf8").digest("hex");
 }
 
-function normalizeArtifactPath(filePath: string): string {
-    return normalizeRuntimeArtifactPath(filePath);
+function normalizeArtifactPath(filePath: string, artifactPathContext: VariableDefinitionArtifactPathContext): string {
+    return normalizeRuntimeArtifactPath(filePath, artifactPathContext);
 }
 
-function emptyManifest(root: string): VariableDefinitionManifest {
+function emptyManifest(artifactPathContext: VariableDefinitionArtifactPathContext): VariableDefinitionManifest {
     return {
         compilerVersion: VARIABLE_DEFINITION_COMPILER_VERSION,
         generatedAt: new Date(0).toISOString(),
-        definitionsRoot: normalizeArtifactPath(root),
+        definitionsRoot: artifactPathContext.rootLabel,
         definitions: [],
     };
 }

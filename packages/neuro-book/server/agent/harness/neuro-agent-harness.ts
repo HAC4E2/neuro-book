@@ -2,6 +2,7 @@ import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile} from "node:fs/promises";
 import {basename, join, normalize, relative, resolve} from "node:path";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {clampThinkingLevel, validateToolArguments} from "@earendil-works/pi-ai";
 import type {Models} from "@earendil-works/pi-ai";
 import {Value} from "typebox/value";
@@ -134,7 +135,8 @@ import {
 } from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {resolveAgentInstallRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveProfileSummarizer} from "nbook/server/agent/profiles/profile-summarizer";
 import {resolveProfileRuntimeSettings as resolveRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
@@ -226,6 +228,7 @@ type HarnessOptions = ({
 }) & {
     profiles?: AgentProfileCatalog;
     skills?: SkillCatalog;
+    definitionArtifactPathContextProvider?: import("nbook/server/agent/variables/profile-registry").VariableDefinitionArtifactPathContextProvider;
     workflows?: WorkflowCatalog;
     jobs?: AgentJobManager;
     tools?: AgentToolRegistry;
@@ -566,6 +569,7 @@ export class NeuroAgentHarness {
     private sessionRelationIndexLoad: Promise<SessionRelationIndex> | null = null;
     private pendingRelationIndexEntries: PendingRelationIndexEntries[] = [];
     private readonly profileBuildCoordinator?: ProfileBuildCoordinator;
+    private readonly definitionArtifactPathContextProvider?: import("nbook/server/agent/variables/profile-registry").VariableDefinitionArtifactPathContextProvider;
     private readonly pendingClientPatches = new Map<string, {
         request: VariablePatchRequest;
         resolve: (ack: VariablePatchAck) => void;
@@ -590,22 +594,24 @@ export class NeuroAgentHarness {
                 void appLogger.warn("agent.piTrace.writeFailed", {error: error instanceof Error ? error.message : String(error)});
             },
         });
-        const systemNbookRoot = options.runtimePaths
-            ? resolveSystemNbookRoot(options.runtimePaths.applicationRoot)
-            : absoluteFsPath(join(this.workspaceRoot, ".nbook", "agent", "system"));
-        const userNbookRoot = options.runtimePaths?.userNbookRoot
-            ?? absoluteFsPath(join(this.workspaceRoot, ".nbook"));
+        const installRoot = options.runtimePaths
+            ? resolveAgentInstallRoot(options.runtimePaths)
+            : absoluteFsPath(join(this.workspaceRoot, ".nbook", "agent"));
+        const profileContextResolver = createProfileArtifactPathContextResolver(
+            options.runtimePaths?.applicationRoot ?? this.workspaceRoot,
+        );
         this.profiles = options.profiles ?? new AgentProfileCatalog(
-            join(systemNbookRoot, "agent", "profiles"),
-            join(userNbookRoot, "agent", "profiles"),
+            join(installRoot, "profiles"),
+            undefined,
+            undefined,
+            undefined,
+            profileContextResolver,
         );
         this.skills = options.skills ?? new SkillCatalog(
-            join(systemNbookRoot, "agent", "skills"),
-            join(userNbookRoot, "agent", "skills"),
+            join(installRoot, "skills"),
         );
         this.workflows = options.workflows ?? new WorkflowCatalog(
-            join(systemNbookRoot, "agent", "workflows"),
-            join(userNbookRoot, "agent", "workflows"),
+            join(installRoot, "workflows"),
         );
         // 后台任务管理器（PLAN-E）：登记表随 Workspace Root .nbook 走；启动恢复在构造尾部 fire-and-forget
         this.jobs = options.jobs ?? new AgentJobManager(() => this, join(this.workspaceRoot, ".nbook", "agent", "jobs.jsonl"));
@@ -634,15 +640,29 @@ export class NeuroAgentHarness {
         this.runtimeResolver = options.runtimeResolver ?? resolvePiModelsFromConfig;
         this.toolExecution = options.toolExecution ?? "parallel";
         this.enableSessionSummarizer = options.enableSessionSummarizer ?? true;
+        this.definitionArtifactPathContextProvider = options.definitionArtifactPathContextProvider
+            ?? (options.runtimePaths ? createVariableDefinitionArtifactPathContextResolver(options.runtimePaths.applicationRoot) : undefined);
         this.profiles.register(defaultAgentProfile);
         this.profiles.register(summarizerProfile);
         this.profiles.register(adhocAgentProfile);
         if (options.watchProfiles) {
+            if (!options.runtimePaths) {
+                throw new Error("Agent Harness watchProfiles 需要显式 RuntimePaths。");
+            }
             this.profiles.enableRuntimeRegistry();
+            const profileRoot = join(resolveAgentInstallRoot(options.runtimePaths), "profiles");
             this.profileBuildCoordinator = new ProfileBuildCoordinator({
                 catalog: this.profiles,
+                profileRoot,
+                profileRootLabel: "workspace/.nbook/agent/profiles",
+                runtimePaths: options.runtimePaths,
             });
-            this.profiles.attachBuildCoordinator(this.profileBuildCoordinator);
+            this.profiles.attachBuildCoordinator(this.profileBuildCoordinator, (catalog, projectProfileRoot, projectProfileRootLabel) => new ProfileBuildCoordinator({
+                catalog,
+                profileRoot: projectProfileRoot,
+                profileRootLabel: projectProfileRootLabel,
+                runtimePaths: options.runtimePaths!,
+            }));
             const startup = this.profiles.refreshRuntimeRegistry("startup").then(() => this.profileBuildCoordinator?.bootSweep()).catch((error) => {
                 void appLogger.warn("agent.profileBuild.bootSweepFailed", {
                     error: error instanceof Error ? error.message : String(error),
@@ -1938,8 +1958,10 @@ export class NeuroAgentHarness {
         }
         await this.publishSessionState(input.sessionId, input.invocationId);
 
-        const profile = await this.profiles.get(snapshot.metadata.profileKey);
-        const preparedInvocation = this.prepareInvocationPayload(profile, input.pendingInvocationMessage, input.pendingPayload);
+        const currentProject = this.projectForInvocation(input.invocationId);
+        const profiles = this.profileCatalogForProject(currentProject);
+        const profile = await profiles.get(snapshot.metadata.profileKey);
+        const preparedInvocation = this.prepareInvocationPayload(profiles, profile, input.pendingInvocationMessage, input.pendingPayload);
         const prepareRunHooks = await this.runRuntimeHooks({
             sessionId: input.sessionId,
             invocationId: input.invocationId,
@@ -1956,6 +1978,8 @@ export class NeuroAgentHarness {
         snapshot = await this.repo.readSession(input.sessionId);
         const prepared = await this.prepare(snapshot, {
             invocationId: input.invocationId,
+            currentProject,
+            profile,
             pendingUserMessage: input.pendingUserMessage ?? undefined,
             invocationPayload: preparedInvocation.payload,
             invocationMessage: preparedInvocation.message,
@@ -2023,7 +2047,7 @@ export class NeuroAgentHarness {
         const models = this.runtimeResolver(config, model);
         const providerOptions = this.providerOptions(config, model);
         const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
-        const runProfile = await this.profiles.get(context.profileKey);
+        const runProfile = await profiles.get(context.profileKey);
         const toolKeys = [...runProfile.rootToolKeys];
         const executionToolKeys = runProfile.toolKeys ? [...runProfile.toolKeys] : undefined;
         const thinkingLevel = this.resolveThinkingLevel(context, config, model);
@@ -2950,8 +2974,8 @@ export class NeuroAgentHarness {
                 vars: await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true}),
                 settings: settings as never,
                 ...(home ? {home} : {}),
-                catalog: await this.profiles.snapshot(),
-                skills: await this.skills.list(),
+                catalog: await this.profileCatalogForProject(configTarget.project).snapshot(),
+                skills: await this.skills.list(configTarget.project?.workspace.root),
                 workflows: await this.workflows.list(configTarget.project?.workspace),
                 agentVisibleModels: resolveAgentVisibleModels(config),
                 runtime: {
@@ -3752,8 +3776,33 @@ export class NeuroAgentHarness {
         return latest?.replace(/\s+/g, " ").trim().slice(0, 360) || undefined;
     }
 
+
+    /** 唯一正式 link 写入口；调用方必须已经持有关系变更队列。 */
+    private async appendAgentLinkUnlocked(ownerSessionId: number, targetSessionId: number, profileKey: string): Promise<void> {
+        await new ToolSessionWriteSink({
+            executor: this.writeExecutor,
+            sessionId: ownerSessionId,
+        }).append("agent.link", {
+            type: "custom",
+            key: `agent.link.${targetSessionId}`,
+            value: {
+                sessionId: targetSessionId,
+                profileKey,
+            },
+        });
+    }
+
+    private prepareInvocationPayload(profiles: AgentProfileCatalog, profile: AgentProfile, message: string | undefined, payload: JsonValue | undefined): PreparedInvocationPayload {
+        return {
+            payload: profiles.parsePayload(profile, payload),
+            message,
+        };
+    }
+
     private async prepare(snapshot: SessionSnapshot, options: {
         invocationId: string;
+        currentProject: ReadyProjectSessionRef | null;
+        profile: AgentProfile;
         pendingUserMessage?: StoredUserMessage;
         invocationPayload?: JsonValue;
         invocationMessage?: string;
@@ -3761,9 +3810,10 @@ export class NeuroAgentHarness {
         caller: AgentInvokeCaller;
         sessionContextEnabled: boolean;
     }): Promise<PreparedRunProfile> {
-        const profile = await this.profiles.get(snapshot.metadata.profileKey);
+        const profiles = this.profileCatalogForProject(options.currentProject);
+        const profile = options.profile;
         const context = this.repo.reduce(snapshot);
-        const parsedInitial = this.profiles.parseInitial(profile, snapshot.metadata.initial);
+        const parsedInitial = profiles.parseInitial(profile, snapshot.metadata.initial);
         const configTarget = this.configTargetForInvocation(options.invocationId);
         const config = await loadEffectiveConfig(configTarget);
         const {settings, home} = await this.resolveProfileSettings(profile, config, context, configTarget.project);
@@ -3788,8 +3838,8 @@ export class NeuroAgentHarness {
             vars,
             settings: settings as never,
             ...(home ? {home} : {}),
-            catalog: await this.profiles.snapshot(),
-            skills: await this.skills.list(),
+            catalog: await profiles.snapshot(),
+            skills: await this.skills.list(configTarget.project?.workspace.root),
             workflows: await this.workflows.list(configTarget.project?.workspace),
             agentVisibleModels: resolveAgentVisibleModels(config),
             runtime: {
@@ -3805,7 +3855,6 @@ export class NeuroAgentHarness {
         parseStoredMessages(prepared.appendingMessages ?? []);
         parseStoredMessages(prepared.modelContextAppendingMessages ?? []);
         parseStoredMessages(prepared.modelContextMessages ?? []);
-
         const materializedTurnContexts = await materializeProfileTurnContexts({
             plans: prepared.turnContexts ?? [],
             project: configTarget.project,
@@ -3814,12 +3863,8 @@ export class NeuroAgentHarness {
         });
         const preparedWithTurnContext: ProfileTurnPlan = {
             ...prepared,
-            appendingMessages: mergeProfileTurnContextMessages(
-                prepared.appendingMessages ?? [],
-                materializedTurnContexts.insertions,
-            ),
+            appendingMessages: mergeProfileTurnContextMessages(prepared.appendingMessages ?? [], materializedTurnContexts.insertions),
         };
-
         const writePlan = compilePrepareRunWritePlan({
             sessionId: snapshot.metadata.sessionId,
             profileKey: profile.manifest.key,
@@ -3834,48 +3879,21 @@ export class NeuroAgentHarness {
             runtimeSettings,
         };
     }
-
-    /** 唯一正式 link 写入口；调用方必须已经持有关系变更队列。 */
-    private async appendAgentLinkUnlocked(ownerSessionId: number, targetSessionId: number, profileKey: string): Promise<void> {
-        await new ToolSessionWriteSink({
-            executor: this.writeExecutor,
-            sessionId: ownerSessionId,
-        }).append("agent.link", {
-            type: "custom",
-            key: `agent.link.${targetSessionId}`,
-            value: {
-                sessionId: targetSessionId,
-                profileKey,
-            },
-        });
-    }
-
-    private prepareInvocationPayload(profile: AgentProfile, message: string | undefined, payload: JsonValue | undefined): PreparedInvocationPayload {
-        return {
-            payload: this.profiles.parsePayload(profile, payload),
-            message,
-        };
-    }
-
     /**
      * source invocation 完成后的后台摘要调度入口。
-     *
      * 这里只负责调度和 preflight；Profile 生成摘要内容，Harness 统一把结果写回 source session。
      */
     private async scheduleSessionSummarizer(sourceSessionId: number, options: {force?: boolean} = {}): Promise<void> {
         const running = this.summarizerRuns.get(sourceSessionId);
         if (running) {
             running.rerunRequested = true;
-            if (options.force) {
-                running.forceRequested = true;
-            }
+            if (options.force) running.forceRequested = true;
             await this.writeSummarizerState(sourceSessionId, {
                 ...this.readSummarizerState(this.repo.reduce(await this.repo.readSession(sourceSessionId))),
                 dirty: true,
             }, "summarizer.dirty");
             return;
         }
-
         const job: SessionSummarizerJob = {
             rerunRequested: false,
             forceRequested: options.force === true,
@@ -3889,31 +3907,28 @@ export class NeuroAgentHarness {
     }
 
     private async runSessionSummarizerJob(sourceSessionId: number, job: SessionSummarizerJob): Promise<void> {
-        // 每个 job 只读取一次有效配置，后续 dirty rerun 复用同一策略快照。
         let summarizerSettings: ProfileRuntimeSettings["summarizer"] | undefined;
         do {
             job.rerunRequested = false;
             const force = job.forceRequested;
             job.forceRequested = false;
             const sourceSnapshot = await this.repo.readSession(sourceSessionId);
-            if (sourceSnapshot.metadata.systemRole === "summarizer") {
-                return;
-            }
-            const sourceProfile = await this.profiles.get(sourceSnapshot.metadata.profileKey);
+            if (sourceSnapshot.metadata.systemRole === "summarizer") return;
+            const currentProject = sourceSnapshot.metadata.currentProjectRoot
+                ? requireActiveReadyProject(projectWorkspaceRef(sourceSnapshot.metadata.currentProjectRoot))
+                : null;
+            const profiles = this.profileCatalogForProject(currentProject);
+            const sourceProfile = await profiles.get(sourceSnapshot.metadata.profileKey);
             if (!summarizerSettings) {
                 const effectiveConfig = await loadEffectiveConfig(resolveNonInvocationConfigTarget(sourceSnapshot.metadata, this.workspaceRoot));
                 summarizerSettings = this.resolveProfileRuntimeSettings(sourceProfile, effectiveConfig).summarizer;
             }
             const config = resolveProfileSummarizer(summarizerSettings, force);
-            if (!config) {
-                continue;
-            }
+            if (!config) continue;
             await this.runSessionSummarizer(sourceSnapshot, config, force);
             const latest = await this.repo.readSession(sourceSessionId);
             const latestState = this.readSummarizerState(this.repo.reduce(latest));
-            if (latestState.dirty && this.shouldAttemptDirtySummarizerRerun(latestState)) {
-                job.rerunRequested = true;
-            }
+            if (latestState.dirty && this.shouldAttemptDirtySummarizerRerun(latestState)) job.rerunRequested = true;
         } while (job.rerunRequested || job.forceRequested);
     }
 
@@ -3921,44 +3936,25 @@ export class NeuroAgentHarness {
         return state.lastError === undefined;
     }
 
-    /**
-     * 测试辅助：等待指定 source session 的 summarizer 后台任务结束。
-     */
+    /** 测试辅助：等待指定 source session 的 summarizer 后台任务结束。 */
     async drainSessionSummarizer(sourceSessionId: number): Promise<void> {
         while (this.summarizerRuns.has(sourceSessionId)) {
             await this.summarizerRuns.get(sourceSessionId)?.promise;
         }
     }
 
-    /**
-     * 运行一次 summarizer preflight + 隐藏 run。force=true 时跳过 fingerprint/间隔判定
-     * （用户显式 summarize 命令），但仍受 maxDialogueContentTokens 上限约束。
-     */
+    /** 运行一次 summarizer preflight + 隐藏 run。 */
     private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, config: NonNullable<ReturnType<typeof resolveProfileSummarizer>>, force = false): Promise<void> {
         const profileKey = config.profileKey;
         const summarizerInput = this.summarizerInput(sourceSnapshot.metadata.sessionId, config.input);
-        const summarizerInputFingerprint = stableJsonHash({
-            profileKey,
-            initial: summarizerInput,
-        });
-        const dialogue = buildAgentDialogueContent({
-            repo: this.repo,
-            snapshot: sourceSnapshot,
-            summarizerProfileKey: profileKey,
-            summarizerInput,
-        });
+        const summarizerInputFingerprint = stableJsonHash({profileKey, initial: summarizerInput});
+        const dialogue = buildAgentDialogueContent({repo: this.repo, snapshot: sourceSnapshot, summarizerProfileKey: profileKey, summarizerInput});
         const state = this.readSummarizerState(this.repo.reduce(sourceSnapshot));
         const interval = this.summarizerInterval(config.input);
         const sourcePromptUserTurnCount = this.countPromptUserTurns(sourceSnapshot);
         if (!force && !this.shouldRunSummarizer(state, dialogue, interval, summarizerInputFingerprint, sourcePromptUserTurnCount)) {
             if (state.running || state.dirty) {
-                await this.writeSummarizerState(sourceSnapshot.metadata.sessionId, {
-                    ...state,
-                    running: false,
-                    dirty: false,
-                    lastDialogueContentTokens: dialogue.tokens,
-                    lastDialogueContentFingerprint: dialogue.fingerprint,
-                }, "summarizer.preflight.skip");
+                await this.writeSummarizerState(sourceSnapshot.metadata.sessionId, {...state, running: false, dirty: false, lastDialogueContentTokens: dialogue.tokens, lastDialogueContentFingerprint: dialogue.fingerprint}, "summarizer.preflight.skip");
             }
             return;
         }
@@ -3976,14 +3972,7 @@ export class NeuroAgentHarness {
             }, "summarizer.preflight.tooLarge");
             return;
         }
-
-        const summarizerSession = await this.ensureSummarizerSession({
-            sourceSnapshot,
-            profileKey,
-            initial: summarizerInput,
-            state,
-            summarizerInputFingerprint,
-        });
+        const summarizerSession = await this.ensureSummarizerSession({sourceSnapshot, profileKey, initial: summarizerInput, state, summarizerInputFingerprint});
         await this.writeSummarizerState(sourceSnapshot.metadata.sessionId, {
             ...state,
             sessionId: summarizerSession.metadata.sessionId,
@@ -3997,15 +3986,10 @@ export class NeuroAgentHarness {
             runningDialogueContentFingerprint: dialogue.fingerprint,
             lastError: undefined,
         }, "summarizer.preflight.start");
-
         const result = await this.invokeAgent({
             sessionId: summarizerSession.metadata.sessionId,
             mode: "continue",
-            caller: {
-                kind: "system",
-                sessionId: sourceSnapshot.metadata.sessionId,
-                profileKey: sourceSnapshot.metadata.profileKey,
-            },
+            caller: {kind: "system", sessionId: sourceSnapshot.metadata.sessionId, profileKey: sourceSnapshot.metadata.profileKey},
             messageIdentity: "system",
             internalQueued: true,
         });
@@ -4020,71 +4004,39 @@ export class NeuroAgentHarness {
         }
         await this.settleSessionSummarizerResult(sourceSnapshot.metadata.sessionId, result.reportResult?.data);
     }
-
-    /**
-     * 把 hidden summarizer 的结构化结果写回 source session。
-     * source leaf 在运行期间变化时不覆盖展示信息，只标 dirty 让 job 基于新 leaf 重跑。
-     */
+    /** 把 hidden summarizer 的结构化结果写回 source session。 */
     private async settleSessionSummarizerResult(sourceSessionId: number, data: unknown): Promise<void> {
         const result = isRecord(data) ? data : {};
         if (typeof result.title !== "string" || typeof result.summary !== "string") {
             const current = this.readSummarizerState(this.repo.reduce(await this.repo.readSession(sourceSessionId)));
-            await this.writeSummarizerState(sourceSessionId, {
-                ...current,
-                running: false,
-                dirty: false,
-                lastError: "summarizer 未返回合法 title/summary。",
-            }, "summarizer.result.invalid");
+            await this.writeSummarizerState(sourceSessionId, {...current, running: false, dirty: false, lastError: "summarizer 未返回合法 title/summary。"}, "summarizer.result.invalid");
             return;
         }
         const latestSnapshot = await this.repo.readSession(sourceSessionId);
         const latestContext = this.repo.reduce(latestSnapshot);
         const current = this.readSummarizerState(latestContext);
         if (latestSnapshot.leafId !== current.sourceLeafId) {
-            await this.writeSummarizerState(sourceSessionId, {
-                ...current,
-                running: false,
-                dirty: true,
-            }, "summarizer.result.stale");
+            await this.writeSummarizerState(sourceSessionId, {...current, running: false, dirty: true}, "summarizer.result.stale");
             return;
         }
-        const {
-            runningDialogueContentFingerprint,
-            runningDialogueContentTokens,
-            runningSourcePromptUserTurnCount,
-            lastError: _lastError,
-            ...settled
-        } = current;
-        const updates = {
-            ...(readTitleOwner(latestContext.customState) === "auto" ? {title: this.normalizeSessionTitle(result.title, "summarizer.title")} : {}),
-            summary: result.summary.trim(),
-        };
+        const {runningDialogueContentFingerprint, runningDialogueContentTokens, runningSourcePromptUserTurnCount, lastError: _lastError, ...settled} = current;
         await this.executeWritePlan({
             target: {sessionId: sourceSessionId},
             cause: "summarizer.result",
             ops: [
-                {
-                    kind: "append",
-                    projection: true,
-                    entry: {type: "session_update", updates},
-                },
-                {
-                    kind: "append",
-                    projection: true,
-                    entry: {
-                        type: "custom",
-                        key: SESSION_SUMMARIZER_STATE_KEY,
-                        value: {
-                            ...settled,
-                            running: false,
-                            dirty: false,
-                            ...(runningSourcePromptUserTurnCount !== undefined ? {sourcePromptUserTurnCount: runningSourcePromptUserTurnCount} : {}),
-                            ...(runningDialogueContentTokens !== undefined ? {lastDialogueContentTokens: runningDialogueContentTokens} : {}),
-                            ...(runningDialogueContentFingerprint !== undefined ? {lastDialogueContentFingerprint: runningDialogueContentFingerprint} : {}),
-                            lastRunAt: Date.now(),
-                        },
-                    },
-                },
+                {kind: "append", projection: true, entry: {type: "session_update", updates: {
+                    ...(readTitleOwner(latestContext.customState) === "auto" ? {title: this.normalizeSessionTitle(result.title, "summarizer.title")} : {}),
+                    summary: result.summary.trim(),
+                }}},
+                {kind: "append", projection: true, entry: {type: "custom", key: SESSION_SUMMARIZER_STATE_KEY, value: {
+                    ...settled,
+                    running: false,
+                    dirty: false,
+                    ...(runningSourcePromptUserTurnCount !== undefined ? {sourcePromptUserTurnCount: runningSourcePromptUserTurnCount} : {}),
+                    ...(runningDialogueContentTokens !== undefined ? {lastDialogueContentTokens: runningDialogueContentTokens} : {}),
+                    ...(runningDialogueContentFingerprint !== undefined ? {lastDialogueContentFingerprint: runningDialogueContentFingerprint} : {}),
+                    lastRunAt: Date.now(),
+                }}},
             ],
         });
     }
@@ -6869,6 +6821,11 @@ export class NeuroAgentHarness {
                 profile,
                 globalWorkspaceRoot: absoluteFsPath(this.repo.rootWorkspace),
                 currentProject,
+                definitionArtifactPathContextProvider: this.definitionArtifactPathContextProvider,
+                globalDefinitionRootLabel: "workspace/.nbook/agent/variables",
+                projectDefinitionRootLabel: currentProject
+                    ? `workspace/${currentProject.workspace.ref.projectRoot}/.nbook/agent/variables`
+                    : undefined,
             })
             : createVariableRegistryForProfile(profile);
         return createProfileVariableAccessor({
@@ -8057,6 +8014,10 @@ export class NeuroAgentHarness {
             validationSchema: binding.validationSchema ?? baseTool.validationSchema,
             description: binding.description ?? baseTool.description,
         };
+    }
+
+    private profileCatalogForProject(project: ReadyProjectSessionRef | null): AgentProfileCatalog {
+        return project ? this.profiles.forProjectWorkspace(project.workspace) : this.profiles;
     }
 
 }

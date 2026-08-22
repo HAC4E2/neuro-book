@@ -1,5 +1,5 @@
 import {builtinModules} from "node:module";
-import {cp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {init as initModuleLexer, parse as parseModuleImports} from "es-module-lexer";
 import type {Metafile} from "esbuild";
@@ -244,9 +244,16 @@ async function directoryInventory(root: string): Promise<{files: number; bytes: 
     let files = 0;
     let bytes = 0;
     const walk = async (directory: string): Promise<void> => {
-        for (const entry of await Array.fromAsync(new Bun.Glob("**/*").scan({cwd: directory, onlyFiles: true}))) {
-            files += 1;
-            bytes += (await stat(resolve(directory, entry))).size;
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const filePath = resolve(directory, entry.name);
+            if (entry.isDirectory()) {
+                await walk(filePath);
+            } else if (entry.isFile()) {
+                files += 1;
+                bytes += (await stat(filePath)).size;
+            } else {
+                throw new Error(`Product command output 含特殊文件：${filePath}`);
+            }
         }
     };
     await walk(root);

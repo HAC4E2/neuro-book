@@ -9,13 +9,14 @@ import {
     type ProfileArtifactManifest,
     type ProfileArtifactManifestEntry,
     type ProfileArtifactManifestItem,
+    type ProfileArtifactPathContextResolver,
     type ProfileReleaseRegistrySink,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {ProfileArtifactStore, ProfileArtifactStoreError} from "nbook/server/agent/profiles/profile-artifact-store";
 import {ProfileFreshnessChecker} from "nbook/server/agent/profiles/profile-freshness-checker";
 import {ProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import {ProfileSourceWatcher, type ProfileSourceWatchEvent} from "nbook/server/agent/profiles/profile-source-watcher";
-import {readSystemProfileMetadata, sha256File} from "nbook/server/workspace-files/novel-workspace";
+import {resolveProjectAgentRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import type {
     AgentCatalogSnapshot,
     AgentCatalogItem,
@@ -25,6 +26,7 @@ import type {
     AgentProfileSourceKind,
 } from "nbook/server/agent/profiles/types";
 import {appLogger} from "nbook/server/app-logs/logger";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 type ProfileSource = {
     profile: AgentProfile;
@@ -59,17 +61,12 @@ type ProfileFileEntry = {
 };
 
 type ProfileInventory = {
-    system: ProfileFileEntry[];
-    user: ProfileFileEntry[];
-    systemManifest: ProfileArtifactManifest;
-    userManifest: ProfileArtifactManifest;
+    install: ProfileFileEntry[];
+    project: ProfileFileEntry[];
+    installManifest: ProfileArtifactManifest;
+    projectManifest: ProfileArtifactManifest;
 };
 
-type ProfileShadowWarning = {
-    fileName: string;
-    profileKey: string;
-    issue: AgentProfileIssue;
-};
 
 type CatalogCache = {
     signature: string;
@@ -160,12 +157,14 @@ function idleProfileBuildState(): AgentProfileBuildState {
 }
 
 /**
- * 动态 profile catalog。用户 profile 按 key 覆盖系统 profile。
- * Runtime 只加载 `.compiled` artifact，不在普通请求中编译 TSX 源码。
+ * 动态 profile catalog。运行期只加载 Install Root，并在显式绑定 Project 时让
+ * Project Root 按 profile key 整体覆盖 Install Root。
  */
 export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
-    private readonly systemRoot: string;
-    private readonly userRoot: string;
+    private readonly installRoot: string;
+    private readonly projectRoot?: string;
+    private readonly parent?: AgentProfileCatalog;
+    private readonly projectChildren = new Map<symbol, AgentProfileCatalog>();
     private readonly memoryProfiles = new Map<string, ProfileSource>();
     private memoryRevision = 0;
     private catalogGeneration = 0;
@@ -173,38 +172,86 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     private pendingCatalogLoad?: PendingCatalogLoad;
     private catalogDirty = true;
     private sourceWatcher?: ProfileSourceWatcher;
+    private watching = false;
     private buildCoordinator?: AgentProfileBuildCoordinatorPort;
+    private buildCoordinatorFactory?: (catalog: AgentProfileCatalog, profileRoot: string, profileRootLabel: string) => AgentProfileBuildCoordinatorPort;
     private runtimeRegistryEnabled = false;
     private runtimeRegistryLoad?: Promise<LoadedProfileCatalog>;
     private runtimeRegistryLoadGeneration = -1;
     private readonly artifactStore: ProfileArtifactStore;
-    private readonly freshness = new ProfileFreshnessChecker();
+    private readonly freshness: ProfileFreshnessChecker;
+    private readonly artifactPathContextResolver: ProfileArtifactPathContextResolver;
+    private readonly installRootLabel: string;
+    private readonly projectRootLabel: string | undefined;
     private readonly runtimeRegistry = new ProfileRegistry<LoadedProfileCatalog>();
 
-    /**
-     * 创建只绑定指定物理 roots 的 Profile Catalog。
-     * system/user root 必须由进程、CLI、构建或测试 Adapter 显式决定；本 Module 不发现 cwd 或环境。
-     */
-    constructor(systemRoot: string, userRoot: string) {
-        this.systemRoot = resolve(systemRoot);
-        this.userRoot = resolve(userRoot);
+    constructor(
+        installRoot: string,
+        projectRoot?: string,
+        inheritedMemoryProfiles?: ReadonlyMap<string, ProfileSource>,
+        parent?: AgentProfileCatalog,
+        artifactPathContextResolver?: ProfileArtifactPathContextResolver,
+        rootLabels?: {install?: string; project?: string},
+    ) {
+        this.installRoot = resolve(installRoot);
+        this.projectRoot = projectRoot ? resolve(projectRoot) : undefined;
+        this.installRootLabel = rootLabels?.install ?? parent?.installRootLabel ?? "workspace/.nbook/agent/profiles";
+        this.projectRootLabel = this.projectRoot
+            ? rootLabels?.project ?? parent?.projectRootLabel ?? profileRootLabelForProject(this.projectRoot)
+            : undefined;
+        this.parent = parent;
+        if (inheritedMemoryProfiles) {
+            for (const [key, source] of inheritedMemoryProfiles) this.memoryProfiles.set(key, source);
+        }
         this.artifactStore = new ProfileArtifactStore();
+        this.artifactPathContextResolver = artifactPathContextResolver ?? parent?.artifactPathContextResolver ?? ((profileRoot, rootLabel) => {
+            throw new Error(`Profile Catalog 缺少显式 artifact path context：${rootLabel} (${profileRoot})`);
+        });
+        this.freshness = new ProfileFreshnessChecker(this.artifactPathContextResolver);
+    }
+    /** 创建按 Project 隔离的视图；child 拥有自己的 watcher/coordinator。 */
+    forProjectWorkspace(project: ResolvedProjectWorkspace): AgentProfileCatalog {
+        const owner = this.parent ?? this;
+        const existing = owner.projectChildren.get(project.key);
+        if (existing) return existing;
+        const child = new AgentProfileCatalog(
+            owner.installRoot,
+            join(resolveProjectAgentRoot(project), "profiles"),
+            owner.memoryProfiles,
+            owner,
+            owner.artifactPathContextResolver,
+            {install: owner.installRootLabel, project: `workspace/${project.ref.projectRoot}/.nbook/agent/profiles`},
+        );
+        owner.projectChildren.set(project.key, child);
+        if (owner.buildCoordinatorFactory && child.projectRoot && child.projectRootLabel) {
+            child.attachBuildCoordinator(owner.buildCoordinatorFactory(child, child.projectRoot, child.projectRootLabel));
+        }
+        if (owner.runtimeRegistryEnabled) child.enableRuntimeRegistry();
+        if (owner.watching) void child.startWatching();
+        return child;
     }
 
-    /**
-     * 将 Catalog 已知来源的物理源码路径投影为工作台稳定 fileName。
-     * 来源归属由 Catalog roots 决定，调用方不得从 cwd 或环境重新推断。
-     */
-    sourceFileName(sourcePath: string, source: AgentProfileSourceKind): string {
-        const root = source === "system"
-            ? this.systemRoot
-            : source === "user"
-                ? this.userRoot
-                : null;
-        return root
-            ? relative(root, sourcePath).split(/[\\/]+/).join("/")
-            : basename(sourcePath);
+    /** 挂载构建协调器；Project child 通过工厂创建独立 owner。 */
+    attachBuildCoordinator(
+        coordinator: AgentProfileBuildCoordinatorPort,
+        factory?: (catalog: AgentProfileCatalog, profileRoot: string, profileRootLabel: string) => AgentProfileBuildCoordinatorPort,
+    ): void {
+        this.buildCoordinator = coordinator;
+        if (factory) {
+            this.buildCoordinatorFactory = factory;
+        }
     }
+
+    /** 将 Catalog 已知来源的物理源码路径投影为工作台稳定 fileName。 */
+    sourceFileName(sourcePath: string, source: AgentProfileSourceKind): string {
+        const root = source === "install"
+            ? this.installRoot
+            : source === "project"
+                ? this.projectRoot
+                : null;
+        return root ? relative(root, sourcePath).split(/[\\/]+/).join("/") : basename(sourcePath);
+    }
+
 
     /**
      * 注册内存 profile，主要给测试和最小内置 profile 使用。
@@ -219,12 +266,6 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
         this.invalidate("register");
     }
 
-    /**
-     * 挂载 HTTP runtime 的 profile build coordinator。测试和 CLI 默认不挂载。
-     */
-    attachBuildCoordinator(coordinator: AgentProfileBuildCoordinatorPort): void {
-        this.buildCoordinator = coordinator;
-    }
 
     /**
      * 启用 server 进程内 Registry。启用后 get/resolveMany/snapshot 只读内存视图；
@@ -285,12 +326,13 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     async publishProfileRelease(profileRoot: string, manifest: ProfileArtifactManifest): Promise<void> {
         if (!this.runtimeRegistryEnabled) {
             this.invalidate("profile_release_published");
+            for (const child of this.projectChildren.values()) child.invalidate("parent_profile_release_published");
             return;
         }
         const root = resolve(profileRoot);
-        const systemRoot = resolve(this.systemRoot);
-        const userRoot = resolve(this.userRoot);
-        if (root !== systemRoot && root !== userRoot) {
+        const installRoot = resolve(this.installRoot);
+        const projectRoot = this.projectRoot ? resolve(this.projectRoot) : null;
+        if (root !== installRoot && root !== projectRoot) {
             await this.refreshRuntimeRegistry("profile_release_unknown_root");
             return;
         }
@@ -302,24 +344,19 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
         const inventory = await this.readProfileInventory();
         const nextInventory: ProfileInventory = {
             ...inventory,
-            systemManifest: root === systemRoot ? manifest : inventory.systemManifest,
-            userManifest: root === userRoot ? manifest : inventory.userManifest,
+            installManifest: root === installRoot ? manifest : inventory.installManifest,
+            projectManifest: root === projectRoot ? manifest : inventory.projectManifest,
         };
         const catalog = await this.loadInventory(nextInventory);
-        if (this.catalogGeneration !== generationAtStart) {
-            return;
-        }
+        if (this.catalogGeneration !== generationAtStart) return;
         this.runtimeRegistry.publish(catalog);
-        this.catalogCache = {
-            signature: `runtime:${this.catalogGeneration}`,
-            catalog,
-        };
+        this.catalogCache = {signature: `runtime:${this.catalogGeneration}`, catalog};
         this.catalogDirty = false;
+        if (root === installRoot) {
+            for (const child of this.projectChildren.values()) child.invalidate("parent_install_release_published");
+        }
     }
 
-    /**
-     * 返回指定 profile 的当前构建状态；未挂载 Coordinator 时返回 idle。
-     */
     buildStateFor(profileKey: string): AgentProfileBuildState {
         return this.buildCoordinator?.stateFor(profileKey) ?? idleProfileBuildState();
     }
@@ -355,17 +392,15 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
      * 启动 profile root 文件 watcher。HTTP runtime 使用它感知外部编辑器或 bash 写入。
      */
     async startWatching(): Promise<void> {
+        this.watching = true;
         if (!this.sourceWatcher) {
             this.sourceWatcher = new ProfileSourceWatcher({
-                systemRoot: this.systemRoot,
-                userRoot: this.userRoot,
+                installRoot: this.installRoot,
+                projectRoot: this.projectRoot,
                 onEvent: (event) => this.handleWatchEvent(event),
                 onError: (error, startup) => {
                     this.invalidate("watch_error");
-                    void appLogger.warn("agent.profileCatalog.watchError", {
-                        error: error.message,
-                        startup,
-                    });
+                    void appLogger.warn("agent.profileCatalog.watchError", {error: error.message, startup});
                 },
             });
         }
@@ -373,9 +408,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
             await this.sourceWatcher.start();
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            void appLogger.warn("agent.profileCatalog.watchStartFailed", {
-                error: message,
-            });
+            void appLogger.warn("agent.profileCatalog.watchStartFailed", {error: message});
             throw error;
         }
     }
@@ -385,50 +418,48 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
             eventName: event.eventName,
             path: event.changedPath,
         });
-        if (event.kind === "user_profile" && event.fileName) {
-            if (event.eventName === "unlink" || event.eventName === "unlinkDir") {
-                void this.enqueueBuild({
-                    reason: `watch:${event.eventName}`,
-                }).catch((error) => {
-                    void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
-                        error: error instanceof Error ? error.message : String(error),
-                        path: event.changedPath,
-                    });
-                });
-                return;
-            }
-            void this.enqueueBuild({
-                fileName: event.fileName,
-                reason: `watch:${event.eventName}`,
-            }).catch((error) => {
-                void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
-                    error: error instanceof Error ? error.message : String(error),
-                    path: event.changedPath,
-                });
-            });
+        const isInstallEvent = event.kind === "install_profile" || event.kind === "install_dependency";
+        const isProjectEvent = event.kind === "project_profile" || event.kind === "project_dependency";
+        if (isInstallEvent && this.projectRoot) {
+            this.invalidate(`watch:${event.kind}:${event.eventName}`);
             return;
         }
-        if (event.kind === "user_dependency") {
-            void this.enqueueBuild({
-                reason: `watch:${event.eventName}`,
-            }).catch((error) => {
-                void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
-                    error: error instanceof Error ? error.message : String(error),
-                    path: event.changedPath,
-                });
-            });
+        if (!isInstallEvent && !isProjectEvent) {
+            this.invalidate(`watch:${event.kind}:${event.eventName}`);
             return;
         }
-        this.invalidate(`watch:${event.eventName}`);
+        if (isProjectEvent && !this.projectRoot) {
+            this.invalidate(`watch:${event.kind}:${event.eventName}`);
+            return;
+        }
+        const isDeleted = event.eventName === "unlink" || event.eventName === "unlinkDir";
+        const reason = `watch:${event.eventName}`;
+        const build = !isDeleted && event.kind.endsWith("_profile") && event.fileName
+            ? {fileName: event.fileName, reason}
+            : {reason};
+        void this.enqueueBuild(build).catch((error) => {
+            void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
+                error: error instanceof Error ? error.message : String(error),
+                path: event.changedPath,
+            });
+        });
     }
-
     /**
      * 关闭 profile watcher。测试和临时 catalog 用它避免文件句柄泄漏。
      */
     async dispose(): Promise<void> {
         const failures: unknown[] = [];
+        for (const [key, child] of this.projectChildren) {
+            try {
+                await child.dispose();
+            } catch (error) {
+                failures.push(error);
+            }
+            this.projectChildren.delete(key);
+        }
         const watcher = this.sourceWatcher;
         this.sourceWatcher = undefined;
+        this.watching = false;
         try {
             await watcher?.dispose();
         } catch (error) {
@@ -670,46 +701,37 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
         const profiles = new Map<string, ProfileSource>(this.memoryProfiles);
         const unloadedProfiles = new Map<string, UnloadedProfileSource>();
         const issues: AgentProfileIssue[] = [];
-        const shadowWarnings = await this.readProfileShadowWarnings(inventory.user);
-        const system = await this.loadDirectory(inventory.system, inventory.systemManifest, "system", true);
-        issues.push(...system.issues);
-        for (const source of system.sources) {
-            profiles.set(source.profile.manifest.key, source);
-        }
-        for (const source of system.unloadedSources) {
+        const install = await this.loadDirectory(inventory.install, inventory.installManifest, "install", true, this.installRoot, this.installRootLabel);
+        issues.push(...install.issues);
+        for (const source of install.sources) profiles.set(source.profile.manifest.key, source);
+        for (const source of install.unloadedSources) {
             profiles.delete(source.key);
             unloadedProfiles.set(source.key, source);
         }
-        const user = await this.loadDirectory(inventory.user, inventory.userManifest, "user", false);
-        issues.push(...user.issues);
-        for (const source of user.sources) {
-            const shadowWarning = source.sourcePath ? shadowWarnings.find((warning) => warning.profileKey === source.profile.manifest.key) : undefined;
-            if (shadowWarning) {
-                source.issue = source.issue ?? shadowWarning.issue;
-                issues.push(shadowWarning.issue);
+        const projectRoot = this.projectRoot;
+        if (projectRoot) {
+            const project = await this.loadDirectory(inventory.project, inventory.projectManifest, "project", false, projectRoot, this.projectRootLabel!);
+            issues.push(...project.issues);
+            for (const source of project.sources) {
+                profiles.set(source.profile.manifest.key, source);
+                unloadedProfiles.delete(source.profile.manifest.key);
             }
-            profiles.set(source.profile.manifest.key, source);
-            unloadedProfiles.delete(source.profile.manifest.key);
-        }
-        for (const source of user.unloadedSources) {
-            const existing = profiles.get(source.key);
-            if (existing) {
+            for (const source of project.unloadedSources) {
                 profiles.delete(source.key);
+                unloadedProfiles.set(source.key, source);
             }
-            unloadedProfiles.set(source.key, source);
         }
-        return {
-            profiles,
-            unloadedProfiles,
-            issues,
-        };
+        return {profiles, unloadedProfiles, issues};
     }
 
-    private async loadDirectory(files: ProfileFileEntry[], manifest: ProfileArtifactManifest, source: Exclude<AgentProfileSourceKind, "memory">, builtin: boolean): Promise<{
-        sources: ProfileSource[];
-        unloadedSources: UnloadedProfileSource[];
-        issues: AgentProfileIssue[];
-    }> {
+    private async loadDirectory(
+        files: ProfileFileEntry[],
+        manifest: ProfileArtifactManifest,
+        source: Exclude<AgentProfileSourceKind, "memory">,
+        builtin: boolean,
+        root: string,
+        rootLabel: string,
+    ): Promise<{sources: ProfileSource[]; unloadedSources: UnloadedProfileSource[]; issues: AgentProfileIssue[]}> {
         const sources: ProfileSource[] = [];
         const unloadedSources: UnloadedProfileSource[] = [];
         const issues: AgentProfileIssue[] = [];
@@ -727,54 +749,44 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 unloadedSources.push(this.unloadedFromManifest(file, manifestEntry, source, builtin, "compile_failed", issue));
                 continue;
             }
-            const manifestItem = manifestEntry;
-            const freshness = await this.freshness.validate(source === "system" ? this.systemRoot : this.userRoot, manifestItem, {
-                checkDependencies: false,
-            });
+            const freshness = await this.freshness.validate(root, rootLabel, manifestEntry, {checkDependencies: false});
             if (!freshness.fresh) {
-                const issue = this.staleIssue(source, file, manifestItem, freshness.reason);
+                const issue = this.staleIssue(source, file, manifestEntry, freshness.reason);
                 issues.push(issue);
-                unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compile_stale", issue));
+                unloadedSources.push(this.unloadedFromManifest(file, manifestEntry, source, builtin, "compile_stale", issue));
                 continue;
             }
             try {
-                const profile = await this.artifactStore.importProfile(source === "system" ? this.systemRoot : this.userRoot, manifestItem);
+                const profile = await this.artifactStore.importProfile(root, manifestEntry);
                 const locked = this.applyBuiltinSchemaLock(profile, source, file.file);
                 const filenameIssue = this.filenameIssue(locked.profile, source, file.file);
-                sources.push({
-                    profile: locked.profile,
-                    sourcePath: file.file,
-                    builtin,
-                    source,
-                    issue: locked.issue ?? filenameIssue,
-                });
-                if (locked.issue) {
-                    issues.push(locked.issue);
-                }
-                if (filenameIssue) {
-                    issues.push(filenameIssue);
-                }
+                sources.push({profile: locked.profile, sourcePath: file.file, builtin, source, issue: locked.issue ?? filenameIssue});
+                if (locked.issue) issues.push(locked.issue);
+                if (filenameIssue) issues.push(filenameIssue);
             } catch (error) {
-                const issue = this.issueFromError(error, source, file.file, manifestItem.profileKey, "compiled_load_failed");
+                const issue = this.issueFromError(error, source, file.file, manifestEntry.profileKey, "compiled_load_failed");
                 issues.push(issue);
-                unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compiled_load_failed", issue));
+                unloadedSources.push(this.unloadedFromManifest(file, manifestEntry, source, builtin, "compiled_load_failed", issue));
             }
         }
-        return {
-            sources,
-            unloadedSources,
-            issues,
-        };
+        return {sources, unloadedSources, issues};
     }
 
     private async readProfileInventory(): Promise<ProfileInventory> {
-        const [system, user, systemManifest, userManifest] = await Promise.all([
-            this.findProfileFiles(this.systemRoot),
-            this.findProfileFiles(this.userRoot),
-            readProfileArtifactManifest(this.systemRoot),
-            readProfileArtifactManifest(this.userRoot),
+        const projectRoot = this.projectRoot;
+        const installManifestPromise = this.artifactPathContextResolver(this.installRoot, this.installRootLabel)
+            .then((context) => readProfileArtifactManifest(this.installRoot, context));
+        const projectManifestPromise = projectRoot
+            ? this.artifactPathContextResolver(projectRoot, this.projectRootLabel!)
+                .then((context) => readProfileArtifactManifest(projectRoot, context))
+            : installManifestPromise.then((manifest) => ({...manifest, entries: [], profiles: []}));
+        const [install, project, installManifest, projectManifest] = await Promise.all([
+            this.findProfileFiles(this.installRoot),
+            projectRoot ? this.findProfileFiles(projectRoot) : Promise.resolve([]),
+            installManifestPromise,
+            projectManifestPromise,
         ]);
-        return {system, user, systemManifest, userManifest};
+        return {install, project, installManifest, projectManifest};
     }
 
     private async findProfileFiles(root: string, current = root): Promise<ProfileFileEntry[]> {
@@ -808,14 +820,16 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     private async catalogSignature(inventory: ProfileInventory): Promise<string> {
         return JSON.stringify({
             memoryRevision: this.memoryRevision,
-            systemRoot: this.systemRoot,
-            userRoot: this.userRoot,
-            system: inventory.system,
-            user: inventory.user,
-            systemManifest: inventory.systemManifest,
-            userManifest: inventory.userManifest,
-            systemDependencies: await this.freshness.dependencySignatures(inventory.systemManifest),
-            userDependencies: await this.freshness.dependencySignatures(inventory.userManifest),
+            installRoot: this.installRoot,
+            projectRoot: this.projectRoot,
+            install: inventory.install,
+            project: inventory.project,
+            installManifest: inventory.installManifest,
+            projectManifest: inventory.projectManifest,
+            installDependencies: await this.freshness.dependencySignatures(this.installRoot, this.installRootLabel, inventory.installManifest),
+            projectDependencies: this.projectRoot
+                ? await this.freshness.dependencySignatures(this.projectRoot, this.projectRootLabel!, inventory.projectManifest)
+                : [],
         });
     }
 
@@ -888,35 +902,6 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
         return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
     }
 
-    private async readProfileShadowWarnings(userFiles: ProfileFileEntry[]): Promise<ProfileShadowWarning[]> {
-        const metadata = await readSystemProfileMetadata();
-        if (metadata.profiles.length === 0) {
-            return [];
-        }
-        const warnings: ProfileShadowWarning[] = [];
-        for (const item of metadata.profiles) {
-            const userFile = userFiles.find((file) => file.fileName === item.fileName);
-            if (!userFile) {
-                continue;
-            }
-            const userHash = await sha256File(userFile.file);
-            if (userHash.sha256 === item.sha256) {
-                continue;
-            }
-            warnings.push({
-                fileName: item.fileName,
-                profileKey: item.profileKey,
-                issue: {
-                    code: "system_profile_shadowed",
-                    message: `系统 profile ${item.profileKey} 与用户覆盖不同；运行时使用用户覆盖，系统更新不会自动覆盖手改内容。`,
-                    profileKey: item.profileKey,
-                    source: "user",
-                    sourcePath: userFile.file,
-                },
-            });
-        }
-        return warnings;
-    }
 
     private notCompiledIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry): AgentProfileIssue {
         return {
@@ -1004,7 +989,7 @@ export class AgentInvocationPayloadError extends Error {
 }
 
 function statusFromIssue(issue: AgentProfileIssue): AgentCatalogItem["loadStatus"] {
-    if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale") {
+    if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "source_stale" || issue.code === "dependency_stale") {
         return "loaded";
     }
     if (issue.code === "not_compiled" || issue.code === "compile_failed" || issue.code === "compile_stale" || issue.code === "compiled_load_failed" || issue.code === "source_error") {
@@ -1013,6 +998,22 @@ function statusFromIssue(issue: AgentProfileIssue): AgentCatalogItem["loadStatus
     return "source_error";
 }
 
+function profileRootLabelForProject(profileRoot: string): string {
+    const normalized = profileRoot.replace(/[\\/]+/gu, "/");
+    const marker = "/.nbook/agent/profiles";
+    const index = normalized.lastIndexOf(marker);
+    if (index < 0) {
+        throw new Error(`Project Root 缺少 .nbook/agent/profiles 边界：${profileRoot}`);
+    }
+    const prefix = normalized.slice(0, index);
+    const workspaceMarker = "/workspace/";
+    const workspaceIndex = prefix.lastIndexOf(workspaceMarker);
+    const projectRoot = workspaceIndex >= 0 ? prefix.slice(workspaceIndex + workspaceMarker.length) : "";
+    if (!projectRoot || projectRoot.includes("/")) {
+        throw new Error(`Project Root 缺少 Workspace project 边界：${profileRoot}`);
+    }
+    return `workspace/${projectRoot}${marker}`;
+}
 function keyFromFileName(fileName: string): string {
     return basename(fileName).replace(/\.profile\.(tsx|ts|mjs|js)$/, "");
 }

@@ -15,6 +15,7 @@ import {agentRuntimeBuiltins} from "nbook/server/agent/profiles/define-agent-run
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createStoredUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
@@ -220,7 +221,14 @@ describe("NeuroAgentHarness black-box contract", () => {
         await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
+            profiles: new AgentProfileCatalog(
+                join(root, "profiles-system"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, root),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
