@@ -19,12 +19,18 @@ describe("docs locale staging", () => {
         await writeFixture(repoRoot, "vitepress/locales/zh-Hans/removed.md", "# removed\n");
         await writeFixture(repoRoot, "vitepress/locales/en-US/index.md", "# English\n");
         await writeFixture(repoRoot, "vitepress/public/official/index.html", "official\n");
-
+        await writeFixture(repoRoot, "packages/llmlint/docs/promo/eval-lab/index.html", "eval-promo\n");
+        await writeFixture(repoRoot, "packages/llmlint/docs/promo/evolution-lab/index.html", "evolution-promo\n");
+        await writeFixture(repoRoot, "packages/llmlint/docs/promo/evolution-lab/mechanism.html", "mechanism-promo\n");
         const stagedRoot = await stageDocsLocales({repoRoot});
         await expect(readFile(join(stagedRoot, "index.md"), "utf8")).resolves.toBe("# 中文\n");
         await expect(readFile(join(stagedRoot, "en/index.md"), "utf8")).resolves.toBe("# English\n");
-        await expect(readFile(join(stagedRoot, "public/official/index.html"), "utf8")).resolves.toBe("official\n");
-
+        await expect(readFile(join(stagedRoot, "public/promo/eval-lab/index.html"), "utf8")).resolves.toBe("eval-promo\n");
+        await expect(readFile(join(stagedRoot, "public/promo/evolution-lab/index.html"), "utf8")).resolves.toBe("evolution-promo\n");
+        await expect(readFile(join(stagedRoot, "public/promo/evolution-lab/mechanism.html"), "utf8")).resolves.toBe("mechanism-promo\n");
+        await expect(readFile(join(stagedRoot, "public/en/promo/eval-lab/index.html"), "utf8")).resolves.toBe("eval-promo\n");
+        await expect(readFile(join(stagedRoot, "public/en/promo/evolution-lab/index.html"), "utf8")).resolves.toBe("evolution-promo\n");
+        await expect(readFile(join(stagedRoot, "public/en/promo/evolution-lab/mechanism.html"), "utf8")).resolves.toBe("mechanism-promo\n");
         await rm(join(repoRoot, "vitepress/locales/zh-Hans/removed.md"));
         await writeFixture(repoRoot, "vitepress/.vitepress/staged/stale.md", "stale\n");
         await stageDocsLocales({repoRoot});

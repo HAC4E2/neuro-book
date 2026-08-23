@@ -14,6 +14,14 @@ export const enNav: DefaultTheme.NavItem[] = [
   { text: 'Concepts', link: '/en/blog-agent-rp-harness' },
   { text: 'Agent', link: '/en/agent/' },
   { text: 'Profile', link: '/en/profile/' },
+  {
+    text: 'Promo',
+    items: [
+      { text: 'Evaluation Lab', link: '/en/promo/eval-lab/index.html' },
+      { text: 'Evolution Lab', link: '/en/promo/evolution-lab/index.html' },
+      { text: 'Mechanism Handbook', link: '/en/promo/evolution-lab/mechanism.html' }
+    ]
+  },
   { text: 'GitHub', link: 'https://github.com/notnotype/neuro-book' }
 ]
 

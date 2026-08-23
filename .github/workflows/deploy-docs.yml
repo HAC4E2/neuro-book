@@ -7,6 +7,7 @@ on:
       - docs/**
       - vitepress/**
       - packages/neuro-book/assets/reference/**
+      - packages/llmlint/docs/promo/**
       - AGENTS.md
       - WATCHDOG.md
       - CONTEXT.md

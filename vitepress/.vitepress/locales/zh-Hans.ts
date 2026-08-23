@@ -14,6 +14,14 @@ export const zhNav: DefaultTheme.NavItem[] = [
   { text: '理念', link: '/blog-agent-rp-harness' },
   { text: 'Agent', link: '/agent/' },
   { text: 'Profile', link: '/profile/' },
+  {
+    text: '宣传页',
+    items: [
+      { text: '评测实验室', link: '/promo/eval-lab/index.html' },
+      { text: '进化实验室', link: '/promo/evolution-lab/index.html' },
+      { text: '机制手册', link: '/promo/evolution-lab/mechanism.html' }
+    ]
+  },
   { text: 'GitHub', link: 'https://github.com/notnotype/neuro-book' }
 ]
 

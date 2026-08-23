@@ -12,6 +12,7 @@ const canonicalRoots = [
   resolve(import.meta.dirname, "../locales/zh-Hans"),
   resolve(import.meta.dirname, "../locales/en-US"),
   resolve(import.meta.dirname, "../public"),
+  resolve(import.meta.dirname, "../../packages/llmlint/docs/promo"),
 ];
 
 function docsDevPlugin(): Plugin {

@@ -21,6 +21,8 @@ export async function stageDocsLocales(options: StageDocsLocalesOptions = {}): P
     await cp(resolve(vitepressRoot, "locales/zh-Hans"), stagedRoot, {recursive: true});
     await cp(resolve(vitepressRoot, "locales/en-US"), resolve(stagedRoot, "en"), {recursive: true});
     await cp(resolve(vitepressRoot, "public"), resolve(stagedRoot, "public"), {recursive: true});
+    await cp(resolve(repoRoot, "packages/llmlint/docs/promo"), resolve(stagedRoot, "public/promo"), {recursive: true});
+    await cp(resolve(repoRoot, "packages/llmlint/docs/promo"), resolve(stagedRoot, "public/en/promo"), {recursive: true});
     await writeFile(resolve(stagedRoot, DOCS_STAGING_MARKER), `${JSON.stringify({
         schema: "nbook.docs-locale-staging/v1",
         locales: {"zh-Hans": "/", "en-US": "/en/"},
