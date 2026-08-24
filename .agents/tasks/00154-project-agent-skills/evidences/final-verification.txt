@@ -103,3 +103,26 @@ Task README/context 时间同步后的最终验证窗口（2026-08-24T11:49:09Z�
 - `git diff --check`：exit code 0；无 whitespace 输出；staged diff 为空。
 - 当前治理摘要与验证结果一致：Task 135 两条 hash 错误仅属于历史窗口，当前治理门禁无失败。
 - `.omp/RULES.md:5` 的 `AGENTS.md#汇报与提问` 仍是范围外既有悬空指针，本 Task 未修改。
+
+本轮指针修复待验证窗口（2026-08-24T12:26:54Z 修改后）：
+
+- `.omp/RULES.md:5` 已从不存在的 `../AGENTS.md#汇报与提问` 改为现有 `.agents/skills/report/SKILL.md#报告格式`；该文件已纳入 Task 允许范围。
+本段记录修改后的待验证状态；真实 required 结果见紧随其后的 2026-08-24T12:31:18Z 窗口。
+
+指针修复后的真实验证窗口（2026-08-24T12:31:18Z）：
+
+- `bun run docs:check`：exit code 0；`failures: []`；`checkedFiles: 5242`。
+- `bun x vitest run --config scripts/vitest.config.ts --testTimeout=15000 scripts/ci/agent-governance.test.ts`：exit code 0；Test Files 1 passed；Tests 38 passed；Duration 26.01s。
+- `bun x tsc --noEmit -p scripts/tsconfig.json`：exit code 0；无输出。
+- `bun run governance:check`：exit code 0；`failures: []`；`warnings: []`。
+- `git diff --check -- .`：exit code 0；无 whitespace 输出。
+- `.omp/RULES.md:5` 与 `.agents/skills/report/SKILL.md` 的生效汇报格式链接均指向 `.agents/skills/report/SKILL.md#报告格式`；历史证据中的旧锚点文字仅保留为诊断记录。
+
+语义指针修正后的真实验证窗口（2026-08-24T12:42:36Z）：
+
+- `bun run docs:check`：exit code 0；`failures: []`；`checkedFiles: 5242`。
+- `bun x vitest run --config scripts/vitest.config.ts --testTimeout=15000 scripts/ci/agent-governance.test.ts`：exit code 0；Test Files 1 passed；Tests 38 passed；Duration 21.83s。
+- `bun x tsc --noEmit -p scripts/tsconfig.json`：exit code 0；无输出。
+- `bun run governance:check`：exit code 0；`failures: []`；`warnings: []`。
+- `git diff --check -- .`：exit code 0；无 whitespace 错误；命令同时输出 LF/CRLF 规范化 warning。
+- 生效文件 `.omp/RULES.md` 与 `.agents/skills/report/SKILL.md` 未命中 `AGENTS.md#汇报与提问`。

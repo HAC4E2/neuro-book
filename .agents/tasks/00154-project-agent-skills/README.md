@@ -6,7 +6,7 @@ worktreeId: null
 branchId: master
 status: verifying
 createdAt: 2026-08-24T08:32:18Z
-updatedAt: 2026-08-24T11:46:46Z
+updatedAt: 2026-08-24T12:26:54Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: feature
@@ -44,7 +44,7 @@ Task 00153 的未提交 P-005 改动继续隔离在 `.worktree/t153-p005-workflo
 
 ## 允许文件
 
-`.agents/skills/**`、`.agents/README.md`、`.agents/tasks/AGENTS.md`、`.agents/roles/tasker/AGENTS.md`、`scripts/ci/agent-governance-contract.ts`、`scripts/ci/agent-governance.test.ts`、`packages/neuro-book/docs/proposals/agent-skills-adaptation.md`、`docs/proposals/p-005-development-workflow-governance.md`、本 Task 目录，以及经本轮开发者明确授权的 `.agents/tasks/ownership.json`、`.agents/tasks/legacy-index.json`、`.agents/tasks/.migration-complete`。Task 135 正文 `packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md` 本轮只读核对，未修改；其当前 actual hash 被登记为 canonical destination。
+`.omp/RULES.md`、`.agents/skills/**`、`.agents/README.md`、`.agents/tasks/AGENTS.md`、`.agents/roles/tasker/AGENTS.md`、`scripts/ci/agent-governance-contract.ts`、`scripts/ci/agent-governance.test.ts`、`packages/neuro-book/docs/proposals/agent-skills-adaptation.md`、`docs/proposals/p-005-development-workflow-governance.md`、本 Task 目录，以及经开发者授权的 `.agents/tasks/ownership.json`、`.agents/tasks/legacy-index.json`、`.agents/tasks/.migration-complete`。Task 135 正文 `packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md` 只读核对，未修改；其当前 actual hash 被登记为 canonical destination。
 
 本轮实际基线登记改动：`.agents/tasks/ownership.json` 的 Task 135 `file.sha256`、`.agents/tasks/legacy-index.json` 的 Task 135 `destinationSha256` 与顶层 `manifestSha256`、`.agents/tasks/.migration-complete` 的顶层 `manifestSha256`。`.agents/tasks/legacy-index.json` 的 `sourceRevision` 与该 mapping 的 `sourceSha256` 保持不变。
 
@@ -52,4 +52,4 @@ Task 00153 的未提交 P-005 改动继续隔离在 `.worktree/t153-p005-workflo
 
 必须闭合 `docs-check`、`governance-check`、focused governance test、scripts TypeScript typecheck 和 `diff-check`。实际命令与结果进入 walkthrough/evidence；Task 完成前进行独立审查，未获远端授权时不执行交付动作。
 
-Reviewer walkthrough：[`walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md`](walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md)。结论为“建议合并”；本轮将用户更正后的 `load_role` 设为实际入口，修复 report 引用、Revision 合同、manifest 联动说明，并按授权同步 Task 135 三份治理登记。最新 required 验证窗口见 `evidences/final-verification.txt`；Task 135 登记当前已通过 `governance:check`（`failures: []`、`warnings: []`）。`.omp/RULES.md:5` 的 `AGENTS.md#汇报与提问` 悬空指针不在本 Task 范围，作为未修复的范围外残余风险单列。Task 继续 `verifying`，未授权远端动作。
+Reviewer walkthrough：[`walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md`](walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md)。结论为“建议合并”；本轮将用户更正后的 `load_role` 设为实际入口，修复 report 引用、Revision 合同、manifest 联动说明，并按授权同步 Task 135 三份治理登记。最新 required 验证窗口见 `evidences/final-verification.txt`；Task 135 登记当前已通过 `governance:check`（`failures: []`、`warnings: []`）。本轮同时修复 `.omp/RULES.md` 的汇报格式指针并同步范围记录。Task 继续 `verifying`；未授权远端动作。

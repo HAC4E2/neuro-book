@@ -1,7 +1,7 @@
 # 任务上下文
 
-快照截止时间：2026-08-24T11:46:46Z
-覆盖到：用户更正 Skill 名称为 `load_role`；Task 135 README 只读核对，三份治理登记按授权同步，最新 required 验证窗口已通过；Task 当前状态为 `verifying`；当前进展以 Task README 与最新 walkthrough/evidence 为准。
+快照截止时间：2026-08-24T12:26:54Z
+覆盖到：用户更正 Skill 名称为 `load_role`；Task 135 三份治理登记已同步，`.omp/RULES.md` 汇报格式指针已修复；2026-08-24T12:31:18Z 的 required 验证已通过；Task 当前状态为 `verifying`，当前进展以 Task README 与最新 walkthrough/evidence 为准。
 
 ## 基线与授权
 
@@ -37,17 +37,15 @@ Task 00153 的 P-005 未提交改动位于 `.worktree/t153-p005-workflow-ux`，�
 
 ## Advisory 修正
 
-- `report` 的格式引用改为指向本 Skill 自身的“报告格式”，不再引用根 `AGENTS.md#汇报与提问` 悬空锚点。
+- `report` 与 `.omp/RULES.md` 的汇报格式引用均指向现有真相源 `.agents/skills/report/SKILL.md#报告格式`；不再引用不存在的 `AGENTS.md#汇报与提问`。
 - `report` Revision 字段强制写 `HEAD`、`latest verified` 和一致性；未提交 diff 没有独立 revision 时必须显式写明。
 - Task 135 README `packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md` 本轮只读核对，未修改；实际改动仅为 `.agents/tasks/ownership.json` 的 Task 135 `file.sha256`、`.agents/tasks/legacy-index.json` 的对应 `destinationSha256`/顶层 `manifestSha256`、`.agents/tasks/.migration-complete` 的顶层 `manifestSha256`。`sourceRevision` 与 `sourceSha256` 保持不变。
 
-## 范围外残余风险
+## 本轮范围修复
 
-- `.omp/RULES.md:5` 仍引用不存在的 `AGENTS.md#汇报与提问`；该文件不在本 Task 当前允许范围，本轮未修复。
-
-## 基线修复实际范围
-
-- 开发者授权本地同步治理登记，不授权提交或远端动作。
-- 参与当前 Task diff 的基线文件：`.agents/tasks/ownership.json`、`.agents/tasks/legacy-index.json`、`.agents/tasks/.migration-complete`。
-- Task 135 README 是验证输入，不是本轮修改目标；其 actual `sha256:f61030bd56975e50a69edd99414a8c62c204ba151840d6f9e4d8b376c53591a7` 被登记为 destination canonical。
-- `.omp/RULES.md:5` 的 `AGENTS.md#汇报与提问` 悬空指针仍是范围外既有风险，未修复。
+- `.omp/RULES.md` 已纳入本 Task 实际修改范围，第 5 行已改为现有真相源 `.agents/skills/report/SKILL.md#报告格式`；原 `AGENTS.md#汇报与提问` 悬空指针已解决。
+- 实际修改文件：`.omp/RULES.md`、`.agents/tasks/ownership.json`、`.agents/tasks/legacy-index.json`、`.agents/tasks/.migration-complete`，以及本 Task 的范围、context、walkthrough 和 evidence。
+- Task 135 README `packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md` 是验证输入，本轮只读核对，未修改、未回滚；其 actual `sha256:f61030bd56975e50a69edd99414a8c62c204ba151840d6f9e4d8b376c53591a7` 被登记为 destination canonical。
+- `legacy-index.json.sourceRevision` 与 Task 135 mapping 的 `sourceSha256` 保持不变。
+- 新增 walkthrough：`walkthroughs/008-tasker-2026-08-24_12-26-report-pointer.md`。
+- Task 当前状态保持 `verifying`；本轮已完成本地验证，尚未提交或执行远端动作。
