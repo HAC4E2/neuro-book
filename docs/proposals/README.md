@@ -7,7 +7,7 @@
 - [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
 - [`../packages/neuro-book/docs/proposals/agent-skills-adaptation.md`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：Agent Skills 项目化适配，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
-- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，monorepo 级开发流程治理：全能 Agent、严格角色模式、Intake、Initiative、Task v2 与角色交接门禁，状态为 `draft`。
+- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，monorepo 级开发流程治理：最小角色交接合同——开发者使用场景、单 Agent / 分角色两种执行背景、Task/context/agentWorkflow/verification/walkthrough/evidence 交接清单与自恢复、人类受限动作门禁；不新增 CLI、状态机或第二套 schema，状态为 `accepted`。
 
 已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
