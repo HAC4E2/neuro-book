@@ -38,6 +38,8 @@ export type TextToImageJobDto = {
     sourcePath: string | null;
     sourceAnchorId: string | null;
     sourceInsertStatus: TextToImageSourceInsertStatus;
+    /** 不含凭据的点击时 Provider 设置快照，供消费者复现入队时的模型/参数。 */
+    providerSnapshotJson: string;
     errorMessage: string | null;
     attemptCount: number;
     createdAt: string;
@@ -174,6 +176,7 @@ function toJobDto(record: TextToImageJobRecord): TextToImageJobDto {
         sourcePath: record.sourcePath,
         sourceAnchorId: record.sourceAnchorId,
         sourceInsertStatus: record.sourceInsertStatus,
+        providerSnapshotJson: record.providerSnapshotJson,
         errorMessage: record.errorMessage,
         attemptCount: record.attemptCount,
         createdAt: record.createdAt.toISOString(),

@@ -34,6 +34,21 @@ describe("buildFinalNovelAiPromptBundle", () => {
         expect(bundle.basePositive).toBe("very front, style-a, after front, 1girl, forest, before back, style-z, after back, very aesthetic, masterpiece, no text, very last");
         expect(bundle.actualInput).toBe(bundle.basePositive);
         expect(bundle.appliedRuleLines).toEqual([1, 2, 3, 4, 5]);
+        expect(bundle).toMatchObject({
+            version: 2,
+            modelFamily: "nai45",
+            model: "nai-diffusion-4-5-full",
+        });
+    });
+
+    it("V5 bundle 使用 v2 和 nai5 family", () => {
+        const bundle = buildFinalNovelAiPromptBundle(input({model: "nai-diffusion-5-curated"}));
+
+        expect(bundle).toMatchObject({
+            version: 2,
+            modelFamily: "nai5",
+            model: "nai-diffusion-5-curated",
+        });
     });
 
     it("替换只改正文段，替换分角色逐槽生效，无角色槽是 no-op", () => {

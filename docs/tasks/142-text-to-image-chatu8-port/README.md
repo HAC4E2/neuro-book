@@ -5,7 +5,9 @@
 
 ## Relative documents refs
 
+- [`图片资产交互、当前画风串重 roll、NovelAI V5 与 LLM 预设导入施工合同`](image-asset-actions-reroll-v5-contract.md)：2026-08-22 后处理大图、图片复制/下载、历史大图、当前已保存画风串重 roll、chatu-8 V5 参数适配及 LLM 预设条目名称保留的实施级合同；已实施，见下方 2026-08-22 实施记录。
 - [`施工计划.md`](施工计划.md)：2026-08-15 角色分组、视觉 JSON 版本、LLM 修改确认和 NovelAI 画风串重构的后续施工合同。
+- [`文生图角色别名、图片块状态与工作台交互修复施工计划`](../../drafts/文生图角色别名队列状态与工作台交互修复施工计划.md)：2026-08-19 英文别名、跨页面 Job 状态恢复、角色服装交互、画风串管理和视觉 JSON 删除的施工设计；尚未实施。
 - `docs/research/st-chatu8-capability-matrix.md`：chatu8 全部能力清单 + LLM 生图链路（移植逐项对照）。
 - `.agent/workspace/chatu8-presets/`：用户导出的 4 个 chatu8 上下文预设 JSON（+5 个旧版），即**已调教好的 LLM 输出契约**（正文生图五要素 `<image>`、`${}$` 角色调用、`<人物>/<服装>` 12+4 字段）；解析见能力矩阵第 12 节。
 - `docs/tasks/142-text-to-image-chatu8-port/README.md`：本计划。
@@ -579,19 +581,294 @@
 - 当前工作目录无 `.git`，无法创建 worktree、分支或 PR；改动直接落在源码目录，需后续在具备 Git 元数据的工作区审查提交。
 - 生成期间正文编辑仍保持只读，以保证服务端按占位符局部写回不覆盖未保存文本；本轮只放开其它图片卡片的入队按钮，允许正文边生成边编辑仍需另行设计增量合并合同。
 
-## 实施记录（2026-08-18 同步上游 master）
+## 实施记录（2026-08-18 重复正文锚点按回复顺序插入，初版）
 
-本轮将 `origin/master` 的 `5e55c54e13cd67f6e19c5361931fca1fe9ae4241` 合并到 `new-text-to-picture`，保留正文文生图功能，并接入上游 lorebook 类型卡片、frontmatter 工具抽取和 Manager Podman Compose 输出更新。
+本轮适配新的正文 LLM 模型与生图预设。根因是插入服务把多个 `<image>` 块共用同一唯一正文锚点误判为 `anchor_conflict`；解析器和插入列表本身已经保留 LLM 回复顺序，因此只放宽重复锚点合同，不改数据库、NovelAI Tag 编译或队列。
 
-### 冲突处理
+### 已落地
 
-- 唯一文本冲突位于 `app/pages/index.vue`：合并后的 `useDialog()` 同时保留上游 `chooseCards` 和本地文生图整章重生成使用的 `confirm`，两条用户流程均未回退。
-- 删除残留的 `character-library/visual.copy` API。该入口对应的 `createCopy()` 已在视觉资料跨组移动施工中被正式移除，原源码目录也已删除此文件；本次隔离克隆暴露出此前同步提交漏带删除记录，若保留会导致整仓类型检查失败并重新暴露已废弃的浅复制合同。
-- 其余上游文件由 Git 自动合并；未改写上游 Manager/Podman、frontmatter 和 lorebook 实现。
+- `body-image-insert.service.ts` 删除重复锚点阻断，并缓存每个锚点对应的唯一正文行；相同锚点的多个占位符通过同一行的插入列表按 LLM 回复顺序依次写入，每个占位符仍生成独立 ID。
+- 本阶段先保留 `anchor_missing` 和 `anchor_ambiguous` 作为显式失败；零命中/多命中的最终降级规则已在下一节实施记录中调整。
+- 正文生图 system prompt 明确允许多个 `<image>` 共享挂载点，并说明后端按回复顺序插入。
+- 新增插入服务和正文会话回归，覆盖重复锚点、同一正文行的不同锚点顺序、独立 ID 以及多行歧义保护。
 
 ### 验证记录
 
-- 文生图、正文 API、前端合同、DTO 与上游 frontmatter 聚焦回归：`77` 个测试文件、`451/451` 通过。
-- 上游 Manager/Podman 聚焦回归：`2` 个测试文件、`59/59` 通过（使用 Bun，覆盖 `bun:sqlite`）。
-- Node 驱动 Nuxt typecheck：退出码 `0`。
-- 未执行：浏览器人工验收、真实 LLM/NovelAI 请求、真实用户 Project 的长期队列运行。
+- 聚焦回归：新增合同相关 `6` 个测试文件、`43/43` 通过；文生图相关全范围 `76` 个测试文件、`451/451` 通过。
+- Node 驱动 Nuxt typecheck（`.env.typecheck`）：退出码 `0`。
+- 未执行：浏览器人工验收、真实新 LLM/NovelAI 请求和真实用户章节重跑。
+
+## 实施记录（2026-08-18 正文生图逐块容错与锚点降级）
+
+本轮继续适配新正文 LLM / 生图预设，重点是弱模型输出不完整时的可恢复性。合同从“整批定位失败即阻塞”调整为“逐块诊断、能插入的先插入”，但保留整次无可用块时的无副作用阻塞。
+
+### 已落地
+
+- L1 `<image>` 回复改为宽容逐块解析：完整块进入 `illustration.director`，缺少必要字段、坐标非法、角色调用无法安全修复或尾部截断的块只生成诊断并跳过；其它完整块继续处理，不再为整次回复做应用层重试。
+- anchor 零命中时将对应占位符追加到正文末尾并返回 `anchor_appended`；多命中时使用第一条正文行并返回 `anchor_first_match`；相同 anchor 仍按 LLM 回复顺序插入。
+- 当整次回复没有任何可用块时抛出稳定的 `no_usable_blocks` 堵塞错误，正文不修改、不保存、不创建后续图片任务；API 返回 422，前端不会显示成功或部分成功提示。
+- 有效块成功写回后，前端根据服务端诊断显示跳过块、末尾追加和首行选取的数量；诊断不包含完整正文或原始 Prompt。
+
+### 验证记录
+
+- 聚焦正文生图、API、会话、插入和工作台合同回归：`4` 个核心文件、`32/32` 通过；新增宽容解析、部分成功、零可用不重试、零命中和多命中降级断言。
+- 文生图相关全范围：`76` 个测试文件、`457/457` 通过。
+- Node 驱动 Nuxt typecheck（`.env.typecheck`）：退出码 `0`。
+- 未执行：浏览器人工走查、真实新 LLM/NovelAI 请求和真实用户章节重跑；这些仍需单独验收。
+
+## 研究记录（2026-08-18 文生图插件化与压缩包分发）
+
+本轮启动“官方 master 源码工作区解压即安装、删除目录即卸载”的文生图扩展化阶段，只完成基线审计和施工合同，尚未修改运行时代码。详细计划见 [`文生图插件化与压缩包分发施工计划.md`](文生图插件化与压缩包分发施工计划.md)。
+
+### 已确认
+
+- 审计基线为官方 `master` 提交 `5e55c54e13cd67f6e19c5361931fca1fe9ae4241`（2026-08-16）。该基线没有通用扩展清单、Nuxt 扩展扫描器或 Novel IDE / Markdown Studio 扩展插槽。
+- 当前工作区有 `224` 个路径名直接包含 `text-to-image` / `TextToImage` 的文件；除专属目录外，还修改了 `21` 个非生成的既有核心文件，并修改两套 Prisma schema 和相应生成代码。
+- 因此把当前分支直接压成覆盖官方源码的 ZIP 只能得到补丁包，无法通过删除单一目录卸载。最终合同要求先把通用扩展宿主合入官方 master，文生图发布包之后只新增 `extensions/text-to-image/`。
+- 扩展使用 Nuxt Kit 现有 `addServerScanDir`、`addComponentsDir`、`addPlugin` 和 `addServerPlugin` 接入；前端通过通用贡献注册表接入 Activity Bar、Novel Workspace、Markdown 扩展和图片动作，不允许 DOM 注入或 Vue monkey patch。
+- 文生图表将改为扩展命名空间表和 typed raw-SQL repository，不再修改 Prisma schema / generated client。默认卸载保留正文、图片、角色视觉资料、Provider 密文和历史元数据；数据清理是独立显式动作。
+- 发布包不得修改根 `package.json` / `bun.lock`；当前新增的 `@huggingface/transformers` 必须在扩展构建时自包含或由保持 T5 估算合同的扩展内实现替代。
+
+### 验证边界
+
+- 已只读克隆并检查官方 master；临时基线位于 `.agent/tmp/`，不属于发布包。
+- 未运行测试、typecheck、构建或浏览器验收，因为本轮没有修改业务代码。
+- 未读取或改写 Project Workspace、小说正文、API Key、数据库、生成图片或其它用户私有数据。
+
+## 实施记录（2026-08-18 覆盖式安装包 v1）
+
+在通用扩展宿主落地前，先为官方 `master` 提交 `5e55c54e13cd67f6e19c5361931fca1fe9ae4241` 生成过渡覆盖包。该产物不是最终插件，不支持删除单一目录卸载；详细白名单、验证证据和限制见 [`文生图插件化与压缩包分发施工计划.md`](文生图插件化与压缩包分发施工计划.md#12-过渡实施记录覆盖式安装包-v12026-08-18)。
+
+- 产物 `neuro-book-text-to-image-overlay-v1-master-5e55c54e.zip`：`901657` bytes，SHA-256 `aa51e74085cb1789f37f8d320cf23846b505a4e32de8cf41576c74e85d2ac2b5`。
+- ZIP 含 `195` 个白名单源码文件和 `2` 个元数据文件；逐文件哈希全部一致，凭据/本机路径、禁止路径或扩展名、测试文件扫描均为 `0` 命中。
+- 干净 master 解压后：`bun install --frozen-lockfile` 成功，Prisma `7.8.0` 两套 Client 生成成功，Nuxt typecheck 通过，聚焦回归 `45/45` 通过。
+- 隔离浏览器实测：Provider、上下文预设、请求绑定、参考图、画风串、历史图片、角色和固定发送选择均为空；只保留 `default` 敏感词替换档案、空的 `default` 角色分组和内置 NovelAI 参数。
+
+## 施工设计记录（2026-08-19 角色别名、图片块状态与工作台交互）
+
+本轮只完成施工设计，没有修改业务代码或用户 Project。完整计划见 [`文生图角色别名队列状态与工作台交互修复施工计划.md`](../../drafts/文生图角色别名队列状态与工作台交互修复施工计划.md)。
+
+### 已确认的问题
+
+- 角色英文名称中的 `|` 没有按别名拆分，导致 LLM 使用其中一个英文名时无法通过显式角色调用定位视觉资料；该结论已用当前编译入口复现，公开计划未记录用户 Project 名称、角色名称或正文。
+- 图片块状态由 TipTap NodeView 的局部 `generating` 布尔值维护，页面或编辑器重建后必然复位；Project Job 已持久化，后续应从服务端批量恢复状态。
+- 角色树的角色行目前只展开或折叠，具体 JSON 行才会切换右侧资料；服装 LLM 修改又用选中索引隐式决定覆盖目标，缺少“新增服装”意图。
+- 画风串选择、应用、保存、重命名和底部保存共用 `saveStyle()`，草稿与已保存配置没有分离；新建入口只藏在下拉选项中。
+- 前端和服务端共同禁止删除当前生效版本与最后一份视觉 JSON，用户无法从分组中移除该角色的视觉资料。
+
+### 设计结论
+
+- 不新增数据库字段，不修改视觉 JSON schema；英文名称现有 `|` 数据直接兼容。
+- 图片块状态以 Project Job 为真相，按章节批量投影到卡片，支持页面切换和整页刷新恢复。
+- 保留原有角色服装修改入口与 API；回复只有服装时进入候选确认，让用户逐项选择覆盖当前服装、增加或不应用。
+- 画风串使用独立草稿和单一主保存入口；新建入口常驻可见，低频管理收进菜单或对话框。
+- 删除视觉 JSON 先预检影响；删除生效版本时原子回退，删除最后一份时从当前分组移除角色，但保留角色档案、照片、历史任务和正文图片。
+
+### 实际多服装回复补充
+
+- 一次真实“生成角色的服装”回复包含标签外自然语言和连续 `3` 个完整 `<服装>` 块；当前解析器能完整识别三套服装，格式本身不是问题。
+- 当前合并器在服装索引 `0` 被默认选中时，会用第一个返回块覆盖原服装，再把后两个块追加；若原来只有一套，数量看起来仍为三套，但原服装已丢失。索引为 `null` 时三套才会全部追加。
+- 服务端会为后续未命名匹配项产生“将创建新服装”警告，但当前前端待确认草稿没有接收或展示 `warnings/changedFields`，用户无法知道实际合并决定。
+- 不新增服装入口、请求类型或端点。现有修改预览检测到“没有人物字段、至少一套完整服装”时返回 `outfit_only` 候选；用户逐项选择覆盖当前服装、增加或不应用，同一批最多一套覆盖当前服装。
+- 候选初始为未选择，决定完成后才机械组成最终视觉草稿并继续调用现有修改提交接口；最终动作不能再由选中索引或回复顺序隐式决定。
+- 某个服装块不完整时只跳过该候选；其它完整候选仍可确认。整次没有任何可用候选或人物补丁时才无副作用阻塞。
+
+### 验证边界
+
+- 本轮未运行测试、typecheck、浏览器验收或真实 LLM/NovelAI 请求，因为没有业务实现变更。
+- 本轮未改写 Project Workspace、小说正文、角色视觉资料、API Key、数据库或生成图片。
+
+## 实施记录（2026-08-19 施工落地）
+
+本轮按上述设计完成源码施工，未触碰用户 Project、小说正文、API Key、数据库或生成图片。
+
+### 已落地
+
+- 角色英文名称按 `|` 拆分为主名与别名；正文扫描、显式角色调用、角色摘要均使用同一别名合同。
+- 纯服装 LLM 回复沿用 `character-visual.modify-preview`，返回 `outfit_only` 候选；前端逐套选择覆盖、增加或不应用，最多覆盖一套，未完整候选不会阻塞其它完整候选。
+- 图片块状态使用跨 NodeView 生命周期的状态总线，排队、运行、失败、取消和正文写回待恢复状态不会因编辑器/工作台页面重建而丢失；单块任务不再把整篇正文设为只读。保存协作改为按请求对应 buffer 判断，避免切页期间误报“章节尚未成功保存”。
+- 角色树角色行直接选择当前视觉资料，服装页移除中间“应用服装修改”按钮并就地提供现有修改链路；角色、服装和照片要求文本分离。
+- 画风串新增常驻入口，选择仅加载草稿，名称/分组/模型参数统一由唯一主保存按钮提交，移除重复应用、重命名和页面底部保存入口。
+- 视觉 JSON 删除加入预检、manifest revision 校验、生效版本回退、最后版本空目录处理和固定发送引用回退/移除；照片、历史任务、角色原始档案和正文图片不主动删除。
+
+### 验证记录
+
+- Node 驱动 `vue-tsc --noEmit --pretty false -p tsconfig.json`：通过。
+- 角色别名、纯服装、视觉删除服务：`3` 个文件、`34/34` 通过。
+- Markdown 图片 NodeView、工作台点击契约、正文编译与占位符 API：`6` 个文件、`54/54` 通过。
+- 未执行：浏览器人工走查、真实 LLM/NovelAI 请求和当前用户 Project 长时间队列验收；这些仍需单独授权。
+
+## 实施记录（2026-08-19 跨角色服装草稿污染修复）
+
+本轮修复角色切换时服装表单沿用上一角色第 0 套服装、误报未保存并可能跨角色覆盖的问题。只修改工作台源码和测试，未读取或改写用户 Project、视觉 JSON、小说正文、API Key 或生成图片。
+
+### 已落地
+
+- 服装草稿绑定 `groupId + characterId + visualId + outfitIndex`；归属不一致时保存硬阻止，避免任何跨角色写回。
+- 视觉资料加载完成后显式同步服装草稿，不再依赖索引是否发生变化；请求期间清空旧角色的可编辑字段。
+- 视觉加载增加请求序号和当前选择校验，迟到的旧角色响应直接丢弃。
+- 资料库刷新不再重复应用 `initialCharacter`；保存后保持当前角色和视觉版本。
+- 保存改为无副作用构造请求，成功后接纳已保存草稿再刷新，避免保存后再次弹出虚假的未保存确认。
+- 新增双角色同索引切换、迟到响应、当前角色服装保存和初始角色刷新回归测试。
+
+### 验证记录
+
+- 工作台、角色视觉和离开保护聚焦回归：`7` 个文件、`54/54` 通过。
+- Vue TypeScript 检查：通过。
+- TypeScript 检查：通过。
+- 未执行：浏览器人工验收、真实 LLM/NovelAI 请求和当前用户 Project 数据恢复；数据恢复必须基于用户明确提供的备份或可信旧版本单独处理。
+
+## 实施记录（2026-08-21 NovelAI Diffusion V5）
+
+本轮依据 NovelAI V5 官方发布说明和官方 Web 客户端出站合同，将 `nai-diffusion-5-full`、`nai-diffusion-5-curated` 纳入文生图模型支持；既有配置默认模型保持 V4.5 Full，不做静默升级。
+
+### 已落地
+
+- Provider 根设置、参数档案和画风串均可持久化 V5 Full/Curated，不再被旧配置规范化逻辑降级到 V4.5。
+- V5 请求沿用 `/ai/generate-image` 与 `v4_prompt` / `v4_negative_prompt`，改用 `params_version: 4`、Karras，并使用 Guidance `7`、Euler Ancestral、`23` steps 的首发默认值；V5 不再发送 V4.5 的 Variety+、CFG delay 和 Decrisp 字段。
+- V5 Full 局部重绘使用 `nai-diffusion-5-full-inpainting`；V5 Curated 首发按官方客户端回退到 `nai-diffusion-4-5-curated-inpainting`，action 使用 `infill`。
+- 补齐 V5 的正负质量预设和 `ucPreset` 映射。设置页增加 V5 Full/Curated 选项；选中 V5 时显示 Qwen 分词器上限，避免继续展示 V4.5 的 T5/512 估算。
+- V5 首发不支持 Vibe Transfer 和角色参考图：已保存配置不会被删除，但启用这些参考图时会在任何编码或生图网络请求之前给出明确错误。
+
+### 验证记录
+
+- DTO、配置规范化、请求 payload、质量预设、图片请求和设置页合同：`6` 个文件、`46/46` 通过。
+- Bun 的测试 shim 因当前 `node_modules` 可执行映射损坏无法启动；上述测试使用 Codex 随附 Node 直接运行现有 Vitest 本体完成。
+- 未执行：浏览器人工验收和真实 NovelAI V5 出图；NovelAI 官方首发能力变化仍需在后续版本重新核对 Vibe/角色参考与 Curated 独立重绘支持。
+
+## 施工设计记录（2026-08-22 图片资产交互、当前画风串重 roll、V5 参数与 LLM 预设导入）
+
+本轮只完成只读调查和施工合同，没有修改业务代码、配置、数据库或用户数据。详细合同见 [`image-asset-actions-reroll-v5-contract.md`](image-asset-actions-reroll-v5-contract.md)。
+
+### 已确认
+
+- 正文图片后处理弹窗当前只有约 `720px` 宽，原图和 inpaint 区域分别固定为 `360px`、`320px` 高，菜单覆盖图片中央；历史图片点击后只有生成信息，没有大图。
+- 后处理和历史详情都缺少复制图片能力；已有 content API、原图预览和 Blob 下载工具可复用，不需要新增公开图片接口。
+- 当前无修改“发送”没有调用 `/reroll`；服务端会复用历史最终 Prompt、NovelAI 参数和 Provider 快照，真实语义是随机 Seed 重放历史请求。
+- 工作台选择画风串只更新本地表单，服务端只有在保存后才能看到活动 ID；后续必须把“当前已保存画风串”设为重 roll 的唯一配置真相源。
+- chatu-8 最新主干已出现 V5 的 `native`、DDIM、专属 UCP 和 Variety 处理；`straight_alpha`、`tag_hint_qt`、`tag_hint_uc_preset` 目前只在 SillyTavern 代理转发处出现且缺少稳定赋值来源，不能直接复制进 NovelAI 官方直连请求。
+- 本地 V5 资产的最终 Prompt Bundle 仍被写成 `modelFamily: "nai4"`，应通过新 Bundle 版本修正，不批量改写历史数据库。
+- 用户提供的三份真实 chatu-8 导出分别包含 `30` 条、`185` 条以及 `14` 个预设/`2635` 条；共 `2850` 个条目全部具有非空 `entries[].name`。本地导入器和 DTO 已读取该字段，实际缺陷是条目界面固定显示“条目 N”、没有名称输入框，且测试未断言名称。
+
+### 设计结论
+
+- 后处理改为接近全屏的左右工作台；动作移出图片覆盖层，inpaint Canvas 对齐图片真实 contain 矩形。
+- 后处理和历史大图共用 Blob 获取、PNG 剪贴板和下载能力；复制的是实际图片，不是 URL。
+- 历史大图继续只读，不增加重 roll、Tag 修改、局部重绘、正文替换或删除。
+- 无修改重 roll 使用 `/reroll`；重 roll 和 Tag 修改后发送只继承源 Job 的基础 Prompt、负面 Prompt、角色槽和正文血缘，模型、画风串、参数、Provider 和凭据修订号全部取点击时当前已保存配置。
+- 活动画风串切换使用窄作用域持久化，只更新活动 ID，不自动保存其它草稿；未保存模型参数不会偷偷进入重 roll。
+- inpaint 继续保持历史模型/参数语义，不随本轮重 roll 合同变化。
+- V5 使用集中式模型能力表和请求金样；缺少权威证据的代理字段保持禁用并显式报告，不猜默认值。
+- LLM 预设条目卡标题显示真实 `entry.name`，编辑区提供“条目名称”输入框；名称必须经过导入、保存、刷新和再次导出完整往返，空名称只使用不落盘的“条目 N”显示回退。
+- 条目名称只用于管理界面，不拼入 Prompt；不为已验证的 `name` 字段臆造别名，也不把用户真实预设或 Prompt 内容提交为测试夹具。
+
+### 验证边界
+
+- 本轮未运行测试、typecheck、浏览器验收或真实 NovelAI 请求，因为没有业务实现变更；三份用户预设只做 JSON 字段与数量核对。
+- 当前目录不是 Git 仓库；正式施工前必须在具备 Git 元数据的真实仓库中按 worktree/分支流程执行。
+
+## 施工记录（2026-08-22 开工前偏差与决策）
+
+本次施工在 `F:\\neuro-book-new-text-to-picture-clean` 净化副本直接进行。已确认该副本没有 `node_modules` 和 Git 元数据；不初始化 Git、不访问 `D:\\neuro-book-new-text-to-picture`，也不读取用户 Project、小说正文、workspace、API Key、`.env`、会话、数据库或生成图片。依赖如需安装，只安装到当前 F 盘项目。
+
+### 合同与现状偏差
+
+- 后处理资产弹窗仍使用约 `720px` 的 `lg` 布局，原图和局部重绘区域固定为 `360px`、`320px` 高，动作菜单覆盖图片；历史资产只有信息弹窗。
+- 图片 Blob 复制、下载能力尚未形成后处理与历史详情共用的动作层；现有下载工具也没有异常路径下的 URL 清理保障。
+- 资产无修改发送没有走重 roll 路由，服务端会从历史最终 Prompt、历史 NovelAI 参数和历史 Provider 快照组装新任务，未满足“点击时当前已保存配置”合同。
+- 活动画风串当前主要停留在本地表单，服务端没有只更新 `activeGenerationRecipeId` 的窄接口；若直接复用整 Provider 保存，会把未保存草稿带入重 roll。
+- V5 代码已有模型、质量预设和基本请求分支，但请求仍固定 `karras`，能力校验和 V5 Variety/Bundle v2 没有统一合同；因此本轮保留现有可验证字段，不臆造缺少稳定来源的代理字段。
+- 上下文导入器已经读取 `entries[].name`，但界面固定显示“条目 N”、没有名称编辑框，现有测试没有断言名称保存、刷新和再次导出。
+
+### 实施决策
+
+- 先补充能复现上述旧行为的 Vitest 合同测试，再按阶段 A 到 H 实现；测试夹具只使用合成内容。
+- 重 roll/Tag 发送从源 Job `requestJson` 读取基础 Prompt、负面 Prompt 和角色槽；点击时通过当前认证用户的 NovelAI Provider 与已保存画风串入队。inpaint 继续保留历史快照语义。
+- 新生成任务写 Prompt Bundle v2，旧 Bundle v1 继续只读解析，不批量改写历史资产或数据库结构。
+- 活动画风串切换只持久化 `activeGenerationRecipeId`，并用请求序号/取消和当前值校验处理迟到响应；切换失败恢复上一个已保存值。
+
+## 实施记录（2026-08-22 图片资产交互、当前画风串重 roll、NovelAI V5 与 LLM 预设导入）
+
+本轮已按上方合同阶段 A–H 在 `F:\neuro-book-new-text-to-picture-clean` 净化副本落地。没有读取、复制或修改 `D:\neuro-book-new-text-to-picture`，没有导入本地小说、Workspace、用户 API Key、`.env`、会话、数据库或生成图片；没有新增 Prisma 列、迁移或远程 Git 操作。
+
+### 已落地
+
+- 后处理工作台改为大尺寸左右布局，原图可读，局部重绘 Canvas 使用真实 contain 矩形、源图坐标和不超过 `2` 的 DPR；历史图片改为可读大图的只读详情。复制通过实际图片 Blob 和 PNG `ClipboardItem`，下载统一处理空文件、MIME 扩展名、文件名清理和 URL 回收。
+- `/reroll` 与 Tag 修改后的发送共用当前配方请求组装：只继承源 Job 的基础 Prompt、负面 Prompt、角色槽和正文血缘，点击时解析当前认证用户的 NovelAI Provider、已保存活动画风串以及不含 Key 的模型/参数快照；不再重放历史最终 Prompt、历史模型/参数或历史 Provider。inpaint 仍保留历史快照语义。
+- 活动画风串增加窄作用域接口，只更新 `activeGenerationRecipeId`；前端区分已保存值与未保存草稿，使用请求序号和失败回退防止迟到响应覆盖当前选择。队列携带入队时安全 Provider 设置快照，消费者优先使用该快照，避免排队期间修改 Provider 导致模型/参数漂移。
+- NovelAI 能力集中在 `shared/text-to-image-novelai-capabilities.ts`：V5 使用 `params_version: 4`，`native`/DDIM 等已验证组合，V5 Variety 使用 v4 sigma 族；V4.5/V5 的引用图校验、inpaint 模型、质量参数归属和请求字段分别处理。未知来源的 `straight_alpha`、`tag_hint_qt`、`tag_hint_uc_preset` 未加入官方直连请求。
+- 最终 Prompt Bundle 新写 v2 并记录 `modelFamily` 与实际模型，历史 v1 继续只读解析；Tag 发送和重 roll 不再依赖最终 Bundle。LLM 预设导入、编辑、保存、刷新和导出保留 `entries[].name`；空名称只显示不落盘的“条目 N”，名称不进入 LLM Prompt。507 条 synthetic entries 的首、中、尾往返已覆盖，未复制真实预设内容。
+
+### 实际改动文件
+
+- 前端与公共工具：`app/components/novel-ide/text-to-image/TextToImageAssetActionDialog.vue`、`TextToImageHistorySection.vue`、`TextToImageLlmSettingsSection.vue`、`TextToImageNovelAiSettingsSection.vue`、`app/utils/browser-download.ts`、`app/utils/text-to-image-image-actions.ts`。
+- Shared：`shared/text-to-image-novelai-capabilities.ts`、`shared/text-to-image-novelai-prompt.ts`。
+- Server：`server/api/text-to-image/assets/[id]/reroll.post.ts`、`server/api/text-to-image/assets/[id]/send.post.ts`、`server/api/text-to-image/providers/[id]/active-generation-recipe.put.ts`、`server/text-to-image/asset-postprocess.service.ts`、`final-novelai-prompt.ts`、`novelai-image-generation.ts`、`novelai-payload.ts`、`novelai-quality.ts`、`novelai-settings-normalizer.ts`、`provider.service.ts`、`queue.processor.ts`、`queue.service.ts`。
+- 回归测试：`app/components/novel-ide/text-to-image/context-entry-name.contract.test.ts`、`image-interaction.contract.test.ts`、`app/utils/text-to-image-context-import.test.ts`、`text-to-image-image-actions.test.ts`、`shared/text-to-image-novelai-capabilities.test.ts`，以及对应的 `server/text-to-image/asset-postprocess.service.test.ts`、`final-novelai-prompt.test.ts`、`llm-context.test.ts`、`novelai-image-generation.test.ts`、`novelai-payload.test.ts`、`novelai-quality.test.ts`、`novelai-settings-normalizer.test.ts`、`provider.service.test.ts`、`queue.processor.test.ts`。
+
+### 验证记录
+
+- 合同聚焦 Vitest：`15` 个文件、`90/90` 通过。
+- 快照脱敏收口后的 Provider/队列回归：`2` 个文件、`24/24` 通过。
+- 文生图相关 Vitest 广泛套件：`81` 个文件，`503` 通过、`5` 个测试失败（Vitest 失败区块 `7` 条，涉及 `3` 个文件）；失败均为既有/环境相关：网络 dispatcher mock/清理接口不匹配（`provider-fetch.test.ts`、`novelai-proxy.test.ts`），以及字符视觉测试的 `null`/`undefined` 清理断言（`character-visual.service.test.ts`）。未把这些环境故障改成业务绕过。
+- 变更实现 TypeScript 根文件自检：`17` 个通过；4 个相关 Vue SFC 的 compiler parse/compile 检查通过。
+- 项目原命令 `bun run typecheck` 未通过：`Bun failed to remap this bin to its proper location within node_modules.`，并提示 `This is an indication of a corrupted node_modules directory.`；当前副本依赖安装在 Windows 临时目录阶段受限/中断，因此用 bundled Node 的 TypeScript API 完成了变更根文件检查。没有将项目级 typecheck 结果误报为通过。
+
+### 偏差与未验证项
+
+- 当前产品代码没有持久化“当前 Provider”选择器；为保持现有单 NovelAI Provider 工作台合同，服务端使用当前用户 NovelAI Provider 列表中最低 id 的记录。若未来支持多个同类 Provider，需要新增明确的持久化选择器，而不是继续依赖排序推断。
+- 合同只确认 V5 Variety 属于 v4 sigma 族，没有提供与现有 V4.5 数值公式不同的权威数值；能力表因此记录族别并保留现有公式。这是有意标注的证据缺口，不宣称已完成 NovelAI 官方数值复核。
+- 未执行浏览器人工验收、真实 NovelAI 出图、真实 LLM 请求或用户数据恢复；本轮不读取 D 盘数据，不能把这些项目宣称为通过。
+
+## 实施记录（2026-08-23 V5 Prompt Guidance 持久化修复）
+
+本轮修复 V5 的 `Prompt Guidance` 和 `Steps` 在保存、重新载入或切换画风串时被首发默认值覆盖的问题。根因是模型默认值函数同时承担了模型能力兼容化，并在上述三个非模型切换入口无条件写入 Guidance `7` 和 `23` steps。
+
+### 已落地
+
+- 模型能力兼容化与模型切换默认值已经拆分：载入 Provider 和切换画风串只修正不受当前模型支持的采样器、噪声表，不再改写合法的调优参数。
+- Guidance `7` 和 `23` steps 只在用户主动切换到 V5，或旧 V5 Provider 确实缺少对应字段时补入；保存前不再应用默认值。
+- 新增设置页 DOM 回归，覆盖旧配置缺字段、V5 参数载入与保存、画风串切换，以及主动切换模型四条路径；同时断言 Provider 根设置和活动画风串快照都保留用户输入值。
+
+### 验证记录
+
+- V5 设置、DTO、能力表、Provider 持久化、配置规范化、队列映射、payload 与图片请求聚焦回归：`8` 个文件、`74/74` 通过。
+- Nuxt 类型检查运行完成但未通过；错误仅来自既有 `app/utils/text-to-image-image-actions.test.ts` 的三处 Fetch mock，因缺少新版 `typeof fetch` 所需的 `preconnect` 属性。本轮组件和回归测试没有新增类型错误。
+- 未执行浏览器人工验收和真实 NovelAI V5 出图。
+
+## 实施记录（2026-08-23 新版预设方位词解析兼容）
+
+本轮修复新版 chatu-8 上下文预设使用自然语言方位词和 `sāfe&` 认证前缀时，完整 `<image>` 块被正文生图解析器逐块淘汰的问题。改动只涉及 LLM 回复解析合同与聚焦测试，没有读取或改写 Project、小说正文、视觉资料、API Key、数据库或生成图片。
+
+### 已落地
+
+- 保留旧版 `A1`–`E5` 网格和 `0`–`1` 二维数值坐标；新增 `left` / `center` / `right`、`background` / `middleground` / `foreground` 以及 `top` / `bottom` 方位词，兼容常见英文变体和中文方位词。
+- 方位词确定性映射到五格坐标的 B/C/D 行列：左/上/背景为 `0.3`，中为 `0.5`，右/下/前景为 `0.7`；只给出一个维度时，另一个维度使用 `0.5`。
+- `sāfe&`、`safe&` 只在 `<prompts>` 绘图提示字段进入结构解析前移除，不修改 `<regex>` 正文锚点、标题或正文；清理后的 Scene、角色 Prompt、UC 和 centers 不再把认证前缀发送给 NovelAI。
+- 完全未知的位置值仍按无效块报告；单个坏块继续只产生诊断，不会阻塞同次回复中的其它完整块。
+
+### 验证记录
+
+- 正文 LLM 解析聚焦回归：`1` 个文件、`23/23` 通过，覆盖旧数值、旧网格、新方位词、中英文变体、上下位置、认证前缀清理和未知值拒绝。
+- 正文解析、占位符插入、最终 Prompt Bundle 与 NovelAI 请求组装回归：`4` 个文件、`50/50` 通过。
+- 使用用户本次提供的原生 LLM 回复做本地临时回归：解析与完整 director 处理链均为 `20/20` 个图片块可用、`0` 个诊断；原生回复没有写入源码或测试夹具。
+- Nuxt 类型检查已运行但未通过；仍是既有 `app/utils/text-to-image-image-actions.test.ts` 三处 Fetch mock 缺少 `preconnect` 的类型错误，本轮没有新增该文件或相关改动。
+- 未执行浏览器人工验收、真实 NovelAI 出图或真实 Project 正文插入。
+
+## 实施记录（2026-08-23 后处理随机 Seed 与错误透传修复）
+
+本轮修复重 roll、Tag 修改后发送和局部重绘把内部随机 Seed 标记 `-1` 直接发送给 NovelAI，以及 Job 失败后被误报为“任务已完成但未找到新图片”的问题。诊断只读取指定 Job 的状态、错误字段和资产关联，没有读取 Prompt、API Key、小说正文或图片内容；施工没有改写既有 Job、资产或用户配置。
+
+### 已落地
+
+- `-1` 继续作为队列内部的随机 Seed 标记；队列消费者在出站前将其解析一次为 `0`–`4294967295` 的随机整数，NovelAI 请求和资产记录共用该实际 Seed。
+- NovelAI 直调边界也拒绝负数出站；即使调用方绕过队列传入 `-1`，HTTP payload 仍只包含合法 `uint32`。
+- 后处理等待队列结束后先读取新 Job 的终态：`failed` 直接返回队列保存的真实错误，`canceled` 和异常非终态分别报告，不再统一覆盖成资产查找失败；只有 `succeeded` 后仍无资产才保留“未找到新图片”作为数据一致性错误。
+- 重 roll、Tag 修改后发送和局部重绘共用同一队列/NovelAI 边界，因此三条路径同时获得随机 Seed 修复和真实错误透传。
+
+### 验证记录
+
+- NovelAI 请求、队列消费者和后处理服务聚焦回归：`3` 个文件、`34/34` 通过。
+- 当前画风串、最终 Prompt、Provider、图片交互与上述链路联合回归：`7` 个文件、`60/60` 通过。
+- Nuxt 类型检查已运行但未通过；仍只有既有 `app/utils/text-to-image-image-actions.test.ts` 三处 Fetch mock 缺少 `preconnect` 的类型错误，本轮文件没有新增类型错误。
+- 未执行真实 NovelAI 扣费请求、浏览器人工验收或既有失败 Job 自动重试；修复后由用户重新点击即可创建新 Job，旧失败记录保持可追溯。

@@ -94,6 +94,7 @@ describe("POST /api/text-to-image/body-prompts", () => {
             blocks: [],
             content: "生成后的正文",
             placeholders: [],
+            diagnostics: [],
             characterSummary: "服务端扫描摘要",
             matchedCharacters: [{
                 characterId: "hero",
@@ -219,6 +220,7 @@ describe("POST /api/text-to-image/body-prompts", () => {
         expect(result).toMatchObject({
             content: "生成后的正文",
             matchedCharacters: [{characterId: "hero", groupId: "default"}],
+            diagnostics: [],
         });
     });
 });

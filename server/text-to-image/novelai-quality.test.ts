@@ -21,4 +21,12 @@ describe("resolveNovelAiQualityPresets", () => {
         expect(result.aqt).toBe("");
         expect(result.ucp).toBe("");
     });
+
+    it("V5 Full/Curated 不臆造 V4.5 AQT，但保留已确认的 V5 UCP", () => {
+        for (const model of ["nai-diffusion-5-full", "nai-diffusion-5-curated"]) {
+            const result = resolveNovelAiQualityPresets({model, positiveEnabled: true, negativePreset: "Light"});
+            expect(result.aqt).toBe("");
+            expect(result.ucp).toContain("0::ai-generated::");
+        }
+    });
 });

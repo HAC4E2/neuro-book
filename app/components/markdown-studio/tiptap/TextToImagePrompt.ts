@@ -5,6 +5,12 @@ import {
     renderTextToImagePromptMarkdown as renderStructuredTextToImagePromptMarkdown,
     type TextToImagePromptPayload,
 } from "nbook/shared/text-to-image-markdown";
+import {
+    getTextToImageJobState,
+    setTextToImageJobState,
+    subscribeTextToImageJobState,
+    type TextToImageJobVisualStatus,
+} from "nbook/app/components/markdown-studio/tiptap/text-to-image-job-status";
 
 export interface TextToImagePromptOptions {
     /** 点击“生成图片”按钮时回调当前占位符 payload */
@@ -92,8 +98,16 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
 
             const status = document.createElement("span");
             status.className = "nb-text-to-image-prompt-status";
-            status.textContent = "待生成";
             let generating = false;
+            let jobDetail = getTextToImageJobState(String(currentNode.attrs.id ?? "")).detail;
+            let jobStatus: TextToImageJobVisualStatus = getTextToImageJobState(String(currentNode.attrs.id ?? "")).status;
+            const unsubscribe = subscribeTextToImageJobState((id) => {
+                if (id !== String(currentNode.attrs.id ?? "")) return;
+                const nextState = getTextToImageJobState(id);
+                jobStatus = nextState.status;
+                jobDetail = nextState.detail;
+                render();
+            });
 
             const button = document.createElement("button");
             button.type = "button";
@@ -103,13 +117,28 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
                 event.preventDefault();
                 event.stopPropagation();
                 // 正文生图期间编辑器可以只读，但其它占位符仍必须能够入队。
-                if (generating) return;
+                if (generating || jobStatus === "queued" || jobStatus === "running") return;
                 generating = true;
+                jobStatus = "queued";
+                jobDetail = undefined;
+                setTextToImageJobState(String(currentNode.attrs.id ?? ""), {status: "queued"});
                 render();
                 try {
                     await this.options.onGenerate?.(textToImagePromptPayloadFromAttrs(currentNode.attrs));
+                    // 没有宿主状态回写的同步回调（例如嵌入式调用方或测试）
+                    // 不应把占位符永久卡在“排队中”；真正的队列宿主会在返回前
+                    // 写入 succeeded/failed，或在异步轮询结束时写入终态。
+                    const latest = getTextToImageJobState(String(currentNode.attrs.id ?? ""));
+                    if (latest.status === "queued" || latest.status === "running") {
+                        jobStatus = "idle";
+                        jobDetail = undefined;
+                        setTextToImageJobState(String(currentNode.attrs.id ?? ""), {status: "idle"});
+                    }
                 } catch {
                     // 宿主负责通知用户；节点只负责回到可重新提交状态。
+                    jobStatus = "failed";
+                    jobDetail = "request_failed";
+                    setTextToImageJobState(String(currentNode.attrs.id ?? ""), {status: "failed"});
                 } finally {
                     generating = false;
                     render();
@@ -118,8 +147,21 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
 
             const render = (): void => {
                 title.textContent = String(currentNode.attrs.title || "正文插图");
-                status.textContent = generating ? "排队或生成中" : "待生成";
-                button.disabled = generating;
+                const currentStatus = generating && jobStatus === "idle" ? "queued" : jobStatus;
+                status.textContent = currentStatus === "queued"
+                    ? (generating ? "排队或生成中" : "排队中")
+                    : currentStatus === "running"
+                            ? "生成中"
+                            : currentStatus === "succeeded"
+                            ? (jobDetail === "missing" ? "已生成，待恢复正文" : "已完成")
+                            : currentStatus === "failed"
+                                ? "生成失败，可重试"
+                                : currentStatus === "canceled"
+                                    ? "已取消，可重试"
+                                    : "待生成";
+                status.dataset.status = currentStatus;
+                button.disabled = generating || currentStatus === "queued" || currentStatus === "running";
+                button.textContent = currentStatus === "failed" || currentStatus === "canceled" ? "重新生成" : "生成图片";
             };
             render();
             wrapper.append(title, status, button);
@@ -131,9 +173,13 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
                         return false;
                     }
                     currentNode = nextNode;
+                    const nextState = getTextToImageJobState(String(currentNode.attrs.id ?? ""));
+                    jobStatus = nextState.status;
+                    jobDetail = nextState.detail;
                     render();
                     return true;
                 },
+                destroy: unsubscribe,
                 stopEvent: (event) => event.type === "click" || event.type === "mousedown" || event.type === "mouseup",
                 ignoreMutation: () => true,
             };

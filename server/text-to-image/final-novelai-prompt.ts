@@ -6,10 +6,12 @@ import {
     dedupeNovelAiPrompt,
     type FinalNovelAiPromptBundle,
 } from "nbook/shared/text-to-image-novelai-prompt";
+import {TextToImageNovelAiModelSchema, type TextToImageNovelAiModel} from "nbook/shared/dto/text-to-image.dto";
+import {requireNovelAiModelCapabilities} from "nbook/shared/text-to-image-novelai-capabilities";
 import {resolveNovelAiQualityPresets} from "nbook/server/text-to-image/novelai-quality";
 
 export type BuildFinalNovelAiPromptInput = {
-    model: string;
+    model: TextToImageNovelAiModel;
     prompt: string;
     negativePrompt: string | null | undefined;
     fixedPositivePrompt: string;
@@ -36,6 +38,12 @@ export const NOVEL_AI_LOCAL_QUALITY_OWNERSHIP = {
  * bundle.actualInput/actualNegativeInput 与生成器 payload 的 v4 基础 caption 一一映射。
  */
 export function buildFinalNovelAiPromptBundle(input: BuildFinalNovelAiPromptInput): FinalNovelAiPromptBundle {
+    const modelResult = TextToImageNovelAiModelSchema.safeParse(input.model);
+    if (!modelResult.success) {
+        throw new Error(`不支持的 NovelAI 模型：${input.model}`);
+    }
+    const model = modelResult.data;
+    const capabilities = requireNovelAiModelCapabilities(model);
     const replacement = applyPromptReplacementToSegments({
         prompt: input.prompt,
         rulesText: input.rulesText,
@@ -45,7 +53,7 @@ export function buildFinalNovelAiPromptBundle(input: BuildFinalNovelAiPromptInpu
         throw new Error("提示词替换规则存在语法错误，请先修复后再生成");
     }
     const quality = resolveNovelAiQualityPresets({
-        model: input.model,
+        model,
         positiveEnabled: input.positiveQualityPreset,
         negativePreset: input.negativeQualityPreset,
     });
@@ -74,8 +82,9 @@ export function buildFinalNovelAiPromptBundle(input: BuildFinalNovelAiPromptInpu
     }));
 
     return {
-        version: 1,
-        modelFamily: "nai4",
+        version: 2,
+        modelFamily: capabilities.family,
+        model,
         basePositive,
         baseNegative,
         characters,

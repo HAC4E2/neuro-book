@@ -27,6 +27,11 @@ describe("body image prompt", () => {
         expect(prompt).toMatch(/英文逗号/);
     });
 
+    it("system prompt 允许重复锚点并要求按回复顺序插入", () => {
+        expect(buildBodyImageSystemPrompt()).toMatch(/多个 <image> 块可以使用同一个挂载点/);
+        expect(buildBodyImageSystemPrompt()).toMatch(/出现顺序/);
+    });
+
     it("user prompt 包含正文与角色摘要", () => {
         const prompt = buildBodyImageUserPrompt({
             chapterContent: "第一章正文。",

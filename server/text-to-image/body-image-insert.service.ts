@@ -4,35 +4,28 @@ import {
     type TextToImagePromptPayload,
 } from "nbook/shared/text-to-image-markdown";
 import type {BodyImageBlock} from "nbook/server/text-to-image/body-image-llm";
+import type {BodyImageDiagnostic} from "nbook/server/text-to-image/body-image-diagnostics";
 import {IllustrationDirector} from "nbook/server/text-to-image/illustration-director";
 
 /**
  * 把 L1 `<image>` 块转成 L2 占位符，插入到匹配 `<regex>` 的正文行之后。
- * 锚点必须精确命中一行；零命中、多命中或同锚点重复块都会阻止写入，原始 XML 标签不会进入正文。
+ * 锚点命中唯一行时插入到该行之后；零命中降级到正文末尾，多命中使用第一行。
+ * 多个块可以共享同一锚点，并按 LLM 回复顺序插入，原始 XML 标签不会进入正文。
  */
-export class BodyImageAnchorError extends Error {
-    readonly code: "anchor_missing" | "anchor_ambiguous" | "anchor_conflict";
-
-    constructor(code: BodyImageAnchorError["code"], anchor: string) {
-        super(code === "anchor_missing"
-            ? `图片锚点未命中正文：${anchor}`
-            : code === "anchor_ambiguous"
-                ? `图片锚点命中多行，无法安全插入：${anchor}`
-                : `LLM 返回了重复图片锚点：${anchor}`);
-        this.name = "BodyImageAnchorError";
-        this.code = code;
-    }
-}
-
 export function insertBodyImagePlaceholders(input: {
     chapterContent: string;
     blocks: BodyImageBlock[];
-}): {content: string; placeholders: TextToImagePromptPayload[]} {
+}): {
+    content: string;
+    placeholders: TextToImagePromptPayload[];
+    diagnostics: BodyImageDiagnostic[];
+} {
     new IllustrationDirector().assertCanonical(input.blocks);
     const lines = input.chapterContent.split("\n");
     const insertions = new Map<number, TextToImagePromptPayload[]>();
     const placeholders: TextToImagePromptPayload[] = [];
-    const seenAnchors = new Set<string>();
+    const diagnostics: BodyImageDiagnostic[] = [];
+    const resolvedAnchorLines = new Map<string, {lineIndex: number; code: "anchor_appended" | "anchor_first_match" | null}>();
     const temporaryCharacters = [...new Map(
         input.blocks.flatMap((block) => block.temporaryCharacters ?? [])
             .map((character) => [character.characterId, character] as const),
@@ -40,18 +33,35 @@ export function insertBodyImagePlaceholders(input: {
 
     for (const block of input.blocks) {
         const anchor = block.regex.trim();
-        if (anchor === "") {
-            throw new BodyImageAnchorError("anchor_missing", "（空锚点）");
+        let target = resolvedAnchorLines.get(anchor);
+        if (target === undefined) {
+            const matchingLines = anchor === ""
+                ? []
+                : lines.reduce<number[]>((matches, line, index) => {
+                    if (line.includes(anchor)) matches.push(index);
+                    return matches;
+                }, []);
+            const lineIndex = matchingLines.length === 0
+                ? Math.max(0, lines.length - 1)
+                : matchingLines[0]!;
+            const code = matchingLines.length === 0
+                ? "anchor_appended"
+                : matchingLines.length > 1
+                    ? "anchor_first_match"
+                    : null;
+            target = {lineIndex, code};
+            resolvedAnchorLines.set(anchor, target);
         }
-        if (seenAnchors.has(anchor)) throw new BodyImageAnchorError("anchor_conflict", anchor);
-        seenAnchors.add(anchor);
-        const matchingLines = lines.reduce<number[]>((matches, line, index) => {
-            if (line.includes(anchor)) matches.push(index);
-            return matches;
-        }, []);
-        if (matchingLines.length === 0) throw new BodyImageAnchorError("anchor_missing", anchor);
-        if (matchingLines.length > 1) throw new BodyImageAnchorError("anchor_ambiguous", anchor);
-        const lineIndex = matchingLines[0]!;
+        if (target.code !== null) {
+            diagnostics.push({
+                blockIndex: block.sourceIndex ?? placeholders.length + 1,
+                code: target.code,
+                action: "inserted",
+                message: target.code === "anchor_appended"
+                    ? `第 ${block.sourceIndex ?? placeholders.length + 1} 个图片块锚点未命中，已插入正文末尾`
+                    : `第 ${block.sourceIndex ?? placeholders.length + 1} 个图片块锚点命中多行，已使用第一行`,
+            });
+        }
         const payload: TextToImagePromptPayload = {
             id: `tti-${randomUUID()}`,
             schema: "nbook.text-to-image-prompt/v1",
@@ -66,9 +76,9 @@ export function insertBodyImagePlaceholders(input: {
                 : {}),
             ...(temporaryCharacters.length > 0 ? {temporaryCharacters} : {}),
         };
-        const existing = insertions.get(lineIndex) ?? [];
+        const existing = insertions.get(target.lineIndex) ?? [];
         existing.push(payload);
-        insertions.set(lineIndex, existing);
+        insertions.set(target.lineIndex, existing);
         placeholders.push(payload);
     }
 
@@ -80,5 +90,5 @@ export function insertBodyImagePlaceholders(input: {
         lines.splice(index + 1, 0, ...list.map(renderTextToImagePromptMarkdown));
     }
 
-    return {content: lines.join("\n"), placeholders};
+    return {content: lines.join("\n"), placeholders, diagnostics};
 }

@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
 import {processTextToImageJobs, type TextToImageQueueDependencies} from "nbook/server/text-to-image/queue.processor";
-import {TextToImageNovelAiSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
+import {TextToImageNovelAiSettingsSchema, type TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
 import type {TextToImageJobDto} from "nbook/server/text-to-image/queue.service";
 
 describe("processTextToImageJobs", () => {
@@ -93,10 +93,77 @@ describe("processTextToImageJobs", () => {
         expect(generate).toHaveBeenCalledWith(expect.objectContaining({width: 1216, height: 832}));
     });
 
+    it("重 roll Job 使用点击时保存的画风串，并把 seed=-1 转为实际随机 Seed", async () => {
+        const job = createJob({
+            requestJson: JSON.stringify({
+                prompt: "source base",
+                negativePrompt: "source negative",
+                generationRecipeId: "saved-v5",
+                novelAi: {seed: -1},
+            }),
+            providerSnapshotJson: JSON.stringify({
+                providerId: 1,
+                credentialRevision: 1,
+                settings: {
+                    activeGenerationRecipeId: "saved-v5",
+                    generationRecipes: {
+                        "saved-v5": {
+                            model: "nai-diffusion-5-curated", sampler: "ddim_v3", noiseSchedule: "native",
+                            promptGuidance: 7, promptGuidanceRescale: 0, aiDefaultCharacterPosition: true,
+                            variety: false, decrisp: false, width: 832, height: 1216, steps: 23, seed: 99,
+                            positiveQualityPreset: false, negativeQualityPreset: "none", positive: "saved", positiveEnd: "", negative: "",
+                        },
+                    },
+                },
+            }),
+        });
+        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const deps = createDependencies(job, generate, {
+            activeGenerationRecipeId: "default",
+            generationRecipes: {
+                default: {
+                    model: "nai-diffusion-4-5-full", sampler: "k_euler", noiseSchedule: "karras",
+                    promptGuidance: 10, promptGuidanceRescale: 0.18, aiDefaultCharacterPosition: true,
+                    variety: true, decrisp: true, width: 1024, height: 1024, steps: 28, seed: 42,
+                    positiveQualityPreset: true, negativeQualityPreset: "Heavy", positive: "old", positiveEnd: "", negative: "",
+                },
+            },
+        });
+        const saveAsset = vi.fn(async () => createAsset());
+        deps.saveAsset = saveAsset;
+
+        await processTextToImageJobs("workspace/demo", deps);
+
+        const generationInput = generate.mock.calls[0]?.[0];
+        if (!generationInput) throw new Error("未捕获到 NovelAI 生成参数");
+        expect(generationInput).toEqual(expect.objectContaining({
+            model: "nai-diffusion-5-curated",
+            sampler: "ddim_v3",
+            noiseSchedule: "native",
+            prompt: "saved, source base",
+        }));
+        expect(generationInput.seed).toBeGreaterThanOrEqual(0);
+        expect(generationInput.seed).toBeLessThanOrEqual(4294967295);
+        expect(saveAsset).toHaveBeenCalledWith(expect.objectContaining({seed: generationInput.seed}));
+    });
+
+    it("活动画风串在排队后已不存在时不入队请求", async () => {
+        const job = createJob({
+            requestJson: JSON.stringify({prompt: "source base", generationRecipeId: "removed"}),
+        });
+        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const deps = createDependencies(job, generate, {activeGenerationRecipeId: "default"});
+
+        await processTextToImageJobs("workspace/demo", deps);
+
+        expect(generate).not.toHaveBeenCalled();
+        expect(deps.markFailed).toHaveBeenCalledWith("workspace/demo", job.id, "请先选择并保存一个画风串");
+    });
+
     it("消费 queued job：生成、存资产、标记成功", async () => {
         const job = createJob();
         const markSucceeded = vi.fn(async () => true);
-        const saveAsset = vi.fn(async () => ({}));
+        const saveAsset = vi.fn(async () => createAsset());
         const deps: TextToImageQueueDependencies = {
             listQueued: vi.fn(async () => [job]),
             markRunning: vi.fn(async () => true),
@@ -198,7 +265,7 @@ describe("processTextToImageJobs", () => {
                 }),
             })),
             generate,
-            saveAsset: vi.fn(async () => ({})),
+            saveAsset: vi.fn(async () => createAsset()),
         };
 
         await processTextToImageJobs("workspace/demo", deps);
@@ -240,7 +307,7 @@ describe("processTextToImageJobs", () => {
 
     it("并发消费时只有成功 markRunning 的 Job 才能发送 NovelAI", async () => {
         const job = createJob({id: "j-race"});
-        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const generate = vi.fn(async (_input: Parameters<TextToImageQueueDependencies["generate"]>[0]) => [new Uint8Array([1])]);
         const deps: TextToImageQueueDependencies = {
             listQueued: vi.fn(async () => [job]),
             markRunning: vi.fn(async () => false),
@@ -283,7 +350,7 @@ describe("processTextToImageJobs", () => {
 
     it("AQT/UCP 只由本地组装器注入，出站关闭服务端二次追加", async () => {
         const job = createJob();
-        const generate = vi.fn(async () => [new Uint8Array([1])]);
+        const generate = vi.fn(async (_input: Parameters<TextToImageQueueDependencies["generate"]>[0]) => [new Uint8Array([1])]);
         const deps = createDependencies(job, generate, {
             positiveQualityPreset: true,
             negativeQualityPreset: "Heavy",
@@ -291,7 +358,8 @@ describe("processTextToImageJobs", () => {
 
         await processTextToImageJobs("workspace/demo", deps);
 
-        const call = generate.mock.calls[0]![0];
+        const call = generate.mock.calls[0]?.[0];
+        if (!call) throw new Error("未捕获到 NovelAI 生成参数");
         expect(call.prompt).toContain("very aesthetic, masterpiece, no text");
         expect(call.negativePrompt).toContain("lowres");
         expect(call.positiveQualityPreset).toBe(false);
@@ -332,11 +400,34 @@ function createJob(overrides: Partial<TextToImageJobDto> = {}): TextToImageJobDt
         sourcePath: null,
         sourceAnchorId: null,
         sourceInsertStatus: "not_applicable",
+        providerSnapshotJson: "{}",
         errorMessage: null,
         attemptCount: 0,
         createdAt: "2026-08-03T00:00:00.000Z",
         startedAt: null,
         finishedAt: null,
         ...overrides,
+    };
+}
+
+function createAsset(): TextToImageAssetDto {
+    return {
+        id: "asset-1",
+        jobId: "j1",
+        relativePath: "assets/asset-1.png",
+        fileName: "asset-1.png",
+        mimeType: "image/png",
+        byteLength: 3,
+        width: 832,
+        height: 1216,
+        model: "nai-diffusion-4-5-full",
+        seed: 0,
+        prompt: "1girl",
+        negativePrompt: "bad",
+        finalPromptBundleJson: null,
+        sourceKind: "manual",
+        sourcePath: null,
+        sourceAnchorId: null,
+        createdAt: "2026-08-03T00:00:00.000Z",
     };
 }

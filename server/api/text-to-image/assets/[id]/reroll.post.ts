@@ -9,7 +9,7 @@ const RerollBodySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireTextToImageUser(event);
+    const user = await requireTextToImageUser(event);
     const body = await validateBody(event, RerollBodySchema);
     const assetId = getRouterParam(event, "id") ?? "";
     if (assetId.trim() === "") {
@@ -18,5 +18,6 @@ export default defineEventHandler(async (event) => {
     return await rerollTextToImageAsset({
         projectPath: `workspace/${body.projectRoot}`,
         assetId,
+        userId: user.id,
     });
 });

@@ -72,13 +72,39 @@ export function canonicalizeTriggerWords(raw: string): string {
 }
 
 /**
+ * 角色名称字段的兼容别名解析。
+ *
+ * `enName` 历史上允许用户用 `|` 记录多个英文名，但触发词解析器只
+ * 负责 `triggerWords`。名称字段不能复用严格触发词解析（名称可以包含
+ * 逗号），这里只按 `|` 拆分、去空白并按规范化值去重。
+ */
+export function splitCharacterNameAliases(value: string): string[] {
+    const values: string[] = [];
+    const seen = new Set<string>();
+    for (const part of value.split("|")) {
+        const item = part.trim();
+        if (item === "") continue;
+        const key = normalizeTriggerToken(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        values.push(item);
+    }
+    return values;
+}
+
+function buildCharacterNameTerms(character: CharacterVisualField): string[] {
+    return [character.enName ?? "", character.cnName ?? ""]
+        .flatMap((value) => splitCharacterNameAliases(value));
+}
+
+/**
  * 角色的有效扫描触发词：显式列表非空时只使用显式列表；
  * 为空时临时回退到非空的中文名和英文名。回退结果绝不写回 JSON。
  */
 export function buildEffectiveCharacterTriggers(character: CharacterVisualField): string[] {
     const explicit = parsePipeCharacterTriggers(character.triggerWords ?? "").values;
     if (explicit.length > 0) return explicit;
-    return [character.enName ?? "", character.cnName ?? ""].map((value) => value.trim()).filter((value) => value !== "");
+    return buildCharacterNameTerms(character);
 }
 
 /**
@@ -89,9 +115,7 @@ export function buildCharacterReferenceTerms(character: CharacterVisualField): s
     const values = parsePipeCharacterTriggers(character.triggerWords ?? "").values;
     const seen = new Set(values.map(normalizeTriggerToken));
     const result = [...values];
-    for (const name of [character.enName ?? "", character.cnName ?? ""]) {
-        const value = name.trim();
-        if (value === "") continue;
+    for (const value of buildCharacterNameTerms(character)) {
         const key = normalizeTriggerToken(value);
         if (seen.has(key)) continue;
         seen.add(key);

@@ -1,3 +1,5 @@
+import type {TextToImageNovelAiModel} from "nbook/shared/dto/text-to-image.dto";
+
 type ParsedNovelAiTag = {
     raw: string;
     key: string;
@@ -12,7 +14,7 @@ export type FinalNovelAiCharacterPrompt = {
     centerY?: number;
 };
 
-export type FinalNovelAiPromptBundle = {
+export type FinalNovelAiPromptBundleV1 = {
     version: 1;
     modelFamily: "nai4";
     basePositive: string;
@@ -22,6 +24,20 @@ export type FinalNovelAiPromptBundle = {
     actualNegativeInput: string;
     appliedRuleLines: number[];
 };
+
+export type FinalNovelAiPromptBundleV2 = {
+    version: 2;
+    modelFamily: "nai45" | "nai5";
+    model: TextToImageNovelAiModel;
+    basePositive: string;
+    baseNegative: string;
+    characters: FinalNovelAiCharacterPrompt[];
+    actualInput: string;
+    actualNegativeInput: string;
+    appliedRuleLines: number[];
+};
+
+export type FinalNovelAiPromptBundle = FinalNovelAiPromptBundleV1 | FinalNovelAiPromptBundleV2;
 
 /**
  * 清理最终发给 NovelAI 的逗号 tag 串。

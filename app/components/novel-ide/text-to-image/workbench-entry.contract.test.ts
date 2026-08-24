@@ -110,4 +110,14 @@ describe("text-to-image workbench entry contract", () => {
         expect(characterSection).toContain("expectedRevision: preview.revision");
         expect(characterSection).toContain("视觉资料将移动到默认分组");
     });
+
+    it("reports partial body-image insertion diagnostics after the chapter is saved", async () => {
+        const indexPage = await readFile(indexPagePath, "utf8");
+
+        expect(indexPage).toContain('diagnostics: Array<{action: "skipped" | "inserted"; code: string}>;');
+        expect(indexPage).toContain('item.code === "anchor_appended"');
+        expect(indexPage).toContain('item.code === "anchor_first_match"');
+        expect(indexPage).toContain("跳过 ${skippedCount} 个不可用图片块");
+        expect(indexPage).toContain("notification.warning(`已生成");
+    });
 });

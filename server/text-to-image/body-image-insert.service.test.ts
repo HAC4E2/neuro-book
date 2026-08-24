@@ -84,12 +84,67 @@ describe("body image insert service", () => {
         expect(result.placeholders[0]?.id).not.toBe(result.placeholders[1]?.id);
     });
 
-    it("匹配不到 regex 时显式失败且不写入正文", () => {
+    it("相同锚点按 LLM 回复顺序插入且每个占位符保持独立 ID", () => {
+        const first = {...CLASSROOM_BLOCK, title: "第一张", prompts: "first prompt"};
+        const second = {...CLASSROOM_BLOCK, title: "第二张", prompts: "second prompt"};
+
+        const result = insertBodyImagePlaceholders({
+            chapterContent: "正文。\n她推开门走进教室。\n结尾。",
+            blocks: [first, second],
+        });
+        const found = findAllTextToImagePromptMarkdown(result.content);
+
+        expect(result.placeholders.map((placeholder) => placeholder.title))
+            .toEqual(["第一张", "第二张"]);
+        expect(found.map((item) => item.payload.title)).toEqual(["第一张", "第二张"]);
+        expect(result.placeholders[0]?.id).not.toBe(result.placeholders[1]?.id);
+        expect(result.content.indexOf('"title":"第一张"'))
+            .toBeLessThan(result.content.indexOf('"title":"第二张"'));
+    });
+
+    it("不同锚点落在同一正文行时仍按 LLM 回复顺序插入", () => {
+        const result = insertBodyImagePlaceholders({
+            chapterContent: "她推开门走进教室，然后他转身关上门。",
+            blocks: [CLASSROOM_BLOCK, CORRIDOR_BLOCK],
+        });
+        const found = findAllTextToImagePromptMarkdown(result.content);
+
+        expect(found.map((item) => item.payload.title)).toEqual(["晨光教室", "黄昏走廊"]);
+    });
+
+    it("同一锚点命中正文多行时使用第一行并记录降级诊断", () => {
+        const result = insertBodyImagePlaceholders({
+            chapterContent: "她推开门走进教室。\n另一段：她推开门走进教室。",
+            blocks: [CLASSROOM_BLOCK],
+        });
+
+        const placeholderIndex = result.content.indexOf("<text-to-image-prompt id=\"");
+        expect(placeholderIndex).toBeGreaterThan(result.content.indexOf("她推开门走进教室。"));
+        expect(placeholderIndex).toBeLessThan(result.content.indexOf("另一段：她推开门走进教室。"));
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                blockIndex: 1,
+                code: "anchor_first_match",
+                action: "inserted",
+            }),
+        ]);
+    });
+
+    it("匹配不到 regex 时追加到正文末尾并记录降级诊断", () => {
         const chapterContent = "正文没有任何挂载点。";
-        expect(() => insertBodyImagePlaceholders({
+        const result = insertBodyImagePlaceholders({
             chapterContent,
             blocks: [{...CLASSROOM_BLOCK, regex: "不存在的文本"}],
-        })).toThrow(/未命中/);
+        });
+
+        expect(result.content).toContain(`${chapterContent}\n<text-to-image-prompt id="`);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                blockIndex: 1,
+                code: "anchor_appended",
+                action: "inserted",
+            }),
+        ]);
     });
 
     it("写入前拒绝未闭合的角色调用", () => {

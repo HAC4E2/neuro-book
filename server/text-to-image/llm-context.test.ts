@@ -18,9 +18,11 @@ function entry(overrides: Partial<TextToImageContextEntry> = {}): TextToImageCon
 
 describe("llm-context", () => {
     it("always 条目无条件进入消息", () => {
-        expect(buildContextMessages([entry()], {})).toEqual([
+        const messages = buildContextMessages([entry({name: "仅用于管理界面的名称"})], {});
+        expect(messages).toEqual([
             {role: "user", content: "context content"},
         ]);
+        expect(JSON.stringify(messages)).not.toContain("仅用于管理界面的名称");
     });
 
     it("trigger 条目命中正文或需求才进入", () => {

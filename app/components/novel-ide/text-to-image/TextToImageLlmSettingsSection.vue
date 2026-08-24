@@ -358,6 +358,7 @@ function saveContextProfile(): void {
         entries: contextProfileDraft.value.entries.map((entry) => ({
             ...entry,
             id: entry.id.trim() || nextEntryId(),
+            name: entry.name.trim(),
         })),
     };
     const next = {...contextProfiles.value, [id]: profile};
@@ -761,10 +762,14 @@ async function fetchModels(): Promise<void> {
                     <div class="custom-scrollbar max-h-[400px] min-h-[220px] overflow-y-auto rounded-md border border-[var(--border-color)] p-2">
                     <div v-for="(entry, index) in contextProfileDraft.entries" :key="entry.id" class="mt-2 rounded-md border border-[var(--border-color)] p-2">
                         <div class="mb-1 flex items-center justify-between">
-                            <span class="text-[15px] text-[var(--text-muted)]">条目 {{ index + 1 }}</span>
+                            <span class="text-[15px] text-[var(--text-muted)]">{{ entry.name.trim() || `条目 ${index + 1}` }}</span>
                             <button class="rounded-md border border-[var(--danger-border)] px-2 text-[15px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" @click="removeContextEntry(index)">删除</button>
                         </div>
                         <div class="grid grid-cols-3 gap-2">
+                            <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
+                                条目名称
+                                <input v-model="entry.name" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]" />
+                            </label>
                             <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">
                                 role
                                 <select v-model="entry.role" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[16px] text-[var(--text-main)]">

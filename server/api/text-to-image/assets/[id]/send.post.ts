@@ -10,7 +10,7 @@ const SendBodySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireTextToImageUser(event);
+    const user = await requireTextToImageUser(event);
     const body = await validateBody(event, SendBodySchema);
     const assetId = getRouterParam(event, "id") ?? "";
     if (assetId.trim() === "") {
@@ -19,6 +19,7 @@ export default defineEventHandler(async (event) => {
     return await sendTextToImageAsset({
         projectPath: `workspace/${body.projectRoot}`,
         assetId,
+        userId: user.id,
         prompt: body.prompt,
     });
 });

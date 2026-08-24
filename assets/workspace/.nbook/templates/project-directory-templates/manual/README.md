@@ -1,36 +1,36 @@
-# 项目手册
+# 玩家手册
 
-本目录保存当前 Project 的说明书：如何开始、玩家能看到什么、规则如何裁决，以及主持人应该如何开局和带桌。
+本文件是玩家可见手册。它只包含开局时玩家可以知道的信息。
 
-## 快速开始
+## 从这里开始
 
-1. 读取 `manual/player-guide/README.md`，确认玩家可见信息。
-2. 选择 `manual/player-guide/playable-characters/README.md` 中的预设角色，或按 `manual/player-guide/character-creation.md` 创建角色。
-3. 读取 `manual/world-guide.md`，获得玩家安全的世界观导览。
-4. 读取 `manual/rules-guide.md`，确认本 Project 的规则和系统模块。
-5. 读取 `manual/gm-guide.md` 与 `manual/reference.md`，准备第一场游戏。
+说明玩家开局的位置、身份、目标、压力和最少需要知道的世界常识。
+
+## 你知道什么
+
+列出玩家角色合理知道的事实、传闻和常识。不要写隐藏真相。
+
+## 你能做什么
+
+列出玩家常见行动类型，例如探索、交谈、调查、战斗、交易、学习、休息、求助和长期计划。
+
+## 预设可玩角色
+
+预设可玩角色见 `manual/player-guide/playable-characters/README.md`。
+
+如果玩家想自定义角色，使用 `manual/player-guide/character-creation.md`。如果玩家跳过创建，创建阶段可见信息不应强制提前披露，可以在开场和后续行动中逐步揭示。
 
 ## 基础流程
 
-一次行动可以按 tick 推进：
+一次行动通常是：
 
-1. 主持人描述角色能感知的处境。
+1. 主持人描述当前处境。
 2. 玩家说明角色想做什么。
-3. 世界按规则回应这次尝试。
-4. 主持人描述后果和新的选择点。
+3. 世界回应行动。
+4. 主持人描述新的局面。
 
-tick 是叙事节拍，不要求玩家说出术语。它只表示世界已经对一次行动完成回应。
+玩家输入代表尝试，不代表结果自动发生。
 
-## 手册边界
+## 剧透边界
 
-- 本目录写给玩家和主持人，说明怎么玩、怎么开局、怎么裁决。
-- 稳定世界事实、完整规则和大量设定条目放在 `lorebook/`。
-- 外部原始素材和导入归档放在 `reference/`。
-
-`manual/` 可以摘要和链接 `lorebook/...`，但不要复制大量 canon。当前状态不要写进 `manual/`。
-
-## 阅读顺序
-
-- 玩家：`player-guide/README.md` -> `player-guide/character-creation.md` 或 `player-guide/playable-characters/README.md` -> `world-guide.md`
-- 主持人：`gm-guide.md` -> `player-guide/README.md` -> `rules-guide.md` -> `reference.md`
-- 世界和规则细节：需要精确 canon 时查 `lorebook/`。
+玩家手册不提前揭示主持侧秘密、隐藏身份、未发生事件、其他角色的私密想法或未确认真相。

@@ -6,6 +6,7 @@ import {
 import {
     generateBodyImageBlocks,
     parseBodyImageBlocks,
+    parseBodyImageBlocksWithDiagnostics,
 } from "nbook/server/text-to-image/body-image-llm";
 
 const XML_BLOCK = [
@@ -110,6 +111,14 @@ describe("body image llm", () => {
         expect(() => parseBodyImageBlocks(invalid)).toThrow(/regex|prompts/);
     });
 
+    it("兼容解析入口在混合回复中保留可用块", () => {
+        const invalid = "<image><title_styled>缺少 regex</title_styled><prompts>bad</prompts></image>";
+        const blocks = parseBodyImageBlocks(`${XML_BLOCK}\n${invalid}`);
+
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0]?.regex).toBe("她推开门走进教室");
+    });
+
     it("generate 使用注入 complete 并固定 maxTokens/stream", async () => {
         let lastInput: RequestLlmCompletionInput | undefined;
         const complete: typeof requestLlmCompletion = async (input) => {
@@ -117,7 +126,7 @@ describe("body image llm", () => {
             return `<content><images>${XML_BLOCK}</images></content>`;
         };
 
-        const blocks = await generateBodyImageBlocks({
+        const result = await generateBodyImageBlocks({
             provider: {
                 baseUrl: "https://api.example.com/v1",
                 credential: "sk-test",
@@ -138,8 +147,9 @@ describe("body image llm", () => {
             complete,
         });
 
-        expect(blocks).toHaveLength(1);
-        expect(blocks[0]?.regex).toBe("她推开门走进教室");
+        expect(result.blocks).toHaveLength(1);
+        expect(result.blocks[0]?.regex).toBe("她推开门走进教室");
+        expect(result.diagnostics).toEqual([]);
         expect(lastInput?.baseUrl).toBe("https://api.example.com/v1");
         expect(lastInput?.model).toBe("gpt-4o");
         expect(lastInput?.maxTokens).toBe(12345);
@@ -149,16 +159,20 @@ describe("body image llm", () => {
         expect(String(lastInput?.messages[1]?.content)).toContain("第一章正文。");
     });
 
-    it("解析失败最多重试 2 次后成功", async () => {
+    it("部分图片块格式异常时保留有效块且不重试整次回复", async () => {
         let calls = 0;
+        const invalidBlock = [
+            "<image>",
+            "<title_styled>缺少锚点</title_styled>",
+            "<prompts>still has a prompt</prompts>",
+            "</image>",
+        ].join("\n");
         const complete: typeof requestLlmCompletion = async () => {
             calls += 1;
-            return calls === 1
-                ? "坏输出"
-                : `<content><images>${XML_BLOCK}</images></content>`;
+            return `<content><images>${XML_BLOCK}\n${invalidBlock}\n${XML_BLOCK_2}</images></content>`;
         };
 
-        const blocks = await generateBodyImageBlocks({
+        const result = await generateBodyImageBlocks({
             provider: {
                 baseUrl: "https://api.example.com/v1",
                 credential: "sk-test",
@@ -169,8 +183,18 @@ describe("body image llm", () => {
             complete,
         });
 
-        expect(calls).toBe(2);
-        expect(blocks[0]?.regex).toBe("她推开门走进教室");
+        expect(calls).toBe(1);
+        expect(result.blocks.map((block) => block.regex)).toEqual([
+            "她推开门走进教室",
+            "他转身关上门",
+        ]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                blockIndex: 2,
+                code: "block_invalid",
+                action: "skipped",
+            }),
+        ]);
     });
 
     it("在 L1 返回时修复角色调用缺失的结尾 `$` 并保留 from side", async () => {
@@ -185,7 +209,7 @@ describe("body image llm", () => {
             "</image>",
         ].join("\n");
 
-        const blocks = await generateBodyImageBlocks({
+        const result = await generateBodyImageBlocks({
             provider: {
                 baseUrl: "https://api.example.com/v1",
                 credential: "sk-test",
@@ -196,12 +220,12 @@ describe("body image llm", () => {
             complete: async () => content,
         });
 
-        expect(blocks[0]?.prompt).toContain("from side");
-        expect(blocks[0]?.prompt).toContain("}$");
-        expect(blocks[0]?.prompt).toContain("pale face,seasick");
+        expect(result.blocks[0]?.prompt).toContain("from side");
+        expect(result.blocks[0]?.prompt).toContain("}$");
+        expect(result.blocks[0]?.prompt).toContain("pale face,seasick");
     });
 
-    it("连续解析失败抛错", async () => {
+    it("整次回复没有可用块时只报告堵塞且不重试", async () => {
         let calls = 0;
         const complete: typeof requestLlmCompletion = async () => {
             calls += 1;
@@ -217,8 +241,36 @@ describe("body image llm", () => {
             chapterContent: "正文",
             characterSummary: "",
             complete,
-        })).rejects.toThrow(/解析失败/);
-        expect(calls).toBe(3);
+        })).rejects.toMatchObject({
+            code: "no_usable_blocks",
+            message: "正文生图没有产出可用图片块，正文未修改",
+        });
+        expect(calls).toBe(1);
+    });
+
+    it("宽容解析会跳过截断块并保留前面的完整块", () => {
+        const result = parseBodyImageBlocksWithDiagnostics(
+            `<content><images>${XML_BLOCK}\n<image><regex>被截断</regex><prompts>unfinished`,
+        );
+
+        expect(result.blocks).toHaveLength(1);
+        expect(result.blocks[0]?.regex).toBe("她推开门走进教室");
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                blockIndex: 2,
+                code: "block_truncated",
+                action: "skipped",
+            }),
+        ]);
+    });
+
+    it("宽容解析会为每个完整块保留 LLM 回复序号", () => {
+        const result = parseBodyImageBlocksWithDiagnostics(
+            `<image>${XML_BLOCK.replace(/^<image>|<\/image>$/gu, "")}</image>\n<image>${XML_BLOCK_2.replace(/^<image>|<\/image>$/gu, "")}</image>`,
+        );
+
+        expect(result.blocks.map((block) => block.sourceIndex)).toEqual([1, 2]);
+        expect(result.diagnostics).toEqual([]);
     });
 
     it("rejects more than four character slots instead of silently truncating", () => {
@@ -247,6 +299,86 @@ describe("body image llm", () => {
             {prompt: "left character", negativePrompt: "", centerX: 0.1, centerY: 0.1},
             {prompt: "right character", negativePrompt: "", centerX: 0.9, centerY: 0.9},
         ]);
+    });
+
+    it("keeps normalized numeric centers compatible with the legacy contract", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<character_1><prompt>character</prompt><center>0.25,0.75</center></character_1>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]?.characterPrompts).toEqual([{
+            prompt: "character",
+            negativePrompt: "",
+            centerX: 0.25,
+            centerY: 0.75,
+        }]);
+    });
+
+    it("maps new preset semantic centers to stable NovelAI coordinates", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<character_1><prompt>left character</prompt><centers>left, foreground</centers></character_1>"
+            + "<character_2><prompt>middle character</prompt><centers>center, middleground</centers></character_2>"
+            + "<character_3><prompt>right character</prompt><centers>right, background</centers></character_3>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]?.characterPrompts).toEqual([
+            {prompt: "left character", negativePrompt: "", centerX: 0.3, centerY: 0.7},
+            {prompt: "middle character", negativePrompt: "", centerX: 0.5, centerY: 0.5},
+            {prompt: "right character", negativePrompt: "", centerX: 0.7, centerY: 0.3},
+        ]);
+    });
+
+    it("accepts Chinese semantic centers emitted by weaker models", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<character_1><prompt>character</prompt><centers>左侧，前景</centers></character_1>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]?.characterPrompts?.[0]).toMatchObject({
+            centerX: 0.3,
+            centerY: 0.7,
+        });
+    });
+
+    it("accepts vertical-only semantic centers emitted by weaker models", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<character_1><prompt>upper character</prompt><centers>top</centers></character_1>"
+            + "<character_2><prompt>lower character</prompt><centers>bottom</centers></character_2>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]?.characterPrompts).toEqual([
+            {prompt: "upper character", negativePrompt: "", centerX: 0.5, centerY: 0.3},
+            {prompt: "lower character", negativePrompt: "", centerX: 0.5, centerY: 0.7},
+        ]);
+    });
+
+    it("removes safe certification prefixes from new preset prompt fields", () => {
+        const blocks = parseBodyImageBlocks(
+            "<image><regex>anchor</regex><prompts>"
+            + "<scene_composition>sāfe&2girls, sāfe&indoors</scene_composition>"
+            + "<character_1><prompt>sāfe&1girl, safe&smile</prompt>"
+            + "<centers>sāfe&left, sāfe&foreground</centers>"
+            + "<uc>sāfe&bad anatomy, safe&blurry</uc></character_1>"
+            + "</prompts></image>",
+        );
+
+        expect(blocks[0]).toMatchObject({
+            prompt: "2girls, indoors",
+            characterPrompts: [{
+                prompt: "1girl, smile",
+                negativePrompt: "bad anatomy, blurry",
+                centerX: 0.3,
+                centerY: 0.7,
+            }],
+        });
+        expect(blocks[0]?.prompts).not.toMatch(/s(?:a|ā)fe\s*[&＆]/iu);
     });
 
     it("rejects an invalid chatu-8 grid center", () => {

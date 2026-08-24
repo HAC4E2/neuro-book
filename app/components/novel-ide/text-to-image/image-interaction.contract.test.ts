@@ -3,6 +3,7 @@ import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
 const editorPath = fileURLToPath(new URL("../../markdown-studio/TipTapMarkdownEditor.vue", import.meta.url));
+const assetDialogPath = fileURLToPath(new URL("./TextToImageAssetActionDialog.vue", import.meta.url));
 const historyPath = fileURLToPath(new URL("./TextToImageHistorySection.vue", import.meta.url));
 
 describe("text-to-image image interaction contract", () => {
@@ -38,5 +39,31 @@ describe("text-to-image image interaction contract", () => {
         expect(history).not.toContain("/reroll");
         expect(history).not.toContain("/inpaint");
         expect(history).not.toContain("长按");
+    });
+
+    it("后处理和历史详情复制实际图片 Blob 并提供下载，不复制 URL", async () => {
+        const assetDialog = await readFile(assetDialogPath, "utf8");
+        const history = await readFile(historyPath, "utf8");
+
+        for (const source of [assetDialog, history]) {
+            expect(source).toContain("readImageBlob");
+            expect(source).toContain("copyImageBlobToClipboard");
+            expect(source).toContain("downloadImageBlob");
+            expect(source).not.toContain("navigator.clipboard.writeText");
+        }
+    });
+
+    it("后处理工作台放大且关闭历史切片不产生正文替换副作用", async () => {
+        const assetDialog = await readFile(assetDialogPath, "utf8");
+
+        expect(assetDialog).toContain('width="min(1440px, calc(100vw - 24px))"');
+        expect(assetDialog).toContain('height="min(900px, calc(100dvh - 24px))"');
+        expect(assetDialog).toContain('isTagSend ? "send" : "reroll"');
+        expect(assetDialog).not.toContain('emit("success", selectedAsset)');
+        expect(assetDialog).not.toContain("absolute inset-0 flex items-center justify-center");
+        expect(assetDialog).toContain("watch(() => props.projectRoot");
+        expect(assetDialog).toContain("窗口尺寸已变化，遮罩已清空，请重新涂抹");
+        expect(assetDialog).toContain('busyAction.value = "copying"');
+        expect(assetDialog).toContain('busyAction.value = "downloading"');
     });
 });

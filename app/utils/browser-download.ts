@@ -7,7 +7,10 @@ export function triggerBrowserDownload(blob: Blob, filename: string): void {
     link.href = url;
     link.download = filename;
     document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    try {
+        link.click();
+    } finally {
+        link.remove();
+        URL.revokeObjectURL(url);
+    }
 }

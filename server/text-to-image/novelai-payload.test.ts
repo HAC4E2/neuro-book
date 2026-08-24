@@ -6,11 +6,13 @@ import {
 } from "nbook/server/text-to-image/novelai-payload";
 
 describe("NovelAI payload adapter", () => {
-    it("只接受 NAI4.5 Full/Curated 模型", () => {
+    it("接受 NAI V5/V4.5 Full/Curated 模型", () => {
+        expect(resolveNovelAiModelFamily("nai-diffusion-5-full")).toBe("nai5");
+        expect(resolveNovelAiModelFamily("nai-diffusion-5-curated")).toBe("nai5");
         expect(resolveNovelAiModelFamily("nai-diffusion-4-5-full")).toBe("nai45");
         expect(resolveNovelAiModelFamily("nai-diffusion-4-5-curated")).toBe("nai45");
-        expect(() => resolveNovelAiModelFamily("nai-diffusion-3")).toThrow(/NAI4.5/u);
-        expect(() => resolveNovelAiModelFamily("nai-diffusion-4-full")).toThrow(/NAI4.5/u);
+        expect(() => resolveNovelAiModelFamily("nai-diffusion-3")).toThrow(/V5\/V4\.5/u);
+        expect(() => resolveNovelAiModelFamily("nai-diffusion-4-full")).toThrow(/V5\/V4\.5/u);
     });
 
     it("NAI4.5 使用 cached Vibe 数组", () => {
@@ -38,8 +40,16 @@ describe("NovelAI payload adapter", () => {
         });
     });
 
+    it("V5 首发版拒绝 Vibe 与角色参考图字段", () => {
+        expect(() => buildNovelAiReferencePayload("nai5", {
+            vibe: [{encodingBase64: "vibe", strength: 0.6, informationExtracted: 0.3}],
+            character: [],
+        })).toThrow("当前 V5 模型不支持所选参数：Vibe Transfer");
+        expect(buildNovelAiReferencePayload("nai5", {vibe: [], character: []})).toEqual({});
+    });
+
     it("验证参考数组长度并报告字段", () => {
-        expect(() => validateNovelAiPayload("nai4", {
+        expect(() => validateNovelAiPayload("nai45", {
             width: 832,
             height: 1216,
             scale: 5,

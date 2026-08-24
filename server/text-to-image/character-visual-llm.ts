@@ -103,6 +103,16 @@ export type CharacterVisualModifyResult = {
     visual: CharacterVisualFile;
     warnings: string[];
     changedFields: string[];
+    mode: "merged" | "outfit_only";
+    outfitCandidates?: CharacterVisualOutfitCandidate[];
+};
+
+export type CharacterVisualOutfitCandidate = {
+    candidateId: string;
+    sourceOrder: number;
+    outfit: OutfitVisual;
+    fields: Array<keyof OutfitVisual>;
+    warnings: string[];
 };
 
 /**
@@ -230,7 +240,34 @@ export function mergeCharacterVisualPatch(
         character,
         outfits,
     });
-    return {visual, warnings, changedFields};
+    return {visual, warnings, changedFields, mode: "merged"};
+}
+
+/** 纯服装回复只解析为候选，不提前按当前服装索引合并。 */
+function collectOutfitCandidates(parsed: CharacterVisualDraftPresence): {
+    candidates: CharacterVisualOutfitCandidate[];
+    warnings: string[];
+} {
+    const candidates: CharacterVisualOutfitCandidate[] = [];
+    const warnings: string[] = [];
+    parsed.draft.outfits.forEach((outfit, index) => {
+        const fields = [...(parsed.outfitFields[index] ?? new Set<keyof OutfitVisual>())];
+        const hasName = [outfit.cnName, outfit.enName].some((value) => value.trim() !== "");
+        const hasBodyTags = (["upper", "upperBack", "lower", "lowerBack"] as const)
+            .some((field) => fields.includes(field) && outfit[field].trim() !== "");
+        if (!hasName || !hasBodyTags) {
+            warnings.push(`第 ${index + 1} 套服装缺少名称或身体字段，已跳过`);
+            return;
+        }
+        candidates.push({
+            candidateId: `outfit-${index + 1}`,
+            sourceOrder: index,
+            outfit,
+            fields,
+            warnings: [],
+        });
+    });
+    return {candidates, warnings};
 }
 
 /**
@@ -317,11 +354,21 @@ export async function generateCharacterVisualModifyPreview(
             ], input.promptMode),
         });
         try {
-            return mergeCharacterVisualPatch(
-                current,
-                parseCharacterVisualDraftPresence(content),
-                input.selectedOutfitIndex ?? null,
-            );
+            const parsed = parseCharacterVisualDraftPresence(content);
+            const outfitResult = collectOutfitCandidates(parsed);
+            if (parsed.characterFields.size === 0 && parsed.draft.outfits.length > 0) {
+                if (outfitResult.candidates.length === 0) {
+                    throw new Error("纯服装回复没有完整可用的服装块");
+                }
+                return {
+                    visual: current,
+                    warnings: outfitResult.warnings,
+                    changedFields: [],
+                    mode: "outfit_only",
+                    outfitCandidates: outfitResult.candidates,
+                };
+            }
+            return mergeCharacterVisualPatch(current, parsed, input.selectedOutfitIndex ?? null);
         } catch (error) {
             lastError = toError(error);
         }

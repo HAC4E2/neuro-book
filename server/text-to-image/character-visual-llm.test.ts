@@ -7,6 +7,7 @@ import {
     buildCharacterVisualSystemPrompt,
     buildCharacterVisualUserPrompt,
     generateCharacterVisualDraft,
+    generateCharacterVisualModifyPreview,
     mergeCharacterVisualPatch,
     parseCharacterVisualDraftPresence,
     parseCharacterVisualDraft,
@@ -41,6 +42,70 @@ describe("character visual llm", () => {
         expect(result.visual.outfits[0]?.lower).toBe("navy skirt");
         expect(result.visual.photos).toEqual(["assets/tti/keep.png"]);
         expect(result.warnings.length).toBeGreaterThan(0);
+    });
+
+    it("纯服装回复只返回候选，不因默认选中索引覆盖当前服装", () => {
+        const current = parseCharacterVisualDraft(JSON.stringify({
+            characterId: "fixture",
+            character: {cnName: "测试角色", enName: "Fixture", triggerWords: "测试角色"},
+            outfits: [{cnName: "原有服装", enName: "Existing", upper: "old shirt", lower: "old skirt"}],
+            photos: [],
+        }));
+        const parsed = parseCharacterVisualDraftPresence([
+            "：角色的服装。",
+            "<服装>",
+            "中文名称:第一套新服装",
+            "英文名称:first new outfit",
+            "上半身:white shirt",
+            "下半身:navy skirt",
+            "</服装>",
+            "<服装>",
+            "中文名称:第二套新服装",
+            "英文名称:second new outfit",
+            "上半身:black coat",
+            "下半身:black trousers",
+            "</服装>",
+        ].join("\n"));
+        expect(parsed.characterFields.size).toBe(0);
+        expect(parsed.draft.outfits).toHaveLength(2);
+        const candidates = parsed.draft.outfits.map((outfit, index) => ({
+            candidateId: `outfit-${index + 1}`,
+            sourceOrder: index,
+            outfit,
+            fields: [...(parsed.outfitFields[index] ?? [])],
+            warnings: [],
+        }));
+        expect(candidates.map((item) => item.outfit.cnName)).toEqual(["第一套新服装", "第二套新服装"]);
+        expect(current.outfits[0]?.cnName).toBe("原有服装");
+    });
+
+    it("修改预览把纯服装回复转为候选，并保留当前视觉基线", async () => {
+        const current = JSON.stringify({
+            schema: "nbook.character-visual/v1",
+            characterId: "fixture",
+            character: {cnName: "测试角色", enName: "Fixture", triggerWords: "测试角色"},
+            outfits: [{cnName: "原有服装", enName: "Existing", upper: "old shirt", lower: "old skirt"}],
+            photos: [],
+        });
+        const result = await generateCharacterVisualModifyPreview({
+            provider: {baseUrl: "https://api.example.com/v1", credential: "sk-test", settings: {model: "gpt-4o"}},
+            characterId: "fixture",
+            characterPage: "角色页",
+            existingSummary: current,
+            userRequirement: "生成角色的服装",
+        }, async () => [
+            "<服装>",
+            "中文名称:精致校服",
+            "英文名称:sophisticated uniform",
+            "上半身:white shirt, navy blazer",
+            "下半身:navy pleated skirt",
+            "</服装>",
+        ].join("\n"));
+
+        expect(result.mode).toBe("outfit_only");
+        expect(result.visual.outfits[0]?.cnName).toBe("原有服装");
+        expect(result.outfitCandidates).toHaveLength(1);
+        expect(result.outfitCandidates?.[0]?.outfit.enName).toBe("sophisticated uniform");
     });
 
     it("parses multiple character design results and keeps unassigned outfits as standalone drafts", () => {

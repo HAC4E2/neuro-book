@@ -4,6 +4,7 @@ import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
 import {generateBodyPrompts} from "nbook/server/text-to-image/body-session.service";
+import {BodyImagePlanningBlockedError} from "nbook/server/text-to-image/body-image-llm";
 import {
     buildBodyCharacterSummary,
     buildBodyOutfitSummary,
@@ -115,7 +116,9 @@ export default defineEventHandler(async (event) => {
         if (isBodyImagePlanningFormatError(cause)) {
             throw createError({
                 statusCode: 422,
-                message: "正文生图规划格式不完整，已重试 2 次；请重新点击“生成图片”",
+                message: cause instanceof BodyImagePlanningBlockedError
+                    ? "正文生图没有产出可用图片块，正文未修改"
+                    : "正文生图规划格式不完整，正文未修改",
             });
         }
         throw cause;
@@ -124,6 +127,7 @@ export default defineEventHandler(async (event) => {
         blocks: result.blocks,
         content: result.content,
         placeholders: result.placeholders,
+        diagnostics: result.diagnostics,
         characterSummary: result.characterSummary,
         matchedCharacters: result.matchedCharacters.map((match) => ({
             characterId: match.characterId,
@@ -136,7 +140,9 @@ export default defineEventHandler(async (event) => {
 
 function isBodyImagePlanningFormatError(error: unknown): boolean {
     return error instanceof Error
-        && (/正文生图块解析失败/u.test(error.message)
+        && (error instanceof BodyImagePlanningBlockedError
+            || /正文生图没有产出可用图片块/u.test(error.message)
+            || /正文生图块解析失败/u.test(error.message)
             || /角色调用格式无效/u.test(error.message)
             || /角色调用格式门禁/u.test(error.message));
 }

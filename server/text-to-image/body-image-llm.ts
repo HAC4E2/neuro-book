@@ -15,6 +15,7 @@ import type {TextToImageLlmTraceHandle} from "nbook/server/text-to-image/llm-tra
 import {extractTemporaryCharacterRegistry} from "nbook/server/text-to-image/body-prompt-compiler";
 import type {CharacterVisualFile} from "nbook/server/text-to-image/character-visual.codec";
 import {IllustrationDirector} from "nbook/server/text-to-image/illustration-director";
+import type {BodyImageDiagnostic} from "nbook/server/text-to-image/body-image-diagnostics";
 
 /** L1 正文生图块：五要素契约，不落盘。 */
 export type BodyImageBlock = {
@@ -26,6 +27,8 @@ export type BodyImageBlock = {
     prompt?: string;
     characterPrompts?: TextToImageCharacterPrompt[];
     temporaryCharacters?: CharacterVisualFile[];
+    /** LLM 回复中的 1-based 图片块序号，仅用于非致命诊断，不会落盘。 */
+    sourceIndex?: number;
 };
 
 export type BodyImageHistoryPrefill = {
@@ -33,24 +36,75 @@ export type BodyImageHistoryPrefill = {
     content: string;
 };
 
-const IMAGE_PATTERN = /<image>([\s\S]*?)<\/image>/giu;
+const IMAGE_TAG_PATTERN = /<\/?image>/giu;
+
+export type BodyImageGenerationResult = {
+    blocks: BodyImageBlock[];
+    diagnostics: BodyImageDiagnostic[];
+};
+
+export class BodyImagePlanningBlockedError extends Error {
+    readonly code = "no_usable_blocks" as const;
+    readonly diagnostics: BodyImageDiagnostic[];
+
+    constructor(diagnostics: BodyImageDiagnostic[]) {
+        super("正文生图没有产出可用图片块，正文未修改");
+        this.name = "BodyImagePlanningBlockedError";
+        this.diagnostics = diagnostics;
+    }
+}
 
 /**
  * 解析 LLM 返回的 `<image>...</image>` 块。
- * 支持外层 `<content>/<images>` 包裹与块内五要素子标签；解析失败抛错。
+ * 支持外层 `<content>/<images>` 包裹与块内五要素子标签；有可用块即返回，全部无效才抛错。
+ * 需要逐块诊断时使用 parseBodyImageBlocksWithDiagnostics。
  */
 export function parseBodyImageBlocks(text: string): BodyImageBlock[] {
-    const blocks: BodyImageBlock[] = [];
-    for (const match of text.matchAll(IMAGE_PATTERN)) {
-        blocks.push(parseBodyImageBlock(match[1] ?? ""));
-    }
-    if (blocks.length === 0) {
+    const result = parseBodyImageBlocksWithDiagnostics(text);
+    if (result.blocks.length === 0) {
+        if (result.diagnostics.length > 0) {
+            throw new Error(result.diagnostics[0]!.message);
+        }
         throw new Error("未找到 <image> 块");
     }
-    return blocks;
+    return result.blocks;
 }
 
-/** 调用 LLM 生成正文生图块；解析失败最多重试 2 次，仍失败抛错。 */
+/** 宽容解析 LLM 回复；单个坏块只产生诊断，不影响其它完整块。 */
+export function parseBodyImageBlocksWithDiagnostics(text: string): {
+    blocks: BodyImageBlock[];
+    diagnostics: BodyImageDiagnostic[];
+} {
+    const blocks: BodyImageBlock[] = [];
+    const diagnostics: BodyImageDiagnostic[] = [];
+    for (const candidate of extractImageBlockCandidates(text)) {
+        if (!candidate.closed) {
+            diagnostics.push({
+                blockIndex: candidate.blockIndex,
+                code: "block_truncated",
+                action: "skipped",
+                message: `第 ${candidate.blockIndex} 个图片块未闭合，已跳过`,
+            });
+            continue;
+        }
+        try {
+            blocks.push({
+                ...parseBodyImageBlock(candidate.body),
+                sourceIndex: candidate.blockIndex,
+            });
+        } catch (error) {
+            diagnostics.push({
+                blockIndex: candidate.blockIndex,
+                code: "block_invalid",
+                action: "skipped",
+                message: `第 ${candidate.blockIndex} 个图片块格式不完整，已跳过：${toError(error).message}`,
+            });
+        }
+    }
+    return {blocks, diagnostics};
+}
+
+/** 调用 LLM 生成正文生图块；有可用块即部分成功，无可用块立即报告阻塞。 */
 export async function generateBodyImageBlocks(input: {
     provider: {
         baseUrl: string;
@@ -67,7 +121,7 @@ export async function generateBodyImageBlocks(input: {
     trace?: TextToImageLlmTraceHandle;
     historyPrefill?: BodyImageHistoryPrefill[];
     complete?: typeof requestLlmCompletion;
-}): Promise<BodyImageBlock[]> {
+}): Promise<BodyImageGenerationResult> {
     const settings = TextToImageLlmProviderSettingsSchema.parse(input.provider.settings);
     const complete = input.complete ?? requestLlmCompletion;
     const systemPrompt = buildBodyImageSystemPrompt();
@@ -79,49 +133,101 @@ export async function generateBodyImageBlocks(input: {
         }),
         characterSummary: input.characterSummary,
     });
-    let lastError: Error | null = null;
     const director = new IllustrationDirector();
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        const content = await complete({
-            baseUrl: input.provider.baseUrl,
-            credential: input.provider.credential,
-            model: settings.model,
-            temperature: settings.temperature,
-            topP: settings.topP,
-            maxTokens: settings.maxTokens,
-            stream: settings.stream,
-            sendImages: settings.sendImages,
-            mergeSystemUser: settings.mergeSystemUser,
-            retryCount: settings.retryCount,
-            runtime: input.runtime,
-            trace: input.trace,
-            messages: buildRequestMessages(input.contextEntries ?? [], input.runtime ?? {}, [
-                ...buildHistoryPrefillMessages(input.historyPrefill ?? []),
-                {role: "system", content: systemPrompt},
-                {role: "user", content: userPrompt},
-            ], input.promptMode),
-        });
+    const content = await complete({
+        baseUrl: input.provider.baseUrl,
+        credential: input.provider.credential,
+        model: settings.model,
+        temperature: settings.temperature,
+        topP: settings.topP,
+        maxTokens: settings.maxTokens,
+        stream: settings.stream,
+        sendImages: settings.sendImages,
+        mergeSystemUser: settings.mergeSystemUser,
+        retryCount: settings.retryCount,
+        runtime: input.runtime,
+        trace: input.trace,
+        messages: buildRequestMessages(input.contextEntries ?? [], input.runtime ?? {}, [
+            ...buildHistoryPrefillMessages(input.historyPrefill ?? []),
+            {role: "system", content: systemPrompt},
+            {role: "user", content: userPrompt},
+        ], input.promptMode),
+    });
+    const parsed = parseBodyImageBlocksWithDiagnostics(applyReplacementProfile({
+        text: content,
+        rulesText: input.aiReplacementRules ?? "",
+        kind: "ai",
+    }));
+    const diagnostics = [...parsed.diagnostics];
+    const blocks: BodyImageBlock[] = [];
+    for (const block of parsed.blocks) {
         try {
-            const parsedBlocks = parseBodyImageBlocks(applyReplacementProfile({
-                text: content,
-                rulesText: input.aiReplacementRules ?? "",
-                kind: "ai",
-            }));
-            const blocks = director.normalize(parsedBlocks).blocks;
-            return blocks.map((block) => ({
-                ...block,
+            const normalized = director.normalize([block]).blocks[0]!;
+            blocks.push({
+                ...normalized,
+                sourceIndex: block.sourceIndex,
                 temporaryCharacters: mergeTemporaryCharacters([
-                    ...extractTemporaryCharacterRegistry(block.prompt ?? block.prompts),
-                    ...(block.characterPrompts ?? []).flatMap((item) => extractTemporaryCharacterRegistry(item.prompt)),
+                    ...extractTemporaryCharacterRegistry(normalized.prompt ?? normalized.prompts),
+                    ...(normalized.characterPrompts ?? []).flatMap((item) => extractTemporaryCharacterRegistry(item.prompt)),
                 ]),
-            }));
+            });
         } catch (error) {
-            lastError = toError(error);
+            const blockIndex = block.sourceIndex ?? blocks.length + 1;
+            diagnostics.push({
+                blockIndex,
+                code: "call_invalid",
+                action: "skipped",
+                message: `第 ${blockIndex} 个图片块的角色调用格式无效，已跳过：${toError(error).message}`,
+            });
         }
     }
 
-    throw new Error(`正文生图块解析失败：重试 2 次后仍未成功；最后原因：${lastError?.message ?? "未知"}`);
+    if (blocks.length === 0) {
+        throw new BodyImagePlanningBlockedError(diagnostics);
+    }
+    return {blocks, diagnostics};
+}
+
+function extractImageBlockCandidates(text: string): Array<{
+    body: string;
+    blockIndex: number;
+    closed: boolean;
+}> {
+    const candidates: Array<{body: string; blockIndex: number; closed: boolean}> = [];
+    let openStart: number | null = null;
+    let blockIndex = 0;
+    for (const match of text.matchAll(IMAGE_TAG_PATTERN)) {
+        const token = match[0] ?? "";
+        const tokenStart = match.index ?? 0;
+        if (token.toLowerCase() === "<image>") {
+            if (openStart !== null) {
+                candidates.push({
+                    body: text.slice(openStart + "<image>".length, tokenStart),
+                    blockIndex,
+                    closed: false,
+                });
+            }
+            openStart = tokenStart;
+            blockIndex += 1;
+            continue;
+        }
+        if (openStart === null) continue;
+        candidates.push({
+            body: text.slice(openStart + "<image>".length, tokenStart),
+            blockIndex,
+            closed: true,
+        });
+        openStart = null;
+    }
+    if (openStart !== null) {
+        candidates.push({
+            body: text.slice(openStart + "<image>".length),
+            blockIndex,
+            closed: false,
+        });
+    }
+    return candidates;
 }
 
 function buildHistoryPrefillMessages(history: BodyImageHistoryPrefill[]): Array<{role: "system"; content: string}> {
@@ -139,7 +245,7 @@ function buildHistoryPrefillMessages(history: BodyImageHistoryPrefill[]): Array<
 
 function parseBodyImageBlock(block: string): BodyImageBlock {
     const regex = extractTag(block, "regex");
-    const prompts = extractTag(block, "prompts");
+    const prompts = normalizeCertifiedPromptText(extractTag(block, "prompts"));
     if (regex === "" || prompts === "") {
         throw new Error("image 块必须包含非空的 <regex> 与 <prompts>");
     }
@@ -172,12 +278,12 @@ function extractCharacterPrompts(prompts: string): TextToImageCharacterPrompt[] 
         const gridCenterValue = extractTag(block, "centers");
         const centerValue = extractTag(block, "center") || extractTag(block, "position");
         const center = gridCenterValue !== ""
-            ? parseCharacterGridCenter(gridCenterValue)
+            ? parseCharacterCenterValue(gridCenterValue)
             : centerValue !== ""
-                ? parseCharacterCenter(centerValue)
-                : parseCharacterGridCenter(inlineCenterValue);
+                ? parseCharacterCenterValue(centerValue)
+                : parseCharacterCenterValue(inlineCenterValue);
         if ((gridCenterValue !== "" || centerValue !== "" || inlineCenterValue !== "") && center === null) {
-            throw new Error(`分角色 ${result.length + 1} 的 center 必须是 0 到 1 之间的两个数字或 A1-E5 网格坐标`);
+            throw new Error(`分角色 ${result.length + 1} 的 center 必须是 0 到 1 之间的两个数字、A1-E5 网格坐标或方位词`);
         }
         result.push({
             prompt,
@@ -207,6 +313,16 @@ function parseCharacterCenter(value: string): {x: number; y: number} | null {
     return {x, y};
 }
 
+function parseCharacterCenterValue(value: string): {x: number; y: number} | null {
+    const normalized = normalizeCertifiedPromptText(value).trim();
+    if (normalized === "") {
+        return null;
+    }
+    return parseCharacterGridCenter(normalized)
+        ?? parseCharacterCenter(normalized)
+        ?? parseCharacterSemanticCenter(normalized);
+}
+
 function parseCharacterGridCenter(value: string): {x: number; y: number} | null {
     const match = /^([A-E])\s*([1-5])\s*;?$/iu.exec(value.trim());
     if (!match) {
@@ -218,6 +334,53 @@ function parseCharacterGridCenter(value: string): {x: number; y: number} | null 
         x: 0.1 + column * 0.2,
         y: 0.1 + row * 0.2,
     };
+}
+
+/**
+ * 新版 chatu-8 预设会使用左右位置与前中后景，而 NovelAI 只接收二维归一化坐标。
+ * 这里映射到五格坐标的 B/C/D 行列，避免把一般方位推到画面边缘。
+ */
+function parseCharacterSemanticCenter(value: string): {x: number; y: number} | null {
+    const tokens = value
+        .toLowerCase()
+        .replace(/\bfore\s+ground\b/gu, "foreground")
+        .replace(/\bmid(?:dle)?\s+ground\b/gu, "middleground")
+        .replace(/\bback\s+ground\b/gu, "background")
+        .replace(/\b(left|right)\s+side\b/gu, "$1")
+        .split(/[^\p{L}]+/gu)
+        .filter((token) => token !== "");
+    const horizontal = tokens
+        .map(resolveHorizontalSemanticCoordinate)
+        .find((coordinate) => coordinate !== null) ?? null;
+    const depth = tokens
+        .map(resolveDepthSemanticCoordinate)
+        .find((coordinate) => coordinate !== null) ?? null;
+    if (horizontal === null && depth === null) {
+        return null;
+    }
+    return {
+        x: horizontal ?? 0.5,
+        y: depth ?? 0.5,
+    };
+}
+
+function resolveHorizontalSemanticCoordinate(token: string): number | null {
+    if (["left", "左", "左侧", "左边"].includes(token)) return 0.3;
+    if (["center", "centre", "central", "middle", "中", "中间", "中央"].includes(token)) return 0.5;
+    if (["right", "右", "右侧", "右边"].includes(token)) return 0.7;
+    return null;
+}
+
+function resolveDepthSemanticCoordinate(token: string): number | null {
+    if (["background", "backdrop", "top", "upper", "背景", "后景", "上", "上方", "顶部"].includes(token)) return 0.3;
+    if (["middleground", "midground", "中景"].includes(token)) return 0.5;
+    if (["foreground", "bottom", "lower", "前景", "下", "下方", "底部"].includes(token)) return 0.7;
+    return null;
+}
+
+/** 新版预设的安全认证标记不是 NovelAI tag，进入结构解析前只从绘图提示字段中移除。 */
+function normalizeCertifiedPromptText(value: string): string {
+    return value.replace(/(^|[^\p{L}\p{N}_])s(?:a|ā)fe\s*[&＆]\s*/giu, "$1");
 }
 
 function normalizeBodyPromptText(prompts: string): string {

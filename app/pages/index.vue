@@ -32,7 +32,6 @@ import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEven
 import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
-import {getWorkspaceLorebookTypeMeta} from "nbook/app/components/novel-ide/workspace/workspace-entry-meta";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useInlineEditorAgentController} from "nbook/app/composables/useInlineEditorAgentController";
 import {useWorkbenchChromeRegistration} from "nbook/app/composables/useWorkbenchChrome";
@@ -58,6 +57,7 @@ import {
     isBodyTextToImageEnabled,
     isCharacterTagGenerateEnabled,
 } from "nbook/app/components/markdown-studio/markdown-studio-tool-availability";
+import {getTextToImageJobState, setTextToImageJobState} from "nbook/app/components/markdown-studio/tiptap/text-to-image-job-status";
 import {
     resolveCharacterGenerationContext,
     type CharacterGenerationContext,
@@ -261,7 +261,7 @@ const studio = useMarkdownStudioController({
 // store 在切文件 / 磁盘同步 / 保存前先结算编辑器防抖输入，防止防抖窗口内的输入被误判为「无修改」
 novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 
-const {alert, choose, chooseCards, confirm, prompt} = useDialog();
+const {alert, choose, confirm, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
 const inlineEditorAgent = useInlineEditorAgentController({
@@ -1044,12 +1044,14 @@ async function waitForBodyImageJob(
     projectRoot: string,
     path: string,
     jobId: string,
+    onStatus?: (status: "queued" | "running") => void,
 ): Promise<BodyImageJobStatusResponse> {
     while (true) {
         const result = await $fetch<BodyImageJobStatusResponse>(`/api/text-to-image/jobs/${encodeURIComponent(jobId)}`, {
             query: {projectRoot, path},
         });
         if (result.job.status === "queued" || result.job.status === "running") {
+            onStatus?.(result.job.status);
             await new Promise<void>((resolve) => window.setTimeout(resolve, 750));
             continue;
         }
@@ -1067,8 +1069,10 @@ async function handleTextToImageGenerate(payload: TextToImagePromptPayload): Pro
     }
     const projectRoot = currentProjectRoot.value;
     const path = selectedFilePath.value;
+    const placeholderId = payload.id;
     studio.flushActiveEditor();
     activeBodyTextToImageRequests.value += 1;
+    setTextToImageJobState(placeholderId, {status: "queued"});
     try {
         const savedNode = await ensureCurrentFileSaved();
         if (!savedNode) {
@@ -1077,6 +1081,7 @@ async function handleTextToImageGenerate(payload: TextToImagePromptPayload): Pro
         const snapshot = await $fetch<{providers: Array<{id: number; kind: string}>}>("/api/text-to-image/workbench/config");
         const provider = snapshot.providers.find((item) => item.kind === "novelai");
         if (!provider) {
+            setTextToImageJobState(placeholderId, {status: "failed", detail: "missing_provider"});
             notification.error("请先在文生图工作台配置 NovelAI Provider", {title: "生成失败"});
             return;
         }
@@ -1096,26 +1101,39 @@ async function handleTextToImageGenerate(payload: TextToImagePromptPayload): Pro
                 },
             },
         );
-        const result = await waitForBodyImageJob(projectRoot, path, enqueued.jobId);
+        setTextToImageJobState(placeholderId, {status: "queued", detail: enqueued.queuePosition === null ? undefined : `队列第 ${enqueued.queuePosition} 位`});
+        const result = await waitForBodyImageJob(projectRoot, path, enqueued.jobId, (status) => {
+            setTextToImageJobState(placeholderId, {status});
+        });
         if (result.job.status === "failed") {
+            setTextToImageJobState(placeholderId, {status: "failed", detail: result.job.errorMessage ?? undefined});
             throw new Error(result.job.errorMessage ?? "NovelAI 生图失败");
         }
         if (result.job.status === "canceled") {
+            setTextToImageJobState(placeholderId, {status: "canceled"});
             throw new Error("生图任务已取消");
         }
         if (result.chapterRevision) {
             adoptWorkspaceFileRevision(result.chapterRevision);
         }
         if (enqueued.status === "already_inserted") {
+            setTextToImageJobState(placeholderId, {status: "succeeded", detail: "inserted"});
             notification.info("图片已经插入正文，无需重复生成");
         } else if (result.job.sourceInsertStatus === "inserted") {
+            setTextToImageJobState(placeholderId, {status: "succeeded", detail: "inserted"});
             notification.success("图片已生成并插入正文");
         } else if (result.job.sourceInsertStatus === "missing") {
+            setTextToImageJobState(placeholderId, {status: "succeeded", detail: "missing"});
             notification.warning("图片已生成，但正文中的原占位符已不存在，可从已有图片恢复");
         } else {
+            setTextToImageJobState(placeholderId, {status: "succeeded", detail: "pending"});
             notification.warning("图片任务已完成，但正文插入状态需要恢复");
         }
     } catch (cause) {
+        const currentJobStatus = getTextToImageJobState(placeholderId).status;
+        if (currentJobStatus === "queued" || currentJobStatus === "running") {
+            setTextToImageJobState(placeholderId, {status: "failed", detail: resolveApiErrorMessage(cause, "生成图片失败")});
+        }
         notification.error(resolveApiErrorMessage(cause, "生成图片失败"), {title: "生成失败"});
     } finally {
         activeBodyTextToImageRequests.value = Math.max(0, activeBodyTextToImageRequests.value - 1);
@@ -1146,7 +1164,11 @@ async function handleBodyTextToImageGenerate(): Promise<void> {
             content = stripTextToImageGenerationMarkdown(content);
         }
 
-        const result = await $fetch<{content: string; placeholders: Array<{id: string}>}>("/api/text-to-image/body-prompts", {
+        const result = await $fetch<{
+            content: string;
+            placeholders: Array<{id: string}>;
+            diagnostics: Array<{action: "skipped" | "inserted"; code: string}>;
+        }>("/api/text-to-image/body-prompts", {
             method: "POST",
             body: {
                 projectRoot: currentProjectRoot.value,
@@ -1159,7 +1181,19 @@ async function handleBodyTextToImageGenerate(): Promise<void> {
         if (!savedNode || selectedFileContent.value !== lastSyncedFileContent.value) {
             throw new Error("正文生图占位符未成功保存，已取消完成提示");
         }
-        notification.success(`已生成 ${result.placeholders.length} 个正文生图占位符`);
+        if (result.diagnostics.length === 0) {
+            notification.success(`已生成 ${result.placeholders.length} 个正文生图占位符`);
+        } else {
+            const skippedCount = result.diagnostics.filter((item) => item.action === "skipped").length;
+            const appendedCount = result.diagnostics.filter((item) => item.code === "anchor_appended").length;
+            const firstMatchCount = result.diagnostics.filter((item) => item.code === "anchor_first_match").length;
+            const details = [
+                skippedCount > 0 ? `跳过 ${skippedCount} 个不可用图片块` : "",
+                appendedCount > 0 ? `${appendedCount} 个锚点插入正文末尾` : "",
+                firstMatchCount > 0 ? `${firstMatchCount} 个多命中锚点使用第一行` : "",
+            ].filter((item) => item !== "").join("，");
+            notification.warning(`已生成 ${result.placeholders.length} 个正文生图占位符；${details}`);
+        }
     } catch (cause) {
         notification.error(resolveApiErrorMessage(cause, "正文生图失败"), {title: "生成失败"});
     } finally {
@@ -2520,22 +2554,14 @@ async function createWelcomeMarkdownFile(): Promise<void> {
  * 创建欢迎页 Lorebook 条目。
  */
 async function createWelcomeLorebookEntry(): Promise<void> {
-    const typeLabelKeys: Record<WelcomeLorebookEntryType, string> = {
-        location: "ide.shell.lorebookLocation",
-        character: "ide.shell.lorebookCharacter",
-        item: "ide.shell.lorebookItem",
-        rule: "ide.shell.lorebookRule",
-        note: "ide.shell.lorebookNote",
-    };
-    const selectedType = await chooseCards(t("ide.shell.createLorebookTypePrompt"), WELCOME_LOREBOOK_ENTRY_TYPES.map((type) => {
-        const meta = getWorkspaceLorebookTypeMeta(type);
-        return {
-            label: t(typeLabelKeys[type]),
-            value: type,
-            icon: meta.icon,
-            iconClass: meta.iconClass,
-        };
-    }), t("ide.shell.createLorebookTitle"));
+    const selectedType = await choose(t("ide.shell.createLorebookTypePrompt"), [
+        {label: t("ide.shell.lorebookLocation"), value: "location", tone: "primary"},
+        {label: t("ide.shell.lorebookCharacter"), value: "character"},
+        {label: t("ide.shell.lorebookItem"), value: "item"},
+        {label: t("ide.shell.lorebookRule"), value: "rule"},
+        {label: t("ide.shell.lorebookNote"), value: "note"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], t("ide.shell.createLorebookTitle"));
     if (!isWelcomeLorebookEntryType(selectedType)) {
         return;
     }
@@ -2908,7 +2934,7 @@ onBeforeUnmount(() => {
                             :inline-ai-highlight-reference="inlinePromptHoveredReference"
                             :enable-quick-triggers="true"
                             :on-text-to-image-generate="handleTextToImageGenerate"
-                            :text-to-image-busy="bodyTextToImageGenerating"
+                            :text-to-image-busy="bodyTextToImageWholeChapterGenerating"
                             :body-text-to-image-enabled="bodyTextToImageEnabled"
                             :character-tag-generate-enabled="characterTagGenerateEnabled"
                             @select-tab="void selectWorkspaceTab($event)"

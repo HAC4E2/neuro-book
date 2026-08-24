@@ -1,6 +1,7 @@
 import type {TextToImageJobDto} from "nbook/server/text-to-image/queue.service";
 import {
     requestNovelAiImages,
+    resolveNovelAiRequestSeed,
     type NovelAiImageInput,
     type NovelAiInpaintInput,
     type NovelAiCharacterPromptInput,
@@ -18,6 +19,7 @@ import {
 } from "nbook/server/text-to-image/final-novelai-prompt";
 import {resolveNovelAiUcPreset} from "nbook/server/text-to-image/novelai-quality";
 import {resolveNovelAiGenerationSettings} from "nbook/server/text-to-image/novelai-settings-normalizer";
+import {getNovelAiModelCapabilities} from "nbook/shared/text-to-image-novelai-capabilities";
 
 export type TextToImageQueueDependencies = {
     listQueued: (projectPath: string) => Promise<TextToImageJobDto[]>;
@@ -42,6 +44,7 @@ type PersistedJobRequest = {
     useFinalPrompt?: boolean;
     /** 历史资产保存的结构化最终快照；重绘/局部重绘优先复用。 */
     finalPromptBundle?: FinalNovelAiPromptBundle;
+    generationRecipeId?: string;
 };
 
 /** 消费指定 Project 的所有 queued Job；单个 Job 失败不阻塞后续。 */
@@ -80,17 +83,28 @@ async function processSingleJob(
         throw new Error("Provider API Key 在排队后已变更或删除；请重新提交生图任务");
     }
     const requestNovelAi = request.novelAi ?? {};
-    const settings = resolveNovelAiGenerationSettings({
-        ...runtime.settings,
-        ...requestNovelAi,
-    }, {
-        ...(typeof requestNovelAi.width === "number" ? {width: requestNovelAi.width} : {}),
-        ...(typeof requestNovelAi.height === "number" ? {height: requestNovelAi.height} : {}),
-    });
+    const generationRecipeId = request.generationRecipeId?.trim() ?? "";
+    const savedProviderSettings = request.inpaint ? null : parseProviderSettingsSnapshot(job.providerSnapshotJson);
+    const providerSettings = savedProviderSettings ?? runtime.settings;
+    if (generationRecipeId !== "" && !hasGenerationRecipe(providerSettings, generationRecipeId)) {
+        throw new Error("请先选择并保存一个画风串");
+    }
+    const settings = request.inpaint
+        ? resolveHistoricalNovelAiSettings(runtime.settings, requestNovelAi)
+        : resolveNovelAiGenerationSettings({
+            ...providerSettings,
+            ...requestNovelAi,
+            ...(generationRecipeId ? {activeGenerationRecipeId: generationRecipeId} : {}),
+        }, {
+            ...(typeof requestNovelAi.width === "number" ? {width: requestNovelAi.width} : {}),
+            ...(typeof requestNovelAi.height === "number" ? {height: requestNovelAi.height} : {}),
+            ...(typeof requestNovelAi.seed === "number" ? {seed: requestNovelAi.seed} : {}),
+        });
 
     const {prompt, negativePrompt, characterPrompts, bundle} = request.useFinalPrompt
         ? resolvePersistedFinalPrompt(request)
         : buildQueuePromptBundle(settings, request);
+    const seed = resolveNovelAiRequestSeed(settings.seed);
 
     const images = await deps.generate({
         credential: runtime.credential,
@@ -102,7 +116,7 @@ async function processSingleJob(
         width: settings.width,
         height: settings.height,
         steps: settings.steps,
-        seed: settings.seed,
+        seed,
         sampler: settings.sampler,
         noiseSchedule: settings.noiseSchedule,
         scale: settings.promptGuidance,
@@ -112,7 +126,11 @@ async function processSingleJob(
         aiDefaultCharacterPosition: settings.aiDefaultCharacterPosition,
         requestIntervalMs: settings.requestIntervalMs,
         ucPreset: resolveNovelAiUcPreset(settings.model, NOVEL_AI_LOCAL_QUALITY_OWNERSHIP.ucPreset),
-        positiveQualityPreset: NOVEL_AI_LOCAL_QUALITY_OWNERSHIP.qualityToggle,
+        // V4.5 的 AQT 由本地最终 Prompt 组装器所有；V5 不臆造 AQT，
+        // 已确认的 qualityToggle 由 NovelAI 参数层接管，避免两边重复注入。
+        positiveQualityPreset: getNovelAiModelCapabilities(settings.model)?.family === "nai5"
+            ? settings.positiveQualityPreset
+            : NOVEL_AI_LOCAL_QUALITY_OWNERSHIP.qualityToggle,
         vibe: settings.vibe,
         vibeGroup: settings.vibeGroup,
         vibeGroups: settings.vibeGroups,
@@ -130,7 +148,7 @@ async function processSingleJob(
             width: settings.width,
             height: settings.height,
             model: settings.model,
-            seed: settings.seed,
+            seed,
             prompt,
             negativePrompt,
             finalPromptBundleJson: JSON.stringify(bundle),
@@ -155,6 +173,39 @@ async function processSingleJob(
             // 不应因一次状态更新故障把成功的 NovelAI Job 改报为生成失败。
         }
     }
+}
+
+function hasGenerationRecipe(settings: Record<string, unknown>, recipeId: string): boolean {
+    const recipes = settings.generationRecipes;
+    return typeof recipes === "object" && recipes !== null && !Array.isArray(recipes)
+        && Object.prototype.hasOwnProperty.call(recipes, recipeId);
+}
+
+function parseProviderSettingsSnapshot(json: string): Record<string, unknown> | null {
+    try {
+        const value: unknown = JSON.parse(json);
+        if (!isRecord(value) || !isRecord(value.settings)) return null;
+        return value.settings;
+    } catch {
+        return null;
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function resolveHistoricalNovelAiSettings(
+    runtimeSettings: Record<string, unknown>,
+    requestNovelAi: Record<string, unknown>,
+): ReturnType<typeof resolveNovelAiGenerationSettings> {
+    // inpaint 的源图、模型和参数属于历史快照；清空运行时画风串，避免当前活动配方覆盖它。
+    return resolveNovelAiGenerationSettings({
+        ...runtimeSettings,
+        ...requestNovelAi,
+        generationRecipes: {},
+        activeGenerationRecipeId: "",
+    });
 }
 
 type ResolvedQueuePrompt = {

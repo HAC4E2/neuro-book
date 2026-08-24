@@ -6,6 +6,7 @@ import {
     containsForbiddenTriggerSeparator,
     normalizeTriggerToken,
     parsePipeCharacterTriggers,
+    splitCharacterNameAliases,
     TriggerWordFormatError,
 } from "nbook/server/text-to-image/character-trigger-words";
 import type {CharacterVisualField} from "nbook/server/text-to-image/character-visual.codec";
@@ -83,6 +84,24 @@ describe("character trigger words 领域模块", () => {
             enName: "Elysia",
             triggerWords: "爱莉 | 小艾",
         }))).toEqual(["爱莉", "小艾"]);
+    });
+
+    it("英文名称中的 | 别名可以用于回退扫描和显式引用", () => {
+        const character = makeCharacter({
+            cnName: "九条凛",
+            enName: "Kujo Rin | Rin",
+            triggerWords: "",
+        });
+        expect(splitCharacterNameAliases(character.enName)).toEqual(["Kujo Rin", "Rin"]);
+        expect(buildEffectiveCharacterTriggers(character)).toEqual(["Kujo Rin", "Rin", "九条凛"]);
+        expect(buildCharacterReferenceTerms(character)).toEqual(["Kujo Rin", "Rin", "九条凛"]);
+    });
+
+    it("显式触发词非空时仍允许英文名称别名用于角色调用", () => {
+        expect(buildCharacterReferenceTerms(makeCharacter({
+            enName: "Kujo Rin | Rin",
+            triggerWords: "九条凛 | 凛",
+        }))).toEqual(["九条凛", "凛", "Kujo Rin", "Rin"]);
     });
 
     it("显式引用查找词包含触发词与中英文名（供 ${角色:名} 展开使用）", () => {

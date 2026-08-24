@@ -1,13 +1,13 @@
 ---
-title: 手册
+title: 玩家手册
 type: note
 subtype: directory-index
 status: active
-icon: book-open-text
+icon: users-round
 aliases: []
 tags:
   - 目录说明
-summary: "Project manual directory."
+summary: "Player-facing handbook directory."
 refs: []
 retrieval:
   enabled: false
@@ -18,18 +18,18 @@ governance:
 ext: {}
 ---
 
-# 说明书
+# 玩家手册
 
-本目录保存玩家可读手册、世界导览、规则指南、主持人手册和速查资料。
+本目录保存玩家可见信息、角色创建说明和默认可玩化身入口。
 
 ## 目录用途
 
-`manual/` 存储面向玩家的公开说明文档，包括世界背景介绍、规则解释、角色创建指南等。与 `lorebook/`（全知视角设定）不同，这里的内容是玩家角色"应该知道"的常识，不包含剧透和秘密。
+`manual/player-guide/` 是玩家的核心入口文档，包含角色创建流程、世界常识介绍、可选化身列表等。这里的内容应该对玩家友好、避免剧透，帮助新玩家快速进入游戏。
 
 ## 基本结构
 
-子目录按手册类型组织，如 `player-guide/`（玩家指南）、`world-primer/`（世界入门）、`rules/`（规则说明）等。
+可包含多个子目录，如 `playable-characters/`（可选化身）、`character-creation/`（角色创建指南）等。
 
 ## 相关文档
 
-- Manual 内容边界：[reference/content/manual.md](../../reference/content/manual.md)
+- Manual 内容边界：[reference/content/manual.md](../../../reference/content/manual.md)

@@ -2,6 +2,12 @@ import {
     TextToImageNovelAiSettingsSchema,
     type TextToImageNovelAiSettings,
 } from "nbook/shared/dto/text-to-image.dto";
+import {
+    isNovelAiNoiseScheduleSupported,
+    isNovelAiSamplerSupported,
+    resolveNovelAiDefaultNoiseSchedule,
+    resolveNovelAiDefaultSampler,
+} from "nbook/shared/text-to-image-novelai-capabilities";
 
 /**
  * Resolve the one active NovelAI generation recipe before a queued request is built.
@@ -9,11 +15,19 @@ import {
  * recipe is the authoritative snapshot at generation time; explicit request dimensions
  * remain authoritative so body `<size>` overrides are not lost.
  */
-/** 只保留 V4.5 Full/Curated；旧 Full 类模型规范化到 Full，Curated 类到 Curated，无法分类回退 Full。 */
-export function normalizeNovelAiV45Model(model: unknown): "nai-diffusion-4-5-full" | "nai-diffusion-4-5-curated" {
+type SupportedNovelAiModel = "nai-diffusion-5-full" | "nai-diffusion-5-curated" | "nai-diffusion-4-5-full" | "nai-diffusion-4-5-curated";
+
+/** 保留当前支持的 V5/V4.5；旧模型仍映射到 V4.5，避免配置迁移时静默升级模型。 */
+export function normalizeNovelAiModel(model: unknown): SupportedNovelAiModel {
     const value = typeof model === "string" ? model : "";
-    if (value === "nai-diffusion-4-5-full" || value === "nai-diffusion-4-5-curated") {
-        return value;
+    const supported = new Set<SupportedNovelAiModel>([
+        "nai-diffusion-5-full",
+        "nai-diffusion-5-curated",
+        "nai-diffusion-4-5-full",
+        "nai-diffusion-4-5-curated",
+    ]);
+    if (supported.has(value as SupportedNovelAiModel)) {
+        return value as SupportedNovelAiModel;
     }
     if (value.includes("curated")) return "nai-diffusion-4-5-curated";
     return "nai-diffusion-4-5-full";
@@ -21,14 +35,24 @@ export function normalizeNovelAiV45Model(model: unknown): "nai-diffusion-4-5-ful
 
 function normalizeLegacyModelFields(input: Record<string, unknown>): Record<string, unknown> {
     const next: Record<string, unknown> = {...input};
-    if ("model" in next) next.model = normalizeNovelAiV45Model(next.model);
+    if ("model" in next) {
+        next.model = normalizeNovelAiModel(next.model);
+        if (typeof next.noiseSchedule !== "string" && String(next.model).startsWith("nai-diffusion-5-")) {
+            next.noiseSchedule = "native";
+        }
+    }
     const normalizeRecords = (key: "profiles" | "generationRecipes"): void => {
         const records = next[key];
         if (typeof records !== "object" || records === null) return;
         const entries = records as Record<string, Record<string, unknown>>;
         for (const [id, value] of Object.entries(entries)) {
             if (typeof value === "object" && value !== null) {
-                entries[id] = {...value, model: normalizeNovelAiV45Model(value.model)};
+                const model = normalizeNovelAiModel(value.model);
+                entries[id] = {
+                    ...value,
+                    model,
+                    ...(typeof value.noiseSchedule !== "string" && model.startsWith("nai-diffusion-5-") ? {noiseSchedule: "native"} : {}),
+                };
             }
         }
     };
@@ -95,17 +119,17 @@ export function migrateNovelAiPromptReplaceRulesOwnership(input: Record<string, 
 
 export function resolveNovelAiGenerationSettings(
     input: Record<string, unknown>,
-    explicitOverrides: Partial<Pick<TextToImageNovelAiSettings, "width" | "height">> = {},
+    explicitOverrides: Partial<Pick<TextToImageNovelAiSettings, "width" | "height" | "seed">> = {},
 ): TextToImageNovelAiSettings {
     const settings = normalizeNovelAiGenerationSettings(TextToImageNovelAiSettingsSchema.parse(normalizeLegacyModelFields(input)));
     const activeId = settings.activeGenerationRecipeId.trim();
     const recipeId = activeId || Object.keys(settings.generationRecipes).sort()[0] || "";
     const recipe = recipeId === "" ? undefined : settings.generationRecipes[recipeId];
     if (!recipe) {
-        return TextToImageNovelAiSettingsSchema.parse({...settings, ...explicitOverrides});
+        return normalizeNovelAiSettingsCapabilities(TextToImageNovelAiSettingsSchema.parse({...settings, ...explicitOverrides}));
     }
 
-    return TextToImageNovelAiSettingsSchema.parse({
+    return normalizeNovelAiSettingsCapabilities(TextToImageNovelAiSettingsSchema.parse({
         ...settings,
         ...recipe,
         fixedPositivePrompt: recipe.positive,
@@ -113,7 +137,7 @@ export function resolveNovelAiGenerationSettings(
         fixedNegativePrompt: recipe.negative,
         // 替换规则是 Provider 级全局设置，不进入 Recipe；即使旧 Recipe 对象仍带该字段也不覆盖根设置。
                 ...explicitOverrides,
-    });
+    }));
 }
 
 /** Convert the pre-recipe profile/preset shape into a deterministic default recipe. */
@@ -130,12 +154,12 @@ export function normalizeNovelAiGenerationSettings(
         const hasLegacyEntries = existingNames.some((id) => !settings.generationRecipeMeta[id]);
         if (hasLegacyEntries) {
             const migrated = migrateRecipeIds(settings, groups);
-            return {...settings, ...migrated};
+            return normalizeNovelAiSettingsCapabilities({...settings, ...migrated});
         }
         const activeId = settings.activeGenerationRecipeId !== "" && settings.generationRecipes[settings.activeGenerationRecipeId]
             ? settings.activeGenerationRecipeId
             : existingNames.sort()[0] ?? "";
-        return {...settings, generationRecipeGroups: groups, generationRecipeMeta: meta, activeGenerationRecipeId: activeId};
+        return normalizeNovelAiSettingsCapabilities({...settings, generationRecipeGroups: groups, generationRecipeMeta: meta, activeGenerationRecipeId: activeId});
     }
 
     const legacyNames = new Set([
@@ -177,10 +201,30 @@ export function normalizeNovelAiGenerationSettings(
         generationRecipeMeta: {},
         activeGenerationRecipeId: settings.activeGenerationRecipeId || names[0],
     });
-    return TextToImageNovelAiSettingsSchema.parse({
+    return normalizeNovelAiSettingsCapabilities(TextToImageNovelAiSettingsSchema.parse({
         ...generated,
         ...migrateRecipeIds(generated, groups),
-    });
+    }));
+}
+
+function normalizeNovelAiSettingsCapabilities(settings: TextToImageNovelAiSettings): TextToImageNovelAiSettings {
+    const normalizeProfile = <T extends TextToImageNovelAiSettings["generationRecipes"][string] | TextToImageNovelAiSettings>(profile: T): T => {
+        const sampler = isNovelAiSamplerSupported(profile.model, profile.sampler)
+            ? profile.sampler
+            : resolveNovelAiDefaultSampler(profile.model);
+        const noiseSchedule = isNovelAiNoiseScheduleSupported(profile.model, profile.noiseSchedule)
+            ? profile.noiseSchedule
+            : resolveNovelAiDefaultNoiseSchedule(profile.model);
+        return {...profile, sampler, noiseSchedule};
+    };
+    const generationRecipes = Object.fromEntries(Object.entries(settings.generationRecipes).map(([id, recipe]) => [
+        id,
+        normalizeProfile(recipe),
+    ])) as TextToImageNovelAiSettings["generationRecipes"];
+    return {
+        ...normalizeProfile(settings),
+        generationRecipes,
+    };
 }
 
 function migrateRecipeIds(

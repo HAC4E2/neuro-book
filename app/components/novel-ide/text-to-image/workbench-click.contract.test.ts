@@ -130,13 +130,17 @@ function makeVisualFile(visualId: string, fileName: string, active: boolean): Gr
     };
 }
 
-function makeVisualPayload(visualId: string, characterId = "hero"): Record<string, unknown> {
+function makeVisualPayload(
+    visualId: string,
+    characterId = "hero",
+    outfits: Array<Record<string, string>> = [],
+): Record<string, unknown> {
     return {
         schema: "nbook.character-visual/v1",
         visualId,
         characterId,
         character: {cnName: characterId},
-        outfits: [],
+        outfits,
         photos: [],
     };
 }
@@ -346,6 +350,7 @@ describe("文生图工作台按钮真实点击契约", () => {
         const activeFile = makeVisualFile("visual-a", "visual.json", true);
         const staleFile = makeVisualFile("visual-b", "second.json", false);
         const hero = {characterId: "hero", files: [activeFile, staleFile]};
+        let previewCalls = 0;
         let deleteCalls = 0;
         fetchMock = vi.fn(async (url: string, options: Record<string, unknown> = {}) => {
             if (url === "/api/text-to-image/character-library") {
@@ -360,9 +365,23 @@ describe("文生图工作台按钮真实点击契约", () => {
                     files: [activeFile, staleFile],
                 };
             }
+            if (url === "/api/text-to-image/character-library/visual.delete-preview") {
+                previewCalls += 1;
+                return {
+                    groupId: "default",
+                    characterId: "hero",
+                    visualId: "visual-b",
+                    fileName: "second.json",
+                    active: false,
+                    remainingVisualCount: 1,
+                    characterWillDisappear: false,
+                    fallback: null,
+                    revision: "rev-visual",
+                };
+            }
             if (url === "/api/text-to-image/character-library/visual.delete") {
                 deleteCalls += 1;
-                return {ok: true};
+                return {fallback: null};
             }
             throw new Error(`未接住的请求：${url}`);
         });
@@ -374,6 +393,9 @@ describe("文生图工作台按钮真实点击契约", () => {
         staleButton.click();
         await settle();
         buttonByText(mount.root, "删除 JSON").click();
+        await settle();
+        expect(previewCalls).toBe(1);
+        buttonByText(mount.root, "确认删除").click();
         await settle();
         expect(deleteCalls).toBe(1);
     });
@@ -440,6 +462,236 @@ describe("文生图工作台按钮真实点击契约", () => {
         await settle();
         expect(modifyCalls).toBe(1);
         expect(mount.root.textContent).toContain("应用角色设计修改");
+    });
+
+    it("切换角色会同步同索引服装草稿，未编辑时不提示保存也不跨角色写入", async () => {
+        const firstFile = makeVisualFile("visual-first", "first.json", true);
+        const secondFile = makeVisualFile("visual-second", "second.json", true);
+        const first = {characterId: "first", files: [firstFile]};
+        const second = {characterId: "second", files: [secondFile]};
+        const groups = [makeGroup("default", "默认分组", [first, second])];
+        let saveCalls = 0;
+        fetchMock = vi.fn(async (url: string, options: Record<string, unknown> = {}) => {
+            if (url === "/api/text-to-image/character-library") return {groups};
+            if (url === "/api/text-to-image/character-library/files") {
+                const query = options.query as {characterId: string; visualId: string};
+                const item = query.characterId === first.characterId ? first : second;
+                const file = item.files.find((candidate) => candidate.visualId === query.visualId) ?? item.files[0]!;
+                const outfitName = item.characterId === first.characterId ? "第一角色服装" : "第二角色服装";
+                return {
+                    visual: makeVisualPayload(file.visualId, item.characterId, [{
+                        cnName: outfitName,
+                        enName: `${item.characterId}-outfit`,
+                        upper: `${item.characterId}-upper`,
+                        upperBack: `${item.characterId}-upper-back`,
+                        lower: `${item.characterId}-lower`,
+                        lowerBack: `${item.characterId}-lower-back`,
+                    }]),
+                    file,
+                    files: item.files,
+                };
+            }
+            if (url === "/api/text-to-image/character-library/visual") {
+                saveCalls += 1;
+                return {ref: {groupId: "default", characterId: "second", visualId: "visual-second"}};
+            }
+            throw new Error(`未接住的请求：${url}`);
+        });
+        vi.stubGlobal("$fetch", fetchMock);
+        const mount = mountComponent(TextToImageCharacterSection, {projectRoot: "root"});
+        await settle();
+
+        buttonByText(mount.root, "服装详情").click();
+        await settle();
+        const secondCharacterButton = [...mount.root.querySelectorAll("button")]
+            .find((item) => (item.textContent ?? "").trim().startsWith("second")) as HTMLButtonElement | undefined;
+        expect(secondCharacterButton).toBeTruthy();
+        secondCharacterButton!.click();
+        await settle();
+
+        expect([...mount.root.querySelectorAll("textarea")]
+            .some((area) => (area as HTMLTextAreaElement).value === "second-upper")).toBe(true);
+        expect(mount.root.textContent).not.toContain("有未保存修改");
+        const saveButton = buttonByText(mount.root, "保存");
+        expect(saveButton.disabled).toBe(true);
+        saveButton.click();
+        await settle();
+        expect(saveCalls).toBe(0);
+    });
+
+    it("快速切换角色时丢弃迟到的旧视觉资料响应", async () => {
+        const firstFile = makeVisualFile("visual-first", "first.json", true);
+        const secondFile = makeVisualFile("visual-second", "second.json", true);
+        const first = {characterId: "first", files: [firstFile]};
+        const second = {characterId: "second", files: [secondFile]};
+        const groups = [makeGroup("default", "默认分组", [first, second])];
+        let resolveFirst: (value: unknown) => void = () => undefined;
+        const firstResponse = new Promise((resolve) => {
+            resolveFirst = resolve;
+        });
+        fetchMock = vi.fn(async (url: string, options: Record<string, unknown> = {}) => {
+            if (url === "/api/text-to-image/character-library") return {groups};
+            if (url === "/api/text-to-image/character-library/files") {
+                const query = options.query as {characterId: string; visualId: string};
+                if (query.characterId === first.characterId) {
+                    return firstResponse;
+                }
+                return {
+                    visual: makeVisualPayload(query.visualId, second.characterId, [{
+                        cnName: "第二角色服装",
+                        enName: "second-outfit",
+                        upper: "second-upper",
+                        upperBack: "second-upper-back",
+                        lower: "second-lower",
+                        lowerBack: "second-lower-back",
+                    }]),
+                    file: secondFile,
+                    files: second.files,
+                };
+            }
+            throw new Error(`未接住的请求：${url}`);
+        });
+        vi.stubGlobal("$fetch", fetchMock);
+        const mount = mountComponent(TextToImageCharacterSection, {projectRoot: "root"});
+        await settle();
+
+        const secondCharacterButton = [...mount.root.querySelectorAll("button")]
+            .find((item) => (item.textContent ?? "").trim().startsWith("second")) as HTMLButtonElement | undefined;
+        expect(secondCharacterButton).toBeTruthy();
+        secondCharacterButton!.click();
+        await settle();
+        buttonByText(mount.root, "服装详情").click();
+        await settle();
+        expect([...mount.root.querySelectorAll("textarea")]
+            .some((area) => (area as HTMLTextAreaElement).value === "second-upper")).toBe(true);
+
+        resolveFirst({
+            visual: makeVisualPayload(firstFile.visualId, first.characterId, [{
+                cnName: "第一角色服装",
+                enName: "first-outfit",
+                upper: "first-upper",
+                upperBack: "first-upper-back",
+                lower: "first-lower",
+                lowerBack: "first-lower-back",
+            }]),
+            file: firstFile,
+            files: first.files,
+        });
+        await settle();
+        expect(mount.root.textContent).toContain("· second · second.json");
+        expect([...mount.root.querySelectorAll("textarea")]
+            .some((area) => (area as HTMLTextAreaElement).value === "second-upper")).toBe(true);
+    });
+
+    it("保存当前角色的服装草稿时只提交当前 visualId，并在刷新后保持干净", async () => {
+        const file = makeVisualFile("visual-first", "first.json", true);
+        const first = {characterId: "first", files: [file]};
+        const groups = [makeGroup("default", "默认分组", [first])];
+        let saveBody: Record<string, unknown> | null = null;
+        fetchMock = vi.fn(async (url: string, options: Record<string, unknown> = {}) => {
+            if (url === "/api/text-to-image/character-library") return {groups};
+            if (url === "/api/text-to-image/character-library/files") {
+                return {
+                    visual: makeVisualPayload(file.visualId, first.characterId, [{
+                        cnName: "第一角色服装",
+                        enName: "first-outfit",
+                        upper: "first-upper",
+                        upperBack: "first-upper-back",
+                        lower: "first-lower",
+                        lowerBack: "first-lower-back",
+                    }]),
+                    file,
+                    files: first.files,
+                };
+            }
+            if (url === "/api/text-to-image/character-library/visual") {
+                saveBody = options.body as Record<string, unknown>;
+                return {ref: {groupId: "default", characterId: "first", visualId: file.visualId}};
+            }
+            throw new Error(`未接住的请求：${url}`);
+        });
+        vi.stubGlobal("$fetch", fetchMock);
+        const mount = mountComponent(TextToImageCharacterSection, {projectRoot: "root"});
+        await settle();
+        buttonByText(mount.root, "服装详情").click();
+        await settle();
+        const upper = [...mount.root.querySelectorAll("textarea")]
+            .find((area) => (area as HTMLTextAreaElement).value === "first-upper") as HTMLTextAreaElement | undefined;
+        expect(upper).toBeTruthy();
+        setInputValue(upper!, "first-upper-edited");
+        await settle();
+        buttonByText(mount.root, "保存").click();
+        await settle();
+
+        expect(saveBody).toMatchObject({
+            groupId: "default",
+            characterId: "first",
+            visualId: "visual-first",
+            visual: {
+                characterId: "first",
+                outfits: [{upper: "first-upper-edited"}],
+            },
+        });
+        expect(window.confirm).not.toHaveBeenCalled();
+        expect(mount.root.textContent).not.toContain("有未保存修改");
+    });
+
+    it("资料库刷新不会重复套用最初打开的角色", async () => {
+        const firstFile = makeVisualFile("visual-first", "first.json", true);
+        const secondFile = makeVisualFile("visual-second", "second.json", true);
+        const first = {characterId: "first", files: [firstFile]};
+        const second = {characterId: "second", files: [secondFile]};
+        const groups = [makeGroup("default", "默认分组", [first, second])];
+        let saveBody: Record<string, unknown> | null = null;
+        fetchMock = vi.fn(async (url: string, options: Record<string, unknown> = {}) => {
+            if (url === "/api/text-to-image/character-library") return {groups};
+            if (url === "/api/text-to-image/character-library/files") {
+                const query = options.query as {characterId: string; visualId: string};
+                const item = query.characterId === first.characterId ? first : second;
+                const file = item.files.find((candidate) => candidate.visualId === query.visualId) ?? item.files[0]!;
+                return {
+                    visual: makeVisualPayload(file.visualId, item.characterId, [{
+                        cnName: `${item.characterId}服装`,
+                        enName: `${item.characterId}-outfit`,
+                        upper: `${item.characterId}-upper`,
+                        upperBack: `${item.characterId}-upper-back`,
+                        lower: `${item.characterId}-lower`,
+                        lowerBack: `${item.characterId}-lower-back`,
+                    }]),
+                    file,
+                    files: item.files,
+                };
+            }
+            if (url === "/api/text-to-image/character-library/visual") {
+                saveBody = options.body as Record<string, unknown>;
+                return {ref: {groupId: "default", characterId: "second", visualId: secondFile.visualId}};
+            }
+            throw new Error(`未接住的请求：${url}`);
+        });
+        vi.stubGlobal("$fetch", fetchMock);
+        const mount = mountComponent(TextToImageCharacterSection, {
+            projectRoot: "root",
+            initialCharacter: {characterId: "first", groupId: "default", characterPage: "# first"},
+        });
+        await settle();
+        const secondCharacterButton = [...mount.root.querySelectorAll("button")]
+            .find((item) => (item.textContent ?? "").trim().startsWith("second")) as HTMLButtonElement | undefined;
+        expect(secondCharacterButton).toBeTruthy();
+        secondCharacterButton!.click();
+        await settle();
+        buttonByText(mount.root, "服装详情").click();
+        await settle();
+        const upper = [...mount.root.querySelectorAll("textarea")]
+            .find((area) => (area as HTMLTextAreaElement).value === "second-upper") as HTMLTextAreaElement | undefined;
+        expect(upper).toBeTruthy();
+        setInputValue(upper!, "second-upper-edited");
+        await settle();
+        buttonByText(mount.root, "保存").click();
+        await settle();
+
+        expect(saveBody).toMatchObject({characterId: "second", visualId: "visual-second"});
+        expect(mount.root.textContent).toContain("· second · second.json");
+        expect(mount.root.textContent).not.toContain("· first · first.json");
     });
 
     it("空分组在侧栏可见并可折叠，新建分组只提交名称", async () => {

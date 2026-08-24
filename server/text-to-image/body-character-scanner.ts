@@ -3,6 +3,7 @@ import type {CharacterVisualFile} from "nbook/server/text-to-image/character-vis
 import {
     buildEffectiveCharacterTriggers,
     normalizeTriggerToken,
+    splitCharacterNameAliases,
 } from "nbook/server/text-to-image/character-trigger-words";
 
 export type BodyCharacterMatch = {
@@ -162,10 +163,12 @@ export function buildBodyOutfitSummary(outfits: CharacterVisualFile["outfits"]):
 
 function renderCharacterSection(visual: CharacterVisualFile): string {
     const character = visual.character;
+    const names = splitCharacterNameAliases(character.enName);
     return [
         "<人物>",
         `中文名：${character.cnName}`,
-        `英文名：${character.enName}`,
+        `英文名：${names[0] ?? ""}`,
+        ...(names.length > 1 ? [`英文别名：${names.slice(1).join(" | ")}`] : []),
         `角色特征：${character.profileTraits}`,
         `五官正面：${character.facialAppearance}`,
         `五官背面：${character.facialBack}`,

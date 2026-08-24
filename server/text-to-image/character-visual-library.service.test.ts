@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     CharacterVisualLibraryService,
     CharacterVisualRevisionConflictError,
+    VisualDeleteRevisionConflictError,
 } from "nbook/server/text-to-image/character-visual-library.service";
 import type {CharacterVisualFile} from "nbook/server/text-to-image/character-visual.codec";
 
@@ -63,6 +64,48 @@ describe("CharacterVisualLibraryService", () => {
         await import("node:fs/promises").then(({writeFile}) => writeFile(filePath, "{broken", "utf8"));
         const tree = await service.listTree(root);
         expect(tree[0]?.characters[0]?.files[0]?.invalid).toBe(true);
+    });
+
+    it("previews and deletes the active visual with an atomic fallback", async () => {
+        const root = await createRoot();
+        const service = new CharacterVisualLibraryService();
+        const first = await service.write(root, {groupId: "default", characterId: "hero"}, makeVisual("hero", "first"));
+        const second = await service.createNewVersion(root, {groupId: "default", characterId: "hero", baseVisualId: first.ref.visualId}, makeVisual("hero", "second"));
+        await mkdir(path.join(root, ".nbook"), {recursive: true});
+        await writeFile(path.join(root, ".nbook", "text-to-image-send-data.json"), JSON.stringify({
+            lorebookPaths: [],
+            characterIds: ["hero"],
+            characterSelections: [{characterId: "hero", groupId: "default", visualId: second.ref.visualId}],
+            outfitSelections: [],
+        }), "utf8");
+        const preview = await service.previewDeleteVisual(root, second.ref);
+        expect(preview).toMatchObject({active: true, remainingVisualCount: 1, characterWillDisappear: false, fallback: {visualId: first.ref.visualId}});
+        await expect(service.deleteVisual(root, second.ref, preview.revision)).resolves.toMatchObject({fallback: {visualId: first.ref.visualId}});
+        await expect(service.read(root, first.ref)).resolves.toMatchObject({character: {profileTraits: "first"}});
+        await expect(service.read(root, second.ref)).resolves.toBeNull();
+        expect(JSON.parse(await readFile(path.join(root, ".nbook", "text-to-image-send-data.json"), "utf8"))).toMatchObject({
+            characterSelections: [{characterId: "hero", groupId: "default", visualId: first.ref.visualId}],
+        });
+    });
+
+    it("allows deleting the last visual without removing the original character record", async () => {
+        const root = await createRoot();
+        const service = new CharacterVisualLibraryService();
+        const visual = await service.write(root, {groupId: "default", characterId: "hero"}, makeVisual("hero"));
+        const preview = await service.previewDeleteVisual(root, visual.ref);
+        expect(preview).toMatchObject({characterWillDisappear: true, remainingVisualCount: 0});
+        await service.deleteVisual(root, visual.ref, preview.revision);
+        expect(await service.listCharacters(root, "default")).toEqual([]);
+        expect(await service.listGroups(root)).toEqual([expect.objectContaining({groupId: "default", characterCount: 0})]);
+    });
+
+    it("rejects deletion when the preview revision is stale", async () => {
+        const root = await createRoot();
+        const service = new CharacterVisualLibraryService();
+        const visual = await service.write(root, {groupId: "default", characterId: "hero"}, makeVisual("hero"));
+        const preview = await service.previewDeleteVisual(root, visual.ref);
+        await service.write(root, visual.ref, makeVisual("hero", "changed"), {expectedUpdatedAt: visual.info.updatedAt});
+        await expect(service.deleteVisual(root, visual.ref, preview.revision)).rejects.toBeInstanceOf(VisualDeleteRevisionConflictError);
     });
 
     it("migrates legacy grouped and ungrouped visual files once", async () => {

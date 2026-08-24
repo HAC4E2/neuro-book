@@ -1,5 +1,6 @@
 import {generateBodyImageBlocks} from "nbook/server/text-to-image/body-image-llm";
 import type {BodyImageBlock} from "nbook/server/text-to-image/body-image-llm";
+import type {BodyImageDiagnostic} from "nbook/server/text-to-image/body-image-diagnostics";
 import type {BodyImageHistoryPrefill} from "nbook/server/text-to-image/body-image-llm";
 import {insertBodyImagePlaceholders} from "nbook/server/text-to-image/body-image-insert.service";
 import {buildBodyCharacterSummary} from "nbook/server/text-to-image/body-character-scanner";
@@ -35,6 +36,7 @@ export type BodySessionResult = {
     placeholders: Awaited<ReturnType<typeof insertBodyImagePlaceholders>>["placeholders"];
     characterSummary: string;
     matchedCharacters: BodyCharacterMatch[];
+    diagnostics: BodyImageDiagnostic[];
 };
 
 /**
@@ -43,7 +45,7 @@ export type BodySessionResult = {
  */
 export async function generateBodyPrompts(input: BodySessionServiceInput): Promise<BodySessionResult> {
     const characterSummary = buildBodyCharacterSummary(input.characterMatches ?? []);
-    const blocks = await (input.generate ?? generateBodyImageBlocks)({
+    const generated = await (input.generate ?? generateBodyImageBlocks)({
         provider: input.provider,
         chapterContent: input.chapterContent,
         characterSummary,
@@ -57,13 +59,14 @@ export async function generateBodyPrompts(input: BodySessionServiceInput): Promi
     });
     const inserted = insertBodyImagePlaceholders({
         chapterContent: input.chapterContent,
-        blocks,
+        blocks: generated.blocks,
     });
     return {
-        blocks,
+        blocks: generated.blocks,
         content: inserted.content,
         placeholders: inserted.placeholders,
         characterSummary,
         matchedCharacters: input.characterMatches ?? [],
+        diagnostics: [...generated.diagnostics, ...inserted.diagnostics],
     };
 }

@@ -5,6 +5,13 @@ import {
     openTextToImageCredential,
     sealTextToImageCredential,
 } from "nbook/server/text-to-image/provider-credential";
+import {
+    TextToImageNovelAiGenerationRecipeGroupSchema,
+    TextToImageNovelAiGenerationRecipeMetaSchema,
+    TextToImageNovelAiGenerationRecipeSchema,
+    TextToImageNovelAiProfileSchema,
+    TextToImageNovelAiSettingsSchema,
+} from "nbook/shared/dto/text-to-image.dto";
 
 /** App SQLite 中持久化的 Provider 记录，凭据字段只保存 AES-GCM 密文。 */
 export type TextToImageProviderRecord = {
@@ -60,6 +67,34 @@ export class TextToImageProviderNotConfiguredError extends Error {
     }
 }
 
+export class TextToImageNovelAiProviderMissingError extends Error {
+    readonly code = "TEXT_TO_IMAGE_NOVELAI_PROVIDER_MISSING";
+
+    constructor() {
+        super("请先在文生图工作台配置 NovelAI");
+        this.name = "TextToImageNovelAiProviderMissingError";
+    }
+}
+
+export class TextToImageNovelAiCredentialMissingError extends Error {
+    readonly code = "TEXT_TO_IMAGE_NOVELAI_CREDENTIAL_MISSING";
+
+    constructor() {
+        super("请先保存 NovelAI API Key");
+        this.name = "TextToImageNovelAiCredentialMissingError";
+    }
+}
+
+/** 活动画风串为空、悬空或不属于当前 NovelAI Provider。 */
+export class TextToImageGenerationRecipeNotConfiguredError extends Error {
+    readonly code = "TEXT_TO_IMAGE_GENERATION_RECIPE_NOT_CONFIGURED";
+
+    constructor() {
+        super("请先选择并保存一个画风串");
+        this.name = "TextToImageGenerationRecipeNotConfiguredError";
+    }
+}
+
 export type TextToImageCredentialUpdate =
     | {mode: "preserve"}
     | {mode: "replace"; value: string}
@@ -77,6 +112,14 @@ export type SaveTextToImageProviderInput = {
     credentialUpdate?: TextToImageCredentialUpdate;
     /** 兼容 OpenAI 兼容 Provider 的旧表单；非空表示替换，空值在已有 Provider 上表示保留。 */
     credential?: string;
+};
+
+export type CurrentNovelAiProviderSnapshot = {
+    providerId: number;
+    providerOwnerUserId: number;
+    providerCredentialRevision: number;
+    generationRecipeId: string;
+    providerSnapshotJson: string;
 };
 
 export class TextToImageProviderCredentialRequiredError extends Error {
@@ -207,6 +250,119 @@ export class TextToImageProviderService {
             credentialRevision: record.credentialRevision,
         };
     }
+
+    /** 只切换活动画风串，绝不把当前表单中的其它草稿写回 Provider。 */
+    async setActiveGenerationRecipe(ownerUserId: number, id: number, recipeId: string): Promise<TextToImageProviderDto> {
+        const record = await this.store.find(ownerUserId, id);
+        if (!record || record.kind !== "novelai") {
+            throw new TextToImageProviderNotConfiguredError();
+        }
+        const settings = TextToImageNovelAiSettingsSchema.safeParse(record.settings);
+        const recipes = settings.success ? settings.data.generationRecipes : readRecord(record.settings.generationRecipes);
+        if (!recipes || !Object.prototype.hasOwnProperty.call(recipes, recipeId)) {
+            throw new TextToImageGenerationRecipeNotConfiguredError();
+        }
+        const updated = await this.store.update(ownerUserId, id, {
+            settings: {...record.settings, activeGenerationRecipeId: recipeId},
+        });
+        if (!updated) {
+            throw new TextToImageProviderNotConfiguredError();
+        }
+        return toProviderDto(updated);
+    }
+
+    /** 解析点击重 roll 时当前认证用户可用的 NovelAI Provider，不读取源 Job 的 Provider。 */
+    async resolveCurrentNovelAiProvider(ownerUserId: number): Promise<CurrentNovelAiProviderSnapshot> {
+        const provider = (await this.store.list(ownerUserId))
+            .filter((record) => record.kind === "novelai")
+            .sort((left, right) => left.id - right.id)[0];
+        if (!provider) {
+            throw new TextToImageNovelAiProviderMissingError();
+        }
+        const settings = sanitizeNovelAiProviderSettings(provider.settings);
+        const activeRecipeId = typeof settings.activeGenerationRecipeId === "string"
+            ? settings.activeGenerationRecipeId.trim()
+            : "";
+        const recipes = readRecord(settings.generationRecipes);
+        if (activeRecipeId === "" || !recipes || !Object.prototype.hasOwnProperty.call(recipes, activeRecipeId)) {
+            throw new TextToImageGenerationRecipeNotConfiguredError();
+        }
+        // 只为运行时确认 Key 存在；明文不进入返回值、Job 快照或错误消息。
+        try {
+            await this.resolveCredential(ownerUserId, provider.id);
+        } catch (error) {
+            if (error instanceof TextToImageProviderNotConfiguredError) {
+                throw new TextToImageNovelAiCredentialMissingError();
+            }
+            throw error;
+        }
+        return {
+            providerId: provider.id,
+            providerOwnerUserId: ownerUserId,
+            providerCredentialRevision: provider.credentialRevision,
+            generationRecipeId: activeRecipeId,
+            providerSnapshotJson: JSON.stringify({
+                providerId: provider.id,
+                kind: provider.kind,
+                baseUrl: provider.baseUrl,
+                model: provider.model,
+                credentialRevision: provider.credentialRevision,
+                activeGenerationRecipeId: activeRecipeId,
+                // baseUrl 的权威字段在 Provider 记录本身；覆盖 settings 中可能过期的副本，
+                // 让点击时快照连同当前出站地址一起冻结，但不携带凭据。
+                settings: {...settings, baseUrl: provider.baseUrl},
+            }),
+        };
+    }
+}
+
+/** Provider settings may come from older JSON; keep only the NovelAI contract before queueing. */
+function sanitizeNovelAiProviderSettings(input: Record<string, unknown>): Record<string, unknown> {
+    const nested = new Set([
+        "profiles",
+        "generationRecipes",
+        "generationRecipeGroups",
+        "generationRecipeMeta",
+        "fixedPromptPresets",
+    ]);
+    const rootInput = Object.fromEntries(Object.entries(input).filter(([key]) => !nested.has(key)));
+    const rootResult = TextToImageNovelAiSettingsSchema.partial().safeParse(rootInput);
+    const settings: Record<string, unknown> = rootResult.success ? {...rootResult.data} : {};
+    settings.profiles = sanitizeRecord(input.profiles, TextToImageNovelAiProfileSchema.partial());
+    settings.generationRecipes = sanitizeRecord(input.generationRecipes, TextToImageNovelAiGenerationRecipeSchema.partial());
+    settings.generationRecipeGroups = sanitizeRecord(input.generationRecipeGroups, TextToImageNovelAiGenerationRecipeGroupSchema.partial());
+    settings.generationRecipeMeta = sanitizeRecord(input.generationRecipeMeta, TextToImageNovelAiGenerationRecipeMetaSchema.partial());
+    settings.fixedPromptPresets = sanitizePromptPresets(input.fixedPromptPresets);
+    return settings;
+}
+
+function sanitizeRecord(value: unknown, schema: {safeParse: (input: unknown) => {success: boolean; data?: unknown}}): Record<string, unknown> {
+    const record = readRecord(value);
+    if (!record) return {};
+    return Object.fromEntries(Object.entries(record).flatMap(([key, item]) => {
+        const parsed = schema.safeParse(item);
+        return parsed.success ? [[key, parsed.data]] : [];
+    }));
+}
+
+function sanitizePromptPresets(value: unknown): Record<string, unknown> {
+    const record = readRecord(value);
+    if (!record) return {};
+    return Object.fromEntries(Object.entries(record).flatMap(([key, item]) => {
+        const valueRecord = readRecord(item);
+        if (!valueRecord) return [];
+        return [[key, {
+            positive: typeof valueRecord.positive === "string" ? valueRecord.positive : "",
+            positiveEnd: typeof valueRecord.positiveEnd === "string" ? valueRecord.positiveEnd : "",
+            negative: typeof valueRecord.negative === "string" ? valueRecord.negative : "",
+        }]];
+    }));
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
 }
 
 type ResolvedCredentialChange = {

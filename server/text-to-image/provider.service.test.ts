@@ -207,6 +207,55 @@ describe("TextToImageProviderService", () => {
         const provider = await service.save(7, {kind: "novelai", name: "NovelAI", baseUrl: "https://image.novelai.net", credential: "token"});
         await expect(service.resolveRuntimeProvider(7, provider.id)).resolves.toMatchObject({credential: "token", credentialRevision: 1});
     });
+
+    it("切换活动画风串只更新 activeGenerationRecipeId，不覆盖其它已保存设置", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        const provider = await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+            credential: "token",
+            settings: {
+                baseUrl: "https://image.novelai.net",
+                model: "nai-diffusion-4-5-full",
+                promptGuidance: 6,
+                activeGenerationRecipeId: "recipe-a",
+                generationRecipes: {
+                    "recipe-a": {model: "nai-diffusion-4-5-full"},
+                    "recipe-b": {model: "nai-diffusion-5-full"},
+                },
+            },
+        });
+
+        const switched = await service.setActiveGenerationRecipe(7, provider.id, "recipe-b");
+
+        expect(switched.settings).toMatchObject({
+            model: "nai-diffusion-4-5-full",
+            promptGuidance: 6,
+            activeGenerationRecipeId: "recipe-b",
+        });
+        expect(store.records[0]?.settings).toMatchObject({
+            model: "nai-diffusion-4-5-full",
+            promptGuidance: 6,
+            activeGenerationRecipeId: "recipe-b",
+        });
+        const current = await service.resolveCurrentNovelAiProvider(7);
+        expect(current).toMatchObject({
+            providerId: provider.id,
+            providerOwnerUserId: 7,
+            generationRecipeId: "recipe-b",
+        });
+        expect(JSON.parse(current.providerSnapshotJson)).toMatchObject({
+            providerId: provider.id,
+            activeGenerationRecipeId: "recipe-b",
+            settings: {
+                model: "nai-diffusion-4-5-full",
+                activeGenerationRecipeId: "recipe-b",
+            },
+        });
+        expect(current.providerSnapshotJson).not.toContain("token");
+    });
 });
 
 class InMemoryProviderStore implements TextToImageProviderStore {

@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -6,7 +6,6 @@ import {
     renderCharacterVisualJson,
     type CharacterVisualFile,
 } from "nbook/server/text-to-image/character-visual.codec";
-import {resolveTextToImageAssetPath} from "nbook/server/text-to-image/asset-path";
 import {canonicalizeTriggerWords} from "nbook/server/text-to-image/character-trigger-words";
 import {recoverIdentityJournal} from "nbook/server/text-to-image/character-identity.service";
 import {recoverVisualMoveJournal} from "nbook/server/text-to-image/character-visual-move.service";
@@ -30,12 +29,17 @@ import {
     recoverUnfinishedTransactions,
     withVisualLibraryProjectLock,
 } from "nbook/server/text-to-image/transaction-journal";
+import {
+    TextToImageProjectSendDataSchema,
+    type TextToImageProjectSendData,
+} from "nbook/shared/dto/text-to-image.dto";
 
 const LIBRARY_DIRECTORY = path.join(".nbook", "text-to-image");
 const GROUPS_FILE = "character-groups.json";
 const GROUP_DIRECTORY = "character-groups";
 const MANIFEST_FILE = "manifest.json";
 const DEFAULT_VISUAL_FILE = "visual.json";
+const SEND_DATA_FILE = path.join(".nbook", "text-to-image-send-data.json");
 const GROUP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const VISUAL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
@@ -121,6 +125,27 @@ export type DeleteGroupResult = {
     moved: {characterCount: number; visualCount: number};
     refMap: GroupMigrationRefMapping[];
 };
+
+export type DeleteVisualPreview = {
+    groupId: string;
+    characterId: string;
+    visualId: string;
+    fileName: string;
+    active: boolean;
+    remainingVisualCount: number;
+    characterWillDisappear: boolean;
+    fallback: {visualId: string; fileName: string} | null;
+    revision: string;
+};
+
+export class VisualDeleteRevisionConflictError extends Error {
+    readonly code = "TEXT_TO_IMAGE_VISUAL_DELETE_REVISION_CONFLICT";
+
+    constructor() {
+        super("视觉资料删除预检已过期，请重新读取影响摘要");
+        this.name = "VisualDeleteRevisionConflictError";
+    }
+}
 
 export class GroupNameConflictError extends Error {
     readonly code = "TEXT_TO_IMAGE_GROUP_NAME_CONFLICT";
@@ -521,7 +546,7 @@ export class CharacterVisualLibraryService {
         return {...item, active: true};
     }
 
-    async deleteVisual(projectRoot: string, ref: CharacterVisualRef): Promise<void> {
+    async previewDeleteVisual(projectRoot: string, ref: CharacterVisualRef): Promise<DeleteVisualPreview> {
         assertGroupId(ref.groupId);
         assertCharacterId(ref.characterId);
         assertVisualId(ref.visualId);
@@ -529,18 +554,58 @@ export class CharacterVisualLibraryService {
         const directory = characterDirectory(projectRoot, ref.groupId, ref.characterId);
         const manifest = await readManifest(directory, ref.characterId);
         const item = manifest?.visuals.find((visual) => visual.visualId === ref.visualId);
-        if (!manifest || !item) return;
-        if (manifest.visuals.length <= 1) {
-            throw new Error("每个分组至少保留一份视觉资料；请使用移出分组操作");
-        }
-        if (manifest.activeVisualId === ref.visualId) {
-            throw new Error("当前生效视觉资料不能直接删除，请先切换当前版本");
-        }
-        const visual = await readVisualFile(path.join(directory, item.fileName));
-        await fs.rm(path.join(directory, item.fileName), {force: true});
-        await removeRegisteredPhotos(projectRoot, visual?.photos ?? []);
-        manifest.visuals = manifest.visuals.filter((candidate) => candidate.visualId !== ref.visualId);
-        await writeJsonAtomic(path.join(directory, MANIFEST_FILE), manifest);
+        if (!manifest || !item) throw new Error("未找到视觉资料");
+        const remaining = manifest.visuals.filter((visual) => visual.visualId !== ref.visualId);
+        const fallback = manifest.activeVisualId === ref.visualId
+            ? [...remaining].sort(compareManifestVisuals)[0] ?? null
+            : null;
+        return {
+            groupId: ref.groupId,
+            characterId: ref.characterId,
+            visualId: ref.visualId,
+            fileName: item.fileName,
+            active: manifest.activeVisualId === ref.visualId,
+            remainingVisualCount: remaining.length,
+            characterWillDisappear: remaining.length === 0,
+            fallback: fallback ? {visualId: fallback.visualId, fileName: fallback.fileName} : null,
+            revision: manifestRevision(manifest),
+        };
+    }
+
+    async deleteVisual(projectRoot: string, ref: CharacterVisualRef, expectedRevision?: string): Promise<{fallback: {visualId: string; fileName: string} | null}> {
+        assertGroupId(ref.groupId);
+        assertCharacterId(ref.characterId);
+        assertVisualId(ref.visualId);
+        await this.ensure(projectRoot);
+        return await withVisualLibraryProjectLock(projectRoot, async () => {
+            const directory = characterDirectory(projectRoot, ref.groupId, ref.characterId);
+            const manifest = await readManifest(directory, ref.characterId);
+            const item = manifest?.visuals.find((visual) => visual.visualId === ref.visualId);
+            if (!manifest || !item) return {fallback: null};
+            if (expectedRevision && manifestRevision(manifest) !== expectedRevision) {
+                throw new VisualDeleteRevisionConflictError();
+            }
+            const remaining = manifest.visuals.filter((candidate) => candidate.visualId !== ref.visualId);
+            const fallback = manifest.activeVisualId === ref.visualId
+                ? [...remaining].sort(compareManifestVisuals)[0] ?? null
+                : null;
+            const fallbackVisual = fallback
+                ? await readVisualFile(path.join(directory, fallback.fileName))
+                : null;
+            await updateFixedSendDataReferences(projectRoot, ref, fallback ? {
+                visualId: fallback.visualId,
+                visual: fallbackVisual,
+            } : null);
+            await fs.rm(path.join(directory, item.fileName), {force: true});
+            if (remaining.length === 0) {
+                await fs.rm(directory, {recursive: true, force: true});
+                return {fallback: null};
+            }
+            manifest.visuals = remaining;
+            if (fallback) manifest.activeVisualId = fallback.visualId;
+            await writeJsonAtomic(path.join(directory, MANIFEST_FILE), manifest);
+            return {fallback: fallback ? {visualId: fallback.visualId, fileName: fallback.fileName} : null};
+        });
     }
 
     async migrateLegacy(projectRoot: string, groups: GroupsFile): Promise<void> {
@@ -624,6 +689,42 @@ export class CharacterVisualLibraryService {
         }
         return [...selected.values()];
     }
+}
+
+async function updateFixedSendDataReferences(
+    projectRoot: string,
+    ref: CharacterVisualRef,
+    fallback: {visualId: string; visual: CharacterVisualFile | null} | null,
+): Promise<void> {
+    const filePath = path.join(projectRoot, SEND_DATA_FILE);
+    let raw: string;
+    try {
+        raw = await fs.readFile(filePath, "utf8");
+    } catch (error) {
+        if (isErrorCode(error, "ENOENT")) return;
+        throw error;
+    }
+    const data = TextToImageProjectSendDataSchema.parse(JSON.parse(raw) as unknown);
+    const matches = (item: {characterId: string; groupId?: string | null; visualId?: string}) => (
+        item.characterId === ref.characterId
+        && (item.groupId ?? null) === ref.groupId
+        && item.visualId === ref.visualId
+    );
+    const next: TextToImageProjectSendData = {
+        ...data,
+        characterSelections: data.characterSelections.flatMap((item) => {
+            if (!matches(item)) return [item];
+            return fallback ? [{...item, visualId: fallback.visualId}] : [];
+        }),
+        outfitSelections: data.outfitSelections.flatMap((item) => {
+            if (!matches(item)) return [item];
+            if (!fallback?.visual) return [];
+            const outfit = fallback.visual.outfits.find((candidate) => candidate.cnName === item.name || candidate.enName === item.name);
+            return outfit ? [{...item, visualId: fallback.visualId}] : [];
+        }),
+    };
+    if (JSON.stringify(next) === JSON.stringify(data)) return;
+    await writeJsonAtomic(filePath, next);
 }
 
 export class CharacterVisualRevisionConflictError extends Error {
@@ -751,6 +852,17 @@ function emptyManifest(characterId: string): ManifestFile {
         activeVisualId: null,
         visuals: [],
     };
+}
+
+function compareManifestVisuals(left: ManifestFile["visuals"][number], right: ManifestFile["visuals"][number]): number {
+    return right.createdAt.localeCompare(left.createdAt)
+        || right.updatedAt.localeCompare(left.updatedAt)
+        || left.fileName.localeCompare(right.fileName)
+        || left.visualId.localeCompare(right.visualId);
+}
+
+function manifestRevision(manifest: ManifestFile): string {
+    return createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
 }
 
 async function readGroups(projectRoot: string): Promise<GroupsFile> {
@@ -908,12 +1020,6 @@ async function findLegacyVisuals(projectRoot: string): Promise<LegacyVisualLocat
         }
     }
     return locations;
-}
-
-async function removeRegisteredPhotos(projectRoot: string, photos: string[]): Promise<void> {
-    await Promise.all(photos
-        .filter((relativePath) => relativePath.startsWith("assets/tti/"))
-        .map((relativePath) => fs.rm(resolveTextToImageAssetPath(projectRoot, relativePath), {force: true})));
 }
 
 function compareGroups(left: CharacterGroupInfo, right: CharacterGroupInfo): number {

@@ -99,7 +99,7 @@ describe("TextToImagePrompt", () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(button?.disabled).toBe(false);
-        expect(status?.textContent).toBe("待生成");
+        expect(status?.textContent).toBe("生成失败，可重试");
 
         editor.destroy();
     });

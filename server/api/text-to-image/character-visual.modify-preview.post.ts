@@ -69,6 +69,8 @@ export default defineEventHandler(async (event) => {
         draft: draft.visual,
         warnings: draft.warnings,
         changedFields: draft.changedFields,
+        mode: draft.mode,
+        outfitCandidates: draft.outfitCandidates ?? [],
         baseRevision: current.info.updatedAt,
         current: current.visual,
         currentFile: current.info,

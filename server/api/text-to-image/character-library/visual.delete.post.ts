@@ -2,7 +2,10 @@ import {createError, defineEventHandler} from "h3";
 import {z} from "zod";
 import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {CharacterVisualLibraryService} from "nbook/server/text-to-image/character-visual-library.service";
+import {
+    CharacterVisualLibraryService,
+    VisualDeleteRevisionConflictError,
+} from "nbook/server/text-to-image/character-visual-library.service";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 
 const BodySchema = z.object({
@@ -10,6 +13,7 @@ const BodySchema = z.object({
     groupId: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
     visualId: z.string().uuid(),
+    expectedRevision: z.string().trim().min(1),
 }).strict();
 
 export default defineEventHandler(async (event) => {
@@ -17,10 +21,9 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, BodySchema);
     const projectRoot = resolveTextToImageProjectRoot(body.projectRoot);
     try {
-        await new CharacterVisualLibraryService().deleteVisual(projectRoot, body);
+        return await new CharacterVisualLibraryService().deleteVisual(projectRoot, body, body.expectedRevision);
     } catch (cause) {
         const message = cause instanceof Error ? cause.message : "删除视觉资料失败";
-        throw createError({statusCode: message.includes("不能直接删除") || message.includes("至少保留") ? 409 : 400, message});
+        throw createError({statusCode: cause instanceof VisualDeleteRevisionConflictError ? 409 : 400, message});
     }
-    return {ok: true};
 });

@@ -118,12 +118,14 @@ export const TextToImageNovelAiVibeGroupSettingsSchema = z.object({
 });
 export type TextToImageNovelAiVibeGroupSettings = z.infer<typeof TextToImageNovelAiVibeGroupSettingsSchema>;
 
-/** 仅支持的 NovelAI 生成模型：V4.5 Full/Curated；旧模型在规范化时确定映射。 */
-export const TextToImageNovelAiV45ModelSchema = z.enum([
+/** 当前支持的 NovelAI 生成模型；旧模型在规范化时确定映射。 */
+export const TextToImageNovelAiModelSchema = z.enum([
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-curated",
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-5-curated",
 ]);
-export type TextToImageNovelAiV45Model = z.infer<typeof TextToImageNovelAiV45ModelSchema>;
+export type TextToImageNovelAiModel = z.infer<typeof TextToImageNovelAiModelSchema>;
 
 /** 内置提示词替换规则模板；该常量是唯一真相源，禁止在组件或测试中复制多份字符串。 */
 export const DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT = [
@@ -139,7 +141,7 @@ export const DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT = [
 /** NovelAI 配置档案：模型/采样/参数快照，可独立读取、另存为、删除。 */
 
 export const TextToImageNovelAiProfileSchema = z.object({
-    model: TextToImageNovelAiV45ModelSchema,
+    model: TextToImageNovelAiModelSchema,
     sampler: z.string(),
     noiseSchedule: z.string(),
     promptGuidance: z.number(),
@@ -190,7 +192,7 @@ export type TextToImageNovelAiGenerationRecipeMeta = z.infer<typeof TextToImageN
 export const TextToImageNovelAiSettingsSchema = z.object({
     baseUrl: z.string().trim().default("https://image.novelai.net"),
     requestIntervalMs: z.number().int().min(15_000).default(15_000),
-    model: TextToImageNovelAiV45ModelSchema.default("nai-diffusion-4-5-full"),
+    model: TextToImageNovelAiModelSchema.default("nai-diffusion-4-5-full"),
     sampler: z.string().default("k_euler"),
     noiseSchedule: z.string().default("karras"),
     promptGuidance: z.number().default(10),

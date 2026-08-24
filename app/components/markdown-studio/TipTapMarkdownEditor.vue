@@ -1778,6 +1778,18 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     line-height: 1.3;
 }
 
+:deep(.nb-text-to-image-prompt-status[data-status="succeeded"]) {
+    color: var(--status-success);
+}
+
+:deep(.nb-text-to-image-prompt-status[data-status="failed"]) {
+    color: var(--status-danger);
+}
+
+:deep(.nb-text-to-image-prompt-status[data-status="canceled"]) {
+    color: var(--status-warning);
+}
+
 :deep(.nb-text-to-image-prompt-button) {
     display: inline-flex;
     min-height: 2rem;

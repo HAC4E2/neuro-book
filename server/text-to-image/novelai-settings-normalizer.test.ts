@@ -5,6 +5,27 @@ import {
 } from "nbook/server/text-to-image/novelai-settings-normalizer";
 
 describe("resolveNovelAiGenerationSettings", () => {
+    it("preserves V5 models at the root and in the active recipe", () => {
+        const root = resolveNovelAiGenerationSettings({model: "nai-diffusion-5-full"});
+        expect(root.model).toBe("nai-diffusion-5-full");
+        expect(root.noiseSchedule).toBe("native");
+
+        const recipe = resolveNovelAiGenerationSettings({
+            activeGenerationRecipeId: "v5",
+            generationRecipes: {
+                v5: {
+                    model: "nai-diffusion-5-curated", sampler: "k_euler_ancestral", noiseSchedule: "karras",
+                    promptGuidance: 7, promptGuidanceRescale: 0, aiDefaultCharacterPosition: true,
+                    variety: false, decrisp: false, width: 832, height: 1216, steps: 23, seed: 0,
+                    positiveQualityPreset: true, negativeQualityPreset: "Heavy",
+                    positive: "", positiveEnd: "", negative: "",
+                },
+            },
+        });
+        expect(recipe.model).toBe("nai-diffusion-5-curated");
+        expect(recipe.noiseSchedule).toBe("karras");
+    });
+
     it("applies the selected recipe as the generation snapshot", () => {
         const settings = resolveNovelAiGenerationSettings({
             model: "nai-diffusion-4-5-full",

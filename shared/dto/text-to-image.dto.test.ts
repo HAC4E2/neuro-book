@@ -121,6 +121,11 @@ describe("text-to-image DTO", () => {
         expect(TextToImageNovelAiSettingsSchema.parse({requestIntervalMs: 20_000}).requestIntervalMs).toBe(20_000);
     });
 
+    it("NovelAI Provider 接受 V5 Full 与 Curated 模型", () => {
+        expect(TextToImageNovelAiSettingsSchema.parse({model: "nai-diffusion-5-full"}).model).toBe("nai-diffusion-5-full");
+        expect(TextToImageNovelAiSettingsSchema.parse({model: "nai-diffusion-5-curated"}).model).toBe("nai-diffusion-5-curated");
+    });
+
     it("stores a combined active generation recipe", () => {
         const parsed = TextToImageNovelAiSettingsSchema.parse({
             activeGenerationRecipeId: "cinematic",

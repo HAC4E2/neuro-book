@@ -1,5 +1,5 @@
 ---
-title: 世界模拟
+title: 模拟记录
 type: note
 subtype: directory-index
 status: active
@@ -7,7 +7,7 @@ icon: activity
 aliases: []
 tags:
   - 目录说明
-summary: "World simulation runtime directory."
+summary: "Simulation run index."
 refs: []
 retrieval:
   enabled: false
@@ -18,19 +18,22 @@ governance:
 ext: {}
 ---
 
-# 世界模拟
+# 模拟记录
 
-本目录保存世界运行态、subject 状态、entity 实例和 tick 过程记录。
+本文件索引当前 Project Workspace 的 simulation / emulation tick。`runs/` 是过程记录，不是 canonical lorebook，也不是 subject 长期记忆。
 
 ## 目录用途
 
-`simulation/` 是项目的运行态根目录，存储所有会随剧情推进而变化的动态状态。与 `lorebook/` 的静态设定不同，这里记录的是"世界正在发生什么"——角色的当前想法、物品的实时状态、每一轮推演的过程记录。
+`simulation/runs/` 记录每一轮 RP tick 或世界推演的完整过程，包括裁决报告、用户可见正文、输入材料和工具日志。这些记录是可追溯的审计日志，不应被后续 tick 修改或覆盖。
 
-## 基本结构
+| Run | Title | Mode | World Time | Status | Summary |
+| --- | --- | --- | --- | --- | --- |
+| 000000 | Initial State | bootstrap | 待填写 | draft | 初始运行态模板。 |
 
-包含三个子目录：`subjects/`（信息控制主体）、`entities/`（有状态物品/地点）、`runs/`（tick 过程记录）。
+## 维护规则
 
-## 相关文档
-
-- Simulation 目录总览与设计理念：[reference/content/simulation.md](../../reference/content/simulation.md)
-- Simulation vs Lorebook 边界：[reference/content/project-structure.md](../../reference/content/project-structure.md)
+- tick 目录使用 `000001-short-slug` 形式命名。
+- 每个 tick 第一版只要求维护 `report.md` 和可选 `prose.md`。
+- `report.md` 写后台推演、裁决、状态提交和 writer-safe brief。
+- `prose.md` 只写用户可见正文；RP Tick 应保存 `rp.writer` 输出的完整正文，`rp.leader` 只负责链接和元场景组装。
+- `input.md`、actor packets、commit log 和 tool log 等机械产物后续可由 workflow/runtime 自动生成，第一版不要求手写。

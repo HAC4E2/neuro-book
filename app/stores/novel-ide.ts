@@ -929,7 +929,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if (!activeFile?.node.editable) {
             return null;
         }
-
         const pathToSave = activeFile.node.path;
         const contentToSave = options.content ?? activeFile.content;
         savingFile.value = true;
@@ -1020,13 +1019,17 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if (!activeFile?.node.editable) {
             return null;
         }
+        const requestedPath = activeFile.node.path;
         // 正文已经与最后一次成功写盘的版本一致时，不再制造一次无意义的
         // expectedMtime CAS；服务端入队/写回会自行读取最新章节版本。
         if (activeFile.content === activeFile.lastSyncedContent) {
             return activeFile.node;
         }
         const savedNode = await saveCurrentFile();
-        if (!savedNode || selectedFileContent.value !== lastSyncedFileContent.value) {
+        // 请求可能在保存等待期间切换到另一个章节；不要用“当前选中页”的
+        // reactive 内容判断旧章节是否保存成功。以保存请求对应的 buffer 为准。
+        const savedBuffer = workspaceBuffers.value[requestedPath];
+        if (!savedNode || !savedBuffer || savedBuffer.content !== savedBuffer.lastSyncedContent) {
             return null;
         }
         return savedNode;

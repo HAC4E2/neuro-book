@@ -1,3 +1,4 @@
+import {randomInt} from "node:crypto";
 import {unzipSync} from "fflate";
 import type {Dispatcher} from "undici";
 import {
@@ -18,6 +19,12 @@ import {
     buildNovelAiReferencePayload,
     resolveNovelAiModelFamily,
 } from "nbook/server/text-to-image/novelai-payload";
+import {
+    calculateNovelAiVarietySigma,
+    requireNovelAiModelCapabilities,
+    resolveNovelAiDefaultNoiseSchedule,
+    resolveNovelAiDefaultSampler,
+} from "nbook/shared/text-to-image-novelai-capabilities";
 
 export type NovelAiVibeReferenceInput = {
     enabled: boolean;
@@ -103,6 +110,23 @@ export class NovelAiHttpError extends Error {
 }
 
 const MAX_SEED = 4294967295;
+
+/** 将内部随机 Seed 标记转换为 NovelAI 可接受的 uint32；非负 Seed 保持不变。 */
+export function resolveNovelAiRequestSeed(
+    value: number,
+    randomSeed: () => number = () => randomInt(0, MAX_SEED + 1),
+): number {
+    const normalized = clampInteger(value, -1, MAX_SEED, 0);
+    if (normalized >= 0) {
+        return normalized;
+    }
+    const generated = randomSeed();
+    if (!Number.isInteger(generated) || generated < 0 || generated > MAX_SEED) {
+        throw new Error("随机 Seed 生成失败");
+    }
+    return generated;
+}
+
 /**
  * NovelAI `/ai/generate-image` 直调。
  * 默认接收 zip 图片包，兼容 JSON `images[]` base64；安全出站复用 provider-fetch。
@@ -115,40 +139,62 @@ export async function requestNovelAiImages(
     if (token === "") {
         throw new Error("NovelAI Provider 凭据不能为空");
     }
+    const family = resolveNovelAiModelFamily(input.model);
+    const unsupportedReference = family === "nai5" ? resolveActiveReferenceKind(input) : null;
+    if (unsupportedReference === "vibe") {
+        throw new Error("当前 V5 模型不支持所选参数：Vibe Transfer");
+    }
+    if (unsupportedReference === "character") {
+        throw new Error("当前 V5 模型不支持所选参数：角色参考图");
+    }
+    const capabilities = requireNovelAiModelCapabilities(input.model);
     const width = clampInteger(input.width, 64, 4096, 832);
     const height = clampInteger(input.height, 64, 4096, 1216);
-    const steps = clampInteger(input.steps, 1, 50, 28);
-    const seed = clampInteger(input.seed, -1, MAX_SEED, 0);
-    const family = resolveNovelAiModelFamily(input.model);
+    const steps = clampInteger(input.steps, 1, 50, family === "nai5" ? 23 : 28);
+    const seed = resolveNovelAiRequestSeed(input.seed);
     const flatPrompt = input.prompt;
     const flatNegativePrompt = input.negativePrompt;
     const baseUrl = input.baseUrl.replace(/\/+$/u, "");
+    const sampler = capabilities.allowedSamplers.includes(input.sampler)
+        ? input.sampler
+        : resolveNovelAiDefaultSampler(input.model);
+    const noiseSchedule = capabilities.allowedNoiseSchedules.includes(input.noiseSchedule)
+        ? input.noiseSchedule
+        : resolveNovelAiDefaultNoiseSchedule(input.model);
     const parameters: Record<string, unknown> = {
-        params_version: 3,
+        params_version: capabilities.paramsVersion,
         width,
         height,
-        scale: clampNumber(input.scale, 1, 30, 5),
-        sampler: input.sampler || "k_euler",
+        scale: clampNumber(input.scale, 1, family === "nai5" ? 10 : 30, family === "nai5" ? 7 : 5),
+        sampler,
         steps,
         n_samples: 1,
         ucPreset: input.ucPreset ?? resolveNovelAiUcPreset(input.model, "Heavy"),
         qualityToggle: input.positiveQualityPreset ?? true,
-        dynamic_thresholding: input.decrisp,
         controlnet_strength: 1,
         legacy: false,
         add_original_image: true,
         cfg_rescale: clampNumber(input.cfgRescale, 0, 1, 0),
-        noise_schedule: input.noiseSchedule || "karras",
-        normalize_reference_strength_multiple: true,
+        noise_schedule: noiseSchedule,
         inpaintImg2ImgStrength: 1,
         seed,
         negative_prompt: flatNegativePrompt,
-        variety: input.variety,
-        ai_default_character_position: input.aiDefaultCharacterPosition,
         deliberate_euler_ancestral_bug: false,
         prefer_brownian: true,
-        skip_cfg_above_sigma: input.variety ? calculateVarietySigma(width, height) : null,
     };
+    if (family === "nai45") {
+        parameters.dynamic_thresholding = input.decrisp;
+        parameters.normalize_reference_strength_multiple = true;
+        parameters.variety = input.variety;
+        parameters.ai_default_character_position = input.aiDefaultCharacterPosition;
+        parameters.skip_cfg_above_sigma = input.variety
+            ? calculateNovelAiVarietySigma(input.model, width, height)
+            : null;
+    } else if (capabilities.supportsVariety) {
+        parameters.skip_cfg_above_sigma = input.variety
+            ? calculateNovelAiVarietySigma(input.model, width, height)
+            : null;
+    }
 
     const characterPrompts = input.characterPrompts ?? [];
     const useCoords = !input.aiDefaultCharacterPosition
@@ -205,8 +251,8 @@ export async function requestNovelAiImages(
 
                 const body = {
                     input: flatPrompt,
-                    model: input.model,
-                    action: "generate",
+                    model: resolveNovelAiRequestModel(input.model, input.inpaint !== undefined),
+                    action: input.inpaint && family === "nai5" ? "infill" : "generate",
                     parameters,
                     use_new_shared_trial: true,
                 };
@@ -259,6 +305,25 @@ export async function requestNovelAiImages(
             }
         },
     });
+}
+
+function resolveActiveReferenceKind(input: NovelAiImageInput): "vibe" | "character" | null {
+    if (input.vibe?.enabled && input.vibe.imageId) return "vibe";
+    if (input.vibeGroup?.enabled) {
+        const groups = input.vibeGroups ?? {};
+        if (input.vibeGroup.groupId && (groups[input.vibeGroup.groupId]?.length ?? 0) > 0) return "vibe";
+        if (input.vibeGroup.random && Object.values(groups).some((items) => items.length > 0)) return "vibe";
+    }
+    if (!input.characterReference?.enabled) return null;
+    const selectedGroup = input.characterReference.groupId
+        ? input.characterGroups?.[input.characterReference.groupId] ?? []
+        : [];
+    return selectedGroup.length > 0 || input.characterReference.imageIds.length > 0 ? "character" : null;
+}
+
+function resolveNovelAiRequestModel(model: string, inpaint: boolean): string {
+    if (!inpaint) return model;
+    return requireNovelAiModelCapabilities(model).inpaintModel;
 }
 
 type ResolvedVibeReference = {
@@ -436,10 +501,6 @@ function randomGroupId(groups: Record<string, string[]>): string | null {
         return null;
     }
     return keys[Math.floor(Math.random() * keys.length)] ?? null;
-}
-
-function calculateVarietySigma(width: number, height: number): number {
-    return 58 * Math.sqrt((4 * (width / 8) * (height / 8)) / 63232);
 }
 
 function normalizeNovelAiToken(token: string): string {

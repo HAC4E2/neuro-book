@@ -1,6 +1,7 @@
 import {randomUUID} from "node:crypto";
+import {requireNovelAiModelCapabilities} from "nbook/shared/text-to-image-novelai-capabilities";
 
-export type NovelAiModelFamily = "nai45";
+export type NovelAiModelFamily = "nai45" | "nai5";
 
 export type NovelAiResolvedVibe = {
     encodingBase64: string;
@@ -14,23 +15,21 @@ export type NovelAiResolvedCharacter = {
     informationExtracted: number;
 };
 
-const NOVEL_AI_V45_MODELS = new Set([
-    "nai-diffusion-4-5-full",
-    "nai-diffusion-4-5-curated",
-]);
-
-/** 只接受 V4.5 Full/Curated；旧模型在进入生成器前必须已规范化。 */
+/** 只接受 V5/V4.5 Full/Curated；旧模型在进入生成器前必须已规范化。 */
 export function resolveNovelAiModelFamily(model: string): NovelAiModelFamily {
-    if (!NOVEL_AI_V45_MODELS.has(model)) {
-        throw new Error(`不支持的 NovelAI 模型：${model}；仅支持 NAI4.5 Full/Curated`);
-    }
-    return "nai45";
+    return requireNovelAiModelCapabilities(model).family;
 }
 
 export function buildNovelAiReferencePayload(
-    _family: NovelAiModelFamily,
+    family: NovelAiModelFamily,
     references: {vibe: NovelAiResolvedVibe[]; character: NovelAiResolvedCharacter[]},
 ): Record<string, unknown> {
+    if (family === "nai5" && references.vibe.length > 0) {
+        throw new Error("当前 V5 模型不支持所选参数：Vibe Transfer");
+    }
+    if (family === "nai5" && references.character.length > 0) {
+        throw new Error("当前 V5 模型不支持所选参数：角色参考图");
+    }
     const payload: Record<string, unknown> = {};
     if (references.vibe.length > 0) {
         payload.reference_image_multiple_cached = references.vibe.map((item) => ({
@@ -54,7 +53,7 @@ export function buildNovelAiReferencePayload(
         payload.director_reference_secondary_strength_values = references.character.map((item) => Number((1 - item.strength).toFixed(6)));
     }
 
-    validateNovelAiPayload("nai45", {
+    validateNovelAiPayload(family, {
         width: 1,
         height: 1,
         scale: 1,
@@ -66,11 +65,22 @@ export function buildNovelAiReferencePayload(
     return payload;
 }
 
-export function validateNovelAiPayload(_family: NovelAiModelFamily, payload: Record<string, unknown>): void {
+export function validateNovelAiPayload(family: NovelAiModelFamily, payload: Record<string, unknown>): void {
     for (const field of ["width", "height", "scale", "sampler", "steps", "seed"]) {
         if (payload[field] === undefined || payload[field] === null) {
             throw new Error(`NovelAI payload 缺少字段：${field}`);
         }
+    }
+    if (family === "nai5" && [
+        "reference_image_multiple_cached",
+        "reference_strength_multiple",
+        "director_reference_images_cached",
+        "director_reference_descriptions",
+        "director_reference_information_extracted",
+        "director_reference_strength_values",
+        "director_reference_secondary_strength_values",
+    ].some((field) => payload[field] !== undefined)) {
+        throw new Error("当前 V5 模型不支持所选参数：Vibe Transfer 或角色参考图");
     }
     assertEqualArrayLengths(payload, [
         "reference_image_multiple_cached",

@@ -43,6 +43,18 @@ type VisualFileInfo = {
     invalid?: boolean;
 };
 
+type DeleteVisualPreview = {
+    groupId: string;
+    characterId: string;
+    visualId: string;
+    fileName: string;
+    active: boolean;
+    remainingVisualCount: number;
+    characterWillDisappear: boolean;
+    fallback: {visualId: string; fileName: string} | null;
+    revision: string;
+};
+
 type CharacterOutfit = {
     cnName: string;
     enName: string;
@@ -61,11 +73,33 @@ type CharacterVisual = {
     photos: string[];
 };
 
+type VisualSelection = {
+    groupId: string;
+    characterId: string;
+    visualId: string;
+};
+
+type OutfitCandidateAction = "unset" | "replace" | "add" | "ignore";
+
+type OutfitCandidate = {
+    candidateId: string;
+    sourceOrder: number;
+    outfit: CharacterOutfit;
+    fields: Array<keyof CharacterOutfit>;
+    warnings: string[];
+    action: OutfitCandidateAction;
+};
+
 type PendingDraft = {
     draft: CharacterVisual;
     current: CharacterVisual | null;
     baseRevision: string | null;
     currentFile: VisualFileInfo | null;
+    mode: "merged" | "outfit_only";
+    outfitCandidates: OutfitCandidate[];
+    targetOutfitIndex: number | null;
+    warnings: string[];
+    changedFields: string[];
 };
 
 const defaultCharacterFields: Record<CharacterFieldKey, string> = {
@@ -106,14 +140,24 @@ const character = ref({...defaultCharacterFields});
 const outfits = ref<CharacterOutfit[]>([]);
 const photos = ref<string[]>([]);
 const characterPage = ref("");
-const userRequirement = ref("");
+const characterRequirement = ref("");
+const outfitRequirement = ref("");
+const photoRequirement = ref("");
 const photoPrompt = ref("");
 const newGroupName = ref("");
 const targetGroupId = ref("");
 const activeOutfitIndex = ref(-1);
 const outfitDraft = ref<CharacterOutfit>({...defaultOutfit});
+/** 服装草稿的所有权；不能只用 outfitIndex，因为不同角色都会从 0 开始。 */
+const outfitDraftOwnerKey = ref("");
+/** 丢弃迟到的旧视觉资料响应，避免快速切换时旧角色覆盖当前页面。 */
+const visualLoadRequestId = ref(0);
+/** initialCharacter 是一次性导航指令，资料库刷新不能重复应用它。 */
+const initialCharacterAppliedKey = ref<string | null>(null);
 const subTab = ref<CharacterWorkbenchSectionId>("character");
 const selectedFile = ref<VisualFileInfo | null>(null);
+const deleteVisualPreview = ref<DeleteVisualPreview | null>(null);
+const deleteVisualSubmitting = ref(false);
 const pendingDraft = ref<PendingDraft | null>(null);
 const error = ref("");
 const loading = ref(false);
@@ -166,7 +210,16 @@ const visualDirty = computed(() => {
     return JSON.stringify(outfits.value) !== JSON.stringify(loadedOutfits.value)
         || JSON.stringify(photos.value) !== JSON.stringify(loadedPhotos.value);
 });
-const hasUnsavedChanges = computed(() => identityDirty.value || visualDirty.value);
+const outfitDraftDirty = computed(() => Boolean(
+    activeOutfit.value
+    && outfitDraftOwnerKey.value === makeOutfitDraftOwnerKey({
+        groupId: activeGroupId.value,
+        characterId: activeCharacterId.value,
+        visualId: activeVisualId.value,
+    }, activeOutfitIndex.value)
+    && JSON.stringify(activeOutfit.value) !== JSON.stringify(outfitDraft.value),
+));
+const hasUnsavedChanges = computed(() => identityDirty.value || visualDirty.value || outfitDraftDirty.value);
 
 function snapshotLoaded(): void {
     loadedIdentity.value = {cnName: character.value.cnName, enName: character.value.enName, triggerWords: character.value.triggerWords};
@@ -239,8 +292,13 @@ watch(() => props.projectRoot, async (next, previous) => {
         error.value = "Project 切换已取消；当前页面仍绑定原 Project，重新加载后才能写入新 Project";
     }
 });
-watch(() => props.initialCharacter, () => void applyInitialCharacter(), {immediate: true});
-watch(activeOutfitIndex, syncOutfitDraft, {immediate: true});
+watch(() => props.initialCharacter, (context) => {
+    if (!context) {
+        initialCharacterAppliedKey.value = null;
+        return;
+    }
+    void applyInitialCharacter();
+}, {immediate: true});
 
 async function loadLibrary(): Promise<void> {
     loading.value = true;
@@ -255,18 +313,27 @@ async function loadLibrary(): Promise<void> {
         if (!targetGroupId.value || targetGroupId.value === activeGroupId.value) {
             targetGroupId.value = groups.value.find((group) => group.groupId !== activeGroupId.value)?.groupId ?? "";
         }
-        await applyInitialCharacter();
-        if (!activeCharacterId.value) {
+
+        const context = props.initialCharacter;
+        const contextKey = characterContextKey(context);
+        if (context && contextKey !== initialCharacterAppliedKey.value) {
+            if (await applyInitialCharacter()) return;
+        }
+
+        const currentGroup = groups.value.find((group) => group.groupId === activeGroupId.value);
+        const currentCharacter = currentGroup?.characters.find((item) => item.characterId === activeCharacterId.value);
+        const currentFile = currentCharacter?.files.find((file) => file.visualId === activeVisualId.value)
+            ?? currentCharacter?.files.find((file) => file.active)
+            ?? currentCharacter?.files[0];
+        if (currentGroup && currentCharacter && currentFile) {
+            await selectVisual(currentGroup.groupId, currentCharacter.characterId, currentFile.visualId);
+        } else {
             const firstGroup = groups.value.find((group) => group.characters.length > 0);
             const firstCharacter = firstGroup?.characters[0];
             const firstFile = firstCharacter?.files[0];
             if (firstGroup && firstCharacter && firstFile) {
                 await selectVisual(firstGroup.groupId, firstCharacter.characterId, firstFile.visualId);
             }
-        } else {
-            const current = activeCharacter.value?.files.find((file) => file.visualId === activeVisualId.value)
-                ?? activeCharacter.value?.files[0];
-            if (current) await selectVisual(activeGroupId.value, activeCharacterId.value, current.visualId);
         }
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "加载角色视觉资料失败");
@@ -275,9 +342,16 @@ async function loadLibrary(): Promise<void> {
     }
 }
 
-async function applyInitialCharacter(): Promise<void> {
+function characterContextKey(context: CharacterGenerationContext | null | undefined): string | null {
+    if (!context) return null;
+    return [context.groupId ?? "", context.characterId, context.characterPage].join("\u0000");
+}
+
+async function applyInitialCharacter(): Promise<boolean> {
     const context = props.initialCharacter;
-    if (!context || groups.value.length === 0) return;
+    if (!context || groups.value.length === 0) return false;
+    const contextKey = characterContextKey(context);
+    if (contextKey === initialCharacterAppliedKey.value) return true;
     const groupId = context.groupId && groups.value.some((group) => group.groupId === context.groupId)
         ? context.groupId
         : "default";
@@ -285,16 +359,18 @@ async function applyInitialCharacter(): Promise<void> {
     const characterItem = group?.characters.find((item) => item.characterId === context.characterId);
     const file = characterItem?.files.find((item) => item.active) ?? characterItem?.files[0];
     characterPage.value = context.characterPage;
-    activeGroupId.value = group?.groupId ?? "default";
-    activeCharacterId.value = context.characterId;
     if (group && characterItem && file) {
-        await selectVisual(group.groupId, characterItem.characterId, file.visualId);
+        if (!await selectVisual(group.groupId, characterItem.characterId, file.visualId)) return false;
     } else {
+        activeGroupId.value = group?.groupId ?? "default";
+        activeCharacterId.value = context.characterId;
         activeVisualId.value = "";
         selectedFile.value = null;
         visualFiles.value = [];
         resetForm();
     }
+    initialCharacterAppliedKey.value = contextKey;
+    return true;
 }
 
 function groupExpanded(groupId: string): boolean {
@@ -318,30 +394,49 @@ function toggleCharacter(groupId: string, characterId: string): void {
         : [...expandedCharacterKeys.value, key];
 }
 
-async function selectVisual(groupId: string, characterId: string, visualId: string): Promise<void> {
-    if (!await confirmDiscardIfDirty()) return;
+/** 点击角色名称直接选中当前文件；箭头按钮才负责展开/收起版本列表。 */
+async function selectCharacter(groupId: string, characterId: string): Promise<void> {
+    const group = groups.value.find((item) => item.groupId === groupId);
+    const item = group?.characters.find((candidate) => candidate.characterId === characterId);
+    const file = item?.files.find((candidate) => candidate.active) ?? item?.files[0];
+    if (file) await selectVisual(groupId, characterId, file.visualId);
+}
+
+async function selectVisual(groupId: string, characterId: string, visualId: string): Promise<boolean> {
+    if (!await confirmDiscardIfDirty()) return false;
     activeGroupId.value = groupId;
     activeCharacterId.value = characterId;
     activeVisualId.value = visualId;
+    // 请求期间不继续展示旧角色的可编辑字段，避免用户把加载中的旧草稿误认为当前角色。
+    selectedFile.value = null;
+    visualFiles.value = [];
+    resetForm();
     if (!expandedGroupIds.value.includes(groupId)) expandedGroupIds.value.push(groupId);
     const key = `${groupId}\u0000${characterId}`;
     if (!expandedCharacterKeys.value.includes(key)) expandedCharacterKeys.value.push(key);
-    await loadVisual();
+    return await loadVisual();
 }
 
-async function loadVisual(): Promise<void> {
-    if (!activeGroupId.value || !activeCharacterId.value || !activeVisualId.value) return;
+async function loadVisual(): Promise<boolean> {
+    if (!activeGroupId.value || !activeCharacterId.value || !activeVisualId.value) return false;
+    const requestId = ++visualLoadRequestId.value;
+    const requestedSelection: VisualSelection = {
+        groupId: activeGroupId.value,
+        characterId: activeCharacterId.value,
+        visualId: activeVisualId.value,
+    };
     loading.value = true;
     error.value = "";
     try {
         const result = await $fetch<{visual: CharacterVisual | null; file: VisualFileInfo | null; files: VisualFileInfo[]}>("/api/text-to-image/character-library/files", {
             query: {
                 projectRoot: loadedProjectRoot.value,
-                groupId: activeGroupId.value,
-                characterId: activeCharacterId.value,
-                visualId: activeVisualId.value,
+                groupId: requestedSelection.groupId,
+                characterId: requestedSelection.characterId,
+                visualId: requestedSelection.visualId,
             },
         });
+        if (requestId !== visualLoadRequestId.value || !isCurrentSelection(requestedSelection)) return false;
         selectedFile.value = result.file;
         visualFiles.value = result.files;
         if (result.visual) {
@@ -352,13 +447,34 @@ async function loadVisual(): Promise<void> {
         } else {
             resetForm();
         }
-        snapshotLoaded();
         activeOutfitIndex.value = outfits.value.length > 0 ? 0 : -1;
+        syncOutfitDraft();
+        snapshotLoaded();
+        return true;
     } catch (cause) {
-        error.value = resolveApiErrorMessage(cause, "读取角色视觉资料失败");
+        if (requestId === visualLoadRequestId.value) {
+            error.value = resolveApiErrorMessage(cause, "读取角色视觉资料失败");
+        }
+        return false;
     } finally {
-        loading.value = false;
+        if (requestId === visualLoadRequestId.value) loading.value = false;
     }
+}
+
+function visualSelectionKey(selection: VisualSelection): string {
+    return [selection.groupId, selection.characterId, selection.visualId].join("\u0000");
+}
+
+function makeOutfitDraftOwnerKey(selection: VisualSelection, outfitIndex: number): string {
+    return `${visualSelectionKey(selection)}\u0000${outfitIndex}`;
+}
+
+function isCurrentSelection(selection: VisualSelection): boolean {
+    return visualSelectionKey(selection) === visualSelectionKey({
+        groupId: activeGroupId.value,
+        characterId: activeCharacterId.value,
+        visualId: activeVisualId.value,
+    });
 }
 
 function resetForm(): void {
@@ -366,28 +482,79 @@ function resetForm(): void {
     outfits.value = [];
     photos.value = [];
     activeOutfitIndex.value = -1;
+    outfitDraft.value = {...defaultOutfit};
+    outfitDraftOwnerKey.value = "";
     photoPrompt.value = "";
 }
 
 function syncOutfitDraft(): void {
+    const selection: VisualSelection = {
+        groupId: activeGroupId.value,
+        characterId: activeCharacterId.value,
+        visualId: activeVisualId.value,
+    };
     outfitDraft.value = activeOutfit.value ? {...activeOutfit.value} : {...defaultOutfit};
+    outfitDraftOwnerKey.value = activeOutfit.value && selection.groupId && selection.characterId && selection.visualId
+        ? makeOutfitDraftOwnerKey(selection, activeOutfitIndex.value)
+        : "";
 }
 
-function applyOutfitDraft(): void {
-    if (activeOutfitIndex.value < 0 || activeOutfitIndex.value >= outfits.value.length) return;
+function applyOutfitDraft(): boolean {
+    if (activeOutfitIndex.value < 0 || activeOutfitIndex.value >= outfits.value.length) return false;
+    const selection: VisualSelection = {
+        groupId: activeGroupId.value,
+        characterId: activeCharacterId.value,
+        visualId: activeVisualId.value,
+    };
+    if (!selection.groupId || !selection.characterId || !selection.visualId
+        || outfitDraftOwnerKey.value !== makeOutfitDraftOwnerKey(selection, activeOutfitIndex.value)) {
+        return false;
+    }
     outfits.value[activeOutfitIndex.value] = {...outfitDraft.value};
+    return true;
 }
 
-function buildVisual(): CharacterVisual {
+function selectOutfit(index: number): void {
+    if (index === activeOutfitIndex.value) return;
     applyOutfitDraft();
+    activeOutfitIndex.value = index;
+    syncOutfitDraft();
+}
+
+function buildVisual(): CharacterVisual | null {
+    const nextOutfits = outfits.value.map((item) => ({...item}));
+    if (activeOutfitIndex.value >= 0 && activeOutfitIndex.value < nextOutfits.length) {
+        const selection: VisualSelection = {
+            groupId: activeGroupId.value,
+            characterId: activeCharacterId.value,
+            visualId: activeVisualId.value,
+        };
+        if (outfitDraftOwnerKey.value !== makeOutfitDraftOwnerKey(selection, activeOutfitIndex.value)) {
+            error.value = "服装草稿不属于当前视觉资料，已阻止保存，请重新加载后再试";
+            return null;
+        }
+        nextOutfits[activeOutfitIndex.value] = {...outfitDraft.value};
+    }
     return {
         schema: "nbook.character-visual/v1",
         visualId: activeVisualId.value || undefined,
         characterId: activeCharacterId.value,
         character: {...character.value},
-        outfits: outfits.value.map((item) => ({...item})),
+        outfits: nextOutfits,
         photos: [...photos.value],
     };
+}
+
+/** 保存成功后先接纳本次发送的完整草稿，避免随后刷新资料库又把旧服装草稿判成未保存。 */
+function adoptSavedVisual(visual: CharacterVisual): void {
+    character.value = {...defaultCharacterFields, ...visual.character};
+    outfits.value = visual.outfits.map((item) => ({...item}));
+    photos.value = [...visual.photos];
+    activeOutfitIndex.value = outfits.value.length > 0
+        ? (activeOutfitIndex.value >= 0 ? Math.min(activeOutfitIndex.value, outfits.value.length - 1) : 0)
+        : -1;
+    syncOutfitDraft();
+    snapshotLoaded();
 }
 
 const triggerWordsError = ref("");
@@ -453,6 +620,8 @@ async function saveVisual(): Promise<boolean> {
             endAction();
         }
     }
+    const visual = buildVisual();
+    if (!visual) return false;
     if (!beginAction("save_visual")) return false;
     saving.value = true;
     error.value = "";
@@ -466,10 +635,10 @@ async function saveVisual(): Promise<boolean> {
                 visualId: activeVisualId.value,
                 expectedUpdatedAt: selectedFile.value.updatedAt,
                 setActive: false,
-                visual: buildVisual(),
+                visual,
             },
         });
-        snapshotLoaded();
+        adoptSavedVisual(visual);
         notification.success("视觉资料已保存");
         await loadLibrary();
         return true;
@@ -484,6 +653,11 @@ async function saveVisual(): Promise<boolean> {
 async function confirmIdentitySave(): Promise<void> {
     const summary = identitySummary.value;
     if (!summary || !activeGroupId.value || !activeCharacterId.value || !activeVisualId.value || !selectedFile.value) return;
+    const visual = buildVisual();
+    if (!visual) {
+        leaveGuard.resolveStagedSave(false);
+        return;
+    }
     if (!beginAction("save_visual")) return;
     identitySubmitting.value = true;
     saving.value = true;
@@ -503,13 +677,13 @@ async function confirmIdentitySave(): Promise<void> {
                     groupId: activeGroupId.value,
                     visualId: activeVisualId.value,
                     expectedUpdatedAt: selectedFile.value.updatedAt,
-                    visual: buildVisual(),
+                    visual,
                 },
                 expectedIdentityRevision: summary.revision,
             },
         });
         identitySummary.value = null;
-        snapshotLoaded();
+        adoptSavedVisual(visual);
         notification.success(`已同步 ${result.groupCount} 个分组的 ${result.updatedFileCount} 份视觉 JSON`);
         await loadLibrary();
         leaveGuard.resolveStagedSave(true);
@@ -554,28 +728,69 @@ async function renameVisual(): Promise<void> {
 }
 
 async function deleteVisual(): Promise<void> {
-    if (!selectedFile.value || visualFiles.value.length <= 1 || selectedFile.value.active) return;
-    if (!confirm(`确定删除“${selectedFile.value.fileName}”？照片登记也会一并移除。`)) return;
+    if (!selectedFile.value || !activeGroupId.value || !activeCharacterId.value || !activeVisualId.value) return;
+    if (!await confirmDiscardIfDirty()) return;
     if (!beginAction("delete_visual")) return;
     saving.value = true;
     error.value = "";
     try {
-        await $fetch("/api/text-to-image/character-library/visual.delete", {
-            method: "POST",
-            body: {
+        deleteVisualPreview.value = await $fetch<DeleteVisualPreview>("/api/text-to-image/character-library/visual.delete-preview", {
+            query: {
                 projectRoot: loadedProjectRoot.value,
                 groupId: activeGroupId.value,
                 characterId: activeCharacterId.value,
                 visualId: activeVisualId.value,
             },
         });
-        const fallback = visualFiles.value.find((file) => file.active && file.visualId !== activeVisualId.value)
-            ?? visualFiles.value.find((file) => file.visualId !== activeVisualId.value);
-        activeVisualId.value = fallback?.visualId ?? "";
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "读取删除影响摘要失败");
+    } finally {
+        endAction();
+    }
+}
+
+function closeDeleteVisualPreview(): void {
+    if (deleteVisualSubmitting.value) return;
+    deleteVisualPreview.value = null;
+}
+
+async function confirmDeleteVisual(): Promise<void> {
+    const preview = deleteVisualPreview.value;
+    if (!preview || !selectedFile.value) return;
+    if (!confirm(preview.characterWillDisappear
+        ? `确定删除“${preview.fileName}”？删除后该角色将从当前视觉分组消失，但角色原始档案、照片、历史任务和正文图片不会删除。`
+        : `确定删除“${preview.fileName}”？${preview.active && preview.fallback ? `当前版本会先回退到“${preview.fallback.fileName}”。` : ""}照片、历史任务和正文图片不会删除。`)) return;
+    if (!beginAction("delete_visual")) return;
+    deleteVisualSubmitting.value = true;
+    saving.value = true;
+    error.value = "";
+    try {
+        const result = await $fetch<{fallback: {visualId: string; fileName: string} | null}>("/api/text-to-image/character-library/visual.delete", {
+            method: "POST",
+            body: {
+                projectRoot: loadedProjectRoot.value,
+                groupId: preview.groupId,
+                characterId: preview.characterId,
+                visualId: preview.visualId,
+                expectedRevision: preview.revision,
+            },
+        });
+        deleteVisualPreview.value = null;
+        if (result.fallback) {
+            activeVisualId.value = result.fallback.visualId;
+        } else {
+            activeVisualId.value = "";
+            activeCharacterId.value = "";
+            selectedFile.value = null;
+            visualFiles.value = [];
+            resetForm();
+        }
+        notification.success(preview.characterWillDisappear ? "视觉 JSON 已删除；角色仍保留在原始档案中" : "视觉 JSON 已删除");
         await loadLibrary();
     } catch (cause) {
-        error.value = resolveApiErrorMessage(cause, "删除视觉资料失败");
+        error.value = resolveApiErrorMessage(cause, "删除视觉资料失败，请重新读取影响摘要");
     } finally {
+        deleteVisualSubmitting.value = false;
         endAction();
     }
 }
@@ -925,22 +1140,118 @@ function applyEnabledGroupsFromResponse(serverGroups: Array<{groupId: string; en
     groups.value = groups.value.map((group) => ({...group, enabled: enabled.get(group.groupId) ?? group.enabled}));
 }
 
+function cloneCharacterVisual(visual: CharacterVisual): CharacterVisual {
+    return {
+        ...visual,
+        character: {...visual.character},
+        outfits: visual.outfits.map((item) => ({...item})),
+        photos: [...visual.photos],
+    };
+}
+
+function materializeOutfitOnlyDraft(pending: PendingDraft): CharacterVisual | null {
+    if (pending.mode !== "outfit_only") return pending.draft;
+    if (pending.outfitCandidates.some((candidate) => candidate.action === "unset")) {
+        error.value = "请为每套服装候选选择覆盖、增加或不应用";
+        return null;
+    }
+    const replacements = pending.outfitCandidates.filter((candidate) => candidate.action === "replace");
+    if (replacements.length > 1) {
+        error.value = "同一批回复最多只能覆盖一套当前服装";
+        return null;
+    }
+    if (replacements.length > 0 && pending.targetOutfitIndex === null) {
+        error.value = "当前没有可覆盖的服装，请改为增加或不应用";
+        return null;
+    }
+    const draft = cloneCharacterVisual(pending.draft);
+    for (const candidate of pending.outfitCandidates) {
+        if (candidate.action === "ignore") continue;
+        if (candidate.action === "replace") {
+            const target = draft.outfits[pending.targetOutfitIndex!];
+            if (!target) {
+                error.value = "当前服装已不存在，请重新生成修改预览";
+                return null;
+            }
+            for (const field of candidate.fields) target[field] = candidate.outfit[field];
+            continue;
+        }
+        const added = {...defaultOutfit};
+        for (const field of candidate.fields) added[field] = candidate.outfit[field];
+        draft.outfits.push(added);
+    }
+    return draft;
+}
+
+function setOutfitCandidateAction(candidate: OutfitCandidate, action: OutfitCandidateAction): void {
+    const pending = pendingDraft.value;
+    if (!pending || pending.mode !== "outfit_only") return;
+    if (action === "replace") {
+        for (const item of pending.outfitCandidates) {
+            if (item !== candidate && item.action === "replace") item.action = "unset";
+        }
+    }
+    candidate.action = action;
+}
+
+function handleOutfitCandidateChange(candidate: OutfitCandidate, event: Event): void {
+    const value = (event.target as HTMLSelectElement | null)?.value;
+    if (value === "replace" || value === "add" || value === "ignore" || value === "unset") {
+        setOutfitCandidateAction(candidate, value);
+    }
+}
+
+const canCommitPendingDraft = computed(() => {
+    const pending = pendingDraft.value;
+    return pending !== null
+        && (pending.mode !== "outfit_only" || pending.outfitCandidates.every((candidate) => candidate.action !== "unset"));
+});
+const outfitDecisionSummary = computed(() => {
+    const pending = pendingDraft.value;
+    if (!pending || pending.mode !== "outfit_only") return null;
+    return {
+        replace: pending.outfitCandidates.filter((candidate) => candidate.action === "replace").length,
+        add: pending.outfitCandidates.filter((candidate) => candidate.action === "add").length,
+        ignore: pending.outfitCandidates.filter((candidate) => candidate.action === "ignore").length,
+        unset: pending.outfitCandidates.filter((candidate) => candidate.action === "unset").length,
+    };
+});
+
 async function generateVisual(): Promise<void> {
     if (!await confirmDiscardForRequest()) return;
     if (!activeCharacterId.value) {
         error.value = "请先选择角色视觉资料";
         return;
     }
-    if (!characterPage.value.trim() && !userRequirement.value.trim()) {
+    const isModify = Boolean(activeVisualId.value);
+    const requirement = isModify && subTab.value === "outfit"
+        ? outfitRequirement.value
+        : characterRequirement.value;
+    if (!characterPage.value.trim() && !requirement.trim()) {
         error.value = "请提供角色原始档案或本次修改要求";
         return;
     }
-    const isModify = Boolean(activeVisualId.value);
     if (!beginAction(isModify ? "generate_modify" : "generate_design")) return;
     saving.value = true;
     error.value = "";
     try {
-        const result = await $fetch<{visual?: CharacterVisual; draft?: CharacterVisual; current: CharacterVisual | null; currentFile: VisualFileInfo | null; baseRevision: string | null}>(isModify
+        const result = await $fetch<{
+            visual?: CharacterVisual;
+            draft?: CharacterVisual;
+            current: CharacterVisual | null;
+            currentFile: VisualFileInfo | null;
+            baseRevision: string | null;
+            mode?: "merged" | "outfit_only";
+            outfitCandidates?: Array<{
+                candidateId: string;
+                sourceOrder: number;
+                outfit: CharacterOutfit;
+                fields: Array<keyof CharacterOutfit>;
+                warnings: string[];
+            }>;
+            warnings?: string[];
+            changedFields?: string[];
+        }>(isModify
             ? "/api/text-to-image/character-visual.modify-preview"
             : "/api/text-to-image/character-visual.generate", {
             method: "POST",
@@ -953,14 +1264,20 @@ async function generateVisual(): Promise<void> {
                     selectedOutfitIndex: activeOutfitIndex.value >= 0 ? activeOutfitIndex.value : null,
                 } : {}),
                 characterPage: characterPage.value,
-                userRequirement: userRequirement.value,
+                userRequirement: requirement,
             },
         });
+        const mode = result.mode ?? "merged";
         pendingDraft.value = {
-            draft: result.draft ?? result.visual!,
+            draft: cloneCharacterVisual(result.draft ?? result.visual!),
             current: result.current,
             currentFile: result.currentFile,
             baseRevision: result.baseRevision,
+            mode,
+            outfitCandidates: (result.outfitCandidates ?? []).map((candidate) => ({...candidate, action: "unset"})),
+            targetOutfitIndex: isModify && activeOutfitIndex.value >= 0 ? activeOutfitIndex.value : null,
+            warnings: result.warnings ?? [],
+            changedFields: result.changedFields ?? [],
         };
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "生成角色视觉修改草稿失败");
@@ -976,6 +1293,8 @@ async function commitDraft(action: "overwrite" | "create_new"): Promise<void> {
         error.value = "当前没有可覆盖的视觉资料，请选择另存为新设计";
         return;
     }
+    const draft = materializeOutfitOnlyDraft(pending);
+    if (!draft) return;
     if (!beginAction(action === "overwrite" ? "commit_overwrite" : "commit_create_new")) return;
     saving.value = true;
     error.value = "";
@@ -989,7 +1308,7 @@ async function commitDraft(action: "overwrite" | "create_new"): Promise<void> {
                 visualId: activeVisualId.value || undefined,
                 action,
                 expectedUpdatedAt: pending.baseRevision ?? undefined,
-                draft: pending.draft,
+                draft,
             },
         });
         pendingDraft.value = null;
@@ -1020,7 +1339,7 @@ async function generatePhotoPrompt(): Promise<void> {
                 characterId: activeCharacterId.value,
                 visualId: activeVisualId.value,
                 selectedOutfitIndex: activeOutfitIndex.value >= 0 ? activeOutfitIndex.value : null,
-                userRequirement: userRequirement.value,
+                userRequirement: photoRequirement.value,
             },
         });
         photoPrompt.value = result.prompt;
@@ -1045,7 +1364,7 @@ async function generateAvatar(): Promise<void> {
                 visualId: activeVisualId.value,
                 characterId: activeCharacterId.value,
                 selectedOutfitIndex: activeOutfitIndex.value >= 0 ? activeOutfitIndex.value : null,
-                userRequirement: userRequirement.value,
+                userRequirement: photoRequirement.value,
             },
         });
         await loadVisual();
@@ -1057,11 +1376,13 @@ async function generateAvatar(): Promise<void> {
 }
 
 function addOutfit(): void {
+    applyOutfitDraft();
     outfits.value.push({...defaultOutfit});
     activeOutfitIndex.value = outfits.value.length - 1;
 }
 
 function removeOutfit(index: number): void {
+    applyOutfitDraft();
     outfits.value.splice(index, 1);
     activeOutfitIndex.value = Math.min(activeOutfitIndex.value, outfits.value.length - 1);
     syncOutfitDraft();
@@ -1136,7 +1457,7 @@ defineExpose({
                 <button class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[14px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="saving || !selectedFile" @click="renameVisual">
                     <span class="i-lucide-file-pen h-4 w-4"></span>重命名 JSON
                 </button>
-                <button class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--danger-border)] px-3 text-[14px] text-[var(--danger-text)] hover:bg-[var(--danger-bg)] disabled:opacity-50" :disabled="saving || !selectedFile || selectedFile.active || visualFiles.length <= 1" @click="deleteVisual">
+                <button class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--danger-border)] px-3 text-[14px] text-[var(--danger-text)] hover:bg-[var(--danger-bg)] disabled:opacity-50" :disabled="saving || !selectedFile" @click="deleteVisual">
                     <span class="i-lucide-trash-2 h-4 w-4"></span>删除 JSON
                 </button>
                 <button class="inline-flex h-9 items-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-[14px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving || !activeVisualId || selectedFile?.active" @click="setActiveVisual">
@@ -1174,12 +1495,16 @@ defineExpose({
                         <div v-if="groupExpanded(group.groupId)" class="ml-4 border-l border-[var(--border-color)] pl-2">
                             <div v-if="group.characters.length === 0" class="rounded-md px-2 py-1.5 text-[12px] text-[var(--text-muted)]">暂无视觉资料</div>
                             <div v-for="item in group.characters" :key="item.characterId" class="mb-1">
-                                <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="toggleCharacter(group.groupId, item.characterId)">
-                                    <span :class="characterExpanded(group.groupId, item.characterId) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3.5 w-3.5 shrink-0"></span>
-                                    <span class="i-lucide-user-round h-3.5 w-3.5 shrink-0"></span>
-                                    <span class="min-w-0 flex-1 truncate">{{ item.characterId }}</span>
-                                    <span class="text-[11px] text-[var(--text-muted)]">{{ item.files.length }}</span>
-                                </button>
+                                <div class="flex items-center gap-1">
+                                    <button class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" :class="activeCharacterId === item.characterId && activeGroupId === group.groupId ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : ''" @click="selectCharacter(group.groupId, item.characterId)">
+                                        <span class="i-lucide-user-round h-3.5 w-3.5 shrink-0"></span>
+                                        <span class="min-w-0 flex-1 truncate">{{ item.characterId }}</span>
+                                        <span class="text-[11px] text-[var(--text-muted)]">{{ item.files.length }}</span>
+                                    </button>
+                                    <button class="h-7 w-7 shrink-0 rounded text-[var(--text-muted)] hover:bg-[var(--bg-hover)]" :title="characterExpanded(group.groupId, item.characterId) ? '收起视觉版本' : '展开视觉版本'" @click="toggleCharacter(group.groupId, item.characterId)">
+                                        <span :class="characterExpanded(group.groupId, item.characterId) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3.5 w-3.5"></span>
+                                    </button>
+                                </div>
                                 <div v-if="characterExpanded(group.groupId, item.characterId)" class="ml-4 border-l border-[var(--border-color)] pl-2">
                                     <button v-for="file in item.files" :key="file.visualId" class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-[var(--bg-hover)]" :class="activeVisualId === file.visualId && activeCharacterId === item.characterId && activeGroupId === group.groupId ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'" @click="selectVisual(group.groupId, item.characterId, file.visualId)">
                                         <span class="i-lucide-file-json h-3.5 w-3.5 shrink-0"></span>
@@ -1208,7 +1533,7 @@ defineExpose({
                     <p class="mt-1 text-[13px] text-[var(--text-muted)]">{{ activeCharacterId }} · {{ activeGroup?.name || "默认分组" }}。LLM 只生成草稿，确认“另存为新设计”后才会创建 visual.json。</p>
                     <div class="mt-4 grid gap-3 md:grid-cols-2">
                         <textarea v-model="characterPage" rows="8" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="角色原始 Markdown" />
-                        <textarea v-model="userRequirement" rows="8" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="本次设计要求，例如：银发、红瞳、故事后期礼服" />
+                        <textarea v-model="characterRequirement" rows="8" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="本次设计要求，例如：银发、红瞳、故事后期礼服" />
                     </div>
                     <button class="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving" @click="generateVisual"><span v-if="activeAction === 'generate_design'" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>{{ activeAction === 'generate_design' ? '正在等待 LLM 回复…' : '生成首份设计草稿' }}</button>
                 </section>
@@ -1237,7 +1562,6 @@ defineExpose({
                                         <option v-for="group in groups" :key="group.groupId" :value="group.groupId" :disabled="group.groupId === activeGroupId">{{ group.name }}</option>
                                     </select>
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2.5 text-[12px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving || !targetGroupId || groups.length < 2" @click="moveVisualToGroup"><span v-if="activeAction === 'move_to_group'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>{{ activeAction === 'move_to_group' ? '移动中…' : '移动到分组' }}</button>
-                                    <button class="inline-flex h-8 items-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving" @click="generateVisual"><span v-if="activeAction === 'generate_modify'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span><span v-else class="i-lucide-sparkles h-3.5 w-3.5"></span>{{ activeAction === 'generate_modify' ? '等待 LLM 回复…' : '生成修改预览' }}</button>
                                 </div>
                                 <p class="w-full text-[12px] text-[var(--text-muted)]">移动到分组：移动当前 JSON；来源不会保留这一份资料，照片和固定发送引用保持有效。</p>
                             </div>
@@ -1259,9 +1583,10 @@ defineExpose({
                             <h4 class="text-[16px] font-semibold text-[var(--text-main)]">LLM 修改要求</h4>
                             <p class="mt-1 text-[13px] text-[var(--text-muted)]">LLM 只返回草稿；确认覆盖、另存或取消前不会修改当前 JSON。</p>
                             <div class="mt-3 grid gap-3 md:grid-cols-2">
-                                <textarea v-model="userRequirement" rows="3" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="例如：改成故事后期的黑色礼服，保留银发和红瞳" />
+                                <textarea v-model="characterRequirement" rows="3" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="例如：改成故事后期的黑色礼服，保留银发和红瞳" />
                                 <textarea v-model="characterPage" rows="3" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="角色原始 Markdown（从角色档案页进入时自动带入）" />
                             </div>
+                            <button class="mt-3 inline-flex h-8 items-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving" @click="generateVisual"><span v-if="activeAction === 'generate_modify'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span><span v-else class="i-lucide-sparkles h-3.5 w-3.5"></span>{{ activeAction === 'generate_modify' ? '等待 LLM 回复…' : '生成修改预览' }}</button>
                         </section>
                     </template>
 
@@ -1269,11 +1594,20 @@ defineExpose({
                         <div class="grid min-h-96 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
                             <section class="border-r border-[var(--border-color)] pr-4">
                                 <div class="mb-3 flex items-center justify-between"><div><h4 class="text-[16px] font-semibold text-[var(--text-main)]">服装详情</h4><p class="mt-1 text-[12px] text-[var(--text-muted)]">服装属于当前 JSON 视觉版本。</p></div><button class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)]" title="新增服装" @click="addOutfit"><span class="i-lucide-plus h-4 w-4"></span></button></div>
-                                <div v-if="outfits.length" class="space-y-1"><button v-for="(outfit, index) in outfits" :key="index" class="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" :class="activeOutfitIndex === index ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : ''" @click="activeOutfitIndex = index"><span class="min-w-0 truncate">{{ outfit.cnName || outfit.enName || `服装 ${index + 1}` }}</span><span class="text-[11px] opacity-70">{{ index + 1 }}</span></button></div>
+                                <div v-if="outfits.length" class="space-y-1"><button v-for="(outfit, index) in outfits" :key="index" class="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" :class="activeOutfitIndex === index ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : ''" @click="selectOutfit(index)"><span class="min-w-0 truncate">{{ outfit.cnName || outfit.enName || `服装 ${index + 1}` }}</span><span class="text-[11px] opacity-70">{{ index + 1 }}</span></button></div>
                                 <p v-else class="rounded-md border border-dashed border-[var(--border-color)] p-3 text-[13px] text-[var(--text-muted)]">还没有服装。</p>
                                 <button v-if="activeOutfit" class="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-[var(--danger-border)] text-[13px] text-[var(--danger-text)]" @click="removeOutfit(activeOutfitIndex)"><span class="i-lucide-trash-2 h-3.5 w-3.5"></span>删除当前服装</button>
                             </section>
-                            <section v-if="activeOutfit" class="space-y-4"><div class="flex items-center justify-between"><div><h5 class="text-[15px] font-semibold text-[var(--text-main)]">{{ outfitDraft.cnName || outfitDraft.enName || "未命名服装" }}</h5><p class="mt-1 text-[12px] text-[var(--text-muted)]">编辑后点击页面顶部保存。</p></div><button class="h-8 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)]" @click="applyOutfitDraft">应用服装修改</button></div><div class="grid gap-3 md:grid-cols-2"><label v-for="field in outfitDetailFields" :key="field.key" class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">{{ field.label }}<textarea v-model="outfitDraft[field.key]" rows="3" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" /></label></div></section>
+                            <section v-if="activeOutfit" class="space-y-4">
+                                <div class="flex items-center justify-between"><div><h5 class="text-[15px] font-semibold text-[var(--text-main)]">{{ outfitDraft.cnName || outfitDraft.enName || "未命名服装" }}</h5><p class="mt-1 text-[12px] text-[var(--text-muted)]">编辑会直接进入当前草稿，点击页面顶部保存。</p></div></div>
+                                <div class="grid gap-3 md:grid-cols-2"><label v-for="field in outfitDetailFields" :key="field.key" class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">{{ field.label }}<textarea v-model="outfitDraft[field.key]" rows="3" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" /></label></div>
+                                <section class="rounded-md border border-[var(--border-color)] bg-[var(--bg-surface)] p-3">
+                                    <h5 class="text-[14px] font-semibold text-[var(--text-main)]">角色服装修改</h5>
+                                    <p class="mt-1 text-[12px] text-[var(--text-muted)]">继续使用当前修改链路。若 LLM 只返回服装，确认框会让你逐套选择覆盖当前服装或增加新服装。</p>
+                                    <textarea v-model="outfitRequirement" rows="3" class="mt-3 w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" placeholder="例如：生成角色的服装；保留角色发色和面部特征" />
+                                    <button class="mt-3 inline-flex h-8 items-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving" @click="generateVisual"><span v-if="activeAction === 'generate_modify'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span><span v-else class="i-lucide-sparkles h-3.5 w-3.5"></span>{{ activeAction === 'generate_modify' ? '等待 LLM 回复…' : '生成修改预览' }}</button>
+                                </section>
+                            </section>
                             <section v-else class="flex min-h-72 items-center justify-center rounded-md border border-dashed border-[var(--border-color)] p-6 text-[13px] text-[var(--text-muted)]">选择或新增服装后编辑详情。</section>
                         </div>
                     </template>
@@ -1310,7 +1644,7 @@ defineExpose({
                     </template>
 
                     <template v-else-if="subTab === 'photo'">
-                        <section class="space-y-5"><div class="flex flex-wrap items-end justify-between gap-3"><div><h4 class="text-[16px] font-semibold text-[var(--text-main)]">角色照片</h4><p class="mt-1 text-[13px] text-[var(--text-muted)]">照片归属于当前视觉 JSON。</p></div><div class="flex gap-2"><button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving" @click="generatePhotoPrompt"><span v-if="activeAction === 'generate_photo_prompt'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>{{ activeAction === 'generate_photo_prompt' ? '等待 LLM 回复…' : '生成 prompt' }}</button><button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving" @click="generateAvatar"><span v-if="activeAction === 'generate_photo'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>{{ activeAction === 'generate_photo' ? '等待 NovelAI…' : '生成照片' }}</button></div></div><div class="grid gap-3 md:grid-cols-2"><label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">用户要求<input v-model="userRequirement" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]" /></label><label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">当前照片 prompt<textarea v-model="photoPrompt" readonly rows="2" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" /></label></div><ul v-if="photos.length" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"><li v-for="photo in photos" :key="photo"><div class="aspect-square overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]"><img :src="photoUrl(photo)" class="h-full w-full object-cover" :alt="photo" loading="lazy" /></div><span class="mt-1 block truncate text-[12px] text-[var(--text-muted)]">{{ photo }}</span></li></ul><p v-else class="text-[13px] text-[var(--text-muted)]">当前视觉资料还没有照片。</p></section>
+                        <section class="space-y-5"><div class="flex flex-wrap items-end justify-between gap-3"><div><h4 class="text-[16px] font-semibold text-[var(--text-main)]">角色照片</h4><p class="mt-1 text-[13px] text-[var(--text-muted)]">照片归属于当前视觉 JSON。</p></div><div class="flex gap-2"><button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving" @click="generatePhotoPrompt"><span v-if="activeAction === 'generate_photo_prompt'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>{{ activeAction === 'generate_photo_prompt' ? '等待 LLM 回复…' : '生成 prompt' }}</button><button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving" @click="generateAvatar"><span v-if="activeAction === 'generate_photo'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>{{ activeAction === 'generate_photo' ? '等待 NovelAI…' : '生成照片' }}</button></div></div><div class="grid gap-3 md:grid-cols-2"><label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">用户要求<input v-model="photoRequirement" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]" /></label><label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">当前照片 prompt<textarea v-model="photoPrompt" readonly rows="2" class="resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[14px] text-[var(--text-main)]" /></label></div><ul v-if="photos.length" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"><li v-for="photo in photos" :key="photo"><div class="aspect-square overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]"><img :src="photoUrl(photo)" class="h-full w-full object-cover" :alt="photo" loading="lazy" /></div><span class="mt-1 block truncate text-[12px] text-[var(--text-muted)]">{{ photo }}</span></li></ul><p v-else class="text-[13px] text-[var(--text-muted)]">当前视觉资料还没有照片。</p></section>
                     </template>
                 </template>
             </main>
@@ -1318,8 +1652,22 @@ defineExpose({
 
         <div v-if="pendingDraft" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-xl">
-                <div class="flex items-start justify-between gap-3"><div><h3 class="text-[18px] font-semibold text-[var(--text-main)]">应用角色设计修改</h3><p class="mt-1 text-[13px] text-[var(--text-muted)]">LLM 已返回草稿，确认前不会修改本地 JSON。</p></div><button class="h-8 w-8 rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)]" @click="pendingDraft = null">×</button></div>
-                <div class="mt-4 grid gap-3 md:grid-cols-2"><div class="rounded-md border border-[var(--border-color)] p-3"><p class="text-[12px] text-[var(--text-muted)]">当前文件</p><p class="mt-1 truncate text-[14px] text-[var(--text-main)]">{{ pendingDraft.currentFile?.fileName || "尚未创建" }}</p><p class="mt-2 text-[12px] text-[var(--text-muted)]">服装数量：{{ outfits.length }} → {{ pendingDraft.draft.outfits.length }}</p></div><div class="rounded-md border border-[var(--border-color)] p-3"><p class="text-[12px] text-[var(--text-muted)]">候选文件</p><p class="mt-1 text-[14px] text-[var(--text-main)]">覆盖当前，或另存为新设计</p><p class="mt-2 text-[12px] text-[var(--text-muted)]">角色触发词保持当前逻辑角色身份</p></div></div>
+                <div class="flex items-start justify-between gap-3"><div><h3 class="text-[18px] font-semibold text-[var(--text-main)]">{{ pendingDraft.mode === 'outfit_only' ? '确认服装候选' : '应用角色设计修改' }}</h3><p class="mt-1 text-[13px] text-[var(--text-muted)]">LLM 已返回草稿，确认前不会修改本地 JSON。</p></div><button class="h-8 w-8 rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)]" @click="pendingDraft = null">×</button></div>
+                <div class="mt-4 grid gap-3 md:grid-cols-2"><div class="rounded-md border border-[var(--border-color)] p-3"><p class="text-[12px] text-[var(--text-muted)]">当前文件</p><p class="mt-1 truncate text-[14px] text-[var(--text-main)]">{{ pendingDraft.currentFile?.fileName || "尚未创建" }}</p><p class="mt-2 text-[12px] text-[var(--text-muted)]">服装数量：{{ outfits.length }} → {{ pendingDraft.mode === 'outfit_only' ? '按下方选择' : pendingDraft.draft.outfits.length }}</p></div><div class="rounded-md border border-[var(--border-color)] p-3"><p class="text-[12px] text-[var(--text-muted)]">提交方式</p><p class="mt-1 text-[14px] text-[var(--text-main)]">覆盖当前，或另存为新设计</p><p class="mt-2 text-[12px] text-[var(--text-muted)]">角色触发词保持当前逻辑角色身份</p></div></div>
+                <section v-if="pendingDraft.mode === 'outfit_only'" class="mt-4 rounded-md border border-[var(--border-accent)] bg-[var(--accent-bg)] p-3">
+                    <p class="mb-2 text-[13px] font-medium text-[var(--text-main)]">这次回复只有服装，请逐套选择处理方式</p>
+                    <p class="mb-3 text-[12px] text-[var(--text-secondary)]">最多一套可以覆盖当前服装；选择“增加”会保留现有服装并追加新服装。</p>
+                    <p v-if="outfitDecisionSummary" class="mb-3 rounded-md bg-[var(--bg-input)] px-2 py-1.5 text-[12px] text-[var(--text-secondary)]">覆盖 {{ outfitDecisionSummary.replace }} 套，增加 {{ outfitDecisionSummary.add }} 套，忽略 {{ outfitDecisionSummary.ignore }} 套，尚未选择 {{ outfitDecisionSummary.unset }} 套</p>
+                    <div class="space-y-2">
+                            <div v-for="candidate in pendingDraft.outfitCandidates" :key="candidate.candidateId" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+                            <div class="flex flex-wrap items-start justify-between gap-2"><div><p class="text-[13px] font-medium text-[var(--text-main)]">{{ candidate.outfit.cnName || candidate.outfit.enName || `候选服装 ${candidate.sourceOrder + 1}` }}</p><p class="text-[11px] text-[var(--text-muted)]">{{ candidate.outfit.enName }}</p></div><select :value="candidate.action" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]" @change="handleOutfitCandidateChange(candidate, $event)"><option value="unset">请选择</option><option value="replace" :disabled="pendingDraft.targetOutfitIndex === null">覆盖当前服装</option><option value="add">增加为新服装</option><option value="ignore">不应用</option></select></div>
+                            <p v-if="candidate.warnings.length" class="mt-2 text-[12px] text-[var(--warning-text)]">{{ candidate.warnings.join('；') }}</p>
+                            <p class="mt-2 line-clamp-2 text-[11px] text-[var(--text-muted)]">{{ [candidate.outfit.upper, candidate.outfit.lower].filter(Boolean).join(' · ') }}</p>
+                        </div>
+                    </div>
+                    <p v-if="pendingDraft.warnings.length" class="mt-3 text-[12px] text-[var(--warning-text)]">{{ pendingDraft.warnings.join('；') }}</p>
+                </section>
+                <p v-else-if="pendingDraft.warnings.length" class="mt-4 rounded-md border border-[var(--warning-border)] bg-[var(--warning-bg)] px-3 py-2 text-[12px] text-[var(--warning-text)]">{{ pendingDraft.warnings.join('；') }}</p>
                 <section class="mt-4 rounded-md border border-[var(--border-color)] p-3">
                     <p class="mb-2 text-[13px] font-medium text-[var(--text-main)]">字段变化（{{ draftChanges.length }} 项）</p>
                     <div v-if="draftChanges.length" class="max-h-56 overflow-y-auto space-y-2">
@@ -1332,7 +1680,28 @@ defineExpose({
                     <p v-else class="text-[12px] text-[var(--text-muted)]">没有检测到字段变化。</p>
                 </section>
                 <details class="mt-3 rounded-md border border-[var(--border-color)] p-3"><summary class="cursor-pointer text-[12px] text-[var(--text-muted)]">查看完整 JSON 草稿</summary><pre class="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--bg-input)] p-3 text-[12px] text-[var(--text-secondary)]">{{ JSON.stringify(pendingDraft.draft, null, 2) }}</pre></details>
-                <div class="mt-4 flex flex-wrap justify-end gap-2"><button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="saving" @click="pendingDraft = null">取消</button><button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving || !activeVisualId" @click="commitDraft('overwrite')">覆盖当前设计</button><button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving" @click="commitDraft('create_new')">另存为新设计</button></div>
+                <div class="mt-4 flex flex-wrap justify-end gap-2"><button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="saving" @click="pendingDraft = null">取消</button><button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="saving || !activeVisualId || !canCommitPendingDraft" @click="commitDraft('overwrite')">覆盖当前设计</button><button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="saving || !canCommitPendingDraft" @click="commitDraft('create_new')">另存为新设计</button></div>
+            </div>
+        </div>
+
+        <div v-if="deleteVisualPreview" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div class="w-full max-w-lg rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-xl">
+                <div class="flex items-start justify-between gap-3">
+                    <div><h3 class="text-[18px] font-semibold text-[var(--text-main)]">删除视觉 JSON</h3><p class="mt-1 text-[13px] text-[var(--text-muted)]">删除前先确认影响；预检过期时不会删除文件。</p></div>
+                    <button class="h-8 w-8 rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)]" :disabled="deleteVisualSubmitting" @click="closeDeleteVisualPreview">×</button>
+                </div>
+                <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] p-3 text-[13px]">
+                    <p class="text-[var(--text-main)]">{{ deleteVisualPreview.fileName }}{{ deleteVisualPreview.active ? "（当前生效）" : "" }}</p>
+                    <p class="text-[var(--text-secondary)]">删除后剩余 {{ deleteVisualPreview.remainingVisualCount }} 份视觉 JSON。</p>
+                    <p v-if="deleteVisualPreview.active && deleteVisualPreview.fallback" class="text-[var(--text-secondary)]">当前版本会自动回退到：{{ deleteVisualPreview.fallback.fileName }}</p>
+                    <p v-if="deleteVisualPreview.characterWillDisappear" class="rounded-md bg-[var(--warning-bg)] px-2 py-1 text-[var(--warning-text)]">这是该角色在当前分组的最后一份视觉 JSON。删除后角色会从视觉资料库消失，但角色原始档案、照片、历史任务和正文图片不会删除。</p>
+                    <p v-else class="text-[var(--text-secondary)]">照片、历史任务和正文图片不会删除。</p>
+                </div>
+                <p v-if="error" class="mt-3 text-[13px] text-[var(--danger-text)]">{{ error }}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="deleteVisualSubmitting" @click="closeDeleteVisualPreview">取消</button>
+                    <button class="inline-flex h-9 items-center gap-2 rounded-md bg-[var(--danger-bg)] px-3 text-[13px] font-medium text-[var(--danger-text)] disabled:opacity-50" :disabled="deleteVisualSubmitting" @click="confirmDeleteVisual"><span v-if="deleteVisualSubmitting" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>{{ deleteVisualSubmitting ? "正在删除…" : "确认删除" }}</button>
+                </div>
             </div>
         </div>
 

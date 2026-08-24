@@ -1,5 +1,9 @@
 import {describe, expect, it, vi} from "vitest";
-import {requestNovelAiImages, type NovelAiImageInput} from "nbook/server/text-to-image/novelai-image-generation";
+import {
+    requestNovelAiImages,
+    resolveNovelAiRequestSeed,
+    type NovelAiImageInput,
+} from "nbook/server/text-to-image/novelai-image-generation";
 import type {LlmFetchImpl} from "nbook/server/text-to-image/llm-chat";
 import {NovelAiRequestScheduler} from "nbook/server/text-to-image/novelai-request-scheduler";
 import type {NovelAiProxyResolver} from "nbook/server/text-to-image/novelai-proxy";
@@ -114,8 +118,16 @@ describe("requestNovelAiImages", () => {
             input: "1girl",
             model: "nai-diffusion-4-5-full",
             action: "generate",
-            parameters: {width: 832, seed: -1},
+            parameters: {width: 832},
         });
+        expect(body.parameters.seed).toBeGreaterThanOrEqual(0);
+        expect(body.parameters.seed).toBeLessThanOrEqual(4294967295);
+    });
+
+    it("converts the reroll sentinel into a valid uint32 seed", () => {
+        expect(resolveNovelAiRequestSeed(-1, () => 123456789)).toBe(123456789);
+        expect(resolveNovelAiRequestSeed(42, () => 123456789)).toBe(42);
+        expect(() => resolveNovelAiRequestSeed(-1, () => -1)).toThrow("随机 Seed 生成失败");
     });
 
     it("sends the original image, mask, and strength for inpaint", async () => {
@@ -276,9 +288,114 @@ describe("requestNovelAiImages", () => {
         }
     });
 
-    it("拒绝 V4.5 之外的模型", async () => {
+    it("V5 使用 params_version 4、native 与首发默认参数合同", async () => {
+        const calls: Array<{init: RequestInit}> = [];
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            calls.push({init});
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+
+        await requestNovelAiImages(input({
+            fetchImpl,
+            model: "nai-diffusion-5-full",
+            steps: Number.NaN,
+            scale: Number.NaN,
+            sampler: "",
+            noiseSchedule: "native",
+            variety: true,
+            decrisp: true,
+        }));
+
+        const body = JSON.parse(String(calls[0]?.init.body)) as {model: string; use_new_shared_trial: boolean; parameters: Record<string, unknown>};
+        expect(body.model).toBe("nai-diffusion-5-full");
+        expect(body.use_new_shared_trial).toBe(true);
+        expect(body.parameters).toMatchObject({
+            params_version: 4,
+            scale: 7,
+            sampler: "k_euler_ancestral",
+            steps: 23,
+            noise_schedule: "native",
+        });
+        expect(body.parameters.skip_cfg_above_sigma).toEqual(expect.any(Number));
+        expect(body.parameters).toHaveProperty("v4_prompt");
+        expect(body.parameters).toHaveProperty("v4_negative_prompt");
+        expect(body.parameters).not.toHaveProperty("variety");
+        expect(body.parameters).not.toHaveProperty("dynamic_thresholding");
+    });
+
+    it("V5 Curated 尊重 DDIM、关闭质量开关和 Variety，不发送 V4.5 字段", async () => {
+        const calls: Array<{init: RequestInit}> = [];
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            calls.push({init});
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+
+        await requestNovelAiImages(input({
+            fetchImpl,
+            model: "nai-diffusion-5-curated",
+            sampler: "ddim_v3",
+            noiseSchedule: "native",
+            positiveQualityPreset: false,
+            ucPreset: 4,
+            variety: false,
+        }));
+
+        const body = JSON.parse(String(calls[0]?.init.body)) as {parameters: Record<string, unknown>};
+        expect(body.parameters).toMatchObject({
+            params_version: 4,
+            sampler: "ddim_v3",
+            noise_schedule: "native",
+            qualityToggle: false,
+            skip_cfg_above_sigma: null,
+        });
+        expect(body.parameters).not.toHaveProperty("variety");
+        expect(body.parameters).not.toHaveProperty("dynamic_thresholding");
+        expect(body.parameters).not.toHaveProperty("ai_default_character_position");
+    });
+
+    it("V5 在请求前拒绝启用的参考图，不调用 Vibe 编码或生图端点", async () => {
+        const fetchImpl = vi.fn(async () => new Response("{}", {status: 200})) as unknown as LlmFetchImpl;
+        await expect(requestNovelAiImages(input({
+            fetchImpl,
+            model: "nai-diffusion-5-curated",
+            vibe: {enabled: true, imageId: "assets/tti/reference.png", informationExtracted: 0.3, referenceStrength: 0.6},
+        }), {readReference: async () => new Uint8Array([1])})).rejects.toThrow("当前 V5 模型不支持所选参数：Vibe Transfer");
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("V5 局部重绘使用官方对应模型与 infill action", async () => {
+        const calls: Array<{init: RequestInit}> = [];
+        const fetchImpl: LlmFetchImpl = async (_value, init) => {
+            calls.push({init});
+            return new Response(JSON.stringify({images: [Buffer.from([1]).toString("base64")]}), {
+                status: 200,
+                headers: {"content-type": "application/json"},
+            });
+        };
+        const resolver = {readReference: async () => new Uint8Array([1, 2, 3])};
+        for (const model of ["nai-diffusion-5-full", "nai-diffusion-5-curated"]) {
+            await requestNovelAiImages(input({
+                fetchImpl,
+                model,
+                inpaint: {imageId: "image.png", maskId: "mask.png", strength: 0.5},
+            }), resolver);
+        }
+        const bodies = calls.map((call) => JSON.parse(String(call.init.body)) as {model: string; action: string});
+        expect(bodies).toEqual([
+            expect.objectContaining({model: "nai-diffusion-5-full-inpainting", action: "infill"}),
+            expect.objectContaining({model: "nai-diffusion-4-5-curated-inpainting", action: "infill"}),
+        ]);
+    });
+
+    it("拒绝 V5/V4.5 之外的模型", async () => {
         const fetchImpl: LlmFetchImpl = async () => new Response("{}", {status: 200});
-        await expect(requestNovelAiImages(input({fetchImpl, model: "nai-diffusion-3"}))).rejects.toThrow(/NAI4.5/u);
+        await expect(requestNovelAiImages(input({fetchImpl, model: "nai-diffusion-3"}))).rejects.toThrow(/V5\/V4\.5/u);
     });
 });
 

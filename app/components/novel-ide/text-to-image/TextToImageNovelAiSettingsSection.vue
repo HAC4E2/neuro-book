@@ -10,6 +10,11 @@ import {
     type TextToImageNovelAiGenerationRecipe,
     type TextToImageProviderDto,
 } from "nbook/shared/dto/text-to-image.dto";
+import {
+    getNovelAiModelCapabilities,
+    resolveNovelAiDefaultNoiseSchedule,
+    resolveNovelAiDefaultSampler,
+} from "nbook/shared/text-to-image-novelai-capabilities";
 import {estimateNovelAiTokens} from "nbook/app/utils/novelai-token-counter";
 import {validatePromptReplacementRules} from "nbook/shared/text-to-image-prompt-replacement";
 
@@ -56,6 +61,9 @@ const referenceUploadInput = ref<HTMLInputElement | null>(null);
 const generationRecipeId = ref("");
 const generationRecipeGroupId = ref("default");
 const generationRecipeGroupName = ref("");
+const savedActiveGenerationRecipeId = ref("");
+const activeRecipeSwitching = ref(false);
+let activeRecipeSwitchSequence = 0;
 
 const vibeGroupNames = computed(() => Object.keys(form.value.vibeGroups ?? {}));
 const characterGroupNames = computed(() => Object.keys(form.value.characterGroups ?? {}));
@@ -74,6 +82,16 @@ const generationRecipeIdsInSelectedGroup = computed(() => generationRecipeNames.
     (form.value.generationRecipeMeta[id]?.groupId ?? "default") === generationRecipeGroupId.value
 )));
 const generationRecipeDisplayName = (id: string): string => form.value.generationRecipeMeta[id]?.name ?? id;
+const modelCapabilities = computed(() => getNovelAiModelCapabilities(form.value.model));
+const isNovelAiV5 = computed(() => modelCapabilities.value?.family === "nai5");
+const samplerOptions = computed(() => modelCapabilities.value?.allowedSamplers ?? []);
+const noiseScheduleOptions = computed(() => modelCapabilities.value?.allowedNoiseSchedules ?? []);
+const novelAiV5TokenLimit = computed(() => form.value.model === "nai-diffusion-5-full" ? 1471 : 703);
+const activeRecipeDirty = computed(() => {
+    const id = generationRecipeId.value;
+    const savedRecipe = id ? form.value.generationRecipes[id] : undefined;
+    return Boolean(savedRecipe) && JSON.stringify(snapshotGenerationRecipe()) !== JSON.stringify(savedRecipe);
+});
 const positiveTokenCount = ref<number | null>(null);
 const negativeTokenCount = ref<number | null>(null);
 const tokenCounterLoading = ref(false);
@@ -114,7 +132,7 @@ watch(() => props.providers, () => {
 }, {immediate: true});
 
 watch(
-    () => [form.value.fixedPositivePrompt, form.value.fixedPositivePromptEnd, form.value.fixedNegativePrompt],
+    () => [form.value.model, form.value.fixedPositivePrompt, form.value.fixedPositivePromptEnd, form.value.fixedNegativePrompt],
     () => {
         void refreshTokenCounts();
     },
@@ -123,6 +141,13 @@ watch(
 
 async function refreshTokenCounts(): Promise<void> {
     const requestId = ++tokenCountRequestId;
+    if (isNovelAiV5.value) {
+        positiveTokenCount.value = null;
+        negativeTokenCount.value = null;
+        tokenCounterLoading.value = false;
+        tokenCounterError.value = false;
+        return;
+    }
     const positive = `${form.value.fixedPositivePrompt}, ${form.value.fixedPositivePromptEnd}`;
     const negative = form.value.fixedNegativePrompt;
     if (positive.trim() === "" && negative.trim() === "") {
@@ -154,17 +179,48 @@ async function refreshTokenCounts(): Promise<void> {
     }
 }
 
+function normalizeModelCapabilities(): void {
+    const capabilities = modelCapabilities.value;
+    if (!capabilities) return;
+    if (!capabilities.allowedSamplers.includes(form.value.sampler)) {
+        form.value.sampler = resolveNovelAiDefaultSampler(form.value.model);
+    }
+    if (!capabilities.allowedNoiseSchedules.includes(form.value.noiseSchedule)) {
+        form.value.noiseSchedule = resolveNovelAiDefaultNoiseSchedule(form.value.model);
+    }
+}
+
+/** 只在用户主动更换模型时初始化调优参数；载入、保存和切换画风串必须保留已保存值。 */
+function applyModelDefaults(): void {
+    normalizeModelCapabilities();
+    const capabilities = modelCapabilities.value;
+    if (!capabilities) return;
+    if (capabilities.family === "nai5") {
+        form.value.promptGuidance = 7;
+        form.value.steps = 23;
+    }
+}
+
 function selectProvider(id: number): void {
     selectedProviderId.value = id;
     const provider = props.providers.find((item) => item.id === id);
     form.value = provider
         ? TextToImageNovelAiSettingsSchema.parse(provider.settings)
         : TextToImageNovelAiSettingsSchema.parse({});
+    if (provider && typeof provider.settings.noiseSchedule !== "string" && getNovelAiModelCapabilities(form.value.model)?.family === "nai5") {
+        form.value.noiseSchedule = resolveNovelAiDefaultNoiseSchedule(form.value.model);
+    }
+    if (provider && getNovelAiModelCapabilities(form.value.model)?.family === "nai5") {
+        if (typeof provider.settings.promptGuidance !== "number") form.value.promptGuidance = 7;
+        if (typeof provider.settings.steps !== "number") form.value.steps = 23;
+    }
     ensureGenerationRecipeMetadata();
+    normalizeModelCapabilities();
     vibePreviewUrl.value = form.value.vibe.imageId
         ? referenceImageUrl(form.value.vibe.imageId)
         : null;
     generationRecipeId.value = form.value.activeGenerationRecipeId;
+    savedActiveGenerationRecipeId.value = form.value.activeGenerationRecipeId;
     generationRecipeName.value = generationRecipeId.value
         ? form.value.generationRecipeMeta[generationRecipeId.value]?.name ?? generationRecipeId.value
         : "";
@@ -342,6 +398,7 @@ function saveStyle(): void {
         };
     }
     error.value = "";
+    savedActiveGenerationRecipeId.value = form.value.activeGenerationRecipeId;
     emit("save-provider", {
         id: selectedProviderId.value ?? undefined,
         kind: "novelai",
@@ -582,12 +639,40 @@ function applyProfileValues(profile: TextToImageNovelAiProfile): void {
     form.value.negativeQualityPreset = profile.negativeQualityPreset;
 }
 
-function selectGenerationRecipe(id: string): void {
-    if (!id) return;
+async function selectGenerationRecipe(id: string): Promise<void> {
+    if (!id || activeRecipeSwitching.value) return;
+    const providerId = selectedProviderId.value;
+    const previousId = savedActiveGenerationRecipeId.value;
+    const requestId = ++activeRecipeSwitchSequence;
     generationRecipeId.value = id;
     generationRecipeName.value = generationRecipeDisplayName(id);
     generationRecipeGroupId.value = form.value.generationRecipeMeta[id]?.groupId ?? "default";
     applyGenerationRecipe(id);
+    if (providerId === null || id === previousId) return;
+    activeRecipeSwitching.value = true;
+    try {
+        await $fetch(`/api/text-to-image/providers/${providerId}/active-generation-recipe`, {
+            method: "PUT",
+            body: {recipeId: id},
+        });
+        if (requestId !== activeRecipeSwitchSequence) return;
+        savedActiveGenerationRecipeId.value = id;
+    } catch {
+        if (requestId !== activeRecipeSwitchSequence) return;
+        generationRecipeId.value = previousId;
+        form.value.activeGenerationRecipeId = previousId;
+        if (previousId) {
+            generationRecipeName.value = generationRecipeDisplayName(previousId);
+            applyGenerationRecipe(previousId);
+        } else {
+            generationRecipeName.value = "";
+        }
+        error.value = "当前画风串切换失败，仍使用上一个已保存画风串";
+    } finally {
+        if (requestId === activeRecipeSwitchSequence) {
+            activeRecipeSwitching.value = false;
+        }
+    }
 }
 
 function applyGenerationRecipe(id: string): void {
@@ -602,7 +687,17 @@ function applyGenerationRecipe(id: string): void {
     form.value.characterReference = {...recipe.characterReference};
     form.value.vibeGroup = {...recipe.vibeGroup};
     form.value.activeGenerationRecipeId = id;
-    saveStyle();
+    normalizeModelCapabilities();
+}
+
+/** 创建一个未绑定稳定 ID 的画风串草稿；参数沿用当前表单，避免新建入口清空用户正在编辑的模型设置。 */
+function newGenerationRecipe(): void {
+    generationRecipeId.value = "";
+    generationRecipeName.value = "";
+    generationRecipeGroupId.value = "default";
+    generationRecipeGroupName.value = form.value.generationRecipeGroups.default?.name ?? "默认";
+    form.value.activeGenerationRecipeId = "";
+    error.value = "";
 }
 
 function saveGenerationRecipe(): void {
@@ -626,17 +721,7 @@ function saveGenerationRecipe(): void {
     };
     generationRecipeId.value = id;
     form.value.activeGenerationRecipeId = id;
-    saveStyle();
-}
-
-function renameGenerationRecipe(): void {
-    const id = generationRecipeId.value;
-    const name = generationRecipeName.value.trim();
-    if (!id || !name || !form.value.generationRecipes[id]) return;
-    form.value.generationRecipeMeta = {
-        ...form.value.generationRecipeMeta,
-        [id]: {name, groupId: form.value.generationRecipeMeta[id]?.groupId ?? (generationRecipeGroupId.value || "default")},
-    };
+    savedActiveGenerationRecipeId.value = id;
     saveStyle();
 }
 
@@ -653,6 +738,7 @@ function deleteGenerationRecipe(id: string): void {
         generationRecipeId.value = replacement;
         generationRecipeName.value = replacement ? generationRecipeDisplayName(replacement) : "";
     }
+    savedActiveGenerationRecipeId.value = form.value.activeGenerationRecipeId;
     saveStyle();
 }
 
@@ -664,7 +750,6 @@ function addGenerationRecipeGroup(): void {
         [id]: {name: generationRecipeGroupName.value.trim() || id, sortOrder: Object.keys(form.value.generationRecipeGroups).length},
     };
     generationRecipeGroupName.value = generationRecipeGroupName.value.trim() || id;
-    saveStyle();
 }
 
 function createGenerationRecipeId(name: string): string {
@@ -840,8 +925,7 @@ function downloadVibeFile(): void {
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-            <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">画风串和模型参数配置</h3>
-            <p class="mb-3 text-[13px] text-[var(--text-muted)]">画风串会连同模型参数、固定提示词和参考图选择一起保存；改名不会影响已保存的稳定 ID。</p>
+            <div class="flex flex-wrap items-start justify-between gap-2"><div><h3 class="text-[17px] font-semibold text-[var(--text-main)]">画风串和模型参数配置</h3><p class="mt-1 text-[13px] text-[var(--text-muted)]">先选择或新建画风串，在同一份草稿中编辑名称、分组和参数，最后点击唯一的保存按钮。</p></div><button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="newGenerationRecipe"><span class="i-lucide-plus h-3.5 w-3.5"></span>新建画风串</button></div>
             <div class="mb-4 grid gap-2 rounded-md border border-[var(--border-color)] p-3 md:grid-cols-[180px_minmax(0,1fr)_180px]">
                 <label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">画风串分组
                     <select v-model="generationRecipeGroupId" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]">
@@ -849,8 +933,8 @@ function downloadVibeFile(): void {
                     </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[13px] text-[var(--text-secondary)]">画风串
-                    <select v-model="generationRecipeId" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]" @change="selectGenerationRecipe(generationRecipeId)">
-                        <option value="">新建画风串</option>
+                    <select v-model="generationRecipeId" :disabled="activeRecipeSwitching" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)] disabled:opacity-60" @change="selectGenerationRecipe(generationRecipeId)">
+                        <option value="">未选择画风串</option>
                         <option v-for="id in generationRecipeIdsInSelectedGroup" :key="id" :value="id">{{ generationRecipeDisplayName(id) }}</option>
                     </select>
                 </label>
@@ -858,11 +942,11 @@ function downloadVibeFile(): void {
                     <input v-model="generationRecipeName" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[14px] text-[var(--text-main)]" placeholder="例如：柔和厚涂" />
                 </label>
                 <div class="flex flex-wrap items-center gap-2 md:col-span-3">
-                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="!generationRecipeId" @click="selectGenerationRecipe(generationRecipeId)">应用</button>
-                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="!generationRecipeName" @click="saveGenerationRecipe">保存画风串</button>
-                    <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-secondary)]" :disabled="!generationRecipeId || !generationRecipeName" @click="renameGenerationRecipe">重命名</button>
+                    <button class="h-8 rounded-md bg-[var(--accent-main)] px-3 text-[13px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="!generationRecipeName" @click="saveGenerationRecipe">保存画风串</button>
                     <button class="h-8 rounded-md border border-[var(--danger-border)] px-3 text-[13px] text-[var(--danger-text)]" :disabled="!generationRecipeId" @click="deleteGenerationRecipe(generationRecipeId)">删除</button>
-                    <span v-if="form.activeGenerationRecipeId" class="text-[12px] text-[var(--accent-text)]">当前：{{ generationRecipeDisplayName(form.activeGenerationRecipeId) }}</span>
+                    <span v-if="savedActiveGenerationRecipeId" class="text-[12px] text-[var(--accent-text)]">已保存当前：{{ generationRecipeDisplayName(savedActiveGenerationRecipeId) }}</span>
+                    <span v-if="activeRecipeDirty" class="text-[12px] text-[var(--warning-text)]">当前画风串有未保存修改；重 roll 仍使用已保存版本</span>
+                    <span v-if="activeRecipeSwitching" class="text-[12px] text-[var(--status-info)]">正在保存当前画风串...</span>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 md:col-span-3">
                     <input v-model="generationRecipeGroupId" class="h-8 w-40 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="新分组 ID" />
@@ -873,30 +957,23 @@ function downloadVibeFile(): void {
             <div class="grid grid-cols-3 gap-3">
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     模型
-                    <select v-model="form.model" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
-                        <option>nai-diffusion-4-5-curated</option>
-                        <option>nai-diffusion-4-5-full</option>
+                    <select v-model="form.model" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]" @change="applyModelDefaults">
+                        <option value="nai-diffusion-5-full">NovelAI Diffusion V5 Full</option>
+                        <option value="nai-diffusion-5-curated">NovelAI Diffusion V5 Curated</option>
+                        <option value="nai-diffusion-4-5-full">NovelAI Diffusion V4.5 Full</option>
+                        <option value="nai-diffusion-4-5-curated">NovelAI Diffusion V4.5 Curated</option>
                     </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     采样器
                     <select v-model="form.sampler" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
-                        <option>k_euler</option>
-                        <option>ddim_v3</option>
-                        <option>k_dpmpp_2s_ancestral</option>
-                        <option>k_dpmpp_2m</option>
-                        <option>k_euler_ancestral</option>
-                        <option>k_dpmpp_2m_sde</option>
-                        <option>k_dpmpp_sde</option>
+                        <option v-for="sampler in samplerOptions" :key="sampler">{{ sampler }}</option>
                     </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
                     噪点表
                     <select v-model="form.noiseSchedule" class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[17px] text-[var(--text-main)]">
-                        <option>native</option>
-                        <option>exponential</option>
-                        <option>polyexponential</option>
-                        <option>karras</option>
+                        <option v-for="noiseSchedule in noiseScheduleOptions" :key="noiseSchedule">{{ noiseSchedule }}</option>
                     </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[16px] text-[var(--text-secondary)]">
@@ -988,9 +1065,6 @@ function downloadVibeFile(): void {
                 </datalist>
                 <button class="h-9 rounded-md border border-[var(--border-color)] px-3 text-[16px] text-[var(--text-secondary)]" @click="appendTag">追加 Tag</button>
             </div>
-            <div class="mt-3 flex items-center gap-2">
-                <button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)]" @click="saveStyle">保存画风串和模型参数</button>
-            </div>
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
@@ -1007,7 +1081,8 @@ function downloadVibeFile(): void {
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">当前提示词 token 估算</h3>
             <p class="mt-2 text-[15px] text-[var(--text-muted)]">
-                <template v-if="tokenCounterLoading">正在加载 T5 分词器…</template>
+                <template v-if="isNovelAiV5">V5 使用 Qwen 分词器；当前不提供本地精确估算，官方提示词上限：{{ novelAiV5TokenLimit }}</template>
+                <template v-else-if="tokenCounterLoading">正在加载 T5 分词器…</template>
                 <template v-else-if="tokenCounterError">token 估算不可用</template>
                 <template v-else>正面估算 token：{{ positiveTokenCount ?? "—" }} · 负面估算 token：{{ negativeTokenCount ?? "—" }} · 参考上限：512</template>
             </p>
@@ -1015,6 +1090,9 @@ function downloadVibeFile(): void {
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <h3 class="mb-2 text-[17px] font-semibold text-[var(--text-main)]">Vibe / 角色参考</h3>
+            <p v-if="isNovelAiV5" class="mb-3 rounded-md border border-[var(--warning-border)] bg-[var(--warning-bg)] px-3 py-2 text-[14px] text-[var(--warning-text)]">
+                NovelAI V5 首发版暂不支持 Vibe Transfer 和角色参考图。已保存的参考配置会保留；若仍启用参考图，生成会在发送请求前给出明确提示。
+            </p>
             <div class="mb-3 grid grid-cols-2 gap-3">
                 <div>
                     <div class="flex items-center gap-2">

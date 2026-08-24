@@ -21,6 +21,7 @@ export function buildBodyImageSystemPrompt(): string {
         "",
         "规则：",
         "<regex> 必须是正文中一字不差的挂载点文本，优先截取 10-20 字的最能代表画面视觉内容的短句，禁止概括、改写、补字、删字或拼接多个不相邻片段。",
+        "多个 <image> 块可以使用同一个挂载点；后端会按照本次回复中 <image> 的出现顺序，把它们依次插入到该挂载点之后。",
         "<prompts> 必须是可直接交给 NovelAI 的最终英文 tag 串，使用英文逗号分隔；角色/服装可优先使用正文会话提供的 ${...}$ 调用代码，没有对应角色或服装时用原创特征 tag。",
         "角色调用中的 angle 可以填写实际镜头角度，例如 from front、from side、side view 或 three-quarter view；只有 from behind、from back、back、behind 选择背面视觉资料，其余非空角度使用正面视觉资料。",
         "每个角色调用必须完整包在成对的 ${ 与 }$ 中，格式为 ${\"name\":\"角色名\",\"angle\":\"from side\",\"upperBody\":\"sfw\",\"lowerBody\":\"sfw\"}$；不要遗漏结尾的 `$`。",
