@@ -1,11 +1,321 @@
+import {createHash} from "node:crypto";
 import {mkdir, readFile, readdir, rename as fsRename, rm, rm as fsRm, symlink, writeFile} from "node:fs/promises";
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {
+    applyLegacyAgentAssetMigration,
     getSystemAssetInstallPaths,
+    planLegacyAgentAssetMigration,
     seedSystemAssets,
 } from "nbook/server/workspace-files/system-asset-installation";
+
+type LedgerFile = {assets: Array<{type: string; id: string; state: string; origin: {kind: string}; contentHash?: string; dirtyAt?: string}>};
+
+async function writeLegacyFixture(root: string): Promise<{applicationRoot: string; stateRoot: string; installRoot: string; nbookRoot: string}> {
+    const applicationRoot = path.join(root, "application");
+    const stateRoot = path.join(root, "state");
+    const installRoot = path.join(stateRoot, "workspace", ".nbook", "agent");
+    const nbookRoot = path.join(stateRoot, "workspace", ".nbook");
+    await mkdir(path.join(applicationRoot, "assets", "reference"), {recursive: true});
+    await writeFile(path.join(applicationRoot, "assets", "reference", "seed.md"), "reference", "utf8");
+    return {applicationRoot, stateRoot, installRoot, nbookRoot};
+}
+
+async function writeSeedSkill(applicationRoot: string, id: string, content: string): Promise<void> {
+    const skillRoot = path.join(applicationRoot, "assets", "workspace", ".nbook", "agent", "skills", id);
+    await mkdir(skillRoot, {recursive: true});
+    await writeFile(path.join(skillRoot, "SKILL.md"), content, "utf8");
+}
+
+function sha256(content: string): string {
+    return createHash("sha256").update(content).digest("hex");
+}
+
+describe("缺失或损坏账本的启动重建", () => {
+    const roots: string[] = [];
+
+    afterEach(async () => {
+        for (const root of roots.splice(0)) await rm(root, {recursive: true, force: true});
+    });
+
+    it("旧投影 Install Root 无账本时按磁盘与 Seed 比对重建，bundled 与 local 各归其位且幂等", async () => {
+        const root = testHostPath("tmp", "ledger-recovery-clean", crypto.randomUUID());
+        roots.push(root);
+        const {applicationRoot, stateRoot, installRoot} = await writeLegacyFixture(root);
+        await writeSeedSkill(applicationRoot, "demo", "demo-v1");
+        await mkdir(path.join(installRoot, "skills", "demo"), {recursive: true});
+        await writeFile(path.join(installRoot, "skills", "demo", "SKILL.md"), "demo-v1", "utf8");
+        await mkdir(path.join(installRoot, "skills", "mine"), {recursive: true});
+        await writeFile(path.join(installRoot, "skills", "mine", "SKILL.md"), "mine", "utf8");
+
+        const first = await seedSystemAssets({applicationRoot, stateRoot});
+        expect(first.legacyAdoption).toMatchObject({reason: "账本文件缺失", bundled: 1, dirty: [], local: ["skill:mine"]});
+        expect(first.seeded).toBe(true);
+        const manifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        const demo = manifest.assets.find((entry) => entry.id === "demo");
+        const mine = manifest.assets.find((entry) => entry.id === "mine");
+        expect(demo).toMatchObject({origin: {kind: "bundled"}, state: "installed"});
+        expect(demo?.dirtyAt).toBeUndefined();
+        expect(mine).toMatchObject({origin: {kind: "local"}});
+
+        const second = await seedSystemAssets({applicationRoot, stateRoot});
+        expect(second.seeded).toBe(false);
+        expect(second.legacyAdoption).toBeUndefined();
+    });
+
+    it("同 id 但内容不一致的包标 dirty，保留用户字节且不被后续 Seed 升级覆盖", async () => {
+        const root = testHostPath("tmp", "ledger-recovery-dirty", crypto.randomUUID());
+        roots.push(root);
+        const {applicationRoot, stateRoot, installRoot} = await writeLegacyFixture(root);
+        const skillPath = path.join(installRoot, "skills", "demo", "SKILL.md");
+        await writeSeedSkill(applicationRoot, "demo", "seed-v1");
+        await mkdir(path.join(installRoot, "skills", "demo"), {recursive: true});
+        await writeFile(skillPath, "user-edit", "utf8");
+
+        const first = await seedSystemAssets({applicationRoot, stateRoot});
+        expect(first.legacyAdoption).toMatchObject({bundled: 0, dirty: ["skill:demo"], local: []});
+        await expect(readFile(skillPath, "utf8")).resolves.toBe("user-edit");
+
+        await writeSeedSkill(applicationRoot, "demo", "seed-v2");
+        const second = await seedSystemAssets({applicationRoot, stateRoot});
+        await expect(readFile(skillPath, "utf8")).resolves.toBe("user-edit");
+        const manifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        expect(manifest.assets.find((entry) => entry.id === "demo")?.dirtyAt).toEqual(expect.any(String));
+        expect(second.seeded).toBe(false);
+    });
+
+    it("账本损坏为非法 JSON 时同样触发重建并在报告中给出读取失败诊断", async () => {
+        const root = testHostPath("tmp", "ledger-recovery-corrupt", crypto.randomUUID());
+        roots.push(root);
+        const {applicationRoot, stateRoot, installRoot} = await writeLegacyFixture(root);
+        await writeSeedSkill(applicationRoot, "demo", "demo-v1");
+        await mkdir(path.join(installRoot, "skills", "demo"), {recursive: true});
+        await writeFile(path.join(installRoot, "skills", "demo", "SKILL.md"), "demo-v1", "utf8");
+        await mkdir(installRoot, {recursive: true});
+        await writeFile(path.join(installRoot, "installed.json"), "{corrupted", "utf8");
+
+        const result = await seedSystemAssets({applicationRoot, stateRoot});
+        expect(result.legacyAdoption?.reason).toContain("账本读取失败");
+        expect(result.legacyAdoption).toMatchObject({bundled: 1});
+        await expect(readFile(path.join(installRoot, "installed.json"), "utf8")).resolves.toContain("system-asset-install/v2");
+    });
+});
+
+describe("显式 legacy migration", () => {
+    const roots: string[] = [];
+    const ORPHAN_RELATIVE = "agent/skills/llmlint/src/legacy-import.ts";
+
+    afterEach(async () => {
+        for (const root of roots.splice(0)) await rm(root, {recursive: true, force: true});
+    });
+
+    async function writeOrphanFixture(root: string): Promise<{applicationRoot: string; stateRoot: string; installRoot: string; nbookRoot: string; orphanPath: string}> {
+        const fixture = await writeLegacyFixture(root);
+        roots.push(root);
+        await writeSeedSkill(fixture.applicationRoot, "llmlint", "lint-v1");
+        const llmlintRoot = path.join(fixture.installRoot, "skills", "llmlint");
+        await mkdir(llmlintRoot, {recursive: true});
+        await writeFile(path.join(llmlintRoot, "SKILL.md"), "lint-v1", "utf8");
+        const orphanPath = path.join(fixture.nbookRoot, ...ORPHAN_RELATIVE.split("/"));
+        await mkdir(path.dirname(orphanPath), {recursive: true});
+        const orphanContent = "old legacy import\n";
+        await writeFile(orphanPath, orphanContent, "utf8");
+        // 普通墓碑要求 sync-state 证明该文件自上次同步未被手改，迁移才会删除；
+        // 同时模拟真实文件形状：profiles 数组 + 保留旧协议的 templates 条目。
+        const syncState = JSON.stringify({
+            profiles: [{fileName: "builtin/writer.profile.tsx", profileKey: "writer", upstreamHash: "upstream", lastSyncedUserHash: sha256("profile"), syncedAt: "2026-08-01"}],
+            assets: [
+                {assetPath: ORPHAN_RELATIVE, upstreamHash: "upstream", lastSyncedUserHash: sha256(orphanContent), syncedAt: "2026-08-01"},
+                {assetPath: "templates/project-directory-templates/PROJECT-STATUS.md", upstreamHash: "tpl-upstream", lastSyncedUserHash: "tpl-user", syncedAt: "2026-08-01"},
+            ],
+        });
+        await writeFile(path.join(fixture.nbookRoot, ".system-assets-sync-state.json"), syncState, "utf8");
+        return {...fixture, orphanPath};
+    }
+
+    it("preflight 只报告不落盘，apply 清理墓碑孤儿并重建为 bundled，重复执行幂等", async () => {
+        const root = testHostPath("tmp", "legacy-migration-apply", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot, orphanPath} = await writeOrphanFixture(root);
+
+        const plan = await planLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(plan?.orphanRemovals).toEqual([ORPHAN_RELATIVE]);
+        expect(plan?.dirty).toContain("skill:llmlint");
+        await expect(async () => readFile(path.join(installRoot, "installed.json"), "utf8")).rejects.toMatchObject({code: "ENOENT"});
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(result?.removedOrphans).toEqual([ORPHAN_RELATIVE]);
+        expect(result?.report.bundled).toBe(1);
+        expect(result?.report.dirty).toEqual([]);
+        expect(result?.syncStateCleaned).toBe(true);
+        await expect(readFile(path.join(installRoot, "skills", "llmlint", "SKILL.md"), "utf8")).resolves.toBe("lint-v1");
+        const manifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        expect(manifest.assets.find((entry) => entry.id === "llmlint")).toMatchObject({origin: {kind: "bundled"}});
+
+        const cleanedState = JSON.parse(await readFile(path.join(path.dirname(installRoot), ".system-assets-sync-state.json"), "utf8")) as {profiles: unknown[]; assets: Array<{assetPath: string}>};
+        expect(cleanedState.profiles).toEqual([]);
+        expect(cleanedState.assets.map((item) => item.assetPath)).toEqual(["templates/project-directory-templates/PROJECT-STATUS.md"]);
+
+        await expect(applyLegacyAgentAssetMigration({applicationRoot, stateRoot})).resolves.toBeNull();
+        await expect(planLegacyAgentAssetMigration({applicationRoot, stateRoot})).resolves.toBeNull();
+    });
+
+    it("账本有效而 sync-state 仍含三类条目时，迁移仅剥离 state 并保持幂等", async () => {
+        const root = testHostPath("tmp", "legacy-migration-state-only", crypto.randomUUID());
+        const {applicationRoot, stateRoot, nbookRoot} = await writeOrphanFixture(root);
+        await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        await writeFile(path.join(nbookRoot, ".system-assets-sync-state.json"), `${JSON.stringify({
+            profiles: [{fileName: "builtin/writer.profile.tsx", profileKey: "writer", upstreamHash: "u", lastSyncedUserHash: sha256("profile"), syncedAt: "2026-08-01"}],
+            assets: [],
+        })}\n`, "utf8");
+
+        const plan = await planLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(plan?.syncStateCleanupPending).toBe(true);
+        expect(plan?.orphanRemovals).toEqual([]);
+        expect(plan?.dirty).toEqual([]);
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(result?.syncStateCleaned).toBe(true);
+        const cleaned = JSON.parse(await readFile(path.join(nbookRoot, ".system-assets-sync-state.json"), "utf8")) as {profiles: unknown[]; assets: unknown[]};
+        expect(cleaned.profiles).toEqual([]);
+        await expect(applyLegacyAgentAssetMigration({applicationRoot, stateRoot})).resolves.toBeNull();
+    });
+
+    it.each([
+        ["assets 条目缺失 assetPath", `{"profiles": [], "assets": [{"lastSyncedUserHash": "x"}]}`],
+        ["profiles 条目缺失 fileName", `{"profiles": [{}], "assets": []}`],
+    ])("sync-state 条目畸形（%s）时 preflight 与 apply 均 fail closed 且不写账本", async (_label, brokenState) => {
+        const root = testHostPath("tmp", "legacy-migration-item-shape", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot} = await writeOrphanFixture(root);
+        await writeFile(path.join(path.dirname(installRoot), ".system-assets-sync-state.json"), `${brokenState}\n`, "utf8");
+
+        await expect(planLegacyAgentAssetMigration({applicationRoot, stateRoot})).rejects.toThrow("需要人工核查（needs-review）");
+        await expect(applyLegacyAgentAssetMigration({applicationRoot, stateRoot})).rejects.toThrow("需要人工核查（needs-review）");
+        await expect(readFile(path.join(installRoot, "installed.json"), "utf8")).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it.each([
+        ["assets 键存在但非数组", `{"profiles": [], "assets": {}}`],
+        ["profiles 键存在但非数组", `{"profiles": "x", "assets": []}`],
+        ["两类键均缺失", `{}`],
+    ])("sync-state 结构损坏（%s）时 preflight 与 apply 均 fail closed 且不写账本", async (_label, brokenState) => {
+        const root = testHostPath("tmp", "legacy-migration-shape", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot} = await writeOrphanFixture(root);
+        await writeFile(path.join(path.dirname(installRoot), ".system-assets-sync-state.json"), `${brokenState}\n`, "utf8");
+
+        await expect(planLegacyAgentAssetMigration({applicationRoot, stateRoot})).rejects.toThrow("需要人工核查（needs-review）");
+        await expect(applyLegacyAgentAssetMigration({applicationRoot, stateRoot})).rejects.toThrow("需要人工核查（needs-review）");
+        await expect(readFile(path.join(installRoot, "installed.json"), "utf8")).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("启动恢复已重建账本后，迁移仍能清理墓碑孤儿并解除 dirty 标记", async () => {
+        const root = testHostPath("tmp", "legacy-migration-after-recovery", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot, orphanPath} = await writeOrphanFixture(root);
+
+        const recovered = await seedSystemAssets({applicationRoot, stateRoot});
+        expect(recovered.legacyAdoption?.dirty).toEqual(["skill:llmlint"]);
+        const recoveredManifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        expect(recoveredManifest.assets.find((entry) => entry.id === "llmlint")?.dirtyAt).toEqual(expect.any(String));
+
+        const plan = await planLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(plan).not.toBeNull();
+        expect(plan?.orphanRemovals).toEqual([ORPHAN_RELATIVE]);
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(result?.removedOrphans).toEqual([ORPHAN_RELATIVE]);
+        expect(result?.report.bundled).toBe(1);
+        const migratedManifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        expect(migratedManifest.assets.find((entry) => entry.id === "llmlint")?.dirtyAt).toBeUndefined();
+
+        const after = await seedSystemAssets({applicationRoot, stateRoot});
+        expect(after.seeded).toBe(false);
+    });
+
+    it("墓碑名单中当前 Seed 仍携带的路径不是孤儿，不删除也不影响 bundled 判定", async () => {
+        const root = testHostPath("tmp", "legacy-migration-stale-list", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot} = await writeOrphanFixture(root);
+        const staleRelative = "agent/skills/llmlint/rulesets/builtin/default/rules/cliche/baguwen.json";
+        const seedRulePath = path.join(applicationRoot, "assets", "workspace", ".nbook", "agent", ...staleRelative.split("/"));
+        const rootRulePath = path.join(installRoot, ...staleRelative.split("/"));
+        await mkdir(path.dirname(seedRulePath), {recursive: true});
+        await writeFile(seedRulePath, "{\"id\":\"baguwen\"}\n", "utf8");
+        await mkdir(path.dirname(rootRulePath), {recursive: true});
+        await writeFile(rootRulePath, "{\"id\":\"baguwen\"}\n", "utf8");
+
+        const plan = await planLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(plan?.orphanRemovals).toEqual([ORPHAN_RELATIVE]);
+        expect(plan?.orphanRemovals).not.toContain(staleRelative);
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(result?.removedOrphans).toEqual([ORPHAN_RELATIVE]);
+        await expect(readFile(rootRulePath, "utf8")).resolves.toBe("{\"id\":\"baguwen\"}\n");
+    });
+
+    it("hard-cut exact 名单中的受管包残留被删除，agent/scripts 等非受管路径不触碰", async () => {
+        const root = testHostPath("tmp", "legacy-migration-hard-cut", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot, nbookRoot} = await writeOrphanFixture(root);
+        const gitignorePath = path.join(nbookRoot, "agent", "skills", "llmlint", ".gitignore");
+        const scriptPath = path.join(nbookRoot, "agent", "scripts", "profile.ts");
+        await writeFile(gitignorePath, "node_modules\n", "utf8");
+        await mkdir(path.dirname(scriptPath), {recursive: true});
+        await writeFile(scriptPath, "// legacy cli script\n", "utf8");
+
+        const plan = await planLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(plan?.orphanRemovals).toContain("agent/skills/llmlint/.gitignore");
+        expect(plan?.orphanRemovals).not.toContain("agent/scripts/profile.ts");
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(result?.removedOrphans).toContain("agent/skills/llmlint/.gitignore");
+        await expect(readFile(gitignorePath, "utf8")).rejects.toMatchObject({code: "ENOENT"});
+        await expect(readFile(scriptPath, "utf8")).resolves.toBe("// legacy cli script\n");
+    });
+
+    it("普通墓碑缺少 sync-state 证明时保留待人工处理，hard-cut 残留无需证明即可删除", async () => {
+        const root = testHostPath("tmp", "legacy-migration-no-state", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot, nbookRoot, orphanPath} = await writeOrphanFixture(root);
+        await rm(path.join(nbookRoot, ".system-assets-sync-state.json"));
+        const gitignorePath = path.join(nbookRoot, "agent", "skills", "llmlint", ".gitignore");
+        await writeFile(gitignorePath, "node_modules\n", "utf8");
+
+        const plan = await planLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(plan?.preservedOrphans).toContain(ORPHAN_RELATIVE);
+        expect(plan?.orphanRemovals).toContain("agent/skills/llmlint/.gitignore");
+        expect(plan?.orphanRemovals).not.toContain(ORPHAN_RELATIVE);
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        await expect(readFile(orphanPath, "utf8")).resolves.toBe("old legacy import\n");
+        await expect(readFile(gitignorePath, "utf8")).rejects.toMatchObject({code: "ENOENT"});
+        expect(result?.removedOrphans).toContain("agent/skills/llmlint/.gitignore");
+        const manifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        expect(manifest.assets.find((entry) => entry.id === "llmlint")?.dirtyAt).toEqual(expect.any(String));
+    });
+
+    it("sync-state 证明手改的墓碑孤儿保留并使对应包标 dirty", async () => {
+        const root = testHostPath("tmp", "legacy-migration-preserve", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot, nbookRoot, orphanPath} = await writeOrphanFixture(root);
+        await writeFile(orphanPath, "hand-edited import\n", "utf8");
+        const syncState = JSON.stringify({assets: [{assetPath: ORPHAN_RELATIVE, upstreamHash: "upstream", lastSyncedUserHash: sha256("old legacy import\n")}]});
+        await writeFile(path.join(nbookRoot, ".system-assets-sync-state.json"), syncState, "utf8");
+
+        const result = await applyLegacyAgentAssetMigration({applicationRoot, stateRoot});
+        expect(result?.preservedOrphans).toEqual([ORPHAN_RELATIVE]);
+        expect(result?.removedOrphans).toEqual([]);
+        await expect(readFile(orphanPath, "utf8")).resolves.toBe("hand-edited import\n");
+        const manifest = JSON.parse(await readFile(path.join(installRoot, "installed.json"), "utf8")) as LedgerFile;
+        expect(manifest.assets.find((entry) => entry.id === "llmlint")?.dirtyAt).toEqual(expect.any(String));
+    });
+
+    it("sync-state 损坏时 fail closed：preflight 与 apply 都拒绝执行且不写账本", async () => {
+        const root = testHostPath("tmp", "legacy-migration-needs-review", crypto.randomUUID());
+        const {applicationRoot, stateRoot, installRoot} = await writeOrphanFixture(root);
+        await writeFile(path.join(path.dirname(installRoot), ".system-assets-sync-state.json"), "{broken json", "utf8");
+
+        await expect(planLegacyAgentAssetMigration({applicationRoot, stateRoot})).rejects.toThrow("需要人工核查（needs-review）");
+        await expect(applyLegacyAgentAssetMigration({applicationRoot, stateRoot})).rejects.toThrow("需要人工核查（needs-review）");
+        await expect(readFile(path.join(installRoot, "skills", "llmlint", "src", "legacy-import.ts"), "utf8")).resolves.toContain("old legacy import");
+        await expect(readFile(path.join(installRoot, "installed.json"), "utf8")).rejects.toMatchObject({code: "ENOENT"});
+    });
+});
 
 describe("State Root system asset installation", () => {
     const roots: string[] = [];

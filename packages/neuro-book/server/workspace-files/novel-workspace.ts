@@ -29,6 +29,13 @@ import {absoluteFsPath, assertRealPathContained, relativeFilePathInside, type Ab
 import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {isRuntimeAgentAssetInstallMode, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {
+    LEGACY_HARD_CUT_TOMBSTONED_PATHS,
+    LEGACY_HARD_CUT_TOMBSTONED_PREFIXES,
+    LEGACY_STALE_TOMBSTONED_PREFIXES,
+    LEGACY_TOMBSTONED_ASSET_PATHS,
+    LEGACY_TOMBSTONED_ASSET_PREFIXES,
+} from "nbook/server/workspace-files/legacy-agent-asset-tombstones";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
@@ -46,46 +53,8 @@ export const USER_NBOOK_ROOT = USER_ASSETS_WORKSPACE_ROOT;
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const PROJECT_DIRECTORY_TEMPLATE_ASSET_PREFIX = "templates/project-directory-templates/";
-const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
-    "templates/project-directory-templates/lorebook/context/director.md",
-    "templates/project-directory-templates/lorebook/context/generated/.gitkeep",
-    "templates/project-directory-templates/lorebook/context/leader.default.md",
-    "templates/project-directory-templates/lorebook/context/simulator.leader.md",
-    "templates/project-directory-templates/lorebook/context/writer.md",
-    "templates/project-directory-templates/agent-context/director.md",
-    "templates/project-directory-templates/agent-context/generated/.gitkeep",
-    "templates/project-directory-templates/agent-context/leader.default.md",
-    "templates/project-directory-templates/agent-context/rp.writer.md",
-    "templates/project-directory-templates/agent-context/simulator.leader.md",
-    "templates/project-directory-templates/agent-context/writer.md",
-    "templates/project-directory-templates/simulation/cast.yaml",
-    "templates/project-directory-templates/simulation/config.yaml",
-    "templates/project-directory-templates/simulation/simulator.md",
-    "templates/project-directory-templates/simulation/writer.md",
-    "templates/project-directory-templates/PROJECT-STATUS.md",
-    "templates/project-directory-templates/world-engine/calendar.yaml",
-    "templates/project-directory-templates/lorebook/rule/writing-style/index.md",
-    "templates/project-directory-templates/lorebook/rule/creation-boundaries/index.md",
-    "templates/project-directory-templates/lorebook/note/project-positioning/index.md",
-    "templates/project-directory-templates/lorebook/note/synopsis/index.md",
-    "templates/project-directory-templates/lorebook/note/theme/index.md",
-    "templates/project-directory-templates/lorebook/note/initial-plot-seed/index.md",
-    "agent/skills/llmlint/src/legacy-import.ts",
-    "agent/skills/llmlint/rulesets/builtin/default/rules.json",
-]);
-const DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
-    "agent/skills/anti-ai-slop/",
-    "agent/skills/llmlint/.git/",
-    "agent/skills/llmlint/evals/",
-    "agent/skills/llmlint/presets/",
-    "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
-    "agent/skills/llmlint/rulesets/builtin/cn/",
-    "agent/skills/llmlint/rulesets/builtin/cn-light/",
-    "agent/skills/llmlint/rulesets/builtin/cn-standard/",
-    "agent/skills/llmlint/rulesets/builtin/cn-strong/",
-    "agent/skills/llmlint/rulesets/builtin/cn-extreme/",
-    "templates/project-directory-templates/simulation/",
-];
+const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set(LEGACY_TOMBSTONED_ASSET_PATHS);
+const DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = LEGACY_TOMBSTONED_ASSET_PREFIXES;
 
 let userAssetsSyncStateWriteHookForTest: (() => Promise<void> | void) | null = null;
 let userAssetsProfileArtifactStagedHookForTest: ((fileName: string) => Promise<void> | void) | null = null;
@@ -104,26 +73,9 @@ export function setUserAssetsProfileArtifactStagedHookForTest(hook: ((fileName: 
     userAssetsProfileArtifactStagedHookForTest = hook;
 }
 
-const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
-    "agent/skills/llmlint/.git/",
-    "agent/skills/llmlint/evals/",
-    "agent/skills/llmlint/presets/",
-    "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
-    "agent/skills/llmlint/rulesets/builtin/cn/",
-    "agent/skills/llmlint/rulesets/builtin/cn-light/",
-    "agent/skills/llmlint/rulesets/builtin/cn-standard/",
-    "agent/skills/llmlint/rulesets/builtin/cn-strong/",
-    "agent/skills/llmlint/rulesets/builtin/cn-extreme/",
-];
-const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
-    "agent/scripts/profile.ts",
-    "agent/scripts/variable.ts",
-    "agent/scripts/workspace.ts",
-    "agent/skills/llmlint/.gitignore",
-]);
-const STALE_MANAGED_SYSTEM_ASSET_PREFIXES = [
-    "agent/skills/llmlint/rulesets/builtin/default/rules/",
-];
+const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = LEGACY_HARD_CUT_TOMBSTONED_PREFIXES;
+const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set(LEGACY_HARD_CUT_TOMBSTONED_PATHS);
+const STALE_MANAGED_SYSTEM_ASSET_PREFIXES = LEGACY_STALE_TOMBSTONED_PREFIXES;
 const SKILL_DEPENDENCY_FILES = new Set(["package.json", "bun.lock"]);
 const SKILL_PACKAGE_INSTALL_FIELDS = [
     "dependencies",

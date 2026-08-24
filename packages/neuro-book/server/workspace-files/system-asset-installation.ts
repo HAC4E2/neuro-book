@@ -2,6 +2,13 @@ import {createHash, randomUUID} from "node:crypto";
 import {chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import path from "node:path";
 import {lock as acquireFileLock} from "proper-lockfile";
+import {
+    LEGACY_HARD_CUT_TOMBSTONED_PATHS,
+    LEGACY_HARD_CUT_TOMBSTONED_PREFIXES,
+    LEGACY_STALE_TOMBSTONED_PREFIXES,
+    LEGACY_TOMBSTONED_ASSET_PATHS,
+    LEGACY_TOMBSTONED_ASSET_PREFIXES,
+} from "nbook/server/workspace-files/legacy-agent-asset-tombstones";
 
 export const SYSTEM_ASSET_INSTALL_SCHEMA = "system-asset-install/v2" as const;
 export const SYSTEM_REFERENCE_INSTALL_SCHEMA = "system-reference-install/v1" as const;
@@ -34,6 +41,8 @@ export type SystemAgentAssetLedgerEntry = Readonly<{
     version?: string;
     installedAt?: string;
     removedAt?: string;
+    /** 磁盘内容与 Seed 同 id 包不一致时由账本重建写入；带此标记的包不参与自动升级。 */
+    dirtyAt?: string;
 }>;
 
 export type SystemAssetInstallPaths = Readonly<{
@@ -84,6 +93,20 @@ export type SeedSystemAssetsResult = Readonly<{
     referenceManifest: SystemReferenceInstallManifest;
     /** 事务残留清理失败；有效安装保持不回滚，下一次持锁启动重试。 */
     cleanupPending: boolean;
+    /** 账本缺失或损坏时的启动重建报告；仅在实际执行了重建时出现。 */
+    legacyAdoption?: LegacyAdoptionReport;
+}>;
+
+/** 账本缺失/损坏时从磁盘包与 Seed content hash 比对重建的诊断报告；无法恢复 removed 墓碑。 */
+export type LegacyAdoptionReport = Readonly<{
+    /** 触发原因：账本文件缺失，或读取失败诊断。 */
+    reason: string;
+    /** 与 Seed 同 id 且 contentHash 一致，重建为 bundled 的包数。 */
+    bundled: number;
+    /** 与 Seed 同 id 但内容不一致：保留磁盘字节并标 dirty，不参与自动升级。 */
+    dirty: readonly string[];
+    /** Seed 中无同 id 包，记为 local。 */
+    local: readonly string[];
 }>;
 
 /** 仅用于受控故障注入；生产调用使用默认 fs 实现。 */
@@ -157,6 +180,12 @@ export async function seedSystemAssets(
     const io = resolveOperations(operations);
     await assertSeedDirectory(seed.seedNbookRoot, "workspace agent seed");
     await assertSeedDirectory(seed.seedReferenceRoot, "Reference seed");
+    return await withInstallLock(paths, (abortIfCompromised, isCompromised) =>
+        seedSystemAssetsLocked(paths, seed, io, abortIfCompromised, isCompromised));
+}
+
+/** Install Root 排他锁内的统一事务包装：compromise 追踪、释放错误聚合与种子逻辑保持一致。 */
+async function withInstallLock<T>(paths: SystemAssetInstallPaths, body: (abortIfCompromised: () => void, isCompromised: () => boolean) => Promise<T>): Promise<T> {
     await mkdir(paths.systemNbookRoot, {recursive: true});
     const lockTarget = path.join(paths.systemNbookRoot, INSTALL_LOCK_TARGET);
     await mkdir(lockTarget, {recursive: true});
@@ -175,11 +204,11 @@ export async function seedSystemAssets(
             compromised = error;
         },
     });
-    let result: SeedSystemAssetsResult | undefined;
+    let result: T | undefined;
     let primaryError: unknown;
     try {
         abortIfCompromised();
-        result = await seedSystemAssetsLocked(paths, seed, io, abortIfCompromised, isCompromised);
+        result = await body(abortIfCompromised, isCompromised);
         abortIfCompromised();
     } catch (error) {
         primaryError = error;
@@ -210,16 +239,36 @@ async function seedSystemAssetsLocked(paths: SystemAssetInstallPaths, seed: Syst
         hashReferenceTree(seed.seedReferenceRoot),
     ]);
     abortIfCompromised();
-    const currentManifest = await readInstallManifest(paths.manifestPath);
     const currentPackages = await discoverAgentPackagesIfPresent(paths.installRoot);
     const currentMap = packageMap(currentPackages);
-    const ledger = new Map<string, SystemAgentAssetLedgerEntry>(currentManifest?.assets.map((entry) => [assetKey(entry.type, entry.id), entry] as const) ?? []);
-    if (!currentManifest && currentPackages.length > 0) {
-        throw new Error(`system install root 缺少安装账本，需先执行显式 legacy migration：${paths.installRoot}`);
+    let currentManifest: SystemAssetInstallManifest | null = null;
+    let ledgerReadError: unknown;
+    try {
+        currentManifest = await readInstallManifest(paths.manifestPath);
+    } catch (error) {
+        if (!isUnreadableLedgerError(error)) throw error;
+        ledgerReadError = error;
     }
+    let adoptedEntries: readonly SystemAgentAssetLedgerEntry[] = [];
+    let legacyAdoption: LegacyAdoptionReport | undefined;
+    if (!currentManifest && currentPackages.length > 0) {
+        abortIfCompromised();
+        const rebuild = planLedgerRebuild(seedPackages, currentPackages);
+        legacyAdoption = {
+            reason: ledgerUnavailableReason(ledgerReadError),
+            bundled: rebuild.bundled.length,
+            dirty: rebuild.dirty,
+            local: rebuild.local,
+        };
+        await mkdir(paths.installRoot, {recursive: true});
+        await writeInstallManifestAtomic(paths.manifestPath, await buildInstallManifest(paths.installRoot, rebuild.entries));
+        adoptedEntries = rebuild.entries;
+    }
+    const ledgerSource = currentManifest?.assets ?? adoptedEntries;
+    const ledger = new Map<string, SystemAgentAssetLedgerEntry>(ledgerSource.map((entry) => [assetKey(entry.type, entry.id), entry] as const));
     await assertBundledPackagesClean(currentMap, ledger);
     const nextLedger = new Map(ledger);
-    let ledgerChanged = currentManifest === null;
+    let ledgerChanged = !legacyAdoption && currentManifest === null;
     for (const currentPackage of currentPackages) {
         const key = assetKey(currentPackage.type, currentPackage.id);
         if (!nextLedger.has(key)) {
@@ -245,6 +294,7 @@ async function seedSystemAssetsLocked(paths: SystemAssetInstallPaths, seed: Syst
         const installed = currentMap.get(key);
         if (existingLedger?.state === "removed") continue;
         if (existingLedger?.state === "installed" && existingLedger.origin.kind !== "bundled") continue;
+        if (existingLedger?.state === "installed" && existingLedger.dirtyAt) continue;
         if (installed?.contentHash === candidate.contentHash && existingLedger?.contentHash === candidate.contentHash) continue;
         if (!installed || existingLedger?.origin.kind === "bundled") packagesToInstall.push(candidate);
         const nextEntry = bundledLedgerEntry(candidate, existingLedger);
@@ -282,12 +332,391 @@ async function seedSystemAssetsLocked(paths: SystemAssetInstallPaths, seed: Syst
     const referenceManifest = await readReferenceState(paths);
     if (!manifest || !referenceManifest) throw new Error(`system assets 安装完成后缺少有效 manifest：${paths.installRoot}`);
     return {
-        seeded: packagesToInstall.length > 0 || ledgerChanged || referenceSeeded,
+        seeded: packagesToInstall.length > 0 || ledgerChanged || referenceSeeded || legacyAdoption !== undefined,
         installRoot: paths.installRoot,
         manifest,
         referenceManifest,
         cleanupPending,
+        ...(legacyAdoption ? {legacyAdoption} : {}),
     };
+}
+
+export type LegacyAgentAssetMigrationPlan = Readonly<{
+    installRoot: string;
+    /** 触发原因：账本文件缺失、读取失败诊断，或账本有效但仍有旧投影孤儿/state 残留。 */
+    ledgerReason: string;
+    /** 将按墓碑语义删除的旧投影孤儿文件（相对 .nbook 根）。 */
+    orphanRemovals: readonly string[];
+    /** sync-state 证明已手改或无法证明未手改、将保留的墓碑文件；其所在包会标 dirty。 */
+    preservedOrphans: readonly string[];
+    /** sync-state 中仍存在三类 Agent 包条目，apply 将剥离。 */
+    syncStateCleanupPending: boolean;
+    /** 基于当前磁盘状态（未删孤儿）的分类；apply 在删除后重新评估。 */
+    bundled: readonly string[];
+    dirty: readonly string[];
+    local: readonly string[];
+}>;
+
+export type LegacyAgentAssetMigrationResult = Readonly<{
+    report: LegacyAdoptionReport;
+    removedOrphans: readonly string[];
+    preservedOrphans: readonly string[];
+    /** 迁移提交后已从 `.system-assets-sync-state.json` 剥离三类 Agent 包条目。 */
+    syncStateCleaned: boolean;
+    manifest: SystemAssetInstallManifest;
+}>;
+
+/**
+ * 显式 legacy migration preflight：只读扫描 Install Root、旧投影孤儿与账本状态，
+ * 不写任何文件。返回 null 表示不存在待迁移的 legacy 状态。
+ */
+export async function planLegacyAgentAssetMigration(options: SeedSystemAssetsOptions): Promise<LegacyAgentAssetMigrationPlan | null> {
+    return await runLegacyAgentAssetMigration(options, defaultOperations, "preflight");
+}
+
+/**
+ * 显式 legacy migration 执行：在 Install Root 锁内按墓碑语义清理旧投影孤儿
+ * （sync-state 证明手改的保留），再从磁盘与 Seed content hash 比对重建账本。
+ * 已有有效账本且无孤儿时返回 null（幂等 no-op）；失败时已删内容仅限墓碑名单，
+ * 账本保持未写入，旧状态仍可用。
+ */
+export async function applyLegacyAgentAssetMigration(options: SeedSystemAssetsOptions, operations: SystemAssetInstallOperations = {}): Promise<LegacyAgentAssetMigrationResult | null> {
+    return await runLegacyAgentAssetMigration(options, resolveOperations(operations), "apply");
+}
+
+type LegacyMigrationMode = "preflight" | "apply";
+
+function runLegacyAgentAssetMigration(options: SeedSystemAssetsOptions, io: ResolvedOperations, mode: "preflight"): Promise<LegacyAgentAssetMigrationPlan | null>;
+function runLegacyAgentAssetMigration(options: SeedSystemAssetsOptions, io: ResolvedOperations, mode: "apply"): Promise<LegacyAgentAssetMigrationResult | null>;
+
+
+async function runLegacyAgentAssetMigration(options: SeedSystemAssetsOptions, io: ResolvedOperations, mode: LegacyMigrationMode): Promise<LegacyAgentAssetMigrationPlan | LegacyAgentAssetMigrationResult | null> {
+    const paths = getSystemAssetInstallPaths(options.stateRoot);
+    const seed = resolveSeedPaths(options.applicationRoot, options.seed);
+    await assertSeedDirectory(seed.seedNbookRoot, "workspace agent seed");
+    return await withInstallLock(paths, async (abortIfCompromised) => {
+        abortIfCompromised();
+        const {manifest, error} = await readTolerantInstallManifest(paths.manifestPath);
+        const seedPackages = await discoverAgentPackages(seed.seedNbookRoot);
+        const {removals, preserved} = await planLegacyOrphanCleanup(paths.systemNbookRoot, seed.seedNbookRoot);
+        const syncStateCleanupPending = await legacySyncStateHasManagedEntries(paths.systemNbookRoot);
+        if (manifest && removals.length === 0 && preserved.length === 0 && !syncStateCleanupPending) return null;
+        const ledgerReason = manifest
+            ? "账本已存在（可能由启动恢复重建）；仍存在待处理的旧投影孤儿或 sync state 残留"
+            : ledgerUnavailableReason(error);
+        const currentPackages = await discoverAgentPackagesIfPresent(paths.installRoot);
+        if (mode === "preflight") {
+            const rebuild = planLedgerRebuild(seedPackages, currentPackages);
+            return {
+                installRoot: paths.installRoot,
+                ledgerReason,
+                orphanRemovals: removals,
+                preservedOrphans: preserved,
+                syncStateCleanupPending,
+                bundled: rebuild.bundled,
+                dirty: rebuild.dirty,
+                local: rebuild.local,
+            };
+        }
+        for (const assetPath of removals) {
+            abortIfCompromised();
+            await io.rm(path.join(paths.systemNbookRoot, ...assetPath.split("/")), {recursive: true, force: true});
+        }
+        for (const prefix of legacyManagedPrefixRoots(removals)) {
+            abortIfCompromised();
+            await pruneEmptyDirectories(path.join(paths.systemNbookRoot, ...prefix.split("/")));
+        }
+        abortIfCompromised();
+        const remainingPackages = await discoverAgentPackagesIfPresent(paths.installRoot);
+        if (!manifest && removals.length === 0 && remainingPackages.length === 0 && !syncStateCleanupPending) return null;
+        const rebuild = planLedgerRebuild(seedPackages, remainingPackages);
+        const mergedAssets = mergeLedgerWithRebuild(manifest?.assets ?? [], rebuild.entries);
+        const report: LegacyAdoptionReport = {
+            reason: ledgerReason,
+            bundled: rebuild.bundled.length,
+            dirty: rebuild.dirty,
+            local: rebuild.local,
+        };
+        abortIfCompromised();
+        await mkdir(paths.installRoot, {recursive: true});
+        const manifestWritten = await buildInstallManifest(paths.installRoot, mergedAssets);
+        await writeInstallManifestAtomic(paths.manifestPath, manifestWritten);
+        abortIfCompromised();
+        const syncStateCleaned = await stripMigratedSyncStateEntries(paths.systemNbookRoot, io, abortIfCompromised);
+        abortIfCompromised();
+        return {
+            report,
+            removedOrphans: removals,
+            preservedOrphans: preserved,
+            syncStateCleaned,
+            manifest: manifestWritten,
+        };
+    });
+}
+
+/** sync-state 中是否仍存在三类 Agent 包条目：非空 profiles 数组或受管资产路径，与条目形状是否可提取 hash 无关。 */
+async function legacySyncStateHasManagedEntries(systemNbookRoot: string): Promise<boolean> {
+    const document = await parseLegacySyncState(systemNbookRoot);
+    if (document === null) return false;
+    if (Array.isArray(document.profiles) && document.profiles.length > 0) return true;
+    if (!Array.isArray(document.assets)) return false;
+    return document.assets.some((item) => typeof item === "object" && item !== null
+        && "assetPath" in item && typeof item.assetPath === "string"
+        && isManagedPackageTombstone(item.assetPath));
+}
+
+/** 墓碑名单中位于三类受管 Agent 包目录下的前缀根；用于删除后修剪空目录。 */
+function legacyManagedPrefixRoots(removals: readonly string[]): readonly string[] {
+    const roots = new Set<string>();
+    for (const assetPath of removals) {
+        for (const prefix of [...LEGACY_TOMBSTONED_ASSET_PREFIXES, ...LEGACY_HARD_CUT_TOMBSTONED_PREFIXES, ...LEGACY_STALE_TOMBSTONED_PREFIXES]) {
+            if (isManagedPackageTombstone(prefix) && assetPath.startsWith(prefix)) roots.add(prefix);
+        }
+    }
+    return [...roots].sort((left, right) => left.localeCompare(right));
+}
+
+async function pruneEmptyDirectories(root: string): Promise<void> {
+    if (!await directoryExists(root)) return;
+    for (const entry of await readDirectoryEntries(root)) {
+        if (entry.isDirectory()) await pruneEmptyDirectories(path.join(root, entry.name));
+    }
+    if ((await readdir(root)).length === 0) await rm(root, {recursive: true, force: true});
+}
+
+/** 用磁盘比对结果覆盖既有账本同 key 条目；不在磁盘上的既有条目（含 removed 墓碑）保持不变。 */
+function mergeLedgerWithRebuild(existing: readonly SystemAgentAssetLedgerEntry[], rebuilt: readonly SystemAgentAssetLedgerEntry[]): readonly SystemAgentAssetLedgerEntry[] {
+    const merged = new Map<string, SystemAgentAssetLedgerEntry>(existing.map((entry) => [assetKey(entry.type, entry.id), entry] as const));
+    for (const entry of rebuilt) {
+        const previous = merged.get(assetKey(entry.type, entry.id));
+        merged.set(assetKey(entry.type, entry.id), previous?.installedAt ? {...entry, installedAt: previous.installedAt} : entry);
+    }
+    return [...merged.values()];
+}
+
+const MANAGED_PACKAGE_ROOT_PREFIXES = ["agent/skills/", "agent/workflows/", "agent/profiles/"] as const;
+const LEGACY_SYNC_STATE_FILE = ".system-assets-sync-state.json";
+
+function isManagedPackageTombstone(assetPath: string): boolean {
+    return MANAGED_PACKAGE_ROOT_PREFIXES.some((prefix) => assetPath.startsWith(prefix));
+}
+
+/**
+ * 按旧投影协议的墓碑语义枚举孤儿，与既有 owner（novel-workspace）逐类对齐：
+ * - 普通 exact/前缀/STALE 墓碑：仅删除 sync-state 有记录且磁盘 hash 等于
+ *   `lastSyncedUserHash` 的文件；未记录的可能是用户文件，保留并报告。
+ * - hard-cut exact/前缀：官方登记的半同步残留，无 state 也可删；state 证明
+ *   手改的一律保留。
+ * 所有候选先以当前 Seed 清单兜底——名单中 Seed 仍携带的路径不是孤儿。
+ */
+async function planLegacyOrphanCleanup(systemNbookRoot: string, seedNbookRoot: string): Promise<Readonly<{removals: string[]; preserved: string[]}>> {
+    const candidates = new Set<string>();
+    for (const assetPath of [...LEGACY_TOMBSTONED_ASSET_PATHS, ...LEGACY_HARD_CUT_TOMBSTONED_PATHS]) {
+        if (isManagedPackageTombstone(assetPath)) candidates.add(assetPath);
+    }
+    for (const assetPrefix of [...LEGACY_TOMBSTONED_ASSET_PREFIXES, ...LEGACY_HARD_CUT_TOMBSTONED_PREFIXES, ...LEGACY_STALE_TOMBSTONED_PREFIXES]) {
+        if (!isManagedPackageTombstone(assetPrefix)) continue;
+        for (const file of await listFilesUnderPrefix(systemNbookRoot, assetPrefix)) candidates.add(file);
+    }
+    const syncStateHashes = await readLegacySyncStateHashes(systemNbookRoot);
+    const removals: string[] = [];
+    const preserved: string[] = [];
+    for (const assetPath of [...candidates].sort((left, right) => left.localeCompare(right))) {
+        const absolutePath = path.join(systemNbookRoot, ...assetPath.split("/"));
+        if (!await pathExists(absolutePath)) continue;
+        // 墓碑路径相对 .nbook 根；Seed 根已位于 .nbook/agent，需要剥掉一级 agent 前缀。
+        const seedRelative = assetPath.split("/").slice(1).join("/");
+        if (await pathExists(path.join(seedNbookRoot, ...seedRelative.split("/")))) continue;
+        const lastSyncedUserHash = syncStateHashes.get(assetPath);
+        if (lastSyncedUserHash === null || (lastSyncedUserHash !== undefined && sha256(await readFile(absolutePath)) !== lastSyncedUserHash)) {
+            // sync-state 记录了该文件但无法证明未被手改（或已证明手改）：保留并报告。
+            preserved.push(assetPath);
+            continue;
+        }
+        if (lastSyncedUserHash === undefined && !isHardCutTombstone(assetPath)) {
+            // 普通墓碑要求 sync-state 证明该文件自上次同步未被改动；
+            // 未记录的可能是用户自建文件，保留待人工处理。
+            preserved.push(assetPath);
+            continue;
+        }
+        removals.push(assetPath);
+    }
+    return {removals, preserved};
+}
+
+function isHardCutTombstone(assetPath: string): boolean {
+    return LEGACY_HARD_CUT_TOMBSTONED_PATHS.includes(assetPath)
+        || LEGACY_HARD_CUT_TOMBSTONED_PREFIXES.some((prefix) => assetPath.startsWith(prefix));
+}
+
+async function listFilesUnderPrefix(systemNbookRoot: string, assetPrefix: string): Promise<string[]> {
+    const files: string[] = [];
+    const visit = async (absoluteRoot: string, relativeRoot: string): Promise<void> => {
+        for (const entry of await readDirectoryEntries(absoluteRoot)) {
+            const absolutePath = path.join(absoluteRoot, entry.name);
+            const relativePath = relativeRoot ? path.posix.join(relativeRoot, entry.name) : entry.name;
+            if (entry.isDirectory()) await visit(absolutePath, relativePath);
+            else if (entry.isFile()) files.push(relativePath);
+            else throw new Error(`legacy migration 遇到特殊文件或符号链接：${absolutePath}`);
+        }
+    };
+    const prefixRoot = path.join(systemNbookRoot, ...assetPrefix.split("/"));
+    if (await directoryExists(prefixRoot)) await visit(prefixRoot, assetPrefix);
+    return files;
+}
+
+type LegacySyncStateDocument = Record<string, unknown>;
+
+function legacySyncStateNeedsReview(statePath: string, reason: string, cause?: unknown): Error {
+    return new Error(`legacy migration 需要人工核查（needs-review）：旧投影 sync state ${reason}，无法证明墓碑文件未被手改：${statePath}`, {cause});
+}
+
+/**
+ * 读取并严格校验旧投影 sync state（真实结构为 `{profiles: [...], assets?: [...]}`）：
+ * 任一键存在但不是数组、或两类键均缺失，一律抛 needs-review（旧投影写该文件
+ * 不持安装锁，规划与剥离之间可能被并发改坏）。文件缺失返回 null。
+ */
+async function parseLegacySyncState(systemNbookRoot: string): Promise<LegacySyncStateDocument | null> {
+    const statePath = path.join(systemNbookRoot, LEGACY_SYNC_STATE_FILE);
+    const text = await readFile(statePath, "utf8").catch((error: unknown) => isErrorCode(error, "ENOENT") ? null : Promise.reject(error));
+    if (text === null) return null;
+    let value: unknown;
+    try {
+        value = JSON.parse(text);
+    } catch (error) {
+        throw legacySyncStateNeedsReview(statePath, "不是有效 JSON", error);
+    }
+    if (typeof value !== "object" || value === null) throw legacySyncStateNeedsReview(statePath, "结构无效");
+    const hasAssets = "assets" in value;
+    const hasProfiles = "profiles" in value;
+    // 条目级形状同样严格：旧投影写入的条目恒带字符串键（assetPath/fileName），
+    // 缺失即并发改坏或外部污染，无法安全分类时必须 fail closed 而非静默残留。
+    if ((hasAssets && !Array.isArray(value.assets)) || (hasProfiles && !Array.isArray(value.profiles)) || (!hasAssets && !hasProfiles)) {
+        throw legacySyncStateNeedsReview(statePath, "结构无效");
+    }
+    if (hasAssets && !value.assets.every((item) => typeof item === "object" && item !== null && "assetPath" in item && typeof item.assetPath === "string")) {
+        throw legacySyncStateNeedsReview(statePath, "assets 条目结构无效");
+    }
+    if (hasProfiles && !value.profiles.every((item) => typeof item === "object" && item !== null && "fileName" in item && typeof item.fileName === "string")) {
+        throw legacySyncStateNeedsReview(statePath, "profiles 条目结构无效");
+    }
+    return value;
+}
+
+/**
+ * 解析旧投影 sync state 并汇总为「相对 .nbook 路径 → lastSyncedUserHash」映射；
+ * profiles 条目映射到 `agent/profiles/<fileName>`。值为 null 表示有条目但
+ * 无法证明未被手改。
+ */
+async function readLegacySyncStateHashes(systemNbookRoot: string): Promise<Map<string, string | null>> {
+    const document = await parseLegacySyncState(systemNbookRoot);
+    const hashes = new Map<string, string | null>();
+    if (document === null) return hashes;
+    const collect = (items: readonly unknown[], resolveKey: (record: {fileName?: unknown; assetPath?: unknown}) => string | null): void => {
+        for (const item of items) {
+            if (typeof item !== "object" || item === null) continue;
+            const key = resolveKey(item);
+            if (key === null) continue;
+            hashes.set(key, "lastSyncedUserHash" in item && typeof item.lastSyncedUserHash === "string" ? item.lastSyncedUserHash : null);
+        }
+    };
+    if (Array.isArray(document.assets)) collect(document.assets, (record) => typeof record.assetPath === "string" ? record.assetPath : null);
+    if (Array.isArray(document.profiles)) collect(document.profiles, (record) => typeof record.fileName === "string" ? path.posix.join("agent", "profiles", record.fileName) : null);
+    return hashes;
+}
+
+/**
+ * 迁移提交后剥离 sync state 中属于三类 Agent 包的条目（profiles 数组全部 +
+ * 受管 `agent/skills|workflows|profiles` 资产条目），templates/variables 等
+ * 旧协议条目原样保留。文件缺失或无受管条目时不写盘。
+ *
+ * 提交前经 `parseLegacySyncState` 严格校验：旧投影写该文件不持安装锁，
+ * 规划与剥离之间可能被并发改坏，此时抛 needs-review，不得虚报清理成功。
+ *
+ * 失败恢复合同：写入为「临时文件 + 同卷原子 rename」，任一步失败时旧 state
+ * 原样保留、三类条目仍在磁盘上；迁移触发条件每次运行实时重读 state，
+ * 下一次 apply 会经 `legacySyncStateHasManagedEntries` 自动重试本清理，
+ * 不存在「已短路且无法重试」的状态。
+ */
+async function stripMigratedSyncStateEntries(systemNbookRoot: string, io: ResolvedOperations, abortIfCompromised: () => void): Promise<boolean> {
+    const statePath = path.join(systemNbookRoot, LEGACY_SYNC_STATE_FILE);
+    const document = await parseLegacySyncState(systemNbookRoot);
+    if (document === null) return false;
+    const next: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(document)) next[key] = item;
+    let removed = 0;
+    if (Array.isArray(document.profiles) && document.profiles.length > 0) {
+        removed += document.profiles.length;
+        next.profiles = [];
+    }
+    if (Array.isArray(document.assets)) {
+        const kept = document.assets.filter((item) => {
+            if (typeof item !== "object" || item === null || !("assetPath" in item) || typeof item.assetPath !== "string") return true;
+            return !isManagedPackageTombstone(item.assetPath);
+        });
+        removed += document.assets.length - kept.length;
+        next.assets = kept;
+    }
+    if (removed === 0) return false;
+    const temporaryPath = `${statePath}.${randomUUID()}.tmp`;
+    abortIfCompromised();
+    try {
+        await writeFile(temporaryPath, `${JSON.stringify(next, null, 4)}\n`, "utf8");
+        abortIfCompromised();
+        await io.rename(temporaryPath, statePath);
+        abortIfCompromised();
+    } finally {
+        await io.rm(temporaryPath, {recursive: true, force: true});
+    }
+    return true;
+}
+
+async function readTolerantInstallManifest(manifestPath: string): Promise<Readonly<{manifest: SystemAssetInstallManifest | null; error: unknown}>> {
+    try {
+        return {manifest: await readInstallManifest(manifestPath), error: undefined};
+    } catch (error) {
+        if (!isUnreadableLedgerError(error)) throw error;
+        return {manifest: null, error};
+    }
+}
+
+/** 从磁盘包与 Seed 同 id 包比对 contentHash 重建账本条目：一致 bundled、不一致 dirty、无同 id local。 */
+function planLedgerRebuild(seedPackages: readonly SeedPackage[], currentPackages: readonly SeedPackage[]): Readonly<{entries: readonly SystemAgentAssetLedgerEntry[]; bundled: readonly string[]; dirty: readonly string[]; local: readonly string[]}> {
+    const seedMap = packageMap(seedPackages);
+    const installedAt = new Date().toISOString();
+    const entries: SystemAgentAssetLedgerEntry[] = [];
+    const bundled: string[] = [];
+    const dirty: string[] = [];
+    const local: string[] = [];
+    for (const currentPackage of currentPackages) {
+        const key = assetKey(currentPackage.type, currentPackage.id);
+        const seedPackage = seedMap.get(key);
+        if (!seedPackage) {
+            entries.push(localLedgerEntry(currentPackage));
+            local.push(key);
+            continue;
+        }
+        if (seedPackage.contentHash === currentPackage.contentHash) {
+            entries.push(bundledLedgerEntry(seedPackage));
+            bundled.push(key);
+            continue;
+        }
+        entries.push({
+            ...bundledLedgerEntry({...seedPackage, contentHash: currentPackage.contentHash, version: currentPackage.version}),
+            installedAt,
+            dirtyAt: installedAt,
+        });
+        dirty.push(key);
+    }
+    return {entries, bundled, dirty, local};
+}
+
+function isUnreadableLedgerError(error: unknown): boolean {
+    return error instanceof Error && (error.message.includes("不是有效 JSON") || error.message.includes("manifest schema 无效"));
+}
+
+function ledgerUnavailableReason(error: unknown): string {
+    return error instanceof Error ? `账本读取失败：${error.message}` : "账本文件缺失";
 }
 
 async function assertBundledPackagesClean(current: ReadonlyMap<string, SeedPackage>, ledger: ReadonlyMap<string, SystemAgentAssetLedgerEntry>): Promise<void> {
@@ -1044,7 +1473,8 @@ function isLedgerEntry(value: unknown): value is SystemAgentAssetLedgerEntry {
     if (!isRecord(value) || (value.type !== "skill" && value.type !== "workflow" && value.type !== "profile") || typeof value.id !== "string" || !value.id || (value.state !== "installed" && value.state !== "removed") || !isRecord(value.origin) || typeof value.origin.kind !== "string") return false;
     return ["bundled", "workshop", "git", "local"].includes(value.origin.kind)
         && (value.contentHash === undefined || typeof value.contentHash === "string")
-        && (value.fileName === undefined || typeof value.fileName === "string");
+        && (value.fileName === undefined || typeof value.fileName === "string")
+        && (value.dirtyAt === undefined || typeof value.dirtyAt === "string");
 }
 
 function isReferenceManifest(value: unknown): value is SystemReferenceInstallManifest {

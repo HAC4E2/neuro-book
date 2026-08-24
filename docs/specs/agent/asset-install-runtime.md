@@ -129,11 +129,15 @@ owners:
 
 已实现：Product wrapper 在 Nitro 子进程启动前调用 `seedSystemAssets({applicationRoot, stateRoot, seed: seedPaths})`；Source Dev 通过 `scripts/cli/source-runtime.ts` 执行同一安装入口。Runtime legacy projection 显式区分 source/target，排除 `skills`、`workflows`、`profiles` 三类 Agent package，仅保留旧 templates/bin/config/variables 边界；Runtime Variable compiled projection 可显式关闭，由受控 compiler 负责生成 Install Root artifact。
 
+账本恢复与显式迁移已实现：Seeder 在启动对账中发现 Install Root 有包但 `installed.json` 缺失或损坏时，在安装锁内按磁盘包与 Seed 同 id 包的 contentHash 比对重建账本——一致记 bundled、不一致保留磁盘字节并写 `dirtyAt`（不参与自动升级）、无同 id 记 local，并通过 `SeedSystemAssetsResult.legacyAdoption` 返回结构化报告；removed 墓碑无法从重建恢复，必须经报告显式告知。显式 legacy migration 由 `planLegacyAgentAssetMigration` / `applyLegacyAgentAssetMigration` 提供：触发条件是「账本缺失/损坏」「磁盘上仍存在旧投影孤儿」或「sync-state 仍含三类 Agent 包条目」。孤儿删除语义与旧投影 owner 逐类对齐：普通 exact/前缀/STALE 墓碑仅删除 sync-state 有记录且磁盘 hash 等于 `lastSyncedUserHash` 的文件，未记录的保留待人工处理；hard-cut 名单允许无 state 删除但 state 证明手改的一律保留；所有候选以当前 Seed 清单兜底过滤。sync-state 按真实结构 `{profiles, assets?}` 解析（profiles 条目映射 `agent/profiles/<fileName>`）；任一键存在但非数组或两类键均缺失视为损坏，fail closed（needs-review）不删除不写账本。旧投影写该文件不持安装锁，剥离的提交前校验若发现 state 被并发改坏（解析/结构失败）同样抛 needs-review，不得虚报清理成功；apply 提交后原子剥离三类条目并原样保留 templates/variables 条目，失败时旧 state 原样保留并由触发条件在下次运行自动重试。迁移全程持有 Install Root 排他锁并在读盘、每次破坏性删除和账本写入前后检查锁失所有权（与 Seeder 同一 fail-closed 合同）。墓碑名单数据统一由 `legacy-agent-asset-tombstones.ts` 持有，旧投影同步继续消费同一份数据。
+
 实现入口：
 
 - `packages/neuro-book/server/workspace-files/system-asset-installation.ts`
 - `packages/neuro-book/server/workspace-files/system-workspace-assets.ts`
 - `packages/neuro-book/server/workspace-files/system-assets-preflight.ts`
+- `packages/neuro-book/server/workspace-files/legacy-agent-asset-tombstones.ts`
+- `packages/neuro-book/scripts/cli/migrate-legacy-agent-assets.ts`
 - `packages/neuro-book/server/workspace-files/novel-workspace.ts`
 - `packages/neuro-book/server/runtime/product-start-command.mjs`
 - `packages/neuro-book/scripts/cli/source-runtime.ts`
@@ -142,11 +146,15 @@ owners:
 
 - `bunx tsc --noEmit --pretty false -p packages/neuro-book/tsconfig.json`：通过。
 - `bunx tsc --noEmit --pretty false -p scripts/tsconfig.json`：通过。
-- `bunx vitest run server/workspace-files/system-assets-preflight-options.test.ts server/workspace-files/system-assets-preflight.test.ts server/workspace-files/system-assets-projection.test.ts server/workspace-files/test-workspace-fixture.test.ts server/workspace-files/system-asset-installation.test.ts server/workspace-files/system-workspace-assets.test.ts --pool=forks --maxWorkers=1 --reporter=dot --silent`：6 files / 29 tests passed。
+- `bunx vitest run server/workspace-files/system-assets-preflight-options.test.ts server/workspace-files/system-assets-preflight.test.ts server/workspace-files/system-assets-projection.test.ts server/workspace-files/test-workspace-fixture.test.ts server/workspace-files/system-asset-installation.test.ts server/workspace-files/system-workspace-assets.test.ts --pool=forks --maxWorkers=1 --reporter=dot --silent`：6 files / 52 tests passed（含安装器套件扩至 34 项后的当前总数）。
 - `bunx vitest run server/workspace-files/workspace-files.test.ts -t "Runtime legacy projection 不复制 Agent package|同步系统 assets 会补齐 Agent runtime bin 和 config|同步系统 assets 会补齐 writer 默认 home" --pool=forks --maxWorkers=1 --reporter=dot --silent`：3 tests passed。
 - `bunx vitest run app/composables/agent-jobs-wiring.test.ts --pool=forks --maxWorkers=1 --reporter=dot --silent`：6 tests passed。
 - `bunx vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-contract.test.ts`：2 tests passed。
 - `node --check packages/neuro-book/server/runtime/product-start-command.mjs`：通过。
+- `bunx vitest run ./server/workspace-files/system-asset-installation.test.ts --pool=forks --maxWorkers=1 --reporter=dot`：34 tests passed（含账本缺失/损坏启动重建、dirty 不被 Seed 升级覆盖、显式迁移 preflight/apply 幂等、sync-state 手改保留与无 state 保留、sync-state 损坏/结构畸形/条目畸形 fail closed、Seed 仍携带的墓碑路径不删、hard-cut exact 受管残留清理且 `agent/scripts` 不触碰、state 残留独立触发剥离并保留 templates 条目、启动恢复后迁移不短路）。
+- `bunx vitest run ./server/workspace-files/system-workspace-assets.test.ts ./server/workspace-files/system-assets-preflight.test.ts --pool=forks --maxWorkers=1 --reporter=dot`：7 tests passed。
+- `bunx vitest run ./server/workspace-files/workspace-files.test.ts -t "Runtime legacy projection 不复制 Agent package|同步系统 assets 会补齐 Agent runtime bin 和 config" --pool=forks --maxWorkers=1 --reporter=dot`：2 tests passed（novel-workspace 改为消费 tombstone 模块后回归）。
+- 真机 Source Dev smoke：对存在旧投影 Install Root（无账本）的 Windows State Root 执行 `bun run dev --port=3000`，11 秒内就绪；`installed.json` 生成 40 条目（38 clean bundled + 2 dirty bundled），`/api/hello` 返回 200；二次调用 `seedSystemAssets` 幂等（seeded=false 且无重建报告）；迁移 CLI 在孤儿清零后 `--apply`/`--preflight` 均报告无需迁移。
 
 未运行：真实 Product image、Windows portable、浏览器、Provider 和完整启动 smoke；这些需要构建产物/外部运行环境，不能由 focused test 推断。
 

@@ -60,6 +60,7 @@ docs/.vitepress/dist
 docs/.vitepress/cache
 vitepress/.vitepress/cache
 vitepress/.vitepress/staged/
+vitepress/.vitepress/.temp/
 # 根 assets 仅保留本机历史运行残留；主应用发布资产归 packages/neuro-book/assets。
 /assets/
 # AIGC 检测 reference 语料（104 本版权书，I11 合规边界）：正文绝不入 git；catalog.json 元数据可进
