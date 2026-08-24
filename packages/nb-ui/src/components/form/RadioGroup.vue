@@ -63,13 +63,13 @@ const emit = defineEmits<{
                 <RadioGroupItem
                     :value="option.value"
                     :disabled="option.disabled"
-                    class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:border-[var(--accent-main)] disabled:cursor-not-allowed data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:bg-[var(--accent-main)]"
+                    class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:border-[var(--accent-main)] group-not-disabled:active:scale-[0.92] disabled:cursor-not-allowed disabled:active:transform-none data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:bg-[var(--accent-main)]"
                     :class="[
                         props.size === 'sm' ? 'h-4 w-4 mt-0.5' : 'h-5 w-5 mt-0.5',
                     ]"
                 >
                     <RadioGroupIndicator
-                        class="flex items-center justify-center"
+                        class="flex items-center justify-center transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                     >
                         <span
                             class="block rounded-full bg-[var(--text-inverse)] shadow-sm"
@@ -80,7 +80,7 @@ const emit = defineEmits<{
 
                 <div class="min-w-0 flex-1">
                     <span
-                        class="block font-medium text-[var(--text-main)] leading-snug"
+                        class="block font-medium text-[var(--text-main)] leading-snug transition-colors"
                         :class="props.size === 'sm' ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]'"
                     >{{ option.label }}</span>
                     <span

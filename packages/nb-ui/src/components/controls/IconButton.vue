@@ -8,12 +8,14 @@ const props = withDefaults(defineProps<{
     variant?: IconButtonVariant;
     size?: IconButtonSize;
     disabled?: boolean;
+    iconClass?: string;
 }>(), {
     title: "",
     ariaLabel: "",
     variant: "default",
     size: "md",
     disabled: false,
+    iconClass: "",
 });
 
 /*
@@ -57,6 +59,7 @@ function variantClass(): string {
             variantClass(),
         ]"
     >
+        <span v-if="props.iconClass" :class="props.iconClass" class="h-[1.25em] w-[1.25em] shrink-0" aria-hidden="true" />
         <slot />
     </button>
 </template>

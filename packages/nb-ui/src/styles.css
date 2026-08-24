@@ -349,3 +349,118 @@ textarea.nb-ui-control:read-only:focus,
 .nb-ui-menu-item-danger.is-active {
     background: color-mix(in srgb, var(--status-danger) 12%, transparent);
 }
+
+/* ==========================================================================
+   全库组件微物理动效与关键帧动画（Micro-physics & Keyframe Animations）
+   ========================================================================== */
+
+/* 手风琴与折叠容器展开/收起动画 */
+@keyframes nb-accordion-down {
+    from {
+        height: 0;
+        opacity: 0;
+    }
+    to {
+        height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+        opacity: 1;
+    }
+}
+
+@keyframes nb-accordion-up {
+    from {
+        height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+        opacity: 1;
+    }
+    to {
+        height: 0;
+        opacity: 0;
+    }
+}
+
+.animate-accordion-down,
+.animate-collapsible-down {
+    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+}
+
+.animate-accordion-up,
+.animate-collapsible-up {
+    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+}
+
+/* 骨架屏与占位高光流动 Shimmer 动画 */
+@keyframes nb-shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.nb-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.nb-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--text-main) 9%, transparent) 50%,
+        transparent 100%
+    );
+    animation: nb-shimmer 2s var(--ease-standard) infinite;
+}
+
+/* 悬浮微晶发光弥散 Pulse 动画 */
+@keyframes nb-crystal-glow {
+    0%, 100% {
+        box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-main) 25%, transparent),
+                    0 2px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
+    }
+    50% {
+        box-shadow: 0 0 18px 4px color-mix(in srgb, var(--accent-main) 45%, transparent),
+                    0 4px 20px color-mix(in srgb, var(--shadow-color) 20%, transparent);
+    }
+}
+
+.nb-crystal-glow {
+    animation: nb-crystal-glow 2.8s var(--ease-standard) infinite;
+}
+
+/* 弹入微动效 */
+@keyframes nb-pop-in {
+    0% {
+        transform: scale(0.92);
+        opacity: 0;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.nb-pop-in {
+    animation: nb-pop-in var(--motion-enter) var(--ease-standard);
+}
+
+/* 方案与内容平滑交替过渡 */
+.scheme-fade-enter-active,
+.scheme-fade-leave-active {
+    transition: opacity var(--motion-base) var(--ease-standard),
+                transform var(--motion-base) var(--ease-standard);
+}
+
+.scheme-fade-enter-from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+}
+
+.scheme-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+}

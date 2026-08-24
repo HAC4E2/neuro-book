@@ -44,7 +44,7 @@ const emit = defineEmits<{
             v-for="(id, index) in props.length"
             :key="id"
             :index="index"
-            class="nb-ui-focus-ring flex h-10 w-9 items-center justify-center rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--text-main)_18%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] text-center text-[var(--text-md)] font-mono font-medium text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] focus:border-[var(--accent-main)] focus:bg-[var(--bg-panel)] disabled:cursor-not-allowed disabled:opacity-40"
+            class="nb-ui-focus-ring flex h-10 w-9 items-center justify-center rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--text-main)_18%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] text-center text-[var(--text-md)] font-mono font-medium text-[var(--text-main)] transition-[background-color,border-color,box-shadow,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] focus:border-[var(--accent-main)] focus:bg-[var(--bg-panel)] focus:scale-[1.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:focus:scale-100"
         />
     </PinInputRoot>
 </template>

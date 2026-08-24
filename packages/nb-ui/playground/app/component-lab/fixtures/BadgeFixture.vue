@@ -22,13 +22,14 @@ const emit = defineEmits<{
     (event: "rendered"): void;
 }>();
 
-// 4 种基于方案 2（纯色实心体系）的衍生方案
-const selectedSubScheme = ref<"scheme2a" | "scheme2b" | "scheme2c" | "scheme2d">("scheme2b");
-const subSchemeOptions = [
-    {label: "2-B: 超椭圆 (已选)", value: "scheme2b"},
-    {label: "2-A: 原生胶囊", value: "scheme2a"},
-    {label: "2-C: 柔光微影", value: "scheme2c"},
-    {label: "2-D: 渐变立体", value: "scheme2d"},
+// 5 种不同设计方案切换
+const designStyle = ref<"macos" | "minimal" | "crystal" | "outlined" | "solid">("macos");
+const designOptions = [
+    {label: "方案 1: macOS 超椭圆微胶囊 (推荐)", value: "macos"},
+    {label: "方案 2: 现代极简纯平圆点", value: "minimal"},
+    {label: "方案 3: 悬浮微晶发光胶囊", value: "crystal"},
+    {label: "方案 4: 精工细线微边框", value: "outlined"},
+    {label: "方案 5: 实底高反差色块", value: "solid"},
 ];
 
 // 表单联动数据
@@ -92,184 +93,191 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
+        <!-- 顶层设计风格切换栏 -->
+        <div class="mb-6 flex flex-col gap-3">
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-2.5 bg-[color-mix(in_srgb,var(--bg-panel)_75%,transparent)] backdrop-blur-xl border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] shadow-sm">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold text-[var(--text-secondary)]">Badge 方案:</span>
+                    <SegmentedControl
+                        v-model="designStyle"
+                        :options="designOptions"
+                        size="sm"
+                    />
+                </div>
+                <span class="text-xs text-[var(--text-muted)]">在作品属性卡片中预览徽章的层级与视觉融合度</span>
+            </div>
+
+            <!-- 设计说明条 -->
+            <div class="scheme-banner">
+                <div class="flex items-center gap-2">
+                    <span class="scheme-pill">设计解析</span>
+                    <span v-if="designStyle === 'macos'" class="scheme-banner-text">
+                        <strong>方案 1：macOS 超椭圆微胶囊（推荐）</strong>——`rounded-[4.5px]` Squircle；14% 饱满柔和浅底 + 纯正字体色 + 1px 细微环境边框，非刺眼色块，与界面沉静融合。
+                    </span>
+                    <span v-else-if="designStyle === 'minimal'" class="scheme-banner-text">
+                        <strong>方案 2：现代极简纯平圆点</strong>——去背景框；仅由 6px 纯色呼吸实心圆点 + 紧凑文字组成，手感极简。
+                    </span>
+                    <span v-else-if="designStyle === 'crystal'" class="scheme-banner-text">
+                        <strong>方案 3：悬浮微晶发光胶囊</strong>——半透明高斯磨砂晶体，向外扩散 <strong>3px 同色柔和弥散光晕</strong>。
+                    </span>
+                    <span v-else-if="designStyle === 'outlined'" class="scheme-banner-text">
+                        <strong>方案 4：精工细线微边框</strong>——1px 锐利单色线框，工业级精密感。
+                    </span>
+                    <span v-else-if="designStyle === 'solid'" class="scheme-banner-text">
+                        <strong>方案 5：实底高反差色块</strong>——饱和纯色实底 + 纯白高对比反色文字。
+                    </span>
+                </div>
+            </div>
+        </div>
+
         <!-- 紧凑高质感 macOS 工作区卡片 -->
         <div class="macos-compact-card">
             <!-- 卡片顶部工具栏：标题、徽章与操作按钮 -->
             <div class="flex items-center justify-between gap-3 pb-3.5 mb-4 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)]">
                 <div class="flex items-center gap-2.5 flex-wrap">
                     <h3 class="text-sm font-bold text-[var(--text-main)]">章节属性与设定</h3>
-
-                    <!-- 动态徽章展示：已同步与温润深琥珀未保存改动 -->
-                    <template v-if="selectedSubScheme === 'scheme2b'">
-                        <Badge tone="success" icon-class="i-lucide-check-circle-2" size="sm">已同步</Badge>
-                        <Badge tone="warning" icon-class="i-lucide-alert-circle" size="sm">未保存改动</Badge>
-                        <Badge tone="neutral" size="sm">v1.4.2</Badge>
-                    </template>
-                    <template v-else-if="selectedSubScheme === 'scheme2a'">
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-[var(--status-success)] shadow-sm">
-                            <span class="i-lucide-check-circle-2 h-3 w-3"></span> 已同步
-                        </span>
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-[#B45309] shadow-sm">
-                            <span class="i-lucide-alert-circle h-3 w-3"></span> 未保存改动
-                        </span>
-                    </template>
-                    <template v-else-if="selectedSubScheme === 'scheme2c'">
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-[var(--status-success)] shadow-[0_2px_8px_color-mix(in_srgb,var(--status-success)_45%,transparent)]">
-                            <span class="i-lucide-check-circle-2 h-3 w-3"></span> 已同步
-                        </span>
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-[#B45309] shadow-[0_2px_8px_rgba(180,83,9,0.4)]">
-                            <span class="i-lucide-alert-circle h-3 w-3"></span> 未保存改动
-                        </span>
-                    </template>
-                    <template v-else-if="selectedSubScheme === 'scheme2d'">
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-gradient-to-b from-[#10B981] to-[#047857] shadow-[0_1px_3px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.3)]">
-                            <span class="i-lucide-check-circle-2 h-3 w-3"></span> 已同步
-                        </span>
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-gradient-to-b from-[#D97706] to-[#92400E] shadow-[0_1px_3px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.3)]">
-                            <span class="i-lucide-alert-circle h-3 w-3"></span> 未保存改动
-                        </span>
-                    </template>
+                    <Badge
+                        id="nb-lab-target"
+                        tone="accent"
+                        icon-class="i-lucide-git-branch"
+                    >
+                        正文主线
+                    </Badge>
+                    <Badge tone="warning" icon-class="i-lucide-clock">连载中</Badge>
+                    <Badge tone="success" icon-class="i-lucide-shield-check">已校对</Badge>
+                    <Badge tone="neutral">v1.4</Badge>
                 </div>
 
-                <!-- 头部右侧操作区（Dropdown 触发器 + IconButton） -->
                 <div class="flex items-center gap-1.5 shrink-0">
-                    <IconButton title="查看历史版本" variant="default" size="sm">
-                        <span class="i-lucide-history text-xs"></span>
-                    </IconButton>
-
                     <Dropdown
                         :items="dropdownItems"
-                        menu-class="min-w-[180px]"
+                        @select="emit('lab-event', 'dropdown-select', $event)"
                     >
-                        <IconButton title="更多选项" variant="default" size="sm">
-                            <span class="i-lucide-more-horizontal text-xs"></span>
-                        </IconButton>
+                        <template #trigger>
+                            <IconButton
+                                size="sm"
+                                variant="default"
+                                icon-class="i-lucide-more-horizontal"
+                                aria-label="更多操作"
+                            />
+                        </template>
                     </Dropdown>
+
+                    <Button
+                        size="sm"
+                        variant="primary"
+                        icon-class="i-lucide-check"
+                        :loading="isSaving"
+                        @click="handleSave"
+                    >
+                        保存
+                    </Button>
                 </div>
             </div>
 
-            <!-- 方案切换紧凑胶囊条 -->
-            <div class="mb-4 flex items-center justify-between p-2 rounded-lg bg-[var(--bg-main)] border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)]">
-                <span class="text-xs text-[var(--text-muted)] font-medium">Badge 方案预览：</span>
-                <SegmentedControl
-                    v-model="selectedSubScheme"
-                    :options="subSchemeOptions"
-                    size="xs"
-                />
-            </div>
-
-            <!-- 表单正文字段区 -->
-            <div class="flex flex-col gap-4">
-                <!-- 字段 1：章节标题 (FormInput) -->
-                <div class="flex flex-col gap-1.5">
-                    <label class="text-xs font-semibold text-[var(--text-main)] flex items-center justify-between">
-                        <span>章节标题</span>
-                        <span class="text-[11px] text-[var(--text-muted)] font-normal">支持 Markdown</span>
-                    </label>
+            <!-- 表单内容网格 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3.5 text-xs">
+                <div class="md:col-span-2">
                     <FormInput
                         v-model="chapterTitle"
-                        placeholder="请输入章节标题..."
-                        size="md"
+                        label="章节大纲主标题"
+                        placeholder="请输入章节名称..."
+                        hint="对应目录中的对外展示名称"
                     />
                 </div>
 
-                <!-- 字段 2 & 3 双列：所属卷册 (FormSelect) 与 目标字数 (FormNumberInput) -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div class="flex flex-col gap-1.5">
-                        <label class="text-xs font-semibold text-[var(--text-main)]">所属卷册</label>
-                        <FormSelect
-                            v-model="selectedVolume"
-                            :options="volumeOptions"
-                            size="default"
-                        />
-                    </div>
-
-                    <div class="flex flex-col gap-1.5">
-                        <label class="text-xs font-semibold text-[var(--text-main)] flex items-center justify-between">
-                            <span>目标字数</span>
-                            <span class="font-mono text-[11px] text-[var(--accent-main)]">4,820 / {{ targetWordCount }}</span>
-                        </label>
-                        <FormNumberInput
-                            v-model="targetWordCount"
-                            min="500"
-                            max="50000"
-                            step="500"
-                            size="default"
-                        />
-                    </div>
+                <div>
+                    <FormSelect
+                        v-model="selectedVolume"
+                        :options="volumeOptions"
+                        label="所属分卷"
+                    />
                 </div>
 
-                <!-- 字段 4：发布范围 (SegmentedControl) -->
-                <div class="flex flex-col gap-1.5">
-                    <label class="text-xs font-semibold text-[var(--text-main)]">公开范围与权限</label>
-                    <div class="flex">
-                        <SegmentedControl
-                            v-model="publishStatus"
-                            :options="publishOptions"
-                            size="sm"
-                        />
+                <div>
+                    <FormSelect
+                        v-model="publishStatus"
+                        :options="publishOptions"
+                        label="发布状态"
+                    />
+                </div>
+
+                <div>
+                    <FormNumberInput
+                        v-model="targetWordCount"
+                        label="计划目标字数"
+                        step="500"
+                        min="1000"
+                        max="50000"
+                    />
+                </div>
+
+                <div class="flex flex-col justify-end">
+                    <div class="p-2 rounded-[var(--radius-control)] bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] border border-[color-mix(in_srgb,var(--text-main)_8%,transparent)] flex items-center justify-between">
+                        <span class="text-[var(--text-muted)]">当前统计:</span>
+                        <span class="font-mono font-bold text-[var(--text-main)]">4,820 字 / 80.3%</span>
                     </div>
                 </div>
 
-                <!-- 字段 5：开关选项组 (FormCheckbox 饱满超椭圆) -->
-                <div class="flex flex-col gap-3 p-3.5 rounded-xl bg-[var(--bg-main)] border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)]">
-                    <span class="text-xs font-semibold text-[var(--text-main)]">自动化与辅助设定</span>
-
-                    <FormCheckbox v-model="autoBackup">
-                        <span class="text-xs font-medium text-[var(--text-main)]">启用云端实时快照备份</span>
-                        <span class="text-[11px] text-[var(--text-muted)]">每 5 分钟自动创建分支快照</span>
-                    </FormCheckbox>
-
-                    <FormCheckbox v-model="aiAssist">
-                        <span class="text-xs font-medium text-[var(--text-main)]">启用 AI 语境感知与续写建议</span>
-                        <span class="text-[11px] text-[var(--text-muted)]">写作时提供行内灰色灵感补全</span>
-                    </FormCheckbox>
-
-                    <FormCheckbox v-model="branchPlot">
-                        <span class="text-xs font-medium text-[var(--text-main)]">包含多结局分支剧情走向</span>
-                        <span class="text-[11px] text-[var(--text-muted)]">为当前章节启用交互式选择树</span>
-                    </FormCheckbox>
-                </div>
-
-                <!-- 底部操作区 (Button 组) -->
-                <div class="flex items-center justify-between pt-2.5 border-t border-[color-mix(in_srgb,var(--border-color)_60%,transparent)]">
-                    <span class="text-xs text-[var(--status-success)] font-medium transition-opacity" :class="saveFeedback ? 'opacity-100' : 'opacity-0'">
-                        ✓ {{ saveFeedback }}
-                    </span>
-
-                    <div class="flex items-center gap-2.5">
-                        <Button variant="secondary" size="md">
-                            放弃修改
-                        </Button>
-                        <Button
-                            variant="primary"
-                            size="md"
-                            :loading="isSaving"
-                            @click="handleSave"
-                        >
-                            <span class="i-lucide-save" aria-hidden="true"></span>
-                            {{ isSaving ? "同步中..." : "保存设定" }}
-                        </Button>
+                <div class="md:col-span-2 pt-2 border-t border-[color-mix(in_srgb,var(--border-color)_50%,transparent)]">
+                    <div class="flex flex-wrap items-center gap-5">
+                        <FormCheckbox v-model="autoBackup" label="实时本地快照备份" />
+                        <FormCheckbox v-model="aiAssist" label="AI 续写感知注入" />
+                        <FormCheckbox v-model="branchPlot" label="开启支线平行世界" />
                     </div>
                 </div>
+            </div>
+
+            <!-- 底部状态指示 -->
+            <div class="mt-4 flex items-center justify-between border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] pt-3 text-[11px] text-[var(--text-muted)]">
+                <span>{{ saveFeedback || "提示：Badge 徽章广泛应用于章节状态、标签分类与版本指示。" }}</span>
+                <span>当前方案: {{ designOptions.find(o => o.value === designStyle)?.label }}</span>
             </div>
         </div>
     </FixtureShell>
 </template>
 
 <style scoped>
-/* 紧凑 macOS 容器卡片 */
 .macos-compact-card {
     width: 100%;
-    max-width: 540px;
-    margin: 0 auto;
+    margin: var(--space-3) auto 0;
     padding: var(--space-5) var(--space-6);
     border-radius: 14px;
-    background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
+    background: color-mix(in srgb, var(--bg-panel) 75%, transparent);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
-    box-shadow: 0 20px 48px -12px color-mix(in srgb, var(--shadow-color) 24%, transparent),
+    box-shadow: 0 20px 48px -12px color-mix(in srgb, var(--shadow-color) 26%, transparent),
                 0 2px 8px color-mix(in srgb, var(--shadow-color) 8%, transparent);
+}
+
+.scheme-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+    backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.scheme-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--accent-main);
+    color: var(--text-inverse);
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+
+.scheme-banner-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
 }
 </style>

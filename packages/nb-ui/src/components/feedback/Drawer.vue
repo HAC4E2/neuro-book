@@ -90,7 +90,7 @@ const emit = defineEmits<{
                         </div>
                     </slot>
 
-                    <DrawerClose class="nb-ui-focus-ring -mr-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] cursor-pointer">
+                    <DrawerClose class="nb-ui-focus-ring -mr-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer">
                         <span class="i-lucide-x h-4 w-4" aria-hidden="true"></span>
                     </DrawerClose>
                 </div>

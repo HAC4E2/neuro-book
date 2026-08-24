@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, onMounted, ref, watch} from "vue";
+import SegmentedControl from "../../../../src/components/controls/SegmentedControl.vue";
 import Splitter, {type SplitterPanelConfig} from "../../../../src/components/layout/Splitter.vue";
 import FileTree from "../../../../src/components/navigation/FileTree.vue";
 import type {FileTreeNode} from "../../../../src/components/navigation/file-tree.types";
@@ -9,10 +10,22 @@ import {controlDefaultValue, type LabComponentDefinition} from "../registry";
 const props = defineProps<{
     definition: LabComponentDefinition;
     sceneId: string;
-}>(), emit = defineEmits<{
+}>();
+
+const emit = defineEmits<{
     (event: "lab-event", name: string, payload?: unknown): void;
     (event: "rendered"): void;
 }>();
+
+// 5 种不同设计方案切换
+const designStyle = ref<"macos" | "minimal" | "crystal" | "industrial" | "solid">("macos");
+const designOptions = [
+    {label: "方案 1: macOS 原生自隐分割线 (推荐)", value: "macos"},
+    {label: "方案 2: 现代极简无缝纯平", value: "minimal"},
+    {label: "方案 3: 悬浮微晶发光握柄", value: "crystal"},
+    {label: "方案 4: 精工工控凹槽刻度", value: "industrial"},
+    {label: "方案 5: 实底工控高反差隔条", value: "solid"},
+];
 
 const controls = ref<Record<string, string | boolean>>({});
 const direction = computed(() => (controls.value.direction as any) || "horizontal");
@@ -64,11 +77,52 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <div class="macos-compact-card p-0 overflow-hidden h-[420px] flex flex-col !max-w-[860px]">
+        <!-- 顶层设计风格切换栏 -->
+        <div class="mb-6 flex flex-col gap-3">
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-2.5 bg-[color-mix(in_srgb,var(--bg-panel)_75%,transparent)] backdrop-blur-xl border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] shadow-sm">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold text-[var(--text-secondary)]">Splitter 方案:</span>
+                    <SegmentedControl
+                        v-model="designStyle"
+                        :options="designOptions"
+                        size="sm"
+                    />
+                </div>
+                <span class="text-xs text-[var(--text-muted)]">按住栏间分割线左右拖拽缩放各栏宽度</span>
+            </div>
+
+            <!-- 设计说明条 -->
+            <div class="scheme-banner">
+                <div class="flex items-center gap-2">
+                    <span class="scheme-pill">设计解析</span>
+                    <span v-if="designStyle === 'macos'" class="scheme-banner-text">
+                        <strong>方案 1：macOS 原生自隐分割线（推荐）</strong>——常态 1px 细微环境缝隙；悬停时平滑加粗至 3px 并浮现 <strong>品牌蓝柔光高亮</strong>，拖拽阻尼平滑连贯。
+                    </span>
+                    <span v-else-if="designStyle === 'minimal'" class="scheme-banner-text">
+                        <strong>方案 2：现代极简无缝纯平</strong>——去分割条可视物；仅在鼠标经过边缘时呈现精准缩放光标，视觉最纯净。
+                    </span>
+                    <span v-else-if="designStyle === 'crystal'" class="scheme-banner-text">
+                        <strong>方案 3：悬浮微晶发光握柄</strong>——分割条中间常驻 75% 磨砂小晶体胶囊握柄，悬停扩散 <strong>3px 光晕</strong>。
+                    </span>
+                    <span v-else-if="designStyle === 'industrial'" class="scheme-banner-text">
+                        <strong>方案 4：精工工控凹槽刻度</strong>——分割条带有 3 组微型物理防滑凹槽刻线（Grip Lines），工业感强。
+                    </span>
+                    <span v-else-if="designStyle === 'solid'" class="scheme-banner-text">
+                        <strong>方案 5：实底工控高反差隔条</strong>——深色饱满实体隔条，高反差黑白对比。
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- macOS 紧凑卡片容器 -->
+        <div class="macos-compact-card p-0 overflow-hidden h-[450px] flex flex-col !max-w-[880px]">
             <!-- 顶栏标题 -->
-            <div class="flex items-center justify-between px-4 py-2.5 bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] border-b border-[var(--divider)]">
-                <span class="text-xs font-bold text-[var(--text-main)]">三栏可调节长篇写作工作区 (Splitter)</span>
-                <span class="text-[11px] text-[var(--text-muted)]">可鼠标按住中间细线自由拖拽缩放</span>
+            <div class="flex items-center justify-between px-4 py-2.5 bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] border-b border-[color-mix(in_srgb,var(--border-color)_50%,transparent)]">
+                <div class="flex items-center gap-2">
+                    <span class="i-lucide-columns-3 text-[var(--accent-main)] h-4 w-4" aria-hidden="true" />
+                    <span class="text-xs font-bold text-[var(--text-main)]">三栏可调节长篇写作工作区 (Splitter)</span>
+                </div>
+                <span class="text-[11px] text-[var(--text-muted)]">按住分割线自由拖拽缩放</span>
             </div>
 
             <!-- 分割工作区 -->
@@ -100,29 +154,83 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             <p class="text-xs text-[var(--text-secondary)] leading-relaxed mb-3">
                                 当意识的第一道脉冲穿过义体神经中枢时，窗外正下着新东京特有的霓虹酸雨。林澈睁开眼，视网膜HUD界面瞬间刷新出24条未读加密讯息。
                             </p>
+                            <p class="text-xs text-[var(--text-secondary)] leading-relaxed mb-3">
+                                墙上的时钟停在 03:42。他撑起沉重的右臂——那是上周在黑市刚完成调试的军规级潜行臂，散热阀依然散发着刺鼻的臭氧与合成机油味道。
+                            </p>
                             <p class="text-xs text-[var(--text-secondary)] leading-relaxed">
-                                「深潜协议已就绪，量子密钥正在重组。」
-                                他坐起身，拔掉后颈上的散热导管，冷凝液顺着脊柱缓缓滑落。
+                                终端的光标跳动着，像一记无声的警钟：【警告：未授权的幽灵协议正在尝试劫持第404号神经节点...】
                             </p>
                         </div>
                     </template>
 
-                    <!-- 右侧设定集检查器 -->
+                    <!-- 右侧检查器 -->
                     <template #panel-inspector>
-                        <div class="p-3.5 h-full overflow-y-auto bg-[color-mix(in_srgb,var(--text-main)_3%,transparent)] text-xs text-[var(--text-secondary)] space-y-3">
-                            <div class="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">章节元数据</div>
-                            <div>
-                                <span class="block text-[11px] text-[var(--text-muted)]">目标字数</span>
-                                <span class="font-semibold text-[var(--text-main)]">4,230 / 6,000</span>
-                            </div>
-                            <div>
-                                <span class="block text-[11px] text-[var(--text-muted)]">出场人物</span>
-                                <span class="text-[var(--text-main)]">林澈、接头人阿九</span>
+                        <div class="p-3 h-full overflow-y-auto bg-[color-mix(in_srgb,var(--text-main)_2%,transparent)] space-y-3 text-xs">
+                            <div class="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">章节属性</div>
+                            <div class="space-y-2">
+                                <div class="p-2 rounded bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)]">
+                                    <span class="block text-[10px] text-[var(--text-muted)]">字数统计</span>
+                                    <span class="font-mono font-bold text-[var(--text-main)]">4,820 字</span>
+                                </div>
+                                <div class="p-2 rounded bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)]">
+                                    <span class="block text-[10px] text-[var(--text-muted)]">预计阅读</span>
+                                    <span class="font-mono font-bold text-[var(--text-main)]">12 分钟</span>
+                                </div>
                             </div>
                         </div>
                     </template>
                 </Splitter>
             </div>
+
+            <!-- 底部状态栏 -->
+            <div class="flex items-center justify-between px-4 py-2 border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] bg-[color-mix(in_srgb,var(--bg-panel)_80%,transparent)] text-[11px] text-[var(--text-muted)]">
+                <span>布局方向: {{ direction === 'horizontal' ? '横向三栏 (Horizontal)' : '纵向多层 (Vertical)' }}</span>
+                <span>当前方案: {{ designOptions.find(o => o.value === designStyle)?.label }}</span>
+            </div>
         </div>
     </FixtureShell>
 </template>
+
+<style scoped>
+.macos-compact-card {
+    width: 100%;
+    margin: var(--space-3) auto 0;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg-panel) 75%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+    box-shadow: 0 20px 48px -12px color-mix(in srgb, var(--shadow-color) 26%, transparent),
+                0 2px 8px color-mix(in srgb, var(--shadow-color) 8%, transparent);
+}
+
+.scheme-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+    backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.scheme-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--accent-main);
+    color: var(--text-inverse);
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+
+.scheme-banner-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+</style>

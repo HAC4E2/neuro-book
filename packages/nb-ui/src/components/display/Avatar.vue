@@ -42,7 +42,7 @@ const shapeClass = computed(() => {
 
 <template>
     <AvatarRoot
-        class="relative inline-flex shrink-0 items-center justify-center overflow-hidden select-none border border-[color-mix(in_srgb,var(--text-main)_10%,transparent)] bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] text-[var(--accent-main)] font-semibold"
+        class="relative inline-flex shrink-0 items-center justify-center overflow-hidden select-none border border-[color-mix(in_srgb,var(--text-main)_10%,transparent)] bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] text-[var(--accent-main)] font-semibold transition-[transform,box-shadow,border-color] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] hover:scale-105"
         :class="[sizeClass, shapeClass]"
     >
         <AvatarImage

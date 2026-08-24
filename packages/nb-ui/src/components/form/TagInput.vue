@@ -59,27 +59,32 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 const containerSizeClass = computed(() => (props.size === "sm" ? "min-h-7 gap-1 px-1.5 py-1" : "min-h-9 gap-1.5 px-2 py-1.5"));
-const tagSizeClass = computed(() => (props.size === "sm" ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-1 text-xs"));
+const tagSizeClass = computed(() => (props.size === "sm" ? "px-1.5 py-0.5 text-[11px] rounded-[calc(var(--radius-control)*0.6)]" : "px-2 py-1 text-xs rounded-[calc(var(--radius-control)*0.75)]"));
 const tagToneClass = computed(() => (props.tone === "accent"
-    ? "bg-[var(--accent-bg)] text-[var(--accent-text)]"
+    ? "bg-[var(--accent-bg)] text-[var(--accent-text)] border border-[color-mix(in_srgb,var(--accent-main)_30%,transparent)]"
     : "border border-[var(--control-outline)] bg-[var(--control-surface)] text-[var(--text-main)]"));
 </script>
 
 <template>
     <!-- 标签输入容器：invalid 视觉与其它表单控件一致 -->
     <div
-        class="nb-ui-control flex flex-wrap items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] transition-colors"
+        class="nb-ui-control flex flex-wrap items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] transition-[background-color,border-color,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
         :class="[
             containerSizeClass,
             props.disabled ? 'cursor-not-allowed opacity-60' : '',
             field?.invalid.value ? 'nb-ui-control-invalid' : '',
         ]"
     >
-        <span v-for="(tag, index) in props.modelValue" :key="tag" class="flex items-center gap-1 rounded leading-none" :class="[tagSizeClass, tagToneClass]">
-            {{ tag }}
+        <span
+            v-for="(tag, index) in props.modelValue"
+            :key="tag"
+            class="inline-flex items-center gap-1 leading-none shadow-sm transition-[transform,opacity,background-color,color] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] select-none"
+            :class="[tagSizeClass, tagToneClass]"
+        >
+            <span class="truncate max-w-[140px]">{{ tag }}</span>
             <button
                 type="button"
-                class="i-lucide-x h-3 w-3 shrink-0 opacity-50 transition-colors hover:text-[var(--status-danger)] hover:opacity-100 disabled:cursor-not-allowed"
+                class="i-lucide-x h-3 w-3 shrink-0 opacity-50 transition-[opacity,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:text-[var(--status-danger)] hover:opacity-100 not-disabled:active:scale-[0.85] disabled:cursor-not-allowed cursor-pointer"
                 :disabled="props.disabled"
                 :aria-label="`移除标签 ${tag}`"
                 @click="removeTag(index)"
@@ -99,6 +104,6 @@ const tagToneClass = computed(() => (props.tone === "accent"
             :class="props.size === 'sm' ? 'text-[11px]' : 'text-sm'"
             @keydown="handleKeydown"
             @blur="addTag"
-        >
+        />
     </div>
 </template>

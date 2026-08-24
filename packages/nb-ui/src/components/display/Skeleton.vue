@@ -21,16 +21,16 @@ const shapeClass = computed(() => {
         return "h-10 w-10 rounded-full";
     }
     if (props.shape === "block") {
-        return "h-20 w-full rounded-md";
+        return "h-20 w-full rounded-[var(--radius-panel)]";
     }
-    return "h-3.5 w-full rounded";
+    return "h-3.5 w-full rounded-[var(--radius-control)]";
 });
 </script>
 
 <template>
     <span
         aria-hidden="true"
-        class="block animate-pulse bg-[var(--bg-hover)]"
+        class="block animate-pulse nb-shimmer bg-[var(--bg-hover)]"
         :class="shapeClass"
         :style="{width: props.width || undefined, height: props.height || undefined}"
     ></span>

@@ -65,7 +65,7 @@ const emit = defineEmits<{
                     ]"
                 >
                     <div
-                        class="opacity-0 group-hover:opacity-100 group-data-[state=drag]:opacity-100 transition-opacity rounded-full bg-[var(--accent-main)]"
+                        class="opacity-0 group-hover:opacity-100 group-data-[state=drag]:opacity-100 transition-opacity [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] rounded-full bg-[var(--accent-main)] shadow-[0_0_6px_color-mix(in_srgb,var(--accent-main)_50%,transparent)]"
                         :class="props.direction === 'vertical' ? 'h-1 w-6' : 'w-1 h-6'"
                     />
                 </SplitterResizeHandle>

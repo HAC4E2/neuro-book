@@ -56,10 +56,10 @@ const displayLabel = computed(() => props.label || (props.modelValue ? "true" : 
             @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
         >
         <span
-            class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-[length:var(--border-w)] bg-[color-mix(in_srgb,var(--text-main)_14%,transparent)] border-[color-mix(in_srgb,var(--text-main)_16%,transparent)] text-transparent transition-[background-color,border-color,color,box-shadow] [transition-duration:var(--motion-fast)] peer-checked:border-[color:var(--accent-main)] peer-checked:bg-[var(--accent-main)] peer-checked:text-[var(--text-inverse)] peer-focus-visible:border-[color:var(--focus-outline)] peer-focus-visible:shadow-[var(--focus-ring)]"
+            class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-[length:var(--border-w)] bg-[color-mix(in_srgb,var(--text-main)_14%,transparent)] border-[color-mix(in_srgb,var(--text-main)_16%,transparent)] text-transparent transition-[background-color,border-color,color,box-shadow,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] peer-checked:border-[color:var(--accent-main)] peer-checked:bg-[var(--accent-main)] peer-checked:text-[var(--text-inverse)] peer-focus-visible:border-[color:var(--focus-outline)] peer-focus-visible:shadow-[var(--focus-ring)] peer-not-disabled:peer-active:scale-[0.92]"
             :class="field?.invalid.value ? 'border-[color:var(--status-danger)]' : ''"
         >
-            <span class="i-lucide-check h-3.5 w-3.5" aria-hidden="true"></span>
+            <span class="i-lucide-check h-3.5 w-3.5 transition-transform [transition-duration:var(--motion-fast)]" aria-hidden="true"></span>
         </span>
         <span class="inline-flex flex-col"><slot>{{ displayLabel }}</slot></span>
     </label>

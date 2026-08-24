@@ -110,7 +110,7 @@ function handleInput(e: Event): void {
                         >
                             <span
                                 v-if="currentColor.toLowerCase() === color.toLowerCase()"
-                                class="i-lucide-check h-3.5 w-3.5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+                                class="i-lucide-check h-3.5 w-3.5 text-[var(--text-inverse)] shadow-sm"
                                 aria-hidden="true"
                             />
                         </button>

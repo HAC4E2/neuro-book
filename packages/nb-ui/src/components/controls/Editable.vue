@@ -59,7 +59,7 @@ const emit = defineEmits<{
     >
         <EditableArea class="relative inline-flex items-center">
             <EditablePreview
-                class="rounded-[calc(var(--radius-control)*0.75)] px-1.5 py-0.5 text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] cursor-pointer truncate max-w-full"
+                class="rounded-[calc(var(--radius-control)*0.75)] px-1.5 py-0.5 text-[var(--text-main)] transition-[background-color,color] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] cursor-pointer truncate max-w-full"
             />
             <EditableInput
                 class="nb-ui-focus-ring rounded-[var(--radius-control)] border border-[var(--accent-main)] bg-[var(--bg-panel)] px-2 py-0.5 text-[var(--text-main)] shadow-sm outline-none transition-[border-color,box-shadow,background-color,color] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] min-w-[80px]"
@@ -70,7 +70,7 @@ const emit = defineEmits<{
         <template v-if="!props.readonly && !props.disabled">
             <div v-if="!isEditing && props.showEditTrigger" class="flex items-center">
                 <EditableEditTrigger
-                    class="nb-ui-focus-ring flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] opacity-60 transition-[opacity,background-color,color] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:opacity-100 hover:text-[var(--text-main)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] cursor-pointer"
+                    class="nb-ui-focus-ring flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] opacity-60 transition-[opacity,background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:opacity-100 hover:text-[var(--text-main)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] not-disabled:active:scale-[0.92] cursor-pointer"
                     aria-label="编辑"
                 >
                     <span class="i-lucide-pencil h-3.5 w-3.5" aria-hidden="true" />
@@ -79,14 +79,14 @@ const emit = defineEmits<{
 
             <div v-else-if="isEditing" class="flex items-center gap-1">
                 <EditableSubmitTrigger
-                    class="nb-ui-focus-ring flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-[var(--status-success)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--status-success)_14%,transparent)] cursor-pointer"
+                    class="nb-ui-focus-ring flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-[var(--status-success)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--status-success)_14%,transparent)] not-disabled:active:scale-[0.92] cursor-pointer"
                     aria-label="保存"
                 >
                     <span class="i-lucide-check h-3.5 w-3.5" aria-hidden="true" />
                 </EditableSubmitTrigger>
 
                 <EditableCancelTrigger
-                    class="nb-ui-focus-ring flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] cursor-pointer"
+                    class="nb-ui-focus-ring flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer"
                     aria-label="取消"
                 >
                     <span class="i-lucide-x h-3.5 w-3.5" aria-hidden="true" />

@@ -8,6 +8,7 @@ const props = withDefaults(defineProps<{
     block?: boolean;
     disabled?: boolean;
     loading?: boolean;
+    iconClass?: string;
     type?: "button" | "submit" | "reset";
 }>(), {
     variant: "primary",
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
     block: false,
     disabled: false,
     loading: false,
+    iconClass: "",
     type: "button",
 });
 
@@ -64,6 +66,7 @@ function variantClass(): string {
         :aria-busy="props.loading || undefined"
     >
         <span v-if="props.loading" class="i-lucide-loader-2 h-[1em] w-[1em] animate-spin shrink-0"></span>
+        <span v-else-if="props.iconClass" :class="props.iconClass" class="h-[1.15em] w-[1.15em] shrink-0" aria-hidden="true"></span>
         <slot />
     </button>
 </template>
