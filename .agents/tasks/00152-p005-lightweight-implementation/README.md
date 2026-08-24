@@ -4,9 +4,9 @@ taskId: 00152-p005-lightweight-implementation
 actionIssueId: null
 worktreeId: .worktree/t152-p005-lightweight-implementation
 branchId: refactor/t152-p005-lightweight-implementation
-status: verifying
+status: completed
 createdAt: 2026-08-24T03:50:40Z
-updatedAt: 2026-08-24T04:16:40Z
+updatedAt: 2026-08-24T04:43:47Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: docs
@@ -54,5 +54,6 @@ agentWorkflow:
 
 ## 当前状态
 
-- 本 README 为唯一副本，位于实现 worktree 内，ID 已按 Leader 合同“创建分支和 worktree，记录 worktreeId 与 branchId”回填为最终值。
-- 实现与审阅已完成，`status: verifying`：required 四项 2 过（docs-check、diff-check）2 败（governance-check、focused-test——两项在五文件合同同步前的基线运行中即已失败，未被本次同步引入，台账见 walkthrough 003）；最终 `completed` 待人类合并决策后置位。
+- 本 README 的正本在合并后位于 `master`；实现 worktree 与本地分支已按仓库流程在推送后清理。
+- 人类于 2026-08-24 批准直接合并并推送：squash 合并提交 `353d0ecb`（含本 Task 全部记录与五文件同步），`status` 随之置为 `completed`。
+- required 四项 2 过（docs-check、diff-check）2 败（governance-check、focused-test）——两项失败均为合同同步前的基线运行即已存在的既有问题，未被本次引入；明细台账见 walkthrough 003。
