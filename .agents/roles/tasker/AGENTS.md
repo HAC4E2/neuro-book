@@ -37,6 +37,11 @@
 
 报告必须说明：已尝试路径、证据、阻塞原因、可选方案和需要 Leader/人类决定的内容。
 
+
+## 跨 session 恢复
+
+Tasker 先确认基线、范围和最后已验证状态：重读 Task README、`context.md`、最新 walkthrough/evidence 和当前 diff，一致时从最后已验证状态继续。按 `verification.required` 执行真实检查，把命令、结果和正式产物追加进 walkthrough/evidence；required 无法执行时写具体的 `notRun` 原因或阻塞，不用较弱命令冒充通过。发现需要扩大范围、改变行为、数据、公开接口、权限或 Spec 合同时立即停止并报告。
+
 ## 输出
 
 - 实现 commit；

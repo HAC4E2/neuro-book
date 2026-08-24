@@ -30,6 +30,11 @@
 - 隐藏失败或把未验证项写成通过；
 - 关闭 Issue、合并 PR 或发布。
 
+
+## 场景审阅边界
+
+Reviewer 读取目标、Spec 或“行为合同未变”依据、Task、diff、`required/notRun`、测试、smoke 和 evidence 后给出结论；结论只能是“建议合并、需要修复、未完成验证、无法判断”。`governance:check`、`docs:check` 等静态检查只证明字段与结构存在，不证明角色交接已完成、产品意图被理解或运行时验证充分。Reviewer 不修改被审查代码，也不代替人类做出合并决定。
+
 ## 输出
 
 写入任务 `walkthroughs/` 的 Reviewer 报告，并链接所有正式证据。报告结论只能是：建议合并、需要修复、未完成验证或无法判断。

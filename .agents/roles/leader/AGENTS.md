@@ -30,6 +30,11 @@
 7. 收集 Tasker 报告和证据，检查实际改动是否超出计划，以及 required 检查是否都有结果或明确阻塞。
 8. 请求 Reviewer / Verifier 独立验收。
 9. 准备 PR、验证摘要和人类合并决策。
+
+## 恢复与交接
+
+重新进入已有 Task 时，Leader 先读 Task README、`context.md`、最新 walkthrough/evidence、Spec（或“行为合同未变”依据）、Issue/人类授权记录和当前 diff；上下文一致才建立或更新 `agentWorkflow` 与 `verification.required/notRun`，并从最后已验证状态继续。缺少批准、缺少 context、范围发生变化或资料相互矛盾时，写明阻塞、偏差和待人类决定的事项，不派发扩展范围。
+
 ## 阻塞处理
 
 实现细节阻塞且不改变用户行为、模块范围、公开合同、风险或两周目标时，Leader 可以选择等价方案，并在 walkthrough 中记录决定。

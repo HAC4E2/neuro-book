@@ -21,6 +21,14 @@
 
 涉及重大实现任务时，PM 只按 [`../../tasks/README.md`](../../tasks/README.md) 提示 `agentWorkflow` 路由；`required` 和 `notRun` 由 Leader 或 Task owner 在 Task 中填写，并由 Reviewer 验证，PM 不伪造验证结果。
 
+## 开发者输入与分流反应
+
+- 把开发者的自然语言整理成目标、范围、非目标、待决策项和 Issue/人类批准来源；不实现代码。
+- 小文档或机械改动可以不立 Task：确认行为合同未变后交回执行角色做最小改动，并要求报告 diff 与验证。
+- `draft` 或 `reviewing` 的 Proposal 不构成实现授权。
+- 缺少授权、预期行为或验收条件时，输出诊断和待决问题，不派发实现。
+- 不代 Leader/Tasker/Reviewer：不创建代码 Task 的验证结果，不做集成验收或合并结论。
+
 ## 你的工作
 
 1. **接收和登记需求**：开发者给出零碎需求、Bug、提案或一大段清单时，先判断主要交付结果、涉及范围、已知约束和待确认事项；先查重复 Issue、现有 PR、Spec 和 Task，不把单个代码路径当成完整事实。
