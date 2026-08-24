@@ -111,8 +111,8 @@ describe("agent governance task migration gate", () => {
     });
 });
 describe("Agent Skills 适配治理门禁", () => {
-    it("draft Proposal 出现路由实现时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "router");
+    it("draft Proposal 出现 Skill 实现时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "complete");
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
     });
@@ -144,10 +144,15 @@ agentWorkflow:
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toEqual([]);
     });
-    it("accepted fixture 缺少路由 Skill 合同内容时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-router");
+    it("accepted fixture 缺少 report Skill 合同内容时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-report");
 
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("路由 Skill 缺少有效 frontmatter");
+        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("report Skill 缺少有效 frontmatter");
+    });
+    it("accepted fixture 缺少 load_role Skill 合同内容时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-load_role");
+
+        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("load_role Skill 缺少有效 frontmatter");
     });
     it("accepted fixture 缺少 Task verification 固定字段时失败", async () => {
         const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-task-fields");
@@ -481,22 +486,27 @@ describe("monorepo worktree 根门禁", () => {
     });
 });
 
-async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", implementation: "router" | "invalid-router" | "missing-task-fields" | "missing-contract-export" | "missing-cli-call" | "missing-cli-import" | "shadowed-cli-call" | "type-only-cli-import" | "nested-valid-cli-call" | "dead-function-cli-call" | "complete"): Promise<string> {
+async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", implementation: "invalid-report" | "invalid-load_role" | "missing-task-fields" | "missing-contract-export" | "missing-cli-call" | "missing-cli-import" | "shadowed-cli-call" | "type-only-cli-import" | "nested-valid-cli-call" | "dead-function-cli-call" | "complete"): Promise<string> {
     const root = await createTestTmpRoot("governance-agent-skills", "governance-agent-skills-test");
     fixtureRoots.push(root);
     await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", `# Proposal\n\n状态：${status}\n`);
-    const complete = !["router", "invalid-router"].includes(implementation);
-    await writeText(root, ".agents/skills/agent-workflow-router/SKILL.md", complete
-        ? "---\nname: agent-workflow-router\ndescription: Routes NeuroBook work by task kind.\n---\n"
-        : "name: agent-workflow-router\n");
-    if (!complete) return root;
+    const validReport = implementation !== "invalid-report";
+    const validLoadRole = implementation !== "invalid-load_role";
+    await writeText(root, ".agents/skills/report/SKILL.md", validReport
+        ? "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"
+        : "name: report\n");
+    await writeText(root, ".agents/skills/load_role/SKILL.md", validLoadRole
+        ? "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"
+        : "name: load_role\n");
+    if (!validReport || !validLoadRole) return root;
+
     const taskContract = implementation === "missing-task-fields"
         ? "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n```\n"
         : "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n";
     await writeText(root, ".agents/tasks/README.md", taskContract);
-    await writeText(root, ".agents/skills/README.md", "- [agent-workflow-router/SKILL.md](agent-workflow-router/SKILL.md)\n");
+    await writeText(root, ".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n");
     await writeText(root, "docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n");
-    await writeText(root, ".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/agent-workflow-router/SKILL.md verification.required verification.notRun\n");
+    await writeText(root, ".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n");
     for (const role of ["pm", "leader", "tasker", "reviewer"]) {
         await writeText(root, `.agents/roles/${role}/AGENTS.md`, "agentWorkflow required notRun\n");
     }
@@ -541,14 +551,15 @@ async function createGovernanceCliFixture(): Promise<string> {
         ["WATCHDOG.md", "fixture watchdog\n"],
         [".agents/AGENTS.md", "fixture agents rules\n"],
         [".agents/README.md", "fixture agents readme\n"],
-        [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/agent-workflow-router/SKILL.md verification.required verification.notRun\n"],
+        [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
         [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
         [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/roles/tasker/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/skills/README.md", "- [agent-workflow-router/SKILL.md](agent-workflow-router/SKILL.md)\n"],
-        [".agents/skills/agent-workflow-router/SKILL.md", "---\nname: agent-workflow-router\ndescription: Routes fixture work by task kind.\n---\n"],
+        [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
+        [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
+        [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
         ["docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n"],
         ["scripts/ci/agent-governance-contract.ts", "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] { return []; }\n\"notRun\" in verification\n"],
         ["scripts/ci/agent-governance.ts", "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n"],

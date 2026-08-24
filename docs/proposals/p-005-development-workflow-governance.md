@@ -48,7 +48,7 @@ NeuroBook 已有根 `AGENTS.md`、PM / Leader / Tasker / Reviewer 角色合同�
 - GitHub Issue / Project：公开问题、实现授权、优先级、迭代和交付状态。
 - `.agents/tasks/`：一次实现的执行合同、上下文、过程报告和正式证据。
 - `.agents/roles/`：PM、Leader、Tasker、Reviewer 的职责和停止条件。
-- `.agents/skills/agent-workflow-router/`：按任务类型选择最小充分 Agent Skills 路由。
+- `.agents/skills/report/` 与 `.agents/skills/load_role/`：分别负责面向开发者的状态汇报和按参数加载 canonical 角色合同。
 - `governance:check`：治理资产、Task owner、迁移、monorepo 边界和 Agent Skills 适配的结构检查。
 - walkthrough 与 evidence：追加式过程报告，以及脱敏后的命令结果、日志、截图、JSON 等正式产物；记录历史，不充当状态真相源。
 
@@ -191,7 +191,7 @@ Agent 发现上下文缺失时按以下顺序自恢复：
 
 ### 回滚
 
-在任何实现前，可将本 Proposal 标记为 `rejected` 或 `superseded`，不产生运行影响。实现后回滚时恢复现行合同文本，保留历史 walkthrough 与 evidence，不伪造状态回退，不保留兼容 alias 或静默 fallback。
+在任何实现前，可将本 Proposal 标记为 `rejected` 或 `superseded`，不产生运行影响。实现后回滚时恢复现行合同文本，保留历史 walkthrough 与 evidence，不伪造状态回退，不保留兼容 alias 或静默 fallback；Skill 入口切换必须同步删除旧 router。
 
 ## 对 Spec 的预期改动
 
@@ -234,3 +234,9 @@ Agent 发现上下文缺失时按以下顺序自恢复：
 - 2026-08-24｜人类接受｜正文状态改为 `accepted`：接受轻量角色交接合同文本；按 Proposal 生效规则，本条只批准创建独立实现 Task，实现 Task 另行获批前不修改任何现行合同。
 - 2026-08-24｜修订｜接受后一致性同步：`docs/proposals/README.md` 索引条目更新为轻量合同语义与 `accepted` 状态；“两种执行模式”与“实际使用场景”的门禁措辞从“提案被接受前”改为“实现 Task 获批并同步现行合同前”；验收方向第 8 条标注为接受前历史条件。
 - 2026-08-24｜修订｜按接受后审查补充：为三类问题增加可核对的现状锚点（根入口章节、四个角色合同与 `.agents/tasks/README.md` 小节、“Git 注意事项”与 `.omp/RULES.md` 门禁、`governance:check` 结构检查边界），并在跨 session 示例中增加发现非本 session 改动时的保留、核对与阻塞反应。
+
+- 2026-08-24｜Task 00154｜新增 `report` 主动汇报 Skill，以 `$ARGUMENTS` 接收报告对象，并固定当前状态、证据、开发者动作和下一步格式。
+- 2026-08-24｜Task 00154｜以 `load-rule` 参数化 Skill 替换 `agent-workflow-router`；参数只接受 `pm`、`leader`、`tasker`、`reviewer`，加载 `.agents/roles/<role>/AGENTS.md`，不创建 `.agents/rules` 第二真相源。
+
+- 2026-08-24｜Task 00154 命名修正｜用户指定调用名为 `load_rule`；实际入口、frontmatter、索引、治理测试和当前合同统一使用 `load_rule`，不保留仅文档层假映射。
+- 2026-08-24｜Task 00154 命名修正｜开发者说明 `load_rule` 是笔误，实际调用名为 `load_role`；实际入口、frontmatter、索引、治理测试和当前合同统一使用 `load_role`，不保留旧名入口。

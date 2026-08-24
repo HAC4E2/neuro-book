@@ -442,7 +442,7 @@
         {
           "path": "135-agent-asset-install-protocol/README.md",
           "legacyDestination": ".agents/tasks/135-agent-asset-install-protocol/README.md",
-          "sha256": "sha256:00caa493f58eb042276d7b8292d97ec744562f106d2d83c583e5c5fe23ab096a"
+          "sha256": "sha256:f61030bd56975e50a69edd99414a8c62c204ba151840d6f9e4d8b376c53591a7"
         }
       ]
     },

@@ -12,7 +12,9 @@ export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
 export type CanonicalRole = typeof CANONICAL_ROLES[number];
 
 const AGENT_SKILLS_ADAPTATION_PROPOSAL = "packages/neuro-book/docs/proposals/agent-skills-adaptation.md";
-const AGENT_WORKFLOW_ROUTER = ".agents/skills/agent-workflow-router/SKILL.md";
+const REPORT_SKILL = ".agents/skills/report/SKILL.md";
+const LOAD_ROLE_SKILL = ".agents/skills/load_role/SKILL.md";
+const LEGACY_AGENT_WORKFLOW_ROUTER = ".agents/skills/agent-workflow-router/SKILL.md";
 const AGENT_WORKFLOW_PROFILE = "nbook.agent-skills/v1";
 const AGENT_WORKFLOW_KINDS = new Set([
     "feedback",
@@ -501,35 +503,58 @@ function hasTextMarkers(repoRoot: string, relativePath: string, markers: readonl
     return markers.every((marker) => text.includes(marker));
 }
 
-function hasAgentWorkflowRouterFrontmatter(repoRoot: string): boolean {
-    if (!hasFile(repoRoot, AGENT_WORKFLOW_ROUTER)) return false;
-    const text = readRepoText(repoRoot, AGENT_WORKFLOW_ROUTER);
+function readSkillFrontmatter(repoRoot: string, relativePath: string): Record<string, unknown> | null {
+    if (!hasFile(repoRoot, relativePath)) return null;
+    const text = readRepoText(repoRoot, relativePath);
     const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text);
-    if (!match) return false;
+    if (!match) return null;
     try {
         const metadata = parseYaml(match[1]) as unknown;
-        return isRecord(metadata)
-            && metadata.name === "agent-workflow-router"
-            && typeof metadata.description === "string"
-            && metadata.description.trim().length > 0;
+        return isRecord(metadata) ? metadata : null;
     } catch {
-        return false;
+        return null;
     }
+}
+
+function hasReportSkillFrontmatter(repoRoot: string): boolean {
+    const metadata = readSkillFrontmatter(repoRoot, REPORT_SKILL);
+    if (metadata?.name !== "report"
+        || typeof metadata.description !== "string"
+        || metadata.description.trim().length === 0
+        || typeof metadata["argument-hint"] !== "string"
+        || metadata["disable-model-invocation"] === true) return false;
+    const text = readRepoText(repoRoot, REPORT_SKILL);
+    return text.includes("$ARGUMENTS") && text.includes("当前状态") && text.includes("下一步");
+}
+
+function hasLoadRoleSkillFrontmatter(repoRoot: string): boolean {
+    const metadata = readSkillFrontmatter(repoRoot, LOAD_ROLE_SKILL);
+    if (metadata?.name !== "load_role"
+        || typeof metadata.description !== "string"
+        || metadata.description.trim().length === 0
+        || typeof metadata["argument-hint"] !== "string"
+        || metadata["disable-model-invocation"] !== true) return false;
+    const text = readRepoText(repoRoot, LOAD_ROLE_SKILL);
+    return text.includes("$ARGUMENTS")
+        && CANONICAL_ROLES.every((role) => text.includes(role))
+        && text.includes(".agents/roles/<role>/AGENTS.md");
 }
 
 function agentSkillsImplementationPresent(repoRoot: string): boolean {
     return [
-        hasFile(repoRoot, AGENT_WORKFLOW_ROUTER),
+        hasFile(repoRoot, REPORT_SKILL),
+        hasFile(repoRoot, LOAD_ROLE_SKILL),
+        hasFile(repoRoot, LEGACY_AGENT_WORKFLOW_ROUTER),
         hasTaskAgentWorkflowProfile(repoRoot),
-        hasTextMarkers(repoRoot, ".agents/skills/README.md", ["agent-workflow-router"]),
-        hasTextMarkers(repoRoot, "docs/standards/code/README.md", [".agents/skills/**/*.md"]),
+        hasTextMarkers(repoRoot, ".agents/skills/README.md", ["report/SKILL.md"]),
         hasTextMarkers(repoRoot, ".agents/tasks/README.md", ["agentWorkflow"]),
-        hasTextMarkers(repoRoot, ".agents/tasks/AGENTS.md", ["agent-workflow-router"]),
+        hasTextMarkers(repoRoot, ".agents/tasks/AGENTS.md", ["agentWorkflow"]),
         ...CANONICAL_ROLES.map((role) => hasTextMarkers(repoRoot, `.agents/roles/${role}/AGENTS.md`, ["agentWorkflow"])),
         hasTextMarkers(repoRoot, "scripts/ci/agent-governance-contract.ts", ["verifyAgentSkillsAdaptation"]),
         hasTextMarkers(repoRoot, "scripts/ci/agent-governance.ts", ["verifyAgentSkillsAdaptation"]),
     ].some(Boolean);
 }
+
 
 function hasTaskAgentWorkflowContract(repoRoot: string): boolean {
     if (!hasFile(repoRoot, ".agents/tasks/README.md")) return false;
@@ -636,11 +661,13 @@ type AgentSkillsMarker = {
 
 function agentSkillsImplementationMarkers(repoRoot: string): AgentSkillsMarker[] {
     return [
-        {failure: "路由 Skill 缺少有效 frontmatter", present: hasAgentWorkflowRouterFrontmatter(repoRoot)},
-        {failure: "Skill 索引缺少 agent-workflow-router", present: hasTextMarkers(repoRoot, ".agents/skills/README.md", ["- [", "agent-workflow-router/SKILL.md"])},
+        {failure: "report Skill 缺少有效 frontmatter", present: hasReportSkillFrontmatter(repoRoot)},
+        {failure: "load_role Skill 缺少有效 frontmatter", present: hasLoadRoleSkillFrontmatter(repoRoot)},
+        {failure: "旧 agent-workflow-router 未完成删除", present: !hasFile(repoRoot, LEGACY_AGENT_WORKFLOW_ROUTER)},
+        {failure: "Skill 索引缺少 report/load_role", present: hasTextMarkers(repoRoot, ".agents/skills/README.md", ["report/SKILL.md", "load_role/SKILL.md"])},
         {failure: "编码路由缺少 .agents/skills/**/*.md 或 Agent 文档规范", present: hasTextMarkers(repoRoot, "docs/standards/code/README.md", [".agents/skills/**/*.md", "writing-for-agents/SKILL.md", "SKILL-MECHANICS.md"])},
         {failure: "Task 合同缺少完整 agentWorkflow 字段", present: hasTaskAgentWorkflowContract(repoRoot)},
-        {failure: "Task 执行规则缺少完整 agentWorkflow 验证要求", present: hasTextMarkers(repoRoot, ".agents/tasks/AGENTS.md", ["agentWorkflow", ".agents/skills/agent-workflow-router/SKILL.md", "verification.required", "verification.notRun"])},
+        {failure: "Task 执行规则缺少完整 agentWorkflow 验证要求", present: hasTextMarkers(repoRoot, ".agents/tasks/AGENTS.md", ["agentWorkflow", ".agents/skills/load_role/SKILL.md", "verification.required", "verification.notRun"])},
         ...CANONICAL_ROLES.map((role): AgentSkillsMarker => ({
             failure: `角色合同缺少完整 agentWorkflow：${role}`,
             present: hasTextMarkers(repoRoot, `.agents/roles/${role}/AGENTS.md`, ["agentWorkflow", "required", "notRun"]),
@@ -749,7 +776,8 @@ export function verifyAgentSkillsAdaptation(repoRoot: string): string[] {
     for (const marker of markers) if (!marker.present) failures.push(marker.failure);
 
     const adaptedPaths = [
-        AGENT_WORKFLOW_ROUTER,
+        REPORT_SKILL,
+        LOAD_ROLE_SKILL,
         ".agents/skills/README.md",
         ".agents/tasks/README.md",
         ".agents/tasks/AGENTS.md",
