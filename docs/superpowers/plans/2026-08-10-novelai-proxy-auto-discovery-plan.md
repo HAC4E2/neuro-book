@@ -138,7 +138,7 @@ git -c user.name=Codex -c user.email=codex@localhost commit -m "feat: use proxy 
 
 **Files:**
 - Modify: `PROJECT-STATUS.md`
-- Modify: `docs/tasks/142-text-to-image-chatu8-port/README.md`
+- Modify: `.agents/tasks/142-text-to-image-chatu8-port/README.md`
 
 - [ ] **Step 1: Run the focused server suites.**
 
@@ -170,6 +170,6 @@ Expected: all listed tests PASS and typecheck exits `0`.
 - [ ] **Step 5: Commit the verified status record.**
 
 ```powershell
-git add -- PROJECT-STATUS.md docs/tasks/142-text-to-image-chatu8-port/README.md
+git add -- PROJECT-STATUS.md .agents/tasks/142-text-to-image-chatu8-port/README.md
 git -c user.name=Codex -c user.email=codex@localhost commit -m "docs: record NovelAI proxy routing"
 ```

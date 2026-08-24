@@ -3,7 +3,7 @@ import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {Command} from "commander";
 
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {run, runCapture} from "#scripts/utils/process.mjs";
 
 type ReleaseOptions = {
     version: string;

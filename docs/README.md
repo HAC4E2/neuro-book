@@ -1,111 +1,66 @@
-# Task
+# NeuroBook 项目文档
 
-`docs/tasks/` 用来记录重大任务的持续过程。它不是一次性流水账，而是功能级、任务级的长期上下文。
+根 `docs/` 保存 monorepo 级治理：Spec 注册表、工程标准、测试合同、边界正文和提案流程。主应用专属文档（ADR、数据迁移、runbook、调研、归档、产品提案与术语）位于 [`../packages/neuro-book/docs/`](../packages/neuro-book/docs/)；维护者或 Agent 应从 [`specs/`](specs/) 定位相关 capability 及其 `planned` / `implemented` 成熟度，再按任务触发读取其它资料。
 
-## 何时创建或更新
+VitePress 源码位于 [`../vitepress/`](../vitepress/)，面向用户发布，不是内部规范真相源；一次实现的 Task、过程和证据位于 [`../.agents/tasks/`](../.agents/tasks/)，也不代替当前规范。
 
-- 会改变代码行为、架构决策、模块状态、goal 模式的任务，需要更新任务 walkthrough。
-- 同一功能后续调节继续更新同一个任务目录，例如拆书功能继续写入 `docs/tasks/07-book-splitting/README.md`。
-- 用户创建一个重要的讨论，或者架构设计
-- walkthrough 的 TODO / Follow-ups 只记本任务实现级跟进；跨任务或产品级跟进开 GitHub Issue（见 `AGENTS.md`「Git 工作流」）。
+## 真相源优先级
+1. [`specs/`](specs/)：已批准的 `planned` 目标合同与代码支持的 `implemented` 当前合同；功能行为、状态、数据、接口、失败语义和验收依据只在这里维护。
+2. [`../packages/neuro-book/docs/adr/`](../packages/neuro-book/docs/adr/)：已接受架构决策及理由；ADR 不复制完整功能行为。
+3. [`../packages/neuro-book/docs/migrations/`](../packages/neuro-book/docs/migrations/)：有状态升级、备份与回滚步骤。
+4. [`standards/`](standards/) 与 [`testing/`](testing/)：编码、仓库流程、测试、临时根和证据合同。
+5. [`../packages/neuro-book/docs/runbooks/`](../packages/neuro-book/docs/runbooks/)：基于已批准合同执行的开发、诊断和运维步骤。
+6. [`proposals/`](proposals/)：尚未生效的方案；accepted 只授权更新规范与创建 Task。
+7. [`../.agents/tasks/`](../.agents/tasks/)：一次实现的范围、交接和证据。
+8. [`../packages/neuro-book/docs/research/`](../packages/neuro-book/docs/research/) 与 [`../packages/neuro-book/docs/archived/`](../packages/neuro-book/docs/archived/)：非规范资料，不用于判断当前行为。
 
-## 命名
+同一 capability 只维护一个 Spec 文件；成熟度在原文件中从 `planned` 晋升为 `implemented`。其它入口只写摘要和链接；判断当前产品已有行为时只使用 `implemented` Spec 或注册的冻结过渡规范。
 
-- Active task 使用 `{order}-{name}` 目录名，例如 `01-config-system`、`02-book-splitting`。
-- `order` 从 `01` 开始递增，不足两位补零（`01`–`09`），超过 99 后自然使用三位（`100` 起）；active task 按 README 首次加入 git 的时间正序编号，缺少 git 记录时使用目录 LastWriteTime。
-- 新建任务目录前必须先 `ls docs/tasks/ | tail` 确认编号未被占用，不要凭记忆推断下一个编号（历史上已发生过 `08`、`96`、`120` 三次撞号）。
-- `name` 使用英文 kebab-case。
-- 每个任务目录至少包含 `README.md`。
-- 并不一定强制都把任务塞到 README.md 里，还可以在任务目录类放其他和任务有关的文档等资料，例如 notes.md, references.md
-- 每一轮的实现报告放 walkthroughs 这一节
-
-## 归档
-
-- `docs/tasks/archived/` 存放已归档 task，目录保留原 slug，不加 active 编号。
-
-## goal 模式工作流程
-
-如果你正在持续推进某个任务，则按照这个流程循环进行：
-
-调研/计划 -> 编码/实现 -> 测试 -> 浏览器测试 -> 代码审查 <-> 修复（回到代码审查） -> 调研/计划 或者 结束任务
-
-最后可以进行一次验收测试，从用户的角度，跑一个实际的例子，评估这个系统的好用程度，bug。然后继续优化
-
-注意：实现的过程中如果堵塞，可以尝试稍微绕道，但是每次绕道都必须记录
-
-## 同步要求
-
-重大任务结束时同时更新：
-
-- 根目录 `PROJECT-STATUS.md`
-- 对应 active `docs/tasks/<order>-<task-slug>/README.md` 或 archived `docs/tasks/archived/<task-slug>/README.md`
-
-## 任务模板
-
-以下是任务模板可供参考
-
-```docs/tasks/{order}-{name}/README.md
-
-# <Task Title>
-
-> Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
-
-## Relative documents refs
-
-## User Request / Topic
-
--
-
-## Goal
-
-A good Goal is more than a larger prompt. It is a compact contract for how Codex should work, what counts as success, and what should happen if success is not yet reachable.
-
-The strongest Goals usually define six things:
-* Outcome: what should be true when the work is done.
-* Verification surface: the test, benchmark, report, artifact, command output, or source material that proves it.
-* Constraints: what must not regress while Codex works.
-* Boundaries: which files, tools, data, repositories, or resources Codex may use.
-* Iteration policy: how Codex should decide what to try next after each attempt.
-* Blocked stop condition: when Codex should stop and report that no defensible path remains under the current limits.
-
-A useful pattern is:
+## 目录分工
 
 ```text
-/goal <desired end state> verified by <specific evidence> while preserving <constraints>. Use <allowed inputs, tools, or boundaries>. Between iterations, <how Codex should choose the next best action>. If blocked or no valid paths remain, <what Codex should report and what would unlock progress>.
+docs/                          根文档治理：README、AGENTS、specs 注册表、standards、
+                               testing、modules、proposals 索引
+packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec、adr、
+                               migrations、runbooks、research、proposals、archived
 ```
 
-For example, this Goal is workable but still fairly thin:
-
-```text
-/goal Reduce p95 checkout latency below 120 ms without regressing correctness tests
-```
-
-A stronger version gives Codex a fuller operating contract:
-
-```text
-/goal Reduce p95 checkout latency below 120 ms, verified by the checkout benchmark, while keeping the correctness suite green. Use only the checkout service, benchmark fixtures, and related tests. Between iterations, record what changed, what the benchmark showed, and the next best experiment to try. If the benchmark cannot run or no valid paths remain, stop with the attempted paths, the evidence gathered, the blocker, and the next input needed.
-```
-
-## Current State
-
--
-
-## ADR / Decisions / Discussion
-
--
+`docs/modules/` 仅保留已登记的现有模块正文；Monorepo / Module 边界的唯一正文是 [`modules/monorepo-boundaries.md`](modules/monorepo-boundaries.md)。其它当前规范进入 `specs/`，未批准需求进入 `proposals/`，过时模型进入包内 `archived/`。运行期 Reference 正文由 [`../packages/neuro-book/assets/reference/`](../packages/neuro-book/assets/reference/) 持有。
 
 
-## Verification / Test
+## 仓库其它文档
 
--
+- 根目录大写 Markdown 是产品、人类、Agent 或机器消费的入口；正文下沉到对应真相源。`RELEASE.md` 等被程序直接读取的文件可以保留完整机器载荷。
+- [`../.agents/tasks/`](../.agents/tasks/) 保存一次实现的范围、walkthrough 和证据；Task 完成不改变当前规范的优先级。
+- [`../vitepress/`](../vitepress/) 保存用户文档站投影；它描述稳定用户流程，不承担内部工程合同。
+- [`../packages/neuro-book/assets/reference/`](../packages/neuro-book/assets/reference/) 是运行期 Reference 资产根；它不是新规范的落点。
 
-## Implementation Walkthrough
+## 当前入口
 
-你能直接把 Walkthrough 记录在这一节。如果任务量较重。把实现计划放到同目录下的 walkthroughs/ 文件夹
+- [规范编程与注册表](specs/README.md)：Spec 成熟度、格式、流水线、capability 归属和 Reference 迁移状态。
+- [编码与仓库标准](standards/README.md)：按语言触发的编码规范和维护者仓库流程。
+- [Proposal 规则](proposals/README.md)：原始需求如何结构化、评审、批准并沉淀为 `planned` Spec。
+- [ADR 索引](../packages/neuro-book/docs/adr/README.md)：长期架构决策。
+- [测试与验收](testing/README.md)：自动测试、人工评测、临时根和证据合同；[人工评测体系](testing/manual-eval/README.md)定义用户旅程、判定口径与执行手册。
+- [迁移入口](../packages/neuro-book/docs/migrations/README.md)：数据升级、备份与回滚。
+- [操作手册](../packages/neuro-book/docs/runbooks/README.md)：基于既有合同执行的当前操作步骤。
+- [Reference Bookshelf](../packages/neuro-book/assets/reference/README.md)：运行期 Reference 的应用资产入口。
+- [人类贡献指南](../CONTRIBUTING.md)：Issue、开发和 Pull Request 快速流程。
+- [项目状态](../PROJECT-STATUS.md)：仓库现状与验收缺口。
 
--
+## 生命周期与维护
 
-## TODO / Follow-ups
+1. 行为变化先在 [`specs/README.md`](specs/README.md) 定位 capability 和成熟度；同一能力只更新一个稳定文件。
+2. 新功能和仍有产品歧义的 bug 先写 Proposal；accepted 后形成 `planned` Spec 和 Task，Proposal 本身不成为合同。
+3. Spec-first、Task-first 或紧急 code-first 都必须在同一交付中让代码、测试和 Spec 收敛；证据闭合后才把原 Spec 晋升为 `implemented`。
+4. 纯内部重构核对行为合同仍成立，不把文件布局写入 Spec。旧行为退出时更新原 Spec；长期理由进入 ADR；有状态升级、备份和回滚进入 migration；操作步骤进入 runbook；考古正文进入 archived。
+5. 已完成沉淀的 Proposal 归档；活跃入口不得依赖 archived 内容才能解释行为。
+6. VitePress 只投影稳定内容；修改导航、构建根或部署路径时同步 `package.json`、工作流和站点配置。
 
--
-```
+入口使用触发式指针说明“何时读取”和“目标是什么”，不复制目标正文。活跃文档的相对链接必须解析到仓库内现存目标；历史 Task 与 archive 中的旧路径可作为 provenance 保留，但不得被当前规范当作活跃依赖。
+
+## Reference 迁移
+
+迁移状态和固定目标由 [`specs/README.md`](specs/README.md) 登记。冻结期只修正当前实现错误，不新增顶层功能域或长期正文。每个域迁移时必须同时切换 Profile Import、产品投影、合同测试、VitePress、CI 和打包入口，随后删除旧目录；不得复制后让两份正文独立演进。
+
+新建、移动或删除文档后运行 `bun run docs:check`；修改 VitePress 投影时再运行 `bun run docs:build`。

@@ -6,17 +6,16 @@ import type {StagedProduct} from "#manager/component";
 import {removePath} from "#manager/files";
 import {run, runBun} from "#manager/process";
 import {currentProductPlatform} from "#manager/platform";
-import type {ProductComponent, ProductPlatform, ProductRuntimeImageIdentity} from "#manager/types";
+import type {ProductComponent, ProductRuntimeImageIdentity} from "@notnotype/neuro-book-contracts/installation";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
+    createProductRuntimeVerificationReceipt,
     type ProductRuntimeExpectedIdentity,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
-import {ProductRuntimeImageVerifier} from "nbook/shared/product-runtime-image-verifier";
-import {
-    createProductRuntimeVerificationReceipt,
-    writeProductRuntimeVerificationReceipt,
-} from "nbook/shared/product-runtime-receipt";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {ProductRuntimeImageVerifier} from "#manager/product-runtime-image-verifier";
+import {writeProductRuntimeVerificationReceipt} from "#manager/product-verification";
 
 const RUNTIME_IMAGE_BUILDER_CONTRACT = PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION;
 

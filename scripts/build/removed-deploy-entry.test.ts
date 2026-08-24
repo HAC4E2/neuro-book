@@ -2,7 +2,7 @@ import {readFile} from "node:fs/promises";
 import {extname, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 
-import {runCapture} from "nbook/scripts/utils/process.mjs";
+import {runCapture} from "#scripts/utils/process.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const textExtensions = new Set([

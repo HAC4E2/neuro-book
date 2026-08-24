@@ -5,13 +5,13 @@ const processMocks = vi.hoisted(() => ({
     runCapture: vi.fn(),
 }));
 
-vi.mock("nbook/scripts/utils/process.mjs", () => processMocks);
+vi.mock("#scripts/utils/process.mjs", () => processMocks);
 
 import {
     candidateDispatchArgs,
     createReleaseCandidate,
     type ReleaseCandidateRequest,
-} from "nbook/scripts/release/release-candidate";
+} from "#scripts/release/release-candidate";
 
 const request: ReleaseCandidateRequest = {
     createArgs: ["release", "create", "v0.9.0-canary.1", "--draft"],

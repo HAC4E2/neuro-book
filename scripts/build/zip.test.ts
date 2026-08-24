@@ -1,10 +1,10 @@
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {unzipSync} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {writeZipArchive} from "nbook/scripts/utils/zip";
+import {writeZipArchive} from "#scripts/utils/zip";
 
 const temporaryRoots: string[] = [];
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("ZIP归档", () => {
     it("同时保留普通文件与显式空目录", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-zip-"));
+        const root = await mkdtemp(testHostPath("nbook-zip-"));
         temporaryRoots.push(root);
         const source = join(root, "config.yaml");
         const archive = join(root, "portable.zip");

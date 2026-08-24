@@ -1,7 +1,7 @@
 import {mkdir, stat, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 
-import {run} from "nbook/scripts/utils/process.mjs";
+import {run} from "#scripts/utils/process.mjs";
 
 const MANAGER_PACKAGE_NAME = "@notnotype/neuro-book-manager";
 

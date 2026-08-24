@@ -1,3 +1,4 @@
+import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {transform} from "esbuild";
@@ -55,19 +56,19 @@ export default defineConfig({
     ],
     resolve: {
         alias: {
-            nbook: repositoryRoot,
+            nbook: resolve(repositoryRoot, "packages", "neuro-book"),
         },
     },
     test: {
         environment: "node",
-        setupFiles: ["server/workspace-files/vitest-tmpdir-setup.ts"],
-        globalSetup: ["server/workspace-files/vitest-global-setup.ts"],
+        setupFiles: ["@notnotype/neuro-book-test-support/vitest"],
+        globalSetup: ["@notnotype/neuro-book-test-support/vitest"],
         include: [
-            "shared/desktop-contract.test.ts",
-            "shared/desktop-uac-broker.test.ts",
-            "shared/desktop-menu-command.test.ts",
-            "app/composables/useWorkbenchChrome.test.ts",
-            "app/utils/workbench-chrome.test.ts",
+            "packages/neuro-book-contracts/src/desktop-contract.test.ts",
+            "packages/neuro-book-contracts/src/desktop-uac-broker.test.ts",
+            "packages/neuro-book-contracts/src/desktop-menu-command.test.ts",
+            "packages/neuro-book/app/composables/useWorkbenchChrome.test.ts",
+            "packages/neuro-book/app/utils/workbench-chrome.test.ts",
             "desktop/shared/src/electron-packaging-contract.test.ts",
             "desktop/shared/src/desktop-distribution-packaging-contract.test.ts",
             "desktop/shared/src/desktop-storage-contract.test.ts",

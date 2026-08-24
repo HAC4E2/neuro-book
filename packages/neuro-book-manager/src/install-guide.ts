@@ -12,7 +12,8 @@ import {
 import {installPlan, installWithPreflight, type InstallOptions} from "#manager/installer";
 import {readManagerConfig, registerManagerInstance} from "#manager/manager-config";
 import {supportedProfiles} from "#manager/platform";
-import type {InstallPreflightReport, InstallProfile, ReleaseChannel} from "#manager/types";
+import type {InstallPreflightReport} from "#manager/types";
+import type {InstallProfile, ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
 
 export type InstallGuideDefaults = {
     profile?: InstallProfile;

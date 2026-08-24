@@ -1,11 +1,11 @@
 import {execFile} from "node:child_process";
 import {access, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
-import {assertAuthoringDeclarationSourcePaths} from "nbook/scripts/build/product-authoring-kit";
+import {assertAuthoringDeclarationSourcePaths} from "#scripts/build/product-authoring-kit";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -29,7 +29,7 @@ describe("Product Profile Authoring Kit", () => {
     });
 
     it("只投影 compiler、SDK 与可达声明图", async () => {
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-authoring-kit-"));
+        const outputRoot = await mkdtemp(testHostPath("nbook-product-authoring-kit-"));
         temporaryRoots.push(outputRoot);
 
         await execFileAsync("bun", ["scripts/build/product-authoring-kit.ts"], {

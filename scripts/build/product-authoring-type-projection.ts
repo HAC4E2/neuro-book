@@ -7,7 +7,7 @@ import ts from "typescript";
 import {
     bundleProductJavaScript,
     productBundleOutputText,
-} from "nbook/scripts/build/product-reproducible-bundle";
+} from "#scripts/build/product-reproducible-bundle";
 
 export type AuthoringDependencyRegistration = {
     name: string;
@@ -84,8 +84,9 @@ export async function projectAuthoringDependencies(input: {
     targetNodeModulesRoot: string;
     registrations: readonly AuthoringDependencyRegistration[];
     importerPath: string;
+    sourceRoot: string;
 }): Promise<AuthoringDependencyProjection> {
-    const packages = await sourcePackages(input.registrations, input.targetNodeModulesRoot);
+    const packages = await sourcePackages(input.registrations, input.targetNodeModulesRoot, input.sourceRoot);
     const packageByName = new Map(packages.map((entry) => [entry.registration.name, entry]));
     const packageInstances = new Map(packages.map((entry) => [packageInstanceKey(entry.targetRoot, entry.version), entry]));
     const queue: PendingDeclaration[] = [];
@@ -175,14 +176,15 @@ export async function projectAuthoringDependencies(input: {
 async function sourcePackages(
     registrations: readonly AuthoringDependencyRegistration[],
     targetNodeModulesRoot: string,
+    sourceRoot: string,
 ): Promise<SourcePackage[]> {
-    const requireFromSource = createRequire(pathToFileURL(resolve("package.json")));
+    const requireFromSource = createRequire(pathToFileURL(resolve(sourceRoot, "package.json")));
     const seen = new Set<string>();
     const entries: SourcePackage[] = [];
     for (const registration of registrations) {
         if (seen.has(registration.name)) throw new Error(`Authoring dependency 重复登记：${registration.name}`);
         seen.add(registration.name);
-        const packageJsonPath = requireFromSource.resolve(`${registration.name}/package.json`);
+        const packageJsonPath = resolveAuthoringDependencyManifest(requireFromSource, registration.name);
         const manifest = JSON.parse(await readFile(packageJsonPath, "utf8")) as PackageManifest;
         if (manifest.name !== registration.name || typeof manifest.version !== "string" || !manifest.version) {
             throw new Error(`Authoring dependency identity 无效：${registration.name}`);
@@ -197,6 +199,33 @@ async function sourcePackages(
         });
     }
     return entries;
+}
+
+function resolveAuthoringDependencyManifest(requireFromSource: NodeRequire, packageName: string): string {
+    try {
+        return requireFromSource.resolve(`${packageName}/package.json`);
+    } catch (packageJsonError) {
+        let entryPath: string;
+        try {
+            entryPath = requireFromSource.resolve(packageName);
+        } catch (entryError) {
+            throw new Error(`Authoring dependency 无法解析：${packageName}`, {cause: entryError});
+        }
+        let directory = dirname(entryPath);
+        while (true) {
+            const candidate = resolve(directory, "package.json");
+            try {
+                const manifest = require(candidate) as PackageManifest;
+                if (manifest.name === packageName) return candidate;
+            } catch {
+                // 入口所属 package 的 manifest 是唯一可接受身份；其它目录继续向上探测。
+            }
+            const parent = dirname(directory);
+            if (parent === directory) break;
+            directory = parent;
+        }
+        throw new Error(`Authoring dependency 无法定位 manifest：${packageName}`, {cause: packageJsonError});
+    }
 }
 
 /** 使用 TypeScript 的 package exports/types 规则解析声明入口，并核对 package identity。 */
@@ -444,7 +473,7 @@ async function copyDeclaration(owner: SourcePackage, sourcePath: string, source:
 
 /** 为批准的运行 dependency 生成单文件 ESM 实现，并保留已投影的声明入口。 */
 async function bundleRuntimePackage(entry: SourcePackage, targetRoot: string, declarationPath: string): Promise<void> {
-    const requireFromSource = createRequire(pathToFileURL(resolve("package.json")));
+    const requireFromSource = createRequire(pathToFileURL(resolve(entry.sourceRoot, "package.json")));
     const runtimeEntry = requireFromSource.resolve(entry.registration.name);
     const runtimeOutput = resolve(targetRoot, "index.mjs");
     const result = await bundleProductJavaScript({

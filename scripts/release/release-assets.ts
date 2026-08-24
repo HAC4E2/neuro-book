@@ -6,31 +6,31 @@ import {basename, dirname, join, relative, resolve} from "node:path";
 import {Command} from "commander";
 import {unzipSync} from "fflate";
 
-import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
-import {parseReleaseManifest} from "nbook/packages/neuro-book-manager/src/schema";
-import {PRODUCT_PLATFORMS, type ProductPlatform, type ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
-import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
+import {PRODUCT_ASSET_NAMES, PRODUCT_PLATFORMS, type ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
+import {parseReleaseManifest, type ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {LocalProductPublisher} from "#scripts/build/local-product-publisher";
 import {
     ProductRuntimeImageBuilder,
     type ProductRuntimeExpectedIdentity,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
-import {assertProductSystemArtifactContract} from "nbook/scripts/build/product-system-artifact-contract";
+} from "#scripts/build/product-runtime-image-builder";
+import {assertProductSystemArtifactContract} from "#scripts/build/product-system-artifact-contract";
 import {
     assertStateMigrationSourceFiles,
     readReleaseStateMigrationDeclaration,
-} from "nbook/scripts/release/state-migration-declaration";
+} from "#scripts/release/state-migration-declaration";
 import {
     openReleaseOutput,
     prepareReleaseOutput,
     readReleaseGeneration,
     releaseBuildId,
     type ReleaseOutput,
-} from "nbook/scripts/release/release-output";
-import {verifyReleaseChecksums, writeReleaseChecksums} from "nbook/scripts/release/release-checksums";
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
-import {isRuntimeTestSourcePath} from "nbook/scripts/utils/runtime-source-prune.mjs";
-import {writeZipArchive} from "nbook/scripts/utils/zip";
+} from "#scripts/release/release-output";
+import {verifyReleaseChecksums, writeReleaseChecksums} from "#scripts/release/release-checksums";
+import {run, runCapture} from "#scripts/utils/process.mjs";
+import {isRuntimeTestSourcePath} from "#scripts/utils/runtime-source-prune.mjs";
+import {writeZipArchive} from "#scripts/utils/zip";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const SOURCE_BUILD_FILE = "source-build.json";

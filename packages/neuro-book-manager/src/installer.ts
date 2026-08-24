@@ -51,25 +51,27 @@ import {installationRootLocators} from "#manager/root-locators";
 import {portableLaunchers, writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies, issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
-import {parseInstallationManifest} from "#manager/schema";
+import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {sourceDockerImageName} from "#manager/source-docker-image";
 import {commandAvailable, runCapture} from "#manager/process";
 import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {activateManagedTools, installManagedTool, writeManagedToolWrappers} from "#manager/tools";
+import type {
+    OperationJournal,
+    OperationPlan,
+} from "#manager/types";
 import type {
     ApplicationRuntimeComponent,
     InstallProfile,
     InstallationComponents,
     InstallationManifest,
     ManagerRuntimeComponent,
-    OperationJournal,
-    OperationPlan,
     ReleaseChannel,
-    ReleaseManifest,
     SourceComponent,
     SystemToolComponent,
     ToolComponents,
-} from "#manager/types";
+} from "@notnotype/neuro-book-contracts/installation";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {lt} from "semver";
 
 import {MANAGER_VERSION} from "#manager/version-info";

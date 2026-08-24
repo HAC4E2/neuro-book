@@ -1,22 +1,14 @@
 import {machine} from "node:os";
 
-import type {
-    HostArchitecture,
-    HostOperatingSystem,
-    HostPlatform,
-    InstallProfile,
-    InstallationManifest,
-    ProductPlatform,
-} from "#manager/types";
-
-/** Product平台到公开Release资产名的穷举映射。 */
-export const PRODUCT_ASSET_NAMES = {
-    "windows-x64": "neuro-book-product-windows-x64.zip",
-    "linux-x64-glibc": "neuro-book-product-linux-x64-glibc.tar.gz",
-    "linux-aarch64-glibc": "neuro-book-product-linux-aarch64-glibc.tar.gz",
-    "darwin-x64": "neuro-book-product-darwin-x64.tar.gz",
-    "darwin-aarch64": "neuro-book-product-darwin-aarch64.tar.gz",
-} as const satisfies Record<ProductPlatform, string>;
+import {
+    normalizeArchitecture,
+    normalizeOperatingSystem,
+    resolveProductPlatform,
+    type HostPlatform,
+    type PlatformRuntime,
+    type ProductPlatform,
+} from "@notnotype/neuro-book-contracts/platform";
+import type {InstallProfile, InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const ALL_PROFILES = [
     "source-dev",
@@ -37,43 +29,6 @@ const PLATFORM_PROFILES = {
     "darwin-aarch64": POSIX_PROFILES,
 } as const satisfies Record<ProductPlatform, readonly InstallProfile[]>;
 
-export type PlatformRuntime = {
-    platform: NodeJS.Platform;
-    processArch: NodeJS.Architecture;
-    nativeMachine: string;
-    /** Linux检测到glibc时非空；其他宿主不使用。 */
-    glibcVersion?: string;
-};
-
-/** 将Node/Bun与操作系统报告的架构名收敛为Manager领域值。 */
-function normalizeArchitecture(value: string, source: string): HostArchitecture {
-    const normalized = value.toLocaleLowerCase("en-US");
-    if (["x64", "x86_64", "amd64"].includes(normalized)) return "x64";
-    if (["arm64", "aarch64"].includes(normalized)) return "arm64";
-    throw new Error(`${source}只支持x64/ARM64，检测到：${value}`);
-}
-
-/** 将Node平台名收敛为Manager领域值。 */
-function normalizeOperatingSystem(platform: NodeJS.Platform): HostOperatingSystem {
-    if (platform === "win32") return "windows";
-    if (platform === "linux") return "linux";
-    if (platform === "darwin") return "macos";
-    throw new Error(`Manager只支持Windows/Linux/macOS，检测到：${platform}`);
-}
-
-/** 根据原生宿主生成唯一Product平台。 */
-function resolveProductPlatform(os: HostOperatingSystem, nativeArch: HostArchitecture, glibcVersion?: string): ProductPlatform {
-    if (os === "windows") {
-        if (nativeArch !== "x64") throw new Error(`Windows只支持原生x64，检测到：${nativeArch}`);
-        return "windows-x64";
-    }
-    if (os === "linux") {
-        if (!glibcVersion) throw new Error("Manager只支持Linux glibc，不支持musl或未知libc。");
-        return nativeArch === "x64" ? "linux-x64-glibc" : "linux-aarch64-glibc";
-    }
-    return nativeArch === "x64" ? "darwin-x64" : "darwin-aarch64";
-}
-
 /** 检查宿主原生架构、Manager进程架构与Product平台。 */
 export function inspectHostPlatform(runtime: PlatformRuntime = currentPlatformRuntime()): HostPlatform {
     const os = normalizeOperatingSystem(runtime.platform);
@@ -88,7 +43,7 @@ export function inspectHostPlatform(runtime: PlatformRuntime = currentPlatformRu
     };
 }
 
-/** 收集当前进程的原始宿主报告；测试通过inspectHostPlatform参数注入。 */
+/** 收集当前进程的原始宿主报告；测试通过 inspectHostPlatform 参数注入。 */
 function currentPlatformRuntime(): PlatformRuntime {
     const report = process.platform === "linux"
         ? process.report?.getReport() as {header?: {glibcVersionRuntime?: string}} | undefined
@@ -101,24 +56,14 @@ function currentPlatformRuntime(): PlatformRuntime {
     };
 }
 
-/** 兼容现有调用点的纯Product平台解析入口。 */
-export function productPlatform(runtime: {platform: NodeJS.Platform; arch: NodeJS.Architecture; glibcVersion?: string}): ProductPlatform {
-    return inspectHostPlatform({
-        platform: runtime.platform,
-        processArch: runtime.arch,
-        nativeMachine: runtime.arch,
-        glibcVersion: runtime.glibcVersion,
-    }).productPlatform;
-}
-
-/** 返回当前宿主的Product平台。 */
+/** 返回当前宿主的 Product 平台。 */
 export function currentProductPlatform(): ProductPlatform {
     const host = inspectHostPlatform();
     assertManagerPlatform(host);
     return host.productPlatform;
 }
 
-/** 校验Manager宿主平台。 */
+/** 校验 Manager 宿主平台。 */
 export function assertManagerPlatform(host = inspectHostPlatform()): void {
     if (host.nativeArch !== host.processArch) {
         throw new Error(
@@ -127,12 +72,12 @@ export function assertManagerPlatform(host = inspectHostPlatform()): void {
     }
 }
 
-/** 返回指定平台正式支持的Profile。 */
+/** 返回指定平台正式支持的 Profile。 */
 export function supportedProfiles(platform = currentProductPlatform()): readonly InstallProfile[] {
     return PLATFORM_PROFILES[platform];
 }
 
-/** 校验当前平台是否支持指定Profile。 */
+/** 校验当前平台是否支持指定 Profile。 */
 export function assertProfileSupported(profile: InstallProfile, host = inspectHostPlatform()): void {
     assertManagerPlatform(host);
     if (!supportedProfiles(host.productPlatform).includes(profile)) {
@@ -141,9 +86,8 @@ export function assertProfileSupported(profile: InstallProfile, host = inspectHo
 }
 
 /**
- * 校验Installation Manifest能否由当前原生宿主运行。
- *
- * 容器Product由Container Engine选择镜像平台；其他Product必须与宿主Product平台完全一致。
+ * 校验 Installation Manifest 能否由当前原生宿主运行。
+ * 容器 Product 由 Container Engine 选择镜像平台；其他 Product 必须与宿主 Product 平台完全一致。
  */
 export function assertInstallationHostCompatible(manifest: InstallationManifest, host = inspectHostPlatform()): void {
     assertProfileSupported(manifest.profile, host);

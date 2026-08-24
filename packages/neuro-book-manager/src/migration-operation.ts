@@ -28,7 +28,8 @@ import {
 } from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import {assertInstallationHostCompatible} from "#manager/platform";
-import type {InstallationManifest, OperationJournal} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import type {OperationJournal} from "#manager/types";
 
 export type ApplicationServiceState =
     | {kind: "native"}

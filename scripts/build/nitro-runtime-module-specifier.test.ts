@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -7,7 +7,7 @@ import {
     analyzeRuntimeModuleSource,
     assertRuntimeModuleFiles,
     assertRuntimePackageIdentity,
-} from "nbook/scripts/build/nitro-runtime-module-specifier.mjs";
+} from "#scripts/build/nitro-runtime-module-specifier.mjs";
 
 const temporaryRoots: string[] = [];
 
@@ -145,7 +145,7 @@ describe("Nitro runtime module specifier", () => {
 
 /** 创建由本测试拥有的临时目录。 */
 async function temporaryRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-runtime-specifier-"));
+    const root = await mkdtemp(testHostPath("nbook-runtime-specifier-"));
     temporaryRoots.push(root);
     return root;
 }

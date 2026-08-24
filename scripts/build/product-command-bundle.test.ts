@@ -1,7 +1,7 @@
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 import type {Metafile} from "esbuild";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -9,7 +9,7 @@ import {
     PRODUCT_COMMAND_SOURCES,
     pruneEmptyProductCommandChunks,
     resolveProductCommandEntries,
-} from "nbook/scripts/build/product-command-bundle";
+} from "#scripts/build/product-command-bundle";
 
 const temporaryRoots: string[] = [];
 
@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("Product command metafile", () => {
     it("按 entryPoint 建立入口，不依赖输出文件名", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
 
         const entries = resolveProductCommandEntries(metafile, commandRoot);
@@ -31,7 +31,7 @@ describe("Product command metafile", () => {
     });
 
     it("按 commands root 解析 esbuild 返回的相对 output key 与 entryPoint", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile-relative", "commands");
         const metafile = buildMetafile(commandRoot, true);
         for (const output of Object.values(metafile.outputs)) {
             output.entryPoint = relative(commandRoot, output.entryPoint!);
@@ -46,7 +46,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝 metafile entry output 逃逸 commands root", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -57,7 +57,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝相对 metafile output 通过上级目录逃逸", () => {
-        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative-escape", "commands");
+        const commandRoot = testHostPath("tmp", "product-command-metafile-relative-escape", "commands");
         const metafile = buildMetafile(commandRoot, true);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -68,7 +68,7 @@ describe("Product command metafile", () => {
     });
 
     it("验证esbuild outdir已完整落盘并拒绝self-write造成的空文件", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-output-"));
+        const root = await mkdtemp(testHostPath("nbook-product-command-output-"));
         temporaryRoots.push(root);
         const commandRoot = join(root, "commands");
         const outputPath = join(commandRoot, "start.mjs");
@@ -95,7 +95,7 @@ describe("Product command metafile", () => {
     });
 
     it("清理纯 re-export 产生的零字节 shared chunk 及其副作用导入", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-empty-chunk-"));
+        const root = await mkdtemp(testHostPath("nbook-product-command-empty-chunk-"));
         temporaryRoots.push(root);
         const commandRoot = join(root, "commands");
         const emptyPath = join(commandRoot, "chunks", "command-shared-empty.mjs");
@@ -143,30 +143,31 @@ describe("Product command metafile", () => {
         }
         expect(PRODUCT_COMMAND_SOURCES["prepare-system-assets"])
             .toBe("server/runtime/prepare-system-assets-command.ts");
-
         const offenders: string[] = [];
-        const files = await readdir("server", {recursive: true});
-        for (const relativePath of files.filter((fileName) => /\.(?:ts|mjs)$/u.test(fileName))) {
-            const fileName = resolve("server", relativePath);
+        const applicationRoot = resolve("packages/neuro-book");
+        const files = await readdir(resolve(applicationRoot, "server"), {recursive: true});
+        for (const relativePath of files.filter((fileName) => /(?:\.ts|\.mjs)$/u.test(fileName))) {
+            const fileName = resolve(applicationRoot, "server", relativePath);
             if ((await readFile(fileName, "utf8")).includes("nbook/scripts/")) offenders.push(fileName);
         }
         expect(offenders).toEqual([]);
     });
 
     it("Product bootstrap只依赖共享只读Verifier，不把Builder带入命令bundle", async () => {
+        const applicationRoot = resolve("packages/neuro-book");
         const [bootstrap, verifier, builder] = await Promise.all([
-            readFile("server/runtime/product-command.ts", "utf8"),
-            readFile("shared/product-runtime-image-verifier.ts", "utf8"),
-            readFile("scripts/build/product-runtime-image-builder.ts", "utf8"),
+            readFile(resolve(applicationRoot, "server", "runtime", "product-command.ts"), "utf8"),
+            readFile(resolve(applicationRoot, "server", "interfaces", "product-runtime-image-verifier.ts"), "utf8"),
+            readFile(resolve("scripts", "build", "product-runtime-image-builder.ts"), "utf8"),
         ]);
 
-        expect(bootstrap).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(bootstrap).toContain('from "nbook/server/interfaces/product-runtime-image-verifier"');
         expect(bootstrap).toContain("productRuntimeReceiptAuthorizationFromEnvironment");
         expect(bootstrap).toContain("verifyAuthorizedProductRuntimeReceiptControlPlane");
         expect(bootstrap).toContain("openSelfVerified");
         expect(verifier).not.toContain("product-runtime-image-builder");
         expect(verifier).not.toContain("proper-lockfile");
-        expect(builder).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(builder).toContain('from "@notnotype/neuro-book/product-verification"');
         expect(builder).toContain("new ProductRuntimeImageVerifier().openVerified");
     });
 });

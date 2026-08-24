@@ -1,26 +1,26 @@
 import {readFile, stat} from "node:fs/promises";
 import {isAbsolute, relative, resolve} from "node:path";
 
-import {parseReleaseStateMigration} from "nbook/packages/neuro-book-manager/src/schema";
-import type {ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
-import {APPLICATION_STATE_MIGRATION_STEP_IDS} from "nbook/server/runtime/application-state-migration/catalog";
+import {parseReleaseStateMigration, type ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
+import {APPLICATION_STATE_MIGRATION_STEP_IDS} from "@notnotype/neuro-book/build";
 
 export const RELEASE_STATE_MIGRATION_DECLARATION = "release-state-migration.json";
 
+const APPLICATION_ROOT_RELATIVE_PATH = "packages/neuro-book";
 const REQUIRED_SOURCE_MIGRATION_FILES = [
-    RELEASE_STATE_MIGRATION_DECLARATION,
-    "docs/migrations/README.md",
-    "scripts/db/migrate-application-state.ts",
-    "server/runtime/application-state-command.ts",
-    "server/runtime/application-state-migration/app-sqlite-step.ts",
-    "server/runtime/application-state-migration/catalog-registry.ts",
-    "server/runtime/application-state-migration/catalog.ts",
-    "server/runtime/application-state-migration/lease.ts",
-    "server/runtime/application-state-migration/runner.ts",
-    "server/runtime/application-state-migration/types.ts",
-    "server/agent/session/migrations/session-v2-review-repair/journal.ts",
-    "server/agent/session/migrations/session-v2-review-repair/migration.ts",
-    "server/agent/session/migrations/session-v2-review-repair/types.ts",
+    `${APPLICATION_ROOT_RELATIVE_PATH}/${RELEASE_STATE_MIGRATION_DECLARATION}`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/docs/migrations/README.md`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/scripts/db/migrate-application-state.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-command.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/app-sqlite-step.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/catalog-registry.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/catalog.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/lease.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/runner.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/runtime/application-state-migration/types.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/agent/session/migrations/session-v2-review-repair/journal.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/agent/session/migrations/session-v2-review-repair/migration.ts`,
+    `${APPLICATION_ROOT_RELATIVE_PATH}/server/agent/session/migrations/session-v2-review-repair/types.ts`,
 ] as const;
 
 /**
@@ -29,7 +29,9 @@ const REQUIRED_SOURCE_MIGRATION_FILES = [
 export async function readReleaseStateMigrationDeclaration(
     repositoryRoot: string,
 ): Promise<ReleaseManifest["stateMigration"]> {
-    const declarationPath = resolve(repositoryRoot, RELEASE_STATE_MIGRATION_DECLARATION);
+    const root = resolve(repositoryRoot);
+    const applicationRoot = resolve(root, APPLICATION_ROOT_RELATIVE_PATH);
+    const declarationPath = resolve(applicationRoot, RELEASE_STATE_MIGRATION_DECLARATION);
     let value: unknown;
     try {
         value = JSON.parse(await readFile(declarationPath, "utf8")) as unknown;
@@ -45,22 +47,24 @@ export async function readReleaseStateMigrationDeclaration(
         const catalog = new Set<string>(APPLICATION_STATE_MIGRATION_STEP_IDS);
         const unknownSteps = declaration.steps.filter((step) => !catalog.has(step));
         if (unknownSteps.length > 0) {
-            throw new Error(`stateMigration 引用的 step 在当前 Product catalog 不存在：${unknownSteps.join(", ")}`);
+            throw new Error(`state migration catalog 不存在的 step：${unknownSteps.join(", ")}`);
         }
     }
-    if (!declaration.guide) return declaration;
 
-    const migrationsRoot = resolve(repositoryRoot, "docs", "migrations");
-    const guidePath = resolve(repositoryRoot, declaration.guide);
-    const guideRelativePath = relative(migrationsRoot, guidePath);
-    if (!guideRelativePath || guideRelativePath === ".." || guideRelativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-        || isAbsolute(guideRelativePath)) {
-        throw new Error("state migration guide 必须位于 docs/migrations/。" );
+    if (declaration.guide) {
+        const migrationsRoot = resolve(applicationRoot, "docs", "migrations");
+        const guidePath = resolve(migrationsRoot, declaration.guide.replace(/^packages[\\/]neuro-book[\\/]docs[\\/]migrations[\\/]/u, ""));
+        const guideRelativePath = relative(migrationsRoot, guidePath);
+        if (!guideRelativePath || guideRelativePath === ".." || guideRelativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
+            || isAbsolute(guideRelativePath)) {
+            throw new Error("state migration guide 必须位于 packages/neuro-book/docs/migrations/。");
+        }
+        const guideStat = await stat(guidePath).catch(() => null);
+        if (!guideStat?.isFile()) {
+            throw new Error(`state migration guide 不存在：${declaration.guide}`);
+        }
     }
-    const guideStat = await stat(guidePath).catch(() => null);
-    if (!guideStat?.isFile()) {
-        throw new Error(`state migration guide 不存在：${declaration.guide}`);
-    }
+
     return declaration;
 }
 

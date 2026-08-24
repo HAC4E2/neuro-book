@@ -2,24 +2,24 @@ import {execFile} from "node:child_process";
 import {createRequire} from "node:module";
 import {access, mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {dirname, join} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
-import {assertBundledRuntimeSourcePaths} from "nbook/scripts/build/product-runtime-bundle";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {assertBundledRuntimeSourcePaths} from "#scripts/build/product-runtime-bundle";
 import {
     PRODUCT_COMMAND_CHUNK_BASENAME,
     productOpaqueImportDefinitions,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
 
 /** win32-x64 构建要求显式 MSVC Runtime DLL 目录；测试用假 DLL 覆盖复制路径。 */
 async function createFakeMsvcRuntimeDir(): Promise<string> {
-    const msvcRuntimeDir = await mkdtemp(join(tmpdir(), "nbook-msvc-runtime-"));
+    const msvcRuntimeDir = await mkdtemp(testHostPath("nbook-msvc-runtime-"));
     temporaryRoots.push(msvcRuntimeDir);
     await Promise.all(["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"].map((name) =>
         writeFile(join(msvcRuntimeDir, name), `fake-${name}`, "utf8")));
@@ -48,21 +48,23 @@ describe("Product Runtime bundle", () => {
     });
 
     it("server runtime 只通过 package island require TypeScript", async () => {
-        const sourceFiles = (await readdir("server", {recursive: true}))
+        const applicationRoot = resolve(dirname(import.meta.dirname), "..", "packages", "neuro-book");
+        const serverRoot = resolve(applicationRoot, "server");
+        const sourceFiles = (await readdir(serverRoot, {recursive: true}))
             .filter((filePath) => filePath.endsWith(".ts")
                 && !filePath.endsWith(".test.ts")
                 && !filePath.endsWith(".d.ts"))
             .sort((left, right) => left.localeCompare(right));
         const forbiddenImport = /^\s*import\s+(?!type\b)(?:[^;\n]*\sfrom\s+)?["']typescript["'];?|\bimport\(\s*["']typescript["']\s*\)/mu;
         for (const relativePath of sourceFiles) {
-            const source = await readFile(join("server", relativePath), "utf8");
+            const source = await readFile(join(serverRoot, relativePath), "utf8");
             expect(source, `${relativePath} 不得把 TypeScript compiler 放入 Nitro module graph`)
                 .not.toMatch(forbiddenImport);
         }
     });
 
     it("把 native 物理 URL 收敛到镜像内 package island，并清除 package manager metadata", async () => {
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-"));
+        const outputRoot = await mkdtemp(testHostPath("nbook-product-runtime-bundle-"));
         temporaryRoots.push(outputRoot);
         const msvcRuntimeDir = process.platform === "win32" && process.arch === "x64"
             ? await createFakeMsvcRuntimeDir()
@@ -169,8 +171,8 @@ describe("Product Runtime bundle", () => {
     }, 60_000);
 
     it("拒绝候选镜像外的 runtime bundle scratch", async () => {
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-image-"));
-        const scratchRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-scratch-"));
+        const outputRoot = await mkdtemp(testHostPath("nbook-product-runtime-bundle-image-"));
+        const scratchRoot = await mkdtemp(testHostPath("nbook-product-runtime-bundle-scratch-"));
         temporaryRoots.push(outputRoot, scratchRoot);
         const msvcRuntimeDir = process.platform === "win32" && process.arch === "x64"
             ? await createFakeMsvcRuntimeDir()

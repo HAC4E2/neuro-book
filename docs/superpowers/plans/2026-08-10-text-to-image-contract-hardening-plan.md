@@ -47,9 +47,9 @@
 
 **Files:**
 - Read: `PROJECT-STATUS.md`
-- Read: `docs/tasks/142-text-to-image-chatu8-port/README.md`
-- Read: `docs/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
-- Modify: `docs/tasks/142-text-to-image-chatu8-port/README.md`
+- Read: `.agents/tasks/142-text-to-image-chatu8-port/README.md`
+- Read: `.agents/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
+- Modify: `.agents/tasks/142-text-to-image-chatu8-port/README.md`
 
 **Produces:** 一份与当前源码一致的 Task 142 基线说明，明确历史 429 人工循环记录已被“失败退出并重新点击入队”的最新合同替代。
 
@@ -299,8 +299,8 @@ bunx vitest run app/components/markdown-studio/tiptap/WorkspaceMarkdownImage.tes
 ### Task 8: 全链路回归、浏览器验收与文档收口
 
 **Files:**
-- Modify: `docs/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
-- Modify: `docs/tasks/142-text-to-image-chatu8-port/README.md`
+- Modify: `.agents/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
+- Modify: `.agents/tasks/142-text-to-image-chatu8-port/README.md`
 - Modify: `PROJECT-STATUS.md`
 
 **Produces:** 从原始角色 `.md` 开始，到角色视觉生成、正文角色命中、占位符、NovelAI 图片、资产保存和 Markdown 渲染的完整验收证据。

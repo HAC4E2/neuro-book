@@ -2,7 +2,7 @@ import {resolve} from "node:path";
 
 import {describe, expect, it} from "vitest";
 
-import {resolveReleaseStateRoot} from "nbook/scripts/release/installation-state-root";
+import {resolveReleaseStateRoot} from "#scripts/release/installation-state-root";
 
 describe("Release GHCR State Root", () => {
     it("从Installation Manifest locator解析State Root", () => {

@@ -1,23 +1,24 @@
 import {builtinModules} from "node:module";
-import {cp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {init as initModuleLexer, parse as parseModuleImports} from "es-module-lexer";
 import type {Metafile} from "esbuild";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
-} from "nbook/scripts/build/product-bundle-plugins";
-import {bundleProductJavaScript} from "nbook/scripts/build/product-reproducible-bundle";
+} from "#scripts/build/product-bundle-plugins";
+import {bundleProductJavaScript} from "#scripts/build/product-reproducible-bundle";
 import {
     PRODUCT_COMMAND_CHUNK_BASENAME,
     productRuntimeIslandPackageNames,
-} from "nbook/scripts/build/product-runtime-islands";
+} from "#scripts/build/product-runtime-islands";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     type ProductRuntimeContract,
     type ProductRuntimeEntryMap,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";
 
 export const PRODUCT_COMMAND_SOURCES = {
     "product-start": "server/runtime/product-start-command.mjs",
@@ -29,7 +30,7 @@ export const PRODUCT_COMMAND_SOURCES = {
     "product-profile-authoring-smoke": "scripts/deploy/product-profile-authoring-smoke.ts",
     "product-variable-authoring-smoke": "scripts/deploy/product-variable-authoring-smoke.ts",
     "product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts",
-    "sqlite-vec-smoke": "scripts/smoke/sqlite-vec-smoke.ts",
+    "sqlite-vec-smoke": "scripts/smoke/sqlite-vec.ts",
     "product-web-fetch-smoke": "server/runtime/web-fetch-check.ts",
     "product-world-engine-config-smoke": "scripts/deploy/product-world-engine-config-smoke.ts",
     "profile": "server/agent/profiles/profile-command.ts",
@@ -47,7 +48,10 @@ export type ProductCommandBundleResult = {
 };
 
 /** 一次多入口构建 Product 命令，共享公共 chunks，运行时不再加载 Source TypeScript。 */
-export async function buildProductCommands(outputRoot: string): Promise<ProductCommandBundleResult> {
+export async function buildProductCommands(
+    outputRoot: string,
+    applicationSourceRoot = resolveWorkspaceRoots().applicationSourceRoot,
+): Promise<ProductCommandBundleResult> {
     const serverRoot = resolve(outputRoot, "server");
     const commandRoot = resolve(serverRoot, "commands");
     await rm(commandRoot, {recursive: true, force: true});
@@ -56,7 +60,7 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
     const result = await bundleProductJavaScript({
         absWorkingDir: commandRoot,
         entryPoints: Object.fromEntries(Object.entries(PRODUCT_COMMAND_SOURCES).map(([name, source]) => (
-            [name, resolve(source)]
+            [name, resolve(applicationSourceRoot, source)]
         ))),
         splitting: true,
         metafile: true,
@@ -77,8 +81,8 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
     await pruneEmptyProductCommandChunks(result.metafile, commandRoot);
     await assertProductCommandOutputs(result.metafile, commandRoot);
 
-    await copyPhysicalRuntimeFiles(serverRoot);
-    const commandEntries = resolveProductCommandEntries(result.metafile, commandRoot);
+    await copyPhysicalRuntimeFiles(serverRoot, applicationSourceRoot);
+    const commandEntries = resolveProductCommandEntries(result.metafile, commandRoot, applicationSourceRoot);
     if (commandEntries["product-command"] !== PRODUCT_RUNTIME_COMMAND_BOOTSTRAP) {
         throw new Error(`Product command bootstrap 路径不稳定：${commandEntries["product-command"]}`);
     }
@@ -174,6 +178,7 @@ export async function pruneEmptyProductCommandChunks(
 export function resolveProductCommandEntries(
     metafile: Metafile | undefined,
     commandRoot: string,
+    applicationSourceRoot = process.cwd(),
 ): Record<keyof typeof PRODUCT_COMMAND_SOURCES, string> {
     if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
     const outputBySource = new Map<string, string>();
@@ -191,7 +196,7 @@ export function resolveProductCommandEntries(
         outputBySource.set(sourcePath, `server/commands/${outputRelative.replaceAll("\\", "/")}`);
     }
     return Object.fromEntries(Object.entries(PRODUCT_COMMAND_SOURCES).map(([name, source]) => {
-        const output = outputBySource.get(resolve(source));
+        const output = outputBySource.get(resolve(applicationSourceRoot, source));
         if (!output) throw new Error(`Product command metafile 缺少 entry：${name}`);
         return [name, output];
     })) as Record<keyof typeof PRODUCT_COMMAND_SOURCES, string>;
@@ -226,12 +231,12 @@ function resolveCommandOutput(outputName: string, commandRoot: string): {outputP
 }
 
 /** SQLite migration SQL 是数据演进真相源，必须保留普通文件而不是冻结进 bundle。 */
-async function copyPhysicalRuntimeFiles(serverRoot: string): Promise<void> {
+async function copyPhysicalRuntimeFiles(serverRoot: string, applicationSourceRoot: string): Promise<void> {
     const migrationsTarget = resolve(serverRoot, "prisma", "migrations", "sqlite");
     await rm(resolve(serverRoot, "prisma"), {recursive: true, force: true});
     await mkdir(dirname(migrationsTarget), {recursive: true});
-    await cp(resolve("prisma", "migrations", "sqlite"), migrationsTarget, {recursive: true, dereference: true});
-    await cp(resolve("prisma", "schema.sqlite.prisma"), resolve(serverRoot, "prisma", "schema.sqlite.prisma"));
+    await cp(resolve(applicationSourceRoot, "prisma", "migrations", "sqlite"), migrationsTarget, {recursive: true, dereference: true});
+    await cp(resolve(applicationSourceRoot, "prisma", "schema.sqlite.prisma"), resolve(serverRoot, "prisma", "schema.sqlite.prisma"));
 }
 
 /** 统计包含 shared chunks 的完整命令 owner。 */
@@ -239,9 +244,16 @@ async function directoryInventory(root: string): Promise<{files: number; bytes: 
     let files = 0;
     let bytes = 0;
     const walk = async (directory: string): Promise<void> => {
-        for (const entry of await Array.fromAsync(new Bun.Glob("**/*").scan({cwd: directory, onlyFiles: true}))) {
-            files += 1;
-            bytes += (await stat(resolve(directory, entry))).size;
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const filePath = resolve(directory, entry.name);
+            if (entry.isDirectory()) {
+                await walk(filePath);
+            } else if (entry.isFile()) {
+                files += 1;
+                bytes += (await stat(filePath)).size;
+            } else {
+                throw new Error(`Product command output 含特殊文件：${filePath}`);
+            }
         }
     };
     await walk(root);

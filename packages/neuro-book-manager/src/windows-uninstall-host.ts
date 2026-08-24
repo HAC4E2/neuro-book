@@ -4,7 +4,8 @@ import {isAbsolute, join, relative, resolve, sep} from "node:path";
 
 import {ensureDirectory, pathExists, sha256File, writeJsonAtomic} from "#manager/files";
 import {runCapture} from "#manager/process";
-import {INSTALLED_WINDOWS_ROOT_LOCATORS, localAppDataRoot, resolveInstallationRoots} from "#manager/root-locators";
+import {INSTALLED_WINDOWS_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import {localAppDataRoot, resolveInstallationRoots} from "#manager/root-locators";
 
 const INTENT_PATH = join(".deploy", "uninstall-intent.json");
 const HOST_COMMAND_ENVIRONMENT = "NEURO_BOOK_WINDOWS_UNINSTALL_HOST_COMMAND";

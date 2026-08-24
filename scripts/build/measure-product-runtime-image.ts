@@ -3,17 +3,18 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {parseArgs} from "node:util";
 
-import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
+import {currentProductPlatform} from "#scripts/utils/product-platform";
+import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";
 import {
     buildProductRuntimePayload,
     prepareProductRuntimeSource,
     productBuildEnvironment,
     withProductBuildLease,
-} from "nbook/scripts/build/build-product-runtime-image";
+} from "#scripts/build/build-product-runtime-image";
 import {
     ProductRuntimeImageBuilder,
     type ProductRuntimeMeasurementReport,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 
 /** measurement CLI 的输入；outputPath 未提供时写入 ignored `.deploy/measurements`。 */
 export interface ProductRuntimeMeasurementOptions {
@@ -27,14 +28,21 @@ export interface ProductRuntimeMeasurementOptions {
 export async function measureProductRuntimeImage(
     options: ProductRuntimeMeasurementOptions = {},
 ): Promise<{outputPath: string; report: ProductRuntimeMeasurementReport}> {
-    const projectRoot = process.cwd();
-    return await withProductBuildLease(projectRoot, async () => {
+    const roots = resolveWorkspaceRoots();
+    return await withProductBuildLease(roots.repositoryRoot, async () => {
         const platform = currentProductPlatform();
-        const buildEnvironment = productBuildEnvironment(process.env);
+        const buildEnvironment = {
+            ...productBuildEnvironment(process.env, roots.repositoryRoot),
+            NEURO_BOOK_APPLICATION_ROOT: roots.applicationSourceRoot,
+        };
         await prepareProductRuntimeSource(buildEnvironment);
         const explicitRevision = process.env.NEURO_BOOK_SOURCE_REVISION?.trim();
         const operationId = `measure-${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-        const report = await new ProductRuntimeImageBuilder(projectRoot).measureCandidate({
+        const report = await new ProductRuntimeImageBuilder({
+            repositoryRoot: roots.repositoryRoot,
+            applicationSourceRoot: roots.applicationSourceRoot,
+            deployRoot: resolve(roots.repositoryRoot, ".deploy"),
+        }).measureCandidate({
             operationId,
             platform,
             expectedSource: explicitRevision ? {revision: explicitRevision, dirty: false} : undefined,
@@ -43,7 +51,7 @@ export async function measureProductRuntimeImage(
             },
         });
         const outputPath = resolve(options.outputPath?.trim() || resolve(
-            projectRoot,
+            roots.repositoryRoot,
             ".deploy",
             "measurements",
             `${platform}-${operationId}.json`,

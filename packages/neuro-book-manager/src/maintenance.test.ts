@@ -1,3 +1,4 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -5,8 +6,8 @@ import {afterEach, describe, expect, it} from "vitest";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {sha256File} from "#manager/files";
 import {doctor, installationStatus} from "#manager/maintenance";
-import {PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {PORTABLE_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 
@@ -16,7 +17,7 @@ describe("Manager State Root诊断", () => {
     });
 
     it("shadow workspace使doctor失败并进入status下一步", async () => {
-        const root = join(process.cwd(), ".agent", `manager-maintenance-${crypto.randomUUID()}`);
+        const root = testHostPath(`manager-maintenance-${crypto.randomUUID()}`);
         roots.push(root);
         const stateRoot = join(root, "data");
         const managerPath = join(root, ".runtime", "manager", "0.1.0", "neuro-book.mjs");

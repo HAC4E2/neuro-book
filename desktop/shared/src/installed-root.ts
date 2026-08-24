@@ -5,7 +5,7 @@ import {win32 as windowsPath} from "node:path";
 import {
     parseDesktopInstallationManifest,
     type DesktopInstallationManifest,
-} from "nbook/shared/desktop-contract";
+} from "@notnotype/neuro-book-contracts/desktop";
 
 export type InstalledRootEnvironment = {
     localAppData?: string;

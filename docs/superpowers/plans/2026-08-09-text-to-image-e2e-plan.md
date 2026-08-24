@@ -25,8 +25,8 @@
 ### Task 1: Establish the executable baseline
 
 **Files:**
-- Read: `docs/tasks/142-text-to-image-chatu8-port/README.md`
-- Read: `docs/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
+- Read: `.agents/tasks/142-text-to-image-chatu8-port/README.md`
+- Read: `.agents/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
 - Read: `task_plan.md`, `progress.md`, `findings.md`
 
 **Interfaces:**
@@ -162,7 +162,7 @@ Use the generated image’s long-press action for one tag edit or reroll only if
 **Files:**
 - Modify: the smallest implementation file identified by the failing browser scenario.
 - Test: the nearest existing focused test file for the same contract.
-- Update: `docs/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md` only after the behavior is verified.
+- Update: `.agents/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md` only after the behavior is verified.
 
 **Interfaces:**
 - Consumes: one concrete browser failure and its sanitized reproduction details.
@@ -187,8 +187,8 @@ Run the changed test file, the Task 142 focused suite, `bun run typecheck`, and 
 ### Task 6: Close the acceptance record
 
 **Files:**
-- Modify: `docs/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
-- Modify: `docs/tasks/142-text-to-image-chatu8-port/README.md` only if its summary conflicts with the detailed checklist.
+- Modify: `.agents/tasks/142-text-to-image-chatu8-port/BROWSER-WALKTHROUGH.md`
+- Modify: `.agents/tasks/142-text-to-image-chatu8-port/README.md` only if its summary conflicts with the detailed checklist.
 - Modify: `progress.md` and `findings.md` with sanitized evidence.
 
 **Interfaces:**

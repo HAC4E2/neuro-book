@@ -21,35 +21,39 @@ import {fileURLToPath} from "node:url";
 import {Command} from "commander";
 import {Unzip, UnzipInflate} from "fflate";
 
-import {ensureStateFiles} from "nbook/packages/neuro-book-manager/src/config";
-import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
-import {writePortableLaunchers} from "nbook/packages/neuro-book-manager/src/portable-launchers";
-import {PORTABLE_ROOT_LOCATORS} from "nbook/packages/neuro-book-manager/src/root-locators";
-import {installManagedBun, installManagerExecutable, writeManagerWrapper, writeRuntimeWrapper} from "nbook/packages/neuro-book-manager/src/runtime";
-import {installManagedTool, writeManagedToolWrappers} from "nbook/packages/neuro-book-manager/src/tools";
-import type {
-    InstallationManifest,
-    ProductComponent,
-    SourceComponent,
-} from "nbook/packages/neuro-book-manager/src/types";
-import {MANAGER_VERSION} from "nbook/packages/neuro-book-manager/src/version-info";
+import {
+    ensureStateFiles,
+    installManagedBun,
+    installManagedTool,
+    installManagerExecutable,
+    MANAGER_VERSION,
+    writeInstallationManifest,
+    writeManagedToolWrappers,
+    writeManagerWrapper,
+    writePortableLaunchers,
+    writeRuntimeWrapper,
+} from "@notnotype/neuro-book-manager/portable";
+import {
+    PORTABLE_ROOT_LOCATORS,
+    type InstallationManifest,
+    type ProductComponent,
+    type SourceComponent,
+} from "@notnotype/neuro-book-contracts/installation";
+import {PRODUCT_ASSET_NAMES, type ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {
     ProductRuntimeImageBuilder,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
-import {materializePublicManagerPackage} from "nbook/scripts/release/public-manager-package";
+} from "#scripts/build/product-runtime-image-builder";
+import {materializePublicManagerPackage} from "#scripts/release/public-manager-package";
 import {
     parseReleaseBuild,
     type ReleaseBuild,
     type ReleaseProductBuild,
     type ReleaseSourceBuild,
-} from "nbook/scripts/release/release-assets";
-import {runCapture} from "nbook/scripts/utils/process.mjs";
-import {writeZipArchive} from "nbook/scripts/utils/zip";
-import {sanitizeZipEntryName} from "nbook/server/backup/backup-archive-rules";
+} from "#scripts/release/release-assets";
+import {sanitizeZipEntryName, writeZipArchive} from "#scripts/utils/zip";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const WINDOWS_PRODUCT_PLATFORM = "windows-x64";
+const WINDOWS_PRODUCT_PLATFORM: ProductPlatform = "windows-x64";
 const SOURCE_BUILD_FILE = "source-build.json";
 const PRODUCT_BUILD_FILE = "product-build.json";
 const MAX_ZIP_COMMENT_BYTES = 65_535;
@@ -209,7 +213,7 @@ export function portableArchiveComponents(identity: PortableArchiveIdentity): {
             path: ".output",
             platform: WINDOWS_PRODUCT_PLATFORM,
             archiveSha256: identity.productArchiveSha256,
-            sourceUrl: `${releaseRoot}/neuro-book-product-windows-x64.zip`,
+            sourceUrl: `${releaseRoot}/${PRODUCT_ASSET_NAMES[WINDOWS_PRODUCT_PLATFORM]}`,
             license: "AGPL-3.0-only",
             redistribution: "Windows Portable 内置 Windows x64 Product overlay。",
             imageId: identity.runtimeImage.imageId,
@@ -251,9 +255,18 @@ export async function materializePortableArchives(
             parseReleaseBuild(await readArchiveControlFile(resolve(productRoot, PRODUCT_BUILD_FILE))),
         );
         const {source: sourceBuild, product: productBuild} = releaseBuilds;
-        const sourcePackage = parseSourcePackage(await readArchiveControlFile(resolve(sourceRoot, "package.json")));
+        const rootPackage = parseSourcePackage(
+            await readArchiveControlFile(resolve(sourceRoot, "package.json")),
+            "neuro-book-workspace",
+            "root",
+        );
+        const applicationPackage = parseSourcePackage(
+            await readArchiveControlFile(resolve(sourceRoot, "packages", "neuro-book", "package.json")),
+            "@notnotype/neuro-book",
+            "application",
+        );
         const sourceLockfileSha256 = `sha256:${await sha256(resolve(sourceRoot, "bun.lock"))}`;
-        if (sourcePackage.version !== sourceBuild.version || sourceLockfileSha256 !== sourceBuild.lockfileSha256) {
+        if (applicationPackage.version !== sourceBuild.version || rootPackage.version !== undefined || sourceLockfileSha256 !== sourceBuild.lockfileSha256) {
             throw new Error("Source archive payload 与 release-build.json 身份不一致。");
         }
 
@@ -506,7 +519,7 @@ async function extractZipArchive(archivePath: string, targetRoot: string, inspec
 /** Source archive 只能是源码投影，不能夹带 Product、Git metadata 或 Developer Build State。 */
 function assertSourceArchiveShape(entries: ZipArchiveEntry[]): void {
     const files = new Set(entries.filter((entry) => !entry.directory).map((entry) => entry.archivePath));
-    for (const required of ["package.json", "bun.lock", SOURCE_BUILD_FILE]) {
+    for (const required of ["package.json", "packages/neuro-book/package.json", "bun.lock", SOURCE_BUILD_FILE]) {
         if (!files.has(required)) throw new Error(`Source archive 缺少 ${required}。`);
     }
     for (const entry of entries) {
@@ -604,17 +617,17 @@ function assertProductRuntimeBuild(
 }
 
 /** 外部 Source package JSON 在验证前是不可信输入，因此先收窄为最小身份。 */
-function parseSourcePackage(text: string): {version: string} {
+function parseSourcePackage(text: string, expectedName: string, label: string): {version?: string} {
     let value: unknown;
     try {
         value = JSON.parse(text) as unknown;
     } catch (error) {
-        throw new Error(`Source package.json 不是有效 JSON：${String(error)}`);
+        throw new Error(`Source ${label} package.json 不是有效 JSON：${String(error)}`);
     }
-    if (!isJsonObject(value) || value.name !== "neuro-book" || typeof value.version !== "string" || !value.version) {
-        throw new Error("Source archive package.json 缺少 NeuroBook name/version 身份。");
+    if (!isJsonObject(value) || value.name !== expectedName || (label === "application" && (typeof value.version !== "string" || !value.version))) {
+        throw new Error(`Source archive ${label} package.json 身份无效。`);
     }
-    return {version: value.version};
+    return {version: typeof value.version === "string" ? value.version : undefined};
 }
 
 /** 只读取 openVerified 所需 expected identity；完整 schema 与 payload 由 Builder 再验证。 */

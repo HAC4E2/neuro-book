@@ -6,13 +6,11 @@ import {cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile} from "node:f
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {check as checkLock, lock as acquireLock} from "proper-lockfile";
-
-import {ProductRuntimeImageBuilder} from "../build/product-runtime-image-builder.ts";
-import {PRODUCT_BUN_RUNTIME_ARGS, PRODUCT_RUNTIME_COMMAND_BOOTSTRAP} from "../../shared/product-runtime-contract.ts";
+import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BUILD_OUTPUT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || ".output");
-const ACCEPTANCE_ROOT = resolve(REPO_ROOT, ".agent", "product-runtime-acceptance");
+const ACCEPTANCE_ROOT = resolveAgentAcceptanceRoot();
 const ACCEPTANCE_POINTER = resolve(ACCEPTANCE_ROOT, "current.json");
 const OWNER_FILE = ".nbook-product-acceptance.json";
 const LEASE_FILE = ".nbook-product-acceptance-lease";
@@ -34,11 +32,9 @@ if (command === "stage") {
 }
 
 /**
- * 把当前已验证 Runtime Image 复制为短生命周期验收实例。
- *
  * 该命令故意不重建、不投影 Source，也不接受任意目录作为输入；产品正确性唯一
- * 来源是 Builder 已写入 ready marker 的 `.output`。实例位于 `.agent`，
- * 不再污染仓库根 `product/`。
+ * 来源是 Builder 已写入 ready marker 的 `.output`。实例位于系统受控 acceptance 根，
+ * 不再污染仓库根 `product/` 或 `.agent/` 运行目录。
  */
 async function stageProduct() {
     await mkdir(ACCEPTANCE_ROOT, {recursive: true});
@@ -84,7 +80,10 @@ async function runAcceptedCommand(commandId, args) {
         await mkdir(resolve(stageRoot, stateRoot), {recursive: true});
     }
     await withAcceptanceLease(stageRoot, async () => {
-        const cacheRoot = process.env.NEURO_BOOK_CACHE_ROOT?.trim() || resolve(stageRoot, stateRoot, "cache");
+        const cacheRoot = process.env.NEURO_BOOK_CACHE_ROOT?.trim()
+            ? resolve(process.env.NEURO_BOOK_CACHE_ROOT)
+            : resolve(stageRoot, stateRoot, "cache");
+        assertContained(resolve(stageRoot, stateRoot), cacheRoot, "Product Cache Root");
         const excludedRoots = [
             resolve(stageRoot, ".output"),
             resolve(stageRoot, stateRoot),
@@ -203,15 +202,14 @@ function requestedOperationId() {
     return operationId;
 }
 
-/** 支持显式验收目录，但永远限制在 `.agent`。 */
 function resolveStageRoot(operationId) {
     const configured = process.env.NEURO_BOOK_PRODUCT_STAGE_DIR?.trim();
     const stageRoot = configured
-        ? resolve(REPO_ROOT, configured)
+        ? resolve(configured)
         : resolve(ACCEPTANCE_ROOT, operationId);
     assertContained(ACCEPTANCE_ROOT, stageRoot, "Product 验收目录");
     if (stageRoot === ACCEPTANCE_ROOT) {
-        throw new Error("Product 验收目录不能是 `.agent/product-runtime-acceptance` 根。");
+        throw new Error("Product 验收目录不能是受控 acceptance 根。");
     }
     return stageRoot;
 }
@@ -220,7 +218,7 @@ function resolveStageRoot(operationId) {
 async function resolveCurrentStage() {
     const configured = process.env.NEURO_BOOK_PRODUCT_STAGE_DIR?.trim();
     if (configured) {
-        const stageRoot = resolve(REPO_ROOT, configured);
+        const stageRoot = resolve(configured);
         assertContained(ACCEPTANCE_ROOT, stageRoot, "Product 验收目录");
         return stageRoot;
     }
@@ -233,7 +231,7 @@ async function resolveCurrentStage() {
     if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.path !== "string") {
         throw new Error("Product 验收实例 pointer 无效。");
     }
-    const stageRoot = resolve(REPO_ROOT, value.path);
+    const stageRoot = resolve(value.path);
     assertContained(ACCEPTANCE_ROOT, stageRoot, "Product 验收实例 pointer");
     return stageRoot;
 }
@@ -292,7 +290,7 @@ async function writeAcceptancePointer(stageRoot, owner) {
         owner: ACCEPTANCE_OWNER,
         operationId: owner.operationId,
         imageId: owner.imageId,
-        path: relative(REPO_ROOT, stageRoot).replaceAll("\\", "/"),
+        path: stageRoot,
         updatedAt: new Date().toISOString(),
     };
     const temporary = `${ACCEPTANCE_POINTER}.${randomUUID()}.tmp`;
@@ -388,11 +386,11 @@ function run(commandName, args, options) {
     });
 }
 
-/** 防止环境变量或 pointer 越过 `.agent`。 */
+/** 防止环境变量或 pointer 越过系统受控 Agent acceptance 根。 */
 function assertContained(root, target, label) {
     const relativePath = relative(resolve(root), resolve(target));
     if (relativePath === "" || (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath))) {
         return;
     }
-    throw new Error(`${label} 逃逸 .agent：${target}`);
+    throw new Error(`${label} 逃逸系统受控 acceptance 根：${target}`);
 }

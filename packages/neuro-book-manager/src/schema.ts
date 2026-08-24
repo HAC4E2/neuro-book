@@ -1,207 +1,33 @@
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
-import {valid} from "semver";
 import {isAbsolute, join, resolve} from "node:path";
 
-import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {installationPaths} from "#manager/paths";
 import {
-    PRODUCT_PLATFORMS,
+    InstallationManifestSchema,
+    InstallationRootLocatorsSchema,
+    parseInstallationManifest,
     type InstallationManifest,
     type InstallationRootLocators,
-    type OperationJournal,
-    type ReleaseManifest,
-} from "#manager/types";
+} from "@notnotype/neuro-book-contracts/installation";
+import {installationPaths} from "#manager/paths";
+import type {OperationJournal} from "#manager/types";
 import {assertAbsolutePathWithin, installationRelativePath} from "#manager/installation-path";
 import {
     INSTALLED_WINDOWS_ROOT_LOCATORS,
     INSTALLED_MACOS_ROOT_LOCATORS,
     INSTALLATION_SCOPED_ROOT_LOCATORS,
     PORTABLE_ROOT_LOCATORS,
-    resolveInstallationRoots,
     rootLocatorsEqual,
-} from "#manager/root-locators";
+} from "@notnotype/neuro-book-contracts/installation";
+import {resolveInstallationRoots} from "#manager/root-locators";
 import {sourceDockerImageName, sourceDockerImageSuffix} from "#manager/source-docker-image";
-import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
+import {resolveAppSqliteLocation} from "#manager/app-sqlite-location";
 
-const SHA256_PATTERN = "^[a-fA-F0-9]{64}$";
-const REVISION_PATTERN = "^[a-f0-9]{40}$";
 const ISO_DATE_PATTERN = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$";
-
-const InstallProfileSchema = Type.Union([
-    Type.Literal("source-dev"),
-    Type.Literal("source-product"),
-    Type.Literal("product-bun"),
-    Type.Literal("windows-portable"),
-    Type.Literal("source-docker"),
-    Type.Literal("ghcr"),
-]);
-const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("canary")]);
-const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
-const ProductPlatformSchema = Type.Union(PRODUCT_PLATFORMS.map((platform) => Type.Literal(platform)));
-const RootLocatorSchema = Type.Object({
-    base: Type.Union([
-        Type.Literal("installation-root"),
-        Type.Literal("local-app-data"),
-        Type.Literal("user-app-data"),
-        Type.Literal("user-cache"),
-    ]),
-    path: Type.String({minLength: 1}),
-}, {additionalProperties: false});
-const InstallationRootLocatorsSchema = Type.Object({
-    state: RootLocatorSchema,
-    cache: RootLocatorSchema,
-    desktop: RootLocatorSchema,
-    webview: RootLocatorSchema,
-}, {additionalProperties: false});
-const RevisionSchema = Type.String({pattern: REVISION_PATTERN});
-const ChecksumSchema = Type.String({pattern: SHA256_PATTERN});
-const RuntimeImageDigestSchema = Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"});
 const RelativePathSchema = Type.String({minLength: 1});
-
-/** Runtime Image 身份必须按 Builder manifest 原样随组件流转。 */
-const ProductRuntimeImageIdentitySchema = {
-    imageId: RuntimeImageDigestSchema,
-    sourceDigest: RuntimeImageDigestSchema,
-    lockfileSha256: RuntimeImageDigestSchema,
-    builderContractVersion: Type.String({minLength: 1}),
-};
-
-const GitSourceSchema = Type.Object({
-    provider: Type.Literal("git"),
-    version: Type.String({minLength: 1}),
-    revision: RevisionSchema,
-    path: Type.Literal("."),
-    repository: Type.String({minLength: 1}),
-    branch: Type.String({minLength: 1}),
-}, {additionalProperties: false});
-const ReleaseSourceSchema = Type.Object({
-    provider: Type.Literal("release"),
-    buildId: RuntimeImageDigestSchema,
-    version: Type.String({minLength: 1}),
-    revision: RevisionSchema,
-    path: Type.Literal("."),
-    files: Type.Array(RelativePathSchema),
-    archiveSha256: ChecksumSchema,
-    sourceUrl: Type.String({minLength: 1}),
-    license: Type.String({minLength: 1}),
-    redistribution: Type.String({minLength: 1}),
-}, {additionalProperties: false});
-const ContainerSourceSchema = Type.Object({
-    provider: Type.Literal("container"),
-    version: Type.String({minLength: 1}),
-    revision: RevisionSchema,
-    path: Type.Literal("/app"),
-}, {additionalProperties: false});
-const SourceSchema = Type.Union([GitSourceSchema, ReleaseSourceSchema, ContainerSourceSchema]);
-
-const GitProductSchema = Type.Object({
-    provider: Type.Literal("git"),
-    version: Type.String({minLength: 1}),
-    revision: RevisionSchema,
-    path: Type.Literal(".output"),
-    platform: ProductPlatformSchema,
-    ...ProductRuntimeImageIdentitySchema,
-}, {additionalProperties: false});
-const ReleaseProductSchema = Type.Object({
-    provider: Type.Literal("release"),
-    buildId: RuntimeImageDigestSchema,
-    version: Type.String({minLength: 1}),
-    revision: RevisionSchema,
-    path: Type.Literal(".output"),
-    platform: ProductPlatformSchema,
-    archiveSha256: ChecksumSchema,
-    sourceUrl: Type.String({minLength: 1}),
-    license: Type.String({minLength: 1}),
-    redistribution: Type.String({minLength: 1}),
-    ...ProductRuntimeImageIdentitySchema,
-}, {additionalProperties: false});
-const ContainerProductSchema = Type.Object({
-    provider: Type.Literal("container"),
-    version: Type.String({minLength: 1}),
-    revision: RevisionSchema,
-    image: Type.String({minLength: 1}),
-    digest: Type.Optional(Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"})),
-    containerImageId: Type.Optional(Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"})),
-    imageId: Type.Optional(RuntimeImageDigestSchema),
-    sourceDigest: Type.Optional(RuntimeImageDigestSchema),
-    lockfileSha256: Type.Optional(RuntimeImageDigestSchema),
-    builderContractVersion: Type.Optional(Type.String({minLength: 1})),
-}, {additionalProperties: false});
-const ProductSchema = Type.Union([GitProductSchema, ReleaseProductSchema, ContainerProductSchema]);
-
-const ManagerSchema = Type.Object({
-    provider: Type.Literal("managed"),
-    version: Type.String({minLength: 1}),
-    path: RelativePathSchema,
-    bundleSha256: ChecksumSchema,
-}, {additionalProperties: false});
-const SystemRuntimeSchema = Type.Object({
-    provider: Type.Literal("system"),
-    version: Type.String({minLength: 1}),
-    executable: Type.String({minLength: 1}),
-}, {additionalProperties: false});
-const ManagedRuntimeSchema = Type.Object({
-    provider: Type.Literal("managed"),
-    version: Type.String({minLength: 1}),
-    path: RelativePathSchema,
-    archiveSha256: ChecksumSchema,
-    executableSha256: ChecksumSchema,
-    sourceUrl: Type.String({minLength: 1}),
-    license: Type.String({minLength: 1}),
-    redistribution: Type.String({minLength: 1}),
-}, {additionalProperties: false});
-const ManagerRuntimeSchema = Type.Union([SystemRuntimeSchema, ManagedRuntimeSchema]);
-const ApplicationRuntimeSchema = Type.Union([
-    SystemRuntimeSchema,
-    ManagedRuntimeSchema,
-    Type.Object({provider: Type.Literal("container"), version: Type.String({minLength: 1})}, {additionalProperties: false}),
-]);
-
-const SystemToolSchema = SystemRuntimeSchema;
-const ManagedToolSchema = ManagedRuntimeSchema;
-const ManagedGitToolSchema = Type.Object({
-    provider: Type.Literal("managed"),
-    version: Type.String({minLength: 1}),
-    path: RelativePathSchema,
-    bashPath: RelativePathSchema,
-    distribution: Type.Literal("PortableGit"),
-    archiveSha256: ChecksumSchema,
-    gitSha256: ChecksumSchema,
-    bashSha256: ChecksumSchema,
-    sourceUrl: Type.String({minLength: 1}),
-    license: Type.String({minLength: 1}),
-    redistribution: Type.String({minLength: 1}),
-}, {additionalProperties: false});
-const ContainerToolSchema = Type.Object({provider: Type.Literal("container"), version: Type.String({minLength: 1})}, {additionalProperties: false});
-const ToolComponentsSchema = Type.Object({
-    rg: Type.Optional(Type.Union([SystemToolSchema, ManagedToolSchema, ContainerToolSchema])),
-    git: Type.Optional(Type.Union([SystemToolSchema, ManagedGitToolSchema, ContainerToolSchema])),
-    python: Type.Optional(Type.Union([SystemToolSchema, ContainerToolSchema])),
-}, {additionalProperties: false});
-
-export const InstallationManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(5),
-    profile: InstallProfileSchema,
-    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
-    managerVersion: Type.String({minLength: 1}),
-    appVersion: Type.String({minLength: 1}),
-    channel: ReleaseChannelSchema,
-    sourceRevision: RevisionSchema,
-    roots: InstallationRootLocatorsSchema,
-    components: Type.Object({
-        source: SourceSchema,
-        product: Type.Optional(ProductSchema),
-        manager: ManagerSchema,
-        managerRuntime: ManagerRuntimeSchema,
-        applicationRuntime: ApplicationRuntimeSchema,
-        tools: ToolComponentsSchema,
-    }, {additionalProperties: false}),
-    installedAt: Type.String({pattern: ISO_DATE_PATTERN}),
-    updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
-}, {additionalProperties: false});
-
+const RevisionSchema = Type.String({pattern: "^[a-f0-9]{40}$"});
+const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
 const OperationPhaseSchema = Type.Union([
     Type.Literal("planned"),
     Type.Literal("staged"),
@@ -389,68 +215,7 @@ const OperationJournalV3Schema = Type.Object({
     updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
 }, {additionalProperties: false});
 
-const ReleaseAssetSchema = Type.Object({
-    url: Type.String({minLength: 1}),
-    sha256: ChecksumSchema,
-    bytes: Type.Integer({minimum: 0}),
-}, {additionalProperties: false});
-const ProductReleaseAssetSchema = Type.Object({
-    url: Type.String({minLength: 1}),
-    sha256: ChecksumSchema,
-    bytes: Type.Integer({minimum: 0}),
-    platform: ProductPlatformSchema,
-    sourceRevision: RevisionSchema,
-    ...ProductRuntimeImageIdentitySchema,
-}, {additionalProperties: false});
-const ReleaseImageSchema = Type.Object({
-    ref: Type.String({minLength: 1}),
-    digest: Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"}),
-    sourceRevision: RevisionSchema,
-}, {additionalProperties: false});
 
-export const ReleaseStateMigrationSchema = Type.Object({
-    policy: Type.Union([Type.Literal("none"), Type.Literal("automatic"), Type.Literal("manual")]),
-    steps: Type.Array(Type.String({pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"})),
-    guide: Type.Optional(Type.String({minLength: 1})),
-}, {additionalProperties: false});
-
-export const ReleaseManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(5),
-    buildId: RuntimeImageDigestSchema,
-    version: Type.String({minLength: 1}),
-    channel: ReleaseChannelSchema,
-    sourceRevision: RevisionSchema,
-    minManagerVersion: Type.String({minLength: 1}),
-    source: ReleaseAssetSchema,
-    products: Type.Array(ProductReleaseAssetSchema, {minItems: 1}),
-    windowsPortable: ReleaseAssetSchema,
-    ghcr: ReleaseImageSchema,
-    stateMigration: ReleaseStateMigrationSchema,
-}, {additionalProperties: false});
-
-const ReleaseManifestEnvelopeSchema = Type.Object({
-    schemaVersion: Type.Integer({minimum: 1}),
-    minManagerVersion: Type.String({minLength: 1}),
-}, {additionalProperties: true});
-
-export type InstallationManifestValue = Static<typeof InstallationManifestSchema>;
-export type OperationJournalValue = Static<typeof OperationJournalSchema>;
-export type ReleaseManifestValue = Static<typeof ReleaseManifestSchema>;
-
-/** 严格解析并执行 Profile/组件语义校验。 */
-export function parseInstallationManifest(value: unknown): InstallationManifest {
-    assertSchema(
-        InstallationManifestSchema,
-        value,
-        "installation.json 不符合 NeuroBook Manager schema v5；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
-    );
-    const manifest = value as InstallationManifest;
-    assertSemVer(manifest.managerVersion, "managerVersion");
-    assertSemVer(manifest.appVersion, "appVersion");
-    assertInstallationSemantics(manifest);
-    assertComponentPaths(manifest);
-    return manifest;
-}
 
 /** 严格解析崩溃恢复账本，禁止未经校验的路径和 Manifest 进入回滚流程。 */
 export function parseOperationJournal(value: unknown, path: string): OperationJournal {
@@ -631,77 +396,6 @@ function operationEffectIdentity(effect: OperationJournal["effects"][number]): s
     return effect.kind;
 }
 
-/** 在严格解析前读取稳定Release envelope，用于优先提示Manager升级。 */
-export function parseReleaseManifestEnvelope(value: unknown): {schemaVersion: number; minManagerVersion: string} {
-    assertSchema(ReleaseManifestEnvelopeSchema, value, "release-manifest.json缺少有效的schemaVersion/minManagerVersion envelope。");
-    const envelope = value as {schemaVersion: number; minManagerVersion: string};
-    assertSemVer(envelope.minManagerVersion, "minManagerVersion");
-    return {schemaVersion: envelope.schemaVersion, minManagerVersion: envelope.minManagerVersion};
-}
-
-/** 严格解析并执行 Release revision/platform 语义校验。 */
-export function parseReleaseManifest(value: unknown): ReleaseManifest {
-    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v5。");
-    const manifest = value as ReleaseManifest;
-    assertSemVer(manifest.version, "version");
-    assertSemVer(manifest.minManagerVersion, "minManagerVersion");
-    const platforms = new Set<string>();
-    for (const product of manifest.products) {
-        if (product.sourceRevision !== manifest.sourceRevision) {
-            throw new Error(`Product ${product.platform} sourceRevision 与 Release Source 不一致。`);
-        }
-        if (platforms.has(product.platform)) {
-            throw new Error(`Release Manifest 包含重复 Product 平台：${product.platform}`);
-        }
-        let filename: string;
-        try {
-            filename = new URL(product.url).pathname.split("/").at(-1) ?? "";
-        } catch {
-            throw new Error(`Product ${product.platform} URL非法：${product.url}`);
-        }
-        if (filename !== PRODUCT_ASSET_NAMES[product.platform]) {
-            throw new Error(`Product ${product.platform}资产名非法：${filename}`);
-        }
-        platforms.add(product.platform);
-    }
-    const missingPlatforms = PRODUCT_PLATFORMS.filter((platform) => !platforms.has(platform));
-    if (missingPlatforms.length > 0 || platforms.size !== PRODUCT_PLATFORMS.length) {
-        throw new Error(`Release Manifest必须完整包含五个平台，缺少：${missingPlatforms.join(", ") || "<unknown>"}`);
-    }
-    if (manifest.ghcr.sourceRevision !== manifest.sourceRevision) {
-        throw new Error("GHCR sourceRevision 与 Release Source 不一致。");
-    }
-    if (!manifest.ghcr.ref.endsWith(`@${manifest.ghcr.digest}`)) {
-        throw new Error("GHCR ref 必须使用 Release Manifest 声明的不可变 digest。");
-    }
-    assertReleaseStateMigrationSemantics(manifest.stateMigration);
-    return manifest;
-}
-
-/** 独立校验仓库级 Release state migration 声明，供资产构建器 fail-fast 使用。 */
-export function parseReleaseStateMigration(value: unknown): ReleaseManifest["stateMigration"] {
-    assertSchema(ReleaseStateMigrationSchema, value, "Release state migration 声明不符合 schema。");
-    const declaration = value as ReleaseManifest["stateMigration"];
-    assertReleaseStateMigrationSemantics(declaration);
-    return declaration;
-}
-
-function assertReleaseStateMigrationSemantics(stateMigration: ReleaseManifest["stateMigration"]): void {
-    if (stateMigration.policy === "none" && stateMigration.steps.length > 0) {
-        throw new Error("stateMigration.policy=none 时 steps 必须为空。");
-    }
-    if (stateMigration.policy === "automatic" && stateMigration.steps.length === 0) {
-        throw new Error("stateMigration.policy=automatic 时必须声明至少一个 step。");
-    }
-    if (stateMigration.policy === "automatic") {
-        if (new Set(stateMigration.steps).size !== stateMigration.steps.length) {
-            throw new Error("stateMigration.steps不能包含重复step。");
-        }
-    }
-    if (stateMigration.policy === "manual" && !stateMigration.guide) {
-        throw new Error("stateMigration.policy=manual 时必须提供 guide。");
-    }
-}
 
 /** 把旧 Attachment 专用 journal 一次性转换为 Product-owned operation 记录。 */
 export function migrateOperationJournal(
@@ -765,64 +459,11 @@ function assertOperationRootLocators(roots: InstallationRootLocators): void {
     }
 }
 
-function assertInstallationSemantics(manifest: InstallationManifest): void {
-    const {source, product, applicationRuntime, tools} = manifest.components;
-    if (source.revision !== manifest.sourceRevision || product && product.revision !== manifest.sourceRevision) {
-        throw new Error("Installation Source/Product revision 与 sourceRevision 不一致。");
-    }
-    assertRootLocatorsSemantics(manifest.profile, manifest.roots);
-    const expected = profileContract(manifest.profile);
-    const containerProfile = manifest.profile === "ghcr" || manifest.profile === "source-docker";
-    if (containerProfile !== (manifest.containerEngine !== null)) {
-        throw new Error(`Profile ${manifest.profile}的Container Engine记录非法。`);
-    }
-    if (source.provider !== expected.source || (product?.provider ?? "none") !== expected.product || !expected.runtimes.includes(applicationRuntime.provider)) {
-        throw new Error(`Profile ${manifest.profile} 的 Source/Product/Application Runtime 组件组合非法。`);
-    }
-    if (manifest.profile === "windows-portable") {
-        if (tools.rg?.provider !== "managed" || tools.git?.provider !== "managed" || !("bashPath" in tools.git)) {
-            throw new Error("Windows Portable 必须包含 managed rg 和提供 bash 的 PortableGit。" );
-        }
-    }
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        if (tools.rg?.provider !== "container" || tools.git?.provider !== "container" || tools.python?.provider !== "container") {
-            throw new Error(`${manifest.profile} 的应用工具必须由 container provider 提供。`);
-        }
-    }
-    if (manifest.profile === "ghcr" && (!product || product.provider !== "container" || !product.digest)) {
-        throw new Error("GHCR Product 必须记录不可变 image digest。");
-    }
-    if (manifest.profile === "ghcr" && product?.provider === "container" && product.containerImageId) {
-        throw new Error("GHCR Product 使用 OCI digest，不记录本地 Container Engine image ID。");
-    }
-    if (manifest.profile === "source-docker" && product?.provider === "container" && product.digest) {
-        throw new Error("Source Docker 使用本地 revision image，不记录 GHCR digest。");
-    }
-    if (manifest.profile === "source-docker" && product?.provider === "container" && !product.containerImageId) {
-        throw new Error("Source Docker Product 必须记录本次 build 的 Container Engine image ID。");
-    }
-    if (manifest.profile === "source-docker" && product?.provider === "container"
-        && (product.imageId || product.sourceDigest || product.lockfileSha256 || product.builderContractVersion)) {
-        throw new Error("Source Docker 使用本地 revision image，不伪造 Builder Runtime Image identity。");
-    }
+
+function assertSchema(schema: TSchema, value: unknown, message: string): void {
+    if (!Value.Check(schema, value)) throw new Error(message);
 }
 
-function profileContract(profile: InstallationManifest["profile"]): {source: string; product: string; runtimes: string[]} {
-    switch (profile) {
-        case "source-dev": return {source: "git", product: "none", runtimes: ["system", "managed"]};
-        case "source-product": return {source: "git", product: "git", runtimes: ["system", "managed"]};
-        case "product-bun": return {source: "release", product: "release", runtimes: ["system", "managed"]};
-        case "windows-portable": return {source: "release", product: "release", runtimes: ["managed"]};
-        case "source-docker": return {source: "git", product: "container", runtimes: ["container"]};
-        case "ghcr": return {source: "container", product: "container", runtimes: ["container"]};
-    }
-}
-
-function assertComponentPaths(manifest: InstallationManifest): void {
-    for (const path of componentPaths(manifest)) assertSafeRelativePath(path);
-}
-
-/** 返回Manifest直接引用的Installation Root相对组件路径。 */
 function componentPaths(manifest: InstallationManifest): string[] {
     return [
         manifest.components.manager.path,
@@ -832,49 +473,9 @@ function componentPaths(manifest: InstallationManifest): string[] {
         manifest.components.tools.git?.provider === "managed" ? manifest.components.tools.git.path : null,
         manifest.components.tools.git?.provider === "managed" ? manifest.components.tools.git.bashPath : null,
         manifest.components.product && manifest.components.product.provider !== "container" ? manifest.components.product.path : null,
-        ...Object.values(manifest.roots)
-            .filter((locator) => locator.base === "installation-root")
-            .map((locator) => locator.path),
+        ...Object.values(manifest.roots).filter((locator) => locator.base === "installation-root").map((locator) => locator.path),
         manifest.profile === "ghcr" || manifest.profile === "source-docker" ? ".deploy/docker-compose.generated.yml" : null,
         ".runtime/bin",
-        ...manifest.components.source.provider === "release" ? manifest.components.source.files : [],
+        ...(manifest.components.source.provider === "release" ? manifest.components.source.files : []),
     ].filter((path): path is string => Boolean(path)).map((path) => path.replaceAll("\\", "/"));
-}
-
-export function assertSafeRelativePath(path: string): void {
-    installationRelativePath(path);
-}
-
-/** 校验四类 root 的路径合同以及 Profile 允许的完整布局。 */
-function assertRootLocatorsSemantics(
-    profile: InstallationManifest["profile"],
-    roots: InstallationRootLocators,
-): void {
-    for (const [name, locator] of Object.entries(roots)) {
-        try {
-            installationRelativePath(locator.path);
-        } catch {
-            throw new Error(`${name} locator path 非法：${locator.path}`);
-        }
-    }
-    if (profile === "windows-portable") {
-        if (!rootLocatorsEqual(roots, PORTABLE_ROOT_LOCATORS)) {
-            throw new Error("Windows Portable 的 Root Locator 布局非法。");
-        }
-        return;
-    }
-    const installedWindows = rootLocatorsEqual(roots, INSTALLED_WINDOWS_ROOT_LOCATORS);
-    const installedMacos = rootLocatorsEqual(roots, INSTALLED_MACOS_ROOT_LOCATORS);
-    const installationScoped = rootLocatorsEqual(roots, INSTALLATION_SCOPED_ROOT_LOCATORS);
-    if (profile === "product-bun" ? !installedWindows && !installedMacos && !installationScoped : !installationScoped) {
-        throw new Error(`Profile ${profile} 的 Root Locator 布局非法。`);
-    }
-}
-
-function assertSemVer(version: string, field: string): void {
-    if (!valid(version)) throw new Error(`${field} 不是合法 SemVer：${version}`);
-}
-
-function assertSchema(schema: TSchema, value: unknown, message: string): void {
-    if (!Value.Check(schema, value)) throw new Error(message);
 }

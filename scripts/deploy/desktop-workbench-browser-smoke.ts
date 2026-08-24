@@ -1,9 +1,12 @@
 import {mkdir, writeFile} from "node:fs/promises";
+import {randomBytes} from "node:crypto";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 
 import {chromium, type BrowserContext, type Page} from "playwright-core";
 
+import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
 type SmokeOptions = {
     url: string;
     browserExecutable: string;
@@ -640,10 +643,11 @@ function parseOptions(args: string[]): SmokeOptions {
     if (!url || !browserExecutable) {
         throw new Error("用法：node --import tsx scripts/deploy/desktop-workbench-browser-smoke.ts --url <url> --browser-executable <path> [--evidence-dir <path>] [--headed]");
     }
+    const runId = randomBytes(4).toString("hex");
     return {
         url: new URL(url).href,
         browserExecutable: resolve(browserExecutable),
-        evidenceDir: resolve(values.get("--evidence-dir") ?? ".agent/tmp/desktop-workbench-browser-smoke"),
+        evidenceDir: resolve(values.get("--evidence-dir") ?? resolveAgentAcceptanceRoot()),
         headless,
     };
 }

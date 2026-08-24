@@ -1,16 +1,19 @@
 import {createHash} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {createOperation, updateOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
-import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {currentProductPlatform} from "#manager/platform";
+import {PRODUCT_ASSET_NAMES} from "@notnotype/neuro-book-contracts/platform";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
 import type {GitUpdateTarget} from "#manager/git";
-import type {InstallationManifest, OperationJournal, ReleaseManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
+import type {OperationJournal} from "#manager/types";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {updateInstallation} from "#manager/updater";
 import {planGitProfileUpdate, planReleaseProfileUpdate} from "#manager/update-planner";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -351,7 +354,7 @@ describe("Source Dev Update恢复", () => {
 });
 
 async function fixtureRoot(): Promise<string> {
-    const fixture = await mkdtemp(join(tmpdir(), "nbook-manager-update-"));
+    const fixture = await mkdtemp(testHostPath("nbook-manager-update-"));
     await mkdir(join(fixture, ".deploy"), {recursive: true});
     await writeFile(join(fixture, "manager-source.mjs"), MANAGER_SOURCE, "utf8");
     await writeInstallationManifest(installationPaths(fixture).manifest, productManifest());

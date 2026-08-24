@@ -6,9 +6,9 @@ import {fileURLToPath} from "node:url";
 
 import {Command} from "commander";
 
-import {createReleaseCandidate} from "nbook/scripts/release/release-candidate";
-import {readReleaseNotesBody} from "nbook/scripts/release/release-notes";
-import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {createReleaseCandidate} from "#scripts/release/release-candidate";
+import {readReleaseNotesBody} from "#scripts/release/release-notes";
+import {run, runCapture} from "#scripts/utils/process.mjs";
 
 type CommonOptions = {
     dryRun: boolean;
@@ -67,7 +67,7 @@ type ParsedPrereleaseTag = {
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_REPO = "notnotype/neuro-book";
 const RELEASE_WORKFLOW = "release-container.yml";
-const PACKAGE_JSON_PATH = resolve(REPO_ROOT, "package.json");
+const APPLICATION_PACKAGE_JSON_PATH = resolve(REPO_ROOT, "packages", "neuro-book", "package.json");
 
 /** CLI 入口。 */
 async function main(): Promise<void> {
@@ -185,7 +185,7 @@ async function runStable(options: StableOptions): Promise<void> {
 
     if (shouldBumpPackage) {
         await writePackageVersion(version);
-        await run("git", ["add", "package.json"], {cwd: REPO_ROOT});
+        await run("git", ["add", "packages/neuro-book/package.json"], {cwd: REPO_ROOT});
         await run("git", ["commit", "-m", `chore(release): ${tag}`], {cwd: REPO_ROOT});
     }
 
@@ -281,7 +281,7 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
     await run("bun", ["run", "manager:verify-public"], {cwd: REPO_ROOT});
     if (shouldBumpPackage) {
         await writePackageVersion(tagPlan.packageVersion);
-        await run("git", ["add", "package.json"], {cwd: REPO_ROOT});
+        await run("git", ["add", "packages/neuro-book/package.json"], {cwd: REPO_ROOT});
         await run("git", ["commit", "-m", `chore(release): ${tag}`], {cwd: REPO_ROOT});
     }
     const releaseHead = options.target ?? await currentHead();
@@ -433,17 +433,20 @@ async function printDryRunTagWarnings(tag: string, repo: string): Promise<void> 
     }
 }
 
-/** 读取 package.json 版本号。 */
+/** 读取唯一应用 package manifest 版本号。 */
 async function readPackageVersion(): Promise<string> {
-    const packageJson = JSON.parse(await readFile(PACKAGE_JSON_PATH, "utf8")) as {version?: unknown};
-    return String(packageJson.version);
+    const packageJson = JSON.parse(await readFile(APPLICATION_PACKAGE_JSON_PATH, "utf8")) as {version?: unknown};
+    if (typeof packageJson.version !== "string" || !packageJson.version.trim()) {
+        throw new Error(`应用 manifest 缺少有效 version：${APPLICATION_PACKAGE_JSON_PATH}`);
+    }
+    return packageJson.version;
 }
 
-/** 写入 package.json 版本号，保持现有格式缩进。 */
+/** 写入应用 package manifest 版本号，保持现有格式缩进。 */
 async function writePackageVersion(version: string): Promise<void> {
-    const packageJson = JSON.parse(await readFile(PACKAGE_JSON_PATH, "utf8")) as {version?: unknown};
+    const packageJson = JSON.parse(await readFile(APPLICATION_PACKAGE_JSON_PATH, "utf8")) as {version?: unknown};
     packageJson.version = version;
-    await writeFile(PACKAGE_JSON_PATH, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(APPLICATION_PACKAGE_JSON_PATH, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
 }
 
 /** 规范化正式版版本号。 */

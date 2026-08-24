@@ -1,23 +1,7 @@
 import {lstat, readFile, rm} from "node:fs/promises";
 import {basename, isAbsolute, relative, resolve, sep, win32} from "node:path";
 
-export type DesktopDelegatedUninstallReceipt =
-    | {status: "completed"}
-    | {status: "scheduled"; resultPath: string};
-
-export const DESKTOP_UNINSTALL_HOST_TIMEOUT_MS = 6 * 60_000;
-
-/** 解析 Manager CLI 的最终卸载事件；其它阶段事件返回 null。 */
-export function parseDesktopDelegatedUninstallReceipt(
-    value: unknown,
-): DesktopDelegatedUninstallReceipt | null {
-    if (!isRecord(value) || value.kind !== "complete" || value.action !== "uninstall") return null;
-    if (value.status === "completed") return {status: "completed"};
-    if (value.status === "scheduled" && typeof value.resultPath === "string" && value.resultPath.length > 0) {
-        return {status: "scheduled", resultPath: value.resultPath};
-    }
-    throw new Error("Desktop uninstall CLI 回执无效。");
-}
+import {DESKTOP_UNINSTALL_HOST_TIMEOUT_MS} from "@notnotype/neuro-book-contracts/desktop";
 
 /** 等待 Installation Root 外的 Windows Host 写入原子结果，并复核 token 与程序根。 */
 export async function waitForWindowsUninstallHostResult(
@@ -101,16 +85,14 @@ function assertHostResult(value: unknown, token: string, installationRoot: strin
 }
 
 function sameWindowsPath(left: string, right: string): boolean {
-    return win32.resolve(left).toLowerCase() === win32.resolve(right).toLowerCase();
+    return win32.normalize(left).toLowerCase() === win32.normalize(right).toLowerCase();
 }
 
-async function lstatIfExists(path: string) {
+async function lstatIfExists(path: string): Promise<import("node:fs").Stats | null> {
     try {
         return await lstat(path);
     } catch (error) {
-        if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-            return null;
-        }
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw error;
     }
 }

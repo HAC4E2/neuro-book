@@ -2,7 +2,7 @@ import {readdir, readFile} from "node:fs/promises";
 import {basename, resolve} from "node:path";
 import {parse} from "yaml";
 
-import {readLabelManifest} from "nbook/scripts/ci/community-labels";
+import {readLabelManifest} from "#scripts/ci/community-labels";
 
 interface FormOption {
     label: string;
@@ -48,14 +48,24 @@ interface WorkflowStep {
     name?: string;
     run?: string;
     uses?: string;
+    "working-directory"?: string;
     with?: {
         "node-version"?: string | number;
+        name?: string;
+        path?: string;
+        "if-no-files-found"?: string;
     };
 }
 
 interface WorkflowJob {
     name?: string;
     "timeout-minutes"?: number;
+    strategy?: {
+        "fail-fast"?: boolean;
+        matrix?: {
+            include?: Array<{name?: string; directory?: string; commands?: string}>;
+        };
+    };
     steps?: WorkflowStep[];
 }
 
@@ -154,31 +164,43 @@ const yamlPaths = [
     ".github/workflows/community-docs.yml",
     ".github/workflows/code-baseline.yml",
     ".github/workflows/deploy-docs.yml",
+    ".github/workflows/desktop-envelope-contract.yml",
+    ".github/workflows/product-platforms.yml",
+    ".github/workflows/product-runtime-baselines.yml",
+    ".github/workflows/release-container.yml",
+    ".github/workflows/release-manager.yml",
+    ".github/workflows/workspace-packages.yml",
 ];
 
 const codeBaselinePaths = [
-    "app/**",
-    "assets/**",
-    "packages/**",
+    "packages/neuro-book/**",
+    "packages/neuro-book-contracts/**",
+    "packages/neuro-book-test-support/**",
+    "packages/neuro-book-manager/**",
+    "packages/owned-process/**",
+    "packages/file-snapshot-cache/**",
+    "packages/nb-history/**",
+    "packages/nb-workflow/**",
+    "packages/nb-memory/**",
+    "packages/nb-ui/**",
+    "packages/neuro-agent-harness/**",
+    "packages/llmlint/**",
+    "packages/neuro-book/assets/**",
     "plugins/**",
-    "prisma/**",
     "scripts/**",
-    "server/**",
-    "shared/**",
-    "world-engine/**",
-    "*.d.ts",
-    ".env.example",
-    ".env.docker.example",
-    "Dockerfile*",
+    "packages/neuro-book/nuxt.config.ts",
+    "packages/neuro-book/prisma.config.ts",
+    "packages/neuro-book/*.d.ts",
+    "packages/neuro-book/.env.example",
+    "packages/neuro-book/.env.docker.example",
+    "packages/neuro-book/Dockerfile*",
     "bunfig.toml",
-    "config.example.yaml",
-    "docker-compose*.yml",
-    "nuxt.config.ts",
-    "prisma.config.ts",
-    "release-state-migration.json",
-    "tsconfig.json",
-    "uno.config.ts",
-    "vitest.config.ts",
+    "packages/neuro-book/config.example.yaml",
+    "packages/neuro-book/docker-compose*.yml",
+    "packages/neuro-book/release-state-migration.json",
+    "packages/neuro-book/tsconfig.json",
+    "packages/neuro-book/uno.config.ts",
+    "packages/neuro-book/vitest.config.ts",
     "package.json",
     "bun.lock",
     "patches/**",
@@ -186,15 +208,23 @@ const codeBaselinePaths = [
 ];
 
 const docsRuntimePaths = [
+    ".omp/**",
+    "WATCHDOG.md",
+    "CONTEXT.md",
+    "RELEASE.md",
     "patches/**",
+    "scripts/ci/check-documentation*",
+    "scripts/ci/stage-docs-locales*",
     "scripts/ci/validate-nitropack-patch.ts",
-    "nuxt.config.ts",
-    "tsconfig.json",
+    "packages/neuro-book/**",
+    "packages/neuro-book/nuxt.config.ts",
+    "packages/neuro-book/tsconfig.json",
     "package.json",
     "bun.lock",
 ];
 
 const nitroPatchTestCommand = "bun scripts/ci/validate-nitropack-patch.ts";
+const documentationCheckCommand = "bun run docs:check";
 
 /** 读取仓库内的 UTF-8 文本文件。 */
 async function readRepoFile(path: string): Promise<string> {
@@ -297,8 +327,28 @@ async function validateGuides(): Promise<void> {
 
     const chineseHeadings = chinese.match(/^## .+$/gm) ?? [];
     const englishHeadings = english.match(/^## .+$/gm) ?? [];
-    ensure(chineseHeadings.length === 10, `中文贡献指南应有 10 个二级章节，实际 ${chineseHeadings.length}`);
-    ensure(englishHeadings.length === chineseHeadings.length, "中英文贡献指南二级章节数量不一致");
+    const expectedChineseHeadings = [
+        "## 开始之前",
+        "## 本地开发",
+        "## 找到正确规范",
+        "## Issue 与实现授权",
+        "## 准备变更",
+        "## Pull Request",
+        "## Review 与合并",
+        "## 许可证",
+    ];
+    const expectedEnglishHeadings = [
+        "## Before You Start",
+        "## Local Development",
+        "## Find the Right Specification",
+        "## Issues and Implementation Authorization",
+        "## Prepare a Change",
+        "## Pull Request",
+        "## Review and Merge",
+        "## License",
+    ];
+    ensure(JSON.stringify(chineseHeadings) === JSON.stringify(expectedChineseHeadings), `中文贡献指南二级章节不匹配：${chineseHeadings.join(", ")}`);
+    ensure(JSON.stringify(englishHeadings) === JSON.stringify(expectedEnglishHeadings), `英文贡献指南二级章节不匹配：${englishHeadings.join(", ")}`);
     for (const phrase of [
         "needs-triage",
         "needs-info",
@@ -397,7 +447,7 @@ function ensureCommandOrder(commands: readonly string[], expected: readonly stri
     }
 }
 
-/** 验证社区、文档部署和代码基线工作流的稳定合同。 */
+/** 验证社区、文档部署、代码基线与 workspace 包工作流的稳定合同。 */
 async function validateWorkflows(): Promise<void> {
     const community = await readYaml<WorkflowConfig>(".github/workflows/community-docs.yml");
     ensure(community.permissions.contents === "read", "Community workflow 必须保持 contents: read");
@@ -417,8 +467,9 @@ async function validateWorkflows(): Promise<void> {
     ensureCommandOrder(jobCommands(communityJob, "community-docs"), [
         "bun install --frozen-lockfile",
         nitroPatchTestCommand,
-        "bun run nuxt:prepare",
+        "bun --cwd packages/neuro-book run nuxt:prepare",
         "bun scripts/ci/validate-community-files.ts",
+        documentationCheckCommand,
         "bun run docs:build",
     ], "Community workflow");
 
@@ -438,31 +489,60 @@ async function validateWorkflows(): Promise<void> {
     ensureCommandOrder(jobCommands(deployBuild, "deploy-docs/build"), [
         "bun install --frozen-lockfile",
         nitroPatchTestCommand,
-        "bun run nuxt:prepare",
+        "bun --cwd packages/neuro-book run nuxt:prepare",
+        documentationCheckCommand,
         "bun run docs:build",
     ], "Deploy Docs");
 
     const baseline = await readYaml<WorkflowConfig>(".github/workflows/code-baseline.yml");
-    ensure(baseline.name === "Code Baseline (Advisory)", "Code Baseline 必须明确标记 Advisory");
+    ensure(baseline.name === "Code Baseline", "Code Baseline 不得保留 Advisory 标记");
     ensure(baseline.permissions.contents === "read", "Code Baseline 必须保持 contents: read");
     ensure(Object.keys(baseline.permissions).length === 1, "Code Baseline 不得获得写权限");
     const paths = baseline.on.pull_request?.paths ?? [];
     for (const path of codeBaselinePaths) {
         ensure(paths.includes(path), `Code Baseline 缺少 paths 合同: ${path}`);
     }
-
+    const governance = baseline.jobs.governance;
     const typecheck = baseline.jobs.typecheck;
     const test = baseline.jobs.test;
-    ensure(typecheck?.name?.includes("advisory") === true, "Typecheck job 必须标记 advisory");
-    ensure(test?.name?.includes("advisory") === true, "Test job 必须标记 advisory");
+    ensure(governance?.name?.toLocaleLowerCase("en-US").includes("advisory") !== true, "Governance job 不得标记 advisory");
+    ensure(typecheck?.name?.toLocaleLowerCase("en-US").includes("advisory") !== true, "Typecheck job 不得标记 advisory");
+    ensure(test?.name?.toLocaleLowerCase("en-US").includes("advisory") !== true, "Test job 不得标记 advisory");
     ensure(typecheck?.["timeout-minutes"] === 15, "Typecheck 超时必须为 15 分钟");
     ensure(test?.["timeout-minutes"] === 30, "Full tests 超时必须为 30 分钟");
     ensureRuntimeSetup(typecheck, "Code Baseline typecheck");
     ensureRuntimeSetup(test, "Code Baseline test");
-    ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun run typecheck"), "缺少 typecheck 命令");
-    ensure(jobCommands(test, "code-baseline/test").includes("bun run test -- --reporter=dot"), "缺少全量测试命令");
-}
+    ensureRuntimeSetup(governance, "Code Baseline governance");
+    const governanceCommands = jobCommands(governance, "code-baseline/governance");
+    ensure(governance?.["timeout-minutes"] === 15, "Governance 超时必须为 15 分钟");
+    for (const command of ["bun run governance:check", "bun x tsc --noEmit -p scripts/tsconfig.json", "scripts/ci/workspace-workflows.test.ts", "scripts/build/dockerfile-contract.test.ts"]) {
+        ensure(governanceCommands.some((actual) => actual.includes(command)), `Code Baseline governance 缺少命令：${command}`);
+    }
+    ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun --cwd packages/neuro-book run typecheck"), "缺少应用 typecheck 命令");
+    ensure(jobCommands(test, "code-baseline/test").includes("bun --cwd packages/neuro-book run test -- --reporter=dot"), "缺少应用全量测试命令");
 
+    const workspace = await readYaml<WorkflowConfig>(".github/workflows/workspace-packages.yml");
+    ensure(workspace.permissions.contents === "read", "Workspace Packages 必须保持 contents: read");
+    ensure(Object.keys(workspace.permissions).length === 1, "Workspace Packages 不得获得写权限");
+    const packageJob = workspace.jobs.package;
+    ensure(packageJob?.strategy?.["fail-fast"] === false, "Workspace package matrix 必须独立报告全部包结果");
+    const packageRows = packageJob?.strategy?.matrix?.include ?? [];
+    const expectedPackages = ["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"];
+    for (const name of expectedPackages) {
+        const row = packageRows.find((candidate) => candidate.name === name);
+        ensure(row?.directory === `packages/${name}`, `Workspace package matrix 缺少 owner cwd: ${name}`);
+        ensure(Boolean(row.commands?.trim()), `Workspace package matrix 缺少验证命令: ${name}`);
+    }
+    const packageStep = packageJob?.steps?.find((step) => step.name === "Run package checks");
+    ensure(packageStep?.["working-directory"] === "${{ matrix.directory }}", "Workspace package checks 必须在包 owner cwd 执行");
+    ensure(packageStep?.run === "${{ matrix.commands }}", "Workspace package checks 必须执行 matrix commands");
+    const webJob = workspace.jobs["llmlint-web"];
+    const webSteps = webJob?.steps ?? [];
+    for (const command of ["bun install --frozen-lockfile", "bun run typecheck", "bun run typecheck:server", "bun run build"]) {
+        ensure(webSteps.some((step) => step["working-directory"] === "packages/llmlint/web" && step.run === command), `llmlint Web island 缺少 owner cwd 命令: ${command}`);
+    }
+    ensure(webSteps.some((step) => step.uses === "actions/upload-artifact@v4" && step.with?.path === "packages/llmlint/web/.output"), "llmlint Web island 缺少构建产物上传");
+}
 /** 解析所有新增 YAML，提前发现 GitHub 无法读取的配置。 */
 async function validateYaml(): Promise<void> {
     for (const path of yamlPaths) {

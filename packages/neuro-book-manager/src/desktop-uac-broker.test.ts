@@ -1,13 +1,13 @@
 import {createServer, type Server, type Socket} from "node:net";
 import {randomUUID} from "node:crypto";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {createInterface} from "node:readline";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DESKTOP_UAC_BROKER_SCHEMA, DESKTOP_UAC_MAX_SECRET_BYTES, type DesktopUacBrokerRequest} from "nbook/shared/desktop-uac-broker";
+import {DESKTOP_UAC_BROKER_SCHEMA, DESKTOP_UAC_MAX_SECRET_BYTES, type DesktopUacBrokerRequest} from "@notnotype/neuro-book-contracts/desktop-uac";
 import {
     runDesktopUacBroker,
     validateDesktopUacBrokerRequest,
@@ -124,7 +124,7 @@ describe("Desktop UAC Broker Manager boundary", () => {
 });
 
 async function runBrokerFixture(managerSource: string, secret: string): Promise<unknown[]> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-uac-broker-"));
+    const root = await mkdtemp(testHostPath("nbook-uac-broker-"));
     roots.push(root);
     const managerExecutable = join(root, "fake-manager.mjs");
     await writeFile(managerExecutable, managerSource, "utf8");

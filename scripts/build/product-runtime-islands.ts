@@ -1,7 +1,7 @@
 import {existsSync, readFileSync, realpathSync} from "node:fs";
 import {createRequire} from "node:module";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
-import {pathToFileURL} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 
 /** Product 中必须保留真实 package 形状的一组运行依赖。 */
 export type ProductRuntimeIslandDefinition = {
@@ -47,7 +47,7 @@ const cachedRuntimeGraphs = new Map<string, ProductRuntimeIslandGraph>();
  * jsdom/undici 会读取 package 相对文件，TypeScript 会读取 `lib/*.d.ts`；它们
  * 不能安全冻结进单文件 bundle。其余纯 JS Provider SDK 仍由 Bun 收入 bundle。
  */
-export function productRuntimeIslandDefinitions(sourceRoot = resolve(".")): ProductRuntimeIslandDefinition[] {
+export function productRuntimeIslandDefinitions(sourceRoot = defaultSourceRoot()): ProductRuntimeIslandDefinition[] {
     return runtimeIslandGraph(sourceRoot).definitions.map((definition) => ({
         ...definition,
         packages: [...definition.packages],
@@ -122,7 +122,7 @@ function createRuntimeIslandDefinitions(dynamicPackages: string[]): ProductRunti
 }
 
 /** 返回供 Bun external 与最终复制共同消费的稳定 package 集合。 */
-export function productRuntimeIslandPackageNames(sourceRoot = resolve(".")): string[] {
+export function productRuntimeIslandPackageNames(sourceRoot = defaultSourceRoot()): string[] {
     return [...runtimeIslandGraph(sourceRoot).packages.keys()].sort();
 }
 
@@ -178,7 +178,7 @@ export function productOpaqueImportDefinitions(): ProductOpaqueImportDefinition[
  * 返回依赖图中已登记 package island 的真实目录，并核对 manifest 身份。
  * 该目录可以位于 Bun/pnpm 的嵌套 store，不要求 package 被 hoist 到根 node_modules。
  */
-export function productRuntimeIslandSourceRoot(packageName: string, sourceRoot = resolve(".")): string {
+export function productRuntimeIslandSourceRoot(packageName: string, sourceRoot = defaultSourceRoot()): string {
     const resolvedPackage = runtimeIslandGraph(sourceRoot).packages.get(packageName);
     if (!resolvedPackage) {
         throw new Error(`Product package island 未登记 Source：${packageName}`);
@@ -192,7 +192,19 @@ export function productRuntimeIslandSourceRoot(packageName: string, sourceRoot =
  * 传递依赖从声明它的 package 实例解析，不假定它被 hoist 到根 node_modules。
  * 最终 Product 会把这些实例扁平复制，因此同名不同版本仍然直接失败。
  */
-function runtimeIslandGraph(sourceRoot: string): ProductRuntimeIslandGraph {
+function defaultSourceRoot(): string {
+    const configured = process.env.NEURO_BOOK_REPOSITORY_ROOT?.trim();
+    if (configured) return resolve(configured);
+    let current = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    while (true) {
+        if (existsSync(resolve(current, "package.json")) && existsSync(resolve(current, "node_modules"))) return current;
+        const parent = dirname(current);
+        if (parent === current) return resolve(".");
+        current = parent;
+    }
+}
+
+function runtimeIslandGraph(sourceRoot = defaultSourceRoot()): ProductRuntimeIslandGraph {
     const canonicalSourceRoot = realpathSync.native(resolve(sourceRoot));
     const cacheKey = process.platform === "win32"
         ? canonicalSourceRoot.toLowerCase()

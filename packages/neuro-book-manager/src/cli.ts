@@ -30,7 +30,8 @@ import {formatCliError} from "#manager/error-message";
 import {parseProfile, profileNames} from "#manager/profiles";
 import {runManagerTui} from "#manager/tui";
 import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight} from "#manager/source-adoption";
-import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
+import type {OfflineInspection} from "#manager/types";
+import type {InstallProfile, InstallationManifest, ReleaseChannel} from "@notnotype/neuro-book-contracts/installation";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
 import {defaultDesktopInstallationRoot, inferWindowsDesktopInstallationScope, installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
@@ -41,7 +42,7 @@ import {
     testDesktopProvider,
 } from "#manager/desktop-provider";
 import {runDesktopUacBroker} from "#manager/desktop-uac-broker";
-import {runDesktopUacClient} from "nbook/desktop/shared/src/desktop-uac-client";
+import {runDesktopUacClient} from "#manager/desktop-uac-client";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";

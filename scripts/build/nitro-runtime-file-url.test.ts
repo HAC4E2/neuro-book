@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest";
 
 import {
     containsAbsoluteNodeModuleFileUrl,
-} from "nbook/scripts/build/nitro-runtime-file-url.mjs";
+} from "#scripts/build/nitro-runtime-file-url.mjs";
 
 describe("Nitro Product 绝对依赖路径泄漏", () => {
     it.each([

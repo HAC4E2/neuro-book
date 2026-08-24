@@ -14,22 +14,19 @@ import {verifyInstalledProductRuntimeControlPlane, verifyInstalledProductRuntime
 import {runCapture} from "#manager/process";
 import {installationRootDataPaths} from "#manager/root-locators";
 import {isCanonicalMachineInstallationRoot, renderManagerWrapper, renderRuntimeWrapper} from "#manager/runtime";
-import {parseInstallationManifest} from "#manager/schema";
+import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
 import {renderToolWrapper} from "#manager/tools";
 import type {
     CommandInspection,
     DoctorReport,
     InstallationCheck,
-    InstallationManifest,
     InstallationServiceStatus,
     InstallationStatus,
-    ManagedRuntimeComponent,
-    SystemRuntimeComponent,
-    SystemToolComponent,
 } from "#manager/types";
+import type {InstallationManifest, ManagedRuntimeComponent, SystemRuntimeComponent, SystemToolComponent} from "@notnotype/neuro-book-contracts/installation";
 import {MANAGER_VERSION} from "#manager/version-info";
-import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
+import {resolveAppSqliteLocation} from "#manager/app-sqlite-location";
 
 /** 离线完整性检查结果；导入与doctor共用，不包含服务是否运行。 */
 export type InstallationIntegrityInspection = {

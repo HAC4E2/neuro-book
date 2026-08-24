@@ -1,23 +1,24 @@
 import {execFile} from "node:child_process";
+import {randomUUID} from "node:crypto";
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
-import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
+import {LocalProductPublisher} from "#scripts/build/local-product-publisher";
 import {
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
     type ProductRuntimeExpectedIdentity,
     type VerifiedProductRuntimeImage,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     type ProductRuntimeEntryMap,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -31,7 +32,9 @@ describe("LocalProductPublisher", {timeout: 30_000}, () => {
         const root = await sourceFixture();
         const builder = new ProductRuntimeImageBuilder(root);
         const candidate = await candidateImage(builder, "explicit-output", "explicit");
-        const outputRoot = join(root, ".agent", "tmp", "manager-build", ".output");
+        const outputParent = testHostPath("local-product-publisher", "manager-build", randomUUID());
+        roots.push(outputParent);
+        const outputRoot = join(outputParent, ".output");
         await mkdir(outputRoot, {recursive: true});
 
         const published = await new LocalProductPublisher(root, builder).publish({
@@ -46,7 +49,7 @@ describe("LocalProductPublisher", {timeout: 30_000}, () => {
 
     it("允许仓库外的空 `.output`，但拒绝受管 Installation Root", async () => {
         const root = await sourceFixture();
-        const externalParent = await mkdtemp(join(tmpdir(), "nbook-local-publisher-external-"));
+        const externalParent = await mkdtemp(join(testHostPath("local-product-publisher"), "external-"));
         roots.push(externalParent);
         const builder = new ProductRuntimeImageBuilder(root);
         const publisher = new LocalProductPublisher(root, builder);
@@ -73,7 +76,7 @@ describe("LocalProductPublisher", {timeout: 30_000}, () => {
         const root = await sourceFixture();
         const builder = new ProductRuntimeImageBuilder(root);
         const candidate = await candidateImage(builder, "occupied-output", "candidate");
-        const outputRoot = join(root, ".agent", "tmp", "occupied", ".output");
+        const outputRoot = join(testHostPath("local-product-publisher", "occupied"), ".output");
         await mkdir(outputRoot, {recursive: true});
         await writeFile(join(outputRoot, "owned.txt"), "caller", "utf8");
 
@@ -152,7 +155,8 @@ describe("LocalProductPublisher", {timeout: 30_000}, () => {
 
 /** 建立最小 Git Source 与 Builder 读取的 runtime 版本元数据。 */
 async function sourceFixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-local-publisher-"));
+    await mkdir(testHostPath("local-product-publisher"), {recursive: true});
+    const root = await mkdtemp(join(testHostPath("local-product-publisher"), "fixture-"));
     roots.push(root);
     await mkdir(join(root, "src"), {recursive: true});
     await mkdir(join(root, "node_modules", "nuxt"), {recursive: true});

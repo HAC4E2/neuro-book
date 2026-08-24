@@ -1,6 +1,6 @@
 import {createServer} from "node:net";
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {Database} from "bun:sqlite";
 import {afterEach, describe, expect, it} from "vitest";
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe("App SQLite备份", () => {
     it("以read-write且禁止create的模式checkpoint并复制已有数据库", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-"));
+        root = await mkdtemp(testHostPath("nbook-manager-health-"));
         const stateRoot = join(root, "state");
         const databasePath = join(stateRoot, "workspace", ".nbook", "neuro-book.sqlite");
         await mkdir(join(stateRoot, "workspace", ".nbook"), {recursive: true});
@@ -37,7 +37,7 @@ describe("App SQLite备份", () => {
     });
 
     it("按State Root配置备份自定义SQLite位置", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-"));
+        root = await mkdtemp(testHostPath("nbook-manager-health-"));
         const stateRoot = join(root, "state");
         const databasePath = join(stateRoot, "custom", "app.sqlite");
         await mkdir(join(stateRoot, "custom"), {recursive: true});
@@ -53,7 +53,7 @@ describe("App SQLite备份", () => {
     });
 
     it("数据库不存在时返回null且不创建文件", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-"));
+        root = await mkdtemp(testHostPath("nbook-manager-health-"));
         const databasePath = join(root, "state", "workspace", ".nbook", "neuro-book.sqlite");
 
         await expect(backupApplicationDatabase(join(root, "state"), join(root, "backup"))).resolves.toBeNull();
@@ -61,7 +61,7 @@ describe("App SQLite备份", () => {
     });
 
     it("打开或checkpoint失败时报告备份阶段和数据库路径", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-"));
+        root = await mkdtemp(testHostPath("nbook-manager-health-"));
         const databasePath = join(root, "state", "workspace", ".nbook", "neuro-book.sqlite");
         await mkdir(databasePath, {recursive: true});
 
@@ -72,12 +72,12 @@ describe("App SQLite备份", () => {
 
 describe("native Product 端口保护", () => {
     it("空 State Root 不把默认 3000 当作本安装的运行实例", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-port-"));
+        root = await mkdtemp(testHostPath("nbook-manager-health-port-"));
         await expect(assertNativeProductStopped(join(root, "state"))).resolves.toBeUndefined();
     });
 
     it("已有 State Root 会检查显式配置的端口", async () => {
-        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-port-"));
+        root = await mkdtemp(testHostPath("nbook-manager-health-port-"));
         const stateRoot = join(root, "state");
         const server = createServer();
         await new Promise<void>((resolvePromise, rejectPromise) => {

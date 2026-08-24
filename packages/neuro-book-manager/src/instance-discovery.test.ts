@@ -1,5 +1,5 @@
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -105,7 +105,7 @@ async function createGitFixture(root: string): Promise<void> {
 }
 
 async function temporaryRoot(prefix: string): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), prefix));
+    const root = await mkdtemp(testHostPath(prefix));
     roots.push(root);
     return root;
 }

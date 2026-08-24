@@ -1,34 +1,34 @@
 # Project Status
 
-> 截至 2026-08-15。本文只记录仓库级现状，不替代 `docs/tasks/` 中的实现 walkthrough；具体 TODO 和后续安排以对应 Issue、Task 为准。
+截至 2026-08-17。本文只记录仓库级现状；具体 TODO 以 GitHub Issue 为准，实现过程与证据以对应 Task 为准，当前版本发布载荷以 [`RELEASE.md`](RELEASE.md) 为准。
 
 ## 一句话结论
 
-NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel 写作模式 v1**。Markdown Studio、Project Workspace、Agent、World Engine 和 Plot 工作台的核心合同已基本落地；当前主要缺口是 stable 发布、浏览器/真实模型验收和持续作者试用，不是核心数据模型的重新设计。
+NeuroBook 当前处于快速开发阶段，产品主线已收敛到 Novel 写作模式 v1；核心数据与运行时合同基本落地，主要缺口是 stable 发布、真实 Provider、完整浏览器流程和持续作者试用。
 
 ## 产品基线
 
-- 普通写作入口以 Novel IDE / Markdown Studio 为主。共享 48px Activity Bar 提供书架、文件、角色、剧情、World、Jobs/Trace/History、用户资产、账户和设置；Desktop 使用单一 36px Workbench 标题栏，B/S 不绘制伪标题栏。
-- 默认写作链路是：`灵感探索 → Project / Lorebook → World Engine 初始化 → 08 剧情规划与状态推进 → 09 章节写作 → 写后回补与修订`。
-- 默认 Project 提供 `manuscript/`、`lorebook/`、`agents/`、`manual/`、`reference/` 和 `world-engine/` 骨架；新 Project 不再生成 `simulation/`。
-- RAG、RP、simulation 等历史能力仍保留在代码和历史资料中，但不进入普通写作模式的默认入口。
-- 默认模板只创建 `leader.default/` 和 `writer/` 上下文；RP profile 与历史 profile 文件不删除，恢复入口另行设计。
+- 普通写作入口是 Novel IDE / Markdown Studio；共享 Activity Bar 提供书架、文件、角色、剧情、World、Jobs/Trace/History、用户资产、账户和设置。
+- 默认链路是“灵感探索 → Project / Lorebook → World Engine 初始化 → 剧情规划与状态推进 → 章节写作 → 写后回补与修订”。
+- Project 内容以 `project.yaml`、`manuscript/`、`lorebook/`、`agents/`、`manual/`、`reference/` 和 `.nbook/` 为核心；RAG、RP、simulation 等历史能力不进入普通写作模式默认入口。
+- 用户状态由 State Root 承载，可重建数据由 Cache Root 承载。App SQLite 位于 Workspace Root `.nbook`；Project SQLite 位于具体 Project Workspace `.nbook`。
+- Product Application Root 只读；Profile/Variable 编译、用户同步与动态 import cache 写入 State Root。安装、发布与 Desktop 继续遵循现行 manifest 和 runtime contract。
 
 ## 核心模块状态
 
 | 模块 | 当前状态 | 依据 |
 | --- | --- | --- |
-| 写作模式 v1 | 主路径阶段完成，进入体验打磨 | [Task 64](docs/tasks/64-world-engine-prompt-engineering/README.md)、[Task 87](docs/tasks/87-plot-two-trees-and-writer-modes/README.md)、[Task 124](docs/tasks/124-writing-pipeline-batch3/README.md) |
-| 文生图（chatu8 移植） | 本地链路已实现；角色视觉资料已支持 Project 多分组、分组启用/优先级、JSON 版本确认、正文/照片精确引用、NovelAI 画风串分组、触发词 `\|` 严格合同与一次性迁移、角色身份跨版本同步和视觉资料跨组移动；正文图片生成后的写回已收归服务端并接入 Project history、乐观重试、章节级互斥和免生图恢复；聚焦回归通过，仓库全量测试仍有既有 workspace/world-engine/agent 基线失败，浏览器/真实模型验收仍需单独执行 | [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) |
-| World Engine | 核心模型、API、Workbench 和作者主路径阶段完成 | [Task 56](docs/tasks/56-world-engine/README.md)、[Task 65](docs/tasks/65-world-engine-calendar-enhancement/README.md)、[Task 71](docs/tasks/71-world-engine-codeact-readwrite/README.md) |
-| Plot | 两棵树模型已落地：承载树负责章节呈现，因果树负责剧情组织，`StoryScene` 连接两者 | [Task 78](docs/tasks/78-plot-scene-world-engine-bridge/README.md)、[Task 93](docs/tasks/93-plot-planning-layer/README.md)、[Task 99](docs/tasks/99-plot-planning-ui/README.md) |
-| Agent / Workflow | 主要链路已实现；Provider API / Automatic Model Discovery 已在 PR #101 合并并完成 Task 104 收尾，真实 Project、外部 Provider 和完整浏览器产品流程仍待做 | [Task 104](docs/tasks/104-pi-models-runtime-upgrade/README.md)、[Task 111](docs/tasks/111-workflow-agent-integration/README.md)、[Task 116](docs/tasks/116-agent-workflow-reliability/README.md)、[Task 139](docs/tasks/139-agent-abort-error-projection/README.md) |
-| Project 生命周期与存储 | 生命周期、快照、路径和运行产物合同已实现；跨环境发布验收未完成 | [Task 118](docs/tasks/118-project-catalog-snapshot-path-integration/README.md)、[Task 125](docs/tasks/125-runtime-artifact-storage-lifecycle/README.md) |
-| Product Runtime / Manager | `0.9.6-canary.20260814.024826Z.9653191d` 已完成五平台 Product、Windows Portable、容器和公开资产验收；stable、公开签名安装器和正式 Desktop 发行方案仍未完成 | [Task 105](docs/tasks/105-unified-installation-manager/README.md)、[Task 145](docs/tasks/145-electron-desktop-productization/README.md) |
-| Task 143 Desktop Envelope | Windows-first Electron/Tauri spike 已完成合同和共享 Workbench Chrome 验收；内部 Desktop 产品化证据继续由 Task 145维护 | [Task 143](docs/tasks/143-desktop-envelope-installation-spike/README.md)、[Task 145](docs/tasks/145-electron-desktop-productization/README.md) |
-| Task 145 Electron Desktop Productization | Windows x64 内部 Desktop beta 的安装、UAC、Repair、卸载和 Sandbox `--delete-data` 验收已收口；公开 Application Canary `v0.9.6-canary.20260814.024826Z.9653191d` 已发布，但不包含 Electron Desktop ZIP/Depot。原生 Snap、真实外部 Provider、公开签名、updater 和 macOS 实包仍未完成 | [Task 145](docs/tasks/145-electron-desktop-productization/README.md)、[ADR 0014](docs/adr/0014-electron-desktop-productization.md)、[ADR 0016](docs/adr/0016-windows-desktop-uac-broker.md)、[#87](https://github.com/notnotype/neuro-book/issues/87) |
-| Agent 资产安装协议 | 方案已起草并完成自审，尚未实施 | [Task 135](docs/tasks/135-agent-asset-install-protocol/README.md) |
-| llmlint | 3.0.0 已同步到 sibling、内置 vendored runtime 和 user runtime | [Task 51](docs/tasks/51-anti-ai-slop-skill/README.md) |
+| 写作模式 v1 | 主路径阶段完成，进入体验打磨 | [Task 64](packages/neuro-book/.agents/tasks/64-world-engine-prompt-engineering/README.md)、[Task 87](packages/neuro-book/.agents/tasks/87-plot-two-trees-and-writer-modes/README.md)、[Task 124](packages/neuro-book/.agents/tasks/124-writing-pipeline-batch3/README.md) |
+| 文生图（chatu8 移植） | 正文生图、角色视觉资料、NovelAI V4.5/V5、队列、后处理、历史图片、当前配置重 roll 和覆盖式安装包已在功能分支落地；聚焦回归通过，浏览器与真实 Provider 验收仍需单独执行 | [Task 142](.agents/tasks/142-text-to-image-chatu8-port/README.md) |
+| World Engine | 核心模型、API、Workbench 和作者主路径阶段完成 | [Task 56](packages/neuro-book/.agents/tasks/56-world-engine/README.md)、[Task 65](packages/neuro-book/.agents/tasks/65-world-engine-calendar-enhancement/README.md)、[Task 71](packages/neuro-book/.agents/tasks/71-world-engine-codeact-readwrite/README.md) |
+| Plot | 两棵树模型已落地：承载树负责章节呈现，因果树负责剧情组织，`StoryScene` 连接两者 | [Task 78](packages/neuro-book/.agents/tasks/78-plot-scene-world-engine-bridge/README.md)、[Task 93](packages/neuro-book/.agents/tasks/93-plot-planning-layer/README.md)、[Task 99](packages/neuro-book/.agents/tasks/99-plot-planning-ui/README.md) |
+| Agent / Workflow | 主要链路已实现；Provider API / Automatic Model Discovery 已在 PR #101 合并并完成 Task 104 收尾，真实 Project、外部 Provider 和完整浏览器产品流程仍待做 | [Task 104](packages/neuro-book/.agents/tasks/104-pi-models-runtime-upgrade/README.md)、[Task 111](packages/neuro-book/.agents/tasks/111-workflow-agent-integration/README.md)、[Task 116](packages/neuro-book/.agents/tasks/116-agent-workflow-reliability/README.md)、[Task 139](packages/neuro-book/.agents/tasks/139-agent-abort-error-projection/README.md) |
+| Project 生命周期与存储 | 生命周期、快照、路径和运行产物合同已实现；跨环境发布验收未完成 | [Task 118](packages/neuro-book/.agents/tasks/118-project-catalog-snapshot-path-integration/README.md)、[Task 125](packages/neuro-book/.agents/tasks/125-runtime-artifact-storage-lifecycle/README.md) |
+| Product Runtime / Manager | `0.9.6-canary.20260814.024826Z.9653191d` 已完成五平台 Product、Windows Portable、容器和公开资产验收；stable、公开签名安装器和正式 Desktop 发行方案仍未完成 | [Task 105](.agents/tasks/105-unified-installation-manager/README.md)、[Task 145](.agents/tasks/145-electron-desktop-productization/README.md) |
+| Task 143 Desktop Envelope | Windows-first Electron/Tauri spike 已完成合同和共享 Workbench Chrome 验收；内部 Desktop 产品化证据继续由 Task 145维护 | [Task 143](.agents/tasks/143-desktop-envelope-installation-spike/README.md)、[Task 145](.agents/tasks/145-electron-desktop-productization/README.md) |
+| Task 145 Electron Desktop Productization | Windows x64 内部 Desktop beta 的安装、UAC、Repair、卸载和 Sandbox `--delete-data` 验收已收口；公开 Application Canary `v0.9.6-canary.20260814.024826Z.9653191d` 已发布，但不包含 Electron Desktop ZIP/Depot。原生 Snap、真实外部 Provider、公开签名、updater 和 macOS 实包仍未完成 | [Task 145](.agents/tasks/145-electron-desktop-productization/README.md)、[ADR 0014](packages/neuro-book/docs/adr/0014-electron-desktop-productization.md)、[ADR 0016](packages/neuro-book/docs/adr/0016-windows-desktop-uac-broker.md)、[#87](https://github.com/notnotype/neuro-book/issues/87) |
+| Agent 资产安装协议 | 方案已起草并完成自审，尚未实施 | [Task 135](packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md) |
+| llmlint | 3.0.0 收编到 workspace；`packages/llmlint/skill` 是唯一运行时 Skill 源，由 system assets projection 生成目标模板 | [Task 51](.agents/tasks/51-anti-ai-slop-skill/README.md) |
 
 ## 关键实现合同
 
@@ -41,120 +41,28 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 
 ## 最新收口
 
-- [Task 142](docs/tasks/142-text-to-image-chatu8-port/README.md) 已收口正文生图与角色管理链路：主工作区入口、当前章节 LLM 提示词、后端角色扫描与机械组装、正文占位符生成、整体 reroll、图片长按后处理、Project 角色集合、角色详情 Tag 生成、当前生图配方和 NovelAI FIFO 队列均已落地；当前相关自动化验证为 `49` 个测试文件、`220/220` 个断言通过；浏览器/真实模型验收仍需单独执行。
-- 2026-08-17 新增正文生图角色调用合同门禁：`illustration.director` 在 L1→L2 边界修复可确定的缺尾 `$`，`from side` 等非背面角度使用正面视觉资料并保留角度 Tag；共享 codec、写入前门禁和不可修复重试已落地，真实 LLM/NovelAI 与浏览器验收仍未执行。
-- 2026-08-17 补齐 chatu8 独立服装调用解析：无 `kind` 的 `name + visible/hidden` 调用按当前 visual 精确区分角色与服装，服装继承前序角色朝向；`kind: "character" | "outfit"` 成为新输出推荐格式，引用缺失/歧义在入队前返回稳定错误。当前章节 3 处调用已由等价 visual fixture 验证无需重抽取即可展开；真实 Project 队列与供应商尚未执行。新增合同聚焦 `8` 个测试文件、`62/62` 通过，文生图相关全范围 `75` 个测试文件、`435/435` 通过；Node 运行 Nuxt typecheck 通过。
-- 2026-08-17 修复 `TextToImageAsset.finalPromptBundleJson` 的 Project SQLite schema 漂移：新库建表、旧库幂等补列和离线 Workspace 迁移已统一；两个现有 Project 已完成列迁移并通过 `PRAGMA integrity_check`，真实 NovelAI 重试仍未执行。
-- 2026-08-17 修复正文图片生成后的写回竞态：服务端按最新章节和占位符 ID 持久化，前端不再二次保存旧整篇正文；新增 `inserted` / `already_inserted` / `missing` 结果、`sourceInsertStatus` 推进、已有资产恢复端点和正文栏宽度自适应。文生图与 Markdown 聚焦回归 `60` 个测试文件、`400/400` 通过；当前章节已通过 Project history 恢复为 `8` 个图片引用、`0` 个占位符，资产保持 `13`，未执行浏览器或真实 NovelAI 验收。
-- 2026-08-18 恢复正文图片块的 Project 级 FIFO 消费者：每个占位符独立创建并轮询 Job，编辑器只读期间其它图片卡片仍可入队；服务端写回版本由前端原子接纳，保存请求串行化且无 dirty 内容不重复写盘，取消/消费者故障不会把 Job 留在无限 queued。新增队列顺序、正文消费者写回、只读卡片点击和保存竞态相关回归；未执行浏览器或真实 NovelAI 长队列验收，详见 [Task 142 实施记录](docs/tasks/142-text-to-image-chatu8-port/README.md)。
-- 2026-08-18 适配新正文 LLM / 生图预设的图片块容错：多个图片块可以共享同一正文挂载点并按 LLM 回复顺序插入；锚点零命中追加到正文末尾，多命中使用第一行；格式坏块或截断块逐块跳过，有效块仍继续插入。整次回复没有任何可用块时才报告堵塞，正文、保存和后续图片任务保持不变。文生图相关全范围 `76` 个测试文件、`457/457` 通过，Node Nuxt typecheck 通过；真实新模型与浏览器验收仍未执行。
-- 2026-08-18 启动文生图扩展化与 ZIP 分发阶段：官方 `master` 基线 `5e55c54` 没有通用扩展宿主；当前实现除 `224` 个命名相关文件外还修改 `21` 个非生成核心文件和两套 Prisma schema，因此最终目标仍是先在 master 建立通用 Nuxt / Novel IDE / Markdown 扩展槽位，再把文生图收敛到唯一的 `extensions/text-to-image/` 目录。过渡版已生成固定该 master 的覆盖包：`195` 个白名单源码文件和 `2` 个元数据文件，隐私/禁止文件扫描 `0` 命中；干净 master 的依赖安装、两套 Prisma 生成、Nuxt typecheck、`45/45` 聚焦回归及隔离浏览器空工作台验收均通过。该 v1 会覆盖宿主源码和依赖/Prisma 合同，不具备目录级卸载能力。
-- Task 142 的角色视觉资料重构已落地：Project 可维护多个角色分组并独立启用、同一角色支持多个 JSON 版本和显式 `visualId`，LLM 修改必须确认覆盖/新建/取消，正文扫描与角色照片不会跨版本串写；工作台侧栏按分组/角色/JSON 文件切换，NovelAI 画风串保留分组和自命名。该批次聚焦回归为 `11` 个文件 `44/44`、正文扫描/编译/发送数据 `31/31`、正文 API/队列/图片链路 `25/25`、旧视觉服务 `17/17`，直接 TypeScript/Vue 类型检查通过；全量 Vitest 仍暴露仓库既有基线失败，详见 Task 142 记录。
-- 2026-08-21 文生图新增 NovelAI Diffusion V5 Full/Curated：配置和画风串可保存 V5，出站使用 `params_version: 4`、Karras 与 V5 质量预设，Full/Curated 局部重绘按官方首发模型映射；首发不支持的 Vibe Transfer/角色参考图会在网络请求前明确阻止，设置页不再用 V4.5 的 T5/512 估算误导 V5。聚焦回归 `6` 个文件、`46/46` 通过；浏览器与真实 V5 出图未执行。
-- [Task 139](docs/tasks/139-agent-abort-error-projection/README.md) 将主动取消与运行错误分开：取消显示中性状态，保留已生成的半截正文，并避免重复错误气泡。
-- [Task 138](docs/tasks/138-agent-conversation-branch-projection/README.md) 将对话分支切换改为基于可见对话锚点的投影，运行期记账 entry 不再制造假分支。
-- [Task 111](docs/tasks/111-workflow-agent-integration/README.md) 已补齐 Workflow 的持久身份、公开投影、Job/Run 详情、`wf.ask` 和 Composer/Preview 防重复提交；动态 `outputSchema` 的 `report_result` 合同也已补齐。
+- 文生图功能已迁入 `packages/neuro-book/` 的主应用边界，并保留正文锚点容错、角色视觉多版本、NovelAI V5、当前画风串重 roll、图片复制/下载与历史大图等本地能力；实现与验证记录见 [Task 142](.agents/tasks/142-text-to-image-chatu8-port/README.md)。
+- [Task 139](packages/neuro-book/.agents/tasks/139-agent-abort-error-projection/README.md) 将主动取消与运行错误分开：取消显示中性状态，保留已生成的半截正文，并避免重复错误气泡。
+- [Task 138](packages/neuro-book/.agents/tasks/138-agent-conversation-branch-projection/README.md) 将对话分支切换改为基于可见对话锚点的投影，运行期记账 entry 不再制造假分支。
+- [Task 111](packages/neuro-book/.agents/tasks/111-workflow-agent-integration/README.md) 已补齐 Workflow 的持久身份、公开投影、Job/Run 详情、`wf.ask` 和 Composer/Preview 防重复提交；动态 `outputSchema` 的 `report_result` 合同也已补齐。
 - Product Runtime 已完成 Windows clean archive、Verifier、migration、Profile/Variable、SQLite、Sharp、Workspace CLI、HTTP/shutdown 和 State Root 生命周期验证；`v0.9.6-canary.20260814.024826Z.9653191d` 又完成了五平台 Product、Portable、容器、公开 manifest/checksum 和 GHCR 验收。真实作者流程和 stable 发布仍单独记录。
-- Task 143 已完成 Windows x64 的 Electron/Tauri Portable、ASAR、Manager CLI 用户级安装、Desktop Bridge/Supervisor、动态 loopback、认证关闭和 Tauri Job Object forced smoke；证据见 [Task 143 walkthrough](docs/tasks/143-desktop-envelope-installation-spike/README.md)。共享 Workbench Chrome、书架/Project、Inline Editor Agent 和 Agent/IDE 切换已完成 Edge headless/headed 验收；原生拖动/Snap/托盘/对话框、完整 SSE/WebSocket、WebView2 分发、签名安装器/updater、macOS 实际包和完整 crash/disconnect 矩阵仍未完成。
+- Task 143 已完成 Windows x64 的 Electron/Tauri Portable、ASAR、Manager CLI 用户级安装、Desktop Bridge/Supervisor、动态 loopback、认证关闭和 Tauri Job Object forced smoke；证据见 [Task 143 walkthrough](.agents/tasks/143-desktop-envelope-installation-spike/README.md)。共享 Workbench Chrome、书架/Project、Inline Editor Agent 和 Agent/IDE 切换已完成 Edge headless/headed 验收；原生拖动/Snap/托盘/对话框、完整 SSE/WebSocket、WebView2 分发、签名安装器/updater、macOS 实际包和完整 crash/disconnect 矩阵仍未完成。
 - Task 143 本轮收口补齐了 Portable Envelope 内容摘要、startup nonce header 保护、State Root 日志入口、Windows PATH fail-closed 读取、同盘 staging 和 Tauri 关闭幂等 claim；随后完成当前 Source 冻结后的 clean Build A/B 与 E/F Portable 重建。最终证据记录 Product image `sha256:8aae90a2d5953e1eb2aa4e7aac4326b232f80ddbcc8082bc15f8e239819cb49b`、Electron ZIP 389,594,292 bytes、Tauri ZIP 243,829,892 bytes，两个 ZIP 与 payload 均逐字节一致；旧 stale Tauri/Manager bundle 失败已由重建二进制后的仓库外 headless smoke 复核通过。随后生成固定七项的 Aggregate Depot，G/H 两批共享 verifier 通过且逐字节一致；聚合 ZIP 为 628,325,258 bytes，仍是未签名 spike 交付。
-- Task 143 的 2026-08-06 收口又补齐了 Desktop Menu Contract：自绘标题栏提供完整下拉菜单，Electron 原生菜单和 Tauri 页面事件覆盖 15 个公开命令，Settings、编辑、缩放、刷新和 About 均有实际消费；共享分发器拒绝未知运行时命令。该批次的 focused Desktop Contract 为 3 files / 15 tests，根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 与 security audit 已通过；随后在同一 Source commit 上完成 Product Build A/B、两个 Portable 组包和仓库外 smoke，数字见 [Task 143 walkthrough](docs/tasks/143-desktop-envelope-installation-spike/README.md)。
+- Task 143 的 2026-08-06 收口又补齐了 Desktop Menu Contract：自绘标题栏提供完整下拉菜单，Electron 原生菜单和 Tauri 页面事件覆盖 15 个公开命令，Settings、编辑、缩放、刷新和 About 均有实际消费；共享分发器拒绝未知运行时命令。该批次的 focused Desktop Contract 为 3 files / 15 tests，根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 与 security audit 已通过；随后在同一 Source commit 上完成 Product Build A/B、两个 Portable 组包和仓库外 smoke，数字见 [Task 143 walkthrough](.agents/tasks/143-desktop-envelope-installation-spike/README.md)。
 - Task 143 最新收口又修复了两个 clean-runner 问题：Windows Registry `UninstallString` 现在始终使用 Windows 分隔符；Desktop Contract 使用独立 esbuild TypeScript transform，不依赖 `.nuxt/tsconfig.json`，无 `.nuxt` 本地验证为 4 files / 19 tests。提交 `906271b4` 的最终 CI 已确认 Desktop Contract 三平台和 Product Platform 四平台均通过；根 Typecheck/Full tests advisory 的既有失败（Prisma generated client、隐式 `any`、POSIX `C:/...` fixture）单独登记，不能当作本轮桌面回归。最终 Full tests 为 464 passed、3 skipped，24 个文件 / 78 个测试失败；这些失败仍来自 POSIX `C:/...` 伪路径门禁。
 - Task 143 的 Workbench Chrome 批次删除了重复的工作区/书架 Header 和 IDE Agent Drawer，建立 request-scoped Chrome context、48px Activity Bar、四区 Desktop 标题栏与独立 Inline Editor Agent controller；Desktop Bridge 升级到 v2，不保留 v1 fallback。当前门禁为根/scripts typecheck、Desktop Contract `7 files / 28 tests`、相邻 UI `6 files / 21 tests`、Manager `1 file / 12 tests`、Electron bundle、Tauri fmt/check，以及 Edge headless/headed Workbench smoke 全部通过。
-- Task 145 已从最新 `origin/master` 建立生产分支并创建 Issue #87。2026-08-12 晚间完成三个发行缺陷修复并重新构建：`windows-bun-stage0.ps1` 补 UTF-8 BOM（打包器加 BOM 门禁）；win32-x64 Product 镜像 app-local 携带 MSVC Runtime DLL（`NEURO_BOOK_MSVC_RUNTIME_DIR` 显式构建输入）；Windows Uninstall Host 长路径（`\\?\` 前缀）、纯 ASCII 脚本与 launcher root 清理。最终 Product image `sha256:df2f4812...`（3250 files / 136,634,228 bytes，A/B 一致），Electron Portable ZIP `7ac0c915...`（390,489,189 bytes）与 Desktop Depot ZIP `cf7f2b2c...`（387,870,766 bytes）连续组包两次逐字节一致；MSVC Runtime DLL 已入仓 `scripts/build/inputs/msvc-runtime` 作为默认构建输入，CI Windows Product 发布链路不再断链。宿主机 machine 全链路（可见 UAC）绑定旧 image `c5f208` 保持有效（交互/生命周期路径未变）；Windows Sandbox `--delete-data` 全自动验收（Store `wsb.exe` CLI + System 上下文）对新 image 通过，证据 `ok=true`（11/11 项检查）。最终门禁 Manager 41 files / 327 tests、Desktop Contract、typecheck、Electron bundle、packaging security audit 与 `git diff --check` 全绿；PR #88 必检此前已通过，Full tests advisory 的 Harness 黑盒 30 秒超时为既有基线（Issue #90），与桌面改动无关；详见 [Task 145 final acceptance](docs/tasks/145-electron-desktop-productization/evidence/final-acceptance.json)。
-- Task 143 的最终 Workbench 证据使用 Source `15d47946` 完成 Product A/B 和 Portable A/B：Product 为 3,242 文件 / 134,549,619 bytes、imageId `sha256:a330b98936df7694135c020e98fb824648192767d6e25a09405f3f14305d95f3`；Electron/Tauri ZIP 分别为 389,600,838 / 243,840,895 bytes，聚合 Depot 为 628,342,701 bytes，重复组包逐字节一致。仓库外 Electron graceful、Tauri graceful/forced/立即重启均通过；Electron 真包 CDP 已验证 36px 标题栏、48px Activity Bar、drag/no-drag、Settings 和 Quit。Tauri 原生拖动/菜单/托盘/Snap、B/S Docker 和 State Root 实际删除本轮未完成，详见 [Workbench Chrome evidence](docs/tasks/143-desktop-envelope-installation-spike/evidence/workbench-chrome-acceptance.json)。
- - 2026-08-14：PR [#101](https://github.com/notnotype/neuro-book/pull/101) 已合并，Provider API / Automatic Model Discovery 的代理安全、`file:` URL 拒绝、diagnostics、Google `input: ["text"]` 和 duplicate-only `partial` 合同已进入 `master`。Issue [#100](https://github.com/notnotype/neuro-book/issues/100) 的独立 Provider 详情 UI 问题在隔离 Chromium 桌面/窄屏路径中未稳定复现，已关闭；未提交猜测性 UI 修复。详见 [Task 104](docs/tasks/104-pi-models-runtime-upgrade/README.md) 与 [Task 148](docs/tasks/148-provider-details-transition/README.md)。
-- 测试写入 Project Workspace 的高风险路径已切换到隔离 Runtime Workspace Root；相关清理竞态和真实根残留已有专项记录，详见 [Task 125 Round 04](docs/tasks/125-runtime-artifact-storage-lifecycle/walkthroughs/round-04-workspace-test-isolation.md)。
+- Task 145 已从最新 `origin/master` 建立生产分支并创建 Issue #87。2026-08-12 晚间完成三个发行缺陷修复并重新构建：`windows-bun-stage0.ps1` 补 UTF-8 BOM（打包器加 BOM 门禁）；win32-x64 Product 镜像 app-local 携带 MSVC Runtime DLL（`NEURO_BOOK_MSVC_RUNTIME_DIR` 显式构建输入）；Windows Uninstall Host 长路径（`\\?\` 前缀）、纯 ASCII 脚本与 launcher root 清理。最终 Product image `sha256:df2f4812...`（3250 files / 136,634,228 bytes，A/B 一致），Electron Portable ZIP `7ac0c915...`（390,489,189 bytes）与 Desktop Depot ZIP `cf7f2b2c...`（387,870,766 bytes）连续组包两次逐字节一致；MSVC Runtime DLL 已入仓 `scripts/build/inputs/msvc-runtime` 作为默认构建输入，CI Windows Product 发布链路不再断链。宿主机 machine 全链路（可见 UAC）绑定旧 image `c5f208` 保持有效（交互/生命周期路径未变）；Windows Sandbox `--delete-data` 全自动验收（Store `wsb.exe` CLI + System 上下文）对新 image 通过，证据 `ok=true`（11/11 项检查）。最终门禁 Manager 41 files / 327 tests、Desktop Contract、typecheck、Electron bundle、packaging security audit 与 `git diff --check` 全绿；PR #88 必检此前已通过，Full tests advisory 的 Harness 黑盒 30 秒超时为既有基线（Issue #90），与桌面改动无关；详见 [Task 145 final acceptance](.agents/tasks/145-electron-desktop-productization/evidences/final-acceptance.json)。
+- Task 143 的最终 Workbench 证据使用 Source `15d47946` 完成 Product A/B 和 Portable A/B：Product 为 3,242 文件 / 134,549,619 bytes、imageId `sha256:a330b98936df7694135c020e98fb824648192767d6e25a09405f3f14305d95f3`；Electron/Tauri ZIP 分别为 389,600,838 / 243,840,895 bytes，聚合 Depot 为 628,342,701 bytes，重复组包逐字节一致。仓库外 Electron graceful、Tauri graceful/forced/立即重启均通过；Electron 真包 CDP 已验证 36px 标题栏、48px Activity Bar、drag/no-drag、Settings 和 Quit。Tauri 原生拖动/菜单/托盘/Snap、B/S Docker 和 State Root 实际删除本轮未完成，详见 [Workbench Chrome evidence](.agents/tasks/143-desktop-envelope-installation-spike/evidences/workbench-chrome-acceptance.json)。
+ - 2026-08-14：PR [#101](https://github.com/notnotype/neuro-book/pull/101) 已合并，Provider API / Automatic Model Discovery 的代理安全、`file:` URL 拒绝、diagnostics、Google `input: ["text"]` 和 duplicate-only `partial` 合同已进入 `master`。Issue [#100](https://github.com/notnotype/neuro-book/issues/100) 的独立 Provider 详情 UI 问题在隔离 Chromium 桌面/窄屏路径中未稳定复现，已关闭；未提交猜测性 UI 修复。详见 [Task 104](packages/neuro-book/.agents/tasks/104-pi-models-runtime-upgrade/README.md) 与 [Task 148](packages/neuro-book/.agents/tasks/148-provider-details-transition/README.md)。
+- 2026-08-14：Issue [#109](https://github.com/notnotype/neuro-book/issues/109) 修复 Manager 在 Podman Compose 前置裸容器 ID 时无法解析 Application State migration 报告的问题；Podman provider 现在仅在独立 `podman-compose` 可用时固定注入，否则保留用户环境变量并允许 `podman compose` 自行委托。源码回归与 Manager 全量测试通过；本机未安装 Podman，真实 macOS/Podman machine 链路仍待容器 runner 验收，详见 [Task 105](.agents/tasks/105-unified-installation-manager/README.md)。
+- 测试写入 Project Workspace 的高风险路径已切换到隔离 Runtime Workspace Root；相关清理竞态和真实根残留已有专项记录，详见 [Task 125 Round 04](packages/neuro-book/.agents/tasks/125-runtime-artifact-storage-lifecycle/walkthroughs/round-04-workspace-test-isolation.md)。
 
 ## 当前风险与验收缺口
 
-- **发布链路**：公开 `v0.9.6-canary.20260814.024826Z.9653191d` 已完成五平台 Product、Windows Portable、Source、安装脚本、manifest、SHA256SUMS、容器公开 payload、GHCR 和 Windows 数据复用门禁；stable、公开签名、后台 updater 和正式 Desktop 发行方案仍未完成。
-- **Electron beta**：Task 145 已达到可复核的 Windows x64 内部 Desktop beta：宿主机 machine 全链路（可见 UAC 批准，State Root 全程保留）与 Windows Sandbox `--delete-data` 全新环境卸载（11/11 项断言，外部 Workspace 保留）均通过；公开 Application Canary 不包含 Electron Desktop ZIP/Depot。真实外部 Provider 成功连接、原生 Snap 和 macOS `.app` 仍需后续任务。
-- **产品验收**：多项 Task 的 focused tests 和 typecheck 已通过，但浏览器人工验收、真实 Project Workspace、真实 provider/model 和作者视角写作 smoke 不能由单测替代。
-- **写作产品线**：下一阶段重点是 dogfooding、章节写作与修订反馈、World Engine 体验打磨，以及 `memory.jsonl` / `state.md` 是否显式提交等产品决策，见 [#21](https://github.com/notnotype/neuro-book/issues/21)。
-- **未决方向**：一次性对话模型接入见 [#19](https://github.com/notnotype/neuro-book/issues/19)；整书导入见 [#22](https://github.com/notnotype/neuro-book/issues/22)；Session 摘要空闲触发见 [#23](https://github.com/notnotype/neuro-book/issues/23)。
-- **维护成本**：仓库结构优化的后续批次暂缓，先处理 Workflow、Product Runtime 和生命周期链路的集成与验收，见 [Task 123](docs/tasks/123-repo-structure-optimization/README.md)。当前 master 的结构复核另外确认：shared/Manager 有真实运行时依赖环（P1 候选）、shared/`server/agent` 有循环类型依赖（P2）、核心 Facade 单体偏大（P2），以及 OpenAPI 生成物仍写回路由源码（P2）；这些是架构债务，不是当前已复现的运行时故障，处理边界见 [ADR 0015](docs/adr/0015-architecture-boundaries-and-deferred-structure.md)。
-- **已接受的架构边界**：文件系统、Project SQLite、History SQLite、Session JSONL 和 Job JSON 不提供全局原子事务；Electron/Tauri spike 保留部分跨语言重复实现。当前不为这两项建设分布式事务框架或复杂跨语言运行时。
-- **上游依赖**：Nitro dev source-map 临时补丁等待上游稳定版实际包含修复后移除，见 [#20](https://github.com/notnotype/neuro-book/issues/20)。
-
-## 2026-08-09 Task 142 真实 Provider 复核
-
-- 正文 LLM 已使用真实 ds-flash Provider 完成 L1 → L2，并将 1 个占位符写回 Project `ce-shi` 当前章节；全局 `image_gen` Provider 绑定解析与 Node 环境代理适配已补上回归测试。
-- 代理修复后，产品队列已实际访问 NovelAI；两次正式生成均收到 `NovelAI 生成失败：HTTP 429`，当前 Project 资产列表仍为 0，章节尚未替换为 Markdown 图片。
-- 因此真实 provider/model 的“可访问”已验证，但完整“NovelAI → 资产 → Markdown”端到端仍受上游限流阻塞；不能将 Task 142 浏览器走查标记为完成。
-
-## 2026-08-09 Task 142 429 循环重试后
-
-- 按 `HTTP 429` 每 `15s` 间隔执行产品接口循环；本次循环第 `1` 次请求成功，Job `d541d2b3-a4ba-4169-b316-8deea06e9d3d` 为 `succeeded`。
-- NovelAI 生成资产 `assets/tti/fd408d31-866a-4f2c-96f1-e1f1f1e35c8f.png` 已保存（`1216x832`、`2,235,299` 字节），并已写入 `ce-shi` 当前章节的标准 Markdown 图片引用。
-- HTTP/文件链路已验证；浏览器人工验收仍是独立缺口，不能仅凭本次 API 证据勾选完整浏览器走查。
-
-## 2026-08-10 Task 142 合同修正施工计划收口
-
-- 文生图链路已补齐请求类型绑定、Project 角色集合、原始角色 Markdown 与视觉资料隔离、统一角色别名、缺外层大括号修复、无角色段落语义、NovelAI 当前生图配方、最终 tag 去重、T5 token 估算、NAI3/4/4.5 payload 适配、全局 FIFO 队列和 15 秒最低间隔。
-- 429 当前任务只失败退出并回传 429，不自动重试；再次点击才创建新任务。间隔从上一 NovelAI 请求返回成功或错误时开始计算，Vibe 编码、角色照片、重绘和局部重绘也进入同一调度器。
-- 角色视觉删除只处理 `visual.json` 和其中登记的 `assets/tti/` 照片，不删除角色原始 `.md`。TipTap 对 `assets/tti/` 使用受控 API URL 渲染，但 Markdown 仍保留原始相对路径。
-- 自动化验证为相关测试 `49` 个文件、`219/219` 个断言通过；`bun run typecheck` 通过；`bun run generate` 在提升权限后成功；`git diff --check` 通过。
-- 本轮未执行浏览器人工验收，真实 Provider 的历史 API/文件证据不替代浏览器证据；`BROWSER-WALKTHROUGH.md` 中相关项继续保持未勾选。
-
-## 验证口径
-
-- Task 中的 focused test、typecheck、构建、浏览器验收和真实模型验收分别记录，不能互相替代。
-- 最近 Workflow 收口记录了服务端 17 个文件 260 项、前端 5 个文件 39 项自动化验证通过；相关 `typecheck` 复跑退出码为 0。
-- 本文件记录的自动化验证已在 2026-08-10 复跑通过；未执行新的浏览器人工验收，详细命令、通过数量和未运行项以对应 Task walkthrough 为准。
-- 公开 `v0.9.6-canary` 的 Release workflow、manifest、资产大小与 SHA-256、Manager provenance 已分别核对；本文件更新后的文档构建结果以本轮验证记录为准。
-- 未运行的业务测试或浏览器验收不因本文件更新而变成已通过；详细命令、通过数量和未运行项以对应 Task walkthrough 为准。
-
-## 2026-08-14 `0.9.6-canary` 发布状态
-
-- 公开 Release：[v0.9.6-canary.20260814.024826Z.9653191d](https://github.com/notnotype/neuro-book/releases/tag/v0.9.6-canary.20260814.024826Z.9653191d)，`draft=false`、`prerelease=true`，包含 12 个公开资产。
-- 发布源 revision 为 `778ef7d413650472df847601607e5983aa31e949`；Release workflow 为 [`31764859358`](https://github.com/notnotype/neuro-book/actions/runs/31764859358)，全部 22 个 job 成功。
-- Release Manifest v5 记录 `minManagerVersion=0.1.0-canary.54`、GHCR digest `sha256:34294b4aea2d991773eddb0739f4145ed5f2b70e91a7c142a4052fffa190ef57`，Source、五平台 Product 和 Windows Portable 的 source revision 一致。
-- Manager `0.1.0-canary.54` 的 npm `gitHead` 为 `2823e80385ac76f43f7b262495b69d8d4fe8774a`，`bun run manager:verify-public` 已通过。
-- 公开资产下载后逐项重算：`SHA256SUMS` 的 11 个条目全部匹配；manifest 记录的 7 个大文件字节数全部匹配。
-- `v0.9.4`、`v0.9.5` 两轮失败候选仍保留为 Draft 审计记录，均无公开资产；不把失败候选写成可安装 Release。
-- 公开 Application Canary 不包含 Task 145 的 Electron Desktop Portable/Depot 内部 beta 资产；stable、公开签名安装器、updater、macOS 实包和完整人工 Agent/Workflow 验收仍未完成。
-
-## 历史：2026-08-07 `0.9.3-canary` 发布状态
-
-- 最终 `master` 与 `origin/master` 为 `69313ad5ccc0e54203daeeebe69589f108fa3572`。公开 Release 为 [v0.9.3-canary.20260807.175842Z.771ac42b](https://github.com/notnotype/neuro-book/releases/tag/v0.9.3-canary.20260807.175842Z.771ac42b)，状态为 `draft=false`、`prerelease=true`；#47、#17 仍开放且不在本轮合并链。
-- Agent Session recovery、停止反馈、Job durable history、Git Bash retrieval、Source Dev Cache Root、Profile 窄屏和 clean-runner 收口已进入主线；本轮最终审查没有新增 P0/P1。
-- Release workflow `31204827527` 的预检、Source、Linux x64/ARM64、macOS x64/ARM64、Windows Product/Portable、容器、公开 payload、GHCR amd64/arm64/Podman、Windows data reuse、`publish-index` 和 `activate-container-tags` 全部通过。公开 Release 有 12 个资产，包含五平台 Product、Windows Portable、Source、安装脚本、manifest 和 `SHA256SUMS`。
-- `release-manifest.json` 的 source revision 为 `69313ad5ccc0e54203daeeebe69589f108fa3572`，GHCR digest 为 `sha256:2b66b52ad6c0d28f05415a4f60531c03442f3f66887c9bbd3543d90fed4f1ba0`；Manager `0.1.0-canary.52` 的公开 provenance 已通过，tag 为 `manager-v0.1.0-canary.52`。
-- 真实 provider 驱动的 Composer、取消/错误恢复、Workflow/Jobs 多 Run 和重启人工流程仍未取得完整证据；本次发布不把这些场景写成全量浏览器通过。隔离 Source Dev、World Engine、Profile 桌面和 390×844 窄屏证据仍有效。
-- `0.9.3-canary` 是限量 canary，不代表 stable、签名安装器、updater、WebView2 分发或最终 Desktop 框架选择完成。Task 143 仍保持 Windows-first Electron/Tauri spike 边界。
-
-#### 当前剩余边界
-
-- 完整 Workflow Run 历史、断点续跑、逐步 journal、时间线和 pending ask 持久化不属于本轮；重启后只保证 Job 终态和结果可读。
-- Source Dev 旧仓库根 `cache/image-variants` 不自动迁移或删除，详见 [0.9.3-canary 迁移指南](docs/migrations/0.9.3-canary.md)。
-- shared/Manager 运行时依赖环、shared/`server/agent` 循环类型依赖、大型 Facade 单体和 OpenAPI 生成物边界仍是 Task 123/ADR 0015 记录的架构债务，不是本次发布新增的运行时故障。
-
-### 历史结论
-
-- `0.9.3-canary` 已完成限量公开发布，硬门禁和公开资产可复核。
-- 真实 provider、完整人工浏览器流程和 stable/签名 Desktop 能力仍明确标记为未完成，不用 focused 测试或发布 workflow 结果替代它们。
-### 2026-08-10 文生图设计规格施工续批
-
-- Task 142 继续落地 chatu-8 兼容合同：Project 发送数据快照、中文内联 DNA、双大括号变量、统一图片输出解析、版本链预览，以及只在后处理成功后写回正文。
-- 本续批已通过聚焦测试和 `bun run typecheck`；浏览器人工验收、真实 LLM/NovelAI Provider 验收仍保持未完成。
-## 2026-08-10 NovelAI 专用代理自动发现
-
-- NovelAI 的 `/ai/generate-image` 与 `/ai/encode-vibe` 现在使用独立代理解析器：按环境变量、Windows 用户/WinHTTP 配置和受限本机端口顺序探测可用代理，并缓存成功的连接。
-- 通用 Provider、LLM 模型列表和 LLM 对话请求不读取这些代理设置；只有 NovelAI 请求携带代理 dispatcher。连接失败会保留目标主机和底层错误码并触发下次重新发现，HTTP `429` 等业务响应不会触发代理失效。
-- 自动化验证：代理发现/缓存 `6` 项、Provider 隔离与错误传播 `7` 项、NovelAI 请求链路 `6` 项，共 `19/19` 通过；文生图回归为 `46` 个测试文件、`219` 个测试通过，`bun run typecheck` 通过（`74.9` 秒），浏览器人工验收和真实 NovelAI 出图未执行。
-### 2026-08-15 角色管理交互与分组修复施工
-
-- 修复文生图工作台六个按钮的 `void <函数名>` 事件表达式（此前点击不产生请求），全部写操作增加单飞锁、spinner、禁用与 `finally` 清理，双击只发一次请求。
-- 侧栏现在显示全部分组（含空分组与“暂无视觉资料”空状态）；新建分组只填名称，服务端生成稳定 `group-<uuid>` ID，同名创建/重命名返回 409。
-- 删除非 `default` 分组改为两步迁移删除：只读预检摘要 + `expectedRevision` 确认；非空组全部视觉资料无损迁移到 `default`（manifest 合并、大小写冲突重命名、`visualId` 冲突换新 ID），损坏 JSON 按原始字节迁移，角色 Markdown、照片资产与历史 Job 不变；事务写锁 + 事务目录 + 失败回滚 + 重启恢复。
-- Provider 出站统一策略：模型发现与正式 LLM 请求共用，补全 `198.18.0.0/15` 等保留地址与 `.local`/`.localhost` 拒绝；Fake-IP 环境自动信任可达的 loopback 环境代理（`127.0.0.1:7897`），非 loopback 代理不接收 Provider 凭据，私网字面量、跨源凭据重定向与 HTTPS 降级继续拒绝。
-- 自动化：文生图聚焦 `59` 个文件 `314/314` 通过（含新增 DOM 真实点击门禁、迁移故障注入与 Provider 代理矩阵）；`nuxt prepare` + `vue-tsc --noEmit` 退出码 0；真实网络验证经本机代理拉取 `opencode.ai` 模型列表返回 26 个模型。浏览器人工走查与真实 Project 删除迁移未执行，见 [Task 142 实施记录](docs/tasks/142-text-to-image-chatu8-port/README.md)。
-
-### 2026-08-15 发送数据状态、分组移动与触发词修复施工
-
-- 发送数据改为服务端快照 + 页面编辑副本双层状态：未保存修改显示 warning 且不进入下一次请求；三栏条目整行可点击，用边框、图标、徽标和 `aria-checked` 明确“固定发送 / 未固定发送”，标题显示“已选 N / M”，页面文案说明启用分组负责自动扫描、本页负责无条件固定发送；Project 快速切换丢弃旧响应。
-- “加入分组”复制入口已删除，替换为“移动到分组”：移动预检 + 提交事务只移动当前视觉 JSON，来源最后一份移动后角色节点消失，来源生效项按 `updatedAt`/`visualId` 确定性回退；目标等价内容合并到已有 ref 不生成第三份，文件名/视觉 ID 冲突确定性改名/换新 ID，固定发送引用同步映射，照片不复制不删除，故障注入与重启恢复全部回滚。
-- 触发词统一只允许半角竖线 `|` 分隔：英文逗号、中文逗号和连续空项直接校验失败；历史逗号格式由一次性迁移转换（备份 + 校验 + `pipe-v1` 标记，失败回滚）；保存不再自动追加中文名或英文名；英文匹配不区分大小写并做 NFKC 兼容规范化，不同角色同触发词命中在调用 LLM 前返回歧义错误。
-- 中文名、英文名、触发词作为逻辑角色身份跨分组、跨 JSON 版本同步保存（revision CAS + 事务，损坏文件整体失败）；普通视觉编辑改写身份字段会被拒绝，不再产生身份分叉。
-- 启用分组卡片使用 accent 边框/背景、check 图标和“已启用/未启用”徽标，标题显示“已启用 N / M”，零启用显示正文只生成场景内容的警示，“仅启用此组”在唯一启用时禁用，更新期间只有目标卡片显示进度；工作台关闭、页面切换和 Project 切换统一使用“保存、放弃、取消”离开保护。
-- 验证：NovelAI 提示词替换/凭据三态/最终 Tag 链路施工后的文生图聚焦测试为 `72` 个文件、`415/415` 通过（服务、API、组件与 DTO 四侧）；根 `nuxt typecheck` 退出码 0；浏览器人工验收、真实 NovelAI 请求对照与真实 Project 迁移未执行。
+- **发布**：当前公开版本仍是 canary；stable、公开签名、后台 updater 与正式 Desktop 发行未完成。历史版本和精确资产身份见 `vitepress/locales/zh-Hans/changelog/` 与对应 Task。
+- **产品验收**：聚焦测试、typecheck 和构建不能代替浏览器、真实 Project Workspace、真实 Provider/Model 与作者视角写作 smoke。
+- **Desktop**：Windows x64 内部 beta 已有阶段证据；原生 Snap、完整 SSE/WebSocket 断连矩阵、macOS 实包和公开 Desktop 资产仍缺。
+- **写作产品线**：下一阶段是 dogfooding、章节写作与修订反馈、World Engine 体验，以及运行状态是否显式提交等产品决策。
+- **架构债务**：shared/Manager 运行时依赖环、shared 与 `server/agent` 的类型环、大型 Facade 和 OpenAPI 生成物边界仍由 [ADR 0015](packages/neuro-book/docs/adr/0015-architecture-boundaries-and-deferred-structure.md) 与相关 Issue 管理，不是已复现故障。
+- **事务边界**：文件系统、Project SQLite、History SQLite、Session JSONL 与 Job JSON 不承诺全局原子事务；当前不引入分布式事务框架。
+- **上游依赖**：Nitro dev source-map 临时补丁待上游稳定版本实际包含修复后移除。

@@ -8,10 +8,10 @@ import {writeInstallationManifest} from "#manager/manifest-store";
 import {commitOperation, completeRuntimeWrapperSwitch, createOperation, pathCreateEffect, pathRetireEffect, prepareRuntimeWrapperSwitch, recoverFailedOperation, setOperationEffect, updateOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import {assertInstallationHostCompatible} from "#manager/platform";
-import {parseInstallationManifest} from "#manager/schema";
+import {parseInstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {assertManagerUpgrade, installManagerExecutable, installManagedBun, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {installManagedTool, type ManagedToolName, writeManagedToolWrappers} from "#manager/tools";
-import type {InstallationManifest, ManagedGitToolComponent, ManagedToolComponent} from "#manager/types";
+import type {InstallationManifest, ManagedGitToolComponent, ManagedToolComponent} from "@notnotype/neuro-book-contracts/installation";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 /** 安装或更新托管 Bun，同时刷新 Manager/Application Runtime 与稳定 wrapper。 */

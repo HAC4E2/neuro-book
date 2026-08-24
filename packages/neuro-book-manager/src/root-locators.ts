@@ -2,49 +2,15 @@ import {homedir} from "node:os";
 import {resolve} from "node:path";
 
 import {assertAbsolutePathWithin, installationRelativePath} from "#manager/installation-path";
-import type {
-    InstallProfile,
-    InstallationRootLocators,
-    ResolvedInstallationRoots,
-    RootLocator,
-} from "#manager/types";
+import type {InstallProfile, InstallationRootLocators, RootLocator} from "@notnotype/neuro-book-contracts/installation";
+import {
+    INSTALLED_MACOS_ROOT_LOCATORS,
+    INSTALLED_WINDOWS_ROOT_LOCATORS,
+    INSTALLATION_SCOPED_ROOT_LOCATORS,
+    PORTABLE_ROOT_LOCATORS,
+} from "@notnotype/neuro-book-contracts/installation";
+import type {ResolvedInstallationRoots} from "#manager/types";
 
-/** Portable 数据全部跟随 Installation Root 移动。 */
-export const PORTABLE_ROOT_LOCATORS: InstallationRootLocators = {
-    state: {base: "installation-root", path: "data"},
-    cache: {base: "installation-root", path: ".cache"},
-    desktop: {base: "installation-root", path: "data/.desktop"},
-    webview: {base: "installation-root", path: "data/.desktop/webview"},
-};
-
-/** Installed Windows 数据与可替换的程序文件分离。 */
-export const INSTALLED_WINDOWS_ROOT_LOCATORS: InstallationRootLocators = {
-    state: {base: "local-app-data", path: "NeuroBook/data"},
-    cache: {base: "local-app-data", path: "NeuroBook/cache"},
-    desktop: {base: "local-app-data", path: "NeuroBook/desktop"},
-    webview: {base: "local-app-data", path: "NeuroBook/desktop/webview"},
-};
-
-/** macOS 用户级安装的固定数据布局；应用程序本体仍在 Application Support/installation。 */
-export const INSTALLED_MACOS_ROOT_LOCATORS: InstallationRootLocators = {
-    state: {base: "user-app-data", path: "NeuroBook/data"},
-    cache: {base: "user-cache", path: "NeuroBook"},
-    desktop: {base: "user-app-data", path: "NeuroBook/desktop"},
-    webview: {base: "user-app-data", path: "NeuroBook/desktop/webview"},
-};
-
-/**
- * 非桌面安装仍使用 Installation Root 内的明确子目录。
- *
- * 旧布局把 State Root 等同于 Installation Root；locator 禁止指向基准根本身，
- * 因此统一收敛到 `data/`，同时继续保持源码/容器部署的 installation-local 特性。
- */
-export const INSTALLATION_SCOPED_ROOT_LOCATORS: InstallationRootLocators = {
-    state: {base: "installation-root", path: "data"},
-    cache: {base: "installation-root", path: ".cache"},
-    desktop: {base: "installation-root", path: ".desktop"},
-    webview: {base: "installation-root", path: ".desktop/webview"},
-};
 
 /** local-app-data 基准 Adapter 的输入，便于测试不同宿主而不触达真实用户目录。 */
 export type LocalAppDataEnvironment = {

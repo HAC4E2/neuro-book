@@ -1,5 +1,5 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -13,14 +13,14 @@ afterEach(async () => {
 
 describe("ensureDirectory", () => {
     it("accepts an existing directory", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-files-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-files-"));
         roots.push(root);
 
         await expect(ensureDirectory(root)).resolves.toBeUndefined();
     });
 
     it("does not turn an existing file into a directory", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-files-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-files-"));
         roots.push(root);
         const file = join(root, "not-a-directory");
         await writeFile(file, "fixture", "utf8");

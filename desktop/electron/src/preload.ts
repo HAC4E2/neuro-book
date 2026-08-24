@@ -7,8 +7,8 @@ import {
     type DesktopMenuCommandId,
     type DesktopSettingsPatch,
     type DesktopWindowCommandId,
-} from "nbook/shared/desktop-contract";
-import {DesktopLaunchRequestBuffer} from "nbook/desktop/electron/src/launch-request-buffer";
+} from "@notnotype/neuro-book-contracts/desktop";
+import {DesktopLaunchRequestBuffer} from "./launch-request-buffer";
 
 const pendingLaunchRequests = new DesktopLaunchRequestBuffer();
 const launchRequestListeners = new Set<(request: DesktopLaunchRequest) => void>();

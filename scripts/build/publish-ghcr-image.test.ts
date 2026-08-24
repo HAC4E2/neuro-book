@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {buildArgs, candidateTag, normalizeSourceRevision} from "nbook/scripts/deploy/publish-ghcr-image.mjs";
+import {buildArgs, candidateTag, normalizeSourceRevision} from "#scripts/deploy/publish-ghcr-image.mjs";
 
 describe("GHCR发布Source revision合同", () => {
     it("app build把规范化revision传给Product Runtime Image Builder", () => {
@@ -19,6 +19,8 @@ describe("GHCR发布Source revision合同", () => {
             "--push",
             "--build-arg",
             `NEURO_BOOK_SOURCE_REVISION=${revision.toLowerCase()}`,
+            "--file",
+            "packages/neuro-book/Dockerfile",
             "-t",
             "ghcr.io/notnotype/neuro-book:candidate-release-123",
             ".",

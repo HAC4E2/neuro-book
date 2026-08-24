@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import {existsSync, lstatSync, readFileSync} from "node:fs";
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 
 import {describe, expect, it} from "vitest";
@@ -9,11 +9,11 @@ import {describe, expect, it} from "vitest";
 import {
     createManagerLaunchReceipt,
     sameManagerLaunchReceipt,
-} from "nbook/desktop/electron/src/manager-launch-receipt";
+} from "../../electron/src/manager-launch-receipt";
 
 describe("Manager Electron launch receipt", () => {
     it("同时绑定 Electron executable 与 app.asar，任一壳代码篡改都 fail closed", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-launch-receipt-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-launch-receipt-"));
         const localAppData = join(root, "LocalAppData");
         const installationRoot = join(localAppData, "Programs", "NeuroBook");
         const executablePath = join(installationRoot, "desktop", "NeuroBook-Electron.exe");

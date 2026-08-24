@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, realpath, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -7,6 +7,7 @@ import {parse} from "yaml";
 
 import {
     buildSourceDockerImage,
+    containerComposeEnvironment,
     inspectDockerApplication,
     resolveContainerEngine,
     runDockerApplicationCommand,
@@ -18,7 +19,7 @@ import {
     verifyRunningDockerApplication,
     type VerifiedContainerImage,
 } from "#manager/docker";
-import type {ContainerEngine, ProductComponent} from "#manager/types";
+import type {ContainerEngine, ProductComponent} from "@notnotype/neuro-book-contracts/installation";
 
 const processCommands = vi.hoisted(() => ({
     available: vi.fn(),
@@ -39,10 +40,42 @@ beforeEach(() => {
 });
 afterEach(async () => {
     delete process.env.NEURO_BOOK_CONTAINER_ENGINE;
+    delete process.env.PODMAN_COMPOSE_PROVIDER;
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
 
 describe("Docker Compose部署合同", () => {
+    it("Podman存在独立provider时固定使用它", async () => {
+        processCommands.available.mockImplementation(async (command: string) => command === "podman-compose");
+
+        await expect(containerComposeEnvironment("podman")).resolves.toMatchObject({PODMAN_COMPOSE_PROVIDER: "podman-compose"});
+        expect(processCommands.available).toHaveBeenCalledWith("podman-compose");
+    });
+
+    it("Podman缺少独立provider时保留用户provider选择", async () => {
+        process.env.PODMAN_COMPOSE_PROVIDER = "docker-compose";
+        processCommands.available.mockResolvedValue(false);
+
+        await expect(containerComposeEnvironment("podman")).resolves.toMatchObject({PODMAN_COMPOSE_PROVIDER: "docker-compose"});
+        expect(processCommands.available).toHaveBeenCalledWith("podman-compose");
+    });
+    it("Podman缺少独立provider且用户未设置时不注入provider", async () => {
+        delete process.env.PODMAN_COMPOSE_PROVIDER;
+        processCommands.available.mockResolvedValue(false);
+
+        const environment = await containerComposeEnvironment("podman");
+
+        expect(environment.PODMAN_COMPOSE_PROVIDER).toBeUndefined();
+        expect(processCommands.available).toHaveBeenCalledWith("podman-compose");
+    });
+
+    it("Docker不读取Podman provider", async () => {
+        process.env.PODMAN_COMPOSE_PROVIDER = "docker-compose";
+
+        await expect(containerComposeEnvironment("docker")).resolves.toEqual(process.env);
+        expect(processCommands.available).not.toHaveBeenCalled();
+    });
+
     it("Docker验证失败时选择完整可用的Podman", async () => {
         processCommands.capture.mockImplementation(async (command: string, args: string[]) => {
             if (command === "docker" && args[0] === "compose") throw new Error("compose missing");
@@ -53,6 +86,16 @@ describe("Docker Compose部署合同", () => {
             env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"}),
         });
         expect(processCommands.capture).toHaveBeenCalledWith("podman", ["info"]);
+    });
+    it("Podman缺少独立provider时允许podman compose自行委托", async () => {
+        delete process.env.PODMAN_COMPOSE_PROVIDER;
+        processCommands.available.mockResolvedValue(false);
+        processCommands.capture.mockResolvedValue("podman-compose delegate\n");
+
+        await expect(resolveContainerEngine("podman")).resolves.toBe("podman");
+
+        const composeCall = processCommands.capture.mock.calls.find(([, args]) => args[0] === "compose");
+        expect(composeCall?.[2]?.env?.PODMAN_COMPOSE_PROVIDER).toBeUndefined();
     });
 
     it("显式engine在info失败时不静默切换", async () => {
@@ -71,7 +114,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("POSIX容器使用当前用户写入State Root", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-"));
         roots.push(root);
         const output = await writeDockerCompose({engine: "docker", root, stateRoot: root, cacheRoot: join(root, ".cache"), profile: "source-docker", image: "neuro-book:test", port: 3000});
         const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string; volumes: string[]; environment: Record<string, string>}}};
@@ -91,7 +134,7 @@ describe("Docker Compose部署合同", () => {
 
     it("rootless Podman不重复注入宿主UID", async () => {
         processCommands.capture.mockResolvedValue("true\n");
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-podman-"));
         roots.push(root);
         const output = await writeDockerCompose({engine: "podman", root, stateRoot: root, cacheRoot: join(root, ".cache"), profile: "source-docker", image: "neuro-book:test", port: 3000});
         const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string}}};
@@ -100,7 +143,7 @@ describe("Docker Compose部署合同", () => {
 
     it("一次性应用命令覆盖Product ENTRYPOINT并保留参数边界", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-command-"));
         roots.push(root);
         const stateRoot = root;
         await writeDockerCompose({engine: "docker", root, stateRoot, cacheRoot: join(root, ".cache"), profile: "ghcr", image: verifiedImage("docker").configuredImage, port: 3000});
@@ -140,7 +183,7 @@ describe("Docker Compose部署合同", () => {
 
     it("Fresh Install使用候选Compose完成一次性应用命令", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-candidate-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-candidate-"));
         roots.push(root);
         const staging = join(root, ".deploy", "staging", "operation");
         const stateRoot = join(staging, "migration-plan-state");
@@ -199,9 +242,9 @@ describe("Docker Compose部署合同", () => {
         expect(activated.services.app.volumes).toContain("../.cache:/app/cache");
     });
 
-    it("Podman Compose固定使用podman-compose provider", async () => {
+    it("Podman存在独立provider时Compose固定使用podman-compose provider", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-podman-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-command-podman-"));
         roots.push(root);
         const stateRoot = root;
         await writeDockerCompose({engine: "podman", root, stateRoot, cacheRoot: join(root, ".cache"), profile: "ghcr", image: verifiedImage("podman").configuredImage, port: 3000});
@@ -228,7 +271,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman通过原生labels定位app并在停止时保留容器", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-stop-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-podman-stop-"));
         roots.push(root);
         const stateRoot = root;
         const containerId = "a".repeat(64);
@@ -265,7 +308,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman停止app时拒绝多容器或非ID输出", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-invalid-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-podman-invalid-"));
         roots.push(root);
         await writeDockerCompose({
             engine: "docker",
@@ -284,7 +327,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman状态探测不读取Docker专属Health字段", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-inspect-podman-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-inspect-podman-"));
         roots.push(root);
         const containerId = "b".repeat(64);
         await writeDockerCompose({
@@ -330,7 +373,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman使用顶层ImageName并接受未配置healthcheck的原生inspect形状", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-inspect-podman-native-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-inspect-podman-native-"));
         roots.push(root);
         const containerId = "f".repeat(64);
         await writeDockerCompose({
@@ -369,7 +412,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("一次性应用命令在spawn前拒绝被改写的Compose image", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-tampered-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-command-tampered-"));
         roots.push(root);
         await writeDockerCompose({
             engine: "docker",
@@ -435,7 +478,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("compose exec前拒绝错误候选Container image ID", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-exec-identity-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-exec-identity-"));
         roots.push(root);
         const verified = verifiedImage("docker");
         await writeDockerCompose({engine: "docker", root, stateRoot: root, cacheRoot: join(root, ".cache"), profile: "ghcr", image: verified.configuredImage, port: 3000});
@@ -450,7 +493,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Source Docker把staged HEAD作为Product Runtime Image revision", async () => {
-        const sourceRoot = join(tmpdir(), "nbook-source-docker");
+        const sourceRoot = testHostPath("nbook-source-docker");
         const revision = "a".repeat(40);
         processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
             if (args[0] === "rev-parse") return `${revision}\n`;
@@ -471,7 +514,7 @@ describe("Docker Compose部署合同", () => {
         expect(processCommands.run).toHaveBeenCalledWith("docker", [
             "build",
             "--file",
-            join(sourceRoot, "Dockerfile"),
+            join(sourceRoot, "packages", "neuro-book", "Dockerfile"),
             "--build-arg",
             `NEURO_BOOK_SOURCE_REVISION=${revision}`,
             "--tag",
@@ -489,7 +532,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("已有running容器只验证版本，不发布候选也不执行Compose up", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-owned-launch-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-owned-launch-"));
         roots.push(root);
         const containerId = "c".repeat(64);
         await writeDockerCompose({
@@ -526,7 +569,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it.each(["stopped", "missing"] as const)("%s容器启动后发布精确候选ID", async (previousState) => {
-        const root = await mkdtemp(join(tmpdir(), `nbook-compose-${previousState}-launch-`));
+        const root = await mkdtemp(testHostPath(`nbook-compose-${previousState}-launch-`));
         roots.push(root);
         const containerId = "d".repeat(64);
         await writeDockerCompose({
@@ -569,7 +612,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("候选镜像身份错误时仍先发布精确容器ID供事务回收", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-invalid-candidate-launch-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-invalid-candidate-launch-"));
         roots.push(root);
         const containerId = "1".repeat(64);
         await writeDockerCompose({
@@ -598,7 +641,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman启动后通过原生labels发布精确候选ID", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-launch-"));
+        const root = await mkdtemp(testHostPath("nbook-compose-podman-launch-"));
         roots.push(root);
         const containerId = "e".repeat(64);
         processCommands.capture.mockResolvedValue("true\n");

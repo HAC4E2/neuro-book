@@ -4,7 +4,7 @@ import {
     installReleaseDependencies,
     isTransientInstallFailure,
     type InstallAttemptResult,
-} from "nbook/scripts/release/install-dependencies";
+} from "#scripts/release/install-dependencies";
 
 describe("Release dependency installation", () => {
     it("只把下载、网络和归档解压失败识别为可重试错误", () => {

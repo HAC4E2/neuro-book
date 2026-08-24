@@ -1,19 +1,19 @@
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {compareProductRuntimeMeasurements} from "nbook/scripts/build/compare-product-runtime-measurements";
+import {compareProductRuntimeMeasurements} from "#scripts/build/compare-product-runtime-measurements";
 import {
     PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
     type ProductRuntimeMeasurementReport,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     PRODUCT_RUNTIME_MAX_BYTES,
     PRODUCT_RUNTIME_MAX_FILES,
-} from "nbook/shared/product-runtime-image-verifier";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 
@@ -99,7 +99,7 @@ describe("Product Runtime measurement A/B", () => {
 
 /** 创建隔离measurement fixture目录。 */
 async function sandbox(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-product-measurement-"));
+    const root = await mkdtemp(testHostPath("nbook-product-measurement-"));
     roots.push(root);
     return root;
 }

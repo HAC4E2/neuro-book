@@ -1,19 +1,19 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join, resolve} from "node:path";
+import {join, resolve, dirname} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 
 import {build} from "esbuild";
 import {describe, expect, it} from "vitest";
-import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {productRuntimeCompatibilityPlugin} from "#scripts/build/product-bundle-plugins";
 
 const execFileAsync = promisify(execFile);
 
 describe("Product bundle plugins", () => {
     it("在 gaxios 稳定源码路径内投影 node-fetch fallback", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-gaxios-plugin-"));
+        const root = await mkdtemp(testHostPath("nbook-gaxios-plugin-"));
         try {
             const sourcePath = join(root, "gaxios", "build", "cjs", "src", "gaxios.js");
             await mkdir(join(root, "gaxios", "build", "cjs", "src"), {recursive: true});
@@ -37,7 +37,8 @@ describe("Product bundle plugins", () => {
 
     it("统一静态化pi-ai已知loader，只保留auth context opaque seam", async () => {
         const probe = await execFileAsync("bun", ["-e", BUN_PLUGIN_PROBE], {
-            cwd: process.cwd(),
+            cwd: resolve(dirname(import.meta.dirname), ".."),
+            env: {...process.env, NODE_PATH: "", NEURO_BOOK_REPOSITORY_ROOT: resolve(dirname(import.meta.dirname), "..")},
             windowsHide: true,
             maxBuffer: 16 * 1024 * 1024,
         });
@@ -56,7 +57,7 @@ describe("Product bundle plugins", () => {
     });
 
     it("为code splitting后的Web提取CommonJS入口保留命名导出", async () => {
-        const workspaceRoot = resolve(".agent", "tmp");
+        const workspaceRoot = testHostPath("product-bundle-plugins");
         await mkdir(workspaceRoot, {recursive: true});
         const root = await mkdtemp(join(workspaceRoot, "readability-interop-"));
         const sourceRoot = join(root, "source");
@@ -101,9 +102,13 @@ describe("Product bundle plugins", () => {
 
 const BUN_PLUGIN_PROBE = String.raw`
 import {resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {build} from "esbuild";
 import {init, parse} from "es-module-lexer";
-import {productPiAiImportPlugin} from "nbook/scripts/build/product-bundle-plugins";
+const {productPiAiImportPlugin} = await import(pathToFileURL(resolve(
+    process.env.NEURO_BOOK_REPOSITORY_ROOT!,
+    "scripts/build/product-bundle-plugins.ts",
+)).href);
 await init;
 const result = await build({
     entryPoints: [

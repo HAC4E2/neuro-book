@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
@@ -8,7 +8,7 @@ import {
     isCanonicalMachineProductImagePath,
     materializeMachineManagerScript,
     materializeMachineProductImage,
-} from "nbook/desktop/shared/src/manager-runtime";
+} from "./manager-runtime";
 
 const roots: string[] = [];
 const originalPlatform = process.platform;
@@ -25,7 +25,7 @@ afterEach(async () => {
 
 describe("machine Manager runtime projection", () => {
     it("只把 canonical Program Files Manager 投影到 Cache Root，并按摘要复用", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-runtime-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-runtime-"));
         roots.push(root);
         const programFiles = join(root, "Program Files");
         const source = join(programFiles, "NeuroBook", "manager", "neuro-book.mjs");
@@ -43,7 +43,7 @@ describe("machine Manager runtime projection", () => {
     });
 
     it("非 canonical 路径保持原路径，不建立缓存副本", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-manager-runtime-portable-"));
+        const root = await mkdtemp(testHostPath("nbook-manager-runtime-portable-"));
         roots.push(root);
         const source = join(root, "manager", "neuro-book.mjs");
         await mkdir(resolve(source, ".."), {recursive: true});
@@ -53,7 +53,7 @@ describe("machine Manager runtime projection", () => {
     });
 
     it("machine Product image 投影完整 .output 到 Cache，并按 imageId 复用", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-runtime-"));
+        const root = await mkdtemp(testHostPath("nbook-product-runtime-"));
         roots.push(root);
         const programFiles = join(root, "Program Files");
         const source = join(programFiles, "NeuroBook", ".output");
@@ -75,7 +75,7 @@ describe("machine Manager runtime projection", () => {
     });
 
     it("Portable 或非 canonical Product image 不复制", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-runtime-portable-"));
+        const root = await mkdtemp(testHostPath("nbook-product-runtime-portable-"));
         roots.push(root);
         const source = join(root, ".output");
         await mkdir(join(source, "server"), {recursive: true});

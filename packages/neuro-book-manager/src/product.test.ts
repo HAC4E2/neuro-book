@@ -1,19 +1,20 @@
 import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {verifyInstalledProductRuntimeImage, verifyProductRuntimeControlPlane, verifyProductRuntimeImage} from "#manager/product";
-import type {ProductComponent} from "#manager/types";
+import type {ProductComponent} from "@notnotype/neuro-book-contracts/installation";
+import {inspectProductRuntimeImage} from "#manager/product-runtime-image-verifier";
 import {
-    inspectProductRuntimeImage,
+    PRODUCT_RUNTIME_CONTRACT_PATH,
+    PRODUCT_RUNTIME_IMAGE_READY_SCHEMA,
+    PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA,
     productRuntimeManifestImageId,
     sha256ProductRuntimeText,
-    PRODUCT_RUNTIME_IMAGE_READY_SCHEMA,
-    type ProductRuntimeImageManifest,
-} from "nbook/shared/product-runtime-image-verifier";
-import {PRODUCT_RUNTIME_CONTRACT_PATH, PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA, type ProductRuntimeContract} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
+import type {ProductRuntimeContract, ProductRuntimeImageManifest} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 const REVISION = "b".repeat(40);
@@ -58,7 +59,7 @@ describe("Manager Product Runtime Image control plane", () => {
 
 /** 创建 Manager 控制面所需的最小 verified-image fixture。 */
 async function runtimeImageFixture() {
-    const sourceRoot = await mkdtemp(join(tmpdir(), "nbook-manager-runtime-image-"));
+    const sourceRoot = await mkdtemp(testHostPath("nbook-manager-runtime-image-"));
     roots.push(sourceRoot);
     const platform = TEST_RUNTIME_IMAGE_PLATFORM;
     const image = await buildTestRuntimeImage({sourceRoot, version: "0.8.0", revision: REVISION, platform});

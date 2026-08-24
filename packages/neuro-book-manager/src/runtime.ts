@@ -11,7 +11,8 @@ import {
 import {managedAssetRoot, materializeManagedAsset} from "#manager/managed-asset-repository";
 import {currentProductPlatform, executableName} from "#manager/platform";
 import {runCapture} from "#manager/process";
-import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent, ProductPlatform} from "#manager/types";
+import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent} from "@notnotype/neuro-book-contracts/installation";
+import type {ProductPlatform} from "@notnotype/neuro-book-contracts/platform";
 import {compare} from "semver";
 
 const STAGE0_PATH = "NEURO_BOOK_STAGE0_BUN_PATH";

@@ -1,17 +1,17 @@
 import {mkdir, mkdtemp, readFile, rename, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {verifyApplicationExecution} from "#manager/application-execution";
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {issueInstalledProductRuntimeReceipt} from "#manager/product";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
-import type {InstallationManifest} from "#manager/types";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 import {
     authorizeProductRuntimeReceiptControlPlane,
     authorizeProductRuntimeReceiptFully,
     verifyProductRuntimeReceiptFully,
-} from "nbook/shared/product-runtime-receipt";
+} from "#manager/product-verification";
 
 const roots: string[] = [];
 const VERSION = "0.8.0-canary.1";
@@ -137,7 +137,7 @@ describe("Verified Application Execution", () => {
     });
 
     it("Source Dev 明确跳过 Runtime Image 验证", async () => {
-        const root = await mkdtemp(join(tmpdir(), "manager-source-execution-"));
+        const root = await mkdtemp(testHostPath("manager-source-execution-"));
         roots.push(root);
         const manifest = installationManifest(undefined);
         manifest.profile = "source-dev";
@@ -152,7 +152,7 @@ describe("Verified Application Execution", () => {
 
 /** 使用正式 Builder 生成可由 Installation Manifest 外部身份验证的 Native Product。 */
 async function nativeFixture(): Promise<NativeFixture> {
-    const root = await mkdtemp(join(tmpdir(), "manager-verified-execution-"));
+    const root = await mkdtemp(testHostPath("manager-verified-execution-"));
     roots.push(root);
     const sourceRoot = join(root, "source-fixture");
     await mkdir(sourceRoot, {recursive: true});

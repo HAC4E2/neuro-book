@@ -6,18 +6,19 @@ import ts from "typescript";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
-} from "nbook/scripts/build/product-bundle-plugins";
+} from "#scripts/build/product-bundle-plugins";
 import {
     bundleProductJavaScript,
     productBundleOutputText,
-} from "nbook/scripts/build/product-reproducible-bundle";
-import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
-import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
+} from "#scripts/build/product-reproducible-bundle";
+import {productRuntimeIslandPackageNames} from "#scripts/build/product-runtime-islands";
+import {containsSourceRootDescendant} from "#scripts/build/product-source-path-contract";
 import {
     projectAuthoringDependencies,
     type AuthoringDependencyRegistration,
     type ProjectedAuthoringDependency,
-} from "nbook/scripts/build/product-authoring-type-projection";
+} from "#scripts/build/product-authoring-type-projection";
+import {resolveWorkspaceRoots} from "#scripts/utils/workspace-roots";
 
 export type ProductAuthoringKitResult = {
     compilerBytes: number;
@@ -58,6 +59,9 @@ const AUTHORING_DEPENDENCIES = [
  * esbuild 编译用户 Profile。这里不复制完整 server/app/docs 或通用 node_modules。
  */
 export async function buildProductAuthoringKit(outputRoot: string): Promise<ProductAuthoringKitResult> {
+    const applicationSourceRoot = resolve(
+        process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || resolveWorkspaceRoots().applicationSourceRoot,
+    );
     const serverRoot = resolve(outputRoot, "server");
     const kitRoot = resolve(serverRoot, "authoring");
     const compilerPath = resolve(kitRoot, "profile-compile-worker.mjs");
@@ -69,7 +73,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
     await mkdir(sdkSourceRoot, {recursive: true});
 
     const result = await bundleProductJavaScript({
-        entryPoints: [resolve("server", "agent", "profiles", "profile-compile-worker-entry.ts")],
+        entryPoints: [resolve(applicationSourceRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts")],
         outfile: compilerPath,
         write: false,
         plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
@@ -95,7 +99,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         await mkdir(runtimeRoot, {recursive: true});
         await mkdir(sourceRoot, {recursive: true});
         for (const fileName of sdk.files) {
-            const source = resolve(sdk.name, fileName);
+            const source = resolve(applicationSourceRoot, sdk.name, fileName);
             if (!existsSync(source)) throw new Error(`${sdk.name} 缺少 ${fileName}`);
             await cp(source, resolve(sourceRoot, fileName));
             const runtimeFileName = fileName.replace(/\.ts$/u, ".mjs");
@@ -125,7 +129,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
     const worldEngineSourceRoot = resolve(sdkSourceRoot, "world-engine", "schema");
     await mkdir(worldEngineRoot, {recursive: true});
     await mkdir(worldEngineSourceRoot, {recursive: true});
-    await cp(resolve("world-engine", "schema", "index.ts"), resolve(worldEngineSourceRoot, "index.ts"));
+    await cp(resolve(applicationSourceRoot, "world-engine", "schema", "index.ts"), resolve(worldEngineSourceRoot, "index.ts"));
     const zodBuild = await bundleProductJavaScript({
         stdin: {
             contents: [
@@ -147,7 +151,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         "utf8",
     );
     const worldSchemaBuild = await bundleProductJavaScript({
-        entryPoints: [resolve("world-engine", "schema", "index.ts")],
+        entryPoints: [resolve(applicationSourceRoot, "world-engine", "schema", "index.ts")],
         outfile: resolve(worldEngineRoot, "schema", "index.mjs"),
         write: false,
         external: ["zod"],
@@ -160,9 +164,9 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         ),
         "utf8",
     );
-    const declarationDependencies = await emitAuthoringTypes(typeRoot);
+    const declarationDependencies = await emitAuthoringTypes(typeRoot, applicationSourceRoot);
     assertDeclaredTypeDependencies(declarationDependencies);
-    await cp(resolve("proper-lockfile.d.ts"), resolve(typeRoot, "proper-lockfile.d.ts"));
+    await cp(resolve(applicationSourceRoot, "proper-lockfile.d.ts"), resolve(typeRoot, "proper-lockfile.d.ts"));
     const dependencyProjection = await projectAuthoringDependencies({
         // Authoring tsconfig 显式启用 Node globals；即使 SDK 声明没有直接 import，也必须投影其真实类型闭包。
         seedSpecifiers: new Set([
@@ -171,7 +175,8 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         ]),
         targetNodeModulesRoot: resolve(kitRoot, "node_modules"),
         registrations: AUTHORING_DEPENDENCIES,
-        importerPath: resolve("profile-sdk", "index.ts"),
+        importerPath: resolve(applicationSourceRoot, "profile-sdk", "index.ts"),
+        sourceRoot: applicationSourceRoot,
     });
     await writeFile(resolve(kitRoot, "tsconfig.json"), `${JSON.stringify({
         compilerOptions: {
@@ -282,8 +287,8 @@ async function rewriteWorldEngineSchemaImports(source: string): Promise<string> 
  * 使用 TypeScript semantic gate 与声明 emitter 建立候选图，再从 SDK 公开入口精确投影可达声明。
  * `program.emit()` 会写出 Program 中所有源码；不能直接把那棵树当成 SDK 闭包。
  */
-async function emitAuthoringTypes(typeRoot: string): Promise<Set<string>> {
-    const root = resolve(".");
+async function emitAuthoringTypes(typeRoot: string, applicationSourceRoot: string): Promise<Set<string>> {
+    const root = applicationSourceRoot;
     const emittedRoot = resolve(dirname(typeRoot), ".types-emitted");
     await rm(emittedRoot, {recursive: true, force: true});
     await rm(typeRoot, {recursive: true, force: true});
@@ -305,15 +310,15 @@ async function emitAuthoringTypes(typeRoot: string): Promise<Set<string>> {
         emitDeclarationOnly: true,
     };
     const roots = [
-        resolve("profile-sdk", "index.ts"),
-        resolve("profile-sdk", "contracts.ts"),
-        resolve("profile-sdk", "constructors.ts"),
-        resolve("profile-sdk", "writing.ts"),
-        resolve("profile-sdk", "jsx-runtime.ts"),
-        resolve("profile-sdk", "jsx-dev-runtime.ts"),
-        resolve("variable-sdk", "index.ts"),
-        resolve("variable-sdk", "contracts.ts"),
-        resolve("server", "agent", "tools", "web-extraction-modules.d.ts"),
+        resolve(applicationSourceRoot, "profile-sdk", "index.ts"),
+        resolve(applicationSourceRoot, "profile-sdk", "contracts.ts"),
+        resolve(applicationSourceRoot, "profile-sdk", "constructors.ts"),
+        resolve(applicationSourceRoot, "profile-sdk", "writing.ts"),
+        resolve(applicationSourceRoot, "profile-sdk", "jsx-runtime.ts"),
+        resolve(applicationSourceRoot, "profile-sdk", "jsx-dev-runtime.ts"),
+        resolve(applicationSourceRoot, "variable-sdk", "index.ts"),
+        resolve(applicationSourceRoot, "variable-sdk", "contracts.ts"),
+        resolve(applicationSourceRoot, "server", "agent", "tools", "web-extraction-modules.d.ts"),
     ];
     try {
         const program = ts.createProgram({rootNames: roots, options});

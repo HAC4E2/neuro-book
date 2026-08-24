@@ -1,6 +1,6 @@
 import {readFile, rm} from "node:fs/promises";
 import {createServer} from "node:net";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
@@ -42,7 +42,7 @@ describe("Windows Portable Owned Process", () => {
     });
 
     it.runIf(process.platform === "win32")("健康检查失败会清理完整Product进程树并释放端口", async () => {
-        const statePath = join(tmpdir(), `nbook-portable-owned-${crypto.randomUUID()}.json`);
+        const statePath = testHostPath(`nbook-portable-owned-${crypto.randomUUID()}.json`);
         statePaths.push(statePath);
         const entry = fileURLToPath(new URL("./fixtures/portable-owned-root.ts", import.meta.url));
         const execution = runPortableForeground(process.execPath, entry, import.meta.dir, {

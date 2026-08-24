@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {cp, mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
@@ -10,10 +10,10 @@ import {inspectInstance} from "#manager/instance-discovery";
 import {importInstallation, inspectImport} from "#manager/instance-import";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "@notnotype/neuro-book-contracts/installation";
 import {currentProductPlatform} from "#manager/platform";
 import {renderManagerWrapper} from "#manager/runtime";
-import type {InstallationManifest} from "#manager/types";
+import type {InstallationManifest} from "@notnotype/neuro-book-contracts/installation";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
@@ -54,7 +54,7 @@ describe.runIf(hostRuntimeImageFixtureAvailable(currentProductPlatform()))("å®žä
 });
 
 async function fixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-import-"));
+    const root = await mkdtemp(testHostPath("nbook-import-"));
     roots.push(root);
     const manager = join(root, ".runtime", "manager", "0.1.0", "neuro-book.mjs");
     const wrapper = join(root, ".runtime", "bin", process.platform === "win32" ? "neuro-book.cmd" : "neuro-book");

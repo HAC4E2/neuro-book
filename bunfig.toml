@@ -7,5 +7,6 @@ pathIgnorePatterns = [
     ".output/**",
     ".nuxt/**",
     ".agent/**",
+    ".agents/**",
     "dist/**",
 ]

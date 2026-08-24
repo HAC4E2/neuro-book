@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join, resolve} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {promisify} from "node:util";
@@ -10,8 +10,8 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE,
     WINDOWS_PRODUCT_RELEASE_CHECKS,
-} from "nbook/scripts/release/verify-windows-product";
-import {PRODUCT_RUNTIME_CHECK_IDS} from "nbook/shared/product-runtime-contract";
+} from "#scripts/release/verify-windows-product";
+import {PRODUCT_RUNTIME_CHECK_IDS} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const roots: string[] = [];
 const executeFile = promisify(execFile);
@@ -30,7 +30,7 @@ describe("Windows Product release command secret transport", () => {
     });
 
     it("只通过stdin传递原始UTF-8密码字节", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-secret-"));
+        const root = await mkdtemp(testHostPath("nbook-product-command-secret-"));
         roots.push(root);
         const bootstrap = join(root, "capture.mjs");
         await writeFile(bootstrap, [
@@ -71,7 +71,7 @@ describe("Windows Product release command secret transport", () => {
     });
 
     it("命令失败时错误日志不包含stdin secret", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-secret-error-"));
+        const root = await mkdtemp(testHostPath("nbook-product-command-secret-error-"));
         roots.push(root);
         const bootstrap = join(root, "fail.mjs");
         await writeFile(bootstrap, [

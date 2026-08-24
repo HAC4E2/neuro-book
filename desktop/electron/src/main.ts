@@ -13,7 +13,7 @@ import {
     type OwnedProcessCompletion,
     type OwnedProcessLease,
 } from "@notnotype/owned-process";
-import {PRODUCT_BUN_RUNTIME_ARGS} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_BUN_RUNTIME_ARGS} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
     desktopSupervisorLine,
     DESKTOP_MENU_COMMAND_IDS,
@@ -31,17 +31,17 @@ import {
     type DesktopLaunchRequest,
     type DesktopStatus,
     type DesktopSupervisorEvent,
-} from "nbook/shared/desktop-contract";
-import {ElectronDiagnostics} from "nbook/desktop/electron/src/diagnostics";
-import {DesktopLaunchRequestBuffer} from "nbook/desktop/electron/src/launch-request-buffer";
+} from "@notnotype/neuro-book-contracts/desktop";
+import {ElectronDiagnostics} from "./diagnostics";
+import {DesktopLaunchRequestBuffer} from "./launch-request-buffer";
 import {
     isCanonicalInstalledRoot,
     requireInstalledManifest,
-} from "nbook/desktop/shared/src/installed-root";
+} from "../../shared/src/installed-root";
 import {
     materializeMachineManagerScript,
     materializeMachineProductImage,
-} from "nbook/desktop/shared/src/manager-runtime";
+} from "../../shared/src/manager-runtime";
 import {auditProductContract, type ContractAudit} from "../../shared/src/contract-audit";
 
 type DesktopConfig = {

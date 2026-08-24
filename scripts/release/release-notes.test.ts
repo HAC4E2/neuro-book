@@ -1,13 +1,13 @@
 import {describe, expect, it} from "vitest";
 
-import {extractReleaseNotes} from "nbook/scripts/release/release-notes";
+import {extractReleaseNotes} from "#scripts/release/release-notes";
 
 describe("extractReleaseNotes", () => {
     it("提取第一个二级标题之后到文末的内容", () => {
         const markdown = [
             "# 更新日志",
             "",
-            "历史版本见 docs/changelog/。",
+            "历史版本见 vitepress/locales/zh-Hans/changelog/。",
             "",
             "## 0.9.0-canary - 2026-08-02",
             "",

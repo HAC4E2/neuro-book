@@ -1,6 +1,6 @@
 import {Buffer} from "node:buffer";
 
-import {DESKTOP_UAC_MAX_SECRET_BYTES} from "nbook/shared/desktop-uac-broker";
+import {DESKTOP_UAC_MAX_SECRET_BYTES} from "@notnotype/neuro-book-contracts/desktop-uac";
 
 export type ManagerGuiProvider = "managed" | "system";
 export type ManagerGuiScope = "user" | "machine";

@@ -3,9 +3,10 @@ import {createWriteStream} from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {pipeline} from "node:stream/promises";
+import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {ZipFile} from "yazl";
 
-const BASELINE_COMMIT = "5e55c54e13cd67f6e19c5361931fca1fe9ae4241";
+const BASELINE_COMMIT = "f7caf3eb4e231c1b9fe53dbc312215b105008600";
 const PACKAGE_VERSION = "overlay-v1";
 
 /**
@@ -13,47 +14,47 @@ const PACKAGE_VERSION = "overlay-v1";
  * 不允许从仓库根目录递归收集，避免把 .env、workspace、图片或本地数据库带入压缩包。
  */
 const INTEGRATION_FILES = [
-    "app/components/common/form/BooleanToggleButton.vue",
-    "app/components/markdown-studio/MarkdownStudio.vue",
-    "app/components/markdown-studio/MarkdownStudioToolbar.vue",
-    "app/components/markdown-studio/MarkdownStudioWorkbench.vue",
-    "app/components/markdown-studio/TipTapMarkdownEditor.vue",
-    "app/components/markdown-studio/markdown-studio-tool-availability.ts",
-    "app/components/markdown-studio/tiptap/TextToImagePrompt.ts",
-    "app/components/markdown-studio/tiptap/WorkspaceMarkdownImage.ts",
-    "app/components/markdown-studio/tiptap/markdown-editor-extensions.ts",
-    "app/components/novel-ide/NovelIdeActivityBar.vue",
-    "app/i18n/locales/en-US.ts",
-    "app/i18n/locales/zh-CN.ts",
-    "app/pages/index.vue",
-    "app/stores/novel-ide.ts",
-    "app/utils/novelai-token-counter.ts",
-    "app/utils/text-to-image-context-import.ts",
-    "app/utils/workbench-chrome.ts",
-    "assets/workspace/.nbook/templates/project-directory-templates/lorebook/character/default/.group.json",
+    "packages/neuro-book/app/components/common/form/BooleanToggleButton.vue",
+    "packages/neuro-book/app/components/markdown-studio/MarkdownStudio.vue",
+    "packages/neuro-book/app/components/markdown-studio/MarkdownStudioToolbar.vue",
+    "packages/neuro-book/app/components/markdown-studio/MarkdownStudioWorkbench.vue",
+    "packages/neuro-book/app/components/markdown-studio/TipTapMarkdownEditor.vue",
+    "packages/neuro-book/app/components/markdown-studio/markdown-studio-tool-availability.ts",
+    "packages/neuro-book/app/components/markdown-studio/tiptap/TextToImagePrompt.ts",
+    "packages/neuro-book/app/components/markdown-studio/tiptap/WorkspaceMarkdownImage.ts",
+    "packages/neuro-book/app/components/markdown-studio/tiptap/markdown-editor-extensions.ts",
+    "packages/neuro-book/app/components/novel-ide/NovelIdeActivityBar.vue",
+    "packages/neuro-book/app/i18n/locales/en-US.ts",
+    "packages/neuro-book/app/i18n/locales/zh-CN.ts",
+    "packages/neuro-book/app/pages/index.vue",
+    "packages/neuro-book/app/stores/novel-ide.ts",
+    "packages/neuro-book/app/utils/novelai-token-counter.ts",
+    "packages/neuro-book/app/utils/text-to-image-context-import.ts",
+    "packages/neuro-book/app/utils/workbench-chrome.ts",
+    "packages/neuro-book/assets/workspace/.nbook/templates/project-directory-templates/lorebook/character/default/.group.json",
     "bun.lock",
-    "package.json",
-    "prisma/migrations/sqlite/20260803160000_text_to_image_provider/migration.sql",
-    "prisma/project.schema.prisma",
-    "prisma/schema.sqlite.prisma",
-    "scripts/db/migrate-project-workspaces.ts",
-    "server/config/config-service.ts",
-    "server/config/normalizer.ts",
-    "server/config/registry.ts",
-    "server/config/types.ts",
-    "server/workspace-files/project-workspace.ts",
-    "shared/dto/config.dto.ts",
-    "shared/dto/text-to-image.dto.ts",
-    "shared/text-to-image-markdown.ts",
-    "shared/text-to-image-novelai-prompt.ts",
-    "shared/text-to-image-prompt-replacement.ts",
+    "packages/neuro-book/package.json",
+    "packages/neuro-book/prisma/migrations/sqlite/20260803160000_text_to_image_provider/migration.sql",
+    "packages/neuro-book/prisma/project.schema.prisma",
+    "packages/neuro-book/prisma/schema.sqlite.prisma",
+    "packages/neuro-book/scripts/db/migrate-project-workspaces.ts",
+    "packages/neuro-book/server/config/config-service.ts",
+    "packages/neuro-book/server/config/normalizer.ts",
+    "packages/neuro-book/server/config/registry.ts",
+    "packages/neuro-book/server/config/types.ts",
+    "packages/neuro-book/server/workspace-files/project-workspace.ts",
+    "packages/neuro-book/shared/dto/config.dto.ts",
+    "packages/neuro-book/shared/dto/text-to-image.dto.ts",
+    "packages/neuro-book/shared/text-to-image-markdown.ts",
+    "packages/neuro-book/shared/text-to-image-novelai-prompt.ts",
+    "packages/neuro-book/shared/text-to-image-prompt-replacement.ts",
 ] as const;
 
 const FEATURE_DIRECTORIES = [
-    "app/components/novel-ide/text-to-image",
-    "server/api/text-to-image",
-    "server/generated/project-prisma",
-    "server/text-to-image",
+    "packages/neuro-book/app/components/novel-ide/text-to-image",
+    "packages/neuro-book/server/api/text-to-image",
+    "packages/neuro-book/server/generated/project-prisma",
+    "packages/neuro-book/server/text-to-image",
 ] as const;
 
 const SOURCE_EXTENSIONS = new Set([".json", ".lock", ".prisma", ".sql", ".ts", ".vue"]);
@@ -77,19 +78,15 @@ type FileManifestEntry = {
 async function main(): Promise<void> {
     const sourceRoot = path.resolve(readArgument("--source") ?? process.cwd());
     const outputDirectory = path.resolve(readArgument("--output") ?? path.join(sourceRoot, "artifacts"));
-    const buildRoot = path.join(
-        sourceRoot,
-        ".agent",
-        "tmp",
-        `text-to-image-overlay-build-${randomUUID()}`,
-    );
+    const buildRoot = resolveAgentScratchPath("text-to-image-overlay", randomUUID());
     const stagingRoot = path.join(buildRoot, "staging");
     const generatedAt = new Date().toISOString();
     const archiveName = `neuro-book-text-to-image-${PACKAGE_VERSION}-master-${BASELINE_COMMIT.slice(0, 8)}.zip`;
     const archivePath = path.join(outputDirectory, archiveName);
 
-    await fs.mkdir(stagingRoot, {recursive: true});
-    await fs.mkdir(outputDirectory, {recursive: true});
+    try {
+        await fs.mkdir(stagingRoot, {recursive: true});
+        await fs.mkdir(outputDirectory, {recursive: true});
 
     const relativePaths = await collectPackageFiles(sourceRoot);
     for (const relativePath of relativePaths) {
@@ -142,13 +139,15 @@ async function main(): Promise<void> {
     const archiveBuffer = await fs.readFile(archivePath);
     const archiveSha256 = createHash("sha256").update(archiveBuffer).digest("hex");
 
-    process.stdout.write(`${JSON.stringify({
-        archivePath,
-        archiveSha256,
-        archiveBytes: archiveBuffer.byteLength,
-        sourceFileCount: manifestEntries.length,
-        stagingRoot,
-    }, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({
+            archivePath,
+            archiveSha256,
+            archiveBytes: archiveBuffer.byteLength,
+            sourceFileCount: manifestEntries.length,
+        }, null, 2)}\n`);
+    } finally {
+        await fs.rm(buildRoot, {recursive: true, force: true});
+    }
 }
 
 async function collectPackageFiles(sourceRoot: string): Promise<string[]> {
@@ -269,14 +268,14 @@ function createInstallReadme(generatedAt: string, sourceFileCount: number): stri
 
 1. 确认目标仓库位于上述提交，且工作区没有需要保留的未提交修改。
 2. 将压缩包内容直接解压到仓库根目录，允许覆盖同名文件。
-3. 运行 \`bun install --frozen-lockfile\` 刷新依赖，再运行 \`bun run generate\` 生成本机 Prisma 客户端。
-4. 按原有方式启动 NeuroBook。
+3. 运行 \`bun install --frozen-lockfile\` 刷新依赖，再运行 \`bun run --cwd packages/neuro-book generate\` 生成本机 Prisma 客户端。
+4. 使用 \`bun run --cwd packages/neuro-book dev\` 或原有宿主命令启动 NeuroBook。
 
 若 Windows 上的 Bun 报告 \`failed to remap this bin\`，改用不经过 \`.bin\` 重映射的等价命令：
 
 \`\`\`powershell
-bun node_modules/prisma/build/index.js generate --config ./prisma.config.ts --schema ./prisma/schema.sqlite.prisma
-bun node_modules/prisma/build/index.js generate --config ./prisma.config.ts --schema ./prisma/project.schema.prisma
+bun node_modules/prisma/build/index.js generate --config ./packages/neuro-book/prisma.config.ts --schema ./packages/neuro-book/prisma/schema.sqlite.prisma
+bun node_modules/prisma/build/index.js generate --config ./packages/neuro-book/prisma.config.ts --schema ./packages/neuro-book/prisma/project.schema.prisma
 \`\`\`
 
 ## 数据边界

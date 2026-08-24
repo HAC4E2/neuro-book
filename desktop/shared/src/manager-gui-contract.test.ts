@@ -7,7 +7,7 @@ describe("Manager GUI shared Electron payload contract", () => {
         const build = await readFile(resolve("desktop/electron/build.mjs"), "utf8");
         const main = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
         const manager = await readFile(resolve("desktop/electron/src/manager-main.ts"), "utf8");
-        const uacClient = await readFile(resolve("desktop/shared/src/desktop-uac-client.ts"), "utf8");
+        const uacClient = await readFile(resolve("packages/neuro-book-manager/src/desktop-uac-client.ts"), "utf8");
         const managerCli = await readFile(resolve("packages/neuro-book-manager/src/cli.ts"), "utf8");
         const desktopInstallation = await readFile(resolve("packages/neuro-book-manager/src/desktop-installation.ts"), "utf8");
         const preload = await readFile(resolve("desktop/electron/src/manager-preload.ts"), "utf8");
@@ -29,6 +29,7 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(preload).toContain('"manager:open-logs"');
         expect(manager).toContain("AUTH_ADMIN_PASSWORD: undefined");
         expect(manager).toContain("runDesktopUacClient");
+        expect(manager).toContain("@notnotype/neuro-book-manager/desktop-uac-client");
         expect(manager).toContain('"desktop-repair"');
         expect(manager).toContain("waitForWindowsUninstallHostResult");
         expect(manager).toContain("Manager CLI uninstall 缺少最终回执");
@@ -75,5 +76,20 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(html).toContain('id="apiKey" type="password"');
         expect(html).toContain('value="openai-responses"');
         expect(html).not.toContain('id="api" value="openai-completions"');
+    });
+    it("跨边界能力只通过 Manager 与 contracts 正式入口消费", async () => {
+        const packager = await readFile(resolve("desktop/packaging/package-portable.mjs"), "utf8");
+        const managerCli = await readFile(resolve("packages/neuro-book-manager/src/cli.ts"), "utf8");
+        const appPackage = JSON.parse(await readFile(resolve("packages/neuro-book/package.json"), "utf8")) as {dependencies?: Record<string, string>; imports?: Record<string, string>};
+        const managerPackage = JSON.parse(await readFile(resolve("packages/neuro-book-manager/package.json"), "utf8")) as {exports?: Record<string, unknown>};
+
+        expect(managerCli).not.toContain("nbook/desktop/");
+        expect(packager).not.toContain("../../shared/desktop-contract");
+        expect(packager).not.toContain("../../shared/product-runtime");
+        expect(packager).toContain("@notnotype/neuro-book-manager/product-runtime-verifier");
+        expect(managerPackage.exports?.["./desktop-uac-client"]).toBeTruthy();
+        expect(managerPackage.exports?.["./product-runtime-verifier"]).toBeTruthy();
+        expect(JSON.stringify(appPackage.dependencies ?? {})).not.toContain("desktop");
+        expect(JSON.stringify(appPackage.imports ?? {})).not.toContain("desktop/");
     });
 });

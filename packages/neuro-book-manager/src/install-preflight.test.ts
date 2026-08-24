@@ -1,6 +1,6 @@
 import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
 import {createServer, type Server} from "node:net";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -21,7 +21,7 @@ import {
     type InstallEnvironmentInspection,
 } from "#manager/install-preflight";
 import {inspectHostPlatform} from "#manager/platform";
-import type {ReleaseManifest} from "#manager/types";
+import type {ReleaseManifest} from "@notnotype/neuro-book-contracts/release";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const roots: string[] = [];
@@ -45,7 +45,7 @@ describe("Install Preflight", () => {
     });
 
     it("Source Profile一次报告宿主、Git、端口和组件来源", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-preflight-source-"));
+        const root = await mkdtemp(testHostPath("nbook-preflight-source-"));
         roots.push(root);
         const result = await inspectInstallPreflight({
             root,
@@ -65,7 +65,7 @@ describe("Install Preflight", () => {
     });
 
     it("端口占用和未知目标文件形成blocker", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-preflight-blocked-"));
+        const root = await mkdtemp(testHostPath("nbook-preflight-blocked-"));
         roots.push(root);
         await writeFile(join(root, "user-file.txt"), "keep", "utf8");
         const {server, port} = await listeningServer();
@@ -86,7 +86,7 @@ describe("Install Preflight", () => {
     });
 
     it("Container Profile缺少可用engine时拒绝安装", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-preflight-container-"));
+        const root = await mkdtemp(testHostPath("nbook-preflight-container-"));
         roots.push(root);
         const result = await inspectInstallPreflight({
             root,
@@ -111,7 +111,7 @@ describe("Install Preflight", () => {
     });
 
     it("dry-run预检不会创建不存在的Installation Root", async () => {
-        const parent = await mkdtemp(join(tmpdir(), "nbook-preflight-readonly-"));
+        const parent = await mkdtemp(testHostPath("nbook-preflight-readonly-"));
         roots.push(parent);
         const root = join(parent, "new-installation");
         const result = await inspectInstallPreflight({
@@ -126,7 +126,7 @@ describe("Install Preflight", () => {
     });
 
     it("manual state migration在任何安装写入前形成blocker", async () => {
-        const parent = await mkdtemp(join(tmpdir(), "nbook-preflight-manual-"));
+        const parent = await mkdtemp(testHostPath("nbook-preflight-manual-"));
         roots.push(parent);
         const root = join(parent, "new-installation");
         mocks.resolveReleaseManifest.mockResolvedValue({

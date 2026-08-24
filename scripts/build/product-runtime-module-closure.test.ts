@@ -1,9 +1,9 @@
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-runtime-module-closure.mjs";
+import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 
 const temporaryRoots: string[] = [];
 
@@ -202,7 +202,7 @@ async function createImage(options: {
     packages?: string[];
     opaqueImports?: Array<{pathPattern: string; count: number; reason: string; smoke: string}>;
 } = {}): Promise<ProductImageFixture> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-product-closure-"));
+    const root = await mkdtemp(testHostPath("nbook-product-closure-"));
     temporaryRoots.push(root);
     const imageRoot = join(root, "image");
     const serverRoot = join(imageRoot, "server");

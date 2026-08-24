@@ -1,5 +1,5 @@
 import {mkdtemp, readFile, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join} from "node:path";
 
 import {describe, expect, it, vi} from "vitest";
@@ -27,7 +27,7 @@ describe("desktop provider first-run configuration", () => {
     });
 
     it("writes a runnable custom provider without exposing a secret in the result", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-provider-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-provider-"));
         try {
             const result = await configureDesktopProvider(root, {
                 name: "My Provider",
@@ -48,7 +48,7 @@ describe("desktop provider first-run configuration", () => {
     });
 
     it("rejects oversized or empty values", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-provider-"));
+        const root = await mkdtemp(testHostPath("nbook-desktop-provider-"));
         try {
             await expect(configureDesktopProvider(root, {
                 name: "",

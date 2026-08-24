@@ -1,12 +1,12 @@
 import {execFile} from "node:child_process";
 import {access, mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {join, relative, resolve} from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 import {
     hasProductRuntimeBuildPolicy,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
@@ -18,13 +18,13 @@ import {
     type ProductRuntimeExpectedIdentity,
     type ProductRuntimeImageBudget,
     type ProductRuntimeImageManifest,
-} from "nbook/scripts/build/product-runtime-image-builder";
+} from "#scripts/build/product-runtime-image-builder";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
     type ProductRuntimeEntryMap,
-} from "nbook/shared/product-runtime-contract";
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];
@@ -495,6 +495,51 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(access(activeMarker)).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("Git-less Source 排除包级数据库、SQLite sidecar 与 Prisma 生成物", async () => {
+        const root = await sourceFixture();
+        const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {cwd: root, windowsHide: true})).stdout.trim();
+        await rm(join(root, ".git"), {recursive: true, force: true});
+        await mkdir(join(root, "packages", "llmlint", "web"), {recursive: true});
+        await mkdir(join(root, "packages", "neuro-book", "server", "generated", "prisma"), {recursive: true});
+        for (const [suffix, content] of [["", "db-v1\n"], ["-journal", "journal-v1\n"], ["-wal", "wal-v1\n"], ["-shm", "shm-v1\n"]] as const) {
+            await writeFile(join(root, "packages", "llmlint", "web", `data.db${suffix}`), content, "utf8");
+        }
+        await writeFile(join(root, "packages", "neuro-book", "server", "generated", "prisma", "client.ts"), "generated-v1\n", "utf8");
+        const builder = new ProductRuntimeImageBuilder(root);
+        const expectedSource = {revision, dirty: false};
+        const first = await builder.buildCandidate({
+            operationId: "gitless-data-boundary-first",
+            platform: "windows-x64",
+            expectedSource,
+            ...fixturePolicy(),
+            async build({imageRoot}) {
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "first", "utf8");
+                await writeRuntimeFixture(imageRoot);
+                for (const [suffix, content] of [["", "db-v2\n"], ["-journal", "journal-v2\n"], ["-wal", "wal-v2\n"], ["-shm", "shm-v2\n"]] as const) {
+                    await writeFile(join(root, "packages", "llmlint", "web", `data.db${suffix}`), content, "utf8");
+                }
+                await writeFile(join(root, "packages", "neuro-book", "server", "generated", "prisma", "client.ts"), "generated-v2\n", "utf8");
+            },
+        });
+        const second = await builder.buildCandidate({
+            operationId: "gitless-data-boundary-second",
+            platform: "windows-x64",
+            expectedSource,
+            ...fixturePolicy(),
+            async build({imageRoot}) {
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "second", "utf8");
+                await writeRuntimeFixture(imageRoot);
+                for (const [suffix, content] of [["", "db-v3\n"], ["-journal", "journal-v3\n"], ["-wal", "wal-v3\n"], ["-shm", "shm-v3\n"]] as const) {
+                    await writeFile(join(root, "packages", "llmlint", "web", `data.db${suffix}`), content, "utf8");
+                }
+                await writeFile(join(root, "packages", "neuro-book", "server", "generated", "prisma", "client.ts"), "generated-v3\n", "utf8");
+            },
+        });
+        expect(second.manifest.sourceDigest).toBe(first.manifest.sourceDigest);
+    });
+
     it("Git-less Source 必须钉死 revision，并继续检测构建期输入变化", async () => {
         const root = await sourceFixture();
         const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {cwd: root, windowsHide: true})).stdout.trim();
@@ -538,7 +583,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
 
 /** 建立最小、干净且可由 Builder 读取实际版本的 Git Source fixture。 */
 async function sourceFixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbook-runtime-image-"));
+    const root = await mkdtemp(testHostPath("nbook-runtime-image-"));
     temporaryRoots.push(root);
     await mkdir(join(root, "src"), {recursive: true});
     await mkdir(join(root, "node_modules", "nuxt"), {recursive: true});
