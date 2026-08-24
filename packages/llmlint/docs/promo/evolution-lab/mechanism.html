@@ -143,10 +143,11 @@
     .part.critic small { color: rgba(255, 255, 255, .82); }
     .part.out { background: var(--ink); color: #fff; }
     .part.out small { color: rgba(255, 255, 255, .7); }
-    .merge { text-align: center; font-size: 26px; font-weight: 900; line-height: 1; margin: 8px 0; }
+    .merge { width: fit-content; margin: 8px auto; padding: 0 12px; text-align: center; font-size: 26px; font-weight: 900; line-height: 1; }
     .flow { display: flex; align-items: stretch; justify-content: center; gap: 12px; flex-wrap: wrap; }
     .flow .part { display: flex; flex-direction: column; justify-content: center; }
-    .arrow { font-size: 28px; font-weight: 900; align-self: center; }
+    .arrow { font-size: 28px; font-weight: 900; align-self: center; display: flex; flex-direction: column; align-items: center; line-height: 1; }
+    .arrow small { font-size: 11px; font-weight: 800; color: var(--muted); letter-spacing: .12em; margin-top: 2px; }
     .parts-list { margin-top: 26px; }
     .parts-list li {
         list-style: none;
@@ -210,6 +211,18 @@
     }
     .example b { color: var(--coral-deep); }
     .example small { display: block; margin-top: 6px; font-weight: 600; color: var(--muted); }
+    .origin {
+        margin-bottom: 34px;
+        border-left: 10px solid var(--teal);
+        background: var(--paper);
+        border-top: 3px solid var(--ink);
+        border-right: 3px solid var(--ink);
+        border-bottom: 3px solid var(--ink);
+        padding: 18px 24px;
+        font-size: 15.5px;
+        font-weight: 600;
+    }
+    .origin b { color: var(--teal-deep); }
 
     /* ── 裁判考证：竖向流程 ── */
     .track { position: relative; margin-left: 14px; border-left: 4px solid var(--ink); padding-left: 34px; }
@@ -400,33 +413,35 @@
     <div class="wrap">
         <span class="kicker">选手解剖</span>
         <h2>一只 Author = <span class="hl">五个零件</span></h2>
-        <p class="sub">三个底座零件喂给主笔，主笔出初稿，队内教练润一遍，才能挂牌出场。先看图，再逐个拆：</p>
+        <p class="sub">文风预设和剧情细纲喂给主笔，主笔出初稿，队内教练批注：给建议就打回重写，放行了才挂牌出场。先看图，再逐个拆：</p>
         <div class="lab">
             <div class="anatomy-base">
                 <div class="part base">文风预设<small>STYLE</small></div>
-                <div class="part base">下笔规矩<small>GUIDE</small></div>
-                <div class="part base">生成参数<small>PARAMS</small></div>
+                <div class="part base">剧情细纲<small>BRIEF</small></div>
             </div>
             <div class="merge" aria-hidden="true">↓</div>
             <div class="flow">
                 <div class="part writer">主笔<small>WRITER</small></div>
-                <span class="arrow" aria-hidden="true">→</span>
-                <div class="part">初稿<small>DRAFT</small></div>
-                <span class="arrow" aria-hidden="true">→</span>
+                <span class="arrow" aria-hidden="true">→<small>写出</small></span>
+                <div class="part">初稿 v1<small>DRAFT_V1</small></div>
+                <span class="arrow" aria-hidden="true">→<small>送审</small></span>
                 <div class="part critic">修订助手<small>CRITIC</small></div>
-                <span class="arrow" aria-hidden="true">→</span>
-                <div class="part out">出战稿<small>REVISION</small></div>
+                <span class="arrow" aria-hidden="true">↩<small>建议</small></span>
+                <div class="part writer">修订稿 v2<small>DRAFT_V2</small></div>
+                <span class="arrow" aria-hidden="true">→<small>放行</small></span>
+                <div class="part out">终稿<small>FINAL</small></div>
             </div>
+            <div class="recycle">教练放行才出场；给了建议就回炉再写一版，循环到合格为止。</div>
         </div>
-        <p class="demo-hint">▲ 上图会自动循环演示一只蛐蛐的<b>组装顺序</b>：底座三件套喂给主笔，初稿经修订助手润色后挂牌出战。</p>
+        <p class="demo-hint">▲ 上图会自动循环演示一条<b>生成管线</b>：预设＋细纲喂进主笔，产出初稿 v1；修订助手按自带的规则审稿——给建议就打回，主笔据此改出 v2，再审、再改，直到放行交出终稿。</p>
         <ul class="parts-list">
-            <li><b>零件① 主笔（writer）</b>　队伍里的大语言模型本尊，拿到命题先产出初稿。选哪个模型当主笔，等于战队选核心选手——第一章说过，同一个模型换身装备就是另一种命。</li>
-            <li><b>零件② 修订助手（critic）</b>　队内教练。初稿完成后挑毛病、提意见、动手润色。流派有两种：<b>先列修改计划再逐步执行</b>，或者<b>拿到稿子直接重写关键段</b>——开局第一轮就让这两种教练同台比武。</li>
+            <li><b>零件① 主笔（writer）</b>　队伍里的大语言模型本尊，拿到剧情细纲（brief）先写出初稿 v1；教练给的修订建议，也由它消化后改出新版。选哪个模型当主笔，等于战队选核心选手——第一章说过，同一个模型换身装备就是另一种命。</li>
+            <li><b>零件② 修订助手（critic）</b>　队内教练，肚子里自带一套审稿规则。初稿到手只做两件事：<b>给修订建议打回去</b>，或者<b>检查合格直接放行</b>。给建议的路数有两种：<b>列出修改计划让主笔照单执行</b>，或者<b>圈住关键段让主笔当场重写</b>——开局第一轮就让这两种教练同台比武。</li>
             <li><b>零件③ 文风预设（style）</b>　这只蛐蛐的「人设卡」：学谁的口吻、短句还是长句、爽点多密、对白多辣，全写在这里面。社区预设作者的看家本领就在这一栏。</li>
             <li><b>零件④ 下笔规矩（guide）</b>　一本自动生成的负面清单：「这些 AI 常犯的错不许犯」。由第一章那套规则库按需投影生成，不用手写。</li>
             <li><b>零件⑤ 参数</b>　一组旋钮：比如「温度」（控制 AI 下笔随机程度的档位）、「篇幅预算」（最多允许写多长）。同样的人设加同样的模型，旋钮拧得不同，写出来也是两只不同的蛐蛐。</li>
         </ul>
-        <div class="punch">换掉任何一个零件，就是另一只蛐蛐。<b>开局第一轮就放三种打法同台：单枪匹马的主笔 / 先出修改计划再动手 / 拿到初稿直接改写</b>——哪种教练值这个工资，数据说话。</div>
+        <div class="punch">换掉任何一个零件，就是另一只蛐蛐。<b>开局第一轮就放两种打法同台：单枪匹马没有教练 / 教练坐镇开方子</b>——开方子还分两种路数：列修改计划照单执行、圈住关键段定向重写。哪种教练值这个工资，数据说话。</div>
     </div>
 </section>
 
@@ -436,6 +451,9 @@
         <span class="kicker">引擎室</span>
         <h2>进化一圈，<span class="hl">六道工序</span></h2>
         <p class="sub">整个引擎就是一个不断回炉的圈：生成 → 盲评 → 考裁判 → 预筛 → 复核 → 筛选。</p>
+        <div class="origin">
+            <b>这套玩法的祖师爷是遗传算法</b>：像大自然「优胜劣汰」那样，让现有的解法互相组合、变异、淘汰较差的，自动「繁殖」出越来越好的解法。放进 AI 写作里——一只蛐蛐就是一个个体：以主笔＋修订助手为核心，连同文风预设、下笔规矩、参数打包上场（正是上一幕解剖的五件套），每件零件都是它的基因。整个进化实验室就是生态圈，生杀大权握在真人读者手里：<b>人类打分越高，越容易活下来</b>。活下来的蛐蛐也不躺平——按设计，由 agent 复盘、抽取它们身上的「有利基因」，组合变异出下一代。
+        </div>
         <div class="example">
             先用一道<b>虚构示例命题</b>帮你代入全程：
             「女主在订婚宴上识破闺蜜与未婚夫的背叛，当场反击。」
@@ -661,7 +679,7 @@
         var merge = document.querySelector(".merge");
         var parts = [].slice.call(document.querySelectorAll(".flow .part"));
         var arrows = [].slice.call(document.querySelectorAll(".flow .arrow"));
-        var groups = [bases.slice(), [merge], [parts[0]], [arrows[0]], [parts[1]], [arrows[1]], [parts[2]], [arrows[2]], [parts[3]]];
+        var groups = [bases.slice(), [merge]]; parts.forEach(function (el, i) { groups.push([el], [arrows[i]]); });
         var all = [].concat.apply([], groups).filter(Boolean);
         var labVisible = false, pstep = -3;
         watch(lab, function (v) { labVisible = v; });
