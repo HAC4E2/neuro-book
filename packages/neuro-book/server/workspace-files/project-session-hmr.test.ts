@@ -29,8 +29,10 @@ type ProjectSessionGlobalState = {
     lifecycle: ProjectControlLifecycle | null;
     service: ProjectSessionService | null;
     workspaceRoot: AbsoluteFsPath | null;
+    compilerRoot: AbsoluteFsPath | null;
+    compilerContext: unknown;
     agentProbe: null;
-    maintenanceTimer: ReturnType<typeof setInterval> | null;
+    maintenanceTimer: NodeJS.Timeout | null;
     sweepInFlight: boolean;
 };
 
@@ -101,8 +103,12 @@ describe("project-session HMR boundaries", () => {
             lifecycle,
             service: oldService,
             workspaceRoot,
+            // serviceFor 的 Application Root 绑定守卫需要该字段；
+            // 缺省取 runtimePathsFromEnv().applicationRoot 同源（process.cwd()）。
+            compilerRoot: absoluteFsPath(process.cwd()),
             agentProbe: null,
             maintenanceTimer: null,
+            compilerContext: null,
             sweepInFlight: false,
         };
 
