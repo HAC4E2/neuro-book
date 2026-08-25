@@ -69,6 +69,29 @@ export type SessionWriteExecutorInput = {
      * 没有 invocationId 的用户/系统写入不经过该约束。
      */
     invocationWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
+    /**
+     * 强制取消终态的窄化授权：只允许 Harness 在释放 ownership 前登记的
+     * 精确 `${sessionId}:${invocationId}` tombstone 写一条 aborted lifecycle。
+     * 缺失或返回 false 时 fail closed。
+     */
+    forcedAbortWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
+};
+
+/** 写执行器内部权限模型；forced-abort 只能经 enqueueForcedAbort 进入。 */
+type SessionWriteAuthority = {kind: "unowned"} | {kind: "invocation"; invocationId: string} | {kind: "forced-abort"; invocationId: string};
+
+/**
+ * 强制取消终态的唯一合法 plan 形状：单 session、固定 cause、单个非 projection
+ * aborted lifecycle，且 entry.invocationId 与授权一致。任何偏差在入队前同步拒绝，
+ * 排队等待期间对象被篡改也会在物理写入前再次拒绝。
+ */
+export type ForcedAbortSessionWritePlan = {
+    target: {sessionId: SessionId};
+    cause: "lifecycle.aborted.force";
+    ops: [{
+        kind: "append";
+        entry: Extract<SessionEntryDraft, {type: "invocation_lifecycle"}>;
+    }];
 };
 
 /**
@@ -83,6 +106,7 @@ export class SessionWriteExecutor {
     private readonly liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
     private readonly onEntriesWritten?: (batch: SessionWriteEntryBatch) => void | Promise<void>;
     private readonly invocationWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
+    private readonly forcedAbortWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
     private readonly writeQueues = new Map<SessionId, Promise<void>>();
 
     constructor(input: SessionWriteExecutorInput) {
@@ -91,20 +115,41 @@ export class SessionWriteExecutor {
         this.liveStateProvider = input.liveStateProvider;
         this.onEntriesWritten = input.onEntriesWritten;
         this.invocationWriteAllowed = input.invocationWriteAllowed;
+        this.forcedAbortWriteAllowed = input.forcedAbortWriteAllowed;
     }
 
     /**
      * 执行一组 plan，并在写入后发布 session_entry 和 session_state_changed。
+     * 保持 async：参数错误以 rejected promise 暴露，与既有调用方合同一致。
      */
     async execute(plans: SessionWritePlan[], invocationId?: string, options: SessionWriteExecutionOptions = {}): Promise<SessionWriteResult> {
         for (const plan of plans) {
             this.assertValidPlan(plan);
         }
         const sessionIds = [...new Set(plans.map((plan) => plan.target.sessionId))].sort((left, right) => left - right);
-        return this.withSessionWriteLocks(sessionIds, () => this.executeUnlocked(plans, invocationId, options));
+        const authority: SessionWriteAuthority = invocationId === undefined
+            ? {kind: "unowned"}
+            : {kind: "invocation", invocationId};
+        return this.withSessionWriteLocks(sessionIds, () => this.executeUnlocked(plans, authority, options));
     }
 
-    private async executeUnlocked(plans: SessionWritePlan[], invocationId: string | undefined, options: SessionWriteExecutionOptions): Promise<SessionWriteResult> {
+    /**
+     * 强制取消终态入口。非 async 合同：返回前必须完成参数校验并同步占据目标
+     * write queue 槽位，保证旧 aborted 先于后续 invocation start 落盘；
+     * 授权（tombstone）在物理写入前复核并经 completion 异步拒绝。
+     */
+    enqueueForcedAbort(plan: ForcedAbortSessionWritePlan, invocationId: string, options: SessionWriteExecutionOptions = {}): {completion: Promise<SessionWriteResult>} {
+        this.assertValidPlan(plan);
+        this.assertForcedAbortPlan(plan, invocationId);
+        const completion = this.withSessionWriteLocks(
+            [plan.target.sessionId],
+            () => this.executeUnlocked([plan], {kind: "forced-abort", invocationId}, options),
+        );
+        return {completion};
+    }
+
+    private async executeUnlocked(plans: SessionWritePlan[], authority: SessionWriteAuthority, options: SessionWriteExecutionOptions): Promise<SessionWriteResult> {
+        const invocationId = authority.kind === "unowned" ? undefined : authority.invocationId;
         const written: SessionEntry[] = [];
         const touchedSessionIds = new Set<SessionId>();
 
@@ -113,7 +158,7 @@ export class SessionWriteExecutor {
             if (plan.durability === "savePoint" && this.canMergeSavePoint(plan)) {
                 const merge = this.collectSavePointPlans(plans, index);
                 await this.measureWritePlan(options, async () => {
-                    this.assertInvocationWriteAllowed(plan.target.sessionId, invocationId);
+                    this.assertOpWriteAllowed(plan.target.sessionId, plan, authority);
                     const entries = await this.repo.appendEntries(plan.target.sessionId, merge.entries);
                     for (const entry of entries) {
                         written.push(entry);
@@ -127,7 +172,7 @@ export class SessionWriteExecutor {
             }
             for (const op of plan.ops) {
                 await this.measureWritePlan(options, async () => {
-                    this.assertInvocationWriteAllowed(plan.target.sessionId, invocationId);
+                    this.assertOpWriteAllowed(plan.target.sessionId, plan, authority);
                     const entries = await this.executeOp(plan.target.sessionId, op);
                     for (const entry of entries) {
                         written.push(entry);
@@ -147,13 +192,33 @@ export class SessionWriteExecutor {
         return {entries: written, liveStates};
     }
 
-    /** 在物理写入锁内复核 invocation ownership，关闭 cancel 与迟到异步结果之间的写入窗口。 */
-    private assertInvocationWriteAllowed(sessionId: SessionId, invocationId: string | undefined): void {
-        if (!invocationId || !this.invocationWriteAllowed) {
+    /** 在物理写入锁内按 authority 复核写入权：普通写看 active ownership，强制取消看窄化 tombstone。 */
+    private assertOpWriteAllowed(sessionId: SessionId, plan: SessionWritePlan, authority: SessionWriteAuthority): void {
+        if (authority.kind === "unowned") {
             return;
         }
-        if (!this.invocationWriteAllowed(sessionId, invocationId)) {
-            throw new Error(`invocation ${invocationId} 已失去 session ${sessionId} 的写入权`);
+        if (authority.kind === "invocation") {
+            if (this.invocationWriteAllowed && !this.invocationWriteAllowed(sessionId, authority.invocationId)) {
+                throw new Error(`invocation ${authority.invocationId} 已失去 session ${sessionId} 的写入权`);
+            }
+            return;
+        }
+        this.assertForcedAbortPlan(plan, authority.invocationId);
+        if (!this.forcedAbortWriteAllowed?.(sessionId, authority.invocationId)) {
+            throw new Error(`强制取消 ${authority.invocationId} 没有 session ${sessionId} 的终态写入授权`);
+        }
+    }
+
+    private assertForcedAbortPlan(plan: SessionWritePlan, invocationId: string): void {
+        const invalid = (): Error => new Error(`强制取消计划形状非法：期望唯一 ${invocationId} 的 aborted lifecycle`);
+        if (plan.cause !== "lifecycle.aborted.force"
+            || plan.ops.length !== 1
+            || plan.ops[0]!.kind !== "append"
+            || plan.ops[0]!.projection !== undefined
+            || plan.ops[0]!.entry.type !== "invocation_lifecycle"
+            || plan.ops[0]!.entry.status !== "aborted"
+            || plan.ops[0]!.entry.invocationId !== invocationId) {
+            throw invalid();
         }
     }
 
@@ -164,7 +229,6 @@ export class SessionWriteExecutor {
         }
         return this.withSessionWriteLock(sessionId, () => this.withSessionWriteLocks(sessionIds.slice(1), task));
     }
-
     private async withSessionWriteLock<TResult>(sessionId: SessionId, task: () => Promise<TResult>): Promise<TResult> {
         const previous = this.writeQueues.get(sessionId) ?? Promise.resolve();
         let release!: () => void;

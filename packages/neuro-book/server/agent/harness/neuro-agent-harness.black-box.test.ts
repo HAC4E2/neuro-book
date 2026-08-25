@@ -2,7 +2,7 @@ import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
@@ -203,6 +203,14 @@ async function nextEventLoopTurn(): Promise<void> {
     const turn = Promise.withResolvers<void>();
     setImmediate(turn.resolve);
     await turn.promise;
+}
+
+/** 有界取消是真实时序合同：超时即失败，不用猜测性等待掩盖回归。 */
+async function raceTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(label)), ms)),
+    ]);
 }
 
 describe("NeuroAgentHarness black-box contract", () => {
@@ -1322,25 +1330,44 @@ describe("NeuroAgentHarness black-box contract", () => {
             message: {text: "start hanging provider"},
         });
         await providerStarted.promise;
+        const oldInvocationId = (await harness.getSessionRecovery(created.sessionId)).activeInvocation!.invocationId;
 
+        // 阻塞旧 invocation 的 forced-aborted 落盘：两阶段取消必须不等待 I/O 就释放调用方，
+        // 且新 invocation 的 start 排在旧终态之后。
+        const durableGate = Promise.withResolvers<void>();
+        const realAppendEntry = harness.repo.appendEntry.bind(harness.repo);
+        const appendEntrySpy = vi.spyOn(harness.repo, "appendEntry").mockImplementation(async (...args: Parameters<JsonlSessionRepository["appendEntry"]>) => {
+            const entry = args[1];
+            if (entry.type === "invocation_lifecycle" && entry.invocationId === oldInvocationId && entry.status === "aborted") {
+                await durableGate.promise;
+            }
+            return realAppendEntry(...args);
+        });
         try {
-            const aborted = await harness.abortInvocation(created.sessionId, {reason: "force stop"});
-            const result = await Promise.race([
-                running,
-                new Promise<never>((_, reject) => setTimeout(() => reject(new Error("running invocation did not settle after cancel")), 300)),
-            ]);
-            const recovery = await harness.getSessionRecovery(created.sessionId);
-
+            const aborted = await raceTimeout(
+                harness.abortInvocation(created.sessionId, {reason: "force stop"}),
+                300,
+                "abort API did not settle after cancel",
+            );
+            const result = await raceTimeout(running, 300, "running invocation did not settle after cancel");
             expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
-            expect(result).toMatchObject({status: "error", invocationId: expect.any(String)});
-            expect(recovery.activeInvocation).toBeNull();
+            expect(result).toMatchObject({status: "error", invocationId: expect.any(String), aborted: true});
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({activeInvocation: null});
 
-            const next = await harness.invokeAgent({
+            let nextSettled = false;
+            const next = harness.invokeAgent({
                 sessionId: created.sessionId,
                 mode: "prompt",
                 message: {text: "start fresh invocation"},
+            }).finally(() => {
+                nextSettled = true;
             });
-            expect(next).toMatchObject({status: "completed", finalMessage: "fresh invocation result"});
+            // 固定观察窗证明新 start 被 durable queue 挡住，而不是恰好更慢。
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(nextSettled).toBe(false);
+
+            durableGate.resolve();
+            await expect(next).resolves.toMatchObject({status: "completed", finalMessage: "fresh invocation result"});
 
             providerGate.resolve();
             await providerReturned.promise;
@@ -1350,6 +1377,8 @@ describe("NeuroAgentHarness black-box contract", () => {
             expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
         } finally {
             providerGate.resolve();
+            durableGate.resolve();
+            appendEntrySpy.mockRestore();
         }
     }, 30_000);
 
@@ -1450,11 +1479,12 @@ describe("NeuroAgentHarness black-box contract", () => {
             });
             await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "hanging tool execution start");
 
-            const aborted = await harness.abortInvocation(created.sessionId, {reason: "force stop tool"});
-            const result = await Promise.race([
-                running,
-                new Promise<never>((_, reject) => setTimeout(() => reject(new Error("tool invocation did not settle after cancel")), 300)),
-            ]);
+            const aborted = await raceTimeout(
+                harness.abortInvocation(created.sessionId, {reason: "force stop tool"}),
+                300,
+                "tool cancel API did not settle",
+            );
+            const result = await raceTimeout(running, 300, "tool invocation did not settle after cancel");
             expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
             expect(result).toMatchObject({status: "error", invocationId: expect.any(String)});
             await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({activeInvocation: null});
@@ -1540,13 +1570,15 @@ describe("NeuroAgentHarness black-box contract", () => {
         });
         await settleStarted;
 
-        const aborted = await harness.abortInvocation(created.sessionId, {reason: "cancel hanging settle"});
-        const result = await Promise.race([
-            running,
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("settle invocation did not stop after cancel")), 300)),
-        ]);
+        const aborted = await raceTimeout(
+            harness.abortInvocation(created.sessionId, {reason: "cancel hanging settle"}),
+            300,
+            "settle cancel API did not settle",
+        );
+        const result = await raceTimeout(running, 300, "settle invocation did not stop after cancel");
         expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
         expect(result).toMatchObject({status: "error"});
+        await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({activeInvocation: null});
 
         releaseSettle!();
         await new Promise((resolve) => setTimeout(resolve, 20));

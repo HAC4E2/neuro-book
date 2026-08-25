@@ -50,9 +50,10 @@ import {buildAgentHistoryPage} from "nbook/server/agent/session/history-query";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {projectRelatedSessions} from "nbook/server/agent/session/relation-projection";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
-import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
+import type {AppendManySessionEntryDraft, ForcedAbortSessionWritePlan, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
+
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY, SESSION_TITLE_OWNER_STATE_KEY, readTitleOwner, type SessionTitleOwnerState} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionMetadata, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
@@ -551,6 +552,8 @@ export class NeuroAgentHarness {
     /** accepted running 段的 settle/fence 控制面，waiting 后 resume 会以同一 invocationId 新建。 */
     private readonly invocationCompletions = new Map<string, InvocationCompletion>();
     private readonly invocationAbortGates = new Map<string, InvocationAbortGate>();
+    /** 强制取消终态的窄化写授权；terminal completion settle 后立即回收。 */
+    private readonly forcedAbortWriteAuthorizations = new Set<string>();
     private readonly invocationAcceptances = new Map<string, InvocationAcceptanceTracker>();
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
     private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
@@ -635,6 +638,7 @@ export class NeuroAgentHarness {
                 }
             },
             invocationWriteAllowed: (sessionId, invocationId) => this.ownsInvocation(sessionId, invocationId),
+            forcedAbortWriteAllowed: (sessionId, invocationId) => this.forcedAbortWriteAuthorizations.has(`${String(sessionId)}:${invocationId}`),
         });
         this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
         this.runtimeResolver = options.runtimeResolver ?? resolvePiModelsFromConfig;
@@ -3619,7 +3623,6 @@ export class NeuroAgentHarness {
                 reason: projectPublicControlReason(body.reason),
             },
         });
-        await this.publishSessionState(sessionId, admission.active.invocationId);
         const completion = this.invocationCompletions.get(admission.active.invocationId);
         if (completion && !completion.settled) {
             await Promise.race([
@@ -6409,28 +6412,104 @@ export class NeuroAgentHarness {
         return this.activeInvocations.get(sessionId)?.invocationId === invocationId;
     }
 
-    /** 底层 provider/tool 不响应 AbortSignal 时，强制提交唯一 aborted 终态并释放 admission。 */
-    private async forceAbortInvocation(sessionId: number, invocationId: string, reason?: string): Promise<void> {
-        await this.withSessionMutation(sessionId, async () => {
-            if (!this.ownsInvocation(sessionId, invocationId)) {
-                return;
-            }
-            const abortGate = this.invocationAbortGates.get(invocationId);
-            await this.pauseFollowUps(sessionId, invocationId, "aborted");
-            // 宽限期到点的强制取消也是取消，同样不写英文兜底正文（理由见 failInvocation）。
-            await this.writeLifecycle(sessionId, invocationId, "aborted", reason, reason ? {
-                message: reason,
-                phase: "unknown",
-            } : undefined);
-            this.finishInvocationState(sessionId, invocationId);
-            // runLoop 可能仍卡在工具里。ownership 此刻已释放，它随后自己发的 agent_end 会被 emitRuntimeEvent 的
-            // fence 丢弃，前端就再也等不到终态。所以必须由取消侧补发，且必须在 finishInvocationState 之后补，
-            // 否则残留 runLoop 的 message_update 会抢在终态之后把前端重新拉回 running。
-            this.publishRuntimeEvent(sessionId, invocationId, {type: "agent_end", status: "aborted"});
-            await this.publishSessionState(sessionId, invocationId);
-            abortGate?.resolve(this.forcedAbortResult(sessionId, invocationId));
-        });
+    /** 同步替换内存中的 follow-up 真相态并返回旧值；持久化由调用方决定是否排队。 */
+    private replaceFollowUpQueueState(sessionId: number, queue: FollowUpQueueTruthState): FollowUpQueueTruthState | undefined {
+        const previous = this.followUpQueues.get(sessionId);
+        if (queue.items.length === 0 && queue.status === "ready") {
+            this.followUpQueues.delete(sessionId);
+        } else {
+            this.followUpQueues.set(sessionId, queue);
+        }
+        return previous;
     }
+
+    /** 非 async 合同：返回前已同步占据 per-session write queue 槽位。 */
+    private enqueueFollowUpQueueStatePersistence(sessionId: number, queue: FollowUpQueueTruthState): Promise<void> {
+        return this.executeWritePlan({
+            target: {sessionId},
+            cause: "followup.queue",
+            ops: [{
+                kind: "append",
+                projection: true,
+                entry: {
+                    type: "custom",
+                    key: AGENT_FOLLOW_UP_QUEUE_STATE_KEY,
+                    value: encodeFollowUpQueue(queue),
+                },
+            }],
+        }).then(() => undefined);
+    }
+
+    /**
+     * 登记 forced-abort 终态授权并同步入队唯一 aborted lifecycle。
+     * 返回时 tombstone 已生效、terminal write 已占据 write queue；
+     * 授权随 completion settle 回收，入队同步失败时立即回收并抛出。
+     */
+    private enqueueForcedAbortLifecycle(sessionId: number, invocationId: string, reason?: string): Promise<void> {
+        const key = `${String(sessionId)}:${invocationId}`;
+        this.forcedAbortWriteAuthorizations.add(key);
+        try {
+            const entry: Extract<SessionEntryDraft, {type: "invocation_lifecycle"}> = {
+                type: "invocation_lifecycle",
+                invocationId,
+                status: "aborted",
+                ...(reason ? {
+                    error: reason,
+                    errorInfo: {
+                        message: reason,
+                        phase: "unknown" as const,
+                    },
+                } : {}),
+            };
+            const plan: ForcedAbortSessionWritePlan = {
+                target: {sessionId},
+                cause: "lifecycle.aborted.force",
+                ops: [{kind: "append", entry}],
+            };
+            return this.writeExecutor.enqueueForcedAbort(plan, invocationId)
+                .completion
+                .finally(() => this.forcedAbortWriteAuthorizations.delete(key))
+                .then(() => undefined);
+        } catch (error) {
+            this.forcedAbortWriteAuthorizations.delete(key);
+            throw error;
+        }
+    }
+
+    /**
+     * 底层 provider/tool 不响应 AbortSignal 时，宽限期到点的两阶段强杀：
+     * 先同步入队 aborted 终态并保留窄化 tombstone，再立即释放 ownership 与公开调用方；
+     * durable 落盘由同一 write queue 异步完成，保证先于后续 invocation 的 start。
+     * 不在此处等待任何文件或 live-state I/O。
+     */
+    private async forceAbortInvocation(sessionId: number, invocationId: string, reason?: string): Promise<void> {
+        // 全部为同步控制面操作，由 ownsInvocation→finishInvocationState 的单线程 fence
+        // 保证原子性；重新进 mutation 队列会排在合作路径占用的写入之后，突破 300ms。
+        if (!this.ownsInvocation(sessionId, invocationId)) {
+            return;
+        }
+        const abortGate = this.invocationAbortGates.get(invocationId);
+        const result = this.forcedAbortResult(sessionId, invocationId);
+        let terminal: Promise<void>;
+        try {
+            terminal = this.enqueueForcedAbortLifecycle(sessionId, invocationId, reason);
+        } catch (error) {
+            void appLogger.error("agent.invocation.forceAbort.enqueueFailed", {
+                sessionId,
+                invocationId,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            terminal = Promise.resolve();
+        }
+        this.startBackgroundTask("agent.invocation.forceAbort.persist", terminal);
+        // terminal write 已占据 write queue 后才释放 ownership。ownership 此刻释放，
+        // 残留 runLoop 的 agent_end/message_update 会被 fence 丢弃，必须由取消侧补发终态事件
+        // （Task 139 语义：取消不写英文兜底正文）。
+        this.finishInvocationState(sessionId, invocationId);
+        this.publishRuntimeEvent(sessionId, invocationId, {type: "agent_end", status: "aborted"});
+        abortGate?.resolve(result);
+    }
+
 
     /** durable user entry 已提交后才确认并删除对应队首；重复 ack 无害。 */
     private async ackFollowUp(sessionId: number, itemId: string): Promise<void> {
@@ -6762,32 +6841,11 @@ export class NeuroAgentHarness {
     }
 
     private async setFollowUpQueueState(sessionId: number, queue: FollowUpQueueTruthState): Promise<void> {
-        const previous = this.followUpQueues.get(sessionId);
-        if (queue.items.length === 0 && queue.status === "ready") {
-            this.followUpQueues.delete(sessionId);
-        } else {
-            this.followUpQueues.set(sessionId, queue);
-        }
+        const previous = this.replaceFollowUpQueueState(sessionId, queue);
         try {
-            await this.executeWritePlan({
-                target: {sessionId},
-                cause: "followup.queue",
-                ops: [{
-                    kind: "append",
-                    projection: true,
-                    entry: {
-                        type: "custom",
-                        key: AGENT_FOLLOW_UP_QUEUE_STATE_KEY,
-                        value: encodeFollowUpQueue(queue),
-                    },
-                }],
-            });
+            await this.enqueueFollowUpQueueStatePersistence(sessionId, queue);
         } catch (error) {
-            if (previous) {
-                this.followUpQueues.set(sessionId, previous);
-            } else {
-                this.followUpQueues.delete(sessionId);
-            }
+            this.replaceFollowUpQueueState(sessionId, previous ?? this.emptyFollowUpQueueState());
             throw error;
         }
     }
