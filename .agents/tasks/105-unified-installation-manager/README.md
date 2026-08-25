@@ -2,6 +2,15 @@
 
 > 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-03 已实现外置 heartbeat lease、锁内 Manifest 重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议，并使用公开Manager `.49`完成clean Windows归档、仓库外Product/Manager运行与两种自卸载终态验收。公开Canary A→B、跨Profile和五平台Candidate仍需Actions完成，不能把本地Windows证据写成公开生命周期已验证。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
+## 2026-08-25：Issue #109 双路径 CI 验收与 Manager .57 发版
+
+- `scripts/release/verify-public-ghcr.sh` 新增第 6 参 provider 合同：缺省维持「podman 引擎强制 `PODMAN_COMPOSE_PROVIDER=podman-compose`」的既有行为；字面量 `delegate` 不注入任何变量，由 Manager 的 `containerComposeEnvironment` 探测结果决定委托方（#110）。
+- release-container 新增 `verify-public-ghcr-podman-delegate` job：podman-compose 经 `apt-get download` + `dpkg -x` 解包到 `${RUNNER_TEMP}/podman-compose-masked`，保留安装在盘而其目录永不进入 PATH；sanitized PATH 经 `$GITHUB_PATH` 逐行持久化；install 与 verify 两个 step 都断言二进制存在性与 PATH 不可达后，完整执行 install→migration→admin→login→running doctor→stop/restart doctor→注入 Operation 恢复→no-op update（端口 39490）。`publish-index.needs` 纳入新 job；`release-assets.test.ts` 以稳定标记断言同步。
+- 相邻问题登记独立跟踪：残留 `<uuid>_default` 网络（#169）、跨 provider 容器命名差异导致清理不净（#170）；本轮只记录不修。
+- 发版过程暴露并修复两个既有发布链缺陷：Manager tarball 携带内部 `file:` 生产依赖致干净环境安装失败，contracts 移入 devDependencies 并在 pack-check 加打包 manifest 守卫（[#179](https://github.com/notnotype/neuro-book/pull/179)）；Windows 生成的 bun.lock 反斜杠 file 描述符阻断 Linux 冻结安装，归一化并加 POSIX 守卫测试（[#181](https://github.com/notnotype/neuro-book/pull/181)）。`manager-release.ts` 的 `runtime:typecheck` 调用改指应用 workspace（[#172](https://github.com/notnotype/neuro-book/pull/172)）。
+- Manager 版本审计：`.55` 因 contracts `file:` 依赖未过 publish 门禁、`.56` 因锁文件分隔符未过门禁，两者均无公开包，tag 保留为失败审计记录。**`.57` 已公开发布**：npm canary dist-tag 指向 `0.1.0-canary.57`，gitHead `0a04b2a2`，publish run [32813787250](https://github.com/notnotype/neuro-book/actions/runs/32813787250) 全绿。
+- 应用 canary 显式指定基础版本 `0.9.7`：monorepo cutover 快照把应用带回 `0.9.5`，`--next patch` 会与已发布的 v0.9.6 号段撞号。发版后以独立与委托两个 podman verify job 的绿结果作为 Issue #109 验收证据。
+
 ## 2026-08-14：Issue #109 Podman Compose 迁移与 provider 选择修复
 
 - 根因已复现并固定为两个 Manager 合同缺口：`compose run` 的 Podman provider 会在迁移 JSON 前输出裸容器 ID，而迁移解析器直接对完整 stdout 执行 `JSON.parse()`；同时 Podman provider 环境变量无条件写成 `podman-compose`，阻断仅提供 `podman compose` 委托能力的机器。
