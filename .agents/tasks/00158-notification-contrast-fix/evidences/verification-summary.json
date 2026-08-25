@@ -18,12 +18,21 @@
       "insertions": 3,
       "deletions": 0,
       "pushed": true
+    },
+    {
+      "hash": "2116b7ec",
+      "subject": "docs(tasks): 补录 00158 通知对比度修复任务记录",
+      "files": 4,
+      "insertions": 184,
+      "deletions": 0,
+      "pushed": true,
+      "note": "原提交 541e13ce 因远端并发前进经 autostash rebase 重写为 2116b7ec"
     }
   ],
   "remoteState": {
     "branch": "master",
-    "localHead": "18ed2d55f4a1bba27447d9c173f3731852dc5a44",
-    "originHead": "18ed2d55f4a1bba27447d9c173f3731852dc5a44",
+    "localHead": "2116b7ec",
+    "originHead": "2116b7ec",
     "synced": true
   },
   "verifications": [
@@ -49,6 +58,11 @@
       "name": "git diff --check",
       "command": "git diff --check",
       "result": "无空白错误（CRLF 提示为仓库级 autocrlf 通知，含未触碰文件）"
+    },
+    {
+      "name": "governance:check（Task 记录合同）",
+      "command": "bun run governance:check",
+      "result": "failures=[], warnings=[]"
     }
   ],
   "contrastMatrix": {
