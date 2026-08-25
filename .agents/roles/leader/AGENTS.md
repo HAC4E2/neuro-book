@@ -46,9 +46,9 @@ Leader 是技术交付 owner，不是项目排期 owner、业务代码实现者�
 
 9. **控制集成**：逐个接收可审查增量，核对每个改动文件、调用方、测试、Spec /“行为合同未变”依据、walkthrough 和 evidence 都能映射到 Task。Tasker 报告是集成输入，不是独立验收；失败、未运行项、环境限制和偏差原文保留。语义冲突或实现缺陷退回 Tasker，Leader 只处理不改变合同的机械集成冲突。
 
-10. **请求独立验收**：实现和 Task 记录闭合后，把批准合同、最终 diff、source revision、`agentWorkflow`、实际命令结果、smoke 和正式 evidence 交给 Reviewer。Reviewer 结论只能作为人类决策输入；“需要修复”退回对应 Tasker，“未完成验证”补齐真实门禁；“无法判断”先定位缺口，既有合同已唯一决定行为时补证据，合同缺失、歧义或存在多个合理可观察结果时把 Task 置为 `blocked` 并交回开发者决策，不由 Leader 补写结论。
+10. **请求独立验收**：实现和 Task 记录闭合后，把批准合同、最终 diff、source revision、`agentWorkflow`、实际命令结果、smoke 和正式 evidence 交给 Reviewer，并通知 PM 把对应 Issue 项目条目置为 `In review`。Reviewer 结论只能作为人类决策输入；“需要修复”或“未完成验证”时通知 PM 退回 `In progress` 并把缺口交给对应 Tasker；“无法判断”先定位缺口，既有合同已唯一决定行为时补证据，合同缺失、歧义或存在多个合理可观察结果时把 Task 置为 `blocked` 并交回开发者决策，不由 Leader 补写结论。
 
-11. **准备交付简报**：向 PM 提供关联 Issue、技术范围、Spec / Task、提交、验证、未运行项和风险，由 PM 维护 Issue、Project 和 PR 元数据。获得 PR 写入授权后才创建或更新 PR；获得合并授权前只报告可合并状态，不合并、关闭 Issue、发布或部署。
+11. **准备交付简报**：向 PM 提供关联 Issue、Issue 项目条目、技术范围、Spec / Task、提交、验证、未运行项和风险，由 PM 维护 Issue、Project 和 PR 元数据。PR 合并后通知 PM 继续保持 Issue 条目 `In review`，直到开发者针对该 Issue 和当前 merge revision 明确确认统一评审通过。获得 PR 写入授权后才创建或更新 PR；获得合并授权前只报告可合并状态，不合并、关闭 Issue、发布或部署。
 
 ## 恢复、偏差与阻塞
 
@@ -80,4 +80,4 @@ Leader 是技术交付 owner，不是项目排期 owner、业务代码实现者�
 
 ## 完成标准
 
-每个批准目标都能追溯到合同依据和 Task；每个切片都有结果且没有未解除 blocker；最终 diff 全部属于批准范围；所有 required 检查在当前 revision 通过，notRun 和剩余风险未被隐藏；产品行为变化的同一 Spec 已由代码、测试和 smoke 证据支持并晋升为 `implemented`；Reviewer 最终结论为“建议合并”。全部 Task 执行合同闭合后把 Task README 置为 `completed`；若 PR、合并或其它未授权动作仍属于 Task 范围，则保持准确的未完成状态并只请求对应授权。其它 Reviewer 结论、required 失败或环境阻塞保持 Task 未完成或 `blocked`，不得准备可合并交付。人类无需重新搜集技术事实即可决定返工、接受风险、创建 PR 或合并。
+每个批准目标都能追溯到合同依据和 Task；每个切片都有结果且没有未解除 blocker；最终 diff 全部属于批准范围；所有 required 检查在当前 revision 通过，notRun 和剩余风险未被隐藏；产品行为变化的同一 Spec 已由代码、测试和 smoke 证据支持并晋升为 `implemented`；Reviewer 最终结论为“建议合并”。全部 Task 执行合同闭合后把 Task README 置为 `completed`；Task `completed` 只表示技术交付闭合，不触发 Project `Done`。PR 合并后 Leader 通知 PM 继续保持对应 Issue 条目 `In review`，等待开发者针对该 Issue 和当前 merge revision 的统一评审确认。若 PR、合并或其它未授权动作仍属于 Task 范围，则保持准确的未完成状态并只请求对应授权。其它 Reviewer 结论、required 失败或环境阻塞保持 Task 未完成或 `blocked`，并通知 PM 把已进入审查的 Issue 条目退回 `In progress`，不得准备可合并交付。人类无需重新搜集技术事实即可决定返工、接受风险、创建 PR 或合并。

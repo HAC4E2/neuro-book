@@ -93,9 +93,9 @@ neuro-book/                              # 私有 workspace orchestrator 根
 - 分支格式为 `{type}/{refs}-{slug}`：`type` 使用 `feat`、`fix`、`docs`、`refactor`、`test` 或 `chore`；`refs` 使用 `t<task号>` 或 `i<issue号>`，slug 使用不超过 5 个单词的英文 kebab-case。分支必须能追溯到 issue 或 task，不使用 `codex/*`。
 - 开工前执行 `git fetch origin`，再从 `origin/master` 创建 `.worktree/<slug>` 和对应分支；主 checkout 是唯一目录外例外，linked worktree 统一位于主 checkout 的 `/.worktree/` 下；新 worktree 首次使用前执行 `bun install`。
 - 代码改动在 worktree 中完成。提交前只暂存任务范围内的文件；用户明确要求全部改动时才使用 `git add -A`。
-- 完成后 push 分支并创建 PR；完整覆盖 issue 使用 `Closes #N`，部分覆盖使用 `Refs #N`。
-- Agent 到报告验证结果和 PR 链接为止，不自行合并 PR、关闭 issue、部署或做其他收尾。合并需要用户明确许可。
-- 获得许可后，先确认 CI、typecheck 和相关聚焦测试通过，再执行 squash merge、同步主工作区、移除 worktree 和本地分支。任一步失败时从断点继续，不重复已完成步骤。
+- 完成后 push 分支并创建 PR；完整覆盖 Issue 使用 `Closes #N`，部分覆盖使用 `Refs #N`。自动关闭 Issue 不代表对应 Issue 项目条目已为 `Done`。
+- Agent 默认交付到验证结果与 PR 链接；合并、关闭 Issue、部署或其它收尾需要用户对当前动作明确许可。获得合并许可并完成 squash merge 后，对应 Issue 项目条目保持 `In review`，等待开发者针对该 Issue 和 merge revision 的统一评审。
+- 获得许可后，先确认 CI、typecheck 和相关聚焦测试通过，再执行 squash merge、同步主工作区、移除 worktree 和本地分支。任一步失败时从断点继续，不重复已完成步骤；只有统一评审确认满足 [`docs/standards/repository-workflow.md#project-交付状态与统一评审`](docs/standards/repository-workflow.md#project-交付状态与统一评审)，PM 才把 Issue 项目条目改为 `Done`。
 
 ## 常用命令
 

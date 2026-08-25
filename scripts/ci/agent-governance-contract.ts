@@ -344,6 +344,23 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
     return failures;
 }
 
+/** 防止技术交付完成重新被等同为 Issue 项目条目 Done。 */
+export function verifyPostMergeUnifiedReviewContract(repoRoot: string): string[] {
+    const failures: string[] = [];
+    const contracts = [
+        ["AGENTS.md", ["对应 Issue 项目条目保持 `In review`", "统一评审确认满足"]],
+        ["docs/standards/repository-workflow.md", ["Issue 条目**是需求交付状态的唯一 owner", "PR 合并后 Issue 条目继续保持 `In review`", "`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并", "`Item closed` workflow 应保持关闭", "`is:open` 过滤器与本状态机不兼容", "当前 merge revision 集合"]],
+        [".agents/roles/pm/AGENTS.md", ["Issue 项目条目是需求交付状态的唯一 owner", "Reviewer 要求修复或验证未完成时退回 `In progress`", "当前 merge revision 集合", "记录 Issue、条目 ID、PR、revision 和确认来源"]],
+        [".agents/roles/leader/AGENTS.md", ["并通知 PM 把对应 Issue 项目条目置为 `In review`", "通知 PM 退回 `In progress`", "PR 合并后通知 PM 继续保持 Issue 条目 `In review`"]],
+        [".agents/roles/reviewer/AGENTS.md", ["通知 PM 把对应 Issue 项目条目从 `In review` 退回 `In progress`", "不能触发 Project `Done`"]],
+        [".agents/tasks/README.md", ["Task `completed` 也不能触发对应 Issue 项目条目的 Project `Done`", "PR 合并后对应 Issue 项目条目仍保持 `In review`"]],
+    ] as const;
+    for (const [relativePath, markers] of contracts) {
+        if (!hasTextMarkers(repoRoot, relativePath, markers)) failures.push(`合并后统一评审合同缺少必需标记：${relativePath}`);
+    }
+    return failures;
+}
+
 /** 校验 sibling 导入差异均已归类，且迁移收口没有隐式复制或删除。 */
 export function verifySiblingResyncResolution(repoRoot: string): string[] {
     const failures: string[] = [];

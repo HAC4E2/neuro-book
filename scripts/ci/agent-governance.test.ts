@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifyPostMergeUnifiedReviewContract, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -341,6 +341,49 @@ agentWorkflow:
     });
 });
 
+describe("合并后统一评审治理门禁", () => {
+    it("当前状态机与角色交接合同闭合", () => {
+        expect(verifyPostMergeUnifiedReviewContract(repositoryRoot)).toEqual([]);
+    });
+
+    it("任一状态机或角色交接合同丢失时失败", async () => {
+        const repoRoot = await createTestTmpRoot("unified-review-contract", "unified-review-contract-test");
+        fixtureRoots.push(repoRoot);
+        const contractPaths = [
+            "AGENTS.md",
+            "docs/standards/repository-workflow.md",
+            ".agents/roles/pm/AGENTS.md",
+            ".agents/roles/leader/AGENTS.md",
+            ".agents/roles/reviewer/AGENTS.md",
+            ".agents/tasks/README.md",
+        ] as const;
+        for (const relativePath of contractPaths) {
+            await writeText(repoRoot, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
+        }
+
+        for (const relativePath of contractPaths) {
+            const original = await readFile(join(repoRoot, relativePath), "utf8");
+            await writeText(repoRoot, relativePath, `# Missing contract: ${relativePath}\n`);
+            expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
+                `合并后统一评审合同缺少必需标记：${relativePath}`,
+            ]);
+            await writeText(repoRoot, relativePath, original);
+        }
+
+        const workflowPath = "docs/standards/repository-workflow.md";
+        const workflow = await readFile(join(repoRoot, workflowPath), "utf8");
+        await writeText(repoRoot, workflowPath, workflow.replace(
+            "`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并",
+            "`Done`：关联 PR 已合并",
+        ));
+        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
+            `合并后统一评审合同缺少必需标记：${workflowPath}`,
+        ]);
+        await writeText(repoRoot, workflowPath, workflow);
+        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([]);
+    });
+});
+
 describe("workspace 包级治理门禁", () => {
     it("允许带根继承链接的可选包治理资产", async () => {
         const repoRoot = await createPackageFixture({runtime: null, autonomous: false});
@@ -535,7 +578,7 @@ async function createGovernanceCliFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-cli", "governance-cli-test");
     fixtureRoots.push(root);
     const governanceFiles: readonly [string, string][] = [
-        ["AGENTS.md", "fixture root rules\n"],
+        ["AGENTS.md", "对应 Issue 项目条目保持 `In review`；统一评审确认满足。\n"],
         [".omp/RULES.md", "fixture omp rules\n"],
         ["WATCHDOG.md", "fixture watchdog\n"],
         [".agents/AGENTS.md", "fixture agents rules\n"],
@@ -543,15 +586,16 @@ async function createGovernanceCliFixture(): Promise<string> {
         [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
         [".agents/tasks/.migration-complete", "{}\n"],
         [".agents/tasks/legacy-index.json", "{}\n"],
-        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
-        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
+        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\nTask `completed` 也不能触发对应 Issue 项目条目的 Project `Done`。PR 合并后对应 Issue 项目条目仍保持 `In review`。\n"],
+        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\nIssue 项目条目是需求交付状态的唯一 owner。Reviewer 要求修复或验证未完成时退回 `In progress`。当前 merge revision 集合。记录 Issue、条目 ID、PR、revision 和确认来源。\n"],
+        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n并通知 PM 把对应 Issue 项目条目置为 `In review`。通知 PM 退回 `In progress`。PR 合并后通知 PM 继续保持 Issue 条目 `In review`。\n"],
         [".agents/roles/tasker/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n"],
+        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n通知 PM 把对应 Issue 项目条目从 `In review` 退回 `In progress`。不能触发 Project `Done`。\n"],
         [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
         [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
         [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
         ["docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n"],
+        ["docs/standards/repository-workflow.md", "Issue 条目**是需求交付状态的唯一 owner。PR 合并后 Issue 条目继续保持 `In review`。`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并。`Item closed` workflow 应保持关闭。`is:open` 过滤器与本状态机不兼容。当前 merge revision 集合。\n"],
         ["scripts/ci/agent-governance-contract.ts", "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] { return []; }\n\"notRun\" in verification\n"],
         ["scripts/ci/agent-governance.ts", "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n"],
         ["scripts/AGENTS.md", "fixture scripts rules\n"],
