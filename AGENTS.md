@@ -96,8 +96,6 @@ neuro-book/                              # 私有 workspace orchestrator 根
 - 完成后 push 分支并创建 PR；完整覆盖 issue 使用 `Closes #N`，部分覆盖使用 `Refs #N`。
 - Agent 到报告验证结果和 PR 链接为止，不自行合并 PR、关闭 issue、部署或做其他收尾。合并需要用户明确许可。
 - 获得许可后，先确认 CI、typecheck 和相关聚焦测试通过，再执行 squash merge、同步主工作区、移除 worktree 和本地分支。任一步失败时从断点继续，不重复已完成步骤。
-- 任何 worktree 或 Agent 更新远端 `master` 后，主工作区立即 `git fetch && git merge --ff-only origin/master`。不 force push `master`。
-- Windows worktree 清理遇到长路径时，先启用 `core.longpaths`；目录残留时使用 PowerShell/robocopy 在已确认的目标目录内清理。
 
 ## 常用命令
 
