@@ -1,10 +1,15 @@
-import {readFile} from "node:fs/promises";
+import {readFile, readdir} from "node:fs/promises";
 import {resolve} from "node:path";
 
 import {describe, expect, it} from "vitest";
 import {parse} from "yaml";
 
+import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
+import {selectBaselineScopes} from "#scripts/ci/baseline-change-scope";
+import {WORKSPACE_PACKAGE_CHECKS, selectWorkspaceMatrix} from "#scripts/ci/workspace-package-matrix";
+
 type WorkflowStep = {
+    id?: string;
     name?: string;
     run?: string;
     uses?: string;
@@ -22,6 +27,9 @@ type Workflow = {
     permissions?: Record<string, string>;
     jobs: Record<string, {
         steps?: WorkflowStep[];
+        needs?: string | string[];
+        if?: string;
+        outputs?: Record<string, string>;
         strategy?: {
             "fail-fast"?: boolean;
             matrix?: {include?: Array<Record<string, unknown>>};
@@ -117,8 +125,33 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(workflow)).toContain("scripts/ci/workspace-workflows.test.ts");
         expect(commands(workflow)).toContain("scripts/build/dockerfile-contract.test.ts");
         expect(Object.values(workflow.jobs).map((job) => job.name ?? "").join(" ")).not.toContain("advisory");
+        const changes = workflow.jobs.changes;
+        expect(changes?.steps?.find((step) => step.name === "Checkout")?.with?.["fetch-depth"]).toBe(0);
+        expect(changes?.steps?.some((step) => step.uses === "oven-sh/setup-bun@v2")).toBe(true);
+        expect(String(changes?.steps?.find((step) => step.id === "scope")?.run ?? "")).toContain("scripts/ci/baseline-change-scope.ts");
+        expect(Object.keys(changes?.outputs ?? {}).sort()).toEqual(["tests", "typecheck"]);
+        expect(workflow.jobs.governance?.if).toBeUndefined();
+        expect(workflow.jobs.typecheck?.needs).toBe("changes");
+        expect(workflow.jobs.typecheck?.if).toBe("needs.changes.outputs.typecheck == 'true'");
+        expect(workflow.jobs.test?.needs).toBe("changes");
+        expect(workflow.jobs.test?.if).toBe("needs.changes.outputs.tests == 'true'");
     });
 
+    it("baseline 变更作用域选择器按输入路径区分门禁", () => {
+        const docsOnly = {typecheck: false, tests: false};
+        expect(selectBaselineScopes([".agents/tasks/00158-notification-contrast-fix/README.md"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes(["packages/neuro-book/docs/architecture.md"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes(["packages/neuro-book/.agents/handbook.md"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes([".github/workflows/code-baseline.yml"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes(["README.md", "docs/specs/theme/system.md"], "pull_request")).toEqual(docsOnly);
+        const runtime = {typecheck: true, tests: true};
+        expect(selectBaselineScopes(["packages/neuro-book/server/agent/harness/neuro-agent-harness.test.ts"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes(["patches/nitropack@2.13.4.patch"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes(["package.json", "bun.lock", "bunfig.toml"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes(["plugins/foo/index.ts"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes([".agents/tasks/x/README.md"], "workflow_dispatch")).toEqual(runtime);
+
+    });
     it("所有 CI workflow 使用 Bun run --cwd 语法", async () => {
         const workflows = await readWorkflows();
         const invalid = [...workflows.entries()]
@@ -143,6 +176,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         const community = await readWorkflow("community-docs.yml");
         expect(community.on?.push?.paths).toEqual(community.on?.pull_request?.paths);
         expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
+            ".agents/**",
             "packages/neuro-book/**",
             "packages/neuro-book/tsconfig.json",
             "scripts/ci/stage-docs-locales*",
@@ -163,28 +197,31 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(deploy)).toContain("bun run docs:check");
     });
 
-    it("六自治包 matrix 与 llmlint Web island 保留 owner、命令、路径和 artifact", async () => {
+    it("六自治包 matrix 由变更选择器驱动并保留 owner、命令、路径和 artifact", async () => {
         const workflow = await readWorkflow("workspace-packages.yml");
         expect(paths(workflow)).toEqual(expect.arrayContaining([
             "packages/llmlint/web/**",
             "packages/llmlint/skill/**",
+            "bunfig.toml",
             "packages/llmlint/evals/report/**",
         ]));
         const packageJob = workflow.jobs.package;
+        expect(packageJob?.needs).toBe("select-packages");
         expect(packageJob?.strategy?.["fail-fast"]).toBe(false);
-        const rows = packageJob?.strategy?.matrix?.include ?? [];
-        const expected = ["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"];
-        expect(rows.map((row) => row.name)).toEqual(expected);
-        for (const row of rows) {
-            expect(row.directory).toBe(`packages/${row.name as string}`);
-            expect(String(row.commands ?? "").trim()).not.toBe("");
+        expect(packageJob?.strategy?.matrix).toBe("${{ fromJSON(needs.select-packages.outputs.matrix) }}");
+        const selectRun = String(workflow.jobs["select-packages"]?.steps?.find((step) => step.id === "select")?.run ?? "");
+        expect(selectRun).toContain("scripts/ci/workspace-package-matrix.ts");
+        for (const check of WORKSPACE_PACKAGE_CHECKS) {
+            expect(check.directory).toBe(`packages/${check.name}`);
+            expect(check.commands.trim()).not.toBe("");
         }
-        const harnessRow = rows.find((row) => row.name === "neuro-agent-harness");
-        expect(String(harnessRow?.commands ?? "")).toContain("bun run verify");
-        const uiRow = rows.find((row) => row.name === "nb-ui");
-        expect(String(uiRow?.commands ?? "")).toContain("bun run test");
+        const harnessRow = WORKSPACE_PACKAGE_CHECKS.find((row) => row.name === "neuro-agent-harness");
+        expect(harnessRow?.commands).toContain("bun run verify");
+        const uiRow = WORKSPACE_PACKAGE_CHECKS.find((row) => row.name === "nb-ui");
+        expect(uiRow?.commands).toContain("bun run test");
         const packageStep = packageJob?.steps?.find((step) => step.name === "Run package checks");
         expect(packageStep).toMatchObject({"working-directory": "${{ matrix.directory }}", run: "${{ matrix.commands }}"});
+        expect(workflow.jobs["llmlint-web"]?.if).toBe("needs.select-packages.outputs.run_web_island == 'true'");
         const webSteps = workflow.jobs["llmlint-web"].steps ?? [];
         expect(webSteps).toEqual(expect.arrayContaining([
             expect.objectContaining({"working-directory": "packages/llmlint/web", run: "bun install --frozen-lockfile"}),
@@ -197,6 +234,32 @@ describe("迁移后九个 CI 工作流结构合同", () => {
                 with: expect.objectContaining({path: "packages/llmlint/web/.output", "include-hidden-files": true, "if-no-files-found": "error"}),
             }),
         ]));
+    });
+
+    it("workspace 变更选择器按反向依赖闭包收缩矩阵", () => {
+        const single = selectWorkspaceMatrix(["packages/nb-history/src/a.ts"], "pull_request");
+        expect(single.include.map((row) => row.name)).toEqual(["nb-history"]);
+        expect(single.runWebIsland).toBe(false);
+
+        const closure = selectWorkspaceMatrix(["packages/neuro-agent-harness/src/b.ts"], "pull_request");
+        expect(closure.include.map((row) => row.name)).toEqual(["neuro-agent-harness", "llmlint"]);
+        expect(closure.runWebIsland).toBe(true);
+
+        const mixed = selectWorkspaceMatrix(["bun.lock", "packages/nb-history/src/a.ts"], "pull_request");
+        expect(mixed.include).toHaveLength(WORKSPACE_PACKAGE_CHECKS.length);
+        expect(mixed.runWebIsland).toBe(true);
+
+        const webIsland = selectWorkspaceMatrix(["packages/llmlint/web/app.vue"], "pull_request");
+        expect(webIsland.include.map((row) => row.name)).toEqual(["llmlint"]);
+        expect(webIsland.runWebIsland).toBe(true);
+
+        const shared = selectWorkspaceMatrix(["bun.lock"], "pull_request");
+        expect(shared.include).toHaveLength(WORKSPACE_PACKAGE_CHECKS.length);
+        expect(shared.runWebIsland).toBe(true);
+
+        const dispatched = selectWorkspaceMatrix([".agents/tasks/x/README.md"], "workflow_dispatch");
+        expect(dispatched.include).toHaveLength(WORKSPACE_PACKAGE_CHECKS.length);
+        expect(dispatched.runWebIsland).toBe(true);
     });
 
     it("Product baseline 与 platform workflow 覆盖 runner、应用 build 和 measurement artifact", async () => {
@@ -217,9 +280,32 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "packages/neuro-book/**",
             "packages/neuro-book-contracts/**",
             "packages/neuro-book-manager/**",
+            "patches/**",
             "bun.lock",
             "package.json",
         ]));
+        expect(platforms.jobs.product?.strategy?.matrix).toBe("${{ fromJSON(needs.select-platforms.outputs.matrix) }}");
+        const selectRun = String(platforms.jobs["select-platforms"]?.steps?.find((step) => step.id === "select")?.run ?? "");
+        expect(selectRun).toContain("scripts/build/product-platform-matrix.ts");
+        expect(selectProductPlatformMatrix("pull_request")).toEqual([
+            {
+                platform: "linux-x64-glibc",
+                runner: "ubuntu-latest",
+                command: "release:product:linux",
+                archive: "neuro-book-product-linux-x64-glibc.tar.gz",
+                port: 39223,
+                browser: "playwright",
+            },
+        ]);
+        expect(selectProductPlatformMatrix("push").map((entry) => entry.platform)).toEqual([
+            "linux-x64-glibc",
+            "linux-aarch64-glibc",
+            "darwin-x64",
+            "darwin-aarch64",
+        ]);
+        expect(selectProductPlatformMatrix("workflow_dispatch")).toEqual(selectProductPlatformMatrix("push"));
+        expect(platforms.on?.push?.branches).toEqual(["master"]);
+        expect(platforms.on?.push?.paths).toEqual(platforms.on?.pull_request?.paths);
         expect(commands(platforms)).toContain("bun run --cwd packages/neuro-book nuxt:build");
         expect(commands(platforms)).toContain("./packages/neuro-book/package.json");
         expect(commands(platforms)).toContain("bun run test:install");
@@ -241,9 +327,18 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "packages/neuro-book-contracts/src/desktop-*.ts",
             "packages/neuro-book-manager/src/desktop-uac-client*.ts",
             "packages/neuro-book-manager/**",
+            "packages/neuro-book-contracts/src/desktop.ts",
+            "packages/neuro-book-contracts/src/installation.ts",
+            "packages/owned-process/**",
+            "packages/neuro-book-test-support/**",
         ]));
         expect(commands(desktop)).toContain("bun x vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-bundle.test.ts scripts/build/product-build-environment.test.ts");
         expect(commands(desktop)).not.toContain("bun run scripts/build/product-runtime-bundle.test.ts");
+        const focusedRun = String(desktop.jobs.contracts?.steps?.find((step) => step.name === "Verify Manager focused paths and installation schemas")?.run ?? "");
+        expect(focusedRun).toContain("src/app-commands.owned-process.test.ts");
+        expect(focusedRun).toContain("src/installation-mutation.test.ts");
+        const ownedProcessStep = desktop.jobs.contracts?.steps?.find((step) => step.name === "Verify Windows Owned Process lifecycle");
+        expect(ownedProcessStep).toMatchObject({if: "matrix.platform == 'windows-x64'", run: "bun run --cwd packages/owned-process test"});
         const manager = await readWorkflow("release-manager.yml");
         expect(commands(manager)).toContain("bun run --cwd packages/neuro-book runtime:typecheck");
         expect(commands(manager)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
@@ -283,6 +378,18 @@ describe("迁移后九个 CI 工作流结构合同", () => {
                 expect(staleRootConfigs.has(triggerPath), `${name}: ${triggerPath}`).toBe(false);
             }
             expect(commands(workflow), name).not.toMatch(/(?:^|\n)\s*bun run (?:generate|nuxt:prepare|nuxt:build|runtime:typecheck|test:agent-state-root)(?:\s|$)/u);
+        }
+    });
+
+    it("code-baseline 与 product-platforms 的 PR paths 覆盖全部 packages 目录", async () => {
+        const dirents = await readdir(resolve(root, "packages"), {withFileTypes: true});
+        const packageDirs = dirents.filter((d) => d.isDirectory()).map((d) => d.name);
+        expect(packageDirs.length).toBeGreaterThanOrEqual(12);
+        for (const name of ["code-baseline.yml", "product-platforms.yml"]) {
+            const prPaths = (await readWorkflow(name)).on?.pull_request?.paths ?? [];
+            for (const dir of packageDirs) {
+                expect(prPaths, `${name}: packages/${dir}`).toContain(`packages/${dir}/**`);
+            }
         }
     });
 });
