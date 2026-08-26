@@ -44,3 +44,13 @@ createdAt: 2026-08-26T15:17:57Z
 - browser列入本Task`notRun`：本Task只修改开发治理文档和静态脚本，没有浏览器可见表面。Issue #191产品实现、真实Provider/Model、远端Issue/Project写入、合并、发布、部署、数据库迁移、浏览器人工验收和数据删除均未执行。
 - 最终修复revision为包含本walkthrough的提交自身SHA；push后以PR #217只读`headRefOid`确认，不在提交前伪造SHA。PR仍未获合并授权。
 - 证据闭合时间：`2026-08-26T16:27:14Z`。
+
+## 根规则事后审计
+
+- 提交并push `64c64598` 后，advisor指出本轮记录缺少专用worktree根`AGENTS.md`与`.omp/RULES.md`的显式编辑前读取证据。该过程缺口无法由事后补读改写为“编辑前合规”；本节只记录补救审计和新证据。
+- 已补读根/OMP、`docs/specs`注册表、代码路由、common/TypeScript/scripts规范、测试临时根、scripts作用域、packages与主应用包规则、Proposal/standards/Spec生命周期和`writing-for-agents`。
+- 21个原提交文件均有路由覆盖：scripts三文件使用common+TypeScript+scripts规范，测试叠加testing；`.agents/**`使用角色/Task合同与Agent文档规范；根Proposal/standard使用docs分类入口；包内Proposal叠加packages与主应用包规则。
+- P-005与Agent Skills提案明确本变更不改变产品可观察行为、数据、接口、运行时权限或发布承诺，不创建产品capability或Spec；因此产品Spec保持不变是经注册表核对后的决定，不是遗漏。开发治理真相源仍为accepted Proposal、Task合同和repository workflow。
+- 专用worktree在原实施前为干净状态；原提交只暂存21个精确目标文件，未使用stash/reset/prune，未修改migration/ownership清单、生成物或Issue #191产品文件；补救前工作树也与远端同步且洁净。
+- 补读TypeScript边界规则发现密封迁移Git JSON只做类型断言：合法JSON顶层为`null`时会抛`TypeError`。新增RED精确复现；实现改为`unknown`解析并在访问字段前验证对象形状，失败返回`历史 Task 迁移密封快照结构无效`。聚焦身份回归4项转绿，TypeScript退出码0。
+- 补救证据时间：`2026-08-26T16:38:36Z`。完整聚焦测试：99 passed / 99；`bun x tsc --noEmit -p scripts/tsconfig.json`退出码0；`bun run docs:check`为`failures: []`、`checkedFiles: 5283`；`bun run governance:check`为`failures: []`、`warnings: []`；两类diff check退出码0。

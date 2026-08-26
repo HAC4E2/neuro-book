@@ -7,7 +7,7 @@ worktreeId: .worktree/t160-leader-driven-workflow
 branchId: refactor/t160-leader-driven-workflow
 status: completed
 createdAt: 2026-08-26T00:00:00Z
-updatedAt: 2026-08-26T16:27:14Z
+updatedAt: 2026-08-26T16:38:36Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: refactor

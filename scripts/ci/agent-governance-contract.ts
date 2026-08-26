@@ -1048,8 +1048,14 @@ function readLegacyTaskIdentitySet(repoRoot: string, failures: string[]): Legacy
             failures.push("历史 Task 迁移缺少唯一共同密封提交");
             return null;
         }
-        index = JSON.parse(git(repoRoot, ["show", `${indexCommit}:${indexPath}`])) as TaskMigrationIndex;
-        marker = JSON.parse(git(repoRoot, ["show", `${markerCommit}:${markerPath}`])) as TaskMigrationMarker;
+        const parsedIndex = JSON.parse(git(repoRoot, ["show", `${indexCommit}:${indexPath}`])) as unknown;
+        const parsedMarker = JSON.parse(git(repoRoot, ["show", `${markerCommit}:${markerPath}`])) as unknown;
+        if (!isRecord(parsedIndex) || !isRecord(parsedMarker)) {
+            failures.push("历史 Task 迁移密封快照结构无效");
+            return null;
+        }
+        index = parsedIndex as TaskMigrationIndex;
+        marker = parsedMarker as TaskMigrationMarker;
     } catch (error) {
         failures.push(`历史 Task 迁移密封快照不可读：${String(error)}`);
         return null;

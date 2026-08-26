@@ -472,6 +472,12 @@ taskId: ${taskId}
 
         expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("历史 Task 迁移密封 mapping 结构无效");
     });
+    it("密封迁移 JSON 顶层不是对象时 fail closed", async () => {
+        const repoRoot = await createInvalidSealedJsonShapeFixture();
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("历史 Task 迁移密封快照结构无效");
+    });
+
 
 
 
@@ -1379,6 +1385,26 @@ async function writeHistoricalMigrationMetadata(root: string, sourceRevision: st
     const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest), "utf8"));
     await writeText(root, ".agents/tasks/legacy-index.json", JSON.stringify({schema: "nbook.task-migration-index/v1", sourceRevision, fileCount: mappings.length, manifestSha256, migratedAt: "2026-08-26T00:00:00Z", mappings, repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: mappings.length, localOnlyFiles: []}));
     await writeText(root, ".agents/tasks/.migration-complete", JSON.stringify({schema: "nbook.task-migration/v1", sourceRevision, fileCount: mappings.length, manifestSha256, completedAt: "2026-08-26T00:00:00Z", repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: mappings.length, localOnlyFiles: []}));
+}
+
+async function createInvalidSealedJsonShapeFixture(): Promise<string> {
+    const root = await createTestTmpRoot("governance-invalid-sealed-json", "governance-invalid-sealed-json-test");
+    fixtureRoots.push(root);
+    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}));
+    await writeText(root, "docs/tasks/99-invalid/README.md", "# Historical source\n");
+    await runGit(root, ["init", "--initial-branch", "master"]);
+    await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
+    await runGit(root, ["config", "user.name", "Governance Test"]);
+    await runGit(root, ["add", "."]);
+    await runGit(root, ["commit", "-m", "historical source"]);
+    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
+    await writeText(root, ".agents/tasks/legacy-index.json", "null\n");
+    await writeText(root, ".agents/tasks/.migration-complete", JSON.stringify({schema: "nbook.task-migration/v1", sourceRevision, fileCount: 0, manifestSha256: `sha256:${"0".repeat(64)}`, completedAt: "2026-08-26T00:00:00Z", repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: 0, localOnlyFiles: []}));
+    await runGit(root, ["add", ".agents/tasks/legacy-index.json", ".agents/tasks/.migration-complete"]);
+    await runGit(root, ["commit", "-m", "seal invalid migration metadata"]);
+    await writeText(root, ".agents/tasks/99-invalid/README.md", "# Invalid historical Task\n");
+    await writeText(root, ".agents/tasks/99-invalid/context.md", "# Context\n");
+    return root;
 }
 
 async function createMalformedSealedMappingFixture(): Promise<string> {
