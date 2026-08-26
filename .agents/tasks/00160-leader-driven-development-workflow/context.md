@@ -12,11 +12,11 @@
 
 - 完整主线为开发者→Leader→Tasker→Leader→开发者，Leader不等待PM。
 - Leader产物是交给下一位Leader继续拆分的Issue、Task草案、可执行Task、Proposal和Spec。
-- Issue是多Task交付聚合根；取得远端Issue编号后，多个Task扁平共享`actionIssueId`，不创建统筹Task或Task父子状态。
-- 未编号Issue按`.agents/issues/drafts/<slug>.md`恢复，取得编号后迁移并删除；本地草稿路径不写入`actionIssueId`。
-- Task草案为draft、不可执行；开发者接受后为planned、可派发，但planned不授权受限动作。
-- Leader可派发design Task；例如API设计由Agent与开发者直接协作，明确合同写入指定planned Spec。
-- 普通Tasker只通过文件合同实现和报告偏差；design Tasker只产出设计文档和决策记录。
+- Issue是多Task交付聚合根；应用owner当前Task固定`issueRequired: true`和正整数Issue，根owner才允许本地例外使用`false`与`null`；不创建统筹Task或Task父子状态。
+- 未编号Issue草稿保存唯一Draft-Key、type/status标签和具体远端动作请求；获授权后先按Draft-Key查询，取得或复用编号后只建draft扁平Task，开发者接受后planned，闭合链接与授权留痕后最后删除草稿。
+- Task草案为draft、不可执行；唯一接受点是开发者逐个接受目标、范围、依赖、验收和停止条件，由Leader翻转planned并留痕；planned不授权受限动作。
+- Leader可派发design Task；首次提交的活跃Design README/context密封kind、执行身份、严格祖先Git基线、产物和允许文件，真实diff不能靠修改当前合同绕过；已提交退出后不得重开。
+- 普通Tasker只通过文件合同实现和报告偏差；verifying可补required或同合同修复，合同变化交回Leader取得决策后退回in-progress。
 
 ## 授权边界
 

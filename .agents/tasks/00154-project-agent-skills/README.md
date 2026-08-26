@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v1
 taskId: 00154-project-agent-skills
+issueRequired: false
 actionIssueId: null
 worktreeId: null
 branchId: master

@@ -23,9 +23,11 @@ const failures: string[] = [];
 if (role && !CANONICAL_ROLES.includes(role as typeof CANONICAL_ROLES[number])) {
     failures.push(`未知角色：${role}`);
 }
-if (task && !/^(?:\d{2,5}-[A-Za-z0-9][A-Za-z0-9._-]*|archived\/[A-Za-z0-9][A-Za-z0-9._-]*)$/u.test(task)) {
-    failures.push(`Task 标识格式无效：${task}`);
-}
+const numericTaskMatch = task ? /^(\d{2,5})-[A-Za-z0-9][A-Za-z0-9._-]*$/u.exec(task) : null;
+const validTask = task === undefined
+    || /^archived\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(task)
+    || (numericTaskMatch !== null && Number.parseInt(numericTaskMatch[1]!, 10) > 0);
+if (!validTask) failures.push(`Task 标识格式无效：${task}`);
 
 function findTaskReadmePath(repoRoot: string, task: string): {path: string | null; checkedRoots: string[]; failures: string[]} {
     return resolveTaskReadmePath(repoRoot, task);

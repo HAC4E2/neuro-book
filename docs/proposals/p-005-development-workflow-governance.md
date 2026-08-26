@@ -39,7 +39,7 @@ NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、
 - walkthrough与evidence：Leader/Tasker/Reviewer的追加式结果和证据。
 - Project与PR元数据：排期和交付状态；不决定Leader能否开始本地编排。
 
-Issue是多Task交付的唯一聚合根。未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护带目标、范围、验收、Proposal/Spec和授权请求来源的`drafts/<slug>.md`；路径只作恢复键，不是Issue ID。取得远端编号后以`Draft-Key`迁移，创建`1..N`个带该`actionIssueId`的扁平Task，闭合Issue/Proposal/Spec/Task链接后删除草稿；恢复只更新同批已存在Task，不保留第二份状态正文。`actionIssueId: null`只用于无Issue的本地治理、实验或机械Task。不创建统筹Task或Task父子状态；多个Task共享同一`actionIssueId`，每个Task最多关联一个Issue。容器Issue或仍待下一位Leader拆分的Issue可暂时没有直接Task，但必须列出子Issue或下一拆分入口；交付地图只能导航Task、owner、顺序和依赖，不是真相源。
+Issue是多Task交付的唯一聚合根。未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护含唯一Draft-Key、type/status标签、目标、验收和具体授权请求的`drafts/<slug>.md`。获授权后先查找精确Draft-Key：0个才创建、1个复用、多个阻塞；取得编号后只创建`issueRequired: true`的draft扁平Task，`draft`→`planned`唯一接受点是开发者逐个接受合同，由Leader翻转并留痕。闭合链接、持久化授权来源和动作范围后最后删除草稿。应用owner当前Task固定关联正整数Issue，根owner才允许`issueRequired: false`与`actionIssueId: null`的本地例外。不创建统筹Task、Task父子状态或第二份状态正文。
 
 ## 决策
 
@@ -61,17 +61,17 @@ Leader是Issue、Proposal、Spec和Task的编排owner：
 - 产出供开发者审阅、Tasker不得执行的draft Task；
 - 产出开发者已接受、Tasker可直接执行的planned Task；
 - 产出记录长期取舍的Proposal和行为/API合同的Spec；
-- 可先创建调研或design Task，用证据及人机协作完善后续Proposal、Spec和实现Task；
+- 可先创建调研或design Task，用证据及人机协作完善后续Proposal、Spec和实现Task；活跃Design合同首次提交时密封基线和allowlist；
 - 发现多个合理产品结果时停止并给开发者建议，不让普通Tasker自行选择；
-- 获远端写入授权后直接维护Issue；未获授权时维护本地草稿；
+- 获远端写入授权后按Draft-Key幂等迁移Issue；未获授权时维护本地草稿；
 - 通过`ownership.json`选择唯一Task root和owner，默认顺序执行；
 - 根据Tasker文件报告更新合同、重切片或请求开发者决策。
 
 ### Tasker文件交互
 
-普通Tasker开始和恢复只读取Task README、context、引用合同、最新Leader walkthrough、基线与相邻测试。派发聊天只提供角色和Task路径；输出写入实现commit、Tasker walkthrough和evidence。普通Tasker不修改Issue、Proposal、Spec或Task范围，计划不成立时报告事实、影响和选项。
+普通Tasker开始和恢复只读取Task README、context、引用合同、最新Leader walkthrough、基线与相邻测试。`planned`/`in-progress`用于实现；`verifying`允许补required证据或同合同修复，合同变化由Leader取得开发者决定后退回`in-progress`。普通Tasker不修改Issue、Proposal、Spec或Task范围。
 
-`agentWorkflow.kind: design`是明确例外：design Tasker不实现业务代码，可以针对Task列出的API/行为决策直接与开发者协作，只修改Task指定的Proposal/Spec草案和报告文件。未决方案留在Proposal，开发者明确接受的合同进入planned Spec；范围和owner仍由Leader管理。
+`agentWorkflow.kind: design`是明确例外：design Tasker只修改密封合同允许的Proposal/Spec和报告文件，不实现业务代码；其它明确单行设计类型合法，API额外要求`api-and-interface-design`。首次提交的活跃Design README/context密封kind、执行身份、严格祖先diff基线、产物和允许文件，同一diff修改当前合同不能扩大或关闭门禁；已提交退出后不得重开，后续设计使用新Task。
 
 ### 授权模型
 
@@ -114,4 +114,5 @@ Reviewer只报告结论，不修代码、不更新合同、不触发Project Done
 - 2026-08-24｜Task 00152/00154｜同步角色合同、Task恢复、`report`和`load_role`入口。
 - 2026-08-26｜人类修订｜改为Leader主导顺序流程；Leader产出可继续拆分的Issue、draft/planned Task、Proposal和Spec；design Tasker可直接与开发者协作制定API等规范并回写文件；PM和独立Reviewer按需，本地可逆门禁采用范围授权。
 - 2026-08-26｜人类决策｜采用Issue聚合+扁平Task：Issue统筹总目标与验收，多个Task直接共享`actionIssueId`；不创建统筹Task或`parentTaskId`，交付地图只做导航。
-- 2026-08-26｜实现收口｜未编号Issue使用`.agents/issues/drafts/<slug>.md`恢复键，取得远端编号后创建带`actionIssueId`的扁平Task并删除草稿；根Task只兼容两/三位`≤148`及五位`00149`/`00150`历史ID，`00152+`使用当前合同；应用Task先通过ownership数字ID校验，再以`1..148`为迁移历史、`149+`为当前合同。
+- 2026-08-26｜实现收口｜未编号Issue使用`.agents/issues/drafts/<slug>.md`恢复键；取得远端编号后，应用Task带`actionIssueId`，根owner可按合同使用本地例外。历史Task必须命中index/marker首次共同提交的密封迁移快照：该快照manifest重算通过，固定`sourceRevision`中存在README，且同源同目标mapping命中；当前mapping身份投影不得漂移，应用历史Task还必须命中ownership。三个迁移期五位Task精确兼容，根当前Task使用`00152+`，应用当前Task使用`00149+`。
+- 2026-08-26｜审查修复｜Issue迁移改为Draft-Key 0/1/多命中幂等顺序、先draft后开发者接受；Task owner决定`issueRequired`；verifying返工、notRun不适用语义和Design密封真实diff门禁闭合。

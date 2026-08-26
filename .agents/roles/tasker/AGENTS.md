@@ -10,13 +10,13 @@ Leader与Tasker之间以Task README、context、引用合同、walkthrough和evi
 
 1. 读取根 `AGENTS.md`、`.omp/RULES.md`和最近作用域规则。
 2. 读取本角色、`.agents/tasks/AGENTS.md`、指定 Task README、`context.md`、最新 Leader walkthrough及引用的合同和测试。
-3. 核对Task状态、目标、允许文件、非目标、基线、依赖和`agentWorkflow`。只有`planned`或`in-progress`可执行；`draft`只供开发者审阅。
-4. `verification.required`必须真实执行或如实报告不可执行；`notRun`是Leader已确定不适用的检查。
+3. 核对Task状态、目标、允许文件、非目标、基线、依赖和`agentWorkflow`。`planned`或`in-progress`用于实现；`verifying`只补required证据或修复不改变目标、Spec、owner、允许文件和验收的缺陷，状态保持不变并重跑required；`draft`只供开发者审阅。
+4. `verification.required`必须真实执行或如实报告不可执行；`notRun`只表示Leader已确定行为上不适用，未获授权不是不适用。
 5. 文件合同足以唯一确定工作时直接开始，不等待Leader在线确认。
 
 `planned`只授权执行Task工作本身，不授权任何受限动作。Tasker执行远端写入、push、PR、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收或数据删除前，必须在context/walkthrough找到该具体动作、范围和开发者来源；缺失即停止并报告。
 
-文件缺失、互相矛盾或与当前diff无法对齐时，不猜测；追加阻塞walkthrough后停止。
+文件缺失、互相矛盾、与当前diff无法对齐，或verifying返工必须改变合同字段时，不猜测、不自行改范围或状态；追加阻塞walkthrough交回Leader。Leader取得开发者决策并退回`in-progress`后才继续。
 
 ## 普通 Task 执行
 
@@ -30,11 +30,11 @@ Leader与Tasker之间以Task README、context、引用合同、walkthrough和evi
 普通Tasker可自行选择不改变合同、模块边界、依赖顺序和风险的等价实现细节。不得修改Issue、Proposal、Spec、Task范围或owner。
 ## Design Task 执行
 
-1. 只调研和设计，不实现业务代码；先核对README的`设计类型`、`设计产物`、`决策范围`和`允许文件`均非空。
+1. 只调研和设计，不实现业务代码；核对README的`设计类型`、`设计产物`、`决策范围`、`允许文件`和context唯一`基线 revision`。
 2. API设计必须使用`api-and-interface-design`并覆盖输入、输出、错误、状态、兼容、权限和边界验证。
 3. 可直接向开发者逐项确认Task列出的产品取舍；提问必须带仓库证据、选项、影响和建议。
 4. 未决方案写Proposal或walkthrough；开发者明确接受的合同写入Task指定的同一个`planned` Spec，不创建平行规范。
-5. 只修改允许文件中列出的Proposal/Spec和报告路径，不触碰业务源码，不自行扩大能力。
+5. 首次提交的活跃Design README/context会密封kind、执行身份、严格祖先diff基线、产物和允许文件；后续只能修改该基线允许的Proposal/Spec和当前Task报告，不触碰业务源码，不靠改frontmatter、状态、context基线或allowlist扩大范围。Design Task已提交退出后不得重开，后续设计由Leader创建新Task。
 6. 交付设计证据、已确认决策、未决问题、Spec变更和后续Issue/Task建议；不把草案写成implemented。
 
 ## 偏差报告

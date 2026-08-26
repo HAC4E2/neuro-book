@@ -41,7 +41,8 @@ packages/neuro-book/.agents/tasks/
 ```yaml
 ---
 schema: nbook.task/v1
-taskId: 00149-example
+taskId: 00161-example
+issueRequired: true
 actionIssueId: 123
 worktreeId: null
 branchId: null
@@ -60,36 +61,38 @@ agentWorkflow:
       - regression-test
       - focused-test
       - diff-check
-    notRun:
-      - check: browser
-        reason: 未获浏览器人工验收授权
+    notRun: []
 ---
 ```
 
-- `taskId`：任务目录的稳定身份。
-- `actionIssueId`：必须显式存在，只能是直接关联Issue的正整数编号或`null`。多个扁平Task可共享同一编号；产品Task不得为`null`，无Issue的本地治理、实验或机械Task才使用`null`。禁止`parentTaskId`和多Issue数组。
+- `taskId`：任务目录的稳定身份。根新Task使用五位`00152+`编号；历史身份按迁移快照精确识别，不由数值范围或缺字段推断。
+- `issueRequired`、`actionIssueId`：当前Task必须显式声明。应用owner `packages/neuro-book/.agents/tasks`固定为`issueRequired: true`和正整数Issue；根owner允许`true`+正整数，或无Issue本地治理/实验/机械Task使用`false`+`null`。禁止`parentTaskId`和多Issue数组。
 - `worktreeId`、`branchId`：必须显式存在且为`null`或非空字符串；记录实际执行身份，治理文档直接在当前工作区修改时可为`null`。
-- `status`：`draft`只供开发者审阅，Tasker不得执行；`planned`表示工作合同已接受并可派发，但不授权任何远端或受限动作；其后为`in-progress`、`blocked`、`verifying`、`completed`或`abandoned`。
+- `status`：`draft`只供开发者审阅，Tasker不得执行；`draft`→`planned`的唯一接受点是开发者明确接受该Task目标、范围、依赖、验收和停止条件，由Leader翻转并在context/walkthrough记录来源和时间。`planned`表示可派发但不授权受限动作；其后为`in-progress`、`blocked`、`verifying`、`completed`或`abandoned`。
 - `createdAt`、`updatedAt`：任务记录时间。
 - `agentWorkflow`：Leader为新建或重新打开Task填写的执行与验证画像；它指导Tasker自觉工作，不是角色状态机。
 - `profile`固定为`nbook.agent-skills/v1`；`kind`允许`feedback`、`design`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。
 - `kind: design`只产出Task指定的Proposal/Spec草案、证据和决策简报；可由Tasker直接与开发者协作，不实现业务代码。
 - `routes`记录Tasker完成任务所需的最小Skill集合；API设计必须包含`api-and-interface-design`。
-- `verification.required`列出必须真实执行或报告不可执行的检查；不能用较弱命令冒充。
-- `verification.notRun`只列Leader在建Task时已经确认不适用的检查及具体原因，不得与required重叠。
+- `verification.required`列出必须真实执行或报告不可执行的检查；适用但未获授权仍留在required并报告阻塞，不能用较弱命令冒充。
+- `verification.notRun`只表示不适用，必须写具体适用性原因且不得与required重叠；未获授权不是不适用。
 
 `kind: design`的README还必须包含四个非空章节：
 
-- `## 设计类型`：API、模块边界、数据模型、交互或其它明确类型；
+- `## 设计类型`：一个不超过64字符的明确单行类型；API只是需要专属Skill的特例，其它明确类型同样合法；
 - `## 设计产物`：唯一Proposal/Spec目标路径和决策简报；
 - `## 决策范围`：允许Tasker与开发者确认的产品取舍；
-- `## 允许文件`：可修改的Proposal/Spec、walkthrough/evidence精确路径。
+- `## 允许文件`：唯一Proposal/Spec和当前Task直属walkthrough/evidence路径。
+
+活跃Design Task首次提交时，README和context共同密封Design合同；context恰好记录一个密封提交严格祖先、创建前Git SHA的`基线 revision`。治理门禁以该首次密封合同的kind、执行身份、设计产物和允许文件检查从基线到退出Design窗口的实际diff；同一diff修改当前frontmatter、状态、context基线或allowlist不能关闭或扩大门禁。Design Task已提交退出活跃状态后不得重开；后续设计必须创建并密封新Task。普通Task不要求Design基线字段。
 
 API类型必须路由`api-and-interface-design`。Design Task不得包含业务源码路径，不得把Spec晋升`implemented`；Leader在后续实现与证据闭合后处理成熟度。
 
 Task README 只记录执行合同；实际命令、结果、revision、环境、截图、日志和正式产物仍写入追加式 walkthrough / evidence。Task 不复制 Issue / Project 的 `module`、`priority`、labels 或 iteration。
 
 Task 状态只描述本次执行记录，不替代 Issue 或 Project 状态；Task `completed` 也不能触发对应 Issue 项目条目的 Project `Done`。Project 的交付状态和统一评审门禁以 [`docs/standards/repository-workflow.md#project-交付状态与统一评审`](../../docs/standards/repository-workflow.md#project-交付状态与统一评审) 为准。
+
+Tasker可执行`planned`、`in-progress`和`verifying`：前两者用于实现，`verifying`用于补required证据或修复不改变目标、Spec、owner、允许文件和验收的验证缺陷，状态保持`verifying`并重跑required。合同变化时Tasker阻塞并交回Leader；Leader取得开发者决策、更新合同后退回`in-progress`再派发。`verifying`→`completed`只由Leader在验证与审查闭合后翻转。
 
 ## Context、Walkthrough 与 Evidence
 
@@ -101,7 +104,7 @@ Task 状态只描述本次执行记录，不替代 Issue 或 Project 状态；Ta
 
 1. 开发者批准目标、范围和关键取舍；这足以让Leader开始本地编排，不等待PM或Issue claimed。
 2. Leader选择产物：交给下一位Leader继续拆分的Issue、供审阅的draft Task、可执行的planned Task、Proposal或Spec。
-3. 产品目标未有远端Issue编号时，Leader先按`.agents/issues/README.md`维护草稿并请求创建授权；取得编号后，可执行叶子Issue创建`1..N`个共享`actionIssueId`的扁平Task。
+3. 产品目标未有远端Issue编号时，Leader按`.agents/issues/README.md`维护草稿；获具体远端动作授权后先按Draft-Key查询，取得或复用编号后只创建共享`actionIssueId`的draft扁平Task，开发者接受后再planned。
 4. 大目标可先建调研/design Task；design Tasker可以直接与开发者协作，把未决方案写Proposal，把明确接受的合同写入指定planned Spec。
 5. Leader检查ownership和编号，创建Task README、context、切片、owner和agentWorkflow；默认顺序执行。
 6. 普通Tasker只通过文件合同实现、验证和报告；design Tasker只修改Task列出的Proposal/Spec与报告文件。
@@ -118,4 +121,4 @@ Task 状态只描述本次执行记录，不替代 Issue 或 Project 状态；Ta
 
 ## 历史任务
 
-历史兼容使用明确ID形状和截止线，不以“缺字段”自动判定历史：根Task的两/三位数字ID且数值不超过`148`属于旧格式；五位ID只保留`00149`、两个`00150`历史合同和`00152+`完整当前合同，其它形状拒绝。应用Task必须先通过ownership的两至五位数字ID校验，其中数值`1..148`为迁移历史，`149+`必须使用完整当前合同。历史Task不补`actionIssueId`、`worktreeId`、`branchId`等当前新增字段；已经声明有效`nbook.task/v1`的Task仍校验该schema已有的status、时间、context和agentWorkflow基础不变量。`00158-notification-contrast-fix`只豁免历史缺失`context.md`，其它字段仍校验。旧`docs/tasks/`迁移文件保持原编号和正文，不为流程切换批量改写。
+历史兼容只来自`legacy-index.json`与`.migration-complete`首次共同添加commit中的密封迁移快照：治理重算该快照manifest，并取其固定`sourceRevision`中的`docs/tasks/<taskId>/README.md`与同源同目标README mapping交集。当前index/marker的`sourceRevision`和mapping identity projection必须与密封快照一致；后续只可按完整迁移门禁同步source/destination hash。根`1..148`、应用ownership登记的`1..148`据此识别；根只另保留三个精确过渡合同`00149-monorepo-workspace-consolidation`、`00150-monorepo-boundary-convergence`、`00150-ui-spec-verification`，`00151-*`无效，根`00152+`和应用`149+`使用完整当前合同。数值0、伪造低号slug、后续可达commit或只改当前mapping均无效。历史Task不补当前新增字段；已声明有效`nbook.task/v1`仍校验status、时间、context和agentWorkflow基础不变量。`00158-notification-contrast-fix`只豁免历史缺失`context.md`。旧`docs/tasks/`正文不为流程切换批量改写。

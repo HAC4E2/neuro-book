@@ -1,12 +1,13 @@
 ---
 schema: nbook.task/v1
 taskId: 00160-leader-driven-development-workflow
+issueRequired: false
 actionIssueId: null
 worktreeId: .worktree/t160-leader-driven-workflow
 branchId: refactor/t160-leader-driven-workflow
 status: completed
 createdAt: 2026-08-26T00:00:00Z
-updatedAt: 2026-08-26T19:58:20+08:00
+updatedAt: 2026-08-26T16:27:14Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: refactor
@@ -20,7 +21,9 @@ agentWorkflow:
       - docs-check
       - governance-check
       - diff-check
-    notRun: []
+    notRun:
+      - check: browser
+        reason: 本Task仅修改开发治理文档和静态脚本，没有浏览器可见表面
 ---
 
 # Task 00160：Leader 主导的顺序开发流程
@@ -56,17 +59,17 @@ agentWorkflow:
 
 1. 开发者批准目标后，Leader可完成范围内本地编排，不以claimed、PM同步或逐项本地许可为前置。
 2. Leader明确选择五类产物：下一位Leader继续拆分的Issue、draft Task、planned Task、Proposal、Spec。
-3. Issue是多Task交付聚合根；取得远端Issue编号后，可执行叶子Issue使用`1..N`个共享`actionIssueId`的扁平Task，不创建统筹Task或Task父子状态。
-4. 未获远端Issue写入授权时，Leader在`.agents/issues/drafts/<slug>.md`保存恢复草稿并请求授权，不伪造Issue ID或创建产品Task；取得编号后迁移并删除草稿。
-5. draft Task不可执行；planned Task可派发，但不授权任何受限动作。design Tasker只把决定写入指定Proposal/Spec草案，不实现业务代码。
+3. Issue是多Task交付聚合根；可执行叶子Issue使用`1..N`个共享`actionIssueId`的扁平Task，不创建统筹Task或Task父子状态。
+4. 未获远端Issue写入授权时，Leader保存含唯一Draft-Key、type/status标签和具体授权请求的草稿；获授权后先查找精确`Draft-Key`，0个匹配才创建、1个复用、多个阻塞。取得编号后只创建`status: draft`且`issueRequired: true`的同批扁平Task；开发者接受后由Leader改为planned，闭合链接并持久化授权和迁移结果后最后删除草稿。
+5. draft Task不可执行；planned Task可派发但不授权受限动作。Tasker可在verifying补required证据或同合同修复；合同变化由Leader取得开发者决策后退回in-progress。design Tasker只修改密封合同允许的Proposal/Spec和报告，不实现业务代码。
 6. 普通Tasker只通过文件合同实现、验证并报告偏差，不修改Issue、Proposal、Spec或Task范围。
 7. PM/Reviewer按需；合并前仍有人审查，高风险改动使用独立Reviewer。
-8. 受限动作分别授权并记录具体动作、范围与来源；一个授权不外推到其它动作。本Task仅获本地治理文件编辑与验证授权。
+8. 受限动作分别授权并记录具体动作、范围与来源，一个授权不外推。本Task已获动作与未授权边界以`context.md`为准，不在行为合同维护第二份授权摘要。
 
 ## 验收
-- 现行合同只有一条完整顺序主线，不再出现Leader必须等待PM claim或PM状态迁移的前置。
-- Issue聚合、未编号草稿迁移与扁平Task关系明确，不存在统筹Task或Task父子状态。
-- Tasker开始和恢复所需信息来自文件；design Task有受控类型、唯一设计产物、决策范围和允许文件。
-- 根/应用双Task root的新合同身份、`actionIssueId`和禁用聚合字段有负向门禁。
+- 现行合同只有一条完整顺序主线；Leader可直接本地编排，PM与远端claimed状态不是前置。
+- Issue聚合、Draft-Key幂等迁移、先draft后开发者接受、授权留痕和最后删除顺序明确。
+- Tasker开始和恢复所需信息来自文件；verifying返工、Design密封基线和真实diff边界有门禁。
+- 根/应用双Task root的历史身份、owner `issueRequired`、`actionIssueId`和禁用聚合字段有负向门禁。
 - P-005、角色合同、Task合同、仓库流程和治理检查语义一致。
 - 聚焦治理测试、`docs:check`、`governance:check`与diff check通过。

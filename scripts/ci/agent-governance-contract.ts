@@ -370,16 +370,17 @@ export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[
     const contracts = [
         ["AGENTS.md", ["开发者批准一个目标、范围和关键取舍后", "本地可逆开发动作", "远端Issue/Project/PR写入", "统一评审通过后"]],
         [".omp/RULES.md", ["Leader可自主执行范围内本地可逆开发动作", "远端Issue/Project/PR写入"]],
-        ["docs/proposals/p-005-development-workflow-governance.md", ["Leader五类产物", "`agentWorkflow.kind: design`", "PM和Reviewer都是按需角色", ".agents/issues/README.md", "不创建统筹Task"]],
-        [".agents/issues/README.md", ["路径是远端创建前的稳定恢复键", "不是 Issue ID", "创建`1..N`个扁平", "删除本地草稿", "不得保留第二份状态正文"]],
-        ["docs/standards/repository-workflow.md", ["不等待PM或远端状态同步", "不创建统筹Task", "Leader可以直接同步上述状态", "开发者针对当前merge revision集合明确确认统一评审通过"]],
+        ["docs/proposals/p-005-development-workflow-governance.md", ["Leader五类产物", "`agentWorkflow.kind: design`", "PM和Reviewer都是按需角色", ".agents/issues/README.md", "不创建统筹Task", "先查找精确Draft-Key", "唯一接受点"]],
+        [".agents/issues/README.md", ["路径是远端创建前的稳定恢复键", "不是 Issue ID", "0个精确匹配", "1个精确匹配", "多个精确匹配", "一个`type:*`和一个`status:*`", "只创建`status: draft`", "最后删除本地草稿", "授权来源和动作范围", "不得保留第二份状态正文"]],
+        ["docs/standards/repository-workflow.md", ["不等待PM或远端状态同步", "不创建统筹Task", "恰好保留一个", "issueRequired", "Leader可以直接同步上述状态", "开发者针对当前merge revision集合明确确认统一评审通过"]],
         ["docs/specs/AGENTS.md", ["design Tasker只能按开发者明确接受的决定", "不能自行批准取舍或晋升implemented"]],
         [".agents/roles/pm/AGENTS.md", ["可选的 GitHub Project", "不成为Leader或Tasker的等待条件", "当前merge revision集合"]],
-        [".agents/roles/leader/AGENTS.md", ["下一位Leader继续拆分", "不创建统筹Task", "`agentWorkflow.kind: design`", "不等待 PM", "Task `completed` 不能触发Project `Done`"]],
-        [".agents/roles/tasker/AGENTS.md", ["`draft`只供开发者审阅", "只有design Tasker", "不实现业务代码", "普通Tasker不改Spec"]],
+        [".agents/roles/leader/AGENTS.md", ["下一位Leader继续拆分", "不创建统筹Task", "`agentWorkflow.kind: design`", "不等待 PM", "唯一接受点", "退回`in-progress`", "Task `completed` 不能触发Project `Done`"]],
+        [".agents/roles/tasker/AGENTS.md", ["`draft`只供开发者审阅", "只有design Tasker", "`verifying`", "不实现业务代码", "普通Tasker不改Spec"]],
         [".agents/roles/reviewer/AGENTS.md", ["不是每个Task的前置状态", "不能触发Project `Done`"]],
-        [".agents/tasks/README.md", ["不创建统筹Task", "`kind: design`", "`draft`只供开发者审阅", "Task completed不触发Project Done"]],
-        [".agents/tasks/AGENTS.md", ["`draft`不得执行", "`kind: design`必须有非空", "普通Tasker不修改Issue"]],
+        [".agents/tasks/README.md", ["不创建统筹Task", "`kind: design`", "`issueRequired`", "唯一接受点", "`verifying`", "`verification.notRun`只表示不适用", "Task completed不触发Project Done"]],
+        [".agents/tasks/AGENTS.md", ["`draft`不得执行", "`kind: design`必须有非空", "`verifying`", "普通Tasker不修改Issue"]],
+        [".agents/tasks/00160-leader-driven-development-workflow/README.md", ["先查找精确`Draft-Key`", "只创建`status: draft`", "开发者接受后", "最后删除草稿", "以`context.md`为准"]],
     ] as const;
     for (const [relativePath, markers] of contracts) {
         if (!hasTextMarkers(repoRoot, relativePath, markers)) failures.push(`Leader 主导顺序开发合同缺少必需标记：${relativePath}`);
@@ -389,6 +390,9 @@ export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[
         /planned(?:task)?(?:允许|授权|可以)(?:直接|自动)?(?:远端写入|push|pr|合并|发布|部署|数据库迁移|真实provider|浏览器人工验收|数据删除)/u,
         /(?:tasker(?:可以|可)执行drafttask|draft(?:task)?(?:可以|可)?由?tasker执行)/u,
         /(?:taskcompleted|pr合并|reviewer建议合并|ci通过)(?:可以|可)?(?:直接|自动|单独)*(?:触发|进入)(?:project)?done/u,
+        /(?:取得|获得)(?:issue)?编号后(?:直接|立即)?(?:创建|建立)planned(?:task)?/u,
+        /tasker(?:只能|仅能)(?:处理|执行)(?:planned|inprogress)(?:task)?/u,
+        /未获(?:浏览器)?(?:人工验收)?授权(?:可以|可)?(?:记录|写入|放入)notrun/u,
     ] as const;
     for (const [relativePath] of contracts) {
         if (!hasFile(repoRoot, relativePath)) continue;
@@ -520,12 +524,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSafeTaskRelativePath(value: unknown): value is string {
-    return typeof value === "string"
-        && value.length > 0
-        && !value.startsWith("/")
-        && !/^[A-Za-z]:/u.test(value)
-        && !value.split("/").includes("..")
-        && !value.split("/").includes("");
+    if (typeof value !== "string" || value.length === 0 || value.includes("\\") || value.includes("\0") || value.startsWith("/") || /^[A-Za-z]:/u.test(value)) return false;
+    const segments = value.split("/");
+    return !segments.some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
+function taskIdSequence(taskId: string): {value: number; width: number} | null {
+    const sequence = /^(\d{2,5})-[A-Za-z0-9][A-Za-z0-9._-]*$/u.exec(taskId)?.[1];
+    if (!sequence) return null;
+    const value = Number(sequence);
+    return Number.isInteger(value) && value >= 1 ? {value, width: sequence.length} : null;
 }
 
 function validateTaskOwnershipManifest(manifest: TaskOwnershipManifest, failures: string[]): void {
@@ -548,7 +556,7 @@ function validateTaskOwnershipManifest(manifest: TaskOwnershipManifest, failures
         const taskId = rawEntry.taskId;
         const ownerRoot = rawEntry.ownerRoot;
         const files = rawEntry.files;
-        if (typeof taskId !== "string" || !/^\d{2,5}-[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(taskId)) failures.push(`ownership Task 标识无效：${String(taskId)}`);
+        if (typeof taskId !== "string" || !taskIdSequence(taskId)) failures.push(`ownership Task 标识无效：${String(taskId)}`);
         else if (taskIds.has(taskId)) failures.push(`ownership Task 编号重复：${taskId}`);
         else taskIds.add(taskId);
         if (ownerRoot !== APPLICATION_TASK_OWNER_ROOT) failures.push(`ownership Task ownerRoot 无效：${String(taskId)}`);
@@ -591,8 +599,12 @@ export function resolveTaskReadmePath(repoRoot: string, taskId: string): {path: 
     const ownerRoot = entry?.ownerRoot ?? ROOT_TASK_OWNER_ROOT;
     const checkedRoots = [ownerRoot];
     const relativePath = `${ownerRoot}/${taskId}/README.md`;
+    const archived = ownerRoot === ROOT_TASK_OWNER_ROOT && /^archived\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(taskId);
+    const failures: string[] = [];
+    const legacyIdentity = !archived && isHistoricalTaskShape(ownerRoot, taskId) ? readLegacyTaskIdentitySet(repoRoot, failures) : null;
+    if (!archived && !taskIdentity(ownerRoot, taskId, loaded.manifest, legacyIdentity).valid) failures.push(`Task 标识无效：${taskId}`);
     const candidate = resolve(repoRoot, relativePath);
-    return {path: hasFile(repoRoot, relativePath) ? candidate : null, checkedRoots, failures: []};
+    return {path: failures.length === 0 && hasFile(repoRoot, relativePath) ? candidate : null, checkedRoots, failures};
 }
 function readTaskFrontmatter(text: string, relativePath: string, failures: string[]): Record<string, unknown> | null {
     const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text);
@@ -810,22 +822,24 @@ function agentSkillsImplementationMarkers(repoRoot: string): AgentSkillsMarker[]
 }
 
 function rootTaskSequence(taskId: string): {value: number; width: number} | null {
-    const sequence = /^(\d{2,3}|\d{5})-[A-Za-z0-9][A-Za-z0-9._-]*$/u.exec(taskId)?.[1];
-    if (!sequence) return null;
-    return {value: Number(sequence), width: sequence.length};
+    const sequence = taskIdSequence(taskId);
+    return sequence && (sequence.width <= 3 || sequence.width === 5) ? sequence : null;
 }
 
-function isValidRootTaskId(taskId: string): boolean {
-    const sequence = rootTaskSequence(taskId);
-    if (!sequence) return false;
-    if (sequence.width <= 3) return sequence.value <= 148;
-    return sequence.value === 149 || sequence.value === 150 || sequence.value >= 152;
+function isTransitionTaskId(taskId: string): boolean {
+    return Object.hasOwn(LEGACY_TASKS_WITHOUT_AGENT_WORKFLOW, taskId);
 }
 
 function isCurrentTaskContract(ownerRoot: string, taskId: string): boolean {
-    if (ownerRoot === APPLICATION_TASK_OWNER_ROOT) return Number(/^(\d{2,5})-/u.exec(taskId)?.[1]) >= 149;
-    const sequence = rootTaskSequence(taskId);
-    return ownerRoot === ROOT_TASK_OWNER_ROOT && sequence?.width === 5 && sequence.value >= 152;
+    const sequence = taskIdSequence(taskId);
+    if (!sequence) return false;
+    if (ownerRoot === APPLICATION_TASK_OWNER_ROOT) return sequence.value >= 149;
+    return ownerRoot === ROOT_TASK_OWNER_ROOT && sequence.width === 5 && sequence.value >= 152;
+}
+
+function isHistoricalTaskShape(ownerRoot: string, taskId: string): boolean {
+    const sequence = ownerRoot === ROOT_TASK_OWNER_ROOT ? rootTaskSequence(taskId) : taskIdSequence(taskId);
+    return Boolean(sequence && sequence.value <= 148);
 }
 
 function markdownListItems(section: string | null): string[] {
@@ -837,17 +851,20 @@ function markdownListItems(section: string | null): string[] {
 
 function normalizedDesignType(section: string | null): string | null {
     if (!section) return null;
-    const value = section.replace(/^\s*-\s*/u, "").trim().toLowerCase();
-    const types: Record<string, string> = {
-        api: "api",
-        "模块边界": "module-boundary",
-        "数据模型": "data-model",
-        "交互": "interaction",
-    };
-    return Object.hasOwn(types, value) ? types[value] ?? null : null;
+    const lines = section.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    if (lines.length !== 1) return null;
+    const value = (lines[0] ?? "").replace(/^-\s+/u, "").trim();
+    return value.length >= 1 && value.length <= 64 && !/[\p{Cc}\p{Cf}]/u.test(value) ? value.toLowerCase() : null;
 }
 
 
+function isDesignOutputPath(repoRoot: string, path: string): boolean {
+    if (!isSafeTaskRelativePath(path) || !path.endsWith(".md")) return false;
+    const rootMatch = /^(docs\/(?:proposals|specs))\//u.exec(path);
+    const packageMatch = /^(packages\/[^/]+\/docs\/(?:proposals|specs))\//u.exec(path);
+    const allowedRoot = rootMatch?.[1] ?? packageMatch?.[1];
+    return Boolean(allowedRoot && isAbsoluteInside(resolve(repoRoot, path), resolve(repoRoot, allowedRoot)));
+}
 function isTaskReportPath(readmePath: string, path: string): boolean {
     const taskRoot = readmePath.replace(/\/README\.md$/u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     return new RegExp(`^${taskRoot}/(?:walkthroughs|evidences)/[^/]+$`, "u").test(path);
@@ -867,7 +884,7 @@ function markdownSection(text: string, title: string): string | null {
     return value.length > 0 ? value : null;
 }
 
-function validateAgentWorkflow(relativePath: string, readme: string, raw: unknown, failures: string[]): void {
+function validateAgentWorkflow(repoRoot: string, relativePath: string, readme: string, raw: unknown, failures: string[]): void {
     if (!isRecord(raw)) {
         failures.push(`Task agentWorkflow 必须是对象：${relativePath}`);
         return;
@@ -898,12 +915,12 @@ function validateAgentWorkflow(relativePath: string, readme: string, raw: unknow
         const outputs = markdownListItems(markdownSection(readme, "设计产物"));
         const allowedFiles = markdownListItems(markdownSection(readme, "允许文件"));
         if (!designType) failures.push(`design Task 设计类型无效：${relativePath}`);
-        if (outputs.length !== 1 || !/^(?:docs|packages\/[^/]+\/docs)\/(?:proposals|specs)\/.+\.md$/u.test(outputs[0] ?? "")) failures.push(`design Task 必须有唯一 Proposal/Spec 设计产物：${relativePath}`);
+        if (outputs.length !== 1 || !isDesignOutputPath(repoRoot, outputs[0] ?? "")) failures.push(`design Task 必须有唯一 Proposal/Spec 设计产物：${relativePath}`);
         if (!markdownSection(readme, "决策范围")) failures.push(`design Task 缺少决策范围：${relativePath}`);
         if (allowedFiles.length === 0) failures.push(`design Task 缺少允许文件：${relativePath}`);
         const output = outputs[0];
         for (const path of allowedFiles) {
-            if (path !== output && !isTaskReportPath(relativePath, path)) failures.push(`design Task 允许文件越界：${relativePath} -> ${path}`);
+            if (!isSafeTaskRelativePath(path) || (path !== output && !isTaskReportPath(relativePath, path))) failures.push(`design Task 允许文件越界：${relativePath} -> ${path}`);
         }
         if (output && !allowedFiles.includes(output)) failures.push(`design Task 允许文件缺少设计产物：${relativePath}`);
         if (designType === "api" && (!Array.isArray(routes) || !routes.includes("api-and-interface-design"))) {
@@ -1003,6 +1020,272 @@ export function verifyAgentSkillsAdaptation(repoRoot: string): string[] {
     return failures;
 }
 
+function isTaskMigrationMapping(value: unknown): value is TaskMigrationMapping {
+    return isRecord(value)
+        && typeof value.source === "string"
+        && typeof value.destination === "string"
+        && typeof value.sourceSha256 === "string"
+        && /^sha256:[0-9a-f]{64}$/u.test(value.sourceSha256)
+        && typeof value.destinationSha256 === "string"
+        && /^sha256:[0-9a-f]{64}$/u.test(value.destinationSha256)
+        && value.kind === "file"
+        && typeof value.linkRewrite === "boolean";
+}
+
+type LegacyTaskIdentity = {taskIds: Set<string>; destinations: Set<string>};
+
+function readLegacyTaskIdentitySet(repoRoot: string, failures: string[]): LegacyTaskIdentity | null {
+    const indexPath = ".agents/tasks/legacy-index.json";
+    const markerPath = ".agents/tasks/.migration-complete";
+    let indexCommit: string;
+    let markerCommit: string;
+    let index: TaskMigrationIndex;
+    let marker: TaskMigrationMarker;
+    try {
+        indexCommit = git(repoRoot, ["log", "--diff-filter=A", "--format=%H", "--reverse", "--", indexPath]).split(/\r?\n/u)[0] ?? "";
+        markerCommit = git(repoRoot, ["log", "--diff-filter=A", "--format=%H", "--reverse", "--", markerPath]).split(/\r?\n/u)[0] ?? "";
+        if (!indexCommit || indexCommit !== markerCommit) {
+            failures.push("历史 Task 迁移缺少唯一共同密封提交");
+            return null;
+        }
+        index = JSON.parse(git(repoRoot, ["show", `${indexCommit}:${indexPath}`])) as TaskMigrationIndex;
+        marker = JSON.parse(git(repoRoot, ["show", `${markerCommit}:${markerPath}`])) as TaskMigrationMarker;
+    } catch (error) {
+        failures.push(`历史 Task 迁移密封快照不可读：${String(error)}`);
+        return null;
+    }
+    if (index.schema !== "nbook.task-migration-index/v1" || marker.schema !== "nbook.task-migration/v1") failures.push("历史 Task 迁移 schema 不匹配");
+    if (index.sourceRevision !== marker.sourceRevision || index.manifestSha256 !== marker.manifestSha256) failures.push("历史 Task 迁移 index/marker 不一致");
+    if (!Array.isArray(index.mappings) || !Array.isArray(index.repositoryLinkRewrites) || !Array.isArray(index.preservedSourceFiles)) failures.push("历史 Task 迁移密封 index 结构无效");
+    if (failures.length > 0) return null;
+    if (!index.mappings.every(isTaskMigrationMapping)) {
+        failures.push("历史 Task 迁移密封 mapping 结构无效");
+        return null;
+    }
+    const currentIndex = readJson<TaskMigrationIndex>(resolve(repoRoot, indexPath), failures, "当前 legacy-index.json");
+    const currentMarker = readJson<TaskMigrationMarker>(resolve(repoRoot, markerPath), failures, "当前 .migration-complete");
+    if (!currentIndex || !currentMarker) return null;
+    if (currentIndex.schema !== index.schema
+        || currentMarker.schema !== marker.schema
+        || currentIndex.sourceRevision !== index.sourceRevision
+        || currentMarker.sourceRevision !== index.sourceRevision
+        || currentIndex.manifestSha256 !== currentMarker.manifestSha256
+        || !Array.isArray(currentIndex.mappings)) {
+        failures.push("当前历史 Task 迁移元数据与密封身份不一致");
+        return null;
+    }
+    if (!currentIndex.mappings.every(isTaskMigrationMapping)) {
+        failures.push("当前历史 Task 迁移 mapping 结构无效");
+        return null;
+    }
+    const identityProjection = (mapping: TaskMigrationMapping): string => `${mapping.source}\0${mapping.destination}\0${mapping.kind}\0${String(mapping.linkRewrite)}`;
+    const sealedProjection = index.mappings.map(identityProjection).sort();
+    const currentProjection = currentIndex.mappings.map(identityProjection).sort();
+    if (JSON.stringify(currentProjection) !== JSON.stringify(sealedProjection)) {
+        failures.push("当前历史 Task 迁移 mapping 身份投影漂移");
+        return null;
+    }
+    const manifest = {schema: "nbook.task-migration-manifest/v1", sourceRevision: index.sourceRevision, mappings: index.mappings, repositoryLinkRewrites: index.repositoryLinkRewrites, preservedSourceFiles: index.preservedSourceFiles};
+    const manifestSha256 = `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
+    if (manifestSha256 !== index.manifestSha256) {
+        failures.push("历史 Task 迁移密封 manifest SHA-256 不一致");
+        return null;
+    }
+    let baselineReadmes: Set<string>;
+    try {
+        baselineReadmes = new Set(git(repoRoot, ["ls-tree", "-r", "--name-only", index.sourceRevision, "--", "docs/tasks"])
+            .split(/\r?\n/u)
+            .filter((path) => /^docs\/tasks\/[^/]+\/README\.md$/u.test(path)));
+    } catch (error) {
+        failures.push(`历史 Task sourceRevision 无法读取：${String(error)}`);
+        return null;
+    }
+    const taskIds = new Set<string>();
+    const destinations = new Set<string>();
+    const sources = new Set<string>();
+    for (const mapping of index.mappings) {
+        const match = /^\.agents\/tasks\/([^/]+)\/README\.md$/u.exec(mapping.destination);
+        if (!match || mapping.source !== `docs/tasks/${match[1]}/README.md` || !baselineReadmes.has(mapping.source)) continue;
+        if (sources.has(mapping.source) || destinations.has(mapping.destination)) {
+            failures.push(`历史 Task 迁移密封 mapping 重复：${mapping.source}`);
+            continue;
+        }
+        sources.add(mapping.source);
+        taskIds.add(match[1]);
+        destinations.add(mapping.destination);
+    }
+    return failures.length > 0 ? null : {taskIds, destinations};
+}
+function taskIdentity(
+    ownerRoot: string,
+    taskId: string,
+    ownership: TaskOwnershipManifest,
+    legacyIdentity: LegacyTaskIdentity | null,
+): {currentContract: boolean; valid: boolean} {
+    const currentContract = isCurrentTaskContract(ownerRoot, taskId);
+    const transitionTask = ownerRoot === ROOT_TASK_OWNER_ROOT && isTransitionTaskId(taskId);
+    let historicalTask = false;
+    if (isHistoricalTaskShape(ownerRoot, taskId)) {
+        historicalTask = Boolean(legacyIdentity?.taskIds.has(taskId));
+        if (historicalTask && ownerRoot === APPLICATION_TASK_OWNER_ROOT) {
+            const entry = ownership.tasks.find((candidate) => candidate.taskId === taskId);
+            historicalTask = Boolean(entry?.files.some((file) => file.path === `${taskId}/README.md` && legacyIdentity?.destinations.has(file.legacyDestination)));
+        }
+    }
+    return {currentContract, valid: historicalTask || transitionTask || currentContract};
+}
+
+function isPositiveIssueId(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function validateIssueContract(ownerRoot: string, relativePath: string, metadata: Record<string, unknown>, failures: string[]): void {
+    if (ownerRoot === APPLICATION_TASK_OWNER_ROOT) {
+        if (metadata.issueRequired !== true || !isPositiveIssueId(metadata.actionIssueId)) failures.push(`应用 Task 必须声明 issueRequired: true 和正整数 actionIssueId：${relativePath}`);
+        return;
+    }
+    const valid = metadata.issueRequired === true
+        ? isPositiveIssueId(metadata.actionIssueId)
+        : metadata.issueRequired === false && metadata.actionIssueId === null;
+    if (!valid) failures.push(`根 Task issueRequired 与 actionIssueId 不匹配：${relativePath}`);
+}
+
+const ACTIVE_DESIGN_STATUSES = new Set(["planned", "in-progress", "blocked", "verifying"]);
+const DESIGN_BASELINE_PATTERN = /^\s*-?\s*(?:基线|baseline)\s+revision[：:]\s*`?([0-9a-f]{40})`?\s*$/iu;
+
+type DesignDiffContract = {
+    baseline: string;
+    end: string | null;
+    output: string;
+    readmePath: string;
+    worktreeId: string | null;
+    branchId: string | null;
+};
+
+function taskWorkflowKind(metadata: Record<string, unknown>): unknown {
+    return isRecord(metadata.agentWorkflow) ? metadata.agentWorkflow.kind : undefined;
+}
+
+function readDesignBaseline(context: string): {revision: string | null; count: number} {
+    const revisions = context.split(/\r?\n/u)
+        .map((line) => DESIGN_BASELINE_PATTERN.exec(line)?.[1])
+        .filter((revision): revision is string => revision !== undefined);
+    return {revision: revisions.length === 1 ? revisions[0] ?? null : null, count: revisions.length};
+}
+
+function designDiffContract(repoRoot: string, relativePath: string, metadata: Record<string, unknown>, failures: string[]): DesignDiffContract | null {
+    const currentKind = taskWorkflowKind(metadata);
+    const currentActiveDesign = currentKind === "design" && typeof metadata.status === "string" && ACTIVE_DESIGN_STATUSES.has(metadata.status);
+    let commits: string[];
+    try {
+        commits = git(repoRoot, ["log", "--format=%H", "--reverse", "--", relativePath]).split(/\r?\n/u).filter(Boolean);
+    } catch (error) {
+        if (currentActiveDesign) failures.push(`design Task 基线历史无法读取：${relativePath}：${String(error)}`);
+        return null;
+    }
+    let sealedCommit: string | null = null;
+    let sealedReadme: string | null = null;
+    let sealedMetadata: Record<string, unknown> | null = null;
+    let end: string | null = null;
+    let reopened = false;
+    for (const commit of commits) {
+        let historicalReadme: string;
+        try {
+            historicalReadme = git(repoRoot, ["show", `${commit}:${relativePath}`]);
+        } catch {
+            if (sealedCommit && !end) end = commit;
+            continue;
+        }
+        const historicalFailures: string[] = [];
+        const historicalMetadata = readTaskFrontmatter(historicalReadme, relativePath, historicalFailures);
+        const activeDesign = historicalMetadata
+            && taskWorkflowKind(historicalMetadata) === "design"
+            && typeof historicalMetadata.status === "string"
+            && ACTIVE_DESIGN_STATUSES.has(historicalMetadata.status);
+        if (!sealedCommit && activeDesign) {
+            sealedCommit = commit;
+            sealedReadme = historicalReadme;
+            sealedMetadata = historicalMetadata;
+        } else if (sealedCommit && !end && !activeDesign) {
+            end = commit;
+        } else if (end && activeDesign) {
+            reopened = true;
+        }
+    }
+    if (reopened || (end && currentActiveDesign)) {
+        failures.push(`design Task 已结束后重新激活：${relativePath}`);
+        return null;
+    }
+    if (!sealedCommit || !sealedReadme || !sealedMetadata) {
+        if (currentActiveDesign) failures.push(`design Task 缺少已密封基线合同：${relativePath}`);
+        return null;
+    }
+    if (!end && currentKind !== "design") failures.push(`design Task 基线身份漂移：${relativePath}`);
+    const contextPath = relativePath.replace(/README\.md$/u, "context.md");
+    let sealedContext: string;
+    try {
+        sealedContext = git(repoRoot, ["show", `${sealedCommit}:${contextPath}`]);
+    } catch (error) {
+        failures.push(`design Task 密封 context 不可达：${relativePath} -> ${sealedCommit}：${String(error)}`);
+        return null;
+    }
+    const parsed = readDesignBaseline(sealedContext);
+    if (!parsed.revision || parsed.count !== 1) {
+        failures.push(`design Task 密封合同缺少唯一基线 revision：${relativePath} -> ${sealedCommit}`);
+        return null;
+    }
+    try {
+        git(repoRoot, ["cat-file", "-e", `${parsed.revision}^{commit}`]);
+    } catch (error) {
+        failures.push(`design Task 基线不可达：${relativePath} -> ${parsed.revision}：${String(error)}`);
+        return null;
+    }
+    try {
+        git(repoRoot, ["merge-base", "--is-ancestor", parsed.revision, sealedCommit]);
+        if (parsed.revision === sealedCommit) throw new Error("baseline equals sealed commit");
+    } catch {
+        failures.push(`design Task 基线不是密封合同的严格祖先：${relativePath} -> ${parsed.revision}`);
+        return null;
+    }
+    const outputs = markdownListItems(markdownSection(sealedReadme, "设计产物"));
+    const output = outputs.length === 1 && isDesignOutputPath(repoRoot, outputs[0] ?? "") ? outputs[0] ?? null : null;
+    if (!output) {
+        failures.push(`design Task 基线设计产物无效：${relativePath} -> ${sealedCommit}`);
+        return null;
+    }
+    const worktreeId = sealedMetadata.worktreeId;
+    const branchId = sealedMetadata.branchId;
+    if ((worktreeId !== null && (typeof worktreeId !== "string" || worktreeId.trim().length === 0))
+        || (branchId !== null && (typeof branchId !== "string" || branchId.trim().length === 0))
+        || (worktreeId === null && branchId === null)) {
+        failures.push(`design Task 基线缺少执行身份：${relativePath} -> ${sealedCommit}`);
+        return null;
+    }
+    return {baseline: parsed.revision, end, output, readmePath: relativePath, worktreeId: typeof worktreeId === "string" ? worktreeId : null, branchId: typeof branchId === "string" ? branchId : null};
+}
+
+function designContractMatchesCheckout(repoRoot: string, contract: DesignDiffContract): boolean {
+    const checkout = git(repoRoot, ["rev-parse", "--show-toplevel"]);
+    const worktreeMatches = contract.worktreeId !== null && samePath(resolve(primaryCheckoutRoot(repoRoot), contract.worktreeId), checkout);
+    const branch = gitBranch(repoRoot);
+    return worktreeMatches || (contract.branchId !== null && (contract.branchId === branch || contract.branchId === process.env.GITHUB_HEAD_REF));
+}
+
+function validateDesignDiff(repoRoot: string, contract: DesignDiffContract, failures: string[]): void {
+    const diffArgs = ["diff", "--name-only", "--no-renames", "-z", contract.baseline];
+    if (contract.end) diffArgs.push(contract.end);
+    diffArgs.push("--");
+    const paths = new Set(git(repoRoot, diffArgs).split("\0").filter(Boolean));
+    if (!contract.end) {
+        for (const path of git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) paths.add(path);
+    }
+    const contextPath = contract.readmePath.replace(/README\.md$/u, "context.md");
+    for (const path of paths) {
+        const allowed = path === contract.output || path === contract.readmePath || path === contextPath || isTaskReportPath(contract.readmePath, path);
+        if (!allowed) failures.push(`design Task diff 越界：${contract.readmePath} -> ${path}`);
+    }
+}
+
 /** 校验当前 Task 中可选的 agentWorkflow 验证画像。 */
 export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
     const failures: string[] = [];
@@ -1015,12 +1298,20 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
         ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name)
         : [];
     const appTaskIds = ownershipLoaded.manifest.tasks.map((entry) => entry.taskId);
+    const designContracts: DesignDiffContract[] = [];
+    let legacyIdentity: LegacyTaskIdentity | null | undefined;
+    const requireLegacyIdentity = (): LegacyTaskIdentity | null => {
+        legacyIdentity ??= readLegacyTaskIdentitySet(repoRoot, failures);
+        return legacyIdentity;
+    };
 
     for (const [ownerRoot, taskIds] of [[ROOT_TASK_OWNER_ROOT, rootTaskIds], [APPLICATION_TASK_OWNER_ROOT, appTaskIds]] as const) {
         for (const taskId of taskIds) {
             const relativePath = `${ownerRoot}/${taskId}/README.md`;
-            if (ownerRoot === ROOT_TASK_OWNER_ROOT && !isValidRootTaskId(taskId)) failures.push(`根 Task 标识无效：${taskId}`);
-            const currentContract = isCurrentTaskContract(ownerRoot, taskId);
+            const historicalShape = isHistoricalTaskShape(ownerRoot, taskId);
+            const identity = taskIdentity(ownerRoot, taskId, ownershipLoaded.manifest, historicalShape ? requireLegacyIdentity() : null);
+            const currentContract = identity.currentContract;
+            if (!identity.valid) failures.push(`${ownerRoot === ROOT_TASK_OWNER_ROOT ? "根" : "应用"} Task 标识无效：${taskId}`);
             if (!hasFile(repoRoot, relativePath)) {
                 if (currentContract) failures.push(`新 Task 缺少 README.md：${relativePath}`);
                 continue;
@@ -1032,10 +1323,8 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
                 continue;
             }
             if (metadata.taskId !== taskId) failures.push(`Task taskId 与目录不一致：${relativePath}`);
-            if (currentContract && (!Object.hasOwn(metadata, "actionIssueId") || (metadata.actionIssueId !== null && (typeof metadata.actionIssueId !== "number" || !Number.isInteger(metadata.actionIssueId) || metadata.actionIssueId <= 0)))) {
-                failures.push(`Task actionIssueId 必须是正整数或 null：${relativePath}`);
-            }
             if (currentContract) {
+                validateIssueContract(ownerRoot, relativePath, metadata, failures);
                 for (const field of ["worktreeId", "branchId"] as const) {
                     const value = metadata[field];
                     if (value !== null && (typeof value !== "string" || value.trim().length === 0)) failures.push(`Task ${field} 必须是非空字符串或 null：${relativePath}`);
@@ -1051,8 +1340,19 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
                 if (!Object.hasOwn(LEGACY_TASKS_WITHOUT_AGENT_WORKFLOW, taskId)) failures.push(`新 Task 缺少 agentWorkflow：${relativePath}`);
                 continue;
             }
-            validateAgentWorkflow(relativePath, readme, metadata.agentWorkflow, failures);
+            validateAgentWorkflow(repoRoot, relativePath, readme, metadata.agentWorkflow, failures);
+            if (currentContract) {
+                const designContract = designDiffContract(repoRoot, relativePath, metadata, failures);
+                if (designContract && designContractMatchesCheckout(repoRoot, designContract)) designContracts.push(designContract);
+            }
         }
+    }
+    const activeDesignContracts = designContracts.filter((contract) => contract.end === null);
+    if (activeDesignContracts.length > 1) {
+        failures.push(`当前 checkout 命中多个活跃 Design Task：${activeDesignContracts.map((contract) => contract.readmePath).join(", ")}`);
+    }
+    for (const contract of designContracts) {
+        if (contract.end !== null || activeDesignContracts.length === 1) validateDesignDiff(repoRoot, contract, failures);
     }
     return failures;
 }

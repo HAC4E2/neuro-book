@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v1
 taskId: 00155-leader-role-prompt
+issueRequired: false
 actionIssueId: null
 worktreeId: null
 branchId: master

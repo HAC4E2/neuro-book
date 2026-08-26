@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v1
 taskId: 00156-issue131-plot-drag-verification
+issueRequired: true
 actionIssueId: 131
 worktreeId: null
 branchId: null

@@ -114,15 +114,14 @@ agentWorkflow:
       - regression-test
       - focused-test
       - diff-check
-    notRun:
-      - check: browser
-        reason: 未获浏览器人工验收授权
+    notRun: []
 ```
 
-`kind`限定为`feedback`、`design`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。`design`表示由Leader派发、可与开发者直接协作并产出指定Proposal/Spec草案的设计Task，不实现业务代码；README必须包含非空的`设计类型`、`设计产物`、`决策范围`和`允许文件`章节。设计产物只能有一个Proposal/Spec Markdown目标，允许文件只能包含该目标和当前Task的walkthrough/evidence；API类型必须包含`api-and-interface-design`。`verification.required`记录必须完成的检查，`verification.notRun`字段必须存在且为数组（可为空），每项必须有具体原因，二者不得重叠。
+`kind`限定为`feedback`、`design`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。`design`不实现业务代码；README必须包含一个明确单行`设计类型`、唯一Proposal/Spec`设计产物`、`决策范围`和`允许文件`，context记录唯一`基线 revision`。该基线必须是首次密封提交的严格祖先；首次提交的活跃Design README/context密封kind、执行身份、Git基线、产物和allowlist。治理门禁检查该窗口真实diff，后续改frontmatter、状态、context或allowlist不能扩大或关闭门禁；已提交退出后不得重开，后续设计使用新Task。
 
-Proposal 被接受后，预期新增开发治理 Skill：`report/SKILL.md` 负责主动状态、证据、开发者动作和下一步汇报；用户指定的 `load_role/SKILL.md` 以 `pm`、`leader`、`tasker` 或 `reviewer` 参数加载唯一 canonical `.agents/roles/<role>/AGENTS.md`。两者在 `.agents/skills/README.md` 登记；同时为 `.agents/skills/**/*.md` 增加编码规范路由，必读 `writing-for-agents/SKILL.md`，涉及 frontmatter 或调用方式时追加 `SKILL-MECHANICS.md`。这些 Skill 属于开发治理适配层，不适用产品运行时资产的 `agent-assets.md`。
-Proposal被接受后，由治理代码检查Proposal状态、两个Skill入口、Task`agentWorkflow`结构、design边界、根/应用双Task root的新合同身份、`actionIssueId`与禁用聚合字段、required/notRun冲突，以及Leader主导合同的明显反向语义。历史Task只按明确截止线兼容；新建或重新打开的Task必须填写完整画像。
+`verification.required`记录必须真实执行或报告不可执行的检查；适用但未获授权仍留在required并报告阻塞。`verification.notRun`只表示不适用，必须有具体适用性原因，二者不得重叠。当前Task同时声明`issueRequired`：应用owner固定`true`和正整数Issue；根owner才允许无Issue例外使用`false`和`null`。
+
+治理代码检查Proposal状态、两个Skill入口、Task画像、首次共同提交密封的历史迁移身份、owner Issue关联、Design containment与真实diff、required/notRun冲突，以及Leader主导合同的反向语义。历史Task不批量回填当前字段。
 
 ## 数据、接口、安全、迁移、发布与回滚影响
 
@@ -136,3 +135,4 @@ Proposal 若被接受后仍可在实现前撤回：删除或标记为 `rejected`
 
 - 2026-08-21：创建本提案并经人类接受，状态为 `accepted`。
 - 2026-08-21：接受项目化适配方案；路由 Skill、Task 画像、角色合同和治理门禁按本提案落地。
+- 2026-08-26：审查修复收紧Task owner、notRun和Design密封真实diff合同，不新增第二套Task schema。

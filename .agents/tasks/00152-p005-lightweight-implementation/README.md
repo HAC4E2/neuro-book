@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v1
 taskId: 00152-p005-lightweight-implementation
+issueRequired: false
 actionIssueId: null
 worktreeId: .worktree/t152-p005-lightweight-implementation
 branchId: refactor/t152-p005-lightweight-implementation

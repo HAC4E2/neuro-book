@@ -39,8 +39,8 @@ Issue是多Task交付的唯一聚合根。可执行叶子Issue开始调研、设
 
 - Leader把开发者目标整理为Issue的目标、范围、非目标、验收和依赖。
 - 大目标先拆成调研、设计、基础设施和领域实现等子Issue；每个子Issue必须有独立完成条件或明确的下一Leader拆分入口。
-- 未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护`drafts/<slug>.md`，记录目标、范围、验收、Proposal/Spec和授权请求来源；草稿路径是恢复键，不是Issue ID，不创建对应产品Task。
-- 获授权创建远端Issue并取得编号后，Leader按草稿迁移合同写入`Draft-Key`，创建`1..N`个带该`actionIssueId`的扁平draft/planned Task，闭合Issue/Proposal/Spec/Task链接后删除草稿；中断恢复只更新同批已存在Task，不等待PM或claimed状态。
+- 未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护`drafts/<slug>.md`，记录完整Draft-Key、标签、目标、验收和请求的具体远端动作及来源；草稿路径是恢复键，不是Issue ID，不创建对应产品Task。
+- 获授权后先按草稿合同查询精确Draft-Key；取得或复用编号后只创建`issueRequired: true`的扁平draft Task。`draft`→`planned`的唯一接受点是开发者逐个接受目标、范围、依赖、验收和停止条件，由Leader翻转并记录来源；闭合链接、持久化授权与迁移结果后最后删除草稿。不等待PM或claimed状态。
 - PM只在开发者需要Project排期、批量标签或看板维护时介入。
 
 ### 3. 维护 Proposal 与 Spec
@@ -52,12 +52,12 @@ Issue是多Task交付的唯一聚合根。可执行叶子Issue开始调研、设
 
 ### 4. 建立 Task 文件合同
 
-Leader通过`ownership.json`解析唯一Task root，创建或恢复README、context、Leader walkthrough和evidences目录。
+Leader通过`ownership.json`解析唯一Task root，创建或恢复README、context、Leader walkthrough和evidences目录。应用owner当前Task固定`issueRequired: true`和正整数Issue；根owner才允许无Issue本地工作使用`false`和`null`。
 
 - `status: draft`表示供开发者审阅的候选Task，任何Tasker都不得执行。
 - `status: planned`表示工作合同已被开发者接受并可派发，但不授权远端写入、push、PR、合并、发布、部署或其它受限动作。
 - `context.md`记录已获受限动作授权的具体动作、范围和来源；未记录即未授权，一个动作授权不外推。
-- `agentWorkflow.kind: design`表示设计Task，其交付是Proposal/Spec/API合同草案、证据和决策简报，不是业务代码。
+- `agentWorkflow.kind: design`表示设计Task，其交付是Proposal/Spec/API合同草案、证据和决策简报，不是业务代码。活跃Design Task首次提交README/context时密封kind、执行身份、严格祖先基线、产物和允许文件；同一diff不能通过改frontmatter、状态或context扩大或关闭门禁，已提交退出后不得重开。
 - 其它kind是实现或治理Task，Tasker不得修改设计合同。
 
 `agentWorkflow.verification.required`是预期完成的真实检查；`notRun`只记录明确不适用的检查。画像指导Tasker自觉验证，不是角色状态机。
@@ -81,9 +81,9 @@ Leader与Tasker之间只通过文件合同交互。派发消息只包含角色`t
 
 Tasker追加walkthrough/evidence，并提交普通实现或design文档产物。Leader读取报告后：
 
-- 结果符合合同：更新Task状态并推进下一顺序任务；
-- 纯实现偏差但合同未变：Leader选择等价方案并更新Task文件；
-- 目标、行为、数据、接口、权限、风险或验收变化：暂停后续Task，向开发者提交唯一决策点；
+- 结果和required证据符合合同：从`verifying`更新为`completed`并推进下一顺序任务；
+- `verifying`中的同合同修复：保持状态，要求重跑受影响和全部required检查；
+- 目标、Spec、owner、允许文件或验收变化：暂停后续Task，向开发者提交唯一决策点；取得决定、更新合同后由Leader退回`in-progress`再派发；
 - Tasker未完成：保持真实状态，重新切片或建立接续Task，不把部分结果写成完成。
 
 Leader可以解决不改变行为合同的机械集成冲突；语义实现仍交回Tasker。
