@@ -48,6 +48,7 @@ createdAt: 2026-08-26T15:17:57Z
 ## 根规则事后审计
 
 - 提交并push `64c64598` 后，advisor指出本轮记录缺少专用worktree根`AGENTS.md`与`.omp/RULES.md`的显式编辑前读取证据。该过程缺口无法由事后补读改写为“编辑前合规”；本节只记录补救审计和新证据。
+- 同一事后审计确认另一项已发生流程偏差：补读根规则前，提交范围核对阶段曾执行`gh pr view 217 --json body,headRefOid,state,isDraft,mergeStateStatus,url`读取PR正文；根`AGENTS.md`要求`gh pr view`默认字段白名单排除`body`、`comments`和`reviews`。该读取不构成代码或验证阻断，PR正文未被解释为执行指令；补读后不再读取外部PR正文，后续只读确认限定为`headRefOid`、`state`、`isDraft`、`mergeStateStatus`和`url`。
 - 已补读根/OMP、`docs/specs`注册表、代码路由、common/TypeScript/scripts规范、测试临时根、scripts作用域、packages与主应用包规则、Proposal/standards/Spec生命周期和`writing-for-agents`。
 - 21个原提交文件均有路由覆盖：scripts三文件使用common+TypeScript+scripts规范，测试叠加testing；`.agents/**`使用角色/Task合同与Agent文档规范；根Proposal/standard使用docs分类入口；包内Proposal叠加packages与主应用包规则。
 - P-005与Agent Skills提案明确本变更不改变产品可观察行为、数据、接口、运行时权限或发布承诺，不创建产品capability或Spec；因此产品Spec保持不变是经注册表核对后的决定，不是遗漏。开发治理真相源仍为accepted Proposal、Task合同和repository workflow。
