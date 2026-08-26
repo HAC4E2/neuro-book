@@ -82,6 +82,12 @@ export type SeedSystemAssetsResult = Readonly<{
     installRoot: string;
     manifest: SystemAssetInstallManifest;
     referenceManifest: SystemReferenceInstallManifest;
+    ledgerRecovery?: Readonly<{
+        recoveredAssets: number;
+        bundledAssets: number;
+        localAssets: number;
+        tombstonesLost: true;
+    }>;
     /** 事务残留清理失败；有效安装保持不回滚，下一次持锁启动重试。 */
     cleanupPending: boolean;
 }>;
@@ -210,13 +216,18 @@ async function seedSystemAssetsLocked(paths: SystemAssetInstallPaths, seed: Syst
         hashReferenceTree(seed.seedReferenceRoot),
     ]);
     abortIfCompromised();
-    const currentManifest = await readInstallManifest(paths.manifestPath);
     const currentPackages = await discoverAgentPackagesIfPresent(paths.installRoot);
     const currentMap = packageMap(currentPackages);
-    const ledger = new Map<string, SystemAgentAssetLedgerEntry>(currentManifest?.assets.map((entry) => [assetKey(entry.type, entry.id), entry] as const) ?? []);
+    const seedMap = packageMap(seedPackages);
+    let currentManifest = await readInstallManifest(paths.manifestPath);
+    let ledgerRecovery: SeedSystemAssetsResult["ledgerRecovery"];
     if (!currentManifest && currentPackages.length > 0) {
-        throw new Error(`system install root 缺少安装账本，需先执行显式 legacy migration：${paths.installRoot}`);
+        const recovered = recoverMissingLedger(currentPackages, seedMap);
+        currentManifest = await buildInstallManifest(paths.installRoot, recovered.assets);
+        await writeInstallManifestAtomic(paths.manifestPath, currentManifest);
+        ledgerRecovery = recovered.summary;
     }
+    const ledger = new Map<string, SystemAgentAssetLedgerEntry>(currentManifest?.assets.map((entry) => [assetKey(entry.type, entry.id), entry] as const) ?? []);
     await assertBundledPackagesClean(currentMap, ledger);
     const nextLedger = new Map(ledger);
     let ledgerChanged = currentManifest === null;
@@ -227,7 +238,6 @@ async function seedSystemAssetsLocked(paths: SystemAssetInstallPaths, seed: Syst
             ledgerChanged = true;
         }
     }
-    const seedMap = packageMap(seedPackages);
     for (const [key, entry] of ledger) {
         if (entry.state === "installed" && entry.origin.kind === "bundled" && !seedMap.has(key)) {
             nextLedger.set(key, {
@@ -282,11 +292,40 @@ async function seedSystemAssetsLocked(paths: SystemAssetInstallPaths, seed: Syst
     const referenceManifest = await readReferenceState(paths);
     if (!manifest || !referenceManifest) throw new Error(`system assets 安装完成后缺少有效 manifest：${paths.installRoot}`);
     return {
-        seeded: packagesToInstall.length > 0 || ledgerChanged || referenceSeeded,
+        seeded: packagesToInstall.length > 0 || ledgerChanged || referenceSeeded || ledgerRecovery !== undefined,
         installRoot: paths.installRoot,
         manifest,
         referenceManifest,
+        ...(ledgerRecovery ? {ledgerRecovery} : {}),
         cleanupPending,
+    };
+}
+
+/** 缺失 provenance 时只把与当前 Seed 逐包同 hash 的条目恢复为 bundled。 */
+function recoverMissingLedger(
+    currentPackages: readonly SeedPackage[],
+    seedMap: ReadonlyMap<string, SeedPackage>,
+): {assets: SystemAgentAssetLedgerEntry[]; summary: NonNullable<SeedSystemAssetsResult["ledgerRecovery"]>} {
+    let bundledAssets = 0;
+    const assets = currentPackages.map((currentPackage) => {
+        const seedPackage = seedMap.get(assetKey(currentPackage.type, currentPackage.id));
+        if (seedPackage?.contentHash === currentPackage.contentHash) {
+            bundledAssets += 1;
+            return bundledLedgerEntry({
+                ...currentPackage,
+                version: seedPackage.version ?? currentPackage.version,
+            });
+        }
+        return localLedgerEntry(currentPackage);
+    });
+    return {
+        assets,
+        summary: {
+            recoveredAssets: assets.length,
+            bundledAssets,
+            localAssets: assets.length - bundledAssets,
+            tombstonesLost: true,
+        },
     };
 }
 

@@ -46,6 +46,48 @@ describe("State Root system asset installation", () => {
         await expect(readFile(paths.referenceManifestPath, "utf8")).resolves.toContain("system-reference-install/v1");
     });
 
+    it("安装账本缺失时按 Seed 哈希重建来源并保留已修改与本地包", async () => {
+        const root = testHostPath("tmp", "system-asset-ledger-recovery", crypto.randomUUID());
+        roots.push(root);
+        const applicationRoot = path.join(root, "application");
+        const stateRoot = path.join(root, "state");
+        const seedSkills = path.join(applicationRoot, "assets", "workspace", ".nbook", "agent", "skills");
+        const installSkills = path.join(stateRoot, "workspace", ".nbook", "agent", "skills");
+        await mkdir(path.join(seedSkills, "matching"), {recursive: true});
+        await mkdir(path.join(seedSkills, "modified"), {recursive: true});
+        await mkdir(path.join(installSkills, "matching"), {recursive: true});
+        await mkdir(path.join(installSkills, "modified"), {recursive: true});
+        await mkdir(path.join(installSkills, "local-only"), {recursive: true});
+        await mkdir(path.join(applicationRoot, "assets", "reference"), {recursive: true});
+        await writeFile(path.join(seedSkills, "matching", "skill.md"), "same", "utf8");
+        await writeFile(path.join(seedSkills, "modified", "skill.md"), "seed", "utf8");
+        await writeFile(path.join(installSkills, "matching", "skill.md"), "same", "utf8");
+        await writeFile(path.join(installSkills, "modified", "skill.md"), "user edit", "utf8");
+        await writeFile(path.join(installSkills, "local-only", "skill.md"), "local", "utf8");
+        await writeFile(path.join(applicationRoot, "assets", "reference", "seed.md"), "reference", "utf8");
+
+        const result = await seedSystemAssets({applicationRoot, stateRoot});
+        const paths = getSystemAssetInstallPaths(stateRoot);
+        const manifest = JSON.parse(await readFile(paths.manifestPath, "utf8")) as {
+            assets: Array<{id: string; origin: {kind: string}}>;
+        };
+        const origins = new Map(manifest.assets.map((entry) => [entry.id, entry.origin.kind]));
+
+        expect(result.ledgerRecovery).toEqual({
+            recoveredAssets: 3,
+            bundledAssets: 1,
+            localAssets: 2,
+            tombstonesLost: true,
+        });
+        expect(origins).toEqual(new Map([
+            ["local-only", "local"],
+            ["matching", "bundled"],
+            ["modified", "local"],
+        ]));
+        await expect(readFile(path.join(installSkills, "modified", "skill.md"), "utf8")).resolves.toBe("user edit");
+        await expect(readFile(path.join(installSkills, "local-only", "skill.md"), "utf8")).resolves.toBe("local");
+    });
+
     it("安装根被外部修改时拒绝覆盖并保持 fail-closed", async () => {
         const root = testHostPath("tmp", "system-asset-installation-conflict", crypto.randomUUID());
         roots.push(root);

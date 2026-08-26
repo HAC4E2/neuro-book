@@ -10,10 +10,18 @@ delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
 delete process.env.NEURO_BOOK_PRODUCT_BUILD;
 
 const runtimePaths = runtimePathsFromEnv(packageRoot);
-await seedSystemAssets({
+const systemAssets = await seedSystemAssets({
     applicationRoot: runtimePaths.applicationRoot,
     stateRoot: runtimePaths.stateRoot,
 });
+if (systemAssets.ledgerRecovery) {
+    console.warn(
+        `已重建 Agent 资产安装账本：${systemAssets.ledgerRecovery.recoveredAssets} 项，`
+        + `${systemAssets.ledgerRecovery.bundledAssets} 项识别为内置，`
+        + `${systemAssets.ledgerRecovery.localAssets} 项保留为本地资产。`
+        + "缺失账本无法恢复已删除内置资产的墓碑，请在启动后检查 Agent 资产。",
+    );
+}
 
 const steps: readonly (readonly string[])[] = [
     ["--no-install", resolve(packageRoot, "scripts/db/check-migrations.ts")],
