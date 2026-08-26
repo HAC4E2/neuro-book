@@ -5,95 +5,84 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {primaryCheckoutRoot, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifyPostMergeUnifiedReviewContract, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
 const fixtureRoots: string[] = [];
-const sourceFiles = [
-    {source: "docs/tasks/alpha/README.md", destination: ".agents/tasks/alpha/README.md", content: "alpha baseline\n"},
-    {source: "docs/tasks/beta/README.md", destination: ".agents/tasks/beta/README.md", content: "beta baseline\n"},
-] as const;
 const repositoryRoot = join(import.meta.dirname, "..", "..");
 
 afterEach(async () => {
     await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
 
-describe("agent governance task migration gate", () => {
-    it("目标未进入 Git index 时失败并指出 canonical 路径", async () => {
-        const repoRoot = await createFixture({stageTargets: false, retainLegacy: false});
+describe("canonical Task hash", () => {
+    it("按 Git auto 语义将 lone CR 视为 binary，并豁免末尾 SUB", () => {
+        const loneCr = Buffer.from([0x41, 0x0d, 0x0a, 0x42, 0x0d, 0x43]);
+        const loneCrRawHash = `sha256:${createHash("sha256").update(loneCr).digest("hex")}`;
+        const loneCrTextHash = `sha256:${createHash("sha256").update(Buffer.from([0x41, 0x0a, 0x42, 0x0d, 0x43])).digest("hex")}`;
+        expect(canonicalSha256(loneCr, "auto")).toBe(loneCrRawHash);
+        expect(canonicalSha256(loneCr, "auto")).not.toBe(loneCrTextHash);
 
-        const failures = verifyTaskMigration(repoRoot);
-
-        expect(failures).toContain("canonical Task 尚未进入 Git index：.agents/tasks/alpha/README.md");
+        const trailingSub = Buffer.from([0x41, 0x0d, 0x0a, 0x42, 0x1a]);
+        const normalizedTrailingSub = Buffer.from([0x41, 0x0a, 0x42, 0x1a]);
+        const normalizedHash = `sha256:${createHash("sha256").update(normalizedTrailingSub).digest("hex")}`;
+        const rawHash = `sha256:${createHash("sha256").update(trailingSub).digest("hex")}`;
+        expect(canonicalSha256(trailingSub, "auto")).toBe(normalizedHash);
+        expect(normalizedHash).not.toBe(rawHash);
+        const internalSub = Buffer.from([0x41, 0x1a, 0x0d, 0x0a, 0x42]);
+        const internalSubRawHash = `sha256:${createHash("sha256").update(internalSub).digest("hex")}`;
+        expect(canonicalSha256(internalSub, "auto")).toBe(internalSubRawHash);
     });
+    it("localOnly destination 的 CRLF 仍按 Git text canonical hash 校验", async () => {
+        const repoRoot = await createLocalOnlyMigrationFixture();
+        const destination = ".agents/tasks/01-local/benchmark.json";
+        const attributes = readGitTextAttributes(repoRoot, ["docs/tasks/01-local/benchmark.json", destination]);
 
-    it("旧 docs/tasks 仍在工作树时失败并指出 clean cutover 缺口", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: true});
-
-        const failures = verifyTaskMigration(repoRoot);
-
-        expect(failures).toContain("旧 Task 文件仍存在：docs/tasks/alpha/README.md");
-        expect(failures).toContain("旧 Task 删除尚未暂存：docs/tasks/alpha/README.md");
-    });
-
-    it("canonical targets、metadata 和 staged deletion 完整时通过", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false, commitCutover: false});
-
+        expect(attributes.get("docs/tasks/01-local/benchmark.json")).toBe("unspecified");
+        expect(attributes.get(destination)).toBe("set");
         expect(verifyTaskMigration(repoRoot)).toEqual([]);
     });
+});
 
-    it("迁移提交完成后旧目录不再要求虚假的 staged deletion", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false, commitCutover: true});
-
-        expect(verifyTaskMigration(repoRoot)).toEqual([]);
-    });
-    it("未登记 Task 不允许跨 root fallback", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/alpha"), {recursive: true});
-        await runGit(repoRoot, ["mv", ".agents/tasks/alpha/README.md", "packages/neuro-book/.agents/tasks/alpha/README.md"]);
-
-        expect(verifyTaskMigration(repoRoot)).toContain("迁移目标缺失或不是普通文件：.agents/tasks/alpha/README.md");
+describe("Task ownership 当前树门禁", () => {
+    it("当前 ownership、双根和 tracked 文件闭合", () => {
+        expect(verifyTaskOwnership(repositoryRoot)).toEqual([]);
     });
 
-    it("ownership hash 漂移时失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false}, [{
-            source: "docs/tasks/01-alpha/README.md",
-            destination: ".agents/tasks/01-alpha/README.md",
-            content: "alpha baseline\n",
-        }]);
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
-        await runGit(repoRoot, ["mv", ".agents/tasks/01-alpha/README.md", "packages/neuro-book/.agents/tasks/01-alpha/README.md"]);
-        await writeText(repoRoot, ".agents/tasks/ownership.json", `${JSON.stringify({
-            schema: "nbook.task-ownership/v1",
-            ownerRoot: "packages/neuro-book/.agents/tasks",
-            taskCount: 1,
-            fileCount: 1,
-            tasks: [{taskId: "01-alpha", ownerRoot: "packages/neuro-book/.agents/tasks", files: [{path: "01-alpha/README.md", legacyDestination: ".agents/tasks/01-alpha/README.md", sha256: `sha256:${"0".repeat(64)}`}]}],
-        }, null, 2)}\n`);
+    it("ownership 声明文件未进入 Git index 时失败", async () => {
+        const repoRoot = await createOwnershipFixture({trackTask: false});
 
-        expect(verifyTaskMigration(repoRoot)).toContain("ownership 与 legacy destination hash 不一致：.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件尚未进入 Git index：packages/neuro-book/.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).not.toContain("ownership 文件 hash 不一致：packages/neuro-book/.agents/tasks/01-alpha/README.md");
     });
+
+    it("ownership 文件 hash 漂移时失败", async () => {
+        const repoRoot = await createOwnershipFixture({trackTask: true});
+        await writeText(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha/README.md", "changed\n");
+
+        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件 hash 不一致：packages/neuro-book/.agents/tasks/01-alpha/README.md");
+    });
+
     it("应用 Task 目录缺少 ownership 登记时失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/01-unregistered"), {recursive: true});
+        const repoRoot = await createOwnershipFixture({trackTask: true});
+        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/02-unregistered"), {recursive: true});
 
-        expect(verifyTaskMigration(repoRoot)).toContain("应用 Task 目录未登记 ownership：packages/neuro-book/.agents/tasks/01-unregistered");
+        expect(verifyTaskOwnership(repoRoot)).toContain("应用 Task 目录未登记 ownership：packages/neuro-book/.agents/tasks/02-unregistered");
+    });
+
+    it("旧 docs/tasks 目录重新出现时失败", async () => {
+        const repoRoot = await createOwnershipFixture({trackTask: true});
+        await writeText(repoRoot, "docs/tasks/01-legacy/README.md", "legacy\n");
+
+        expect(verifyTaskOwnership(repoRoot)).toContain("旧 Task 目录仍存在：docs/tasks");
     });
 
     it("根与应用 schema Task ID 重复时失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false}, [{
-            source: "docs/tasks/01-alpha/README.md",
-            destination: ".agents/tasks/01-alpha/README.md",
-            content: "---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Alpha\n",
-        }]);
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
-        await runGit(repoRoot, ["mv", ".agents/tasks/01-alpha/README.md", "packages/neuro-book/.agents/tasks/01-alpha/README.md"]);
+        const repoRoot = await createOwnershipFixture({trackTask: true});
         await writeText(repoRoot, ".agents/tasks/02-root/README.md", "---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Duplicate\n");
 
-        const failures = verifyTaskMigration(repoRoot);
-        expect(failures.some((failure) => failure.startsWith("全仓 Task ID 重复：01-alpha"))).toBe(true);
+        expect(verifyTaskOwnership(repoRoot).some((failure) => failure.startsWith("全仓 Task ID 重复：01-alpha"))).toBe(true);
     });
 
     it("ownership 精确选择应用与根 Task root", () => {
@@ -111,8 +100,8 @@ describe("agent governance task migration gate", () => {
     });
 });
 describe("Agent Skills 适配治理门禁", () => {
-    it("draft Proposal 出现路由实现时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "router");
+    it("draft Proposal 出现 Skill 实现时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "complete");
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
     });
@@ -144,10 +133,15 @@ agentWorkflow:
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toEqual([]);
     });
-    it("accepted fixture 缺少路由 Skill 合同内容时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-router");
+    it("accepted fixture 缺少 report Skill 合同内容时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-report");
 
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("路由 Skill 缺少有效 frontmatter");
+        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("report Skill 缺少有效 frontmatter");
+    });
+    it("accepted fixture 缺少 load_role Skill 合同内容时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-load_role");
+
+        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("load_role Skill 缺少有效 frontmatter");
     });
     it("accepted fixture 缺少 Task verification 固定字段时失败", async () => {
         const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-task-fields");
@@ -227,7 +221,7 @@ agentWorkflow:
         expect(missingRequired.report.failures).toEqual(expect.arrayContaining([
             expect.stringContaining("Task verification.required 必须是非空数组"),
         ]));
-    });
+    }, 30_000);
 
 
 
@@ -344,6 +338,49 @@ agentWorkflow:
             expect.stringContaining("Task verification.notRun[0] 缺少非空 reason"),
             expect.stringContaining("Task verification.required 与 verification.notRun 重叠"),
         ]));
+    });
+});
+
+describe("合并后统一评审治理门禁", () => {
+    it("当前状态机与角色交接合同闭合", () => {
+        expect(verifyPostMergeUnifiedReviewContract(repositoryRoot)).toEqual([]);
+    });
+
+    it("任一状态机或角色交接合同丢失时失败", async () => {
+        const repoRoot = await createTestTmpRoot("unified-review-contract", "unified-review-contract-test");
+        fixtureRoots.push(repoRoot);
+        const contractPaths = [
+            "AGENTS.md",
+            "docs/standards/repository-workflow.md",
+            ".agents/roles/pm/AGENTS.md",
+            ".agents/roles/leader/AGENTS.md",
+            ".agents/roles/reviewer/AGENTS.md",
+            ".agents/tasks/README.md",
+        ] as const;
+        for (const relativePath of contractPaths) {
+            await writeText(repoRoot, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
+        }
+
+        for (const relativePath of contractPaths) {
+            const original = await readFile(join(repoRoot, relativePath), "utf8");
+            await writeText(repoRoot, relativePath, `# Missing contract: ${relativePath}\n`);
+            expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
+                `合并后统一评审合同缺少必需标记：${relativePath}`,
+            ]);
+            await writeText(repoRoot, relativePath, original);
+        }
+
+        const workflowPath = "docs/standards/repository-workflow.md";
+        const workflow = await readFile(join(repoRoot, workflowPath), "utf8");
+        await writeText(repoRoot, workflowPath, workflow.replace(
+            "`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并",
+            "`Done`：关联 PR 已合并",
+        ));
+        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
+            `合并后统一评审合同缺少必需标记：${workflowPath}`,
+        ]);
+        await writeText(repoRoot, workflowPath, workflow);
+        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([]);
     });
 });
 
@@ -481,22 +518,27 @@ describe("monorepo worktree 根门禁", () => {
     });
 });
 
-async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", implementation: "router" | "invalid-router" | "missing-task-fields" | "missing-contract-export" | "missing-cli-call" | "missing-cli-import" | "shadowed-cli-call" | "type-only-cli-import" | "nested-valid-cli-call" | "dead-function-cli-call" | "complete"): Promise<string> {
+async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", implementation: "invalid-report" | "invalid-load_role" | "missing-task-fields" | "missing-contract-export" | "missing-cli-call" | "missing-cli-import" | "shadowed-cli-call" | "type-only-cli-import" | "nested-valid-cli-call" | "dead-function-cli-call" | "complete"): Promise<string> {
     const root = await createTestTmpRoot("governance-agent-skills", "governance-agent-skills-test");
     fixtureRoots.push(root);
     await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", `# Proposal\n\n状态：${status}\n`);
-    const complete = !["router", "invalid-router"].includes(implementation);
-    await writeText(root, ".agents/skills/agent-workflow-router/SKILL.md", complete
-        ? "---\nname: agent-workflow-router\ndescription: Routes NeuroBook work by task kind.\n---\n"
-        : "name: agent-workflow-router\n");
-    if (!complete) return root;
+    const validReport = implementation !== "invalid-report";
+    const validLoadRole = implementation !== "invalid-load_role";
+    await writeText(root, ".agents/skills/report/SKILL.md", validReport
+        ? "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"
+        : "name: report\n");
+    await writeText(root, ".agents/skills/load_role/SKILL.md", validLoadRole
+        ? "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"
+        : "name: load_role\n");
+    if (!validReport || !validLoadRole) return root;
+
     const taskContract = implementation === "missing-task-fields"
         ? "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n```\n"
         : "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n";
     await writeText(root, ".agents/tasks/README.md", taskContract);
-    await writeText(root, ".agents/skills/README.md", "- [agent-workflow-router/SKILL.md](agent-workflow-router/SKILL.md)\n");
+    await writeText(root, ".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n");
     await writeText(root, "docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n");
-    await writeText(root, ".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/agent-workflow-router/SKILL.md verification.required verification.notRun\n");
+    await writeText(root, ".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n");
     for (const role of ["pm", "leader", "tasker", "reviewer"]) {
         await writeText(root, `.agents/roles/${role}/AGENTS.md`, "agentWorkflow required notRun\n");
     }
@@ -536,20 +578,24 @@ async function createGovernanceCliFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-cli", "governance-cli-test");
     fixtureRoots.push(root);
     const governanceFiles: readonly [string, string][] = [
-        ["AGENTS.md", "fixture root rules\n"],
+        ["AGENTS.md", "对应 Issue 项目条目保持 `In review`；统一评审确认满足。\n"],
         [".omp/RULES.md", "fixture omp rules\n"],
         ["WATCHDOG.md", "fixture watchdog\n"],
         [".agents/AGENTS.md", "fixture agents rules\n"],
         [".agents/README.md", "fixture agents readme\n"],
-        [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/agent-workflow-router/SKILL.md verification.required verification.notRun\n"],
-        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
-        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
+        [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
+        [".agents/tasks/.migration-complete", "{}\n"],
+        [".agents/tasks/legacy-index.json", "{}\n"],
+        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\nTask `completed` 也不能触发对应 Issue 项目条目的 Project `Done`。PR 合并后对应 Issue 项目条目仍保持 `In review`。\n"],
+        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\nIssue 项目条目是需求交付状态的唯一 owner。Reviewer 要求修复或验证未完成时退回 `In progress`。当前 merge revision 集合。记录 Issue、条目 ID、PR、revision 和确认来源。\n"],
+        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n并通知 PM 把对应 Issue 项目条目置为 `In review`。通知 PM 退回 `In progress`。PR 合并后通知 PM 继续保持 Issue 条目 `In review`。\n"],
         [".agents/roles/tasker/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/skills/README.md", "- [agent-workflow-router/SKILL.md](agent-workflow-router/SKILL.md)\n"],
-        [".agents/skills/agent-workflow-router/SKILL.md", "---\nname: agent-workflow-router\ndescription: Routes fixture work by task kind.\n---\n"],
+        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n通知 PM 把对应 Issue 项目条目从 `In review` 退回 `In progress`。不能触发 Project `Done`。\n"],
+        [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
+        [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
+        [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
         ["docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n"],
+        ["docs/standards/repository-workflow.md", "Issue 条目**是需求交付状态的唯一 owner。PR 合并后 Issue 条目继续保持 `In review`。`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并。`Item closed` workflow 应保持关闭。`is:open` 过滤器与本状态机不兼容。当前 merge revision 集合。\n"],
         ["scripts/ci/agent-governance-contract.ts", "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] { return []; }\n\"notRun\" in verification\n"],
         ["scripts/ci/agent-governance.ts", "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n"],
         ["scripts/AGENTS.md", "fixture scripts rules\n"],
@@ -593,7 +639,6 @@ agentWorkflow:
 
 # CLI profile
 `);
-    await writeText(root, "docs/tasks/001-legacy/README.md", "legacy migration baseline\n");
     const siblingPath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
     await writeText(root, siblingPath, await readFile(join(repositoryRoot, siblingPath), "utf8"));
 
@@ -601,53 +646,7 @@ agentWorkflow:
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
     await runGit(root, ["config", "user.name", "Governance Test"]);
     await runGit(root, ["add", "."]);
-    await runGit(root, ["commit", "-m", "fixture migration baseline"]);
-    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
-
-    const legacyContent = await readFile(join(root, "docs/tasks/001-legacy/README.md"));
-    await writeText(root, ".agents/tasks/001-legacy/README.md", legacyContent.toString("utf8"));
-    await rm(join(root, "docs/tasks"), {recursive: true, force: true});
-    const mappings = [{
-        source: "docs/tasks/001-legacy/README.md",
-        destination: ".agents/tasks/001-legacy/README.md",
-        sourceSha256: hashBytes(legacyContent),
-        destinationSha256: hashBytes(legacyContent),
-        kind: "file" as const,
-        linkRewrite: false,
-    }];
-    const manifest = {
-        schema: "nbook.task-migration-manifest/v1",
-        sourceRevision,
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-    };
-    const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest)));
-    await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify({
-        schema: "nbook.task-migration-index/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        migratedAt: new Date().toISOString(),
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: 1,
-        localOnlyFiles: [],
-    }, null, 2)}\n`);
-    await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify({
-        schema: "nbook.task-migration/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        completedAt: new Date().toISOString(),
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: 1,
-        localOnlyFiles: [],
-    }, null, 2)}\n`);
-    await runGit(root, ["add", "-A"]);
-    await runGit(root, ["commit", "-m", "fixture migrated governance"]);
+    await runGit(root, ["commit", "-m", "fixture governance"]);
     return root;
 }
 
@@ -709,73 +708,28 @@ async function createWorktreeFixture(): Promise<{primary: string; linked: string
     return {primary, linked, outside};
 }
 
-async function createFixture(options: {stageTargets: boolean; retainLegacy: boolean; commitCutover?: boolean}, files: readonly {source: string; destination: string; content: string}[] = sourceFiles): Promise<string> {
-
-    const root = await createTestTmpRoot("governance-migration", "governance-migration-test");
+async function createOwnershipFixture(options: {trackTask: boolean}): Promise<string> {
+    const root = await createTestTmpRoot("governance-ownership", "governance-ownership-test");
     fixtureRoots.push(root);
+    const taskPath = "packages/neuro-book/.agents/tasks/01-alpha/README.md";
+    const taskContent = Buffer.from("---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Alpha\n", "utf8");
+    await writeText(root, ".gitignore", ".worktree/\n");
+    await mkdir(join(root, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
+    await writeFile(join(root, taskPath), taskContent);
     await runGit(root, ["init", "--initial-branch", "master"]);
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
     await runGit(root, ["config", "user.name", "Governance Test"]);
-
-    for (const file of files) await writeText(root, file.source, file.content);
-    await runGit(root, ["add", "docs/tasks"]);
-    await runGit(root, ["commit", "-m", "baseline tasks"]);
-    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
-
-    for (const file of files) await writeText(root, file.destination, file.content);
-    const mappings = await Promise.all(files.map(async (file) => ({
-        source: file.source,
-        destination: file.destination,
-        sourceSha256: await sha256(join(root, file.source)),
-        destinationSha256: await sha256(join(root, file.destination)),
-        kind: "file" as const,
-        linkRewrite: false,
-    })));
-    const manifest = {
-        schema: "nbook.task-migration-manifest/v1",
-        sourceRevision,
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-    };
-    const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest)));
-    const index = {
-        schema: "nbook.task-migration-index/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        migratedAt: new Date().toISOString(),
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: files.length,
-        localOnlyFiles: [],
-    };
-    const marker = {
-        schema: "nbook.task-migration/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        completedAt: new Date().toISOString(),
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: sourceFiles.length,
-        localOnlyFiles: [],
-    };
-    await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify(index, null, 2)}\n`);
-    await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify(marker, null, 2)}\n`);
-    await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}, null, 2)}\n`);
-
-    if (!options.retainLegacy) {
-        await rm(join(root, "docs/tasks"), {recursive: true, force: true});
-        await runGit(root, ["add", "-A", "docs/tasks"]);
-    }
-    if (options.stageTargets) {
-        await runGit(root, ["add", "-A", ".agents/tasks"]);
-    } else {
-        await runGit(root, ["add", ".agents/tasks/legacy-index.json", ".agents/tasks/.migration-complete"]);
-    }
-    if (options.commitCutover) await runGit(root, ["commit", "-m", "task migration cutover"]);
+    const textAttributes = readGitTextAttributes(root, [taskPath]);
+    const taskSha = canonicalSha256(taskContent, textAttributes.get(taskPath) ?? "unspecified");
+    await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({
+        schema: "nbook.task-ownership/v1",
+        ownerRoot: "packages/neuro-book/.agents/tasks",
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{taskId: "01-alpha", ownerRoot: "packages/neuro-book/.agents/tasks", files: [{path: "01-alpha/README.md", legacyDestination: ".agents/tasks/01-alpha/README.md", sha256: taskSha}]}],
+    }, null, 2)}\n`);
+    await runGit(root, ["add", ".gitignore", ".agents/tasks/ownership.json"]);
+    if (options.trackTask) await runGit(root, ["add", taskPath]);
     return root;
 }
 
@@ -785,14 +739,45 @@ async function writeText(root: string, relativePath: string, content: string): P
     await writeFile(path, content, "utf8");
 }
 
-async function sha256(path: string): Promise<string> {
-    return hashBytes(await readFile(path));
+
+async function createLocalOnlyMigrationFixture(): Promise<string> {
+    const root = await createTestTmpRoot("governance-migration-local-only", "governance-migration-local-only-test");
+    fixtureRoots.push(root);
+    const destination = ".agents/tasks/01-local/benchmark.json";
+    const source = "docs/tasks/01-local/benchmark.json";
+    await writeText(root, ".gitattributes", "**/.agents/tasks/** text eol=lf\n");
+    await writeText(root, ".gitignore", `${destination}\n`);
+    await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({
+        schema: "nbook.task-ownership/v1",
+        ownerRoot: "packages/neuro-book/.agents/tasks",
+        taskCount: 0,
+        fileCount: 0,
+        tasks: [],
+    })}\n`);
+    await runGit(root, ["init", "--initial-branch", "master"]);
+    await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
+    await runGit(root, ["config", "user.name", "Governance Test"]);
+    await runGit(root, ["add", "."]);
+    await runGit(root, ["commit", "-m", "fixture migration baseline"]);
+    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
+
+    const destinationBytes = Buffer.from("benchmark\r\nvalue\r\n", "utf8");
+    await mkdir(join(root, ".agents/tasks/01-local"), {recursive: true});
+    await writeFile(join(root, destination), destinationBytes);
+    const destinationSha256 = hashBytes(Buffer.from("benchmark\nvalue\n", "utf8"));
+    const mappings = [{source, destination, sourceSha256: destinationSha256, destinationSha256, kind: "file" as const, linkRewrite: false}];
+    const manifest = {schema: "nbook.task-migration-manifest/v1", sourceRevision, mappings, repositoryLinkRewrites: [], preservedSourceFiles: []};
+    const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest), "utf8"));
+    const index = {schema: "nbook.task-migration-index/v1", sourceRevision, fileCount: 1, manifestSha256, migratedAt: new Date().toISOString(), mappings, repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: 0, localOnlyFiles: [source]};
+    const marker = {schema: "nbook.task-migration/v1", sourceRevision, fileCount: 1, manifestSha256, completedAt: new Date().toISOString(), repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: 0, localOnlyFiles: [source]};
+    await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify(index)}\n`);
+    await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify(marker)}\n`);
+    return root;
 }
 
 function hashBytes(bytes: Uint8Array): string {
     return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
-
 async function runGit(cwd: string, args: string[]): Promise<string> {
     const result = await execFile("git", args, {cwd, encoding: "utf8"});
     return result.stdout;

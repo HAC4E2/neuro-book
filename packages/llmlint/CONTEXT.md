@@ -46,7 +46,7 @@ llmlint 是一个**中文正文规则库**加它的两个消费面：写作期�
 |---|---|---|---|
 | `author candidate` | 作者候选 | 版本化的 `writer + critic + style + guide + runtime params` 组合；负责生成或修订正文，不等同于一个模型 | 后续研究，未建 |
 | `writer` | 写手 | 根据 `brief` 生成初稿；不负责给自己判分 | 后续研究，未建 |
-| `critic` | 修订批评者 | 读取 brief、正文和文风合同，指出问题并提出修订计划或候选修订；不是真人偏好评委 | 后续研究，未建 |
+| `critic` | 修订批评者 | 读取 brief、正文和文风合同，指出问题并给出修订建议或放行判定，改稿由 writer 执行；不是真人偏好评委 | 后续研究，未建 |
 | `reviewer candidate` | 评委候选 | 模仿某一人类群体在指定评分轴上的打分器；输出预测，不写入 `DocJudgment` | 后续研究，未建 |
 | `human judgment` | 人类判定 | `DocJudgment` / `PairJudgment` 等人工真值；AI 评委永远不能覆盖 | `web/prisma/schema.prisma` |
 | `reviewer calibration` | 评委校准 | 用冻结人类评分拟合或调提示词，并用按 pair/brief 切分的 holdout 验收 | 后续研究，未建 |

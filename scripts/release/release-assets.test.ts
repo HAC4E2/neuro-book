@@ -13,6 +13,7 @@ import {
     productRuntimeBuildPolicy,
     type ProductRuntimeImageManifest,
 } from "#scripts/build/product-runtime-image-builder";
+import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
 import {createProductRuntimeContract} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
     buildProductArchive,
@@ -88,11 +89,7 @@ type ReleaseWorkflow = {
 type ProductWorkflow = {
     jobs: {
         product: WorkflowJob & {
-            strategy: {
-                matrix: {
-                    include: Array<{platform: string; browser: string}>;
-                };
-            };
+            strategy?: {matrix?: unknown};
         };
     };
 };
@@ -423,7 +420,7 @@ describe("Product Release宿主合同", () => {
         expect(publicManagerVerifier).toContain('["cat-file", "-e", `${publicPackage.gitHead}^{commit}`]');
         expect(publicManagerVerifier).toContain('["fetch", "--no-tags", "origin", publicPackage.gitHead]');
         expect(publicManagerVerifier).not.toContain('"--depth=1"');
-        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun --cwd packages/neuro-book run generate");
+        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run --cwd packages/neuro-book generate && bun run --cwd packages/neuro-book nuxt:prepare");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
         const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts"));
         expect(generatedSourcesStep).toBeGreaterThan(-1);
@@ -459,9 +456,12 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
-        expect(windowsRun.indexOf("bun --cwd packages/neuro-book run nuxt:prepare")).toBeLessThan(
+        expect(windowsRun.indexOf("bun run --cwd packages/neuro-book nuxt:prepare")).toBeLessThan(
             windowsRun.indexOf("bun run manager:test"),
+        );
+        expect(windowsRun).toContain("bun run manager:build");
+        expect(windowsRun.indexOf("bun run manager:build")).toBeLessThan(
+            windowsRun.indexOf("bun run package:windows-portable"),
         );
     });
 
@@ -536,8 +536,10 @@ describe("Product Release宿主合同", () => {
     it("Linux AArch64 Product必须安装并执行真实浏览器smoke", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/product-platforms.yml"), "utf8")) as ProductWorkflow;
         const releaseWorkflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
-        const linuxArm = workflow.jobs.product.strategy.matrix.include.find(({platform}) => platform === "linux-aarch64-glibc");
+        const linuxArm = selectProductPlatformMatrix("push").find(({platform}) => platform === "linux-aarch64-glibc");
         expect(linuxArm?.browser).toBe("playwright");
+        const matrixNode = workflow.jobs.product.strategy?.matrix;
+        expect(String(matrixNode)).toContain("fromJSON(needs.select-platforms.outputs.matrix)");
         expect(workflow.jobs.product.steps).toContainEqual(
             expect.objectContaining({run: "bunx playwright-core install --with-deps chromium"}),
         );
@@ -612,6 +614,7 @@ describe("Product Release宿主合同", () => {
                 "verify-public-ghcr-amd64": WorkflowJob;
                 "verify-public-ghcr-arm64": WorkflowJob;
                 "verify-public-ghcr-podman": WorkflowJob;
+                "verify-public-ghcr-podman-delegate": WorkflowJob;
                 "verify-public-windows-data-reuse": WorkflowJob;
             };
         };
@@ -640,10 +643,15 @@ describe("Product Release宿主合同", () => {
             ({run}) => run?.includes("PODMAN_COMPOSE_PROVIDER=podman-compose podman compose version"),
         )).toBe(true);
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("podman"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("delegate"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("隔离失败：podman-compose 不允许存在于 PATH。"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("command -v podman-compose"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("PODMAN_COMPOSE_MASKED_ROOT"))).toBe(true);
         const publicGhcr = await readFile(resolve(ROOT, "scripts/release/verify-public-ghcr.sh"), "utf8");
         expect(publicGhcr).toContain('scripts/release/installation-state-root.ts "$root"');
         expect(publicGhcr).toContain('state_root="$(resolve_state_root)"');
         expect(publicGhcr).toContain('--filter "label=com.docker.compose.project.working_dir=$compose_working_dir"');
+        expect(publicGhcr).toContain('if [[ "$engine" == "podman" && "$podman_compose_provider" != "delegate" ]]');
         expect(publicGhcr).toContain('--filter "label=com.docker.compose.service=app"');
         expect(publicGhcr).toContain('compose ps --all --quiet app');
         expect(publicGhcr).not.toContain('--env-file "$root/.env"');
@@ -667,6 +675,7 @@ describe("Product Release宿主合同", () => {
             "verify-public-ghcr-amd64",
             "verify-public-ghcr-arm64",
             "verify-public-ghcr-podman",
+            "verify-public-ghcr-podman-delegate",
             "verify-public-windows-data-reuse",
         ]);
     });

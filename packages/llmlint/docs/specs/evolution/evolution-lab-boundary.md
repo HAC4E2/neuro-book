@@ -1,6 +1,6 @@
 # 进化实验室边界
 
-> 状态：Accepted（2026-08-16）。
+> 状态：Accepted（2026-08-16；2026-08-24 修订：critic 管线收敛为建议制循环，移除 `critic-rewrite`）。
 > 前置提案：[`docs/proposed/author-reviewer-ecosystem.md`](../../proposed/author-reviewer-ecosystem.md)。  
 > 目标：把作者候选池、reviewer 候选池和人工校准建成独立离线系统，不污染 Web 真值和 evals 方法论。
 
@@ -28,14 +28,14 @@ type AuthorCandidate = {
     critic: ModelPromptConfig | null;
     style: FingerprintedAsset;
     guide: FingerprintedAsset;
-    pipelineMode: "single-pass" | "critic-plan" | "critic-rewrite";
+    pipelineMode: "single-pass" | "critic-plan";
     runtimeParams: RuntimeParams;
     niche: string[];
     status: "candidate" | "evaluated" | "shadow" | "active" | "retired";
 };
 ```
 
-候选产物是不可变 `GeneratedSample`，完整记录 brief、调用、正文、成本和 fingerprint。critic 只能修改作者管线产物，不能给候选生存打最终分。
+候选产物是不可变 `GeneratedSample`，完整记录 brief、调用、正文、成本和 fingerprint。critic 只输出修订建议或放行判定，改稿由 writer 执行并循环直至放行；critic 不得直接产生修订稿，也不能给候选生存打最终分。
 
 ### 2.2 ReviewerPool
 
@@ -114,7 +114,7 @@ RuleProfile 只是作者输入或诊断制品。规则 verdict 不能成为作�
 
 1. 固定 candidate 和 brief identity。
 2. 调 writer 产生初稿。
-3. 可选调 critic 产生 plan/rewrite。
+3. 可选进入 critic-plan 循环：critic 输出修订建议或放行判定，writer 按建议改出新稿，循环直至放行；critic 不直接产生 rewrite。
 4. 保存每个中间正文，不能原地覆盖。
 5. 运行 skill 诊断和外部 detector，结果标 machine。
 6. 输出 GeneratedCorpus artifact。

@@ -11,7 +11,7 @@
 3. 读取指定 Task 的 `README.md`、`context.md` 和最新 Leader walkthrough。
 4. 读取 Task 引用的当前 spec、ADR 和测试；只有准备公开 PR 时才读根 `CONTRIBUTING.md`。
 5. 确认当前基线 revision、branch 和 worktree 与任务记录一致。
-6. 读取 `.agents/skills/agent-workflow-router/SKILL.md` 和 Task 的 `agentWorkflow`；确认 `kind`、路由、required 检查与 notRun 原因能覆盖本次批准范围。
+6. 读取 `.agents/skills/load_role/SKILL.md`，使用 Task 指定的角色参数加载 canonical 角色合同，再读取该画像；确认 `kind`、路由、required 检查与 notRun 原因能覆盖本次批准范围。
 
 如果任务上下文缺失、过期或相互矛盾，先写阻塞报告，不开始实现。
 
@@ -27,7 +27,7 @@
 
 ## 遇到阻塞
 
-以下情况立即停止并写 `status: blocked` 或 `status: needs-decision` 的报告：
+以下情况立即停止并写 `status: blocked` 的报告：
 
 - 需要修改 Spec 未覆盖、或批准范围之外的模块与公开合同；修复实现偏离已批准 Spec 不属于本项；
 - 需要改变数据库、安装、权限或数据生命周期；
@@ -40,7 +40,7 @@
 
 ## 跨 session 恢复
 
-Tasker 先确认基线、范围和最后已验证状态：重读 Task README、`context.md`、最新 walkthrough/evidence 和当前 diff，一致时从最后已验证状态继续。按 `verification.required` 执行真实检查，把命令、结果和正式产物追加进 walkthrough/evidence；required 无法执行时写具体的 `notRun` 原因或阻塞，不用较弱命令冒充通过。发现需要扩大范围、改变行为、数据、公开接口、权限或 Spec 合同时立即停止并报告。
+Tasker 先确认基线、范围和最后已验证状态：重读 Task README、`context.md`、最新 walkthrough/evidence 和当前 diff，一致时从最后已验证状态继续。按 `verification.required` 执行真实检查，把命令、结果和正式产物追加进 walkthrough/evidence；required 无法执行时写具体阻塞原因，不用较弱命令冒充通过。发现需要扩大范围、改变行为、数据、公开接口、权限或 Spec 合同时立即停止并报告。
 
 ## 输出
 

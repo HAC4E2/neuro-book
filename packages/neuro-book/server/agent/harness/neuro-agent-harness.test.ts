@@ -8730,10 +8730,13 @@ describe("NeuroAgentHarness", () => {
         const result = await running;
 
         expect(result.aborted).toBe(true);
-        // 账本里不能出现 status: "error" 的 lifecycle，否则前端会额外渲染一张 Run Error 卡片。
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const lifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle");
-        expect(lifecycles.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : null)).toEqual(["start", "aborted"]);
+        // 两阶段取消：调用方有界返回时终态可能仍在 write queue 落盘；有界轮询等待
+        // durable aborted 出现，且不允许出现 error lifecycle（否则前端多渲染 Run Error 卡片）。
+        await waitFor(async () => {
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const lifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle");
+            expect(lifecycles.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : null)).toEqual(["start", "aborted"]);
+        });
     });
 
     it("abort clearQueue 会清空已持久化的 followUp queue projection", async () => {

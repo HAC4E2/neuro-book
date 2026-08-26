@@ -20,6 +20,7 @@ import {once} from "node:events";
 import {fileURLToPath} from "node:url";
 import {Command} from "commander";
 import {Unzip, UnzipInflate} from "fflate";
+import {runCapture} from "#scripts/utils/process.mjs";
 
 import {
     ensureStateFiles,
@@ -54,6 +55,7 @@ import {
 import {sanitizeZipEntryName, writeZipArchive} from "#scripts/utils/zip";
 
 const WINDOWS_PRODUCT_PLATFORM: ProductPlatform = "windows-x64";
+const ROOT = resolve(import.meta.dirname, "..", "..");
 const SOURCE_BUILD_FILE = "source-build.json";
 const PRODUCT_BUILD_FILE = "product-build.json";
 const MAX_ZIP_COMMENT_BYTES = 65_535;

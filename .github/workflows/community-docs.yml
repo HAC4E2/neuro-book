@@ -13,6 +13,7 @@ on:
       - "WATCHDOG.md"
       - "CONTEXT.md"
       - "RELEASE.md"
+      - ".agents/**"
       - ".omp/**"
       - "docs/**"
       - "vitepress/**"
@@ -40,6 +41,7 @@ on:
       - "WATCHDOG.md"
       - "CONTEXT.md"
       - "RELEASE.md"
+      - ".agents/**"
       - ".omp/**"
       - "docs/**"
       - "vitepress/**"
@@ -65,9 +67,6 @@ concurrency:
   group: community-docs-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   community-docs:
     name: Community files and docs
@@ -87,7 +86,7 @@ jobs:
       - name: Check patched Nitro modules
         run: bun scripts/ci/validate-nitropack-patch.ts
       - name: Prepare Nuxt types
-        run: bun --cwd packages/neuro-book run nuxt:prepare
+        run: bun run --cwd packages/neuro-book nuxt:prepare
       - name: Validate community files
         run: bun scripts/ci/validate-community-files.ts
       - name: Check documentation governance

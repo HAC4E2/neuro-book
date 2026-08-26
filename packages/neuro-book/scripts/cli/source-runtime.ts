@@ -10,17 +10,17 @@ delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
 delete process.env.NEURO_BOOK_PRODUCT_BUILD;
 
 const runtimePaths = runtimePathsFromEnv(packageRoot);
-const systemAssets = await seedSystemAssets({
+const seedResult = await seedSystemAssets({
     applicationRoot: runtimePaths.applicationRoot,
     stateRoot: runtimePaths.stateRoot,
 });
-if (systemAssets.ledgerRecovery) {
-    console.warn(
-        `已重建 Agent 资产安装账本：${systemAssets.ledgerRecovery.recoveredAssets} 项，`
-        + `${systemAssets.ledgerRecovery.bundledAssets} 项识别为内置，`
-        + `${systemAssets.ledgerRecovery.localAssets} 项保留为本地资产。`
-        + "缺失账本无法恢复已删除内置资产的墓碑，请在启动后检查 Agent 资产。",
-    );
+if (seedResult.legacyAdoption) {
+    const adoption = seedResult.legacyAdoption;
+    console.warn(`[system-assets] 检测到缺少安装账本的 legacy Install Root，已按磁盘与 Seed 内容比对重建：${adoption.reason}`);
+    console.warn(`[system-assets] 重建结果 bundled=${adoption.bundled}, dirty=[${adoption.dirty.join(", ")}], local=[${adoption.local.join(", ")}]`);
+    if (adoption.dirty.length > 0 || adoption.local.length > 0) {
+        console.warn("[system-assets] dirty/local 包不会被 Seed 自动升级或接管；如需按墓碑语义清理旧投影孤儿，运行 bun scripts/cli/migrate-legacy-agent-assets.ts --preflight 后再 --apply");
+    }
 }
 
 const steps: readonly (readonly string[])[] = [

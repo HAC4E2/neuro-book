@@ -158,6 +158,16 @@ Review Checklist 同步从 8 条扩到 14 条，把上述每条都变成可核�
 
 `skill-creator-zh` 的归档与 `RP模式` 的改名仍未执行，原因见 Open Items。
 
+### 2026-08-23 · 账本恢复与显式 legacy migration 实施
+
+存量机器以旧投影模型启动新 runtime 时 fail closed（「缺少安装账本」），本轮按协议补齐两条路径并真机验证：
+
+- **启动恢复（best-effort 自愈）**：`seedSystemAssetsLocked` 不再对「有包无账本」直接抛错；在安装锁内按磁盘包与 Seed 同 id 包 contentHash 比对重建账本（一致 bundled / 不一致 dirty+保留字节 / 无同 id local），报告经 `SeedSystemAssetsResult.legacyAdoption` 返回并由 `source-runtime.ts` 打印。账本损坏（非法 JSON / schema 无效）走同一重建路径并给出读取失败诊断。新增 `dirtyAt` 账本字段（additive，schemaVersion 不变），带标记的包不参与自动升级，`removed` 墓碑不可恢复这一点经报告显式告知。
+- **显式迁移入口**：`planLegacyAgentAssetMigration` / `applyLegacyAgentAssetMigration` 与 CLI `scripts/cli/migrate-legacy-agent-assets.ts --preflight|--apply`。触发条件是「账本缺失/损坏 **或** 磁盘仍有旧投影孤儿 **或** sync-state 仍含三类条目」——不能只看账本，否则启动恢复先写账本后迁移永远短路。孤儿删除语义与既有 owner 逐类对齐：普通 exact/前缀/STALE 墓碑只删 sync-state 有记录且磁盘 hash 等于 `lastSyncedUserHash` 的文件（未记录的可能是用户文件，保留待人工处理）；hard-cut exact/前缀允许无 state 删除但 state 证明手改的一律保留；所有候选以当前 Seed 清单兜底（STALE 名单里 Seed 仍携带的 llmlint rules 实测会被误删，已用真实路径回归锁定）。sync-state 按真实结构 `{profiles: [...], assets?: [...]}` 经共享解析器严格校验：文件损坏、任一键非数组/缺失、或任一条目缺失字符串键（assetPath/fileName）一律 needs-review fail closed——畸形条目不会静默残留也不会虚报清理成功（旧投影写该文件不持安装锁，规划后并发改坏在剥离提交前同样被拦截）。apply 提交后原子剥离三类条目并保留 templates/variables 条目——剥离接收 `abortIfCompromised` 回调，在临时文件写入前、rename 前后各检查锁所有权，原子换入与清理走注入用 io。apply 删完孤儿后合并更新既有账本条目（不动 removed 墓碑）。迁移全程与 seeder 同一锁合同：读盘、每次破坏性删除、账本写入前后都检查 `abortIfCompromised`，锁失去所有权立即中止。
+- **墓碑名单单一真相源**：五份名单移入 `legacy-agent-asset-tombstones.ts`，`novel-workspace.ts` 改为消费同一模块；旧投影同步行为不变（2 项聚焦测试通过）。迁移孤儿候选合并 exact 与 hard-cut exact 名单（`agent/scripts/*` 等非受管路径仍排除），并以当前 Seed 清单兜底过滤过期名单项；协议迁移第 3 条「名单一次性执行后从代码删除」仍受 Open Item 5 约束，未删。
+
+验证：安装器套件 34/34（含 hard-cut exact 残留清理与 `agent/scripts` 不触碰、普通墓碑无 state 保留、state 残留独立触发剥离、assets/profiles 条目畸形 fail closed、sync-state 任一键非数组/缺失的 needs-review 回归）、相邻聚焦 7/7 与 2/2、双 tsconfig 非增量 typecheck 通过；真机 Windows State Root 完成端到端迁移：`bun run dev` 就绪并生成 `installed.json`（38 clean bundled + 2 dirty bundled：leader.assets/writer 因源码 12 天演进差异标 dirty），CLI apply 剥离 14 条 profiles + 237 条受管资产条目、95 条 templates/variables 条目原样保留，二次 preflight/apply 均收敛为 null。state 剥离失败可自动重试：写入为原子 rename，失败时旧 state 原样保留，触发条件每次实时重读 state（按结构计数，不依赖条目 hash 可提取性），无需额外 marker。
+
 ## Verification
 
 - [ ] 未运行任何测试。本轮只有文档变更，不涉及业务代码。

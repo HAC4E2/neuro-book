@@ -78,7 +78,7 @@ agentWorkflow:
 
 Task README 只记录执行合同；实际命令、结果、revision、环境、截图、日志和正式产物仍写入追加式 walkthrough / evidence。Task 不复制 Issue / Project 的 `module`、`priority`、labels 或 iteration。
 
-状态只描述本次执行记录，不替代 Issue 或 Project 状态。
+Task 状态只描述本次执行记录，不替代 Issue 或 Project 状态；Task `completed` 也不能触发对应 Issue 项目条目的 Project `Done`。Project 的交付状态和统一评审门禁以 [`docs/standards/repository-workflow.md#project-交付状态与统一评审`](../../docs/standards/repository-workflow.md#project-交付状态与统一评审) 为准。
 
 ## Context、Walkthrough 与 Evidence
 
@@ -94,7 +94,7 @@ Task README 只记录执行合同；实际命令、结果、revision、环境、
 4. Leader 创建带 frontmatter 的 README，记录 `taskId`、`actionIssueId`、`worktreeId`、`branchId` 和 `status`，并链接具体 Spec 与相关 Proposal/ADR。
 5. Leader 生成当前 `context.md`。
 6. Tasker 读取角色规则、Spec、任务 README 和 context 后开始实现；Spec 不够明确时先补合同，不在代码中发明行为。
-7. 每个角色写独立 walkthrough；Reviewer 核对实现、测试、smoke 与 Spec 一致。全部合同有证据后，原 Spec 晋升为 `implemented`，再提交人类合并决策。
+7. 每个角色写独立 walkthrough；Reviewer 核对实现、测试、smoke 与 Spec 一致。全部合同有证据后，原 Spec 晋升为 `implemented`，再提交人类合并决策；Task 可以在技术交付闭合后置为 `completed`，但 PR 合并后对应 Issue 项目条目仍保持 `In review`，直到开发者针对该 Issue 和当前 merge revision 明确确认统一评审通过。
 
 ### 开发者请求与 Agent 恢复
 

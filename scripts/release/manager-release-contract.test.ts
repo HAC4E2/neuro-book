@@ -41,8 +41,8 @@ describe("Manager release clean-checkout contract", () => {
         ) as GeneratedTsConfig;
 
         expect(packageJson.scripts["runtime:typecheck"]).toMatch(/^bun run generate && /u);
-        expect(releaseWorkflow.indexOf("bun --cwd packages/neuro-book run nuxt:prepare")).toBeGreaterThan(-1);
-        expect(releaseWorkflow.indexOf("bun --cwd packages/neuro-book run nuxt:prepare")).toBeLessThan(
+        expect(releaseWorkflow.indexOf("bun run --cwd packages/neuro-book nuxt:prepare")).toBeGreaterThan(-1);
+        expect(releaseWorkflow.indexOf("bun run --cwd packages/neuro-book nuxt:prepare")).toBeLessThan(
             releaseWorkflow.indexOf("bun run manager:test"),
         );
         expect(packageJson.devDependencies["@types/mdast"]).toBeTruthy();
@@ -56,5 +56,9 @@ describe("Manager release clean-checkout contract", () => {
             module: "ESNext",
             moduleResolution: "Bundler",
         });
+    });
+    it("bun.lock对workspace file依赖保持POSIX分隔符", async () => {
+        const lockfile = await readFile(resolve(ROOT, "bun.lock"), "utf8");
+        expect(lockfile).not.toMatch(/file:[^"]*\\/u);
     });
 });
