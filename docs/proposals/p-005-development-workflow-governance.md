@@ -4,239 +4,114 @@
 
 ## 问题
 
-NeuroBook 已有根 `AGENTS.md`、PM / Leader / Tasker / Reviewer 角色合同、Proposal、Spec、Task、walkthrough、evidence、GitHub Issue / Project 和 `governance:check`。这些资产分别约束了授权、产品合同、任务执行和结构检查，但没有一份从需求输入到合并决策的最小流程描述：一次非平凡开发依次经过哪些逻辑阶段、每个阶段消费和产出哪些文件、上下文缺失时如何判断继续还是阻塞，分散在多个文档中，新 session 无法凭单一入口恢复现场。
+NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、Project状态、Proposal、Spec、Task和逐项授权串成近似状态机。职责虽清楚，但实际形成循环门禁：Leader需要PM先把Issue标为claimed，PM又等待Proposal/Spec/Task完整，而这些文档本应由Leader建立。大任务因此停在角色交接和元数据同步，而不是继续设计与实现。
 
-当前主要问题有三类：
+另一个问题是Leader与Tasker的合同同时存在于聊天、Issue、Task和角色提示中。Tasker需要等待Leader实时解释，跨session恢复时又无法确定哪份计划有效。
 
-1. 根 `AGENTS.md` 同时承载开发入口、仓库导航、角色规则、Git 操作、发布载荷和用户文案细则，开发步骤被参考信息打断；默认读者也没有被建模为能够依次承担各逻辑角色的 Agent。
-2. 跨 session 交接缺少统一的最小清单：下一角色应读取 Issue/授权来源、Spec、Task、`context.md`、walkthrough、evidence 和实际 diff 中的哪些内容，缺失时如何处理，没有一处集中说明。
-3. 验证证据（required / notRun、walkthrough、evidence）与 Reviewer 结论、人类合并授权之间的门禁关系没有统一表述。
-
-本提案只讨论开发治理，不改变 NeuroBook 产品运行时的 Agent、Skill、Workflow、Project Workspace 或用户数据协议。
+本提案不改变NeuroBook产品功能或用户数据，只调整开发角色和文件工作流。
 
 ## 目标与非目标
 
 ### 目标
 
-1. 角色职责互斥：PM/请求方、Leader、Tasker、Reviewer 各自的输入、输出和停止条件清楚，不互相代做核心职责。
-2. Task 能跨 session 被恢复：任一角色重新进入时，重读既有记录即可判断当前状态，从最后一个已验证状态继续，或在无法恢复时写明阻塞。
-3. 验证证据可追溯：required / notRun、walkthrough 和 evidence 与 Task 目标、diff 和 Spec 关联，Reviewer 结论基于可核对证据。
-4. 受限动作由人类明确决定：合并、发布、部署等动作在证据闭合之外始终需要人类明确授权。
-
-“交接”在本提案中仅指下一角色读取既有 Issue/授权来源、Spec（或“行为合同未变”依据）、Task、`context.md`、walkthrough、evidence 和实际 diff；它不是宿主权限隔离、不可伪造状态机或事务系统。
+1. 使用开发者→Leader→Tasker→Leader→开发者的顺序主线。
+2. Leader成为spec编程助手，直接管理Issue设计、调研、Proposal、Spec和Task，不等待PM。
+3. Leader的正式产物是：交给下一位Leader继续拆分的Issue、draft Task草案、planned可执行Task、Proposal和Spec。
+4. Leader与普通Tasker只通过Task文件、walkthrough和evidence交互；design Tasker可直接与开发者协作，但必须把决定写回文件。
+5. 普通Tasker只实现、验证和报告偏差；design Tasker只调研并形成指定Proposal/Spec草案。
+6. 门禁依靠Agent读取文件、自检和如实报告；减少本地可逆动作的逐项许可。
+7. 大目标先拆调研、设计和实现子Issue/Task，允许逐步获得证据后再细化后续合同。
 
 ### 非目标
 
-- 不改变 NeuroBook 产品功能、数据、网络接口、数据库 schema、运行时 Skill 或用户 Workspace。
-- 不把通用 Agent Skills 的默认 `SPEC-*`、`tasks/plan.md`、`tasks/todo.md` 或缺失的 `definition-of-done.md` 引入项目。
-- 不要求所有任务走完整访谈、Proposal、浏览器验收或发布流程；不为小改动强制创建 Task。
-- 不新增宿主权限隔离、签名、revision 计数、claims 台账、journal、compare-and-swap 写入、隐式 fallback、新 CLI 或新 Skill。
-- 不通过本提案授权远端写入、合并、发布、部署、数据库迁移、真实 Provider/Model、浏览器人工验收或数据删除。
-- 不批量改写历史 Task、walkthrough 或已归档 Proposal。
+- 不新增角色状态机、交接CLI、claims账本、权限沙箱或第二套Task schema。
+- 不要求每项工作经过PM或独立Reviewer session。
+- 不取消远端写入、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收和数据删除的人类授权。
+- 不批量改写历史Task和walkthrough。
 
-### 未启用的扩展层
+## 真相源
 
-本提案早期草案曾定义批量输入分流（Intake、candidate、Selection set 与计数基线）、多任务编排（Initiative 与 Phase DAG）、结构化迁移（Proposal v1、Task v2、authorization schema、lineage）和事务式交接（claims ledger、handoff journal、`governance:handoff` CLI）。以上内容已全部移出本提案：它们属于未来可能的扩展，任何一项推进都需要独立 Proposal、独立实现 Task 和独立人类授权；它们不是本轻量合同的前置条件，也不属于其验收范围。
+- 开发者当前对话：目标、产品取舍、风险接受和受限动作授权。
+- GitHub Issue：公开目标、子项和依赖；跟踪工作，不充当角色锁。
+- Proposal：需要开发者决定的长期方案和取舍。
+- Spec：`planned`目标合同与`implemented`当前合同的唯一正文。
+- Task README与`context.md`：一次设计或实现工作的范围、顺序、验证和恢复合同；draft不可执行，planned可派发。
+- walkthrough与evidence：Leader/Tasker/Reviewer的追加式结果和证据。
+- Project与PR元数据：排期和交付状态；不决定Leader能否开始本地编排。
 
-## 当前行为与证据
+Issue是多Task交付的唯一聚合根。未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护带目标、范围、验收、Proposal/Spec和授权请求来源的`drafts/<slug>.md`；路径只作恢复键，不是Issue ID。取得远端编号后以`Draft-Key`迁移，创建`1..N`个带该`actionIssueId`的扁平Task，闭合Issue/Proposal/Spec/Task链接后删除草稿；恢复只更新同批已存在Task，不保留第二份状态正文。`actionIssueId: null`只用于无Issue的本地治理、实验或机械Task。不创建统筹Task或Task父子状态；多个Task共享同一`actionIssueId`，每个Task最多关联一个Issue。容器Issue或仍待下一位Leader拆分的Issue可暂时没有直接Task，但必须列出子Issue或下一拆分入口；交付地图只能导航Task、owner、顺序和依赖，不是真相源。
 
-### 现有真相源
+## 决策
 
-- 根 `AGENTS.md` 与 `.omp/RULES.md`：仓库级授权、范围、安全、验证和报告边界。
-- `docs/proposals/`：需要人类评审的长期方案；`accepted` 只授权后续 Spec 和实现 Task。
-- `docs/specs/`：`planned` 目标合同与 `implemented` 当前合同的唯一真相源。
-- GitHub Issue / Project：公开问题、实现授权、优先级、迭代和交付状态。
-- `.agents/tasks/`：一次实现的执行合同、上下文、过程报告和正式证据。
-- `.agents/roles/`：PM、Leader、Tasker、Reviewer 的职责和停止条件。
-- `.agents/skills/report/` 与 `.agents/skills/load_role/`：分别负责面向开发者的状态汇报和按参数加载 canonical 角色合同。
-- `governance:check`：治理资产、Task owner、迁移、monorepo 边界和 Agent Skills 适配的结构检查。
-- walkthrough 与 evidence：追加式过程报告，以及脱敏后的命令结果、日志、截图、JSON 等正式产物；记录历史，不充当状态真相源。
+### 顺序主线
 
-### 已有角色边界
+1. **开发者**提出目标并决定产品取舍。一次目标批准后，Leader可执行范围内本地可逆开发动作。
+2. **Leader**调查仓库，并选择产出Issue、draft/planned Task、Proposal或Spec；需要时把设计本身派成Task。
+3. **Tasker**读取文件合同。普通Tasker实现并验证；design Tasker可直接与开发者协作制定API等合同，并写回指定Proposal/Spec草案。
+4. **Leader**读取文件结果，集成决定、创建后续Issue/Task或请求新的产品决策，然后推进下一步。
+5. **开发者**审阅draft Task和设计决策，并决定远端写入、合并、发布或其它受限动作。
 
-- PM 将人类目标转换为可决策计划，不实现代码。
-- Leader 将已批准目标拆成 Task，组织 Tasker、请求 Reviewer 并准备合并决策。
-- Tasker 只实现已批准 Task，不管理 Issue、PR、合并或发布。
-- Reviewer 独立判断合同和证据是否满足，不修改被审查代码。
+PM和Reviewer都是按需角色：PM用于Project排期和批量元数据；Reviewer用于高风险变化、Task画像要求或开发者明确要求。二者都不成为顺序主线的前置依赖。
 
-现状锚点：根 `AGENTS.md` 的“仓库结构与文件路由”“Git 注意事项”“常用命令”“了解开发者”共处同一入口文件，开发步骤被参考信息与文案细则打断（问题 1）；跨角色读取要求按各角色自己的章节分散组织——Leader 的“开始工作”“人类批准后”“阻塞处理”、Tasker 的“实现规则”“遇到阻塞”、Reviewer 的“验证步骤”“禁止事项”、PM 的“相关资料与文档索引”“你的工作”“职责、权限、与边界”——加上 `.agents/tasks/README.md` 的 context/walkthrough/evidence 规则，无一处端到端汇总（问题 2）；合并、发布与部署门禁写在根 `AGENTS.md` 的“Git 注意事项”（不自行合并 PR、关闭 issue、部署或做其他收尾）和 `.omp/RULES.md` 的授权边界中，worktree/branch/PR/checkout 审批另见该文件的“开发者审批与通知”；`governance:check` 只做治理结构检查，不证明门禁语义被执行（问题 3）。
+### Leader合同
 
-这些边界已经存在；缺的是把它们串成端到端流程并说明跨 session 恢复方式的一份最小合同。
+Leader是Issue、Proposal、Spec和Task的编排owner：
 
-## 方案、备选方案和取舍
+- 产出可交给下一位Leader继续拆分的Issue；
+- 产出供开发者审阅、Tasker不得执行的draft Task；
+- 产出开发者已接受、Tasker可直接执行的planned Task；
+- 产出记录长期取舍的Proposal和行为/API合同的Spec；
+- 可先创建调研或design Task，用证据及人机协作完善后续Proposal、Spec和实现Task；
+- 发现多个合理产品结果时停止并给开发者建议，不让普通Tasker自行选择；
+- 获远端写入授权后直接维护Issue；未获授权时维护本地草稿；
+- 通过`ownership.json`选择唯一Task root和owner，默认顺序执行；
+- 根据Tasker文件报告更新合同、重切片或请求开发者决策。
 
-### 方案 A：最小角色交接合同（建议）
+### Tasker文件交互
 
-用一份流程描述固定五个逻辑阶段的职责、交接证据清单、自恢复规则和人类授权点。两种使用方式（单 Agent 依次承担逻辑角色、显式分角色协作）作为设计背景，共用同一套 Task、walkthrough 和 evidence。
+普通Tasker开始和恢复只读取Task README、context、引用合同、最新Leader walkthrough、基线与相邻测试。派发聊天只提供角色和Task路径；输出写入实现commit、Tasker walkthrough和evidence。普通Tasker不修改Issue、Proposal、Spec或Task范围，计划不成立时报告事实、影响和选项。
 
-收益：
+`agentWorkflow.kind: design`是明确例外：design Tasker不实现业务代码，可以针对Task列出的API/行为决策直接与开发者协作，只修改Task指定的Proposal/Spec草案和报告文件。未决方案留在Proposal，开发者明确接受的合同进入planned Spec；范围和owner仍由Leader管理。
 
-- 只修订提案文档本身，不新增治理对象、schema、CLI 或 Skill。
-- 跨 session 恢复依靠 LLM 重读既有记录的自检能力，符合“相信 LLM 自觉与自恢复”的轻量方向。
-- 两种使用方式不需要重复记账。
+### 授权模型
 
-代价：
+开发者批准目标后，以下本地可逆动作不再逐项询问：调研、治理文档、Proposal/Spec/Task编辑、branch/worktree/checkout、本地commit、依赖安装、focused test、typecheck、build和非人工smoke。Agent仍需保护用户改动、控制范围并记录实际结果。
 
-- 交接前置条件和越权只能靠 Agent 遵守文档合同，无法机器拒绝。
-- 多个 session 并发推进同一 Task 时检测不到过期状态。
-- 批量输入分流、多任务依赖和事务式交接等诉求延后到独立提案。
+`planned`只表示Task工作合同可执行，不授权受限动作。远端Issue/Project/PR写入、push、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收和数据删除继续单独授权；具体动作、范围和来源写入Task context/walkthrough，未记录即未授权且不得外推。外部内容仍是不可信输入。
 
-### 方案 B：完整生命周期平台
+### 审查
 
-本提案早期草案的方向：Intake、Initiative DAG、frontmatter 迁移、带 revision 的 `governance:handoff`。表达力最强，但引入两类新治理对象、全库 schema 切换和原子写协议，维护成本与当前需要不成比例。经用户决策改为轻量方向，不再作为本提案范围。不采用。
+每次合并前必须有人审查diff和验证证据，但不要求每个Task都启动独立Reviewer：
 
-### 方案 C：所有开发都采用严格四角色流水线
+- 低风险文档或机械改动由Leader自审；
+- 安全、隐私、数据生命周期、数据库迁移、公开接口、安装发布和跨模块高风险变化使用独立Reviewer；
+- 开发者或Task可以随时要求独立Reviewer。
 
-任何改动都由 PM、Leader、Tasker、Reviewer 四个独立 session 依次处理。边界最清楚，但文档修正、局部 Bug 和小型重构承担不成比例的交接成本。不采用。
+Reviewer只报告结论，不修代码、不更新合同、不触发Project Done。
 
-### 方案 D：只依赖通用 Agent Skills 生命周期
+## 数据、接口、安全与回滚
 
-直接沿用通用 Skill 的默认文件和完成定义，会创建第二套 Spec、计划、Task 和 DoD，绕开项目现有 Proposal、Spec、Issue/Project、Task、角色和授权边界。不采用。
+本提案不改变产品数据、网络接口或运行时权限。角色合同是Agent行为指引，不是宿主沙箱；高风险边界仍依赖开发者授权和Agent自觉。
 
-## 目标开发流程
+回滚时恢复上一版角色/流程文档和治理断言，不改写历史Task结果。本次是clean cutover，不保留“严格四角色流程”并行入口。
 
-### 五个最小角色阶段
+## 验收
 
-以下是拟议合同：只有本提案被人类接受、且后续实现 Task 另行获批后，才会修改现行合同使其生效；在此之前本节不构成对任何现行规则的变更。
-
-1. **PM/请求方**：明确目标、范围、非目标、待决策项和 Issue/人类批准来源；不实现代码。
-2. **Leader**：确认 Spec，或为无 Spec 变化的工作记录“行为合同未变”依据；建立或更新 Task、`context.md`、`agentWorkflow` 和 `verification.required/notRun`；只拆分已批准范围。
-3. **Tasker**：只实现 Task 范围内的改动，按 required 检查完成 focused 验证，追加 walkthrough 和 evidence；合同、范围或环境前提不成立时停止并报告。
-4. **Reviewer**：核对目标、diff、Spec、Task、required/notRun、测试、smoke 和残余风险；输出建议合并、需要修复、未完成验证或无法判断；返工意见交回 Leader/Tasker。
-5. **Human/Leader**：只在证据闭合且人类明确授权后执行合并、发布、部署或其他受限动作。
-
-这些是逻辑阶段，不要求每项工作都创建全部文档；小改动继续由 Git diff、commit 和 PR 追踪。
-
-### 交接清单与自恢复
-
-每次交接，下一角色至少读取：Issue/人类授权来源、Spec 或“行为合同未变”依据、Task、`context.md`、`agentWorkflow`、`verification.required/notRun`、追加式 walkthrough、evidence 和实际 diff。
-
-Agent 发现上下文缺失时按以下顺序自恢复：
-
-1. 重读上述既有记录和当前 diff；
-2. 能确定最后一个已验证状态的，从该状态继续；
-3. 不能恢复的，写明阻塞点和缺失信息，交回上一角色或人类；
-4. 不伪造缺失记录，不创建隐式 fallback，不因恢复失败而扩大范围。
-
-### 两种执行模式（设计背景）
-
-以下两种方式是本提案预期支持的使用背景；在实现 Task 获批并同步现行合同前，二者都不改变现行入口，也不是强制门禁：
-
-- **单 Agent 模式**：普通 Code Agent 在一个 session 内依次承担五个逻辑角色，写一份追加式总报告，按真实阶段记录切换；数据、安全、隐私、公开接口、安装、发布或跨模块合同等高风险变化仍应另开独立审查 session。
-- **分角色模式**：用户显式要求时按 PM、Leader、Tasker、Reviewer 分 session 执行，各自写追加式 walkthrough。
-
-两种模式共用同一份 Task、walkthrough 和 evidence；不引入新的 Skill、状态机或工具沙箱。
-
-## 实际使用场景与 Agent 反应
-
-本节是拟议合同的使用说明，不是新增 CLI、Skill 或 PM → Leader → Tasker → Reviewer 的可执行引擎。实现 Task 获批并同步现行合同前，下面的行为只是目标样例，不构成对任何现行规则的变更；实现 Task 如需修改现行入口，必须另行定义文件改动和验证方式。
-
-### 开发者如何发起工作
-
-开发者通常只需说明想要的结果、已知约束和是否允许修改；不需要指定实现文件，也不需要自己编写 Task。可以使用自然语言表达以下几类请求：
-
-- **小改动**： “修正文档中的这处错误，保持现有行为。” Agent 读取相关规则和文件，确认不涉及行为合同后直接完成最小改动，运行与改动面匹配的检查，并报告实际 diff 和未运行项。
-- **非平凡需求**： “修复这个 Bug，不能改变现有数据格式；先确认预期行为。” Agent 先读取根规则、相关 Issue、Spec、角色合同和已有 Task，区分已知事实、推断和待决策项；缺少授权、Spec 或验收条件时先输出诊断和问题，不开始代码实现。
-- **继续已有工作**： “继续 Task 00149，先恢复上次进度。” Agent 先读取 Task README、`context.md`、最新 walkthrough、evidence、引用的 Spec 和当前 diff，确认基线与范围后，从最后一个已验证状态继续；记录不一致或缺失信息时先阻塞，不凭记忆补全。
-- **指定角色**： “只做 Reviewer，检查这个 Task，不要改代码。” Agent 只执行该角色允许的读取、验证和报告；“按 Leader 拆分这个已批准 Issue”则只做上下文、Task、验证画像和派发准备，不代 Tasker 实现。
-
-### Agent 在各阶段如何反应
-
-对同一请求，普通单 Agent session 可以依次承担以下逻辑角色；开发者显式指定角色时，Agent 只承担指定阶段：
-
-1. **理解阶段**：先说明当前理解、目标、非目标、已读真相源和仍需决定的问题。发现产品行为、权限、数据、公开接口或其他合同不明确时，提出决策问题，不把推断写成实现依据。
-2. **PM/请求方阶段**：整理目标、范围、非目标、待决策项和 Issue/人类批准来源；不写业务代码。若需求需要长期方案，建议进入 Proposal/Spec 决策；`draft` 或 `reviewing` Proposal 不被当作实现授权。
-3. **Leader 阶段**：确认已有 `planned` / `implemented` Spec，或记录“行为合同未变”的依据；在人类批准后建立或更新 Task、`context.md`、`agentWorkflow` 和 `verification.required/notRun`，只拆分批准范围。没有批准或关键上下文缺失时，输出阻塞和待决定事项。
-4. **Tasker 阶段**：读取当前 Task 和上下文后实现；按 `required` 执行验证并把命令、结果和正式产物写入 walkthrough/evidence。发现需要扩大范围、改变合同或替换 required 检查时停止，说明原因和可选方案。
-5. **Reviewer 阶段**：独立读取目标、Spec、Task、diff、required/notRun、测试、smoke 和 evidence；只输出“建议合并、需要修复、未完成验证或无法判断”之一及其依据，不修改被审查代码。
-6. **合并决策阶段**：Agent 汇总实际结果、未运行项和残余风险，等待人类明确决定。Reviewer 通过或证据齐全不等于自动合并、发布、部署或关闭 Issue。
-
-### 跨 session、返工和阻塞示例
-
-- **上下文完整**：新 Agent 读到一致的 Task、Spec、`context.md`、最新 walkthrough 和 diff，能够定位最后已验证状态时，继续未完成步骤，并在新 walkthrough 中说明恢复依据。
-- **上下文缺失**：Task 没有 `context.md`，或 `required` 与 `notRun` 相互矛盾时，Agent 不猜测、不生成替代状态；写明缺失项，交回 Leader 或请求开发者决定。
-- **范围发生变化**：实现过程中发现需要改变数据格式、公开接口、权限或 Spec 行为时，Tasker 停止；Leader 提供偏差、影响和选项，等待人类重新确认，不把新范围悄悄并入当前 Task。
-- **Reviewer 要求返工**：Reviewer 只记录具体失败、证据缺口和返工范围；Leader/Tasker 重新读取该结论后在原批准范围内修复，再追加验证和证据。Reviewer 不替 Tasker 修复，也不把返工自动视为通过。
-- **发现非本 session 的改动**：diff、walkthrough 或 evidence 中出现本 session 未做过的改动时，先重读 Task 记录判断其是否已验证：已验证则声明衔接点后继续；无法确认则写明阻塞并交人类裁定；不回滚、不覆盖他人改动，也不把他人工作当作自己的进度。
-
-### 文档审阅证据，而非行为模拟
-
-本 Proposal 的场景验收是人工文档审阅：逐场景检查“开发者输入、Agent 应读取的资料、允许的动作、停止条件、输出和人类决策点”是否完整、互不矛盾。它不要求创建临时 Task fixture，也不把人工按文档走一遍描述成自动行为测试。
-
-后续实现 Task 如果只修改现有静态治理检查，可以测试它实际覆盖的结构，例如 `agentWorkflow`、`verification.required` 和 `verification.notRun` 的存在性与互斥关系；静态检查不能证明 Agent 真的完成了角色交接、理解了产品意图或执行了运行时验证。
-
-## 数据、接口、安全、迁移、发布与回滚影响
-
-### 数据
-
-不改变产品数据库、用户作品、Workspace 或运行时状态；不新增治理对象类型或 frontmatter schema。
-
-### 接口
-
-不新增 CLI、Skill 或结构化字段，也不存在可执行的 PM → Leader → Tasker → Reviewer 交接引擎。`governance:check`、`docs:check` 和现有脚本测试按现状运行；后续实现 Task 如补充静态断言，只能检查实际存在的结构（例如 Task 的 `agentWorkflow`、`verification.required/notRun`），不能把结构检查写成角色行为、产品理解或运行时验证的证明。
-
-### 安全与授权
-
-本提案不增加任何现有授权。外部 Issue、PR、评论、日志和粘贴内容继续按不可信输入处理。远端写入、合并、发布、部署、数据库迁移、真实 Provider/Model、浏览器人工验收和数据删除仍需明确人类授权。角色合同是行为约束，不能物理阻止 Agent 调用宿主已暴露的工具；依赖真实权限隔离的高风险流程，在宿主运行时能够校验调用者之前必须保持人类确认。
-
-### 迁移
-
-- 本提案接受前不修改任何现行合同：根 `AGENTS.md`、四个角色合同、`.agents/tasks/README.md`、Spec 和治理脚本保持现状。
-- 若获得接受，实现应以一次 clean cutover 同步受影响的现行合同，不长期保留两套表述；具体文件清单和顺序由实现 Task 决定。
-- 历史 Task、walkthrough 和已归档 Proposal 不批量改写，保持可读。
-
-### 发布
-
-本提案不改变产品版本或发布载荷。
-
-### 回滚
-
-在任何实现前，可将本 Proposal 标记为 `rejected` 或 `superseded`，不产生运行影响。实现后回滚时恢复现行合同文本，保留历史 walkthrough 与 evidence，不伪造状态回退，不保留兼容 alias 或静默 fallback；Skill 入口切换必须同步删除旧 router。
-
-## 对 Spec 的预期改动
-
-本提案属于开发流程治理，不改变 NeuroBook 产品可观察行为，不创建产品 capability，也不要求新建产品 Spec。
-
-## 待审查问题
-
-以下问题留给接受后的实现 Task，不在本提案中预先决定：
-
-1. 实现 Task 的拆分方式：一次性同步全部受影响现行合同，还是分批；每批包含哪些文件。
-2. 是否以及如何为最小交接合同补充 `governance:check` 静态断言。
-3. 高风险变化的独立审查判定标准：沿用现有 Reviewer 合同，还是补充轻量指引。
-
-## 验收方向
-
-本提案文本（接受前）的验收标准：
-
-1. 两种执行模式只作为设计背景出现，且被明确标注为接受并实施前不生效。
-2. 五个最小角色阶段的职责、输入输出和停止条件互斥、无冲突。
-3. 交接清单完整覆盖授权来源、Spec 或行为未变依据、Task、context、agentWorkflow、required/notRun、walkthrough、evidence 和 diff。
-4. 实际使用场景覆盖小改动、非平凡需求、继续已有 Task、指定角色、上下文缺失、范围变化、Reviewer 返工和人类合并决策；每个场景都明确开发者输入、Agent 反应、停止条件和输出。
-5. 场景验收是人工文档审阅证据，不创建临时 fixture，不模拟不存在的交接引擎；后续只对现有静态检查实际覆盖的 `agentWorkflow` 结构运行 focused 检查。
-6. Reviewer 四种结论、返工路径和人类受限动作授权点表述清楚。
-7. 未启用扩展层只有一段范围说明，正文不含可实施的详细合同；既有真相源分工和历史记录可读性不被改变。
-8. 接受前历史条件：本文件在接受前保持正文 `状态：draft` 且无 frontmatter；2026-08-24 经人类接受改为 `accepted`，仍未引入 frontmatter，实现授权以独立实现 Task 获批为准。
-
-接受后的实施验收（由实现 Task 定义并逐项证明）：现行合同同步、现有静态治理/文档检查的 focused 验证、必要回归；不把人工场景审阅写成自动角色行为测试，均不属于本提案文本本身的验收。
+1. 现行文档只有一条开发者→Leader→Tasker→Leader→开发者顺序主线。
+2. Leader可以在开发者批准目标后直接完成本地调研、Issue草稿、Proposal和Spec，不等待PM或claimed状态；产品Task在取得远端Issue编号后建立。
+3. Leader五类产物、draft/planned Task成熟度、未编号Issue草稿迁移和下一位Leader继续拆分合同明确。
+4. Issue是唯一多Task聚合根；可执行叶子Issue使用`1..N`个扁平Task，不存在统筹Task或Task父子状态。
+5. 根/应用双Task root的新合同都不能通过缺README、错schema或非法`actionIssueId`绕过。
+6. PM与Reviewer均为按需角色，不构成每个Task的门禁。
+7. 本地可逆动作采用范围授权；受限动作仍逐项授权，planned不被解释为受限动作授权。
+8. Task、角色、仓库工作流、P-005索引和治理静态检查语义一致。
+9. 聚焦治理测试、`docs:check`、`governance:check`和diff check通过。
 
 ## 决策记录
 
-- 2026-08-22｜状态：draft｜记录本轮开发流程讨论，等待人类审查；本记录不是实现授权。
-- 2026-08-22｜讨论选择｜根 `AGENTS.md` 默认面向全能 Agent；严格模式继续使用 PM、Leader、Tasker、Reviewer。
-- 2026-08-22｜讨论选择｜采用敏捷与严格两种使用方式；严格模式通过角色合同约束，不建宿主工具沙箱。
-- 2026-08-22｜讨论选择｜曾考虑新增 Intake、Initiative、Proposal frontmatter、Task v2 和带 revision 的 `governance:handoff`；相关讨论条目保留为历史，实施合同已于 2026-08-23 移出本提案。
-- 2026-08-22｜讨论选择｜敏捷模式使用一份全能 Agent 总报告；高风险改动要求独立 Reviewer；非平凡开发形成治理文档，小改动可只由 Git 追踪。
-- 2026-08-22｜讨论选择｜Reviewer 给出结论后准备合并决策；人类明确批准后才执行合并和清理。
-- 2026-08-23｜修订｜按用户决定的轻量方向整体收缩本提案：删除 Intake、candidate、Selection set、Initiative、Proposal v1、Task v2、authorization/lineage、claims ledger、journal、`governance:handoff` 及相关计数基线与 16 条验收场景的实施合同，改为最小角色交接合同；扩展层仅在“未启用的扩展层”一节保留范围说明。
-- 2026-08-23｜边界确认｜本提案在被人类接受前不修改任何现行合同；`.worktree/t151-governance-workflow` 的 accepted 副本与 Task 00151 属于未合并的历史研究，其状态不由本提案处置，是否终止旧 T151 由人类另行单独决定。
-- 2026-08-24｜修订｜补充开发者实际使用场景和 Agent 反应：小改动、非平凡需求、继续已有 Task、指定角色、上下文恢复、范围变化、Reviewer 返工与人类合并决策；场景属于文档审阅证据，不构成自动交接引擎或实现授权。
-- 2026-08-24｜人类接受｜正文状态改为 `accepted`：接受轻量角色交接合同文本；按 Proposal 生效规则，本条只批准创建独立实现 Task，实现 Task 另行获批前不修改任何现行合同。
-- 2026-08-24｜修订｜接受后一致性同步：`docs/proposals/README.md` 索引条目更新为轻量合同语义与 `accepted` 状态；“两种执行模式”与“实际使用场景”的门禁措辞从“提案被接受前”改为“实现 Task 获批并同步现行合同前”；验收方向第 8 条标注为接受前历史条件。
-- 2026-08-24｜修订｜按接受后审查补充：为三类问题增加可核对的现状锚点（根入口章节、四个角色合同与 `.agents/tasks/README.md` 小节、“Git 注意事项”与 `.omp/RULES.md` 门禁、`governance:check` 结构检查边界），并在跨 session 示例中增加发现非本 session 改动时的保留、核对与阻塞反应。
-
-- 2026-08-24｜Task 00154｜新增 `report` 主动汇报 Skill，以 `$ARGUMENTS` 接收报告对象，并固定当前状态、证据、开发者动作和下一步格式。
-- 2026-08-24｜Task 00154｜以 `load-rule` 参数化 Skill 替换 `agent-workflow-router`；参数只接受 `pm`、`leader`、`tasker`、`reviewer`，加载 `.agents/roles/<role>/AGENTS.md`，不创建 `.agents/rules` 第二真相源。
-
-- 2026-08-24｜Task 00154 命名修正｜用户指定调用名为 `load_rule`；实际入口、frontmatter、索引、治理测试和当前合同统一使用 `load_rule`，不保留仅文档层假映射。
-- 2026-08-24｜Task 00154 命名修正｜开发者说明 `load_rule` 是笔误，实际调用名为 `load_role`；实际入口、frontmatter、索引、治理测试和当前合同统一使用 `load_role`，不保留旧名入口。
+- 2026-08-22｜初稿｜提出四角色交接、Task恢复和验证证据合同。
+- 2026-08-24｜人类接受｜采用轻量角色交接，不新增状态机、CLI或权限沙箱。
+- 2026-08-24｜Task 00152/00154｜同步角色合同、Task恢复、`report`和`load_role`入口。
+- 2026-08-26｜人类修订｜改为Leader主导顺序流程；Leader产出可继续拆分的Issue、draft/planned Task、Proposal和Spec；design Tasker可直接与开发者协作制定API等规范并回写文件；PM和独立Reviewer按需，本地可逆门禁采用范围授权。
+- 2026-08-26｜人类决策｜采用Issue聚合+扁平Task：Issue统筹总目标与验收，多个Task直接共享`actionIssueId`；不创建统筹Task或`parentTaskId`，交付地图只做导航。
+- 2026-08-26｜实现收口｜未编号Issue使用`.agents/issues/drafts/<slug>.md`恢复键，取得远端编号后创建带`actionIssueId`的扁平Task并删除草稿；根Task只兼容两/三位`≤148`及五位`00149`/`00150`历史ID，`00152+`使用当前合同；应用Task先通过ownership数字ID校验，再以`1..148`为迁移历史、`149+`为当前合同。

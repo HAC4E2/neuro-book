@@ -4,44 +4,46 @@
 
 ## Issue、Task 与决策记录
 
-Issue 承载公开问题、需求和 TODO；Task 保存重大实现的持续上下文与证据；Proposal 决定尚未生效的长期行为；ADR 保留已接受架构决策的理由；当前 spec 定义实际行为。它们相互链接但不复制正文。
+Issue承载公开目标、子项、依赖和协作状态；Proposal决定长期方案；Spec定义目标或当前行为；Task是Leader写给Tasker的一次实现文件合同。开发者批准目标后，Leader可先完成本地Issue设计、Proposal/Spec/Task和执行编排，不等待PM或远端状态同步。
 
-每个开放 Issue 恰好保留一个 `type:*` 和一个 `status:*`；按实际影响附加 `area:*`、`platform:*` 和 `source: agent`：
+开放Issue保留一个`type:*`和一个`status:*`：
 
-- `status: needs-triage`：等待首次确认。
-- `status: needs-info`：缺少报告者输入，补充后重新分流。
-- `status: needs-design`：方向、范围或合同未确定，不能开始实现。
-- `status: ready`：维护者接受了清晰范围，可认领实现。
-- `status: claimed`：已授权指定实现者，其它贡献者不并行实现。
-- `status: blocked`：外部条件或前置任务阻塞，解除后回到准确状态。
+- `needs-triage`：尚未整理；
+- `needs-info`：缺报告者信息；
+- `needs-design`：仍需Leader调研、Proposal或开发者取舍；
+- `ready`：公开范围可被外部贡献者认领；
+- `claimed`：已有实现owner，提醒其他贡献者不要并行；
+- `blocked`：存在外部依赖。
 
-`help wanted` 和 `good first issue` 只配合 `status: ready`；后者还必须范围小、上下文完整并有独立可验证的验收条件。`.github/labels.yml` 是标签清单真相源；远端审计使用 `bun run github:labels -- check`，写入远端需要明确授权。
+这些标签用于公开协作，不是Leader本地编排或Tasker开工的权限锁。远端Issue/Project写入仍需授权；未获Issue写入授权时Leader按`.agents/issues/README.md`维护`drafts/<slug>.md`，记录目标、范围、验收、Proposal/Spec和授权来源。草稿路径只作恢复键，不是Issue ID；取得远端编号后按`Draft-Key`迁移，创建带该`actionIssueId`的同批扁平Task，闭合Issue/Proposal/Spec/Task链接后删除草稿；恢复只更新同批已存在Task，不保留第二份状态正文。
 
-外部贡献者默认不分配 Task 编号。维护者检查 `.agents/tasks/` 后分配，后续调整继续更新同一 Task。产品行为变化必须同步 [`../specs/README.md`](../specs/README.md) 登记的当前规范。
+大目标由Leader拆成调研、设计、基础设施和领域实现等子Issue；父子关系表达组成，`blocks/blocked by`只表达真正执行依赖。Issue是多Task交付的唯一聚合根：获授权创建远端Issue并取得编号后，可执行叶子Issue使用`1..N`个直接共享其编号的扁平Task，不创建统筹Task或`parentTaskId`；容器Issue/待拆Issue可无直接Task，但必须列出子Issue或下一Leader入口。Issue或Leader walkthrough可维护交付地图，但只做导航。
+
+Leader处理Issue后的正式出口为：交给下一位Leader继续拆分的Issue、供开发者审阅且不可执行的draft Task、开发者已接受的planned Task、记录长期取舍的Proposal、定义目标或当前合同的Spec。产品Task必须有正整数`actionIssueId`；`null`只用于无Issue的本地治理、实验或机械Task。planned只授权Task工作，不授权任何远端或受限动作；具体授权记录在context/walkthrough，未记录即未授权且不外推。调研或API设计可建立planned design Task；design Tasker可直接与开发者协作，但只更新Task指定的Proposal/Spec草案，不实现业务代码。
 
 ## Worktree 与分支
 
-GitHub Issue 承载需求，Task walkthrough 承载重大实现，独立 worktree 承载代码，最终以 squash PR 合入 `master`。
+Task walkthrough承载重大实现，独立worktree承载代码，最终以PR合入master。
 
-- 分支格式为 `{type}/{refs}-{slug}`；`type` 使用 `feat`、`fix`、`docs`、`refactor`、`test` 或 `chore`，`refs` 使用 `t<task号>` 或 `i<issue号>`，slug 使用不超过 5 个单词的英文 kebab-case。
-- 开工前从 `origin/master` 创建 `.worktree/<slug>` 与对应分支；新 worktree 首次使用前运行 `bun install`。
-- 只暂存任务范围内文件；一个 PR 只解决一个连贯问题，不夹带格式化、依赖升级、上游合并或无关 Task 文档。
-- 保持提交可审查，使用 `feat`、`fix`、`docs`、`refactor`、`test`、`build`、`ci`、`chore` 等 Conventional Commit 类型。
-- 不 force push `master` 或他人分支，不重写他人提交。同步自己的分支时 rebase，并自行解决冲突。
+- Leader在批准范围内自行选择branch/worktree/checkout并记录实际身份；保持主工作区在master，不覆盖用户改动。
+- 分支格式为`{type}/{refs}-{slug}`，refs使用Task或Issue编号。
+- 每个Task默认顺序推进；只有owner、文件和合同不重叠时并行。
+- 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
+- push和PR属于远端写入，分别获授权后执行。
 
 ## Project 交付状态与统一评审
 
-Issue 的 `status:*` 标签表示分流、依赖和实现授权；GitHub Project 中的 **Issue 条目**是需求交付状态的唯一 owner。PR 条目只跟踪 PR 生命周期，可以在合并后由 Project 自动化置为 `Done`，但不得驱动或代替对应 Issue 条目的状态迁移。Issue 的打开/关闭状态也不能代替 Issue 条目的 Project 状态。
+Issue项目条目是需求交付状态的唯一owner，但Project是可选投影，不决定Leader或Tasker能否工作：
 
-- `Backlog`：Issue 尚待分流、信息、设计，或尚未开始的事项被外部条件阻塞。
-- `Ready`：Issue 已为 `status: ready`，或已经 `claimed` 但尚未开始实现。
-- `In progress`：实现已经开始；实现中发生阻塞时仍保留本状态，并把 Issue 标为 `status: blocked`。
-- `In review`：关联 PR 等待独立技术审查，或 PR 合并后等待开发者统一评审。PR 的开放/合并状态用于区分这两个阶段，不新增同义 Project 状态。
-- `Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并，且开发者已在当前对话针对该 Issue 和当前 merge revision 集合明确确认统一评审通过。
+- `Backlog`：未承诺；
+- `Ready`：可安排；
+- `In progress`：实现已开始；
+- `In review`：等待审查，或PR合并后等待开发者统一评审；
+- `Done`：覆盖范围的PR已全部合并，且开发者针对当前merge revision集合明确确认统一评审通过。
 
-Leader 必须在实现开始、进入独立技术审查和 Reviewer 要求返工时通知 PM；PM 按当前远端操作授权把对应 Issue 条目依次迁移为 `In progress`、`In review` 或退回 `In progress`。PR 合并后 Issue 条目继续保持 `In review`。Project 自动化不得把 Issue 关闭映射为 `Done`；当前项目的 `Item closed` workflow 应保持关闭，`Pull request merged` workflow 可以继续处理 PR 条目。承载统一评审的 Project 视图必须包含已关闭 Issue；`is:open` 过滤器与本状态机不兼容。
+获远端元数据授权后，Leader可以直接同步上述状态，也可以把排期/批量元数据交给PM。Reviewer要求返工时退回In progress。Task completed、CI通过、Issue关闭、Reviewer建议合并或PR合并都不能单独触发Done。Project自动化不得把Issue关闭映射为Done；统一评审视图必须包含已关闭Issue。
 
-PM 只能在覆盖当前 Issue 批准范围的关联 PR 全部合并后，根据开发者当前对话中针对具体 Issue 和当前 merge revision 集合的统一评审确认写入 `Done`，并在交付报告中记录 Issue 编号、Issue 项目条目 ID、PR 编号、merge revision 和确认来源。合并授权、评审前确认、历史授权、一般“收尾”指令、沉默、PR 合并、`Closes #N` 自动关闭 Issue、Task `completed`、CI 通过或 Reviewer“建议合并”都不能单独触发 `Done`。统一评审要求继续修改时，PM 把 Issue 条目改回 `In progress`；同一范围的 Issue 已关闭则重新打开，恢复指定实现者并添加 `status: claimed`，确有外部阻塞时改用 `status: blocked`。所有状态写入继续受当前事项的远端操作授权约束。
+记录Done时保留Issue、项目条目ID、PR、revision和开发者确认来源。
 
 ## Pull Request 与合并
 

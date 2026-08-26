@@ -16,29 +16,48 @@ const REPORT_SKILL = ".agents/skills/report/SKILL.md";
 const LOAD_ROLE_SKILL = ".agents/skills/load_role/SKILL.md";
 const LEGACY_AGENT_WORKFLOW_ROUTER = ".agents/skills/agent-workflow-router/SKILL.md";
 const AGENT_WORKFLOW_PROFILE = "nbook.agent-skills/v1";
-const AGENT_WORKFLOW_KINDS = new Set([
-    "feedback",
-    "bug",
-    "feature",
-    "refactor",
-    "docs",
-    "release",
-    "migration",
-]);
-const AGENT_WORKFLOW_CHECKS = new Set([
-    "focused-test",
-    "regression-test",
-    "typecheck",
-    "build",
-    "diff-check",
-    "smoke",
-    "browser",
-    "security-review",
-    "performance-baseline",
-    "release-check",
-    "docs-check",
-    "governance-check",
-]);
+const AGENT_WORKFLOW_KINDS: Record<string, true> = {
+    feedback: true,
+    design: true,
+    bug: true,
+    feature: true,
+    refactor: true,
+    docs: true,
+    release: true,
+    migration: true,
+};
+const AGENT_WORKFLOW_CHECKS: Record<string, true> = {
+    "focused-test": true,
+    "regression-test": true,
+    typecheck: true,
+    build: true,
+    "diff-check": true,
+    smoke: true,
+    browser: true,
+    "security-review": true,
+    "performance-baseline": true,
+    "release-check": true,
+    "docs-check": true,
+    "governance-check": true,
+};
+
+const TASK_STATUSES: Record<string, true> = {
+    draft: true,
+    planned: true,
+    "in-progress": true,
+    blocked: true,
+    verifying: true,
+    completed: true,
+    abandoned: true,
+};
+const LEGACY_TASKS_WITHOUT_AGENT_WORKFLOW: Record<string, true> = {
+    "00149-monorepo-workspace-consolidation": true,
+    "00150-monorepo-boundary-convergence": true,
+    "00150-ui-spec-verification": true,
+};
+const LEGACY_TASKS_WITHOUT_CONTEXT: Record<string, true> = {
+    "00158-notification-contrast-fix": true,
+};
 
 export const GOVERNANCE_NON_EMPTY_LINE_LIMITS = {
     "AGENTS.md": 220,
@@ -317,6 +336,7 @@ export function expectedGovernanceFiles(): readonly string[] {
         "WATCHDOG.md",
         ".agents/AGENTS.md",
         ".agents/README.md",
+        ".agents/issues/README.md",
         ".agents/tasks/AGENTS.md",
         ".agents/tasks/README.md",
         ".agents/tasks/.migration-complete",
@@ -344,19 +364,41 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
     return failures;
 }
 
-/** 防止技术交付完成重新被等同为 Issue 项目条目 Done。 */
-export function verifyPostMergeUnifiedReviewContract(repoRoot: string): string[] {
+/** 防止角色合同退回 PM 前置状态机，并保留合并后统一评审门禁。 */
+export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] {
     const failures: string[] = [];
     const contracts = [
-        ["AGENTS.md", ["对应 Issue 项目条目保持 `In review`", "统一评审确认满足"]],
-        ["docs/standards/repository-workflow.md", ["Issue 条目**是需求交付状态的唯一 owner", "PR 合并后 Issue 条目继续保持 `In review`", "`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并", "`Item closed` workflow 应保持关闭", "`is:open` 过滤器与本状态机不兼容", "当前 merge revision 集合"]],
-        [".agents/roles/pm/AGENTS.md", ["Issue 项目条目是需求交付状态的唯一 owner", "Reviewer 要求修复或验证未完成时退回 `In progress`", "当前 merge revision 集合", "记录 Issue、条目 ID、PR、revision 和确认来源"]],
-        [".agents/roles/leader/AGENTS.md", ["并通知 PM 把对应 Issue 项目条目置为 `In review`", "通知 PM 退回 `In progress`", "PR 合并后通知 PM 继续保持 Issue 条目 `In review`"]],
-        [".agents/roles/reviewer/AGENTS.md", ["通知 PM 把对应 Issue 项目条目从 `In review` 退回 `In progress`", "不能触发 Project `Done`"]],
-        [".agents/tasks/README.md", ["Task `completed` 也不能触发对应 Issue 项目条目的 Project `Done`", "PR 合并后对应 Issue 项目条目仍保持 `In review`"]],
+        ["AGENTS.md", ["开发者批准一个目标、范围和关键取舍后", "本地可逆开发动作", "远端Issue/Project/PR写入", "统一评审通过后"]],
+        [".omp/RULES.md", ["Leader可自主执行范围内本地可逆开发动作", "远端Issue/Project/PR写入"]],
+        ["docs/proposals/p-005-development-workflow-governance.md", ["Leader五类产物", "`agentWorkflow.kind: design`", "PM和Reviewer都是按需角色", ".agents/issues/README.md", "不创建统筹Task"]],
+        [".agents/issues/README.md", ["路径是远端创建前的稳定恢复键", "不是 Issue ID", "创建`1..N`个扁平", "删除本地草稿", "不得保留第二份状态正文"]],
+        ["docs/standards/repository-workflow.md", ["不等待PM或远端状态同步", "不创建统筹Task", "Leader可以直接同步上述状态", "开发者针对当前merge revision集合明确确认统一评审通过"]],
+        ["docs/specs/AGENTS.md", ["design Tasker只能按开发者明确接受的决定", "不能自行批准取舍或晋升implemented"]],
+        [".agents/roles/pm/AGENTS.md", ["可选的 GitHub Project", "不成为Leader或Tasker的等待条件", "当前merge revision集合"]],
+        [".agents/roles/leader/AGENTS.md", ["下一位Leader继续拆分", "不创建统筹Task", "`agentWorkflow.kind: design`", "不等待 PM", "Task `completed` 不能触发Project `Done`"]],
+        [".agents/roles/tasker/AGENTS.md", ["`draft`只供开发者审阅", "只有design Tasker", "不实现业务代码", "普通Tasker不改Spec"]],
+        [".agents/roles/reviewer/AGENTS.md", ["不是每个Task的前置状态", "不能触发Project `Done`"]],
+        [".agents/tasks/README.md", ["不创建统筹Task", "`kind: design`", "`draft`只供开发者审阅", "Task completed不触发Project Done"]],
+        [".agents/tasks/AGENTS.md", ["`draft`不得执行", "`kind: design`必须有非空", "普通Tasker不修改Issue"]],
     ] as const;
     for (const [relativePath, markers] of contracts) {
-        if (!hasTextMarkers(repoRoot, relativePath, markers)) failures.push(`合并后统一评审合同缺少必需标记：${relativePath}`);
+        if (!hasTextMarkers(repoRoot, relativePath, markers)) failures.push(`Leader 主导顺序开发合同缺少必需标记：${relativePath}`);
+    }
+    const normalizedForbiddenPatterns = [
+        /(?:leader必须等待(?:pm|claimed|statusclaimed)|(?:pm|claimed|statusclaimed)(?:批准|确认|分配)?后leader(?:才)?(?:能|可)?开始)/u,
+        /planned(?:task)?(?:允许|授权|可以)(?:直接|自动)?(?:远端写入|push|pr|合并|发布|部署|数据库迁移|真实provider|浏览器人工验收|数据删除)/u,
+        /(?:tasker(?:可以|可)执行drafttask|draft(?:task)?(?:可以|可)?由?tasker执行)/u,
+        /(?:taskcompleted|pr合并|reviewer建议合并|ci通过)(?:可以|可)?(?:直接|自动|单独)*(?:触发|进入)(?:project)?done/u,
+    ] as const;
+    for (const [relativePath] of contracts) {
+        if (!hasFile(repoRoot, relativePath)) continue;
+        const normalized = readRepoText(repoRoot, relativePath)
+            .toLowerCase()
+            .replace(/[`*_#\s，。,:：；;()（）/\\-]+/gu, "");
+        for (const pattern of normalizedForbiddenPatterns) {
+            const match = pattern.exec(normalized)?.[0];
+            if (match) failures.push(`Leader 主导顺序开发合同出现禁用语义：${relativePath} -> ${match}`);
+        }
     }
     return failures;
 }
@@ -767,7 +809,65 @@ function agentSkillsImplementationMarkers(repoRoot: string): AgentSkillsMarker[]
     ];
 }
 
-function validateAgentWorkflow(relativePath: string, raw: unknown, failures: string[]): void {
+function rootTaskSequence(taskId: string): {value: number; width: number} | null {
+    const sequence = /^(\d{2,3}|\d{5})-[A-Za-z0-9][A-Za-z0-9._-]*$/u.exec(taskId)?.[1];
+    if (!sequence) return null;
+    return {value: Number(sequence), width: sequence.length};
+}
+
+function isValidRootTaskId(taskId: string): boolean {
+    const sequence = rootTaskSequence(taskId);
+    if (!sequence) return false;
+    if (sequence.width <= 3) return sequence.value <= 148;
+    return sequence.value === 149 || sequence.value === 150 || sequence.value >= 152;
+}
+
+function isCurrentTaskContract(ownerRoot: string, taskId: string): boolean {
+    if (ownerRoot === APPLICATION_TASK_OWNER_ROOT) return Number(/^(\d{2,5})-/u.exec(taskId)?.[1]) >= 149;
+    const sequence = rootTaskSequence(taskId);
+    return ownerRoot === ROOT_TASK_OWNER_ROOT && sequence?.width === 5 && sequence.value >= 152;
+}
+
+function markdownListItems(section: string | null): string[] {
+    if (!section) return [];
+    return section.split(/\r?\n/u)
+        .map((line) => /^\s*-\s+`?([^`]+?)`?\s*$/u.exec(line)?.[1]?.trim())
+        .filter((item): item is string => item !== undefined && item.length > 0);
+}
+
+function normalizedDesignType(section: string | null): string | null {
+    if (!section) return null;
+    const value = section.replace(/^\s*-\s*/u, "").trim().toLowerCase();
+    const types: Record<string, string> = {
+        api: "api",
+        "模块边界": "module-boundary",
+        "数据模型": "data-model",
+        "交互": "interaction",
+    };
+    return Object.hasOwn(types, value) ? types[value] ?? null : null;
+}
+
+
+function isTaskReportPath(readmePath: string, path: string): boolean {
+    const taskRoot = readmePath.replace(/\/README\.md$/u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    return new RegExp(`^${taskRoot}/(?:walkthroughs|evidences)/[^/]+$`, "u").test(path);
+}
+
+function markdownSection(text: string, title: string): string | null {
+    const lines = text.split(/\r?\n/u);
+    const heading = `## ${title}`;
+    const start = lines.findIndex((line) => line.trim() === heading);
+    if (start < 0) return null;
+    const content: string[] = [];
+    for (let index = start + 1; index < lines.length; index += 1) {
+        if (/^##\s+/u.test(lines[index]?.trim() ?? "")) break;
+        content.push(lines[index] ?? "");
+    }
+    const value = content.join("\n").trim();
+    return value.length > 0 ? value : null;
+}
+
+function validateAgentWorkflow(relativePath: string, readme: string, raw: unknown, failures: string[]): void {
     if (!isRecord(raw)) {
         failures.push(`Task agentWorkflow 必须是对象：${relativePath}`);
         return;
@@ -775,7 +875,7 @@ function validateAgentWorkflow(relativePath: string, raw: unknown, failures: str
     if (raw.profile !== AGENT_WORKFLOW_PROFILE) failures.push(`Task agentWorkflow.profile 无效：${relativePath}`);
 
     const kind = raw.kind;
-    if (typeof kind !== "string" || !AGENT_WORKFLOW_KINDS.has(kind)) failures.push(`Task agentWorkflow.kind 无效：${relativePath}`);
+    if (typeof kind !== "string" || !Object.hasOwn(AGENT_WORKFLOW_KINDS, kind)) failures.push(`Task agentWorkflow.kind 无效：${relativePath}`);
 
     const routes = raw.routes;
     if (!Array.isArray(routes) || routes.length === 0) {
@@ -792,6 +892,25 @@ function validateAgentWorkflow(relativePath: string, raw: unknown, failures: str
         });
     }
 
+    if (kind === "design") {
+        const rawDesignType = markdownSection(readme, "设计类型");
+        const designType = normalizedDesignType(rawDesignType);
+        const outputs = markdownListItems(markdownSection(readme, "设计产物"));
+        const allowedFiles = markdownListItems(markdownSection(readme, "允许文件"));
+        if (!designType) failures.push(`design Task 设计类型无效：${relativePath}`);
+        if (outputs.length !== 1 || !/^(?:docs|packages\/[^/]+\/docs)\/(?:proposals|specs)\/.+\.md$/u.test(outputs[0] ?? "")) failures.push(`design Task 必须有唯一 Proposal/Spec 设计产物：${relativePath}`);
+        if (!markdownSection(readme, "决策范围")) failures.push(`design Task 缺少决策范围：${relativePath}`);
+        if (allowedFiles.length === 0) failures.push(`design Task 缺少允许文件：${relativePath}`);
+        const output = outputs[0];
+        for (const path of allowedFiles) {
+            if (path !== output && !isTaskReportPath(relativePath, path)) failures.push(`design Task 允许文件越界：${relativePath} -> ${path}`);
+        }
+        if (output && !allowedFiles.includes(output)) failures.push(`design Task 允许文件缺少设计产物：${relativePath}`);
+        if (designType === "api" && (!Array.isArray(routes) || !routes.includes("api-and-interface-design"))) {
+            failures.push(`API design Task 缺少 api-and-interface-design：${relativePath}`);
+        }
+    }
+
     const verification = raw.verification;
     if (!isRecord(verification)) {
         failures.push(`Task agentWorkflow.verification 必须是对象：${relativePath}`);
@@ -803,7 +922,7 @@ function validateAgentWorkflow(relativePath: string, raw: unknown, failures: str
         failures.push(`Task verification.required 必须是非空数组：${relativePath}`);
     } else {
         required.forEach((check, index) => {
-            if (typeof check !== "string" || !AGENT_WORKFLOW_CHECKS.has(check)) {
+            if (typeof check !== "string" || !Object.hasOwn(AGENT_WORKFLOW_CHECKS, check)) {
                 failures.push(`Task verification.required[${String(index)}] 无效：${relativePath}`);
                 return;
             }
@@ -829,7 +948,7 @@ function validateAgentWorkflow(relativePath: string, raw: unknown, failures: str
         }
         const check = entry.check;
         const reason = entry.reason;
-        if (typeof check !== "string" || !AGENT_WORKFLOW_CHECKS.has(check)) failures.push(`Task verification.notRun[${String(index)}] check 无效：${relativePath}`);
+        if (typeof check !== "string" || !Object.hasOwn(AGENT_WORKFLOW_CHECKS, check)) failures.push(`Task verification.notRun[${String(index)}] check 无效：${relativePath}`);
         if (typeof reason !== "string" || reason.trim().length === 0) failures.push(`Task verification.notRun[${String(index)}] 缺少非空 reason：${relativePath}`);
         if (typeof check === "string") {
             if (notRunValues.has(check)) failures.push(`Task verification.notRun 含重复项：${relativePath}`);
@@ -892,18 +1011,47 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
     if (!ownershipLoaded.manifest) return failures;
 
     const rootTaskRoot = resolve(repoRoot, ROOT_TASK_OWNER_ROOT);
-    const appTaskRoot = resolve(repoRoot, APPLICATION_TASK_OWNER_ROOT);
     const rootTaskIds = existsSync(rootTaskRoot)
         ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name)
         : [];
     const appTaskIds = ownershipLoaded.manifest.tasks.map((entry) => entry.taskId);
+
     for (const [ownerRoot, taskIds] of [[ROOT_TASK_OWNER_ROOT, rootTaskIds], [APPLICATION_TASK_OWNER_ROOT, appTaskIds]] as const) {
         for (const taskId of taskIds) {
             const relativePath = `${ownerRoot}/${taskId}/README.md`;
-            if (!hasFile(repoRoot, relativePath)) continue;
-            const metadata = readTaskFrontmatter(readRepoText(repoRoot, relativePath), relativePath, failures);
-            if (!metadata || metadata.schema !== "nbook.task/v1" || !("agentWorkflow" in metadata)) continue;
-            validateAgentWorkflow(relativePath, metadata.agentWorkflow, failures);
+            if (ownerRoot === ROOT_TASK_OWNER_ROOT && !isValidRootTaskId(taskId)) failures.push(`根 Task 标识无效：${taskId}`);
+            const currentContract = isCurrentTaskContract(ownerRoot, taskId);
+            if (!hasFile(repoRoot, relativePath)) {
+                if (currentContract) failures.push(`新 Task 缺少 README.md：${relativePath}`);
+                continue;
+            }
+            const readme = readRepoText(repoRoot, relativePath);
+            const metadata = readTaskFrontmatter(readme, relativePath, failures);
+            if (!metadata || metadata.schema !== "nbook.task/v1") {
+                if (currentContract) failures.push(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+                continue;
+            }
+            if (metadata.taskId !== taskId) failures.push(`Task taskId 与目录不一致：${relativePath}`);
+            if (currentContract && (!Object.hasOwn(metadata, "actionIssueId") || (metadata.actionIssueId !== null && (typeof metadata.actionIssueId !== "number" || !Number.isInteger(metadata.actionIssueId) || metadata.actionIssueId <= 0)))) {
+                failures.push(`Task actionIssueId 必须是正整数或 null：${relativePath}`);
+            }
+            if (currentContract) {
+                for (const field of ["worktreeId", "branchId"] as const) {
+                    const value = metadata[field];
+                    if (value !== null && (typeof value !== "string" || value.trim().length === 0)) failures.push(`Task ${field} 必须是非空字符串或 null：${relativePath}`);
+                }
+            }
+            for (const forbiddenField of ["parentTaskId", "actionIssueIds", "issueIds"] as const) {
+                if (Object.hasOwn(metadata, forbiddenField)) failures.push(`Task 禁止聚合字段 ${forbiddenField}：${relativePath}`);
+            }
+            if (typeof metadata.status !== "string" || !Object.hasOwn(TASK_STATUSES, metadata.status)) failures.push(`Task status 无效：${relativePath}`);
+            if (typeof metadata.createdAt !== "string" || typeof metadata.updatedAt !== "string") failures.push(`Task 缺少 createdAt/updatedAt：${relativePath}`);
+            if (!hasFile(repoRoot, `${ownerRoot}/${taskId}/context.md`) && !Object.hasOwn(LEGACY_TASKS_WITHOUT_CONTEXT, taskId)) failures.push(`Task 缺少 context.md：${relativePath}`);
+            if (!("agentWorkflow" in metadata)) {
+                if (!Object.hasOwn(LEGACY_TASKS_WITHOUT_AGENT_WORKFLOW, taskId)) failures.push(`新 Task 缺少 agentWorkflow：${relativePath}`);
+                continue;
+            }
+            validateAgentWorkflow(relativePath, readme, metadata.agentWorkflow, failures);
         }
     }
     return failures;

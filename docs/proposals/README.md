@@ -7,7 +7,7 @@
 - [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
 - [`../packages/neuro-book/docs/proposals/agent-skills-adaptation.md`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：Agent Skills 项目化适配，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
-- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，monorepo 级开发流程治理：最小角色交接合同——开发者使用场景、单 Agent / 分角色两种执行背景、Task/context/agentWorkflow/verification/walkthrough/evidence 交接清单与自恢复、人类受限动作门禁；不新增 CLI、状态机或第二套 schema，状态为 `accepted`。
+- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，开发者→Leader→Tasker顺序合同；Issue聚合多个扁平Task，Leader产出可继续拆分的Issue、draft/planned Task、Proposal和Spec，design Tasker可与开发者协作制定规范，PM/Reviewer按需，本地可逆动作使用范围授权，状态为`accepted`。
 
 已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
@@ -37,8 +37,8 @@
 
 ## 生效规则
 
-- `draft` 和 `reviewing` 只供讨论，不能被代码、测试或 Agent 当作当前行为依据。
-- `accepted` 只是批准修改规范和创建实现 Task；Proposal 本身不会自动成为规范。
-实施前把被批准行为写入 [`../specs/README.md`](../specs/README.md) 注册的当前规范，并在 Proposal 中链接具体规范位置。
-.agents/tasks/ 记录一次实现的范围、步骤、交接和证据；Task 引用 Proposal 与规范，不复制两者全文。
+- `draft`和`reviewing`只供讨论，不能被代码、测试或Agent当作当前行为依据。
+- `accepted`表示长期取舍已决定，允许Leader更新planned Spec，并创建draft/planned设计或实现Task；Proposal本身不会自动成为规范或执行授权。
+- 实施前把已批准行为写入[`../specs/README.md`](../specs/README.md)注册的当前规范。design Task可以与开发者协作形成指定Spec草案，但只有明确接受的决定可进入planned合同。
+- `.agents/tasks/`记录一次设计或实现的范围、交接和证据；Task引用Proposal与Spec，不复制正文。
 `rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../packages/neuro-book/docs/archived/`](../../packages/neuro-book/docs/archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。

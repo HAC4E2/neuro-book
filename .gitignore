@@ -44,6 +44,8 @@ product/
 !/.agents/roles/**
 !/.agents/skills/
 !/.agents/skills/**
+!/.agents/issues/
+!/.agents/issues/**
 # playwright-cli 默认生成的浏览器快照与 console 产物，不进入 Git
 !/.agents/tasks/
 !/.agents/tasks/**

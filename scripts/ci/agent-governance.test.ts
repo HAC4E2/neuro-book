@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifyPostMergeUnifiedReviewContract, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyLeaderDrivenDevelopmentContract, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -109,6 +109,9 @@ describe("Agent Skills 适配治理门禁", () => {
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -205,6 +208,9 @@ agentWorkflow:
         await writeText(repoRoot, profilePath, `---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -226,47 +232,405 @@ agentWorkflow:
 
 
 
-    it("历史 Task 没有 agentWorkflow 时保持兼容", async () => {
+    it("历史 Task 可缺少 agentWorkflow，但仍有完整基础字段", async () => {
+        const taskId = "00149-monorepo-workspace-consolidation";
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
-taskId: 001-profile
+taskId: ${taskId}
+status: completed
+createdAt: 2026-08-16T14:59:07Z
+updatedAt: 2026-08-19T10:35:00Z
 ---
 
 # Historical Task
+`, taskId);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+    });
+
+    it("新 Task 缺少成熟度或 agentWorkflow 时失败", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+---
+
+# Incomplete Task
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task status 无效"),
+            expect.stringContaining("新 Task 缺少 agentWorkflow"),
+        ]));
+    });
+
+    it("新 Task 缺少 context 时失败", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Missing context Task
+`);
+        await rm(join(repoRoot, ".agents/tasks/001-profile/context.md"));
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task 缺少 context.md：.agents/tasks/001-profile/README.md");
+    });
+
+    it("合法 design Task 必须声明设计边界与 API 路由", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: design
+  routes:
+    - api-and-interface-design
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# API Design Task
+
+## 设计类型
+
+API
+
+## 设计产物
+
+- docs/specs/example/api.md
+
+## 决策范围
+
+- API输入、输出、错误与兼容。
+
+## 允许文件
+
+- docs/specs/example/api.md
 `);
 
         expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
     });
 
-    it("合法 agentWorkflow profile 通过", async () => {
+    it("design Task 缺少设计边界或 API 路由时失败", async () => {
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
-  kind: bug
+  kind: design
   routes:
-    - diagnosing-bugs
-    - test-driven-development
+    - documentation-and-adrs
   verification:
     required:
-      - regression-test
-      - focused-test
-      - diff-check
-    notRun:
-      - check: browser
-        reason: 未获浏览器人工验收授权
+      - docs-check
+    notRun: []
 ---
 
-# Profile Task
+# API Design Task
+
+## 设计类型
+
+API
 `);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("design Task 必须有唯一 Proposal/Spec 设计产物"),
+            expect.stringContaining("design Task 缺少决策范围"),
+            expect.stringContaining("design Task 缺少允许文件"),
+            expect.stringContaining("API design Task 缺少 api-and-interface-design"),
+        ]));
+    });
+
+    it("新 Task 不能用缺失 README 或错误 schema 绕过合同", async () => {
+        const taskId = "00161-profile";
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: wrong.task/v1
+taskId: ${taskId}
+---
+
+# Wrong schema Task
+`, taskId);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：.agents/tasks/${taskId}/README.md`);
+        await rm(join(repoRoot, `.agents/tasks/${taskId}/README.md`));
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少 README.md：.agents/tasks/${taskId}/README.md`);
+    });
+
+    it("根 Task 拒绝非法 ID 形状且高序号不能伪装历史", async () => {
+        const invalidId = "100000-invalid";
+        const invalidRoot = await createTaskWorkflowFixture("# Invalid root Task\n", invalidId);
+        expect(verifyTaskAgentWorkflowProfiles(invalidRoot)).toContain(`根 Task 标识无效：${invalidId}`);
+
+        const highShortId = "999-current";
+        const highShortRoot = await createTaskWorkflowFixture("# High short root Task\n", highShortId);
+        expect(verifyTaskAgentWorkflowProfiles(highShortRoot)).toContain(`根 Task 标识无效：${highShortId}`);
+    });
+
+    it("当前 Task 必须显式声明有效执行身份", async () => {
+        const taskId = "00161-profile";
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: ${taskId}
+actionIssueId: null
+worktreeId: ""
+branchId: 42
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid execution identity Task
+`, taskId);
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task worktreeId 必须是非空字符串或 null"),
+            expect.stringContaining("Task branchId 必须是非空字符串或 null"),
+        ]));
+
+        const missingRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: ${taskId}
+actionIssueId: null
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Missing execution identity Task
+`, taskId);
+        expect(verifyTaskAgentWorkflowProfiles(missingRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task worktreeId 必须是非空字符串或 null"),
+            expect.stringContaining("Task branchId 必须是非空字符串或 null"),
+        ]));
+    });
+
+    it("新 Task 拒绝非法 Issue 聚合字段和 parentTaskId", async () => {
+        const taskId = "00161-profile";
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: ${taskId}
+actionIssueId:
+  - 191
+parentTaskId: 00160-parent
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid aggregation Task
+`, taskId);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
+            expect.stringContaining("Task 禁止聚合字段 parentTaskId"),
+        ]));
+    });
+
+    it("design Task 拒绝多目标和业务源码允许路径", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: design
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid API Design Task
+
+## 设计类型
+
+- API
+
+## 设计产物
+
+- docs/specs/example/api.md
+- docs/proposals/example-api.md
+
+## 决策范围
+
+- API输入与输出。
+
+## 允许文件
+
+- docs/specs/example/api.md
+- packages/neuro-book/app/api.ts
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("design Task 必须有唯一 Proposal/Spec 设计产物"),
+            expect.stringContaining("design Task 允许文件越界"),
+            expect.stringContaining("API design Task 缺少 api-and-interface-design"),
+        ]));
+    });
+
+    it("应用 Task root 的新 Task 不能绕过 schema 与 Issue 聚合门禁", async () => {
+        const taskId = "149-profile";
+        const repoRoot = await createApplicationTaskWorkflowFixture(`---
+schema: wrong.task/v1
+taskId: ${taskId}
+---
+
+# Wrong app Task
+`, taskId);
+        const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+        await writeText(repoRoot, relativePath, `---
+schema: nbook.task/v1
+taskId: ${taskId}
+actionIssueId: 0
+actionIssueIds:
+  - 191
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid app Task
+`);
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
+            expect.stringContaining("Task 禁止聚合字段 actionIssueIds"),
+        ]));
+        await rm(join(repoRoot, relativePath));
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少 README.md：${relativePath}`);
+    });
+
+    it("应用 Task root 只豁免数值前缀不超过 148 的历史 Task", async () => {
+        for (const taskId of ["02-legacy", "148-legacy"] as const) {
+            const repoRoot = await createApplicationTaskWorkflowFixture(`---
+schema: wrong.task/v1
+taskId: ${taskId}
+---
+
+# Historical app Task
+`, taskId);
+            const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
+            expect(verifyTaskAgentWorkflowProfiles(repoRoot)).not.toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+        }
+
+        for (const taskId of ["149-current", "999-current"] as const) {
+            const repoRoot = await createApplicationTaskWorkflowFixture(`---
+schema: wrong.task/v1
+taskId: ${taskId}
+---
+
+# Current app Task
+`, taskId);
+            const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
+            expect(verifyTaskAgentWorkflowProfiles(repoRoot), taskId).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+        }
+    });
+
+    it("应用历史 Task 不补当前字段但仍守 v1 基础不变量", async () => {
+        const taskId = "148-legacy";
+        const repoRoot = await createApplicationTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: ${taskId}
+status: unknown
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Historical v1 Task
+`, taskId);
+        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        expect(failures).toContain(`Task status 无效：packages/neuro-book/.agents/tasks/${taskId}/README.md`);
+        expect(failures).not.toEqual(expect.arrayContaining([
+            expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
+            expect.stringContaining("Task worktreeId 必须是非空字符串或 null"),
+            expect.stringContaining("Task branchId 必须是非空字符串或 null"),
+        ]));
+    });
+
+    it("应用 Task ownership 拒绝一位和六位数字 ID", async () => {
+        for (const taskId of ["9-invalid", "100000-invalid"] as const) {
+            const repoRoot = await createApplicationTaskWorkflowFixture("# Invalid app Task\n", taskId);
+            expect(verifyTaskAgentWorkflowProfiles(repoRoot), taskId).toContain(`ownership Task 标识无效：${taskId}`);
+        }
     });
     it("agentWorkflow 枚举拒绝原型链属性", async () => {
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: toString
@@ -292,6 +656,9 @@ agentWorkflow:
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -313,6 +680,9 @@ agentWorkflow:
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: unknown
@@ -341,21 +711,27 @@ agentWorkflow:
     });
 });
 
-describe("合并后统一评审治理门禁", () => {
-    it("当前状态机与角色交接合同闭合", () => {
-        expect(verifyPostMergeUnifiedReviewContract(repositoryRoot)).toEqual([]);
+describe("Leader 主导顺序开发治理门禁", () => {
+    it("当前角色与文件交互合同闭合", () => {
+        expect(verifyLeaderDrivenDevelopmentContract(repositoryRoot)).toEqual([]);
     });
 
-    it("任一状态机或角色交接合同丢失时失败", async () => {
-        const repoRoot = await createTestTmpRoot("unified-review-contract", "unified-review-contract-test");
+    it("任一顺序流程合同丢失时失败", async () => {
+        const repoRoot = await createTestTmpRoot("leader-driven-contract", "leader-driven-contract-test");
         fixtureRoots.push(repoRoot);
         const contractPaths = [
             "AGENTS.md",
+            ".omp/RULES.md",
+            "docs/proposals/p-005-development-workflow-governance.md",
+            ".agents/issues/README.md",
             "docs/standards/repository-workflow.md",
+            "docs/specs/AGENTS.md",
             ".agents/roles/pm/AGENTS.md",
             ".agents/roles/leader/AGENTS.md",
+            ".agents/roles/tasker/AGENTS.md",
             ".agents/roles/reviewer/AGENTS.md",
             ".agents/tasks/README.md",
+            ".agents/tasks/AGENTS.md",
         ] as const;
         for (const relativePath of contractPaths) {
             await writeText(repoRoot, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
@@ -364,23 +740,32 @@ describe("合并后统一评审治理门禁", () => {
         for (const relativePath of contractPaths) {
             const original = await readFile(join(repoRoot, relativePath), "utf8");
             await writeText(repoRoot, relativePath, `# Missing contract: ${relativePath}\n`);
-            expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
-                `合并后统一评审合同缺少必需标记：${relativePath}`,
+            expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([
+                `Leader 主导顺序开发合同缺少必需标记：${relativePath}`,
             ]);
             await writeText(repoRoot, relativePath, original);
         }
 
-        const workflowPath = "docs/standards/repository-workflow.md";
-        const workflow = await readFile(join(repoRoot, workflowPath), "utf8");
-        await writeText(repoRoot, workflowPath, workflow.replace(
-            "`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并",
-            "`Done`：关联 PR 已合并",
-        ));
-        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
-            `合并后统一评审合同缺少必需标记：${workflowPath}`,
-        ]);
-        await writeText(repoRoot, workflowPath, workflow);
-        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([]);
+        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
+
+        const leaderPath = ".agents/roles/leader/AGENTS.md";
+        const leader = await readFile(join(repoRoot, leaderPath), "utf8");
+        const forbiddenMutations = [
+            "Leader 必须等待 PM 确认后开始。",
+            "status: claimed 批准后 Leader 才能开始编排。",
+            "planned Task 可以直接 push。",
+            "draft 可由 Tasker 执行。",
+            "Task completed 可以自动触发 Project Done。",
+            "PR 合并可以直接触发 Done。",
+            "Reviewer 建议合并可以触发 Done。",
+            "CI 通过可以自动进入 Done。",
+        ] as const;
+        for (const mutation of forbiddenMutations) {
+            await writeText(repoRoot, leaderPath, `${leader}\n${mutation}\n`);
+            expect(verifyLeaderDrivenDevelopmentContract(repoRoot).some((failure) => failure.startsWith(`Leader 主导顺序开发合同出现禁用语义：${leaderPath}`)), mutation).toBe(true);
+        }
+        await writeText(repoRoot, leaderPath, leader);
+        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
     });
 });
 
@@ -561,7 +946,7 @@ async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", 
     return root;
 }
 
-async function createTaskWorkflowFixture(readme: string): Promise<string> {
+async function createTaskWorkflowFixture(readme: string, taskId = "001-profile"): Promise<string> {
     const root = await createTestTmpRoot("governance-task-workflow", "governance-task-workflow-test");
     fixtureRoots.push(root);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
@@ -571,26 +956,47 @@ async function createTaskWorkflowFixture(readme: string): Promise<string> {
         fileCount: 0,
         tasks: [],
     }));
-    await writeText(root, ".agents/tasks/001-profile/README.md", readme);
+    await writeText(root, `.agents/tasks/${taskId}/README.md`, readme);
+    await writeText(root, `.agents/tasks/${taskId}/context.md`, "# Task Context\n");
+    return root;
+}
+
+async function createApplicationTaskWorkflowFixture(readme: string, taskId: string): Promise<string> {
+    const root = await createTestTmpRoot("governance-application-task-workflow", "governance-application-task-workflow-test");
+    fixtureRoots.push(root);
+    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
+        schema: "nbook.task-ownership/v1",
+        ownerRoot: "packages/neuro-book/.agents/tasks",
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{
+            taskId,
+            ownerRoot: "packages/neuro-book/.agents/tasks",
+            files: [{path: `${taskId}/README.md`, legacyDestination: `.agents/tasks/${taskId}/README.md`, sha256: `sha256:${"0".repeat(64)}`}],
+        }],
+    }));
+    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/README.md`, readme);
+    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/context.md`, "# App Task Context\n");
     return root;
 }
 async function createGovernanceCliFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-cli", "governance-cli-test");
     fixtureRoots.push(root);
     const governanceFiles: readonly [string, string][] = [
-        ["AGENTS.md", "对应 Issue 项目条目保持 `In review`；统一评审确认满足。\n"],
+        ["AGENTS.md", "fixture root rules\n"],
         [".omp/RULES.md", "fixture omp rules\n"],
         ["WATCHDOG.md", "fixture watchdog\n"],
         [".agents/AGENTS.md", "fixture agents rules\n"],
         [".agents/README.md", "fixture agents readme\n"],
+        [".agents/issues/README.md", "fixture issue draft rules\n"],
         [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
         [".agents/tasks/.migration-complete", "{}\n"],
         [".agents/tasks/legacy-index.json", "{}\n"],
-        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\nTask `completed` 也不能触发对应 Issue 项目条目的 Project `Done`。PR 合并后对应 Issue 项目条目仍保持 `In review`。\n"],
-        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\nIssue 项目条目是需求交付状态的唯一 owner。Reviewer 要求修复或验证未完成时退回 `In progress`。当前 merge revision 集合。记录 Issue、条目 ID、PR、revision 和确认来源。\n"],
-        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n并通知 PM 把对应 Issue 项目条目置为 `In review`。通知 PM 退回 `In progress`。PR 合并后通知 PM 继续保持 Issue 条目 `In review`。\n"],
+        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
+        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
+        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/roles/tasker/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n通知 PM 把对应 Issue 项目条目从 `In review` 退回 `In progress`。不能触发 Project `Done`。\n"],
+        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
         [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
         [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
@@ -615,6 +1021,22 @@ async function createGovernanceCliFixture(): Promise<string> {
         [".gitignore", ".env.local\n.agent/\n.worktree/\n"],
     ];
     for (const [relativePath, content] of governanceFiles) await writeText(root, relativePath, content);
+    for (const relativePath of [
+        "AGENTS.md",
+        ".omp/RULES.md",
+        "docs/proposals/p-005-development-workflow-governance.md",
+        ".agents/issues/README.md",
+        "docs/standards/repository-workflow.md",
+        "docs/specs/AGENTS.md",
+        ".agents/roles/pm/AGENTS.md",
+        ".agents/roles/leader/AGENTS.md",
+        ".agents/roles/tasker/AGENTS.md",
+        ".agents/roles/reviewer/AGENTS.md",
+        ".agents/tasks/README.md",
+        ".agents/tasks/AGENTS.md",
+    ] as const) {
+        await writeText(root, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
+    }
     await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：accepted\n");
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
@@ -626,6 +1048,9 @@ async function createGovernanceCliFixture(): Promise<string> {
     await writeText(root, ".agents/tasks/001-profile/README.md", `---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -639,6 +1064,7 @@ agentWorkflow:
 
 # CLI profile
 `);
+    await writeText(root, ".agents/tasks/001-profile/context.md", "# CLI Task Context\n");
     const siblingPath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
     await writeText(root, siblingPath, await readFile(join(repositoryRoot, siblingPath), "utf8"));
 

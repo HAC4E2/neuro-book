@@ -9,6 +9,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 修复和重构应解决合同或设计问题，不用 hack 绕过类型系统或制造技术债；不能兼容时说明取舍
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件
 - A comment states the non-obvious reason at the owning boundary. Include a constraint or invalidation condition only when a maintainer needs it to know when the rationale or code stops being valid. Do not restate the operation, preserve intermediate attempts, or list speculative future work.
+- 对 AGENTS.md 也就本文件的约束保持怀疑，随着项目的演变，这个文件可能变得不是很权威，有错误。这个文件是 AGENTS.md 人类共建的，需要不断优化，工作过程中如果遇到某些地方不好的可以随时询问开发者要求优化
 
 ## 了解开发者
 
@@ -20,10 +21,10 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 敢于质疑开发者，有怀疑精神，及时纠错：开发者会偷懒，也会犯错，也会打错别字。不要把他的决定当成真理执行。可以反问，或者出题考开发者，确保 agent 和开发者同步
 - 关于 advisor：advisor 不是我，是 omp 中监督你工作的另一个 agent。只听取它的建议，不要回复他，他的回复不代表开发者的回复，不要把回复他当做最终回复
 
-## 开发者审批与通知
+## 开发授权与通知
 
-- 创建 worktree、branch、pr、或 git checkout 前需询问开发者获得审批
-- 创建 docs/ .agents/ 目录下相关文档和 AGENTS.md 等上下文文档需提醒通知开发者
+- 开发者批准一个目标、范围和关键取舍后，Leader可在该范围内自主执行本地可逆开发动作：调研，创建或更新Issue草稿、Proposal、Spec、Task和Agent文档，创建branch/worktree并checkout，安装依赖，运行测试/构建/非人工smoke，创建本地commit。无需逐项重复询问，但必须保护用户改动、保持范围并记录结果。
+- 远端Issue/Project/PR写入、push、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收和数据删除继续分别请求明确授权。创建或修改`docs/`、`.agents/`和`AGENTS.md`时主动通知开发者，不把通知变成等待门禁。
 
 ## 仓库结构与文件路由
 
@@ -80,7 +81,7 @@ neuro-book/                              # 私有 workspace orchestrator 根
 
 | 任务范围 | 追加读取 |
 |---|---|
-| PM、Leader、Tasker、Reviewer | [`.agents/roles/<role>/AGENTS.md`](.agents/roles/)、[`.agents/tasks/AGENTS.md`](.agents/tasks/AGENTS.md) 和具体 Task |
+| Leader、Tasker；按需 PM、Reviewer | [`.agents/roles/<role>/AGENTS.md`](.agents/roles/)、[`.agents/tasks/AGENTS.md`](.agents/tasks/AGENTS.md) 和具体 Task |
 | 测试、fixture、验收、缓存、临时数据 | [`docs/testing/README.md`](docs/testing/README.md) |
 | 新功能、bug 期望不明确或长期行为变化 | [`docs/proposals/README.md`](docs/proposals/README.md)、[`docs/specs/AGENTS.md`](docs/specs/AGENTS.md)、相关 Spec 与 ADR |
 | 源码、脚本、schema 或 migration | [`docs/standards/code/README.md`](docs/standards/code/README.md)；按改动路径只读取表中列出的领域与语言规范 |
@@ -90,12 +91,11 @@ neuro-book/                              # 私有 workspace orchestrator 根
 
 ## Git 注意事项
 
-- 分支格式为 `{type}/{refs}-{slug}`：`type` 使用 `feat`、`fix`、`docs`、`refactor`、`test` 或 `chore`；`refs` 使用 `t<task号>` 或 `i<issue号>`，slug 使用不超过 5 个单词的英文 kebab-case。分支必须能追溯到 issue 或 task，不使用 `codex/*`。
-- 开工前执行 `git fetch origin`，再从 `origin/master` 创建 `.worktree/<slug>` 和对应分支；主 checkout 是唯一目录外例外，linked worktree 统一位于主 checkout 的 `/.worktree/` 下；新 worktree 首次使用前执行 `bun install`。
-- 代码改动在 worktree 中完成。提交前只暂存任务范围内的文件；用户明确要求全部改动时才使用 `git add -A`。
-- 完成后 push 分支并创建 PR；完整覆盖 Issue 使用 `Closes #N`，部分覆盖使用 `Refs #N`。自动关闭 Issue 不代表对应 Issue 项目条目已为 `Done`。
-- Agent 默认交付到验证结果与 PR 链接；合并、关闭 Issue、部署或其它收尾需要用户对当前动作明确许可。获得合并许可并完成 squash merge 后，对应 Issue 项目条目保持 `In review`，等待开发者针对该 Issue 和 merge revision 的统一评审。
-- 获得许可后，先确认 CI、typecheck 和相关聚焦测试通过，再执行 squash merge、同步主工作区、移除 worktree 和本地分支。任一步失败时从断点继续，不重复已完成步骤；只有统一评审确认满足 [`docs/standards/repository-workflow.md#project-交付状态与统一评审`](docs/standards/repository-workflow.md#project-交付状态与统一评审)，PM 才把 Issue 项目条目改为 `Done`。
+- Leader在批准范围内自行创建`.worktree/<slug>`与对应分支，并保持主工作区在`master`；需要最新远端基线时可fetch。分支格式为`{type}/{refs}-{slug}`，refs使用`t<task号>`或`i<issue号>`。
+- 代码改动在worktree完成；治理文档和用户明确指定的主工作区改动可以直接在当前工作区完成。只暂存Task范围文件，不使用`git add -A`混入用户改动。
+- push和PR是远端写入，分别获授权后执行。完整覆盖Issue使用`Closes #N`，部分覆盖使用`Refs #N`。
+- 合并、关闭Issue、发布和部署分别授权。squash merge后对应Issue项目条目保持`In review`，等待开发者针对当前merge revision集合统一评审。
+- 获合并授权后确认CI、typecheck和聚焦测试，再合并、同步主工作区、移除worktree和本地分支。只有统一评审通过后，获远端元数据授权的Leader或PM才把Issue项目条目改为`Done`。
 
 ## 常用命令
 

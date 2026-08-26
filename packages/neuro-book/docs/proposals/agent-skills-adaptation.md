@@ -119,10 +119,10 @@ agentWorkflow:
         reason: 未获浏览器人工验收授权
 ```
 
-`kind` 预期限定为 `feedback`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。`verification.required` 记录必须完成的检查，`verification.notRun` 字段必须存在且为数组（可为空），每个条目只允许在有具体原因时记录，二者不得重叠。Task README 只记录执行合同；命令结果、revision、环境和正式产物继续写入 walkthrough / evidence。
+`kind`限定为`feedback`、`design`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。`design`表示由Leader派发、可与开发者直接协作并产出指定Proposal/Spec草案的设计Task，不实现业务代码；README必须包含非空的`设计类型`、`设计产物`、`决策范围`和`允许文件`章节。设计产物只能有一个Proposal/Spec Markdown目标，允许文件只能包含该目标和当前Task的walkthrough/evidence；API类型必须包含`api-and-interface-design`。`verification.required`记录必须完成的检查，`verification.notRun`字段必须存在且为数组（可为空），每项必须有具体原因，二者不得重叠。
 
 Proposal 被接受后，预期新增开发治理 Skill：`report/SKILL.md` 负责主动状态、证据、开发者动作和下一步汇报；用户指定的 `load_role/SKILL.md` 以 `pm`、`leader`、`tasker` 或 `reviewer` 参数加载唯一 canonical `.agents/roles/<role>/AGENTS.md`。两者在 `.agents/skills/README.md` 登记；同时为 `.agents/skills/**/*.md` 增加编码规范路由，必读 `writing-for-agents/SKILL.md`，涉及 frontmatter 或调用方式时追加 `SKILL-MECHANICS.md`。这些 Skill 属于开发治理适配层，不适用产品运行时资产的 `agent-assets.md`。
-Proposal 被接受后，由治理代码检查 Proposal 状态、两个 Skill 的 frontmatter/调用合同、旧 router 是否已删除、Task `agentWorkflow` 的结构和 required / notRun 冲突，并以临时 fixture 覆盖合法与非法案例。历史 Task 不批量迁移；新建或重新打开的 Task 才要求填写画像。
+Proposal被接受后，由治理代码检查Proposal状态、两个Skill入口、Task`agentWorkflow`结构、design边界、根/应用双Task root的新合同身份、`actionIssueId`与禁用聚合字段、required/notRun冲突，以及Leader主导合同的明显反向语义。历史Task只按明确截止线兼容；新建或重新打开的Task必须填写完整画像。
 
 ## 数据、接口、安全、迁移、发布与回滚影响
 

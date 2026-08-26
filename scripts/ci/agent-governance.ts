@@ -11,7 +11,7 @@ import {
     verifyGovernanceDocumentLimits,
     verifyApplicationScriptBoundary,
     verifyMonorepoCutover,
-    verifyPostMergeUnifiedReviewContract,
+    verifyLeaderDrivenDevelopmentContract,
     verifySiblingResyncResolution,
     verifyTaskAgentWorkflowProfiles,
     verifyTaskOwnership,
@@ -26,7 +26,7 @@ const warnings: string[] = [];
 
 failures.push(...verifyAgentSkillsAdaptation(repoRoot));
 failures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));
-failures.push(...verifyPostMergeUnifiedReviewContract(repoRoot));
+failures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));
 
 function requireFile(relativePath: string): void {
     if (!hasFile(repoRoot, relativePath)) failures.push(`缺少治理文件：${relativePath}`);
