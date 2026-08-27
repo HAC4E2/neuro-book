@@ -429,8 +429,21 @@ describe("最终 monorepo 收敛门禁", () => {
         expect(verifyMonorepoCutover(repoRoot)).toEqual(expect.arrayContaining([
             "旧根应用路径重新出现：server/index.ts",
             "根 workspace orchestrator 不得声明产品 version",
-            "根 workspace 保留应用或同步命令：dev",
+            "根 workspace dev 必须仅代理 packages/neuro-book Source Dev",
         ]));
+    });
+
+    it("允许根 dev 精确代理应用 Source Dev", async () => {
+        const repoRoot = await createTestTmpRoot("governance-source-dev-proxy", "governance-source-dev-proxy-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, "package.json", JSON.stringify({
+            name: "fixture",
+            scripts: {dev: "bun run --cwd packages/neuro-book dev"},
+        }));
+        await runGit(repoRoot, ["init", "--initial-branch", "master"]);
+        await runGit(repoRoot, ["add", "."]);
+
+        expect(verifyMonorepoCutover(repoRoot)).toEqual([]);
     });
 
     it("只允许 source-dev 读取根 workspace locator", async () => {

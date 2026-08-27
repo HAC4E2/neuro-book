@@ -102,8 +102,8 @@ neuro-book/                              # 私有 workspace orchestrator 根
 ```bash
 # 开发与构建
 bun install --frozen-lockfile --linker hoisted          # 安装 workspace 依赖
-bun --cwd packages/neuro-book run dev                    # 启动源码开发入口
-bun --cwd packages/neuro-book run dev:runtime            # 直接启动 Nuxt 产品运行时
+bun run dev                                               # 启动源码开发入口；根脚本仅代理主应用
+bun run --cwd packages/neuro-book dev:runtime             # 直接启动 Nuxt 产品运行时
 bun --cwd packages/neuro-book run build                  # 构建主应用
 bun --cwd packages/neuro-book run typecheck              # 主应用类型检查
 bun x tsc --noEmit -p scripts/tsconfig.json              # 仅检查 scripts TypeScript

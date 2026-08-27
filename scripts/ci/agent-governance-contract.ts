@@ -435,7 +435,11 @@ export function verifyMonorepoCutover(repoRoot: string): string[] {
     const rootManifest = readJson<{version?: unknown; scripts?: Record<string, string>}>(resolve(repoRoot, "package.json"), failures, "package.json");
     if (!rootManifest) return failures;
     if (rootManifest.version !== undefined) failures.push("根 workspace orchestrator 不得声明产品 version");
-    const forbiddenScripts = ["dev", "dev:runtime", "build", "typecheck", "test", "generate", "migration:check", "sync:nb-history", "sync:nb-workflow"];
+    const sourceDevProxy = rootManifest.scripts?.dev;
+    if (sourceDevProxy && sourceDevProxy !== "bun run --cwd packages/neuro-book dev") {
+        failures.push("根 workspace dev 必须仅代理 packages/neuro-book Source Dev");
+    }
+    const forbiddenScripts = ["dev:runtime", "build", "typecheck", "test", "generate", "migration:check", "sync:nb-history", "sync:nb-workflow"];
     for (const name of forbiddenScripts) if (rootManifest.scripts?.[name]) failures.push(`根 workspace 保留应用或同步命令：${name}`);
     return failures;
 }
