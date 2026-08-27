@@ -99,7 +99,7 @@ NeuroBook 已有 PM、Leader、Tasker、Reviewer、Proposal、Spec、Task、walk
 
 ## 对 Task 与治理流程的预期改动
 
-Proposal 被人类接受后，预期在现有 `nbook.task/v1` Task README frontmatter 中增加可选 `agentWorkflow` 对象：
+Proposal 被人类接受后，当前 `nbook.task/v1` Task README frontmatter 使用 `agentWorkflow` 对象：
 
 ```yaml
 agentWorkflow:
@@ -117,11 +117,13 @@ agentWorkflow:
     notRun: []
 ```
 
-`kind`限定为`feedback`、`design`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。`design`不实现业务代码；README必须包含一个明确单行`设计类型`、唯一Proposal/Spec`设计产物`、`决策范围`和`允许文件`，context记录唯一`基线 revision`。该基线必须是首次密封提交的严格祖先；首次提交的活跃Design README/context密封kind、执行身份、Git基线、产物和allowlist。治理门禁检查该窗口真实diff，后续改frontmatter、状态、context或allowlist不能扩大或关闭门禁；已提交退出后不得重开，后续设计使用新Task。
+`kind`限定为`feedback`、`design`、`research`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。所有活动Task都必须声明Agent工作、开发者参与、任务产物、修改计划、完成门禁、Leader继续条件和允许文件；Agent主导执行，开发者只在明示节点完成设计、实际观察/验证、产品判断、风险接受或受限动作授权。
 
-`verification.required`记录必须真实执行或报告不可执行的检查；适用但未获授权仍留在required并报告阻塞。`verification.notRun`只表示不适用，必须有具体适用性原因，二者不得重叠。当前Task同时声明`issueRequired`：应用owner固定`true`和正整数Issue；根owner才允许无Issue例外使用`false`和`null`。
+`research`追加研究问题、研究产物和决策范围；声明allowlist与本Task研究产物集合一致，active research首次进入HEAD后固定kind、状态和研究产物，并检查owner scope当前staged、unstaged、untracked实际路径，Task README/context只作为Leader实际diff例外。`design`追加明确单行设计类型、唯一Proposal/Spec设计产物、决策范围和允许文件，context记录唯一`基线 revision`；首次提交的活跃Design合同密封执行身份、Git基线、产物和allowlist，后续不能扩大或关闭真实diff门禁。
 
-治理代码检查Proposal状态、两个Skill入口、Task画像、首次共同提交密封的历史迁移身份、owner Issue关联、Design containment与真实diff、required/notRun冲突，以及Leader主导合同的反向语义。历史Task不批量回填当前字段。
+`verification.required`记录必须真实执行或报告不可执行的检查；`verification.notRun`只表示不适用且必须有具体原因。`actionIssueId`显式为正整数或`null`，由Task是否属于重大Issue交付范围决定，不按root或owner分叉。
+
+治理代码检查Proposal状态、两个Skill入口、Task画像、人机协作章节、自治包当前v1 Task、历史迁移身份、`actionIssueId`、research/design专属合同、active research owner-scope当前工作树、Design真实diff、required/notRun冲突，以及Leader派发后停止和按结果创建下一Task的反向语义。历史Task不批量回填当前章节。
 
 ## 数据、接口、安全、迁移、发布与回滚影响
 
@@ -136,3 +138,4 @@ Proposal 若被接受后仍可在实现前撤回：删除或标记为 `rejected`
 - 2026-08-21：创建本提案并经人类接受，状态为 `accepted`。
 - 2026-08-21：接受项目化适配方案；路由 Skill、Task 画像、角色合同和治理门禁按本提案落地。
 - 2026-08-26：审查修复收紧Task owner、notRun和Design密封真实diff合同，不新增第二套Task schema。
+- 2026-08-27：Task协作合同改为Agent主导，增加`research` kind和八个活动Task章节；删除`issueRequired`与Task `draft`状态，统一使用可空`actionIssueId`，并将自治包当前v1 Task纳入同一治理门禁。

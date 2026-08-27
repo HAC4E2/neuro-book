@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v1
 taskId: 00157-post-merge-unified-review
-issueRequired: false
 actionIssueId: null
 worktreeId: null
 branchId: master

@@ -4,7 +4,7 @@
 
 ## Issue、Task 与决策记录
 
-Issue承载公开目标、子项、依赖和协作状态；Proposal决定长期方案；Spec定义目标或当前行为；Task是Leader写给Tasker的一次实现文件合同。开发者批准目标后，Leader可先完成本地Issue设计、Proposal/Spec/Task和执行编排，不等待PM或远端状态同步。
+Issue只承载重大或长期交付的公开目标、总体范围与非目标、验收、重大依赖、Task导航和交付状态；Proposal决定长期方案；Spec定义目标或当前行为；Task是Leader写给Tasker的一次人机协作与执行合同。开发者批准目标后，Leader可完成本地Issue设计、Proposal/Spec/Task和执行编排，不等待PM或远端状态同步。
 
 每个开放Issue恰好保留一个现有`type:*`和一个现有`status:*`。`type:*`按Issue实质选择；`status:*`只有：
 
@@ -15,11 +15,11 @@ Issue承载公开目标、子项、依赖和协作状态；Proposal决定长期�
 - `claimed`：已有实现owner，提醒其他贡献者不要并行；
 - `blocked`：存在外部依赖。
 
-这些标签用于公开协作，不是Leader本地编排或Tasker开工的权限锁。远端写入仍需具体授权；未获授权时Leader按`.agents/issues/README.md`维护含Draft-Key、标签、目标、验收和授权请求的草稿。获授权后先查找精确Draft-Key，0个匹配才创建、1个复用、多个阻塞；取得编号后只创建`issueRequired: true`的draft扁平Task，开发者接受后再planned。闭合链接并持久化授权和迁移结果后最后删除草稿。
+这些标签用于公开协作，不是Leader本地编排或Tasker开工的权限锁。远端写入仍需具体授权；未获授权时Leader按`.agents/issues/README.md`维护Draft-Key草稿。获授权后先查找精确Draft-Key，0个匹配才创建、1个复用、多个阻塞；取得编号后按当前已知结果创建唯一完整`planned` Task，闭合链接和授权记录后最后删除草稿。
 
-大目标由Leader拆成调研、设计、基础设施和领域实现等子Issue；父子关系表达组成，`blocks/blocked by`只表达真正执行依赖。Issue是多Task交付的唯一聚合根：获授权创建远端Issue并取得编号后，可执行叶子Issue使用`1..N`个直接共享其编号的扁平Task，不创建统筹Task或`parentTaskId`；容器Issue/待拆Issue可无直接Task，但必须列出子Issue或下一Leader入口。Issue或Leader walkthrough可维护交付地图，但只做导航。
+Issue可以有`0..N`个Task；Task通过`actionIssueId`关联`0..1`个Issue。属于已有Issue验收范围的Task无论位于哪个root都写正整数编号；不值得创建Issue的本地治理、隔离实验和机械工作写`actionIssueId: null`。多个Task可共享同一编号，不创建统筹Task或`parentTaskId`。只有需要独立排期、独立验收或独立交付的结果才拆子Issue；调研、设计和编码默认在同一Issue下按真实结果逐个创建Task。
 
-Leader处理Issue后的正式出口为：交给下一位Leader继续拆分的Issue、供开发者审阅且不可执行的draft Task、开发者已接受的planned Task、记录长期取舍的Proposal、定义目标或当前合同的Spec。应用owner当前Task固定`issueRequired: true`和正整数`actionIssueId`；根owner才允许本地治理、实验或机械Task使用`issueRequired: false`和`null`。planned只授权Task工作，不授权远端或受限动作；授权记录在context/walkthrough且不外推。活跃Design Task首次提交README/context时密封kind、执行身份、Git基线、产物和允许文件，治理门禁检查该窗口真实diff；同一diff不能靠改frontmatter、状态或context关闭门禁。
+Task创建即为`planned`，表示Leader已核实并派发完整合同，不表示开发者批准文件细节。每个活动Task必须写Agent工作、开发者参与、任务产物、修改计划、完成门禁、Leader继续条件和允许文件。Agent主导执行，开发者只在明示节点完成设计、实际观察/验证、产品判断、风险接受或受限动作授权。Leader派发后停止，在继续条件满足前不预建后续Task。planned只授权Task工作，不授权远端或受限动作；授权记录在context/walkthrough且不外推。活跃Design Task的首次密封与真实diff门禁保持。
 
 ## Worktree 与分支
 

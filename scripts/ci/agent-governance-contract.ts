@@ -19,6 +19,7 @@ const AGENT_WORKFLOW_PROFILE = "nbook.agent-skills/v1";
 const AGENT_WORKFLOW_KINDS: Record<string, true> = {
     feedback: true,
     design: true,
+    research: true,
     bug: true,
     feature: true,
     refactor: true,
@@ -42,7 +43,6 @@ const AGENT_WORKFLOW_CHECKS: Record<string, true> = {
 };
 
 const TASK_STATUSES: Record<string, true> = {
-    draft: true,
     planned: true,
     "in-progress": true,
     blocked: true,
@@ -50,6 +50,8 @@ const TASK_STATUSES: Record<string, true> = {
     completed: true,
     abandoned: true,
 };
+const ACTIVE_TASK_STATUSES: Record<string, true> = {planned: true, "in-progress": true, blocked: true, verifying: true};
+const TASK_COLLABORATION_SECTIONS = ["目标", "Agent 工作", "开发者参与", "任务产物", "修改计划", "完成门禁", "Leader 继续条件", "允许文件"] as const;
 const LEGACY_TASKS_WITHOUT_AGENT_WORKFLOW: Record<string, true> = {
     "00149-monorepo-workspace-consolidation": true,
     "00150-monorepo-boundary-convergence": true,
@@ -364,23 +366,23 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
     return failures;
 }
 
-/** 防止角色合同退回 PM 前置状态机，并保留合并后统一评审门禁。 */
+/** 防止角色合同退回 PM、Task 人工批准或预建任务链，并保留统一评审门禁。 */
 export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] {
     const failures: string[] = [];
     const contracts = [
         ["AGENTS.md", ["开发者批准一个目标、范围和关键取舍后", "本地可逆开发动作", "远端Issue/Project/PR写入", "统一评审通过后"]],
         [".omp/RULES.md", ["Leader可自主执行范围内本地可逆开发动作", "远端Issue/Project/PR写入"]],
-        ["docs/proposals/p-005-development-workflow-governance.md", ["Leader五类产物", "`agentWorkflow.kind: design`", "PM和Reviewer都是按需角色", ".agents/issues/README.md", "不创建统筹Task", "先查找精确Draft-Key", "唯一接受点"]],
-        [".agents/issues/README.md", ["路径是远端创建前的稳定恢复键", "不是 Issue ID", "0个精确匹配", "1个精确匹配", "多个精确匹配", "一个`type:*`和一个`status:*`", "只创建`status: draft`", "最后删除本地草稿", "授权来源和动作范围", "不得保留第二份状态正文"]],
-        ["docs/standards/repository-workflow.md", ["不等待PM或远端状态同步", "不创建统筹Task", "恰好保留一个", "issueRequired", "Leader可以直接同步上述状态", "开发者针对当前merge revision集合明确确认统一评审通过"]],
+        ["docs/proposals/p-005-development-workflow-governance.md", ["Issue可以有`0..N`个Task", "`actionIssueId: null`", "Agent主导执行", "开发者参与", "任务产物", "修改计划", "完成门禁", "Leader继续条件", "派发后停止", "不预建依赖未知结果的Task", "PM和Reviewer都是按需角色"]],
+        [".agents/issues/README.md", ["路径是远端创建前的稳定恢复键", "不是 Issue ID", "0 个精确匹配", "1 个精确匹配", "多个精确匹配", "一个 `type:*` 和一个 `status:*`", "唯一完整 `status: planned` Task", "最后删除本地草稿", "不得保留第二份状态正文"]],
+        ["docs/standards/repository-workflow.md", ["不等待PM或远端状态同步", "Issue可以有`0..N`个Task", "`actionIssueId: null`", "不创建统筹Task", "Agent主导执行", "Leader派发后停止", "开发者针对当前merge revision集合明确确认统一评审通过"]],
         ["docs/specs/AGENTS.md", ["design Tasker只能按开发者明确接受的决定", "不能自行批准取舍或晋升implemented"]],
         [".agents/roles/pm/AGENTS.md", ["可选的 GitHub Project", "不成为Leader或Tasker的等待条件", "当前merge revision集合", "覆盖范围的PR已全部合并"]],
-        [".agents/roles/leader/AGENTS.md", ["下一位Leader继续拆分", "不创建统筹Task", "`agentWorkflow.kind: design`", "不等待 PM", "唯一接受点", "退回`in-progress`", "Task `completed` 不能触发Project `Done`"]],
-        [".agents/roles/tasker/AGENTS.md", ["`draft`只供开发者审阅", "只有design Tasker", "`verifying`", "不实现业务代码", "普通Tasker不改Spec"]],
+        [".agents/roles/leader/AGENTS.md", ["Issue 可以有 `0..N` 个 Task", "`actionIssueId: null`", "开发者参与", "任务产物", "修改计划", "完成门禁", "Leader 继续条件", "派发后停止", "禁止预建依赖未知结果", "Task `completed` 不能触发 Project `Done`"]],
+        [".agents/roles/tasker/AGENTS.md", ["Tasker 只执行 Leader 写入 Task 文件的合同", "Agent 主导执行", "开发者参与点", "不得自行代替开发者决定", "`kind: research`", "`kind: design`", "`verifying`"]],
         [".agents/roles/reviewer/AGENTS.md", ["不是每个Task的前置状态", "不能触发Project `Done`"]],
-        [".agents/tasks/README.md", ["不创建统筹Task", "`kind: design`", "`issueRequired`", "唯一接受点", "`verifying`", "`verification.notRun`只表示不适用", "Task completed不触发Project Done"]],
-        [".agents/tasks/AGENTS.md", ["`draft`不得执行", "`kind: design`必须有非空", "`verifying`", "普通Tasker不修改Issue"]],
-        [".agents/tasks/00160-leader-driven-development-workflow/README.md", ["先查找精确`Draft-Key`", "只创建`status: draft`", "开发者接受后", "最后删除草稿", "以`context.md`为准"]],
+        [".agents/tasks/README.md", ["一个 Issue 可以有 `0..N` 个 Task", "`actionIssueId: null`", "Task 由 Agent 主导执行", "八个非空章节", "Leader 派发后停止", "不预建依赖未知结果", "`kind: research`", "`kind: design`", "`verification.notRun` 只表示不适用"]],
+        [".agents/tasks/AGENTS.md", ["Task 创建即为完整 `planned` 合同", "Agent 主导执行", "开发者参与", "派发后停止", "不得预建依赖未知结果", "`agentWorkflow.kind: research`", "`kind: design`"]],
+        [".agents/tasks/00160-leader-driven-development-workflow/README.md", ["Issue可含`0..N`个Task", "`actionIssueId: null`", "Task目录创建即为完整`planned`合同", "Agent主导", "开发者参与", "任务产物", "修改计划", "完成门禁", "Leader继续条件", "派发后停止"]],
     ] as const;
     for (const [relativePath, markers] of contracts) {
         if (!hasTextMarkers(repoRoot, relativePath, markers)) failures.push(`Leader 主导顺序开发合同缺少必需标记：${relativePath}`);
@@ -390,8 +392,10 @@ export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[
         /planned(?:task)?(?:允许|授权|可以)(?:直接|自动)?(?:远端写入|push|pr|合并|发布|部署|数据库迁移|真实provider|浏览器人工验收|数据删除)/u,
         /(?:tasker(?:可以|可)执行drafttask|draft(?:task)?(?:可以|可)?由?tasker执行)/u,
         /(?:taskcompleted|pr合并|reviewer建议合并|ci通过)(?:可以|可)?(?:直接|自动|单独)*(?:触发|进入)(?:project)?done/u,
-        /(?:取得|获得)(?:issue)?编号后(?:直接|立即)?(?:创建|建立)planned(?:task)?/u,
-        /tasker(?:只能|仅能)(?:处理|执行)(?:planned|inprogress)(?:task)?/u,
+        /开发者(?:逐个|逐项)(?:接受|批准|审阅)(?:task|任务合同)/u,
+        /(?:应用owner|根owner)(?:当前task)?(?:固定|才允许|必须)(?:关联issue|正整数issue|null|无issue)/u,
+        /(?:一次|提前|预先)(?:创建|建立|预建)(?:完整|全部|整条)?(?:后续|未来)?task(?:链|列表)?/u,
+        /tasker(?:可以|可)自行决定(?:产品|方案|取舍|结果)?/u,
         /未获(?:浏览器)?(?:人工验收)?授权(?:可以|可)?(?:记录|写入|放入)notrun/u,
     ] as const;
     for (const [relativePath] of contracts) {
@@ -844,16 +848,33 @@ function isHistoricalTaskShape(ownerRoot: string, taskId: string): boolean {
 
 function markdownListItems(section: string | null): string[] {
     if (!section) return [];
-    return section.split(/\r?\n/u)
-        .map((line) => /^\s*-\s+`?([^`]+?)`?\s*$/u.exec(line)?.[1]?.trim())
-        .filter((item): item is string => item !== undefined && item.length > 0);
+    const items: string[] = [];
+    let fence: {character: "`" | "~"; length: number} | null = null;
+    for (const line of section.split(/\r?\n/u)) {
+        const fenceMatch = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+        if (fenceMatch) {
+            const marker = fenceMatch[1] ?? "";
+            const character = marker[0] as "`" | "~";
+            if (!fence) fence = {character, length: marker.length};
+            else if (character === fence.character && marker.length >= fence.length) fence = null;
+            continue;
+        }
+        if (fence || /^(?: {4}|\t)/u.test(line)) continue;
+        const match = /^ {0,3}[-*+]\s+(.+?)\s*$/u.exec(line);
+        if (!match) continue;
+        const raw = (match[1] ?? "").trim();
+        const wrapped = /^`([^`]+)`$/u.exec(raw);
+        const item = (wrapped?.[1] ?? raw).trim();
+        if (item.length > 0) items.push(item);
+    }
+    return items;
 }
 
 function normalizedDesignType(section: string | null): string | null {
     if (!section) return null;
     const lines = section.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
     if (lines.length !== 1) return null;
-    const value = (lines[0] ?? "").replace(/^-\s+/u, "").trim();
+    const value = (lines[0] ?? "").replace(/^[-*+]\s+/u, "").trim();
     return value.length >= 1 && value.length <= 64 && !/[\p{Cc}\p{Cf}]/u.test(value) ? value.toLowerCase() : null;
 }
 
@@ -870,17 +891,48 @@ function isTaskReportPath(readmePath: string, path: string): boolean {
     return new RegExp(`^${taskRoot}/(?:walkthroughs|evidences)/[^/]+$`, "u").test(path);
 }
 
+
 function markdownSection(text: string, title: string): string | null {
     const lines = text.split(/\r?\n/u);
     const heading = `## ${title}`;
-    const start = lines.findIndex((line) => line.trim() === heading);
+    let start = -1;
+    let fence: {character: "`" | "~"; length: number} | null = null;
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index] ?? "";
+        const fenceMatch = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+        if (fenceMatch) {
+            const marker = fenceMatch[1] ?? "";
+            const character = marker[0] as "`" | "~";
+            if (!fence) fence = {character, length: marker.length};
+            else if (character === fence.character && marker.length >= fence.length) fence = null;
+            continue;
+        }
+        if (fence || !/^ {0,3}##\s+/u.test(line)) continue;
+        if (line.trim() === heading) {
+            start = index;
+            break;
+        }
+    }
     if (start < 0) return null;
     const content: string[] = [];
+    fence = null;
     for (let index = start + 1; index < lines.length; index += 1) {
-        if (/^##\s+/u.test(lines[index]?.trim() ?? "")) break;
-        content.push(lines[index] ?? "");
+        const line = lines[index] ?? "";
+        const fenceMatch = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+        if (fenceMatch) {
+            const marker = fenceMatch[1] ?? "";
+            const character = marker[0] as "`" | "~";
+            if (!fence) fence = {character, length: marker.length};
+            else if (character === fence.character && marker.length >= fence.length) fence = null;
+            content.push(line);
+            continue;
+        }
+        if (!fence && /^ {0,3}#{1,2}\s+/u.test(line)) break;
+        content.push(line);
     }
-    const value = content.join("\n").trim();
+    while (content.length > 0 && (content[0] ?? "").trim().length === 0) content.shift();
+    while (content.length > 0 && (content.at(-1) ?? "").trim().length === 0) content.pop();
+    const value = content.join("\n");
     return value.length > 0 ? value : null;
 }
 
@@ -925,6 +977,21 @@ function validateAgentWorkflow(repoRoot: string, relativePath: string, readme: s
         if (output && !allowedFiles.includes(output)) failures.push(`design Task 允许文件缺少设计产物：${relativePath}`);
         if (designType === "api" && (!Array.isArray(routes) || !routes.includes("api-and-interface-design"))) {
             failures.push(`API design Task 缺少 api-and-interface-design：${relativePath}`);
+        }
+    }
+    if (kind === "research") {
+        const outputs = markdownListItems(markdownSection(readme, "研究产物"));
+        const allowedFiles = markdownListItems(markdownSection(readme, "允许文件"));
+        if (!markdownSection(readme, "研究问题")) failures.push(`research Task 缺少研究问题：${relativePath}`);
+        if (outputs.length === 0) failures.push(`research Task 缺少研究产物：${relativePath}`);
+        if (!markdownSection(readme, "决策范围")) failures.push(`research Task 缺少决策范围：${relativePath}`);
+        for (const path of outputs) {
+            if (!isSafeTaskRelativePath(path) || !isTaskReportPath(relativePath, path)) failures.push(`research Task 研究产物越界：${relativePath} -> ${path}`);
+            if (!allowedFiles.includes(path)) failures.push(`research Task 允许文件缺少研究产物：${relativePath} -> ${path}`);
+        }
+        if (allowedFiles.length === 0) failures.push(`research Task 缺少允许文件：${relativePath}`);
+        for (const path of allowedFiles) {
+            if (!isSafeTaskRelativePath(path) || !outputs.includes(path)) failures.push(`research Task 允许文件越界：${relativePath} -> ${path}`);
         }
     }
 
@@ -1150,18 +1217,21 @@ function isPositiveIssueId(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
-function validateIssueContract(ownerRoot: string, relativePath: string, metadata: Record<string, unknown>, failures: string[]): void {
-    if (ownerRoot === APPLICATION_TASK_OWNER_ROOT) {
-        if (metadata.issueRequired !== true || !isPositiveIssueId(metadata.actionIssueId)) failures.push(`应用 Task 必须声明 issueRequired: true 和正整数 actionIssueId：${relativePath}`);
-        return;
+function validateIssueContract(relativePath: string, metadata: Record<string, unknown>, failures: string[]): void {
+    if (!Object.hasOwn(metadata, "actionIssueId") || (metadata.actionIssueId !== null && !isPositiveIssueId(metadata.actionIssueId))) {
+        failures.push(`Task actionIssueId 必须是正整数或 null：${relativePath}`);
     }
-    const valid = metadata.issueRequired === true
-        ? isPositiveIssueId(metadata.actionIssueId)
-        : metadata.issueRequired === false && metadata.actionIssueId === null;
-    if (!valid) failures.push(`根 Task issueRequired 与 actionIssueId 不匹配：${relativePath}`);
+    if (Object.hasOwn(metadata, "issueRequired")) failures.push(`Task 禁止字段 issueRequired：${relativePath}`);
 }
 
-const ACTIVE_DESIGN_STATUSES = new Set(["planned", "in-progress", "blocked", "verifying"]);
+function validateTaskCollaborationContract(relativePath: string, readme: string, status: unknown, failures: string[]): void {
+    if (typeof status !== "string" || !Object.hasOwn(ACTIVE_TASK_STATUSES, status)) return;
+    for (const section of TASK_COLLABORATION_SECTIONS) {
+        if (!markdownSection(readme, section)) failures.push(`Task 缺少${section}：${relativePath}`);
+    }
+}
+
+const ACTIVE_DESIGN_STATUSES: Record<string, true> = {planned: true, "in-progress": true, blocked: true, verifying: true};
 const DESIGN_BASELINE_PATTERN = /^\s*-?\s*(?:基线|baseline)\s+revision[：:]\s*`?([0-9a-f]{40})`?\s*$/iu;
 
 type DesignDiffContract = {
@@ -1186,7 +1256,7 @@ function readDesignBaseline(context: string): {revision: string | null; count: n
 
 function designDiffContract(repoRoot: string, relativePath: string, metadata: Record<string, unknown>, failures: string[]): DesignDiffContract | null {
     const currentKind = taskWorkflowKind(metadata);
-    const currentActiveDesign = currentKind === "design" && typeof metadata.status === "string" && ACTIVE_DESIGN_STATUSES.has(metadata.status);
+    const currentActiveDesign = currentKind === "design" && typeof metadata.status === "string" && Object.hasOwn(ACTIVE_DESIGN_STATUSES, metadata.status);
     let commits: string[];
     try {
         commits = git(repoRoot, ["log", "--format=%H", "--reverse", "--", relativePath]).split(/\r?\n/u).filter(Boolean);
@@ -1212,7 +1282,7 @@ function designDiffContract(repoRoot: string, relativePath: string, metadata: Re
         const activeDesign = historicalMetadata
             && taskWorkflowKind(historicalMetadata) === "design"
             && typeof historicalMetadata.status === "string"
-            && ACTIVE_DESIGN_STATUSES.has(historicalMetadata.status);
+            && Object.hasOwn(ACTIVE_DESIGN_STATUSES, historicalMetadata.status);
         if (!sealedCommit && activeDesign) {
             sealedCommit = commit;
             sealedReadme = historicalReadme;
@@ -1296,6 +1366,96 @@ function validateDesignDiff(repoRoot: string, contract: DesignDiffContract, fail
         if (!allowed) failures.push(`design Task diff 越界：${contract.readmePath} -> ${path}`);
     }
 }
+type ResearchDiffContract = {
+    allowedPaths: string[];
+    readmePath: string;
+    scopeRoot: string;
+};
+type HeadResearchDiffContracts = {
+    allowCurrentFallback: boolean;
+    blockedPaths: Set<string>;
+    contracts: Map<string, ResearchDiffContract>;
+};
+
+function isHeadResearchTaskIdentity(relativePath: string, metadata: Record<string, unknown>, ownership: TaskOwnershipManifest): boolean {
+    const rootMatch = /^\.agents\/tasks\/([^/]+)\/README\.md$/u.exec(relativePath);
+    const packageMatch = /^packages\/([^/]+)\/\.agents\/tasks\/([^/]+)\/README\.md$/u.exec(relativePath);
+    const packageName = packageMatch?.[1];
+    const directoryTaskId = rootMatch?.[1] ?? packageMatch?.[2] ?? "";
+    if (metadata.taskId !== directoryTaskId) return false;
+    if (rootMatch) return isCurrentTaskContract(ROOT_TASK_OWNER_ROOT, directoryTaskId);
+    if (packageName === "neuro-book") {
+        return isCurrentTaskContract(APPLICATION_TASK_OWNER_ROOT, directoryTaskId)
+            && ownership.tasks.some((entry) => entry.taskId === directoryTaskId);
+    }
+    return packageName !== undefined && taskIdSequence(directoryTaskId) !== null;
+}
+
+
+function researchDiffContract(relativePath: string, readme: string, metadata: Record<string, unknown>): ResearchDiffContract | null {
+    const active = taskWorkflowKind(metadata) === "research"
+        && typeof metadata.status === "string"
+        && Object.hasOwn(ACTIVE_TASK_STATUSES, metadata.status);
+    if (!active) return null;
+    const packageScope = /^(packages\/[^/]+)\//u.exec(relativePath)?.[1] ?? "";
+    return {
+        allowedPaths: [relativePath, relativePath.replace(/\/README\.md$/u, "/context.md"), ...markdownListItems(markdownSection(readme, "研究产物"))],
+        readmePath: relativePath,
+        scopeRoot: packageScope,
+    };
+}
+function headResearchDiffContracts(repoRoot: string, ownership: TaskOwnershipManifest, failures: string[]): HeadResearchDiffContracts {
+    const contracts = new Map<string, ResearchDiffContract>();
+    const blockedPaths = new Set<string>();
+    const gitMetadata = resolve(repoRoot, ".git");
+    if (!existsSync(gitMetadata)) return {allowCurrentFallback: true, blockedPaths, contracts};
+    const initializedRepository = lstatSync(gitMetadata).isFile() || existsSync(resolve(gitMetadata, "config"));
+    if (!initializedRepository) return {allowCurrentFallback: true, blockedPaths, contracts};
+    let paths: string[];
+    try {
+        paths = git(repoRoot, ["ls-tree", "-r", "--name-only", "HEAD", "--", ".agents/tasks", "packages"])
+            .split(/\r?\n/u)
+            .filter((path) => /^(?:\.agents\/tasks\/[^/]+|packages\/[^/]+\/\.agents\/tasks\/[^/]+)\/README\.md$/u.test(path));
+    } catch (error) {
+        failures.push(`research Task HEAD 密封合同无法读取：${String(error)}`);
+        return {allowCurrentFallback: false, blockedPaths, contracts};
+    }
+    for (const relativePath of paths) {
+        let readme: string;
+        try {
+            readme = git(repoRoot, ["show", `HEAD:${relativePath}`]);
+        } catch (error) {
+            failures.push(`research Task HEAD 密封合同文件无法读取：${relativePath}：${String(error)}`);
+            blockedPaths.add(relativePath);
+            continue;
+        }
+        const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(readme)?.[1];
+        if (!frontmatter || !/^schema:\s*["']?nbook\.task\/v1["']?\s*$/mu.test(frontmatter)) continue;
+        const metadata = readTaskFrontmatter(readme, relativePath, failures);
+        if (!metadata || !isHeadResearchTaskIdentity(relativePath, metadata, ownership)) continue;
+        const contract = researchDiffContract(relativePath, readme, metadata);
+        if (contract) contracts.set(relativePath, contract);
+    }
+    return {allowCurrentFallback: true, blockedPaths, contracts};
+}
+
+function readWorktreeChangedPaths(repoRoot: string, failures: string[]): Set<string> | null {
+    try {
+        const paths = new Set(git(repoRoot, ["diff", "HEAD", "--name-only", "--no-renames", "-z", "--"]).split("\0").filter(Boolean));
+        for (const path of git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) paths.add(path);
+        return paths;
+    } catch (error) {
+        failures.push(`research Task 工作树差异无法读取：${String(error)}`);
+        return null;
+    }
+}
+
+function validateResearchDiff(contract: ResearchDiffContract, paths: ReadonlySet<string>, failures: string[]): void {
+    for (const path of paths) {
+        if (contract.scopeRoot && !path.startsWith(`${contract.scopeRoot}/`)) continue;
+        if (!contract.allowedPaths.includes(path)) failures.push(`research Task diff 越界：${contract.readmePath} -> ${path}`);
+    }
+}
 
 /** 校验当前 Task 中可选的 agentWorkflow 验证画像。 */
 export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
@@ -1310,6 +1470,9 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
         : [];
     const appTaskIds = ownershipLoaded.manifest.tasks.map((entry) => entry.taskId);
     const designContracts: DesignDiffContract[] = [];
+    const headResearch = headResearchDiffContracts(repoRoot, ownershipLoaded.manifest, failures);
+    const researchContracts = new Map(headResearch.contracts);
+
     let legacyIdentity: LegacyTaskIdentity | null | undefined;
     const requireLegacyIdentity = (): LegacyTaskIdentity | null => {
         legacyIdentity ??= readLegacyTaskIdentitySet(repoRoot, failures);
@@ -1335,7 +1498,7 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
             }
             if (metadata.taskId !== taskId) failures.push(`Task taskId 与目录不一致：${relativePath}`);
             if (currentContract) {
-                validateIssueContract(ownerRoot, relativePath, metadata, failures);
+                validateIssueContract(relativePath, metadata, failures);
                 for (const field of ["worktreeId", "branchId"] as const) {
                     const value = metadata[field];
                     if (value !== null && (typeof value !== "string" || value.trim().length === 0)) failures.push(`Task ${field} 必须是非空字符串或 null：${relativePath}`);
@@ -1347,6 +1510,7 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
             if (typeof metadata.status !== "string" || !Object.hasOwn(TASK_STATUSES, metadata.status)) failures.push(`Task status 无效：${relativePath}`);
             if (typeof metadata.createdAt !== "string" || typeof metadata.updatedAt !== "string") failures.push(`Task 缺少 createdAt/updatedAt：${relativePath}`);
             if (!hasFile(repoRoot, `${ownerRoot}/${taskId}/context.md`) && !Object.hasOwn(LEGACY_TASKS_WITHOUT_CONTEXT, taskId)) failures.push(`Task 缺少 context.md：${relativePath}`);
+            if (currentContract) validateTaskCollaborationContract(relativePath, readme, metadata.status, failures);
             if (!("agentWorkflow" in metadata)) {
                 if (!Object.hasOwn(LEGACY_TASKS_WITHOUT_AGENT_WORKFLOW, taskId)) failures.push(`新 Task 缺少 agentWorkflow：${relativePath}`);
                 continue;
@@ -1355,6 +1519,66 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
             if (currentContract) {
                 const designContract = designDiffContract(repoRoot, relativePath, metadata, failures);
                 if (designContract && designContractMatchesCheckout(repoRoot, designContract)) designContracts.push(designContract);
+            }
+            if (currentContract && metadata.taskId === taskId && headResearch.allowCurrentFallback && !headResearch.blockedPaths.has(relativePath)) {
+                const researchContract = researchDiffContract(relativePath, readme, metadata);
+                if (researchContract && !researchContracts.has(relativePath)) researchContracts.set(relativePath, researchContract);
+            }
+
+        }
+    }
+    const packagesRoot = resolve(repoRoot, "packages");
+    const packageNames = existsSync(packagesRoot)
+        ? readdirSync(packagesRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "neuro-book").map((entry) => entry.name).sort()
+        : [];
+    for (const packageName of packageNames) {
+        const packageTaskRoot = resolve(packagesRoot, packageName, ".agents", "tasks");
+        if (!existsSync(packageTaskRoot)) continue;
+        const taskIds = readdirSync(packageTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+        for (const taskId of taskIds) {
+            const relativePath = `packages/${packageName}/.agents/tasks/${taskId}/README.md`;
+            if (!hasFile(repoRoot, relativePath)) continue;
+            const readme = readRepoText(repoRoot, relativePath);
+            const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(readme)?.[1];
+            if (!frontmatter || !/^schema:\s*["']?nbook\.task\/v1["']?\s*$/mu.test(frontmatter)) continue;
+            const metadata = readTaskFrontmatter(readme, relativePath, failures);
+            if (!metadata) continue;
+            if (metadata.taskId !== taskId) failures.push(`Task taskId 与目录不一致：${relativePath}`);
+            validateIssueContract(relativePath, metadata, failures);
+            for (const field of ["worktreeId", "branchId"] as const) {
+                const value = metadata[field];
+                if (value !== null && (typeof value !== "string" || value.trim().length === 0)) failures.push(`Task ${field} 必须是非空字符串或 null：${relativePath}`);
+            }
+            for (const forbiddenField of ["parentTaskId", "actionIssueIds", "issueIds"] as const) {
+                if (Object.hasOwn(metadata, forbiddenField)) failures.push(`Task 禁止聚合字段 ${forbiddenField}：${relativePath}`);
+            }
+            if (typeof metadata.status !== "string" || !Object.hasOwn(TASK_STATUSES, metadata.status)) failures.push(`Task status 无效：${relativePath}`);
+            if (typeof metadata.createdAt !== "string" || typeof metadata.updatedAt !== "string") failures.push(`Task 缺少 createdAt/updatedAt：${relativePath}`);
+            if (!hasFile(repoRoot, `packages/${packageName}/.agents/tasks/${taskId}/context.md`)) failures.push(`Task 缺少 context.md：${relativePath}`);
+            if (!("agentWorkflow" in metadata)) failures.push(`新 Task 缺少 agentWorkflow：${relativePath}`);
+            else validateAgentWorkflow(repoRoot, relativePath, readme, metadata.agentWorkflow, failures);
+            validateTaskCollaborationContract(relativePath, readme, metadata.status, failures);
+            const designContract = designDiffContract(repoRoot, relativePath, metadata, failures);
+            if (designContract && designContractMatchesCheckout(repoRoot, designContract)) designContracts.push(designContract);
+            const allowResearchFallback = headResearch.allowCurrentFallback && !headResearch.blockedPaths.has(relativePath);
+            const researchContract = allowResearchFallback && metadata.taskId === taskId ? researchDiffContract(relativePath, readme, metadata) : null;
+            if (researchContract && !researchContracts.has(relativePath)) researchContracts.set(relativePath, researchContract);
+        }
+    }
+    const researchScopes = new Map<string, ResearchDiffContract[]>();
+    for (const contract of researchContracts.values()) {
+        const contracts = researchScopes.get(contract.scopeRoot) ?? [];
+        contracts.push(contract);
+        researchScopes.set(contract.scopeRoot, contracts);
+    }
+    for (const contracts of researchScopes.values()) {
+        if (contracts.length > 1) failures.push(`当前 owner scope 命中多个活跃 research Task：${contracts.map((contract) => contract.readmePath).join(", ")}`);
+    }
+    if (researchContracts.size > 0) {
+        const changedPaths = readWorktreeChangedPaths(repoRoot, failures);
+        if (changedPaths) {
+            for (const contracts of researchScopes.values()) {
+                if (contracts.length === 1) validateResearchDiff(contracts[0] as ResearchDiffContract, changedPaths, failures);
             }
         }
     }

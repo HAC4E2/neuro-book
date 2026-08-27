@@ -7,7 +7,7 @@
 - [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
 - [`../packages/neuro-book/docs/proposals/agent-skills-adaptation.md`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：Agent Skills 项目化适配，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
-- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，开发者→Leader→Tasker顺序合同；Issue聚合多个扁平Task，Leader产出可继续拆分的Issue、draft/planned Task、Proposal和Spec，design Tasker可与开发者协作制定规范，PM/Reviewer按需，本地可逆动作使用范围授权，状态为`accepted`。
+- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，开发者→Leader→Tasker顺序合同；Issue只聚合重大/长期目标，Task可关联一个Issue或作为无Issue本地工作，Agent主导执行，开发者按明示节点参与，Leader按结果逐个创建`planned` Task并在派发后停止，PM/Reviewer按需，状态为`accepted`。
 
 已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
@@ -38,7 +38,7 @@
 ## 生效规则
 
 - `draft`和`reviewing`只供讨论，不能被代码、测试或Agent当作当前行为依据。
-- `accepted`表示长期取舍已决定，允许Leader更新planned Spec，并创建draft/planned设计或实现Task；Proposal本身不会自动成为规范或执行授权。
+- `accepted`表示长期取舍已决定，允许Leader更新planned Spec，并按当前已知结果创建一个完整`planned`设计、研究或实现Task；Proposal本身不会自动成为规范或执行授权。
 - 实施前把已批准行为写入[`../specs/README.md`](../specs/README.md)注册的当前规范。design Task可以与开发者协作形成指定Spec草案，但只有明确接受的决定可进入planned合同。
 - `.agents/tasks/`记录一次设计或实现的范围、交接和证据；Task引用Proposal与Spec，不复制正文。
 `rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../packages/neuro-book/docs/archived/`](../../packages/neuro-book/docs/archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。

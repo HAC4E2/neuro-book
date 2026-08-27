@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v1
 taskId: 00158-notification-contrast-fix
-issueRequired: true
 actionIssueId: 177
 worktreeId: null
 branchId: null

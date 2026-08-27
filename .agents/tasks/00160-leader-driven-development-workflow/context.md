@@ -11,12 +11,18 @@
 ## 开发者决策
 
 - 完整主线为开发者→Leader→Tasker→Leader→开发者，Leader不等待PM。
-- Leader产物是交给下一位Leader继续拆分的Issue、Task草案、可执行Task、Proposal和Spec。
-- Issue是多Task交付聚合根；应用owner当前Task固定`issueRequired: true`和正整数Issue，根owner才允许本地例外使用`false`与`null`；不创建统筹Task或Task父子状态。
-- 未编号Issue草稿保存唯一Draft-Key、type/status标签和具体远端动作请求；获授权后先按Draft-Key查询，取得或复用编号后只建draft扁平Task，开发者接受后planned，闭合链接与授权留痕后最后删除草稿。
-- Task草案为draft、不可执行；唯一接受点是开发者逐个接受目标、范围、依赖、验收和停止条件，由Leader翻转planned并留痕；planned不授权受限动作。
-- Leader可派发design Task；首次提交的活跃Design README/context密封kind、执行身份、严格祖先Git基线、产物和允许文件，真实diff不能靠修改当前合同绕过；已提交退出后不得重开。
-- 普通Tasker只通过文件合同实现和报告偏差；verifying可补required或同合同修复，合同变化交回Leader取得决策后退回in-progress。
+- Issue只服务重大或长期交付；Issue可以有`0..N`个Task，Task通过`actionIssueId`关联`0..1`个Issue。
+- 属于Issue验收范围的Task写正整数编号；无Issue本地治理、隔离实验和机械工作保留`actionIssueId: null`，删除`issueRequired`和owner分叉。
+- Task创建即完整`planned`合同，不再使用`draft`；roadmap只保存候选阶段，不能执行。
+- Task由Agent主导；Leader必须写Agent工作、开发者参与、任务产物、修改计划、完成门禁、继续条件和允许文件，派发后停止。
+- 后续Task不预建；前一步结果确定后，新Leader按需创建唯一下一Task。Issue #193 的03–11按此收敛为路线图，保留当前Task 02。
+- `research`与`design`专属合同、Design密封diff、`verifying`返工和受限动作分别授权规则保持。
+
+## 完成状态
+
+- 通用治理合同与 Issue #193 精确文件已在同一 PR worktree 集成；Harness Task 目录只保留 01 历史记录与 02 活动合同，后续候选进入非绑定路线图。
+- 最终集成验证：治理测试 `133/133`；scripts TypeScript 检查 0 errors；`governance:check` 为 `failures: []`、`warnings: []`；`docs:check` 检查 5295 个文件且无失败；未暂存与已暂存 diff check 均退出 0。
+- 远端 Issue #193 正文未修改；建议正文只保留 Task 02、路线图、开发者当前观察入口和 Leader 继续条件。浏览器未运行，因为本 Task 没有浏览器可见表面。
 
 ## 授权边界
 

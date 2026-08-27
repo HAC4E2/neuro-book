@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v1
 taskId: 00154-project-agent-skills
-issueRequired: false
 actionIssueId: null
 worktreeId: null
 branchId: master
@@ -29,9 +28,41 @@ agentWorkflow:
 
 # Task 00154：项目级 Report 与 Load Role Skills
 
-## 目标与范围
+## 目标
 
 在 `.agents/skills/` 新增主动状态汇报 Skill `report`，并以用户更正后的 `load_role` 参数化角色加载 Skill 干净替换 `agent-workflow-router`。`load_role` 使用现有 canonical `.agents/roles/<role>/AGENTS.md`，不创建第二套 `.agents/rules` 角色真相源。
+
+## Agent 工作
+
+- Tasker 完成 Skill、入口引用、静态治理检查和测试的干净切换，并把命令与结果写入 walkthrough/evidence。
+- Reviewer 核对行为、Revision、manifest 联动和允许文件；Leader按完成门禁处理当前 `verifying` 状态。
+
+## 开发者参与
+
+开发者已完成命名判断：入口名为 `load_role`，并已授权当前 checkout 的本地治理修改。后续无新的参与点；Agent 在既有合同内完成验证和交付报告。
+
+## 任务产物
+
+- Tasker：`.agents/skills/report/`、`.agents/skills/load_role/`、引用方和治理测试，供开发 Agent 使用。
+- Tasker：`evidences/final-verification.txt` 与各 Tasker walkthrough，供 Leader 验收。
+- Reviewer：`walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md`，供 Leader 判断交付。
+
+## 修改计划
+
+1. 切换 `report` 与 `load_role` 唯一入口并删除旧路由。
+2. 同步角色、Task、Proposal 和治理校验消费者。
+3. 更新 Task 135 的三份迁移 hash 登记并运行 required 检查。
+4. Reviewer复核后由Leader报告仍需授权的远端动作。
+
+## 完成门禁
+
+- `docs-check`、`governance-check`、focused governance test、scripts TypeScript typecheck 和 `diff-check` 均有当前真实结果。
+- `load_role` 是唯一角色加载入口，Task 135 三份登记一致，Reviewer无未处理 required finding。
+- 不执行未授权的 push、PR、合并、发布、部署或其它远端动作。
+
+## Leader 继续条件
+
+Leader读取本 README、`context.md`、Reviewer walkthrough 和 `evidences/final-verification.txt`；确认 required 检查仍对应当前 diff 且没有未处理 finding 后，才能把 Task 从 `verifying` 更新为 `completed`并报告下一受限动作。
 
 ## 行为合同未变依据
 
@@ -52,5 +83,4 @@ Task 00153 的未提交 P-005 改动继续隔离在 `.worktree/t153-p005-workflo
 ## 验证画像
 
 必须闭合 `docs-check`、`governance-check`、focused governance test、scripts TypeScript typecheck 和 `diff-check`。实际命令与结果进入 walkthrough/evidence；Task 完成前进行独立审查，未获远端授权时不执行交付动作。
-
 Reviewer walkthrough：[`walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md`](walkthroughs/003-reviewer-2026-08-24_17-06-cutover-review.md)。结论为“建议合并”；本轮将用户更正后的 `load_role` 设为实际入口，修复 report 引用、Revision 合同、manifest 联动说明，并按授权同步 Task 135 三份治理登记。最新 required 验证窗口见 `evidences/final-verification.txt`；Task 135 登记当前已通过 `governance:check`（`failures: []`、`warnings: []`）。本轮同时修复 `.omp/RULES.md` 的汇报格式指针并同步范围记录。Task 继续 `verifying`；未授权远端动作。
