@@ -3,29 +3,27 @@ schema: nbook.walkthrough/v1
 taskId: 00160-leader-driven-development-workflow
 sequence: 5
 role: leader
-status: completed
+status: verifying
 createdAt: 2026-08-27T02:15:49Z
 ---
 
-# Design 失败隔离修复完成
+# Design 失败隔离先前完成判断撤回
 
 ## 结论
 
-`readLegacyTaskIdentitySet()`只依据自身读取和校验错误决定返回null；此前已记录的无关Design错误不再使有效legacy identity失效。根Task目录使用稳定字典序，回归不依赖文件系统枚举顺序。真实index、marker、mapping和sourceRevision错误仍追加自身失败并fail closed。
+本文件先前的`completed`结论已撤回：原Tasker RED/GREEN记录使用的`-t`选择器不匹配最终测试标题，不能产生所声称的结果。代码修复本身保留，但Task回到`verifying`，必须以最终标题补可复现证据、重跑全部required并重新审查后才能恢复`completed`。
 
-## 证据
+## 更正证据
 
-- Tasker RED：旧helper在非法`00161-design`先于有效`99-legacy`的稳定顺序下额外报告`根 Task 标识无效：99-legacy`。
-- Tasker GREEN：污染回归及3个真实legacy metadata失败用例为`4 passed / 96 skipped (100)`。
-- Leader：`bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts`为`100 passed`。
-- Leader：`bun x tsc --noEmit -p scripts/tsconfig.json`退出码0，无输出。
-- Leader：`bun run docs:check`为`failures: []`，检查5285个文件。
-- Leader：`bun run governance:check`为`failures: []`、`warnings: []`。
-- Leader：`git diff --check`退出码0，无输出。
+- 原模糊选择器证据不再使用，详见更正后的walkthrough 004。
+- Leader受控RED：在最终测试标题和稳定根Task排序保持不变时，临时仅恢复旧helper返回条件；精确标题命令真实为`1 failed / 99 skipped (100)`，失败包含`根 Task 标识无效：99-legacy`。
+- Leader受控GREEN：恢复`localFailures`返回条件后，同一精确标题命令真实为`1 passed / 99 skipped (100)`。
+- Leader聚焦GREEN：精确列出污染回归与三个真实legacy metadata fail-closed标题，结果为`4 passed / 96 skipped (100)`。
+- 先前完整`100 passed`、TypeScript、docs、governance和diff结果发生在本次证据更正前，只是历史结果；Task恢复completed前必须在当前树从头重跑。
 
-## 审查
+## 审查状态
 
-独立Reviewer首次要求固定根Task目录顺序，结论为需要修复。Tasker增加`.sort()`并更新证据后，Reviewer复核为`overall_correctness: correct`、`findings: []`、置信度0.98，建议恢复completed。
+先前Reviewer确认代码逻辑与稳定排序正确，但没有识别选择器证据错误。该结论不足以恢复completed；当前树完成全量重验后必须再次请求独立Reviewer复核代码与证据。
 
 ## 授权与未执行
 
