@@ -1035,6 +1035,11 @@ function isTaskMigrationMapping(value: unknown): value is TaskMigrationMapping {
 type LegacyTaskIdentity = {taskIds: Set<string>; destinations: Set<string>};
 
 function readLegacyTaskIdentitySet(repoRoot: string, failures: string[]): LegacyTaskIdentity | null {
+    const localFailures: string[] = [];
+    const fail = (): null => {
+        failures.push(...localFailures);
+        return null;
+    };
     const indexPath = ".agents/tasks/legacy-index.json";
     const markerPath = ".agents/tasks/.migration-complete";
     let indexCommit: string;
@@ -1045,57 +1050,57 @@ function readLegacyTaskIdentitySet(repoRoot: string, failures: string[]): Legacy
         indexCommit = git(repoRoot, ["log", "--diff-filter=A", "--format=%H", "--reverse", "--", indexPath]).split(/\r?\n/u)[0] ?? "";
         markerCommit = git(repoRoot, ["log", "--diff-filter=A", "--format=%H", "--reverse", "--", markerPath]).split(/\r?\n/u)[0] ?? "";
         if (!indexCommit || indexCommit !== markerCommit) {
-            failures.push("历史 Task 迁移缺少唯一共同密封提交");
-            return null;
+            localFailures.push("历史 Task 迁移缺少唯一共同密封提交");
+            return fail();
         }
         const parsedIndex = JSON.parse(git(repoRoot, ["show", `${indexCommit}:${indexPath}`])) as unknown;
         const parsedMarker = JSON.parse(git(repoRoot, ["show", `${markerCommit}:${markerPath}`])) as unknown;
         if (!isRecord(parsedIndex) || !isRecord(parsedMarker)) {
-            failures.push("历史 Task 迁移密封快照结构无效");
-            return null;
+            localFailures.push("历史 Task 迁移密封快照结构无效");
+            return fail();
         }
         index = parsedIndex as TaskMigrationIndex;
         marker = parsedMarker as TaskMigrationMarker;
     } catch (error) {
-        failures.push(`历史 Task 迁移密封快照不可读：${String(error)}`);
-        return null;
+        localFailures.push(`历史 Task 迁移密封快照不可读：${String(error)}`);
+        return fail();
     }
-    if (index.schema !== "nbook.task-migration-index/v1" || marker.schema !== "nbook.task-migration/v1") failures.push("历史 Task 迁移 schema 不匹配");
-    if (index.sourceRevision !== marker.sourceRevision || index.manifestSha256 !== marker.manifestSha256) failures.push("历史 Task 迁移 index/marker 不一致");
-    if (!Array.isArray(index.mappings) || !Array.isArray(index.repositoryLinkRewrites) || !Array.isArray(index.preservedSourceFiles)) failures.push("历史 Task 迁移密封 index 结构无效");
-    if (failures.length > 0) return null;
+    if (index.schema !== "nbook.task-migration-index/v1" || marker.schema !== "nbook.task-migration/v1") localFailures.push("历史 Task 迁移 schema 不匹配");
+    if (index.sourceRevision !== marker.sourceRevision || index.manifestSha256 !== marker.manifestSha256) localFailures.push("历史 Task 迁移 index/marker 不一致");
+    if (!Array.isArray(index.mappings) || !Array.isArray(index.repositoryLinkRewrites) || !Array.isArray(index.preservedSourceFiles)) localFailures.push("历史 Task 迁移密封 index 结构无效");
+    if (localFailures.length > 0) return fail();
     if (!index.mappings.every(isTaskMigrationMapping)) {
-        failures.push("历史 Task 迁移密封 mapping 结构无效");
-        return null;
+        localFailures.push("历史 Task 迁移密封 mapping 结构无效");
+        return fail();
     }
-    const currentIndex = readJson<TaskMigrationIndex>(resolve(repoRoot, indexPath), failures, "当前 legacy-index.json");
-    const currentMarker = readJson<TaskMigrationMarker>(resolve(repoRoot, markerPath), failures, "当前 .migration-complete");
-    if (!currentIndex || !currentMarker) return null;
+    const currentIndex = readJson<TaskMigrationIndex>(resolve(repoRoot, indexPath), localFailures, "当前 legacy-index.json");
+    const currentMarker = readJson<TaskMigrationMarker>(resolve(repoRoot, markerPath), localFailures, "当前 .migration-complete");
+    if (!currentIndex || !currentMarker) return fail();
     if (currentIndex.schema !== index.schema
         || currentMarker.schema !== marker.schema
         || currentIndex.sourceRevision !== index.sourceRevision
         || currentMarker.sourceRevision !== index.sourceRevision
         || currentIndex.manifestSha256 !== currentMarker.manifestSha256
         || !Array.isArray(currentIndex.mappings)) {
-        failures.push("当前历史 Task 迁移元数据与密封身份不一致");
-        return null;
+        localFailures.push("当前历史 Task 迁移元数据与密封身份不一致");
+        return fail();
     }
     if (!currentIndex.mappings.every(isTaskMigrationMapping)) {
-        failures.push("当前历史 Task 迁移 mapping 结构无效");
-        return null;
+        localFailures.push("当前历史 Task 迁移 mapping 结构无效");
+        return fail();
     }
     const identityProjection = (mapping: TaskMigrationMapping): string => `${mapping.source}\0${mapping.destination}\0${mapping.kind}\0${String(mapping.linkRewrite)}`;
     const sealedProjection = index.mappings.map(identityProjection).sort();
     const currentProjection = currentIndex.mappings.map(identityProjection).sort();
     if (JSON.stringify(currentProjection) !== JSON.stringify(sealedProjection)) {
-        failures.push("当前历史 Task 迁移 mapping 身份投影漂移");
-        return null;
+        localFailures.push("当前历史 Task 迁移 mapping 身份投影漂移");
+        return fail();
     }
     const manifest = {schema: "nbook.task-migration-manifest/v1", sourceRevision: index.sourceRevision, mappings: index.mappings, repositoryLinkRewrites: index.repositoryLinkRewrites, preservedSourceFiles: index.preservedSourceFiles};
     const manifestSha256 = `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
     if (manifestSha256 !== index.manifestSha256) {
-        failures.push("历史 Task 迁移密封 manifest SHA-256 不一致");
-        return null;
+        localFailures.push("历史 Task 迁移密封 manifest SHA-256 不一致");
+        return fail();
     }
     let baselineReadmes: Set<string>;
     try {
@@ -1103,8 +1108,8 @@ function readLegacyTaskIdentitySet(repoRoot: string, failures: string[]): Legacy
             .split(/\r?\n/u)
             .filter((path) => /^docs\/tasks\/[^/]+\/README\.md$/u.test(path)));
     } catch (error) {
-        failures.push(`历史 Task sourceRevision 无法读取：${String(error)}`);
-        return null;
+        localFailures.push(`历史 Task sourceRevision 无法读取：${String(error)}`);
+        return fail();
     }
     const taskIds = new Set<string>();
     const destinations = new Set<string>();
@@ -1113,14 +1118,14 @@ function readLegacyTaskIdentitySet(repoRoot: string, failures: string[]): Legacy
         const match = /^\.agents\/tasks\/([^/]+)\/README\.md$/u.exec(mapping.destination);
         if (!match || mapping.source !== `docs/tasks/${match[1]}/README.md` || !baselineReadmes.has(mapping.source)) continue;
         if (sources.has(mapping.source) || destinations.has(mapping.destination)) {
-            failures.push(`历史 Task 迁移密封 mapping 重复：${mapping.source}`);
+            localFailures.push(`历史 Task 迁移密封 mapping 重复：${mapping.source}`);
             continue;
         }
         sources.add(mapping.source);
         taskIds.add(match[1]);
         destinations.add(mapping.destination);
     }
-    return failures.length > 0 ? null : {taskIds, destinations};
+    return localFailures.length > 0 ? fail() : {taskIds, destinations};
 }
 function taskIdentity(
     ownerRoot: string,
@@ -1301,7 +1306,7 @@ export function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] {
 
     const rootTaskRoot = resolve(repoRoot, ROOT_TASK_OWNER_ROOT);
     const rootTaskIds = existsSync(rootTaskRoot)
-        ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name)
+        ? readdirSync(rootTaskRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && entry.name !== "archived").map((entry) => entry.name).sort()
         : [];
     const appTaskIds = ownershipLoaded.manifest.tasks.map((entry) => entry.taskId);
     const designContracts: DesignDiffContract[] = [];

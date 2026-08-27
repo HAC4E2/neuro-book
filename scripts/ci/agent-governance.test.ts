@@ -443,6 +443,20 @@ taskId: ${taskId}
             expect(verifyTaskAgentWorkflowProfiles(invalidRoot), mode).toContain("根 Task 标识无效：99-legacy");
         }
     });
+    it("按稳定根 Task 顺序先处理无关 Design 错误且不污染有效 legacy identity", async () => {
+        const repoRoot = await createHistoricalTaskWorkflowFixture("99-legacy", "valid");
+        await writeText(repoRoot, ".agents/tasks/00161-design/README.md", designTaskReadme({
+            taskId: "00161-design",
+            output: "docs/specs/../../AGENTS.md",
+            status: "planned",
+        }));
+        await writeText(repoRoot, ".agents/tasks/00161-design/context.md", "# Unrelated Design Context\n");
+
+        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        expect(failures).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/00161-design/README.md");
+        expect(failures).not.toContain("根 Task 标识无效：99-legacy");
+    });
+
     it("历史身份在 index 与 marker 密封值不一致时 fail closed", async () => {
         const repoRoot = await createHistoricalTaskWorkflowFixture("99-legacy", "mismatched-marker");
 
