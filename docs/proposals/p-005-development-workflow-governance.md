@@ -9,6 +9,16 @@ NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、
 另一个问题是Leader与Tasker的合同同时存在于聊天、Issue、Task和角色提示中。Tasker需要等待Leader实时解释，跨session恢复时又无法确定哪份计划有效。
 
 本提案不改变NeuroBook产品功能或用户数据，只调整开发角色和文件工作流。
+## 2026-08-27 当前决策
+
+本节取代下方历史正文中与 `actionIssueId`、`agentWorkflow`、`kind`、Task status、task级worktree/branch身份和旧Task root相关的现行规则；历史文字保留为决策演进记录。
+
+- Work 作为 current Task 的强制容器，一个Work直接包含`1..N`个Task；Work通过`issueId: i<编号> | null`可选引用一个GitHub Issue。
+- Task 指定正式 role，且只允许`pm`、`leader`、`tasker`或`reviewer`中的一个；Task正文是协作参考，不作机器状态或权限门禁。
+- Proposal独立于Work，可被多个Work引用，不建立反向索引；Spec继续承载可观察产品合同。
+- `.agents/works/`是current唯一入口；根、主应用和自治包`.agents/tasks/`只保留legacy provenance并拒收`nbook.task/v2`。
+- Agent主导执行，开发者参与产品决定、实际观察、风险接受和受限动作授权；PM和Reviewer都是按需角色。
+- 历史Task、worktree、branch、PR、walkthrough、ownership和密封迁移hash不迁移、不重编号、不重算。
 
 ## 目标与非目标
 

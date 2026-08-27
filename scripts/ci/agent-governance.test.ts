@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyLeaderDrivenDevelopmentContract, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveLegacyTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyLeaderDrivenDevelopmentContract, verifyLegacyTaskProvenance, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyTaskOwnership, verifyWorkContracts, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -86,17 +86,100 @@ describe("Task ownership 当前树门禁", () => {
     });
 
     it("ownership 精确选择应用与根 Task root", () => {
-        const app = resolveTaskReadmePath(repositoryRoot, "01-agent-roleplay-mode");
+        const app = resolveLegacyTaskReadmePath(repositoryRoot, "01-agent-roleplay-mode");
         expect(app.path).toBe(join(repositoryRoot, "packages/neuro-book/.agents/tasks/01-agent-roleplay-mode/README.md"));
         expect(app.checkedRoots).toEqual(["packages/neuro-book/.agents/tasks"]);
 
-        const root = resolveTaskReadmePath(repositoryRoot, "00149-monorepo-workspace-consolidation");
+        const root = resolveLegacyTaskReadmePath(repositoryRoot, "00149-monorepo-workspace-consolidation");
         expect(root.path).toBe(join(repositoryRoot, ".agents/tasks/00149-monorepo-workspace-consolidation/README.md"));
         expect(root.checkedRoots).toEqual([".agents/tasks"]);
 
-        const missing = resolveTaskReadmePath(repositoryRoot, "99999-does-not-exist");
+        const missing = resolveLegacyTaskReadmePath(repositoryRoot, "99999-does-not-exist");
         expect(missing.path).toBeNull();
         expect(missing.checkedRoots).toEqual([".agents/tasks"]);
+    });
+});
+describe("Work 与 Task 当前容器门禁", () => {
+    it("合法 Work 内 Task 通过，且不需要旧 agentWorkflow 或 actionIssueId", async () => {
+        const repoRoot = await createTestTmpRoot("governance-work", "governance-work-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-development-workflow-governance\nissueId: null\n---\n\n# Work\n");
+        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-work-task-model\nrole: tasker\n---\n\n# Task\n\n目标、协作与产物。\n");
+
+        expect(verifyWorkContracts(repoRoot)).toEqual([]);
+    });
+    it("Work 必须直接包含至少一个 Task", async () => {
+        const repoRoot = await createTestTmpRoot("governance-work-empty", "governance-work-empty-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-empty/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-empty\nissueId: null\n---\n\n# Empty\n");
+        await mkdir(join(repoRoot, ".agents/works/w00001-empty/tasks"), {recursive: true});
+
+        expect(verifyWorkContracts(repoRoot)).toContain("Work 必须至少包含一个 Task：.agents/works/w00001-empty");
+    });
+
+    it("Work 与 Task frontmatter 身份必须匹配目录", async () => {
+        const repoRoot = await createTestTmpRoot("governance-work-identity", "governance-work-identity-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-identity/README.md", "---\nschema: nbook.work/v1\nworkId: w00002-other\nissueId: null\n---\n\n# Work\n");
+        await writeText(repoRoot, ".agents/works/w00001-identity/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t02-other\nrole: tasker\n---\n\n# Task\n");
+
+        expect(verifyWorkContracts(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Work workId 与目录不一致"),
+            expect.stringContaining("Work Task taskId 与目录不一致"),
+        ]));
+    });
+
+    it("Work Task 拒绝未知 role", async () => {
+        const repoRoot = await createTestTmpRoot("governance-work-role", "governance-work-role-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-role/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-role\nissueId: null\n---\n\n# Work\n");
+        await writeText(repoRoot, ".agents/works/w00001-role/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-task\nrole: developer\n---\n\n# Task\n");
+
+        expect(verifyWorkContracts(repoRoot)).toContain("Work Task role 无效：.agents/works/w00001-role/tasks/t01-task/README.md");
+    });
+
+    it("旧根中的 v2 Task 由 legacy 校验拒收", async () => {
+        const repoRoot = await createTestTmpRoot("governance-work-orphan", "governance-work-orphan-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/tasks/t01-orphan/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-orphan\nrole: tasker\n---\n\n# Orphan\n");
+
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("旧归档根拒收 v2"),
+        ]));
+    });
+    it("根旧归档的 nested v2 Task 由 legacy 校验拒收", async () => {
+        const repoRoot = await createTestTmpRoot("governance-root-archive-v2", "governance-root-archive-v2-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = ".agents/tasks/archived/nested-v2/README.md";
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-nested\nrole: tasker\n---\n\n# Nested\n");
+
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
+    });
+
+    it("自治包旧归档的 nested v2 Task 由 legacy 校验拒收", async () => {
+        const repoRoot = await createTestTmpRoot("governance-package-archive-v2", "governance-package-archive-v2-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = "packages/neuro-agent-harness/.agents/tasks/archived/nested-v2/README.md";
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-nested\nrole: tasker\n---\n\n# Nested\n");
+
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
+    });
+    it("根旧归档的非 archived nested v2 Task 由 legacy 校验拒收", async () => {
+        const repoRoot = await createTestTmpRoot("governance-root-nested-v2", "governance-root-nested-v2-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = ".agents/tasks/group/t01-hidden/README.md";
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-hidden\nrole: tasker\n---\n\n# Hidden\n");
+
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
+    });
+
+    it("自治包旧归档的非 archived nested v2 Task 由 legacy 校验拒收", async () => {
+        const repoRoot = await createTestTmpRoot("governance-package-nested-v2", "governance-package-nested-v2-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = "packages/neuro-agent-harness/.agents/tasks/group/t01-hidden/README.md";
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-hidden\nrole: tasker\n---\n\n# Hidden\n");
+
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
     });
 });
 describe("Agent Skills 适配治理门禁", () => {
@@ -105,31 +188,8 @@ describe("Agent Skills 适配治理门禁", () => {
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
     });
-    it("draft Proposal 出现真实 Task agentWorkflow 时失败", async () => {
-        const repoRoot = await createTaskWorkflowFixture(`---
-schema: nbook.task/v1
-taskId: 00161-profile
-issueRequired: false
-actionIssueId: null
-worktreeId: null
-branchId: master
-status: planned
-createdAt: 2026-08-26T00:00:00Z
-updatedAt: 2026-08-26T00:00:00Z
-agentWorkflow:
-  profile: nbook.agent-skills/v1
-  kind: bug
-  routes:
-    - diagnosing-bugs
-  verification:
-    required:
-      - focused-test
-    notRun: []
----
-
-# Draft profile
-`);
-        await writeText(repoRoot, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：draft\n");
+    it("draft Proposal 出现真实 Work 实现时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "complete");
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
     });
@@ -150,10 +210,10 @@ agentWorkflow:
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("load_role Skill 缺少有效 frontmatter");
     });
-    it("accepted fixture 缺少 Task verification 固定字段时失败", async () => {
+    it("accepted fixture 缺少 Work 入口时失败", async () => {
         const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-task-fields");
 
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Task 合同缺少完整 agentWorkflow 字段");
+        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Work 入口缺失");
     });
     it("accepted fixture 缺少治理函数真实导出时失败", async () => {
         const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-contract-export");
@@ -194,10 +254,12 @@ agentWorkflow:
     });
 
 
-    it("治理 CLI 聚合 accepted、draft 和缺少 required 的 profile 结果", async () => {
+
+
+    it("治理 CLI 聚合 accepted、draft 和无效 Work Task role 结果", async () => {
         const repoRoot = await createGovernanceCliFixture();
         const proposalPath = "packages/neuro-book/docs/proposals/agent-skills-adaptation.md";
-        const profilePath = ".agents/tasks/00161-profile/README.md";
+        const taskPath = ".agents/works/w00001-governance/tasks/t01-model/README.md";
         const accepted = await runGovernanceCli(repoRoot);
 
         expect(accepted.report.failures).toEqual([]);
@@ -209,46 +271,145 @@ agentWorkflow:
         expect(draft.report.failures).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
 
         await writeText(repoRoot, proposalPath, "# Proposal\n\n状态：accepted\n");
-        await writeText(repoRoot, profilePath, `---
-schema: nbook.task/v1
-taskId: 00161-profile
-issueRequired: false
-actionIssueId: null
-worktreeId: null
-branchId: master
-status: planned
-createdAt: 2026-08-26T00:00:00Z
-updatedAt: 2026-08-26T00:00:00Z
-agentWorkflow:
-  profile: nbook.agent-skills/v1
-  kind: bug
-  routes:
-    - diagnosing-bugs
-  verification:
-    notRun: []
----
-
-# Missing required
-`);
-        const missingRequired = await runGovernanceCli(repoRoot);
-        expect(missingRequired.status).not.toBe(0);
-        expect(missingRequired.report.failures).toEqual(expect.arrayContaining([
-            expect.stringContaining("Task verification.required 必须是非空数组"),
-        ]));
+        await writeText(repoRoot, taskPath, "---\nschema: nbook.task/v2\ntaskId: t01-model\nrole: developer\n---\n\n# Invalid role\n");
+        const invalidRole = await runGovernanceCli(repoRoot);
+        expect(invalidRole.status).not.toBe(0);
+        expect(invalidRole.report.failures).toContain(`Work Task role 无效：${taskPath}`);
     }, 30_000);
 
-    it("agent-context 拒绝数值为零的 Task 标识", async () => {
-        const result = await runAgentContextCli("00-invalid");
+    it("agent-context 解析 Work 内 Task 并返回 role", async () => {
+        const repoRoot = await createTestTmpRoot("governance-context-work", "governance-context-work-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-development-workflow-governance\nissueId: null\n---\n\n# Work\n");
+        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-work-task-model\nrole: tasker\n---\n\n# Task\n");
+        await initializeGitFixture(repoRoot);
+        const result = await runAgentContextCli("t01-work-task-model", repoRoot, "w00001-development-workflow-governance", "tasker");
 
-        expect(result.status).not.toBe(0);
-        expect(result.failures).toContain("Task 标识格式无效：00-invalid");
+        expect(result.status).toBe(0);
+        expect(result.report?.work).toBe("w00001-development-workflow-governance");
+        expect(result.report?.taskRole).toBe("tasker");
     });
-    it.each(["99-new", "00151-new"])("agent-context 拒绝伪历史或非法过渡 Task %s", async (taskId) => {
-        const repoRoot = await createForgedHistoricalIdentityFixture(taskId);
-        const result = await runAgentContextCli(taskId, repoRoot);
+    it("agent-context 拒绝非法 Work 合同", async () => {
+        const workId = "w00001-invalid-work";
+        const taskId = "t01-task";
+        const workPath = `.agents/works/${workId}/README.md`;
+        const taskPath = `.agents/works/${workId}/tasks/${taskId}/README.md`;
+        const cases = [
+            {name: "schema", frontmatter: `schema: nbook.work/v0\nworkId: ${workId}\nissueId: null`, failure: `Work schema 无效：${workPath}`},
+            {name: "work-id", frontmatter: "schema: nbook.work/v1\nworkId: w00002-other\nissueId: null", failure: `Work workId 与目录不一致：${workPath}`},
+            {name: "issue-id", frontmatter: `schema: nbook.work/v1\nworkId: ${workId}\nissueId: i0`, failure: `Work issueId 必须是 i 加正整数或 null：${workPath}`},
+        ];
+
+        for (const [index, testCase] of cases.entries()) {
+            const repoRoot = await createTestTmpRoot(`governance-context-invalid-work-${String(index)}`, `governance-context-invalid-work-${testCase.name}-test`);
+            fixtureRoots.push(repoRoot);
+            await writeText(repoRoot, workPath, `---\n${testCase.frontmatter}\n---\n\n# Invalid Work\n`);
+            await writeText(repoRoot, taskPath, `---\nschema: nbook.task/v2\ntaskId: ${taskId}\nrole: tasker\n---\n\n# Task\n`);
+            await initializeGitFixture(repoRoot);
+
+            const result = await runAgentContextCli(taskId, repoRoot, workId);
+            expect(result.status).not.toBe(0);
+            expect(result.failures).toContain(testCase.failure);
+            expect(result.report?.workReadme).toBe(join(repoRoot, workPath));
+            expect(result.report?.taskReadme).toBeNull();
+            expect(result.report?.role).toBeNull();
+            expect(result.report?.taskRole).toBeNull();
+        }
+    });
+
+    it("agent-context 拒绝非法 Task 合同", async () => {
+        const workId = "w00001-invalid-task";
+        const taskId = "t01-task";
+        const workPath = `.agents/works/${workId}/README.md`;
+        const taskPath = `.agents/works/${workId}/tasks/${taskId}/README.md`;
+        const cases = [
+            {name: "schema", frontmatter: `schema: nbook.task/v1\ntaskId: ${taskId}\nrole: tasker`, failure: `Work Task schema 无效：${taskPath}`},
+            {name: "task-id", frontmatter: "schema: nbook.task/v2\ntaskId: t02-other\nrole: tasker", failure: `Work Task taskId 与目录不一致：${taskPath}`},
+            ...["actionIssueId", "agentWorkflow", "kind", "worktreeId", "branchId"].map((field) => ({
+                name: field,
+                frontmatter: `schema: nbook.task/v2\ntaskId: ${taskId}\nrole: tasker\n${field}: null`,
+                failure: `Work Task 禁止旧字段 ${field}：${taskPath}`,
+            })),
+        ];
+
+        for (const [index, testCase] of cases.entries()) {
+            const repoRoot = await createTestTmpRoot(`governance-context-invalid-task-${String(index)}`, `governance-context-invalid-task-${testCase.name}-test`);
+            fixtureRoots.push(repoRoot);
+            await writeText(repoRoot, workPath, `---\nschema: nbook.work/v1\nworkId: ${workId}\nissueId: null\n---\n\n# Work\n`);
+            await writeText(repoRoot, taskPath, `---\n${testCase.frontmatter}\n---\n\n# Invalid Task\n`);
+            await initializeGitFixture(repoRoot);
+
+            const result = await runAgentContextCli(taskId, repoRoot, workId);
+            expect(result.status).not.toBe(0);
+            expect(result.failures).toContain(testCase.failure);
+            expect(result.report?.workReadme).toBe(join(repoRoot, workPath));
+            expect(result.report?.taskReadme).toBe(join(repoRoot, taskPath));
+            expect(result.report?.role).toBeNull();
+            expect(result.report?.taskRole).toBeNull();
+        }
+    }, 30_000);
+
+    it("agent-context 对 malformed 或非对象 frontmatter 返回 JSON failure", async () => {
+        const workId = "w00001-invalid-frontmatter";
+        const taskId = "t01-task";
+        const workPath = `.agents/works/${workId}/README.md`;
+        const taskPath = `.agents/works/${workId}/tasks/${taskId}/README.md`;
+        const cases = [
+            {name: "malformed", frontmatter: "role: [", failure: `Task frontmatter 无法解析：${taskPath}`},
+            {name: "non-object", frontmatter: "null", failure: `Task frontmatter 必须是对象：${taskPath}`},
+        ];
+
+        for (const [index, testCase] of cases.entries()) {
+            const repoRoot = await createTestTmpRoot(`governance-context-invalid-frontmatter-${String(index)}`, `governance-context-${testCase.name}-frontmatter-test`);
+            fixtureRoots.push(repoRoot);
+            await writeText(repoRoot, workPath, `---\nschema: nbook.work/v1\nworkId: ${workId}\nissueId: null\n---\n\n# Work\n`);
+            await writeText(repoRoot, taskPath, `---\n${testCase.frontmatter}\n---\n\n# Invalid Task\n`);
+            await initializeGitFixture(repoRoot);
+
+            const result = await runAgentContextCli(taskId, repoRoot, workId);
+            expect(result.status).not.toBe(0);
+            expect(result.failures.some((failure) => failure.startsWith(testCase.failure))).toBe(true);
+            expect(result.failures).toContain(`Work Task 缺少有效 frontmatter：${taskPath}`);
+            expect(result.report?.workReadme).toBe(join(repoRoot, workPath));
+            expect(result.report?.taskReadme).toBe(join(repoRoot, taskPath));
+            expect(result.report?.role).toBeNull();
+            expect(result.report?.taskRole).toBeNull();
+        }
+    });
+    it("agent-context 没有 Work 时拒绝 Task", async () => {
+        const result = await runAgentContextCli("t01-work-task-model", repositoryRoot);
 
         expect(result.status).not.toBe(0);
-        expect(result.failures).toContain(`Task 标识无效：${taskId}`);
+        expect(result.failures).toContain("Task 必须同时指定 Work：t01-work-task-model");
+    });
+    it("agent-context 对不存在的 Work 只报告一次失败", async () => {
+        const result = await runAgentContextCli("t01-task", repositoryRoot, "w99999-missing");
+
+        expect(result.status).not.toBe(0);
+        expect(result.failures).toEqual(["Work README 不存在：w99999-missing"]);
+    });
+    it("agent-context 拒绝与 Task 不一致的 role", async () => {
+        const repoRoot = await createTestTmpRoot("governance-context-role", "governance-context-role-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-role/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-task\nrole: tasker\n---\n\n# Task\n");
+        await writeText(repoRoot, ".agents/works/w00001-role/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-role\nissueId: null\n---\n\n# Work\n");
+        await initializeGitFixture(repoRoot);
+        const result = await runAgentContextCli("t01-task", repoRoot, "w00001-role", "reviewer");
+
+        expect(result.status).not.toBe(0);
+        expect(result.failures).toContain("指定 role 与 Task role 不一致：reviewer != tasker");
+        expect(result.report?.role).toBe("tasker");
+        expect(result.report?.requestedRole).toBe("reviewer");
+    });
+    it("agent-context 拒绝旧根 Task fallback", async () => {
+        const repoRoot = await createTestTmpRoot("governance-context-legacy", "governance-context-legacy-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/tasks/t01-legacy/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-legacy\nrole: tasker\n---\n\n# Legacy\n");
+        await initializeGitFixture(repoRoot);
+        const result = await runAgentContextCli("t01-legacy", repoRoot);
+
+        expect(result.status).not.toBe(0);
+        expect(result.failures).toContain("Task 必须同时指定 Work：t01-legacy");
     });
 
 
@@ -268,7 +429,7 @@ updatedAt: 2026-08-19T10:35:00Z
 # Historical Task
 `, taskId);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual([]);
     });
 
     it("新 Task 缺少成熟度或 agentWorkflow 时失败", async () => {
@@ -286,7 +447,7 @@ updatedAt: 2026-08-26T00:00:00Z
 # Incomplete Task
 `);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("Task status 无效"),
             expect.stringContaining("新 Task 缺少 agentWorkflow"),
         ]));
@@ -318,7 +479,7 @@ agentWorkflow:
 `);
         await rm(join(repoRoot, ".agents/tasks/00161-profile/context.md"));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task 缺少 context.md：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("Task 缺少 context.md：.agents/tasks/00161-profile/README.md");
     });
 
     it("合法 design Task 必须声明设计边界与 API 路由", async () => {
@@ -362,7 +523,7 @@ API
 - docs/specs/example/api.md
 `);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual([]);
     });
 
     it("design Task 缺少设计边界或 API 路由时失败", async () => {
@@ -394,7 +555,7 @@ agentWorkflow:
 API
 `);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("design Task 必须有唯一 Proposal/Spec 设计产物"),
             expect.stringContaining("design Task 缺少决策范围"),
             expect.stringContaining("design Task 缺少允许文件"),
@@ -412,35 +573,35 @@ taskId: ${taskId}
 # Wrong schema Task
 `, taskId);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：.agents/tasks/${taskId}/README.md`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：.agents/tasks/${taskId}/README.md`);
         await rm(join(repoRoot, `.agents/tasks/${taskId}/README.md`));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少 README.md：.agents/tasks/${taskId}/README.md`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`新 Task 缺少 README.md：.agents/tasks/${taskId}/README.md`);
     });
 
     it("根 Task 拒绝非法 ID 形状且高序号不能伪装历史", async () => {
         const invalidId = "100000-invalid";
         const invalidRoot = await createTaskWorkflowFixture("# Invalid root Task\n", invalidId);
-        expect(verifyTaskAgentWorkflowProfiles(invalidRoot)).toContain(`根 Task 标识无效：${invalidId}`);
+        expect(verifyLegacyTaskProvenance(invalidRoot)).toContain(`根 Task 标识无效：${invalidId}`);
 
         const highShortId = "999-current";
         const highShortRoot = await createTaskWorkflowFixture("# High short root Task\n", highShortId);
-        expect(verifyTaskAgentWorkflowProfiles(highShortRoot)).toContain(`根 Task 标识无效：${highShortId}`);
+        expect(verifyLegacyTaskProvenance(highShortRoot)).toContain(`根 Task 标识无效：${highShortId}`);
     });
 
     it("根 Task 拒绝零编号和未登记的低编号历史伪装", async () => {
         for (const taskId of ["00-invalid", "000-invalid", "00000-invalid", "99-new", "148-new", "00149-other", "00150-other", "00151-new"] as const) {
             const repoRoot = await createTaskWorkflowFixture("# Invalid historical identity\n", taskId);
-            expect(verifyTaskAgentWorkflowProfiles(repoRoot), taskId).toContain(`根 Task 标识无效：${taskId}`);
+            expect(verifyLegacyTaskProvenance(repoRoot), taskId).toContain(`根 Task 标识无效：${taskId}`);
         }
     });
 
     it("低编号历史身份必须同时命中 sourceRevision 基线和迁移 mapping", async () => {
         const validRoot = await createHistoricalTaskWorkflowFixture("99-legacy", "valid");
-        expect(verifyTaskAgentWorkflowProfiles(validRoot)).not.toContain("根 Task 标识无效：99-legacy");
+        expect(verifyLegacyTaskProvenance(validRoot)).not.toContain("根 Task 标识无效：99-legacy");
 
         for (const mode of ["missing-baseline", "missing-mapping"] as const) {
             const invalidRoot = await createHistoricalTaskWorkflowFixture("99-legacy", mode);
-            expect(verifyTaskAgentWorkflowProfiles(invalidRoot), mode).toContain("根 Task 标识无效：99-legacy");
+            expect(verifyLegacyTaskProvenance(invalidRoot), mode).toContain("根 Task 标识无效：99-legacy");
         }
     });
     it("按稳定根 Task 顺序先处理无关 Design 错误且不污染有效 legacy identity", async () => {
@@ -452,7 +613,7 @@ taskId: ${taskId}
         }));
         await writeText(repoRoot, ".agents/tasks/00161-design/context.md", "# Unrelated Design Context\n");
 
-        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        const failures = verifyLegacyTaskProvenance(repoRoot);
         expect(failures).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/00161-design/README.md");
         expect(failures).not.toContain("根 Task 标识无效：99-legacy");
     });
@@ -460,7 +621,7 @@ taskId: ${taskId}
     it("历史身份在 index 与 marker 密封值不一致时 fail closed", async () => {
         const repoRoot = await createHistoricalTaskWorkflowFixture("99-legacy", "mismatched-marker");
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             "历史 Task 迁移 index/marker 不一致",
             "根 Task 标识无效：99-legacy",
         ]));
@@ -470,7 +631,7 @@ taskId: ${taskId}
     it("后续可达 commit 和工作树 mapping 不能伪造历史身份", async () => {
         const repoRoot = await createForgedHistoricalIdentityFixture("99-new");
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("根 Task 标识无效：99-new");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("根 Task 标识无效：99-new");
     });
     it("当前迁移 metadata 含畸形 mapping 时 fail closed", async () => {
         const repoRoot = await createHistoricalTaskWorkflowFixture("99-legacy", "valid");
@@ -479,17 +640,17 @@ taskId: ${taskId}
         index.mappings = [null];
         await writeFile(indexPath, JSON.stringify(index));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("当前历史 Task 迁移 mapping 结构无效");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("当前历史 Task 迁移 mapping 结构无效");
     });
     it("密封迁移快照含畸形 mapping 时 fail closed", async () => {
         const repoRoot = await createMalformedSealedMappingFixture();
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("历史 Task 迁移密封 mapping 结构无效");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("历史 Task 迁移密封 mapping 结构无效");
     });
     it("密封迁移 JSON 顶层不是对象时 fail closed", async () => {
         const repoRoot = await createInvalidSealedJsonShapeFixture();
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("历史 Task 迁移密封快照结构无效");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("历史 Task 迁移密封快照结构无效");
     });
 
 
@@ -498,55 +659,56 @@ taskId: ${taskId}
     it.each(["null", "193"])("根与应用当前 Task 接受 actionIssueId %s", async (actionIssueId) => {
         const rootReadme = currentTaskReadme({actionIssueId});
         const root = await createTaskWorkflowFixture(rootReadme);
-        expect(verifyTaskAgentWorkflowProfiles(root)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(root)).toEqual([]);
 
         const taskId = "149-profile";
         const appReadme = currentTaskReadme({taskId, actionIssueId});
         const app = await createApplicationTaskWorkflowFixture(appReadme, taskId);
-        expect(verifyTaskAgentWorkflowProfiles(app)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(app)).toEqual([]);
     });
 
     it.each(["missing", "0", "-1", "\"193\"", "[193]"] as const)("当前 Task 拒绝 actionIssueId %s", async (actionIssueId) => {
         const readme = currentTaskReadme({actionIssueId});
         const repoRoot = await createTaskWorkflowFixture(readme);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task actionIssueId 必须是正整数或 null：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("Task actionIssueId 必须是正整数或 null：.agents/tasks/00161-profile/README.md");
     });
 
     it("当前 Task 拒绝遗留 issueRequired 字段", async () => {
         const readme = currentTaskReadme({actionIssueId: "null"}).replace("actionIssueId: null", "issueRequired: false\nactionIssueId: null");
         const repoRoot = await createTaskWorkflowFixture(readme, "00161-profile", {preserveIssueRequired: true});
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task 禁止字段 issueRequired：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("Task 禁止字段 issueRequired：.agents/tasks/00161-profile/README.md");
     });
 
     it("draft 不再是合法 Task 状态", async () => {
         const repoRoot = await createTaskWorkflowFixture(currentTaskReadme({status: "draft"}));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task status 无效：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("Task status 无效：.agents/tasks/00161-profile/README.md");
     });
 
     it.each(["目标", "Agent 工作", "开发者参与", "任务产物", "修改计划", "完成门禁", "Leader 继续条件", "允许文件"] as const)("活动 Task 缺少 %s 章节时失败", async (section) => {
         const readme = removeMarkdownSection(currentTaskReadme(), section);
         const repoRoot = await createTaskWorkflowFixture(readme, "00161-profile", {appendSections: false});
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`Task 缺少${section}：.agents/tasks/00161-profile/README.md`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`Task 缺少${section}：.agents/tasks/00161-profile/README.md`);
     });
 
     it.each([
         "```markdown\n## 开发者参与\n\n伪造内容\n```",
         "    ## 开发者参与\n+\n+    伪造内容",
+        "<!--\n## 开发者参与\n\n伪造内容\n-->",
     ])("代码块中的协作标题不能满足合同", async (fakeSection) => {
         const readme = `${removeMarkdownSection(currentTaskReadme(), "开发者参与")}\n${fakeSection}\n`;
         const repoRoot = await createTaskWorkflowFixture(readme, "00161-profile", {appendSections: false});
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task 缺少开发者参与：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("Task 缺少开发者参与：.agents/tasks/00161-profile/README.md");
     });
 
     it.each(["completed", "abandoned"] as const)("%s Task 不回填协作章节", async (status) => {
         const repoRoot = await createTaskWorkflowFixture(currentTaskReadme({status}), "00161-profile", {appendSections: false});
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual([]);
     });
 
     it("research Task 叠加研究专属章节并约束产物路径", async () => {
@@ -579,42 +741,49 @@ taskId: ${taskId}
         await runGit(repoRoot, ["config", "user.name", "Governance Test"]);
         await runGit(repoRoot, ["add", "."]);
         await runGit(repoRoot, ["commit", "-m", "research contract baseline"]);
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual([]);
 
         for (const contractPath of [`${taskRoot}/README.md`, `${taskRoot}/context.md`]) {
             await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(allowedFiles, `${allowedFiles}\n- ${contractPath}`));
-            expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> ${contractPath}`);
+            expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> ${contractPath}`);
         }
 
         await writeText(repoRoot, `${taskRoot}/README.md`, removeMarkdownSection(readme, "研究产物"));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 缺少研究产物：${taskRoot}/README.md`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 缺少研究产物：${taskRoot}/README.md`);
 
         await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(output, "docs/result.md"));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 研究产物越界：${taskRoot}/README.md -> docs/result.md`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 研究产物越界：${taskRoot}/README.md -> docs/result.md`);
 
         await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(allowedFiles, `${allowedFiles}\n- docs/extra.md`));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> docs/extra.md`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> docs/extra.md`);
 
         for (const marker of ["*", "+"] as const) {
             await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(allowedFiles, `${allowedFiles}\n${marker} ../../outside`));
-            expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> ../../outside`);
+            expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> ../../outside`);
         }
 
         await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(allowedFiles, allowedFiles.replace(`\n- ${output}`, "")));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 允许文件缺少研究产物：${taskRoot}/README.md -> ${output}`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 允许文件缺少研究产物：${taskRoot}/README.md -> ${output}`);
 
         for (const disguisedEntry of [
             `\`\`\`markdown\n- ${taskRoot}/evidences/hidden.md\n\`\`\``,
             `    - ${taskRoot}/evidences/hidden.md`,
+            `<!-- - ${output} -->`,
+            `<!--\n- ${output}\n-->`,
+            `\`\`\`markdown\n\`\`\`not-a-closing-fence\n- ${output}\n\`\`\``,
         ]) {
             await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(`- ${output}`, disguisedEntry));
-            expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 缺少研究产物：${taskRoot}/README.md`);
+            expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 缺少研究产物：${taskRoot}/README.md`);
         }
 
         const annotatedExtra = `\`${taskRoot}/evidences/extra.md\`（Leader 维护）`;
         await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(allowedFiles, `${allowedFiles}\n- ${annotatedExtra}`));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> ${annotatedExtra}`);
-    });
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 允许文件越界：${taskRoot}/README.md -> ${annotatedExtra}`);
+
+        const commentedAllowedFiles = `## 允许文件\n\n<!--\n- ${output}\n-->`;
+        await writeText(repoRoot, `${taskRoot}/README.md`, readme.replace(allowedFiles, commentedAllowedFiles));
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`research Task 允许文件缺少研究产物：${taskRoot}/README.md -> ${output}`);
+    }, 15_000);
 
     it.each(["staged", "unstaged", "untracked"] as const)("自治包 active research 拒绝 %s leak-only 实际越界", async (changeMode) => {
         const fixture = await createPackageResearchDiffFixture();
@@ -622,7 +791,7 @@ taskId: ${taskId}
         await writeText(fixture.root, leakedPath, `export const leaked = ${JSON.stringify(changeMode)};\n`);
         if (changeMode === "staged") await runGit(fixture.root, ["add", leakedPath]);
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toContain(`research Task diff 越界：${fixture.readmePath} -> ${leakedPath}`);
+        expect(verifyLegacyTaskProvenance(fixture.root)).toContain(`research Task diff 越界：${fixture.readmePath} -> ${leakedPath}`);
     });
 
     it.each([
@@ -633,7 +802,7 @@ taskId: ${taskId}
         await writeText(fixture.root, fixture.readmePath, fixture.readme.replace(before, after));
         await writeText(fixture.root, fixture.trackedBoundaryPath, "export const escaped = true;\n");
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toContain(`research Task diff 越界：${fixture.readmePath} -> ${fixture.trackedBoundaryPath}`);
+        expect(verifyLegacyTaskProvenance(fixture.root)).toContain(`research Task diff 越界：${fixture.readmePath} -> ${fixture.trackedBoundaryPath}`);
     });
 
     it("HEAD active research 拒绝删除当前合同关闭实际差异门禁", async () => {
@@ -642,7 +811,7 @@ taskId: ${taskId}
         await rm(join(fixture.root, fixture.contextPath));
         await writeText(fixture.root, fixture.trackedBoundaryPath, "export const escaped = true;\n");
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toContain(`research Task diff 越界：${fixture.readmePath} -> ${fixture.trackedBoundaryPath}`);
+        expect(verifyLegacyTaskProvenance(fixture.root)).toContain(`research Task diff 越界：${fixture.readmePath} -> ${fixture.trackedBoundaryPath}`);
     });
 
     it("active research 的 HEAD 列表不可读时 fail closed 且不回退当前树", async () => {
@@ -652,7 +821,7 @@ taskId: ${taskId}
         await writeText(fixture.root, `${secondRoot}/context.md`, "# Second research context\n");
         await rm(join(fixture.root, ".git", "HEAD"));
 
-        const failures = verifyTaskAgentWorkflowProfiles(fixture.root);
+        const failures = verifyLegacyTaskProvenance(fixture.root);
         expect(failures.some((failure) => failure.startsWith("research Task HEAD 密封合同无法读取："))).toBe(true);
         expect(failures).not.toEqual(expect.arrayContaining([
             expect.stringContaining("当前 owner scope 命中多个活跃 research Task"),
@@ -667,7 +836,7 @@ taskId: ${taskId}
         await writeText(fixture.root, `${secondRoot}/README.md`, fixture.readme.replaceAll("02-research", "03-research"));
         await writeText(fixture.root, `${secondRoot}/context.md`, "# Second research context\n");
 
-        const failures = verifyTaskAgentWorkflowProfiles(fixture.root);
+        const failures = verifyLegacyTaskProvenance(fixture.root);
         expect(failures.some((failure) => failure.startsWith(`research Task HEAD 密封合同文件无法读取：${fixture.readmePath}：`))).toBe(true);
         expect(failures).not.toEqual(expect.arrayContaining([
             expect.stringContaining("当前 owner scope 命中多个活跃 research Task"),
@@ -682,7 +851,7 @@ taskId: ${taskId}
         await runGit(fixture.root, ["add", forgedRoot]);
         await runGit(fixture.root, ["commit", "-m", "add mismatched autonomous task"]);
 
-        const failures = verifyTaskAgentWorkflowProfiles(fixture.root);
+        const failures = verifyLegacyTaskProvenance(fixture.root);
         expect(failures).toContain(`Task taskId 与目录不一致：${forgedRoot}/README.md`);
         expect(failures).not.toContain(`当前 owner scope 命中多个活跃 research Task：${fixture.readmePath}, ${forgedRoot}/README.md`);
     });
@@ -694,7 +863,7 @@ taskId: ${taskId}
         await writeText(fixture.root, fixture.contextPath, "# Updated research context\n");
         await writeText(fixture.root, fixture.untrackedOutputPath, "# New research result\n");
 
-        const failures = verifyTaskAgentWorkflowProfiles(fixture.root);
+        const failures = verifyLegacyTaskProvenance(fixture.root);
         for (const path of [fixture.readmePath, fixture.contextPath, fixture.untrackedOutputPath]) {
             expect(failures).not.toContain(`research Task diff 越界：${fixture.readmePath} -> ${path}`);
         }
@@ -704,7 +873,7 @@ taskId: ${taskId}
         const fixture = await createPackageResearchDiffFixture();
         await writeText(fixture.root, "packages/other-package/src/change.ts", "export const unrelated = true;\n");
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).not.toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(fixture.root)).not.toEqual(expect.arrayContaining([
             expect.stringContaining("research Task diff 越界"),
         ]));
     });
@@ -719,7 +888,7 @@ taskId: ${taskId}
         await writeText(fixture.root, `${secondRoot}/README.md`, secondReadme);
         await writeText(fixture.root, `${secondRoot}/context.md`, "# Second research context\n");
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toContain(`当前 owner scope 命中多个活跃 research Task：${fixture.readmePath}, ${secondRoot}/README.md`);
+        expect(verifyLegacyTaskProvenance(fixture.root)).toContain(`当前 owner scope 命中多个活跃 research Task：${fixture.readmePath}, ${secondRoot}/README.md`);
     });
 
     it("自治包 v1 Task 使用同一合同且忽略无 frontmatter 历史记录", async () => {
@@ -728,10 +897,21 @@ taskId: ${taskId}
         await writeText(repoRoot, "packages/neuro-agent-harness/.agents/tasks/02-research/context.md", "# Context\n");
         await writeText(repoRoot, "packages/neuro-agent-harness/.agents/tasks/01-history/README.md", "# Imported history\n");
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual([]);
         const packageReadme = "packages/neuro-agent-harness/.agents/tasks/02-research/README.md";
         await writeText(repoRoot, packageReadme, removeMarkdownSection(currentTaskReadme({taskId: "02-research"}), "开发者参与"));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`Task 缺少开发者参与：${packageReadme}`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`Task 缺少开发者参与：${packageReadme}`);
+    });
+
+    it("自治包旧根中的 v2 Task 由 legacy 校验拒收", async () => {
+        const repoRoot = await createTestTmpRoot("governance-package-v2", "governance-package-v2-test");
+        fixtureRoots.push(repoRoot);
+        const relativePath = "packages/neuro-agent-harness/.agents/tasks/02-v2/README.md";
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-package\nrole: tasker\n---\n\n# Package v2\n");
+
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`),
+        ]));
     });
 
     it("当前 Task 必须显式声明有效执行身份", async () => {
@@ -759,7 +939,7 @@ agentWorkflow:
 
 # Invalid execution identity Task
 `, taskId);
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("Task worktreeId 必须是非空字符串或 null"),
             expect.stringContaining("Task branchId 必须是非空字符串或 null"),
         ]));
@@ -785,7 +965,7 @@ agentWorkflow:
 
 # Missing execution identity Task
 `, taskId);
-        expect(verifyTaskAgentWorkflowProfiles(missingRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(missingRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("Task worktreeId 必须是非空字符串或 null"),
             expect.stringContaining("Task branchId 必须是非空字符串或 null"),
         ]));
@@ -819,7 +999,7 @@ agentWorkflow:
 # Invalid aggregation Task
 `, taskId);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
             expect.stringContaining("Task 禁止聚合字段 parentTaskId"),
         ]));
@@ -867,7 +1047,7 @@ agentWorkflow:
 - packages/neuro-book/app/api.ts
 `);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("design Task 必须有唯一 Proposal/Spec 设计产物"),
             expect.stringContaining("design Task 允许文件越界"),
             expect.stringContaining("API design Task 缺少 api-and-interface-design"),
@@ -914,19 +1094,19 @@ agentWorkflow:
 - docs/specs/../../AGENTS.md
 `);
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/00161-profile/README.md");
     });
 
     it("基线 Design Task 不能通过改 kind 绕过真实 diff", async () => {
         const repoRoot = await createDesignDiffFixture("bug");
-        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        const failures = verifyLegacyTaskProvenance(repoRoot);
         expect(failures).toContain("design Task 基线身份漂移：.agents/tasks/00161-design/README.md");
         expect(failures).toContain("design Task diff 越界：.agents/tasks/00161-design/README.md -> packages/neuro-book/app/api.ts");
     });
 
     it.each(["completed", "abandoned", "removed-baseline"] as const)("基线 Design Task 不能通过 %s 绕过真实 diff", async (mutation) => {
         const repoRoot = await createDesignDiffFixture(mutation);
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("design Task diff 越界：.agents/tasks/00161-design/README.md -> packages/neuro-book/app/api.ts");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("design Task diff 越界：.agents/tasks/00161-design/README.md -> packages/neuro-book/app/api.ts");
     });
     it.each([
         "docs/specs/../../AGENTS.md",
@@ -938,7 +1118,7 @@ agentWorkflow:
     ])("design Task 拒绝不安全产物路径 %s", async (output) => {
         const repoRoot = await createTaskWorkflowFixture(designTaskReadme({output, status: "completed"}));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/00161-profile/README.md");
     });
 
     it("design Task 接受开放单行类型和包级设计产物", async () => {
@@ -948,19 +1128,19 @@ agentWorkflow:
             status: "completed",
         }));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual([]);
     });
 
     it.each(["", "安全模型\n流程编排", "- 安全模型\n- 流程编排"])("design Task 拒绝空或多行类型", async (designType) => {
         const repoRoot = await createTaskWorkflowFixture(designTaskReadme({designType, status: "completed"}));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("design Task 设计类型无效：.agents/tasks/00161-profile/README.md");
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain("design Task 设计类型无效：.agents/tasks/00161-profile/README.md");
     });
 
     it.each(["missing", "short", "multiple", "unreachable"] as const)("活跃 Design Task 拒绝 %s 基线", async (contextMode) => {
         const {root} = await createDesignGateFixture({contextMode});
 
-        expect(verifyTaskAgentWorkflowProfiles(root)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(root)).toEqual(expect.arrayContaining([
             expect.stringMatching(/design Task (?:密封合同缺少唯一基线 revision|基线不可达)/u),
         ]));
     });
@@ -968,7 +1148,7 @@ agentWorkflow:
     it.each(["committed", "staged", "unstaged", "untracked", "delete", "rename"] as const)("Design 真实 diff 拒绝 %s 越界路径", async (changeMode) => {
         const fixture = await createDesignGateFixture();
         const expectedPaths = await applyDesignBoundaryChange(fixture, changeMode);
-        const failures = verifyTaskAgentWorkflowProfiles(fixture.root);
+        const failures = verifyLegacyTaskProvenance(fixture.root);
 
         for (const path of expectedPaths) expect(failures, changeMode).toContain(`design Task diff 越界：${fixture.readmePath} -> ${path}`);
     });
@@ -979,7 +1159,7 @@ agentWorkflow:
         const previousHeadRef = process.env.GITHUB_HEAD_REF;
         if (identityMode === "head-ref") process.env.GITHUB_HEAD_REF = "feature/design";
         try {
-            expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toContain(`design Task diff 越界：${fixture.readmePath} -> ${fixture.boundaryPath}`);
+            expect(verifyLegacyTaskProvenance(fixture.root)).toContain(`design Task diff 越界：${fixture.readmePath} -> ${fixture.boundaryPath}`);
         } finally {
             if (previousHeadRef === undefined) delete process.env.GITHUB_HEAD_REF;
             else process.env.GITHUB_HEAD_REF = previousHeadRef;
@@ -989,7 +1169,7 @@ agentWorkflow:
     it("同一 checkout 命中多个活跃 Design Task 时失败", async () => {
         const {root} = await createDesignGateFixture({secondTask: true});
 
-        expect(verifyTaskAgentWorkflowProfiles(root)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(root)).toEqual(expect.arrayContaining([
             expect.stringContaining("当前 checkout 命中多个活跃 Design Task"),
         ]));
     });
@@ -999,11 +1179,11 @@ agentWorkflow:
         await writeText(fixture.root, fixture.outputPath, "# Design output\n");
         await writeText(fixture.root, ".agents/tasks/00161-design/walkthroughs/001.md", "# Walkthrough\n");
         await writeText(fixture.root, ".agents/tasks/00161-design/evidences/proof.txt", "proof\n");
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toEqual([]);
+        expect(verifyLegacyTaskProvenance(fixture.root)).toEqual([]);
 
         await writeText(fixture.root, ".agents/tasks/00161-design/notes.md", "# Notes\n");
         await writeText(fixture.root, ".agents/tasks/00161-design/walkthroughs/nested/002.md", "# Nested\n");
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(fixture.root)).toEqual(expect.arrayContaining([
             `design Task diff 越界：${fixture.readmePath} -> .agents/tasks/00161-design/notes.md`,
             `design Task diff 越界：${fixture.readmePath} -> .agents/tasks/00161-design/walkthroughs/nested/002.md`,
         ]));
@@ -1013,27 +1193,27 @@ agentWorkflow:
         const fixture = await createDesignGateFixture({endStatus});
         await writeText(fixture.root, fixture.boundaryPath, "export const afterEnd = true;\n");
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).not.toContain(`design Task diff 越界：${fixture.readmePath} -> ${fixture.boundaryPath}`);
+        expect(verifyLegacyTaskProvenance(fixture.root)).not.toContain(`design Task diff 越界：${fixture.readmePath} -> ${fixture.boundaryPath}`);
     });
 
 
     it("多个已结束 Design 窗口可独立验证", async () => {
         const fixture = await createDesignGateFixture({secondTask: true, endStatus: "completed", secondEndStatus: "completed"});
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).not.toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(fixture.root)).not.toEqual(expect.arrayContaining([
             expect.stringContaining("当前 checkout 命中多个活跃 Design Task"),
         ]));
     });
     it("Design Task 已提交退出后禁止重开", async () => {
         const fixture = await createDesignGateFixture({endStatus: "completed", reopenStatus: "verifying"});
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toContain(`design Task 已结束后重新激活：${fixture.readmePath}`);
+        expect(verifyLegacyTaskProvenance(fixture.root)).toContain(`design Task 已结束后重新激活：${fixture.readmePath}`);
     });
 
     it("Design 基线必须是密封合同的严格祖先", async () => {
         const fixture = await createDesignGateFixture({baselineMode: "unrelated"});
 
-        expect(verifyTaskAgentWorkflowProfiles(fixture.root)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(fixture.root)).toEqual(expect.arrayContaining([
             expect.stringContaining("design Task 基线不是密封合同的严格祖先"),
         ]));
     });
@@ -1049,28 +1229,28 @@ taskId: ${taskId}
 `, taskId);
         const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
         await writeText(repoRoot, relativePath, currentTaskReadme({taskId, actionIssueId: "0", extraFrontmatter: "actionIssueIds:\n  - 191"}));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
             expect.stringContaining("Task 禁止聚合字段 actionIssueIds"),
         ]));
         await rm(join(repoRoot, relativePath));
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少 README.md：${relativePath}`);
+        expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`新 Task 缺少 README.md：${relativePath}`);
     });
 
     it("应用低号 Task 必须命中不可变基线、mapping 和 ownership", async () => {
         const valid = await createHistoricalApplicationTaskFixture("148-legacy", "valid", "---\nschema: wrong.task/v1\ntaskId: 148-legacy\n---\n\n# Historical app Task\n");
         const validPath = "packages/neuro-book/.agents/tasks/148-legacy/README.md";
-        expect(verifyTaskAgentWorkflowProfiles(valid)).not.toContain("应用 Task 标识无效：148-legacy");
-        expect(verifyTaskAgentWorkflowProfiles(valid)).not.toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${validPath}`);
+        expect(verifyLegacyTaskProvenance(valid)).not.toContain("应用 Task 标识无效：148-legacy");
+        expect(verifyLegacyTaskProvenance(valid)).not.toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${validPath}`);
 
         for (const mode of ["missing-baseline", "missing-mapping"] as const) {
             const invalid = await createHistoricalApplicationTaskFixture("148-legacy", mode, "# Invalid historical app Task\n");
-            expect(verifyTaskAgentWorkflowProfiles(invalid), mode).toContain("应用 Task 标识无效：148-legacy");
+            expect(verifyLegacyTaskProvenance(invalid), mode).toContain("应用 Task 标识无效：148-legacy");
         }
         const mismatchedOwnership = await createHistoricalApplicationTaskFixture("148-legacy", "mismatched-ownership", "# Invalid historical app Task\n");
-        expect(verifyTaskAgentWorkflowProfiles(mismatchedOwnership)).toContain("ownership legacyDestination 不匹配：148-legacy/README.md");
+        expect(verifyLegacyTaskProvenance(mismatchedOwnership)).toContain("ownership legacyDestination 不匹配：148-legacy/README.md");
 
         for (const taskId of ["149-current", "999-current"] as const) {
             const repoRoot = await createApplicationTaskWorkflowFixture(`---
@@ -1081,7 +1261,7 @@ taskId: ${taskId}
 # Current app Task
 `, taskId);
             const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
-            expect(verifyTaskAgentWorkflowProfiles(repoRoot), taskId).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+            expect(verifyLegacyTaskProvenance(repoRoot), taskId).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
         }
     }, 30_000);
 
@@ -1106,7 +1286,7 @@ agentWorkflow:
 
 # Historical v1 Task
 `);
-        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        const failures = verifyLegacyTaskProvenance(repoRoot);
         expect(failures).toContain(`Task status 无效：packages/neuro-book/.agents/tasks/${taskId}/README.md`);
         expect(failures).not.toContain(`应用 Task 标识无效：${taskId}`);
         expect(failures).not.toEqual(expect.arrayContaining([
@@ -1119,7 +1299,7 @@ agentWorkflow:
     it("应用 Task ownership 拒绝零值、一位和六位数字 ID", async () => {
         for (const taskId of ["00-invalid", "000-invalid", "00000-invalid", "9-invalid", "100000-invalid"] as const) {
             const repoRoot = await createApplicationTaskWorkflowFixture("# Invalid app Task\n", taskId);
-            expect(verifyTaskAgentWorkflowProfiles(repoRoot), taskId).toContain(`ownership Task 标识无效：${taskId}`);
+            expect(verifyLegacyTaskProvenance(repoRoot), taskId).toContain(`ownership Task 标识无效：${taskId}`);
         }
     });
     it("agentWorkflow 枚举拒绝原型链属性", async () => {
@@ -1127,7 +1307,7 @@ agentWorkflow:
             kind: "toString",
             required: ["toString"],
         }));
-        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        const failures = verifyLegacyTaskProvenance(repoRoot);
         expect(failures).toEqual(expect.arrayContaining([
             expect.stringContaining("Task agentWorkflow.kind 无效"),
             expect.stringContaining("Task verification.required[0] 无效"),
@@ -1137,7 +1317,7 @@ agentWorkflow:
     it("agentWorkflow 必须显式提供 notRun", async () => {
         const repoRoot = await createTaskWorkflowFixture(currentTaskReadme({includeNotRun: false}));
 
-        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([expect.stringContaining("Task verification.notRun 必须显式提供")]));
+        expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([expect.stringContaining("Task verification.notRun 必须显式提供")]));
     });
 
 
@@ -1169,7 +1349,7 @@ agentWorkflow:
 # Invalid Profile Task
 `);
 
-        const failures = verifyTaskAgentWorkflowProfiles(repoRoot);
+        const failures = verifyLegacyTaskProvenance(repoRoot);
         expect(failures).toEqual(expect.arrayContaining([
             expect.stringContaining("Task agentWorkflow.kind 无效"),
             expect.stringContaining("Task agentWorkflow.routes 必须是非空数组"),
@@ -1192,7 +1372,8 @@ describe("Leader 主导顺序开发治理门禁", () => {
             "AGENTS.md",
             ".omp/RULES.md",
             "docs/proposals/p-005-development-workflow-governance.md",
-            ".agents/issues/README.md",
+            ".agents/works/README.md",
+            ".agents/works/AGENTS.md",
             "docs/standards/repository-workflow.md",
             "docs/specs/AGENTS.md",
             ".agents/roles/pm/AGENTS.md",
@@ -1201,7 +1382,6 @@ describe("Leader 主导顺序开发治理门禁", () => {
             ".agents/roles/reviewer/AGENTS.md",
             ".agents/tasks/README.md",
             ".agents/tasks/AGENTS.md",
-            ".agents/tasks/00160-leader-driven-development-workflow/README.md",
         ] as const;
         for (const relativePath of contractPaths) {
             await writeText(repoRoot, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
@@ -1398,32 +1578,33 @@ async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", 
         : "name: load_role\n");
     if (!validReport || !validLoadRole) return root;
 
-    const taskContract = implementation === "missing-task-fields"
-        ? "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n```\n"
-        : "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n";
-    await writeText(root, ".agents/tasks/README.md", taskContract);
     await writeText(root, ".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n");
-    await writeText(root, "docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n");
-    await writeText(root, ".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n");
-    for (const role of ["pm", "leader", "tasker", "reviewer"]) {
-        await writeText(root, `.agents/roles/${role}/AGENTS.md`, "agentWorkflow required notRun\n");
+    await writeText(root, "docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md SKILL-MECHANICS.md\n");
+    if (implementation !== "missing-task-fields") {
+        await writeText(root, ".agents/works/README.md", "# Work\n\nWork 是 Task 的容器。\n");
+        await writeText(root, ".agents/works/AGENTS.md", "# Work rules\n\nWork、Task、role。\n");
+        await writeText(root, ".agents/works/w00001-agent-skills/tasks/t01-adaptation/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-adaptation\nrole: tasker\n---\n\n# Task\n");
     }
+    const exportedContract = "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyWorkContracts(repoRoot: string): string[] { return []; }\nexport function verifyLegacyTaskProvenance(repoRoot: string): string[] { return []; }\nexport function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] { return []; }\n";
     await writeText(root, "scripts/ci/agent-governance-contract.ts", implementation === "missing-contract-export"
-        ? "/*\nexport function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] { return []; }\n*/\n"
-        : "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] { return []; }\n");
-    await writeText(root, "scripts/ci/agent-governance.ts", implementation === "missing-cli-call"
-        ? "/*\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n*/\n"
+        ? exportedContract.replace("export function verifyWorkContracts(repoRoot: string): string[] { return []; }\n", "")
+        : exportedContract);
+    const imported = "verifyAgentSkillsAdaptation, verifyWorkContracts, verifyLegacyTaskProvenance, verifyLeaderDrivenDevelopmentContract";
+    const calls = "failures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyWorkContracts(repoRoot));\nfailures.push(...verifyLegacyTaskProvenance(repoRoot));\nfailures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));\n";
+    const cliSource = implementation === "missing-cli-call"
+        ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyWorkContracts(repoRoot));\nfailures.push(...verifyLegacyTaskProvenance(repoRoot));\n`
         : implementation === "missing-cli-import"
-            ? "const verifyAgentSkillsAdaptation = (_repoRoot: string): string[] => [];\nconst verifyTaskAgentWorkflowProfiles = (_repoRoot: string): string[] => [];\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n"
+            ? `import {verifyAgentSkillsAdaptation, verifyWorkContracts, verifyLegacyTaskProvenance} from "#scripts/ci/agent-governance-contract";\n${calls}`
             : implementation === "shadowed-cli-call"
-                ? "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\n{\n    const verifyAgentSkillsAdaptation = (_repoRoot: string): string[] => [];\n    const verifyTaskAgentWorkflowProfiles = (_repoRoot: string): string[] => [];\n    failures.push(...verifyAgentSkillsAdaptation(repoRoot));\n    failures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n}\n"
+                ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\n{\n    const verifyWorkContracts = (_repoRoot: string): string[] => [];\n    ${calls.replace("failures.push(...verifyWorkContracts(repoRoot));\n", "failures.push(...verifyWorkContracts(repoRoot));\n")}\n}\n`
                 : implementation === "dead-function-cli-call"
-                    ? "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfunction deadGovernanceChecks(): void {\n    failures.push(...verifyAgentSkillsAdaptation(repoRoot));\n    failures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n}\n"
+                    ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\nfunction deadGovernanceChecks(): void {\n${calls}}\n`
                     : implementation === "type-only-cli-import"
-                        ? "import type {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n"
+                        ? `import type {${imported}} from "#scripts/ci/agent-governance-contract";\n${calls}`
                         : implementation === "nested-valid-cli-call"
-                            ? "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\n{\n    failures.push(...verifyAgentSkillsAdaptation(repoRoot));\n    failures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n}\n"
-                            : "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n");
+                            ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\n{\n${calls}}\n`
+                            : `import {${imported}} from "#scripts/ci/agent-governance-contract";\n${calls}`;
+    await writeText(root, "scripts/ci/agent-governance.ts", cliSource);
     return root;
 }
 
@@ -2051,27 +2232,17 @@ async function createGovernanceCliFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-cli", "governance-cli-test");
     fixtureRoots.push(root);
     const governanceFiles: readonly [string, string][] = [
-        ["AGENTS.md", "fixture root rules\n"],
-        [".omp/RULES.md", "fixture omp rules\n"],
         ["WATCHDOG.md", "fixture watchdog\n"],
         [".agents/AGENTS.md", "fixture agents rules\n"],
         [".agents/README.md", "fixture agents readme\n"],
-        [".agents/issues/README.md", "fixture issue draft rules\n"],
-        [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
         [".agents/tasks/.migration-complete", "{}\n"],
         [".agents/tasks/legacy-index.json", "{}\n"],
-        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
-        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/tasker/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
         [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
         [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
         ["docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n"],
-        ["docs/standards/repository-workflow.md", "Issue 条目**是需求交付状态的唯一 owner。PR 合并后 Issue 条目继续保持 `In review`。`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并。`Item closed` workflow 应保持关闭。`is:open` 过滤器与本状态机不兼容。当前 merge revision 集合。\n"],
-        ["scripts/ci/agent-governance-contract.ts", "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyTaskAgentWorkflowProfiles(repoRoot: string): string[] { return []; }\n\"notRun\" in verification\n"],
-        ["scripts/ci/agent-governance.ts", "import {verifyAgentSkillsAdaptation, verifyTaskAgentWorkflowProfiles} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));\n"],
+        ["scripts/ci/agent-governance-contract.ts", "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyWorkContracts(repoRoot: string): string[] { return []; }\nexport function verifyLegacyTaskProvenance(repoRoot: string): string[] { return []; }\nexport function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] { return []; }\n\"notRun\" in verification\n"],
+        ["scripts/ci/agent-governance.ts", "import {verifyAgentSkillsAdaptation, verifyWorkContracts, verifyLegacyTaskProvenance, verifyLeaderDrivenDevelopmentContract} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyWorkContracts(repoRoot));\nfailures.push(...verifyLegacyTaskProvenance(repoRoot));\nfailures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));\n"],
         ["scripts/AGENTS.md", "fixture scripts rules\n"],
         ["scripts/release/AGENTS.md", "fixture release rules\n"],
         ["packages/AGENTS.md", "fixture packages rules\n"],
@@ -2093,7 +2264,8 @@ async function createGovernanceCliFixture(): Promise<string> {
         "AGENTS.md",
         ".omp/RULES.md",
         "docs/proposals/p-005-development-workflow-governance.md",
-        ".agents/issues/README.md",
+        ".agents/works/README.md",
+        ".agents/works/AGENTS.md",
         "docs/standards/repository-workflow.md",
         "docs/specs/AGENTS.md",
         ".agents/roles/pm/AGENTS.md",
@@ -2106,12 +2278,14 @@ async function createGovernanceCliFixture(): Promise<string> {
         ".agents/tasks/00160-leader-driven-development-workflow/context.md",
     ] as const) {
         const content = await readFile(join(repositoryRoot, relativePath), "utf8");
-        const normalized = relativePath.endsWith("/README.md")
+        const normalized = relativePath === ".agents/tasks/00160-leader-driven-development-workflow/README.md"
             ? normalizeCurrentTaskReadme(content, "00160-leader-driven-development-workflow", {})
             : content;
         await writeText(root, relativePath, normalized);
     }
     await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：accepted\n");
+    await writeText(root, ".agents/works/w00001-governance/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-governance\nissueId: null\n---\n\n# Governance\n");
+    await writeText(root, ".agents/works/w00001-governance/tasks/t01-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-model\nrole: tasker\n---\n\n# Model\n");
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
         ownerRoot: "packages/neuro-book/.agents/tasks",
@@ -2150,16 +2324,29 @@ async function runGovernanceCli(repoRoot: string): Promise<GovernanceCliResult> 
     }
 }
 
-async function runAgentContextCli(taskId: string, repoRoot = repositoryRoot): Promise<{status: number; failures: string[]}> {
+type AgentContextReport = {
+    failures: string[];
+    work?: string;
+    workReadme?: string | null;
+    taskReadme?: string | null;
+    role?: string | null;
+    requestedRole?: string | null;
+    taskRole?: string | null;
+};
+
+async function runAgentContextCli(taskId: string, repoRoot = repositoryRoot, workId?: string, role?: string): Promise<{status: number; failures: string[]; report?: AgentContextReport}> {
     try {
-        const result = await execFile("bun", [join(repositoryRoot, "scripts/cli/agent-context.ts"), "--repo-root", repoRoot, "--task", taskId], {cwd: repositoryRoot, encoding: "utf8"});
-        const report = JSON.parse(result.stdout) as {failures: string[]};
-        return {status: 0, failures: report.failures};
+        const cliArgs = [join(repositoryRoot, "scripts/cli/agent-context.ts"), "--repo-root", repoRoot, "--task", taskId];
+        if (workId) cliArgs.push("--work", workId);
+        if (role) cliArgs.push("--role", role);
+        const result = await execFile("bun", cliArgs, {cwd: repositoryRoot, encoding: "utf8"});
+        const report = JSON.parse(result.stdout) as AgentContextReport;
+        return {status: 0, failures: report.failures, report};
     } catch (error) {
         const result = error as {code?: number | string; stdout?: string; stderr?: string};
         if (result.stdout) {
-            const report = JSON.parse(result.stdout) as {failures: string[]};
-            return {status: typeof result.code === "number" ? result.code : 1, failures: report.failures};
+            const report = JSON.parse(result.stdout) as AgentContextReport;
+            return {status: typeof result.code === "number" ? result.code : 1, failures: report.failures, report};
         }
         throw new Error(`agent-context CLI 未输出 JSON：${result.stderr ?? ""}`, {cause: error});
     }
@@ -2275,6 +2462,14 @@ async function createLocalOnlyMigrationFixture(): Promise<string> {
 function hashBytes(bytes: Uint8Array): string {
     return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
+async function initializeGitFixture(root: string): Promise<void> {
+    await runGit(root, ["init", "--initial-branch", "master"]);
+    await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
+    await runGit(root, ["config", "user.name", "Governance Test"]);
+    await runGit(root, ["add", "."]);
+    await runGit(root, ["commit", "-m", "fixture"]);
+}
+
 async function runGit(cwd: string, args: string[]): Promise<string> {
     const result = await execFile("git", args, {cwd, encoding: "utf8"});
     return result.stdout;
