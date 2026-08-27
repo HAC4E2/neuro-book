@@ -1,18 +1,18 @@
 # NeuroAgentHarness 任务导航
 
-本目录保存真实执行过或当前正在执行的 Harness Task。Issue #193 的未确定未来步骤位于 [`../../docs/issue-193-roadmap.md`](../../docs/issue-193-roadmap.md)，路线图不是 Task 合同，Tasker不得执行。
+本目录保存真实执行过的 Harness legacy Task。Issue #193 的 Task 02 是模型切换前已在途的 `nbook.task/v1` 例外，按原合同原地收尾但不迁移；路线图不是 Task 合同，Tasker不得执行。
 
 ## 当前状态
 
 - [`01-harness-decoupling`](01-harness-decoupling/README.md)：历史项目演进记录，无 `nbook.task/v1` frontmatter，按导入历史只读。
-- [`02-product-host-success-research`](02-product-host-success-research/README.md)：Issue #193 当前唯一活动 Task，`in-progress`。来源证据和三类宿主画像已就绪，当前停止在开发者独立观察。
-- 后续没有已创建 Task。Task 02 满足 `Leader 继续条件` 后，新 Leader 才能根据真实结果更新路线图并创建唯一下一 `planned` Task。
+- [`02-product-host-success-research`](02-product-host-success-research/README.md)：既有在途 legacy Task，`in-progress`。来源证据和三类宿主画像已就绪，当前停止在开发者独立观察。
+- 后续没有已创建 Task。Task 02 收尾后，任何下一工作都在根 `.agents/works/` 创建 Work/Task，不在本目录创建新的 `planned` Task。
 
 ## Task 与路线图区别
 
-- Task README 是一次派发合同，包含 Agent 工作、开发者参与、任务产物、修改计划、完成门禁、Leader继续条件和允许文件。
+- 既有 Task README 是模型切换前的一次派发合同，继续按原章节完成。
 - 路线图只保存候选阶段、上游触发和新 Leader 复核点，没有 Task ID、状态、owner、允许文件或授权。
-- 不预建依赖未知结果的 Task 链，不从路线图恢复已删除的 03–11 草案。
+- 不预建依赖未知结果的 Task 链，不从路线图恢复已删除的 03–11 草案；current 新工作使用根 Work 容器。
 
 ## 当前人机协作
 
