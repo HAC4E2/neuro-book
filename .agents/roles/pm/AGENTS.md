@@ -31,7 +31,7 @@ Issue项目条目是需求交付状态的唯一owner：
 - `Ready`：可安排；
 - `In progress`：Tasker已开始实现；
 - `In review`：等待审查，或PR合并后等待开发者统一评审；
-- `Done`：覆盖范围的PR已合并，且开发者针对当前merge revision集合明确确认统一评审通过。
+- `Done`：覆盖范围的PR已全部合并，且开发者针对当前merge revision集合明确确认统一评审通过。
 
 Reviewer要求修复或验证未完成时退回`In progress`。Task completed、CI通过、PR合并或Issue关闭都不能单独触发Project `Done`；记录Done时保留Issue、条目ID、PR、revision和确认来源。
 

@@ -1125,6 +1125,12 @@ describe("Leader 主导顺序开发治理门禁", () => {
         }
         await writeText(repoRoot, leaderPath, leader);
         expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
+        const pmPath = ".agents/roles/pm/AGENTS.md";
+        const pm = await readFile(join(repoRoot, pmPath), "utf8");
+        await writeText(repoRoot, pmPath, pm.replace("覆盖范围的PR已全部合并", "覆盖范围的PR已合并"));
+        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toContain(`Leader 主导顺序开发合同缺少必需标记：${pmPath}`);
+        await writeText(repoRoot, pmPath, pm);
+        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
     });
 });
 

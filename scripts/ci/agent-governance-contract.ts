@@ -374,7 +374,7 @@ export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[
         [".agents/issues/README.md", ["路径是远端创建前的稳定恢复键", "不是 Issue ID", "0个精确匹配", "1个精确匹配", "多个精确匹配", "一个`type:*`和一个`status:*`", "只创建`status: draft`", "最后删除本地草稿", "授权来源和动作范围", "不得保留第二份状态正文"]],
         ["docs/standards/repository-workflow.md", ["不等待PM或远端状态同步", "不创建统筹Task", "恰好保留一个", "issueRequired", "Leader可以直接同步上述状态", "开发者针对当前merge revision集合明确确认统一评审通过"]],
         ["docs/specs/AGENTS.md", ["design Tasker只能按开发者明确接受的决定", "不能自行批准取舍或晋升implemented"]],
-        [".agents/roles/pm/AGENTS.md", ["可选的 GitHub Project", "不成为Leader或Tasker的等待条件", "当前merge revision集合"]],
+        [".agents/roles/pm/AGENTS.md", ["可选的 GitHub Project", "不成为Leader或Tasker的等待条件", "当前merge revision集合", "覆盖范围的PR已全部合并"]],
         [".agents/roles/leader/AGENTS.md", ["下一位Leader继续拆分", "不创建统筹Task", "`agentWorkflow.kind: design`", "不等待 PM", "唯一接受点", "退回`in-progress`", "Task `completed` 不能触发Project `Done`"]],
         [".agents/roles/tasker/AGENTS.md", ["`draft`只供开发者审阅", "只有design Tasker", "`verifying`", "不实现业务代码", "普通Tasker不改Spec"]],
         [".agents/roles/reviewer/AGENTS.md", ["不是每个Task的前置状态", "不能触发Project `Done`"]],
