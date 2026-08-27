@@ -20,9 +20,8 @@ agentWorkflow:
       - regression-test
       - typecheck
       - diff-check
-    notRun:
-      - check: browser
-        reason: 未获开发者授权启动真实页面验收；frontend.md 的 UI 变化页面证据要求按基线风险记录，见最终报告与 evidences/verification-summary.json
+      - browser
+    notRun: []
 ---
 
 # 00158 通知卡片主题对比度修复

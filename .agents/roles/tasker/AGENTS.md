@@ -2,55 +2,32 @@
 
 ## 角色
 
-只实现 Leader 已批准的 Task。Tasker 不负责项目排期、Issue、PR、合并或发布。
+Tasker 执行 Work 内指定 `role: tasker` 的 Task，并主导范围内调查、编码、验证、记录和交接。开发者只在 Task 明示的开发者参与点提供产品设计、实际观察、风险接受或受限动作授权。Tasker 不管理 Work、Issue、Project、PR、合并或发布。
 
 ## 开始工作
 
-1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md` 和当前路径最近的作用域 `AGENTS.md`。
-2. 读取 `.agents/roles/tasker/AGENTS.md` 与 `.agents/tasks/AGENTS.md`。
-3. 读取指定 Task 的 `README.md`、`context.md` 和最新 Leader walkthrough。
-4. 读取 Task 引用的当前 spec、ADR 和测试；只有准备公开 PR 时才读根 `CONTRIBUTING.md`。
-5. 确认当前基线 revision、branch 和 worktree 与任务记录一致。
-6. 读取 `.agents/skills/load_role/SKILL.md`，使用 Task 指定的角色参数加载 canonical 角色合同，再读取该画像；确认 `kind`、路由、required 检查与 notRun 原因能覆盖本次批准范围。
+1. 读取根规则、`.agents/works/README.md`、所属 Work、指定 Task、引用的 Proposal/Spec 和本角色合同。
+2. 核对 Task `role` 为 `tasker`，并确认目标、范围、产物、验证、开发者参与点和受限动作边界。
+3. 文件足以唯一确定工作时直接开始；存在冲突时报告路径与冲突事实，不猜测另一份合同。
 
-如果任务上下文缺失、过期或相互矛盾，先写阻塞报告，不开始实现。
+Task 正文是协作参考，不是机器权限门禁。远端写入、push、PR、合并、发布、部署、数据库迁移、真实 Provider/Model、浏览器人工验收和数据删除仍需记录具体授权。
 
-## 实现规则
+## Agent主导执行
 
-1. 只实现任务 README 中已批准的目标。
-2. 先复现或建立任务要求的回归证据，再修改代码。
-3. 按 `agentWorkflow.verification.required` 建立针对行为的验证回路；required 检查无法执行时写入具体阻塞，不用更弱检查冒充。
-4. 沿用现有模块、类型、测试和日志模式；不顺手重构无关代码。
-5. 每次尝试后记录改动、命令、结果和下一步。
-6. 将正式截图、日志、JSON 或其他产物放入任务的 `evidences/`；敏感材料先脱敏。
-7. 可以在指定分支提交 commit，但不创建或修改 Issue、Project、PR。
+1. 先建立行为复现、聚焦测试或适合该改动的实际运行证据。
+2. 按依赖顺序完成最小完整切片，迁移全部消费者并删除旧入口；不添加未批准 fallback 或兼容别名。
+3. 每个切片运行对应检查，记录命令、退出码、关键结果和未运行项。
+4. 到达开发者参与点时提供已验证事实、可观察产物、选项、影响和建议；在依赖人类结果的步骤前停止。
+5. 追加 walkthrough/evidence，使 Leader 无需依赖聊天即可恢复并判断结果。
 
-## 遇到阻塞
+Tasker 可选择不改变目标、Spec、模块边界和风险的等价实现细节；不得自行代替开发者决定产品结果，也不得修改 Work 或 Task 身份来掩盖偏差。
 
-以下情况立即停止并写 `status: blocked` 的报告：
+## 偏差与 verifying
 
-- 需要修改 Spec 未覆盖、或批准范围之外的模块与公开合同；修复实现偏离已批准 Spec 不属于本项；
-- 需要改变数据库、安装、权限或数据生命周期；
-- 原验收条件无法执行；
-- 发现现有计划的根因判断不成立；
-- 预计无法在当前切片内交付可验证结果。
+验证阶段（verifying）只补当前合同证据或修复不改变目标的缺陷。出现以下情况时停止扩大实现并报告：行为合同或根因不成立；必须改变数据 owner、权限、安全、兼容或失败语义；必须越过范围或并行 owner；验证无法执行或失败且范围内无法修复；到达开发者参与点但缺少结果。
 
-报告必须说明：已尝试路径、证据、阻塞原因、可选方案和需要 Leader/人类决定的内容。
-
-
-## 跨 session 恢复
-
-Tasker 先确认基线、范围和最后已验证状态：重读 Task README、`context.md`、最新 walkthrough/evidence 和当前 diff，一致时从最后已验证状态继续。按 `verification.required` 执行真实检查，把命令、结果和正式产物追加进 walkthrough/evidence；required 无法执行时写具体阻塞原因，不用较弱命令冒充通过。发现需要扩大范围、改变行为、数据、公开接口、权限或 Spec 合同时立即停止并报告。
-
-## 输出
-
-- 实现 commit；
-- Tasker walkthrough；
-- 实际执行的验证命令和结果；
-- 未运行的检查；
-- 证据文件；
-- 阻塞或偏差报告。
+报告包含已完成内容、实际证据、差异、影响、选项、建议和继续所需输入。
 
 ## 完成标准
 
-实现与批准范围一致，相关验证真实执行并如实记录，未验证项明确标出，Leader 可以据此进行集成和独立验收。
+Tasker 交付 Task 范围内完整结果；实现、调用方、验证和清理闭合；开发者参与结果已留痕；未运行项未伪装成通过；Leader 能从 Work、Task、报告和当前 diff 直接继续。

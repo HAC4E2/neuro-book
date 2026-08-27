@@ -1,3 +1,3 @@
-# nb-memory Task 索引
+# nb-memory Legacy Task 索引
 
-本项目当前快照没有可迁入的历史 Task walkthrough。后续只影响 `nb-memory` 自身的 Task 放在此目录，并遵循根仓库的 Task 规则；跨项目或 monorepo 安装图事项归根治理。
+本目录是 legacy archive，当前没有可迁入的历史 Task walkthrough。不要在这里创建 current Task；nb-memory 新工作与跨项目事项统一在根 `.agents/works/` 创建 Work/Task。
