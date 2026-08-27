@@ -40,7 +40,7 @@
    - `[事实，S-CLAUDE-SDK]` SDK 能力表包含 permissions、hooks、MCP、sessions 和 human in the loop。
 4. **观察运行结果**：开发者看到最终文本、结构化结果或实时事件，并检查文件差异、命令输出和验证结果。
    - `[事实，S-CLAUDE-HEADLESS]` `-p` 成功时以成功状态退出；运行内部失败时会把失败作为结果输出，脚本可以依据退出状态分支；JSON/stream-json 提供结构化或流式输出。
-   - `[事实，S-CLAUDE-RESULTS]` Agent SDK 的结果表面包括 `finalOutput`、`newItems`、`interruptions` 和可序列化的 `state`。
+   - `[事实，S-OPENAI-RESULTS]` OpenAI Agents SDK 的结果表面包括 `finalOutput`、`newItems`、`interruptions` 和可序列化的 `state`。
 5. **继续或恢复**：任务可能被中断、进程退出或需要下一轮追问。
    - `[事实，S-CLAUDE-CLI]` CLI 提供 `-c/--continue` 继续当前目录最近会话，以及 `-r/--resume` 按会话 ID 或名称恢复。
    - `[事实，S-CLAUDE-HEADLESS]` SIGTERM 会使当前 turn 未完成且不记录结果；文档说明恢复会继续该未完成 turn。该行为属于 Claude Code，不是本项目已接受的合同。

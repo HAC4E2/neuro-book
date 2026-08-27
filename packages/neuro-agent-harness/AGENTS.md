@@ -10,7 +10,7 @@
 
 ## 开发流
 
-1. 确认任务范围，阅读 `README.md`、`CONTEXT.md`、[`docs/README.md`](docs/README.md)、根 Work 与指定 Task。既有 Task 02 作为 legacy v1 例外按原合同原地收尾。
+1. 确认任务范围，阅读 `README.md`、`CONTEXT.md`、[`docs/README.md`](docs/README.md)、根 Work 与指定 Task。Issue #193 的 current 合同位于 `w00002-neuro-agent-harness-redesign`；包内 `.agents/tasks/` 只作 legacy provenance。
 2. 从公开导出追到实现和行为测试；涉及 Session、Invocation、Snapshot、Event Cursor、Store、Capability、Workflow、Approval、Compaction 或 Tool 调度时，以 `CONTEXT.md` 和对应设计文档为准。
 3. 做最小变更；公共合同变化同步类型、导出、测试和文档。
 4. 按风险先跑聚焦测试，再跑 `bun run verify`；涉及打包或发布边界时再跑 `bun run pack:smoke`，分别报告各项结果和未运行项。
