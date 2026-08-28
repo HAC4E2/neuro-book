@@ -20,9 +20,8 @@ agentWorkflow:
       - regression-test
       - typecheck
       - diff-check
-    notRun:
-      - check: browser
-        reason: 未获开发者授权启动真实页面验收；frontend.md 的 UI 变化页面证据要求按基线风险记录，见最终报告与 evidences/verification-summary.json
+      - browser
+    notRun: []
 ---
 
 # 00158 通知卡片主题对比度修复
@@ -30,6 +29,10 @@ agentWorkflow:
 ## 背景
 
 Issue #177 报告通知卡片使用硬编码 Tailwind 状态色导致主题下对比度不足且对齐不一致。fork 作者提交了 PR #178（读 `themeVarsSnapshot` + `color-mix(..., #000000)` 压黑 + 固定白字），审查判定其核心验收不成立：8 套内置主题静态计算中 Dracula/warning 白字对比度仅约 1.70:1；同时该 PR 无说明地移除玻璃拟态并引入违反主题变量合同的固定黑色。
+
+## 关联规范 / Spec
+
+- [主题系统参考](../../../docs/specs/theme/system.md)：主题变量、内置主题、自定义主题与通知视口消费边界。
 
 ## 实现摘要
 

@@ -4,13 +4,13 @@
 
 NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Desktop 和可独立发布的包。`Module` 是逻辑所有权和依赖边界，不等于当前目录，也不要求每个 Module 立即成为 npm 包。
 
-主应用当前已位于 `packages/neuro-book`；根只保留 workspace 编排、治理、产品、桌面和发布宿主入口。六个自治项目已收编到对应 `packages/*`，各自保留项目 docs、Task、状态和专属 `AGENTS.md`，默认继承根治理规则。
+主应用当前已位于 `packages/neuro-book`；根只保留 workspace 编排、治理、产品、桌面和发布宿主入口。六个自治项目已收编到对应 `packages/*`，各自保留项目 docs、legacy Task 记录、状态和专属 `AGENTS.md`，默认继承根治理规则；current Work/Task 统一位于根 `.agents/works/`。
 
 ## 当前布局与目标布局
 
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
-| 主应用 | `packages/neuro-book/package.json`、`app/`、`server/`、`shared/`、`assets/`、包内 `scripts/`、`.agents/tasks/`、`Dockerfile*`、`docker-compose.yml`、`.env.docker.example`、`.gitignore` 与 `config.example.yaml` | `bun --cwd packages/neuro-book ...`、Nuxt、应用 Vitest、Product 宿主 | 应用源码、专属脚本、Task、运行期参考书、分发资产和应用交付配置由应用包持有；根不承载应用实现或应用容器入口 |
+| 主应用 | `packages/neuro-book/package.json`、`app/`、`server/`、`shared/`、`assets/`、包内 `scripts/`、legacy `.agents/tasks/`、`Dockerfile*`、`docker-compose.yml`、`.env.docker.example`、`.gitignore` 与 `config.example.yaml` | `bun --cwd packages/neuro-book ...`、Nuxt、应用 Vitest、Product 宿主 | 应用源码、专属脚本、legacy Task provenance、运行期参考书、分发资产和应用交付配置由应用包持有；current Work/Task 由根 `.agents/works/` 持有 |
 | Source Dev | `packages/neuro-book/scripts/cli/source-dev.ts` | 应用 `dev` 命令 | 应用拥有启动编排；唯一允许的根 bridge 是只读复用 `scripts/utils/workspace-roots.ts` 定位 repository/application roots |
 | 用户文档站 | `vitepress/locales/{zh-Hans,en-US}/`、`vitepress/public/`、`vitepress/.vitepress/` | 根 `docs:*` 命令与 docs workflows | 整个 monorepo 的中英文用户文档投影；公开 URL 固定为中文 `/`、英文 `/en/`，工程 Spec 留在 owner 文档根 |
 | Agent Runtime | `packages/neuro-book/server/agent/`、相关 DTO 与 `packages/neuro-book/assets/reference/agent/` | Agent API、Harness、Profile runtime | 保持应用逻辑 Module；逻辑 `reference/**` 在 Source/Product 均解析到应用持有的只读书架 |
@@ -21,7 +21,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Des
 | Manager | `packages/neuro-book-manager/` | `@notnotype/neuro-book-manager`、`neuro-book` bin、Desktop 正式 subpath | 独立包；拥有 UAC client/broker 与 Product verifier，exports 的 types/runtime 条件必须同时覆盖真实消费者 |
 | Desktop Envelope | `desktop/` 与 `packages/neuro-book-contracts/src/desktop*` | Electron/Tauri、Manager、Desktop Contract | 保持根级独立安装图；宿主实现通过 contracts 或 Manager 正式 subpath 消费，不深导入应用或 sibling 源码 |
 
-所有 `packages/*` 默认继承根 Rule/Skill/Role、临时根、安全和 Git 规则。包可以建立自己的 `AGENTS.md`、`docs/`、`.agents/tasks/` 和 `PROJECT-STATUS.md`，但 `AGENTS.md` 必须引用 `../../AGENTS.md`；`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
+所有 `packages/*` 默认继承根 Rule/Skill/Role、临时根、安全和 Git 规则。包可以保留自己的 `AGENTS.md`、`docs/`、legacy `.agents/tasks/` 和 `PROJECT-STATUS.md`，但 current Work/Task 只在根 `.agents/works/` 创建；`AGENTS.md` 必须引用 `../../AGENTS.md`。`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
 
 ### 运行时路径与源码资产
 

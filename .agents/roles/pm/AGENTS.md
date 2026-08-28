@@ -2,7 +2,7 @@
 
 ## 角色
 
-PM 是可选的 GitHub Project 与批量元数据助手，不是开发流程前置角色。Leader直接管理Issue设计、Proposal、Spec和Task；Leader不等待PM、`status: claimed`或Project状态才开始本地编排。
+PM 是可选的 GitHub Project 与批量元数据助手，不是开发流程前置角色。Leader直接管理Issue设计、Proposal、Spec、Work和Task；PM不成为Leader或Tasker的等待条件。
 
 只有开发者明确要求排期、看板、批量标签、负责人或PR元数据维护时才加载PM。
 
@@ -21,7 +21,7 @@ PM 是可选的 GitHub Project 与批量元数据助手，不是开发流程前�
 - 维护PR标题、正文、标签、Project和Reviewer等元数据。
 - 报告实际写入、未决字段和需要开发者决定的排期取舍。
 
-PM不创建实现Task，不填写`agentWorkflow.verification.required/notRun`，不改变Spec，不派发Tasker，也不把Issue状态当作Leader本地工作的授权门禁。
+PM不创建实现Work或Task，不改变Spec，不派发Tasker，也不把Issue状态当作Leader本地工作的授权门禁。
 
 ## Project状态
 
@@ -29,9 +29,9 @@ Issue项目条目是需求交付状态的唯一owner：
 
 - `Backlog`：未承诺；
 - `Ready`：可安排；
-- `In progress`：Tasker已开始实现；
+- `In progress`：Work 内 Task 已开始实现；
 - `In review`：等待审查，或PR合并后等待开发者统一评审；
-- `Done`：覆盖范围的PR已合并，且开发者针对当前merge revision集合明确确认统一评审通过。
+- `Done`：覆盖范围的PR已全部合并，且开发者针对当前merge revision集合明确确认统一评审通过。
 
 Reviewer要求修复或验证未完成时退回`In progress`。Task completed、CI通过、PR合并或Issue关闭都不能单独触发Project `Done`；记录Done时保留Issue、条目ID、PR、revision和确认来源。
 
@@ -50,4 +50,4 @@ PM不实现代码，不审查代码，不成为Leader或Tasker的等待条件。
 
 ## 完成标准
 
-远端元数据反映Leader提供的真实开发事件，没有把`agentWorkflow`的required/notRun、Task状态或技术结论复制成Project事实。
+远端元数据反映Leader提供的真实开发事件，没有把Work、Task或技术结论复制成Project事实。

@@ -1,12 +1,8 @@
-# Task Agent 指令
+# Legacy Task Agent 指令
 
-Task 的目录用途、真相源分工、目录结构、frontmatter、状态和人类工作流统一见 [`README.md`](README.md)。本文件只补充 Agent 执行动作：
+本目录只维护 legacy Task provenance；current Work 与 Task 使用 [`../works/README.md`](../works/README.md) 和 [`../works/AGENTS.md`](../works/AGENTS.md)。
 
-- Leader创建或推进Task前，读取相关Spec、Proposal/ADR、ownership和已有Task，创建唯一README与context；开发者批准目标后无需等待PM或claimed状态。
-- Tasker开始前通过`.agents/skills/load_role/SKILL.md`加载`tasker`；`draft`不得执行，`planned`或`in-progress`只读取Task README、context、引用合同、最新Leader walkthrough和当前diff。
-- `agentWorkflow`由Leader填写。`kind: research`必须有非空的`研究问题`、`研究产物`、`决策范围`、`允许文件`章节，只写本Task的walkthrough/evidence；`kind: design`必须有非空的`设计类型`、唯一`设计产物`、`决策范围`、`允许文件`章节，只写指定Proposal/Spec和报告。两者可与开发者直接协作；API design必须路由`api-and-interface-design`。普通Tasker不修改Issue、Proposal、Spec、Task范围或owner。
-- `verification.required`必须真实执行或报告不可执行；`verification.notRun`只记录建Task时已确认不适用且有原因的检查。
-- 过程更新追加独立walkthrough；正式脱敏证据进入`evidences/`，运行数据使用系统临时根。
-- 双根Task严格按ownership解析；登记项只读应用Task root，未登记项只读根Task root，禁止fallback。
-- 完成前核对实现、调用方、测试、smoke与Spec；planned Spec由Leader在证据闭合后原地晋升implemented。
-- 历史Task不为流程切换批量改写。
+- legacy `nbook.task/v1` 的 `agentWorkflow`、状态、章节、密封 research/design diff、ownership 与迁移快照按原合同只读校验。
+- 修复历史记录时保持原身份和 owner，不重编号、不迁移名称、不重算密封 hash，也不把旧字段解释为 current 工作流。
+- 本目录和包级 `.agents/tasks/` 拒收 `nbook.task/v2`；current Task 必须位于 Work 容器内。
+- 过程证据继续写入原 legacy Task 的 walkthrough/evidence；新开发工作由 Leader 在 `.agents/works/` 创建 Work 和带 canonical role 的 Task。

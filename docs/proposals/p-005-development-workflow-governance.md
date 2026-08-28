@@ -9,18 +9,28 @@ NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、
 另一个问题是Leader与Tasker的合同同时存在于聊天、Issue、Task和角色提示中。Tasker需要等待Leader实时解释，跨session恢复时又无法确定哪份计划有效。
 
 本提案不改变NeuroBook产品功能或用户数据，只调整开发角色和文件工作流。
+## 2026-08-27 当前决策
+
+本节取代下方历史正文中与 `actionIssueId`、`agentWorkflow`、`kind`、Task status、task级worktree/branch身份和旧Task root相关的现行规则；历史文字保留为决策演进记录。
+
+- Work 作为 current Task 的强制容器，一个Work直接包含`1..N`个Task；Work通过`issueId: i<编号> | null`可选引用一个GitHub Issue。
+- Task 指定正式 role，且只允许`pm`、`leader`、`tasker`或`reviewer`中的一个；Task正文是协作参考，不作机器状态或权限门禁。
+- Proposal独立于Work，可被多个Work引用，不建立反向索引；Spec继续承载可观察产品合同。
+- `.agents/works/`是current唯一入口；根、主应用和自治包`.agents/tasks/`只保留legacy provenance并拒收`nbook.task/v2`。
+- Agent主导执行，开发者参与产品决定、实际观察、风险接受和受限动作授权；PM和Reviewer都是按需角色。
+- 历史Task、worktree、branch、PR、walkthrough、ownership和密封迁移hash不迁移、不重编号、不重算。
 
 ## 目标与非目标
 
 ### 目标
 
-1. 使用开发者→Leader→Tasker→Leader→开发者的顺序主线。
-2. Leader成为spec编程助手，直接管理Issue设计、调研、Proposal、Spec和Task，不等待PM。
-3. Leader的正式产物是：交给下一位Leader继续拆分的Issue、draft Task草案、planned可执行Task、Proposal和Spec。
-4. Leader与普通Tasker只通过Task文件、walkthrough和evidence交互；research/design Tasker可直接与开发者协作，但必须把决定写回允许文件。
-5. 普通Tasker只实现、验证和报告偏差；research Tasker只形成Task内证据、观察、简报和决定记录；design Tasker只形成指定的唯一Proposal/Spec草案。
-6. 门禁依靠Agent读取文件、自检和如实报告；减少本地可逆动作的逐项许可。
-7. 大目标先拆research、design和实现子Issue/Task，先用证据闭合产品决定，再把决定写入正式Proposal/Spec。
+1. 使用开发者→Leader→Tasker→Leader→开发者的顺序主线，Agent主导执行，开发者监工并在明示节点辅助。
+2. Leader直接管理重大Issue的设计、调研、Proposal、Spec、roadmap和Task，不等待PM。
+3. Issue保存长期交付目标；Task是一次完整的`planned`人机协作合同，可关联一个Issue或作为无Issue本地工作。
+4. Leader创建Task时明确Agent工作、开发者参与、任务产物、修改计划、完成门禁和Leader继续条件，派发后停止。
+5. 普通Tasker实现、验证和报告偏差；research Tasker产生证据与决策材料；design Tasker形成指定Proposal/Spec草案。
+6. 门禁依靠文件、自检和真实验证；本地可逆动作使用范围授权，受限动作仍分别授权。
+7. 后续Task只在前一步结果确定后按需创建；roadmap保存候选阶段但不能执行。
 
 ### 非目标
 
@@ -31,47 +41,49 @@ NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、
 
 ## 真相源
 
-- 开发者当前对话：目标、产品取舍、风险接受和受限动作授权。
-- GitHub Issue：公开目标、子项和依赖；跟踪工作，不充当角色锁。
+- 开发者当前对话：产品目标、取舍、风险接受、实际观察/验证和受限动作授权。
+- GitHub Issue：只为重大或长期交付保存公开目标、总体范围与非目标、验收、重大依赖、Task导航和交付状态。
 - Proposal：需要开发者决定的长期方案和取舍。
 - Spec：`planned`目标合同与`implemented`当前合同的唯一正文。
-- Task README与`context.md`：一次设计或实现工作的范围、顺序、验证和恢复合同；draft不可执行，planned可派发。
-- walkthrough与evidence：Leader/Tasker/Reviewer的追加式结果和证据。
+- roadmap：非绑定候选阶段与创建下一Task的触发条件；没有Task ID、状态、owner、允许文件或执行授权。
+- Task README与`context.md`：一次派发的Agent工作、开发者参与、任务产物、修改计划、完成门禁、允许文件和恢复合同；创建即`planned`。
+- walkthrough与evidence：追加式结果、开发者参与结果和证据。
 - Project与PR元数据：排期和交付状态；不决定Leader能否开始本地编排。
 
-Issue是多Task交付的唯一聚合根。未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护带目标、范围、验收、Proposal/Spec和授权请求来源的`drafts/<slug>.md`；路径只作恢复键，不是Issue ID。取得远端编号后以`Draft-Key`迁移、更新Task并删除草稿，不保留第二份状态正文。可执行叶子Issue随后使用`1..N`个扁平Task共享该编号；`actionIssueId: null`只用于无Issue的本地治理、实验或机械Task。不创建统筹Task或Task父子状态；容器Issue/待拆Issue可无直接Task，但必须提供子Issue或下一位Leader拆分入口。交付地图只做导航。
+Issue可以有`0..N`个Task；Task通过`actionIssueId`关联`0..1`个Issue。属于已有Issue验收范围的Task无论位于哪个root都写正整数编号；不值得创建Issue的本地治理、隔离实验和机械工作写`actionIssueId: null`。禁止统筹Task和Task父子状态。只有需要独立排期、独立验收或独立交付的结果才拆子Issue；调研、设计和编码默认在同一Issue下按真实结果逐个创建Task。
+
+未获远端Issue写入授权时，Leader按`.agents/issues/README.md`维护唯一Draft-Key草稿。获授权后先查找精确Draft-Key：0个才创建、1个复用、多个阻塞；取得编号后创建当前唯一完整`planned` Task，闭合链接和授权记录后最后删除草稿。无Issue本地工作不创建Issue草稿。
 
 ## 决策
 
 ### 顺序主线
 
-1. **开发者**提出目标并决定产品取舍。一次目标批准后，Leader可执行范围内本地可逆开发动作。
-2. **Leader**调查仓库，并选择产出Issue、draft/planned Task、Proposal或Spec；需要时先把研究或设计派成Task。
-3. **Tasker**读取文件合同。普通Tasker实现并验证；research Tasker与开发者完成证据到决定记录；design Tasker把已明确的目标写回指定的唯一Proposal/Spec草案。
-4. **Leader**读取文件结果，集成决定、创建后续Issue/Task或请求新的产品决策，然后推进下一步。
-5. **开发者**审阅draft Task和设计决策，并决定远端写入、合并、发布或其它受限动作。
+1. **开发者**批准重大目标和产品取舍，并在Task明示节点进行设计、实际观察/验证、产品判断、风险接受或受限动作授权。
+2. **Leader**调查仓库，维护Issue/Proposal/Spec/roadmap，并按当前已知结果创建一个完整`planned` Task。
+3. **Leader**派发后停止，明确对应`Leader 继续条件`的具体产物、开发者决定或验证结果；不预建依赖未知结果的Task。
+4. **Tasker**按文件合同主导调查、设计准备、编码、验证、记录和交接；到达开发者参与点时提供证据、选项和建议并停止依赖步骤。
+5. **Leader**只在继续条件满足后读取文件结果，完成当前Task、更新Issue/roadmap/Spec，或创建唯一下一Task。
 
 PM和Reviewer都是按需角色：PM用于Project排期和批量元数据；Reviewer用于高风险变化、Task画像要求或开发者明确要求。二者都不成为顺序主线的前置依赖。
 
 ### Leader合同
 
-Leader是Issue、Proposal、Spec和Task的编排owner：
+Leader是Issue、Proposal、Spec、roadmap和Task的编排owner：
 
-- 产出可交给下一位Leader继续拆分的Issue；
-- 产出供开发者审阅、Tasker不得执行的draft Task；
-- 产出开发者已接受、Tasker可直接执行的planned Task；
-- 产出记录长期取舍的Proposal和行为/API合同的Spec；
-- 可先创建research Task，用证据、开发者观察、简报和决定记录完善后续Proposal、Spec和实现Task；需要正式长期产物时再创建单产物design Task；
-- 发现多个合理产品结果时停止并给开发者建议，不让普通Tasker自行选择；
-- 获远端写入授权后直接维护Issue；未获授权时维护本地草稿；
-- 通过`ownership.json`选择唯一Task root和owner，默认顺序执行；
-- 根据Tasker文件报告更新合同、重切片或请求开发者决策。
+- 判断目标是否值得创建重大/长期Issue；无Issue本地工作直接使用`actionIssueId: null`；
+- 把未确定未来步骤写为roadmap触发条件，而不是预建Task；
+- 创建包含八个通用章节的完整`planned` Task并派发；
+- `kind: research`追加研究问题、研究产物和决策范围，声明产物与允许文件集合一致，active research 进入HEAD后检查owner scope当前工作树；`kind: design`追加设计类型、唯一Proposal/Spec产物、决策范围、允许文件和密封基线；
+- 明确开发者参与的时机和材料，不要求开发者批准Task文件、Skill路由、允许文件、验证命令或状态切换；
+- 派发后停止并报告需要什么才能继续；
+- 发现多个合理产品结果时向开发者提交证据、选项和建议，不让Tasker自行选择；
+- 取得结果后更新合同、完成当前Task或按需创建唯一下一Task。
 
 ### Tasker文件交互
 
-普通Tasker开始和恢复只读取Task README、context、引用合同、最新Leader walkthrough、基线与相邻测试。派发聊天只提供角色和Task路径；输出写入实现commit、Tasker walkthrough和evidence。普通Tasker不修改Issue、Proposal、Spec或Task范围，计划不成立时报告事实、影响和选项。
+Tasker开始和恢复只读取Task README、context、引用合同、最新Leader walkthrough、基线与相邻测试。`planned`/`in-progress`用于执行；`verifying`允许补required证据或同合同修复。Tasker主导执行，在`开发者参与`触发点准备最小证据、可观察产物、选项与建议；缺少人类结果时不得自行代替。
 
-`agentWorkflow.kind: research`允许Tasker针对列出的问题直接与开发者协作，只修改本Task指定的walkthrough/evidence，不写Proposal、Spec或业务源码。`agentWorkflow.kind: design`负责一个唯一Proposal/Spec目标，只修改该目标和本Task报告。两者的范围和owner仍由Leader管理。
+`agentWorkflow.kind: research`只产出指定研究证据和决策材料；声明allowlist与研究产物集合一致，active research首次进入HEAD后固定kind、状态与研究产物，并检查owner scope内staged、unstaged和untracked实际路径，当前合同不能关闭或扩大该窗口。README/context由Leader维护并作为实际diff例外，不属于Research Tasker allowlist。`agentWorkflow.kind: design`只修改密封合同允许的Proposal/Spec和报告文件，不实现业务代码；API额外要求`api-and-interface-design`。首次提交的活跃Design README/context密封kind、执行身份、严格祖先diff基线、产物和允许文件；已提交退出后不得重开。
 
 ### 授权模型
 
@@ -97,15 +109,15 @@ Reviewer只报告结论，不修代码、不更新合同、不触发Project Done
 
 ## 验收
 
-1. 现行文档只有一条开发者→Leader→Tasker→Leader→开发者顺序主线。
-2. Leader可以在开发者批准目标后直接完成本地调研、Issue草稿、Proposal和Spec，不等待PM或claimed状态；产品Task在取得远端Issue编号后建立。
-3. Leader五类产物、draft/planned Task成熟度、未编号Issue草稿迁移和下一位Leader继续拆分合同明确。
-4. Issue是唯一多Task聚合根；可执行叶子Issue使用`1..N`个扁平Task，不存在统筹Task或Task父子状态。
-5. 根、应用与自治包当前schema Task都不能通过缺README、错schema、非法`actionIssueId`或未受检`agentWorkflow`绕过合同。
-6. PM与Reviewer均为按需角色，不构成每个Task的门禁。
-7. 本地可逆动作采用范围授权；受限动作仍逐项授权，planned不被解释为受限动作授权。
+1. 现行文档只有一条开发者→Leader→Tasker→Leader→开发者顺序主线，Agent主导且开发者参与边界明确。
+2. Issue只服务重大/长期交付；Issue→`0..N` Task、Task→`0..1` Issue，`actionIssueId`统一为正整数或`null`。
+3. Task创建即`planned`，包含Agent工作、开发者参与、任务产物、修改计划、完成门禁、Leader继续条件和允许文件。
+4. roadmap不成为可执行Task；Leader不预建依赖未知结果的完整链，派发后停止并明确继续所需输入。
+5. `research`声明与owner-scope当前工作树门禁、`design`专属合同与密封diff、`verifying`返工和required/notRun语义保持。
+6. 根、应用和自治包当前v1 Task使用同一Issue与章节校验；历史记录不批量回填。
+7. PM与Reviewer按需；planned不授权受限动作，Task completed不触发Project Done。
 8. Task、角色、仓库工作流、P-005索引和治理静态检查语义一致。
-9. 聚焦治理测试、`docs:check`、`governance:check`和diff check通过。
+9. 聚焦治理测试、`docs:check`、`governance:check`、typecheck和diff check通过。
 
 ## 决策记录
 
@@ -114,5 +126,6 @@ Reviewer只报告结论，不修代码、不更新合同、不触发Project Done
 - 2026-08-24｜Task 00152/00154｜同步角色合同、Task恢复、`report`和`load_role`入口。
 - 2026-08-26｜人类修订｜改为Leader主导顺序流程；Leader产出可继续拆分的Issue、draft/planned Task、Proposal和Spec；design Tasker可直接与开发者协作制定API等规范并回写文件；PM和独立Reviewer按需，本地可逆门禁采用范围授权。
 - 2026-08-26｜人类决策｜采用Issue聚合+扁平Task：Issue统筹总目标与验收，多个Task直接共享`actionIssueId`；不创建统筹Task或`parentTaskId`，交付地图只做导航。
-- 2026-08-26｜实现收口｜未编号Issue使用`.agents/issues/drafts/<slug>.md`恢复键，取得远端编号后迁移并删除；根/应用双Task root按显式历史截止线启用新合同门禁。
-- 2026-08-26｜人类决策｜新增`agentWorkflow.kind: research`：研究Task只在本Task报告和证据中完成证据→观察→简报→决定记录，不提前拥有Proposal/Spec；正式长期产物继续由后续单产物design Task负责，自治包当前schema Task纳入同一治理检查。
+- 2026-08-26｜实现收口｜未编号Issue使用`.agents/issues/drafts/<slug>.md`恢复键；取得远端编号后，应用Task带`actionIssueId`，根owner可按合同使用本地例外。历史Task必须命中index/marker首次共同提交的密封迁移快照：该快照manifest重算通过，固定`sourceRevision`中存在README，且同源同目标mapping命中；当前mapping身份投影不得漂移，应用历史Task还必须命中ownership。三个迁移期五位Task精确兼容，根当前Task使用`00152+`，应用当前Task使用`00149+`。
+- 2026-08-26｜审查修复｜Issue迁移改为Draft-Key 0/1/多命中幂等顺序、先draft后开发者接受；Task owner决定`issueRequired`；verifying返工、notRun不适用语义和Design密封真实diff门禁闭合。
+- 2026-08-27｜人类修订｜采用Issue/Task二层模型：Issue只记录重大或长期交付，一个Issue可含多个按结果创建的Task；保留`actionIssueId: null`的无Issue Task，删除`issueRequired`和`draft`状态。Task由Agent主导，开发者只在明示节点设计、验证或判断；Leader创建完整`planned`合同，必须写分工、产物、修改计划、完成门禁和继续条件，派发后停止。此前“先draft后逐个接受”和按owner分叉的决定由本条取代。

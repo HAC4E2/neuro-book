@@ -2,14 +2,14 @@
 
 ## 角色
 
-Reviewer按Task画像、风险或开发者要求，对当前Task或PR做独立审查。Reviewer不是每个Task的前置状态，也不参与Leader与Tasker的日常派发。
+Reviewer按Work、Task、风险或开发者要求，对当前Task或PR做独立审查。Reviewer不是每个Task的前置状态，也不参与Leader与Tasker的日常派发。
 
 低风险文档和机械改动可由Leader自审；安全、隐私、数据生命周期、数据库迁移、公开接口、安装发布、跨模块高风险变化必须使用独立Reviewer。
 
 ## 开始工作
 
-1. 读取根规则、相关Spec、Task README、`context.md`、最新Leader与Tasker walkthrough、evidence、当前diff和source revision。
-2. 核对`agentWorkflow.verification.required/notRun`与实际改动面。
+1. 读取根规则、相关Spec、Work README、Task README、最新报告与evidence、当前diff和source revision。
+2. 核对Task目标、实际改动、验证与未运行项。
 3. 信息不足时输出“无法判断”，不补写实现或合同。
 
 ## 审查
@@ -18,7 +18,7 @@ Reviewer按Task画像、风险或开发者要求，对当前Task或PR做独立�
 - Spec的输入、输出、状态、副作用、失败、权限和兼容无冲突；
 - 实现完整切换调用方并删除旧入口；
 - 测试覆盖真实行为和失败边界；
-- required检查有当前revision的实际结果，notRun没有冒充通过；
+- Task目标或引用合同要求的检查有current revision实际结果，报告中的每个未运行项都有真实原因；
 - 安全、性能、数据与发布风险被明确披露；
 - Tasker偏差已由Leader处理，没有通过改文档掩盖实现缺口。
 
@@ -30,10 +30,10 @@ Reviewer可以运行只读检查和验证命令，不修改被审查代码、Spe
 
 - `建议合并`：合同与证据闭合；
 - `需要修复`：实现或合同存在明确缺陷；
-- `未完成验证`：实现可能正确，但required证据缺失；
+- `未完成验证`：实现可能正确，但目标或引用合同要求的证据缺失；
 - `无法判断`：合同或基线不唯一，需要Leader/开发者处理。
 
-报告追加到Task walkthrough并链接证据。Reviewer结论不能触发Project `Done`、PR合并、发布或部署。
+报告默认写入Task的`walkthroughs/`，原始命令输出或结构化证据按需写入`evidences/`。Reviewer结论不能触发Project `Done`、PR合并、发布或部署。
 
 ## 完成标准
 

@@ -13,8 +13,9 @@ import {
     verifyMonorepoCutover,
     verifyLeaderDrivenDevelopmentContract,
     verifySiblingResyncResolution,
-    verifyTaskAgentWorkflowProfiles,
+    verifyLegacyTaskProvenance,
     verifyTaskOwnership,
+    verifyWorkContracts,
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
 
@@ -25,7 +26,8 @@ const failures: string[] = [];
 const warnings: string[] = [];
 
 failures.push(...verifyAgentSkillsAdaptation(repoRoot));
-failures.push(...verifyTaskAgentWorkflowProfiles(repoRoot));
+failures.push(...verifyWorkContracts(repoRoot));
+failures.push(...verifyLegacyTaskProvenance(repoRoot));
 failures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));
 
 function requireFile(relativePath: string): void {
@@ -52,7 +54,7 @@ failures.push(...verifyGovernanceDocumentLimits(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
 }
-for (const relativePath of ["AGENTS.md", ".omp/RULES.md", "WATCHDOG.md", ".agents/AGENTS.md", ".agents/README.md", ".agents/tasks/README.md"]) {
+for (const relativePath of ["AGENTS.md", ".omp/RULES.md", "WATCHDOG.md", ".agents/AGENTS.md", ".agents/README.md", ".agents/works/README.md", ".agents/tasks/README.md"]) {
     if (isIgnored(relativePath)) failures.push(`治理入口被错误忽略：${relativePath}`);
 }
 
@@ -107,7 +109,7 @@ const staleGovernanceRefs = [".agent/roles/", ".agent/tasks/", ".agent/skills/"]
 for (const relativePath of [".agents/skills/README.md", ".agents/tasks/README.md", ".agents/tasks/AGENTS.md"]) {
     const text = readFileSync(resolve(repoRoot, relativePath), "utf8");
     for (const stale of staleGovernanceRefs) {
-        if (text.includes(stale)) failures.push(`治理文件仍引用旧入口 ${stale}：${relativePath}`);
+        if (text.includes(stale) && !relativePath.startsWith(".agents/tasks/")) failures.push(`治理文件仍引用旧入口 ${stale}：${relativePath}`);
     }
 }
 for (const role of CANONICAL_ROLES) {

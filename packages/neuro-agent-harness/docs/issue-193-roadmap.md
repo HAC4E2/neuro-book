@@ -2,7 +2,7 @@
 
 本文件是 [Issue #193](https://github.com/notnotype/neuro-book/issues/193) 的非绑定路线图，只保存可能需要研究或设计的后续阶段。它不是 Task 合同：没有 Task ID、状态、owner、允许文件或执行授权，Tasker 不得据此执行。
 
-当前唯一活动合同是 [`02-product-host-success-research`](../.agents/tasks/02-product-host-success-research/README.md)。Task 02 完成前不创建下一 Task；其结果改变候选顺序或范围时，Leader 先原地更新本路线图，再创建唯一完整的 `planned` Task。
+当前唯一活动合同是 [`t01-product-host-success-research`](../../../.agents/works/w00002-neuro-agent-harness-redesign/tasks/t01-product-host-success-research/README.md)。该 Task 完成前不创建下一 Task；其结果改变候选顺序或范围时，Leader 先原地更新本路线图，再创建唯一完整的 current Task。
 
 ## 候选阶段
 
@@ -20,10 +20,10 @@
 
 ## 创建下一 Task 的规则
 
-1. Leader 读取 Issue #193、当前 Task README/context、最新 walkthrough/evidence 和本路线图。
-2. 只有当前 Task 的 `Leader 继续条件` 已满足，才选择一个候选阶段。
-3. Leader重新调查当前代码与合同，不继承本路线图中的假设为事实，不恢复已删除的 03–11 草案。
-4. Leader创建一个完整 `planned` Task，写清 Agent 工作、开发者参与、任务产物、修改计划、完成门禁、继续条件和允许文件，然后派发并停止。
+1. Leader 读取 Issue #193、current Work/Task README/context、最新 walkthrough/evidence 和本路线图。
+2. 只有 current Task 的 `Leader 继续条件` 已满足，才选择一个候选阶段。
+3. Leader 重新调查 current 代码与合同，不继承本路线图中的假设为事实，不恢复已删除的 03–11 草案。
+4. Leader 在 `w00002-neuro-agent-harness-redesign/tasks/` 创建一个完整 current Task，写清 Agent 工作、开发者参与、任务产物、完成门禁和继续条件，然后按其 canonical role 派发并停止。
 5. 并行只用于上游合同已固定，且文件、接口和状态 owner 不重叠的已创建 Task；路线条目本身不能并行派发。
 
 ## Issue 导航边界

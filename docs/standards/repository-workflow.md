@@ -2,11 +2,11 @@
 
 本文件面向 NeuroBook 维护者和开发 Agent。外部贡献者的快速流程见根 [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)。
 
-## Issue、Task 与决策记录
+## Issue、Work、Task 与决策记录
 
-Issue承载公开目标、子项、依赖和协作状态；Proposal决定长期方案；Spec定义目标或当前行为；Task是Leader写给Tasker的一次实现文件合同。开发者批准目标后，Leader可先完成本地Issue设计、Proposal/Spec/Task和执行编排，不等待PM或远端状态同步。
+Issue只承载重大或长期交付的公开目标、总体范围与验收；Proposal决定长期方案；Spec定义目标或当前行为；Work是current开发工作的强制容器；Task是Work内一次由单一正式role执行的协作单元。开发者批准目标后，Leader可完成本地Issue设计、Proposal/Spec/Work/Task和执行编排，不等待PM或远端状态同步。
 
-开放Issue保留一个`type:*`和一个`status:*`：
+每个开放Issue恰好保留一个现有`type:*`和一个现有`status:*`。`type:*`按Issue实质选择；`status:*`只有：
 
 - `needs-triage`：尚未整理；
 - `needs-info`：缺报告者信息；
@@ -15,18 +15,18 @@ Issue承载公开目标、子项、依赖和协作状态；Proposal决定长期�
 - `claimed`：已有实现owner，提醒其他贡献者不要并行；
 - `blocked`：存在外部依赖。
 
-这些标签用于公开协作，不是Leader本地编排或Tasker开工的权限锁。远端Issue/Project写入仍需授权；未获Issue写入授权时Leader按`.agents/issues/README.md`维护`drafts/<slug>.md`，记录目标、范围、验收、Proposal/Spec和授权来源。草稿路径只作恢复键，不是Issue ID；取得远端编号后按`Draft-Key`迁移、更新Task并删除草稿，不保留第二份状态正文。
+这些标签用于公开协作，不是Leader本地编排或Tasker开工的权限锁。远端写入仍需具体授权；未获授权时Leader按`.agents/issues/README.md`维护Draft-Key草稿。取得编号后由Work写`issueId: i<编号>`；无Issue工作写`issueId: null`。
 
-大目标由Leader拆成调研、设计、基础设施和领域实现等子Issue；父子关系表达组成，`blocks/blocked by`只表达真正执行依赖。Issue是多Task交付的唯一聚合根：获授权创建远端Issue并取得编号后，可执行叶子Issue使用`1..N`个直接共享其编号的扁平Task，不创建统筹Task或`parentTaskId`；容器Issue/待拆Issue可无直接Task，但必须列出子Issue或下一Leader入口。Issue或Leader walkthrough可维护交付地图，但只做导航。
+一个Work引用`0..1`个Issue并直接包含`1..N`个Task；一个Task只属于其目录父Work。Task指定一个canonical role：`pm`、`leader`、`tasker`或`reviewer`。Proposal独立存在，可被多个Work引用，不维护反向索引。Task正文是协作参考，不是机器状态或权限门禁。
 
-Leader处理Issue后的正式出口为：交给下一位Leader继续拆分的Issue、供开发者审阅且不可执行的draft Task、开发者已接受的planned Task、记录长期取舍的Proposal、定义目标或当前合同的Spec。产品Task必须有正整数`actionIssueId`；`null`只用于无Issue的本地治理、实验或机械Task。planned只授权Task工作，不授权任何远端或受限动作；具体授权记录在context/walkthrough，未记录即未授权且不外推。调研或API设计可建立planned design Task；design Tasker可直接与开发者协作，但只更新Task指定的Proposal/Spec草案，不实现业务代码。
+Leader只按当前已知结果创建Task，不预建依赖未知结果的链。Tasker按role和引用合同Agent主导执行，在明示的开发者参与点请求产品决定、实际观察、风险接受或受限动作授权；文件足以恢复时不等待Leader在线。远端和不可逆动作继续分别授权。
 
 ## Worktree 与分支
 
-Task walkthrough承载重大实现，独立worktree承载代码，最终以PR合入master。
+Work/Task的`walkthroughs/`或`evidences/`承载重大实现记录，独立worktree承载代码，最终以PR合入master。
 
-- Leader在批准范围内自行选择branch/worktree/checkout并记录实际身份；保持主工作区在master，不覆盖用户改动。
-- 分支格式为`{type}/{refs}-{slug}`，refs使用Task或Issue编号。
+- 需要隔离代码改动时，同一Work默认共享`.worktree/<workId>`；分支使用`{type}/{refs}-{slug}`且refs使用Work编号。开发者明确指定既有worktree/branch时沿用该身份并在报告中记录。
+- 默认路径已属于其它仓库、Work或不匹配branch时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
 - 每个Task默认顺序推进；只有owner、文件和合同不重叠时并行。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - push和PR属于远端写入，分别获授权后执行。

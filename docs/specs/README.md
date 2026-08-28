@@ -73,7 +73,7 @@ owners:
 
 1. 原始自然语言进入 [`../proposals/`](../proposals/)；补齐歧义、备选方案和影响。
 2. 人类接受 Proposal 后，创建或更新 `planned` Spec，把目标写成黑盒行为与验收场景。
-3. `.agents/tasks/` 引用 Proposal 和 Spec，记录具体实现、验证和交接。
+3. `.agents/works/` 中的 Work/Task 引用 Proposal 和 Spec，记录具体实现、role、验证和交接。
 4. 代码、测试和 Spec 在同一交付中收敛；证据支持全部合同后，将原 Spec 晋升为 `implemented`。
 
 ### Bug
@@ -144,7 +144,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 1. 新功能先检查本表是否已有规范归属。
 2. 尚未决定的跨模块方案写入 [`../proposals/README.md`](../proposals/README.md)；小型、可逆且不改变长期合同的工作可直接更新现有规范。
-3. 提案获批后，先更新或创建当前规范，再创建 `.agents/tasks/` 实现合同。
+3. 提案获批后，先更新或创建当前规范，再在 `.agents/works/` 创建 Work 与实现 Task。
 4. 实现期间如果行为变化，规范和代码在同一变更中更新。
 5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。
 6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和 proposal 保留历史但不再作为当前行为依据。

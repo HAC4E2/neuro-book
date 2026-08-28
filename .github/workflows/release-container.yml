@@ -27,7 +27,6 @@ permissions:
   packages: write
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_OPTIONS: --max-old-space-size=4096
 
 concurrency:
@@ -106,11 +105,6 @@ jobs:
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
 
-      - id: app-meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.image-names.outputs.app }}
-
       - id: app-build
         name: Build and push app image by digest
         uses: docker/build-push-action@v6
@@ -120,7 +114,6 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             NEURO_BOOK_SOURCE_REVISION=${{ inputs.revision }}
-          labels: ${{ steps.app-meta.outputs.labels }}
           outputs: type=image,name=${{ steps.image-names.outputs.app }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=app-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=app-${{ matrix.arch }}
@@ -370,6 +363,8 @@ jobs:
           name: source
           path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - run: bun run release:product:windows
+      - name: Build Manager bundle for portable embedding
+        run: bun run manager:build
       - run: bun run package:windows-portable
       - uses: actions/upload-artifact@v4
         with:
@@ -433,9 +428,8 @@ jobs:
             --manager-version "${manager_version}" \
             --ghcr-ref "${APP_IMAGE_NAME}@${GHCR_DIGEST}" \
             --ghcr-digest "${GHCR_DIGEST}"
-          MANAGER_ROOT="${manager_root}" bun -e 'const schema = await import(`${process.env.MANAGER_ROOT}/package/dist/schema.mjs`); const manifest = await Bun.file(`${process.env.NEURO_BOOK_RELEASE_DIR}/release-manifest.json`).json(); schema.parseReleaseManifest(manifest);'
-      - name: Upload candidate release bundle
-        uses: actions/upload-artifact@v4
+          bun -e 'const schema = await import("./packages/neuro-book-contracts/src/release.ts"); const manifest = await Bun.file(`${process.env.NEURO_BOOK_RELEASE_DIR}/release-manifest.json`).json(); schema.parseReleaseManifest(manifest); console.log("release-manifest.json 通过 contracts 解析校验");'
+      - uses: actions/upload-artifact@v4
         with:
           name: release-candidate
           path: |
@@ -585,7 +579,11 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
+      - name: Build Manager bundle for restart verifier
+        run: bun run manager:build
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
@@ -1060,9 +1058,6 @@ jobs:
               echo "隔离失败：podman-compose 不允许存在于 PATH。" >&2
               exit 1
           fi
-          systemctl --user enable --now podman.socket
-          podman info
-          podman compose version
           # 持久化 sanitized PATH：逐行写入（每行一个目录条目，不能写整串 PATH=...），
           # 并显式剔除 masked 根前缀，防止任何后续步骤意外纳入。
           printf '%s\n' "$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "^$PODMAN_COMPOSE_MASKED_ROOT")" >> "$GITHUB_PATH"
@@ -1078,9 +1073,30 @@ jobs:
               exit 1
           fi
           command -v docker-compose
+          # 本次专属 socket 路径：全新路径无任何历史 owner（systemd unit 或
+          # 旧 service 的 unlink 竞态均不存在），本 service 是唯一监听者。
+          PODMAN_API_SOCK="${RUNNER_TEMP}/podman-api.sock"
+          rm -f "${PODMAN_API_SOCK}"
+          nohup podman system service --time=0 "unix://${PODMAN_API_SOCK}" \
+              > "${RUNNER_TEMP}/podman-system-service.log" 2>&1 &
+          for attempt in $(seq 1 20); do
+              test -S "${PODMAN_API_SOCK}" && break
+              sleep 1
+          done
+          test -S "${PODMAN_API_SOCK}" || { echo "podman.sock 未就绪" >&2; exit 1; }
+          export DOCKER_HOST="unix://${PODMAN_API_SOCK}"
+          # 真连接探针：/_ping 必须在 60 秒内返回 OK（version 不触 daemon，不能作为依据）。
+          timeout 60 curl --silent --show-error --fail --unix-socket "${PODMAN_API_SOCK}" "http://d/_ping" \
+              || { echo "podman service _ping 探针失败" >&2; exit 1; }
+          # Compose API 探针：Manager 委托的是 docker-compose 客户端，必须用
+          # 同一客户端对同一 socket 打一次真 API（ps 连 daemon 列项目）。
+          printf 'services: {}\n' > "${RUNNER_TEMP}/podman-api-probe.yaml"
+          timeout 60 docker-compose -f "${RUNNER_TEMP}/podman-api-probe.yaml" ps --all \
+              || { echo "docker-compose 经 podman.sock 的 Compose API 探针失败" >&2; exit 1; }
           manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
           candidate_manifest="$PWD/candidate-assets/release-manifest.json"
-          bash scripts/release/verify-public-ghcr.sh \
+          # 40 分钟护栏：任何死锁都硬失败并保留现场日志，避免整 job 静默挂到 6 小时。
+          timeout 2400 bash scripts/release/verify-public-ghcr.sh \
             "$manager_version" "$candidate_manifest" \
             "${RUNNER_TEMP}/public-ghcr-podman-delegate" 39490 podman delegate
 

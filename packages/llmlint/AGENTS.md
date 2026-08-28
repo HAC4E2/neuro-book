@@ -14,7 +14,7 @@
 ## 文档与任务
 
 - `CONTEXT.md` 是术语与硬不变量的真相源；`evals/METHODOLOGY.md` 是评测方法论真相源；`PROJECT-STATUS.md` 是本包状态入口。
-- 历史 Task 位于 [`.agents/tasks/`](.agents/tasks/)；这是源 `.agents/tasks/` 的迁移位置。新增或更新 llmlint Task 只写本包 `.agents/tasks/`，不写 monorepo 根任务目录。
+- 历史 Task 位于 [`.agents/tasks/`](.agents/tasks/)，只作源仓迁入的 legacy provenance。llmlint 的 current 新工作统一在 monorepo 根 `.agents/works/` 创建 Work/Task；既有 legacy walkthrough 只在修复或补充历史结果时原地更新。
 - 稳定实现合同位于 `skill/references/`；跨任务规格、提案和 ADR 留在本包 `docs/`。
 - 改动任务、文档路径或命令时同步检查相对链接；根共享规则只引用，不在此重复。
 

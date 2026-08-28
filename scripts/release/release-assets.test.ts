@@ -13,6 +13,7 @@ import {
     productRuntimeBuildPolicy,
     type ProductRuntimeImageManifest,
 } from "#scripts/build/product-runtime-image-builder";
+import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
 import {createProductRuntimeContract} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
     buildProductArchive,
@@ -88,11 +89,7 @@ type ReleaseWorkflow = {
 type ProductWorkflow = {
     jobs: {
         product: WorkflowJob & {
-            strategy: {
-                matrix: {
-                    include: Array<{platform: string; browser: string}>;
-                };
-            };
+            strategy?: {matrix?: unknown};
         };
     };
 };
@@ -459,9 +456,12 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
         expect(windowsRun.indexOf("bun run --cwd packages/neuro-book nuxt:prepare")).toBeLessThan(
             windowsRun.indexOf("bun run manager:test"),
+        );
+        expect(windowsRun).toContain("bun run manager:build");
+        expect(windowsRun.indexOf("bun run manager:build")).toBeLessThan(
+            windowsRun.indexOf("bun run package:windows-portable"),
         );
     });
 
@@ -536,8 +536,10 @@ describe("Product Release宿主合同", () => {
     it("Linux AArch64 Product必须安装并执行真实浏览器smoke", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/product-platforms.yml"), "utf8")) as ProductWorkflow;
         const releaseWorkflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
-        const linuxArm = workflow.jobs.product.strategy.matrix.include.find(({platform}) => platform === "linux-aarch64-glibc");
+        const linuxArm = selectProductPlatformMatrix("push").find(({platform}) => platform === "linux-aarch64-glibc");
         expect(linuxArm?.browser).toBe("playwright");
+        const matrixNode = workflow.jobs.product.strategy?.matrix;
+        expect(String(matrixNode)).toContain("fromJSON(needs.select-platforms.outputs.matrix)");
         expect(workflow.jobs.product.steps).toContainEqual(
             expect.objectContaining({run: "bunx playwright-core install --with-deps chromium"}),
         );

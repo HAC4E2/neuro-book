@@ -2,11 +2,11 @@
 schema: nbook.task/v1
 taskId: 00160-leader-driven-development-workflow
 actionIssueId: null
-worktreeId: null
-branchId: null
+worktreeId: .worktree/t160-leader-driven-workflow
+branchId: refactor/t160-leader-driven-workflow
 status: completed
 createdAt: 2026-08-26T00:00:00Z
-updatedAt: 2026-08-26T19:19:25+08:00
+updatedAt: 2026-08-27T05:58:41Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: refactor
@@ -20,18 +20,22 @@ agentWorkflow:
       - docs-check
       - governance-check
       - diff-check
-    notRun: []
+    notRun:
+      - check: browser
+        reason: 本Task仅修改开发治理文档和静态脚本，没有浏览器可见表面
 ---
 
 # Task 00160：Leader 主导的顺序开发流程
 
 ## 目标
 
-把现行四角色状态机收敛为开发者→Leader→Tasker→Leader→开发者的顺序流程。Leader产出可继续拆分的Issue、draft/planned Task、Proposal和Spec；Issue统筹多个扁平Task；普通Tasker只消费文件合同并实现，design Tasker可直接与开发者协作制定API等规范并写回文件；PM和Reviewer按需。
+把开发治理收敛为开发者→Leader→Tasker→Leader→开发者的顺序流程，并采用Issue/Task二层模型：Issue只记录重大或长期交付，Task可关联一个Issue或作为无Issue本地工作；Agent主导执行，开发者按明示节点参与，Leader按真实结果逐个创建`planned` Task并在派发后停止。
 
 ## 授权来源
 
-开发者在当前对话明确要求：Leader不等待PM，负责Issue、Spec与Task；Leader产物包括交给下一位Leader继续拆分的Issue、Task草案、可执行Task、Proposal和Spec；Leader可派发API等design Task，让Agent与开发者直接协作制定并写入Spec；Issue采用聚合根+扁平Task模型，不创建统筹Task。
+开发者明确要求Leader不等待PM，负责Issue、Spec、roadmap与Task；创建Task时区分Agent工作与开发者参与，并规定任务产物、修改计划、完成门禁和继续条件。开发者选择把Issue #193 的预建03–11收敛为路线图，后续按上游结果创建唯一下一Task。
+
+开发者此前明确要求“提交 PR”，授权本 Task 在专用 worktree 创建本地 commit、push `refactor/t160-leader-driven-workflow` 并创建 PR；该授权不包含本轮新的push、PR更新、合并、发布、部署或 Issue/Project 元数据写入。
 
 ## 范围
 
@@ -44,7 +48,7 @@ agentWorkflow:
 ## 非目标
 
 - 不修改产品代码、产品 Spec 或 Issue #191 实现计划。
-- 不执行远端Issue/Project/PR写入、push、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收或数据删除。
+- 不执行远端Issue/Project元数据写入、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收或数据删除。
 - 不新增角色状态机、交接 CLI、权限沙箱或第二套 Task schema。
 - 不批量改写历史 Task 和 walkthrough。
 
@@ -53,18 +57,19 @@ agentWorkflow:
 ## 行为合同
 
 1. 开发者批准目标后，Leader可完成范围内本地编排，不以claimed、PM同步或逐项本地许可为前置。
-2. Leader明确选择五类产物：下一位Leader继续拆分的Issue、draft Task、planned Task、Proposal、Spec。
-3. Issue是多Task交付聚合根；取得远端Issue编号后，可执行叶子Issue使用`1..N`个共享`actionIssueId`的扁平Task，不创建统筹Task或Task父子状态。
-4. 未获远端Issue写入授权时，Leader在`.agents/issues/drafts/<slug>.md`保存恢复草稿并请求授权，不伪造Issue ID或创建产品Task；取得编号后迁移并删除草稿。
-5. draft Task不可执行；planned Task可派发，但不授权任何受限动作。design Tasker只把决定写入指定Proposal/Spec草案，不实现业务代码。
-6. 普通Tasker只通过文件合同实现、验证并报告偏差，不修改Issue、Proposal、Spec或Task范围。
-7. PM/Reviewer按需；合并前仍有人审查，高风险改动使用独立Reviewer。
-8. 受限动作分别授权并记录具体动作、范围与来源；一个授权不外推到其它动作。本Task仅获本地治理文件编辑与验证授权。
+2. Issue只服务重大或长期交付；Issue可含`0..N`个Task，Task通过可空`actionIssueId`关联`0..1`个Issue。
+3. 不值得创建Issue的本地治理、隔离实验和机械工作继续使用`actionIssueId: null`；删除owner分叉和`issueRequired`。
+4. Task目录创建即为完整`planned`合同；Task状态不再包含`draft`。roadmap不是Task，不能执行。
+5. Leader必须写Agent工作、开发者参与、任务产物、修改计划、完成门禁、Leader继续条件和允许文件；派发后停止，不预建依赖未知结果的后续Task。
+6. Tasker主导执行；到达开发者参与点时提供证据、选项和建议，未取得设计、观察、验证、判断或授权结果时不自行替代。
+7. `research`和`design`保留专属章节；Design密封真实diff、`verifying`同合同返工、required/notRun和受限动作分别授权规则保持。
+8. PM/Reviewer按需；合并前仍有人审查，高风险改动使用独立Reviewer。具体动作、范围与来源以`context.md`为准。
 
 ## 验收
-- 现行合同只有一条完整顺序主线，不再出现Leader必须等待PM claim或PM状态迁移的前置。
-- Issue聚合、未编号草稿迁移与扁平Task关系明确，不存在统筹Task或Task父子状态。
-- Tasker开始和恢复所需信息来自文件；design Task有受控类型、唯一设计产物、决策范围和允许文件。
-- 根/应用双Task root的新合同身份、`actionIssueId`和禁用聚合字段有负向门禁。
-- P-005、角色合同、Task合同、仓库流程和治理检查语义一致。
-- 聚焦治理测试、`docs:check`、`governance:check`与diff check通过。
+
+- Issue/Task二层模型、可空`actionIssueId`、无Issue Task和Issue拆分阈值一致。
+- Task创建即`planned`；八章节、Agent主导、开发者参与点、派发后停止和按结果创建下一Task有静态门禁。
+- 根、主应用和自治包当前v1 Task使用同一合同；历史completed/abandoned和无frontmatter记录不回填。
+- Issue #193 的03–11不再作为可执行Task，Task 02成为端到端样例，路线图只保存候选阶段。
+- P-005、角色合同、Task/Issue合同、仓库流程和治理检查语义一致。
+- 聚焦治理测试、scripts typecheck、`docs:check`、`governance:check`与diff check通过。

@@ -1,19 +1,20 @@
 # Issue 草稿
 
-本目录只承载尚未获远端 Issue 写入授权的临时 Issue 草稿；GitHub Issue 创建后仍是公开目标、范围、验收、子项和依赖的唯一正文。
+本目录只承载尚未获远端 Issue 写入授权的临时草稿。只为重大或长期交付创建 GitHub Issue；Issue 创建后保存公开目标、总体范围与非目标、验收、重大依赖、Work 导航和交付状态。
 
 ## 路径与恢复
 
 - 草稿按 `.agents/issues/drafts/<english-kebab-slug>.md` 懒创建；路径是远端创建前的稳定恢复键，不是 Issue ID。
 - Leader 开始或恢复时先检查 `drafts/`，按目标、Proposal 和 Spec 去重；聊天不承担草稿正文。
-- 草稿至少包含：目标、范围、非目标、验收、子 Issue/依赖、关联 Proposal/Spec、远端创建授权请求及开发者来源。
-- 草稿不得创建 `actionIssueId`、本地数字 Issue ID、Task 聚合状态或 Project 状态；未取得远端编号前不创建对应产品 Task。
+- 草稿至少包含目标、范围、非目标、验收、重大依赖或真正子 Issue、关联 Proposal/Spec、唯一 `Draft-Key: <slug>`、拟用的一个 `type:*` 和一个 `status:*`、请求的远端动作集合及开发者授权来源。
+- 草稿不得创建本地数字 Issue ID、Task 状态或 Project 状态。尚无远端编号的 current 工作可创建 `issueId: null` 的 Work；草稿只作为外部 Issue 的恢复键。
+- 不值得公开长期追踪的本地治理、隔离实验和机械工作不创建 Issue 草稿，Leader直接创建 `issueId: null` 的 Work 与所需 Task。
 
 ## 迁移到 GitHub
 
-1. Leader向开发者请求当前草稿的远端 Issue 写入授权；该授权不外推到 Project、PR、push 或其它远端动作。
-2. 获授权后，Leader用草稿内容创建 GitHub Issue，并在正文加入唯一 `Draft-Key: <slug>`，便于中断后只读定位。
-3. GitHub返回正整数编号后，Leader把该编号写入全部扁平 Task 的 `actionIssueId`，再建立 draft/planned Task 合同。
-4. 确认远端 Issue、Proposal、Spec和Task链接闭合后，删除本地草稿；Leader walkthrough记录草稿路径、Issue编号和迁移结果。不得保留第二份状态正文或兼容入口。
+1. Leader向开发者请求当前草稿列出的具体远端动作；授权不外推到 Project、PR、push 或其它远端动作。
+2. 获授权后先查找精确 `Draft-Key: <slug>`：搜索所有状态 Issue 并按正文独立行复核，PR 不计入。0 个精确匹配才创建 Issue，并设置草稿中的一个 `type:*` 和一个 `status:*`；1 个精确匹配复用其正整数编号；多个精确匹配立即阻塞并记录编号。
+3. 取得或复用编号后，Leader把相关 Work 的 `issueId` 更新为 `i<编号>`；Work 内只按当前已确定结果创建带 canonical role 的 Task，不预建依赖未知结果的链。
+4. Leader闭合 Issue、Proposal、Spec 和 Work 链接，在报告或 evidence 持久化授权来源、动作范围、Draft-Key、Issue 编号、实际标签和创建或复用结果，然后最后删除本地草稿；不得保留第二份状态正文。
 
-容器 Issue 或仍待下一位 Leader 拆分的 Issue 可以没有直接 Task；可执行叶子 Issue 开始调研、设计或实现后必须有 `1..N` 个直接关联的扁平 Task。
+Issue 可被 `0..1` 个当前 Work 引用，Work 可以包含 `1..N` 个 Task。满足当前 Task 的继续条件后，Leader根据真实结果更新路线并按需创建唯一下一 Task。只有需要独立排期、独立验收或独立交付的结果才拆子 Issue。
