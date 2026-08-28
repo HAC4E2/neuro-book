@@ -1,39 +1,18 @@
 ---
-schema: nbook.task/v1
-taskId: 00161-novel-understanding-spike
-actionIssueId: null
-worktreeId: null
-branchId: null
-status: in-progress
-createdAt: 2026-08-26T15:04:07Z
-updatedAt: 2026-08-27T05:49:49Z
-agentWorkflow:
-  profile: nbook.agent-skills/v1
-  kind: research
-  routes:
-    - prototype
-    - domain-modeling
-    - documentation-and-adrs
-  verification:
-    required:
-      - focused-test
-      - smoke
-      - browser
-      - docs-check
-      - governance-check
-      - diff-check
-    notRun:
-      - check: typecheck
-        reason: 本 Task 不修改产品源码、类型合同或构建配置。
+schema: nbook.task/v2
+taskId: t01-novel-understanding-spike
+role: tasker
 ---
 
-# Task 00161：小说理解 Brief 与图谱 Spike
+# 小说理解 Brief 与图谱 Spike
 
 ## 目标
 
 用同一第一章和固定 DeepSeek V4 Flash 模型，形成可复核的 brief、`nb-memory` 候选图、World Engine/PlotBench投影边界和三级摘要证据，回答小说理解产物怎样服务问答、记忆、世界状态与剧情结构。
 
 行为合同未变：本 Task 只产生隔离研究证据，不修改业务源码、公开API、持久化schema、模型路由或真实NeuroBook Project。
+
+本 Task 从 legacy `00161-novel-understanding-spike` 迁入；既有 walkthrough 保留原 Task ID，作为迁移前 provenance。
 
 ## Agent 工作
 
@@ -79,7 +58,7 @@ agentWorkflow:
 
 开发者已明确本任务后续模型调用无需逐次授权。四个repaired生成attempt中，前三个被宿主连续8字门禁拒绝，第四个形成候选；v5局部改写调用未消除重合。宿主随后完成确定性事实与隐私收尾，final正文已通过零来源重合扫描并被开发者接受为第一章当前L2 canonical。当前停止调用；browser人工验收或产品写入仍需另行明确授权。
 
-恢复所需最小集合：本README、`context.md`、`evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（canonical L2）、`evidences/novel-qa-service.md`、`walkthroughs/2026-08-26-research-result.md`和`scripts/generate-v7-brief.ts`。Task状态仍为`in-progress`；`focused-test`、`smoke`和`browser`未完成，browser人工验收未获独立授权。
+恢复所需最小集合：本README、`context.md`、`evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（canonical L2）、`evidences/novel-qa-service.md`、`walkthroughs/2026-08-26-research-result.md`和`scripts/generate-v7-brief.ts`。研究仍在进行；`focused-test`、`smoke`和`browser`未完成，browser人工验收未获独立授权。
 
 ## 研究问题
 
@@ -95,24 +74,24 @@ agentWorkflow:
 
 ## 允许文件
 
-- `.agents/tasks/00161-novel-understanding-spike/evidences/novel-qa-service.md`（研究结论汇总）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-brief.json`（brief 交付物）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-graph.json`（原生图交付物）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-graph.html`（建议投影交付物）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-prompt-revisions-v3.md`（L1 提示词）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-1-revised-v2.md`（L1 结果）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-prompt-v4.md`（L2 提示词）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-ingest-v4.md`（L2 ingest 基线）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-prompts-v2.md`（L1/L2/L3 v2 共用提示词）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-3-prompt-v3.md`（L3 提示词 v3 定稿）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-3-v3.md`（L3 结果，待审查）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-3-v3-official-call-stats.json`（L3 v3 调用统计）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-3-v3-retry-official-call-stats.json`（L3 v3 重试统计）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-3-v3-attempt-3-official-call-stats.json`（L3 v3 第三次统计）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-3-v2.md`（L3 结果）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-prompt-v7-repaired-v4.md`（L2 V7 提示词）
-- `.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（L2 canonical，已接受）
-- `.agents/tasks/00161-novel-understanding-spike/walkthroughs/2026-08-26-research-result.md`（研究结论）
-- `.agents/tasks/00161-novel-understanding-spike/scripts/generate-v7-brief.ts`（生成脚本）
+- `evidences/novel-qa-service.md`（研究结论汇总）
+- `evidences/chapter-001-brief.json`（brief 交付物）
+- `evidences/chapter-001-graph.json`（原生图交付物）
+- `evidences/chapter-001-graph.html`（建议投影交付物）
+- `evidences/chapter-001-summary-prompt-revisions-v3.md`（L1 提示词）
+- `evidences/chapter-001-summary-level-1-revised-v2.md`（L1 结果）
+- `evidences/chapter-001-summary-level-2-prompt-v4.md`（L2 提示词）
+- `evidences/chapter-001-summary-level-2-ingest-v4.md`（L2 ingest 基线）
+- `evidences/chapter-001-summary-prompts-v2.md`（L1/L2/L3 v2 共用提示词）
+- `evidences/chapter-001-summary-level-3-prompt-v3.md`（L3 提示词 v3 定稿）
+- `evidences/chapter-001-summary-level-3-v3.md`（L3 结果，待审查）
+- `evidences/chapter-001-summary-level-3-v3-official-call-stats.json`（L3 v3 调用统计）
+- `evidences/chapter-001-summary-level-3-v3-retry-official-call-stats.json`（L3 v3 重试统计）
+- `evidences/chapter-001-summary-level-3-v3-attempt-3-official-call-stats.json`（L3 v3 第三次统计）
+- `evidences/chapter-001-summary-level-3-v2.md`（L3 结果）
+- `evidences/chapter-001-summary-level-2-brief-only-prompt-v7-repaired-v4.md`（L2 V7 提示词）
+- `evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（L2 canonical，已接受）
+- `walkthroughs/2026-08-26-research-result.md`（研究结论）
+- `scripts/generate-v7-brief.ts`（生成脚本）
 
 样书只读，原文和秘密不得复制进Git。当前V7纯brief目标、同一第一章来源与DeepSeek官方provider/model范围内的后续调用无需逐次授权；每次仍须独立记录purpose与stats、单次fetch、零重试且不得覆盖证据。业务源码、Proposal、Spec、数据库、真实Project写入、其它模型或章节调用、远端动作和数据删除仍未授权。

@@ -1,9 +1,10 @@
-# Task 00159 恢复卡：Agent abort mutation 合同
+# Agent abort mutation 合同恢复卡
 
 ## 当前基线
 
-- checkout：仓库主 checkout；branch `master`；登记基线 `bf07359d3966900ddf9bfc4ad0031fa2b956f29d`。
-- `actionIssueId: null`；本地治理/实现合同，不为其单独建立远端 Issue。
+- Current Task：`w00004-agent-abort-mutation-contract/tasks/t01-agent-abort-mutation-contract`；legacy 来源为 `00159-agent-abort-mutation-contract`。
+- checkout：仓库主 checkout；迁移前登记基线 `bf07359d3966900ddf9bfc4ad0031fa2b956f29d`。
+- Work `issueId: null`；本地治理/实现合同，不为其单独建立远端 Issue。
 - 开发者已选择方案 B：普通 abort admission 经 `withSessionMutation()`；forced-abort 是窄化同步 control-plane fence；唯一 `aborted` lifecycle 经同一 per-session write queue。
 - `INVOCATION_ABORT_GRACE_MS = 150` 与 forced-abort `300ms` 上界不变。
 

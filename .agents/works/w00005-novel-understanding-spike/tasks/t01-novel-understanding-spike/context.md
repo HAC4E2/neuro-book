@@ -1,11 +1,12 @@
-# Task 00161 Context
+# 小说理解 Brief 与图谱 Spike 恢复卡
 
 生成时间：2026-08-26
 
 ## 当前基线
 
+- Current Task：`w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike`；legacy 来源为 `00161-novel-understanding-spike`。
 - 当前工作目录为主工作区；开发者明确要求不创建分支或 worktree。
-- 研究入口是 `.agents/tasks/00161-novel-understanding-spike/evidences/novel-qa-service.md`；该研究 Task 不写 `packages/` 文档。
+- 研究入口是 `evidences/novel-qa-service.md`；该研究 Task 不写 `packages/` 文档。
 - 样书由用户管理，路径为 `.local/novels/转生反派萝莉，找茬魔法少女.epub`；原文不复制进 Git。
 - 当前 `nb-memory.ingestRaw` 接受调用方文本并同步执行分块、LLM 事实抽取、LLM 主体/状态消解；`search` 只返回 `SearchHit[]`。
 - World Engine 是动态世界状态与时间线真相源；Plot System 是作者视角的剧情结构系统，Scene 是连接 World Engine 的桥梁。

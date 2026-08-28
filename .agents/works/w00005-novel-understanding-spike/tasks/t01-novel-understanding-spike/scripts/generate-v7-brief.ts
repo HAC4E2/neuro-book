@@ -23,10 +23,10 @@ const temp = "C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/runs/00161-novel-u
 const paths = {
     config: "C:/Users/notnotype/AppData/Local/NeuroBook/data/workspace/.nbook/config.json",
     epub: `${root}/.local/novels/转生反派萝莉，找茬魔法少女.epub`,
-    prompt: `${root}/.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-prompt-v7-repaired-v4.md`,
-    referenceBrief: `${root}/.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-ingest-v4.md`,
-    brief: `${root}/.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-v7-final.md`,
-    stats: `${root}/.agents/tasks/00161-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-v7-final-official-call-stats.json`,
+    prompt: `${root}/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-prompt-v7-repaired-v4.md`,
+    referenceBrief: `${root}/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences/chapter-001-summary-level-2-ingest-v4.md`,
+    brief: `${root}/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-v7-final.md`,
+    stats: `${root}/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-v7-final-official-call-stats.json`,
     candidate: `${temp}/candidate-v7-final.md`,
 } as const;
 

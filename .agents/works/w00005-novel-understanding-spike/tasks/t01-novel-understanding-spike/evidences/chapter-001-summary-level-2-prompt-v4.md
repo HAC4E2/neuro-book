@@ -1,10 +1,10 @@
 # 第一章 L2 摘要提示词 v4
 
-> 状态：真实调用前固定，不根据输出回改。  
-> 提示词版本：`chapter-summary-level-2-ingest/v4`。  
-> 模型：DeepSeek 官方 provider `deepseek` / model `deepseek-v4-flash` / host `api.deepseek.com`。  
-> 来源：`OEBPS/chapter_00001.xhtml` 经 `chapter-source-normalization/v1` 处理的完整正文。  
-> 来源基线：`textChars=2122`、`visibleChars=2044`、SHA-256 `22c9b12d0305da4b64ea39751e809ed47cf9254d574caf875fbff91ef82552ee`。  
+> 状态：真实调用前固定，不根据输出回改。
+> 提示词版本：`chapter-summary-level-2-ingest/v4`。
+> 模型：DeepSeek 官方 provider `deepseek` / model `deepseek-v4-flash` / host `api.deepseek.com`。
+> 来源：`OEBPS/chapter_00001.xhtml` 经 `chapter-source-normalization/v1` 处理的完整正文。
+> 来源基线：`textChars=2122`、`visibleChars=2044`、SHA-256 `22c9b12d0305da4b64ea39751e809ed47cf9254d574caf875fbff91ef82552ee`。
 > 调用：一个独立新上下文，官方直连 `thinking.type=disabled`、`max_tokens=4000`、单次 HTTP 请求、无重试。
 
 ## System Prompt

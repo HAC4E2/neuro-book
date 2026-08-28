@@ -1,42 +1,18 @@
 ---
-schema: nbook.task/v1
-taskId: 00159-agent-abort-mutation-contract
-actionIssueId: null
-worktreeId: null
-branchId: master
-status: blocked
-createdAt: 2026-08-25T09:56:19Z
-updatedAt: 2026-08-27T05:49:49Z
-agentWorkflow:
-  profile: nbook.agent-skills/v1
-  kind: bug
-  routes:
-    - api-and-interface-design
-    - documentation-and-adrs
-    - spec-driven-development
-    - test-driven-development
-    - code-review-and-quality
-  verification:
-    required:
-      - focused-test
-      - regression-test
-      - typecheck
-      - docs-check
-      - diff-check
-    notRun:
-      - check: browser
-        reason: 本 Task 没有浏览器可见表面，且未获浏览器人工验收授权。
-      - check: smoke
-        reason: 本 Task 不需要真实 Provider；取消合同由隔离行为测试验证，未获额外运行时 smoke 授权。
+schema: nbook.task/v2
+taskId: t01-agent-abort-mutation-contract
+role: tasker
 ---
 
-# Task 00159：Agent abort mutation 合同闭合
+# Agent abort mutation 合同闭合
 
 ## 目标
 
 使方案 B 在 Agent Session Abort Spec、ADR 0019、稳定 Reference、HTTP 黑盒合同、实现和行为测试中形成唯一一致的取消边界：普通 abort admission 经 Session mutation；`150ms` grace 后的 forced-abort 使用窄化同步 control-plane fence；唯一 `aborted` lifecycle 仍经同一 per-session `SessionWriteExecutor` queue；同步 admission 失败 fail closed。
 
 行为合同未变。开发者已于 2026-08-25 选择方案 B；本 Task 不重新比较方案 A/B，也不改变 `INVOCATION_ABORT_GRACE_MS = 150` 或 forced-abort `300ms` 上界。
+
+本 Task 从 legacy `00159-agent-abort-mutation-contract` 迁入；既有 walkthrough 保留原 Task ID，作为迁移前 provenance。
 
 ## Agent 工作
 
@@ -83,9 +59,9 @@ agentWorkflow:
 
 ## 允许文件
 
-- `.agents/tasks/00159-agent-abort-mutation-contract/README.md`
-- `.agents/tasks/00159-agent-abort-mutation-contract/context.md`
-- `.agents/tasks/00159-agent-abort-mutation-contract/walkthroughs/**`
+- `README.md`
+- `context.md`
+- `walkthroughs/**`
 - `docs/specs/agent/session-abort.md`
 - `packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md`
 - `packages/neuro-book/assets/reference/agent/attachments.md`

@@ -110,7 +110,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 | 功能域 | 目标规范 | 批准依据 |
 |---|---|---|
-| Agent Runtime | [`agent/session-abort.md`](agent/session-abort.md) | [ADR 0019](../../packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md)、[Task 00159](../../.agents/tasks/00159-agent-abort-mutation-contract/README.md)、[Task 18 黑盒合同](../../packages/neuro-book/.agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md) |
+| Agent Runtime | [`agent/session-abort.md`](agent/session-abort.md) | [ADR 0019](../../packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md)、[current Task](../../.agents/works/w00004-agent-abort-mutation-contract/tasks/t01-agent-abort-mutation-contract/README.md)、[Task 18 黑盒合同](../../packages/neuro-book/.agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md) |
 
 ## 冻结过渡规范
 
