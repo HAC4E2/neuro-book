@@ -408,11 +408,14 @@ function readWorkTaskIds(repoRoot: string, workRoot: string, failures: string[])
     const taskIds: string[] = [];
     let hasDeclaredTask = false;
     for (const entry of readdirSync(resolve(repoRoot, tasksRelativeRoot), {withFileTypes: true})) {
-        if (entry.isDirectory() && !entry.isSymbolicLink()) {
-            taskIds.push(entry.name);
+        const taskRoot = `${tasksRelativeRoot}/${entry.name}`;
+        if (WORK_TASK_ID_PATTERN.test(entry.name)) {
             hasDeclaredTask = true;
-        } else if (WORK_TASK_ID_PATTERN.test(entry.name)) {
-            failures.push(physicalDirectoryFailure(`${tasksRelativeRoot}/${entry.name}`));
+            const nonPhysicalTask = firstNonPhysicalDirectory(repoRoot, [taskRoot]);
+            if (nonPhysicalTask) failures.push(physicalDirectoryFailure(nonPhysicalTask));
+            else taskIds.push(entry.name);
+        } else if (entry.isDirectory() && !entry.isSymbolicLink()) {
+            taskIds.push(entry.name);
             hasDeclaredTask = true;
         }
     }
@@ -451,12 +454,14 @@ export function verifyWorkContracts(repoRoot: string): string[] {
     for (const workEntry of readdirSync(worksRoot, {withFileTypes: true})) {
         const workId = workEntry.name;
         const workRoot = `${WORKS_ROOT}/${workId}`;
-        if (!workEntry.isDirectory() || workEntry.isSymbolicLink()) {
-            if (WORK_ID_PATTERN.test(workId)) failures.push(physicalDirectoryFailure(workRoot));
-            continue;
-        }
-        if (!WORK_ID_PATTERN.test(workId)) {
-            failures.push(`Work 标识格式无效：${workId}`);
+        if (WORK_ID_PATTERN.test(workId)) {
+            const nonPhysicalWork = firstNonPhysicalDirectory(repoRoot, [workRoot]);
+            if (nonPhysicalWork) {
+                failures.push(physicalDirectoryFailure(nonPhysicalWork));
+                continue;
+            }
+        } else {
+            if (workEntry.isDirectory() && !workEntry.isSymbolicLink()) failures.push(`Work 标识格式无效：${workId}`);
             continue;
         }
         const readmePath = `${workRoot}/README.md`;
