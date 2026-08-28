@@ -18,6 +18,7 @@
 - Task 目录在所属 Work 内使用 `t`、两位非零序号和 kebab-case 名称，例如 `t01-task-title`。
 - Task README 使用 `schema: nbook.task/v2`，`taskId` 与目录一致，并指定唯一正式 `role`：`pm`、`leader`、`tasker` 或 `reviewer`。
 - Task 不保存 `actionIssueId`、`agentWorkflow`、`kind`、`worktreeId` 或 `branchId`。Task 正文可记录目标、范围、产物和验证，供协作参考；治理门禁只校验身份、容器和 role。
+- `.agents`、`.agents/works`、Work、`tasks` 与 Task 五级 current 路径必须由真实目录项组成；symlink/junction 不形成 Work/Task identity，`governance:check` 与 `governance:context` 都明确拒绝。
 
 ## 创建与执行
 
