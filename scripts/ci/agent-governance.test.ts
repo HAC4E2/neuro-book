@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifyPostMergeUnifiedReviewContract, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyLeaderDrivenDevelopmentContract, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -109,6 +109,9 @@ describe("Agent Skills 适配治理门禁", () => {
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -132,6 +135,12 @@ agentWorkflow:
         const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "complete");
 
         expect(verifyAgentSkillsAdaptation(repoRoot)).toEqual([]);
+    });
+    it("accepted Proposal 缺少 research Task 合同时失败", async () => {
+        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "complete");
+        await writeText(repoRoot, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：accepted\n\n`kind`限定为`feedback`、`design`、`bug`、`feature`、`refactor`、`docs`、`release`、`migration`。\n");
+
+        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 缺少 research Task 合同");
     });
     it("accepted fixture 缺少 report Skill 合同内容时失败", async () => {
         const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-report");
@@ -205,6 +214,9 @@ agentWorkflow:
         await writeText(repoRoot, profilePath, `---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -226,47 +238,700 @@ agentWorkflow:
 
 
 
-    it("历史 Task 没有 agentWorkflow 时保持兼容", async () => {
+    it("历史 Task 可缺少 agentWorkflow，但仍有完整基础字段", async () => {
+        const taskId = "00149-monorepo-workspace-consolidation";
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
-taskId: 001-profile
+taskId: ${taskId}
+status: completed
+createdAt: 2026-08-16T14:59:07Z
+updatedAt: 2026-08-19T10:35:00Z
 ---
 
 # Historical Task
+`, taskId);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+    });
+
+    it("新 Task 缺少成熟度或 agentWorkflow 时失败", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+---
+
+# Incomplete Task
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task status 无效"),
+            expect.stringContaining("新 Task 缺少 agentWorkflow"),
+        ]));
+    });
+
+    it("新 Task 缺少 context 时失败", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Missing context Task
+`);
+        await rm(join(repoRoot, ".agents/tasks/001-profile/context.md"));
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("Task 缺少 context.md：.agents/tasks/001-profile/README.md");
+    });
+
+    it("合法 design Task 必须声明设计边界与 API 路由", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: design
+  routes:
+    - api-and-interface-design
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# API Design Task
+
+## 设计类型
+
+API
+
+## 设计产物
+
+- docs/specs/example/api.md
+
+## 决策范围
+
+- API输入、输出、错误与兼容。
+
+## 允许文件
+
+- docs/specs/example/api.md
 `);
 
         expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
     });
 
-    it("合法 agentWorkflow profile 通过", async () => {
+    it("design Task 拒绝 Proposal/Spec 路径穿越", async () => {
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
-  kind: bug
+  kind: design
   routes:
-    - diagnosing-bugs
-    - test-driven-development
+    - documentation-and-adrs
   verification:
     required:
-      - regression-test
-      - focused-test
-      - diff-check
-    notRun:
-      - check: browser
-        reason: 未获浏览器人工验收授权
+      - docs-check
+    notRun: []
 ---
 
-# Profile Task
+# Traversal Design Task
+
+## 设计类型
+
+模块边界
+
+## 设计产物
+
+- docs/specs/../../AGENTS.md
+
+## 决策范围
+
+- 只验证产物路径。
+
+## 允许文件
+
+- docs/specs/../../AGENTS.md
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("design Task 必须有唯一 Proposal/Spec 设计产物：.agents/tasks/001-profile/README.md");
+    });
+
+    it("合法 research Task 只允许 Task 内研究报告与证据", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: research
+  routes:
+    - domain-modeling
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Runtime Research Task
+
+## 研究问题
+
+- Harness 是否拥有模型运行循环？
+
+## 研究产物
+
+- .agents/tasks/001-profile/walkthroughs/001-runtime-observation.md
+- .agents/tasks/001-profile/evidences/runtime-provenance.json
+
+## 决策范围
+
+- 比较候选并记录开发者决定，不创建 Proposal、Spec 或业务实现。
+
+## 允许文件
+
+- .agents/tasks/001-profile/walkthroughs/001-runtime-observation.md
+- .agents/tasks/001-profile/evidences/runtime-provenance.json
 `);
 
         expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual([]);
+    });
+
+    it("research Task 不能用 fenced 示例伪造必需章节", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: research
+  routes:
+    - domain-modeling
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid Fenced Research Task
+
+\`\`\`markdown
+## 研究问题
+
+- 这里只是示例吗？
+
+## 研究产物
+
+- .agents/tasks/001-profile/walkthroughs/example.md
+
+## 决策范围
+
+- 示例范围。
+
+## 允许文件
+
+- .agents/tasks/001-profile/walkthroughs/example.md
+\`\`\`
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("research Task 缺少研究问题"),
+            expect.stringContaining("research Task 缺少研究产物"),
+            expect.stringContaining("research Task 缺少决策范围"),
+            expect.stringContaining("research Task 缺少允许文件"),
+        ]));
+    });
+
+    it("research Task 不能用缩进代码块伪造必需章节", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: research
+  routes:
+    - domain-modeling
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid Indented Research Task
+
+    ## 研究问题
+
+    - 这里只是代码示例吗？
+
+    ## 研究产物
+
+    - .agents/tasks/001-profile/walkthroughs/example.md
+
+    ## 决策范围
+
+    - 示例范围。
+
+    ## 允许文件
+
+    - .agents/tasks/001-profile/walkthroughs/example.md
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("research Task 缺少研究问题"),
+            expect.stringContaining("research Task 缺少研究产物"),
+            expect.stringContaining("research Task 缺少决策范围"),
+            expect.stringContaining("research Task 缺少允许文件"),
+        ]));
+    });
+
+    it("research Task 拒绝缺失问题和 Task 外产物", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: research
+  routes:
+    - domain-modeling
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid Research Task
+
+## 研究产物
+
+- docs/proposals/runtime.md
+
+## 决策范围
+
+- 选择 Runtime。
+
+## 允许文件
+
+- docs/proposals/runtime.md
+- packages/neuro-book/server/runtime.ts
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("research Task 缺少研究问题"),
+            expect.stringContaining("research Task 研究产物越界"),
+            expect.stringContaining("research Task 允许文件越界"),
+        ]));
+    });
+
+    it("research Task 拒绝 Windows 反斜杠路径穿越", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: research
+  routes:
+    - domain-modeling
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Traversal Research Task
+
+## 研究问题
+
+- 是否拒绝路径穿越？
+
+## 研究产物
+
+- .agents/tasks/001-profile/walkthroughs/..\\..\\AGENTS.md
+
+## 决策范围
+
+- 只验证报告路径。
+
+## 允许文件
+
+- .agents/tasks/001-profile/walkthroughs/..\\..\\AGENTS.md
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("research Task 研究产物越界"),
+            expect.stringContaining("research Task 允许文件越界"),
+        ]));
+    });
+
+    it("自治包当前 schema Task 也受 agentWorkflow 门禁约束", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Root Task
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/02-research/README.md", `---
+schema: nbook.task/v1
+taskId: 02-research
+actionIssueId: 193
+status: draft
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: research
+  routes:
+    - domain-modeling
+  verification:
+    required:
+      - artifact-structure-check
+    notRun: []
+---
+
+# Package Research Task
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/02-research/context.md", "# Context\n");
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("research Task 缺少研究问题"),
+            expect.stringContaining("research Task 缺少研究产物"),
+            expect.stringContaining("Task verification.required[0] 无效"),
+        ]));
+    });
+
+    it("自治包带 frontmatter 的 Task 不能用错误 schema 绕过合同", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Root Task
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/02-wrong-schema/README.md", `---
+schema: wrong.task/v1
+taskId: 02-wrong-schema
+---
+
+# Wrong Schema Package Task
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/02-wrong-schema/context.md", "# Context\n");
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("新 Task 缺少有效 nbook.task/v1 frontmatter：packages/example/.agents/tasks/02-wrong-schema/README.md");
+    });
+
+    it("自治包当前 schema Task 不能借根 legacy ID 跳过 context 或 agentWorkflow", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Root Task
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/00158-notification-contrast-fix/README.md", `---
+schema: nbook.task/v1
+taskId: 00158-notification-contrast-fix
+actionIssueId: 193
+status: draft
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Missing Package Context
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/00149-monorepo-workspace-consolidation/README.md", `---
+schema: nbook.task/v1
+taskId: 00149-monorepo-workspace-consolidation
+actionIssueId: 193
+status: draft
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+---
+
+# Missing Package Workflow
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/00149-monorepo-workspace-consolidation/context.md", "# Context\n");
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task 缺少 context.md：packages/example/.agents/tasks/00158-notification-contrast-fix/README.md"),
+            expect.stringContaining("新 Task 缺少 agentWorkflow：packages/example/.agents/tasks/00149-monorepo-workspace-consolidation/README.md"),
+        ]));
+    });
+
+    it("自治包 Task 目录缺少 README 时失败", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Root Task
+`);
+        await writeText(repoRoot, "packages/example/.agents/tasks/02-missing/context.md", "# Context\n");
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain("新 Task 缺少 README.md：packages/example/.agents/tasks/02-missing/README.md");
+    });
+
+    it("design Task 缺少设计边界或 API 路由时失败", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: design
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# API Design Task
+
+## 设计类型
+
+API
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("design Task 必须有唯一 Proposal/Spec 设计产物"),
+            expect.stringContaining("design Task 缺少决策范围"),
+            expect.stringContaining("design Task 缺少允许文件"),
+            expect.stringContaining("API design Task 缺少 api-and-interface-design"),
+        ]));
+    });
+
+    it("新 Task 不能用缺失 README 或错误 schema 绕过合同", async () => {
+        const taskId = "00161-profile";
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: wrong.task/v1
+taskId: ${taskId}
+---
+
+# Wrong schema Task
+`, taskId);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：.agents/tasks/${taskId}/README.md`);
+        await rm(join(repoRoot, `.agents/tasks/${taskId}/README.md`));
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少 README.md：.agents/tasks/${taskId}/README.md`);
+    });
+
+    it("新 Task 拒绝非法 Issue 聚合字段和 parentTaskId", async () => {
+        const taskId = "00161-profile";
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: ${taskId}
+actionIssueId:
+  - 191
+parentTaskId: 00160-parent
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid aggregation Task
+`, taskId);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
+            expect.stringContaining("Task 禁止聚合字段 parentTaskId"),
+        ]));
+    });
+
+    it("design Task 拒绝多目标和业务源码允许路径", async () => {
+        const repoRoot = await createTaskWorkflowFixture(`---
+schema: nbook.task/v1
+taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: design
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid API Design Task
+
+## 设计类型
+
+- API
+
+## 设计产物
+
+- docs/specs/example/api.md
+- docs/proposals/example-api.md
+
+## 决策范围
+
+- API输入与输出。
+
+## 允许文件
+
+- docs/specs/example/api.md
+- packages/neuro-book/app/api.ts
+`);
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("design Task 必须有唯一 Proposal/Spec 设计产物"),
+            expect.stringContaining("design Task 允许文件越界"),
+            expect.stringContaining("API design Task 缺少 api-and-interface-design"),
+        ]));
+    });
+
+    it("应用 Task root 的新 Task 不能绕过 schema 与 Issue 聚合门禁", async () => {
+        const taskId = "149-profile";
+        const repoRoot = await createApplicationTaskWorkflowFixture(`---
+schema: wrong.task/v1
+taskId: ${taskId}
+---
+
+# Wrong app Task
+`, taskId);
+        const relativePath = `packages/neuro-book/.agents/tasks/${taskId}/README.md`;
+
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少有效 nbook.task/v1 frontmatter：${relativePath}`);
+        await writeText(repoRoot, relativePath, `---
+schema: nbook.task/v1
+taskId: ${taskId}
+actionIssueId: 0
+actionIssueIds:
+  - 191
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
+agentWorkflow:
+  profile: nbook.agent-skills/v1
+  kind: docs
+  routes:
+    - documentation-and-adrs
+  verification:
+    required:
+      - docs-check
+    notRun: []
+---
+
+# Invalid app Task
+`);
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toEqual(expect.arrayContaining([
+            expect.stringContaining("Task actionIssueId 必须是正整数或 null"),
+            expect.stringContaining("Task 禁止聚合字段 actionIssueIds"),
+        ]));
+        await rm(join(repoRoot, relativePath));
+        expect(verifyTaskAgentWorkflowProfiles(repoRoot)).toContain(`新 Task 缺少 README.md：${relativePath}`);
     });
     it("agentWorkflow 枚举拒绝原型链属性", async () => {
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: toString
@@ -292,6 +957,9 @@ agentWorkflow:
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -313,6 +981,9 @@ agentWorkflow:
         const repoRoot = await createTaskWorkflowFixture(`---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: unknown
@@ -341,21 +1012,27 @@ agentWorkflow:
     });
 });
 
-describe("合并后统一评审治理门禁", () => {
-    it("当前状态机与角色交接合同闭合", () => {
-        expect(verifyPostMergeUnifiedReviewContract(repositoryRoot)).toEqual([]);
+describe("Leader 主导顺序开发治理门禁", () => {
+    it("当前角色与文件交互合同闭合", () => {
+        expect(verifyLeaderDrivenDevelopmentContract(repositoryRoot)).toEqual([]);
     });
 
-    it("任一状态机或角色交接合同丢失时失败", async () => {
-        const repoRoot = await createTestTmpRoot("unified-review-contract", "unified-review-contract-test");
+    it("任一顺序流程合同丢失时失败", async () => {
+        const repoRoot = await createTestTmpRoot("leader-driven-contract", "leader-driven-contract-test");
         fixtureRoots.push(repoRoot);
         const contractPaths = [
             "AGENTS.md",
+            ".omp/RULES.md",
+            "docs/proposals/p-005-development-workflow-governance.md",
+            ".agents/issues/README.md",
             "docs/standards/repository-workflow.md",
+            "docs/specs/AGENTS.md",
             ".agents/roles/pm/AGENTS.md",
             ".agents/roles/leader/AGENTS.md",
+            ".agents/roles/tasker/AGENTS.md",
             ".agents/roles/reviewer/AGENTS.md",
             ".agents/tasks/README.md",
+            ".agents/tasks/AGENTS.md",
         ] as const;
         for (const relativePath of contractPaths) {
             await writeText(repoRoot, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
@@ -364,23 +1041,32 @@ describe("合并后统一评审治理门禁", () => {
         for (const relativePath of contractPaths) {
             const original = await readFile(join(repoRoot, relativePath), "utf8");
             await writeText(repoRoot, relativePath, `# Missing contract: ${relativePath}\n`);
-            expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
-                `合并后统一评审合同缺少必需标记：${relativePath}`,
+            expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([
+                `Leader 主导顺序开发合同缺少必需标记：${relativePath}`,
             ]);
             await writeText(repoRoot, relativePath, original);
         }
 
-        const workflowPath = "docs/standards/repository-workflow.md";
-        const workflow = await readFile(join(repoRoot, workflowPath), "utf8");
-        await writeText(repoRoot, workflowPath, workflow.replace(
-            "`Done`：覆盖当前 Issue 批准范围的关联 PR 已全部合并",
-            "`Done`：关联 PR 已合并",
-        ));
-        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([
-            `合并后统一评审合同缺少必需标记：${workflowPath}`,
-        ]);
-        await writeText(repoRoot, workflowPath, workflow);
-        expect(verifyPostMergeUnifiedReviewContract(repoRoot)).toEqual([]);
+        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
+
+        const leaderPath = ".agents/roles/leader/AGENTS.md";
+        const leader = await readFile(join(repoRoot, leaderPath), "utf8");
+        const forbiddenMutations = [
+            "Leader 必须等待 PM 确认后开始。",
+            "status: claimed 批准后 Leader 才能开始编排。",
+            "planned Task 可以直接 push。",
+            "draft 可由 Tasker 执行。",
+            "Task completed 可以自动触发 Project Done。",
+            "PR 合并可以直接触发 Done。",
+            "Reviewer 建议合并可以触发 Done。",
+            "CI 通过可以自动进入 Done。",
+        ] as const;
+        for (const mutation of forbiddenMutations) {
+            await writeText(repoRoot, leaderPath, `${leader}\n${mutation}\n`);
+            expect(verifyLeaderDrivenDevelopmentContract(repoRoot).some((failure) => failure.startsWith(`Leader 主导顺序开发合同出现禁用语义：${leaderPath}`)), mutation).toBe(true);
+        }
+        await writeText(repoRoot, leaderPath, leader);
+        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
     });
 });
 
@@ -521,7 +1207,7 @@ describe("monorepo worktree 根门禁", () => {
 async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", implementation: "invalid-report" | "invalid-load_role" | "missing-task-fields" | "missing-contract-export" | "missing-cli-call" | "missing-cli-import" | "shadowed-cli-call" | "type-only-cli-import" | "nested-valid-cli-call" | "dead-function-cli-call" | "complete"): Promise<string> {
     const root = await createTestTmpRoot("governance-agent-skills", "governance-agent-skills-test");
     fixtureRoots.push(root);
-    await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", `# Proposal\n\n状态：${status}\n`);
+    await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", `# Proposal\n\n状态：${status}\n\n\`research\` \`研究问题\` \`研究产物\` 当前Task的精确walkthrough/evidence路径 不得写README、context、Proposal、Spec或业务源码 research/design边界 根/应用/自治包当前schema Task身份\n`);
     const validReport = implementation !== "invalid-report";
     const validLoadRole = implementation !== "invalid-load_role";
     await writeText(root, ".agents/skills/report/SKILL.md", validReport
@@ -561,7 +1247,7 @@ async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", 
     return root;
 }
 
-async function createTaskWorkflowFixture(readme: string): Promise<string> {
+async function createTaskWorkflowFixture(readme: string, taskId = "001-profile"): Promise<string> {
     const root = await createTestTmpRoot("governance-task-workflow", "governance-task-workflow-test");
     fixtureRoots.push(root);
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
@@ -571,26 +1257,47 @@ async function createTaskWorkflowFixture(readme: string): Promise<string> {
         fileCount: 0,
         tasks: [],
     }));
-    await writeText(root, ".agents/tasks/001-profile/README.md", readme);
+    await writeText(root, `.agents/tasks/${taskId}/README.md`, readme);
+    await writeText(root, `.agents/tasks/${taskId}/context.md`, "# Task Context\n");
+    return root;
+}
+
+async function createApplicationTaskWorkflowFixture(readme: string, taskId: string): Promise<string> {
+    const root = await createTestTmpRoot("governance-application-task-workflow", "governance-application-task-workflow-test");
+    fixtureRoots.push(root);
+    await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
+        schema: "nbook.task-ownership/v1",
+        ownerRoot: "packages/neuro-book/.agents/tasks",
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{
+            taskId,
+            ownerRoot: "packages/neuro-book/.agents/tasks",
+            files: [{path: `${taskId}/README.md`, legacyDestination: `.agents/tasks/${taskId}/README.md`, sha256: `sha256:${"0".repeat(64)}`}],
+        }],
+    }));
+    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/README.md`, readme);
+    await writeText(root, `packages/neuro-book/.agents/tasks/${taskId}/context.md`, "# App Task Context\n");
     return root;
 }
 async function createGovernanceCliFixture(): Promise<string> {
     const root = await createTestTmpRoot("governance-cli", "governance-cli-test");
     fixtureRoots.push(root);
     const governanceFiles: readonly [string, string][] = [
-        ["AGENTS.md", "对应 Issue 项目条目保持 `In review`；统一评审确认满足。\n"],
+        ["AGENTS.md", "fixture root rules\n"],
         [".omp/RULES.md", "fixture omp rules\n"],
         ["WATCHDOG.md", "fixture watchdog\n"],
         [".agents/AGENTS.md", "fixture agents rules\n"],
         [".agents/README.md", "fixture agents readme\n"],
+        [".agents/issues/README.md", "fixture issue draft rules\n"],
         [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
         [".agents/tasks/.migration-complete", "{}\n"],
         [".agents/tasks/legacy-index.json", "{}\n"],
-        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\nTask `completed` 也不能触发对应 Issue 项目条目的 Project `Done`。PR 合并后对应 Issue 项目条目仍保持 `In review`。\n"],
-        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\nIssue 项目条目是需求交付状态的唯一 owner。Reviewer 要求修复或验证未完成时退回 `In progress`。当前 merge revision 集合。记录 Issue、条目 ID、PR、revision 和确认来源。\n"],
-        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n并通知 PM 把对应 Issue 项目条目置为 `In review`。通知 PM 退回 `In progress`。PR 合并后通知 PM 继续保持 Issue 条目 `In review`。\n"],
+        [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
+        [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
+        [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/roles/tasker/AGENTS.md", "agentWorkflow required notRun\n"],
-        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n通知 PM 把对应 Issue 项目条目从 `In review` 退回 `In progress`。不能触发 Project `Done`。\n"],
+        [".agents/roles/reviewer/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
         [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
         [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
@@ -615,7 +1322,23 @@ async function createGovernanceCliFixture(): Promise<string> {
         [".gitignore", ".env.local\n.agent/\n.worktree/\n"],
     ];
     for (const [relativePath, content] of governanceFiles) await writeText(root, relativePath, content);
-    await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：accepted\n");
+    for (const relativePath of [
+        "AGENTS.md",
+        ".omp/RULES.md",
+        "docs/proposals/p-005-development-workflow-governance.md",
+        ".agents/issues/README.md",
+        "docs/standards/repository-workflow.md",
+        "docs/specs/AGENTS.md",
+        ".agents/roles/pm/AGENTS.md",
+        ".agents/roles/leader/AGENTS.md",
+        ".agents/roles/tasker/AGENTS.md",
+        ".agents/roles/reviewer/AGENTS.md",
+        ".agents/tasks/README.md",
+        ".agents/tasks/AGENTS.md",
+    ] as const) {
+        await writeText(root, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
+    }
+    await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：accepted\n\n`research` `研究问题` `研究产物` 当前Task的精确walkthrough/evidence路径 不得写README、context、Proposal、Spec或业务源码 research/design边界 根/应用/自治包当前schema Task身份\n");
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
         ownerRoot: "packages/neuro-book/.agents/tasks",
@@ -626,6 +1349,9 @@ async function createGovernanceCliFixture(): Promise<string> {
     await writeText(root, ".agents/tasks/001-profile/README.md", `---
 schema: nbook.task/v1
 taskId: 001-profile
+status: planned
+createdAt: 2026-08-26T00:00:00Z
+updatedAt: 2026-08-26T00:00:00Z
 agentWorkflow:
   profile: nbook.agent-skills/v1
   kind: bug
@@ -639,6 +1365,7 @@ agentWorkflow:
 
 # CLI profile
 `);
+    await writeText(root, ".agents/tasks/001-profile/context.md", "# CLI Task Context\n");
     const siblingPath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
     await writeText(root, siblingPath, await readFile(join(repositoryRoot, siblingPath), "utf8"));
 

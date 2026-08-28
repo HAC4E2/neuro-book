@@ -47,6 +47,7 @@ Issue #177 报告通知卡片使用硬编码 Tailwind 状态色导致主题下�
 - Issue：[#177](https://github.com/notnotype/neuro-book/issues/177)（本任务直接修改 master，未走 PR）
 - PR：[#178](https://github.com/notnotype/neuro-book/pull/178)（fork 实现，被本任务功能上取代，处置待维护者决定）
 - 提交：`47cc0f08`（fix 主提交，经 rebase 含远端 vitest 配置相邻变更自动合并）、`18ed2d55`（docs 范围声明）
+- Spec：[主题系统参考](../../../docs/specs/theme/system.md)
 
 ## 证据
 

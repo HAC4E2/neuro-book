@@ -12,6 +12,7 @@
 | 接入或评估 Pi / provider | [`pi-adapter-design.md`](pi-adapter-design.md) | provider-neutral runtime、取消、usage 和 compaction |
 | 评估 NeuroBook 迁移或兼容性 | [`neuro-book-extension-study.md`](neuro-book-extension-study.md) | 概念映射、迁移前门禁和明确非目标 |
 | 建立或继续重大 Task | [`../.agents/tasks/README.md`](../.agents/tasks/README.md)、对应 Task `README.md` | 目标、决策、实现 walkthrough、验证和未完成边界 |
+| 继续 Issue #193 重新设计 | [`issue-193-roadmap.md`](issue-193-roadmap.md)、[`../.agents/tasks/README.md`](../.agents/tasks/README.md) | 当前唯一活动 Task、非绑定候选阶段和创建下一 Task 的触发条件 |
 | 改公开 API 或修复回归 | `src/index.ts`、相关 `src/*.ts`、对应 `tests/*.test.ts` | 导出、实现、行为测试三者一致 |
 | 改存储或恢复 | `src/storage/`、`tests/*store*.test.ts`、`tests/recovery.test.ts` | Memory/JSONL 对照、恢复和持久事件 |
 | 改打包或发布 | [`package.json`](../package.json)、[`scripts/pack-smoke.ts`](../scripts/pack-smoke.ts) | build、包内容和安装后 smoke；发布由 monorepo 根治理 |

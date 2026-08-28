@@ -4,7 +4,8 @@
 
 ## 目录
 
-- `roles/`：PM、Leader、Tasker、Reviewer 四个角色合同。
+- `roles/`：Leader与Tasker组成顺序开发主线；PM负责按需远端元数据，Reviewer负责按需独立审查。四个canonical合同互不替代。
+- `issues/`：未获远端Issue写入授权时的临时草稿与迁移规则；GitHub Issue创建后删除草稿，不形成第二套状态正文。
 - `tasks/ownership.json`：稳定 Task 名到根/应用物理 owner 的唯一索引；解析失败不得跨 root fallback。
 - `tasks/`：Task 规则、双根任务记录和正式证据索引。
 - `skills/`：开发 Agent 的 `report`、`load_role` 和通用写作/诊断 Skill；角色合同仍是 `.agents/roles/<role>/AGENTS.md` 的唯一真相源。

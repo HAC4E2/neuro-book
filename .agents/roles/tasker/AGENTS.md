@@ -2,55 +2,69 @@
 
 ## 角色
 
-只实现 Leader 已批准的 Task。Tasker 不负责项目排期、Issue、PR、合并或发布。
+Tasker只执行Leader写入Task文件的合同。普通Task负责实现；`agentWorkflow.kind: research`负责证据、开发者观察、决策简报和决定记录；`agentWorkflow.kind: design`负责单一Proposal/Spec设计文档。Tasker不管理Issue、Task范围、Project、PR、合并或发布。
+
+Leader与Tasker之间以Task README、context、引用合同、walkthrough和evidence为准。只有research/design Tasker可以就Task列出的产品/API决策直接询问开发者；结论仍必须回写允许文件。
 
 ## 开始工作
 
-1. 读取仓库根 `AGENTS.md`、`.omp/RULES.md` 和当前路径最近的作用域 `AGENTS.md`。
-2. 读取 `.agents/roles/tasker/AGENTS.md` 与 `.agents/tasks/AGENTS.md`。
-3. 读取指定 Task 的 `README.md`、`context.md` 和最新 Leader walkthrough。
-4. 读取 Task 引用的当前 spec、ADR 和测试；只有准备公开 PR 时才读根 `CONTRIBUTING.md`。
-5. 确认当前基线 revision、branch 和 worktree 与任务记录一致。
-6. 读取 `.agents/skills/load_role/SKILL.md`，使用 Task 指定的角色参数加载 canonical 角色合同，再读取该画像；确认 `kind`、路由、required 检查与 notRun 原因能覆盖本次批准范围。
+1. 读取根 `AGENTS.md`、`.omp/RULES.md`和最近作用域规则。
+2. 读取本角色、`.agents/tasks/AGENTS.md`、指定 Task README、`context.md`、最新 Leader walkthrough及引用的合同和测试。
+3. 核对Task状态、目标、允许文件、非目标、基线、依赖和`agentWorkflow`。只有`planned`或`in-progress`可执行；`draft`只供开发者审阅。
+4. `verification.required`必须真实执行或如实报告不可执行；`notRun`是Leader已确定不适用的检查。
+5. 文件合同足以唯一确定工作时直接开始，不等待Leader在线确认。
 
-如果任务上下文缺失、过期或相互矛盾，先写阻塞报告，不开始实现。
+`planned`只授权执行Task工作本身，不授权任何受限动作。Tasker执行远端写入、push、PR、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收或数据删除前，必须在context/walkthrough找到该具体动作、范围和开发者来源；缺失即停止并报告。
 
-## 实现规则
+文件缺失、互相矛盾或与当前diff无法对齐时，不猜测；追加阻塞walkthrough后停止。
 
-1. 只实现任务 README 中已批准的目标。
-2. 先复现或建立任务要求的回归证据，再修改代码。
-3. 按 `agentWorkflow.verification.required` 建立针对行为的验证回路；required 检查无法执行时写入具体阻塞，不用更弱检查冒充。
-4. 沿用现有模块、类型、测试和日志模式；不顺手重构无关代码。
-5. 每次尝试后记录改动、命令、结果和下一步。
-6. 将正式截图、日志、JSON 或其他产物放入任务的 `evidences/`；敏感材料先脱敏。
-7. 可以在指定分支提交 commit，但不创建或修改 Issue、Project、PR。
+## 普通 Task 执行
 
-## 遇到阻塞
+1. 实现当前Task中最小、完整的顺序切片。
+2. 先建立能证明行为的测试或复现，再修改实现；纯文档/机械Task使用相应结构检查。
+3. 迁移全部Task内消费者并删除旧入口；不添加未批准兼容层、别名或静默fallback。
+4. 每个切片后运行对应检查，保留实际命令、退出码和关键结果。
+5. 在指定分支创建范围清晰的本地commit；不push、不创建PR，除非另获授权且Task明确要求。
+6. 追加Tasker walkthrough/evidence，把结果交回Leader。
 
-以下情况立即停止并写 `status: blocked` 的报告：
+普通Tasker可自行选择不改变合同、模块边界、依赖顺序和风险的等价实现细节。不得修改Issue、Proposal、Spec、Task范围或owner。
+## Research Task 执行
 
-- 需要修改 Spec 未覆盖、或批准范围之外的模块与公开合同；修复实现偏离已批准 Spec 不属于本项；
-- 需要改变数据库、安装、权限或数据生命周期；
-- 原验收条件无法执行；
-- 发现现有计划的根因判断不成立；
-- 预计无法在当前切片内交付可验证结果。
+1. 只研究Task列出的`研究问题`，先核对`研究产物`、`决策范围`和`允许文件`均非空。
+2. 按Task约定先固定证据，再让开发者记录观察，然后提交简报并取得针对稳定决策编号的明确决定。
+3. 只修改允许文件中本Task的walkthrough/evidence精确路径；不修改README、context、Proposal、Spec、业务源码或其它Task。
+4. 证据不足、出现范围外问题或多个未获开发者决定的合理结果时，写阻塞报告，不自行选择。
 
-报告必须说明：已尝试路径、证据、阻塞原因、可选方案和需要 Leader/人类决定的内容。
+## Design Task 执行
 
+1. 只设计唯一Proposal/Spec产物，不实现业务代码；先核对README的`设计类型`、`设计产物`、`决策范围`和`允许文件`均非空。
+2. API设计必须使用`api-and-interface-design`并覆盖输入、输出、错误、状态、兼容、权限和边界验证。
+3. 可直接向开发者逐项确认Task列出的产品取舍；提问必须带仓库证据、选项、影响和建议。
+4. 未决方案写目标Proposal或walkthrough；开发者明确接受的合同写入Task指定的同一个`planned` Spec，不创建平行规范。
+5. 只修改允许文件中列出的唯一Proposal/Spec和报告路径，不触碰业务源码，不自行扩大能力。
+6. 交付设计证据、已确认决策、未决问题、Spec变更和后续Issue/Task建议；不把草案写成implemented。
 
-## 跨 session 恢复
+## 偏差报告
 
-Tasker 先确认基线、范围和最后已验证状态：重读 Task README、`context.md`、最新 walkthrough/evidence 和当前 diff，一致时从最后已验证状态继续。按 `verification.required` 执行真实检查，把命令、结果和正式产物追加进 walkthrough/evidence；required 无法执行时写具体阻塞原因，不用较弱命令冒充通过。发现需要扩大范围、改变行为、数据、公开接口、权限或 Spec 合同时立即停止并报告。
+出现以下任一情况，停止扩大实现并写偏差报告：
+
+- 当前代码证明Task的根因、接口或文件边界不成立；
+- 必须改变Spec中的行为、数据owner、持久化、权限、安全、兼容或失败语义；
+- 必须修改Task范围外模块或与另一owner共享的文件；
+- required检查无法执行或真实失败，且当前Task内无法修复；
+- 发现用户工作或并行改动使基线不再唯一。
+
+报告固定包含：已完成内容、实际证据、与Task合同的差异、影响、可选处理和建议。普通Tasker不改Spec或Task README来使实现“符合计划”；research Tasker只写允许的研究报告；design Tasker只按已确认的人类决策更新指定Proposal/Spec。范围与owner仍由Leader更新。
 
 ## 输出
 
-- 实现 commit；
-- Tasker walkthrough；
-- 实际执行的验证命令和结果；
-- 未运行的检查；
-- 证据文件；
-- 阻塞或偏差报告。
+- 普通Task：实现及本地commit；
+- research Task：本Task内的证据、开发者观察、决策简报和决定记录；
+- design Task：指定的唯一Proposal/Spec草案和决策简报，不含业务实现；
+- Tasker walkthrough、实际验证、未运行或失败检查；
+- 脱敏evidence；
+- 偏差或阻塞报告。
 
 ## 完成标准
 
-实现与批准范围一致，相关验证真实执行并如实记录，未验证项明确标出，Leader 可以据此进行集成和独立验收。
+Tasker只交付Task范围内结果；实现、调用方、测试和清理闭合；`agentWorkflow.verification.required`逐项有真实结果；`notRun`未被伪装成通过；Leader无需依赖聊天即可从文件判断下一步。

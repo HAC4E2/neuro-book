@@ -37,9 +37,9 @@ Harness(input, runtimeState, sessionState)
   -> next runtimeState
 ```
 
-## Invocation 输入
+## Invocation 与 Session Abort 输入
 
-第一版只覆盖 `AgentInvokeRequestDtoSchema` 的四种 invocation mode：
+第一版覆盖 `AgentInvokeRequestDtoSchema` 的四种 invocation mode：
 
 ```ts
 type AgentInvokeMode =
@@ -49,10 +49,20 @@ type AgentInvokeMode =
     | "followup";
 ```
 
+本合同同时覆盖 Session abort 操作：
+
+```ts
+type AgentAbortRequestDto = {
+    reason?: string;
+    clearQueue?: boolean;
+};
+```
+
+HTTP 入口为 `POST /api/agent/sessions/:sessionId/abort`。`sessionId` 必须是安全正整数；body 只接受上述字段，`clearQueue` 缺失时按 `true` 处理。非法 body/path 返回 400；主 Session 缺失返回 404 `SESSION_NOT_FOUND`；当前状态禁止停止返回 409 `session_abort_not_allowed`；forced lifecycle 无法同步占据 SessionWriteExecutor queue 返回 503 `session_abort_durability_unavailable`、`retryable: true`。
+
 本轮黑盒合同暂不覆盖：
 
 - variables / client state
-- abort endpoint
 - slash commands
 - tree/fork/retry commands
 - manual compact
@@ -60,6 +70,12 @@ type AgentInvokeMode =
 - linked-agent management
 
 这些操作后续也应该用同样的黑盒方法单独定义。
+
+Abort 成功响应为 `{status: "idle" | "aborted", sessionId}`：没有 active invocation 或重复取消已收口 invocation 返回 `idle` 且没有副作用；Waiting User 的合作取消和 Running 的 accepted/forced abort 返回 `aborted`。Running 的 200 只表示唯一 forced plan 已被同一 per-session write queue 接受，不表示 HTTP 返回前物理 append 已完成。
+
+同步 enqueue 失败时保持 `Aborting` ownership，不发布 `agent_end`、不 resolve 原 invocation gate，不写替代 lifecycle；调用方可以重试同一个 abort。enqueue 后 physical append/live-state/after-write 失败由同一 write queue 的 pending recovery 幂等重放，恢复失败阻止后续 `start` 越过旧 terminal，不直接 repository 写或重复追加 aborted lifecycle。
+
+Abort 不改变普通 invocation 输入的其它排除范围。
 
 ## 粗粒度运行状态
 

@@ -106,13 +106,15 @@ archive 只写当前 Session 的 `session_archived`，restore 只写 `session_re
 
 ## Session Mutation 边界
 
-所有受 interaction policy 约束的 Session mutation 都必须通过 `withSessionMutation()` / `withSessionMutations()` 线性化“读取最新状态、准入、提交”：
+所有受 interaction policy 约束的普通 Session mutation 都必须通过 `withSessionMutation()` / `withSessionMutations()` 线性化“读取最新状态、准入、提交”：[Agent Session Abort Spec](../../../../../docs/specs/agent/session-abort.md) 与 [ADR 0019](../../../docs/adr/0019-agent-abort-mutation-boundary.md) 定义 abort 的 forced control-plane 例外。
 
-- invocation claim 与 terminal transition、Tree/history、runtime command、附件最终登记、archive/restore 和 abort 共用该边界；
+- invocation claim 与普通 terminal transition、Tree/history、runtime command、附件最终登记、archive/restore 和普通 abort admission 共用该边界；
 - 固定锁顺序为 relation mutation lock -> 按 Session ID 排序的 Session mutation lock -> 按 Session ID 排序的 `SessionWriteExecutor` write lock；
 - multipart 消费、snapshot 源文件读取、Provider blob 读取和模型执行必须在临界区外；
 - invocation 在锁内完成最新 policy/Profile/Project/附件/branch admission 与 claim，Provider 在锁外执行，最终 lifecycle 和 queue 清理再由统一 terminal seam 在锁内提交；
-- Tree preadmission 失败不得移动 active leaf，已经 claim 为 aborting 的 invocation 不得再提交 waiting/end。
+- Tree preadmission 失败不得移动 active leaf，已经 claim 为 aborting 的 invocation 不得再提交 waiting/end；
+- forced-abort 到 `INVOCATION_ABORT_GRACE_MS = 150` 仍不合作时，只保留同步 control-plane fence，不重新等待 mutation lock。它必须立即以精确 session/invocation authorization 调用 `SessionWriteExecutor.enqueueForcedAbort()`；该入口仍占据同一个 per-session write queue，不能直接写 repository、追加 projection、建立第二把锁或旁路 tombstone；后续 start 必须等待旧 aborted plan 的 queue 槽位；
+- `enqueueForcedAbort()` 同步失败时保留 aborting ownership 并返回 retryable durability error；入队后的 physical write/recovery 失败由同一个 write queue owner 处理，不能伪造 durable success。
 
 ## Composer 与历史消息
 

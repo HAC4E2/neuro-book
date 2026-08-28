@@ -17,6 +17,8 @@ const props = withDefaults(defineProps<{
     required?: boolean;
     autofocus?: boolean;
     autocomplete?: string;
+    iconClass?: string;
+    clearable?: boolean;
     inputmode?: "none" | "text" | "decimal" | "numeric" | "tel" | "search" | "email" | "url";
     minlength?: number;
     maxlength?: number;
@@ -35,11 +37,14 @@ const props = withDefaults(defineProps<{
     required: false,
     autofocus: false,
     autocomplete: "",
+    iconClass: "",
+    clearable: false,
 });
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
     (e: "focus", event: FocusEvent): void;
+    (e: "clear"): void;
 }>();
 
 const field = useFormFieldContext();
@@ -70,21 +75,39 @@ const inputAttrs = computed(() => ({
     "aria-describedby": field?.ariaDescribedby.value,
     "aria-invalid": field?.invalid.value || undefined,
 }));
+
+function handleClear(): void {
+    emit("update:modelValue", "");
+    emit("clear");
+}
 </script>
 
 <template>
     <div
-        v-if="$slots.prefix"
+        v-if="$slots.prefix || $slots.suffix || props.iconClass || props.clearable"
         class="nb-ui-control flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
         :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '']"
     >
-        <slot name="prefix"></slot>
+        <span v-if="props.iconClass" :class="props.iconClass" class="h-4 w-4 shrink-0 text-[var(--text-muted)] flex items-center justify-center self-center" aria-hidden="true" />
+        <div v-if="$slots.prefix" class="inline-flex items-center self-center shrink-0 leading-none">
+            <slot name="prefix"></slot>
+        </div>
         <input
             v-bind="inputAttrs"
-            class="min-w-0 flex-1 bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+            class="min-w-0 flex-1 h-full bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
             @focus="emit('focus', $event)"
             @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         >
+        <button
+            v-if="props.clearable && props.modelValue && !props.disabled && !props.readonly"
+            type="button"
+            class="i-lucide-x h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer flex items-center justify-center self-center transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
+            aria-label="清空输入"
+            @click="handleClear"
+        />
+        <div v-if="$slots.suffix" class="inline-flex items-center self-center shrink-0 leading-none">
+            <slot name="suffix"></slot>
+        </div>
     </div>
     <input
         v-else
