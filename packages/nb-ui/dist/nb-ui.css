@@ -1240,10 +1240,10 @@
 .bg-transparent {
   background-color: transparent;
 }
-.bg-\[linear-gradient\(180deg\,var\(--accent-main\)_0\%\,color-mix\(in_srgb\,var\(--accent-main\)_88\%\,\#000000\)_100\%\)\] {
+.bg-\[linear-gradient\(180deg\,var\(--accent-main\)_0\%\,color-mix\(in_srgb\,var\(--accent-main\)_88\%\,black\)_100\%\)\] {
   background-image: linear-gradient(180deg,var(--accent-main) 0%,var(--accent-main) 100%);
   @supports (color: color-mix(in lab, red, red)) {
-    background-image: linear-gradient(180deg,var(--accent-main) 0%,color-mix(in srgb,var(--accent-main) 88%,#000000) 100%);
+    background-image: linear-gradient(180deg,var(--accent-main) 0%,color-mix(in srgb,var(--accent-main) 88%,black) 100%);
   }
 }
 .fill-\[color-mix\(in_srgb\,var\(--bg-panel\)_85\%\,transparent\)\] {

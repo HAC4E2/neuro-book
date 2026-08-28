@@ -31,6 +31,14 @@ Work/Task的`walkthroughs/`或`evidences/`承载重大实现记录，独立workt
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - push和PR属于远端写入，分别获授权后执行。
 
+## 敏感本地历史与生成物
+
+本地未推送历史含秘密、隐私或版权边界内容时，先禁用 Git 自动维护并在系统 Temp 记录完整对象、ref、reflog、index、linked worktree、alternate 与 promisor 清单；未分类对象或无法处理的独立 root 直接停止。修复后的 clean tree 从公开基线用 detached `commit-tree` 构造并与临时实现 tree 做字节级比较，不从旧敏感 commit 导出原始正文。
+
+移动本地 ref、删除 reflog 和物理清理对象是独立受限动作。执行前向开发者展示 old/new OID、精确敏感删除闭包、全部非敏感对象保护集、raw reflog dry-run、条件恢复 ref 和并发检查；授权后只用 old/new OID CAS，精确删除本事故项以及仍以敏感旧 tip 为 old OID 的 clean-transition reflog 项，并在敏感对象全部不可达、其它对象都有持久 root 或逐对象 keep ref 时运行一次 gc。clean transition 完整行只保存在系统 Temp 审计，当前 branch ref 继续指向 clean tip。CAS 后验证失败只创建已展示且已授权的条件恢复 ref并停止，不继续删除或 gc；远端历史不在该例外内。
+
+生成物不手工编辑。作用域合同要求提交生成物时，从 canonical source 连续构建两次，把第一次产物保存在系统 Temp，并以字节与 SHA-256 都相同作为确定性门禁。
+
 ## Project 交付状态与统一评审
 
 Issue项目条目是需求交付状态的唯一owner，但Project是可选投影，不决定Leader或Tasker能否工作：
