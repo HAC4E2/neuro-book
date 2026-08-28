@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {execFile as execFileCallback} from "node:child_process";
-import {mkdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
@@ -136,6 +136,25 @@ describe("Work 与 Task 当前容器门禁", () => {
         await writeText(repoRoot, ".agents/works/w00001-role/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-task\nrole: developer\n---\n\n# Task\n");
 
         expect(verifyWorkContracts(repoRoot)).toContain("Work Task role 无效：.agents/works/w00001-role/tasks/t01-task/README.md");
+    });
+
+    it.each(["agent-root", "works-root", "work", "tasks-root", "task"] as const)("治理检查拒绝 current 路径 symlink 或 junction：%s", async (kind) => {
+        const fixture = await createLinkedWorkFixture(kind);
+
+        expect(verifyWorkContracts(fixture.root)).toEqual([fixture.failure]);
+    });
+
+    it.each(["agent-root", "works-root", "work", "tasks-root", "task"] as const)("agent-context 拒绝 current 路径 symlink 或 junction：%s", async (kind) => {
+        const fixture = await createLinkedWorkFixture(kind);
+
+        const result = await runAgentContextCli(fixture.taskId, fixture.root, fixture.workId);
+        expect(result.status).not.toBe(0);
+        expect(result.failures).toEqual([fixture.failure]);
+        expect(result.report?.workReadme).toBe(fixture.workReadme);
+        expect(result.report?.taskReadme).toBeNull();
+        expect(result.report?.role).toBeNull();
+        expect(result.report?.taskRole).toBeNull();
+        expect(result.report?.roleContract).toBeNull();
     });
 
     it("旧根中的 v2 Task 由 legacy 校验拒收", async () => {
@@ -2332,6 +2351,7 @@ type AgentContextReport = {
     role?: string | null;
     requestedRole?: string | null;
     taskRole?: string | null;
+    roleContract?: string | null;
 };
 
 async function runAgentContextCli(taskId: string, repoRoot = repositoryRoot, workId?: string, role?: string): Promise<{status: number; failures: string[]; report?: AgentContextReport}> {
@@ -2457,6 +2477,68 @@ async function createLocalOnlyMigrationFixture(): Promise<string> {
     await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify(index)}\n`);
     await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify(marker)}\n`);
     return root;
+}
+
+type LinkedWorkKind = "agent-root" | "works-root" | "work" | "tasks-root" | "task";
+
+async function createLinkedWorkFixture(kind: LinkedWorkKind): Promise<{
+    root: string;
+    workId: string;
+    taskId: string;
+    workReadme: string | null;
+    failure: string;
+}> {
+    const root = await createTestTmpRoot(`governance-linked-work-${kind}`, `governance-linked-work-${kind}-test`);
+    const externalRoot = await createTestTmpRoot(`governance-linked-work-${kind}-external`, `governance-linked-work-${kind}-external-test`);
+    fixtureRoots.push(root, externalRoot);
+    const workId = "w00001-linked-work";
+    const linkedTaskId = "t01-linked";
+    const realTaskId = "t02-real";
+    const workRoot = `.agents/works/${workId}`;
+    const externalWorkRoot = join(externalRoot, workRoot);
+    const workReadme = `---\nschema: nbook.work/v1\nworkId: ${workId}\nissueId: null\n---\n\n# Linked Work\n`;
+    const linkedTaskReadme = `---\nschema: nbook.task/v2\ntaskId: ${linkedTaskId}\nrole: tasker\n---\n\n# Linked Task\n`;
+    const realTaskReadme = `---\nschema: nbook.task/v2\ntaskId: ${realTaskId}\nrole: tasker\n---\n\n# Real Task\n`;
+    await writeText(externalRoot, `${workRoot}/README.md`, workReadme);
+    await writeText(externalRoot, `${workRoot}/tasks/${linkedTaskId}/README.md`, linkedTaskReadme);
+    await writeText(externalRoot, `${workRoot}/tasks/${realTaskId}/README.md`, realTaskReadme);
+    await writeText(root, "README.md", "# Fixture\n");
+
+    if (kind === "works-root") await writeText(root, ".agents/.keep", "\n");
+    if (kind === "work") await writeText(root, ".agents/works/.keep", "\n");
+    if (kind === "tasks-root" || kind === "task") await writeText(root, `${workRoot}/README.md`, workReadme);
+    if (kind === "task") await writeText(root, `${workRoot}/tasks/${realTaskId}/README.md`, realTaskReadme);
+    await initializeGitFixture(root);
+
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    const link = async (target: string, relativePath: string): Promise<void> => {
+        await symlink(target, join(root, relativePath), linkType);
+    };
+    let linkedPath: string;
+    if (kind === "agent-root") {
+        linkedPath = ".agents";
+        await link(join(externalRoot, ".agents"), linkedPath);
+    } else if (kind === "works-root") {
+        linkedPath = ".agents/works";
+        await link(join(externalRoot, ".agents/works"), linkedPath);
+    } else if (kind === "work") {
+        linkedPath = workRoot;
+        await link(externalWorkRoot, linkedPath);
+    } else if (kind === "tasks-root") {
+        linkedPath = `${workRoot}/tasks`;
+        await link(join(externalWorkRoot, "tasks"), linkedPath);
+    } else {
+        linkedPath = `${workRoot}/tasks/${linkedTaskId}`;
+        await link(join(externalWorkRoot, "tasks", linkedTaskId), linkedPath);
+    }
+
+    return {
+        root,
+        workId,
+        taskId: kind === "task" ? realTaskId : linkedTaskId,
+        workReadme: kind === "tasks-root" || kind === "task" ? join(root, workRoot, "README.md") : null,
+        failure: `Work/Task 目录项必须是物理目录：${linkedPath}`,
+    };
 }
 
 function hashBytes(bytes: Uint8Array): string {

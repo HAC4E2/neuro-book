@@ -335,6 +335,18 @@ const WORKS_ROOT = ".agents/works";
 const WORK_ID_PATTERN = /^w(?!00000)[0-9]{5}-[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const WORK_TASK_ID_PATTERN = /^t(?!00)[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const WORK_ISSUE_ID_PATTERN = /^i[1-9][0-9]*$/u;
+function physicalDirectoryFailure(relativePath: string): string {
+    return `Work/Task 目录项必须是物理目录：${relativePath}`;
+}
+
+function firstNonPhysicalDirectory(repoRoot: string, relativePaths: readonly string[]): string | null {
+    for (const relativePath of relativePaths) {
+        const stats = lstatSync(resolve(repoRoot, relativePath), {throwIfNoEntry: false});
+        if (stats && (!stats.isDirectory() || stats.isSymbolicLink())) return relativePath;
+    }
+    return null;
+}
+
 function packageTaskOwnerRoots(repoRoot: string): string[] {
     const roots = [ROOT_TASK_OWNER_ROOT, APPLICATION_TASK_OWNER_ROOT];
     const packagesRoot = resolve(repoRoot, "packages");
@@ -383,13 +395,31 @@ function validateWorkReadme(repoRoot: string, workId: string, relativePath: stri
 }
 
 function readWorkTaskIds(repoRoot: string, workRoot: string, failures: string[]): string[] | null {
-    const tasksRoot = resolve(repoRoot, workRoot, "tasks");
-    if (!existsSync(tasksRoot) || !lstatSync(tasksRoot).isDirectory()) {
+    const tasksRelativeRoot = `${workRoot}/tasks`;
+    const nonPhysicalPath = firstNonPhysicalDirectory(repoRoot, [tasksRelativeRoot]);
+    if (nonPhysicalPath) {
+        failures.push(physicalDirectoryFailure(nonPhysicalPath));
+        return null;
+    }
+    if (!hasDirectory(repoRoot, tasksRelativeRoot)) {
         failures.push(`Work 缺少 tasks 目录：${workRoot}`);
         return null;
     }
-    const taskIds = readdirSync(tasksRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-    if (taskIds.length === 0) {
+    const taskIds: string[] = [];
+    let hasDeclaredTask = false;
+    for (const entry of readdirSync(resolve(repoRoot, tasksRelativeRoot), {withFileTypes: true})) {
+        const taskRoot = `${tasksRelativeRoot}/${entry.name}`;
+        if (WORK_TASK_ID_PATTERN.test(entry.name)) {
+            hasDeclaredTask = true;
+            const nonPhysicalTask = firstNonPhysicalDirectory(repoRoot, [taskRoot]);
+            if (nonPhysicalTask) failures.push(physicalDirectoryFailure(nonPhysicalTask));
+            else taskIds.push(entry.name);
+        } else if (entry.isDirectory() && !entry.isSymbolicLink()) {
+            taskIds.push(entry.name);
+            hasDeclaredTask = true;
+        }
+    }
+    if (!hasDeclaredTask) {
         failures.push(`Work 必须至少包含一个 Task：${workRoot}`);
         return null;
     }
@@ -416,16 +446,22 @@ function validateWorkTask(repoRoot: string, taskId: string, relativePath: string
 /** 校验当前 Work 容器；Task 正文只作执行参考，不作为机器门禁。 */
 export function verifyWorkContracts(repoRoot: string): string[] {
     const failures: string[] = [];
+    const nonPhysicalRoot = firstNonPhysicalDirectory(repoRoot, [".agents", WORKS_ROOT]);
+    if (nonPhysicalRoot) return [physicalDirectoryFailure(nonPhysicalRoot)];
     const worksRoot = resolve(repoRoot, WORKS_ROOT);
     if (!existsSync(worksRoot)) return failures;
-    if (!lstatSync(worksRoot).isDirectory()) return [`Work 根路径不是目录：${WORKS_ROOT}`];
 
-    const workEntries = readdirSync(worksRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory());
-    for (const workEntry of workEntries) {
+    for (const workEntry of readdirSync(worksRoot, {withFileTypes: true})) {
         const workId = workEntry.name;
         const workRoot = `${WORKS_ROOT}/${workId}`;
-        if (!WORK_ID_PATTERN.test(workId)) {
-            failures.push(`Work 标识格式无效：${workId}`);
+        if (WORK_ID_PATTERN.test(workId)) {
+            const nonPhysicalWork = firstNonPhysicalDirectory(repoRoot, [workRoot]);
+            if (nonPhysicalWork) {
+                failures.push(physicalDirectoryFailure(nonPhysicalWork));
+                continue;
+            }
+        } else {
+            if (workEntry.isDirectory() && !workEntry.isSymbolicLink()) failures.push(`Work 标识格式无效：${workId}`);
             continue;
         }
         const readmePath = `${workRoot}/README.md`;
@@ -723,6 +759,8 @@ export function resolveWorkReadmePath(repoRoot: string, workId: string): {path: 
         return {path: null, failures};
     }
     const workRoot = `${WORKS_ROOT}/${workId}`;
+    const nonPhysicalPath = firstNonPhysicalDirectory(repoRoot, [".agents", WORKS_ROOT, workRoot]);
+    if (nonPhysicalPath) return {path: null, failures: [physicalDirectoryFailure(nonPhysicalPath)]};
     const relativePath = `${workRoot}/README.md`;
     const path = hasFile(repoRoot, relativePath) ? resolve(repoRoot, relativePath) : null;
     if (!path) {
@@ -742,7 +780,13 @@ export function resolveWorkTaskReadmePath(repoRoot: string, workId: string, task
         failures.push(`Task 标识格式无效：${taskId}`);
         return {workPath: work.path, taskPath: null, taskRole: null, failures};
     }
-    const relativePath = `${WORKS_ROOT}/${workId}/tasks/${taskId}/README.md`;
+    const taskRoot = `${WORKS_ROOT}/${workId}/tasks/${taskId}`;
+    const nonPhysicalPath = firstNonPhysicalDirectory(repoRoot, [taskRoot]);
+    if (nonPhysicalPath) {
+        failures.push(physicalDirectoryFailure(nonPhysicalPath));
+        return {workPath: work.path, taskPath: null, taskRole: null, failures};
+    }
+    const relativePath = `${taskRoot}/README.md`;
     const taskPath = hasFile(repoRoot, relativePath) ? resolve(repoRoot, relativePath) : null;
     if (!taskPath) {
         failures.push(`Task README 不存在：${workId}/${taskId}`);
