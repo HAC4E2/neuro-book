@@ -22,7 +22,7 @@ createdAt: 2026-08-29T15:00:00Z
 - 每个entry恰好存在于一个owner slice。
 - 唯一aggregate组合并校验slice，同时提供`entry → owner`唯一查询关系。
 - aggregate不得把owner写回entry、复制entry或建立第二registry。
-- 条目不能恰好解析出一个owner（即得到零个或多个owner）时，catalog验证失败并拒绝状态晋升。
+- 条目的owner解析结果不是恰好一个（即得到零个或两个及以上owner）时，catalog验证失败并拒绝状态晋升。
 
 该决定与t01“每条entry只存在于一个owner slice、aggregate只import/concat、A-owned types与aggregate是唯一索引”一致，没有扩大A实现范围。
 
