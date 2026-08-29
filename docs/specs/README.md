@@ -92,6 +92,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
 | Agent Runtime 与 Profile | [Reference: Agent](../../packages/neuro-book/assets/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
 | Agent 资产运行期安装与 Catalog 根 | [`agent/asset-install-runtime.md`](agent/asset-install-runtime.md) | State Root Install Root、Runtime Reference Root、Install → Project 覆盖和显式 artifact context 已由代码与合同测试支持 |
+| Agent Session Abort | [`agent/session-abort.md`](agent/session-abort.md) | HTTP abort、合作/forced 收口、唯一 durable lifecycle、写入恢复与 409/503 失败合同已由实现和行为测试支持 |
 | 内容与 Project Workspace | [Reference: Content](../../packages/neuro-book/assets/reference/content/README.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
 | World Engine | [Reference: World Engine](../../packages/neuro-book/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
 | Plot | [Reference: Plot](../../packages/neuro-book/assets/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
@@ -108,9 +109,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
 
-| 功能域 | 目标规范 | 批准依据 |
-|---|---|---|
-| Agent Runtime | [`agent/session-abort.md`](agent/session-abort.md) | [ADR 0019](../../packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md)、[current Task](../../.agents/works/w00004-agent-abort-mutation-contract/tasks/t01-agent-abort-mutation-contract/README.md)、[Task 18 黑盒合同](../../packages/neuro-book/.agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md) |
+当前没有已登记的待实现行为规范。
 
 ## 冻结过渡规范
 

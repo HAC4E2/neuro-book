@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.session-abort
 owners:
   - agent-runtime
@@ -10,7 +10,7 @@ owners:
 
 # Agent Session Abort
 
-本文是 Agent Session 取消当前 invocation 的目标行为合同。它定义 HTTP abort、运行态、持久化 lifecycle、SSE 事件、队列副作用、取消失败和恢复边界；方案 B 的架构取舍见 [ADR 0019](../../../packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md)。
+本文是 Agent Session 取消当前 invocation 的已实现行为合同。它定义 HTTP abort、运行态、持久化 lifecycle、SSE 事件、队列副作用、取消失败和恢复边界；方案 B 的架构取舍见 [ADR 0019](../../../packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md)。
 
 ## 目标与非目标
 
@@ -80,9 +80,9 @@ type AgentAbortResult = {
 };
 ```
 
-- 没有 active invocation、重复取消已完成 invocation 或 invocation 已在其它 terminal 路径收口时返回 `{status: "idle", sessionId}`，不新增 lifecycle、resolution、queue item 或终态事件。
-- Waiting User 的合作收口返回 `{status: "aborted", sessionId}`，并完成唯一 durable `aborted` lifecycle 和必要 resolution。
-- Running invocation 的 abort admission 被接受后返回 `{status: "aborted", sessionId}`；该响应只表示取消已接受，不表示所有物理写入或状态事件已经完成。
+- 没有 active invocation、重复取消已完成 invocation 或 invocation 已在其它 terminal 路径收口且没有 pending recovery 时返回 `{status: "idle", sessionId}`，不新增 lifecycle、resolution、queue item 或终态事件。
+- Waiting User 的合作收口返回 `{status: "aborted", sessionId}`，并完成唯一 durable `aborted` lifecycle 和必要 resolution。若 lifecycle 已 durable 但 auto leaf 尚未完成，内存保持 `aborting` recovery ownership；此时 continue/resolution admission 不得追加任何 entry，显式 abort retry 只补同一 terminal。
+- Running invocation 的 abort admission 被接受后返回 `{status: "aborted", sessionId}`；该响应只表示取消已接受，不表示所有物理写入或状态事件已经完成。queue projection 持久化不得阻塞进入 Aborting、触发 AbortSignal 或启动有界 grace。
 
 稳定错误响应：
 
@@ -110,14 +110,14 @@ SSE 与 live state：
 | Running | abort admission | Aborting | 在 mutation 边界内 claim invocation、进入 aborting、触发 AbortSignal；运行锁外等待有界 grace。 |
 | Aborting | 合作 terminal | Idle | 仅该 invocation 的唯一 aborted terminal 生效；释放 ownership。 |
 | Aborting | grace 到期且仍拥有 invocation | Idle | forced lifecycle 被接受进入 Session write queue；迟到运行结果被 fence。 |
-| Aborting | forced enqueue 同步失败 | Aborting | 保留 ownership，不发 `agent_end` 或伪造 durable lifecycle；HTTP 503 可重试。 |
-| 任意已完成状态 | 重复 abort | Idle | 幂等返回，不重复写 lifecycle 或事件。 |
+| Aborting | forced enqueue 同步失败 | Aborting | 保留 ownership，不发 `agent_end` 或伪造 durable lifecycle；HTTP 503 可重试，重试直接进入原 forced plan，不重复 grace。 |
+| 已释放 ownership但有 pending recovery | 重复 abort | Idle | 先排空同一 Session recovery；成功返回 aborted，失败保持 retryable barrier，不宣称 idle。 |
 
 并发语义：
 
 - 同一 invocation 的合作 terminal 与 forced terminal 只有第一个 durable terminal 事实生效。
-- 后续 invocation 的 `start` 不得早于旧 invocation 唯一 `aborted` lifecycle 的 durable append。
-- 同一 Session 的多个 abort 请求不能叠加 grace timer、resolution 或 `aborted` lifecycle。
+- 后续 invocation 的 `start`、continue resolution 或普通 write 不得早于旧 invocation 唯一 `aborted` lifecycle 及其必要 active-leaf repair。
+- 同一 Session 的多个 abort 请求不能叠加 grace timer、resolution 或 `aborted` lifecycle；forced retry 跳过第二次 grace，已释放 ownership的重复 abort 先排空 pending recovery。
 
 ## 副作用与数据
 
@@ -141,7 +141,8 @@ forced lifecycle 已入队但 physical append、after-write 或 live-state 阶�
 
 - 保留精确 Session/invocation 取消意图，按同一 per-session write queue 进行 pending recovery。
 - Recovery 先读取 Session；若已有匹配 aborted lifecycle，则幂等完成并修复缺失的 active leaf，不重复追加 lifecycle。
-- Recovery 失败时保留 retryable 状态，并阻止后续普通 write 或新 invocation start 越过旧终态。
+- Recovery 失败时保留 retryable 状态，并阻止后续普通 write、新 invocation start 或 waiting resolution 越过旧终态；waiting partial terminal 在内存中保持 `aborting` 而非恢复 `waiting`。
+- 下一次 abort 必须先 drain 同一 Session 的 pending forced recovery；成功时返回 aborted，不能因 active ownership 已释放而返回 idle。
 - 任何失败都不能通过直接 repository 写、第二套锁、tombstone 旁路或静默放宽 timeout 掩盖。
 - 进程重启不能从缺失 entry 猜测 aborted；只能按既有规则投影 interrupted。
 
@@ -171,7 +172,34 @@ forced lifecycle 已入队但 physical append、after-write 或 live-state 阶�
 
 ## 实现合同
 
-尚未实现；本阶段只批准目标行为，不规定内部类名、文件布局或算法。
+- Agent runtime 是 abort admission、active invocation ownership、`150ms` cooperative grace、forced authorization、迟到结果 fence 和队列状态的 owner；HTTP route 只负责路径/body 校验和稳定错误投影。
+- `SessionWriteExecutor` 是 lifecycle 与 active-leaf repair 的唯一写 owner。普通写、forced lifecycle、pending recovery 和下一 invocation start 共用同一 per-session queue；forced plan 必须通过 `enqueueForcedAbort()` 进入，不能通过普通 `execute()` 绕过授权。
+- Forced lifecycle 入队时快照 plan；物理 append、active-leaf repair、after-write observer 或 live-state 失败时，以 `(sessionId, invocationId)` 保存内存 recovery。下一次 abort、普通 write 或 invocation start 先 drain；若 durable aborted 已存在，只补缺失 leaf 和发布步骤，不重复 lifecycle。
+- `AgentAbortNotAllowedError` 固定映射为 HTTP 409、`session_abort_not_allowed`、`retryable: false`；`AgentAbortDurabilityError` 固定映射为 HTTP 503、`session_abort_durability_unavailable`、`retryable: true`，底层 `cause` 不进入 HTTP body。
+- 进程重启不恢复内存 forced authorization 或 pending recovery。仓库没有 durable aborted 时不猜测成功；未闭合 invocation 继续按现有 recovery 规则投影 interrupted。
+
+实现入口：
+
+- `packages/neuro-book/server/agent/harness/neuro-agent-harness.ts`
+- `packages/neuro-book/server/agent/session/write-plan.ts`
+- `packages/neuro-book/server/agent/session/session-repo.ts`
+- `packages/neuro-book/server/agent/http.ts`
+- `packages/neuro-book/server/api/agent/sessions/[sessionId]/abort.post.ts`
+
+合同测试：
+
+- `packages/neuro-book/server/api/agent/sessions/[sessionId]/abort.post.test.ts`
+- `packages/neuro-book/server/agent/http.test.ts`
+- `packages/neuro-book/server/agent/session/write-plan.test.ts`
+- `packages/neuro-book/server/agent/harness/neuro-agent-harness.test.ts`
+- `packages/neuro-book/server/agent/harness/neuro-agent-harness.black-box.test.ts`
+- `packages/neuro-book/shared/dto/agent-session.dto.test.ts`
+
+实际 smoke/验证命令：
+
+- `bun x vitest run server/api/agent/sessions/[sessionId]/abort.post.test.ts server/agent/http.test.ts shared/dto/agent-session.dto.test.ts server/agent/session/write-plan.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/neuro-agent-harness.black-box.test.ts`（cwd `packages/neuro-book`）
+- `bun run test:agent`（cwd `packages/neuro-book`）
+- `bun run typecheck`（cwd `packages/neuro-book`）
 
 ## 证据
 
