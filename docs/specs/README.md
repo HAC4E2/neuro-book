@@ -109,7 +109,10 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
 
-当前没有已登记的待实现行为规范。
+| 功能域 | 计划规范 | 说明 |
+|---|---|---|
+| UI 组件合同 | [`ui/component-contracts.md`](ui/component-contracts.md) | 组件行为、唯一 catalog、pending/ready 状态、owner 与迁移删除门禁；当前尚未实现 |
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、响应式检视和 Product 排除合同；当前尚未实现 |
 
 ## 冻结过渡规范
 
