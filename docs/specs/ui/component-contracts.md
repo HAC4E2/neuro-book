@@ -26,17 +26,17 @@ owners:
 ## 术语与参与者
 
 - **组件合同**：调用方与用户能够观察到的props、emits、slots、键盘、焦点、ARIA、状态、布局和错误行为。
-- **catalog**：NeuroBook产品组件的唯一索引；每个产品组件只有一个条目和一个owner。
+- **catalog**：NeuroBook产品组件的唯一索引；每个产品组件只有一个条目，并且该条目恰好属于一个owner分区。
 - **presentational**：只消费受控值和显示输入，不拥有产品数据或业务副作用的组件。
 - **composite**：组合多个UI能力，可持有局部交互状态，但产品数据和外部副作用由宿主提供。
 - **workspace**：编排Project、Session、API、Pinia、storage或持久化状态的产品界面。
 - **pending**：尚无足够确定性fixture或正式界面证据，不能在Lab中宣称可验收。
 - **ready**：合同、确定性fixture或正式界面证据以及所需验证已经闭合。
-- **组件owner**：负责该catalog条目状态、合同证据和迁移关闭条件的唯一UI领域。
+- **组件owner**：负责该catalog条目状态、合同证据和迁移关闭条件的唯一UI领域；owner是条目所属唯一分区的关系，不是`NeuroBookComponentCatalogEntry`的重复字段。
 
 ## 输入与前置条件
 
-每个catalog条目必须提供稳定ID、产品内source标识、用户可读label、group、parent、tier、maturity、status、description、外部依赖分类和owner。`pending`条目必须提供具体阻塞原因；`ready`条目必须提供可定位的确定性fixture或正式产品界面证据。
+每个catalog条目必须提供稳定ID、产品内source标识、用户可读label、group、parent、tier、maturity、status、description和外部依赖分类。每个条目还必须恰好归入一个owner分区，唯一aggregate必须能由条目解析并查询该owner，但不得把owner复制进entry或第二registry。`pending`条目必须提供具体阻塞原因；`ready`条目必须提供可定位的确定性fixture或正式产品界面证据。
 
 组件合同必须明确其受控值、可选值、事件、slot、disabled/read-only/loading/error状态、键盘操作、焦点顺序、ARIA名称与关系，以及会影响布局的最小/最大尺寸和overflow规则。不适用的状态必须明确为不支持，不能由实现者猜测。
 
@@ -44,7 +44,7 @@ owners:
 
 ## 输出与可观察行为
 
-- 调用方可以通过唯一catalog查询组件的分类、owner、依赖、状态和证据，不会从第二份registry得到冲突结果。
+- 调用方可以通过唯一catalog查询组件的分类、依赖、状态和证据，并通过同一aggregate查询条目所属的唯一owner分区；不会从第二份registry或entry内重复owner字段得到冲突结果。
 - `pending`条目不会被呈现为可交互Lab场景；调用方能够看到具体阻塞原因。
 - `ready`条目具有稳定场景，用户可观察默认、交互、禁用、错误、键盘、焦点和响应式行为中适用的部分。
 - 组件在桌面与`390×844`窄屏下保持核心操作可完成；标签、按钮、浮层和动态内容不得发生不可理解的重叠或页面级横向溢出。
@@ -75,7 +75,7 @@ catalog与合同是版本控制内的静态产品元数据，不写用户数据�
 
 ## 失败与恢复
 
-- source无法唯一映射、parent缺失或形成环、ID重复、owner重复、依赖分类缺失时，catalog验证失败并拒绝状态晋升。
+- source无法唯一映射、parent缺失或形成环、ID重复、条目不属于恰好一个owner分区、依赖分类缺失时，catalog验证失败并拒绝状态晋升。
 - `pending`缺少阻塞原因或`ready`缺少证据时，保持或恢复为`pending`。
 - 组件行为、可访问性、响应式或正式界面证据与合同冲突时，迁移停止；修正实现或经批准更新同一Spec后重新验证。
 - 公共UI入口不能覆盖现有产品行为时，不得用alias、adapter、双入口或静默fallback掩盖；应保持旧入口并报告公共合同缺口。
@@ -85,7 +85,7 @@ catalog与合同是版本控制内的静态产品元数据，不写用户数据�
 
 UI模块拥有组件合同和catalog；产品领域继续拥有API、Project、Session、Pinia、storage、权限和持久化语义。公共组件包只拥有可复用UI primitive及其公开行为。
 
-catalog的组件source采用稳定产品标识，不暴露机器绝对路径。每个条目只存在于一个owner集合；聚合视图只能组合并校验条目，不能复制形成第二真相源。
+catalog的组件source采用稳定产品标识，不暴露机器绝对路径。每个条目只存在于一个owner分区；聚合视图组合并校验条目，同时提供`entry → owner`唯一查询关系，但不能把owner写回entry或复制记录形成第二真相源。
 
 迁移必须使用公共包正式exports；禁止深层私有import。名称相同不等于合同兼容，切换前必须核对props、emits、slots、键盘、ARIA、SSR、CSS和浮层行为。
 
@@ -94,12 +94,13 @@ catalog的组件source采用稳定产品标识，不暴露机器绝对路径。�
 ## 验收与 Smoke
 
 1. Given当前NeuroBook产品组件集合，When读取catalog，Then每个受管组件恰有一个条目，source可双向定位，无重复、遗漏、越界、缺失parent或环。
-2. Given任一`pending`条目，When调用方读取状态，Then存在具体阻塞原因，且该条目不会被宣称为可交互Lab场景。
-3. Given任一`ready`条目，When打开其确定性fixture或正式界面，Then默认、交互、禁用、错误、键盘、焦点和响应式合同中适用的部分均可观察且与合同一致。
-4. Given桌面与`390×844`视口，When完成组件核心操作，Then无页面级横向溢出、不可理解重叠或动态内容引起的未声明布局位移。
-5. Given组件依赖API、Pinia或storage，When审查catalog和fixture，Then依赖被显式分类，fixture不取得真实产品数据owner。
-6. Given公共primitive迁移，When所有静态、动态和测试消费者完成切换，Then旧入口、旧样式和旧引用归零；任一消费者未切换时删除门禁失败。
-7. Given合同或source集合发生变化，When旧证据不再覆盖当前行为，Then对应条目回到`pending`并报告原因，不静默沿用旧证据。
+2. Given任一catalog条目，When通过唯一aggregate查询owner，Then得到且只得到一个owner分区；entry本身不含重复owner字段，分区并集与条目全集精确一致。
+3. Given任一`pending`条目，When调用方读取状态，Then存在具体阻塞原因，且该条目不会被宣称为可交互Lab场景。
+4. Given任一`ready`条目，When打开其确定性fixture或正式界面，Then默认、交互、禁用、错误、键盘、焦点和响应式合同中适用的部分均可观察且与合同一致。
+5. Given桌面与`390×844`视口，When完成组件核心操作，Then无页面级横向溢出、不可理解重叠或动态内容引起的未声明布局位移。
+6. Given组件依赖API、Pinia或storage，When审查catalog和fixture，Then依赖被显式分类，fixture不取得真实产品数据owner。
+7. Given公共primitive迁移，When所有静态、动态和测试消费者完成切换，Then旧入口、旧样式和旧引用归零；任一消费者未切换时删除门禁失败。
+8. Given合同或source集合发生变化，When旧证据不再覆盖当前行为，Then对应条目回到`pending`并报告原因，不静默沿用旧证据。
 
 ## 证据
 
