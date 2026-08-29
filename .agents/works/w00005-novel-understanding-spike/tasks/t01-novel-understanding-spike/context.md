@@ -7,7 +7,7 @@
 - Current Task：`w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike`；legacy 来源为 `00161-novel-understanding-spike`。
 - 当前工作目录为主工作区；开发者明确要求不创建分支或 worktree。
 - 研究入口是 `evidences/novel-qa-service.md`；该研究 Task 不写 `packages/` 文档。
-- 样书由用户管理，路径为 `.local/novels/转生反派萝莉，找茬魔法少女.epub`；原文不复制进 Git。
+- 样书由用户管理，路径为 `.local/novels/转生反派萝莉，找茬魔法少女.epub`。**2026-08-29 起**：显式登记的样本章节正文可以进 Git（第一章见 `evidences/chapter-001-source-normalized.txt`），批量抽取产出的逐字层仍不进；口径见 `t03/extraction-pipeline.md` R4。
 - 当前 `nb-memory.ingestRaw` 接受调用方文本并同步执行分块、LLM 事实抽取、LLM 主体/状态消解；`search` 只返回 `SearchHit[]`。
 - World Engine 是动态世界状态与时间线真相源；Plot System 是作者视角的剧情结构系统，Scene 是连接 World Engine 的桥梁。
 
@@ -45,7 +45,7 @@
 
 L2 v2 首次调用以 `client-failure` 失败且没有可见文本后，开发者额外授权恰好一次 `chapter-001-summary-level-2-ingest-v2-retry`。该调用必须复用已固定提示词、同一模型、同一正文和 `maxTokens=4000`；不授权第二次重试、L3 重跑、smoke、额外质量复核调用、其它模型或其它章节。
 
-开发者随后指定使用 `C:\Users\notnotype\AppData\Local\NeuroBook\data\workspace\.nbook\config.json` 中的 DeepSeek 官方 API。脱敏配置确认 provider `deepseek`、model `deepseek-v4-flash`、host `api.deepseek.com`。本轮授权恰好一次 `chapter-001-summary-level-2-ingest-v2-official` 调用，复用固定 L2 v2 提示词、同一正文和 `maxTokens=4000`；不授权重试、L3 重跑、smoke、额外质量复核调用或其它模型/章节。
+开发者随后指定使用其本机 NeuroBook 配置中的 DeepSeek 官方 API。脱敏配置确认 provider `deepseek`、model `deepseek-v4-flash`、host `api.deepseek.com`。本轮授权恰好一次 `chapter-001-summary-level-2-ingest-v2-official` 调用，复用固定 L2 v2 提示词、同一正文和 `maxTokens=4000`；不授权重试、L3 重跑、smoke、额外质量复核调用或其它模型/章节。
 
 开发者随后明确要求“把新的 L2 跑出来给我审查”。本轮新增恰好一次真实调用 purpose：`chapter-001-summary-level-2-ingest-v3-official`。调用使用 DeepSeek 官方 provider `deepseek` / model `deepseek-v4-flash` / host `api.deepseek.com`、同一 `chapter-source-normalization/v1` 第一章正文、冻结的完整 `chapter-summary-level-2-ingest/v3` 提示词、独立新上下文和 `maxTokens=4000`。不授权自动重试、L3 重跑、其它模型/章节、smoke、模型质量复核或第二份候选；成功或失败均耗尽本次授权。
 
@@ -110,6 +110,6 @@ L2 v2 首次调用以 `client-failure` 失败且没有可见文本后，开发�
 - `v7-repaired-v3`首次形成脱敏泄露诊断：首个重合`11`可见字、brief偏移`104–115`、来源偏移`388–399`及hash，不含匹配文本。
 - `v7-repaired-v4`只把开发者已接受的V4底稿发送给模型，原章节未发送；调用HTTP`200`、finish`stop`、usage`1095/1006/2101`，形成`1418`可见字、`7`段候选。完整宿主扫描发现该候选有`11`处来源连续重合，长度`8–11`字，并带入“侵占此身”等事实增强，因此候选移回Temp，不作为正式产物。独立v5局部改写调用HTTP`200`、usage`1226/1007/2233`，但未消除这`11`处重合，故未保存正文。
 - 宿主随后对v4候选做确定性局部改写，修正炸毛原因、触感归属、星界使者主语和“侵占此身”等事实边界。最终`evidences/chapter-001-summary-level-2-brief-only-v7-final.md`为`979`可见字、`7`段、来源连续8字重合数`0`；trim后正文SHA-256为`645122080c83324505f38b3d5b7492d62ea5cc5cbcb261f7855323848dac27e8`，含末尾LF的文件字节SHA-256为`ee22e55838b4fb69d6b87ba8121e2b08ede3a6c887a11e04be277d8e86a786f2`。该文件已被开发者接受为第一章当前L2 canonical。按开发者清理指令，历史对照与其余优化中间产物已随目录整理移除，目录只保留各级最终提示词与结果、图谱交付物、研究结论和生成脚本。
-- 开发者已明确本Task后续模型调用无需逐次授权。当前停止调用；Task进入清理与收尾。V4仍是既有质量基线。目录整理已完成：保留各级最终提示词与结果、图谱交付物、研究结论与生成脚本（`scripts/generate-v7-brief.ts`），其余优化中间产物与历史对照文件已移除。Task保持`in-progress`，`focused-test`、HTML`smoke`、`browser`未完成，browser人工验收未获独立授权。
+- 开发者已明确本 Task 后续模型调用无需逐次授权。当前停止调用；Task 进入清理与收尾。V4 仍是既有质量基线。目录整理已完成：保留登记正文、各级最终提示词与结果、图谱交付物、研究结论、生成脚本以及后续 t02/t03 研究成果。Task 保持 `in-progress`，研究 `browser` 等未运行项不宣称完成。
 - L3 v3 提示词定稿：`evidences/chapter-001-summary-level-3-prompt-v3.md`。沿用 L2 v5 之后的通用原则：System Prompt 不含样章专名、节点、答案或未知项，作品名/章节/正文只作 User 参数；目标 `180–300` 可见字、`3–6` 句话，保留关键信息揭示顺序与来源边界，短原话最多 1 处。已校验专名命中 `0`。
 - L3 v3 已执行三次真实调用（purpose `chapter-001-summary-level-3-v3-official`）：均 HTTP`200`、finish`stop`、严格单候选非空、`httpRequestsAttempted=1`、零重试；usage 依次为`1757/127/1884`、`1757/138/1895`、`1757/169/1926`。三次候选均命中来源连续8–9字重合门禁，stats独立保留。落盘正文是宿主改写稿而非模型原始候选：宿主确定性改写4处命中短语（`最优秀的适格者。`、`"取之不尽的财富`、`上最通用的两个愿望`、`走上反派魔法少女`），并把两处引号原话收敛为0处（满足"最多1处"）、首句补"恍惚"感知标注后形成`evidences/chapter-001-summary-level-3-v3.md`：`246`可见字、`4`句、来源连续8字重合数`0`、trim后正文SHA-256 `6fe7ad85fdd27d2d3e332e76b8d694359b8843f35b0702643ffd51e6c8da036d`、含末尾LF的文件字节SHA-256 `5e5bdb1b5aed2d87cfa2da24ce7d79989a119a696fe274f0266457575782b52d`。正文等待开发者审查，未宣称泛化。

@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>记忆图查看器 · nbook.novel-memory/v2-spike</title>
+<style>
+/* ─────────────────────────────────────────────────────────
+   宣纸 / 墨 / 朱批 / 石绿
+   认识论状态在亮色下渲染成墨色浓度：narrated 是浓墨，
+   inference 是飞白。同一套规则作用在卡片、边、节点上。
+   ───────────────────────────────────────────────────────── */
+:root{
+  --paper:#f3f2f7; --card:#ffffff; --sunk:#eceaf3;
+  --ink:#1b1830; --ink2:#4a4660; --ink3:#8b87a3; --ink4:#b3b0c4;
+  --rule:#dedbe8; --rule2:#eae8f1;
+  --gold:#a87515; --gold-bg:rgba(168,117,21,.09);
+  --cinnabar:#c7304f; --cinnabar-bg:rgba(199,48,79,.07);
+  --verdi:#1e8a74;
+  --f-display:"Noto Serif SC","Songti SC",serif;
+  --f-body:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --f-mono:"Chivo Mono",ui-monospace,"Consolas",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--f-body);font-weight:300;font-size:13px;line-height:1.75;
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button{font:inherit;color:inherit}
+::selection{background:rgba(168,117,21,.2)}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:2px}
+
+.app{display:grid;grid-template-rows:auto 1fr;height:100%}
+
+/* ── 顶栏 ─────────────────────────────────────────────── */
+.bar{
+  display:flex;align-items:center;gap:16px;padding:0 16px;height:50px;
+  background:var(--card);border-bottom:1px solid var(--rule);flex-wrap:nowrap;
+}
+.brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.04em;white-space:nowrap}
+.schema{font-family:var(--f-mono);font-size:10px;color:var(--ink3);letter-spacing:.06em;white-space:nowrap}
+.bar-sp{flex:1}
+.search{
+  width:210px;padding:6px 10px;border:1px solid var(--rule);border-radius:3px;
+  background:var(--paper);font-family:var(--f-body);font-size:12.5px;color:var(--ink);
+}
+.search::placeholder{color:var(--ink4)}
+.btn{
+  background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;transition:.15s;
+}
+.btn:hover{border-color:var(--ink3);background:var(--sunk)}
+.badge{
+  font-family:var(--f-mono);font-size:11px;padding:5px 11px;border-radius:3px;cursor:pointer;
+  border:1px solid transparent;white-space:nowrap;
+}
+.badge.ok{background:rgba(30,138,116,.1);color:var(--verdi);border-color:rgba(30,138,116,.28)}
+.badge.bad{background:var(--cinnabar-bg);color:var(--cinnabar);border-color:rgba(199,48,79,.3)}
+
+/* ── 三栏 ─────────────────────────────────────────────── */
+.body{display:grid;grid-template-columns:266px 1fr 336px;min-height:0}
+.rail,.insp{background:var(--card);display:flex;flex-direction:column;min-height:0}
+.rail{border-right:1px solid var(--rule)}
+.insp{border-left:1px solid var(--rule)}
+.scroll{overflow:auto;min-height:0;flex:1}
+.scroll::-webkit-scrollbar{width:9px;height:9px}
+.scroll::-webkit-scrollbar-thumb{background:var(--rule);border-radius:5px;border:2px solid var(--card)}
+.scroll::-webkit-scrollbar-thumb:hover{background:var(--ink4)}
+
+.kicker{
+  font-family:var(--f-mono);font-size:9.5px;letter-spacing:.2em;color:var(--ink3);
+  text-transform:uppercase;padding:14px 14px 7px;
+}
+.tabs{display:flex;flex-wrap:wrap;gap:3px;padding:0 11px 11px;border-bottom:1px solid var(--rule2)}
+.tab{
+  border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:4px 8px;font-size:11.5px;cursor:pointer;display:flex;gap:6px;align-items:baseline;transition:.15s;
+}
+.tab:hover{background:var(--sunk)}
+.tab.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.tab.on i{color:rgba(255,255,255,.62)}
+.tab i{font-style:normal;font-family:var(--f-mono);font-size:10px;color:var(--ink3)}
+.tab.opt{border-style:dashed}
+
+.list{padding:6px 0 20px}
+.item{
+  display:block;width:100%;text-align:left;background:none;border:0;border-left:2px solid transparent;
+  padding:6px 14px;cursor:pointer;line-height:1.5;transition:.12s;
+}
+.item:hover{background:var(--sunk)}
+.item.on{background:var(--gold-bg);border-left-color:var(--gold)}
+.item b{font-weight:400;display:block;font-size:12.5px}
+.item span{font-family:var(--f-mono);font-size:10px;color:var(--ink3)}
+.item.faded{opacity:.4}
+
+/* ── 舞台 ─────────────────────────────────────────────── */
+.stage{display:flex;flex-direction:column;min-width:0;min-height:0}
+.tools{
+  padding:9px 14px;border-bottom:1px solid var(--rule);background:var(--card);
+  display:flex;flex-direction:column;gap:9px;
+}
+.tool-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tool-lab{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.16em;color:var(--ink3);text-transform:uppercase;white-space:nowrap}
+.chip{
+  border:1px solid var(--rule);background:var(--card);border-radius:3px;
+  padding:3px 9px;font-family:var(--f-mono);font-size:10.5px;cursor:pointer;
+  color:var(--ink3);transition:.15s;white-space:nowrap;
+}
+.chip:hover{border-color:var(--ink4)}
+.chip.on{color:var(--ink);border-color:var(--ink3);background:var(--sunk)}
+.chip.on[data-st="narrated"]{background:var(--gold-bg);border-color:var(--gold);color:var(--gold)}
+.chip.on[data-st="claim"]{background:var(--cinnabar-bg);border-color:var(--cinnabar);color:var(--cinnabar)}
+.chip.on[data-st="disputed"]{background:rgba(30,138,116,.1);border-color:var(--verdi);color:var(--verdi)}
+.chip small{font-size:9.5px;opacity:.7;margin-left:4px}
+
+.slider{flex:1;min-width:160px;accent-color:var(--gold);height:18px}
+.pos{font-family:var(--f-mono);font-size:11px;color:var(--ink);min-width:118px;white-space:nowrap}
+.pos b{color:var(--gold);font-weight:400}
+
+.canvas{flex:1;min-height:0;position:relative;background:
+  linear-gradient(var(--rule2) 1px,transparent 1px) 0 0/100% 28px,
+  linear-gradient(90deg,var(--rule2) 1px,transparent 1px) 0 0/28px 100%,var(--paper);
+}
+.canvas svg{width:100%;height:100%;display:block;cursor:grab}
+.canvas svg.drag{cursor:grabbing}
+.hint{
+  position:absolute;left:14px;bottom:12px;font-family:var(--f-mono);font-size:10px;
+  color:var(--ink4);pointer-events:none;line-height:1.8;
+}
+
+.edge{fill:none;transition:stroke-opacity .15s}
+.edge-lab{font-family:var(--f-mono);font-size:8.5px;fill:var(--ink3);pointer-events:none;transition:opacity .15s}
+.node{cursor:pointer}
+.node-shape{transition:filter .15s}
+.node:hover .node-shape{filter:brightness(.96)}
+.node.on .node-shape{stroke-width:2.6}
+.node-lab{font-family:var(--f-body);font-size:11.5px;fill:var(--ink);text-anchor:middle;pointer-events:none;font-weight:400}
+.node-sub{font-family:var(--f-mono);font-size:8.5px;fill:var(--ink3);text-anchor:middle;pointer-events:none}
+.dim{opacity:.16}
+
+/* ── 检视器 ───────────────────────────────────────────── */
+.insp-head{padding:14px 14px 12px;border-bottom:1px solid var(--rule2)}
+.insp-type{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.2em;color:var(--ink3);text-transform:uppercase}
+.insp-name{font-family:var(--f-display);font-weight:700;font-size:19px;letter-spacing:.03em;margin:5px 0 2px;line-height:1.4}
+.insp-id{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3)}
+.fields{padding:2px 0 0}
+.f{display:flex;gap:10px;padding:6px 14px;border-bottom:1px solid var(--rule2);align-items:baseline}
+.f dt{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink3);width:92px;flex:0 0 92px;text-transform:uppercase}
+.f dd{margin:0;font-size:12px;min-width:0;word-break:break-word;flex:1}
+.f dd.mono{font-family:var(--f-mono);font-size:11px}
+.f dd.na{color:var(--ink4);font-family:var(--f-mono);font-size:11px}
+.ref{
+  border:0;background:none;padding:0;font:inherit;color:var(--gold);cursor:pointer;
+  border-bottom:1px solid rgba(168,117,21,.4);
+}
+.ref:hover{background:var(--gold-bg)}
+.sub{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.2em;color:var(--ink3);text-transform:uppercase;padding:16px 14px 8px;border-top:1px solid var(--rule2)}
+.pad{padding:0 14px 14px}
+.none{color:var(--ink4);font-size:12px;padding:0 14px 12px;font-style:italic}
+
+/* ── 认识论：墨色浓度阶梯 ─────────────────────────────── */
+.fact{
+  display:block;width:100%;text-align:left;border:1px solid transparent;
+  padding:6px 9px;margin-bottom:5px;border-radius:2px;font-size:12px;line-height:1.6;
+  background:var(--sunk);cursor:pointer;transition:.12s;
+}
+.fact:hover{filter:brightness(.975)}
+.fact .p{font-family:var(--f-mono);font-size:11px}
+.fact .h{font-family:var(--f-mono);font-size:9.5px;color:var(--ink3);margin-left:6px}
+.fact .fid{font-family:var(--f-mono);font-size:9.5px;color:var(--ink4);float:right;margin-left:8px}
+
+.st-narrated  {background:var(--gold-bg);border-color:rgba(168,117,21,.42);color:var(--ink)}
+.st-narrated .p{color:var(--gold)}
+.st-claim     {background:var(--card);border-color:rgba(199,48,79,.4);color:var(--ink)}
+.st-claim .p{color:var(--cinnabar)}
+.st-belief    {background:var(--card);border-color:var(--rule);border-style:dashed;color:var(--ink2)}
+.st-belief .p{color:var(--ink2)}
+.st-speculation{background:var(--card);border-color:var(--rule2);border-style:dashed;color:var(--ink3)}
+.st-speculation .p{color:var(--ink3)}
+.st-disputed  {border-color:rgba(30,138,116,.4);color:var(--ink2);
+  background:repeating-linear-gradient(135deg,transparent 0 5px,rgba(30,138,116,.11) 5px 6px)}
+.st-disputed .p{color:var(--verdi)}
+.st-inference {background:var(--card);border-color:var(--rule2);border-style:dotted;color:var(--ink3);font-style:italic}
+.st-inference .p{color:var(--ink3)}
+.st-dead{opacity:.45}
+.st-dead .obj{text-decoration:line-through;text-decoration-color:var(--ink4)}
+.fact.on{box-shadow:0 0 0 2px rgba(168,117,21,.35)}
+
+/* ── 弹层 ─────────────────────────────────────────────── */
+.sheet{
+  position:fixed;inset:0;background:rgba(27,24,48,.28);display:none;
+  align-items:center;justify-content:center;z-index:80;padding:24px;
+}
+.sheet.open{display:flex}
+.sheet-in{
+  background:var(--card);border-radius:4px;max-width:640px;width:100%;max-height:76vh;
+  display:flex;flex-direction:column;box-shadow:0 24px 60px -20px rgba(27,24,48,.4);
+}
+.sheet-h{padding:16px 18px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:12px}
+.sheet-h b{font-family:var(--f-display);font-size:15px;font-weight:700;flex:1}
+.issue{padding:9px 18px;border-bottom:1px solid var(--rule2);font-size:12px;display:flex;gap:10px}
+.issue em{font-family:var(--f-mono);font-style:normal;font-size:10px;flex:0 0 auto;padding-top:2px}
+.issue.error em{color:var(--cinnabar)}
+.issue.warn em{color:var(--gold)}
+.issue code{font-family:var(--f-mono);font-size:11px;color:var(--ink2)}
+
+.stat{display:grid;grid-template-columns:1fr auto;gap:8px;padding:4px 14px;font-size:12px;align-items:center}
+.stat span{font-family:var(--f-mono);font-size:11px;color:var(--ink2)}
+.meter{height:4px;background:var(--rule2);border-radius:2px;overflow:hidden;grid-column:1/-1;margin-bottom:4px}
+.meter i{display:block;height:100%;background:var(--gold)}
+
+@media (max-width:1180px){
+  .body{grid-template-columns:220px 1fr 300px}
+}
+@media (max-width:920px){
+  body{overflow:auto}
+  .app{height:auto}
+  .body{grid-template-columns:1fr}
+  .rail,.insp{border:0;border-bottom:1px solid var(--rule)}
+  .canvas{height:62vh}
+  .scroll{max-height:320px}
+}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <span class="brand">记忆图查看器</span>
+    <span class="schema" id="schema-tag">—</span>
+    <span class="bar-sp"></span>
+    <input class="search" id="search" type="search" placeholder="搜索 id、名称、别名、谓词…" aria-label="搜索记录">
+    <button class="btn" id="btn-stats" type="button">统计</button>
+    <button class="btn" id="btn-load" type="button">载入数据集</button>
+    <button class="badge ok" id="badge" type="button">—</button>
+    <input type="file" id="file" accept=".json,application/json" hidden>
+  </header>
+
+  <div class="body">
+    <nav class="rail">
+      <p class="kicker">记录类型</p>
+      <div class="tabs" id="tabs"></div>
+      <div class="scroll"><div class="list" id="list"></div></div>
+    </nav>
+
+    <section class="stage">
+      <div class="tools">
+        <div class="tool-row">
+          <span class="tool-lab">读到</span>
+          <input class="slider" id="slider" type="range" min="1" max="80" value="80" aria-label="叙述位置">
+          <span class="pos" id="pos">第 1 章 第 <b>80</b> 段</span>
+          <button class="chip on" id="chip-all" type="button">读完全章</button>
+        </div>
+        <div class="tool-row">
+          <span class="tool-lab">状态</span>
+          <span id="chips"></span>
+        </div>
+        <div class="tool-row">
+          <span class="tool-lab">图层</span>
+          <button class="chip on" data-layer="kinds" type="button">类型节点</button>
+          <button class="chip" data-layer="isa" type="button">isa 边</button>
+          <button class="chip" data-layer="episodes" type="button">场景节点</button>
+          <button class="chip" data-layer="labels" type="button">边标签</button>
+          <span class="bar-sp"></span>
+          <button class="chip" id="relayout" type="button">重新布局</button>
+        </div>
+      </div>
+      <div class="canvas">
+        <svg id="svg" role="img" aria-label="记忆图">
+          <defs>
+            <marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b87a3"></path></marker>
+            <marker id="a-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#a87515"></path></marker>
+            <marker id="a-cin" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#c7304f"></path></marker>
+            <marker id="a-ver" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1e8a74"></path></marker>
+          </defs>
+          <g id="vp">
+            <g id="edges"></g>
+            <g id="nodes"></g>
+          </g>
+        </svg>
+        <p class="hint">拖节点可固定位置 · 拖空白平移 · 滚轮缩放 · 圆＝continuous 六边＝functional 方＝nominal 虚线＝provisional／Kind</p>
+      </div>
+    </section>
+
+    <aside class="insp">
+      <div class="scroll" id="insp"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-in">
+    <div class="sheet-h"><b id="sheet-title">—</b><button class="btn" id="sheet-close" type="button">关闭</button></div>
+    <div class="scroll" id="sheet-body"></div>
+  </div>
+</div>
+
+<script type="application/json" id="dataset">
+{"meta":{"schema":"nbook.novel-memory/v2-spike","work":"w00005-novel-understanding-spike / t02","scope":"样书第一章","provenance":"hand-authored","note":"人工装填，不是抽取管线输出，不构成召回或准确率证据。Episode.content 在本 fixture 中是结构化释义占位，不是原文——要求释义而非摘抄是为了可检索，不是隐私；第一章原文见 t01/evidences/chapter-001-source-normalized.txt，该文件第 N 行即 ¶N。 | v2 的变化：每个 Individual 带 since，「读到第几段为止图上有什么」由 schema.ts 的 snapshotAt() 算出，不再散在各个消费者手里。Kind 与 Predicate 不带位置戳——它们是词表不是内容，切片时原样保留；抽取的重跑幂等靠批次键里的 registryVersion 保证，不靠位置戳。 | mergedInto 与 Alias.until 已在模型中定义，第一章不触发，故本文件未出现。"},"kinds":[{"id":"person","name":"人","basicLevel":true,"identityCriteria":"continuous","attributeSlots":["identity","located_in","inhabits","cause_of_death","died_at","attitude_to","signed","suspects","designated_as","self_role","is_concealing"]},{"id":"body","name":"身体","basicLevel":true,"identityCriteria":"continuous","attributeSlots":["hair_color","has_feature","apparent_age","previous_owner","located_in"]},{"id":"artifact","name":"器物","basicLevel":true,"identityCriteria":"functional","attributeSlots":["self_role","located_in","offered","is_concealing"]},{"id":"contract","name":"契约","basicLevel":true,"identityCriteria":"nominal","attributeSlots":["lifecycle","goal"]},{"id":"place","name":"地点","basicLevel":true,"identityCriteria":"nominal","attributeSlots":["located_in"]},{"id":"role","name":"身份","basicLevel":false,"identityCriteria":"nominal","attributeSlots":["death_rate"]},{"id":"magical_girl","name":"魔法少女","parent":"role","basicLevel":true,"identityCriteria":"nominal","attributeSlots":["death_rate"]}],"individuals":[{"id":"su_tianqing","kind":"person","since":{"chapter":1,"paragraph":5},"status":"established","aliases":[{"surface":"苏天晴","route":"name","since":{"chapter":1,"paragraph":5},"confidence":1},{"surface":"最佳适格者","route":"epithet","since":{"chapter":1,"paragraph":27},"confidence":0.8}],"note":"心智主体。与身体分开建节点——压成一个，「原主是谁」就无处安放。"},{"id":"body_fox","kind":"body","since":{"chapter":1,"paragraph":5},"status":"established","aliases":[{"surface":"这具身体","route":"description","since":{"chapter":1,"paragraph":5},"confidence":1}],"note":"外观属性挂在这里，不挂在苏天晴身上。问「她现在长什么样」要沿 inhabits 走一跳。"},{"id":"original_owner","kind":"person","since":{"chapter":1,"paragraph":36},"status":"provisional","aliases":[],"note":"空节点。除「存在过」外没有任何属性，两条 UNKNOWN 把留白显式记下来。"},{"id":"codex","kind":"artifact","since":{"chapter":1,"paragraph":5},"status":"established","aliases":[{"surface":"黑色典籍","route":"description","since":{"chapter":1,"paragraph":5},"confidence":1},{"surface":"墨丘利秘典","route":"name","since":{"chapter":1,"paragraph":27},"confidence":1},{"surface":"小破书","route":"epithet","since":{"chapter":1,"paragraph":50},"confidence":0.9}],"note":"「星界使者」不是别名，是一条 claim 事实——自称与称呼必须分开。"},{"id":"tai_nai","kind":"person","since":{"chapter":1,"paragraph":11},"status":"established","aliases":[{"surface":"太奶","route":"name","since":{"chapter":1,"paragraph":11},"confidence":1}],"note":"存在性存疑。她与场景的关系是 disputed，不是 narrated。"},{"id":"creator","kind":"person","since":{"chapter":1,"paragraph":50},"status":"provisional","aliases":[],"note":"零事实节点，只被一个未决问题钉在图上。"},{"id":"contract_main","kind":"contract","since":{"chapter":1,"paragraph":50},"status":"established","aliases":[{"surface":"这份契约","route":"description","since":{"chapter":1,"paragraph":50},"confidence":1}],"note":"把两个主体绑在一起的第三方。三元关系不实体化，但契约本身是实体。"},{"id":"bedroom","kind":"place","since":{"chapter":1,"paragraph":5},"status":"established","aliases":[{"surface":"昏暗的房间","route":"description","since":{"chapter":1,"paragraph":5},"confidence":1}]},{"id":"noodle_stall","kind":"place","since":{"chapter":1,"paragraph":11},"status":"established","aliases":[{"surface":"面摊","route":"description","since":{"chapter":1,"paragraph":11},"confidence":1}]}],"predicates":[{"id":"inhabits","aliases":["居于","附身于","占据"],"domain":["person"],"range":{"kinds":["body"]},"cardinality":"single","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.95,"note":"心智与身体的绑定"},{"id":"located_in","aliases":["在","位于","身处"],"domain":["person","artifact","body"],"range":{"kinds":["place"],"special":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"high","defaultCentrality":0.3,"note":"所在地，天生互斥"},{"id":"identity","aliases":["是谁","身份是"],"domain":["person"],"range":{"literal":true,"special":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.9,"note":"宾语可为 UNKNOWN —— 文本明确留白"},{"id":"hair_color","aliases":["发色"],"domain":["body"],"range":{"literal":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.5},{"id":"has_feature","aliases":["长着","带有"],"domain":["body"],"range":{"literal":true},"cardinality":"multi","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.6,"note":"判成 single 会只剩最后一条"},{"id":"apparent_age","aliases":["看上去"],"domain":["body"],"range":{"literal":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.4},{"id":"cause_of_death","aliases":["死因"],"domain":["person"],"range":{"literal":true,"special":true},"cardinality":"single","temporalShape":"point","defaultVolatility":"low","defaultCentrality":0.55,"note":"本章唯一同谓词冲突对：speculation 与 narrated 并存"},{"id":"died_at","aliases":["死于"],"domain":["person"],"range":{"kinds":["place"]},"cardinality":"single","temporalShape":"point","defaultVolatility":"low","defaultCentrality":0.7},{"id":"previous_owner","aliases":["原属于"],"domain":["body"],"range":{"kinds":["person"]},"cardinality":"single","temporalShape":"interval","defaultVolatility":"low","defaultCentrality":0.8,"note":"起点未知的开区间"},{"id":"attitude_to","aliases":["态度","觉得"],"domain":["person"],"range":{"literal":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"high","defaultCentrality":0.35,"note":"本章唯一触发取代的谓词"},{"id":"signed","aliases":["签订","缔结"],"domain":["person"],"range":{"kinds":["contract"]},"cardinality":"multi","temporalShape":"point","defaultVolatility":"low","defaultCentrality":0.9,"note":"缔约方视角。与 offered 不是互逆——互逆要求 domain 与 range 互换，而这两条谓词的 range 同为 contract，主语是同一份契约上的两个不同当事人。"},{"id":"offered","aliases":["提出","派发"],"domain":["artifact","person"],"range":{"kinds":["contract"]},"cardinality":"multi","temporalShape":"point","defaultVolatility":"low","defaultCentrality":0.8,"note":"提供方视角。谁提出契约与谁签署契约是两件事，Episode 的 participants 记录同场，谓词各记各的持久状态。"},{"id":"self_role","aliases":["自称是"],"domain":["artifact","person"],"range":{"literal":true},"cardinality":"multi","temporalShape":"state","defaultVolatility":"medium","defaultCentrality":0.5,"defaultStatus":"claim","note":"自称。默认 status = claim"},{"id":"designated_as","aliases":["被认定为"],"domain":["person"],"range":{"literal":true},"cardinality":"multi","temporalShape":"state","defaultVolatility":"medium","defaultCentrality":0.5,"note":"他称，与 self_role 分开"},{"id":"suspects","aliases":["怀疑","认为"],"domain":["person"],"range":{"kinds":["person","artifact"],"literal":true},"cardinality":"multi","temporalShape":"state","defaultVolatility":"medium","defaultCentrality":0.3,"defaultStatus":"belief"},{"id":"is_concealing","aliases":["有所保留"],"domain":["artifact","person"],"range":{"literal":true},"cardinality":"multi","temporalShape":"state","defaultVolatility":"medium","defaultCentrality":0.4,"defaultStatus":"inference"},{"id":"lifecycle","aliases":["状态是"],"domain":["contract"],"range":{"literal":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"medium","defaultCentrality":0.7,"note":"契约生命周期，强制取代"},{"id":"goal","aliases":["目标是"],"domain":["contract"],"range":{"kinds":["role","magical_girl"]},"cardinality":"single","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.9,"note":"宾语可为类型"},{"id":"death_rate","aliases":["死亡率"],"domain":["role","magical_girl"],"range":{"number":true},"cardinality":"single","temporalShape":"state","defaultVolatility":"low","defaultCentrality":0.6,"note":"主语为类型 → 泛称事实，可反驳性与特称不同"}],"facts":[{"id":"F01","subject":"su_tianqing","predicate":"inhabits","object":{"t":"ref","id":"body_fox"},"status":"narrated","holder":"world","validFrom":"E3","assertedAt":{"chapter":1,"paragraph":8},"evidence":["E3"],"confidence":0.98,"strength":0.9,"support":3,"modality":"stipulated","volatility":"low","centrality":0.95},{"id":"F02","subject":"su_tianqing","predicate":"cause_of_death","object":{"t":"literal","v":"急性心肌梗死"},"status":"speculation","holder":"su_tianqing","assertedAt":{"chapter":1,"paragraph":11},"evidence":["E1"],"confidence":0.35,"strength":0.5,"support":1,"modality":"stipulated","volatility":"low","centrality":0.55},{"id":"F03","subject":"su_tianqing","predicate":"cause_of_death","object":{"t":"special","v":"UNKNOWN"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":11},"evidence":["E1"],"confidence":0.95,"strength":0.5,"support":1,"modality":"stipulated","volatility":"low","centrality":0.55},{"id":"F04","subject":"su_tianqing","predicate":"died_at","object":{"t":"ref","id":"noodle_stall"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":11},"evidence":["E1"],"confidence":0.95,"strength":0.6,"support":1,"modality":"stipulated","volatility":"low","centrality":0.7},{"id":"F05","subject":"su_tianqing","predicate":"located_in","object":{"t":"ref","id":"bedroom"},"status":"narrated","holder":"world","validFrom":"E2","assertedAt":{"chapter":1,"paragraph":5},"evidence":["E2"],"confidence":0.95,"strength":0.4,"support":2,"modality":"stipulated","volatility":"high","centrality":0.3},{"id":"F06","subject":"su_tianqing","predicate":"attitude_to","object":{"t":"literal","v":"兴奋"},"status":"narrated","holder":"world","validFrom":"E7","validUntil":"E8","assertedAt":{"chapter":1,"paragraph":50},"evidence":["E7"],"confidence":0.9,"strength":0.3,"support":1,"modality":"stipulated","volatility":"high","centrality":0.35},{"id":"F07","subject":"su_tianqing","predicate":"attitude_to","object":{"t":"literal","v":"后悔"},"status":"narrated","holder":"world","validFrom":"E8","assertedAt":{"chapter":1,"paragraph":64},"evidence":["E8"],"confidence":0.9,"strength":0.6,"support":1,"modality":"stipulated","volatility":"high","centrality":0.35},{"id":"F08","subject":"su_tianqing","predicate":"signed","object":{"t":"ref","id":"contract_main"},"status":"narrated","holder":"world","validFrom":"E7","assertedAt":{"chapter":1,"paragraph":50},"evidence":["E7"],"confidence":0.98,"strength":0.9,"support":2,"modality":"stipulated","volatility":"low","centrality":0.9},{"id":"F09","subject":"su_tianqing","predicate":"suspects","object":{"t":"ref","id":"codex"},"status":"belief","holder":"su_tianqing","assertedAt":{"chapter":1,"paragraph":36},"evidence":["E6"],"confidence":0.6,"strength":0.4,"support":1,"modality":"stipulated","volatility":"medium","centrality":0.3},{"id":"F10","subject":"su_tianqing","predicate":"designated_as","object":{"t":"literal","v":"最佳适格者"},"status":"claim","holder":"codex","assertedAt":{"chapter":1,"paragraph":27},"evidence":["E5"],"confidence":0.5,"strength":0.5,"support":1,"modality":"stipulated","volatility":"medium","centrality":0.5},{"id":"F11","subject":"body_fox","predicate":"hair_color","object":{"t":"literal","v":"金色"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":8},"evidence":["E3"],"confidence":0.98,"strength":0.8,"support":2,"modality":"stipulated","volatility":"low","centrality":0.5},{"id":"F12","subject":"body_fox","predicate":"has_feature","object":{"t":"literal","v":"兽耳"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":8},"evidence":["E3"],"confidence":0.98,"strength":0.7,"support":1,"modality":"constitutive","volatility":"low","centrality":0.6},{"id":"F13","subject":"body_fox","predicate":"has_feature","object":{"t":"literal","v":"狐尾"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":8},"evidence":["E3"],"confidence":0.98,"strength":0.7,"support":2,"modality":"constitutive","volatility":"low","centrality":0.6},{"id":"F14","subject":"body_fox","predicate":"apparent_age","object":{"t":"literal","v":"幼小"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":8},"evidence":["E3"],"confidence":0.9,"strength":0.5,"support":1,"modality":"stipulated","volatility":"low","centrality":0.4},{"id":"F15","subject":"body_fox","predicate":"previous_owner","object":{"t":"ref","id":"original_owner"},"status":"narrated","holder":"world","validUntil":"E3","assertedAt":{"chapter":1,"paragraph":36},"evidence":["E6"],"confidence":0.85,"strength":0.7,"support":1,"modality":"stipulated","volatility":"low","centrality":0.8},{"id":"F16","subject":"original_owner","predicate":"identity","object":{"t":"special","v":"UNKNOWN"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":36},"evidence":["E6"],"confidence":0.95,"strength":0.8,"support":1,"modality":"stipulated","volatility":"low","centrality":0.9},{"id":"F17","subject":"original_owner","predicate":"located_in","object":{"t":"special","v":"UNKNOWN"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":36},"evidence":["E6"],"confidence":0.95,"strength":0.7,"support":1,"modality":"stipulated","volatility":"low","centrality":0.8},{"id":"F18","subject":"codex","predicate":"self_role","object":{"t":"literal","v":"跨越星空而来"},"status":"claim","holder":"codex","assertedAt":{"chapter":1,"paragraph":27},"evidence":["E5"],"confidence":0.5,"strength":0.6,"support":1,"modality":"stipulated","volatility":"medium","centrality":0.5},{"id":"F19","subject":"codex","predicate":"self_role","object":{"t":"literal","v":"星界使者"},"status":"claim","holder":"codex","assertedAt":{"chapter":1,"paragraph":50},"evidence":["E7"],"confidence":0.5,"strength":0.6,"support":1,"modality":"stipulated","volatility":"medium","centrality":0.5},{"id":"F20","subject":"codex","predicate":"offered","object":{"t":"ref","id":"contract_main"},"status":"narrated","holder":"world","validFrom":"E7","assertedAt":{"chapter":1,"paragraph":50},"evidence":["E7"],"confidence":0.98,"strength":0.85,"support":2,"modality":"stipulated","volatility":"low","centrality":0.8},{"id":"F21","subject":"codex","predicate":"located_in","object":{"t":"ref","id":"bedroom"},"status":"narrated","holder":"world","assertedAt":{"chapter":1,"paragraph":5},"evidence":["E2"],"confidence":0.95,"strength":0.4,"support":1,"modality":"stipulated","volatility":"high","centrality":0.3},{"id":"F22","subject":"codex","predicate":"is_concealing","object":{"t":"literal","v":"关于自身来历"},"status":"inference","holder":"reader","assertedAt":{"chapter":1,"paragraph":50},"evidence":[],"inferredFrom":["F18","F19"],"confidence":0.45,"strength":0.3,"support":2,"modality":"stipulated","volatility":"medium","centrality":0.4},{"id":"F23","subject":"tai_nai","predicate":"located_in","object":{"t":"ref","id":"noodle_stall"},"status":"disputed","holder":"su_tianqing","assertedAt":{"chapter":1,"paragraph":11},"evidence":["E1"],"confidence":0.4,"strength":0.5,"support":1,"modality":"stipulated","volatility":"low","centrality":0.6},{"id":"F24","subject":"contract_main","predicate":"goal","object":{"t":"kindref","id":"magical_girl","quant":"∃"},"status":"narrated","holder":"world","validFrom":"E7","assertedAt":{"chapter":1,"paragraph":64},"evidence":["E8"],"confidence":0.95,"strength":0.9,"support":2,"modality":"stipulated","volatility":"low","centrality":0.9},{"id":"F25","subject":"contract_main","predicate":"lifecycle","object":{"t":"literal","v":"已缔结"},"status":"narrated","holder":"world","validFrom":"E7","assertedAt":{"chapter":1,"paragraph":50},"evidence":["E7"],"confidence":0.95,"strength":0.7,"support":1,"modality":"stipulated","volatility":"medium","centrality":0.7},{"id":"F26","subject":"magical_girl","predicate":"death_rate","object":{"t":"number","v":90,"unit":"%"},"status":"claim","holder":"su_tianqing","assertedAt":{"chapter":1,"paragraph":64},"evidence":["E8"],"confidence":0.5,"strength":0.6,"support":1,"modality":"statistical","volatility":"low","centrality":0.6}],"episodes":[{"id":"E1","discoursePos":{"chapter":1,"paragraph":11},"storyTime":{"t":"relative","anchor":"E2","offset":"五分钟前"},"duration":"数分钟","content":"【释义占位】面摊突发心口剧痛后失去意识；恍惚间感知到太奶在场。","sourcePointer":{"chapter":1,"paragraph":{"start":11,"end":11}},"context":{"chapter":"第一章","scene":"面摊","location":"noodle_stall","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"experiencer"},{"entity":"tai_nai","role":"theme"},{"entity":"noodle_stall","role":"location"}],"precedes":["E2"],"outcome":"死亡","valence":-0.9,"arousal":0.9,"register":["紧张"],"surprise":0.82},{"id":"E2","discoursePos":{"chapter":1,"paragraph":5},"content":"【释义占位】在昏暗房间中被一本黑色典籍问及姓名。","sourcePointer":{"chapter":1,"paragraph":{"start":5,"end":5}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"experiencer"},{"entity":"codex","role":"speaker"},{"entity":"bedroom","role":"location"}],"precedes":["E3"],"valence":-0.2,"arousal":0.6,"register":["悬疑"],"surprise":0.9},{"id":"E3","discoursePos":{"chapter":1,"paragraph":8},"content":"【释义占位】在镜前看到金色长发、兽耳与狐尾的幼小身体。","sourcePointer":{"chapter":1,"paragraph":{"start":8,"end":8}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"experiencer"},{"entity":"body_fox","role":"theme"}],"precedes":["E4"],"outcome":"震惊","valence":-0.5,"arousal":0.95,"register":["紧张"],"surprise":0.95},{"id":"E4","discoursePos":{"chapter":1,"paragraph":19},"content":"【释义占位】接受了当前处境。","sourcePointer":{"chapter":1,"paragraph":{"start":19,"end":19}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"experiencer"}],"precedes":["E5"],"outcome":"接受","valence":0.1,"arousal":0.3,"register":["抒情"],"surprise":0.3},{"id":"E5","discoursePos":{"chapter":1,"paragraph":27},"content":"【释义占位】典籍自述来历，并称对方为最佳适格者；停顿后复述了一遍说辞。","sourcePointer":{"chapter":1,"paragraph":{"start":27,"end":27}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"codex","role":"speaker"},{"entity":"su_tianqing","role":"addressee"}],"precedes":["E6"],"valence":0,"arousal":0.5,"register":["悬疑"],"surprise":0.55},{"id":"E6","discoursePos":{"chapter":1,"paragraph":36},"content":"【释义占位】追问这具身体原本属于谁、原主去了哪里，未获回答。","sourcePointer":{"chapter":1,"paragraph":{"start":36,"end":36}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"speaker"},{"entity":"codex","role":"addressee"},{"entity":"original_owner","role":"theme"}],"precedes":["E7"],"valence":-0.3,"arousal":0.6,"register":["悬疑"],"surprise":0.62},{"id":"E7","discoursePos":{"chapter":1,"paragraph":50},"content":"【释义占位】与典籍缔结契约。","sourcePointer":{"chapter":1,"paragraph":{"start":50,"end":50}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"agent"},{"entity":"codex","role":"agent"},{"entity":"contract_main","role":"theme"}],"precedes":["E8"],"outcome":"契约缔结","valence":0.6,"arousal":0.7,"register":["喜剧"],"surprise":0.48},{"id":"E8","discoursePos":{"chapter":1,"paragraph":64},"content":"【释义占位】条款落地，目标与代价与预期不符。","sourcePointer":{"chapter":1,"paragraph":{"start":64,"end":64}},"context":{"chapter":"第一章","scene":"房间","location":"bedroom","pov":"su_tianqing"},"participants":[{"entity":"su_tianqing","role":"experiencer"},{"entity":"codex","role":"speaker"},{"entity":"contract_main","role":"theme"}],"precedes":[],"outcome":"欲哭无泪","valence":-0.6,"arousal":0.7,"register":["喜剧"],"surprise":0.74}],"questions":[{"id":"Q1","text":"太奶是否真的在临终场景出现","origin":"textual","raisedAt":{"chapter":1,"paragraph":11},"anchors":["E1","tai_nai"],"status":"open"},{"id":"Q2","text":"确切死因是什么","origin":"textual","raisedAt":{"chapter":1,"paragraph":11},"anchors":["E1","su_tianqing"],"status":"open"},{"id":"Q3","text":"原主是谁、去了哪里","origin":"textual","raisedAt":{"chapter":1,"paragraph":36},"anchors":["E6","original_owner"],"status":"open"},{"id":"Q5","text":"造物主是谁","origin":"textual","raisedAt":{"chapter":1,"paragraph":50},"anchors":["creator","codex"],"status":"open"},{"id":"Q7","text":"承诺与实际派发之间的落差","origin":"reader_hypothesis","raisedAt":{"chapter":1,"paragraph":64},"anchors":["E7","E8"],"status":"open"}],"summaries":[{"id":"S1","covers":["E1","E2","E3","E4","E5","E6","E7","E8"],"grain":"chapter","gist":"【释义占位】主角在猝死后于陌生幼体中醒来，与一本自称来自星界的典籍缔约，代价与预期不符。","why":"开场以昏暗房间起笔、随后倒叙死亡，是为了让身份错位先于死因揭晓；契约的兴奋与后悔构成本章唯一一次状态取代。","generatedAt":{"chapter":1,"paragraph":77},"recomputable":true}],"mentions":[{"id":"M1","surface":"她","episode":"E3","span":[12,13],"resolvedTo":"su_tianqing","method":"coref_llm"},{"id":"M2","surface":"小破书","episode":"E7","span":[40,43],"resolvedTo":"codex","method":"exact_alias"},{"id":"M3","surface":"对方","episode":"E5","span":[8,10],"resolvedTo":"su_tianqing","method":"coref_llm"}]}
+</script>
+
+<script>
+/* ═══ 载入 ═══════════════════════════════════════════════ */
+let DB = JSON.parse(document.getElementById('dataset').textContent);
+
+const $ = s => document.querySelector(s);
+const NS = 'http://www.w3.org/2000/svg';
+const el = (n, a) => { const e = document.createElementNS(NS, n); for (const k in (a||{})) e.setAttribute(k, a[k]); return e; };
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+const STATUSES = ['narrated','claim','belief','speculation','disputed','inference'];
+const TYPES = [
+  { k:'individual', label:'Individual', coll:'individuals', opt:false },
+  { k:'kind',       label:'Kind',       coll:'kinds',       opt:false },
+  { k:'predicate',  label:'Predicate',  coll:'predicates',  opt:false },
+  { k:'fact',       label:'Fact',       coll:'facts',       opt:false },
+  { k:'episode',    label:'Episode',    coll:'episodes',    opt:false },
+  { k:'summary',    label:'Summary',    coll:'summaries',   opt:true  },
+  { k:'question',   label:'Question',   coll:'questions',   opt:true  },
+  { k:'mention',    label:'Mention',    coll:'mentions',    opt:true  }
+];
+
+let IX = {};
+function reindex() {
+  IX = { kind:new Map(), individual:new Map(), predicate:new Map(), fact:new Map(),
+         episode:new Map(), summary:new Map(), question:new Map(), mention:new Map() };
+  for (const t of TYPES) for (const r of (DB[t.coll] || [])) IX[t.k].set(r.id, r);
+}
+
+/* ═══ 状态 ═══════════════════════════════════════════════ */
+const S = {
+  tab: 'individual',
+  sel: null,              // {type, id}
+  upto: 999,              // 叙述位置上限（段）
+  status: new Set(STATUSES),
+  layer: { kinds:true, isa:false, episodes:false, labels:false },
+  query: '',
+  pos: new Map(),         // 布局缓存
+  pinned: new Set(),
+  view: { x:0, y:0, k:1 }
+};
+
+const cmp = (a, b) => a.chapter - b.chapter || a.paragraph - b.paragraph || (a.sentence||0) - (b.sentence||0);
+const upto = () => ({ chapter: 1, paragraph: S.upto, sentence: 9999 });
+const posText = p => `${p.chapter}·${p.paragraph}` + (p.sentence ? `·${p.sentence}` : '');
+
+const known = (f) => cmp(f.assertedAt, upto()) <= 0 && (!f.retractedAt || cmp(f.retractedAt, upto()) > 0);
+const dead  = (f) => !!f.validUntil || !!f.retractedAt;
+const shown = (f) => known(f) && S.status.has(f.status);
+
+/* ═══ 叙述位置切片 ═══════════════════════════════════════
+   三层处理，对应 v2 的数据模型：
+     Episode / Fact    自带出生位置，纯追加，各自按位置过滤
+     Individual        打戳（since）。没有 since 的按 v1 数据处理，视为始终可见
+     Kind / Predicate  不打戳。这里按「有没有可见的 Individual 或 Fact 用到它」
+                       派生出可见性——注意这是**显示**层的取舍，不是数据层的：
+                       schema.ts 的 snapshotAt() 会把整份词表原样保留在切片里，
+                       因为「读者第几段才知道 located_in 存在」不是有意义的问题。
+                       图上不画没人用的词表节点，只是为了不堆无边的孤立点。
+*/
+let VIS = { individual:new Set(), kind:new Set(), predicate:new Set() };
+
+function revis() {
+  const individual = new Set(), kind = new Set(), predicate = new Set();
+  for (const i of DB.individuals || []) {
+    if (i.since && cmp(i.since, upto()) > 0) continue;
+    individual.add(i.id); kind.add(i.kind);
+  }
+  for (const f of DB.facts || []) {
+    if (!known(f)) continue;
+    predicate.add(f.predicate);
+    if (IX.kind.has(f.subject)) kind.add(f.subject);            // 泛称事实的主语就是 Kind
+    if (f.object && f.object.t === 'kindref') kind.add(f.object.id);
+  }
+  // 可见的 Kind 把祖先一并带出来：分类树缺一节就不成其为分类树
+  for (const id of [...kind]) {
+    let k = IX.kind.get(id);
+    while (k && k.parent && !kind.has(k.parent)) { kind.add(k.parent); k = IX.kind.get(k.parent); }
+  }
+  VIS = { individual, kind, predicate };
+}
+
+const vis = (type, id) => VIS[type] ? VIS[type].has(id) : true;
+
+/** 每一类在当前位置可见多少条。Kind / Predicate 走派生，其余走各自的出生位置。 */
+function visCount(k) {
+  const A = DB[(TYPES.find(t => t.k === k) || {}).coll] || [];
+  if (VIS[k])           return A.filter(r => vis(k, r.id)).length;
+  if (k === 'fact')     return A.filter(known).length;
+  if (k === 'episode')  return A.filter(e => cmp(e.discoursePos, upto()) <= 0).length;
+  if (k === 'question') return A.filter(q => !q.raisedAt || cmp(q.raisedAt, upto()) <= 0).length;
+  if (k === 'summary')  return A.filter(s => !s.generatedAt || cmp(s.generatedAt, upto()) <= 0).length;
+  if (k === 'mention')  return A.filter(m => { const e = IX.episode.get(m.episode); return !e || cmp(e.discoursePos, upto()) <= 0; }).length;
+  return A.length;
+}
+const bornQ = q => !q.raisedAt || cmp(q.raisedAt, upto()) <= 0;
+const bornS = s => !s.generatedAt || cmp(s.generatedAt, upto()) <= 0;
+const bornM = m => { const e = IX.episode.get(m.episode); return !e || cmp(e.discoursePos, upto()) <= 0; };
+
+
+/** 读到当前位置为止，这个个体的显示名。别名的 since 就在这里生效。 */
+function labelOf(id) {
+  const i = IX.individual.get(id);
+  if (i) {
+    const ks = (i.aliases || []).filter(a => cmp(a.since, upto()) <= 0);
+    if (!ks.length) return '⟨未具名⟩';
+    const byName = ks.filter(a => a.route === 'name');
+    return (byName.length ? byName[byName.length-1] : ks[0]).surface;
+  }
+  const k = IX.kind.get(id);
+  if (k) return k.name;
+  if (id === 'world') return 'world';
+  if (id === 'reader') return 'reader';
+  return id;
+}
+
+/* ═══ 轻量校验（与 schema.ts 的 validate 相互独立） ══════ */
+function checkDB() {
+  const out = [];
+  const E = (at, m) => out.push({ level:'error', at, message:m });
+  const W = (at, m) => out.push({ level:'warn', at, message:m });
+  const has = (t, id) => IX[t].has(id);
+  const subj = id => has('individual', id) || has('kind', id);
+
+  for (const k of DB.kinds || []) {
+    if (k.parent && !has('kind', k.parent)) E(k.id, 'parent 不存在 → ' + k.parent);
+    for (const s of k.attributeSlots || []) if (!has('predicate', s)) E(k.id, 'attributeSlots 谓词不存在 → ' + s);
+  }
+  for (const i of DB.individuals || []) {
+    if (!has('kind', i.kind)) E(i.id, 'kind 不存在 → ' + i.kind);
+    if (i.status === 'established' && !(i.aliases || []).length) W(i.id, 'established 但没有别名');
+    // since 不能晚于第一次被引用 —— 晚了，切片时图上会出现指向不存在节点的边
+    if (i.since) {
+      const refs = (i.aliases || []).map(a => a.since);
+      for (const f of DB.facts || []) {
+        if (f.subject === i.id || f.holder === i.id ||
+            (f.object && f.object.t === 'ref' && f.object.id === i.id)) refs.push(f.assertedAt);
+      }
+      for (const e of DB.episodes || []) {
+        const c = e.context || {};
+        if ((e.participants || []).some(p => p.entity === i.id) || c.location === i.id || c.pov === i.id)
+          refs.push(e.discoursePos);
+      }
+      if (refs.length) {
+        const first = refs.reduce((a, b) => cmp(a, b) <= 0 ? a : b);
+        if (cmp(i.since, first) > 0) E(i.id, `since ${posText(i.since)} 晚于第一次被引用 ${posText(first)}`);
+      }
+    }
+  }
+  for (const p of DB.predicates || []) {
+    for (const d of p.domain || []) if (!has('kind', d)) E(p.id, 'domain 不存在 → ' + d);
+    for (const r of (p.range && p.range.kinds) || []) if (!has('kind', r)) E(p.id, 'range 不存在 → ' + r);
+    if (p.inverseOf && !has('predicate', p.inverseOf)) E(p.id, 'inverseOf 不存在 → ' + p.inverseOf);
+    if (p.inverseOf && has('predicate', p.inverseOf)) {
+      const q = IX.predicate.get(p.inverseOf);
+      if (q.inverseOf !== p.id) W(p.id, `inverseOf 不对称：${p.id}→${q.id}，但 ${q.id}→${q.inverseOf || 'null'}`);
+      // 真互逆的两个谓词，domain 与 range 应当互换。毫无交集说明它们只是「相关」，不是互逆
+      const pr = (p.range && p.range.kinds) || [], qd = q.domain || [];
+      if (pr.length && qd.length && !pr.some(x => qd.includes(x)))
+        W(p.id, `inverseOf 可疑：${p.id} 的 range [${pr}] 与 ${q.id} 的 domain [${qd}] 没有交集，互逆应当 domain/range 互换`);
+    }
+  }
+  for (const f of DB.facts || []) {
+    if (!subj(f.subject)) E(f.id, 'subject 不存在 → ' + f.subject);
+    if (!has('predicate', f.predicate)) E(f.id, 'predicate 未登记 → ' + f.predicate);
+    if (!STATUSES.includes(f.status)) E(f.id, 'status 不在枚举内 → ' + f.status);
+    if (!['world','reader'].includes(f.holder) && !has('individual', f.holder)) E(f.id, 'holder 不存在 → ' + f.holder);
+    const o = f.object || {};
+    if (o.t === 'ref' && !has('individual', o.id)) E(f.id, 'object.ref 不存在 → ' + o.id);
+    if (o.t === 'kindref' && !has('kind', o.id)) E(f.id, 'object.kindref 不存在 → ' + o.id);
+    if (o.t === 'unresolved') W(f.id, 'object 仍是 unresolved 暂存态');
+    for (const e of f.evidence || []) if (!has('episode', e)) E(f.id, 'evidence 不是 Episode → ' + e);
+    for (const x of f.inferredFrom || []) if (!has('fact', x)) E(f.id, 'inferredFrom 不是 Fact → ' + x);
+    if ((f.evidence||[]).length && (f.inferredFrom||[]).length) E(f.id, 'evidence 与 inferredFrom 同时非空');
+    if (f.status === 'inference' && !(f.inferredFrom||[]).length) E(f.id, 'inference 没有 inferredFrom');
+    if (f.status !== 'inference' && !(f.evidence||[]).length) E(f.id, f.status + ' 没有 evidence');
+    if (f.validFrom && !has('episode', f.validFrom)) E(f.id, 'validFrom 不是 Episode');
+    if (f.validUntil && !has('episode', f.validUntil)) E(f.id, 'validUntil 不是 Episode');
+    // 断言位置不能早于自己的依据 —— 早了就是「读者还没看到依据，却已经知道结论」
+    const src = [
+      ...(f.evidence || []).map(e => (IX.episode.get(e) || {}).discoursePos),
+      ...(f.inferredFrom || []).map(x => (IX.fact.get(x) || {}).assertedAt),
+    ].filter(Boolean);
+    if (src.length) {
+      const last = src.reduce((a, b) => cmp(a, b) >= 0 ? a : b);
+      if (cmp(f.assertedAt, last) < 0)
+        W(f.id, `assertedAt ${posText(f.assertedAt)} 早于依据位置 ${posText(last)}`);
+    }
+  }
+  const live = new Map();
+  for (const f of DB.facts || []) {
+    if (dead(f)) continue;
+    const p = IX.predicate.get(f.predicate);
+    if (!p || p.cardinality !== 'single') continue;
+    const key = `${f.subject} .${f.predicate} %${f.status} ^${f.holder}`;
+    live.set(key, [...(live.get(key) || []), f.id]);
+  }
+  for (const [key, ids] of live) if (ids.length > 1) E(ids.join(','), 'single 基数并存: ' + key);
+
+  for (const e of DB.episodes || []) {
+    for (const p of e.participants || []) if (!has('individual', p.entity)) E(e.id, 'participant 不存在 → ' + p.entity);
+    for (const n of e.precedes || []) if (!has('episode', n)) E(e.id, 'precedes 不存在 → ' + n);
+  }
+  for (const q of DB.questions || []) for (const a of q.anchors || []) if (!subj(a) && !has('episode', a)) E(q.id, 'anchor 无法解析 → ' + a);
+  return out;
+}
+
+/* ═══ 图 ═════════════════════════════════════════════════ */
+function graphModel() {
+  const nodes = [], links = [];
+  const use = new Set();
+
+  for (const i of DB.individuals) {
+    if (!vis('individual', i.id)) continue;              // Individual.since 在这里生效
+    nodes.push({ id:i.id, t:'individual', r:0 }); use.add(i.id);
+  }
+  if (S.layer.kinds) for (const k of DB.kinds) {
+    if (!vis('kind', k.id)) continue;                    // 派生：没有可见实例或事实用到它就不画
+    nodes.push({ id:k.id, t:'kind', r:0 }); use.add(k.id);
+  }
+  if (S.layer.episodes) for (const e of DB.episodes) {
+    if (cmp(e.discoursePos, upto()) > 0) continue;
+    nodes.push({ id:e.id, t:'episode', r:0 }); use.add(e.id);
+  }
+
+  for (const f of DB.facts) {
+    if (!shown(f)) continue;
+    const o = f.object;
+    if (o.t !== 'ref' && o.t !== 'kindref') continue;
+    if (!use.has(f.subject) || !use.has(o.id)) continue;
+    links.push({ id:f.id, kind:'fact', a:f.subject, b:o.id, label:f.predicate, status:f.status, dead:dead(f) });
+  }
+  if (S.layer.isa && S.layer.kinds) for (const i of DB.individuals) {
+    if (use.has(i.id) && use.has(i.kind)) links.push({ id:'isa:'+i.id, kind:'isa', a:i.id, b:i.kind, label:'isa' });
+  }
+  if (S.layer.isa && S.layer.kinds) for (const k of DB.kinds) {
+    if (k.parent && use.has(k.id) && use.has(k.parent)) links.push({ id:'isa:'+k.id, kind:'isa', a:k.id, b:k.parent, label:'isa' });
+  }
+  if (S.layer.episodes) for (const e of DB.episodes) {
+    if (!use.has(e.id)) continue;
+    for (const p of e.participants || []) if (use.has(p.entity))
+      links.push({ id:'pt:'+e.id+':'+p.entity, kind:'part', a:e.id, b:p.entity, label:p.role });
+  }
+
+  const deg = new Map();
+  for (const l of links) { deg.set(l.a, (deg.get(l.a)||0)+1); deg.set(l.b, (deg.get(l.b)||0)+1); }
+  for (const n of nodes) {
+    const d = deg.get(n.id) || 0;
+    n.r = n.t === 'episode' ? 15 : Math.min(38, 17 + d * 3.2);
+  }
+  return { nodes, links };
+}
+
+function simulate(nodes, links, iters) {
+  const W = 900, H = 620;
+  nodes.forEach((n, i) => {
+    const p = S.pos.get(n.id);
+    if (p) { n.x = p.x; n.y = p.y; }
+    else { const a = i * 2.399; n.x = W/2 + Math.cos(a) * (90 + i * 11); n.y = H/2 + Math.sin(a) * (90 + i * 11); }
+  });
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  for (let it = 0; it < iters; it++) {
+    const t = 1 - it / iters;
+    for (const n of nodes) { n.vx = 0; n.vy = 0; }
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y, d2 = dx*dx + dy*dy || 1;
+      const d = Math.sqrt(d2);
+      const min = a.r + b.r + 34;
+      const rep = (d < min ? 5200 : 2400) / d2;
+      dx /= d; dy /= d;
+      a.vx -= dx * rep; a.vy -= dy * rep;
+      b.vx += dx * rep; b.vy += dy * rep;
+    }
+    for (const l of links) {
+      const a = byId.get(l.a), b = byId.get(l.b);
+      if (!a || !b) continue;
+      let dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const rest = a.r + b.r + (l.kind === 'fact' ? 78 : 58);
+      const f = (d - rest) * 0.045;
+      dx /= d; dy /= d;
+      a.vx += dx * f; a.vy += dy * f;
+      b.vx -= dx * f; b.vy -= dy * f;
+    }
+    for (const n of nodes) {
+      n.vx += (W/2 - n.x) * 0.0026;
+      n.vy += (H/2 - n.y) * 0.0026;
+      if (S.pinned.has(n.id)) continue;
+      n.x += Math.max(-22, Math.min(22, n.vx)) * t;
+      n.y += Math.max(-22, Math.min(22, n.vy)) * t;
+    }
+  }
+  for (const n of nodes) S.pos.set(n.id, { x:n.x, y:n.y });
+}
+
+const STROKE = { narrated:'#a87515', claim:'#c7304f', disputed:'#1e8a74', belief:'#4a4660', speculation:'#b3b0c4', inference:'#b3b0c4' };
+const MARKER = { narrated:'a-gold', claim:'a-cin', disputed:'a-ver' };
+const DASH   = { belief:'5 4', speculation:'4 4', disputed:'2 3', inference:'1 4' };
+
+function shapeFor(n) {
+  if (n.t === 'kind') return 'kindbox';
+  if (n.t === 'episode') return 'diamond';
+  const i = IX.individual.get(n.id);
+  const k = i && IX.kind.get(i.kind);
+  const c = k ? k.identityCriteria : 'nominal';
+  return c === 'continuous' ? 'circle' : c === 'functional' ? 'hex' : 'rect';
+}
+
+let G = { nodes:[], links:[] };
+
+function drawGraph(relayout) {
+  G = graphModel();
+  simulate(G.nodes, G.links, relayout ? 340 : 90);
+  const byId = new Map(G.nodes.map(n => [n.id, n]));
+  const gE = $('#edges'), gN = $('#nodes');
+  gE.textContent = ''; gN.textContent = '';
+
+  for (const l of G.links) {
+    const a = byId.get(l.a), b = byId.get(l.b);
+    if (!a || !b) continue;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    const x1 = a.x + dx * (a.r + 3), y1 = a.y + dy * (a.r + 3);
+    const x2 = b.x - dx * (b.r + 8), y2 = b.y - dy * (b.r + 8);
+    const g = el('g', { 'data-link': l.id, 'data-a': l.a, 'data-b': l.b });
+    const stroke = l.kind === 'fact' ? (STROKE[l.status] || '#8b87a3') : '#b3b0c4';
+    const line = el('line', {
+      class:'edge', x1, y1, x2, y2, stroke,
+      'stroke-width': l.kind === 'fact' ? (l.status === 'narrated' ? 1.7 : 1.2) : 0.9,
+      'stroke-opacity': l.dead ? 0.28 : (l.kind === 'fact' ? 0.85 : 0.4),
+      'marker-end': 'url(#' + (l.kind === 'fact' ? (MARKER[l.status] || 'a-ink') : 'a-ink') + ')'
+    });
+    const dash = l.kind === 'fact' ? DASH[l.status] : '3 4';
+    if (dash) line.setAttribute('stroke-dasharray', dash);
+    g.appendChild(line);
+    if (S.layer.labels || l.kind === 'fact') {
+      const t = el('text', { class:'edge-lab', x:(x1+x2)/2, y:(y1+y2)/2 - 4, 'text-anchor':'middle',
+                             opacity: S.layer.labels ? 1 : 0.55 });
+      t.textContent = l.label;
+      g.appendChild(t);
+    }
+    gE.appendChild(g);
+  }
+
+  for (const n of G.nodes) {
+    const g = el('g', { class:'node', 'data-node': n.id, 'data-t': n.t, tabindex:'0', role:'button' });
+    const ind = IX.individual.get(n.id);
+    const prov = ind && ind.status === 'provisional';
+    const sh = shapeFor(n);
+    let shape;
+    if (sh === 'circle') shape = el('circle', { cx:n.x, cy:n.y, r:n.r });
+    else if (sh === 'hex') {
+      const pts = [];
+      for (let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3; pts.push((n.x + n.r*Math.cos(a)) + ',' + (n.y + n.r*Math.sin(a))); }
+      shape = el('polygon', { points: pts.join(' ') });
+    } else if (sh === 'diamond') {
+      shape = el('polygon', { points: [[n.x,n.y-n.r],[n.x+n.r,n.y],[n.x,n.y+n.r],[n.x-n.r,n.y]].map(p=>p.join(',')).join(' ') });
+    } else {
+      const w = Math.max(64, n.r * 2.1), h = n.r * 1.25;
+      shape = el('rect', { x:n.x - w/2, y:n.y - h/2, width:w, height:h, rx:2 });
+    }
+    shape.setAttribute('class', 'node-shape');
+    shape.setAttribute('fill', n.t === 'kind' ? '#eceaf3' : n.t === 'episode' ? '#ffffff' : prov ? '#f7f6fa' : '#ffffff');
+    shape.setAttribute('stroke', n.t === 'kind' ? '#8b87a3' : n.t === 'episode' ? '#1e8a74' : prov ? '#b3b0c4' : '#4a4660');
+    shape.setAttribute('stroke-width', 1.4);
+    if (prov || n.t === 'kind') shape.setAttribute('stroke-dasharray', '4 3');
+    g.appendChild(shape);
+
+    const lab = el('text', { class:'node-lab', x:n.x, y:n.y + 4 });
+    lab.textContent = n.t === 'episode' ? n.id : labelOf(n.id);
+    g.appendChild(lab);
+    const sub = el('text', { class:'node-sub', x:n.x, y:n.y + n.r + 12 });
+    sub.textContent = n.t === 'kind' ? 'KIND' : n.t === 'episode' ? (IX.episode.get(n.id) ? posText(IX.episode.get(n.id).discoursePos) : '') : n.id;
+    g.appendChild(sub);
+    gN.appendChild(g);
+  }
+  applyFocus();
+  applyView();
+}
+
+function applyFocus() {
+  const id = S.sel && (S.sel.type === 'individual' || S.sel.type === 'kind' || S.sel.type === 'episode') ? S.sel.id : null;
+  const factSel = S.sel && S.sel.type === 'fact' ? S.sel.id : null;
+  document.querySelectorAll('#nodes .node').forEach(g => {
+    g.classList.toggle('on', g.dataset.node === id);
+    if (!id && !factSel) { g.classList.remove('dim'); return; }
+    if (factSel) {
+      const f = IX.fact.get(factSel);
+      const near = f && (g.dataset.node === f.subject || (f.object && g.dataset.node === f.object.id));
+      g.classList.toggle('dim', !near);
+      return;
+    }
+    const near = g.dataset.node === id ||
+      G.links.some(l => (l.a === id && l.b === g.dataset.node) || (l.b === id && l.a === g.dataset.node));
+    g.classList.toggle('dim', !near);
+  });
+  document.querySelectorAll('#edges g').forEach(g => {
+    if (factSel) { g.classList.toggle('dim', g.dataset.link !== factSel); return; }
+    if (!id) { g.classList.remove('dim'); return; }
+    g.classList.toggle('dim', g.dataset.a !== id && g.dataset.b !== id);
+  });
+}
+
+function applyView() { $('#vp').setAttribute('transform', `translate(${S.view.x} ${S.view.y}) scale(${S.view.k})`); }
+
+/* ═══ 左栏 ═══════════════════════════════════════════════ */
+function renderTabs() {
+  $('#tabs').innerHTML = TYPES.map(t => {
+    const n = (DB[t.coll] || []).length;
+    const v = visCount(t.k);
+    const badge = (n && v < n) ? `${v}/${n}` : n;
+    return `<button class="tab${S.tab===t.k?' on':''}${t.opt?' opt':''}" data-tab="${t.k}" type="button" title="当前位置可见 ${v} / 共 ${n}" ${n?'':'disabled style="opacity:.35"'}>${t.label}<i>${badge}</i></button>`;
+  }).join('');
+}
+
+function rowsFor(kind) {
+  const q = S.query.trim().toLowerCase();
+  const t = TYPES.find(x => x.k === kind);
+  const all = DB[t.coll] || [];
+  const row = r => {
+    if (kind === 'individual') return { title: labelOf(r.id), sub: r.id + ' · ' + r.kind + (r.status==='provisional'?' · provisional':'') + (r.since ? ' · since ' + posText(r.since) : ''),
+      hay: [r.id, r.kind, ...(r.aliases||[]).map(a=>a.surface)].join(' '), faded: !vis('individual', r.id) };
+    if (kind === 'kind') return { title: r.name, sub: r.id + ' · ' + r.identityCriteria, hay: r.id + ' ' + r.name, faded: !vis('kind', r.id) };
+    if (kind === 'predicate') return { title: r.id, sub: r.cardinality + ' · ' + r.temporalShape + ' · ' + (r.aliases||[]).join('/'),
+      hay: [r.id, ...(r.aliases||[])].join(' '), faded: !vis('predicate', r.id) };
+    if (kind === 'fact') return { title: labelOf(r.subject) + ' .' + r.predicate, sub: r.id + ' · ' + r.status + ' · ^' + r.holder,
+      hay: [r.id, r.subject, r.predicate, r.status, objText(r.object)].join(' '), faded: !shown(r) };
+    if (kind === 'episode') return { title: r.id + ' · ' + posText(r.discoursePos), sub: (r.outcome || '—') + ' · ' + (r.participants||[]).length + ' 参与者',
+      hay: [r.id, r.content, r.outcome].join(' '), faded: cmp(r.discoursePos, upto()) > 0 };
+    if (kind === 'question') return { title: r.text, sub: r.id + ' · ' + r.origin + ' · ' + r.status, hay: r.id + ' ' + r.text, faded: !bornQ(r) };
+    if (kind === 'summary') return { title: r.grain + ' 摘要', sub: r.id + ' · 覆盖 ' + (r.covers||[]).length + ' 场景', hay: r.id + ' ' + r.gist, faded: !bornS(r) };
+    return { title: r.surface, sub: r.id + ' · ' + r.episode + ' → ' + (r.resolvedTo || '未消解'), hay: r.id + ' ' + r.surface, faded: !bornM(r) };
+  };
+  return all.map(r => ({ r, ...row(r) })).filter(x => !q || x.hay.toLowerCase().includes(q));
+}
+
+function renderList() {
+  const rows = rowsFor(S.tab);
+  $('#list').innerHTML = rows.length ? rows.map(x =>
+    `<button class="item${S.sel && S.sel.type===S.tab && S.sel.id===x.r.id ? ' on':''}${x.faded?' faded':''}" data-pick="${esc(S.tab + ':' + x.r.id)}" type="button">
+       <b>${esc(x.title)}</b><span>${esc(x.sub)}</span></button>`).join('')
+    : '<p class="none">没有匹配的记录。</p>';
+}
+
+/* ═══ 检视器 ═════════════════════════════════════════════ */
+function objText(o) {
+  if (!o) return '—';
+  if (o.t === 'ref' || o.t === 'kindref') return (o.quant ? o.quant + ' ' : '') + labelOf(o.id);
+  if (o.t === 'special') return o.v;
+  if (o.t === 'number') return o.v + (o.unit ? ' ' + o.unit : '');
+  if (o.t === 'unresolved') return '「' + o.surface + '」?';
+  return o.v;
+}
+function objHTML(o) {
+  if (o && (o.t === 'ref' || o.t === 'kindref'))
+    return `<button class="ref" data-pick="${esc((o.t==='ref'?'individual':'kind') + ':' + o.id)}" type="button">${esc(objText(o))}</button>`;
+  return '<span class="obj">' + esc(objText(o)) + '</span>';
+}
+function refBtn(type, id) {
+  if (id === 'world' || id === 'reader') return `<span class="mono">${esc(id)}</span>`;
+  return `<button class="ref" data-pick="${esc(type + ':' + id)}" type="button">${esc(labelOf(id))}</button>`;
+}
+function factBtn(f) {
+  const cls = ['fact', 'st-' + f.status, dead(f) ? 'st-dead' : '', S.sel && S.sel.type==='fact' && S.sel.id===f.id ? 'on' : ''].filter(Boolean).join(' ');
+  const holder = f.holder !== 'world' ? `<span class="h">^${esc(labelOf(f.holder))}</span>` : '';
+  return `<button class="${esc(cls)}" data-pick="${esc('fact:' + f.id)}" type="button">
+    <span class="fid">${esc(f.id)}</span><span class="p">.${esc(f.predicate)}</span> <span class="obj">${esc(objText(f.object))}</span>${holder}</button>`;
+}
+const F = (k, v, cls) => `<div class="f"><dt>${k}</dt><dd class="${cls||''}">${v}</dd></div>`;
+const NA = '<span class="na">null</span>';
+
+function renderInsp() {
+  const box = $('#insp');
+  if (!S.sel) { box.innerHTML = '<p class="none" style="padding:18px 14px">从左栏或图上选一条记录。</p>'; return; }
+  const { type, id } = S.sel;
+  const r = IX[type].get(id);
+  if (!r) { box.innerHTML = '<p class="none" style="padding:18px 14px">记录不存在。</p>'; return; }
+  const T = TYPES.find(t => t.k === type);
+
+  let title = id, fields = '', extra = '';
+
+  if (type === 'individual') {
+    title = labelOf(id);
+    const kn = (r.aliases||[]).filter(a => cmp(a.since, upto()) <= 0);
+    const hidden = (r.aliases||[]).length - kn.length;
+    const sinceTxt = r.since
+      ? posText(r.since) + (vis('individual', id) ? '' : ' · 当前位置尚未出现')
+      : '未标注 · v1 数据，视为始终可见';
+    fields = F('KIND', refBtn('kind', r.kind)) + F('STATUS', r.status, 'mono')
+      + F('SINCE', r.since ? esc(sinceTxt) : `<span class="na">${esc(sinceTxt)}</span>`, r.since ? 'mono' : '')
+      + F('ALIASES', (r.aliases||[]).length
+          ? (r.aliases||[]).map(a => {
+              const yet = cmp(a.since, upto()) > 0;
+              return `<div style="${yet?'opacity:.38':''}">${esc(a.surface)}
+                <span class="na" style="margin-left:6px">${a.route} · since ${posText(a.since)}${yet?' · 尚未揭示':''}</span></div>`;
+            }).join('')
+          : NA)
+      + (hidden > 0 ? F('', `<span class="na">当前位置隐藏了 ${hidden} 个尚未揭示的称呼</span>`) : '')
+      + (r.mergedFrom ? F('MERGED_FROM', r.mergedFrom.join(', '), 'mono') : '')
+      + (r.note ? F('NOTE', esc(r.note)) : '');
+
+    const mine = DB.facts.filter(f => f.subject === id);
+    const about = DB.facts.filter(f => f.object && f.object.t === 'ref' && f.object.id === id);
+    const inEp = DB.episodes.filter(e => (e.participants||[]).some(p => p.entity === id));
+    const qs = (DB.questions||[]).filter(q => (q.anchors||[]).includes(id));
+    extra = section('以它为主语 · ' + mine.filter(known).length + '/' + mine.length, mine.map(factBtn).join('') || null)
+      + (about.length ? section('以它为宾语 · ' + about.length, about.map(f => factBtn(f)).join('')) : '')
+      + (inEp.length ? section('出现于 · ' + inEp.length, inEp.map(e => {
+          const role = e.participants.find(p => p.entity === id).role;
+          return `<button class="fact" data-pick="episode:${e.id}" type="button"><span class="fid">${e.id}</span>${esc(role)} · ${esc(posText(e.discoursePos))}</button>`;
+        }).join('')) : '')
+      + (qs.length ? section('未决 · ' + qs.length, qs.map(q => `<button class="fact st-disputed" data-pick="question:${q.id}" type="button"><span class="fid">${q.id}</span>${esc(q.text)}</button>`).join('')) : '');
+
+  } else if (type === 'kind') {
+    title = r.name;
+    fields = F('PARENT', r.parent ? refBtn('kind', r.parent) : NA)
+      + F('BASIC_LEVEL', String(r.basicLevel), 'mono')
+      + F('IDENTITY', r.identityCriteria, 'mono')
+      + F('SLOTS', (r.attributeSlots||[]).map(s => `<button class="ref" data-pick="predicate:${s}" type="button">${s}</button>`).join('、') || NA)
+      + F('可见性', vis('kind', id) ? '当前位置可见 · 派生' : '当前位置不可见 · 没有可见的实例或事实用到它', 'mono');
+    const insts = DB.individuals.filter(i => i.kind === id);
+    const generic = DB.facts.filter(f => f.subject === id);
+    extra = section('实例 · ' + insts.filter(i => vis('individual', i.id)).length + '/' + insts.length, insts.map(i => `<button class="fact${vis('individual', i.id)?'':' st-dead'}" data-pick="individual:${i.id}" type="button"><span class="fid">${i.id}</span>${esc(labelOf(i.id))}</button>`).join('') || null)
+      + (generic.length ? section('泛称事实 · ' + generic.filter(known).length + '/' + generic.length, generic.map(factBtn).join('')) : '');
+
+  } else if (type === 'predicate') {
+    fields = F('ALIASES', (r.aliases||[]).join('、') || NA)
+      + F('DOMAIN', (r.domain||[]).map(d => refBtn('kind', d)).join('、') || NA)
+      + F('RANGE', esc(JSON.stringify(r.range)), 'mono')
+      + F('CARDINALITY', `<span class="mono" style="color:${r.cardinality==='single'?'var(--cinnabar)':'var(--ink)'}">${r.cardinality}</span>`)
+      + F('SHAPE', r.temporalShape, 'mono')
+      + F('INVERSE_OF', r.inverseOf ? refBtn('predicate', r.inverseOf) : NA)
+      + F('DEFAULTS', `volatility=${r.defaultVolatility} centrality=${r.defaultCentrality}` + (r.defaultStatus ? ` status=${r.defaultStatus}` : ''), 'mono')
+      + (r.note ? F('NOTE', esc(r.note)) : '')
+      + F('可见性', vis('predicate', id) ? '当前位置可见 · 派生' : '当前位置不可见 · 还没有可见的事实用到它', 'mono');
+    const used = DB.facts.filter(f => f.predicate === id);
+    extra = section('用到它的事实 · ' + used.filter(known).length + '/' + used.length, used.map(f => factBtn(f)).join('') || null);
+
+  } else if (type === 'fact') {
+    title = labelOf(r.subject) + ' .' + r.predicate;
+    fields = F('SUBJECT', refBtn(IX.individual.has(r.subject) ? 'individual' : 'kind', r.subject))
+      + F('PREDICATE', refBtn('predicate', r.predicate))
+      + F('OBJECT', `<span class="mono na">${r.object.t}</span> ${objHTML(r.object)}`)
+      + F('STATUS', `<span class="fact st-${r.status}" style="display:inline-block;margin:0;padding:1px 7px;cursor:default">${r.status}</span>`)
+      + F('HOLDER', refBtn('individual', r.holder))
+      + F('VALID_FROM', r.validFrom ? refBtn('episode', r.validFrom) : NA)
+      + F('VALID_UNTIL', r.validUntil ? refBtn('episode', r.validUntil) : NA)
+      + F('ASSERTED_AT', posText(r.assertedAt), 'mono')
+      + F('RETRACTED_AT', r.retractedAt ? posText(r.retractedAt) : NA, 'mono')
+      + F('EVIDENCE', (r.evidence||[]).length ? r.evidence.map(e => refBtn('episode', e)).join('、') : NA)
+      + F('INFERRED_FROM', (r.inferredFrom||[]).length ? r.inferredFrom.map(x => `<button class="ref" data-pick="fact:${x}" type="button">${x}</button>`).join('、') : NA)
+      + F('CONFIDENCE', r.confidence, 'mono') + F('STRENGTH', r.strength, 'mono') + F('SUPPORT', r.support, 'mono')
+      + F('MODALITY', r.modality, 'mono') + F('VOLATILITY', r.volatility, 'mono') + F('CENTRALITY', r.centrality, 'mono');
+    const p = IX.predicate.get(r.predicate);
+    const sibs = DB.facts.filter(f => f.id !== r.id && f.subject === r.subject && f.predicate === r.predicate);
+    extra = sibs.length ? section('同主谓的其它事实 · ' + sibs.length, sibs.map(factBtn).join('')
+      + (p && p.cardinality === 'single' ? `<p class="none" style="padding:6px 0 0">${p.cardinality} 基数：它们靠 status/holder 或有效区间区分，否则就是冲突。</p>` : '')) : '';
+
+  } else if (type === 'episode') {
+    title = r.id;
+    fields = F('DISCOURSE', posText(r.discoursePos), 'mono')
+      + F('DURATION', r.duration ? esc(r.duration) : NA)
+      + F('CONTENT', esc(r.content))
+      + F('SOURCE_POINTER', esc(JSON.stringify(r.sourcePointer)), 'mono')
+      + F('CONTEXT', [r.context.chapter, r.context.scene].filter(Boolean).join(' / ')
+          + (r.context.location ? ' · ' + refBtn('individual', r.context.location) : '')
+          + (r.context.pov ? ' · POV ' + refBtn('individual', r.context.pov) : ''))
+      + F('PRECEDES', (r.precedes||[]).length ? r.precedes.map(e => refBtn('episode', e)).join('、') : NA)
+      + F('OUTCOME', r.outcome ? esc(r.outcome) : NA)
+      + F('VALENCE', meter((r.valence+1)/2, r.valence)) + F('AROUSAL', meter(r.arousal, r.arousal))
+      + F('SURPRISE', meter(r.surprise, r.surprise))
+      + F('REGISTER', (r.register||[]).join('、') || NA);
+    const parts = r.participants || [];
+    const ev = DB.facts.filter(f => (f.evidence||[]).includes(r.id));
+    extra = section('参与者 · ' + parts.length, parts.map(p =>
+        `<button class="fact" data-pick="individual:${p.entity}" type="button"><span class="fid">${p.role}</span>${esc(labelOf(p.entity))}</button>`).join(''))
+      + section('由它作证的事实 · ' + ev.length, ev.map(factBtn).join('') || null);
+
+  } else if (type === 'question') {
+    title = r.text;
+    fields = F('ORIGIN', r.origin, 'mono') + F('RAISED_AT', posText(r.raisedAt), 'mono')
+      + F('STATUS', r.status, 'mono')
+      + F('ANCHORS', (r.anchors||[]).map(a => refBtn(IX.episode.has(a) ? 'episode' : IX.kind.has(a) ? 'kind' : 'individual', a)).join('、') || NA)
+      + F('RESOLVED_BY', r.resolvedBy || NA, 'mono');
+
+  } else if (type === 'summary') {
+    title = r.grain + ' 摘要';
+    fields = F('GRAIN', r.grain, 'mono')
+      + F('COVERS', (r.covers||[]).map(c => refBtn('episode', c)).join('、') || NA)
+      + F('GIST', esc(r.gist)) + F('WHY', esc(r.why))
+      + F('GENERATED_AT', posText(r.generatedAt), 'mono')
+      + F('RECOMPUTABLE', String(r.recomputable), 'mono');
+
+  } else if (type === 'mention') {
+    title = r.surface;
+    fields = F('EPISODE', refBtn('episode', r.episode))
+      + F('SPAN', '[' + r.span.join(', ') + ']', 'mono')
+      + F('RESOLVED_TO', r.resolvedTo ? refBtn('individual', r.resolvedTo) : NA)
+      + F('METHOD', r.method, 'mono');
+  }
+
+  box.innerHTML = `<div class="insp-head"><p class="insp-type">${T.label}${T.opt?' · 可选':''}</p>
+      <h2 class="insp-name">${esc(title)}</h2><p class="insp-id">${esc(id)}</p></div>
+      <div class="fields">${fields}</div>${extra}`;
+}
+const section = (title, html) => `<p class="sub">${esc(title)}</p>` + (html ? `<div class="pad">${html}</div>` : '<p class="none">无。</p>');
+const meter = (frac, val) => `<span class="mono">${val}</span><span class="meter" style="margin-top:5px"><i style="width:${Math.round(Math.max(0,Math.min(1,frac))*100)}%"></i></span>`;
+
+/* ═══ 顶栏 / 弹层 ════════════════════════════════════════ */
+function renderBadge() {
+  const issues = checkDB();
+  const errs = issues.filter(i => i.level === 'error').length;
+  const b = $('#badge');
+  b.className = 'badge ' + (errs ? 'bad' : 'ok');
+  b.textContent = errs ? `${errs} 处错误` : `校验通过 · ${issues.length} warn`;
+  b.dataset.issues = JSON.stringify(issues);
+}
+function openIssues() {
+  const issues = JSON.parse($('#badge').dataset.issues || '[]');
+  $('#sheet-title').textContent = '结构校验';
+  $('#sheet-body').innerHTML = issues.length
+    ? issues.map(i => `<div class="issue ${i.level}"><em>${i.level.toUpperCase()}</em><div><code>${esc(i.at)}</code> ${esc(i.message)}</div></div>`).join('')
+    : '<p class="none" style="padding:18px">没有发现结构问题。检查的是外键、枚举、证据/推断分离、single 基数并存与叙述轴时序。</p>';
+  $('#sheet').classList.add('open');
+}
+function openStats() {
+  const load = new Map();
+  for (const f of DB.facts) {
+    const c = load.get(f.subject) || { live:0, total:0 };
+    c.total++; if (!dead(f)) c.live++;
+    load.set(f.subject, c);
+  }
+  const rows = [...load.entries()].sort((a,b) => b[1].live - a[1].live);
+  const max = Math.max(1, ...rows.map(r => r[1].total));
+  const byStatus = STATUSES.map(s => [s, DB.facts.filter(f => f.status === s).length]);
+  const maxS = Math.max(1, ...byStatus.map(r => r[1]));
+  $('#sheet-title').textContent = '统计';
+  $('#sheet-body').innerHTML =
+    '<p class="sub" style="border:0">单节点 Fact 负载 · D7 的度量口径</p><div style="padding:0 4px 10px">'
+    + rows.map(([id, c]) =>
+        `<div class="stat"><span style="font-family:var(--f-body);color:var(--ink)">${esc(labelOf(id))}</span><span>${c.live} 活跃 / ${c.total} 累计</span>
+         <span class="meter"><i style="width:${c.total/max*100}%"></i></span></div>`).join('')
+    + `<p class="none" style="padding:8px 14px 0">D7 的推导值是主角活跃 50–150、累计 200–500。单章样本远低于此，只能说明量级口径可测，不能验证推导。</p></div>`
+    + '<p class="sub">认识论状态分布</p><div style="padding:0 4px 16px">'
+    + byStatus.map(([s, n]) =>
+        `<div class="stat"><span class="fact st-${s}" style="display:inline-block;margin:0;padding:1px 8px;cursor:default;font-family:var(--f-mono);font-size:10.5px">${s}</span><span>${n}</span>
+         <span class="meter"><i style="width:${n/maxS*100}%"></i></span></div>`).join('')
+    + '</div>';
+  $('#sheet').classList.add('open');
+}
+
+/* ═══ 交互 ═══════════════════════════════════════════════ */
+function pick(type, id) {
+  if (!IX[type] || !IX[type].has(id)) return;
+  S.sel = { type, id };
+  if (S.tab !== type) { S.tab = type; renderTabs(); }
+  renderList(); renderInsp(); applyFocus();
+  const item = document.querySelector(`[data-pick="${type}:${id}"].item`);
+  if (item && item.scrollIntoView) item.scrollIntoView({ block:'nearest' });
+}
+
+function paraBounds() {
+  const ps = [];
+  for (const f of DB.facts) { ps.push(f.assertedAt.paragraph); if (f.retractedAt) ps.push(f.retractedAt.paragraph); }
+  for (const e of DB.episodes) ps.push(e.discoursePos.paragraph);
+  for (const i of DB.individuals) {
+    if (i.since) ps.push(i.since.paragraph);
+    for (const a of (i.aliases||[])) ps.push(a.since.paragraph);
+  }
+  for (const q of DB.questions || []) if (q.raisedAt) ps.push(q.raisedAt.paragraph);
+  for (const s of DB.summaries || []) if (s.generatedAt) ps.push(s.generatedAt.paragraph);
+  return { min: Math.min(...ps, 1), max: Math.max(...ps, 1) };
+}
+
+function setUpto(v, redraw) {
+  S.upto = v;
+  revis();                                   // 切片一变，Kind / Predicate 的派生可见性跟着重算
+  const b = paraBounds();
+  $('#pos').innerHTML = v >= b.max ? '第 1 章 · <b>读完</b>' : `第 1 章 第 <b>${v}</b> 段`;
+  $('#chip-all').classList.toggle('on', v >= b.max);
+  renderTabs(); renderChips(); renderList(); renderInsp();
+  if (redraw !== false) drawGraph(false);
+}
+
+function renderChips() {
+  $('#chips').innerHTML = STATUSES.map(s => {
+    const n = DB.facts.filter(f => f.status === s && known(f)).length;
+    return `<button class="chip${S.status.has(s)?' on':''}" data-st="${s}" type="button">${s}<small>${n}</small></button>`;
+  }).join(' ');
+}
+
+function boot() {
+  reindex();
+  const b = paraBounds();
+  const noSince = (DB.individuals || []).filter(i => !i.since).length;
+  $('#schema-tag').textContent = (DB.meta && DB.meta.schema || '?') + ' · ' + (DB.meta && DB.meta.scope || '')
+    + (noSince ? ` · ${noSince} 个实体没有 since，不参与切片` : '');
+  $('#slider').min = b.min; $('#slider').max = b.max; $('#slider').value = b.max;
+  S.upto = b.max; S.pos = new Map(); S.pinned = new Set(); S.sel = null;
+  S.view = { x:0, y:0, k:1 };
+  revis();
+  renderTabs(); renderChips(); renderList(); renderBadge();
+  setUpto(b.max, false);
+  drawGraph(true);
+  const first = DB.individuals[0];
+  if (first) pick('individual', first.id);
+}
+
+document.addEventListener('click', e => {
+  const p = e.target.closest('[data-pick]');
+  if (p) { const [t, ...r] = p.dataset.pick.split(':'); pick(t, r.join(':')); return; }
+  const tab = e.target.closest('[data-tab]');
+  if (tab) { S.tab = tab.dataset.tab; renderTabs(); renderList(); return; }
+  const st = e.target.closest('[data-st]');
+  if (st) { const s = st.dataset.st; S.status.has(s) ? S.status.delete(s) : S.status.add(s); renderChips(); drawGraph(false); return; }
+  const ly = e.target.closest('[data-layer]');
+  if (ly) { const k = ly.dataset.layer; S.layer[k] = !S.layer[k]; ly.classList.toggle('on', S.layer[k]); drawGraph(true); return; }
+  const node = e.target.closest('[data-node]');
+  if (node) { pick(node.dataset.t, node.dataset.node); return; }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('#sheet').classList.remove('open');
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-node]')) {
+    e.preventDefault();
+    const n = e.target.closest('[data-node]');
+    pick(n.dataset.t, n.dataset.node);
+  }
+});
+$('#slider').addEventListener('input', e => setUpto(+e.target.value));
+$('#chip-all').addEventListener('click', () => { const b = paraBounds(); $('#slider').value = b.max; setUpto(b.max); });
+$('#search').addEventListener('input', e => { S.query = e.target.value; renderList(); });
+$('#relayout').addEventListener('click', () => { S.pos = new Map(); S.pinned = new Set(); drawGraph(true); });
+$('#badge').addEventListener('click', openIssues);
+$('#btn-stats').addEventListener('click', openStats);
+$('#sheet-close').addEventListener('click', () => $('#sheet').classList.remove('open'));
+$('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('#sheet').classList.remove('open'); });
+
+$('#btn-load').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  f.text().then(t => { try { DB = JSON.parse(t); boot(); } catch (err) { alert('解析失败：' + err.message); } });
+});
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f) f.text().then(t => { try { DB = JSON.parse(t); boot(); } catch (err) { alert('解析失败：' + err.message); } });
+});
+
+/* 拖动节点 / 平移 / 缩放 */
+(() => {
+  const svg = $('#svg');
+  let mode = null, drag = null, start = null;
+  const toLocal = e => {
+    const r = svg.getBoundingClientRect();
+    return { x: (e.clientX - r.left - S.view.x) / S.view.k, y: (e.clientY - r.top - S.view.y) / S.view.k };
+  };
+  svg.addEventListener('pointerdown', e => {
+    const n = e.target.closest('[data-node]');
+    if (n) { mode = 'node'; drag = n.dataset.node; }
+    else { mode = 'pan'; start = { x:e.clientX - S.view.x, y:e.clientY - S.view.y }; svg.classList.add('drag'); }
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener('pointermove', e => {
+    if (mode === 'node') {
+      const p = toLocal(e);
+      S.pos.set(drag, p); S.pinned.add(drag);
+      drawGraph(false);
+    } else if (mode === 'pan') {
+      S.view.x = e.clientX - start.x; S.view.y = e.clientY - start.y; applyView();
+    }
+  });
+  svg.addEventListener('pointerup', e => { mode = null; drag = null; svg.classList.remove('drag'); svg.releasePointerCapture(e.pointerId); });
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = svg.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const k2 = Math.max(0.35, Math.min(2.6, S.view.k * (e.deltaY < 0 ? 1.12 : 0.89)));
+    S.view.x = mx - (mx - S.view.x) * (k2 / S.view.k);
+    S.view.y = my - (my - S.view.y) * (k2 / S.view.k);
+    S.view.k = k2; applyView();
+  }, { passive:false });
+})();
+
+boot();
+</script>
+</body>
+</html>

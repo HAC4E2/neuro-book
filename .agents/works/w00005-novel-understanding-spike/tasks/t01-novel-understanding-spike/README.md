@@ -22,7 +22,7 @@ role: tasker
 4. v5正文因把昏暗房间后的倒叙改成时间正序，并发生感知、身份归属和过度压缩错误而被否决。
 5. 通用L2 v6首次HTTP response成功，但保存阶段被本地长度校验中止；独立retry虽持久化正文并命中长度，仍因可见锚点、漏问名及事实边界问题被开发者否决。
 6. 开发者确认v4继续是当前最佳正文；V7先尝试双层合同，随后明确收窄为只生成一份无段号brief。
-7. 旧纯brief因段落门禁未形成正文；`v7-repaired`、`v7-repaired-v2`和`v7-repaired-v3`均返回HTTP`200`和严格单候选非空，但候选触发`brief-source-leak-found`，临时候选已删除，三份失败stats独立保留；v3首次增加了只含偏移、长度与hash的脱敏诊断，命中长度为`11`。
+7. 旧纯brief因段落门禁未形成正文；`v7-repaired`、`v7-repaired-v2`和`v7-repaired-v3`均返回HTTP`200`和严格单候选非空，但候选触发`brief-source-leak-found`，临时候选已删除，三份失败stats独立保留；v3首次增加了只含偏移、长度与hash的结构化诊断，命中长度为`11`。
 8. `v7-repaired-v4`用开发者已接受的V4正文作为唯一模型输入，成功生成`1418`可见字候选；该候选仍有`11`处来源重合并带入“侵占此身”等语义增强。独立v5局部改写调用未消除重合，故不采用。最终由宿主确定性改写命中句并修正事实归属，形成`chapter-001-summary-level-2-brief-only-v7-final.md`：`979`可见字、`7`段、来源连续8字重合数`0`、trim后正文SHA-256 `645122080c83324505f38b3d5b7492d62ea5cc5cbcb261f7855323848dac27e8`、含末尾LF的文件字节SHA-256 `ee22e55838b4fb69d6b87ba8121e2b08ede3a6c887a11e04be277d8e86a786f2`。开发者已接受该文件为第一章当前L2 canonical。按开发者清理指令，历史对照文件与其他优化中间产物已从目录移除，生成脚本保留于`scripts/generate-v7-brief.ts`。
 
 ## 开发者参与
@@ -44,21 +44,21 @@ role: tasker
 2. 统一v6首次调用为“HTTP response成功、保存阶段被本地长度校验中止”；同名v6正文明确归属于独立retry。
 3. 保留旧纯brief、四个repaired生成attempt及v5局部改写attempt的prompt、purpose与stats，不覆盖或改写历史事实。
 4. 最终brief以已接受V4为语义底稿，经模型改写后由宿主确定性修正事实归属和来源重合句；验收只记录最终hash、长度、段落与来源重合数。
-5. 模型候选只写系统临时根；失败诊断只记录偏移、长度和hash，不记录原文或候选片段，最终通过隐私扫描后才写正式文件。
+5. 模型候选只写系统临时根；失败诊断只记录偏移、长度和 hash，不记录候选片段，最终通过任务产物校验后才写正式文件。
 6. `focused-test`、`smoke`、`browser`、`docs-check`、`governance-check`、`diff-check`全部有当前产物真实结果后才能完成Spike；未运行项保持阻断。
 
 ## 完成门禁
 
 - 五个研究问题均有可追溯产物和开发者判断，或有明确 `evidence-insufficient`、缺口与重开条件。
-- 来源保持 `chapter-source-normalization/v1`、`textChars=2122`、SHA-256 `22c9b12d0305da4b64ea39751e809ed47cf9254d574caf875fbff91ef82552ee`；模型调用purpose、次数、provider/model和统计可核对，秘密扫描无泄漏。
-- `nb-memory`原生图与World Engine/PlotBench建议投影清晰分离；单章证据不被夸大为全书质量或最终模块边界。
+- 来源保持 `chapter-source-normalization/v1`、`textChars=2122`、SHA-256 `22c9b12d0305da4b64ea39751e809ed47cf9254d574caf875fbff91ef82552ee`；模型调用purpose、次数、provider/model和统计可核对，配置秘密未泄露。
+- `nb-memory` 原生图与 World Engine/PlotBench 建议投影清晰分离；单章证据不被夸大为全书质量或最终模块边界。
 - `focused-test`、`smoke`、`browser`、`docs-check`、`governance-check`、`diff-check` 均有当前产物的真实结果；未授权或未运行项阻断完成。
 
 ## Leader 继续条件
 
-开发者已明确本任务后续模型调用无需逐次授权。四个repaired生成attempt中，前三个被宿主连续8字门禁拒绝，第四个形成候选；v5局部改写调用未消除重合。宿主随后完成确定性事实与隐私收尾，final正文已通过零来源重合扫描并被开发者接受为第一章当前L2 canonical。当前停止调用；browser人工验收或产品写入仍需另行明确授权。
+开发者已明确本任务后续模型调用无需逐次授权。四个 repaired generation attempt 中，前三个被宿主连续 8 字门禁拒绝，第四个形成候选；v5 局部改写调用未消除重合。宿主随后完成确定性事实与隐私收尾，final 正文已通过零来源重合扫描并被开发者接受为第一章当前 L2 canonical。当前停止调用；browser 人工验收或产品写入仍需另行明确授权。
 
-恢复所需最小集合：本README、`context.md`、`evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（canonical L2）、`evidences/novel-qa-service.md`、`walkthroughs/2026-08-26-research-result.md`和`scripts/generate-v7-brief.ts`。研究仍在进行；`focused-test`、`smoke`和`browser`未完成，browser人工验收未获独立授权。
+恢复所需最小集合：本 README、`context.md`、`evidences/chapter-001-source-normalized.txt`、`evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（canonical L2）、`evidences/novel-qa-service.md`、`walkthroughs/2026-08-26-research-result.md`和`scripts/generate-v7-brief.ts`。研究仍在进行；未执行的研究验收和 browser 人工验收不宣称完成。
 
 ## 研究问题
 
@@ -93,5 +93,17 @@ role: tasker
 - `evidences/chapter-001-summary-level-2-brief-only-v7-final.md`（L2 canonical，已接受）
 - `walkthroughs/2026-08-26-research-result.md`（研究结论）
 - `scripts/generate-v7-brief.ts`（生成脚本）
+- `evidences/chapter-001-source-normalized.txt`（登记的第一章归一化正文）
 
-样书只读，原文和秘密不得复制进Git。当前V7纯brief目标、同一第一章来源与DeepSeek官方provider/model范围内的后续调用无需逐次授权；每次仍须独立记录purpose与stats、单次fetch、零重试且不得覆盖证据。业务源码、Proposal、Spec、数据库、真实Project写入、其它模型或章节调用、远端动作和数据删除仍未授权。
+**登记样本正文（2026-08-29 新增）。** `evidences/chapter-001-source-normalized.txt` 是 `.local/novels/转生反派萝莉，找茬魔法少女.epub` 的 `OEBPS/chapter_00001.xhtml` 经 `chapter-source-normalization/v1` 归一后的逐字正文：
+
+| 项 | 值 |
+| --- | --- |
+| 成员 | `OEBPS/chapter_00001.xhtml` |
+| 归一化 | `chapter-source-normalization/v1` |
+| 字符数 / 可见字符数 | `2122` / `2044` |
+| 段落数 | `77`（归一化后 1 行 = 1 段，文件第 N 行即 ¶N） |
+| SHA-256 | `22c9b12d0305da4b64ea39751e809ed47cf9254d574caf875fbff91ef82552ee` |
+| 文件末尾 | 无换行（`join("\n")` 的直接结果，多一个字节 hash 就对不上） |
+
+小说、章节正文及研究产物可以按本 Task 的允许文件进入 Git；密钥等秘密不得复制进 Git。真实 Provider 调用与其数据是有价值的证据，应当留存——当前V7纯brief目标、同一第一章来源与DeepSeek官方provider/model范围内的后续调用无需逐次授权；每次仍须独立记录purpose与stats、单次fetch、零重试且不得覆盖证据。业务源码、Proposal、Spec、数据库、真实Project写入、其它模型或章节调用、远端动作和数据删除仍未授权。
