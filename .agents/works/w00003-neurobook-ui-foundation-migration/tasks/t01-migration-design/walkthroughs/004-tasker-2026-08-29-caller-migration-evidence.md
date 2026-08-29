@@ -17,7 +17,7 @@ createdAt: 2026-08-29T00:00:00Z
 
 ## 1. 覆盖与实际 artifact
 
-证据文件 `schema=nbook.evidence/surface-caller-migration-map/v1`、`format=compact-v1`，以当前 revision `73f37b4d3095aa9072de76fe0d4bdff240862deb` 为基线，包含 **29** 条独立记录；文件 **170,467 bytes / 1 行**（小于 180 KB）。完整 caller path 没有因压缩丢弃：每个 surface 的 `directCallers.product` 与 `directCallers.test` 保留完整路径，refs 编码为 `line:kind;line:kind`，并由顶层 `sharedContracts.callerDiscovery.refKinds` 记录短 kind 的含义，仍保留每个必要行号和引用种类。
+证据文件 `schema=nbook.evidence/surface-caller-migration-map/v1`、`format=compact-v1`，以当前 revision `73f37b4d3095aa9072de76fe0d4bdff240862deb` 为基线，包含 **29** 条独立记录；文件 **170,805 bytes / 1 行**（小于 180 KB）。完整 caller path 没有因压缩丢弃：每个 surface 的 `directCallers.product` 与 `directCallers.test` 保留完整路径，refs 编码为 `line:kind;line:kind`，并由顶层 `sharedContracts.callerDiscovery.refKinds` 记录短 kind 的含义，仍保留每个必要行号和引用种类。
 - **16/16** 个 local common 与 `@notnotype/nb-ui` 同名组件：`Combobox`、`ContextMenu`、`Dialog`、`DialogWindow`、`Dropdown`、`FormCheckbox`、`FormField`、`FormInput`、`FormNumberInput`、`FormSelect`、`FormTextarea`、`IconButton`、`NotificationViewport`、`SegmentedControl`、`TagInput`、`Tooltip`。
 - 1 个独立 sidecar type surface：`DropdownItem`（local `dropdown.types.ts` → public `@notnotype/nb-ui/components#DropdownItem`），不由 `Dropdown` 组件记录代替；当前 **7** 个产品 type-only caller path 均逐项留痕。
 - 5 个 local composable/util：`useNotification`、`useResizablePanel`、`useFloatingPanelLayout → useAnchoredPopup`、`useDialog`、`resolveApiErrorMessage`。
@@ -79,26 +79,29 @@ JSON 的 `contractDifference` 是每个 surface 的切片级停止依据，尤�
 
 本轮只运行证据与 binding gate 自检，不运行 docs/governance/product/nb-ui 测试、typecheck、formatter、lint、build、浏览器或远端动作。`symbolBindingProtocol` 的 target/verifier 命令使用 Bun + `typescript` `createSourceFile` AST；`.vue` 脚本由 `@vue/compiler-sfc` 提取，严格参数数为 local=3、target=3、verifier=5、fileDeletion=3。
 
-
 `jq empty` 命令无输出、退出码 0。直接 Bun command smoke 与结构审计的最终记录如下；所有数字均从最终 JSON 重新读取，而非沿用旧摘要：
 
 ```text
-syntaxLoadRc=1
-syntaxLoadStderr=""
-threeState.unbound.rc=1
-threeState.unbound.fixtureOutput=true
+syntaxParse.local.rc=0
+syntaxParse.target.rc=0
+syntaxParse.verifier.rc=0
+syntaxParse.fileDeletion.rc=0
+syntaxParse.stderr=""
+unboundFixtureTarget.rc=1
+unboundFixtureTarget.fixtureOutput=true
+unboundFixtureTarget.stderr=""
 threeState.targetBound.rc=0
 threeState.negativeSourceMockKeyOnly.rc=0
-currentTarget.useNotification.rc=1
-currentTarget.useNotification.stdoutIncludesRealUsage=true
-currentTarget.useNotification.stderr=""
+currentPreMigrationExpectedFailure.useNotificationTarget.rc=1
+currentPreMigrationExpectedFailure.useNotificationTarget.stdoutIncludesRealUsage=true
+currentPreMigrationExpectedFailure.useNotificationTarget.stderr=""
 currentVerifier.useNotification.rc=1
 currentVerifier.useNotification.localBadLength=44
 currentVerifier.useNotification.targetBadLength=39
 currentVerifier.useNotification.stderr=""
 jqEmpty=true
 jsonParse=true
-physicalBytes=170467
+physicalBytes=170805
 under180KB=true
 recordCount=29
 jsonLines=1
