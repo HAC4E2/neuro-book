@@ -94,7 +94,7 @@ function handleClear(): void {
         </div>
         <input
             v-bind="inputAttrs"
-            class="min-w-0 flex-1 h-full bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
             @focus="emit('focus', $event)"
             @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         >
@@ -112,7 +112,7 @@ function handleClear(): void {
     <input
         v-else
         v-bind="inputAttrs"
-        class="nb-ui-control w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        class="nb-ui-native-input nb-ui-control w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
         :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '']"
         @focus="emit('focus', $event)"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"

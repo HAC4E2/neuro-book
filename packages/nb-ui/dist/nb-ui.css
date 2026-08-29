@@ -1240,10 +1240,10 @@
 .bg-transparent {
   background-color: transparent;
 }
-.bg-\[linear-gradient\(180deg\,var\(--accent-main\)_0\%\,color-mix\(in_srgb\,var\(--accent-main\)_88\%\,black\)_100\%\)\] {
+.bg-\[linear-gradient\(180deg\,var\(--accent-main\)_0\%\,color-mix\(in_srgb\,var\(--accent-main\)_88\%\,\#000000\)_100\%\)\] {
   background-image: linear-gradient(180deg,var(--accent-main) 0%,var(--accent-main) 100%);
   @supports (color: color-mix(in lab, red, red)) {
-    background-image: linear-gradient(180deg,var(--accent-main) 0%,color-mix(in srgb,var(--accent-main) 88%,black) 100%);
+    background-image: linear-gradient(180deg,var(--accent-main) 0%,color-mix(in srgb,var(--accent-main) 88%,#000000) 100%);
   }
 }
 .fill-\[color-mix\(in_srgb\,var\(--bg-panel\)_85\%\,transparent\)\] {
@@ -1699,6 +1699,10 @@
   --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
+.ring {
+  --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+}
 .ring-1 {
   --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -2068,6 +2072,23 @@
 }
 .group-data-\[state\=open\]\:rotate-180:is(:where(.group)[data-state="open"] *) {
   rotate: 180deg;
+}
+.peer-focus-visible\:border-\[color\:var\(--focus-outline\)\]:is(:where(.peer):focus-visible ~ *) {
+  border-color: var(--focus-outline);
+}
+.peer-focus-visible\:border-\[color\:var\(--status-danger\)\]:is(:where(.peer):focus-visible ~ *) {
+  border-color: var(--status-danger);
+}
+.peer-focus-visible\:shadow-\[0_0_0_3px_color-mix\(in_srgb\,var\(--status-danger\)_24\%\,transparent\)\]:is(:where(.peer):focus-visible ~ *) {
+  --tw-shadow: 0 0 0 3px var(--tw-shadow-color, var(--status-danger));
+  @supports (color: color-mix(in lab, red, red)) {
+    --tw-shadow: 0 0 0 3px var(--tw-shadow-color, color-mix(in srgb,var(--status-danger) 24%,transparent));
+  }
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+}
+.peer-focus-visible\:shadow-\[var\(--focus-ring\)\]:is(:where(.peer):focus-visible ~ *) {
+  --tw-shadow: var(--focus-ring);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
 .placeholder\:text-\[var\(--text-muted\)\]::placeholder {
   color: var(--text-muted);
@@ -2844,16 +2865,16 @@ input.nb-ui-control:read-only, textarea.nb-ui-control:read-only, .nb-ui-control[
   box-shadow: var(--inset-shadow);
   outline: none;
 }
-input[type="search"]::-webkit-search-decoration, input[type="search"]::-webkit-search-cancel-button, input[type="search"]::-webkit-search-results-button, input[type="search"]::-webkit-search-results-decoration {
+input.nb-ui-native-input[type="search"]::-webkit-search-decoration, input.nb-ui-native-input[type="search"]::-webkit-search-cancel-button, input.nb-ui-native-input[type="search"]::-webkit-search-results-button, input.nb-ui-native-input[type="search"]::-webkit-search-results-decoration {
   -webkit-appearance: none;
   appearance: none;
   display: none;
 }
-input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button {
+input.nb-ui-native-input[type="number"]::-webkit-outer-spin-button, input.nb-ui-native-input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-input[type="number"] {
+input.nb-ui-native-input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }

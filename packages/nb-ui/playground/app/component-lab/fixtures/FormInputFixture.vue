@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormInput from "../../../../src/components/form/FormInput.vue";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 import FixtureShell from "../FixtureShell.vue";
 import {controlDefaultValue, getLabScene, type LabComponentDefinition} from "../registry";
@@ -132,7 +133,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             :disabled="disabled"
                             :readonly="readonly"
                             placeholder="检索大纲、人物或灵感词条..."
-                            class="min-w-0 flex-1 h-full bg-transparent text-sm text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none disabled:cursor-not-allowed leading-normal"
+                            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent text-sm text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none disabled:cursor-not-allowed leading-normal"
                             @focus="report('focus', {field: 'searchKeyword'})"
                         />
                         <button
@@ -174,6 +175,11 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     </div>
                 </div>
             </div>
+
+                <div data-native-input-probes inert aria-hidden="true" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
+                    <FormInput id="nb-marker-search" v-model="searchKeyword" type="search" />
+                    <input id="host-search" type="search" aria-label="宿主搜索探针" class="h-9 rounded-[6px] border px-3" :value="searchKeyword">
+                </div>
 
             <!-- 底部状态指示 -->
             <div class="mt-5 flex items-center justify-between border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] pt-3 text-[11px] text-[var(--text-muted)]">

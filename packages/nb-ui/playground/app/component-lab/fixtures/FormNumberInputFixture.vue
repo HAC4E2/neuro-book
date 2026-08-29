@@ -98,7 +98,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             step="0.05"
                             :disabled="disabled"
                             :readonly="readonly"
-                            class="min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
+                            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
                             @focus="report('focus', {field: 'lineHeight'})"
                         />
                         <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
@@ -142,7 +142,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             step="500"
                             :disabled="disabled"
                             :readonly="readonly"
-                            class="min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
+                            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
                             @focus="report('focus', {field: 'targetWordCount'})"
                         />
                         <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
@@ -188,7 +188,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             max="1.5"
                             :disabled="disabled"
                             :readonly="readonly"
-                            class="min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
+                            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
                             @focus="report('focus', {field: 'aiTemperature'})"
                         />
                         <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
@@ -234,7 +234,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             max="120"
                             :disabled="disabled"
                             :readonly="readonly"
-                            class="min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
+                            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent font-mono text-sm text-[var(--text-main)] outline-none disabled:cursor-not-allowed leading-normal"
                             @focus="report('focus', {field: 'snapshotMinutes'})"
                         />
                         <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
@@ -260,6 +260,8 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     </div>
                 </div>
             </div>
+
+            <input id="host-number" type="number" tabindex="-1" aria-hidden="true" class="absolute h-px w-px opacity-0 pointer-events-none">
 
             <!-- 底部状态指示 -->
             <div class="mt-5 flex items-center justify-between border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] pt-3 text-[11px] text-[var(--text-muted)]">

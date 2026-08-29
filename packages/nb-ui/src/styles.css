@@ -79,23 +79,23 @@ textarea.nb-ui-control:read-only:focus,
 }
 
 /* 移除 Chrome / Safari / Edge 下原生 input[type="search"] 自带的默认清除与装饰按钮，由 UI 统一接管 */
-input[type="search"]::-webkit-search-decoration,
-input[type="search"]::-webkit-search-cancel-button,
-input[type="search"]::-webkit-search-results-button,
-input[type="search"]::-webkit-search-results-decoration {
+input.nb-ui-native-input[type="search"]::-webkit-search-decoration,
+input.nb-ui-native-input[type="search"]::-webkit-search-cancel-button,
+input.nb-ui-native-input[type="search"]::-webkit-search-results-button,
+input.nb-ui-native-input[type="search"]::-webkit-search-results-decoration {
     -webkit-appearance: none;
     appearance: none;
     display: none;
 }
 
 /* 移除 Chrome / Safari / Edge / Firefox 下原生 input[type="number"] 自带的默认上下微调按钮 */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
+input.nb-ui-native-input[type="number"]::-webkit-outer-spin-button,
+input.nb-ui-native-input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
 
-input[type="number"] {
+input.nb-ui-native-input[type="number"] {
     -moz-appearance: textfield;
     appearance: textfield;
 }

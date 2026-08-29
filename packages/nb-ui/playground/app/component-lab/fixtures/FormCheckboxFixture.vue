@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, onMounted, ref, watch} from "vue";
+import FormCheckboxLabTarget from "./FormCheckboxLabTarget.vue";
 import FixtureShell from "../FixtureShell.vue";
 import {controlDefaultValue, getLabScene, type LabComponentDefinition} from "../registry";
 
@@ -67,6 +68,8 @@ const controls = ref<Record<string, string | boolean>>({});
 const scene = computed(() => getLabScene(props.definition, props.sceneId));
 const disabled = computed(() => Boolean(controls.value.disabled) || scene.value.disabled === true);
 
+const checkboxInvalid = computed(() => scene.value.invalid === true);
+
 function resetState(): void {
     const defaults: Record<string, string | boolean> = {};
     for (const control of props.definition.controls) defaults[control.id] = controlDefaultValue(control);
@@ -78,6 +81,11 @@ function resetState(): void {
     item4.value = false;
     item5.value = true;
     selectedRadio.value = "option3";
+}
+
+function report(name: string, payload?: unknown): void {
+    if (!props.definition.events.includes(name)) return;
+    emit("lab-event", name, payload);
 }
 
 watch(() => [props.definition.id, props.sceneId], () => {
@@ -218,6 +226,16 @@ onMounted(() => void nextTick(() => emit("rendered")));
                         <span class="text-[14px] text-[var(--text-main)]">启用智能双向滚动虚化</span>
                     </div>
                 </div>
+
+                <FormCheckboxLabTarget
+                    id="nb-lab-target"
+                    v-model="item4"
+                    :disabled="disabled"
+                    :invalid="checkboxInvalid"
+                    :label="scene.id === 'fallback' ? '' : '启用实时自动保存快照'"
+                    @focus="report('focus')"
+                    @update:model-value="report('update:modelValue', $event)"
+                />
 
                 <!-- 3. 附带单选按钮组（对齐 macOS 风格） -->
                 <div class="mt-2 flex flex-col gap-1.5 border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] pt-3">

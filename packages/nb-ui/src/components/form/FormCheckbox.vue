@@ -72,9 +72,11 @@ function handleChange(event: Event): void {
             class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-[background-color,border-color,color,box-shadow,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:group-active:scale-[0.92] mt-0.5"
             :class="[
                 (isChecked || isIndeterminate)
-                    ? 'border-[var(--accent-main)] bg-[linear-gradient(180deg,var(--accent-main)_0%,color-mix(in_srgb,var(--accent-main)_88%,black)_100%)] text-[var(--text-inverse)] shadow-[0_2px_6px_color-mix(in_srgb,var(--accent-main)_35%,transparent)]'
+                    ? 'border-[var(--accent-main)] bg-[linear-gradient(180deg,var(--accent-main)_0%,color-mix(in_srgb,var(--accent-main)_88%,#000000)_100%)] text-[var(--text-inverse)] shadow-[0_2px_6px_color-mix(in_srgb,var(--accent-main)_35%,transparent)]'
                     : 'border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--bg-panel)_90%,transparent)] text-transparent group-hover:border-[color-mix(in_srgb,var(--text-main)_35%,transparent)] shadow-[inset_0_1px_1.5px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)]',
-                field?.invalid.value ? 'border-[color:var(--status-danger)]' : '',
+                field?.invalid.value
+                    ? 'border-[color:var(--status-danger)] peer-focus-visible:border-[color:var(--status-danger)] peer-focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--status-danger)_24%,transparent)]'
+                    : 'peer-focus-visible:border-[color:var(--focus-outline)] peer-focus-visible:shadow-[var(--focus-ring)]',
             ]"
         >
             <svg v-if="isIndeterminate" viewBox="0 0 16 16" fill="none" class="w-3.5 h-3.5 text-white pointer-events-none">
