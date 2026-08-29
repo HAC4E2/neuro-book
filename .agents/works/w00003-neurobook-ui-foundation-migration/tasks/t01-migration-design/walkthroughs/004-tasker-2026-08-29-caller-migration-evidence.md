@@ -17,7 +17,7 @@ createdAt: 2026-08-29T00:00:00Z
 
 ## 1. 覆盖与实际 artifact
 
-证据文件 `schema=nbook.evidence/surface-caller-migration-map/v1`、`format=compact-v1`，以当前 revision `73f37b4d3095aa9072de76fe0d4bdff240862deb` 为基线，包含 **29** 条独立记录；文件 **170,805 bytes / 1 行**（小于 180 KB）。完整 caller path 没有因压缩丢弃：每个 surface 的 `directCallers.product` 与 `directCallers.test` 保留完整路径，refs 编码为 `line:kind;line:kind`，并由顶层 `sharedContracts.callerDiscovery.refKinds` 记录短 kind 的含义，仍保留每个必要行号和引用种类。
+证据文件 `schema=nbook.evidence/surface-caller-migration-map/v1`、`format=compact-v1`，以当前 revision `73f37b4d3095aa9072de76fe0d4bdff240862deb` 为基线，包含 **29** 条独立记录；文件 **179,932 bytes / 1 行**（小于 180 KB）。完整 caller path 没有因压缩丢弃：每个 surface 的 `directCallers.product` 与 `directCallers.test` 保留完整路径，refs 编码为 `line:kind;line:kind`，并由顶层 `sharedContracts.callerDiscovery.refKinds` 记录短 kind 的含义，仍保留每个必要行号和引用种类。
 - **16/16** 个 local common 与 `@notnotype/nb-ui` 同名组件：`Combobox`、`ContextMenu`、`Dialog`、`DialogWindow`、`Dropdown`、`FormCheckbox`、`FormField`、`FormInput`、`FormNumberInput`、`FormSelect`、`FormTextarea`、`IconButton`、`NotificationViewport`、`SegmentedControl`、`TagInput`、`Tooltip`。
 - 1 个独立 sidecar type surface：`DropdownItem`（local `dropdown.types.ts` → public `@notnotype/nb-ui/components#DropdownItem`），不由 `Dropdown` 组件记录代替；当前 **7** 个产品 type-only caller path 均逐项留痕。
 - 5 个 local composable/util：`useNotification`、`useResizablePanel`、`useFloatingPanelLayout → useAnchoredPopup`、`useDialog`、`resolveApiErrorMessage`。
@@ -61,11 +61,8 @@ JSON 的 `contractDifference` 是每个 surface 的切片级停止依据，尤�
 
 ## 4. 删除门禁与动态风险
 
-每个可迁移记录都有不为空的 `deletionPrerequisites` 与 `zeroReferenceCheck`；通用条件位于顶层 `sharedContracts`，记录只保存引用与必要 override。组件 zero check 是 binding-aware 的两段门禁，而不是把裸 template tag 当旧引用；4 个 composable/util 也使用独立的 symbol-binding 两段门禁：
-
-- **组件 A/B**：A `localPathCommand` 只匹配 `nbook/app/components/common/...` 的 local import/type import/test source-path assertion，并通过 pathspec/路径归一化排除 local 文件自身；B `templateBindingCheck` 扫描非生成 `.vue` SFC，要求任何剩余 PascalCase/kebab-case tag 所在 SFC 显式从 `@notnotype/nb-ui/components` 绑定同名目标。停止条件只针对 A 命中 local import/path/source，或 B 发现同名 tag 未显式绑定/错误绑定目标；合法 target-bound 同名 tag 可以保留，裸 tag 本身不构成 local 引用。16 条独立字面 kebab 与 current app/tests 实际集合差分均为空。
-- **Symbol A/B**：`useNotification`/`useResizablePanel`/`resolveApiErrorMessage` 的 A `localPathCommand` 只接受 local module 与该 named symbol 同行的 import/path/source evidence，并排除 local 定义文件；B `targetBindingCheck` 要求剩余同名 target identifier 所在 TS/Vue 文件显式从 `@notnotype/nb-ui/composables` 或 `/utils` 导入。`useFloatingPanelLayout` 的 target 是改名后的 `useAnchoredPopup`，同样不能只凭旧名归零；target identifier 不要求归零，裸 identifier 不算 target binding。所有 symbol command 扫描 app、`plugins/**` 与 tests。
-- 共享 `symbolBindingProtocol` 同时提供可执行独立 `verifierCommandTemplate`（报告 `localBad`/`targetBad`）和 named-export `fileDeletionCommandTemplate`；后者只允许在 `resolveApiErrorMessage`、`resolveApiErrorCode`、`resolveApiErrorStatus` 三个导出均无 local path/source 证据后删除 `api-error.ts`，不会把同文件其它导出误判为 message 已完成。`useDialog` 是 retain：引用必须继续存在，不运行 target-binding gate。
+- **组件 A/B**：A `localPathCommand` 只匹配带边界的 exact module token `nbook/app/components/common/(form/)?<Name>(.vue)?` 或 `components/common/(form/)?<Name>(.vue)?`，后续必须是引号、空白或结尾，并通过 pathspec/路径归一化排除 local 文件自身；因此 `Dialog` 不会误命中 `DialogWindow`。B `templateBindingCheck` 用 `@vue/compiler-sfc` 提取 template AST、用 TypeScript AST 解析同一 SFC 的单个 `ImportDeclaration`，要求任何剩余 PascalCase/kebab-case tag 由该声明从 `@notnotype/nb-ui/components` named-import 精确绑定同名目标；不会跨多个 import 声明拼接，local Name + 无关 nb-ui import 仍失败。停止条件只针对 A 命中 local import/path/source，或 B 发现同名 tag 未显式绑定/错误绑定目标；合法 target-bound 同名 tag 可以保留，裸 tag 本身不构成 local 引用。16 条独立字面 kebab 与 current app/tests 实际集合差分均为空。
+- **Symbol A/B**：`useNotification`/`useResizablePanel`/`resolveApiErrorMessage` 的 A `localPathCommand` 只接受 local module 与该 named symbol 同行的 import/path/source evidence，并排除 local 定义文件；B `targetBindingCheck` 按 `importedName → localAlias → moduleSpecifier` 收集所有 named imports，扫描 alias 的真实 AST usage；使用 wrong-module alias 计入 `targetBad`，unused wrong-module alias 不阻止，正确 target alias 可以通过。`useFloatingPanelLayout` 的 target 是改名后的 `useAnchoredPopup`，同样不能只凭旧名归零；target identifier 不要求归零，裸 identifier 不算 target binding。所有 symbol command 扫描 app、`plugins/**` 与 tests。
 
 动态风险集中登记在 `sharedContracts.dynamicRisk`，`dynamic-component-string-risk` 保留 register caller，相关组件/theme 记录只通过 `sharedRef` 指向并保留 surface-specific named hits：
 
@@ -77,7 +74,7 @@ JSON 的 `contractDifference` 是每个 surface 的切片级停止依据，尤�
 
 ## 5. 已执行的限定自检
 
-本轮只运行证据与 binding gate 自检，不运行 docs/governance/product/nb-ui 测试、typecheck、formatter、lint、build、浏览器或远端动作。`symbolBindingProtocol` 的 target/verifier 命令使用 Bun + `typescript` `createSourceFile` AST；`.vue` 脚本由 `@vue/compiler-sfc` 提取，严格参数数为 local=3、target=3、verifier=5、fileDeletion=3。
+本轮只运行证据与 binding gate 自检，不运行 docs/governance/product/nb-ui 测试、typecheck、formatter、lint、build、浏览器或远端动作。组件 template gate 使用 `@vue/compiler-sfc` template AST + TypeScript `ImportDeclaration` 绑定；组件 local gate 使用 escaped exact module boundary；symbol target/verifier 使用 TypeScript Program + TypeChecker 逐 Identifier 解析 lexical symbol declaration 与 ImportSpecifier alias/module；严格参数数为 local=3、target=3、verifier=5、fileDeletion=3。
 
 `jq empty` 命令无输出、退出码 0。直接 Bun command smoke 与结构审计的最终记录如下；所有数字均从最终 JSON 重新读取，而非沿用旧摘要：
 
@@ -87,6 +84,29 @@ syntaxParse.target.rc=0
 syntaxParse.verifier.rc=0
 syntaxParse.fileDeletion.rc=0
 syntaxParse.stderr=""
+componentLocal.dialogWindowOnly.rc=0
+componentLocal.dialogWindowOnly.stderr=""
+componentLocal.dialogExact.rc=1
+componentLocal.dialogExact.fixtureOutput=true
+componentLocal.dialogExact.stderr=""
+componentTemplate.unboundTag.rc=1
+componentTemplate.localNamePlusUnrelatedTarget.rc=1
+componentTemplate.targetNamedImport.rc=0
+componentTemplate.dialogWindowOnly.rc=0
+componentTemplate.stderr=""
+symbolScope.sameNameNormal.rc=0
+symbolScope.sameNameNestedParameterShadow.rc=1
+symbolScope.correctAliasPlusBareOriginal.rc=1
+symbolScope.correctAliasOnly.rc=0
+symbolScope.wrongModuleAliasUsed.rc=1
+symbolScope.unusedWrongModuleAlias.rc=0
+symbolScope.stderr=""
+currentPreMigrationExpectedFailure.dialogTemplateBindingTarget.rc=1
+currentPreMigrationExpectedFailure.dialogTemplateBindingTarget.templateRealCallerCount=40
+currentPreMigrationExpectedFailure.dialogTemplateBindingTarget.dynamicHCallerCount=1
+currentPreMigrationExpectedFailure.dialogTemplateBindingTarget.aggregateMappedCallerCount=41
+currentPreMigrationExpectedFailure.dialogTemplateBindingTarget.dialogWindowOnlyFiles=0
+currentPreMigrationExpectedFailure.dialogTemplateBindingTarget.stderr=""
 unboundFixtureTarget.rc=1
 unboundFixtureTarget.fixtureOutput=true
 unboundFixtureTarget.stderr=""
@@ -101,7 +121,7 @@ currentVerifier.useNotification.targetBadLength=39
 currentVerifier.useNotification.stderr=""
 jqEmpty=true
 jsonParse=true
-physicalBytes=170805
+physicalBytes=179932
 under180KB=true
 recordCount=29
 jsonLines=1
