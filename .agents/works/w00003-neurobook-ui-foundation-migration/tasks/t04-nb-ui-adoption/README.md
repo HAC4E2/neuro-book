@@ -27,7 +27,7 @@ role: tasker
 - `packages/neuro-book/package.json`：新增 `@notnotype/nb-ui` workspace 依赖。`bun.lock` 只由安装命令更新，不手工编辑。
 - `packages/neuro-book/nuxt.config.ts`：加入唯一的 `@notnotype/nb-ui/styles.css`，位置在 reset 之后、领域样式之前；补 transpile。**不启用 nb-ui 的 Nuxt module**，因为主应用已按顺序自动注册三个组件目录，无前缀自动注册会与 16 个同名组件碰撞。
 - `packages/neuro-book/app/components/common/JsonViewer.vue`：六个图标按钮（三个模式加复制、展开、折叠）切换到 nb-ui `IconButton`，逐项保持 title、disabled、click 与图标行为，补齐可访问名称；切换完成后删除该组件的旧按钮样式。JsonViewer 本身仍是产品组件，不迁为通用库组件。
-- 新增 `packages/neuro-book/app/components/common/JsonViewer.md`：本仓库第一份组件文档，按组件规范的六节撰写。
+- 新增 `packages/neuro-book/app/components/common/JsonViewer.md`：本仓库第一份组件文档，正文详略按组件规范的分档决定，不机械照抄六节。JsonViewer 的复制按钮会写系统剪贴板，对应 `env:clipboard` 标签；该组件的标签组合预计不落在五种推荐配方内，属于档位 D 配方偏离，如实记录即可，不为它单开配方。
 
 ## 开发者参与
 
@@ -48,7 +48,7 @@ role: tasker
 
 - 六个按钮行为逐项不变且都有可访问名称，旧按钮样式已删除。
 - 没有为迁移保留 alias、adapter、双入口或静默 fallback。
-- `JsonViewer.md` 存在，六节齐全，frontmatter 的能力标签与实现一致。
+- `JsonViewer.md` 存在，正文详略符合分档要求，frontmatter 的能力标签与实现一致。
 - `bun.lock` 的变更只来自安装命令。
 - 未运行或未授权的项目标注为未验证，不以静态阅读代替执行结果。
 
