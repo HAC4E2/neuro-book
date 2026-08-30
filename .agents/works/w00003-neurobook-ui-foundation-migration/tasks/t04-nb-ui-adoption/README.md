@@ -18,7 +18,7 @@ role: tasker
 - `ui.component-catalog` 不创建。组件索引改为由扫描组件文档生成的派生产物，不手工维护 `pending`/`ready`、owner 分区或 aggregate。
 - 232 个组件不做一次性普查。组件文档按「碰到才写」渐进积累：新组件必须先写，迁移到的组件补写，其余在报告中列为待声明。
 - `ui.component-lab` 已砍到只剩边界约束。Lab 的导航、检视面板、索引形状与交互合同刻意未定义，等原型建成并有组件真实迁移通过之后补写。
-- 新顺序为：本 Task（B）→ 主题切换（C）→ Lab 原型（D）→ 若干典型组件迁移 → 回头补写 Lab 界面合同 → 渐进迁移剩余组件。
+- 新顺序为：本 Task（B）→ 删除 preview 页面并先保留其场景数据 → Lab 原型（D）→ 种子组件走通全流程 → 回头补写 Lab 界面合同 → 主题切换（C）→ 渐进迁移剩余组件。主题切换与 Lab 没有硬依赖，已由开发者移到走通流程之后；原 P（清退 preview）提前执行，t01 冻结的 31 个场景基线随之降级为历史记录，不再是必须逐条消化的清单。
 
 ## 允许改动
 
@@ -28,12 +28,13 @@ role: tasker
 - `packages/neuro-book/nuxt.config.ts`：加入唯一的 `@notnotype/nb-ui/styles.css`，位置在 reset 之后、领域样式之前；补 transpile。**不启用 nb-ui 的 Nuxt module**，因为主应用已按顺序自动注册三个组件目录，无前缀自动注册会与 16 个同名组件碰撞。
 - `packages/neuro-book/app/components/common/JsonViewer.vue`：六个图标按钮（三个模式加复制、展开、折叠）切换到 nb-ui `IconButton`，逐项保持 title、disabled、click 与图标行为，补齐可访问名称；切换完成后删除该组件的旧按钮样式。JsonViewer 本身仍是产品组件，不迁为通用库组件。
 - 新增 `packages/neuro-book/app/components/common/JsonViewer.md`：本仓库第一份组件文档，正文详略按组件规范的分档决定，不机械照抄六节。JsonViewer 的复制按钮会写系统剪贴板，对应 `env:clipboard` 标签；该组件的标签组合预计不落在五种推荐配方内，属于档位 D 配方偏离，如实记录即可，不为它单开配方。
+- 临时验证 Nuxt 对组件子目录 `index.vue` 的自动注册命名行为，用后即删，不在仓库留下该形态的组件。结论写入 walkthrough，供后续决定组件是否目录化。
 
 ## 开发者参与
 
 - nb-ui 的 Tailwind 产物与主应用 UnoCSS 的层叠会合结果无法静态预测。若会合需要牺牲现有视觉或调整既有样式，由开发者决定取舍，Agent 只提供冲突清单与可逆方案。
 - 第一份组件文档写完后由开发者过目，确认这套写法在真实组件上是否顺手。写起来别扭时修改组件规范，而不是将就着往下写 232 份。
-- 依赖安装与浏览器验收分别需要开发者授权。
+- 浏览器人工验收需要开发者执行。依赖安装属于批准范围内的本地可逆动作，由 Agent 直接执行并报告 lockfile 变化。
 
 ## 验证
 
