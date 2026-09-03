@@ -1,9 +1,11 @@
-import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
+import {cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
-import {pathToFileURL} from "node:url";
+import {createRequire} from "node:module";
 import {resolveAgentCacheRoot} from "@notnotype/neuro-book-test-support/paths";
+import {blessedTerminfoNames, createBlessedRuntimePlugin} from "./build.mjs";
 
 const packageRoot = resolve(import.meta.dir, "..");
+const repositoryRoot = resolve(packageRoot, "..", "..");
 // 仅使用系统受控 cache；pack 产物可回收，不污染仓库 `.agent/tmp`。
 const managedTmpRoot = resolveAgentCacheRoot("manager-pack");
 await mkdir(managedTmpRoot, {recursive: true});
@@ -39,35 +41,49 @@ try {
         .scanImports(managerSource)
         .filter((record) => record.kind === "import-statement")
         .map((record) => record.path);
-    const blessedWidgetImports = ["box", "list", "prompt", "question", "screen"]
-        .map((widget) => `blessed/lib/widgets/${widget}.js`);
-    for (const widgetImport of blessedWidgetImports) {
-        if (!managerImports.includes(widgetImport)) {
-            throw new Error(`packed Manager必须从安装依赖加载静态widget：${widgetImport}`);
+    const blessedWidgetImports = managerImports.filter((specifier) => specifier === "blessed" || specifier.startsWith("blessed/"));
+    if (blessedWidgetImports.length > 0) {
+        throw new Error(`packed Manager必须内联blessed运行时：${blessedWidgetImports.join(", ")}`);
+    }
+    const requireFromInstalledManager = createRequire(join(installedPackageRoot, "package.json"));
+    const blessedPackage = requireFromInstalledManager.resolve("blessed/package.json");
+    const blessedRoot = dirname(blessedPackage);
+    for (const moduleId of ["blessed/lib/tput.js", "blessed/lib/widgets/screen.js"]) {
+        const modulePath = requireFromInstalledManager.resolve(moduleId);
+        if (!isPathInside(blessedRoot, modulePath)) {
+            throw new Error(`${moduleId}未从已安装blessed依赖解析：${modulePath}`);
         }
     }
-    const blessedScreen = await Bun.resolve("blessed/lib/widgets/screen.js", installedPackageRoot);
-    const blessedPackage = await Bun.resolve("blessed/package.json", installedPackageRoot);
-    const blessedRoot = dirname(blessedPackage);
-    if (!isPathInside(blessedRoot, blessedScreen)) {
-        throw new Error(`blessed screen未从已安装依赖解析：${blessedScreen}`);
+    const blessedAssets = blessedTerminfoNames;
+    for (const asset of blessedAssets) {
+        const base64 = (await readFile(join(blessedRoot, "usr", asset))).toString("base64");
+        if (!managerSource.includes(base64)) {
+            throw new Error(`packed Manager缺少内嵌blessed资源：${asset}`);
+        }
     }
-    await readFile(join(blessedRoot, "usr", "xterm"));
-    const blessedSmoke = join(temporaryRoot, "blessed-smoke.mjs");
-    await writeFile(blessedSmoke, `
-import {PassThrough} from "node:stream";
-import Screen from ${JSON.stringify(pathToFileURL(blessedScreen).href)};
-
-const input = new PassThrough();
-const output = new PassThrough();
-Object.assign(output, {columns: 80, rows: 24});
-const screen = new Screen({input, output, terminal: "neuro-book-missing-terminfo"});
-if (screen.tput.terminal !== "xterm") {
-    throw new Error("blessed did not load its packaged xterm fallback");
-}
-screen.destroy();
-`, "utf8");
-    await run(["bun", blessedSmoke], temporaryRoot);
+    for (const buildPath of [repositoryRoot, blessedRoot]) {
+        if (containsPath(managerSource, buildPath)) {
+            throw new Error(`packed Manager包含构建机绝对路径：${buildPath}`);
+        }
+    }
+    await verifyBlessedRuntime(temporaryRoot, installedPackageRoot);
+    const standaloneRoot = await mkdtemp(join(managedTmpRoot, "standalone-"));
+    try {
+        const standaloneNodeModules = join(standaloneRoot, "node_modules");
+        await mkdir(standaloneNodeModules, {recursive: true});
+        for (const dependency of ["semver", "yaml"]) {
+            const dependencyPackage = requireFromInstalledManager.resolve(`${dependency}/package.json`);
+            await cp(dirname(dependencyPackage), join(standaloneNodeModules, dependency), {recursive: true});
+        }
+        const standaloneManager = join(standaloneRoot, "neuro-book.mjs");
+        await cp(managerEntry, standaloneManager);
+        const standaloneVersion = await runCapture(["bun", "--no-install", "--no-env-file", standaloneManager, "--version"], standaloneRoot);
+        if (standaloneVersion.trim() !== packageJson.version) {
+            throw new Error(`单文件Manager --version输出错误：${standaloneVersion.trim()}`);
+        }
+    } finally {
+        await rm(standaloneRoot, {recursive: true, force: true});
+    }
     const managerVersion = await runCapture([
         "bun",
         managerEntry,
@@ -143,6 +159,63 @@ async function runCapture(command, cwd, env = process.env) {
     ]);
     if (exitCode !== 0) throw new Error(`${command.join(" ")} 退出码 ${exitCode}：${stderr || stdout}`);
     return stdout;
+}
+
+async function verifyBlessedRuntime(temporaryRoot, installedPackageRoot) {
+    const entrypoint = join(temporaryRoot, "blessed-runtime-check.mjs");
+    const outfile = join(temporaryRoot, "blessed-runtime-check.bundle.mjs");
+    await writeFile(entrypoint, `import {PassThrough} from "node:stream";
+import Tput from "blessed/lib/tput.js";
+import Screen from "blessed/lib/widgets/screen.js";
+
+const missingTerminfo = process.platform === "win32" ? "Z:/neuro-book-missing/terminfo" : "/neuro-book-missing/terminfo";
+const expected = new Map([
+    ["linux", "linux"],
+    ["windows-ansi", "ansi"],
+    ["xterm", "xterm"],
+    ["xterm-256color", "xterm-256color"],
+]);
+for (const [terminal, canonical] of expected) {
+    const tput = new Tput({terminal, terminfoFile: missingTerminfo});
+    if (tput.terminal !== canonical || tput.info.name !== canonical) {
+        throw new Error(terminal + " resolved as " + tput.terminal + ":" + tput.info.name);
+    }
+}
+const termcap = new Tput({terminal: "xterm-256color", terminfoFile: missingTerminfo, termcap: true});
+if (termcap.terminal !== "xterm" || termcap.info.name !== "xterm") {
+    throw new Error("termcap fallback resolved as " + termcap.terminal + ":" + termcap.info.name);
+}
+const input = new PassThrough();
+const output = new PassThrough();
+Object.assign(output, {columns: 80, rows: 24});
+const screen = new Screen({input, output, terminal: "neuro-book-missing-terminfo"});
+try {
+    if (screen.tput.terminal !== "xterm" || screen.tput.info.name !== "xterm") {
+        throw new Error("Screen fallback resolved as " + screen.tput.terminal + ":" + screen.tput.info.name);
+    }
+} finally {
+    screen.destroy();
+}
+`, "utf8");
+    const result = await Bun.build({
+        entrypoints: [entrypoint],
+        outdir: temporaryRoot,
+        naming: "blessed-runtime-check.bundle.mjs",
+        target: "bun",
+        format: "esm",
+        minify: true,
+        plugins: [await createBlessedRuntimePlugin(join(installedPackageRoot, "package.json"))],
+    });
+    if (!result.success) {
+        throw new Error(`blessed runtime smoke构建失败：${result.logs.map(String).join("\n")}`);
+    }
+    await run(["bun", "--no-install", "--no-env-file", outfile], temporaryRoot);
+}
+
+function containsPath(source, path) {
+    const normalized = path.replaceAll("\\", "/");
+    const escaped = JSON.stringify(path).slice(1, -1);
+    return source.includes(path) || source.includes(normalized) || source.includes(escaped);
 }
 
 function isPathInside(parent, child) {
