@@ -1,5 +1,6 @@
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
+import {pathToFileURL} from "node:url";
 import {resolveAgentCacheRoot} from "@notnotype/neuro-book-test-support/paths";
 
 const packageRoot = resolve(import.meta.dir, "..");
@@ -15,7 +16,8 @@ try {
     const archive = join(temporaryRoot, archiveName);
     await writeFile(join(temporaryRoot, "package.json"), "{\"private\":true}\n", "utf8");
     await run(["bun", "add", archive, "--cwd", temporaryRoot], temporaryRoot);
-    const packageJson = JSON.parse(await readFile(join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "package.json"), "utf8"));
+    const installedPackageRoot = join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager");
+    const packageJson = JSON.parse(await readFile(join(installedPackageRoot, "package.json"), "utf8"));
     const forbidden = ["nuxt", "vue", "prisma", "@tiptap/core"];
     for (const name of forbidden) {
         if (packageJson.dependencies?.[name] || packageJson.devDependencies?.[name]) {
@@ -28,9 +30,47 @@ try {
     if (packageJson.dependencies?.["@notnotype/neuro-book-contracts"]) {
         throw new Error("Manager npm包不应携带私有Contracts production dependency；实现必须内联进单文件bundle。");
     }
+    if (!packageJson.dependencies?.blessed) {
+        throw new Error("Manager npm包必须声明blessed runtime dependency。");
+    }
+    const managerEntry = join(installedPackageRoot, "dist", "neuro-book.mjs");
+    const managerSource = (await readFile(managerEntry, "utf8")).replace(/^#![^\n]*\n/u, "");
+    const managerImports = new Bun.Transpiler({loader: "js"})
+        .scanImports(managerSource)
+        .filter((record) => record.kind === "import-statement")
+        .map((record) => record.path);
+    const blessedWidgetImports = ["box", "list", "prompt", "question", "screen"]
+        .map((widget) => `blessed/lib/widgets/${widget}.js`);
+    for (const widgetImport of blessedWidgetImports) {
+        if (!managerImports.includes(widgetImport)) {
+            throw new Error(`packed Manager必须从安装依赖加载静态widget：${widgetImport}`);
+        }
+    }
+    const blessedScreen = await Bun.resolve("blessed/lib/widgets/screen.js", installedPackageRoot);
+    const blessedPackage = await Bun.resolve("blessed/package.json", installedPackageRoot);
+    const blessedRoot = dirname(blessedPackage);
+    if (!isPathInside(blessedRoot, blessedScreen)) {
+        throw new Error(`blessed screen未从已安装依赖解析：${blessedScreen}`);
+    }
+    await readFile(join(blessedRoot, "usr", "xterm"));
+    const blessedSmoke = join(temporaryRoot, "blessed-smoke.mjs");
+    await writeFile(blessedSmoke, `
+import {PassThrough} from "node:stream";
+import Screen from ${JSON.stringify(pathToFileURL(blessedScreen).href)};
+
+const input = new PassThrough();
+const output = new PassThrough();
+Object.assign(output, {columns: 80, rows: 24});
+const screen = new Screen({input, output, terminal: "neuro-book-missing-terminfo"});
+if (screen.tput.terminal !== "xterm") {
+    throw new Error("blessed did not load its packaged xterm fallback");
+}
+screen.destroy();
+`, "utf8");
+    await run(["bun", blessedSmoke], temporaryRoot);
     const managerVersion = await runCapture([
         "bun",
-        join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs"),
+        managerEntry,
         "--version",
     ], temporaryRoot);
     if (managerVersion.trim() !== packageJson.version) {
@@ -103,4 +143,9 @@ async function runCapture(command, cwd, env = process.env) {
     ]);
     if (exitCode !== 0) throw new Error(`${command.join(" ")} 退出码 ${exitCode}：${stderr || stdout}`);
     return stdout;
+}
+
+function isPathInside(parent, child) {
+    const remainder = relative(parent, child);
+    return remainder === "" || !isAbsolute(remainder) && remainder !== ".." && !remainder.startsWith(`..${sep}`);
 }
