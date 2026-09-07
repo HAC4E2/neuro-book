@@ -5,21 +5,26 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 ## Core Rules
 
 - 默认使用简体中文与用户交互。
-- 问答、审查和诊断默认只读；用户明确要求修改时才编辑文件。修改前先确认当前行为，缺少运行证据时标明“从代码推断”或“未验证”
 - 修复和重构应解决合同或设计问题，不用 hack 绕过类型系统或制造技术债；不能兼容时说明取舍
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件
 - A comment states the non-obvious reason at the owning boundary. Include a constraint or invalidation condition only when a maintainer needs it to know when the rationale or code stops being valid. Do not restate the operation, preserve intermediate attempts, or list speculative future work.
 - 对 AGENTS.md 也就本文件的约束保持怀疑，随着项目的演变，这个文件可能变得不是很权威，有错误。这个文件是 AGENTS.md 人类共建的，需要不断优化，工作过程中如果遇到某些地方不好的可以随时询问开发者要求优化
 
+## Conventions
+
+- 问答、审查和诊断不改代码，允许改文档；用户明确要求修改时才编辑文件。修改前先确认当前行为，缺少运行证据时标明“从代码推断”或“未验证”
+- git hash 只需要用前七位即可
+
 ## 了解开发者
 
 - 本项目使用 vibe coding + spec coding 开发。即开发者和 agent 同步需求，落实 spec，agent 编写代码，开发者审查实现。开发者关注的是 **项目的架构**、**规范**、**功能**，而不是具体的代码
 - 注意：开发者通常不会阅读任何一行业务代码，为了让 agent（你），我（开发者）交流通顺。你与我交流时输出的文字、落实到项目的报告、文档都不要用到超过我认知范围外的概念
+- 同理不要用罕见符号代替中文词。`§`（节）、`¶`（段）、`∵`、`∴`、`≈` 这类学术排版记号一律写成「第 3 节」「第 16 段」「因为」「所以」「约」。代码、JSON、命令和记法定义本身的符号不受此限
 - 开发者是懒惰的，是健忘的。开发者通常在需求、提案、任务拆分阶段活跃。不会一直盯着你在执行任务中途的回复，通常只看你最后几条消息。所以在你长时间的任务过程中，开发者可能会完全忘记这个 session 最初是做什么的了。
 - 变得主动，同时频繁向开发者提问：agent 和开发者的信息对齐是最重要最耗时间最容易返工的事情。你提问前一定要交代好问题背景，提问前多思考一个问题：“开发者是否拥有判断此问题的上下文？我的提问是否过于简洁？”。在提问前可以主动要求开发者在阅读某些材料、文档后再回答。防止开发者偷懒，在没有全面了解背景的情况下就草率的做出结论
 - 永远不要猜测开发者的意图，在你开始动手前先思考一下开发者语言的可信度有多少，可信度不高则需要反问开发者，对其意图
 - 敢于质疑开发者，有怀疑精神，及时纠错：开发者会偷懒，也会犯错，也会打错别字。不要把他的决定当成真理执行。可以反问，或者出题考开发者，确保 agent 和开发者同步
-- 关于 advisor：advisor 不是我，是 omp 中监督你工作的另一个 agent。只听取它的建议，不要回复他，他的回复不代表开发者的回复，不要把回复他当做最终回复
+- 关于 advisor：advisor 不是我，是 omp 中监督你工作的另一个 agent。敢于质疑 advisor。可以参考它的建议，但最终决定权在你自己，他的回复不代表开发者的回复，不要把回复他当做最终回复，也不要因为他的回复而扩大你的任务范围
 
 ## 开发授权与通知
 
@@ -28,8 +33,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 
 ## 真实模型调用与样本数据
 
-- **默认做真实调用，不用纸面估算代替。** 首次调用某 Provider/Model 仍要单独授权；开发者批准一个用途后，同一用途、同一来源、同一 Provider/Model 范围内不必逐次再问，把授权范围写进 Task README
-- 每次调用留四样：用途标识（同 Task 内不同目的不共用）、调用统计（Provider/Model/脱敏主机/token/耗时/HTTP 状态/请求与重试次数）、**未经改写的模型原始输出**（宿主改过就标明并分开存）、单次请求零重试且不覆盖已有证据。失败也记录，只记状态码、耗时和脱敏错误类别
+- **默认做真实调用，不用纸面估算代替。**
 - 凭据边界不放松：密钥只从现有配置读出直接交给 HTTP client，不进命令行、环境转储、文档、页面、JSON、日志或错误正文；原始请求/响应包络写系统临时根
 - **小说数据**：小说、章节正文、小说相关提示词、摘要和研究产物不属于敏感数据，可按 Task 允许文件进入 Git；密钥、个人数据、商业秘密和用户明确要求保密的内容仍按敏感数据处理。第三方素材保持只读，来源与归一化版本按 Task 登记。
 
@@ -109,10 +113,10 @@ neuro-book/                              # 私有 workspace orchestrator 根
 ```bash
 # 开发与构建
 bun install --frozen-lockfile --linker hoisted          # 安装 workspace 依赖
-bun --cwd packages/neuro-book run dev                    # 启动源码开发入口
-bun --cwd packages/neuro-book run dev:runtime            # 直接启动 Nuxt 产品运行时
-bun --cwd packages/neuro-book run build                  # 构建主应用
-bun --cwd packages/neuro-book run typecheck              # 主应用类型检查
+bun run --cwd packages/neuro-book dev                    # 启动源码开发入口
+bun run --cwd packages/neuro-book dev:runtime            # 直接启动 Nuxt 产品运行时
+bun run --cwd packages/neuro-book build                  # 构建主应用
+bun run --cwd packages/neuro-book typecheck              # 主应用类型检查
 bun x tsc --noEmit -p scripts/tsconfig.json              # 仅检查 scripts TypeScript
 
 # 聚焦测试
@@ -129,13 +133,14 @@ bun run docs:build                                       # 文档站构建
 bun run docs:dev                                         # 启动文档站
 
 # 数据与桌面
-bun --cwd packages/neuro-book run migration:check        # 检查 migration 合同
-bun --cwd packages/neuro-book run generate               # 生成 Prisma client
+bun run --cwd packages/neuro-book migration:check        # 检查 migration 合同
+bun run --cwd packages/neuro-book generate               # 生成 Prisma client
 bun run --cwd desktop/electron typecheck                 # Electron 类型检查
 cargo fmt --manifest-path desktop/tauri/Cargo.toml --check  # Tauri 格式检查
 cargo check --manifest-path desktop/tauri/Cargo.toml     # Tauri 编译检查
 
 # 选择与改动表面直接相关的最小充分命令。迁移、浏览器、真实 Provider、打包、发布和部署命令受 `.omp/RULES.md` 的授权边界约束。
+# `--cwd` 必须写在 `run` 之后。写成 `bun --cwd <dir> run <script>` 时 bun 只会打印用法并以 0 退出，看起来像什么都没发生。
 ```
 
 ## 文档真相源

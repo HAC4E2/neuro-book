@@ -1001,7 +1001,7 @@ describe("WorkflowRunner Backend integration", () => {
         expect((await sessions.meta(2)).archived).toBe(true);
     });
 
-    test("agents.invoke options are whitelisted before reaching the AgentPort", async () => {
+    test("agents.invoke preserves missing versus explicit null input before reaching the AgentPort", async () => {
         const sessions = new MemorySessionStore();
         const received: unknown[] = [];
         const agents: AgentPort = {
@@ -1028,8 +1028,13 @@ describe("WorkflowRunner Backend integration", () => {
             manifestHash: "sha256:invoke-whitelist-v1",
             run: async (workflow: AgentWorkflowContext) => {
                 const handle = await workflow.agents.create("profile");
+                await handle.invoke({
+                    message: "hello",
+                    hidden: "must not leak",
+                } as never);
                 return await handle.invoke({
                     message: "hello",
+                    input: null,
                     hidden: "must not leak",
                 } as never);
             },
@@ -1038,13 +1043,31 @@ describe("WorkflowRunner Backend integration", () => {
         const completed = await runner.start(definition, null);
 
         expect(completed.status).toBe("completed");
-        expect(received).toHaveLength(1);
+        expect(received).toHaveLength(2);
         expect(received[0]).toEqual({
+            mode: "prompt",
+            message: "hello",
+            signal: expect.any(AbortSignal),
+        });
+        expect(received[0]).not.toHaveProperty("input");
+        expect(received[1]).toEqual({
             mode: "prompt",
             message: "hello",
             input: null,
             signal: expect.any(AbortSignal),
         });
+
+        const invokeRecords = completed.journal.filter(
+            (record) => record.kind === "agents.invoke",
+        );
+        expect(invokeRecords).toHaveLength(2);
+        const firstParams = JSON.parse(invokeRecords[0]!.params!);
+        const secondParams = JSON.parse(invokeRecords[1]!.params!);
+        expect(firstParams).not.toHaveProperty("input");
+        expect(secondParams).toMatchObject({input: null});
+        expect(invokeRecords[0]!.fingerprint).not.toBe(
+            invokeRecords[1]!.fingerprint,
+        );
     });
 
     test("concurrent acquire of the same tag creates a single session", async () => {

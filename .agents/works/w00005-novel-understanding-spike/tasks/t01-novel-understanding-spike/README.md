@@ -102,7 +102,7 @@ role: tasker
 | 成员 | `OEBPS/chapter_00001.xhtml` |
 | 归一化 | `chapter-source-normalization/v1` |
 | 字符数 / 可见字符数 | `2122` / `2044` |
-| 段落数 | `77`（归一化后 1 行 = 1 段，文件第 N 行即 ¶N） |
+| 段落数 | `77`（归一化后 1 行 = 1 段，文件第 N 行即第 N 段） |
 | SHA-256 | `22c9b12d0305da4b64ea39751e809ed47cf9254d574caf875fbff91ef82552ee` |
 | 文件末尾 | 无换行（`join("\n")` 的直接结果，多一个字节 hash 就对不上） |
 

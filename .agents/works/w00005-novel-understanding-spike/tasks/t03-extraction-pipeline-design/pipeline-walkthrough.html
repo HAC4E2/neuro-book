@@ -188,15 +188,6 @@ pre.src.plain{white-space:pre-wrap;word-break:break-word}
 .j-kw{color:var(--stone)}
 .j-cm{color:var(--ink3);font-style:italic}
 
-/* 涂黑块 */
-.redact{border:1px solid var(--rule2);background:var(--sheet2);padding:13px 15px}
-.rd-row{display:flex;align-items:center;gap:12px;font-family:var(--f-mono);font-size:11.5px;
-        color:var(--ink3);padding:3.5px 0}
-.rd-p{width:42px;flex:0 0 42px;color:var(--ink2)}
-.rd-bar{flex:1;height:9px;background:
-   repeating-linear-gradient(90deg,var(--ink) 0 7px,rgba(16,23,32,.72) 7px 9px);
-   min-width:40px;opacity:.86}
-.rd-n{width:46px;flex:0 0 46px;text-align:right}
 
 /* 小表 */
 .tbl{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -331,7 +322,7 @@ pre.src.plain{white-space:pre-wrap;word-break:break-word}
     <div><b>3</b><span>次模型调用</span></div>
     <div><b>14</b><span>行记法 / 窗口</span></div>
     <div><b>4 / 15</b><span>模型写的字段</span></div>
-    <div><b>7</b><span>候选实体（¶49）</span></div>
+    <div><b>7</b><span>候选实体（第 49 段）</span></div>
   </div>
 </header>
 
@@ -362,7 +353,7 @@ pre.src.plain{white-space:pre-wrap;word-break:break-word}
   <div class="sec-head">
     <div class="sec-n">02</div>
     <div>
-      <h2 class="sec-t">走查：W7（第 1 章 ¶50–63，缔约）</h2>
+      <h2 class="sec-t">走查：W7（第 1 章第 50–63 段，缔约）</h2>
       <p class="sec-note">
         同一份数据看八遍。左边是这一步吃进去的，右边是吐出来的。
         方向键 <span class="kbd">←</span> <span class="kbd">→</span> 翻页。
@@ -425,7 +416,7 @@ pre.src.plain{white-space:pre-wrap;word-break:break-word}
   <div class="panel slice">
     <div class="slice-l">
       <div class="seg" role="group" aria-label="候选表位置">
-        <button id="sl-a" class="on">snapshotAt(¶49) · 正确</button>
+        <button id="sl-a" class="on">snapshotAt(第 49 段) · 正确</button>
         <button id="sl-b">全书入库后重跑 · 泄漏</button>
       </div>
       <table class="tbl"><thead><tr><th>实体</th><th>Kind</th><th>候选表里的称呼</th></tr></thead>
@@ -457,7 +448,7 @@ pre.src.plain{white-space:pre-wrap;word-break:break-word}
 </section>
 
 <footer class="foot wrap">
-  <p>样书只读。本页不含任何原文引文：<code>S0</code> 与 <code>S2</code> 的输入格是涂黑的，那不是排版效果，是这条管线真实的数据边界（提案 R4）。</p>
+  <p>样书只读。本页保留用于走查的第一章原文输入；小说数据按项目规则不属于敏感数据。<code>S0</code>、<code>S1</code> 与 <code>S2</code> 的输入格直接显示管线实际读取的段落。</p>
   <p>释义与段落指针来自 <code>t02/chapter-01.json</code>（<code>nbook.novel-memory/v2-spike</code>，人工装填）与 <code>t01</code> 的第一章摘要证据。字段名与 <code>t02/schema.ts</code> 对齐。</p>
   <p>本页是 <code>extraction-pipeline.md</code> 第 4 节的可视化，两者内容一致；有出入以文档为准。单文件、零依赖、零构建。</p>
 </footer>
@@ -466,14 +457,98 @@ pre.src.plain{white-space:pre-wrap;word-break:break-word}
 /* ═══ 数据 ═══════════════════════════════════════════════════
    全部与 extraction-pipeline.md 第 4 节一致。改文档就要改这里。 */
 
+var CHAPTER_TEXT = `第1章 反派魔法少女
+第1章 反派魔法少女
+严正声明：本书出场角色均已满18岁，不存在任何未成年人！
+———————————
+【姓名。】
+“……苏天晴。”
+昏暗的房间里传出清脆悦耳的女声，还有一道仿佛来自遥远彼方的低沉言语。
+苏天晴坐在床头，呆滞地看着眼前这本飘浮在半空中的黑色古书，余光从床边的落地镜中扫过，瞥见一道陌生的娇小身影——
+灿烂金色的长发垂落在肩膀后背，毛茸茸的耳朵耷拉在头顶，随着自己不经意的动作而弹动两下，与刘海底下那精致的五官与眼眸交映着。
+脖颈肩膀那白皙的肌肤倒映窗帘缝隙间洒入的阳光，让人不由得多看几眼。
+一只娇小的金毛狐女。
+如果再加上背后那只正在炸毛的大尾巴，这应该是一只乖巧可爱的毛茸茸金毛狐狐。
+【嗯嗯……这样啊……】
+房间中的低沉言语再次响起，将苏天晴的注意力拽回眼前这本黑色古书。
+苏天晴有些茫然。
+五分钟前，结束了连续三个夜班后刚下班的自己坐在街边面摊上嗦着一碗加了煎蛋的豪华牛肉面，正往碗里加着辣椒面，突然听到自己太奶在背后说话，恍惚间回头一看，只见太奶坐在藤椅上悠闲地编着一只围巾，然后胸口一疼眼前一黑，就这么背过了气去。
+看着在身侧摇曳的炸毛大尾巴，苏天晴鬼使神差地伸手，在尾巴上用力薅了一把。
+无比柔顺的绝妙触感从手上传来，随后是一股陌生的摩挲拉拽感，从尾巴尖直冲天灵盖，惊得两只耳朵猛然竖起，整只狐都绷直了身体。
+好真实的触感！
+【……你干嘛呢。】
+黑色古书发出低沉的言语，不太明白眼前这只狐狐为什么要突然用怪异的手法去薅她自己的尾巴。
+不疼的吗？
+“咳咳！等一下，稍等一下！”
+苏天晴干咳两声掩饰尴尬，伸手阻止了面前这本奇怪的古书继续说话，眼珠一转，飞快地理清思绪。
+我重生了。
+重生成了一只金毛狐女。
+那么眼前这本黑色会说话的书是怎么回事？有人能给我解释一下吗？
+“你是谁？”苏天晴扭头正视眼前这本书，茫然地说道。
+古书沉默了一会儿，像是在思考眼前这只呆头呆脑的狐狐到底是不是自己要找的人，良久后方才重复了一遍两分钟前的开场白：
+【吾名墨丘利秘典，从星空彼岸远行至此，前来寻找我最优秀的适格者。】
+【而那个人就是你，苏天晴小姐。】
+再次听完这中二到能让人用脚趾扣出三室一厅的台词，苏天晴又陷入了沉默与思索。
+然后，狐狐猛地从床上蹦下，走到落地镜前，沉默地看向镜子里那穿着宽松睡裙的娇小身影。
+接着抬起一只脚，认真欣赏起这只白皙软嫩带着红晕的小脚。
+嗯，完美，绝品。
+【看来你对现在的身体很满意嘛。】
+瞅见眼前这只狐狐认真欣赏脚丫的行径，古书一时语塞，憋了半天才冒出这么一句。
+【但是你为什么要盯着脚看？正常情况下不应该是……】
+“你不懂，小脚才是世界上最美好的瑰宝，吃饭的时候看见了都能多炫两碗。”
+嘴上不搭调地回答着古书的话，苏天晴脑子里却也对现状有了个大概的了解。
+这本书知道自己并不是这副身体原来的主人，难道说……
+【既然你这么满意，那咱们可以直接快进到下个步骤了。】
+古书说道，将一门心思投入到欣赏狐狐身躯的苏天晴从发癫中唤回，转身正视着它。
+【听着，苏天晴。】
+【你是墨丘利秘典的最佳适格者，作为星界使者，我会引导你走上完美的生活，而你只需要与我签订一个小小的契约——】
+“好，我签。”
+【……啊？】
+古书凌乱了一下。
+【不是，你不按套路出牌啊，契约怎么说签就签的？都不犹豫考虑一下吗？】
+“这就是你思想狭隘了，小破书。”苏天晴的表情骤然严肃，让古书一时忘记了刚才那奇怪的称呼。
+“我问你，世界上最通用的愿望是哪两个。”
+【……哪两个？】古书愣愣地反问。
+只见金毛狐狐俯下身子，伸出两根手指，在黑色古书面前轻轻晃动了两下，连带身后的毛茸茸大尾巴也跟着摇曳了起来。
+“取之不尽的财富！以及变成萝莉！这是世界上最通用的两个愿望！”
+苏天晴张开双臂，满眼放光。
+“变成萝莉本身就是最大的奖励，更何况还是这样一只可爱的狐狐！”
+沉默。
+好像有哪里很对，好像又根本不对，但古书并未对这短时间的错乱而呆愣太久，迅速又将话题给拖回正题。
+【既然你答应，那我们之间的契约就算成立了？】
+“成立。”苏天晴不假思索。
+但片刻后，狐狐突然反应过来了什么，好奇地问道：
+“那个……我能问问契约的具体内容吗？”
+总不能是激活了什么奇怪的奴隶契约吧！那样的话可就亏大发了！
+【反派魔法少女。】
+没有丝毫停顿，古书这般说道。
+“啊？”
+【既然契约已经签订，那么从今天开始，你就将成为魔法少女活跃于世，造物主给你量身定制了一整套任务，能帮助你逐步走上反派魔法少女的顶点！】
+“不是、等一下！魔法少女是怎么回事！是那种死亡率高达90%的高危职业吗？！”
+【放心吧，是王道系的那种。】
+“就是这样才不对吧！在王道故事里当反派不是纯纯的找死吗！”
+苏天晴突然有点后悔了。
+王道系是什么？魔法少女们面对强敌逐渐成长然后喊着友情和羁绊冲上去把反派干碎的那种故事啊！就算反派有系统有任务也很难在王道系故事里把主角干碎吧！
+我还能有反悔的机会吗？能不能把我送回原来的身体里啊我觉得急性心肌梗死还有抢救的机会——
+【墨丘利秘典绑定成功。】
+脑子里响起的声音让苏天晴欲哭无泪。
+【契约成立。】
+【走上反派魔法少女的道路吧，苏天晴。】`;
+var PARAGRAPHS = CHAPTER_TEXT.split('\n');
+
+function paragraphs(start, end){
+  return PARAGRAPHS.slice(start - 1, end).map(function(text, i){
+    return '第 ' + (start + i) + ' 段 ' + text;
+  }).join('\n');
+}
+
 var STAGES = [
 {
   code:'S0', name:'定位', by:'code',
   lead:'给每个段落一个稳定编号。之后全库所有位置字段都引用它。',
   inp:[
-    {label:'章节纯文本 · 第 1 章 · 77 段 · 本地', type:'redact', rows:[
-      ['¶1',34],['¶5',61],['¶8',52],['¶11',96],['¶50',88],['¶77',26]],
-     foot:'这一格是涂黑的，不是没做。原文只在本地读进提示词，不进 Git（R4）——管线看得见它，这一页看不见。'}
+    {label:'章节纯文本 · 第 1 章 · 77 段', type:'plain', src:paragraphs(1,77),
+     foot:'管线实际读取的规范化章节正文。段落编号与 S0 输出一一对应。'}
   ],
   out:[
     {label:'段落索引 · 不含正文', type:'json', src:
@@ -489,7 +564,7 @@ var STAGES = [
   code:'S1', name:'场景切分', by:'model', weak:true,
   lead:'把 77 个段落切成 8 个窗口，每个窗口将来变成一条 Episode。整章一次调用，弱模型即可。',
   inp:[
-    {label:'全章文本 · 本地', type:'redact', rows:[['¶1–77',6180]],
+    {label:'全章文本', type:'plain', src:paragraphs(1,77),
      foot:'按 memory-model.md 第 4.6 节的信号切，不按 token 数切：地点变了 / 参与者集合变了 / 结果落定 / 故事时间跳跃 / 视角切换。'},
     {label:'S0 的段落索引', type:'plain', src:'77 条 { paragraph, chars, sha }'}
   ],
@@ -497,10 +572,10 @@ var STAGES = [
     {label:'窗口表 · 注意没有 E 开头的 id', type:'json', src:
 '[\n  { "w": "W1", "paragraphs": [5, 7],   "scene": "房间", "location": "昏暗的房间",\n    "pov": "苏天晴", "storyAfter": ["W3"] },\n  { "w": "W2", "paragraphs": [8, 10],  "scene": "房间", "storyAfter": ["W1"] },\n  { "w": "W3", "paragraphs": [11, 18], "scene": "面摊", "storyAfter": [],\n    "storyOffset": { "anchor": "W1", "text": "五分钟前" } },\n  { "w": "W4", "paragraphs": [19, 26], "scene": "房间", "storyAfter": ["W2"] },\n  { "w": "W5", "paragraphs": [27, 35], "scene": "房间", "storyAfter": ["W4"] },\n  { "w": "W6", "paragraphs": [36, 49], "scene": "房间", "storyAfter": ["W5"] },\n  { "w": "W7", "paragraphs": [50, 63], "scene": "房间", "storyAfter": ["W6"] },\n  { "w": "W8", "paragraphs": [64, 77], "scene": "房间", "storyAfter": ["W7"] }\n]'},
     {label:'代码接着做两件纯计算', type:'rows', head:['窗口','叙述位置','编号','precedes'], rows:[
-      ['W3','¶11','E1','E2'],['W1','¶5','E2','E3'],['W2','¶8','E3','E4'],
-      ['W4','¶19','E4','E5'],['W5','¶27','E5','E6'],['W6','¶36','E6','E7'],
-      ['W7','¶50','E7','E8'],['W8','¶64','E8','—']],
-     foot:'按 storyAfter 拓扑排序后依次编号，precedes 取其逆。这张表与 t02/chapter-01.json 里手工写的编号和 precedes 逐字段一致——包括最别扭的那处：E1 在 ¶11，E2 在 ¶5。'}
+      ['W3','第 11 段','E1','E2'],['W1','第 5 段','E2','E3'],['W2','第 8 段','E3','E4'],
+      ['W4','第 19 段','E4','E5'],['W5','第 27 段','E5','E6'],['W6','第 36 段','E6','E7'],
+      ['W7','第 50 段','E7','E8'],['W8','第 64 段','E8','—']],
+     foot:'按 storyAfter 拓扑排序后依次编号，precedes 取其逆。这张表与 t02/chapter-01.json 里手工写的编号和 precedes 逐字段一致——包括最别扭的那处：E1 在第 11 段，E2 在第 5 段。'}
   ],
   why:'<b>E 编号走故事序，discoursePos 走叙述序，两者故意不一致。</b>这一步是倒叙唯一能被发现的地方——第一章的 E1 就是靠 <code>W3.storyAfter = []</code> 判出「故事时间最早」的。故事顺序只能给相对关系，不能给时间戳：文本没给的时间坐标不编造。'
 },
@@ -508,9 +583,9 @@ var STAGES = [
   code:'S2', name:'窗口抽取', by:'model', risk:true,
   lead:'一个窗口的文本进去，一组记法行出来。全管线唯一的强调用，也是唯一真正有风险的一步。',
   inp:[
-    {label:'① 场景文本 · ¶50–63 · 约 1.1k token', type:'redact', rows:[['¶50',88],['¶51–62',760],['¶63',44]],
-     foot:'本地读取，不入库。'},
-    {label:'② 前缀候选表 · snapshotAt(¶49) · 7 个', type:'rows', head:['id','kind','候选表里的称呼'], rows:[
+    {label:'① 场景文本 ·第 50–63 段· 约 1.1k token', type:'plain', src:paragraphs(50,63),
+     foot:'S2 实际读取的第七场原文窗口。'},
+    {label:'② 前缀候选表 · snapshotAt(第 49 段) · 7 个', type:'rows', head:['id','kind','候选表里的称呼'], rows:[
       ['su_tianqing','person','苏天晴 · 最佳适格者'],
       ['body_fox','body','这具身体'],
       ['codex','artifact','黑色典籍 · 墨丘利秘典'],
@@ -518,7 +593,7 @@ var STAGES = [
       ['original_owner','person','（无别名）'],
       ['bedroom','place','昏暗的房间'],
       ['noodle_stall','place','面摊']],
-     foot:'contract_main 与 creator 的 since 都是 ¶50，不在表里——它们是 W7 的产物，不是 W7 的输入。「小破书」的 since 也是 ¶50，所以模型是在不知道这个称呼的前提下，从文本里认出它的。'},
+     foot:'contract_main 与 creator 的 since 都是第 50 段，不在表里——它们是 W7 的产物，不是 W7 的输入。「小破书」的 since 也是第 50 段，所以模型是在不知道这个称呼的前提下，从文本里认出它的。'},
     {label:'③ 谓词白名单 · 19 个', type:'plain', src:
 'identity  located_in  inhabits  cause_of_death  died_at  attitude_to\nsigned  suspects  designated_as  self_role  is_concealing\nhair_color  has_feature  apparent_age  previous_owner  offered\nlifecycle  goal  death_rate',
      foot:'白名单怎么算有个待裁决（E10）：原规则「候选主语 Kind 的槽位并集」只有 16 个，漏掉 contract 的 lifecycle 与 goal，而 F25「这份契约·已缔结」恰恰要在这一场产出。建议并上全部 basicLevel Kind 的槽位。'}
@@ -550,14 +625,14 @@ var STAGES = [
     {label:'未命中报告', type:'json', src:
 '{\n  "batch": ["ch01", "W7", "prompt-v1", "model-x", "registry-v1"],\n  "resolved": 7,\n  "nominatedIndividuals": [\n    { "surface": "这份契约", "kind": "contract", "route": "description", "usedInLines": 4 },\n    { "surface": "造物主",   "kind": "person",   "route": "description", "usedInLines": 1 }\n  ],\n  "nominatedPredicates": [],\n  "pendingLines": 5\n}'}
   ],
-  why:'<b>谓词提名为什么是空的。</b>假设模型另外吐了一行 <code>?P "缔结" -&gt; "signed"</code>：S3 先查 registry 的 <code>aliases[]</code>，<code>signed.aliases</code> 里已经有「缔结」，于是直接归一，不进队列。别名表在这里挡掉了绝大多数看起来像新谓词的提名，队列里剩下的才是真的没见过的词。<br><br><b>E4 的代价请连带考虑：</b>按「非具名必须提名」这条规则，第一章 9 个实体里有 6 个要人批（只有苏天晴、太奶，以及 ¶27 之后的墨丘利秘典有专名）。提名不阻塞落库，但会留下 5 条带 <code>unresolved</code> 宾语的 Fact。'
+  why:'<b>谓词提名为什么是空的。</b>假设模型另外吐了一行 <code>?P "缔结" -&gt; "signed"</code>：S3 先查 registry 的 <code>aliases[]</code>，<code>signed.aliases</code> 里已经有「缔结」，于是直接归一，不进队列。别名表在这里挡掉了绝大多数看起来像新谓词的提名，队列里剩下的才是真的没见过的词。<br><br><b>E4 的代价请连带考虑：</b>按「非具名必须提名」这条规则，第一章 9 个实体里有 6 个要人批（只有苏天晴、太奶，以及第 27 段之后的墨丘利秘典有专名）。提名不阻塞落库，但会留下 5 条带 <code>unresolved</code> 宾语的 Fact。'
 },
 {
   code:'S4', name:'装配', by:'code',
   lead:'记法行 → 完整记录。这一步不做任何判断，只做派生。',
   inp:[
     {label:'归一后的记法行 + 窗口位置', type:'nota', src:
-'C W7 "与悬浮的典籍缔结契约，对方自称星界使者，她当场答应。"\nM W7 story_after=W6 valence=0.6 arousal=0.7 surprise=0.48 outcome="契约缔结" register=喜剧\nP W7 su_tianqing agent\nP W7 codex agent\nP W7 contract_main theme                        ← 提名批准后回填\n\n窗口  第 1 章 ¶50–63 · S1 给的 scene=房间 / location=昏暗的房间 / pov=苏天晴'}
+'C W7 "与悬浮的典籍缔结契约，对方自称星界使者，她当场答应。"\nM W7 story_after=W6 valence=0.6 arousal=0.7 surprise=0.48 outcome="契约缔结" register=喜剧\nP W7 su_tianqing agent\nP W7 codex agent\nP W7 contract_main theme                        ← 提名批准后回填\n\n窗口  第 1 章第 50–63 段· S1 给的 scene=房间 / location=昏暗的房间 / pov=苏天晴'}
   ],
   out:[
     {label:'Episode E7', type:'json', src:
@@ -566,7 +641,7 @@ var STAGES = [
 '{ "surface": "小破书",                            // 模型\n  "route": "epithet",                             // 模型\n  "since": { "chapter": 1, "paragraph": 50 },     // 代码：窗口首段\n  "confidence": 0.85 }                            // 代码：按 route 查表',
      foot:'since 由代码写，模型无从知道也不该知道这个称呼在别处是不是更早出现过。查表：name 1.0 / description 1.0 / epithet 0.85 / pronoun_binding 0.6。'}
   ],
-  why:'<b>一处要更正的决定权：<code>Episode.content</code> 归模型，不归代码。</b>提案第 5 节早先把它列在代码派生栏，那是错的——<code>content</code> 是结构化释义，代码写不出来，只能由模型在 <code>C</code> 行给。相应地，S4 与 S7 各要对它跑一次与本地原文的逐字重合检测，超阈值就拒绝落库。这是 R4 从「约定」变成「闸门」的地方，也是全表唯一一处模型直接写自由文本。<br><br><b>这个闸门不用新建：</b><code>t01/scripts/source-overlap.ts</code> 已经在算逐字重合（<code>MIN_OVERLAP_CHARS = 8</code>）并钉住了 canonical <code>SOURCE_SHA256</code>，正好是 R4 要的两件事。'
+  why:'<b>一处要更正的决定权：<code>Episode.content</code> 归模型，不归代码。</b>提案第 5 节早先把它列在代码派生栏，那是错的——<code>content</code> 是结构化释义，代码写不出来，只能由模型在 <code>C</code> 行给。相应地，S4 与 S7 各要对它跑一次与本地原文的逐字重合检测，超阈值就拒绝落库。这是 R4 从「约定」变成「闸门」的地方，也是全表唯一一处模型直接写自由文本。<br><br><b>这个闸门原本不用新建，现在要重建：</b><code>t01/scripts/source-overlap.ts</code> 曾经在算逐字重合（<code>MIN_OVERLAP_CHARS = 8</code>）并钉住了 canonical <code>SOURCE_SHA256</code>，正好是 R4 要的两件事；但 2026-08-29 放宽逐字正文规则后该脚本已删除，口径可以照抄，实现要重写。'
 },
 {
   code:'S5', name:'固化', by:'code',
@@ -596,7 +671,7 @@ var STAGES = [
   ],
   out:[
     {label:'① Summary', type:'json', src:
-'{ "gist": "主角在猝死后于陌生幼体中醒来，与一本自称来自星界的典籍缔约，代价与预期不符。",\n  "why":  "开场以昏暗房间起笔、随后倒叙死亡，是为了让身份错位先于死因揭晓；\n           契约的兴奋与后悔构成本章唯一一次状态取代。" }\n\n代码补 id / covers=[E1…E8] / grain="chapter" / generatedAt=¶77 / recomputable=true'},
+'{ "gist": "主角在猝死后于陌生幼体中醒来，与一本自称来自星界的典籍缔约，代价与预期不符。",\n  "why":  "开场以昏暗房间起笔、随后倒叙死亡，是为了让身份错位先于死因揭晓；\n           契约的兴奋与后悔构成本章唯一一次状态取代。" }\n\n代码补 id / covers=[E1…E8] / grain="chapter" / generatedAt=第 77 段 / recomputable=true'},
     {label:'③ Question 关闭 · 跑完第一章的结果是空的', type:'plain', src:
 'open  Q1 太奶是否真的在临终场景出现     ← F23 是 %disputed，不构成回答\n      Q2 确切死因是什么                ← F03 的宾语是 UNKNOWN，记录的正是留白本身\n      Q3 原主是谁、去了哪里            ← F16 / F17 同样是 UNKNOWN\n      Q5 造物主是谁                    ← creator 是零事实节点\n      Q7 承诺与实际派发之间的落差       ← reader_hypothesis，本章不会自答\n\n关闭  （无）'}
   ],
@@ -648,7 +723,7 @@ var LIFE =
 
 /* R1 的两种候选表 */
 var SLICE = {
-  a:{ note:'<b>候选表 = snapshotAt(¶49)。</b>七个实体，codex 只有「黑色典籍」和「墨丘利秘典」两个称呼。<br><br>「小破书」的 <code>since</code> 是 ¶50，contract_main 与 creator 也是 ¶50——它们都是这一场的<b>产物</b>，不是这一场的输入。模型是在不知道「小破书」这个称呼的前提下，从文本里认出它的。<br><br>这条规则真正买到的性质不是防泄漏，是<b>重跑幂等</b>：候选表由位置决定，与库里已经攒了多少无关，第一次跑和第一百次跑拿到的候选表逐字相同。',
+  a:{ note:'<b>候选表 = snapshotAt(第 49 段)。</b>七个实体，codex 只有「黑色典籍」和「墨丘利秘典」两个称呼。<br><br>「小破书」的 <code>since</code> 是第 50 段，contract_main 与 creator 也是第 50 段——它们都是这一场的<b>产物</b>，不是这一场的输入。模型是在不知道「小破书」这个称呼的前提下，从文本里认出它的。<br><br>这条规则真正买到的性质不是防泄漏，是<b>重跑幂等</b>：候选表由位置决定，与库里已经攒了多少无关，第一次跑和第一百次跑拿到的候选表逐字相同。',
       rows:[
         ['su_tianqing','person','苏天晴 · 最佳适格者',0],
         ['body_fox','body','这具身体',0],
@@ -732,14 +807,7 @@ function hiJson(src){
 function block(b){
   var h = '<div class="blk">';
   if(b.label) h += '<div class="blk-l">'+esc(b.label)+'</div>';
-  if(b.type==='redact'){
-    h += '<div class="redact">';
-    b.rows.forEach(function(r){
-      h += '<div class="rd-row"><span class="rd-p">'+esc(r[0])+'</span>'+
-           '<span class="rd-bar"></span><span class="rd-n">'+r[1]+' 字</span></div>';
-    });
-    h += '</div>';
-  } else if(b.type==='json'){
+  if(b.type==='json'){
     h += '<pre class="src">'+hiJson(b.src)+'</pre>';
   } else if(b.type==='nota'){
     h += '<pre class="src">'+hiNota(b.src)+'</pre>';
