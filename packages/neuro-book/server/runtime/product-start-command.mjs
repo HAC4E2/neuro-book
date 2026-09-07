@@ -23,6 +23,7 @@ await mkdir(cacheRoot, {recursive: true});
 const stateEnv = ensureProductEnv(stateRoot);
 const productEnv = {
     ...createProductRuntimeEnvironment({
+        repositoryRoot: applicationRoot,
         applicationRoot,
         productImageRoot,
         stateRoot,

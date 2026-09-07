@@ -170,6 +170,11 @@ describe("Product command metafile", () => {
         expect(builder).toContain('from "@notnotype/neuro-book/product-verification"');
         expect(builder).toContain("new ProductRuntimeImageVerifier().openVerified");
     });
+    it("Product command bootstrap 将 Application Root 作为 repository root 传给子进程", async () => {
+        const bootstrap = await readFile(resolve("packages", "neuro-book", "server", "runtime", "product-command.ts"), "utf8");
+        expect(bootstrap).toContain("NEURO_BOOK_REPOSITORY_ROOT: applicationRoot");
+        expect(bootstrap).not.toContain("import.meta.dirname");
+    });
 });
 
 /** 为每个命令建立文件名与 source 名完全无关的最小 esbuild metafile。 */

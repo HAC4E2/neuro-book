@@ -27,5 +27,6 @@ describe("Product 临时验收实例合同", () => {
         expect(start).toContain('NEURO_BOOK_RUNTIME_ASSET_MODE: "install"');
         expect(start.indexOf("await seedSystemAssets")).toBeLessThan(start.indexOf("const child = spawn"));
         expect(start).not.toContain("productRuntimeReady");
+        expect(start).toContain("repositoryRoot: applicationRoot");
     });
 });

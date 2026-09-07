@@ -6,6 +6,7 @@ import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 
 import {currentProductPlatform} from "#scripts/utils/product-platform";
 import {assertBundledRuntimeSourcePaths} from "#scripts/build/product-runtime-bundle";
@@ -190,5 +191,10 @@ describe("Product Runtime bundle", () => {
             },
             windowsHide: true,
         })).rejects.toThrow("scratch 必须位于候选镜像内");
+    });
+    it("bundle 回归覆盖产品代码不依赖 import-meta dirname shim", async () => {
+        const source = await readFile(resolve(dirname(import.meta.dirname), "..", "packages", "neuro-book", "server", "agent", "profiles", "profile-dsl.ts"), "utf8");
+        expect(source).not.toMatch(/resolve\(import\.meta\.dirname,/u);
+        expect(source).toContain("NEURO_BOOK_REPOSITORY_ROOT");
     });
 });

@@ -85,14 +85,19 @@ vi.mock("nbook/server/plot", () => ({
 
 describe("assets builtin v3 profiles", () => {
     let assets: IsolatedWorkspaceAssets;
+    const previousRepositoryRoot = process.env.NEURO_BOOK_REPOSITORY_ROOT;
 
     beforeAll(async () => {
+        process.env.NEURO_BOOK_REPOSITORY_ROOT = resolve(import.meta.dirname, "../../../../../");
         assets = await createIsolatedWorkspaceAssets({purpose: "leader-assets-profile-tests"});
     });
 
     afterAll(async () => {
         await assets.dispose();
+        if (previousRepositoryRoot === undefined) delete process.env.NEURO_BOOK_REPOSITORY_ROOT;
+        else process.env.NEURO_BOOK_REPOSITORY_ROOT = previousRepositoryRoot;
     });
+
 
     it("leader.default 从 assets/workspace/.nbook 加载并使用 v3 工具名", async () => {
         const catalog = testProfileCatalog(resolve("assets", "workspace", ".nbook", "agent", "profiles"));

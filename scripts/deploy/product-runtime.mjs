@@ -103,6 +103,7 @@ async function runAcceptedCommand(commandId, args) {
             cwd: stageRoot,
             env: {
                 ...process.env,
+                NEURO_BOOK_REPOSITORY_ROOT: stageRoot,
                 NEURO_BOOK_APPLICATION_ROOT: stageRoot,
                 NEURO_BOOK_STATE_ROOT: stateRoot,
                 NEURO_BOOK_CACHE_ROOT: cacheRoot,

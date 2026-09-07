@@ -1788,7 +1788,10 @@ function resolveApplicationRootForImport(): string {
 
 function resolveRepositoryRootForImport(): string {
     const configuredRepositoryRoot = process.env.NEURO_BOOK_REPOSITORY_ROOT?.trim();
-    return configuredRepositoryRoot ? resolve(configuredRepositoryRoot) : resolve(import.meta.dirname, "..", "..", "..", "..", "..");
+    if (!configuredRepositoryRoot) {
+        throw new Error("Import.path 缺少显式 NEURO_BOOK_REPOSITORY_ROOT。Product Runtime 不允许从 checkout 或 import.meta.dirname 推断仓库根。");
+    }
+    return resolve(configuredRepositoryRoot);
 }
 
 /** 已关联 agent 列表正文；标题由具体消费方决定。 */

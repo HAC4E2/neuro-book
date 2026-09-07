@@ -200,6 +200,7 @@ describe("Application State migration command", () => {
 
         const env = await applicationEnvironment(root, stateRoot, false, cacheRoot);
 
+        expect(env.NEURO_BOOK_REPOSITORY_ROOT).toBe(root);
         expect(env).toMatchObject({
             NEURO_BOOK_APPLICATION_ROOT: root,
             NEURO_BOOK_STATE_ROOT: stateRoot,
