@@ -10,8 +10,8 @@ describe("Product 临时验收实例合同", () => {
         expect(source).toContain('import {ProductRuntimeImageBuilder} from "#scripts/build/product-runtime-image-builder";');
         expect(source).toContain('PRODUCT_BUN_RUNTIME_ARGS');
         expect(source).toContain('PRODUCT_RUNTIME_COMMAND_BOOTSTRAP');
-        expect(source).toContain('from "@notnotype/neuro-book-contracts/product-runtime";');
 
+        expect(source).toContain('from "@notnotype/neuro-book-contracts/product-runtime";');
         expect(source).toContain('resolveAgentAcceptanceRoot()');
         expect(source).toContain("ProductRuntimeImageBuilder");
         expect(source).toContain("openVerified");

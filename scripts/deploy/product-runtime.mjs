@@ -7,6 +7,7 @@ import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {check as checkLock, lock as acquireLock} from "proper-lockfile";
 import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
+import {ProductRuntimeImageBuilder} from "#scripts/build/product-runtime-image-builder";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
