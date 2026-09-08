@@ -326,10 +326,15 @@ describe("proper-lockfile mtime precision patch", () => {
         const target = join(root, "compromised.lease");
         await writeFile(target, "", "utf8");
         let compromised: Error | undefined;
+        let compromisedWaiter: {resolve: () => void; reject: (error: Error) => void} | undefined;
+        const compromisedReady = new Promise<void>((resolve, reject) => {
+            compromisedWaiter = {resolve, reject};
+        });
         const fs = quantizedFs(new Map([[`${target}.lock`, 2_000]]));
         const release = await lock(target, options(fs, {
             onCompromised: (error) => {
                 compromised = error;
+                compromisedWaiter?.resolve();
             },
         }));
 
@@ -342,7 +347,21 @@ describe("proper-lockfile mtime precision patch", () => {
                 (error) => error ? reject(error) : resolve(),
             );
         });
-        await heartbeatRounds(1);
+        await vi.advanceTimersByTimeAsync(15_000);
+        await Promise.race([
+            compromisedReady,
+            new Promise<never>((_, reject) => {
+                const started = performance.now();
+                const watchdog = (): void => {
+                    if (performance.now() - started >= 1_000) {
+                        reject(new Error("ECOMPROMISED callback timeout"));
+                        return;
+                    }
+                    setImmediate(watchdog);
+                };
+                setImmediate(watchdog);
+            }),
+        ]);
 
         expect(compromised).toMatchObject({code: "ECOMPROMISED"});
         await release().catch(() => undefined);
