@@ -1,22 +1,15 @@
-# Skill mechanics
+# Skill 调用机制
 
-The skill-specific branch of [`writing-for-agents`](SKILL.md): what changes when the document is a skill — frontmatter, the invocation choice, and router skills. Everything else about writing it is the universal reference in `SKILL.md`.
+本文件补充 [Agent 指令写作](SKILL.md) 的 Skill 分支。
 
-## Invocation
+## Frontmatter 与调用
 
-Two choices, trading the two loads:
+- 保持稳定的 `name`；`description` 简述用途和触发条件，供支持的宿主发现。参数型入口用 `argument-hint` 说明参数。
+- 模型自动调用与用户显式调用的实际能力取决于宿主。需要自动发现时提供清楚的 description；仅显式调用的入口可在宿主支持时设置 `disable-model-invocation: true`。
+- `disable-model-invocation` 控制自动调用，不是文件读取权限。缺 description 不等于文件不可引用；没有宿主证据时不承诺零上下文开销。
 
-- A **model-invoked** skill keeps a `description`, so the agent can fire it autonomously — and other skills can reach it. You can still type its name: model-invocation always _includes_ user reach; a description only ever adds agent discovery, never removes the human's. The description is the skill's top-level context pointer, forced to stay loaded at all times — permanent context load in exchange for discoverability. A model-invoked skill whose content is all reference is also one home for shared reference: another skill can invoke it, so reference needed by several skills lives in one place. Mechanics: omit `disable-model-invocation`, and write a model-facing description carrying the trigger branches (the pointer-writing rules in `SKILL.md` apply in full).
-- A **user-invoked** skill strips the description from the agent's reach: only the human typing its name can invoke it, and no other skill can. Zero context load, but it spends cognitive load — you are the index that must remember it exists. Mechanics: set `disable-model-invocation: true`; the `description` becomes human-facing — a one-line summary, trigger lists stripped.
+## 共享参考与路由
 
-Pick model-invocation only when the agent must reach the skill on its own, or another skill must. If it only ever fires by hand, make it user-invoked and pay no context load.
+用户调用的 Skill 可以直接引用共享文档，不因调用模式强制拆文件。只有独立触发用途值得长期维护时才拆 Skill；已有文件能承载共享参考就复用。
 
-Shared reference that two user-invoked skills both need can live in neither — with no descriptions, neither can fire the other. Push it to a plain file outside the skill system: external reference any skill can point at.
-
-## Splitting by invocation
-
-The invocation cut of splitting (the sequence cut lives in `SKILL.md`): split off a model-invoked skill when you have a distinct leading word that should trigger it on its own — a trigger word you actually use in your prompts — or another skill must reach it. You pay context load for the new always-loaded description, so that independent reach has to be worth it.
-
-## Router skills
-
-When user-invoked skills multiply past what you can remember, that piled-up cognitive load is cured by a **router skill**: one user-invoked skill that names the others and when to reach for each, so the human has one skill to remember instead of many. It can only hint, never fire them: user-invoked skills have no description, so nothing but the human can reach them.
+多个入口确需索引时，路由只列用途和链接。能否自动调用目标仍由宿主决定，不把路由当成权限绕过方式。

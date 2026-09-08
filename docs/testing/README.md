@@ -69,6 +69,8 @@
 
 ## 验证门禁
 
-- 提交前至少运行：受影响的聚焦测试、对应 typecheck、`git diff --check`。
-- 全量 `bun run test` 中的既有 advisory 失败（如 Harness 黑盒超时）单独登记 Issue，
-  不能把「focused 通过」写成「全量通过」。
+- 纯文档或治理修改检查链接、结构和规则语义；不运行产品测试、typecheck、产品构建或浏览器。修改 VitePress 投影时仍按 [`docs/AGENTS.md`](../AGENTS.md) 的目录合同运行 `bun run docs:build`。
+- 实现变化运行受影响测试；类型表面受影响才运行对应 typecheck。UI、迁移、集成和发布继续遵守各自合同及授权。
+- 长期测试覆盖可观察行为与可能回归，不为措辞或实现镜像增加测试。Bug 有合适切入点时保留复现为回归测试，否则用聚焦 smoke 并说明缺口。
+- 所需检查通过后，仅因后续改动使证据失效、出现失败或具体未解风险才重跑或扩大。仅叙事文档形成新 revision 不自动使代码测试证据失效。
+- 提交前运行 `git diff --cached --check`。既有失败与本次失败分开报告，不能把“focused 通过”写成“全量通过”；远端登记 Issue 仍需授权。

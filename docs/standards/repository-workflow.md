@@ -27,7 +27,7 @@ Work/Task的`walkthroughs/`或`evidences/`承载重大实现记录，独立workt
 
 - 需要隔离代码改动时，同一Work默认共享`.worktree/<workId>`；分支使用`{type}/{refs}-{slug}`且refs使用Work编号。开发者明确指定既有worktree/branch时沿用该身份并在报告中记录。
 - 默认路径已属于其它仓库、Work或不匹配branch时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
-- 每个Task默认顺序推进；只有owner、文件和合同不重叠时并行。
+- Task 有依赖时顺序推进；已知独立任务在 owner、文件和合同不冲突时并行，不为并行而拆 Task。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - push和PR属于远端写入，分别获授权后执行。
 
@@ -61,17 +61,13 @@ PR 使用仓库模板，说明关联 Issue、范围、用户可见行为、技�
 
 CI 通过只表示自动检查完成，不等于批准合并。维护者负责最终范围、Task 编号、发布说明和合并方式。开发 Agent 默认交付到验证结果与 PR 链接；合并、关闭 Issue、部署和发布需要用户明确许可。
 
-获得合并许可后，先确认 CI、typecheck 与聚焦测试，再 squash merge、同步主工作区、移除 worktree 与本地分支。任何 worktree 或 Agent 更新远端 `master` 后，主工作区使用 fast-forward 同步；失败从断点继续，不重复已完成动作。
+获得合并许可后，按 [`../testing/README.md#验证门禁`](../testing/README.md#验证门禁) 确认当前改动所需门禁的有效证据，不重复尚有效的检查。按 Work 编号流程，登记提交必须先进入远端 `master`，实现分支从包含该提交的最新基线创建，因而登记提交是实现分支的共同祖先；实现分支 squash merge 后，只有主工作区没有未发布改动且未被其它 Agent 占用时，才用 fast-forward 同步。主工作区被占用或存在未发布改动时不操作、不切换分支、不强行同步，待 owner 完成后从最新远端 `master` 继续。满足上述条件时，任何 worktree 或 Agent 更新远端 `master` 后，主工作区使用 fast-forward 同步；失败从断点继续，不重复已完成动作。
 
 ## Sibling 与 Vendor
 
-Git、`goal:check`、测试和构建在各 sibling 仓库自身根目录执行；主仓只同步快照，不在 vendor 目录执行 sibling Git。推送前确认当前仓库；主仓快照不能代替源仓验证。
+当前 workspace 包内修改与验证遵循 [`../../packages/AGENTS.md`](../../packages/AGENTS.md)，不再执行 sibling 快照同步。外部源 checkout 不因本仓任务被修改；推送前确认当前仓库。
 
-- llmlint：源仓规则开发，`assets/workspace/.nbook/agent/skills/llmlint/` 是 vendor 快照。
-- nb-history：主仓通过 `bun run sync:nb-history` 同步文件历史实现。
-- nb-workflow：主仓通过 `bun run sync:nb-workflow` 同步 Workflow 实现。
-- neuro-agent-harness：主仓 `server/agent/harness/` 是快照。
-- nb-ui、nb-fullstack-template、neuro-book-site：独立仓库和许可证/部署边界。
+llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编辑投影资产。
 
 ## 发布授权
 
