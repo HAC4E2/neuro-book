@@ -1,4 +1,5 @@
 import * as nodeFs from "node:fs";
+import {performance} from "node:perf_hooks";
 import {copyFile, mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -12,6 +13,12 @@ const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 type PrecisionByPath = ReadonlyMap<string, number>;
 type QuantizedFs = typeof nodeFs;
 type LockOptions = NonNullable<Parameters<typeof lock>[1]> & {fs: QuantizedFs};
+type HeartbeatObserver = {
+    readonly count: number;
+    reset(): void;
+    observe(path: nodeFs.PathLike): void;
+    waitFor(expected: number): Promise<void>;
+};
 
 describe("proper-lockfile mtime precision patch", () => {
 
@@ -50,22 +57,20 @@ describe("proper-lockfile mtime precision patch", () => {
         const lockPath = `${target}.lock`;
         await writeFile(target, "", "utf8");
         let compromised: Error | undefined;
-        let heartbeatUtimes = 0;
+        const heartbeat = createHeartbeatObserver(lockPath);
         const fs = quantizedFs(new Map([[lockPath, 2_000]]), {
-            onUtimesSuccess: (path) => {
-                if (String(path) === lockPath) heartbeatUtimes += 1;
-            },
+            onUtimesSuccess: (path) => heartbeat.observe(path),
         });
         const release = await lock(target, options(fs, {
             onCompromised: (error) => {
                 compromised = error;
             },
         }));
-        heartbeatUtimes = 0;
+        heartbeat.reset();
 
         try {
-            await heartbeatRounds(3, () => heartbeatUtimes);
-            expect(heartbeatUtimes).toBeGreaterThanOrEqual(3);
+            await heartbeatRounds(3, heartbeat.waitFor);
+            expect(heartbeat.count).toBeGreaterThanOrEqual(3);
             expect(compromised).toBeUndefined();
         } finally {
             await release().catch(() => undefined);
@@ -80,22 +85,20 @@ describe("proper-lockfile mtime precision patch", () => {
         const lockPath = `${target}.lock`;
         await writeFile(target, "", "utf8");
         let compromised: Error | undefined;
-        let heartbeatUtimes = 0;
+        const heartbeat = createHeartbeatObserver(lockPath);
         const fs = quantizedFs(new Map([[lockPath, 1]]), {
-            onUtimesSuccess: (path) => {
-                if (String(path) === lockPath) heartbeatUtimes += 1;
-            },
+            onUtimesSuccess: (path) => heartbeat.observe(path),
         });
         const release = await lock(target, options(fs, {
             onCompromised: (error) => {
                 compromised = error;
             },
         }));
-        heartbeatUtimes = 0;
+        heartbeat.reset();
 
         try {
-            await heartbeatRounds(3, () => heartbeatUtimes);
-            expect(heartbeatUtimes).toBeGreaterThanOrEqual(3);
+            await heartbeatRounds(3, heartbeat.waitFor);
+            expect(heartbeat.count).toBeGreaterThanOrEqual(3);
             expect(compromised).toBeUndefined();
         } finally {
             await release().catch(() => undefined);
@@ -110,29 +113,25 @@ describe("proper-lockfile mtime precision patch", () => {
         const lockPath = `${target}.lock`;
         await writeFile(target, "", "utf8");
         let compromised: Error | undefined;
-        let heartbeatUtimes = 0;
+        const heartbeat = createHeartbeatObserver(lockPath);
         const fs = quantizedFs(new Map([[lockPath, 1_000]]), {
-            onUtimesSuccess: (path) => {
-                if (String(path) === lockPath) heartbeatUtimes += 1;
-            },
+            onUtimesSuccess: (path) => heartbeat.observe(path),
         });
         const release = await lock(target, options(fs, {
             onCompromised: (error) => {
                 compromised = error;
             },
         }));
-        heartbeatUtimes = 0;
+        heartbeat.reset();
 
         try {
-            await heartbeatRounds(3, () => heartbeatUtimes);
-            expect(heartbeatUtimes).toBeGreaterThanOrEqual(3);
+            await heartbeatRounds(3, heartbeat.waitFor);
+            expect(heartbeat.count).toBeGreaterThanOrEqual(3);
             expect(compromised).toBeUndefined();
         } finally {
             await release().catch(() => undefined);
         }
     });
-
-
     it("探测期间跨越 2 秒边界后使用新基准并保持下一轮心跳健康", async () => {
         vi.useFakeTimers({toFake: ["Date", "setTimeout", "clearTimeout"]});
         vi.setSystemTime(new Date("2026-09-07T00:00:01.123Z"));
@@ -235,22 +234,20 @@ describe("proper-lockfile mtime precision patch", () => {
         const lockPath = `${target}.lock`;
         await writeFile(target, "", "utf8");
         let compromised: Error | undefined;
-        let heartbeatUtimes = 0;
+        const heartbeat = createHeartbeatObserver(lockPath);
         const fs = quantizedFs(new Map([[lockPath, 2_000]]), {
-            onUtimesSuccess: (path) => {
-                if (String(path) === lockPath) heartbeatUtimes += 1;
-            },
+            onUtimesSuccess: (path) => heartbeat.observe(path),
         });
         const release = lockSync(target, options(fs, {
             onCompromised: (error) => {
                 compromised = error;
             },
         }));
-        heartbeatUtimes = 0;
+        heartbeat.reset();
 
         try {
-            await heartbeatRounds(3, () => heartbeatUtimes);
-            expect(heartbeatUtimes).toBeGreaterThanOrEqual(3);
+            await heartbeatRounds(3, heartbeat.waitFor);
+            expect(heartbeat.count).toBeGreaterThanOrEqual(3);
             expect(compromised).toBeUndefined();
         } finally {
             try {
@@ -357,24 +354,56 @@ describe("proper-lockfile mtime precision patch", () => {
         return root;
     }
 
-    async function heartbeatRounds(count: number, updateCount?: () => number): Promise<void> {
+    async function heartbeatRounds(count: number, waitForUpdate?: (expected: number) => Promise<void>): Promise<void> {
         for (let index = 0; index < count; index += 1) {
             await vi.advanceTimersByTimeAsync(15_000);
-            if (updateCount) {
-                await waitForCount(updateCount, index + 1);
+            if (waitForUpdate) {
+                await waitForUpdate(index + 1);
             } else {
                 await new Promise<void>((resolve) => nodeFs.stat(__filename, () => resolve()));
             }
         }
     }
 
-    async function waitForCount(readCount: () => number, expected: number): Promise<void> {
-        for (let attempt = 0; attempt < 100; attempt += 1) {
-            if (readCount() >= expected) return;
-            await new Promise<void>((resolve) => setImmediate(resolve));
-        }
-        throw new Error(`heartbeat update count ${readCount()} < ${expected}`);
+    function createHeartbeatObserver(lockPath: string): HeartbeatObserver {
+        let count = 0;
+        let waiters: Array<{expected: number; resolve: () => void; reject: (error: Error) => void}> = [];
+        return {
+            get count() {
+                return count;
+            },
+            reset() {
+                count = 0;
+                waiters = [];
+            },
+            observe(path) {
+                if (String(path) !== lockPath) return;
+                count += 1;
+                const ready = waiters.filter((waiter) => waiter.expected <= count);
+                waiters = waiters.filter((waiter) => waiter.expected > count);
+                ready.forEach((waiter) => waiter.resolve());
+            },
+            waitFor(expected) {
+                if (count >= expected) return Promise.resolve();
+                return new Promise<void>((resolve, reject) => {
+                    const waiter = {expected, resolve, reject};
+                    waiters.push(waiter);
+                    const started = performance.now();
+                    const watchdog = (): void => {
+                        if (count >= expected) return;
+                        if (performance.now() - started >= 1_000) {
+                            waiters = waiters.filter((candidate) => candidate !== waiter);
+                            reject(new Error(`heartbeat update count ${count} < ${expected}`));
+                            return;
+                        }
+                        setImmediate(watchdog);
+                    };
+                    setImmediate(watchdog);
+                });
+            },
+        };
     }
+
 });
 
 function options(fs: QuantizedFs, overrides: Partial<LockOptions> = {}): LockOptions {
