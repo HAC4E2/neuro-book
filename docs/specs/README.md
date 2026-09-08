@@ -112,6 +112,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 功能域 | 计划规范 | 说明 |
 |---|---|---|
 | Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、响应式检视和 Product 排除合同；当前尚未实现 |
+| Agent Session Store 租约 | [`agent/session-store-lease.md`](agent/session-store-lease.md) | proper-lockfile 租约互斥、mtime 心跳、失效与 Windows 文件系统兼容目标；修复验证闭合前保持 `planned` |
 
 ## 冻结过渡规范
 
