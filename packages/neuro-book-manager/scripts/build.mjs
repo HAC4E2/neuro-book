@@ -97,7 +97,6 @@ export async function buildManager() {
         format: "esm",
         naming: "[name].mjs",
         plugins: [await createBlessedRuntimePlugin(resolve(packageRoot, "package.json"))],
-        external: ["yaml", "semver"],
         minify: true,
     });
     if (!result.success) {
