@@ -7,6 +7,7 @@ const applicationRoot = resolve(dirname(import.meta.dirname), "..", "packages", 
 describe("Product 临时验收实例合同", () => {
     it("只复制 verified .output，并通过 bundle commands 运行", async () => {
         const source = await readFile(resolve("scripts", "deploy", "product-runtime.mjs"), "utf8");
+        expect(source).toContain('import {ProductRuntimeImageBuilder} from "#scripts/build/product-runtime-image-builder";');
 
         expect(source).toContain('resolveAgentAcceptanceRoot()');
         expect(source).toContain("ProductRuntimeImageBuilder");
