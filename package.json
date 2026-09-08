@@ -190,6 +190,7 @@
   },
   "private": true,
   "patchedDependencies": {
-    "nitropack@2.13.4": "patches/nitropack@2.13.4.patch"
+    "nitropack@2.13.4": "patches/nitropack@2.13.4.patch",
+    "proper-lockfile@4.1.2": "patches/proper-lockfile@4.1.2.patch"
   }
 }
