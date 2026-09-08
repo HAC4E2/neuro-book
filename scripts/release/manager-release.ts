@@ -3,8 +3,8 @@ import {readFile, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {Command} from "commander";
 
+import {normalizeBunLockfileWorkspaceFileSpecifiers} from "#scripts/release/normalize-bun-lockfile";
 import {run, runCapture} from "#scripts/utils/process.mjs";
-
 type ReleaseOptions = {
     version: string;
     push: boolean;
@@ -14,6 +14,7 @@ type ReleaseOptions = {
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 const PACKAGE_PATH = resolve(ROOT, "packages", "neuro-book-manager", "package.json");
+const LOCKFILE_PATH = resolve(ROOT, "bun.lock");
 
 const program = new Command()
     .name("manager-release")
@@ -56,6 +57,7 @@ async function releaseManager(channel: "stable" | "canary", options: ReleaseOpti
     packageJson.version = version;
     await writeFile(PACKAGE_PATH, `${JSON.stringify(packageJson, null, 4)}\n`, "utf8");
     await run("bun", ["install", "--lockfile-only"], {cwd: ROOT});
+    await normalizeLockfile();
     await run("bun", ["run", "--cwd", "packages/neuro-book", "runtime:typecheck"], {cwd: ROOT});
     await run("bun", ["run", "manager:typecheck"], {cwd: ROOT});
     await run("bun", ["run", "manager:test"], {cwd: ROOT});
@@ -79,4 +81,11 @@ function normalizeVersion(input: string): string {
 async function packageVersion(): Promise<string> {
     const packageJson = JSON.parse(await readFile(PACKAGE_PATH, "utf8")) as {version: string};
     return packageJson.version;
+}
+
+/** Bun Windows 当前会把 workspace file specifier 写成反斜杠；发布输入必须保持 POSIX 形式。 */
+async function normalizeLockfile(): Promise<void> {
+    const lockfile = await readFile(LOCKFILE_PATH, "utf8");
+    const normalized = normalizeBunLockfileWorkspaceFileSpecifiers(lockfile);
+    if (normalized !== lockfile) await writeFile(LOCKFILE_PATH, normalized, "utf8");
 }

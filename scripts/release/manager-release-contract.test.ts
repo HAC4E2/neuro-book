@@ -4,6 +4,7 @@ import {resolve} from "node:path";
 
 import {describe, expect, it} from "vitest";
 
+import {normalizeBunLockfileWorkspaceFileSpecifiers} from "#scripts/release/normalize-bun-lockfile";
 const ROOT = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const APPLICATION_ROOT = resolve(ROOT, "packages", "neuro-book");
 
@@ -60,5 +61,11 @@ describe("Manager release clean-checkout contract", () => {
     it("bun.lock对workspace file依赖保持POSIX分隔符", async () => {
         const lockfile = await readFile(resolve(ROOT, "bun.lock"), "utf8");
         expect(lockfile).not.toMatch(/file:[^"]*\\/u);
+    });
+    it("规范化 Windows file specifier 时保留其它 lockfile 文本", () => {
+        const source = String.raw`["pkg@file:packages\\neuro-book-test-support", "file:../already-posix"]`;
+        expect(normalizeBunLockfileWorkspaceFileSpecifiers(source)).toBe(
+            `["pkg@file:packages/neuro-book-test-support", "file:../already-posix"]`,
+        );
     });
 });
