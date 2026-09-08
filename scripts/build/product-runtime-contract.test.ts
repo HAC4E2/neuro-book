@@ -31,4 +31,14 @@ describe("Product 临时验收实例合同", () => {
         expect(start).not.toContain("productRuntimeReady");
         expect(start).toContain("repositoryRoot: applicationRoot");
     });
+
+    it("Product 启动链路不把长驻服务绑定到父 stdout/stderr", async () => {
+        const start = await readFile(resolve(applicationRoot, "server", "runtime", "product-start-command.mjs"), "utf8");
+        const command = await readFile(resolve(applicationRoot, "server", "runtime", "product-command.ts"), "utf8");
+        const runtime = await readFile(resolve("scripts", "deploy", "product-runtime.mjs"), "utf8");
+        expect(start).toContain('stdio: "ignore"');
+        expect(start).toContain('// start 是长驻服务；启动前内部命令也不能继承可能已断开的 supervisor 管道。');
+        expect(command).toContain('mode === "command" && id === "start" ? "ignore" : "inherit"');
+        expect(runtime).toContain('stdio: commandId === "start" ? "ignore" : "inherit"');
+    });
 });
