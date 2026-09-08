@@ -4034,9 +4034,9 @@
 
     "@notnotype/neuro-book-contracts/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
 
-    "@notnotype/neuro-book-manager/@notnotype/neuro-book-contracts/@notnotype/neuro-book-test-support": ["@notnotype/neuro-book-test-support@file:packages/neuro-book-test-support", {}],
+    "@notnotype/neuro-book-manager/@notnotype/neuro-book-contracts/@notnotype/neuro-book-test-support": ["@notnotype/neuro-book-test-support@file:packages/neuro-book-test-support", { "devDependencies": { "@types/node": "^25.6.0", "typescript": "^5.9.3", "vitest": "^4.1.2" } }],
 
-    "@notnotype/neuro-book-manager/@notnotype/owned-process/@notnotype/neuro-book-test-support": ["@notnotype/neuro-book-test-support@file:packages/neuro-book-test-support", {}],
+    "@notnotype/neuro-book-manager/@notnotype/owned-process/@notnotype/neuro-book-test-support": ["@notnotype/neuro-book-test-support@file:packages/neuro-book-test-support", { "devDependencies": { "@types/node": "^25.6.0", "typescript": "^5.9.3", "vitest": "^4.1.2" } }],
 
     "@notnotype/neuro-book-manager/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
 
