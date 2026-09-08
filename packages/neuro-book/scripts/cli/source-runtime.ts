@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
 import {spawn} from "node:child_process";
 import {resolve} from "node:path";
+import {findRepositoryRoot} from "#scripts/utils/workspace-roots";
 import {seedSystemAssets} from "nbook/server/workspace-files/system-asset-installation";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 const packageRoot = resolve(import.meta.dirname, "../..");
+const repositoryRoot = findRepositoryRoot(packageRoot);
+process.env.NEURO_BOOK_REPOSITORY_ROOT = repositoryRoot;
 process.env.NEURO_BOOK_RUNTIME_ASSET_MODE = "install";
 delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
 delete process.env.NEURO_BOOK_PRODUCT_BUILD;

@@ -33,6 +33,7 @@ async function main(): Promise<void> {
     const contract = await readProductRuntimeContract(imageRoot);
     const childEnvironment: NodeJS.ProcessEnv = {
         ...process.env,
+        NEURO_BOOK_REPOSITORY_ROOT: applicationRoot,
         NEURO_BOOK_APPLICATION_ROOT: applicationRoot,
         NEURO_BOOK_PRODUCT_IMAGE_ROOT: imageRoot,
     };

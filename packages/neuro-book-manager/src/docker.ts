@@ -555,6 +555,7 @@ function commonEnvironment(port: number, databaseUrl: string): Record<string, st
         NUXT_PORT: String(port),
         DATABASE_KIND: "sqlite",
         DATABASE_URL: databaseUrl,
+        NEURO_BOOK_REPOSITORY_ROOT: "/app",
         NEURO_BOOK_APPLICATION_ROOT: "/app",
         NEURO_BOOK_STATE_ROOT: "/app",
         NEURO_BOOK_CACHE_ROOT: "/app/cache",

@@ -487,6 +487,7 @@ export async function applicationEnvironment(
 ): Promise<NodeJS.ProcessEnv> {
     const productImageRoot = resolveProductImageRoot(root);
     return createProductRuntimeEnvironment({
+        repositoryRoot: root,
         applicationRoot: root,
         productImageRoot,
         stateRoot,

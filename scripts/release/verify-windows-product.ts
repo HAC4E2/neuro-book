@@ -101,6 +101,7 @@ export async function verifyWindowsProduct(
     const environment: NodeJS.ProcessEnv = {
         ...process.env,
         NODE_ENV: "production",
+        NEURO_BOOK_REPOSITORY_ROOT: productRoot,
         NEURO_BOOK_APPLICATION_ROOT: productRoot,
         NEURO_BOOK_STATE_ROOT: stateRoot,
         NEURO_BOOK_CACHE_ROOT: cacheRoot,
