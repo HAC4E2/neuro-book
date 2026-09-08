@@ -2,25 +2,22 @@
 
 这里只放当前版本。更早的版本见 [中文 changelog](vitepress/locales/zh-Hans/changelog/) 与 [English changelog](vitepress/locales/en-US/changelog/)。
 
-## 0.10.1-canary（限量 canary） - 2026-09-08
+## 0.10.2-canary（限量 canary） - 2026-09-08
 
-这一轮修复 Windows Product/Portable Agent 首轮运行、Product Runtime 验收编排，以及低 mtime 精度文件系统上的运行租约续期问题。它仍是限量 canary。
+这一轮修复 0.10.1-canary Windows Portable 发行包在无构建机 `node_modules` 环境首轮启动失败的问题，并继续覆盖 Windows Product/Portable 运行边界。
 
 ### 修复
 
-- 修复 `proper-lockfile@4.1.2` 在 Windows 低 mtime 精度文件系统上正常续期误报 `ECOMPROMISED` 的问题；每把锁按实际 `utimes -> stat` 往返能力选择精度，同时保留 `ELOCKED`、stale 接管、失锁后的 fail-closed 和 release 合同 (#123)。
-- 修复 Windows Portable Product 首轮 Profile Import 缺少显式 Repository Root 导致 `paths[0]` 为 `undefined` 的问题；Product/Portable 现在显式使用 Installation Root，缺少必要根时 fail closed (#225)。
-- 修复 `product:stage` 缺少 `ProductRuntimeImageBuilder` 及 Product Runtime command contract 导入的问题，使 stage 继续进入既有 Runtime Image 验证与 `product:start` 路径 (#226)。
+- 修复 Windows Portable 内置 Manager 将 `yaml`、`semver` 留作外部依赖，导致干净解压目录启动时报 `Cannot find package 'yaml'` 的问题；Manager 单文件现在内联生产依赖，Portable 首轮启动不再依赖构建机 `node_modules` (#225)。
 
 ### 内部维护
 
-- 增加 proper-lockfile 补丁 validator、mtime 精度与回调同步回归，以及 Product Runtime stage、Portable identity 和路径合同验证。
+- 收紧 Manager pack 门禁，真实在无 `node_modules` 的隔离目录冷启动单文件 bundle，防止外部依赖回归。
 
 ### 升级须知
 
-- 这是限量 canary。升级前请备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`；先在可丢弃的 Project 上测试。
+- 这是限量 canary。请使用本版本替代 `0.10.1-canary` 的 Windows Portable 资产；升级前备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`，先在可丢弃的 Project 上测试。
 - 真实 exFAT 120 秒租约观察未在本机执行；Product/Portable 的本地受控 smoke 不替代真实文件系统和真实 Provider/Model 验收。
-
 
 ## 0.9.7-canary（限量 canary） - 2026-08-25
 
