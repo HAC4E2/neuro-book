@@ -24,9 +24,11 @@ try {
         "node",
         "--input-type=module",
         "-e",
-        `const installation = await import("@notnotype/neuro-book-manager/installation");
+        `import {resolve} from "node:path";
+const installation = await import("@notnotype/neuro-book-manager/installation");
 const paths = installation.installationPaths("C:/neuro-book");
-if (typeof installation.writeInstallationManifest !== "function" || paths.manifest !== ${JSON.stringify(resolve("C:/neuro-book", ".deploy", "installation.json"))}) {
+const expectedManifest = resolve("C:/neuro-book", ".deploy", "installation.json");
+if (typeof installation.writeInstallationManifest !== "function" || paths.manifest !== expectedManifest) {
     throw new Error("packed installation export contract mismatch");
 }
 console.log("packed installation import ok");`,
