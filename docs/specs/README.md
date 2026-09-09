@@ -99,6 +99,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Theme | [`theme/system.md`](theme/system.md) | 主题变量和消费规则 |
 | Media | [`media/image-variants.md`](media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
 | Media / 文生图 | [`media/novelai-prompt-bundle.md`](media/novelai-prompt-bundle.md) | NovelAI 提示词替换、角色调用展开、凭据边界与最终 Prompt Bundle |
+| Media / 文生图 LLM Toolcall | [`media/text-to-image-llm-toolcall.md`](media/text-to-image-llm-toolcall.md) | chatu-8 Tool/Tail 默认设置、五类 LLM 请求、预览和配置覆盖合同已实现 |
+
 | Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
 | Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
 | 测试与验收 | [`../testing/README.md`](../testing/README.md) | 测试组织、临时根、验收和证据合同 |
