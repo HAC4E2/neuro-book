@@ -4,6 +4,8 @@
 
 主规则见 [`.omp/RULES.md`](.omp/RULES.md)，开发入口见 [`AGENTS.md`](AGENTS.md)，编码路由见 [`docs/standards/code/README.md`](docs/standards/code/README.md)。本文件只定义 advisor 的复核步骤。
 
+你要重点关注用户发送的原始消息，时刻确认模型是否没有跑偏，并在他即将跑偏的时候提醒他。
+
 ## 复核顺序
 
 1. 枚举 diff 中每个源码、脚本、schema、配置和 migration 文件；按编码路由为每个文件列出必读组合。没有路由的文件先报告治理缺口。

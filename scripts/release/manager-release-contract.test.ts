@@ -1,9 +1,14 @@
+import {execFile} from "node:child_process";
 import {readFile} from "node:fs/promises";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
+import {promisify} from "node:util";
 import {resolve} from "node:path";
 
 import {describe, expect, it} from "vitest";
 
+import {normalizeBunLockfileWorkspaceFileSpecifiers} from "#scripts/release/normalize-bun-lockfile";
+
+const execFileAsync = promisify(execFile);
 const ROOT = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const APPLICATION_ROOT = resolve(ROOT, "packages", "neuro-book");
 
@@ -60,5 +65,35 @@ describe("Manager release clean-checkout contract", () => {
     it("bun.lock对workspace file依赖保持POSIX分隔符", async () => {
         const lockfile = await readFile(resolve(ROOT, "bun.lock"), "utf8");
         expect(lockfile).not.toMatch(/file:[^"]*\\/u);
+    });
+    it("规范化 Windows file specifier 时保留其它 lockfile 文本", () => {
+        const source = String.raw`["pkg@file:packages\\neuro-book-test-support", "file:../already-posix"]`;
+        expect(normalizeBunLockfileWorkspaceFileSpecifiers(source)).toBe(
+            `["pkg@file:packages/neuro-book-test-support", "file:../already-posix"]`,
+        );
+    });
+
+    it("clean Manager build 的 installation 公开入口可由 Node 实际加载", async () => {
+        await execFileAsync("bun", ["run", "manager:build"], {cwd: ROOT, windowsHide: true});
+        const entrypoint = pathToFileURL(resolve(ROOT, "packages/neuro-book-manager/dist/installation-entry.mjs")).href;
+        const expectedExports = [
+            "discoverInstallationRoot",
+            "installationPaths",
+            "managerCacheRoot",
+            "readInstallationManifest",
+            "writeInstallationManifest",
+        ];
+        const expectedRoot = resolve("C:/neuro-book");
+        const expectedManifest = resolve(expectedRoot, ".deploy", "installation.json");
+        const probe = [
+            `const installation = await import(${JSON.stringify(entrypoint)});`,
+            `const expectedExports = ${JSON.stringify(expectedExports)};`,
+            "if (JSON.stringify(Object.keys(installation).sort()) !== JSON.stringify(expectedExports)) throw new Error('installation export contract mismatch');",
+            `const paths = installation.installationPaths(${JSON.stringify(expectedRoot)});`,
+            `if (paths.root !== ${JSON.stringify(expectedRoot)} || paths.manifest !== ${JSON.stringify(expectedManifest)}) throw new Error('installation path behavior mismatch');`,
+            "console.log('installation-entry import ok');",
+        ].join("\n");
+        const result = await execFileAsync("node", ["--input-type=module", "-e", probe], {cwd: ROOT, windowsHide: true});
+        expect(result.stdout.trim()).toBe("installation-entry import ok");
     });
 });

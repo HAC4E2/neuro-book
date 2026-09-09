@@ -7,7 +7,7 @@
 - Current Task：`w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike`；legacy 来源为 `00161-novel-understanding-spike`。
 - 当前工作目录为主工作区；开发者明确要求不创建分支或 worktree。
 - 研究入口是 `evidences/novel-qa-service.md`；该研究 Task 不写 `packages/` 文档。
-- 样书由用户管理，路径为 `.local/novels/转生反派萝莉，找茬魔法少女.epub`。**2026-08-29 起**：显式登记的样本章节正文可以进 Git（第一章见 `evidences/chapter-001-source-normalized.txt`），批量抽取产出的逐字层仍不进；口径见 `t03/extraction-pipeline.md` R4。
+- 样书由用户管理，路径为 `.local/novels/转生反派萝莉，找茬魔法少女.epub`。**2026-08-29 起按根 `AGENTS.md`「真实模型调用与样本数据」**：小说、章节正文、小说相关提示词、摘要和研究产物不属于敏感数据，可按 Task 的`允许文件`进入 Git（第一章见 `evidences/chapter-001-source-normalized.txt`）；密钥、个人数据与商业秘密仍不进。样书本体保持只读，进库的是归一化正文，来源与归一化版本按 Task 登记。
 - 当前 `nb-memory.ingestRaw` 接受调用方文本并同步执行分块、LLM 事实抽取、LLM 主体/状态消解；`search` 只返回 `SearchHit[]`。
 - World Engine 是动态世界状态与时间线真相源；Plot System 是作者视角的剧情结构系统，Scene 是连接 World Engine 的桥梁。
 

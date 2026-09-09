@@ -136,7 +136,7 @@ async function selfTest(root: string): Promise<void> {
     const s1 = await buildPrompts(root, "s1", []);
     check(s1.user.includes("\n1|") && s1.user.includes(`\n${paragraphs.length}|`), "s1-numbering-broken");
 
-    // 用一个只覆盖 ¶50–63 的临时窗口表验证 S2 的组装，不落任何仓库文件。
+    // 用一个只覆盖第 50–63 段的临时窗口表验证 S2 的组装，不落任何仓库文件。
     const runRoot = resolveAgentRunRoot(WORK, "t03-stage-self-test");
     await mkdir(runRoot, {recursive: true});
     const windowsPath = resolve(runRoot, "windows.json");
@@ -144,7 +144,7 @@ async function selfTest(root: string): Promise<void> {
     const s2 = await buildPrompts(root, "s2", ["--windows", windowsPath, "--window", "WX"]);
     check(s2.user.includes("50|") && s2.user.includes("63|") && !s2.user.includes("\n64|"), "s2-window-slice-broken");
 
-    // R1 只读前缀：候选表切到 ¶49，此时「小破书」（since ¶50）还不该出现在表里——
+    // R1 只读前缀：候选表切到第 49 段，此时「小破书」（since 第 50 段）还不该出现在表里——
     // 但它会出现在窗口正文里，所以断言必须只看候选表，不能看整个提示词。
     const graph = JSON.parse(await readFile(resolve(root, `${TASK_ROOT}/t02-novel-memory-model-design/chapter-01.json`), "utf8")) as MemoryGraph;
     const prefix49 = candidateTable(graph, 49);

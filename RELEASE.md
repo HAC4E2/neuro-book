@@ -2,6 +2,23 @@
 
 这里只放当前版本。更早的版本见 [中文 changelog](vitepress/locales/zh-Hans/changelog/) 与 [English changelog](vitepress/locales/en-US/changelog/)。
 
+## 0.10.2-canary（限量 canary） - 2026-09-08
+
+这一轮修复 0.10.1-canary Windows Portable 发行包在无构建机 `node_modules` 环境首轮启动失败的问题，并继续覆盖 Windows Product/Portable 运行边界。
+
+### 修复
+
+- 修复 Windows Portable 内置 Manager 将 `yaml`、`semver` 留作外部依赖，导致干净解压目录启动时报 `Cannot find package 'yaml'` 的问题；Manager 单文件现在内联生产依赖，Portable 首轮启动不再依赖构建机 `node_modules` (#225)。
+
+### 内部维护
+
+- 收紧 Manager pack 门禁，真实在无 `node_modules` 的隔离目录冷启动单文件 bundle，防止外部依赖回归。
+
+### 升级须知
+
+- 这是限量 canary。请使用本版本替代 `0.10.1-canary` 的 Windows Portable 资产；升级前备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`，先在可丢弃的 Project 上测试。
+- 真实 exFAT 120 秒租约观察未在本机执行；Product/Portable 的本地受控 smoke 不替代真实文件系统和真实 Provider/Model 验收。
+
 ## 0.9.7-canary（限量 canary） - 2026-08-25
 
 这一轮修复 Podman 环境下容器方式安装与更新在迁移规划阶段崩溃的问题，并让发布流水线同时真机验收 `podman-compose` 与 `podman compose` 委托两条路径。它仍是限量 canary。

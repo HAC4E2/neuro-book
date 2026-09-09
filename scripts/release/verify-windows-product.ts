@@ -101,6 +101,7 @@ export async function verifyWindowsProduct(
     const environment: NodeJS.ProcessEnv = {
         ...process.env,
         NODE_ENV: "production",
+        NEURO_BOOK_REPOSITORY_ROOT: productRoot,
         NEURO_BOOK_APPLICATION_ROOT: productRoot,
         NEURO_BOOK_STATE_ROOT: stateRoot,
         NEURO_BOOK_CACHE_ROOT: cacheRoot,
@@ -141,12 +142,14 @@ export async function verifyWindowsProduct(
             ["command", "create-admin", "product-smoke-admin", "--password-stdin"],
             adminPassword,
         );
+        await command(["command", "workspace", "project", "create", "product-smoke", "--title", "Product Smoke", "--json"]);
 
         const launched = launchProduct(bunRuntime, bootstrap, productRoot, environment);
         product = launched.product;
         logs = launched.logs;
         const baseUrl = `http://127.0.0.1:${port}`;
         const version = await waitForVersion(product, `${baseUrl}/api/app/version`, 90_000);
+        await assertHttpWorldEngineReadPaths(baseUrl, "product-smoke");
         await assertHttpProfileCompile(baseUrl, stateRoot);
 
         const wrongToken = await fetch(`${baseUrl}${contract.shutdown.path}`, {
@@ -174,7 +177,6 @@ export async function verifyWindowsProduct(
         }
         await assertPortClosed(`${baseUrl}/api/app/version`);
 
-        await command(["command", "workspace", "project", "create", "product-smoke", "--title", "Product Smoke", "--json"]);
         const projectWorkspaceRoot = join(stateRoot, "workspace", "product-smoke");
         const nodeRoot = join(projectWorkspaceRoot, "manuscript", "smoke-chapter");
         await commandAt(projectWorkspaceRoot, "command", "workspace", "node", "new", "manuscript/smoke-chapter", "--type", "chapter", "--title", "Smoke Chapter");
@@ -197,6 +199,9 @@ export async function verifyWindowsProduct(
                 "migrate-application-state",
                 ...WINDOWS_PRODUCT_RELEASE_CHECKS,
                 "create-admin",
+                "world-engine-http-schema",
+                "world-engine-http-subjects",
+                "world-engine-http-slices",
                 "http-profile-compile-with-hostile-node-path",
                 "invalid-shutdown-token",
                 "authenticated-shutdown",
@@ -221,8 +226,29 @@ export async function verifyWindowsProduct(
         await rm(rootNodeModules, {recursive: true, force: true});
     }
 }
+/** 通过公开 HTTP 入口验证 Product World Engine 的 schema、subjects、slices 仍可用。 */
+async function assertHttpWorldEngineReadPaths(baseUrl: string, projectRoot: string): Promise<void> {
+    const open = await fetch(`${baseUrl}/api/projects/open`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({projectRoot}),
+        signal: AbortSignal.timeout(10_000),
+    });
+    if (!open.ok) {
+        throw new Error(`Product Project open 失败：status=${open.status} body=${await open.text()}`);
+    }
+    await open.arrayBuffer();
+    for (const path of ["schema", "subjects", "slices"] as const) {
+        const response = await fetch(`${baseUrl}/api/projects/world-engine/${path}?projectRoot=${encodeURIComponent(projectRoot)}`, {
+            signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) {
+            throw new Error(`Product World Engine ${path} 失败：status=${response.status} body=${await response.text()}`);
+        }
+        await response.arrayBuffer();
+    }
+}
 
-/** 通过公开 HTTP 入口验证 Product 只使用镜像内预编译 Profile worker。 */
 async function assertHttpProfileCompile(baseUrl: string, stateRoot: string): Promise<void> {
     const fileName = "release/http-worker.profile.tsx";
     const profileRoot = join(stateRoot, "workspace", ".nbook", "agent", "profiles");

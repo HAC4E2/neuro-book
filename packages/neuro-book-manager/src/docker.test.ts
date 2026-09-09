@@ -124,6 +124,7 @@ describe("Docker Compose部署合同", () => {
         expect(compose.services.app.volumes).toContain("../tool-state:/app/tool-state");
         expect(compose.services.app.volumes).toContain("../.cache:/app/cache");
         expect(compose.services.app.environment).toMatchObject({
+            NEURO_BOOK_REPOSITORY_ROOT: "/app",
             NEURO_BOOK_APPLICATION_ROOT: "/app",
             NEURO_BOOK_CACHE_ROOT: "/app/cache",
             LLMLINT_HOME: "/app/tool-state/llmlint",

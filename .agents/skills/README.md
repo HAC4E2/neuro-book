@@ -1,16 +1,15 @@
 # Agent Role Skills
 
-这里保存与项目治理相关的、可被不同 Code Agent 宿主加载的 Skill 适配层。
+这里保存开发 Agent 的仓库内 Skill 适配层，不是产品运行时资产。
 
-角色行为的源规则在 `.agents/roles/<role>/AGENTS.md`，current Work/Task 合同在 `.agents/works/AGENTS.md`，legacy provenance 在 `.agents/tasks/AGENTS.md`；Skill 不复制这些规则，只负责把当前角色指向对应文件并要求按顺序读取。
+角色规则以 `.agents/roles/<role>/AGENTS.md` 为准，current Work/Task 以 `.agents/works/AGENTS.md` 为准，legacy provenance 以 `.agents/tasks/AGENTS.md` 为准。Skill 按当前任务指向所需合同，不复制正文。
 
-项目不依赖 OMP。Claude Code、Codex、Cursor、OMP 或其他 Code Agent 都可以通过自己的启动方式读取同一份角色契约。
+- [report](report/SKILL.md)：长任务交接、阻塞或当前交付证据。
+- [load_role](load_role/SKILL.md)：按 pm、leader、tasker 或 reviewer 加载角色。
+- [doc-review](doc-review/SKILL.md)：目标读者视角的可理解性、歧义与链接审查，按需独立复核。
+- [diagnosing-bugs](diagnosing-bugs/SKILL.md)：复杂故障或性能回退诊断。
+- [writing-for-agents](writing-for-agents/SKILL.md)：规则与 Skill 写作；Skill 调用说明见 [SKILL-MECHANICS.md](writing-for-agents/SKILL-MECHANICS.md)。
 
-产品运行时的 Agent Skill 位于 `assets/workspace/.nbook/agent/skills/`，不要把开发流程角色混入产品资产。
-- [`report/SKILL.md`](report/SKILL.md)：主动报告当前状态、证据、开发者动作和下一步。
-- [`load_role/SKILL.md`](load_role/SKILL.md)：按 `pm`、`leader`、`tasker` 或 `reviewer` 参数加载 canonical 角色合同。
-- [`writing-for-agents/SKILL.md`](writing-for-agents/SKILL.md)：编写 Agent 消费的 Skill、`AGENTS.md`、`CLAUDE.md` 与触发式上下文文档；修改 Skill 时同时读取 [`SKILL-MECHANICS.md`](writing-for-agents/SKILL-MECHANICS.md)。
-- [`diagnosing-bugs/SKILL.md`](diagnosing-bugs/SKILL.md)：报错、失败和性能回归的诊断循环。
-工作流路由优先服从根 `AGENTS.md`、`.omp/RULES.md`、当前 Spec、Issue/Project、Work、Task 和角色合同；通用 Skill 只作为执行参考。本目录是开发 Agent 的治理适配层，不是产品运行时 Skill 资产；产品运行时 Skill 继续位于 `assets/workspace/.nbook/agent/skills/`。
+通用 Skill 在宿主允许范围内服务当前请求，服从根规则、当前合同和授权，不另立审批或完成门禁。项目不依赖特定 Code Agent 宿主。
 
-这些是开发 Agent 的仓库内副本，不属于产品运行时 Skill。
+产品 Skill 的 canonical 路径为 `packages/neuro-book/assets/workspace/.nbook/agent/skills/`，不要把开发角色混入产品资产。

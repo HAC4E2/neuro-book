@@ -46,6 +46,9 @@ import type {AgentProfileDefinition, ProfilePrepareContext} from "nbook/server/a
 import {createTestRuntimeSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
+const TEST_REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..", "..");
+process.env.NEURO_BOOK_REPOSITORY_ROOT ??= TEST_REPOSITORY_ROOT;
+
 
 type LegacyTestProfile<
     TInitialSchema extends TSchema = TSchema,
@@ -670,6 +673,51 @@ describe("profile TSX DSL", () => {
             restoreEnv("NEURO_BOOK_STATE_ROOT", previousEnv.stateRoot);
             restoreEnv("NEURO_BOOK_RUNTIME_ASSET_MODE", previousEnv.runtimeMode);
             await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    it("Import 使用显式 Portable repository root 读取 AGENTS.md", async () => {
+        const root = await mkdtemp(testHostPath("nbook-profile-import-repository-root-"));
+        const previousRoot = process.env.NEURO_BOOK_REPOSITORY_ROOT;
+        try {
+            await writeFile(resolve(root, "AGENTS.md"), "portable-agent-root\n", "utf8");
+            process.env.NEURO_BOOK_REPOSITORY_ROOT = root;
+            const profile = defineAgentProfile({
+                manifest: {key: "test.import-repository-root", name: "Repository Root Import"},
+                initialSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context: () => ProfilePrompt({children: HistorySet({children: Message({children: Import({
+                    path: "AGENTS.md",
+                    required: true,
+                })})})}),
+            });
+
+            const plan = await profile.prepare!(context());
+            expect((plan.historyInitMessages ?? []).map(messageText).join("\n")).toContain("portable-agent-root");
+        } finally {
+            restoreEnv("NEURO_BOOK_REPOSITORY_ROOT", previousRoot);
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    it("Import 缺少 repository root 时 fail closed 并明确指出环境合同", async () => {
+        const previousRoot = process.env.NEURO_BOOK_REPOSITORY_ROOT;
+        delete process.env.NEURO_BOOK_REPOSITORY_ROOT;
+        try {
+            const profile = defineAgentProfile({
+                manifest: {key: "test.import-missing-repository-root", name: "Missing Repository Root"},
+                initialSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context: () => ProfilePrompt({children: HistorySet({children: Message({children: Import({
+                    path: "AGENTS.md",
+                    required: true,
+                })})})}),
+            });
+
+            await expect(profile.prepare!(context())).rejects.toThrow("NEURO_BOOK_REPOSITORY_ROOT");
+            await expect(profile.prepare!(context())).rejects.not.toThrow("paths[0]");
+        } finally {
+            restoreEnv("NEURO_BOOK_REPOSITORY_ROOT", previousRoot);
         }
     });
 

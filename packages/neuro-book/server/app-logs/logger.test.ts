@@ -10,7 +10,8 @@ import {
     sanitizeAppLogValue,
     serializeAppLogError,
 } from "nbook/server/app-logs/logger";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 const cleanupRoots: string[] = [];
 
@@ -134,6 +135,25 @@ describe("app logs logger", () => {
             event: "process.uncaughtException",
         });
         expect(entry.error).toMatchObject({message: "fatal token=[REDACTED]"});
+    });
+
+    it("日志写入失败时不会把诊断递归写回断开的 stderr", async () => {
+        const root = await tempLogRoot();
+        const blockedLogPath = path.join(root, "blocked-log");
+        await fs.writeFile(blockedLogPath, "not a directory", "utf8");
+        const epipe = Object.assign(new Error("broken pipe"), {code: "EPIPE"});
+        const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => {
+            throw epipe;
+        });
+        const logger = new AppFileLogger({
+            env: {NEURO_BOOK_LOG_DIR: blockedLogPath} as NodeJS.ProcessEnv,
+        });
+
+        expect(() => logger.fatalSync("process.uncaughtException", undefined, epipe)).not.toThrow();
+        await expect(logger.warn("app.logs.writeFailed")).resolves.toBeUndefined();
+        await expect(logger.flush()).resolves.toBeUndefined();
+        expect(stderrWrite).not.toHaveBeenCalled();
+        stderrWrite.mockRestore();
     });
 
     it("rotates server-current and prunes old server logs", async () => {

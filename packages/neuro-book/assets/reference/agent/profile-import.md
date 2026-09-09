@@ -18,7 +18,7 @@ Supported props:
 
 | Prop | Required | Meaning |
 | --- | --- | --- |
-| `path` | Yes | Repo / app root relative path. In explicit Runtime, `reference/**` reads `State Root/workspace/.nbook/reference`; `assets/workspace/.nbook/agent/**` reads the State Root Install Root. |
+| `path` | Yes | Repo / app root relative path. In explicit Runtime, `reference/**` reads `State Root/workspace/.nbook/reference`; `assets/workspace/.nbook/agent/**` reads the State Root Install Root. Repository-level `AGENTS.md` and `docs/**` require the explicit `NEURO_BOOK_REPOSITORY_ROOT` environment contract. |
 | `heading` | No | Markdown heading text. When set, only that heading section is imported. |
 | `maxBytes` | No | Positive UTF-8 byte limit. Truncated imports are marked before the fenced block. |
 | `required` | No | Missing files default to empty output. When `true`, missing files throw. Missing headings still throw by default; set `false` to make missing headings empty too. |
@@ -58,10 +58,10 @@ V1 only allows these roots:
 
 - `AGENTS.md`
 - `reference/**` — explicit Runtime resolves to the verified State Root Reference copy.
-- `docs/**`
+- `docs/**` — explicit Runtime resolves from the path under `NEURO_BOOK_REPOSITORY_ROOT`.
 - `assets/workspace/.nbook/agent/skills/**` — explicit Runtime resolves to the State Root Agent Install Root.
 
-The path must be relative. Absolute paths, URL-like paths, empty paths and `..` traversal are rejected. Missing or invalid Runtime Reference/Install roots fail closed; Import does not fall back to checkout `reference/` or Application/Product Seed.
+The path must be relative. Absolute paths, URL-like paths, empty paths and `..` traversal are rejected. `AGENTS.md` and `docs/**` require a non-empty explicit `NEURO_BOOK_REPOSITORY_ROOT`; missing or invalid Runtime Reference/Install roots fail closed. Import does not fall back to checkout `reference/`, Application/Product Seed, `cwd`, or `import.meta.dirname`.
 
 `Import` is not a replacement for runtime file tools. Do not use it to read Project Workspace files such as `lorebook/...`, `manuscript/...`, `simulation/...`, or user scratch files. Project content should be read by the agent using its permitted tools, or injected through profile/runtime mechanisms with explicit information-control rules.
 

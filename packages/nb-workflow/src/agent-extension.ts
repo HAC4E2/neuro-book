@@ -96,7 +96,9 @@ class Handle implements SessionHandle {
                 parent,
                 mode: options.mode ?? "prompt",
                 message: options.message ?? null,
-                input: options.input ?? null,
+                ...(options.input === undefined
+                    ? {}
+                    : {input: options.input}),
             },
             async () => await this.agents.invoke(
                 this.id,
@@ -104,7 +106,9 @@ class Handle implements SessionHandle {
                 {
                     mode: options.mode ?? "prompt",
                     message: options.message ?? null,
-                    input: options.input ?? null,
+                    ...(options.input === undefined
+                        ? {}
+                        : {input: options.input}),
                     signal: this.runtime.signal,
                 },
             ) as unknown as JsonValue,

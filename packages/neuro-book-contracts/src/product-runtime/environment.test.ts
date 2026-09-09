@@ -9,6 +9,7 @@ describe("Product runtime environment", () => {
         const stateRoot = join("C:", "NeuroBookData", "data");
         const cacheRoot = join("C:", "NeuroBookData", "cache");
         const environment = createProductRuntimeEnvironment({
+            repositoryRoot: applicationRoot,
             applicationRoot,
             stateRoot,
             cacheRoot,
@@ -16,6 +17,7 @@ describe("Product runtime environment", () => {
             inheritedEnvironment: {API_ORIGIN: "inherited", HOST: "inherited-host", NODE_PATH: "outside-node-path"},
             stateEnvironment: {
                 API_ORIGIN: "state",
+                NEURO_BOOK_REPOSITORY_ROOT: "outside-repository",
                 NEURO_BOOK_STATE_ROOT: "outside-state",
                 NEURO_BOOK_CACHE_ROOT: "outside-cache",
                 NEURO_BOOK_LOG_DIR: "outside-logs",
@@ -28,6 +30,7 @@ describe("Product runtime environment", () => {
             runtimeExecutable: "bun-managed",
         });
 
+        expect(environment.NEURO_BOOK_REPOSITORY_ROOT).toBe(applicationRoot);
         expect(environment).toMatchObject({
             API_ORIGIN: "state",
             NODE_ENV: "production",
@@ -48,6 +51,7 @@ describe("Product runtime environment", () => {
 
     it("未指定 host 时保留 State 环境的容器监听配置", () => {
         const environment = createProductRuntimeEnvironment({
+            repositoryRoot: "/repo",
             applicationRoot: "/app",
             productImageRoot: "/app/.output",
             stateRoot: "/app/data",
@@ -63,6 +67,7 @@ describe("Product runtime environment", () => {
 
     it("Source Dev 不继承 Product image identity", () => {
         const environment = createProductRuntimeEnvironment({
+            repositoryRoot: "C:/NeuroBook",
             applicationRoot: "C:/NeuroBook",
             productImageRoot: "C:/NeuroBook/.output",
             stateRoot: "C:/NeuroBookData/data",

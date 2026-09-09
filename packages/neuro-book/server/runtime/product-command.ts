@@ -20,10 +20,11 @@ async function main(): Promise<void> {
     }
     const imageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
     delete process.env.NODE_PATH;
-    const applicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();
-    if (!applicationRoot) {
+    const applicationRootInput = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();
+    if (!applicationRootInput) {
         throw new Error("Product Runtime command 缺少 NEURO_BOOK_APPLICATION_ROOT；必须由 Manager、Desktop Envelope 或 CLI wrapper 显式注入。");
     }
+    const applicationRoot = resolve(applicationRootInput);
     const receiptAuthorization = productRuntimeReceiptAuthorizationFromEnvironment(process.env);
     if (receiptAuthorization) {
         await verifyAuthorizedProductRuntimeReceiptControlPlane(imageRoot, applicationRoot, receiptAuthorization);
@@ -33,15 +34,20 @@ async function main(): Promise<void> {
     const contract = await readProductRuntimeContract(imageRoot);
     const childEnvironment: NodeJS.ProcessEnv = {
         ...process.env,
+        NEURO_BOOK_REPOSITORY_ROOT: applicationRoot,
         NEURO_BOOK_APPLICATION_ROOT: applicationRoot,
         NEURO_BOOK_PRODUCT_IMAGE_ROOT: imageRoot,
     };
+    for (const key of ["NEURO_BOOK_STATE_ROOT", "NEURO_BOOK_CACHE_ROOT", "NEURO_BOOK_LOG_DIR"] as const) {
+        const configured = childEnvironment[key]?.trim();
+        if (configured) childEnvironment[key] = resolve(applicationRoot, configured);
+    }
     delete childEnvironment.NODE_PATH;
     if (mode === "check" && id === "all") {
         if (args.length > 0) throw new Error("Product Runtime check all 不接受额外参数。");
         for (const invocation of resolveProductRuntimeChecks(contract)) {
             const entry = resolve(imageRoot, ...invocation.entry.split("/"));
-            const code = await run(entry, invocation.fixedArgs, applicationRoot, childEnvironment);
+            const code = await run(entry, invocation.fixedArgs, applicationRoot, childEnvironment, "inherit");
             if (code !== 0) {
                 process.exitCode = code;
                 return;
@@ -55,17 +61,23 @@ async function main(): Promise<void> {
         : resolveProductRuntimeCheck(contract, id, args);
     const entry = resolve(imageRoot, ...invocation.entry.split("/"));
     const cwd = productRuntimeCwd(mode, id, applicationRoot, process.cwd());
-    const code = await run(entry, invocation.fixedArgs, cwd, childEnvironment);
+    const code = await run(entry, invocation.fixedArgs, cwd, childEnvironment, mode === "command" && id === "start" ? "ignore" : "inherit");
     process.exitCode = code;
 }
 
 /** 使用当前受控 Bun 运行入口，并原样转发 stdio 与退出码。 */
-async function run(entry: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+async function run(
+    entry: string,
+    args: string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    stdio: "inherit" | "ignore",
+): Promise<number> {
     return await new Promise((resolvePromise, rejectPromise) => {
         const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...args], {
             cwd,
             env,
-            stdio: "inherit",
+            stdio,
             windowsHide: true,
         });
         const forward = (signal: NodeJS.Signals): void => {

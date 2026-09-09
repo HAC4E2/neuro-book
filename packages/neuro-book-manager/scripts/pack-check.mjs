@@ -20,6 +20,22 @@ try {
     await run(["bun", "add", archive, "--cwd", temporaryRoot], temporaryRoot);
     const installedPackageRoot = join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager");
     const packageJson = JSON.parse(await readFile(join(installedPackageRoot, "package.json"), "utf8"));
+    const installationSmoke = await runCapture([
+        "node",
+        "--input-type=module",
+        "-e",
+        `import {resolve} from "node:path";
+const installation = await import("@notnotype/neuro-book-manager/installation");
+const paths = installation.installationPaths("C:/neuro-book");
+const expectedManifest = resolve("C:/neuro-book", ".deploy", "installation.json");
+if (typeof installation.writeInstallationManifest !== "function" || paths.manifest !== expectedManifest) {
+    throw new Error("packed installation export contract mismatch");
+}
+console.log("packed installation import ok");`,
+    ], temporaryRoot);
+    if (installationSmoke.trim() !== "packed installation import ok") {
+        throw new Error(`packed installation smoke输出错误：${installationSmoke.trim()}`);
+    }
     const forbidden = ["nuxt", "vue", "prisma", "@tiptap/core"];
     for (const name of forbidden) {
         if (packageJson.dependencies?.[name] || packageJson.devDependencies?.[name]) {
@@ -45,6 +61,10 @@ try {
     if (blessedWidgetImports.length > 0) {
         throw new Error(`packed Manager必须内联blessed运行时：${blessedWidgetImports.join(", ")}`);
     }
+    const runtimeImports = managerImports.filter((specifier) => specifier === "yaml" || specifier === "semver");
+    if (runtimeImports.length > 0) {
+        throw new Error(`packed Manager必须内联生产依赖：${runtimeImports.join(", ")}`);
+    }
     const requireFromInstalledManager = createRequire(join(installedPackageRoot, "package.json"));
     const blessedPackage = requireFromInstalledManager.resolve("blessed/package.json");
     const blessedRoot = dirname(blessedPackage);
@@ -69,12 +89,6 @@ try {
     await verifyBlessedRuntime(temporaryRoot, installedPackageRoot);
     const standaloneRoot = await mkdtemp(join(managedTmpRoot, "standalone-"));
     try {
-        const standaloneNodeModules = join(standaloneRoot, "node_modules");
-        await mkdir(standaloneNodeModules, {recursive: true});
-        for (const dependency of ["semver", "yaml"]) {
-            const dependencyPackage = requireFromInstalledManager.resolve(`${dependency}/package.json`);
-            await cp(dirname(dependencyPackage), join(standaloneNodeModules, dependency), {recursive: true});
-        }
         const standaloneManager = join(standaloneRoot, "neuro-book.mjs");
         await cp(managerEntry, standaloneManager);
         const standaloneVersion = await runCapture(["bun", "--no-install", "--no-env-file", standaloneManager, "--version"], standaloneRoot);

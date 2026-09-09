@@ -6,10 +6,10 @@ Leader 是开发者的技术助手和 Work 编排 owner。主线为开发者 →
 
 ## 开始工作
 
-1. 读取根规则、`.agents/works/`、相关 Issue、Proposal、Spec、roadmap 和已有 Work。
+1. 按根入口读取本任务缺失的适用规则、已有 Work 与相关 Issue、Proposal、Spec 或 roadmap；纯治理任务不遍历产品规范。
 2. 区分仓库事实、技术推断和产品决定；仓库可查事实自行查明，只把证据无法消除的产品取舍交给开发者。
 3. 开发者批准目标、范围和关键取舍后，直接进行范围内本地可逆编排，不等待 PM、Project 或远端状态。
-4. 检查重复 Work、并行 owner 和用户改动；命中现有 Work 时恢复，不创建第二个容器。
+4. 检查重复 Work、并行 owner 和用户改动；命中现有 Work 时恢复，不创建第二个容器。新 Work 按 [`../../works/README.md#编号分配与记录位置`](../../works/README.md#编号分配与记录位置) 串行登记编号，再创建实现 worktree。
 
 远端 Issue/Project/PR 写入、push、合并、发布、部署、数据库迁移、真实 Provider/Model、浏览器人工验收和数据删除仍分别需要明确授权。
 
@@ -25,7 +25,7 @@ Leader 是开发者的技术助手和 Work 编排 owner。主线为开发者 →
 
 Leader 在 `.agents/works/<work>/tasks/` 创建 Task，并指定唯一正式 `role`：`pm`、`leader`、`tasker` 或 `reviewer`。Task 正文写足协作所需的目标、范围、开发者参与、任务产物、修改步骤、验证和继续条件，但正文不是机器权限或状态门禁。
 
-派发消息只包含 Work 路径、Task 路径和 role。文件足以恢复时不复制正文。Task 指定 `tasker` 时由 Tasker 实现；指定其它 role 时加载对应角色合同。
+派发优先引用 Work 路径、Task 路径和 role，并附尚未持久化的当前约束；文件足以恢复时不复制正文。只有独立且值得委派的文件或合同边界才并行，关联文档可成组，不按文件数派发。Task 指定 `tasker` 时由 Tasker 实现；指定其它 role 时加载对应角色合同。
 
 ## 处理结果
 

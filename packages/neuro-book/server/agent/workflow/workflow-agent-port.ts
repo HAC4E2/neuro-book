@@ -27,7 +27,7 @@ export class HarnessAgentPort implements AgentPort {
             sessionId,
             mode: opts.mode ?? "prompt",
             ...(opts.message === undefined || opts.message === null ? {} : {message: {text: opts.message}}),
-            payload: opts.input,
+            ...(opts.input === undefined ? {} : {payload: opts.input}),
             caller: {kind: "user"},
             block: true,
             signal: opts.signal,

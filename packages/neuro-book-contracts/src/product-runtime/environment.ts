@@ -2,6 +2,8 @@ import {join} from "node:path";
 
 /** Product 进程环境 Adapter 的显式输入。 */
 export type ProductRuntimeEnvironmentInput = {
+    /** Product/Source 运行期用于解析仓库级静态 Import 的显式根。 */
+    repositoryRoot: string;
     applicationRoot: string;
     /** Product Runtime Image 的显式身份根；不传时由 Application Root 的固定 .output 派生。 */
     productImageRoot?: string;
@@ -29,6 +31,7 @@ export function createProductRuntimeEnvironment(input: ProductRuntimeEnvironment
         ...input.stateEnvironment,
         NODE_ENV: input.development ? "development" : "production",
         ...(host ? {HOST: host, NITRO_HOST: host} : {}),
+        NEURO_BOOK_REPOSITORY_ROOT: input.repositoryRoot,
         NEURO_BOOK_APPLICATION_ROOT: input.applicationRoot,
         NEURO_BOOK_STATE_ROOT: input.stateRoot,
         NEURO_BOOK_CACHE_ROOT: input.cacheRoot,

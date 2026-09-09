@@ -44,6 +44,8 @@ describe("Jobs feed 页面接线合同", () => {
         expect(runtimeSource.lastIndexOf('"nuxt", "dev", "--no-fork"')).toBeGreaterThan(
             runtimeSource.indexOf("await seedSystemAssets"),
         );
+        expect(runtimeSource).toContain('import {findRepositoryRoot} from "#scripts/utils/workspace-roots";');
+        expect(runtimeSource).toContain("process.env.NEURO_BOOK_REPOSITORY_ROOT = repositoryRoot;");
     });
 
     it("单 Job 观察器不暴露全局刷新，Workflow 动作只重启 Run 轮询", async () => {

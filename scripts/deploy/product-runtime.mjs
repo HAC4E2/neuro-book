@@ -7,6 +7,11 @@ import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {check as checkLock, lock as acquireLock} from "proper-lockfile";
 import {resolveAgentAcceptanceRoot} from "@notnotype/neuro-book-test-support/paths";
+import {ProductRuntimeImageBuilder} from "#scripts/build/product-runtime-image-builder";
+import {
+    PRODUCT_BUN_RUNTIME_ARGS,
+    PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
+} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BUILD_OUTPUT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || ".output");
@@ -78,14 +83,14 @@ async function runAcceptedCommand(commandId, args) {
         throw new Error("Product 验收实例 owner 与 Runtime Image identity 不一致。");
     }
 
-    const stateRoot = process.env.NEURO_BOOK_STATE_ROOT?.trim() || "state";
-    if (!process.env.NEURO_BOOK_STATE_ROOT) {
-        await mkdir(resolve(stageRoot, stateRoot), {recursive: true});
+    const configuredStateRoot = process.env.NEURO_BOOK_STATE_ROOT?.trim();
+    const stateRoot = configuredStateRoot ? resolve(stageRoot, configuredStateRoot) : resolve(stageRoot, "state");
+    if (!configuredStateRoot) {
+        await mkdir(stateRoot, {recursive: true});
     }
     await withAcceptanceLease(stageRoot, async () => {
-        const cacheRoot = process.env.NEURO_BOOK_CACHE_ROOT?.trim()
-            ? resolve(process.env.NEURO_BOOK_CACHE_ROOT)
-            : resolve(stageRoot, stateRoot, "cache");
+        const configuredCacheRoot = process.env.NEURO_BOOK_CACHE_ROOT?.trim();
+        const cacheRoot = configuredCacheRoot ? resolve(stageRoot, configuredCacheRoot) : resolve(stateRoot, "cache");
         assertContained(resolve(stageRoot, stateRoot), cacheRoot, "Product Cache Root");
         const excludedRoots = [
             resolve(stageRoot, ".output"),
@@ -103,11 +108,13 @@ async function runAcceptedCommand(commandId, args) {
             cwd: stageRoot,
             env: {
                 ...process.env,
+                NEURO_BOOK_REPOSITORY_ROOT: stageRoot,
                 NEURO_BOOK_APPLICATION_ROOT: stageRoot,
                 NEURO_BOOK_STATE_ROOT: stateRoot,
                 NEURO_BOOK_CACHE_ROOT: cacheRoot,
                 BUN: process.execPath,
             },
+            stdio: commandId === "start" ? "ignore" : "inherit",
         });
         await openVerifiedImage(resolve(stageRoot, ".output"), owner);
         const afterApplicationDigest = await applicationTreeDigest(stageRoot, excludedRoots);
@@ -411,7 +418,7 @@ function run(commandName, args, options) {
         const child = spawn(commandName, args, {
             cwd: options.cwd,
             env: options.env,
-            stdio: "inherit",
+            stdio: options.stdio ?? "inherit",
             windowsHide: false,
         });
         const forwardSignals = ["SIGINT", "SIGTERM"];
