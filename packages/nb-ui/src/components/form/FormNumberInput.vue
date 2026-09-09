@@ -138,29 +138,29 @@ function decimalPlaces(value: string): number {
             @input="updateValue(($event.target as HTMLInputElement).value)"
             @keydown="handleKeydown"
         >
-        <!-- 方案 C：极简悬停无框轻量微调器 -->
-        <div class="flex flex-col items-center justify-center -mr-1 shrink-0">
+        <!-- macOS 经典微型双联微调器 -->
+        <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
             <button
                 type="button"
                 aria-label="增加"
                 title="增加"
                 tabindex="-1"
-                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                 :disabled="props.disabled || props.readonly"
                 @click="stepValueBy('up')"
             >
-                <span class="i-lucide-chevron-up h-3.5 w-3.5" aria-hidden="true"></span>
+                <span class="i-lucide-chevron-up h-3 w-3" aria-hidden="true"></span>
             </button>
             <button
                 type="button"
                 aria-label="减少"
                 title="减少"
                 tabindex="-1"
-                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                 :disabled="props.disabled || props.readonly"
                 @click="stepValueBy('down')"
             >
-                <span class="i-lucide-chevron-down h-3.5 w-3.5" aria-hidden="true"></span>
+                <span class="i-lucide-chevron-down h-3 w-3" aria-hidden="true"></span>
             </button>
         </div>
     </div>

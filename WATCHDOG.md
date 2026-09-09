@@ -1,4 +1,6 @@
-# NeuroBook Advisor 复核清单
+# NeuroBook Advisor
+
+你作为 advisor，你不是死板的监督者，而是主模型的协助者，规则只是经验和说明书，你的目的就是协助主模型完成它的任务，提醒他没有注意到或者犯错的地方。
 
 主规则见 [`.omp/RULES.md`](.omp/RULES.md)，开发入口见 [`AGENTS.md`](AGENTS.md)，编码路由见 [`docs/standards/code/README.md`](docs/standards/code/README.md)。本文件只定义 advisor 的复核步骤。
 
@@ -11,14 +13,10 @@
 5. 开发 `.agents/`、产品 Workspace `.agent/`、用户 `.local/` 和系统临时根不得串线；`reference/` 迁移必须完整切换消费者并删除旧正文。
 6. 报告准确区分聚焦测试、类型检查、构建、浏览器、真实 Provider 与发布验收；未执行项不得写成通过。
 7. 文档必须让不了解源码的读者直接理解；首次出现的内部名词就地解释，不把查找背景的成本转给读者。
+8. 对于文档相关的问题，不要报 block，报 concern 即可
+9. 确保主 agent 不要考虑太多几乎永远不可能发生的边缘情况
 
-## 项目陷阱
+## 保持更新
 
-- 根应用仍在仓库根；`packages/neuro-book` 只是迁移目标。
-- `.agents/tasks/` 中的旧路径属于历史 provenance，不自动成为活跃合同。
-- advisor 建议、审查通过和用户沉默都不等于人类批准。
-
-## 严重度
-
-- **blocker**：改动文件无规范路由、有效规则无归宿、当前规范出现双真相源、目录所有权越界、未经批准执行破坏性或远端操作、类型或失败合同被绕过。
-- **concern / nit**：文件尺寸、注释、入口冗余和表达问题；已经造成行为无法验证或边界失守时升级为 blocker。
+- agent 能对这些规则质疑，并随时可以向用户报告规则不合理的地方
+- 你作为 advisor 也需要适合注意规则的合理性

@@ -8,32 +8,40 @@ import {
     gitBranch,
     gitRevision,
     governanceRoots,
-    resolveTaskReadmePath,
+    resolveWorkReadmePath,
+    resolveWorkTaskReadmePath,
 } from "#scripts/ci/agent-governance-contract";
 
 const args = process.argv.slice(2);
 const repoArgument = args.indexOf("--repo-root");
 const roleArgument = args.indexOf("--role");
+const workArgument = args.indexOf("--work");
 const taskArgument = args.indexOf("--task");
 const repoRoot = resolve(repoArgument >= 0 ? args[repoArgument + 1] ?? "" : defaultRepoRoot(import.meta.url));
 const role = roleArgument >= 0 ? args[roleArgument + 1] : undefined;
+const work = workArgument >= 0 ? args[workArgument + 1] : undefined;
 const task = taskArgument >= 0 ? args[taskArgument + 1] : undefined;
 const failures: string[] = [];
 
-if (role && !CANONICAL_ROLES.includes(role as typeof CANONICAL_ROLES[number])) {
-    failures.push(`未知角色：${role}`);
-}
-if (task && !/^(?:\d{2,5}-[A-Za-z0-9][A-Za-z0-9._-]*|archived\/[A-Za-z0-9][A-Za-z0-9._-]*)$/u.test(task)) {
-    failures.push(`Task 标识格式无效：${task}`);
-}
+if (role && !CANONICAL_ROLES.includes(role as typeof CANONICAL_ROLES[number])) failures.push(`未知角色：${role}`);
+if (role && !task) failures.push("Role 必须与 Task 一起指定");
+if (task && !work) failures.push(`Task 必须同时指定 Work：${task}`);
 
-function findTaskReadmePath(repoRoot: string, task: string): {path: string | null; checkedRoots: string[]; failures: string[]} {
-    return resolveTaskReadmePath(repoRoot, task);
+let taskResolution: {workPath: string | null; taskPath: string | null; taskRole: typeof CANONICAL_ROLES[number] | null; failures: string[]} = {
+    workPath: null,
+    taskPath: null,
+    taskRole: null,
+    failures: [],
+};
+if (work && task) taskResolution = resolveWorkTaskReadmePath(repoRoot, work, task);
+else if (work) {
+    const workResolution = resolveWorkReadmePath(repoRoot, work);
+    taskResolution = {workPath: workResolution.path, taskPath: null, taskRole: null, failures: workResolution.failures};
 }
-
-const taskResolution = task ? findTaskReadmePath(repoRoot, task) : {path: null, checkedRoots: [], failures: []};
 failures.push(...taskResolution.failures);
-if (task && !taskResolution.path) failures.push(`Task README 不存在：${task}；已检查 root：${taskResolution.checkedRoots.join(", ") || "无"}`);
+
+const taskRole = taskResolution.taskRole;
+if (role && taskRole && role !== taskRole) failures.push(`指定 role 与 Task role 不一致：${role} != ${taskRole}`);
 
 const statusText = existsSync(resolve(repoRoot, "PROJECT-STATUS.md"))
     ? readFileSync(resolve(repoRoot, "PROJECT-STATUS.md"), "utf8")
@@ -49,10 +57,14 @@ const report = {
     revision: gitRevision(repoRoot),
     branch: gitBranch(repoRoot),
     worktree: worktreePath,
-    role: role ?? null,
+    role: taskRole,
+    requestedRole: role ?? null,
+    work: work ?? null,
+    workReadme: taskResolution.workPath,
     task: task ?? null,
-    taskReadme: taskResolution.path,
-    taskReadmeCheckedRoots: taskResolution.checkedRoots,
+    taskReadme: taskResolution.taskPath,
+    taskRole,
+    roleContract: taskRole ? `.agents/roles/${taskRole}/AGENTS.md` : null,
     status: statusLine.replace(/^>\s*/u, "").trim(),
     roots,
     trackedChanges: git(repoRoot, ["status", "--short"]),

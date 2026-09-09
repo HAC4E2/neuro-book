@@ -18,4 +18,4 @@ manifest 共记录 299 个候选条目，其中 298 个 included、1 个明确�
 
 ## 治理入口
 
-项目规则见 [`AGENTS.md`](AGENTS.md)，文档索引见 [`docs/README.md`](docs/README.md)，历史 Task 入口见 [`.agents/tasks/README.md`](.agents/tasks/README.md)。NeuroBook monorepo 共享规则、跨项目协调和根安装图见 [`../../AGENTS.md`](../../AGENTS.md)；项目行为变化只在本项目 Task 记录，跨自治项目事项由根治理协调。
+项目规则见 [`AGENTS.md`](AGENTS.md)，文档索引见 [`docs/README.md`](docs/README.md)，current Work 入口见 [`../../.agents/works/README.md`](../../.agents/works/README.md)，历史 Task 入口见 [`.agents/tasks/README.md`](.agents/tasks/README.md)。NeuroBook monorepo 共享规则、跨项目协调和根安装图见 [`../../AGENTS.md`](../../AGENTS.md)；项目行为变化只在 current Work/Task 记录，跨自治项目事项由根治理协调。

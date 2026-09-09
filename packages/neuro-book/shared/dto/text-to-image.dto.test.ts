@@ -5,6 +5,8 @@ import {
     TextToImageContextProfileSchema,
     TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
+    TextToImageTailMessagesConfigSchema,
+    TextToImageToolCallConfigSchema,
     TextToImageNovelAiSettingsSchema,
     TextToImageProjectSendDataSchema,
     TextToImageProviderKindSchema,
@@ -216,5 +218,38 @@ describe("text-to-image DTO", () => {
         ].join("\n"));
         expect(TextToImageNovelAiSettingsSchema.parse({}).promptReplaceText).toBe(DEFAULT_NOVEL_AI_PROMPT_REPLACE_TEXT);
         expect(TextToImageNovelAiSettingsSchema.parse({promptReplaceText: ""}).promptReplaceText).toBe("");
+    });
+});
+
+describe("text-to-image Tool/Tail DTO", () => {
+    it("adds enabled upstream defaults to a missing global config", () => {
+        const config = TextToImageGlobalConfigSchema.parse({});
+        expect(config.toolCallConfig.enabled).toBe(true);
+        expect(config.toolCallConfig.fields).toHaveLength(1);
+        expect(config.tailMessagesConfig.enabled).toBe(true);
+        expect(config.tailMessagesConfig.messages).toHaveLength(3);
+    });
+
+    it("preserves explicit false and empty Tail messages", () => {
+        const config = TextToImageGlobalConfigSchema.parse({
+            toolCallConfig: {enabled: false},
+            tailMessagesConfig: {enabled: false, messages: []},
+        });
+        expect(config.toolCallConfig.enabled).toBe(false);
+        expect(config.tailMessagesConfig).toEqual({enabled: false, messages: []});
+    });
+
+    it("rejects duplicate fields, invalid names and configs without required fields", () => {
+        expect(TextToImageToolCallConfigSchema.safeParse({fields: [
+            {name: "a", description: "", required: true, wrapTag: ""},
+            {name: "a", description: "", required: false, wrapTag: ""},
+        ]}).success).toBe(false);
+        expect(TextToImageToolCallConfigSchema.safeParse({fields: [{name: "bad.name", description: "", required: true, wrapTag: ""}]}).success).toBe(false);
+        expect(TextToImageToolCallConfigSchema.safeParse({fields: [{name: "a", description: "", required: false, wrapTag: ""}]}).success).toBe(false);
+    });
+
+    it("validates Tail roles while preserving empty arrays", () => {
+        expect(TextToImageTailMessagesConfigSchema.parse({enabled: true, messages: []}).messages).toEqual([]);
+        expect(TextToImageTailMessagesConfigSchema.safeParse({messages: [{role: "tool", content: "x"}]}).success).toBe(false);
     });
 });

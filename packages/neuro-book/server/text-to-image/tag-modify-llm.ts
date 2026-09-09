@@ -86,6 +86,8 @@ export async function generateTagModifyPrompt(input: {
         stream: settings.stream,
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
+        toolCallConfig: settings.toolCallConfig,
+        tailMessagesConfig: settings.tailMessagesConfig,
         retryCount: settings.retryCount,
         runtime,
         trace: input.trace,

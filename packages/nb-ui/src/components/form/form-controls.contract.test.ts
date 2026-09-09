@@ -1,3 +1,5 @@
+import {readFileSync} from "node:fs";
+import {resolve} from "node:path";
 import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
 import {describe, expect, it} from "vitest";
@@ -5,6 +7,7 @@ import FormCheckbox from "./FormCheckbox.vue";
 import FormInput from "./FormInput.vue";
 import FormNumberInput from "./FormNumberInput.vue";
 import FormSelect from "./FormSelect.vue";
+import PinInput from "./PinInput.vue";
 
 describe("phase 2 form control contracts", () => {
     it("keeps FormInput numeric attributes, prefix slot and focus event", async () => {
@@ -25,6 +28,46 @@ describe("phase 2 form control contracts", () => {
         expect(input.attributes("step")).toBe("0.5");
         await input.trigger("focus");
         expect(wrapper.emitted("focus")).toHaveLength(1);
+    });
+
+    it("marks every FormInput native branch without changing its model contract", async () => {
+        const bare = mount(FormInput, {props: {modelValue: "bare"}});
+        const wrapped = mount(FormInput, {
+            props: {modelValue: "wrapped"},
+            slots: {prefix: "<span>@</span>"},
+        });
+
+        expect(bare.get("input").classes()).toContain("nb-ui-native-input");
+        expect(wrapped.get("input").classes()).toContain("nb-ui-native-input");
+        await bare.get("input").setValue("updated");
+        expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["updated"]);
+    });
+
+    it("marks numeric PinInput cells while preserving numeric keyboard semantics", () => {
+        const wrapper = mount(PinInput, {props: {length: 2, type: "number"}});
+        const inputs = wrapper.findAll("input[inputmode='numeric']");
+
+        expect(inputs).toHaveLength(2);
+        for (const input of inputs) {
+            expect(input.classes()).toContain("nb-ui-native-input");
+            expect(input.attributes("type")).toBe("text");
+            expect(input.attributes("pattern")).toBe("[0-9]*");
+        }
+    });
+
+    it("scopes every native search and number pseudo-element selector to the marker", () => {
+        const css = readFileSync(resolve(import.meta.dirname, "../../styles.css"), "utf8");
+        const style = document.createElement("style");
+        style.textContent = css;
+        document.head.append(style);
+        const selectors = [...(style.sheet?.cssRules ?? [])]
+            .flatMap((rule) => "selectorText" in rule ? String(rule.selectorText).split(",") : [])
+            .map((selector) => selector.trim());
+        style.remove();
+
+        const nativeDecorationSelectors = selectors.filter((selector) => /webkit-(?:search|inner-spin|outer-spin)|input\[type="number"\]/u.test(selector));
+        expect(nativeDecorationSelectors.length).toBeGreaterThan(0);
+        expect(nativeDecorationSelectors.every((selector) => selector.includes("input.nb-ui-native-input"))).toBe(true);
     });
 
     it("preserves FormNumberInput editing states and applies bounded stepping", async () => {
@@ -85,5 +128,14 @@ describe("phase 2 form control contracts", () => {
         expect(wrapper.text()).toContain("true");
         await input.trigger("focus");
         expect(wrapper.emitted("focus")).toHaveLength(1);
+    });
+
+    it("uses a literal black endpoint and restores the keyboard focus ring on the visual checkbox", () => {
+        const wrapper = mount(FormCheckbox, {props: {modelValue: true}});
+        const visual = wrapper.get("input + span");
+
+        expect(visual.classes().some((className) => className.includes("#000000"))).toBe(true);
+        expect(visual.classes()).toContain("peer-focus-visible:border-[color:var(--focus-outline)]");
+        expect(visual.classes()).toContain("peer-focus-visible:shadow-[var(--focus-ring)]");
     });
 });

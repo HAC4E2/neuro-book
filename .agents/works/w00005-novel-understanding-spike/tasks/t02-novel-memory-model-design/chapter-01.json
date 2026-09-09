@@ -1,0 +1,380 @@
+{
+  "meta": {
+    "schema": "nbook.novel-memory/v2-spike",
+    "work": "w00005-novel-understanding-spike / t02",
+    "scope": "样书第一章",
+    "provenance": "hand-authored",
+    "note": "人工装填，不是抽取管线输出，不构成召回或准确率证据。Episode.content 在本 fixture 中是结构化释义占位，不是原文——要求释义而非摘抄是为了可检索，不是隐私；第一章原文见 t01/evidences/chapter-001-source-normalized.txt，该文件第 N 行即 ¶N。 | v2 的变化：每个 Individual 带 since，「读到第几段为止图上有什么」由 schema.ts 的 snapshotAt() 算出，不再散在各个消费者手里。Kind 与 Predicate 不带位置戳——它们是词表不是内容，切片时原样保留；抽取的重跑幂等靠批次键里的 registryVersion 保证，不靠位置戳。 | mergedInto 与 Alias.until 已在模型中定义，第一章不触发，故本文件未出现。"
+  },
+
+  "kinds": [
+    { "id": "person", "name": "人", "basicLevel": true, "identityCriteria": "continuous",
+      "attributeSlots": ["identity", "located_in", "inhabits", "cause_of_death", "died_at", "attitude_to", "signed", "suspects", "designated_as", "self_role", "is_concealing"] },
+    { "id": "body", "name": "身体", "basicLevel": true, "identityCriteria": "continuous",
+      "attributeSlots": ["hair_color", "has_feature", "apparent_age", "previous_owner", "located_in"] },
+    { "id": "artifact", "name": "器物", "basicLevel": true, "identityCriteria": "functional",
+      "attributeSlots": ["self_role", "located_in", "offered", "is_concealing"] },
+    { "id": "contract", "name": "契约", "basicLevel": true, "identityCriteria": "nominal",
+      "attributeSlots": ["lifecycle", "goal"] },
+    { "id": "place", "name": "地点", "basicLevel": true, "identityCriteria": "nominal",
+      "attributeSlots": ["located_in"] },
+    { "id": "role", "name": "身份", "basicLevel": false, "identityCriteria": "nominal",
+      "attributeSlots": ["death_rate"] },
+    { "id": "magical_girl", "name": "魔法少女", "parent": "role", "basicLevel": true, "identityCriteria": "nominal",
+      "attributeSlots": ["death_rate"] }
+  ],
+
+  "individuals": [
+    { "id": "su_tianqing", "kind": "person", "since": { "chapter": 1, "paragraph": 5 }, "status": "established",
+      "aliases": [
+        { "surface": "苏天晴", "route": "name", "since": { "chapter": 1, "paragraph": 5 }, "confidence": 1 },
+        { "surface": "最佳适格者", "route": "epithet", "since": { "chapter": 1, "paragraph": 27 }, "confidence": 0.8 }
+      ],
+      "note": "心智主体。与身体分开建节点——压成一个，「原主是谁」就无处安放。" },
+
+    { "id": "body_fox", "kind": "body", "since": { "chapter": 1, "paragraph": 5 }, "status": "established",
+      "aliases": [
+        { "surface": "这具身体", "route": "description", "since": { "chapter": 1, "paragraph": 5 }, "confidence": 1 }
+      ],
+      "note": "外观属性挂在这里，不挂在苏天晴身上。问「她现在长什么样」要沿 inhabits 走一跳。" },
+
+    { "id": "original_owner", "kind": "person", "since": { "chapter": 1, "paragraph": 36 }, "status": "provisional",
+      "aliases": [],
+      "note": "空节点。除「存在过」外没有任何属性，两条 UNKNOWN 把留白显式记下来。" },
+
+    { "id": "codex", "kind": "artifact", "since": { "chapter": 1, "paragraph": 5 }, "status": "established",
+      "aliases": [
+        { "surface": "黑色典籍", "route": "description", "since": { "chapter": 1, "paragraph": 5 }, "confidence": 1 },
+        { "surface": "墨丘利秘典", "route": "name", "since": { "chapter": 1, "paragraph": 27 }, "confidence": 1 },
+        { "surface": "小破书", "route": "epithet", "since": { "chapter": 1, "paragraph": 50 }, "confidence": 0.9 }
+      ],
+      "note": "「星界使者」不是别名，是一条 claim 事实——自称与称呼必须分开。" },
+
+    { "id": "tai_nai", "kind": "person", "since": { "chapter": 1, "paragraph": 11 }, "status": "established",
+      "aliases": [
+        { "surface": "太奶", "route": "name", "since": { "chapter": 1, "paragraph": 11 }, "confidence": 1 }
+      ],
+      "note": "存在性存疑。她与场景的关系是 disputed，不是 narrated。" },
+
+    { "id": "creator", "kind": "person", "since": { "chapter": 1, "paragraph": 50 }, "status": "provisional",
+      "aliases": [],
+      "note": "零事实节点，只被一个未决问题钉在图上。" },
+
+    { "id": "contract_main", "kind": "contract", "since": { "chapter": 1, "paragraph": 50 }, "status": "established",
+      "aliases": [
+        { "surface": "这份契约", "route": "description", "since": { "chapter": 1, "paragraph": 50 }, "confidence": 1 }
+      ],
+      "note": "把两个主体绑在一起的第三方。三元关系不实体化，但契约本身是实体。" },
+
+    { "id": "bedroom", "kind": "place", "since": { "chapter": 1, "paragraph": 5 }, "status": "established",
+      "aliases": [
+        { "surface": "昏暗的房间", "route": "description", "since": { "chapter": 1, "paragraph": 5 }, "confidence": 1 }
+      ] },
+
+    { "id": "noodle_stall", "kind": "place", "since": { "chapter": 1, "paragraph": 11 }, "status": "established",
+      "aliases": [
+        { "surface": "面摊", "route": "description", "since": { "chapter": 1, "paragraph": 11 }, "confidence": 1 }
+      ] }
+  ],
+
+  "predicates": [
+    { "id": "inhabits", "aliases": ["居于", "附身于", "占据"], "domain": ["person"], "range": { "kinds": ["body"] },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.95,
+      "note": "心智与身体的绑定" },
+    { "id": "located_in", "aliases": ["在", "位于", "身处"], "domain": ["person", "artifact", "body"], "range": { "kinds": ["place"], "special": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "high", "defaultCentrality": 0.3,
+      "note": "所在地，天生互斥" },
+    { "id": "identity", "aliases": ["是谁", "身份是"], "domain": ["person"], "range": { "literal": true, "special": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.9,
+      "note": "宾语可为 UNKNOWN —— 文本明确留白" },
+    { "id": "hair_color", "aliases": ["发色"], "domain": ["body"], "range": { "literal": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.5 },
+    { "id": "has_feature", "aliases": ["长着", "带有"], "domain": ["body"], "range": { "literal": true },
+      "cardinality": "multi", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.6,
+      "note": "判成 single 会只剩最后一条" },
+    { "id": "apparent_age", "aliases": ["看上去"], "domain": ["body"], "range": { "literal": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.4 },
+    { "id": "cause_of_death", "aliases": ["死因"], "domain": ["person"], "range": { "literal": true, "special": true },
+      "cardinality": "single", "temporalShape": "point", "defaultVolatility": "low", "defaultCentrality": 0.55,
+      "note": "本章唯一同谓词冲突对：speculation 与 narrated 并存" },
+    { "id": "died_at", "aliases": ["死于"], "domain": ["person"], "range": { "kinds": ["place"] },
+      "cardinality": "single", "temporalShape": "point", "defaultVolatility": "low", "defaultCentrality": 0.7 },
+    { "id": "previous_owner", "aliases": ["原属于"], "domain": ["body"], "range": { "kinds": ["person"] },
+      "cardinality": "single", "temporalShape": "interval", "defaultVolatility": "low", "defaultCentrality": 0.8,
+      "note": "起点未知的开区间" },
+    { "id": "attitude_to", "aliases": ["态度", "觉得"], "domain": ["person"], "range": { "literal": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "high", "defaultCentrality": 0.35,
+      "note": "本章唯一触发取代的谓词" },
+    { "id": "signed", "aliases": ["签订", "缔结"], "domain": ["person"], "range": { "kinds": ["contract"] },
+      "cardinality": "multi", "temporalShape": "point", "defaultVolatility": "low", "defaultCentrality": 0.9,
+      "note": "缔约方视角。与 offered 不是互逆——互逆要求 domain 与 range 互换，而这两条谓词的 range 同为 contract，主语是同一份契约上的两个不同当事人。" },
+    { "id": "offered", "aliases": ["提出", "派发"], "domain": ["artifact", "person"], "range": { "kinds": ["contract"] },
+      "cardinality": "multi", "temporalShape": "point", "defaultVolatility": "low", "defaultCentrality": 0.8,
+      "note": "提供方视角。谁提出契约与谁签署契约是两件事，Episode 的 participants 记录同场，谓词各记各的持久状态。" },
+    { "id": "self_role", "aliases": ["自称是"], "domain": ["artifact", "person"], "range": { "literal": true },
+      "cardinality": "multi", "temporalShape": "state", "defaultVolatility": "medium", "defaultCentrality": 0.5,
+      "defaultStatus": "claim", "note": "自称。默认 status = claim" },
+    { "id": "designated_as", "aliases": ["被认定为"], "domain": ["person"], "range": { "literal": true },
+      "cardinality": "multi", "temporalShape": "state", "defaultVolatility": "medium", "defaultCentrality": 0.5,
+      "note": "他称，与 self_role 分开" },
+    { "id": "suspects", "aliases": ["怀疑", "认为"], "domain": ["person"], "range": { "kinds": ["person", "artifact"], "literal": true },
+      "cardinality": "multi", "temporalShape": "state", "defaultVolatility": "medium", "defaultCentrality": 0.3,
+      "defaultStatus": "belief" },
+    { "id": "is_concealing", "aliases": ["有所保留"], "domain": ["artifact", "person"], "range": { "literal": true },
+      "cardinality": "multi", "temporalShape": "state", "defaultVolatility": "medium", "defaultCentrality": 0.4,
+      "defaultStatus": "inference" },
+    { "id": "lifecycle", "aliases": ["状态是"], "domain": ["contract"], "range": { "literal": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "medium", "defaultCentrality": 0.7,
+      "note": "契约生命周期，强制取代" },
+    { "id": "goal", "aliases": ["目标是"], "domain": ["contract"], "range": { "kinds": ["role", "magical_girl"] },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.9,
+      "note": "宾语可为类型" },
+    { "id": "death_rate", "aliases": ["死亡率"], "domain": ["role", "magical_girl"], "range": { "number": true },
+      "cardinality": "single", "temporalShape": "state", "defaultVolatility": "low", "defaultCentrality": 0.6,
+      "note": "主语为类型 → 泛称事实，可反驳性与特称不同" }
+  ],
+
+  "facts": [
+    { "id": "F01", "subject": "su_tianqing", "predicate": "inhabits", "object": { "t": "ref", "id": "body_fox" },
+      "status": "narrated", "holder": "world", "validFrom": "E3",
+      "assertedAt": { "chapter": 1, "paragraph": 8 }, "evidence": ["E3"],
+      "confidence": 0.98, "strength": 0.9, "support": 3, "modality": "stipulated", "volatility": "low", "centrality": 0.95 },
+
+    { "id": "F02", "subject": "su_tianqing", "predicate": "cause_of_death", "object": { "t": "literal", "v": "急性心肌梗死" },
+      "status": "speculation", "holder": "su_tianqing",
+      "assertedAt": { "chapter": 1, "paragraph": 11 }, "evidence": ["E1"],
+      "confidence": 0.35, "strength": 0.5, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.55 },
+
+    { "id": "F03", "subject": "su_tianqing", "predicate": "cause_of_death", "object": { "t": "special", "v": "UNKNOWN" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 11 }, "evidence": ["E1"],
+      "confidence": 0.95, "strength": 0.5, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.55 },
+
+    { "id": "F04", "subject": "su_tianqing", "predicate": "died_at", "object": { "t": "ref", "id": "noodle_stall" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 11 }, "evidence": ["E1"],
+      "confidence": 0.95, "strength": 0.6, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.7 },
+
+    { "id": "F05", "subject": "su_tianqing", "predicate": "located_in", "object": { "t": "ref", "id": "bedroom" },
+      "status": "narrated", "holder": "world", "validFrom": "E2",
+      "assertedAt": { "chapter": 1, "paragraph": 5 }, "evidence": ["E2"],
+      "confidence": 0.95, "strength": 0.4, "support": 2, "modality": "stipulated", "volatility": "high", "centrality": 0.3 },
+
+    { "id": "F06", "subject": "su_tianqing", "predicate": "attitude_to", "object": { "t": "literal", "v": "兴奋" },
+      "status": "narrated", "holder": "world", "validFrom": "E7", "validUntil": "E8",
+      "assertedAt": { "chapter": 1, "paragraph": 50 }, "evidence": ["E7"],
+      "confidence": 0.9, "strength": 0.3, "support": 1, "modality": "stipulated", "volatility": "high", "centrality": 0.35 },
+
+    { "id": "F07", "subject": "su_tianqing", "predicate": "attitude_to", "object": { "t": "literal", "v": "后悔" },
+      "status": "narrated", "holder": "world", "validFrom": "E8",
+      "assertedAt": { "chapter": 1, "paragraph": 64 }, "evidence": ["E8"],
+      "confidence": 0.9, "strength": 0.6, "support": 1, "modality": "stipulated", "volatility": "high", "centrality": 0.35 },
+
+    { "id": "F08", "subject": "su_tianqing", "predicate": "signed", "object": { "t": "ref", "id": "contract_main" },
+      "status": "narrated", "holder": "world", "validFrom": "E7",
+      "assertedAt": { "chapter": 1, "paragraph": 50 }, "evidence": ["E7"],
+      "confidence": 0.98, "strength": 0.9, "support": 2, "modality": "stipulated", "volatility": "low", "centrality": 0.9 },
+
+    { "id": "F09", "subject": "su_tianqing", "predicate": "suspects", "object": { "t": "ref", "id": "codex" },
+      "status": "belief", "holder": "su_tianqing",
+      "assertedAt": { "chapter": 1, "paragraph": 36 }, "evidence": ["E6"],
+      "confidence": 0.6, "strength": 0.4, "support": 1, "modality": "stipulated", "volatility": "medium", "centrality": 0.3 },
+
+    { "id": "F10", "subject": "su_tianqing", "predicate": "designated_as", "object": { "t": "literal", "v": "最佳适格者" },
+      "status": "claim", "holder": "codex",
+      "assertedAt": { "chapter": 1, "paragraph": 27 }, "evidence": ["E5"],
+      "confidence": 0.5, "strength": 0.5, "support": 1, "modality": "stipulated", "volatility": "medium", "centrality": 0.5 },
+
+    { "id": "F11", "subject": "body_fox", "predicate": "hair_color", "object": { "t": "literal", "v": "金色" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 8 }, "evidence": ["E3"],
+      "confidence": 0.98, "strength": 0.8, "support": 2, "modality": "stipulated", "volatility": "low", "centrality": 0.5 },
+
+    { "id": "F12", "subject": "body_fox", "predicate": "has_feature", "object": { "t": "literal", "v": "兽耳" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 8 }, "evidence": ["E3"],
+      "confidence": 0.98, "strength": 0.7, "support": 1, "modality": "constitutive", "volatility": "low", "centrality": 0.6 },
+
+    { "id": "F13", "subject": "body_fox", "predicate": "has_feature", "object": { "t": "literal", "v": "狐尾" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 8 }, "evidence": ["E3"],
+      "confidence": 0.98, "strength": 0.7, "support": 2, "modality": "constitutive", "volatility": "low", "centrality": 0.6 },
+
+    { "id": "F14", "subject": "body_fox", "predicate": "apparent_age", "object": { "t": "literal", "v": "幼小" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 8 }, "evidence": ["E3"],
+      "confidence": 0.9, "strength": 0.5, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.4 },
+
+    { "id": "F15", "subject": "body_fox", "predicate": "previous_owner", "object": { "t": "ref", "id": "original_owner" },
+      "status": "narrated", "holder": "world", "validUntil": "E3",
+      "assertedAt": { "chapter": 1, "paragraph": 36 }, "evidence": ["E6"],
+      "confidence": 0.85, "strength": 0.7, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.8 },
+
+    { "id": "F16", "subject": "original_owner", "predicate": "identity", "object": { "t": "special", "v": "UNKNOWN" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 36 }, "evidence": ["E6"],
+      "confidence": 0.95, "strength": 0.8, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.9 },
+
+    { "id": "F17", "subject": "original_owner", "predicate": "located_in", "object": { "t": "special", "v": "UNKNOWN" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 36 }, "evidence": ["E6"],
+      "confidence": 0.95, "strength": 0.7, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.8 },
+
+    { "id": "F18", "subject": "codex", "predicate": "self_role", "object": { "t": "literal", "v": "跨越星空而来" },
+      "status": "claim", "holder": "codex",
+      "assertedAt": { "chapter": 1, "paragraph": 27 }, "evidence": ["E5"],
+      "confidence": 0.5, "strength": 0.6, "support": 1, "modality": "stipulated", "volatility": "medium", "centrality": 0.5 },
+
+    { "id": "F19", "subject": "codex", "predicate": "self_role", "object": { "t": "literal", "v": "星界使者" },
+      "status": "claim", "holder": "codex",
+      "assertedAt": { "chapter": 1, "paragraph": 50 }, "evidence": ["E7"],
+      "confidence": 0.5, "strength": 0.6, "support": 1, "modality": "stipulated", "volatility": "medium", "centrality": 0.5 },
+
+    { "id": "F20", "subject": "codex", "predicate": "offered", "object": { "t": "ref", "id": "contract_main" },
+      "status": "narrated", "holder": "world", "validFrom": "E7",
+      "assertedAt": { "chapter": 1, "paragraph": 50 }, "evidence": ["E7"],
+      "confidence": 0.98, "strength": 0.85, "support": 2, "modality": "stipulated", "volatility": "low", "centrality": 0.8 },
+
+    { "id": "F21", "subject": "codex", "predicate": "located_in", "object": { "t": "ref", "id": "bedroom" },
+      "status": "narrated", "holder": "world",
+      "assertedAt": { "chapter": 1, "paragraph": 5 }, "evidence": ["E2"],
+      "confidence": 0.95, "strength": 0.4, "support": 1, "modality": "stipulated", "volatility": "high", "centrality": 0.3 },
+
+    { "id": "F22", "subject": "codex", "predicate": "is_concealing", "object": { "t": "literal", "v": "关于自身来历" },
+      "status": "inference", "holder": "reader",
+      "assertedAt": { "chapter": 1, "paragraph": 50 }, "evidence": [], "inferredFrom": ["F18", "F19"],
+      "confidence": 0.45, "strength": 0.3, "support": 2, "modality": "stipulated", "volatility": "medium", "centrality": 0.4 },
+
+    { "id": "F23", "subject": "tai_nai", "predicate": "located_in", "object": { "t": "ref", "id": "noodle_stall" },
+      "status": "disputed", "holder": "su_tianqing",
+      "assertedAt": { "chapter": 1, "paragraph": 11 }, "evidence": ["E1"],
+      "confidence": 0.4, "strength": 0.5, "support": 1, "modality": "stipulated", "volatility": "low", "centrality": 0.6 },
+
+    { "id": "F24", "subject": "contract_main", "predicate": "goal", "object": { "t": "kindref", "id": "magical_girl", "quant": "∃" },
+      "status": "narrated", "holder": "world", "validFrom": "E7",
+      "assertedAt": { "chapter": 1, "paragraph": 64 }, "evidence": ["E8"],
+      "confidence": 0.95, "strength": 0.9, "support": 2, "modality": "stipulated", "volatility": "low", "centrality": 0.9 },
+
+    { "id": "F25", "subject": "contract_main", "predicate": "lifecycle", "object": { "t": "literal", "v": "已缔结" },
+      "status": "narrated", "holder": "world", "validFrom": "E7",
+      "assertedAt": { "chapter": 1, "paragraph": 50 }, "evidence": ["E7"],
+      "confidence": 0.95, "strength": 0.7, "support": 1, "modality": "stipulated", "volatility": "medium", "centrality": 0.7 },
+
+    { "id": "F26", "subject": "magical_girl", "predicate": "death_rate", "object": { "t": "number", "v": 90, "unit": "%" },
+      "status": "claim", "holder": "su_tianqing",
+      "assertedAt": { "chapter": 1, "paragraph": 64 }, "evidence": ["E8"],
+      "confidence": 0.5, "strength": 0.6, "support": 1, "modality": "statistical", "volatility": "low", "centrality": 0.6 }
+  ],
+
+  "episodes": [
+    { "id": "E1", "discoursePos": { "chapter": 1, "paragraph": 11 },
+      "storyTime": { "t": "relative", "anchor": "E2", "offset": "五分钟前" },
+      "duration": "数分钟",
+      "content": "【释义占位】面摊突发心口剧痛后失去意识；恍惚间感知到太奶在场。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 11, "end": 11 } },
+      "context": { "chapter": "第一章", "scene": "面摊", "location": "noodle_stall", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "su_tianqing", "role": "experiencer" },
+        { "entity": "tai_nai", "role": "theme" },
+        { "entity": "noodle_stall", "role": "location" }
+      ],
+      "precedes": ["E2"], "outcome": "死亡",
+      "valence": -0.9, "arousal": 0.9, "register": ["紧张"], "surprise": 0.82 },
+
+    { "id": "E2", "discoursePos": { "chapter": 1, "paragraph": 5 },
+      "content": "【释义占位】在昏暗房间中被一本黑色典籍问及姓名。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 5, "end": 5 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "su_tianqing", "role": "experiencer" },
+        { "entity": "codex", "role": "speaker" },
+        { "entity": "bedroom", "role": "location" }
+      ],
+      "precedes": ["E3"],
+      "valence": -0.2, "arousal": 0.6, "register": ["悬疑"], "surprise": 0.9 },
+
+    { "id": "E3", "discoursePos": { "chapter": 1, "paragraph": 8 },
+      "content": "【释义占位】在镜前看到金色长发、兽耳与狐尾的幼小身体。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 8, "end": 8 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "su_tianqing", "role": "experiencer" },
+        { "entity": "body_fox", "role": "theme" }
+      ],
+      "precedes": ["E4"], "outcome": "震惊",
+      "valence": -0.5, "arousal": 0.95, "register": ["紧张"], "surprise": 0.95 },
+
+    { "id": "E4", "discoursePos": { "chapter": 1, "paragraph": 19 },
+      "content": "【释义占位】接受了当前处境。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 19, "end": 19 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [{ "entity": "su_tianqing", "role": "experiencer" }],
+      "precedes": ["E5"], "outcome": "接受",
+      "valence": 0.1, "arousal": 0.3, "register": ["抒情"], "surprise": 0.3 },
+
+    { "id": "E5", "discoursePos": { "chapter": 1, "paragraph": 27 },
+      "content": "【释义占位】典籍自述来历，并称对方为最佳适格者；停顿后复述了一遍说辞。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 27, "end": 27 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "codex", "role": "speaker" },
+        { "entity": "su_tianqing", "role": "addressee" }
+      ],
+      "precedes": ["E6"],
+      "valence": 0, "arousal": 0.5, "register": ["悬疑"], "surprise": 0.55 },
+
+    { "id": "E6", "discoursePos": { "chapter": 1, "paragraph": 36 },
+      "content": "【释义占位】追问这具身体原本属于谁、原主去了哪里，未获回答。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 36, "end": 36 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "su_tianqing", "role": "speaker" },
+        { "entity": "codex", "role": "addressee" },
+        { "entity": "original_owner", "role": "theme" }
+      ],
+      "precedes": ["E7"],
+      "valence": -0.3, "arousal": 0.6, "register": ["悬疑"], "surprise": 0.62 },
+
+    { "id": "E7", "discoursePos": { "chapter": 1, "paragraph": 50 },
+      "content": "【释义占位】与典籍缔结契约。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 50, "end": 50 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "su_tianqing", "role": "agent" },
+        { "entity": "codex", "role": "agent" },
+        { "entity": "contract_main", "role": "theme" }
+      ],
+      "precedes": ["E8"], "outcome": "契约缔结",
+      "valence": 0.6, "arousal": 0.7, "register": ["喜剧"], "surprise": 0.48 },
+
+    { "id": "E8", "discoursePos": { "chapter": 1, "paragraph": 64 },
+      "content": "【释义占位】条款落地，目标与代价与预期不符。", "sourcePointer": { "chapter": 1, "paragraph": { "start": 64, "end": 64 } },
+      "context": { "chapter": "第一章", "scene": "房间", "location": "bedroom", "pov": "su_tianqing" },
+      "participants": [
+        { "entity": "su_tianqing", "role": "experiencer" },
+        { "entity": "codex", "role": "speaker" },
+        { "entity": "contract_main", "role": "theme" }
+      ],
+      "precedes": [], "outcome": "欲哭无泪",
+      "valence": -0.6, "arousal": 0.7, "register": ["喜剧"], "surprise": 0.74 }
+  ],
+
+  "questions": [
+    { "id": "Q1", "text": "太奶是否真的在临终场景出现", "origin": "textual",
+      "raisedAt": { "chapter": 1, "paragraph": 11 }, "anchors": ["E1", "tai_nai"], "status": "open" },
+    { "id": "Q2", "text": "确切死因是什么", "origin": "textual",
+      "raisedAt": { "chapter": 1, "paragraph": 11 }, "anchors": ["E1", "su_tianqing"], "status": "open" },
+    { "id": "Q3", "text": "原主是谁、去了哪里", "origin": "textual",
+      "raisedAt": { "chapter": 1, "paragraph": 36 }, "anchors": ["E6", "original_owner"], "status": "open" },
+    { "id": "Q5", "text": "造物主是谁", "origin": "textual",
+      "raisedAt": { "chapter": 1, "paragraph": 50 }, "anchors": ["creator", "codex"], "status": "open" },
+    { "id": "Q7", "text": "承诺与实际派发之间的落差", "origin": "reader_hypothesis",
+      "raisedAt": { "chapter": 1, "paragraph": 64 }, "anchors": ["E7", "E8"], "status": "open" }
+  ],
+
+  "summaries": [
+    { "id": "S1", "covers": ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"], "grain": "chapter",
+      "gist": "【释义占位】主角在猝死后于陌生幼体中醒来，与一本自称来自星界的典籍缔约，代价与预期不符。",
+      "why": "开场以昏暗房间起笔、随后倒叙死亡，是为了让身份错位先于死因揭晓；契约的兴奋与后悔构成本章唯一一次状态取代。",
+      "generatedAt": { "chapter": 1, "paragraph": 77 }, "recomputable": true }
+  ],
+
+  "mentions": [
+    { "id": "M1", "surface": "她", "episode": "E3", "span": [12, 13], "resolvedTo": "su_tianqing", "method": "coref_llm" },
+    { "id": "M2", "surface": "小破书", "episode": "E7", "span": [40, 43], "resolvedTo": "codex", "method": "exact_alias" },
+    { "id": "M3", "surface": "对方", "episode": "E5", "span": [8, 10], "resolvedTo": "su_tianqing", "method": "coref_llm" }
+  ]
+}

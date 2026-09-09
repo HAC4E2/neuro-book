@@ -1,4 +1,8 @@
 import {z} from "zod";
+import {
+    DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG,
+    DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG,
+} from "nbook/shared/text-to-image-toolcall-defaults";
 
 /** 文生图 Provider 类型；首版只支持 NovelAI 与 OpenAI 兼容 LLM。 */
 export const TextToImageProviderKindSchema = z.enum(["novelai", "openai_compatible"]);
@@ -78,6 +82,56 @@ export const DEFAULT_WORD_REPLACEMENT_PROFILE: TextToImageWordReplacementProfile
     ].join("\n"),
 };
 
+/** Toolcall 单字段：只承载字符串参数，顺序由 fields 数组决定。 */
+export const TextToImageToolCallFieldSchema = z.object({
+    name: z.string().regex(/^[A-Za-z0-9_-]+$/u).max(64),
+    description: z.string().default(""),
+    required: z.boolean().default(true),
+    wrapTag: z.string().refine((value) => value === "" || /^[A-Za-z][A-Za-z0-9_-]*$/u.test(value), "wrapTag 必须是单个 XML 标签名").default(""),
+});
+export type TextToImageToolCallField = z.infer<typeof TextToImageToolCallFieldSchema>;
+
+const TextToImageToolCallConfigBaseSchema = z.object({
+    enabled: z.boolean().default(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.enabled),
+    nameMode: z.enum(["dynamic", "fixed"]).default(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.nameMode),
+    fixedName: z.string().default(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.fixedName),
+    prefix: z.string().regex(/^[A-Za-z0-9_-]*$/u).max(48).default(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.prefix),
+    desc: z.string().default(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.desc),
+    fields: z.array(TextToImageToolCallFieldSchema).min(1).default(() => DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.fields.map((field) => ({...field}))),
+});
+
+/** Toolcall 配置；Provider 覆盖和全局配置都使用同一份运行时约束。 */
+export const TextToImageToolCallConfigSchema = TextToImageToolCallConfigBaseSchema.superRefine((value, ctx) => {
+    if (value.nameMode === "fixed" && !/^[A-Za-z0-9_-]+$/u.test(value.fixedName)) {
+        ctx.addIssue({code: z.ZodIssueCode.custom, path: ["fixedName"], message: "fixedName 必须是非空工具名"});
+    }
+    if (value.nameMode === "fixed" && value.fixedName.length > 64) {
+        ctx.addIssue({code: z.ZodIssueCode.custom, path: ["fixedName"], message: "fixedName 最多 64 个字符"});
+    }
+    const names = new Set<string>();
+    for (const [index, field] of value.fields.entries()) {
+        if (names.has(field.name)) {
+            ctx.addIssue({code: z.ZodIssueCode.custom, path: ["fields", index, "name"], message: "字段名不能重复"});
+        }
+        names.add(field.name);
+    }
+    if (!value.fields.some((field) => field.required)) {
+        ctx.addIssue({code: z.ZodIssueCode.custom, path: ["fields"], message: "至少需要一个必填字段"});
+    }
+});
+export type TextToImageToolCallConfig = z.infer<typeof TextToImageToolCallConfigSchema>;
+
+export const TextToImageTailMessageSchema = z.object({
+    role: z.enum(["system", "user", "assistant"]),
+    content: z.string(),
+});
+export type TextToImageTailMessage = z.infer<typeof TextToImageTailMessageSchema>;
+
+export const TextToImageTailMessagesConfigSchema = z.object({
+    enabled: z.boolean().default(DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG.enabled),
+    messages: z.array(TextToImageTailMessageSchema).default(() => DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG.messages.map((message) => ({...message}))),
+});
+export type TextToImageTailMessagesConfig = z.infer<typeof TextToImageTailMessagesConfigSchema>;
 /** OpenAI 兼容 LLM Provider 的运行参数；凭据不进入该 schema。 */
 export const TextToImageLlmProviderSettingsSchema = z.object({
     baseUrl: z.string().trim().min(1),
@@ -90,6 +144,8 @@ export const TextToImageLlmProviderSettingsSchema = z.object({
     mergeSystemUser: z.boolean().default(false),
     retryCount: z.number().int().min(0).max(5).default(0),
     tagthinkEcho: z.boolean().default(false),
+    toolCallConfig: TextToImageToolCallConfigSchema.optional(),
+    tailMessagesConfig: TextToImageTailMessagesConfigSchema.optional(),
 });
 export type TextToImageLlmProviderSettings = z.infer<typeof TextToImageLlmProviderSettingsSchema>;
 
@@ -274,6 +330,8 @@ export const TextToImageGlobalConfigSchema = z.object({
     })),
     currentWordReplacementProfile: z.string().default("default"),
     historyPrefillDepth: z.number().int().min(0).max(20).default(1),
+    toolCallConfig: TextToImageToolCallConfigSchema.default(() => ({...DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG, fields: DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG.fields.map((field) => ({...field}))})),
+    tailMessagesConfig: TextToImageTailMessagesConfigSchema.default(() => ({...DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG, messages: DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG.messages.map((message) => ({...message}))})),
 });
 export type TextToImageGlobalConfig = z.infer<typeof TextToImageGlobalConfigSchema>;
 

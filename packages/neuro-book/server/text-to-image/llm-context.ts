@@ -3,14 +3,16 @@ import type {
     TextToImageContextEntry,
     TextToImageContextProfile,
     TextToImageRequestType,
+
 } from "nbook/shared/dto/text-to-image.dto";
 import type {LlmChatMessage} from "nbook/server/text-to-image/llm-chat";
 import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
+import {resolveTextToImageLlmSettings, type ResolvedTextToImageLlmProviderSettings} from "nbook/server/text-to-image/llm-toolcall-config";
 
 export type ResolvedTextToImageRequestProvider = {
     providerId: number;
-    settings: Record<string, unknown>;
+    settings: ResolvedTextToImageLlmProviderSettings;
     credential: string;
 };
 
@@ -36,7 +38,29 @@ export async function resolveTextToImageRequestProvider(
         throw new Error(`请求类型“${requestType}”绑定的 Provider kind 为“${provider.kind}”，只能使用 openai_compatible，NovelAI 仅用于生图。`);
     }
     const runtime = await providerService.resolveRuntimeProvider(userId, providerId);
-    return {providerId, ...runtime};
+    return {
+        providerId,
+        ...runtime,
+        settings: resolveTextToImageLlmSettings(effective.textToImage, runtime.settings),
+    };
+}
+
+/** Resolve an explicitly selected LLM Provider with the same global/override rules as bound requests. */
+export async function resolveTextToImageLlmProvider(
+    userId: number,
+    providerId: number,
+): Promise<ResolvedTextToImageRequestProvider> {
+    const effective = await loadEffectiveConfig({workspaceKind: "user-assets"});
+    const providerService = new TextToImageProviderService();
+    const provider = (await providerService.list(userId)).find((item) => item.id === providerId);
+    if (!provider) throw new Error("Provider 不存在，请重新选择 OpenAI 兼容 Provider。");
+    if (provider.kind !== "openai_compatible") throw new Error("只能使用 openai_compatible Provider。");
+    const runtime = await providerService.resolveRuntimeProvider(userId, providerId);
+    return {
+        providerId,
+        ...runtime,
+        settings: resolveTextToImageLlmSettings(effective.textToImage, runtime.settings),
+    };
 }
 
 /** 按请求类型读取全局绑定对应的上下文预设条目。 */

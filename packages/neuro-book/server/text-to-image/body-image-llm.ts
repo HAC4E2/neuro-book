@@ -145,6 +145,8 @@ export async function generateBodyImageBlocks(input: {
         stream: settings.stream,
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
+        toolCallConfig: settings.toolCallConfig,
+        tailMessagesConfig: settings.tailMessagesConfig,
         retryCount: settings.retryCount,
         runtime: input.runtime,
         trace: input.trace,

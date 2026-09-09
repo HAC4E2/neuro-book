@@ -73,7 +73,7 @@ owners:
 
 1. 原始自然语言进入 [`../proposals/`](../proposals/)；补齐歧义、备选方案和影响。
 2. 人类接受 Proposal 后，创建或更新 `planned` Spec，把目标写成黑盒行为与验收场景。
-3. `.agents/tasks/` 引用 Proposal 和 Spec，记录具体实现、验证和交接。
+3. `.agents/works/` 中的 Work/Task 引用 Proposal 和 Spec，记录具体实现、role、验证和交接。
 4. 代码、测试和 Spec 在同一交付中收敛；证据支持全部合同后，将原 Spec 晋升为 `implemented`。
 
 ### Bug
@@ -92,6 +92,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
 | Agent Runtime 与 Profile | [Reference: Agent](../../packages/neuro-book/assets/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
 | Agent 资产运行期安装与 Catalog 根 | [`agent/asset-install-runtime.md`](agent/asset-install-runtime.md) | State Root Install Root、Runtime Reference Root、Install → Project 覆盖和显式 artifact context 已由代码与合同测试支持 |
+| Agent Session Abort | [`agent/session-abort.md`](agent/session-abort.md) | HTTP abort、合作/forced 收口、唯一 durable lifecycle、写入恢复与 409/503 失败合同已由实现和行为测试支持 |
 | 内容与 Project Workspace | [Reference: Content](../../packages/neuro-book/assets/reference/content/README.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
 | World Engine | [Reference: World Engine](../../packages/neuro-book/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
 | Plot | [Reference: Plot](../../packages/neuro-book/assets/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
@@ -109,8 +110,10 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
 
-| 功能域 | 目标规范 | 批准依据 |
+| 功能域 | 计划规范 | 说明 |
 |---|---|---|
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、响应式检视和 Product 排除合同；当前尚未实现 |
+
 ## 冻结过渡规范
 
 以下正文描述已有实现，但仍被产品 Profile、资产投影、测试或打包流程直接消费。它们在迁入 `docs/specs/` 前保持冻结，不是新规范落点：
@@ -143,7 +146,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 1. 新功能先检查本表是否已有规范归属。
 2. 尚未决定的跨模块方案写入 [`../proposals/README.md`](../proposals/README.md)；小型、可逆且不改变长期合同的工作可直接更新现有规范。
-3. 提案获批后，先更新或创建当前规范，再创建 `.agents/tasks/` 实现合同。
+3. 提案获批后，先更新或创建当前规范，再在 `.agents/works/` 创建 Work 与实现 Task。
 4. 实现期间如果行为变化，规范和代码在同一变更中更新。
 5. 验收以规范中的可观察行为为依据；Task 完成不能代替规范更新。
 6. 旧行为退出时，更新当前规范；需要保留理由时写 ADR，需要用户升级步骤时写 migration。Task 和 proposal 保留历史但不再作为当前行为依据。

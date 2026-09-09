@@ -10,6 +10,7 @@
 
 - 修复 macOS/Linux 上用 Podman 以「Docker / GHCR」方式安装时，podman-compose 在迁移报告前输出的裸容器 ID 导致 Manager JSON 解析失败、容器 Profile 完全不可用的问题；Manager 现在从首个 JSON 行解析报告，并在独立 provider 缺失时保留用户环境、允许 `podman compose` 自行委托 (#110)。
 - 修复 monorepo 收敛后 Manager npm 包携带干净环境无法解析的内部 `file:` 生产依赖导致发布包安装失败的问题；contracts 已在构建期内联进单文件 bundle 并新增打包守卫 (#179)。
+- 修复 Manager 单文件 bundle 在复制到无构建机 `node_modules` 的环境后打开 TUI 时读取构建机绝对路径的问题；现在将 Blessed 运行时代码与必要 terminfo 资源纳入发布 bundle，并由打包门禁覆盖复制后 `bun --no-install` 启动 (#224)。
 - 修复 Vite 依赖预优化下拖拽初始化失败：`@dnd-kit/vue` 改用其内置 preset，避免双 Scroller 类身份冲突 (#164)。
 - 修复 Agent Provider 模型发现的代理安全、`file:` URL 拒绝与 Google `input: ["text"]` 合同问题 (#101)。
 
@@ -25,7 +26,7 @@
 ### 升级须知
 
 - 这是限量 canary。升级前请备份完整 State Root 和重要 Project Workspace 的 `.nbook/`、`project.yaml`；先在可丢弃的 Project 上测试。
-- 本版本要求 Manager `0.1.0-canary.57`。Manager canary.55/.56 是未通过发布门禁的审计记录，没有公开包。
+- 本版本要求 Manager `0.1.0-canary.58`。Manager canary.55/.56 是未通过发布门禁的审计记录，没有公开包。
 
 
 ## 0.9.6-canary（限量 canary） - 2026-08-14

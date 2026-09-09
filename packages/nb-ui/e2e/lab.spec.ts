@@ -14,6 +14,7 @@ type LabParams = {
     viewport?: string;
     theme?: string;
     colorway?: string;
+    targetState?: "visible" | "attached";
 };
 
 /** 直接以五参数 URL 进入 /lab，等待目标出现（默认绕开 UI 操作，单测单一职责） */
@@ -26,7 +27,9 @@ async function gotoLab(page: Page, params: LabParams = {}): Promise<URL> {
         colorway: params.colorway ?? "nbook-light",
     });
     await page.goto(`/lab?${query.toString()}`);
-    await expect(page.locator("#nb-lab-target")).toBeVisible();
+    const target = page.locator("#nb-lab-target");
+    if (params.targetState === "attached") await expect(target).toBeAttached();
+    else await expect(target).toBeVisible();
     return new URL(page.url());
 }
 
@@ -60,13 +63,13 @@ test("场景切换同步 URL，刷新后恢复", async ({ page }) => {
     await gotoLab(page);
     await page.locator('[aria-label="场景"]').getByText("前缀").click();
     await page.waitForURL(/scene=prefix/);
-    // 前缀场景的可见证据：prefix 槽位的 @ 渲染出来
-    await expect(page.getByText("@", { exact: true })).toBeVisible();
+    // 前缀场景的可见证据：FormInput fixture 的前缀文本渲染出来
+    await expect(page.getByText("@WORLD/", { exact: true })).toBeVisible();
     await page.reload();
     await expect(page.locator("#nb-lab-target")).toBeVisible();
     const url = new URL(page.url());
     expect(url.searchParams.get("scene")).toBe("prefix");
-    await expect(page.getByText("@", { exact: true })).toBeVisible();
+    await expect(page.getByText("@WORLD/", { exact: true })).toBeVisible();
 });
 
 test("非法 URL 首屏归一化并用 replace 覆盖历史", async ({ page }) => {
@@ -201,34 +204,25 @@ test("快照导出为合法 JSON，导入合法生效，三份非法拒入且不
     expect(await readCssVar(page, "--accent-main")).toBe("rgb(9, 8, 7)");
 });
 
-test("数字输入：中间态保留、步进 clamp、Enter 提交", async ({ page }) => {
+test("数字输入：合法编辑、步进与边界 clamp", async ({ page }) => {
     await gotoLab(page, { component: "form-number-input" });
     const target = page.locator("#nb-lab-target");
 
-    // 中间态：负号与小数点原样保留（min=0 max=2 step=0.5）
-    await target.fill("-");
-    await expect(target).toHaveValue("-");
-    await target.fill("1.");
-    await expect(target).toHaveValue("1.");
-
-    // 非有限值上步进：从 min 起跳 + 1 档 step（min=0 step=0.5 -> 0.5）
-    await target.fill("-");
+    // 当前 fixture 是原生 number 输入：step=0.05，行距范围由步进按钮 clamp 到 1.0~3.0。
+    await target.fill("1.25");
+    await expect(target).toHaveValue("1.25");
     await target.press("ArrowUp");
-    await expect(target).toHaveValue("0.5");
+    await expect(target).toHaveValue("1.3");
 
-    // Enter 提交进入事件日志
-    await page.locator('[aria-label="检查器页签"]').getByText("事件").click();
-    await target.fill("1.5");
-    await target.press("Enter");
-    await expect(page.locator(".lab-events__row").first()).toContainText("submit");
+    // 上边界：3.0 再增加仍保持 3.0。
+    await target.fill("3");
+    await page.getByRole("button", {name: "增加行距"}).click();
+    await expect(target).toHaveValue("3");
 
-    // 边界场景：从 max 起步，ArrowUp 被 clamp 住
-    await gotoLab(page, { component: "form-number-input", scene: "bounded" });
-    await expect(target).toHaveValue("2");
-    await target.press("ArrowUp");
-    await expect(target).toHaveValue("2");
-    await target.press("ArrowDown");
-    await expect(target).toHaveValue("1.5");
+    // 下边界：1.0 再减少仍保持 1.0。
+    await target.fill("1");
+    await page.getByRole("button", {name: "减少行距"}).click();
+    await expect(target).toHaveValue("1");
 });
 
 test("选择器：Enter 展开、富选项、禁用项、焦点归还、body 不锁", async ({ page }) => {
@@ -275,22 +269,128 @@ test("选择器向上展开时 data-side=top", async ({ page }) => {
 
 test("输入框：prefix 渲染、focus 入事件日志", async ({ page }) => {
     await gotoLab(page, { component: "form-input", scene: "prefix" });
-    await expect(page.getByText("@", { exact: true })).toBeVisible();
+    await expect(page.getByText("@WORLD/", { exact: true })).toBeVisible();
     await page.locator('[aria-label="检查器页签"]').getByText("事件").click();
     await page.locator("#nb-lab-target").click();
     await expect(page.locator(".lab-events__row").first()).toContainText("focus");
 });
 
 test("复选框：无 label 时回退显示布尔值，focus 入事件日志", async ({ page }) => {
-    await gotoLab(page, { component: "form-checkbox", scene: "fallback" });
+    await gotoLab(page, {component: "form-checkbox", scene: "fallback", targetState: "attached"});
     const target = page.locator("#nb-lab-target");
     await expect(target).toHaveRole("checkbox");
     // fallback 场景从 false 起步，组件显示当前布尔值
     await expect(page.locator(".lab-canvas").getByText("false", { exact: true })).toBeVisible();
     await page.locator('[aria-label="检查器页签"]').getByText("事件").click();
-    // 目标是 sr-only 的原生 input，指针操作走它的 label 包装（label 激活会聚焦控件）
-    await page.locator(".lab-canvas label").first().click();
-    await expect(page.locator(".lab-events__row", { hasText: "focus" }).first()).toBeVisible();
+    await target.focus();
+    await expect(page.locator(".lab-events__row", {hasText: "focus"}).first()).toBeVisible();
+});
+
+test("表单原生作用域与复选框键盘焦点保持隔离", async ({ page }) => {
+    await gotoLab(page, {component: "form-input"});
+    const nativeStyles = await page.evaluate(() => {
+        const marker = document.querySelector<HTMLInputElement>("#nb-marker-search");
+        const visibleSearch = document.querySelector<HTMLInputElement>('input[placeholder^="检索大纲"]');
+        const host = document.querySelector<HTMLInputElement>("#host-search");
+        if (!marker || !visibleSearch || !host) throw new Error("native input probes missing");
+        const pseudoRules = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules])
+            .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+            .filter((rule) => /webkit-(?:search|inner-spin|outer-spin)/u.test(rule.selectorText));
+        const matchingRules = (input: HTMLInputElement) => pseudoRules.filter((rule) => rule.selectorText
+            .split(",")
+            .map((selector) => selector.replace(/::-[a-z-]+$/u, "").trim())
+            .some((selector) => input.matches(selector)));
+        return {
+            markerClass: marker.classList.contains("nb-ui-native-input"),
+            visibleSearchClass: visibleSearch.classList.contains("nb-ui-native-input"),
+            hostClass: host.classList.contains("nb-ui-native-input"),
+            markerRuleCount: matchingRules(marker).length,
+            visibleSearchRuleCount: matchingRules(visibleSearch).length,
+            hostRuleCount: matchingRules(host).length,
+            markerPseudoSuppressed: matchingRules(marker).every((rule) => rule.style.display === "none" && rule.style.getPropertyValue("-webkit-appearance") === "none"),
+        };
+    });
+    expect(nativeStyles.markerClass).toBe(true);
+    expect(nativeStyles.visibleSearchClass).toBe(true);
+    expect(nativeStyles.hostClass).toBe(false);
+    expect(nativeStyles.markerRuleCount).toBeGreaterThan(0);
+    expect(nativeStyles.visibleSearchRuleCount).toBeGreaterThan(0);
+    expect(nativeStyles.hostRuleCount).toBe(0);
+    expect(nativeStyles.markerPseudoSuppressed).toBe(true);
+
+    await gotoLab(page, {component: "form-number-input"});
+    const numberStyles = await page.evaluate(() => {
+        const host = document.querySelector<HTMLInputElement>("#host-number");
+        if (!host) throw new Error("host number probe missing");
+        const owned = [...document.querySelectorAll<HTMLInputElement>('input[type="number"]')]
+            .filter((input) => input !== host);
+        const spinnerRules = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules])
+            .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+            .filter((rule) => /webkit-(?:inner|outer)-spin-button/u.test(rule.selectorText));
+        const matchingRules = (input: HTMLInputElement) => spinnerRules.filter((rule) => rule.selectorText
+            .split(",")
+            .map((selector) => selector.replace(/::-[a-z-]+$/u, "").trim())
+            .some((selector) => input.matches(selector)));
+        return {
+            owned: owned.map((input) => ({
+                marker: input.classList.contains("nb-ui-native-input"),
+                matchingCount: matchingRules(input).length,
+                pseudoSuppressed: matchingRules(input).every((rule) => rule.style.getPropertyValue("-webkit-appearance") === "none"),
+            })),
+            hostMarker: host.classList.contains("nb-ui-native-input"),
+            hostRuleCount: matchingRules(host).length,
+        };
+    });
+    expect(numberStyles.owned).toHaveLength(4);
+    expect(numberStyles.owned.every(({marker, matchingCount, pseudoSuppressed}) => marker && matchingCount > 0 && pseudoSuppressed)).toBe(true);
+    expect(numberStyles.hostMarker).toBe(false);
+    expect(numberStyles.hostRuleCount).toBe(0);
+
+    await gotoLab(page, {component: "form-checkbox", scene: "default", targetState: "attached"});
+    const checkbox = page.locator("#nb-lab-target");
+    const visual = checkbox.locator("xpath=following-sibling::span[1]");
+    const baseStyle = await visual.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {borderColor: style.borderColor, boxShadow: style.boxShadow};
+    });
+    await checkbox.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(checkbox).toBeFocused();
+    const focusStyle = await visual.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {borderColor: style.borderColor, boxShadow: style.boxShadow};
+    });
+    expect(focusStyle.borderColor).not.toBe(baseStyle.borderColor);
+    expect(focusStyle.boxShadow).not.toBe(baseStyle.boxShadow);
+    await checkbox.press("Space");
+    const checkedBackground = await visual.evaluate((element) => getComputedStyle(element).backgroundImage);
+    expect(checkedBackground).toContain("linear-gradient");
+
+    await gotoLab(page, {component: "form-checkbox", scene: "invalid", targetState: "attached"});
+    const invalidCheckbox = page.locator("#nb-lab-target");
+    const invalidVisual = invalidCheckbox.locator("xpath=following-sibling::span[1]");
+    await expect(invalidCheckbox).toHaveAttribute("aria-invalid", "true");
+    const invalidBaseStyle = await invalidVisual.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {borderColor: style.borderColor, boxShadow: style.boxShadow};
+    });
+    expect(invalidBaseStyle.borderColor).not.toBe(baseStyle.borderColor);
+    await invalidCheckbox.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(invalidCheckbox).toBeFocused();
+    const invalidFocusStyle = await invalidVisual.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {borderColor: style.borderColor, boxShadow: style.boxShadow};
+    });
+    expect(invalidFocusStyle.borderColor).toBe(invalidBaseStyle.borderColor);
+    expect(invalidFocusStyle.boxShadow).not.toBe(invalidBaseStyle.boxShadow);
+
+    for (const width of [1440, 390]) {
+        await page.setViewportSize({width, height: 800});
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    }
 });
 
 test("事件日志 100 条封顶且可清空", async ({ page }) => {

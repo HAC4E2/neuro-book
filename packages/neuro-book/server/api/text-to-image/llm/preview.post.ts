@@ -2,10 +2,10 @@ import {defineEventHandler} from "h3";
 import {z} from "zod";
 import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
-import {TextToImageLlmProviderSettingsSchema, TextToImageRequestTypeSchema} from "nbook/shared/dto/text-to-image.dto";
-import {buildRequestMessages, resolveTextToImageContextProfile} from "nbook/server/text-to-image/llm-context";
+import {TextToImageRequestTypeSchema} from "nbook/shared/dto/text-to-image.dto";
+import {buildRequestMessages, resolveTextToImageContextProfile, resolveTextToImageLlmProvider} from "nbook/server/text-to-image/llm-context";
 import {prepareLlmMessages} from "nbook/server/text-to-image/llm-chat";
+import {prepareLlmToolCallRequest} from "nbook/server/text-to-image/llm-toolcall-config";
 
 const PreviewBodySchema = z.object({
     providerId: z.number().int().positive(),
@@ -31,16 +31,19 @@ const PreviewBodySchema = z.object({
 export default defineEventHandler(async (event) => {
     const user = await requireTextToImageUser(event);
     const body = await validateBody(event, PreviewBodySchema);
-    const provider = await new TextToImageProviderService().resolveRuntimeProvider(user.id, body.providerId);
-    const settings = TextToImageLlmProviderSettingsSchema.parse(provider.settings);
+    const provider = await resolveTextToImageLlmProvider(user.id, body.providerId);
+    const settings = provider.settings;
     const profile = await resolveTextToImageContextProfile(body.requestType);
     const messages = prepareLlmMessages(
         buildRequestMessages(profile.entries, body.runtime, [{role: "user", content: body.prompt}], profile.promptMode),
         body.runtime,
         {sendImages: settings.sendImages, mergeSystemUser: settings.mergeSystemUser},
     );
+    const prepared = prepareLlmToolCallRequest(messages, settings.toolCallConfig, settings.tailMessagesConfig);
     return {
-        messages,
+        messages: prepared.messages,
+        tools: prepared.tools ?? null,
+        tool_choice: prepared.toolChoice ?? null,
         requestType: body.requestType,
         profileId: profile.id,
         promptMode: profile.promptMode,

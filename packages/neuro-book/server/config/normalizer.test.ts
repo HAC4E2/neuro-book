@@ -333,3 +333,19 @@ describe("config normalizer Provider Config identity", () => {
         expect(Object.keys(effective.models.providers.provider?.models ?? {})).toEqual(["unique"]);
     });
 });
+
+describe("config normalizer text-to-image Tool/Tail", () => {
+    it("adds new defaults without persisting or replacing explicit disabled values", () => {
+        const defaults = normalizeGlobalConfig({});
+        expect(defaults.textToImage.toolCallConfig.enabled).toBe(true);
+        expect(defaults.textToImage.tailMessagesConfig.enabled).toBe(true);
+        const disabled = normalizeGlobalConfig({
+            textToImage: {
+                toolCallConfig: {enabled: false},
+                tailMessagesConfig: {enabled: false, messages: []},
+            },
+        });
+        expect(disabled.textToImage.toolCallConfig.enabled).toBe(false);
+        expect(disabled.textToImage.tailMessagesConfig).toEqual({enabled: false, messages: []});
+    });
+});

@@ -11,14 +11,14 @@ argument-hint: 'Request, file, decision, or task to report'
 ## 先取证
 
 1. 读取根 `AGENTS.md`、`.omp/RULES.md` 和当前路径最近的 `AGENTS.md`。
-2. 有 Task 时读取唯一恢复集合：授权来源、Spec 或“行为合同未变”依据、Task README、`context.md`、最新 walkthrough/evidence、实现 worktree 当前 diff；没有 Task 时读取当前 diff 和实际命令结果。
+2. 有 Task 时读取唯一恢复集合：所属 Work、Task README、role 合同、授权来源、Spec 或“行为合同未变”依据、最新 walkthrough/evidence、实现 worktree 当前 diff；没有 Task 时读取当前 diff 和实际命令结果。
 3. 只写已经观察到的状态、命令、退出码、revision、文件和风险；未运行项明确写“未运行”，不把旧证据当作最新验证。
 4. `$ARGUMENTS` 指定文件或审查对象时，先读取它并把该对象列入“已确认”；指定批准、合并、发布、部署或其它不可逆动作时，只报告待授权动作，不执行动作。
 
 ## 调用例子
 
 - `report 审查 scripts/ci/agent-governance-contract.ts`：读取指定文件，报告审查对象、已确认边界、发现和下一步修复。
-- `report 阅读 .agents/tasks/00154-project-agent-skills/README.md`：读取指定 Task 合同，报告当前状态、证据和继续执行动作。
+- `report 阅读 .agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md`：读取所属 Work 与指定 Task，报告当前状态、role、证据和继续执行动作。
 - `report 请求开发者接受基线风险`：把唯一待决的人类动作、影响、推荐和回复后动作置顶，不执行远端或不可逆操作。
 
 ## 报告格式
@@ -39,10 +39,11 @@ argument-hint: 'Request, file, decision, or task to report'
 
 | 字段 | 必填内容 |
 | --- | --- |
-| Task | `taskId`、Task README 路径、Task `status`；无 Task 写 `N/A（未创建 Task）`。 |
-| Issue/Project | Issue/Project 编号与状态；无 Issue 写 `actionIssueId: null`、授权来源和“无 Issue/Project 例外”，不猜测编号或状态。 |
-| Worktree | 当前 checkout/worktree 路径，并与 Task `worktreeId` 对照；主 checkout、其它 worktree 或路径不一致必须单独列出。 |
-| Branch | 当前 branch 与 Task `branchId`；detached HEAD 明确写出。 |
+| Work | `workId`、Work README 路径和 `issueId`；无 Work 写 `N/A（未创建 Work）`。 |
+| Task/role | 可选 `taskId`、Task README 路径和 canonical `role`；无 Task 写 `N/A（Work 级报告）`。 |
+| Issue/Project | Work `issueId` 与已观察到的 Issue/Project 状态；`issueId: null` 时写授权来源和“无 Issue/Project 例外”，不猜测编号或状态。 |
+| Worktree | 当前 checkout/worktree 路径；主 checkout、其它 worktree或路径与报告对象不一致时单独列出。 |
+| Branch | 当前 branch；detached HEAD 明确写出。 |
 | Revision | 明列 `HEAD=<sha>`、`latest verified=<sha 或 HEAD + 当前未提交 diff（无独立 revision）>` 和 `一致性=<一致/不一致/N/A>`；验证覆盖未提交 diff 时必须说明“无独立 revision”，不能只写 HEAD。 |
 | 提交状态 | `clean`、已提交但工作树有改动、暂存改动、未暂存改动、未跟踪文件等实际状态；不能因为存在 HEAD 就写“已提交”。 |
 | Diff 范围 | 当前 staged/unstaged/untracked 改动是否都能由 Task 解释；其它 worktree 改动不并入本 Task。 |

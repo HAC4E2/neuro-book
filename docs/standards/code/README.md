@@ -4,7 +4,7 @@
 
 | 改动路径 | 必读规范 |
 |---|---|
-| `app/**`、前端 `plugins/**`、`uno.config.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`frontend.md`](frontend.md) |
+| `app/**`、前端 `plugins/**`、`uno.config.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`frontend.md`](frontend.md)；新增或修改 `.vue` 组件时追加 [`components.md`](components.md) |
 | `server/**` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`server.md`](server.md)；涉及数据库时追加 [`database.md`](database.md) |
 | `shared/**`、`profile-sdk/**`、`variable-sdk/**`、`world-engine/schema/**` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`contracts.md`](contracts.md) |
 | `packages/neuro-book/assets/workspace/.nbook/agent/**` 源码 | [`common.md`](common.md)、对应语言规范、[`agent-assets.md`](agent-assets.md)；`.compiled/`、`.staging/` 和 artifact 生成物不编辑 |

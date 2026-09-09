@@ -6,16 +6,30 @@ import {readSseStream} from "nbook/app/utils/http/read-sse";
 import BooleanToggleButton from "nbook/app/components/common/form/BooleanToggleButton.vue";
 import {normalizeImportedContextProfiles} from "nbook/app/utils/text-to-image-context-import";
 import {
+    exportTextToImageTailConfig,
+    exportTextToImageToolConfig,
+    parseTextToImageTailConfig,
+    parseTextToImageToolConfig,
+} from "nbook/app/utils/text-to-image-tool-config-import";
+import {
     DEFAULT_WORD_REPLACEMENT_PROFILE,
     TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
+    TextToImageTailMessagesConfigSchema,
+    TextToImageToolCallConfigSchema,
     type TextToImageContextEntry,
     type TextToImageContextProfile,
     type TextToImageGlobalConfig,
     type TextToImageProviderDto,
     type TextToImageRequestBinding,
     type TextToImageRequestType,
+    type TextToImageTailMessagesConfig,
+    type TextToImageToolCallConfig,
 } from "nbook/shared/dto/text-to-image.dto";
+import {
+    DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG,
+    DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG,
+} from "nbook/shared/text-to-image-toolcall-defaults";
 
 const props = defineProps<{
     providers: TextToImageProviderDto[];
@@ -39,6 +53,36 @@ const requestTypeOptions: Array<{value: TextToImageRequestType; label: string}> 
 const llmProviders = computed(() => props.providers.filter((provider) => provider.kind === "openai_compatible"));
 const modelOptions = ref<string[]>([]);
 const modelListOpen = ref(false);
+function cloneToolConfig(config: TextToImageToolCallConfig): TextToImageToolCallConfig {
+    return {
+        enabled: config.enabled,
+        nameMode: config.nameMode,
+        fixedName: config.fixedName,
+        prefix: config.prefix,
+        desc: config.desc,
+        fields: config.fields.map((field) => ({...field})),
+    };
+}
+
+function cloneTailConfig(config: TextToImageTailMessagesConfig): TextToImageTailMessagesConfig {
+    return {
+        enabled: config.enabled,
+        messages: config.messages.map((message) => ({...message})),
+    };
+}
+
+function downloadJson(fileName: string, value: unknown): void {
+    const blob = new Blob([JSON.stringify(value, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
+
 const selectedProviderId = ref<number | null>(null);
 const form = ref({
     name: "",
@@ -53,6 +97,10 @@ const form = ref({
     mergeSystemUser: false,
     retryCount: 0,
     tagthinkEcho: false,
+    toolMode: "inherit" as "inherit" | "override",
+    toolCallConfig: cloneToolConfig(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG),
+    tailMode: "inherit" as "inherit" | "override",
+    tailMessagesConfig: cloneTailConfig(DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG),
 });
 
 const contextProfiles = ref<TextToImageGlobalConfig["contextProfiles"]>({});
@@ -66,6 +114,8 @@ const requestBindings = ref<Record<TextToImageRequestType, TextToImageRequestBin
 const wordReplacementProfiles = ref<TextToImageGlobalConfig["wordReplacementProfiles"]>({});
 const currentWordReplacementProfile = ref("default");
 const historyPrefillDepth = ref(1);
+const toolCallConfig = ref(cloneToolConfig(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG));
+const tailMessagesConfig = ref(cloneTailConfig(DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG));
 
 const contextProfileKeys = computed(() => Object.keys(contextProfiles.value).sort());
 const selectedContextProfileId = ref("");
@@ -122,6 +172,10 @@ const modelError = ref("");
 const saving = ref(false);
 const contextProfileImportInput = ref<HTMLInputElement | null>(null);
 const globalConfigImportInput = ref<HTMLInputElement | null>(null);
+const globalToolImportInput = ref<HTMLInputElement | null>(null);
+const globalTailImportInput = ref<HTMLInputElement | null>(null);
+const providerToolImportInput = ref<HTMLInputElement | null>(null);
+const providerTailImportInput = ref<HTMLInputElement | null>(null);
 const notification = useNotification();
 type LlmTraceEvent = {
     traceId: string;
@@ -194,6 +248,8 @@ function syncConfigState(config: TextToImageGlobalConfig): void {
     wordReplacementProfiles.value = ensureDefaultWordReplacementProfile(config.wordReplacementProfiles);
     currentWordReplacementProfile.value = config.currentWordReplacementProfile ?? "default";
     historyPrefillDepth.value = config.historyPrefillDepth ?? 1;
+    toolCallConfig.value = cloneToolConfig(TextToImageToolCallConfigSchema.parse(config.toolCallConfig ?? DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG));
+    tailMessagesConfig.value = cloneTailConfig(TextToImageTailMessagesConfigSchema.parse(config.tailMessagesConfig ?? DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG));
     if (selectedContextProfileId.value && !contextProfiles.value[selectedContextProfileId.value]) {
         selectedContextProfileId.value = "";
         contextProfileDraft.value = emptyContextProfile();
@@ -231,6 +287,8 @@ function selectProvider(id: number): void {
     const provider = props.providers.find((item) => item.id === id);
     const settings = provider ? TextToImageLlmProviderSettingsSchema.parse(provider.settings) : TextToImageLlmProviderSettingsSchema.parse({});
     const rawSettings = provider?.settings ?? {};
+    const hasToolOverride = Object.prototype.hasOwnProperty.call(rawSettings, "toolCallConfig");
+    const hasTailOverride = Object.prototype.hasOwnProperty.call(rawSettings, "tailMessagesConfig");
     form.value = {
         name: provider?.name ?? "",
         baseUrl: settings.baseUrl,
@@ -244,6 +302,10 @@ function selectProvider(id: number): void {
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
         tagthinkEcho: rawSettings.tagthinkEcho === true,
+        toolMode: hasToolOverride ? "override" : "inherit",
+        toolCallConfig: hasToolOverride ? TextToImageToolCallConfigSchema.parse(rawSettings.toolCallConfig) : cloneToolConfig(toolCallConfig.value),
+        tailMode: hasTailOverride ? "override" : "inherit",
+        tailMessagesConfig: hasTailOverride ? TextToImageTailMessagesConfigSchema.parse(rawSettings.tailMessagesConfig) : cloneTailConfig(tailMessagesConfig.value),
     };
 }
 
@@ -264,6 +326,10 @@ function newProvider(): void {
         mergeSystemUser: false,
         retryCount: 0,
         tagthinkEcho: false,
+        toolMode: "inherit",
+        toolCallConfig: cloneToolConfig(toolCallConfig.value),
+        tailMode: "inherit",
+        tailMessagesConfig: cloneTailConfig(tailMessagesConfig.value),
     };
 }
 
@@ -288,6 +354,12 @@ function saveProvider(): void {
         ...baseSettings,
         tagthinkEcho: form.value.tagthinkEcho,
     };
+    if (form.value.toolMode === "override") {
+        settings.toolCallConfig = TextToImageToolCallConfigSchema.parse(form.value.toolCallConfig);
+    }
+    if (form.value.tailMode === "override") {
+        settings.tailMessagesConfig = TextToImageTailMessagesConfigSchema.parse(form.value.tailMessagesConfig);
+    }
     emit("save-provider", {
         id: selectedProviderId.value ?? undefined,
         kind: "openai_compatible",
@@ -297,6 +369,135 @@ function saveProvider(): void {
         credential: form.value.credential || undefined,
         settings,
     });
+}
+
+function moveListItem<T>(items: T[], index: number, delta: number): void {
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+    const current = items[index]!;
+    items[index] = items[nextIndex]!;
+    items[nextIndex] = current;
+}
+
+function addToolField(target: "global" | "provider"): void {
+    const config = target === "global" ? toolCallConfig.value : form.value.toolCallConfig;
+    config.fields.push({name: `field_${config.fields.length + 1}`, description: "", required: true, wrapTag: ""});
+}
+function removeToolField(target: "global" | "provider", index: number): void {
+    const config = target === "global" ? toolCallConfig.value : form.value.toolCallConfig;
+    if (config.fields.length <= 1) return;
+    config.fields.splice(index, 1);
+}
+function moveToolField(target: "global" | "provider", index: number, delta: number): void {
+    const config = target === "global" ? toolCallConfig.value : form.value.toolCallConfig;
+    moveListItem(config.fields, index, delta);
+}
+function addTailMessage(target: "global" | "provider"): void {
+    const config = target === "global" ? tailMessagesConfig.value : form.value.tailMessagesConfig;
+    config.messages.push({role: "user", content: ""});
+}
+function removeTailMessage(target: "global" | "provider", index: number): void {
+    const config = target === "global" ? tailMessagesConfig.value : form.value.tailMessagesConfig;
+    config.messages.splice(index, 1);
+}
+function moveTailMessage(target: "global" | "provider", index: number, delta: number): void {
+    const config = target === "global" ? tailMessagesConfig.value : form.value.tailMessagesConfig;
+    moveListItem(config.messages, index, delta);
+}
+function resetToolConfig(target: "global" | "provider"): void {
+    if (target === "global") {
+        toolCallConfig.value = cloneToolConfig(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG);
+        persistGlobal({toolCallConfig: toolCallConfig.value});
+    } else {
+        form.value.toolCallConfig = cloneToolConfig(DEFAULT_TEXT_TO_IMAGE_TOOL_CALL_CONFIG);
+        form.value.toolMode = "override";
+    }
+}
+function resetTailConfig(target: "global" | "provider"): void {
+    if (target === "global") {
+        tailMessagesConfig.value = cloneTailConfig(DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG);
+        persistGlobal({tailMessagesConfig: tailMessagesConfig.value});
+    } else {
+        form.value.tailMessagesConfig = cloneTailConfig(DEFAULT_TEXT_TO_IMAGE_TAIL_MESSAGES_CONFIG);
+        form.value.tailMode = "override";
+    }
+}
+
+function saveGlobalToolConfig(): void {
+    try {
+        toolCallConfig.value = TextToImageToolCallConfigSchema.parse(toolCallConfig.value);
+        persistGlobal({toolCallConfig: toolCallConfig.value});
+        error.value = "";
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "Tool 配置校验失败");
+    }
+}
+function saveGlobalTailConfig(): void {
+    try {
+        tailMessagesConfig.value = TextToImageTailMessagesConfigSchema.parse(tailMessagesConfig.value);
+        persistGlobal({tailMessagesConfig: tailMessagesConfig.value});
+        error.value = "";
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "Tail 配置校验失败");
+    }
+}
+function exportToolConfig(target: "global" | "provider"): void {
+    const config = target === "global" ? toolCallConfig.value : form.value.toolCallConfig;
+    downloadJson(`${target}-tool-config.json`, exportTextToImageToolConfig(config));
+}
+function exportTailConfig(target: "global" | "provider"): void {
+    const config = target === "global" ? tailMessagesConfig.value : form.value.tailMessagesConfig;
+    downloadJson(`${target}-tail-config.json`, exportTextToImageTailConfig(config));
+}
+function openToolImport(target: "global" | "provider"): void {
+    (target === "global" ? globalToolImportInput : providerToolImportInput).value?.click();
+}
+function openTailImport(target: "global" | "provider"): void {
+    (target === "global" ? globalTailImportInput : providerTailImportInput).value?.click();
+}
+async function importToolConfig(event: Event, target: "global" | "provider"): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+        const parsed = parseTextToImageToolConfig(JSON.parse(await file.text()));
+        if (target === "global") {
+            toolCallConfig.value = parsed;
+            persistGlobal({toolCallConfig: parsed});
+        } else {
+            form.value.toolCallConfig = parsed;
+            form.value.toolMode = "override";
+        }
+        error.value = "";
+        notification.success(`${target === "global" ? "全局" : "Provider"} Tool 配置导入成功`);
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "导入 Tool 配置失败");
+        notification.error(error.value, {title: "导入 Tool 配置失败"});
+    } finally {
+        input.value = "";
+    }
+}
+async function importTailConfig(event: Event, target: "global" | "provider"): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+        const parsed = parseTextToImageTailConfig(JSON.parse(await file.text()));
+        if (target === "global") {
+            tailMessagesConfig.value = parsed;
+            persistGlobal({tailMessagesConfig: parsed});
+        } else {
+            form.value.tailMessagesConfig = parsed;
+            form.value.tailMode = "override";
+        }
+        error.value = "";
+        notification.success(`${target === "global" ? "全局" : "Provider"} Tail 配置导入成功`);
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "导入 Tail 配置失败");
+        notification.error(error.value, {title: "导入 Tail 配置失败"});
+    } finally {
+        input.value = "";
+    }
 }
 
 function chooseModel(model: string): void {
@@ -415,6 +616,8 @@ function exportGlobalConfig(): void {
         wordReplacementProfiles: wordReplacementProfiles.value,
         currentWordReplacementProfile: currentWordReplacementProfile.value,
         historyPrefillDepth: historyPrefillDepth.value,
+        toolCallConfig: toolCallConfig.value,
+        tailMessagesConfig: tailMessagesConfig.value,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
     const url = URL.createObjectURL(blob);
@@ -433,6 +636,12 @@ async function importGlobalConfig(event: Event): Promise<void> {
     if (!file) return;
     try {
         const raw = JSON.parse(await file.text()) as unknown;
+        if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+            const rawType = (raw as {type?: unknown}).type;
+            if (rawType === "antigravity_tool_config" || rawType === "antigravity_tail_config") {
+                throw new Error("该文件是 Tool/Tail 独立配置，请使用对应的独立导入按钮");
+            }
+        }
         const parsed = typeof raw === "object" && raw !== null && !Array.isArray(raw) && "contextProfiles" in raw
             ? TextToImageGlobalConfigSchema.parse(raw)
             : TextToImageGlobalConfigSchema.parse({
@@ -459,6 +668,8 @@ async function importGlobalConfig(event: Event): Promise<void> {
         wordReplacementProfiles.value = ensureDefaultWordReplacementProfile(parsed.wordReplacementProfiles);
         currentWordReplacementProfile.value = parsed.currentWordReplacementProfile ?? "default";
         historyPrefillDepth.value = parsed.historyPrefillDepth;
+        toolCallConfig.value = TextToImageToolCallConfigSchema.parse(parsed.toolCallConfig);
+        tailMessagesConfig.value = TextToImageTailMessagesConfigSchema.parse(parsed.tailMessagesConfig);
         error.value = "";
         persistGlobal({
             contextProfiles: contextProfiles.value,
@@ -466,6 +677,8 @@ async function importGlobalConfig(event: Event): Promise<void> {
             wordReplacementProfiles: wordReplacementProfiles.value,
             currentWordReplacementProfile: currentWordReplacementProfile.value,
             historyPrefillDepth: historyPrefillDepth.value,
+            toolCallConfig: toolCallConfig.value,
+            tailMessagesConfig: tailMessagesConfig.value,
         });
         notification.success("全局配置导入成功");
     } catch (cause) {
@@ -517,6 +730,8 @@ function persistGlobal(patch: Partial<TextToImageGlobalConfig>): void {
         wordReplacementProfiles: wordReplacementProfiles.value,
         currentWordReplacementProfile: currentWordReplacementProfile.value,
         historyPrefillDepth: historyPrefillDepth.value,
+        toolCallConfig: toolCallConfig.value,
+        tailMessagesConfig: tailMessagesConfig.value,
         ...patch,
     });
 }
@@ -557,7 +772,7 @@ async function buildTestPreview(): Promise<void> {
     previewing.value = true;
     error.value = "";
     try {
-        const result = await $fetch<{messages: Array<{role: string; content: unknown}>; promptMode: string; profileId: string}>("/api/text-to-image/llm/preview", {
+        const result = await $fetch<{messages: Array<{role: string; content: unknown}>; tools: unknown; tool_choice: unknown; promptMode: string; profileId: string}>("/api/text-to-image/llm/preview", {
             method: "POST",
             body: {
                 providerId: selectedProviderId.value,
@@ -566,7 +781,7 @@ async function buildTestPreview(): Promise<void> {
                 runtime: {},
             },
         });
-        testPreview.value = `[${result.promptMode}] ${result.profileId}\n\n${result.messages.map((message) => `[${message.role}] ${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}`).join("\n\n")}`;
+        testPreview.value = `[${result.promptMode}] ${result.profileId}\n\nTool: ${JSON.stringify(result.tools)}\nTool choice: ${JSON.stringify(result.tool_choice)}\n\n${result.messages.map((message) => `[${message.role}] ${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}`).join("\n\n")}`;
     } catch (cause) {
         testPreview.value = "";
         error.value = resolveApiErrorMessage(cause, "组合提示词预览失败");
@@ -682,6 +897,67 @@ async function fetchModels(): Promise<void> {
                     <BooleanToggleButton v-model="form.tagthinkEcho" />
                 </label>
             </div>
+            <div class="mt-3 rounded-md border border-[var(--border-color)] p-3">
+                <div class="mb-2 flex items-center justify-between gap-2">
+                    <h4 class="text-[16px] font-semibold text-[var(--text-main)]">Provider Tool 配置</h4>
+                    <div class="flex items-center gap-2">
+                        <input ref="providerToolImportInput" type="file" accept="application/json" class="hidden" @change="importToolConfig($event, 'provider')" />
+                        <button type="button" class="h-8 rounded border px-2 text-[14px]" @click="openToolImport('provider')">导入</button>
+                        <button type="button" class="h-8 rounded border px-2 text-[14px]" @click="exportToolConfig('provider')">导出</button>
+                        <button type="button" class="h-8 rounded border px-2 text-[14px]" @click="resetToolConfig('provider')">恢复默认并独立设置</button>
+                    </div>
+                </div>
+                <label class="flex max-w-[260px] flex-col gap-1 text-[15px] text-[var(--text-secondary)]">配置来源
+                    <select v-model="form.toolMode" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[15px]">
+                        <option value="inherit">继承全局</option>
+                        <option value="override">独立设置</option>
+                    </select>
+                </label>
+                <template v-if="form.toolMode === 'override'">
+                    <div class="mt-2 grid grid-cols-2 gap-2">
+                        <label class="flex items-center gap-2 text-[15px] text-[var(--text-secondary)]">启用 <BooleanToggleButton v-model="form.toolCallConfig.enabled" /></label>
+                        <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">命名方式
+                            <select v-model="form.toolCallConfig.nameMode" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[15px]"><option value="dynamic">动态</option><option value="fixed">固定</option></select>
+                        </label>
+                        <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">固定名称 <input v-model="form.toolCallConfig.fixedName" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[15px]" /></label>
+                        <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">动态名称前缀 <input v-model="form.toolCallConfig.prefix" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[15px]" /></label>
+                    </div>
+                    <label class="mt-2 flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">工具用途描述 <textarea v-model="form.toolCallConfig.desc" rows="3" class="rounded border bg-[var(--bg-input)] p-2 text-[15px]" /></label>
+                    <div class="mt-2 flex items-center justify-between"><span class="text-[15px] font-medium">字段</span><button type="button" class="h-8 rounded border px-2 text-[14px]" @click="addToolField('provider')">添加字段</button></div>
+                    <div v-for="(field, index) in form.toolCallConfig.fields" :key="'provider-tool-' + index" class="mt-2 rounded border p-2">
+                        <div class="mb-1 flex items-center justify-between"><span class="text-[14px] text-[var(--text-muted)]">字段 {{ index + 1 }}</span><div class="flex gap-1"><button type="button" class="rounded border px-2 text-[13px]" @click="moveToolField('provider', index, -1)">上移</button><button type="button" class="rounded border px-2 text-[13px]" @click="moveToolField('provider', index, 1)">下移</button><button type="button" class="rounded border border-[var(--danger-border)] px-2 text-[13px]" :disabled="form.toolCallConfig.fields.length <= 1" @click="removeToolField('provider', index)">删除</button></div></div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex flex-col gap-1 text-[14px]">名称 <input v-model="field.name" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[14px]" /></label>
+                            <label class="flex items-center gap-2 text-[14px]">必填 <BooleanToggleButton v-model="field.required" /></label>
+                            <label class="flex flex-col gap-1 text-[14px]">包裹标签 <input v-model="field.wrapTag" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[14px]" /></label>
+                        </div>
+                        <label class="mt-1 flex flex-col gap-1 text-[14px]">字段描述 <textarea v-model="field.description" rows="2" class="rounded border bg-[var(--bg-input)] p-2 text-[14px]" /></label>
+                    </div>
+                </template>
+            </div>
+            <div class="mt-3 rounded-md border border-[var(--border-color)] p-3">
+                <div class="mb-2 flex items-center justify-between gap-2">
+                    <h4 class="text-[16px] font-semibold text-[var(--text-main)]">Provider Tail 消息</h4>
+                    <div class="flex items-center gap-2">
+                        <input ref="providerTailImportInput" type="file" accept="application/json" class="hidden" @change="importTailConfig($event, 'provider')" />
+                        <button type="button" class="h-8 rounded border px-2 text-[14px]" @click="openTailImport('provider')">导入</button>
+                        <button type="button" class="h-8 rounded border px-2 text-[14px]" @click="exportTailConfig('provider')">导出</button>
+                        <button type="button" class="h-8 rounded border px-2 text-[14px]" @click="resetTailConfig('provider')">恢复默认并独立设置</button>
+                    </div>
+                </div>
+                <label class="flex max-w-[260px] flex-col gap-1 text-[15px] text-[var(--text-secondary)]">配置来源
+                    <select v-model="form.tailMode" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[15px]"><option value="inherit">继承全局</option><option value="override">独立设置</option></select>
+                </label>
+                <template v-if="form.tailMode === 'override'">
+                    <label class="mt-2 flex items-center gap-2 text-[15px] text-[var(--text-secondary)]">启用（Tool 开启时生效） <BooleanToggleButton v-model="form.tailMessagesConfig.enabled" /></label>
+                    <button type="button" class="mt-2 h-8 rounded border px-2 text-[14px]" @click="addTailMessage('provider')">添加消息</button>
+                    <div v-for="(message, index) in form.tailMessagesConfig.messages" :key="'provider-tail-' + index" class="mt-2 rounded border p-2">
+                        <div class="mb-1 flex items-center justify-between"><span class="text-[14px] text-[var(--text-muted)]">消息 {{ index + 1 }}</span><div class="flex gap-1"><button type="button" class="rounded border px-2 text-[13px]" @click="moveTailMessage('provider', index, -1)">上移</button><button type="button" class="rounded border px-2 text-[13px]" @click="moveTailMessage('provider', index, 1)">下移</button><button type="button" class="rounded border border-[var(--danger-border)] px-2 text-[13px]" @click="removeTailMessage('provider', index)">删除</button></div></div>
+                        <label class="flex flex-col gap-1 text-[14px]">role <select v-model="message.role" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[14px]"><option value="system">system</option><option value="user">user</option><option value="assistant">assistant</option></select></label>
+                        <label class="mt-1 flex flex-col gap-1 text-[14px]">content <textarea v-model="message.content" rows="4" class="rounded border bg-[var(--bg-input)] p-2 text-[14px]" /></label>
+                    </div>
+                </template>
+            </div>
             <div class="mt-3 flex items-center gap-2">
                 <button class="h-9 rounded-md bg-[var(--accent-main)] px-3 text-[16px] font-medium text-[var(--text-inverse)]" @click="saveProvider">保存 Provider</button>
             </div>
@@ -711,6 +987,90 @@ async function fetchModels(): Promise<void> {
                         />
                         <span class="text-[14px] text-[var(--text-muted)]">默认回填上一章；本卷第一章不会回填。0 表示关闭。</span>
                     </label>
+                </div>
+                <div class="rounded-md border border-[var(--border-color)] p-3">
+                    <div class="mb-2 flex items-center justify-between gap-2">
+                        <h4 class="text-[16px] font-semibold text-[var(--text-main)]">全局 Tool 配置</h4>
+                        <div class="flex items-center gap-2">
+                            <input ref="globalToolImportInput" type="file" accept="application/json" class="hidden" @change="importToolConfig($event, 'global')" />
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="openToolImport('global')">导入</button>
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="exportToolConfig('global')">导出</button>
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="resetToolConfig('global')">恢复默认</button>
+                            <button type="button" class="h-8 rounded-md bg-[var(--accent-main)] px-2 text-[14px] text-[var(--text-inverse)]" @click="saveGlobalToolConfig">保存</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center gap-2 text-[15px] text-[var(--text-secondary)]">启用 <BooleanToggleButton v-model="toolCallConfig.enabled" /></label>
+                        <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">命名方式
+                            <select v-model="toolCallConfig.nameMode" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[15px] text-[var(--text-main)]">
+                                <option value="dynamic">动态</option>
+                                <option value="fixed">固定</option>
+                            </select>
+                        </label>
+                        <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">固定名称
+                            <input v-model="toolCallConfig.fixedName" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[15px] text-[var(--text-main)]" />
+                        </label>
+                        <label class="flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">动态名称前缀
+                            <input v-model="toolCallConfig.prefix" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[15px] text-[var(--text-main)]" />
+                        </label>
+                    </div>
+                    <label class="mt-2 flex flex-col gap-1 text-[15px] text-[var(--text-secondary)]">工具用途描述
+                        <textarea v-model="toolCallConfig.desc" rows="3" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[15px] text-[var(--text-main)]" />
+                    </label>
+                    <div class="mt-2 flex items-center justify-between">
+                        <span class="text-[15px] font-medium text-[var(--text-main)]">字段</span>
+                        <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="addToolField('global')">添加字段</button>
+                    </div>
+                    <div v-for="(field, index) in toolCallConfig.fields" :key="'global-tool-' + index" class="mt-2 rounded-md border border-[var(--border-color)] p-2">
+                        <div class="mb-1 flex items-center justify-between">
+                            <span class="text-[14px] text-[var(--text-muted)]">字段 {{ index + 1 }}</span>
+                            <div class="flex gap-1">
+                                <button type="button" class="rounded border px-2 text-[13px]" @click="moveToolField('global', index, -1)">上移</button>
+                                <button type="button" class="rounded border px-2 text-[13px]" @click="moveToolField('global', index, 1)">下移</button>
+                                <button type="button" class="rounded border border-[var(--danger-border)] px-2 text-[13px] text-[var(--danger-text)]" :disabled="toolCallConfig.fields.length <= 1" @click="removeToolField('global', index)">删除</button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex flex-col gap-1 text-[14px] text-[var(--text-secondary)]">名称 <input v-model="field.name" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[14px]" /></label>
+                            <label class="flex items-center gap-2 text-[14px] text-[var(--text-secondary)]">必填 <BooleanToggleButton v-model="field.required" /></label>
+                            <label class="flex flex-col gap-1 text-[14px] text-[var(--text-secondary)]">包裹标签 <input v-model="field.wrapTag" placeholder="可选，例如 thinking" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[14px]" /></label>
+                        </div>
+                        <label class="mt-1 flex flex-col gap-1 text-[14px] text-[var(--text-secondary)]">字段描述 <textarea v-model="field.description" rows="2" class="rounded border bg-[var(--bg-input)] p-2 text-[14px]" /></label>
+                    </div>
+                </div>
+                <div class="rounded-md border border-[var(--border-color)] p-3">
+                    <div class="mb-2 flex items-center justify-between gap-2">
+                        <h4 class="text-[16px] font-semibold text-[var(--text-main)]">全局 Tail 消息</h4>
+                        <div class="flex items-center gap-2">
+                            <input ref="globalTailImportInput" type="file" accept="application/json" class="hidden" @change="importTailConfig($event, 'global')" />
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="openTailImport('global')">导入</button>
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="exportTailConfig('global')">导出</button>
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="resetTailConfig('global')">恢复默认</button>
+                            <button type="button" class="h-8 rounded-md bg-[var(--accent-main)] px-2 text-[14px] text-[var(--text-inverse)]" @click="saveGlobalTailConfig">保存</button>
+                        </div>
+                    </div>
+                    <label class="mb-2 flex items-center gap-2 text-[15px] text-[var(--text-secondary)]">启用（Tool 开启时生效） <BooleanToggleButton v-model="tailMessagesConfig.enabled" /></label>
+                    <button type="button" class="mb-1 h-8 rounded-md border border-[var(--border-color)] px-2 text-[14px] text-[var(--text-secondary)]" @click="addTailMessage('global')">添加消息</button>
+                    <div v-for="(message, index) in tailMessagesConfig.messages" :key="'global-tail-' + index" class="mt-2 rounded-md border border-[var(--border-color)] p-2">
+                        <div class="mb-1 flex items-center justify-between">
+                            <span class="text-[14px] text-[var(--text-muted)]">消息 {{ index + 1 }}</span>
+                            <div class="flex gap-1">
+                                <button type="button" class="rounded border px-2 text-[13px]" @click="moveTailMessage('global', index, -1)">上移</button>
+                                <button type="button" class="rounded border px-2 text-[13px]" @click="moveTailMessage('global', index, 1)">下移</button>
+                                <button type="button" class="rounded border border-[var(--danger-border)] px-2 text-[13px] text-[var(--danger-text)]" @click="removeTailMessage('global', index)">删除</button>
+                            </div>
+                        </div>
+                        <label class="flex flex-col gap-1 text-[14px] text-[var(--text-secondary)]">role
+                            <select v-model="message.role" class="h-8 rounded border bg-[var(--bg-input)] px-2 text-[14px]">
+                                <option value="system">system</option>
+                                <option value="user">user</option>
+                                <option value="assistant">assistant</option>
+                            </select>
+                        </label>
+                        <label class="mt-1 flex flex-col gap-1 text-[14px] text-[var(--text-secondary)]">content
+                            <textarea v-model="message.content" rows="4" class="rounded border bg-[var(--bg-input)] p-2 text-[14px]" />
+                        </label>
+                    </div>
                 </div>
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <div class="mb-2 flex items-center justify-between gap-2">

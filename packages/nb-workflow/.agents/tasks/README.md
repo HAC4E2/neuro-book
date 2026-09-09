@@ -1,5 +1,3 @@
-# nb-workflow Tasks
+# nb-workflow Legacy Task 索引
 
-这是 `nb-workflow` 自治项目的 Task 入口。当前 S0 import manifest 没有可迁入的历史 Task，因此本目录只保留索引，不创建 taskId、Task 正文或虚构的路线图。
-
-跨项目协调、workspace 安装图和共享治理以 monorepo 根规则为准；只改变 `nb-workflow` 自身行为的后续工作才在本目录建立项目内唯一的 Task。
+本目录只保留从源仓迁入的 legacy 记录；当前 S0 import manifest 没有可迁入的 Task，因此不创建 taskId 或正文。nb-workflow 新工作与跨项目事项统一在根 `.agents/works/` 创建 Work/Task。

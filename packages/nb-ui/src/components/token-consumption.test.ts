@@ -32,6 +32,10 @@ const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([
     ["form/ColorPicker.vue", "ColorPicker 是取色器与调色板，预设色板需要字面色彩常量"],
 ]);
 
+const LITERAL_COLOR_VALUE_ALLOWLIST = new Map<string, ReadonlySet<string>>([
+    ["form/FormCheckbox.vue", new Set(["#000000"])],
+]);
+
 function collectVueFiles(dir: string): string[] {
     const out: string[] = [];
     for (const entry of readdirSync(dir, {withFileTypes: true})) {
@@ -98,10 +102,11 @@ function violationsFor(rule: Rule, files: string[]): string[] {
         if (rule.allowlist?.has(rel)) {
             continue;
         }
+        const allowedValues = rule.name === "组件不写字面颜色" ? LITERAL_COLOR_VALUE_ALLOWLIST.get(rel) : undefined;
         const lines = stripComments(readFileSync(path, "utf-8")).split("\n");
         lines.forEach((line, index) => {
             const match = line.match(rule.pattern);
-            if (match) {
+            if (match && !allowedValues?.has(match[0])) {
                 violations.push(`${rel}:${index + 1} 命中「${match[0]}」——${rule.reason}`);
             }
         });
@@ -121,7 +126,7 @@ describe("组件 token 消费静态扫描", () => {
 
     it("豁免清单里的文件仍然存在（防止豁免变成死条目）", () => {
         const existing = new Set(files.map((path) => join(path).slice(COMPONENTS_DIR.length + 1).replaceAll("\\", "/")));
-        for (const rel of [...LITERAL_RADIUS_ALLOWLIST.keys(), ...LITERAL_COLOR_ALLOWLIST.keys()]) {
+        for (const rel of [...LITERAL_RADIUS_ALLOWLIST.keys(), ...LITERAL_COLOR_ALLOWLIST.keys(), ...LITERAL_COLOR_VALUE_ALLOWLIST.keys()]) {
             expect(existing.has(rel), `${rel} 已不存在，应从豁免清单移除`).toBe(true);
         }
     });
