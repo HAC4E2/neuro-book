@@ -12,4 +12,4 @@ issueId: null
 
 本 Work 不绑定远端 Issue；依据是本会话开发者直接批准的目标与范围。代码改动使用 `.worktree/w00007-chatu8-toolcall-alignment` 隔离，主工作区既有修改不纳入本 Work。本次已按授权完成 HAC4E2 master 同步、冲突合并和 `new-text-to-picture` push；真实 Provider/Model、浏览器人工验收、PR、发布和部署仍未执行。
 
-目标 Spec：[media/text-to-image-llm-toolcall.md](../../../docs/specs/media/text-to-image-llm-toolcall.md)。实现提交 `0ac96723` 已应用到主工作区，Spec 已切换为 `implemented`；旧同步 merge 已结案为 `0e71893e`，HAC4E2 最新 `origin/master=106f5e7b` 已合并为 `4faa1205`，并已推送到 `origin/new-text-to-picture`。真实 Provider、浏览器人工验收、PR、发布和部署仍未执行。
+目标 Spec：[media/text-to-image-llm-toolcall.md](../../../docs/specs/media/text-to-image-llm-toolcall.md)。本地实现提交 `0ac96723` 的 20 个功能文件已与最终分支逐文件一致；实际进入当前历史的是已包含同一实现的旧同步 merge `0e71893e`，因此没有重复 cherry-pick `0ac96723`。Spec 已切换为 `implemented`；HAC4E2 最新 `origin/master=106f5e7b` 已合并为 `4faa1205`，并已推送到 `origin/new-text-to-picture`。真实 Provider、浏览器人工验收、PR、发布和部署仍未执行。

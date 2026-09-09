@@ -5,9 +5,9 @@
 - Worktree：`.worktree/w00007-chatu8-toolcall-alignment`
 - 分支：`feat/w00007-toolcall-alignment`
 - 基线：`4e0347fe1a61952a3062196a79e0cba49cde88cf`
-- 实现提交：`0ac96723`（`feat/w00007-toolcall-alignment`，隔离 worktree 已提交且工作树干净）
+- 实现来源提交：`0ac96723`（`feat/w00007-toolcall-alignment`，隔离 worktree 已提交且工作树干净）。逐文件比较显示其 20 个功能文件与最终分支完全一致；最终历史通过已含同一实现的 `0e71893e` 带入，没有重复 cherry-pick 该提交对象。
 - 固定上游：`damoshen123/st-chatu8@3138b2c7f24b01c65b72389e2ff7502bd4ee9030`
-- 隔离 worktree 实现已提交；旧 `upstream/master` merge 结案为 `0e71893e`。随后同步 HAC4E2 `origin/master=106f5e7b`，解决 `AGENTS.md` 与 `bun.lock` 冲突并提交为 `4faa1205`，已推送到 `origin/new-text-to-picture`。
+- 隔离 worktree 实现已提交并完成逐文件一致性核对；旧 `upstream/master` merge 结案为 `0e71893e`。随后同步 HAC4E2 `origin/master=106f5e7b`，解决 `AGENTS.md` 与 `bun.lock` 冲突并提交为 `4faa1205`，已推送到 `origin/new-text-to-picture`。
 
 ## 命令与结果
 
@@ -19,7 +19,7 @@
 | `bun install --frozen-lockfile --linker hoisted`（合并后） | 0 | 合并后的 workspace lockfile 可冻结安装；仅执行正常安装生成了必要 lockfile 差异。 |
 | `bun run --cwd packages/neuro-book typecheck` | 0 | Prisma client 生成后主应用类型检查通过，无新增类型错误。 |
 | `bun run docs:check` | 0 | implemented Spec 登记、实现/测试链接和文档结构均通过。 |
-| `bun run governance:check` | 0 | 当前实现 worktree 治理检查无 failure/warning。 |
+| `bun run governance:check` | 1 | 当前主工作区复跑报告 4 项既有治理问题：缺失 w00003/t14 README、历史根 Task 标识无效，以及两处应用跨根 `#scripts` 导入违规；均不在本 Work 改动范围。 |
 | `git diff --check` | 0 | 无空白错误；仅有 Git 的换行转换提示。 |
 
 ## 默认值和样本证据
@@ -43,4 +43,4 @@
 
 ## 未运行项
 
-真实 Provider/Model 调用、浏览器人工验收、数据库迁移、`index.js` 执行、PR、发布和部署均未运行；HAC4E2 master 合并和 push 已完成，当前 `origin/new-text-to-picture` 与本地 `HEAD=4faa1205` 一致。
+真实 Provider/Model 调用、浏览器人工验收、数据库迁移、`index.js` 执行、PR、发布和部署均未运行；HAC4E2 master 合并和 push 已完成，当前 `origin/new-text-to-picture` 与本地 HEAD 一致，最终 revision 由提交记录确认。

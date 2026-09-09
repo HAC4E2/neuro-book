@@ -31,7 +31,7 @@ role: tasker
 - 五类请求及预览覆盖同一有效配置；Tool 关闭不发送 tools/tool_choice/Tail；Tool 响应、重试工具名和 SSE 分片合同有测试。
 - `bun run --cwd packages/neuro-book typecheck`（或仓库当前等价命令）、受影响 Vitest、`bun run docs:check` 的实际结果已记录；失败项区分基线问题与新增问题。
 - Tasker 交回 Leader 前，当前 diff、测试和文档证据足以让 Leader 无需依赖聊天重建结论。
-- 当前实现提交为 `0ac96723`；旧同步 merge 已结案为 `0e71893e`，HAC4E2 最新 `origin/master=106f5e7b` 已合并为 `4faa1205`，并已推送到 `origin/new-text-to-picture`。
+- 本地实现提交为 `0ac96723`；其 20 个功能文件与最终分支逐文件一致，实际由已包含同一实现的旧同步 merge `0e71893e` 带入，因此没有重复 cherry-pick 该提交。HAC4E2 最新 `origin/master=106f5e7b` 已合并为 `4faa1205`，并已推送到 `origin/new-text-to-picture`。
 
 ## 开发者参与点
 

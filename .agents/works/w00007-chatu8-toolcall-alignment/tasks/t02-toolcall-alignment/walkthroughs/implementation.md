@@ -27,10 +27,10 @@
 
 - 本地生成 Prisma client 后，临时关闭仓库既有 system assets global setup 的聚焦 Vitest 共 11 个文件、123 项测试通过；同步 HAC4E2 master 后同一范围扩展为 12 个文件、125 项测试通过。
 - 现有 UI 合同测试覆盖旧全局配置输入；发现并修复缺失 Tool/Tail 字段时的默认补齐问题，3 个 UI 文件、23 项测试通过。
-- `typecheck`、`docs:check`、`governance:check`、`bun install --frozen-lockfile --linker hoisted` 和目标文件 `git diff --check` 均通过；完整原始 Vitest 仍被既有 system assets freshness setup 阻塞。
+- `typecheck`、`docs:check`、`bun install --frozen-lockfile --linker hoisted` 和目标文件 `git diff --check` 均通过；实现 worktree 在合并前的 `governance:check` 通过，主工作区最终复跑发现 4 项既有治理问题；完整原始 Vitest 仍被既有 system assets freshness setup 阻塞。
 
 ## 约束与偏差
 
 - 没有运行真实 Provider/Model、浏览器人工验收、数据库迁移、`index.js`、PR 或发布；已完成 HAC4E2 `origin/master=106f5e7b` 合并（`4faa1205`）并 push 到 `new-text-to-picture`。
-- 实现最初位于 `.worktree/w00007-chatu8-toolcall-alignment`，随后应用到主工作区并随 merge 提交推送；Work/Task 计划与证据保留在主工作区。
+- 实现最初位于 `.worktree/w00007-chatu8-toolcall-alignment`；逐文件核对确认当前分支已通过 `0e71893e` 带入与 `0ac96723` 完全一致的 20 个功能文件，因此没有重复 cherry-pick；Work/Task 计划与证据保留在主工作区。
 - 用户提供的两个 JSON 仅作只读兼容样本；未自动绑定、复制或改写其上下文内容。

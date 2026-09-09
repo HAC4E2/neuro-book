@@ -21,6 +21,6 @@ role: leader
 ## 本轮验证与状态
 
 - 规划阶段的 `bun run docs:check` 和 `bun run governance:context -- --work w00007-chatu8-toolcall-alignment --task t01-construction-plan` 均通过；当时只验证规划文档。
-- 产品实现阶段的命令、退出码和 11 个测试文件 / 123 个测试结果记录在 t02 Task 的 `evidences/verification.md`；实现 worktree 的 `bun run governance:check` 已通过。
+- 产品实现阶段的命令、退出码和 11 个测试文件 / 123 个测试结果记录在 t02 Task 的 `evidences/verification.md`；实现 worktree 在合并前的 `bun run governance:check` 已通过，主工作区最终复跑结果见 t02 Task 验证证据。
 
 规划阶段 checkout 为 `D:/neuro-book-new-text-to-picture`，分支 `new-text-to-picture`，HEAD 为 `4e0347fe1a61952a3062196a79e0cba49cde88cf`。本 Task 文档未跟踪、未提交，没有独立 revision；实现 revision、文件清单和主工作区隔离情况记录在 t02 Task。当前 checkout 的既有 staged 改动不属于本 Work，不纳入实现提交或回滚。无远端动作。
