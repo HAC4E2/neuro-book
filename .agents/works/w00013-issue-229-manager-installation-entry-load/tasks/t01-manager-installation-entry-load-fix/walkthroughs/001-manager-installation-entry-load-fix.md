@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-实现、验证与独立 Reviewer 审查完成。Work：`w00013-issue-229-manager-installation-entry-load`；Task：`t01-manager-installation-entry-load-fix`；role：`tasker`。实现分支：`fix/w00013-manager-installation-entry-load`。实现提交为 `c2ff524f`，跨平台 pack smoke 修复提交为 `f8afd616`；最终验证覆盖 `f8afd616`。
+实现、验证、独立 Reviewer 审查与本地合并完成。Work：`w00013-issue-229-manager-installation-entry-load`；Task：`t01-manager-installation-entry-load-fix`；实现提交为 `c2ff524f`，跨平台 pack smoke 修复提交为 `f8afd616`，收尾记录提交为 `63953f73`。上述提交已 fast-forward 合并至本地 `master`；实现分支与 worktree 已清理。
 
 ## 根因
 
@@ -44,7 +44,7 @@ Windows Portable 测试第一次未运行用例，因 clean worktree 缺少 `.nu
 
 ## 未运行项与边界
 
-- 未执行远端 Issue/Project/PR 写入、push、合并、发布、部署或真实 Release workflow。
+- 未执行远端 Issue/Project/PR 写入、push、发布、部署或真实 Release workflow；本地 `master` fast-forward 合并已完成。
 - 未执行真实 Provider/Model、Docker 或浏览器人工验收；均不属于本 Issue 的必要门禁。
-- 主工作区 `master` 当前由既有 `w00009` 未提交改动占用，未强行切换、合并或删除实现 worktree；该合并动作待主工作区恢复干净后执行。
+- 主工作区保留既有 `w00009` 未提交改动，未暂存、修改或删除这些改动。
 - 生成 `dist`、`.nuxt`、`node_modules` 为本地忽略产物，未纳入提交。
