@@ -93,7 +93,9 @@ export async function buildManager() {
             resolve(packageRoot, "src", "portable.ts"),
         ],
         outdir,
-        target: "bun",
+        // 公开入口同时由 Bun Manager 和 Node/Vitest 发布验证消费；target=bun 会把内联 CJS
+        // 依赖的 require 降级为只在 Bun 可调用的 import.meta.require。
+        target: "node",
         format: "esm",
         naming: "[name].mjs",
         plugins: [await createBlessedRuntimePlugin(resolve(packageRoot, "package.json"))],

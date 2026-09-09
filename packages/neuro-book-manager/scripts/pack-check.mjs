@@ -20,6 +20,20 @@ try {
     await run(["bun", "add", archive, "--cwd", temporaryRoot], temporaryRoot);
     const installedPackageRoot = join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager");
     const packageJson = JSON.parse(await readFile(join(installedPackageRoot, "package.json"), "utf8"));
+    const installationSmoke = await runCapture([
+        "node",
+        "--input-type=module",
+        "-e",
+        `const installation = await import("@notnotype/neuro-book-manager/installation");
+const paths = installation.installationPaths("C:/neuro-book");
+if (typeof installation.writeInstallationManifest !== "function" || paths.manifest !== ${JSON.stringify(resolve("C:/neuro-book", ".deploy", "installation.json"))}) {
+    throw new Error("packed installation export contract mismatch");
+}
+console.log("packed installation import ok");`,
+    ], temporaryRoot);
+    if (installationSmoke.trim() !== "packed installation import ok") {
+        throw new Error(`packed installation smoke输出错误：${installationSmoke.trim()}`);
+    }
     const forbidden = ["nuxt", "vue", "prisma", "@tiptap/core"];
     for (const name of forbidden) {
         if (packageJson.dependencies?.[name] || packageJson.devDependencies?.[name]) {
