@@ -2,7 +2,7 @@ import {once} from "node:events";
 import {spawn, type ChildProcess} from "node:child_process";
 import {createServer} from "node:http";
 import {existsSync} from "node:fs";
-import {cp, mkdtemp, rm} from "node:fs/promises";
+import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {join, resolve} from "node:path";
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
@@ -61,6 +61,44 @@ describe("Product start生命周期", () => {
             expect(launcher.exitCode).toBe(0);
         } finally {
             if (launcher.exitCode === null && launcher.signalCode === null) launcher.kill("SIGKILL");
+        }
+    }, 300_000);
+    it("父 stdout/stderr 断开后仍保持 HTTP ready 并可正常 shutdown", async () => {
+        const root = await mkdtemp(testHostPath("nbook-product-stdio-disconnect-"));
+        roots.push(root);
+        const outputRoot = join(root, ".output");
+        const stateRoot = join(root, "state");
+        const productCommandEntry = await createVerifiedProductImage(root, outputRoot);
+        const port = await freeLoopbackPort();
+        const commandEnvironment = createProductEnvironment(root, stateRoot, outputRoot, port);
+        await mkdirStateConfig(stateRoot);
+        await runProductCommand(productCommandEntry, commandEnvironment, "command", "migrate-database");
+        await runProductCommand(productCommandEntry, commandEnvironment, "command", "migrate-application-state", "--apply", "--run-id", "product-stdio-disconnect");
+
+        await runProductCommand(productCommandEntry, commandEnvironment, "command", "workspace", "project", "create", "product-stdio-disconnect", "--title", "Product Stdio Disconnect", "--json");
+
+        const launcher = launchProductWithClosedOutput(productCommandEntry, root, stateRoot, outputRoot, port, "product-stdio-disconnect-shutdown");
+        try {
+            const version = await waitForVersion(port, launcher, () => "");
+            expect(version.versionLabel).toMatch(/^v/u);
+            await assertWorldEngineReadPaths(port, "product-stdio-disconnect");
+            const shutdown = await fetch(`http://127.0.0.1:${port}${PRODUCT_SHUTDOWN_PATH}`, {
+                method: "POST",
+                headers: {authorization: "Bearer product-stdio-disconnect-shutdown"},
+                signal: AbortSignal.timeout(5_000),
+            });
+            expect(shutdown.status).toBe(202);
+            await waitForExit(launcher, () => "");
+            expect(launcher.exitCode).toBe(0);
+            const logText = await readFile(resolve(stateRoot, "logs", "server-current.jsonl"), "utf8");
+            expect(logText).toContain('"event":"app.logs.ready"');
+            expect(logText).not.toContain("EPIPE");
+            expect(logText).not.toContain("process.uncaughtException");
+        } finally {
+            if (launcher.exitCode === null && launcher.signalCode === null) {
+                launcher.kill("SIGKILL");
+                await waitForExit(launcher, () => "").catch(() => undefined);
+            }
         }
     }, 300_000);
 
@@ -138,6 +176,10 @@ function createProductEnvironment(root: string, stateRoot: string, outputRoot: s
         NUXT_SESSION_PASSWORD: "product-start-smoke-session-password",
     };
 }
+async function mkdirStateConfig(stateRoot: string): Promise<void> {
+    await mkdir(stateRoot, {recursive: true});
+    await writeFile(join(stateRoot, "config.yaml"), "auth:\n  enabled: false\n", "utf8");
+}
 
 async function runProductCommand(commandEntry: string, environment: NodeJS.ProcessEnv, mode: "command" | "check", id: string, ...args: string[]): Promise<void> {
     const bunExecutable = process.versions.bun ? process.execPath : process.env.BUN || "bun";
@@ -171,6 +213,27 @@ function launchProduct(
         },
         stdio: ["ignore", "ignore", "pipe"],
     });
+}
+function launchProductWithClosedOutput(
+    commandEntry: string,
+    applicationRoot: string,
+    stateRoot: string,
+    outputRoot: string,
+    port: number,
+    shutdownToken: string,
+): ChildProcess {
+    const bunExecutable = process.versions.bun ? process.execPath : process.env.BUN || "bun";
+    const child = spawn(bunExecutable, [...PRODUCT_BUN_RUNTIME_ARGS, commandEntry, "command", "start"], {
+        cwd: applicationRoot,
+        env: {
+            ...createProductEnvironment(applicationRoot, stateRoot, outputRoot, port),
+            [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    return child;
 }
 async function expectInstalledRuntimeAssets(stateRoot: string): Promise<void> {
     for (const relativePath of [
@@ -227,6 +290,23 @@ async function waitForExit(child: ChildProcess, stderr: () => string): Promise<v
         once(child, "exit").then(() => undefined),
         new Promise<never>((_resolvePromise, rejectPromise) => setTimeout(() => rejectPromise(new Error(`Product launcher 退出超时：${stderr()}`)), 30_000)),
     ]);
+}
+async function assertWorldEngineReadPaths(port: number, projectRoot: string): Promise<void> {
+    const open = await fetch(`http://127.0.0.1:${port}/api/projects/open`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({projectRoot}),
+        signal: AbortSignal.timeout(10_000),
+    });
+    expect(open.status).toBe(200);
+    await open.arrayBuffer();
+    for (const path of ["schema", "subjects", "slices"] as const) {
+        const response = await fetch(`http://127.0.0.1:${port}/api/projects/world-engine/${path}?projectRoot=${encodeURIComponent(projectRoot)}`, {
+            signal: AbortSignal.timeout(10_000),
+        });
+        expect(response.status).toBe(200);
+        await response.arrayBuffer();
+    }
 }
 
 function isVersionResponse(value: unknown): value is {versionLabel: string} {

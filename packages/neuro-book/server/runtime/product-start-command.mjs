@@ -46,7 +46,7 @@ await runInternal(productImageRoot, applicationRoot, productEnv, "prepare-system
 const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...process.argv.slice(2)], {
     cwd: applicationRoot,
     env: productEnv,
-    stdio: "inherit",
+    stdio: "ignore",
     windowsHide: false,
 });
 let shutdownSignal;
@@ -72,11 +72,12 @@ async function runInternal(imageRoot, applicationRoot, env, id) {
     ], {
         cwd: applicationRoot,
         env,
+        // start 是长驻服务；启动前内部命令也不能继承可能已断开的 supervisor 管道。
+        stdio: "ignore",
     });
 }
 
-child.on("error", (error) => {
-    console.error(error);
+child.on("error", () => {
     process.exit(1);
 });
 
@@ -189,7 +190,7 @@ function run(command, args, options = {}) {
         const child = spawn(command, args, {
             cwd: options.cwd,
             env: options.env ?? process.env,
-            stdio: "inherit",
+            stdio: options.stdio ?? "inherit",
             windowsHide: true,
         });
         child.on("error", rejectPromise);

@@ -213,8 +213,8 @@ export class AppFileLogger {
     fatalSync(event: string, data?: unknown, error?: unknown, message?: string): void {
         try {
             this.appendLineSync(this.formatLine("fatal", event, data, error, message));
-        } catch (writeError) {
-            process.stderr.write(`[app-logs] fatal sync write failed: ${writeError instanceof Error ? writeError.message : String(writeError)}\n`);
+        } catch {
+            // 日志出口本身不可用时必须静默收口；再次写 stderr 会在断管时递归触发 EPIPE。
         }
     }
 
@@ -235,9 +235,7 @@ export class AppFileLogger {
 
     private write(level: AppLogLevel, event: string, data?: unknown, error?: unknown, message?: string): Promise<void> {
         const line = this.formatLine(level, event, data, error, message);
-        const task = this.queue.then(() => this.appendLine(line)).catch((writeError) => {
-            process.stderr.write(`[app-logs] write failed: ${writeError instanceof Error ? writeError.message : String(writeError)}\n`);
-        });
+        const task = this.queue.then(() => this.appendLine(line)).catch(() => undefined);
         this.queue = task.then(() => undefined, () => undefined);
         return task;
     }
