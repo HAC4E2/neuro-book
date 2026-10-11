@@ -1,13 +1,15 @@
 /**
- * 无项目首页的提供者（docs/specs/ui/workbench-shell.md 输出 36）：汇集 `workbench.home` 的贡献。恰好一个时采用；几个插件
- * 同时贡献时全部不采用并记诊断（没有“谁先登记谁赢”，结果与登记顺序无关）；撤回后重新裁决。
+ * 无项目首页的提供者（docs/specs/ui/workbench-shell.md 输出 36）：汇集 `workbench.home` 的贡献。按已接受的声明数量裁决：
+ * 恰好一个时采用它交付的实现（还没交付就先空着）；几个插件同时声明时全部不采用并记诊断（没有“谁先激活谁赢”，结果与登记
+ * 和激活顺序无关）；交付与撤回后重新裁决。
  */
 
 import {shallowRef} from "vue";
 import type {Component, ShallowRef} from "vue";
 
-import type {ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDeclarations, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
+import {WORKBENCH_HOME_POINT} from "../shared/home";
 import type {HomeDeclaration} from "../shared/home";
 import type {WorkbenchHomeImplementation} from "./contracts";
 
@@ -24,9 +26,13 @@ export interface HomeSource {
 export class HomeSlot implements HomeSource {
     readonly current = shallowRef<HomeProvider | null>(null);
     readonly #published = new Map<string, ContributionHandle<HomeDeclaration, WorkbenchHomeImplementation>>();
+    readonly #declarations: ContributionDeclarations;
     readonly #report: (message: string) => void;
+    /** 已记过诊断的那组冲突声明：同一组不在每次交付与撤回时重复记。 */
+    #conflict: string | null = null;
 
-    constructor(report: (message: string) => void) {
+    constructor(declarations: ContributionDeclarations, report: (message: string) => void) {
+        this.#declarations = declarations;
         this.#report = report;
     }
 
@@ -45,13 +51,19 @@ export class HomeSlot implements HomeSource {
     }
 
     #choose(): void {
-        const handles = [...this.#published.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-        if (handles.length > 1) {
-            this.#report(`首页有 ${String(handles.length)} 个提供者，都不采用：${handles.map((handle) => handle.id).join("、")}`);
+        // 按此刻已接受的声明裁决（已按 id 排序）：声明了但入口还没激活或激活失败的也算一个，首页不取决于激活时序。
+        const declared = this.#declarations.list<HomeDeclaration>(WORKBENCH_HOME_POINT);
+        if (declared.length > 1) {
+            const ids = declared.map((declaration) => declaration.id).join("、");
+            if (this.#conflict !== ids) {
+                this.#conflict = ids;
+                this.#report(`首页有 ${String(declared.length)} 个声明，都不采用：${ids}`);
+            }
             this.current.value = null;
             return;
         }
-        const chosen = handles[0];
+        this.#conflict = null;
+        const chosen = declared[0] === undefined ? undefined : this.#published.get(declared[0].id);
         if (chosen === undefined) {
             this.current.value = null;
             return;

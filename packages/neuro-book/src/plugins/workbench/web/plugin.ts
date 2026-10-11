@@ -117,7 +117,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const locale = computed(() => displayLocale(settings));
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
-            const homeSlot = new HomeSlot((message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
+            const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
             const projectName = project?.name ?? null;
             const workbenchPages = createWorkbenchPages({
                 renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),

@@ -23,13 +23,13 @@ afterEach(async () => {
 
 const Sample = defineComponent({name: "SampleHome", render: () => null});
 
-function provider(id: string, contexts: Map<string, ActivationContext>, options: {readonly location?: "browser" | "server"; readonly declaration?: unknown} = {}): PluginDefinition {
+function provider(id: string, contexts: Map<string, ActivationContext>, options: {readonly location?: "browser" | "server"; readonly declaration?: unknown; readonly activationEvents?: ReadonlyArray<string>} = {}): PluginDefinition {
     return {
         id,
         entries: [{
             id: "main",
             location: options.location ?? "browser",
-            activationEvents: ["onStartup"],
+            activationEvents: options.activationEvents ?? ["onStartup"],
             contributions: [{capability: WORKBENCH_HOME_POINT, id: `${id}.home`, declaration: options.declaration ?? {title: {"zh-CN": "书架", "en-US": "Bookshelf"}}}],
             activate: (context) => {
                 contexts.set(id, context);
@@ -51,8 +51,8 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{applica
             location: "browser",
             activationEvents: ["onStartup"],
             receives: [WORKBENCH_HOME_POINT],
-            activate: () => {
-                holder.slot = new HomeSlot((message) => reports.push(message));
+            activate: (context) => {
+                holder.slot = new HomeSlot(context.declarations, (message) => reports.push(message));
                 return {receivers: {[WORKBENCH_HOME_POINT]: holder.slot.receiver()}};
             },
         }],
@@ -78,17 +78,35 @@ describe("Spec ui.workbench-shell 无项目首页的贡献点", () => {
         expect(reports).toEqual([]);
     });
 
-    it("两个提供者都不采用并记诊断（按 id 排序）；一个停止后另一个被采用；都停止后为空，旧提供者的加载被拒", async () => {
+    it("两个声明都不采用并记一次诊断（按 id 排序）；一个入口停止后声明还在，另一个仍不采用；都停止后为空", async () => {
         const contexts = new Map<string, ActivationContext>();
         const {slot, reports} = await start([provider("test.b", contexts), provider("test.a", contexts)]);
         expect(slot.current.value).toBeNull();
-        expect(reports).toEqual(["首页有 2 个提供者，都不采用：test.a.home、test.b.home"]);
+        expect(reports).toEqual(["首页有 2 个声明，都不采用：test.a.home、test.b.home"]);
         expect((await contexts.get("test.a")?.scope.parent?.close())?.status).toBe("closed");
-        const remaining = slot.current.value;
-        expect(remaining?.id).toBe("test.b.home");
+        expect(slot.current.value).toBeNull();
         expect((await contexts.get("test.b")?.scope.parent?.close())?.status).toBe("closed");
         expect(slot.current.value).toBeNull();
-        await expect(remaining?.load()).rejects.toThrow("已撤回");
+        expect(reports.length).toBe(1);
+    });
+
+    it("已接受但入口没激活的声明也算一个：另一个交付了也不采用（首页不取决于激活时序）", async () => {
+        const contexts = new Map<string, ActivationContext>();
+        const {slot, reports} = await start([provider("test.shelf", contexts), provider("test.idle", contexts, {activationEvents: []})]);
+        expect(contexts.has("test.idle")).toBe(false);
+        expect(slot.current.value).toBeNull();
+        expect(reports).toEqual(["首页有 2 个声明，都不采用：test.idle.home、test.shelf.home"]);
+    });
+
+    it("恰好一个声明：采用；它的入口停止后退回空，旧提供者的加载被拒", async () => {
+        const contexts = new Map<string, ActivationContext>();
+        const {slot, reports} = await start([provider("test.shelf", contexts)]);
+        const current = slot.current.value;
+        expect(current?.id).toBe("test.shelf.home");
+        expect((await contexts.get("test.shelf")?.scope.parent?.close())?.status).toBe("closed");
+        expect(slot.current.value).toBeNull();
+        await expect(current?.load()).rejects.toThrow("已撤回");
+        expect(reports).toEqual([]);
     });
 
     it("只接受浏览器入口与合格的声明", async () => {
