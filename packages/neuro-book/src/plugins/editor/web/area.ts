@@ -390,11 +390,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     /**
      * 继续写作的定位（输出 29）：打开时记下标签与组，等它的文档就绪、它所在组的控件交出句柄再定位；在此之前用户切到别的
-     * 标签或组、标签关闭都取消，读取失败在组顶部提示。定位本身推到下一个时钟刻：文档就绪时控件要在它自己的 watch 里先装上
-     * 正文，这里的 watch 是同步的，不能抢在它前面。
+     * 标签或组、标签关闭、焦点移出编辑器区（`focusLeft`）都取消，读取失败在组顶部提示。定位本身推到下一个时钟刻：文档就绪时
+     * 控件要在它自己的 watch 里先装上正文，这里的 watch 是同步的，不能抢在它前面；到了那一刻再核对一次标签与句柄仍是活动的。
      */
     const pendingReveal = shallowRef<{readonly groupId: string; readonly tabId: string; readonly address: string} | null>(null);
-    type RevealState = {readonly outcome: "cancelled"} | {readonly outcome: "failed"; readonly address: string} | {readonly outcome: "ready"; readonly handle: EditorControlHandle};
+    type RevealState =
+        | {readonly outcome: "cancelled"}
+        | {readonly outcome: "failed"; readonly address: string}
+        | {readonly outcome: "ready"; readonly groupId: string; readonly tabId: string; readonly handle: EditorControlHandle};
     stops.push(watch((): RevealState | null => {
         const pending = pendingReveal.value;
         if (pending === null) return null;
@@ -405,7 +408,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (status === "failed") return {outcome: "failed", address: pending.address};
         if (status !== "ready" && status !== "deleted") return null;
         const handle = handles.value.get(`${group.id}|${tab.editor}`);
-        return handle === undefined ? null : {outcome: "ready", handle};
+        return handle === undefined ? null : {outcome: "ready", groupId: group.id, tabId: tab.id, handle};
     }, (state) => {
         if (state === null) return;
         pendingReveal.value = null;
@@ -413,6 +416,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (state.outcome !== "ready") return;
         options.clock.schedule(() => {
             if (disposed) return;
+            // 就绪与这一刻之间用户可能已切走：标签仍是它所在组与活动组的活动标签、句柄仍是活动视图的，才定位。
+            const group = groups.groups.value.find((candidate) => candidate.id === state.groupId);
+            if (group === undefined || group.active !== state.tabId || groups.activeGroup.value !== group.id || activeHandle.value !== state.handle) return;
             state.handle.revealEnd?.();
             state.handle.focus();
         }, 0);
@@ -587,6 +593,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             focused.value = false;
             focusWhenReady = false;
             refocusOnRemount = false;
+            // 用户已去了别处：继续写作迟到的就绪不把焦点抢回来。
+            pendingReveal.value = null;
         },
         registerHandle: (groupId, kind, handle) => {
             const next = new Map(handles.value);

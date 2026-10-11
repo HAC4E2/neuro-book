@@ -403,6 +403,27 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         expect(otherCalls).toEqual([]);
     });
 
+    it("等待期间焦点离开编辑器区：取消；就绪后、定位那一刻之前切到别的标签：不动光标也不聚焦", async () => {
+        const at = await world();
+        const calls: string[] = [];
+        at.area.open("project://a.md", {mode: "permanent", reveal: "end"});
+        await ready(at);
+        at.area.focusLeft();
+        at.area.registerHandle(groupId(at), "markdown", handleWith(calls));
+        at.clock.advance(0);
+        expect(calls).toEqual([]);
+
+        // 就绪已经排了下一刻的定位；这一刻里用户切到了同组的别的标签（同一种控件、同一个句柄）。
+        const late = await world();
+        const lateCalls: string[] = [];
+        late.area.open("project://a.md", {mode: "permanent", reveal: "end"});
+        await ready(late);
+        late.area.registerHandle(groupId(late), "markdown", handleWith(lateCalls));
+        expect(late.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
+        late.clock.advance(0);
+        expect(lateCalls).toEqual([]);
+    });
+
     it("文件不在：标签照常打开，组顶部提示；notify 也能直接提示", async () => {
         const at = await world();
         at.area.open("project://missing.md", {mode: "permanent", reveal: "end"});
