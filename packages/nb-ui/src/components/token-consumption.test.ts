@@ -25,7 +25,6 @@ const LITERAL_RADIUS_ALLOWLIST = new Map<string, string>([
     ["display/Skeleton.vue", "坑 #44：Skeleton 保留各自圆角，不纳入控件圆角判据"],
     ["feedback/Notification.vue", "坑 #44：Notification 保留各自圆角，不纳入控件圆角判据"],
     ["layout/Panel.vue", "坑 #44：Panel 保留各自圆角，不纳入控件圆角判据"],
-    ["feedback/DialogWindow.vue", "窗口外框圆角是否消费 --radius-dialog 是独立设计决策，未裁决前登记在此"],
 ]);
 
 const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([

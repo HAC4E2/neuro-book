@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, DialogWindow, Drawer, HoverCard, InfoTip, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, HoverCard, InfoTip, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -40,24 +40,18 @@ const CHAPTER_ITEMS = Array.from({length: 60}, (_, index) => ({
 export const feedbackFixtures: LabFixture[] = [
     defineLabFixture<typeof Dialog>({
         component: "Dialog",
-        slots: ["default", "header-extra"],
+        slots: ["default", "header-extra", "footer"],
         scenes: [
             {id: "default", label: "确认与取消", input: {props: {title: "从书架移除", size: "default", showFooter: true, showCancel: true, confirmLabel: "移除", cancelLabel: "取消", closable: true, closeOnEsc: true, closeOnOverlay: true}, model: {modelValue: true}, slots: {default: true, "header-extra": true}}},
             {id: "busy", label: "提交中", input: {props: {title: "正在移除", size: "default", showFooter: true, busy: true, confirmLabel: "移除"}, model: {modelValue: true}, slots: {default: true}}},
             {id: "large", label: "大号、不带页脚", input: {props: {title: "导入素材", size: "lg", showFooter: false, overlayType: "blur"}, model: {modelValue: true}, slots: {default: true}}},
+            {id: "with-select", label: "里面放下拉（下拉要在对话框之上）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
+            {id: "stacked", label: "叠一层（后开的在上面）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
+            {id: "window", label: "浮动窗口：可拖动，点外面不关", input: {props: {title: "新建作品", modal: false, closable: true}, model: {modelValue: true, width: 560}, slots: {default: true, footer: true}}},
+            {id: "window-resizable", label: "浮动窗口：可缩放", input: {props: {title: "素材预览", modal: false, closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640, height: 420}, slots: {default: true}}},
             {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {modelValue: false}, slots: {default: true}}},
         ],
         load: async () => (await import("./DialogFixture.vue")).default,
-    }),
-    defineLabFixture<typeof DialogWindow>({
-        component: "DialogWindow",
-        slots: ["default", "footer"],
-        scenes: [
-            {id: "default", label: "可拖动", input: {props: {title: "新建作品", size: "md", closable: true, closeOnEsc: true}, model: {modelValue: true}, slots: {default: true, footer: true}}},
-            {id: "resizable", label: "可缩放", input: {props: {title: "素材预览", size: "lg", resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640, height: 420}, slots: {default: true}}},
-            {id: "busy", label: "忙碌", input: {props: {title: "正在创建", size: "sm", busy: true}, model: {modelValue: true}, slots: {default: true, footer: true}}},
-        ],
-        load: async () => (await import("./DialogWindowFixture.vue")).default,
     }),
     defineSubjectFixture<typeof AlertDialog>({
         component: "AlertDialog",

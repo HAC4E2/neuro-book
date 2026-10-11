@@ -12,10 +12,11 @@ import type {ShelfItem, ShelfLastEdit} from "../shared/shelf";
 export type ShelfSort = "recent" | "title" | "words";
 
 /**
- * 作品色板（“布面精装”：藏青、墨绿、酒红、赭石、黛紫、青瓷、驼色、炭黑）。新建窗口的色板就是这八色，作者没指定颜色时
- * 也按 id 从这八色里取一色，所以“自动”与色板是同一套颜色。八色都够深，封面上的字总用浅色；不随主题变化，像真书的封面。
+ * 作品色板（布面：群青、松绿、朱红、橘、紫、青、芥黄、石墨）。新建对话框的色板就是这八色，作者没指定颜色时也按 id 从
+ * 这八色里取一色，所以“自动”与色板是同一套颜色。八色与封面上的浅色字的对比度都不低于 3:1（封面书名是大字），所以封面
+ * 上的字总用浅色；不随主题变化，像真书的封面。
  */
-export const BOOK_PALETTE: readonly string[] = ["#1e3a5f", "#2d4a3e", "#6b2032", "#8a4b26", "#46385e", "#2c5f5d", "#7d6142", "#2a2a2d"];
+export const BOOK_PALETTE: readonly string[] = ["#2f63a8", "#2e7d55", "#b8423a", "#c8692a", "#7351a8", "#1d8a8c", "#b08328", "#4a4f57"];
 
 const TEXT = {
     words: {"zh-CN": "{count} 字", "en-US": "{count} words"},

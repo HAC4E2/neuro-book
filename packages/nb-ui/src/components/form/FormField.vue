@@ -18,9 +18,9 @@ const props = withDefaults(defineProps<{
 
 const generatedId = useId();
 const inputId = computed(() => props.for || `nb-field-${generatedId}`);
-const descriptionId = computed(() => props.description && !props.error ? `${inputId.value}-description` : undefined);
+const descriptionId = computed(() => props.description ? `${inputId.value}-description` : undefined);
 const errorId = computed(() => props.error ? `${inputId.value}-error` : undefined);
-const ariaDescribedby = computed(() => errorId.value || descriptionId.value);
+const ariaDescribedby = computed(() => [errorId.value, descriptionId.value].filter(Boolean).join(" ") || undefined);
 const invalid = computed(() => Boolean(props.error));
 
 provide(NB_FORM_FIELD_CONTEXT_KEY, {
@@ -39,7 +39,8 @@ provide(NB_FORM_FIELD_CONTEXT_KEY, {
             {{ props.label }}<span v-if="props.required" class="ml-1 text-[var(--status-danger)]">*</span>
         </span>
         <slot :input-id="inputId" :description-id="descriptionId" :error-id="errorId" :aria-describedby="ariaDescribedby" :invalid="invalid" />
-        <span v-if="props.error" :id="errorId" class="block text-[var(--text-xs)] text-[var(--status-danger)]">{{ props.error }}</span>
-        <span v-else-if="props.description" :id="descriptionId" class="block text-[var(--text-xs)] text-[var(--text-muted)]">{{ props.description }}</span>
+        <!-- 错误不在字段下插一行字（会让表单重排）：控件标红，原因只给读屏；看得见的原因由宿主写在固定位置（ui-development-spec 的“表单与无障碍”）。 -->
+        <span v-if="props.error" :id="errorId" class="sr-only">{{ props.error }}</span>
+        <span v-if="props.description" :id="descriptionId" class="block text-[var(--text-xs)] text-[var(--text-muted)]">{{ props.description }}</span>
     </label>
 </template>

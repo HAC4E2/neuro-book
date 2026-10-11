@@ -18,7 +18,6 @@ import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import Dialog from "./feedback/Dialog.vue";
-import DialogWindow from "./feedback/DialogWindow.vue";
 import Drawer from "./feedback/Drawer.vue";
 import HoverCard from "./feedback/HoverCard.vue";
 import Notification from "./feedback/Notification.vue";
@@ -128,15 +127,25 @@ describe("nb-ui components", () => {
         }
     });
 
-    it("renders required mark and error in form field", () => {
-        const wrapper = mount(FormField, {
-            props: {label: "用户名", required: true, error: "必填"},
-            slots: {default: "<input />"},
+    it("renders the required mark; an error keeps the layout: the description stays and the reason is only for assistive tech", () => {
+        const wrapper = mount({
+            components: {FormField, FormInput},
+            data: () => ({value: ""}),
+            template: `
+                <FormField label="用户名" description="公开显示" required error="已被占用">
+                    <FormInput v-model="value" name="username" />
+                </FormField>
+            `,
         });
 
         expect(wrapper.text()).toContain("用户名");
         expect(wrapper.text()).toContain("*");
-        expect(wrapper.text()).toContain("必填");
+        const description = wrapper.get("[id$='-description']");
+        const error = wrapper.get("[id$='-error']");
+        expect(description.classes()).not.toContain("sr-only");
+        expect(error.text()).toBe("已被占用");
+        expect(error.classes()).toContain("sr-only");
+        expect(wrapper.get("input").attributes("aria-describedby")).toBe(`${error.attributes("id")} ${description.attributes("id")}`);
     });
 
     it("connects form field semantics to nested inputs", () => {
@@ -787,11 +796,14 @@ describe("nb-ui notification clearAll", () => {
     });
 });
 
-describe("nb-ui dialog window", () => {
+describe("nb-ui dialog window (Dialog modal=false)", () => {
     function mountWindow(props: Record<string, unknown> = {}, header?: string) {
-        return mount(DialogWindow, {
+        return mount(Dialog, {
             props: {
                 modelValue: true,
+                modal: false,
+                closable: true,
+                showFooter: false,
                 title: "浮动窗口",
                 teleportTarget: false,
                 ...props,
@@ -847,20 +859,14 @@ describe("nb-ui dialog window", () => {
         }
     });
 
-    it("applies the size presets and lets explicit width / height win", async () => {
-        const pick = async (props: Record<string, unknown>) => {
-            const wrapper = mountWindow(props);
-            await nextTick();
-            const style = (wrapper.get("[data-dialog-window]").element as HTMLElement).style;
-            const size = {width: style.width, height: style.height};
-            wrapper.unmount();
-            return size;
-        };
-
-        // 默认 md；显式 width / height 覆盖对应维度
-        expect(await pick({})).toEqual({width: "720px", height: "640px"});
-        expect(await pick({size: "sm"})).toEqual({width: "420px", height: "420px"});
-        expect(await pick({size: "lg", width: 480, height: "auto"})).toEqual({width: "480px", height: "auto"});
+    it("takes an explicit CSS width and height as given", async () => {
+        // 预设与数字宽度都写成 min(…, calc(100cqw - 32px))，happy-dom 解析不了 cqw，会整条丢掉；
+        // 它们按容器收窄在真实浏览器里验（lab-nb-ui.e2e.ts）。这里只验显式的 CSS 长度原样落到面板上。
+        const wrapper = mountWindow({width: "480px", height: "400px"});
+        await nextTick();
+        const style = (wrapper.get("[data-dialog-window]").element as HTMLElement).style;
+        expect({width: style.width, height: style.height}).toEqual({width: "480px", height: "400px"});
+        wrapper.unmount();
     });
 
     it("does not close from outside interaction in non-modal mode", async () => {
@@ -988,9 +994,9 @@ describe("nb-ui dialog window", () => {
             wrapper.unmount();
         }
     });
-    it("raises FormSelect popovers above the DialogWindow surface", async () => {
-        const wrapper = mount(DialogWindow, {
-            props: {modelValue: true, title: "设置", teleportTarget: false},
+    it("raises FormSelect popovers above the window surface", async () => {
+        const wrapper = mount(Dialog, {
+            props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
                 default: () => h(FormSelect, {
                     modelValue: "one",
@@ -1012,11 +1018,13 @@ describe("nb-ui dialog window", () => {
     });
 
     it("stacks a window opened from a window above it, popovers included", async () => {
-        const wrapper = mount(DialogWindow, {
-            props: {modelValue: true, title: "设置", teleportTarget: false},
+        const wrapper = mount(Dialog, {
+            props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
-                default: () => h(DialogWindow, {
+                default: () => h(Dialog, {
                     modelValue: true,
+                    modal: false,
+                    showFooter: false,
                     title: "编辑模型",
                     teleportTarget: false,
                     width: 600,
@@ -1285,6 +1293,30 @@ describe("nb-ui dialog anatomy", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("closes when it becomes disabled and stays closed while disabled", async () => {
+        const wrapper = mount(Tooltip, {
+            props: {text: "旁边开了面板"},
+            slots: {default: "<button type='button'>自定义</button>"},
+            attachTo: document.body,
+        });
+
+        await wrapper.get("button").trigger("focus");
+        await nextTick();
+        await nextTick();
+        expect(document.body.textContent).toContain("旁边开了面板");
+
+        await wrapper.setProps({disabled: true});
+        await nextTick();
+        await nextTick();
+        expect(document.body.textContent).not.toContain("旁边开了面板");
+        await wrapper.get("button").trigger("blur");
+        await wrapper.get("button").trigger("focus");
+        await nextTick();
+        await nextTick();
+        expect(document.body.textContent).not.toContain("旁边开了面板");
+        wrapper.unmount();
     });
 
     it("shows tooltip immediately on keyboard focus without hover", async () => {

@@ -16,8 +16,8 @@ import type {LibraryInfo, ProjectInfoField, ShelfPage} from "../shelf-page";
 import BookshelfPage from "./BookshelfPage.vue";
 import PathPickerDialog from "./PathPickerDialog.vue";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
-import ProjectInfoWindow from "./ProjectInfoWindow.vue";
-import type {ProjectInfoSubmit} from "./ProjectInfoWindow.vue";
+import ProjectInfoDialog from "./ProjectInfoDialog.vue";
+import type {ProjectInfoSubmit} from "./ProjectInfoDialog.vue";
 
 defineOptions({name: "BookshelfHost"});
 
@@ -207,7 +207,7 @@ async function confirmRemove(): Promise<void> {
         @command="page.runCommand"
         @change-library="changeLibrary"
     />
-    <ProjectInfoWindow
+    <ProjectInfoDialog
         v-model:location="infoLocation"
         :locale="locale"
         :open="info !== null"

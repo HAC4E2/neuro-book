@@ -247,13 +247,15 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
             </FormField>
         </Dialog>
 
-        <DialogWindow
+        <Dialog
             v-model="windowOpen"
+            :modal="false"
+            closable
+            :show-footer="true"
             title="非模态浮动窗口"
             :width="windowWidth"
             :height="`${windowHeight}px`"
             :resizable="true"
-            body-class="overflow-y-auto px-4 py-3"
             @update:width="windowWidth = $event"
             @update:height="windowHeight = $event"
         >
@@ -265,7 +267,7 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
             <template #footer>
                 <Button size="sm" variant="secondary" @click="windowOpen = false">关闭浮动窗口</Button>
             </template>
-        </DialogWindow>
+        </Dialog>
 
         <QuickInput
             :open="quickInputOpen"

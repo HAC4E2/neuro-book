@@ -53,6 +53,24 @@ describe("ColorSwatches", () => {
         expect(wrapper.emitted("update:modelValue")).toHaveLength(2);
         expect(document.body.querySelector("[data-color-swatches-panel] [data-color-panel]")).not.toBeNull();
     });
+
+    it("面板里改了值（选中项从“自动”变成“自定义”）时焦点留在面板里、面板不关；Esc 关上后焦点回到“自定义”", async () => {
+        const wrapper = mountSwatches(null);
+        swatch("custom").click();
+        await flushPromises();
+        const input = document.body.querySelector<HTMLInputElement>("[data-color-swatches-panel] input[data-color-panel-input]")!;
+        input.focus();
+        // 面板发出的值由宿主写回：这正是“不是在色板里点出来的”那种改动。
+        await wrapper.setProps({modelValue: "#123456"});
+        await flushPromises();
+        expect(checked()).toEqual(["custom"]);
+        expect(document.activeElement).toBe(input);
+        expect(document.body.querySelector("[data-color-swatches-panel]")).not.toBeNull();
+
+        await press(input, "Escape");
+        expect(document.body.querySelector("[data-color-swatches-panel]")).toBeNull();
+        expect(document.activeElement).toBe(swatch("custom"));
+    });
 });
 
 describe("ColorPicker", () => {

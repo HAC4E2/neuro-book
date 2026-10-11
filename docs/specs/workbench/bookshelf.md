@@ -56,7 +56,7 @@ owners:
 
 **卡片视图**
 
-5. 每部作品一张卡：左边封面（84px 宽，2:3；有封面图用图，没有或图加载失败时按书名与作品色排一张：作品色作底、金色细线、书名居中），右边书名、两行简介（没有写“还没有简介”）、底部字数与篇数、最近编辑时间与新鲜度说明；正在打开的作品一个绿点加“已打开”；悬停或选中时出现“更多”（在新窗口打开、编辑信息、从书架移除）。作品色：作者指定了主题色就用它，没有时按 id 在作品色板的八色里取一色（与新建窗口的色板是同一组八色，不随主题与配色变化）。颜色只落在封面上，卡片不带色条。
+5. 每部作品一张卡：左边封面（84px 宽，2:3；有封面图用图，没有或图加载失败时按书名与作品色排一张：作品色作底、金色细线、书名居中），右边书名、两行简介（没有写“还没有简介”）、底部字数与篇数、最近编辑时间与新鲜度说明；正在打开的作品一个绿点加“已打开”；悬停或选中时出现“更多”（在新窗口打开、编辑信息、从书架移除）。作品色：作者指定了主题色就用它，没有时按 id 在作品色板的八色里取一色（与新建对话框的色板是同一组八色，不随主题与配色变化）。颜色只落在封面上，卡片不带色条。
 6. 网格的列数随宽度（每列至少 300px）。网格是一个列表框：左右方向键移动选中，上下按列数跳一行，Home、End 到两端，Enter 打开选中的作品，Delete 请求移出书架；点卡片选中并打开；聚焦时没有选中就选第一部。有作品时网格的最后一格是一张“新建作品”占位（样式同第 7 条的那张），最后一行没排满时补在空位里；它是列表框的最后一个选项但不是作品：方向键或 End 走到它时不改选中，Enter 或点它开始新建，Delete 不起作用。
 7. 书架为空时网格里是两张和书卡同样大小的“待写的书”：“新建作品”（封面位是加号，底行写新作品会放在哪个作品目录）与“打开已有作品”（封面位是文件夹）；不论视图都显示它们。
 
@@ -68,11 +68,13 @@ owners:
 
 9. 打开：整页导航到 `/?project=<短名>`。在新窗口打开：经宿主在新标签页打开同一地址；被浏览器拦截时发通知。
 10. 继续写作：整页导航到 `/?project=<短名>&open=<地址>&at=end`，编辑器在那个文件的末尾放下光标（[`workbench.editor`](editor.md) 的“继续写作”）。
-11. 新建作品：可拖动的浮动窗口（`DialogWindow`）。左边封面位（没图时按当前书名与主题色实时排一张；“上传封面…”选 PNG、JPEG 或 WebP，至多 5 MB，本地先拒绝不合规的）；右边书名（必填）、简介、主题色（“自动”加八档色板加“自定义…”）、“放在哪里”（目录输入框，初值是作品目录；由书名生成的文件夹名作为后缀实时显示；“浏览…”开目录选择器）。提示都在标签旁的 ⓘ 里。
-    - 提交：先新建（`create`，带用户给的父目录）；成功后作品出现在书架上并被选中，再按窗口里的封面上传；用户改过位置时把它写进设置（写失败发通知，作品照常建成）。
-    - 失败：服务端针对字段的拒绝（书名不合规、同名目录已存在、父目录不可用）显示在对应字段下，窗口留着；别的失败（登记失败、结果未知）发通知。结果未知时按“写操作的结果未知”核对。
-12. 打开已有作品：目录选择器（可拖动的浮动窗口）从作品目录开始列子目录，标出作品（有身份文件，带书名）与已在书架上的（不能选）；输入路径（认 `~`）回车进入；选中一个目录后“加入书架”登记它，登记失败的原因显示在选择器里、输入保留；成功后出现在书架上并被选中。更改作品目录用同一个选择器（选目录模式，没选条目时就是当前目录），选定后写进设置。
-13. 编辑信息：同一个窗口（没有位置行）改书名、简介、主题色与封面（换、移除）；保存后书架立即显示新值。失败同第 11 条。
+11. 新建作品：居中的模态对话框，打开时焦点在书名。左边封面位（没图时按当前书名与主题色实时排一张；“上传封面…”选 PNG、JPEG 或 WebP，至多 5 MB，本地先拒绝不合规的），封面下面是主题色（“自动”加八档色板加“自定义…”，改了封面立刻跟着变）；右边书名（必填）、简介、“保存位置”（目录输入框，初值是作品目录；由书名生成的文件夹名作为后缀实时显示；“浏览…”与输入框同高，开目录选择器）。提示都在标签旁的说明图标里。
+    - 关闭：取消与 Esc 总是关闭；点对话框外的遮罩，没改过任何输入时关闭，改过之后不关（免得误点丢掉输入）。
+    - 校验不在字段下插字（表单不重排）：书名空着或新建时没有保存位置，“新建”不可用；封面文件不合规时，原因写在对话框底部按钮左边的状态行。
+    - 提交：先新建（`create`，带用户给的父目录）；成功后作品出现在书架上并被选中，再按对话框里的封面上传；用户改过位置时把它写进设置（写失败发通知，作品照常建成）。
+    - 失败：服务端针对字段的拒绝（书名不合规、同名目录已存在、父目录不可用）把对应字段标红并把焦点移过去，原因写在状态行，对话框留着；别的失败（登记失败、结果未知）发通知。结果未知时按“写操作的结果未知”核对。
+12. 打开已有作品：目录选择器（居中的模态对话框，打开时焦点在目录列表）从作品目录开始列子目录，标出作品（有身份文件，带书名）与已在书架上的（不能选）；输入路径（认 `~`）回车进入；选中一个目录后“加入书架”登记它，登记失败的原因写在选择器底部的状态行（替下“已选 …”）、输入保留；成功后出现在书架上并被选中。更改作品目录用同一个选择器（选目录模式，没选条目时就是当前目录），选定后写进设置。从新建对话框的“浏览…”打开时选择器叠在新建对话框上面，Esc 与点遮罩只关选择器，焦点回到“浏览…”。
+13. 编辑信息：同一个对话框（没有保存位置），关闭规则同第 11 条，改书名、简介、主题色与封面（换、移除）；保存后书架立即显示新值。失败同第 11 条。
 14. 从书架移除：先确认（说明只取消登记、不删目录）；作品正在打开或在关闭宽限期内时发通知说明原因并不移除。移除后选中下一部（没有时上一部），焦点回到书架；书架空了时焦点到“新建作品”。
 
 **取数与刷新**
@@ -109,11 +111,11 @@ owners:
 |---|---|
 | 首次取数失败 | 原位：整页显示原因与重试 |
 | 刷新失败 | 通知（常驻，带重试） |
-| 新建、修改信息：字段不合规、同名目录、父目录不可用 | 字段下 |
-| 新建、修改信息：登记失败、结果未知 | 通知，窗口留着 |
+| 新建、修改信息：字段不合规、同名目录、父目录不可用 | 字段标红，原因在对话框底部的状态行 |
+| 新建、修改信息：登记失败、结果未知 | 通知，对话框留着 |
 | 封面上传或移除失败 | 通知（作品本身已建成或已保存） |
 | 作品目录没写进设置 | 通知 |
-| 打开已有作品：登记失败 | 选择器里，输入保留 |
+| 打开已有作品：登记失败 | 选择器底部的状态行，输入保留 |
 | 移出书架被拒（`project-running`） | 通知 |
 | 新标签被拦截 | 通知 |
 | 设置菜单的命令执行失败 | 通知 |
@@ -128,14 +130,15 @@ owners:
 
 1. Given 两部登记的作品，其中一部打开过并写过字，When 关闭全部窗口、等那部作品停止后打开 `/`，Then 书架显示两部作品，写过的那部有字数、片段与“统计于某时”，没打开过的写“尚未统计”；案头显示那部的最近写到与总字数。
 2. Given 书架，When 点“继续写作”，Then 打开那部作品并在那个文件的末尾可以接着输入；刷新页面不再重新定位。
-3. Given 作品目录没设，When 新建作品（不改位置）并上传封面，Then 作品出现在书架上、被选中、卡片显示封面，目录建在缺省作品目录下；同名目录已存在时书名字段下提示改书名或打开已有作品。
+3. Given 作品目录没设，When 新建作品（不改位置）并上传封面，Then 作品出现在书架上、被选中、卡片显示封面，目录建在缺省作品目录下；同名目录已存在时书名字段标红、对话框底部提示改书名或打开已有作品，表单不重排。
 4. Given 一部正在打开的作品，When 从书架移除，Then 被拒并发通知；关闭并等宽限期结束后移除成功，选中相邻的作品，目录还在。
 5. Given 390 × 844 的窗口，When 打开书架，Then 只有列表视图，新鲜度说明可见，没有横向滚动。
 6. Given 书架已显示，When 服务端暂时不可用导致刷新失败，Then 数据保留、右下角常驻通知并可重试，恢复后通知收回。
 7. Given 一个已有的作品文件夹，When 经“打开已有作品”的选择器选中它并加入，Then 它出现在书架上并被选中；不存在的路径在选择器里提示原因。
-8. Given 书架上有作品，When 点网格末尾或列表末行的“新建作品”，Then 打开新建作品的窗口；键盘在网格里按 End 再按 Enter 同样打开，选中的作品不变。
+8. Given 书架上有作品，When 点网格末尾或列表末行的“新建作品”，Then 打开新建作品的对话框；键盘在网格里按 End 再按 Enter 同样打开，选中的作品不变。
+9. Given 新建作品的对话框，When 什么都没改就点遮罩，Then 对话框关闭；When 填了书名再点遮罩，Then 对话框不关；When 点“浏览…”，Then 目录选择器叠在新建对话框上面，按 Esc 只关选择器、焦点回到“浏览…”；When 打开主题色的“自定义…”，Then 取色面板显示在对话框之上、色相条可以拖动。
 
-Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`ShelfDesk`、`ShelfCards`、`BookCard`、`BookCover`、`ShelfList`、`ProjectInfoWindow`、`PathPickerDialog`。
+Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`ShelfDesk`、`ShelfCards`、`BookCard`、`BookCover`、`ShelfList`、`ProjectInfoDialog`、`PathPickerDialog`。
 
 ## 实现合同
 
@@ -149,6 +152,6 @@ Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进�
 ## 证据
 
 - 批准依据：提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐；2026-10-11 改为卡片与列表、加封面与案头，见决策记录）；取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
-- 实现入口：[`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)（取数、刷新与动作）、[`web/bookshelf-home.ts`](../../../packages/neuro-book/src/plugins/projects/web/bookshelf-home.ts)、[`web/components/BookshelfHost.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfHost.vue)、[`web/components/BookshelfPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue) 及同目录的案头、卡片、封面、列表、作品信息窗口与目录选择器组件、[`web/shelf-preferences.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-preferences.ts)；首页贡献点在工作台（[ui.workbench-shell](../ui/workbench-shell.md) 输出 36）
-- 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoWindow.dom.test.ts`、`PathPickerDialog.dom.test.ts`
-- Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7、8）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）
+- 实现入口：[`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)（取数、刷新与动作）、[`web/bookshelf-home.ts`](../../../packages/neuro-book/src/plugins/projects/web/bookshelf-home.ts)、[`web/components/BookshelfHost.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfHost.vue)、[`web/components/BookshelfPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue) 及同目录的案头、卡片、封面、列表、作品信息对话框与目录选择器组件、[`web/shelf-preferences.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-preferences.ts)；首页贡献点在工作台（[ui.workbench-shell](../ui/workbench-shell.md) 输出 36）
+- 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoDialog.dom.test.ts`、`PathPickerDialog.dom.test.ts`
+- Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7、8、9）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）

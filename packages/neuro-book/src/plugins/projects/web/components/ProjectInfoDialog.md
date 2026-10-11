@@ -1,11 +1,11 @@
 ---
-标签: [state:local, env:portal]
-别名: ["作品信息窗口", "新建作品"]
+标签: [state:local, env:portal, env:global]
+别名: ["作品信息对话框", "新建作品"]
 ---
 
-# ProjectInfoWindow
+# ProjectInfoDialog
 
-新建作品与编辑作品信息共用的浮动窗口（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 11、13）：`DialogWindow`，700px 宽，不遮罩、可拖动。只收集与校验输入：书名必填、至多 80 个字符；简介至多 500 个字符；主题色是 `#rrggbb` 或自动。提交交给宿主。
+新建作品与编辑作品信息共用的模态对话框（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 11、13）：nb-ui [`Dialog`](../../../../../../nb-ui/src/components/feedback/Dialog.md)，700px 宽（窄容器里收窄），居中、不能拖动。只收集与校验输入：书名必填、至多 80 个字符；简介至多 500 个字符；主题色是 `#rrggbb` 或自动。提交交给宿主。
 
 ## 布局
 
@@ -17,10 +17,12 @@
 
 ## 交互
 
-- 打开时按 `initial` 重置输入与校验结果；回车提交。
+- 打开时按 `initial` 重置输入与校验结果，焦点落在书名；回车提交。
 - 确认先在本地校验，不过的字段在 `FormField` 上显示原因，不发 `submit`。服务端针对字段的拒绝由宿主经 `fieldErrors` 放回字段下。
 - 选封面文件时本地先按类型与大小拒绝（只收 PNG、JPEG、WebP，至多 5 MB），通过的用对象 URL 预览；提交时随 `cover` 交出。
-- `busy` 时禁止提交与关闭，输入控件禁用。取消、Escape 与关闭按钮都发 `cancel`，由宿主关闭。
+- `busy` 时禁止提交与关闭，输入控件禁用。取消与 Escape 发 `cancel`，由宿主关闭。
+- 点遮罩：没改过任何输入时发 `cancel`；改过（书名、简介、主题色、封面，新建时还有保存位置）之后不关，免得误点丢掉输入。
+- “浏览…”发 `browse-location`，宿主打开的目录选择器叠在本对话框上面。
 
 ## 数据
 
@@ -46,11 +48,11 @@ type Emits = {
 
 `submit` 的 `title`、`description` 已去掉首尾空白；`color` 是小写的 `#rrggbb` 或 null；`parent` 去掉了末尾的分隔符，编辑时为 null。
 
-根节点是 `DialogWindow` 的 Teleport：不透传 attrs。表单带 `data-project-info`，字段 `data-project-title`、`data-project-description`、`data-project-color`（色板外层，色块是其中的 `data-color-swatch`）、`data-project-location-input`，封面 `data-project-cover-pick`、`data-project-cover-input`，页脚 `data-project-confirm`、`data-project-cancel`。
+不透传 attrs。表单带 `data-project-info`，字段 `data-project-title`、`data-project-description`、`data-project-color`（色板外层，色块是其中的 `data-color-swatch`）、`data-project-location-input`，封面 `data-project-cover-pick`、`data-project-cover-input`，页脚 `data-project-confirm`、`data-project-cancel`。
 
 ## 隐藏通道理由
 
-`state:local`：输入、本地校验结果与封面预览的对象 URL 随本次打开。`env:portal`：浮动窗口经 `DialogWindow` 传送到宿主目标。
+`state:local`：输入、本地校验结果与封面预览的对象 URL 随本次打开。`env:portal`、`env:global`：来自 `Dialog`（传送到宿主目标；模态的焦点、Escape 与滚动锁，以及全应用一份的已打开模态列表）。
 
 ## 不支持
 

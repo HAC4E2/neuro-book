@@ -26,7 +26,8 @@ const props = withDefaults(defineProps<{
 
 // 画布就是场景的视口：nb-ui 的居中类浮层缺省传送到这块画布里的落点（docs/specs/ui/component-lab.md）。
 const overlayId = useId();
-provideTeleportTarget(`[data-lab-overlay-root="${overlayId}"]`);
+// contained：模态场景开着时只在画布里画遮罩，Lab 的检视栏与控制区照常可用。
+provideTeleportTarget(`[data-lab-overlay-root="${overlayId}"]`, {contained: true});
 
 const emit = defineEmits<{
     (e: "update:width", value: number): void;

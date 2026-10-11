@@ -60,7 +60,7 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 | 承载关系 | 分栏的正确形态 |
 | --- | --- |
 | 直接压在窗体底纹上（独立页面、路由页） | 导航与详情各自是材质层的**面板**：可以有边、有底色、有圆角，彼此靠间距分开 |
-| 压在浮层里（`DialogWindow` / `Dialog` 的 body） | 浮层已经占了材质层，里面的分栏属于层级轴 → **不给面**：一条分割线 + 统一内边距成组 |
+| 压在浮层里（`Dialog` 的 body，模态与浮动窗口都算） | 浮层已经占了材质层，里面的分栏属于层级轴 → **不给面**：一条分割线 + 统一内边距成组 |
 
 组件不猜自己压在什么上面，由宿主用显式变体声明（当前实例：`AgentProfileNavList` 的 `surface="panel" | "plain"`）。
 把卡片形态写死进组件的，在浮层里必然变成「窗口套两张卡片」的双层边框，
@@ -242,7 +242,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 
 面色必须拆成 `background-color` 与 `background-image` 两条长写法，**不要写回 `background` 简写**：
 简写会把没写出来的那条重置掉。基座默认不铺镜面；macOS 把 `--overlay-sheen` 映射到已有的
-`--glass-rim`，但只有整块 Dialog / DialogWindow 显式挂 `.nb-ui-surface-rim`。nbook 保持
+`--glass-rim`，但只有整块的 Dialog（模态与浮动窗口两种用法）显式挂 `.nb-ui-surface-rim`。nbook 保持
 `--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
 
 菜单、ContextMenu、Combobox、FormSelect、默认 TimePicker 与 macOS 滚轮 TimePicker 都必须挂
@@ -598,7 +598,7 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 主题可以覆盖这个变量（nbook / macos 取 `cubic-bezier(0.25, 0.1, 0.25, 1)`，
 裸基线取 `cubic-bezier(0.2, 0, 0, 1)`），同样是目测决定。
 
-本库曾经有过一条回弹曲线（`cubic-bezier(0.34, 1.15, 0.64, 1)`，只被 DialogWindow
+本库曾经有过一条回弹曲线（`cubic-bezier(0.34, 1.15, 0.64, 1)`，只被当时的浮动窗口组件
 一处消费），本轮归并进 `--ease-standard`：单一消费点不够格登记 token
 （`ui-development-spec` 第 2.6 节），而且回弹的趣味感和这套器械语言不是一回事。
 如果哪天要让「弹性」成为正式词汇，先登记 token 并接上至少两个消费方，再写进这一节。
@@ -623,7 +623,7 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
    若原语行为变了（不再等待），退回 Vue `<Transition>` 包装，并在坑节记录。
 5. 共享实现只有一个登记处：`src/styles.css` 的 `.nb-ui-popover-motion` modifier，
    挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
-   （Combobox / ContextMenu / Tooltip / DialogWindow / TimePicker / Dialog）不挂它，
+   （Combobox / ContextMenu / Tooltip / TimePicker / Dialog）不挂它，
    避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
 6. **模态命令浮层（S4）关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
    押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickInput` 与

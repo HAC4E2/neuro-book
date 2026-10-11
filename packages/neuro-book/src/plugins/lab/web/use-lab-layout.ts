@@ -126,7 +126,7 @@ export function useLabLayout(options: {
         panelDragCleanup = onCancel;
     }
 
-    /** 方向键把这条边往按键方向推（Shift 步进 1px），与 DialogWindow 的缩放手柄同一套语义。 */
+    /** 方向键把这条边往按键方向推（Shift 步进 1px），与 nb-ui 浮动窗口（`Dialog` 的 `modal=false`）的缩放手柄同一套语义。 */
     function handlePanelKey(side: LabPanelSide, event: KeyboardEvent): void {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
             return;

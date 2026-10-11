@@ -2,6 +2,7 @@
 /** 拖放的拖影与落点反馈（同名 .md）：受控，只画宿主算好的东西。 */
 import {DropFeedbackOverlay, DropIndicatorLabel} from "@notnotype/nb-ui/components";
 import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
+import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 
 defineOptions({name: "WorkbenchDragFeedback"});
 
@@ -22,7 +23,7 @@ defineProps<{
     <!-- 单一根（不占盒子）：两样反馈都传送到 body，attrs 落在这里。 -->
     <div class="workbench-drag-feedback">
         <Teleport to="body">
-            <div v-if="ghost !== null" class="workbench-drag-ghost" data-drag-feedback data-workbench-drag-ghost :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`}">
+            <div v-if="ghost !== null" class="workbench-drag-ghost" data-drag-feedback data-workbench-drag-ghost :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`, zIndex: NB_Z_INDEX.dragFeedback}">
                 <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon" />
             </div>
         </Teleport>
@@ -38,7 +39,6 @@ defineProps<{
 /* 拖影跟着指针，不挡命中：命中按 `elementsFromPoint` 求，`data-drag-feedback` 也会被跳过。 */
 .workbench-drag-ghost {
     position: fixed;
-    z-index: 1000;
     pointer-events: none;
 }
 </style>

@@ -10,7 +10,7 @@ import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
 import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
 import type PathPickerDialog from "nbook/plugins/projects/web/components/PathPickerDialog.vue";
-import type ProjectInfoWindow from "nbook/plugins/projects/web/components/ProjectInfoWindow.vue";
+import type ProjectInfoDialog from "nbook/plugins/projects/web/components/ProjectInfoDialog.vue";
 import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vue";
 import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
@@ -695,19 +695,19 @@ function shelfFixtures(): LabFixture[] {
             ],
             subject: () => import("nbook/plugins/projects/web/components/ShelfList.vue"),
         }),
-        defineSubjectFixture<typeof ProjectInfoWindow>({
-            component: "ProjectInfoWindow",
+        defineSubjectFixture<typeof ProjectInfoDialog>({
+            component: "ProjectInfoDialog",
             events: ["submit", "cancel", "browse-location"],
             class: "",
             scenes: [
                 {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create"}, model: {location: "/home/writer/Documents/NeuroBook"}}},
                 {id: "create-filled", label: "新建作品（填了书名、自定义色）", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "雪线以北", description: "一个守灯人等一封永远不会来的信。", color: "#d4a017", coverSrc: null}}, model: {location: "/home/writer/Documents/NeuroBook"}}},
-                {id: "edit", label: "编辑信息（有封面）", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {id: first.id, title: first.title ?? first.name, description: first.description ?? "", color: "#1e3a5f", coverSrc: SHELF_COVER_SRC}}, model: {location: ""}}},
-                {id: "rejected", label: "服务端拒绝了位置", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: "#1e3a5f", coverSrc: null}, fieldErrors: {location: "作品目录不可用：目录不可读写（/mnt/usb/books）"}}, model: {location: "/mnt/usb/books"}}},
+                {id: "edit", label: "编辑信息（有封面）", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {id: first.id, title: first.title ?? first.name, description: first.description ?? "", color: "#2f63a8", coverSrc: SHELF_COVER_SRC}}, model: {location: ""}}},
+                {id: "rejected", label: "服务端拒绝了位置", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: "#2f63a8", coverSrc: null}, fieldErrors: {location: "作品目录不可用：目录不可读写（/mnt/usb/books）"}}, model: {location: "/mnt/usb/books"}}},
                 {id: "busy", label: "提交中", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null, coverSrc: null}, busy: true}, model: {location: ""}}},
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}, model: {location: "/Users/writer/Documents/NeuroBook"}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/ProjectInfoWindow.vue"),
+            subject: () => import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue"),
         }),
         defineSubjectFixture<typeof PathPickerDialog>({
             component: "PathPickerDialog",

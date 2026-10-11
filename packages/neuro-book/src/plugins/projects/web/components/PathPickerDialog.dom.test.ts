@@ -93,7 +93,9 @@ describe("PathPickerDialog", () => {
         query<HTMLElement>("[data-file-browser-entry='/home/writer/Documents/NeuroBook']").dispatchEvent(new MouseEvent("dblclick", {bubbles: true}));
         await flushPromises();
         await wrapper.setProps({error: "没有加入书架：路径无效或不存在"});
-        expect(query("[data-path-picker-error]").textContent).toContain("路径无效");
+        // 原因写在页脚状态行，替下“已选 …”；浏览器下面不插字。
+        expect(query("[data-dialog-status]").textContent).toContain("路径无效");
+        expect(document.body.querySelector("[data-path-picker-summary]")).toBeNull();
 
         query<HTMLButtonElement>("[data-path-picker-type]").click();
         await flushPromises();

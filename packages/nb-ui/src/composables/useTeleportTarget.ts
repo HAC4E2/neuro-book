@@ -14,10 +14,20 @@ import {hasInjectionContext, inject, provide} from "vue";
 import type {InjectionKey} from "vue";
 
 export const NB_TELEPORT_TARGET: InjectionKey<string> = Symbol("nb-teleport-target");
+export const NB_TELEPORT_CONTAINED: InjectionKey<boolean> = Symbol("nb-teleport-contained");
 
-/** 宿主在自己的组件树上改写居中类浮层的缺省目标；值是选择器。 */
-export function provideTeleportTarget(selector: string): void {
+/**
+ * 宿主在自己的组件树上改写居中类浮层的缺省目标；值是选择器。`contained` 为真时（组件 Lab 的画布），模态浮层只在目标里
+ * 画遮罩、居中，不锁整页：不让页面其余部分失去指针与焦点、不被设为 aria-hidden，宿主自己的控件（Lab 的检视栏）照常可用。
+ */
+export function provideTeleportTarget(selector: string, options: {readonly contained?: boolean} = {}): void {
     provide(NB_TELEPORT_TARGET, selector);
+    provide(NB_TELEPORT_CONTAINED, options.contained === true);
+}
+
+/** 宿主是否要求模态浮层只占目标、不锁整页（见 provideTeleportTarget）。 */
+export function useTeleportContained(): boolean {
+    return hasInjectionContext() ? inject(NB_TELEPORT_CONTAINED, false) : false;
 }
 
 /** 浮层渲染时调用返回的函数，拿到这一刻的目标：显式指定的、宿主提供的，或 `body`。 */

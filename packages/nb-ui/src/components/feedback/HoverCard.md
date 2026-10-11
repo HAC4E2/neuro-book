@@ -8,7 +8,7 @@
 
 ## 布局与交互
 
-`trigger` 插槽作为触发元素，默认插槽作为面板内容。面板默认显示在触发器下方并居中，可配置四向位置、对齐、偏移及碰撞规避；最大宽度为 360px。`arrow=true` 时显示指向触发器的箭头。内容经 Portal 呈现，不遮罩页面；未被 `DialogWindow` 承载时使用普通页面 popover 层级，在窗口中则继承窗口浮层层级。
+`trigger` 插槽作为触发元素，默认插槽作为面板内容。面板默认显示在触发器下方并居中，可配置四向位置、对齐、偏移及碰撞规避；最大宽度为 360px。`arrow=true` 时显示指向触发器的箭头。内容经 Portal 呈现，不遮罩页面；未被 `Dialog` 承载时使用普通页面 popover 层级，在窗口中则继承窗口浮层层级。
 
 打开与关闭延迟分别默认为 250ms 和 200ms。受控模式下，开合变化通过 `update:open` 发给父组件；非受控模式由 Reka 内部管理。触发器缺失时没有用户可操作的开合入口。
 
@@ -55,7 +55,7 @@ interface HoverCardSlots {
 
 ## 状态与边界
 
-无禁用、错误或加载状态。组件从 `NB_POPOVER_Z_INDEX` 注入窗口内浮层层级；没有提供方时回退到 nb-ui 普通 popover 层级，因此可脱离 `DialogWindow` 单独使用。
+无禁用、错误或加载状态。组件从 `NB_POPOVER_Z_INDEX` 注入窗口内浮层层级；没有提供方时回退到 nb-ui 普通 popover 层级，因此可脱离 `Dialog` 单独使用。
 
 ## 上游边界
 
@@ -63,6 +63,6 @@ Reka UI 负责触发时机、开合延迟、受控/非受控状态、Portal、�
 
 ## 隐藏通道理由
 
-- `state:inject`：从 `DialogWindow` 的浮层上下文读取 z-index，使窗口内 hover card 处于所属窗口上方；注入缺失时有明确的普通页面层级回退。
+- `state:inject`：从 `Dialog` 的浮层上下文读取 z-index，使窗口内 hover card 处于所属窗口上方；注入缺失时有明确的普通页面层级回退。
 - `env:portal`：浮层需脱离宿主裁剪并按触发器定位；组件使用 Reka `HoverCardPortal`，没有目标选择 prop。目标位置及目标缺失时的表现由 Reka 决定，当前组件及测试未核实其细节。
 - `env:timer`：延迟开合属于 HoverCard 的交互语义，由上游按 `openDelay`、`closeDelay` 执行，不应由每个使用方重复计时。

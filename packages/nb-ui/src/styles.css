@@ -134,7 +134,7 @@ input.nb-ui-native-input[type="number"] {
  * 浮层面板外观基座（与 theme/z-index.ts 的 NB_Z_INDEX 对称的登记处）。
  * Dropdown / Combobox / ContextMenu / Tooltip / Dialog / TimePicker 的浮层面板统一从这里取
  * 边框、圆角、底色、阴影与磨砂；新增浮层组件请消费此类，不要再复制这一组属性。
- * 例外：DialogWindow 的毛玻璃窗体、Panel 的页面表面投影刻意不同，各自维护。
+ * 例外：Panel 的页面表面投影刻意不同，自己维护；对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
  *
  * 五个取值全部走主题变量，且默认值逐项对齐改动前的写死值——
  * --panel-outline → --border-color、--overlay-surface → --bg-panel、--overlay-blur → none、
@@ -237,7 +237,7 @@ input.nb-ui-native-input[type="number"] {
  * 2. 手写 v-if 浮层（Dropdown）——配 Vue <Transition name="nb-popover"> 使用，
  *    enter/leave-active 期间直接播同两条 keyframes，原点给 top center 兜底。
  *
- * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / DialogWindow / TimePicker）
+ * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / Dialog / TimePicker）
  * 不挂这个 modifier，避免两层动画叠加。
  */
 @keyframes nb-popover-in {
@@ -325,6 +325,23 @@ input.nb-ui-native-input[type="number"] {
 .nb-ui-dialog-surface {
     border-radius: var(--radius-dialog);
     box-shadow: var(--elevation-dialog);
+}
+
+/*
+ * 对话框的标题与页脚（Dialog 的两种用法与 AlertDialog 共用）：标题与正文同字号，只差字重——这是 Apple 官方
+ * UI Kit 的实测值（Alert 的 Title 是 Bold 13px，Description 是 Regular 13px）；页脚是一行按钮，间距一处给。
+ */
+.nb-ui-dialog-title {
+    color: var(--text-main);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+}
+
+.nb-ui-dialog-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
 }
 
 /*

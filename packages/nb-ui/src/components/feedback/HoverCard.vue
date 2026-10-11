@@ -9,7 +9,7 @@ import {
 } from "reka-ui";
 import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 
-/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+/** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
 const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
 
 

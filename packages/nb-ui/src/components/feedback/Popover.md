@@ -71,6 +71,6 @@ Reka UI Popover 负责展开状态原语、触发器语义、焦点管理、模�
 
 ## 隐藏通道理由
 
-`state:inject`：读取可选的 `NB_POPOVER_Z_INDEX`，使 DialogWindow 内容树中的面板显示在所属窗口上方；未注入时回退到普通 popover 层级。窗口栈深度由宿主提供，不是每个调用点都应重复传入的数据。
+`state:inject`：读取可选的 `NB_POPOVER_Z_INDEX`，使 Dialog 内容树中的面板显示在所属窗口上方；未注入时回退到普通 popover 层级。窗口栈深度由宿主提供，不是每个调用点都应重复传入的数据。
 
 `env:portal`：面板通过 Reka `PopoverPortal` 脱离局部组件树，避免祖先裁剪与 stacking context 遮挡。目标位置由 Reka 管理；目标不可用时的行为遵循 Reka UI。

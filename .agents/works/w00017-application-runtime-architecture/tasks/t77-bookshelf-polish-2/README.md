@@ -23,6 +23,29 @@ taskId: t77-bookshelf-polish-2
 
 ## 当前状态
 
+- 2026-10-11 S2 完成：
+  - **`Dialog` 合并 `DialogWindow`**：缺省模态（reka 模态 Dialog、遮罩用 `DialogOverlay`），`modal=false` 是浮动窗口（拖动与缩放搬进 `useFloatingWindow`）。删 `DialogWindow`，旧应用按开发者选的 (a) 不留兼容。
+    - 点遮罩要按下与松开在同一个遮罩上、同一个键；对话框里开着浮层时只关浮层。
+    - Esc 只关最上层，组字时与内层已处理的不算。
+    - 模态按打开顺序叠放（`useModalLayer`，`AlertDialog` 共用），两种用法都向内容提供浮层层级。
+    - Lab 画布声明 `contained`，模态只在画布里遮罩、不锁整页。
+    - 正文四边留一圈给外扩光环（色块选中环、焦点环之前被滚动容器裁掉）。
+  - **层级登记**：数值只在 `theme/z-index.ts`。拖影、落点、Lab 检查框改为引用登记表，离线横幅保留字面量并加注释。规则写进 `ui-development-spec.md` 的“叠放层级”，`z-index.test.ts` 检查各档顺序与组件里的字面量。
+  - **书架**：作品信息对话框（改名 `ProjectInfoDialog`）与目录选择器改为模态。没改过时点遮罩关闭，打开时焦点在书名；“浏览…”打开的选择器叠在上面，Esc 与点遮罩只关它，焦点回到“浏览…”。
+  - **开发者看过界面后追加**（记在 [plan.md](plan.md) 末尾）：
+    - 色板换更亮的八色；
+    - 固定列数的色板撑满所在宽度，左栏与封面同宽；
+    - 表单校验不在字段下插字：开发者选“禁止提交 + 页脚状态行”，并写成通用规范（`ui-development-spec.md`“表单与无障碍”第 8 条）。`Dialog` 新增 `status` 与 `status` 插槽，`FormField` 的 `error` 只标红、交给读屏。书名空着或没有保存位置时“新建”不可用；服务端的字段拒绝把字段标红并聚焦，原因写在状态行；目录选择器的登记失败替下“已选 …”。
+  - **e2e 暴露的两个真问题**：
+    - 在“自定义”取色面板里第一次改值，选中项会从“自动”变成“自定义”。reka 的 Listbox 见到外部改动就把焦点移到选中项，面板因此关掉，拖色相条拖到一半面板就没了。面板开着时用 reka 的 `focusable` 开关让色板不抢焦点（`injectListboxRootContext`，reka 的 ListboxFilter 用的同一个开关）；面板经 Esc 关上后焦点回到“自定义”。
+    - nb-ui `Tooltip` 的 `disabled` 不撤悬停时已排好的延时打开：点“自定义”后提示过 300ms 冒出来，压在面板上接走 Esc。改为受控开合，禁用时关上并拒掉迟到的打开。
+  - **Spec**：`workbench/bookshelf.md` 输出 11–13、失败表、验收 3 改写，追加验收 9。提案追加 2026-10-11 决策记录。
+  - **验证**：
+    - nb-ui 37 个文件 548 例，两个 typecheck 为 0；neuro-book vitest 38 个文件 164 例；`bun test` 982 例通过，1 例是已知的 `settings/commands.test.ts`。
+    - 全量 e2e：第一次 159 过、1 失败（新验收 9），查出上面两个问题；修后单例重复 12 次全过，重跑全量 160 例全过。
+    - 变异检查 19 处全部被测试抓到（遮罩、Esc、初始焦点、状态行、叠放顺序、模态浮层层级、`FormField`、层级字面量与顺序、作品信息的关闭规则、提交门槛、聚焦与状态行、色板焦点、Tooltip 禁用），其中两处在 e2e 层验证。
+    - `lab:shot`：`Dialog`、`ProjectInfoDialog`、`PathPickerDialog`、`ColorSwatches`，nbook、macos × 明暗 × 1280 与 390，184 张 0 问题。
+  - **截图**：[新建](evidences/s2-create-light.png)、[深色](evidences/s2-create-dark.png)、[服务端拒绝](evidences/s2-create-rejected-light.png)、[选择器登记失败](evidences/s2-picker-rejected-dark.png)、[手机](evidences/s2-create-phone-macos-light.png)、[书架新配色](evidences/s2-shelf-cards-light.png)。
 - 2026-10-11 配色定稿（开发者同意推荐）：作品色板换成“布面精装”八色（藏青、墨绿、酒红、赭石、黛紫、青瓷、驼色、炭黑），定义在 `shelf-format.ts` 的 `BOOK_PALETTE` 一处；没指定颜色的作品按 id 从这八色里取（`bookPaletteIndex`、`autoBookColor`），“自动”与色板同一套颜色，不再按主题强调色转色相，删去 `book-colors.css`。`ColorSwatches` 的 `colors` 接受只读数组。Spec 输出 5 同步。验证：typecheck；`bun test` 项目 63 例、DOM 62 例；书架 e2e 6 例。截图：[卡片](evidences/s1-cloth-shelf-cards-light.png)、[深色](evidences/s1-cloth-shelf-cards-dark.png)、[列表](evidences/s1-cloth-shelf-list-light.png)、[新建](evidences/s1-cloth-create-light.png)。
 - 2026-10-11 S1 静态稿交开发者看过后提交（配色待定）：
   - nb-ui 新增 `InfoTip`、`ColorSwatches`（reka `ColorSwatchPicker` 底座，“自动”“自定义”用哨兵值，选择从色块的 `select` 事件取，因为受控时 reka 的根会把一次选择发两遍）与内部的 `ColorPickerPanel`（reka 的 `ColorArea`、`ColorSlider`、`ColorField`，按 HSB 保存当前色，明度压到 0 色相不丢）；`ColorPicker` 改用它，触发器改成真按钮（禁用时打不开），去掉原生取色与 `showInput`。两个弹层按开发者意见改用 `FormSelect` 同款的面（`useDropdownSurfaceStyle`）。`ColorPickerPanel` 是内部部件，不单独写组件文档（同 `ContextMenuPanel`），行为写在 `ColorPicker.md`、`ColorSwatches.md` 里。

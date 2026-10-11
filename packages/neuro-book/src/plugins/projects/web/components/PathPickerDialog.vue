@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * 目录选择器窗口（同名 .md）：`DialogWindow` 包 nb-ui `FileBrowser`，数据从 `source.list` 取（产品里是远程 `browse`）。
+ * 目录选择器（同名 .md）：模态 `Dialog` 包 nb-ui `FileBrowser`，数据从 `source.list` 取（产品里是远程 `browse`）。
+ * 从作品信息对话框里打开时叠在它上面（模态按打开顺序叠放），Esc 与点遮罩只关这一层。
  * 选作品（打开已有作品）或选目录（更改作品目录）两种用途，区别只在哪些条目能选、确认按钮叫什么。
  */
-import {Button, DialogWindow, FileBrowser, FormInput, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Button, Dialog, FileBrowser, FormInput, IconButton, InfoTip, Tooltip} from "@notnotype/nb-ui/components";
 import type {FileBrowserEntry, FileBrowserSegment} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, useId, watch} from "vue";
 
@@ -90,7 +91,7 @@ async function load(path: string | null): Promise<void> {
     if (outcome.ok) {
         listing.value = outcome.value;
         selectedId.value = null;
-        // 焦点给列表：窗口打开时的初始焦点别落在标题旁的 ⓘ 上（它一聚焦就弹提示）。
+        // 列表加载完才出现：对话框打开时初始焦点先落在面板上，列好了再交给列表（别落在说明图标上，它一聚焦就弹提示）。
         await nextTick();
         if (props.open) document.querySelector<HTMLElement>("[data-path-picker] [role='listbox']")?.focus({preventScroll: true});
     } else {
@@ -187,20 +188,18 @@ function activate(path: string): void {
 </script>
 
 <template>
-    <DialogWindow
+    <Dialog
         :model-value="open"
+        :title="text(mode === 'project' ? TEXT.projectTitle : TEXT.directoryTitle)"
+        size="md"
         :width="640"
-        height="auto"
         :busy="busy"
-        body-class="path-picker__body"
+        :status="error"
+        initial-focus="[data-path-picker] [role='listbox']"
         @request-close="emit('cancel')"
-        @update:model-value="(value: boolean) => { if (!value) emit('cancel'); }"
     >
-        <template #header>
-            <span class="path-picker__title">{{ text(mode === "project" ? TEXT.projectTitle : TEXT.directoryTitle) }}</span>
-            <Tooltip :text="text(mode === 'project' ? TEXT.projectHint : TEXT.directoryHint)" placement="bottom">
-                <button type="button" class="path-picker__info" :aria-label="text(TEXT.info)" tabindex="-1" data-path-picker-info>i</button>
-            </Tooltip>
+        <template #header-extra>
+            <InfoTip :text="text(mode === 'project' ? TEXT.projectHint : TEXT.directoryHint)" :label="text(TEXT.info)" placement="bottom" data-path-picker-info />
         </template>
         <div class="path-picker" data-path-picker>
             <div v-if="typing" class="path-picker__typing">
@@ -220,40 +219,22 @@ function activate(path: string): void {
                 @navigate="activate"
                 @up="up"
             />
-            <p v-if="error !== ''" class="path-picker__error" role="alert" data-path-picker-error>{{ error }}</p>
         </div>
+        <!-- 登记失败的原因（宿主给的 error）写在页脚状态行，替下“已选 …”：不在浏览器下面插字，选择器不重排。 -->
+        <template #status>
+            <span data-path-picker-summary>{{ summary }}</span>
+        </template>
         <template #footer>
-            <span class="path-picker__summary" data-path-picker-summary>{{ summary }}</span>
             <Tooltip :text="text(TEXT.typePath)" placement="top">
                 <IconButton size="sm" icon-class="i-lucide-keyboard" :aria-label="text(TEXT.typePath)" data-path-picker-type @click="startTyping" />
             </Tooltip>
             <Button variant="secondary" :disabled="busy" @click="emit('cancel')">{{ text(TEXT.cancel) }}</Button>
             <Button variant="primary" :disabled="chosenPath === null" :loading="busy" data-path-picker-confirm @click="confirm">{{ text(mode === "project" ? TEXT.add : TEXT.choose) }}</Button>
         </template>
-    </DialogWindow>
+    </Dialog>
 </template>
 
 <style scoped>
-.path-picker__title {
-    font-weight: var(--weight-strong);
-}
-
-.path-picker__info {
-    display: inline-grid;
-    place-items: center;
-    width: 16px;
-    height: 16px;
-    margin-left: var(--space-2);
-    padding: 0;
-    border: var(--border-w) solid var(--text-muted);
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: var(--weight-strong);
-    cursor: default;
-}
-
 .path-picker {
     display: flex;
     flex-direction: column;
@@ -271,28 +252,5 @@ function activate(path: string): void {
 
 .path-picker__browser {
     --nb-file-browser-max-height: 280px;
-}
-
-.path-picker__error {
-    margin: 0;
-    color: var(--status-danger);
-    font-size: var(--text-sm);
-}
-
-.path-picker__summary {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-muted);
-    font-size: var(--text-xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-</style>
-
-<style>
-/* DialogWindow 的 body 只留一层内边距（规范：内边距只有一层）；窗口页脚左右对齐靠 summary 撑开。 */
-.path-picker__body {
-    padding: var(--space-2) var(--space-5) var(--space-5);
 }
 </style>

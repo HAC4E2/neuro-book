@@ -99,7 +99,7 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
 
 test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可点，方向键调整宽度一次 10px", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
-    await openScene(page, "c=DialogWindow&s=resizable");
+    await openScene(page, "c=Dialog&s=window-resizable");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute("aria-labelledby", /.+/u);
@@ -125,12 +125,25 @@ test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可�
 
 test("非模态窗口在手机画布里：按画布宽度收窄，落在画布以内", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
-    await openScene(page, "c=DialogWindow&s=resizable&vp=phone");
+    await openScene(page, "c=Dialog&s=window-resizable&vp=phone");
     const dialog = page.locator("[data-lab-overlay-root] [role='dialog']");
     await expect(dialog).toBeVisible();
     const [canvas, window] = await Promise.all([page.locator(".lab-main .nb-lab-stage-box").first().boundingBox(), dialog.boundingBox()]);
     expect(window!.x).toBeGreaterThanOrEqual(canvas!.x);
     expect(window!.x + window!.width).toBeLessThanOrEqual(canvas!.x + canvas!.width + 1);
+});
+
+test("模态对话框在 Lab 画布里只遮住画布：Lab 自己的控件照常可点可聚焦，对话框不被关掉", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 1000});
+    await openScene(page, "c=Dialog&s=default");
+    const dialog = page.locator("[data-lab-overlay-root] [role='dialog']");
+    await expect(dialog).toBeVisible();
+    await expect(page.locator("[data-lab-overlay-root] [data-dialog-overlay]")).toBeVisible();
+    const search = page.getByRole("searchbox", {name: "搜组件名或部件名称"});
+    await search.click();
+    await expect(search).toBeFocused();
+    await expect(dialog).toBeVisible();
+    expect(await page.locator("body").evaluate((body) => getComputedStyle(body).pointerEvents)).not.toBe("none");
 });
 
 /** 事件页签的全文：事件名与负载都在里面。 */

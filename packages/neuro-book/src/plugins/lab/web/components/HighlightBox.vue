@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
+
+import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import type {HighlightRect, HighlightTone} from "./highlight-box.types";
 
 /**
@@ -64,19 +66,19 @@ const labelStyle = computed(() => {
     <div v-if="props.rect" class="nb-lab-highlight pointer-events-none" aria-hidden="true">
         <div
             v-if="props.showBox"
-            class="nb-lab-highlight-box fixed z-50 border"
+            class="nb-lab-highlight-box fixed border"
             :class="props.tone === 'probe'
                 ? 'border-dashed border-[var(--text-main)] bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)]'
                 : 'border-solid border-[var(--accent-main)] bg-[color-mix(in_srgb,var(--accent-main)_5%,transparent)]'"
-            :style="boxStyle"
+            :style="[boxStyle ?? {}, {zIndex: NB_Z_INDEX.inspectorProbe}]"
         ></div>
         <div
             v-if="props.label"
-            class="nb-lab-highlight-label fixed z-50 max-w-[min(24rem,90vw)] truncate rounded-[3px] px-1.5 py-0.5 font-mono text-[11px] leading-[14px] tabular-nums"
+            class="nb-lab-highlight-label fixed max-w-[min(24rem,90vw)] truncate rounded-[3px] px-1.5 py-0.5 font-mono text-[11px] leading-[14px] tabular-nums"
             :class="props.tone === 'probe'
                 ? 'bg-[var(--text-main)] text-[var(--bg-main)]'
                 : 'bg-[var(--accent-main)] text-[var(--text-inverse)]'"
-            :style="labelStyle"
+            :style="[labelStyle ?? {}, {zIndex: NB_Z_INDEX.inspectorProbe}]"
         >{{ props.label }}</div>
     </div>
 </template>

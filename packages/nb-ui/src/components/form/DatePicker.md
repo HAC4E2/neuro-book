@@ -10,7 +10,7 @@
 
 触发器是带日历图标的按钮：左侧显示日期或 placeholder，右侧在有值且可清除时显示清除图标。`size` 控制 `sm`、`md`（默认）、`lg` 三档控件高度与字号。日期文本使用等宽字体；内容区域允许截断，不会因为长日期把同一行的图标和清除入口推出控件。
 
-打开后，`PopoverContent` 在触发器外渲染 `Calendar` 日历，下方是带上边框的操作栏，左侧为“清除”，右侧为“关闭”。日历和操作栏共同属于同一个浮层。浮层与触发器相距 6px，层级来自当前的公共浮层层级；被 `DialogWindow` 承载时会跟随窗口注入的层级。
+打开后，`PopoverContent` 在触发器外渲染 `Calendar` 日历，下方是带上边框的操作栏，左侧为“清除”，右侧为“关闭”。日历和操作栏共同属于同一个浮层。浮层与触发器相距 6px，层级来自当前的公共浮层层级；被 `Dialog` 承载时会跟随窗口注入的层级。
 
 `390×844` 下触发器结构不改变，日期长文本在内容区内截断；浮层仍由 Popover 的碰撞定位负责避让视口，日历本身保持网格布局。
 
@@ -80,7 +80,7 @@ Reka UI 的 `PopoverRoot`、`PopoverTrigger`、`PopoverContent` 与 `PopoverPort
 ## 隐藏通道理由
 
 - `state:local`：打开状态 `isOpen` 只描述本次组件实例的 Popover 生命周期，关闭组件即丢失；日期值仍通过受控 `modelValue` 由父组件持有。
-- `state:inject`：组件读取 `NB_POPOVER_Z_INDEX`。`DialogWindow` 需要让窗口内日期浮层压在窗口表面之上；通过可选注入传层级比让每个父组件重复改写浮层样式更稳定。没有注入时回退到 `NB_Z_INDEX.popover`，不读取业务 store。
+- `state:inject`：组件读取 `NB_POPOVER_Z_INDEX`。`Dialog` 需要让窗口内日期浮层压在窗口表面之上；通过可选注入传层级比让每个父组件重复改写浮层样式更稳定。没有注入时回退到 `NB_Z_INDEX.popover`，不读取业务 store。
 - `env:portal`：`PopoverPortal` 把日历浮层放到组件树之外，以脱离宿主局部 stacking context 并避免被表单容器裁剪；目标遵循 Reka UI `ConfigProvider.teleportTo`，未配置时默认为 `body`；缺失目标行为由 Reka Portal 处理，组件不创建隐式目标或持久化 DOM。
 
 ## 已知偏差

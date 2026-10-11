@@ -57,7 +57,7 @@ The module auto-registers Vue components and composables.
 Components can also be imported explicitly:
 
 ```ts
-import {Button, Dialog, DialogWindow, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, Dialog, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
 import {useNotification} from "@notnotype/nb-ui/composables";
 ```
 
@@ -104,8 +104,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Tabs` / `Pagination`：选项卡栏与分页控制器。
 
 ### 弹层与反馈 (Feedback & Overlays)
-- `Dialog`：模态对话框（遮罩、焦点管理、背景滚动锁）。
-- `DialogWindow`：无遮罩、页面仍可交互的非模态浮动窗口；标题栏可拖动，`resizable` 开启后提供右/下/右下角 resize 手柄与键盘调整。公共默认 Portal 目标为 `body`；主题宿主必须由消费者显式传入 `teleport-target`。
+- `Dialog`：对话框，一个组件两种用法：缺省模态（遮罩、焦点锁定、背景不可交互、点遮罩与 Escape 关闭，同时打开的按打开顺序叠放）；`modal=false` 是浮动窗口（无遮罩、标题栏可拖动、`resizable` 时六个缩放手柄与键盘调整）。外框只有一份。
 - `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
 - `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
@@ -142,7 +141,7 @@ Shared style registries (register instead of copying values):
 - `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (Dropdown, Combobox, ContextMenu, Tooltip, Dialog).
 - `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
 - `.nb-ui-menu-surface` — menu/dropdown radius modifier; consumes `--radius-menu` and keeps nested items concentric.
-- `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog/DialogWindow surfaces; nbook small popovers leave it off.
+- `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog surfaces (modal and window); nbook small popovers leave it off.
 - `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items (Dropdown, ContextMenu).
 
 ## UI development contract

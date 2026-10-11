@@ -47,6 +47,7 @@ export type DropFeedbackPreview = Readonly<{
  */
 import {computed, onBeforeUnmount, ref, useAttrs, watch} from "vue";
 import DropIndicator from "./DropIndicator.vue";
+import {NB_Z_INDEX} from "../../theme/z-index";
 import DropIndicatorLabel from "./DropIndicatorLabel.vue";
 import {isGridDropRect} from "./grid-drop";
 
@@ -297,6 +298,7 @@ watch(
             v-if="hasVisibleFeedback"
             ref="overlayRef"
             class="nb-ui-drop-feedback"
+            :style="{zIndex: NB_Z_INDEX.dropFeedback}"
             data-drop-feedback
             v-bind="attrs"
         >
@@ -359,7 +361,6 @@ watch(
 .nb-ui-drop-feedback {
     position: fixed;
     inset: 0;
-    z-index: 60;
     pointer-events: none;
 }
 

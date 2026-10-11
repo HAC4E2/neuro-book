@@ -5,8 +5,8 @@
  * 尝试解析它们，解析失败就退回原值，可访问名称由这里覆盖。
  * 选择从每个色块的 `select` 事件取，不听根上的 `update:modelValue`：受控时 reka 的根会把一次选择发两遍。
  */
-import {ColorSwatchPickerItem, ColorSwatchPickerRoot, PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
-import {computed, ref} from "vue";
+import {ColorSwatchPickerItem, ColorSwatchPickerRoot, injectListboxRootContext, PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
+import {computed, defineComponent, onBeforeUnmount, ref, watchEffect} from "vue";
 
 import {useDropdownSurfaceStyle} from "../../composables/useDropdownSurfaceStyle";
 import Tooltip from "../feedback/Tooltip.vue";
@@ -68,12 +68,42 @@ function onCustomSelect(event: Event): void {
     if (!props.disabled) customOpen.value = true;
 }
 
-const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat(${String(props.columns)}, max-content)`} : undefined));
+/*
+ * 取色面板开着时，色板（reka 的 Listbox）不许抢焦点。面板第一次改值会让选中项从别的色块变成“自定义”，Listbox 见到
+ * 不是在它里面点出来的改动，就把焦点移到选中项上；焦点离开面板，面板随即关掉（拖色相条拖到一半面板没了）。
+ * reka 自己的 ListboxFilter 用的也是这个 `focusable` 开关。必须是色板根的后代才拿得到它的上下文，所以是一个子组件。
+ */
+const HoldListboxFocus = defineComponent({
+    props: {hold: {type: Boolean, required: true}},
+    setup(holdProps) {
+        const listbox = injectListboxRootContext();
+        watchEffect(() => {
+            listbox.focusable.value = !holdProps.hold;
+        });
+        onBeforeUnmount(() => {
+            listbox.focusable.value = true;
+        });
+        return () => null;
+    },
+});
+
+const rootRef = ref<HTMLElement | null>(null);
+
+/** 面板关上时焦点回到“自定义”色块（面板挂在锚点而不是触发器上，reka 不会还焦点）；点到别处关上的不抢回来。 */
+function onPanelCloseAutoFocus(event: Event): void {
+    event.preventDefault();
+    const active = document.activeElement;
+    const nobodyTookFocus = active === null || active === document.body || !active.isConnected || active.closest("[data-color-swatches-panel]") !== null;
+    if (nobodyTookFocus) rootRef.value?.querySelector<HTMLElement>("[data-color-swatch='custom']")?.focus({preventScroll: true});
+}
+
+/** 固定列数时撑满整行：列宽就是色块，多出的宽度均分到列之间（间距至少 --nb-swatch-gap），右边不留一截空。 */
+const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat(${String(props.columns)}, var(--nb-swatch))`, justifyContent: "space-between"} : undefined));
 </script>
 
 <template>
     <!-- 尺寸变量放在自己的这层上：reka 的色板根经 as-child 渲染，带不上本组件的作用域属性，作用域样式落不到它身上。 -->
-    <div class="nb-swatches" :class="`nb-swatches--${props.size}`" data-color-swatches>
+    <div ref="rootRef" class="nb-swatches" :class="`nb-swatches--${props.size}`" data-color-swatches>
         <ColorSwatchPickerRoot
             :model-value="selected"
             orientation="horizontal"
@@ -101,6 +131,7 @@ const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat
             >
                 <span class="nb-swatches__fill" :style="{background: color}" />
             </ColorSwatchPickerItem>
+            <HoldListboxFocus :hold="customOpen" />
             <PopoverRoot v-if="props.customLabel !== ''" v-model:open="customOpen">
                 <PopoverAnchor as-child>
                     <Tooltip :text="props.customLabel" :disabled="customOpen">
@@ -124,6 +155,7 @@ const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat
                         :style="popoverStyle"
                         class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion p-3 text-[var(--text-main)] outline-none select-none"
                         data-color-swatches-panel
+                        @close-auto-focus="onPanelCloseAutoFocus"
                     >
                         <ColorPickerPanel :model-value="customColor ?? props.colors[0] ?? ''" @update:model-value="(value: string) => emit('update:modelValue', value)" />
                     </PopoverContent>

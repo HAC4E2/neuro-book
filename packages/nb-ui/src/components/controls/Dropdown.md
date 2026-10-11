@@ -133,7 +133,7 @@ Reka UI 负责菜单角色、Escape/outside dismiss、焦点归还、受控展�
 
 ## 隐藏通道理由
 
-- `state:inject`：从 `NB_POPOVER_Z_INDEX` 读取所属 `DialogWindow` 的浮层层级，避免菜单被窗口表面遮挡；没有提供方时回退到普通 popover 层级。
+- `state:inject`：从 `NB_POPOVER_Z_INDEX` 读取所属 `Dialog` 的浮层层级，避免菜单被窗口表面遮挡；没有提供方时回退到普通 popover 层级。
 - `env:portal`：菜单必须脱离触发器祖先的局部 stacking context 才能覆盖页面内容；渲染位置由 Reka Portal 决定，组件不提供目标配置。目标位置及不可用表现本地源码未核实。
 - `env:timer`：首次悬停级联菜单使用 300ms 延迟以减少误展开；关闭或切换时取消待执行任务。
 - `env:global`：滚动条拖动期间在 `window` 监听 `mousemove` / `mouseup`，以支持指针离开滑块后的连续拖动；手势结束或卸载时解除监听。

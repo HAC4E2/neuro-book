@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal, env:timer]
+标签: [state:local, env:portal, env:global, env:timer]
 ---
 
 # AlertDialog
@@ -68,4 +68,5 @@ Reka UI 负责 Alert Dialog 的模态语义、焦点管理、Portal、受控/非
 ## 隐藏通道理由
 
 - `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
+- `env:global`：与 `Dialog` 共用全应用一份的已打开模态列表，按打开顺序叠放（后打开的在上面）；它只做叠放协调、不承载数据，理由见 [`Dialog.md`](Dialog.md) 的隐藏通道理由。
 - `env:timer`：`closed` 需等 Reka 的卸载清理结束后才上报；关闭交接使用一次零延迟定时器，并在重开或卸载时作废，避免宿主过早激活下一交互层。

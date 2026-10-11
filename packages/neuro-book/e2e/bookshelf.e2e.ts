@@ -1,5 +1,5 @@
 /**
- * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7）：生产构建的后端与前端，真实的项目目录、
+ * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7、8、9）：生产构建的后端与前端，真实的项目目录、
  * 登记表、用户层配置与封面文件。项目 `book` 先登记好；第二个目录经“打开已有作品”的选择器登记；新作品建在缺省作品目录
  * （场地的 HOME 下的 Documents/NeuroBook）里。等页面上可观察的变化，不按时长等待。
  */
@@ -151,7 +151,7 @@ test("打开已有作品：经选择器输入路径进入并加入；编辑作�
     await access(join(oldDir, "notes", "x.md"));
 });
 
-test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、带封面；同名目录已存在时在书名下提示", async ({page}) => {
+test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、带封面；同名目录已存在时书名标红、原因在页脚", async ({page}) => {
     await openShelf(page);
     await page.locator("[data-shelf-create]").click();
     const window = page.locator("[data-project-info]");
@@ -161,7 +161,7 @@ test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、�
     await window.locator("input[data-project-title], [data-project-title] input").fill("长夜行");
     await expect(window.locator("[data-project-folder]")).toHaveText("/长夜行");
     await window.locator("[data-project-description]").fill("雪线以北的驿站。");
-    await window.locator("[data-project-color] [data-color-swatch='#6b2032']").click();
+    await window.locator("[data-project-color] [data-color-swatch='#b8423a']").click();
     await window.locator("[data-project-cover-input]").setInputFiles({name: "cover.png", mimeType: "image/png", buffer: PNG});
     await page.locator("[data-project-confirm]").click();
     await expect(window).toHaveCount(0);
@@ -170,16 +170,86 @@ test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、�
     // 封面上传后书架刷新，卡片显示图而不是排版封面。
     await expect(card(page, "长夜行").locator("[data-book-cover] img")).toBeVisible();
     const identity = JSON.parse(await readFile(join(library, "长夜行", ".nbook", "project.json"), "utf8")) as {title?: string; color?: string; cover?: string};
-    expect(identity).toMatchObject({title: "长夜行", color: "#6b2032", cover: "cover.png"});
+    expect(identity).toMatchObject({title: "长夜行", color: "#b8423a", cover: "cover.png"});
     await access(join(library, "长夜行", "cover.png"));
 
     await page.locator("[data-shelf-create]").click();
     await expect(window).toBeVisible();
-    await window.locator("input[data-project-title], [data-project-title] input").fill("长夜行");
+    const title = window.locator("input[data-project-title], [data-project-title] input");
+    await title.fill("长夜行");
     await page.locator("[data-project-confirm]").click();
-    await expect(window).toContainText("同名目录已存在");
+    // 书名标红并得到焦点，原因在页脚状态行（字段下不插字由 ProjectInfoDialog.dom.test.ts 核对）。
+    await expect(page.locator("[data-dialog-status]")).toContainText("同名目录已存在");
+    await expect(title).toHaveAttribute("aria-invalid", "true");
+    await expect(title).toBeFocused();
     await page.locator("[data-project-cancel]").click();
     await expect(window).toHaveCount(0);
+});
+
+/** 页面上这一点最上面的元素是否在 `selector` 里：层级只能这样在真实排版里看。 */
+async function onTopAt(page: Page, selector: string): Promise<boolean> {
+    const box = await page.locator(selector).boundingBox();
+    if (box === null) return false;
+    return page.evaluate(({x, y, selector: inside}) => document.elementFromPoint(x, y)?.closest(inside) !== null, {x: box.x + box.width / 2, y: box.y + box.height / 2, selector});
+}
+
+test("新建作品的对话框：没改过点遮罩关闭、改过不关；选择器叠在上面，Esc 与点遮罩只关它；取色面板在对话框之上（验收 9）", async ({page}) => {
+    await openShelf(page);
+    const info = page.locator("[data-project-info]");
+    const title = info.locator("input[data-project-title], [data-project-title] input");
+    // 左上角在两个对话框之外，落在最上层的遮罩上。
+    const clickOutside = () => page.mouse.click(8, 8);
+
+    await page.locator("[data-shelf-create]").click();
+    await expect(title).toBeFocused();
+    await clickOutside();
+    await expect(info).toHaveCount(0);
+
+    await page.locator("[data-shelf-create]").click();
+    await title.fill("未命名的书");
+    await clickOutside();
+    await expect(info).toBeVisible();
+
+    const browse = page.locator("[data-project-browse]");
+    const picker = page.locator("[data-path-picker]");
+    await browse.click();
+    await expect(picker).toBeVisible();
+    expect(await onTopAt(page, "[data-path-picker]")).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(picker).toHaveCount(0);
+    await expect(info).toBeVisible();
+    await expect(browse).toBeFocused();
+
+    await browse.click();
+    await expect(picker).toBeVisible();
+    await clickOutside();
+    await expect(picker).toHaveCount(0);
+    await expect(info).toBeVisible();
+    await expect(title).toHaveValue("未命名的书");
+
+    await info.locator("[data-color-swatch='custom']").click();
+    const panel = page.locator("[data-color-swatches-panel]");
+    await expect(panel).toBeVisible();
+    expect(await onTopAt(page, "[data-color-swatches-panel]")).toBe(true);
+    const hex = panel.locator("input[data-color-panel-input]");
+    const before = await hex.inputValue();
+    const track = await panel.locator(".nb-color-panel__track").boundingBox();
+    if (track === null) throw new Error("色相条没有排版");
+    await page.mouse.move(track.x + 4, track.y + track.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(track.x + track.width * 0.6, track.y + track.height / 2, {steps: 4});
+    await page.mouse.up();
+    await expect(hex).not.toHaveValue(before);
+    // 第一次改值让选中项变成“自定义”：色板不能借机把焦点抢走、把面板关掉。
+    await expect(panel).toHaveAttribute("data-state", "open");
+    // Esc 先关取色面板，对话框还在，焦点回到“自定义”。
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(info).toBeVisible();
+    await expect(info.locator("[data-color-swatch='custom']")).toBeFocused();
+
+    await page.locator("[data-project-cancel]").click();
+    await expect(info).toHaveCount(0);
 });
 
 test.describe("窄屏", () => {
