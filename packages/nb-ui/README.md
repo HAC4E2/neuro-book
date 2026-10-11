@@ -80,7 +80,8 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `DateField` / `DateRangeField` / `TimeField` / `TimeRangeField`：分段日期/时间精准光标输入框（支持 Tab 快速段落跳转与微调）。
 - `MonthPicker` / `MonthRangePicker` / `YearPicker` / `YearRangePicker`：宏观月份/年份网格与跨月/跨年代区间聚合选择器。
 - `Listbox`：高级无障碍列表选择框（支持多选、Shift 连选与即时搜索过滤）。
-- `ColorPicker`：综合取色器与调色板（预设色板网格、实时取色与 Hex 格式微调）。
+- `ColorPicker`：取色器：触发器显示当前颜色，面板是饱和度与明度面、色相条、颜色值输入与预设色。
+- `ColorSwatches`：单选色板，可带“自动”（值为 null）与“自定义”（旁边打开取色面板）。
 - `TimePicker`：`HH:mm` 字符串 `v-model`，支持 min / max / step、disabled / invalid、ArrowUp/Down、Enter、Escape 和关闭后焦点归还；主题可通过 `time-picker@1` 契约替换实现。
 
 ### 工作区布局与导航 (Layout & Navigation)
@@ -110,6 +111,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
 - `HoverCard`：划词/悬浮卡片（适用于设定集词条、人物资料与超链接预览）。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
+- `InfoTip`：字段标签旁的问号说明图标，悬停或聚焦时用 Tooltip 显示说明。
 - `QuickInput`：全局快速输入浮层（S4 命令面板基座）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
 - `Notification` / `NotificationViewport`：Toast 通知与它的视口；队列可用 `createNotificationQueue()` 自建一份传给视口，通知可带进度。队列本身不碰 DOM，从子路径 `@notnotype/nb-ui/notifications` 单独导入时不会把别的 composable 带进无 DOM 的编译组。
 - `Banner`：区域或页面顶部的常驻横幅（已断开正在重连、有新版本要刷新），不进队列、不自动消失。

@@ -49,7 +49,7 @@ describe("ProjectInfoWindow", () => {
         expect(textOf("[data-project-folder]")).toBe("/长夜行");
         query<HTMLButtonElement>("[data-project-browse]").click();
         expect(wrapper.emitted("browse-location")).toHaveLength(1);
-        query<HTMLButtonElement>("[data-project-swatch='#8f3f2e']").click();
+        query<HTMLElement>("[data-project-color] [data-color-swatch='#8f3f2e']").click();
         await flushPromises();
         query<HTMLButtonElement>("[data-project-confirm]").click();
         await flushPromises();

@@ -80,6 +80,14 @@ export function bookHue(id: string): number {
     return hash % BOOK_HUES;
 }
 
+/**
+ * 作者没指定颜色时这部作品用的颜色，写成 CSS 颜色表达式，给色板的“自动”与目录选择器的作品色块用。
+ * 与 components/book-colors.css 的 `.book-color` 是同一个公式，改一处要同步另一处。
+ */
+export function autoBookColor(id: string): string {
+    return `oklch(from var(--accent-main) 0.5 0.085 calc(h + ${String(bookHue(id))} * 45))`;
+}
+
 /** 挂在 `.book-color` 元素上的样式变量（见 components/book-colors.css）。 */
 export function bookColorStyle(item: {readonly id: string; readonly color: string | null}): Record<string, string> {
     return {"--book-hue": String(bookHue(item.id)), ...(item.color === null ? {} : {"--book-color": item.color})};

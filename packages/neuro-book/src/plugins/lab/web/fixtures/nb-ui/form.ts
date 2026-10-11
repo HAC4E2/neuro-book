@@ -10,6 +10,7 @@ import type {
     Calendar,
     CheckboxGroup,
     ColorPicker,
+    ColorSwatches,
     Combobox,
     DateField,
     DatePicker,
@@ -43,6 +44,9 @@ import {FormInput as NbFormInput} from "@notnotype/nb-ui/components";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
+
+/** 作品主题色的八档推荐色（与作品信息对话框一致）。 */
+const BOOK_SWATCHES = ["#2f5fa0", "#3f7a2c", "#8f3f2e", "#1f6e75", "#6a3f8a", "#a8762f", "#871222", "#2e211b"];
 
 const GENRES = [
     {value: "mystery", label: "悬疑", description: "推理、犯罪与解谜"},
@@ -205,11 +209,23 @@ export const formFixtures: LabFixture[] = [
     defineSubjectFixture<typeof ColorPicker>({
         component: "ColorPicker",
         scenes: [
-            {id: "default", label: "色板与输入", input: {props: {swatches: ["#8a3b2f", "#2f5d8a", "#3b7a57", "#b8860b", "#6b4f8a"], showInput: true, size: "md"}, model: {modelValue: "#2f5d8a"}}},
-            {id: "small", label: "小号、无输入", input: {props: {showInput: false, size: "sm"}, model: {modelValue: "#8a3b2f"}}},
+            {id: "default", label: "自带预设", input: {props: {size: "md"}, model: {modelValue: "#2f5d8a"}}},
+            {id: "custom-swatches", label: "给定预设、小号", input: {props: {swatches: ["#8a3b2f", "#2f5d8a", "#3b7a57", "#b8860b", "#6b4f8a", "#2e2a26"], size: "sm"}, model: {modelValue: "#8a3b2f"}}},
             {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "#3b7a57"}}},
+            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "#3b7a57"}}},
         ],
         subject: nbUiSubject("ColorPicker"),
+    }),
+    defineSubjectFixture<typeof ColorSwatches>({
+        component: "ColorSwatches",
+        scenes: [
+            {id: "book", label: "作品主题色：自动、八色、自定义（两行）", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", autoColor: "oklch(from var(--accent-main) 0.5 0.085 calc(h + 3 * 45))", customLabel: "自定义", columns: 5, label: "主题色"}, model: {modelValue: null}}},
+            {id: "listed", label: "选中色板里的色", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", columns: 5}, model: {modelValue: "#3f7a2c"}}},
+            {id: "custom", label: "自定义色", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", columns: 5}, model: {modelValue: "#d4a017"}}},
+            {id: "row-small", label: "一行、小号、无自动", input: {props: {colors: BOOK_SWATCHES, size: "sm"}, model: {modelValue: "#8f3f2e"}}},
+            {id: "disabled", label: "禁用", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", disabled: true}, model: {modelValue: "#2f5fa0"}}},
+        ],
+        subject: nbUiSubject("ColorSwatches"),
     }),
     defineSubjectFixture<typeof Listbox>({
         component: "Listbox",

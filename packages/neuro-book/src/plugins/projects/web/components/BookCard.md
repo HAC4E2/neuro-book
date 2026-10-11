@@ -12,7 +12,7 @@
 ## 交互
 
 - 点卡片发 `pick` 再发 `open`（打开作品）；点“更多”不打开。
-- 根节点是 `role="option"`，选中与否由 `active` 给，选中态复用主题的焦点环；键盘与选中归 [`ShelfCards`](ShelfCards.md)。
+- 根节点是 `role="option"`，选中与否（`aria-selected`）由 `active` 给，选中环复用主题的焦点环；`highlighted` 单独控制环（缺省同 `active`），键盘停在别的选项上时选中不变、环挪走。键盘与选中归 [`ShelfCards`](ShelfCards.md)。
 - 悬停微抬；系统设了减少动画时不动。
 
 ## 数据
@@ -25,7 +25,10 @@ type Props = {
     now: string;
     /** 封面图地址；null 用排版封面。 */
     coverSrc: string | null;
+    /** 选中（aria-selected） */
     active: boolean;
+    /** 画选中环；缺省同 active */
+    highlighted?: boolean;
     /** 列表框里的选项 id。 */
     optionId?: string;
 };

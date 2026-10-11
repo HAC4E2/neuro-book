@@ -9,7 +9,7 @@
 
 ## 交互
 
-点行打开作品；行是按钮，Tab 可达、回车打开。“更多”是 `Dropdown`，选项发对应事件。
+点行打开作品；行是按钮，Tab 可达、回车打开。“更多”是 `Dropdown`，选项发对应事件。最后一行是“新建作品”（封面位是虚线框里的加号），点它发 `create`。
 
 ## 数据
 
@@ -26,7 +26,8 @@ type Emits = {
     "open-new-window": [id: string];
     edit: [id: string];
     remove: [id: string];
+    create: [];
 };
 ```
 
-根节点带 `data-shelf-list`，每行 `data-shelf-row`。没有插槽与 expose。
+根节点带 `data-shelf-list`，每部作品的行 `data-shelf-row`；“新建作品”行的按钮带 `data-shelf-create-row`，不算作品行。没有插槽与 expose。

@@ -1,4 +1,4 @@
-/** ShelfList（同名 .md）：每行的字数、篇数与新鲜度说明（docs/specs/workbench/bookshelf.md 输出 7）；点行打开。 */
+/** ShelfList（同名 .md）：每行的字数、篇数与新鲜度说明（docs/specs/workbench/bookshelf.md 输出 8）；点行打开；末行新建。 */
 
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
@@ -35,6 +35,17 @@ describe("ShelfList", () => {
         await wrapper.get("[data-shelf-row] button").trigger("click");
         expect(wrapper.emitted("open")).toEqual([["a"]]);
         expect(wrapper.find("[data-book-cover] img").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("最后一行是“新建作品”：不算作品行，点它发 create", async () => {
+        const wrapper = mount(ShelfList, {props: {locale: "zh-CN" as const, now: NOW, coverSrc: () => null, items: [item("a", "fresh"), item("b", "fresh")]}});
+        expect(wrapper.findAll("[data-shelf-row]")).toHaveLength(2);
+        const create = wrapper.get("[data-shelf-create-row]");
+        expect(create.text()).toContain("新建作品");
+        await create.trigger("click");
+        expect(wrapper.emitted("create")).toEqual([[]]);
+        expect(wrapper.emitted("open")).toBeUndefined();
         wrapper.unmount();
     });
 });

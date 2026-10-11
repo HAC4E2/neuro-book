@@ -3,10 +3,10 @@
  * 作品信息窗口（同名 .md）：新建作品与编辑信息共用的 `DialogWindow`。只收集与校验输入；提交交给宿主，服务端针对某个字段的
  * 拒绝由宿主经 `fieldErrors` 放回那个字段下，别的失败走通知。
  *
- * 主题色与位置两个字段不用 `FormField`：它的根是 `<label>`，点到标签里的空白会把点击转给第一个可标记的控件，色板里那就是
+ * 主题色与保存位置两个字段不用 `FormField`：它的根是 `<label>`，点到标签里的空白会把点击转给第一个可标记的控件，色板里那就是
  * “自动”那一格；这两个字段自己画标签行。
  */
-import {Button, ColorPicker, DialogWindow, FormField, FormInput, FormTextarea, Tooltip} from "@notnotype/nb-ui/components";
+import {Button, ColorSwatches, DialogWindow, FormField, FormInput, FormTextarea, InfoTip} from "@notnotype/nb-ui/components";
 import {computed, ref, useId, watch} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
@@ -16,6 +16,7 @@ import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_TITLE_MAX
 import {PROJECT_COVER_MAX_BYTES} from "../../shared/cover";
 import {projectDirectoryName} from "../../shared/directory-name";
 import type {ProjectCoverChange, ProjectInfoField, ProjectInfoValues} from "../shelf-page";
+import {autoBookColor} from "../shelf-format";
 import BookCover from "./BookCover.vue";
 
 defineOptions({name: "ProjectInfoWindow", inheritAttrs: false});
@@ -56,8 +57,8 @@ const TEXT = {
     color: {"zh-CN": "主题色", "en-US": "Color"},
     colorHint: {"zh-CN": "没有封面时用它排一张封面；有封面时用于列表里的小标记。", "en-US": "Used for the typeset cover when there is no image, and as the color mark in lists."},
     auto: {"zh-CN": "自动", "en-US": "Auto"},
-    custom: {"zh-CN": "自定义…", "en-US": "Custom…"},
-    location: {"zh-CN": "放在哪里", "en-US": "Location"},
+    custom: {"zh-CN": "自定义", "en-US": "Custom"},
+    location: {"zh-CN": "保存位置", "en-US": "Save to"},
     locationHint: {"zh-CN": "作品是一个文件夹，建在这个目录下，文件夹名由书名生成；目录不存在会一并创建。", "en-US": "A book is a folder created inside this directory and named after the title; the directory is created if missing."},
     browse: {"zh-CN": "浏览…", "en-US": "Browse…"},
     uploadCover: {"zh-CN": "上传封面…", "en-US": "Upload cover…"},
@@ -74,7 +75,9 @@ const TEXT = {
     descriptionTooLong: {"zh-CN": "简介至多 {max} 个字符", "en-US": "The description can have at most {max} characters"},
     colorInvalid: {"zh-CN": "颜色要写成 #rrggbb", "en-US": "The color must be #rrggbb"},
     locationRequired: {"zh-CN": "填一个目录，或点“浏览…”选一个", "en-US": "Type a directory or choose one with Browse…"},
-    info: {"zh-CN": "说明", "en-US": "About"},
+    coverInfo: {"zh-CN": "封面说明", "en-US": "About covers"},
+    colorInfo: {"zh-CN": "主题色说明", "en-US": "About the color"},
+    locationInfo: {"zh-CN": "保存位置说明", "en-US": "About the location"},
 } satisfies Record<string, LocalizedText>;
 
 /** 色板：八档与作品色档同一组色相（见 book-colors.css），写成固定色值让作者选了就是这个颜色。 */
@@ -88,7 +91,6 @@ const uid = useId();
 const title = ref("");
 const description = ref("");
 const color = ref<string | null>(null);
-const customOpen = ref(false);
 const coverChange = ref<ProjectCoverChange>({kind: "keep"});
 const coverPreview = ref<string | null>(null);
 const coverProblem = ref("");
@@ -101,7 +103,6 @@ watch(() => props.open, (open) => {
     title.value = props.initial.title;
     description.value = props.initial.description;
     color.value = props.initial.color;
-    customOpen.value = props.initial.color !== null && !SWATCHES.includes(props.initial.color);
     coverChange.value = {kind: "keep"};
     revokePreview();
     coverProblem.value = "";
@@ -125,20 +126,8 @@ const locationValue = computed(() => props.location.replace(/[/\\]+$/u, ""));
 const titleCount = computed(() => (length(title.value) >= PROJECT_TITLE_MAX_LENGTH * 0.8 ? `${String(length(title.value))} / ${String(PROJECT_TITLE_MAX_LENGTH)}` : ""));
 const descriptionCount = computed(() => (length(description.value) >= PROJECT_DESCRIPTION_MAX_LENGTH * 0.8 ? `${String(length(description.value))} / ${String(PROJECT_DESCRIPTION_MAX_LENGTH)}` : ""));
 const errorOf = (field: ProjectInfoField): string => props.fieldErrors[field] ?? problems.value[field] ?? "";
-
-function pickSwatch(value: string | null): void {
-    color.value = value;
-    customOpen.value = false;
-}
-
-function pickCustom(): void {
-    customOpen.value = true;
-    if (color.value === null || SWATCHES.includes(color.value)) color.value = "#3b82f6";
-}
-
-function onCustom(value: string): void {
-    color.value = value.toLowerCase();
-}
+/** “自动”色块画的就是封面现在用的那个自动色。 */
+const autoColor = computed(() => autoBookColor(props.initial.id ?? "new"));
 
 function chooseCover(): void {
     fileInput.value?.click();
@@ -202,48 +191,54 @@ function onConfirm(): void {
         @update:model-value="(value: boolean) => { if (!value) emit('cancel'); }"
     >
         <form class="project-info" data-project-info @submit.prevent="onConfirm">
-            <div class="project-info__cover">
-                <BookCover :id="initial.id ?? 'new'" :title="previewTitle" :color="color" :src="coverSrc" :width="150" />
-                <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden data-project-cover-input @change="onCoverFile">
-                <div class="project-info__cover-actions">
-                    <Button variant="ghost" size="sm" :disabled="busy" data-project-cover-pick @click="chooseCover">{{ text(hasCover ? TEXT.replaceCover : TEXT.uploadCover) }}</Button>
-                    <Tooltip :text="text(TEXT.coverHint)" placement="bottom">
-                        <button type="button" class="project-info__info" :aria-label="text(TEXT.info)" tabindex="-1">i</button>
-                    </Tooltip>
-                </div>
-                <Button v-if="hasCover" variant="ghost" size="sm" :disabled="busy" data-project-cover-remove @click="removeCover">{{ text(TEXT.removeCover) }}</Button>
-                <p v-if="coverProblem !== ''" class="project-info__problem" role="alert" data-project-cover-problem>{{ coverProblem }}</p>
-            </div>
-            <div class="project-info__fields">
-                <div class="project-info__field">
-                    <FormField :label="text(TEXT.title)" required :error="errorOf('title')">
-                        <FormInput v-model="title" :maxlength="PROJECT_TITLE_MAX_LENGTH" autofocus :disabled="busy" data-project-title />
-                    </FormField>
-                    <span v-if="titleCount !== ''" class="project-info__count">{{ titleCount }}</span>
-                </div>
-                <div class="project-info__field">
-                    <FormField :label="text(TEXT.description)" :error="errorOf('description')">
-                        <FormTextarea v-model="description" :rows="3" :maxlength="PROJECT_DESCRIPTION_MAX_LENGTH" :placeholder="text(TEXT.descriptionPlaceholder)" :disabled="busy" data-project-description />
-                    </FormField>
-                    <span v-if="descriptionCount !== ''" class="project-info__count">{{ descriptionCount }}</span>
+            <div class="project-info__side">
+                <div class="project-info__cover">
+                    <BookCover :id="initial.id ?? 'new'" :title="previewTitle" :color="color" :src="coverSrc" :width="150" />
+                    <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden data-project-cover-input @change="onCoverFile">
+                    <div class="project-info__cover-actions">
+                        <Button variant="ghost" size="sm" :disabled="busy" data-project-cover-pick @click="chooseCover">{{ text(hasCover ? TEXT.replaceCover : TEXT.uploadCover) }}</Button>
+                        <InfoTip :text="text(TEXT.coverHint)" :label="text(TEXT.coverInfo)" placement="bottom" />
+                    </div>
+                    <Button v-if="hasCover" variant="ghost" size="sm" :disabled="busy" data-project-cover-remove @click="removeCover">{{ text(TEXT.removeCover) }}</Button>
+                    <p v-if="coverProblem !== ''" class="project-info__problem" role="alert" data-project-cover-problem>{{ coverProblem }}</p>
                 </div>
                 <div class="project-info__field project-info__field--plain">
                     <span :id="`${uid}-color`" class="project-info__label">
                         <span>{{ text(TEXT.color) }}</span>
-                        <Tooltip :text="text(TEXT.colorHint)" placement="top"><button type="button" class="project-info__info" :aria-label="text(TEXT.info)" tabindex="-1">i</button></Tooltip>
+                        <InfoTip :text="text(TEXT.colorHint)" :label="text(TEXT.colorInfo)" />
                     </span>
-                    <div class="project-info__swatches" role="radiogroup" :aria-labelledby="`${uid}-color`" data-project-color>
-                        <button type="button" role="radio" :aria-checked="color === null" :aria-label="text(TEXT.auto)" :title="text(TEXT.auto)" class="project-info__swatch project-info__swatch--auto" :class="{'project-info__swatch--on': color === null}" :disabled="busy" data-project-color-auto @click="pickSwatch(null)"></button>
-                        <button v-for="swatch in SWATCHES" :key="swatch" type="button" role="radio" :aria-checked="color === swatch" :aria-label="swatch" :title="swatch" class="project-info__swatch" :class="{'project-info__swatch--on': color === swatch}" :style="{'--swatch': swatch}" :disabled="busy" :data-project-swatch="swatch" @click="pickSwatch(swatch)"></button>
-                        <ColorPicker v-if="customOpen" :model-value="color ?? '#3b82f6'" size="sm" :disabled="busy" data-project-color-custom @update:model-value="onCustom" />
-                        <Button v-else variant="ghost" size="sm" :disabled="busy" data-project-color-pick @click="pickCustom">{{ text(TEXT.custom) }}</Button>
-                    </div>
+                    <ColorSwatches
+                        :model-value="color"
+                        :colors="SWATCHES"
+                        :auto-label="text(TEXT.auto)"
+                        :auto-color="autoColor"
+                        :custom-label="text(TEXT.custom)"
+                        :columns="5"
+                        :label="text(TEXT.color)"
+                        :disabled="busy"
+                        data-project-color
+                        @update:model-value="(value: string | null) => { color = value; }"
+                    />
                     <span v-if="problems.color" class="project-info__error">{{ problems.color }}</span>
+                </div>
+            </div>
+            <div class="project-info__fields">
+                <div class="project-info__field">
+                    <FormField :for="`${uid}-title`" :label="text(TEXT.title)" required :error="errorOf('title')">
+                        <FormInput v-model="title" :maxlength="PROJECT_TITLE_MAX_LENGTH" :disabled="busy" data-project-title />
+                    </FormField>
+                    <span v-if="titleCount !== ''" class="project-info__count">{{ titleCount }}</span>
+                </div>
+                <div class="project-info__field project-info__field--grow">
+                    <FormField :label="text(TEXT.description)" :error="errorOf('description')">
+                        <FormTextarea v-model="description" :rows="3" :maxlength="PROJECT_DESCRIPTION_MAX_LENGTH" :placeholder="text(TEXT.descriptionPlaceholder)" :disabled="busy" class="project-info__description" data-project-description />
+                    </FormField>
+                    <span v-if="descriptionCount !== ''" class="project-info__count">{{ descriptionCount }}</span>
                 </div>
                 <div v-if="mode === 'create'" class="project-info__field project-info__field--plain">
                     <label :for="`${uid}-location`" class="project-info__label">
                         <span>{{ text(TEXT.location) }}</span>
-                        <Tooltip :text="text(TEXT.locationHint)" placement="top"><button type="button" class="project-info__info" :aria-label="text(TEXT.info)" tabindex="-1">i</button></Tooltip>
+                        <InfoTip :text="text(TEXT.locationHint)" :label="text(TEXT.locationInfo)" />
                     </label>
                     <div class="project-info__location" data-project-location>
                         <FormInput :id="`${uid}-location`" :model-value="location" :disabled="busy" class="project-info__path" data-project-location-input @update:model-value="emit('update:location', $event)">
@@ -251,7 +246,7 @@ function onConfirm(): void {
                                 <span v-if="folderName !== ''" class="project-info__folder" data-project-folder>/{{ folderName }}</span>
                             </template>
                         </FormInput>
-                        <Button variant="secondary" size="sm" :disabled="busy" data-project-browse @click="emit('browse-location')">{{ text(TEXT.browse) }}</Button>
+                        <Button variant="secondary" :disabled="busy" data-project-browse @click="emit('browse-location')">{{ text(TEXT.browse) }}</Button>
                     </div>
                     <span v-if="errorOf('location') !== ''" class="project-info__error" data-project-location-error>{{ errorOf("location") }}</span>
                 </div>
@@ -267,10 +262,18 @@ function onConfirm(): void {
 </template>
 
 <style scoped>
+/* 左栏：封面、封面操作与主题色（主题色改的就是封面，放在它下面改了立刻看到）；右栏：书名、简介、保存位置。
+   两栏底部对齐：简介的输入框占满右栏剩下的高度。 */
 .project-info {
     display: grid;
     grid-template-columns: 170px minmax(0, 1fr);
     gap: var(--space-6);
+}
+
+.project-info__side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
 }
 
 .project-info__cover {
@@ -297,6 +300,25 @@ function onConfirm(): void {
     position: relative;
 }
 
+.project-info__field--grow {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+}
+
+/* FormField 的根是单根的 label，带着本组件的作用域属性；让它与里面的输入框一起撑开。 */
+.project-info__field--grow > label {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+}
+
+.project-info__description {
+    flex: 1;
+    min-height: 88px;
+    resize: none;
+}
+
 /* 计数靠在标签行右端：标签由 FormField 画，计数不占行。 */
 .project-info__count {
     position: absolute;
@@ -317,61 +339,15 @@ function onConfirm(): void {
 .project-info__label {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-1);
     color: var(--text-main);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
 }
 
-.project-info__info {
-    display: inline-grid;
-    place-items: center;
-    width: 14px;
-    height: 14px;
-    padding: 0;
-    border: var(--border-w) solid var(--text-muted);
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 9px;
-    font-weight: var(--weight-strong);
-    cursor: default;
-}
-
 .project-info__error {
     color: var(--status-danger);
     font-size: var(--text-xs);
-}
-
-.project-info__swatches {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.project-info__swatch {
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: 0;
-    border-radius: 999px;
-    background: var(--swatch);
-    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
-    cursor: pointer;
-}
-
-.project-info__swatch--auto {
-    background: conic-gradient(from 0deg, #b5473c, #b58a3c, #6c9a3c, #3c9a8a, #3c6ab5, #7a3cb5, #b53c8a, #b5473c);
-}
-
-.project-info__swatch--on {
-    box-shadow: 0 0 0 2px var(--page-surface, var(--bg-panel)), 0 0 0 3.5px var(--text-main);
-}
-
-.project-info__swatch:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
 }
 
 .project-info__location {

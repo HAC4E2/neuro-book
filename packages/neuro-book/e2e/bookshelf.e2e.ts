@@ -83,6 +83,29 @@ test("书架列出已登记的作品、尚未统计；案头没有写作记录�
     await expect(root(page)).toHaveAttribute("data-rpc-state", "online");
 });
 
+test("网格末尾与列表末行的“新建作品”打开新建窗口；键盘在网格里 End 再 Enter 同样打开，选中的作品不变（验收 8）", async ({page}) => {
+    await openShelf(page);
+    const info = page.locator("[data-project-info]");
+    await page.locator("[data-shelf-create-card]").click();
+    await expect(info).toBeVisible();
+    await page.locator("[data-project-cancel]").click();
+    await expect(info).toHaveCount(0);
+
+    const listbox = page.locator('[data-shelf-cards][role="listbox"]');
+    await listbox.focus();
+    await expect(card(page, "book")).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("End");
+    await expect(listbox).toHaveAttribute("aria-activedescendant", "book-card-create");
+    await page.keyboard.press("Enter");
+    await expect(info).toBeVisible();
+    await page.locator("[data-project-cancel]").click();
+    await expect(card(page, "book")).toHaveAttribute("aria-selected", "true");
+
+    await page.getByRole("radio", {name: "列表"}).click();
+    await page.locator("[data-shelf-create-row]").click();
+    await expect(info).toBeVisible();
+});
+
 test("打开已有作品：经选择器输入路径进入并加入；编辑作品信息；从书架移除：书架随服务端的结果更新，目录不动", async ({page}) => {
     await openShelf(page);
     await page.locator("[data-shelf-add]").click();
@@ -138,7 +161,7 @@ test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、�
     await window.locator("input[data-project-title], [data-project-title] input").fill("长夜行");
     await expect(window.locator("[data-project-folder]")).toHaveText("/长夜行");
     await window.locator("[data-project-description]").fill("雪线以北的驿站。");
-    await window.locator("[data-project-swatch='#8f3f2e']").click();
+    await window.locator("[data-project-color] [data-color-swatch='#8f3f2e']").click();
     await window.locator("[data-project-cover-input]").setInputFiles({name: "cover.png", mimeType: "image/png", buffer: PNG});
     await page.locator("[data-project-confirm]").click();
     await expect(window).toHaveCount(0);

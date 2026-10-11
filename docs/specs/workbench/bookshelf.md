@@ -57,12 +57,12 @@ owners:
 **卡片视图**
 
 5. 每部作品一张卡：左边封面（84px 宽，2:3；有封面图用图，没有或图加载失败时按书名与作品色排一张：作品色作底、金色细线、书名居中），右边书名、两行简介（没有写“还没有简介”）、底部字数与篇数、最近编辑时间与新鲜度说明；正在打开的作品一个绿点加“已打开”；悬停或选中时出现“更多”（在新窗口打开、编辑信息、从书架移除）。作品色：作者指定了主题色就用它，没有按 id 在八档色相里取一档。颜色只落在封面上，卡片不带色条。
-6. 网格的列数随宽度（每列至少 300px）。网格是一个列表框：左右方向键移动选中，上下按列数跳一行，Home、End 到两端，Enter 打开选中的作品，Delete 请求移出书架；点卡片选中并打开；聚焦时没有选中就选第一部。
+6. 网格的列数随宽度（每列至少 300px）。网格是一个列表框：左右方向键移动选中，上下按列数跳一行，Home、End 到两端，Enter 打开选中的作品，Delete 请求移出书架；点卡片选中并打开；聚焦时没有选中就选第一部。有作品时网格的最后一格是一张“新建作品”占位（样式同第 7 条的那张），最后一行没排满时补在空位里；它是列表框的最后一个选项但不是作品：方向键或 End 走到它时不改选中，Enter 或点它开始新建，Delete 不起作用。
 7. 书架为空时网格里是两张和书卡同样大小的“待写的书”：“新建作品”（封面位是加号，底行写新作品会放在哪个作品目录）与“打开已有作品”（封面位是文件夹）；不论视图都显示它们。
 
 **列表视图**
 
-8. 每部作品一行：30px 的封面、书名、一行简介、字数与篇数、最近编辑时间与新鲜度说明（`stale` 写“统计于某时”，`counting` 写“正在统计”，`none` 写“尚未统计”，正在打开的加“已打开”）；点行打开作品，行尾“更多”同第 5 条。
+8. 每部作品一行：30px 的封面、书名、一行简介、字数与篇数、最近编辑时间与新鲜度说明（`stale` 写“统计于某时”，`counting` 写“正在统计”，`none` 写“尚未统计”，正在打开的加“已打开”）；点行打开作品，行尾“更多”同第 5 条。列表的最后一行是“新建作品”，点它开始新建。
 
 **动作**
 
@@ -133,6 +133,7 @@ owners:
 5. Given 390 × 844 的窗口，When 打开书架，Then 只有列表视图，新鲜度说明可见，没有横向滚动。
 6. Given 书架已显示，When 服务端暂时不可用导致刷新失败，Then 数据保留、右下角常驻通知并可重试，恢复后通知收回。
 7. Given 一个已有的作品文件夹，When 经“打开已有作品”的选择器选中它并加入，Then 它出现在书架上并被选中；不存在的路径在选择器里提示原因。
+8. Given 书架上有作品，When 点网格末尾或列表末行的“新建作品”，Then 打开新建作品的窗口；键盘在网格里按 End 再按 Enter 同样打开，选中的作品不变。
 
 Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`ShelfDesk`、`ShelfCards`、`BookCard`、`BookCover`、`ShelfList`、`ProjectInfoWindow`、`PathPickerDialog`。
 
@@ -150,4 +151,4 @@ Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进�
 - 批准依据：提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐；2026-10-11 改为卡片与列表、加封面与案头，见决策记录）；取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
 - 实现入口：[`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)（取数、刷新与动作）、[`web/bookshelf-home.ts`](../../../packages/neuro-book/src/plugins/projects/web/bookshelf-home.ts)、[`web/components/BookshelfHost.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfHost.vue)、[`web/components/BookshelfPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue) 及同目录的案头、卡片、封面、列表、作品信息窗口与目录选择器组件、[`web/shelf-preferences.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-preferences.ts)；首页贡献点在工作台（[ui.workbench-shell](../ui/workbench-shell.md) 输出 36）
 - 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoWindow.dom.test.ts`、`PathPickerDialog.dom.test.ts`
-- Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）
+- Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7、8）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）

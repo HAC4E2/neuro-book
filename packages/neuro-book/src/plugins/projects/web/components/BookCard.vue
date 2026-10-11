@@ -13,16 +13,20 @@ import BookCover from "./BookCover.vue";
 
 defineOptions({name: "BookCard"});
 
-const props = defineProps<{
+// highlighted 的缺省要是 undefined（缺省同 active）：Vue 会把没传的布尔 prop 当成 false。
+const props = withDefaults(defineProps<{
     locale: DisplayLocale;
     item: ShelfItem;
     now: string;
     /** 封面图地址；null 用排版封面。 */
     coverSrc: string | null;
+    /** 选中（`aria-selected`）。 */
     active: boolean;
+    /** 画选中环；缺省同 `active`。键盘停在别的选项（例如“新建作品”占位）上时，选中不变、环挪走。 */
+    highlighted?: boolean;
     /** 列表框里的选项 id（ShelfCards 给）。 */
     optionId?: string;
-}>();
+}>(), {highlighted: undefined, optionId: undefined});
 
 const emit = defineEmits<{
     (event: "open", id: string): void;
@@ -84,7 +88,7 @@ function onMenu(value: string): void {
         role="option"
         :aria-selected="active"
         class="book-card"
-        :class="{'book-card--active': active}"
+        :class="{'book-card--active': highlighted ?? active}"
         :data-book-card="item.id"
         @click="emit('pick', item.id); emit('open', item.id)"
     >

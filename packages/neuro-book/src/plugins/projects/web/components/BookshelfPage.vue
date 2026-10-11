@@ -208,6 +208,7 @@ defineExpose({focusShelf});
                         @open-new-window="emit('open-new-window', $event)"
                         @edit="emit('edit', $event)"
                         @remove="emit('remove', $event)"
+                        @create="emit('create')"
                     />
                 </section>
             </template>

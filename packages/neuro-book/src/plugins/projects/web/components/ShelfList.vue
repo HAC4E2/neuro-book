@@ -26,10 +26,12 @@ const emit = defineEmits<{
     (event: "open-new-window", id: string): void;
     (event: "edit", id: string): void;
     (event: "remove", id: string): void;
+    (event: "create"): void;
 }>();
 
 const TEXT = {
     label: {"zh-CN": "作品列表", "en-US": "Books"},
+    create: {"zh-CN": "新建作品", "en-US": "New Book"},
     more: {"zh-CN": "更多操作", "en-US": "More Actions"},
     openNewWindow: {"zh-CN": "在新窗口打开", "en-US": "Open in New Window"},
     edit: {"zh-CN": "编辑信息", "en-US": "Edit Info"},
@@ -90,6 +92,13 @@ function onMenu(item: ShelfItem, value: string): void {
             <Dropdown :items="menu()" align="end" root-class="shelf-list__more" @select="onMenu(item, $event)">
                 <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" />
             </Dropdown>
+        </li>
+        <!-- 末行的“新建作品”：不带 data-shelf-row，按行数数作品与找第一行的地方不把它算进去。 -->
+        <li class="shelf-list__row shelf-list__row--create">
+            <button type="button" class="shelf-list__main shelf-list__main--create" data-shelf-create-row @click="emit('create')">
+                <span class="shelf-list__slot" aria-hidden="true">+</span>
+                <span class="shelf-list__create">{{ text(TEXT.create) }}</span>
+            </button>
         </li>
     </ul>
 </template>
@@ -175,6 +184,30 @@ function onMenu(item: ShelfItem, value: string): void {
 
 .shelf-list__when--running {
     color: var(--status-success);
+}
+
+.shelf-list__main--create {
+    grid-template-columns: 30px minmax(0, 1fr);
+    color: var(--text-secondary);
+}
+
+.shelf-list__slot {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    aspect-ratio: 2 / 3;
+    border: 1.5px dashed color-mix(in srgb, var(--text-main) 24%, transparent);
+    border-radius: 2px 3px 3px 2px;
+    color: var(--text-muted);
+    font-size: 16px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.shelf-list__create {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: var(--weight-strong);
 }
 
 .shelf-list__more {

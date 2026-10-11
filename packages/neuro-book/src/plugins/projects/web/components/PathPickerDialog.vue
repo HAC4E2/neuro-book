@@ -11,7 +11,7 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import type {BrowseEntry} from "../../shared/contracts";
-import {bookColorStyle} from "../shelf-format";
+import {autoBookColor} from "../shelf-format";
 
 defineOptions({name: "PathPickerDialog", inheritAttrs: false});
 
@@ -132,7 +132,7 @@ const entries = computed<FileBrowserEntry[]>(() => (listing.value?.entries ?? []
     name: entry.name,
     kind: "directory",
     ...(entry.kind === "registered" ? {badge: text(TEXT.registered), disabled: props.mode === "project"} : {}),
-    ...(entry.kind === "project" ? {badge: entry.title === null ? text(TEXT.project) : text(TEXT.projectTitled).replace("{title}", entry.title), badgeTone: "accent" as const, swatch: `oklch(from var(--accent-main) 0.5 0.085 calc(h + ${String(bookColorStyle({id: entry.path, color: null})["--book-hue"])} * 45))`} : {}),
+    ...(entry.kind === "project" ? {badge: entry.title === null ? text(TEXT.project) : text(TEXT.projectTitled).replace("{title}", entry.title), badgeTone: "accent" as const, swatch: autoBookColor(entry.path)} : {}),
 })));
 
 const selectedEntry = computed(() => listing.value?.entries.find((entry) => entry.path === selectedId.value) ?? null);

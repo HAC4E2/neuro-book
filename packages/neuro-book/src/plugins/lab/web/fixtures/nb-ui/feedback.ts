@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, DialogWindow, Drawer, HoverCard, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, DialogWindow, Drawer, HoverCard, InfoTip, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -115,6 +115,14 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {text: "不会出现", placement: "top", disabled: true}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Tooltip"),
+    }),
+    defineSubjectFixture<typeof InfoTip>({
+        component: "InfoTip",
+        scenes: [
+            {id: "default", label: "字段说明", input: {props: {text: "目录不存在会在新建时一并创建。", placement: "top"}}},
+            {id: "long", label: "长说明、右侧", input: {props: {text: "作品色只落在封面上：作者指定了就用它，没有时按作品在八档色相里取一档，卡片本身不带色条。", label: "主题色说明", placement: "right"}}},
+        ],
+        subject: nbUiSubject("InfoTip"),
     }),
     defineSubjectFixture<typeof Notification>({
         component: "Notification",
