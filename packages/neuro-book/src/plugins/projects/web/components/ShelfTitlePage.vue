@@ -33,17 +33,20 @@ const TEXT = {
     running: {"zh-CN": "已打开", "en-US": "Open"},
     lastEdit: {"zh-CN": "最近编辑于{when}", "en-US": "Last edited {when}"},
     stale: {"zh-CN": "统计于{when}", "en-US": "Counted {when}"},
+    counting: {"zh-CN": "正在统计", "en-US": "Counting"},
     none: {"zh-CN": "尚未统计，打开后开始统计", "en-US": "Not counted yet; counting starts when opened"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
 
+/** 字数、篇数、最近编辑时间与新鲜度说明（Spec 输出 6、7）：`fresh` 不加说明。 */
 const facts = computed(() => {
     const {stats} = props.item;
     if (stats.freshness === "none") return [text(TEXT.none)];
     const parts = [formatWords(stats.words, props.locale), formatFiles(stats.files, props.locale)];
     if (stats.last !== null) parts.push(text(formatText(TEXT.lastEdit, {when: formatWhen(stats.last.at, props.now, props.locale)})));
-    if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text(formatText(TEXT.stale, {when: formatWhen(stats.computedAt, props.now, props.locale)})));
+    if (stats.freshness === "counting") parts.push(text(TEXT.counting));
+    else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text(formatText(TEXT.stale, {when: formatWhen(stats.computedAt, props.now, props.locale)})));
     return parts;
 });
 

@@ -3,7 +3,7 @@
 import {Dropdown, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownItem} from "@notnotype/nb-ui/components";
 
-import {localize} from "nbook/shared/localized-text";
+import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import {projectDisplayName} from "../../shared/shelf";
@@ -35,16 +35,22 @@ const TEXT = {
     remove: {"zh-CN": "从书架移除", "en-US": "Remove from Shelf"},
     running: {"zh-CN": "已打开", "en-US": "Open"},
     none: {"zh-CN": "尚未统计", "en-US": "Not counted yet"},
+    stale: {"zh-CN": "统计于{when}", "en-US": "Counted {when}"},
+    counting: {"zh-CN": "正在统计", "en-US": "Counting"},
     create: {"zh-CN": "新建作品", "en-US": "New Book"},
     addExisting: {"zh-CN": "加入已有目录", "en-US": "Add Folder"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
 
+/** 字数、篇数、最近编辑时间与新鲜度说明（Spec 输出 8）：`fresh` 不加说明。 */
 function facts(item: ShelfItem): string[] {
-    if (item.stats.freshness === "none") return [text(TEXT.none)];
-    const parts = [formatWords(item.stats.words, props.locale), formatFiles(item.stats.files, props.locale)];
-    if (item.stats.last !== null) parts.push(formatWhen(item.stats.last.at, props.now, props.locale));
+    const {stats} = item;
+    if (stats.freshness === "none") return [text(TEXT.none)];
+    const parts = [formatWords(stats.words, props.locale), formatFiles(stats.files, props.locale)];
+    if (stats.last !== null) parts.push(formatWhen(stats.last.at, props.now, props.locale));
+    if (stats.freshness === "counting") parts.push(text(TEXT.counting));
+    else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text(formatText(TEXT.stale, {when: formatWhen(stats.computedAt, props.now, props.locale)})));
     return parts;
 }
 
