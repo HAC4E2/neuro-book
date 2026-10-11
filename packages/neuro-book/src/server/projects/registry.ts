@@ -11,6 +11,7 @@ import {basename, join} from "node:path";
 import type {ProjectCreateInput, ProjectCreateResult, ProjectRecord, ProjectRegisterResult, ProjectRegistryRead, ProjectUnregisterResult} from "nbook/shared/projects";
 
 import {checkProjectDirectory, createProjectDirectory, isProjectId, readProjectIdentity, writeProjectIdentity} from "./identity";
+import type {ProjectPathOptions} from "./identity";
 
 export const PROJECT_REGISTRY_FILE = "projects.json";
 
@@ -50,7 +51,7 @@ function isRecord(value: unknown): value is ProjectRecord {
     return typeof record === "object" && record !== null && isProjectId(record.id) && typeof record.name === "string" && typeof record.path === "string";
 }
 
-export function createProjectRegistry(options: {readonly stateRoot: string; readonly cwd: string}): ProjectRegistry {
+export function createProjectRegistry(options: ProjectPathOptions): ProjectRegistry {
     const file = join(options.stateRoot, PROJECT_REGISTRY_FILE);
     // 写入串行：读出、改、写回之间不能插进另一次登记或移出，否则两次写表会互相覆盖或取到同一个短名。
     let queue: Promise<unknown> = Promise.resolve();

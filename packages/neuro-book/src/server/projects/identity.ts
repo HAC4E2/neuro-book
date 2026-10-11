@@ -7,11 +7,14 @@
 import {randomUUID} from "node:crypto";
 import {constants} from "node:fs";
 import {access, lstat, mkdir, open, readFile, realpath, rmdir, stat, unlink, writeFile} from "node:fs/promises";
+import {homedir} from "node:os";
 import {dirname, join, resolve, sep} from "node:path";
 
 import {describe, replaceLocked} from "nbook/backend/locked-replace";
-import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_TITLE_MAX_LENGTH} from "nbook/plugins/projects/shared/contracts";
+import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_ID_PATTERN, PROJECT_TITLE_MAX_LENGTH} from "nbook/plugins/projects/shared/contracts";
+import {normalizeProjectCoverPath} from "nbook/plugins/projects/shared/cover";
 import {projectDirectoryName} from "nbook/plugins/projects/shared/directory-name";
+import {expandHome} from "nbook/plugins/projects/shared/paths";
 import type {
     ProjectDirectoryFailure,
     ProjectMetadata,
@@ -26,13 +29,20 @@ export const PROJECT_IDENTITY_FILE = join(".nbook", "project.json");
 /** 修改身份文件的跨进程写入锁；与 Files 的 `.nbook/locks/files` 分开。 */
 export const PROJECT_IDENTITY_LOCK = join(".nbook", "locks", "project.json.lock");
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const METADATA_FIELDS: ReadonlyArray<ProjectMetadataField> = ["title", "description", "color", "cover"];
 
-const METADATA_FIELDS: ReadonlyArray<ProjectMetadataField> = ["title", "description", "color"];
+/** 目录校验与新建作品用到的位置：相对路径按 `cwd` 解析，`~` 按 `home` 展开（缺省为进程用户的主目录），状态根不能登记。 */
+export interface ProjectPathOptions {
+    readonly cwd: string;
+    readonly stateRoot: string;
+    readonly home?: string;
+}
+
+const homeOf = (options: ProjectPathOptions): string => options.home ?? homedir();
 
 /** 项目 id 的形状（UUID）；身份文件与登记表用同一个判据。 */
 export function isProjectId(value: unknown): value is string {
-    return typeof value === "string" && UUID.test(value);
+    return typeof value === "string" && PROJECT_ID_PATTERN.test(value);
 }
 
 export type ProjectIdentity =
@@ -46,17 +56,26 @@ function code(error: unknown): string | undefined {
     return (error as NodeJS.ErrnoException | null)?.code;
 }
 
+/** 状态根的真实路径；状态根可能还不存在（首次启动前），这时按字面路径比较。 */
+async function stateRootOf(options: ProjectPathOptions): Promise<string> {
+    return realpath(options.stateRoot).catch((error: unknown) => {
+        if (code(error) === "ENOENT") return resolve(options.stateRoot);
+        throw error;
+    });
+}
+
 /**
- * 校验要登记的目录：相对路径按 `cwd` 解析；必须存在、是目录、可读写、不在状态根之内。返回解析符号链接后的
+ * 校验要登记的目录：`~` 按主目录展开，相对路径按 `cwd` 解析；必须存在、是目录、可读写、不在状态根之内。返回解析符号链接后的
  * 真实路径。
  */
-export async function checkProjectDirectory(input: string, options: {readonly cwd: string; readonly stateRoot: string}): Promise<DirectoryCheck> {
+export async function checkProjectDirectory(input: string, options: ProjectPathOptions): Promise<DirectoryCheck> {
     if (input.trim() === "" || input.includes("\0")) return {ok: false, reason: "invalid-path", detail: "路径为空或含非法字符"};
+    const literal = resolve(options.cwd, expandHome(input.trim(), homeOf(options)));
     let path: string;
     try {
-        path = await realpath(resolve(options.cwd, input));
+        path = await realpath(literal);
     } catch (error) {
-        if (code(error) === "ENOENT" || code(error) === "ENOTDIR") return {ok: false, reason: "invalid-path", detail: `目录不存在：${input}`};
+        if (code(error) === "ENOENT" || code(error) === "ENOTDIR") return {ok: false, reason: "invalid-path", detail: `目录不存在：${literal}`};
         throw error;
     }
     if (!(await stat(path)).isDirectory()) return {ok: false, reason: "not-directory", detail: `不是目录：${path}`};
@@ -66,13 +85,28 @@ export async function checkProjectDirectory(input: string, options: {readonly cw
         if (code(error) === "EACCES" || code(error) === "EPERM" || code(error) === "EROFS") return {ok: false, reason: "not-accessible", detail: `目录不可读写：${path}`};
         throw error;
     }
-    // 状态根可能还不存在（首次启动前），这时按字面路径比较。
-    const stateRoot = await realpath(options.stateRoot).catch((error: unknown) => {
-        if (code(error) === "ENOENT") return resolve(options.stateRoot);
-        throw error;
-    });
+    const stateRoot = await stateRootOf(options);
     if (path === stateRoot || path.startsWith(stateRoot + sep)) return {ok: false, reason: "inside-state-root", detail: "不能登记应用的状态目录或它里面的目录"};
     return {ok: true, path};
+}
+
+/**
+ * 新建作品的父目录（输出第 14 条）：不存在就建出来（含中间目录），再按 `checkProjectDirectory` 校验。先按字面路径排除状态根，
+ * 不在状态根里建目录；建不出来按 `not-accessible` 报，详情带解析后的路径。
+ */
+export async function ensureParentDirectory(input: string, options: ProjectPathOptions): Promise<DirectoryCheck> {
+    if (input.trim() === "" || input.includes("\0")) return {ok: false, reason: "invalid-path", detail: "路径为空或含非法字符"};
+    const literal = resolve(options.cwd, expandHome(input.trim(), homeOf(options)));
+    const stateRoot = await stateRootOf(options);
+    if (literal === stateRoot || literal.startsWith(stateRoot + sep)) return {ok: false, reason: "inside-state-root", detail: "不能把作品放进应用的状态目录"};
+    try {
+        await mkdir(literal, {recursive: true});
+    } catch (error) {
+        if (code(error) === "EACCES" || code(error) === "EPERM" || code(error) === "EROFS") return {ok: false, reason: "not-accessible", detail: `无法创建目录 ${literal}：${describe(error)}`};
+        if (code(error) === "EEXIST" || code(error) === "ENOTDIR") return {ok: false, reason: "not-directory", detail: `不是目录：${literal}`};
+        return {ok: false, reason: "invalid-path", detail: `无法创建目录 ${literal}：${describe(error)}`};
+    }
+    return checkProjectDirectory(literal, options);
 }
 
 /** 字符数按 Unicode 码点计（与 JSON Schema 的 `maxLength` 一致），一个汉字或一个表情都算一个。 */
@@ -92,6 +126,8 @@ function metadataProblem(field: ProjectMetadataField, value: unknown): string | 
             return length(value) <= PROJECT_DESCRIPTION_MAX_LENGTH ? null : `简介至多 ${String(PROJECT_DESCRIPTION_MAX_LENGTH)} 个字符`;
         case "color":
             return PROJECT_COLOR_PATTERN.test(value) ? null : "主题色须为 #rrggbb（小写）";
+        case "cover":
+            return normalizeProjectCoverPath(value) === value ? null : "封面须是作品目录内的相对路径，扩展名 png、jpg、jpeg 或 webp";
     }
 }
 
@@ -140,7 +176,7 @@ function metadataOf(record: Readonly<Record<string, unknown>>): {readonly metada
         problems.push({field, detail: problem});
         return null;
     };
-    return {metadata: {title: read("title"), description: read("description"), color: read("color")}, problems};
+    return {metadata: {title: read("title"), description: read("description"), color: read("color"), cover: read("cover")}, problems};
 }
 
 function identityFromText(text: string): ProjectIdentity {
@@ -180,7 +216,7 @@ export async function writeProjectIdentity(projectPath: string, id: string): Pro
         if (code(error) !== "EEXIST") throw error;
         return readProjectIdentity(projectPath);
     }
-    return {status: "found", id, metadata: {title: null, description: null, color: null}, problems: []};
+    return {status: "found", id, metadata: {title: null, description: null, color: null, cover: null}, problems: []};
 }
 
 /** 身份文件的落点：符号链接解析到最终目标（替换目标、链接保留）；不存在与悬空链接分开。 */
@@ -279,17 +315,17 @@ export type ProjectDirectoryCreated =
     | {readonly ok: false; readonly reason: "write-failed"; readonly detail: string};
 
 /**
- * 新建作品的前两个阶段（输出第 14 条）：在 `parent` 下排他新建由书名生成的目录，再写身份文件（新 id、书名与简介）。
+ * 新建作品的前两个阶段（输出第 14 条）：父目录不存在就建出来，在它下面排他新建由书名生成的目录，再写身份文件（新 id、书名与简介）。
  * 登记是第三个阶段，由登记表做。写身份文件失败时只撤掉本次建的东西：本次建的文件删掉，目录只在空了时删掉（`rmdir`），
  * 别人同时放进去的东西不会被删。
  */
 export async function createProjectDirectory(
     input: {readonly title: string; readonly description?: string; readonly parent: string},
-    options: {readonly cwd: string; readonly stateRoot: string},
+    options: ProjectPathOptions,
 ): Promise<ProjectDirectoryCreated> {
     const invalid = checkMetadataPatch({title: input.title, ...(input.description === undefined ? {} : {description: input.description})});
     if (invalid !== null) return invalid;
-    const parent = await checkProjectDirectory(input.parent, options);
+    const parent = await ensureParentDirectory(input.parent, options);
     if (!parent.ok) return {ok: false, reason: "invalid-parent", cause: parent.reason, detail: parent.detail};
     const path = join(parent.path, projectDirectoryName(input.title));
     try {

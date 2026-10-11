@@ -38,6 +38,8 @@ export interface ProjectMetadata {
     readonly title: string | null;
     readonly description: string | null;
     readonly color: string | null;
+    /** 封面文件相对作品目录的路径（`cover.png` 这类）；规则见 `nbook/plugins/projects/shared/cover`。 */
+    readonly cover: string | null;
 }
 
 export type ProjectMetadataField = keyof ProjectMetadata;

@@ -14,6 +14,7 @@ import type {StorageService} from "nbook/shared/storage";
 
 import type {ProjectMetadata, ProjectStatsSnapshot, ShelfFreshness, ShelfItem, ShelfStats} from "../shared/contracts";
 import {PROJECT_STATS_RECORD} from "../shared/stats-record";
+import {coverVersion} from "./cover-routes";
 
 /** 运行中项目实例 `nbook.projects/stats` 的 `current()` 结果。 */
 export type LiveStats = RemoteResult<{readonly status: "counting" | "complete" | "ended"; readonly snapshot: ProjectStatsSnapshot | null}>;
@@ -29,7 +30,7 @@ export interface ShelfSources {
     readonly record: (input: Omit<DiagnosticInput, "source">) => void;
 }
 
-const NO_METADATA: ProjectMetadata = {title: null, description: null, color: null};
+const NO_METADATA: ProjectMetadata = {title: null, description: null, color: null, cover: null};
 const NO_STATS: ShelfStats = {freshness: "none", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null};
 
 /** 本地日期 `YYYY-MM-DD`：统计快照的 `today.date` 用同一种写法。 */
@@ -69,7 +70,19 @@ async function shelfItem(sources: ShelfSources, project: ProjectState, today: st
         metadataOf(sources, project).catch(failed("projects.shelf.metadata-failed", "取作品信息时出错，书架上这部作品不带作品信息")),
         statsOf(sources, project, today).catch(failed("projects.shelf.stats-failed", "取统计时出错，书架上这部作品按没有统计显示")),
     ]);
-    return {id: project.id, name: project.name, path: project.path, state: project.state, ...(metadata ?? NO_METADATA), stats: stats ?? NO_STATS};
+    const {cover: coverPath, ...info} = metadata ?? NO_METADATA;
+    const cover = coverPath === null ? null : await coverOf(sources, project, coverPath).catch(failed("projects.shelf.cover-failed", "取封面时出错，书架上这部作品不带封面"));
+    return {id: project.id, name: project.name, path: project.path, state: project.state, ...info, cover, stats: stats ?? NO_STATS};
+}
+
+/** 身份文件记了封面但文件不在：按没有封面显示并记诊断，不隐藏作品。 */
+async function coverOf(sources: ShelfSources, project: ProjectState, cover: string): Promise<ShelfItem["cover"]> {
+    const version = await coverVersion(project.path, cover);
+    if (version === null) {
+        sources.record({level: "info", event: "projects.shelf.cover-missing", message: "身份文件记了封面，文件不在，书架上不带封面", data: {project: project.id, path: project.path, cover}});
+        return null;
+    }
+    return {version};
 }
 
 async function metadataOf(sources: ShelfSources, project: ProjectState): Promise<ProjectMetadata> {

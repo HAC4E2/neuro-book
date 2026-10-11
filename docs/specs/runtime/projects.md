@@ -42,11 +42,12 @@ owners:
 - **`nbook.projects`**：内置插件，服务端入口把列出与登记包成远程服务，浏览器入口提供“打开项目”命令与当前项目的显示；随书架页增加项目实例里的统计入口与书架页。
 - **作品信息**：身份文件里的可选字段：书名 `title`、简介 `description`、主题色 `color`。显示名取书名，没有时取短名。
 - **统计**：项目实例算出的字数、篇数、今天净增与最近编辑，存在 user 分区的记录 `projects.stats` 里；书架只读这份缓存与运行中项目的实时状态，不为显示统计打开项目。
-- **作品目录**：设置 `nbook.projects/library`（user 层字符串，缺省空），新建作品的缺省父目录；首次新建成功后由书架页写入。
+- **作品目录**：新建作品的缺省父目录。设置 `nbook.projects/library`（user 层字符串，缺省空）里有就用它；没有就是系统文档目录下的 `NeuroBook`（第 19 条）。用户在书架页更改时写入设置。
+- **用户目录**：服务端宿主提供能力 `userDirectoriesKey`（`nbook/user-directories`，`{home, documents}`）：进程用户的主目录与系统文档目录（Windows `%USERPROFILE%\Documents`，macOS `~/Documents`，Linux 先 `~/.config/user-dirs.dirs` 的 `XDG_DOCUMENTS_DIR` 再 `~/Documents`；都不存在为 null）。
 
 ## 输入与前置条件
 
-- **登记的目录**：绝对路径；相对路径按服务端进程的工作目录解析后再校验。目录必须存在、是目录、当前用户可读写，且不在状态根之内。登记的是解析符号链接后的真实路径。
+- **登记的目录**：绝对路径；开头的 `~` 或 `~/` 按服务端进程用户的主目录展开（`~user` 不认）；相对路径按服务端进程的工作目录解析后再校验。目录必须存在、是目录、当前用户可读写，且不在状态根之内。登记的是解析符号链接后的真实路径。
 - **项目身份文件**：`.nbook/project.json`，内容 `{schema: 1, id: "<UUID>"}`，可带作品信息 `title`、`description`、`color`（第 13 条）。登记时没有就创建（含 `.nbook/` 目录）；已有则读取并校验，不改写；只有修改作品信息会改写它。
 - **登记表**：`<状态根>/projects.json`，内容 `{schema: 1, projects: [{id, name, path}]}`。文件不存在视为空表。
 - **打开项目的入口**只有两个：客户端握手的 `bind`（[远程服务与 RPC 协议](plugin-channel.md)）与服务端插件经 `projectsKey` 的 `acquire`。Storage 读取、外部 HTTP 请求、`{project}` 目标的远程调用都不打开项目。
@@ -91,12 +92,12 @@ owners:
 
 第 13–18 条随书架页实现：
 
-13. **作品信息。** 身份文件可带可选字段 `title`（去掉首尾空白后 1 到 80 个字符）、`description`（至多 500 个字符）、`color`（`#rrggbb` 小写）。
+13. **作品信息。** 身份文件可带可选字段 `title`（去掉首尾空白后 1 到 80 个字符）、`description`（至多 500 个字符）、`color`（`#rrggbb` 小写）、`cover`（封面文件相对作品目录的路径：不指向 `.nbook`、`.git`、绝对路径、上级目录或 URL，扩展名 png、jpg、jpeg、webp；第 21 条）。
     - 读取仍只认 `schema` 与 `id`；可选字段不合规时当作没有并记诊断 `project.metadata.invalid`，身份照常可用。
     - `updateMetadata(id, patch)` 只改给出的字段：`null` 清除，省略不动；保留 `id` 与不认识的字段。写入经跨进程写入锁 `.nbook/locks/project.json.lock`（父目录先建）加原子替换：锁内按当前字节解析，核对文件里的 `id` 与登记表一致；改名前核对文件身份，变了从新字节重做；临时文件沿用权限位。身份文件是符号链接时解析到最终目标再替换（链接保留），悬空链接为 `identity-invalid`。两个进程分别改不同字段，两个字段都保留。
     - 失败码：`unknown-project`、`registry-invalid`、`identity-invalid`（含身份文件不存在：不重建）、`identity-conflict`（文件里的 id 与登记表不一致）、`invalid-metadata`（带字段名）、`read-only`、`write-failed`。
 14. **新建。** `create({title, description?, parent?})`：
-    - `parent` 省略时用作品目录设置（由 `nbook.projects` 的服务端入口读，宿主能力的 `create` 要求给出父目录）；两者都没有为 `no-library`，先于书名校验。父目录按第 1 条的目录校验，不过为 `invalid-parent`（带原因）。
+    - `parent` 省略时用作品目录（设置里的，或第 19 条的缺省；由 `nbook.projects` 的服务端入口算，宿主能力的 `create` 要求给出父目录）。父目录里的 `~` 按主目录展开；不存在就建出来（含中间目录），再按第 1 条的目录校验，不过为 `invalid-parent`（带原因，`detail` 带解析后的路径；建不出来按 `not-accessible`）。先按字面路径排除状态根，不在状态根里建目录。
     - 目录名由书名生成：`/ \ : * ? " < > |` 与控制字符换成 `-`，去掉首尾空白与句点，至多 80 个字符；结果为空，或是 `.`、`..`、Windows 保留名时用“作品”。同名目录已存在为 `exists`（带路径），不自动加后缀。
     - 分阶段执行：排他新建目录；写身份文件（含书名与简介），失败时只装着本次写的东西的目录删掉，结果 `write-failed`；按第 1 条登记，失败保留目录与身份文件，结果 `register-failed`（带路径），再登记该目录按幂等规则接着完成。成功返回 `{id, name, path}`。
 15. **移出书架。** `unregister(id)` 只改登记表，不动目录与身份文件。项目管理器按项目 id 把它与打开（第 3 条）串行：写表完成前不接纳同一 id 的打开。项目不在 `stopped`（`starting`、`running`、`idle-grace`、`stopping`）时拒绝为 `project-running`（带状态）；只限本服务端进程管理的代次，不声称全局停止。移出后再登记该目录，按身份文件里的 id 得到同一 id 与新的短名登记。
@@ -113,7 +114,15 @@ owners:
     - 处于 `idle-grace`、`starting`、`stopping` 或没在运行：读记录，为 `stale`（宽限期里最多比实际旧 30 秒）；没有记录为 `none`；
     - 今天的字数只在快照的 `today.date` 是今天时给出（`words - baseline`，可为负），否则为 null；
     - 一部作品的身份文件或记录读不出只影响它自己：作品信息为 null、统计按 `stale` 或 `none`，并记诊断。
-18. **合同版本 2 与书架页。** `nbook.projects/projects` 升到 `version: 2`，在第 10 条的 `list`、`register` 之外增加 `shelf`、`create`、`update`、`unregister`（对应第 13–15、17 条；作品信息的校验在服务端做，失败码带字段名）；旧页面调用得到 `version-changed`，按浏览器宿主的规则提示刷新。浏览器入口向工作台的 `workbench.home` 贡献书架页（[workbench.bookshelf](../workbench/bookshelf.md)）；“打开项目”的列表改用 `shelf` 的数据：显示名（书名优先，没有时短名）、路径、是否打开。
+18. **合同版本与书架页。** `nbook.projects/projects` 现为 `version: 3`：在第 10 条的 `list`、`register` 之外有 `shelf`、`create`、`update`、`unregister`（对应第 13–15、17 条；作品信息的校验在服务端做，失败码带字段名）与 `library`、`browse`（第 19、20 条）；旧页面调用得到 `version-changed`，按浏览器宿主的规则提示刷新。浏览器入口向工作台的 `workbench.home` 贡献书架页（[workbench.bookshelf](../workbench/bookshelf.md)）；“打开项目”的列表改用 `shelf` 的数据：显示名（书名优先，没有时短名）、路径、是否打开。
+19. **作品目录。** `library()` 返回 `{path, source}`：设置 `nbook.projects/library` 非空时 `source` 为 `setting`，`path` 是展开 `~` 后的设置值；否则 `source` 为 `default`，`path` 是 `<文档目录>/NeuroBook`（文档目录解析不到时 `<主目录>/NeuroBook`）。只算路径，不建目录、不校验；新建作品时按第 14 条建出来。
+20. **列目录。** `browse({path?})` 列一个目录的子目录：`{path, parent, entries: [{name, path, kind, title}]}`，`path` 是解析符号链接后的真实路径，`parent` 已是根目录时为 null；`entries` 按名字排序（数字按数值），隐藏目录（名字以 `.` 开头）不列，指向目录的符号链接按目录列；`kind` 为 `registered`（真实路径已在登记表）、`project`（有可解析的身份文件，`title` 取身份文件里的书名）或 `directory`。`path` 省略为第 19 条的作品目录，它不存在时为它的上一级。`~` 按主目录展开。目录不存在、不是目录、不可读为 `invalid-parent`（`reason` 同第 1 条）。只读，不改登记表与身份文件。
+21. **封面。** 服务端入口向 `http.routes` 贡献路由，挂在 `/api/nbook.projects/`：
+    - `GET /cover/<id>`：有封面且文件在，返回文件（按扩展名给 `Content-Type`，`ETag` 取文件修改时间，`If-None-Match` 命中为 304，`Cache-Control: private, max-age=0, must-revalidate`）；没有封面或文件不在为 404 `no-cover`；id 未登记为 404 `unknown-project`。
+    - `PUT /cover/<id>`：`multipart/form-data` 的 `file` 字段，至多 5 MB（超出 413 `too-large`），格式按文件开头的字节判定、只收 PNG、JPEG、WebP（否则 415 `unsupported-type`）；写到作品目录根下的 `cover.<png|jpg|webp>`（先落 `.nbook/` 里的临时文件再改名），再按第 13 条把 `cover` 写进身份文件；身份文件写不进去时删掉刚写的文件，按第 13 条的失败码回（`read-only` 为 409，其余 500）；换了格式时旧文件删掉。返回 `{cover: {version}}`。
+    - `DELETE /cover/<id>`：清字段并删文件（文件已不在不算失败）；返回 `{cover: null}`。
+    - `shelf()` 的每部作品带 `cover: {version} | null`：身份文件记了封面且文件在才有（`version` 取修改时间，变了浏览器才重新取）；记了但文件不在按没有并记诊断 `projects.shelf.cover-missing`。
+    - 路径里的 id 不在登记表或身份文件读不出时不碰文件系统。
 
 ## 状态与转换
 
@@ -139,7 +148,7 @@ owners:
 
 ## 副作用与数据
 
-- **项目目录**：登记时可能创建 `.nbook/` 目录与 `.nbook/project.json`，这是用户能看到的改动；之后只有修改作品信息（第 13 条）改写身份文件，经 `.nbook/locks/project.json.lock` 与同目录的临时文件；新建作品（第 14 条）创建目录与身份文件。本能力不写项目目录里的其它文件。
+- **项目目录**：登记时可能创建 `.nbook/` 目录与 `.nbook/project.json`，这是用户能看到的改动；之后只有修改作品信息（第 13 条）改写身份文件，经 `.nbook/locks/project.json.lock` 与同目录的临时文件；新建作品（第 14 条）创建父目录（不存在时）、作品目录与身份文件；封面（第 21 条）写作品目录根下的 `cover.<扩展名>`。本能力不写项目目录里的其它文件。
 - **user 分区**：统计记录 `projects.stats`（第 16 条）由项目实例写入；作品目录设置 `nbook.projects/library` 由书架页在新建成功后写入。
 - **状态根**：`projects.json` 由服务端进程独占写入，进程内串行，写临时文件后改名替换；项目子进程的诊断日志写在 `logs/` 下。
 - **进程**：项目子进程归服务端进程的项目管理器所有，随宽限期满、崩溃或服务端停止结束；服务端不结束自己没有创建的进程。
@@ -182,7 +191,7 @@ owners:
 11. **“打开项目”命令。** 命令列出已登记项目（短名、路径、是否运行）；选中后整页导航到 `/?project=<短名>`；输入新目录路径先登记再导航；工作台显示当前项目短名。
 12. **打包产物。** 生产打包产物能起项目子进程：登记临时目录，经 RPC 绑定，项目实例报告自己的身份。
 13. **作品信息。**修改书名、简介与主题色后读回；`null` 清除；不认识的字段与 `id` 保留；两个真实子进程分别改不同字段，两个字段都在；身份文件只读得到 `read-only`；符号链接的身份文件改的是目标、链接仍在；坏字段读取时被忽略并记诊断。
-14. **新建。**没有作品目录得到 `no-library`；同名目录已存在得到 `exists`；身份文件写失败（父目录只读）时目录被删掉；登记失败时目录与身份文件保留，再登记该目录按幂等规则完成；成功后书架上有它。
+14. **新建。**不给父目录时放进作品目录（设置里的或缺省的），父目录不存在被建出来；父目录不是目录或在状态根里得到 `invalid-parent`；同名目录已存在得到 `exists`；身份文件写失败（父目录只读）时目录被删掉；登记失败时目录与身份文件保留，再登记该目录按幂等规则完成；成功后书架上有它。
 15. **移出书架。**`running` 与 `idle-grace` 的项目被拒为 `project-running`；宽限期满后移出成功，登记表少一项、目录不动；移出与打开并发时，要么先打开（移出被拒）、要么先移出（打开得到 `unknown-project`），没有半状态。
 16. **统计。**普通 `.md`、内容文件夹的 `index.md`、活页夹章节都计入，隐藏目录与非 `.md` 不计，读不出的文件计入 `unreadable`；扫描期间的修改、目录移入与删除、`resync` 都反映到结果里；最近编辑随改名跟到新地址、随删除清空、重开后沿用；23:59 写的字算当天，00:05 写的字算次日的首笔；当天重开沿用基线，离线跨日后以记录总数作基线。
 17. **写入与停止。**两个写者冲突时较新的 `computedAt` 胜出；结果未知后重读核对；坏记录被条件 `reset`、原件在原件区；扫描未完成就停止不写记录，完成后停止写成并能在书架上看到。

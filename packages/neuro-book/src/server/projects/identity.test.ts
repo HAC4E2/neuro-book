@@ -10,7 +10,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {PROJECT_IDENTITY_FILE, readProjectIdentity, updateProjectMetadata} from "./identity";
+import {checkProjectDirectory, ensureParentDirectory, PROJECT_IDENTITY_FILE, readProjectIdentity, updateProjectMetadata} from "./identity";
 
 const CHILD = join(import.meta.dir, "testing", "identity-child.ts");
 const ID = "6f1c2d3e-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
@@ -82,7 +82,7 @@ function spawnUpdater(path: string, patch: Record<string, unknown>): {readonly r
 describe("Spec projects 输出 13：读作品信息", () => {
     it("合规的书名、简介与主题色读出来（书名去掉首尾空白）；没有的字段为 null", async () => {
         const path = await project({schema: 1, id: ID, title: "  长夜  ", color: "#a1b2c3"});
-        expect(await readProjectIdentity(path)).toEqual({status: "found", id: ID, metadata: {title: "长夜", description: null, color: "#a1b2c3"}, problems: []});
+        expect(await readProjectIdentity(path)).toEqual({status: "found", id: ID, metadata: {title: "长夜", description: null, color: "#a1b2c3", cover: null}, problems: []});
     });
 
     it("不合规的字段当作没有并列出原因，身份照常可用", async () => {
@@ -90,7 +90,7 @@ describe("Spec projects 输出 13：读作品信息", () => {
         expect(await readProjectIdentity(path)).toEqual({
             status: "found",
             id: ID,
-            metadata: {title: null, description: null, color: null},
+            metadata: {title: null, description: null, color: null, cover: null},
             problems: [{field: "title", detail: expect.any(String)}, {field: "description", detail: expect.any(String)}, {field: "color", detail: expect.any(String)}],
         });
         const long = await project({schema: 1, id: ID, title: "书".repeat(81), description: "字".repeat(501)});
@@ -105,10 +105,10 @@ describe("Spec projects 输出 13：修改作品信息", () => {
     it("改书名、简介与主题色后读回；null 清除、省略不动；id、schema 与不认识的字段保留", async () => {
         const path = await project({schema: 1, id: ID, title: "旧名", extra: {keep: [1, 2]}, note: "用户自己写的"});
 
-        expect(await updateProjectMetadata(path, ID, {title: " 新名 ", description: "一段简介", color: "#336699"}, options)).toEqual({ok: true, metadata: {title: "新名", description: "一段简介", color: "#336699"}});
+        expect(await updateProjectMetadata(path, ID, {title: " 新名 ", description: "一段简介", color: "#336699"}, options)).toEqual({ok: true, metadata: {title: "新名", description: "一段简介", color: "#336699", cover: null}});
         expect(await readProjectIdentity(path)).toMatchObject({status: "found", id: ID, metadata: {title: "新名", description: "一段简介", color: "#336699"}});
 
-        expect(await updateProjectMetadata(path, ID, {description: null}, options)).toEqual({ok: true, metadata: {title: "新名", description: null, color: "#336699"}});
+        expect(await updateProjectMetadata(path, ID, {description: null}, options)).toEqual({ok: true, metadata: {title: "新名", description: null, color: "#336699", cover: null}});
         expect(await fileRecord(path)).toEqual({schema: 1, id: ID, title: "新名", extra: {keep: [1, 2]}, note: "用户自己写的", color: "#336699"});
     });
 
@@ -176,5 +176,53 @@ describe("Spec projects 输出 13：修改作品信息", () => {
 
         expect(await Promise.all([titleWriter.result, colorWriter.result])).toEqual([{ok: true, metadata: expect.objectContaining({title: "甲改的书名"})}, {ok: true, metadata: expect.objectContaining({color: "#123456"})}]);
         expect(await fileRecord(path)).toEqual({schema: 1, id: ID, note: "保留", title: "甲改的书名", color: "#123456"});
+    });
+});
+
+describe("Spec projects 输入与前置条件、输出第 14 条：`~` 与父目录", () => {
+    it("登记的目录认开头的 ~ 与 ~/，按注入的主目录展开；~user 不认", async () => {
+        const home = join(tmp, "home-tilde");
+        await mkdir(join(home, "books"), {recursive: true});
+        const options = {cwd: tmp, stateRoot: join(tmp, "state-tilde"), home};
+        expect(await checkProjectDirectory("~/books", options)).toEqual({ok: true, path: join(home, "books")});
+        expect(await checkProjectDirectory("~", options)).toEqual({ok: true, path: home});
+        expect(await checkProjectDirectory("~writer/books", options)).toMatchObject({ok: false, reason: "invalid-path", detail: expect.stringContaining(join(tmp, "~writer/books"))});
+    });
+
+    it("新建作品的父目录不存在就建出来（含中间目录）；状态根里的不建；建不出来按 not-accessible 带解析后的路径", async () => {
+        const home = join(tmp, "home-parent");
+        await mkdir(home, {recursive: true});
+        const stateRoot = join(tmp, "state-parent");
+        const options = {cwd: tmp, stateRoot, home};
+        const created = await ensureParentDirectory("~/Documents/NeuroBook", options);
+        expect(created).toEqual({ok: true, path: join(home, "Documents", "NeuroBook")});
+        expect((await stat(join(home, "Documents", "NeuroBook"))).isDirectory()).toBe(true);
+
+        expect(await ensureParentDirectory(join(stateRoot, "lib"), options)).toMatchObject({ok: false, reason: "inside-state-root"});
+        await expect(stat(join(stateRoot, "lib"))).rejects.toMatchObject({code: "ENOENT"});
+
+        const sealed = join(tmp, "sealed");
+        await mkdir(sealed, {recursive: true});
+        await chmod(sealed, 0o500);
+        try {
+            const denied = await ensureParentDirectory(join(sealed, "lib"), options);
+            expect(denied).toMatchObject({ok: false, reason: "not-accessible", detail: expect.stringContaining(join(sealed, "lib"))});
+        } finally {
+            await chmod(sealed, 0o700);
+        }
+        const asFile = join(tmp, "a-file");
+        await writeFile(asFile, "x");
+        expect(await ensureParentDirectory(join(asFile, "lib"), options)).toMatchObject({ok: false, reason: "not-directory"});
+    });
+
+    it("封面字段：作品目录内的相对路径合规；指向 .nbook、上级目录、绝对路径或别的扩展名当作没有并列出原因", async () => {
+        const good = await project({schema: 1, id: ID, cover: "cover.webp"});
+        expect(await readProjectIdentity(good)).toMatchObject({metadata: {cover: "cover.webp"}, problems: []});
+        for (const cover of [".nbook/cover.png", "../cover.png", "/cover.png", "cover.svg", "images\\cover.png"]) {
+            const bad = await project({schema: 1, id: ID, cover});
+            expect(await readProjectIdentity(bad)).toMatchObject({metadata: {cover: null}, problems: [{field: "cover"}]});
+        }
+        expect(await updateProjectMetadata(good, ID, {cover: "art/封面.jpg"}, options)).toMatchObject({ok: true, metadata: {cover: "art/封面.jpg"}});
+        expect(await updateProjectMetadata(good, ID, {cover: "../x.png"}, options)).toMatchObject({ok: false, reason: "invalid-metadata", field: "cover"});
     });
 });

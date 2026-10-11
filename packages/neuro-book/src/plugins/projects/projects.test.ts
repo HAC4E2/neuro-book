@@ -338,11 +338,11 @@ describe("Spec projects 输出 17、18：书架（nbook.projects/projects 版本
             ok: true,
             value: [
                 {
-                    id: h.project.id, name: "book", path: h.project.path, state: "stopped", title: "长夜", description: null, color: "#336699",
+                    id: h.project.id, name: "book", path: h.project.path, state: "stopped", title: "长夜", description: null, color: "#336699", cover: null,
                     stats: {freshness: "stale", computedAt: "2026-10-09T08:30:00.000Z", words: 1200, files: 3, unreadable: 1, today: 200, last: snapshot({words: 0, baseline: 0, date: HARNESS_TODAY}).last},
                 },
-                {id: second.id, name: "second", path: second.path, state: "stopped", title: null, description: null, color: null, stats: expect.objectContaining({freshness: "stale", words: 800, today: null})},
-                {id: third.id, name: "third", path: third.path, state: "stopped", title: null, description: null, color: null, stats: {freshness: "none", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null}},
+                {id: second.id, name: "second", path: second.path, state: "stopped", title: null, description: null, color: null, cover: null, stats: expect.objectContaining({freshness: "stale", words: 800, today: null})},
+                {id: third.id, name: "third", path: third.path, state: "stopped", title: null, description: null, color: null, cover: null, stats: {freshness: "none", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null}},
             ],
         });
     });
@@ -407,7 +407,7 @@ describe("Spec projects 输出 17、18：书架（nbook.projects/projects 版本
 });
 
 describe("Spec projects 输出 13–15、18：经远程服务新建、修改作品信息与移出书架", () => {
-    it("create：给了父目录就在它下面新建并登记；同名为 exists；没给父目录又没设作品目录为 no-library", async () => {
+    it("create：给了父目录就在它下面新建并登记；同名为 exists；没给父目录又没设作品目录时放进缺省作品目录", async () => {
         const {h, projects} = await setup();
         const parent = join(h.root, "library");
         await mkdir(parent);
@@ -418,11 +418,11 @@ describe("Spec projects 输出 13–15、18：经远程服务新建、修改作�
         expect(await projects.create({title: "新书", parent})).toEqual({ok: false, code: "exists", detail: {path: join(parent, "新书")}});
         expect(await projects.create({title: "  ", parent})).toMatchObject({ok: false, code: "invalid-metadata", detail: {field: "title"}});
 
-        expect(await projects.create({title: "没处放"})).toMatchObject({ok: false, code: "no-library"});
+        expect(await projects.create({title: "没处放"})).toMatchObject({ok: true, value: {path: join(h.documents, "NeuroBook", "没处放")}});
         expect(await readdir(parent)).toEqual(["新书"]);
     });
 
-    it("create 不给父目录：用作品目录设置；作品目录不可用为 invalid-parent（带原因）", async () => {
+    it("create 不给父目录：用作品目录设置，不存在就建出来；作品目录不是目录为 invalid-parent（带原因与解析后的路径）", async () => {
         let library = "";
         const {h, projects} = await setup(async (paths) => {
             library = join(paths.root, "my-library");
@@ -432,14 +432,17 @@ describe("Spec projects 输出 13–15、18：经远程服务新建、修改作�
         expect(await projects.create({title: "第二部"})).toMatchObject({ok: true, value: {path: join(library, "第二部")}});
 
         await rm(library, {recursive: true});
-        expect(await projects.create({title: "第三部"})).toMatchObject({ok: false, code: "invalid-parent", detail: {reason: "invalid-path"}});
-        expect(await h.manager.list()).toMatchObject({ok: true, value: [{name: "book"}, {name: "project"}]});
+        expect(await projects.create({title: "第三部"})).toMatchObject({ok: true, value: {path: join(library, "第三部")}});
+        await rm(library, {recursive: true});
+        await writeFile(library, "x");
+        expect(await projects.create({title: "第四部"})).toMatchObject({ok: false, code: "invalid-parent", detail: {reason: "not-directory", detail: expect.stringContaining(library)}});
+        expect(await h.manager.list()).toMatchObject({ok: true, value: [{name: "book"}, {name: "project"}, {name: "project-2"}]});
     });
 
     it("update：只改给出的字段，null 清除；不合规带字段名；未登记的 id 为 unknown-project", async () => {
         const {h, projects} = await setup();
-        expect(await projects.update({id: h.project.id, title: "书名", description: "简介"})).toEqual({ok: true, value: {id: h.project.id, title: "书名", description: "简介", color: null}});
-        expect(await projects.update({id: h.project.id, description: null, color: "#0a0b0c"})).toEqual({ok: true, value: {id: h.project.id, title: "书名", description: null, color: "#0a0b0c"}});
+        expect(await projects.update({id: h.project.id, title: "书名", description: "简介"})).toEqual({ok: true, value: {id: h.project.id, title: "书名", description: "简介", color: null, cover: null}});
+        expect(await projects.update({id: h.project.id, description: null, color: "#0a0b0c"})).toEqual({ok: true, value: {id: h.project.id, title: "书名", description: null, color: "#0a0b0c", cover: null}});
         expect(await projects.update({id: h.project.id, title: "书".repeat(81)})).toMatchObject({ok: false, code: "invalid-metadata", detail: {field: "title"}});
         expect(await projects.update({id: "00000000-0000-4000-8000-000000000000", title: "名"})).toMatchObject({ok: false, code: "unknown-project"});
     });
@@ -455,5 +458,53 @@ describe("Spec projects 输出 13–15、18：经远程服务新建、修改作�
         expect(await projects.unregister({id: h.project.id})).toEqual({ok: true, value: {id: h.project.id, name: "book"}});
         expect(await projects.shelf({})).toEqual({ok: true, value: []});
         expect(await readdir(h.project.path)).toContain(".nbook");
+    });
+});
+
+describe("Spec projects 输出 19 到 21：作品目录、列目录与封面在书架上", () => {
+    it("library：没设置时是文档目录下的 NeuroBook（default）；设了就是展开 ~ 后的设置值（setting）；create 不给父目录时把缺省目录建出来", async () => {
+        const {h, projects} = await setup();
+        expect(await projects.library({})).toEqual({ok: true, value: {path: join(h.documents, "NeuroBook"), source: "default"}});
+        expect(await projects.create({title: "第一部"})).toMatchObject({ok: true, value: {path: join(h.documents, "NeuroBook", "第一部")}});
+        expect(await readdir(join(h.documents, "NeuroBook"))).toEqual(["第一部"]);
+
+        const {projects: configured, h: h2} = await setup(async (paths) => {
+            await writeFile(join(paths.stateRoot, "settings.json"), JSON.stringify({[librarySetting.key]: "~/books"}));
+        });
+        expect(await configured.library({})).toEqual({ok: true, value: {path: join(h2.home, "books"), source: "setting"}});
+        expect(await configured.create({title: "第二部"})).toMatchObject({ok: true, value: {path: join(h2.home, "books", "第二部")}});
+    });
+
+    it("browse：列子目录并标出作品与已在书架上的；隐藏目录不列；path 省略时是作品目录，不存在时是它的上一级；~ 展开；不存在为 invalid-parent", async () => {
+        const {h, projects} = await setup(async (paths) => {
+            await mkdir(join(paths.home, "books", "drafts"), {recursive: true});
+            await mkdir(join(paths.home, "books", ".hidden"), {recursive: true});
+            await mkdir(join(paths.home, "books", "novel", ".nbook"), {recursive: true});
+            await writeFile(join(paths.home, "books", "novel", ".nbook", "project.json"), JSON.stringify({schema: 1, id: "11111111-2222-4333-8444-555555555555", title: "北方以北"}));
+            await writeFile(join(paths.home, "books", "a-file.txt"), "x");
+        });
+        const registered = await projects.register({path: h.project.path});
+        expect(registered).toMatchObject({ok: true});
+        expect(await projects.browse({path: "~/books"})).toEqual({ok: true, value: {path: join(h.home, "books"), parent: h.home, entries: [
+            {name: "drafts", path: join(h.home, "books", "drafts"), kind: "directory", title: null},
+            {name: "novel", path: join(h.home, "books", "novel"), kind: "project", title: "北方以北"},
+        ]}});
+        expect(await projects.browse({path: h.root})).toMatchObject({ok: true, value: {entries: expect.arrayContaining([{name: "Book", path: h.project.path, kind: "registered", title: null}])}});
+        // 缺省作品目录还没建：从它的上一级（文档目录）开始。
+        expect(await projects.browse({})).toMatchObject({ok: true, value: {path: h.documents, parent: h.home, entries: []}});
+        expect(await projects.browse({path: join(h.home, "nowhere")})).toMatchObject({ok: false, code: "invalid-parent", detail: {reason: "invalid-path"}});
+    });
+
+    it("shelf：身份文件记了封面且文件在才带 cover（version 取修改时间）；记了但文件不在按没有并记诊断", async () => {
+        const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        const {h, projects, store} = await setup(async (paths) => {
+            await writeFile(join(paths.project.path, PROJECT_IDENTITY_FILE), JSON.stringify({schema: 1, id: paths.project.id, cover: "cover.png"}));
+            await writeFile(join(paths.project.path, "cover.png"), PNG);
+        });
+        const shelf = await projects.shelf({});
+        expect(shelf).toMatchObject({ok: true, value: [{id: h.project.id, cover: {version: expect.stringMatching(/^\d+$/)}}]});
+        await rm(join(h.project.path, "cover.png"));
+        expect(await projects.shelf({})).toMatchObject({ok: true, value: [{id: h.project.id, cover: null}]});
+        expect(events(store)).toContain("projects.shelf.cover-missing");
     });
 });

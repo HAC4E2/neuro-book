@@ -1,6 +1,6 @@
 /**
- * `nbook.projects` 的远程服务合同（docs/specs/runtime/projects.md 输出第 10、17、18 条）：
- * - `nbook.projects/projects`：浏览器（以后的 TUI）列出、登记、取书架、新建、修改作品信息、移出书架；
+ * `nbook.projects` 的远程服务合同（docs/specs/runtime/projects.md 输出第 10、17 到 20 条）：
+ * - `nbook.projects/projects`：浏览器（以后的 TUI）列出、登记、取书架、新建、修改作品信息、移出书架、作品目录与列目录；
  * - `nbook.projects/stats`：服务端向运行中的项目实例要实时的统计状态。
  * 列表与书架带项目目录路径，那是用户自己登记的位置，用来区分同名目录；服务端内部路径与子进程信息不在里面。
  * 书架条目、作品信息与统计快照的 schema 也在这里：远程合同的输出、统计记录（`stats-record.ts`）与界面类型（`shelf.ts`）
@@ -31,6 +31,8 @@ export const librarySetting = defineSetting({
 export const PROJECT_TITLE_MAX_LENGTH = 80;
 export const PROJECT_DESCRIPTION_MAX_LENGTH = 500;
 export const PROJECT_COLOR_PATTERN = /^#[0-9a-f]{6}$/u;
+/** 项目 id 的形状（UUID）；身份文件、登记表与列目录用同一个判据。 */
+export const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 /** 最近编辑的片段：该文件最后一个非空段落的开头。 */
 export const SHELF_EXCERPT_MAX_LENGTH = 120;
 
@@ -57,7 +59,12 @@ export const ProjectMetadataSchema = Type.Object({
     description: Nullable(Type.String()),
     /** `#rrggbb` 小写。 */
     color: Nullable(Type.String()),
+    /** 封面文件相对作品目录的路径（规则见 `cover.ts`）；经 HTTP 路由上传与删除，不经 `update`。 */
+    cover: Nullable(Type.String()),
 }, {additionalProperties: false});
+
+/** 书架上一部作品的封面：有文件才有，`version` 变了浏览器才重新取（取修改时间）。 */
+export const ShelfCoverSchema = Type.Object({version: Type.String()}, {additionalProperties: false});
 
 export type ProjectMetadata = Static<typeof ProjectMetadataSchema>;
 
@@ -119,7 +126,7 @@ export const ShelfStatsSchema = Type.Object({
 
 export type ShelfStats = Static<typeof ShelfStatsSchema>;
 
-/** 书架上的一部作品：登记项、作品信息与统计摘要。 */
+/** 书架上的一部作品：登记项、作品信息、封面与统计摘要。 */
 export const ShelfItemSchema = Type.Object({
     id: Type.String(),
     /** 登记表的短名：地址栏的句柄，书名缺省时也用它显示。 */
@@ -128,6 +135,8 @@ export const ShelfItemSchema = Type.Object({
     description: Nullable(Type.String()),
     /** `#rrggbb`；没有时按 id 在主题色板里取一档。 */
     color: Nullable(Type.String()),
+    /** 封面文件在且读得到才有；地址按 `projectCoverUrl(id, version)` 拼。 */
+    cover: Nullable(ShelfCoverSchema),
     path: Type.String(),
     state: ProjectRunStateSchema,
     stats: ShelfStatsSchema,
@@ -149,9 +158,19 @@ const register = {
     errors: {"register-failed": ReasonDetail},
 } as const;
 
+/** 列目录的一项：只有子目录；`project` 有身份文件，`registered` 已在书架上。 */
+export const BrowseEntrySchema = Type.Object({
+    name: Type.String(),
+    path: Type.String(),
+    kind: Type.Union([Type.Literal("project"), Type.Literal("registered"), Type.Literal("directory")]),
+    title: Nullable(Type.String()),
+}, {additionalProperties: false});
+
+export type BrowseEntry = Static<typeof BrowseEntrySchema>;
+
 export const projectsRemoteContract = defineRemoteService({
     id: "nbook.projects/projects",
-    version: 2,
+    version: 3,
     provider: "server",
     callers: ["browser", "tui"],
     methods: {
@@ -164,7 +183,24 @@ export const projectsRemoteContract = defineRemoteService({
             effect: "read",
             errors: {"registry-invalid": Detail},
         },
-        /** 新建作品：建目录、写身份文件、登记。`parent` 省略时用作品目录设置。 */
+        /** 当前有效的作品目录：设置里的（`~` 已展开）或缺省的（系统文档目录下的 NeuroBook）；不保证存在。 */
+        library: {
+            input: Empty,
+            output: Type.Object({path: Type.String(), source: Type.Union([Type.Literal("setting"), Type.Literal("default")])}, {additionalProperties: false}),
+            effect: "read",
+        },
+        /** 列一个目录下的子目录（隐藏目录不列）；`path` 省略为作品目录，它不存在时为它的上一级。 */
+        browse: {
+            input: Type.Object({path: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false}),
+            output: Type.Object({path: Type.String(), parent: Nullable(Type.String()), entries: Type.Array(BrowseEntrySchema)}, {additionalProperties: false}),
+            effect: "read",
+            errors: {
+                /** `reason` 同登记的目录校验：invalid-path、not-directory、not-accessible。 */
+                "invalid-parent": ReasonDetail,
+                "registry-invalid": Detail,
+            },
+        },
+        /** 新建作品：建目录（不存在就建）、写身份文件、登记。`parent` 省略时用作品目录（设置或缺省）。 */
         create: {
             input: Type.Object({
                 title: Type.String(),
@@ -175,9 +211,7 @@ export const projectsRemoteContract = defineRemoteService({
             effect: "write",
             errors: {
                 "invalid-metadata": Type.Object({field: Type.String(), detail: Type.String()}, {additionalProperties: false}),
-                /** 既没给 `parent`，也没设作品目录。 */
-                "no-library": Detail,
-                /** `reason` 同登记的目录校验：invalid-path、not-directory、not-accessible、inside-state-root。 */
+                /** `reason` 同登记的目录校验：invalid-path、not-directory、not-accessible（含建不出来）、inside-state-root；`detail` 带解析后的路径。 */
                 "invalid-parent": ReasonDetail,
                 /** 由书名生成的目录已存在。 */
                 "exists": Type.Object({path: Type.String()}, {additionalProperties: false}),
@@ -195,7 +229,7 @@ export const projectsRemoteContract = defineRemoteService({
                 description: Type.Optional(Nullable(Type.String())),
                 color: Type.Optional(Nullable(Type.String())),
             }, {additionalProperties: false}),
-            output: Type.Object({id: Type.String(), title: Nullable(Type.String()), description: Nullable(Type.String()), color: Nullable(Type.String())}, {additionalProperties: false}),
+            output: Type.Object({id: Type.String(), title: Nullable(Type.String()), description: Nullable(Type.String()), color: Nullable(Type.String()), cover: Nullable(Type.String())}, {additionalProperties: false}),
             effect: "write",
             errors: {
                 "unknown-project": Detail,

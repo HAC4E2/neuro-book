@@ -19,6 +19,17 @@ export interface StateRoot {
 export const stateRootKey: ServiceKey<StateRoot> = defineServiceKey<StateRoot>("nbook/state-root");
 
 /**
+ * 服务端进程所属用户的目录（docs/specs/runtime/projects.md 输出第 19 条）：`~` 按 `home` 展开；缺省作品目录建在
+ * `documents`（解析不到系统文档目录时为 null，退到 `home`）下。只在服务端提供。
+ */
+export interface UserDirectories {
+    readonly home: string;
+    readonly documents: string | null;
+}
+
+export const userDirectoriesKey: ServiceKey<UserDirectories> = defineServiceKey<UserDirectories>("nbook/user-directories");
+
+/**
  * 本窗口的整页导航（docs/specs/runtime/browser-host.md 启动序列第 5 步）。三者都只发出请求：页面已有的离开保护
  * （编辑器的 beforeunload）照常生效，用户取消时什么都不变。
  */

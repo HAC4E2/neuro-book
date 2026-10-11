@@ -63,7 +63,7 @@ afterAll(async () => {
 
 function item(id: string, title: string, extra: Partial<ShelfItem> = {}): ShelfItem {
     return {
-        id, name: id, title, description: null, color: null, path: `/books/${id}`, state: "stopped",
+        id, name: id, title, description: null, color: null, cover: null, path: `/books/${id}`, state: "stopped",
         stats: {freshness: "none", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null},
         ...extra,
     };
@@ -77,6 +77,8 @@ interface Script {
     holding: boolean;
     holds: PromiseWithResolvers<void>[];
     shelfCalls: number;
+    /** `library()` 给出的作品目录（缺省来源）。 */
+    library: string;
     running: Set<string>;
     /** 写操作扣住回复：`after` 先做再扣（服务端做了、回复没回来），`instead` 扣到放行才做（服务端没做）。 */
     delayWrite: null | "after" | "instead";
@@ -113,6 +115,8 @@ function shelfProvider(script: Script): PluginDefinition {
                         script.items = [...script.items, created];
                         return {ok: true as const, value: {id: created.id, name: created.name, path}};
                     }),
+                    library: async () => ({ok: true as const, value: {path: script.library, source: "default" as const}}),
+                    browse: async ({path}) => ({ok: true as const, value: {path: path ?? script.library, parent: null, entries: []}}),
                     shelf: async () => {
                         script.shelfCalls += 1;
                         const snapshot = [...script.items];
@@ -137,7 +141,7 @@ function shelfProvider(script: Script): PluginDefinition {
                         if (title === "") return {ok: false as const, code: "invalid-metadata" as const, detail: {field: "title", detail: "不能为空"}};
                         const next = {...current, title: title === undefined ? current.title : title, description: description === undefined ? current.description : description, color: color === undefined ? current.color : color};
                         script.items = script.items.map((entry) => (entry.id === id ? next : entry));
-                        return {ok: true as const, value: {id, title: next.title, description: next.description, color: next.color}};
+                        return {ok: true as const, value: {id, title: next.title, description: next.description, color: next.color, cover: null}};
                     }),
                     unregister: ({id}) => write(() => {
                         if (script.running.has(id)) return {ok: false as const, code: "project-running" as const, detail: {state: "running" as const}};
@@ -178,7 +182,7 @@ const WRITE_METHODS = new Set(["register", "create", "update", "unregister"]);
  * 服务端那边的提供方按 `delayWrite` 决定做没做。
  */
 async function world(initial: ShelfItem[], options: {readonly failShelf?: Script["failShelf"]; readonly writeTimeout?: boolean} = {}): Promise<World> {
-    const script: Script = {items: initial, failShelf: options.failShelf ?? null, holding: false, holds: [], shelfCalls: 0, running: new Set(), delayWrite: null, writeHolds: []};
+    const script: Script = {items: initial, failShelf: options.failShelf ?? null, holding: false, holds: [], shelfCalls: 0, library: "/books", running: new Set(), delayWrite: null, writeHolds: []};
     const clock = new ManualClock();
     const silent = {error: () => undefined};
     const diagnostics = createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});

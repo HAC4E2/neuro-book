@@ -11,7 +11,7 @@ const COUNTED_AT = "2026-10-10T09:00:00.000Z";
 
 function item(freshness: ShelfItem["stats"]["freshness"]): ShelfItem {
     return {
-        id: "a", name: "a", title: "长夜行", description: null, color: null, path: "/books/a", state: freshness === "counting" ? "running" : "stopped",
+        id: "a", name: "a", title: "长夜行", description: null, color: null, cover: null, path: "/books/a", state: freshness === "counting" ? "running" : "stopped",
         stats: {freshness, computedAt: freshness === "none" ? null : COUNTED_AT, words: 1200, files: 3, unreadable: 0, today: null, last: null},
     };
 }

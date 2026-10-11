@@ -22,7 +22,7 @@ let tmp = "";
 let counter = 0;
 
 /** 登记时新建的身份文件只有 schema 与 id：作品信息三项都没有。 */
-const NO_METADATA = {metadata: {title: null, description: null, color: null}, problems: []};
+const NO_METADATA = {metadata: {title: null, description: null, color: null, cover: null}, problems: []};
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-projects", "project-registry");
@@ -220,7 +220,7 @@ describe("Spec projects 输出 14：新建作品", () => {
         const created = await w.registry.create({title: " My Novel ", description: "简介", parent});
         expect(created).toEqual({ok: true, project: {id: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "my-novel", path: join(parent, "My Novel")}});
         const project = registered(created).project;
-        expect(await readProjectIdentity(project.path)).toEqual({status: "found", id: project.id, metadata: {title: "My Novel", description: "简介", color: null}, problems: []});
+        expect(await readProjectIdentity(project.path)).toEqual({status: "found", id: project.id, metadata: {title: "My Novel", description: "简介", color: null, cover: null}, problems: []});
         expect(await w.registry.list()).toEqual({ok: true, value: [project]});
 
         await writeFile(join(project.path, "chapter.md"), "正文");
@@ -234,7 +234,9 @@ describe("Spec projects 输出 14：新建作品", () => {
         const parent = await w.dir("library");
         expect(await w.registry.create({title: "  ", parent})).toMatchObject({ok: false, reason: "invalid-metadata", field: "title"});
         expect(await w.registry.create({title: "书", description: "字".repeat(501), parent})).toMatchObject({ok: false, reason: "invalid-metadata", field: "description"});
-        expect(await w.registry.create({title: "书", parent: join(w.root, "missing")})).toMatchObject({ok: false, reason: "invalid-parent", cause: "invalid-path"});
+        await writeFile(join(w.root, "a-file"), "x");
+        expect(await w.registry.create({title: "书", parent: join(w.root, "a-file", "lib")})).toMatchObject({ok: false, reason: "invalid-parent", cause: "not-directory"});
+        expect(await w.registry.create({title: "书", parent: join(w.stateRoot, "lib")})).toMatchObject({ok: false, reason: "invalid-parent", cause: "inside-state-root"});
         await mkdir(w.stateRoot, {recursive: true});
         expect(await w.registry.create({title: "书", parent: w.stateRoot})).toMatchObject({ok: false, reason: "invalid-parent", cause: "inside-state-root"});
         expect(await readdir(parent)).toEqual([]);

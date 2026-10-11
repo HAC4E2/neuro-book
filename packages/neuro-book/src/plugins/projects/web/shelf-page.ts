@@ -276,8 +276,6 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             switch (result.code) {
                 case "invalid-metadata":
                     return {ok: false, message: text(shelfText("createInvalid", {field: text(fieldName(detail?.field ?? "")), reason: detail?.detail ?? ""}))};
-                case "no-library":
-                    return {ok: false, message: text(shelfText("createNoLibrary"))};
                 case "invalid-parent":
                     return {ok: false, message: text(shelfText("createInvalidParent", {reason: text(registerFailureReason(detail?.reason ?? ""))}))};
                 case "exists":

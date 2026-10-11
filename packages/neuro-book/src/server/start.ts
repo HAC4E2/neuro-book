@@ -11,6 +11,7 @@
  */
 
 import {writeSync} from "node:fs";
+import {homedir} from "node:os";
 import {join} from "node:path";
 
 import type {Application, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
@@ -24,13 +25,14 @@ import {delegatingPlugins, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
-import {clockKey, stateRootKey} from "nbook/shared/host";
+import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 
 import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
+import {resolveUserDirectories} from "./user-directories";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
 import {isAddressInUse, listenWithShift, PORT_SHIFT_ATTEMPTS} from "./ports";
@@ -258,11 +260,15 @@ export function startServer(options: StartServerOptions): RunningServer {
         writeFatal(fatalLine("runtime.stop.emergency", {report}));
     });
     const stateRoot = Object.freeze({path: options.config.stateRoot});
+    // 文档目录要查文件系统，能力建立时才等它；主目录同步可得。
+    const home = homedir();
+    const userDirectories = resolveUserDirectories({platform: process.platform, env: process.env, home});
     const host = startServerHost({
         instanceId: INSTANCE_ID,
         manifest: {
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => stateRoot},
+                {id: "host.user-directories", key: userDirectoriesKey, create: () => userDirectories},
                 {id: "host.clock", key: clockKey, create: () => systemClock},
                 {
                     id: "host.projects",
@@ -292,7 +298,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         application: host.application,
         serverInstanceId: INSTANCE_ID,
         router,
-        registry: createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd()}),
+        registry: createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd(), home}),
         stateRoot: options.config.stateRoot,
         cwd: process.cwd(),
         entry: options.projectEntry ?? productProjectEntry(),

@@ -1,22 +1,29 @@
 /**
- * `nbook.projects` 服务端入口：把宿主能力 `projectsKey` 包成远程服务 `nbook.projects/projects`（版本 2）：列出、登记、
- * 书架、新建、修改作品信息与移出书架（docs/specs/runtime/projects.md 输出第 10、13–15、17、18 条）。
+ * `nbook.projects` 服务端入口：把宿主能力 `projectsKey` 包成远程服务 `nbook.projects/projects`（版本 3）：列出、登记、
+ * 书架、新建、修改作品信息、移出书架、作品目录与列目录（docs/specs/runtime/projects.md 输出第 10、13 到 15、17 到 20 条）；
+ * 封面经 `http.routes` 的路由（第 21 条）。
  * 不管生命周期：打开项目经客户端握手的绑定，不经这里；书架也不为显示统计打开项目（见 `shelf.ts`）。
- * 作品目录是本插件的设置，宿主不读插件配置，所以新建时 `parent` 省略由这里读设置再交给宿主。
+ * 作品目录是本插件的设置，宿主不读插件配置，所以新建时 `parent` 省略由这里读设置（或算缺省）再交给宿主。
  */
+
+import {dirname} from "node:path";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
+import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {clockKey} from "nbook/shared/host";
+import {clockKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
 import {librarySetting, projectStatsRemoteContract, projectsRemoteContract} from "../shared/contracts";
+import {browseDirectory} from "./browse";
+import {createCoverRoutes} from "./cover-routes";
+import {effectiveLibrary} from "./library";
 import {buildShelf} from "./shelf";
 
 /**
@@ -30,21 +37,25 @@ export const projectsBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: projectsKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}],
+        dependencies: [{key: diagnosticsKey}, {key: projectsKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: userDirectoriesKey}],
         remoteProvides: [projectsRemoteContract],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
         activate: (context) => {
             const projects = context.services.require(projectsKey);
             const settings = context.services.require(settingsKey);
             const diagnostics = context.services.require(diagnosticsKey);
             const clock = context.services.require(clockKey);
+            const directories = context.services.require(userDirectoriesKey);
             const stats = context.remote.use(projectStatsRemoteContract);
+            const record = (input: Parameters<typeof diagnostics.record>[0]) => void diagnostics.record({...input, source: {plugin: descriptor.id}});
             const shelfSources = {
                 projects,
                 storage: context.services.require(storageKey),
                 live: (id: string) => stats.at({project: id}).current({}, {timeout: LIVE_STATS_TIMEOUT_MS}),
                 now: () => clock.now(),
-                record: (input: Parameters<typeof diagnostics.record>[0]) => void diagnostics.record({...input, source: {plugin: descriptor.id}}),
+                record,
             };
+            const library = () => effectiveLibrary(settings.get(librarySetting), directories);
             const remote = provideRemote(projectsRemoteContract, () => ({
                 methods: {
                     list: async () => {
@@ -62,10 +73,23 @@ export const projectsBackendPlugin: PluginDefinition = {
                         if (!shelf.ok) return {ok: false, code: "registry-invalid", detail: {detail: shelf.detail}};
                         return {ok: true, value: shelf.value};
                     },
+                    library: async () => ({ok: true, value: library()}),
+                    browse: async ({path}) => {
+                        const listed = await projects.list();
+                        if (!listed.ok) return {ok: false, code: "registry-invalid", detail: {detail: listed.detail}};
+                        const options = {cwd: process.cwd(), home: directories.home, registered: listed.value};
+                        if (path !== undefined) {
+                            const browsed = await browseDirectory(path, options);
+                            return browsed.ok ? {ok: true, value: browsed.value} : {ok: false, code: "invalid-parent", detail: {reason: browsed.reason, detail: browsed.detail}};
+                        }
+                        // 作品目录还没建出来（第一次新建前）时从它的上一级开始，用户在那里能看到它将来会在哪。
+                        const current = library().path;
+                        const browsed = await browseDirectory(current, options);
+                        const chosen = !browsed.ok && browsed.reason === "invalid-path" ? await browseDirectory(dirname(current), options) : browsed;
+                        return chosen.ok ? {ok: true, value: chosen.value} : {ok: false, code: "invalid-parent", detail: {reason: chosen.reason, detail: chosen.detail}};
+                    },
                     create: async ({title, description, parent}) => {
-                        // 作品目录为空串即没设（设置的缺省值）。
-                        const target = parent ?? settings.get(librarySetting);
-                        if (target === "") return {ok: false, code: "no-library", detail: {detail: "没有给出父目录，也没有设置作品目录"}};
+                        const target = parent ?? library().path;
                         const created = await projects.create({title, parent: target, ...(description === undefined ? {} : {description})});
                         if (created.ok) return {ok: true, value: created.project};
                         switch (created.reason) {
@@ -95,7 +119,7 @@ export const projectsBackendPlugin: PluginDefinition = {
                     },
                 },
             }));
-            return {remote: [remote]};
+            return {remote: [remote], contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: createCoverRoutes({projects, record})}}};
         },
     })],
 };

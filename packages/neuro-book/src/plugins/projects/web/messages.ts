@@ -65,7 +65,6 @@ const SHELF = {
     addPlaceholder: {"zh-CN": "输入作品目录的路径（服务端上的路径）", "en-US": "Type the book directory path (on the server)"},
     addLabel: {"zh-CN": "加入 {path}", "en-US": "Add {path}"},
     createInvalid: {"zh-CN": "{field}不合规：{reason}", "en-US": "{field} is invalid: {reason}"},
-    createNoLibrary: {"zh-CN": "还没有作品目录，先选一个", "en-US": "No library folder yet; choose one first"},
     createInvalidParent: {"zh-CN": "作品目录不可用：{reason}", "en-US": "The library folder cannot be used: {reason}"},
     createExists: {"zh-CN": "同名目录已存在（{path}）：改个书名，或用“加入已有目录”", "en-US": "A folder with this name already exists ({path}): change the title, or use “Add an Existing Folder”"},
     createWriteFailed: {"zh-CN": "写不进作品目录：{reason}", "en-US": "Could not write into the library folder: {reason}"},

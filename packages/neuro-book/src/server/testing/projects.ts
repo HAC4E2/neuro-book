@@ -19,7 +19,7 @@ import type {RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 
 import {FIXTURE_READY_LINE} from "nbook/project/testing/fault-plugin";
 import type {ProjectFault} from "nbook/project/testing/fault-plugin";
-import {clockKey, stateRootKey} from "nbook/shared/host";
+import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectAcquireResult, ProjectLease, ProjectRecord} from "nbook/shared/projects";
 
@@ -93,6 +93,9 @@ export interface ProjectHarness {
     /** 本用例的工作区：项目目录 `Book` 与状态根都在它下面，相对路径按它解析。 */
     readonly root: string;
     readonly stateRoot: string;
+    /** 场地的“用户主目录”（`~`）与它下面的 `Documents`。 */
+    readonly home: string;
+    readonly documents: string;
     readonly clock: ManualClock;
     readonly parent: Application;
     readonly node: RemoteNode;
@@ -109,6 +112,8 @@ export interface ProjectHarness {
 export interface ProjectHarnessPaths {
     readonly root: string;
     readonly stateRoot: string;
+    readonly home: string;
+    readonly documents: string;
     /** 已登记的 `Book`。 */
     readonly project: ProjectRecord;
 }
@@ -130,12 +135,16 @@ export async function projectHarness(
     counter += 1;
     const caseRoot = join(root, `case-${String(counter)}`);
     const stateRoot = join(caseRoot, "state");
+    // 场地自己的“用户主目录”与文档目录：`~` 与缺省作品目录都落在它下面，不碰真实主目录。
+    const home = join(caseRoot, "home");
+    const documents = join(home, "Documents");
     await mkdir(join(caseRoot, "Book"), {recursive: true});
+    await mkdir(documents, {recursive: true});
     const clock = new ManualClock();
-    const registry = createProjectRegistry({stateRoot, cwd: caseRoot});
+    const registry = createProjectRegistry({stateRoot, cwd: caseRoot, home});
     const registered = await registry.register("Book");
     if (!registered.ok) throw new Error(registered.detail);
-    await options.prepare?.({root: caseRoot, stateRoot, project: registered.project});
+    await options.prepare?.({root: caseRoot, stateRoot, home, documents, project: registered.project});
     const output = observed<string>();
     const records = observed<DiagnosticInput>();
     const forward = trackedProjectOutput(output);
@@ -150,6 +159,7 @@ export async function projectHarness(
         {
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => Object.freeze({path: stateRoot})},
+                {id: "host.user-directories", key: userDirectoriesKey, create: () => Object.freeze({home, documents})},
                 {id: "host.clock", key: clockKey, create: () => clock},
                 {id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()},
             ],
@@ -184,6 +194,8 @@ export async function projectHarness(
     return {
         root: caseRoot,
         stateRoot,
+        home,
+        documents,
         clock,
         parent,
         node,

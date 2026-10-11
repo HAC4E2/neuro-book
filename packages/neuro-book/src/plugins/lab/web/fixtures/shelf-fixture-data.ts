@@ -18,6 +18,7 @@ export const SHELF_ITEMS: ShelfItem[] = [
         title: "长夜行",
         description: "雪线以北的驿站里，一个守灯人等一封永远不会来的信。",
         color: null,
+        cover: null,
         path: "/home/writer/books/changyexing",
         state: "running",
         stats: stats({
@@ -35,6 +36,7 @@ export const SHELF_ITEMS: ShelfItem[] = [
         title: "北方以北",
         description: "三代人，一条铁路，一座在地图上被划掉的小城。",
         color: "#7a4b3a",
+        cover: null,
         path: "/home/writer/books/beifang",
         state: "stopped",
         stats: stats({
@@ -52,6 +54,7 @@ export const SHELF_ITEMS: ShelfItem[] = [
         title: "雾中城",
         description: null,
         color: null,
+        cover: null,
         path: "/home/writer/books/wuzhongcheng",
         state: "stopped",
         stats: stats({
@@ -69,6 +72,7 @@ export const SHELF_ITEMS: ShelfItem[] = [
         title: null,
         description: null,
         color: null,
+        cover: null,
         path: "/home/writer/drafts/untitled",
         state: "stopped",
         stats: stats({freshness: "none"}),
@@ -79,6 +83,7 @@ export const SHELF_ITEMS: ShelfItem[] = [
         title: "短篇集：在所有的雨天之后，我们终于学会了不带伞出门",
         description: "十二个短篇，写给那些在雨里走过很远的人。",
         color: "#d9c9a3",
+        cover: null,
         path: "/home/writer/books/short-stories-collection-after-all-the-rainy-days",
         state: "stopped",
         stats: stats({
@@ -96,6 +101,7 @@ export const SHELF_ITEMS: ShelfItem[] = [
         title: "The Long Dark",
         description: "A translation draft.",
         color: null,
+        cover: null,
         path: "/home/writer/books/the-long-dark",
         state: "stopped",
         stats: stats({

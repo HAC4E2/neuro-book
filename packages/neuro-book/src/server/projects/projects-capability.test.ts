@@ -177,14 +177,17 @@ describe("Spec projects 输出 8、13–15：projectsKey 的作品信息、新�
         const {id} = created.project;
         expect(created.project).toEqual({id, name: "project", path: join(parent, "长夜")});
         expect(await projects.list()).toMatchObject({ok: true, value: [{name: "book"}, {id, name: "project", state: "stopped"}]});
-        expect(await projects.readMetadata(id)).toEqual({ok: true, metadata: {title: "长夜", description: "一部小说", color: null}, problems: []});
+        expect(await projects.readMetadata(id)).toEqual({ok: true, metadata: {title: "长夜", description: "一部小说", color: null, cover: null}, problems: []});
 
-        expect(await projects.updateMetadata(id, {color: "#112233", description: null})).toEqual({ok: true, metadata: {title: "长夜", description: null, color: "#112233"}});
+        expect(await projects.updateMetadata(id, {color: "#112233", description: null})).toEqual({ok: true, metadata: {title: "长夜", description: null, color: "#112233", cover: null}});
         expect(await projects.readMetadata(id)).toMatchObject({ok: true, metadata: {color: "#112233", description: null}});
         expect(await projects.updateMetadata(id, {color: "red"})).toMatchObject({ok: false, reason: "invalid-metadata", field: "color"});
 
         expect(await projects.create({title: "长夜", parent})).toMatchObject({ok: false, reason: "exists", path: join(parent, "长夜")});
-        expect(await projects.create({title: "别的", parent: join(h.root, "nowhere")})).toMatchObject({ok: false, reason: "invalid-parent", cause: "invalid-path"});
+        // 不存在的父目录会被建出来；不是目录的才是 invalid-parent。
+        await writeFile(join(h.root, "a-file"), "x");
+        expect(await projects.create({title: "别的", parent: join(h.root, "a-file", "lib")})).toMatchObject({ok: false, reason: "invalid-parent", cause: "not-directory"});
+        expect(await projects.create({title: "别的", parent: join(h.root, "nowhere")})).toMatchObject({ok: true, project: {path: join(h.root, "nowhere", "别的")}});
     });
 
     it("读与改作品信息按 id：未登记为 unknown-project；身份文件坏了为 identity-invalid；文件里是别的 id 为 identity-conflict", async () => {
