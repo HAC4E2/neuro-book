@@ -37,6 +37,10 @@ export type LabPreferences = {
     readonly leftPanelWidth?: number;
     /** 右侧栏（检视）宽度，px */
     readonly rightPanelWidth?: number;
+    /** 组件树里收起的目录（`group:` 开头的节点 id）：只记收起的，新出现的目录默认展开。 */
+    readonly collapsedGroups?: string[];
+    /** 场景交互控制面板是否收起。 */
+    readonly bottomCollapsed?: boolean;
 };
 
 const Id = Type.String({maxLength: 100});
@@ -49,6 +53,8 @@ const PreferencesSchema = Type.Object({
     rightCollapsed: Type.Optional(Type.Boolean()),
     leftPanelWidth: Type.Optional(Type.Integer()),
     rightPanelWidth: Type.Optional(Type.Integer()),
+    collapsedGroups: Type.Optional(Type.Array(Type.String({maxLength: 200}), {maxItems: 500})),
+    bottomCollapsed: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
 
 export const LAB_PREFERENCES_RECORD = defineRecord({key: "lab.preferences", scope: "user", locality: "shared", version: 1, schema: PreferencesSchema});
@@ -60,8 +66,11 @@ export type LabPreferenceCatalog = {
     readonly pageBackdropIds: readonly string[];
 };
 
+/** 从记录里读出来的偏好：store 给的显示值是只读的，数组也只读。 */
+export type LabPreferencesRead = {readonly [Key in keyof LabPreferences]?: Key extends "collapsedGroups" ? ReadonlyArray<string> : LabPreferences[Key]};
+
 /** 只留下当前目录认识、宽度在范围内的字段；其余字段照常生效（验收 9）。 */
-export function validLabPreferences(value: LabPreferences, catalog: LabPreferenceCatalog): LabPreferences {
+export function validLabPreferences(value: LabPreferencesRead, catalog: LabPreferenceCatalog): LabPreferences {
     const within = (width: number | undefined, side: LabPanelSide): boolean =>
         width !== undefined && width >= LAB_PANEL_WIDTH_LIMITS[side].min && width <= LAB_PANEL_WIDTH_LIMITS[side].max;
     return {
@@ -73,6 +82,9 @@ export function validLabPreferences(value: LabPreferences, catalog: LabPreferenc
         ...(value.rightCollapsed === undefined ? {} : {rightCollapsed: value.rightCollapsed}),
         ...(within(value.leftPanelWidth, "left") ? {leftPanelWidth: value.leftPanelWidth} : {}),
         ...(within(value.rightPanelWidth, "right") ? {rightPanelWidth: value.rightPanelWidth} : {}),
+        // 收起的目录不核对目录是否还在：不在的目录树里没有那一行，下次写回时自然去掉。
+        ...(value.collapsedGroups === undefined ? {} : {collapsedGroups: [...value.collapsedGroups]}),
+        ...(value.bottomCollapsed === undefined ? {} : {bottomCollapsed: value.bottomCollapsed}),
     };
 }
 
@@ -84,6 +96,11 @@ export const labStore = defineStore("lab", ({persist}) => {
     const preferences = persist(LAB_PREFERENCES_RECORD, {initial: {}});
     const paused = (): boolean => preferences.save.state === "failed" || preferences.save.state === "unknown";
     let held: LabPreferences = {};
+    /** 记录里读出来的数组是只读的，写回要给新数组：合并时把收起的目录复制一份。 */
+    const merge = (base: LabPreferencesRead, patch: LabPreferencesRead): LabPreferences => {
+        const {collapsedGroups, ...rest} = {...base, ...patch};
+        return collapsedGroups === undefined ? rest : {...rest, collapsedGroups: [...collapsedGroups]};
+    };
 
     return {
         state: {preferences},
@@ -91,10 +108,10 @@ export const labStore = defineStore("lab", ({persist}) => {
             update: (patch: LabPreferences): void => {
                 if (paused()) {
                     held = {...held, ...patch};
-                    preferences.show({...preferences.display, ...patch});
+                    preferences.show(merge(preferences.display, patch));
                     return;
                 }
-                void preferences.commit((current) => ({...current, ...patch}));
+                void preferences.commit((current) => merge(current, patch));
             },
             /**
              * 写成空对象：记录里没有的字段就是默认值。受保护（损坏、版本不认识）的记录也能这样覆盖，原件由 Storage 保留。
@@ -112,7 +129,7 @@ export const labStore = defineStore("lab", ({persist}) => {
                 if (paused() || Object.keys(held).length === 0) return;
                 const patch = held;
                 held = {};
-                void preferences.commit((current) => ({...current, ...patch}));
+                void preferences.commit((current) => merge(current, patch));
             },
             /** 放弃没保存上的修改：显示回到已保存的值。 */
             discard: (): void => {

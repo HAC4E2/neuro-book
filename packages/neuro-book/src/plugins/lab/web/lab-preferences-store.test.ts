@@ -95,8 +95,8 @@ describe("记录与按字段写", () => {
 
 describe("目录核对", () => {
     it("不认识的主题与越界的宽度只丢这两项，其余字段照常生效", () => {
-        expect(validLabPreferences({themeId: "gone", colorwayId: "nbook-light", leftPanelWidth: 9000, rightPanelWidth: 400, pageBackdropId: "custom", leftCollapsed: true}, catalog))
-            .toEqual({colorwayId: "nbook-light", rightPanelWidth: 400, pageBackdropId: "custom", leftCollapsed: true});
+        expect(validLabPreferences({themeId: "gone", colorwayId: "nbook-light", leftPanelWidth: 9000, rightPanelWidth: 400, pageBackdropId: "custom", leftCollapsed: true, collapsedGroups: ["group:gone"], bottomCollapsed: true}, catalog))
+            .toEqual({colorwayId: "nbook-light", rightPanelWidth: 400, pageBackdropId: "custom", leftCollapsed: true, collapsedGroups: ["group:gone"], bottomCollapsed: true});
     });
 });
 

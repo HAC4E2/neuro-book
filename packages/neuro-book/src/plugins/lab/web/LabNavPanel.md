@@ -18,8 +18,9 @@ Lab 的左栏：按目录分组的组件树与检索。组件从组件索引来�
 
 ## 交互
 
-- 检索按组件名、文档显示名与别名匹配，不搜正文。输入检索词时把所有目录展开，免得命中项藏在收起的目录里。
-- 点分组行只展开或收起，不切换组件。
+- 检索按组件名、文档显示名与别名匹配，不搜正文。输入检索词时把所有目录临时展开，免得命中项藏在收起的目录里；搜索期间的开合只在这次搜索里有效，清掉检索词回到偏好里的开合。
+- 点分组行只展开或收起，不切换组件；开合经 `update:collapsedGroups` 交给 LabShell 写进 Lab 偏好（[组件 Lab](../../../../../../docs/specs/ui/component-lab.md) 的 `collapsedGroups`），只记收起的目录，新目录默认展开。
+- 选中的组件所在的目录是收起的（地址栏换了组件、偏好刚读到）时展开到它并写回；`revealSelected()` 供 LabShell 在偏好读到后调用。
 
 ## 数据
 
@@ -29,13 +30,18 @@ props: {
     loading: boolean;    // 选中的组件正在加载
     collapsed: boolean;
     width: number;
+    collapsedGroups: string[];   // 收起的目录（group: 开头的节点 id），由 LabShell 经 v-model 持有
 }
 emits: {
     select: [name: string];
     "update:collapsed": [collapsed: boolean];
+    "update:collapsedGroups": [groups: string[]];
+}
+expose: {
+    revealSelected(): void;
 }
 ```
 
 ## 隐藏通道理由
 
-`state:local` 是检索词与目录的展开集合，只在本次页面里有效，不写偏好、不进地址栏。
+`state:local` 是检索词与搜索期间的临时展开集合，只在本次页面里有效，不写偏好、不进地址栏。

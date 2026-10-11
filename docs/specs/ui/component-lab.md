@@ -89,7 +89,7 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 
 组件切换时选择首个登记场景并加载对应 fixture；场景切换和数据还原将输入恢复为登记初值并清空内部状态与事件日志。fixture 输入、内部状态、搜索词、选中元素与事件日志不持久化；当前组件、场景、检视 tab、缩放与画布尺寸属于本标签页的会话状态，只在地址栏。
 
-Lab 自身的界面偏好是 `nbook.storage` 的记录 `lab.preferences`（user 分区、`shared`、版本 1，[`storage.persistence`](../storage/persistence.md)），经 Lab 的 store 读写（[`state.store`](../state/store.md)）。用 `shared` 是因为客户端身份按浏览器来源分开，换端口的开发服务读到的仍是同一份偏好。主题、配色、背景这类离散选择立即保存；拖动侧栏宽度或画布尺寸时只改显示，松手才保存。保存暂停（确定失败或结果未知）期间的修改只改显示，恢复后只提交最后一份。窄屏自动收起只改变当前布局，不覆盖桌面侧栏偏好。自定义桌面壁纸 Blob 仍写入 Lab 专属 IndexedDB，按浏览器来源各存一份。界面提供“恢复 Lab 默认配置”，把记录写成空对象（记录里没有的字段就是默认值）；壁纸由自定义图片旁的“清除”操作单独删除。
+Lab 自身的界面偏好是 `nbook.storage` 的记录 `lab.preferences`（user 分区、`shared`、版本 1，[`storage.persistence`](../storage/persistence.md)），经 Lab 的 store 读写（[`state.store`](../state/store.md)）。用 `shared` 是因为客户端身份按浏览器来源分开，换端口的开发服务读到的仍是同一份偏好。主题、配色、背景这类离散选择立即保存；组件树里目录的开合（只记收起的目录，新目录默认展开）与场景交互控制面板的开合也立即保存，搜索组件时目录临时全部展开、不写偏好；拖动侧栏宽度或画布尺寸时只改显示，松手才保存。保存暂停（确定失败或结果未知）期间的修改只改显示，恢复后只提交最后一份。窄屏自动收起只改变当前布局，不覆盖桌面侧栏偏好。自定义桌面壁纸 Blob 仍写入 Lab 专属 IndexedDB，按浏览器来源各存一份。界面提供“恢复 Lab 默认配置”，把记录写成空对象（记录里没有的字段就是默认值）；壁纸由自定义图片旁的“清除”操作单独删除。
 
 偏好由记录的状态推出唯一一种呈现：
 
@@ -107,7 +107,7 @@ Lab 自身的界面偏好是 `nbook.storage` 的记录 `lab.preferences`（user 
 
 Lab 只读取版本控制内的组件声明与 fixture，并维护本地开发环境的界面状态。它不写产品用户配置、项目工作区、会话历史或业务数据库，也不访问真实网络服务。Lab 的界面偏好只写 `nbook.storage` 的 `lab.preferences` 一条记录；浏览器存储只剩 Lab 专属 IndexedDB 里的壁纸，不得用于场景、fixture 或任何产品数据。
 
-偏好的字段白名单为 `themeId`、`colorwayId`、`pageBackdropId`、`canvasBackdropId`、`leftCollapsed`、`rightCollapsed`、`leftPanelWidth`、`rightPanelWidth`；会话状态（组件、场景、画布、缩放、检视 tab）不进偏好。恢复顺序是“地址参数 > 偏好 > 默认”。画布尺寸只接受 `0..16384` 的整数，枚举值必须仍在当前登记表中。壁纸使用 IndexedDB `nb-lab` 数据库的 `prefs` store 与 `wallpaper` key。
+偏好的字段白名单为 `themeId`、`colorwayId`、`pageBackdropId`、`canvasBackdropId`、`leftCollapsed`、`rightCollapsed`、`leftPanelWidth`、`rightPanelWidth`、`collapsedGroups`（组件树里收起的目录 id）、`bottomCollapsed`（场景交互控制面板）；会话状态（组件、场景、画布、缩放、检视 tab）不进偏好。恢复顺序是“地址参数 > 偏好 > 默认”。画布尺寸只接受 `0..16384` 的整数，枚举值必须仍在当前登记表中。壁纸使用 IndexedDB `nb-lab` 数据库的 `prefs` store 与 `wallpaper` key。
 
 fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、真实接口，也不依赖跨场景共享的状态。fixture 通过 `useLabSubject` 接入分层输入与事件记录，通过 `useLabDataSink` 上报只读内部状态；Lab 在内存中最多保留最近 200 条事件。
 
@@ -141,7 +141,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 5. Given 检查模式，When hover 或点击 Lab 元素，Then hover 有虚线探针，点击后元素 tab 显示可复制定位报告，选中元素不绘制常驻整块边框，Escape 可退出检查。
 6. Given 手机与平板容器，When 分别切换到 `390 × 844` 与 `768 × 1024`，Then 场景语义不变，核心操作可完成，无页面级横向滚动或控件相互遮挡。
 7. Given 运行中的 Lab 从宽屏调整到 `<=700px`，When 进入窄屏再恢复宽屏，Then 两侧栏自动收起且不会自动重新展开；reduced-motion 下新增转场时长为零。
-8. Given 已修改主题、配色、背景与侧栏偏好，When 刷新或重新进入 Lab，Then 合法偏好恢复；When 打开第二个 Lab 窗口，Then 读到同一份偏好；窄屏自动收起不覆盖桌面侧栏偏好；执行“恢复 Lab 默认配置”后记录是空对象且界面回到当前默认值。
+8. Given 已修改主题、配色、背景、侧栏偏好、组件树里收起的目录与场景控制面板的开合，When 刷新或重新进入 Lab，Then 合法偏好恢复；When 打开第二个 Lab 窗口，Then 读到同一份偏好；窄屏自动收起不覆盖桌面侧栏偏好；执行“恢复 Lab 默认配置”后记录是空对象且界面回到当前默认值。
 9. Given 偏好记录里有不认识的主题 id 或越界宽度，When Lab 加载，Then 只有这些字段回到默认值，其它字段恢复；Given 记录损坏或版本不认识、读取失败、保存失败或结果未知，Then 呈现与操作符合“状态与转换”的表，保存暂停期间的多次修改恢复后只提交最后一份；fixture 初始输入不变且页面可继续使用。
 10. Given 生产构建，When 运行 `check:dist`，Then 产物文本中不存在 Lab 模块、fixture、本机绝对路径或识别标记；When 访问 Lab 路径，Then 窗口照常就绪并显示“页面不存在”。
 11. Given 带 frontmatter 别名的部件文档，When 在导航检索里输入组件名、文档显示名或中文/英文别名，Then 都能命中同一个 canonical 条目；没有别名的组件只按组件名与显示名匹配，别名写坏时给开发诊断且不影响其余条目。

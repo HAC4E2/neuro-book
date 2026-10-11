@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * Lab 左栏：按目录分组的组件树与检索（docs/specs/ui/component-lab.md 的“输入与前置条件”最后一段）。展开状态与检索词
- * 归这一栏；选中的组件由 LabShell 持有，地址栏换组件时这里把树展开到它。
+ * Lab 左栏：按目录分组的组件树与检索（docs/specs/ui/component-lab.md 的“输入与前置条件”最后一段）。检索词归这一栏；
+ * 目录的开合是偏好（`collapsedGroups`，由 LabShell 经 v-model 持有并写进记录），搜索期间临时全部展开、不写回；
+ * 选中的组件由 LabShell 持有，地址栏换组件时这里把树展开到它。
  */
 import {computed, ref, watch} from "vue";
 import {FormInput as NbFormInput, Tree as NbTree} from "@notnotype/nb-ui/components";
@@ -17,11 +18,14 @@ const props = defineProps<{
     loading: boolean;
     collapsed: boolean;
     width: number;
+    /** 收起的目录（偏好里的那份）；没列到的目录都展开。 */
+    collapsedGroups: ReadonlyArray<string>;
 }>();
 
 const emit = defineEmits<{
     select: [name: string];
     "update:collapsed": [collapsed: boolean];
+    "update:collapsedGroups": [groups: string[]];
 }>();
 
 // 每一级目录都是可折叠的分组：novel-ide / novel-ide/settings / … / model/components
@@ -29,19 +33,34 @@ const ALL_GROUP_IDS = [...new Set(labComponents.flatMap((entry) =>
     entry.groupPath.map((_, index) => `group:${entry.groupPath.slice(0, index + 1).join("/")}`)))];
 
 const treeQuery = ref("");
-const expandedGroups = ref<string[]>([...ALL_GROUP_IDS]);
+const searching = computed(() => treeQuery.value.trim() !== "");
+/** 搜索期间的展开集合：先全摊开，之后的开合只在这次搜索里有效，不写偏好。 */
+const searchExpanded = ref<string[]>([]);
+/** 树的展开集合：平时由偏好里收起的目录推出，开合写回偏好；搜索时用临时的那份。 */
+const expandedGroups = computed<string[]>({
+    get: () => (searching.value ? searchExpanded.value : ALL_GROUP_IDS.filter((id) => !props.collapsedGroups.includes(id))),
+    set: (expanded) => {
+        if (searching.value) {
+            searchExpanded.value = expanded;
+            return;
+        }
+        emit("update:collapsedGroups", ALL_GROUP_IDS.filter((id) => !expanded.includes(id)));
+    },
+});
 
-function ensureSelectedComponentExpanded(name: string): void {
-    if (!name) return;
-    const comp = findLabComponent(name);
+/** 把树展开到选中的组件：它所在的每一级目录都展开（搜索时只改临时的那份，否则写回偏好）。 */
+function revealSelected(): void {
+    const comp = props.selected === "" ? null : findLabComponent(props.selected);
     if (!comp || !comp.groupPath.length) return;
-    const neededGroups: string[] = [];
-    for (let i = 0; i < comp.groupPath.length; i++) {
-        neededGroups.push(`group:${comp.groupPath.slice(0, i + 1).join("/")}`);
+    const needed = comp.groupPath.map((_, index) => `group:${comp.groupPath.slice(0, index + 1).join("/")}`);
+    if (searching.value) {
+        searchExpanded.value = [...new Set([...searchExpanded.value, ...needed])];
+        return;
     }
-    const set = new Set([...expandedGroups.value, ...neededGroups]);
-    expandedGroups.value = Array.from(set);
+    if (needed.some((id) => props.collapsedGroups.includes(id))) emit("update:collapsedGroups", props.collapsedGroups.filter((id) => !needed.includes(id)));
 }
+
+defineExpose({revealSelected});
 
 const matchedComponents = computed(() => {
     const query = treeQuery.value.trim();
@@ -152,12 +171,10 @@ const treeItems = computed(() => buildComponentTree(matchedComponents.value));
 
 // 搜索时把目录全摊开：搜出来的东西藏在一个收起的目录里，等于没搜到。
 watch(treeQuery, (query) => {
-    if (query.trim() !== "") {
-        expandedGroups.value = [...ALL_GROUP_IDS];
-    }
+    if (query.trim() !== "") searchExpanded.value = [...ALL_GROUP_IDS];
 });
 
-watch(() => props.selected, ensureSelectedComponentExpanded, {immediate: true});
+watch(() => props.selected, revealSelected, {immediate: true});
 
 /** 分组节点只负责展开收起，不切换组件。 */
 function select(id: string): void {

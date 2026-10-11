@@ -29,6 +29,10 @@ type LabPreferenceRefs = {
     readonly preferredRightCollapsed: Ref<boolean>;
     readonly leftPanelWidth: Ref<number>;
     readonly rightPanelWidth: Ref<number>;
+    /** 组件树里收起的目录。 */
+    readonly collapsedGroups: Ref<string[]>;
+    /** 场景交互控制面板的开合。 */
+    readonly bottomCollapsed: Ref<boolean>;
 };
 
 type LabPreferenceDefaults = {
@@ -91,6 +95,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         state.rightCollapsed.value = state.preferredRightCollapsed.value;
         state.leftPanelWidth.value = saved.leftPanelWidth ?? defaults.leftPanelWidth;
         state.rightPanelWidth.value = saved.rightPanelWidth ?? defaults.rightPanelWidth;
+        state.collapsedGroups.value = [...(saved.collapsedGroups ?? [])];
+        state.bottomCollapsed.value = saved.bottomCollapsed ?? false;
         options.applyResponsiveLayout();
     }
 
@@ -110,7 +116,7 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         hydrating.value = false;
     }, {immediate: true});
 
-    const fields: Array<[keyof LabPreferences, Ref<string | number | boolean>]> = [
+    const fields: Array<[keyof LabPreferences, Ref<string | number | boolean | string[]>]> = [
         ["themeId", state.themeId],
         ["colorwayId", state.colorwayId],
         ["pageBackdropId", state.pageBackdropId],
@@ -119,6 +125,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         ["rightCollapsed", state.preferredRightCollapsed],
         ["leftPanelWidth", state.leftPanelWidth],
         ["rightPanelWidth", state.rightPanelWidth],
+        ["collapsedGroups", state.collapsedGroups],
+        ["bottomCollapsed", state.bottomCollapsed],
     ];
     for (const [key, source] of fields) {
         watch(source, (value) => {

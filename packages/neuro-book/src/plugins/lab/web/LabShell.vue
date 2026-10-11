@@ -222,6 +222,10 @@ const activePreset = computed(() => {
 
 const labThemeId = ref<string>(LAB_DEFAULT_THEME);
 const labColorwayId = ref<string>(LAB_DEFAULT_COLORWAY);
+/** 组件树里收起的目录与场景交互控制面板的开合：都是偏好，随记录读入、改了就写。 */
+const collapsedGroups = ref<string[]>([]);
+const bottomPanelCollapsed = ref(false);
+const navPanel = ref<InstanceType<typeof LabNavPanel> | null>(null);
 
 const requestedLook = typeof window === "undefined" ? {} : parseLabUrl(window.location.search, labColorwayMeta);
 const preferences = useLabPreferences({
@@ -251,6 +255,8 @@ const preferences = useLabPreferences({
         preferredRightCollapsed: layout.preferredRightCollapsed,
         leftPanelWidth: leftWidth,
         rightPanelWidth: rightWidth,
+        collapsedGroups,
+        bottomCollapsed: bottomPanelCollapsed,
     },
     hasCustomWallpaper: () => wallpaperUrl.value !== "",
     requested: {
@@ -263,9 +269,12 @@ const preferences = useLabPreferences({
 });
 const {hydrating: preferencesHydrating, problem: preferencesProblem} = preferences;
 
-// 记录读到之后主题与配色才确定；与默认值相同时主题的 watch 不触发，这里补一次。
+// 记录读到之后主题与配色才确定；与默认值相同时主题的 watch 不触发，这里补一次。偏好里收起的目录可能正装着当前组件，
+// 读到后把树展开到它。
 watch(preferencesHydrating, (hydrating) => {
-    if (!hydrating) applyLabTheme(labThemeId.value, labColorwayId.value);
+    if (hydrating) return;
+    applyLabTheme(labThemeId.value, labColorwayId.value);
+    navPanel.value?.revealSelected();
 });
 
 /** 偏好的问题提示（ui.component-lab “状态与转换”的表）：每种问题一句话与对应的操作。 */
@@ -544,7 +553,6 @@ function setSlotPreset(name: string, on: boolean): void {
 
 
 const hasFixtureControls = ref(false);
-const bottomPanelCollapsed = ref(false);
 const controlsTargetRef = ref<HTMLElement | null>(null);
 const controlsTargetMinHeight = ref<string | undefined>(undefined);
 let activeControlsCount = 0;
@@ -686,6 +694,8 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
 
         <div class="lab-columns flex min-h-0 flex-1">
             <LabNavPanel
+                ref="navPanel"
+                v-model:collapsed-groups="collapsedGroups"
                 :selected="selectedName"
                 :loading="fixtureLoading"
                 :collapsed="leftCollapsed"

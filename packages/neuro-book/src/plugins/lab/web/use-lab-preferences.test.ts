@@ -77,6 +77,8 @@ function createState() {
         preferredRightCollapsed: ref(false),
         leftPanelWidth: ref(0),
         rightPanelWidth: ref(0),
+        collapsedGroups: ref<string[]>([]),
+        bottomCollapsed: ref(false),
     };
 }
 
@@ -189,6 +191,25 @@ describe("写回", () => {
         right.state.preferredLeftCollapsed.value = true;
         await Promise.all([idle(a.store), idle(b.store)]);
         expect(await read(a.storage)).toEqual({themeId: "macos", leftCollapsed: true});
+    });
+
+    it("组件树收起的目录与场景控制面板的开合写进偏好；另一个窗口读到时放回界面", async () => {
+        const w = await world();
+        const a = await openLab(w, "a", "client-a");
+        const left = bind(a.store);
+        await waitUntil("放进界面", () => !left.preferences.hydrating.value);
+        left.state.collapsedGroups.value = ["group:nbook", "group:nbook/projects"];
+        left.state.bottomCollapsed.value = true;
+        await idle(a.store);
+        expect(await read(a.storage)).toEqual({collapsedGroups: ["group:nbook", "group:nbook/projects"], bottomCollapsed: true});
+
+        const b = await openLab(w, "b", "client-b");
+        const right = bind(b.store);
+        await waitUntil("第二个窗口放进界面", () => !right.preferences.hydrating.value);
+        expect(right.state.collapsedGroups.value).toEqual(["group:nbook", "group:nbook/projects"]);
+        expect(right.state.bottomCollapsed.value).toBe(true);
+        await idle(b.store);
+        expect(await read(b.storage)).toEqual({collapsedGroups: ["group:nbook", "group:nbook/projects"], bottomCollapsed: true});
     });
 
     it("拖动侧栏时宽度只改显示，松手才写；窄屏收起只改布局，不写偏好", async () => {
