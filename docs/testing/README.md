@@ -13,7 +13,7 @@
 
 **bug 修复的测试。** 先确认 bug 暴露的是哪条行为的覆盖缺口：有缺口就在那条行为的测试里补用例（修复前失败、修复后通过）；没有缺口（已有测试本该抓到却写错了）就改那条测试，不另加只针对这个 bug 的测试。
 
-**依赖用真的。** 文件系统、子进程、端口、SQLite 能用真的就用真的。外部系统不便接入时注入替身（fake），并且要有一条测试证明替身与真实系统的行为一致，否则替身会掩盖真实行为（例如同步触发运行时只会异步派发的事件）。真实模型的调用不伪造，见[真实模型测试](#真实模型测试)。
+**依赖用真的。** 文件系统、子进程、端口、SQLite 能用真的就用真的。外部系统不便接入时注入替身（fake），并且要有一条测试证明替身与真实系统的行为一致，否则替身会掩盖真实行为（例如同步触发运行时只会异步派发的事件）。真实模型的调用不伪造，见[真实模型测试](#真实模型测试)。测试要给插件补宿主能力（时钟、状态根、当前项目）时写进应用清单的 `capabilities`，不另写一个测试插件去提供：插件只能提供自己命名空间里的服务键，提供别人的键被内核以 `foreign-service-id` 拒绝。
 
 **不按固定时长等待。** 等一个可观察的状态成立（`@notnotype/neuro-book-test-support/wait` 的 `waitUntil`），或让被测代码接受注入的时钟、由测试推进时间。让出一轮事件循环（延迟为 0）不算等待。Vitest 里等动态 import 的组件（`defineAsyncComponent`、懒加载路由）首次出现时，`vi.waitFor` 显式给足超时：首次导入要经 Vite 转换，实测超过默认的 1 s。
 
@@ -54,7 +54,7 @@
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量；CI 定期 |
 | 全量 | 以上全部 | — | CI 定期 |
 
-浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。
+浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接用 `npx playwright test` 跑单个文件时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
 
 快速类单个测试的预算是 200 毫秒。`test:affected` 运行结束时列出超出预算的测试；超出的原则上改快（多半是固定等待或不必要的大数据），确实需要慢的（如性能基准）写明原因。
 
@@ -116,6 +116,7 @@
 - 测试文件与被测源码同目录，命名 `<module>.test.ts`；服务端需要 JSX 时用 `.test.tsx`；真实模型测试用 `<module>.llm.test.ts`；新应用的 Vue 组件测试用 `<module>.dom.test.ts`。
 - **`testing/` 目录**放测试支持代码：测试工具、测试插件与测试入口、多个测试共用的场地（例如 `packages/neuro-book/src/plugins/storage/testing/world.ts`）、e2e 外壳。它可以带参数，但不含断言：断言写在测试文件里。产品代码不引用 `testing/`，也不引用内核的 `*/testing` 入口（`@notnotype/nb-runtime/lifecycle/testing`、`@notnotype/nb-runtime/remote/testing`）；唯一的例外是 e2e 构建配置（`vite.e2e.config.ts`）引用 e2e 外壳。`packages/neuro-book` 由 `src/architecture.test.ts` 检查。
 - 新应用与新包用 Bun 自带测试器（`bun test`）。例外是新应用的 Vue 组件测试：Bun 不能加载 `.vue`，`*.dom.test.ts` 由 Vitest 在 happy-dom 里运行（`packages/neuro-book/vitest.config.ts` 沿用前端的 Vite 配置），包内 `bunfig.toml` 让 `bun test` 跳过它们，包脚本 `test` 依次运行两者；需要真实布局的交互走 Playwright。以下 Vitest 条目适用于这部分组件测试与仍用 Vitest 的既有包。
+- 新应用里 `src/plugins/*/web/**/*.test.ts` 与 `*.dom.test.ts` 一样按浏览器类型配置检查（`tsconfig.browser-test.json`，带 DOM 库、没有 Bun 类型）；要导入服务端代码或 Bun API 的测试放在插件根目录（`src/plugins/<插件>/<module>.test.ts`），不放 `web/` 下。
 - 每个 Vitest 配置显式声明 `root`（仓库根或包根），不依赖 `process.cwd()`；include 覆盖
   该作用域内全部测试文件。
 - Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖

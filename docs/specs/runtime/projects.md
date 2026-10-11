@@ -87,7 +87,7 @@ owners:
     - 服务端入口依赖 `projectsKey`，提供远程服务 `nbook.projects/projects`（提供方位置 `server`，调用方 `browser`、`tui`）：`list` 返回短名、项目目录路径与运行状态；`register(路径)` 登记目录。
     - 浏览器入口提供命令 `nbook.project.open`（“打开项目”）：经命令面板的选择模式（[`workbench.quick-open`](../workbench/quick-open.md)）列出已登记项目（短名、路径、是否运行），选中即整页导航到 `/?project=<短名>`；输入一个目录路径并确认，先登记，成功后导航；登记失败时带着原因（标题里）重新打开选择，用户可以改了再试或取消；原因按失败码（`invalid-path`、`not-directory` 等）以当前显示语言给出，服务端返回的说明原文只进诊断。窗口绑定了项目时，工作台显示当前项目的短名（取自窗口的绑定结果，不另外调用服务）。
 11. **服务端停止。** 服务端停止序列一开始就同步关闭项目管理器的接纳：之后的 `acquire` 与客户端绑定都以 `admission-closed`（客户端看到 `project-unavailable`，说明服务端正在停止）拒绝；内核停止时先停全部项目子进程并等真实退出，再关闭服务端插件（[`runtime.server-host`](server-host.md)）。
-12. **资源占用。** 每个打开的项目常驻一个 Bun 子进程。2026-10-07 在本机 Linux、Bun 1.4.2 上用生产打包产物实测（`bun scripts/measure-project.ts`，冷启动 10 次）：从请求打开到取得租约 p50 约 55 ms、最大约 70 ms，就绪后常驻约 49 MB；当时项目实例里只有内核与 `nbook.diagnostics`。只带 IPC 的空子进程约 26 ms 就绪、常驻约 30 MB，可作为下限参照。2026-10-10 书架统计加入后重测（同一脚本，3 组各 10 次冷启动，本机另有负载）：空项目不带统计入口约 97 ms、66 MB（增量来自 storage、settings、files 的项目入口），带统计入口约 113 ms、72 MB；3000 个 `.md`（53.8 MB）的样本打开 117 ms（不等首扫），首扫 p50 约 1.2 s、峰值约 97 MB、5 秒后回落到约 80 MB，首扫耗时主要在共享的字数算法。
+12. **资源占用。** 每个打开的项目常驻一个 Bun 子进程。本条的数字以 `packages/neuro-book/scripts/measure-project.ts` 的最新结果为准：`bun run build:server && bun scripts/measure-project.ts [次数，缺省 10] [--sample 3000]`（只支持 Linux；`--sample` 先在项目目录放约 3000 个 Markdown 的 Files 样本，另记首次统计的耗时）。项目实例里的插件入口增减时必须重测并更新本条，不另起一段保留旧数字。最近一次 2026-10-10，本机 Linux、Bun 1.4.2、生产打包产物、3 组各 10 次冷启动、本机另有负载：空项目不带统计入口从请求打开到取得租约约 97 ms、就绪后常驻约 66 MB，带统计入口约 113 ms、72 MB；3000 个 `.md`（53.8 MB）的样本打开 117 ms（不等首扫），首扫 p50 约 1.2 s、峰值约 97 MB、5 秒后回落到约 80 MB，首扫耗时主要在共享的字数算法。下限参照：只带 IPC 的空子进程约 26 ms 就绪、常驻约 30 MB。
 
 第 13–18 条随书架页实现：
 
