@@ -26,6 +26,7 @@ taskId: t76-bookshelf-polish
 ## 当前状态
 
 - 2026-10-11 建立。开发者决定：品牌资产可以进仓库；看板娘放进空态卡与继续写作卡；字体按 Fraunces（拉丁）+ 系统宋体栈（中文）。
+- 2026-10-11 回写（开发者批准三条）：`design-language.md` 坑 #27 补上“新应用的 UnoCSS 掩盖产物过期”，新增坑 #51（容器查询写在容器自己身上不生效）；`ui-development-spec.md` 4.4 节补“父组件 scoped 样式到不了转发 class 的子组件”；nb-ui 新增 `src/dist-css.test.ts`，用 `build:css` 同一条命令现编产物并与入库的比较（两个变异都拦住）。nb-ui 33 个文件 531 例通过。
 - 2026-10-11 omp 实现审查（`a60eb885..e08b2508`，[报告](evidences/implementation-review.md)）：11 条，重要 9、建议 2、阻断 0。逐条核实后的处理：
   - C1 通知动作抛错：工作台服务接住错误、记诊断 `workbench.notifications`；nb-ui 视口也改为抛错照样移除，错误交给 Vue 的错误处理（新增 `NotificationViewport.test.ts`）。
   - C2 只改色调就丢了明确给的 `sticky`：服务记住调用方明确给的值，直到再次明确改它。

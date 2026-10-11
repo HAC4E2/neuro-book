@@ -880,6 +880,11 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 判据：固定一张高频背景，把浮层内容、边框和阴影暂时隐藏，分别对照 `backdrop-filter: none`、`blur(0)` 与 `blur(0) url("#主题滤镜")`。若只有带 `url()` 的组在浮层边缘移动纹理，而三组浮层矩形相同，就归类为折射采样位移；必须以截图判定，不能只读计算样式。
 修法边界：不要用降低 blur、改变 tint、padding、radius 或浮层结构来掩盖这条现象。用户不接受位移观感时，进入主题折射配方评审，保留纯 blur 基线；组件层不做补偿。
 
+**51. 容器查询写在容器自己身上，规则永远不生效**
+现象：`@container` 规则写了却不生效，窄屏下网格的列模板没换。
+根因：容器查询只作用于容器的后代，元素不能既设 `container-type`，又当自己那条 `@container` 规则的目标。
+判据：容器和要换布局的元素分两层，外层设 `container-type`，网格放在里面一层。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
@@ -1063,7 +1068,10 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 **27. 改了 `src/styles.css` 而页面没变，先看是不是在吃编译产物**
 现象：类明明在元素上、规则明明在文件里，计算样式就是不认。
 根因：playground 经 Nuxt module 注入的是 `dist/nb-ui.css`，不是源码 CSS。
-判据：改完跑 `bun run build:css`；dev server 会缓存旧产物，**还要重启它**。
+新应用也用这份产物，它的 UnoCSS 会替 nb-ui 组件补出大部分工具类，产物过期只表现为 `bg-[var(--…)]` 这类和
+`src/styles.css` 里的类缺失，看截图难以发现。
+判据：改完跑 `bun run build:css`；dev server 会缓存旧产物，**还要重启它**。nb-ui 的 `bun run test` 会把源码现编的产物
+与入库的逐字节比较，忘了重建的提交在这里失败。
 重启后确认端口——`bun run dev` 会挑第一个空闲端口，主仓的 dev server 停了它就跑去 3000，
 而不是你以为的 3003。查一句：页面里有没有哪个 `<style>` 含新规则。
 
