@@ -6,11 +6,13 @@ import {computed, ref} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 
 import type {ShelfItem} from "../../shared/shelf";
 import {continueTarget, sortShelf} from "../shelf-format";
 import type {ShelfSort} from "../shelf-format";
 import ContinueCard from "./ContinueCard.vue";
+import ShelfEmptyState from "./ShelfEmptyState.vue";
 import ShelfList from "./ShelfList.vue";
 import ShelfTitlePage from "./ShelfTitlePage.vue";
 import SpineShelf from "./SpineShelf.vue";
@@ -30,7 +32,9 @@ const props = withDefaults(defineProps<{
     activeId: string | null;
     /** 顶部的提示（刷新失败、新标签被拦截这类不影响数据的事）；`retry` 为真时带“重试”。 */
     notice?: {text: string; retry: boolean} | null;
-}>(), {error: "", notice: null});
+    /** 作品目录（新作品建在这里），空书架的引导卡要说；null 表示还没设。 */
+    library?: string | null;
+}>(), {error: "", notice: null, library: null});
 
 const emit = defineEmits<{
     (event: "update:view", view: ShelfView): void;
@@ -50,7 +54,7 @@ const emit = defineEmits<{
 
 const TEXT = {
     brand: {"zh-CN": "书房", "en-US": "Study"},
-    workbench: {"zh-CN": "进入工作台", "en-US": "Open Workbench"},
+    workbench: {"zh-CN": "用户资产", "en-US": "User Assets"},
     shelf: {"zh-CN": "书架", "en-US": "Bookshelf"},
     count: {"zh-CN": "{count} 部", "en-US": "{count} books"},
     view: {"zh-CN": "视图", "en-US": "View"},
@@ -108,8 +112,11 @@ defineExpose({focusShelf});
     <main ref="root" class="bookshelf-page" :class="{'bookshelf-page--narrow': narrow}" data-bookshelf-page>
         <div class="bookshelf-page__column">
             <header class="bookshelf-page__header">
-                <p class="bookshelf-page__brand">NeuroBook <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span></p>
-                <Button variant="ghost" size="sm" data-enter-workbench @click="emit('enter-workbench')">{{ text(TEXT.workbench) }}</Button>
+                <p class="bookshelf-page__brand">
+                    <NeuroBookLockup class="bookshelf-page__lockup" />
+                    <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span>
+                </p>
+                <Button variant="ghost" size="sm" icon-class="i-lucide-user-round" data-enter-workbench @click="emit('enter-workbench')">{{ text(TEXT.workbench) }}</Button>
             </header>
 
             <div v-if="notice !== null" class="bookshelf-page__notice" role="status" data-bookshelf-notice>
@@ -130,7 +137,8 @@ defineExpose({focusShelf});
 
             <template v-else>
                 <ContinueCard v-if="target !== null" :locale="locale" :item="target" :now="now" @continue="emit('continue', $event)" />
-                <p v-else class="bookshelf-page__welcome">{{ text(items.length === 0 ? TEXT.empty : TEXT.welcome) }}</p>
+                <ShelfEmptyState v-else-if="items.length === 0" :locale="locale" :library="library" @create="emit('create')" @add-existing="emit('add-existing')" />
+                <p v-else class="bookshelf-page__welcome">{{ text(TEXT.welcome) }}</p>
 
                 <section class="bookshelf-page__shelf" :aria-label="text(TEXT.shelf)">
                     <div class="bookshelf-page__shelf-head">
@@ -216,14 +224,22 @@ defineExpose({focusShelf});
 }
 
 .bookshelf-page__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     margin: 0;
     color: var(--text-main);
     font-size: var(--text-md);
-    font-weight: var(--weight-strong);
+}
+
+.bookshelf-page__lockup {
+    /* 字标的大写高约占成品高的一半：26px 的组合里字标与旁边的“书房”二字差不多高。 */
+    height: 26px;
 }
 
 .bookshelf-page__room {
     color: var(--text-muted);
+    font-family: var(--font-display);
     font-weight: var(--weight-normal);
 }
 

@@ -5,6 +5,7 @@ import {computed} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
@@ -48,6 +49,7 @@ const stale = computed(() => (props.item.stats.freshness === "stale" && props.it
                 <p v-if="last !== null" class="continue-card__when">{{ text(formatText(TEXT.edited, {when: formatWhen(last.at, now, locale)})) }}</p>
             </div>
             <div class="continue-card__ledger">
+                <NeuroBookMood :state="item.stats.today !== null && item.stats.today > 0 ? 'write' : 'idle'" class="continue-card__mascot" />
                 <p v-if="item.stats.today !== null" class="continue-card__today">{{ formatToday(item.stats.today, locale) }}</p>
                 <p class="continue-card__total">{{ text(formatText(TEXT.total, {words: formatWords(item.stats.words, locale)})) }}</p>
                 <p v-if="stale !== null" class="continue-card__stale">{{ stale }}</p>
@@ -135,6 +137,12 @@ const stale = computed(() => (props.item.stats.freshness === "stale" && props.it
     margin: 0;
     color: var(--text-muted);
     font-size: var(--text-xs);
+}
+
+.continue-card__mascot {
+    width: 64px;
+    margin-bottom: var(--space-2);
+    border-radius: var(--radius-control);
 }
 
 .continue-card__ledger {

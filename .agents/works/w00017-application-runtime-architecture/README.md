@@ -113,6 +113,7 @@ issueId: null
 | [t73](tasks/t73-lab-nb-ui-and-storage/README.md) | 完善新 Lab：nb-ui 组件进组件索引并迁移场景，Lab 偏好改存 `nbook.storage`、标签页内状态进地址栏、不再用 localStorage 与 sessionStorage，拆分 `LabShell.vue`；开发者 2026-10-10 决定第 6 步之后先做 Lab 与 workbench；计划（[plan.md](tasks/t73-lab-nb-ui-and-storage/plan.md)）与三个待定项的推荐经开发者 2026-10-10 同意；S0–S5 完成，omp 实现审查 13 条已处理（S6），顺带修正开发模式漏预构建 `typebox/compile` 引起的 e2e 偶发失败，完成 |
 | [t74](tasks/t74-workbench-titlebar/README.md) | 外壳四：标题栏（品牌、应用菜单、命令搜索、项目切换、布局按钮）、状态栏与标题栏条目的贡献点、编辑器的三个状态栏条目；计划（[plan.md](tasks/t74-workbench-titlebar/plan.md)）经 omp 审查 13 条后修订；S0–S7 完成，全量 e2e 通过；omp 实现审查 7 条（[报告](tasks/t74-workbench-titlebar/evidences/implementation-review.md)）中 C1–C6 已修（跨插件导入、菜单会话与原生输入框、条目几何与“更多”换行），C7 字数性能记入后续 |
 | [t75](tasks/t75-bookshelf/README.md) | 书架页：提案 [书架页](../../../docs/proposals/bookshelf.md) 经开发者 2026-10-10 同意后实施；计划经 omp 审查与 fable 复核修订；S0–S6 完成（Spec [`workbench/bookshelf.md`](../../../docs/specs/workbench/bookshelf.md) 实现、项目合同 v2、作品统计、首页贡献点、继续写作），S2、S3 由编码子代理在独立 worktree 完成后合入；omp 实现审查 11 条（重要 8、建议 3）全部修正，2026-10-11 完成 |
+| [t76](tasks/t76-bookshelf-polish/README.md) | 书架打磨一：品牌成品（标志、字标、图标、看板娘）与 Fraunces 进仓库、nbook 主题字体栈；空书架引导卡、继续写作卡的看板娘、新建对话框的“位置”行；缺省作品目录（系统文档目录下的 NeuroBook）、不存在就建、`~` 解析；2026-10-11 建立，计划见 [plan.md](tasks/t76-bookshelf-polish/plan.md)，S0、S1 静态稿进行中 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

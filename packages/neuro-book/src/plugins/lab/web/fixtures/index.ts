@@ -10,9 +10,12 @@ import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfP
 import type BookSpine from "nbook/plugins/projects/web/components/BookSpine.vue";
 import type ContinueCard from "nbook/plugins/projects/web/components/ContinueCard.vue";
 import type ProjectInfoDialog from "nbook/plugins/projects/web/components/ProjectInfoDialog.vue";
+import type ShelfEmptyState from "nbook/plugins/projects/web/components/ShelfEmptyState.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
 import type ShelfTitlePage from "nbook/plugins/projects/web/components/ShelfTitlePage.vue";
 import type SpineShelf from "nbook/plugins/projects/web/components/SpineShelf.vue";
+import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
+import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
@@ -577,6 +580,30 @@ export const labFixtures: LabFixture[] = [
         subject: () => import("nbook/ui/SkillChip.vue"),
         class: "max-w-full",
     }),
+    defineSubjectFixture<typeof NeuroBookLockup>({
+        component: "NeuroBookLockup",
+        scenes: [
+            {id: "title", label: "标题栏大小（26px）", input: {}},
+        ],
+        subject: () => import("nbook/ui/brand/NeuroBookLockup.vue"),
+        class: "h-[26px] text-[var(--text-main)]",
+    }),
+    defineSubjectFixture<typeof NeuroBookMood>({
+        component: "NeuroBookMood",
+        scenes: [
+            {id: "focus", label: "专注（看书）", input: {props: {state: "focus"}}},
+            {id: "write", label: "写作中", input: {props: {state: "write"}}},
+            {id: "idle", label: "空闲（跟着鼠标看）", input: {props: {state: "idle"}}},
+            {id: "think", label: "思考", input: {props: {state: "think"}}},
+            {id: "ask", label: "等你选择", input: {props: {state: "ask"}}},
+            {id: "done", label: "完成", input: {props: {state: "done"}}},
+            {id: "error", label: "出错", input: {props: {state: "error"}}},
+            {id: "sleep", label: "睡着", input: {props: {state: "sleep"}}},
+            {id: "dark", label: "深色底（透明）", input: {props: {state: "idea", variant: "dark"}}},
+        ],
+        subject: () => import("nbook/ui/brand/NeuroBookMood.vue"),
+        class: "w-28",
+    }),
     ...shelfFixtures(),
     ...nbUiFixtures,
 ];
@@ -597,7 +624,8 @@ function shelfFixtures(): LabFixture[] {
                 {id: "list", label: "列表视图", input: {props: page, model: {view: "list", sort: "words", activeId: null}}},
                 {id: "one", label: "只有一部", input: {props: {...page, items: [second]}, model: {view: "spines", sort: "recent", activeId: second.id}}},
                 {id: "no-record", label: "有作品但没有写作记录", input: {props: {...page, items: [SHELF_ITEMS[3]!]}, model: {view: "spines", sort: "recent", activeId: null}}},
-                {id: "empty", label: "空书架", input: {props: {...page, items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
+                {id: "empty", label: "空书架（设了作品目录）", input: {props: {...page, items: [], library: "/home/writer/Documents/NeuroBook"}, model: {view: "spines", sort: "recent", activeId: null}}},
+                {id: "empty-unset", label: "空书架（还没设作品目录）", input: {props: {...page, items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
                 {id: "loading", label: "加载中", input: {props: {...page, status: "loading", items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
                 {id: "error", label: "取数失败", input: {props: {...page, status: "error", error: "书架没取到：服务端暂时不可用", items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
                 {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "spines", sort: "recent", activeId: third.id}}},
@@ -609,13 +637,25 @@ function shelfFixtures(): LabFixture[] {
             events: ["submit", "cancel"],
             class: "",
             scenes: [
-                {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create"}}},
+                {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create", library: "/home/writer/Documents/NeuroBook"}}},
+                {id: "create-unset", label: "新建作品（还没设作品目录）", input: {props: {locale: "zh-CN", open: true, mode: "create"}}},
                 {id: "edit", label: "编辑信息", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: first.title ?? first.name, description: first.description ?? "", color: "#7a4b3a"}}}},
                 {id: "rejected", label: "服务端拒绝", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: null}, error: "同名目录已存在（/home/writer/books/长夜行）：改个书名，或用“加入已有目录”"}}},
                 {id: "busy", label: "提交中", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null}, busy: true}}},
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue"),
+        }),
+        defineSubjectFixture<typeof ShelfEmptyState>({
+            component: "ShelfEmptyState",
+            events: ["create", "add-existing"],
+            class: "w-full",
+            scenes: [
+                {id: "library", label: "设了作品目录", input: {props: {locale: "zh-CN", library: "/home/writer/Documents/NeuroBook"}}},
+                {id: "unset", label: "还没设作品目录", input: {props: {locale: "zh-CN", library: null}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", library: "/Users/writer/Documents/NeuroBook"}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/ShelfEmptyState.vue"),
         }),
         defineSubjectFixture<typeof ContinueCard>({
             component: "ContinueCard",

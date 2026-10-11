@@ -22,6 +22,17 @@
  * Apple 没有公开 blur 半径与折射率，下面的取值是视觉近似。
  */
 
+/*
+ * 字标所用的 Fraunces（可变字体：opsz 9–144、wght 100–900、SOFT、WONK），裁成拉丁子集随主题带着，许可见 assets/fonts/OFL-Fraunces.txt。
+ * 它没有汉字：栈里排在中文宋体前面，拉丁字母与数字取它，汉字自然落到后面的宋体。
+ */
+@font-face {
+    font-family: "Fraunces";
+    src: url("./assets/fonts/fraunces-latin.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+}
+
 :root[data-nb-theme="nbook"] {
     /* ---- 排版：中文优先 -------------------------------------------------- */
     /*
@@ -29,8 +40,12 @@
      * Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境——三条合起来才算兜住三大平台。
      */
     --font-ui: -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
-    /* 稿面用宋。界面用黑体、正文用宋体是中文出版的默认分工，也是「器械 / 稿面」两种材质的字面证据 */
-    --font-display: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+    /*
+     * 稿面用宋。界面用黑体、正文用宋体是中文出版的默认分工，也是「器械 / 稿面」两种材质的字面证据。
+     * 拉丁取品牌字标的 Fraunces（上面的 @font-face）；中文宋体按平台列全：Noto Serif CJK 在 Linux 常以 HK、TC、JP 的名字装，
+     * 只写 SC 会一个都命中不了而退成黑体。
+     */
+    --font-display: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK HK", "Noto Serif CJK TC", "Noto Serif CJK JP", "Songti SC", "STSong", "FZShuSong-Z01", "SimSun", serif;
     --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
     /* 中文没有斜体：italic 是把字形剪切变形，看起来像渲染故障，所以强调换字面不换字形 */
     --font-emphasis: KaiTi, STKaiti, "楷体", "Kaiti SC", "Noto Serif SC", serif;

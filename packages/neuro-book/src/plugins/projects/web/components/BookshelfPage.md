@@ -10,8 +10,8 @@
 ## 布局
 
 - 页面直接压在窗体底纹上（`--window-backdrop`），内容列封顶 1040px 居中，桌面左右留 32px，窄屏 16px；页面自身纵向滚动，不出现横向滚动。
-- 顶部一行：左边“NeuroBook · 书房”，右边 ghost 按钮“进入工作台”（不打开作品，使用用户资产）。
-- 继续写作：`ContinueCard`，选 `continueTarget()` 的那一部；没有任何编辑记录时换成一段欢迎文字（书架为空时提示先新建或加入一部作品）。
+- 顶部一行：左边品牌的标志 + 字标（`NeuroBookLockup`，26px 高）后接“· 书房”，右边 ghost 按钮“用户资产”（不打开作品，进工作台用用户资产）。
+- 继续写作：`ContinueCard`，选 `continueTarget()` 的那一部；有作品但没有任何编辑记录时换成一段欢迎文字；书架为空时换成引导卡 `ShelfEmptyState`（看板娘、作品是什么、新作品建在哪、两个入口）。
 - 书架：标题行“书架 · N 部”，右侧视图切换（书脊、列表）与排序（最近编辑、书名、字数）；
   - 书脊视图：`SpineShelf`，选中作品的 `ShelfTitlePage` 显示在书架下方；
   - 列表视图：`ShelfList`。
@@ -34,6 +34,8 @@ type Props = {
     activeId: string | null;
     /** 顶部提示：刷新失败（带重试）、新标签被拦截、移出被拒这类不影响数据的事。 */
     notice?: {text: string; retry: boolean} | null;
+    /** 作品目录，空书架的引导卡要说；null 表示还没设。 */
+    library?: string | null;
 };
 type Emits = {
     "update:view": [view: "spines" | "list"];
@@ -59,5 +61,5 @@ type Emits = {
 
 - `loading`：继续写作与书架位置显示骨架，不显示空书架的文字。
 - `error`：书架位置显示原因与“重试”。
-- 空书架：欢迎文字加两根虚线书脊（或列表的两行按钮）。
+- 空书架：引导卡加两根虚线书脊（或列表的两行按钮）。
 - `activeId` 不在列表里时（作品刚被移出书架）：书脊视图不显示扉页，聚焦书架时选中第一部。
