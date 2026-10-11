@@ -38,6 +38,8 @@ type Emits = {
 
 `submit` 的 `title`、`description` 已去掉首尾空白；`color` 是小写的 `#rrggbb` 或 null。
 
+根节点是 `Dialog` 的 Teleport：组件不透传 attrs（`inheritAttrs: false`），`class` 与 `data-*` 不会出现在任何节点上。
+
 ## 不支持
 
 不自己调远程服务，不记住上次的输入；封面图不在本期。

@@ -84,7 +84,8 @@ const tree = (page: Page) => page.getByRole("tree", {name: "文件"});
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 
 async function open(page: Page, bound = true): Promise<void> {
-    await page.goto(bound ? new URL("/?project=book", server.url).href : server.url);
+    // 没有项目的 `/` 是书架页；外壳（含资源管理器）在 `/workbench`。
+    await page.goto(new URL(bound ? "/?project=book" : "/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(tree(page)).toBeVisible();
 }

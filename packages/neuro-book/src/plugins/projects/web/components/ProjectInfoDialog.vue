@@ -8,7 +8,8 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_TITLE_MAX_LENGTH} from "../../shared/contracts";
 
-defineOptions({name: "ProjectInfoDialog"});
+// 根节点是 Dialog 的 Teleport，外部 attrs 没有落点，不透传（否则 Vue 会警告）。
+defineOptions({name: "ProjectInfoDialog", inheritAttrs: false});
 
 export interface ProjectInfoFormValues {
     title: string;
