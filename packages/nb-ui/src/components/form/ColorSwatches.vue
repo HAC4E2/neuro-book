@@ -16,7 +16,7 @@ export type ColorSwatchesSize = "sm" | "md";
 
 const props = withDefaults(defineProps<{
     modelValue: string | null;
-    colors: string[];
+    colors: ReadonlyArray<string>;
     autoLabel?: string;
     autoColor?: string;
     customLabel?: string;

@@ -49,11 +49,11 @@ describe("ProjectInfoWindow", () => {
         expect(textOf("[data-project-folder]")).toBe("/长夜行");
         query<HTMLButtonElement>("[data-project-browse]").click();
         expect(wrapper.emitted("browse-location")).toHaveLength(1);
-        query<HTMLElement>("[data-project-color] [data-color-swatch='#8f3f2e']").click();
+        query<HTMLElement>("[data-project-color] [data-color-swatch='#6b2032']").click();
         await flushPromises();
         query<HTMLButtonElement>("[data-project-confirm]").click();
         await flushPromises();
-        expect(wrapper.emitted("submit")?.[0]).toEqual([{title: "长夜行", description: "", color: "#8f3f2e", parent: "/home/writer/Documents/NeuroBook", cover: {kind: "keep"}}]);
+        expect(wrapper.emitted("submit")?.[0]).toEqual([{title: "长夜行", description: "", color: "#6b2032", parent: "/home/writer/Documents/NeuroBook", cover: {kind: "keep"}}]);
     });
 
     it("书名空着不提交并在字段下说明；服务端的字段错误显示在对应字段下；编辑时没有位置行", async () => {

@@ -16,7 +16,7 @@ import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_TITLE_MAX
 import {PROJECT_COVER_MAX_BYTES} from "../../shared/cover";
 import {projectDirectoryName} from "../../shared/directory-name";
 import type {ProjectCoverChange, ProjectInfoField, ProjectInfoValues} from "../shelf-page";
-import {autoBookColor} from "../shelf-format";
+import {autoBookColor, BOOK_PALETTE} from "../shelf-format";
 import BookCover from "./BookCover.vue";
 
 defineOptions({name: "ProjectInfoWindow", inheritAttrs: false});
@@ -80,8 +80,8 @@ const TEXT = {
     locationInfo: {"zh-CN": "保存位置说明", "en-US": "About the location"},
 } satisfies Record<string, LocalizedText>;
 
-/** 色板：八档与作品色档同一组色相（见 book-colors.css），写成固定色值让作者选了就是这个颜色。 */
-const SWATCHES = ["#2f5fa0", "#3f7a2c", "#8f3f2e", "#1f6e75", "#6a3f8a", "#a8762f", "#871222", "#2e211b"];
+/** 色板就是作品色板的八色，“自动”也从这八色里取（见 shelf-format.ts）。 */
+const SWATCHES = BOOK_PALETTE;
 const COVER_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 const text = (value: LocalizedText): string => localize(value, props.locale);

@@ -23,6 +23,7 @@ taskId: t77-bookshelf-polish-2
 
 ## 当前状态
 
+- 2026-10-11 配色定稿（开发者同意推荐）：作品色板换成“布面精装”八色（藏青、墨绿、酒红、赭石、黛紫、青瓷、驼色、炭黑），定义在 `shelf-format.ts` 的 `BOOK_PALETTE` 一处；没指定颜色的作品按 id 从这八色里取（`bookPaletteIndex`、`autoBookColor`），“自动”与色板同一套颜色，不再按主题强调色转色相，删去 `book-colors.css`。`ColorSwatches` 的 `colors` 接受只读数组。Spec 输出 5 同步。验证：typecheck；`bun test` 项目 63 例、DOM 62 例；书架 e2e 6 例。截图：[卡片](evidences/s1-cloth-shelf-cards-light.png)、[深色](evidences/s1-cloth-shelf-cards-dark.png)、[列表](evidences/s1-cloth-shelf-list-light.png)、[新建](evidences/s1-cloth-create-light.png)。
 - 2026-10-11 S1 静态稿交开发者看过后提交（配色待定）：
   - nb-ui 新增 `InfoTip`、`ColorSwatches`（reka `ColorSwatchPicker` 底座，“自动”“自定义”用哨兵值，选择从色块的 `select` 事件取，因为受控时 reka 的根会把一次选择发两遍）与内部的 `ColorPickerPanel`（reka 的 `ColorArea`、`ColorSlider`、`ColorField`，按 HSB 保存当前色，明度压到 0 色相不丢）；`ColorPicker` 改用它，触发器改成真按钮（禁用时打不开），去掉原生取色与 `showInput`。两个弹层按开发者意见改用 `FormSelect` 同款的面（`useDropdownSurfaceStyle`）。`ColorPickerPanel` 是内部部件，不单独写组件文档（同 `ContextMenuPanel`），行为写在 `ColorPicker.md`、`ColorSwatches.md` 里。
   - 作品信息窗口（暂留 `DialogWindow`）：主题色挪到封面下两行五列，简介撑满右栏，“保存位置”，“浏览…”与输入框同高，ⓘ 全换 `InfoTip`；“自动”色块画 `autoBookColor(id)`（与 `book-colors.css` 同一公式，目录选择器的作品色块也改用它）。

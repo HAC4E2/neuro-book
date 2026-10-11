@@ -3,7 +3,7 @@
 import {describe, expect, it} from "bun:test";
 
 import type {ShelfItem, ShelfStats} from "../shared/shelf";
-import {BOOK_HUES, bookHue, continueTarget, formatToday, formatWhen, formatWords, lightColor, recentPieces, shelfTotals, sortShelf} from "./shelf-format";
+import {autoBookColor, BOOK_PALETTE, bookColorStyle, bookPaletteIndex, continueTarget, formatToday, formatWhen, formatWords, lightColor, recentPieces, shelfTotals, sortShelf} from "./shelf-format";
 
 function item(id: string, title: string | null, stats: Partial<ShelfStats> = {}): ShelfItem {
     return {
@@ -46,12 +46,15 @@ describe("时间", () => {
 });
 
 describe("作品色", () => {
-    it("色档在八档之内，同一个 id 总是同一档；作者给的浅色用深字", () => {
+    it("自动色从色板八色里按 id 取，同一个 id 总是同一色；作者给了颜色就用它；作者给的浅色用深字", () => {
         for (const id of ["a", "b", "8f0c2d4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f"]) {
-            expect(bookHue(id)).toBeGreaterThanOrEqual(0);
-            expect(bookHue(id)).toBeLessThan(BOOK_HUES);
-            expect(bookHue(id)).toBe(bookHue(id));
+            expect(bookPaletteIndex(id)).toBeGreaterThanOrEqual(0);
+            expect(bookPaletteIndex(id)).toBeLessThan(BOOK_PALETTE.length);
+            expect(autoBookColor(id)).toBe(BOOK_PALETTE[bookPaletteIndex(id)]);
+            expect(bookColorStyle({id, color: null})).toEqual({"--book-bg": autoBookColor(id)});
         }
+        expect(bookColorStyle({id: "a", color: "#d9c9a3"})).toEqual({"--book-bg": "#d9c9a3"});
+        expect(BOOK_PALETTE.every((color) => !lightColor(color))).toBe(true);
         expect(lightColor("#d9c9a3")).toBe(true);
         expect(lightColor("#7a4b3a")).toBe(false);
         expect(lightColor(null)).toBe(false);

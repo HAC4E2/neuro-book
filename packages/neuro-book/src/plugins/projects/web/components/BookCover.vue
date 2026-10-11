@@ -33,7 +33,7 @@ const titleSize = computed(() => {
 </script>
 
 <template>
-    <span class="book-cover book-color" :class="{'book-color--custom': color !== null, 'book-cover--light': lightColor(color)}" :style="style" role="img" :aria-label="title" data-book-cover>
+    <span class="book-cover" :class="{'book-cover--light': lightColor(color)}" :style="style" role="img" :aria-label="title" data-book-cover>
         <img v-if="showImage" :src="src ?? ''" alt="" class="book-cover__image" @error="failed = true">
         <span v-else class="book-cover__typo" data-book-cover-typo>
             <span class="book-cover__ornament" aria-hidden="true"></span>
@@ -42,8 +42,6 @@ const titleSize = computed(() => {
         </span>
     </span>
 </template>
-
-<style src="./book-colors.css"></style>
 
 <style scoped>
 .book-cover {

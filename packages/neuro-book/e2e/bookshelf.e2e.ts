@@ -161,7 +161,7 @@ test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、�
     await window.locator("input[data-project-title], [data-project-title] input").fill("长夜行");
     await expect(window.locator("[data-project-folder]")).toHaveText("/长夜行");
     await window.locator("[data-project-description]").fill("雪线以北的驿站。");
-    await window.locator("[data-project-color] [data-color-swatch='#8f3f2e']").click();
+    await window.locator("[data-project-color] [data-color-swatch='#6b2032']").click();
     await window.locator("[data-project-cover-input]").setInputFiles({name: "cover.png", mimeType: "image/png", buffer: PNG});
     await page.locator("[data-project-confirm]").click();
     await expect(window).toHaveCount(0);
@@ -170,7 +170,7 @@ test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、�
     // 封面上传后书架刷新，卡片显示图而不是排版封面。
     await expect(card(page, "长夜行").locator("[data-book-cover] img")).toBeVisible();
     const identity = JSON.parse(await readFile(join(library, "长夜行", ".nbook", "project.json"), "utf8")) as {title?: string; color?: string; cover?: string};
-    expect(identity).toMatchObject({title: "长夜行", color: "#8f3f2e", cover: "cover.png"});
+    expect(identity).toMatchObject({title: "长夜行", color: "#6b2032", cover: "cover.png"});
     await access(join(library, "长夜行", "cover.png"));
 
     await page.locator("[data-shelf-create]").click();

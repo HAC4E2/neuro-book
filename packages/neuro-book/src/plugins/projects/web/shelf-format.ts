@@ -11,8 +11,11 @@ import type {ShelfItem, ShelfLastEdit} from "../shared/shelf";
 
 export type ShelfSort = "recent" | "title" | "words";
 
-/** 作品色板的档数：色相从主题强调色起等距转开，明暗与彩度由样式按配色定（`components/book-colors.css`）。 */
-export const BOOK_HUES = 8;
+/**
+ * 作品色板（“布面精装”：藏青、墨绿、酒红、赭石、黛紫、青瓷、驼色、炭黑）。新建窗口的色板就是这八色，作者没指定颜色时
+ * 也按 id 从这八色里取一色，所以“自动”与色板是同一套颜色。八色都够深，封面上的字总用浅色；不随主题变化，像真书的封面。
+ */
+export const BOOK_PALETTE: readonly string[] = ["#1e3a5f", "#2d4a3e", "#6b2032", "#8a4b26", "#46385e", "#2c5f5d", "#7d6142", "#2a2a2d"];
 
 const TEXT = {
     words: {"zh-CN": "{count} 字", "en-US": "{count} words"},
@@ -73,27 +76,24 @@ export function formatWhen(at: string, now: string, locale: DisplayLocale): stri
     return new Intl.DateTimeFormat(locale, options).format(date);
 }
 
-/** 没有指定颜色的作品按 id 取一档色相：同一部作品在任何窗口、任何时候都是同一档。 */
-export function bookHue(id: string): number {
+/** 没有指定颜色的作品按 id 在色板里取一色的序号：同一部作品在任何窗口、任何时候都是同一色。 */
+export function bookPaletteIndex(id: string): number {
     let hash = 0;
     for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    return hash % BOOK_HUES;
+    return hash % BOOK_PALETTE.length;
 }
 
-/**
- * 作者没指定颜色时这部作品用的颜色，写成 CSS 颜色表达式，给色板的“自动”与目录选择器的作品色块用。
- * 与 components/book-colors.css 的 `.book-color` 是同一个公式，改一处要同步另一处。
- */
+/** 作者没指定颜色时这部作品用的颜色（色板里的一色），给封面、色板的“自动”与目录选择器的作品色块用。 */
 export function autoBookColor(id: string): string {
-    return `oklch(from var(--accent-main) 0.5 0.085 calc(h + ${String(bookHue(id))} * 45))`;
+    return BOOK_PALETTE[bookPaletteIndex(id)] as string;
 }
 
-/** 挂在 `.book-color` 元素上的样式变量（见 components/book-colors.css）。 */
+/** 封面底色：作者给的颜色，没有时用自动色。经样式变量 `--book-bg` 交给封面。 */
 export function bookColorStyle(item: {readonly id: string; readonly color: string | null}): Record<string, string> {
-    return {"--book-hue": String(bookHue(item.id)), ...(item.color === null ? {} : {"--book-color": item.color})};
+    return {"--book-bg": item.color ?? autoBookColor(item.id)};
 }
 
-/** 作者给的颜色够亮时文字用深色；生成的色档明度固定，文字总是浅色。 */
+/** 作者给的颜色够亮时文字用深色；色板八色都够深，自动色的字总是浅色。 */
 export function lightColor(color: string | null): boolean {
     if (color === null) return false;
     const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/iu.exec(color);

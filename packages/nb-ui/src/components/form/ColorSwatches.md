@@ -34,7 +34,7 @@ interface ColorSwatchesProps {
     /** 当前颜色；null 表示“自动”。受控，必填 */
     modelValue: string | null;
     /** 色板里的颜色（CSS 颜色字符串，比较时不分大小写）；必填 */
-    colors: string[];
+    colors: ReadonlyArray<string>;
     /** “自动”的文字；非空才显示“自动”色块。默认 "" */
     autoLabel?: string;
     /** “自动”色块填的颜色，任意 CSS 颜色（可以是 var() 或 oklch() 表达式）；默认 "" 即不填色 */

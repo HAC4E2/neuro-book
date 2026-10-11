@@ -46,7 +46,7 @@ import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
 
 /** 作品主题色的八档推荐色（与作品信息对话框一致）。 */
-const BOOK_SWATCHES = ["#2f5fa0", "#3f7a2c", "#8f3f2e", "#1f6e75", "#6a3f8a", "#a8762f", "#871222", "#2e211b"];
+const BOOK_SWATCHES = ["#1e3a5f", "#2d4a3e", "#6b2032", "#8a4b26", "#46385e", "#2c5f5d", "#7d6142", "#2a2a2d"];
 
 const GENRES = [
     {value: "mystery", label: "悬疑", description: "推理、犯罪与解谜"},
@@ -219,11 +219,11 @@ export const formFixtures: LabFixture[] = [
     defineSubjectFixture<typeof ColorSwatches>({
         component: "ColorSwatches",
         scenes: [
-            {id: "book", label: "作品主题色：自动、八色、自定义（两行）", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", autoColor: "oklch(from var(--accent-main) 0.5 0.085 calc(h + 3 * 45))", customLabel: "自定义", columns: 5, label: "主题色"}, model: {modelValue: null}}},
-            {id: "listed", label: "选中色板里的色", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", columns: 5}, model: {modelValue: "#3f7a2c"}}},
+            {id: "book", label: "作品主题色：自动、八色、自定义（两行）", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", autoColor: "#46385e", customLabel: "自定义", columns: 5, label: "主题色"}, model: {modelValue: null}}},
+            {id: "listed", label: "选中色板里的色", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", columns: 5}, model: {modelValue: "#2d4a3e"}}},
             {id: "custom", label: "自定义色", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", columns: 5}, model: {modelValue: "#d4a017"}}},
-            {id: "row-small", label: "一行、小号、无自动", input: {props: {colors: BOOK_SWATCHES, size: "sm"}, model: {modelValue: "#8f3f2e"}}},
-            {id: "disabled", label: "禁用", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", disabled: true}, model: {modelValue: "#2f5fa0"}}},
+            {id: "row-small", label: "一行、小号、无自动", input: {props: {colors: BOOK_SWATCHES, size: "sm"}, model: {modelValue: "#6b2032"}}},
+            {id: "disabled", label: "禁用", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", disabled: true}, model: {modelValue: "#1e3a5f"}}},
         ],
         subject: nbUiSubject("ColorSwatches"),
     }),
