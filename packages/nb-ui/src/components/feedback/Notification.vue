@@ -63,7 +63,7 @@ const progressTone = computed(() => {
             <span v-if="props.progress !== undefined" class="mt-2 block" data-notification-progress>
                 <Progress v-if="props.progress !== null" :model-value="props.progress" size="sm" :tone="progressTone" />
                 <span v-else class="nb-notification__indeterminate block h-1.5 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)]" role="progressbar" aria-valuetext="进行中">
-                    <span class="nb-notification__runner block h-full w-1/3 rounded-full bg-[var(--nb-notification-tone)]"></span>
+                    <span class="nb-ui-indeterminate-runner block h-full rounded-full bg-[var(--nb-notification-tone)]"></span>
                 </span>
             </span>
         </span>
@@ -98,25 +98,5 @@ const progressTone = computed(() => {
 
 .nb-notification--info {
     --nb-notification-tone: var(--accent-main);
-}
-
-.nb-notification__runner {
-    animation: nb-notification-run 1.4s var(--ease-standard) infinite;
-}
-
-@keyframes nb-notification-run {
-    0% {
-        transform: translateX(-100%);
-    }
-
-    100% {
-        transform: translateX(300%);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .nb-notification__runner {
-        animation: none;
-    }
 }
 </style>

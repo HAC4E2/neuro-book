@@ -530,6 +530,31 @@ input.nb-ui-native-input[type="number"] {
     animation: nb-shimmer 2s var(--ease-standard) infinite;
 }
 
+/*
+ * 不确定进度的短条：宽三分之一，在轨道里从左滑出右边、循环；轨道（父元素）负责裁切。
+ * 循环周期不属于三档过渡时长，和微光一样在基座里只写这一处。
+ */
+@keyframes nb-ui-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(300%);
+    }
+}
+
+.nb-ui-indeterminate-runner {
+    width: calc(100% / 3);
+    animation: nb-ui-indeterminate 1.4s var(--ease-standard) infinite;
+}
+
+/* 减少动画时停在轨道左端：“进行中”由旁边的文字与 aria 表达，短条不动也不丢信息。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-indeterminate-runner {
+        animation: none;
+    }
+}
+
 /* 悬浮微晶发光弥散 Pulse 动画 */
 @keyframes nb-crystal-glow {
     0%, 100% {

@@ -97,7 +97,7 @@
 | `browse` 标出作品与已登记目录、只列目录、读不到的目录 | `projects.test.ts` |
 | 封面上传、读取、删除、超限与格式拒绝、身份文件字段 | `cover.test.ts`（真实 HTTP 服务端） |
 | 新建不再先问路径；位置可改并写设置；打开已有作品经选择器；错误落在字段或通知 | `shelf-page.test.ts`、`ProjectInfoWindow.dom.test.ts` |
-| 卡片网格键盘、更多菜单、列表封面、空态两张卡 | `BookCard.dom.test.ts`、`BookshelfPage.dom.test.ts` |
+| 卡片网格键盘、更多菜单、列表封面、空态两张卡、焦点交回书架 | `ShelfCards.dom.test.ts`（键盘、空态两张卡）、`ShelfList.dom.test.ts`（封面）、`BookshelfPage.dom.test.ts`（焦点）；更多菜单由 `bookshelf.e2e.ts` 走真浏览器 |
 | 真浏览器：空书架到新建第一部作品（含封面）、打开已有作品、继续写作 | `bookshelf.e2e.ts`、`bookshelf-stats.e2e.ts` |
 | Lab 工具条聚焦光晕不被裁 | `lab:shot` 机检对 `LabShell` 的工具条 |
 
