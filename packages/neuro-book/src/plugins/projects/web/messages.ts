@@ -72,6 +72,7 @@ const SHELF = {
     createRegisterFailed: {"zh-CN": "目录已建好（{path}），但登记失败：{reason}。可以用“加入已有目录”接着完成", "en-US": "The folder was created ({path}) but registration failed: {reason}. Use “Add an Existing Folder” to finish"},
     createUnknown: {"zh-CN": "新建的结果未知，书架已重新读取；没看到它就再试一次", "en-US": "The outcome is unknown; the shelf was reloaded. Try again if the book is missing"},
     updateFailed: {"zh-CN": "没有保存：{reason}", "en-US": "Not saved: {reason}"},
+    updateUnknown: {"zh-CN": "保存的结果未知，书架已重新读取；显示的还是旧值就再试一次", "en-US": "The outcome is unknown; the shelf was reloaded. Try again if the old values are still shown"},
     removeRunning: {"zh-CN": "这部作品正在打开，或在关闭后的宽限期里；关闭它的全部窗口、等几分钟后再移除", "en-US": "This book is open, or still within the grace period after closing; close all its windows and try again in a few minutes"},
     removeFailed: {"zh-CN": "没有移出书架：{reason}", "en-US": "Not removed from the shelf: {reason}"},
     unknownProject: {"zh-CN": "作品已不在书架上", "en-US": "the book is no longer on the shelf"},

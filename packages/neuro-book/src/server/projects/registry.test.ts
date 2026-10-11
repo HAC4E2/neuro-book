@@ -10,7 +10,9 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {FALLBACK_DIRECTORY_NAME, PROJECT_IDENTITY_FILE, projectDirectoryName, readProjectIdentity} from "./identity";
+import {FALLBACK_DIRECTORY_NAME, projectDirectoryName} from "nbook/plugins/projects/shared/directory-name";
+
+import {PROJECT_IDENTITY_FILE, readProjectIdentity} from "./identity";
 import {createProjectRegistry, PROJECT_REGISTRY_FILE, shortNameBase} from "./registry";
 import type {ProjectRegistry} from "./registry";
 

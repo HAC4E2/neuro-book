@@ -4,7 +4,8 @@
  * 与已按当前语言写好的失败原因。
  *
  * 刷新：页面可见时每 30 秒一次，窗口重新获得焦点时也刷新，两者合并成同一时间至多一个在途请求；页面隐藏时停止。
- * 新建、修改、移出之后强制刷新一次（在途的旧响应作废），界面不先行修改数据。
+ * 新建、修改、移出之后强制刷新一次（在途的响应作废、等它结束再发），界面不先行修改数据。写操作的结果未知时也只重新取
+ * 书架、按本次的目标核对，不盲目重试。
  */
 
 import {computed, ref, shallowRef} from "vue";
@@ -21,6 +22,7 @@ import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/local
 import type {SettingsService} from "nbook/shared/settings";
 
 import {librarySetting, projectsRemoteContract} from "../shared/contracts";
+import {projectDirectoryName} from "../shared/directory-name";
 import type {ShelfItem} from "../shared/shelf";
 import {failureReason, fieldName, projectsText, registerFailureReason, shelfText} from "./messages";
 import {projectUrl} from "./open-project";
@@ -90,7 +92,7 @@ export interface ShelfPage {
     setVisible(visible: boolean): void;
     /** 窗口重新获得焦点。 */
     focused(): void;
-    /** 再取一次；在途时合并进在途的那次。`force` 作废在途的响应、必定再发一次（写操作之后用）。 */
+    /** 再取一次；在途时合并进在途的那次。`force` 作废在途的响应，等它结束后必定再发一次（写操作之后用）。 */
     refresh(force?: boolean): Promise<void>;
     dismissNotice(): void;
     open(id: string): void;
@@ -129,6 +131,8 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
     let visible = false;
     let sequence = 0;
     let inFlight: Promise<void> | null = null;
+    /** 在途请求结束后要补发的那一次（强制刷新碰上在途请求时登记）。 */
+    let followUp: Promise<void> | null = null;
     let cancelTimer: (() => void) | null = null;
 
     const byId = (id: string): ShelfItem | null => items.value.find((item) => item.id === id) ?? null;
@@ -162,9 +166,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         error.value = text(shelfText("shelfFailed", {reason: reason(result.code, result.detail)}));
     }
 
-    function refresh(force = false): Promise<void> {
-        if (disposed) return Promise.resolve();
-        if (inFlight !== null && !force) return inFlight;
+    function start(): Promise<void> {
         sequence += 1;
         const id = sequence;
         const run = fetchOnce(id).finally(() => {
@@ -177,6 +179,22 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         cancelTimer?.();
         cancelTimer = null;
         return run;
+    }
+
+    function refresh(force = false): Promise<void> {
+        if (disposed) return Promise.resolve();
+        if (inFlight === null) return start();
+        if (!force) return inFlight;
+        // 同一时间至多一个请求在途（输出 16）：强制刷新作废在途的响应，等它结束后再发；期间再来的强制刷新并进这一次。
+        sequence += 1;
+        if (followUp === null) {
+            const next = (): Promise<void> => {
+                followUp = null;
+                return disposed ? Promise.resolve() : start();
+            };
+            followUp = inFlight.then(next, next);
+        }
+        return followUp;
     }
 
     function pathRequest(title: DisplayText, placeholder: DisplayText, label: (path: string) => DisplayText): QuickPickRequest {
@@ -269,9 +287,11 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                 case "register-failed":
                     return {ok: false, message: text(shelfText("createRegisterFailed", {path: detail?.path ?? "", reason: text(registerFailureReason(detail?.reason ?? ""))}))};
                 case "unknown-outcome": {
-                    // 新建是写操作，结果未知时不盲目重试：重新取书架，书名在上面就算成功。
+                    // 新建是写操作，结果未知时不盲目重试：重新取书架，本次要建的目录（父目录加由书名生成的目录名）在上面才算成功；
+                    // 书名不唯一，别的目录下的同名作品不算。父目录经服务端规范化成别的写法（符号链接）时对不上，只提示结果未知。
                     await refresh(true);
-                    const created = items.value.find((item) => item.title === values.title);
+                    const expected = {parent: trimSeparators(target.parent), name: projectDirectoryName(values.title)};
+                    const created = items.value.find((item) => item.title === values.title && samePath(splitPath(item.path), expected));
                     if (created !== undefined) {
                         activeId.value = created.id;
                         return {ok: true};
@@ -292,6 +312,13 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                 const detail = result.detail as {readonly field: string; readonly detail: string};
                 return {ok: false, message: text(shelfText("createInvalid", {field: text(fieldName(detail.field)), reason: detail.detail}))};
             }
+            if (result.code === "unknown-outcome") {
+                // 修改是写操作，结果未知时重新取书架：服务端上这部作品已经是提交的值就是保存了。
+                await refresh(true);
+                const current = byId(id);
+                if (current !== null && current.title === values.title && (current.description ?? "") === values.description && current.color === values.color) return {ok: true};
+                return {ok: false, message: text(shelfText("updateUnknown"))};
+            }
             return {ok: false, message: text(shelfText("updateFailed", {reason: reason(result.code, result.detail)}))};
         },
         remove: async (id) => {
@@ -304,6 +331,8 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             }
             if (result.code === "project-running") return {ok: false, message: text(shelfText("removeRunning"))};
             if (result.code === "unknown-outcome") {
+                // 移出是写操作，结果未知时重新取书架：它不在了就是移出了，一样选中相邻的那一部。
+                nextActive = neighbour;
                 await refresh(true);
                 return byId(id) === null ? {ok: true} : {ok: false, message: text(shelfText("removeFailed", {reason: reason(result.code)}))};
             }
@@ -321,9 +350,20 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                     await refresh(true);
                     return;
                 }
-                if (registered.code !== "register-failed") {
-                    // 登记按目录幂等，结果未知时重新取书架即可；别的路由层失败也只提示。
+                if (registered.code === "unknown-outcome") {
+                    // 登记是写操作，结果未知时重新取书架：用户给的目录在上面就是登记了。服务端把路径规范化成别的写法（符号链接）时
+                    // 对不上，只提示结果未知。
                     await refresh(true);
+                    const found = items.value.find((entry) => trimSeparators(entry.path) === trimSeparators(picked.text));
+                    if (found !== undefined) {
+                        activeId.value = found.id;
+                        return;
+                    }
+                    notice.value = {kind: "unknown-outcome", text: text(projectsText("notCompleted", {code: registered.code})), retry: false};
+                    return;
+                }
+                if (registered.code !== "register-failed") {
+                    // 路由层的失败（服务不可用、被拒）只提示。
                     notice.value = {kind: "unknown-outcome", text: text(projectsText("notCompleted", {code: registered.code})), retry: false};
                     return;
                 }
@@ -339,6 +379,22 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             cancelTimer = null;
         },
     };
+}
+
+/** 去掉末尾的路径分隔符：用户输入与服务端给的路径都可能带，比较前两边都去掉。 */
+function trimSeparators(path: string): string {
+    return path.replace(/[/\\]+$/u, "");
+}
+
+/** 路径的父目录与末段（服务端的路径按它的平台写分隔符，两种都认）。 */
+function splitPath(path: string): {readonly parent: string; readonly name: string} {
+    const trimmed = trimSeparators(path);
+    const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+    return index === -1 ? {parent: "", name: trimmed} : {parent: trimSeparators(trimmed.slice(0, index)), name: trimmed.slice(index + 1)};
+}
+
+function samePath(a: {readonly parent: string; readonly name: string}, b: {readonly parent: string; readonly name: string}): boolean {
+    return a.parent === b.parent && a.name === b.name;
 }
 
 function addRetryTitle(code: string): LocalizedText {
