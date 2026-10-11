@@ -23,4 +23,10 @@ describe("字数", () => {
         expect(countWords("甲\n\n---\n\n乙")).toBe(2);
         expect(countWords("")).toBe(0);
     });
+
+    it("开头的 BOM 不挡 frontmatter：文件服务保留 BOM 的正文与去掉 BOM 的正文字数相同", () => {
+        expect(countWords("﻿---\ntitle: Hidden\n---\n正文")).toBe(2);
+        expect(countWords("---\ntitle: Hidden\n---\n正文")).toBe(2);
+        expect(countWords("﻿雨")).toBe(1);
+    });
 });

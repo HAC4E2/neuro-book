@@ -122,7 +122,7 @@ function recorded(fields: {readonly words: number; readonly date: string; readon
 const hanzi = (count: number): string => "字".repeat(count);
 
 describe("Spec projects 输出 16、验收 16：口径", () => {
-    it("非隐藏的 .md 都计入（内容文件夹的 index.md、活页夹章节、大写扩展名），frontmatter 不计；隐藏目录与文件、非 .md、符号链接不计；读不出的文件计入 unreadable", async () => {
+    it("非隐藏的 .md 都计入（内容文件夹的 index.md、活页夹章节、大写扩展名），frontmatter 不计；隐藏目录与文件、非 .md、符号链接不计；读不出的文件（坏编码、NUL、超过 Files 的正文上限）计入 unreadable", async () => {
         const created = await scene({
             "第一章.md": "---\ntitle: 不计\n---\n天地玄黄",
             "设定.content/content.xml": "<content><item name=\"人物\"/></content>",
@@ -138,6 +138,8 @@ describe("Spec projects 输出 16、验收 16：口径", () => {
             "坏.md": new Uint8Array([0xe5, 0xad]),
             "零.md": new Uint8Array([0x41, 0x00, 0x42]),
             "大.md": "a".repeat(TEXT_BUDGET_BYTES + 1),
+            // 原字节在上限内，按 JSON 编码后超过：Files 读它报 too-large，统计也不计。
+            "换行.md": "\n".repeat(Math.ceil(TEXT_BUDGET_BYTES * 0.6)),
         });
         await symlink(join(created.project, "第一章.md"), join(created.project, "链接.md"));
         const {tracker} = track(created);
@@ -148,7 +150,7 @@ describe("Spec projects 输出 16、验收 16：口径", () => {
             computedAt: new Date(at(2026, 10, 10, 10)).toISOString(),
             words: 13,
             files: 5,
-            unreadable: 3,
+            unreadable: 4,
             // 从没统计过：第一次扫完的总字数就是基线。
             today: {date: "2026-10-10", baseline: 13},
             last: null,

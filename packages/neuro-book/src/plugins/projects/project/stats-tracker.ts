@@ -20,7 +20,7 @@ import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
-import {parseResource, TEXT_BUDGET_BYTES} from "nbook/plugins/files/shared/contracts";
+import {encodedTextBytes, parseResource, TEXT_BUDGET_BYTES} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
 import {countWords} from "nbook/shared/word-count";
 
@@ -596,7 +596,10 @@ async function readMarkdown(absolute: string): Promise<ReadOutcome> {
         // 打开之后文件又长大了。
         if (bytes.length > TEXT_BUDGET_BYTES) return {kind: "unreadable", reason: "too-large"};
         const text = decodeUtf8(bytes);
-        return text === null ? {kind: "unreadable", reason: "not-text"} : {kind: "text", text};
+        if (text === null) return {kind: "unreadable", reason: "not-text"};
+        // 与 Files 读取同一道上限：正文按 JSON 编码后要装进一条 RPC 消息，换行、引号多的文件编码后比原字节长，Files 打不开的这里也不计。
+        if (encodedTextBytes(text) > TEXT_BUDGET_BYTES) return {kind: "unreadable", reason: "too-large"};
+        return {kind: "text", text};
     } catch (error) {
         return {kind: "unreadable", reason: errnoOf(error) ?? "read-failed"};
     } finally {

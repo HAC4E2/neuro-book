@@ -7,12 +7,14 @@
  * - 开头的 YAML frontmatter 不计。
  */
 
+const BOM = /^﻿/u;
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
 const WORD = /[\p{Script=Latin}\p{Nd}]+(?:['’-][\p{Script=Latin}\p{Nd}]+)*/gu;
 
 export function countWords(text: string): number {
-    const body = text.replace(FRONTMATTER, "");
+    // 文件服务把 BOM 留在正文里（保存时原样写回），作品统计读文件时又去掉它：这里先剥掉再认 frontmatter，两边的字数才一致。
+    const body = text.replace(BOM, "").replace(FRONTMATTER, "");
     // 先数中日韩的字，再把它们换成空格数拉丁词：两类紧挨着时（“第3章”）不会被当成一个词。
     let count = 0;
     const latin = body.replace(CJK, () => {
