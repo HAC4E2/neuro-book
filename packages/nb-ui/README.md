@@ -110,7 +110,8 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `HoverCard`：划词/悬浮卡片（适用于设定集词条、人物资料与超链接预览）。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
 - `QuickInput`：全局快速输入浮层（S4 命令面板基座）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
-- `Notification` / `NotificationViewport`：全局 Toast 通知。
+- `Notification` / `NotificationViewport`：Toast 通知与它的视口；队列可用 `createNotificationQueue()` 自建一份传给视口，通知可带进度。队列本身不碰 DOM，从子路径 `@notnotype/nb-ui/notifications` 单独导入时不会把别的 composable 带进无 DOM 的编译组。
+- `Banner`：区域或页面顶部的常驻横幅（已断开正在重连、有新版本要刷新），不进队列、不自动消失。
 
 ### 数据展示 (Display)
 - `Badge`：超椭圆现代状态徽章（支持 `dot` 发光点、`iconClass` 与温润深琥珀 Warning 调色）。

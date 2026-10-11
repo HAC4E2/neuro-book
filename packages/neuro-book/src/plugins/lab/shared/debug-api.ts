@@ -23,6 +23,16 @@ export type LabOverflowOffender = {
     overflow: number;
 };
 
+/** 聚焦光晕会被裁的控件：它离某个裁切祖先的边比光晕外扩量近。 */
+export type LabClippedFocus = {
+    selector: string;
+    componentName: string;
+    /** 裁切它的祖先。 */
+    clipper: string;
+    /** 离最近那条边的距离（像素），小于光晕外扩量。 */
+    gap: number;
+};
+
 export type LabStageMeasure = {
     /** 舞台在视口中的位置与大小，截图按它裁剪。 */
     box: {x: number; y: number; width: number; height: number};
@@ -30,6 +40,8 @@ export type LabStageMeasure = {
     overflowX: number;
     /** 越出舞台左右边缘、且没有被某个滚动或裁剪容器挡住的元素，最多 20 个。 */
     offenders: LabOverflowOffender[];
+    /** 聚焦时光晕会被祖先裁掉一截的可聚焦控件，最多 20 个；按主题的 `--focus-ring` 算外扩量。 */
+    clippedFocus: LabClippedFocus[];
 };
 
 export type LabDebugApi = {

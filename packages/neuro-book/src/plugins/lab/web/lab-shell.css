@@ -188,8 +188,11 @@
     padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
     background: var(--lab-surface);
-    /* 与中栏那条一样：不横向滚动，控件不滑出可视区；空间不足由内容收缩与换行承担。 */
-    overflow: hidden;
+    /*
+     * 不横向滚动、控件不滑出可视区，由内容收缩与换行承担，不靠 overflow: hidden：这条栏只有 48px 高，
+     * 控件的聚焦光晕（两圈加投影约 7px）会被裁掉上下两边（2026-10-11 开发者指出）。
+     */
+    overflow: visible;
     /* 容器查询的锚点：窄到什么程度藏哪些东西，由这一条自己的宽度决定。 */
     container-type: inline-size;
 }
@@ -222,9 +225,10 @@
     padding: 0 var(--panel-p);
     /*
      * 不横向滚动：这条栏上的四个旋钮是看组件时要一直摸的，滑出去就等于没有。
-     * 空间不足由内容自己收缩承担——先截断名字与别名、再收窄场景下拉（见下面的容器查询）。
+     * 空间不足由内容自己收缩承担——先截断名字与别名、再收窄场景下拉（见下面的容器查询）；
+     * 不用 overflow: hidden，理由同顶栏（聚焦光晕会被裁）。
      */
-    overflow: hidden;
+    overflow: visible;
     /* 容器查询的锚点：窄到什么程度藏哪些文字，由这一条自己的宽度决定，不由窗口决定。 */
     container-type: inline-size;
 }

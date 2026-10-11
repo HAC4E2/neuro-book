@@ -29,7 +29,7 @@ import {APP_COMMAND_DECLARATIONS, appCommands} from "./commands/app-commands";
 import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
-import {appearanceSetting, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {itemValidator, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ItemDeclaration} from "../shared/items";
@@ -39,6 +39,7 @@ import {workbenchRootKey} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
 import {createWorkbenchPages} from "./home-page";
 import {HomeSlot} from "./home-slot";
+import {createNotifications} from "./notifications";
 import {ItemRegistry} from "./items/registry";
 import {currentKeyPlatform} from "./commands/keymap";
 import {createShellChrome} from "./titlebar/titlebar-source";
@@ -51,6 +52,7 @@ import {ViewRegistry} from "./views/registry";
 const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchCommandHost.vue"));
 const WorkbenchDocument = defineAsyncComponent(() => import("./document/WorkbenchDocument.vue"));
 const WorkbenchShell = defineAsyncComponent(() => import("./components/WorkbenchShell.vue"));
+const Notifications = defineAsyncComponent(() => import("./components/WorkbenchNotifications.vue"));
 
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -66,7 +68,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}],
-        provides: [workbenchRootKey, quickPickKey],
+        provides: [workbenchRootKey, quickPickKey, notificationsKey],
         receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_HOME_POINT],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
@@ -118,12 +120,16 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
+            // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
+            const notifications = createNotifications();
+            context.signal.addEventListener("abort", () => notifications.dispose(), {once: true});
             const projectName = project?.name ?? null;
             const workbenchPages = createWorkbenchPages({
                 renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),
                 // 布局 store 在外壳渲染时才取：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。
                 renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectName, locale: locale.value}),
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
+                renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 projectName,
                 home: homeSlot,
                 reportHome: (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}),
@@ -133,7 +139,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 {path: WORKBENCH_PATH, title: "NeuroBook", load: async () => workbenchPages.workbench},
             ]);
             return {
-                services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick)],
+                services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick), provide(notificationsKey, {notify: (input) => notifications.notify(input)})],
                 receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver()},
                 contributions: {
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},

@@ -582,8 +582,9 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof NeuroBookLockup>({
         component: "NeuroBookLockup",
+        noInput: "字标没有 prop：大小由使用方的 class 给，颜色跟随文字色。",
         scenes: [
-            {id: "title", label: "标题栏大小（26px）", input: {}},
+            {id: "title", label: "标题栏大小（26px）"},
         ],
         subject: () => import("nbook/ui/brand/NeuroBookLockup.vue"),
         class: "h-[26px] text-[var(--text-main)]",

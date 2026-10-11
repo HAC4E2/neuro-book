@@ -22,6 +22,7 @@ function world(projectName: string | null = null) {
         renderDocument: () => h("span", {"data-test-document": ""}),
         renderShell: () => h(Shell),
         renderCommandHost: () => h("span", {"data-test-commands": ""}),
+        renderNotifications: () => h("span", {"data-test-notifications": ""}),
         projectName,
         home: {current},
         reportHome: (message) => reports.push(message),
@@ -32,12 +33,13 @@ function world(projectName: string | null = null) {
 const immediate = (id: string, component: Component): HomeProvider => ({id, load: async () => component});
 
 describe("工作台页面与首页贡献", () => {
-    it("没有首页贡献时渲染外壳；文档根与命令宿主都在", () => {
+    it("没有首页贡献时渲染外壳；文档根、命令宿主与通知视口都在", () => {
         const {pages} = world();
         const wrapper = mount(pages.home);
         expect(wrapper.find("[data-test-shell]").exists()).toBe(true);
         expect(wrapper.find("[data-test-document]").exists()).toBe(true);
         expect(wrapper.find("[data-test-commands]").exists()).toBe(true);
+        expect(wrapper.find("[data-test-notifications]").exists()).toBe(true);
         expect(wrapper.attributes("data-workbench-home")).toBeUndefined();
     });
 

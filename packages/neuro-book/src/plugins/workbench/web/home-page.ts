@@ -6,7 +6,7 @@ import type {HomeProvider, HomeSource} from "./home-slot";
 /**
  * 工作台的两个内置页面（docs/specs/ui/workbench-shell.md 外壳一与输出 36–37）：`/` 与 `/workbench`。页面单根：窗口的状态、
  * 实例与链路标记由页面出口透传到这个根上；窗口绑定了项目时根上带项目短名（`data-workbench-project`，全页只此一处）。
- * 文档根的设置与命令宿主两页都挂着；中间是外壳，或者（`/` 页、没有项目、有首页贡献时）首页贡献的组件。
+ * 文档根的设置、命令宿主与通知视口两页都挂着；中间是外壳，或者（`/` 页、没有项目、有首页贡献时）首页贡献的组件。
  *
  * 外壳由 `renderShell` 渲染，布局 store 在那里面才取：首页贡献在场时不读产品布局记录，直接打开 Lab 的窗口也一样。
  *
@@ -16,6 +16,8 @@ export interface WorkbenchPageParts {
     readonly renderDocument: () => VNode;
     readonly renderShell: () => VNode;
     readonly renderCommandHost: () => VNode;
+    /** 通知视口（docs/specs/workbench/notifications.md）：两页都挂，书架页与空工作台的通知落在同一处。 */
+    readonly renderNotifications: () => VNode;
     readonly projectName: string | null;
     /** 首页贡献；只有 `/` 页在没有项目时用它。 */
     readonly home: HomeSource;
@@ -64,7 +66,7 @@ function page(name: string, parts: WorkbenchPageParts, useHome: boolean): Compon
                     "data-workbench-root": "",
                     ...(parts.projectName === null ? {} : {"data-workbench-project": parts.projectName}),
                     ...(homeShown ? {"data-workbench-home": current.id} : {}),
-                }, [parts.renderDocument(), body, parts.renderCommandHost()]);
+                }, [parts.renderDocument(), body, parts.renderCommandHost(), parts.renderNotifications()]);
             };
         },
     });

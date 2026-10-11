@@ -8,7 +8,7 @@ import {defineSetting} from "nbook/shared/settings";
 
 /**
  * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、视图贡献点 `workbench.views` 与它的
- * 声明（定义在 `views.ts`）、编辑器槽贡献点 `workbench.editor-area` 与它的声明、命令面板的选择服务。
+ * 声明（定义在 `views.ts`）、编辑器槽贡献点 `workbench.editor-area` 与它的声明、命令面板的选择服务、通知服务。
  * 其它插件在运行时只引用本文件（docs/adr/0025-service-keys-by-id.md）；页面实现与窗口根这类依赖 Vue 的
  * 浏览器合同在 `web/contracts.ts`。
  */
@@ -83,6 +83,38 @@ export interface QuickPick {
 
 /** 工作台提供的选择服务；需要它的插件在入口依赖里声明。 */
 export const quickPickKey: ServiceKey<QuickPick> = defineServiceKey<QuickPick>("nbook.workbench/quick-pick");
+
+export type NotificationTone = "info" | "success" | "warning" | "error";
+
+/**
+ * 一条通知（docs/specs/workbench/notifications.md）。文字已按当前语言写好，由发出方负责；标题说发生了什么，
+ * 正文说原因与现在显示的是什么，动作说能做什么。
+ */
+export interface NotificationInput {
+    readonly tone?: NotificationTone;
+    readonly title?: string;
+    readonly message: string;
+    /** 动作按钮；点了之后通知移除。 */
+    readonly action?: {readonly label: string; readonly run: () => void};
+    /** 进度（0 到 100）；null 为不确定进度；不给就没有进度条。 */
+    readonly progress?: number | null;
+    /** 常驻：不自动消失。缺省 error 色调与带动作的通知常驻，其余按色调自动消失。 */
+    readonly sticky?: boolean;
+}
+
+/** 已发出的通知：改进度、文字、色调与常驻，或移除。 */
+export interface NotificationHandle {
+    readonly id: string;
+    update(patch: Partial<NotificationInput>): void;
+    dismiss(): void;
+}
+
+export interface Notifications {
+    notify(input: NotificationInput): NotificationHandle;
+}
+
+/** 工作台提供的通知服务（本窗口一份队列，视口挂在页面根上）；需要它的插件在入口依赖里声明。 */
+export const notificationsKey: ServiceKey<Notifications> = defineServiceKey<Notifications>("nbook.workbench/notifications");
 
 /** 产品主题包（docs/specs/theme/system.md）；两层都允许，项目可以给自己定一套。 */
 export const themeSetting = defineSetting({

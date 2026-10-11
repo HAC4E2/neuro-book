@@ -197,6 +197,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 双模式、F1–F9 交互、剪贴板与 dirty 策略 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+| 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

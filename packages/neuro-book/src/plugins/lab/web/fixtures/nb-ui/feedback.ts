@@ -1,9 +1,9 @@
-/** nb-ui 反馈与浮层类（`feedback/`）的场景。`NotificationViewport` 读写全局通知队列，按标签不可挂载。 */
+/** nb-ui 反馈与浮层类（`feedback/`）的场景。`NotificationViewport` 由夹具自建一份队列传给它，不碰模块级的缺省队列。 */
 
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, ContextMenu, Dialog, DialogWindow, Drawer, HoverCard, Notification, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, DialogWindow, Drawer, HoverCard, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -125,8 +125,31 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "success", label: "成功", input: {props: {tone: "success", title: "已保存", message: "第十七章 雪线", dismissible: true}}},
             {id: "warning", label: "警告与操作", input: {props: {tone: "warning", title: "布局没保存上", message: "存储暂时不可用，修改只在这个窗口里。", actionLabel: "重试", dismissible: true}}},
             {id: "error", label: "错误", input: {props: {tone: "error", title: "保存失败", message: "磁盘已满（ENOSPC）。", actionLabel: "重试", dismissible: false}}},
+            {id: "progress", label: "确定进度", input: {props: {tone: "info", title: "正在统计字数", message: "已统计 2 部，共 6 部", progress: 33, dismissible: true}}},
+            {id: "indeterminate", label: "不确定进度", input: {props: {tone: "info", title: "正在连接", message: "等待服务端回应…", progress: null, dismissible: true}}},
         ],
         subject: nbUiSubject("Notification"),
+    }),
+    defineLabFixture<typeof NotificationViewport>({
+        component: "NotificationViewport",
+        scenes: [
+            {id: "bottom-right", label: "右下", input: {props: {position: "bottom-right"}}},
+            {id: "bottom-center", label: "底部居中", input: {props: {position: "bottom-center"}}},
+            {id: "top-right", label: "右上", input: {props: {position: "top-right"}}},
+        ],
+        load: async () => (await import("./NotificationViewportFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof Banner>({
+        component: "Banner",
+        events: ["action", "dismiss"],
+        class: "w-full max-w-[640px]",
+        scenes: [
+            {id: "warning", label: "已断开", input: {props: {tone: "warning", title: "已与服务端断开", message: "正在重新连接，未保存的修改留在这个窗口里。", dismissible: false}}},
+            {id: "info", label: "有新版本", input: {props: {tone: "info", title: "NeuroBook 已更新", message: "刷新页面后使用新版本。", actionLabel: "刷新", dismissible: true}}},
+            {id: "error", label: "错误", input: {props: {tone: "error", title: "布局没有保存", message: "存储暂时不可用（EACCES）。", actionLabel: "重试", dismissible: true}}},
+            {id: "success", label: "成功", input: {props: {tone: "success", message: "已重新连接。", dismissible: true}}},
+        ],
+        subject: nbUiSubject("Banner"),
     }),
     defineLabFixture<typeof QuickInput>({
         component: "QuickInput",
