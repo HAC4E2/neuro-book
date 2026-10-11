@@ -166,6 +166,18 @@ describe("Spec projects 输出 11：服务端停止", () => {
         expect(await h.manager.acquire("book", "window-2")).toMatchObject({status: "rejected", reason: "admission-closed"});
     });
 
+    it("按代次重连也在取得后核对接纳：取得期间关闭的，租约立即释放、得到 admission-closed", async () => {
+        const h = await projectHarness(tmp);
+        const first = leaseOf(await h.manager.acquire("book", "window-1"));
+        await h.ready(1);
+        const reconnect = h.manager.acquire(h.project.id, "window-2", {generation: 1});
+        h.manager.stopAdmission();
+        expect(await reconnect).toMatchObject({status: "rejected", reason: "admission-closed"});
+        // 那份租约没有留下：第一个窗口放手后项目就进入宽限期。
+        first.release();
+        await settle(() => h.manager.running(h.project.id)?.state === "idle-grace");
+    });
+
     it("父实例停止：先停完项目子进程（退出码 0）；停止中被强制结束的记为停止问题", async () => {
         const h = await projectHarness(tmp);
         const lease = leaseOf(await h.manager.acquire("book", "window-1"));

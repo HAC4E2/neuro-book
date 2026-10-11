@@ -214,12 +214,16 @@ class ProjectManagerImpl implements ProjectManager {
         if (result.status === "rejected") {
             return {status: "rejected", reason: result.reason, detail: result.detail ?? result.reason};
         }
-        // 取得期间服务端开始停止（打开项目要等子进程启动，可能好几秒）：不交出这份租约。
+        return this.#admitted(record, result.lease);
+    }
+
+    /** 取得期间服务端开始停止（打开项目要等子进程启动，可能好几秒；按代次重连也有一次等待）：不交出这份租约。 */
+    #admitted(record: ProjectRecord, lease: ChildLease): ProjectAcquireResult {
         if (!this.#admission) {
-            result.lease.release();
+            lease.release();
             return {status: "rejected", reason: "admission-closed", detail: "服务端正在停止"};
         }
-        return {status: "acquired", lease: this.#projectLease(record, result.lease)};
+        return {status: "acquired", lease: this.#projectLease(record, lease)};
     }
 
     async #resolve(reference: string): Promise<{readonly status: "resolved"; readonly record: ProjectRecord} | AcquireRejected> {
@@ -294,7 +298,7 @@ class ProjectManagerImpl implements ProjectManager {
         if (child === undefined || child.generation !== generation) return {status: "rejected", reason: "generation-gone", detail: `项目 ${id} 的代次 ${String(generation)} 已结束`};
         const result = await this.#children.acquire(id, holder, {generation});
         if (result.status === "rejected") return {status: "rejected", reason: result.reason, detail: result.detail ?? result.reason};
-        return {status: "acquired", lease: this.#projectLease(child.record, result.lease)};
+        return this.#admitted(child.record, result.lease);
     }
 
     async bind(request: Exclude<BindRequest, null>, client: InstanceDescriptor): Promise<ProjectBindResult> {
