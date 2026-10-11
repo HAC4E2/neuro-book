@@ -46,10 +46,12 @@ export interface ProductServer extends ProcessHandle {
 }
 
 /** `port` 给定时监听这个 HTTP 端口：在同一地址上起第二个进程，看页面的“服务端已重启”。 */
-export async function startProductServer(stateRoot: string, port = 0): Promise<ProductServer> {
+export async function startProductServer(stateRoot: string, options: number | {readonly port?: number; readonly env?: Readonly<Record<string, string>>} = 0): Promise<ProductServer> {
+    const resolved = typeof options === "number" ? {port: options, env: {}} : {port: options.port ?? 0, env: options.env ?? {}};
     const child = spawn("bun", ["dist/server/main.js", "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(port), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "dist/web"},
+        // `env` 盖在进程环境上：用例可以把 HOME 指到场地，让缺省作品目录与 ~ 都落在临时目录里。
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(resolved.port), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "dist/web", ...resolved.env},
     });
     const handle = track(child);
     const url = (await handle.waitFor(/Listening on (\S+)/u))[1] as string;

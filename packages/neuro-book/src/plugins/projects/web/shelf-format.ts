@@ -1,5 +1,5 @@
 /**
- * 书架的显示规则（docs/proposals/bookshelf.md）：字数与时间的写法、书脊的厚度与色档、排序、继续写作选哪一部。
+ * 书架的显示规则（docs/specs/workbench/bookshelf.md）：字数与时间的写法、作品的色档、排序、继续写作选哪一部、最近写到、合计。
  * 纯函数，组件与测试共用。
  */
 
@@ -7,23 +7,18 @@ import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import {projectDisplayName} from "../shared/shelf";
-import type {ShelfItem} from "../shared/shelf";
+import type {ShelfItem, ShelfLastEdit} from "../shared/shelf";
 
 export type ShelfSort = "recent" | "title" | "words";
 
-/** 书脊厚度的上下限（px）：最薄也要放得下一列竖排的字，最厚不让一部长篇占掉半个书架。 */
-export const SPINE_WIDTH = {min: 30, max: 64} as const;
-/** 到这个字数书脊就到最厚；按对数增长，几千字与几万字之间也看得出差别。 */
-const SPINE_FULL_WORDS = 1_000_000;
-/** 书脊色板的档数：色相从主题强调色起等距转开，明暗与彩度由组件按配色定。 */
-export const SPINE_HUES = 8;
-/** 书脊高度的几档（px）：真书高矮不一，一排同高的书脊像色卡。最高一档决定每层搁板的高度。 */
-export const SPINE_HEIGHTS = [200, 208, 214, 220] as const;
+/** 作品色板的档数：色相从主题强调色起等距转开，明暗与彩度由样式按配色定（`components/book-colors.css`）。 */
+export const BOOK_HUES = 8;
 
 const TEXT = {
     words: {"zh-CN": "{count} 字", "en-US": "{count} words"},
     wordsTenThousand: {"zh-CN": "{count} 万字", "en-US": "{count}k words"},
     files: {"zh-CN": "{count} 篇", "en-US": "{count} files"},
+    books: {"zh-CN": "{count} 部作品", "en-US": "{count} books"},
     today: {"zh-CN": "今天 {count} 字", "en-US": "{count} today"},
     todayAt: {"zh-CN": "今天 {time}", "en-US": "Today {time}"},
     yesterdayAt: {"zh-CN": "昨天 {time}", "en-US": "Yesterday {time}"},
@@ -45,10 +40,18 @@ export function formatFiles(count: number, locale: DisplayLocale): string {
     return localize(formatText(TEXT.files, {count: grouped(count, locale)}), locale);
 }
 
+export function formatBooks(count: number, locale: DisplayLocale): string {
+    return localize(formatText(TEXT.books, {count: grouped(count, locale)}), locale);
+}
+
 /** 今天净增的字数；减少时带负号（U+2212），不显示为 0。 */
 export function formatToday(count: number, locale: DisplayLocale): string {
-    const value = count < 0 ? `−${grouped(-count, locale)}` : grouped(count, locale);
-    return localize(formatText(TEXT.today, {count: value}), locale);
+    return localize(formatText(TEXT.today, {count: formatSigned(count, locale)}), locale);
+}
+
+/** 带符号的整数：负数用 U+2212。 */
+export function formatSigned(count: number, locale: DisplayLocale): string {
+    return count < 0 ? `−${grouped(-count, locale)}` : grouped(count, locale);
 }
 
 function sameDay(a: Date, b: Date): boolean {
@@ -70,29 +73,28 @@ export function formatWhen(at: string, now: string, locale: DisplayLocale): stri
     return new Intl.DateTimeFormat(locale, options).format(date);
 }
 
-/** 书脊厚度：按字数的对数插值，夹在上下限之间。 */
-export function spineWidth(words: number): number {
-    const ratio = Math.min(1, Math.log10(Math.max(0, words) + 1) / Math.log10(SPINE_FULL_WORDS + 1));
-    return Math.round(SPINE_WIDTH.min + (SPINE_WIDTH.max - SPINE_WIDTH.min) * ratio);
-}
-
 /** 没有指定颜色的作品按 id 取一档色相：同一部作品在任何窗口、任何时候都是同一档。 */
-export function spineHue(id: string): number {
+export function bookHue(id: string): number {
     let hash = 0;
     for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    return hash % SPINE_HUES;
+    return hash % BOOK_HUES;
 }
 
-/** 书脊高度：按 id 取一档，与色档用不同的位，同色的两本不总是一样高。 */
-export function spineHeight(id: string): number {
-    let hash = 0;
-    for (const char of id) hash = (hash * 131 + char.charCodeAt(0)) >>> 0;
-    return SPINE_HEIGHTS[hash % SPINE_HEIGHTS.length] as number;
+/** 挂在 `.book-color` 元素上的样式变量（见 components/book-colors.css）。 */
+export function bookColorStyle(item: {readonly id: string; readonly color: string | null}): Record<string, string> {
+    return {"--book-hue": String(bookHue(item.id)), ...(item.color === null ? {} : {"--book-color": item.color})};
 }
 
-/** 挂在 `.shelf-spine-color` 元素上的样式变量（见 components/shelf-colors.css）。 */
-export function spineStyle(item: {readonly id: string; readonly color: string | null}): Record<string, string> {
-    return {"--spine-hue": String(spineHue(item.id)), ...(item.color === null ? {} : {"--spine-color": item.color})};
+/** 作者给的颜色够亮时文字用深色；生成的色档明度固定，文字总是浅色。 */
+export function lightColor(color: string | null): boolean {
+    if (color === null) return false;
+    const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/iu.exec(color);
+    if (match === null) return false;
+    const [r, g, b] = match.slice(1).map((part) => {
+        const channel = Number.parseInt(part, 16) / 255;
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4;
 }
 
 function lastAt(item: ShelfItem): number {
@@ -118,4 +120,38 @@ export function continueTarget(items: ReadonlyArray<ShelfItem>): ShelfItem | nul
         if (item.stats.last !== null && (best === null || lastAt(item) > lastAt(best))) best = item;
     }
     return best;
+}
+
+export interface RecentPiece {
+    readonly item: ShelfItem;
+    readonly last: ShelfLastEdit;
+}
+
+/** 最近写到的片段：各作品最近编辑的那个文件，按时间从近到远取前 `limit` 条。 */
+export function recentPieces(items: ReadonlyArray<ShelfItem>, limit = 3): RecentPiece[] {
+    return items
+        .flatMap((item) => (item.stats.last === null ? [] : [{item, last: item.stats.last}]))
+        .sort((a, b) => Date.parse(b.last.at) - Date.parse(a.last.at))
+        .slice(0, limit);
+}
+
+export interface ShelfTotals {
+    readonly words: number;
+    readonly files: number;
+    readonly books: number;
+    /** 今天净增的合计；没有一部作品给出今天的数字时为 null。 */
+    readonly today: number | null;
+}
+
+/** 案头的合计：字数与篇数把有统计的作品加起来，今天只加有今天数字的。 */
+export function shelfTotals(items: ReadonlyArray<ShelfItem>): ShelfTotals {
+    let today: number | null = null;
+    let words = 0;
+    let files = 0;
+    for (const item of items) {
+        words += item.stats.words;
+        files += item.stats.files;
+        if (item.stats.today !== null) today = (today ?? 0) + item.stats.today;
+    }
+    return {words, files, books: items.length, today};
 }

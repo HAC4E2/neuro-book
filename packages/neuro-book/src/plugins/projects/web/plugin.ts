@@ -10,21 +10,23 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {quickPickKey, WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {HomeDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WorkbenchHomeImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
 import {projectsRemoteContract} from "../shared/contracts";
+import {projectCoverUrl} from "../shared/cover";
 import {createBookshelfHome} from "./bookshelf-home";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
 import type {OpenProjectHost} from "./open-project";
 import {createShelfPage} from "./shelf-page";
+import type {CoverTransport, CoverTransportResult} from "./shelf-page";
 import {shelfPreferencesStore} from "./shelf-preferences";
 import type {ShelfPreferencesStore} from "./shelf-preferences";
 
@@ -40,7 +42,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}],
+        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
             {capability: WORKBENCH_HOME_POINT, id: BOOKSHELF_HOME_ID, declaration: HOME_DECLARATION},
@@ -53,6 +55,8 @@ export const projectsBrowserPlugin: PluginDefinition = {
             const diagnostics = context.services.require(diagnosticsKey);
             const storage = context.services.require(storageKey);
             const clock = context.services.require(clockKey);
+            const notifications = context.services.require(notificationsKey);
+            const commands = context.services.require(commandServiceKey);
             const locale = computed(() => displayLocale(settings));
             const host: OpenProjectHost = {
                 remote,
@@ -79,8 +83,13 @@ export const projectsBrowserPlugin: PluginDefinition = {
                             setSort: (sort) => preferences().actions.setSort(sort),
                         },
                         settings,
-                        quickPick,
                         navigation,
+                        notifications,
+                        cover: coverTransport(),
+                        commands: {execute: async (id) => {
+                            const result = await commands.execute(id, undefined, {source: "user"});
+                            return result.ok ? {ok: true} : {ok: false, reason: `${result.code}：${result.reason}`};
+                        }},
                         report: (event, message) => diagnostics.record({level: "warn", event, message, source: {plugin: descriptor.id}}),
                     }),
                 }),
@@ -89,3 +98,32 @@ export const projectsBrowserPlugin: PluginDefinition = {
         },
     })],
 };
+
+/** 封面经服务端入口的 HTTP 路由（docs/specs/runtime/projects.md 输出第 21 条）：同源，浏览器直接 fetch。 */
+function coverTransport(): CoverTransport {
+    const failure = async (response: Response): Promise<CoverTransportResult> => {
+        const body = await response.json().catch(() => null) as {readonly code?: string; readonly detail?: string} | null;
+        return {ok: false, code: body?.code ?? String(response.status), detail: body?.detail ?? response.statusText};
+    };
+    const url = (id: string): string => projectCoverUrl(id, "").split("?")[0] ?? "";
+    return {
+        upload: async (id, file) => {
+            const form = new FormData();
+            form.set("file", file, file.name);
+            try {
+                const response = await fetch(url(id), {method: "PUT", body: form});
+                return response.ok ? {ok: true} : failure(response);
+            } catch (error) {
+                return {ok: false, code: "network", detail: error instanceof Error ? error.message : String(error)};
+            }
+        },
+        remove: async (id) => {
+            try {
+                const response = await fetch(url(id), {method: "DELETE"});
+                return response.ok ? {ok: true} : failure(response);
+            } catch (error) {
+                return {ok: false, code: "network", detail: error instanceof Error ? error.message : String(error)};
+            }
+        },
+    };
+}

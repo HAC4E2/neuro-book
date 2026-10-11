@@ -1,9 +1,9 @@
-/** 书架的显示规则（shelf-format.ts）：字数与时间的写法、书脊厚度、排序与继续写作的选择。 */
+/** 书架的显示规则（shelf-format.ts）：字数与时间的写法、作品色档、排序、继续写作的选择、最近写到与合计。 */
 
 import {describe, expect, it} from "bun:test";
 
 import type {ShelfItem, ShelfStats} from "../shared/shelf";
-import {continueTarget, formatToday, formatWhen, formatWords, SPINE_HEIGHTS, SPINE_WIDTH, spineHeight, spineWidth, sortShelf} from "./shelf-format";
+import {BOOK_HUES, bookHue, continueTarget, formatToday, formatWhen, formatWords, lightColor, recentPieces, shelfTotals, sortShelf} from "./shelf-format";
 
 function item(id: string, title: string | null, stats: Partial<ShelfStats> = {}): ShelfItem {
     return {
@@ -45,20 +45,35 @@ describe("时间", () => {
     });
 });
 
-describe("书脊", () => {
-    it("厚度随字数单调增长，夹在上下限之间", () => {
-        expect(spineWidth(0)).toBe(SPINE_WIDTH.min);
-        expect(spineWidth(50_000_000)).toBe(SPINE_WIDTH.max);
-        const widths = [0, 1000, 10_000, 100_000, 1_000_000].map(spineWidth);
-        expect(widths).toEqual([...widths].sort((a, b) => a - b));
-        expect(new Set(widths).size).toBe(widths.length);
+describe("作品色", () => {
+    it("色档在八档之内，同一个 id 总是同一档；作者给的浅色用深字", () => {
+        for (const id of ["a", "b", "8f0c2d4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f"]) {
+            expect(bookHue(id)).toBeGreaterThanOrEqual(0);
+            expect(bookHue(id)).toBeLessThan(BOOK_HUES);
+            expect(bookHue(id)).toBe(bookHue(id));
+        }
+        expect(lightColor("#d9c9a3")).toBe(true);
+        expect(lightColor("#7a4b3a")).toBe(false);
+        expect(lightColor(null)).toBe(false);
+    });
+});
+
+describe("最近写到与合计", () => {
+    const books = [
+        item("b", "北方", {words: 300, files: 2, today: 20, last: at("2026-10-08T10:00:00Z")}),
+        item("a", "长夜", {words: 900, files: 5, today: null, last: at("2026-10-10T10:00:00Z")}),
+        item("c", null, {words: 300, files: 1}),
+        item("d", "雾中", {words: 100, files: 1, today: -5, last: at("2026-09-01T10:00:00Z")}),
+    ];
+
+    it("最近写到按时间从近到远取前几条，没有编辑记录的不算", () => {
+        expect(recentPieces(books, 3).map((piece) => piece.item.id)).toEqual(["a", "b", "d"]);
+        expect(recentPieces(books, 2).map((piece) => piece.item.id)).toEqual(["a", "b"]);
     });
 
-    it("高度只取几档之一，同一个 id 总是同一档", () => {
-        for (const id of ["a", "b", "8f0c2d4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f"]) {
-            expect(SPINE_HEIGHTS).toContain(spineHeight(id) as (typeof SPINE_HEIGHTS)[number]);
-            expect(spineHeight(id)).toBe(spineHeight(id));
-        }
+    it("合计：字数与篇数全部相加，今天只加有数字的；都没有时为 null", () => {
+        expect(shelfTotals(books)).toEqual({words: 1600, files: 9, books: 4, today: 15});
+        expect(shelfTotals([item("c", null, {words: 1})])).toEqual({words: 1, files: 0, books: 1, today: null});
     });
 });
 

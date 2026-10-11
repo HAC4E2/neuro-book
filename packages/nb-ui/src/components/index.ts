@@ -48,6 +48,7 @@ export {default as GridRenderer} from "./layout/GridRenderer.vue";
 export * from "./layout/grid";
 export * from "./layout/grid-splitter";
 export {default as Breadcrumb} from "./navigation/Breadcrumb.vue";
+export {default as FileBrowser} from "./navigation/FileBrowser.vue";
 export {default as FileTree} from "./navigation/FileTree.vue";
 export {default as NavigationMenu} from "./navigation/NavigationMenu.vue";
 export {default as Tree} from "./navigation/Tree.vue";
@@ -130,6 +131,7 @@ export type {
     SplitterGestureState,
 } from "./layout/splitter-gesture";
 export type {BreadcrumbItemData} from "./navigation/Breadcrumb.vue";
+export type {FileBrowserEntry, FileBrowserSegment} from "./navigation/FileBrowser.vue";
 export type {FileTreeMove, FileTreeNode, FileTreeVisibleNode} from "./navigation/file-tree.types";
 export type {NavigationMenuItemData, NavigationMenuLinkItem} from "./navigation/NavigationMenu.vue";
 export type {GenericTreeNode} from "./navigation/Tree.vue";

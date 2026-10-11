@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 书架页的宿主（同名 .md）：把页面模型的状态交给 BookshelfPage，处理作品信息对话框、移出书架的确认、页面可见性与
+ * 书架页的宿主（同名 .md）：把页面模型的状态交给 BookshelfPage，处理作品信息窗口、目录选择器、移出书架的确认、页面可见性与
  * 窗口焦点带来的刷新。模型由 `bookshelf-home.ts` 按挂载创建。
  */
 import {AlertDialog} from "@notnotype/nb-ui/components";
@@ -9,11 +9,15 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
+import {projectCoverUrl} from "../../shared/cover";
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
-import type {CreateTarget, ProjectInfoValues, ShelfPage} from "../shelf-page";
+import type {LibraryInfo, ProjectInfoField, ShelfPage} from "../shelf-page";
 import BookshelfPage from "./BookshelfPage.vue";
-import ProjectInfoDialog from "./ProjectInfoDialog.vue";
+import PathPickerDialog from "./PathPickerDialog.vue";
+import type {PathPickerSource} from "./PathPickerDialog.vue";
+import ProjectInfoWindow from "./ProjectInfoWindow.vue";
+import type {ProjectInfoSubmit} from "./ProjectInfoWindow.vue";
 
 defineOptions({name: "BookshelfHost"});
 
@@ -32,23 +36,33 @@ const TEXT = {
 const text = (value: LocalizedText): string => localize(value, props.locale);
 
 const shelf = ref<InstanceType<typeof BookshelfPage> | null>(null);
-type DialogState = {readonly mode: "create"; readonly target: CreateTarget} | {readonly mode: "edit"; readonly id: string; readonly initial: ProjectInfoValues};
-const dialog = ref<DialogState | null>(null);
-const dialogBusy = ref(false);
-const dialogError = ref("");
+/** 最近一次取到的作品目录：空书架的卡上写它，新建窗口从它开始。 */
+const library = ref<LibraryInfo | null>(null);
+
+type InfoState = {readonly mode: "create"} | {readonly mode: "edit"; readonly id: string};
+const info = ref<InfoState | null>(null);
+const infoBusy = ref(false);
+const infoLocation = ref("");
+const fieldErrors = ref<Partial<Record<ProjectInfoField, string>>>({});
+const editing = computed(() => (info.value?.mode === "edit" ? item(info.value.id) : null));
+const infoInitial = computed(() => {
+    const current = editing.value;
+    if (current === null) return {title: "", description: "", color: null, coverSrc: null};
+    return {id: current.id, title: current.title ?? "", description: current.description ?? "", color: current.color, coverSrc: coverSrc(current)};
+});
+
+type PickerState = {readonly mode: "project"} | {readonly mode: "directory"; readonly initialPath: string};
+const picker = ref<PickerState | null>(null);
+const pickerBusy = ref(false);
+const pickerError = ref("");
+const pickerSource: PathPickerSource = {list: (path) => props.page.browse(path)};
+
 /** 问到的那部作品：确认框关闭（Reka 先发 `update:open`，再发 `confirm`）时还要用它，所以不随关闭清空。 */
 const removing = ref<ShelfItem | null>(null);
 const confirmOpen = ref(false);
-/** 本组件自己的提示（移出被拒）；在时盖过模型的提示。 */
-const localNotice = ref<string | null>(null);
-
-const notice = computed(() => {
-    if (localNotice.value !== null) return {text: localNotice.value, retry: false};
-    const current = props.page.notice.value;
-    return current === null ? null : {text: current.text, retry: current.retry};
-});
 
 const item = (id: string): ShelfItem | null => props.page.items.value.find((entry) => entry.id === id) ?? null;
+const coverSrc = (entry: ShelfItem): string | null => (entry.cover === null ? null : projectCoverUrl(entry.id, entry.cover.version));
 
 const onVisibility = (): void => props.page.setVisible(document.visibilityState === "visible");
 const onFocus = (): void => props.page.focused();
@@ -57,6 +71,7 @@ onMounted(() => {
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     onVisibility();
+    void loadLibrary();
 });
 
 onBeforeUnmount(() => {
@@ -65,30 +80,84 @@ onBeforeUnmount(() => {
     props.page.setVisible(false);
 });
 
+async function loadLibrary(): Promise<LibraryInfo | null> {
+    const current = await props.page.library();
+    if (current !== null) library.value = current;
+    return current;
+}
+
 async function startCreate(): Promise<void> {
-    const target = await props.page.createTarget();
-    if (target === null) return;
-    dialogError.value = "";
-    dialog.value = {mode: "create", target};
+    const current = await loadLibrary();
+    infoLocation.value = current?.path ?? library.value?.path ?? "";
+    fieldErrors.value = {};
+    info.value = {mode: "create"};
 }
 
 function startEdit(id: string): void {
-    const current = item(id);
-    if (current === null) return;
-    dialogError.value = "";
-    dialog.value = {mode: "edit", id, initial: {title: current.title ?? "", description: current.description ?? "", color: current.color}};
+    if (item(id) === null) return;
+    fieldErrors.value = {};
+    info.value = {mode: "edit", id};
 }
 
-async function submit(values: ProjectInfoValues): Promise<void> {
-    const current = dialog.value;
-    if (current === null || dialogBusy.value) return;
-    dialogBusy.value = true;
+async function submitInfo(values: ProjectInfoSubmit): Promise<void> {
+    const current = info.value;
+    if (current === null || infoBusy.value) return;
+    infoBusy.value = true;
+    fieldErrors.value = {};
     try {
-        const outcome = current.mode === "create" ? await props.page.create(values, current.target) : await props.page.update(current.id, values);
-        if (outcome.ok) dialog.value = null;
-        else dialogError.value = outcome.message;
+        const outcome = current.mode === "create" ? await props.page.create(values, values.parent ?? "") : await props.page.update(current.id, values);
+        if (!outcome.ok) {
+            if (outcome.field !== null) fieldErrors.value = {[outcome.field]: outcome.message};
+            return;
+        }
+        info.value = null;
+        // 封面与作品目录在作品建好之后再写：它们失败不影响作品本身，各自发通知。
+        if (values.cover.kind !== "keep") await props.page.setCover(outcome.id, values.cover);
+        if (current.mode === "create" && values.parent !== null && values.parent !== library.value?.path) {
+            await props.page.rememberLibrary(values.parent);
+            await loadLibrary();
+        }
     } finally {
-        dialogBusy.value = false;
+        infoBusy.value = false;
+    }
+}
+
+function browseLocation(): void {
+    picker.value = {mode: "directory", initialPath: infoLocation.value};
+    pickerError.value = "";
+}
+
+function startAddExisting(): void {
+    picker.value = {mode: "project"};
+    pickerError.value = "";
+}
+
+async function changeLibrary(): Promise<void> {
+    const current = await loadLibrary();
+    picker.value = {mode: "directory", initialPath: current?.path ?? ""};
+    pickerError.value = "";
+}
+
+async function onPick(path: string): Promise<void> {
+    const current = picker.value;
+    if (current === null) return;
+    if (current.mode === "directory") {
+        picker.value = null;
+        if (info.value?.mode === "create") {
+            infoLocation.value = path;
+            return;
+        }
+        await props.page.rememberLibrary(path);
+        await loadLibrary();
+        return;
+    }
+    pickerBusy.value = true;
+    try {
+        const outcome = await props.page.addExisting(path);
+        if (outcome.ok) picker.value = null;
+        else pickerError.value = outcome.message;
+    } finally {
+        pickerBusy.value = false;
     }
 }
 
@@ -105,17 +174,9 @@ async function confirmRemove(): Promise<void> {
     if (target === null) return;
     const outcome = await props.page.remove(target.id);
     if (outcome.ok) {
-        localNotice.value = null;
         await nextTick();
         shelf.value?.focusShelf();
-    } else {
-        localNotice.value = outcome.message;
     }
-}
-
-function dismissNotice(): void {
-    localNotice.value = null;
-    props.page.dismissNotice();
 }
 </script>
 
@@ -130,7 +191,8 @@ function dismissNotice(): void {
         :view="page.view.value"
         :sort="page.sort.value"
         :active-id="page.activeId.value"
-        :notice="notice"
+        :library="library?.path ?? ''"
+        :cover-src="coverSrc"
         @update:view="page.setView"
         @update:sort="page.setSort"
         @update:active-id="page.select"
@@ -140,20 +202,33 @@ function dismissNotice(): void {
         @edit="startEdit"
         @remove="askRemove"
         @create="startCreate"
-        @add-existing="page.addExisting"
-        @enter-workbench="page.enterWorkbench"
+        @add-existing="startAddExisting"
         @retry="page.refresh(true)"
-        @dismiss-notice="dismissNotice"
+        @command="page.runCommand"
+        @change-library="changeLibrary"
     />
-    <ProjectInfoDialog
+    <ProjectInfoWindow
+        v-model:location="infoLocation"
         :locale="locale"
-        :open="dialog !== null"
-        :mode="dialog?.mode ?? 'create'"
-        :initial="dialog?.mode === 'edit' ? dialog.initial : undefined"
-        :busy="dialogBusy"
-        :error="dialogError"
-        @submit="submit"
-        @cancel="dialog = null"
+        :open="info !== null"
+        :mode="info?.mode ?? 'create'"
+        :initial="infoInitial"
+        :busy="infoBusy"
+        :field-errors="fieldErrors"
+        @submit="submitInfo"
+        @cancel="info = null"
+        @browse-location="browseLocation"
+    />
+    <PathPickerDialog
+        :locale="locale"
+        :open="picker !== null"
+        :mode="picker?.mode ?? 'project'"
+        :source="pickerSource"
+        :initial-path="picker?.mode === 'directory' ? picker.initialPath : null"
+        :error="pickerError"
+        :busy="pickerBusy"
+        @pick="onPick"
+        @cancel="picker = null"
     />
     <AlertDialog
         :open="confirmOpen"

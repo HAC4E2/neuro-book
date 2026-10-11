@@ -35,9 +35,10 @@ import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {createPartition} from "nbook/plugins/storage/backend/partition";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
-import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
+import {createNotifications} from "nbook/plugins/workbench/web/notifications";
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import {PROJECT_IDENTITY_FILE} from "nbook/server/projects/identity";
 import {createProjectRegistry} from "nbook/server/projects/registry";
@@ -130,6 +131,8 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
             capabilities: [
                 {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => "opened" as const, currentUrl: () => "http://localhost/", replaceUrl: () => undefined})},
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
+                // 书架页把失败通知交给工作台的通知服务；这里没有工作台插件，用真实的通知队列顶替。
+                {id: "test.notifications", key: notificationsKey, create: () => createNotifications()},
                 ...settings.capabilities,
             ],
             plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {

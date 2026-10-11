@@ -1,0 +1,54 @@
+/** ShelfCards（同名 .md）：网格的键盘与选中（docs/specs/workbench/bookshelf.md 输出 6）；空书架的两张卡。 */
+
+import {mount} from "@vue/test-utils";
+import {describe, expect, it} from "vitest";
+
+import type {ShelfItem} from "../../shared/shelf";
+import ShelfCards from "./ShelfCards.vue";
+
+const NOW = "2026-10-11T12:00:00.000Z";
+
+function item(id: string, title: string): ShelfItem {
+    return {
+        id, name: id, title, description: "简介", color: null, cover: null, path: `/books/${id}`, state: "stopped",
+        stats: {freshness: "none", computedAt: null, words: 0, files: 0, unreadable: 0, today: null, last: null},
+    };
+}
+
+function mountCards(items: ShelfItem[], activeId: string | null = null) {
+    return mount(ShelfCards, {props: {locale: "zh-CN" as const, items, activeId, now: NOW, coverSrc: () => null, library: "/home/writer/Documents/NeuroBook"}, attachTo: document.body});
+}
+
+describe("ShelfCards", () => {
+    it("方向键移动选中、Enter 打开、Delete 请求移出；聚焦时没有选中就选第一部；点卡片选中并打开", async () => {
+        const wrapper = mountCards([item("a", "甲"), item("b", "乙"), item("c", "丙")]);
+        const grid = wrapper.get("[role='listbox']");
+        await grid.trigger("focus");
+        expect(wrapper.emitted("update:activeId")?.at(-1)).toEqual(["a"]);
+        await wrapper.setProps({activeId: "a"});
+        await grid.trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:activeId")?.at(-1)).toEqual(["b"]);
+        await grid.trigger("keydown", {key: "End"});
+        expect(wrapper.emitted("update:activeId")?.at(-1)).toEqual(["c"]);
+        await grid.trigger("keydown", {key: "Enter"});
+        expect(wrapper.emitted("open")).toEqual([["a"]]);
+        await grid.trigger("keydown", {key: "Delete"});
+        expect(wrapper.emitted("remove")).toEqual([["a"]]);
+        await wrapper.get("[data-book-card='c']").trigger("click");
+        expect(wrapper.emitted("update:activeId")?.at(-1)).toEqual(["c"]);
+        expect(wrapper.emitted("open")?.at(-1)).toEqual(["c"]);
+        expect(wrapper.get("[data-book-card='a']").attributes("aria-selected")).toBe("true");
+        wrapper.unmount();
+    });
+
+    it("空书架：两张待写的书，写明作品目录；点它们发 create 与 add-existing", async () => {
+        const wrapper = mountCards([]);
+        expect(wrapper.find("[role='listbox']").exists()).toBe(false);
+        expect(wrapper.get("[data-shelf-empty]").text()).toContain("/home/writer/Documents/NeuroBook");
+        await wrapper.get("[data-shelf-create]").trigger("click");
+        await wrapper.get("[data-shelf-add]").trigger("click");
+        expect(wrapper.emitted("create")).toHaveLength(1);
+        expect(wrapper.emitted("add-existing")).toHaveLength(1);
+        wrapper.unmount();
+    });
+});

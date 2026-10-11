@@ -1,7 +1,7 @@
 /**
- * 书架页的模型（docs/specs/workbench/bookshelf.md）：取数与刷新、选中、打开与继续写作、新建、修改信息、移出书架与加入已有
- * 目录。界面只呈现这里的状态、把动作交回来；对话框与确认由界面宿主（`BookshelfHost.vue`）负责，这里给出每个动作的结果
- * 与已按当前语言写好的失败原因。
+ * 书架页的模型（docs/specs/workbench/bookshelf.md）：取数与刷新、选中、打开与继续写作、新建、修改信息、封面、移出书架与打开已有
+ * 作品。界面只呈现这里的状态、把动作交回来；窗口与确认由界面宿主（`BookshelfHost.vue`）负责，这里给出每个动作的结果
+ * 与已按当前语言写好的失败原因：能在字段里改的带字段名交回，别的经工作台的通知服务发出。
  *
  * 刷新：页面可见时每 30 秒一次，窗口重新获得焦点时也刷新，两者合并成同一时间至多一个在途请求；页面隐藏时停止。
  * 新建、修改、移出之后强制刷新一次（在途的响应作废、等它结束再发），界面不先行修改数据。写操作的结果未知时也只重新取
@@ -14,14 +14,14 @@ import type {ComputedRef, Ref, ShallowRef} from "vue";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
-import {WORKBENCH_PATH} from "nbook/plugins/workbench/shared/contracts";
-import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/shared/contracts";
+import type {NotificationHandle, Notifications} from "nbook/plugins/workbench/shared/contracts";
 import type {WindowNavigation} from "nbook/shared/host";
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {librarySetting, projectsRemoteContract} from "../shared/contracts";
+import type {BrowseEntry} from "../shared/contracts";
 import {projectDirectoryName} from "../shared/directory-name";
 import type {ShelfItem} from "../shared/shelf";
 import {failureReason, fieldName, projectsText, registerFailureReason, shelfText} from "./messages";
@@ -33,13 +33,6 @@ import type {ShelfView} from "./shelf-preferences";
 /** 页面可见时的刷新间隔。 */
 export const SHELF_REFRESH_MS = 30_000;
 
-export interface ShelfNotice {
-    readonly kind: "refresh" | "popup" | "library" | "unknown-outcome";
-    readonly text: string;
-    /** 带“重试”按钮：重试就是再刷新一次。 */
-    readonly retry: boolean;
-}
-
 export type ShelfActionOutcome = {readonly ok: true} | {readonly ok: false; readonly message: string};
 
 export interface ProjectInfoValues {
@@ -48,10 +41,32 @@ export interface ProjectInfoValues {
     readonly color: string | null;
 }
 
-/** 新建作品放在哪：`remember` 为真表示这是用户刚选的作品目录，新建成功后写进设置。 */
-export interface CreateTarget {
-    readonly parent: string;
-    readonly remember: boolean;
+export type ProjectInfoField = "title" | "description" | "location";
+
+/** 新建与修改的结果：失败时能在字段里改的带字段名；`field` 为 null 的失败已经发了通知。 */
+export type ProjectActionOutcome = {readonly ok: true; readonly id: string} | {readonly ok: false; readonly field: ProjectInfoField | null; readonly message: string};
+
+export type ProjectCoverChange = {readonly kind: "keep"} | {readonly kind: "set"; readonly file: File} | {readonly kind: "remove"};
+
+export interface LibraryInfo {
+    readonly path: string;
+    readonly source: "setting" | "default";
+}
+
+export interface BrowseListing {
+    readonly path: string;
+    readonly parent: string | null;
+    readonly entries: ReadonlyArray<BrowseEntry>;
+}
+
+export type BrowseOutcome = {readonly ok: true; readonly value: BrowseListing} | {readonly ok: false; readonly message: string};
+
+export type CoverTransportResult = {readonly ok: true} | {readonly ok: false; readonly code: string; readonly detail: string};
+
+/** 封面经 HTTP 而不是远程服务（二进制）；产品里是 `fetch`，测试里接真实的路由处理器。 */
+export interface CoverTransport {
+    upload(id: string, file: File): Promise<CoverTransportResult>;
+    remove(id: string): Promise<CoverTransportResult>;
 }
 
 export interface ShelfPreferencesPort {
@@ -68,8 +83,11 @@ export interface ShelfPageHost {
     /** 视图与排序的偏好（产品里接 `shelfPreferencesStore`）。 */
     readonly preferences: ShelfPreferencesPort;
     readonly settings: SettingsService;
-    readonly quickPick: QuickPick;
     readonly navigation: WindowNavigation;
+    readonly notifications: Notifications;
+    readonly cover: CoverTransport;
+    /** 执行一条命令（标题栏的设置菜单）；失败给出原因。 */
+    readonly commands: {execute(id: string): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: string}>};
     /** 记诊断：取数失败、设置写失败这类用户已经看到提示的事。 */
     readonly report: (event: string, message: string) => void;
 }
@@ -81,7 +99,6 @@ export interface ShelfPage {
     readonly items: Readonly<ShallowRef<ReadonlyArray<ShelfItem>>>;
     /** 最近一次取数的时刻（ISO）；相对时间按它算。 */
     readonly now: Readonly<Ref<string>>;
-    readonly notice: Readonly<Ref<ShelfNotice | null>>;
     readonly activeId: Readonly<Ref<string | null>>;
     readonly view: ComputedRef<ShelfView>;
     readonly sort: ComputedRef<ShelfSort>;
@@ -94,19 +111,26 @@ export interface ShelfPage {
     focused(): void;
     /** 再取一次；在途时合并进在途的那次。`force` 作废在途的响应，等它结束后必定再发一次（写操作之后用）。 */
     refresh(force?: boolean): Promise<void>;
-    dismissNotice(): void;
     open(id: string): void;
     openInNewWindow(id: string): void;
     continueWriting(id: string): void;
-    enterWorkbench(): void;
-    /** 新建前决定放在哪：设置里有作品目录就用它；没有就经命令面板的路径输入选一个，取消为 null。 */
-    createTarget(): Promise<CreateTarget | null>;
-    create(values: ProjectInfoValues, target: CreateTarget): Promise<ShelfActionOutcome>;
-    update(id: string, values: ProjectInfoValues): Promise<ShelfActionOutcome>;
+    /** 当前有效的作品目录；取不到时发通知并给 null。 */
+    library(): Promise<LibraryInfo | null>;
+    /** 列一个目录（null 为作品目录）；失败原因已按当前语言写好，给选择器显示。 */
+    browse(path: string | null): Promise<BrowseOutcome>;
+    /** 新建：`parent` 是用户在窗口里给的目录。成功后书架刷新、新作品被选中。 */
+    create(values: ProjectInfoValues, parent: string): Promise<ProjectActionOutcome>;
+    update(id: string, values: ProjectInfoValues): Promise<ProjectActionOutcome>;
+    /** 上传或移除封面；失败发通知。成功后书架刷新。 */
+    setCover(id: string, change: ProjectCoverChange): Promise<boolean>;
+    /** 把用户选的目录写进设置；写不进去发通知（作品已经建成）。 */
+    rememberLibrary(path: string): Promise<void>;
+    /** 打开已有作品：登记一个目录。失败原因给选择器显示；结果未知时核对书架。 */
+    addExisting(path: string): Promise<ShelfActionOutcome>;
     /** 移出成功后选中相邻的一部。 */
     remove(id: string): Promise<ShelfActionOutcome>;
-    /** 经命令面板的路径输入登记一个目录；登记失败时带着原因重新打开输入。 */
-    addExisting(): Promise<void>;
+    /** 标题栏设置菜单的命令；失败发通知。 */
+    runCommand(id: string): Promise<void>;
     dispose(): void;
 }
 
@@ -115,12 +139,26 @@ export function continueUrl(name: string, address: string): string {
     return `/?${new URLSearchParams({project: name, open: address, at: "end"}).toString()}`;
 }
 
+/** 去掉路径两端的分隔符，比较两个路径是否指同一目录（服务端规范化过的写法与用户输入的只差末尾的斜杠时）。 */
+export function trimSeparators(path: string): string {
+    return path.replace(/^[/\\]+(?=.)/u, "").replace(/[/\\]+$/u, "");
+}
+
+export function splitPath(path: string): {readonly parent: string; readonly name: string} {
+    const trimmed = trimSeparators(path);
+    const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+    return index === -1 ? {parent: "", name: trimmed} : {parent: trimmed.slice(0, index), name: trimmed.slice(index + 1)};
+}
+
+export function samePath(a: {readonly parent: string; readonly name: string}, b: {readonly parent: string; readonly name: string}): boolean {
+    return trimSeparators(a.parent) === trimSeparators(b.parent) && a.name === b.name;
+}
+
 export function createShelfPage(host: ShelfPageHost): ShelfPage {
     const status = ref<"loading" | "ready" | "error">("loading");
     const error = ref("");
     const items = shallowRef<ReadonlyArray<ShelfItem>>([]);
     const now = ref(new Date(host.clock.now()).toISOString());
-    const notice = ref<ShelfNotice | null>(null);
     const activeId = ref<string | null>(null);
     const text = (value: LocalizedText | DisplayText): string => (typeof value === "string" ? value : localize(value, host.locale()));
     const reason = (code: string, detail?: unknown): string => text(failureReason(code, detail));
@@ -134,8 +172,12 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
     /** 在途请求结束后要补发的那一次（强制刷新碰上在途请求时登记）。 */
     let followUp: Promise<void> | null = null;
     let cancelTimer: (() => void) | null = null;
+    /** 刷新失败的常驻通知：恢复后收回；同一时间只有一条。 */
+    let refreshNotice: NotificationHandle | null = null;
 
     const byId = (id: string): ShelfItem | null => items.value.find((item) => item.id === id) ?? null;
+
+    const warn = (title: LocalizedText, message: string): void => void host.notifications.notify({tone: "warning", title: text(title), message});
 
     function schedule(): void {
         cancelTimer?.();
@@ -152,14 +194,22 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         if (result.ok) {
             items.value = result.value;
             status.value = "ready";
-            if (notice.value?.kind === "refresh") notice.value = null;
+            refreshNotice?.dismiss();
+            refreshNotice = null;
             if (activeId.value !== null && byId(activeId.value) === null) activeId.value = nextActive !== null && byId(nextActive) !== null ? nextActive : null;
             nextActive = null;
             return;
         }
         host.report("projects.shelf-failed", `取书架失败：${result.code}`);
         if (status.value === "ready") {
-            notice.value = {kind: "refresh", text: text(shelfText("refreshFailed", {reason: reason(result.code, result.detail)})), retry: true};
+            // 刷新失败只提示，数据保留；常驻带“重试”，成功后收回（docs/specs/workbench/notifications.md 输出 1）。
+            refreshNotice?.dismiss();
+            refreshNotice = host.notifications.notify({
+                tone: "warning",
+                title: text(shelfText("refreshFailedTitle")),
+                message: text(shelfText("refreshFailed", {reason: reason(result.code, result.detail)})),
+                action: {label: text(shelfText("retry")), run: () => void refresh(true)},
+            });
             return;
         }
         status.value = "error";
@@ -197,10 +247,6 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         return followUp;
     }
 
-    function pathRequest(title: DisplayText, placeholder: DisplayText, label: (path: string) => DisplayText): QuickPickRequest {
-        return {title, placeholder, items: [], text: {label}, empty: placeholder};
-    }
-
     function navigateTo(id: string, url: (item: ShelfItem) => string): void {
         const item = byId(id);
         if (item !== null) host.navigation.navigateDocument(url(item));
@@ -217,12 +263,14 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
     const view = computed(() => host.preferences.view.value);
     const sort = computed(() => host.preferences.sort.value);
 
+    /** 远程服务没给出结果（不可用、版本不一致）时的原因。 */
+    const transport = (code: string, detail?: unknown): string => reason(code, detail);
+
     return {
         status,
         error,
         items,
         now,
-        notice,
         activeId,
         view,
         sort,
@@ -240,84 +288,129 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             if (visible) void refresh();
         },
         refresh,
-        dismissNotice: () => {
-            notice.value = null;
-        },
         open: (id) => navigateTo(id, (item) => projectUrl(item.name)),
         openInNewWindow: (id) => {
             const item = byId(id);
             if (item === null) return;
-            if (host.navigation.openExternal(projectUrl(item.name)) === "blocked") notice.value = {kind: "popup", text: text(shelfText("popupBlocked")), retry: false};
+            if (host.navigation.openExternal(projectUrl(item.name)) === "blocked") warn(shelfText("popupBlockedTitle"), text(shelfText("popupBlocked")));
         },
         continueWriting: (id) => navigateTo(id, (item) => (item.stats.last === null ? projectUrl(item.name) : continueUrl(item.name, item.stats.last.address))),
-        enterWorkbench: () => host.navigation.navigateDocument(WORKBENCH_PATH),
-        createTarget: async () => {
-            const library = host.settings.get(librarySetting);
-            if (library !== "") return {parent: library, remember: false};
-            const picked = await host.quickPick.pick(pathRequest(shelfText("libraryTitle"), shelfText("libraryPlaceholder"), (path) => shelfText("libraryUse", {path})));
-            return picked.kind === "text" ? {parent: picked.text, remember: true} : null;
+        library: async () => {
+            const result = await host.remote.library({});
+            if (result.ok) return result.value;
+            host.report("projects.library-failed", `取作品目录失败：${result.code}`);
+            host.notifications.notify({tone: "error", message: text(shelfText("libraryUnavailable", {reason: transport(result.code, result.detail)}))});
+            return null;
         },
-        create: async (values, target) => {
-            const result = await host.remote.create({title: values.title, ...(values.description === "" ? {} : {description: values.description}), parent: target.parent});
+        browse: async (path) => {
+            const result = await host.remote.browse(path === null ? {} : {path});
+            if (result.ok) return {ok: true, value: result.value};
+            const detail = result.detail as {readonly reason?: string; readonly detail?: string} | undefined;
+            const why = result.code === "invalid-parent" ? text(registerFailureReason(detail?.reason ?? "")) : transport(result.code, result.detail);
+            return {ok: false, message: text(shelfText("browseFailed", {reason: why}))};
+        },
+        create: async (values, parent) => {
+            const result = await host.remote.create({title: values.title, ...(values.description === "" ? {} : {description: values.description}), parent});
             if (result.ok) {
                 nextActive = result.value.id;
                 activeId.value = result.value.id;
-                if (target.remember) {
-                    const written = await host.settings.update(librarySetting, target.parent);
-                    if (!written.ok) {
-                        host.report("projects.library-not-saved", `作品目录没有写进设置：${written.code}：${written.detail}`);
-                        notice.value = {kind: "library", text: text(shelfText("libraryNotSaved", {reason: `${written.code}：${written.detail}`})), retry: false};
-                    }
+                // 主题色不在 create 的输入里：建好后再写一次作品信息。
+                if (values.color !== null) {
+                    const colored = await host.remote.update({id: result.value.id, color: values.color});
+                    if (!colored.ok) warn(shelfText("fieldColor"), text(shelfText("updateFailed", {reason: reason(colored.code, colored.detail)})));
                 }
                 await refresh(true);
-                return {ok: true};
+                return {ok: true, id: result.value.id};
             }
             const detail = result.detail as {readonly field?: string; readonly reason?: string; readonly detail?: string; readonly path?: string} | undefined;
             switch (result.code) {
-                case "invalid-metadata":
-                    return {ok: false, message: text(shelfText("createInvalid", {field: text(fieldName(detail?.field ?? "")), reason: detail?.detail ?? ""}))};
+                case "invalid-metadata": {
+                    const field = detail?.field === "description" ? "description" : "title";
+                    return {ok: false, field, message: text(shelfText("createInvalid", {field: text(fieldName(detail?.field ?? "")), reason: detail?.detail ?? ""}))};
+                }
                 case "invalid-parent":
-                    return {ok: false, message: text(shelfText("createInvalidParent", {reason: text(registerFailureReason(detail?.reason ?? ""))}))};
+                    return {ok: false, field: "location", message: text(shelfText("createInvalidParent", {reason: `${text(registerFailureReason(detail?.reason ?? ""))}（${detail?.detail ?? ""}）`}))};
                 case "exists":
-                    return {ok: false, message: text(shelfText("createExists", {path: detail?.path ?? ""}))};
+                    return {ok: false, field: "title", message: text(shelfText("createExists", {path: detail?.path ?? ""}))};
                 case "write-failed":
-                    return {ok: false, message: text(shelfText("createWriteFailed", {reason: detail?.detail ?? ""}))};
+                    return {ok: false, field: "location", message: text(shelfText("createWriteFailed", {reason: detail?.detail ?? ""}))};
                 case "register-failed":
-                    return {ok: false, message: text(shelfText("createRegisterFailed", {path: detail?.path ?? "", reason: text(registerFailureReason(detail?.reason ?? ""))}))};
+                    return {ok: false, field: null, message: notified("error", shelfText("createRegisterFailed", {path: detail?.path ?? "", reason: text(registerFailureReason(detail?.reason ?? ""))}))};
                 case "unknown-outcome": {
                     // 新建是写操作，结果未知时不盲目重试：重新取书架，本次要建的目录（父目录加由书名生成的目录名）在上面才算成功；
                     // 书名不唯一，别的目录下的同名作品不算。父目录经服务端规范化成别的写法（符号链接）时对不上，只提示结果未知。
                     await refresh(true);
-                    const expected = {parent: trimSeparators(target.parent), name: projectDirectoryName(values.title)};
+                    const expected = {parent: trimSeparators(parent), name: projectDirectoryName(values.title)};
                     const created = items.value.find((item) => item.title === values.title && samePath(splitPath(item.path), expected));
                     if (created !== undefined) {
                         activeId.value = created.id;
-                        return {ok: true};
+                        return {ok: true, id: created.id};
                     }
-                    return {ok: false, message: text(shelfText("createUnknown"))};
+                    return {ok: false, field: null, message: notified("warning", shelfText("createUnknown"))};
                 }
                 default:
-                    return {ok: false, message: reason(result.code, result.detail)};
+                    return {ok: false, field: null, message: notified("error", shelfText("updateFailed", {reason: transport(result.code, result.detail)}))};
             }
         },
         update: async (id, values) => {
             const result = await host.remote.update({id, title: values.title, description: values.description === "" ? null : values.description, color: values.color});
             if (result.ok) {
                 await refresh(true);
-                return {ok: true};
+                return {ok: true, id};
             }
             if (result.code === "invalid-metadata") {
                 const detail = result.detail as {readonly field: string; readonly detail: string};
-                return {ok: false, message: text(shelfText("createInvalid", {field: text(fieldName(detail.field)), reason: detail.detail}))};
+                return {ok: false, field: detail.field === "description" ? "description" : "title", message: text(shelfText("createInvalid", {field: text(fieldName(detail.field)), reason: detail.detail}))};
             }
             if (result.code === "unknown-outcome") {
                 // 修改是写操作，结果未知时重新取书架：服务端上这部作品已经是提交的值就是保存了。
                 await refresh(true);
                 const current = byId(id);
-                if (current !== null && current.title === values.title && (current.description ?? "") === values.description && current.color === values.color) return {ok: true};
-                return {ok: false, message: text(shelfText("updateUnknown"))};
+                if (current !== null && current.title === values.title && (current.description ?? "") === values.description && current.color === values.color) return {ok: true, id};
+                return {ok: false, field: null, message: notified("warning", shelfText("updateUnknown"))};
             }
-            return {ok: false, message: text(shelfText("updateFailed", {reason: reason(result.code, result.detail)}))};
+            return {ok: false, field: null, message: notified("error", shelfText("updateFailed", {reason: reason(result.code, result.detail)}))};
+        },
+        setCover: async (id, change) => {
+            if (change.kind === "keep") return true;
+            const result = change.kind === "set" ? await host.cover.upload(id, change.file) : await host.cover.remove(id);
+            if (result.ok) {
+                await refresh(true);
+                return true;
+            }
+            host.report("projects.cover-failed", `封面${change.kind === "set" ? "上传" : "移除"}失败：${result.code}：${result.detail}`);
+            notified("error", shelfText(change.kind === "set" ? "coverFailed" : "coverRemoveFailed", {reason: result.detail === "" ? result.code : result.detail}));
+            return false;
+        },
+        rememberLibrary: async (path) => {
+            const written = await host.settings.update(librarySetting, path);
+            if (written.ok) return;
+            host.report("projects.library-not-saved", `作品目录没有写进设置：${written.code}：${written.detail}`);
+            warn(shelfText("libraryNotSavedTitle"), text(shelfText("libraryNotSaved", {reason: `${written.code}：${written.detail}`})));
+        },
+        addExisting: async (path) => {
+            const registered = await host.remote.register({path});
+            if (registered.ok) {
+                nextActive = registered.value.id;
+                activeId.value = registered.value.id;
+                await refresh(true);
+                return {ok: true};
+            }
+            if (registered.code === "unknown-outcome") {
+                // 登记是写操作，结果未知时重新取书架：用户给的目录在上面就是登记了。服务端把路径规范化成别的写法（符号链接）时
+                // 对不上，只提示结果未知。
+                await refresh(true);
+                const found = items.value.find((entry) => trimSeparators(entry.path) === trimSeparators(path));
+                if (found !== undefined) {
+                    activeId.value = found.id;
+                    return {ok: true};
+                }
+                return {ok: false, message: text(projectsText("notCompleted", {code: registered.code}))};
+            }
+            if (registered.code !== "register-failed") return {ok: false, message: text(projectsText("notCompleted", {code: registered.code}))};
+            const failure = registered.detail as {readonly reason: string; readonly detail: string};
+            host.report("projects.register-failed", `登记失败：${failure.reason}：${failure.detail}`);
+            return {ok: false, message: text(shelfText("registerFailed", {reason: text(registerFailureReason(failure.reason))}))};
         },
         remove: async (id) => {
             const neighbour = neighbourOf(id);
@@ -336,69 +429,24 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             }
             return {ok: false, message: text(shelfText("removeFailed", {reason: reason(result.code, result.detail)}))};
         },
-        addExisting: async () => {
-            let title: DisplayText = shelfText("addTitle");
-            for (;;) {
-                const picked = await host.quickPick.pick(pathRequest(title, shelfText("addPlaceholder"), (path) => shelfText("addLabel", {path})));
-                if (picked.kind !== "text") return;
-                const registered = await host.remote.register({path: picked.text});
-                if (registered.ok) {
-                    nextActive = registered.value.id;
-                    activeId.value = registered.value.id;
-                    await refresh(true);
-                    return;
-                }
-                if (registered.code === "unknown-outcome") {
-                    // 登记是写操作，结果未知时重新取书架：用户给的目录在上面就是登记了。服务端把路径规范化成别的写法（符号链接）时
-                    // 对不上，只提示结果未知。
-                    await refresh(true);
-                    const found = items.value.find((entry) => trimSeparators(entry.path) === trimSeparators(picked.text));
-                    if (found !== undefined) {
-                        activeId.value = found.id;
-                        return;
-                    }
-                    notice.value = {kind: "unknown-outcome", text: text(projectsText("notCompleted", {code: registered.code})), retry: false};
-                    return;
-                }
-                if (registered.code !== "register-failed") {
-                    // 路由层的失败（服务不可用、被拒）只提示。
-                    notice.value = {kind: "unknown-outcome", text: text(projectsText("notCompleted", {code: registered.code})), retry: false};
-                    return;
-                }
-                const failure = registered.detail as {readonly reason: string; readonly detail: string};
-                host.report("projects.register-failed", `登记失败：${failure.reason}：${failure.detail}`);
-                title = addRetryTitle(failure.reason);
-            }
+        runCommand: async (id) => {
+            const result = await host.commands.execute(id);
+            if (!result.ok) notified("error", shelfText("commandFailed", {reason: result.reason}));
         },
         dispose: () => {
             disposed = true;
             visible = false;
             cancelTimer?.();
             cancelTimer = null;
+            refreshNotice?.dismiss();
+            refreshNotice = null;
         },
     };
-}
 
-/** 去掉末尾的路径分隔符：用户输入与服务端给的路径都可能带，比较前两边都去掉。 */
-function trimSeparators(path: string): string {
-    return path.replace(/[/\\]+$/u, "");
-}
-
-/** 路径的父目录与末段（服务端的路径按它的平台写分隔符，两种都认）。 */
-function splitPath(path: string): {readonly parent: string; readonly name: string} {
-    const trimmed = trimSeparators(path);
-    const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-    return index === -1 ? {parent: "", name: trimmed} : {parent: trimSeparators(trimmed.slice(0, index)), name: trimmed.slice(index + 1)};
-}
-
-function samePath(a: {readonly parent: string; readonly name: string}, b: {readonly parent: string; readonly name: string}): boolean {
-    return a.parent === b.parent && a.name === b.name;
-}
-
-function addRetryTitle(code: string): LocalizedText {
-    const why = registerFailureReason(code);
-    return {
-        "zh-CN": localize(shelfText("addRetryTitle", {reason: why["zh-CN"]}), "zh-CN"),
-        "en-US": localize(shelfText("addRetryTitle", {reason: why["en-US"]}), "en-US"),
-    };
+    /** 发一条通知并把正文交回（给调用方当失败原因）。 */
+    function notified(tone: "error" | "warning", message: LocalizedText): string {
+        const body = text(message);
+        host.notifications.notify({tone, message: body});
+        return body;
+    }
 }

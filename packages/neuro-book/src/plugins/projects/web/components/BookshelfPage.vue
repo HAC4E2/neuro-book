@@ -1,6 +1,12 @@
+<script lang="ts">
+/** 设置菜单里的命令（docs/specs/ui/workbench-shell.md 输出 29 的“视图”组里的三条设置命令）。 */
+export const SETTINGS_COMMANDS = {theme: "nbook.settings.switch-theme", appearance: "nbook.settings.switch-appearance", locale: "nbook.settings.switch-locale"} as const;
+</script>
+
 <script setup lang="ts">
-/** 书架页（同名 .md）：继续写作与书架两种视图；只呈现数据、发出用户动作。 */
-import {Button, FormSelect, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
+/** 书架页（同名 .md）：标题栏、案头、卡片与列表两种视图；只呈现数据、发出用户动作。 */
+import {Button, Dropdown, FormSelect, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
+import type {DropdownItem} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
 import {computed, ref} from "vue";
 
@@ -9,17 +15,15 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 
 import type {ShelfItem} from "../../shared/shelf";
-import {continueTarget, sortShelf} from "../shelf-format";
+import {sortShelf} from "../shelf-format";
 import type {ShelfSort} from "../shelf-format";
-import ContinueCard from "./ContinueCard.vue";
-import ShelfEmptyState from "./ShelfEmptyState.vue";
+import ShelfCards from "./ShelfCards.vue";
+import ShelfDesk from "./ShelfDesk.vue";
 import ShelfList from "./ShelfList.vue";
-import ShelfTitlePage from "./ShelfTitlePage.vue";
-import SpineShelf from "./SpineShelf.vue";
 
 defineOptions({name: "BookshelfPage"});
 
-type ShelfView = "spines" | "list";
+type ShelfView = "cards" | "list";
 
 const props = withDefaults(defineProps<{
     locale: DisplayLocale;
@@ -30,11 +34,11 @@ const props = withDefaults(defineProps<{
     view: ShelfView;
     sort: ShelfSort;
     activeId: string | null;
-    /** 顶部的提示（刷新失败、新标签被拦截这类不影响数据的事）；`retry` 为真时带“重试”。 */
-    notice?: {text: string; retry: boolean} | null;
-    /** 作品目录（新作品建在这里），空书架的引导卡要说；null 表示还没设。 */
-    library?: string | null;
-}>(), {error: "", notice: null, library: null});
+    /** 作品目录（新作品建在这里），空书架的“新建作品”卡上写它。 */
+    library: string;
+    /** 一部作品的封面图地址；没有封面为 null。 */
+    coverSrc: (item: ShelfItem) => string | null;
+}>(), {error: ""});
 
 const emit = defineEmits<{
     (event: "update:view", view: ShelfView): void;
@@ -47,30 +51,35 @@ const emit = defineEmits<{
     (event: "remove", id: string): void;
     (event: "create"): void;
     (event: "add-existing"): void;
-    (event: "enter-workbench"): void;
     (event: "retry"): void;
-    (event: "dismiss-notice"): void;
+    /** 设置菜单里的命令。 */
+    (event: "command", id: string): void;
+    (event: "change-library"): void;
 }>();
 
 const TEXT = {
     brand: {"zh-CN": "书房", "en-US": "Study"},
-    workbench: {"zh-CN": "用户资产", "en-US": "User Assets"},
+    settings: {"zh-CN": "设置", "en-US": "Settings"},
+    theme: {"zh-CN": "切换主题…", "en-US": "Switch theme…"},
+    appearance: {"zh-CN": "切换明暗…", "en-US": "Switch appearance…"},
+    language: {"zh-CN": "界面语言…", "en-US": "Interface language…"},
+    library: {"zh-CN": "作品目录…", "en-US": "Library folder…"},
+    profile: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
     shelf: {"zh-CN": "书架", "en-US": "Bookshelf"},
     count: {"zh-CN": "{count} 部", "en-US": "{count} books"},
     view: {"zh-CN": "视图", "en-US": "View"},
-    spines: {"zh-CN": "书脊", "en-US": "Spines"},
+    cards: {"zh-CN": "卡片", "en-US": "Cards"},
     list: {"zh-CN": "列表", "en-US": "List"},
     sort: {"zh-CN": "排序", "en-US": "Sort"},
     recent: {"zh-CN": "最近编辑", "en-US": "Recently Edited"},
     title: {"zh-CN": "书名", "en-US": "Title"},
     words: {"zh-CN": "字数", "en-US": "Word Count"},
-    welcome: {"zh-CN": "还没有写作记录。打开一部作品，写下的字会记在这里。", "en-US": "Nothing written yet. Open a book and your progress will show up here."},
-    empty: {"zh-CN": "书架还是空的。新建一部作品，或把已有的作品目录加进来。", "en-US": "The shelf is empty. Start a new book, or add a folder you already have."},
+    create: {"zh-CN": "新建作品", "en-US": "New Book"},
+    addExisting: {"zh-CN": "打开已有作品…", "en-US": "Open Existing…"},
     retry: {"zh-CN": "重试", "en-US": "Retry"},
-    dismiss: {"zh-CN": "关闭提示", "en-US": "Dismiss"},
 } satisfies Record<string, LocalizedText>;
 
-/** 不足这个宽度只用列表：书脊太细，竖排书名放不下。 */
+/** 不足这个宽度只用列表：卡片一列时信息密度不如列表。 */
 const NARROW_WIDTH = 720;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
@@ -82,27 +91,44 @@ const narrow = computed(() => width.value > 0 && width.value < NARROW_WIDTH);
 const effectiveView = computed<ShelfView>(() => (narrow.value ? "list" : props.view));
 
 const sorted = computed(() => sortShelf(props.items, props.sort, props.locale));
-const target = computed(() => continueTarget(props.items));
-const active = computed(() => props.items.find((item) => item.id === props.activeId) ?? null);
 
-const viewOptions = computed(() => [{value: "spines", label: text(TEXT.spines)}, {value: "list", label: text(TEXT.list)}]);
+const viewOptions = computed(() => [{value: "cards", label: text(TEXT.cards)}, {value: "list", label: text(TEXT.list)}]);
 const sortOptions = computed(() => [
     {value: "recent", label: text(TEXT.recent)},
     {value: "title", label: text(TEXT.title)},
     {value: "words", label: text(TEXT.words)},
 ]);
+const settingsMenu = computed<DropdownItem[]>(() => [
+    {value: SETTINGS_COMMANDS.theme, label: text(TEXT.theme)},
+    {value: SETTINGS_COMMANDS.appearance, label: text(TEXT.appearance)},
+    {value: SETTINGS_COMMANDS.locale, label: text(TEXT.language)},
+    {label: "", value: "separator", separator: true},
+    {value: "library", label: text(TEXT.library)},
+]);
 
 function onView(value: unknown): void {
-    if (value === "spines" || value === "list") emit("update:view", value);
+    if (value === "cards" || value === "list") emit("update:view", value);
 }
 
 function onSort(value: string): void {
     if (value === "recent" || value === "title" || value === "words") emit("update:sort", value);
 }
 
-/** 焦点回到书架：书脊视图是列表框，列表视图是第一行；书架空了时是“新建作品”。 */
+function onSettings(value: string): void {
+    if (value === "library") emit("change-library");
+    else emit("command", value);
+}
+
+/** 焦点回到书架：卡片视图是列表框，列表视图是第一行；书架空了时是“新建作品”。 */
 function focusShelf(): void {
-    root.value?.querySelector<HTMLElement>('[role="listbox"], [data-shelf-row] button, [data-shelf-create]')?.focus();
+    // 逐个按优先级找：一条选择器列表的 querySelector 取文档顺序的第一个，工具栏的“新建作品”排在书架前面。
+    for (const selector of ['[data-shelf-cards][role="listbox"]', "[data-shelf-row] button", "[data-shelf-create]"]) {
+        const target = root.value?.querySelector<HTMLElement>(selector);
+        if (target !== null && target !== undefined) {
+            target.focus();
+            return;
+        }
+    }
 }
 
 defineExpose({focusShelf});
@@ -116,18 +142,18 @@ defineExpose({focusShelf});
                     <NeuroBookLockup class="bookshelf-page__lockup" />
                     <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span>
                 </p>
-                <Button variant="ghost" size="sm" icon-class="i-lucide-user-round" data-enter-workbench @click="emit('enter-workbench')">{{ text(TEXT.workbench) }}</Button>
+                <div class="bookshelf-page__tools-right">
+                    <Dropdown :items="settingsMenu" align="end" @select="onSettings">
+                        <IconButton size="sm" icon-class="i-lucide-settings" :aria-label="text(TEXT.settings)" data-shelf-settings />
+                    </Dropdown>
+                    <!-- 头像只预留位置：没有个人资料之前不是入口，不可点（外壳规范：不以可操作的假入口呈现）。 -->
+                    <span class="bookshelf-page__avatar" :title="text(TEXT.profile)" aria-hidden="true"><span class="i-lucide-user-round"></span></span>
+                </div>
             </header>
 
-            <div v-if="notice !== null" class="bookshelf-page__notice" role="status" data-bookshelf-notice>
-                <span class="bookshelf-page__notice-text">{{ notice.text }}</span>
-                <Button v-if="notice.retry" variant="secondary" size="sm" @click="emit('retry')">{{ text(TEXT.retry) }}</Button>
-                <Button variant="ghost" size="sm" :aria-label="text(TEXT.dismiss)" @click="emit('dismiss-notice')">×</Button>
-            </div>
-
             <template v-if="status === 'loading'">
-                <Skeleton shape="block" height="196px" />
-                <Skeleton shape="block" height="224px" />
+                <Skeleton shape="block" height="150px" />
+                <Skeleton shape="block" height="240px" />
             </template>
 
             <div v-else-if="status === 'error'" class="bookshelf-page__error" role="alert">
@@ -136,56 +162,52 @@ defineExpose({focusShelf});
             </div>
 
             <template v-else>
-                <ContinueCard v-if="target !== null" :locale="locale" :item="target" :now="now" @continue="emit('continue', $event)" />
-                <ShelfEmptyState v-else-if="items.length === 0" :locale="locale" :library="library" @create="emit('create')" @add-existing="emit('add-existing')" />
-                <p v-else class="bookshelf-page__welcome">{{ text(TEXT.welcome) }}</p>
+                <ShelfDesk :locale="locale" :items="items" :now="now" @continue="emit('continue', $event)" />
 
                 <section class="bookshelf-page__shelf" :aria-label="text(TEXT.shelf)">
                     <div class="bookshelf-page__shelf-head">
                         <h2 class="bookshelf-page__shelf-title">
                             {{ text(TEXT.shelf) }}
-                            <span v-if="items.length > 0" class="bookshelf-page__count">· {{ text(formatText(TEXT.count, {count: items.length})) }}</span>
+                            <span class="bookshelf-page__count">{{ text(formatText(TEXT.count, {count: items.length})) }}</span>
                         </h2>
                         <div class="bookshelf-page__tools">
                             <SegmentedControl v-if="!narrow" :model-value="view" :options="viewOptions" :aria-label="text(TEXT.view)" @update:model-value="onView" />
-                            <label class="bookshelf-page__sort-label" for="bookshelf-sort">{{ text(TEXT.sort) }}</label>
-                            <FormSelect id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" class="bookshelf-page__sort" @update:model-value="onSort" />
+                            <!-- FormSelect 是多根组件，scoped 的宽度类落不到它的触发器上；触发器全宽，宽度由这个外框给。 -->
+                            <div class="bookshelf-page__sort">
+                                <FormSelect id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" :aria-label="text(TEXT.sort)" @update:model-value="onSort" />
+                            </div>
+                            <span class="bookshelf-page__gap" aria-hidden="true"></span>
+                            <Button variant="secondary" size="sm" data-shelf-add @click="emit('add-existing')">{{ text(TEXT.addExisting) }}</Button>
+                            <Button variant="primary" size="sm" icon-class="i-lucide-plus" data-shelf-create @click="emit('create')">{{ text(TEXT.create) }}</Button>
                         </div>
                     </div>
 
-                    <template v-if="effectiveView === 'spines'">
-                        <SpineShelf
-                            :locale="locale"
-                            :items="sorted"
-                            :active-id="activeId"
-                            @update:active-id="emit('update:activeId', $event)"
-                            @open="emit('open', $event)"
-                            @remove="emit('remove', $event)"
-                            @create="emit('create')"
-                            @add-existing="emit('add-existing')"
-                        />
-                        <ShelfTitlePage
-                            v-if="active !== null"
-                            :locale="locale"
-                            :item="active"
-                            :now="now"
-                            @open="emit('open', $event)"
-                            @open-new-window="emit('open-new-window', $event)"
-                            @edit="emit('edit', $event)"
-                            @remove="emit('remove', $event)"
-                        />
-                    </template>
-                    <ShelfList
-                        v-else
+                    <ShelfCards
+                        v-if="effectiveView === 'cards' || items.length === 0"
                         :locale="locale"
                         :items="sorted"
+                        :active-id="activeId"
                         :now="now"
+                        :cover-src="coverSrc"
+                        :library="library"
+                        @update:active-id="emit('update:activeId', $event)"
                         @open="emit('open', $event)"
                         @open-new-window="emit('open-new-window', $event)"
                         @edit="emit('edit', $event)"
                         @remove="emit('remove', $event)"
                         @create="emit('create')"
                         @add-existing="emit('add-existing')"
+                    />
+                    <ShelfList
+                        v-else
+                        :locale="locale"
+                        :items="sorted"
+                        :now="now"
+                        :cover-src="coverSrc"
+                        @open="emit('open', $event)"
+                        @open-new-window="emit('open-new-window', $event)"
+                        @edit="emit('edit', $event)"
+                        @remove="emit('remove', $event)"
                     />
                 </section>
             </template>
@@ -205,10 +227,10 @@ defineExpose({focusShelf});
 .bookshelf-page__column {
     display: flex;
     flex-direction: column;
-    gap: var(--space-7);
-    max-width: 1040px;
+    gap: 40px;
+    max-width: 1120px;
     margin: 0 auto;
-    padding: var(--space-6) 32px var(--space-8);
+    padding: var(--space-6) 40px var(--space-8);
 }
 
 .bookshelf-page--narrow .bookshelf-page__column {
@@ -243,13 +265,22 @@ defineExpose({focusShelf});
     font-weight: var(--weight-normal);
 }
 
-.bookshelf-page__welcome {
-    margin: 0;
-    max-width: 34em;
-    color: var(--text-secondary);
-    font-family: var(--font-display);
-    font-size: 17px;
-    line-height: var(--leading-reading);
+.bookshelf-page__tools-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.bookshelf-page__avatar {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: var(--border-w) solid var(--control-outline);
+    border-radius: 999px;
+    background: var(--control-surface);
+    color: var(--text-muted);
+    font-size: 14px;
 }
 
 .bookshelf-page__shelf {
@@ -268,48 +299,32 @@ defineExpose({focusShelf});
 
 .bookshelf-page__shelf-title {
     margin: 0;
-    font-size: var(--text-lg);
+    font-family: var(--font-display);
+    font-size: 20px;
     font-weight: var(--weight-strong);
 }
 
 .bookshelf-page__count {
+    margin-left: var(--space-2);
     color: var(--text-muted);
+    font-family: var(--font-ui);
     font-size: var(--text-sm);
     font-weight: var(--weight-normal);
 }
 
 .bookshelf-page__tools {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-3);
+    gap: var(--space-2);
 }
 
-.bookshelf-page__sort-label {
-    margin-right: calc(var(--space-2) - var(--space-3));
-    white-space: nowrap;
-    color: var(--text-muted);
-    font-size: var(--text-sm);
+.bookshelf-page__gap {
+    width: var(--space-2);
 }
 
 .bookshelf-page__sort {
     width: 128px;
-}
-
-.bookshelf-page__notice {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    font-size: var(--text-sm);
-}
-
-.bookshelf-page__notice-text {
-    flex: 1;
-    min-width: 0;
 }
 
 .bookshelf-page__error {

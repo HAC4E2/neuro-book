@@ -120,3 +120,6 @@ export const SHELF_ITEM_REVISING: ShelfItem = {
     ...SHELF_ITEMS[0]!,
     stats: {...SHELF_ITEMS[0]!.stats, today: -320},
 };
+
+/** Lab 里第一部作品的封面：一张内联 SVG（夜色、月亮、山），不依赖服务端的封面路由。 */
+export const SHELF_COVER_SRC = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d1b2e"/><stop offset=".55" stop-color="#1f3a5f"/><stop offset="1" stop-color="#6d7f9a"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><circle cx="100" cy="92" r="22" fill="#fff8e1"/><path d="M0 230 L40 190 L70 215 L110 170 L150 205 L200 180 L200 300 L0 300Z" fill="#0b1626"/><text x="100" y="268" text-anchor="middle" font-family="serif" font-size="22" font-weight="600" fill="#f7f2ec" letter-spacing="4">长夜行</text></svg>')}`;

@@ -1,41 +1,32 @@
 ---
 标签: []
-别名: ["书架列表", "Shelf List"]
+别名: ["列表视图"]
 ---
 
 # ShelfList
 
-书架的列表视图（提案 [书架页](../../../../../../../docs/proposals/bookshelf.md) 的“扉页列表”）：每部作品一行，像文学期刊的目录。作品多、要按名字或时间找时用它；窄屏（不足 720px）下是唯一的视图。
+书架的列表视图（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 7）：一行一部作品，从左到右是 30px 的封面（[`BookCover`](BookCover.md)）、书名（宋体）与一行简介、字数与篇数、最近编辑时间与新鲜度说明（`stale` 写“统计于某时”，`counting` 写“正在统计”，正在打开的作品加“已打开”），行尾“更多”（在新窗口打开、编辑信息、从书架移除）。行之间是发丝线，不给面。容器窄于 640px 时字数与时间折到书名下面。
 
-## 布局
+## 交互
 
-- 每行：左侧 4px 色条（与书脊同色），中间宋体书名与一行简介，右侧字数、篇数与最近编辑时间（窄屏时换到书名下方）。
-- 行与行之间一条 `--divider` 分割线，不给每行画框。
-- 行的主体是一个按钮：点它或按 Enter 打开作品；右侧“更多”按钮列出在新窗口打开、编辑信息、从书架移除。
-- 列表末尾两行文字按钮：“新建作品”“加入已有目录”。
+点行打开作品；行是按钮，Tab 可达、回车打开。“更多”是 `Dropdown`，选项发对应事件。
 
 ## 数据
 
 ```ts
 type Props = {
     locale: DisplayLocale;
-    /** 已排好序。 */
-    items: ShelfItem[];
-    /** ISO 时间，时间的相对写法按它算。 */
+    items: ReadonlyArray<ShelfItem>;
     now: string;
+    /** 一部作品的封面图地址；没有封面为 null。 */
+    coverSrc: (item: ShelfItem) => string | null;
 };
 type Emits = {
     open: [id: string];
     "open-new-window": [id: string];
     edit: [id: string];
     remove: [id: string];
-    create: [];
-    "add-existing": [];
 };
 ```
 
-## 状态
-
-- 行右侧的新鲜度说明（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 8）：`none` 只写“尚未统计”；`stale` 在字数、篇数、最近编辑时间后写“统计于某时”；`counting` 写“正在统计”；`fresh` 不加说明。
-- 正在打开的作品在书名后加“已打开”。
-- 列表为空时只有两行文字按钮。
+根节点带 `data-shelf-list`，每行 `data-shelf-row`。没有插槽与 expose。

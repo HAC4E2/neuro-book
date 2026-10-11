@@ -11,7 +11,7 @@ import type {PersistedField} from "nbook/shared/store/store";
 
 import type {ShelfSort} from "./shelf-format";
 
-export type ShelfView = "spines" | "list";
+export type ShelfView = "cards" | "list";
 
 export interface ShelfPreferences {
     readonly view: ShelfView;
@@ -19,13 +19,13 @@ export interface ShelfPreferences {
 }
 
 const PreferencesSchema = Type.Object({
-    view: Type.Union([Type.Literal("spines"), Type.Literal("list")]),
+    view: Type.Union([Type.Literal("cards"), Type.Literal("list")]),
     sort: Type.Union([Type.Literal("recent"), Type.Literal("title"), Type.Literal("words")]),
 }, {additionalProperties: false});
 
 export const SHELF_PREFERENCES_RECORD = defineRecord({key: "projects.shelf-preferences", scope: "user", locality: "local", version: 1, schema: PreferencesSchema});
 
-const DEFAULT_PREFERENCES: ShelfPreferences = {view: "spines", sort: "recent"};
+const DEFAULT_PREFERENCES: ShelfPreferences = {view: "cards", sort: "recent"};
 
 const paused = (field: PersistedField<ShelfPreferences>): boolean => field.save.state === "failed" || field.save.state === "unknown";
 

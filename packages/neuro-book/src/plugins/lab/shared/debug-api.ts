@@ -40,7 +40,7 @@ export type LabStageMeasure = {
     overflowX: number;
     /** 越出舞台左右边缘、且没有被某个滚动或裁剪容器挡住的元素，最多 20 个。 */
     offenders: LabOverflowOffender[];
-    /** 聚焦时光晕会被祖先裁掉一截的可聚焦控件，最多 20 个；按主题的 `--focus-ring` 算外扩量。 */
+    /** 聚焦时光晕会被祖先裁掉一截的元素（按样式表里的焦点规则找，环画在外框上的算外框），最多 20 个；按主题的 `--focus-ring` 算外扩量。 */
     clippedFocus: LabClippedFocus[];
 };
 

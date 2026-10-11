@@ -6,14 +6,15 @@ import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
+import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
+import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
 import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
-import type BookSpine from "nbook/plugins/projects/web/components/BookSpine.vue";
-import type ContinueCard from "nbook/plugins/projects/web/components/ContinueCard.vue";
-import type ProjectInfoDialog from "nbook/plugins/projects/web/components/ProjectInfoDialog.vue";
-import type ShelfEmptyState from "nbook/plugins/projects/web/components/ShelfEmptyState.vue";
+import type PathPickerDialog from "nbook/plugins/projects/web/components/PathPickerDialog.vue";
+import type ProjectInfoWindow from "nbook/plugins/projects/web/components/ProjectInfoWindow.vue";
+import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vue";
+import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
-import type ShelfTitlePage from "nbook/plugins/projects/web/components/ShelfTitlePage.vue";
-import type SpineShelf from "nbook/plugins/projects/web/components/SpineShelf.vue";
+import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
 import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
@@ -43,7 +44,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {nbUiFixtures} from "./nb-ui";
-import {SHELF_ITEM_REVISING, SHELF_ITEMS, SHELF_NOW} from "./shelf-fixture-data";
+import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /**
@@ -609,110 +610,116 @@ export const labFixtures: LabFixture[] = [
     ...nbUiFixtures,
 ];
 
-/** 书架页（docs/proposals/bookshelf.md）：静态稿给开发者看，也是页面接上真实数据之后的回归场景。 */
+/** 书架页（docs/specs/workbench/bookshelf.md）：静态稿给开发者看，也是页面接上真实数据之后的回归场景。 */
 function shelfFixtures(): LabFixture[] {
     const [first, second, third, , long] = SHELF_ITEMS as [typeof SHELF_ITEMS[number], ...typeof SHELF_ITEMS];
-    const page = {locale: "zh-CN" as const, status: "ready" as const, items: SHELF_ITEMS, now: SHELF_NOW};
+    const page = {locale: "zh-CN" as const, status: "ready" as const, items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"};
+    // 封面图由夹具给：Lab 没有服务端的封面路由，第一部作品用一张内联的 SVG，其余排版封面。
+    const covers = async () => ({coverSrc: (item: ShelfItem) => (item.id === first.id ? SHELF_COVER_SRC : null)});
     return [
         defineSubjectFixture<typeof BookshelfPage>({
             component: "BookshelfPage",
-            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "enter-workbench", "retry", "dismiss-notice"],
+            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "retry", "command", "change-library"],
             class: "h-full w-full",
+            runtimeProps: covers,
             scenes: [
-                {id: "spines", label: "书脊视图，选中一部", input: {props: page, model: {view: "spines", sort: "recent", activeId: first.id}}},
-                {id: "notice", label: "刷新失败的提示", input: {props: {...page, notice: {text: "书架没有更新：服务端暂时不可用", retry: true}}, model: {view: "spines", sort: "recent", activeId: first.id}}},
-                {id: "spines-none-selected", label: "书脊视图，未选中", input: {props: page, model: {view: "spines", sort: "title", activeId: null}}},
+                {id: "cards", label: "卡片视图，选中一部", input: {props: page, model: {view: "cards", sort: "recent", activeId: first.id}}},
                 {id: "list", label: "列表视图", input: {props: page, model: {view: "list", sort: "words", activeId: null}}},
-                {id: "one", label: "只有一部", input: {props: {...page, items: [second]}, model: {view: "spines", sort: "recent", activeId: second.id}}},
-                {id: "no-record", label: "有作品但没有写作记录", input: {props: {...page, items: [SHELF_ITEMS[3]!]}, model: {view: "spines", sort: "recent", activeId: null}}},
-                {id: "empty", label: "空书架（设了作品目录）", input: {props: {...page, items: [], library: "/home/writer/Documents/NeuroBook"}, model: {view: "spines", sort: "recent", activeId: null}}},
-                {id: "empty-unset", label: "空书架（还没设作品目录）", input: {props: {...page, items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
-                {id: "loading", label: "加载中", input: {props: {...page, status: "loading", items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
-                {id: "error", label: "取数失败", input: {props: {...page, status: "error", error: "书架没取到：服务端暂时不可用", items: []}, model: {view: "spines", sort: "recent", activeId: null}}},
-                {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "spines", sort: "recent", activeId: third.id}}},
+                {id: "one", label: "只有一部", input: {props: {...page, items: [second]}, model: {view: "cards", sort: "recent", activeId: second.id}}},
+                {id: "no-record", label: "有作品但没有写作记录", input: {props: {...page, items: [SHELF_ITEMS[3]!]}, model: {view: "cards", sort: "recent", activeId: null}}},
+                {id: "empty", label: "空书架", input: {props: {...page, items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
+                {id: "loading", label: "加载中", input: {props: {...page, status: "loading", items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
+                {id: "error", label: "取数失败", input: {props: {...page, status: "error", error: "书架没取到：服务端暂时不可用", items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
+                {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "cards", sort: "recent", activeId: third.id}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/BookshelfPage.vue"),
         }),
-        defineSubjectFixture<typeof ProjectInfoDialog>({
-            component: "ProjectInfoDialog",
-            events: ["submit", "cancel"],
-            class: "",
-            scenes: [
-                {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create", library: "/home/writer/Documents/NeuroBook"}}},
-                {id: "create-unset", label: "新建作品（还没设作品目录）", input: {props: {locale: "zh-CN", open: true, mode: "create"}}},
-                {id: "edit", label: "编辑信息", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: first.title ?? first.name, description: first.description ?? "", color: "#7a4b3a"}}}},
-                {id: "rejected", label: "服务端拒绝", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: null}, error: "同名目录已存在（/home/writer/books/长夜行）：改个书名，或用“加入已有目录”"}}},
-                {id: "busy", label: "提交中", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null}, busy: true}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}}},
-            ],
-            subject: () => import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue"),
-        }),
-        defineSubjectFixture<typeof ShelfEmptyState>({
-            component: "ShelfEmptyState",
-            events: ["create", "add-existing"],
-            class: "w-full",
-            scenes: [
-                {id: "library", label: "设了作品目录", input: {props: {locale: "zh-CN", library: "/home/writer/Documents/NeuroBook"}}},
-                {id: "unset", label: "还没设作品目录", input: {props: {locale: "zh-CN", library: null}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", library: "/Users/writer/Documents/NeuroBook"}}},
-            ],
-            subject: () => import("nbook/plugins/projects/web/components/ShelfEmptyState.vue"),
-        }),
-        defineSubjectFixture<typeof ContinueCard>({
-            component: "ContinueCard",
+        defineSubjectFixture<typeof ShelfDesk>({
+            component: "ShelfDesk",
             events: ["continue"],
             class: "w-full",
             scenes: [
-                {id: "fresh", label: "正在写（统计最新）", input: {props: {locale: "zh-CN", item: first, now: SHELF_NOW}}},
-                {id: "stale", label: "前天写的（统计过期）", input: {props: {locale: "zh-CN", item: second, now: SHELF_NOW}}},
-                {id: "revising", label: "今天净删", input: {props: {locale: "zh-CN", item: SHELF_ITEM_REVISING, now: SHELF_NOW}}},
+                {id: "writing", label: "今天写了字", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "no-today", label: "今天没写", input: {props: {locale: "zh-CN", items: [second, third], now: SHELF_NOW}}},
+                {id: "revising", label: "今天净删", input: {props: {locale: "zh-CN", items: [SHELF_ITEM_REVISING], now: SHELF_NOW}}},
+                {id: "no-record", label: "没有写作记录", input: {props: {locale: "zh-CN", items: [SHELF_ITEMS[3]!], now: SHELF_NOW}}},
+                {id: "empty", label: "空书架的问候", input: {props: {locale: "zh-CN", items: [], now: SHELF_NOW}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", items: SHELF_ITEMS, now: SHELF_NOW}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/ContinueCard.vue"),
+            subject: () => import("nbook/plugins/projects/web/components/ShelfDesk.vue"),
         }),
-        defineSubjectFixture<typeof SpineShelf>({
-            component: "SpineShelf",
-            events: ["open", "remove", "create", "add-existing"],
+        defineSubjectFixture<typeof ShelfCards>({
+            component: "ShelfCards",
+            events: ["open", "open-new-window", "edit", "remove", "create", "add-existing"],
             class: "w-full",
+            runtimeProps: covers,
             scenes: [
-                {id: "shelf", label: "一排书", input: {props: {locale: "zh-CN", items: SHELF_ITEMS}, model: {activeId: first.id}}},
-                {id: "many", label: "放不下换层", input: {props: {locale: "zh-CN", items: [...SHELF_ITEMS, ...SHELF_ITEMS, ...SHELF_ITEMS].map((item, index) => ({...item, id: `${item.id}-${String(index)}`}))}, model: {activeId: null}}},
-                {id: "empty", label: "空书架", input: {props: {locale: "zh-CN", items: []}, model: {activeId: null}}},
+                {id: "grid", label: "几部作品", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: first.id}}},
+                {id: "many", label: "很多部", input: {props: {locale: "zh-CN", items: [...SHELF_ITEMS, ...SHELF_ITEMS].map((item, index) => ({...item, id: `${item.id}-${String(index)}`})), now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: null}}},
+                {id: "empty", label: "空书架的两张卡", input: {props: {locale: "zh-CN", items: [], now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: null}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/SpineShelf.vue"),
+            subject: () => import("nbook/plugins/projects/web/components/ShelfCards.vue"),
         }),
-        defineSubjectFixture<typeof BookSpine>({
-            component: "BookSpine",
+        defineSubjectFixture<typeof BookCard>({
+            component: "BookCard",
+            events: ["pick", "open", "open-new-window", "edit", "remove"],
+            class: "w-full max-w-[360px]",
+            scenes: [
+                {id: "cover", label: "有封面、正在打开", input: {props: {locale: "zh-CN", item: first, now: SHELF_NOW, coverSrc: SHELF_COVER_SRC, active: true}}},
+                {id: "typeset", label: "排版封面", input: {props: {locale: "zh-CN", item: second, now: SHELF_NOW, coverSrc: null, active: false}}},
+                {id: "none", label: "尚未统计、没有简介", input: {props: {locale: "zh-CN", item: SHELF_ITEMS[3]!, now: SHELF_NOW, coverSrc: null, active: false}}},
+                {id: "long", label: "长书名", input: {props: {locale: "zh-CN", item: long, now: SHELF_NOW, coverSrc: null, active: false}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/BookCard.vue"),
+        }),
+        defineSubjectFixture<typeof BookCover>({
+            component: "BookCover",
             class: "",
             scenes: [
-                {id: "generated", label: "生成的色档", input: {props: {id: "spine-a", title: "长夜行", width: 52, height: 214, hue: 3, color: null, active: false, running: false, runningLabel: "已在一个窗口里打开"}}},
-                {id: "custom-light", label: "作者给的浅色", input: {props: {id: "spine-b", title: "短篇集", width: 34, height: 200, hue: 0, color: "#d9c9a3", active: false, running: false, runningLabel: "已在一个窗口里打开"}}},
-                {id: "active-running", label: "选中且已打开", input: {props: {id: "spine-c", title: "北方以北", width: 46, height: 220, hue: 0, color: "#7a4b3a", active: true, running: true, runningLabel: "已在一个窗口里打开"}}},
-                {id: "long", label: "书名放不下", input: {props: {id: "spine-d", title: long.title ?? long.name, width: 30, height: 208, hue: 5, color: null, active: false, running: false, runningLabel: "已在一个窗口里打开"}}},
+                {id: "image", label: "有图", input: {props: {id: "a", title: "长夜行", color: null, src: SHELF_COVER_SRC, width: 150}}},
+                {id: "typeset", label: "排版封面（生成的色档）", input: {props: {id: "8f0c2d4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f", title: "长夜行", color: null, width: 150, caption: "长篇"}}},
+                {id: "light", label: "作者给的浅色", input: {props: {id: "b", title: "短篇集：在所有的夜里", color: "#d9c9a3", width: 150}}},
+                {id: "small", label: "列表里的小封面", input: {props: {id: "c", title: "北方以北", color: "#7a4b3a", width: 30}}},
+                {id: "english", label: "英文长名", input: {props: {id: "d", title: "The Long Dark and the Lighthouse Keeper", color: null, width: 84}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/BookSpine.vue"),
-        }),
-        defineSubjectFixture<typeof ShelfTitlePage>({
-            component: "ShelfTitlePage",
-            events: ["open", "open-new-window", "edit", "remove"],
-            class: "w-full",
-            scenes: [
-                {id: "running", label: "正在打开", input: {props: {locale: "zh-CN", item: first, now: SHELF_NOW}}},
-                {id: "stale", label: "统计过期", input: {props: {locale: "zh-CN", item: second, now: SHELF_NOW}}},
-                {id: "none", label: "尚未统计、没有书名", input: {props: {locale: "zh-CN", item: SHELF_ITEMS[3]!, now: SHELF_NOW}}},
-                {id: "long", label: "长书名与长路径", input: {props: {locale: "zh-CN", item: long, now: SHELF_NOW}}},
-            ],
-            subject: () => import("nbook/plugins/projects/web/components/ShelfTitlePage.vue"),
+            subject: () => import("nbook/plugins/projects/web/components/BookCover.vue"),
         }),
         defineSubjectFixture<typeof ShelfList>({
             component: "ShelfList",
-            events: ["open", "open-new-window", "edit", "remove", "create", "add-existing"],
+            events: ["open", "open-new-window", "edit", "remove"],
             class: "w-full",
+            runtimeProps: covers,
             scenes: [
                 {id: "books", label: "几部作品", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW}}},
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", items: SHELF_ITEMS, now: SHELF_NOW}}},
-                {id: "empty", label: "空书架", input: {props: {locale: "zh-CN", items: [], now: SHELF_NOW}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/ShelfList.vue"),
+        }),
+        defineSubjectFixture<typeof ProjectInfoWindow>({
+            component: "ProjectInfoWindow",
+            events: ["submit", "cancel", "browse-location"],
+            class: "",
+            scenes: [
+                {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create"}, model: {location: "/home/writer/Documents/NeuroBook"}}},
+                {id: "edit", label: "编辑信息（有封面）", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {id: first.id, title: first.title ?? first.name, description: first.description ?? "", color: "#2f5fa0", coverSrc: SHELF_COVER_SRC}}, model: {location: ""}}},
+                {id: "rejected", label: "服务端拒绝了位置", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: "#2f5fa0", coverSrc: null}, fieldErrors: {location: "作品目录不可用：目录不可读写（/mnt/usb/books）"}}, model: {location: "/mnt/usb/books"}}},
+                {id: "busy", label: "提交中", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null, coverSrc: null}, busy: true}, model: {location: ""}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}, model: {location: "/Users/writer/Documents/NeuroBook"}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/ProjectInfoWindow.vue"),
+        }),
+        defineSubjectFixture<typeof PathPickerDialog>({
+            component: "PathPickerDialog",
+            events: ["pick", "cancel"],
+            class: "",
+            runtimeProps: async () => ({source: (await import("./path-picker-source")).labPathPickerSource}),
+            scenes: [
+                {id: "project", label: "打开已有作品", input: {props: {locale: "zh-CN", open: true, mode: "project"}}},
+                {id: "directory", label: "选择作品目录", input: {props: {locale: "zh-CN", open: true, mode: "directory", initialPath: "/home/writer/Documents"}}},
+                {id: "rejected", label: "登记失败", input: {props: {locale: "zh-CN", open: true, mode: "project", error: "没有加入书架：目录里的项目身份文件无法读取"}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "project"}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/PathPickerDialog.vue"),
         }),
     ];
 }

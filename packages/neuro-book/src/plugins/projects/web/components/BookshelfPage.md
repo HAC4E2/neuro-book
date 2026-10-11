@@ -1,65 +1,47 @@
 ---
 标签: []
-别名: ["书架页", "书房", "Bookshelf"]
+别名: ["书架页", "书房"]
 ---
 
 # BookshelfPage
 
-没打开项目时的首页（提案 [书架页](../../../../../../../docs/proposals/bookshelf.md) 的“书房”）：上半是继续写作，下半是书架，书架有书脊与列表两种视图。组件只呈现给定的数据、发出用户动作；取数、打开项目、确认与对话框由页面宿主负责。
+没有打开作品时的首页（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 1 到 8）。直接压在窗体底纹上，内容列至多 1120px 宽、居中。自上而下：
 
-## 布局
+- 标题栏：品牌标志与字标后接“· 书房”；右侧设置菜单（切换主题、明暗、界面语言，分隔，作品目录…）与头像位（只预留，不可点，提示“个人资料尚未开放”）。
+- 案头 [`ShelfDesk`](ShelfDesk.md)：统计、最近写到、看板娘；空书架时是问候。
+- 书架：标题“书架 N 部”，右侧视图切换（卡片、列表）、排序（最近编辑、书名、字数）、“打开已有作品…”与“新建作品”。下面是 [`ShelfCards`](ShelfCards.md)（卡片，空书架时是两张待写的书）或 [`ShelfList`](ShelfList.md)。
 
-- 页面直接压在窗体底纹上（`--window-backdrop`），内容列封顶 1040px 居中，桌面左右留 32px，窄屏 16px；页面自身纵向滚动，不出现横向滚动。
-- 顶部一行：左边品牌的标志 + 字标（`NeuroBookLockup`，26px 高）后接“· 书房”，右边 ghost 按钮“用户资产”（不打开作品，进工作台用用户资产）。
-- 继续写作：`ContinueCard`，选 `continueTarget()` 的那一部；有作品但没有任何编辑记录时换成一段欢迎文字；书架为空时换成引导卡 `ShelfEmptyState`（看板娘、作品是什么、新作品建在哪、两个入口）。
-- 书架：标题行“书架 · N 部”，右侧视图切换（书脊、列表）与排序（最近编辑、书名、字数）；
-  - 书脊视图：`SpineShelf`，选中作品的 `ShelfTitlePage` 显示在书架下方；
-  - 列表视图：`ShelfList`。
-- 宽度不足 720px：只用列表视图，视图切换不显示；继续写作上下排。
+宽度不足 720px 时只用列表视图，视图切换不显示；空书架时不论视图都显示两张待写的书。加载中显示骨架；首次取数失败显示原因与“重试”。
 
 ## 数据
 
 ```ts
 type Props = {
     locale: DisplayLocale;
-    /** loading：第一次取数还没回来；error：取数失败。 */
     status: "loading" | "ready" | "error";
-    /** status 为 error 时的原因，已按当前语言写好。 */
     error?: string;
-    items: ShelfItem[];
-    /** ISO 时间。 */
+    items: ReadonlyArray<ShelfItem>;
     now: string;
-    view: "spines" | "list";
-    sort: ShelfSort;
+    view: "cards" | "list";
+    sort: "recent" | "title" | "words";
     activeId: string | null;
-    /** 顶部提示：刷新失败（带重试）、新标签被拦截、移出被拒这类不影响数据的事。 */
-    notice?: {text: string; retry: boolean} | null;
-    /** 作品目录，空书架的引导卡要说；null 表示还没设。 */
-    library?: string | null;
+    /** 作品目录，空书架的“新建作品”卡上写它。 */
+    library: string;
+    /** 一部作品的封面图地址；没有封面为 null。 */
+    coverSrc: (item: ShelfItem) => string | null;
 };
 type Emits = {
-    "update:view": [view: "spines" | "list"];
-    "update:sort": [sort: ShelfSort];
-    "update:activeId": [id: string];
-    continue: [id: string];
-    open: [id: string];
-    "open-new-window": [id: string];
-    edit: [id: string];
-    remove: [id: string];
-    create: [];
-    "add-existing": [];
-    "enter-workbench": [];
-    /** 首次取数失败的“重试”，与提示里的“重试”都发它。 */
-    retry: [];
-    "dismiss-notice": [];
+    "update:view": [view]; "update:sort": [sort]; "update:activeId": [id: string];
+    continue: [id: string]; open: [id: string]; "open-new-window": [id: string]; edit: [id: string]; remove: [id: string];
+    create: []; "add-existing": []; retry: [];
+    /** 设置菜单里的命令 id。 */
+    command: [id: string];
+    "change-library": [];
 };
 ```
 
-暴露 `focusShelf()`：焦点回到书架——书脊视图是列表框，列表视图是第一行，书架空了时是“新建作品”（移出作品后宿主调它）。
+`focusShelf()`（expose）：焦点回到书架（卡片视图的列表框、列表的第一行；书架空了时是“新建作品”）。根节点带 `data-bookshelf-page`；按钮 `data-shelf-create`、`data-shelf-add`、`data-shelf-settings`。
 
-## 状态
+## 不支持
 
-- `loading`：继续写作与书架位置显示骨架，不显示空书架的文字。
-- `error`：书架位置显示原因与“重试”。
-- 空书架：引导卡加两根虚线书脊（或列表的两行按钮）。
-- `activeId` 不在列表里时（作品刚被移出书架）：书脊视图不显示扉页，聚焦书架时选中第一部。
+不取数、不开窗口：数据与动作由 [`BookshelfHost`](BookshelfHost.md) 接页面模型。

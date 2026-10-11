@@ -1,0 +1,232 @@
+<script setup lang="ts">
+/** 卡片视图（同名 .md）：书卡网格的列表框语义与键盘；空书架时是两张“待写的书”。 */
+import {computed, ref} from "vue";
+
+import {localize} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+
+import type {ShelfItem} from "../../shared/shelf";
+import BookCard from "./BookCard.vue";
+
+defineOptions({name: "ShelfCards"});
+
+const props = defineProps<{
+    locale: DisplayLocale;
+    items: ReadonlyArray<ShelfItem>;
+    activeId: string | null;
+    now: string;
+    /** 一部作品的封面图地址；没有封面为 null。 */
+    coverSrc: (item: ShelfItem) => string | null;
+    /** 空书架时写在“新建作品”卡上的作品目录。 */
+    library: string;
+}>();
+
+const emit = defineEmits<{
+    (event: "update:activeId", id: string): void;
+    (event: "open", id: string): void;
+    (event: "open-new-window", id: string): void;
+    (event: "edit", id: string): void;
+    (event: "remove", id: string): void;
+    (event: "create"): void;
+    (event: "add-existing"): void;
+}>();
+
+const TEXT = {
+    label: {"zh-CN": "书架", "en-US": "Bookshelf"},
+    create: {"zh-CN": "新建作品", "en-US": "New Book"},
+    createText: {"zh-CN": "起一个书名，NeuroBook 会在作品目录里为它建一个文件夹。", "en-US": "Give it a title and NeuroBook creates a folder for it in your library."},
+    createWhere: {"zh-CN": "放在 {library}", "en-US": "In {library}"},
+    open: {"zh-CN": "打开已有作品", "en-US": "Open an Existing Book"},
+    openText: {"zh-CN": "把已经写了一些的作品文件夹（例如从别的电脑同步来的）加到书架上。", "en-US": "Add a book folder you already have, for example one synced from another computer."},
+    openWhere: {"zh-CN": "选一个文件夹", "en-US": "Choose a folder"},
+} satisfies Record<string, LocalizedText>;
+
+const text = (value: LocalizedText): string => localize(value, props.locale);
+
+const grid = ref<HTMLElement | null>(null);
+const optionId = (id: string): string => `book-card-${id}`;
+const activeIndex = computed(() => props.items.findIndex((item) => item.id === props.activeId));
+
+/** 网格的列数：第一行里 offsetTop 相同的卡片数；方向键上下按它跳。 */
+function columns(): number {
+    const cards = [...(grid.value?.querySelectorAll<HTMLElement>("[data-book-card]") ?? [])];
+    if (cards.length === 0) return 1;
+    const top = cards[0]?.offsetTop;
+    return Math.max(1, cards.filter((card) => card.offsetTop === top).length);
+}
+
+function select(index: number): void {
+    const item = props.items[index];
+    if (item === undefined) return;
+    emit("update:activeId", item.id);
+    document.getElementById(optionId(item.id))?.scrollIntoView({block: "nearest"});
+}
+
+function onFocus(): void {
+    if (activeIndex.value === -1 && props.items.length > 0) select(0);
+}
+
+function onKeydown(event: KeyboardEvent): void {
+    const last = props.items.length - 1;
+    if (last < 0) return;
+    const current = activeIndex.value === -1 ? 0 : activeIndex.value;
+    const step = columns();
+    const moves: Record<string, number> = {ArrowLeft: current - 1, ArrowRight: current + 1, ArrowUp: current - step, ArrowDown: current + step, Home: 0, End: last};
+    if (event.key in moves) {
+        event.preventDefault();
+        select(Math.min(last, Math.max(0, moves[event.key] as number)));
+        return;
+    }
+    const active = props.items[current];
+    if (active === undefined) return;
+    if (event.key === "Enter") {
+        event.preventDefault();
+        emit("open", active.id);
+    } else if (event.key === "Delete") {
+        event.preventDefault();
+        emit("remove", active.id);
+    }
+}
+
+function onPick(id: string): void {
+    grid.value?.focus({preventScroll: true});
+    emit("update:activeId", id);
+}
+</script>
+
+<template>
+    <div
+        v-if="items.length > 0"
+        ref="grid"
+        class="shelf-cards"
+        role="listbox"
+        tabindex="0"
+        :aria-label="text(TEXT.label)"
+        :aria-activedescendant="activeIndex === -1 ? undefined : optionId(items[activeIndex]!.id)"
+        data-shelf-cards
+        @focus="onFocus"
+        @keydown="onKeydown"
+    >
+        <BookCard
+            v-for="item in items"
+            :key="item.id"
+            :option-id="optionId(item.id)"
+            :locale="locale"
+            :item="item"
+            :now="now"
+            :cover-src="coverSrc(item)"
+            :active="item.id === activeId"
+            @pick="onPick"
+            @open="emit('open', $event)"
+            @open-new-window="emit('open-new-window', $event)"
+            @edit="emit('edit', $event)"
+            @remove="emit('remove', $event)"
+        />
+    </div>
+    <div v-else class="shelf-cards shelf-cards--empty" data-shelf-cards data-shelf-empty>
+        <!-- 空书架：两张和书卡同样大小的“待写的书”，书架从空到有只是网格里多了几张卡。 -->
+        <button type="button" class="shelf-ghost" data-shelf-create @click="emit('create')">
+            <span class="shelf-ghost__slot" aria-hidden="true"><span class="shelf-ghost__plus">+</span></span>
+            <span class="shelf-ghost__text">
+                <span class="shelf-ghost__title">{{ text(TEXT.create) }}</span>
+                <span class="shelf-ghost__blurb">{{ text(TEXT.createText) }}</span>
+                <span class="shelf-ghost__foot">{{ text(TEXT.createWhere).replace("{library}", library) }}</span>
+            </span>
+        </button>
+        <button type="button" class="shelf-ghost" data-shelf-add @click="emit('add-existing')">
+            <span class="shelf-ghost__slot" aria-hidden="true"><span class="i-lucide-folder shelf-ghost__folder"></span></span>
+            <span class="shelf-ghost__text">
+                <span class="shelf-ghost__title">{{ text(TEXT.open) }}</span>
+                <span class="shelf-ghost__blurb">{{ text(TEXT.openText) }}</span>
+                <span class="shelf-ghost__foot">{{ text(TEXT.openWhere) }}</span>
+            </span>
+        </button>
+    </div>
+</template>
+
+<style scoped>
+.shelf-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-4);
+    outline: none;
+}
+
+.shelf-ghost {
+    display: flex;
+    gap: var(--space-5);
+    padding: var(--space-5) var(--space-5) var(--space-4);
+    border: var(--border-w) solid color-mix(in srgb, var(--text-main) 12%, transparent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--page-surface, var(--bg-panel)) 55%, transparent);
+    color: var(--text-main);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.shelf-ghost:hover {
+    background: var(--page-surface, var(--bg-panel));
+    box-shadow: var(--page-lift, var(--elevation-flat));
+}
+
+.shelf-ghost:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.shelf-ghost__slot {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 84px;
+    aspect-ratio: 2 / 3;
+    border: 1.5px dashed color-mix(in srgb, var(--text-main) 24%, transparent);
+    border-radius: 4px;
+    color: var(--text-muted);
+}
+
+.shelf-ghost__plus {
+    font-size: 26px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.shelf-ghost__folder {
+    width: 26px;
+    height: 26px;
+    color: color-mix(in srgb, var(--status-warning) 70%, var(--text-muted));
+}
+
+.shelf-ghost__text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.shelf-ghost__title {
+    margin-top: 2px;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: var(--weight-strong);
+    line-height: 1.25;
+}
+
+.shelf-ghost__blurb {
+    margin-top: var(--space-2);
+    color: var(--text-secondary);
+    font-family: var(--font-display);
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.shelf-ghost__foot {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+</style>

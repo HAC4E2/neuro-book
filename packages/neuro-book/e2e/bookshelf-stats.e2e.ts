@@ -59,7 +59,7 @@ async function openBook(page: Page): Promise<void> {
 async function openShelf(page: Page): Promise<void> {
     await page.goto(new URL("/", server.url).href);
     await expect(root(page)).toHaveAttribute("data-workbench-home", "nbook.projects.bookshelf");
-    await expect(page.locator("[data-spine-shelf]")).toBeVisible();
+    await expect(page.locator("[data-shelf-cards]")).toBeVisible();
 }
 
 test("写过字、关掉窗口并等作品停止后，书架显示字数、片段与“统计于某时”；继续写作回到那个文件的末尾，刷新后不再定位", async ({page}) => {
@@ -81,15 +81,15 @@ test("写过字、关掉窗口并等作品停止后，书架显示字数、片�
     await server.waitFor(new RegExp(`\\[project book#1\\] ${PROJECT_PROBE_CLOSED_LINE}`, "u"));
 
     await openShelf(page);
-    const card = page.locator("[data-continue-card]");
-    await expect(card).toContainText("长夜行");
-    await expect(card).toContainText("雪落在灯罩上");
-    await expect(card).toContainText("统计于");
-    await expect(card).toContainText("字");
-    await page.locator('[data-spine-shelf] [role="option"]', {hasText: "长夜行"}).click();
-    await expect(page.locator("[data-shelf-title-page]")).toContainText("2 篇");
+    const desk = page.locator("[data-shelf-desk]");
+    await expect(desk).toContainText("长夜行");
+    await expect(desk).toContainText("雪落在灯罩上");
+    await expect(desk).toContainText("字");
+    const book = page.locator("[data-book-card]", {hasText: "长夜行"});
+    await expect(book).toContainText("统计于");
+    await expect(book).toContainText("2 篇");
 
-    await card.getByRole("button", {name: "继续写作"}).click();
+    await desk.locator("[data-continue]").click();
     await page.waitForURL((url) => url.searchParams.get("project") === "book" && !url.searchParams.has("open") && !url.searchParams.has("at"));
     await expect(activeTab(page)).toContainText("a.md");
     await expect(prose(page)).toContainText("雪落在灯罩上。");

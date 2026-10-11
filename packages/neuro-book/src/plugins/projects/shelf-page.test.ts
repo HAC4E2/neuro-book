@@ -1,13 +1,11 @@
 /**
- * 书架页的模型（docs/specs/workbench/bookshelf.md 输出 9–17 与“状态与转换”）：真实的服务端与浏览器内核实例经进程内链路
- * 相连，书架的远程服务由服务端上一个按合同实现的测试提供方给出（可以按用例让它失败或扣住响应；产品的服务端实现由
- * `projects.test.ts` 与 e2e 验收）。选择服务用真实的命令面板宿主，刷新间隔用注入时钟。
+ * 书架页的模型（docs/specs/workbench/bookshelf.md 输出 9 到 17 与状态表）：真实的服务端实例与浏览器实例经进程内链路相连，
+ * `nbook.projects/projects` 由一个按剧本回答的提供方顶替（书架页只看合同，服务端那头的真实实现在 projects.test.ts）；
+ * 配置经真实的配置插件（用户层写在场地的状态根）；通知经真实的工作台通知队列；时钟注入，不按时长等待。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
-
-import {ref} from "vue";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
@@ -19,16 +17,15 @@ import type {RemoteUse} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {ref} from "vue";
 
 import {definitionAt, delegatingPlugins} from "nbook/manifest";
-import {contextTable} from "nbook/plugins/commands/shared/context-keys";
-import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
-import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
-import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
+import {createNotifications} from "nbook/plugins/workbench/web/notifications";
+import type {WindowNotifications} from "nbook/plugins/workbench/web/notifications";
 import {projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -39,9 +36,9 @@ import {descriptor as projectsDescriptor} from "./plugin";
 import {librarySetting, projectsRemoteContract} from "./shared/contracts";
 import {projectDirectoryName} from "./shared/directory-name";
 import type {ShelfItem} from "./shared/shelf";
-import type {ShelfSort} from "./web/shelf-format";
 import {continueUrl, createShelfPage, SHELF_REFRESH_MS} from "./web/shelf-page";
 import type {ShelfPage} from "./web/shelf-page";
+import type {ShelfSort} from "./web/shelf-format";
 import type {ShelfView} from "./web/shelf-preferences";
 
 const silentConsole = {error: () => undefined};
@@ -69,30 +66,37 @@ function item(id: string, title: string, extra: Partial<ShelfItem> = {}): ShelfI
     };
 }
 
-/** 测试提供方的脚本：每次 `shelf` 调用先取当时的作品快照，再按 `holds` 等放行，所以能制造“先发的响应后到”。 */
+/** 剧本：提供方按它回答；用例改它来制造失败、扣住响应、延迟写入。 */
 interface Script {
     items: ShelfItem[];
     failShelf: "registry-invalid" | null;
-    /** 为真时每次 `shelf` 调用登记一个待放行的 Promise。 */
+    /** 为真时 `shelf` 扣住不回，直到对应的 hold 被 resolve。 */
     holding: boolean;
-    holds: PromiseWithResolvers<void>[];
+    holds: Array<PromiseWithResolvers<void>>;
     shelfCalls: number;
     /** `library()` 给出的作品目录（缺省来源）。 */
     library: string;
+    /** 正在打开的作品：移出被拒。 */
     running: Set<string>;
-    /** 写操作扣住回复：`after` 先做再扣（服务端做了、回复没回来），`instead` 扣到放行才做（服务端没做）。 */
+    /**
+     * 写操作的做法：null 立即做并回复；`after` 立即做、回复扣住到放行；`instead` 做与回复都扣住到放行。
+     * 两种扣住都让页面等到超时得到 unknown-outcome，核对时一种能发现已做、一种发现没做。
+     */
     delayWrite: null | "after" | "instead";
-    writeHolds: PromiseWithResolvers<void>[];
+    writeHolds: Array<PromiseWithResolvers<void>>;
 }
 
+let fresh = 0;
+
+/** 一个按剧本回答 `nbook.projects/projects` 的服务端插件。 */
 function shelfProvider(script: Script): PluginDefinition {
-    let counter = 0;
-    const fresh = (title: string, path: string): ShelfItem => {
-        counter += 1;
-        return item(`new-${String(counter)}`, title, {path});
+    const newItem = (title: string, path: string): ShelfItem => {
+        fresh += 1;
+        return item(`new-${String(fresh)}`, title, {path});
     };
     const write = async <T>(apply: () => T): Promise<T> => {
         if (script.delayWrite === null) return apply();
+        // after：做了但回复扣住（页面超时后核对能发现已做）；instead：回复与做都扣住（核对发现没做）。
         const done = script.delayWrite === "after" ? {value: apply()} : null;
         const hold = Promise.withResolvers<void>();
         script.writeHolds.push(hold);
@@ -111,12 +115,12 @@ function shelfProvider(script: Script): PluginDefinition {
                     list: async () => ({ok: true, value: script.items.map(({id, name, path, state}) => ({id, name, path, state, generation: null}))}),
                     register: ({path}) => write(() => {
                         if (path.includes("nowhere")) return {ok: false as const, code: "register-failed" as const, detail: {reason: "invalid-path", detail: `目录不存在：${path}`}};
-                        const created = fresh(path.split("/").pop() ?? path, path);
+                        const created = newItem(path.split("/").filter((part) => part !== "").pop() ?? path, path);
                         script.items = [...script.items, created];
                         return {ok: true as const, value: {id: created.id, name: created.name, path}};
                     }),
                     library: async () => ({ok: true as const, value: {path: script.library, source: "default" as const}}),
-                    browse: async ({path}) => ({ok: true as const, value: {path: path ?? script.library, parent: null, entries: []}}),
+                    browse: async ({path}) => ({ok: true as const, value: {path: path ?? script.library, parent: null, entries: [{name: "sub", path: `${path ?? script.library}/sub`, kind: "directory" as const, title: null}]}}),
                     shelf: async () => {
                         script.shelfCalls += 1;
                         const snapshot = [...script.items];
@@ -129,9 +133,9 @@ function shelfProvider(script: Script): PluginDefinition {
                         return {ok: true as const, value: snapshot};
                     },
                     create: ({title, parent}) => write(() => {
-                        if (title === "重名") return {ok: false as const, code: "exists" as const, detail: {path: `${parent}/重名`}};
+                        if (title === "重名") return {ok: false as const, code: "exists" as const, detail: {path: `${parent ?? ""}/重名`}};
                         // 与服务端一样：父目录加由书名生成的目录名。
-                        const created = fresh(title, `${(parent ?? "").replace(/\/+$/u, "")}/${projectDirectoryName(title)}`);
+                        const created = newItem(title, `${(parent ?? script.library).replace(/\/+$/u, "")}/${projectDirectoryName(title)}`);
                         script.items = [...script.items, created];
                         return {ok: true as const, value: {id: created.id, name: created.name, path: created.path}};
                     }),
@@ -162,15 +166,20 @@ interface World {
     readonly clock: ManualClock;
     readonly remote: RemoteUse<typeof projectsRemoteContract>;
     readonly settings: SettingsService;
-    readonly palette: PaletteHost;
+    readonly notifications: WindowNotifications;
     readonly navigations: string[];
     readonly reports: string[];
+    readonly covers: Array<{readonly id: string; readonly name: string | null}>;
+    readonly commands: string[];
     readonly view: ReturnType<typeof ref<ShelfView>>;
     readonly sort: ReturnType<typeof ref<ShelfSort>>;
     popup: "opened" | "blocked";
+    coverFails: boolean;
     page(): ShelfPage;
     /** 同一条链路上的往返：它回来时，之前发出的 `shelf` 请求都已到达提供方。 */
     barrier(): Promise<void>;
+    /** 当前通知的标题（没有标题时正文）。 */
+    notices(): string[];
 }
 
 /** 测试里写操作加的超时：到时内核把已派发的写请求判为 unknown-outcome（docs/specs/runtime/plugin-channel.md）。 */
@@ -221,12 +230,13 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
     });
 
     const locale = ref<DisplayLocale>("zh-CN");
-    const palette = createPaletteHost({locale, commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
-        throw error;
-    }})});
+    const notifications = createNotifications();
+    closers.push(async () => notifications.dispose());
     const navigations: string[] = [];
     const reports: string[] = [];
-    const view = ref<ShelfView>("spines");
+    const covers: Array<{readonly id: string; readonly name: string | null}> = [];
+    const commands: string[] = [];
+    const view = ref<ShelfView>("cards");
     const sort = ref<ShelfSort>("title");
     const remote = captured!.remote.use(projectsRemoteContract);
     const timed = options.writeTimeout !== true ? remote : new Proxy(remote, {
@@ -237,8 +247,9 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         },
     });
     const result: World = {
-        h, script, clock, remote, settings: captured!.settings, palette, navigations, reports, view, sort,
+        h, script, clock, remote, settings: captured!.settings, notifications, navigations, reports, covers, commands, view, sort,
         popup: "opened",
+        coverFails: false,
         page: () => {
             const page = createShelfPage({
                 remote: timed,
@@ -250,8 +261,23 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
                     sort.value = next;
                 }},
                 settings: captured!.settings,
-                quickPick: {pick: (request) => palette.openPick(request)},
                 navigation: {navigateDocument: (href) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => result.popup, currentUrl: () => "http://localhost/", replaceUrl: () => undefined},
+                notifications,
+                cover: {
+                    upload: async (id, file) => {
+                        if (result.coverFails) return {ok: false, code: "too-large", detail: "封面至多 5 MB"};
+                        covers.push({id, name: file.name});
+                        return {ok: true};
+                    },
+                    remove: async (id) => {
+                        covers.push({id, name: null});
+                        return {ok: true};
+                    },
+                },
+                commands: {execute: async (id) => {
+                    commands.push(id);
+                    return id === "nbook.settings.switch-theme" ? {ok: true} : {ok: false, reason: "unknown-command"};
+                }},
                 report: (event, message) => reports.push(`${event}: ${message}`),
             });
             closers.push(async () => page.dispose());
@@ -260,6 +286,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         barrier: async () => {
             expect((await remote.list({})).ok).toBe(true);
         },
+        notices: () => notifications.queue.notifications.value.map((notice) => notice.title ?? notice.message),
     };
     return result;
 }
@@ -333,7 +360,7 @@ describe("Spec bookshelf 取数与刷新", () => {
         expect(w.script.shelfCalls).toBe(3);
     });
 
-    it("刷新失败保留数据并提示（带重试）；重试成功后提示消失；首次取数失败为整页出错", async () => {
+    it("刷新失败保留数据并发常驻通知（带重试）；重试成功后通知收回；首次取数失败为整页出错", async () => {
         const w = await world([item("a", "甲")]);
         const page = w.page();
         page.setVisible(true);
@@ -342,17 +369,21 @@ describe("Spec bookshelf 取数与刷新", () => {
         await page.refresh(true);
         expect(page.status.value).toBe("ready");
         expect(page.items.value.length).toBe(1);
-        expect(page.notice.value).toEqual({kind: "refresh", text: "书架没有更新：registry-invalid：登记表坏了", retry: true});
+        expect(w.notifications.queue.notifications.value).toMatchObject([{title: "书架没有更新", message: expect.stringContaining("registry-invalid"), duration: 0, action: {label: "重试"}}]);
         expect(w.reports).toEqual(["projects.shelf-failed: 取书架失败：registry-invalid"]);
-        w.script.failShelf = null;
+        // 再失败一次只换内容，不堆第二条。
         await page.refresh(true);
-        expect(page.notice.value).toBeNull();
+        expect(w.notices()).toEqual(["书架没有更新"]);
+        w.script.failShelf = null;
+        w.notifications.queue.notifications.value[0]!.action!.run();
+        await waitUntil("通知收回", () => w.notices().length === 0);
 
         const broken = await world([], {failShelf: "registry-invalid"});
         const first = broken.page();
         first.setVisible(true);
         await waitUntil("整页出错", () => first.status.value === "error");
         expect(first.error.value).toBe("书架没取到：registry-invalid：登记表坏了");
+        expect(broken.notices()).toEqual([]);
     });
 
     it("卸载后在途的响应不改变状态", async () => {
@@ -369,7 +400,7 @@ describe("Spec bookshelf 取数与刷新", () => {
 });
 
 describe("Spec bookshelf 动作", () => {
-    it("打开、在新窗口打开（被拦截时提示）、继续写作与进入工作台", async () => {
+    it("打开、在新窗口打开（被拦截时通知）、继续写作；设置菜单的命令失败时通知", async () => {
         const w = await world([item("a", "甲", {stats: {freshness: "stale", computedAt: "2026-10-10T00:00:00.000Z", words: 10, files: 1, unreadable: 0, today: null, last: {address: "project://第一章.md", label: "第一章", at: "2026-10-10T00:00:00.000Z", excerpt: "……"}}}), item("b", "乙")]);
         const page = w.page();
         page.setVisible(true);
@@ -377,16 +408,18 @@ describe("Spec bookshelf 动作", () => {
         page.open("b");
         page.continueWriting("a");
         page.continueWriting("b");
-        page.enterWorkbench();
-        expect(w.navigations).toEqual(["/?project=b", continueUrl("a", "project://第一章.md"), "/?project=b", "/workbench"]);
+        expect(w.navigations).toEqual(["/?project=b", continueUrl("a", "project://第一章.md"), "/?project=b"]);
         expect(continueUrl("a", "project://第一章.md")).toBe("/?project=a&open=project%3A%2F%2F%E7%AC%AC%E4%B8%80%E7%AB%A0.md&at=end");
         page.openInNewWindow("a");
-        expect(page.notice.value).toBeNull();
+        expect(w.notices()).toEqual([]);
         w.popup = "blocked";
         page.openInNewWindow("a");
-        expect(page.notice.value).toMatchObject({kind: "popup", retry: false});
-        page.dismissNotice();
-        expect(page.notice.value).toBeNull();
+        expect(w.notices()).toEqual(["新标签页被拦截"]);
+
+        await page.runCommand("nbook.settings.switch-theme");
+        await page.runCommand("nbook.settings.nope");
+        expect(w.commands).toEqual(["nbook.settings.switch-theme", "nbook.settings.nope"]);
+        expect(w.notices().at(-1)).toContain("没有执行");
     });
 
     it("移出书架：成功后选中相邻的一部；正在打开的被拒并说明", async () => {
@@ -408,60 +441,59 @@ describe("Spec bookshelf 动作", () => {
         expect(page.items.value.map((entry) => entry.id)).toEqual(["a"]);
     });
 
-    it("新建：没设作品目录时先经选择服务选目录，成功后记住；同名目录已存在时带原因；修改信息后书架随之更新", async () => {
+    it("作品目录与列目录经远程服务；新建在给定目录下，同名目录带字段名交回，成功后记住目录；修改信息后书架随之更新", async () => {
         const w = await world([item("a", "甲")]);
         const page = w.page();
         page.setVisible(true);
         await ready(page);
-        expect(w.settings.get(librarySetting)).toBe("");
+        expect(await page.library()).toEqual({path: "/books", source: "default"});
+        expect(await page.browse(null)).toMatchObject({ok: true, value: {path: "/books", entries: [{name: "sub"}]}});
+        expect(await page.browse("/home/writer")).toMatchObject({ok: true, value: {path: "/home/writer"}});
 
-        // 没设作品目录：先问目录；取消就不新建。
-        const cancelled = page.createTarget();
-        const asked = await waitUntil("进入选择模式", () => w.palette.pick.value);
-        expect(asked.items).toEqual([]);
-        w.palette.closePalette();
-        w.palette.closed();
-        expect(await cancelled).toBeNull();
-
-        const choosing = page.createTarget();
-        const request = await waitUntil("再次进入选择模式", () => (w.palette.pick.value !== null && w.palette.pick.value !== asked ? w.palette.pick.value : null));
-        w.palette.choosePick({kind: "text", text: "/home/writer/books"});
-        w.palette.closed();
-        const target = await choosing;
-        expect(target).toEqual({parent: "/home/writer/books", remember: true});
-        expect(request.title).toEqual(asked.title);
-
-        expect(await page.create({title: "重名", description: "", color: null}, target!)).toMatchObject({ok: false, message: expect.stringContaining("同名目录已存在")});
-        expect(await page.create({title: "新书", description: "一句话", color: null}, target!)).toEqual({ok: true});
+        expect(await page.create({title: "重名", description: "", color: null}, "/home/writer/books")).toMatchObject({ok: false, field: "title", message: expect.stringContaining("同名目录已存在")});
+        const created = await page.create({title: "新书", description: "一句话", color: "#7a4b3a"}, "/home/writer/books");
+        expect(created).toMatchObject({ok: true, id: expect.any(String)});
         expect(page.items.value.map((entry) => entry.title)).toEqual(["甲", "新书"]);
+        expect(page.items.value[1]).toMatchObject({path: "/home/writer/books/新书", color: "#7a4b3a"});
         expect(page.activeId.value).toBe(page.items.value[1]!.id);
         expect(w.reports).toEqual([]);
-        expect(page.notice.value).toBeNull();
-        await waitUntil("作品目录记住", () => w.settings.get(librarySetting) === "/home/writer/books");
-        expect(await page.createTarget()).toEqual({parent: "/home/writer/books", remember: false});
+        expect(w.notices()).toEqual([]);
 
-        expect(await page.update("a", {title: "甲二", description: "改过", color: "#7a4b3a"})).toEqual({ok: true});
+        expect(w.settings.get(librarySetting)).toBe("");
+        await page.rememberLibrary("/home/writer/books");
+        await waitUntil("作品目录记住", () => w.settings.get(librarySetting) === "/home/writer/books");
+
+        expect(await page.update("a", {title: "甲二", description: "改过", color: "#7a4b3a"})).toEqual({ok: true, id: "a"});
         expect(page.items.value[0]).toMatchObject({title: "甲二", description: "改过", color: "#7a4b3a"});
-        expect(await page.update("a", {title: "", description: "", color: null})).toEqual({ok: false, message: "书名不合规：不能为空"});
+        expect(await page.update("a", {title: "", description: "", color: null})).toEqual({ok: false, field: "title", message: "书名不合规：不能为空"});
     });
 
-    it("加入已有目录：登记失败带着原因重新打开输入；成功后出现在书架上并被选中", async () => {
+    it("打开已有作品：登记失败的原因交回给选择器；成功后出现在书架上并被选中", async () => {
         const w = await world([item("a", "甲")]);
         const page = w.page();
         page.setVisible(true);
         await ready(page);
-        const adding = page.addExisting();
-        const first = await waitUntil("进入输入", () => w.palette.pick.value);
-        expect(first.items).toEqual([]);
-        w.palette.choosePick({kind: "text", text: "/nowhere"});
-        w.palette.closed();
-        const retry = await waitUntil("带原因重开", () => (w.palette.pick.value !== null && w.palette.pick.value !== first ? w.palette.pick.value : null));
-        expect(retry.title).toMatchObject({"zh-CN": "加入已有目录：登记失败（路径无效或不存在）"});
-        w.palette.choosePick({kind: "text", text: "/home/writer/books/Old"});
-        w.palette.closed();
-        await adding;
+        expect(await page.addExisting("/nowhere")).toEqual({ok: false, message: "没有加入书架：路径无效或不存在"});
+        expect(w.reports).toEqual(["projects.register-failed: 登记失败：invalid-path：目录不存在：/nowhere"]);
+        expect(await page.addExisting("/home/writer/books/Old")).toEqual({ok: true});
         expect(page.items.value.map((entry) => entry.title)).toEqual(["甲", "Old"]);
         expect(page.activeId.value).toBe(page.items.value[1]!.id);
+    });
+
+    it("封面：上传与移除经封面传输，成功后刷新；失败发通知", async () => {
+        const w = await world([item("a", "甲")]);
+        const page = w.page();
+        page.setVisible(true);
+        await ready(page);
+        expect(await page.setCover("a", {kind: "keep"})).toBe(true);
+        expect(await page.setCover("a", {kind: "set", file: new File([new Uint8Array([1])], "cover.png")})).toBe(true);
+        expect(await page.setCover("a", {kind: "remove"})).toBe(true);
+        expect(w.covers).toEqual([{id: "a", name: "cover.png"}, {id: "a", name: null}]);
+        expect(w.script.shelfCalls).toBe(3);
+        w.coverFails = true;
+        expect(await page.setCover("a", {kind: "set", file: new File([new Uint8Array([1])], "big.png")})).toBe(false);
+        expect(w.notices()).toEqual(["封面没有保存：封面至多 5 MB"]);
+        expect(w.reports).toEqual(["projects.cover-failed: 封面上传失败：too-large：封面至多 5 MB"]);
     });
 });
 
@@ -497,7 +529,7 @@ describe("Spec bookshelf 写操作的结果未知：重新取书架、按本次�
         release(w);
     });
 
-    it("修改信息：服务端上已是提交的值就算保存；不是就提示结果未知、书架仍是旧值", async () => {
+    it("修改信息：服务端上已是提交的值就算保存；不是就通知结果未知、书架仍是旧值", async () => {
         const w = await world([item("a", "Alpha")], {writeTimeout: true});
         const page = w.page();
         page.setVisible(true);
@@ -505,54 +537,46 @@ describe("Spec bookshelf 写操作的结果未知：重新取书架、按本次�
         w.script.delayWrite = "after";
         const saving = page.update("a", {title: "Alpha 二", description: "改过", color: "#112233"});
         await timeOut(w, 1);
-        expect(await saving).toEqual({ok: true});
+        expect(await saving).toEqual({ok: true, id: "a"});
         expect(page.items.value[0]).toMatchObject({title: "Alpha 二", description: "改过", color: "#112233"});
 
         w.script.delayWrite = "instead";
         const unknown = page.update("a", {title: "Alpha 三", description: "", color: null});
         await timeOut(w, 2);
-        expect(await unknown).toEqual({ok: false, message: "保存的结果未知，书架已重新读取；显示的还是旧值就再试一次"});
+        expect(await unknown).toEqual({ok: false, field: null, message: "保存的结果未知，书架已重新读取；显示的还是旧值就再试一次"});
+        expect(w.notices()).toEqual(["保存的结果未知，书架已重新读取；显示的还是旧值就再试一次"]);
         expect(page.items.value[0]).toMatchObject({title: "Alpha 二", description: "改过"});
         release(w);
     });
 
-    it("新建：本次父目录下由书名生成的目录在书架上才算成功，别的目录下的同名作品不算；加入已有目录：给的目录在书架上就算登记了", async () => {
+    it("新建：本次父目录下由书名生成的目录在书架上才算成功，别的目录下的同名作品不算；打开已有作品：给的目录在书架上就算登记了", async () => {
         const w = await world([item("x", "新书", {path: "/elsewhere/新书"})], {writeTimeout: true});
         const page = w.page();
         page.setVisible(true);
         await ready(page);
-        const target = {parent: "/home/writer/books/", remember: false};
         w.script.delayWrite = "instead";
-        const unknown = page.create({title: "新书", description: "", color: null}, target);
+        const unknown = page.create({title: "新书", description: "", color: null}, "/home/writer/books/");
         await timeOut(w, 1);
-        expect(await unknown).toMatchObject({ok: false, message: expect.stringContaining("结果未知")});
+        expect(await unknown).toMatchObject({ok: false, field: null, message: expect.stringContaining("结果未知")});
         expect(page.activeId.value).toBeNull();
 
         w.script.delayWrite = "after";
-        const created = page.create({title: "新书", description: "", color: null}, target);
+        const created = page.create({title: "新书", description: "", color: null}, "/home/writer/books/");
         await timeOut(w, 2);
-        expect(await created).toEqual({ok: true});
+        expect(await created).toMatchObject({ok: true});
         const book = page.items.value.find((entry) => entry.path === "/home/writer/books/新书");
         expect(book).toBeDefined();
         expect(page.activeId.value).toBe(book!.id);
 
-        const adding = page.addExisting();
-        await waitUntil("进入输入", () => w.palette.pick.value);
-        w.palette.choosePick({kind: "text", text: "/home/writer/books/Old/"});
-        w.palette.closed();
+        const adding = page.addExisting("/home/writer/books/Old/");
         await timeOut(w, 3);
-        await adding;
-        expect(page.notice.value).toBeNull();
+        expect(await adding).toEqual({ok: true});
         expect(page.activeId.value).toBe(page.items.value.find((entry) => entry.path === "/home/writer/books/Old/")!.id);
 
         w.script.delayWrite = "instead";
-        const lost = page.addExisting();
-        await waitUntil("再次进入输入", () => w.palette.pick.value);
-        w.palette.choosePick({kind: "text", text: "/home/writer/books/Newer"});
-        w.palette.closed();
+        const lost = page.addExisting("/home/writer/books/Newer");
         await timeOut(w, 4);
-        await lost;
-        expect(page.notice.value).toMatchObject({kind: "unknown-outcome", text: expect.stringContaining("登记没有完成")});
+        expect(await lost).toMatchObject({ok: false, message: expect.stringContaining("登记没有完成")});
         release(w);
     });
 });

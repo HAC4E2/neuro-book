@@ -99,6 +99,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Tree`：通用无限层级虚拟化大纲树（支持几万节点高性能渲染与快捷键盘遍历）。
 - `Breadcrumb`：面包屑导航栏。
 - `FileTree`：受控文件与大纲目录树。
+- `FileBrowser`：一层目录的浏览（面包屑 + 条目、选中与键盘），数据来源由宿主经事件给；选目录、另存为这类选择器在它外面包窗口。
 - `Tabs` / `Pagination`：选项卡栏与分页控制器。
 
 ### 弹层与反馈 (Feedback & Overlays)

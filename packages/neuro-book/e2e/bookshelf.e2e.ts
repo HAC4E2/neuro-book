@@ -1,7 +1,7 @@
 /**
- * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1–5）：生产构建的后端与前端，真实的项目目录、
- * 登记表与用户层配置。项目 `book` 先登记好；第二个目录用“加入已有目录”登记；新作品建在用例选的作品目录下。
- * 等页面上可观察的变化，不按时长等待。
+ * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7）：生产构建的后端与前端，真实的项目目录、
+ * 登记表、用户层配置与封面文件。项目 `book` 先登记好；第二个目录经“打开已有作品”的选择器登记；新作品建在缺省作品目录
+ * （场地的 HOME 下的 Documents/NeuroBook）里。等页面上可观察的变化，不按时长等待。
  */
 
 import {randomUUID} from "node:crypto";
@@ -19,13 +19,17 @@ let tmp = "";
 let stateRoot = "";
 let bookDir = "";
 let oldDir = "";
+let home = "";
 let server: ProductServer;
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0, 5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
 
 test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "bookshelf");
     bookDir = join(tmp, "Book");
     oldDir = join(tmp, "Old Draft");
     stateRoot = join(tmp, "state");
+    home = join(tmp, "home");
     const id = randomUUID();
     const files: Record<string, string> = {".nbook/project.json": JSON.stringify({schema: 1, id}), "notes/a.md": "第一章\n\n他把灯放低一些。\n"};
     for (const [path, text] of Object.entries(files)) {
@@ -34,9 +38,11 @@ test.beforeAll(async () => {
     }
     await mkdir(join(oldDir, "notes"), {recursive: true});
     await writeFile(join(oldDir, "notes", "x.md"), "旧稿\n");
+    await mkdir(join(home, "Documents"), {recursive: true});
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: bookDir}]}));
-    server = await startProductServer(stateRoot);
+    // 服务端进程的主目录指到场地：缺省作品目录与 ~ 都落在它下面，不碰真实主目录。
+    server = await startProductServer(stateRoot, {env: {HOME: home, XDG_CONFIG_HOME: join(home, ".config")}});
 });
 
 test.afterAll(async () => {
@@ -46,104 +52,111 @@ test.afterAll(async () => {
 
 const root = (page: Page) => page.locator("[data-workbench-root]");
 const shelfPage = (page: Page) => page.locator("[data-bookshelf-page]");
-const spine = (page: Page, title: string) => page.locator('[data-spine-shelf] [role="option"]', {hasText: title});
-const titlePage = (page: Page) => page.locator("[data-shelf-title-page]");
+const card = (page: Page, title: string) => page.locator("[data-book-card]", {hasText: title});
+const desk = (page: Page) => page.locator("[data-shelf-desk]");
 
 async function openShelf(page: Page): Promise<void> {
     await page.goto(new URL("/", server.url).href);
     await expect(root(page)).toHaveAttribute("data-rpc-state", "online");
     await expect(root(page)).toHaveAttribute("data-workbench-home", "nbook.projects.bookshelf");
     await expect(shelfPage(page)).toBeVisible();
-    await expect(page.locator("[data-spine-shelf]")).toBeVisible();
+    await expect(page.locator("[data-shelf-cards]")).toBeVisible();
 }
 
-/** 命令面板的路径输入：按占位文字找到输入框，填路径，选中“……路径”那一项。 */
-async function typePath(page: Page, placeholder: string, path: string, optionName: string): Promise<void> {
-    const picker = page.getByRole("combobox", {name: placeholder});
-    await expect(picker).toBeFocused();
-    await picker.fill(path);
-    await expect(page.getByRole("option", {name: optionName})).toBeVisible();
-    await page.keyboard.press("Enter");
+/** 卡片右上角的“更多”：悬停后才出现。 */
+async function more(page: Page, title: string, item: string): Promise<void> {
+    await card(page, title).hover();
+    await card(page, title).getByRole("button", {name: "更多操作"}).click();
+    await page.getByRole("menuitem", {name: item}).click();
 }
 
-test("书架列出已登记的作品、尚未统计；扉页跟随选中；“打开”整页进入作品，“进入工作台”进入空工作台", async ({page}) => {
+test("书架列出已登记的作品、尚未统计；案头没有写作记录时写提示；点卡片整页进入作品", async ({page}) => {
     await openShelf(page);
-    await expect(spine(page, "book")).toHaveCount(1);
-    await spine(page, "book").click();
-    await expect(titlePage(page)).toContainText("book");
-    await expect(titlePage(page)).toContainText("尚未统计");
-    await expect(titlePage(page)).toContainText(bookDir);
-    // 没有写作记录：继续写作换成欢迎文字。
-    await expect(shelfPage(page)).toContainText("还没有写作记录");
+    await expect(card(page, "book")).toHaveCount(1);
+    await expect(card(page, "book")).toContainText("尚未统计");
+    await expect(desk(page)).toContainText("打开一部作品写几个字");
+    await expect(desk(page)).toContainText("1 部作品");
 
-    await titlePage(page).locator("[data-shelf-open]").click();
+    await card(page, "book").click();
     await page.waitForURL(/\?project=book$/u);
     await expect(page.locator("[data-workbench-project]")).toHaveAttribute("data-workbench-project", "book");
     await expect(root(page)).toHaveAttribute("data-rpc-state", "online");
-
-    await openShelf(page);
-    await page.locator("[data-enter-workbench]").click();
-    await page.waitForURL((url) => url.pathname === "/workbench");
-    await expect(page.locator("[data-workbench-shell]")).toBeVisible();
-    await expect(page.locator("[data-workbench-project]")).toHaveCount(0);
 });
 
-test("加入已有目录、编辑作品信息、从书架移除：书架随服务端的结果更新，目录不动", async ({page}) => {
+test("打开已有作品：经选择器输入路径进入并加入；编辑作品信息；从书架移除：书架随服务端的结果更新，目录不动", async ({page}) => {
     await openShelf(page);
     await page.locator("[data-shelf-add]").click();
-    await typePath(page, "输入作品目录的路径（服务端上的路径）", oldDir, `加入 ${oldDir}`);
-    await expect(spine(page, "old-draft")).toHaveCount(1);
-    // 登记成功后它被选中，扉页显示它。
-    await expect(titlePage(page)).toContainText(oldDir);
+    const picker = page.locator("[data-path-picker]");
+    await expect(picker).toBeVisible();
+    // 不存在的路径：在选择器里提示原因，窗口留着。
+    await page.locator("[data-path-picker-type]").click();
+    await page.locator("input[data-path-picker-input], [data-path-picker-input] input").fill(join(tmp, "nowhere"));
+    await page.keyboard.press("Enter");
+    await expect(picker.locator("[data-file-browser-error]")).toContainText("不存在");
+    // 进入场地根，选中 Old Draft，加入。
+    await page.locator("[data-path-picker-type]").click();
+    await page.locator("input[data-path-picker-input], [data-path-picker-input] input").fill(tmp);
+    await page.keyboard.press("Enter");
+    await picker.locator(`[data-file-browser-entry="${oldDir}"]`).click();
+    await expect(page.locator("[data-path-picker-summary]")).toContainText("Old Draft");
+    await page.locator("[data-path-picker-confirm]").click();
+    await expect(picker).toHaveCount(0);
+    await expect(card(page, "old-draft")).toHaveCount(1);
+    await expect(card(page, "old-draft")).toHaveAttribute("aria-selected", "true");
 
-    await titlePage(page).getByRole("button", {name: "编辑信息"}).click();
-    const dialog = page.locator("[data-project-info-dialog]");
-    await expect(dialog).toBeVisible();
-    await dialog.locator("[data-project-title]").fill("北方以北");
-    await dialog.locator("[data-project-description]").fill("一部旧稿。");
-    await page.getByRole("button", {name: "保存"}).click();
-    await expect(dialog).toHaveCount(0);
-    await expect(spine(page, "北方以北")).toHaveCount(1);
-    await expect(titlePage(page)).toContainText("一部旧稿。");
+    await more(page, "old-draft", "编辑信息");
+    const window = page.locator("[data-project-info]");
+    await expect(window).toBeVisible();
+    await window.locator("input[data-project-title], [data-project-title] input").fill("北方以北");
+    await window.locator("[data-project-description]").fill("一部旧稿。");
+    await page.locator("[data-project-confirm]").click();
+    await expect(window).toHaveCount(0);
+    await expect(card(page, "北方以北")).toHaveCount(1);
+    await expect(card(page, "北方以北")).toContainText("一部旧稿。");
     const identity = JSON.parse(await readFile(join(oldDir, ".nbook", "project.json"), "utf8")) as {title?: string; description?: string};
     expect(identity).toMatchObject({title: "北方以北", description: "一部旧稿。"});
 
-    await titlePage(page).getByRole("button", {name: "从书架移除"}).click();
+    await more(page, "北方以北", "从书架移除");
     await expect(page.getByRole("alertdialog")).toContainText("北方以北");
     await page.getByRole("button", {name: "移除", exact: true}).click();
-    await expect(spine(page, "北方以北")).toHaveCount(0);
-    await expect(spine(page, "book")).toHaveCount(1);
+    await expect(card(page, "北方以北")).toHaveCount(0);
+    await expect(card(page, "book")).toHaveCount(1);
     // 焦点回到书架。
-    await expect(page.locator('[data-spine-shelf] [role="listbox"]')).toBeFocused();
+    await expect(page.locator('[data-shelf-cards][role="listbox"]')).toBeFocused();
     const registry = JSON.parse(await readFile(join(stateRoot, "projects.json"), "utf8")) as {projects: Array<{name: string}>};
     expect(registry.projects.map((project) => project.name)).toEqual(["book"]);
     await access(join(oldDir, "notes", "x.md"));
 });
 
-test("新建作品：作品目录没设时先选目录并记住；同名目录已存在时提示改书名", async ({page}) => {
+test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、带封面；同名目录已存在时在书名下提示", async ({page}) => {
     await openShelf(page);
-    const library = join(tmp, "library");
-    await mkdir(library, {recursive: true});
     await page.locator("[data-shelf-create]").click();
-    await typePath(page, "输入新作品所在的目录路径，以后新建都放在这里", library, `使用 ${library}`);
-    const dialog = page.locator("[data-project-info-dialog]");
-    await expect(dialog).toBeVisible();
-    await dialog.locator("[data-project-title]").fill("长夜行");
-    await dialog.locator("[data-project-description]").fill("雪线以北的驿站。");
-    await page.getByRole("button", {name: "新建", exact: true}).click();
-    await expect(dialog).toHaveCount(0);
-    await expect(spine(page, "长夜行")).toHaveCount(1);
-    await expect(titlePage(page)).toContainText(join(library, "长夜行"));
-    const identity = JSON.parse(await readFile(join(library, "长夜行", ".nbook", "project.json"), "utf8")) as {title?: string};
-    expect(identity.title).toBe("长夜行");
-    // 作品目录已记住：再新建不再问目录，直接开对话框。
+    const window = page.locator("[data-project-info]");
+    await expect(window).toBeVisible();
+    const library = join(home, "Documents", "NeuroBook");
+    await expect(window.locator("[data-project-location-input] input")).toHaveValue(library);
+    await window.locator("input[data-project-title], [data-project-title] input").fill("长夜行");
+    await expect(window.locator("[data-project-folder]")).toHaveText("/长夜行");
+    await window.locator("[data-project-description]").fill("雪线以北的驿站。");
+    await window.locator("[data-project-swatch='#8f3f2e']").click();
+    await window.locator("[data-project-cover-input]").setInputFiles({name: "cover.png", mimeType: "image/png", buffer: PNG});
+    await page.locator("[data-project-confirm]").click();
+    await expect(window).toHaveCount(0);
+    await expect(card(page, "长夜行")).toHaveCount(1);
+    await expect(card(page, "长夜行")).toContainText("雪线以北的驿站。");
+    // 封面上传后书架刷新，卡片显示图而不是排版封面。
+    await expect(card(page, "长夜行").locator("[data-book-cover] img")).toBeVisible();
+    const identity = JSON.parse(await readFile(join(library, "长夜行", ".nbook", "project.json"), "utf8")) as {title?: string; color?: string; cover?: string};
+    expect(identity).toMatchObject({title: "长夜行", color: "#8f3f2e", cover: "cover.png"});
+    await access(join(library, "长夜行", "cover.png"));
+
     await page.locator("[data-shelf-create]").click();
-    await expect(dialog).toBeVisible();
-    await dialog.locator("[data-project-title]").fill("长夜行");
-    await page.getByRole("button", {name: "新建", exact: true}).click();
-    await expect(dialog.locator("[data-project-info-error]")).toContainText("同名目录已存在");
-    await page.getByRole("button", {name: "取消", exact: true}).click();
-    await expect(dialog).toHaveCount(0);
+    await expect(window).toBeVisible();
+    await window.locator("input[data-project-title], [data-project-title] input").fill("长夜行");
+    await page.locator("[data-project-confirm]").click();
+    await expect(window).toContainText("同名目录已存在");
+    await page.locator("[data-project-cancel]").click();
+    await expect(window).toHaveCount(0);
 });
 
 test.describe("窄屏", () => {
@@ -153,7 +166,7 @@ test.describe("窄屏", () => {
         await page.goto(new URL("/", server.url).href);
         await expect(root(page)).toHaveAttribute("data-workbench-home", "nbook.projects.bookshelf");
         await expect(page.locator("[data-shelf-list]")).toBeVisible();
-        await expect(page.locator("[data-spine-shelf]")).toHaveCount(0);
+        await expect(page.locator("[data-shelf-cards]")).toHaveCount(0);
         await expect(page.locator("[data-shelf-list]")).toContainText("尚未统计");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });

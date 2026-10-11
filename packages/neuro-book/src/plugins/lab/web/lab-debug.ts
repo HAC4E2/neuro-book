@@ -70,13 +70,70 @@ export function focusRingExtent(element: Element): number {
     return extent > 0 ? extent : 7;
 }
 
+const FOCUS_PSEUDO = ":focus-visible|:focus-within|:focus(?![-\\w])";
+
+/** 这条规则聚焦后画不画得出东西：box-shadow 或看得见的 outline。透明的 outline（Tailwind 的 outline-hidden）不算。 */
+function drawsRing(style: CSSStyleDeclaration): boolean {
+    const shadow = style.getPropertyValue("box-shadow");
+    if (shadow !== "" && shadow !== "none") return true;
+    const outlineStyle = style.getPropertyValue("outline-style");
+    const outlineWidth = style.getPropertyValue("outline-width");
+    const outlineColor = style.getPropertyValue("outline-color");
+    return outlineStyle !== "" && outlineStyle !== "none" && outlineWidth !== "0px" && outlineWidth !== "0" && outlineColor !== "transparent";
+}
+
 /**
- * 聚焦光晕会被裁的控件：沿祖先往上找 overflow 不为 visible 的容器，控件任一边离容器内容盒的边不足光晕外扩量就算。
- * 不真的去聚焦（会改页面状态、触发监听），按主题 token 的几何算；控件本身就越出容器的归溢出检查，这里跳过。
+ * 从样式表找“聚焦后会画焦点环”的选择器：含焦点伪类且声明了 box-shadow 或 outline 的规则，把焦点伪类换成恒真的
+ * `:is(*)` 后就是“哪些元素会画环”。环不一定画在焦点元素自己身上（`:focus-within`、`:has(... :focus-visible)` 把环画在外框上），
+ * 所以不能按“可聚焦”猜。嵌套规则按 `&` 接上父选择器。跨源样式表读不到规则，跳过。
+ */
+function ringSelectors(root: Document): string[] {
+    const test = new RegExp(FOCUS_PSEUDO, "u");
+    const strip = new RegExp(FOCUS_PSEUDO, "gu");
+    const found: string[] = [];
+    const visit = (rules: CSSRuleList, parent: string | null): void => {
+        for (const rule of rules) {
+            if (rule instanceof CSSStyleRule) {
+                const own = rule.selectorText;
+                const selector = parent === null ? own : own.includes("&") ? own.replaceAll("&", `:is(${parent})`) : `:is(${parent}) ${own}`;
+                if (test.test(selector) && drawsRing(rule.style)) found.push(selector.replace(strip, ":is(*)"));
+                visit(rule.cssRules, selector);
+            } else if (rule instanceof CSSGroupingRule) {
+                visit(rule.cssRules, parent);
+            }
+        }
+    };
+    for (const sheet of root.styleSheets) {
+        let rules: CSSRuleList;
+        try {
+            rules = sheet.cssRules;
+        } catch {
+            continue;
+        }
+        visit(rules, null);
+    }
+    return found;
+}
+
+/**
+ * 聚焦光晕会被裁的元素：会画焦点环的元素（见 ringSelectors）沿祖先往上找 overflow 不为 visible 的容器，任一边离容器内容盒的边
+ * 不足光晕外扩量就算。不真的去聚焦（会改页面状态、触发监听），按主题 token 的几何算；元素本身就越出容器的归溢出检查，这里跳过。
  */
 export function clippedFocusRings(stage: HTMLElement, extent: number): LabClippedFocus[] {
+    const candidates = new Set<HTMLElement>();
+    for (const selector of ringSelectors(stage.ownerDocument)) {
+        let matched: NodeListOf<HTMLElement>;
+        try {
+            matched = stage.querySelectorAll<HTMLElement>(selector);
+        } catch {
+            // 改写后的选择器可能不合法（例如带厂商伪元素的规则），这条规则不查。
+            continue;
+        }
+        // 规则命中的元素还得真能拿到焦点：自己可聚焦，或者（画在外框上的环）里面有可聚焦的。
+        for (const element of matched) if (element.matches(FOCUSABLE) || element.querySelector(FOCUSABLE) !== null) candidates.add(element);
+    }
     const found: LabClippedFocus[] = [];
-    for (const element of stage.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    for (const element of candidates) {
         if (found.length >= MAX_OFFENDERS) break;
         if (invisible(element) || (element as HTMLButtonElement).disabled) continue;
         const box = element.getBoundingClientRect();
@@ -86,7 +143,7 @@ export function clippedFocusRings(stage: HTMLElement, extent: number): LabClippe
             if (style.overflowX === "visible" && style.overflowY === "visible") continue;
             const inner = node.getBoundingClientRect();
             const inset = {
-                left: Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.paddingLeft) * 0,
+                left: Number.parseFloat(style.borderLeftWidth),
                 top: Number.parseFloat(style.borderTopWidth),
                 right: Number.parseFloat(style.borderRightWidth),
                 bottom: Number.parseFloat(style.borderBottomWidth),

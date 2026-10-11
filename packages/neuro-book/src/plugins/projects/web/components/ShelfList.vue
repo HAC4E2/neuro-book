@@ -8,7 +8,8 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
-import {formatFiles, formatWhen, formatWords, spineStyle} from "../shelf-format";
+import {formatFiles, formatWhen, formatWords} from "../shelf-format";
+import BookCover from "./BookCover.vue";
 
 defineOptions({name: "ShelfList"});
 
@@ -16,6 +17,8 @@ const props = defineProps<{
     locale: DisplayLocale;
     items: ReadonlyArray<ShelfItem>;
     now: string;
+    /** 一部作品的封面图地址；没有封面为 null。 */
+    coverSrc: (item: ShelfItem) => string | null;
 }>();
 
 const emit = defineEmits<{
@@ -23,8 +26,6 @@ const emit = defineEmits<{
     (event: "open-new-window", id: string): void;
     (event: "edit", id: string): void;
     (event: "remove", id: string): void;
-    (event: "create"): void;
-    (event: "add-existing"): void;
 }>();
 
 const TEXT = {
@@ -37,21 +38,26 @@ const TEXT = {
     none: {"zh-CN": "尚未统计", "en-US": "Not counted yet"},
     stale: {"zh-CN": "统计于{when}", "en-US": "Counted {when}"},
     counting: {"zh-CN": "正在统计", "en-US": "Counting"},
-    create: {"zh-CN": "新建作品", "en-US": "New Book"},
-    addExisting: {"zh-CN": "加入已有目录", "en-US": "Add Folder"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
 
-/** 字数、篇数、最近编辑时间与新鲜度说明（Spec 输出 8）：`fresh` 不加说明。 */
-function facts(item: ShelfItem): string[] {
+/** 字数与篇数；`none` 写“尚未统计”。 */
+function counts(item: ShelfItem): string {
     const {stats} = item;
-    if (stats.freshness === "none") return [text(TEXT.none)];
-    const parts = [formatWords(stats.words, props.locale), formatFiles(stats.files, props.locale)];
+    if (stats.freshness === "none") return text(TEXT.none);
+    return `${formatWords(stats.words, props.locale)} · ${formatFiles(stats.files, props.locale)}`;
+}
+
+/** 最近编辑时间与新鲜度说明（Spec 输出 8）：`fresh` 不加说明。 */
+function when(item: ShelfItem): string {
+    const {stats} = item;
+    const parts: string[] = [];
     if (stats.last !== null) parts.push(formatWhen(stats.last.at, props.now, props.locale));
     if (stats.freshness === "counting") parts.push(text(TEXT.counting));
     else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text(formatText(TEXT.stale, {when: formatWhen(stats.computedAt, props.now, props.locale)})));
-    return parts;
+    if (item.state !== "stopped") parts.push(text(TEXT.running));
+    return parts.length === 0 ? "—" : parts.join(" · ");
 }
 
 function menu(): DropdownItem[] {
@@ -70,41 +76,30 @@ function onMenu(item: ShelfItem, value: string): void {
 </script>
 
 <template>
-    <div class="shelf-list" data-shelf-list>
-        <ul class="shelf-list__rows" :aria-label="text(TEXT.label)">
-            <li v-for="item in items" :key="item.id" class="shelf-list__row shelf-spine-color" :class="{'shelf-spine-color--custom': item.color !== null}" :style="spineStyle(item)" data-shelf-row>
-                <button type="button" class="shelf-list__main" @click="emit('open', item.id)">
-                    <span class="shelf-list__heading">
-                        <span class="shelf-list__title">{{ projectDisplayName(item) }}</span>
-                        <span v-if="item.state !== 'stopped'" class="shelf-list__running">{{ text(TEXT.running) }}</span>
-                    </span>
+    <ul class="shelf-list" :aria-label="text(TEXT.label)" data-shelf-list>
+        <li v-for="item in items" :key="item.id" class="shelf-list__row" data-shelf-row>
+            <button type="button" class="shelf-list__main" @click="emit('open', item.id)">
+                <BookCover :id="item.id" :title="projectDisplayName(item)" :color="item.color" :src="coverSrc(item)" :width="30" class="shelf-list__cover" />
+                <span class="shelf-list__text">
+                    <span class="shelf-list__title">{{ projectDisplayName(item) }}</span>
                     <span v-if="item.description !== null && item.description !== ''" class="shelf-list__description">{{ item.description }}</span>
-                    <span class="shelf-list__facts">
-                        <span v-for="fact in facts(item)" :key="fact">{{ fact }}</span>
-                    </span>
-                </button>
-                <Dropdown :items="menu()" align="end" root-class="shelf-list__more" @select="onMenu(item, $event)">
-                    <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" />
-                </Dropdown>
-            </li>
-        </ul>
-        <div class="shelf-list__blanks">
-            <button type="button" class="shelf-list__blank" data-shelf-create @click="emit('create')">+ {{ text(TEXT.create) }}</button>
-            <button type="button" class="shelf-list__blank" data-shelf-add @click="emit('add-existing')">+ {{ text(TEXT.addExisting) }}</button>
-        </div>
-    </div>
+                </span>
+                <span class="shelf-list__counts">{{ counts(item) }}</span>
+                <span class="shelf-list__when" :class="{'shelf-list__when--running': item.state !== 'stopped'}">{{ when(item) }}</span>
+            </button>
+            <Dropdown :items="menu()" align="end" root-class="shelf-list__more" @select="onMenu(item, $event)">
+                <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" />
+            </Dropdown>
+        </li>
+    </ul>
 </template>
-
-<style src="./shelf-colors.css"></style>
 
 <style scoped>
 .shelf-list {
     container-type: inline-size;
-}
-
-.shelf-list__rows {
     margin: 0;
     padding: 0;
+    border-top: var(--border-w) solid var(--divider);
     list-style: none;
 }
 
@@ -115,118 +110,87 @@ function onMenu(item: ShelfItem, value: string): void {
     border-bottom: var(--border-w) solid var(--divider);
 }
 
-.shelf-list__row::before {
-    content: "";
-    align-self: stretch;
-    flex: 0 0 4px;
-    margin: var(--space-3) 0;
-    border-radius: 2px;
-    background: var(--spine-bg);
-}
-
 .shelf-list__main {
     display: grid;
-    flex: 1 1 auto;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "heading facts" "description facts";
-    gap: 2px var(--space-4);
-    align-items: baseline;
+    flex: 1;
+    grid-template-columns: 30px minmax(0, 1fr) 150px 190px;
+    gap: var(--space-4);
+    align-items: center;
     min-width: 0;
-    padding: var(--space-3) var(--space-2);
+    padding: var(--space-3) var(--space-3);
     border: 0;
-    border-radius: var(--radius-control);
+    border-radius: 10px;
     background: transparent;
-    color: var(--text-main);
+    color: inherit;
+    font: inherit;
     text-align: left;
     cursor: pointer;
 }
 
 .shelf-list__main:hover {
-    background: var(--bg-hover);
+    background: color-mix(in srgb, var(--page-surface, var(--bg-panel)) 60%, transparent);
 }
 
 .shelf-list__main:focus-visible {
-    outline: var(--focus-outline);
-    outline-offset: -2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
-.shelf-list__heading {
+.shelf-list__cover {
+    border-radius: 2px 3px 3px 2px;
+}
+
+.shelf-list__text {
     display: flex;
-    grid-area: heading;
-    align-items: baseline;
-    gap: var(--space-2);
+    flex-direction: column;
     min-width: 0;
 }
 
 .shelf-list__title {
-    overflow: hidden;
     font-family: var(--font-display);
-    font-size: var(--text-lg);
+    font-size: 16px;
     font-weight: var(--weight-strong);
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
-.shelf-list__running {
-    flex: 0 0 auto;
-    color: var(--status-info);
-    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
 }
 
 .shelf-list__description {
-    grid-area: description;
     overflow: hidden;
-    color: var(--text-secondary);
-    font-family: var(--font-display);
-    font-size: var(--text-sm);
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
-.shelf-list__facts {
-    display: flex;
-    grid-area: facts;
-    gap: var(--space-3);
+    margin-top: 1px;
     color: var(--text-muted);
     font-size: var(--text-xs);
-    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.shelf-list__counts {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+.shelf-list__when {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
+.shelf-list__when--running {
+    color: var(--status-success);
 }
 
 .shelf-list__more {
     flex: 0 0 auto;
+    margin-right: var(--space-2);
 }
 
-.shelf-list__blanks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2) var(--space-4);
-    padding: var(--space-3) var(--space-2);
-}
-
-.shelf-list__blank {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--text-sm);
-    cursor: pointer;
-}
-
-.shelf-list__blank:hover {
-    color: var(--text-main);
-}
-
-.shelf-list__blank:focus-visible {
-    border-radius: 2px;
-    outline: var(--focus-outline);
-    outline-offset: 2px;
-}
-
-@container (max-width: 560px) {
+@container (max-width: 640px) {
     .shelf-list__main {
-        grid-template-columns: minmax(0, 1fr);
-        grid-template-areas: "heading" "description" "facts";
+        grid-template-columns: 30px minmax(0, 1fr);
+        row-gap: 2px;
+    }
+
+    .shelf-list__counts,
+    .shelf-list__when {
+        grid-column: 2;
     }
 }
 </style>

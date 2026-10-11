@@ -1,0 +1,37 @@
+---
+标签: [env:timer]
+别名: ["案头"]
+---
+
+# ShelfDesk
+
+书架页上半的案头（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 2、3）：三栏，不给面、直接压在窗体底纹上。
+
+- 左栏统计：大字是今天写的字（没有一部作品给出今天的数字时是总字数），下面一行总字数、篇数、作品数；有继续写作的目标时一个“继续写作《书名》”按钮。
+- 中栏“最近写到”：各作品最近编辑的那个文件，按时间取前三条，每条书名、片段名、时间和一行摘录；点一条在那个文件末尾接着写。都没有编辑记录时写一句提示。
+- 右栏看板娘（`NeuroBookMood`，`idle`，眼睛跟鼠标），150px。
+
+空书架时左边换成问候：标题“书架还是空的”与一句解释作品是文件夹；中栏不显示。
+
+容器窄于 720px 时统计与看板娘一行，“最近写到”另起一行，看板娘 96px。
+
+## 数据
+
+```ts
+type Props = {
+    locale: DisplayLocale;
+    items: ReadonlyArray<ShelfItem>;
+    /** 相对时间按它算（ISO）。 */
+    now: string;
+};
+type Emits = {
+    /** 继续写作：某部作品最近编辑的文件末尾。 */
+    continue: [id: string];
+};
+```
+
+根节点带 `data-shelf-desk`；统计 `data-shelf-stats`，“继续写作”按钮 `data-continue`，最近写到的每条 `data-recent-piece="<id>"`。没有插槽与 expose。
+
+## 隐藏通道理由
+
+`env:timer`：看板娘的循环动画与跟随鼠标由品牌成品的脚本驱动（见 `NeuroBookMood`）。
