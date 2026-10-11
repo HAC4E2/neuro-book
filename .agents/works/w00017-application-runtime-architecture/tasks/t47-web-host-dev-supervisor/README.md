@@ -75,3 +75,4 @@ taskId: t47-web-host-dev-supervisor
 ## 下一步
 
 第 4 步：workbench 底座与 Lab 插件。
+- 2026-10-11 后续（开发者要求）：开发模式的端口改为固定缺省并成组顺延：页面 4217、RPC 4218、后端 4219，三个都取缺省时任一被占用就一起加 100（至多 10 组，与正式运行同一规则 `ports.ts` 的 `freeGroupOffset`），显式给出任何一个就不顺延；RPC 端口不再每次随机。Spec `runtime/server-host.md` 开发模式一节同步。验证：`ports.test.ts`、`dev/config.test.ts`、`dev/run.test.ts`；两个开发会话同时启动实测 4217/4218/4219 与 4317/4318/4319，引导接口给出对应 RPC 端口，停止后端口释放。

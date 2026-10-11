@@ -8,6 +8,7 @@
  */
 
 import {loopbackOrigins} from "../config";
+import {freeGroupOffset, PORT_SHIFT_ATTEMPTS} from "../ports";
 
 import {spawnBackend} from "./backend-process";
 import type {BackendSpec} from "./backend-process";
@@ -38,7 +39,21 @@ const systemClock = {
 export async function runDev(options: DevRunOptions): Promise<0 | 1> {
     const output = options.output ?? ((line: string) => process.stdout.write(`${line}\n`));
     const {host, stateRoot} = options.config;
-    const backendPort = options.config.backendPort === 0 ? await freePort(host) : options.config.backendPort;
+    // 三个端口都取缺省时先在这里成组顺延，整个会话固定；显式给出的端口不试探，被占用时由页面服务或后端自己报失败。
+    let offset = 0;
+    if (options.config.shiftPorts) {
+        try {
+            offset = await freeGroupOffset(host, [options.config.pagePort, options.config.backendPort, options.config.rpcPort]);
+        } catch (error) {
+            output(`[dev] ports-busy 缺省端口顺延 ${String(PORT_SHIFT_ATTEMPTS)} 组仍被占用，未启动：${error instanceof Error ? error.message : String(error)}`);
+            return 1;
+        }
+        if (offset !== 0) output(`[dev] ports-shifted 缺省端口被占用，页面、后端与 RPC 端口一起顺延 ${String(offset)}`);
+    }
+    const shifted = (port: number): number => (port === 0 ? 0 : port + offset);
+    const pagePort = shifted(options.config.pagePort);
+    const rpcPort = shifted(options.config.rpcPort);
+    const backendPort = options.config.backendPort === 0 ? await freePort(host) : shifted(options.config.backendPort);
     let pageUrl: string | null = null;
     const backendEnv = (): Record<string, string | undefined> => ({
         ...process.env,
@@ -46,7 +61,7 @@ export async function runDev(options: DevRunOptions): Promise<0 | 1> {
         NBOOK_HOST: host,
         NBOOK_PORT: String(backendPort),
         NBOOK_WEB_ROOT: "",
-        NBOOK_RPC_PORT: String(options.config.rpcPort),
+        NBOOK_RPC_PORT: String(rpcPort),
         // 页面由 Vite 提供，Origin 是页面服务的来源，不是后端 HTTP 端口的；页面直连 RPC 端口，要后端放行它。
         NBOOK_ALLOWED_ORIGINS: pageUrl === null ? "" : loopbackOrigins(pageUrl).join(","),
     });
@@ -60,7 +75,7 @@ export async function runDev(options: DevRunOptions): Promise<0 | 1> {
     try {
         frontend = await startDevFrontend({
             host,
-            port: options.config.pagePort,
+            port: pagePort,
             backendUrl: `http://${host}:${String(backendPort)}`,
             configFile: options.configFile,
             admit: () => supervisor.admit(),

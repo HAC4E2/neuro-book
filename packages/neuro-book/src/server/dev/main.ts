@@ -1,5 +1,5 @@
 /**
- * 开发命令入口：`bun run dev`。页面在 `NBOOK_DEV_PORT`（缺省 3000），后端改动后有序重启；参数见 `config.ts`。
+ * 开发命令入口：`bun run dev`。页面在 `NBOOK_DEV_PORT`（缺省 4217，被占用时与 RPC、后端端口一组顺延），后端改动后有序重启；参数见 `config.ts`。
  */
 
 import {join, resolve} from "node:path";
