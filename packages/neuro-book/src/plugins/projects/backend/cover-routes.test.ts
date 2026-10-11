@@ -5,7 +5,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, readdir, readFile, rm} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -110,5 +110,43 @@ describe("Spec projects 输出 21：封面路由", () => {
         expect((await upload("00000000-0000-4000-8000-000000000000", PNG)).status).toBe(404);
         expect((await call("GET", "/cover/00000000-0000-4000-8000-000000000000")).status).toBe(404);
         expect((await readdir(book)).filter((name) => name.startsWith("cover"))).toEqual([]);
+    });
+
+    it("身份文件写不进去：回 409，刚写的文件撤掉，被它顶掉的同名文件还原，.nbook 里不留临时文件", async () => {
+        const {book, id, upload} = await world();
+        // 作品目录里本来就有一张身份文件没记的 cover.png：上传 PNG 会先顶掉它。
+        const existing = new Uint8Array([...PNG, 1, 2, 3]);
+        await writeFile(join(book, "cover.png"), existing);
+        const identity = join(book, PROJECT_IDENTITY_FILE);
+        await chmod(identity, 0o444);
+        try {
+            expect((await upload(id, PNG)).status).toBe(409);
+        } finally {
+            await chmod(identity, 0o644);
+        }
+        expect(new Uint8Array(await readFile(join(book, "cover.png")))).toEqual(existing);
+        expect((await readdir(join(book, ".nbook"))).filter((name) => name.startsWith("cover."))).toEqual([]);
+    });
+
+    it("请求体超过上限时边收边拒：回 413，不把整个请求体读完", async () => {
+        const {id, call} = await world();
+        const chunk = new Uint8Array(256 * 1024);
+        const total = PROJECT_COVER_MAX_BYTES * 4;
+        let pulled = 0;
+        // 没有 Content-Length 的流式请求体：上限只能在读的过程中判。
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (pulled >= total) {
+                    controller.close();
+                    return;
+                }
+                pulled += chunk.length;
+                controller.enqueue(chunk);
+            },
+        });
+        const response = await call("PUT", `/cover/${id}`, {body, headers: {"Content-Type": "multipart/form-data; boundary=x"}, duplex: "half"} as RequestInit);
+        expect(response.status).toBe(413);
+        expect(await response.json()).toMatchObject({code: "too-large"});
+        expect(pulled).toBeLessThan(total);
     });
 });

@@ -52,6 +52,10 @@ describe("FileBrowser", () => {
         await wrapper.get("[data-file-browser-up]").trigger("click");
         await wrapper.get("[role='listbox']").trigger("keydown", {key: "Backspace"});
         expect(wrapper.emitted("up")).toHaveLength(2);
+        // 重名的段按位置区分：点第二个 src 回到 /src/src，不是 /src。
+        const nested = mount(FileBrowser, {props: {segments: [{label: "/", path: "/"}, {label: "src", path: "/src"}, {label: "src", path: "/src/src"}, {label: "app", path: "/src/src/app"}], entries: [], selectedId: null}});
+        await nested.findAll("nav a").filter((link) => link.text() === "src")[1]?.trigger("click");
+        expect(nested.emitted("navigate")).toEqual([["/src/src"]]);
         const root = mount(FileBrowser, {props: {segments: [segments[0]!], entries: [], selectedId: null}});
         expect(root.find("[data-file-browser-up]").exists()).toBe(false);
         expect(root.find("[data-file-browser-empty]").exists()).toBe(true);

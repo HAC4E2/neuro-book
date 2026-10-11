@@ -51,7 +51,7 @@ const infoInitial = computed(() => {
     return {id: current.id, title: current.title ?? "", description: current.description ?? "", color: current.color, coverSrc: coverSrc(current)};
 });
 
-type PickerState = {readonly mode: "project"} | {readonly mode: "directory"; readonly initialPath: string};
+type PickerState = {readonly mode: "project"} | {readonly mode: "directory"; readonly initialPath: string | null};
 const picker = ref<PickerState | null>(null);
 const pickerBusy = ref(false);
 const pickerError = ref("");
@@ -134,7 +134,7 @@ function startAddExisting(): void {
 
 async function changeLibrary(): Promise<void> {
     const current = await loadLibrary();
-    picker.value = {mode: "directory", initialPath: current?.path ?? ""};
+    picker.value = {mode: "directory", initialPath: current?.path ?? null};
     pickerError.value = "";
 }
 

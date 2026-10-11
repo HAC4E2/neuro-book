@@ -6,6 +6,8 @@
  */
 import type {LabClippedFocus, LabDebugApi, LabOverflowOffender, LabStageMeasure} from "../shared/debug-api";
 
+import {ringSelectors} from "./focus-rules";
+import type {RingSelector} from "./focus-rules";
 import {describeNode} from "./inspect";
 
 declare global {
@@ -70,8 +72,6 @@ export function focusRingExtent(element: Element): number {
     return extent > 0 ? extent : 7;
 }
 
-const FOCUS_PSEUDO = ":focus-visible|:focus-within|:focus(?![-\\w])";
-
 /** 这条规则聚焦后画不画得出东西：box-shadow 或看得见的 outline。透明的 outline（Tailwind 的 outline-hidden）不算。 */
 function drawsRing(style: CSSStyleDeclaration): boolean {
     const shadow = style.getPropertyValue("box-shadow");
@@ -83,20 +83,18 @@ function drawsRing(style: CSSStyleDeclaration): boolean {
 }
 
 /**
- * 从样式表找“聚焦后会画焦点环”的选择器：含焦点伪类且声明了 box-shadow 或 outline 的规则，把焦点伪类换成恒真的
- * `:is(*)` 后就是“哪些元素会画环”。环不一定画在焦点元素自己身上（`:focus-within`、`:has(... :focus-visible)` 把环画在外框上），
+ * 从样式表找“聚焦后会画焦点环”的选择器：含焦点伪类且声明了 box-shadow 或 outline 的规则（怎么从选择器里认出画环的元素见
+ * focus-rules.ts）。环不一定画在焦点元素自己身上（`:focus-within`、`:has(... :focus-visible)` 把环画在外框上），
  * 所以不能按“可聚焦”猜。嵌套规则按 `&` 接上父选择器。跨源样式表读不到规则，跳过。
  */
-function ringSelectors(root: Document): string[] {
-    const test = new RegExp(FOCUS_PSEUDO, "u");
-    const strip = new RegExp(FOCUS_PSEUDO, "gu");
-    const found: string[] = [];
+function ringSelectorsIn(root: Document): RingSelector[] {
+    const found: RingSelector[] = [];
     const visit = (rules: CSSRuleList, parent: string | null): void => {
         for (const rule of rules) {
             if (rule instanceof CSSStyleRule) {
                 const own = rule.selectorText;
                 const selector = parent === null ? own : own.includes("&") ? own.replaceAll("&", `:is(${parent})`) : `:is(${parent}) ${own}`;
-                if (test.test(selector) && drawsRing(rule.style)) found.push(selector.replace(strip, ":is(*)"));
+                if (drawsRing(rule.style)) found.push(...ringSelectors(selector));
                 visit(rule.cssRules, selector);
             } else if (rule instanceof CSSGroupingRule) {
                 visit(rule.cssRules, parent);
@@ -116,12 +114,12 @@ function ringSelectors(root: Document): string[] {
 }
 
 /**
- * 聚焦光晕会被裁的元素：会画焦点环的元素（见 ringSelectors）沿祖先往上找 overflow 不为 visible 的容器，任一边离容器内容盒的边
+ * 聚焦光晕会被裁的元素：会画焦点环的元素（见 ringSelectorsIn）沿祖先往上找 overflow 不为 visible 的容器，任一边离容器内容盒的边
  * 不足光晕外扩量就算。不真的去聚焦（会改页面状态、触发监听），按主题 token 的几何算；元素本身就越出容器的归溢出检查，这里跳过。
  */
 export function clippedFocusRings(stage: HTMLElement, extent: number): LabClippedFocus[] {
     const candidates = new Set<HTMLElement>();
-    for (const selector of ringSelectors(stage.ownerDocument)) {
+    for (const {selector, direct} of ringSelectorsIn(stage.ownerDocument)) {
         let matched: NodeListOf<HTMLElement>;
         try {
             matched = stage.querySelectorAll<HTMLElement>(selector);
@@ -129,8 +127,8 @@ export function clippedFocusRings(stage: HTMLElement, extent: number): LabClippe
             // 改写后的选择器可能不合法（例如带厂商伪元素的规则），这条规则不查。
             continue;
         }
-        // 规则命中的元素还得真能拿到焦点：自己可聚焦，或者（画在外框上的环）里面有可聚焦的。
-        for (const element of matched) if (element.matches(FOCUSABLE) || element.querySelector(FOCUSABLE) !== null) candidates.add(element);
+        // 规则命中的元素还得真能拿到焦点：自己可聚焦，或者环画在外框上、里面有可聚焦的。
+        for (const element of matched) if (element.matches(FOCUSABLE) || (!direct && element.querySelector(FOCUSABLE) !== null)) candidates.add(element);
     }
     const found: LabClippedFocus[] = [];
     for (const element of candidates) {

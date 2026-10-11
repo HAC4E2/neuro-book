@@ -116,7 +116,7 @@ export interface ShelfPage {
     continueWriting(id: string): void;
     /** 当前有效的作品目录；取不到时发通知并给 null。 */
     library(): Promise<LibraryInfo | null>;
-    /** 列一个目录（null 为作品目录）；失败原因已按当前语言写好，给选择器显示。 */
+    /** 列一个目录（null 或空白为作品目录）；失败原因已按当前语言写好，给选择器显示。 */
     browse(path: string | null): Promise<BrowseOutcome>;
     /** 新建：`parent` 是用户在窗口里给的目录。成功后书架刷新、新作品被选中。 */
     create(values: ProjectInfoValues, parent: string): Promise<ProjectActionOutcome>;
@@ -303,7 +303,8 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             return null;
         },
         browse: async (path) => {
-            const result = await host.remote.browse(path === null ? {} : {path});
+            // 空白按省略处理：合同里的 path 至少一个字符，“省略”才表示作品目录；作品目录没读到、位置框被清空时宿主会给空串。
+            const result = await host.remote.browse(path === null || path.trim() === "" ? {} : {path});
             if (result.ok) return {ok: true, value: result.value};
             const detail = result.detail as {readonly reason?: string; readonly detail?: string} | undefined;
             const why = result.code === "invalid-parent" ? text(registerFailureReason(detail?.reason ?? "")) : transport(result.code, result.detail);

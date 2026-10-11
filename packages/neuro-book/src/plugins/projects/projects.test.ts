@@ -6,7 +6,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, readdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
@@ -132,7 +132,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => "opened" as const, currentUrl: () => "http://localhost/", replaceUrl: () => undefined})},
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
                 // 书架页把失败通知交给工作台的通知服务；这里没有工作台插件，用真实的通知队列顶替。
-                {id: "test.notifications", key: notificationsKey, create: () => createNotifications()},
+                {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}))},
                 ...settings.capabilities,
             ],
             plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
@@ -478,18 +478,22 @@ describe("Spec projects 输出 19 到 21：作品目录、列目录与封面在�
         expect(await configured.create({title: "第二部"})).toMatchObject({ok: true, value: {path: join(h2.home, "books", "第二部")}});
     });
 
-    it("browse：列子目录并标出作品与已在书架上的；隐藏目录不列；path 省略时是作品目录，不存在时是它的上一级；~ 展开；不存在为 invalid-parent", async () => {
+    it("browse：列子目录并标出作品与已在书架上的；隐藏目录不列；指向目录的链接按真实路径列，悬空的不列；path 省略时是作品目录，不存在时是它的上一级；~ 展开；不存在为 invalid-parent", async () => {
         const {h, projects} = await setup(async (paths) => {
             await mkdir(join(paths.home, "books", "drafts"), {recursive: true});
             await mkdir(join(paths.home, "books", ".hidden"), {recursive: true});
             await mkdir(join(paths.home, "books", "novel", ".nbook"), {recursive: true});
             await writeFile(join(paths.home, "books", "novel", ".nbook", "project.json"), JSON.stringify({schema: 1, id: "11111111-2222-4333-8444-555555555555", title: "北方以北"}));
             await writeFile(join(paths.home, "books", "a-file.txt"), "x");
+            await mkdir(join(paths.home, "elsewhere", "real-book"), {recursive: true});
+            await symlink(join(paths.home, "elsewhere", "real-book"), join(paths.home, "books", "linked"));
+            await symlink(join(paths.home, "nowhere"), join(paths.home, "books", "broken"));
         });
         const registered = await projects.register({path: h.project.path});
         expect(registered).toMatchObject({ok: true});
         expect(await projects.browse({path: "~/books"})).toEqual({ok: true, value: {path: join(h.home, "books"), parent: h.home, entries: [
             {name: "drafts", path: join(h.home, "books", "drafts"), kind: "directory", title: null},
+            {name: "linked", path: join(h.home, "elsewhere", "real-book"), kind: "directory", title: null},
             {name: "novel", path: join(h.home, "books", "novel"), kind: "project", title: "北方以北"},
         ]}});
         expect(await projects.browse({path: h.root})).toMatchObject({ok: true, value: {entries: expect.arrayContaining([{name: "Book", path: h.project.path, kind: "registered", title: null}])}});

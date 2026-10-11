@@ -121,7 +121,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
             // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
-            const notifications = createNotifications();
+            const notifications = createNotifications((message) => diagnostics.record({level: "warn", event: "workbench.notifications", message, source: {plugin: descriptor.id}}));
             context.signal.addEventListener("abort", () => notifications.dispose(), {once: true});
             const projectName = project?.name ?? null;
             const workbenchPages = createWorkbenchPages({

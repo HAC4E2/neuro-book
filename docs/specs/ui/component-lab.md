@@ -75,8 +75,8 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 - Lab 提供随窗口、手机和 tablet 三种画布容器；手机固定为 `390 × 844`，平板固定为 `768 × 1024`，并允许自由宽高。切换容器不改变 fixture 语义。
 - 地址栏参数可直接指定打开状态：`c` 组件、`s` 场景、`vp` 画布（`phone`、`tablet`、`free` 或 `宽x高`，单边不超过 16384）、`cw` 配色（配色 id，或 `light`、`dark` 取第一套外观相符的配色）、`theme` 主题。合法的参数优先于已保存的偏好；不认识或越界的参数被忽略，其余参数照常生效。
 - 地址栏就是标签页的会话状态：除上面的参数外另有 `zoom` 缩放与 `tab` 检视页签（`doc`、`element`、`events`、`data`、`variables`）。这些参数都不写入偏好。地址里的 `cw` 与 `theme` 只作用于这个标签页：截图命令与分享出去的链接不改掉使用者保存的主题；在界面上换主题或配色时，把画面上的主题与配色一起写进偏好，并从地址栏去掉这两个参数。在界面上切组件新增一条历史记录，浏览器后退回到上一个组件；切场景、画布、缩放与页签替换当前记录。地址栏、宿主路由的当前路由与 Lab 的状态始终一致，离开 Lab 时按当前地址整页加载。不认识的查询参数原样保留，旧参数名 `component`、`scene` 读到后改写为 `c`、`s`。工具条的“复制场景链接”复制只含有效参数的规范地址；地址里的场景不存在而回落到首个场景时，给一条可见提示。
-- 舞台（当前场景 fixture 的挂载容器）带稳定标记 `data-lab-stage`。页面暴露只读调试接口 `window.__nbLab`：`state()` 返回当前组件、场景、fixture 是否已挂载就绪、加载错误、画布尺寸、主题与配色；`scenes(component?)` 返回登记的场景；`components()` 返回登记了场景且可以挂载的组件名，按组件树的顺序；`measure()` 返回舞台位置、舞台内容的横向溢出像素，以及越出舞台左右边缘且没有被任何横向裁剪或滚动容器挡住的元素（最多 20 个，带检查器同款选择器与所属组件名）。接口不提供写操作，改状态只走地址栏参数。
-- 开发命令 `lab:shot` 按组件、场景（缺省为全部）、画布尺寸与配色的组合逐一打开 Lab 并截取舞台，输出每张截图的溢出测量与期间的页面错误、控制台错误和警告，并写一份 JSON 报告；任一组合有溢出、越界元素或页面问题时以非零退出，`--no-fail` 可改为只报告。它只依赖地址栏参数、`data-lab-stage` 与 `window.__nbLab`，不点击 Lab 外壳的控件。
+- 舞台（当前场景 fixture 的挂载容器）带稳定标记 `data-lab-stage`。页面暴露只读调试接口 `window.__nbLab`：`state()` 返回当前组件、场景、fixture 是否已挂载就绪、加载错误、画布尺寸、主题与配色；`scenes(component?)` 返回登记的场景；`components()` 返回登记了场景且可以挂载的组件名，按组件树的顺序；`measure()` 返回舞台位置、舞台内容的横向溢出像素，以及越出舞台左右边缘且没有被任何横向裁剪或滚动容器挡住的元素（最多 20 个，带检查器同款选择器与所属组件名）；还返回聚焦光晕会被裁的元素（`clippedFocus`，最多 20 个）：按样式表里的焦点规则找聚焦时会画焦点环的元素，环画在外框上（`:focus-within`、`:has(... :focus-visible)`）时按外框算，焦点伪类直接写在元素自己身上时它得能聚焦；它离某个不外溢的祖先的边比主题 `--focus-ring` 的外扩量近就报。接口不提供写操作，改状态只走地址栏参数。
+- 开发命令 `lab:shot` 按组件、场景（缺省为全部）、画布尺寸与配色的组合逐一打开 Lab 并截取舞台，输出每张截图的溢出测量与期间的页面错误、控制台错误和警告，并写一份 JSON 报告；任一组合有溢出、越界元素、光晕会被裁的元素或页面问题时以非零退出，`--no-fail` 可改为只报告。它只依赖地址栏参数、`data-lab-stage` 与 `window.__nbLab`，不点击 Lab 外壳的控件。
 - Fixture 容器在声明最大宽度约束时必须携带 `mx-auto` 水平居中，陈列区使用 flex 居中，严禁靠左贴死导致视口失衡；Fixture 必须消费面板级语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），严禁在 Fixture 容器上硬编码页面顶层底色 `var(--bg-main)`，确保与舞台材质层级以及明暗主题对齐。典型夹具示范见 `packages/neuro-book/src/plugins/lab/web/fixtures/FixtureExampleFixture.vue` 与同目录的 `README.md`。
 - 运行中的视口从宽屏进入 `<=700px` 时，左右侧栏自动收起，把空间让给画布；从窄屏恢复宽屏不自动展开，保留使用者最后一次侧栏状态。侧栏宽度切换提供短时转场，`prefers-reduced-motion: reduce` 时关闭新增转场；场景切换不得制造空白退场阶段。
 - 画布是场景里居中类浮层的定位容器：nb-ui 的对话框、确认框、抽屉、快速输入缺省传送到画布里的浮层落点，遮罩铺满画布，浮层按画布居中、按画布宽度收窄，手机画布上看到的就是手机宽度下的浮层。贴着触发器定位的浮层（下拉、气泡）仍按窗口。
@@ -158,6 +158,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 22. Given 同一状态根先后用两个端口启动开发服务，When 各自打开 Lab，Then 偏好相同。
 23. Given 变量 tab 覆盖了一个设计变量，When 导出再清除、导入，Then 覆盖依次生效、消失、再生效；When 刷新，Then 覆盖消失。Given 元素 tab 选中一个按钮，Then 显示它的 ARIA 角色、名称与计算样式读数。
 24. Given 对话框类组件的场景，When 在手机画布上打开，Then 浮层落在画布里并按画布居中，不越出画布；不开背景模糊的主题下同样如此。
+25. Given 舞台里分别贴着 `overflow: hidden` 容器的边放一个自己画焦点环的按钮、一个焦点环画在外框上的外框、一个不可聚焦却直接写了 `:focus-visible` 的外框，另有一个离边留足内距的按钮，When 调用 `measure()`，Then `clippedFocus` 只报前两个。
 
 ## 实现合同
 
@@ -170,7 +171,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 - **外壳拆分**：`LabShell.vue` 持有页面编排、舞台与画布工具条；顶栏 `LabToolbar.vue`、左栏 `LabNavPanel.vue`、右栏 `LabInspectPanel.vue` 与变量页签 `LabVariablesPanel.vue` 只呈现与转发，各带同名 `.md`；变量覆盖层在 `use-lab-overrides.ts`（快照校验 `lab-overrides.ts`，变量分组 `lab-tokens.ts`），结构检查在 `inspect-checks.ts`；侧栏布局在 `use-lab-layout.ts`；外壳样式在不 scoped 的 `lab-shell.css`。画布的浮层落点在 `components/ViewportCanvas.vue`，经 nb-ui 的 `provideTeleportTarget` 交给场景。
 - **状态与持久化边界**：LabShell 持有页面编排和当前状态，不持有命令宿主；命令场景的局部宿主在 `web/fixtures/command-scene/`（`lab-command-scene.ts`、样板编辑器 `SampleTextEditor.vue`、命令检视 `LabCommandInspector.vue`）。`lab-preferences-store.ts` 定义偏好记录与 store（按字段合并保存、恢复默认写空对象、暂停期间合并成一份、重试与放弃），问题分类用共享的 `nbook/shared/store/problem`；`useLabPreferences` 把 store 接到界面状态；store 在第一次打开 `/lab` 时由 `web/plugin.ts` 建立，经页面组件的 prop 交给 LabShell；`lab-wallpaper-store` 只负责 Lab 壁纸 Blob。产品主题、Global Config 和业务数据不由 Lab 持有。
 - **关键不变量**：生产构建的入口不引用开发清单，Lab 模块不进构建图（`check:dist` 检查）；Lab 页面声明 `reloadOnLeave`，宿主路由在离开它时整页加载；Tree 对外维持 string-id，Reka 节点对象不泄漏；场景切换/还原不改变 fixture 初始合同；存储异常不阻断 Lab 打开。
-- **验证入口**：`bun test` 跑组件索引模型、`lab-url`、偏好 store 与 `useLabPreferences`（真实 `nbook.storage`，`src/plugins/storage/testing/world.ts`）；Vitest（`*.dom.test.ts`）跑场景登记门禁、分层输入、透传夹具、检查器、HighlightBox 与命令场景的局部宿主；`e2e/lab.e2e.ts`、`e2e/lab-shot.e2e.ts`、`e2e/lab-commands.e2e.ts`、`e2e/lab-scenes.e2e.ts` 在真实开发会话上验收；`check:dist` 与 `e2e/browser-host.e2e.ts` 验收生产排除，`check:dist` 另以组件文档的 frontmatter 特征拦住误引 `lab-sources`。产品 `theme.system` 和渐进组件迁移不属于本实现合同。
+- **验证入口**：`bun test` 跑组件索引模型、`lab-url`、偏好 store 与 `useLabPreferences`（真实 `nbook.storage`，`src/plugins/storage/testing/world.ts`）以及光晕检查的选择器判定（`focus-rules.ts`）；Vitest（`*.dom.test.ts`）跑场景登记门禁、分层输入、透传夹具、检查器、HighlightBox 与命令场景的局部宿主；`e2e/lab.e2e.ts`、`e2e/lab-shot.e2e.ts`、`e2e/lab-commands.e2e.ts`、`e2e/lab-scenes.e2e.ts` 在真实开发会话上验收；`check:dist` 与 `e2e/browser-host.e2e.ts` 验收生产排除，`check:dist` 另以组件文档的 frontmatter 特征拦住误引 `lab-sources`。产品 `theme.system` 和渐进组件迁移不属于本实现合同。
 
 ## 证据
 

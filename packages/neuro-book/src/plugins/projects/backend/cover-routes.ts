@@ -9,6 +9,7 @@ import {mkdir, rename, stat, unlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {Hono} from "hono";
+import {bodyLimit} from "hono/body-limit";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
@@ -65,7 +66,13 @@ export function createCoverRoutes(sources: CoverRouteSources): Hono<{Bindings: H
         return new Response(Bun.file(file), {headers: {"Content-Type": coverContentType(located.cover) ?? "application/octet-stream", "ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}});
     });
 
-    app.put("/cover/:id", async (c) => {
+    // 请求体在接收时就限长：先整个解析再看 file.size，超大的请求体会整个读进内存。multipart 的边界与字段头另留 64 KiB。
+    const uploadLimit = bodyLimit({
+        maxSize: PROJECT_COVER_MAX_BYTES + 64 * 1024,
+        onError: (c) => c.json({code: "too-large", detail: `封面至多 ${String(PROJECT_COVER_MAX_BYTES)} 字节`}, 413),
+    });
+
+    app.put("/cover/:id", uploadLimit, async (c) => {
         const located = await locate(sources, c.req.param("id"));
         if (!located.ok) return failure(located);
         let form: FormData;
@@ -82,19 +89,42 @@ export function createCoverRoutes(sources: CoverRouteSources): Hono<{Bindings: H
         if (type === null) return Response.json({code: "unsupported-type", detail: "只收 PNG、JPEG 或 WebP"}, {status: 415});
         const name = coverFileName(type);
         const target = join(located.path, name);
-        const temporary = join(located.path, ".nbook", `cover.tmp-${String(process.pid)}-${String(Date.now())}`);
+        const stamp = `${String(process.pid)}-${String(Date.now())}`;
+        const temporary = join(located.path, ".nbook", `cover.tmp-${stamp}`);
+        // 目标上已有的文件（同格式的旧封面）先挪进 .nbook/：身份文件写不进去时要把它还原，不能跟着新文件一起删掉。
+        const backup = join(located.path, ".nbook", `cover.bak-${stamp}`);
+        let backedUp = false;
+        const restore = async (): Promise<void> => {
+            if (!backedUp) return;
+            await rename(backup, target).catch((error: unknown) => {
+                sources.record({level: "warn", event: "projects.cover.restore-failed", message: "旧封面没能还原", error, data: {path: target, backup}});
+            });
+        };
         try {
             await mkdir(join(located.path, ".nbook"), {recursive: true});
             await writeFile(temporary, bytes);
+            try {
+                await rename(target, backup);
+                backedUp = true;
+            } catch (error) {
+                if (code(error) !== "ENOENT") throw error;
+            }
             await rename(temporary, target);
         } catch (error) {
             await unlink(temporary).catch(() => undefined);
+            await restore();
             return Response.json({code: "write-failed", detail: `写不进 ${target}：${error instanceof Error ? error.message : String(error)}`}, {status: 500});
         }
         const updated = await sources.projects.updateMetadata(c.req.param("id"), {cover: name});
         if (!updated.ok) {
             await unlink(target).catch(() => undefined);
+            await restore();
             return Response.json({code: updated.reason, detail: updated.detail}, {status: updated.reason === "read-only" ? 409 : 500});
+        }
+        if (backedUp) {
+            await unlink(backup).catch((error: unknown) => {
+                sources.record({level: "warn", event: "projects.cover.stale-file", message: "替换下来的旧封面删不掉", error, data: {path: backup}});
+            });
         }
         // 换了格式时旧文件留着没用：删不掉只记诊断，封面已经生效。
         if (located.cover !== null && located.cover !== name) {

@@ -69,7 +69,8 @@ const crumbs = computed<BreadcrumbItemData[]>(() => props.segments.map((segment,
 
 function onCrumb(item: BreadcrumbItemData, event: MouseEvent): void {
     event.preventDefault();
-    const segment = props.segments.find((candidate) => candidate.label === item.label);
+    // 按位置找段，不按文字：目录名可以重复（/src/src）。Breadcrumb 交回的就是 crumbs 里的那个对象。
+    const segment = props.segments[crumbs.value.indexOf(item)];
     if (segment !== undefined) emit("navigate", segment.path);
 }
 

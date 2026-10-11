@@ -230,10 +230,10 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
     });
 
     const locale = ref<DisplayLocale>("zh-CN");
-    const notifications = createNotifications();
+    const reports: string[] = [];
+    const notifications = createNotifications((message) => reports.push(message));
     closers.push(async () => notifications.dispose());
     const navigations: string[] = [];
-    const reports: string[] = [];
     const covers: Array<{readonly id: string; readonly name: string | null}> = [];
     const commands: string[] = [];
     const view = ref<ShelfView>("cards");
@@ -448,6 +448,8 @@ describe("Spec bookshelf 动作", () => {
         await ready(page);
         expect(await page.library()).toEqual({path: "/books", source: "default"});
         expect(await page.browse(null)).toMatchObject({ok: true, value: {path: "/books", entries: [{name: "sub"}]}});
+        // 作品目录没读到、位置框清空时宿主给的是空串：按省略处理，不发违反合同的空路径。
+        expect(await page.browse("  ")).toMatchObject({ok: true, value: {path: "/books"}});
         expect(await page.browse("/home/writer")).toMatchObject({ok: true, value: {path: "/home/writer"}});
 
         expect(await page.create({title: "重名", description: "", color: null}, "/home/writer/books")).toMatchObject({ok: false, field: "title", message: expect.stringContaining("同名目录已存在")});

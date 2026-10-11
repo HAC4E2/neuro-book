@@ -87,10 +87,16 @@ export async function browseDirectory(
             }
         }
         if (!isDirectory) continue;
-        const title = await projectTitle(child);
-        const real = await realpath(child).catch(() => child);
+        // 交出去的是真实路径：登记判定按它，选中后登记、再进一层列目录也都落在同一个路径上。stat 之后又解析不了（刚被删）的不列。
+        let real: string;
+        try {
+            real = await realpath(child);
+        } catch {
+            continue;
+        }
+        const title = await projectTitle(real);
         const kind = registeredPaths.has(real) ? "registered" : title === undefined ? "directory" : "project";
-        entries.push({name: entry.name, path: child, kind, title: title ?? null});
+        entries.push({name: entry.name, path: real, kind, title: title ?? null});
     }
     entries.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: "base"}));
     const parent = dirname(path);

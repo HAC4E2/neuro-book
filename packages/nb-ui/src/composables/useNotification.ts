@@ -38,9 +38,9 @@ export interface NotificationQueue {
     remove(id: string): void;
     /** 清空全部通知与计时器（测试隔离、登出清屏等场景）。 */
     clearAll(): void;
-    /** 暂停自动关闭（悬停时调用），记录剩余时长。 */
+    /** 暂停自动关闭（悬停时调用）。暂停期间 `update` 改了时长也只记下新的到期时间，不会到点移除。 */
     pause(id: string): void;
-    /** 恢复自动关闭：按暂停时的剩余时长重新计时（至少留 800ms 反应时间）。 */
+    /** 恢复自动关闭：按剩余时长重新计时（至少留 800ms 反应时间）；常驻的不计时。 */
     resume(id: string): void;
     success(message: string, options?: Omit<NotificationInput, "message" | "tone">): string;
     warning(message: string, options?: Omit<NotificationInput, "message" | "tone">): string;
@@ -58,42 +58,43 @@ function createId(): string {
 export function createNotificationQueue(): NotificationQueue {
     const notifications = shallowRef<ReadonlyArray<NotificationItem>>([]);
     const timers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
-    // 自动关闭到期时间戳；pause 时据此换算剩余时长
+    // 自动关闭到期时间戳；resume 时据此换算剩余时长
     const deadlines = new Map<string, number>();
+    // 悬停中的通知。单独记，不靠“有没有计时器”判断：常驻的悬停时本来就没有计时器，悬停中被改成限时也不能开始计时。
+    const paused = new Set<string>();
 
-    function remove(id: string): void {
+    function clearTimer(id: string): void {
         const timer = timers.get(id);
-        if (timer) {
-            globalThis.clearTimeout(timer);
-            timers.delete(id);
-        }
-        deadlines.delete(id);
-        notifications.value = notifications.value.filter((item) => item.id !== id);
-    }
-
-    /** 启动/重启某条通知的自动关闭计时 */
-    function schedule(id: string, duration: number): void {
-        const existing = timers.get(id);
-        if (existing) globalThis.clearTimeout(existing);
-        deadlines.set(id, Date.now() + duration);
-        timers.set(id, globalThis.setTimeout(() => remove(id), duration));
-    }
-
-    function pause(id: string): void {
-        const timer = timers.get(id);
-        if (!timer) {
-            return;
-        }
+        if (timer === undefined) return;
         globalThis.clearTimeout(timer);
         timers.delete(id);
     }
 
+    function remove(id: string): void {
+        clearTimer(id);
+        deadlines.delete(id);
+        paused.delete(id);
+        notifications.value = notifications.value.filter((item) => item.id !== id);
+    }
+
+    /** 从现在起按 duration 计时；悬停中只记到期时间，等 resume。 */
+    function schedule(id: string, duration: number): void {
+        clearTimer(id);
+        deadlines.set(id, Date.now() + duration);
+        if (paused.has(id)) return;
+        timers.set(id, globalThis.setTimeout(() => remove(id), duration));
+    }
+
+    function pause(id: string): void {
+        if (!notifications.value.some((item) => item.id === id)) return;
+        paused.add(id);
+        clearTimer(id);
+    }
+
     function resume(id: string): void {
+        if (!paused.delete(id)) return;
         const deadline = deadlines.get(id);
-        if (deadline === undefined || timers.has(id)) {
-            return;
-        }
-        schedule(id, Math.max(deadline - Date.now(), 800));
+        if (deadline !== undefined) schedule(id, Math.max(deadline - Date.now(), 800));
     }
 
     function notify(input: NotificationInput | string): string {
@@ -125,7 +126,7 @@ export function createNotificationQueue(): NotificationQueue {
         // 时长变了就从现在重新计时：常驻改成限时是“任务结束了”，限时改成常驻是“出错要人看”。
         if (next.duration > 0) schedule(id, next.duration);
         else {
-            pause(id);
+            clearTimer(id);
             deadlines.delete(id);
         }
     }
@@ -136,6 +137,7 @@ export function createNotificationQueue(): NotificationQueue {
         }
         timers.clear();
         deadlines.clear();
+        paused.clear();
         notifications.value = [];
     }
 

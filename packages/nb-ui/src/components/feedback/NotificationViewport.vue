@@ -37,8 +37,12 @@ function toneClass(item: NotificationItem): NotificationTone {
 }
 
 function runAction(item: NotificationItem): void {
-    item.action?.run();
-    remove(item.id);
+    // 动作抛错也移除这条通知（错误照常交给 Vue 的错误处理）：留着只会让人反复点一个坏掉的动作。
+    try {
+        item.action?.run();
+    } finally {
+        remove(item.id);
+    }
 }
 </script>
 
