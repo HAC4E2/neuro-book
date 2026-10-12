@@ -41,7 +41,9 @@ taskId: t80-settings-ui
 - S2 已提交 `dbe41959`：设置窗口、`src/ui/settings/` 的 `SettingsRow`（含宽排法）与 `SettingsPageList`、`nbook.settings` 的窗口入口、命令 `nbook.settings.open`（`Ctrl+,`；工作台键位解析原本不认逗号，补了一处）与公开状态 `windowOpen`、外观分区、Lab 局部宿主与全部状态的场景。主 Agent 复跑：bun 1035 通过、Vitest 181 通过、三份 typecheck 与 `lab-scenes` 门禁通过；S1 时那条旧失败已随测试场地补齐恢复。截图在评审板目录 `s2/`。
   - 主 Agent 定下：层快照只给项目层带文件路径，用户层不带（[`runtime/projects.md`](../../../../../docs/specs/runtime/projects.md) 的路径可见性不发状态根给浏览器）；分区落位改为第一次打开时才算。
   - 对齐主线时要改：窗口里的书名现在取窗口项目绑定的登记名，t79 S1 已让绑定带上书名，对齐后改用它。
-- S3（示例插件 `example.snippets`、第六个场景、Lab 改用示例的页面）已派编码子代理实施。
+- S3 已提交 `2eef0fa2`：示例插件 `example.snippets`（片段数组配置项、column 页面、按层读写、教学注释）、场景 06，页面组件由 Vitest 测试覆盖（Vitest 改为也收集 `examples/**/*.dom.test.ts`）；`SettingsRow` 的宽排法在沿用时也画出停用的控件。架构规则不允许 Lab 引用 `examples/`，Lab 保留自带的最小页面。主 Agent 复跑 bun 测试四次：一次出现 1 个未捕获错误（输出没留下，来源未查明），另三次 1039 通过、0 失败；Vitest 183 通过，typecheck 与 `docs:check` 通过。
+- 2026-10-12 主线 t78 S1–S2、t79 S1–S2 提交后，t80 分支合入主线对齐（`850f0871`，无冲突；合并后 typecheck 通过、bun 1044 通过、Vitest 183 通过）。
+- S4（活动栏底部条目与页面浮层两个贡献点、齿轮与头像占位、书架入口、作品分区、设置窗口改用书名、e2e）已派编码子代理实施。
 - 搭稿时发现的 nb-ui 缺陷记为 [t81](../t81-nb-ui-text-size-segmented/README.md)。另有：缺扁平的分区导航组件（设置窗口先在应用里自己做）；带候选的输入框与其它控件外观不统一、`FormNumberInput` 没有单位后缀的位置（编辑器分区接入时处理）。
 
 ## 下一步
