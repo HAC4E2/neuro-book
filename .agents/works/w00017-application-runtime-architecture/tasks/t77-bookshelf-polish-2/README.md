@@ -23,6 +23,8 @@ taskId: t77-bookshelf-polish-2
 
 ## 当前状态
 
+- 2026-10-12 S3 完成：状态栏字数换活动文档或文档还没算过时立即算；同一文档输入时先显示上一次的值，停手 300ms（注入时钟）后按当时的修订号再算。按文档缓存修订号与字数，计时只在待算的修订号变了时重排（状态栏移动光标也会求值）。Spec `workbench/editor.md` 输出 27 改写，追加验收 16。验证：`status-items.test.ts` 5 例（`ManualClock`：到点前显示旧值、反复求值不推迟、到点经响应式刷新、换文档与新开立即显示），编辑器测试 85 例，typecheck 0；变异 5 处全部被抓到。
+- 2026-10-12 开发者认为 S2 可以了，接着做 S3、S4。问到 e2e 是否管“内层边框被外层截断”这类问题：不管，它验行为；外观靠 `lab:shot` 的测量，而测量对对话框没生效（见上一条的更正）。开发者选把测量补强并进 S4，含 e2e 门禁（[plan.md](plan.md) 末尾）。
 - 2026-10-11 S2 完成：
   - **`Dialog` 合并 `DialogWindow`**：缺省模态（reka 模态 Dialog、遮罩用 `DialogOverlay`），`modal=false` 是浮动窗口（拖动与缩放搬进 `useFloatingWindow`）。删 `DialogWindow`，旧应用按开发者选的 (a) 不留兼容。
     - 点遮罩要按下与松开在同一个遮罩上、同一个键；对话框里开着浮层时只关浮层。
@@ -44,7 +46,7 @@ taskId: t77-bookshelf-polish-2
     - nb-ui 37 个文件 548 例，两个 typecheck 为 0；neuro-book vitest 38 个文件 164 例；`bun test` 982 例通过，1 例是已知的 `settings/commands.test.ts`。
     - 全量 e2e：第一次 159 过、1 失败（新验收 9），查出上面两个问题；修后单例重复 12 次全过，重跑全量 160 例全过。
     - 变异检查 19 处全部被测试抓到（遮罩、Esc、初始焦点、状态行、叠放顺序、模态浮层层级、`FormField`、层级字面量与顺序、作品信息的关闭规则、提交门槛、聚焦与状态行、色板焦点、Tooltip 禁用），其中两处在 e2e 层验证。
-    - `lab:shot`：`Dialog`、`ProjectInfoDialog`、`PathPickerDialog`、`ColorSwatches`，nbook、macos × 明暗 × 1280 与 390，184 张 0 问题。
+    - `lab:shot`：`Dialog`、`ProjectInfoDialog`、`PathPickerDialog`、`ColorSwatches`，nbook、macos × 明暗 × 1280 与 390，共 184 张，报告 0 问题。（2026-10-12 更正：对话框传送到了舞台外，测量只测舞台里面，这几个组件的越界与裁切两项其实没测到；色板选中环被裁也不在检查范围内。补强并进 S4。）
   - **截图**：[新建](evidences/s2-create-light.png)、[深色](evidences/s2-create-dark.png)、[服务端拒绝](evidences/s2-create-rejected-light.png)、[选择器登记失败](evidences/s2-picker-rejected-dark.png)、[手机](evidences/s2-create-phone-macos-light.png)、[书架新配色](evidences/s2-shelf-cards-light.png)。
 - 2026-10-11 配色定稿（开发者同意推荐）：作品色板换成“布面精装”八色（藏青、墨绿、酒红、赭石、黛紫、青瓷、驼色、炭黑），定义在 `shelf-format.ts` 的 `BOOK_PALETTE` 一处；没指定颜色的作品按 id 从这八色里取（`bookPaletteIndex`、`autoBookColor`），“自动”与色板同一套颜色，不再按主题强调色转色相，删去 `book-colors.css`。`ColorSwatches` 的 `colors` 接受只读数组。Spec 输出 5 同步。验证：typecheck；`bun test` 项目 63 例、DOM 62 例；书架 e2e 6 例。截图：[卡片](evidences/s1-cloth-shelf-cards-light.png)、[深色](evidences/s1-cloth-shelf-cards-dark.png)、[列表](evidences/s1-cloth-shelf-list-light.png)、[新建](evidences/s1-cloth-create-light.png)。
 - 2026-10-11 S1 静态稿交开发者看过后提交（配色待定）：

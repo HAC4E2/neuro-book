@@ -138,7 +138,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
                     [COMMANDS_POINT]: editorCommands(session.area),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey)),
                 },
             };
         },

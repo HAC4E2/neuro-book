@@ -21,7 +21,7 @@ import type {Scene} from "nbook/plugins/files/testing/scene";
 import {createEditorArea} from "./web/area";
 import type {EditorArea, EditorControlHandle} from "./web/area";
 import {editorStateValues} from "./web/state";
-import {CURSOR_ITEM, editorStatusItems, UNSAVED_ITEM, WORD_COUNT_ITEM} from "./web/status-items";
+import {CURSOR_ITEM, editorStatusItems, UNSAVED_ITEM, WORD_COUNT_DELAY_MS, WORD_COUNT_ITEM} from "./web/status-items";
 
 let tmp = "";
 let counter = 0;
@@ -72,7 +72,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const));
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock());
         await opened(scene, area, "project://a.md");
         expect(keys.hasUnsavedDocuments.value).toBe(false);
         type(area, "改过的第一章");
@@ -92,7 +92,7 @@ describe("状态栏条目", () => {
     it("保存失败的文档让条目进入错误状态，提示写明是哪个文件与原因", async () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const));
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock());
         await opened(scene, area, "project://b.md");
         type(area, "改过的 B");
         // 目录只读：保存写不进去（原子替换要在目录里建临时文件）。
@@ -106,24 +106,57 @@ describe("状态栏条目", () => {
         expect(items[UNSAVED_ITEM]!.tooltip?.().split("\n")[0]).toStartWith("保存失败：b.md（");
     });
 
-    it("字数取活动文档当前的正文，frontmatter 不计，输入后随之变化；英文界面写 words", async () => {
+    it("字数取活动文档当前的正文，frontmatter 不计；输入时停手到点才更新，期间反复求值不推迟它；英文界面写 words", async () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const locale = shallowRef<"zh-CN" | "en-US">("zh-CN");
-        const items = editorStatusItems(ref, computed(() => locale.value));
+        const clock = new ManualClock();
+        const items = editorStatusItems(ref, computed(() => locale.value), clock);
+        const words = (): string => items[WORD_COUNT_ITEM]!.text();
+        // 状态栏经响应式求值显示：到点算完要能让它重新求值。
+        const shownWords = computed(() => items[WORD_COUNT_ITEM]!.text());
         await opened(scene, area, "project://a.md");
-        expect(items[WORD_COUNT_ITEM]!.text()).toBe("3 字");
+        expect(shownWords.value).toBe("3 字");
+
+        type(area, "---\ntitle: 甲\n---\n第一章 rain");
+        expect(shownWords.value).toBe("3 字");
+        expect(words()).toBe("3 字");
+        // 停手前又输入一次：从这次重新起算。
+        clock.advance(WORD_COUNT_DELAY_MS - 100);
         type(area, "---\ntitle: 甲\n---\n第一章 rain falls");
-        expect(items[WORD_COUNT_ITEM]!.text()).toBe("5 字");
+        // 状态栏移动光标也会求值：同一修订号反复求值不重排计时。
+        for (let step = 0; step < 3; step += 1) {
+            expect(words()).toBe("3 字");
+            clock.advance(99);
+        }
+        expect(shownWords.value).toBe("3 字");
+        clock.advance(WORD_COUNT_DELAY_MS - 297);
+        expect(shownWords.value).toBe("5 字");
         locale.value = "en-US";
-        expect(items[WORD_COUNT_ITEM]!.text()).toBe("5 words");
+        expect(shownWords.value).toBe("5 words");
+    });
+
+    it("换活动文档、新开文件时立即显示它的字数，不等停手", async () => {
+        const {scene, area} = await world();
+        const ref = shallowRef<EditorArea | null>(area);
+        const clock = new ManualClock();
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock);
+        const words = (): string => items[WORD_COUNT_ITEM]!.text();
+        await opened(scene, area, "project://a.md");
+        expect(words()).toBe("3 字");
+        type(area, "---\ntitle: 甲\n---\n第一章第二节");
+        await opened(scene, area, "project://b.md");
+        expect(words()).toBe("1 字");
+        // 切回来时那次输入还没到点：也立即按当前正文算。
+        await opened(scene, area, "project://a.md");
+        expect(words()).toBe("6 字");
     });
 
     it("光标位置只在活动控件给出位置时有；换成不给位置的控件后公开键为假", async () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const));
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock());
         await opened(scene, area, "project://c.json");
         const position = shallowRef<{line: number; column: number} | null>({line: 18, column: 4});
         const withPosition: EditorControlHandle = {focus: () => undefined, flushPendingChange: () => undefined, position};

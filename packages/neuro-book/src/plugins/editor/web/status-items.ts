@@ -3,7 +3,10 @@
  * 显示与否由声明的 `when`（本插件的公开键）决定；文字由本插件从自己的编辑器区算出，外壳只渲染。
  */
 
+import {shallowRef} from "@vue/reactivity";
 import type {ComputedRef, ShallowRef} from "@vue/reactivity";
+
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -13,6 +16,7 @@ import {countWords} from "nbook/shared/word-count";
 
 import type {EditorArea} from "./area";
 import {SAVE_ALL_COMMAND} from "./commands";
+import type {TextDocument} from "./documents/store";
 import {editorState, needsSaving} from "./state";
 
 export const UNSAVED_ITEM = "nbook.editor.unsaved";
@@ -40,8 +44,62 @@ const LISTED = 5;
 /** 提示里给人看的路径：去掉 `project://`、`user://` 这类方案前缀。 */
 const shown = (address: string): string => address.replace(/^[a-z]+:\/\//u, "");
 
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>): Readonly<Record<string, ItemImplementation>> {
+/** 输入时停手多久再重算字数（editor.md 输出 27）。 */
+export const WORD_COUNT_DELAY_MS = 300;
+
+/**
+ * 活动文档的字数（editor.md 输出 27）。全文计数随正文长度线性增长，每次按键都算一遍在长章节里会拖慢输入，所以：
+ * 换了活动文档、或这份文档还没有算过（包括新开的文件刚读到正文），立即算；同一份文档在输入（修订号变了）时先显示
+ * 上一次的值，停手 `WORD_COUNT_DELAY_MS` 后按当时的修订号再算。
+ *
+ * 由条目文字的求值驱动，不另开监听：状态栏每次求值都会调到这里（移动光标也会），所以计时只在待算的修订号变了时重排。
+ */
+function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock): () => number {
+    /** 文档对象在打开期间不变；只缓存文档就绪时算出的值。 */
+    const counts = new WeakMap<TextDocument, {readonly revision: number; readonly count: number}>();
+    /** 延后的计算算完时加一，让条目文字重新求值。 */
+    const settled = shallowRef(0);
+    let shownDocument: TextDocument | null = null;
+    let pending: {readonly revision: number; readonly cancel: () => void} | null = null;
+
+    const cancelPending = (): void => {
+        pending?.cancel();
+        pending = null;
+    };
+    const countNow = (document: TextDocument, revision: number): number => {
+        const count = countWords(document.text.value);
+        if (document.status.value === "ready") counts.set(document, {revision, count});
+        return count;
+    };
+
+    return () => {
+        void settled.value;
+        const document = area.value?.activeDocument.value ?? null;
+        if (document === null) return 0;
+        const revision = document.revision.value;
+        const cached = counts.get(document);
+        if (document !== shownDocument || cached === undefined) {
+            shownDocument = document;
+            cancelPending();
+            return cached?.revision === revision ? cached.count : countNow(document, revision);
+        }
+        if (cached.revision === revision) return cached.count;
+        if (pending?.revision !== revision) {
+            cancelPending();
+            const cancel = clock.schedule(() => {
+                pending = null;
+                countNow(document, document.revision.value);
+                settled.value += 1;
+            }, WORD_COUNT_DELAY_MS);
+            pending = {revision, cancel};
+        }
+        return cached.count;
+    };
+}
+
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock): Readonly<Record<string, ItemImplementation>> {
     const text = (value: LocalizedText): string => localize(value, locale.value);
+    const wordCount = activeWordCount(area, clock);
     const unsaved = () => area.value?.openDocuments.value.filter(needsSaving) ?? [];
     const failures = () => unsaved().filter((document) => document.saveProblem.value !== null);
     const number = (count: number): string => new Intl.NumberFormat(locale.value).format(count);
@@ -61,7 +119,7 @@ export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>,
             state: () => (failures().length > 0 ? "error" : "normal"),
         },
         [WORD_COUNT_ITEM]: {
-            text: () => text(formatText(TEXT.words, {count: number(countWords(area.value?.activeDocument.value?.text.value ?? ""))})),
+            text: () => text(formatText(TEXT.words, {count: number(wordCount())})),
         },
         [CURSOR_ITEM]: {
             text: () => {

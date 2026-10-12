@@ -133,7 +133,7 @@ owners:
 | `nbook.editor.cursor` | 第 L 行，第 C 列 | `nbook.editor/hasCursorPosition` | 无 | 30 | 10 |
 
 26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。
-27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计。正文变化后在下一帧更新。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
+27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计。打开或切换文档时立即显示它的字数；输入时停手 300ms 后更新，停手之前显示上一次的值（全文计数随正文变长，不在每次按键时算）。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
 28. 光标位置只由源码编辑器给出：选区活动端的行号与列号，都从 1 起，列按源码编辑器的列计（制表符计 1）。Markdown 富文本编辑器不给出位置：富文本里的段落位置与源文件的行号不同（frontmatter 与写出时的格式都会改变行数），条目在它活动时不显示。控件换文档或卸载时位置随之撤回。
 
 **继续写作**（随书架页实现）
@@ -203,12 +203,13 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 13. Given 一个 Markdown 文档，When 输入中文与英文，Then 字数条目按第 27 条计数并随输入更新；frontmatter 里的字不计。
 14. Given 源码编辑器与 Markdown 编辑器各打开一个文档，When 在两者之间切换，Then 光标位置只在源码编辑器活动时出现，移动光标后行列随之更新；两个窗口的状态栏各自显示自己的数据。
 15. Given 书架上的“继续写作”，When 以 `?open=<地址>&at=end` 打开项目，Then 文件以正式标签打开、光标在末尾、可以接着输入，地址栏里不再有这两个参数，刷新后不再定位；Markdown 与源码两种文件各一例；读取被扣住时切到别的标签再放行，焦点与光标不被抢走；文件不在时项目照常打开、组顶部有提示。
+16. Given 一个打开的文档，When 连续输入，Then 停手 300ms 之前字数条目仍是输入前的值，期间状态栏的反复刷新不推迟它，到点后更新；When 切到另一个文档或新开文件，Then 立即显示它的字数。
 
-Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。
+Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。
 
 ## 证据
 
 - 批准依据：[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
-- 合同测试：[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
+- 合同测试：[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
 - Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）
