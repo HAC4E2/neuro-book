@@ -18,8 +18,10 @@ status: planned
 
 ## 当前状态
 
-第 1 项已完成，第 2、3 项未开工。
+- 第 1 项已完成（2026-10-12）；`.agents/works/AGENTS.md` 第 3 条随后也改成一个 Task 一个 worktree。
+- 第 3 项已完成（2026-10-12）：用户全局规则改为会话目录放在不进 Git 的位置，项目规定了本地目录的放那里（本仓库是 `.local/agent/works/<workId>/tasks/<taskId>/reports/`），否则放仓库之外；审查报告与会话目录放在一起。
+- 第 2 项未开工。
 
 ## 下一步
 
-第 2 项从 `master` 建 worktree 做；第 3 项直接改用户全局规则。
+第 2 项从 `master` 建 worktree 做；[实施计划](../t03-design/plan.md) 把它列为 nbdev 领号（t06）的前提。

@@ -14,7 +14,7 @@ NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、
 开发者批准协作规则与技能精简。本节及其链接取代下方历史角色流程、旧 Task 字段与远端登记前置；下方从“目标与非目标”起保留为历史演进，不作为当前执行门禁。
 
 - [Work](../../.agents/works/README.md) 继续是 current Task 的容器，Issue 由 Work 可选引用；Task 使用无正式 role 的当前快照。主 Agent 可以直接实现，也可按独立边界委派，高风险按需独立审查。
-- 新 Work 协调查重后本地登记即可隔离开发，登记随实现集成；不要求先提交、推送或进入远端 master。保护用户工作树，碰撞暂停冲突身份的集成。
+- 新 Work 协调查重后本地登记即可隔离开发，登记随实现集成；不要求先提交、推送或进入远端 master。保护用户工作树，碰撞暂停冲突身份的集成。（2026-10-12 起，“登记随实现集成”由“记录只放主工作区 master、实现分支不带记录”取代，见下方决策记录。）
 - [专项 Skills](../../.agents/skills/README.md) 只补缺失方法；不建立总流程 Skill 或叠加完成门禁。验证以 [测试规范](../testing/README.md#验证门禁) 为唯一来源，所需证据充分即停止。
 - 长期行为归 Spec／组件文档，Work 归范围与授权，Task 首页归当前状态与证据链接，历史与原始输出按需保存，不重复记账。
 - 删除正式角色字段、CLI 参数和专用文案／源码镜像门禁；context JSON 切换为 `nbook.governance-context/v2`。保留 Work 身份、物理目录隔离、legacy provenance、ownership 和密封校验。
@@ -130,3 +130,4 @@ Reviewer只报告结论，不修代码、不更新合同、不触发Project Done
 - 2026-08-26｜实现收口｜未编号Issue使用`.agents/issues/drafts/<slug>.md`恢复键；取得远端编号后，应用Task带`actionIssueId`，根owner可按合同使用本地例外。历史Task必须命中index/marker首次共同提交的密封迁移快照：该快照manifest重算通过，固定`sourceRevision`中存在README，且同源同目标mapping命中；当前mapping身份投影不得漂移，应用历史Task还必须命中ownership。三个迁移期五位Task精确兼容，根当前Task使用`00152+`，应用当前Task使用`00149+`。
 - 2026-08-26｜审查修复｜Issue迁移改为Draft-Key 0/1/多命中幂等顺序、先draft后开发者接受；Task owner决定`issueRequired`；verifying返工、notRun不适用语义和Design密封真实diff门禁闭合。
 - 2026-08-27｜人类修订｜采用Issue/Task二层模型：Issue只记录重大或长期交付，一个Issue可含多个按结果创建的Task；保留`actionIssueId: null`的无Issue Task，删除`issueRequired`和`draft`状态。Task由Agent主导，开发者只在明示节点设计、验证或判断；Leader创建完整`planned`合同，必须写分工、产物、修改计划、完成门禁和继续条件，派发后停止。此前“先draft后逐个接受”和按owner分叉的决定由本条取代。
+- 2026-10-12｜开发者（w00022）｜Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主工作区路径限定提交，实现分支不再带记录，取代“登记随实现集成”与主树冻结占号副本；取消本地 Work；产物与答复入 Task 的 `artifacts/`；Work 与 Task 加 `status`；worktree 一个 Task 一个。现行规则见 [Work 规则](../../.agents/works/README.md)，依据见 [w00022 领域模型第八节](../../.agents/works/w00022-dev-panel/tasks/t03-design/domain-model.md#八开发者的决定2026-10-12)。
