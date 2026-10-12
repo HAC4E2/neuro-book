@@ -14,6 +14,16 @@ type Request =
 const sessionId = process.env.FAKE_CLAUDE_SESSION_ID ?? "";
 const children = new Map<number, ChildProcess>();
 
+/** 子进程都自成一组（detached）：连同它们的后台孙进程一起结束，不留下被 PID 1 收养的进程。 */
+function killGroup(pid: number): void {
+    try {
+        process.kill(-pid, "SIGKILL");
+    } catch (error) {
+        // 组里已经没有进程了。
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+}
+
 function reply(message: Record<string, unknown>): void {
     process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -32,7 +42,7 @@ function handle(request: Request): void {
             return;
         }
         child.once("exit", () => reply({id: request.id}));
-        child.kill("SIGKILL");
+        killGroup(request.pid);
         return;
     }
     const child = spawn(request.command, request.args, {
@@ -59,7 +69,7 @@ function handle(request: Request): void {
     child.stderr!.on("data", (chunk: Buffer) => {
         stderr += chunk.toString("utf8");
     });
-    const timer = setTimeout(() => child.kill("SIGKILL"), request.timeoutMs);
+    const timer = setTimeout(() => killGroup(child.pid!), request.timeoutMs);
     child.once("close", (code) => {
         clearTimeout(timer);
         reply({id: request.id, exitCode: code ?? 1, stdout, stderr});
@@ -69,7 +79,7 @@ function handle(request: Request): void {
 const lines = createInterface({input: process.stdin});
 lines.on("line", (line) => handle(JSON.parse(line) as Request));
 lines.on("close", () => {
-    for (const child of children.values()) child.kill("SIGKILL");
+    for (const pid of children.keys()) killGroup(pid);
     process.exit(0);
 });
 reply({ready: true, pid: process.pid});

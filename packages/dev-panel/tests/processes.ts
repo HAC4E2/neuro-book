@@ -1,6 +1,7 @@
 import {spawn, type ChildProcess} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {once} from "node:events";
+import {readFileSync} from "node:fs";
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {createInterface} from "node:readline";
@@ -9,6 +10,19 @@ import {processStartTicks} from "../src/core/procfs.js";
 import {CLI_PATH, type CliEnvelope, type RunResult} from "./git-fixture.js";
 
 export type MarkedChild = ChildProcess & {pid: number};
+
+/**
+ * 结束子进程所在的整个进程组：`sh -c 'sleep … & wait'` 这类子进程的后台孙进程与它同组，只结束外层会让孙进程被 PID 1 收养、
+ * 留在本机（cwd 在仓库里，`status` 会列出来）。只对自成一组（detached）的子进程用。
+ */
+export function killGroup(pid: number): void {
+    try {
+        process.kill(-pid, "SIGKILL");
+    } catch (error) {
+        // 组里已经没有进程了。
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+}
 
 const READY_TIMEOUT_MS = 5_000;
 
@@ -29,7 +43,8 @@ export async function spawnMarked(command: string, args: readonly string[], opti
     try {
         await waitForMark(child.pid, mark, () => child.exitCode !== null || child.signalCode !== null);
     } catch (error) {
-        child.kill("SIGKILL");
+        if (options.detached ?? true) killGroup(child.pid);
+        else child.kill("SIGKILL");
         throw error;
     }
     return child as MarkedChild;
@@ -46,12 +61,26 @@ async function waitForMark(pid: number, mark: string, exited: () => boolean): Pr
     }
 }
 
-/** 结束子进程并等到 `exit`：SIGKILL 之后、`exit` 之前，`/proc/<pid>/stat` 仍在（僵尸），会被判成还活着。 */
+/**
+ * 结束子进程（`spawnMarked` 缺省自成一组，连同组里的后台孙进程一起结束）并等到 `exit`：
+ * SIGKILL 之后、`exit` 之前，`/proc/<pid>/stat` 仍在（僵尸），会被判成还活着。
+ */
 export async function stopProcess(child: ChildProcess): Promise<void> {
     if (child.exitCode !== null || child.signalCode !== null) return;
     const exited = once(child, "exit");
-    child.kill("SIGKILL");
+    if (child.pid !== undefined && isGroupLeader(child.pid)) killGroup(child.pid);
+    else child.kill("SIGKILL");
     await exited;
+}
+
+function isGroupLeader(pid: number): boolean {
+    try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+        return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]) === pid;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        return false;
+    }
 }
 
 const HOST_PATH = resolve(import.meta.dirname, "fake-claude-host.ts");
