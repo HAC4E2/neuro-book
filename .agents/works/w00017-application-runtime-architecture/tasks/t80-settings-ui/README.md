@@ -38,7 +38,10 @@ taskId: t80-settings-ui
 ## 当前状态
 
 - 2026-10-12 设计四轮完成。S1（声明字段、`settings.sections`、用户编辑写入、两份 Spec）已提交 `177682b4`：主 Agent 复跑设置、共用声明、架构、清单与示例测试 115 通过、1 失败，三份 typecheck、`docs:check`、`governance:check` 通过；那 1 条失败（`commands.test.ts`“切换主题与明暗”，测试场地缺工作台在 t74 加的必需依赖 `windowNavigationKey`）在基线 `fb6e94a2` 上同样失败，交给 S2 顺手修测试场地。
-- S2（设置窗口、`SettingsRow`、`SettingsPageList`、打开命令、外观分区、Lab 场景）已派编码子代理实施。主 Agent 替计划定下：两个行组件放 `src/ui/settings/`（架构规则只允许插件之间引用 `shared/contracts`）；层快照加文件路径字段，供层无效时显示。
+- S2 已提交 `dbe41959`：设置窗口、`src/ui/settings/` 的 `SettingsRow`（含宽排法）与 `SettingsPageList`、`nbook.settings` 的窗口入口、命令 `nbook.settings.open`（`Ctrl+,`；工作台键位解析原本不认逗号，补了一处）与公开状态 `windowOpen`、外观分区、Lab 局部宿主与全部状态的场景。主 Agent 复跑：bun 1035 通过、Vitest 181 通过、三份 typecheck 与 `lab-scenes` 门禁通过；S1 时那条旧失败已随测试场地补齐恢复。截图在评审板目录 `s2/`。
+  - 主 Agent 定下：层快照只给项目层带文件路径，用户层不带（[`runtime/projects.md`](../../../../../docs/specs/runtime/projects.md) 的路径可见性不发状态根给浏览器）；分区落位改为第一次打开时才算。
+  - 对齐主线时要改：窗口里的书名现在取窗口项目绑定的登记名，t79 S1 已让绑定带上书名，对齐后改用它。
+- S3（示例插件 `example.snippets`、第六个场景、Lab 改用示例的页面）已派编码子代理实施。
 - 搭稿时发现的 nb-ui 缺陷记为 [t81](../t81-nb-ui-text-size-segmented/README.md)。另有：缺扁平的分区导航组件（设置窗口先在应用里自己做）；带候选的输入框与其它控件外观不统一、`FormNumberInput` 没有单位后缀的位置（编辑器分区接入时处理）。
 
 ## 下一步
