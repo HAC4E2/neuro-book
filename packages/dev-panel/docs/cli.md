@@ -44,7 +44,7 @@
 - **自动释放**：Task 改成 `done` 或 `shelved` 时释放这个 Task 的全部租约，与由谁调用无关（面板以开发者身份改状态时同样释放）。
 - `lease take` 遇到已 `done` 或 `shelved` 的 Task 报 `task_closed`。
 - **不带参数的 `release` 释放调用者的全部租约**。子代理与父会话是同一个身份，子代理这样做会释放父会话的全部租约。
-- **pane 标签**：调用者在 herdr 里（不是 `--as`）时，取得或续期后给它自己的 pane 写 `work`、`task` 两个 token（`w00022`、`t07`，24 小时后过期）；释放时只有它最近活动的那份有效租约被释放才改写成下一份，没有就清空。别的会话 pane 上的标签不动。
+- **pane 标签**：调用者在 herdr 里（不是 `--as`）时，取得或续期后给它自己的 pane 写 `work`、`task` 两个 token（`w00022`、`t07`，24 小时后过期）；释放时只有它最近活动的那份有效租约被释放才改写成下一份，没有就清空。别的会话 pane 上的标签不动。写或清之前先用 `pane.process_info` 确认调用者的会话进程（Claude 是外层的 `CLAUDE_PID`，omp 是前台进程组组长）就在这格 pane 的前台：`HERDR_PANE_ID` 与 herdr 记的会话都可能过时（后台会话、被别的会话占用的 pane），不在前台就不写，给 `herdr_tag_skipped`。
 - 租约的有效性在读取时现算，规则见 [文件格式](file-formats.md#租约)。
 
 提交消息为 `docs(<Work 编号>): …`，以主工作区的 Git 身份提交，只提交本次事务的路径；主工作区暂存区里别人的改动原样留着。
@@ -97,8 +97,9 @@ stdout 只有一个对象，诊断走 stderr：
 | `caller_unknown` | 认不出调用者，没有取得租约 |
 | `claude_env_untrusted` | 环境里的 Claude 会话 id 不可信，已忽略 |
 | `herdr_unavailable` | 连不上 herdr 或读不出它的 pane 列表；租约照常按会话进程与 24 小时判断 |
-| `herdr_partial` | 部分 pane 的进程信息没读到，按没有这格处理 |
-| `herdr_tag_failed` | 写 pane 标签失败（只影响显示） |
+| `herdr_partial` | 部分 pane 的进程信息没读到：`status` 按没有这格处理；只靠 `HERDR_PANE_ID` 认的调用者不记会话进程 |
+| `herdr_tag_failed` | 写 pane 标签失败，或写之前读 pane 的进程信息失败（只影响显示） |
+| `herdr_tag_skipped` | 调用者的会话进程不在那格 pane 的前台（`details.reason`：`caller_not_in_foreground`、`caller_process_unknown`、`pane_not_found`），没有写标签 |
 | `lease_write_failed` | 取得、续期、释放租约或读调用者自己的租约失败（权限、磁盘满等）；记录操作不受影响，命令照常成功并带回 `data.commit` |
 | `lease_release_skipped` | Task 改成 `done` 或 `shelved` 之后、释放租约之前，别的会话又把它改回去了，这次不释放 |
 | `unreadable_lease` | 某个租约文件（或整个租约目录）读不了或内容不合规，已跳过 |

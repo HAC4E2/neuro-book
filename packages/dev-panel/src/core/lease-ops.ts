@@ -10,7 +10,7 @@ import {matchRef, readTransitionState, type TransitionState} from "./status.js";
 
 /**
  * 租约的操作：命令行与（以后的）面板共用。`caller` 由调用方在边界上解析好传进来；面板以开发者身份写入时为 null，只释放、不取得。
- * herdr pane 标签只写调用者自己所在的 pane，并且只在调用者确实在 herdr 里、不是 `--as` 的外部身份时才写。
+ * herdr pane 标签只写调用者自己所在的 pane：调用者确实在 herdr 里、不是 `--as` 的外部身份，并且它的会话进程就在那格 pane 的前台。
  */
 export type LeaseOptions = {caller: Caller | null; herdr: HerdrClient | null; now?: () => Date};
 export type LeaseEffects = {lease: LeaseRecord | null; released: LeaseRecord[]};
@@ -27,7 +27,34 @@ function tokensOf(lease: {workId: string; taskId: string}): {work: string; task:
     return {work: lease.workId.slice(0, 6), task: lease.taskId.slice(0, lease.taskId.indexOf("-"))};
 }
 
+/**
+ * 写标签前确认调用者的会话进程（Claude 是外层的 `CLAUDE_PID`，omp 是 pane 前台的进程组组长）在这格 pane 的前台。
+ * `HERDR_PANE_ID` 与 herdr 记的“pane 上是哪个会话”都会过时：后台会话、被别的会话占用的 pane 都会让标签写到别人的 pane 上。
+ */
+async function callerInForeground(target: TagTarget, warnings: Warning[]): Promise<boolean> {
+    const skip = (reason: string, message: string) => {
+        warnings.push({code: "herdr_tag_skipped", message: `没有写 herdr pane 标签（只影响显示）：${message}`, details: {paneId: target.paneId, reason}});
+        return false;
+    };
+    const process = target.caller.process;
+    if (!process) return skip("caller_process_unknown", "不知道调用者的会话进程，无法确认它在这格 pane 里");
+    let info;
+    try {
+        info = await target.herdr.processInfo(target.paneId);
+    } catch (error) {
+        if (!(error instanceof HerdrError)) throw error;
+        warnings.push({code: "herdr_tag_failed", message: `读 pane ${target.paneId} 的进程信息失败，没有写标签（只影响显示）：${error.message}`, details: {paneId: target.paneId, code: error.code}});
+        return false;
+    }
+    if (!info) return skip("pane_not_found", `pane ${target.paneId} 已不存在`);
+    if (!info.foregroundPids.includes(process.pid) && info.foregroundGroupId !== process.pid) {
+        return skip("caller_not_in_foreground", `调用者的会话进程 ${process.pid} 不在 pane ${target.paneId} 的前台，这格 pane 不是它的`);
+    }
+    return true;
+}
+
 async function writeTags(target: TagTarget, lease: {workId: string; taskId: string} | null, warnings: Warning[]): Promise<void> {
+    if (!await callerInForeground(target, warnings)) return;
     try {
         if (lease) await target.herdr.reportTaskTokens(target.paneId, tokensOf(lease));
         else await target.herdr.clearTaskTokens(target.paneId);

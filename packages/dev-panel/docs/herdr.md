@@ -26,7 +26,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `ping` | 判断 herdr 是否可用 | `version` |
 | `pane.list` | 各 pane 上是哪个 Agent 会话、状态 | `pane_id`、`terminal_id`、`agent`、`agent_status`、`agent_session {agent, kind, value}`；Claude 的 `value` 是会话 id，omp 的是会话文件路径 |
 | `agent.get` | 只有 `HERDR_PANE_ID` 的调用者 | 同上；pane 上没有 Agent 时为 `agent_not_found` |
-| `pane.process_info` | pane 的 shell 与前台进程（运行归属、omp 的主进程） | `shell_pid`、`foreground_process_group_id`、`foreground_processes[].pid`；pane 不存在为 `pane_not_found` |
+| `pane.process_info` | pane 的 shell 与前台进程（运行归属、omp 的主进程、写标签前确认调用者在这格 pane 的前台） | `shell_pid`、`foreground_process_group_id`、`foreground_processes[].pid`；pane 不存在为 `pane_not_found` |
 | `pane.report_metadata` | 写或清 `work`、`task` 两个 token | `source: "nbdev"`、`tokens`（值为 `null` 即清除）、`ttl_ms: 86400000` |
 
 `status` 直接用 `pane.list` 带的 `agent`、`agent_session`、`agent_status`，不再调 `agent.list`；各 pane 的 `process_info` 并发调用，单个失败就跳过这格并给 `herdr_partial` 警告。
@@ -53,4 +53,4 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 
 - 本机默认 server 是 0.9.1（协议 22），客户端 0.9.3。上面的方法与字段按客户端 0.9.3 自带的 schema 与实测写成；`pane.report_metadata` 的 `tokens` 与 `ttl_ms` 在 0.9.3 的命名会话里实测可写可清，**在默认 server 0.9.1 上没有实测**：它的二进制里有这些字段名，但若对不认识的字段静默忽略，nbdev 收不到错误。各项能力按 server 版本判断，合入后由主 Agent 在真实会话上核对。
 - herdr 不可用（socket 不存在、拒绝连接、超时）：命令照常完成。认不出只靠 `HERDR_PANE_ID` 的调用者（给 `herdr_unavailable` 警告）；租约只按会话进程与 24 小时判断；运行只按 Claude 的工具标记归属。
-- 写标签失败只给 `herdr_tag_failed` 警告，标签只用于显示，以租约文件为准。
+- 写标签失败只给 `herdr_tag_failed` 警告，标签只用于显示，以租约文件为准。调用者的会话进程不在那格 pane 的前台时不写（`herdr_tag_skipped`）。

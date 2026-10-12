@@ -171,12 +171,30 @@ describe("租约命令（场景）", () => {
         fake.overrides["pane.process_info"] = "hang";
         const env = {HERDR_PANE_ID: "w9:p3", OMPCODE: "1", HERDR_SOCKET_PATH: fake.socketPath};
         const changed = await fixture.cli(["task", "status", "w00001", "t01", "active", "--json"], fixture.main, env);
-        expect([changed.exitCode, changed.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["herdr_partial"]]);
+        // 不知道会话进程，也就无法确认它在这格 pane 里：标签不写。
+        expect([changed.exitCode, changed.json?.warnings.map((warning) => [warning.code, warning.details?.reason ?? null])]).toEqual([0, [["herdr_partial", null], ["herdr_tag_skipped", "caller_process_unknown"]]]);
         expect(data<{lease: LeaseJson}>(changed.json).lease).toMatchObject({session: {key: "omp:/o.jsonl", process: null}});
         const status = await fixture.cli(["status", "--json"], fixture.main, env);
         expect(status.exitCode).toBe(0);
         expect(status.json?.warnings.map((warning) => warning.code)).toContain("herdr_partial");
         expect(data<{caller: unknown}>(status.json).caller).toMatchObject({kind: "session", ref: {key: "omp:/o.jsonl"}, process: null});
+    });
+
+    test("pane 不是调用者的（herdr 记的是别的会话，或前台不是调用者的会话进程）：不写标签，给 herdr_tag_skipped", async () => {
+        const fixture = await createFixture("lease-foreign-pane");
+        const claude = await claudeSession();
+        const other = await spawnProcess("sleep", ["60"]);
+        const fake = await herdrFor(fixture, [
+            claudePane("w9:pK", randomUUID(), {foreground_pids: [other.pid]}),
+            claudePane("w9:p1", claude.sessionId, {foreground_pids: [other.pid]}),
+        ]);
+        for (const paneId of ["w9:pK", "w9:p1"]) {
+            fake.requests.length = 0;
+            const taken = await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, {HERDR_PANE_ID: paneId, HERDR_SOCKET_PATH: fake.socketPath});
+            expect(taken.exitCode).toBe(0);
+            expect(taken.json?.warnings.map((warning) => [warning.code, warning.details?.reason])).toEqual([["herdr_tag_skipped", "caller_not_in_foreground"]]);
+            expect(fake.requests.filter((request) => request.method === "pane.report_metadata")).toEqual([]);
+        }
     });
 
     test("release：只释放调用者自己的；释放的是 pane 标签当前指向的 Task 时改写成下一份，没有就清空", async () => {
