@@ -35,6 +35,13 @@ taskId: t03-design
 - 第二轮静态稿完成（评审板最上面一节，数据 16:01）：首页（分组导航、Work › Task 树、收件箱四类、会话）、会话页（真实的只读终端输出、发消息与“空闲时再发”）、回复后通知会话的小窗、产物页（四类，问题挂在旁边）、文档页（切换 checkout）、GitHub（PR 与 Issue）。主 Agent 已在六个待定问题上写推荐。画稿发现 14 条需求问题（会话相关为主：会话属于哪个 Work 拿不到、herdr 读不出“问完停下”、输入框里没发出的话读不出、排队要面板常驻等）。
 - 会话托管调研完成：[session-hosting-research.md](session-hosting-research.md)。只用 herdr 现有接口第一版的四件事都能做：看终端用 `herdr terminal session observe` 的实时流，发消息用 `agent.prompt`，按会话 id 核对身份、等空闲再发；herdr 的 socket 没有鉴权，局域网开放等于远程 shell，第一版只绑回环、跨设备走 Tailscale Serve 或 SSH 隧道，设备配对登录，产物页放另一个来源。
 
+- 开发者对调研的决定（2026-10-12）：
+  7. **终端**：第一版就做到能接管键盘，做成网页版的 herdr 客户端（observe 看、control 加 takeover 输入、按网页尺寸 resize、离开时 release），不只是观看加 API 输入。
+  8. **答复后的通知**：投递方式可选 followup（排在当前这一轮之后）或 steer（打断当前这一轮），按会话的 Agent 种类给出它支持的方式。
+  9. **面板常驻**：可以用包里的脚本启动常驻，也允许装成用户级 systemd 服务。
+  - 调研里其余的推荐（自动排队通知、会话 id 变了不发、可操作设备能发任意文字、参与写 herdr pane 标签并在 `.local/agent` 留一份、跨设备走 Tailscale Serve、设备配对登录、令牌与审计放 `~/.config/nbdev/`、产物页放另一个来源、第一版不读会话 jsonl、herdr server 暂不升级、手机以输入框加纯文本为主），开发者没有提出异议，按推荐处理。
+- 开发者要求从开发者的交互做 UX：有 Work 视角（一个 Work 有多个会话）与会话视角（一个会话做多个 Work），关系混乱，先做 DDD 建模。主 Agent 起草 [领域模型](domain-model.md)（术语、类图、两个视角、限界上下文、用当天的真实场景检验、6 个待确认），评审板加一页离线渲染的类图（本机 mermaid）。
+
 ## 下一步
 
 开发者看第一轮静态稿；需求深化的结论并入需求分析后，写 Proposal 与实施计划。
