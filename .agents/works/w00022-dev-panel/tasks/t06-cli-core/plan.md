@@ -510,3 +510,15 @@ Task 模板故意不写“行为合同未变”这几个字：`docs:check` 靠�
 - 登记表的写入函数与读取一起在 S2 提交，没有留到 S3。
 - 引用解析 `matchRef` 放在 `status.ts`，写操作复用它。
 - S1 的提交已经把 `code-baseline.yml` 与 `product-platforms.yml` 的路径加上（`workspace-workflows.test.ts` 要求），S5 只加 code-baseline 的测试步骤。
+
+## 实现审查之后的改动
+
+实现审查（[`evidences/impl-review.txt`](evidences/impl-review.txt)）的 15 条全部采纳，2026-10-12 在集成分支上逐类修正。与上文设计不同的几处：
+
+- **记录锁**：不再用 proper-lockfile（依赖已去掉）。锁目录连同 `owner.json`（token、pid、`/proc` 里的进程启动时刻）在 `run/tmp/` 组装后改名到位；持锁者是否存活按启动时刻判断，没有心跳；接管死锁先改名成墓碑、核对改走的正是看到的那个目录，否则原样改回；写登记表之前发现锁不属于自己就重新取锁、从头再算；放锁先核对 token。`run/lock-owner.json` 不再使用。
+- **提交前不再查锁**：落位之后只提交本次自己的路径，此时丢锁不会造成重号，中途放弃反而留下未提交的文件，所以第 9 步之前的身份比对去掉了（审查的变异 M17 因此不再适用）。写登记表之前（重新取锁）与落位之前（报 `lock_compromised`）两处保留。
+- **“来自分支”的判定**：两份 diff 的交集之外，再去掉分支上 blob 等于 merge-base 或 master 自 merge-base 以来任一版本的路径（旧副本）。
+- **Git 调用**：所有 Git 子进程设 `GIT_LITERAL_PATHSPECS=1`；取锁之前查提交身份（`git_identity_missing`）；128 只有重试期间见过 `index.lock` 才报 `git_lock_timeout`，连续 5 次没见到就停；提交后的 sha 按路径取。
+- **新错误码与警告**：`git_identity_missing`（1）、`master_not_found`（5）；`worktree_skipped`、`lock_taken_over`、`lock_reacquired`、`lock_release_skipped`。
+- **类型检查**：`tsconfig.core.json` 把 `bun`、`bun:*` 指到空模块 `types/no-bun-in-core.d.ts`。
+- **性能**：真实仓库整份 `status --json` 约 0.61 秒（旧副本核对多花约 0.28 秒），仍在 1 秒目标内。
