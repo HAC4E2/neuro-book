@@ -126,3 +126,47 @@
   - 虚拟列表的展开动画要和滚动、键盘移动不打架：动画期间仍按最终位置命中与聚焦，滚动时取消动画。
   - 页面标签是编辑区的新概念：只做欢迎页这一个使用者需要的部分（打开、关闭、不进会话），不做页面之间的拆分与拖动以外的能力。
 - 待开发者确认的推荐（按推荐写进了上面）：快捷入口按“大纲”“设定”开头的名字找；最近打开存 10 个、欢迎页显示 5 个；加载页在应用起来前按系统明暗取底色；欢迎页刷新后不恢复；打开作品时只揭示一次活动文件。
+
+## 第二轮：开发者手动审查之后（2026-10-12）
+
+开发者看过 S1–S5 后改判了几条（README 第 13–17 条），并经第五到第十轮静态稿选定（`evidences/draft5-*.png` 到 `draft10-lockup.png`）：nbook 改回卡片（K2：标题栏与状态栏落在窗体底上，卡片不带外框、只有淡投影，深色补一圈淡外框；活动栏与侧栏合成一张卡，中间一条两端不碰顶底的短线；缝 4px，圆角 12px）；配色 P1（卡片仍是 `#fffcf5`／`#2d2925`，窗体底改暖灰 `#ece8df`／`#201d1a`），配色表里偏冷的控件色一并调暖；空态 E1（灰色标志与三条提示）；菜单浮层 M1（圆角 8px、投影收小、仍磨砂）；标题栏 L1（墨色横排标志，之后是项目切换，菜单在项目后）；加载页跟随产品的明暗。卡片还是平铺只由主题决定：nbook 卡片，macos 保持平铺（推荐，开发者未反对）。
+
+### 7. 加载页跟随产品明暗（`src/web/host/`、两份 `index.html`、`host-loading.css`、`WorkbenchDocument.vue`）
+
+- 工作台每次把主题写到文档根时，同时把这次的明暗与三种颜色（窗体底、正文色、强调色）记成浏览器本地的一条提示（`src/web/host/` 新增读写模块，读写面与 `client-identity.ts` 一样由调用方给出存储，存储不可用时静默放弃并不影响启动）。
+- 两份 `index.html` 在 head 里加一小段同步脚本：读到提示就在 `<html>` 上写 `data-host-appearance` 与颜色变量；`host-loading.css` 按它取色，没有提示时仍按系统明暗。这个浏览器第一次打开时仍可能先暗后亮（接受）。
+- 服务端没有 CSP，内联脚本不受限。
+
+### 8. nbook 暖色与菜单浮层（`packages/nb-ui/themes/nbook/`、`packages/nb-ui/src/styles.css`）
+
+- `colorways.ts`：浅色 `--bg-main #ece8df`、`--bg-sidebar #f4f0e8`、`--bg-hover #e7e2d8`、`--border-color #ddd7cc`、`--border-strong #c3bcb0`、`--shadow-color #3b342b`、`--overlay-bg` 与 `--shadow-panel` 跟随；深色 `--bg-main #201d1a`、`--bg-sidebar #272420`、`--bg-hover #3a3530`、`--border-color #3e3933`、`--border-strong #504a43`、`--text-inverse` 跟随；`--bg-subtle`、`--border-accent` 里的冷灰同步换掉。
+- 菜单：nbook `--radius-menu` 改 8px；`.nb-ui-menu-surface` 的投影改读 `--elevation-menu`（缺省仍是 `--elevation-popover`），nbook 给小投影。菜单栏与下拉一起变。
+- `design-language.md`：“冷暖分家”改写为主题可选的表达（nbook 改为暖色器械）；改后 `bun run --cwd packages/nb-ui build:css` 并提交 `dist/nb-ui.css`。
+
+### 9. 卡片外壳（`plugins/workbench/web/shell/`、`WorkbenchShellLayout.vue`、各部件、nb-ui `Splitter`）
+
+- 分隔方式是外壳读的主题变量，缺省即现在的平铺：`--shell-gap`（0）、`--shell-ground`（`--panel-surface`）、`--shell-card-radius`（0）、`--shell-card-shadow`（none）、`--shell-chrome-surface`（`--bg-panel`，标题栏与状态栏的面）、`--shell-chrome-line`（`--divider`，标题栏底线与状态栏顶线）、`--shell-seam`（`--divider`，网格接缝）、`--shell-join-divider`（transparent，活动栏与侧栏之间的短线）。nbook 在 `vars.css` 里给卡片的值并在 manifest 的 `declares` 登记；macos 不写，保持平铺。
+- 缝：外壳布局新增纯函数，按投影的树、尺寸与边界占用算出每个部件哪一边贴着窗体（或标题栏、状态栏）、哪一边挨着别的部件、活动栏是否与侧栏相连；`WorkbenchShellLayout` 把结果写成插槽包装上的数据属性，样式按它给 `--shell-gap` 或一半的内边距，相连的两边不留缝、对应的圆角为 0。插槽里加一层卡片包装承担圆角、裁切与投影。活动栏叶宽不变（48px），卡片宽 44px 放得下 38px 按钮。
+- 接缝：nb-ui `Splitter` 的静止接缝改读 `--nb-splitter-seam`（缺省 `--divider`，写进 `Splitter.md`），外壳根把它设成 `--shell-seam`。
+- S2 里写死的平铺（外壳根底色、标题栏与状态栏的线）改读上面的变量；Lab 外壳场景随之有卡片。
+
+### 10. 标题栏（`WorkbenchTitleBar.vue`、`src/ui/brand/`）
+
+- 左组：墨色横排标志（现有 `NeuroBookLockup`，高 17px）→ 项目切换（书本图标加作品名，下拉不变）→ 一道短分隔 → 菜单；右组只剩布局按钮与条目区。三档宽度不变：600–959px 菜单收进“菜单”按钮；不足 600px 标志换成单独的图形标志、项目名截断。
+
+### 11. 空态（`EditorGroup.vue`、`src/ui/brand/`）
+
+- 新组件 `NeuroBookMark`（单独的图形标志，遮罩着色，同 `NeuroBookLockup` 的写法）。空态居中：标志（约 132px，正文色 9% 透明度）与三行提示：“显示所有命令”带命令面板的快捷键（从命令声明读、按平台写）；“新建文件”“打开欢迎页”写位置（资源管理器标题行、帮助 › 欢迎），点了执行对应命令；命令不存在或不可用时那一行不显示。
+
+### 第二轮切片
+
+| 片 | 对应设计 | 自跑验证 |
+|---|---|---|
+| S6 | 7 | `window`／`boot` 单元测试；`projects.e2e.ts` 加“系统深色、上次是浅色时第一帧是浅色” |
+| S7 | 8 | nb-ui 测试与 `build:css`；`lab:shot` 菜单与下拉 |
+| S8 | 9 | 外壳布局单元测试（各种位置、隐藏、拖到零下的边与相连）；`workbench-*.e2e.ts`、`lab-scenes`；`lab:shot` 外壳各部件 |
+| S9 | 10 | `WorkbenchTitleBar.dom.test.ts`；`workbench-titlebar.e2e.ts` |
+| S10 | 11 | `EditorGroup` 组件测试；`editor-area.e2e.ts` 空态 |
+| S11 | — | 第一轮 omp 审查意见、第二轮切片的 omp 审查、全量 e2e 两轮、收口截图 |
+
+Spec：`runtime/browser-host.md` 启动序列第 1、2 步（加载页取上次的明暗）；`ui/workbench-shell.md` 输出 38、39 与验收 41、42 改写为“分隔方式由主题决定”，标题栏一节改左组顺序；`workbench/editor.md` 空态；`theme/system.md` 记 `--shell-*` 变量；组件文档随改。
