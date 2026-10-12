@@ -4,6 +4,7 @@
  * 指向主工作区而不是当前 checkout：worktree 分支里可能没有这个命令，或者是旧版本。
  * 用法：bun run --cwd packages/dev-panel install-shim [-- --bin-dir <目录>] [--target <checkout>] [--force] [--json]
  */
+import {randomBytes} from "node:crypto";
 import {chmod, lstat, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
 import {join, resolve} from "node:path";
@@ -43,16 +44,25 @@ export async function installShim(argv: readonly string[], io: CliIo): Promise<E
         if (!await exists(cliPath)) throw new NbdevError("shim_target_not_found", `目标 checkout 里没有 nbdev：${cliPath}`, {details: {target, cliPath}});
         const binDir = resolve(io.cwd, values["bin-dir"] ?? join(homedir(), ".local", "bin"));
         const shimPath = join(binDir, "nbdev");
-        if (await exists(shimPath)) {
-            const current = await readFile(shimPath, "utf8");
-            if (!current.includes(SHIM_MARKER) && !values.force) {
-                throw new NbdevError("shim_exists", `${shimPath} 已存在且不是本脚本写的；确认覆盖时加 --force`, {details: {shimPath}});
+        const existing = await lstat(shimPath).catch((error: unknown) => {
+            if (systemErrorCode(error) === "ENOENT") return null;
+            throw error;
+        });
+        if (existing?.isDirectory()) {
+            throw new NbdevError("shim_exists", `${shimPath} 是一个目录，不覆盖`, {details: {shimPath, kind: "directory"}});
+        }
+        if (existing && !values.force) {
+            // 符号链接（含悬空的）不跟随去读；普通文件只有带本脚本的标记才算我们写的。
+            const ours = existing.isFile() && (await readFile(shimPath, "utf8")).includes(SHIM_MARKER);
+            if (!ours) {
+                throw new NbdevError("shim_exists", `${shimPath} 已存在且不是本脚本写的；确认覆盖时加 --force`, {details: {shimPath, kind: existing.isSymbolicLink() ? "symlink" : "file"}});
             }
         }
         await mkdir(binDir, {recursive: true});
-        const temporary = `${shimPath}.tmp-${process.pid}`;
+        const temporary = `${shimPath}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
         // process.execPath 是运行本脚本的 bun；写绝对路径，PATH 里没有 bun 的环境（例如 systemd）也能用。
-        await writeFile(temporary, `#!/bin/sh\n${SHIM_MARKER}\nexec ${shellQuote(process.execPath)} ${shellQuote(cliPath)} "$@"\n`, {encoding: "utf8", flag: "w"});
+        // 临时文件独占创建（O_EXCL），同名的符号链接不会被跟随写穿。
+        await writeFile(temporary, `#!/bin/sh\n${SHIM_MARKER}\nexec ${shellQuote(process.execPath)} ${shellQuote(cliPath)} "$@"\n`, {encoding: "utf8", flag: "wx", mode: 0o755});
         try {
             await chmod(temporary, 0o755);
             await rename(temporary, shimPath);

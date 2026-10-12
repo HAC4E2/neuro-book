@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {cleanupFixtures, createFixture, git, run, taskReadme, type Fixture} from "./git-fixture.js";
 
@@ -175,5 +175,15 @@ describe("命令行合同", () => {
         const refused = await run(process.execPath, [script, "--bin-dir", binDir, "--target", target, "--json"], fixture.main);
         expect(refused.exitCode).toBe(3);
         expect(JSON.parse(refused.stdout).errors[0].code).toBe("shim_exists");
+
+        for (const prepare of [
+            async (path: string) => mkdir(path),
+            async (path: string) => symlink(join(fixture.root, "missing-target"), path),
+        ]) {
+            await rm(join(binDir, "nbdev"), {recursive: true, force: true});
+            await prepare(join(binDir, "nbdev"));
+            const blocked = await run(process.execPath, [script, "--bin-dir", binDir, "--target", target, "--json"], fixture.main);
+            expect([blocked.exitCode, JSON.parse(blocked.stdout).errors[0]?.code]).toEqual([3, "shim_exists"]);
+        }
     });
 });

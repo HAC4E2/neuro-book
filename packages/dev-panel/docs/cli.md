@@ -6,7 +6,7 @@
 
 - 用户级入口 `~/.local/bin/nbdev` 是一个 shim，由 `bun run --cwd packages/dev-panel install-shim` 写入，内容只有 `exec <bun 的绝对路径> "<主工作区>/packages/dev-panel/src/cli.ts" "$@"`。shim 跑的是主工作区里的代码：worktree 分支里可能没有这个命令，或者是旧版本。
 - 没装 shim 时直接运行 `bun <主工作区>/packages/dev-panel/src/cli.ts <命令>`。不要用 `bun run --cwd`：它会把 cwd 换成包目录，命令行就不知道调用者在哪。
-- `install-shim` 的参数：`--bin-dir <目录>`（缺省 `~/.local/bin`）、`--target <checkout>`（缺省主工作区）、`--force`（覆盖不是本脚本写的同名文件）、`--json`（`schema` 为 `nbdev.install-shim/v1`）。
+- `install-shim` 的参数：`--bin-dir <目录>`（缺省 `~/.local/bin`）、`--target <checkout>`（缺省主工作区）、`--force`（覆盖不是本脚本写的同名文件或符号链接；目标是目录时一律不覆盖）、`--json`（`schema` 为 `nbdev.install-shim/v1`）。相对路径按当前目录解析；经 `bun run --cwd packages/dev-panel install-shim -- …` 调用时当前目录是包目录，所以 `--bin-dir`、`--target` 最好写绝对路径。
 
 ## 命令
 
