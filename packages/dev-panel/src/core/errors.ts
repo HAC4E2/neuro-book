@@ -10,6 +10,7 @@ export const ERROR_EXIT_CODES = {
     repository_not_found: 5,
     records_root_not_found: 5,
     work_not_found: 5,
+    master_not_found: 5,
     task_not_found: 5,
     shim_target_not_found: 5,
     main_not_on_master: 3,

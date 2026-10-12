@@ -83,6 +83,24 @@ describe("过渡期：判定没迁的 Work", () => {
         expect(result.warnings).toEqual([expect.objectContaining({code: "uncommitted_branch_records", details: expect.objectContaining({workIds: ["w00001-seed"]})})]);
     });
 
+    test("读不出的 worktree 单独跳过（HEAD 未出生、与 master 无共同祖先）；没有 master 分支报 master_not_found", async () => {
+        const fixture = await createFixture("sources-skip");
+        await git(fixture.main, "worktree", "add", "--quiet", "--orphan", "-b", "unborn", join(fixture.main, ".worktree/unborn"));
+        const unrelated = join(fixture.main, ".worktree/unrelated");
+        await git(fixture.main, "worktree", "add", "--quiet", "--orphan", "-b", "unrelated", unrelated);
+        await fixture.write("other-history.txt", "x\n", unrelated);
+        await fixture.commit("unrelated root", unrelated);
+
+        const result = await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main));
+        expect(result.changes.size).toBe(0);
+        expect(result.warnings.map((warning) => [warning.code, warning.details?.reason]).sort()).toEqual([["worktree_skipped", "git_failed"], ["worktree_skipped", "unborn_head"]]);
+        const context = await locateRepository(fixture.main);
+        expect((await readProjectStatus(context)).status.works.map((work) => work.workId)).toEqual(["w00001-seed"]);
+
+        await git(fixture.main, "branch", "-m", "master", "main");
+        await expect(readProjectStatus(context)).rejects.toMatchObject({code: "master_not_found"});
+    });
+
     test("执行 worktree：目录名优先于最近改动，时间相同按路径排序", async () => {
         const fixture = await createFixture("sources-choose");
         const taskWorktree = await fixture.addWorktree("w00002-t03-slice", "feat/w00002-t03");

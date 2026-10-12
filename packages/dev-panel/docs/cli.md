@@ -60,7 +60,7 @@ stdout 只有一个对象，诊断走 stderr：
 | 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title` |
 | 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`target_exists`、`target_missing`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists` |
 | 4 | 等待超时（`answers --wait`，后续） | |
-| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found` |
+| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found` |
 
 ## 警告
 
@@ -70,6 +70,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `unregistered_ids` | 扫描到登记表里没有的号，已补登为 `imported`；说明有人绕过了 nbdev |
 | `number_conflicts` | 有撞号，详见 `conflicts` |
 | `prunable_worktree` | 某个已登记的 worktree 目录已不存在，跳过 |
+| `worktree_skipped` | 某个 worktree 读不出相对 master 的记录改动（HEAD 还没有提交、与 master 没有共同祖先、浅克隆截断了历史），跳过；`details.reason` 写明原因 |
 | `uncommitted_branch_records` | 某个 worktree 只有未提交的记录改动，没有算作“来自分支” |
 | `invalid_status_value` | 记录的 `status` 不在取值集合里 |
 | `unreadable_record` | README 缺失或 frontmatter 无法解析 |

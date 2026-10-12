@@ -1,6 +1,6 @@
 import {basename} from "node:path";
-import type {Warning} from "./errors.js";
-import {gitOutput, splitLines, splitNul} from "./git.js";
+import {isNbdevError, NbdevError, type Warning} from "./errors.js";
+import {gitOutput, runGit, splitLines, splitNul} from "./git.js";
 import {WORK_ID_PATTERN} from "./ids.js";
 import {findWork, isClaimedTask, type Registry} from "./registry.js";
 import {MASTER_REF, WORKS_ROOT, type CheckoutInfo} from "./repo.js";
@@ -71,29 +71,33 @@ async function withoutStaleCopies(mainRoot: string, head: string, candidates: re
 export async function findBranchRecordChanges(mainRoot: string, checkouts: readonly CheckoutInfo[]): Promise<{changes: Map<string, CheckoutInfo[]>; warnings: Warning[]}> {
     const changes = new Map<string, CheckoutInfo[]>();
     const warnings: Warning[] = [];
-    const linked = checkouts.filter((checkout) => !checkout.isMain);
-    for (const checkout of linked.filter((candidate) => candidate.prunable)) {
-        warnings.push({code: "prunable_worktree", message: `已登记的 worktree 目录不存在，跳过：${checkout.root}`, details: {checkout: checkout.root}});
+    if ((await runGit(mainRoot, ["rev-parse", "--verify", "--quiet", MASTER_REF], {readOnly: true})).exitCode !== 0) {
+        throw new NbdevError("master_not_found", "仓库里没有 master 分支：记录只放主工作区的 master", {details: {mainRoot}});
     }
-    const results = await Promise.all(linked.filter((checkout) => !checkout.prunable && checkout.head !== "").map(async (checkout) => {
-        const scope = `${WORKS_ROOT}/`;
-        const [sinceFork, againstMaster, uncommitted] = await Promise.all([
-            gitOutput(mainRoot, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=AM", `${MASTER_REF}...${checkout.head}`, "--", scope], {readOnly: true}),
-            gitOutput(mainRoot, ["diff", "--name-only", "-z", "--no-renames", MASTER_REF, checkout.head, "--", scope], {readOnly: true}),
-            gitOutput(checkout.root, ["status", "--porcelain", "-z", "--no-renames", "--", scope], {readOnly: true}),
-        ]);
-        const differing = new Set(splitNul(againstMaster));
-        const candidates = splitNul(sinceFork).filter((path) => workIdOfPath(path) !== null && differing.has(path));
-        const committed = new Set<string>();
-        for (const path of await withoutStaleCopies(mainRoot, checkout.head, candidates)) committed.add(workIdOfPath(path)!);
-        const uncommittedOnly = new Set<string>();
-        for (const entry of splitNul(uncommitted)) {
-            const workId = workIdOfPath(entry.slice(3));
-            if (workId && !committed.has(workId)) uncommittedOnly.add(workId);
+    const linked = checkouts.filter((checkout) => !checkout.isMain);
+    const readable: CheckoutInfo[] = [];
+    for (const checkout of linked) {
+        if (checkout.prunable) {
+            warnings.push({code: "prunable_worktree", message: `已登记的 worktree 目录不存在，跳过：${checkout.root}`, details: {checkout: checkout.root}});
+        } else if (/^0*$/u.test(checkout.head)) {
+            warnings.push({code: "worktree_skipped", message: `worktree 的 HEAD 还没有提交，跳过：${checkout.root}`, details: {checkout: checkout.root, reason: "unborn_head"}});
+        } else {
+            readable.push(checkout);
         }
-        return {checkout, committed, uncommittedOnly};
+    }
+    const results = await Promise.all(readable.map(async (checkout) => {
+        try {
+            return await branchChangesOf(mainRoot, checkout);
+        } catch (error) {
+            // 与 master 没有共同祖先、浅克隆截断了历史等：只影响这一个 worktree，跳过它，别让整个 status 与写命令失败。
+            if (!isNbdevError(error) || error.code !== "git_failed") throw error;
+            warnings.push({code: "worktree_skipped", message: `读不出 worktree 相对 master 的记录改动，跳过：${checkout.root}`, details: {checkout: checkout.root, reason: "git_failed", detail: error.message}});
+            return null;
+        }
     }));
-    for (const {checkout, committed, uncommittedOnly} of results) {
+    for (const result of results) {
+        if (!result) continue;
+        const {checkout, committed, uncommittedOnly} = result;
         for (const workId of committed) {
             const copies = changes.get(workId);
             if (copies) copies.push(checkout);
@@ -108,6 +112,25 @@ export async function findBranchRecordChanges(mainRoot: string, checkouts: reado
         }
     }
     return {changes, warnings};
+}
+
+async function branchChangesOf(mainRoot: string, checkout: CheckoutInfo): Promise<{checkout: CheckoutInfo; committed: Set<string>; uncommittedOnly: Set<string>}> {
+    const scope = `${WORKS_ROOT}/`;
+    const [sinceFork, againstMaster, uncommitted] = await Promise.all([
+        gitOutput(mainRoot, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=AM", `${MASTER_REF}...${checkout.head}`, "--", scope], {readOnly: true}),
+        gitOutput(mainRoot, ["diff", "--name-only", "-z", "--no-renames", MASTER_REF, checkout.head, "--", scope], {readOnly: true}),
+        gitOutput(checkout.root, ["status", "--porcelain", "-z", "--no-renames", "--", scope], {readOnly: true}),
+    ]);
+    const differing = new Set(splitNul(againstMaster));
+    const candidates = splitNul(sinceFork).filter((path) => workIdOfPath(path) !== null && differing.has(path));
+    const committed = new Set<string>();
+    for (const path of await withoutStaleCopies(mainRoot, checkout.head, candidates)) committed.add(workIdOfPath(path)!);
+    const uncommittedOnly = new Set<string>();
+    for (const entry of splitNul(uncommitted)) {
+        const workId = workIdOfPath(entry.slice(3));
+        if (workId && !committed.has(workId)) uncommittedOnly.add(workId);
+    }
+    return {checkout, committed, uncommittedOnly};
 }
 
 /**
