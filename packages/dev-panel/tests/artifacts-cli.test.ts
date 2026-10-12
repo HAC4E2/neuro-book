@@ -234,7 +234,7 @@ describe("产物与答复的命令（场景）", () => {
         expect(await git(fixture.main, "status", "--porcelain", "--", DIR)).toBe("");
     });
 
-    test("场景 8 与最近更新：status 列出 Task 与 Work 目录里的 Markdown；Task 的最近更新取 updated 与产物提交日期中较晚的", async () => {
+    test("场景 8 与最近更新：status 列出 Task 与 Work 目录里的 Markdown；Task 的最近更新取 updated 与产物提交日期中较晚的，updated 不合规时原样给出", async () => {
         const fixture = await createFixture("cli-documents");
         await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "updated: 2026-01-01\n"));
         await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/requirements.md", "# 需求分析\n");
@@ -244,7 +244,7 @@ describe("产物与答复的命令（场景）", () => {
         await fixture.write(`${DIR}/index.html`, page());
         await fixture.commit("docs and board");
         const before = await fixture.cli(["status", "--json"]);
-        type Works = Array<{documents: Array<{path: string; title: string}>; tasks: Array<{taskId: string; updated: {value: string; origin: string}; documents: Array<{title: string}>; artifacts: Array<{artifactId: string; state: string}>}>}>;
+        type Works = Array<{documents: Array<{path: string; title: string}>; tasks: Array<{taskId: string; updated: {value: string | null; origin: string; raw?: unknown}; documents: Array<{title: string}>; artifacts: Array<{artifactId: string; state: string}>}>}>;
         const work = data<{works: Works}>(before.json).works[0]!;
         expect(work.documents.map((document) => document.title)).toEqual(["待确认清单"]);
         expect(work.tasks.map((task) => [task.taskId, task.documents.map((document) => document.title), task.artifacts.map((artifact) => [artifact.artifactId, artifact.state])])).toEqual([
@@ -255,6 +255,12 @@ describe("产物与答复的命令（场景）", () => {
         const after = data<{works: Works}>((await fixture.cli(["status", "--json"])).json).works[0]!.tasks[0]!;
         const today = (await git(fixture.main, "log", "-1", "--format=%cI")).slice(0, 10);
         expect(after.updated).toEqual({value: today, origin: "commit"});
+
+        // 不合规的 updated 不被产物的提交日期盖掉。
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "updated: someday\n"));
+        await fixture.commit("bad updated");
+        const invalid = data<{works: Works}>((await fixture.cli(["status", "--json"])).json).works[0]!.tasks[0]!;
+        expect(invalid.updated).toEqual({value: null, origin: "invalid", raw: "someday"});
     });
 
     test("status 不加载 parse5、不写任何文件；发布路径才加载；Task 改成 done 时提醒还有没答的必答题", async () => {

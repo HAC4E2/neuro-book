@@ -130,9 +130,12 @@ async function summarizeArtifacts(root: string, mainRoot: string, workId: string
     return summaries;
 }
 
-/** “最近更新”：frontmatter 的 `updated` 与产物目录最后一次提交的日期中较晚的那个（发布、答复、确认都不改 README）。 */
+/**
+ * “最近更新”：frontmatter 的 `updated` 与产物目录最后一次提交的日期中较晚的那个（发布、答复、确认都不改 README）。
+ * 不合规的 `updated` 原样返回：盖成提交日期会把“这一行写错了”与原值一起丢掉。
+ */
 function laterUpdated(updated: TaskRecord["updated"], artifactsDate: string | undefined): TaskRecord["updated"] {
-    if (artifactsDate === undefined) return updated;
+    if (updated.origin === "invalid" || artifactsDate === undefined) return updated;
     if (updated.value !== null && updated.value >= artifactsDate) return updated;
     return {value: artifactsDate, origin: "commit"};
 }
