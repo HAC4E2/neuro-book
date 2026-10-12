@@ -1,0 +1,299 @@
+# t09 设计审查（只读）
+
+结论：没有需要推翻方案的阻断项，有 12 条重要、8 条建议。实施前最该先改计划的六处：
+- 决定点 1 的理由在本机不成立：本机另有两个能登录的账户。
+- “该 Task 的 checkout”没有定义。照现有字段做，t80 这个本来的例子会被看成 master。
+- 搜索想排除 `evidences/`，但核心给 Git 设的环境变量会让这条排除悄悄失效。
+- 面板自己的 Tailwind 4 原子类与 nb-ui.css 的层叠冲突，响应式写法会失效。
+- 活动缓存只在租约目录变化时失效，漏掉了大部分失效情形。
+- “代码已更新”的提示看的是 master 的 HEAD，每次记录提交都会触发。
+
+所有实验都在 scratchpad 的 `review-t09-design/` 下做，没有改任何仓库文件。herdr 只调了 `pane.list`、`session.snapshot`、`events.subscribe`，没有建会话。实验起的进程都已结束。
+
+## 重要
+
+### 1. 重要｜没写出来的假设（安全）：决定点 1 的前提“能连回环的进程本来就能读仓库”在本机不成立
+- **位置**：服务端的“登录”一条；“需要决定的点”第 1 条；待确认清单 t09“安全分期”一行。那一行写的是 t09 到 t12 都不登录。
+- **现象**：
+  - `getent passwd` 里有 两个（uid 1001、1002）用 zsh 的账户。
+  - `/home/notnotype` 的权限是 700，`~/.config/herdr/herdr.sock` 是 600，这两个账户既读不到仓库，也连不上 herdr。
+  - TCP 回环不区分用户。面板一跑，他们就能经 `/api/docs/file`、搜索、`/api/sessions`（pane、cwd、运行的命令行）读到 700 目录里的内容。
+  - sshd 在运行。wtmp 从 2023-08 起没有这两个账户的登录记录，所以发生的可能性低，但这条边界是真实的。
+- **为什么是问题**：t09 只会泄露数据。但待确认清单把“不登录”一直延续到 t12。到 t10、t12 时，本机另一个账户就能经回环写仓库、往 Agent 会话里打字、接管键盘，等于拿到 notnotype 的 shell。
+- **核实**：
+  - `getent passwd | awk -F: '$3>=1000'`
+  - `ls -ld /home/notnotype`
+  - `ls -l ~/.config/herdr/herdr.sock`
+- **建议**：t09 至少做一个最小的启动令牌，做法如下。这就是 Proposal 第八节第 3 条“本机浏览器用 panel open 拿一次性登录链接”的那一半，t13 再加设备与分级。
+  - `panel serve` 生成一个随机值，写进权限 600 的 `panel.json`；
+  - `panel open` 用一次性链接把它换成 HttpOnly cookie；
+  - `/api/*` 与 `/ws` 都要求带它。
+
+  如果 t09 不做，决定点 1 的理由要改成“只读，接受同机其他账户可读”；同时写明 t10 之前必须有回环登录，并把待确认清单那一行改成只覆盖 t09。
+
+### 2. 重要｜安全：文件接口用黑名单守卫，能读的远不止“文档”；搜索绕过守卫
+- **位置**：服务端的“路径守卫”；接口表的 `/api/docs/file`；“搜索”一节。
+- **现象**：
+  - 守卫只拒绝 `.git`、`node_modules` 与 `.env*`。主工作区里还有这些照样能读：`.local/`（drafts、datasets、novels、soul、brand 等）、`workspace/`、`config.yaml`、`.claude/settings.local.json`，以及各 checkout 的未跟踪文件。计划也没写 `/api/docs/file` 只限文档树。
+  - 搜索用 `git grep --untracked`，返回的是行内容，不经过守卫。w00005 里 `t18-ingest-roles/node_modules/typescript` 下有 132 个文件会被 `ls-files --exclude-standard` 列出，因而会被搜进来。
+  - 已跟踪的 `packages/neuro-book/.env.example` 等 5 个 `.env*` 文件，守卫拒读，搜索却能返回其中的内容，两边口径不一致。
+- **建议**：
+  - `/api/docs/file` 改为白名单：只接受 `/api/docs/tree` 列出的路径，也就是文档根下的 Markdown，其余一律 404。
+  - 搜索结果逐行套用同一个段检查。
+  - workId、taskId、artifactId、version 这类 id 参数只接受缓存里存在的值，不拿来拼路径。
+
+### 3. 重要｜失败路径与安全：任何网页都能用跨站 GET 触发搜索；没有取消机制、并发上限和输入校验
+- **位置**：请求校验第 3 条（只对非 GET 与 WebSocket 校验 Origin）；“搜索”一节。
+- **现象**：
+  - 像 `<img src="http://127.0.0.1:4400/api/search?q=a">` 这样的请求，Host 是 `127.0.0.1:4400`，能通过全部校验。浏览器读不到结果，但服务端会照样执行。
+  - 实测一次搜索在 11 个 checkout 上并发跑 `git grep`，总耗时 1.65 秒（本机 8 核）；其中 w00005 一个就要 1.6 到 2.2 秒。一页里放 50 个这样的标签，就是 550 个 git 进程。
+  - 正常使用也有同样的问题：边打字边搜时，旧的搜索要跑满 5 秒才会被截断。
+  - 输入没有校验：
+    - q 为空，或含换行：`git grep -F -e $'a\n'` 会把它拆成多个模式，其中的空模式匹配每一行；
+    - q 含 NUL：Bun 的 `spawn` 会同步抛出 `TypeError`，`runGit` 把它变成一个不是 NbdevError 的拒绝。
+- **建议**：
+  - 所有 `/api/*` 要求 `Sec-Fetch-Site` 为 `same-origin` 或 `none`；或者统一要求带 `X-Nbdev-Csrf` 头，迫使跨源请求走预检。
+  - 搜索在全局同一时刻只跑一组。有新搜索、或客户端断开（`req.signal`）时，立刻结束旧的子进程。
+  - q 去掉首尾空白后：非空、不含控制字符、长度在 2 到 200 之间。
+  - 前端加去抖。
+
+### 4. 重要｜依赖的机制（实测）：`**/evidences/**` 的排除在核心的 Git 环境里不生效，而且证据也不是 w00005 慢的原因
+- **位置**：“搜索”一节。
+- **现象**：
+  - `src/core/git.ts` 的 `gitEnvironment()` 给所有 Git 子进程设了 `GIT_LITERAL_PATHSPECS=1`。这会关掉 pathspec 魔法，`:(exclude)**/evidences/**` 被当成一个普通路径，既不报错，也不排除任何文件。
+  - 在临时仓库里复现：设了这个变量后，`a/evidences/x.txt` 照样出现在结果里。
+  - 在真实仓库搜 “status”：
+
+    | checkout | 排除生效 | 排除被关掉 |
+    |---|---|---|
+    | 主工作区 | 14281 行 | 14829 行 |
+    | w00005 | 317776 行 | 397806 行 |
+
+  - w00005 的 `.agents` 有 10.5 万个文件，其中证据只有 4.9 万；`tasks/t18-ingest-roles/experiments/s3-search` 一个目录就有 5.3 万。排除证据之后，w00005 的 `git grep` 仍要 1.6 到 2.0 秒；`git ls-files --others` 要 0.9 秒。
+- **建议**：
+  - 搜索用单独的 Git 调用：不带 `GIT_LITERAL_PATHSPECS`，pathspec 由服务端写死，不接受用户输入。
+  - 排除清单补上 `**/experiments/**`，或者改为按文件大小、按目录文件数截断。
+  - 文件名搜索用的 `ls-files` 结果按 HEAD 缓存，随 5 秒一次的轮询刷新。
+  - 每个 checkout 读到 200 行就结束子进程，不要等到 5 秒。
+  - “2 秒内出第一批结果”对 w00005 做不到，只能先送其它 checkout 的结果。
+
+### 5. 重要｜合同缺口：“该 Task 的 checkout”没有定义，照现有字段实现会把 t80 看成 master
+- **位置**：前端页面表的 `/docs` 一行与 Task 页的“所在 checkout”；接口 `/api/task`；验收映射场景 3。
+- **现象**：
+  - 现有的 `TaskView.checkout` 表示“记录从哪里读”，不是“代码在哪里改”。
+  - 真实仓库里，w00017 的 t80、t81 记录已迁到 master，它们的 `checkout` 都是主工作区。w00022 的 t06 到 t09 也是主工作区，但代码在 `.worktree/w00022-dev-panel`。
+  - 待决问题 13 正是拿 t80 举例：它的 Spec 只在 `.worktree/w00017-t80-settings-ui` 上。照这个字段实现，从 t80 进入文档页看到的是 master。
+  - Task 页的“最近 20 个提交”同样有问题：在记录所在的根上跑 `git log -- <Task 目录>`，只会列出 `docs(...)` 记录提交，看不到实现提交。
+  - 场景 3 的临时仓库用的是“记录在分支上的 Work”，这样测会通过，但真实场景是错的。
+- **核实**：在真实仓库跑 `nbdev status --json`，看 w00017 t80 与 w00022 t09 的 `checkout` 字段。
+- **建议**：
+  - 给 Task 定义一个“执行 checkout”。按 Proposal 第五节（执行位置以 Task 记录正文为准），依次取：
+    1. README 的“执行位置”一节里写的 worktree 路径或分支；
+    2. 目录名匹配 `<Work 编号>-<Task 编号>-*` 的 worktree（t80 有 `-drafts` 与 `-settings-ui` 两份，要能选）；
+    3. 登记表的 `home`；
+    4. Work 的执行 worktree；
+    5. 最后才是 master。
+  - CheckoutSwitch 列出这些候选。
+  - 场景 3 的夹具改成“记录在 master、代码在 worktree 的 Task”。
+
+### 6. 重要｜缓存失效不全：活动只监视租约目录，而大多数失效不会改租约文件；这个目录在真实仓库里还不存在
+- **位置**：“缓存与首屏 1 秒”里“活动”一条。
+- **现象**：
+  - 租约是否有效是读取时现算的（见 file-formats.md 的租约一节）。下面这些失效都不会碰 `.local/agent/run/leases/`：
+    - 会话进程退出（`session_gone`）；
+    - 24 小时过期、2 小时淡化；
+    - `/clear` 之后被取代；
+    - 会话直接把 README 的 `status` 改成 done（不经 nbdev，不会写释放文件）。
+  - 计划只说“`/proc` 的运行……每 5 秒扫一次”，没说租约也要重算，所以“谁在动”会一直显示已经结束的会话。
+  - 活动依赖记录里的 Task 状态，记录变化时也应重算活动，计划没写。
+  - 真实仓库的 `.local/agent/` 下只有 `works/`，没有 `run/`。对不存在的目录 `fs.watch` 会直接抛 ENOENT；而面板只读，也不应该去建这个目录。
+- **实测**：`readActivity` 不带 herdr 时 8 到 14 毫秒，带 herdr 时 213 到 235 毫秒。后者包括 13 格 pane 的 `process_info` 并发调用约 109 毫秒，加上 ping 与 list 偶发的约 100 毫秒延迟。计划写的“约 10 毫秒”是不带 herdr 的数字。
+- **建议**：
+  - 有浏览器连着时，每 5 秒整份重算活动（租约评估加运行）；记录或会话变化时也触发一次。
+  - 租约目录的监视只当加速手段。目录不存在时，先监视 `.local/agent/`，等目录出现后再挂上。
+
+### 7. 重要｜破坏既有约定：HEAD 变化提示按 master 的 HEAD 判断，而记录提交天天在改 master
+- **位置**：“`nbdev panel serve`……”一节第三条；`/api/meta`。
+- **现象**：决定 10 之后，`nbdev` 的领号、发布、答复、确认、改状态都会在 master 上提交，面板自己从 t10 起也会提交。照“HEAD 变了就提示代码已更新”实现，几乎每次答复之后顶栏都会显示“重启后生效”，开发者很快就会无视这条提示。
+- **建议**：比较面板代码所在的树，即 `git rev-parse HEAD:packages/dev-panel`，再加上会进构建的 `packages/nb-ui` 与 `bun.lock`；这组输入与 `.build-hash` 保持一致。
+
+### 8. 重要｜产物来源：页面没有版本；需要 CORS 的资源会失败；文件能被任意网页用 `<script>` 读走；t13 也没法用 cookie 保护
+- **位置**：接口表的 `/api/artifact`（`?version=`）；前端 `/artifact` 一行（“可切版本”）；两个来源与 CSP。
+- **现象与理由**：
+  - **a. 页面没有版本。** 发布记录只存 `contentHash`，页面文件不按版本保存。产物来源直接从磁盘出文件，“切到 v1”只会把侧栏换成 v1 的题，iframe 里仍是磁盘上的当前页面，甚至可能是会话改了还没发布的页面。
+  - **b. 需要 CORS 的资源会失败。** 沙箱 iframe 没有 `allow-same-origin`，页面是不透明来源。模块脚本的 import、`fetch`、`@font-face` 都按 CORS 取，回应里没有 `Access-Control-Allow-Origin` 就会失败。
+    - 现有评审板只用经典脚本，不受影响；
+    - 但 w00017 t27 的 `evidences/g2/browser/index.html` 用了 `type="module"`，而“证据”是产物页的四类之一；
+    - 如果顺手加 `Access-Control-Allow-Origin: *` 来修，任何网页就都能读产物来源上的文件。
+  - **c. 文件能被任意网页读走。** 经典脚本按 no-cors 加载，跨站也会执行。任意网页放一个 `<script src="http://127.0.0.1:4401/main/.agents/works/w00022-dev-panel/tasks/t03-design/artifacts/review/assets/data-r3.js">`，就能读到它定义的全局数据；这个请求的 Host 是 `127.0.0.1:4401`，能通过校验。仓库在 GitHub 上是公开的（`gh repo view` 显示 PUBLIC），路径猜得到。会泄露的是只在本机、或只在未推送分支上的产物与证据。
+  - **d. t13 没法用 cookie 保护。** 沙箱 iframe 发出的子资源请求来自不透明来源，按 SameSite 规则算跨站，`SameSite=Strict` 的 cookie 不会带上；iOS Safari 还默认拦截第三方 cookie。t13 照字面做“cookie 登录”的话，产物的样式与脚本请求会全部被拒。
+- **建议**：
+  - 产物来源的地址加一段服务启动时生成的随机前缀，例如 `/a/<令牌>/<checkout>/.agents/works/...`，只经 `/api/artifact` 交给面板。有了这段前缀：才能安全地回 `Access-Control-Allow-Origin: *`（解决 b）；网页猜不到地址（解决 c）；t13 也不必改 URL 结构（解决 d）。
+  - “切版本”二选一：
+    - 用 `git show` 从发布那一版的提交里取页面（发布记录与页面在同一个提交里）；
+    - 或者去掉这个功能，只切题表，并在 iframe 上标“页面是当前版本”。
+  - 磁盘内容的哈希与最新发布记录的 `contentHash` 不同时，标“有未发布的改动”。
+  - Work 级产物（`taskId` 为 null）在 `/api/artifact/:workId/:taskId/:artifactId` 里没有对应的地址，要补。
+
+### 9. 重要｜前端（实测）：面板自己的 Tailwind 4 原子类会输给 nb-ui.css 里同名的无层规则
+- **位置**：环境核实里“nb-ui 脱离 Nuxt 的实验”；前端“技术”；窄屏一条。
+- **现象**：
+  - `packages/nb-ui/src/tailwind.css` 的注释写明：nb-ui.css 的原子类故意不进 `@layer`，是为了 UnoCSS 消费方。
+  - 产物里只有 `@layer properties`；`.flex`、`.hidden`、`.block`、`.grid`、`.w-full`、`.p-2`、`.gap-2`、`.text-sm` 等都是无层规则。
+  - 面板用 `@import "tailwindcss"` 时，自己的原子类在 `@layer utilities` 里。我用 tailwindcss 4.3.3 编译 `class="flex md:hidden"` 核实过：`.md\:hidden` 落在 `@layer utilities` 内。
+  - 无层声明总是赢过分层声明，与特异性和先后顺序无关。所以 `flex md:hidden`、`hidden md:flex` 这类响应式写法在面板里会失效，390 宽时的左栏抽屉首当其冲；给 nb-ui 组件传的覆盖类同样会失效。
+  - 计划里的实验只验证了构建、SSR 与类型检查，没有验证层叠。
+- **建议**：
+  - 二选一：
+    - 面板与 nb-ui 一样不分层地引入原子类：`@import "tailwindcss/theme.css"` 加 `@import "tailwindcss/utilities.css"`，preflight 单独放进 `@layer base`；
+    - 或者把 nb-ui.css 包进一个更早的层。
+  - S3 的浏览器验收加一条：核对 390 宽时左栏显示与隐藏的计算样式。
+
+### 10. 重要｜`panel serve`：构建没有锁、不是原子替换、失败路径没写、哈希输入不全；`panel.json` 多实例会互删
+- **位置**：“`nbdev panel serve`、`panel open`、`panel.json`”一节。
+- **现象**：
+  - 端口被占要等构建（约 2 秒）和预热（约 0.9 秒）之后才发现。两个 `panel serve` 同时启动，会同时 `vite build` 到同一个 `dist/web`。Vite 默认先清空输出目录，正在跑的那个面板的 `index.html` 会指向已被删掉的带哈希资源，页面白屏。
+  - 构建失败时怎么办没写，例如合入后主工作区没装依赖。到 t11 配上 systemd 的 `Restart=on-failure`，会变成每隔几秒重新构建一次的循环。
+  - `.build-hash` 只算 `src/web/**`、`vite.config.ts`、`package.json`。但组件来自 nb-ui 的源码（它的 `exports` 指向 `./src/components/index.ts`），w00017 合入时 nb-ui 会大改，哈希却不变，面板会一直跑旧包；`bun.lock`、`tsconfig.web.json` 也不在里面。
+  - 用别的端口起第二个实例时，两个实例写同一个 `panel.json`，先退出的那个会把另一个的删掉。
+  - 没处理 SIGHUP，例如关掉面板所在的 herdr pane 或终端。
+- **建议**：
+  - 先在 `.local/agent/` 下取一把面板锁；或者先绑定两个端口再构建，预热完成之前挂起请求或回 503。
+  - 构建输出到临时目录，完成后改名替换。
+  - 构建失败时：有旧产物就用旧的，并在 `/api/meta` 标“前端构建失败”；没有就以明确的错误码退出。
+  - 哈希加上 nb-ui 包目录、`bun.lock` 与 `tsconfig.web.json`。
+  - `panel.json` 原子写入；退出时只删 pid 与启动时刻都是自己的那份。
+  - SIGHUP 与 SIGINT、SIGTERM 一样收口，并结束正在跑的 `git grep` 与 `vite build`。
+
+### 11. 重要｜验收映射：场景 6 比对的对象抓不到最可能发生的意外写入；场景 5 的路径测试可能是空测
+- **位置**：验收映射的场景 5、6。
+- **现象**：
+  - 场景 6：读取路径上最可能的意外写入，是某条 Git 命令忘了加 `--no-optional-locks`，刷新了 `.git/index` 或 `.git/worktrees/*/index` 的 stat 信息。这时 `git status --porcelain --ignored` 的输出不变，`.agents/works/` 与 `.local/agent/` 的哈希也不变，场景 6 测不出来。
+  - 场景 5：Bun 在把请求交给处理函数之前，就已经把 `/../` 和 `%2e%2e` 规范化掉了。实测 `/%2e%2e/.git/config` 到处理函数时是 `/.git/config`。测试里用 `fetch` 发这些路径，测到的是 URL 解析器，不是守卫。
+- **建议**：
+  - 场景 6 二选一：
+    - 浏览前 `touch` 一个标记文件，浏览后用 `find <主工作区> <各 worktree> <git 公共目录> -newer <标记>` 断言为空（排除 `panel.json` 与 `dist/`）；
+    - 或者用 `strace -f -e trace=openat,rename,unlink,mkdir`（本机有 `/usr/bin/strace`）断言只有对 `panel.json` 的写入。
+  - 场景 5：
+    - 用原始套接字或 `curl --path-as-is` 发送未编码的 `..`、`%2e%2e`、`..%2f`、`%00`，以及不合法的百分号编码，逐条断言 4xx；
+    - `decodeURIComponent` 抛的 URIError 与 NUL 都不能变成 500；
+    - 面板来源的单页回退不能对 `/.git/config` 回 200 的 `index.html`。
+
+### 12. 重要｜herdr：计划对状态事件的判断建立在假 pane 上；默认 server 上的快照与 `pane.list` 都有真实状态；订阅清单漏了 `pane.moved`
+- **位置**：环境核实里“状态事件”一行；会话数据（herdr）一节；切片 S4。
+- **现象**（只读实测，默认 server 0.9.1）：
+  - **快照有真实状态。** `session.snapshot` 可用（经 CLI 约 10 毫秒，17 KB）。13 格 pane 中 idle 8、working 1、done 1、unknown 3，这 3 格都是没有 Agent 的 shell，并不是“一直 unknown”。`agents[]` 里还带 `state_change_seq`。
+  - **命名会话的结论可能是假阴性。** 命名会话里一直是 unknown，更可能是假 pane 上报时没有带 docs/herdr.md 写的 `--source herdr:claude --agent claude`，没被认成 Agent。S4 打算还在命名会话里核实，可能再得一次假阴性。
+  - **订阅可用，但推送仍未核实。** `events.subscribe` 在 0.9.1 上可用，115 毫秒回 `subscription_started`。我订了全局的 pane 与 workspace 事件，加 13 格的 `agent_status_changed`，同时每 2 秒对比一次快照，观察了 15 分钟。这段时间里没有任何 pane 变状态，`state_change_seq` 也没变，没收到任何事件，所以“真实会话会不会推送”仍未核实。
+  - **轮询成本很低，但会超出 1 秒。** `pane.list` 进程内调用约 1 毫秒，偶发约 100 毫秒，回应 7 KB，每秒轮询的成本可以忽略。但轮询周期是 1 秒，再加上推送与重取，最坏情况会超出场景 1 的“1 秒内”。
+  - **漏了 `pane.moved`。** herdr.md 写着 pane 跨 workspace 移动会换 id。计划订阅的全局事件里没有 `pane.moved`：旧 id 的逐格订阅失效，新 id 又没订，要等到 30 秒一次的对账才恢复。
+- **建议**：
+  - S4 改在默认 server 上只读核实：后台挂着订阅，等一个真实会话结束一轮（例如主 Agent 自己的回合结束），再看日志。
+  - 对账时用 `state_change_seq` 判断有没有漏事件。
+  - 全局订阅加上 `pane.moved`。
+  - 换订阅连接时，先等新连接回 `subscription_started` 再关旧连接，然后用快照对账一次。
+  - 重连退避的初值、上限与抖动写进 herdr.md。
+  - 轮询退路改成 500 毫秒，或把场景 1 写成“p95 不超过 1 秒”。
+  - 会话页与活动用同一份 herdr 状态（快照加事件），不要一份来自订阅、另一份来自 `readHerdrSnapshot` 的 `pane.list`，两份会对不上。
+
+## 建议
+
+### 13. 建议｜缓存细节
+- **位置**：“缓存与首屏 1 秒”。
+- **按 HEAD 缓存过渡期判定**：
+  - `findBranchRecordChanges` 的已提交部分只取决于 master 的 sha 和该 checkout 的 HEAD，可以这样缓存。
+  - 但同一函数里的 `uncommitted_branch_records` 警告来自各 worktree 的 `git status`（实测每个 6 到 29 毫秒），按 HEAD 缓存后就再也不会变。30 秒兜底要重算这一部分。
+  - 登记表的 `home` 与 `claimed` 也影响来源判定，而 `registry import` 只改登记表、不提交，所以缓存键里要加上登记表的修改时间。
+  - 实测 `readTransitionState` 耗时 363 到 404 毫秒。
+- **`fs.watch`**：
+  - Bun 1.4.2 的递归监视在 Linux 上可用：新建、改名移入的子树、删后重建都有事件。inotify 上限 524288，主工作区 `.agents/works/` 有 371 个目录，不是问题。
+  - 事件要过滤掉 `evidences/`：索引从不读它，而会话一次写一批截图就会触发一串重算。
+  - 重算要单飞并合并：进行中又来变化，只再排一次。
+  - 重算失败时保留上一份数据，并在 `/api/meta` 标出错误，不要让页面变空。
+- **启动与兜底**：
+  - 30 秒兜底只在有浏览器连着时跑。
+  - 冷启动时如果 herdr 挂住，最多会等 ping 与 list 的 2 秒、再加 process_info 的 2 秒，超出冷启动 3 秒的目标。herdr 不要阻塞服务开始监听。
+
+### 14. 建议｜数据宿主与推送
+- **位置**：前端“数据宿主”；接口的回应外壳。
+- `/ws` 的推送带 `revision`，JSON 回应却不带。两次“变了”会触发两次重取，旧的回应后到会覆盖新数据。建议回应带上各块的 revision 和服务实例 id（重启后 revision 从 0 开始），宿主只接受更新的数据。
+- 运行的 `descendants` 随子进程变化，5 秒一扫就会推一次“活动变了”。如果概览里带了运行明细，就会每 5 秒重取一次约 186 KB 的概览（实测紧凑 JSON 为 186 KB，比计划写的 173 KB 大）。建议概览只放计数，明细放 `/api/sessions`；判断是否变化时只比较显示用到的字段。
+- 写明 `usePanelData` 是单例：全应用只有一条 `/ws`，外壳与页面共用。否则各页面各自取数，就成了“同一领域多个宿主”。
+
+### 15. 建议｜与稿子、实施计划的对应
+- **位置**：页面表；“与 Proposal、实施计划的不一致”一节。
+- **状态推断**：r3 的卡片按“推断”画状态与计数（`data-r3.js` 里是 `statusFrom: "inferred"`、`countsFrom: "inferred"`），而核心没有状态推断。实测 22 个 Work 中有 20 个没有 `status`。要么实现推断（标“推断”、画空心），要么在“不一致”一节写明并接受首页是一排全灰的计数条。
+- **首页多出的部分**：r3 首页 A 只有收件箱与 Work 卡片；计划另加了“会话摘要与最近的变化”，“最近的变化”从哪里取没写。
+- **搜索范围**：稿子顶栏的搜索是“搜索 Work、Task、产物、会话”（r3）与“搜索 Task、产物、文档、会话、提交”（r2），计划只做文件名与内容。可以把缓存里 Work、Task、产物标题与会话的匹配放在结果最前面，几乎不花成本。
+- **checkout 页**：`/live/checkouts`（含“是否可清理”）在实施计划里属于 t14。本包不能导入根 `scripts/`，“可清理”只能另写一套判据，会与 `governance:worktree` 分叉。建议本片不做“可清理”，或在“不一致”一节里写明。
+- **收件箱**：稿子上显示提问者的租约是否已失效，这需要把 `askedBy` 与活动拼起来，计划没提。
+- **“当前情况”的覆盖率**：主工作区 153 份 Task README 中有 56 份带 `## 当前状态` 一节，w00017 分支上 81 份中有 75 份。
+
+### 16. 建议｜Markdown 渲染与面板 CSP
+- **位置**：`/docs` 一行；响应头。
+- **DOMPurify 默认配置放过的东西**：用当前的 dompurify 3.4.12 默认配置实测，下面这些都会保留：
+  - 文档中间的 `<style>body{display:none}</style>`；
+  - `style="position:fixed;inset:0"`；
+  - `<form action="http://x">` 以及其中的 `<input>`、`<button>`。
+
+  面板 CSP 允许 `style-src 'unsafe-inline'`，又没有 `form-action`。记录和分支上的文档都是 Agent 写的，能把面板整页盖住或伪造表单；到 t10 有了写操作，这就成了 UI 劫持。建议：
+  - DOMPurify 配 `FORBID_TAGS: [style, form, input, button, textarea, select]` 与 `FORBID_ATTR: [style]`；
+  - CSP 加上 `form-action 'none'`、`base-uri 'none'`、`object-src 'none'`。
+- **相对链接与图片**：
+  - 文档之间的 `../specs/x.md`、Task README 里的 `artifacts/review/index.html`、证据截图，在单页应用里直接点会落到回退的 `index.html`。
+  - `img-src 'self' data:` 也会挡住产物来源上的截图。
+  - 要写一套链接改写规则：`.md` 转成 `/docs?checkout=&path=`，产物链接转成产物页；图片走产物来源，并把它加进 `img-src`。
+- **WebSocket**：旧版 Safari 上 `connect-src 'self'` 对 `ws:` 的匹配不可靠，t13 在手机上会用到。显式写出 `ws://<host>:<port>`。
+
+### 17. 建议｜文档树与差异的口径
+- **位置**：接口表的 `/api/docs/tree`、`/api/docs/file`。
+- **现象**：树来自 `git ls-files`（索引），正文读磁盘，差异来自 `master...HEAD`（只算提交），三者口径不一样。结果：
+  - worktree 里未提交的新 Spec 不在树上；
+  - 分支分出之后 master 新增的文档，三点 diff 里没有，树里也没有，所以稿子上“master 上有、这里没有”的那一类画不出来。
+- **建议**：
+  - 树改用 `ls-files --cached --others --exclude-standard`。
+  - 差异分两类：分支改的（三点 diff 加工作区状态）；master 新增而分支还没有的（两点 diff 减去三点 diff）。
+  - 写明这里的“master”指主工作区的工作区，不是 `master` 引用；主工作区现在有 30 多处未提交改动。
+
+### 18. 建议｜路径守卫细节
+- **位置**：服务端的“路径守卫”。
+- 段检查只做在输入上；`realpath` 之后只检查是否仍在根下。仓库里一个指向 `.git/config` 或 `.env` 的符号链接，两条检查都能通过。建议 `realpath` 之后对相对路径再做一遍段检查。
+- checkout 的 key 用 worktree 目录名：`.worktree/` 之外的同名 worktree 会撞名，`main` 也可能与某个目录名相同。发现撞名时改用路径哈希。
+- 产物来源“只给 `.agents/works/` 下的文件”这一条：t10 要注入表单脚本，需要一个保留路径。现在就在守卫里留出来，免得 t10 再改守卫。
+
+### 19. 建议｜工程与测试
+- **位置**：包内结构；“验证”一节。
+- `tsconfig.json` 的 `include` 是 `src` 与 `tests`，`lib` 只有 ES2022。`src/web` 放进去以后，现有的 `tsc --noEmit` 会去检查 Vue 与 DOM 代码。要在 `tsconfig.json` 里排除 `src/web`。
+- 服务端测试不要依赖 `dist/web`，因为 CI 不构建前端。给服务一个可注入的静态目录，或者在测试里用桩页面。
+- “命令行输出不变”没有测试保证：现有测试只断言警告里包含某个代码，不比较顺序和整体。拆分前后，在同一个夹具仓库上对 `status --json` 做一次整份比对（去掉时间字段），带上 `--work`、`--task` 的过滤与报错情形。
+
+### 20. 建议｜场景 7 的测法
+- **位置**：验收映射场景 7。
+- 把测量条件写清楚：
+  - 面板已预热，herdr 可用；
+  - 浏览器冷缓存与热缓存各测一组；
+  - “首屏”指第一张 Work 卡片渲染完成，用 `performance.mark` 或 `waitForSelector` 判定，不是 LoadState 出现；
+  - 每种条件重复 10 次，报 p50 与最大值，同时记录 `/api/overview` 的服务端耗时与字节数；
+  - 注明当时的本机负载（w00005 的长任务在跑）。
+
+## 未发现问题的方面
+- **JSON 接口被 `<script>` 引用读走**：回应是对象字面量，加上 nosniff 与 `application/json`，无法当作脚本读出数据；NDJSON 同理。
+- **DNS 重绑定**：`Host` 精确白名单能挡住。实测 Bun 的 `req.url` 会按 Host 头拼出 `http://evil.example/x`，所以必须直接比较 `Host` 头；计划正是这样写的。
+- **`/ws` 被跨源劫持**：WebSocket 升级时校验 Origin、拒绝 `null`，沙箱 iframe 连不上。
+- **两个 `panel serve` 抢同一端口**：实测 Bun.serve 的第二个进程得到 EADDRINUSE，不会因为 SO_REUSEPORT 而分流。
+- **`git grep` 参数注入**：`-e <q>` 挡住了以 `-` 开头的 q；pathspec 由服务端写死；checkout 只按 key 选择。
+- **inotify 上限与 btrfs**：上限 524288，主工作区 371 个目录；Bun 1.4.2 的递归监视行为正确。
+- **nb-ui 脱离 Nuxt**：除了 `NotificationViewport` 的 `<ClientOnly>`，nb-ui 源码里没有其它 Nuxt 专属引用；工具链版本与计划所列一致。
+- **零件不进 Component Lab 的理由**：理由成立。Lab 在 NeuroBook 应用里，要挂面板的组件就得让产品包依赖开发工具，违反包边界；`docs:check` 只管 nb-ui 导出与 `app/components/common`，不会因此阻断。
+- **轮询成本**：每 5 秒一次的 `git worktree list` 加 `rev-parse` 只需几毫秒；`git status -- .agents/works/` 在 11 个 checkout 上各 6 到 29 毫秒。
+- **白名单**：五个方法都是只读的。`events.subscribe` 允许的 `pane.output_matched` 会带终端正文，面板不订它即可，订阅参数由服务端写死。
+
+## 数量
+阻断 0，重要 12，建议 8。
+
+## 对决定点的判断
+1. **本机不登录**：不同意现有理由。本机另有两个可登录账户，回环对他们开放。t09 只读，可以先不做完整登录，但至少要有启动令牌，或把文件接口收成白名单；并且写明 t10 之前补上回环登录，不能照待确认清单一直延续到 t12。
+2. **构建产物不入库**：同意。前提是加构建锁、在临时目录构建后改名替换、失败时用旧产物或明确退出，并把 nb-ui、`bun.lock` 与 `tsconfig.web.json` 补进哈希输入。
+3. **默认 herdr 上调两个只读方法**：同意。实测 0.9.1 上 `session.snapshot` 与 `events.subscribe` 都可用、都是只读的，快照里的状态是真实的；只订不带终端正文的事件类型。
+4. **偏好经一处模块写 localStorage**：同意。localStorage 按来源分开，`127.0.0.1:4400`、`localhost:4400` 和 t13 的 tailnet 主机名各有一份偏好，可以接受，写进文档即可。
+5. **首页只为 active 与未标的 Work 列卡片**：原则同意。但按现在的数据（22 个 Work 中 2 个 active、20 个未标，没有 done 与 shelved），首页就是全部 22 张卡，“其余 N 个 Work”永远是 0。要么配合状态推断或“最近更新超过 N 天就收起”，要么接受这个结果，并在与稿子的对应里写明。
