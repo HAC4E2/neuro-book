@@ -5,7 +5,9 @@ import {gitOutput, runGit, splitNul} from "./git.js";
 import {assertSlug, formatTaskId, formatWorkId, parseWorkId, taskNumberLabel, workNumberLabel} from "./ids.js";
 import {parseFrontmatter, setFrontmatterFields} from "./frontmatter.js";
 import {listTaskIds, listWorkIds, TASK_STATUSES, taskReadmePath, WORK_STATUSES, workReadmePath, type TaskStatus} from "./records.js";
-import {isClaimedTask} from "./registry.js";
+import type {Caller} from "./identity.js";
+import {releaseTaskLeases, touchCallerLease, type LeaseEffects, type LeaseOptions} from "./lease-ops.js";
+import {isClaimedTask, type RegistryBy} from "./registry.js";
 import {existsInCommit, WORKS_ROOT, type RepoContext} from "./repo.js";
 import {findConflicts, nextTaskNumber, nextWorkNumber, type NumberConflict, type NumberScan} from "./scan.js";
 import {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./sources.js";
@@ -14,7 +16,7 @@ import {taskReadmeTemplate, workReadmeTemplate} from "./templates.js";
 import {recordDate, runWriteTransaction, sha256, type CommitOutcome, type TransactionOptions, type WriteTx} from "./transaction.js";
 
 export type OperationResult<T> = {data: T; commit: CommitOutcome; warnings: Warning[]};
-export type CreateResult = {workId: string; taskId: string; paths: string[]; conflicts: NumberConflict[]; registryOnly: string[]};
+export type CreateResult = {workId: string; taskId: string; paths: string[]; conflicts: NumberConflict[]; registryOnly: string[]} & LeaseEffects;
 export type SetStatusResult = {workId: string; taskId: string | null; path: string; previous: unknown; next: string; changed: boolean};
 export type ImportResult = {
     added: string[];
@@ -99,7 +101,7 @@ export async function createWork(context: RepoContext, input: {
     taskTitle?: string;
     issueNumber?: number;
     taskStatus?: string;
-}, options: TransactionOptions = {}): Promise<OperationResult<CreateResult>> {
+}, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
     assertSlug(input.slug);
     assertSlug(input.taskSlug);
     const title = assertTitle(input.title, "Work 标题");
@@ -116,8 +118,8 @@ export async function createWork(context: RepoContext, input: {
         const taskId = formatTaskId(1, input.taskSlug);
         // 撞号检查要在领号之前做：领了号还没落位时，新 id 只在登记表里，会被误报成 registryOnly。
         const found = await reportConflicts(tx, scan);
-        tx.claimWork(workId);
-        tx.claimTask(workId, taskId);
+        tx.claimWork(workId, byOf(options.caller));
+        tx.claimTask(workId, taskId, byOf(options.caller));
         const date = recordDate(tx.now);
         const workDir = `${WORKS_ROOT}/${workId}`;
         tx.createDirectory(workDir, {
@@ -129,7 +131,9 @@ export async function createWork(context: RepoContext, input: {
             result: {workId, taskId, paths: [workReadmePath(workId), taskReadmePath(workId, taskId)], ...found},
         };
     });
-    return {data: result, commit, warnings};
+    // 提交失败但文件已写、号已领时也取得租约：会话会接着在这个 Task 上做。
+    const lease = await touchCallerLease(context, {workId: result.workId, taskId: result.taskId, action: "work new"}, leaseOptionsOf(options), warnings);
+    return {data: {...result, lease, released: []}, commit, warnings};
 }
 
 /** 领该 Work 的下一个 Task 号，建 Task README 并提交；记录还在分支上维护的 Work 也一律写进 master。 */
@@ -139,7 +143,7 @@ export async function createTask(context: RepoContext, input: {
     title: string;
     goal?: string;
     status?: string;
-}, options: TransactionOptions = {}): Promise<OperationResult<CreateResult>> {
+}, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
     assertSlug(input.slug);
     const title = assertTitle(input.title, "Task 标题");
     const status = assertTaskStatus(input.status ?? "planned");
@@ -149,7 +153,7 @@ export async function createTask(context: RepoContext, input: {
         const number = nextTaskNumber(scan, workId);
         const taskId = formatTaskId(number, input.slug);
         const found = await reportConflicts(tx, scan);
-        tx.claimTask(workId, taskId);
+        tx.claimTask(workId, taskId, byOf(options.caller));
         const date = recordDate(tx.now);
         tx.createDirectory(`${WORKS_ROOT}/${workId}/tasks/${taskId}`, {
             "README.md": taskReadmeTemplate({taskId, title, goal: input.goal ?? null, status, date}),
@@ -159,7 +163,8 @@ export async function createTask(context: RepoContext, input: {
             result: {workId, taskId, paths: [taskReadmePath(workId, taskId)], ...found},
         };
     });
-    return {data: result, commit, warnings};
+    const lease = await touchCallerLease(context, {workId: result.workId, taskId: result.taskId, action: "task new"}, leaseOptionsOf(options), warnings);
+    return {data: {...result, lease, released: []}, commit, warnings};
 }
 
 /**
@@ -228,6 +233,38 @@ export async function setRecordStatus(context: RepoContext, input: {
         };
     });
     return {data: result, commit, warnings};
+}
+
+/**
+ * 改 Task 状态并处理租约：提交成功（含无需提交）之后，新状态是 done 或 shelved 就释放这个 Task 的全部租约
+ * （不论哪个会话、不论由谁调用），否则续期调用者的租约。命令行与面板都调它；面板以开发者身份写入时 `caller` 为 null，只释放。
+ */
+export async function setTaskStatus(context: RepoContext, input: {
+    workRef: string;
+    taskRef: string;
+    status: string;
+    includeUncommitted?: boolean;
+    expectedHash?: string;
+}, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<SetStatusResult & LeaseEffects>> {
+    const outcome = await setRecordStatus(context, input, options);
+    const failed = !outcome.commit.committed && outcome.commit.reason !== "nothing_to_commit";
+    const leaseOptions = leaseOptionsOf(options);
+    const target = {workId: outcome.data.workId, taskId: outcome.data.taskId!};
+    let effects: LeaseEffects = {lease: null, released: []};
+    if (!failed && (input.status === "done" || input.status === "shelved")) {
+        effects = {lease: null, released: await releaseTaskLeases(context, target, input.status === "done" ? "task_done" : "task_shelved", leaseOptions, outcome.warnings)};
+    } else if (!failed) {
+        effects = {lease: await touchCallerLease(context, {...target, action: "task status"}, leaseOptions, outcome.warnings), released: []};
+    }
+    return {data: {...outcome.data, ...effects}, commit: outcome.commit, warnings: outcome.warnings};
+}
+
+function leaseOptionsOf(options: Partial<LeaseOptions> & {now?: () => Date}): LeaseOptions {
+    return {caller: options.caller ?? null, herdr: options.herdr ?? null, now: options.now};
+}
+
+function byOf(caller: Caller | null | undefined): RegistryBy | null {
+    return caller?.kind === "session" ? caller.ref : null;
 }
 
 /** 按扫描结果补登 `imported` 条目，只写登记表；可以重复运行，结果不变。 */

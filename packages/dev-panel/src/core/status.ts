@@ -1,4 +1,8 @@
+import type {HerdrClient} from "../herdr/client.js";
+import {readActivity, type Activity, type SessionView} from "./activity.js";
 import {NbdevError, type Warning} from "./errors.js";
+import type {Caller} from "./identity.js";
+import type {RunView} from "./runs.js";
 import {gitOutput, runGit, splitNul} from "./git.js";
 import {parseTaskId, parseWorkId, taskRefNumber, workNumberLabel, workRefNumber} from "./ids.js";
 import {
@@ -21,8 +25,12 @@ import {chooseExecutionCheckout, findBranchRecordChanges, taskSourceInBranchWork
 /** 记录从哪里读：`master` 是主工作区（已提交的或标了 `uncommitted` 的）；`branch` 是过渡期的执行 worktree。 */
 export type RecordSource = {source: "master" | "branch"; branch: string | null; checkout: string};
 
-export type TaskView = TaskRecord & RecordSource & {uncommitted: boolean};
+/** 某个 Task 上的一份有效租约（谁在动）；临时数据，会话结束就消失。 */
+export type ActiveLease = {sessionKey: string; agent: string; label: string | null; taskId: string; lastActivityAt: string; stale: boolean};
+
+export type TaskView = TaskRecord & RecordSource & {uncommitted: boolean; leases: ActiveLease[]};
 export type WorkView = WorkRecord & RecordSource & {
+    activeLeases: ActiveLease[];
     uncommitted: boolean;
     executionRule: ExecutionCheckout["rule"] | null;
     otherCopies: Array<{branch: string | null; checkout: string}>;
@@ -34,11 +42,19 @@ export type ProjectStatus = {
     mainRoot: string;
     callerRoot: string;
     callerBranch: string | null;
+    /** 调用者是谁（只读地解析，不取租约）；调用方没给时为 null。 */
+    caller: Caller | null;
     works: WorkView[];
     conflicts: NumberConflict[];
     registryOnly: string[];
     nextWorkNumber: string;
+    sessions: SessionView[];
+    unownedRuns: RunView[];
+    ignoredProcesses: number;
+    herdr: Activity["herdr"];
 };
+
+export type StatusOptions = {herdr?: HerdrClient | null; caller?: Caller | null; now?: Date; selfPid?: number};
 
 export type StatusFilter = {workRef?: string; taskRef?: string};
 
@@ -78,10 +94,16 @@ async function uncommittedPaths(mainRoot: string): Promise<string[]> {
 /**
  * 汇总全部 Work 与 Task 的状态、来源与编号冲突。只读：不取锁，不写任何文件。
  */
-export async function readProjectStatus(context: RepoContext, filter: StatusFilter = {}): Promise<{status: ProjectStatus; warnings: Warning[]}> {
+export async function readProjectStatus(context: RepoContext, filter: StatusFilter = {}, options: StatusOptions = {}): Promise<{status: ProjectStatus; warnings: Warning[]}> {
     const {mainRoot} = context;
     const transition = await readTransitionState(mainRoot);
     const warnings: Warning[] = [...transition.warnings];
+    const {activity, warnings: activityWarnings} = await readActivity(mainRoot, transition, {herdr: options.herdr ?? null, now: options.now ?? new Date(), selfPid: options.selfPid ?? process.pid});
+    warnings.push(...activityWarnings);
+    const activeOf = (workId: string): ActiveLease[] => activity.leases
+        .filter((lease) => lease.state === "valid" && lease.workId === workId)
+        .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+        .map((lease) => ({sessionKey: lease.session.key, agent: lease.session.agent, label: lease.session.label, taskId: lease.taskId, lastActivityAt: lease.lastActivityAt, stale: lease.stale}));
     const head = await runGit(mainRoot, ["symbolic-ref", "--quiet", "HEAD"], {readOnly: true});
     if (head.exitCode !== 0 || head.stdout.trim() !== MASTER_REF) {
         warnings.push({code: "main_not_on_master", message: "主工作区检出的不是 master，照常读工作区", details: {head: head.exitCode === 0 ? head.stdout.trim() : null}});
@@ -111,6 +133,7 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
         const executionTasks = execution ? await listTaskIds(executionRoot, workId) : [];
         const masterTasks = await listTaskIds(mainRoot, workId);
         let taskIds = [...new Set([...executionTasks, ...masterTasks])].sort();
+        const workLeases = activeOf(workId);
         if (filter.taskRef !== undefined) {
             const matched = matchRef(taskIds, filter.taskRef, "task");
             if (matched.length === 0) throw new NbdevError("task_not_found", `找不到 Task：${workId}/${filter.taskRef}`, {details: {workId, taskRef: filter.taskRef}});
@@ -128,6 +151,7 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
                 branch: source === "branch" ? execution!.chosen.branch : mainCheckout.branch,
                 checkout: root,
                 uncommitted: source === "master" && dirty.some((path) => path.startsWith(prefix)),
+                leases: workLeases.filter((lease) => lease.taskId === taskId),
             };
         }));
         const counts = emptyCounts();
@@ -140,6 +164,7 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
             uncommitted: !execution && dirty.includes(workReadmePath(workId)),
             executionRule: execution?.rule ?? null,
             otherCopies: execution?.others.map((other) => ({branch: other.branch, checkout: other.root})) ?? [],
+            activeLeases: workLeases,
             taskCounts: counts,
             tasks,
         };
@@ -155,10 +180,15 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
             mainRoot,
             callerRoot: context.callerRoot,
             callerBranch: context.callerBranch,
+            caller: options.caller ?? null,
             works,
             conflicts,
             registryOnly,
             nextWorkNumber: workNumberLabel(nextWorkNumber(scan)),
+            sessions: activity.sessions,
+            unownedRuns: activity.unownedRuns,
+            ignoredProcesses: activity.ignoredProcesses,
+            herdr: activity.herdr,
         },
         warnings,
     };

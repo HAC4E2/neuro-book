@@ -59,7 +59,7 @@ export {
 } from "./core/registry.js";
 export {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
 export {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./core/sources.js";
-export {readProjectStatus, type ProjectStatus, type RecordSource, type StatusFilter, type TaskView, type WorkView} from "./core/status.js";
+export {readProjectStatus, type ActiveLease, type ProjectStatus, type RecordSource, type StatusFilter, type StatusOptions, type TaskView, type WorkView} from "./core/status.js";
 export {acquireRecordsLock, DEFAULT_LOCK_WAIT_MS, type LockHolder, type RecordsLock} from "./core/lock.js";
 export {
     DEFAULT_GIT_LOCK_WAIT_MS,
@@ -77,6 +77,7 @@ export {
     createWork,
     importRegistry,
     setRecordStatus,
+    setTaskStatus,
     type CreateResult,
     type ImportResult,
     type OperationResult,
@@ -118,3 +119,5 @@ export {
     type ReleaseReason,
 } from "./core/leases.js";
 export {discoverRuns, type DiscoverRunsInput, type PaneProcesses, type RunView} from "./core/runs.js";
+export {buildLeaseContext, readActivity, readHerdrSnapshot, readTaskStatuses, type Activity, type HerdrSnapshot, type SessionView} from "./core/activity.js";
+export {listLeases, releaseCallerLeases, releaseTaskLeases, takeLease, touchCallerLease, type LeaseEffects, type LeaseOptions} from "./core/lease-ops.js";
