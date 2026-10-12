@@ -5,7 +5,7 @@ import {setTimeout as sleep} from "node:timers/promises";
 import {isNbdevError, NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {gitOutput, runGit, splitLines, splitNul, type GitResult} from "./git.js";
 import {acquireRecordsLock, agentPaths, DEFAULT_LOCK_WAIT_MS, prepareAgentDirectories, type RecordsLock} from "./lock.js";
-import {claimTask, claimWork, importScanned, readRegistry, writeRegistry, type Registry} from "./registry.js";
+import {claimTask, claimWork, importScanned, readRegistry, writeRegistry, type Registry, type RegistryBy} from "./registry.js";
 import {assertMainWritable, listCheckouts, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "./repo.js";
 import {scannedIds, scanNumbers, type NumberScan} from "./scan.js";
 
@@ -32,8 +32,9 @@ export type WriteTx = {
     readonly imported: readonly string[];
     /** 同一事务内只扫一次；顺带把登记表里没有的号补登为 `imported`。 */
     scan(): Promise<NumberScan>;
-    claimWork(workId: string): void;
-    claimTask(workId: string, taskId: string): void;
+    /** `by` 是领号的会话（登记表的 `by` 字段），未知调用者为 null。 */
+    claimWork(workId: string, by?: RegistryBy | null): void;
+    claimTask(workId: string, taskId: string, by?: RegistryBy | null): void;
     /** 新目录：落位时整体改名到位，目标必须不存在。`files` 的键是相对目标目录的路径。 */
     createDirectory(targetDir: string, files: Readonly<Record<string, string>>): void;
     /** 新文件：落位时独占创建（先写临时文件，再 link 到目标）。 */
@@ -359,12 +360,12 @@ async function attemptTransaction<T>(
                 }
                 return scanned;
             },
-            claimWork(workId) {
-                claimWork(registry, workId, at);
+            claimWork(workId, by = null) {
+                claimWork(registry, workId, at, by);
                 registryChanged = true;
             },
-            claimTask(workId, taskId) {
-                claimTask(registry, workId, taskId, at);
+            claimTask(workId, taskId, by = null) {
+                claimTask(registry, workId, taskId, at, by);
                 registryChanged = true;
             },
             createDirectory(targetDir, files) {

@@ -10,8 +10,10 @@ export const REGISTRY_FILE = `${AGENT_LOCAL_ROOT}/registry.json`;
 export const REGISTRY_STATUSES = ["claimed", "imported", "abandoned"] as const;
 export type RegistryStatus = (typeof REGISTRY_STATUSES)[number];
 
-export type RegistryTaskEntry = {taskId: string; status: RegistryStatus; at: string; by: null; home: string | null};
-export type RegistryWorkEntry = {workId: string; status: RegistryStatus; at: string; by: null; home: string | null; tasks: RegistryTaskEntry[]};
+/** 领号的会话（t07 起写；t06 写出的为 null）。 */
+export type RegistryBy = {key: string; agent: string; sessionId: string | null; label: string | null; parentSessionId: string | null};
+export type RegistryTaskEntry = {taskId: string; status: RegistryStatus; at: string; by: RegistryBy | null; home: string | null};
+export type RegistryWorkEntry = {workId: string; status: RegistryStatus; at: string; by: RegistryBy | null; home: string | null; tasks: RegistryTaskEntry[]};
 /**
  * 登记表只记领号的事实，三种状态的号都不再发；标题、进度、状态一律读 README。
  * 它不是可重新生成的原始输出：扫描只能重建 `imported`，`claimed`、`abandoned`、`home`、`by` 会丢。
@@ -30,11 +32,18 @@ function isStatus(value: unknown): value is RegistryStatus {
     return typeof value === "string" && (REGISTRY_STATUSES as readonly string[]).includes(value);
 }
 
-function parseEntryCommon(value: Record<string, unknown>, label: string): {status: RegistryStatus; at: string; home: string | null} {
+function parseBy(value: unknown, label: string): RegistryBy | null {
+    if (value === null || value === undefined) return null;
+    if (!isRecord(value) || typeof value.key !== "string" || typeof value.agent !== "string") throw new NbdevError("invalid_record", `登记表条目的 by 无效：${label}`);
+    const optional = (field: unknown) => typeof field === "string" ? field : null;
+    return {key: value.key, agent: value.agent, sessionId: optional(value.sessionId), label: optional(value.label), parentSessionId: optional(value.parentSessionId)};
+}
+
+function parseEntryCommon(value: Record<string, unknown>, label: string): {status: RegistryStatus; at: string; by: RegistryBy | null; home: string | null} {
     if (!isStatus(value.status)) throw new NbdevError("invalid_record", `登记表条目的 status 无效：${label}`);
     if (typeof value.at !== "string") throw new NbdevError("invalid_record", `登记表条目缺少 at：${label}`);
     if (value.home !== null && value.home !== undefined && typeof value.home !== "string") throw new NbdevError("invalid_record", `登记表条目的 home 无效：${label}`);
-    return {status: value.status, at: value.at, home: typeof value.home === "string" ? value.home : null};
+    return {status: value.status, at: value.at, by: parseBy(value.by, label), home: typeof value.home === "string" ? value.home : null};
 }
 
 /** 校验登记表 JSON；主版本不认识报 `schema_unsupported`，结构不对报 `invalid_record`。 */
@@ -58,9 +67,9 @@ export function parseRegistry(text: string, path: string): Registry {
         const tasks: RegistryTaskEntry[] = [];
         for (const task of work.tasks) {
             if (!isRecord(task) || typeof task.taskId !== "string") throw new NbdevError("invalid_record", `登记表的 Task 条目无效：${work.workId}`, {details: {path}});
-            tasks.push({taskId: task.taskId, ...parseEntryCommon(task, `${work.workId}/${task.taskId}`), by: null});
+            tasks.push({taskId: task.taskId, ...parseEntryCommon(task, `${work.workId}/${task.taskId}`)});
         }
-        works.push({workId: work.workId, ...parseEntryCommon(work, work.workId), by: null, tasks});
+        works.push({workId: work.workId, ...parseEntryCommon(work, work.workId), tasks});
     }
     return {schema: REGISTRY_SCHEMA, works};
 }
@@ -113,15 +122,15 @@ export function importScanned(registry: Registry, scanned: ReadonlyMap<string, r
     return added;
 }
 
-export function claimWork(registry: Registry, workId: string, at: string): void {
+export function claimWork(registry: Registry, workId: string, at: string, by: RegistryBy | null = null): void {
     if (findWork(registry, workId)) throw new NbdevError("internal", `登记表里已有 ${workId}，不能再领`);
-    ensureWork(registry, workId, "claimed", at);
+    ensureWork(registry, workId, "claimed", at).entry.by = by;
 }
 
-export function claimTask(registry: Registry, workId: string, taskId: string, at: string): void {
+export function claimTask(registry: Registry, workId: string, taskId: string, at: string, by: RegistryBy | null = null): void {
     const work = ensureWork(registry, workId, "imported", at).entry;
     if (work.tasks.some((task) => task.taskId === taskId)) throw new NbdevError("internal", `登记表里已有 ${workId}/${taskId}，不能再领`);
-    work.tasks.push({taskId, status: "claimed", at, by: null, home: null});
+    work.tasks.push({taskId, status: "claimed", at, by, home: null});
 }
 
 function sortRegistry(registry: Registry): Registry {
