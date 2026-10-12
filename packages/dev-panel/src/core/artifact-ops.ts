@@ -87,7 +87,7 @@ async function readForWrite(mainRoot: string, ref: ArtifactRef): Promise<Artifac
 
 function answeredIds(snapshot: ArtifactSnapshot): Set<string> {
     if (!snapshot.latest) return new Set();
-    return new Set(questionStates(snapshot.latest, snapshot.answers).filter((state) => state.state === "answered").map((state) => state.question.id));
+    return new Set(questionStates(snapshot.latest, snapshot.answers, snapshot.answeredVersions).filter((state) => state.state === "answered").map((state) => state.question.id));
 }
 
 function nextVersionNumber(snapshot: ArtifactSnapshot): number {
@@ -722,7 +722,7 @@ export type ArtifactAnswersView = {
 export type AnswersResult = {artifacts: ArtifactAnswersView[]; cursor: string | null; scope: ArtifactRef[]; warnings: Warning[]};
 
 function answersView(snapshot: ArtifactSnapshot & {latest: ArtifactVersion}): ArtifactAnswersView {
-    const states = questionStates(snapshot.latest, snapshot.answers);
+    const states = questionStates(snapshot.latest, snapshot.answers, snapshot.answeredVersions);
     const {latest} = snapshot;
     return {
         workId: latest.workId,

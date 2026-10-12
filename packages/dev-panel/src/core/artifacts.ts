@@ -353,6 +353,8 @@ export type ArtifactSnapshot = {
     selected: ArtifactVersion | null;
     answers: AnswerRecord[];
     acks: AckRecord[];
+    /** 答复针对的旧版本：只读取值按最新一版不合法的答复针对的那些，`questionStates` 用它区分 `stale_value` 与 `invalid_value`。 */
+    answeredVersions: ReadonlyMap<number, ArtifactVersion>;
     warnings: Warning[];
 };
 
@@ -383,27 +385,42 @@ export async function readArtifact(root: string, ref: ArtifactRef, options: {ver
             else warnings.push(unreadable(`${dir}/${name}`, parsed));
         }
     }
-    return {ref, versions, latest, selected, answers, acks, warnings};
+    const answeredVersions = new Map<number, ArtifactVersion>();
+    for (const answer of answers) {
+        const target = answer.artifactVersion;
+        if (!latest || target === latest.version || answeredVersions.has(target) || !versions.includes(target)) continue;
+        const invalidNow = Object.entries(answer.values).some(([questionId, value]) => {
+            const definition = latest.questions.find((question) => question.id === questionId);
+            return definition !== undefined && validateAnswerValue(definition, value) !== null;
+        });
+        if (!invalidNow) continue;
+        const record = await readArtifactVersion(root, ref, target, warnings);
+        if (record) answeredVersions.set(target, record);
+    }
+    return {ref, versions, latest, selected, answers, acks, answeredVersions, warnings};
 }
 
 // ---------- 现算 ----------
 
 export type QuestionStateName = "open" | "answered" | "withdrawn" | "superseded";
 export type AnswerUse = {answerId: string; value: unknown; artifactVersion: number; submittedAt: string; comment: string | null};
+/** 旧答复为什么作废：`stale_value` 是按它针对的那一版合法、按最新一版不合法（选项后来改了）；`invalid_value` 是按它针对的那一版也不合法（手改坏的文件，或那一版读不出）。 */
+export type StaleCode = "stale_value" | "invalid_value";
 export type QuestionState = {
     question: VersionQuestion;
     state: QuestionStateName;
     /** 按最新一版的定义合法的最新取值；撤回或取代的题也照常给出，便于显示。 */
     answer: AnswerUse | null;
-    /** 最新的取值按最新一版不合法（选项改了、手改的文件）：题回到 open，旧答复列在这里。 */
-    stale: (AnswerUse & {reason: string}) | null;
+    /** 最新的取值按最新一版不合法：题回到 open，旧答复列在这里。 */
+    stale: (AnswerUse & {reason: string; code: StaleCode}) | null;
 };
 
 /**
  * 每道题的状态：结局优先；否则看这道题最新的一份答复，取值按最新一版的题目定义校验，合法即 answered，
  * 不合法回到 open 并列出那份旧答复（不往前找更早的答复：开发者最后的意思已经作废）。
+ * `answeredVersions` 是答复针对的旧版本（`ArtifactSnapshot.answeredVersions`），缺了某一版时那份答复记 `invalid_value`。
  */
-export function questionStates(version: ArtifactVersion, answers: readonly AnswerRecord[]): QuestionState[] {
+export function questionStates(version: ArtifactVersion, answers: readonly AnswerRecord[], answeredVersions: ReadonlyMap<number, ArtifactVersion>): QuestionState[] {
     const ordered = [...answers].sort((left, right) => left.answerId.localeCompare(right.answerId));
     return version.questions.map((question) => {
         const latest = ordered.filter((answer) => Object.hasOwn(answer.values, question.id)).at(-1);
@@ -412,10 +429,16 @@ export function questionStates(version: ArtifactVersion, answers: readonly Answe
             : null;
         const reason = use ? validateAnswerValue(question, use.value) : null;
         const answer = use && reason === null ? use : null;
-        const stale = use && reason !== null ? {...use, reason} : null;
+        const stale = use && reason !== null ? {...use, reason, code: staleCode(question.id, use, version, answeredVersions)} : null;
         const state: QuestionStateName = question.outcome ? question.outcome.kind : answer ? "answered" : "open";
         return {question, state, answer, stale};
     });
+}
+
+function staleCode(questionId: string, use: AnswerUse, latest: ArtifactVersion, answeredVersions: ReadonlyMap<number, ArtifactVersion>): StaleCode {
+    const target = use.artifactVersion === latest.version ? latest : answeredVersions.get(use.artifactVersion);
+    const definition = target?.questions.find((question) => question.id === questionId);
+    return definition !== undefined && validateAnswerValue(definition, use.value) === null ? "stale_value" : "invalid_value";
 }
 
 /** 答复 id 不在任何一份确认的 `answers[]` 里，就算未确认（集合差；`through` 只用于显示）。 */
@@ -613,7 +636,7 @@ export async function openRequiredQuestions(root: string, workId: string, taskId
         const snapshot = await readArtifact(root, {workId, taskId, artifactId});
         warnings.push(...snapshot.warnings);
         if (!snapshot.latest) continue;
-        for (const state of questionStates(snapshot.latest, snapshot.answers)) {
+        for (const state of questionStates(snapshot.latest, snapshot.answers, snapshot.answeredVersions)) {
             if (state.state === "open" && state.question.required) open.push({artifactId, version: snapshot.latest.version, question: state.question});
         }
     }

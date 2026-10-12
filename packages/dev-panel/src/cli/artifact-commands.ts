@@ -118,7 +118,7 @@ function artifactLines(view: ArtifactAnswersView): string[] {
     const lines = [`${view.workId.slice(0, 6)}/${view.taskId.slice(0, view.taskId.indexOf("-"))} ${view.artifactId} v${view.version}（${view.state === "closed" ? "已关闭，" : ""}${ADOPTION_LABEL[view.adoption]}，${view.openRequired} 道必答题待答）  ${view.title}`];
     for (const state of view.questions) {
         const value = state.answer ? `：${JSON.stringify(state.answer.value)}（针对 v${state.answer.artifactVersion}）` : "";
-        const stale = state.stale ? `；旧答复已不合法（${state.stale.reason}）` : "";
+        const stale = state.stale ? `；旧答复${state.stale.code === "stale_value" ? "按最新一版" : "本身就"}不合法（${state.stale.reason}）` : "";
         lines.push(`  ${state.question.id}  [${state.state}]  ${state.question.label}${value}${stale}`);
     }
     if (view.unacked.length > 0) lines.push(`  未确认的答复：${view.unacked.join("、")}；把决定写进 Task README 后运行 nbdev answers ack ${view.workId.slice(0, 6)} ${view.taskId.slice(0, view.taskId.indexOf("-"))} ${view.artifactId} --through ${view.cursor} --include <README>`);

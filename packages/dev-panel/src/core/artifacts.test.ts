@@ -122,7 +122,7 @@ describe("新版本的题表（nextQuestions）", () => {
 });
 
 describe("题的状态与未确认的答复", () => {
-    test("按最新一版的定义校验最新的取值：合法为 answered；选项改了以后回到 open，旧答复标 stale；结局优先", () => {
+    test("按最新一版的定义校验最新的取值：合法为 answered；选项改了以后回到 open，旧答复列进 stale 并标出原因；结局优先", () => {
         const answers = [answer(id("20261012T100000000Z"), {pick: "a", text: "x"}), answer(id("20261012T100001000Z"), {pick: "c"}, {artifactVersion: 2})];
         const current = version(3, [
             question("pick", {options: [{value: "a", label: "A"}, {value: "c", label: "C"}]}),
@@ -130,15 +130,21 @@ describe("题的状态与未确认的答复", () => {
             question("unanswered"),
             question("gone", {outcome: {kind: "superseded", in: 3, by: null}}),
         ]);
-        const states = questionStates(current, answers);
+        const states = questionStates(current, answers, new Map());
         expect(states.map((state) => [state.question.id, state.state, state.answer?.value ?? null, state.answer?.artifactVersion ?? null])).toEqual([
             ["pick", "answered", "c", 2],
             ["text", "answered", "x", 1],
             ["unanswered", "open", null, null],
             ["gone", "superseded", null, null],
         ]);
-        const narrowed = questionStates(version(4, [question("pick", {options: [{value: "a", label: "A"}, {value: "b", label: "B"}]})]), answers);
-        expect(narrowed[0]).toMatchObject({state: "open", answer: null, stale: {answerId: id("20261012T100001000Z"), value: "c"}});
+        const v2 = version(2, [question("pick", {options: [{value: "a", label: "A"}, {value: "c", label: "C"}]})]);
+        const v4 = version(4, [question("pick", {options: [{value: "a", label: "A"}, {value: "b", label: "B"}]})]);
+        const narrowed = questionStates(v4, answers, new Map([[2, v2]]));
+        expect(narrowed[0]).toMatchObject({state: "open", answer: null, stale: {answerId: id("20261012T100001000Z"), value: "c", code: "stale_value"}});
+        // 按它针对的那一版也不合法（手改坏的文件），或那一版读不到：invalid_value。
+        const broken = [...answers, answer(id("20261012T100002000Z"), {pick: "zzz"}, {artifactVersion: 2})];
+        expect(questionStates(v4, broken, new Map([[2, v2]]))[0]?.stale?.code).toBe("invalid_value");
+        expect(questionStates(v4, answers, new Map())[0]?.stale?.code).toBe("invalid_value");
     });
 
     test("未确认按集合差算：落位晚、id 小的答复也不会被漏掉；through 不参与判断", () => {

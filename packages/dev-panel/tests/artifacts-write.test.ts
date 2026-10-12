@@ -3,7 +3,7 @@ import {randomBytes} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
-import {readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
+import {answerPath, readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
 import type {SessionCaller} from "../src/core/identity.js";
 import {askerOf} from "../src/core/provenance.js";
 import {locateRepository, type RepoContext} from "../src/core/repo.js";
@@ -190,6 +190,23 @@ describe("答复与确认", () => {
         const again = await ackAnswers(context, TARGET, asBob);
         expect([again.data.acked, again.warnings.map((warning) => warning.code)]).toEqual([false, ["already_acked"]]);
         await expect(ackAnswers(context, {...TARGET, include: ["README.md"]}, asBob)).rejects.toMatchObject({code: "unsafe_path"});
+    });
+
+    test("旧答复作废的原因：选项后来改了记 stale_value；按它针对的那一版也不合法（手改坏的）记 invalid_value", async () => {
+        const {fixture, context} = await setup("answers-stale");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        const cards = await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        await fixture.write(`${DIR}/index.html`, page().replace('data-nbdev-option="cards"><h3>卡片', 'data-nbdev-option="grid"><h3>网格'));
+        expect((await publishArtifact(context, TARGET, asBob)).data.version).toBe(2);
+        const layoutState = async () => (await readAnswers(context, {...TARGET, filter: "all"})).artifacts[0]!.questions.find((state) => state.question.id === "layout")!;
+        expect(await layoutState()).toMatchObject({state: "open", stale: {answerId: cards.data.answer.answerId, artifactVersion: 1, code: "stale_value"}});
+        const brokenId = "29991231T000000000Z-0badf00d";
+        await fixture.write(answerPath(REF, brokenId), `${JSON.stringify({
+            schema: "nbdev.answer/v1", ...REF, answerId: brokenId, artifactVersion: 1, contentHash: null, submittedAt: "2026-10-12T00:00:00.000Z",
+            submittedBy: {kind: "agent-transcribed"}, values: {layout: "zzz"}, comments: {}, note: null,
+        })}\n`);
+        expect(await layoutState()).toMatchObject({state: "open", stale: {answerId: brokenId, code: "invalid_value"}});
     });
 
     test("--include 只收普通文件、不收被忽略的文件：写任何东西之前就拒绝，改对路径重跑照常确认", async () => {

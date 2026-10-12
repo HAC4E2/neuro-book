@@ -118,7 +118,7 @@ async function summarizeArtifacts(root: string, mainRoot: string, workId: string
             summaries.push({artifactId, kind: null, title: null, version: null, state: "unpublished", publishedAt: null, openRequired: 0, adoption: null});
             continue;
         }
-        const open = questionStates(latest, snapshot.answers).filter((state) => state.state === "open" && state.question.required);
+        const open = questionStates(latest, snapshot.answers, snapshot.answeredVersions).filter((state) => state.state === "open" && state.question.required);
         if (taskId !== null) {
             for (const {question} of open) {
                 const asker = root === mainRoot ? await verifiedProvenance(mainRoot, versionPath(ref, question.since), warnings) : null;

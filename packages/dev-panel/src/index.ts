@@ -195,6 +195,7 @@ export {
     type QuestionRef,
     type QuestionState,
     type QuestionStateName,
+    type StaleCode,
     type SubmittedBy,
     type VersionAction,
     type VersionQuestion,
