@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes} from "node:crypto";
-import {readFile, writeFile} from "node:fs/promises";
+import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
 import {readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
@@ -190,6 +190,23 @@ describe("答复与确认", () => {
         const again = await ackAnswers(context, TARGET, asBob);
         expect([again.data.acked, again.warnings.map((warning) => warning.code)]).toEqual([false, ["already_acked"]]);
         await expect(ackAnswers(context, {...TARGET, include: ["README.md"]}, asBob)).rejects.toMatchObject({code: "unsafe_path"});
+    });
+
+    test("--include 只收普通文件、不收被忽略的文件：写任何东西之前就拒绝，改对路径重跑照常确认", async () => {
+        const {fixture, context} = await setup("answers-include");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        await expect(ackAnswers(context, {...TARGET, include: [TASK_DIR]}, asBob)).rejects.toMatchObject({code: "usage", details: {reason: "not_file"}});
+        await fixture.write(`${TASK_DIR}/scratch.md`, "草稿\n");
+        await mkdir(join(fixture.main, ".git", "info"), {recursive: true});
+        await writeFile(join(fixture.main, ".git", "info", "exclude"), "scratch.md\n");
+        await expect(ackAnswers(context, {...TARGET, include: [`${TASK_DIR}/scratch.md`]}, asBob)).rejects.toMatchObject({code: "usage", details: {reason: "ignored", paths: [`${TASK_DIR}/scratch.md`]}});
+        expect(await git(fixture.main, "status", "--porcelain", "--untracked-files=all", "--", DIR)).toBe("");
+        await fixture.write(`${TASK_DIR}/README.md`, `${taskReadme("t01-seed")}\n## 决定\n\n1. 用卡片。\n`);
+        const acked = await ackAnswers(context, {...TARGET, include: [`${TASK_DIR}/README.md`]}, asBob);
+        if (!acked.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, acked.commit.sha)).toEqual([acked.data.path!, `${TASK_DIR}/README.md`].sort());
     });
 
     test("ack --through 只确认会话读到的答复：读完之后才到的答复仍是未确认，并给 newer_answers_unacked", async () => {

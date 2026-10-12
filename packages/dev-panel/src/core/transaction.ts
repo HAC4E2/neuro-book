@@ -115,9 +115,23 @@ async function validateOperations(mainRoot: string, operations: readonly Operati
             throw new NbdevError("target_exists", `目标已存在：${operation.target}`, {details: {path: operation.target}});
         }
     }
+    // 一起提交的路径来自用户输入（`answers ack --include`）：目录与被忽略的文件会让落位之后的 git hash-object 或 git add 失败，
+    // 留下写了却没提交的记录，所以在动第一个目标之前拒绝。
     for (const path of included) {
         await assertNoSymlinkOnPath(mainRoot, path);
-        if (!await pathExists(resolve(mainRoot, path))) throw new NbdevError("target_missing", `要一起提交的文件不存在：${path}`, {details: {path}});
+        let stats;
+        try {
+            stats = await lstat(resolve(mainRoot, path));
+        } catch (error) {
+            if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") throw new NbdevError("target_missing", `要一起提交的文件不存在：${path}`, {details: {path}});
+            throw error;
+        }
+        if (!stats.isFile()) throw new NbdevError("usage", `要一起提交的路径不是普通文件：${path}；写具体的文件（例如 Task 的 README.md）`, {details: {path, reason: "not_file"}});
+    }
+    if (included.length > 0) {
+        // 不用 git check-ignore：它不支持 GIT_LITERAL_PATHSPECS。列出“未跟踪且被忽略”的，正是 git add 会拒绝的那些。
+        const ignored = splitNul(await gitOutput(mainRoot, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...included], {readOnly: true}));
+        if (ignored.length > 0) throw new NbdevError("usage", `要一起提交的文件被 .gitignore 忽略，提交不了：${ignored.join("、")}`, {details: {paths: ignored, reason: "ignored"}});
     }
 }
 
