@@ -1,0 +1,206 @@
+import {afterEach, describe, expect, test} from "bun:test";
+import {randomBytes} from "node:crypto";
+import {readFile, writeFile} from "node:fs/promises";
+import {join, resolve} from "node:path";
+import {ackAnswers, askQuestions, closeArtifact, publishArtifact, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
+import {readArtifact, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
+import type {SessionCaller} from "../src/core/identity.js";
+import {askerOf} from "../src/core/provenance.js";
+import {locateRepository, type RepoContext} from "../src/core/repo.js";
+import {cleanupFixtures, createFixture, git, taskReadme, type Fixture} from "./git-fixture.js";
+
+afterEach(async () => {
+    await cleanupFixtures();
+});
+
+const TASK_DIR = ".agents/works/w00001-seed/tasks/t01-seed";
+const DIR = `${TASK_DIR}/artifacts/review`;
+const REF: ArtifactRef = {workId: "w00001-seed", taskId: "t01-seed", artifactId: "review"};
+const BOARD = resolve(import.meta.dirname, "fixtures/t03-review/index.html");
+const bob: SessionCaller = {kind: "session", ref: {key: "external:bob", agent: "external", sessionId: null, label: "bob", parentSessionId: null, nestedSessionId: null}, via: "as", process: null, herdr: null};
+const asBob: ArtifactOpOptions = {caller: bob, herdr: null};
+const TARGET = {workRef: "w00001", taskRef: "t01", artifactId: "review"};
+
+/** 两道题的页面：`first` 是单选，`second` 是确认题；`ids` 可以换掉题号。 */
+function page(ids: {first?: string; second?: string} = {}, extra = ""): string {
+    return [
+        "<!doctype html><title>评审板</title>",
+        `<section data-nbdev-question="${ids.first ?? "layout"}" data-nbdev-type="single"><h2><span data-nbdev-skip>待定</span>版式</h2>`,
+        '<div data-nbdev-option="cards"><h3>卡片</h3></div><div data-nbdev-option="table"><h3>表</h3></div></section>',
+        `<section data-nbdev-question="${ids.second ?? "approve"}" data-nbdev-type="confirm"><h2>批准</h2></section>`,
+        extra,
+    ].join("\n");
+}
+
+async function setup(name: string): Promise<{fixture: Fixture; context: RepoContext}> {
+    const fixture = await createFixture(name);
+    return {fixture, context: await locateRepository(fixture.main)};
+}
+
+async function changedPaths(fixture: Fixture, sha: string): Promise<string[]> {
+    return (await git(fixture.main, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)).split("\n").filter(Boolean).sort();
+}
+
+describe("发布", () => {
+    test("场景 1：评审板拷贝加两道题后发布：题与页面一致，发布记录里没有会话，provenance 记下提问者；提交只含产物目录", async () => {
+        const {fixture, context} = await setup("publish-board");
+        const board = (await readFile(BOARD, "utf8"))
+            .replace('<section class="q" id="r3-home">\n        <h2><span class="badge success">', '<section class="q" id="r3-home" data-nbdev-question="home-layout" data-nbdev-type="single" data-nbdev-recommend="cards">\n        <h2><span class="badge success" data-nbdev-skip>')
+            .replace('<div class="cand"><a class="pv" href="r3/home.html#A">', '<div class="cand" data-nbdev-option="cards"><a class="pv" href="r3/home.html#A">')
+            .replace('<div class="cand"><a class="pv" href="r3/home.html#B">', '<div class="cand" data-nbdev-option="table"><a class="pv" href="r3/home.html#B">')
+            .replace('<section class="q" id="r2-docs">\n        <h2><span class="badge', '<section class="q" id="r2-docs" data-nbdev-question="docs-tree" data-nbdev-type="confirm">\n        <h2><span data-nbdev-skip class="badge');
+        await fixture.write(`${DIR}/index.html`, board);
+        await git(fixture.main, "add", "--", `${TASK_DIR}/README.md`);
+        await fixture.write(".agents/works/w00001-seed/README.md", "unrelated staged change\n");
+        await git(fixture.main, "add", "--", ".agents/works/w00001-seed/README.md");
+
+        const outcome = await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        expect(outcome.commit.committed).toBe(true);
+        expect(outcome.data).toMatchObject({version: 1, unchanged: false, path: versionPath(REF, 1)});
+        const record = JSON.parse(await readFile(join(fixture.main, versionPath(REF, 1)), "utf8"));
+        expect(record.questions.map((question: {id: string; type: string; label: string; options: Array<{value: string}>}) => [question.id, question.type, question.label, question.options.map((option) => option.value)])).toEqual([
+            ["home-layout", "single", "首页（Work 视角）：A 卡片还是 B 表", ["cards", "table"]],
+            ["docs-tree", "confirm", "文档页：按类型的树与切换 checkout", []],
+        ]);
+        expect(JSON.stringify(record)).not.toMatch(/session|lease|bob/u);
+        expect(await askerOf(fixture.main, REF, "home-layout")).toMatchObject({leaseId: outcome.data.lease?.leaseId, session: {key: "external:bob"}});
+        if (!outcome.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, outcome.commit.sha)).toEqual([`${DIR}/index.html`, versionPath(REF, 1)].sort());
+        expect(await git(fixture.main, "diff", "--cached", "--name-only")).toBe(".agents/works/w00001-seed/README.md");
+        expect(outcome.warnings.map((warning) => warning.code)).toContain("missing_reference");
+    });
+
+    test("内容没变不出新版本；--force-version 才出；title 缺省沿用上一版", async () => {
+        const {fixture, context} = await setup("publish-unchanged");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design", title: "自定标题"}, asBob);
+        const again = await publishArtifact(context, TARGET, asBob);
+        expect([again.data.unchanged, again.commit.committed]).toEqual([true, false]);
+        const forced = await publishArtifact(context, {...TARGET, forceVersion: true}, asBob);
+        expect([forced.data.version, forced.commit.committed]).toEqual([2, true]);
+        expect((await readArtifact(fixture.main, REF)).latest?.title).toBe("自定标题");
+    });
+
+    test("场景 2 与第 11 条：换题号后旧题被取代，已答的题从页面删掉仍算已答；旧答复标出针对哪一版", async () => {
+        const {fixture, context} = await setup("publish-renumber");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await submitAnswer(context, {...TARGET, values: {approve: true}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        await fixture.write(`${DIR}/index.html`, page({first: "layout-v2"}).replace(/<section data-nbdev-question="approve"[\s\S]*?<\/section>/u, ""));
+        const v2 = await publishArtifact(context, TARGET, asBob);
+        expect([v2.data.dropped, v2.warnings.map((warning) => warning.code)]).toEqual([["layout"], ["questions_dropped"]]);
+        const latest = (await readArtifact(fixture.main, REF)).latest!;
+        expect(latest.questions.map((question) => [question.id, question.outcome?.kind ?? null, question.page, question.since])).toEqual([
+            ["layout", "superseded", "index.html", 1],
+            ["approve", null, null, 1],
+            ["layout-v2", null, "index.html", 2],
+        ]);
+    });
+
+    test("关闭撤回未答的题；关闭后不能再 ask；重新发布打开它，只恢复因关闭而撤回、页面里还在的题", async () => {
+        const {fixture, context} = await setup("publish-close");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        const closed = await closeArtifact(context, TARGET, asBob);
+        expect([closed.data.version, closed.data.affected]).toEqual([2, ["approve"]]);
+        await expect(askQuestions(context, {...TARGET, questions: [{id: "late", type: "text", label: "晚到"}]}, asBob)).rejects.toMatchObject({code: "artifact_closed"});
+        expect((await closeArtifact(context, TARGET, asBob)).warnings.map((warning) => warning.code)).toEqual(["already_closed"]);
+        const reopened = await publishArtifact(context, TARGET, asBob);
+        expect([reopened.data.restored, reopened.warnings.map((warning) => warning.code)]).toEqual([["approve"], ["artifact_reopened"]]);
+        expect((await readArtifact(fixture.main, REF)).latest?.state).toBe("open");
+    });
+
+    test("标记不合规整体拒绝并列出问题；Task README 没提交、或 Task 还在分支上维护时拒写；只在 master 上的 Task 可以发布", async () => {
+        const {fixture, context} = await setup("publish-guards");
+        await fixture.write(`${DIR}/index.html`, '<section data-nbdev-question="x" data-nbdev-type="single"><h2>缺选项</h2></section>');
+        await expect(publishArtifact(context, {...TARGET, kind: "design"}, asBob)).rejects.toMatchObject({code: "invalid_questions", details: {problems: [expect.objectContaining({code: "options_missing", questionId: "x", line: 1})]}});
+        await expect(publishArtifact(context, {...TARGET, artifactId: "questions", kind: "design"}, asBob)).rejects.toMatchObject({code: "invalid_artifact_id"});
+
+        // 分支在 t02 之前分出、还在维护 t01；t02 之后才建在 master 上（像迁来的 t80）。
+        const worktree = await fixture.addWorktree("w00001-line", "feat/w00001");
+        await fixture.write(`${TASK_DIR}/README.md`, taskReadme("t01-seed", "status: active\n"), worktree);
+        await fixture.commit("branch keeps t01", worktree);
+        await fixture.write(".agents/works/w00001-seed/tasks/t02-draft/README.md", taskReadme("t02-draft"));
+        await fixture.write(".agents/works/w00001-seed/tasks/t02-draft/artifacts/review/index.html", page());
+        await expect(publishArtifact(context, {workRef: "w00001", taskRef: "t02", artifactId: "review", kind: "design"}, asBob)).rejects.toMatchObject({code: "task_not_committed"});
+        await git(fixture.main, "add", "--", ".agents/works/w00001-seed/tasks/t02-draft/README.md");
+        await git(fixture.main, "commit", "--quiet", "-m", "t02 on master", "--", ".agents/works/w00001-seed/tasks/t02-draft/README.md");
+        await fixture.write(`${DIR}/index.html`, page());
+        await expect(publishArtifact(context, {...TARGET, kind: "design"}, asBob)).rejects.toMatchObject({code: "branch_maintained_record"});
+        const masterOnly = await publishArtifact(context, {workRef: "w00001", taskRef: "t02", artifactId: "review", kind: "design"}, asBob);
+        expect([masterOnly.data.version, masterOnly.commit.committed]).toEqual([1, true]);
+    });
+
+    test("场景 6：800 KB 的图片照常发布并警告；Task 合计超过 5 MiB（含还没跟踪的新图）也警告；引用产物目录之外的给警告", async () => {
+        const {fixture, context} = await setup("publish-images");
+        await fixture.write(`${DIR}/index.html`, page({}, '<img src="big.png"><a href="../../README.md">记录</a><a href="index.html?x=1#top">自己</a>'));
+        await writeFile(join(fixture.main, DIR, "big.png"), randomBytes(800 * 1024));
+        for (let index = 0; index < 6; index += 1) {
+            await fixture.write(`${TASK_DIR}/evidences/shot-${index}.png`, "");
+            await writeFile(join(fixture.main, TASK_DIR, "evidences", `shot-${index}.png`), randomBytes(900 * 1024));
+        }
+        const outcome = await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        expect(outcome.commit.committed).toBe(true);
+        expect(outcome.warnings.map((warning) => warning.code).sort()).toEqual(["image_too_large", "reference_outside_artifact", "task_images_too_large"]);
+    });
+});
+
+describe("登记、撤回与取代", () => {
+    test("场景 3 的写入：ask 建 Task 提问集；题号不复用；撤回与取代写进新版本，取代者存完整 id", async () => {
+        const {fixture, context} = await setup("ask-flow");
+        const asked = await askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "migrate-order", type: "text", label: "迁移顺序", about: "docs/specs/x.md"}]}, asBob);
+        expect([asked.data.artifactId, asked.data.version, asked.warnings.map((warning) => warning.code)]).toEqual(["questions", 1, ["about_not_found"]]);
+        const set = (await readArtifact(fixture.main, {...REF, artifactId: "questions"})).latest!;
+        expect([set.kind, set.entry, set.contentHash, set.questions[0]]).toEqual(["questions", null, null, expect.objectContaining({id: "migrate-order", origin: "ask", page: null, about: "docs/specs/x.md", since: 1, outcome: null})]);
+        await expect(askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "migrate-order", type: "text", label: "又一次"}]}, asBob)).rejects.toMatchObject({code: "duplicate_question"});
+        await askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "replacement", type: "confirm", label: "新的问法"}, {id: "drop-me", type: "text", label: "不要了"}]}, asBob);
+        await withdrawQuestion(context, {workRef: "w00001", taskRef: "t01", question: "drop-me"}, asBob);
+        await expect(withdrawQuestion(context, {workRef: "w00001", taskRef: "t01", question: "drop-me"}, asBob)).rejects.toMatchObject({code: "question_closed"});
+        await supersedeQuestion(context, {workRef: "w00001", taskRef: "t01", question: "migrate-order", by: "w00001/t01/questions#replacement"}, asBob);
+        const latest = (await readArtifact(fixture.main, {...REF, artifactId: "questions"})).latest!;
+        expect(latest.questions.map((question) => [question.id, question.outcome])).toEqual([
+            ["migrate-order", {kind: "superseded", in: 4, by: {workId: "w00001-seed", taskId: "t01-seed", artifactId: "questions", questionId: "replacement"}}],
+            ["replacement", null],
+            ["drop-me", {kind: "withdrawn", in: 3, reason: "explicit"}],
+        ]);
+        await expect(askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "Bad", type: "single", label: "x"}]}, asBob)).rejects.toMatchObject({code: "invalid_questions"});
+    });
+});
+
+describe("答复与确认", () => {
+    test("取值按题的定义校验；确认覆盖当时未确认的全部答复，与 --include 的 README 同一个提交；没有新答复时不写", async () => {
+        const {fixture, context} = await setup("answers-ack");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await expect(submitAnswer(context, {...TARGET, values: {layout: "nope"}, submittedBy: {kind: "agent-transcribed"}}, asBob)).rejects.toMatchObject({code: "invalid_answer"});
+        await expect(submitAnswer(context, {...TARGET, values: {ghost: true}, submittedBy: {kind: "agent-transcribed"}}, asBob)).rejects.toMatchObject({code: "question_not_found"});
+        const answered = await submitAnswer(context, {...TARGET, values: {layout: "cards"}, comments: {layout: "卡片更清楚"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        if (!answered.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, answered.commit.sha)).toEqual([answered.data.path]);
+        expect(JSON.stringify(answered.data.answer)).not.toMatch(/session|bob/u);
+
+        await fixture.write(`${TASK_DIR}/README.md`, `${taskReadme("t01-seed")}\n## 决定\n\n1. 用卡片。\n`);
+        const acked = await ackAnswers(context, {...TARGET, include: [`${TASK_DIR}/README.md`]}, asBob);
+        if (!acked.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, acked.commit.sha)).toEqual([acked.data.path!, `${TASK_DIR}/README.md`].sort());
+        expect(acked.data.ack?.answers).toEqual([answered.data.answer.answerId]);
+        const again = await ackAnswers(context, TARGET, asBob);
+        expect([again.data.acked, again.warnings.map((warning) => warning.code)]).toEqual([false, ["already_acked"]]);
+        await expect(ackAnswers(context, {...TARGET, include: ["README.md"]}, asBob)).rejects.toMatchObject({code: "unsafe_path"});
+    });
+
+    test("先读时钟、后拿锁：晚落位的答复 id 仍比先落位的大，确认之后它仍是未确认", async () => {
+        const {fixture, context} = await setup("answers-clock");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        const first = await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        await ackAnswers(context, TARGET, asBob);
+        // 这份答复的写事务“一分钟前就读了时钟”（tx.now），一直等锁到现在才落位。
+        const late = await submitAnswer(context, {...TARGET, values: {approve: true}, submittedBy: {kind: "agent-transcribed"}}, {...asBob, now: () => new Date(Date.now() - 60_000)});
+        expect(late.data.answer.answerId > first.data.answer.answerId).toBe(true);
+        const snapshot = await readArtifact(fixture.main, REF);
+        const {unackedAnswers} = await import("../src/core/artifacts.js");
+        expect(unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId)).toEqual([late.data.answer.answerId]);
+    });
+});

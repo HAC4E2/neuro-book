@@ -601,3 +601,17 @@ export async function listDocuments(root: string, dir: string): Promise<Document
     }
     return documents;
 }
+
+/** 一个 Task 的产物里还 `open` 的必答题（`task status … done` 的提醒与收件箱共用）。 */
+export async function openRequiredQuestions(root: string, workId: string, taskId: string, warnings: Warning[] = []): Promise<Array<{artifactId: string; version: number; question: VersionQuestion}>> {
+    const open: Array<{artifactId: string; version: number; question: VersionQuestion}> = [];
+    for (const artifactId of await listArtifactIds(root, workId, taskId)) {
+        const snapshot = await readArtifact(root, {workId, taskId, artifactId});
+        warnings.push(...snapshot.warnings);
+        if (!snapshot.latest) continue;
+        for (const state of questionStates(snapshot.latest, snapshot.answers)) {
+            if (state.state === "open" && state.question.required) open.push({artifactId, version: snapshot.latest.version, question: state.question});
+        }
+    }
+    return open;
+}

@@ -3,6 +3,7 @@ import {resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {gitOutput, runGit, splitNul} from "./git.js";
 import {assertSlug, formatTaskId, formatWorkId, parseWorkId, taskNumberLabel, workNumberLabel} from "./ids.js";
+import {openRequiredQuestions} from "./artifacts.js";
 import {parseFrontmatter, setFrontmatterFields} from "./frontmatter.js";
 import {listTaskIds, listWorkIds, TASK_STATUSES, taskReadmePath, WORK_STATUSES, workReadmePath, type TaskStatus} from "./records.js";
 import type {Caller} from "./identity.js";
@@ -90,6 +91,31 @@ async function resolveWritableWork(tx: WriteTx, workRef: string, whole: boolean)
         });
     }
     return {workId, execution};
+}
+
+/**
+ * 解析要写的 Task：来源必须是 `master`，判定与过渡期的读法相同。来自分支的 Work 里，只在 `master` 上的 Task（例如迁来的 t80）
+ * 或经 nbdev 领号的 Task 可以写；同一个 Task 在执行 worktree 里也有、又不是经 nbdev 领的，就还在分支上维护，拒写。
+ * `requireCommittedReadme`：产物与答复的写入要求 Task README 已提交，否则 `master` 上会出现没有 Task README 的提交。
+ */
+export async function resolveWritableTask(tx: WriteTx, workRef: string, taskRef: string, options: {requireCommittedReadme?: boolean} = {}): Promise<{workId: string; taskId: string; execution: ExecutionCheckout | null}> {
+    const {mainRoot} = tx.context;
+    const {workId, execution} = await resolveWritableWork(tx, workRef, false);
+    const matched = matchRef(await listTaskIds(mainRoot, workId), taskRef, "task");
+    const onBranch = execution ? matchRef(await listTaskIds(execution.chosen.root, workId), taskRef, "task") : [];
+    if (matched.length > 1) throw new NbdevError("ambiguous_task", `Task 编号对应多个目录：${matched.join("、")}`, {details: {workId, candidates: matched}});
+    const candidate = matched[0] ?? onBranch[0];
+    if (!candidate) throw new NbdevError("task_not_found", `找不到 Task：${workId}/${taskRef}`, {details: {workId, taskRef}});
+    if (execution && onBranch.includes(candidate) && !isClaimedTask(tx.registry, workId, candidate)) {
+        throw new NbdevError("branch_maintained_record", `${workId}/${candidate} 的记录还在分支上维护，在原处改或先迁移`, {
+            details: {workId, taskId: candidate, branch: execution.chosen.branch, checkout: execution.chosen.root},
+        });
+    }
+    if (!matched.includes(candidate)) throw new NbdevError("task_not_found", `master 上没有这个 Task：${workId}/${candidate}`, {details: {workId, taskId: candidate}});
+    if (options.requireCommittedReadme && !await existsInCommit(mainRoot, "HEAD", taskReadmePath(workId, candidate))) {
+        throw new NbdevError("task_not_committed", `${workId}/${candidate} 的 README 还没有提交到 master，先提交它`, {details: {workId, taskId: candidate, path: taskReadmePath(workId, candidate)}});
+    }
+    return {workId, taskId: candidate, execution};
 }
 
 /** 领号新建 Work 与首个 Task（Work 必须至少有一个 Task），提交这两个 README。 */
@@ -184,24 +210,14 @@ export async function setRecordStatus(context: RepoContext, input: {
     }
     const {result, commit, warnings} = await runWriteTransaction(context, options, async (tx) => {
         const {mainRoot} = tx.context;
-        const {workId, execution} = await resolveWritableWork(tx, input.workRef, input.taskRef === undefined);
+        let workId: string;
         let taskId: string | null = null;
-        let path = workReadmePath(workId);
         if (input.taskRef !== undefined) {
-            const matched = matchRef(await listTaskIds(mainRoot, workId), input.taskRef, "task");
-            const onBranch = execution ? matchRef(await listTaskIds(execution.chosen.root, workId), input.taskRef, "task") : [];
-            if (matched.length > 1) throw new NbdevError("ambiguous_task", `Task 编号对应多个目录：${matched.join("、")}`, {details: {workId, candidates: matched}});
-            const candidate = matched[0] ?? onBranch[0];
-            if (!candidate) throw new NbdevError("task_not_found", `找不到 Task：${workId}/${input.taskRef}`, {details: {workId, taskRef: input.taskRef}});
-            if (execution && onBranch.includes(candidate) && !isClaimedTask(tx.registry, workId, candidate)) {
-                throw new NbdevError("branch_maintained_record", `${workId}/${candidate} 的记录还在分支上维护，在原处改或先迁移`, {
-                    details: {workId, taskId: candidate, branch: execution.chosen.branch, checkout: execution.chosen.root},
-                });
-            }
-            if (!matched.includes(candidate)) throw new NbdevError("task_not_found", `master 上没有这个 Task：${workId}/${candidate}`, {details: {workId, taskId: candidate}});
-            taskId = candidate;
-            path = taskReadmePath(workId, taskId);
+            ({workId, taskId} = await resolveWritableTask(tx, input.workRef, input.taskRef));
+        } else {
+            ({workId} = await resolveWritableWork(tx, input.workRef, true));
         }
+        const path = taskId === null ? workReadmePath(workId) : taskReadmePath(workId, taskId);
         let text: string;
         try {
             text = await readFile(resolve(mainRoot, path), "utf8");
@@ -253,6 +269,11 @@ export async function setTaskStatus(context: RepoContext, input: {
     let effects: LeaseEffects = {lease: null, released: []};
     if (!failed && (input.status === "done" || input.status === "shelved")) {
         effects = {lease: null, released: await releaseTaskLeases(context, target, input.status === "done" ? "task_done" : "task_shelved", leaseOptions, outcome.warnings)};
+        // 只提醒、不自动撤回：自动撤回会抹掉“开发者还没答”这个事实，由会话决定撤回还是留着。
+        const open = await openRequiredQuestions(context.mainRoot, target.workId, target.taskId);
+        if (open.length > 0) {
+            outcome.warnings.push({code: "open_questions", message: `这个 Task 还有 ${open.length} 道没答的必答题，仍在收件箱里；不再需要的用 nbdev ask withdraw 撤回`, details: {questions: open.map((entry) => `${entry.artifactId}#${entry.question.id}`)}});
+        }
     } else if (!failed) {
         effects = {lease: await touchCallerLease(context, {...target, action: "task status"}, leaseOptions, outcome.warnings), released: []};
     }
