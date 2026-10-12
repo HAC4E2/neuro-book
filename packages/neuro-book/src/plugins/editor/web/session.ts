@@ -34,6 +34,11 @@ export interface EditorSession {
     readonly area: Readonly<ShallowRef<EditorArea | null>>;
     /** 最近打开的地址，最近在前；未绑定项目的窗口为 null。 */
     readonly recent: EditorRecentStore | null;
+    /**
+     * 这部作品第一次在本窗口打开：会话记录读到了“不存在”。编辑器区建好时定下，之后不变；读取失败、未绑定项目都为假。
+     * 声明 `openOnFirstVisit` 的页面据此自动打开（输出 33）。
+     */
+    readonly firstVisit: Readonly<ShallowRef<boolean>>;
     /** 文档协调：编辑器区建好之前没有打开的文档。 */
     readonly coordinator: DocumentCoordinator;
     dispose(): void;
@@ -41,6 +46,7 @@ export interface EditorSession {
 
 export function createEditorSession(options: EditorSessionOptions): EditorSession {
     const area = shallowRef<EditorArea | null>(null);
+    const firstVisit = shallowRef(false);
     let stopWaiting: (() => void) | null = null;
     let disposed = false;
     const workspaceKey = options.project?.id ?? "none";
@@ -73,6 +79,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             stopWaiting?.();
             stopWaiting = null;
             const base = session.base;
+            firstVisit.value = base?.status === "missing";
             start(base !== null && base.status === "ok" ? snapshotOf(base.value) : null, (snapshot) => current.actions.save(snapshot));
         }, {immediate: true});
     }
@@ -88,6 +95,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
     return {
         area,
         recent,
+        firstVisit,
         coordinator,
         dispose: () => {
             if (disposed) return;

@@ -16,6 +16,8 @@ type Props = {
     groupId: string;
     locale: DisplayLocale;
     control: (kind: "markdown" | "code") => Component;
+    /** 页面标签（输出 33）的标题与组件；不给时页面标签显示页面 id 与“这个页面已经不在了”。 */
+    pages?: EditorPageSource | null;
 };
 ```
 
@@ -27,6 +29,7 @@ type Props = {
 
 - 没有标签：内容区正中一行淡色提示“在左边的资源管理器里打开一个文件”（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 32）。
 - 打开失败：原因与“重试”（`role="alert"`）。
+- 活动标签是页面（`page://<id>`，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 33）：内容区渲染页面组件（属性 `context`），自己滚动；贡献方停了时一行“这个页面已经不在了”。页面标签的文字是页面标题。
 - 其余：每种出现过的编辑器各挂一个控件，换文档只换绑定、不重建控件；当前不用的那种控件停放（`v-show`，不卸载）。文档还在读取时两种控件都停放，内容区空白，不显示旧文件的正文。
 
 状态条（`role="status"`）按优先级只显示一条：本视图的未裁决输入（采用当前正文 / 保留本视图的内容）、磁盘冲突（重新载入磁盘版本 / 覆盖磁盘版本）、订阅结束、已删除、磁盘已变化（重新载入）、保存失败或结果未知。

@@ -7,12 +7,14 @@ import type {Component} from "vue";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorArea, EditorControlHandle} from "../area";
-import type {EditorKind} from "../groups/groups";
+import type {FileEditorKind} from "../groups/groups";
+import {pageIdOf} from "../pages";
+import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorTabBar from "./EditorTabBar.vue";
 import type {TabItem} from "./EditorTabBar.vue";
 
-const props = defineProps<{area: EditorArea; groupId: string; locale: DisplayLocale; control: (kind: EditorKind) => Component}>();
+const props = defineProps<{area: EditorArea; groupId: string; locale: DisplayLocale; control: (kind: FileEditorKind) => Component; pages?: EditorPageSource | null}>();
 
 const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
@@ -22,7 +24,10 @@ const active = computed(() => props.area.groups.activeGroup.value === props.grou
 
 const tabs = computed((): TabItem[] => (group.value?.tabs ?? []).map((tab) => {
     const opened = props.area.documents.get(tab.address);
-    return {id: tab.id, label: nameOf(tab.address), title: tab.address, preview: tab.preview, dirty: opened?.dirty.value === true, active: tab.id === group.value?.active};
+    // 页面标签（输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
+    const page = pageIdOf(tab.address);
+    const label = page === null ? nameOf(tab.address) : (props.pages?.title(page, props.locale) ?? page);
+    return {id: tab.id, label, title: page === null ? tab.address : label, preview: tab.preview, dirty: opened?.dirty.value === true, active: tab.id === group.value?.active};
 }));
 
 type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
@@ -57,11 +62,15 @@ const failure = computed(() => {
     return editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: current.failure.value?.code ?? ""});
 });
 
-const onReady = (kind: EditorKind, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, kind, handle);
+const onReady = (kind: FileEditorKind, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, kind, handle);
+
+/** 活动标签是页面时的页面 id；文件标签为 null。 */
+const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(activeTab.value.address)));
+const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
 
 // 控件按编辑器种类各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。
-const kinds = computed((): EditorKind[] => {
-    const present = new Set<EditorKind>((group.value?.tabs ?? []).map((tab) => tab.editor));
+const kinds = computed((): FileEditorKind[] => {
+    const present = new Set((group.value?.tabs ?? []).map((tab) => tab.editor));
     return (["markdown", "code"] as const).filter((kind) => present.has(kind));
 });
 </script>
@@ -106,6 +115,11 @@ const kinds = computed((): EditorKind[] => {
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
                 <p>{{ failure }}</p>
                 <Button size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>
+            </div>
+            <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
+            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
+                <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
+                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[13px] text-[var(--text-muted)]" data-editor-page-missing>{{ editorText(locale, "pageMissing") }}</p>
             </div>
             <template v-for="kind in kinds" :key="kind">
                 <div v-show="binding !== null && binding.kind === kind" class="absolute inset-0" :data-editor-kind="kind">

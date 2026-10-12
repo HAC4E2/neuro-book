@@ -13,6 +13,7 @@ const TEXT = {
     unsaved: {"zh-CN": "未保存", "en-US": "Unsaved"},
     preview: {"zh-CN": "预览", "en-US": "Preview"},
     empty: {"zh-CN": "在左边的资源管理器里打开一个文件", "en-US": "Open a file from the explorer on the left"},
+    pageMissing: {"zh-CN": "这个页面已经不在了：贡献它的插件停止了", "en-US": "This page is no longer available: the plugin that provided it has stopped"},
     loading: {"zh-CN": "正在读取…", "en-US": "Reading…"},
     openFailed: {"zh-CN": "打不开 {name}：{reason}", "en-US": "Cannot open {name}: {reason}"},
     retry: {"zh-CN": "重试", "en-US": "Retry"},

@@ -152,7 +152,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
       | 文件 | 打开项目（`nbook.project.open`）｜保存、全部保存、还原为磁盘版本（`nbook.editor.save`、`save-all`、`revert`）｜关闭编辑器、关闭其它编辑器（`nbook.editor.close`、`close-others`） |
       | 编辑 | 撤销、重做（`nbook.edit.undo`、`redo`） |
       | 视图 | 命令面板（`nbook.quick-open.open-commands`）｜侧栏、右栏、活动栏（`nbook.view.set-part-hidden {part}`，勾选）、面板（`nbook.view.set-panel-hidden`，勾选）、面板位置（`set-panel-position`）、最大化面板（`toggle-panel-maximized`）｜向右拆分、向下拆分、用其它编辑器重新打开（`nbook.editor.split-right`、`split-down`、`reopen-with`）｜切换主题、明暗、界面语言（`nbook.settings.switch-theme`、`switch-appearance`、`switch-locale`）｜重新载入（`nbook.app.reload`） |
-      | 帮助 | 文档（`nbook.help.documentation`） |
+      | 帮助 | 欢迎（`nbook.help.welcome`，由书架插件贡献）、文档（`nbook.help.documentation`） |
 
     - 旧桌面菜单的 15 个 id 的去向见 [workbench.commands](../workbench/commands.md) 的“兼容与安全”。
 30. **宽度三档**：按标题栏容器的实测宽度（不是窗口宽度）：

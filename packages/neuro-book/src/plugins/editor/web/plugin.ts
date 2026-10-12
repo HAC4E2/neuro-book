@@ -1,10 +1,10 @@
 /**
  * `nbook.editor` 浏览器入口（docs/specs/workbench/editor.md）：贡献工作台的编辑器槽、编辑器的命令与公开状态，提供文档
- * 协调服务；向宿主登记终态时的抢救与离开页面前的确认。编辑器区在激活时建立（命令随时可能到，例如资源管理器打开
+ * 协调服务，拥有页面贡献点 `editor.pages`（输出 33）；向宿主登记终态时的抢救与离开页面前的确认。编辑器区在激活时建立（命令随时可能到，例如资源管理器打开
  * 文件），绑定项目的窗口先读会话记录。
  */
 
-import {computed, defineAsyncComponent, defineComponent, h, watch} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, reactive, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -23,10 +23,11 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {documentCoordinatorKey} from "../shared/contracts";
+import {documentCoordinatorKey, EDITOR_PAGES_POINT, validateEditorPageContribution} from "../shared/contracts";
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
+import {EditorPageRegistry} from "./pages";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
-import type {EditorKind} from "./groups/groups";
+import type {FileEditorKind} from "./groups/groups";
 import {editorRecentStore} from "./recent-record";
 import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
@@ -40,12 +41,14 @@ const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SP
 
 export const editorBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
+    contributionPoints: [{id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: windowRescueKey, required: false}],
         provides: [documentCoordinatorKey],
+        receives: [EDITOR_PAGES_POINT],
         contributions: [
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
             ...Object.entries(EDITOR_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -71,6 +74,9 @@ export const editorBrowserPlugin: PluginDefinition = {
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
+            const pages = new EditorPageRegistry(context.declarations);
+            // 页面组件收到的上下文：最近打开随记录变化（reactive 把 computed 拆成值）。
+            const pageContext = reactive({recent: computed(() => session.recent?.state.recent.display.addresses ?? [])});
 
             // 继续写作（输出 29）：地址参数一读到就去掉；等编辑器区建好（会话记录读完）再打开并定位。
             const navigation = context.services.require(windowNavigationKey);
@@ -91,6 +97,21 @@ export const editorBrowserPlugin: PluginDefinition = {
                 }, {immediate: true});
                 if (done) stop();
                 else context.signal.addEventListener("abort", () => stop(), {once: true});
+            }
+
+            // 这部作品第一次在本窗口打开：编辑器区建好后打开声明 `openOnFirstVisit` 的页面，交付晚到的等它交付（输出 33）。
+            // 继续写作带来的不算第一次：用户要的是那个文件。
+            if (request === null) {
+                const opened = new Set<string>();
+                const stopFirst = watch(() => (session.firstVisit.value && session.area.value !== null ? pages.firstVisitPages() : []), (ids) => {
+                    for (const id of ids) {
+                        if (opened.has(id)) continue;
+                        opened.add(id);
+                        const result = session.area.value?.openPage(id);
+                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `自动打开页面 ${id} 失败：${result.reason}`, source: {plugin: descriptor.id}});
+                    }
+                }, {immediate: true});
+                context.signal.addEventListener("abort", () => stopFirst(), {once: true});
             }
 
             // 终态时的抢救：宿主在停止插件之前同步调用。
@@ -120,12 +141,12 @@ export const editorBrowserPlugin: PluginDefinition = {
                     const MonacoControl = defineAsyncComponent(() => import("./components/MonacoControl.vue"));
                     // Markdown 富文本（Tiptap）同样第一次挂上时才加载。
                     const MarkdownControl = defineAsyncComponent(() => import("./components/MarkdownControl.vue"));
-                    const controls: Readonly<Record<EditorKind, Component>> = {markdown: MarkdownControl, code: MonacoControl};
-                    const control = (kind: EditorKind): Component => controls[kind];
+                    const controls: Readonly<Record<FileEditorKind, Component>> = {markdown: MarkdownControl, code: MonacoControl};
+                    const control = (kind: FileEditorKind): Component => controls[kind];
                     return defineComponent({
                         name: "EditorAreaHost",
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
-                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, onIntent: (intent: "save" | "close" | "split-right") => {
+                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), onIntent: (intent: "save" | "close" | "split-right") => {
                             // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             execute(INTENTS[intent]);
@@ -136,9 +157,10 @@ export const editorBrowserPlugin: PluginDefinition = {
             const published = bindingsOf(editorState, editorStateValues(session.area));
             return {
                 services: [provide(documentCoordinatorKey, session.coordinator)],
+                receivers: {[EDITOR_PAGES_POINT]: pages.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
-                    [COMMANDS_POINT]: editorCommands(session.area),
+                    [COMMANDS_POINT]: editorCommands(session.area, pages),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey)),
                 },

@@ -7,6 +7,7 @@ import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
+import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
 import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
 import type PathPickerDialog from "nbook/plugins/projects/web/components/PathPickerDialog.vue";
@@ -697,6 +698,27 @@ function shelfFixtures(): LabFixture[] {
                 {id: "long", label: "长书名", input: {props: {locale: "zh-CN", item: long, now: SHELF_NOW, coverSrc: null, active: false}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/BookCard.vue"),
+        }),
+        defineSubjectFixture<typeof WelcomePage>({
+            component: "WelcomePage",
+            events: ["new-chapter", "open", "reveal", "shelf"],
+            class: "w-full",
+            scenes: (() => {
+                const quick = [
+                    {address: "project://大纲.md", name: "大纲.md", kind: "file" as const},
+                    {address: "project://设定", name: "设定", kind: "folder" as const},
+                ];
+                const recent = ["project://正文/第一卷/第一章 灯塔.md", "project://设定/人物.md", "project://大纲.md"];
+                const page = {locale: "zh-CN" as const, title: first.title ?? first.name, description: first.description, stats: first.stats, now: SHELF_NOW, quick, recent, shortcut: "Ctrl+Shift+P"};
+                return [
+                    {id: "book", label: "写过一阵的作品", input: {props: page}},
+                    {id: "new", label: "新作品：没有简介、尚未统计、没有最近打开", input: {props: {...page, title: "新的一本", description: null, stats: SHELF_ITEMS[3]!.stats, quick: [], recent: []}}},
+                    {id: "problem", label: "新建章节失败", input: {props: {...page, problem: "新建章节失败：permission-denied"}}},
+                    {id: "unbound", label: "没有打开作品", input: {props: {...page, title: null}}},
+                    {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US" as const}}},
+                ];
+            })(),
+            subject: () => import("nbook/plugins/projects/web/components/WelcomePage.vue"),
         }),
         defineSubjectFixture<typeof BookCover>({
             component: "BookCover",

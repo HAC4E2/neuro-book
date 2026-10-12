@@ -39,12 +39,14 @@ owners:
 - 插件 `nbook.editor` 只有浏览器入口；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置、宿主时钟与宿主的抢救能力（[runtime.browser-host](../runtime/browser-host.md)）。
 - 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-shell](../ui/workbench-shell.md)）。
 - 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: "markdown" | "code", reveal?: "end"}`；`editor` 缺省按类型：`.md` 为 `markdown`，其余可编辑文本为 `code`；`reveal: "end"` 打开后把光标放到末尾（输出 29）。
+- 页面贡献点 `editor.pages`（输出 33，只接受浏览器入口）：声明 `{title, icon, openOnFirstVisit?}`，实现 `{load(): Promise<Component>}`，组件收到 `{context: {recent}}`（`recent` 是输出 31 的最近打开）。页面 id 的规则与视图相同。
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
 
   | 命令 | 参数 | `when` | `effect` | agent 暴露 | 编辑器区内的键位 |
   |---|---|---|---|---|---|
   | `nbook.editor.open` | 见上 | 无 | read | auto | — |
+  | `nbook.editor.open-page` | `{id}`（页面贡献的 id） | 无 | read | auto（不进命令面板） | — |
   | `nbook.editor.save` | `{}` | `dirty` | write | confirm | Ctrl+S |
   | `nbook.editor.save-all` | `{}` | 无 | write | confirm | — |
   | `nbook.editor.revert` | `{}` | `active` | write | never | — |
@@ -150,6 +152,10 @@ owners:
 31. **最近打开**：绑定项目的窗口把打开过的地址按最近在前存进 project/local 记录 `editor.recent`，至多 10 个，单击（preview）与双击都算；切换已打开的标签、恢复出来的标签不算。地址只在打开时记，改名与删除不回头改，读的一方（欢迎页）按需核对文件还在不在。
 32. **纸面与空态**：编辑组与外壳是同一块面板底色（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 38）。Markdown 富文本用界面字体，版心 720px（含左右各 48px 留白）、上 64px 下 120px、正文 17px、行距 1.95、段距 1.1em；这些值是 Markdown 控件自己的变量，以后做成偏好时只换变量。源码编辑器不变。组里没有标签时内容区正中只有一行淡色提示“在左边的资源管理器里打开一个文件”。
 
+**页面**
+
+33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。页面标签不进第 5 条的会话记录，刷新后不恢复（活动的是页面时，记录里的活动项是它左边最近的文件标签）。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（会话记录读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。
+
 ## 状态与转换
 
 | 文档状态 | 进入 | 离开 |
@@ -175,6 +181,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 
 - 正文与基线只在内存；写入经 [workspace.files](../workspace/files.md) 的条件保存，写入来源为 `{kind: "user", plugin: "nbook.editor"}`。
 - 记录 `editor.session`：owner `nbook.editor`，project/local，版本 1；只存布局与标签，不存正文。标签的 `cursor`（第 30 条，`{offset}` 或 `{line, column}`）是后加的可选字段，没有它的旧记录照样合法，版本不变。
+- 页面（输出 33）只在内存里：不写会话记录，也不写别的记录。
 - 记录 `editor.recent`：owner `nbook.editor`，project/local，版本 1；`{addresses}`，至多 10 个、不重复，最近在前（第 31 条）。
 
 ## 失败与恢复
@@ -215,12 +222,13 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 17. Given 一个源码文件的光标在第 2 行第 4 列、一个 Markdown 文件的光标在正文中间，When 外部把源码文件改到只剩一行再刷新页面，Then Markdown 标签是活动标签、编辑器已聚焦，直接输入的字落在原来的光标处；切到源码标签，光标在第 1 行行尾（夹到末尾）。
 18. Given 先后打开两个文件，When 读 `editor.recent`，Then 后打开的在前；When 再打开已经在最前的那个，Then 记录不写。
 19. Given 没有标签的编辑组，When 看内容区，Then 正中只有一行“在左边的资源管理器里打开一个文件”；When 打开 Markdown 文件，Then 正文在 720px 的版心里，17px、行距 1.95，底色与外壳相同。
+20. Given 一个声明了 `openOnFirstVisit` 的页面，When 新客户端第一次打开作品，Then 页面标签自动打开、只有它；When 刷新，Then 它不恢复；When 再执行 `open-page`，Then 不开第二个、切到已开的那个；页面标签不能拆分、不能换编辑器，可以关闭。
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。
 
 ## 证据
 
-- 批准依据：输出 30–32 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）。
+- 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
-- 合同测试：上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
-- Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）
+- 合同测试：页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
+- Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 20：欢迎页自动打开、不恢复、只开一个）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）

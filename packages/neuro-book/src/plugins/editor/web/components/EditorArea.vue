@@ -9,14 +9,15 @@ import type {Component} from "vue";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorArea} from "../area";
-import type {EditorKind} from "../groups/groups";
+import type {FileEditorKind} from "../groups/groups";
+import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorGroup from "./EditorGroup.vue";
 
 /** 编辑器区内的键位对应的意图：宿主把它换成命令执行（组件不认识命令）。 */
 export type EditorIntent = "save" | "close" | "split-right";
 
-const props = defineProps<{area: EditorArea; locale: DisplayLocale; control: (kind: EditorKind) => Component}>();
+const props = defineProps<{area: EditorArea; locale: DisplayLocale; control: (kind: FileEditorKind) => Component; pages?: EditorPageSource | null}>();
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void}>();
 
 const root = ref<HTMLElement | null>(null);
@@ -79,7 +80,7 @@ const dialog = computed(() => props.area.dialog.value);
             :on-gesture-commit="host.onGestureCommit"
         >
             <template #leaf="{node}">
-                <EditorGroup :area="area" :group-id="node.id" :locale="locale" :control="control" />
+                <EditorGroup :area="area" :group-id="node.id" :locale="locale" :control="control" :pages="pages ?? null" />
             </template>
         </GridRenderer>
         <Dialog

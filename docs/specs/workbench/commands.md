@@ -177,13 +177,14 @@ owners:
 |---|---|---|---|---|---|
 | `nbook.app.reload` | 重新载入 / Reload | `{}` | 无 | read | never（整页重新加载会打断 Agent 所在的窗口） |
 | `nbook.help.documentation` | 文档 / Documentation | `{}` | 无 | read | never（新标签页只对人有用） |
+| `nbook.help.welcome` | 欢迎 / Welcome | `{}` | 无 | read | never（由 `nbook.projects` 贡献：打开本窗口作品的欢迎页，[workbench.bookshelf](bookshelf.md) 输出 20） |
 
 - 重新载入沿用页面已有的离开保护：编辑器有未保存的正文时浏览器先问，用户取消则留在原页面，正文不变。重新载入保持当前地址，项目参数不变。
 - 文档在新标签页打开 NeuroBook 用户文档站（地址是 `nbook.workbench` 的常量）；新标签被浏览器拦截时命令以 `unavailable` 结束，原因说明被拦截。
 
 ### 命令目录（资源管理器）
 
-由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与树内按键见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`，Agent 暴露一律 `never`。`when` 都另要求 `nbook.explorer/ready`。
+由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与树内按键见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`、Agent 暴露一律 `never`，只有 `nbook.files.reveal` 例外：参数 `{address, expand?}`，展开地址的各级祖先、选中它并滚到可见处，`expand` 时连它自己一起展开，Agent `auto`，不进命令面板（欢迎页的快捷入口用它）。`when` 都另要求 `nbook.explorer/ready`。
 
 | 命令 id | 标题 | `when.requires`（除 `ready`） | `effect` | 树内按键 |
 |---|---|---|---|---|
@@ -204,6 +205,7 @@ owners:
 | `nbook.files.include` | 加入清单 / Add to Manifest | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.drop-entry` | 从清单移除 / Remove from Manifest | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.clear-cut` | 清除剪切标记 / Clear Cut | — | read | Escape |
+| `nbook.files.reveal` | 在资源管理器中显示 / Reveal in Explorer | — | read | — |
 
 - 树内按键不是命令声明里的默认键位：由资源管理器的树在自己拥有焦点时处理并执行这条命令（宿主的键位分发是全局的，`Delete` 不能在树之外删文件）。从命令面板执行时作用于当前选择，不要求树有焦点。
 - 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。
@@ -211,7 +213,7 @@ owners:
 
 ### 命令目录（编辑器）（planned）
 
-由 `nbook.editor` 的浏览器入口贡献，作用于活动编辑组的活动标签；参数、`when`、`effect`、Agent 暴露与编辑器区内的键位见 [workbench.editor](editor.md#输入与前置条件)：`nbook.editor.open`、`save`、`save-all`、`revert`、`close`、`close-others`、`split-right`、`split-down`、`reopen-with`。第一批的四条编辑器命令同时由它登记，`when` 改用公开键 `nbook.editor/active`、`nbook.editor/writable`、`nbook.editor/lineNavigation`；Lab 命令场景改以 `lab.` 前缀的 id 登记样板编辑器自己的命令。
+由 `nbook.editor` 的浏览器入口贡献，作用于活动编辑组的活动标签；参数、`when`、`effect`、Agent 暴露与编辑器区内的键位见 [workbench.editor](editor.md#输入与前置条件)：`nbook.editor.open`、`open-page`、`save`、`save-all`、`revert`、`close`、`close-others`、`split-right`、`split-down`、`reopen-with`。第一批的四条编辑器命令同时由它登记，`when` 改用公开键 `nbook.editor/active`、`nbook.editor/writable`、`nbook.editor/lineNavigation`；Lab 命令场景改以 `lab.` 前缀的 id 登记样板编辑器自己的命令。
 
 ### 上下文键（第一批）
 

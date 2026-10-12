@@ -90,9 +90,10 @@ owners:
 | `nbook.files.move-up`、`nbook.files.move-down` | write | Alt+↑、Alt+↓ |
 | `nbook.files.create-content`、`nbook.files.convert`、`nbook.files.set-display`、`nbook.files.include`、`nbook.files.drop-entry` | write | — |
 | `nbook.files.clear-cut` | read | Escape |
+| `nbook.files.reveal` | read | — |
 | `nbook.view.refresh-files`（[命令目录](commands.md#命令目录第二批--外壳与-view-标题)） | read | — |
 
-- 除 `refresh-files` 外参数一律为 `{}`，作用于本窗口资源管理器的选择；Agent 暴露一律 `never`。`refresh-files` 由标题动作带本实例的视图 id 与代次调用。
+- 除 `refresh-files` 与 `reveal` 外参数一律为 `{}`，作用于本窗口资源管理器的选择；Agent 暴露一律 `never`。`refresh-files` 由标题动作带本实例的视图 id 与代次调用。`reveal {address, expand?}` 按“打开作品时揭示活动文件”同一套揭示地址，`expand` 时连它自己一起展开；Agent `auto`，不进命令面板，欢迎页的快捷入口用它（[workbench.bookshelf](bookshelf.md) 输出 19）。
 - 树内按键由树在自己的列表元素拥有焦点时处理，执行同一条命令；命令声明里不写键位：宿主的键位分发是全局的，树没有焦点时 Delete 不能删文件，而右键菜单执行命令时焦点在菜单上。内联输入、对话框与编辑器有焦点时树不处理这些键。
 - `when` 读 `nbook.explorer` 的公开布尔键：`ready`（控制器已建、偏好首读完成）、`canCreate`、`hasSelection`、`canPaste`、`canReorder`、`canCreateContent`、`canConvert`、`canEditManifest`。`when` 只说明有没有可作用的选择，执行时再按选择核对，不合格返回 `unavailable` 与原因；从命令面板执行时作用于当前选择，不要求树有焦点。
 - 没有控制器时命令为 `unavailable`（资源管理器尚未打开）；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。内联输入与确认框的状态在控制器里：视图停放或重建后在新的实例里接着显示，提交的仍是发起时冻结的对象。

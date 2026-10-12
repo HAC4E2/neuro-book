@@ -16,6 +16,7 @@ import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import {createDocumentStore} from "./documents/store";
 import type {CommitResult, DocumentReference, DocumentStore, TextDocument} from "./documents/store";
 import {createEditorGroups} from "./groups/groups";
+import {pageAddress, pageIdOf} from "./pages";
 import type {EditorGroups, EditorKind, EditorTab, GroupsSnapshot, SplitDirection, TabCursor} from "./groups/groups";
 
 /** 打开后这么久正文还没就绪才显示进度条（files-explorer 的“打开与切换”）。 */
@@ -119,6 +120,8 @@ export interface EditorArea {
     readonly notice: Readonly<ShallowRef<string | null>>;
     /** `reveal: "end"`：文档就绪、控件交出句柄后把光标放到末尾（输出 29）；在此之前切走即取消。 */
     open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: EditorKind; readonly reveal?: "end"}): OpenResult;
+    /** 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。 */
+    openPage(id: string): OpenResult;
     activate(tabId: string): ActionResult;
     pin(tabId: string): void;
     focusGroup(groupId: string): void;
@@ -256,7 +259,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const binding = (groupId: string): ViewBinding | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
-        if (group === undefined || tab === undefined) return null;
+        // 页面标签没有文档，也就没有绑定。
+        if (group === undefined || tab === undefined || tab.editor === "page") return null;
         const document = referenceOf(tab).document;
         const status = document.status.value;
         if (status !== "ready" && status !== "deleted") return null;
@@ -305,7 +309,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const documentOf = (groupId: string): TextDocument | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
-        return tab === undefined ? null : referenceOf(tab).document;
+        return tab === undefined || tab.editor === "page" ? null : referenceOf(tab).document;
     };
 
     // 进度条：活动文档还在读取时计时，800 ms 后仍在读取才显示；换标签或读完时撤掉。
@@ -412,7 +416,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (pending === null) return null;
         const group = groups.groups.value.find((candidate) => candidate.id === pending.groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === pending.tabId);
-        if (group === undefined || tab === undefined || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
+        if (group === undefined || tab === undefined || tab.editor === "page" || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
         const status = referenceOf(tab).document.status.value;
         if (status === "failed") return {outcome: "failed", address: pending.address, reveal: pending.reveal};
         if (status !== "ready" && status !== "deleted") return null;
@@ -522,6 +526,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         notice,
         open: (address, open) => {
             if (disposed) return {ok: false, reason: "编辑器已关闭"};
+            if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
             if (!leave(groups.activeGroup.value)) return {ok: false, reason: "当前视图有未裁决的输入"};
             const editor = open.editor ?? defaultEditor(address);
             const group = groups.activeGroup.value;
@@ -530,6 +535,21 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (replaced !== null) releaseTab(replaced, group);
             pendingReveal.value = open.reveal === "end" ? {groupId: group, tabId: tab.id, address, reveal: "end"} : null;
             options.opened?.(address);
+            return {ok: true, tabId: tab.id};
+        },
+        openPage: (id) => {
+            if (disposed) return {ok: false, reason: "编辑器已关闭"};
+            const address = pageAddress(id);
+            const existing = groups.groups.value.flatMap((group) => group.tabs).find((tab) => tab.address === address);
+            if (existing !== undefined) {
+                const found = groups.find(existing.id);
+                if (found !== null && found.group.active !== existing.id && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
+                groups.activate(existing.id);
+                return {ok: true, tabId: existing.id};
+            }
+            if (!leave(groups.activeGroup.value)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            pendingReveal.value = null;
+            const {tab} = groups.open(address, {mode: "permanent", editor: "page"});
             return {ok: true, tabId: tab.id};
         },
         activate: (tabId) => {
@@ -559,6 +579,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         split: (direction) => {
             const tab = groups.activeTab();
             if (tab === null) return {ok: false, reason: "没有活动标签"};
+            if (tab.editor === "page") return {ok: false, reason: "页面只开一个，不能拆分"};
             const hadFocus = focused.value;
             const created = groups.split(tab.id, direction);
             if (created === null) return {ok: false, reason: "不能再拆分"};
@@ -570,6 +591,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const group = groups.activeGroup.value;
             const tab = groups.activeTab();
             if (tab === null) return {ok: false, reason: "没有活动标签"};
+            if (tab.editor === "page") return {ok: false, reason: "页面不是文件，不能换编辑器"};
             if (!leave(group)) return {ok: false, reason: "当前视图有未裁决的输入"};
             groups.setEditor(tab.id, editor);
             return {ok: true};

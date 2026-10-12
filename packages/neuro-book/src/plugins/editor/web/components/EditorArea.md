@@ -16,6 +16,8 @@ type Props = {
     locale: DisplayLocale;
     /** 每种编辑器的控件组件（按 `control.ts` 的合同）。 */
     control: (kind: "markdown" | "code") => Component;
+    /** 页面标签的来源（页面贡献点 `editor.pages`，输出 33），原样交给每个编辑组；默认 null。 */
+    pages?: EditorPageSource | null;
 };
 
 type Emits = {

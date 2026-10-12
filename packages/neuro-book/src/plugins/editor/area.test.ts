@@ -7,6 +7,8 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {shallowRef} from "@vue/reactivity";
+
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -20,6 +22,7 @@ import type {LinkTap} from "nbook/plugins/files/testing/tap";
 import {createEditorArea, defaultEditor} from "./web/area";
 import type {EditorArea, EditorControlHandle} from "./web/area";
 import {createEditorGroups} from "./web/groups/groups";
+import {editorStateValues} from "./web/state";
 import type {GroupsSnapshot} from "./web/groups/groups";
 
 let tmp = "";
@@ -307,6 +310,38 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         const restored = await world(at.saved.at(-1) ?? null);
         await ready(restored);
         expect(restored.opened).toEqual([]);
+    });
+});
+
+describe("Spec workbench.editor 输出 33：页面标签", () => {
+    it("打开页面：活动组开一个正式标签，没有文档与绑定；再开同一页面切到已开的那个（在别的组也一样）；页面不拆分、不换编辑器，可以关闭；资源打开不接受页面地址", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        const opened = at.area.openPage("nbook.test.welcome");
+        expect(opened).toMatchObject({ok: true});
+        const tab = at.area.groups.activeTab()!;
+        expect([tab.address, tab.editor, tab.preview]).toEqual(["page://nbook.test.welcome", "page", false]);
+        expect(at.area.binding(groupId(at))).toBeNull();
+        expect(at.area.documentOf(groupId(at))).toBeNull();
+        expect(at.area.activeDocument.value).toBeNull();
+        // 公开键 activeDocument 只给文件的地址：页面不是资源管理器能揭示的东西。
+        expect(editorStateValues(shallowRef(at.area)).activeDocument.value).toBe("");
+        expect(at.area.split("right")).toEqual({ok: false, reason: "页面只开一个，不能拆分"});
+        expect(at.area.reopenWith("code")).toEqual({ok: false, reason: "页面不是文件，不能换编辑器"});
+        expect(at.area.open("page://nbook.test.welcome", {mode: "permanent"})).toMatchObject({ok: false});
+        expect(at.opened).toEqual(["project://a.md"]);
+        expect(at.saved.at(-1)?.groups[0]?.tabs.map((saved) => saved.address)).toEqual(["project://a.md"]);
+
+        // 切到 a，拆分出新组，再从新组打开同一页面：回到原来的组里的那一个。
+        at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
+        expect(at.area.split("right")).toMatchObject({ok: true});
+        const first = at.area.groups.groups.value[0]!.id;
+        expect(at.area.openPage("nbook.test.welcome")).toEqual({ok: true, tabId: tab.id});
+        expect(at.area.groups.activeGroup.value).toBe(first);
+        expect(at.area.groups.activeTab()?.id).toBe(tab.id);
+        expect(await at.area.close(tab.id)).toBe("closed");
+        expect(at.area.groups.groups.value.flatMap((group) => group.tabs).some((candidate) => candidate.editor === "page")).toBe(false);
     });
 });
 

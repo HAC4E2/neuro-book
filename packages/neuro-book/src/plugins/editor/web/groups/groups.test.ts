@@ -156,6 +156,25 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
         expect(createEditorGroups(crossed).groups.value[0]?.tabs.map((tab) => tab.cursor)).toEqual([undefined, undefined]);
     });
 
+    it("页面标签（输出 33）不进快照：活动的是页面时记它左边最近的文件标签；页面不拆分、不换编辑器", () => {
+        const groups = createEditorGroups();
+        groups.open("project://a.md", {mode: "permanent", ...md});
+        groups.open("page://nbook.test.welcome", {mode: "permanent", editor: "page"});
+        groups.open("project://b.md", {mode: "permanent", ...md});
+        const page = groups.groups.value[0]!.tabs[1]!;
+        groups.activate(page.id);
+        const snapshot = groups.snapshot();
+        expect(snapshot.groups[0]?.tabs.map((tab) => tab.address)).toEqual(["project://a.md", "project://b.md"]);
+        expect(snapshot.groups[0]?.active).toBe(0);
+        expect(groups.split(page.id, "right")).toBeNull();
+        groups.setEditor(page.id, "code");
+        expect(groups.find(page.id)?.tab.editor).toBe("page");
+
+        const only = createEditorGroups();
+        only.open("page://nbook.test.welcome", {mode: "permanent", editor: "page"});
+        expect(only.snapshot().groups[0]).toMatchObject({tabs: [], active: null});
+    });
+
     it("布局与组对不上、活动组不存在或快照损坏：从一个空组开始", () => {
         const groups = createEditorGroups();
         groups.open("project://a.md", {mode: "permanent", ...md});

@@ -144,6 +144,6 @@ export const TITLEBAR_MENUS: ReadonlyArray<MenuGroupDefinition> = [
     {
         id: "help",
         title: {"zh-CN": "帮助", "en-US": "Help"},
-        sections: [[{command: "nbook.help.documentation"}]],
+        sections: [[{command: "nbook.help.welcome"}, {command: "nbook.help.documentation"}]],
     },
 ];

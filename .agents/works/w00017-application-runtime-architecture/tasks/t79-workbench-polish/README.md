@@ -99,6 +99,16 @@ taskId: t79-workbench-polish
     - 变异 12 处全部被抓到（动作不看命令可用、按下态总为假、instance 不带实例、揭示不展开祖先、不等行出现、右键选中不作废揭示、打开作品不揭示、根不用作品名、焦点线不看 focus-visible、展开不打标记、外壳不画动作、清单开关不带按下态）。
     - `lab:shot` `WorkbenchViewActions`、`ExplorerRow`、`ExplorerTree`、`FilesExplorerView` 在 nbook、macos × 明暗下问题 0 条；[揭示与标题动作](evidences/s4-explorer.png)（开发会话，收起“正文”后刷新：展开到第二章并选中）。
 
+- 2026-10-12 S5（欢迎页）完成：
+  - 页面标签：编辑器新增贡献点 `editor.pages`（声明标题、图标、`openOnFirstVisit`，实现交出组件）与命令 `nbook.editor.open-page`。页面标签的地址是 `page://<id>`，窗口里只开一个，切过去时连同它所在的组；它没有文档：不读盘、不算 dirty、没有光标，不能拆分、不能换编辑器，`nbook.editor.open` 不接受这类地址。会话快照只收文件标签，活动的是页面时记它左边最近的文件标签；公开键 `activeDocument` 为空串。“第一次打开”看会话记录读到“不存在”，带继续写作参数时不开。
+  - 欢迎页由 `nbook.projects` 贡献：宿主（`web/welcome.ts`）每次挂上时取书架条目（简介与统计）和项目根的列出（快捷入口），新建章节在项目根按 `新章节.md`、`新章节 2.md`……避开已有名字建空文件再以正式标签打开，快捷入口的文件经 `nbook.editor.open`、文件夹经新命令 `nbook.files.reveal {expand: true}`，回到书架整页导航；组件 `WelcomePage` 是受控零件，命令面板的快捷键按平台写成按键。帮助菜单加“欢迎”（`nbook.help.welcome`；起初叫 `nbook.projects.welcome`，被内置命令的 domain 清单拒绝）。对文件服务的依赖可选：项目插件的测试装配没有文件插件，必需依赖会让它激活失败。
+  - Spec：`workbench/editor.md` 输出 33、验收 20、`editor.pages` 输入与数据一节；`workbench/bookshelf.md` 新增“欢迎页”输出 18–20、验收 10–12；`workbench/commands.md`（`nbook.help.welcome`、`nbook.files.reveal`、`open-page`）、`workbench/files-explorer.md` 揭示命令、`ui/workbench-shell.md` 帮助菜单。组件文档 `WelcomePage`（新）、`EditorGroup`、`EditorArea`。计划第 6 节补了实施中的修订。
+  - 验证：
+    - bun 测试 777 例过、1 例失败：`settings/commands.test.ts` 的“项目层覆盖着主题时……”报工作台 `provider-blocked`，在 S1 之前的提交（`3800c43f~1`）的临时 worktree 里同样失败，不是本 Task 引入的，没有处理。vitest 168 例全过，typecheck 为 0。新增 `welcome.test.ts`（快捷入口的筛选与次序、新章节的名字）、`WelcomePage.dom.test.ts` 三例、`area.test.ts` 的“页面标签”、`groups.test.ts` 的“页面标签不进快照”，`projects.test.ts` 断言帮助命令登记成功。
+    - e2e：新增 `welcome.e2e.ts` 三例（验收 10–12）；全套 174 例全过。
+    - 变异：单元 12 处全部被抓到；e2e 5 处抓到 4 处，存活的是“活动页面时 `activeDocument` 仍报页面地址”（e2e 里没有读它的地方），补了 `area.test.ts` 的断言后被抓到。
+    - `lab:shot` `WelcomePage` 五个场景（作品、新作品、新建失败、没有绑定项目、英文）问题 0 条。[欢迎页](evidences/s5-welcome.png)（开发会话的雾港新客户端，与 Lab 的新作品场景）。
+
 ## 下一步
 
-S5：欢迎页（`editor.pages` 页面标签，`nbook.projects` 贡献：概况、新建与最近打开、入门、快捷入口；新作品自动打开，帮助菜单可再打开，刷新后不恢复）。
+S6：收口证据与 e2e 全套，omp 实现审查，处理意见后关闭 Task（README 与 Work 行）。

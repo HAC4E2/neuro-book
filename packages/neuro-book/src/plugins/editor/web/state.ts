@@ -47,6 +47,10 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>)
         hasUnsavedDocuments: computed(() => area.value?.openDocuments.value.some(needsSaving) === true),
         hasCursorPosition: computed(() => handle.value?.position?.value != null),
         ready: computed(() => area.value !== null),
-        activeDocument: computed(() => area.value?.groups.activeTab()?.address ?? ""),
+        activeDocument: computed(() => {
+            const tab = area.value?.groups.activeTab() ?? null;
+            // 页面标签（欢迎页这类）不是文件，没有可揭示的地址。
+            return tab === null || tab.editor === "page" ? "" : tab.address;
+        }),
     };
 }

@@ -36,6 +36,7 @@ const MESSAGES = {
     reload: {"zh-CN": "重新读取", "en-US": "Reload"},
     discard: {"zh-CN": "放弃", "en-US": "Discard"},
     notReady: {"zh-CN": "资源管理器尚未打开", "en-US": "The explorer is not open yet"},
+    reveal: {"zh-CN": "在资源管理器中显示", "en-US": "Reveal in Explorer"},
     staleView: {"zh-CN": "资源管理器视图已重建", "en-US": "The explorer view was recreated"},
     notVisible: {"zh-CN": "资源管理器没有显示", "en-US": "The explorer is not visible"},
     unavailableNoTarget: {"zh-CN": "没有可以新建的位置：先选中一个目录", "en-US": "No place to create in: select a folder first"},

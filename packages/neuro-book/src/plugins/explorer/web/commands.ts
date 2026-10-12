@@ -7,6 +7,7 @@
 import {Type} from "typebox";
 
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {ActionResult, ExplorerController} from "./controller";
@@ -34,6 +35,7 @@ export const COPY_COMMAND = "nbook.files.copy";
 export const CUT_COMMAND = "nbook.files.cut";
 export const PASTE_COMMAND = "nbook.files.paste";
 export const CLEAR_CUT_COMMAND = "nbook.files.clear-cut";
+export const REVEAL_COMMAND = "nbook.files.reveal";
 
 const CATEGORY = {"zh-CN": "文件", "en-US": "Files"};
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
@@ -78,6 +80,16 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
         expose: {human: false, agent: "never"},
         when: requires("ready"),
     },
+    // 欢迎页的快捷入口用它揭示文件夹（docs/specs/workbench/files-explorer.md 的“打开作品时揭示活动文件”同一套揭示）。
+    [REVEAL_COMMAND]: {
+        title: explorerLocalized("reveal"),
+        category: CATEGORY,
+        description: "Reveal a resource in this window's explorer: expand its parent folders, then select it and scroll it into view; with expand, also expand the folder itself.",
+        args: Type.Object({address: Type.String({pattern: `^(?:project|user)://${RESOURCE_PATH_PATTERN.slice(1)}`}), expand: Type.Optional(Type.Boolean())}, {additionalProperties: false}),
+        effect: "read",
+        expose: {human: false, agent: "auto"},
+        when: requires("ready"),
+    },
 } as const satisfies Readonly<Record<string, CommandDeclaration>>;
 
 /** 需要界面输入（内联输入或确认框）的命令：视图要挂着且可见。 */
@@ -119,6 +131,16 @@ export function explorerCommands(session: ExplorerSession, locale: () => Display
         [CUT_COMMAND]: action(CUT_COMMAND, (controller) => controller.cut()),
         [PASTE_COMMAND]: action(PASTE_COMMAND, (controller) => controller.paste()),
         [CLEAR_CUT_COMMAND]: action(CLEAR_CUT_COMMAND, (controller) => controller.clearCut()),
+        [REVEAL_COMMAND]: {
+            run: (args) => {
+                const {address, expand} = args as {address: string; expand?: boolean};
+                const controller = session.controller.value;
+                if (controller === null) return unavailable(explorerText(locale(), "notReady"));
+                controller.reveal(address);
+                if (expand === true) controller.model.expand(address);
+                return {ok: true, value: null};
+            },
+        },
         [REFRESH_FILES_COMMAND]: {
             run: (args) => {
                 const {viewId, generation} = args as {viewId: string; generation: number};
