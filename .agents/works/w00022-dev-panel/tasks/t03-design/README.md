@@ -32,7 +32,8 @@ taskId: t03-design
   4. **会话**：面板只做 herdr 的网页前端，会话由 herdr 后端托管，面板依赖 herdr。
   5. **内容分类与导航**按主 Agent 的提议：收件箱（只放要开发者动手的条目，指向下面各类）、工作（Work › Task，Task 页是聚合页）、产物（Agent 交来的：设计稿、讲解与报告、审查、证据；“提问”是任何产物上都能挂的东西，挂了未答的才进收件箱）、文档（Spec、ADR、Proposal、规范与测试规范、Skill、AGENTS、用户文档，默认看 master）、现场（会话、在跑、代码、GitHub 的 Issue 与 PR）。左栏按“首页与收件箱、工作、产物、文档、现场”分组。
   6. **需求补充分析里的待定项**按主 Agent 的推荐确认：产物页第一版只做 HTML（Vue 与 nb-ui 等 w00017 合入后）；worktree 一个 Task 一个（改规则）；Task 号允许三位（t100 起，改治理检查的正则）；omp 会话目录放 `.local/agent/…/reports/`（改用户全局规则里那句）；执行位置以 Work README 为准，登记表的 `home` 只当提示；新增本地目录 `run/`、`logs/`、`review/.pages/`、`panel.json`；核心放 `packages/dev-panel` 并加编号规则一致性测试；命令名 `nbdev`，装用户级入口；以及小项（`dev stop` 默认不停别人的、同 checkout 复用开发服务、未检出分支默认不显示、“治理文件落后 master”放第二版、允许 Agent 代录口头答复并标明、纯讲解页无“已看”、只支持 Linux、`.local/agent` 不自动清理、`shot` 薄包装、用户区不动、编号规则随命令行同提交切换）。受范围扩大影响、等会话托管调研再定的：通知方式（面板经 herdr 直接通知会话）、面板是否常驻、产物页放第二个来源。
-- 第二轮静态稿进行中：按新的分类与导航，加 Work › Task 树、GitHub 入口、会话视图。
+- 第二轮静态稿完成（评审板最上面一节，数据 16:01）：首页（分组导航、Work › Task 树、收件箱四类、会话）、会话页（真实的只读终端输出、发消息与“空闲时再发”）、回复后通知会话的小窗、产物页（四类，问题挂在旁边）、文档页（切换 checkout）、GitHub（PR 与 Issue）。主 Agent 已在六个待定问题上写推荐。画稿发现 14 条需求问题（会话相关为主：会话属于哪个 Work 拿不到、herdr 读不出“问完停下”、输入框里没发出的话读不出、排队要面板常驻等）。
+- 会话托管调研完成：[session-hosting-research.md](session-hosting-research.md)。只用 herdr 现有接口第一版的四件事都能做：看终端用 `herdr terminal session observe` 的实时流，发消息用 `agent.prompt`，按会话 id 核对身份、等空闲再发；herdr 的 socket 没有鉴权，局域网开放等于远程 shell，第一版只绑回环、跨设备走 Tailscale Serve 或 SSH 隧道，设备配对登录，产物页放另一个来源。
 
 ## 下一步
 
