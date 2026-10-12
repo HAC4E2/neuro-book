@@ -6,7 +6,7 @@
  * 所以宽度可以写成 CSS 字符串。
  */
 
-import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
+import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import type {CSSProperties, Ref} from "vue";
 import {useElementSize, useWindowSize} from "@vueuse/core";
 
@@ -236,23 +236,20 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         }
     }
 
-    // 打开时居中：量一次实际尺寸，按容器居中；量不到就用 64px 顶距。
-    watch(() => options.enabled() && options.open(), (open) => {
-        if (!open) {
+    // 打开时居中：量一次实际尺寸，按容器居中；量不到就用 64px 顶距。看的是面板元素而不只是“打开”：传送到 body 时
+    // reka 的 Teleport 自己挂载后才渲染内容，第一次就打开的窗口面板比“打开”晚一拍出现。渲染之后才运行，量的是挂好的面板。
+    watch(() => (options.enabled() && options.open() ? options.windowRef.value : null), (element) => {
+        if (element === null) {
             positioned.value = false;
             return;
         }
         resolvePortal();
-        void nextTick(() => {
-            const element = options.windowRef.value;
-            if (element === null) return;
-            const size = measured();
-            const container = containerSize.value;
-            x.value = Math.max(12, Math.round((container.width - size.width) / 2));
-            y.value = size.height > 0 ? Math.max(24, Math.round((container.height - size.height) / 2)) : 64;
-            positioned.value = true;
-        });
-    }, {immediate: true});
+        const size = measured();
+        const container = containerSize.value;
+        x.value = Math.max(12, Math.round((container.width - size.width) / 2));
+        y.value = size.height > 0 ? Math.max(24, Math.round((container.height - size.height) / 2)) : 64;
+        positioned.value = true;
+    }, {immediate: true, flush: "post"});
 
     onBeforeUnmount(() => {
         resizeCleanup?.();

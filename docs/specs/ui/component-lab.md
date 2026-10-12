@@ -161,6 +161,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 25. Given 舞台里分别贴着 `overflow: hidden` 容器的边放一个自己画焦点环的按钮、一个焦点环画在外框上的外框、一个不可聚焦却直接写了 `:focus-visible` 的外框，另有一个离边留足内距的按钮，When 调用 `measure()`，Then `clippedFocus` 只报前两个。
 26. Given 舞台里分别贴着 `overflow: hidden` 容器的边放一个画着不偏移外阴影的元素、一个画着 outline 的元素、一个只带偏移投影的元素，另有一个留足内距的外阴影元素，When 调用 `measure()`，Then `clippedRings` 只报前两个；Given 对话框场景，When 在对话框里放同样贴边的外阴影元素、在画布的浮层落点里放一个比画布宽的元素，Then 前者进 `clippedRings`，后者进 `offenders`；舞台里一个斜着比舞台宽、在无限旋转的元素不进 `offenders`，同样斜着、静止的进。
 27. Given 全部登记场景与已知问题的基线（按“组件/场景”记“类型 所属组件”的个数），When 在手机画布上逐个打开并等入场动画播完，Then 每个场景 `measure()` 报出的舞台横向溢出、越界元素、光晕会被裁的控件与外扩环被裁的元素与基线的个数一致：比基线多（新问题）或比基线少（修好了没改基线）都失败。
+28. Given 焦点环实色扩散量不同的三套主题（editorial 3px、nbook 3.5px、aurora 4px），When 在每套主题下分别把一个自己画焦点环的按钮放在离 `overflow: hidden` 容器的边 3.25px 与 3.75px 处并调用 `measure()`，Then `clippedFocus` 只报离边小于该主题扩散量的那个：editorial 都不报，nbook 只报 3.25px，aurora 两个都报。
 
 ## 实现合同
 

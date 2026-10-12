@@ -44,28 +44,52 @@ const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]:not([tabi
 /** box-shadow 的一层：偏移、模糊、扩散（像素），是否内阴影，颜色是否全透明。 */
 type ShadowLayer = {readonly x: number; readonly y: number; readonly blur: number; readonly spread: number; readonly inset: boolean; readonly transparent: boolean};
 
-/** 按顶层逗号把 box-shadow 拆成层：颜色里的 `color-mix(...)`、`rgb(...)` 自带逗号，括号内不拆。 */
-function shadowLayers(value: string): ShadowLayer[] {
+/** 按顶层的分隔符切开：括号连同里面的内容归在它所在的那一段（颜色函数自带逗号与空白）。 */
+function splitTopLevel(value: string, separator: (char: string) => boolean): string[] {
     let depth = 0;
-    let start = 0;
+    let current = "";
     const parts: string[] = [];
-    for (let index = 0; index < value.length; index += 1) {
-        const char = value[index];
+    for (const char of value) {
         if (char === "(") depth += 1;
         else if (char === ")") depth -= 1;
-        else if (char === "," && depth === 0) {
-            parts.push(value.slice(start, index));
-            start = index + 1;
+        if (depth === 0 && separator(char)) {
+            parts.push(current);
+            current = "";
+        } else {
+            current += char;
         }
     }
-    parts.push(value.slice(start));
+    parts.push(current);
+    return parts;
+}
+
+/**
+ * 阴影里的长度：带 px，或者不写单位的 0。主题的 `--focus-ring` 是自定义属性，浏览器只替换 `var()`、原样给出
+ * `0 0 0 4px`，不像 box-shadow 的计算值那样规范成 px。
+ */
+const SHADOW_LENGTH = /^-?(?:\d+\.?\d*|\.\d+)(?:px)?$/u;
+/**
+ * 颜色本身全透明：`transparent`，或 alpha 为 0 的颜色函数。alpha 只在斜杠后面，或逗号写法的第四个参数：`rgb(0, 0, 0)`
+ * 末尾的 0 是蓝色。`color-mix(…, transparent)` 是半透明的混色，照样算。
+ */
+function fullyTransparent(token: string): boolean {
+    if (token === "transparent") return true;
+    const args = /^(?:rgba?|hsla?|color|oklch|oklab|lab|lch)\((.*)\)$/u.exec(token)?.[1];
+    if (args === undefined) return false;
+    const commas = args.split(",");
+    const alpha = args.includes("/") ? args.slice(args.lastIndexOf("/") + 1) : commas.length === 4 ? commas[3] : undefined;
+    return alpha !== undefined && Number.parseFloat(alpha) === 0;
+}
+
+/** box-shadow 拆成层，每层按顶层空白切词：长度依次是偏移、模糊、扩散；其余是颜色与 inset。 */
+function shadowLayers(value: string): ShadowLayer[] {
     const layers: ShadowLayer[] = [];
-    for (const part of parts) {
-        // 颜色里的数字不是长度：先去掉括号里的内容再找带 px 的数。
-        const lengths = part.replace(/\([^()]*\)/gu, "").match(/-?\d*\.?\d+px/gu)?.map((length) => Number.parseFloat(length)) ?? [];
+    for (const part of splitTopLevel(value, (char) => char === ",")) {
+        const tokens = splitTopLevel(part.trim(), (char) => /\s/u.test(char)).filter((token) => token !== "");
+        const lengths = tokens.filter((token) => SHADOW_LENGTH.test(token) && (token.endsWith("px") || Number.parseFloat(token) === 0)).map((token) => Number.parseFloat(token));
         if (lengths.length < 2) continue;
         const [x = 0, y = 0, blur = 0, spread = 0] = lengths;
-        layers.push({x, y, blur, spread, inset: /\binset\b/u.test(part), transparent: /\btransparent\b|rgba\([^)]*,\s*0\)|\/\s*0\)/u.test(part)});
+        layers.push({x, y, blur, spread, inset: tokens.includes("inset"), transparent: tokens.some(fullyTransparent)});
     }
     return layers;
 }

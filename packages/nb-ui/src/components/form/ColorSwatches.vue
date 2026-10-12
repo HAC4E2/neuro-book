@@ -157,7 +157,7 @@ const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat
                         data-color-swatches-panel
                         @close-auto-focus="onPanelCloseAutoFocus"
                     >
-                        <ColorPickerPanel :model-value="customColor ?? props.colors[0] ?? ''" @update:model-value="(value: string) => emit('update:modelValue', value)" />
+                        <ColorPickerPanel :model-value="customColor ?? props.colors[0] ?? ''" :disabled="props.disabled" @update:model-value="(value: string) => emit('update:modelValue', value)" />
                     </PopoverContent>
                 </PopoverPortal>
             </PopoverRoot>

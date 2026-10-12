@@ -105,6 +105,34 @@ test("measure 报出聚焦光晕会被裁的元素：按样式表的焦点规则
     expect(clipped).toEqual({base: 0, own: 1, shell: 1, frame: 0, roomy: 0, near: 0});
 });
 
+test("聚焦光晕按当前主题焦点环的实色扩散量算：editorial 3px、nbook 3.5px、aurora 4px（验收 28）", async ({page}) => {
+    const measured: Record<string, Record<string, number>> = {};
+    for (const theme of ["editorial", "nbook", "aurora"]) {
+        await page.goto(`${dev.pageUrl}lab?c=SkillChip&s=skill&theme=${theme}`);
+        await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
+        measured[theme] = await page.evaluate(() => {
+            const style = document.head.appendChild(document.createElement("style"));
+            style.textContent = ".probe-ring:focus-visible { box-shadow: var(--focus-ring); }";
+            const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
+            const counts: Record<string, number> = {};
+            // 主题 token 原样写着无单位的 0 与 `color-mix(…, transparent)`：读不懂时会退回 3.5px，三套主题就分不出来。
+            for (const padding of ["3.25px", "3.75px"]) {
+                const box = Object.assign(document.createElement("div"), {style: `overflow: hidden; padding: ${padding}`});
+                box.append(Object.assign(document.createElement("button"), {className: "probe-ring", textContent: padding}));
+                stage.append(box);
+                counts[padding] = (window as unknown as {__nbLab: LabDebugApi}).__nbLab.measure()?.clippedFocus.length ?? -1;
+                box.remove();
+            }
+            return counts;
+        });
+    }
+    expect(measured).toEqual({
+        "editorial": {"3.25px": 0, "3.75px": 0},
+        "nbook": {"3.25px": 1, "3.75px": 0},
+        "aurora": {"3.25px": 1, "3.75px": 1},
+    });
+});
+
 test("measure 报出现在画着的外扩环会被裁的元素：不偏移的外阴影与 outline 算，偏移投影与离边够远的不算；画布上的对话框也量（验收 26）", async ({page}) => {
     await page.goto(`${dev.pageUrl}lab?c=SkillChip&s=skill`);
     await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);

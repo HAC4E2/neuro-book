@@ -5,7 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, rm} from "node:fs/promises";
+import {chmod, rename, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {computed, shallowRef} from "@vue/reactivity";
@@ -150,6 +150,27 @@ describe("状态栏条目", () => {
         // 切回来时那次输入还没到点：也立即按当前正文算。
         await opened(scene, area, "project://a.md");
         expect(words()).toBe("6 字");
+    });
+
+    it("输入还没到点时文件被外部移走：停手后按保留下来的正文算出字数", async () => {
+        const {scene, area} = await world();
+        const ref = shallowRef<EditorArea | null>(area);
+        const clock = new ManualClock();
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock);
+        const shownWords = computed(() => items[WORD_COUNT_ITEM]!.text());
+        await opened(scene, area, "project://a.md");
+        expect(shownWords.value).toBe("3 字");
+        type(area, "---\ntitle: 甲\n---\n第一章 rain falls");
+        // 状态栏随输入重新求值：先显示旧值并排上计时。
+        expect(shownWords.value).toBe("3 字");
+        // 文档进入 deleted，正文保留（editor.md 输出 18）。
+        await rename(join(scene.project, "a.md"), join(scene.project, "a-moved.md"));
+        await waitUntil("文档标为已删除", () => {
+            scene.world.clock.advance(BATCH_DELAY_MS);
+            return area.activeDocument.value?.status.value === "deleted";
+        });
+        clock.advance(WORD_COUNT_DELAY_MS);
+        expect(shownWords.value).toBe("5 字");
     });
 
     it("光标位置只在活动控件给出位置时有；换成不给位置的控件后公开键为假", async () => {

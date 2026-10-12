@@ -23,6 +23,18 @@ taskId: t77-bookshelf-polish-2
 
 ## 当前状态
 
+- 2026-10-12 完成：omp 实现审查（`daf159b4..b28db3a1`，一个会话，书架、Lab、字数三个子审查）5 条，重要 4、建议 1、阻断 0，[报告与处理](evidences/implementation-review.md)：
+  - C1 浮动窗口第一次挂载就打开时一直隐藏：reka 的 `Teleport` 挂载后才渲染内容，定位只排一次 `nextTick` 落空。`useFloatingWindow` 改为看“打开时的面板元素”、渲染之后再量。
+  - C2 自定义取色面板开着时禁用色板仍能改值：`ColorSwatches` 把 `disabled` 传给面板。
+  - C3 输入未结算时文件被外部移走，字数停在旧值并反复重算：`deleted`（保留正文）也写字数缓存。
+  - C5 Lab 把主题焦点环一律读成 3.5px：真实 Chrome 复现，自定义属性的计算值保留无单位 0 与 `color-mix(…, transparent)` 原文，解析全部落空。改为按顶层切词，只有颜色本身全透明才排除；Spec 追加验收 28。
+  - C4（非模态窗口缺首尾 Tab 循环的测试）不改：组件合同对浮动窗口只承诺不锁焦点，首尾循环是 reka 的实现细节。
+  - 顺带：`ui-development-spec.md` 自检清单里“光晕约 7px”改为按实色部分；审查期间并行做的事见下一条。
+  - 验证：
+    - 每条修复先写出修复前失败的回归测试（C1 读到 `hidden`、C2 发出 `#aabbcc`、C3 显示 `3 字`），C5 的 3 处变异都被 `lab-shot.e2e.ts` 抓到；
+    - `test:affected --typecheck --since daf159b4`：两包 typecheck 为 0，nb-ui 37 个文件 550 例、neuro-book vitest 38 个文件 165 例全过；`bun test` 984 过、1 失败（已知的 `settings/commands.test.ts`）；
+    - 全量 e2e 第一轮 159 过、3 失败：一例是 C5 第一版把 `rgb(0, 0, 0)` 末尾的蓝色 0 当成 alpha（验收 26 抓到，已改），另两例 `lab-item-strip` 与 `workbench-titlebar` 的撤销菜单焦点单独连跑两次都过，是全量负载下的偶发；修后 `lab-shot` 与 `lab-scenes` 6 例全过，再跑全量 162 例全过；
+    - `docs:check`、`governance:check` 无失败，治理警告只有 `components.test.ts` 里原有的 14 处假计时器（文件因 C1 的回归测试进了改动范围）。
 - 2026-10-12 omp 实现审查期间并行做的（开发者同意）：
   - 反思回写三条已写入：`design-language.md` 踩过的坑 52（列表类组件外部改值抢焦点）、53（机检报 0 前先验坏样本），根 `AGENTS.md` 补 `bunx` 不支持 `--cwd`。
   - `workbench/notifications.md` 输出 1 与目标、术语里的“在字段下提示”改成与 S2 的校验规则一致：留在表单里，原因写在状态行。同样漏改的 `ProjectInfoDialog.md`、`BookshelfHost.md` 两处组件文档一并改正。

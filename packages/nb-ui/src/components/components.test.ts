@@ -1,4 +1,4 @@
-import {mount} from "@vue/test-utils";
+import {flushPromises, mount} from "@vue/test-utils";
 import {describe, expect, it, vi} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 import Button from "./controls/Button.vue";
@@ -827,6 +827,23 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             expect(wrapper.find("[data-dialog-overlay]").exists()).toBe(false);
             expect(wrapper.find(".i-lucide-grip-vertical").exists()).toBe(false);
             expect(dialog.text()).toContain("窗口内容");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("shows a window mounted already open and teleported to body, and again after reopening", async () => {
+        // 传送到 body 时 reka 的 Teleport 挂载后才渲染内容：面板比“打开”晚一拍出现，定位要等到面板挂上。
+        const wrapper = mountWindow({teleportTarget: undefined});
+        const visibility = (): string | undefined => document.querySelector<HTMLElement>("[data-dialog-surface]")?.style.visibility;
+        try {
+            await flushPromises();
+            expect(visibility()).toBe("");
+            await wrapper.setProps({modelValue: false});
+            await flushPromises();
+            await wrapper.setProps({modelValue: true});
+            await flushPromises();
+            expect(visibility()).toBe("");
         } finally {
             wrapper.unmount();
         }

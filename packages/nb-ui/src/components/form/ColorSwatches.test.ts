@@ -71,6 +71,18 @@ describe("ColorSwatches", () => {
         expect(document.body.querySelector("[data-color-swatches-panel]")).toBeNull();
         expect(document.activeElement).toBe(swatch("custom"));
     });
+
+    it("面板开着时变成 disabled：面板里的输入也不再改值", async () => {
+        const wrapper = mountSwatches(null);
+        swatch("custom").click();
+        await flushPromises();
+        await wrapper.setProps({disabled: true});
+        const input = document.body.querySelector<HTMLInputElement>("[data-color-swatches-panel] input[data-color-panel-input]")!;
+        input.value = "#aabbcc";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        await press(input, "Enter");
+        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    });
 });
 
 describe("ColorPicker", () => {

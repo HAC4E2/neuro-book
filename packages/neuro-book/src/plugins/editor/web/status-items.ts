@@ -55,7 +55,10 @@ export const WORD_COUNT_DELAY_MS = 300;
  * 由条目文字的求值驱动，不另开监听：状态栏每次求值都会调到这里（移动光标也会），所以计时只在待算的修订号变了时重排。
  */
 function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock): () => number {
-    /** 文档对象在打开期间不变；只缓存文档就绪时算出的值。 */
+    /**
+     * 文档对象在打开期间不变。只缓存正文就是文件内容时算出的值：就绪，或外部删除后保留着正文；加载中与加载失败时不缓存。
+     * 删除后也要缓存：否则到点算完、缓存的修订号仍旧，又排一次计时，字数停在旧值并反复重算。
+     */
     const counts = new WeakMap<TextDocument, {readonly revision: number; readonly count: number}>();
     /** 延后的计算算完时加一，让条目文字重新求值。 */
     const settled = shallowRef(0);
@@ -68,7 +71,7 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
     };
     const countNow = (document: TextDocument, revision: number): number => {
         const count = countWords(document.text.value);
-        if (document.status.value === "ready") counts.set(document, {revision, count});
+        if (document.status.value === "ready" || document.status.value === "deleted") counts.set(document, {revision, count});
         return count;
     };
 
