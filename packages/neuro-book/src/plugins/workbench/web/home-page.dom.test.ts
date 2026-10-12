@@ -1,6 +1,7 @@
 /**
- * 工作台的两个内置页面（docs/specs/ui/workbench-shell.md 输出 36–37）：`/` 在没有项目且有首页贡献时渲染贡献的组件，
- * 其余情形渲染外壳；加载失败退回外壳并记诊断；提供者换了之后迟到的结果不用；`/workbench` 从不用首页贡献。
+ * 工作台的两个内置页面（docs/specs/ui/workbench-shell.md 输出 36–37、41）：`/` 在没有项目且有首页贡献时渲染贡献的组件，
+ * 其余情形渲染外壳；加载失败退回外壳并记诊断；提供者换了之后迟到的结果不用；`/workbench` 从不用首页贡献。页面浮层在首页
+ * 与工作台页都挂着。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
@@ -23,6 +24,7 @@ function world(projectName: string | null = null) {
         renderShell: () => h(Shell),
         renderCommandHost: () => h("span", {"data-test-commands": ""}),
         renderNotifications: () => h("span", {"data-test-notifications": ""}),
+        renderOverlays: () => h("span", {"data-test-overlays": ""}),
         projectName,
         home: {current},
         reportHome: (message) => reports.push(message),
@@ -41,6 +43,17 @@ describe("工作台页面与首页贡献", () => {
         expect(wrapper.find("[data-test-commands]").exists()).toBe(true);
         expect(wrapper.find("[data-test-notifications]").exists()).toBe(true);
         expect(wrapper.attributes("data-workbench-home")).toBeUndefined();
+    });
+
+    it("页面浮层在首页（书架）、空工作台与 /workbench 都挂着", async () => {
+        const {current, pages} = world();
+        const empty = mount(pages.home);
+        expect(empty.find("[data-test-overlays]").exists()).toBe(true);
+        current.value = immediate("test.shelf.home", Home);
+        await flushPromises();
+        expect(empty.find("[data-test-home]").exists()).toBe(true);
+        expect(empty.find("[data-test-overlays]").exists()).toBe(true);
+        expect(mount(pages.workbench).find("[data-test-overlays]").exists()).toBe(true);
     });
 
     it("有首页贡献时加载期间不画外壳，加载完渲染贡献的组件；撤回后回到外壳", async () => {

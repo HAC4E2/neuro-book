@@ -18,7 +18,7 @@ owners:
 - 搜索；密钥项的界面（随第一个密钥使用者）；本机层（configuration 输出 22）；打开设置文件的按钮；用户自定义快捷键。
 - 路径类控件（选择目录）：路径类的项由所属插件贡献 page 分区，自己给选择方式。
 - 手机宽度：只做桌面宽度。
-- 入口按钮：工作台活动栏底部的齿轮见 [`ui.workbench-shell`](../ui/workbench-shell.md)，书架顶部的齿轮见 [`workbench.bookshelf`](../workbench/bookshelf.md)；本 Spec 只定它们执行的命令与读的公开状态。
+- 入口按钮的样子：工作台活动栏底部的齿轮见 [`ui.workbench-shell`](../ui/workbench-shell.md) 输出 40，书架顶部的齿轮见 [`workbench.bookshelf`](../workbench/bookshelf.md) 输出 1；本 Spec 只定它们执行的命令、读的公开状态与谁贡献它们（“打开窗口”）。
 - 窗口的位置不记，每次居中。
 
 ## 术语与参与者
@@ -27,6 +27,7 @@ owners:
 - **list 分区**、**page 分区**：前者窗口按配置项的声明画控件，后者贡献方交出页面组件。
 - **小组**：list 分区里带小标题的一组配置项。小组 id 是分区声明的公开合同，别的插件的配置项按 id 引用。
 - **标签**：窗口顶部的“用户 | 本作品”，决定编辑哪一层；未绑定作品的窗口只有用户层，没有标签。
+- **书名**：窗口绑定的作品的显示名：书名，没有书名时是目录原名（[`runtime.projects`](../runtime/projects.md) 术语）；不是地址栏用的短名。覆盖提示（输出 11）与页面上下文的 `projectTitle` 用它。
 - **“其它”**：窗口自己的分区，不是贡献；收留没写 `section` 或指向不存在的分区的配置项。
 - **交付状态**、**交付句柄**：同 [`workbench.views`](../workbench/views.md) 的定义，只对 page 分区有意义。
 - 参与者：贡献分区的插件入口；声明配置项的插件；`nbook.settings`（贡献点拥有者、窗口、用户编辑的调用方）；`nbook.workbench`（通知、页面浮层与入口按钮）；用户。
@@ -57,7 +58,7 @@ interface SettingsPageImplementation {
 interface SettingsPageContext {
     readonly id: string;
     readonly layer: Readonly<Ref<"user" | "project">>;    // 当前标签；页面只编辑这一层
-    readonly projectTitle: Readonly<Ref<string | null>>;  // 绑定作品的书名，没有绑定时为 null
+    readonly projectTitle: Readonly<Ref<string | null>>;  // 绑定作品的书名（见术语），没有绑定时为 null
 }
 ```
 
@@ -76,6 +77,10 @@ interface SettingsPageContext {
 
 - 命令 `nbook.settings.open`，参数 `{section?: string; layer?: "user" | "project"}`，默认键位 `Mod+,`（其它平台 `Ctrl+,`、macOS `⌘,`；显示与分发见 [`workbench.commands`](../workbench/commands.md)）；只读（`effect: "read"`），不对 Agent 开放。“其它”分区的 id 是 `other`（只有一段，分区贡献写不出来，不会撞名），它在左栏里时可以作 `section`。
 - 公开状态 `nbook.settings/windowOpen`（布尔，[`state.public`](../state/public-state.md)）：本页的设置窗口开着时为真，没有绑定时为假。
+- 入口：`nbook.settings` 的窗口入口（启动即激活）向工作台贡献两样，都随这个入口出现与消失：
+  - 活动栏底部条目 `nbook.settings`（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 40）：标题“设置”、图标 `i-lucide-settings`、`order: 1000`（在头像占位之下）、命令 `nbook.settings.open`、`toggled: nbook.settings/windowOpen`。
+  - 页面浮层 `nbook.settings.window`（输出 41）：窗口本身。工作台在页面根上挂一份，首页（书架）与工作台页都有，每个浏览器页面一份。
+- 书架右上角的齿轮由 `nbook.projects` 自己画，执行同一条命令、读同一个公开键（[`workbench.bookshelf`](../workbench/bookshelf.md) 输出 1）。
 
 ### 给页面用的组件
 
@@ -140,7 +145,7 @@ page 分区的交付状态：
 - 一次加载从发起到结果回来之间，入口可能停止：撤回先于结果到达时丢弃结果（输出 5）；结果先到、撤回后到时，先挂上的页面随撤回卸载并显示停止原因。
 - “重新加载”“重试”在一次进行中时重复点击不发起第二次。
 - 用户编辑成功返回时本窗口已是新值（configuration 输出 19）；同一层被别处改动（另一个窗口、外部改文件）时窗口里的值即时变化。
-- 设置窗口挂在页面根上，随页面卸载（导航、刷新）而关闭，`windowOpen` 回到假；每个浏览器页面各一份，互不影响。
+- 设置窗口经工作台的页面浮层挂在页面根上，随页面卸载（导航、刷新）而关闭，`windowOpen` 回到假；每个浏览器页面各一份，互不影响。窗口组件加载失败或渲染出错时只是窗口不显示（工作台记诊断 `workbench.overlays`），命令照常改变 `windowOpen`。
 - 窗口的数据来源与用户编辑路径由 `nbook.settings` 的配置核心入口持有：它停止时窗口关闭，进行中的写入照常结算。
 
 ## 副作用与数据
@@ -182,4 +187,6 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 ## 证据
 
 - 批准依据：开发者批准的 [t80 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md)“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）。
-- 合同测试：[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
+- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`）
+- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、组件测试 `SettingsWindow.dom.test.ts`、`SettingsRow.dom.test.ts`、`SettingsPageList.dom.test.ts`；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
+- Smoke：[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（验收 1–4、6：工作台与书架的齿轮、`Ctrl+,`，两个页面即时变化，本作品覆盖与移除，恢复默认后的文件，文件改坏与修好，尺寸跨关闭与刷新）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（“作品”分区的目录选择器叠在窗口上）；Lab 场景 `SettingsWindow`、`SettingsRow`、`SettingsPageList`、`SettingsControl`

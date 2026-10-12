@@ -1,6 +1,6 @@
 /**
- * 状态栏与标题栏的条目贡献点（docs/specs/ui/workbench-shell.md 外壳四输出 33）：声明与登记校验。声明是纯数据，前后端
- * 都能引用；实现（`text()` 等）在 `web/contracts.ts`。
+ * 状态栏与标题栏的条目贡献点（docs/specs/ui/workbench-shell.md 外壳四输出 33）与活动栏底部条目贡献点（输出 40）：声明与
+ * 登记校验。声明是纯数据，前后端都能引用；实现（`text()` 等）在 `web/contracts.ts`。
  */
 
 import {Type} from "typebox";
@@ -16,7 +16,12 @@ export const WORKBENCH_TITLEBAR_ITEMS_POINT = "workbench.titlebar-items";
 
 export type WorkbenchItemsPoint = typeof WORKBENCH_STATUSBAR_ITEMS_POINT | typeof WORKBENCH_TITLEBAR_ITEMS_POINT;
 
+/** 活动栏底部的全局项（账号、设置这类），纯声明。 */
+export const WORKBENCH_ACTIVITYBAR_ITEMS_POINT = "workbench.activitybar-items";
+
 const Rank = Type.Integer({minimum: -1_000_000, maximum: 1_000_000});
+const CommandReference = Type.Object({id: Type.String({pattern: "\\S"}), args: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false});
+const When = Type.Object({requires: Type.Array(Type.String({pattern: "\\S"}))}, {additionalProperties: false});
 
 export const ItemDeclarationSchema = Type.Object({
     /** 条目的名字：“更多”菜单与读屏用它。 */
@@ -26,11 +31,26 @@ export const ItemDeclarationSchema = Type.Object({
     order: Rank,
     /** 放不下时先收起小的。 */
     priority: Rank,
-    command: Type.Optional(Type.Object({id: Type.String({pattern: "\\S"}), args: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false})),
-    when: Type.Optional(Type.Object({requires: Type.Array(Type.String({pattern: "\\S"}))}, {additionalProperties: false})),
+    command: Type.Optional(CommandReference),
+    when: Type.Optional(When),
 }, {additionalProperties: false});
 
 export type ItemDeclaration = Static<typeof ItemDeclarationSchema>;
+
+export const ActivityBarItemDeclarationSchema = Type.Object({
+    /** 悬停提示与可访问名称；没有命令的条目以它说明为什么不可点。 */
+    title: LocalizedTextSchema,
+    icon: Type.String({pattern: "\\S"}),
+    /** 从上往下按它排，同值按 id。 */
+    order: Rank,
+    /** 没有命令的条目不可点（占位）。 */
+    command: Type.Optional(CommandReference),
+    when: Type.Optional(When),
+    /** 公开状态的布尔键：为真时按钮画成按下。 */
+    toggled: Type.Optional(Type.String({pattern: "\\S"})),
+}, {additionalProperties: false});
+
+export type ActivityBarItemDeclaration = Static<typeof ActivityBarItemDeclarationSchema>;
 
 const ITEM_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
@@ -52,4 +72,21 @@ export function itemValidator(point: WorkbenchItemsPoint): (descriptor: Contribu
         if (point === WORKBENCH_TITLEBAR_ITEMS_POINT && (descriptor.declaration as ItemDeclaration).alignment !== "right") return `标题栏的条目只放在右侧：${id}`;
         return null;
     };
+}
+
+/**
+ * `workbench.activitybar-items` 的登记校验：id 规则与上面两个条目贡献点相同。只有声明、没有要实现的东西，仍写在浏览器入口下：
+ * 条目随贡献方入口出现与消失，入口没激活时它执行的命令多半也还不在。
+ */
+export function validateActivityBarItemContribution(descriptor: ContributionDescriptor): string | null {
+    if (descriptor.location !== "browser") return `${WORKBENCH_ACTIVITYBAR_ITEMS_POINT} 只接受浏览器入口的贡献`;
+    const id = descriptor.id;
+    if (id.length > 128 || !ITEM_ID.test(id)) return `条目 id 必须是点分的小写段、至多 128 个字符：${id}`;
+    const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
+    if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的条目 id 必须以 ${prefix} 开头：${id}`;
+    if (!Value.Check(ActivityBarItemDeclarationSchema, descriptor.declaration)) {
+        const first = [...Value.Errors(ActivityBarItemDeclarationSchema, descriptor.declaration)][0];
+        return `条目 ${id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+    }
+    return null;
 }

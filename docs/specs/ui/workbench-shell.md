@@ -13,7 +13,7 @@ owners:
 
 **目标**：每个窗口一个工作台外壳：七个固定 Part 的几何与可见性、面板的位置与形态、紧凑呈现、布局记录的保存与恢复；工具区域按 Switcher、ViewContainer、View 分层，容器单轴编排，移动、合并与模式切换不销毁视图实例；拖放与保存走同一个模型。外壳由 `nbook.workbench` 拥有，是布局的唯一写者。
 
-按切片实现（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 11 节）：**外壳一**（外壳与布局）、**外壳二**（容器与视图）、**外壳三**（拖放），之后的**外壳四**（标题栏、状态栏与条目贡献点）。下文各节按切片标出所属。书架页（[workbench.bookshelf](../workbench/bookshelf.md)）为工作台增加无项目首页的贡献点与 `/workbench` 页（输出 36–37）。
+按切片实现（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 11 节）：**外壳一**（外壳与布局）、**外壳二**（容器与视图）、**外壳三**（拖放），之后的**外壳四**（标题栏、状态栏与条目贡献点）。下文各节按切片标出所属。书架页（[workbench.bookshelf](../workbench/bookshelf.md)）为工作台增加无项目首页的贡献点与 `/workbench` 页（输出 36–37）；设置窗口（[settings.window](../settings/settings-window.md)）为工作台增加活动栏底部条目与页面浮层两个贡献点（输出 40–41）。
 
 **非目标**：
 
@@ -28,7 +28,7 @@ owners:
 Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立）
 ├─ Shell：七个固定 Part 的拓扑与几何
 │  ├─ TitleBar
-│  ├─ ActivityBar ─────── 呈现 Sidebar 的 Switcher，底部放全局项
+│  ├─ ActivityBar ─────── 呈现 Sidebar 的 Switcher，底部放贡献来的全局项
 │  ├─ Sidebar ┐
 │  ├─ AuxiliaryBar ├─ 工具区域（ToolPart）：Switcher + 当前 ViewContainer
 │  ├─ Panel ┘                └─ View × n（单轴排列）
@@ -41,7 +41,8 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 - **Part**：七个固定区域 `titlebar`、`activitybar`、`sidebar`、`auxiliarybar`、`editor`、`panel`、`statusbar`；拥有区域级几何与可见性。Part 集合与拓扑固定，不可贡献。
 - **ToolPart**：能承载容器的 `sidebar`、`auxiliarybar`、`panel`，也就是容器的“位置”。
-- **ActivityBar**：主体左侧的通高列；上段呈现 Sidebar 的 Switcher，底段放全局项。
+- **ActivityBar**：主体左侧的通高列；上段呈现 Sidebar 的 Switcher，底段放插件贡献的全局项（输出 40）。
+- **页面浮层**：插件交给页面根的组件（输出 41），首页与工作台页都挂；内容自己决定渲染到哪里（例如对话框传送到 body）。
 - **Switcher**：在一个 ToolPart 里选容器的导航，也是容器级拖放的插入位。Sidebar 的 Switcher 在 ActivityBar 上；AuxiliaryBar 与 Panel 用标签带。
 - **ViewContainer**：一组视图的归属与单轴排列单位，对应 Switcher 上的一个条目。可见成员数决定 empty、single、multiple 三种模式；区域决定轴向（侧栏纵向、Panel 横向）。实际成员数为 0 时移除容器及入口；成员只是隐藏或暂时不可见不算空。
 - **View**：一项工具能力的内容面板；插件提供声明与组件，工作台持有实例、落位与尺寸。
@@ -100,7 +101,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 外壳二的输出 15–18、24–27 已实现（视图合同见 [workbench.views](../workbench/views.md)）。
 
-15. **ActivityBar 与 Switcher**：ActivityBar 上段只列当前位于 Sidebar 的容器，至多一项选中；点击非活动项切换 Sidebar 显示的容器并使其可见；重复点击当前项保持选择，并打开被隐藏或拖到零的 Sidebar。底段全局项不参与选中；未接入的命令禁用并给出原因。AuxiliaryBar 与 Panel 始终显示容器标签带。
+15. **ActivityBar 与 Switcher**：ActivityBar 上段只列当前位于 Sidebar 的容器，至多一项选中；点击非活动项切换 Sidebar 显示的容器并使其可见；重复点击当前项保持选择，并打开被隐藏或拖到零的 Sidebar。底段的全局项来自贡献点 `workbench.activitybar-items`（输出 40），不参与选中。AuxiliaryBar 与 Panel 始终显示容器标签带。
 16. **容器模式**：可见成员 0、1、多时分别为 empty、single、multiple；隐藏不计数，收起仍计数。single 不重复视图标题，视图动作上提到容器右上角，不单独收起视图；已有收起意图保留到 multiple 时重新应用。multiple 每个视图保留标题与动作，Sidebar 与 AuxiliaryBar 纵向、Panel 横向，与 Panel 外壳位置无关；全部可见成员同屏。横向收起为 32px 竖条、纵向为 32px 横标题，展开控件与名称始终可达。Sidebar 在 single 时 32px 标题行左侧显示容器名，整行除动作区外可拖走该容器；multiple 不渲染容器标题行。
 17. **动作顺序**：single 时依次为视图的贡献、容器管理、Part 框架；multiple 的视图动作在各自标题。切模式、容器、首个视图或代际时立即关闭旧菜单，过期点击拒绝。框架动作在空 Part 里仍可达。
 18. **实例保留**：显隐、换轴、模式切换、容器在 Part 间移动都不重建视图实例；每个容器唯一的宿主在目标卸载或重新登记时退回常驻停放区，目标恢复后再搬回，不留在已脱离的旧落点。只有实际成员数归零才移除空容器与入口。搬动前后输入、滚动与焦点的规则与外壳一输出 6 相同：原节点仍可见时恢复；被停放时焦点到可见的框架控件；焦点在外壳外的菜单或对话框时不抢。
@@ -206,6 +207,23 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 38. **平铺**：活动栏、侧栏、右栏与面板贴着窗体，没有外框、圆角与外边距；外壳与各部件是同一块面板底色（`--panel-surface`）。可见的线只有标题栏底线、状态栏顶线，以及外壳网格边界上的 1px 接缝：默认布局里只有侧栏与编辑区之间一条竖线，显示右栏或面板时各多一条它与编辑区之间的接缝。工具区标题行、视图标题行、面板标题行与编辑器标签栏都不画底线，当前标签用加粗的正文色区分。工作台页占满视口、自己不滚动，页面根不预留滚动条位置。
 39. **空着的右栏与面板缺省不显示**：“空着”指现在没有容器，也没有视图把它声明为默认位置。空着、用户也没主动显示过的右栏与面板不显示，也不为此写记录。用标题栏按钮、视图菜单、命令或状态栏“显示面板”显示后，照输出 7、9 保存与恢复：右栏记为“主动显示过”，之后再隐藏就撤掉这一笔；面板写显式的显隐。把声明在这里的视图都拖走，区域照常显示、仍是落点（输出 20）；经“移动到”把视图放进不显示的空区域时，区域随之显示。
 
+### 活动栏底部条目与页面浮层
+
+输出 40、41 已实现，随设置窗口（[settings.window](../settings/settings-window.md)）：工作台活动栏的设置齿轮与设置窗口本身经这两个贡献点接进工作台（书架右上角的齿轮是书架自己画的，见 [workbench.bookshelf](../workbench/bookshelf.md) 输出 1）。
+
+40. **活动栏底部条目 `workbench.activitybar-items`**：底段的全局项（账号、设置这类）由插件贡献，写法与输出 33 的条目贡献点相同。
+    - 声明（静态数据，登记时校验）：`{title, icon, order, command?: {id, args?}, when?, toggled?}`。`title` 是悬停提示与可访问名称；`toggled` 是公开状态的布尔键。条目只有声明、没有实现，但只接受浏览器入口的贡献，随贡献方入口出现与消失：入口交空对象（内核要求入口贡献都给出实现）。id 规则同输出 33。
+    - 排列：按 `order` 从上往下排在活动栏底部，同值按条目 id；上段容器多到放不下时上段滚动，底段不动。
+    - 可见：只由 `when` 决定（规则同输出 33），不满足时不渲染。
+    - 样子与点击：有 `command` 的条目是与上段容器项同样的图标按钮，经命令服务执行，命令不可用时禁用并以原因作提示；`toggled` 的键已就绪且为真时画成按下：灰底、图标正文色，不用强调色（强调色留给上段的当前容器）。没有 `command` 的条目不可点，是圆形、淡色的占位（同书架右上角的头像位），以 `title` 作提示。
+    - 冲突与撤回：同 id 的两条贡献一起拒绝并记诊断；贡献方入口开始停止时条目消失。
+    - 现有条目：`nbook.workbench` 贡献头像占位（`order: 900`，没有命令，提示“个人资料尚未开放”；账户插件迁回时由它贡献真正的头像并删去占位）；`nbook.settings` 贡献设置齿轮（`order: 1000`，命令 `nbook.settings.open`，`toggled: nbook.settings/windowOpen`），在最下面。
+41. **页面浮层 `workbench.overlays`**：插件交一个组件，工作台在页面根上挂一份。书架是首页贡献、与工作台页用同一个页面根，所以首页、`/` 与 `/workbench` 都挂，每个浏览器页面一份，随页面卸载。
+    - 声明 `{order?}`（挂载的先后，同值按 id），实现 `{load(): Promise<Component>}`，组件不收属性，要的数据由贡献方在 `load()` 里绑好；只接受浏览器入口的贡献，id 规则同视图。
+    - 页面根挂上时就加载；贡献撤回、贡献方入口停止或工作台入口停止时卸下；同一个浮层重新交付时重新加载；加载结果回来时浮层已卸下就丢弃，不挂、也不记为失败。
+    - `load()` 失败或组件渲染出错只让这一个浮层不显示并记诊断，别的浮层与页面照常；浮层不在页面里占位，没有原位呈现。
+    - 现有浮层：`nbook.settings` 的设置窗口。
+
 ## 状态与转换
 
 布局状态（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 6 节）：
@@ -255,12 +273,14 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 - 呈现降级（紧凑、面板退到标题头、编辑器取 0）只影响当前呈现，诊断写在外壳根上，不触发保存。
 - 视图实现加载失败、所属入口停止（外壳二）：按 `workbench/views.md`，不遮蔽其它视图、不拖垮外壳。
 - 拖放失败（外壳三）：新容器创建、成员迁移或半区计算失败时保留原归属与布局，不留空标签、不丢视图；非法方向释放不生成保存意图；Escape、pointercancel、失焦、页面隐藏或目标失效结束拖放并清除反馈，不提交旧预览。
+- 活动栏底部条目、页面浮层的声明不合规则（输出 40、41）：声明被拒，内核诊断写明原因，条目或浮层不出现。
+- 页面浮层的 `load()` 失败或组件渲染出错（输出 41）：这一个浮层不显示，诊断 `workbench.overlays` 写明浮层 id 与原因；页面与别的浮层照常，刷新页面重新加载。
 
 ## 边界与兼容
 
 - 归属：`nbook.workbench`；嵌套网格与手势原语的合同由 [ui.nested-grid](nested-grid.md) 提供，外壳负责消费接线。
 - 主题与浮层：沿用 [theme.system](../theme/system.md) 与 nb-ui 现有 portal，不新增第二套。外壳与浮层颜色来自主题 token，四主题 × 双配色下不出现 `:root` 兜底底色。
-- 公开合同：公开状态键（输出 13）与面板命令（[workbench.commands](../workbench/commands.md)）是对插件与 Agent 的合同；贡献点 `workbench.editor-area`、`workbench.statusbar-items`、`workbench.titlebar-items` 与 `workbench.home` 是对插件的合同；布局记录的字段是 `nbook.workbench` 的内部合同，靠记录版本演进。
+- 公开合同：公开状态键（输出 13）与面板命令（[workbench.commands](../workbench/commands.md)）是对插件与 Agent 的合同；贡献点 `workbench.editor-area`、`workbench.statusbar-items`、`workbench.titlebar-items`、`workbench.activitybar-items`、`workbench.overlays` 与 `workbench.home` 是对插件的合同；布局记录的字段是 `nbook.workbench` 的内部合同，靠记录版本演进。
 - 窄屏：`390 × 844` 与桌面共享同一模型，无页面级横向滚动。
 - Lab：外壳的 Lab 场景用局部状态，不读写产品布局记录；直接打开 Lab 的窗口不打开、不订阅产品布局记录（[ui.component-lab](component-lab.md)）。
 
@@ -326,6 +346,11 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 41. Given 1440×900 的产品页（默认布局），When 读计算样式与截图（nbook、macos 各明暗两态），Then 活动栏、侧栏、右栏、工具区与视图标题行、面板标题行都没有边框与圆角，外壳根底色等于 `--panel-surface`；可见的线只有标题栏底线、侧栏与编辑区之间的接缝和状态栏顶线；页面右缘没有空出的滚动条位置。
 42. Given 一个右栏与面板里都没有视图的新客户端，When 打开工作台，Then 右栏与面板不显示、不写记录；When 从标题栏显示右栏、从状态栏显示面板并刷新，Then 两处仍显示；When 再隐藏右栏，Then 记录撤掉“主动显示过”。Given 有视图声明在右栏与面板，When 把视图都拖走，Then 两处仍显示且可作落点；When 经“移动到”把视图放进不显示的空区域，Then 区域随之显示。
 
+### 活动栏底部条目与页面浮层
+
+43. Given 测试插件贡献的活动栏底部条目（有命令、没有命令、带 `toggled`、带 `when`），When 入口激活、公开状态变化、命令变得不可用、同 id 的第二条贡献、入口停止，Then 条目按 `order` 排在底部，`when` 不满足时不显示，`toggled` 为真时按下，没有命令的不可点，命令不可用时禁用并以原因作提示，同 id 的两条都被拒并诊断，停止开始时条目消失。Given 产品页，Then 活动栏最下面头像占位在上、设置齿轮在下，设置窗口开着时齿轮按下。
+44. Given 几个浮层贡献，其中一个 `load()` 失败、一个渲染出错，When 打开首页与工作台页，Then 两种页面都挂着浮层；失败的浮层不显示并记诊断，别的浮层与页面照常；When 贡献撤回，Then 浮层卸下，迟到的加载结果不挂、不记失败。
+
 Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 × 844` 各一次）；Lab 外壳场景（`lab:shot` 截图）；`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`；`bun run --cwd packages/nb-ui test` 复核布局原语。
 
 ### 旧验收的去向
@@ -369,12 +394,13 @@ Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 ×
 - **呈现事实只经 action 进 store**：外壳组件发布的模式与生效面板状态由工作台 store 的一个 action 接收，组件不直接写 store。
 - **外壳二只经纯模型改定制**：落位、呈现与意图合成是纯函数（`views/placement.ts`、`presentation.ts`、`intents.ts`）；store 的 `applyView` 先按当前呈现合成一份按字段的补丁，保存冲突时同一份补丁作用在最新值上。
 - **拖放只有一个会话**：组件只写拖动源与落点的 DOM 标记（`data-drag-view`、`data-drag-container`、`data-switcher-band` 与其中的 `data-switcher-entry`、`data-container-host`、`data-empty-part`，以及既不起拖也不接收投递的工具区 `data-no-drag`），外壳根上的会话（`views/drag-session.ts`）负责指针与键盘手势、按 `elementsFromPoint` 命中、读可见几何，交给纯函数 `views/drop.ts` 判定；预览与提交出自同一次判定，放下时只提交已显示过的动作。保存时前提不成立的并入作用在最新值上没有变化，store 以 `unchanged` 结算、不写（[`state/store.md`](../state/store.md) 输出 10）。
+- **浮层挂在页面根、不占位**：`createWorkbenchPages` 的两页都渲染浮层宿主（`overlays.ts` 的 `createOverlayHost`）；宿主不包外层元素，页面根仍是外壳的承载盒。每个浮层一个框，各自加载、用 Vue 的错误边界各自接住渲染错误。
 - **首页只换外壳**：`createHomePage` 在没有项目且有首页贡献时渲染贡献的组件，文档根与命令宿主不变；`/workbench` 与 `/` 共用同一页面组件，区别只是是否采用首页贡献。首页贡献点的声明与校验在 `shared/home.ts`。
 - **三层 Teleport、一份记忆**：Part 内容、容器宿主、视图实例三层各自 Teleport 到落点，没有落点时退回各自的停放区（登记在共用的 `TeleportMemory`）；滚动位置随滚动事件记下、记录时不用读到的 0 覆盖，滚动盒归视图实例（`WorkbenchViewFrame`）而不归会重建的分节。
 
 ## 证据
 
-- 实现入口：外壳四 [`titlebar/`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/)、[`items/`](../../../packages/neuro-book/src/plugins/workbench/web/items/)、[`components/WorkbenchTitleBar.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue)、[`components/WorkbenchItemStrip.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchItemStrip.vue)、[`shared/items.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/items.ts)；外壳三 [`views/drop.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.ts)、[`views/drop-dom.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop-dom.ts)、[`views/drag-session.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts)、[`views/patch.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/patch.ts)、[`components/WorkbenchDragFeedback.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchDragFeedback.vue)；外壳二 [`plugins/workbench/web/views/`](../../../packages/neuro-book/src/plugins/workbench/web/views/)、[`commands/view-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts)、[`components/WorkbenchViewInstances.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue)、[`components/WorkbenchToolPartHost.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue)；外壳一 [`plugins/workbench/web/shell/`](../../../packages/neuro-book/src/plugins/workbench/web/shell/)、[`state/layout-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts)、[`state/public-state.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/public-state.ts)、[`commands/panel-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts)、[`components/WorkbenchShellLayout.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue)、[`components/WorkbenchShell.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue)
-- 合同测试：工作台打磨 `layout-store.test.ts` 的“空着的右栏与面板”一组（验收 42）；无项目首页 [`home-slot.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-slot.test.ts)、组件测试 `home-page.dom.test.ts`；外壳四 [`titlebar/menu-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/menu-model.test.ts)、[`items/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/registry.test.ts)、[`items/item-strip.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/item-strip.test.ts)、[`commands/part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)、组件测试 `WorkbenchTitleBar`、`WorkbenchItemStrip` 的 `.dom.test.ts`；外壳三 [`views/drop.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts)、[`views/dnd-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/dnd-model.test.ts)、`layout-store.test.ts` 的保存冲突两例、`view-commands.test.ts` 的 `newContainerIn`；外壳二 [`views/model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/model.test.ts)、[`views/container-grid.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/container-grid.test.ts)、[`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)、`layout-store.test.ts` 的外壳二一组、组件测试 `WorkbenchShellParts.dom.test.ts`；外壳一 [`layout.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/shell/layout.test.ts)、[`layout-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts)、[`panel-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts)；组件测试 `WorkbenchShellLayout`、`WorkbenchPanelSurface`、`WorkbenchStatusBar` 的 `.dom.test.ts`
-- Smoke：工作台打磨 `workbench-views.e2e.ts` 的颜色与平铺一例、`workbench-shell.e2e.ts` 的外壳根底色与面板标题行（验收 41），`workbench-dnd.e2e.ts` 的空落点（验收 42 的拖空），Lab 外壳场景截图；无项目首页 [`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 40 的书架与 `/workbench`）；外壳四 [`workbench-titlebar.e2e.ts`](../../../packages/neuro-book/e2e/workbench-titlebar.e2e.ts)（验收 32–37）、[`lab-item-strip.e2e.ts`](../../../packages/neuro-book/e2e/lab-item-strip.e2e.ts)（验收 34 与 38 的几何、“更多”里的换行，在 Lab 场景上改容器宽度）、Lab 场景 `WorkbenchTitleBar`、`WorkbenchItemStrip`；外壳三 [`workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)（指针与键盘、三个 Part 的空落点、比例逐数）、Lab 外壳场景 `views` 的拖放；外壳二 [`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`）、Lab 外壳场景的 `views`、`views-merged`；外壳一 [`workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（外壳根的主题 token）
-- 批准依据：工作台打磨（输出 38、39）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md)，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 2、6、7、9、10、11 节与“对 Spec 与提案的预期改动”；开发者 2026-10-08 确认旧应用的外壳已人工验证、作为参照（[v2 重建提案](../../proposals/neuro-book-v2-rebuild.md) 的决策记录）。本文由旧应用口径的同名 Spec（归档于 [`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）改写，旧口径的依据为 [`workbench-view-host.md`](../../proposals/workbench-view-host.md)（2026-09-13 `accepted`）与 2026-09-20、2026-09-22 开发者对容器模式、分栏、拖放与内容区 50% 规则的确认。
+- 实现入口：活动栏底部条目与页面浮层 [`shared/items.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/items.ts)、[`shared/overlays.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/overlays.ts)、[`web/items/activity-items.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/activity-items.ts)、[`web/overlays.ts`](../../../packages/neuro-book/src/plugins/workbench/web/overlays.ts)、[`components/WorkbenchActivityBar.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchActivityBar.vue)，设置齿轮与窗口浮层在 [`nbook.settings` 的窗口入口](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)；外壳四 [`titlebar/`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/)、[`items/`](../../../packages/neuro-book/src/plugins/workbench/web/items/)、[`components/WorkbenchTitleBar.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue)、[`components/WorkbenchItemStrip.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchItemStrip.vue)、[`shared/items.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/items.ts)；外壳三 [`views/drop.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.ts)、[`views/drop-dom.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop-dom.ts)、[`views/drag-session.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts)、[`views/patch.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/patch.ts)、[`components/WorkbenchDragFeedback.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchDragFeedback.vue)；外壳二 [`plugins/workbench/web/views/`](../../../packages/neuro-book/src/plugins/workbench/web/views/)、[`commands/view-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts)、[`components/WorkbenchViewInstances.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue)、[`components/WorkbenchToolPartHost.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue)；外壳一 [`plugins/workbench/web/shell/`](../../../packages/neuro-book/src/plugins/workbench/web/shell/)、[`state/layout-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts)、[`state/public-state.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/public-state.ts)、[`commands/panel-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts)、[`components/WorkbenchShellLayout.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue)、[`components/WorkbenchShell.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue)
+- 合同测试：活动栏底部条目 [`activity-items.test.ts`](../../../packages/neuro-book/src/plugins/workbench/activity-items.test.ts)（真实内核、公开状态与命令系统，验收 43）、组件测试 `WorkbenchShellParts.dom.test.ts` 的底段一例；页面浮层 [`web/overlays.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/overlays.test.ts)、组件测试 `overlays.dom.test.ts` 与 `home-page.dom.test.ts` 的浮层一例（验收 44）；工作台打磨 `layout-store.test.ts` 的“空着的右栏与面板”一组（验收 42）；无项目首页 [`home-slot.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-slot.test.ts)、组件测试 `home-page.dom.test.ts`；外壳四 [`titlebar/menu-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/menu-model.test.ts)、[`items/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/registry.test.ts)、[`items/item-strip.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/item-strip.test.ts)、[`commands/part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)、组件测试 `WorkbenchTitleBar`、`WorkbenchItemStrip` 的 `.dom.test.ts`；外壳三 [`views/drop.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts)、[`views/dnd-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/dnd-model.test.ts)、`layout-store.test.ts` 的保存冲突两例、`view-commands.test.ts` 的 `newContainerIn`；外壳二 [`views/model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/model.test.ts)、[`views/container-grid.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/container-grid.test.ts)、[`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)、`layout-store.test.ts` 的外壳二一组、组件测试 `WorkbenchShellParts.dom.test.ts`；外壳一 [`layout.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/shell/layout.test.ts)、[`layout-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts)、[`panel-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts)；组件测试 `WorkbenchShellLayout`、`WorkbenchPanelSurface`、`WorkbenchStatusBar` 的 `.dom.test.ts`
+- Smoke：活动栏底部条目与页面浮层 [`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（头像占位与齿轮的顺序、齿轮按下、首页与工作台页都挂着设置窗口，验收 43、44 的产品部分），Lab 场景 `WorkbenchActivityBar`；工作台打磨 `workbench-views.e2e.ts` 的颜色与平铺一例、`workbench-shell.e2e.ts` 的外壳根底色与面板标题行（验收 41），`workbench-dnd.e2e.ts` 的空落点（验收 42 的拖空），Lab 外壳场景截图；无项目首页 [`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 40 的书架与 `/workbench`）；外壳四 [`workbench-titlebar.e2e.ts`](../../../packages/neuro-book/e2e/workbench-titlebar.e2e.ts)（验收 32–37）、[`lab-item-strip.e2e.ts`](../../../packages/neuro-book/e2e/lab-item-strip.e2e.ts)（验收 34 与 38 的几何、“更多”里的换行，在 Lab 场景上改容器宽度）、Lab 场景 `WorkbenchTitleBar`、`WorkbenchItemStrip`；外壳三 [`workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)（指针与键盘、三个 Part 的空落点、比例逐数）、Lab 外壳场景 `views` 的拖放；外壳二 [`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`）、Lab 外壳场景的 `views`、`views-merged`；外壳一 [`workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（外壳根的主题 token）
+- 批准依据：活动栏底部条目与页面浮层（输出 40、41）为 [t80 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md)第 5 节，开发者 2026-10-12 批准（外壳设计稿原文“全局项以后可贡献，随账号、设置插件”）；工作台打磨（输出 38、39）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md)，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 2、6、7、9、10、11 节与“对 Spec 与提案的预期改动”；开发者 2026-10-08 确认旧应用的外壳已人工验证、作为参照（[v2 重建提案](../../proposals/neuro-book-v2-rebuild.md) 的决策记录）。本文由旧应用口径的同名 Spec（归档于 [`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）改写，旧口径的依据为 [`workbench-view-host.md`](../../proposals/workbench-view-host.md)（2026-09-13 `accepted`）与 2026-09-20、2026-09-22 开发者对容器模式、分栏、拖放与内容区 50% 规则的确认。

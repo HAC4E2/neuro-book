@@ -41,6 +41,37 @@ describe("WorkbenchActivityBar", () => {
         await wrapper.setProps({sidebarVisible: false});
         expect(button("view:a").attributes("aria-pressed")).toBe("false");
     });
+
+    it("底段的全局项按给的顺序排在容器之后；切换按钮按下与否看 pressed；没有命令的是不可点的占位；命令不可用时停用并以原因作提示（输出 40）", async () => {
+        const gear = {id: "nbook.settings", title: "设置", icon: "i-lucide-settings", command: {id: "nbook.settings.open", args: {}}, pressed: false, disabledReason: null};
+        const items = [{id: "nbook.workbench.profile", title: "个人资料尚未开放", icon: "i-lucide-user-round", command: null, pressed: null, disabledReason: null}, gear];
+        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true, dragHint: "按空格拿起并拖动", items}});
+        wrappers.push(wrapper);
+        expect(wrapper.findAll("[data-activity-container], [data-activity-item]").map((element) => element.attributes("data-activity-container") ?? element.attributes("data-activity-item"))).toEqual(["view:a", "view:b", "nbook.workbench.profile", "nbook.settings"]);
+
+        const profile = wrapper.get("[data-activity-item='nbook.workbench.profile']");
+        expect(profile.element.tagName).toBe("SPAN");
+        expect(profile.attributes("role")).toBe("img");
+        expect(profile.attributes("aria-label")).toBe("个人资料尚未开放");
+        expect(profile.attributes("data-activity-item-placeholder")).toBe("");
+        await profile.trigger("click");
+        expect(wrapper.emitted("run-item")).toBeUndefined();
+
+        const button = () => wrapper.get("[data-activity-item='nbook.settings']");
+        expect(button().attributes("aria-label")).toBe("设置");
+        expect(button().attributes("aria-pressed")).toBe("false");
+        await button().trigger("click");
+        expect(wrapper.emitted("run-item")).toEqual([["nbook.settings"]]);
+        // 按下态不是“当前容器”：不带强调色的选中类。
+        await wrapper.setProps({items: [items[0]!, {...gear, pressed: true}]});
+        expect(button().attributes("aria-pressed")).toBe("true");
+        expect(button().classes()).toContain("workbench-activity-bar__item--pressed");
+        expect(button().classes()).not.toContain("workbench-activity-bar__item--active");
+
+        await wrapper.setProps({items: [items[0]!, {...gear, disabledReason: "命令 nbook.settings.open 不存在"}]});
+        expect((button().element as HTMLButtonElement).disabled).toBe(true);
+        expect(button().attributes("title")).toBe("命令 nbook.settings.open 不存在");
+    });
 });
 
 describe("WorkbenchMoveViewMenu", () => {

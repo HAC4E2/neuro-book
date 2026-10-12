@@ -1,12 +1,6 @@
-<script lang="ts">
-/** 设置菜单里的命令（docs/specs/ui/workbench-shell.md 输出 29 的“视图”组里的三条设置命令）。 */
-export const SETTINGS_COMMANDS = {theme: "nbook.settings.switch-theme", appearance: "nbook.settings.switch-appearance", locale: "nbook.settings.switch-locale"} as const;
-</script>
-
 <script setup lang="ts">
 /** 书架页（同名 .md）：标题栏、案头、卡片与列表两种视图；只呈现数据、发出用户动作。 */
-import {Button, Dropdown, FormSelect, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {Button, FormSelect, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
 import {computed, ref} from "vue";
 
@@ -38,7 +32,9 @@ const props = withDefaults(defineProps<{
     library: string;
     /** 一部作品的封面图地址；没有封面为 null。 */
     coverSrc: (item: ShelfItem) => string | null;
-}>(), {error: ""});
+    /** 本页的设置窗口开着：齿轮画成按下。 */
+    settingsOpen?: boolean;
+}>(), {error: "", settingsOpen: false});
 
 const emit = defineEmits<{
     (event: "update:view", view: ShelfView): void;
@@ -52,18 +48,13 @@ const emit = defineEmits<{
     (event: "create"): void;
     (event: "add-existing"): void;
     (event: "retry"): void;
-    /** 设置菜单里的命令。 */
-    (event: "command", id: string): void;
-    (event: "change-library"): void;
+    /** 点了右上角的齿轮：宿主打开设置窗口。 */
+    (event: "open-settings"): void;
 }>();
 
 const TEXT = {
     brand: {"zh-CN": "书房", "en-US": "Study"},
     settings: {"zh-CN": "设置", "en-US": "Settings"},
-    theme: {"zh-CN": "切换主题…", "en-US": "Switch theme…"},
-    appearance: {"zh-CN": "切换明暗…", "en-US": "Switch appearance…"},
-    language: {"zh-CN": "界面语言…", "en-US": "Interface language…"},
-    library: {"zh-CN": "作品目录…", "en-US": "Library folder…"},
     profile: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
     shelf: {"zh-CN": "书架", "en-US": "Bookshelf"},
     count: {"zh-CN": "{count} 部", "en-US": "{count} books"},
@@ -98,13 +89,6 @@ const sortOptions = computed(() => [
     {value: "title", label: text(TEXT.title)},
     {value: "words", label: text(TEXT.words)},
 ]);
-const settingsMenu = computed<DropdownItem[]>(() => [
-    {value: SETTINGS_COMMANDS.theme, label: text(TEXT.theme)},
-    {value: SETTINGS_COMMANDS.appearance, label: text(TEXT.appearance)},
-    {value: SETTINGS_COMMANDS.locale, label: text(TEXT.language)},
-    {label: "", value: "separator", separator: true},
-    {value: "library", label: text(TEXT.library)},
-]);
 
 function onView(value: unknown): void {
     if (value === "cards" || value === "list") emit("update:view", value);
@@ -112,11 +96,6 @@ function onView(value: unknown): void {
 
 function onSort(value: string): void {
     if (value === "recent" || value === "title" || value === "words") emit("update:sort", value);
-}
-
-function onSettings(value: string): void {
-    if (value === "library") emit("change-library");
-    else emit("command", value);
 }
 
 /** 焦点回到书架：卡片视图是列表框，列表视图是第一行；书架空了时是“新建作品”。 */
@@ -143,9 +122,16 @@ defineExpose({focusShelf});
                     <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span>
                 </p>
                 <div class="bookshelf-page__tools-right">
-                    <Dropdown :items="settingsMenu" align="end" @select="onSettings">
-                        <IconButton size="sm" icon-class="i-lucide-settings" :aria-label="text(TEXT.settings)" data-shelf-settings />
-                    </Dropdown>
+                    <!-- 设置窗口开着时按下：灰底、正文色，同工作台活动栏的齿轮（docs/specs/workbench/bookshelf.md 输出 1）。 -->
+                    <IconButton
+                        size="sm"
+                        icon-class="i-lucide-settings"
+                        :aria-label="text(TEXT.settings)"
+                        :aria-pressed="settingsOpen"
+                        :class="{'bookshelf-page__settings--pressed': settingsOpen}"
+                        data-shelf-settings
+                        @click="emit('open-settings')"
+                    />
                     <!-- 头像只预留位置：没有个人资料之前不是入口，不可点（外壳规范：不以可操作的假入口呈现）。 -->
                     <span class="bookshelf-page__avatar" :title="text(TEXT.profile)" aria-hidden="true"><span class="i-lucide-user-round"></span></span>
                 </div>
@@ -270,6 +256,11 @@ defineExpose({focusShelf});
     display: flex;
     align-items: center;
     gap: var(--space-2);
+}
+
+.bookshelf-page .bookshelf-page__settings--pressed {
+    background: var(--bg-hover);
+    color: var(--text-main);
 }
 
 .bookshelf-page__avatar {

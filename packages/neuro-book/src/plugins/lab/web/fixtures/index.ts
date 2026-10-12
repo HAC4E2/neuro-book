@@ -14,6 +14,7 @@ import type ProjectInfoDialog from "nbook/plugins/projects/web/components/Projec
 import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vue";
 import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
+import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
 import type SettingsControl from "nbook/plugins/settings/web/components/SettingsControl.vue";
 import type SettingsWindow from "nbook/plugins/settings/web/components/SettingsWindow.vue";
@@ -375,7 +376,7 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof WorkbenchActivityBar>({
         component: "WorkbenchActivityBar",
-        events: ["select"],
+        events: ["select", "run-item"],
         class: "h-full w-[48px]",
         scenes: (() => {
             const containers = [
@@ -384,11 +385,16 @@ export const labFixtures: LabFixture[] = [
                 {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"},
             ];
             const many = Array.from({length: 24}, (_, index) => ({id: `view:test.v${String(index)}`, label: `视图 ${String(index + 1)}`, icon: "i-lucide-square"}));
+            // 底段的全局项（ui/workbench-shell.md 输出 40）：头像占位在上、设置齿轮在下。
+            const profile = {id: "nbook.workbench.profile", title: "个人资料尚未开放", icon: "i-lucide-user-round", command: null, pressed: null, disabledReason: null};
+            const gear = (pressed: boolean, disabledReason: string | null = null) => ({id: "nbook.settings", title: "设置", icon: "i-lucide-settings", command: {id: "nbook.settings.open", args: {}}, pressed, disabledReason});
             return [
-                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
-                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, dragHint: "按空格拿起并拖动"}}},
-                {id: "empty", label: "没有容器", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
-                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
+                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
+                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(true)]}}},
+                {id: "item-disabled", label: "底段条目的命令不可用", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false, "命令 nbook.settings.open 不存在")]}}},
+                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
+                {id: "empty", label: "没有容器、没有底段条目", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
+                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue"),
@@ -627,7 +633,7 @@ function shelfFixtures(): LabFixture[] {
     return [
         defineSubjectFixture<typeof BookshelfPage>({
             component: "BookshelfPage",
-            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "retry", "command", "change-library"],
+            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "retry", "open-settings"],
             class: "h-full w-full",
             runtimeProps: covers,
             scenes: [
@@ -639,6 +645,7 @@ function shelfFixtures(): LabFixture[] {
                 {id: "loading", label: "加载中", input: {props: {...page, status: "loading", items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
                 {id: "error", label: "取数失败", input: {props: {...page, status: "error", error: "书架没取到：服务端暂时不可用", items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
                 {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "cards", sort: "recent", activeId: third.id}}},
+                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {...page, settingsOpen: true}, model: {view: "cards", sort: "recent", activeId: first.id}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/BookshelfPage.vue"),
         }),
@@ -729,6 +736,18 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "project"}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/PathPickerDialog.vue"),
+        }),
+        defineLabFixture<typeof WorksSettingsPage>({
+            component: "WorksSettingsPage",
+            scenes: [
+                {id: "unset", label: "还没设", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "set", label: "设了（已修改）", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "long", label: "很长的路径", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "write-failed", label: "写不进去", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "invalid", label: "设置文件有错误（停用）", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", layer: "user"}}},
+            ],
+            load: async () => (await import("./WorksSettingsPageFixture.vue")).default,
         }),
     ];
 }

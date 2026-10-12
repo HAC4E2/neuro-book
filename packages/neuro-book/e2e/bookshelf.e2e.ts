@@ -1,5 +1,5 @@
 /**
- * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7、8、9）：生产构建的后端与前端，真实的项目目录、
+ * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7、8、9、10）：生产构建的后端与前端，真实的项目目录、
  * 登记表、用户层配置与封面文件。项目 `book` 先登记好；第二个目录经“打开已有作品”的选择器登记；新作品建在缺省作品目录
  * （场地的 HOME 下的 Documents/NeuroBook）里。等页面上可观察的变化，不按时长等待。
  */
@@ -9,6 +9,7 @@ import {access, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
 import {expect, test} from "@playwright/test";
+import {parse as parseJsonc} from "jsonc-parser";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -252,6 +253,47 @@ test("新建作品的对话框：没改过点遮罩关闭、改过不关；选�
 
     await page.locator("[data-project-cancel]").click();
     await expect(info).toHaveCount(0);
+});
+
+test("设置的“作品”分区：书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 10）", async ({page}) => {
+    await openShelf(page);
+    const gear = page.locator("[data-shelf-settings]");
+    await gear.click();
+    const window = page.locator("[data-settings-window]");
+    await expect(window).toBeVisible();
+    await expect(gear).toHaveAttribute("aria-pressed", "true");
+    await window.locator("[data-settings-nav='nbook.works']").click();
+    await expect(window.locator("[data-settings-section='nbook.works']")).toContainText("作品目录");
+    const library = page.locator("[data-works-library]");
+    await expect(library).toHaveText("还没设，第一次新建作品时会记下");
+
+    const change = page.locator("[data-works-library-change]");
+    const picker = page.locator("[data-path-picker]");
+    await change.click();
+    await expect(picker).toBeVisible();
+    expect(await onTopAt(page, "[data-path-picker]")).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(picker).toHaveCount(0);
+    await expect(window).toBeVisible();
+    await expect(change).toBeFocused();
+
+    // 输入路径进入场地的 Documents，没选条目就“选定”当前目录。
+    const chosen = join(home, "Documents");
+    await change.click();
+    await page.locator("[data-path-picker-type]").click();
+    await page.locator("input[data-path-picker-input], [data-path-picker-input] input").fill(chosen);
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-path-picker-confirm]")).toBeEnabled();
+    await page.locator("[data-path-picker-confirm]").click();
+    await expect(picker).toHaveCount(0);
+    await expect(library).toHaveText(chosen);
+    const settingsFile = join(stateRoot, "settings.json");
+    await expect.poll(async () => parseJsonc(await readFile(settingsFile, "utf8")) as unknown).toEqual({"nbook.projects/library": chosen});
+
+    // 恢复默认：键从设置里删掉，回到没设（后面的用例要缺省的作品目录）。
+    await page.locator("[data-settings-row='nbook.projects/library'] [data-settings-row-reset]").click();
+    await expect(library).toHaveText("还没设，第一次新建作品时会记下");
+    await expect.poll(async () => parseJsonc(await readFile(settingsFile, "utf8")) as unknown).toEqual({});
 });
 
 test.describe("窄屏", () => {

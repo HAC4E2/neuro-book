@@ -1,0 +1,132 @@
+/**
+ * 设置窗口“作品”分区（同名 .md，docs/specs/workbench/bookshelf.md 输出 18）：插件交给设置窗口的页面（`works-section.ts` 的包装
+ * 加 `WorksSettingsPage`）。配置来自设置场景的局部宿主（产品里同一个配置实例，用户层的拥有者在内存里，同设置窗口的组件测试），
+ * 页面拿到的是 `nbook.projects` 自己的配置服务；目录选择器列一棵固定的目录树。看空态、选定目录后写进用户层、写入失败发通知并
+ * 回到实际值、层不可写时停用。
+ */
+
+import {flushPromises, mount} from "@vue/test-utils";
+import {afterEach, describe, expect, it} from "vitest";
+import {readonly, ref} from "vue";
+import type {Ref} from "vue";
+
+import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import type {HostLayer} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
+import type {SettingLayer} from "nbook/shared/settings";
+
+import type {BrowseEntry} from "../../shared/contracts";
+import {librarySetting} from "../../shared/contracts";
+import {createWorksPage} from "../works-section";
+import WorksSettingsPage from "./WorksSettingsPage.vue";
+
+const cleanup: Array<() => void> = [];
+afterEach(() => {
+    for (const dispose of cleanup.splice(0)) dispose();
+    document.body.innerHTML = "";
+});
+
+const HOME = "/home/writer";
+const LIBRARY = `${HOME}/Documents/NeuroBook`;
+const TREE: Record<string, {parent: string | null; entries: BrowseEntry[]}> = {
+    [LIBRARY]: {parent: `${HOME}/Documents`, entries: [{name: "drafts", path: `${LIBRARY}/drafts`, kind: "directory", title: null}]},
+    [`${LIBRARY}/drafts`]: {parent: LIBRARY, entries: []},
+    [`${HOME}/books`]: {parent: HOME, entries: [{name: "2026", path: `${HOME}/books/2026`, kind: "directory", title: null}]},
+    [`${HOME}/books/2026`]: {parent: `${HOME}/books`, entries: []},
+};
+
+function open(user: HostLayer) {
+    const notices: NotificationInput[] = [];
+    const listed: Array<string | null> = [];
+    const host = createSettingsHost({settings: [{plugin: "nbook.projects", definition: librarySetting}], sections: [], user, notify: () => undefined, report: () => undefined});
+    cleanup.push(() => host.dispose());
+    const page = createWorksPage({
+        component: WorksSettingsPage,
+        settings: host.service("nbook.projects"),
+        source: {list: async (path) => {
+            listed.push(path);
+            const key = path ?? LIBRARY;
+            const node = TREE[key];
+            return node === undefined ? {ok: false, message: `列不出目录：${key}`} : {ok: true, value: {path: key, ...node}};
+        }},
+        locale: ref("zh-CN" as const),
+        notifications: {notify: (input) => {
+            notices.push(input);
+            return {id: String(notices.length), update: () => undefined, dismiss: () => undefined};
+        }},
+        report: () => undefined,
+    });
+    const context: SettingsPageContext = {id: "nbook.works", layer: readonly(ref<SettingLayer>("user")) as Readonly<Ref<SettingLayer>>, projectTitle: readonly(ref(null))};
+    const wrapper = mount(page, {props: {context}, attachTo: document.body});
+    cleanup.push(() => wrapper.unmount());
+    return {host, notices, listed, wrapper};
+}
+
+const one = <T extends Element = HTMLElement>(selector: string): T => {
+    const found = document.body.querySelector<T>(selector);
+    if (found === null) throw new Error(`没有 ${selector}`);
+    return found;
+};
+
+/** 点“更改…”，在选择器里双击进入 `entry`（给了的话），再点“选定”。 */
+async function choose(entry: string | null): Promise<void> {
+    one<HTMLButtonElement>("[data-works-library-change]").click();
+    await flushPromises();
+    if (entry !== null) {
+        one(`[data-file-browser-entry='${entry}']`).dispatchEvent(new MouseEvent("dblclick", {bubbles: true}));
+        await flushPromises();
+    }
+    one<HTMLButtonElement>("[data-path-picker-confirm]").click();
+    await flushPromises();
+}
+
+describe("WorksSettingsPage", () => {
+    it("没设：写“还没设，第一次新建作品时会记下”，没有已修改标记；“更改…”从缺省的作品目录开始", async () => {
+        const {listed} = open({});
+        expect(one("[data-works-library]").textContent).toBe("还没设，第一次新建作品时会记下");
+        expect(document.body.querySelector("[data-works-library-empty]")).not.toBeNull();
+        expect(document.body.querySelector("[data-settings-row-modified]")).toBeNull();
+        one<HTMLButtonElement>("[data-works-library-change]").click();
+        await flushPromises();
+        expect(document.body.querySelector("[data-path-picker]")).not.toBeNull();
+        expect(listed).toEqual([null]);
+    });
+
+    it("选定一个目录：写进用户层，显示这个路径并带已修改标记；再点“更改…”从它开始；恢复默认删掉这个键", async () => {
+        const {host, listed, notices} = open({});
+        await choose(`${LIBRARY}/drafts`);
+        expect(document.body.querySelector("[data-path-picker]")).toBeNull();
+        expect(host.user.values()).toEqual({[librarySetting.key]: `${LIBRARY}/drafts`});
+        expect(one("[data-works-library]").textContent).toBe(`${LIBRARY}/drafts`);
+        expect(document.body.querySelector("[data-settings-row-modified]")).not.toBeNull();
+        expect(notices).toEqual([]);
+
+        one<HTMLButtonElement>("[data-works-library-change]").click();
+        await flushPromises();
+        expect(listed.at(-1)).toBe(`${LIBRARY}/drafts`);
+        one<HTMLButtonElement>("[data-path-picker-confirm]").click();
+        await flushPromises();
+
+        one<HTMLButtonElement>("[data-settings-row-reset]").click();
+        await flushPromises();
+        expect(host.user.values()).toEqual({});
+        expect(document.body.querySelector("[data-works-library-empty]")).not.toBeNull();
+    });
+
+    it("写不进去：发通知“作品目录没有记住”，路径回到层里的实际值", async () => {
+        const {host, notices} = open({values: {[librarySetting.key]: `${HOME}/books`}});
+        host.user.failWrites("write-failed");
+        await choose(`${HOME}/books/2026`);
+        expect(host.user.values()).toEqual({[librarySetting.key]: `${HOME}/books`});
+        expect(one("[data-works-library]").textContent).toBe(`${HOME}/books`);
+        expect(notices).toHaveLength(1);
+        expect(notices[0]).toMatchObject({tone: "warning", title: "作品目录没有记住"});
+        expect(notices[0]?.message).toContain("作品目录没有写进设置：write-failed");
+    });
+
+    it("设置文件有错误：“更改…”停用", () => {
+        open({values: {[librarySetting.key]: `${HOME}/books`}, invalid: "第 3 行：缺少逗号"});
+        expect(one<HTMLButtonElement>("[data-works-library-change]").disabled).toBe(true);
+    });
+});

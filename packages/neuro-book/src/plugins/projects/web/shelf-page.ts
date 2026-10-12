@@ -21,9 +21,10 @@ import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/local
 import type {SettingsService} from "nbook/shared/settings";
 
 import {librarySetting, projectsRemoteContract} from "../shared/contracts";
-import type {BrowseEntry} from "../shared/contracts";
 import {projectDirectoryName} from "../shared/directory-name";
 import type {ShelfItem} from "../shared/shelf";
+import {browseDirectory} from "./browse";
+import type {BrowseOutcome} from "./browse";
 import {failureReason, fieldName, projectsText, registerFailureReason, shelfText} from "./messages";
 import {projectUrl} from "./open-project";
 import {sortShelf} from "./shelf-format";
@@ -53,13 +54,7 @@ export interface LibraryInfo {
     readonly source: "setting" | "default";
 }
 
-export interface BrowseListing {
-    readonly path: string;
-    readonly parent: string | null;
-    readonly entries: ReadonlyArray<BrowseEntry>;
-}
-
-export type BrowseOutcome = {readonly ok: true; readonly value: BrowseListing} | {readonly ok: false; readonly message: string};
+export type {BrowseListing, BrowseOutcome} from "./browse";
 
 export type CoverTransportResult = {readonly ok: true} | {readonly ok: false; readonly code: string; readonly detail: string};
 
@@ -302,14 +297,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             host.notifications.notify({tone: "error", message: text(shelfText("libraryUnavailable", {reason: transport(result.code, result.detail)}))});
             return null;
         },
-        browse: async (path) => {
-            // 空白按省略处理：合同里的 path 至少一个字符，“省略”才表示作品目录；作品目录没读到、位置框被清空时宿主会给空串。
-            const result = await host.remote.browse(path === null || path.trim() === "" ? {} : {path});
-            if (result.ok) return {ok: true, value: result.value};
-            const detail = result.detail as {readonly reason?: string; readonly detail?: string} | undefined;
-            const why = result.code === "invalid-parent" ? text(registerFailureReason(detail?.reason ?? "")) : transport(result.code, result.detail);
-            return {ok: false, message: text(shelfText("browseFailed", {reason: why}))};
-        },
+        browse: (path) => browseDirectory(host.remote, path, host.locale()),
         create: async (values, parent) => {
             const result = await host.remote.create({title: values.title, ...(values.description === "" ? {} : {description: values.description}), parent});
             if (result.ok) {

@@ -12,7 +12,7 @@
 外壳根占满页面（父级给它确定的宽高），底色是面板底色 `--panel-surface`（平铺，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），字体 `--font-ui`，文字 `--text-main`。七个 Part 的内容：
 
 - 标题栏：[`WorkbenchTitleBar`](WorkbenchTitleBar.md)，显示当前作品的显示名（书名，没有时是目录原名）。
-- ActivityBar：[`WorkbenchActivityBar`](WorkbenchActivityBar.md)，Sidebar 的容器切换。
+- ActivityBar：[`WorkbenchActivityBar`](WorkbenchActivityBar.md)，上段是 Sidebar 的容器切换，底段是 `chrome` 给的全局项（`workbench.activitybar-items`，输出 40）。
 - 侧栏与右栏：各一个 [`WorkbenchToolPartHost`](WorkbenchToolPartHost.md)；区域里没有视图时一句空状态说明。
 - 编辑器：稳定内容槽。`editorArea` 有提供者时挂它的组件（属性 `context: {visible}`，面板最大化时 `visible` 为假），提供者换了才重挂，加载失败显示原因；没有提供者时放欢迎文字（应用名与“工作台已就绪”一句，语言跟随配置）。最大化、换位置时停放不卸载。
 - 面板：[`WorkbenchPanelSurface`](WorkbenchPanelSurface.md)，框架按钮依次是位置、对齐、收起、最大化、隐藏；有容器时导航槽里是容器标签带（与 single 时上提的“移动到”，它包在 `data-no-drag` 里：标签带是落点，这个按钮不是），内容区是 Panel 的 `WorkbenchToolPartHost`。
@@ -26,7 +26,7 @@ ActivityBar、侧栏、右栏与面板和外壳根同一块面板底色，不画
 - 拖动边界的结果交给 store 的 `commitSizes`；布局组件的呈现事实交给 `acceptLayoutFacts`；记录读完之前边界不能拖。
 - 面板框架按钮执行对应命令（位置与对齐不带参数，由命令弹出选择）；按钮的可用与原因取命令系统的可用性，随布局状态更新。
 - 状态栏面板按钮执行 `nbook.view.set-panel-hidden`（显示时同时清除收起）；重试、放弃转给 store 的 `retry`、`discard`。
-- ActivityBar 点容器：选中它，Sidebar 被隐藏或拖到零时同时打开（拖到零的按记忆尺寸展开）。标签带切容器、容器网格的尺寸与收起都经 store 的 `applyView`。
+- ActivityBar 点容器：选中它，Sidebar 被隐藏或拖到零时同时打开（拖到零的按记忆尺寸展开）。点底段的全局项：经 `chrome.runItem` 执行它声明的命令。标签带切容器、容器网格的尺寸与收起都经 store 的 `applyView`。
 - “移动到”：选目标执行 `nbook.view.move-view`（带打开菜单时记下的来源容器），“重置位置”经 `applyView`。菜单目标身份由视图、来源容器、容器模式、交付状态与实例代际（实例层报上来）拼成，任一变化即关闭菜单。
 
 ## 数据
@@ -41,6 +41,8 @@ type Props = {
     views: ViewSource;
     /** 编辑器槽的提供者（`editor-area.ts`）：`workbench.editor-area` 里 `order` 最小的贡献；可选，缺省为欢迎文字。 */
     editorArea?: EditorAreaSource;
+    /** 标题栏的菜单与搜索、标题栏与状态栏的条目、活动栏底部的条目（`titlebar/titlebar-source.ts`）；可选，缺省时标题栏只有品牌与项目名，条目都为空。 */
+    chrome?: ShellChrome;
     /** 当前项目的显示名；没有绑定项目为 null。 */
     project: string | null;
     /** 当前显示语言。 */

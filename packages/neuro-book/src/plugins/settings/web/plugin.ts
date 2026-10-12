@@ -14,12 +14,15 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 
 import {computed} from "@vue/reactivity";
+import {defineComponent, h} from "vue";
 
 import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, quickPickKey} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ActivityBarItemDeclaration, OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
+import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -27,7 +30,7 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {descriptor} from "../plugin";
-import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_SECTIONS_POINT, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
+import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
 import type {SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
 import {acceptedSettings, sectionsPoint, settingsPoint} from "../shared/point";
@@ -93,16 +96,39 @@ export const APPEARANCE_SECTION_DECLARATION: SettingsSectionDeclaration = {
 const LIST_SECTION: SettingsSectionImplementation = Object.freeze({});
 
 /**
+ * 工作台活动栏最下面的齿轮（docs/specs/ui/workbench-shell.md 输出 40）：在头像占位（900）之下；窗口开着时画成按下。
+ * 书架右上角的齿轮是书架自己画的，执行同一条命令、读同一个公开键。
+ */
+export const SETTINGS_GEAR_ITEM = "nbook.settings";
+const GEAR_DECLARATION: ActivityBarItemDeclaration = {
+    title: {"zh-CN": "设置", "en-US": "Settings"},
+    icon: "i-lucide-settings",
+    order: 1000,
+    command: {id: OPEN_SETTINGS_COMMAND},
+    toggled: SETTINGS_WINDOW_OPEN_KEY,
+};
+const GEAR: ActivityBarItemImplementation = Object.freeze({});
+
+/** 设置窗口经工作台的页面浮层挂在页面根上（settings-window.md“时序与寿命”）：首页与工作台页都有，每个页面一份。 */
+export const SETTINGS_WINDOW_OVERLAY = "nbook.settings.window";
+const OVERLAY_DECLARATION: OverlayDeclaration = {};
+
+/**
  * 设置窗口的入口（settings-window.md）：持有窗口模型（开着与否、分区、标签、尺寸），贡献 `nbook.settings.open` 与公开键
- * `windowOpen`。依赖工作台的通知，所以不能是配置核心入口；命令随入口激活才进命令表，启动即激活。尺寸记录在窗口第一次
- * 读尺寸时才打开：没打开过设置的页面不读它。
+ * `windowOpen`，向工作台贡献活动栏的齿轮与挂窗口的页面浮层。依赖工作台的通知，所以不能是配置核心入口；命令随入口激活才进
+ * 命令表，启动即激活。尺寸记录在窗口第一次读尺寸时才打开：没打开过设置的页面不读它。
  */
 export const settingsWindowEntry = defineEntry({
     id: "window",
     location: "browser",
     activationEvents: ["onStartup"],
     dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}],
-    contributions: [{capability: COMMANDS_POINT, id: OPEN_SETTINGS_COMMAND, declaration: OPEN_SETTINGS_DECLARATION}, ...settingsWindowState.contributions],
+    contributions: [
+        {capability: COMMANDS_POINT, id: OPEN_SETTINGS_COMMAND, declaration: OPEN_SETTINGS_DECLARATION},
+        {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: SETTINGS_GEAR_ITEM, declaration: GEAR_DECLARATION},
+        {capability: WORKBENCH_OVERLAYS_POINT, id: SETTINGS_WINDOW_OVERLAY, declaration: OVERLAY_DECLARATION},
+        ...settingsWindowState.contributions,
+    ],
     activate: (context) => {
         const diagnostics = context.services.require(diagnosticsKey);
         const settings = context.services.require(settingsKey);
@@ -116,7 +142,8 @@ export const settingsWindowEntry = defineEntry({
             source: context.services.require(settingsWindowSourceKey),
             settings,
             bound: project !== null,
-            projectTitle: project?.name ?? null,
+            // 窗口的显示名：书名，没有书名时是目录原名（nbook/shared/projects 的 WindowProject）。
+            projectTitle: project?.title ?? null,
             locale: computed(() => displayLocale(settings)),
             size: {remembered, remember: (next) => size().remember(next)},
             notify: (input) => void notifications.notify(input),
@@ -125,10 +152,19 @@ export const settingsWindowEntry = defineEntry({
         context.scope.register({kind: "settings-window", label: `${descriptor.id} window`, value: settingsWindow, release: (value) => value.dispose()});
         const published = bindingsOf(settingsWindowState, {windowOpen: settingsWindow.open});
         const run = (args: unknown) => settingsWindow.openWindow(args as {readonly section?: string; readonly layer?: SettingLayer});
+        const overlay: WorkbenchOverlayImplementation = {
+            // `.vue` 只在 load() 里动态导入：插件的合同测试在 bun test 里导入本文件，bun 不能加载 `.vue`。
+            load: async () => {
+                const SettingsWindow = (await import("./components/SettingsWindow.vue")).default;
+                return defineComponent({name: "SettingsWindowOverlay", setup: () => () => h(SettingsWindow, {window: settingsWindow})});
+            },
+        };
         return {
             contributions: {
                 [COMMANDS_POINT]: {[OPEN_SETTINGS_COMMAND]: {run}},
                 [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
+                [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[SETTINGS_GEAR_ITEM]: GEAR},
+                [WORKBENCH_OVERLAYS_POINT]: {[SETTINGS_WINDOW_OVERLAY]: overlay},
             },
         };
     },

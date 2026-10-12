@@ -1,4 +1,7 @@
-/** BookshelfPage（同名 .md）：`focusShelf()` 把焦点交回书架（docs/specs/workbench/bookshelf.md 输出 14）。 */
+/**
+ * BookshelfPage（同名 .md）：`focusShelf()` 把焦点交回书架（docs/specs/workbench/bookshelf.md 输出 14）；右上角的齿轮打开设置、
+ * 设置窗口开着时按下（输出 1）。
+ */
 
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
@@ -15,9 +18,9 @@ function item(id: string, title: string): ShelfItem {
     };
 }
 
-function mountPage(items: ShelfItem[], view: "cards" | "list") {
+function mountPage(items: ShelfItem[], view: "cards" | "list", settingsOpen = false) {
     return mount(BookshelfPage, {
-        props: {locale: "zh-CN" as const, status: "ready" as const, items, now: NOW, view, sort: "recent" as const, activeId: null, library: "/home/writer/Documents/NeuroBook", coverSrc: () => null},
+        props: {locale: "zh-CN" as const, status: "ready" as const, items, now: NOW, view, sort: "recent" as const, activeId: null, library: "/home/writer/Documents/NeuroBook", coverSrc: () => null, settingsOpen},
         attachTo: document.body,
     });
 }
@@ -38,5 +41,20 @@ describe("BookshelfPage", () => {
         empty.vm.focusShelf();
         expect(document.activeElement?.matches("[data-shelf-create]")).toBe(true);
         empty.unmount();
+    });
+
+    it("右上角是齿轮按钮（不是菜单），紧挨在头像位左边：点了发 open-settings；设置窗口开着时按下", async () => {
+        const page = mountPage([item("a", "甲")], "cards");
+        const gear = page.get("[data-shelf-settings]");
+        expect(gear.attributes("aria-label")).toBe("设置");
+        expect(gear.attributes("aria-haspopup")).toBeUndefined();
+        expect(gear.attributes("aria-pressed")).toBe("false");
+        expect(gear.element.nextElementSibling?.getAttribute("title")).toBe("个人资料尚未开放");
+        await gear.trigger("click");
+        expect(page.emitted("open-settings")).toEqual([[]]);
+        expect(document.body.querySelector("[role='menu']")).toBeNull();
+        await page.setProps({settingsOpen: true});
+        expect(page.get("[data-shelf-settings]").attributes("aria-pressed")).toBe("true");
+        page.unmount();
     });
 });

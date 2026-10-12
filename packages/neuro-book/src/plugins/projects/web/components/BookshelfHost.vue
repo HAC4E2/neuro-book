@@ -6,6 +6,7 @@
 import {AlertDialog} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
 
+import {OPEN_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
@@ -24,6 +25,8 @@ defineOptions({name: "BookshelfHost"});
 const props = defineProps<{
     page: ShelfPage;
     locale: DisplayLocale;
+    /** 本页的设置窗口开着：书架右上角的齿轮画成按下。 */
+    settingsOpen: boolean;
 }>();
 
 const TEXT = {
@@ -132,23 +135,13 @@ function startAddExisting(): void {
     pickerError.value = "";
 }
 
-async function changeLibrary(): Promise<void> {
-    const current = await loadLibrary();
-    picker.value = {mode: "directory", initialPath: current?.path ?? null};
-    pickerError.value = "";
-}
-
 async function onPick(path: string): Promise<void> {
     const current = picker.value;
     if (current === null) return;
+    // 选目录只从新建窗口的“浏览…”打开（作品目录在设置的“作品”分区里改）：选定的目录填回新建窗口的位置。
     if (current.mode === "directory") {
         picker.value = null;
-        if (info.value?.mode === "create") {
-            infoLocation.value = path;
-            return;
-        }
-        await props.page.rememberLibrary(path);
-        await loadLibrary();
+        infoLocation.value = path;
         return;
     }
     pickerBusy.value = true;
@@ -193,6 +186,7 @@ async function confirmRemove(): Promise<void> {
         :active-id="page.activeId.value"
         :library="library?.path ?? ''"
         :cover-src="coverSrc"
+        :settings-open="settingsOpen"
         @update:view="page.setView"
         @update:sort="page.setSort"
         @update:active-id="page.select"
@@ -204,8 +198,7 @@ async function confirmRemove(): Promise<void> {
         @create="startCreate"
         @add-existing="startAddExisting"
         @retry="page.refresh(true)"
-        @command="page.runCommand"
-        @change-library="changeLibrary"
+        @open-settings="page.runCommand(OPEN_SETTINGS_COMMAND)"
     />
     <ProjectInfoDialog
         v-model:location="infoLocation"
