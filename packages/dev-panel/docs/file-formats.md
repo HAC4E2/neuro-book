@@ -168,7 +168,7 @@ artifacts/<artifactId>/
 | 产物已关闭、这次发布重新打开它 | 因关闭而撤回、且页面里还在的题恢复成活的 |
 | 页面里的题号与 `nbdev ask` 登记的同号 | `duplicate_question`，发布失败 |
 
-关闭（`artifact close`）把还没答的题记成 `{kind: "withdrawn", reason: "closed"}`，已答的不动。
+关闭（`artifact close`）把还没答的题记成 `{kind: "withdrawn", reason: "closed"}`，已答的不动。Task 的提问集不能关闭。
 
 ### 状态现算
 

@@ -147,7 +147,7 @@ describe("发布", () => {
 });
 
 describe("登记、撤回与取代", () => {
-    test("场景 3 的写入：ask 建 Task 提问集；题号不复用；撤回与取代写进新版本，取代者存完整 id", async () => {
+    test("场景 3 的写入：ask 建 Task 提问集；题号不复用；撤回与取代写进新版本，取代者存完整 id；提问集不能关闭", async () => {
         const {fixture, context} = await setup("ask-flow");
         const asked = await askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "migrate-order", type: "text", label: "迁移顺序", about: "docs/specs/x.md"}]}, asBob);
         expect([asked.data.artifactId, asked.data.version, asked.warnings.map((warning) => warning.code)]).toEqual(["questions", 1, ["about_not_found"]]);
@@ -165,6 +165,8 @@ describe("登记、撤回与取代", () => {
             ["drop-me", {kind: "withdrawn", in: 3, reason: "explicit"}],
         ]);
         await expect(askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "Bad", type: "single", label: "x"}]}, asBob)).rejects.toMatchObject({code: "invalid_questions"});
+        await expect(closeArtifact(context, {workRef: "w00001", taskRef: "t01", artifactId: "questions"}, asBob)).rejects.toMatchObject({code: "usage"});
+        expect((await readArtifact(fixture.main, {...REF, artifactId: "questions"})).latest?.state).toBe("open");
     });
 });
 

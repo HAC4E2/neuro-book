@@ -372,8 +372,12 @@ async function deriveVersion(context: RepoContext, target: {workRef: string; tas
     return {data: {...result, lease}, commit, warnings};
 }
 
-/** `nbdev artifact close`：未答的题记成因关闭而撤回；已关闭时不出新版本。 */
-export function closeArtifact(context: RepoContext, input: {workRef: string; taskRef: string; artifactId: string}, options: ArtifactOpOptions = {}): Promise<WriteOutcome<DerivedData>> {
+/**
+ * `nbdev artifact close`：未答的题记成因关闭而撤回；已关闭时不出新版本。
+ * Task 的提问集不能关闭：只有重新发布能打开已关闭的产物，而提问集不能发布，关了这个 Task 就再也不能 `ask`。
+ */
+export async function closeArtifact(context: RepoContext, input: {workRef: string; taskRef: string; artifactId: string}, options: ArtifactOpOptions = {}): Promise<WriteOutcome<DerivedData>> {
+    if (input.artifactId === QUESTIONS_ARTIFACT) throw new NbdevError("usage", `${QUESTIONS_ARTIFACT} 是 Task 的提问集，不能关闭；不再需要的题逐题用 nbdev ask withdraw 撤回`, {details: {artifactId: input.artifactId}});
     return deriveVersion(context, input, "close", options, async (snapshot, version, tx) => {
         if (snapshot.latest.state === "closed") {
             tx.warn({code: "already_closed", message: `${snapshot.ref.artifactId} 已经关闭，没有出新版本`, details: {version: snapshot.latest.version}});
