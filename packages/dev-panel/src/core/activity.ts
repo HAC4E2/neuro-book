@@ -31,7 +31,7 @@ export type Activity = {
     herdr: {available: boolean; socketPath: string | null; version: string | null};
 };
 
-/** 读一次 herdr：pane 列表（带 agent 与 agent_session，省掉 agent.list）与各 pane 的进程信息（并发；单个 pane 失败就跳过）。 */
+/** 读一次 herdr：pane 列表（带 agent 与 agent_session，不必另调 agent.list）与各 pane 的进程信息（并发；单个 pane 失败就跳过）。 */
 export async function readHerdrSnapshot(herdr: HerdrClient | null, warnings: Warning[]): Promise<HerdrSnapshot> {
     if (!herdr) return {available: false, socketPath: null, version: null, panes: [], processes: null};
     // ping 与 pane.list 并发：herdr 的单次调用常要多等约 100 毫秒（见 docs/herdr.md），串行会叠加。

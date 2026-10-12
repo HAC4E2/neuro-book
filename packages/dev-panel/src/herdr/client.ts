@@ -9,7 +9,7 @@ import {systemErrorCode} from "../core/errors.js";
  * 白名单外的方法在这里直接拒绝、不发出去。命令行用 `HERDR_CLI_METHODS`；`status` 用只读的 `HERDR_READ_METHODS`；
  * 面板的清单由 t11 按 Proposal 第八节第 7 条定（其中没有 `pane.report_metadata`：标签只由会话自己的命令行写）。
  */
-export const HERDR_READ_METHODS: readonly string[] = ["ping", "agent.list", "agent.get", "pane.list", "pane.process_info"];
+export const HERDR_READ_METHODS: readonly string[] = ["ping", "pane.list", "pane.process_info"];
 export const HERDR_CLI_METHODS: readonly string[] = [...HERDR_READ_METHODS, "pane.report_metadata"];
 
 const TAG_SOURCE = "nbdev";
@@ -22,7 +22,7 @@ export type HerdrPane = {paneId: string; terminalId: string; agent: string | nul
 export type HerdrProcessInfo = {paneId: string; shellPid: number | null; foregroundGroupId: number | null; foregroundPids: number[]};
 export type HerdrAvailability = {ok: true; version: string; socketPath: string} | {ok: false; reason: string; socketPath: string; detail: string};
 
-/** herdr 调用失败：`code` 是 herdr 的错误码（如 `agent_not_found`），或本客户端的 `server_not_running`、`timeout`、`protocol_error`、`method_not_allowed`。 */
+/** herdr 调用失败：`code` 是 herdr 的错误码（如 `pane_not_found`），或本客户端的 `server_not_running`、`timeout`、`protocol_error`、`method_not_allowed`。 */
 export class HerdrError extends Error {
     readonly code: string;
 
@@ -37,8 +37,6 @@ export type HerdrClient = {
     readonly socketPath: string;
     availability(): Promise<HerdrAvailability>;
     listPanes(): Promise<HerdrPane[]>;
-    /** pane 上没有认得出的 Agent 时为 null。 */
-    getAgent(target: string): Promise<HerdrPane | null>;
     /** pane 不存在时为 null。 */
     processInfo(paneId: string): Promise<HerdrProcessInfo | null>;
     reportTaskTokens(paneId: string, tokens: {work: string; task: string}): Promise<void>;
@@ -74,10 +72,14 @@ function toPane(value: unknown): HerdrPane | null {
 let requestCounter = 0;
 
 /**
- * 每次调用开一个连接，读到第一个换行为止并核对 `id`。单次调用超时 `callTimeoutMs`；
- * `budgetMs` 给整个客户端一个总时限，用完后的调用直接报 `timeout`（`status` 不能因为 herdr 卡住而等几十秒）。
+ * 每次调用开一个连接，读到第一个换行为止并核对 `id`。单次调用超时 `callTimeoutMs`。
+ * 下面三个选项都只给一次命令用完即弃的客户端（命令行）开；常驻的客户端（面板）不开，否则 herdr 一时不在就永远判为不可用、
+ * 预算期过了就永远超时、pane 列表永远是旧的：
+ * - `budgetMs`：整个客户端的总时限，从创建时算起，用完后的调用直接报 `timeout`（`status` 不能因为 herdr 卡住而等几十秒）；
+ * - `memoizeAvailability`：`availability()` 只 ping 一次；
+ * - `memoizePanes`：`listPanes()` 只取一次。
  */
-export function createHerdrClient(options: {socketPath: string; allow: readonly string[]; callTimeoutMs?: number; budgetMs?: number; memoizePanes?: boolean}): HerdrClient {
+export function createHerdrClient(options: {socketPath: string; allow: readonly string[]; callTimeoutMs?: number; budgetMs?: number; memoizeAvailability?: boolean; memoizePanes?: boolean}): HerdrClient {
     const {socketPath, allow} = options;
     let panesMemo: Promise<HerdrPane[]> | null = null;
     const callTimeout = options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
@@ -138,7 +140,7 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
     return {
         socketPath,
         availability() {
-            available ??= call("ping", {}).then(
+            const ping = () => call("ping", {}).then(
                 (result): HerdrAvailability => ({ok: true, version: isRecord(result) && typeof result.version === "string" ? result.version : "unknown", socketPath}),
                 (error: unknown): HerdrAvailability => ({
                     ok: false,
@@ -147,6 +149,8 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
                     detail: error instanceof Error ? error.message : String(error),
                 }),
             );
+            if (!options.memoizeAvailability) return ping();
+            available ??= ping();
             return available;
         },
         listPanes() {
@@ -156,22 +160,10 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
                 if (!panes) throw new HerdrError("protocol_error", "pane.list 的响应缺少 panes");
                 return panes.map(toPane).filter((pane): pane is HerdrPane => pane !== null);
             };
-            // 只读命令一次调用里多处要 pane 列表（认调用者、汇总会话），herdr 的单次调用常要多等约 100 毫秒（见 docs/herdr.md），
-            // 所以同一个客户端只取一次。只给一次命令用完即弃的客户端开；常驻的客户端（面板）每次要读最新的 pane。
+            // 只读命令一次调用里多处要 pane 列表（认调用者、汇总会话），herdr 的单次调用常要多等约 100 毫秒（见 docs/herdr.md）。
             if (!options.memoizePanes) return fetchPanes();
             panesMemo ??= fetchPanes();
             return panesMemo;
-        },
-        async getAgent(target) {
-            try {
-                const result = await call("agent.get", {target});
-                const pane = toPane(isRecord(result) ? result.agent : null);
-                if (!pane) throw new HerdrError("protocol_error", "agent.get 的响应缺少 agent");
-                return pane;
-            } catch (error) {
-                if (error instanceof HerdrError && error.code === "agent_not_found") return null;
-                throw error;
-            }
         },
         async processInfo(paneId) {
             try {

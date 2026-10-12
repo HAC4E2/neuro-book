@@ -34,7 +34,6 @@ describe("herdr 客户端", () => {
         expect(await client.listPanes()).toEqual([{paneId: "w9:p1", terminalId: "term_w9:p1", agent: "claude", status: "idle", session: {agent: "claude", kind: "id", value: "11111111-1111-4111-8111-111111111111"}}]);
         expect(await client.processInfo("w9:p1")).toEqual({paneId: "w9:p1", shellPid: 10, foregroundGroupId: 11, foregroundPids: [11, 12]});
         expect(await client.processInfo("w9:missing")).toBeNull();
-        expect(await client.getAgent("w9:missing")).toBeNull();
         await client.reportTaskTokens("w9:p1", {work: "w00022", task: "t07"});
         await client.clearTaskTokens("w9:p1");
         expect(herdr.requests.filter((request) => request.method === "pane.report_metadata").map((request) => request.params)).toEqual([
@@ -48,6 +47,18 @@ describe("herdr 客户端", () => {
         const readOnly = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_READ_METHODS});
         await expect(readOnly.reportTaskTokens("w9:p1", {work: "w00022", task: "t07"})).rejects.toMatchObject({code: "method_not_allowed"});
         expect(herdr.requests).toEqual([]);
+    });
+
+    test("memoizeAvailability 时只 ping 一次，默认每次都 ping（常驻客户端要能看到 herdr 回来）", async () => {
+        const herdr = await fake();
+        const once = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_READ_METHODS, memoizeAvailability: true});
+        await once.availability();
+        await once.availability();
+        expect(herdr.requests.filter((request) => request.method === "ping")).toHaveLength(1);
+        const plain = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_READ_METHODS});
+        await plain.availability();
+        await plain.availability();
+        expect(herdr.requests.filter((request) => request.method === "ping")).toHaveLength(3);
     });
 
     test("只读客户端开 memoizePanes 时 pane 列表只取一次，默认每次都取", async () => {

@@ -45,13 +45,13 @@ const READ_BUDGET_MS = 2_500;
 
 /** 写命令的调用者：在边界上从调用者的环境解析，核心函数只接收结果。 */
 async function writeCaller(io: CliIo, values: Record<string, string | boolean | undefined>): Promise<{herdr: HerdrClient; caller: Caller; warnings: Warning[]}> {
-    const herdr = createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_CLI_METHODS});
+    const herdr = createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_CLI_METHODS, memoizeAvailability: true});
     const {caller, warnings} = await resolveCaller({env: io.env, as: stringValue(values, "as"), herdr});
     return {herdr, caller, warnings};
 }
 
 function readOnlyHerdr(io: CliIo): HerdrClient {
-    return createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_READ_METHODS, budgetMs: READ_BUDGET_MS, memoizePanes: true});
+    return createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_READ_METHODS, budgetMs: READ_BUDGET_MS, memoizeAvailability: true, memoizePanes: true});
 }
 
 function ago(iso: string, now: Date): string {

@@ -8,6 +8,7 @@ nbdev 经 herdr 认会话、写 pane 标签、找运行所在的 pane。本文�
 - 协议：一行一个 JSON，请求 `{id, method, params}`，响应 `{id, result}` 或 `{id, error: {code, message}}`。客户端每次调用开一个连接，读到第一个换行为止并核对 `id`。
 - 时限：单次调用 2 秒；`status`、`lease list` 给整个客户端 2.5 秒的总时限，用完之后的调用直接报超时，命令按 herdr 不可用继续。
 - 时延：在本机默认 server 0.9.1 上，Bun 客户端的单次调用有一部分（实测 5% 到 50%，随负载变化）要多等约 100 毫秒，原因未查明；改成连接建立前就写请求没有改善（2026-10-12 实测）。所以 `status`、`lease list` 一次调用里 `pane.list` 只取一次，`ping` 与 `pane.list` 并发，减少串行的调用。
+- 客户端的三个选项只给一次命令用完即弃的客户端（命令行）开：`budgetMs`（总时限从创建时算起）、`memoizeAvailability`（只 ping 一次）、`memoizePanes`（pane 列表只取一次）。常驻的客户端（面板）不开，否则 herdr 一时不在就永远判为不可用、预算期过后永远超时、pane 列表永远是旧的。
 
 ## 白名单
 
@@ -15,8 +16,8 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 
 | 清单 | 方法 | 谁用 |
 |---|---|---|
-| `HERDR_READ_METHODS` | `ping`、`agent.list`、`agent.get`、`pane.list`、`pane.process_info` | `status`、`lease list` |
-| `HERDR_CLI_METHODS` | 上面五个加 `pane.report_metadata` | 写命令（只为写调用者自己 pane 的标签） |
+| `HERDR_READ_METHODS` | `ping`、`pane.list`、`pane.process_info` | `status`、`lease list` |
+| `HERDR_CLI_METHODS` | 上面三个加 `pane.report_metadata` | 写命令（只为写调用者自己 pane 的标签） |
 | 面板的清单 | 由 t11 按 Proposal 第八节第 7 条定，其中没有 `pane.report_metadata` | 面板 |
 
 ## 用到的接口
@@ -25,11 +26,10 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 |---|---|---|
 | `ping` | 判断 herdr 是否可用 | `version` |
 | `pane.list` | 各 pane 上是哪个 Agent 会话、状态 | `pane_id`、`terminal_id`、`agent`、`agent_status`、`agent_session {agent, kind, value}`；Claude 的 `value` 是会话 id，omp 的是会话文件路径 |
-| `agent.get` | 只有 `HERDR_PANE_ID` 的调用者 | 同上；pane 上没有 Agent 时为 `agent_not_found` |
 | `pane.process_info` | pane 的 shell 与前台进程（运行归属、omp 的主进程、写标签前确认调用者在这格 pane 的前台） | `shell_pid`、`foreground_process_group_id`、`foreground_processes[].pid`；pane 不存在为 `pane_not_found` |
 | `pane.report_metadata` | 写或清 `work`、`task` 两个 token | `source: "nbdev"`、`tokens`（值为 `null` 即清除）、`ttl_ms: 86400000` |
 
-`status` 直接用 `pane.list` 带的 `agent`、`agent_session`、`agent_status`，不再调 `agent.list`；各 pane 的 `process_info` 并发调用，单个失败就跳过这格并给 `herdr_partial` 警告。
+认调用者与 `status` 都直接用 `pane.list` 带的 `agent`、`agent_session`、`agent_status`，不调 `agent.list`、`agent.get`（所以它们不在白名单里）；各 pane 的 `process_info` 并发调用，单个失败就跳过这格并给 `herdr_partial` 警告。
 
 ## 会话身份与是否还在
 

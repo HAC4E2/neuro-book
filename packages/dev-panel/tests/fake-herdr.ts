@@ -78,14 +78,6 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
         return {id, result: {type: "pong", version: "fake", protocol: 22}};
     case "pane.list":
         return {id, result: {type: "pane_list", panes: fake.panes.map(({shell_pid: _shell, foreground_pids: _fg, ...pane}) => pane)}};
-    case "agent.list":
-        return {id, result: {type: "agent_list", agents: fake.panes.filter((pane) => pane.agent_session).map(({shell_pid: _shell, foreground_pids: _fg, ...pane}) => pane)}};
-    case "agent.get": {
-        const pane = paneById(params.target);
-        if (!pane || !pane.agent_session) return {id, error: {code: "agent_not_found", message: `agent target ${String(params.target)} not found`}};
-        const {shell_pid: _shell, foreground_pids: _fg, ...agent} = pane;
-        return {id, result: {type: "agent_info", agent}};
-    }
     case "pane.process_info": {
         const pane = paneById(params.pane_id);
         if (!pane) return {id, error: {code: "pane_not_found", message: `pane ${String(params.pane_id)} not found`}};
