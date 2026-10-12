@@ -122,3 +122,24 @@ export {
 export {discoverRuns, type DiscoverRunsInput, type PaneProcesses, type RunView} from "./core/runs.js";
 export {buildLeaseContext, readActivity, readHerdrSnapshot, readTaskStatuses, type Activity, type HerdrSnapshot, type SessionView} from "./core/activity.js";
 export {listLeases, releaseCallerLeases, releaseTaskLeases, takeLease, touchCallerLease, type LeaseEffects, type LeaseOptions} from "./core/lease-ops.js";
+export {
+    MARKUP,
+    MAX_LABEL_LENGTH,
+    MAX_OPTION_LABEL_LENGTH,
+    MAX_TEXT_ANSWER_LENGTH,
+    QUESTION_ID_PATTERN,
+    QUESTION_TYPES,
+    REVIEW_OPTIONS,
+    parseOptionsShorthand,
+    parseQuestionMarkup,
+    validateAnswerValue,
+    validateQuestionDefinition,
+    type DefinitionProblem,
+    type MarkupProblem,
+    type MarkupQuestion,
+    type MarkupReference,
+    type ParsedMarkup,
+    type QuestionDefinition,
+    type QuestionOption,
+    type QuestionType,
+} from "./core/questions.js";

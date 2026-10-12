@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>提问标记例子</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; line-height: 1.6; }
+section, li { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.badge { font-size: 12px; padding: 1px 6px; border-radius: 4px; background: #fde68a; margin-right: 8px; }
+.cand { border-top: 1px dashed #ddd; padding-top: 8px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>提问标记例子</h1>
+<p>nbdev 发布产物时解析这一类标记，写进发布记录；格式见 <code>docs/file-formats.md</code> 的“提问标记”。包的测试会解析这一页并核对结果。</p>
+
+<!-- 单选：选项是范围里带 data-nbdev-option 的元素。题目取第一个标题，徽标加 data-nbdev-skip 就不进题目；
+     选项名依次取 data-nbdev-label、选项里的第一个标题、选项自己的文字。 -->
+<section data-nbdev-question="home-layout" data-nbdev-type="single" data-nbdev-recommend="cards">
+  <h2><span class="badge" data-nbdev-skip>待定</span>首页的 Work 区用卡片还是表</h2>
+  <p>两版内容相同，差别只在排法。</p>
+  <div class="cand" data-nbdev-option="cards" data-nbdev-label="A 每个 Work 一张卡片">
+    <a href="#a" data-nbdev-skip>打开</a>
+    <p>卡片上有目标、状态计数、待答数与谁在动。</p>
+  </div>
+  <div class="cand" data-nbdev-option="table">
+    <h3>B 一张表，按 Work 分组</h3>
+    <p>每行一个 Task。</p>
+  </div>
+</section>
+
+<!-- 多选，选项用一行写法；data-nbdev-optional 表示选答。 -->
+<section data-nbdev-question="nav-groups" data-nbdev-type="multi" data-nbdev-options="inbox:收件箱|work:工作|docs:文档" data-nbdev-optional>
+  <h2>左栏默认展开哪几组</h2>
+</section>
+
+<!-- 审查报告的每条意见：@review 展开成改（fix）、不改（skip）、要讨论（discuss）。 -->
+<ol>
+  <li data-nbdev-question="review-3" data-nbdev-type="single" data-nbdev-options="@review">
+    <h3>第 3 条：锁的接管没有核对持锁者</h3>
+    <p>建议接管前核对持锁者的启动时刻。</p>
+  </li>
+</ol>
+
+<!-- 文字题与确认题；题目也可以直接写在 data-nbdev-label 里。 -->
+<section data-nbdev-question="naming-note" data-nbdev-type="text" data-nbdev-optional>
+  <h2>命名有没有别的想法</h2>
+</section>
+<section data-nbdev-question="approve-spec" data-nbdev-type="confirm" data-nbdev-label="批准把草稿晋升为 Spec">
+  <p>草稿见 <a href="#spec">这里</a>。</p>
+</section>
+</body>
+</html>
