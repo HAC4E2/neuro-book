@@ -41,13 +41,19 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 
 `status` 列出“运行”（会话派出、在后台完成的事）时，只认 Agent 工具派出的进程：
 
-1. 进程环境里有 `CLAUDE_PID` 与可信的 `CLAUDE_CODE_SESSION_ID`：归那个 Claude 会话（嵌套的归外层）。
+0. 调用 nbdev 的那条命令自己不算：它的父进程链，以及与它同一进程组的管道伙伴（`nbdev status | head` 里的 `head`）。
+1. 进程环境里有 `CLAUDE_PID` 与可信的 `CLAUDE_CODE_SESSION_ID`：归那个 Claude 会话（嵌套的归外层）。这里不要求 `CLAUDE_PID` 是它的祖先：会话派出的长进程常被收养到 1，父进程链会断。
 2. 有 `OMPCODE=1`，且 `HERDR_PANE_ID` 指向一格现存、有 Agent 的 pane：归那格 pane 上的会话。
 3. 其余（只有 `HERDR_PANE_ID` 的也算）沿父进程链向上：先碰到 Agent 进程的是 Agent 的内部进程（MCP 服务、omp 的 broker），不列；碰到有 Agent 的 pane 的 shell 或前台进程，归那个会话；碰到普通 shell pane，归无主并带 pane。
-4. 链走到底也没碰到 pane：进程在用户级 systemd 的服务单元里（`…/app.slice/<unit>.service`，单元名不以 `app-` 开头）时列为无主并带单元名，例如 `systemd-run --user --unit=…` 起的长驻进程；其余不列，只计入 `ignoredProcesses`。
+4. 链走到底也没碰到 pane：
+   - 带 Claude 的工具标记、但那个会话不可信（会话进程已不在，例如会话结束或 `claude --resume` 换了进程之后还在跑的开发服务、omp 审查）：列为无主，带 `sessionHint`（标记里的会话键）与 `sessionAlive: false`；
+   - 进程在用户级 systemd 的服务单元里（`…/app.slice/<unit>.service`，单元名不以 `app-` 开头）：列为无主并带单元名，例如 `systemd-run --user --unit=…` 起的长驻进程；
+   - 其余不列，只计入 `ignoredProcesses`。
 5. `HERDR_PANE_ID` 指向 `pane.list` 里没有的 pane，视为没有线索。
 
-看不见的：脱离终端又没有工具标记的进程（codex 守护进程、`claude bg-pty-host`、Claude 的 daemon 与 spare）、VS Code 的进程与 VS Code 终端里起的进程、别的终端模拟器里起的进程。它们要么不是运行，要么 nbdev 无从知道是谁起的。
+看不见的：脱离终端又没有任何工具标记的进程（codex 守护进程、`claude bg-pty-host`、Claude 的 daemon 与 spare）、VS Code 的进程与 VS Code 终端里起的进程、别的终端模拟器里起的进程。它们要么不是运行，要么 nbdev 无从知道是谁起的。会话已经结束、但带着它的 Claude 工具标记的进程看得见，见上面第 4 条。
+
+运行的 `checkout` 取 cwd 所在的最深的 checkout（worktree 在主工作区的 `.worktree/` 下）。`command` 是运行树根进程的命令行；根进程是 Claude Bash 工具的包装（`zsh -c source …/shell-snapshots/… && … && eval '<命令>'`）时显示 eval 里的命令，取不到就显示第一个后代的命令行。
 
 ## 版本与降级
 

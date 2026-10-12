@@ -83,7 +83,9 @@ function leaseLines(effects: LeaseEffects): string[] {
 
 function runLine(run: RunView, now: Date): string {
     const where = run.unit ? `单元 ${run.unit}` : run.paneId ? `pane ${run.paneId}` : "";
-    return `pid ${run.pid}  ${run.command.slice(0, 80)}  （${ago(run.startedAt, now).replace("前", "")}${where ? `，${where}` : ""}）`;
+    const hint = run.sessionHint ? `${shortSession(run.sessionHint)} 派出的，会话已不在` : "";
+    const notes = [where, hint].filter(Boolean).map((note) => `，${note}`).join("");
+    return `pid ${run.pid}  ${run.command.slice(0, 80)}  （${ago(run.startedAt, now).replace("前", "")}${notes}）`;
 }
 
 function activityLines(sessions: readonly SessionView[], unownedRuns: readonly RunView[], now: Date): string[] {

@@ -71,7 +71,7 @@ stdout 只有一个对象，诊断走 stderr：
   - `caller`：`{kind: "session", ref, via, process, herdr}` 或 `{kind: "unknown", reason, herdrPaneId}`；
   - `activeLeases`、`leases`：有效租约 `{sessionKey, agent, label, taskId, lastActivityAt, stale}`，`stale` 表示超过 2 小时没有 Task 相关操作（淡化显示）；
   - `sessions[]`：有有效租约或有运行的会话，`{key, agent, sessionId, label, parentSessionId, nestedSessionId, alive, managed, herdr: {paneId, status}, leases, runs}`；`alive` 是会话进程是否还在（不知道时为 `null`），`managed` 表示 herdr 现在的列表里有它（能通知）；
-  - 运行 `{pid, startedAt, command, cwd, checkout, owner, ownerVia, paneId, unit, descendants}`；`unownedRuns` 是普通 shell pane 里起的进程与 systemd 服务单元（`systemd-run`）里的进程。归属规则见 [herdr 适配](herdr.md#运行的归属)。
+  - 运行 `{pid, startedAt, command, cwd, checkout, owner, ownerVia, paneId, unit, sessionHint, sessionAlive, descendants}`；`unownedRuns` 是普通 shell pane 里起的进程、systemd 服务单元（`systemd-run`）里的进程，以及会话已不在、但带着它的工具标记的进程（`sessionHint` 为标记里的会话键，`sessionAlive` 为 `false`）。归属规则见 [herdr 适配](herdr.md#运行的归属)。
 - `registry import` 的 `data`：`added`、`nextWorkNumber`、`nextTaskNumbers`（按 Work id）、`conflicts`、`registryOnly`。
 - `conflicts[]` 的元素：`{kind, label, workId?, live, ids: [{id, live, locations}]}`；`locations` 的元素是 `{source: "main" | "worktree" | "ref", checkout?, ref?, head?}`。一个 id 只出现在 `master` 改名或删除后留下的旧副本里时不算 `live`；一组撞号至少两个 id `live` 时这组 `live`。
 

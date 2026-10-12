@@ -11,8 +11,8 @@ function isGone(error: unknown): boolean {
     return code === "ENOENT" || code === "ESRCH";
 }
 
-/** `/proc/<pid>/stat` 解析出的字段。`comm` 可能含空格与括号，按最后一个 `)` 切。 */
-export type ProcStat = {pid: number; comm: string; ppid: number; startTicks: string};
+/** `/proc/<pid>/stat` 解析出的字段。`comm` 可能含空格与括号，按最后一个 `)` 切。`pgrp` 是进程组。 */
+export type ProcStat = {pid: number; comm: string; ppid: number; pgrp: number; startTicks: string};
 
 export async function readProcStat(pid: number): Promise<ProcStat | null> {
     let text: string;
@@ -26,8 +26,9 @@ export async function readProcStat(pid: number): Promise<ProcStat | null> {
     const fields = text.slice(close + 2).split(" ");
     const startTicks = fields[19];
     const ppid = Number(fields[1]);
-    if (startTicks === undefined || !Number.isInteger(ppid)) return null;
-    return {pid, comm: text.slice(text.indexOf("(") + 1, close), ppid, startTicks};
+    const pgrp = Number(fields[2]);
+    if (startTicks === undefined || !Number.isInteger(ppid) || !Number.isInteger(pgrp)) return null;
+    return {pid, comm: text.slice(text.indexOf("(") + 1, close), ppid, pgrp, startTicks};
 }
 
 /** `/proc/<pid>/stat` 的第 22 项（进程启动时刻，时钟周期数）；进程不存在时为 null。 */

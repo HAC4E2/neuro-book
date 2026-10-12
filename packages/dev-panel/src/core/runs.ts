@@ -22,6 +22,12 @@ export type RunView = {
     ownerVia: "tool-env" | "pane" | null;
     paneId: string | null;
     unit: string | null;
+    /**
+     * 无主的运行若带着 Claude 的工具标记、但那个会话进程已不在（会话结束或 `claude --resume` 换了进程）：
+     * `sessionHint` 是标记里的会话键，`sessionAlive` 为 false。其余为 null。
+     */
+    sessionHint: string | null;
+    sessionAlive: boolean | null;
     descendants: Array<{pid: number; command: string}>;
 };
 
@@ -40,6 +46,32 @@ export type DiscoverRunsInput = {
 
 const MAX_DESCENDANTS = 5;
 const MAX_COMMAND = 200;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/**
+ * Claude 的 Bash 工具把命令包成 `zsh -c source …/shell-snapshots/… && … && eval '<命令>' …`：显示时取 eval 里的命令
+ * （单引号里的 `'\''` 还原成 `'`）。取不到时用第一个后代的命令行；不是这种包装时原样显示。
+ */
+export function displayCommand(root: Pick<ProcessEntry, "cmdline" | "comm">, firstDescendant: Pick<ProcessEntry, "cmdline" | "comm"> | null): string {
+    const raw = root.cmdline || root.comm;
+    if (!raw.includes("/shell-snapshots/")) return raw;
+    const start = raw.indexOf("eval '");
+    if (start >= 0) {
+        let command = "";
+        for (let index = start + "eval '".length; index < raw.length;) {
+            if (raw[index] !== "'") {
+                command += raw[index];
+                index += 1;
+            } else if (raw.startsWith("'\\''", index)) {
+                command += "'";
+                index += 4;
+            } else {
+                return command;
+            }
+        }
+    }
+    return firstDescendant ? firstDescendant.cmdline || firstDescendant.comm : raw;
+}
 
 function sessionRefOf(session: HerdrAgentSession): SessionRef {
     return {key: `${session.agent}:${session.value}`, agent: session.agent, sessionId: session.value, label: null, parentSessionId: null, nestedSessionId: null};
@@ -54,9 +86,11 @@ export async function discoverRuns(input: DiscoverRunsInput): Promise<{runs: Run
     const unitOf = input.unitOf ?? systemdUnitOf;
     const resolveClaude = input.resolveClaude ?? trustedClaudeSession;
     const byPid = new Map(input.processes.map((entry) => [entry.pid, entry]));
+    // worktree 在主工作区的 .worktree/ 下，两者都是 cwd 的前缀：取最长的那个。
+    const rootsByLength = [...input.checkoutRoots].sort((left, right) => right.length - left.length);
     const checkoutOf = (cwd: string | null): string | null => {
         if (cwd === null) return null;
-        return input.checkoutRoots.find((root) => cwd === root || cwd.startsWith(`${root}/`)) ?? null;
+        return rootsByLength.find((root) => cwd === root || cwd.startsWith(`${root}/`)) ?? null;
     };
     const candidates = input.processes.filter((entry) => checkoutOf(entry.cwd) !== null);
     const envCache = new Map<number, Promise<Record<string, string> | null>>();
@@ -85,8 +119,10 @@ export async function discoverRuns(input: DiscoverRunsInput): Promise<{runs: Run
     }
     const selfChain = new Set<number>();
     for (let pid: number | undefined = input.selfPid; pid !== undefined && pid > 1 && !selfChain.has(pid); pid = byPid.get(pid)?.ppid) selfChain.add(pid);
+    // 同一条命令里的管道伙伴（`nbdev status | head`）与调用者同一个进程组；它们不是运行。
+    const selfGroup = byPid.get(input.selfPid)?.pgrp ?? null;
 
-    const eligible = candidates.filter((entry) => !agentPids.has(entry.pid) && !selfChain.has(entry.pid) && !(paneOfPid.get(entry.pid)?.shellPid === entry.pid));
+    const eligible = candidates.filter((entry) => !agentPids.has(entry.pid) && !selfChain.has(entry.pid) && entry.pgrp !== selfGroup && !(paneOfPid.get(entry.pid)?.shellPid === entry.pid));
     const eligiblePids = new Set(eligible.map((entry) => entry.pid));
     const roots = eligible.filter((entry) => !eligiblePids.has(entry.ppid));
     const rootOf = (entry: ProcessEntry): number => {
@@ -112,20 +148,23 @@ export async function discoverRuns(input: DiscoverRunsInput): Promise<{runs: Run
             ignored += 1;
             continue;
         }
+        const descendants = descendantsByRoot.get(root.pid) ?? [];
         runs.push({
             pid: root.pid,
             startedAt: startTimeIso(input.bootTime, root.startTicks),
-            command: (root.cmdline || root.comm).slice(0, MAX_COMMAND),
+            command: displayCommand(root, descendants[0] ?? null).slice(0, MAX_COMMAND),
             cwd: root.cwd!,
             checkout: checkoutOf(root.cwd)!,
+            sessionHint: null,
+            sessionAlive: null,
             ...attribution,
-            descendants: (descendantsByRoot.get(root.pid) ?? []).slice(0, MAX_DESCENDANTS).map((entry) => ({pid: entry.pid, command: (entry.cmdline || entry.comm).slice(0, MAX_COMMAND)})),
+            descendants: descendants.slice(0, MAX_DESCENDANTS).map((entry) => ({pid: entry.pid, command: (entry.cmdline || entry.comm).slice(0, MAX_COMMAND)})),
         });
     }
     return {runs, ignored};
 }
 
-type Attribution = Pick<RunView, "owner" | "ownerVia" | "paneId" | "unit">;
+type Attribution = Pick<RunView, "owner" | "ownerVia" | "paneId" | "unit"> & Partial<Pick<RunView, "sessionHint" | "sessionAlive">>;
 
 async function attribute(root: ProcessEntry, context: {
     envOf(pid: number): Promise<Record<string, string> | null>;
@@ -138,9 +177,13 @@ async function attribute(root: ProcessEntry, context: {
 }): Promise<Attribution | "exclude" | "ignore"> {
     const env = await context.envOf(root.pid) ?? {};
     const envPane = env.HERDR_PANE_ID ? context.panesById.get(env.HERDR_PANE_ID) ?? null : null;
+    let hint: Pick<RunView, "sessionHint" | "sessionAlive"> | null = null;
     if (env.CLAUDE_PID) {
         const claude = await context.resolveClaude(env);
         if (claude !== null && claude !== "untrusted") return {owner: claudeRef(claude), ownerVia: "tool-env", paneId: envPane?.paneId ?? null, unit: null};
+        // 标记里的 Claude 会话不可信（多半是会话进程已经不在）：仍沿父进程链找；链上也没有着落时列为无主并带上这条线索，不忽略。
+        const sessionId = env.CLAUDE_CODE_SESSION_ID;
+        hint = {sessionHint: sessionId && UUID_PATTERN.test(sessionId) ? `claude:${sessionId}` : null, sessionAlive: context.byPid.has(Number(env.CLAUDE_PID))};
     }
     if (env.OMPCODE === "1" && envPane?.session) return {owner: sessionRefOf(envPane.session), ownerVia: "tool-env", paneId: envPane.paneId, unit: null};
     for (let pid = root.ppid, steps = 0; pid > 1 && steps < 256; steps += 1) {
@@ -152,5 +195,6 @@ async function attribute(root: ProcessEntry, context: {
         pid = parent.ppid;
     }
     const unit = await context.unitOf(root.pid);
+    if (hint) return {owner: null, ownerVia: null, paneId: null, unit, ...hint};
     return unit ? {owner: null, ownerVia: null, paneId: null, unit} : "ignore";
 }

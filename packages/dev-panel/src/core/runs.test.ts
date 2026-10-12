@@ -12,9 +12,13 @@ const REPO = "/repo";
 const S = "11111111-1111-4111-8111-111111111111";
 const X = "22222222-2222-4222-8222-222222222222";
 
-function proc(pid: number, ppid: number, cwd: string | null, cmdline: string): ProcessEntry {
-    return {pid, ppid, cwd, cmdline, comm: cmdline.split(" ")[0] ?? "", startTicks: String(pid * 100)};
+function proc(pid: number, ppid: number, cwd: string | null, cmdline: string, pgrp = pid): ProcessEntry {
+    return {pid, ppid, pgrp, cwd, cmdline, comm: cmdline.split(" ")[0] ?? "", startTicks: String(pid * 100)};
 }
+
+const Y = "33333333-3333-4333-8333-333333333333";
+/** Claude 的 Bash 工具对命令的包装（与本机 `/proc/<pid>/cmdline` 的样子一致）。 */
+const CLAUDE_BASH = String.raw`/bin/zsh -c source /home/u/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB 2>/dev/null || true && eval 'bun test --filter '\''a b'\''' < /dev/null && pwd -P >| /tmp/claude-1-cwd`;
 
 /**
  * 合成的进程表，覆盖设计审查列出的几类：Agent 工具派出的命令、MCP 服务、codex 守护进程（带着已关掉的 pane）、
@@ -22,7 +26,7 @@ function proc(pid: number, ppid: number, cwd: string | null, cmdline: string): P
  * systemd 服务单元、VS Code 的进程，以及调用 nbdev 的进程自己。
  */
 const PROCESSES: ProcessEntry[] = [
-    proc(100, 50, REPO, "zsh"), proc(101, 100, REPO, "claude"), proc(102, 101, REPO, "zsh -c bun test"), proc(103, 102, REPO, "bun test"),
+    proc(100, 50, REPO, "zsh"), proc(101, 100, REPO, "claude"), proc(102, 101, REPO, CLAUDE_BASH), proc(103, 102, REPO, "bun test", 102),
     proc(104, 101, REPO, "node mcp-server.js"),
     proc(200, 1, REPO, "codex app-server-daemon"),
     proc(300, 1, REPO, "claude bg-pty-host"), proc(301, 300, REPO, "claude --session-id x --fork-session"), proc(302, 301, `${REPO}/.worktree/w00005-a`, "bash -c run-pipeline"),
@@ -30,8 +34,10 @@ const PROCESSES: ProcessEntry[] = [
     proc(400, 50, REPO, "zsh"), proc(401, 400, REPO, "bun omp"), proc(402, 401, REPO, "omp daemon broker"), proc(403, 401, REPO, "bash -c omp-tool"),
     proc(500, 50, REPO, "zsh"), proc(501, 500, `${REPO}/.worktree/w00017-a/packages/neuro-book`, "bun run dev"),
     proc(600, 1, REPO, "bun run long-job"),
+    proc(610, 101, REPO, "/bin/zsh -c source /home/u/.claude/shell-snapshots/snapshot-zsh-1.sh && run-something"), proc(611, 610, REPO, "bun run nightly", 610),
+    proc(950, 1, `${REPO}/.worktree/w00017-a`, "sleep 1000"),
     proc(699, 1, "/home/u/.vscode-server", "node vscode-server"), proc(700, 699, REPO, "node tsserver"),
-    proc(800, 101, REPO, "zsh -c nbdev status"), proc(801, 800, REPO, "bun cli.ts status"),
+    proc(800, 101, REPO, "zsh -c nbdev status"), proc(801, 800, REPO, "bun cli.ts status", 800), proc(802, 800, REPO, "head -12", 800),
 ];
 
 const ENVIRONMENTS: Record<number, Record<string, string>> = {
@@ -47,8 +53,13 @@ const ENVIRONMENTS: Record<number, Record<string, string>> = {
     402: {HERDR_PANE_ID: "w1:pV"},
     403: {OMPCODE: "1", CLAUDECODE: "1", HERDR_PANE_ID: "w1:pV"},
     501: {HERDR_PANE_ID: "w1:pJ"},
+    610: {CLAUDE_PID: "101", CLAUDE_CODE_SESSION_ID: S},
+    611: {CLAUDE_PID: "101", CLAUDE_CODE_SESSION_ID: S},
     800: {CLAUDE_PID: "101", CLAUDE_CODE_SESSION_ID: S},
     801: {CLAUDE_PID: "101", CLAUDE_CODE_SESSION_ID: S},
+    802: {CLAUDE_PID: "101", CLAUDE_CODE_SESSION_ID: S},
+    // 会话进程 999 已经不在（表里没有），它派出的长进程被收养到 1。
+    950: {CLAUDE_PID: "999", CLAUDE_CODE_SESSION_ID: Y},
 };
 
 const PANES: PaneProcesses[] = [
@@ -58,9 +69,11 @@ const PANES: PaneProcesses[] = [
     {paneId: "w1:pJ", shellPid: 500, foregroundPids: [501], session: null},
 ];
 
-const fakeClaude = async (env: Record<string, string>): Promise<ClaudeIdentity | null> => {
+const fakeClaude = async (env: Record<string, string>): Promise<ClaudeIdentity | "untrusted" | null> => {
     const sessionId = env.CLAUDE_CODE_SESSION_ID;
-    return sessionId ? {sessionId, process: {pid: Number(env.CLAUDE_PID), startTicks: "1"}, parentSessionId: null, nestedSessionId: null} : null;
+    if (!sessionId) return null;
+    if (!PROCESSES.some((entry) => entry.pid === Number(env.CLAUDE_PID))) return "untrusted";
+    return {sessionId, process: {pid: Number(env.CLAUDE_PID), startTicks: "1"}, parentSessionId: null, nestedSessionId: null};
 };
 
 async function synthetic(panes: PaneProcesses[] | null) {
@@ -79,14 +92,23 @@ async function synthetic(panes: PaneProcesses[] | null) {
 describe("运行的发现与归属（合成进程表）", () => {
     test("只认工具标记；守护进程、宿主进程、Agent 的内部进程与调用者自己都不算运行", async () => {
         const {runs, ignored} = await synthetic(PANES);
-        const summary = runs.map((run) => [run.pid, run.owner?.key ?? null, run.ownerVia, run.paneId, run.unit, run.descendants.map((entry) => entry.pid)]);
+        const summary = runs.map((run) => [run.pid, run.owner?.key ?? null, run.ownerVia, run.paneId, run.unit, run.descendants.map((entry) => entry.pid), run.checkout]);
         expect(summary).toEqual([
-            [102, `claude:${S}`, "tool-env", "w1:p16", null, [103]],
-            [302, `claude:${X}`, "tool-env", "w1:pK", null, []],
-            [403, "omp:/o.jsonl", "tool-env", "w1:pV", null, []],
-            [501, null, null, "w1:pJ", null, []],
-            [600, null, null, null, "nbdev-dev.service", []],
+            [102, `claude:${S}`, "tool-env", "w1:p16", null, [103], REPO],
+            [302, `claude:${X}`, "tool-env", "w1:pK", null, [], `${REPO}/.worktree/w00005-a`],
+            [403, "omp:/o.jsonl", "tool-env", "w1:pV", null, [], REPO],
+            [501, null, null, "w1:pJ", null, [], `${REPO}/.worktree/w00017-a`],
+            [600, null, null, null, "nbdev-dev.service", [], REPO],
+            [610, `claude:${S}`, "tool-env", null, null, [611], REPO],
+            [950, null, null, null, null, [], `${REPO}/.worktree/w00017-a`],
         ]);
+        // 调用 nbdev 的那条命令的管道伙伴（802，同一进程组）不算运行。
+        expect(runs.some((run) => run.pid === 802)).toBe(false);
+        expect(runs.find((run) => run.pid === 950)).toMatchObject({sessionHint: `claude:${Y}`, sessionAlive: false});
+        expect(runs.filter((run) => run.pid !== 950).every((run) => run.sessionHint === null && run.sessionAlive === null)).toBe(true);
+        // Claude Bash 包装：显示 eval 里的命令；取不到时用第一个后代。
+        expect(runs.find((run) => run.pid === 102)?.command).toBe("bun test --filter 'a b'");
+        expect(runs.find((run) => run.pid === 610)?.command).toBe("bun run nightly");
         // 被忽略的根：codex（200）、bg-pty-host（300，后台会话 301 并在它下面）、daemon（303）、spare（304）、VS Code（700）。
         expect(ignored).toBe(5);
         expect(runs[0]?.startedAt).toBe(new Date((1_790_000_000 + 102) * 1000).toISOString());
@@ -95,7 +117,7 @@ describe("运行的发现与归属（合成进程表）", () => {
     test("herdr 不可用时只按 Claude 的工具标记归属，其余没有 pane 可查", async () => {
         const {runs} = await synthetic(null);
         const owned = runs.filter((run) => run.owner !== null).map((run) => [run.pid, run.owner?.key]);
-        expect(owned).toEqual([[102, `claude:${S}`], [302, `claude:${X}`]]);
+        expect(owned).toEqual([[102, `claude:${S}`], [302, `claude:${X}`], [610, `claude:${S}`]]);
         expect(runs.some((run) => run.pid === 403 || run.pid === 104)).toBe(false);
     });
 });
