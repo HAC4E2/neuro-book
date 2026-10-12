@@ -37,12 +37,17 @@ async function writeTags(target: TagTarget, lease: {workId: string; taskId: stri
     }
 }
 
-/** 调用者自己的有效租约，最近活动的在前。 */
-async function callerValidLeases(mainRoot: string, transition: TransitionState, sessionKey: string, now: Date): Promise<EvaluatedLease[]> {
+/**
+ * 调用者自己的有效租约，最近活动的在前。`stillOpen` 指定的 Task 按未关闭算：`task status … done` 释放租约时，
+ * 状态已经提交成 done，要知道 pane 标签此前指向的是不是它，得按关闭之前的样子算。
+ */
+async function callerValidLeases(mainRoot: string, transition: TransitionState, sessionKey: string, now: Date, stillOpen: {workId: string; taskId: string} | null = null): Promise<EvaluatedLease[]> {
     const {leases} = await readLeases(mainRoot);
     const mine = leases.filter((lease) => lease.session.key === sessionKey);
     const context = await buildLeaseContext(mainRoot, transition, mine, {available: false, socketPath: null, version: null, panes: [], processes: null}, now);
-    return evaluateLeases(mine, context).filter((lease) => lease.state === "valid").sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
+    const taskStatus = context.taskStatus;
+    const adjusted = stillOpen ? {...context, taskStatus: (workId: string, taskId: string) => (workId === stillOpen.workId && taskId === stillOpen.taskId ? null : taskStatus(workId, taskId))} : context;
+    return evaluateLeases(mine, adjusted).filter((lease) => lease.state === "valid").sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
 }
 
 function nowOf(options: LeaseOptions): Date {
@@ -73,10 +78,10 @@ export async function touchCallerLease(context: RepoContext, target: {workId: st
  * 释放一组租约，并按调用者自己的租约维护它 pane 上的标签：只有调用者最近活动的那份有效租约在这次被释放时才动标签，
  * 改写成它的下一份有效租约，没有就清空。别的会话 pane 上的标签不动（等 24 小时 TTL）。
  */
-async function releaseAndRetag(context: RepoContext, transition: TransitionState, release: () => Promise<LeaseRecord[]>, options: LeaseOptions, warnings: Warning[]): Promise<LeaseRecord[]> {
+async function releaseAndRetag(context: RepoContext, transition: TransitionState, release: () => Promise<LeaseRecord[]>, options: LeaseOptions, warnings: Warning[], closing: {workId: string; taskId: string} | null = null): Promise<LeaseRecord[]> {
     const tags = tagTarget(options);
     const now = nowOf(options);
-    const before = tags ? await callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now) : [];
+    const before = tags ? await callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now, closing) : [];
     const released = await release();
     const current = before[0];
     if (tags && current && released.some((lease) => lease.leaseId === current.leaseId)) {
@@ -89,7 +94,7 @@ async function releaseAndRetag(context: RepoContext, transition: TransitionState
 /** Task 状态改成 done 或 shelved 后释放这个 Task 的全部租约（不论哪个会话、不论由谁调用）。 */
 export async function releaseTaskLeases(context: RepoContext, target: {workId: string; taskId: string}, reason: ReleaseReason, options: LeaseOptions, warnings: Warning[]): Promise<LeaseRecord[]> {
     const transition = await readTransitionState(context.mainRoot);
-    return releaseAndRetag(context, transition, () => releaseLeases(context.mainRoot, {kind: "task", ...target}, reason, nowOf(options)), options, warnings);
+    return releaseAndRetag(context, transition, () => releaseLeases(context.mainRoot, {kind: "task", ...target}, reason, nowOf(options)), options, warnings, target);
 }
 
 /** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree 里都算）。租约是运行时数据，来自分支的 Task 也能取得。 */

@@ -183,4 +183,20 @@ describe("租约命令（场景）", () => {
         expect(tags()).toEqual([{work: null, task: null}]);
         expect((await leaseList(fixture)).map((lease) => lease.session.key)).toEqual(["external:other"]);
     });
+
+    test("task status … done 时，调用者 pane 的标签若指向这个 Task，改写成它的下一份租约，没有就清空", async () => {
+        const fixture = await createFixture("lease-done-tags");
+        const sessionId = randomUUID();
+        const claude = await spawnProcess("sleep", ["60"]);
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId)]);
+        const env = claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath});
+        await fixture.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
+        await fixture.cli(["task", "new", "w00001", "second", "--title", "第二个", "--json"], fixture.main, env);
+        const tags = () => fake.requests.filter((request) => request.method === "pane.report_metadata").map((request) => request.params.tokens);
+        fake.requests.length = 0;
+        expect((await fixture.cli(["task", "status", "w00001", "t01", "done", "--json"], fixture.main, env)).exitCode).toBe(0);
+        expect(tags()).toEqual([]);
+        expect((await fixture.cli(["task", "status", "w00001", "t02", "shelved", "--json"], fixture.main, env)).exitCode).toBe(0);
+        expect(tags()).toEqual([{work: null, task: null}]);
+    });
 });
