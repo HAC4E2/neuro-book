@@ -1,15 +1,15 @@
-import {parseArgs, type ParseArgsConfig} from "node:util";
-import {createHerdrClient, HERDR_CLI_METHODS, HERDR_READ_METHODS, resolveHerdrSocket, type HerdrClient} from "../herdr/client.js";
+import {parseArgs} from "node:util";
 import type {SessionView} from "../core/activity.js";
-import {NbdevError, systemErrorCode, type ExitCode, type Warning} from "../core/errors.js";
+import {NbdevError, systemErrorCode, type ExitCode} from "../core/errors.js";
 import {resolveCaller, type Caller} from "../core/identity.js";
-import {listLeases, releaseCallerLeases, takeLease, type LeaseEffects} from "../core/lease-ops.js";
-import {createTask, createWork, importRegistry, setRecordStatus, setTaskStatus, type CreateResult, type OperationResult} from "../core/operations.js";
+import {listLeases, releaseCallerLeases, takeLease} from "../core/lease-ops.js";
+import {createTask, createWork, importRegistry, setRecordStatus, setTaskStatus, type CreateResult} from "../core/operations.js";
 import {locateRepository, type RepoContext} from "../core/repo.js";
 import type {Recorded} from "../core/records.js";
 import type {RunView} from "../core/runs.js";
-import {readProjectStatus, type WorkView} from "../core/status.js";
-import type {CommitOutcome} from "../core/transaction.js";
+import {readProjectStatus, type ProjectStatus, type WorkView} from "../core/status.js";
+import {ARTIFACT_COMMANDS, ARTIFACT_USAGE} from "./artifact-commands.js";
+import {AS_OPTION, JSON_OPTION, leaseLines, readOnlyHerdr, requireValue, shortSession, stringValue, writeCaller, writeOutcome, ago, type CommandSpec, type Values} from "./common.js";
 import {emit, toNbdevError, type CliIo, type CommandOutcome} from "./output.js";
 
 export const USAGE = `用法：nbdev <命令> [参数] [--json]
@@ -23,62 +23,16 @@ export const USAGE = `用法：nbdev <命令> [参数] [--json]
   release [<workRef> <taskRef>] [--as <标签>]
   registry import
   status [--work <workRef> [--task <taskRef>]]
+${ARTIFACT_USAGE}
 
 workRef 写完整 id 或编号（w00022），taskRef 写完整 id 或编号（t06、t100）。herdr 外的会话用 --as <标签> 标明自己。
 合同见 packages/dev-panel/docs/cli.md。`;
-
-type Options = NonNullable<ParseArgsConfig["options"]>;
-
-type CommandSpec = {
-    schema: string;
-    positionals: string[];
-    /** 为真时位置参数可以一个都不给（`release` 不带 Task 时释放调用者的全部租约）。 */
-    positionalsOptional?: boolean;
-    options: Options;
-    run(context: {io: CliIo; positionals: string[]; values: Record<string, string | boolean | undefined>}): Promise<CommandOutcome>;
-};
-
-const JSON_OPTION: Options = {json: {type: "boolean"}};
-const AS_OPTION: Options = {as: {type: "string"}};
-/** status 等只读命令给 herdr 的总时限：herdr 卡住时不能让命令等几十秒。 */
-const READ_BUDGET_MS = 2_500;
-
-/** 写命令的调用者：在边界上从调用者的环境解析，核心函数只接收结果。 */
-async function writeCaller(io: CliIo, values: Record<string, string | boolean | undefined>): Promise<{herdr: HerdrClient; caller: Caller; warnings: Warning[]}> {
-    const herdr = createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_CLI_METHODS, memoizeAvailability: true});
-    const {caller, warnings} = await resolveCaller({env: io.env, as: stringValue(values, "as"), herdr});
-    return {herdr, caller, warnings};
-}
-
-function readOnlyHerdr(io: CliIo): HerdrClient {
-    return createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_READ_METHODS, budgetMs: READ_BUDGET_MS, memoizeAvailability: true, memoizePanes: true});
-}
-
-function ago(iso: string, now: Date): string {
-    const minutes = Math.max(0, Math.round((now.getTime() - Date.parse(iso)) / 60_000));
-    if (minutes < 60) return `${minutes} 分钟前`;
-    const hours = Math.round(minutes / 60);
-    return hours < 48 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
-}
-
-function shortSession(key: string): string {
-    const [agent, ...rest] = key.split(":");
-    const id = rest.join(":");
-    return `${agent} ${id.length > 12 && !id.includes("/") ? id.slice(0, 8) : id}`;
-}
 
 function callerLine(caller: Caller): string {
     if (caller.kind === "unknown") return `你是：未认出（${caller.reason}）。写命令不会取得租约；herdr 外的会话可以加 --as <标签>`;
     const where = caller.herdr ? `herdr ${caller.herdr.paneId}${caller.herdr.managed ? "" : "，herdr 列表里找不到这个会话"}` : "不在 herdr 里";
     const nested = caller.ref.parentSessionId ? "，嵌套调用，归到外层会话" : "";
     return `你是：${shortSession(caller.ref.key)}（${where}${nested}；子代理与这个会话派出的进程都记在它名下）`;
-}
-
-function leaseLines(effects: LeaseEffects): string[] {
-    const lines: string[] = [];
-    if (effects.lease) lines.push(`租约：${shortSession(effects.lease.session.key)} 在动 ${effects.lease.workId}/${effects.lease.taskId}`);
-    if (effects.released.length > 0) lines.push(`释放了 ${effects.released.length} 份租约：${effects.released.map((lease) => shortSession(lease.session.key)).join("、")}`);
-    return lines;
 }
 
 function runLine(run: RunView, now: Date): string {
@@ -102,37 +56,19 @@ function activityLines(sessions: readonly SessionView[], unownedRuns: readonly R
     return lines;
 }
 
-function stringValue(values: Record<string, string | boolean | undefined>, name: string): string | undefined {
-    const value = values[name];
-    return typeof value === "string" ? value : undefined;
-}
-
-function requireValue(values: Record<string, string | boolean | undefined>, name: string): string {
-    const value = stringValue(values, name);
-    if (value === undefined) throw new NbdevError("usage", `缺少 --${name}`);
-    return value;
-}
-
-function commitLine(commit: CommitOutcome): string {
-    if (commit.committed) return commit.viaOtherCommit ? `已在 master（随别的提交 ${commit.sha.slice(0, 9)} 一起入库）` : `已提交 ${commit.sha.slice(0, 9)}（master）`;
-    if (commit.reason === "nothing_to_commit") return "内容与 master 相同，无需提交";
-    return `未提交（${commit.reason}）：文件已写在主工作区，号已领，不要重跑；处理完 Git 的问题后手动提交 ${commit.writtenPaths.join("、")}`;
-}
-
-/** 写命令的结果：提交失败时报 `commit_failed`（退出码 1），`data.commit` 里列出已写的文件。 */
-function writeOutcome<T extends object>(schema: string, outcome: OperationResult<T>, summary: string, extra: string[] = []): CommandOutcome {
-    const failed = !outcome.commit.committed && outcome.commit.reason !== "nothing_to_commit";
-    return {
-        schema,
-        data: {...outcome.data, commit: outcome.commit},
-        warnings: outcome.warnings,
-        error: failed ? new NbdevError("commit_failed", "记录已写入主工作区但没有提交", {details: {commit: outcome.commit}}) : null,
-        human: [summary, commitLine(outcome.commit), ...extra],
-    };
-}
-
 function createdSummary(data: CreateResult, what: string): string {
     return `${what} ${data.workId}/${data.taskId}：${data.paths.join("、")}`;
+}
+
+function inboxLines(inbox: ProjectStatus["inbox"]): string[] {
+    const questions = inbox.filter((item) => item.kind === "question");
+    if (inbox.length === 0) return ["收件箱：空"];
+    const lines = [`收件箱：${questions.length} 道待答${inbox.length > questions.length ? `，${inbox.length - questions.length} 处撞号` : ""}`];
+    for (const item of inbox) {
+        if (item.kind === "question") lines.push(`  ${item.workId.slice(0, 6)}/${item.taskId.slice(0, item.taskId.indexOf("-"))} ${item.artifactId}#${item.questionId}  ${item.label}${item.askedBy ? `（${shortSession(item.askedBy)} 问的）` : ""}`);
+        else lines.push(`  撞号 ${item.label}${item.live ? "（live）" : "（旧副本）"}`);
+    }
+    return lines;
 }
 
 function statusLabel(view: {status: Recorded<string>}): string {
@@ -306,6 +242,7 @@ const COMMANDS: Record<string, CommandSpec> = {
                 error: null,
                 human: [
                     callerLine(caller),
+                    ...inboxLines(status.inbox),
                     ...statusLines(status.works, workRef !== undefined),
                     ...activityLines(status.sessions, status.unownedRuns, now),
                     ...status.conflicts.map((conflict) => `撞号 ${conflict.label}${conflict.live ? "（live）" : "（旧副本）"}：${conflict.ids.map((entry) => entry.id).join("、")}`),
@@ -316,11 +253,13 @@ const COMMANDS: Record<string, CommandSpec> = {
     },
 };
 
+const ALL_COMMANDS: Record<string, CommandSpec> = {...COMMANDS, ...ARTIFACT_COMMANDS};
+
 function resolveCommand(argv: readonly string[]): {key: string; rest: string[]} | null {
     const two = argv.slice(0, 2).join(" ");
-    if (Object.hasOwn(COMMANDS, two)) return {key: two, rest: argv.slice(2)};
+    if (Object.hasOwn(ALL_COMMANDS, two)) return {key: two, rest: argv.slice(2)};
     const one = argv[0] ?? "";
-    if (Object.hasOwn(COMMANDS, one)) return {key: one, rest: argv.slice(1)};
+    if (Object.hasOwn(ALL_COMMANDS, one)) return {key: one, rest: argv.slice(1)};
     return null;
 }
 
@@ -336,16 +275,21 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<ExitCo
         if (!json) io.stderr.write(`${USAGE}\n`);
         return emit({schema: "nbdev.cli/v1", data: null, warnings: [], error, human: []}, json, io);
     }
-    const spec = COMMANDS[resolved.key]!;
+    const spec = ALL_COMMANDS[resolved.key]!;
     try {
-        let parsed: {values: Record<string, string | boolean | undefined>; positionals: string[]};
+        let parsed: {values: Values; positionals: string[]};
         try {
             parsed = parseArgs({args: resolved.rest, options: {...spec.options, ...JSON_OPTION}, allowPositionals: true, strict: true}) as typeof parsed;
         } catch (error) {
             if (systemErrorCode(error)?.startsWith("ERR_PARSE_ARGS_")) throw new NbdevError("usage", error instanceof Error ? error.message : String(error), {cause: error});
             throw error;
         }
-        if (parsed.positionals.length !== spec.positionals.length && !(spec.positionalsOptional && parsed.positionals.length === 0)) {
+        if (spec.positionalsRange) {
+            const [min, max] = spec.positionalsRange;
+            if (parsed.positionals.length < min || parsed.positionals.length > max) {
+                throw new NbdevError("usage", `nbdev ${resolved.key} 需要 ${min} 到 ${max} 个参数（${spec.positionals.join("、")}），实际 ${parsed.positionals.length} 个`);
+            }
+        } else if (parsed.positionals.length !== spec.positionals.length && !(spec.positionalsOptional && parsed.positionals.length === 0)) {
             throw new NbdevError("usage", `nbdev ${resolved.key} 需要 ${spec.positionals.length} 个参数（${spec.positionals.join("、") || "无"}），实际 ${parsed.positionals.length} 个`);
         }
         return emit(await spec.run({io, positionals: parsed.positionals, values: parsed.values}), json, io);

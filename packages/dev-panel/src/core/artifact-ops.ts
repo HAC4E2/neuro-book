@@ -531,6 +531,8 @@ export type AnswerInput = {
     taskRef: string;
     artifactId: string;
     values: Readonly<Record<string, unknown>>;
+    /** 命令行写法的取值（`answers record --set 题号=值`）：按题的类型换算，`multi` 用逗号分隔，`confirm` 写 yes 或 no。 */
+    rawValues?: Readonly<Record<string, string>>;
     comments?: Readonly<Record<string, string>>;
     note?: string | null;
     /** 答复针对的版本（面板填开发者打开的那一版）；缺省为最新一版。 */
@@ -547,7 +549,7 @@ export type AnswerData = {workId: string; taskId: string; artifactId: string; an
  */
 export async function submitAnswer(context: RepoContext, input: AnswerInput, options: ArtifactOpOptions = {}): Promise<WriteOutcome<AnswerData>> {
     assertArtifactId(input.artifactId);
-    if (Object.keys(input.values).length === 0) throw new NbdevError("invalid_answer", "答复里没有任何题的取值");
+    if (Object.keys(input.values).length === 0 && Object.keys(input.rawValues ?? {}).length === 0) throw new NbdevError("invalid_answer", "答复里没有任何题的取值");
     let content: string | null = null;
     const {result, commit, warnings} = await runWriteTransaction<AnswerData>(context, options, async (tx) => {
         const {workId, taskId} = await resolveWritableTask(tx, input.workRef, input.taskRef, {requireCommittedReadme: true});
@@ -558,8 +560,14 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
         const targetVersion = input.artifactVersion ?? latest.version;
         const target = targetVersion === latest.version ? latest : await readArtifactVersion(context.mainRoot, ref, targetVersion, []);
         if (!target) throw new NbdevError("artifact_not_found", `${input.artifactId} 没有 v${targetVersion}`, {details: {...ref, version: targetVersion}});
+        const values: Record<string, unknown> = {...input.values};
+        for (const [questionId, text] of Object.entries(input.rawValues ?? {})) {
+            const definition = target.questions.find((question) => question.id === questionId);
+            if (!definition) throw new NbdevError("question_not_found", `v${targetVersion} 里没有题 ${questionId}`, {details: {...ref, questionId}});
+            values[questionId] = parseRawValue(definition.type, questionId, text);
+        }
         const problems: Array<{questionId: string; reason: string}> = [];
-        for (const [questionId, value] of Object.entries(input.values)) {
+        for (const [questionId, value] of Object.entries(values)) {
             const definition = target.questions.find((question) => question.id === questionId);
             if (!definition) throw new NbdevError("question_not_found", `v${targetVersion} 里没有题 ${questionId}`, {details: {...ref, questionId}});
             liveQuestion({...snapshot, latest}, questionId);
@@ -582,7 +590,7 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
             contentHash: target.contentHash,
             submittedAt: input.submittedAt ?? now.toISOString(),
             submittedBy: input.submittedBy,
-            values: {...input.values},
+            values,
             comments: {...(input.comments ?? {})},
             note: input.note ?? null,
         };
@@ -594,6 +602,17 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
     });
     const lease = await afterWrite(context, {workId: result.workId, taskId: result.taskId, action: "answers record"}, content ? [{path: result.path, content, action: "record"}] : [], options, warnings);
     return {data: {...result, lease}, commit, warnings};
+}
+
+/** 命令行写法的取值换算成答复里的值。 */
+function parseRawValue(type: QuestionType, questionId: string, text: string): unknown {
+    if (type === "multi") return text.split(",").map((entry) => entry.trim()).filter((entry) => entry !== "");
+    if (type === "confirm") {
+        if (["yes", "true"].includes(text.trim().toLowerCase())) return true;
+        if (["no", "false"].includes(text.trim().toLowerCase())) return false;
+        throw new NbdevError("invalid_answer", `确认题 ${questionId} 只能写 yes 或 no：${text}`, {details: {questionId, value: text}});
+    }
+    return text;
 }
 
 export type AckData = {workId: string; taskId: string; artifactId: string; acked: boolean; ack: AckRecord | null; path: string | null};
@@ -728,6 +747,18 @@ async function answersScope(context: RepoContext, query: AnswersQuery): Promise<
     return scope;
 }
 
+/** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree），用于命令行给读命令续期租约。 */
+export async function resolveTaskRef(context: RepoContext, workRef: string, taskRef: string): Promise<{workId: string; taskId: string}> {
+    const [entry] = await answersScope(context, {workRef, taskRef, filter: "all"});
+    if (entry) return {workId: entry.ref.workId, taskId: entry.ref.taskId};
+    const transition = await readTransitionState(context.mainRoot);
+    const workId = matchRef([...new Set([...await listWorkIds(context.mainRoot), ...transition.branchChanges.keys()])], workRef, "work")[0]!;
+    const copies = transition.branchChanges.get(workId);
+    const execution = copies ? await chooseExecutionCheckout(context.mainRoot, workId, copies, transition.registry) : null;
+    const taskIds = [...new Set([...await listTaskIds(context.mainRoot, workId), ...(execution ? await listTaskIds(execution.chosen.root, workId) : [])])];
+    return {workId, taskId: matchRef(taskIds, taskRef, "task")[0]!};
+}
+
 /** `nbdev answers`：读答复、题的状态与确认。只读（续期租约由命令行边界做）。 */
 export async function readAnswers(context: RepoContext, query: AnswersQuery): Promise<AnswersResult> {
     const scope = await answersScope(context, query);
@@ -743,7 +774,7 @@ export async function readAnswers(context: RepoContext, query: AnswersQuery): Pr
     return {artifacts, cursor, scope: scope.map((entry) => entry.ref), warnings};
 }
 
-export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSignal};
+export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSignal; onWaiting?: (scope: readonly ArtifactRef[]) => void};
 
 /**
  * `nbdev answers --wait`：选中的答复不为空就返回。范围在开始时完整读一次定下；之后每秒只 readdir 主工作区里这些产物的 `answers/`
@@ -759,6 +790,7 @@ export async function waitForAnswers(context: RepoContext, query: AnswersQuery, 
     const keyOf = (ref: ArtifactRef) => `${ref.workId}/${ref.taskId}/${ref.artifactId}`;
     for (const ref of first.scope) known.set(keyOf(ref), (await listAnswerFileNames(context.mainRoot, ref)).join("\n"));
     const views = new Map<string, ArtifactAnswersView>();
+    options.onWaiting?.(first.scope);
     for (;;) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) throw new NbdevError("wait_timeout", `等了 ${Math.round(options.timeoutMs / 1000)} 秒还没有答复；按原参数再挂一次`, {details: {cursor: first.cursor}});

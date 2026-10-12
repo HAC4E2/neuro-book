@@ -59,7 +59,7 @@ export {
 } from "./core/registry.js";
 export {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
 export {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./core/sources.js";
-export {readProjectStatus, type ActiveLease, type ProjectStatus, type RecordSource, type StatusFilter, type StatusOptions, type TaskView, type WorkView} from "./core/status.js";
+export {readProjectStatus, type ArtifactSummary, type InboxItem, type ActiveLease, type ProjectStatus, type RecordSource, type StatusFilter, type StatusOptions, type TaskView, type WorkView} from "./core/status.js";
 export {acquireRecordsLock, DEFAULT_LOCK_WAIT_MS, type LockHolder, type RecordsLock} from "./core/lock.js";
 export {
     DEFAULT_GIT_LOCK_WAIT_MS,
