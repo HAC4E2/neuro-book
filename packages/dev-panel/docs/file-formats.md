@@ -194,10 +194,11 @@ artifacts/<artifactId>/
 | `data-nbdev-skip` | 取题目、选项名的文字时跳过这个元素（徽标、按钮） |
 
 - 前缀用 `data-nbdev-`：`data-nb-` 已被 nb-ui 用了十几种属性。
-- `single`、`multi` 至少两个选项，选项值在题内唯一、用与题号相同的字符集；`text`、`confirm` 不能有选项；推荐的值必须是选项之一。
+- `single`、`multi` 至少两个选项，选项值在题内唯一、用与题号相同的字符集，选项名在题内也不能重复（`duplicate_option_label`）；`text`、`confirm` 不能有选项；推荐的值必须是选项之一。
 - 题不能嵌套。题外的选项报 `option_outside_question`：多半是 HTML 自动闭合把它挤了出去（例如 `<p>` 里放了块级元素）。范围元素没有显式结束标签报 `question_not_closed`。
 - 不合规就整体不发布（`invalid_questions`），`details.problems[]` 是 `{page, line, column, questionId, code, message}`。
-- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告。
+- 取题目与选项名的文字时，行内元素直接拼接，块级元素与 `br` 处补一个空格，连续空白折叠成一个空格。
+- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告。这里只认属性写法（`data-nbdev-question=`）：脚本里按属性查询、`<style>` 里的属性选择器不算。
 - 扁平的板（标题后跟兄弟元素）要先给每道题包一层元素（通常是 `section`）。
 
 ## 答复与确认

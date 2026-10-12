@@ -96,6 +96,28 @@ describe("提问标记的解析", () => {
         }
         expect((await parseQuestionMarkup("<script>console.log(1)</script>", "page.html")).scriptMarkers).toBe(false);
     });
+
+    test("按属性查询标记的脚本与样式不算写了标记", async () => {
+        for (const html of [
+            "<style>[data-nbdev-question] { outline: 1px dashed red; }</style>",
+            '<script>for (const section of document.querySelectorAll("[data-nbdev-question]")) section.classList.add("q");</script>',
+            "<noscript>页面上的 data-nbdev-question 标记需要脚本增强</noscript>",
+        ]) {
+            expect((await parseQuestionMarkup(html, "page.html")).scriptMarkers).toBe(false);
+        }
+    });
+
+    test("取文字：行内元素直接拼接，块级元素与 br 之间补空格；同一道题的选项名重复报 duplicate_option_label", async () => {
+        const html = [
+            '<section data-nbdev-question="inline" data-nbdev-type="single"><h2>用<code>nbdev</code>发<b>布</b>：选一个</h2>',
+            '<div data-nbdev-option="a"><p>甲</p><p>说明</p></div><div data-nbdev-option="b">乙<br>二行</div></section>',
+            '<section data-nbdev-question="twins" data-nbdev-type="single"><h2>同名</h2>',
+            '<div data-nbdev-option="x"><a href="x.html">打开</a></div><div data-nbdev-option="y"><a href="y.html">打开</a></div></section>',
+        ].join("\n");
+        const parsed = await parseQuestionMarkup(html, "page.html");
+        expect(parsed.questions[0]).toMatchObject({label: "用nbdev发布：选一个", options: [{value: "a", label: "甲 说明"}, {value: "b", label: "乙 二行"}]});
+        expect(codes(parsed.problems)).toEqual([["duplicate_option_label", "twins", 3]]);
+    });
 });
 
 describe("题的定义与答复取值", () => {

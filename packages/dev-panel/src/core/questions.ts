@@ -52,10 +52,14 @@ export function validateQuestionDefinition(definition: {id: string; type: string
     if (choice && definition.options.length < 2) add("options_missing", `${definition.type} 题至少要两个选项`);
     if (!choice && definition.options.length > 0) add("options_not_allowed", `${definition.type} 题不能有选项`);
     const seen = new Set<string>();
+    const labels = new Set<string>();
     for (const option of definition.options) {
         if (!QUESTION_ID_PATTERN.test(option.value)) add("invalid_option_value", `选项值只能用小写字母、数字与连字符：${option.value}`);
         if (seen.has(option.value)) add("duplicate_option", `选项值重复：${option.value}`);
+        // 同名的选项在面板上分不清；选项名取自选项里的文字时，常常两个都取到“打开”这样的按钮字。
+        else if (option.label !== "" && labels.has(option.label)) add("duplicate_option_label", `选项名重复：${option.label}；给选项写不同的 data-nbdev-label，按钮加 data-nbdev-skip`);
         seen.add(option.value);
+        labels.add(option.label);
         if (option.label === "") add("option_label_missing", `选项 ${option.value} 没有名称`);
         else if (option.label.length > MAX_OPTION_LABEL_LENGTH) add("option_label_too_long", `选项 ${option.value} 的名称超过 ${MAX_OPTION_LABEL_LENGTH} 字，给它写 data-nbdev-label`);
     }
@@ -99,7 +103,7 @@ export type ParsedMarkup = {
     questions: MarkupQuestion[];
     references: MarkupReference[];
     problems: MarkupProblem[];
-    /** 内联 `<script>`、`<template>`、`<noscript>` 里出现了提问标记：渲染出来的题解析不到。 */
+    /** 内联 `<script>`、`<template>`、`<noscript>` 里写了提问标记（属性写法）：渲染出来的题解析不到。 */
     scriptMarkers: boolean;
     /** 页面的 `<title>`。 */
     title: string | null;
@@ -110,6 +114,21 @@ type Element = DefaultTreeAdapterMap["element"];
 
 const HEADINGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 const NON_TEXT = new Set(["script", "style", "template", "noscript"]);
+/** 取文字时两边补空格的元素（块级与 `br`）；行内元素直接拼接，`用<code>nbdev</code>发布` 不能变成“用 nbdev 发布”。 */
+const SPACED = new Set([
+    "address", "article", "aside", "blockquote", "br", "caption", "dd", "details", "dialog", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form",
+    "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+]);
+/**
+ * 脚本、模板与 `noscript` 里的提问标记只认属性写法（`data-nbdev-question=`）：脚本里按属性查询（`[data-nbdev-question]`）做页面增强是正常用法，
+ * 不该报“渲染出来的题解析不到”。
+ */
+const MARKER_ATTRIBUTE = /data-nbdev-question\s*=/u;
+
+/** 脚本文字（内联脚本或产物目录里的 `.js`、`.mjs`）里是否写了提问标记。 */
+export function scriptWritesQuestionMarkup(text: string): boolean {
+    return MARKER_ATTRIBUTE.test(text);
+}
 const REFERENCE_ATTRIBUTES = ["src", "href", "poster", "srcset"];
 
 function isElement(node: Node): node is Element {
@@ -128,12 +147,13 @@ function collapse(text: string): string {
     return text.replace(/\s+/gu, " ").trim();
 }
 
-/** 元素的文字；跳过带 `data-nbdev-skip` 的元素与脚本、样式。 */
+/** 元素的文字；跳过带 `data-nbdev-skip` 的元素与脚本、样式。调用方再把空白折叠成一个空格。 */
 function textOf(node: Node): string {
     if (node.nodeName === "#text") return (node as DefaultTreeAdapterMap["textNode"]).value;
     if (!isElement(node)) return "";
     if (hasAttribute(node, MARKUP.skip) || NON_TEXT.has(node.tagName)) return "";
-    return node.childNodes.map(textOf).join(" ");
+    const inner = node.childNodes.map(textOf).join("");
+    return SPACED.has(node.tagName) ? ` ${inner} ` : inner;
 }
 
 /** 范围内第一个标题；`skipOptions` 时不进入选项元素（题目不能取到选项里的标题）。 */
@@ -149,8 +169,8 @@ function firstHeading(element: Element, skipOptions: boolean): Element | null {
 }
 
 function containsMarker(node: Node): boolean {
-    if (node.nodeName === "#text") return (node as DefaultTreeAdapterMap["textNode"]).value.includes(MARKUP.question);
-    if (!isElement(node)) return false;
+    if (node.nodeName === "#text") return scriptWritesQuestionMarkup((node as DefaultTreeAdapterMap["textNode"]).value);
+    if (!isElement(node) || node.tagName === "style") return false;
     if (hasAttribute(node, MARKUP.question)) return true;
     const children = node.tagName === "template" ? (node as DefaultTreeAdapterMap["template"]).content.childNodes : node.childNodes;
     return children.some(containsMarker);

@@ -42,7 +42,7 @@ import {touchCallerLease, type LeaseOptions} from "./lease-ops.js";
 import type {LeaseRecord} from "./leases.js";
 import {resolveWritableTask} from "./operations.js";
 import {readProvenance, writeProvenance, type ProvenanceAction} from "./provenance.js";
-import {MARKUP, parseQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
+import {parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
 import {listTaskIds, listWorkIds} from "./records.js";
 import {WORKS_ROOT, type RepoContext} from "./repo.js";
 import {chooseExecutionCheckout, taskSourceInBranchWork} from "./sources.js";
@@ -310,7 +310,7 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
                 problems.push(...parsed.problems);
                 scriptMarkers ||= parsed.scriptMarkers;
             } else if (SCRIPT_PATTERN.test(file.path)) {
-                scriptMarkers ||= (await readFile(resolve(mainRoot, dir, file.path), "utf8")).includes(MARKUP.question);
+                scriptMarkers ||= scriptWritesQuestionMarkup(await readFile(resolve(mainRoot, dir, file.path), "utf8"));
             }
         }
         const seen = new Map<string, string>();
