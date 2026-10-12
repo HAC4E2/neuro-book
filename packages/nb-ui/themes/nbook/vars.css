@@ -94,7 +94,8 @@
     --radius-control: 10px;
     --radius-control-lg: var(--radius-pill);
     --radius-panel: 20px;
-    --radius-menu: 12px;
+    /* 菜单与触发它的按钮（控件圆角的 0.75，约 7.5px）是一对：12px 时浮层比按钮圆一大圈，看着不是一家（t79 第五轮稿选了 8px） */
+    --radius-menu: 8px;
     --radius-pill: 999px;
     /*
      * 对话框比菜单大一个数量级，圆角单列一档。26px 是 Apple 官方 macOS 27 UI Kit 里
@@ -192,14 +193,14 @@
     --chrome-surface: var(--sidebar-surface);
     --chrome-seam: 1px 0 0 var(--divider);
 
-    /* ---- 角色映射：冷暖分家就在这一层落地 -------------------------------- */
+    /* ---- 角色映射：器械与纸在这一层分开 ---------------------------------- */
     /*
-     * 一条规矩管住整层：**器械一律从 --bg-sidebar 派生（冷），只有内容面板从 --bg-panel 派生（暖）**。
+     * 一条规矩管住整层：**器械一律从 --bg-sidebar 派生，只有内容面板从 --bg-panel 派生**。
      *
      * 这是「玻璃是器械、纸不是玻璃」从论点变成取值的地方，也是与 macos 唯一一处结构性差异——
      * macos 的工具栏 / 浮层 / 按钮都从 --bg-panel 取，因为它整套通体冷中性，取哪个都一样。
-     * nbook 的 --bg-panel 是暖的，再让 chrome 从它取，暖色就会糊满全屏，冷暖对比归零。
-     * （第一版正是这么写的，实测出来和 macOS 看不出区别。）
+     * nbook 的器械比纸暗一档（配色里 --bg-sidebar 低于 --bg-panel），再让 chrome 从 --bg-panel 取，
+     * 器械与纸就没有了分层。
      */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 26%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 30%, transparent);
@@ -285,6 +286,10 @@
         0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent),
         0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent),
         0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent);
+    /* 菜单比一般浮层贴近触发它的按钮，投影收小、只留一圈细边和一层近投影（t79 第五轮稿 M1），明暗共用 */
+    --elevation-menu:
+        0 0 0 0.5px color-mix(in srgb, var(--shadow-color) 12%, transparent),
+        0 4px 14px -2px color-mix(in srgb, var(--shadow-color) 18%, transparent);
     /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。

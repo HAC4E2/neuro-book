@@ -2784,6 +2784,7 @@
   @supports (color: color-mix(in lab, red, red)) {
     --elevation-popover: 0 0 0 1px color-mix(in srgb, var(--text-main, #000) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color, #000) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color, #000) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color, #000) 20%, transparent);
   }
+  --elevation-menu: var(--elevation-popover);
   --elevation-dialog: 0 16px 40px var(--shadow-color, #000);
   @supports (color: color-mix(in lab, red, red)) {
     --elevation-dialog: 0 16px 40px color-mix(in srgb, var(--shadow-color, #000) 14%, transparent);
@@ -2940,6 +2941,7 @@ input.nb-ui-native-input[type="number"] {
 }
 .nb-ui-menu-surface {
   --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+  box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 .nb-ui-surface-rim {
   background-image: var(--overlay-sheen);

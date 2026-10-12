@@ -208,9 +208,10 @@ input.nb-ui-native-input[type="number"] {
     -webkit-user-select: none;
 }
 
-/* 菜单 / 下拉的几何 modifier。外圈 12px 时，默认 6px 内边距与 1px 描边推出约 5px 内圈。 */
+/* 菜单 / 下拉的半径与投影 modifier：两者各有一档主题变量；贴边菜单项的内圈半径照上面的公式由外圈推出。 */
 .nb-ui-menu-surface {
     --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+    box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 
 /* 仅整块玻璃 surface opt-in 镜面层；菜单、下拉等小浮层默认不铺面渐变。 */

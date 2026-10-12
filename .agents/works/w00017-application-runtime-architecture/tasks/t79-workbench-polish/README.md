@@ -127,6 +127,10 @@ taskId: t79-workbench-polish
   - 宿主的前端入口观察文档根上的主题（明暗、主题包与配色的内联变量），每次变了把明暗与面板底色、正文色、淡色、强调色（借一个元素算成 rgb）记进本地存储 `nbook.host-appearance`；两份 `index.html` 头部同一段内联脚本在第一帧前读回，写到根上的 `data-host-appearance`、`color-scheme` 与 `--host-loading-*`，`host-loading.css` 先取这些变量，没有时仍按系统明暗。写放在宿主而不是工作台插件：前端规范不许组件直接读写本地存储。Lab 也写文档根，在 Lab 里切过明暗，下次加载页取的是 Lab 最后的明暗（接受）。
   - Spec：`runtime/browser-host.md` 启动序列第 1 步、新增场景 13、实现合同与合同测试。
   - 验证：`appearance-hint.dom.test.ts` 四例（两份内联脚本一字不差；宿主写下的提示由内联脚本读回；还没写主题不记、存储不可用只说一次；坏记录与坏颜色不认）；`browser-host.e2e.ts` 新增场景 13（系统与产品明暗相反的两个方向：第一次按系统，刷新后第一帧是产品的底色），连同 `projects.e2e.ts` 共 13 例全过；typecheck 为 0。变异 6 处：起初存活 1 处（浅色系统下的样式不读提示，用例只测了系统深色一个方向），补上反方向后全部被抓到。
+- 2026-10-12 S7（nbook 暖色与菜单浮层）完成：
+  - nbook 配色表里原来的冷灰换成暖色：浅色窗体底 `#ece8df`、侧栏底 `#f4f0e8`、悬停 `#e7e2d8`、边框 `#ddd7cc`／`#c3bcb0`、阴影基色 `#3b342b`；深色窗体底 `#201d1a`、侧栏底 `#272420`、悬停 `#3a3530`、边框 `#3e3933`／`#504a43`；`--bg-subtle`、`--border-accent`、`--shadow-panel`、`--overlay-bg`、深色 `--text-inverse` 同步。纸（`--bg-panel`）不变，“纸比桌亮”等三条不变量仍成立。配色文件开头与角色映射的说明改写（器械与纸同一色相、靠明度分层）；`design-language.md` 的内容角色表与“冷暖分家”一段改为冷暖由主题选。
+  - 菜单：nbook `--radius-menu` 12px 改 8px；nb-ui 新增 `--elevation-menu`（缺省等于 `--elevation-popover`），`.nb-ui-menu-surface` 读它，nbook 给一圈 0.5px 细边加一层近投影；`ui-development-spec.md` 补一句。`dist/nb-ui.css` 重新生成。
+  - 验证：nb-ui 554 例全过；新应用的测试里没有写死旧色值；`lab:shot` 的 `Menubar`、`Dropdown`（禁用场景点不开、跳过）在 nbook、macos × 明暗下问题 0 条；开发会话实测标题栏“文件”菜单圆角 8px、投影为新的两层，窗体底 `rgb(236, 232, 223)`。
   - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
 
 ## 下一步
