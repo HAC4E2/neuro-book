@@ -1,0 +1,183 @@
+# w00022/t07 实施审查（只读）
+
+审查对象：`7db92c996..3e086d8e1`，在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00022-t07-review` 里审查。结束时 `git status --short` 为空，HEAD 仍是 3e086d8e1。实验脚本放在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t07-impl/scripts/`。对默认 herdr 只用了 `pane list`、`pane process-info`、`session list` 和只读的 `nbdev status`。
+
+**结论**：没有阻断问题。重要 7 条，建议 13 条。重要的 7 条里有 6 条已复现，1 条（第 7 条）由变异检查确认。
+
+---
+
+## 重要
+
+### 1. 记录已经提交之后，租约读写失败会让整条命令报失败；一个读不出的租约文件会让 `status` 整体失败
+- **类别**：正确性；违反合同（`docs/cli.md` 的警告表写明“写租约失败（记录操作不受影响）”，`file-formats.md` 写明“读不出的文件给 unreadable_lease 警告后跳过”）。
+- **位置**：
+  - `src/core/operations.ts:255` 调 `releaseTaskLeases`，没有接住错误；
+  - `src/core/lease-ops.ts:95-97`；
+  - `src/core/lease-ops.ts:68`，只接住 `write_failed`；
+  - `src/core/leases.ts:92-106`（`readLeases` 遇到非 ENOENT 的错误直接抛出）与 `:115-122`（`getLease` 同样）。
+- **现象**（已复现，脚本 `bad-lease.ts`、`unreadable-lease.ts`）：
+  - 租约目录权限改成 555 后执行 `task status … done`：提交 ce86646 已生成，README 已改成 done，命令却退出 1，`errors: [write_failed]`，`data` 为 null，提交信息丢了。
+  - 只把一个租约文件权限改成 000：`task status … active` 已提交 3848766，命令退出 1，错误是 `internal`（EACCES）。同样条件下 `status --json` 也退出 1。
+  - 续期这条路径（租约目录 555、`task status active`）给的是 `lease_write_failed` 警告，退出 0。同一类失败，在释放与续期两条路径上表现不一致。
+- **为什么是问题**：调用者看到 `write_failed` 或 `internal`，会以为记录没改，可能重跑，也可能去手动提交。面板（t09）也会调 `readProjectStatus`，一个坏文件就能让它整页失败。
+- **建议改法**：
+  - 在 `lease-ops` 里集中收口：`releaseLeases`、`touchLease`、`callerValidLeases` 抛出的 `NbdevError(write_failed | invalid_record)`，以及 EACCES、EPERM、EISDIR、ENOTDIR、EROFS、ENOSPC 这类系统错误，一律转成 `lease_write_failed` 警告；
+  - `readLeases` 对单个文件的读错误给 `unreadable_lease` 警告后跳过；
+  - 补一个 L3 用例：租约目录 555 时执行 `task status done`，应退出 0，带警告，并带回 `data.commit`。
+
+### 2. `parseLease` 只校验 5 个字段，就把文件内容断言成 `LeaseRecord`
+- **类别**：边界校验；违反 `docs/standards/code/languages/typescript.md`（“类型声明不能代替运行期验证”）。
+- **位置**：`src/core/leases.ts:71-85`；解引用发生在 `:237` 与 `:228`。
+- **现象**（已复现，脚本 `bad-lease-herdr.ts` 与 `bad-lease.ts`）：
+  - herdr 可用时，`session` 只有 `key` 的租约文件会让 `lease list --json`、`status --json` 都退出 1：`internal: undefined is not an object (evaluating 'herdr.socketPath')`。herdr 不可用时短路，碰巧不出错。
+  - `lastActivityAt: "垃圾"` 会让 `Date.parse` 得到 NaN，这份租约永远是 `valid`、`stale: false`，不会过期。
+  - 文件内容里的 `leaseId` 不与文件名核对。`releaseLeases` 按内容里的 `leaseId` 拼路径写回（`:195` 经 `leasePath`），含 `../` 时会写到租约目录之外。
+- **建议改法**：`parseLease` 完整校验以下各项，不合格的一律走 `unreadable_lease`：
+  - `session` 各字段：`process` 为 `{pid: 正整数, startTicks: 数字串}` 或 null，`herdr` 为三个字段都是字符串或 null；
+  - 三个时间字段能解析为合法 ISO 时间；
+  - `releaseReason` 在取值集合内；
+  - `leaseId` 符合 `^[0-9a-f]{24}$`，并且与文件名一致。
+
+### 3. 只靠 `HERDR_PANE_ID` 认人时，`pane.process_info` 出错会让命令失败，写命令什么也没写
+- **类别**：降级合同。`docs/herdr.md` 写“herdr 不可用……命令照常完成”，`docs/cli.md` 写“用完之后的调用直接报超时，命令按 herdr 不可用继续”。
+- **位置**：`src/core/identity.ts:103`。`listPanes` 用 `listPanesOrWarn` 接住了错误，`processInfo` 没有接。
+- **现象**（已复现，脚本 `tags-and-hang.ts`）：假 server 对 `ping`、`pane.list` 正常回应，对 `process_info` 不回应。omp 调用者（`HERDR_PANE_ID` 加 `OMPCODE=1`）执行：
+  - `task status … active`：2065 毫秒后退出 1，错误是 `internal: herdr 调用超时：pane.process_info`，记录没有改动；
+  - `status --json`：2075 毫秒后同样失败。
+- **建议改法**：在这里接住 `HerdrError`，给 `herdr_unavailable`（或 `herdr_partial`）警告，`process` 记为 null，身份仍按 pane 认；补一个挂起 `process_info` 的 L3 用例。
+
+### 4. pane 标签会写到不属于调用者的 pane 上
+- **类别**：违反合同（`docs/cli.md`：“给它自己的 pane 写……别的会话 pane 上的标签不动”）。
+- **位置**：`src/core/identity.ts:78-80`（不论 `managed` 真假都设 `callerHerdr`）；`src/core/lease-ops.ts:20-24`（`tagTarget` 不看 `managed`，也不核对 pane 的前台进程）。
+- **现象**：
+  - 已复现：假 herdr 记 w9:pK 上是会话 X，调用者是会话 Y，环境里 `HERDR_PANE_ID=w9:pK`。`lease take` 之后，`report_metadata {pane_id: "w9:pK", tokens: {w00001, t01}}` 发了出去，`caller.herdr.managed` 为 false。
+  - 本机就有这种 pane：herdr 记 w1:pK 是 568d0811（后台会话，进程 410323，不在任何 pane 里），w1:pK 的前台进程却是另一个 claude（810784）。按现在的代码，两个会话都会往 w1:pK 写标签，互相覆盖。568d0811 被 herdr 认为是 managed，只改成“managed 才写”也拦不住。
+- **建议改法**：写或清标签之前，用 `pane.process_info` 确认 `caller.process.pid` 在这格 pane 的 `foregroundPids` 里（Claude 用外层的 `CLAUDE_PID`，omp 用进程组组长）；不在就不写，并给一条警告。只多一次只读调用，而且 `pane.process_info` 已经在命令行的白名单里。
+
+### 5. 会话进程已经不在、但带工具标记的长进程被归为“忽略”，`status` 里看不见
+- **类别**：正确性；与 Proposal 第四节“对不上的归‘无主’”不一致；`docs/herdr.md` 的“看不见的”一节没有列这种情况。
+- **位置**：`src/core/runs.ts:141-143`（`untrusted` 时直接往下走）与 `:155`。
+- **现象**（已复现，脚本 `orphan-run.ts`）：一个 `setsid sleep`，ppid 为 1，环境里有 `CLAUDE_PID=<已退出的 pid>` 和一个 UUID 形式的会话 id，cwd 在 checkout 里。结果是 `runs []`、`ignored 1`。
+  - 从代码推断：`claude --resume` 之后（会话 id 相同，进程换了），重启前派出、仍在跑的进程也一样看不见。
+- **为什么是问题**：会话结束后留下的开发服务、omp 审查，正是开发者最需要在 `status` 里看到并清理的那类进程。
+- **建议改法**：走完父进程链仍没有着落、但有 `CLAUDE_PID` 标记的进程，列为无主，并带 `sessionHint: claude:<id>` 与 `sessionAlive: false`；也可以直接归到那个会话 id 名下，`alive` 为 false。这样只影响原本会被忽略的进程，不会造成新的误归属。
+
+### 6. `RunView.checkout` 对 worktree 里的进程一律报成主工作区
+- **类别**：正确性（JSON 合同字段的值错）。
+- **位置**：`src/core/runs.ts:57-59`。用 `find` 取第一个前缀匹配，而主工作区排在第一位，`.worktree/x/...` 也以它为前缀。
+- **现象**：本机真实 `status --json` 里只有两个运行：1993174（cwd 在 `.worktree/w00005-…`）和 2118675（cwd 在 `.worktree/w00017-…`）。两者的 `checkout` 都是 `/home/notnotype/CodeRepository/neuro-book`。合成测试里有 501（cwd 在 w00017 下），但没有断言 `checkout`。
+- **建议改法**：取最长的匹配根；合成用例补上对 `checkout` 的断言。
+
+### 7. 两条明文合同没有测试，变异后测试仍全过
+- **类别**：测试。
+- **位置**：`src/core/operations.ts:252-257`（提交失败时不动租约）；`:166` 与 `createWork` 里的对应处（提交失败、但号已领时仍取得租约，`docs/cli.md` 写明了这一点）。
+- **现象**：
+  - 去掉 `!failed`：25 个用例全过；
+  - 改成只在提交成功时取租约：19 个用例全过；
+  - `lease_write_failed`、`herdr_tag_failed`、`herdr_partial` 三种警告，以及写命令上的 `caller_unknown` 警告，都没有任何用例覆盖。
+- **建议改法**：沿用 `tests/cli.test.ts` 里制造 `git_lock_timeout`（占住 `index.lock`）的写法，补两条带调用者环境的用例：`task new` 提交失败时 `data.lease` 不为空；`task status active` 提交失败时租约文件不变。再给第 1 条的警告补用例。
+
+---
+
+## 建议
+
+8. **测试用固定等待（测试规范）**：共 8 处——`identity.test.ts:37`、`leases.test.ts:28,90`、`runs.test.ts:119`、`leases-cli.test.ts:22,135`、`herdr-live.test.ts:50`；另有 `herdr-live.test.ts:40` 等 socket 的轮询带 100 毫秒间隔（这类按条件等的可以保留）。本机测得（脚本 `spawn-timing.ts`、`spawn-event.ts`）：
+   - Bun 的 `spawn` 返回时，只有 6/50 个子进程的 `/proc/<pid>/environ` 已是自己的环境；等到 `spawn` 事件也只有 28/50；固定等 80 毫秒是 50/50，负载高时可能不够。
+   - SIGKILL 之后，在 `exit` 事件到来之前，`/proc/<pid>/stat` 50/50 仍然存在（zombie），`processAlive` 会判为还活着。
+   - 改法：起进程后轮询，直到 environ 里出现预期的标记；结束进程后 `await once(child, "exit")`。
+
+9. **“释放晚到”的竞争没有处理，文档的说法不准确**：设计审查第 4 条列了两种竞争，处理意见只覆盖了“复活”。按真实可能的交错顺序调用公开函数（脚本 `late-release.ts`）：
+   - A 执行 `setRecordStatus` 改成 done 并提交；
+   - B 执行 `setTaskStatus` 改成 active，提交并续期；
+   - A 这时才执行 `releaseTaskLeases`。
+   - 结果：Task 是 active，B 的租约却是 `released / task_done`，`activeLeases` 为 0，要等 B 下一次 Task 相关操作才恢复。
+   - `CONTEXT.md` 不变量 5 与 `file-formats.md` 说“最坏只丢一次 lastActivityAt 更新”，这不成立。
+   - 改法：`releaseLeases` 按 Task 释放时跳过 `lastActivityAt` 晚于本次提交时间的租约，或者写之前重读一次 Task 状态；同时更正这两处文字。
+
+10. **`3e086d8e1` 的“ping 与 pane.list 并发”在最常见的情形里没有生效**：调用者在 herdr 里时，`status` 先由 `resolveCaller` 串行地 ping 再 `pane.list`（`src/cli/main.ts:298`），`readHerdrSnapshot` 拿到的已是缓存结果。测量（脚本 `serial-calls.ts`，假 server 每次回应延迟 150 毫秒）：
+    - 调用者在 herdr 里：ping 在 70 毫秒到达，`pane.list` 在 224 毫秒，总计 588 毫秒；
+    - 调用者不在 pane 里：两者都在 61 毫秒到达，总计 419 毫秒。
+    - 改法：`resolveCaller` 里把 `availability()` 与 `listPanes()` 并发发出。
+
+11. **`status` 把同一条命令里的管道伙伴列成调用者的运行**：本机执行 `nbdev status | sed … | head -12`，人读输出里出现了“运行 pid 2898595 sed …”“运行 pid 2898596 head -12”，归在本会话名下。`selfChain` 只排除了自己的祖先，没有排除兄弟进程。改法：排除与 `selfPid` 同进程组（`/proc/<pid>/stat` 第 5 项）的进程。
+
+12. **Claude Bash 派出的运行，显示出来的命令没有信息量**：根进程是 `zsh -c source …shell-snapshots… && setopt … eval '…'`。JSON 截到 200 个字符，剩下的全是样板；人读输出截到 80 个字符，只看得到 snapshot 路径（本机 1993174 就是这样）。偏差表记了这件事，但没有给办法。改法：根进程是这种包装时，取 `eval '…'` 里的内容，或者改用第一个后代的命令行。
+
+13. **只看 `CLAUDE_PID` 进程是否活着，不足以说明它与调用者有关**（从代码推断）：
+    - herdr server 或 tmux 若是从某个仍在运行的 Claude 的 Bash 里起的，所有 pane 都继承一个活着的 `CLAUDE_PID`。这些 pane 里的 omp 会被认成那个 Claude 会话（claude-env 的判定排在 herdr-pane 之前），新起的 claude 也会被当成嵌套、归到它名下。
+    - pid 被复用时同样能通过检查。
+    - 改法：认调用者时要求 `CLAUDE_PID` 是当前进程的祖先；嵌套判定时要求外层 `CLAUDE_PID` 是内层 claude 的祖先，或至少启动得更早。
+
+14. **租约文件只增不删，读取的开销线性增长**（脚本 `lease-growth.ts`）：
+    - 500 个文件时，`readLeases` 11 毫秒加 `processLiveness` 9 毫秒；5000 个文件时 89 毫秒加 70 毫秒。
+    - `status`、`release`、续期标签（`callerValidLeases` 每次读两遍）都要读全部文件，而 `status` 现在已经约 951 毫秒。
+    - 崩溃留下的 `.tmp-*` 文件也从不清理。
+    - 改法：常规读取跳过 mtime 早于 24 小时之前的文件（这些必然已失效），`--all` 时才全读；或者定期清理。
+
+15. **`availability()` 无条件缓存，`budgetMs` 的截止时刻在创建客户端时就定死**（`src/herdr/client.ts:141`、`:84`）：一次性的命令行没有问题。t09、t11 的常驻客户端若复用这个函数，herdr 第一次不在就永远判为不可用，带预算的客户端过了预算期就永远超时。`memoizePanes` 为同样的原因做成了可选，这两处却没有。改法：给它们同样的开关，或者在文档里写明这种客户端只能一次性使用。
+
+16. **新测试的临时目录不走 `createTestTmpRoot`**：`identity.test.ts:19`、`leases.test.ts:18`、`runs.test.ts:111`、`client.test.ts:14` 用 `mkdtemp(tmpdir())`，`tests/fake-herdr.ts:27` 在路径过长时直接放到 `/tmp`。这与包 `AGENTS.md`“临时目录用 createTestTmpRoot”不一致，被强杀后残留也不会被清理。
+
+17. **L4 的收尾不可靠**：
+    - `herdr-live.test.ts:68`：`run()` 遇到非零退出码时照常 resolve，所以 `.catch` 只能接住启动失败；`session delete` 失败时测试照样通过，`nbdev-test` 会留下来，直到下一次运行被前置检查拦住。
+    - 测试超时（60 秒）这条路径上，`finally` 不一定在进程退出前跑完，`afterEach` 也不停 server（从代码推断）。
+    - 改法：检查退出码；把 stop 与 delete 也放进 `afterEach` 或 `afterAll`。
+
+18. **文档与实现不一致，白名单比实际用到的多**：`docs/herdr.md` 写 `agent.get` 用于只有 `HERDR_PANE_ID` 的调用者，实现用的却是 `pane.list`。`getAgent` 没有任何调用方，`agent.list`、`agent.get` 也都没用到。改法：修正文档，从白名单里去掉用不到的方法，或者删掉 `getAgent`。
+
+19. **嵌套时 `parentSessionId` 总等于 `sessionId`，内层 id 丢了**（`src/core/identity.ts:41`）：这个字段实际上只起布尔标记的作用。改法：另记内层 id（例如 `nestedSessionId`），便于排查。
+
+20. **`lease list --work <不存在的 Work>` 返回空列表**（`src/core/lease-ops.ts:154-160`）：同样的参数，`status` 报 `work_not_found`，两边不一致。
+
+---
+
+## 仔细检查后没有发现问题的方面
+- **身份**：在本机实测核对。
+  - 本子代理的环境：`CLAUDE_CODE_SESSION_ID=d02974de…`、`CLAUDE_PID=1506927`、`CLAUDE_CODE_CHILD_SESSION=1`、`HERDR_PANE_ID=w1:p16`。`status --json` 认成 `claude:d02974de…`，`via: claude-env`，`process` 为 {1506927, 122098494}，pane w1:p16，`managed: true`。
+  - 去掉 CLAUDE 变量、加上 `HERDR_PANE_ID=w1:pV OMPCODE=1`：认成 `omp:<jsonl 路径>`，`process` 为 1274375。
+  - `HERDR_PANE_ID=w1:pJ`：`pane_without_agent`。
+  - `CLAUDE_PID=999999`：给 `claude_env_untrusted` 警告，经 pane 回退，认成同一个 key。
+  - `--as`：外部会话，不写标签。
+  - 本机所有顶层 claude 进程的环境里都没有 `CLAUDE_CODE_SESSION_ID`，不存在嵌套误判。
+- **设计审查的处理**：第 1、2、3、5、6、7、10、11、12、15、16、17、18、19、20、21、22 条都按处理意见实现了。第 4 条只实现了“复活”那一半（见建议 9）。第 13 条的总时限、并发与 `herdr_partial` 都在，但 `resolveCaller` 里漏了一处（见重要 3）。
+- **租约**：续期时重写整个会话快照；现算规则依次为已释放、Task 已关闭、24 小时、进程不在、`superseded`，`managed` 只在 socket 一致时成立；只认 24 位 hex 文件名；临时文件名带 pid 与随机数；同一会话并发续期与显式释放的覆盖都无害。
+- **运行**：本机 494 个进程，`readProcessTable` 用 9.1 毫秒；候选 48，根 22。归属结果：
+  - 1993174 归 568d0811（`tool-env`，pane w1:pK）；
+  - 2118675 无主（pane w1:pJ）；
+  - 忽略 20 个：codex 守护进程、`claude bg-pty-host`、VS Code 的 18 个进程。
+  - Agent 内部进程的排除、`HERDR_PANE_ID` 指向不存在的 pane 两条规则都正确。`systemd-run --user` 起的单元在本机核实为 `Slice=app.slice`，与正则相符。`status` 总耗时 951 毫秒。
+- **herdr 客户端**：两份白名单；`status` 与 `lease list` 只用只读清单；按行读取并核对 id；超时与出错时都销毁连接、清掉计时器；`memoizePanes` 只用在每条命令新建、用完即弃的只读客户端上，没有用到常驻客户端。
+- **改状态与标签**：Task 改成 done 或 shelved 时释放该 Task 的全部租约；按关闭之前的样子判断标签指向，变异检查确认用例能抓住；改写成下一份或清空的逻辑正确。
+- **登记表的 `by`**：读取时保留原值，并有测试。
+- **测试夹具与 L4**：按前缀清环境变量，假 herdr 碰不到默认 herdr；L4 只用命名会话。运行前后 `herdr session list` 都只有 default。
+- **常见返工项**：没有按错误文案分支；没有跨包深导入；没有删除任务外的代码（`processStartTicks` 从 `lock.ts` 搬到 `procfs.ts`，行为不变）。
+- **门禁**：
+  - 包的 typecheck 通过；
+  - 完整包测试跑了 1 次，79 个用例全部通过，L4 实际运行；
+  - 根测试 `scripts/ci/dev-panel-records.test.ts` 2 个用例通过；
+  - t07 的 L1 到 L3 共 5 个测试文件，30 个用例通过。
+
+## 未验证
+- omp 的工具子进程是否在 omp 的前台进程组里：若在，会被当成 Agent 进程排除，omp 派出的运行就全看不见。omp 的 native 二进制里有 setsid、setpgid 这些符号，推测是另起进程组，但没有实测。
+- 默认 server 0.9.1 上的标签写入，与计划一致，仍未验证。
+
+## 各级数量
+阻断 0；重要 7；建议 13。
+
+## 变异检查
+每次改完都用 `git checkout -- <文件>` 恢复，结束时 `git status --short` 为空。
+
+| # | 改动 | 结果 |
+|---|---|---|
+| 1 | `setTaskStatus` 去掉 `!failed` | 存活（25 个用例全过） |
+| 2 | `createTask` 只在提交成功时取租约 | 存活（19 个用例全过） |
+| 3 | herdr 客户端去掉对响应 id 的核对 | 存活（21 个用例全过） |
+| 4 | `managed` 判定去掉 socketPath 一致 | 被抓住 |
+| 5 | 去掉 Agent 内部进程的排除 | 被抓住 |
+| 6 | 禁用 `OMPCODE` 归属规则 | 被抓住 |
+| 7 | 把“忽略”改成“无主” | 被抓住 |
+| 8 | `releaseTaskLeases` 的 `closing` 参数传 null | 被抓住 |
+| 9 | `touchLease` 去掉“进程变了”重新取得 | 存活：换进程的用例是由“旧进程已死”那一条触发的 |
+| 10 | 去掉进程存活这一信任条件 | 被抓住 |
+| 11 | 去掉 24 位 hex 文件名过滤 | 被抓住 |
+| 12 | 去掉 `task_closed` 规则 | 被抓住（2 个用例） |
