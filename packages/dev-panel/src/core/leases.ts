@@ -1,5 +1,5 @@
 import {createHash, randomBytes} from "node:crypto";
-import {mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {lstat, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import type {ProcessRef, SessionCaller, SessionRef} from "./identity.js";
@@ -18,9 +18,11 @@ export const LEASES_DIR = `${AGENT_LOCAL_ROOT}/run/leases`;
 export const LEASE_EXPIRY_MS = 24 * 3_600_000;
 export const LEASE_STALE_MS = 2 * 3_600_000;
 const LEASE_FILE_PATTERN = /^[0-9a-f]{24}\.json$/u;
+const LEASE_TEMPORARY_PATTERN = /^[0-9a-f]{24}\.json\.tmp-/u;
 const LEASE_ID_PATTERN = /^[0-9a-f]{24}$/u;
 const ISO_TIME_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z$/u;
 const RELEASE_REASONS: readonly string[] = ["released", "task_done", "task_shelved"];
+const READ_BATCH = 64;
 
 export type LeaseHerdr = {socketPath: string; paneId: string; terminalId: string};
 export type LeaseSession = SessionRef & {process: ProcessRef | null; herdr: LeaseHerdr | null};
@@ -145,10 +147,12 @@ function parseLease(text: string, expectedId: string): {lease: LeaseRecord} | {p
 }
 
 /**
- * 读全部租约；只认 `<24 位 hex>.json`（别人写到一半的临时文件不读）。租约是运行时数据，读不出（内容不合规、权限不够、
+ * 读租约；只认 `<24 位 hex>.json`（别人写到一半的临时文件不读）。租约是运行时数据，读不出（内容不合规、权限不够、
  * 目录本身读不了）一律给 `unreadable_lease` 警告后跳过：一个坏文件不能让 `status` 或记录操作失败。
+ * 文件只增不删：缺省跳过修改时间早于 24 小时之前的文件（每次续期、释放都会重写文件，这样的租约必然已过期或已释放），
+ * `all` 时才全读（`lease list --all`）。
  */
-export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord[]; warnings: Warning[]}> {
+export async function readLeases(mainRoot: string, options: {all?: boolean} = {}): Promise<{leases: LeaseRecord[]; warnings: Warning[]}> {
     const dir = resolve(mainRoot, LEASES_DIR);
     let names: string[];
     try {
@@ -158,21 +162,30 @@ export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord
         if (systemErrorCode(error) === undefined) throw error;
         return {leases: [], warnings: [{code: "unreadable_lease", message: `租约目录读不了，按没有租约处理：${LEASES_DIR}（${systemErrorCode(error)}）`, details: {path: LEASES_DIR, code: systemErrorCode(error)}}]};
     }
-    const leases: LeaseRecord[] = [];
-    const warnings: Warning[] = [];
-    for (const name of names.filter((candidate) => LEASE_FILE_PATTERN.test(candidate)).sort()) {
+    const cutoff = Date.now() - LEASE_EXPIRY_MS;
+    const readOne = async (name: string): Promise<{lease: LeaseRecord} | {warning: Warning} | null> => {
         let text: string;
         try {
+            if (!options.all && (await lstat(join(dir, name))).mtimeMs < cutoff) return null;
             text = await readFile(join(dir, name), "utf8");
         } catch (error) {
-            if (systemErrorCode(error) === "ENOENT") continue;
+            if (systemErrorCode(error) === "ENOENT") return null;
             if (systemErrorCode(error) === undefined) throw error;
-            warnings.push({code: "unreadable_lease", message: `租约文件读不了，已跳过：${name}（${systemErrorCode(error)}）`, details: {path: join(LEASES_DIR, name), code: systemErrorCode(error)}});
-            continue;
+            return {warning: {code: "unreadable_lease", message: `租约文件读不了，已跳过：${name}（${systemErrorCode(error)}）`, details: {path: join(LEASES_DIR, name), code: systemErrorCode(error)}}};
         }
         const parsed = parseLease(text, name.slice(0, -".json".length));
-        if ("lease" in parsed) leases.push(parsed.lease);
-        else warnings.push({code: "unreadable_lease", message: `租约文件读不出，已跳过：${name}（${parsed.problem}）`, details: {path: join(LEASES_DIR, name), problem: parsed.problem}});
+        if ("lease" in parsed) return {lease: parsed.lease};
+        return {warning: {code: "unreadable_lease", message: `租约文件读不出，已跳过：${name}（${parsed.problem}）`, details: {path: join(LEASES_DIR, name), problem: parsed.problem}}};
+    };
+    const leases: LeaseRecord[] = [];
+    const warnings: Warning[] = [];
+    const candidates = names.filter((candidate) => LEASE_FILE_PATTERN.test(candidate)).sort();
+    // 分批并发：一次全发出去，文件多时会撞上打开文件数的上限（EMFILE）。
+    for (let start = 0; start < candidates.length; start += READ_BATCH) {
+        for (const outcome of await Promise.all(candidates.slice(start, start + READ_BATCH).map(readOne))) {
+            if (outcome && "lease" in outcome) leases.push(outcome.lease);
+            else if (outcome) warnings.push(outcome.warning);
+        }
     }
     return {leases, warnings};
 }
@@ -245,6 +258,20 @@ export async function touchLease(mainRoot: string, input: {caller: SessionCaller
     };
     await writeLease(mainRoot, lease);
     return lease;
+}
+
+/** 删掉 24 小时前崩溃留下的临时文件（`<leaseId>.json.tmp-<pid>-<随机>`）。由续期顺手调用，读取命令不调（它们不写任何文件）。 */
+export async function sweepLeaseTemporaries(mainRoot: string): Promise<void> {
+    const dir = resolve(mainRoot, LEASES_DIR);
+    const cutoff = Date.now() - LEASE_EXPIRY_MS;
+    for (const name of (await readdir(dir)).filter((candidate) => LEASE_TEMPORARY_PATTERN.test(candidate))) {
+        try {
+            if ((await lstat(join(dir, name))).mtimeMs < cutoff) await rm(join(dir, name), {force: true});
+        } catch (error) {
+            // 别的进程刚好删掉或改名了它：不影响本次续期。
+            if (systemErrorCode(error) !== "ENOENT") throw error;
+        }
+    }
 }
 
 function matches(lease: LeaseRecord, selector: LeaseSelector): boolean {

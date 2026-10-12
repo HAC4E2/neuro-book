@@ -2,7 +2,7 @@ import {HerdrError, type HerdrClient} from "../herdr/client.js";
 import {readHerdrSnapshot, readTaskStatuses, buildLeaseContext} from "./activity.js";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import type {Caller, SessionCaller} from "./identity.js";
-import {evaluateLeases, readLeases, releaseLeases, touchLease, type EvaluatedLease, type LeaseRecord, type ReleaseReason} from "./leases.js";
+import {evaluateLeases, readLeases, releaseLeases, sweepLeaseTemporaries, touchLease, type EvaluatedLease, type LeaseRecord, type ReleaseReason} from "./leases.js";
 import {listTaskIds, listWorkIds} from "./records.js";
 import type {RepoContext} from "./repo.js";
 import {chooseExecutionCheckout} from "./sources.js";
@@ -86,6 +86,7 @@ export async function touchCallerLease(context: RepoContext, target: {workId: st
     }
     const lease = await guardLeaseIo(warnings, "写租约", null, () => touchLease(context.mainRoot, {caller, workId: target.workId, taskId: target.taskId, action: target.action, now: nowOf(options)}));
     if (!lease) return null;
+    await guardLeaseIo(warnings, "清理租约目录里过期的临时文件", undefined, () => sweepLeaseTemporaries(context.mainRoot));
     const tags = tagTarget(options);
     if (tags) await writeTags(tags, lease, warnings);
     return lease;
@@ -176,7 +177,7 @@ export async function listLeases(context: RepoContext, input: {workRef?: string;
     const warnings: Warning[] = [];
     const transition = await readTransitionState(context.mainRoot);
     const snapshot = await readHerdrSnapshot(options.herdr, warnings);
-    const {leases: records, warnings: leaseWarnings} = await readLeases(context.mainRoot);
+    const {leases: records, warnings: leaseWarnings} = await readLeases(context.mainRoot, {all: input.all === true});
     warnings.push(...leaseWarnings);
     const now = (options.now ?? (() => new Date()))();
     let leases = evaluateLeases(records, await buildLeaseContext(context.mainRoot, transition, records, snapshot, now));

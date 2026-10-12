@@ -109,7 +109,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - **herdr 不判失效**：herdr 的列表里找不到这个会话只表示 `managed: false`（现在不能通知）。只在租约记的 `socketPath` 与本次评估用的 socket 相同时才算 `managed`。
 - `stale`：超过 2 小时没有 Task 相关操作，只用于淡化显示。
 - **写法**：先写同目录临时文件（名字带 pid 与随机数）再改名；读取时只认 `^[0-9a-f]{24}\.json$`，并逐字段校验（`leaseId` 必须与文件名一致；三个时间是 ISO 时间；`releasedAt` 与 `releaseReason` 同时有或同时为 `null`；`session.process`、`session.herdr` 的形状），读不了或不合规的文件给 `unreadable_lease` 警告后跳过。租约不进写事务的锁，有效性现算，所以写入的竞争不会让已关闭的 Task 重新有人“在动”。仍可能出现的偏差：同一份租约的续期与释放互相覆盖时，丢一次 `lastActivityAt` 更新，或刚续期的租约被记成已释放，要到这个会话下一次 Task 相关操作才恢复。按 Task 释放（改成 `done`、`shelved` 之后）时先重读 Task 状态，已被改回就不释放，并只释放最近活动不晚于重读时刻的租约；每份写之前再重读一次，剩下的窗口是毫秒级。
-- 失效与释放的文件不删。`releaseReason` 取 `released`（`nbdev release`）、`task_done`、`task_shelved`。
+- 失效与释放的文件不删。常规读取跳过修改时间早于 24 小时之前的文件（每次续期、释放都会重写文件，这样的租约必然已过期或已释放），`lease list --all` 才全读；续期时顺手删掉 24 小时前崩溃留下的 `.tmp-*` 临时文件。`releaseReason` 取 `released`（`nbdev release`）、`task_done`、`task_shelved`。
 
 ## 进程的启动时刻
 

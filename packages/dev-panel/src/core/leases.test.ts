@@ -1,11 +1,11 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {readFile, rm, writeFile} from "node:fs/promises";
+import {readdir, readFile, rm, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import "../../tests/git-fixture.js";
 import {spawnMarked, stopProcess, type MarkedChild} from "../../tests/processes.js";
 import type {SessionCaller} from "./identity.js";
-import {evaluateLeases, getLease, LEASES_DIR, leaseId, processLiveness, readLeases, releaseLeases, touchLease, type LeaseContext, type LeaseRecord} from "./leases.js";
+import {evaluateLeases, getLease, LEASES_DIR, leaseId, processLiveness, readLeases, releaseLeases, sweepLeaseTemporaries, touchLease, type LeaseContext, type LeaseRecord} from "./leases.js";
 import {processStartTicks} from "./procfs.js";
 import {parseRegistry} from "./registry.js";
 
@@ -138,6 +138,27 @@ describe("租约文件", () => {
         await expect(getLease(main, broken)).rejects.toMatchObject({code: "invalid_record"});
         const rewritten = await touchLease(main, {caller: claude("ccc", null), workId: "w00001-a", taskId: "t01-a", action: "lease take", now: T0});
         expect(JSON.parse(await readFile(join(dir, `${broken}.json`), "utf8"))).toEqual(rewritten);
+    });
+});
+
+describe("租约文件的增长", () => {
+    test("缺省跳过修改时间早于 24 小时之前的文件，all 时才读；续期顺手删掉 24 小时前的临时文件", async () => {
+        const main = await tempMain();
+        const fresh = await touchLease(main, {caller: claude("aaa", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
+        const old = await touchLease(main, {caller: claude("bbb", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
+        const dir = join(main, LEASES_DIR);
+        const longAgo = new Date(Date.now() - 25 * 3_600_000);
+        await utimes(join(dir, `${old.leaseId}.json`), longAgo, longAgo);
+        expect((await readLeases(main)).leases.map((entry) => entry.leaseId)).toEqual([fresh.leaseId]);
+        expect((await readLeases(main, {all: true})).leases.map((entry) => entry.leaseId).sort()).toEqual([fresh.leaseId, old.leaseId].sort());
+
+        const staleTemporary = `${fresh.leaseId}.json.tmp-1-dead`;
+        const recentTemporary = `${fresh.leaseId}.json.tmp-2-live`;
+        await writeFile(join(dir, staleTemporary), "{");
+        await writeFile(join(dir, recentTemporary), "{");
+        await utimes(join(dir, staleTemporary), longAgo, longAgo);
+        await sweepLeaseTemporaries(main);
+        expect((await readdir(dir)).filter((name) => name.includes(".tmp-"))).toEqual([recentTemporary]);
     });
 });
 

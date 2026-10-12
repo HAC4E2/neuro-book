@@ -109,6 +109,7 @@ export {
     processLiveness,
     readLeases,
     releaseLeases,
+    sweepLeaseTemporaries,
     touchLease,
     type EvaluatedLease,
     type LeaseContext,
