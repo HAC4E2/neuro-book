@@ -116,12 +116,12 @@ function tabClass(item: TabsItem): string {
             :tabindex="isSelected(item) ? 0 : -1"
             :disabled="item.disabled"
             class="nb-ui-focus-ring-inset relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
-            :class="[props.size === 'sm' ? 'h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]' : 'h-[var(--control-h-md)] px-[var(--control-px)] text-[var(--text-sm)]', tabClass(item)]"
+            :class="[props.size === 'sm' ? 'h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[length:var(--text-xs)]' : 'h-[var(--control-h-md)] px-[var(--control-px)] text-[length:var(--text-sm)]', tabClass(item)]"
             @click="select(item)"
         >
             <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
             <span>{{ item.label }}</span>
-            <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
+            <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
         </button>
     </div>
 </template>

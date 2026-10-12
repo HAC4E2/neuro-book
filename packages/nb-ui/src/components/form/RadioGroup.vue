@@ -81,12 +81,12 @@ const emit = defineEmits<{
                 <div class="min-w-0 flex-1">
                     <span
                         class="block font-medium text-[var(--text-main)] leading-snug transition-colors"
-                        :class="props.size === 'sm' ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]'"
+                        :class="props.size === 'sm' ? 'text-[length:var(--text-xs)]' : 'text-[length:var(--text-sm)]'"
                     >{{ option.label }}</span>
                     <span
                         v-if="option.description"
                         class="block text-[var(--text-muted)] leading-tight mt-0.5"
-                        :class="props.size === 'sm' ? 'text-[var(--text-2xs)]' : 'text-[var(--text-xs)]'"
+                        :class="props.size === 'sm' ? 'text-[length:var(--text-2xs)]' : 'text-[length:var(--text-xs)]'"
                     >{{ option.description }}</span>
                 </div>
             </label>

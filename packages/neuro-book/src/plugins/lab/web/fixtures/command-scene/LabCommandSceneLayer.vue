@@ -32,7 +32,7 @@ const confirmation = props.scene.confirmation;
         <template #description>
             <template v-if="confirmation.pending.value">
                 <span class="block">{{ confirmation.pending.value.request.callerId }} 请求执行“{{ confirmation.title.value }}”。</span>
-                <span class="mt-1 block break-all font-mono text-[var(--text-xs)]">{{ confirmation.args.value }}</span>
+                <span class="mt-1 block break-all font-mono text-[length:var(--text-xs)]">{{ confirmation.args.value }}</span>
                 <span class="mt-1 block">只作用于本场景内存里的样板文档。</span>
             </template>
         </template>

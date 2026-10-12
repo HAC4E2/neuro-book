@@ -21,7 +21,7 @@ const emit = defineEmits<{
 
 <template>
     <nav aria-label="面包屑导航" class="flex items-center">
-        <ol class="flex flex-wrap items-center gap-1.5 text-[var(--text-xs)] text-[var(--text-secondary)]">
+        <ol class="flex flex-wrap items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
             <template v-for="(item, index) in props.items" :key="index">
                 <li class="inline-flex items-center gap-1">
                     <a

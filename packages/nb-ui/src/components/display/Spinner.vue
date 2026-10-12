@@ -29,6 +29,6 @@ const iconSizeClass = computed(() => {
 <template>
     <span role="status" :aria-label="props.label" class="inline-flex items-center gap-[var(--space-2)] text-[var(--text-muted)]">
         <span class="i-lucide-loader-2 shrink-0 animate-spin" :class="iconSizeClass"></span>
-        <span v-if="props.showLabel" class="text-[var(--text-sm)]">{{ props.label }}</span>
+        <span v-if="props.showLabel" class="text-[length:var(--text-sm)]">{{ props.label }}</span>
     </span>
 </template>

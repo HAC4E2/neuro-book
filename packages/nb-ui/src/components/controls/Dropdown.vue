@@ -135,7 +135,7 @@ function itemClassList(item: DropdownItem): (string | Record<string, boolean>)[]
     return [
         itemBaseClass,
         height,
-        props.compact ? "px-2 gap-2 mb-0.5 last:mb-0 text-[var(--text-xs)]" : "px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
+        props.compact ? "px-2 gap-2 mb-0.5 last:mb-0 text-[length:var(--text-xs)]" : "px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
         itemClass(item),
     ];
 }
