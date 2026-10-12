@@ -124,10 +124,12 @@ test("打开已有作品：经选择器输入路径进入并加入；编辑作�
     await expect(page.locator("[data-path-picker-summary]")).toContainText("Old Draft");
     await page.locator("[data-path-picker-confirm]").click();
     await expect(picker).toHaveCount(0);
-    await expect(card(page, "old-draft")).toHaveCount(1);
-    await expect(card(page, "old-draft")).toHaveAttribute("aria-selected", "true");
+    // 没写书名：卡片显示目录原名，不显示短名 old-draft。
+    await expect(card(page, "Old Draft")).toHaveCount(1);
+    await expect(card(page, "old-draft")).toHaveCount(0);
+    await expect(card(page, "Old Draft")).toHaveAttribute("aria-selected", "true");
 
-    await more(page, "old-draft", "编辑信息");
+    await more(page, "Old Draft", "编辑信息");
     const window = page.locator("[data-project-info]");
     await expect(window).toBeVisible();
     await window.locator("input[data-project-title], [data-project-title] input").fill("北方以北");

@@ -92,8 +92,8 @@ function openWindow(options: Partial<BrowserWindowOptions> & {readonly url?: str
 }
 
 /** 只回引导接口的服务，给出真实后端不会给的响应。 */
-function serveBootstrap(respond: () => Response): {readonly url: string; stop(): void} {
-    const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: (request) => (new URL(request.url).pathname === BROWSER_BOOTSTRAP_PATH ? respond() : new Response(null, {status: 404}))});
+function serveBootstrap(respond: (request: Request) => Response): {readonly url: string; stop(): void} {
+    const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: (request) => (new URL(request.url).pathname === BROWSER_BOOTSTRAP_PATH ? respond(request) : new Response(null, {status: 404}))});
     return {url: server.url.href, stop: () => server.stop(true)};
 }
 
@@ -666,26 +666,34 @@ afterEach(async () => {
     killSpawnedProjects();
 });
 
-/** 引导集合加上 `test.project-caller`；地址栏的项目由 `project` 给出。 */
+/** 引导集合加上 `test.project-caller`；地址栏的项目由 `project` 给出，引导按请求里的 `project` 回显示名“雾港”。 */
 function projectWindow(server: RunningServer, record: ProjectRecordOfWindow, options: {readonly project: string; readonly rpc?: () => {readonly port: number; readonly path: string}; readonly clock?: ManualClock}) {
     const caller = projectCaller(record);
     const builtin = [...builtinBrowserPlugins, caller.descriptor];
-    const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: options.rpc?.() ?? rpcOf(server), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+    const stub = serveBootstrap((request) => {
+        const project = new URL(request.url).searchParams.get("project") === null ? {} : {project: {title: "雾港"}};
+        return Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: options.rpc?.() ?? rpcOf(server), revision: "r", plugins: builtin.map(({id, version}) => ({id, version})), ...project});
+    });
     const opened = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [caller.descriptor.id]: caller.definition}, project: options.project, clock: options.clock});
     return {...opened, stub};
 }
 
 describe("窗口绑定项目（场景 10、11）", () => {
-    it("按地址栏的项目绑定：ready 带项目代次，插件经 project 目标到达项目实例并读到绑定；两个窗口共用同一代次", async () => {
+    it("按地址栏的项目绑定：ready 带项目代次与引导给的显示名（启动中就有），插件经 project 目标到达项目实例并读到绑定；两个窗口共用同一代次", async () => {
         const {server} = await projectBackend();
         const first = newProjectRecord();
         const second = newProjectRecord();
         const one = projectWindow(server, first, {project: "book"});
         const two = projectWindow(server, second, {project: "book"});
+        const titles: Array<string | null> = [];
+        one.browserWindow.onChange((state) => {
+            if (state.status === "starting") titles.push(state.projectTitle);
+        });
         await Promise.all([one.browserWindow.start(), two.browserWindow.start()]);
 
         const ready = readyOf(one.browserWindow.state);
-        expect(ready.project).toMatchObject({name: "book", generation: 1});
+        expect(titles).toEqual([null, "雾港"]);
+        expect(ready.project).toMatchObject({name: "book", title: "雾港", generation: 1});
         expect(readyOf(two.browserWindow.state).project).toEqual(ready.project);
         expect(first.bound).toEqual(ready.project);
         expect(first.echo).toMatchObject({ok: true, value: {project: {name: "book", generation: 1}, caller: {instanceId: ready.instanceId, plugin: "test.project-caller"}}});

@@ -123,11 +123,13 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
             const notifications = createNotifications((message) => diagnostics.record({level: "warn", event: "workbench.notifications", message, source: {plugin: descriptor.id}}));
             context.signal.addEventListener("abort", () => notifications.dispose(), {once: true});
+            // 短名只给页面根的标记与“有没有项目”的判断用；界面上显示书名（窗口的显示名，见 nbook/shared/projects）。
             const projectName = project?.name ?? null;
+            const projectTitle = project?.title ?? null;
             const workbenchPages = createWorkbenchPages({
                 renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),
                 // 布局 store 在外壳渲染时才取：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。
-                renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectName, locale: locale.value}),
+                renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value}),
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 projectName,

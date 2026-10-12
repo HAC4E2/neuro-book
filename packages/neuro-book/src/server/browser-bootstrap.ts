@@ -1,8 +1,9 @@
 /**
  * 引导接口的后端实现：按产品清单列出在浏览器登记的插件（有浏览器入口的，加上只有顶层声明式贡献的），并告知内核
- * RPC 端口（runtime.browser-host 启动序列第 2 步）。
+ * RPC 端口（runtime.browser-host 启动序列第 2 步）。请求带 `project`（地址栏的项目引用）时附上这部作品的显示名，
+ * 窗口在连上服务端、打开项目之前就能显示书名。
  *
- * 插件集合在进程生命期内不变（插件热插拔尚未实现），响应在构造时算好。修订号由排序后的
+ * 插件集合在进程生命期内不变（插件热插拔尚未实现），这部分在构造时算好。修订号由排序后的
  * `id@version` 得出，跨重启稳定；集合或任一版本变化时才变化。
  */
 
@@ -25,8 +26,16 @@ export function browserBootstrap(plugins: ReadonlyArray<PluginDescriptor>, rpc: 
     return {protocolVersion: BROWSER_PROTOCOL_VERSION, revision, plugins: browser, rpc: {port: rpc.port, path: rpc.path}};
 }
 
-export function createBrowserBootstrapRoute(plugins: ReadonlyArray<PluginDescriptor>, rpc: BrowserBootstrap["rpc"]): HostRoute {
+export function createBrowserBootstrapRoute(plugins: ReadonlyArray<PluginDescriptor>, rpc: BrowserBootstrap["rpc"], projectTitle: (reference: string) => Promise<string | null>): HostRoute {
     const body = browserBootstrap(plugins, rpc);
-    // 页面与服务端版本对齐依赖每次都取到当前集合，不能被浏览器或代理缓存。
-    return {method: "GET", path: ROUTE_PATH, handle: () => Response.json(body, {headers: {"cache-control": "no-store"}})};
+    return {
+        method: "GET",
+        path: ROUTE_PATH,
+        handle: async (request) => {
+            const reference = new URL(request.url).searchParams.get("project");
+            const title = reference === null || reference === "" ? null : await projectTitle(reference);
+            // 页面与服务端版本对齐依赖每次都取到当前集合，不能被浏览器或代理缓存。
+            return Response.json(title === null ? body : {...body, project: {title}}, {headers: {"cache-control": "no-store"}});
+        },
+    };
 }

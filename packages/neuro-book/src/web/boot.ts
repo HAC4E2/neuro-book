@@ -57,7 +57,16 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         builtin: options.builtin,
         definitions: options.definitions,
     });
+    // 启动期间屏幕上只有 index.html 的静态加载页（界面在 start 之后才挂载）：引导给出书名后写进它预留的位置。
+    const stopTitle = browserWindow.onChange((state) => {
+        if (state.status !== "starting" || state.projectTitle === null) return;
+        const title = container.querySelector("[data-host-loading-title]");
+        const hint = container.querySelector("[data-host-loading-hint]");
+        if (title !== null) title.textContent = state.projectTitle;
+        if (hint !== null) hint.textContent = "正在打开";
+    });
     await browserWindow.start();
+    stopTitle();
     await mountWindowUi({
         browserWindow,
         container,

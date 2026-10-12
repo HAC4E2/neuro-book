@@ -50,8 +50,18 @@ taskId: t79-workbench-polish
     11. 线条只留三条：标题栏底线、侧栏与编辑区之间一条竖分隔（用网格的分隔条）、状态栏顶线；标签栏不画线，当前标签加粗。
     12. 文件树搬旧树的三样：选中只用浅底、不描边；行带圆角；展开收起有动画（系统减少动画时不动）。
 
+- 2026-10-12 深色核对：[深色终稿](evidences/draft4-dark.png)，对比度与线条正常；页面最右有一条约 10px 的竖条，是根上预留的滚动条位置（`scrollbar-gutter: stable both-edges`），计划里处理。计划见 [plan.md](plan.md)，开发者 2026-10-12 全部同意（含五条按推荐写入的细节：快捷入口按“大纲”“设定”开头的名字找、最近打开存 10 个显示 5 个、加载页在应用起来前按系统明暗取底色、欢迎页刷新后不恢复、打开作品时只揭示一次活动文件）。
+- 2026-10-12 S1（书名与加载页）完成：
+  - 显示名改为“书名，没有书名时用目录原名”：共用的 `projectFolderName`（`src/shared/projects.ts`，两种路径分隔符都认），书架的 `projectDisplayName` 改用它；短名只留在地址栏、日志与页面根的 `data-workbench-project` 上。
+  - 书名不进内核线协议（`ProjectBinding` 是 nb-runtime 的帧类型），改经引导接口：请求带 `project` 时服务端查登记表与身份文件，响应附 `project: {title}`（项目管理器的 `displayTitle`，读不出身份文件时退回目录名并记诊断；管理器还没建好或没登记时不带）。窗口的作品信息 `WindowProject.project` 加 `title`，标题栏与状态栏显示它；引导拿不到时退回短名。
+  - 加载页：两份 `index.html` 在 head 里引用 `src/web/host-loading.css`（阻塞渲染），静态占位从第一帧起是主题缺省配色的底色（明暗跟随系统）上居中的进度条，不带文字；前端入口订阅窗口状态，引导给出书名后写进占位的书名与“正在打开”两处，进度条不动。宿主页的“启动中”用同一套类名。
+  - Spec：`runtime/projects.md`（短名与显示名的术语）、`runtime/browser-host.md`（启动序列第 1、2、5 步，追加验收 12）、`workbench/bookshelf.md`（显示名、已打开窗口的标题栏）、`ui/workbench-shell.md` 输出 12。
+  - 验证：
+    - `browser-bootstrap.test.ts` 用真实服务端登记中文目录（短名是 `project`）：引导给目录原名，写了书名后给书名，没登记、没带参数时不带；`window.test.ts` 绑定项目时先发出带书名的启动中、就绪后作品信息带 `title`；`FailurePage.dom.test.ts`、`shelf-format.test.ts` 补用例；两包 typecheck 为 0。
+    - e2e：`projects.e2e.ts` 新增验收 12（`addInitScript` 记下页面解析完时加载页已是 `position: fixed`、出现过的书名只有“雾港”、宿主状态只有 `loading`，就绪后标题栏是“雾港”、页面根仍是短名 `project`）；`bookshelf.e2e.ts` 里打开已有目录的用例改按目录原名找卡片；`projects`、`browser-host`、`bookshelf`、`bookshelf-stats`、`workbench-titlebar` 共 24 例全过。
+    - 变异 6 处全部被抓到（目录原名返回整条路径、引导不理会 `project`、窗口引导不带项目、入口不写书名、标题栏显示短名、`index.html` 不引用加载页样式）。
+    - [加载帧](evidences/s1-loading.png)（开发会话，拖住 RPC 升级 600ms）：浅色与深色第一帧都是底色加进度条，书名随后出现在上方、进度条不动；深色系统、浅色产品设置时就绪后底色切换一次（计划里接受）。深色帧右缘露出根上预留的滚动条位置，归 S2。
+
 ## 下一步
 
-深色核对：[深色终稿](evidences/draft4-dark.png)，对比度与线条正常；页面最右有一条约 10px 的竖条，是根上预留的滚动条位置（`scrollbar-gutter: stable both-edges`），计划里处理。
-
-计划见 [plan.md](plan.md)，开发者 2026-10-12 全部同意（含五条按推荐写入的细节：快捷入口按“大纲”“设定”开头的名字找、最近打开存 10 个显示 5 个、加载页在应用起来前按系统明暗取底色、欢迎页刷新后不恢复、打开作品时只揭示一次活动文件）。t78 完成后从 S1 开始。
+S2：外壳平铺、三条线、空的右侧栏与面板默认隐藏、右缘竖条。

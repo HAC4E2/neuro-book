@@ -29,7 +29,7 @@ owners:
 
 - **项目**：用户登记的一个目录。项目身份是项目 id（UUID），写在项目目录的 `.nbook/project.json`；目录移动后再登记，按 id 认出是同一项目。
 - **登记表**：状态根下的 `projects.json`，列出已登记项目的 id、短名与当前路径。
-- **短名**：登记时由目录名生成、之后不变的名字，用在地址栏 `/?project=<短名>` 与界面上。
+- **短名**：登记时由目录名生成、之后不变的名字，用在地址栏 `/?project=<短名>` 与日志位置；界面上显示显示名，不显示短名（中文目录名的短名是 `project`）。
 - **项目引用**：短名或项目 id；按引用解析时先比 id、再比短名。
 - **项目实例**：某个项目的一次运行，即内核子实例的一个代次（键是项目 id）。同一项目的代次单调递增、不复用。
 - **项目子进程与项目宿主**：服务端为每个项目实例起一个 Bun 子进程，里面的项目宿主入口建立 `project` 位置的运行实例，经进程间链路连到服务端的路由。
@@ -40,7 +40,7 @@ owners:
 - **`projectsKey`**：服务端宿主以本地能力提供给服务端插件的项目管理服务，按调用方门面提供。
 - **`currentProjectKey`**：项目宿主以本地能力提供给项目实例里的插件的当前项目信息（键在 `src/shared/projects.ts`）。项目里的插件要项目目录时依赖它，不经插件工厂传入（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
 - **`nbook.projects`**：内置插件，服务端入口把列出与登记包成远程服务，浏览器入口提供“打开项目”命令与当前项目的显示；随书架页增加项目实例里的统计入口与书架页。
-- **作品信息**：身份文件里的可选字段：书名 `title`、简介 `description`、主题色 `color`。显示名取书名，没有时取短名。
+- **作品信息**：身份文件里的可选字段：书名 `title`、简介 `description`、主题色 `color`。显示名取书名，没有时取目录原名（项目目录路径的最后一段）。
 - **统计**：项目实例算出的字数、篇数、今天净增与最近编辑，存在 user 分区的记录 `projects.stats` 里；书架只读这份缓存与运行中项目的实时状态，不为显示统计打开项目。
 - **作品目录**：新建作品的缺省父目录。设置 `nbook.projects/library`（user 层字符串，缺省空）里有就用它；没有就是系统文档目录下的 `NeuroBook`（第 19 条）。用户在书架页更改时写入设置。
 - **用户目录**：服务端宿主提供能力 `userDirectoriesKey`（`nbook/user-directories`，`{home, documents}`）：进程用户的主目录与系统文档目录（Windows `%USERPROFILE%\Documents`，macOS `~/Documents`，Linux 先 `~/.config/user-dirs.dirs` 的 `XDG_DOCUMENTS_DIR` 再 `~/Documents`；都不存在为 null）。

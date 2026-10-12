@@ -37,6 +37,7 @@ import type {
     ProjectUnregisterResult,
     ProjectUpdateResult,
 } from "nbook/shared/projects";
+import {projectFolderName} from "nbook/shared/projects";
 import type {SocketLink} from "nbook/shared/rpc-socket";
 
 import {checkProjectDirectory, readProjectIdentity, updateProjectMetadata} from "./identity";
@@ -78,6 +79,8 @@ export interface ProjectManager {
      * 接纳关闭后（服务端开始停止）一律 `admission-closed`，在取得之后才关闭的，租约立即释放。
      */
     acquire(reference: string, holder: string, options?: {readonly generation?: number}): Promise<ProjectAcquireResult>;
+    /** 按项目引用（短名或 id）取界面上的显示名：书名，没有时是目录原名；没有登记时为 null。 */
+    displayTitle(reference: string): Promise<string | null>;
     /** 读已登记项目的作品信息（按 id，不按短名）。 */
     readMetadata(id: string): Promise<ProjectMetadataRead>;
     /** 修改已登记项目的作品信息（按 id），核对身份文件里的 id 与登记表一致。 */
@@ -254,6 +257,23 @@ class ProjectManagerImpl implements ProjectManager {
         if (!resolved.ok) return resolved;
         if (resolved.value === null || resolved.value.id !== id) return {ok: false, reason: "unknown-project", detail: `没有登记的项目：${id}`};
         return {ok: true, record: resolved.value};
+    }
+
+    /**
+     * 按项目引用（短名或 id）取界面上的显示名：书名，没有书名时是目录原名；没有登记或登记表读不出时为 null。给引导接口用，
+     * 窗口在连上服务端之前就能显示书名（docs/specs/runtime/browser-host.md 启动序列第 2 步）。
+     */
+    async displayTitle(reference: string): Promise<string | null> {
+        const resolved = await this.registry.resolve(reference);
+        if (!resolved.ok || resolved.value === null) return null;
+        const record = resolved.value;
+        try {
+            const identity = await readProjectIdentity(record.path);
+            if (identity.status === "found" && identity.id === record.id && identity.metadata.title !== null) return identity.metadata.title;
+        } catch (error) {
+            this.#options.record({level: "warn", event: "project.identity.read-failed", message: "读不出身份文件，显示名退回目录名", error, data: {project: record.id}});
+        }
+        return projectFolderName(record.path);
     }
 
     async readMetadata(id: string): Promise<ProjectMetadataRead> {

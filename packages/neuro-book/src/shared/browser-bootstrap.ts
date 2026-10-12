@@ -20,6 +20,8 @@ export const BrowserBootstrapSchema = Type.Object({
     plugins: Type.Array(Type.Object({id: Type.String({minLength: 1}), version: Type.String({minLength: 1})})),
     /** 内核 RPC 端口与路径。窗口用页面自己的主机名与协议拼出地址，使连接的 Origin 与页面一致。 */
     rpc: Type.Object({port: Type.Integer({minimum: 1, maximum: 65_535}), path: Type.String({pattern: "^/"})}),
+    /** 请求带 `project` 且这部作品已登记时才有：界面上的显示名（书名，没有书名时是目录原名）。 */
+    project: Type.Optional(Type.Object({title: Type.String({minLength: 1})})),
 });
 
 export type BrowserBootstrap = Static<typeof BrowserBootstrapSchema>;

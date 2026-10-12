@@ -130,3 +130,45 @@ test("没有登记的项目：显示无法打开项目页，给重试与“不�
     await expect(page.getByRole("link", {name: "不打开项目"})).toHaveAttribute("href", "/");
     await expect(root(page)).toHaveCount(0);
 });
+
+test("打开没写书名、目录名是中文的作品：加载页第一帧就有样式、只有进度条，书名随后出现在它上方；标题栏显示目录原名，不显示短名（browser-host 场景 12）", async ({page}) => {
+    const directory = join(tmp, "雾港");
+    await mkdir(directory, {recursive: true});
+    await page.addInitScript(() => {
+        const seen = {styledAtParse: "", titles: [] as string[], statuses: [] as string[]};
+        (window as unknown as {loadingSeen: typeof seen}).loadingSeen = seen;
+        document.addEventListener("DOMContentLoaded", () => {
+            const loading = document.querySelector(".nb-host-loading");
+            seen.styledAtParse = loading === null ? "none" : getComputedStyle(loading).position;
+        });
+        new MutationObserver(() => {
+            const title = document.querySelector("[data-host-loading-title]")?.textContent ?? "";
+            if (title !== "" && !seen.titles.includes(title)) seen.titles.push(title);
+            for (const element of document.querySelectorAll("[data-browser-host-status]")) {
+                const status = element.getAttribute("data-browser-host-status") ?? "";
+                if (!seen.statuses.includes(status)) seen.statuses.push(status);
+            }
+        }).observe(document, {childList: true, subtree: true, characterData: true, attributes: true});
+    });
+    await page.goto(new URL("/workbench", server.url).href);
+    await expect(root(page)).toHaveAttribute("data-window-state", "ready");
+
+    const commands = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
+    await expect(async () => {
+        await page.keyboard.press("Control+Shift+P");
+        await expect(commands).toBeFocused({timeout: 500});
+    }).toPass();
+    await commands.fill("打开项目");
+    await page.keyboard.press("Enter");
+    const picker = page.getByRole("combobox", {name: "选择项目，或输入项目目录的路径"});
+    await picker.fill(directory);
+    await expect(page.getByRole("option", {name: `登记并打开 ${directory}`})).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    await page.waitForURL(/\?project=project$/u);
+    await expect(root(page)).toHaveAttribute("data-window-state", "ready");
+    await expect(page.locator("[data-workbench-project]")).toHaveAttribute("data-workbench-project", "project");
+    await expect(page.locator(".workbench-titlebar__project-name")).toHaveText("雾港");
+    const seen = await page.evaluate(() => (window as unknown as {loadingSeen: {styledAtParse: string; titles: string[]; statuses: string[]}}).loadingSeen);
+    expect(seen).toEqual({styledAtParse: "fixed", titles: ["雾港"], statuses: ["loading"]});
+});

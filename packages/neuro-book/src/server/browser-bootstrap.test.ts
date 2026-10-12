@@ -4,7 +4,7 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {EventEmitter} from "node:events";
-import {rm} from "node:fs/promises";
+import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {Value} from "typebox/value";
@@ -20,10 +20,13 @@ import {startServer} from "./start";
 import type {RunningServer} from "./start";
 
 let tmp = "";
+/** 作品目录不能放在状态根里（登记会拒绝），另开一个根。 */
+let books = "";
 let server: RunningServer;
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-bootstrap", "browser-bootstrap");
+    books = await createTestTmpRoot("neuro-book-bootstrap", "books");
     server = startServer({
         config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
@@ -36,6 +39,7 @@ afterAll(async () => {
     server.requestStop("test:done");
     await server.stopped;
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+    if (books !== "") await rm(books, {recursive: true, force: true});
 });
 
 describe("浏览器引导接口", () => {
@@ -51,6 +55,30 @@ describe("浏览器引导接口", () => {
         expect(body).toMatchObject({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: Number(new URL(server.rpcUrl).port), path: "/"}});
         expect((body as {plugins: unknown[]}).plugins).toEqual(expect.arrayContaining(expected));
         expect((body as {plugins: unknown[]}).plugins).toHaveLength(expected.length);
+    });
+
+    it("请求带 project 时附上作品的显示名：没写书名用目录原名，写了书名用书名；没有登记、没带参数时不带", async () => {
+        const directory = join(books, "雾港");
+        await mkdir(directory, {recursive: true});
+        const registered = await server.projects.registry.register(directory);
+        if (!registered.ok) throw new Error(registered.detail);
+        const {id, name} = registered.project;
+        const projectOf = async (project: string | null): Promise<unknown> => {
+            const url = new URL(BROWSER_BOOTSTRAP_PATH, server.url!);
+            if (project !== null) url.searchParams.set("project", project);
+            const body = (await (await fetch(url)).json()) as {project?: unknown};
+            expect(Value.Check(BrowserBootstrapSchema, body)).toBe(true);
+            return body.project;
+        };
+
+        // 中文目录名的短名是 `project`：界面上不该出现它。
+        expect(name).toBe("project");
+        expect(await projectOf(name)).toEqual({title: "雾港"});
+        const updated = await server.projects.updateMetadata(id, {title: "雾港纪事"});
+        expect(updated.ok).toBe(true);
+        expect(await projectOf(id)).toEqual({title: "雾港纪事"});
+        expect(await projectOf("没有这部")).toBeUndefined();
+        expect(await projectOf(null)).toBeUndefined();
     });
 
     it("修订号只随有浏览器入口的插件集合与版本变化，与清单顺序无关", () => {

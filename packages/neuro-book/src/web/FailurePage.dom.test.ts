@@ -69,9 +69,16 @@ describe("宿主页", () => {
         expect(plain.find("[data-host-rescued]").exists()).toBe(false);
     });
 
-    it("启动中：没有动作，按状态播报", () => {
-        const page = mount(FailurePage, {props: {state: {status: "starting"}}});
+    it("启动中：与静态加载页同一个样子，没有动作，按状态播报；引导给出书名后显示书名与“正在打开”", async () => {
+        const page = mount(FailurePage, {props: {state: {status: "starting", projectTitle: null}}});
         expect(page.get("[data-browser-host-status]").attributes("role")).toBe("status");
+        expect(page.get("[data-browser-host-status]").classes()).toContain("nb-host-loading");
         expect(page.findAll("button")).toEqual([]);
+        expect(page.get(".nb-host-loading__title").text()).toBe("");
+        expect(page.get(".nb-host-loading__hint").text()).toBe("正在连接服务端");
+
+        await page.setProps({state: {status: "starting", projectTitle: "雾港"}});
+        expect(page.get(".nb-host-loading__title").text()).toBe("雾港");
+        expect(page.get(".nb-host-loading__hint").text()).toBe("正在打开");
     });
 });
