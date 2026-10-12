@@ -20,8 +20,8 @@ status: planned
 
 - 第 1 项已完成（2026-10-12）；`.agents/works/AGENTS.md` 第 3 条随后也改成一个 Task 一个 worktree。
 - 第 3 项已完成（2026-10-12）：用户全局规则改为会话目录放在不进 Git 的位置，项目规定了本地目录的放那里（本仓库是 `.local/agent/works/<workId>/tasks/<taskId>/reports/`），否则放仓库之外；审查报告与会话目录放在一起。
-- 第 2 项未开工。
+- 第 2 项已完成（2026-10-12）：集成分支 `feat/w00022-dev-panel` 的第一个提交 `bc7284ab`，`WORK_TASK_ID_PATTERN` 允许 t01–t99 与 t100 起的三位（拒绝 t00、t000、t050 等带前导零的写法），Work 规则同步改写，治理测试补正反例；主 Agent 复跑治理测试 159 通过、`governance:check` 无失败。随集成分支合入 `master` 后生效，在此之前 `master` 上仍只认两位。
 
 ## 下一步
 
-第 2 项从 `master` 建 worktree 做；[实施计划](../t03-design/plan.md) 把它列为 nbdev 领号（t06）的前提。
+随集成分支合入 `master`（要开发者授权）后把本 Task 标为 `done`。
