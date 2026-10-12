@@ -114,13 +114,13 @@ test("两个窗口：一处用命令面板切换界面语言，另一处即时�
     await open(a);
     await open(b);
     expect(await html(b, "lang")).toBe("zh-CN");
-    await expect(b.getByText("在资源管理器里打开一个文件")).toBeVisible();
+    await expect(b.getByText("在左边的资源管理器里打开一个文件")).toBeVisible();
 
     await runCommand(a, "切换界面语言");
     await choose(a, "English");
     await expect.poll(() => html(b, "lang")).toBe("en-US");
-    await expect(b.getByText("Open a file from the explorer")).toBeVisible();
-    await expect(a.getByText("Open a file from the explorer")).toBeVisible();
+    await expect(b.getByText("Open a file from the explorer on the left")).toBeVisible();
+    await expect(a.getByText("Open a file from the explorer on the left")).toBeVisible();
 
     // 面板自己的文字按当前语言。
     await expect(async () => {
@@ -131,7 +131,7 @@ test("两个窗口：一处用命令面板切换界面语言，另一处即时�
 
     await b.reload();
     await expect(b.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
-    await expect(b.getByText("Open a file from the explorer")).toBeVisible();
+    await expect(b.getByText("Open a file from the explorer on the left")).toBeVisible();
 
     const written = await readFile(userFile(), "utf8");
     expect(written).toContain("// 我的设置");

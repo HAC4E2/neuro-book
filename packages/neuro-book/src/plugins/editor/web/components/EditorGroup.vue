@@ -68,7 +68,7 @@ const kinds = computed((): EditorKind[] => {
 
 <template>
     <section
-        class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--bg-main)]"
+        class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="editorText(locale, 'areaLabel')"
         :data-editor-group="groupId"
@@ -102,7 +102,7 @@ const kinds = computed((): EditorKind[] => {
             <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
         </div>
         <div class="relative min-h-0 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
-            <p v-if="activeTab === null" class="p-6 text-sm text-[var(--text-muted)]" data-editor-empty>{{ editorText(locale, "empty") }}</p>
+            <p v-if="activeTab === null" class="flex h-full items-center justify-center px-6 text-center text-[13px] text-[var(--text-muted)]" data-editor-empty>{{ editorText(locale, "empty") }}</p>
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
                 <p>{{ failure }}</p>
                 <Button size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>

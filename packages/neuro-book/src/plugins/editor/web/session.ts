@@ -14,6 +14,7 @@ import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import type {DocumentCoordinator} from "../shared/contracts";
 import {createEditorArea} from "./area";
 import type {EditorArea} from "./area";
+import type {EditorRecentStore} from "./recent-record";
 import {snapshotOf} from "./session-record";
 import type {EditorSessionStore} from "./session-record";
 
@@ -24,11 +25,15 @@ export interface EditorSessionOptions {
     readonly project: {readonly id: string; readonly generation: number} | null;
     /** 绑定项目时打开会话记录；未绑定为 null。 */
     readonly createStore: (() => EditorSessionStore) | null;
+    /** 绑定项目时打开最近打开的记录（输出 31）；未绑定为 null。 */
+    readonly createRecentStore: (() => EditorRecentStore) | null;
     readonly report: (error: unknown) => void;
 }
 
 export interface EditorSession {
     readonly area: Readonly<ShallowRef<EditorArea | null>>;
+    /** 最近打开的地址，最近在前；未绑定项目的窗口为 null。 */
+    readonly recent: EditorRecentStore | null;
     /** 文档协调：编辑器区建好之前没有打开的文档。 */
     readonly coordinator: DocumentCoordinator;
     dispose(): void;
@@ -41,6 +46,9 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
     const workspaceKey = options.project?.id ?? "none";
     const generation = options.project?.generation ?? 1;
 
+    // 与会话记录一样随入口的激活作用域释放。记录读完之前的打开先排队，读到之后作用在读到的值上。
+    const recent = options.createRecentStore?.() ?? null;
+
     const start = (initial: ReturnType<typeof snapshotOf>, persist?: (snapshot: Parameters<EditorSessionStore["actions"]["save"]>[0]) => void): void => {
         area.value = createEditorArea({
             files: options.files,
@@ -49,6 +57,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             generation,
             initial,
             ...(persist === undefined ? {} : {persist}),
+            ...(recent === null ? {} : {opened: (address: string) => recent.actions.opened(address)}),
             report: options.report,
         });
     };
@@ -78,6 +87,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
 
     return {
         area,
+        recent,
         coordinator,
         dispose: () => {
             if (disposed) return;

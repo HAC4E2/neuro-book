@@ -27,6 +27,7 @@ import {documentCoordinatorKey} from "../shared/contracts";
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
 import type {EditorKind} from "./groups/groups";
+import {editorRecentStore} from "./recent-record";
 import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
 import {editorState, editorStateValues} from "./state";
@@ -66,6 +67,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 clock: context.services.require(clockKey),
                 project,
                 createStore: project === null ? null : () => editorSessionStore.create(context, {storage, diagnostics}),
+                createRecentStore: project === null ? null : () => editorRecentStore.create(context, {storage, diagnostics}),
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});

@@ -44,6 +44,8 @@ interface World {
     readonly clock: ManualClock;
     readonly area: EditorArea;
     readonly saved: GroupsSnapshot[];
+    /** `opened` 交出的地址（最近打开）。 */
+    readonly opened: string[];
 }
 
 async function world(initial: GroupsSnapshot | null = null): Promise<World> {
@@ -52,7 +54,8 @@ async function world(initial: GroupsSnapshot | null = null): Promise<World> {
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.json": "{}"}}, {wrapLink: tap.wrap});
     const clock = new ManualClock();
     const saved: GroupsSnapshot[] = [];
-    const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, initial, persist: (snapshot) => saved.push(snapshot), report: (error) => {
+    const opened: string[] = [];
+    const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, initial, persist: (snapshot) => saved.push(snapshot), opened: (address) => opened.push(address), report: (error) => {
         throw error;
     }});
     closers.push(async () => {
@@ -60,7 +63,7 @@ async function world(initial: GroupsSnapshot | null = null): Promise<World> {
         await scene.world.close();
         await rm(scene.root, {recursive: true, force: true});
     });
-    return {scene, tap, clock, area, saved};
+    return {scene, tap, clock, area, saved, opened};
 }
 
 async function until(at: World, description: string, check: () => boolean): Promise<void> {
@@ -222,6 +225,88 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         expect(restored.area.documents.get("project://a.md")).toBeNull();
         restored.area.activate(restored.area.groups.groups.value[0]?.tabs[0]?.id ?? "");
         await until(restored, "a 就绪", () => restored.area.binding(groupId(restored))?.document.text.value === "A");
+    });
+});
+
+describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开", () => {
+    const tabsOf = (snapshot: GroupsSnapshot | undefined) => snapshot?.groups.flatMap((group) => group.tabs) ?? [];
+
+    it("控件交出的光标记到标签上、随快照保存；写法与编辑器对不上、与记下的相同都不写；换下之后迟到的照记", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        const a = at.area.binding(groupId(at))!;
+        expect(a.cursor).toBeNull();
+        a.remember({offset: 5});
+        expect(tabsOf(at.saved.at(-1))[0]?.cursor).toEqual({offset: 5});
+        const count = at.saved.length;
+        a.remember({offset: 5});
+        a.remember({line: 2, column: 3});
+        expect(at.saved.length).toBe(count);
+
+        // 换到 b 之后 a 的控件才交出离开时的光标：仍记到 a 的标签上。
+        at.area.open("project://b.md", {mode: "permanent"});
+        a.remember({offset: 7});
+        expect(tabsOf(at.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 7}, undefined]);
+    });
+
+    it("按快照恢复后，第一次绑定带着记下的光标；拆分出的标签带过去；换编辑器丢掉", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        at.area.binding(groupId(at))!.remember({offset: 1});
+
+        const restored = await world(at.saved.at(-1) ?? null);
+        await ready(restored);
+        expect(restored.area.binding(groupId(restored))?.cursor).toEqual({offset: 1});
+        expect(restored.area.split("right")).toMatchObject({ok: true});
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 1}, {offset: 1}]);
+        expect(restored.area.reopenWith("code")).toMatchObject({ok: true});
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 1}, undefined]);
+    });
+
+    it("恢复的会话：活动标签就绪、控件交出句柄后聚焦一次，不定位到末尾；就绪前焦点离开编辑器区就不聚焦；读取失败不另提示", async () => {
+        const seed = await world();
+        seed.area.open("project://a.md", {mode: "permanent"});
+        await ready(seed);
+        const snapshot = seed.saved.at(-1) ?? null;
+        const handle = (calls: string[]): EditorControlHandle => ({focus: () => void calls.push("focus"), flushPendingChange: () => undefined, revealEnd: () => void calls.push("revealEnd")});
+
+        const restored = await world(snapshot);
+        const calls: string[] = [];
+        restored.area.registerHandle(groupId(restored), "markdown", handle(calls));
+        await ready(restored);
+        restored.clock.advance(0);
+        expect(calls).toEqual(["focus"]);
+        restored.area.registerHandle(groupId(restored), "markdown", handle(calls));
+        restored.clock.advance(0);
+        expect(calls).toEqual(["focus"]);
+
+        const left = await world(snapshot);
+        const leftCalls: string[] = [];
+        left.area.focusLeft();
+        left.area.registerHandle(groupId(left), "markdown", handle(leftCalls));
+        await ready(left);
+        left.clock.advance(0);
+        expect(leftCalls).toEqual([]);
+
+        const gone = await world({...snapshot!, groups: snapshot!.groups.map((group) => ({...group, tabs: group.tabs.map((tab) => ({...tab, address: "project://missing.md"}))}))});
+        await until(gone, "读取失败", () => gone.area.documentOf(groupId(gone))?.status.value === "failed");
+        gone.clock.advance(0);
+        expect(gone.area.notice.value).toBeNull();
+    });
+
+    it("打开时交出地址（最近打开），preview 与 permanent 都算；切换已打开的标签与恢复出来的标签不算", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "preview"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        await ready(at);
+        at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
+        expect(at.opened).toEqual(["project://a.md", "project://b.md"]);
+
+        const restored = await world(at.saved.at(-1) ?? null);
+        await ready(restored);
+        expect(restored.opened).toEqual([]);
     });
 });
 

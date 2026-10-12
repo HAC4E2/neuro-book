@@ -16,7 +16,7 @@ import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import {createDocumentStore} from "./documents/store";
 import type {CommitResult, DocumentReference, DocumentStore, TextDocument} from "./documents/store";
 import {createEditorGroups} from "./groups/groups";
-import type {EditorGroups, EditorKind, EditorTab, GroupsSnapshot, SplitDirection} from "./groups/groups";
+import type {EditorGroups, EditorKind, EditorTab, GroupsSnapshot, SplitDirection, TabCursor} from "./groups/groups";
 
 /** 打开后这么久正文还没就绪才显示进度条（files-explorer 的“打开与切换”）。 */
 export const PROGRESS_DELAY_MS = 800;
@@ -43,6 +43,10 @@ export interface ViewBinding {
     attach(flush: () => void): () => void;
     /** 这个绑定有没有未裁决输入。 */
     unresolved(): boolean;
+    /** 标签记下的光标（输出 30）：控件第一次为这份文档建视图状态时放回去；视图状态还在时用它自己的。 */
+    readonly cursor: TabCursor | null;
+    /** 控件交出光标：记到标签上，随会话记录保存。换下之后迟到的也照记，标签已关时不变。 */
+    remember(cursor: TabCursor): void;
 }
 
 /** 控件交出的句柄：命令（聚焦、撤销、重做、跳转到行）作用于活动组的活动控件。 */
@@ -80,6 +84,8 @@ export interface EditorAreaOptions {
     readonly initial: GroupsSnapshot | null;
     /** 会话变化时调用（组、标签、活动项、布局）；未绑定项目的窗口不给。 */
     readonly persist?: (snapshot: GroupsSnapshot) => void;
+    /** 打开了一个地址（输出 31 的最近打开）；未绑定项目的窗口不给。 */
+    readonly opened?: (address: string) => void;
     readonly report: (error: unknown) => void;
 }
 
@@ -289,6 +295,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             },
             attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
             unresolved: () => document.unresolved.value.includes(token),
+            cursor: tab.cursor ?? null,
+            remember: (cursor) => groups.setCursor(tab.id, cursor),
         };
         bindings.set(groupId, created);
         return created;
@@ -392,12 +400,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      * 继续写作的定位（输出 29）：打开时记下标签与组，等它的文档就绪、它所在组的控件交出句柄再定位；在此之前用户切到别的
      * 标签或组、标签关闭、焦点移出编辑器区（`focusLeft`）都取消，读取失败在组顶部提示。定位本身推到下一个时钟刻：文档就绪时
      * 控件要在它自己的 watch 里先装上正文，这里的 watch 是同步的，不能抢在它前面；到了那一刻再核对一次标签与句柄仍是活动的。
+     * 恢复会话（输出 30）走同一条路，只聚焦：光标已由控件按标签记下的位置放好；读取失败时内容区自己说明，不另提示。
      */
-    const pendingReveal = shallowRef<{readonly groupId: string; readonly tabId: string; readonly address: string} | null>(null);
+    const pendingReveal = shallowRef<{readonly groupId: string; readonly tabId: string; readonly address: string; readonly reveal: "end" | "cursor"} | null>(null);
     type RevealState =
         | {readonly outcome: "cancelled"}
-        | {readonly outcome: "failed"; readonly address: string}
-        | {readonly outcome: "ready"; readonly groupId: string; readonly tabId: string; readonly handle: EditorControlHandle};
+        | {readonly outcome: "failed"; readonly address: string; readonly reveal: "end" | "cursor"}
+        | {readonly outcome: "ready"; readonly groupId: string; readonly tabId: string; readonly handle: EditorControlHandle; readonly reveal: "end" | "cursor"};
     stops.push(watch((): RevealState | null => {
         const pending = pendingReveal.value;
         if (pending === null) return null;
@@ -405,24 +414,28 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const tab = group?.tabs.find((candidate) => candidate.id === pending.tabId);
         if (group === undefined || tab === undefined || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
         const status = referenceOf(tab).document.status.value;
-        if (status === "failed") return {outcome: "failed", address: pending.address};
+        if (status === "failed") return {outcome: "failed", address: pending.address, reveal: pending.reveal};
         if (status !== "ready" && status !== "deleted") return null;
         const handle = handles.value.get(`${group.id}|${tab.editor}`);
-        return handle === undefined ? null : {outcome: "ready", groupId: group.id, tabId: tab.id, handle};
+        return handle === undefined ? null : {outcome: "ready", groupId: group.id, tabId: tab.id, handle, reveal: pending.reveal};
     }, (state) => {
         if (state === null) return;
         pendingReveal.value = null;
-        if (state.outcome === "failed") notice.value = `上次编辑的片段已不在原处：${state.address}`;
+        if (state.outcome === "failed" && state.reveal === "end") notice.value = `上次编辑的片段已不在原处：${state.address}`;
         if (state.outcome !== "ready") return;
         options.clock.schedule(() => {
             if (disposed) return;
             // 就绪与这一刻之间用户可能已切走：标签仍是它所在组与活动组的活动标签、句柄仍是活动视图的，才定位。
             const group = groups.groups.value.find((candidate) => candidate.id === state.groupId);
             if (group === undefined || group.active !== state.tabId || groups.activeGroup.value !== group.id || activeHandle.value !== state.handle) return;
-            state.handle.revealEnd?.();
+            if (state.reveal === "end") state.handle.revealEnd?.();
             state.handle.focus();
         }, 0);
     }));
+
+    // 恢复出来的会话：活动组的活动标签就绪后聚焦，光标在它记下的位置（输出 30）。
+    const restoredTab = options.initial === null ? null : groups.activeTab();
+    if (restoredTab !== null) pendingReveal.value = {groupId: groups.activeGroup.value, tabId: restoredTab.id, address: restoredTab.address, reveal: "cursor"};
 
     /** 换文档前结算活动视图的输入；它有未裁决输入时不换。 */
     const leave = (groupId: string): boolean => {
@@ -515,7 +528,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
             const {tab, replaced} = groups.open(address, {mode: open.mode, editor});
             if (replaced !== null) releaseTab(replaced, group);
-            pendingReveal.value = open.reveal === "end" ? {groupId: group, tabId: tab.id, address} : null;
+            pendingReveal.value = open.reveal === "end" ? {groupId: group, tabId: tab.id, address, reveal: "end"} : null;
+            options.opened?.(address);
             return {ok: true, tabId: tab.id};
         },
         activate: (tabId) => {

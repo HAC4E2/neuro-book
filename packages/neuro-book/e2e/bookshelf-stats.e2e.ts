@@ -7,10 +7,13 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
+import {DatabaseSync} from "node:sqlite";
 
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
 import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
@@ -20,11 +23,12 @@ const GRACE_MS = 1500;
 const PROJECT_PROBE_CLOSED_LINE = "remote-probe project entry closed";
 
 let tmp = "";
+let bookDir = "";
 let server: ProbeServer;
 
 test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "bookshelf-stats");
-    const bookDir = join(tmp, "Book");
+    bookDir = join(tmp, "Book");
     const stateRoot = join(tmp, "state");
     const id = randomUUID();
     const files: Record<string, string> = {
@@ -54,6 +58,19 @@ async function openBook(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(root(page)).toHaveAttribute("data-rpc-state", "online");
     await expect(page.locator("[data-workbench-project]")).toHaveAttribute("data-workbench-project", "book");
+}
+
+/** 本页客户端的编辑器会话里 a.md 的标签记下的光标（项目分区的 `editor.session`，按客户端分行）。 */
+async function savedCursor(page: Page): Promise<unknown> {
+    const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
+    const db = new DatabaseSync(join(bookDir, ".nbook", "storage.sqlite"));
+    try {
+        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.session' AND client = ?1").get(client) as {value: string} | undefined;
+        const session = row === undefined ? null : JSON.parse(row.value) as {groups: Array<{tabs: Array<{address: string; cursor?: unknown}>}>};
+        return session?.groups.flatMap((group) => group.tabs).find((tab) => tab.address === "project://notes/a.md")?.cursor ?? null;
+    } finally {
+        db.close();
+    }
 }
 
 async function openShelf(page: Page): Promise<void> {
@@ -97,10 +114,17 @@ test("写过字、关掉窗口并等作品停止后，书架显示字数、片�
     await page.keyboard.type("化成水。");
     await expect(prose(page)).toContainText("雪落在灯罩上。化成水。");
 
+    // 光标挪到开头、记下之后刷新：回到记下的光标（editor.md 输出 30），不再按继续写作定位到末尾。先等输入交给文档（标签
+    // 变成未保存）：紧跟在输入后面的 Ctrl+Home 可能被吞掉，光标留在末尾。
+    await expect(activeTab(page)).toHaveAttribute("data-editor-tab-dirty", "");
+    await page.keyboard.press("Control+Home");
+    await expect.poll(() => savedCursor(page)).toEqual({offset: 1});
     await page.reload();
     await expect(root(page)).toHaveAttribute("data-rpc-state", "online");
     await expect(activeTab(page)).toContainText("a.md");
     await expect(prose(page)).toContainText("他把灯放低一些");
-    await expect(prose(page)).not.toBeFocused();
     expect(new URL(page.url()).searchParams.has("open")).toBe(false);
+    await expect(prose(page)).toBeFocused();
+    await page.keyboard.type("序");
+    await expect.poll(async () => (await prose(page).textContent())?.startsWith("序第一章")).toBe(true);
 });

@@ -85,7 +85,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
 </script>
 
 <template>
-    <div ref="list" role="tablist" :aria-label="label" class="editor-tabs flex min-h-[var(--control-h-sm)] shrink-0 items-stretch overflow-x-auto bg-[var(--bg-panel)] text-[13px]" data-editor-tabs>
+    <div ref="list" role="tablist" :aria-label="label" class="editor-tabs flex min-h-[var(--control-h-sm)] shrink-0 items-stretch overflow-x-auto bg-[var(--panel-surface)] text-[13px]" data-editor-tabs>
         <div
             v-for="(tab, index) in tabs"
             :key="tab.id"

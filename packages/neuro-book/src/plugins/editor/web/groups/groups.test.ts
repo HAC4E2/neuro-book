@@ -141,6 +141,21 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
         expect(new Set(colliding.groups.value.map((group) => group.id)).size).toBe(3);
     });
 
+    it("上次的光标随快照往返；写法与编辑器对不上的（Markdown 记着行列、源码记着位置）恢复时丢掉（输出 30）", () => {
+        const groups = createEditorGroups();
+        groups.open("project://a.md", {mode: "permanent", ...md});
+        groups.open("project://c.json", {mode: "permanent", editor: "code"});
+        const [a, c] = groups.groups.value[0]!.tabs;
+        groups.setCursor(a!.id, {offset: 4});
+        groups.setCursor(c!.id, {line: 2, column: 3});
+        groups.setCursor(c!.id, {offset: 9});
+        const snapshot = groups.snapshot();
+        expect(snapshot.groups[0]?.tabs.map((tab) => tab.cursor)).toEqual([{offset: 4}, {line: 2, column: 3}]);
+        expect(createEditorGroups(JSON.parse(JSON.stringify(snapshot))).snapshot()).toEqual(snapshot);
+        const crossed = {...snapshot, groups: snapshot.groups.map((group) => ({...group, tabs: [{...group.tabs[0]!, cursor: {line: 1, column: 1}}, {...group.tabs[1]!, cursor: {offset: 2}}]}))};
+        expect(createEditorGroups(crossed).groups.value[0]?.tabs.map((tab) => tab.cursor)).toEqual([undefined, undefined]);
+    });
+
     it("布局与组对不上、活动组不存在或快照损坏：从一个空组开始", () => {
         const groups = createEditorGroups();
         groups.open("project://a.md", {mode: "permanent", ...md});

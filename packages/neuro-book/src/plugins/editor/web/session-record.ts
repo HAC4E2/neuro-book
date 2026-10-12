@@ -1,6 +1,6 @@
 /**
- * 编辑器会话记录（docs/specs/workbench/editor.md 输出 5 与“副作用与数据”）：绑定项目的窗口把组的布局、每组的标签与
- * 活动项存进 project/local 记录 `editor.session`，不存正文。地址按资源地址的规则校验，外部改坏的记录由 Storage 判为
+ * 编辑器会话记录（docs/specs/workbench/editor.md 输出 5、30 与“副作用与数据”）：绑定项目的窗口把组的布局、每组的标签
+ * （含上次的光标）与活动项存进 project/local 记录 `editor.session`，不存正文。地址按资源地址的规则校验，外部改坏的记录由 Storage 判为
  * 损坏并保护，编辑器从一个空组开始。
  */
 
@@ -27,6 +27,11 @@ const SessionSchema = Type.Object({
             address: Type.String({pattern: ADDRESS_PATTERN}),
             editor: Type.Union([Type.Literal("markdown"), Type.Literal("code")]),
             preview: Type.Boolean(),
+            // 上次的光标（输出 30）；可选字段，没有它的旧记录照样合法，记录版本不变。
+            cursor: Type.Optional(Type.Union([
+                Type.Object({offset: Type.Integer({minimum: 0})}, {additionalProperties: false}),
+                Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false}),
+            ])),
         }, {additionalProperties: false}), {maxItems: MAX_TABS}),
         active: Type.Union([Type.Integer({minimum: 0}), Type.Null()]),
     }, {additionalProperties: false}), {maxItems: MAX_GROUPS}),
