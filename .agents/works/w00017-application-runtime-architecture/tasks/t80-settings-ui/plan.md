@@ -88,7 +88,7 @@ interface SettingsPageContext {
 
 ### 6. 作品分区与书架入口（`plugins/projects/`）
 
-- **作品分区是 `nbook.projects` 贡献的 column 页面**（`layers: ["user"]`）：作品目录一行用 `SettingsRow`，控件是路径文字加“更改…”，打开书架的目录选择器（`PathPickerDialog`），写入用自己的 `settings.update(librarySetting, path, {layer: "user"})`。没设时显示“还没设，第一次新建作品时会记下”。
+- **作品分区是 `nbook.projects` 贡献的 column 页面**（`layers: ["user"]`）：作品目录一行用 `SettingsRow`，控件是路径文字加“更改…”，打开书架的目录选择器（`PathPickerDialog`），写入用自己的 `settings.update(librarySetting, path, {layer: "user"})`。没设时显示实际会用的缺省目录（经 `library()` 取）并标“缺省”，取不到时一句淡色说明（开发者 2026-10-12 定；原文案“还没设，第一次新建作品时会记下”与书架行为不符）。
 - **书架入口**：右上角的设置下拉菜单删掉，换成一个齿轮按钮，紧挨在头像左边，点了执行 `nbook.settings.open`，窗口开着时读 `nbook.settings/windowOpen` 画成按下；“切换主题、明暗、界面语言”三条命令照旧在命令面板与工作台“视图”菜单里。头像占位不动。
 
 ### 7. 示例插件（`packages/neuro-book/examples/`）
