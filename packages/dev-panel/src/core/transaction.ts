@@ -244,7 +244,9 @@ async function commitPaths(mainRoot: string, input: {paths: readonly string[]; m
     if (staged.exitCode !== 1) return resolveWith(staged);
     const commit = await retryOnGitLock(mainRoot, ["commit", "--quiet", "-m", input.message, "--", ...input.paths], lockState);
     if (commit.exitCode !== 0) return resolveWith(commit);
-    const sha = (await gitOutput(mainRoot, ["rev-parse", "HEAD"], {readOnly: true})).trim();
+    // 不用 rev-parse HEAD：别的会话可能紧接着又提交了一次，HEAD 已不是我们的提交。
+    const sha = (await gitOutput(mainRoot, ["log", "-1", "--format=%H", `${input.startHead}..HEAD`, "--", ...input.paths], {readOnly: true})).trim();
+    if (sha === "") throw new NbdevError("git_failed", "git commit 报告成功，但在起始 HEAD 之后找不到触及本次路径的提交", {details: {startHead: input.startHead, paths: [...input.paths]}});
     return {committed: true, sha, paths: [...input.paths], viaOtherCommit: false};
 }
 
@@ -409,15 +411,21 @@ async function attemptTransaction<T>(
             return {result, commit: {committed: false, reason: "nothing_to_commit", paths}, warnings};
         }
         // 落位之后不再查锁：提交只碰本次自己的路径，此时丢锁也不会造成重号，中途放弃反而留下未提交的文件。
-        const commit = await commitPaths(mainRoot, {paths, message, startHead, budgetMs: options.gitLockWaitMs ?? DEFAULT_GIT_LOCK_WAIT_MS});
-        if (commit.committed && commit.viaOtherCommit) {
-            warnings.push({code: "commit_via_other_commit", message: `本次的文件被别的提交一起带走了：${commit.sha}`, details: {sha: commit.sha, paths}});
-        } else if (commit.committed) {
-            const committedPaths = splitNul(await gitOutput(mainRoot, ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", commit.sha], {readOnly: true})).sort();
-            const expected = [...paths].sort();
-            if (committedPaths.join("\n") !== expected.join("\n")) {
-                warnings.push({code: "commit_paths_mismatch", message: "本次提交的路径与预期不一致", details: {sha: commit.sha, expected, committed: committedPaths}});
+        // 提交阶段里任何一条 Git 调用失败时，文件都已经写在主工作区、号已经领了：错误里带上 writtenPaths，免得调用方重跑领第二个号。
+        let commit: CommitOutcome;
+        try {
+            commit = await commitPaths(mainRoot, {paths, message, startHead, budgetMs: options.gitLockWaitMs ?? DEFAULT_GIT_LOCK_WAIT_MS});
+            if (commit.committed && commit.viaOtherCommit) {
+                warnings.push({code: "commit_via_other_commit", message: `本次的文件被别的提交一起带走了：${commit.sha}`, details: {sha: commit.sha, paths}});
+            } else if (commit.committed) {
+                const committedPaths = splitNul(await gitOutput(mainRoot, ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", commit.sha], {readOnly: true})).sort();
+                const expected = [...paths].sort();
+                if (committedPaths.join("\n") !== expected.join("\n")) {
+                    warnings.push({code: "commit_paths_mismatch", message: "本次提交的路径与预期不一致", details: {sha: commit.sha, expected, committed: committedPaths}});
+                }
             }
+        } catch (error) {
+            throw withWrittenPaths(error, paths);
         }
         return {result, commit, warnings};
     } finally {
