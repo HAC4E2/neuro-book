@@ -97,7 +97,7 @@ describe("发布", () => {
         ]);
     });
 
-    test("关闭撤回未答的题；关闭后不能再 ask；重新发布打开它，只恢复因关闭而撤回、页面里还在的题", async () => {
+    test("关闭撤回未答的题；关闭后不能再 ask；重新发布打开它，恢复因关闭而撤回的题", async () => {
         const {fixture, context} = await setup("publish-close");
         await fixture.write(`${DIR}/index.html`, page());
         await publishArtifact(context, {...TARGET, kind: "design"}, asBob);

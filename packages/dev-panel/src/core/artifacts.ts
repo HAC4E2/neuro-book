@@ -471,7 +471,7 @@ export type NextQuestionsResult = {
     dropped: string[];
     /** 已撤回或已取代、又出现在页面里的题（不复活）。 */
     retiredInPage: string[];
-    /** 产物重新打开时恢复的题（因关闭而撤回、页面里还在）。 */
+    /** 产物重新打开时恢复的题：因关闭而撤回、页面里还在的，以及 `ask` 登记的。 */
     restored: string[];
     problems: Array<{code: string; message: string; questionId: string}>;
 };
@@ -504,6 +504,10 @@ export function nextQuestions(input: NextQuestionsInput): NextQuestionsResult {
             }
         } else if (current) {
             result.questions.push({...prior, ...fromMarkup(current), origin: "markup"});
+        } else if (reopen && prior.origin === "ask" && prior.outcome?.kind === "withdrawn" && prior.outcome.reason === "closed") {
+            // `ask` 登记的题不在页面里（Markdown 入口的产物只有这种题）：因关闭而撤回的随重新打开一并恢复，否则题号作废、也不能再登记。
+            result.questions.push({...prior, outcome: null});
+            result.restored.push(prior.id);
         } else if (prior.origin === "ask" || prior.outcome || input.keep.includes(prior.id)) {
             result.questions.push(prior);
         } else if (input.answeredIds.has(prior.id)) {

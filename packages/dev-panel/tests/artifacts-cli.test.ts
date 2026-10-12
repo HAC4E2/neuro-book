@@ -184,17 +184,19 @@ describe("产物与答复的命令（场景）", () => {
         expect(data<{artifacts: unknown[]}>((await fixture.cli(["answers", "--unacked", "--json"])).json).artifacts).toEqual([]);
     });
 
-    test("关闭与重新打开：关闭撤回未答的题、收件箱清空；关闭后 ask 报 artifact_closed；重新发布只恢复因关闭而撤回的题", async () => {
+    test("关闭与重新打开：关闭撤回未答的题、收件箱清空；关闭后 ask 报 artifact_closed；重新发布恢复因关闭而撤回的题（含 ask 登记的），恢复的题能答", async () => {
         const fixture = await published("cli-close-reopen");
         expect((await fixture.cli(["answers", "record", "w00001", "t01", "review", "--set", "layout=cards", "--as", "bob", "--json"])).exitCode).toBe(0);
+        expect((await fixture.cli(["ask", "w00001", "t01", "--artifact", "review", "--id", "extra", "--type", "text", "--label", "补一句", "--as", "bob", "--json"])).exitCode).toBe(0);
         const closed = await fixture.cli(["artifact", "close", "w00001", "t01", "review", "--as", "bob", "--json"]);
-        expect([closed.exitCode, data<{version: number; affected: string[]}>(closed.json)]).toEqual([0, expect.objectContaining({version: 2, affected: ["approve"]})]);
+        expect([closed.exitCode, data<{version: number; affected: string[]}>(closed.json)]).toEqual([0, expect.objectContaining({version: 3, affected: ["approve", "extra"]})]);
         expect(await inbox(fixture)).toEqual([]);
         const late = await fixture.cli(["ask", "w00001", "t01", "--artifact", "review", "--id", "late", "--type", "text", "--label", "晚到", "--as", "bob", "--json"]);
         expect([late.exitCode, late.json?.errors[0]?.code]).toEqual([3, "artifact_closed"]);
         const reopened = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--as", "bob", "--json"]);
-        expect([reopened.exitCode, data<{restored: string[]}>(reopened.json).restored, reopened.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["approve"], ["artifact_reopened"]]);
-        expect((await inbox(fixture)).map((item) => item.questionId)).toEqual(["approve"]);
+        expect([reopened.exitCode, data<{restored: string[]}>(reopened.json).restored, reopened.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["approve", "extra"], ["artifact_reopened"]]);
+        expect((await inbox(fixture)).map((item) => item.questionId).sort()).toEqual(["approve", "extra"]);
+        expect((await fixture.cli(["answers", "record", "w00001", "t01", "review", "--set", "extra=好", "--as", "bob", "--json"])).exitCode).toBe(0);
     });
 
     test("场景 6：引用 800 KB 的 PNG：发布成功，带体积警告", async () => {

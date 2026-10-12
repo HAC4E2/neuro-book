@@ -94,20 +94,30 @@ describe("新版本的题表（nextQuestions）", () => {
         expect(result.retiredInPage).toEqual(["old", "pulled"]);
     });
 
-    test("关闭把未答的题记成因关闭而撤回；重新打开只恢复这些题里页面还在的，其余结局不变", () => {
-        const v1 = version(1, [question("open-in-page"), question("open-gone"), question("answered"), question("explicit", {outcome: {kind: "withdrawn", in: 1, reason: "explicit"}})]);
+    test("关闭把未答的题记成因关闭而撤回；重新打开恢复这些题里页面还在的与 ask 登记的，其余结局不变", () => {
+        const v1 = version(1, [
+            question("open-in-page"), question("open-gone"), question("answered"), question("explicit", {outcome: {kind: "withdrawn", in: 1, reason: "explicit"}}),
+            question("asked", {origin: "ask", page: null}), question("asked-explicit", {origin: "ask", page: null, outcome: {kind: "withdrawn", in: 1, reason: "explicit"}}),
+        ]);
         const closed = closeQuestions(v1, new Set(["answered"]), 2);
-        expect(closed.withdrawn).toEqual(["open-in-page", "open-gone"]);
+        expect(closed.withdrawn).toEqual(["open-in-page", "open-gone", "asked"]);
         expect(closed.questions.map((entry) => entry.outcome)).toEqual([
             {kind: "withdrawn", in: 2, reason: "closed"},
             {kind: "withdrawn", in: 2, reason: "closed"},
             null,
             {kind: "withdrawn", in: 1, reason: "explicit"},
+            {kind: "withdrawn", in: 2, reason: "closed"},
+            {kind: "withdrawn", in: 1, reason: "explicit"},
         ]);
         const v2 = version(2, closed.questions, {state: "closed", action: "close"});
         const reopened = nextQuestions({previous: v2, markup: [markup("open-in-page"), markup("answered"), markup("explicit")], version: 3, keep: [], answeredIds: new Set(["answered"])});
-        expect(reopened.questions.map((entry) => [entry.id, entry.outcome?.kind ?? null])).toEqual([["open-in-page", null], ["open-gone", "withdrawn"], ["answered", null], ["explicit", "withdrawn"]]);
-        expect([reopened.restored, reopened.retiredInPage]).toEqual([["open-in-page"], ["explicit"]]);
+        expect(reopened.questions.map((entry) => [entry.id, entry.outcome?.kind ?? null])).toEqual([
+            ["open-in-page", null], ["open-gone", "withdrawn"], ["answered", null], ["explicit", "withdrawn"], ["asked", null], ["asked-explicit", "withdrawn"],
+        ]);
+        expect([reopened.restored, reopened.retiredInPage]).toEqual([["open-in-page", "asked"], ["explicit"]]);
+        // 没有关闭过的产物：撤回的 ask 题不因发布复活。
+        const notReopened = nextQuestions({previous: {...v2, state: "open"}, markup: [], version: 3, keep: [], answeredIds: new Set()});
+        expect(notReopened.restored).toEqual([]);
     });
 });
 

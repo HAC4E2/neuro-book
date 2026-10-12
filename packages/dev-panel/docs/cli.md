@@ -139,7 +139,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `tmp_cleanup_failed` | 删除本次事务的临时目录失败 |
 | `questions_dropped` | 页面里没有了、还没答的题记为被这一版取代；暂时删掉的用 `--keep` 保留 |
 | `retired_question_in_page` | 已撤回或已取代的题号又出现在页面里，结局不变 |
-| `artifact_reopened` | 发布重新打开了已关闭的产物，恢复了因关闭而撤回、页面里还在的题 |
+| `artifact_reopened` | 发布重新打开了已关闭的产物，恢复了因关闭而撤回的题里页面还在的与 `ask` 登记的 |
 | `questions_in_script` | 脚本、模板、`noscript` 或 `.js` 文件里出现了提问标记，解析不到 |
 | `missing_reference` | 页面引用的本地文件不存在 |
 | `reference_outside_artifact` | 页面引用了产物目录之外的文件 |
