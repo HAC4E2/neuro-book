@@ -147,6 +147,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `task_images_too_large` | 这个 Task 的 `artifacts/` 与 `evidences/` 里的图片合计超过 5 MiB |
 | `artifact_deletions_not_committed` | 产物目录里有被删的文件，没有随发布提交 |
 | `already_closed` | 产物已经关闭，没有出新版本 |
+| `wait_scope_empty` | `answers --wait` 开始时范围里还没有产物；照常等，等待期间新建的产物会加入范围 |
 | `already_acked` | 要确认的答复（给了 `--through` 时为不比它新的）都已确认，没有写新的确认；有残留时照样补交残留与 `--include` 的文件 |
 | `residual_records_committed` | 产物的 `versions/`、`answers/` 里有上次提交失败留下的文件，这次一起提交了 |
 | `newer_answers_unacked` | 有比 `--through` 新的未确认答复，这次没有确认它们；先读再确认 |
@@ -161,7 +162,7 @@ stdout 只有一个对象，诊断走 stderr：
 ## `answers --wait`
 
 - 等到选中的答复不为空就退出（退出码 0），输出与不带 `--wait` 时相同。缺省按未确认的答复选：已有未确认的答复时立即返回，所以发布之后、挂上等待之前到达的答复不会被漏掉。只想等之后的新答复时加 `--since <cursor>`（`cursor` 取上一次输出里的值）。
-- 开始时完整读一次、定下范围内的产物，在 stderr 报一行“等待中”；之后每秒只 `readdir` 主工作区里这些产物的 `answers/`，不跑 Git，目录有变化才重读那个产物。等待期间新发布的产物不在范围内。
+- 开始时完整读一次范围内的产物，在 stderr 报一行“等待中”；之后每秒只 `readdir` 主工作区里这些产物的 `answers/`，不跑 Git，目录有变化才重读那个产物。没指定产物时还 `readdir` 范围内各 Task 的 `artifacts/`，等待期间新建的产物（例如先挂等待、后 `ask` 建出的 Task 提问集）加入范围。范围里一个产物都没有时照常等，给 `wait_scope_empty`。
 - `--timeout` 缺省 1800 秒，到点退出码 4（`wait_timeout`）；收到 SIGTERM 或 SIGINT 退出码同样是 4（`wait_interrupted`）。
 - **重挂办法**：退出码 4（或被宿主结束）时按原参数重挂；退出码 0 时先处理答复并 `answers ack --through <cursor>`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。
 - Claude Code 会话用 `run_in_background` 挂着，命令一退出会话就被唤醒；单个后台任务能活多久没有核实，被宿主结束时照样按原参数重挂，不会丢答复。

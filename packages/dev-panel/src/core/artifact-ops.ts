@@ -759,9 +759,11 @@ function select(views: readonly ArtifactAnswersView[], query: AnswersQuery): Art
 }
 
 type ScopeEntry = {root: string; ref: ArtifactRef & {taskId: string}};
+/** 查询的范围：选中的产物，以及选中的 Task（`--wait` 轮询时在这些 Task 的 `artifacts/` 里找新建的产物，命令行用它续期租约）。 */
+export type AnswersScope = {artifacts: ScopeEntry[]; tasks: Array<{root: string; workId: string; taskId: string}>};
 
 /** 解析查询的范围：Work、Task 按 master 与过渡期的执行 worktree 找，产物从 Task 记录所在的 checkout 读。 */
-async function answersScope(context: RepoContext, query: AnswersQuery): Promise<ScopeEntry[]> {
+export async function resolveAnswersScope(context: RepoContext, query: AnswersQuery): Promise<AnswersScope> {
     const {mainRoot} = context;
     const transition = await readTransitionState(mainRoot);
     let workIds = [...new Set([...await listWorkIds(mainRoot), ...transition.branchChanges.keys()])].sort();
@@ -771,7 +773,7 @@ async function answersScope(context: RepoContext, query: AnswersQuery): Promise<
         if (matched.length > 1) throw new NbdevError("ambiguous_work", `Work 编号对应多个目录：${matched.join("、")}`, {details: {workRef: query.workRef, candidates: matched}});
         workIds = matched;
     }
-    const scope: ScopeEntry[] = [];
+    const scope: AnswersScope = {artifacts: [], tasks: []};
     for (const workId of workIds) {
         const copies = transition.branchChanges.get(workId);
         const execution = copies ? await chooseExecutionCheckout(mainRoot, workId, copies, transition.registry) : null;
@@ -786,63 +788,57 @@ async function answersScope(context: RepoContext, query: AnswersQuery): Promise<
         for (const taskId of taskIds) {
             const source = execution ? taskSourceInBranchWork(transition.registry, workId, taskId, executionTasks.includes(taskId)) : "master";
             const root = source === "branch" ? execution!.chosen.root : mainRoot;
+            scope.tasks.push({root, workId, taskId});
             const artifactIds = await listArtifactIds(root, workId, taskId);
             if (query.artifactId !== undefined) {
                 if (!artifactIds.includes(query.artifactId)) throw new NbdevError("artifact_not_found", `找不到产物：${workId}/${taskId}/${query.artifactId}`, {details: {workId, taskId, artifactId: query.artifactId}});
-                scope.push({root, ref: {workId, taskId, artifactId: query.artifactId}});
+                scope.artifacts.push({root, ref: {workId, taskId, artifactId: query.artifactId}});
             } else {
-                for (const artifactId of artifactIds) scope.push({root, ref: {workId, taskId, artifactId}});
+                for (const artifactId of artifactIds) scope.artifacts.push({root, ref: {workId, taskId, artifactId}});
             }
         }
     }
     return scope;
 }
 
-/** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree），用于命令行给读命令续期租约。 */
-export async function resolveTaskRef(context: RepoContext, workRef: string, taskRef: string): Promise<{workId: string; taskId: string}> {
-    const [entry] = await answersScope(context, {workRef, taskRef, filter: "all"});
-    if (entry) return {workId: entry.ref.workId, taskId: entry.ref.taskId};
-    const transition = await readTransitionState(context.mainRoot);
-    const workId = matchRef([...new Set([...await listWorkIds(context.mainRoot), ...transition.branchChanges.keys()])], workRef, "work")[0]!;
-    const copies = transition.branchChanges.get(workId);
-    const execution = copies ? await chooseExecutionCheckout(context.mainRoot, workId, copies, transition.registry) : null;
-    const taskIds = [...new Set([...await listTaskIds(context.mainRoot, workId), ...(execution ? await listTaskIds(execution.chosen.root, workId) : [])])];
-    return {workId, taskId: matchRef(taskIds, taskRef, "task")[0]!};
+/** `nbdev answers`：读答复、题的状态与确认。只读（续期租约由命令行边界做）。`scope` 是调用方已经算好的范围（命令行为续期租约先算了一次）。 */
+export async function readAnswers(context: RepoContext, query: AnswersQuery, scope?: AnswersScope): Promise<AnswersResult> {
+    return readScope((scope ?? await resolveAnswersScope(context, query)).artifacts, query);
 }
 
-/** `nbdev answers`：读答复、题的状态与确认。只读（续期租约由命令行边界做）。 */
-export async function readAnswers(context: RepoContext, query: AnswersQuery): Promise<AnswersResult> {
-    return readScope(await answersScope(context, query), query);
-}
-
-async function readScope(scope: readonly ScopeEntry[], query: AnswersQuery): Promise<AnswersResult> {
+async function readScope(entries: readonly ScopeEntry[], query: AnswersQuery): Promise<AnswersResult> {
     const warnings: Warning[] = [];
     const views: ArtifactAnswersView[] = [];
-    for (const {root, ref} of scope) {
+    for (const {root, ref} of entries) {
         const snapshot = await readArtifact(root, ref);
         warnings.push(...snapshot.warnings);
         if (snapshot.latest) views.push(answersView({...snapshot, latest: snapshot.latest}));
     }
     const artifacts = select(views, query);
     const cursor = views.flatMap((view) => (view.cursor ? [view.cursor] : [])).sort().at(-1) ?? null;
-    return {artifacts, cursor, scope: scope.map((entry) => entry.ref), warnings};
+    return {artifacts, cursor, scope: entries.map((entry) => entry.ref), warnings};
 }
 
-export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSignal; onWaiting?: (scope: readonly ArtifactRef[]) => void};
+export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSignal; onWaiting?: (scope: readonly ArtifactRef[]) => void; scope?: AnswersScope};
 
 /**
- * `nbdev answers --wait`：选中的答复不为空就返回。范围在开始时完整读一次定下；之后每秒只 readdir 主工作区里这些产物的 `answers/`
- * （答复只写在 master 上），不跑 Git、不做过渡期判定，目录有变化才重读那个产物。超时报 `wait_timeout`，被信号打断报 `wait_interrupted`。
+ * `nbdev answers --wait`：选中的答复不为空就返回。范围在开始时完整读一次；之后每秒只 readdir 主工作区里（答复只写在 master 上）
+ * 这些产物的 `answers/`，不跑 Git、不做过渡期判定，目录有变化才重读那个产物。没指定产物时还 readdir 范围内各 Task 的 `artifacts/`，
+ * 新建的产物加入范围：会话常常先挂等待、后 `ask`，Task 的提问集是第一次登记时才建的。超时报 `wait_timeout`，被信号打断报 `wait_interrupted`。
  */
 export async function waitForAnswers(context: RepoContext, query: AnswersQuery, options: WaitOptions): Promise<AnswersResult> {
     const effective: AnswersQuery = query.since === undefined && query.filter === "all" ? {...query, filter: "unacked"} : query;
-    const scope = await answersScope(context, effective);
+    const scope = options.scope ?? await resolveAnswersScope(context, effective);
     const keyOf = (ref: ArtifactRef) => `${ref.workId}/${ref.taskId}/${ref.artifactId}`;
+    const watched = scope.artifacts.map((entry) => entry.ref);
     // 先列 known、再完整读：反过来的话，完整读之后、列 known 之前落位的答复会被记成“看过了”，却不在读到的结果里，要等到超时才返回。
     const known = new Map<string, string>();
-    for (const {ref} of scope) known.set(keyOf(ref), (await listAnswerFileNames(context.mainRoot, ref)).join("\n"));
-    const first = await readScope(scope, effective);
+    for (const ref of watched) known.set(keyOf(ref), (await listAnswerFileNames(context.mainRoot, ref)).join("\n"));
+    const first = await readScope(scope.artifacts, effective);
     if (first.artifacts.length > 0) return first;
+    if (watched.length === 0) {
+        first.warnings.push({code: "wait_scope_empty", message: "范围里还没有产物，照常等；等待期间新建的产物会加入范围", details: {tasks: scope.tasks.map((task) => `${task.workId}/${task.taskId}`)}});
+    }
     const deadline = Date.now() + options.timeoutMs;
     const pollMs = options.pollMs ?? 1_000;
     const views = new Map<string, ArtifactAnswersView>();
@@ -856,7 +852,18 @@ export async function waitForAnswers(context: RepoContext, query: AnswersQuery, 
             if (options.signal?.aborted) throw new NbdevError("wait_interrupted", "等待被打断了；按原参数再挂一次", {cause: error, details: {cursor: first.cursor}});
             throw error;
         }
-        for (const ref of first.scope) {
+        if (query.artifactId === undefined) {
+            for (const task of scope.tasks) {
+                for (const artifactId of await listArtifactIds(context.mainRoot, task.workId, task.taskId)) {
+                    const ref = {workId: task.workId, taskId: task.taskId, artifactId};
+                    if (known.has(keyOf(ref))) continue;
+                    // 新产物按“answers/ 原本为空”登记，下面列出答复就会读它。
+                    known.set(keyOf(ref), "");
+                    watched.push(ref);
+                }
+            }
+        }
+        for (const ref of watched) {
             const names = (await listAnswerFileNames(context.mainRoot, ref)).join("\n");
             if (names === known.get(keyOf(ref))) continue;
             known.set(keyOf(ref), names);
@@ -866,7 +873,7 @@ export async function waitForAnswers(context: RepoContext, query: AnswersQuery, 
         const selected = select([...views.values()], effective);
         if (selected.length > 0) {
             const cursor = [first.cursor, ...[...views.values()].map((view) => view.cursor)].filter((value): value is string => value !== null).sort().at(-1) ?? null;
-            return {artifacts: selected, cursor, scope: first.scope, warnings: first.warnings};
+            return {artifacts: selected, cursor, scope: [...watched], warnings: first.warnings};
         }
     }
 }

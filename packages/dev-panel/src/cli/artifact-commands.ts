@@ -6,7 +6,7 @@ import {
     closeArtifact,
     publishArtifact,
     readAnswers,
-    resolveTaskRef,
+    resolveAnswersScope,
     submitAnswer,
     supersedeQuestion,
     waitForAnswers,
@@ -248,13 +248,15 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
             const query: AnswersQuery = {workRef: positionals[0], taskRef: positionals[1], artifactId: positionals[2], filter, since: stringValue(values, "since")};
             const context = await locateRepository(io.cwd);
             const warnings: Warning[] = [];
-            // 指定了 Task 时续期调用者的租约（开始与结束各一次）；不指定 Task 的读取不认调用者。
-            const touch = query.workRef !== undefined && query.taskRef !== undefined
+            // 范围只算一次：读答复、等待与续期租约共用（每算一次都要读过渡期状态、列全部 Work 与 Task）。
+            const scope = await resolveAnswersScope(context, query);
+            // 指定了 Task 时续期调用者的租约（开始与结束各一次）；这时范围里恰好一个 Task。不指定 Task 的读取不认调用者。
+            const target = query.workRef !== undefined && query.taskRef !== undefined ? scope.tasks[0] : undefined;
+            const touch = target
                 ? await (async () => {
                     const {herdr, caller, warnings: callerWarnings} = await writeCaller(io, values);
                     warnings.push(...callerWarnings);
-                    const target = await resolveTaskRef(context, query.workRef!, query.taskRef!);
-                    return () => touchCallerLease(context, {...target, action: "answers"}, {caller, herdr}, warnings);
+                    return () => touchCallerLease(context, {workId: target.workId, taskId: target.taskId, action: "answers"}, {caller, herdr}, warnings);
                 })()
                 : null;
             await touch?.();
@@ -268,7 +270,10 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                     result = await waitForAnswers(context, query, {
                         timeoutMs: timeoutSeconds * 1_000,
                         signal: controller.signal,
-                        onWaiting: (scope) => io.stderr.write(`等待中：${scope.length} 个产物还没有${query.since === undefined ? "未确认的" : "更新的"}答复，最多等 ${timeoutSeconds} 秒\n`),
+                        scope,
+                        onWaiting: (watched) => io.stderr.write(watched.length === 0
+                            ? `等待中：范围里还没有产物，等待期间新建的产物会加入范围，最多等 ${timeoutSeconds} 秒\n`
+                            : `等待中：${watched.length} 个产物还没有${query.since === undefined ? "未确认的" : "更新的"}答复，最多等 ${timeoutSeconds} 秒\n`),
                     });
                 } finally {
                     process.off("SIGINT", abort);
@@ -276,7 +281,7 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                 }
                 await touch?.();
             } else {
-                result = await readAnswers(context, query);
+                result = await readAnswers(context, query, scope);
             }
             warnings.push(...result.warnings);
             const outcome: CommandOutcome = {schema: "nbdev.answers/v1", data: {artifacts: result.artifacts, cursor: result.cursor}, warnings, error: null, human: answersLines(result)};
