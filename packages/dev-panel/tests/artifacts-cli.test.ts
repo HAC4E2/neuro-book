@@ -161,7 +161,8 @@ describe("产物与答复的命令（场景）", () => {
     test("先 --wait 后 ask：范围为空照常等并给警告，等待期间建出的 Task 提问集有了答复也能叫醒它", async () => {
         const fixture = await createFixture("cli-wait-empty");
         const context = await locateRepository(fixture.main);
-        const waiter = await startWaiter(fixture, ["w00001", "t01", "--timeout", "60", "--as", "bob"]);
+        // 不带 --as：认不出调用者，caller_unknown 只给一次。
+        const waiter = await startWaiter(fixture, ["w00001", "t01", "--timeout", "60"]);
         const asked = await fixture.cli(["ask", "w00001", "t01", "--id", "migrate-order", "--type", "text", "--label", "迁移顺序怎么排", "--as", "bob", "--json"]);
         expect(asked.exitCode).toBe(0);
         const answered = await submitAnswer(context, {workRef: "w00001", taskRef: "t01", artifactId: "questions", values: {"migrate-order": "先迁记录"}, submittedBy: {kind: "developer", device: "test"}});
@@ -170,7 +171,7 @@ describe("产物与答复的命令（场景）", () => {
         const envelope = JSON.parse(result.stdout) as CliEnvelope;
         expect(result.stderr).toContain("范围里还没有产物");
         expect([result.exitCode, data<{artifacts: Array<{artifactId: string; unacked: string[]}>}>(envelope).artifacts.map((view) => [view.artifactId, view.unacked]), envelope.warnings.map((warning) => warning.code)])
-            .toEqual([0, [["questions", [answered.data.answer.answerId]]], ["wait_scope_empty"]]);
+            .toEqual([0, [["questions", [answered.data.answer.answerId]]], ["caller_unknown", "wait_scope_empty"]]);
     }, 60_000);
 
     test("场景 5：answers ack --through <cursor> --include README：确认与 README 同一个提交；之后 --unacked 不再返回它", async () => {

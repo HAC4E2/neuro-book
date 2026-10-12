@@ -262,10 +262,10 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                 ? await (async () => {
                     const {herdr, caller, warnings: callerWarnings} = await writeCaller(io, values);
                     warnings.push(...callerWarnings);
-                    return () => touchCallerLease(context, {workId: target.workId, taskId: target.taskId, action: "answers"}, {caller, herdr}, warnings);
+                    return {caller, run: () => touchCallerLease(context, {workId: target.workId, taskId: target.taskId, action: "answers"}, {caller, herdr}, warnings)};
                 })()
                 : null;
-            await touch?.();
+            await touch?.run();
             let result: AnswersResult;
             if (wait) {
                 const controller = new AbortController();
@@ -285,7 +285,8 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                     process.off("SIGINT", abort);
                     process.off("SIGTERM", abort);
                 }
-                await touch?.();
+                // 等完再续期一次；认不出的调用者开头已经给过 caller_unknown，不再重复。
+                if (touch?.caller?.kind === "session") await touch.run();
             } else {
                 result = await readAnswers(context, query, scope);
             }

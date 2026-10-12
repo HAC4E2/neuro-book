@@ -121,7 +121,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `herdr_unavailable` | 连不上 herdr 或读不出它的 pane 列表；租约照常按会话进程与 24 小时判断 |
 | `herdr_partial` | 部分 pane 的进程信息没读到：`status` 按没有这格处理；只靠 `HERDR_PANE_ID` 认的调用者不记会话进程 |
 | `herdr_tag_failed` | 写 pane 标签失败，或写之前读 pane 的进程信息失败（只影响显示） |
-| `herdr_tag_skipped` | 调用者的会话进程不在那格 pane 的前台（`details.reason`：`caller_not_in_foreground`、`caller_process_unknown`、`pane_not_found`），没有写标签 |
+| `herdr_tag_skipped` | 没有写标签：pane 开在别的仓库里（`details.reason`：`other_repository`，在临时仓库里运行 nbdev 时常见）、herdr 不知道 pane 的目录（`pane_cwd_unknown`）、调用者的会话进程不在那格 pane 的前台（`caller_not_in_foreground`、`caller_process_unknown`）、pane 已不存在（`pane_not_found`） |
 | `lease_write_failed` | 取得、续期、释放租约或读调用者自己的租约失败（权限、磁盘满等）；记录操作不受影响，命令照常成功并带回 `data.commit` |
 | `lease_release_skipped` | Task 改成 `done` 或 `shelved` 之后、释放租约之前，别的会话又把它改回去了，这次不释放 |
 | `unreadable_lease` | 某个租约文件（或整个租约目录）读不了或内容不合规，已跳过 |

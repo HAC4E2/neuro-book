@@ -18,7 +18,8 @@ const DEFAULT_CALL_TIMEOUT_MS = 2_000;
 
 export type HerdrStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 export type HerdrAgentSession = {agent: string; kind: string; value: string};
-export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null};
+/** `cwd` 是 pane 的 shell 所在目录，`foregroundCwd` 是前台进程所在目录；herdr 不知道时为 null。 */
+export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null; cwd: string | null; foregroundCwd: string | null};
 export type HerdrProcessInfo = {paneId: string; shellPid: number | null; foregroundGroupId: number | null; foregroundPids: number[]};
 export type HerdrAvailability = {ok: true; version: string; socketPath: string} | {ok: false; reason: string; socketPath: string; detail: string};
 
@@ -66,6 +67,8 @@ function toPane(value: unknown): HerdrPane | null {
         agent: typeof value.agent === "string" ? value.agent : null,
         status,
         session,
+        cwd: typeof value.cwd === "string" ? value.cwd : null,
+        foregroundCwd: typeof value.foreground_cwd === "string" ? value.foreground_cwd : null,
     };
 }
 

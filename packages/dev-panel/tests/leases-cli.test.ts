@@ -29,8 +29,9 @@ async function spawnProcess(command: string, args: string[], options: {cwd?: str
     return child;
 }
 
+/** pane 缺省开在临时仓库的主工作区里：写标签前要核对 pane 的 cwd 在被操作的仓库里。 */
 async function herdrFor(fixture: Fixture, panes: Parameters<typeof startFakeHerdr>[1]): Promise<FakeHerdr> {
-    const fake = await startFakeHerdr(fixture.root, panes);
+    const fake = await startFakeHerdr(fixture.root, panes.map((pane) => ({cwd: fixture.main, ...pane})));
     closers.push(() => fake.close());
     return fake;
 }
@@ -200,6 +201,21 @@ describe("租约命令（场景）", () => {
             expect(taken.json?.warnings.map((warning) => [warning.code, warning.details?.reason])).toEqual([["herdr_tag_skipped", "caller_not_in_foreground"]]);
             expect(fake.requests.filter((request) => request.method === "pane.report_metadata")).toEqual([]);
         }
+    });
+
+    test("pane 开在别的仓库里（在临时仓库里运行 nbdev 的真实工作 pane）：不写标签，给 other_repository；前台进程在本仓库的 worktree 里照常写", async () => {
+        const fixture = await createFixture("lease-other-repo");
+        const worktree = await fixture.addWorktree("w00001-line", "feat/w00001");
+        const claude = await claudeSession();
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", claude.sessionId, {foreground_pids: [claude.pid], cwd: fixture.root})]);
+        const env = {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath};
+        const elsewhere = await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
+        expect([elsewhere.exitCode, elsewhere.json?.warnings.map((warning) => [warning.code, warning.details?.reason])]).toEqual([0, [["herdr_tag_skipped", "other_repository"]]]);
+        expect(fake.requests.filter((request) => request.method === "pane.report_metadata")).toEqual([]);
+        fake.panes[0]!.foreground_cwd = `${worktree}/packages`;
+        const inWorktree = await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
+        expect([inWorktree.exitCode, inWorktree.json?.warnings]).toEqual([0, []]);
+        expect(fake.requests.filter((request) => request.method === "pane.report_metadata").map((request) => request.params.tokens)).toEqual([{work: "w00001", task: "t01"}]);
     });
 
     test("release：只释放调用者自己的；释放的是 pane 标签当前指向的 Task 时改写成下一份，没有就清空", async () => {

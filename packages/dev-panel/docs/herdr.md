@@ -59,4 +59,4 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 
 - 本机默认 server 是 0.9.1（协议 22），客户端 0.9.3。上面的方法与字段按客户端 0.9.3 自带的 schema 与实测写成；`pane.report_metadata` 的 `tokens` 与 `ttl_ms` 在 0.9.3 的命名会话里实测可写可清，**在默认 server 0.9.1 上没有实测**：它的二进制里有这些字段名，但若对不认识的字段静默忽略，nbdev 收不到错误。各项能力按 server 版本判断，合入后由主 Agent 在真实会话上核对。
 - herdr 不可用（socket 不存在、拒绝连接、超时）：命令照常完成。认不出只靠 `HERDR_PANE_ID` 的调用者（给 `herdr_unavailable` 警告）；租约只按会话进程与 24 小时判断；运行只按 Claude 的工具标记归属。
-- 写标签失败只给 `herdr_tag_failed` 警告，标签只用于显示，以租约文件为准。调用者的会话进程不在那格 pane 的前台时不写（`herdr_tag_skipped`）。
+- 写标签失败只给 `herdr_tag_failed` 警告，标签只用于显示，以租约文件为准。写之前先看 pane 列表里这格的 `cwd` 与 `foreground_cwd`：都不在被操作仓库的某个 checkout 里时不写（`herdr_tag_skipped`，`reason: other_repository`；在测试的临时仓库里运行 nbdev 时，调用者的 pane 是真实的工作 pane）；调用者的会话进程不在那格 pane 的前台时也不写（`herdr_tag_skipped`）。

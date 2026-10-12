@@ -4,7 +4,7 @@ import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import type {Caller, SessionCaller} from "./identity.js";
 import {evaluateLeases, readLeases, releaseLeases, sweepLeaseTemporaries, touchLease, type EvaluatedLease, type LeaseRecord, type ReleaseReason} from "./leases.js";
 import {listTaskIds, listWorkIds} from "./records.js";
-import type {RepoContext} from "./repo.js";
+import {listCheckouts, type RepoContext} from "./repo.js";
 import {chooseExecutionCheckout} from "./sources.js";
 import {matchRef, readTransitionState, type TransitionState} from "./status.js";
 
@@ -53,7 +53,34 @@ async function callerInForeground(target: TagTarget, warnings: Warning[]): Promi
     return true;
 }
 
-async function writeTags(target: TagTarget, lease: {workId: string; taskId: string} | null, warnings: Warning[]): Promise<void> {
+/**
+ * 写标签前确认 pane 开在被操作仓库的某个 checkout 里（看 shell 的 cwd 或前台进程的 cwd）：在别的仓库（例如测试的临时仓库）里运行 nbdev 时，
+ * 调用者的 pane 是真实的工作 pane，标上临时仓库的 Work 与 Task 就错了。
+ */
+async function paneInRepository(target: TagTarget, mainRoot: string, warnings: Warning[]): Promise<boolean> {
+    const skip = (reason: string, message: string, details: Record<string, unknown> = {}) => {
+        warnings.push({code: "herdr_tag_skipped", message: `没有写 herdr pane 标签（只影响显示）：${message}`, details: {paneId: target.paneId, reason, ...details}});
+        return false;
+    };
+    let pane;
+    try {
+        pane = (await target.herdr.listPanes()).find((candidate) => candidate.paneId === target.paneId);
+    } catch (error) {
+        if (!(error instanceof HerdrError)) throw error;
+        warnings.push({code: "herdr_tag_failed", message: `读 herdr 的 pane 列表失败，没有写标签（只影响显示）：${error.message}`, details: {paneId: target.paneId, code: error.code}});
+        return false;
+    }
+    if (!pane) return skip("pane_not_found", `pane ${target.paneId} 已不存在`);
+    const dirs = [pane.cwd, pane.foregroundCwd].filter((dir): dir is string => dir !== null);
+    if (dirs.length === 0) return skip("pane_cwd_unknown", `herdr 不知道 pane ${target.paneId} 在哪个目录，无法确认它在这个仓库里`);
+    const roots = (await listCheckouts(mainRoot)).filter((checkout) => !checkout.prunable).map((checkout) => checkout.root);
+    const inside = (dir: string) => roots.some((root) => dir === root || dir.startsWith(`${root}/`));
+    if (!dirs.some(inside)) return skip("other_repository", `pane ${target.paneId} 开在别的仓库里（${dirs.join("、")}），不给它标这个仓库的 Work 与 Task`, {cwd: dirs});
+    return true;
+}
+
+async function writeTags(target: TagTarget, mainRoot: string, lease: {workId: string; taskId: string} | null, warnings: Warning[]): Promise<void> {
+    if (!await paneInRepository(target, mainRoot, warnings)) return;
     if (!await callerInForeground(target, warnings)) return;
     try {
         if (lease) await target.herdr.reportTaskTokens(target.paneId, tokensOf(lease));
@@ -115,7 +142,7 @@ export async function touchCallerLease(context: RepoContext, target: {workId: st
     if (!lease) return null;
     await guardLeaseIo(warnings, "清理租约目录里过期的临时文件", undefined, () => sweepLeaseTemporaries(context.mainRoot));
     const tags = tagTarget(options);
-    if (tags) await writeTags(tags, lease, warnings);
+    if (tags) await writeTags(tags, context.mainRoot, lease, warnings);
     return lease;
 }
 
@@ -133,7 +160,7 @@ async function releaseAndRetag(context: RepoContext, transition: TransitionState
     const current = before[0];
     if (tags && current && released.some((lease) => lease.leaseId === current.leaseId)) {
         const after = await guardLeaseIo(warnings, "读租约", [], () => callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now));
-        await writeTags(tags, after[0] ?? null, warnings);
+        await writeTags(tags, context.mainRoot, after[0] ?? null, warnings);
     }
     return released;
 }

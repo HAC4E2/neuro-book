@@ -10,6 +10,8 @@ export type FakePane = {
     agent: string | null;
     agent_status: string;
     agent_session: {agent: string; kind: string; source: string; value: string} | null;
+    cwd?: string | null;
+    foreground_cwd?: string | null;
     shell_pid?: number | null;
     foreground_pids?: number[];
 };
