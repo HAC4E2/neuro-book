@@ -3,6 +3,7 @@ import {resolve} from "node:path";
 import {
     ackAnswers,
     askQuestions,
+    assertCursor,
     closeArtifact,
     publishArtifact,
     readAnswers,
@@ -21,7 +22,7 @@ import type {VersionQuestion} from "../core/artifacts.js";
 import {NbdevError, type Warning} from "../core/errors.js";
 import {isRecord} from "../core/json.js";
 import {touchCallerLease} from "../core/lease-ops.js";
-import {parseOptionsShorthand, REVIEW_OPTIONS, type QuestionOption} from "../core/questions.js";
+import {parseOptionsShorthand, QUESTION_ID_PATTERN, REVIEW_OPTIONS, type QuestionOption} from "../core/questions.js";
 import {locateRepository} from "../core/repo.js";
 import {AS_OPTION, leaseLines, listValue, requireValue, stringValue, writeCaller, writeOutcome, type CommandSpec, type Values} from "./common.js";
 import type {CliIo, CommandOutcome} from "./output.js";
@@ -53,13 +54,16 @@ function questionLine(question: VersionQuestion): string {
     return `  ${question.id}  ${question.type}${options}  ${question.label}${question.required ? "" : "（选答）"}${outcome}`;
 }
 
-/** `键=值` 的列表（`--set`、`--comment`）。 */
+/** `题号=值` 的列表（`--set`、`--comment`）。键是用户输入：没有原型的对象存，`__proto__` 这类键不会被吞掉或改到原型上。 */
 function pairs(values: Values, name: string): Record<string, string> {
-    const result: Record<string, string> = {};
+    const result: Record<string, string> = Object.create(null);
     for (const entry of listValue(values, name)) {
         const separator = entry.indexOf("=");
         if (separator <= 0) throw new NbdevError("usage", `--${name} 要写成 <题号>=<值>：${entry}`);
-        result[entry.slice(0, separator)] = entry.slice(separator + 1);
+        const key = entry.slice(0, separator);
+        if (!QUESTION_ID_PATTERN.test(key)) throw new NbdevError("usage", `--${name} 的题号不合格式：${key}`, {details: {option: name, questionId: key}});
+        if (Object.hasOwn(result, key)) throw new NbdevError("usage", `--${name} 给了两次题 ${key}`, {details: {option: name, questionId: key}});
+        result[key] = entry.slice(separator + 1);
     }
     return result;
 }
@@ -245,7 +249,9 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
             const timeoutSeconds = timeoutText === undefined ? DEFAULT_WAIT_SECONDS : Number(timeoutText);
             if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new NbdevError("usage", `--timeout 要写正数秒：${timeoutText}`);
             const filter: AnswersFilter = values.pending === true ? "pending" : values.unacked === true ? "unacked" : "all";
-            const query: AnswersQuery = {workRef: positionals[0], taskRef: positionals[1], artifactId: positionals[2], filter, since: stringValue(values, "since")};
+            const since = stringValue(values, "since");
+            if (since !== undefined) assertCursor(since, "--since");
+            const query: AnswersQuery = {workRef: positionals[0], taskRef: positionals[1], artifactId: positionals[2], filter, since};
             const context = await locateRepository(io.cwd);
             const warnings: Warning[] = [];
             // 范围只算一次：读答复、等待与续期租约共用（每算一次都要读过渡期状态、列全部 Work 与 Task）。

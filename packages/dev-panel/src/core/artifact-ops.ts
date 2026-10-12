@@ -535,6 +535,7 @@ async function resolveSupersededBy(mainRoot: string, current: {workId: string; t
         throw new NbdevError("usage", `--by 写 <workRef>/<taskRef>/<artifactId>#<题号>、<artifactId>#<题号> 或题号：${text}`, {details: {by: text}});
     }
     const {artifactId, questionId} = parseQuestionTarget(rest);
+    assertArtifactId(artifactId);
     const snapshot = await readArtifact(mainRoot, {workId, taskId, artifactId});
     if (!snapshot.latest) throw new NbdevError("artifact_not_found", `--by 指向的产物没有发布记录：${workId}/${taskId}/${artifactId}`, {details: {by: text}});
     liveQuestion({...snapshot, latest: snapshot.latest}, questionId);
@@ -803,6 +804,7 @@ export async function resolveAnswersScope(context: RepoContext, query: AnswersQu
 
 /** `nbdev answers`：读答复、题的状态与确认。只读（续期租约由命令行边界做）。`scope` 是调用方已经算好的范围（命令行为续期租约先算了一次）。 */
 export async function readAnswers(context: RepoContext, query: AnswersQuery, scope?: AnswersScope): Promise<AnswersResult> {
+    if (query.since !== undefined) assertCursor(query.since, "--since");
     return readScope((scope ?? await resolveAnswersScope(context, query)).artifacts, query);
 }
 
@@ -827,6 +829,7 @@ export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSig
  * 新建的产物加入范围：会话常常先挂等待、后 `ask`，Task 的提问集是第一次登记时才建的。超时报 `wait_timeout`，被信号打断报 `wait_interrupted`。
  */
 export async function waitForAnswers(context: RepoContext, query: AnswersQuery, options: WaitOptions): Promise<AnswersResult> {
+    if (query.since !== undefined) assertCursor(query.since, "--since");
     const effective: AnswersQuery = query.since === undefined && query.filter === "all" ? {...query, filter: "unacked"} : query;
     const scope = options.scope ?? await resolveAnswersScope(context, effective);
     const keyOf = (ref: ArtifactRef) => `${ref.workId}/${ref.taskId}/${ref.artifactId}`;

@@ -199,6 +199,21 @@ describe("产物与答复的命令（场景）", () => {
         expect((await fixture.cli(["answers", "record", "w00001", "t01", "review", "--set", "extra=好", "--as", "bob", "--json"])).exitCode).toBe(0);
     });
 
+    test("命令行参数在边界校验：--since 要是答复 id；--set、--comment 的题号合格式、不重复；--by 的产物 id 合格式", async () => {
+        const fixture = await published("cli-arguments");
+        const codeOf = async (args: string[]) => {
+            const result = await fixture.cli([...args, "--as", "bob", "--json"]);
+            return [result.exitCode, result.json?.errors[0]?.code];
+        };
+        expect(await codeOf(["answers", "w00001", "t01", "review", "--since", "zzz"])).toEqual([2, "usage"]);
+        expect(await codeOf(["answers", "w00001", "t01", "review", "--since", "zzz", "--wait", "--timeout", "1"])).toEqual([2, "usage"]);
+        expect(await codeOf(["answers", "record", "w00001", "t01", "review", "--set", "__proto__=x"])).toEqual([2, "usage"]);
+        expect(await codeOf(["answers", "record", "w00001", "t01", "review", "--set", "layout=cards", "--set", "layout=table"])).toEqual([2, "usage"]);
+        expect(await codeOf(["answers", "record", "w00001", "t01", "review", "--set", "layout=cards", "--comment", "Bad=x"])).toEqual([2, "usage"]);
+        expect(await codeOf(["ask", "supersede", "w00001", "t01", "review#layout", "--by", "..#q"])).toEqual([2, "invalid_artifact_id"]);
+        expect((await readArtifact(fixture.main, REF)).answers).toEqual([]);
+    });
+
     test("场景 6：引用 800 KB 的 PNG：发布成功，带体积警告", async () => {
         const fixture = await createFixture("cli-image");
         await fixture.write(`${DIR}/index.html`, `${page()}\n<img src="shot.png">`);
