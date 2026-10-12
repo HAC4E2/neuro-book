@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Breadcrumb, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Badge, Breadcrumb, FormSelect} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
@@ -21,7 +21,7 @@ watch(() => [props.workId, props.taskId, props.artifactId], () => {
 });
 const artifact = useResource<ArtifactPageData>(() => `/api/artifact/${encodeURIComponent(props.workId)}/${encodeURIComponent(props.taskId)}/${encodeURIComponent(props.artifactId)}${version.value === null ? "" : `?version=${version.value}`}`, ["records"]);
 const data = computed(() => artifact.data.value);
-const versionOptions = computed(() => (data.value?.versions ?? []).map((entry) => ({value: String(entry), label: `v${entry}`})));
+const versionOptions = computed(() => [...(data.value?.versions ?? [])].reverse().map((entry) => ({value: String(entry), label: entry === data.value?.latestVersion ? `v${entry}（最新）` : `v${entry}`})));
 const crumbs = computed(() => [
     {label: "产物", href: "/artifacts"},
     {label: workLabel(props.workId), href: `/work/${props.workId}`},
@@ -46,8 +46,8 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                 <Badge v-if="data.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
                 <Badge v-if="data.unpublishedChanges" tone="warning" variant="soft" size="sm" icon-class="i-lucide-pencil">有未发布的改动</Badge>
                 <span v-if="data.publishedAt" style="color: var(--text-muted); font-size: var(--text-xs)">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
-                <div v-if="versionOptions.length > 1" class="ml-auto">
-                    <SegmentedControl :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
+                <div v-if="versionOptions.length > 1" class="ml-auto w-40">
+                    <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
                 </div>
             </header>
             <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
