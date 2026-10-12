@@ -6,7 +6,7 @@ import {acquireRecordsLock} from "./lock.js";
 import {createTask, createWork, setRecordStatus} from "./operations.js";
 import {readRegistry} from "./registry.js";
 import {locateRepository} from "./repo.js";
-import {resolveCommitOutcome} from "./transaction.js";
+import {resolveCommitOutcome, runWriteTransaction} from "./transaction.js";
 
 afterEach(cleanupFixtures);
 
@@ -129,6 +129,19 @@ describe("写事务", () => {
         const rejected = await createTask(context, {workRef: "w00001", slug: "hooked", title: "被钩子拒绝"});
         expect(rejected.commit).toMatchObject({committed: false, reason: "git_failed"});
         expect(rejected.commit.committed === false && rejected.commit.reason === "git_failed" ? rejected.commit.detail : "").toContain("拒绝");
+    });
+
+    test("路径按字面匹配：文件名像通配符时，不会把别人的文件一起提交", async () => {
+        const fixture = await createFixture("tx-literal");
+        const dir = ".agents/works/w00001-seed/tasks/t01-seed";
+        await fixture.write(`${dir}/a.md`, "别的会话的草稿\n");
+        const outcome = await runWriteTransaction(await locateRepository(fixture.main), {}, async (tx) => {
+            tx.createFile(`${dir}/[ab].md`, "字面文件名\n");
+            return {message: "docs(w00001): 字面路径", result: null};
+        });
+        expect(outcome.commit).toMatchObject({committed: true});
+        expect(await headFiles(fixture)).toEqual([`${dir}/[ab].md`]);
+        expect(await git(fixture.main, "status", "--porcelain", "-uall")).toBe(`?? ${dir}/a.md`);
     });
 
     test("resolveCommitOutcome：被别的提交带走、无需提交、真失败三种判定", async () => {

@@ -25,7 +25,8 @@ const LOCATION_VARIABLES = [
 ] as const;
 
 function gitEnvironment(): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {...process.env, GIT_TERMINAL_PROMPT: "0"};
+    // 路径一律按字面匹配：记录文件名里出现 * ? [ 时，通配解释会让 add 与 commit 把别人的文件一起暂存并提交。
+    const env: NodeJS.ProcessEnv = {...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LITERAL_PATHSPECS: "1"};
     for (const name of LOCATION_VARIABLES) delete env[name];
     return env;
 }
