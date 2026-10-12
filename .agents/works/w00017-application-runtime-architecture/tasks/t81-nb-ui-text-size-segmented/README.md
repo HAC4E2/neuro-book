@@ -26,7 +26,15 @@ t78 正在改 nb-ui（`Tabs`、`Accordion`、`Collapsible`、`IconButton` 与 `s
 
 ## 当前状态
 
-未开工。来源见 [t80 README](../t80-settings-ui/README.md) 的“搭稿时发现的问题”。
+2026-10-12 完成，在 worktree `.worktree/w00017-t81-nb-ui`（分支 `t81/nb-ui-fixes`，从主线 `d6aa955f` 分出）由编码子代理实施、主 Agent 复跑验证后提交。来源见 [t80 README](../t80-settings-ui/README.md) 的“搭稿时发现的问题”。
+
+- **字号**：23 个文件、44 行改成带类型提示的 `text-[length:var(--text-*)]`（沿用 `Tree.vue` 已有写法；v4 简写 `text-(length:--x)` 应用的 UnoCSS 不认）。实测 UnoCSS 也把旧写法编译成颜色，应用掩盖不了。这些元素改前都没有自己的字号、全靠继承（舞台里 13px，传送到 body 的浮层 16px），颜色也被那条假规则冲掉；改后字号与颜色都回到设计值，sm 档控件（例如 Lab 左栏搜索框、右栏页签）明显变小到 11px，这是按设计渲染。重建后产物里没有 `color: var(--text-*)`。
+- **同源的顺手修正**：应用 Lab 夹具里 6 处同样写法；`Tree.vue` 的 `font-[var(--weight-medium)]` 在 UnoCSS 里被编译成 `font-family`，改成两套引擎都对的 `[font-weight:var(--weight-medium)]`。
+- **防回归**：nb-ui 的 `token-consumption.test.ts` 加规则 5（字号类带 `length:` 类型提示）与规则 6（字重、字体族用任意属性写），带正反样例，红翻转验证过；只扫 nb-ui 组件，不覆盖应用 `src/`。
+- **分段控件**：根节点改为网格，各段等宽，宽度随内容时每段取最宽一段的自然宽度，“跟随系统”不再截断；给定宽度与 `fullWidth` 时各段宽度与改前逐像素相同；指示块在网格里补了 `left` 定位。规则写进 `SegmentedControl.md`，Lab 新增场景 `uneven`。
+- **验证**（主 Agent 复跑）：nb-ui `bun run test` 558 通过；应用 `bun run typecheck` 通过、`bun run test:vitest` 165 通过。子代理另跑 `lab-scenes`、`lab-nb-ui`、`lab` e2e 通过，`docs:check`、`governance:check` 无失败。改前改后截图在本机 `.local/design-review/t81-nb-ui/`（`compare/` 是并排对照）。
+- **未修、只记**：`[font-weight:var(--weight-semibold,600)]` 引用了没登记的 token（只有 normal、medium、strong），一直落在回退值 600（从产物看到，未回查源码位置）；Dropdown 非紧凑项用 Tailwind 常量 `text-xs`（12px）比紧凑项（11px）还大，分段控件的段用字面量字号，都不走 token。
+- **合回**：先于 t80 合入主线；t80 的设置窗口目前给分段控件手动定宽绕开截断，合入 t81 后可去掉。
 
 ## 验收
 
