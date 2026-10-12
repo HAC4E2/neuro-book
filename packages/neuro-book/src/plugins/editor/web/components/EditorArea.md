@@ -18,11 +18,15 @@ type Props = {
     control: (kind: "markdown" | "code") => Component;
     /** 页面标签的来源（页面贡献点 `editor.pages`，输出 33），原样交给每个编辑组；默认 null。 */
     pages?: EditorPageSource | null;
+    /** 空编辑组的提示（输出 32，`web/empty-tips.ts` 按命令可用性筛好），原样交给每个编辑组；缺省为空。 */
+    emptyTips?: ReadonlyArray<EmptyTip>;
 };
 
 type Emits = {
     /** 编辑器区有焦点时按下 Ctrl+S、Ctrl+W、Ctrl+\：宿主执行保存、关闭、向右拆分的命令。 */
     intent: ["save" | "close" | "split-right"];
+    /** 点了某个编辑组空态里的一条提示：宿主执行这条命令。 */
+    "run-tip": [command: string];
 };
 ```
 

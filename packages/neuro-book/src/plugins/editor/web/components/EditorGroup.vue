@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
-import {Button} from "@notnotype/nb-ui/components";
+import {Button, Kbd} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
 import type {EditorArea, EditorControlHandle} from "../area";
+import type {EmptyTip} from "../empty-tips";
 import type {FileEditorKind} from "../groups/groups";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
@@ -14,7 +16,18 @@ import {editorText, nameOf} from "../messages";
 import EditorTabBar from "./EditorTabBar.vue";
 import type {TabItem} from "./EditorTabBar.vue";
 
-const props = defineProps<{area: EditorArea; groupId: string; locale: DisplayLocale; control: (kind: FileEditorKind) => Component; pages?: EditorPageSource | null}>();
+const props = withDefaults(defineProps<{
+    area: EditorArea;
+    groupId: string;
+    locale: DisplayLocale;
+    control: (kind: FileEditorKind) => Component;
+    pages?: EditorPageSource | null;
+    /** 组里没有标签时显示的提示（已按可用性筛好）。 */
+    emptyTips?: ReadonlyArray<EmptyTip>;
+}>(), {pages: null, emptyTips: () => []});
+
+/** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。 */
+const emit = defineEmits<{(event: "run-tip", command: string): void}>();
 
 const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
@@ -111,7 +124,16 @@ const kinds = computed((): FileEditorKind[] => {
             <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
         </div>
         <div class="relative min-h-0 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
-            <p v-if="activeTab === null" class="flex h-full items-center justify-center px-6 text-center text-[13px] text-[var(--text-muted)]" data-editor-empty>{{ editorText(locale, "empty") }}</p>
+            <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
+                <NeuroBookMark class="editor-group__mark" aria-hidden="true" />
+                <div v-if="emptyTips.length > 0" class="editor-group__tips">
+                    <button v-for="tip in emptyTips" :key="tip.command" type="button" class="editor-group__tip nb-ui-focus-ring" :data-editor-empty-tip="tip.command" @click="emit('run-tip', tip.command)">
+                        <span class="editor-group__tip-label">{{ tip.label }}</span>
+                        <span v-if="tip.keys !== null" class="editor-group__tip-keys"><Kbd v-for="key in tip.keys" :key="key">{{ key }}</Kbd></span>
+                        <span v-else class="editor-group__tip-hint">{{ tip.hint }}</span>
+                    </button>
+                </div>
+            </div>
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
                 <p>{{ failure }}</p>
                 <Button size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>
@@ -140,6 +162,63 @@ const kinds = computed((): FileEditorKind[] => {
 </template>
 
 <style scoped>
+/* 空态（docs/specs/workbench/editor.md 输出 32）：正中一个淡色的图形标志，下面几行提示，说明靠右、按键或位置靠左。 */
+.editor-group__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 36px;
+    height: 100%;
+    padding: 24px;
+    overflow: hidden;
+}
+
+/* 组被拆得很矮时标志先缩（宽随高），提示不被挤掉。 */
+.editor-group__mark {
+    flex: 0 1 132px;
+    min-height: 32px;
+    height: auto;
+    color: color-mix(in srgb, var(--text-main) 9%, transparent);
+}
+
+.editor-group__tips {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 14px;
+    row-gap: 2px;
+    font-size: 13px;
+}
+
+/* 每行是一个按钮：跨两列并沿用外层的列（subgrid），两列在各行之间对齐，按钮本身仍可聚焦。 */
+.editor-group__tip {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    text-align: left;
+}
+
+.editor-group__tip:hover {
+    background: var(--bg-hover);
+}
+
+.editor-group__tip-label {
+    text-align: right;
+}
+
+.editor-group__tip-keys {
+    display: flex;
+    gap: 3px;
+}
+
+.editor-group__tip-hint {
+    color: var(--text-muted);
+}
+
 .editor-group__progress {
     animation: editor-group-progress 1.2s var(--ease-standard) infinite;
 }

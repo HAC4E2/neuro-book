@@ -577,19 +577,30 @@ test("状态栏条目：Markdown 有字数、没有光标位置；输入后出�
     await closeAll(page);
 });
 
-test("纸面与空态：没有标签时正中一行提示；Markdown 正文在 720px 版心里、17px、行距 1.95，编辑区是面板底色、外壳根是主题的窗体底", async ({page}) => {
+test("纸面与空态：没有标签时正中是淡色标志与三行提示，点提示执行对应命令；Markdown 正文在 720px 版心里、17px、行距 1.95，编辑区是面板底色、外壳根是主题的窗体底", async ({page}) => {
     await open(page);
     await closeAll(page);
     const empty = page.locator("[data-editor-group-active] [data-editor-empty]");
-    await expect(empty).toHaveText("在左边的资源管理器里打开一个文件");
+    const tips = empty.locator("[data-editor-empty-tip]");
+    await expect(empty.locator(".editor-group__mark")).toBeVisible();
+    await expect(tips).toHaveText(["显示所有命令CtrlShiftP", "新建文件资源管理器标题行的“新建文件”", "打开欢迎页帮助 › 欢迎"]);
+    await expect(empty.locator("kbd")).toHaveText(["Ctrl", "Shift", "P"]);
     const centered = await page.locator("[data-editor-group-active] [data-editor-content]").evaluate((content) => {
-        const hint = content.querySelector("[data-editor-empty]")!;
-        const range = document.createRange();
-        range.selectNodeContents(hint);
-        const [box, text] = [content.getBoundingClientRect(), range.getBoundingClientRect()];
-        return [Math.abs(box.x + box.width / 2 - (text.x + text.width / 2)), Math.abs(box.y + box.height / 2 - (text.y + text.height / 2))];
+        const mark = content.querySelector("[data-editor-empty] .editor-group__mark")!;
+        const [box, logo] = [content.getBoundingClientRect(), mark.getBoundingClientRect()];
+        return {offset: Math.abs(box.x + box.width / 2 - (logo.x + logo.width / 2)), size: logo.width};
     });
-    for (const offset of centered) expect(offset).toBeLessThan(1);
+    expect(centered.offset).toBeLessThan(1);
+    expect(centered.size).toBe(132);
+
+    // 点提示执行它的命令：命令面板打开；欢迎页以标签打开（关掉回到空态）。
+    await tips.filter({hasText: "显示所有命令"}).click();
+    await expect(page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"})).toBeFocused();
+    await page.keyboard.press("Escape");
+    await tips.filter({hasText: "打开欢迎页"}).click();
+    await expect(page.locator("[data-welcome-page]")).toBeVisible();
+    await closeAll(page);
+    await expect(empty).toBeVisible();
 
     // 前面的用例可能改过 a.md：只看开头。
     await item(page, "project://notes/a.md").dblclick();

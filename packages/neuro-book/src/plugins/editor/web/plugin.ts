@@ -4,7 +4,7 @@
  * 文件），绑定项目的窗口先读会话记录。
  */
 
-import {computed, defineAsyncComponent, defineComponent, h, reactive, watch} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, reactive, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -17,6 +17,7 @@ import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contract
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {currentKeyPlatform} from "nbook/plugins/workbench/web/contracts";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -27,6 +28,7 @@ import {documentCoordinatorKey, EDITOR_PAGES_POINT, validateEditorPageContributi
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
+import {emptyTips} from "./empty-tips";
 import type {FileEditorKind} from "./groups/groups";
 import {editorRecentStore} from "./recent-record";
 import {editorSessionStore} from "./session-record";
@@ -134,6 +136,17 @@ export const editorBrowserPlugin: PluginDefinition = {
                     if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} 执行失败：${result.reason}`, source: {plugin: descriptor.id}});
                 });
             };
+            // 空编辑组的提示：命令增减不经响应式通知，记一个版本号在渲染时读，命令有增减就重算；可用性读公开状态，渲染时求值即可。
+            const commandsVersion = shallowRef(0);
+            const stopCommands = commands.onDidChange(() => {
+                commandsVersion.value += 1;
+            });
+            context.signal.addEventListener("abort", stopCommands, {once: true});
+            const platform = currentKeyPlatform();
+            const tips = () => {
+                void commandsVersion.value;
+                return emptyTips(commands, locale.value, platform);
+            };
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const {default: EditorArea} = await import("./components/EditorArea.vue");
@@ -146,7 +159,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     return defineComponent({
                         name: "EditorAreaHost",
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
-                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), onIntent: (intent: "save" | "close" | "split-right") => {
+                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), onRunTip: execute, onIntent: (intent: "save" | "close" | "split-right") => {
                             // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             execute(INTENTS[intent]);

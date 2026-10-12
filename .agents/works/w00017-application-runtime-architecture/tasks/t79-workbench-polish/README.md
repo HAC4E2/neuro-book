@@ -143,6 +143,12 @@ taskId: t79-workbench-polish
   - 新组件 `src/ui/brand/NeuroBookMark.vue`（单独的图形标志，遮罩着色，同 `NeuroBookLockup` 的写法；品牌目录的 README 早就提到它，文件此前不存在），登记 Lab 场景。
   - Spec：`ui/workbench-shell.md` 输出 28 与宽度三档、验收 32、批准依据；组件文档 `WorkbenchTitleBar`、`NeuroBookMark`（新）。
   - 验证：`WorkbenchTitleBar.dom.test.ts` 加“左组顺序”一例（6 例全过）；`workbench-titlebar.e2e.ts` 的宽度三档一例加左组顺序与最窄一档的图形标志；标题栏、外壳、项目、书架、欢迎页与 Lab 场景门禁共 33 例全过；typecheck 为 0。开发会话截图与第十轮稿 L1 一致。变异 4 处全部被抓到（标志写回文字、分隔放到菜单后、最窄一档仍是横排标志、左栏不按内容撑开）。
+- 2026-10-12 S10（空态）完成：
+  - 没有标签的编辑组正中是淡色的图形标志（`NeuroBookMark`，132px，组很矮时先缩）与三行提示，说明靠右、按键或位置靠左（每行一个按钮，用 subgrid 跨两列对齐，按钮仍可聚焦）：“显示所有命令”写命令面板的快捷键（从命令声明读、按平台写，mac 是一串符号），“新建文件”“打开欢迎页”写入口位置；命令不存在或不可用时那一行不显示，点一行由插件经命令服务执行。
+  - 新模块 `editor/web/empty-tips.ts`（三条提示的定义与筛选）；插件在渲染时求值（可用性读公开状态，命令增减记版本号），`EditorArea` 与 `EditorGroup` 加 `emptyTips` 与 `run-tip`。工作台合同补导出 `KeyPlatform`。编辑器文字表里原来那句空态提示删掉。
+  - Lab：编辑区夹具加“没有标签：标志与提示”场景（固定样例，点了记事件）。
+  - Spec：`workbench/editor.md` 输出 32 的空态、验收 19、合同测试、批准依据；组件文档 `EditorGroup`、`EditorArea`。
+  - 验证：`editor/empty-tips.test.ts` 两例在真实内核的命令系统上（三行内容、不可用那行消失、mac 按键、英文；命令不存在那行消失）；编辑器 bun 测试 97 例、组件测试 58 例全过，typecheck 为 0。e2e：`editor-area` 纸面一例改为检查标志居中与 132px、三行文字与按键，点“显示所有命令”打开命令面板、点“打开欢迎页”打开欢迎页；`settings` 的语言切换改用提示行的文字观察；编辑区、设置、欢迎页、Lab 编辑器与场景门禁共 27 例全过。`lab:shot` 空态场景在 nbook、macos × 明暗 × free、phone 下问题 0 条。变异 6 处抓到 5 处（不可用的也显示、不写位置、编辑区不转交点击、插件不给提示、标志不定大小）；存活的“mac 也按加号拆”说明那个分支是多余的（mac 的写法本来没有加号），已删掉。
   - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
 
 ## 下一步
