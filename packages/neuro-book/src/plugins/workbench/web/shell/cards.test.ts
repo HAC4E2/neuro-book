@@ -19,7 +19,7 @@ function cards(overrides: Partial<ShellProjectionInput> = {}) {
     return shellCards(projectShell({extent: VIEWPORT, preferences: SHELL_SIZE_DEFAULTS, panel: PANEL, hiddenParts: [], ...overrides}));
 }
 
-const outer: ShellCardSide = {kind: "outer"};
+const outer: ShellCardSide = {kind: "outer", occupied: 0};
 const joined: ShellCardSide = {kind: "joined"};
 const inner = (occupied: number): ShellCardSide => ({kind: "inner", occupied});
 
@@ -45,6 +45,14 @@ describe("外壳部件的卡片边", () => {
         expect(result.activitybar?.right).toEqual(inner(1));
         expect(result.editor?.left).toEqual(inner(1));
         expect(result.sidebar?.left).toEqual(inner(0));
+    });
+
+    it("零宽的部件在末端：另一侧仍算贴边，但带上它与边界占的像素（右栏拖到零时编辑区的右边；活动栏隐藏、侧栏拖到零时编辑区的左边）", () => {
+        const right = cards({hiddenParts: ["sidebar"], dragCollapsedParts: {auxiliarybar: true}});
+        expect(right.editor?.right).toEqual({kind: "outer", occupied: 1});
+        expect(right.auxiliarybar?.right).toEqual(outer);
+        const left = cards({hiddenParts: ["activitybar", "auxiliarybar"], dragCollapsedParts: {sidebar: true}});
+        expect(left.editor?.left).toEqual({kind: "outer", occupied: 1});
     });
 
     it("侧栏隐藏或面板跨到侧栏下方（左对齐）时不相连；活动栏隐藏时侧栏贴着窗体左缘", () => {
@@ -76,6 +84,7 @@ describe("外壳部件的卡片边", () => {
 
     it("每一边留多宽：贴边整缝，相连 0，相邻半缝扣掉一半的边界占用、不小于 0", () => {
         expect(shellCardInset(outer)).toBe("var(--shell-gap, 0px)");
+        expect(shellCardInset({kind: "outer", occupied: 1})).toBe("max(0px, calc(var(--shell-gap, 0px) - 1px))");
         expect(shellCardInset(joined)).toBe("0px");
         expect(shellCardInset(inner(1))).toBe("max(0px, calc(var(--shell-gap, 0px) / 2 - 0.5px))");
         expect(shellCardInset(inner(0))).toBe("max(0px, calc(var(--shell-gap, 0px) / 2 - 0px))");

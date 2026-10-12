@@ -1,7 +1,8 @@
 /**
  * 条目区的溢出在真实 Chrome 里的几何（docs/specs/ui/workbench-shell.md 外壳四输出 34、验收 38）：在 Lab 的
  * `WorkbenchItemStrip` 场景上直接改容器宽度，核对“全部实际放得下时全部显示”、差一像素就收起、摆出来的条目与“更多”都在
- * 容器内不重叠，以及“更多”里的长文字换行显示全文。宽度按真实渲染的测量层算，不用人工数字。
+ * 容器内不重叠，以及“更多”里的长文字换行显示全文。宽度按真实渲染的测量层算，不用人工数字。标题栏的长英文项目名与
+ * 条目共存时（外壳四验收 35）各控件在三档宽度下都在标题栏内、互不重叠。
  */
 
 import {rm} from "node:fs/promises";
@@ -117,4 +118,26 @@ test("“更多”里的长文字换行显示全文，纯文字条目是禁用�
     // 换了行：比单行高。
     expect(box!.height).toBeGreaterThan(40);
     await page.keyboard.press("Escape");
+});
+
+test("标题栏：长英文项目名、英文界面与条目共存，三档宽度下标志、项目、菜单入口、搜索、布局按钮与条目都在标题栏里、互不重叠（外壳四验收 35）", async ({page}) => {
+    await page.setViewportSize({width: 1700, height: 900});
+    for (const width of [1280, 960, 959, 700, 600, 599, 390]) {
+        await openScene(page, `c=WorkbenchTitleBar&s=long&theme=nbook&vp=${String(width)}x120`);
+        const layout = await page.locator(".lab-main [data-lab-stage] [data-workbench-titlebar]").evaluate((bar) => {
+            const box = bar.getBoundingClientRect();
+            const parts = [...bar.querySelectorAll<HTMLElement>(".workbench-titlebar__brand, .workbench-titlebar__mark, [data-titlebar-project], [data-titlebar-menu-entry], [data-titlebar-search], [data-titlebar-layout], [data-workbench-item], [data-workbench-item-more]")]
+                .map((element) => element.getBoundingClientRect())
+                .filter((rect) => rect.width > 0)
+                .map((rect) => ({left: rect.left - box.left, right: rect.right - box.left}));
+            return {mode: bar.getAttribute("data-titlebar-mode"), width: box.width, parts, scroll: bar.scrollWidth};
+        });
+        expect(layout.scroll, `${String(width)} 标题栏不出现横向溢出`).toBeLessThanOrEqual(Math.ceil(layout.width));
+        const sorted = [...layout.parts].sort((a, b) => a.left - b.left);
+        for (const [index, part] of sorted.entries()) {
+            expect(part.left, `${String(width)} ${layout.mode ?? ""}`).toBeGreaterThanOrEqual(-0.5);
+            expect(part.right, `${String(width)} ${layout.mode ?? ""}`).toBeLessThanOrEqual(layout.width + 0.5);
+            if (index > 0) expect(part.left, `${String(width)} ${layout.mode ?? ""} 第 ${String(index)} 个与前一个重叠`).toBeGreaterThanOrEqual(sorted[index - 1]!.right - 0.5);
+        }
+    }
 });

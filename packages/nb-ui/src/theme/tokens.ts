@@ -42,7 +42,8 @@ export const nbSpacingTokens = [
 export const nbRadiusTokens = ["--radius-control", "--radius-panel", "--radius-menu", "--radius-pill"] as const;
 
 /** 层级：阴影只给真正浮起的元素，且必须由 --shadow-color 推导 */
-export const nbElevationTokens = ["--elevation-flat", "--elevation-popover", "--elevation-dialog"] as const;
+/** `--elevation-menu` 是菜单与下拉的投影，缺省等于 `--elevation-popover`，主题可以单独收小。 */
+export const nbElevationTokens = ["--elevation-flat", "--elevation-popover", "--elevation-menu", "--elevation-dialog"] as const;
 
 /** 动效：prefers-reduced-motion 时时长全部降为 0 */
 export const nbMotionTokens = ["--motion-fast", "--motion-base", "--motion-enter", "--ease-standard"] as const;

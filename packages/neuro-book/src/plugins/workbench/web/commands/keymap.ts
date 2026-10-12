@@ -106,4 +106,3 @@ export function createKeymapDispatcher(commands: CommandService, platform: KeyPl
         },
     };
 }
-

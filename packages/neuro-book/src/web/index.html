@@ -16,12 +16,15 @@
                 try {
                     var hint = JSON.parse(localStorage.getItem("nbook.host-appearance") || "null");
                     if (hint === null || (hint.appearance !== "light" && hint.appearance !== "dark")) return;
-                    var root = document.documentElement;
                     var color = /^(#[0-9a-f]{3,8}|rgba?\([0-9., /%]+\))$/i;
+                    var names = ["background", "text", "muted", "accent"];
+                    // 有一项颜色不合格就整条不认：只用一部分会让底色跟系统、文字跟记录，明暗混在一起。
+                    if (!names.every(function (name) { return typeof hint[name] === "string" && color.test(hint[name]); })) return;
+                    var root = document.documentElement;
                     root.setAttribute("data-host-appearance", hint.appearance);
                     root.style.colorScheme = hint.appearance;
-                    ["background", "text", "muted", "accent"].forEach(function (name) {
-                        if (typeof hint[name] === "string" && color.test(hint[name])) root.style.setProperty("--host-loading-" + name, hint[name]);
+                    names.forEach(function (name) {
+                        root.style.setProperty("--host-loading-" + name, hint[name]);
                     });
                 } catch (error) {
                     console.warn("[nbook] 读不出加载页的明暗提示", error);

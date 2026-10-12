@@ -316,10 +316,11 @@ onBeforeUnmount(() => {
 .workbench-titlebar {
     display: grid;
     /*
-     * 左右两栏等分，搜索才在整条标题栏的正中；左组（标志、项目、菜单）放不进一半时左栏按内容撑开，搜索往右让，
-     * 不挤出界（项目名有上限、会截断）。
+     * 左右两栏等分，搜索才在整条标题栏的正中；左组（标志、项目、菜单）放不进一半时左栏按内容撑开，搜索往右让。
+     * 两边都不让挤掉：左右栏最小取内容宽（项目名按档位有上限、会截断，条目区有上限、多的收进“更多”），空间不够时
+     * 收窄的是中间的搜索，最窄 36px（只剩图标）。
      */
-    grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(0, 1fr);
+    grid-template-columns: minmax(max-content, 1fr) minmax(36px, 360px) minmax(max-content, 1fr);
     align-items: center;
     gap: var(--space-2);
     width: 100%;
@@ -387,7 +388,8 @@ onBeforeUnmount(() => {
 
 .workbench-titlebar__search {
     gap: var(--space-2);
-    width: clamp(36px, 32vw, 360px);
+    width: 100%;
+    min-width: 0;
     height: 26px;
     justify-content: flex-start;
     color: var(--text-secondary);
@@ -418,6 +420,14 @@ onBeforeUnmount(() => {
 .workbench-titlebar__project {
     min-width: 0;
     max-width: 220px;
+}
+
+.workbench-titlebar--compact .workbench-titlebar__project {
+    max-width: 160px;
+}
+
+.workbench-titlebar--minimal .workbench-titlebar__project {
+    max-width: 120px;
 }
 
 .workbench-titlebar__project-name {

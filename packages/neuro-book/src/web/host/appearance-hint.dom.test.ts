@@ -88,7 +88,7 @@ describe("加载页的明暗提示", () => {
         expect(warnings[0]).toContain("SecurityError");
     });
 
-    it("内联脚本不认坏的记录：明暗不合法或读不出就什么都不写，颜色格式不对的那一项不写", () => {
+    it("内联脚本不认坏的记录：明暗不合法、读不出或有一项颜色格式不对，就整条不用、什么都不写（按系统明暗）", () => {
         window.localStorage.setItem(HOST_APPEARANCE_KEY, "{坏");
         runInlineScript();
         expect(root.hasAttribute("data-host-appearance")).toBe(false);
@@ -97,10 +97,9 @@ describe("加载页的明暗提示", () => {
         runInlineScript();
         expect(root.hasAttribute("data-host-appearance")).toBe(false);
 
-        window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({appearance: "light", background: "red; display: none", text: "#1f1c17"}));
+        window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({appearance: "dark", background: "red; display: none", text: "#efe9df", muted: "#918a7e", accent: "#0a84ff"}));
         runInlineScript();
-        expect(root.getAttribute("data-host-appearance")).toBe("light");
-        expect(root.style.getPropertyValue("--host-loading-background")).toBe("");
-        expect(root.style.getPropertyValue("--host-loading-text")).toBe("#1f1c17");
+        expect(root.hasAttribute("data-host-appearance")).toBe(false);
+        expect(root.style.getPropertyValue("--host-loading-text")).toBe("");
     });
 });

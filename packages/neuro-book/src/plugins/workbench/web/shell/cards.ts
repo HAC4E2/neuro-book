@@ -2,7 +2,7 @@
  * 外壳部件的卡片边（docs/specs/ui/workbench-shell.md 输出 38）：每个部件四边各挨着什么。卡片还是平铺、缝多宽由主题变量
  * 决定（`--shell-gap` 等，平铺时缝为 0），这里只给几何判断，样式据此决定每一边留多少：
  *
- * - 贴着窗体、标题栏或状态栏的一边（outer）留整缝；
+ * - 贴着窗体、标题栏或状态栏的一边（outer）留整缝，中间夹着零尺寸部件（拖到零）时扣掉它与边界占的像素；
  * - 挨着别的部件的一边（inner）留半缝，并扣掉两者之间边界与零尺寸部件占的像素的一半，两张卡片之间合起来正好一条缝；
  * - 活动栏与通高的侧栏相连（joined）：中间不留缝、相接的两角不圆，看上去是一张卡片。侧栏不通高（面板跨在侧栏下方）、
  *   拖到零或隐藏时不相连。
@@ -20,9 +20,9 @@ export const SHELL_CARD_PARTS = ["activitybar", "sidebar", "editor", "auxiliaryb
 
 export type ShellCardPart = (typeof SHELL_CARD_PARTS)[number];
 
+/** `occupied`：这一边与相邻部件（或窗体边缘）之间被边界（可拖边界 1px）和零尺寸部件占去的像素。 */
 export type ShellCardSide =
-    | {readonly kind: "outer"}
-    /** `occupied`：与相邻部件之间被边界（可拖边界 1px）和零尺寸部件占去的像素。 */
+    | {readonly kind: "outer"; readonly occupied: number}
     | {readonly kind: "inner"; readonly occupied: number}
     | {readonly kind: "joined"};
 
@@ -74,7 +74,7 @@ function sideOf(path: ReadonlyArray<Step>, axis: "horizontal" | "vertical", dire
             if (hasSize(sibling, projection)) return {side: {kind: "inner", occupied: occupied + nearOccupied(sibling, axis, direction, projection)}, neighbor: sibling.id};
         }
     }
-    return {side: {kind: "outer"}, neighbor: null};
+    return {side: {kind: "outer", occupied}, neighbor: null};
 }
 
 /** 紧凑呈现只给部分节点算尺寸：没有尺寸的按有内容算。 */
@@ -138,11 +138,11 @@ export function shellCards(projection: Pick<ShellProjection, "tree" | "sizes" | 
     return cards;
 }
 
-/** 一边留多宽：贴边整缝，相邻半缝减去一半的边界占用（不小于 0），相连 0。缝宽是主题变量，平铺时为 0。 */
+/** 一边留多宽：贴边整缝减去占用，相邻半缝减去一半的占用（都不小于 0），相连 0。缝宽是主题变量，平铺时为 0。 */
 export function shellCardInset(side: ShellCardSide): string {
     switch (side.kind) {
         case "outer":
-            return "var(--shell-gap, 0px)";
+            return side.occupied === 0 ? "var(--shell-gap, 0px)" : `max(0px, calc(var(--shell-gap, 0px) - ${String(side.occupied)}px))`;
         case "joined":
             return "0px";
         case "inner":

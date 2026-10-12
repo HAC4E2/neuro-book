@@ -119,12 +119,16 @@ test("加载页跟随上次的明暗：系统与产品的明暗相反时，这�
             await writeFile(settings, JSON.stringify({"nbook.workbench/appearance": product}));
             const context = await browser.newContext({colorScheme: system});
             const page = await context.newPage();
-            // DOMContentLoaded 时还没有任何模块脚本运行：此刻加载页的底色就是第一帧的底色。
+            // 动画帧回调在每次绘制之前运行（阻塞渲染的样式表没到时不会提前）：取第一个画出加载页的帧里它的底色。更早的帧
+            // 可能还没解析到 body，只画画布（画布的明暗随内联脚本写的 color-scheme）。DOMContentLoaded 在模块脚本之后，
+            // 节点刚插入时样式表可能还没生效，都不能代表第一帧。
             await page.addInitScript(() => {
-                document.addEventListener("DOMContentLoaded", () => {
+                const sample = (): void => {
                     const loading = document.querySelector(".nb-host-loading");
-                    (window as unknown as {firstFrame: string}).firstFrame = loading === null ? "none" : getComputedStyle(loading).backgroundColor;
-                });
+                    if (loading === null) requestAnimationFrame(sample);
+                    else (window as unknown as {firstFrame: string}).firstFrame = getComputedStyle(loading).backgroundColor;
+                };
+                requestAnimationFrame(sample);
             });
             const firstFrame = (): Promise<string | undefined> => page.evaluate(() => (window as unknown as {firstFrame?: string}).firstFrame);
             const root = page.locator("[data-workbench-root]");
