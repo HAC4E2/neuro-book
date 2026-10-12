@@ -154,13 +154,18 @@ export async function releaseTaskLeases(context: RepoContext, target: {workId: s
     return releaseAndRetag(context, transition, () => releaseLeases(context.mainRoot, {kind: "task", ...target}, reason, nowOf(options), {notAfter: checkedAt}), options, warnings, target);
 }
 
-/** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree 里都算）。租约是运行时数据，来自分支的 Task 也能取得。 */
-async function resolveLeaseTarget(context: RepoContext, transition: TransitionState, workRef: string, taskRef: string): Promise<{workId: string; taskId: string}> {
+/** 按引用找到 Work（`master` 或过渡期的执行 worktree 里都算），找不到或有歧义时报错，与 `status` 一致。 */
+async function resolveLeaseWork(context: RepoContext, transition: TransitionState, workRef: string): Promise<string> {
     const workIds = [...new Set([...await listWorkIds(context.mainRoot), ...transition.branchChanges.keys()])];
     const works = matchRef(workIds, workRef, "work");
     if (works.length === 0) throw new NbdevError("work_not_found", `找不到 Work：${workRef}`, {details: {workRef}});
     if (works.length > 1) throw new NbdevError("ambiguous_work", `Work 编号对应多个目录：${works.join("、")}`, {details: {workRef, candidates: works}});
-    const workId = works[0]!;
+    return works[0]!;
+}
+
+/** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree 里都算）。租约是运行时数据，来自分支的 Task 也能取得。 */
+async function resolveLeaseTarget(context: RepoContext, transition: TransitionState, workRef: string, taskRef: string): Promise<{workId: string; taskId: string}> {
+    const workId = await resolveLeaseWork(context, transition, workRef);
     const copies = transition.branchChanges.get(workId);
     const execution = copies ? await chooseExecutionCheckout(context.mainRoot, workId, copies, transition.registry) : null;
     const taskIds = [...new Set([...await listTaskIds(context.mainRoot, workId), ...(execution ? await listTaskIds(execution.chosen.root, workId) : [])])];
@@ -209,12 +214,10 @@ export async function listLeases(context: RepoContext, input: {workRef?: string;
     const now = (options.now ?? (() => new Date()))();
     let leases = evaluateLeases(records, await buildLeaseContext(context.mainRoot, transition, records, snapshot, now));
     if (input.workRef !== undefined) {
-        const workIds = matchRef([...new Set(leases.map((lease) => lease.workId))], input.workRef, "work");
-        leases = leases.filter((lease) => workIds.includes(lease.workId));
-        if (input.taskRef !== undefined) {
-            const taskIds = matchRef([...new Set(leases.map((lease) => lease.taskId))], input.taskRef, "task");
-            leases = leases.filter((lease) => taskIds.includes(lease.taskId));
-        }
+        const target = input.taskRef !== undefined
+            ? await resolveLeaseTarget(context, transition, input.workRef, input.taskRef)
+            : {workId: await resolveLeaseWork(context, transition, input.workRef), taskId: undefined};
+        leases = leases.filter((lease) => lease.workId === target.workId && (target.taskId === undefined || lease.taskId === target.taskId));
     }
     if (!input.all) leases = leases.filter((lease) => lease.state !== "released" && lease.state !== "task_closed");
     return {data: {leases: leases.sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))}, warnings};

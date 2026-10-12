@@ -17,7 +17,7 @@
 | `nbdev work status <workRef> <status>` | `--include-uncommitted` | `nbdev.work-status/v1` |
 | `nbdev task status <workRef> <taskRef> <status>` | `--include-uncommitted`、`--as` | `nbdev.task-status/v1` |
 | `nbdev lease take <workRef> <taskRef>` | `--as` | `nbdev.lease-take/v1` |
-| `nbdev lease list` | `--work <workRef>`、`--task <taskRef>`（要求同时有 `--work`）、`--all` | `nbdev.lease-list/v1` |
+| `nbdev lease list` | `--work <workRef>`、`--task <taskRef>`（要求同时有 `--work`；与 `status` 一样，找不到报 `work_not_found`、`task_not_found`）、`--all` | `nbdev.lease-list/v1` |
 | `nbdev release [<workRef> <taskRef>]` | `--as` | `nbdev.release/v1` |
 | `nbdev registry import` | 无 | `nbdev.registry-import/v1` |
 | `nbdev status` | `--work <workRef>`、`--task <taskRef>`（要求同时有 `--work`） | `nbdev.status/v1` |

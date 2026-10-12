@@ -82,6 +82,11 @@ describe("租约命令（场景）", () => {
         const taken = await fixture.cli(["lease", "take", "w00001", "t01", "--as", "review-bot", "--json"]);
         expect(taken.exitCode).toBe(0);
         expect(data<{lease: LeaseJson}>(taken.json).lease).toMatchObject({session: {key: "external:review-bot", herdr: null}});
+        const missingWork = await fixture.cli(["lease", "list", "--work", "w00099", "--json"]);
+        expect([missingWork.exitCode, missingWork.json?.errors[0]?.code]).toEqual([5, "work_not_found"]);
+        const missingTask = await fixture.cli(["lease", "list", "--work", "w00001", "--task", "t09", "--json"]);
+        expect([missingTask.exitCode, missingTask.json?.errors[0]?.code]).toEqual([5, "task_not_found"]);
+        expect((await leaseList(fixture, ["--work", "w00001", "--task", "t01"])).map((lease) => lease.session.key)).toEqual(["external:review-bot"]);
         const unknown = await fixture.cli(["lease", "take", "w00001", "t01", "--json"]);
         expect([unknown.exitCode, unknown.json?.errors[0]?.code]).toEqual([2, "caller_unknown"]);
         expect((await fixture.cli(["task", "status", "w00001", "t01", "done", "--as", "review-bot", "--json"])).exitCode).toBe(0);
