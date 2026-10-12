@@ -1,6 +1,6 @@
 import {HerdrError, type HerdrClient} from "../herdr/client.js";
 import {readHerdrSnapshot, readTaskStatuses, buildLeaseContext} from "./activity.js";
-import {NbdevError, type Warning} from "./errors.js";
+import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import type {Caller, SessionCaller} from "./identity.js";
 import {evaluateLeases, readLeases, releaseLeases, touchLease, type EvaluatedLease, type LeaseRecord, type ReleaseReason} from "./leases.js";
 import {listTaskIds, listWorkIds} from "./records.js";
@@ -54,6 +54,29 @@ function nowOf(options: LeaseOptions): Date {
     return (options.now ?? (() => new Date()))();
 }
 
+/** 租约目录与文件上可能碰到、又不该让命令失败的系统错误。 */
+const LEASE_IO_ERRORS = new Set(["EACCES", "EPERM", "EISDIR", "ENOTDIR", "EROFS", "ENOSPC"]);
+
+/**
+ * 租约是运行时数据：记录已经提交之后，租约读写失败只能是警告，否则调用者会以为记录没改而重跑或手动提交。
+ * 只接住租约读写会产生的几类错误（`write_failed`、`invalid_record` 与上面的系统错误），其余照常抛出。
+ */
+async function guardLeaseIo<T>(warnings: Warning[], what: string, fallback: T, action: () => Promise<T>): Promise<T> {
+    try {
+        return await action();
+    } catch (error) {
+        const known = error instanceof NbdevError && (error.code === "write_failed" || error.code === "invalid_record");
+        const systemCode = systemErrorCode(error);
+        if (!known && !(systemCode !== undefined && LEASE_IO_ERRORS.has(systemCode))) throw error;
+        warnings.push({
+            code: "lease_write_failed",
+            message: `${what}失败（记录操作不受影响）：${error instanceof Error ? error.message : String(error)}`,
+            details: {...(error instanceof NbdevError ? error.details : {}), code: error instanceof NbdevError ? error.code : systemCode},
+        });
+        return fallback;
+    }
+}
+
 /** 取得或续期调用者在这个 Task 上的租约并写标签；未知调用者只给警告，租约写失败也只给警告，不影响记录操作的结果。 */
 export async function touchCallerLease(context: RepoContext, target: {workId: string; taskId: string; action: string}, options: LeaseOptions, warnings: Warning[]): Promise<LeaseRecord | null> {
     const {caller} = options;
@@ -61,14 +84,8 @@ export async function touchCallerLease(context: RepoContext, target: {workId: st
         if (caller) warnings.push({code: "caller_unknown", message: "认不出调用者是哪个会话，没有取得租约；herdr 外的会话可以加 --as <标签>", details: {reason: caller.reason}});
         return null;
     }
-    let lease: LeaseRecord;
-    try {
-        lease = await touchLease(context.mainRoot, {caller, workId: target.workId, taskId: target.taskId, action: target.action, now: nowOf(options)});
-    } catch (error) {
-        if (!(error instanceof NbdevError) || error.code !== "write_failed") throw error;
-        warnings.push({code: "lease_write_failed", message: `写租约失败（记录操作不受影响）：${error.message}`, details: error.details});
-        return null;
-    }
+    const lease = await guardLeaseIo(warnings, "写租约", null, () => touchLease(context.mainRoot, {caller, workId: target.workId, taskId: target.taskId, action: target.action, now: nowOf(options)}));
+    if (!lease) return null;
     const tags = tagTarget(options);
     if (tags) await writeTags(tags, lease, warnings);
     return lease;
@@ -78,14 +95,16 @@ export async function touchCallerLease(context: RepoContext, target: {workId: st
  * 释放一组租约，并按调用者自己的租约维护它 pane 上的标签：只有调用者最近活动的那份有效租约在这次被释放时才动标签，
  * 改写成它的下一份有效租约，没有就清空。别的会话 pane 上的标签不动（等 24 小时 TTL）。
  */
-async function releaseAndRetag(context: RepoContext, transition: TransitionState, release: () => Promise<LeaseRecord[]>, options: LeaseOptions, warnings: Warning[], closing: {workId: string; taskId: string} | null = null): Promise<LeaseRecord[]> {
+async function releaseAndRetag(context: RepoContext, transition: TransitionState, release: () => Promise<{released: LeaseRecord[]; warnings: Warning[]}>, options: LeaseOptions, warnings: Warning[], closing: {workId: string; taskId: string} | null = null): Promise<LeaseRecord[]> {
     const tags = tagTarget(options);
     const now = nowOf(options);
-    const before = tags ? await callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now, closing) : [];
-    const released = await release();
+    const before = tags ? await guardLeaseIo(warnings, "读租约", [], () => callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now, closing)) : [];
+    const outcome = await guardLeaseIo(warnings, "释放租约", {released: [], warnings: []}, release);
+    warnings.push(...outcome.warnings);
+    const {released} = outcome;
     const current = before[0];
     if (tags && current && released.some((lease) => lease.leaseId === current.leaseId)) {
-        const after = await callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now);
+        const after = await guardLeaseIo(warnings, "读租约", [], () => callerValidLeases(context.mainRoot, transition, tags.caller.ref.key, now));
         await writeTags(tags, after[0] ?? null, warnings);
     }
     return released;

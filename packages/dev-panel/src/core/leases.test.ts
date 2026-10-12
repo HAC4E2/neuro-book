@@ -101,7 +101,7 @@ describe("租约文件", () => {
         const owner = await liveProcess();
         await touchLease(main, {caller: claude("aaa", owner.ref), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
         await touchLease(main, {caller: claude("bbb", null), workId: "w00001-a", taskId: "t01-a", action: "lease take", now: T0});
-        const released = await releaseLeases(main, {kind: "task", workId: "w00001-a", taskId: "t01-a"}, "task_done", hours(1));
+        const {released} = await releaseLeases(main, {kind: "task", workId: "w00001-a", taskId: "t01-a"}, "task_done", hours(1));
         expect(released.map((entry) => entry.session.key).sort()).toEqual(["claude:aaa", "claude:bbb"]);
         const revived = await touchLease(main, {caller: claude("bbb", null), workId: "w00001-a", taskId: "t01-a", action: "lease take", now: hours(1)});
         expect(revived.releasedAt).toBeNull();
@@ -115,7 +115,7 @@ describe("租约文件", () => {
         await touchLease(main, {caller: claude("aaa", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
         await touchLease(main, {caller: claude("aaa", null), workId: "w00001-a", taskId: "t02-b", action: "task new", now: T0});
         await touchLease(main, {caller: claude("bbb", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
-        const released = await releaseLeases(main, {kind: "session", sessionKey: "claude:aaa"}, "released", T0);
+        const {released} = await releaseLeases(main, {kind: "session", sessionKey: "claude:aaa"}, "released", T0);
         expect(released.map((entry) => entry.taskId).sort()).toEqual(["t01-a", "t02-b"]);
 
         const dir = join(main, LEASES_DIR);

@@ -99,8 +99,8 @@ stdout 只有一个对象，诊断走 stderr：
 | `herdr_unavailable` | 连不上 herdr 或读不出它的 pane 列表；租约照常按会话进程与 24 小时判断 |
 | `herdr_partial` | 部分 pane 的进程信息没读到，按没有这格处理 |
 | `herdr_tag_failed` | 写 pane 标签失败（只影响显示） |
-| `lease_write_failed` | 写租约失败（记录操作不受影响） |
-| `unreadable_lease` | 某个租约文件读不出，已跳过 |
+| `lease_write_failed` | 取得、续期、释放租约或读调用者自己的租约失败（权限、磁盘满等）；记录操作不受影响，命令照常成功并带回 `data.commit` |
+| `unreadable_lease` | 某个租约文件（或整个租约目录）读不了或内容不合规，已跳过 |
 | `worktree_skipped` | 某个 worktree 读不出相对 master 的记录改动（HEAD 还没有提交、与 master 没有共同祖先、浅克隆截断了历史），跳过；`details.reason` 写明原因 |
 | `uncommitted_branch_records` | 某个 worktree 只有未提交的记录改动，没有算作“来自分支” |
 | `invalid_status_value` | 记录的 `status` 不在取值集合里 |

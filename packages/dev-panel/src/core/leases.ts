@@ -84,7 +84,10 @@ function parseLease(text: string): {lease: LeaseRecord} | {problem: string} {
     return {lease: value as unknown as LeaseRecord};
 }
 
-/** 读全部租约；只认 `<24 位 hex>.json`（别人写到一半的临时文件不读），读不出的文件给 `unreadable_lease` 警告后跳过。 */
+/**
+ * 读全部租约；只认 `<24 位 hex>.json`（别人写到一半的临时文件不读）。租约是运行时数据，读不出（内容不合规、权限不够、
+ * 目录本身读不了）一律给 `unreadable_lease` 警告后跳过：一个坏文件不能让 `status` 或记录操作失败。
+ */
 export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord[]; warnings: Warning[]}> {
     const dir = resolve(mainRoot, LEASES_DIR);
     let names: string[];
@@ -92,7 +95,8 @@ export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord
         names = await readdir(dir);
     } catch (error) {
         if (systemErrorCode(error) === "ENOENT") return {leases: [], warnings: []};
-        throw error;
+        if (systemErrorCode(error) === undefined) throw error;
+        return {leases: [], warnings: [{code: "unreadable_lease", message: `租约目录读不了，按没有租约处理：${LEASES_DIR}（${systemErrorCode(error)}）`, details: {path: LEASES_DIR, code: systemErrorCode(error)}}]};
     }
     const leases: LeaseRecord[] = [];
     const warnings: Warning[] = [];
@@ -102,7 +106,9 @@ export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord
             text = await readFile(join(dir, name), "utf8");
         } catch (error) {
             if (systemErrorCode(error) === "ENOENT") continue;
-            throw error;
+            if (systemErrorCode(error) === undefined) throw error;
+            warnings.push({code: "unreadable_lease", message: `租约文件读不了，已跳过：${name}（${systemErrorCode(error)}）`, details: {path: join(LEASES_DIR, name), code: systemErrorCode(error)}});
+            continue;
         }
         const parsed = parseLease(text);
         if ("lease" in parsed) leases.push(parsed.lease);
@@ -111,14 +117,15 @@ export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord
     return {leases, warnings};
 }
 
-/** 读一份租约；文件不存在为 null，读不出时抛 `invalid_record`（`touchLease` 会接住并整份重写）。 */
+/** 读一份租约；文件不存在为 null，读不出（内容不合规或权限不够）时抛 `invalid_record`（`touchLease` 会接住并整份重写）。 */
 export async function getLease(mainRoot: string, id: string): Promise<LeaseRecord | null> {
     let text: string;
     try {
         text = await readFile(leasePath(mainRoot, id), "utf8");
     } catch (error) {
         if (systemErrorCode(error) === "ENOENT") return null;
-        throw error;
+        if (systemErrorCode(error) === undefined) throw error;
+        throw new NbdevError("invalid_record", `租约文件读不了：${id}（${systemErrorCode(error)}）`, {cause: error, details: {leaseId: id, code: systemErrorCode(error)}});
     }
     const parsed = parseLease(text);
     if ("problem" in parsed) throw new NbdevError("invalid_record", `租约文件读不出：${id}（${parsed.problem}）`, {details: {leaseId: id, problem: parsed.problem}});
@@ -186,16 +193,24 @@ function matches(lease: LeaseRecord, selector: LeaseSelector): boolean {
         && (selector.taskId === undefined || lease.taskId === selector.taskId);
 }
 
-/** 释放：只是给文件记上释放时间与原因，文件不删。返回这次释放了的租约。 */
-export async function releaseLeases(mainRoot: string, selector: LeaseSelector, reason: ReleaseReason, now: Date): Promise<LeaseRecord[]> {
-    const {leases} = await readLeases(mainRoot);
+/**
+ * 释放：只是给文件记上释放时间与原因，文件不删。返回这次释放了的租约；某一份写不进去时给 `lease_write_failed` 警告、接着释放其余的。
+ */
+export async function releaseLeases(mainRoot: string, selector: LeaseSelector, reason: ReleaseReason, now: Date): Promise<{released: LeaseRecord[]; warnings: Warning[]}> {
+    const {leases, warnings} = await readLeases(mainRoot);
     const released: LeaseRecord[] = [];
     for (const lease of leases.filter((candidate) => candidate.releasedAt === null && matches(candidate, selector))) {
         const updated: LeaseRecord = {...lease, releasedAt: now.toISOString(), releaseReason: reason};
-        await writeLease(mainRoot, updated);
+        try {
+            await writeLease(mainRoot, updated);
+        } catch (error) {
+            if (!(error instanceof NbdevError) || error.code !== "write_failed") throw error;
+            warnings.push({code: "lease_write_failed", message: `释放租约失败（记录操作不受影响）：${error.message}`, details: {...error.details, leaseId: lease.leaseId}});
+            continue;
+        }
         released.push(updated);
     }
-    return released;
+    return {released, warnings};
 }
 
 /** 查一批租约里各会话进程是否还在（每个进程只查一次），供 `LeaseContext.processAlive` 使用。 */
