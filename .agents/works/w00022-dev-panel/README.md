@@ -25,4 +25,5 @@ issueId: null
 |---|---|
 | [t01](tasks/t01-requirements/README.md) | 需求分析、功能分析与本地／入库边界的现状调查；2026-10-12 开发者全部确认，并定 Work 分仓库与本地两类 |
 | [t02](tasks/t02-local-vs-repo-rules/README.md) | 按 t01 的判据改规则：`.local/` 分 Agent 区与用户区、Work 两类、验证与截图的入库边界、`design-review` 的路径；把现有评审板与本地产物搬进新结构。编号规则等命令行可用后再改 |
-| [t03](tasks/t03-design/README.md) | 面板与命令行的设计：按 `design-review` 流程定首页注意力排序与静态稿，再写 Proposal 与实施计划；2026-10-12 开工，同时有子代理在做需求深化 |
+| [t03](tasks/t03-design/README.md) | 面板与命令行的设计：按 `design-review` 流程定首页注意力排序与静态稿，再写 Proposal 与实施计划；2026-10-12 开工；已定首页 B、内容分类与导航、面板只做 herdr 的网页前端，第二轮静态稿与会话托管调研进行中 |
+| t04 | 已确认的规则跟进：worktree 一个 Task 一个、Task 号允许三位（改治理检查正则）、omp 会话目录改放 `.local/agent`（改用户全局规则）；未开工 |
