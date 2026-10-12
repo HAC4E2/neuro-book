@@ -433,6 +433,20 @@ test.describe("Lab", () => {
 
     test.use({viewport: {width: 2300, height: 1100}});
 
+    test("横向容器收成 32px 竖条：长标题在竖条里截断并带省略号，不伸出竖条底边，展开按钮仍在顶部", async ({page}) => {
+        await page.goto(`${dev.pageUrl}lab?c=WorkbenchViewSection&s=horizontal-collapsed&vp=300x260`);
+        await expect(page.locator("[data-lab-subject] [data-view-toggle]")).toBeVisible();
+        const facts = await page.evaluate(() => {
+            // 场景的标题是短的：换成放不下的长标题再量（只改文字，量的是布局）。
+            const handle = document.querySelector(".workbench-view-section__handle")!;
+            handle.textContent = "一个很长很长很长很长很长很长很长很长很长很长很长的视图标题";
+            const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+            const head = box(".workbench-view-section__head");
+            return {inside: box(".workbench-view-section__title").bottom <= head.bottom, ellipsis: getComputedStyle(handle).textOverflow === "ellipsis" && handle.scrollHeight > handle.clientHeight, toggleOnTop: box("[data-view-toggle]").top < box(".workbench-view-section__title").top};
+        });
+        expect(facts).toEqual({inside: true, ellipsis: true, toggleOnTop: true});
+    });
+
     test("同一场景里换位置、最大化、隐藏、紧凑往返：编辑器样例不重挂，输入与滚动保留", async ({page}) => {
         await page.goto(`${dev.pageUrl}lab?c=WorkbenchShellLayout&s=default`);
         const sample = page.locator("[data-shell-sample]");

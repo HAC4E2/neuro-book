@@ -92,10 +92,13 @@ defineSlots<{
     color: var(--text-muted);
 }
 
-/* 省略号裁切放在把手自己身上：标题不裁切，把手的焦点光环才不会被标题切掉上下。 */
+/*
+ * 省略号裁切放在把手自己身上：标题不裁切，把手的焦点光环才不会被标题切掉上下。上限用行向尺寸：收起成竖条时标题竖排，
+ * 行向是竖的，限制的是高度。
+ */
 .workbench-view-section__handle {
     display: inline-block;
-    max-width: 100%;
+    max-inline-size: 100%;
     overflow: hidden;
     border-radius: var(--radius-control);
     text-overflow: ellipsis;
@@ -137,8 +140,10 @@ defineSlots<{
     padding-inline: 0;
 }
 
+/* 竖排的标题要能比文字短：不写 min-height 时弹性项最矮也是文字的高度，长标题会伸出竖条、在底边被截断而没有省略号。 */
 .workbench-view-section--horizontal.workbench-view-section--collapsed .workbench-view-section__title {
     flex: 0 1 auto;
+    min-height: 0;
     writing-mode: vertical-rl;
 }
 </style>

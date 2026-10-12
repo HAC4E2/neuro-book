@@ -105,15 +105,20 @@ test("measure 报出聚焦光晕会被裁的元素：按样式表的焦点规则
     expect(clipped).toEqual({base: 0, own: 1, shell: 1, frame: 0, roomy: 0, near: 0});
 });
 
-test("焦点规则只画内阴影（内嵌焦点线）的贴边按钮不算光晕被裁，画外阴影的照报（验收 29）", async ({page}) => {
+test("焦点规则只画内阴影（内嵌焦点线）的贴边按钮不算光晕被裁；画外阴影的、内阴影混着 var() 外阴影的、outline 简写用 var() 的照报（验收 29、30）", async ({page}) => {
     await page.goto(`${dev.pageUrl}lab?c=SkillChip&s=skill`);
     await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
     const clipped = await page.evaluate(() => {
         const style = document.head.appendChild(document.createElement("style"));
-        style.textContent = ".probe-inset:focus-visible { box-shadow: inset 0 0 0 1.5px red; } .probe-outer:focus-visible { box-shadow: 0 0 0 3.5px red; }";
+        style.textContent = [
+            ".probe-inset:focus-visible { box-shadow: inset 0 0 0 1.5px red; }",
+            ".probe-outer:focus-visible { box-shadow: 0 0 0 3.5px red; }",
+            ".probe-mixed { --probe-outer: 0 0 0 3.5px red; } .probe-mixed:focus-visible { box-shadow: inset 0 0 0 1.5px blue, var(--probe-outer); }",
+            ".probe-outline { --probe-outline: 3px solid red; } .probe-outline:focus-visible { outline: var(--probe-outline); }",
+        ].join("\n");
         const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
         const counts: Record<string, number> = {};
-        for (const name of ["probe-inset", "probe-outer"]) {
+        for (const name of ["probe-inset", "probe-outer", "probe-mixed", "probe-outline"]) {
             const box = Object.assign(document.createElement("div"), {style: "overflow: hidden"});
             box.append(Object.assign(document.createElement("button"), {className: name, textContent: name}));
             stage.append(box);
@@ -122,7 +127,7 @@ test("焦点规则只画内阴影（内嵌焦点线）的贴边按钮不算光�
         }
         return counts;
     });
-    expect(clipped).toEqual({"probe-inset": 0, "probe-outer": 1});
+    expect(clipped).toEqual({"probe-inset": 0, "probe-outer": 1, "probe-mixed": 1, "probe-outline": 1});
 });
 
 test("聚焦光晕按当前主题焦点环的实色扩散量算：editorial 3px、nbook 3.5px、aurora 4px（验收 28）", async ({page}) => {
