@@ -168,6 +168,6 @@
 2. 验证结果只以文字摘要入库、原始输出留本地；验收截图默认不入库。
 3. 面板第一版的范围：索引、浏览与搜索、讲解页平台、回复通道；运行状态与 GitHub 放第二版。
 4. 面板只读仓库、只写 `.local/agent/` 下的答案。
-5. 位置：`packages/dev-panel`（Bun 工作区自动收进来，能直接依赖 nb-ui，类型检查与测试随工作区走），或仓库根目录的独立目录（需要把它加进工作区才能用 nb-ui）。主 Agent 推荐前者。
+5. 位置：`packages/dev-panel`，或仓库根目录的独立目录。（更正：根 `package.json` 的 `workspaces` 是逐项列出的，两个位置都要登记进去才能依赖 nb-ui，差别比原先写的小，见 [补充分析](analysis-supplement.md) 第九节。）主 Agent 推荐前者。
 6. 命令行与网页共用核心库；编号登记表放 `.local/agent/registry.json`，Work 与 Task 号都走它；第一版的命令按第七节的表，`review start` 放第二版。
 7. 有了登记表之后，Work 规则里“唯一分配者人工协调”那一节改成“经命令行领号”；Task 号也必须经它领。
