@@ -15,7 +15,7 @@ taskId: t80-settings-ui
 
 - 代码：worktree `.worktree/w00017-t80-settings-ui`，分支 `t80/settings-ui`，从 `refactor/w00017-runtime-foundation` 的 `fb6e94a2` 分出；`.worktree/w00017-runtime-foundation` 有别的会话在做 t78，本 Task 不碰它。合回前按 t78、t79 的提交重新对齐。
 - 设计草稿：worktree `.worktree/w00017-t80-drafts`（分支 `t80/drafts`，不合并），Lab 里的一次性草稿场景在 `packages/neuro-book/src/plugins/lab/web/fixtures/drafts/`，不提交。
-- 评审板：本机 `.local/design-review/t80-settings-ui/index.html`（git 忽略），各轮截图在同目录 `r1/`、`r2/`…；开发者 2026-10-12 决定讨论过程的图片不入库。
+- 评审板：本机 `.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/index.html`（git 忽略），各轮截图在同目录 `r1/`、`r2/`…；实现阶段的截图在同一 Task 的 `shots/`；开发者 2026-10-12 决定讨论过程的图片不入库。
 
 ## 设计决定
 
@@ -38,12 +38,12 @@ taskId: t80-settings-ui
 ## 当前状态
 
 - 2026-10-12 设计四轮完成。S1（声明字段、`settings.sections`、用户编辑写入、两份 Spec）已提交 `177682b4`：主 Agent 复跑设置、共用声明、架构、清单与示例测试 115 通过、1 失败，三份 typecheck、`docs:check`、`governance:check` 通过；那 1 条失败（`commands.test.ts`“切换主题与明暗”，测试场地缺工作台在 t74 加的必需依赖 `windowNavigationKey`）在基线 `fb6e94a2` 上同样失败，交给 S2 顺手修测试场地。
-- S2 已提交 `dbe41959`：设置窗口、`src/ui/settings/` 的 `SettingsRow`（含宽排法）与 `SettingsPageList`、`nbook.settings` 的窗口入口、命令 `nbook.settings.open`（`Ctrl+,`；工作台键位解析原本不认逗号，补了一处）与公开状态 `windowOpen`、外观分区、Lab 局部宿主与全部状态的场景。主 Agent 复跑：bun 1035 通过、Vitest 181 通过、三份 typecheck 与 `lab-scenes` 门禁通过；S1 时那条旧失败已随测试场地补齐恢复。截图在评审板目录 `s2/`。
+- S2 已提交 `dbe41959`：设置窗口、`src/ui/settings/` 的 `SettingsRow`（含宽排法）与 `SettingsPageList`、`nbook.settings` 的窗口入口、命令 `nbook.settings.open`（`Ctrl+,`；工作台键位解析原本不认逗号，补了一处）与公开状态 `windowOpen`、外观分区、Lab 局部宿主与全部状态的场景。主 Agent 复跑：bun 1035 通过、Vitest 181 通过、三份 typecheck 与 `lab-scenes` 门禁通过；S1 时那条旧失败已随测试场地补齐恢复。截图在本地 `shots/s2/`。
   - 主 Agent 定下：层快照只给项目层带文件路径，用户层不带（[`runtime/projects.md`](../../../../../docs/specs/runtime/projects.md) 的路径可见性不发状态根给浏览器）；分区落位改为第一次打开时才算。
   - 对齐主线时要改：窗口里的书名现在取窗口项目绑定的登记名，t79 S1 已让绑定带上书名，对齐后改用它。
 - S3 已提交 `2eef0fa2`：示例插件 `example.snippets`（片段数组配置项、column 页面、按层读写、教学注释）、场景 06，页面组件由 Vitest 测试覆盖（Vitest 改为也收集 `examples/**/*.dom.test.ts`）；`SettingsRow` 的宽排法在沿用时也画出停用的控件。架构规则不允许 Lab 引用 `examples/`，Lab 保留自带的最小页面。主 Agent 复跑 bun 测试四次：一次出现 1 个未捕获错误（输出没留下，来源未查明），另三次 1039 通过、0 失败；Vitest 183 通过，typecheck 与 `docs:check` 通过。
 - 2026-10-12 主线 t78 S1–S2、t79 S1–S2 提交后，t80 分支合入主线对齐（`850f0871`，无冲突；合并后 typecheck 通过、bun 1044 通过、Vitest 183 通过）。
-- S4 已提交 `28d4e3de`：`workbench.activitybar-items`（活动栏底部条目，`toggled` 按下态、没有命令的条目画成圆形占位）、`workbench.overlays`（页面根上的浮层，首页与工作台都挂）；设置齿轮与头像占位；设置窗口经浮层挂载、改用书名；书架右上角齿轮代替设置菜单（“作品目录…”移到设置）；作品插件贡献“作品”分区；外壳、书架、设置窗口 Spec 与 e2e。主 Agent 复跑：typecheck 通过，bun 1052 通过，Vitest 195 通过，e2e（设置、书架、Lab 门禁、外壳）28 通过。截图在评审板目录 `s4/`。
+- S4 已提交 `28d4e3de`：`workbench.activitybar-items`（活动栏底部条目，`toggled` 按下态、没有命令的条目画成圆形占位）、`workbench.overlays`（页面根上的浮层，首页与工作台都挂）；设置齿轮与头像占位；设置窗口经浮层挂载、改用书名；书架右上角齿轮代替设置菜单（“作品目录…”移到设置）；作品插件贡献“作品”分区；外壳、书架、设置窗口 Spec 与 e2e。主 Agent 复跑：typecheck 通过，bun 1052 通过，Vitest 195 通过，e2e（设置、书架、Lab 门禁、外壳）28 通过。截图在本地 `shots/s4/`。
 - S5 进行中：omp 实现审查（单独的审查 checkout `.worktree/w00017-t80-review`，固定在 `28d4e3de`）。
 - 作品分区未设置时的文案“还没设，第一次新建作品时会记下”与书架行为不一致（书架只在用户改过新建位置时才写设置）。开发者定：改文案，没设时显示缺省目录（经 `library()` 取有效目录，标“缺省”），书架行为不变；随 S5 的审查修正一起改。
 - 搭稿时发现的 nb-ui 缺陷记为 [t81](../t81-nb-ui-text-size-segmented/README.md)。另有：缺扁平的分区导航组件（设置窗口先在应用里自己做）；带候选的输入框与其它控件外观不统一、`FormNumberInput` 没有单位后缀的位置（编辑器分区接入时处理）。

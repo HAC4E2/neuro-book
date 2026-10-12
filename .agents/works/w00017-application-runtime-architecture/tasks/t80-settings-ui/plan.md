@@ -4,7 +4,7 @@
 
 - **为什么做**：开发者决定先做纯前端的旧功能迁移，设置界面第一个。`nbook.settings` 已有配置合同（[`settings/configuration.md`](../../../../../docs/specs/settings/configuration.md)），但设置界面、用户编辑的写入路径只定了合同；设置声明也缺界面要的字段。旧设置的规模（模型服务、Agent Profile 两个自定义两栏页，密钥、可排序列表、项目层只覆盖部分字段）见 [旧设置清单](legacy-settings-inventory.md)。
 - **已确认的决定**（编号同 [README](README.md)）：浮动窗口加左侧分区；每项标题在左、控件在右；入口和头像放在一起；顶部切换“用户 | 本作品”；不做“启动”档，“本机”层只留合同；编辑器偏好放用户层；贡献点按草案；自定义整页本 Task 实现、示例插件当使用者；编辑器分区排在 t79 之后。
-- **稿子**：各轮静态稿与贡献标注稿在本机评审板 `.local/design-review/t80-settings-ui/index.html`（不入库），设计决定的文字记在 README。
+- **稿子**：各轮静态稿与贡献标注稿在本机评审板 `.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/index.html`（不入库），设计决定的文字记在 README。
 - **后来确认的**：窗口固定宽 960×640（不按页面变宽）；入口用 P1（齿轮单独放在头像旁边）。每项用混合排法（README 第 11 条）。
 - **工作方式**：主 Agent 写计划、审 diff、自己跑验证与决定验收；每片派一个编码子代理（opus）在 `.worktree/w00017-t80-settings-ui` 实施，同一时间只有一个子代理写代码。每片连同它的 Spec 与组件文档一起提交。收尾交 omp 审查。
 
