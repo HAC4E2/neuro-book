@@ -11,12 +11,13 @@
 - `src/index.ts` 与 `src/core/` 只用 Node 兼容 API（根脚本测试在 Node 下导入它们），由两层保证：`tsconfig.core.json` 只带 Node 类型，并把 `bun`、`bun:*` 指到空模块 `types/no-bun-in-core.d.ts`，类型检查拦住 `Bun` 全局与从 bun 模块取导出；`scripts/ci/dev-panel-records.test.ts` 在 Node 下导入公开入口，运行时再拦一次。不要在核心里用 `Bun.*` 或 `bun:*`。
 - 记录锁是本包自己实现的目录锁（`src/core/lock.ts`），持锁者是否存活按 `/proc/<pid>/stat` 的启动时刻判断，没有心跳；不要换回按 mtime 判过期的锁库。
 - 只支持 Linux。
+- 页面解析用 `parse5`，只在发布路径里经 `parseQuestionMarkup` 按需导入；`status` 等读取路径不能加载它（`tests/artifacts-cli.test.ts` 用 `tests/no-parse5-preload.ts` 检查）。
 
 ## 测试
 
 - 用 `bun test`；临时目录用 `@notnotype/neuro-book-test-support/tmp` 的 `createTestTmpRoot`，仓库建在临时根的子目录里（根目录有测试支持包的标记文件）。
 - Git 夹具见 `tests/git-fixture.ts`：子进程环境隔离开发者的全局配置，并设 `GIT_CEILING_DIRECTORIES`，不会爬到外层仓库。
-- 测试不碰真实仓库的 `.agents/works/` 与 `.local/agent/`；在真实仓库运行命令行属于验收，按 Task 记录执行。
+- 测试不碰真实仓库的 `.agents/works/` 与 `.local/agent/`；在真实仓库运行命令行属于验收，按 Task 记录执行。发布、提问、答复只在临时仓库里测：真实仓库第一次用 nbdev 写要开发者授权。
 - 测试不碰默认 herdr：`tests/git-fixture.ts` 在导入时按前缀删掉 `HERDR_*`、`CLAUDE*`、`OMPCODE`，并把 `HERDR_SOCKET_PATH` 指到不存在的路径；需要 herdr 的 L3 用 `tests/fake-herdr.ts`。L4（`tests/herdr-live.test.ts`）只用命名会话 `nbdev-test`，herdr 子进程只拿 HOME、PATH、TERM，用完停 server、删会话；本机没有 herdr 时跳过，记为未验证。
 - 扮成 Claude 主进程（`CLAUDE_PID`）时用 `tests/processes.ts` 的 `startFakeClaude`，经它运行 nbdev：nbdev 要求 `CLAUDE_PID` 是调用者的祖先；也不能用测试进程自己扮，从真实 Claude 会话里跑起来的测试进程，`/proc/<pid>/environ` 里带着那个会话的 id，会被当成嵌套调用。L4 里扮成 Claude 的进程还要在 pane 的前台（写标签前会核对），由 `herdr pane run` 在 pane 里运行 `tests/l4-claude-pane.ts`。
 - 等子进程就绪用 `spawnMarked`（轮询到 `/proc/<pid>/environ` 带上标记），结束用 `stopProcess`（等到 `exit`），不用固定等待。

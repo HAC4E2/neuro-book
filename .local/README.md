@@ -15,6 +15,7 @@ Agent 可以读写。除 nbdev 的登记表外只放能重新生成的原始输�
 ├── run/
 │   ├── leases/                # nbdev 的租约（哪个会话在动哪个 Task），失效与释放的不删
 │   ├── procs/                 # 经 nbdev 起的进程（t14 起写）
+│   ├── provenance/            # 入库的发布记录、代录答复与确认是哪个会话写的（提问者）；删了只是找不到提问者
 │   └── tmp/                   # nbdev 写事务的临时目录
 └── works/<workId>/tasks/<taskId>/
     ├── reports/               # 子代理、omp 的会话目录与原始输出；要给开发者看的报告作为产物入库

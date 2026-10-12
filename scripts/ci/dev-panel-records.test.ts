@@ -4,7 +4,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {createTask, createWork, locateRepository, parseTaskId, parseWorkId} from "@notnotype/dev-panel";
+import {ackAnswers, askQuestions, createTask, createWork, locateRepository, parseTaskId, parseWorkId, publishArtifact, submitAnswer} from "@notnotype/dev-panel";
 import {verifyWorkContracts} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -59,6 +59,24 @@ describe("nbdev 记录与治理检查一致", () => {
         expect(task.data.taskId).toBe("t100-three-digit");
         expect(task.commit.committed).toBe(true);
 
+        expect(verifyWorkContracts(main)).toEqual([]);
+        expect(await runGit(main, ["status", "--porcelain"])).toBe("");
+    }, 30_000);
+
+    it("发布、登记、代录、确认之后，记录仍然通过 verifyWorkContracts（在 Node 下导入，页面解析器按需加载）", async () => {
+        const main = await createRepository("dev-panel-artifacts");
+        const context = await locateRepository(main);
+        await createWork(context, {slug: "records", title: "记录", goal: "核对产物格式。", taskSlug: "first"});
+        await writeText(main, ".agents/works/w00001-records/tasks/t01-first/artifacts/review/index.html", [
+            "<!doctype html><title>评审板</title>",
+            '<section data-nbdev-question="layout" data-nbdev-type="single"><h2>版式</h2>',
+            '<div data-nbdev-option="cards"><h3>卡片</h3></div><div data-nbdev-option="table"><h3>表</h3></div></section>',
+        ].join("\n"));
+        const target = {workRef: "w00001", taskRef: "t01", artifactId: "review"};
+        expect((await publishArtifact(context, {...target, kind: "design"})).commit.committed).toBe(true);
+        expect((await askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "order", type: "text", label: "顺序"}]})).commit.committed).toBe(true);
+        expect((await submitAnswer(context, {...target, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}})).commit.committed).toBe(true);
+        expect((await ackAnswers(context, target)).commit.committed).toBe(true);
         expect(verifyWorkContracts(main)).toEqual([]);
         expect(await runGit(main, ["status", "--porcelain"])).toBe("");
     }, 30_000);

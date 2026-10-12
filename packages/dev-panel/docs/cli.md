@@ -21,8 +21,17 @@
 | `nbdev release [<workRef> <taskRef>]` | `--as` | `nbdev.release/v1` |
 | `nbdev registry import` | 无 | `nbdev.registry-import/v1` |
 | `nbdev status` | `--work <workRef>`、`--task <taskRef>`（要求同时有 `--work`） | `nbdev.status/v1` |
+| `nbdev artifact publish <workRef> <taskRef> <artifactId>` | `--kind`（第一次必填：`design`、`report`、`review`）、`--title`、`--entry`（缺省 `index.html`）、`--keep <题号>`（可重复）、`--force-version`、`--as` | `nbdev.artifact-publish/v1` |
+| `nbdev artifact close <workRef> <taskRef> <artifactId>` | `--as` | `nbdev.artifact-close/v1` |
+| `nbdev ask <workRef> <taskRef>` | `--id`、`--type`、`--label`，`--option <值>[=<名称>]`（可重复，或 `@review`）、`--optional`、`--recommend <值>`（可重复）、`--artifact <artifactId>`、`--about <路径>`；或 `--from <JSON 文件>`（不与单题参数混用）；`--as` | `nbdev.ask/v1` |
+| `nbdev ask withdraw <workRef> <taskRef> <提问>` | `--as` | `nbdev.ask-withdraw/v1` |
+| `nbdev ask supersede <workRef> <taskRef> <提问>` | `--by <提问>` 必填、`--as` | `nbdev.ask-supersede/v1` |
+| `nbdev answers [<workRef> [<taskRef> [<artifactId>]]]` | `--pending` 或 `--unacked`；`--wait`、`--timeout <秒>`、`--since <答复 id>`（`--wait` 不与 `--pending` 同用）；`--as` | `nbdev.answers/v1` |
+| `nbdev answers ack <workRef> <taskRef> <artifactId>` | `--include <路径>`（可重复）、`--as` | `nbdev.answers-ack/v1` |
+| `nbdev answers record <workRef> <taskRef> <artifactId>` | `--set <题号>=<值>`（可重复，至少一个；`multi` 用逗号分隔，`confirm` 写 `yes` 或 `no`）、`--comment <题号>=<文字>`（可重复）、`--note`、`--as` | `nbdev.answers-record/v1` |
 
 - `workRef` 是完整 id（`w00022-dev-panel`）或编号（`w00022`）；`taskRef` 是完整 id 或编号（`t06`、`t100`）。
+- `<提问>` 写 `<artifactId>#<题号>`；Task 提问集里的题可以只写题号。`--by` 另可写 `<workRef>/<taskRef>/<artifactId>#<题号>` 指向别的 Task。
 - 每个命令都接受 `--json`。
 
 ### 写什么
@@ -31,7 +40,12 @@
 - `task new`：领该 Work 的下一个 Task 号，建 Task README 并提交。Work README 必须已提交到 `master`（否则 `work_not_committed`）；记录还在分支上维护的 Work 也一律写进 `master`。不改 Work README。
 - `work status`、`task status`：只改 frontmatter 的 `status` 与 `updated` 两行并提交。取值与现值相同时不写不提交。记录来自分支、或 Work README 未提交时拒绝。目标文件在主工作区有未提交改动时默认拒绝，`--include-uncommitted` 才连同这些改动一起提交。
 - `registry import`：按扫描结果补登 `imported` 条目，只写 `.local/agent/registry.json`，可以重复运行。
-- `status`：只读，不取锁，不写任何文件；herdr 只调只读方法，总时限 2.5 秒。
+- `status`：只读，不取锁，不写任何文件，不加载页面解析器；herdr 只调只读方法，总时限 2.5 秒。
+- `artifact publish`：页面文件由会话直接写在主工作区的产物目录里；在写事务的锁内读上一版、列页面文件、解析提问标记、算 `contentHash`、生成新的题表，写 `versions/v<N>.json`，与产物目录里 Git 有变化的页面文件（不含删除项与 `answers/`）一起提交。内容与题都没变时不出新版本（`unchanged: true`），`--force-version` 照样出，并把 `versions/` 下还没提交的发布记录一起提交。格式与题表规则见 [文件格式](file-formats.md#产物)。
+- `artifact close`、`ask`、`ask withdraw`、`ask supersede`：各写一版新的发布记录，沿用上一版的内容字段，页面不重新解析。`ask` 不给 `--artifact` 时记进 Task 的提问集（`artifacts/questions/`，第一次登记时建它）；指向已关闭的产物报 `artifact_closed`。`--about` 只校验路径格式，主工作区与调用者的 checkout 里都找不到时给 `about_not_found` 警告。
+- `answers record`：写一份代录的答复（`submittedBy.kind: "agent-transcribed"`）。`answers ack`：写一份确认，覆盖当时全部未确认的答复，并把 `--include` 列出的记录（相对主工作区根，只收 `.agents/works/` 下）放进同一个提交；没有未确认的答复时不写，给 `already_acked`，`--include` 的文件也不提交。
+- 这些写入都要求：Work README 与 Task README 已提交到 `master`（否则 `work_not_committed`、`task_not_committed`）；Task 的来源是 `master`（判定同 `task status`：来自分支的 Work 里，只在 `master` 上的 Task 或经 nbdev 领号的 Task 可以写，否则 `branch_maintained_record`）。发布、答复、确认都不改 Task README 的 `updated`。
+- 写完之后续期调用者在这个 Task 上的租约，再把“谁写的”记进运行时的 provenance（见 [文件格式](file-formats.md#provenance)）；入库的文件里没有会话。
 
 ### 会话与租约
 
@@ -72,6 +86,14 @@ stdout 只有一个对象，诊断走 stderr：
   - `activeLeases`、`leases`：有效租约 `{sessionKey, agent, label, taskId, lastActivityAt, stale}`，`stale` 表示超过 2 小时没有 Task 相关操作（淡化显示）；
   - `sessions[]`：有有效租约或有运行的会话，`{key, agent, sessionId, label, parentSessionId, nestedSessionId, alive, managed, herdr: {paneId, status}, leases, runs}`；`alive` 是会话进程是否还在（不知道时为 `null`），`managed` 表示 herdr 现在的列表里有它（能通知）；
   - 运行 `{pid, startedAt, command, cwd, checkout, owner, ownerVia, paneId, unit, sessionHint, sessionAlive, descendants}`；`unownedRuns` 是普通 shell pane 里起的进程、systemd 服务单元（`systemd-run`）里的进程，以及会话已不在、但带着它的工具标记的进程（`sessionHint` 为标记里的会话键，`sessionAlive` 为 `false`）。归属规则见 [herdr 适配](herdr.md#运行的归属)。
+- `status` 的 `data` 另有：
+  - `inbox[]`：只放要开发者动手的事，`{kind: "question", workId, taskId, artifactId, questionId, label, type, version, since, askedBy}`（`open` 的必答题；`askedBy` 是运行时的会话键，读不到为 `null`）与 `{kind: "number_conflict", label, live}`；带 `--work` 时只列范围内的；
+  - Task 的 `artifacts[]`：`{artifactId, kind, title, version, state, publishedAt, openRequired, adoption}`，没有发布记录的 `state` 为 `unpublished`；Task 与 Work 的 `documents[]`：`{path, title}`；Work 的 `artifacts[]`（Work 级产物，只索引）；
+  - Task 的 `updated`：frontmatter 的 `updated` 与产物目录最后一次提交的日期中较晚的那个。
+- `artifact publish` 的 `data`：`workId`、`taskId`、`artifactId`、`unchanged`、`version`、`path`、`questions`（新版本的全部题）、`dropped`（被这一版取代的题）、`retiredInPage`、`restored`、`committedFiles`、`previous`（`{version, publishedAt, publishedBy}`，`publishedBy` 读 provenance）、`lease`、`commit`。`artifact close`、`ask`、`ask withdraw`、`ask supersede` 的 `data`：`workId`、`taskId`、`artifactId`、`unchanged`、`version`、`path`、`questions`、`affected`、`lease`、`commit`。
+- `answers` 的 `data`：`artifacts[]` 与 `cursor`（范围内最大的答复 id）。每个产物：`workId`、`taskId`、`artifactId`、`kind`、`title`、`version`、`state`、`publishedAt`、`openRequired`、`adoption`（`none`、`waiting`、`adopted`）、`questions[]`（`{question, state, answer, stale}`，`answer` 带 `answerId`、`value`、`artifactVersion`、`submittedAt`、`comment`）、`answers[]`、`acks[]`、`unacked[]`、`cursor`。`--pending` 只留有 `open` 必答题的产物、题也只留这些；`--unacked` 只留有未确认答复的产物；`--since` 只留有更新答复的产物、答复也只留这些。指定了 Task 时续期调用者的租约。
+- `answers ack` 的 `data`：`acked`、`ack`、`path`、`lease`、`commit`；`answers record` 的 `data`：`answer`、`path`、`lease`、`commit`。
+- **提交失败后的补救**：写入的文件已经在主工作区，`data.commit.writtenPaths` 列出它们。推荐手动提交这些路径（`git commit -- <路径>`）；发布也可以加 `--force-version` 重跑：内容没变也出新的一版，并把还没提交的发布记录一起提交。不加时重跑会被判成内容没变，文件始终不会提交；`ask` 重跑会报题号重复。
 - `registry import` 的 `data`：`added`、`nextWorkNumber`、`nextTaskNumbers`（按 Work id）、`conflicts`、`registryOnly`。
 - `conflicts[]` 的元素：`{kind, label, workId?, live, ids: [{id, live, locations}]}`；`locations` 的元素是 `{source: "main" | "worktree" | "ref", checkout?, ref?, head?}`。一个 id 只出现在 `master` 改名或删除后留下的旧副本里时不算 `live`；一组撞号至少两个 id `live` 时这组 `live`。
 
@@ -81,10 +103,10 @@ stdout 只有一个对象，诊断走 stderr：
 |---|---|---|
 | 0 | 成功，含带警告的成功与撞号 | |
 | 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`internal` |
-| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`caller_unknown` |
-| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists` |
-| 4 | 等待超时（`answers --wait`，后续） | |
-| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found` |
+| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer` |
+| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed` |
+| 4 | 等待没有结果（`answers --wait`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted` |
+| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers` |
 
 ## 警告
 
@@ -115,6 +137,31 @@ stdout 只有一个对象，诊断走 stderr：
 | `lock_taken_over` | 取锁时接管了已退出进程留下的（或损坏的）锁 |
 | `lock_reacquired` | 写入之前发现锁被别的进程拿走，已重新取锁并重算 |
 | `tmp_cleanup_failed` | 删除本次事务的临时目录失败 |
+| `questions_dropped` | 页面里没有了、还没答的题记为被这一版取代；暂时删掉的用 `--keep` 保留 |
+| `retired_question_in_page` | 已撤回或已取代的题号又出现在页面里，结局不变 |
+| `artifact_reopened` | 发布重新打开了已关闭的产物，恢复了因关闭而撤回、页面里还在的题 |
+| `questions_in_script` | 脚本、模板、`noscript` 或 `.js` 文件里出现了提问标记，解析不到 |
+| `missing_reference` | 页面引用的本地文件不存在 |
+| `reference_outside_artifact` | 页面引用了产物目录之外的文件 |
+| `image_too_large` | 产物目录里有超过 300 KiB 的图片 |
+| `task_images_too_large` | 这个 Task 的 `artifacts/` 与 `evidences/` 里的图片合计超过 5 MiB |
+| `artifact_deletions_not_committed` | 产物目录里有被删的文件，没有随发布提交 |
+| `already_closed` | 产物已经关闭，没有出新版本 |
+| `already_acked` | 没有未确认的答复，没有写确认 |
+| `about_not_found` | `--about` 的文件在主工作区与当前 checkout 里都找不到 |
+| `open_questions` | Task 改成 `done` 或 `shelved` 时还有 `open` 的必答题（不自动撤回） |
+| `provenance_write_failed` | 记 provenance 失败，只影响“谁问的”这条线索 |
+| `unreadable_artifact_record` | 某个发布记录、答复或确认读不出，已跳过 |
+| `unreadable_provenance` | 某个 provenance 文件读不出，按没有处理 |
+| `schema_unsupported` | 读列表时遇到不认识主版本的文件，已跳过 |
+
+## `answers --wait`
+
+- 等到选中的答复不为空就退出（退出码 0），输出与不带 `--wait` 时相同。缺省按未确认的答复选：已有未确认的答复时立即返回，所以发布之后、挂上等待之前到达的答复不会被漏掉。只想等之后的新答复时加 `--since <cursor>`（`cursor` 取上一次输出里的值）。
+- 开始时完整读一次、定下范围内的产物，在 stderr 报一行“等待中”；之后每秒只 `readdir` 主工作区里这些产物的 `answers/`，不跑 Git，目录有变化才重读那个产物。等待期间新发布的产物不在范围内。
+- `--timeout` 缺省 1800 秒，到点退出码 4（`wait_timeout`）；收到 SIGTERM 或 SIGINT 退出码同样是 4（`wait_interrupted`）。
+- **重挂办法**：退出码 4（或被宿主结束）时按原参数重挂；退出码 0 时先处理答复并 `answers ack`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。
+- Claude Code 会话用 `run_in_background` 挂着，命令一退出会话就被唤醒；单个后台任务能活多久没有核实，被宿主结束时照样按原参数重挂，不会丢答复。
 
 ## 失败时留下什么
 
