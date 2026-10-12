@@ -19,6 +19,7 @@ import {
     QUESTIONS_ARTIFACT,
     readArtifact,
     readArtifactVersion,
+    RECORD_ID_PATTERN,
     unackedAnswers,
     versionPath,
     adoptionOf,
@@ -615,14 +616,23 @@ function parseRawValue(type: QuestionType, questionId: string, text: string): un
     return text;
 }
 
-export type AckData = {workId: string; taskId: string; artifactId: string; acked: boolean; ack: AckRecord | null; path: string | null};
+export type AckInput = {workRef: string; taskRef: string; artifactId: string; through?: string; include?: readonly string[]};
+export type AckData = {workId: string; taskId: string; artifactId: string; acked: boolean; ack: AckRecord | null; path: string | null; newer: string[]};
+
+/** 游标与答复 id 同形（`answers --since`、`answers ack --through`）。 */
+export function assertCursor(cursor: string, option: string): void {
+    if (!RECORD_ID_PATTERN.test(cursor)) throw new NbdevError("usage", `${option} 要写答复 id（answers 输出里的 cursor）：${cursor}`, {details: {[option.replace(/^-+/u, "")]: cursor}});
+}
 
 /**
- * `nbdev answers ack`：确认当时还未确认的全部答复，并把 `--include` 列出的记录（相对主工作区根，只收 `.agents/works/` 下）放进同一个提交。
- * 在锁内算覆盖哪些答复，所以并发写入的答复要么被确认、要么留到下一次，不会被跳过。
+ * `nbdev answers ack`：确认会话读到的答复，并把 `--include` 列出的记录（相对主工作区根，只收 `.agents/works/` 下）放进同一个提交。
+ * `through` 是会话读答复时拿到的游标，只确认 id 不大于它的未确认答复：同一个 `answers/` 目录里 id 在锁内单调生成，
+ * “不大于游标”就是“会话读之前已落位”。读完到确认之间开发者新交的答复留到下一次，给 `newer_answers_unacked`。
+ * 不给 `through` 时确认锁内看到的全部未确认答复，其中可能有会话没读过的，所以给 `ack_without_through`。
  */
-export async function ackAnswers(context: RepoContext, input: {workRef: string; taskRef: string; artifactId: string; include?: readonly string[]}, options: ArtifactOpOptions = {}): Promise<WriteOutcome<AckData>> {
+export async function ackAnswers(context: RepoContext, input: AckInput, options: ArtifactOpOptions = {}): Promise<WriteOutcome<AckData>> {
     assertArtifactId(input.artifactId);
+    if (input.through !== undefined) assertCursor(input.through, "--through");
     let content: string | null = null;
     const {result, commit, warnings} = await runWriteTransaction<AckData>(context, options, async (tx) => {
         const {workId, taskId} = await resolveWritableTask(tx, input.workRef, input.taskRef, {requireCommittedReadme: true});
@@ -632,18 +642,23 @@ export async function ackAnswers(context: RepoContext, input: {workRef: string; 
         const snapshot = await readForWrite(context.mainRoot, ref);
         if (!snapshot.latest) throw new NbdevError("artifact_not_found", `产物还没有发布记录：${artifactDirPath(ref)}`, {details: {...ref}});
         if (snapshot.answers.length === 0) throw new NbdevError("no_answers", `${input.artifactId} 还没有任何答复`, {details: {...ref}});
-        const pending = unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId).sort();
+        const unacked = unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId).sort();
+        const through = input.through;
+        const pending = through === undefined ? unacked : unacked.filter((answerId) => answerId <= through);
+        const newer = through === undefined ? [] : unacked.filter((answerId) => answerId > through);
+        if (newer.length > 0) tx.warn({code: "newer_answers_unacked", message: `有 ${newer.length} 份答复比 --through 新，没有确认：先用 nbdev answers 读它们`, details: {through, answers: newer}});
         if (pending.length === 0) {
-            tx.warn({code: "already_acked", message: `${input.artifactId} 的答复都已确认，没有写确认${input.include?.length ? "；--include 的文件也没有提交" : ""}`, details: {include: input.include ?? []}});
-            return {message: null, result: {workId, taskId, artifactId: input.artifactId, acked: false, ack: null, path: null}};
+            tx.warn({code: "already_acked", message: `${input.artifactId} 的答复${through === undefined ? "" : `（到 ${through} 为止）`}都已确认，没有写确认${input.include?.length ? "；--include 的文件也没有提交" : ""}`, details: {include: input.include ?? []}});
+            return {message: null, result: {workId, taskId, artifactId: input.artifactId, acked: false, ack: null, path: null, newer}};
         }
+        if (through === undefined) tx.warn({code: "ack_without_through", message: "没给 --through：确认了锁内看到的全部未确认答复，其中可能有读答复之后才到的；把 answers 输出里的 cursor 传给 --through", details: {answers: pending}});
         const now = new Date();
         const ackId = nextRecordId((await listAnswerFileNames(context.mainRoot, ref)).map((name) => name.slice(0, -".json".length)), now);
         const ack: AckRecord = {schema: "nbdev.answer-ack/v1", workId, taskId, artifactId: input.artifactId, ackId, answers: pending, through: pending.at(-1)!, included: [...(input.include ?? [])], ackedAt: now.toISOString()};
         const path = ackPath(ref, ackId);
         content = serialize(ack);
         tx.createFile(path, content);
-        return {message: commitMessage(workId, taskId, `确认采纳 ${input.artifactId} 的答复`), result: {workId, taskId, artifactId: input.artifactId, acked: true, ack, path}};
+        return {message: commitMessage(workId, taskId, `确认采纳 ${input.artifactId} 的答复`), result: {workId, taskId, artifactId: input.artifactId, acked: true, ack, path, newer}};
     });
     const lease = await afterWrite(context, {workId: result.workId, taskId: result.taskId, action: "answers ack"}, result.path && content ? [{path: result.path, content, action: "ack"}] : [], options, warnings);
     return {data: {...result, lease}, commit, warnings};

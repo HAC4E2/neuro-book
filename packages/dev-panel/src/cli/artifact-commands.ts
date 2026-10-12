@@ -35,7 +35,7 @@ export const ARTIFACT_USAGE = `  artifact publish <workRef> <taskRef> <artifactI
   ask withdraw <workRef> <taskRef> <[artifactId#]题号> [--as <标签>]
   ask supersede <workRef> <taskRef> <[artifactId#]题号> --by <[workRef/taskRef/][artifactId#]题号> [--as <标签>]
   answers [<workRef> [<taskRef> [<artifactId>]]] [--pending|--unacked] [--wait [--timeout <秒>] [--since <答复 id>]] [--as <标签>]
-  answers ack <workRef> <taskRef> <artifactId> [--include <路径>]… [--as <标签>]
+  answers ack <workRef> <taskRef> <artifactId> [--through <cursor>] [--include <路径>]… [--as <标签>]
   answers record <workRef> <taskRef> <artifactId> --set <题号>=<值>… [--comment <题号>=<文字>]… [--note <说明>] [--as <标签>]`;
 
 const DEFAULT_WAIT_SECONDS = 1_800;
@@ -119,7 +119,7 @@ function artifactLines(view: ArtifactAnswersView): string[] {
         const stale = state.stale ? `；旧答复已不合法（${state.stale.reason}）` : "";
         lines.push(`  ${state.question.id}  [${state.state}]  ${state.question.label}${value}${stale}`);
     }
-    if (view.unacked.length > 0) lines.push(`  未确认的答复：${view.unacked.join("、")}；把决定写进 Task README 后运行 nbdev answers ack ${view.workId.slice(0, 6)} ${view.taskId.slice(0, view.taskId.indexOf("-"))} ${view.artifactId} --include <README>`);
+    if (view.unacked.length > 0) lines.push(`  未确认的答复：${view.unacked.join("、")}；把决定写进 Task README 后运行 nbdev answers ack ${view.workId.slice(0, 6)} ${view.taskId.slice(0, view.taskId.indexOf("-"))} ${view.artifactId} --through ${view.cursor} --include <README>`);
     return lines;
 }
 
@@ -276,12 +276,13 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
     "answers ack": {
         schema: "nbdev.answers-ack/v1",
         positionals: ["workRef", "taskRef", "artifactId"],
-        options: {include: {type: "string", multiple: true}, ...AS_OPTION},
+        options: {through: {type: "string"}, include: {type: "string", multiple: true}, ...AS_OPTION},
         async run({io, positionals, values}) {
-            const outcome = await withCaller(io, values, (context, options) => ackAnswers(context, {workRef: positionals[0]!, taskRef: positionals[1]!, artifactId: positionals[2]!, include: listValue(values, "include")}, options));
+            const outcome = await withCaller(io, values, (context, options) => ackAnswers(context, {workRef: positionals[0]!, taskRef: positionals[1]!, artifactId: positionals[2]!, through: stringValue(values, "through"), include: listValue(values, "include")}, options));
             const {data} = outcome;
-            if (!data.acked) return {schema: "nbdev.answers-ack/v1", data: {...data, commit: outcome.commit}, warnings: outcome.warnings, error: null, human: [`${data.artifactId} 的答复都已确认，没有写确认`]};
-            return writeOutcome("nbdev.answers-ack/v1", outcome, `已确认 ${data.artifactId} 的 ${data.ack!.answers.length} 份答复：${data.ack!.answers.join("、")}`, leaseLines({lease: data.lease, released: []}), RECORD_FAILURE_HINT);
+            const newer = data.newer.length > 0 ? [`比 --through 新、没有确认的答复：${data.newer.join("、")}；先用 nbdev answers 读它们`] : [];
+            if (!data.acked) return {schema: "nbdev.answers-ack/v1", data: {...data, commit: outcome.commit}, warnings: outcome.warnings, error: null, human: [`${data.artifactId} 的答复都已确认，没有写确认`, ...newer]};
+            return writeOutcome("nbdev.answers-ack/v1", outcome, `已确认 ${data.artifactId} 的 ${data.ack!.answers.length} 份答复：${data.ack!.answers.join("、")}`, [...newer, ...leaseLines({lease: data.lease, released: []})], RECORD_FAILURE_HINT);
         },
     },
     "answers record": {

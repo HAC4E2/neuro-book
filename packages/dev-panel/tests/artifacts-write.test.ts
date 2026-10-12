@@ -2,8 +2,8 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes} from "node:crypto";
 import {readFile, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {ackAnswers, askQuestions, closeArtifact, publishArtifact, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
-import {readArtifact, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
+import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
+import {readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
 import type {SessionCaller} from "../src/core/identity.js";
 import {askerOf} from "../src/core/provenance.js";
 import {locateRepository, type RepoContext} from "../src/core/repo.js";
@@ -188,6 +188,26 @@ describe("答复与确认", () => {
         const again = await ackAnswers(context, TARGET, asBob);
         expect([again.data.acked, again.warnings.map((warning) => warning.code)]).toEqual([false, ["already_acked"]]);
         await expect(ackAnswers(context, {...TARGET, include: ["README.md"]}, asBob)).rejects.toMatchObject({code: "unsafe_path"});
+    });
+
+    test("ack --through 只确认会话读到的答复：读完之后才到的答复仍是未确认，并给 newer_answers_unacked", async () => {
+        const {fixture, context} = await setup("answers-through");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        const seen = await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        const read = await readAnswers(context, {...TARGET, filter: "unacked"});
+        expect(read.cursor).toBe(seen.data.answer.answerId);
+        // 会话读完、还在写 README 的时候，开发者改了主意。
+        const unseen = await submitAnswer(context, {...TARGET, values: {layout: "table", approve: false}, submittedBy: {kind: "developer", device: "test"}});
+        const acked = await ackAnswers(context, {...TARGET, through: read.cursor!}, asBob);
+        expect([acked.data.ack?.answers, acked.data.newer, acked.warnings.map((warning) => warning.code)]).toEqual([[seen.data.answer.answerId], [unseen.data.answer.answerId], ["newer_answers_unacked"]]);
+        const snapshot = await readArtifact(fixture.main, REF);
+        expect(unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId)).toEqual([unseen.data.answer.answerId]);
+        const again = await ackAnswers(context, {...TARGET, through: read.cursor!}, asBob);
+        expect([again.data.acked, again.warnings.map((warning) => warning.code)]).toEqual([false, ["newer_answers_unacked", "already_acked"]]);
+        const all = await ackAnswers(context, TARGET, asBob);
+        expect([all.data.ack?.answers, all.warnings.map((warning) => warning.code)]).toEqual([[unseen.data.answer.answerId], ["ack_without_through"]]);
+        await expect(ackAnswers(context, {...TARGET, through: "zzz"}, asBob)).rejects.toMatchObject({code: "usage"});
     });
 
     test("先读时钟、后拿锁：晚落位的答复 id 仍比先落位的大，确认之后它仍是未确认", async () => {

@@ -237,7 +237,7 @@ artifacts/<artifactId>/
 }
 ```
 
-- `answers` 是这次确认覆盖的答复：锁内算出的当时全部未确认的答复。`through` 是其中最大的 id，只用于显示。`included` 是同一个提交里的其它路径（写了决定的 Task README）。id 的生成同答复。
+- `answers` 是这次确认覆盖的答复：锁内算出的未确认答复里 id 不大于 `--through`（会话读答复时的游标）的那些，没给 `--through` 时为全部未确认的答复。`through` 是其中最大的 id，只用于显示。`included` 是同一个提交里的其它路径（写了决定的 Task README）。id 的生成同答复。
 
 ## provenance
 

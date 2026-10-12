@@ -156,12 +156,13 @@ describe("产物与答复的命令（场景）", () => {
         expect((await fixture.cli(["answers", "w00099", "--json"])).json?.errors[0]?.code).toBe("work_not_found");
     }, 60_000);
 
-    test("场景 5：answers ack --include README：确认与 README 同一个提交；之后 --unacked 不再返回它", async () => {
+    test("场景 5：answers ack --through <cursor> --include README：确认与 README 同一个提交；之后 --unacked 不再返回它", async () => {
         const fixture = await published("cli-ack");
         expect((await fixture.cli(["answers", "record", "w00001", "t01", "review", "--set", "layout=table", "--comment", "layout=表更紧凑", "--as", "bob", "--json"])).exitCode).toBe(0);
+        const cursor = data<{cursor: string}>((await fixture.cli(["answers", "w00001", "t01", "review", "--json"])).json).cursor;
         await fixture.write(`${TASK_DIR}/README.md`, `${taskReadme("t01-seed")}\n## 决定\n\n1. 用表。\n`);
-        const acked = await fixture.cli(["answers", "ack", "w00001", "t01", "review", "--include", `${TASK_DIR}/README.md`, "--as", "bob", "--json"]);
-        expect(acked.exitCode).toBe(0);
+        const acked = await fixture.cli(["answers", "ack", "w00001", "t01", "review", "--through", cursor, "--include", `${TASK_DIR}/README.md`, "--as", "bob", "--json"]);
+        expect([acked.exitCode, acked.json?.warnings]).toEqual([0, []]);
         const sha = data<{commit: {sha: string}}>(acked.json).commit.sha;
         const paths = (await git(fixture.main, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)).split("\n").sort();
         expect(paths).toEqual([data<{path: string}>(acked.json).path, `${TASK_DIR}/README.md`].sort());
