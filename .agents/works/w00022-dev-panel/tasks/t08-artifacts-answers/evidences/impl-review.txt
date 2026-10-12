@@ -1,0 +1,215 @@
+# w00022/t08 实现审查报告（`aff36ea22..f3257f02e`，只读）
+
+结论：没有阻断项。有 3 条重要问题，都已用临时仓库实验复现：
+
+1. `answers ack` 会把会话没读过的答复也记成“已采纳”。
+2. 关闭 Task 提问集之后，这个 Task 再也不能登记提问，也没有命令能恢复。
+3. `--include` 填了目录时，确认文件已经写进主工作区却没提交；按正确路径重跑会以 0 退出并报 `already_acked`，README 和确认文件都一直没有提交。
+
+另有 11 条建议。审查结束时，审查 worktree 的 `git status --short` 为空，HEAD 仍是 `f3257f02e`，herdr 里没有 `nbdev-test` 会话，也没有残留进程。
+
+---
+
+## 重要
+
+### 1. 确认会覆盖会话没读过的答复（正确性，违反合同）
+- **位置**：`packages/dev-panel/src/core/artifact-ops.ts:635`、`:642`（`ackAnswers`）；`src/cli/artifact-commands.ts:276-285`。
+- **现象**：`answers ack` 在锁内确认“当时全部未确认的答复”。会话读答复（`answers --json`）在锁外，读完到 ack 之间往往隔着写 README 的几分钟；这段时间里开发者新交的答复，会被这次 ack 一并确认。
+- **为什么是问题**：
+  - Proposal 第三节要求确认是“会话读到答复、把决定写进 Task 记录后”的确认，并“记下确认到哪一份答复”。现在确认的范围由 ack 那一刻决定，不由会话读到的范围决定。
+  - 开发者后来改的主意被标成 `adopted`；`--unacked` 和 `--wait` 都不会再提到它，README 里写的却是旧决定。
+  - 计划里“在锁内算，所以并发的答复不会被算进去又没被看到”这个推理只挡住了 ack 自己写入时的竞争，挡不住读到 ack 之间的空档。
+- **如何核实**：实验脚本 `scratchpad/review-t08-impl/scripts/exp-ack-unseen.ts`，步骤与结果：
+  - 先代录 `layout=cards`；
+  - 会话读到 `unacked = [A]`，cursor 也是 A；
+  - 开发者再交 B：`layout=table`、`approve=no`；
+  - README 写“用卡片”，执行 ack；
+  - ack 覆盖了 `[A, B]`，没有任何警告；之后 `adoption: adopted`，`unacked: []`，`layout` 的状态是 `answered` `table`。
+- **建议改法**：
+  - `answers ack` 增加 `--through <cursor>`，取值来自 `answers` 输出里的 cursor。只确认 id 不大于它的未确认答复：同一目录里 id 在锁内单调，“不大于”就等于“会话读之前已落位”。
+  - 有比 cursor 新的未确认答复时，给 `newer_answers_unacked` 警告并列出这些答复。
+  - Skill 改成带 `--through`。
+  - 补一条 L2：读答复，写入 B，`ack --through A`，断言 B 仍是未确认。
+
+### 2. `artifact close … questions` 让 Task 提问集永久关闭（边界没处理，不可逆）
+- **位置**：`src/core/artifact-ops.ts:375-384`（`closeArtifact` 不拦 `questions`）；`:427`（`ask` 报 `artifact_closed`，提示“重新发布会打开它”）；`:260`（publish 拒绝 `questions`）。
+- **现象**：关闭提问集之后，`ask` 报 `artifact_closed` 并提示重新发布；可是 `artifact publish … questions` 报 `invalid_artifact_id`。这个 Task 再也不能 `ask`，除非手改按规定“之后不改”的发布记录。
+- **为什么是问题**：
+  - `task status done` 的 `open_questions` 警告会把 Agent 引向清理待答的题，`artifact close` 是最顺手的批量做法，这个误用并不罕见。
+  - 而且报错给出的补救办法根本走不通。
+- **如何核实**：`exp-cli.ts` 的 E1：
+  - `artifact close w00001 t01 questions` 以 0 退出；
+  - 接着 `ask` 以 3 退出（`artifact_closed`）；
+  - `publish questions` 以 2 退出（`invalid_artifact_id`）。
+- **建议改法**：二选一并补测试。
+  - `closeArtifact` 拒绝 `QUESTIONS_ARTIFACT`（`usage`，提示逐题 `ask withdraw`）。
+  - 或者对已关闭的提问集 `ask` 时，重新打开它。
+
+### 3. `--include` 填目录或被忽略的文件：确认已写入、没提交，重跑也不会补救（外部输入校验，留下不一致状态）
+- **位置**：
+  - `src/core/transaction.ts:118-121`：只查路径存在；t08 之前 `includePaths` 没有调用方，`--include` 是第一个把它交给用户输入的入口。
+  - `src/core/artifact-ops.ts:630`、`:636-638`。
+- **现象**：`answers ack … --include .agents/works/w00001-seed/tasks/t01-seed` 时：
+  - 确认文件先写进主工作区，然后 `git hash-object` 对目录以 128 失败，命令报 `git_failed`、以 1 退出；
+  - 报错里的 `writtenPaths` 把那个目录也算作“已写”；
+  - 按正确的 README 路径重跑时以 0 退出，只给 `already_acked`；README 与确认文件一直未提交，`--unacked` 却已经为空。
+- **为什么是问题**：
+  - 破坏了“确认与写了决定的 README 同一个提交”（决定 7）和场景 9。
+  - 重跑以 0 退出，Agent 会以为已经补好。
+  - `--include` 一个被 `.gitignore` 忽略的文件时，`git add` 会失败，按代码推断会走同一条路（未实测）。
+- **如何核实**：`exp-include.ts`，`git status` 结果是 `M README.md` 与 `?? answers/ack-….json`。
+- **建议改法**：
+  - 落位之前校验每个 include 路径：必须是普通文件（`lstat().isFile()`），并用 `git check-ignore` 排除被忽略的文件。
+  - `ackAnswers` 判出 `already_acked` 时，如果 `answers/` 下有未跟踪的确认文件，就报 `uncommitted_ack`，或者把它与 `--include` 一起提交。
+
+---
+
+## 建议
+
+### 4. `--wait` 在第一次完整读与建 `known` 之间有窗口（正确性，概率低）
+- **位置**：`src/core/artifact-ops.ts:785-791`。
+- **现象**：`readAnswers` 读到某个产物之后、`known` 列它的 `answers/` 之前落位的答复，会被记进 `known`，但不在第一次读到的结果里。之后每次轮询都判成“没变化”，要等到超时才会返回。
+- **如何核实**：`exp-wait-race.ts`：
+  - 4000 个产物时一次完整读 248 ms；
+  - 在第 124 ms 写入 `a00000` 的答复；
+  - `--wait` 6.3 秒后以 `wait_timeout` 退出，而直接再读一次，立刻看得到这份未确认的答复。
+- **影响**：只有单个产物时窗口是毫秒级，概率很低；一旦撞上，要晚最多 30 分钟（缺省超时）。
+- **改法**：在 `readAnswers` 之前先列 `known`；或者把 `known` 初始化为空串，让第一次轮询整体重读一次。
+
+### 5. 关闭再重开时，`ask` 登记的题不会恢复，题号也作废了（结局）
+- **位置**：`src/core/artifacts.ts:494-508`。
+- **现象**：`ask --artifact` 登记的题被 close 记成 `withdrawn`（`reason: closed`）。重开时只恢复“页面里还在”的题，而 ask 题没有页面，于是永远保持撤回；用原题号重新 ask 报 `duplicate_question`。
+- **影响**：计划规定 Markdown 入口的产物（例如 `report.md`）的题全部经 `ask --artifact` 登记，这类产物关闭后再重开，一道题也恢复不了。
+- **如何核实**：`exp-cli.ts` 的 E2：重开之后 `extra` 仍是 `{withdrawn, in:3, reason:"closed"}`，重新 ask 以 3 退出。
+- **改法**：重开时，`origin: "ask"` 且因关闭而撤回的题一并恢复；或者在文档里写明这个行为。
+
+### 6. 提交失败留下的 `versions/`、`answers/` 文件，后续写入不会带上（失败路径）
+- **位置**：`src/core/artifact-ops.ts:224-238`（总是去掉 `answers/`，只有 `--force-version` 才带 `versions/`）、`:327`。
+- **现象（从代码推断）**：
+  - `answers record` 提交失败后，下一次 ack 只提交确认文件。Git 里出现一份确认，引用的答复并不在 Git 里，那份答复一直是未跟踪文件。
+  - `ask` 或 `close` 提交失败后，下一次普通发布只提交 v(N+1)，vN 留在工作区。
+- **测试**：变异 M3 存活，说明 `--force-version` 的补救路径没有测试。
+- **改法**：
+  - 每次写某个产物时，顺带提交它的 `versions/`、`answers/` 下的未跟踪（`??`）文件：这两个目录只由 nbdev 写，未跟踪文件只可能是提交失败的残留。这样 `--force-version` 的特殊分支可以去掉。
+  - 补一条 L2：故意让一次提交失败（例如让 `index.lock` 一直占着、超过 `gitLockWaitMs`），再写一次，断言残留文件被一起提交。
+
+### 7. `stale_value` 与 `invalid_value` 没有落实，文档与输出对不上（接口合同）
+- **位置**：`src/core/artifacts.ts:392-418`；`docs/file-formats.md:176`；`docs/cli.md:94`。
+- **现象**：
+  - 文档写“标 `stale_value`”，计划写“标 `invalid_value` 或 `stale_value`”；
+  - 实际输出只有 `stale: {…, reason}`，`reason` 是中文文案，没有 code；
+  - 手改坏的取值与“选项后来改了”区分不开。
+- **影响**：t09、t10 只能按文案分支，违反“按 code 分支，不看 message”的约定。
+- **改法**：
+  - 给 `stale` 加 `code`：按答复针对的那一版校验也不合法的记 `invalid_value`，在那一版合法、按最新一版不合法的记 `stale_value`；
+  - 在 `cli.md` 写明 `stale` 的结构。
+
+### 8. 命令行参数没有在边界校验
+- **位置**：
+  - `src/cli/artifact-commands.ts:238`（`--since`）；
+  - `:55-63`（`pairs`）；
+  - `src/core/artifact-ops.ts:490-511`（`resolveSupersededBy` 没有调用 `assertArtifactId`）。
+- **现象**：
+  - **`--since`**：任意字符串都接受。`--since zzz --wait --timeout 2` 等满 2 秒后报 `wait_timeout`；不带 `--wait` 时静默返回空结果（E3）。
+  - **`--set`**：键不校验。`__proto__=x` 会被吞掉，报出误导性的“至少给一个 --set”；同一个键给两次时后者静默覆盖前者。
+  - **`--by "..#q"`**：会去读 `artifacts/../versions`。只读，最终报 `artifact_not_found`。
+- **改法**：
+  - `--since` 用 `RECORD_ID_PATTERN` 校验，不合规报 `usage`；
+  - `--set`、`--comment` 的键用 `QUESTION_ID_PATTERN` 校验，重复的键报错，结果改用 `Map` 或 `Object.create(null)` 存；
+  - `resolveSupersededBy` 里调用 `assertArtifactId`。
+
+### 9. 标记解析的三个质量问题
+- **位置**：`src/core/questions.ts:132-137`、`:112`、`:151-157`、`:55-61`。
+- **现象**：用 t03 评审板的拷贝加了 8 处标记做实验（`parse-marked.ts`）：
+  - **行内元素被插进空格**：`textOf` 用空格拼接子节点。`用<code>nbdev</code>发<b>布</b>：…` 的题目变成“用 nbdev 发 布 ：…”。这个题目会入库，也会显示在收件箱和面板里。
+  - **`<style>` 误报 `questions_in_script`**：`<style>[data-nbdev-question]{…}</style>` 会触发这条警告，文案却说是“脚本、模板或 noscript”。用 JS 查询这个属性做页面增强时同样会误报。
+  - **同一道题的选项名重复不报错**：把选项标在 `a.pv` 上时，两个选项都叫“打开”。
+- **核实时确认正常的部分**：16 个页面原样解析，0 题、0 问题、没有误报 scriptMarkers，`index.html` 用时 34 ms；按 Skill 写法（`div.cand`，徽标加 skip）得到的题目与选项名都正确；`p` 里放块级选项、嵌套等错误都带行号。
+- **改法**：
+  - 文字直接拼接、不加分隔，只在块级元素与 `br` 处补空格；
+  - `containsMarker` 不查 `style`；`script` 里只匹配 `data-nbdev-question=` 这种属性写法；
+  - 加 `duplicate_option_label` 检查。
+
+### 10. 测试缺口（先看测试，再用变异检查确认）
+- **变异 M1 存活**：去掉 `submitAnswer` 里“只能答活的题”的检查（`artifact-ops.ts:573`），30 个用例全过。答复已撤回、已取代、因关闭撤回的题，都没有写入层面的测试。
+- **变异 M3 存活**：`--force-version` 的补救路径没有测试（见第 6 条）。
+- **变异 M4 存活**：收件箱去掉“只放必答题”的过滤（`status.ts:121`），10 个用例全过。没有用例在收件箱里断言选答题不出现。
+- **“先读时钟、后拿锁”的 L2（`tests/artifacts-write.test.ts:193-205`）测不出东西**：
+  - 实现生成 id 时用锁内的 `new Date()`，根本不读注入的 `tx.now`；
+  - 就算改用 `tx.now`，`max(…, 最大 id + 1 毫秒)` 也会让它照样通过；
+  - 它也没有区分集合差与按 `through` 比较，这一点只靠 L1 覆盖。
+- **parse5 预载测试只断言退出码非 0**（`tests/artifacts-cli.test.ts:231-232`）：Work 写错时同样以 5 退出、同样通过。应断言 stderr 含“parse5 不该”。
+- **其它没覆盖的**：
+  - 场景 9 的 `git diff-tree` 只核对了发布、代录、确认，`ask`、`withdraw`、`supersede`、`close` 没有核对；
+  - SIGINT 没有测；
+  - 测试里没有固定等待，这一点合规。
+
+### 11. “最近更新”会盖掉不合规的 `updated`（不变量）
+- **位置**：`src/core/status.ts:134-138`。
+- **现象**：frontmatter 的 `updated` 不合规时，记录为 `origin: invalid` 并保留 `raw`。只要这个 Task 的产物目录有过提交，就被改成 `{value: 提交日期, origin: "commit"}`，不合规的标记和原值都丢了。
+- **改法**：`origin === "invalid"` 时原样返回。
+
+### 12. 发布输出里的 `publishedBy` 没有核对 sha256（provenance）
+- **位置**：`src/core/artifact-ops.ts:318`。
+- **现象**：这里用 `readProvenance`，而收件箱和 `askerOf` 用的是 `verifiedProvenance`。发布记录被删掉、又由别的会话重建之后，输出会写错发布者。
+- **改法**：改用 `verifiedProvenance`。
+
+### 13. Skill 没写退出码 0 之后怎么重挂（文档）
+- **位置**：`.agents/skills/design-review/SKILL.md:36`。
+- **现象**：Skill 只写了“退出码 4 按原参数重挂”。`cli.md:163` 写明退出码 0 时要先 ack，或者带 `--since <cursor>` 重挂，否则会立即返回。照 Skill 做的会话在 ack 之前重挂，会被反复叫醒。
+- **改法**：把 `cli.md` 的重挂办法照抄进 Skill。
+
+### 14. `--wait` 的范围与开销
+- **范围为空也照等**：Task 还没有产物时，会对着“0 个产物”等满 30 分钟。
+- **等待期间新建的产物不在范围里**：这一点文档写了。但常见的流程是先 `--wait`、后 `ask`，第一次 ask 才建出 `questions` 提问集，它的答复叫不醒等待中的会话。
+- **范围算了两次**：`answers w t a` 先在 `resolveTaskRef` 里算一次 `answersScope`，`readAnswers` 又算一次。真实仓库实测各约 350 ms，命令启动总共多花约 0.35 秒。
+- **改法**：
+  - 范围为空时报错或警告；
+  - 轮询时顺带 `readdir` 这些 Task 的 `artifacts/`，把新出现的产物加进范围；
+  - 续期租约的目标复用第一次算出的范围。
+
+---
+
+## 未发现问题的方面
+
+逐条核过，没有发现问题的：
+
+- **入库文件里没有指向会话的字段**：`versions/vN.json`、答复、确认、Task 提问集都没有；provenance 带入库文件的 sha256，`askerOf` 和收件箱都会核对。别的机器上或 `.local` 被清掉之后返回 `null`，测试也覆盖了文件被重建后不再认的情形。
+- **设计审查 20 条的落实**：都已按处理意见实现，以下逐条核对过：
+  - 锁内单调 id 与集合差；
+  - 按最新一版校验；
+  - 不改 README 的 `updated`；
+  - Task 必须来自 master（含只在 master 上的 Task）；
+  - `--pending` 与 `--wait` 互斥；
+  - `-z --no-renames` 与 `ls-files --cached --others --exclude-standard`；
+  - 已答的题从页面删掉时保留；
+  - 锁内解析与哈希；
+  - 非发布动作沿用上一版的内容字段；
+  - `data-nbdev-*` 前缀；
+  - 引用检查（去掉 `#…` 与 `?…`，产物目录之外给警告）；
+  - `question_not_closed` 与自动闭合的提示。
+- **两类并发**：两个进程同时发布、发布与答复同时发生，都在锁内完成，版本号与题表不会错乱。
+- **`contentHash`**：路径相对产物目录、按 UTF-8 字节序排序、遇到符号链接拒绝，与文档一致。
+- **读到 `artifactVersion` 大于已知最新版的答复**：目录一有变化就整个重读产物，不会出错。
+- **`--wait` 的轮询**：每秒只 readdir，不跑 Git。
+- **SIGTERM**：以 4 退出（`wait_interrupted`）。
+- **`status` 不加载 parse5**：已用预载插件确认；`answers` 在同样的预载下也以 0 退出。
+- **真实仓库只读 `status`**：两次分别 904 ms、891 ms；收件箱只有 2 处撞号；共 251 个 Task、108 份文档；3 个产物都显示为 `unpublished`。
+- **完整包测试**：跑了一次，135 通过、0 失败，用时 41 秒；`nbdev-test` 会话已删除，没有残留进程。
+
+## 各级数量
+
+阻断 0，重要 3，建议 11。
+
+## 变异检查
+
+每次改完都用 `git checkout --` 恢复，审查结束时 `git status --short` 为空。
+
+| 编号 | 改动 | 跑的测试 | 结果 |
+|---|---|---|---|
+| M1 | 去掉 `submitAnswer` 的 `liveQuestion` | write、cli 与 `artifacts.test.ts`，30 例 | **存活** |
+| M3 | `changedArtifactFiles` 的 `withVersions` 恒为 `false` | write 与 cli，19 例 | **存活** |
+| M4 | 收件箱不再只放必答题 | cli，10 例 | **存活** |
+| M6 | Task 图片合计去掉 `--cached --others` | write | 被抓住（场景 6 失败，1 例） |
+
+实验脚本都在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t08-impl/scripts/`：`parse-board.ts`、`parse-marked.ts`、`exp-cli.ts`、`exp-include.ts`、`exp-ack-unseen.ts`、`exp-wait-race.ts`、`exp-preload.ts`、`time-answers.ts`。
