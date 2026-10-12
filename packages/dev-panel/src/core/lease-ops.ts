@@ -110,10 +110,20 @@ async function releaseAndRetag(context: RepoContext, transition: TransitionState
     return released;
 }
 
-/** Task 状态改成 done 或 shelved 后释放这个 Task 的全部租约（不论哪个会话、不论由谁调用）。 */
+/**
+ * Task 状态改成 done 或 shelved 后释放这个 Task 的全部租约（不论哪个会话、不论由谁调用）。
+ * 状态提交与释放之间不持锁，别的会话可能已经把 Task 改回去并续期：释放前重读一次状态，已不是 done 或 shelved 就不释放；
+ * 只释放最近活动不晚于这次重读的租约，重读之后才续期的那份留着。
+ */
 export async function releaseTaskLeases(context: RepoContext, target: {workId: string; taskId: string}, reason: ReleaseReason, options: LeaseOptions, warnings: Warning[]): Promise<LeaseRecord[]> {
     const transition = await readTransitionState(context.mainRoot);
-    return releaseAndRetag(context, transition, () => releaseLeases(context.mainRoot, {kind: "task", ...target}, reason, nowOf(options)), options, warnings, target);
+    const checkedAt = nowOf(options);
+    const status = (await readTaskStatuses(context.mainRoot, transition, [target]))(target.workId, target.taskId);
+    if (status !== "done" && status !== "shelved") {
+        warnings.push({code: "lease_release_skipped", message: `${target.workId}/${target.taskId} 已被改成 ${status ?? "未标"}，没有释放它的租约`, details: {...target, status}});
+        return [];
+    }
+    return releaseAndRetag(context, transition, () => releaseLeases(context.mainRoot, {kind: "task", ...target}, reason, nowOf(options), {notAfter: checkedAt}), options, warnings, target);
 }
 
 /** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree 里都算）。租约是运行时数据，来自分支的 Task 也能取得。 */

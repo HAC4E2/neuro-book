@@ -256,11 +256,23 @@ function matches(lease: LeaseRecord, selector: LeaseSelector): boolean {
 
 /**
  * 释放：只是给文件记上释放时间与原因，文件不删。返回这次释放了的租约；某一份写不进去时给 `lease_write_failed` 警告、接着释放其余的。
+ * `notAfter`：只释放最近活动不晚于这个时刻的租约（按 Task 释放时用，见 `releaseTaskLeases`）。每份在写之前重读一次，
+ * 把“读列表”与“写回”之间别人续期的那份留下；重读与改名之间仍有毫秒级的窗口。
  */
-export async function releaseLeases(mainRoot: string, selector: LeaseSelector, reason: ReleaseReason, now: Date): Promise<{released: LeaseRecord[]; warnings: Warning[]}> {
+export async function releaseLeases(mainRoot: string, selector: LeaseSelector, reason: ReleaseReason, now: Date, options: {notAfter?: Date} = {}): Promise<{released: LeaseRecord[]; warnings: Warning[]}> {
     const {leases, warnings} = await readLeases(mainRoot);
     const released: LeaseRecord[] = [];
-    for (const lease of leases.filter((candidate) => candidate.releasedAt === null && matches(candidate, selector))) {
+    const releasable = (lease: LeaseRecord) => lease.releasedAt === null && matches(lease, selector)
+        && (options.notAfter === undefined || Date.parse(lease.lastActivityAt) <= options.notAfter.getTime());
+    for (const listed of leases.filter(releasable)) {
+        let lease: LeaseRecord | null;
+        try {
+            lease = await getLease(mainRoot, listed.leaseId);
+        } catch (error) {
+            if (!(error instanceof NbdevError) || error.code !== "invalid_record") throw error;
+            continue;
+        }
+        if (!lease || !releasable(lease)) continue;
         const updated: LeaseRecord = {...lease, releasedAt: now.toISOString(), releaseReason: reason};
         try {
             await writeLease(mainRoot, updated);

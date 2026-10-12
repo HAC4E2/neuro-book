@@ -100,6 +100,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `herdr_partial` | 部分 pane 的进程信息没读到，按没有这格处理 |
 | `herdr_tag_failed` | 写 pane 标签失败（只影响显示） |
 | `lease_write_failed` | 取得、续期、释放租约或读调用者自己的租约失败（权限、磁盘满等）；记录操作不受影响，命令照常成功并带回 `data.commit` |
+| `lease_release_skipped` | Task 改成 `done` 或 `shelved` 之后、释放租约之前，别的会话又把它改回去了，这次不释放 |
 | `unreadable_lease` | 某个租约文件（或整个租约目录）读不了或内容不合规，已跳过 |
 | `worktree_skipped` | 某个 worktree 读不出相对 master 的记录改动（HEAD 还没有提交、与 master 没有共同祖先、浅克隆截断了历史），跳过；`details.reason` 写明原因 |
 | `uncommitted_branch_records` | 某个 worktree 只有未提交的记录改动，没有算作“来自分支” |

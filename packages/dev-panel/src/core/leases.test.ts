@@ -110,6 +110,16 @@ describe("租约文件", () => {
         expect(states.map((entry) => [entry.session.key, entry.state]).sort()).toEqual([["claude:aaa", "released"], ["claude:bbb", "task_closed"]]);
     });
 
+    test("按 Task 释放时带 notAfter：最近活动晚于它的租约留着（释放之前刚续期的那份）", async () => {
+        const main = await tempMain();
+        await touchLease(main, {caller: claude("aaa", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
+        await touchLease(main, {caller: claude("bbb", null), workId: "w00001-a", taskId: "t01-a", action: "task status", now: hours(2)});
+        const {released} = await releaseLeases(main, {kind: "task", workId: "w00001-a", taskId: "t01-a"}, "task_done", hours(2), {notAfter: hours(1)});
+        expect(released.map((entry) => entry.session.key)).toEqual(["claude:aaa"]);
+        const {leases} = await readLeases(main);
+        expect(leases.map((entry) => [entry.session.key, entry.releaseReason]).sort()).toEqual([["claude:aaa", "task_done"], ["claude:bbb", null]]);
+    });
+
     test("按会话释放；只读 24 位 hex 文件名，临时文件不读，坏文件警告后跳过；读不出的旧租约由续期整份重写", async () => {
         const main = await tempMain();
         await touchLease(main, {caller: claude("aaa", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
