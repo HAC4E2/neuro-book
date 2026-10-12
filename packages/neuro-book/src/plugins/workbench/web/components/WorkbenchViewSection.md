@@ -5,7 +5,7 @@
 
 # WorkbenchViewSection
 
-容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。
+容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区；不画底线，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。
 
 视图内容不由它创建：宿主把视图实例搬进默认插槽里的落点，切模式、收起都不卸载内容。内容区不滚动、不加内边距：视图移动时外框会在新容器里重建，滚动盒放在这里就会随之换新、丢掉滚动位置，所以按 `layout` 给的滚动与内边距归随实例一起搬动的 [`WorkbenchViewFrame`](WorkbenchViewFrame.md)。
 

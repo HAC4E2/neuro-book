@@ -593,6 +593,17 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
+    it("draws the tabs baseline unless baseline is false; the selected indicator stays either way", () => {
+        const items = [{value: "a", label: "A"}, {value: "b", label: "B"}];
+        const lined = mount(Tabs, {props: {modelValue: "a", items}});
+        const bare = mount(Tabs, {props: {modelValue: "a", items, baseline: false}});
+        expect(lined.get("[role='tablist']").classes()).toContain("border-b-[length:var(--border-w)]");
+        expect(bare.get("[role='tablist']").classes()).not.toContain("border-b-[length:var(--border-w)]");
+        expect(bare.get("[role='tab']").classes().filter((name) => name.startsWith("after:"))).toEqual(lined.get("[role='tab']").classes().filter((name) => name.startsWith("after:")));
+        lined.unmount();
+        bare.unmount();
+    });
+
     it("keeps the tabs indicator inside the scroll box", () => {
         // tablist 是 overflow-x-auto，而 CSS 规定另一轴的 visible 会跟着计算成 auto。
         // 指示线只要有 1px 落在 padding box 外，26px 高的标签栏就会多出一条竖向滚动条。

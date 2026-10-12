@@ -48,7 +48,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-/* 卡片四周的留白归外壳（叶的内边距），这里只画卡片本身。 */
+/* 外壳平铺（ui/workbench-shell.md 输出 38）：贴着窗体左边与侧栏，和侧栏同一块底色，不画外框与圆角。 */
 .workbench-activity-bar {
     display: flex;
     flex-direction: column;
@@ -58,8 +58,6 @@ const emit = defineEmits<{
     min-height: 0;
     padding-block: var(--space-1);
     background: var(--panel-surface);
-    border: var(--border-w) solid var(--panel-outline);
-    border-radius: var(--radius-panel);
 }
 
 .workbench-activity-bar__containers {

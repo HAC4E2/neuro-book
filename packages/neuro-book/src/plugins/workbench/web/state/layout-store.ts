@@ -68,17 +68,31 @@ function defineLayoutStore(records: LayoutRecords) {
             panelHeight: panelSize.display.panelHeight ?? SHELL_SIZE_DEFAULTS.panelHeight,
             panelWidth: panelSize.display.panelWidth ?? SHELL_SIZE_DEFAULTS.panelWidth,
         }));
+        /**
+         * 空着（docs/specs/ui/workbench-shell.md 输出 39）：现在没有容器，也没有视图把它声明为默认位置。只看现在的容器的话，
+         * 用户把最后一个视图拖走时这块区域当场消失，拖空的区域就不再是落点。
+         */
+        const vacant = (part: "auxiliarybar" | "panel"): boolean => placement.value.parts[part].length === 0 && ![...catalog.value.values()].some((declaration) => declaration.location === part);
         const panel = computed<PanelState>(() => {
             const saved = customizations.display.panel ?? {};
             return {
                 position: saved.position ?? PANEL_DEFAULTS.position,
                 alignment: saved.alignment ?? PANEL_DEFAULTS.alignment,
-                hidden: saved.hidden ?? PANEL_DEFAULTS.hidden,
+                // 没写过显隐的面板：空着时不显示。
+                hidden: saved.hidden ?? vacant("panel"),
                 collapsed: saved.collapsed ?? PANEL_DEFAULTS.collapsed,
                 maximized: maximized.value,
             };
         });
-        const hiddenParts = computed<ReadonlyArray<ShellHideablePart>>(() => customizations.display.hiddenParts ?? []);
+        /**
+         * 生效的隐藏部分：记录里隐藏的，加上空着、用户也没主动显示过的右栏。读显隐的组件、命令与公开键都经它，不各自判断
+         * “空着”。
+         */
+        const hiddenParts = computed<ReadonlyArray<ShellHideablePart>>(() => {
+            const saved = customizations.display.hiddenParts ?? [];
+            const emptyAuxiliary = vacant("auxiliarybar") && !(customizations.display.shownParts ?? []).includes("auxiliarybar");
+            return emptyAuxiliary && !saved.includes("auxiliarybar") ? [...saved, "auxiliarybar"] : saved;
+        });
         const dragCollapsed = computed<ShellDragCollapseMap>(() => customizations.display.dragCollapsed ?? {});
         const ready = computed(() => side.ready && panelSize.ready && customizations.ready);
         const problems = computed<ReadonlyArray<LayoutProblem>>(() => (Object.keys(fields) as LayoutRecordName[]).flatMap((record): LayoutProblem[] => {
@@ -162,6 +176,12 @@ function defineLayoutStore(records: LayoutRecords) {
                         const next = editable(value);
                         const others = (next.hiddenParts ?? []).filter((name) => name !== part);
                         next.hiddenParts = hidden ? [...others, part] : others;
+                        // 记下用户主动显示过右栏：它空着时之后也照常显示。别的 Part 没有“空着不显示”的规则，不记。
+                        if (part === "auxiliarybar") {
+                            const shown = (next.shownParts ?? []).filter((name) => name !== part);
+                            if (hidden && shown.length === 0) delete next.shownParts;
+                            else next.shownParts = hidden ? shown : [...shown, part];
+                        }
                         if (!hidden && (part === "sidebar" || part === "auxiliarybar") && next.dragCollapsed?.[part] === true) next.dragCollapsed = {...next.dragCollapsed, [part]: false};
                         return next;
                     });

@@ -39,6 +39,8 @@ const CustomizationsSchema = Type.Object({
         collapsed: Type.Optional(Type.Boolean()),
     }, {additionalProperties: false})),
     hiddenParts: Type.Optional(Type.Array(PartName, {uniqueItems: true})),
+    /** 用户主动显示过的 Part：没有容器的右栏缺省不显示，用户显示过就照常显示（docs/specs/ui/workbench-shell.md 输出 39）。 */
+    shownParts: Type.Optional(Type.Array(PartName, {uniqueItems: true})),
     dragCollapsed: Type.Optional(Type.Object({
         sidebar: Type.Optional(Type.Boolean()),
         auxiliarybar: Type.Optional(Type.Boolean()),

@@ -16,6 +16,8 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
+
 import {startDevSession, startProductServer} from "./fixtures";
 import type {DevSession, ProductServer} from "./fixtures";
 
@@ -98,13 +100,37 @@ test.describe("产品页", () => {
         }
     }
 
-    /** 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。 */
+    /** 本页客户端的工作台定制记录（`local`，按客户端分行）；还没写过为 null。 */
+    async function customizations(page: Page): Promise<{shownParts?: string[]; panel?: {hidden?: boolean}} | null> {
+        const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+        const db = new DatabaseSync(userDatabase());
+        try {
+            const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.workbench' AND key = 'views-customizations' AND client = ?1").get(client) as {value: string} | undefined;
+            return row === undefined ? null : JSON.parse(row.value) as {shownParts?: string[]; panel?: {hidden?: boolean}};
+        } finally {
+            db.close();
+        }
+    }
+
+    /**
+     * 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。产品页的右栏与面板里没有视图，按输出 39
+     * 缺省不显示；这组验收测面板与两侧栏的相对位置，新客户端打开后经标题栏与状态栏各显示一次，等记录写完再返回，免得
+     * 这次保存混进用例自己数的修订号。
+     */
     async function open(page: Page): Promise<void> {
         await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-shell-layout", "split");
         // 记录读完前状态栏的面板按钮与边界都不可用：等按钮可用。
-        await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
+        const panelToggle = page.locator("[data-shell-focus-target=\"panel-toggle\"]");
+        await expect(panelToggle).toBeEnabled();
+        if ((await customizations(page)) !== null) return;
+        await page.locator('[data-titlebar-layout="auxiliarybar"]').click();
+        await panelToggle.click();
+        await expect.poll(async () => {
+            const value = await customizations(page);
+            return value?.shownParts?.includes("auxiliarybar") === true && value.panel?.hidden === false;
+        }).toBe(true);
     }
 
     test("面板的位置与对齐：经框架按钮与命令面板改；ActivityBar 始终在最左、面板不跨过它；justify 横跨两侧栏；刷新后恢复", async ({page}) => {
@@ -156,7 +182,8 @@ test.describe("产品页", () => {
 
         await frame(page, "toggle-panel-maximized").click();
         await expect.poll(async () => (await box(page, "editor")).height).toBe(0);
-        expect((await box(page, "panel")).height).toBeGreaterThan(600);
+        // 编辑器立刻停放，面板的高度随后以动画长满：等动画走完。
+        await expect.poll(async () => (await box(page, "panel")).height).toBeGreaterThan(600);
         expect((await box(page, "sidebar")).width).toBe(340);
         await page.reload();
         await open(page);
@@ -376,14 +403,16 @@ test.describe("产品页", () => {
                 return result;
             };
             return [
-                ...read("[data-workbench-shell]", {"background-color": "--bg-main", "color": "--text-main", "font-family": "--font-ui"}),
+                ...read("[data-workbench-shell]", {"background-color": "--panel-surface", "color": "--text-main", "font-family": "--font-ui"}),
                 ...read(".workbench-panel-surface", {"background-color": "--panel-surface"}),
-                ...read(".workbench-panel-surface__head", {"border-bottom-color": "--divider"}),
                 ...read(".workbench-panel-surface__title", {"color": "--text-secondary"}),
                 ...read("[data-workbench-status-bar]", {"background-color": "--bg-panel", "border-top-color": "--divider", "color": "--text-secondary"}),
             ];
         });
         for (const {selector, property, own, token} of resolved) expect(own, `${selector} ${property}`).toBe(token);
+        // 平铺：面板标题行不画底线，面板与编辑区之间只有外壳网格的分隔条；页面根不预留滚动条位置，外壳贴到视口右缘。
+        expect(await page.locator(".workbench-panel-surface__head").evaluate((head) => getComputedStyle(head).borderBottomWidth)).toBe("0px");
+        expect(await page.evaluate(() => window.innerWidth - document.querySelector("[data-workbench-shell]")!.getBoundingClientRect().right)).toBe(0);
     });
 });
 

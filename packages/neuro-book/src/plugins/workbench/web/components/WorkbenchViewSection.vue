@@ -80,7 +80,6 @@ defineSlots<{
     min-width: 0;
     /* 24px 的图标按钮离左右边各 4px：外扩焦点光环（实色 3.5px）不被分节的裁切切掉。 */
     padding-inline: var(--space-2);
-    border-bottom: var(--border-w) solid var(--divider);
     /* 标题整块是视图的拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
     touch-action: none;
     user-select: none;
@@ -136,7 +135,6 @@ defineSlots<{
     /* 顶部的展开按钮离边 4px：外扩焦点光环不被分节的裁切切掉（左右是 32px 里放 24px，各余 4px）。 */
     padding-block: var(--space-2);
     padding-inline: 0;
-    border-bottom: 0;
 }
 
 .workbench-view-section--horizontal.workbench-view-section--collapsed .workbench-view-section__title {

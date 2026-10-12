@@ -12,7 +12,7 @@ import {computed, nextTick, ref, shallowRef, watch} from "vue";
 import {createShellGrid, projectShell, shellGestureProblem, shellPatch} from "../shell/layout";
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {PanelState} from "../shell/panel-state";
-import {SHELL_DRAG_COLLAPSIBLE_IDS, SHELL_GUTTER_PX, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
+import {SHELL_DRAG_COLLAPSIBLE_IDS, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import type {ShellDragCollapseMap, ShellEffectivePanel, ShellHideablePart, ShellLayoutFacts, ShellLayoutMode, ShellPartId, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
 
 defineOptions({name: "WorkbenchShellLayout"});
@@ -186,14 +186,12 @@ watch(projection, (next) => {
 
 watch(rootEl, () => void nextTick(syncTargets));
 
-const shellStyle = {"--workbench-shell-gutter": `${String(SHELL_GUTTER_PX)}px`};
 </script>
 
 <template>
     <div
         ref="rootEl"
         class="workbench-shell-layout relative flex h-full w-full min-h-0 min-w-0 overflow-hidden"
-        :style="shellStyle"
         tabindex="-1"
         data-workbench-shell
         :data-shell-layout="mode"
@@ -232,16 +230,3 @@ const shellStyle = {"--workbench-shell-gutter": `${String(SHELL_GUTTER_PX)}px`};
         </div>
     </div>
 </template>
-
-<style scoped>
-/*
- * ActivityBar 与侧栏、右栏的卡片四周留白归外壳，组件自己不写宽度与外边距。留白加在叶里的内容包装上而不是叶上：
- * 拖到零的叶宽为 0，加在叶上的内边距会把它撑出 12px；加在里面，叶的 overflow: hidden 把它裁掉。
- */
-[data-shell-slot="activitybar"],
-[data-shell-slot="sidebar"],
-[data-shell-slot="auxiliarybar"] {
-    box-sizing: border-box;
-    padding: var(--workbench-shell-gutter);
-}
-</style>

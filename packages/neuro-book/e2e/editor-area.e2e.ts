@@ -121,6 +121,22 @@ test("单击以预览打开、再单击替换预览、双击转正；编辑后 C
     await expect(tabs(page).first()).not.toHaveAttribute("data-editor-tab-preview", "");
     await item(page, "project://notes/a.md").click();
     await expect(labels(page)).toHaveText(["b.md", "a.md"]);
+    // 标签条与标签之间不画线，活动标签靠加粗区分；切换活动标签时各标签宽度不变（ui/workbench-shell.md 输出 38）。
+    const looks = () => page.locator("[data-editor-tabs]").evaluate((list) => {
+        const wrappers = [...list.querySelectorAll("[data-editor-tab]")].map((tab) => tab.parentElement!);
+        return {
+            lines: [list, ...wrappers].flatMap((element) => ["top", "right", "bottom", "left"].map((side) => getComputedStyle(element).getPropertyValue(`border-${side}-width`))).filter((width) => width !== "0px"),
+            weights: wrappers.map((wrapper) => getComputedStyle(wrapper).fontWeight),
+            widths: wrappers.map((wrapper) => wrapper.getBoundingClientRect().width),
+        };
+    });
+    const settled = await looks();
+    expect(settled).toMatchObject({lines: [], weights: ["400", "600"]});
+    await tabs(page).first().click();
+    await expect.poll(async () => (await looks()).weights).toEqual(["600", "400"]);
+    expect((await looks()).widths).toEqual(settled.widths);
+    await tabs(page).nth(1).click();
+    await expect.poll(async () => (await looks()).weights).toEqual(["400", "600"]);
 
     await atEnd(page);
     await page.keyboard.type("（续）");
@@ -422,7 +438,7 @@ test("Markdown 的撤销历史属于各组：拆分之后原组仍能撤销拆�
     await expect(page.locator("[data-editor-group]").nth(1)).toHaveAttribute("data-editor-group-active", "");
     await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-editor-group]")?.getAttribute("data-editor-group-active"))).toBe("");
     // 窄组里标签放不下：新打开的标签滚到完整可见。
-    for (const name of ["a.md", "b.md", "c.md", "d.md"]) await item(page, `project://notes/${name}`).dblclick();
+    for (const name of ["a.md", "b.md", "c.md", "d.md", "e.md", "v.md", "w.md"]) await item(page, `project://notes/${name}`).dblclick();
     const strip = page.locator("[data-editor-group-active] [data-editor-tabs]");
     await expect.poll(() => strip.evaluate((element) => {
         const active = element.querySelector("[data-editor-tab][aria-selected=\"true\"]")?.parentElement?.getBoundingClientRect();

@@ -64,6 +64,11 @@ html {
     overflow: hidden;
 }
 
+/* 工作台页占满视口、自己不滚动：根上不预留滚动条位置，否则右缘空出一条（ui/workbench-shell.md 输出 38）。 */
+html:has(.nb-workbench-page) {
+    scrollbar-gutter: auto;
+}
+
 .nb-host-reason {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.875rem;

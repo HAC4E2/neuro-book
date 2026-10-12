@@ -5,11 +5,11 @@
 
 # WorkbenchActivityBar
 
-主体左侧的通高卡片：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段留给全局项（账号、设置，随对应插件加入，现在为空）。它只画按钮与选中标记，点了只发 `select`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
+主体左侧的通高列，平铺在面板底色上、不画外框与圆角（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段留给全局项（账号、设置，随对应插件加入，现在为空）。它只画按钮与选中标记，点了只发 `select`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
 
 ## 布局
 
-卡片宽度由外壳的 ActivityBar 叶决定，按钮用 `IconButton` 的 38px 档（`lg`）、竖排、间距 4px，滚动区上下各留 4px：左右与上下都给外扩焦点光环留出余地，不被滚动区裁掉；容器多到放不下时上段在卡片内纵向滚动，不撑破卡片。选中标记只在 `sidebarVisible` 为 true 时出现：Sidebar 看不见时没有“当前在看”的容器。
+宽度由外壳的 ActivityBar 叶决定（48px），按钮用 `IconButton` 的 38px 档（`lg`）、竖排、间距 4px，滚动区上下各留 4px：左右与上下都给外扩焦点光环留出余地，不被滚动区裁掉；容器多到放不下时上段在列内纵向滚动，不撑破列。选中标记只在 `sidebarVisible` 为 true 时出现：Sidebar 看不见时没有“当前在看”的容器。
 
 ## 交互
 

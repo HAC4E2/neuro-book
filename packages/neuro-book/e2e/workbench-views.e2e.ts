@@ -435,7 +435,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 
-    test("活动栏、工具区域卡片、视图标题行与选中标记的颜色取主题 token 的解析值", async ({page}) => {
+    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；外壳平铺，部件不画外框、圆角与标题行底线", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
@@ -453,15 +453,19 @@ test.describe("产品页：测试插件贡献的视图", () => {
                 return result;
             };
             return [
-                ...read(".workbench-activity-bar", {"background-color": "--panel-surface", "border-top-color": "--panel-outline"}),
+                ...read(".workbench-activity-bar", {"background-color": "--panel-surface"}),
                 ...read(".workbench-activity-bar__item--active", {"color": "--accent-text", "background-color": "--bg-hover"}),
-                ...read('[data-tool-part="sidebar"]', {"background-color": "--panel-surface", "border-top-color": "--panel-outline"}),
-                ...read('[data-tool-part="auxiliarybar"] .workbench-tool-part__head', {"border-bottom-color": "--divider"}),
-                ...read(".workbench-view-section__head", {"border-bottom-color": "--divider"}),
+                ...read('[data-tool-part="sidebar"]', {"background-color": "--panel-surface"}),
                 ...read(".workbench-view-section__title", {"color": "--text-secondary"}),
             ].filter((item) => item.own !== item.token);
         });
         await expect.poll(mismatches).toEqual([]);
+        const drawn = await page.evaluate(() => [".workbench-activity-bar", '[data-tool-part="sidebar"]', '[data-tool-part="auxiliarybar"]', '[data-tool-part="auxiliarybar"] .workbench-tool-part__head', '[data-tool-part="auxiliarybar"] [role="tablist"]', '.workbench-panel-surface [role="tablist"]', ".workbench-view-section__head"].flatMap((selector) => {
+            const style = getComputedStyle(document.querySelector(selector)!);
+            const widths = ["top", "right", "bottom", "left"].map((side) => style.getPropertyValue(`border-${side}-width`));
+            return widths.some((width) => width !== "0px") || style.borderRadius !== "0px" ? [{selector, widths, radius: style.borderRadius}] : [];
+        }));
+        expect(drawn).toEqual([]);
     });
 
     test("容器网格（Panel 横向）：拖动视图之间的边界只写宽度；收成 32px 竖条再展开回到记忆宽度", async ({page}) => {

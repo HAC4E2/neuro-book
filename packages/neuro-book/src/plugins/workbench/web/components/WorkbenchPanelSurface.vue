@@ -88,7 +88,6 @@ defineSlots<{
     min-height: 32px;
     /* 右端是 24px 的框架按钮：右边留 4px，外扩焦点光环不被面板的裁切切掉。 */
     padding-inline: var(--space-3) var(--space-2);
-    border-bottom: var(--border-w) solid var(--divider);
 }
 
 .workbench-panel-surface__title {

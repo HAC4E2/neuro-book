@@ -23,9 +23,12 @@ const props = withDefaults(defineProps<{
     items: TabsItem[];
     ariaLabel?: string;
     size?: TabsSize;
+    /** 标签栏下方的底边线；铺在本来就没有线的标题行里（工作台平铺的工具区标题行）时关掉。 */
+    baseline?: boolean;
 }>(), {
     ariaLabel: "",
     size: "md",
+    baseline: true,
 });
 
 const emit = defineEmits<{
@@ -99,7 +102,7 @@ function tabClass(item: TabsItem): string {
 
         代价：指示线现在贴在边线上方而不是压住它，视觉上厚度少 1px。
     -->
-    <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto border-b-[length:var(--border-w)] border-[color:var(--divider)]" @keydown="handleKeydown">
+    <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">
         <button
             v-for="item in props.items"
             :key="item.value"

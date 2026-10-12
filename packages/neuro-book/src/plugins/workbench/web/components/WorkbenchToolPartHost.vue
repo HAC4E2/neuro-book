@@ -74,6 +74,7 @@ onBeforeUnmount(() => {
                     v-if="tabs.length > 0"
                     class="workbench-tool-part__tabs"
                     size="sm"
+                    :baseline="false"
                     :model-value="presentation.selected ?? ''"
                     :items="tabs"
                     :aria-label="label"
@@ -109,11 +110,10 @@ onBeforeUnmount(() => {
     overflow: hidden;
 }
 
+/* 外壳平铺（ui/workbench-shell.md 输出 38）：不画卡片外框与圆角，和编辑区之间只有外壳网格的分隔条。 */
 .workbench-tool-part--sidebar,
 .workbench-tool-part--auxiliarybar {
     background: var(--panel-surface);
-    border: var(--border-w) solid var(--panel-outline);
-    border-radius: var(--radius-panel);
 }
 
 .workbench-tool-part__head {
@@ -125,7 +125,6 @@ onBeforeUnmount(() => {
     min-width: 0;
     /* 右端是 24px 的图标按钮：右边留 4px，外扩焦点光环（实色 3.5px）不被工具区的裁切切掉。 */
     padding-inline: var(--space-3) var(--space-2);
-    border-bottom: var(--border-w) solid var(--divider);
 }
 
 /* 容器标题行整块是拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
