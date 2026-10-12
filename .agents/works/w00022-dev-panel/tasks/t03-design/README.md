@@ -19,8 +19,8 @@ taskId: t03-design
   3. 正在跑的东西：开发服务、omp、子代理（第一版只显示数量与入口）；
   4. 最近的变化：新提交、新报告、新讲解页；
   5. 搜索框一直在顶部。
-- 静态稿：画稿子代理在本机评审板 `.local/agent/works/w00022-dev-panel/tasks/t03-design/review/` 出第一轮（直接写 HTML，不截图）。
-- 需求深化：另一个子代理在后台对 t01 做进一步分析与补充，产出待主 Agent 核对后交开发者。
+- 第一轮静态稿完成：本机评审板 `.local/agent/works/w00022-dev-panel/tasks/t03-design/review/index.html`，直接是 HTML（首页 A、B 两个候选，Task 页以 t80 为例，讲解页的 7 个组件，命令行三个命令的文字与 JSON 输出），数据是本机 13:40 的真实快照，样式由 `review/build.ts` 从 nb-ui 源码拼出 `tokens-nbook.css`。主 Agent 已在五个待定问题上写了推荐（首页选 B）。画稿时发现 11 条需求问题，写在评审板“画稿时发现的需求问题”一节，多数已在需求补充分析里有对应的待定项。
+- 需求深化完成：[analysis-supplement.md](../t01-requirements/analysis-supplement.md)，主 Agent 抽查后入库；其中待开发者决定的问题，主 Agent 整理成 12 条加若干小项交开发者。
 
 ## 下一步
 
