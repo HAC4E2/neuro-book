@@ -114,6 +114,8 @@ export async function createWork(context: RepoContext, input: {
         const number = nextWorkNumber(scan);
         const workId = formatWorkId(number, input.slug);
         const taskId = formatTaskId(1, input.taskSlug);
+        // 撞号检查要在领号之前做：领了号还没落位时，新 id 只在登记表里，会被误报成 registryOnly。
+        const found = await reportConflicts(tx, scan);
         tx.claimWork(workId);
         tx.claimTask(workId, taskId);
         const date = recordDate(tx.now);
@@ -122,7 +124,6 @@ export async function createWork(context: RepoContext, input: {
             "README.md": workReadmeTemplate({workId, issueId: input.issueNumber === undefined ? null : `i${input.issueNumber}`, title, goal: input.goal, date}),
             [`tasks/${taskId}/README.md`]: taskReadmeTemplate({taskId, title: taskTitle, goal: null, status: taskStatus, date}),
         });
-        const found = await reportConflicts(tx, scan);
         return {
             message: `docs(${workNumberLabel(number)}): nbdev 新建 Work ${workId} 与 ${taskId}`,
             result: {workId, taskId, paths: [workReadmePath(workId), taskReadmePath(workId, taskId)], ...found},
@@ -147,12 +148,12 @@ export async function createTask(context: RepoContext, input: {
         const scan = await tx.scan();
         const number = nextTaskNumber(scan, workId);
         const taskId = formatTaskId(number, input.slug);
+        const found = await reportConflicts(tx, scan);
         tx.claimTask(workId, taskId);
         const date = recordDate(tx.now);
         tx.createDirectory(`${WORKS_ROOT}/${workId}/tasks/${taskId}`, {
             "README.md": taskReadmeTemplate({taskId, title, goal: input.goal ?? null, status, date}),
         });
-        const found = await reportConflicts(tx, scan);
         return {
             message: `docs(${workId.slice(0, 6)}): nbdev 新建 ${taskId}`,
             result: {workId, taskId, paths: [taskReadmePath(workId, taskId)], ...found},

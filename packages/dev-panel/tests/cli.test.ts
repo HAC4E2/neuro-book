@@ -31,6 +31,7 @@ describe("命令行合同", () => {
         const result = await fixture.cli(["work", "new", "panel", "--title", "面板", "--goal", "做个面板。", "--task", "design", "--json"], worktreeA);
         expect(result.exitCode).toBe(0);
         expect(result.json).toMatchObject({schema: "nbdev.work-new/v1", ok: true, data: {workId: "w00009-panel", taskId: "t01-design", commit: {committed: true}}});
+        expect(result.json?.data?.registryOnly).toEqual([]);
         expect(await readFile(join(fixture.main, ".agents/works/w00009-panel/README.md"), "utf8")).toContain("## 目标\n\n做个面板。");
         expect(await git(fixture.main, "rev-parse", "HEAD~1")).toBe(before);
         expect((await git(fixture.main, "show", "--name-only", "--format=", "HEAD")).split("\n").sort()).toEqual([
@@ -47,6 +48,7 @@ describe("命令行合同", () => {
         const result = await fixture.cli(["task", "new", "w00001", "next", "--title", "下一步", "--json"]);
         expect(result.exitCode).toBe(0);
         expect(result.json?.data).toMatchObject({taskId: "t02-next"});
+        expect(result.json?.data?.registryOnly).toEqual([]);
         expect(await git(fixture.main, "diff", "--cached", "--name-only")).toBe("other.txt");
         expect(await git(fixture.main, "show", "--name-only", "--format=", "HEAD")).toBe(".agents/works/w00001-seed/tasks/t02-next/README.md");
     });
