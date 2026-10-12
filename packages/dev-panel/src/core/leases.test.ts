@@ -96,6 +96,17 @@ describe("租约文件", () => {
         expect(again.acquiredAt).toBe(hours(1).toISOString());
     });
 
+    test("同一个会话 id 换了进程、旧进程还活着（pid 或启动时刻不同）：续期按重新取得处理", async () => {
+        const main = await tempMain();
+        const first = await liveProcess();
+        const second = await liveProcess();
+        await touchLease(main, {caller: claude("aaa", first.ref), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
+        const moved = await touchLease(main, {caller: claude("aaa", second.ref), workId: "w00001-a", taskId: "t01-a", action: "task status", now: hours(1)});
+        expect(moved).toMatchObject({acquiredAt: hours(1).toISOString(), session: {process: second.ref}});
+        const restarted = await touchLease(main, {caller: claude("aaa", {...second.ref, startTicks: `${second.ref.startTicks}9`}), workId: "w00001-a", taskId: "t01-a", action: "lease take", now: hours(2)});
+        expect(restarted.acquiredAt).toBe(hours(2).toISOString());
+    });
+
     test("Task 已关闭后别的会话再续期，读取时仍是 task_closed（不会复活）", async () => {
         const main = await tempMain();
         const owner = await liveProcess();
