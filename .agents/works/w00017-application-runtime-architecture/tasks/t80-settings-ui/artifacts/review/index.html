@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t80 设置界面评审板</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --text: #1f2328; --muted: #6b6f76; --line: #e3e1da;
+  --accent: #0a66d8; --todo: #b45309; --todo-bg: #fff4e0; --done: #1a7f37; --done-bg: #e8f5ec;
+  --mark: #c026d3; --code-bg: #f2f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1c1f; --panel: #24262a; --text: #e6e6e6; --muted: #9a9ca1; --line: #34363b;
+    --accent: #5aa2ff; --todo: #f0b35a; --todo-bg: #3a2c16; --done: #5fd07e; --done-bg: #183222; --code-bg: #2c2e33; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 20px; margin: 48px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p, li { max-width: 860px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 20px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 10px; margin-right: 6px; vertical-align: 2px; }
+.todo { color: var(--todo); background: var(--todo-bg); }
+.done { color: var(--done); background: var(--done-bg); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 12px 0; }
+.rec { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 12px 0; }
+.decision { border-left: 3px solid var(--done); padding: 4px 0 4px 12px; margin: 12px 0; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); margin: 12px 0; }
+.grid.wide { grid-template-columns: 1fr; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure a { display: block; }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { padding: 8px 12px; font-size: 13px; color: var(--muted); }
+figcaption b { color: var(--text); }
+.pending { padding: 40px 16px; text-align: center; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; }
+code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.mark { color: var(--mark); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>t80 设置界面评审板</h1>
+<p class="sub">只在本机，不入库。最新的待定问题在最上面；每张图点开看原图。设计决定的文字以仓库里的 Task README 为准：<code>.worktree/w00017-t80-settings-ui/.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/README.md</code>。</p>
+
+<nav class="toc">
+<b>目录</b>
+<ol>
+<li><a href="#layout-960"><span class="tag done">已定</span>每项用混合排法</a></li>
+<li><a href="#contrib"><span class="tag done">已定</span>哪些地方能贡献、怎么贡献</a></li>
+<li><a href="#width"><span class="tag done">已定</span>窗口宽度：固定 960</a></li>
+<li><a href="#entry"><span class="tag done">已定</span>入口：和头像放在一起（P1）</a></li>
+<li><a href="#page"><span class="tag done">已定</span>插件自己画的整页</a></li>
+<li><a href="#rows"><span class="tag done">已定</span>每项标题在左、控件在右</a></li>
+<li><a href="#layers"><span class="tag done">已定</span>用户与本作品两层（L1）</a></li>
+<li><a href="#host"><span class="tag done">已定</span>浮动窗口加左侧分区（A）</a></li>
+</ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="layout-960"><span class="tag done">已定</span>每项用混合排法</h2>
+<p><b>要你定：</b>窗口固定 960 后，通用列表每一项用哪种排法。</p>
+<div class="card">
+<ul>
+<li><b>标签列加控件列</b>：标签列约 200px，控件紧跟其后、左对齐。项少的分区右边会空出一块。</li>
+<li><b>竖排（VS Code 式）</b>：标题、说明、控件从上往下，控件左对齐、不拉满。说明可以写长，适合说明多的项；每项更占高度。</li>
+<li><b>混合</b>：开关、分段、下拉、数字、单行输入用标签列加控件列；多行文本、JSON、列表这类宽控件另起一行、占满内容列。旧设置里这类宽控件不少：压缩提示词、摘要前缀、嵌入的请求扩展参数、模型的请求头。</li>
+</ul>
+</div>
+<div class="decision"><b>开发者定：混合。</b>简单项保持紧凑，多行文本和 JSON 铺满内容列，宽控件把右边的空白吃掉，读起来最均衡。竖排的代价在编辑器上最明显：13 项要滚两屏多，开关单独占一行很空。现在的外观、作品两个分区全是简单控件，混合和“标签列加控件列”画出来一样；“这一项是长文本”要在声明里加一个提示，等 Agent 或向量嵌入迁回、有第一个使用者时再加。</div>
+<p>Agent 运行策略与向量嵌入是按旧应用的内容模拟的，现在还没有这些插件，只用来看宽控件。窗口 640 高，长分区另附“滚到底”的图。</p>
+
+<h3>同一个分区，三种排法</h3>
+<div class="grid">
+<figure><a href="r4/r4-mixed-agent.webp" target="_blank"><img src="r4/r4-mixed-agent.webp" loading="lazy" alt=""></a><figcaption><b>混合 · Agent 运行策略</b>（顶部）</figcaption></figure>
+<figure><a href="r4/r4-mixed-agent-bottom.webp" target="_blank"><img src="r4/r4-mixed-agent-bottom.webp" loading="lazy" alt=""></a><figcaption><b>混合 · Agent 运行策略</b>（滚到底）：压缩提示词另起一行铺满</figcaption></figure>
+<figure><a href="r4/r4-stacked-agent.webp" target="_blank"><img src="r4/r4-stacked-agent.webp" loading="lazy" alt=""></a><figcaption><b>竖排 · Agent 运行策略</b>（顶部）</figcaption></figure>
+<figure><a href="r4/r4-stacked-agent-bottom.webp" target="_blank"><img src="r4/r4-stacked-agent-bottom.webp" loading="lazy" alt=""></a><figcaption><b>竖排 · Agent 运行策略</b>（滚到底）</figcaption></figure>
+<figure><a href="r4/r4-mixed-embedding.webp" target="_blank"><img src="r4/r4-mixed-embedding.webp" loading="lazy" alt=""></a><figcaption><b>混合 · 向量嵌入</b>（顶部）</figcaption></figure>
+<figure><a href="r4/r4-mixed-embedding-bottom.webp" target="_blank"><img src="r4/r4-mixed-embedding-bottom.webp" loading="lazy" alt=""></a><figcaption><b>混合 · 向量嵌入</b>（滚到底）：请求扩展参数（JSON）另起一行铺满</figcaption></figure>
+</div>
+
+<h3>只有简单控件的分区</h3>
+<div class="grid">
+<figure><a href="r4/r4-inline-editor.webp" target="_blank"><img src="r4/r4-inline-editor.webp" loading="lazy" alt=""></a><figcaption><b>标签列加控件列 · 编辑器</b>（顶部；混合在这里画出来一样）</figcaption></figure>
+<figure><a href="r4/r4-inline-editor-bottom.webp" target="_blank"><img src="r4/r4-inline-editor-bottom.webp" loading="lazy" alt=""></a><figcaption><b>标签列加控件列 · 编辑器</b>（滚到底）</figcaption></figure>
+<figure><a href="r4/r4-stacked-editor.webp" target="_blank"><img src="r4/r4-stacked-editor.webp" loading="lazy" alt=""></a><figcaption><b>竖排 · 编辑器</b>（顶部）：一屏只放得下四项</figcaption></figure>
+<figure><a href="r4/r4-stacked-editor-bottom.webp" target="_blank"><img src="r4/r4-stacked-editor-bottom.webp" loading="lazy" alt=""></a><figcaption><b>竖排 · 编辑器</b>（滚到底）</figcaption></figure>
+<figure><a href="r4/r4-inline-appearance.webp" target="_blank"><img src="r4/r4-inline-appearance.webp" loading="lazy" alt=""></a><figcaption><b>标签列加控件列 · 外观</b></figcaption></figure>
+<figure><a href="r4/r4-stacked-appearance.webp" target="_blank"><img src="r4/r4-stacked-appearance.webp" loading="lazy" alt=""></a><figcaption><b>竖排 · 外观</b>：项少时竖排也好读</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="contrib"><span class="tag done">已定</span>哪些地方能贡献、怎么贡献</h2>
+<p>标注稿里 <span class="mark">洋红虚线框</span> 是可以贡献的区域，灰色虚线框是设置窗口自带、不能贡献的。右边一栏逐条写贡献点、谁贡献、声明怎么写。（标注稿画于窗口改成 960 之前，位置关系不变。）</p>
+<table>
+<tr><th>界面上的位置</th><th>贡献点</th><th>谁贡献</th><th>怎么贡献</th></tr>
+<tr><td>活动栏底部的齿轮</td><td><code>workbench.activitybar-items</code></td><td>nbook.settings</td><td>只写声明：标题、图标、顺序、命令 <code>nbook.settings.open</code>、窗口开着时画成按下所依据的公开状态 <code>nbook.settings/windowOpen</code></td></tr>
+<tr><td>活动栏底部的头像（占位）</td><td><code>workbench.activitybar-items</code></td><td>现在 nbook.workbench，以后账户插件</td><td>没有命令的条目不可点，悬停提示“个人资料尚未开放”</td></tr>
+<tr><td>整个设置窗口</td><td><code>workbench.overlays</code></td><td>nbook.settings</td><td>交一个组件，工作台在页面根上挂一份；书架是首页贡献、在同一个页面根里，所以书架上也能弹出</td></tr>
+<tr><td>左栏的每个分区</td><td><code>settings.sections</code></td><td>各插件</td><td>声明标题、说明、图标、组（应用、AI、插件）、顺序和类型。<b>list</b>：设置窗口按配置项自动画；<b>page</b>：插件交组件，拿到当前层 <code>context.layer</code>（切换标签时变化）。page 分 <code>column</code>（和列表同一个内容列）与 <code>fill</code>（铺满、自己分栏）</td></tr>
+<tr><td>分区里的每一行</td><td><code>settings.properties</code></td><td>声明这一项的插件</td><td><code>defineSetting</code> 写分区、小组、顺序、说明、选项显示名 <code>choices</code>、生效时机 <code>applies</code></td></tr>
+<tr><td>行里用什么控件</td><td>不能贡献</td><td>设置窗口</td><td>按 schema 选：布尔用开关，3 个以内的选项用分段，多于 3 个用下拉，数字用数字框，字符串用输入框；要特殊控件就贡献整页</td></tr>
+<tr><td>整页里的一行</td><td>不是贡献点</td><td>设置插件导出的 <code>SettingsRow</code></td><td>已修改竖线、恢复默认、“本作品覆盖”提示、层出错时停用都由它算，页面只放控件</td></tr>
+<tr><td>“用户 | 本作品”、已修改、恢复默认</td><td>不能贡献</td><td>设置窗口</td><td>层来自配置合同；这一层写了这个键就算改过，恢复默认是从这一层删掉这个键</td></tr>
+<tr><td>书架右上角的齿轮</td><td>不是贡献点</td><td>书架页（nbook.projects）自己的按钮</td><td>点了执行 <code>nbook.settings.open</code></td></tr>
+</table>
+<div class="grid">
+<figure><a href="r3/d3-X1-appearance.webp" target="_blank"><img src="r3/d3-X1-appearance.webp" loading="lazy" alt=""></a><figcaption><b>X1 外观（通用列表）</b>：齿轮、头像、窗口、分区、配置项</figcaption></figure>
+<figure><a href="r3/d3-X2-works.webp" target="_blank"><img src="r3/d3-X2-works.webp" loading="lazy" alt=""></a><figcaption><b>X2 作品（作品插件的整页）</b>：作品目录要用书架的目录选择器，所以由作品插件自己画</figcaption></figure>
+<figure><a href="r3/d3-X3-snippets.webp" target="_blank"><img src="r3/d3-X3-snippets.webp" loading="lazy" alt=""></a><figcaption><b>X3 常用片段（示例插件的整页，“本作品”标签）</b>：配置项是数组，通用列表画不了</figcaption></figure>
+<figure><a href="r3/d3-X4-bookshelf.webp" target="_blank"><img src="r3/d3-X4-bookshelf.webp" loading="lazy" alt=""></a><figcaption><b>X4 书架</b>：齿轮在头像左边，同一个浮层</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="width"><span class="tag done">已定</span>窗口宽度：固定 960</h2>
+<div class="decision">开发者选固定宽 960×640，切换分区时不变大小，可拖动调整、尺寸按客户端记住。780 宽放不下自带二级列表的页面（例如模型配置），按页面自动变宽又会让窗口在切换时跳动。</div>
+<div class="grid">
+<figure><a href="r3/draft3-whitespace.webp" target="_blank"><img src="r3/draft3-whitespace.webp" loading="lazy" alt=""></a><figcaption><b>第三轮留白对照</b>：W1 窄窗口 780、W2 内容居中、W3 加宽控件</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="entry"><span class="tag done">已定</span>入口：和头像放在一起（P1）</h2>
+<div class="decision">P1：工作台活动栏最下面头像在上、齿轮在下；书架右上角齿轮在头像左边。不做头像菜单（P2）：头像菜单若归账户插件，不装账户插件就没有设置入口。</div>
+<div class="grid">
+<figure><a href="r3/d3-P2-workbench.webp" target="_blank"><img src="r3/d3-P2-workbench.webp" loading="lazy" alt=""></a><figcaption><b>P2 工作台（未采用）</b>：只有头像，菜单里有“设置…”</figcaption></figure>
+<figure><a href="r3/d3-P2-bookshelf.webp" target="_blank"><img src="r3/d3-P2-bookshelf.webp" loading="lazy" alt=""></a><figcaption><b>P2 书架（未采用）</b></figcaption></figure>
+<figure><a href="r2/draft2-entry.webp" target="_blank"><img src="r2/draft2-entry.webp" loading="lazy" alt=""></a><figcaption><b>第二轮入口</b>：活动栏底部齿轮（按下态）、书架字标旁（后来改到头像旁）</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="page"><span class="tag done">已定</span>插件自己画的整页</h2>
+<div class="decision">整页分 <code>column</code> 与 <code>fill</code> 两种版式；分区标题与说明一律由设置窗口画；fill 页面里的二级列表用设置插件导出的页内列表组件，选中样式与左栏不同。</div>
+<div class="grid">
+<figure><a href="r2/d2-S2-custom-page.webp" target="_blank"><img src="r2/d2-S2-custom-page.webp" loading="lazy" alt=""></a><figcaption><b>第二轮模型服务整页</b>：两层左栏读成一张三栏表、表单区偏窄，促成了上面的规定</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="rows"><span class="tag done">已定</span>每项标题在左、控件在右</h2>
+<div class="decision">第一轮选 R1；第二轮比较了窄内容列（R1a）与标签列加控件列（R1b）；960 宽下的最终排法见最上面的待定问题。</div>
+<div class="grid">
+<figure><a href="r2/draft2-rows.webp" target="_blank"><img src="r2/draft2-rows.webp" loading="lazy" alt=""></a><figcaption><b>第二轮</b>：R1a 窄内容列、R1b 标签列加控件列</figcaption></figure>
+<figure><a href="r1/draft1-rows.webp" target="_blank"><img src="r1/draft1-rows.webp" loading="lazy" alt=""></a><figcaption><b>第一轮</b>：R1 左标题右控件、R2 标题在上、R3 预览卡</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="layers"><span class="tag done">已定</span>用户与本作品两层（L1）</h2>
+<div class="decision">顶部切换“用户 | 本作品”，每个分区有明确的目标层，整页按 <code>context.layer</code> 读写。旧设置的“启动”档不进设置界面；“本机”层只在合同里留位置。</div>
+<div class="grid">
+<figure><a href="r1/draft1-layers.webp" target="_blank"><img src="r1/draft1-layers.webp" loading="lazy" alt=""></a><figcaption><b>第一轮</b>：L1 用户、L1 本作品、L2 逐项标来源</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="host"><span class="tag done">已定</span>浮动窗口加左侧分区（A）</h2>
+<div class="decision">书架页没有编辑区，所以不做编辑区标签（C）；改主题时窗口不挡住后面，能直接看到效果。</div>
+<div class="grid">
+<figure><a href="r1/draft1-host.webp" target="_blank"><img src="r1/draft1-host.webp" loading="lazy" alt=""></a><figcaption><b>第一轮</b>：A 浮动窗口加左侧分区、B 单页、C 编辑区标签、A′ 从书架打开</figcaption></figure>
+</div>
+</main>
+</body>
+</html>

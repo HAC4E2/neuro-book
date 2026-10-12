@@ -32,4 +32,4 @@ status: active
 | [t02](tasks/t02-local-vs-repo-rules/README.md) | 按 t01 的判据改规则：`.local/` 分 Agent 区与用户区、验证与截图的入库边界、`design-review` 的路径；已完成，其中本地 Work 与产物留本地两条后被 t03 改掉 |
 | [t03](tasks/t03-design/README.md) | 面板与命令行的设计：首页 B、内容分类与导航、面板只做 herdr 的网页前端、领域模型第二版（项目数据持久、会话与租约临时、记录只放 `master`）已定；接下来重画首页与会话页，写 Proposal 与实施计划 |
 | [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent` |
-| [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；涉及别的会话的分支，未开工 |
+| [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；开发者定先只迁本会话建的，w00017 的 t80、t81 已迁，其余分支暂不动 |

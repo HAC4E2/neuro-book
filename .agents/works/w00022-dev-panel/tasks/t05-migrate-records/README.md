@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-migrate-records
-status: planned
+status: active
 ---
 
 # 把记录迁到主工作区
@@ -39,8 +39,14 @@ status: planned
 
 ## 当前状态
 
-未开工。
+- 2026-10-12 开发者决定：先不大范围迁移，只迁本会话建的记录，范围可控。
+- 已迁 w00017 的 t80、t81（w00022 本来就在主工作区）：
+  - 记录从分支 `t80/settings-ui`、`t81/nb-ui-fixes` 迁到主工作区（t81 取 t81 分支上较新的版本），补 `status`，w00017 README 的 Task 表加两行并说明其余 Task 仍以主线分支为准；
+  - 两条分支各提交一次删掉记录（`804d6ad6`、`b355b1b5`），t80 分支上 w00017 README 恢复成主线版本，两条分支相对 w00017 主线不再改 `.agents/works/`；
+  - t80 评审板搬进 `artifacts/review/`：用到的 25 张图转 WebP（q90，共 1.5 MB，最大 165 KB），原图与没用上的草稿图留在本地 `shots/review-originals/`；omp 审查报告与任务说明搬进 `artifacts/omp-review-1/`，会话与日志留在本地；
+  - t03 评审板里指向 t80 材料的相对路径改到新位置；页面在无头 Chrome 里加载无失败、图片无缺失。
+- 其余分支（w00002、w00005、w00017 主线、w00021）与 `t80/drafts`（不带记录改动）未动。
 
 ## 下一步
 
-先列出每条分支的记录差异与归属会话，交开发者定迁移顺序与授权。
+其余分支等开发者决定再迁；动之前先列出该分支的记录差异与归属会话。
