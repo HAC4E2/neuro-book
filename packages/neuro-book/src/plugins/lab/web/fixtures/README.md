@@ -137,7 +137,8 @@ defineSubjectFixture<typeof AgentChainSummary>({
   ```bash
   NB_LAB_URL=http://127.0.0.1:3000 bun run lab:shot -- -c AgentConversationView --vp phone,1400x900 --cw dark,light
   ```
-  缺省截全部场景；`--click <选择器>` 可在截图前点开舞台里的元素（可重复），`--out` 指定目录，缺省写系统临时根。每个组合用新标签页打开，固定宽高的画布会自动放大窗口，舞台不会被检视栏盖住。每张图的溢出像素、越界元素（带选择器）和页面错误打印在终端并写入 `report.json`，有问题时以非零退出。
+  缺省截全部场景；`--click <选择器>` 可在截图前点开舞台里的元素（可重复），`--out` 指定目录，缺省写系统临时根。每个组合用新标签页打开，固定宽高的画布会自动放大窗口，舞台不会被检视栏盖住。每张图的溢出像素、越界元素（带选择器）、聚焦光晕与外扩环被裁的元素和页面错误打印在终端并写入 `report.json`，有问题时以非零退出。测量也覆盖传送到画布上的对话框、抽屉与 body 上开着的下拉类浮层；截图只按舞台裁剪，浮层落在舞台范围外的部分不在图里。
+- 同一份测量在 `e2e/lab-scenes.e2e.ts` 里对全部场景跑（手机画布），和 `e2e/lab-layout-baseline.ts` 的已知问题逐项比个数，多了少了都失败。修好一个已知问题时同步改小基线；新写的组件不进基线。
 - 浏览器控制台里可用 `window.__nbLab.state()`、`.scenes()`、`.measure()`；截图按 `[data-lab-stage]` 裁剪。
 
 ### 3.5 内部状态上报：`useLabDataSink`（只读）

@@ -89,6 +89,8 @@ test("measure 报出聚焦光晕会被裁的元素：按样式表的焦点规则
             shell: () => tight(element("div", {className: "probe-shell"}, element("div", {className: "probe-inner", tabIndex: 0, textContent: "shell"}))),
             frame: () => tight(element("div", {className: "probe-frame"}, element("button", {className: "probe-plain", textContent: "frame"}))),
             roomy: () => element("div", {style: "overflow: hidden; padding: 12px"}, element("button", {className: "probe-ring", textContent: "roomy"})),
+            // 离边 5px：主题焦点环的实色部分（3.5px）不被裁，只有外圈的模糊光被切掉一截，看不出来，不报。
+            near: () => element("div", {style: "overflow: hidden; padding: 5px"}, element("button", {className: "probe-ring", textContent: "near"})),
         };
         const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
         const counts: Record<string, number> = {};
@@ -100,7 +102,69 @@ test("measure 报出聚焦光晕会被裁的元素：按样式表的焦点规则
         }
         return counts;
     });
-    expect(clipped).toEqual({base: 0, own: 1, shell: 1, frame: 0, roomy: 0});
+    expect(clipped).toEqual({base: 0, own: 1, shell: 1, frame: 0, roomy: 0, near: 0});
+});
+
+test("measure 报出现在画着的外扩环会被裁的元素：不偏移的外阴影与 outline 算，偏移投影与离边够远的不算；画布上的对话框也量（验收 26）", async ({page}) => {
+    await page.goto(`${dev.pageUrl}lab?c=SkillChip&s=skill`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
+    const rings = await page.evaluate(() => {
+        const ringed = (style: string, padding = "0"): HTMLElement => {
+            const box = Object.assign(document.createElement("div"), {style: `overflow: hidden; padding: ${padding}`});
+            box.append(Object.assign(document.createElement("div"), {style: `${style}; height: 20px`}));
+            return box;
+        };
+        const probes: Record<string, () => HTMLElement> = {
+            ring: () => ringed("box-shadow: 0 0 0 2px white, 0 0 0 3.5px black"),
+            outline: () => ringed("outline: 2px solid red; outline-offset: 1px"),
+            lifted: () => ringed("box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.3)"),
+            roomy: () => ringed("box-shadow: 0 0 0 3.5px black", "12px"),
+        };
+        const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
+        const counts: Record<string, number> = {};
+        for (const [name, make] of Object.entries(probes)) {
+            const probe = make();
+            stage.append(probe);
+            counts[name] = (window as unknown as {__nbLab: LabDebugApi}).__nbLab.measure()?.clippedRings.length ?? -1;
+            probe.remove();
+        }
+        return counts;
+    });
+    expect(rings).toEqual({ring: 1, outline: 1, lifted: 0, roomy: 0});
+
+    // 无限旋转的元素：外框随角度变，转到斜着时比舞台宽，不算越界；同样宽、静止的算。
+    const looping = await page.evaluate(() => {
+        const api = (window as unknown as {__nbLab: LabDebugApi}).__nbLab;
+        const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
+        const size = `width: ${String(stage.clientWidth - 2)}px; height: ${String(stage.clientWidth - 2)}px`;
+        const spinner = Object.assign(document.createElement("div"), {style: size});
+        stage.append(spinner);
+        spinner.animate([{transform: "rotate(45deg)"}, {transform: "rotate(405deg)"}], {duration: 1000, iterations: Infinity});
+        const spinning = api.measure()?.offenders.length;
+        spinner.getAnimations().forEach((animation) => animation.cancel());
+        spinner.style.transform = "rotate(45deg)";
+        const still = api.measure()?.offenders.length;
+        spinner.remove();
+        return {spinning, still};
+    });
+    expect(looping).toEqual({spinning: 0, still: 1});
+
+    // 对话框传送到画布的浮层落点，不在舞台里：同样要量到。
+    await page.goto(`${dev.pageUrl}lab?c=Dialog&s=default`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
+    await expect(page.locator("[data-lab-overlay-root] [data-dialog-surface]")).toBeVisible();
+    const dialog = await page.evaluate(() => {
+        const api = (window as unknown as {__nbLab: LabDebugApi}).__nbLab;
+        const before = api.measure();
+        const tight = Object.assign(document.createElement("div"), {style: "overflow: hidden"});
+        tight.append(Object.assign(document.createElement("div"), {style: "box-shadow: 0 0 0 3.5px black; height: 20px"}));
+        document.querySelector("[data-dialog-surface] .nb-dialog__body")!.append(tight);
+        const wide = Object.assign(document.createElement("div"), {style: "position: absolute; left: 0; top: 0; width: 4000px; height: 4px"});
+        document.querySelector("[data-lab-overlay-root]")!.append(wide);
+        const after = api.measure();
+        return {before: [before?.clippedRings.length, before?.offenders.length], after: [after?.clippedRings.length, after?.offenders.length]};
+    });
+    expect(dialog).toEqual({before: [0, 0], after: [1, 1]});
 });
 
 test("lab:shot：正常的场景截图并写报告，以 0 退出；舞台有越界元素时在报告里列出并以 1 退出", async () => {

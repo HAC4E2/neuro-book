@@ -38,10 +38,18 @@ export type LabStageMeasure = {
     box: {x: number; y: number; width: number; height: number};
     /** 舞台内容比舞台宽出的像素；0 表示没有横向溢出。 */
     overflowX: number;
-    /** 越出舞台左右边缘、且没有被某个滚动或裁剪容器挡住的元素，最多 20 个。 */
+    /**
+     * 越出所在区域左右边缘、且没有被某个滚动或裁剪容器挡住的元素，最多 20 个。区域是舞台，以及画布上的浮层落点（对话框、
+     * 抽屉等居中浮层传送到那里，按画布的边算）。
+     */
     offenders: LabOverflowOffender[];
-    /** 聚焦时光晕会被祖先裁掉一截的元素（按样式表里的焦点规则找，环画在外框上的算外框），最多 20 个；按主题的 `--focus-ring` 算外扩量。 */
+    /**
+     * 聚焦时光晕会被祖先裁掉一截的元素（按样式表里的焦点规则找，环画在外框上的算外框），最多 20 个；外扩量按主题
+     * `--focus-ring` 里不偏移那几圈的扩散量算（偏移的模糊光被切掉一截看不出）。查舞台、画布浮层落点与页面上开着的 reka 浮层。
+     */
     clippedFocus: LabClippedFocus[];
+    /** 现在就画着的外扩环（不偏移的外阴影的扩散量或 outline，例如色块的选中环）会被祖先裁掉一截的元素，最多 20 个；范围同上。 */
+    clippedRings: LabClippedFocus[];
 };
 
 export type LabDebugApi = {

@@ -23,6 +23,23 @@ taskId: t77-bookshelf-polish-2
 
 ## 当前状态
 
+- 2026-10-12 S4（收口）进行中：Lab 版面测量补强与门禁已完成，omp 实现审查待跑。
+  - **测量补强**（`lab-debug.ts`）：
+    - 覆盖传送到画布浮层落点的对话框与抽屉，以及 body 上开着的 reka 浮层；
+    - 新增 `clippedRings`，查现在就画着的外扩环（不偏移外阴影的扩散量、outline）；
+    - 焦点光晕改按实色部分算（不偏移那几圈的扩散量，nbook 与 macos 都是 3.5px）；
+    - 处在无限循环动画里的元素不算越界。
+  - **阈值与误报的依据**：开发者要求先截图核实。对每类被报的控件逐个用键盘方式聚焦，和“裁切容器改成不裁”对照（[总览](evidences/s4-focus-clip-overview.png)）：离边 0–2px 的环实色部分被切成平边，属实；4–5.6px 只切到外圈模糊，看不出，是误报；`Spinner` 的越界随旋转角度变，是误报。
+  - **门禁**：`lab-scenes.e2e.ts` 对全部场景在手机画布上量，等字体、有限动画并隔两帧量到连续两次一致。和 `e2e/lab-layout-baseline.ts` 逐项比个数，多了少了都失败。
+    - 不等稳定时，四个标签页并行，同一场景两轮结果不同；
+    - 基线有 36 个场景，都是贴边控件的聚焦光晕被裁，外加 `Collapsible` 的 6px（刻意的负外边距）；
+    - 开发者选“门禁带基线，另开 Task 清”，建了 [t78](../t78-lab-layout-baseline/README.md)（未开工）。
+  - **Spec**：`ui/component-lab.md` 改写 `measure()` 与 `lab:shot` 的说明，追加验收 26、27。
+  - **验证**：
+    - `lab-shot.e2e.ts` 4 例（验收 25 加离边 5px 不报，验收 26 新增）；`lab-scenes.e2e.ts` 连跑三轮结果一致、带基线通过；
+    - 变异 5 处全部被 e2e 抓到：不看画布浮层、偏移投影也算环、不看 outline、转圈也算越界、焦点环按旧的 7px；
+    - `test:affected --typecheck --since daf159b4`：两包 typecheck 为 0，nb-ui 与 vitest 全过；`bun test` 982 过、2 失败。一个是已知的 `settings/commands.test.ts`，另一个是 `settings/backend/layer-owner.test.ts` 的“合并：静止 50 毫秒才重读”，在机器忙时超时，单跑 3 次都过，该文件自 t68 未动；
+    - `docs:check`、`governance:check` 无失败；全量 e2e 161 例全过。
 - 2026-10-12 S3 完成：状态栏字数换活动文档或文档还没算过时立即算；同一文档输入时先显示上一次的值，停手 300ms（注入时钟）后按当时的修订号再算。按文档缓存修订号与字数，计时只在待算的修订号变了时重排（状态栏移动光标也会求值）。Spec `workbench/editor.md` 输出 27 改写，追加验收 16。验证：`status-items.test.ts` 5 例（`ManualClock`：到点前显示旧值、反复求值不推迟、到点经响应式刷新、换文档与新开立即显示），编辑器测试 85 例，typecheck 0；变异 5 处全部被抓到。
 - 2026-10-12 开发者认为 S2 可以了，接着做 S3、S4。问到 e2e 是否管“内层边框被外层截断”这类问题：不管，它验行为；外观靠 `lab:shot` 的测量，而测量对对话框没生效（见上一条的更正）。开发者选把测量补强并进 S4，含 e2e 门禁（[plan.md](plan.md) 末尾）。
 - 2026-10-11 S2 完成：

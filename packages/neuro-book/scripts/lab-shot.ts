@@ -246,18 +246,19 @@ export function parseShotArgs(args: readonly string[], env: NodeJS.ProcessEnv = 
     return options;
 }
 
-/** 有溢出、越界元素、聚焦光晕会被裁的控件或页面错误的结果。 */
+/** 有溢出、越界元素、聚焦光晕会被裁的控件、外扩环被裁的元素或页面错误的结果。 */
 export function failedShots(results: readonly ShotResult[]): ShotResult[] {
     return results.filter((result) => result.problems.length > 0
-        || (result.measure !== null && (result.measure.overflowX > 0 || result.measure.offenders.length > 0 || result.measure.clippedFocus.length > 0)));
+        || (result.measure !== null && (result.measure.overflowX > 0 || result.measure.offenders.length > 0 || result.measure.clippedFocus.length > 0 || result.measure.clippedRings.length > 0)));
 }
 
 function summarize(result: ShotResult): string {
     const measure = result.measure;
-    const overflow = measure === null ? "无舞台" : `溢出 ${measure.overflowX}px，越界元素 ${measure.offenders.length} 个，光晕会被裁的控件 ${measure.clippedFocus.length} 个`;
+    const overflow = measure === null ? "无舞台" : `溢出 ${measure.overflowX}px，越界元素 ${measure.offenders.length} 个，光晕会被裁的控件 ${measure.clippedFocus.length} 个，外扩环被裁的元素 ${measure.clippedRings.length} 个`;
     const lines = [`${result.scene} · ${result.viewport} · ${result.colorway ?? "当前配色"}：${overflow}，问题 ${result.problems.length} 条 → ${result.file}`];
     for (const offender of measure?.offenders ?? []) lines.push(`    越界 ${offender.overflow}px ${offender.componentName} ${offender.selector}`);
     for (const clipped of measure?.clippedFocus ?? []) lines.push(`    光晕被裁 离边 ${clipped.gap}px ${clipped.componentName} ${clipped.selector} ← ${clipped.clipper}`);
+    for (const clipped of measure?.clippedRings ?? []) lines.push(`    外扩环被裁 离边 ${clipped.gap}px ${clipped.componentName} ${clipped.selector} ← ${clipped.clipper}`);
     for (const problem of result.problems) lines.push(`    ${problem.split("\n")[0]}`);
     return lines.join("\n");
 }

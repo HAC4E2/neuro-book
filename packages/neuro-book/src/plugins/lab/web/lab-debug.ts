@@ -41,35 +41,70 @@ function clipped(element: HTMLElement, stage: HTMLElement): boolean {
 
 const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1']), [role='combobox'], [role='listbox']";
 
-/**
- * 主题焦点环的外扩量：`--focus-ring` 是几层 box-shadow，取每层“偏移 + 模糊 + 扩散”的最大值。
- * 读不到或解析不出时按 7px（nbook、macos 两套主题都是 1 + 3.5 两圈加 1px 偏移 6px 模糊）。
- */
-export function focusRingExtent(element: Element): number {
-    const value = getComputedStyle(element).getPropertyValue("--focus-ring").trim();
-    if (value === "") return 7;
-    let extent = 0;
-    // 按顶层逗号拆层：颜色里的 color-mix(...) 自带逗号，括号内不拆。
+/** box-shadow 的一层：偏移、模糊、扩散（像素），是否内阴影，颜色是否全透明。 */
+type ShadowLayer = {readonly x: number; readonly y: number; readonly blur: number; readonly spread: number; readonly inset: boolean; readonly transparent: boolean};
+
+/** 按顶层逗号把 box-shadow 拆成层：颜色里的 `color-mix(...)`、`rgb(...)` 自带逗号，括号内不拆。 */
+function shadowLayers(value: string): ShadowLayer[] {
     let depth = 0;
     let start = 0;
-    const layers: string[] = [];
+    const parts: string[] = [];
     for (let index = 0; index < value.length; index += 1) {
         const char = value[index];
         if (char === "(") depth += 1;
         else if (char === ")") depth -= 1;
         else if (char === "," && depth === 0) {
-            layers.push(value.slice(start, index));
+            parts.push(value.slice(start, index));
             start = index + 1;
         }
     }
-    layers.push(value.slice(start));
-    for (const layer of layers) {
-        const lengths = layer.match(/-?\d*\.?\d+px/gu)?.map((part) => Number.parseFloat(part)) ?? [];
+    parts.push(value.slice(start));
+    const layers: ShadowLayer[] = [];
+    for (const part of parts) {
+        // 颜色里的数字不是长度：先去掉括号里的内容再找带 px 的数。
+        const lengths = part.replace(/\([^()]*\)/gu, "").match(/-?\d*\.?\d+px/gu)?.map((length) => Number.parseFloat(length)) ?? [];
         if (lengths.length < 2) continue;
         const [x = 0, y = 0, blur = 0, spread = 0] = lengths;
-        extent = Math.max(extent, Math.max(Math.abs(x), Math.abs(y)) + blur + spread);
+        layers.push({x, y, blur, spread, inset: /\binset\b/u.test(part), transparent: /\btransparent\b|rgba\([^)]*,\s*0\)|\/\s*0\)/u.test(part)});
     }
-    return extent > 0 ? extent : 7;
+    return layers;
+}
+
+/**
+ * 一圈环被裁掉能不能看出来，只看它的实色部分：不偏移的那几层的扩散量。带偏移、靠模糊扩出去的那层被切掉一截，
+ * 截图对照看不出差别（2026-10-12，离边 4–5.6px 的十几个控件逐个聚焦对照），按它算全是误报。
+ */
+function solidRingExtent(layers: ReadonlyArray<ShadowLayer>): number {
+    let extent = 0;
+    for (const layer of layers) {
+        if (layer.inset || layer.transparent || layer.x !== 0 || layer.y !== 0) continue;
+        extent = Math.max(extent, layer.spread);
+    }
+    return extent;
+}
+
+/**
+ * 主题焦点环的外扩量：`--focus-ring` 里不偏移那几圈的扩散量（见 solidRingExtent）。读不到或解析不出时按 3.5px
+ * （nbook、macos 两套主题都是 1 与 3.5 两圈，另有一层 1px 偏移 6px 模糊的光，不算）。
+ */
+export function focusRingExtent(element: Element): number {
+    const value = getComputedStyle(element).getPropertyValue("--focus-ring").trim();
+    const extent = value === "" ? 0 : solidRingExtent(shadowLayers(value));
+    return extent > 0 ? extent : 3.5;
+}
+
+/**
+ * 元素现在画着的外扩环有多宽：不偏移的外阴影的扩散量（`0 0 0 2px` 这类选中环、描边环，见 solidRingExtent），或者看得见的
+ * outline（宽度 + 偏移）。带偏移的投影是抬起的影子，不算环：卡片、面板的投影本来就会延伸到容器外，算进来全是误报。
+ */
+function drawnRingExtent(style: CSSStyleDeclaration): number {
+    const shadow = style.boxShadow;
+    let extent = shadow === "" || shadow === "none" ? 0 : solidRingExtent(shadowLayers(shadow));
+    const outlineWidth = Number.parseFloat(style.outlineWidth);
+    if (style.outlineStyle !== "none" && outlineWidth > 0 && !/\btransparent\b|rgba\([^)]*,\s*0\)/u.test(style.outlineColor)) {
+        extent = Math.max(extent, outlineWidth + (Number.parseFloat(style.outlineOffset) || 0));
+    }
+    return extent;
 }
 
 /** 这条规则聚焦后画不画得出东西：box-shadow 或看得见的 outline。透明的 outline（Tailwind 的 outline-hidden）不算。 */
@@ -116,10 +151,11 @@ function ringSelectorsIn(root: Document): RingSelector[] {
 /**
  * 聚焦光晕会被裁的元素：会画焦点环的元素（见 ringSelectorsIn）沿祖先往上找 overflow 不为 visible 的容器，任一边离容器内容盒的边
  * 不足光晕外扩量就算。不真的去聚焦（会改页面状态、触发监听），按主题 token 的几何算；元素本身就越出容器的归溢出检查，这里跳过。
+ * 查几个区域时由调用方把 `selectors` 算一次传进来：它要扫一遍页面上全部样式规则。
  */
-export function clippedFocusRings(stage: HTMLElement, extent: number): LabClippedFocus[] {
+export function clippedFocusRings(stage: HTMLElement, extent: number, selectors: ReadonlyArray<RingSelector> = ringSelectorsIn(stage.ownerDocument)): LabClippedFocus[] {
     const candidates = new Set<HTMLElement>();
-    for (const {selector, direct} of ringSelectorsIn(stage.ownerDocument)) {
+    for (const {selector, direct} of selectors) {
         let matched: NodeListOf<HTMLElement>;
         try {
             matched = stage.querySelectorAll<HTMLElement>(selector);
@@ -134,58 +170,119 @@ export function clippedFocusRings(stage: HTMLElement, extent: number): LabClippe
     for (const element of candidates) {
         if (found.length >= MAX_OFFENDERS) break;
         if (invisible(element) || (element as HTMLButtonElement).disabled) continue;
-        const box = element.getBoundingClientRect();
-        if (box.width === 0 || box.height === 0) continue;
-        for (let node = element.parentElement; node !== null && node !== stage; node = node.parentElement) {
-            const style = getComputedStyle(node);
-            if (style.overflowX === "visible" && style.overflowY === "visible") continue;
-            const inner = node.getBoundingClientRect();
-            const inset = {
-                left: Number.parseFloat(style.borderLeftWidth),
-                top: Number.parseFloat(style.borderTopWidth),
-                right: Number.parseFloat(style.borderRightWidth),
-                bottom: Number.parseFloat(style.borderBottomWidth),
-            };
-            // 可滚动的方向上，容器边不是裁切边（内容滚过去就露出来），只看不滚动的那个轴。
-            const scrollsX = (style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth;
-            const scrollsY = (style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight;
-            const gaps = [
-                ...(style.overflowX === "visible" || scrollsX ? [] : [box.left - (inner.left + inset.left), inner.right - inset.right - box.right]),
-                ...(style.overflowY === "visible" || scrollsY ? [] : [box.top - (inner.top + inset.top), inner.bottom - inset.bottom - box.bottom]),
-            ];
-            const gap = Math.min(...gaps);
-            if (gaps.length > 0 && gap >= -TOLERANCE && gap < extent) {
-                const described = describeNode(element);
-                found.push({selector: described.selector, componentName: described.componentName, clipper: describeNode(node).selector, gap: Math.round(gap * 10) / 10});
-                break;
-            }
-        }
+        const clipped = clippedBy(element, stage, extent);
+        if (clipped !== null) found.push(clipped);
     }
     return found;
 }
 
-export function measureStage(stage: HTMLElement): LabStageMeasure {
-    const rect = stage.getBoundingClientRect();
+/**
+ * 元素外扩 `extent` 像素的一圈会不会被某个祖先（到 `root` 为止，不含）裁掉：沿祖先往上找 overflow 不为 visible 的容器，
+ * 任一边离容器内容盒的边不足 `extent` 就算。元素本身就越出容器的归溢出检查，这里跳过。
+ */
+function clippedBy(element: HTMLElement, root: HTMLElement, extent: number): LabClippedFocus | null {
+    const box = element.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    for (let node = element.parentElement; node !== null && node !== root; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+        const inner = node.getBoundingClientRect();
+        const inset = {
+            left: Number.parseFloat(style.borderLeftWidth),
+            top: Number.parseFloat(style.borderTopWidth),
+            right: Number.parseFloat(style.borderRightWidth),
+            bottom: Number.parseFloat(style.borderBottomWidth),
+        };
+        // 可滚动的方向上，容器边不是裁切边（内容滚过去就露出来），只看不滚动的那个轴。
+        const scrollsX = (style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth;
+        const scrollsY = (style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight;
+        const gaps = [
+            ...(style.overflowX === "visible" || scrollsX ? [] : [box.left - (inner.left + inset.left), inner.right - inset.right - box.right]),
+            ...(style.overflowY === "visible" || scrollsY ? [] : [box.top - (inner.top + inset.top), inner.bottom - inset.bottom - box.bottom]),
+        ];
+        const gap = Math.min(...gaps);
+        if (gaps.length > 0 && gap >= -TOLERANCE && gap < extent) {
+            const described = describeNode(element);
+            return {selector: described.selector, componentName: described.componentName, clipper: describeNode(node).selector, gap: Math.round(gap * 10) / 10};
+        }
+    }
+    return null;
+}
+
+/** 现在就画着的外扩环（选中环、描边环，见 drawnRingExtent）会被裁的元素。不依赖焦点：截图时看得见的那一圈。 */
+export function clippedDrawnRings(root: HTMLElement): LabClippedFocus[] {
+    const found: LabClippedFocus[] = [];
+    for (const element of root.querySelectorAll<HTMLElement>("*")) {
+        if (found.length >= MAX_OFFENDERS) break;
+        const style = getComputedStyle(element);
+        const extent = drawnRingExtent(style);
+        if (extent <= TOLERANCE || invisible(element)) continue;
+        const clipped = clippedBy(element, root, extent);
+        if (clipped !== null) found.push(clipped);
+    }
+    return found;
+}
+
+/**
+ * 在无限循环的动画里的元素（转圈、骨架闪光）：外框随动画每一帧都在变，旋转的方块转到 45° 时比静止宽四成，
+ * 拿它判越界，结果取决于量的那一刻转到哪。
+ */
+function looping(region: HTMLElement): Set<Element> {
+    const targets = new Set<Element>();
+    for (const animation of region.ownerDocument.getAnimations()) {
+        const target = animation.effect instanceof KeyframeEffect ? animation.effect.target : null;
+        if (target !== null && animation.effect?.getComputedTiming().endTime === Infinity && region.contains(target)) targets.add(target);
+    }
+    return targets;
+}
+
+/** 越出 `region` 左右边缘、且没有被中间某个横向裁剪或滚动容器挡住的元素。 */
+function offendersIn(region: HTMLElement, limit: number): LabOverflowOffender[] {
+    const rect = region.getBoundingClientRect();
     const offenders: LabOverflowOffender[] = [];
-    for (const element of stage.querySelectorAll<HTMLElement>("*")) {
-        if (offenders.length >= MAX_OFFENDERS) {
+    const moving = [...looping(region)];
+    for (const element of region.querySelectorAll<HTMLElement>("*")) {
+        if (offenders.length >= limit) {
             break;
+        }
+        if (moving.some((target) => target.contains(element))) {
+            continue;
         }
         const box = element.getBoundingClientRect();
         if (box.width === 0 && box.height === 0) {
             continue;
         }
         const overflow = Math.max(box.right - rect.right, rect.left - box.left);
-        if (overflow > TOLERANCE && !invisible(element) && !clipped(element, stage)) {
+        if (overflow > TOLERANCE && !invisible(element) && !clipped(element, region)) {
             const node = describeNode(element);
             offenders.push({selector: node.selector, componentName: node.componentName, overflow: Math.round(overflow)});
         }
     }
+    return offenders;
+}
+
+/**
+ * 场景的内容不只在舞台里：对话框、抽屉这类居中浮层传送到同一块画布上的浮层落点（ViewportCanvas 的
+ * `data-lab-overlay-root`），下拉、取色面板这类贴着触发器的浮层由 reka 传送到 body。只测舞台的话，这些全都测不到。
+ */
+function overlayRootOf(stage: HTMLElement): HTMLElement | null {
+    return stage.closest("[data-lab-canvas]")?.querySelector<HTMLElement>("[data-lab-overlay-root]") ?? null;
+}
+
+export function measureStage(stage: HTMLElement): LabStageMeasure {
+    const rect = stage.getBoundingClientRect();
+    const overlayRoot = overlayRootOf(stage);
+    // 越界按所在区域的边算：舞台里的按舞台，画布浮层里的按画布。body 上的 reka 浮层按视口定位、会翻转避让，不查越界。
+    const regions = overlayRoot === null ? [stage] : [stage, overlayRoot];
+    const popovers = [...stage.ownerDocument.querySelectorAll<HTMLElement>("[data-reka-popper-content-wrapper]")];
+    const extent = focusRingExtent(stage);
+    const selectors = ringSelectorsIn(stage.ownerDocument);
     return {
         box: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
         overflowX: Math.max(0, stage.scrollWidth - stage.clientWidth),
-        offenders,
-        clippedFocus: clippedFocusRings(stage, focusRingExtent(stage)),
+        offenders: regions.flatMap((region) => offendersIn(region, MAX_OFFENDERS)).slice(0, MAX_OFFENDERS),
+        clippedFocus: [...regions, ...popovers].flatMap((region) => clippedFocusRings(region, extent, selectors)).slice(0, MAX_OFFENDERS),
+        clippedRings: [...regions, ...popovers].flatMap((region) => clippedDrawnRings(region)).slice(0, MAX_OFFENDERS),
     };
 }
 

@@ -241,9 +241,11 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
                 {{ sizeLabel }}
             </div>
 
+            <!-- data-lab-canvas：测量（lab-debug.ts）从舞台找到同一块画布上的浮层落点。 -->
             <div
                 ref="boxRef"
                 class="nb-lab-stage-box relative"
+                data-lab-canvas
                 :class="[`nb-lab-stage-box--${props.backdrop}`, dragging ? 'select-none' : '']"
                 :style="boxStyle"
             >
