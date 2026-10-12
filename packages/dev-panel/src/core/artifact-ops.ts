@@ -758,8 +758,10 @@ function select(views: readonly ArtifactAnswersView[], query: AnswersQuery): Art
     return [...views];
 }
 
+type ScopeEntry = {root: string; ref: ArtifactRef & {taskId: string}};
+
 /** 解析查询的范围：Work、Task 按 master 与过渡期的执行 worktree 找，产物从 Task 记录所在的 checkout 读。 */
-async function answersScope(context: RepoContext, query: AnswersQuery): Promise<Array<{root: string; ref: ArtifactRef & {taskId: string}}>> {
+async function answersScope(context: RepoContext, query: AnswersQuery): Promise<ScopeEntry[]> {
     const {mainRoot} = context;
     const transition = await readTransitionState(mainRoot);
     let workIds = [...new Set([...await listWorkIds(mainRoot), ...transition.branchChanges.keys()])].sort();
@@ -769,7 +771,7 @@ async function answersScope(context: RepoContext, query: AnswersQuery): Promise<
         if (matched.length > 1) throw new NbdevError("ambiguous_work", `Work 编号对应多个目录：${matched.join("、")}`, {details: {workRef: query.workRef, candidates: matched}});
         workIds = matched;
     }
-    const scope: Array<{root: string; ref: ArtifactRef & {taskId: string}}> = [];
+    const scope: ScopeEntry[] = [];
     for (const workId of workIds) {
         const copies = transition.branchChanges.get(workId);
         const execution = copies ? await chooseExecutionCheckout(mainRoot, workId, copies, transition.registry) : null;
@@ -810,7 +812,10 @@ export async function resolveTaskRef(context: RepoContext, workRef: string, task
 
 /** `nbdev answers`：读答复、题的状态与确认。只读（续期租约由命令行边界做）。 */
 export async function readAnswers(context: RepoContext, query: AnswersQuery): Promise<AnswersResult> {
-    const scope = await answersScope(context, query);
+    return readScope(await answersScope(context, query), query);
+}
+
+async function readScope(scope: readonly ScopeEntry[], query: AnswersQuery): Promise<AnswersResult> {
     const warnings: Warning[] = [];
     const views: ArtifactAnswersView[] = [];
     for (const {root, ref} of scope) {
@@ -831,13 +836,15 @@ export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSig
  */
 export async function waitForAnswers(context: RepoContext, query: AnswersQuery, options: WaitOptions): Promise<AnswersResult> {
     const effective: AnswersQuery = query.since === undefined && query.filter === "all" ? {...query, filter: "unacked"} : query;
-    const first = await readAnswers(context, effective);
+    const scope = await answersScope(context, effective);
+    const keyOf = (ref: ArtifactRef) => `${ref.workId}/${ref.taskId}/${ref.artifactId}`;
+    // 先列 known、再完整读：反过来的话，完整读之后、列 known 之前落位的答复会被记成“看过了”，却不在读到的结果里，要等到超时才返回。
+    const known = new Map<string, string>();
+    for (const {ref} of scope) known.set(keyOf(ref), (await listAnswerFileNames(context.mainRoot, ref)).join("\n"));
+    const first = await readScope(scope, effective);
     if (first.artifacts.length > 0) return first;
     const deadline = Date.now() + options.timeoutMs;
     const pollMs = options.pollMs ?? 1_000;
-    const known = new Map<string, string>();
-    const keyOf = (ref: ArtifactRef) => `${ref.workId}/${ref.taskId}/${ref.artifactId}`;
-    for (const ref of first.scope) known.set(keyOf(ref), (await listAnswerFileNames(context.mainRoot, ref)).join("\n"));
     const views = new Map<string, ArtifactAnswersView>();
     options.onWaiting?.(first.scope);
     for (;;) {
