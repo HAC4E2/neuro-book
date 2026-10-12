@@ -41,7 +41,7 @@ import {gitOutput, splitNul} from "./git.js";
 import {touchCallerLease, type LeaseOptions} from "./lease-ops.js";
 import type {LeaseRecord} from "./leases.js";
 import {resolveWritableTask} from "./operations.js";
-import {readProvenance, writeProvenance, type ProvenanceAction} from "./provenance.js";
+import {verifiedProvenance, writeProvenance, type ProvenanceAction} from "./provenance.js";
 import {parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
 import {listTaskIds, listWorkIds} from "./records.js";
 import {WORKS_ROOT, type RepoContext} from "./repo.js";
@@ -334,11 +334,14 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
         if (next.problems.length > 0) throw new NbdevError("usage", next.problems.map((problem) => problem.message).join("；"), {details: {problems: next.problems}});
 
         const record = versionRecord(ref, {version, action: "publish", kind: kind as ArtifactKind, title, state: "open", entry, contentHash, questions: next.questions, now: tx.now});
+        // 发布者按 provenance 找并核对 sha256：发布记录被删掉又由别的会话重建过时，provenance 记的还是原来那个会话。
+        const provenanceWarnings: Warning[] = [];
         const previousInfo = previous ? {
             version: previous.version,
             publishedAt: previous.publishedAt,
-            publishedBy: (await readProvenance(mainRoot, versionPath(ref, previous.version)))?.session.key ?? null,
+            publishedBy: (await verifiedProvenance(mainRoot, versionPath(ref, previous.version), provenanceWarnings))?.session.key ?? null,
         } : null;
+        for (const warning of provenanceWarnings) tx.warn(warning);
         const base = {workId, taskId, artifactId: input.artifactId, questions: next.questions, dropped: next.dropped, retiredInPage: next.retiredInPage, restored: next.restored, previous: previousInfo};
         if (previous && !input.forceVersion && previous.state === "open" && sameContent(previous, record)) {
             if (residue.length === 0) return {message: null, result: {...base, unchanged: true, version: null, path: null, committedFiles: []}};

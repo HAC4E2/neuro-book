@@ -81,6 +81,20 @@ describe("发布", () => {
         expect((await readArtifact(fixture.main, REF)).latest?.title).toBe("自定标题");
     });
 
+    test("输出里上一版的发布者按 provenance 核对过 sha256：上一版的发布记录被改写过就不报发布者", async () => {
+        const {fixture, context} = await setup("publish-previous-by");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await fixture.write(`${DIR}/index.html`, page({first: "layout-v2"}));
+        expect((await publishArtifact(context, TARGET, asBob)).data.previous).toMatchObject({version: 1, publishedBy: "external:bob"});
+        // 像是删掉后由别的会话重建的 v2：内容变了，provenance 还记着 bob。
+        const v2 = join(fixture.main, versionPath(REF, 2));
+        await writeFile(v2, `${(await readFile(v2, "utf8")).trimEnd()}\n\n`);
+        await fixture.write(`${DIR}/index.html`, page({first: "layout-v3"}));
+        const v3 = await publishArtifact(context, TARGET, asBob);
+        expect([v3.data.version, v3.data.previous]).toEqual([3, expect.objectContaining({version: 2, publishedBy: null})]);
+    });
+
     test("场景 2 与第 11 条：换题号后旧题被取代，已答的题从页面删掉仍算已答；旧答复标出针对哪一版", async () => {
         const {fixture, context} = await setup("publish-renumber");
         await fixture.write(`${DIR}/index.html`, page());
