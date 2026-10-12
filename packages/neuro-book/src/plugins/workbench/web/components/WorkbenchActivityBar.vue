@@ -29,6 +29,7 @@ const emit = defineEmits<{
         <div class="workbench-activity-bar__containers" data-switcher-band="sidebar">
             <Tooltip v-for="container in containers" :key="container.id" :text="container.label" placement="right">
                 <IconButton
+                    size="lg"
                     :icon-class="container.icon"
                     :aria-label="container.label"
                     :aria-pressed="sidebarVisible && container.id === selected"
@@ -47,7 +48,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-/* 卡片四周的留白归外壳（叶的内边距），这里只画卡片本身。 */
+/* 外壳平铺（ui/workbench-shell.md 输出 38）：贴着窗体左边与侧栏，和侧栏同一块底色，不画外框与圆角。 */
 .workbench-activity-bar {
     display: flex;
     flex-direction: column;
@@ -57,8 +58,6 @@ const emit = defineEmits<{
     min-height: 0;
     padding-block: var(--space-1);
     background: var(--panel-surface);
-    border: var(--border-w) solid var(--panel-outline);
-    border-radius: var(--radius-panel);
 }
 
 .workbench-activity-bar__containers {
@@ -69,6 +68,8 @@ const emit = defineEmits<{
     gap: var(--space-1);
     width: 100%;
     min-height: 0;
+    /* 滚动区自己会裁切：上下留 4px，按钮（38px，左右各余 4px）的焦点光环不被它切掉。 */
+    padding-block: var(--space-2);
     overflow-y: auto;
     scrollbar-width: none;
 }
@@ -80,11 +81,8 @@ const emit = defineEmits<{
     align-items: center;
 }
 
-/* IconButton 的默认尺寸是控件档；活动栏固定 40px 见方。 */
 .workbench-activity-bar .workbench-activity-bar__item {
     flex: 0 0 auto;
-    width: 40px;
-    height: 40px;
     border-radius: var(--radius-control);
     color: var(--text-muted);
     /* 活动条目也是整容器的拖动源：触摸按住起拖。 */

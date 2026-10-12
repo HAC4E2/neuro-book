@@ -76,21 +76,21 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
             <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">NeuroBook · 外壳场景</div>
         </template>
         <template #activitybar>
-            <div class="h-full rounded-[var(--radius-md,8px)] border-[length:var(--border-w)] border-[color:var(--divider)] bg-[var(--panel-surface)]"></div>
+            <div class="h-full bg-[var(--panel-surface)]"></div>
         </template>
         <template #sidebar>
-            <div class="h-full rounded-[var(--radius-md,8px)] border-[length:var(--border-w)] border-[color:var(--divider)] bg-[var(--panel-surface)] p-3 text-sm text-[var(--text-muted)]">侧栏</div>
+            <div class="h-full bg-[var(--panel-surface)] p-3 text-sm text-[var(--text-muted)]">侧栏</div>
         </template>
         <template #auxiliarybar>
-            <div class="h-full rounded-[var(--radius-md,8px)] border-[length:var(--border-w)] border-[color:var(--divider)] bg-[var(--panel-surface)] p-3 text-sm text-[var(--text-muted)]">右栏</div>
+            <div class="h-full bg-[var(--panel-surface)] p-3 text-sm text-[var(--text-muted)]">右栏</div>
         </template>
         <template #editor>
             <ShellSampleEditor />
         </template>
         <template #panel="{collapsed}">
-            <div class="flex h-full min-h-0 flex-col border-t-[length:var(--border-w)] border-[color:var(--divider)]">
+            <div class="flex h-full min-h-0 flex-col">
                 <div class="flex h-8 flex-none items-center gap-2 px-3 text-xs">
-                    <Button size="sm" variant="ghost" data-shell-focus-target="panel-title" @click="setPanel({collapsed: !panel.collapsed})">面板</Button>
+                    <Button size="sm" variant="ghost" focus-ring="inset" data-shell-focus-target="panel-title" @click="setPanel({collapsed: !panel.collapsed})">面板</Button>
                     <span class="text-[var(--text-muted)]">{{ collapsed ? "已收起" : "" }}</span>
                 </div>
                 <div v-if="!collapsed" class="min-h-0 flex-1 overflow-auto px-3 text-sm text-[var(--text-muted)]">面板内容</div>
@@ -99,7 +99,7 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
         <template #statusbar>
             <div class="flex h-full items-center justify-between px-3 text-xs text-[var(--text-secondary)]">
                 <span>状态栏</span>
-                <Button size="sm" variant="ghost" data-shell-focus-target="panel-toggle" @click="setPanel(panel.hidden ? {hidden: false, collapsed: false} : {hidden: true})">{{ panel.hidden ? "显示面板" : "隐藏面板" }}</Button>
+                <Button size="sm" variant="ghost" focus-ring="inset" data-shell-focus-target="panel-toggle" @click="setPanel(panel.hidden ? {hidden: false, collapsed: false} : {hidden: true})">{{ panel.hidden ? "显示面板" : "隐藏面板" }}</Button>
             </div>
         </template>
     </WorkbenchShellLayout>

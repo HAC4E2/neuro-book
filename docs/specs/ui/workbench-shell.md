@@ -65,7 +65,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 1. **拓扑**：标题栏在顶、状态栏在底；ActivityBar 是主体左侧的通高列，主体（侧栏、编辑器、右栏、面板）永远在它右侧，任何面板位置与对齐都不跨过 ActivityBar。不出现双重边框、双重标题条或双重标签条。
 2. **面板位置与对齐**：位置 `bottom`、`top`、`left`、`right`，默认 `bottom`；水平位置的跨度 `center`（只在编辑器下）、`left`（含侧栏）、`right`（含右栏）、`justify`（含左右侧栏），默认 `center`；`justify` 不跨 ActivityBar。左右位置忽略保存的对齐，改回水平位置时再生效。
-3. **固定尺寸**：标题栏 36px、状态栏 22px、ActivityBar 叶宽 60px（卡片 48px 加两侧留白），不可调整、不可收起；可调整的边界在流内占 1px，命中区向两侧扩展。
+3. **固定尺寸**：标题栏 36px、状态栏 22px、ActivityBar 宽 48px（输出 38 平铺后没有卡片留白），不可调整、不可收起；可调整的边界在流内占 1px，命中区向两侧扩展。
 4. **可调尺寸与夹取**：侧栏宽 160..560（默认 340）、右栏宽 160..max(360, 视口宽 × 0.45)（默认 400）、面板高 80..600（默认 200）、面板宽 160..600（默认 320）；编辑器吸收余量，最小可用宽 272（底部与顶部的面板与它同宽，要放得下面板标题行：五个框架按钮与至少 96px 的导航）、高 120；左右面板窄到放不下导航时，标题行的导航换到第二行。面板高度与宽度分开记忆。拖过最小或最大值时停在边界、不弹回。
 5. **装不下时只改呈现**：偏好装不下时先给编辑器所在的余量留出它的最小宽度，再按“偏好减最小值”的可缩空间同比压缩侧栏与面板（不写回偏好）；宽度连最小值都装不下时进入紧凑呈现；高度装不下时（分栏与紧凑呈现都一样）面板退到 32px 标题头，仍不够时编辑器取非负余量。每种降级给出诊断。所有几何非负且在容器内。
 6. **紧凑呈现**：外壳容器宽 < 800 时，ActivityBar 仍是主体左侧通高列，其余主体 Part 纵向排布，面板强制底部两端对齐，没有可拖边界；位置、对齐、最大化命令不可用并给出原因。不覆盖保存的偏好，回到宽屏按偏好恢复。
@@ -75,10 +75,10 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
    - **拖到零**：保留节点与展开尺寸意图，内容 0px 且停放（不可交互、不进 Tab 顺序），相邻保留 1px 可拖边界；只写布尔偏好位，尺寸记录不写 0。侧栏与右栏同样可拖到零。
    - **瞬时最大化**：只在左右位置或水平居中可用；面板占满编辑器所在的列，侧栏、ActivityBar、标题栏、状态栏保留，编辑器内容停放（不卸载、不可交互、不进 Tab 顺序）。只在内存，不落盘；换位置、对齐、隐藏、收起，或进入紧凑呈现时清除，回到宽屏不复活。
 8. **恢复与键盘**：从拖到零的边界用指针拉回时，在合法展开区跟随指针（按下边界加累计位移）；按钮、命令与 Enter 恢复记忆尺寸。边界的键盘操作沿用 [ui.nested-grid](nested-grid.md)：方向键 10px、Shift 1px、Home/End、Enter；Escape、pointercancel、失焦、容器尺寸或上下文变化取消整场手势，不提交。一次手势（含交汇处两根轴）只落账一次，松手后各记录各提交一次。
-9. **Part 显隐**：`titlebar`、`activitybar`、`sidebar`、`auxiliarybar` 可隐藏（移出树、不留边界）；编辑器与状态栏始终在场。
+9. **Part 显隐**：`titlebar`、`activitybar`、`sidebar`、`auxiliarybar` 可隐藏（移出树、不留边界）；编辑器与状态栏始终在场。空着的右栏与面板缺省不显示，见输出 39。
 10. **内容槽与停放**：七个 Part 的内容由稳定宿主渲染再搬到当前落点；隐藏、最大化、换位置、紧凑往返时内容停放（不可交互、不进读屏与 Tab 顺序）而不卸载，输入、滚动与焦点保留。焦点所在内容被隐藏时焦点移到状态栏“显示面板”，被最大化挤走时移到面板标题；焦点在外壳之外（菜单、对话框）时不抢。
 11. **面板框架与状态栏**：面板 32px 标题头带位置、对齐、收起、最大化、隐藏按钮，经第 13 条的命令执行，不可用时禁用并有名称。状态栏显示当前项目名或“未打开项目”与面板显隐按钮；布局有记录保存失败时显示“布局未保存”与原因，带重试与放弃；读取失败时显示正在用默认布局。外壳自己不显示假数据（Git、行列号、通知计数）；条目由贡献方给出真实数据（输出 35）。
-12. **标题栏与空 Part**：浏览器窗口渲染自绘标题栏，显示应用名与当前项目短名（外壳四起按输出 28）；未实现的菜单、搜索不以可操作的假入口呈现。外壳二之前 ActivityBar 只保留列，侧栏与右栏显示空状态说明，编辑器槽显示欢迎文字（语言跟随配置）。
+12. **标题栏与空 Part**：浏览器窗口渲染自绘标题栏，显示应用名与当前作品的显示名（书名，没有时是目录原名，[`runtime.projects`](../runtime/projects.md) 术语；外壳四起按输出 28）；未实现的菜单、搜索不以可操作的假入口呈现。外壳二之前 ActivityBar 只保留列，侧栏与右栏显示空状态说明，编辑器槽显示欢迎文字（语言跟随配置）。
 13. **公开状态与面板命令**：工作台公开下列状态（[state.public-state](../state/public-state.md)），未就绪时布尔键为 `false`。布局记录未读完、呈现事实未到时，依赖几何的键保持 `false`。
 
     | 键 | 类型 | 未就绪时 | 含义 |
@@ -199,6 +199,13 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
     - 绑定了项目的窗口不受影响。
 37. **`/workbench`**：工作台的第二个内置页面，不打开作品、直接进入空工作台（用户资产、命令面板与状态栏照常）。绑定由 `?project=` 决定、不看路径，所以 `/workbench?project=x` 与 `/?project=x` 相同。书架页不放它的入口，直接输入地址进入。
 
+### 工作台打磨
+
+打开作品之后那一页的外观与缺省显隐。
+
+38. **平铺**：活动栏、侧栏、右栏与面板贴着窗体，没有外框、圆角与外边距；外壳与各部件是同一块面板底色（`--panel-surface`）。可见的线只有标题栏底线、状态栏顶线，以及外壳网格边界上的 1px 接缝：默认布局里只有侧栏与编辑区之间一条竖线，显示右栏或面板时各多一条它与编辑区之间的接缝。工具区标题行、视图标题行、面板标题行与编辑器标签栏都不画底线，当前标签用加粗的正文色区分。工作台页占满视口、自己不滚动，页面根不预留滚动条位置。
+39. **空着的右栏与面板缺省不显示**：“空着”指现在没有容器，也没有视图把它声明为默认位置。空着、用户也没主动显示过的右栏与面板不显示，也不为此写记录。用标题栏按钮、视图菜单、命令或状态栏“显示面板”显示后，照输出 7、9 保存与恢复：右栏记为“主动显示过”，之后再隐藏就撤掉这一笔；面板写显式的显隐。把声明在这里的视图都拖走，区域照常显示、仍是落点（输出 20）；经“移动到”把视图放进不显示的空区域时，区域随之显示。
+
 ## 状态与转换
 
 布局状态（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 6 节）：
@@ -207,7 +214,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 |---|---|---|
 | 侧栏尺寸 | Sidebar、AuxiliaryBar 宽度 | `layout-sizes-side`：窗口绑定项目时 project / local，否则 user / local |
 | 面板尺寸 | Panel 高度与宽度 | `layout-sizes-panel`：同上 |
-| 用户定制 | 面板位置、对齐、隐藏、收起；Part 显隐与拖到零（外壳一）；容器位置、顺序与各区域选中项、视图归属、顺序、尺寸、收起、自建容器、默认指纹（外壳二、三） | `views-customizations`：user / local |
+| 用户定制 | 面板位置、对齐、隐藏、收起；Part 显隐与拖到零（外壳一），主动显示过的空右栏（输出 39）；容器位置、顺序与各区域选中项、视图归属、顺序、尺寸、收起、自建容器、默认指纹（外壳二、三） | `views-customizations`：user / local |
 | 只在内存 | 瞬时最大化、呈现事实（紧凑、生效的面板状态）、拖动预览、焦点 | 不保存 |
 | 排除 | 领域数据、视图自己的状态 | 各自的拥有者；视图状态由所属插件用自己的 store 声明 |
 
@@ -234,6 +241,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 - 持久化：只写上表的三条记录；不写领域数据，不另建尺寸持久化。尺寸只记录主动变化的可保存叶（侧栏、右栏宽度与面板两轴）的正有限 CSS px；编辑器与嵌套分支只是余量，补偿值、降级值、0 都不进记录。
 - 外壳二在 `views-customizations` 加三组可选字段，记录版本不变、旧记录仍合法：`containers`（容器 id → 位置、顺序、默认指纹）、`selected`（ToolPart → 选中容器 id）、`views`（视图 id → 所属容器、顺序、宽、高、收起、默认指纹）。id 至多 128 个字符，指纹是至多 64 个字符的稳定编码；按此估算，单条记录 64 KiB 的上限容得下数百个视图项。超出上限时 Storage 拒绝写入，走“失败与恢复”的保存失败路径。
+- 工作台打磨在 `views-customizations` 加可选字段 `shownParts`（主动显示过的空区域，现在只记 `auxiliarybar`，输出 39），记录版本不变。
 - 视图尺寸（外壳二、三）：只记录主动变化的当前轴；部分补丁逐字段合成，保留另一轴、收起位与未知字段；重复视图或非法条目整批拒绝，空补丁不创建记录。声明可给双轴 `minimumSize`/`maximumSize`；有效主轴最小值为 max(33, 声明值或 64)，最大值低于有效最小值时注册失败；默认意图 240 × 正的有效权重（否则 1）。
 - 自建容器（外壳三）：单 View 拖到 Switcher、空 Part 或经“新建容器（在 X）”时生成一次稳定的 `custom:<UUID>` 身份，创建、归属、顺序、目标选择与源空容器清理同次保存；冲突重放复用该身份；自建容器实际搬空时清除其布局记录。记录项是 `containers[custom:…] = {location, order, origin}`（`origin` 是创建时的视图，标题回落的第 3 级）；隐式容器项是 `{location, order, fingerprint}`，两种项分别必有 `fingerprint` 或 `origin`。
 - 半区并入（外壳三）写在尺寸意图里：命中窗格的意图 S（没记录过取 240）保留 S/2，拖入的可见成员合计 S/2 按来源相对比例分；只写命中窗格与拖入成员的当前轴，其它目标成员、收起成员的展开意图与另一轴都不变。全部可见视图收起时拖入剩余区，同次清掉拖入成员的收起。
@@ -313,6 +321,11 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 40. Given 没有项目的窗口与书架插件，When 打开 `/`，Then 看到书架页而不是外壳，主题 token 与命令面板照常；When 打开 `/workbench`，Then 是空工作台；When 两个插件都贡献首页，Then 都不采用、回到空工作台并有诊断；When 贡献方入口停止，Then 页面退回空工作台，恢复后再次采用。
 
+### 工作台打磨
+
+41. Given 1440×900 的产品页（默认布局），When 读计算样式与截图（nbook、macos 各明暗两态），Then 活动栏、侧栏、右栏、工具区与视图标题行、面板标题行都没有边框与圆角，外壳根底色等于 `--panel-surface`；可见的线只有标题栏底线、侧栏与编辑区之间的接缝和状态栏顶线；页面右缘没有空出的滚动条位置。
+42. Given 一个右栏与面板里都没有视图的新客户端，When 打开工作台，Then 右栏与面板不显示、不写记录；When 从标题栏显示右栏、从状态栏显示面板并刷新，Then 两处仍显示；When 再隐藏右栏，Then 记录撤掉“主动显示过”。Given 有视图声明在右栏与面板，When 把视图都拖走，Then 两处仍显示且可作落点；When 经“移动到”把视图放进不显示的空区域，Then 区域随之显示。
+
 Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 × 844` 各一次）；Lab 外壳场景（`lab:shot` 截图）；`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`；`bun run --cwd packages/nb-ui test` 复核布局原语。
 
 ### 旧验收的去向
@@ -362,6 +375,6 @@ Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 ×
 ## 证据
 
 - 实现入口：外壳四 [`titlebar/`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/)、[`items/`](../../../packages/neuro-book/src/plugins/workbench/web/items/)、[`components/WorkbenchTitleBar.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue)、[`components/WorkbenchItemStrip.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchItemStrip.vue)、[`shared/items.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/items.ts)；外壳三 [`views/drop.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.ts)、[`views/drop-dom.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop-dom.ts)、[`views/drag-session.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drag-session.ts)、[`views/patch.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/patch.ts)、[`components/WorkbenchDragFeedback.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchDragFeedback.vue)；外壳二 [`plugins/workbench/web/views/`](../../../packages/neuro-book/src/plugins/workbench/web/views/)、[`commands/view-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts)、[`components/WorkbenchViewInstances.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue)、[`components/WorkbenchToolPartHost.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue)；外壳一 [`plugins/workbench/web/shell/`](../../../packages/neuro-book/src/plugins/workbench/web/shell/)、[`state/layout-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts)、[`state/public-state.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/public-state.ts)、[`commands/panel-commands.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts)、[`components/WorkbenchShellLayout.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue)、[`components/WorkbenchShell.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue)
-- 合同测试：无项目首页 [`home-slot.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-slot.test.ts)、组件测试 `home-page.dom.test.ts`；外壳四 [`titlebar/menu-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/menu-model.test.ts)、[`items/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/registry.test.ts)、[`items/item-strip.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/item-strip.test.ts)、[`commands/part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)、组件测试 `WorkbenchTitleBar`、`WorkbenchItemStrip` 的 `.dom.test.ts`；外壳三 [`views/drop.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts)、[`views/dnd-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/dnd-model.test.ts)、`layout-store.test.ts` 的保存冲突两例、`view-commands.test.ts` 的 `newContainerIn`；外壳二 [`views/model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/model.test.ts)、[`views/container-grid.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/container-grid.test.ts)、[`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)、`layout-store.test.ts` 的外壳二一组、组件测试 `WorkbenchShellParts.dom.test.ts`；外壳一 [`layout.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/shell/layout.test.ts)、[`layout-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts)、[`panel-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts)；组件测试 `WorkbenchShellLayout`、`WorkbenchPanelSurface`、`WorkbenchStatusBar` 的 `.dom.test.ts`
-- Smoke：无项目首页 [`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 40 的书架与 `/workbench`）；外壳四 [`workbench-titlebar.e2e.ts`](../../../packages/neuro-book/e2e/workbench-titlebar.e2e.ts)（验收 32–37）、[`lab-item-strip.e2e.ts`](../../../packages/neuro-book/e2e/lab-item-strip.e2e.ts)（验收 34 与 38 的几何、“更多”里的换行，在 Lab 场景上改容器宽度）、Lab 场景 `WorkbenchTitleBar`、`WorkbenchItemStrip`；外壳三 [`workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)（指针与键盘、三个 Part 的空落点、比例逐数）、Lab 外壳场景 `views` 的拖放；外壳二 [`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`）、Lab 外壳场景的 `views`、`views-merged`；外壳一 [`workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（外壳根的主题 token）
-- 批准依据：[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 2、6、7、9、10、11 节与“对 Spec 与提案的预期改动”；开发者 2026-10-08 确认旧应用的外壳已人工验证、作为参照（[v2 重建提案](../../proposals/neuro-book-v2-rebuild.md) 的决策记录）。本文由旧应用口径的同名 Spec（归档于 [`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）改写，旧口径的依据为 [`workbench-view-host.md`](../../proposals/workbench-view-host.md)（2026-09-13 `accepted`）与 2026-09-20、2026-09-22 开发者对容器模式、分栏、拖放与内容区 50% 规则的确认。
+- 合同测试：工作台打磨 `layout-store.test.ts` 的“空着的右栏与面板”一组（验收 42）；无项目首页 [`home-slot.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-slot.test.ts)、组件测试 `home-page.dom.test.ts`；外壳四 [`titlebar/menu-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/titlebar/menu-model.test.ts)、[`items/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/registry.test.ts)、[`items/item-strip.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/items/item-strip.test.ts)、[`commands/part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)、组件测试 `WorkbenchTitleBar`、`WorkbenchItemStrip` 的 `.dom.test.ts`；外壳三 [`views/drop.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/drop.test.ts)、[`views/dnd-model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/dnd-model.test.ts)、`layout-store.test.ts` 的保存冲突两例、`view-commands.test.ts` 的 `newContainerIn`；外壳二 [`views/model.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/model.test.ts)、[`views/container-grid.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/container-grid.test.ts)、[`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)、`layout-store.test.ts` 的外壳二一组、组件测试 `WorkbenchShellParts.dom.test.ts`；外壳一 [`layout.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/shell/layout.test.ts)、[`layout-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-store.test.ts)、[`panel-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts)；组件测试 `WorkbenchShellLayout`、`WorkbenchPanelSurface`、`WorkbenchStatusBar` 的 `.dom.test.ts`
+- Smoke：工作台打磨 `workbench-views.e2e.ts` 的颜色与平铺一例、`workbench-shell.e2e.ts` 的外壳根底色与面板标题行（验收 41），`workbench-dnd.e2e.ts` 的空落点（验收 42 的拖空），Lab 外壳场景截图；无项目首页 [`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 40 的书架与 `/workbench`）；外壳四 [`workbench-titlebar.e2e.ts`](../../../packages/neuro-book/e2e/workbench-titlebar.e2e.ts)（验收 32–37）、[`lab-item-strip.e2e.ts`](../../../packages/neuro-book/e2e/lab-item-strip.e2e.ts)（验收 34 与 38 的几何、“更多”里的换行，在 Lab 场景上改容器宽度）、Lab 场景 `WorkbenchTitleBar`、`WorkbenchItemStrip`；外壳三 [`workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)（指针与键盘、三个 Part 的空落点、比例逐数）、Lab 外壳场景 `views` 的拖放；外壳二 [`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`）、Lab 外壳场景的 `views`、`views-merged`；外壳一 [`workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（外壳根的主题 token）
+- 批准依据：工作台打磨（输出 38、39）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md)，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 2、6、7、9、10、11 节与“对 Spec 与提案的预期改动”；开发者 2026-10-08 确认旧应用的外壳已人工验证、作为参照（[v2 重建提案](../../proposals/neuro-book-v2-rebuild.md) 的决策记录）。本文由旧应用口径的同名 Spec（归档于 [`docs/archived/specs/ui/workbench-shell.md`](../../archived/specs/ui/workbench-shell.md)）改写，旧口径的依据为 [`workbench-view-host.md`](../../proposals/workbench-view-host.md)（2026-09-13 `accepted`）与 2026-09-20、2026-09-22 开发者对容器模式、分栏、拖放与内容区 50% 规则的确认。

@@ -177,6 +177,50 @@ describe("nb-ui components", () => {
         expect(button.classes()).toContain("hover:text-[var(--status-danger)]");
     });
 
+    it("draws an outer focus ring by default and an inset line on request; IconButton xs is a 24px square", () => {
+        const outer = mount(IconButton, {props: {title: "刷新"}}).get("button");
+        const inset = mount(IconButton, {props: {title: "刷新", size: "xs", focusRing: "inset"}}).get("button");
+        const button = mount(Button, {props: {focusRing: "inset"}, slots: {default: "未保存 2 个"}});
+
+        expect(outer.classes()).toContain("nb-ui-focus-ring");
+        expect(outer.classes()).not.toContain("nb-ui-focus-ring-inset");
+        expect(inset.classes()).toEqual(expect.arrayContaining(["nb-ui-focus-ring-inset", "h-[24px]", "w-[24px]"]));
+        expect(inset.classes()).not.toContain("nb-ui-focus-ring");
+        expect(button.classes()).toContain("nb-ui-focus-ring-inset");
+        expect(button.classes()).not.toContain("nb-ui-focus-ring");
+    });
+
+    it("tabs and accordion headers fill their strip, so their focus is an inset line", async () => {
+        const tabs = mount(Tabs, {props: {modelValue: "a", items: [{label: "文档", value: "a"}, {label: "大纲", value: "b"}]}});
+        const accordion = mount(Accordion, {props: {type: "single", collapsible: true, items: [{value: "v1", title: "第一卷", content: "雾港"}]}});
+        await nextTick();
+
+        for (const tab of tabs.findAll("[role='tab']")) expect(tab.classes()).toContain("nb-ui-focus-ring-inset");
+        expect(accordion.get("button[aria-expanded]").classes()).toContain("nb-ui-focus-ring-inset");
+        tabs.unmount();
+        accordion.unmount();
+    });
+
+    it("clips collapsible content only while its height animation runs", async () => {
+        const wrapper = mount(Collapsible, {
+            props: {defaultOpen: true},
+            slots: {trigger: "<button>折叠开关</button>", default: "<div class='inner'>折叠详细说明</div>"},
+        });
+        await nextTick();
+        const content = wrapper.get(".nb-collapsible-content");
+
+        expect(content.classes()).not.toContain("overflow-hidden");
+        expect(content.attributes("data-animating")).toBeUndefined();
+        content.element.dispatchEvent(new Event("animationstart"));
+        expect(content.attributes("data-animating")).toBe("");
+        // 里面子元素的动画事件冒上来不算。
+        wrapper.get(".inner").element.dispatchEvent(new Event("animationend", {bubbles: true}));
+        expect(content.attributes("data-animating")).toBe("");
+        content.element.dispatchEvent(new Event("animationend"));
+        expect(content.attributes("data-animating")).toBeUndefined();
+        wrapper.unmount();
+    });
+
     it("renders segmented control as a labelled group", () => {
         const wrapper = mount(SegmentedControl, {
             props: {
@@ -547,6 +591,17 @@ describe("nb-ui new primitives", () => {
         expect(tabs[0]?.attributes("role")).toBe("tab");
         expect(tabs[1]?.attributes("data-drag")).toBeUndefined();
         wrapper.unmount();
+    });
+
+    it("draws the tabs baseline unless baseline is false; the selected indicator stays either way", () => {
+        const items = [{value: "a", label: "A"}, {value: "b", label: "B"}];
+        const lined = mount(Tabs, {props: {modelValue: "a", items}});
+        const bare = mount(Tabs, {props: {modelValue: "a", items, baseline: false}});
+        expect(lined.get("[role='tablist']").classes()).toContain("border-b-[length:var(--border-w)]");
+        expect(bare.get("[role='tablist']").classes()).not.toContain("border-b-[length:var(--border-w)]");
+        expect(bare.get("[role='tab']").classes().filter((name) => name.startsWith("after:"))).toEqual(lined.get("[role='tab']").classes().filter((name) => name.startsWith("after:")));
+        lined.unmount();
+        bare.unmount();
     });
 
     it("keeps the tabs indicator inside the scroll box", () => {

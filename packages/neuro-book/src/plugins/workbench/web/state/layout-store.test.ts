@@ -135,6 +135,66 @@ describe("默认、按字段写与同值", () => {
     });
 });
 
+describe("空着的右栏与面板（ui/workbench-shell.md 输出 39）", () => {
+    it("没有视图时缺省都不显示，也不写盘；主动显示右栏记进 shownParts，重新打开仍显示，再隐藏就撤掉；面板显式显示后照常显示", async () => {
+        const w = await world();
+        const empty: ViewCatalog = new Map();
+        const {store, storage} = await openLayout(w, "w", "c", false, empty);
+        expect(store.state.hiddenParts).toEqual(["auxiliarybar"]);
+        expect(store.actions.partVisible("auxiliarybar")).toBe(false);
+        expect(store.state.panel.hidden).toBe(true);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toBe("missing");
+
+        expect(store.actions.setPartHidden("auxiliarybar", false)).toBe(true);
+        expect(store.actions.setPanelHidden(false)).toBe(true);
+        await saved(store);
+        expect(store.actions.partVisible("auxiliarybar")).toBe(true);
+        expect(store.state.panel.hidden).toBe(false);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual({hiddenParts: [], shownParts: ["auxiliarybar"], panel: {hidden: false, collapsed: false}});
+
+        const again = await openLayout(w, "w2", "c", false, empty);
+        expect(again.store.actions.partVisible("auxiliarybar")).toBe(true);
+        expect(again.store.state.panel.hidden).toBe(false);
+
+        expect(again.store.actions.setPartHidden("auxiliarybar", true)).toBe(true);
+        await saved(again.store);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual({hiddenParts: ["auxiliarybar"], panel: {hidden: false, collapsed: false}});
+    });
+
+    it("有视图声明在右栏与面板时缺省显示；把它们拖走后两处仍显示（还是落点），视图都撤走后才不显示", async () => {
+        const w = await world();
+        const {store} = await openLayout(w, "w", "c");
+        expect(store.state.hiddenParts).toEqual([]);
+        expect(store.state.panel.hidden).toBe(false);
+        for (const [viewId, part] of [["test.aux", "auxiliarybar"], ["test.panel", "panel"]] as const) {
+            expect(store.actions.applyView({kind: "move-container", containerId: `view:${viewId}`, sourcePart: part, targetPart: "sidebar"}).kind).toBe("patch");
+        }
+        expect(store.state.placement.parts.auxiliarybar).toEqual([]);
+        expect(store.state.placement.parts.panel).toEqual([]);
+        expect(store.state.hiddenParts).toEqual([]);
+        expect(store.state.panel.hidden).toBe(false);
+        store.actions.acceptViewCatalog(new Map());
+        expect(store.state.hiddenParts).toEqual(["auxiliarybar"]);
+        expect(store.state.panel.hidden).toBe(true);
+    });
+
+    it("经“移动到”把视图放进不显示的空右栏与面板：两处随之显示，不必先打开", async () => {
+        const w = await world();
+        const sidebarOnly: ViewCatalog = new Map([
+            ["test.a", {title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a", location: "sidebar", layout: "scroll"}],
+            ["test.b", {title: {"zh-CN": "乙", "en-US": "B"}, icon: "i-b", location: "sidebar", layout: "scroll"}],
+            ["test.c", {title: {"zh-CN": "丙", "en-US": "C"}, icon: "i-c", location: "sidebar", layout: "scroll"}],
+        ]);
+        const {store} = await openLayout(w, "w", "c", false, sidebarOnly);
+        expect(store.state.hiddenParts).toEqual(["auxiliarybar"]);
+        expect(store.state.panel.hidden).toBe(true);
+        expect(store.actions.applyView({kind: "move-container", containerId: "view:test.b", sourcePart: "sidebar", targetPart: "auxiliarybar"}).kind).toBe("patch");
+        expect(store.actions.applyView({kind: "move-container", containerId: "view:test.c", sourcePart: "sidebar", targetPart: "panel"}).kind).toBe("patch");
+        expect(store.state.hiddenParts).toEqual([]);
+        expect(store.state.panel.hidden).toBe(false);
+    });
+});
+
 describe("瞬时最大化与呈现事实", () => {
     it("最大化只在内存；换位置、隐藏时清除；进入紧凑的事实清除且回到宽屏不复活；紧凑时不能最大化；事实不写记录", async () => {
         const w = await world();

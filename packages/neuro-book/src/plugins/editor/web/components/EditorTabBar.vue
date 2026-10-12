@@ -85,18 +85,19 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
 </script>
 
 <template>
-    <div ref="list" role="tablist" :aria-label="label" class="flex min-h-[var(--control-h-sm)] shrink-0 items-stretch overflow-x-auto border-b border-[color:var(--divider)] bg-[var(--bg-panel)] text-[13px]" data-editor-tabs>
+    <div ref="list" role="tablist" :aria-label="label" class="editor-tabs flex min-h-[var(--control-h-sm)] shrink-0 items-stretch overflow-x-auto bg-[var(--bg-panel)] text-[13px]" data-editor-tabs>
         <div
             v-for="(tab, index) in tabs"
             :key="tab.id"
-            class="group flex max-w-[240px] shrink-0 items-center gap-1 border-r border-[color:var(--divider)] pl-3 pr-1"
-            :class="tab.active ? 'bg-[var(--bg-main)] text-[var(--text-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+            class="group flex max-w-[240px] shrink-0 items-center gap-1 pl-3 pr-1"
+            :class="tab.active ? 'font-semibold text-[var(--text-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
         >
             <button
                 type="button"
                 role="tab"
-                class="nb-ui-focus-ring min-w-0 truncate py-1 text-left"
+                class="editor-tab nb-ui-focus-ring-inset min-w-0 py-1 text-left"
                 :class="tab.preview ? 'italic' : ''"
+                :data-label="tab.label"
                 :aria-selected="tab.active ? 'true' : 'false'"
                 :tabindex="tab.active ? 0 : -1"
                 :title="tab.title"
@@ -108,11 +109,11 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                 @auxclick="onAuxClick($event, tab.id)"
                 @keydown="onKeydown($event, index, tab.id)"
             >
-                <span data-editor-tab-label>{{ tab.label }}</span><span v-if="tab.dirty" class="sr-only">（{{ unsavedLabel }}）</span>
+                <span class="editor-tab__label" data-editor-tab-label>{{ tab.label }}</span><span v-if="tab.dirty" class="sr-only">（{{ unsavedLabel }}）</span>
             </button>
             <button
                 type="button"
-                class="nb-ui-focus-ring flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                class="nb-ui-focus-ring-inset flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :aria-label="closeLabel(tab.label)"
                 tabindex="-1"
                 :data-editor-tab-close="tab.id"
@@ -124,3 +125,37 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
         </div>
     </div>
 </template>
+
+<style scoped>
+/*
+ * 末尾留 4px：编辑组的左缘可能落在半像素上，浏览器把可滚动宽度向下取整，没有这点余量时滚到底，最后一个标签仍被裁掉
+ * 一像素左右。
+ */
+.editor-tabs {
+    padding-inline-end: 4px;
+}
+
+/*
+ * 活动标签加粗（ui/workbench-shell.md 输出 38），切换标签不能让各标签变宽变窄、推着后面的标签跳动：按钮是一格的网格，
+ * 文字与一份看不见的加粗副本叠在同一格，格宽总按加粗算。副本用伪元素，不进文本内容与可访问名称。
+ */
+.editor-tab {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.editor-tab__label,
+.editor-tab::after {
+    grid-area: 1 / 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.editor-tab::after {
+    content: attr(data-label) / "";
+    font-weight: 600;
+    visibility: hidden;
+}
+</style>

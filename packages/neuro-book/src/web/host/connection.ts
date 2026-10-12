@@ -28,8 +28,11 @@ export class ConnectionError extends Error {
 export type RpcEndpoint = BrowserBootstrap["rpc"];
 
 export interface Connection {
-    /** 取引导响应的原始 JSON；协议版本与结构由窗口判定。失败时抛 ConnectionError。 */
-    bootstrap(): Promise<unknown>;
+    /**
+     * 取引导响应的原始 JSON；协议版本与结构由窗口判定。失败时抛 ConnectionError。给了项目引用（地址栏的 `project`）时
+     * 一并请求它的显示名。
+     */
+    bootstrap(project?: string | null): Promise<unknown>;
     /** 连接内核 RPC 端口，WebSocket 打开时完成；没能打开时抛 ConnectionError。之后的断开经链路的 `onClose` 通知。 */
     openRemote(endpoint: RpcEndpoint): Promise<RemoteLink>;
 }
@@ -64,10 +67,12 @@ export function createConnection(baseUrl: string): Connection {
             });
             return promise;
         },
-        async bootstrap() {
+        async bootstrap(project) {
+            const target = new URL(url);
+            if (project !== undefined && project !== null) target.searchParams.set("project", project);
             let response: Response;
             try {
-                response = await fetch(url, {cache: "no-store", headers: {accept: "application/json"}});
+                response = await fetch(target, {cache: "no-store", headers: {accept: "application/json"}});
             } catch (error) {
                 throw new ConnectionError("无法连接服务端", null, {cause: error});
             }

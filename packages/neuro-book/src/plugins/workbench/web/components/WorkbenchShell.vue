@@ -368,7 +368,7 @@ const dropFeedback = computed(() => {
         <template #panel="{collapsed}">
             <WorkbenchPanelSurface :title="text(TEXT.panel)" :collapsed="collapsed" :actions="frameActions" @action="run">
                 <template #nav>
-                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
+                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" :baseline="false" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
                     <!--
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。
@@ -468,8 +468,9 @@ const dropFeedback = computed(() => {
     min-width: 0;
 }
 
+/* 外壳平铺（ui/workbench-shell.md 输出 38）：部件之间不再露出底色，外壳与各部件同一块面板底色。 */
 .workbench-shell {
-    background: var(--bg-main);
+    background: var(--panel-surface);
     color: var(--text-main);
     font-family: var(--font-ui);
 }

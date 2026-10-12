@@ -7,6 +7,8 @@ import {
     AccordionTrigger,
 } from "reka-ui";
 
+import {markCollapseAnimation} from "./collapse-animation";
+
 export interface AccordionItemData {
     value: string;
     title: string;
@@ -57,7 +59,7 @@ const emit = defineEmits<{
             >
                 <AccordionHeader class="flex">
                     <AccordionTrigger
-                        class="nb-ui-focus-ring group flex flex-1 items-center justify-between px-4 py-3 text-left text-[var(--text-sm)] font-medium text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] disabled:cursor-not-allowed cursor-pointer select-none"
+                        class="nb-ui-focus-ring-inset group flex flex-1 items-center justify-between px-4 py-3 text-left text-[var(--text-sm)] font-medium text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] disabled:cursor-not-allowed cursor-pointer select-none"
                     >
                         <div class="flex items-center gap-2.5 min-w-0">
                             <span v-if="item.iconClass" :class="item.iconClass" class="h-4 w-4 shrink-0 text-[var(--text-secondary)]" aria-hidden="true"></span>
@@ -72,7 +74,10 @@ const emit = defineEmits<{
                 </AccordionHeader>
 
                 <AccordionContent
-                    class="overflow-hidden text-[var(--text-sm)] text-[var(--text-secondary)] transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-accordion-content"
+                    class="text-[var(--text-sm)] text-[var(--text-secondary)] transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-accordion-content"
+                    @animationstart.self="markCollapseAnimation"
+                    @animationend.self="markCollapseAnimation"
+                    @animationcancel.self="markCollapseAnimation"
                 >
                     <div class="px-4 pb-3.5 pt-1">
                         <slot :name="`content-${item.value}`" :item="item">

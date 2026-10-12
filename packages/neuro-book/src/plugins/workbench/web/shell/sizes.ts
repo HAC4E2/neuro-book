@@ -46,12 +46,8 @@ export const SHELL_PANEL_MAX_WIDTH = 600;
 /** 拖到零的收起与恢复阈值（CSS px），与 nb-ui 的默认策略同值，这里只是显式声明。 */
 export const SHELL_DRAG_COLLAPSE_THRESHOLD = 24;
 
-/** ActivityBar 卡片宽（40px 按钮加两侧 4px 内边距）；卡片四周的留白由外壳加在叶上。 */
-export const SHELL_ACTIVITYBAR_CARD_WIDTH = 48;
-/** 卡片与窗体边界、相邻叶之间的留白；侧栏容器卡片同一份。 */
-export const SHELL_GUTTER_PX = 6;
-/** ActivityBar 叶宽（刚性）：卡片加两侧留白。 */
-export const SHELL_ACTIVITYBAR_WIDTH = SHELL_ACTIVITYBAR_CARD_WIDTH + SHELL_GUTTER_PX * 2;
+/** ActivityBar 叶宽（刚性）：38px 按钮加两侧余量。外壳平铺，各部件贴着窗体与相邻的叶，不再留白（输出 38）。 */
+export const SHELL_ACTIVITYBAR_WIDTH = 48;
 
 export const SHELL_SIDEBAR_DEFAULT_WIDTH = 340;
 export const SHELL_SIDEBAR_MIN_WIDTH = 160;

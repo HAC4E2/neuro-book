@@ -87,6 +87,7 @@ export type {ButtonSize, ButtonVariant} from "./controls/Button.vue";
 export type {DropdownItem, DropdownItemType} from "./controls/dropdown.types";
 export type {EditableSize} from "./controls/Editable.vue";
 export type {IconButtonSize, IconButtonVariant} from "./controls/IconButton.vue";
+export type {FocusRingStyle} from "./controls/focus-ring";
 export type {MenubarItemData, MenubarMenuData} from "./controls/Menubar.vue";
 export type {PaginationRangeItem} from "./controls/pagination-range";
 export {paginationRange} from "./controls/pagination-range";

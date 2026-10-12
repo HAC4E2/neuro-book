@@ -43,7 +43,7 @@ const view = computed<PageView>(() => {
             return {title: "窗口已关闭", hint: "", reason: null, action: "reload", home: false};
     }
 });
-const busy = computed(() => props.state.status === "idle" || props.state.status === "starting");
+const loadingTitle = computed(() => (props.state.status === "starting" ? props.state.projectTitle ?? "" : ""));
 const rescued = computed(() => ("rescued" in props.state ? props.state.rescued ?? [] : []));
 const copied = ref<number | null>(null);
 const copy = async (index: number, text: string): Promise<void> => {
@@ -58,7 +58,13 @@ const copy = async (index: number, text: string): Promise<void> => {
 </script>
 
 <template>
-    <main class="nb-host-page" :data-browser-host-status="state.status" :role="busy ? 'status' : 'alert'">
+    <!-- 启动中与 index.html 的静态加载页同一个样子（host-loading.css），失败后重试时不换版式。 -->
+    <main v-if="state.status === 'idle' || state.status === 'starting'" class="nb-host-loading" :data-browser-host-status="state.status" role="status" aria-label="正在启动 NeuroBook">
+        <p class="nb-host-loading__title">{{ loadingTitle }}</p>
+        <div class="nb-host-loading__bar"></div>
+        <p class="nb-host-loading__hint">{{ loadingTitle === "" ? "正在连接服务端" : "正在打开" }}</p>
+    </main>
+    <main v-else class="nb-host-page" :data-browser-host-status="state.status" role="alert">
         <h1>{{ view.title }}</h1>
         <p v-if="view.reason" class="nb-host-reason">{{ view.reason }}</p>
         <p v-if="view.hint">{{ view.hint }}</p>

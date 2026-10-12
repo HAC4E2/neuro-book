@@ -479,6 +479,9 @@
 .w-\[18px\] {
   width: 18px;
 }
+.w-\[24px\] {
+  width: 24px;
+}
 .w-\[26px\] {
   width: 26px;
 }
@@ -2855,6 +2858,11 @@ html {
   box-shadow: var(--focus-ring);
   transition: border-color var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
 }
+.nb-ui-focus-ring-inset:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--focus-outline);
+  transition: box-shadow var(--motion-base) var(--ease-standard);
+}
 .nb-ui-control-h-sm {
   height: var(--control-h-sm);
 }
@@ -3061,9 +3069,8 @@ input.nb-ui-native-input[type="number"] {
 .animate-accordion-up, .animate-collapsible-up {
   animation: nb-accordion-up var(--motion-base) var(--ease-standard);
 }
-.nb-collapsible-content, .nb-accordion-content {
-  padding: 6px;
-  margin: -6px;
+.nb-collapsible-content[data-animating], .nb-accordion-content[data-animating] {
+  overflow: hidden;
 }
 .nb-collapsible-content[data-state="open"], .nb-accordion-content[data-state="open"] {
   animation: nb-accordion-down var(--motion-base) var(--ease-standard);

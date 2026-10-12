@@ -42,7 +42,9 @@ import type {RemoteSession} from "./remote-session";
 export type WindowFailure = "connection-failed" | "project-unavailable" | "incompatible" | "startup-failed" | "server-restarted" | "project-gone";
 
 export type WindowState =
-    | {readonly status: "idle" | "starting" | "closed"}
+    | {readonly status: "idle" | "closed"}
+    /** `projectTitle`：引导给出的作品显示名，加载页显示它；还没取到、没有绑定项目或服务端拿不到时为 null。 */
+    | {readonly status: "starting"; readonly projectTitle: string | null}
     /** `connection` 是远程服务链路：断开时界面保留、标注离线，重连成功后回到 online。 */
     | {readonly status: "ready"; readonly instanceId: string; readonly root: WorkbenchRoot; readonly connection: "online" | "offline"; readonly project: WindowProject["project"]}
     /**
@@ -127,10 +129,10 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     };
 
     const boot = async (): Promise<void> => {
-        setState({status: "starting"});
+        setState({status: "starting", projectTitle: null});
         let raw: unknown;
         try {
-            raw = await options.connection.bootstrap();
+            raw = await options.connection.bootstrap(options.project ?? null);
         } catch (error) {
             if (!closed) setState({status: "connection-failed", reason: describe(error)});
             return;
@@ -138,13 +140,16 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         if (closed) return;
         let selected: SelectedPlugin[];
         let endpoint: RpcEndpoint;
+        let projectTitle: string | null;
         try {
-            ({selected, endpoint} = selectPlugins(raw, builtin, definitions, hostPlugins));
+            ({selected, endpoint, projectTitle} = selectPlugins(raw, builtin, definitions, hostPlugins));
         } catch (error) {
             if (!(error instanceof BootstrapRejected)) throw error;
             setState({status: error.kind, reason: error.message});
             return;
         }
+        // 绑定项目时握手可能要等项目子进程启动几秒：这段时间加载页显示书名。
+        if (projectTitle !== null && options.project !== undefined && options.project !== null) setState({status: "starting", projectTitle});
 
         const instanceId = crypto.randomUUID();
         const rescue = createRescue((error) => store.record({level: "warn", event: "browser-host.rescue.failed", message: "抢救未保存正文的提供者抛错", error}));
@@ -189,7 +194,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         link.set("online");
         let root: WorkbenchRoot | null = null;
         // 首连之后绑定已定，窗口一生不变。
-        const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
+        const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, title: projectTitle ?? node.binding.name, generation: node.binding.generation};
         try {
             const context: BrowserPluginContext = {store, console: options.console};
             const observers = mechanismObservers(store);
@@ -296,7 +301,7 @@ function selectPlugins(
     builtin: ReadonlyArray<PluginDescriptor>,
     definitions: Readonly<Record<string, PluginDefinition>>,
     hostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>,
-): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint} {
+): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint; readonly projectTitle: string | null} {
     const version = declaredProtocolVersion(raw);
     if (version !== null && version !== BROWSER_PROTOCOL_VERSION) {
         throw new BootstrapRejected("incompatible", `服务端的引导协议版本是 ${String(version)}，本页面是 ${String(BROWSER_PROTOCOL_VERSION)}`);
@@ -325,7 +330,7 @@ function selectPlugins(
     for (const id of REQUIRED_PLUGINS) {
         if (!selected.some((item) => item.id === id)) throw new BootstrapRejected("startup-failed", `引导集合缺少必需插件 ${id}`);
     }
-    return {selected, endpoint: raw.rpc};
+    return {selected, endpoint: raw.rpc, projectTitle: raw.project?.title ?? null};
 }
 
 /** 一次启动的链路状态与交给插件的只读视图；监听抛错交给 `report`，不影响其它监听与链路。 */

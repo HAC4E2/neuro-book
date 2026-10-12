@@ -33,7 +33,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 flex-col gap-2 text-sm" :data-sample-view="context.id" :data-instance="instance" :data-created="created" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value">
+    <div class="flex h-full min-h-0 flex-col gap-1 px-2 pt-1 pb-2 text-sm" :data-sample-view="context.id" :data-instance="instance" :data-created="created" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value">
         <div class="text-xs text-[var(--text-muted)]">实例 #{{ instance }} · 代际 {{ context.generation }} · {{ context.visible.value ? "可见" : "不可见" }} · {{ context.location.value }}</div>
         <div data-sample-input><FormInput v-model="draft" size="sm" placeholder="输入几个字，再移动视图" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-sample-scroll>

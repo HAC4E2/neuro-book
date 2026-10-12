@@ -22,7 +22,7 @@ const rows = computed(() => (props.scene === "short" ? 4 : 40));
             @toggle-collapsed="(collapsed: boolean) => subject.write('props', 'collapsed', collapsed)"
         >
             <template v-if="subject.slots.value.actions" #actions>
-                <IconButton size="sm" icon-class="i-lucide-arrow-right-left" aria-label="移动到" />
+                <IconButton size="xs" icon-class="i-lucide-arrow-right-left" aria-label="移动到" />
             </template>
             <template v-if="subject.slots.value.default" #default>
                 <!-- 外框不滚动：滚动归视图实例（产品里是 WorkbenchViewFrame），这里的样例内容自己滚。 -->

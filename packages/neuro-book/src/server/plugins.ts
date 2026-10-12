@@ -32,6 +32,8 @@ export interface ServerPluginContext {
     readonly onListening: (url: string) => void;
     /** 内核 RPC 端口（已在监听）；引导接口据此告知浏览器。 */
     readonly rpc: BrowserBootstrap["rpc"];
+    /** 按项目引用取显示名，引导接口附给窗口；项目管理器还没建好、没有登记时为 null。 */
+    readonly projectTitle: (reference: string) => Promise<string | null>;
 }
 
 export type ServerHostPluginFactory = (context: ServerPluginContext) => PluginDefinition;
@@ -60,7 +62,7 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
         host: context.config.host,
         port: context.config.port,
         onListening: context.onListening,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.rpc)],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.rpc, context.projectTitle)],
         staticRoot: context.config.webRoot,
     }),
 };

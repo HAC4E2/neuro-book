@@ -13,6 +13,7 @@ import type {StorageService} from "nbook/shared/storage";
 
 import {layoutStoreFor} from "../state/layout-store";
 import type {LayoutStore} from "../state/layout-store";
+import type {ViewCatalog} from "../views/placement";
 
 export interface LayoutWindow {
     readonly store: LayoutStore;
@@ -20,8 +21,20 @@ export interface LayoutWindow {
     readonly window: WorldWindow;
 }
 
-/** `bound` 决定尺寸记录的分区，也决定窗口是否绑定项目 `book`。等到三条记录都读完才返回。 */
-export async function openLayout(world: StorageWorld, id: string, client: string, bound = false): Promise<LayoutWindow> {
+/**
+ * 常见的工作台：右栏与面板里各有一个视图，两处缺省都显示（ui/workbench-shell.md 输出 39 只让空着、没主动显示过的区域
+ * 缺省不显示）。测空区域规则时传空目录。
+ */
+export const BUSY_CATALOG: ViewCatalog = new Map([
+    ["test.aux", {title: {"zh-CN": "大纲", "en-US": "Outline"}, icon: "i-aux", location: "auxiliarybar", layout: "scroll"}],
+    ["test.panel", {title: {"zh-CN": "输出", "en-US": "Output"}, icon: "i-panel", location: "panel", layout: "scroll"}],
+]);
+
+/**
+ * `bound` 决定尺寸记录的分区，也决定窗口是否绑定项目 `book`。视图目录在 store 建好后立刻交入（与产品的工作台入口一样）。
+ * 等到三条记录都读完才返回。
+ */
+export async function openLayout(world: StorageWorld, id: string, client: string, bound = false, catalog: ViewCatalog = BUSY_CATALOG): Promise<LayoutWindow> {
     const hosted: {current: {store: LayoutStore; storage: StorageService} | null} = {current: null};
     const plugin: PluginDefinition = {
         id: "nbook.workbench",
@@ -32,7 +45,9 @@ export async function openLayout(world: StorageWorld, id: string, client: string
             dependencies: [{key: diagnosticsKey}, {key: storageKey}],
             activate: (context) => {
                 const storage = context.services.require(storageKey);
-                hosted.current = {store: layoutStoreFor(bound).create(context, {storage, diagnostics: context.services.require(diagnosticsKey)}), storage};
+                const store = layoutStoreFor(bound).create(context, {storage, diagnostics: context.services.require(diagnosticsKey)});
+                store.actions.acceptViewCatalog(catalog);
+                hosted.current = {store, storage};
                 return {};
             },
         }],

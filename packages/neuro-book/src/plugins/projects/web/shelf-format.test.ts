@@ -2,6 +2,7 @@
 
 import {describe, expect, it} from "bun:test";
 
+import {projectDisplayName} from "../shared/shelf";
 import type {ShelfItem, ShelfStats} from "../shared/shelf";
 import {autoBookColor, BOOK_PALETTE, bookColorStyle, bookPaletteIndex, continueTarget, formatToday, formatWhen, formatWords, lightColor, recentPieces, shelfTotals, sortShelf} from "./shelf-format";
 
@@ -13,6 +14,14 @@ function item(id: string, title: string | null, stats: Partial<ShelfStats> = {})
 }
 
 const at = (iso: string) => ({address: "project://a.md", label: "a", at: iso, excerpt: ""});
+
+describe("显示名", () => {
+    it("有书名用书名；没有时用目录原名（中文目录的短名是 project，不显示它），两种路径分隔符与末尾的分隔符都认", () => {
+        expect(projectDisplayName({title: "雾港纪事", path: "/home/me/NeuroBook/雾港"})).toBe("雾港纪事");
+        expect(projectDisplayName({title: null, path: "/home/me/NeuroBook/雾港"})).toBe("雾港");
+        expect(projectDisplayName({title: null, path: "C:\\Users\\me\\NeuroBook\\海与灯塔\\"})).toBe("海与灯塔");
+    });
+});
 
 describe("字数", () => {
     it("中文一万以下写全数，一万以上写万字并留一位小数；英文以一千为界", () => {

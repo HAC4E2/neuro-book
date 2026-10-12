@@ -9,9 +9,9 @@
 
 ## 布局
 
-外壳根占满页面（父级给它确定的宽高），底色是窗体底纹 `--bg-main`，字体 `--font-ui`，文字 `--text-main`。七个 Part 的内容：
+外壳根占满页面（父级给它确定的宽高），底色是面板底色 `--panel-surface`（平铺，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），字体 `--font-ui`，文字 `--text-main`。七个 Part 的内容：
 
-- 标题栏：应用名与当前项目短名；没有菜单与搜索（未实现的不以可操作的假入口呈现）。
+- 标题栏：[`WorkbenchTitleBar`](WorkbenchTitleBar.md)，显示当前作品的显示名（书名，没有时是目录原名）。
 - ActivityBar：[`WorkbenchActivityBar`](WorkbenchActivityBar.md)，Sidebar 的容器切换。
 - 侧栏与右栏：各一个 [`WorkbenchToolPartHost`](WorkbenchToolPartHost.md)；区域里没有视图时一句空状态说明。
 - 编辑器：稳定内容槽。`editorArea` 有提供者时挂它的组件（属性 `context: {visible}`，面板最大化时 `visible` 为假），提供者换了才重挂，加载失败显示原因；没有提供者时放欢迎文字（应用名与“工作台已就绪”一句，语言跟随配置）。最大化、换位置时停放不卸载。
@@ -19,7 +19,7 @@
 - 容器与视图实例：[`WorkbenchViewInstances`](WorkbenchViewInstances.md) 放在外壳根里、布局组件旁边，把容器宿主与视图实例搬进三个工具区域的落点；三层 Teleport 共用外壳自己的一份滚动与焦点记忆。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
 
-ActivityBar、侧栏与右栏的卡片面取 `--panel-surface`，描边 `--panel-outline`，圆角 `--radius-panel`；四周留白由纯布局组件加在叶上。
+ActivityBar、侧栏、右栏与面板和外壳根同一块面板底色，不画外框、圆角与留白；部件之间的线只有外壳网格边界的接缝。右栏与面板空着时缺省不显示（输出 39），规则在布局 store 里，组件只读生效的显隐。
 
 ## 交互
 

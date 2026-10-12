@@ -5,14 +5,14 @@
 
 # WorkbenchViewSection
 
-容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。
+容器里一个视图的外框：multiple 时有 32px 标题行（收起开关、图标、标题、动作区；不画底线，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），single 时没有标题行、只有内容区（标题与动作由宿主上提，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 16、17）。
 
 视图内容不由它创建：宿主把视图实例搬进默认插槽里的落点，切模式、收起都不卸载内容。内容区不滚动、不加内边距：视图移动时外框会在新容器里重建，滚动盒放在这里就会随之换新、丢掉滚动位置，所以按 `layout` 给的滚动与内边距归随实例一起搬动的 [`WorkbenchViewFrame`](WorkbenchViewFrame.md)。
 
 ## 布局
 
-- 纵向容器（Sidebar、AuxiliaryBar）：标题行在上，内容在下。收起时只剩 32px 标题行。
-- 横向容器（Panel）：标题行同样在上；收起时整个分节是 32px 宽的竖条，标题竖排，展开按钮在顶部，名称与展开控件始终可达。
+- 纵向容器（Sidebar、AuxiliaryBar）：标题行在上，内容在下。收起时只剩 32px 标题行。标题行左右各留 4px，按钮是 24px（`IconButton` 的 `xs`）；标题的省略号裁切在拖动把手自己身上，标题本身不裁切，把手与按钮的外扩焦点光环都不被切掉。
+- 横向容器（Panel）：标题行同样在上；收起时整个分节是 32px 宽的竖条，标题竖排，展开按钮在顶部（上下留 4px），名称与展开控件始终可达。
 - 收起时内容区隐藏（`v-show`），不卸载。分节的尺寸由宿主的网格叶决定，这里只填满叶。
 - 标题放不下时截断，动作区不让位。
 

@@ -6,6 +6,15 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+/**
+ * 作品目录的原名（路径最后一段）：没有书名时界面显示它（docs/specs/runtime/projects.md 术语“作品信息”）。短名是它转写成
+ * 小写字母、数字与连字符的结果，只用在地址栏与日志里。按两种分隔符切：服务端可能在 Windows 上。
+ */
+export function projectFolderName(path: string): string {
+    const parts = path.split(/[\\/]+/u).filter((part) => part !== "");
+    return parts[parts.length - 1] ?? path;
+}
+
 /** 登记表里的一个项目。`path` 是用户登记的项目目录（真实路径），可以显示给用户。 */
 export interface ProjectRecord {
     readonly id: string;
@@ -154,8 +163,11 @@ export const projectsKey: ServiceKey<ProjectsService> = defineServiceKey<Project
 
 /** 窗口绑定的项目：握手时由服务端决定，窗口一生不变（docs/specs/runtime/browser-host.md 启动序列第 5 步）。 */
 export interface WindowProject {
-    /** 没有绑定项目的窗口为 null。 */
-    readonly project: {readonly id: string; readonly name: string; readonly generation: number} | null;
+    /**
+     * 没有绑定项目的窗口为 null。`name` 是短名（地址栏与日志用）；`title` 是界面上显示的名字：书名，没有书名时是目录原名
+     * （引导响应里给出；引导时服务端还没就绪、拿不到时退回短名）。
+     */
+    readonly project: {readonly id: string; readonly name: string; readonly title: string; readonly generation: number} | null;
 }
 
 /** 浏览器宿主以本地能力提供给本窗口的插件；需要它的插件在入口依赖里声明。 */

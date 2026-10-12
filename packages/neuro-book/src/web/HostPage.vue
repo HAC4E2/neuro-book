@@ -19,7 +19,7 @@ onUnmounted(props.browserWindow.onChange((next) => {
 }));
 
 function pendingOf(current: WindowState): PendingState {
-    return current.status === "ready" ? {status: "starting"} : current;
+    return current.status === "ready" ? {status: "starting", projectTitle: null} : current;
 }
 
 function retry(): void {

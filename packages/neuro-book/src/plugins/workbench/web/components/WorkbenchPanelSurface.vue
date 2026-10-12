@@ -46,7 +46,7 @@ defineSlots<{
                 <IconButton
                     v-for="action in actions"
                     :key="action.id"
-                    size="sm"
+                    size="xs"
                     :icon-class="action.icon"
                     :aria-label="action.label"
                     :title="action.disabled && action.reason !== undefined ? action.reason : action.label"
@@ -86,8 +86,8 @@ defineSlots<{
     align-items: center;
     column-gap: var(--space-2);
     min-height: 32px;
-    padding-inline: var(--space-3) var(--space-1);
-    border-bottom: var(--border-w) solid var(--divider);
+    /* 右端是 24px 的框架按钮：右边留 4px，外扩焦点光环不被面板的裁切切掉。 */
+    padding-inline: var(--space-3) var(--space-2);
 }
 
 .workbench-panel-surface__title {
@@ -108,6 +108,8 @@ defineSlots<{
     align-items: center;
     gap: var(--space-1);
     min-width: 0;
+    /* 导航带自己裁切（标签多时收进去）：末尾的“移动到”按钮离右边留 4px，焦点光环不被切掉。 */
+    padding-inline-end: var(--space-2);
     overflow: hidden;
 }
 
