@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w00022 · 开发面板 r3</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<link rel="stylesheet" href="../assets/panel-r3.css">
+<style>
+.w-main { padding: var(--space-6) var(--space-7) 120px; display: flex; flex-direction: column; gap: var(--space-6); max-width: 1240px; }
+.w-head { display: flex; flex-direction: column; gap: var(--space-4); padding: 0 var(--space-2); }
+.w-head h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.goal { padding: var(--space-6) 28px; display: flex; flex-direction: column; gap: var(--space-4); }
+.goal h2 { font-size: 13px; font-weight: var(--weight-strong); color: var(--text-secondary); }
+.goal p { font-size: 15px; line-height: 1.75; color: var(--page-ink); max-width: 860px; }
+.tk { display: grid; grid-template-columns: minmax(150px, 1.1fr) 84px minmax(170px, 1.6fr) minmax(130px, 1fr) 64px minmax(130px, 1fr); gap: var(--space-2) var(--space-5); align-items: start; }
+.tk > * { min-width: 0; overflow-wrap: anywhere; }
+.tk-h { font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-4) var(--space-6) var(--space-2); }
+.tk .tt { font-weight: var(--weight-medium); }
+.tk .now { color: var(--text-secondary); font-size: 12.5px; }
+.tk .art { display: flex; flex-direction: column; gap: var(--space-1); font-size: 12px; }
+.tk .art a { display: inline-flex; gap: var(--space-2); align-items: center; }
+.tk .where { font-size: 12px; color: var(--text-secondary); }
+.who-strip { padding: var(--space-6) var(--space-6) var(--space-5); display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
+.who-strip .runs { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.run { display: inline-flex; align-items: center; gap: var(--space-2); height: 22px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--status-info-bg); color: var(--status-info); font-size: 11.5px; white-space: nowrap; }
+.run .ic { width: 12px; height: 12px; }
+tr:target, .row:target { background: var(--accent-bg); }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r3.js"></script>
+<script src="../assets/panel-r3.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="w-main">
+            <div class="w-head" id="head"></div>
+            <section class="panel goal" id="goal"></section>
+            <section class="panel" id="tasks"></section>
+            <section id="who"></section>
+        </main>
+    </div>
+</div>
+
+<script>
+const {D, esc, icon, status, ephTag, demo, lease, sbar, qcount} = NB3;
+const W = D.works.find((w) => w.id === "w00022");
+const S = D.sessions.find((s) => s.pane === "w1:p16");
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB3.sidebar("w00022"));
+document.getElementById("top").outerHTML = NB3.topbar();
+
+document.getElementById("head").innerHTML = `
+    <div class="crumbs"><a href="home.html">工作</a>${icon("chevron-right")}<span class="mono">w00022-dev-panel</span></div>
+    <div class="hstack" style="align-items:center;gap:var(--space-5);flex-wrap:wrap">
+        <h1>${esc(W.title)}</h1>${status(W.status, false)}
+        <span class="sp"></span>
+        <a class="btn sm secondary" href="new.html#task">${icon("plus", "sm")}新建 Task</a>
+        <button class="btn sm ghost" type="button">${icon("file-text", "sm")}README</button>
+    </div>
+    <div class="hstack wrap xs sec" style="gap:var(--space-5)">
+        <span>${icon("folder", "sm")} <span class="mono">master · .agents/works/w00022-dev-panel/</span></span>
+        <span>Issue 无</span><span>最近一次改记录 18:01（d4870f23，规则提交顺手补了状态字段）</span>
+        <span style="width:220px">${sbar(W.counts, false).split('<div class="slegend">')[0]}</span>
+    </div>`;
+
+document.getElementById("goal").innerHTML = `<h2>目标</h2><p>${esc("做一个本地的开发者项目面板（网页，开发者用）与命令行 nbdev（Agent 用），把散落在各分支、worktree 与本地目录里的 Work、Task、产物、文档与 Agent 会话收在一处：开发者在面板上看各 Work 的目标与 Task 状态、看产物并答复、经 herdr 接管或通知会话；任何 Agent 经命令行新建 Work 与 Task、发布产物、读答复。项目数据持久入库，会话与租约是临时的。")}</p>
+    <div class="xs muted">取自 Work README 的“目标”一节；“当前结论与授权”另见 README。</div>`;
+
+/* Task 列表：状态、当前情况一行、产物、待答提问、执行位置（持久）；谁在动（临时） */
+const ART = {
+    t03: `<a href="../index.html">${icon("palette", "sm")}评审板（r1–r3）</a><a href="../model.html">${icon("layout-template", "sm")}领域模型类图</a><span class="muted">${icon("file-text", "sm")} domain-model.md、session-hosting-research.md</span>`,
+    t01: `<span class="muted">${icon("file-text", "sm")} requirements.md、analysis-supplement.md</span><span class="xs muted">（在 Task 目录里，不在 artifacts/）</span>`,
+};
+document.getElementById("tasks").innerHTML = `<div class="panel-h">${icon("list-checks")}<h2>Task</h2><span class="count">${W.tasks.length}</span><div class="sp"></div>
+        <span class="slegend">${["active", "planned", "done", "shelved"].map((k) => `<span><i class="${k}"></i>${D.statuses[k].label} ${W.counts[k]}</span>`).join("")}</span></div>
+    <div class="tk tk-h"><span>Task</span><span>状态</span><span>当前情况</span><span>产物</span><span>待答</span><span>执行位置 · ${ephTag("谁在动")}</span></div>
+    <ul class="rows">${W.tasks.map((t) => `<li class="row" id="${t.id}"><div class="tk">
+        <div><span class="wid"><b>${t.id}</b>-${esc(t.slug)}</span><div class="tt">${esc(t.title)}</div></div>
+        <div>${status(t.status, false)}</div>
+        <div class="now">${esc(t.now)}${t.questionsNote && !t.questions ? `<div class="xs" style="color:var(--status-warning);margin-top:var(--space-1)">${icon("triangle-alert", "sm")} ${esc(t.questionsNote)}</div>` : ""}</div>
+        <div class="art">${ART[t.id] || '<span class="muted">—</span>'}</div>
+        <div>${t.questions ? `<a href="../index.html#r3" title="${esc(t.questionsNote)}">${qcount(t.questions)}</a>` : qcount(0)}</div>
+        <div class="vstack" style="gap:var(--space-2)"><span class="where">${esc(t.where)}</span>${t.leases.length ? t.leases.map((l) => `<span>${lease({pane: l.pane, kind: "claude", managed: l.managed})} ${demo()}</span>`).join("") : ""}</div>
+    </div></li>`).join("")}</ul>`;
+
+/* 现在谁在动：一条，临时 */
+document.getElementById("who").outerHTML = `<section class="eph who-strip" id="who">
+    <span class="eph-tag corner">${icon("timer")}临时 · 现在谁在动</span>
+    ${lease({pane: "w1:p16", kind: "claude", managed: true, tasks: ["t03"]})}${demo()}
+    <span class="xs sec">Claude <span class="mono">${S.sid}</span> · ${S.status === "working" ? "在工作" : "空闲"} · 租约取得 13:35，最近一次 Task 操作 18:04</span>
+    <span class="runs">${S.runs.map((r) => `<span class="run" title="它派出的运行（从终端画面读到的）">${icon("loader-circle")}${esc(r.label)}</span>`).join("")}</span>
+    <span class="sp"></span>
+    <a class="btn sm secondary" href="sessions.html#w1:p16">${icon("square-terminal", "sm")}打开会话</a>
+    <span class="xs muted" style="flex-basis:100%">外部会话：没有。t01、t02、t04、t05 现在没有会话在动；会话结束或 24 小时没有 Task 操作，这一条就消失。</span>
+</section>`;
+
+NB3.dock(`<span>Work 页 · w00022</span>`);
+</script>
+</body>
+</html>

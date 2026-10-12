@@ -24,12 +24,20 @@ status: active
 
 记录在主工作区维护（[记录只放主工作区](../README.md#记录只放主工作区)）；进入实现时每个 Task 从 `master` 建自己的 worktree。
 
+## 实施
+
+按 [Proposal](../../../docs/proposals/dev-panel.md)（2026-10-12 `accepted`）与 [实施计划](tasks/t03-design/plan.md) 推进。开发者 2026-10-12 指定开发者不在场时按 autonomous-delivery 的循环推进（计划、opus 子代理设计审查、实施、opus 子代理实现审查不阻塞、下一个 Task），本该开发者确认的点记入 [待确认清单](pending-confirmations.md)，事后追认。
+
+- 实现 Task 严格先后依赖，共用一条集成分支 `feat/w00022-dev-panel`（worktree `.worktree/w00022-dev-panel`，从 `master` 分出）；互相独立的切片另开 worktree，再合回集成分支。
+- 集成分支每次提交后 push 到 `origin` 作备份；合入 `master` 要开发者授权。
+- 主会话调度，编码交给 opus 子代理；主会话审查 diff、自跑验证。
+
 ## Task
 
 | Task | 当前范围 |
 |---|---|
 | [t01](tasks/t01-requirements/README.md) | 需求分析、功能分析与本地／入库边界的现状调查；2026-10-12 开发者全部确认（其中“Work 分仓库与本地两类”后被领域模型第二版取消） |
 | [t02](tasks/t02-local-vs-repo-rules/README.md) | 按 t01 的判据改规则：`.local/` 分 Agent 区与用户区、验证与截图的入库边界、`design-review` 的路径；已完成，其中本地 Work 与产物留本地两条后被 t03 改掉 |
-| [t03](tasks/t03-design/README.md) | 面板与命令行的设计：首页 B、内容分类与导航、面板只做 herdr 的网页前端、领域模型第二版（项目数据持久、会话与租约临时、记录只放 `master`）已定；接下来重画首页与会话页，写 Proposal 与实施计划 |
+| [t03](tasks/t03-design/README.md) | 面板与命令行的设计：领域模型第二版、三轮静态稿（首页 Work 区用卡片）、Proposal 与实施计划；2026-10-12 完成，Proposal `accepted` |
 | [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent` |
 | [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；开发者定先只迁本会话建的，w00017 的 t80、t81 已迁，其余分支暂不动 |

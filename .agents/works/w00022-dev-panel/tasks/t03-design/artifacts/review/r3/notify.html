@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>答复后的通知 · 开发面板 r3</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<link rel="stylesheet" href="../assets/panel-r3.css">
+<style>
+.n-main { padding: var(--space-6) var(--space-7) 120px; display: flex; flex-direction: column; gap: var(--space-6); max-width: 1320px; }
+.n-head h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.n-head p { color: var(--text-secondary); margin-top: var(--space-3); max-width: 900px; }
+.cases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+.case { display: flex; flex-direction: column; gap: var(--space-5); }
+.case > h2 { font-size: 14px; font-weight: var(--weight-strong); display: flex; gap: var(--space-3); align-items: center; padding: 0 var(--space-2); }
+.qa { padding: var(--space-5) var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); }
+.qa .q { font-weight: var(--weight-medium); }
+.qa .a { display: flex; gap: var(--space-3); align-items: center; font-size: 13px; }
+.qa .who { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-secondary); }
+/* 小窗原样画在页面上（不是弹出），方便并排比较；真面板是模态 */
+.dlg.inline { width: 100%; position: relative; }
+.stage { padding: var(--space-6); border-radius: var(--radius-panel); background: var(--overlay-bg); }
+@media (max-width: 1300px) { .cases { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r3.js"></script>
+<script src="../assets/panel-r3.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="n-main">
+            <div class="n-head">
+                <h1>答复后的通知窗</h1>
+                <p>你在面板上答复一个提问并提交后，答复先写进记录（持久，入库，只追加）；然后面板看提问者的租约：是面板管理的会话、租约还有效，就问你要不要投一行指针消息给它；否则只告诉你答复已保存。三种情况并排画在下面，小窗是原样画在页面上的，真面板里是模态弹出。</p>
+            </div>
+            <div class="cases" id="cases"></div>
+            <div class="toast" id="toast" role="status" aria-live="polite"><svg class="ic"><use href="#i-circle-check"/></svg><div id="toast-text"></div></div>
+        </main>
+    </div>
+</div>
+
+<script>
+const {esc, icon, ephTag, demo} = NB3;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB3.sidebar("inbox"));
+document.getElementById("top").outerHTML = NB3.topbar();
+
+const CASES = [
+    {
+        id: "notify", title: "能通知：提问者租约有效，是面板管理的会话", tone: "info",
+        work: "w00022", task: "t03", q: "第三轮：首页用 A（卡片）还是 B（表）", a: "B 表", answerDemo: true,
+        asker: {pane: "w1:p16", label: "Claude d02974de", state: "valid"},
+        dialog: {canNotify: true, id: "c1", saved: "artifacts/review/answers/r3-home/20261012T183012.json，已在 master 上提交", pane: "w1:p16", who: "Claude d02974de", state: "在工作",
+            pointer: "[nbdev] w00022 t03 有 1 个新答复（第三轮：首页用 A 还是 B）。运行 nbdev answers w00022/t03 读取。"},
+    },
+    {
+        id: "none", title: "不能通知：提问者租约已失效", tone: "",
+        work: "w00017", task: "t80", q: "settings.window 晋升为 implemented？", a: "批准晋升", answerDemo: true,
+        asker: {pane: null, label: "d02974de 在 t80 上的租约", state: "expired"},
+        dialog: {canNotify: false, saved: ".agents/works/w00017…/tasks/t80-settings-ui/answers/spec-promotion/20261012T183530.json",
+            reason: "提问者 d02974de 在 t80 上的租约已经失效（会话结束，或 24 小时没有 t80 的操作）。面板不知道现在该通知谁，就不通知。"},
+    },
+    {
+        id: "external", title: "不能通知：提问者是外部会话", tone: "",
+        work: "w00017", task: "t79", q: "审查条目 C1：……（第二轮审查还没有条目）", a: "改", answerDemo: true,
+        asker: {pane: null, label: "omp -p 审查 t79 第二轮（外部）", state: "external"},
+        dialog: {canNotify: false, saved: ".agents/works/w00017…/tasks/t79-workbench-polish/artifacts/review-2/answers/…",
+            reason: "提问者是外部会话 omp -p（不在 herdr 里），租约虽然有效，面板也没法把消息投给它。它或派它的 w1:p2 下次读答复时会看到。"},
+    },
+];
+document.getElementById("cases").innerHTML = CASES.map((c) => `
+    <section class="case" id="${c.id}">
+        <h2>${c.dialog.canNotify ? icon("bell") : icon("circle-pause")}${esc(c.title)}</h2>
+        <div class="panel qa">
+            <div class="xs muted">提问（持久） · <span class="wid">${c.work} › <b>${c.task}</b></span></div>
+            <div class="q">${esc(c.q)}</div>
+            <div class="a">${icon("check", "sm")}你的答复：<b>${esc(c.a)}</b>${c.answerDemo ? demo() : ""}</div>
+            <div class="eph who" style="padding:var(--space-4) var(--space-4) var(--space-3);margin-top:var(--space-3)"><span class="eph-tag corner">${icon("timer")}临时 · 提问者租约</span>
+                ${c.asker.state === "valid" ? `<span class="lease">${icon("message-square")}<b>${c.asker.pane}</b> ${esc(c.asker.label)} · 有效</span>`
+                : c.asker.state === "expired" ? `<span class="lease expired">${icon("message-square")}${esc(c.asker.label)} · 已失效</span>`
+                : `<span class="lease ext">${icon("bot")}${esc(c.asker.label)} · 有效</span>`}${demo()}</div>
+        </div>
+        <div class="stage"><div class="dlg inline" role="dialog" aria-label="${esc(c.title)}">${NB3.notifyBody(c.dialog)}</div></div>
+    </section>`).join("");
+
+const toast = (t) => { const el = document.getElementById("toast"); document.getElementById("toast-text").textContent = t; el.dataset.open = "true"; clearTimeout(toast.h); toast.h = setTimeout(() => (el.dataset.open = "false"), 5000); };
+document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-n]");
+    if (!b) return;
+    const box = b.closest(".dlg");
+    if (b.dataset.n === "send") {
+        const mode = box.querySelector("input[type=radio]:checked").value;
+        toast(mode === "followup" ? "已排队：w1:p16 这一轮结束后收到（本稿不真的发送）。" : "已打断 w1:p16 当前这一轮并投递（本稿不真的发送）。");
+    } else if (b.dataset.n === "skip") toast("没有通知。答复已保存，会话下次读答复时会看到。");
+    else toast("好的。");
+});
+const h = location.hash.slice(1);
+if (h) document.getElementById(h)?.scrollIntoView();
+NB3.dock(`<span>通知窗</span>`);
+</script>
+</body>
+</html>

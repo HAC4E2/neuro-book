@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 · 开发面板 r3</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<link rel="stylesheet" href="../assets/panel-r3.css">
+<style>
+.h-main { padding: var(--space-6) var(--space-7) 120px; display: flex; flex-direction: column; gap: var(--space-6); }
+.h-head { display: flex; align-items: baseline; gap: var(--space-5); padding: 0 var(--space-2); flex-wrap: wrap; }
+.h-head h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.ibx { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-2) var(--space-5); align-items: center; }
+.ibx .ti { font-weight: var(--weight-medium); }
+.ibx .note { grid-column: 2 / -1; font-size: 11.5px; color: var(--text-muted); margin-top: -2px; }
+#inbox .row { padding-top: var(--space-4); padding-bottom: var(--space-4); }
+body[data-variant="A"] .vB, body[data-variant="B"] .vA { display: none !important; }
+.other { padding: var(--space-5) var(--space-6); display: flex; align-items: center; gap: var(--space-5); color: var(--text-secondary); }
+</style>
+</head>
+<body class="backdrop" data-variant="A">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r3.js"></script>
+<script src="../assets/panel-r3.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="h-main">
+            <section class="panel" id="inbox"></section>
+            <div class="h-head">
+                <h1>Work</h1>
+                <span class="sec">目标、各 Task 的状态、待答的提问来自记录（持久）；“谁在动”来自租约（临时）。</span>
+            </div>
+            <div class="vA wcards" id="cards"></div>
+            <section class="vB panel" id="table"></section>
+        </main>
+    </div>
+</div>
+
+<script>
+const {D, esc, icon, status, ephTag, demo, lease, sbar, qcount} = NB3;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB3.sidebar("home"));
+document.getElementById("top").outerHTML = NB3.topbar();
+
+/* ---------- 收件箱：未答的提问、未处置的审查条目 ---------- */
+document.getElementById("inbox").innerHTML = `<div class="panel-h">${icon("inbox")}<h2>收件箱</h2><span class="count">未答的提问 ${D.inbox.length} · 未处置的审查条目 0</span><div class="sp"></div><span class="xs muted">提问者的租约全是示例</span></div>
+    <ul class="rows">${D.inbox.map((q) => `<li class="row hover"><div class="ibx">
+        <span class="badge sm warning">${icon("message-circle-question", "sm")}提问</span>
+        <div style="min-width:0" class="hstack"><span class="wid">${q.work} › <b>${q.task}</b></span><span class="ti ellipsis">${esc(q.title)}</span>${q.inferred ? '<span class="badge sm">推断</span>' : ""}</div>
+        <span class="lease${q.askerLease === "expired" ? " expired" : ""}" title="提问者的租约（临时）">${icon("message-square")}提问者 <b>${esc(q.asker)}</b>${q.askerLease === "expired" ? " · 租约已失效" : ""}</span>
+        <a class="btn sm secondary" href="notify.html#${q.askerLease === "expired" ? "none" : "notify"}">去答复</a>
+        <div class="note">${esc(q.where)} · ${esc(q.note || "")}</div>
+    </div></li>`).join("")}
+    <li class="row"><div class="hstack xs muted">${icon("clipboard-check", "sm")}${esc(D.reviewsEmpty)}</div></li></ul>
+`;
+
+/* ---------- 候选 A：每个 Work 一张卡片 ---------- */
+const who = (w) => {
+    const live = w.leases.length ? w.leases.map((l) => lease(l)).join("") + (w.leases.some((l) => l.demo) ? demo() : "")
+        : `<span class="xs muted">现在没有会话在动</span>`;
+    const exp = w.expiredLease ? `<span class="lease expired">${icon("message-square")}<b>${esc(w.expiredLease.pane)}</b> · ${esc(w.expiredLease.why)}</span>${demo()}` : "";
+    return `<div class="eph who"><span class="eph-tag corner">${icon("timer")}临时 · 谁在动</span>${live}${exp}</div>`;
+};
+document.getElementById("cards").innerHTML = D.works.map((w) => `
+    <article class="panel wcard">
+        <div class="hstack" style="align-items:flex-start;gap:var(--space-4)">
+            <div style="min-width:0;flex:1"><div class="wid">${w.id}</div><h3><a href="${w.id === "w00022" ? "work.html" : "#"}" style="color:var(--text-main)">${esc(w.title)}</a></h3></div>
+            ${status(w.status, w.statusFrom === "inferred")}
+        </div>
+        <p class="goal">${esc(w.goal)}${w.goalFrom === "inferred" ? ' <span class="badge sm" title="Work README 里还没有“目标”一节">推断</span>' : ""}</p>
+        <div class="vstack" style="gap:var(--space-3)">${sbar(w.counts, w.countsFrom === "inferred")}</div>
+        <div class="foot">${qcount(w.questions)}${w.reviews ? qcount(w.reviews, "未处置审查") : ""}<span>最近更新 ${esc(w.updated)}</span></div>
+        ${w.records === "branch" || w.recordsNote ? `<div class="rec-note">${icon("triangle-alert")}<span>${esc(w.recordsNote)}</span></div>` : ""}
+        ${who(w)}
+    </article>`).join("") + `<article class="panel other"><span class="xs">${icon("layers")}</span><span>其余 ${D.otherWorks.count} 个 Work</span><span class="xs muted">${esc(D.otherWorks.note)}</span></article>`;
+
+/* ---------- 候选 B：一张表，按 Work 分组，每行一个 Task ---------- */
+const leaseFor = (w, taskId) => w.leases.filter((l) => l.tasks.includes(taskId));
+const rows = D.works.map((w) => {
+    const head = `<tr class="grp"><td colspan="6"><div class="gwrap">
+        <span class="wid">${w.id}</span><h3><a href="${w.id === "w00022" ? "work.html" : "#"}" style="color:var(--text-main)">${esc(w.title)}</a></h3>${status(w.status, w.statusFrom === "inferred")}
+        <span style="width:160px">${sbar(w.counts, w.countsFrom === "inferred").split('<div class="slegend">')[0]}</span>
+        <span class="xs sec">进行中 ${w.counts.active} · 计划中 ${w.counts.planned} · 已完成 ${w.counts.done}${w.counts.shelved ? ` · 已搁置 ${w.counts.shelved}` : ""}${w.countsFrom === "inferred" ? "（推断）" : ""}</span>
+        ${qcount(w.questions)}
+        </div><div class="xs sec" style="margin-top:var(--space-2)">${esc(w.goal)}${w.goalFrom === "inferred" ? "（推断）" : ""}</div>
+        ${w.recordsNote ? `<div class="rec-note" style="margin-top:var(--space-2)">${icon("triangle-alert")}<span>${esc(w.recordsNote)}</span></div>` : ""}</td></tr>`;
+    const body = w.tasks.map((t) => {
+        const ls = leaseFor(w, t.id);
+        return `<tr class="task"><td><span class="wid"><b>${t.id}</b></span> <span class="tt">${esc(t.title)}</span></td>
+            <td>${status(t.status, t.statusFrom === "inferred")}</td>
+            <td class="now">${esc(t.now || "—")}</td>
+            <td class="xs muted nowrap" title="${t.updated ? "最后一次改到这个 Task 记录的提交" : "稿子里没取"}">${esc(t.updated || "—")}</td>
+            <td>${t.questions ? qcount(t.questions) : '<span class="xs muted">—</span>'}</td>
+            <td class="who">${ls.length ? ls.map((l) => lease(l, {withTasks: false})).join(" ") + " " + demo() : (w.expiredLease && t.id === "t01" ? `<span class="lease expired">${icon("message-square")}<b>${esc(w.expiredLease.pane)}</b> 已失效</span>` : '<span class="xs muted">—</span>')}</td></tr>`;
+    }).join("");
+    const more = w.moreTasks ? `<tr class="more"><td colspan="6">另 ${w.moreTasks} 个 Task（${w.countsFrom === "inferred" ? "状态是推断的" : ""}）</td></tr>` : "";
+    return head + body + more;
+}).join("");
+document.getElementById("table").innerHTML = `<table class="wtable">
+    <thead><tr><th style="width:26%">Task</th><th style="width:96px">状态</th><th style="width:30%">当前情况</th><th style="width:72px">最近更新</th><th>待答</th><th>${ephTag("谁在动")}</th></tr></thead>
+    <tbody>${rows}<tr class="more"><td colspan="6">其余 ${D.otherWorks.count} 个 Work（${esc(D.otherWorks.note)}）</td></tr></tbody></table>`;
+
+/* ---------- 候选切换：#A / #B ---------- */
+const setVariant = (v) => {
+    document.body.dataset.variant = v;
+    document.querySelectorAll(".review-dock .seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+};
+NB3.dock(`<span>首页</span><div class="seg" role="group" aria-label="候选">
+    <button type="button" data-v="A" aria-pressed="true">A 卡片</button>
+    <button type="button" data-v="B" aria-pressed="false">B 表</button></div>`)
+    .addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-v]");
+        if (!b) return;
+        history.replaceState(null, "", "#" + b.dataset.v);
+        setVariant(b.dataset.v);
+    });
+setVariant(location.hash === "#B" ? "B" : "A");
+</script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+/*
+ * 第三轮补充的样式。只用 tokens-nbook.css 的变量。
+ *
+ * 持久与临时的画法（评审板“第三轮”一节有同样的说明）：
+ * - 持久数据（Work、Task、状态、产物、提问、答复）：实线的面与边，照常的字色。
+ * - 临时数据（租约、“谁在动”、运行、排队的通知、会话本身）：信息色的虚线框，左上角一个“临时”小标；
+ *   单独出现的租约画成虚线描边的胶囊。会话结束它们就消失，所以不用实线。
+ * - “示例”（本机还没有的数据，例如所有租约）：品红色的“示例”徽章，不另加框，免得和“临时”的虚线混在一起。
+ * - “推断”（没有 status 字段、从正文推出来的）：状态后面一个灰色的“推断”小字，状态图标改空心。
+ */
+
+/* ---- 临时 ---- */
+.eph {
+    position: relative;
+    border: var(--border-w) dashed color-mix(in srgb, var(--status-info) 60%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--status-info) 4%, transparent);
+}
+.eph-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 6px;
+    background: var(--status-info-bg);
+    color: var(--status-info);
+    font-size: 11px;
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+}
+.eph-tag .ic { width: 12px; height: 12px; }
+.eph > .eph-tag.corner { position: absolute; top: -9px; left: 10px; background: var(--panel-surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-info) 40%, transparent); }
+
+.lease {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 22px;
+    padding: 0 8px;
+    border: var(--border-w) dashed color-mix(in srgb, var(--status-info) 65%, transparent);
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    white-space: nowrap;
+}
+.lease .ic { width: 12px; height: 12px; color: var(--status-info); }
+.lease b { color: var(--text-main); font-weight: var(--weight-medium); }
+.lease.ext .ic { color: var(--text-muted); }
+.lease.expired { color: var(--text-muted); text-decoration: line-through; border-color: color-mix(in srgb, var(--text-main) 20%, transparent); }
+.lease.expired .ic { color: var(--text-muted); }
+
+/* ---- 状态（持久） ---- */
+.st { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); white-space: nowrap; color: var(--text-secondary); }
+.st .ic { width: 14px; height: 14px; }
+.st.planned .ic { color: var(--text-muted); }
+.st.active .ic { color: var(--status-info); }
+.st.done .ic { color: var(--status-success); }
+.st.shelved .ic { color: var(--text-muted); }
+.st .inf { color: var(--text-muted); font-size: 10.5px; border-bottom: 1px dotted var(--text-muted); }
+
+.sbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--text-main) 6%, transparent); gap: 2px; }
+.sbar i { display: block; height: 100%; }
+.sbar .active { background: var(--status-info); }
+.sbar .planned { background: color-mix(in srgb, var(--text-main) 22%, transparent); }
+.sbar .done { background: var(--status-success); }
+.sbar .shelved { background: color-mix(in srgb, var(--text-main) 10%, transparent); }
+.sbar.inf { opacity: 0.6; }
+.slegend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); font-size: 11.5px; color: var(--text-secondary); }
+.slegend span { display: inline-flex; align-items: center; gap: var(--space-2); }
+.slegend i { width: 8px; height: 8px; border-radius: 2px; }
+.slegend .active { background: var(--status-info); }
+.slegend .planned { background: color-mix(in srgb, var(--text-main) 22%, transparent); }
+.slegend .done { background: var(--status-success); }
+.slegend .shelved { background: color-mix(in srgb, var(--text-main) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-main) 20%, transparent); }
+
+.qcount { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--status-warning); white-space: nowrap; }
+.qcount .ic { width: 13px; height: 13px; }
+.qcount.zero { color: var(--text-muted); }
+
+.wid { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
+.wid b { color: var(--text-main); font-weight: var(--weight-strong); }
+
+/* ---- 首页候选 A：卡片 ---- */
+.wcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: var(--space-6); }
+.wcard { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-6); }
+.wcard h3 { font-size: 14px; font-weight: var(--weight-strong); }
+.wcard .goal { color: var(--text-secondary); font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.wcard .who { padding: var(--space-5) var(--space-5) var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.wcard .foot { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-muted); }
+.rec-note { font-size: 11.5px; color: var(--status-warning); display: flex; gap: var(--space-2); align-items: flex-start; }
+.rec-note .ic { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+
+/* ---- 首页候选 B：表 ---- */
+.wtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wtable th { text-align: left; font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--text-muted); padding: var(--space-4) var(--space-5); white-space: nowrap; }
+.wtable td { padding: var(--space-4) var(--space-5); vertical-align: middle; border-top: var(--border-w) solid var(--divider); }
+.wtable tr.grp td { padding-top: var(--space-6); border-top: 0; }
+.wtable tr.grp .gwrap { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
+.wtable tr.grp h3 { font-size: 14px; font-weight: var(--weight-strong); }
+.wtable tr.task:hover td { background: color-mix(in srgb, var(--text-main) 3%, transparent); }
+.wtable .tt { font-weight: var(--weight-medium); }
+.wtable .now { color: var(--text-secondary); font-size: var(--text-xs); }
+.wtable td.who { white-space: nowrap; }
+.wtable tr.more td { color: var(--text-muted); font-size: var(--text-xs); }
+
+/* ---- 终端：观看与接管 ---- */
+.tstate { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-5); font-size: var(--text-xs); border-bottom: var(--border-w) solid var(--border-color); }
+.tstate.watch { background: var(--bg-sidebar); color: var(--text-secondary); }
+.tstate.ctl { background: color-mix(in srgb, var(--accent-main) 22%, var(--bg-sidebar)); color: var(--text-main); }
+.term.ctl { box-shadow: 0 0 0 2px var(--accent-main), var(--elevation-popover); }
+.term .caret { display: inline-block; width: 8px; height: 15px; vertical-align: -3px; background: var(--text-main); animation: nb-blink 1s steps(1) infinite; }
+@keyframes nb-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .term .caret { animation: none; } }
+
+/* ---- 表单与预览 ---- */
+.form { display: flex; flex-direction: column; gap: var(--space-5); }
+.form .f { display: flex; flex-direction: column; gap: var(--space-2); }
+.form .f > span { font-size: var(--text-xs); color: var(--text-secondary); font-weight: var(--weight-medium); }
+.form .f .hint { font-size: 11.5px; color: var(--text-muted); }
+.form .row2 { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--space-4); }
+.pv-files { display: flex; flex-direction: column; gap: var(--space-2); font-family: var(--font-mono); font-size: 12px; }
+.pv-files .add { color: var(--status-success); }
+.pv-files .mod { color: var(--status-warning); }

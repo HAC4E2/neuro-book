@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话 · 开发面板 r3</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<link rel="stylesheet" href="../assets/panel-r3.css">
+<style>
+.s-main { padding: var(--space-6) var(--space-7) 120px; display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.s-col { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.grp { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-2); font-size: var(--text-xs); color: var(--text-muted); }
+.grp b { color: var(--text-secondary); font-weight: var(--weight-strong); }
+.s-item { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4) var(--space-5); margin: 0 var(--space-3) var(--space-2); border-radius: 12px; cursor: pointer; }
+.s-item:hover { background: color-mix(in srgb, var(--text-main) 4%, transparent); }
+.s-item[aria-selected="true"] { background: var(--accent-bg); box-shadow: 0 0 0 1.5px var(--accent-main); }
+.s-item .l1 { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.s-item .l1 .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-medium); }
+.s-item .l2 { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.s-item .l3 { font-size: 11.5px; color: var(--text-muted); display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.s-item.ext { cursor: default; }
+.d-head { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6) var(--space-6) var(--space-5); }
+.d-head h1 { font-size: 16px; font-weight: var(--weight-strong); }
+.d-facts { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); font-size: var(--text-xs); color: var(--text-secondary); align-items: center; }
+.d-eph { margin: var(--space-3) var(--space-6) var(--space-6); padding: var(--space-6) var(--space-5) var(--space-5); display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--space-4) var(--space-5); align-items: start; }
+.d-eph .dt { font-size: var(--text-xs); color: var(--text-muted); padding-top: 3px; }
+.d-eph .dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; font-size: 12.5px; }
+.run { display: inline-flex; align-items: center; gap: var(--space-2); height: 22px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--status-info-bg); color: var(--status-info); font-size: 11.5px; white-space: nowrap; }
+.run .ic { width: 12px; height: 12px; }
+.d-term { margin: 0 var(--space-6) var(--space-6); }
+.d-term pre { max-height: 420px; overflow: auto; font-family: "Noto Sans Mono CJK SC", "Sarasa Mono SC", var(--font-mono); font-size: 12px; line-height: 1.55; }
+.d-term .t { color: var(--text-muted); }
+.d-term .u { color: var(--accent-text); }
+.d-term .st { color: var(--text-muted); }
+body[data-term="watch"] .when-ctl, body[data-term="ctl"] .when-watch { display: none !important; }
+</style>
+</head>
+<body class="backdrop" data-term="watch">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r3.js"></script>
+<script src="../assets/panel-r3.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="s-main">
+            <div class="s-col">
+                <section class="panel" id="list"></section>
+                <section class="panel" id="runs"></section>
+            </div>
+            <section class="panel" id="detail"></section>
+        </main>
+    </div>
+</div>
+
+<script>
+const {D, esc, icon, ephTag, demo, lease} = NB3;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB3.sidebar("sessions"));
+document.getElementById("top").outerHTML = NB3.topbar("搜索会话：名称、pane、Work、Task");
+const stLabel = {working: "在工作", idle: "空闲", blocked: "等输入", done: "结束", unknown: "未知"};
+const kindLabel = (k) => k === "claude" ? "Claude" : "omp";
+const expiredChips = (s) => (s.expired || []).map((l) => `<span class="lease expired" title="${esc(l.why)}">${icon("list-checks")}<b>${l.work}</b> ${l.task} · 已失效</span>`).join("");
+const leaseChips = (s) => s.leases.length || s.expired?.length
+    ? s.leases.map((l) => `<span class="lease">${icon("list-checks")}<b>${l.work}</b> ${l.task}</span>`).join("") + expiredChips(s) + demo()
+    : `<span class="xs muted">${esc(s.noWork || "没有租约")}</span>`;
+
+/* ---------- 列表 ---------- */
+const item = (s) => `<div class="s-item" role="option" data-pane="${s.pane}" tabindex="0">
+    <div class="l1"><span class="kind">${kindLabel(s.kind)}</span><span class="nm" title="终端标题${s.titleStale ? "（已过时）" : ""}">${esc(s.title)}</span>
+        <span class="sess-st ${s.status}"><span class="dot ${s.status === "working" ? "info" : ""}"></span>${stLabel[s.status]}</span></div>
+    <div class="l2">${leaseChips(s)}</div>
+    <div class="l3"><span class="mono">${s.pane}</span>${s.runs.length ? `<span style="color:var(--status-info)">运行 ${s.runs.length}</span>` : ""}${s.queue.length ? `<span style="color:var(--status-warning)">排队的通知 ${s.queue.length}</span>` : ""}${s.draft ? '<span class="draft-flag">输入框里有没发出的话</span>' : ""}</div>
+</div>`;
+document.getElementById("list").innerHTML = `<div class="panel-h">${icon("message-square")}<h2>会话</h2>${ephTag()}<div class="sp"></div><span class="count">租约全是示例</span></div>
+    <div class="grp"><b>面板管理的会话</b> ${D.sessions.length} · 来自 herdr</div>
+    <div role="listbox" aria-label="面板管理的会话">${D.sessions.map(item).join("")}</div>
+    <div class="grp"><b>外部会话</b> ${D.external.length} · 只在有租约时出现</div>
+    ${D.external.map((x) => `<div class="s-item ext"><div class="l1"><span class="kind">${kindLabel(x.kind)}</span><span class="nm">${esc(x.name)}</span>${demo()}</div>
+        <div class="l2">${x.leases.map((l) => `<span class="lease ext">${icon("bot")}<b>${l.work}</b> ${l.task}</span>`).join("")}</div>
+        <div class="l3"><span>${esc(x.note)}</span></div></div>`).join("")}
+    <div class="grp">别的仓库 ${D.otherRepo.length} · 不是 Agent 的 pane ${D.plainPanes.length}（含 :4217 开发服务的终端 w1:pJ）</div>
+    <div style="height:var(--space-4)"></div>`;
+
+/* ---------- 所有运行（会话派出、还在跑的） ---------- */
+const runs = D.sessions.flatMap((s) => s.runs.map((r) => ({...r, pane: s.pane})));
+document.getElementById("runs").innerHTML = `<div class="panel-h" id="runs-h">${icon("activity")}<h2>运行</h2>${ephTag()}<span class="count">${runs.length}</span></div>
+    <ul class="rows">${runs.map((r) => `<li class="row"><div class="hstack" style="gap:var(--space-3)"><span class="dot info"></span><span class="ellipsis" style="flex:1">${esc(r.label)}</span><span class="mono xs muted">${r.pid ? "PID " + r.pid : ""}</span></div>
+        <div class="row-meta"><span>${esc(r.kind)}</span><span>${esc(r.since)}</span><span>由 <span class="mono">${r.pane}</span> 派出</span></div></li>`).join("")}</ul>
+    <div class="panel-b xs muted" style="padding-top:0">进程来自 ps 与 /proc；子代理是从 Claude 终端底部的代理列表读到的。</div>`;
+
+/* ---------- 详情：租约、运行、通知，加网页版 herdr 终端 ---------- */
+function termHtml(lines) {
+    return lines.map((l) => {
+        const e = esc(l);
+        if (/^\s*(Opus|ctx |⏵⏵)/.test(l) || /cost \$/.test(l)) return `<span class="st">${e}</span>`;
+        if (/^\s*❯/.test(l)) return `<span class="u">${e}</span><span class="when-ctl"> <span class="caret"></span></span>`;
+        if (/^\s*⎿|^\s*Ran |^\s*Read |^\s*Made |^\s*Searched /.test(l)) return `<span class="t">${e}</span>`;
+        return e;
+    }).join("\n");
+}
+function render(pane) {
+    const s = D.sessions.find((x) => x.pane === pane) || D.sessions[1];
+    document.querySelectorAll(".s-item[data-pane]").forEach((el) => el.setAttribute("aria-selected", String(el.dataset.pane === s.pane)));
+    const lines = D.reads[s.pane];
+    document.getElementById("detail").innerHTML = `
+        <div class="d-head">
+            <div class="crumbs"><a href="#">现场</a>${icon("chevron-right")}<a href="#">会话</a>${icon("chevron-right")}<span class="mono">${s.pane}</span></div>
+            <div class="hstack" style="gap:var(--space-5)"><h1 style="flex:1">${esc(s.title)}${s.titleStale ? ' <span class="xs muted">（终端标题已过时）</span>' : ""}</h1>
+                <span class="badge ${s.status === "working" ? "info" : ""}"><span class="dot"></span>${stLabel[s.status]}</span></div>
+            <div class="d-facts"><span><span class="kind">${kindLabel(s.kind)}</span> <span class="mono">${s.sid}</span></span><span>pane <span class="mono">${s.pane}</span></span><span>面板管理（herdr）</span>${s.screen ? `<span class="muted">终端底部：${esc(s.screen)}</span>` : ""}</div>
+        </div>
+        <div class="eph d-eph"><span class="eph-tag corner">${icon("timer")}临时</span>
+            <div class="dt">持有的租约</div><div class="dd">${s.leases.length || s.expired?.length ? s.leases.map((l) => `<span class="lease">${icon("list-checks")}<b>${l.work}</b> ${l.task}<span class="muted">　最近 ${esc(l.last)}${l.expiring ? " · 快失效" : ""}</span></span>`).join("") + (s.expired || []).map((l) => `<span class="lease expired">${icon("list-checks")}<b>${l.work}</b> ${l.task} · ${esc(l.why)}</span>`).join("") + demo() : `<span class="muted">${esc(s.noWork || "没有")}</span>`}</div>
+            <div class="dt">派出还在跑的</div><div class="dd">${s.runs.length ? s.runs.map((r) => `<span class="run">${icon("loader-circle")}${esc(r.label)}${r.pid ? ` · PID ${r.pid}` : ""}</span>`).join("") : '<span class="muted">没有</span>'}</div>
+            <div class="dt">排队的通知</div><div class="dd">${s.queue.length ? s.queue.map((q) => `<span class="lease">${icon("bell")}${esc(q.text)} · ${q.mode} · ${esc(q.when)}</span>`).join("") + demo() : '<span class="muted">没有</span>'}</div>
+        </div>
+        <div class="d-term nb-dark term" id="term">
+            <div class="tstate watch when-watch">${icon("eye", "sm")}<span><b>观看中</b>：只读的实时画面，键盘在别处（herdr 客户端或其它设备）</span><span class="sp"></span><button class="btn sm primary" type="button" data-take>${icon("keyboard", "sm")}接管键盘</button></div>
+            <div class="tstate ctl when-ctl">${icon("keyboard", "sm")}<span><b>你已接管键盘</b>：按键原样发给会话；终端按网页尺寸 172×44；离开这一页自动释放</span><span class="sp"></span><button class="btn sm secondary" type="button" data-release>释放</button></div>
+            <div class="term-bar"><i></i><i></i><i></i><span>${s.pane} · ${lines ? `herdr agent read 的快照（真面板用 terminal session observe 的实时流）` : "没有读这个会话，示例"}</span></div>
+            <pre>${lines ? termHtml(lines) : '<span class="t">（示例）</span>'}</pre>
+        </div>
+        <div class="panel-b xs muted" style="padding-top:0">接管、释放只改页面上的状态；本稿没有调用 herdr 的 control 或 takeover。${s.draft ? "这个会话的输入框里有一句没发出的话，接管后就在光标前。" : ""}</div>`;
+    const pre = document.querySelector("#term pre");
+    pre.scrollTop = pre.scrollHeight;  // 从最新的一行看起
+}
+const setTerm = (st) => {
+    document.body.dataset.term = st;
+    document.getElementById("term")?.classList.toggle("ctl", st === "ctl");
+    document.querySelectorAll(".review-dock .seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === st)));
+};
+document.addEventListener("click", (e) => {
+    const it = e.target.closest(".s-item[data-pane]");
+    if (it) { history.replaceState(null, "", "#" + it.dataset.pane); render(it.dataset.pane); setTerm(document.body.dataset.term); return; }
+    if (e.target.closest("[data-take]")) setTerm("ctl");
+    if (e.target.closest("[data-release]")) setTerm("watch");
+    const b = e.target.closest(".review-dock button[data-t]");
+    if (b) setTerm(b.dataset.t);
+});
+const h = decodeURIComponent(location.hash.slice(1));
+render(h && h !== "runs" && h !== "ctl" ? h : "w1:p2");
+NB3.dock(`<span>会话</span><div class="seg" role="group" aria-label="终端状态"><button type="button" data-t="watch" aria-pressed="true">观看</button><button type="button" data-t="ctl" aria-pressed="false">已接管</button></div>`);
+setTerm(new URLSearchParams(location.search).get("term") === "ctl" ? "ctl" : "watch");
+</script>
+</body>
+</html>

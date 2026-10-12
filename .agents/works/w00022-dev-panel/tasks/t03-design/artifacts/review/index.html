@@ -7,6 +7,7 @@
 <script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="tokens-nbook.css">
 <link rel="stylesheet" href="assets/panel.css">
+<link rel="stylesheet" href="assets/panel-r3.css">
 <style>
 main { max-width: 1240px; margin: 0 auto; padding: var(--space-7) var(--space-6) 120px; }
 .lead h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
@@ -57,12 +58,20 @@ tr + tr td { border-top: var(--border-w) solid var(--divider); }
 <main>
     <div class="lead">
         <h1>开发者项目面板与命令行：静态稿</h1>
-        <p>第二轮在最上面，第一轮的几节已定或被第二轮取代，放在下面。每节写要你定什么、候选、主 Agent 的推荐与你的决定。稿子直接是 HTML，点“打开”看整页，可以点选、切明暗（右上角）。第二轮的数据是本机 2026-10-12 16:01 的真实快照（会话来自 herdr 的只读命令），第一轮是 13:40；标“示例”的是本机没有的东西。决定的文字以仓库里的 <code>.agents/works/w00022-dev-panel/tasks/t03-design/README.md</code> 为准。2026-10-12 按领域模型第二版的决定从 <code>.local/agent/</code> 搬进仓库；第一、二轮里写到的 <code>.local/agent/…/review</code>、<code>answers/</code> 等路径是当时的规则，现在产物与答复都在 Task 的 <code>artifacts/</code> 下。</p>
+        <p>第三轮在最上面（按领域模型第二版重画，数据 2026-10-12 18:04），领域模型、第二轮、第一轮依次往下。每节写要你定什么、候选、主 Agent 的推荐与你的决定。稿子直接是 HTML，点“打开”看整页，可以点选、切明暗（右上角）。标“示例”的是本机还没有的东西（例如所有租约），标“推断”的是记录里没有字段、从正文推出来的。决定的文字以仓库里的 <code>.agents/works/w00022-dev-panel/tasks/t03-design/README.md</code> 为准。</p>
     </div>
 
     <nav class="toc panel" aria-label="目录">
-        <div class="panel-h"><h2>目录</h2><span class="count">第二轮 6 个待定</span></div>
+        <div class="panel-h"><h2>目录</h2><span class="count">第三轮 1 个待定</span></div>
         <ol>
+            <li class="xs muted" style="padding:var(--space-2) var(--space-4)">第三轮（18:04 的数据）</li>
+            <li><a href="#r3-home"><span class="badge sm warning">待定</span>首页（Work 视角）：A 卡片还是 B 表</a></li>
+            <li><a href="#r3-pages"><span class="badge sm info">说明</span>这一轮的各页入口</a></li>
+            <li><a href="#r3-eph"><span class="badge sm info">说明</span>临时数据的画法</a></li>
+            <li><a href="#r3-data"><span class="badge sm info">说明</span>真实数据与示例</a></li>
+            <li><a href="#r3-gaps"><span class="badge sm info">说明</span>第三轮发现的问题</a></li>
+            <li class="xs muted" style="padding:var(--space-2) var(--space-4)">领域模型</li>
+            <li><a href="#model"><span class="badge sm success">已定</span>领域模型第二版</a></li>
             <li class="xs muted" style="padding:var(--space-2) var(--space-4)">第二轮（16:01 的数据）</li>
             <li><a href="#r2-home"><span class="badge sm warning">待定</span>首页：分组导航、Work › Task 树、收件箱与会话</a></li>
             <li><a href="#r2-sessions"><span class="badge sm warning">待定</span>会话页：列表、终端输出、发消息</a></li>
@@ -83,15 +92,105 @@ tr + tr td { border-top: var(--border-w) solid var(--divider); }
     </nav>
 
 
+
+    <!-- ======================= 第三轮 ======================= -->
+    <h2 class="round-h" id="r3">第三轮 <small>按领域模型第二版重画：项目数据持久、会话与租约临时；数据 2026-10-12 18:04</small></h2>
+
+    <section class="q" id="r3-home">
+        <h2><span class="badge success">已定</span>首页（Work 视角）：A 卡片还是 B 表</h2>
+        <p class="q-ask"><b>要你定：</b>首页的 Work 区用哪种。两版内容相同：每个 Work 的目标、各 Task 的状态、待答提问数、“谁在动”（临时）；收件箱（未答的提问、未处置的审查条目）都放在上方。这一轮只问这一个问题。</p>
+        <div class="cands">
+            <div class="cand"><a class="pv" href="r3/home.html#A"><iframe src="r3/home.html#A" title="候选 A" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
+                <h3>A 每个 Work 一张卡片</h3>
+                <ul><li>卡片：Work 状态、目标一行到两行、Task 状态计数条与图例、待答提问数、记录不在 master 的警示。</li>
+                <li>卡片底部虚线框是“谁在动”：会话的租约胶囊，租约失效的划掉。</li>
+                <li>看的是 Work 的整体，Task 要点进 Work 页才看得到。</li></ul></div>
+            <div class="cand"><a class="pv" href="r3/home.html#B"><iframe src="r3/home.html#B" title="候选 B" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
+                <h3>B 一张表，按 Work 分组，每行一个 Task</h3>
+                <ul><li>组头是 Work（状态、计数条、目标、待答数）；每行一个 Task：状态、当前情况、最近更新、待答提问、谁在动。</li>
+                <li>记录多的 Work 只列最近几个 Task，余下“另 N 个”。</li>
+                <li>一屏能看到哪个 Task 在等你、谁在动它；Work 的目标被压成一行。</li></ul></div>
+        </div>
+        <dl class="slot"><dt>主 Agent 的推荐</dt><dd><b>A（卡片）</b>。首页要回答“哪个 Work 在等我、哪些在动”，A 每个 Work 一张卡，目标一句、状态条、待答数、谁在动，一屏能看四到六个 Work；Task 的细节点进 Work 页，Work 页本身就是 B 那样的表。B 把所有 Work 的 Task 都摊在首页，和 Work 页重复，长度随 Task 数增长（w00017 已有 83 个 Task，只能截成“另 77 个”），要找“哪个 Task 在等我”有收件箱。卡片上关于 master 只有占号副本的警示是迁移过渡期才有的，记录迁完后消失。</dd><dt>开发者的决定</dt><dd>A（2026-10-12）。</dd></dl>
+    </section>
+
+    <section class="q" id="r3-pages">
+        <h2><span class="badge info">说明</span>这一轮的各页入口</h2>
+        <div class="cands">
+            <div class="cand"><a class="pv" href="r3/work.html"><iframe src="r3/work.html" title="Work 页" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a><h3>Work 页（w00022）</h3>
+                <ul><li>依次是目标、Task 列表（状态、当前情况一行、产物、待答提问、执行位置）、“现在谁在动”一条。t01–t05 的状态都来自 status 字段。</li></ul></div>
+            <div class="cand"><a class="pv" href="r3/sessions.html#w1:p2"><iframe src="r3/sessions.html#w1:p2" title="会话页" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a><h3>会话页（会话视角）</h3>
+                <ul><li>面板管理的会话来自 herdr，每个写出持有的租约、派出还在跑的运行、排队的通知；外部会话单列，只在有租约时出现，没有终端。</li>
+                <li>右边是网页版 herdr 终端：“观看”与“已接管键盘”两种状态，按钮“接管键盘”“释放”；<a href="r3/sessions.html?term=ctl#w1:p2">直接看接管后的样子</a>。</li></ul></div>
+            <div class="cand"><a class="pv" href="r3/notify.html"><iframe src="r3/notify.html" title="通知窗" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a><h3>答复后的通知窗</h3>
+                <ul><li>三种情况并排：能通知（选 followup 或 steer，预览一行指针消息）；提问者租约已失效；提问者是外部会话。后两种都显示“答复已保存，没有可通知的会话”。</li></ul></div>
+            <div class="cand"><a class="pv" href="r3/new.html"><iframe src="r3/new.html" title="新建表单" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a><h3>新建 Work 与新建 Task</h3>
+                <ul><li>填名称、目标、首个 Task；右边随填随变：领到的号、要写的文件、提交信息与路径限定的提交命令、README 内容。</li></ul></div>
+        </div>
+    </section>
+
+    <section class="q" id="r3-eph">
+        <h2><span class="badge info">说明</span>临时数据的画法</h2>
+        <p class="q-ask">持久的（Work、Task、状态、产物、提问、答复）照常画实线的面；临时的（会话、租约、“谁在动”、运行、排队的通知）一律信息色虚线框，角上一个“临时”小标；单独出现的租约是虚线胶囊。“示例”与“推断”各有自己的标记，不和虚线混用。</p>
+        <div class="panel panel-b" style="padding-top:var(--space-6);display:flex;flex-direction:column;gap:var(--space-6)">
+            <div class="eph" style="padding:var(--space-6) var(--space-5) var(--space-5);display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+                <span class="eph-tag corner"><svg class="ic"><use href="#i-timer"/></svg>临时 · 谁在动</span>
+                <span class="lease"><svg class="ic"><use href="#i-message-square"/></svg><b>w1:p2</b> Claude · t79、t82、t83</span>
+                <span class="lease ext"><svg class="ic"><use href="#i-bot"/></svg><b>外部</b> omp -p 审查 · t79</span>
+                <span class="lease expired"><svg class="ic"><use href="#i-message-square"/></svg><b>w1:pQ</b> · 24 小时没有 Task 操作，已失效</span>
+                <span class="badge sm demo">示例</span>
+            </div>
+            <table><tr><th style="width:200px">画法</th><th>意思</th></tr>
+                <tr><td><span class="eph-tag"><svg class="ic"><use href="#i-timer"/></svg>临时</span> 加虚线框</td><td>会话结束或租约失效就消失，不入库</td></tr>
+                <tr><td><span class="lease"><svg class="ic"><use href="#i-message-square"/></svg><b>w1:p16</b> Claude</span></td><td>面板管理的会话持有的租约（能打开终端、能收通知）</td></tr>
+                <tr><td><span class="lease ext"><svg class="ic"><use href="#i-bot"/></svg><b>外部</b> omp -p</span></td><td>外部会话的租约（能读答复，不能打开终端、不能被通知）</td></tr>
+                <tr><td><span class="lease expired"><svg class="ic"><use href="#i-message-square"/></svg><b>w1:pQ</b> 已失效</span></td><td>失效的租约，划掉；只在解释“为什么没人可通知”时出现</td></tr>
+                <tr><td><span class="st active"><svg class="ic"><use href="#i-circle-dot"/></svg>进行中</span> <span class="st done"><svg class="ic"><use href="#i-circle-check"/></svg>已完成</span> <span class="st planned"><svg class="ic"><use href="#i-circle"/></svg>计划中</span></td><td>持久的状态，来自 Task 记录的 status 字段</td></tr>
+                <tr><td><span class="st active"><svg class="ic"><use href="#i-circle"/></svg>进行中<span class="inf">推断</span></span></td><td>没有 status 字段，按正文推断（图标空心）</td></tr>
+                <tr><td><span class="badge sm demo">示例</span></td><td>本机还没有的数据，例如所有租约与排队的通知（nbdev 没做）</td></tr>
+            </table>
+        </div>
+    </section>
+
+    <section class="q" id="r3-data">
+        <h2><span class="badge info">说明</span>真实数据与示例</h2>
+        <div class="panel panel-b" style="padding-top:var(--space-6)">
+            <ul class="vstack" style="gap:var(--space-4)">
+                <li><b class="medium">真实（持久）</b>：w00022 的目标与 t01–t05 的 status、当前情况，取自 master 的 <code>.agents/works/</code>；其余 Work 的 Task 列表与计数，master 上的记录还停在占号副本（t05 未迁），改用各自执行 worktree 里的记录，计数与目标都标“推断”。</li>
+                <li><b class="medium">真实（临时）</b>：会话来自 herdr 的 <code>agent list</code>、<code>agent get</code>、<code>agent read --source recent</code>、<code>pane list</code>（9 个 Agent，其中 1 个在别的仓库）；运行来自 <code>ps</code> 与 <code>/proc</code>（omp 审查 t79 第二轮、e2e 第二轮、开发服务、t34 抽取），子代理是从 Claude 终端底部的代理列表读到的；终端画面是 <code>agent read</code> 的快照。</li>
+                <li><b class="medium">示例</b>：所有租约（配在真实会话上：w1:p16 在动 w00022 t03，w1:p2 在动 w00017 的 t79、t82、t83，等等）、t80 提问者租约“已失效”、外部会话 omp -p 持有 t79 的租约、排队的通知、各通知窗里的答复、新建表单里预填的内容。</li>
+                <li><b class="medium">数据文件</b>：<code>assets/data-r3.js</code>（含终端快照）；样式 <code>assets/panel-r3.css</code>，共用脚本 <code>assets/panel-r3.js</code>。没有调用 herdr 的 prompt、control、takeover。</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="q" id="r3-gaps">
+        <h2><span class="badge info">说明</span>第三轮发现的问题</h2>
+        <p class="sub">主 Agent 的处理已并入 <code>docs/proposals/dev-panel.md</code>，以 Proposal 为准。稿中“外部 omp -p 审查”持有租约的画法与 Proposal 的“运行不持有租约，会话派出的 omp -p 算它的运行”不一致，实现时按 Proposal。</p>
+        <ol class="panel gaps">
+            <li><span class="n">1</span><div><b>master 上的记录还不能代表现状。</b>w00017 在 master 上是 30 个 Task 的占号副本（停在 10-01），分支上已有 83 个；w00005、w00002、w00021 同样。只读 master 的 Work 视角在 t05 迁完之前是错的。</div></li>
+            <li><span class="n">2</span><div><b>状态与目标只有 w00022 有。</b>其余 21 个 Work 没有 status 与“目标”一节；从正文推断不可靠（规则粗略扫一遍，t74 被判成“未开工”、t79 被判成“已完成”）。至少进行中的 Work 要先补字段。</div></li>
+            <li><span class="n">3</span><div><b>“最近更新”被批量提交冲掉。</b>w00022 的五个 Task 都显示 18:01，是那次规则提交顺手补状态字段造成的；要么记录里自己写“当前情况”的日期，要么面板忽略这类治理提交。</div></li>
+            <li><span class="n">4</span><div><b>会话里问的问题进不了收件箱。</b>w1:p16 在终端里问了“t05 先迁哪几条分支、是否授权动别的会话的分支”，记录里没有；t79 记录里的“待开发者确认计划”是不是提问也说不准。提问得有约定的写法。</div></li>
+            <li><span class="n">5</span><div><b>提问缺“作废”。</b>第二轮的 6 个问题在评审板上仍写着待定，其中首页一问已被第三轮取代，待答数因此虚高（t03 显示 7）。提问要有“已答、已取代、撤回”这类结局。</div></li>
+            <li><span class="n">6</span><div><b>omp -p 既是运行又是外部会话。</b>t79 第二轮审查是 w1:p2 派出的运行；如果它自己经 nbdev 取了租约，又是一个外部会话。会话页里它出现两次；要定运行能不能持有租约。</div></li>
+            <li><span class="n">7</span><div><b>24 小时的租约让“谁在动”偏多。</b>w1:p16 15:55 动过 t80，现在在做 w00022，按规则 t80 的租约要到明天才失效，Work 视角会一直显示它“在动” t80。可能要按最近活动时间淡出，或在会话转去别的 Task 时让旧租约降级。</div></li>
+            <li><span class="n">8</span><div><b>运行的归属靠拼。</b>herdr 只给会话状态；运行要从 <code>ps</code> 的父进程链找到 Claude 进程，再对到 pane（要 <code>pane process-info</code>，这轮没用）；子代理只能从终端画面读；:4217 开发服务在普通 pane w1:pJ 里，不属于任何会话。</div></li>
+            <li><span class="n">9</span><div><b>两边同时领号。</b>新建 Task 会领到 w00022 的 t06，而起草实施计划的子代理也准备从 t06 起拆 Task；登记表必须加锁，网页与命令行共用。</div></li>
+            <li><span class="n">10</span><div><b>Markdown 报告算不算产物。</b>t01 的需求分析、t03 的领域模型与调研都写在 Task 目录里的 Markdown，不在 <code>artifacts/&lt;id&gt;/</code>；模型里产物是 HTML 页。Work 页的“产物”一栏要定收不收它们。</div></li>
+            <li><span class="n">11</span><div><b>面板在 master 上提交会碰到别人的改动。</b>主工作区此刻有 w00019、w00021 等别的会话没提交的文件；路径限定能避开，但多个会话同时提交会抢 <code>index.lock</code>，面板写入要排队或重试。</div></li>
+            <li><span class="n">12</span><div><b>终端标题不能当会话名。</b>w1:p16 标题仍是“W00017 Workbench 组件重构”，w1:pK 是“w00015 status check”；会话页的名字要用租约（在动哪个 Task）或会话自己报的名字。</div></li>
+        </ol>
+    </section>
     <!-- ======================= 第二轮 ======================= -->
     <h2 class="round-h" id="model">领域模型（第二版） <small>按开发者意见重写：会话是临时的、项目数据是持久的；2026-10-12 已定</small></h2>
-    <section class="panel">
+    <section class="panel"><div class="panel-b">
         <p><b>打开 <a href="model.html" target="_blank">领域模型（两层、类图、一个开发流程、七件事的决定）</a></b>。文字（术语、持久与临时的划分、用场景检验）在 <code>.agents/works/w00022-dev-panel/tasks/t03-design/domain-model.md</code>。第一版的“参与”已取消，改为临时的租约。七件事已定，第 2 件改为面板能任意写仓库。接下来按 Work 视角与会话视角重画首页与会话页。</p>
-    </section>
+    </div></section>
     <h2 class="round-h" id="r2">第二轮 <small>按已定的 B 版式与新的内容分类重画；数据 2026-10-12 16:01</small></h2>
 
     <section class="q" id="r2-home">
-        <h2><span class="badge warning">待定</span>首页：分组导航、Work › Task 树、收件箱与会话</h2>
+        <h2><span class="badge plain">已取代</span>首页：分组导航、Work › Task 树、收件箱与会话 <small>由第三轮按领域模型第二版重画</small></h2>
         <p class="q-ask"><b>要你定：</b>左栏的五组（首页与收件箱、工作、产物、文档、现场）与顺序；“工作”这棵树默认展开哪些 Work、每个 Work 列几个 Task、状态近似值的几档；主区两栏的分配（左：收件箱与进行中的 Task；右：会话与最近的变化）；收件箱条目怎么看出类型。</p>
         <div class="cands"><div class="cand">
                 <a class="pv" href="r2/home.html"><iframe src="r2/home.html" title="首页（B）" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
@@ -102,7 +201,7 @@ tr + tr td { border-top: var(--border-w) solid var(--divider); }
     </section>
 
     <section class="q" id="r2-sessions">
-        <h2><span class="badge warning">待定</span>会话页：列表、终端输出、发消息</h2>
+        <h2><span class="badge plain">已取代</span>会话页：列表、终端输出、发消息 <small>由第三轮按领域模型第二版重画</small></h2>
         <p class="q-ask"><b>要你定：</b>列表的分组（在工作、在等你、空闲、别的仓库，另列不是 Agent 的 pane）；右边顶部放状态与关联的 Work、Task；终端输出只读；发消息的两个选项“它空闲时再发”“现在就发”及默认值（在工作时默认空闲再发，空闲时默认现在发）；输入框里有没发出的话时怎么提示。</p>
         <div class="cands"><div class="cand">
                 <a class="pv" href="r2/sessions.html#w1:pB"><iframe src="r2/sessions.html#w1:pB" title="会话页（选中 w1:pB）" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
@@ -113,7 +212,7 @@ tr + tr td { border-top: var(--border-w) solid var(--divider); }
     </section>
 
     <section class="q" id="r2-notify">
-        <h2><span class="badge warning">待定</span>回复后通知会话的确认小窗</h2>
+        <h2><span class="badge plain">已取代</span>回复后通知会话的确认小窗 <small>由第三轮按领域模型第二版重画</small></h2>
         <p class="q-ask"><b>要你定：</b>你在面板上提交答案后，要不要每次都问“通知会话 X”；默认按钮是“通知”还是“不通知”；消息预览的格式；“它空闲时再发”是否默认。</p>
         <div class="cands"><div class="cand">
                 <a class="pv" href="r2/artifacts.html#answer"><iframe src="r2/artifacts.html#answer" title="从 t80 的问题上提交答案" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>

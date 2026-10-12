@@ -2,6 +2,8 @@
 
 2026-10-12 由子代理起草，主 Agent 核对后交开发者。依据 [需求分析](requirements.md)：第八节开发者已确认，本文不推翻；有不同意见的写进各节末尾“需要开发者决定的问题”和第九节。主 Agent 抽查属实的：根 `package.json` 的 `workspaces` 逐项列出；Task 号正则只认两位；会话环境里有 `CLAUDE_CODE_SESSION_ID`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_PID`、`HERDR_PANE_ID`，本机装有 `herdr`；w00005 的 worktree 里 `.agents` 有 10 万多个文件。
 
+> 2026-10-12 后来的修订：领域模型第二版（[第八节](../t03-design/domain-model.md#八开发者的决定2026-10-12)）让记录只放主工作区 `master`、取消本地 Work、产物与答复入库，本文按“多个 checkout 各有一份记录”设计的部分随之过时，例如第三节 X1 到 X5 的跨 checkout 选当前快照、`.local/agent/works/` 作为本地 Work 的编号来源、本地 `review/.pages/`。方案以 [Proposal](../../../../../docs/proposals/dev-panel.md) 为准，本文保留当时的分析。
+
 - 来源标注：**（现状）** 是 2026-10-12 在本机只读查到的事实；**（已确认）** 出自 requirements.md 第八节或已落地的规则；**（推断）** 是本文的设计推断，没有验证过。
 - 路径默认相对仓库根；“主仓库根”指 `git rev-parse --git-common-dir` 的上一级，也就是本机的主工作区。
 

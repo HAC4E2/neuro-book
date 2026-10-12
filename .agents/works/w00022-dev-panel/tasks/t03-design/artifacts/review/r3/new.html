@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新建 Work 与 Task · 开发面板 r3</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<link rel="stylesheet" href="../assets/panel-r3.css">
+<style>
+.f-main { padding: var(--space-6) var(--space-7) 120px; display: flex; flex-direction: column; gap: var(--space-6); max-width: 1320px; }
+.f-head h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.f-head p { color: var(--text-secondary); margin-top: var(--space-3); max-width: 900px; }
+.f-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+.f-card { display: flex; flex-direction: column; }
+.f-body { padding: var(--space-2) var(--space-6) var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); }
+.pv-box { padding: var(--space-5); border-radius: 14px; border: var(--border-w) solid var(--panel-outline); background: color-mix(in srgb, var(--text-main) 2.5%, transparent); display: flex; flex-direction: column; gap: var(--space-4); }
+.pv-box h3 { font-size: 12px; font-weight: var(--weight-strong); color: var(--text-secondary); }
+.pv-box pre.code { font-size: 11.5px; max-height: 260px; }
+.sel { position: relative; }
+.sel select { appearance: none; width: 100%; height: var(--control-h-md); padding: 0 32px 0 var(--control-px); border: var(--border-w) solid var(--control-outline); border-radius: var(--radius-control); background: var(--control-surface); color: var(--text-main); font: inherit; }
+.sel .ic { position: absolute; right: 10px; top: 9px; color: var(--text-muted); pointer-events: none; }
+.done-msg { display: none; }
+form[data-state="done"] .done-msg { display: flex; }
+form[data-state="done"] .submit-row { display: none; }
+@media (max-width: 1280px) { .f-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r3.js"></script>
+<script src="../assets/panel-r3.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="f-main">
+            <div class="f-head">
+                <h1>新建 Work 与 Task</h1>
+                <p>网页和 Agent（<code>nbdev work new</code>、<code>nbdev task new</code>）走同一条路：领号、写记录、在主工作区 <code>master</code> 上路径限定地提交。提交前在右边看清要写哪些文件、提交信息是什么。表里预填的内容是<b>示例</b>，提交只改页面上的状态，不写文件。</p>
+            </div>
+            <div class="f-grid">
+                <form class="panel f-card" id="fw" data-state="edit" autocomplete="off">
+                    <div class="panel-h"><svg class="ic"><use href="#i-layers"/></svg><h2>新建 Work</h2><span class="badge sm demo">示例</span></div>
+                    <div class="f-body">
+                        <div class="form">
+                            <div class="row2">
+                                <label class="f"><span>短名</span><span class="input"><input name="slug" value="settings-migration"></span><span class="hint">小写字母、数字与连字符</span></label>
+                                <label class="f"><span>标题</span><span class="input"><input name="title" value="旧设置其余分区的迁移"></span></label>
+                            </div>
+                            <label class="f"><span>目标</span><span class="input area"><textarea name="goal" rows="3">把旧应用设置里的模型服务、Agent、向量嵌入等分区迁到新的设置窗口，用 t80 定下的贡献点与混合排法。</textarea></span><span class="hint">写进 README 开头的“目标”一节，首页卡片上显示第一句</span></label>
+                            <div class="row2">
+                                <label class="f"><span>Issue（可选）</span><span class="input"><input name="issue" placeholder="例如 245"></span></label>
+                                <label class="f"><span>状态</span><span class="sel"><select name="wstatus"><option value="active" selected>active 进行中</option><option value="shelved">shelved 已搁置</option></select><svg class="ic"><use href="#i-chevron-down"/></svg></span></label>
+                            </div>
+                            <hr class="divider">
+                            <div class="xs strong sec">首个 Task</div>
+                            <div class="row2">
+                                <label class="f"><span>短名</span><span class="input"><input name="tslug" value="inventory"></span></label>
+                                <label class="f"><span>标题</span><span class="input"><input name="ttitle" value="清点旧设置的分区与配置项"></span></label>
+                            </div>
+                            <label class="f"><span>状态</span><span class="seg" role="radiogroup"><button type="button" aria-pressed="true" data-v="planned">planned 计划中</button><button type="button" aria-pressed="false" data-v="active">active 进行中</button></span></label>
+                        </div>
+                        <div class="pv-box" id="pw"></div>
+                        <div class="hstack submit-row"><button class="btn primary" type="submit">建 Work 并提交</button><span class="xs muted">在 master 上路径限定提交；别的会话没提交的改动不会被带上</span></div>
+                        <div class="callout success xs done-msg"><svg class="ic"><use href="#i-circle-check"/></svg><div><b>已建（本稿不写文件）。</b>新 Work 出现在首页；现在没有会话在动它，可以从会话页挑一个会话让它开工。</div></div>
+                    </div>
+                </form>
+
+                <form class="panel f-card" id="ft" data-state="edit" autocomplete="off">
+                    <div class="panel-h"><svg class="ic"><use href="#i-list-checks"/></svg><h2>新建 Task</h2><span class="badge sm demo">示例</span></div>
+                    <div class="f-body">
+                        <div class="form">
+                            <label class="f"><span>Work</span><span class="sel"><select name="work"></select><svg class="ic"><use href="#i-chevron-down"/></svg></span></label>
+                            <div class="row2">
+                                <label class="f"><span>短名</span><span class="input"><input name="slug" value="core-index"></span></label>
+                                <label class="f"><span>标题</span><span class="input"><input name="title" value="核心库：索引与编号登记"></span></label>
+                            </div>
+                            <label class="f"><span>目标与范围</span><span class="input area"><textarea name="goal" rows="3">在 packages/dev-panel 里做核心库的索引（Work、Task、产物、提问）与编号登记表，命令行与网页共用。</textarea></span></label>
+                            <label class="f"><span>状态</span><span class="seg" role="radiogroup"><button type="button" aria-pressed="true" data-v="planned">planned 计划中</button><button type="button" aria-pressed="false" data-v="active">active 进行中</button></span></label>
+                        </div>
+                        <div class="pv-box" id="pt"></div>
+                        <div class="hstack submit-row"><button class="btn primary" type="submit">建 Task 并提交</button></div>
+                        <div class="callout success xs done-msg"><svg class="ic"><use href="#i-circle-check"/></svg><div><b>已建（本稿不写文件）。</b>新 Task 出现在 Work 页，状态 planned。</div></div>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+const {D, esc, icon} = NB3;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB3.sidebar("new"));
+document.getElementById("top").outerHTML = NB3.topbar();
+
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "untitled";
+const segVal = (form) => form.querySelector(".seg [aria-pressed=true]").dataset.v;
+const fileList = (adds, mods = []) => `<div class="pv-files">${adds.map((p) => `<span class="add">+ ${esc(p)}</span>`).join("")}${mods.map((p) => `<span class="mod">~ ${esc(p)}</span>`).join("")}</div>`;
+
+/* 新建 Work 的预览 */
+function previewWork() {
+    const f = document.getElementById("fw");
+    const v = Object.fromEntries(new FormData(f));
+    const id = `w00023-${slug(v.slug)}`;
+    const tid = `t01-${slug(v.tslug)}`;
+    const work = `---\nschema: nbook.work/v1\nworkId: ${id}\nissueId: ${v.issue ? "i" + v.issue.replace(/\D/g, "") : "null"}\nstatus: ${v.wstatus}\n---\n\n# ${v.title}\n\n## 目标\n\n${v.goal}\n\n## Task\n\n| Task | 当前范围 |\n|---|---|\n| [t01](tasks/${tid}/README.md) | ${v.ttitle} |\n`;
+    const task = `---\nschema: nbook.task/v2\ntaskId: ${tid}\nstatus: ${segVal(f)}\n---\n\n# ${v.ttitle}\n\n## 目标与范围\n\n（待写）\n\n## 当前情况\n\n${segVal(f) === "planned" ? "未开工。" : "开工。"}\n`;
+    document.getElementById("pw").innerHTML = `
+        <h3>领号</h3><div class="xs sec"><b class="mono">w00023</b>：核对了 master 与 11 个 checkout 里已用的号，最大是 w00022；登记表还没有（nbdev 没做），这里是示例。</div>
+        <h3>要写的文件</h3>${fileList([`.agents/works/${id}/README.md`, `.agents/works/${id}/tasks/${tid}/README.md`])}
+        <h3>提交</h3><pre class="code">git commit -m "docs(w00023): 建 Work ${esc(v.title)}，首个 Task t01 ${esc(v.ttitle)}" \\\n  -- .agents/works/${esc(id)}</pre>
+        <div class="callout warning xs">${icon("triangle-alert")}<div>主工作区现在有别的会话没提交的改动（<span class="mono">.agents/works/w00019…</span>、<span class="mono">w00021…</span> 等）；用路径限定只提交上面两份。</div></div>
+        <details><summary class="xs sec" style="cursor:pointer">README 内容预览</summary><pre class="code">${esc(work)}</pre><pre class="code">${esc(task)}</pre></details>`;
+}
+
+/* 新建 Task 的预览 */
+const WORKS = D.works.map((w) => ({id: w.id, title: w.title, next: w.id === "w00022" ? 6 : w.id === "w00017" ? 84 : null, records: w.records}));
+const sel = document.querySelector("#ft select[name=work]");
+sel.innerHTML = WORKS.map((w) => `<option value="${w.id}">${w.id} ${esc(w.title)}</option>`).join("");
+function previewTask() {
+    const f = document.getElementById("ft");
+    const v = Object.fromEntries(new FormData(f));
+    const w = WORKS.find((x) => x.id === v.work);
+    const num = w.next ?? 1;
+    const tid = `t${String(num).padStart(2, "0")}-${slug(v.slug)}`;
+    const dir = w.id === "w00022" ? "w00022-dev-panel" : w.id === "w00017" ? "w00017-application-runtime-architecture" : `${w.id}-…`;
+    document.getElementById("pt").innerHTML = `
+        <h3>领号</h3><div class="xs sec"><b class="mono">${tid.split("-")[0]}</b>：${w.id === "w00022" ? "w00022 已有 t01–t05" : w.id === "w00017" ? "master 上只到 t30（占号副本），分支上已到 t83；按所有分支取最大" : "示例"}。</div>
+        ${w.id === "w00022" ? `<div class="callout warning xs">${icon("triangle-alert")}<div>另一个子代理正按实施计划从 t06 起拆 Task（从 w1:p16 的终端里看到）。两边同时领号，要靠登记表加锁才不会撞。</div></div>` : ""}
+        ${w.records === "branch" ? `<div class="callout warning xs">${icon("triangle-alert")}<div>这个 Work 的记录还在分支上（t05 未迁）；按新规则写在 master，会和分支上的记录分叉。</div></div>` : ""}
+        <h3>要写的文件</h3>${fileList([`.agents/works/${dir}/tasks/${tid}/README.md`], [`.agents/works/${dir}/README.md（Task 表加一行）`])}
+        <h3>提交</h3><pre class="code">git commit -m "docs(${w.id}): 建 ${tid.split("-")[0]} ${esc(v.title)}" \\\n  -- .agents/works/${esc(dir)}/README.md \\\n     .agents/works/${esc(dir)}/tasks/${esc(tid)}</pre>`;
+}
+
+document.addEventListener("input", (e) => { if (e.target.closest("#fw")) previewWork(); if (e.target.closest("#ft")) previewTask(); });
+document.addEventListener("change", (e) => { if (e.target.closest("#ft")) previewTask(); if (e.target.closest("#fw")) previewWork(); });
+document.addEventListener("click", (e) => {
+    const b = e.target.closest(".seg button[data-v]");
+    if (!b) return;
+    b.parentElement.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    previewWork(); previewTask();
+});
+document.querySelectorAll("form").forEach((f) => f.addEventListener("submit", (e) => { e.preventDefault(); f.dataset.state = "done"; }));
+previewWork(); previewTask();
+if (location.hash === "#task") document.getElementById("ft").scrollIntoView();
+NB3.dock(`<span>新建表单</span>`);
+</script>
+</body>
+</html>

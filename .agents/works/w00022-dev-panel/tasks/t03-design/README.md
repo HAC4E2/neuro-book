@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-design
-status: active
+status: done
 ---
 
 # 面板与命令行的设计
@@ -40,7 +40,7 @@ status: active
   7. **终端**：第一版就做到能接管键盘，做成网页版的 herdr 客户端（observe 看、control 加 takeover 输入、按网页尺寸 resize、离开时 release），不只是观看加 API 输入。
   8. **答复后的通知**：投递方式可选 followup（排在当前这一轮之后）或 steer（打断当前这一轮），按会话的 Agent 种类给出它支持的方式。
   9. **面板常驻**：可以用包里的脚本启动常驻，也允许装成用户级 systemd 服务。
-  - 调研里其余的推荐（自动排队通知、会话 id 变了不发、可操作设备能发任意文字、参与写 herdr pane 标签并在 `.local/agent` 留一份、跨设备走 Tailscale Serve、设备配对登录、令牌与审计放 `~/.config/nbdev/`、产物页放另一个来源、第一版不读会话 jsonl、herdr server 暂不升级、手机以输入框加纯文本为主），开发者没有提出异议，按推荐处理。
+  - 调研里其余的推荐（自动排队通知、会话 id 变了不发、可操作设备能发任意文字、参与写 herdr pane 标签并在 `.local/agent` 留一份（“参与”后被领域模型第二版改为租约）、跨设备走 Tailscale Serve、设备配对登录、令牌与审计放 `~/.config/nbdev/`、产物页放另一个来源、第一版不读会话 jsonl、herdr server 暂不升级、手机以输入框加纯文本为主），开发者没有提出异议，按推荐处理。
 - 开发者要求从开发者的交互做 UX：有 Work 视角（一个 Work 有多个会话）与会话视角（一个会话做多个 Work），关系混乱，先做 DDD 建模。主 Agent 起草 [领域模型](domain-model.md)（术语、类图、两个视角、限界上下文、用当天的真实场景检验、6 个待确认），评审板加一页离线渲染的类图（本机 mermaid）。
 - 开发者对第一版领域模型的意见（2026-10-12）：会话是临时的，项目数据是持久的，会话只是推进 Work 的途径；会话与 Task 之间是类似租约的临时关系，面板不记 Work、Task 绑定哪个会话，只在开发者与会话之间临时搭通道；区分面板管理的会话（能主动通知）与外部会话；答复持久化后任何会话都能读；网页与 Agent 都能新建 Work 与 Task；Work 视角要看到目标与各 Task 状态；Work、Task、Docs、Spec 要统一管理；取消本地 Work。主 Agent 按此重写为第二版：项目数据与运行时两层、取消“参与”改为租约、Work 与 Task 的记录只放 `master` 的 `.agents/works/`，列出 7 件待确认。
 - 开发者确认第二版（2026-10-12）：
@@ -51,6 +51,16 @@ status: active
   14. **取消本地 Work**；Task 状态 `planned`、`active`、`done`、`shelved` 写 frontmatter，Work 取后三种并在 README 开头写“目标”；租约在会话消失或 24 小时无 Task 相关操作时失效，不入库。
 - 规则随之改写：[Work 规则](../../../README.md)（记录只放主工作区、本地与入库、状态字段、worktree 一个 Task 一个）、[`.local/README.md`](../../../../../.local/README.md)、[测试规范](../../../../../docs/testing/README.md)、[仓库流程](../../../../../docs/standards/repository-workflow.md)、[design-review](../../../../skills/design-review/SKILL.md)；本 Work 的记录补了状态字段。评审板按新规则从 `.local/agent` 搬进本 Task 的 [`artifacts/review/`](artifacts/review/index.html)（约 440 KB，都是文本），引用的 t80 截图暂时仍指向 `.local`，随 [t05](../t05-migrate-records/README.md) 迁移改路径。
 
+- 第三轮静态稿完成（评审板最上面一节，数据 18:04）：首页 Work 视角两个候选（A 每个 Work 一张卡片、B 按 Work 分组每行一个 Task）、Work 页、会话页（租约、运行、网页终端的观看与接管）、答复后的通知窗（能通知、租约失效、外部会话三种）、新建 Work 与 Task 表单；临时数据一律画虚线框标“临时”。主 Agent 推荐首页 A。终端快照里的会话费用金额已抹去。第二轮的首页、会话页、通知小窗标为已取代。画稿发现 13 条问题，主 Agent 的处理并入 Proposal。
+- [Proposal](../../../../../docs/proposals/dev-panel.md)（draft）与[实施计划](plan.md)起草完成：子代理起草并按主 Agent 的处理意见并入第三轮的 13 条问题；主 Agent 按它指出的不一致修了规则（`.agents/works/AGENTS.md`、实现分支不改的是 Work 目录、P-005 的取代记录，提交 `033dd391`）。Proposal 有 17 条待决问题，都附推荐，第 1 条即首页卡片还是表；计划从 t06 拆到 t14，t04 第 2 项（三位 Task 号）是前提。
+
+- 开发者 2026-10-12 全部同意：
+  15. **首页的 Work 区用卡片**（第三轮稿 A）。
+  16. **Proposal 的 17 条待决问题全部按推荐**，Proposal 进 `accepted`。
+  17. **旧记录的 `status` 不集中补填**，迁移或下次更新时补。
+  18. **常驻用正式的用户级 systemd 单元文件**，全局规则随之补一句。
+  19. **按实施计划开始实施**，开发者不在场时按 autonomous-delivery 的循环推进；计划与实现的审查都用 Claude Code 的 opus 子代理，不用 omp。
+
 ## 下一步
 
-按领域模型第二版重画首页（Work 视角：目标、各 Task 状态、谁在动）与会话页（会话持有的租约、通知），再写 Proposal 与实施计划。
+本 Task 完成；实施从 t06 起，见 [实施计划](plan.md) 与 [Work README](../../README.md)。
