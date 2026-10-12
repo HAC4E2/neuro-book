@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {cleanupFixtures, createFixture, git, taskReadme, writeDeadLock, type Fixture} from "../../tests/git-fixture.js";
+import {cleanupFixtures, createFixture, git, run, taskReadme, writeDeadLock, type Fixture} from "../../tests/git-fixture.js";
 import {acquireRecordsLock} from "./lock.js";
 import {createTask, createWork, setRecordStatus} from "./operations.js";
 import {readRegistry} from "./registry.js";
@@ -96,6 +96,37 @@ describe("写事务", () => {
         expect(failed.data.taskId).toBe("t03-blocked");
         expect(failed.commit).toMatchObject({committed: false, reason: "git_lock_timeout", writtenPaths: [".agents/works/w00001-seed/tasks/t03-blocked/README.md"]});
         expect(await git(fixture.main, "status", "--porcelain", "-uall")).toBe("?? .agents/works/w00001-seed/tasks/t03-blocked/README.md");
+    });
+
+    test("没有 Git 提交身份：在写任何东西之前报 git_identity_missing", async () => {
+        const fixture = await createFixture("tx-no-identity");
+        await git(fixture.main, "config", "--unset", "user.email");
+        await git(fixture.main, "config", "--unset", "user.name");
+        await git(fixture.main, "config", "user.useConfigOnly", "true");
+        await expect(createTask(await locateRepository(fixture.main), {workRef: "w00001", slug: "x", title: "x"})).rejects.toMatchObject({code: "git_identity_missing"});
+        expect(await git(fixture.main, "status", "--porcelain", "--ignored")).toBe("");
+    });
+
+    test("不是锁冲突的提交失败：128 但从没见过 index.lock 时提前停下报 git_failed；pre-commit 拒绝也报 git_failed", async () => {
+        const fixture = await createFixture("tx-git-failed");
+        const context = await locateRepository(fixture.main);
+        const objects = join(fixture.main, ".git/objects");
+        await run("chmod", ["-R", "a-w", objects], fixture.main);
+        const started = Date.now();
+        let unwritable;
+        try {
+            unwritable = await createTask(context, {workRef: "w00001", slug: "no-objects", title: "对象库不可写"});
+        } finally {
+            await run("chmod", ["-R", "u+w", objects], fixture.main);
+        }
+        expect(Date.now() - started).toBeLessThan(5_000);
+        expect(unwritable.commit).toMatchObject({committed: false, reason: "git_failed", writtenPaths: [".agents/works/w00001-seed/tasks/t02-no-objects/README.md"]});
+
+        await fixture.write(".git/hooks/pre-commit", "#!/bin/sh\necho 拒绝 >&2\nexit 1\n");
+        await run("chmod", ["+x", join(fixture.main, ".git/hooks/pre-commit")], fixture.main);
+        const rejected = await createTask(context, {workRef: "w00001", slug: "hooked", title: "被钩子拒绝"});
+        expect(rejected.commit).toMatchObject({committed: false, reason: "git_failed"});
+        expect(rejected.commit.committed === false && rejected.commit.reason === "git_failed" ? rejected.commit.detail : "").toContain("拒绝");
     });
 
     test("resolveCommitOutcome：被别的提交带走、无需提交、真失败三种判定", async () => {

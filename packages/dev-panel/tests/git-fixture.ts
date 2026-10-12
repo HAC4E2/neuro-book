@@ -10,7 +10,7 @@ import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-supp
 process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 process.env.GIT_CEILING_DIRECTORIES = resolveTmpRoot();
-for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"]) delete process.env[name];
+for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"]) delete process.env[name];
 
 export const CLI_PATH = resolve(import.meta.dirname, "..", "src", "cli.ts");
 

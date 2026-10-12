@@ -29,6 +29,7 @@ export const ERROR_EXIT_CODES = {
     lock_compromised: 1,
     cross_device: 1,
     git_failed: 1,
+    git_identity_missing: 1,
     commit_failed: 1,
     write_failed: 1,
     schema_unsupported: 1,

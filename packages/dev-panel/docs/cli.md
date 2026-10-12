@@ -44,7 +44,8 @@ stdout 只有一个对象，诊断走 stderr：
 - 写命令的 `data`：`workId`、`taskId`、`paths`、`commit`、`conflicts`。`commit` 是下列之一：
   - `{"committed": true, "sha", "paths", "viaOtherCommit"}`：`viaOtherCommit` 为真表示文件被别的会话不带路径的提交一起带走了，内容已在 `master`；
   - `{"committed": false, "reason": "nothing_to_commit", "paths"}`：写入的内容与 `HEAD` 相同，无需提交；
-  - `{"committed": false, "reason": "git_lock_timeout" | "git_failed", "writtenPaths", "detail"}`：文件已写在主工作区但没有提交，退出码 1。不要重跑 `task new`（号已领），先处理 Git 的问题，再手动提交 `writtenPaths`。
+  - `{"committed": false, "reason": "git_lock_timeout" | "git_failed", "writtenPaths", "detail"}`：文件已写在主工作区但没有提交，退出码 1。不要重跑 `task new`（号已领），先处理 Git 的问题，再手动提交 `writtenPaths`。`git_lock_timeout` 只在等 `index.lock` 约 10 秒仍被占着时出现；其它失败（钩子拒绝、对象库不可写等）是 `git_failed`，`detail` 里有 Git 的输出。Git 退出码 128 而一直没见到 `index.lock` 时，连续 5 次就停止重试。
+- 写命令在取锁之前先查 Git 提交身份（`git var GIT_AUTHOR_IDENT`、`GIT_COMMITTER_IDENT`），缺了就报 `git_identity_missing`，不写任何东西。
 - 状态命令的 `data`：`workId`、`taskId`、`path`、`previous`、`next`、`changed`、`commit`。
 - `status` 的 `data`：`mainRoot`、`callerRoot`、`callerBranch`、`works[]`（`workId`、`title`、`issueId`、`goal`、`status`、`updated`、`source`、`branch`、`checkout`、`executionRule`、`otherCopies`、`uncommitted`、`taskCounts`、`tasks[]`）、`conflicts[]`、`registryOnly[]`、`nextWorkNumber`（例如 `w00023`）。`goal`、`status`、`updated` 是 `{value, origin}`，`origin` 的含义见 [文件格式](file-formats.md#记录的读法)。
 - `registry import` 的 `data`：`added`、`nextWorkNumber`、`nextTaskNumbers`（按 Work id）、`conflicts`、`registryOnly`。
@@ -55,7 +56,7 @@ stdout 只有一个对象，诊断走 stderr：
 | 退出码 | 含义 | 错误码 |
 |---|---|---|
 | 0 | 成功，含带警告的成功与撞号 | |
-| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`internal` |
+| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`internal` |
 | 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title` |
 | 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`target_exists`、`target_missing`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists` |
 | 4 | 等待超时（`answers --wait`，后续） | |

@@ -163,12 +163,28 @@ async function applyOperation(mainRoot: string, operation: Operation, stagedPath
     }
 }
 
-async function retryOnGitLock(mainRoot: string, args: readonly string[], deadline: number): Promise<GitResult> {
+/** 连续这么多次 128 都没见到 index.lock，就不再当作锁冲突重试。 */
+const MAX_UNEXPLAINED_128 = 5;
+
+type GitLockState = {indexLockPath: string; deadline: number; sawIndexLock: boolean};
+
+/**
+ * 128 是 Git 通用的 fatal 退出码，锁冲突（index.lock 被编辑器、别的会话的 git status 短暂占着）只是其中一种。
+ * add 与限定路径的 commit 都可以安全重放，所以 128 一律在预算内重试，不以“锁文件此刻在不在”为前提（查的时候它可能已经消失）；
+ * 但只有重试期间真的见过 index.lock，才把最终失败报成锁超时，连续多次 128 都没见到锁就提前停下。
+ */
+async function retryOnGitLock(mainRoot: string, args: readonly string[], state: GitLockState): Promise<GitResult> {
+    let unexplained = 0;
     for (;;) {
         const result = await runGit(mainRoot, args);
-        // 128 多半是 index.lock 等 Git 锁被别的进程占着（编辑器、别的会话的 git status 会短暂拿它）；
-        // add 与限定路径的 commit 都可以安全重放，不先查锁文件是否存在（查的时候它可能已经消失）。
-        if (result.exitCode !== 128 || Date.now() >= deadline) return result;
+        if (result.exitCode !== 128) return result;
+        if (await pathExists(state.indexLockPath)) {
+            state.sawIndexLock = true;
+            unexplained = 0;
+        } else {
+            unexplained += 1;
+        }
+        if (Date.now() >= state.deadline || unexplained >= MAX_UNEXPLAINED_128) return result;
         await sleep(100 + Math.floor(Math.random() * 200));
     }
 }
@@ -207,7 +223,11 @@ export async function resolveCommitOutcome(mainRoot: string, input: {
 }
 
 async function commitPaths(mainRoot: string, input: {paths: readonly string[]; message: string; startHead: string; budgetMs: number}): Promise<CommitOutcome> {
-    const deadline = Date.now() + input.budgetMs;
+    const lockState: GitLockState = {
+        indexLockPath: (await gitOutput(mainRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index.lock"], {readOnly: true})).trim(),
+        deadline: Date.now() + input.budgetMs,
+        sawIndexLock: false,
+    };
     const hashes = splitLines(await gitOutput(mainRoot, ["hash-object", "--", ...input.paths], {readOnly: true}));
     const expectedBlobs = new Map(input.paths.map((path, index) => [path, hashes[index] ?? ""]));
     const resolveWith = (lastFailure: GitResult | null) => resolveCommitOutcome(mainRoot, {
@@ -215,14 +235,14 @@ async function commitPaths(mainRoot: string, input: {paths: readonly string[]; m
         paths: input.paths,
         expectedBlobs,
         lastFailure,
-        timedOut: lastFailure?.exitCode === 128,
+        timedOut: lastFailure?.exitCode === 128 && lockState.sawIndexLock,
     });
-    const add = await retryOnGitLock(mainRoot, ["add", "--", ...input.paths], deadline);
+    const add = await retryOnGitLock(mainRoot, ["add", "--", ...input.paths], lockState);
     if (add.exitCode !== 0) return resolveWith(add);
     const staged = await runGit(mainRoot, ["diff", "--cached", "--quiet", "--", ...input.paths], {readOnly: true});
     if (staged.exitCode === 0) return resolveWith(null);
     if (staged.exitCode !== 1) return resolveWith(staged);
-    const commit = await retryOnGitLock(mainRoot, ["commit", "--quiet", "-m", input.message, "--", ...input.paths], deadline);
+    const commit = await retryOnGitLock(mainRoot, ["commit", "--quiet", "-m", input.message, "--", ...input.paths], lockState);
     if (commit.exitCode !== 0) return resolveWith(commit);
     const sha = (await gitOutput(mainRoot, ["rev-parse", "HEAD"], {readOnly: true})).trim();
     return {committed: true, sha, paths: [...input.paths], viaOtherCommit: false};
@@ -243,6 +263,18 @@ function localDate(date: Date): string {
 /** `updated` 字段的取值：本机本地日期。 */
 export function recordDate(date: Date): string {
     return localDate(date);
+}
+
+/** 提交要用作者与提交者身份；缺了 git commit 会以 128 失败，所以在写任何东西之前先查。 */
+async function assertGitIdentity(mainRoot: string): Promise<void> {
+    for (const variable of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
+        const result = await runGit(mainRoot, ["var", variable], {readOnly: true});
+        if (result.exitCode !== 0) {
+            throw new NbdevError("git_identity_missing", `主工作区没有可用的 Git 提交身份（${variable}），先配置 user.name 与 user.email`, {
+                details: {variable, stderr: result.stderr.trim()},
+            });
+        }
+    }
 }
 
 /** 写入之前发现锁已不属于本进程时，最多重新取锁的次数。 */
@@ -266,7 +298,10 @@ export async function runWriteTransaction<T>(
     const {mainRoot} = context;
     const repoWrites = options.repoWrites ?? true;
     const now = (options.now ?? (() => new Date()))();
-    if (repoWrites) await assertMainWritable(mainRoot);
+    if (repoWrites) {
+        await assertMainWritable(mainRoot);
+        await assertGitIdentity(mainRoot);
+    }
     await prepareAgentDirectories(mainRoot);
     for (let attempt = 1; ; attempt += 1) {
         const recordsLock = await acquireRecordsLock(mainRoot, options.lockWaitMs ?? DEFAULT_LOCK_WAIT_MS);
