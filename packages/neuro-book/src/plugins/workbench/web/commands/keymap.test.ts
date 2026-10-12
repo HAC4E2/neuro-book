@@ -8,8 +8,10 @@ import type {ContextValues, WhenPredicate} from "nbook/plugins/commands/shared/c
 import type {CommandResult, Release} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 
-import {createKeymapDispatcher, formatKeybinding, parseKeybinding} from "./keymap";
-import type {KeyInput, KeyPlatform} from "./keymap";
+import {formatKeybinding, parseKeybinding} from "nbook/plugins/commands/shared/contracts";
+import type {KeyPlatform} from "nbook/plugins/commands/shared/contracts";
+import {createKeymapDispatcher} from "./keymap";
+import type {KeyInput} from "./keymap";
 
 type Press = Partial<Omit<KeyInput, "preventDefault" | "stopImmediatePropagation" | "getModifierState">> & {key: string; altGraph?: boolean};
 

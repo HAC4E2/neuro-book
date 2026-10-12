@@ -171,6 +171,7 @@ const handle: EditorControlHandle = {
     undo: () => editor?.trigger("nbook", "undo", null),
     redo: () => editor?.trigger("nbook", "redo", null),
     flushPendingChange: () => undefined,
+    rememberCursor,
     navigation: {
         getLineCount: () => editor?.getModel()?.getLineCount() ?? null,
         revealLine: (line) => {

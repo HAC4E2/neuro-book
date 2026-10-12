@@ -9,12 +9,13 @@
 import {QuickInput} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
+import {currentKeyPlatform, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {textOf} from "nbook/shared/localized-text";
 
 import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
-import {currentKeyPlatform, formatKeybinding} from "../commands/keymap";
+
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";
 import {paletteText as messageOf} from "../commands/palette-messages";

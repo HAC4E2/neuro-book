@@ -57,6 +57,8 @@ export interface EditorControlHandle {
     redo?(): void;
     /** 把还没交出的输入交给文档。 */
     flushPendingChange(): void;
+    /** 马上把当前光标交给标签，不等光标停下（拆分要带着拆分这一刻的光标，输出 30）。 */
+    rememberCursor?(): void;
     /**
      * 光标位置：选区活动端的行号与列号，都从 1 起（docs/specs/workbench/editor.md 输出 28）。只有能给出源文件行列的
      * 控件提供（源码编辑器）；Markdown 富文本里的段落位置不是源文件的行号，不提供。没有绑定文档时为 null。
@@ -407,6 +409,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      * 恢复会话（输出 30）走同一条路，只聚焦：光标已由控件按标签记下的位置放好；读取失败时内容区自己说明，不另提示。
      */
     const pendingReveal = shallowRef<{readonly groupId: string; readonly tabId: string; readonly address: string; readonly reveal: "end" | "cursor"} | null>(null);
+    /** 焦点移出编辑器区的次数：已经排进时钟的定位据此知道用户在这期间离开过（清空 `pendingReveal` 撤不回它）。 */
+    let leaves = 0;
     type RevealState =
         | {readonly outcome: "cancelled"}
         | {readonly outcome: "failed"; readonly address: string; readonly reveal: "end" | "cursor"}
@@ -427,8 +431,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         pendingReveal.value = null;
         if (state.outcome === "failed" && state.reveal === "end") notice.value = `上次编辑的片段已不在原处：${state.address}`;
         if (state.outcome !== "ready") return;
+        const leavesAtReady = leaves;
         options.clock.schedule(() => {
-            if (disposed) return;
+            if (disposed || leaves !== leavesAtReady) return;
             // 就绪与这一刻之间用户可能已切走：标签仍是它所在组与活动组的活动标签、句柄仍是活动视图的，才定位。
             const group = groups.groups.value.find((candidate) => candidate.id === state.groupId);
             if (group === undefined || group.active !== state.tabId || groups.activeGroup.value !== group.id || activeHandle.value !== state.handle) return;
@@ -581,6 +586,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (tab === null) return {ok: false, reason: "没有活动标签"};
             if (tab.editor === "page") return {ok: false, reason: "页面只开一个，不能拆分"};
             const hadFocus = focused.value;
+            // 控件在光标停下 1 秒或失焦时才交出光标：先让它交出这一刻的，拆出的标签才带着它。
+            activeHandle.value?.rememberCursor?.();
             const created = groups.split(tab.id, direction);
             if (created === null) return {ok: false, reason: "不能再拆分"};
             // 焦点在编辑器区时交给新组（新组是活动组）。
@@ -626,6 +633,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (notice.value !== null) notice.value = null;
         },
         focusLeft: () => {
+            leaves += 1;
             focused.value = false;
             focusWhenReady = false;
             refocusOnRemount = false;

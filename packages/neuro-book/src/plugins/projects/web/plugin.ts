@@ -10,7 +10,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
@@ -20,7 +20,6 @@ import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contract
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {notificationsKey, quickPickKey, WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {HomeDeclaration} from "nbook/plugins/workbench/shared/contracts";
-import {currentKeyPlatform, formatKeybinding} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchHomeImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";

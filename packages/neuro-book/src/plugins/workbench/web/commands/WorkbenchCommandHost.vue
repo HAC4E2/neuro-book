@@ -8,11 +8,12 @@
 import {onBeforeUnmount, onMounted} from "vue";
 import type {Ref} from "vue";
 
+import {currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, Release} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import WorkbenchCommandPalette from "../components/WorkbenchCommandPalette.vue";
-import {createKeymapDispatcher, currentKeyPlatform} from "./keymap";
+import {createKeymapDispatcher} from "./keymap";
 import {createPaletteHost} from "./palette-host";
 import type {PaletteHost} from "./palette-host";
 

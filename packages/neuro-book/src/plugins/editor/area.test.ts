@@ -253,7 +253,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         expect(tabsOf(at.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 7}, undefined]);
     });
 
-    it("按快照恢复后，第一次绑定带着记下的光标；拆分出的标签带过去；换编辑器丢掉", async () => {
+    it("按快照恢复后，第一次绑定带着记下的光标；拆分出的标签带过去的是拆分这一刻的光标（先让控件交出）；换编辑器丢掉", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});
         await ready(at);
@@ -261,14 +261,17 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
 
         const restored = await world(at.saved.at(-1) ?? null);
         await ready(restored);
-        expect(restored.area.binding(groupId(restored))?.cursor).toEqual({offset: 1});
+        const binding = restored.area.binding(groupId(restored))!;
+        expect(binding.cursor).toEqual({offset: 1});
+        // 光标已移到 4，控件还没到“停下 1 秒”交出：拆分时先让活动控件交出这一刻的光标。
+        restored.area.registerHandle(groupId(restored), "markdown", {focus: () => undefined, flushPendingChange: () => undefined, rememberCursor: () => binding.remember({offset: 4})});
         expect(restored.area.split("right")).toMatchObject({ok: true});
-        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 1}, {offset: 1}]);
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, {offset: 4}]);
         expect(restored.area.reopenWith("code")).toMatchObject({ok: true});
-        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 1}, undefined]);
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, undefined]);
     });
 
-    it("恢复的会话：活动标签就绪、控件交出句柄后聚焦一次，不定位到末尾；就绪前焦点离开编辑器区就不聚焦；读取失败不另提示", async () => {
+    it("恢复的会话：活动标签就绪、控件交出句柄后聚焦一次，不定位到末尾；就绪前、或就绪后定位执行前焦点离开编辑器区就不聚焦；读取失败不另提示", async () => {
         const seed = await world();
         seed.area.open("project://a.md", {mode: "permanent"});
         await ready(seed);
@@ -292,6 +295,15 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         await ready(left);
         left.clock.advance(0);
         expect(leftCalls).toEqual([]);
+
+        // 就绪、定位已排进时钟，执行前焦点离开：不再聚焦。
+        const late = await world(snapshot);
+        const lateCalls: string[] = [];
+        late.area.registerHandle(groupId(late), "markdown", handle(lateCalls));
+        await ready(late);
+        late.area.focusLeft();
+        late.clock.advance(0);
+        expect(lateCalls).toEqual([]);
 
         const gone = await world({...snapshot!, groups: snapshot!.groups.map((group) => ({...group, tabs: group.tabs.map((tab) => ({...tab, address: "project://missing.md"}))}))});
         await until(gone, "读取失败", () => gone.area.documentOf(groupId(gone))?.status.value === "failed");

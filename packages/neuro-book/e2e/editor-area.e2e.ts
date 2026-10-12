@@ -156,6 +156,8 @@ test("单击以预览打开、再单击替换预览、双击转正；编辑后 C
     });
     const settled = await looks();
     expect(settled).toMatchObject({lines: [], weights: ["400", "600"]});
+    // 加粗副本看不见，也不进可访问名称：标签的名字就是文件名。
+    await expect(page.getByRole("tab", {name: "b.md", exact: true})).toHaveCount(1);
     await tabs(page).first().click();
     await expect.poll(async () => (await looks()).weights).toEqual(["600", "400"]);
     expect((await looks()).widths).toEqual(settled.widths);

@@ -1,7 +1,7 @@
 /**
  * 视图标题动作（docs/specs/workbench/views.md 输出 10）经外壳的 chrome 求值与执行：真实内核的浏览器实例装上命令系统与
  * 公开状态。可用与否、不可用的原因跟着命令自己的 `when`，按下态跟着 `toggled` 的公开键；执行时 `args: "instance"`
- * 带上被点的视图实例，其余是 `{}`。
+ * 带上被点的视图实例，其余是 `{}`；视图实例还没建立时，要实例的动作不可用、点了不执行，其余照常。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -119,14 +119,22 @@ describe("视图标题动作（views.md 输出 10）", () => {
         const items = () => new ItemRegistry([], state, () => undefined, signal);
         const chrome = createShellChrome({commands, state, statusItems: items(), titleItems: items(), platform: "other", signal});
 
-        expect(chrome.viewActions([ACT, TOGGLE], "zh-CN").map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["动作", "现在不能做", undefined], ["开关", null, false]]);
+        const instance = {viewId: "example.view", generation: 3};
+        expect(chrome.viewActions([ACT, TOGGLE], "zh-CN", instance).map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["动作", "现在不能做", undefined], ["开关", null, false]]);
         enabled.value = true;
         on.value = true;
-        expect(chrome.viewActions([ACT, TOGGLE], "en-US").map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["Act", null, undefined], ["Toggle", null, true]]);
+        expect(chrome.viewActions([ACT, TOGGLE], "en-US", instance).map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["Act", null, undefined], ["Toggle", null, true]]);
 
-        chrome.runViewAction(ACT, {viewId: "example.view", generation: 3});
-        chrome.runViewAction(TOGGLE, {viewId: "example.view", generation: 3});
+        chrome.runViewAction(ACT, instance);
+        chrome.runViewAction(TOGGLE, instance);
         await Promise.resolve();
         expect(calls).toEqual([{viewId: "example.view", generation: 3}, {}]);
+
+        // 视图还在加载、实例没建立：要实例的动作不可用并说明，点了不执行；不要实例的照常。
+        expect(chrome.viewActions([ACT, TOGGLE], "zh-CN", null).map((entry) => [entry.title, entry.disabledReason])).toEqual([["动作", "视图还没加载好"], ["开关", null]]);
+        chrome.runViewAction(ACT, null);
+        chrome.runViewAction(TOGGLE, null);
+        await Promise.resolve();
+        expect(calls).toEqual([{viewId: "example.view", generation: 3}, {}, {}]);
     });
 });

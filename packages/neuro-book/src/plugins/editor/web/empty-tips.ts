@@ -3,9 +3,8 @@
  * 引用：命令不存在或此刻不可用时那一行不显示；命令声明了快捷键就写出按键（按平台），没有的写出它在界面上的位置。
  */
 
-import type {CommandService} from "nbook/plugins/commands/shared/contracts";
-import {formatKeybinding} from "nbook/plugins/workbench/web/contracts";
-import type {KeyPlatform} from "nbook/plugins/workbench/web/contracts";
+import {formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {editorText} from "./messages";

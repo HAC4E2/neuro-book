@@ -99,7 +99,7 @@ interface ViewContext {
 7. **声明消失**：视图的声明不再被接受时（插件禁用或卸载，随插件管理），该视图从呈现中移除，工作台清除这个视图的布局项，不动同插件其它仍有效的视图；它的隐式容器若仍有别的成员则保留（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 26）。
 8. **`window.plugins`**：浏览器宿主向工作台提供本地能力：查询入口状态、订阅入口状态变化、对激活失败的入口执行“恢复并重新激活”（不是激活失败的入口返回 `not-failed`）。工作台只经视图 id 重试，拿不到别的入口。
 9. **`ViewContext.visible`** 随有效可见变化；加载中、停放、收起时为 `false`。`location` 随视图所在 ToolPart 变化。
-10. **标题动作**：外壳把声明的 `actions` 画成 24px 的图标按钮：multiple 时在视图标题行，single 时上提到容器标题行（侧栏、右栏）或面板标签带旁，排在“移动到”之前（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 17 的动作顺序）。按钮的可访问名称是动作标题；可用与否与不可用的原因看命令自己的 `when`（与应用菜单同一规则），不可用时禁用、悬停提示是原因；声明了 `toggled` 的是开关，`aria-pressed` 跟着那个公开键。点了经命令服务执行命令：`args: "instance"` 时参数是被点的那个视图实例的 `{viewId, generation}`（[workbench.commands](commands.md) 的 `refresh-files`），否则是 `{}`。视图自己不再画工具栏。
+10. **标题动作**：外壳把声明的 `actions` 画成 24px 的图标按钮：multiple 时在视图标题行，single 时上提到容器标题行（侧栏、右栏）或面板标签带旁，排在“移动到”之前（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 17 的动作顺序）。按钮的可访问名称是动作标题；可用与否与不可用的原因看命令自己的 `when`（与应用菜单同一规则），不可用时禁用、悬停提示是原因；声明了 `toggled` 的是开关，`aria-pressed` 跟着那个公开键。点了经命令服务执行命令：`args: "instance"` 时参数是被点的那个视图实例的 `{viewId, generation}`（[workbench.commands](commands.md) 的 `refresh-files`），否则是 `{}`；视图第一次显示或重新交付、实例还没建立时，要实例的动作禁用、原因是“视图还没加载好”，不要实例的照常可点。视图自己不再画工具栏。
 
 ## 状态与转换
 
@@ -166,6 +166,6 @@ Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test
 ## 证据
 
 - 实现入口：[`web/views/registry.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.ts)、[`web/components/WorkbenchViewInstances.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue)、[`web/components/WorkbenchViewFrame.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue)、[`web/host/window-plugins.ts`](../../../packages/neuro-book/src/web/host/window-plugins.ts)
-- 合同测试：标题动作（输出 10）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）
+- 合同测试：标题动作（输出 10）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数、实例还没建立）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）
 - Smoke：标题动作为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（经标题动作新建、全部收起、切换清单文件）；[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）
 - 批准依据：标题动作（输出 10）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 4、5 节；视图合同提前到外壳二的决策记录见同一设计稿末尾。

@@ -237,7 +237,7 @@ owners:
 
 `Mod` 在 macOS 上是 Cmd，其它平台是 Ctrl。浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
 
-**快捷键的显示**：命令面板、应用菜单与标题栏的命令搜索按钮显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
+**快捷键的显示**：命令面板、应用菜单、标题栏的命令搜索按钮、欢迎页的入门提示与空编辑组的提示显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
 
 ### 兼容与安全
 
@@ -295,7 +295,7 @@ owners:
   - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts` 的定义表。
 - 中英文本：`packages/neuro-book/src/shared/localized-text.ts`。
 - 浏览器界面 `packages/neuro-book/src/plugins/workbench/web/`：
-  - `commands/keymap.ts` 负责键位解析与分发。
+  - `commands/keymap.ts` 负责按键事件的分发；键位的解析与按平台的写法在命令插件的 `shared/keybinding.ts`（经 `nbook/plugins/commands/shared/contracts` 导出），工作台之外显示快捷键的插件也经它，不引用工作台的代码。
   - `commands/WorkbenchCommandHost.vue` 是 `/` 页上的界面宿主。
   - `commands/open-commands.ts` 是面板入口命令与“当前面板”槽位。
   - 命令面板见 [`workbench.quick-open`](quick-open.md)。

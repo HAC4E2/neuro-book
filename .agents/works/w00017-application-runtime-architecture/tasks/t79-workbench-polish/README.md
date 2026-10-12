@@ -149,6 +149,10 @@ taskId: t79-workbench-polish
   - Lab：编辑区夹具加“没有标签：标志与提示”场景（固定样例，点了记事件）。
   - Spec：`workbench/editor.md` 输出 32 的空态、验收 19、合同测试、批准依据；组件文档 `EditorGroup`、`EditorArea`。
   - 验证：`editor/empty-tips.test.ts` 两例在真实内核的命令系统上（三行内容、不可用那行消失、mac 按键、英文；命令不存在那行消失）；编辑器 bun 测试 97 例、组件测试 58 例全过，typecheck 为 0。e2e：`editor-area` 纸面一例改为检查标志居中与 132px、三行文字与按键，点“显示所有命令”打开命令面板、点“打开欢迎页”打开欢迎页；`settings` 的语言切换改用提示行的文字观察；编辑区、设置、欢迎页、Lab 编辑器与场景门禁共 27 例全过。`lab:shot` 空态场景在 nbook、macos × 明暗 × free、phone 下问题 0 条。变异 6 处抓到 5 处（不可用的也显示、不写位置、编辑区不转交点击、插件不给提示、标志不定大小）；存活的“mac 也按加号拆”说明那个分支是多余的（mac 的写法本来没有加号），已删掉。
+- 2026-10-12 S11 收口进行中：
+  - 第一轮 omp 实现审查（S1–S5）8 条处理完，见 [implementation-review.md](evidences/implementation-review.md)：C1、C2、C3、C5、C6 修（Firefox 124 的加粗副本、拆分带这一刻的光标、排队的定位在离开后不执行、实例没建立时要实例的动作禁用、新建章节打不开时说明），C4、C7、C8 不改（理由写在记录里）。
+  - 处理中发现 S5 与 S10 在运行时跨插件引用了工作台的 `web/contracts`（快捷键的写法），架构测试不通过；键位的解析与写法挪到命令插件的 `shared/keybinding.ts`。
+  - e2e 全套第一轮 175 例：174 过，`lab.e2e.ts` 的“打开 Lab……不写浏览器存储”失败——S6 起宿主在 Lab 页也写加载页的明暗提示，S6 只跑了宿主与项目两组 e2e 没覆盖到；明暗提示与客户端身份一样是宿主写的，断言与 `ui/component-lab.md` 验收 1 改为列出这两项，单独重跑通过。
   - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
 
 ## 下一步

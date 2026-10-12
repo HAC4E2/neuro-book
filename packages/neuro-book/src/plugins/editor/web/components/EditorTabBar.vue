@@ -137,7 +137,8 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
 
 /*
  * 活动标签加粗（ui/workbench-shell.md 输出 38），切换标签不能让各标签变宽变窄、推着后面的标签跳动：按钮是一格的网格，
- * 文字与一份看不见的加粗副本叠在同一格，格宽总按加粗算。副本用伪元素，不进文本内容与可访问名称。
+ * 文字与一份看不见的加粗副本叠在同一格，格宽总按加粗算。副本用伪元素，不进文本内容；它是 `visibility: hidden`，也不算进
+ * 可访问名称。不给 `content` 写替代文本（`/ ""`）：浏览器基线里的 Firefox 124 不认这种写法，整条声明会失效、副本消失。
  */
 .editor-tab {
     display: grid;
@@ -154,7 +155,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
 }
 
 .editor-tab::after {
-    content: attr(data-label) / "";
+    content: attr(data-label);
     font-weight: 600;
     visibility: hidden;
 }

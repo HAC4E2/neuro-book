@@ -200,6 +200,7 @@ const handle: EditorControlHandle = {
     undo: () => editor?.commands.undo(),
     redo: () => editor?.commands.redo(),
     flushPendingChange: commitNow,
+    rememberCursor,
     revealEnd: () => editor?.commands.focus("end"),
 };
 

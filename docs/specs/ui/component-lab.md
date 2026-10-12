@@ -134,7 +134,7 @@ Lab 的主题/配色仅是开发工具自身的界面状态，写入 Lab 自己�
 Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview 的清退条件、组件迁移进度与场景归属属于对应的重构工作，不属于本规范。
 ## 验收与 Smoke
 
-1. Given 开发模式（`bun run dev`），When 打开 `/lab`，Then 显示按组的组件树、当前组件画布和 `文档`、`元素`、`事件`、`数据`、`变量` 五个可切换 tab；加载时的 `/api/` 请求只有浏览器引导接口一个；localStorage 只有窗口的客户端身份，sessionStorage 为空。
+1. Given 开发模式（`bun run dev`），When 打开 `/lab`，Then 显示按组的组件树、当前组件画布和 `文档`、`元素`、`事件`、`数据`、`变量` 五个可切换 tab；加载时的 `/api/` 请求只有浏览器引导接口一个；localStorage 只有宿主写的客户端身份与加载页的明暗提示（[`runtime.browser-host`](../runtime/browser-host.md) 启动序列第 1 步），sessionStorage 为空。
 2. Given 组件索引中的可挂载项，When 选择组件并切换已登记场景，Then fixture 被挂载，场景直接替换，数据 tab 分层展示可编辑输入并可还原，重复打开或还原后初始输入与可观察状态一致。
 3. Given 缺少组件文档或同名 `.vue` 的条目，When 生成组件索引，Then 该条目不出现在导航；Given 已入索引但带阻断标签的组件，When 选择它，Then 中栏显示不能挂载的原因，不挂载替代 fixture；Given 声明了 `验证入口` 的零件，When 选择它，Then 中栏给出原因与一条直达宿主场景的入口，且不加载独立场景；Given 仓库中的可挂载组件，When 运行 `fixtures/index.dom.test.ts`，Then 缺少非空场景或 loader 即失败。
 4. Given 含 `state:shared-read` 且没有其它阻断标签的组件，When Lab 将其标记为需状态快照，Then 在快照注入机制实现并验证前，不得把它在 Lab 中挂载成功写成确定性验证通过。

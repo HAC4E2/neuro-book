@@ -6,8 +6,6 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {WorkbenchPageDeclaration} from "../shared/contracts";
 
 /** 按平台写出快捷键（标题栏的命令搜索与菜单用的同一写法）：贡献界面的插件显示命令的快捷键时用它。 */
-export {currentKeyPlatform, formatKeybinding} from "./commands/keymap";
-export type {KeyPlatform} from "./commands/keymap";
 import type {ViewLocation} from "../shared/views";
 
 /**

@@ -25,6 +25,8 @@ const CHAPTER_NAME: Readonly<Record<DisplayLocale, string>> = {"zh-CN": "新章�
 
 const PROBLEM: Readonly<Record<DisplayLocale, string>> = {"zh-CN": "新建章节失败：{reason}", "en-US": "Could not create a chapter: {reason}"};
 
+const OPEN_PROBLEM: Readonly<Record<DisplayLocale, string>> = {"zh-CN": "建好了 {name}，但打不开：{reason}", "en-US": "Created {name}, but could not open it: {reason}"};
+
 const NO_FILES = "files-unavailable";
 
 export interface WelcomeHostOptions {
@@ -58,6 +60,21 @@ export function quickEntries(entries: ReadonlyArray<{readonly name: string; read
         .filter((entry) => (entry.kind === "file" || entry.kind === "directory") && rank(entry.name) >= 0)
         .sort((a, b) => rank(a.name) - rank(b.name) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
         .map((entry) => ({address: `project://${entry.name}`, name: entry.name, kind: entry.kind === "directory" ? "folder" as const : "file" as const}));
+}
+
+/**
+ * 新建章节：在项目根按已有名字避让建一个空的 Markdown 文件，再以正式标签打开。返回要写在按钮下的原因，成功为 null；
+ * 文件建好了但打不开（编辑器不在或拒绝）也要说，文件已经在资源管理器里了。
+ */
+export async function createChapter(files: Pick<FilesService, "list" | "create">, commands: Pick<CommandService, "execute">, locale: DisplayLocale): Promise<string | null> {
+    const listing = await files.list("project://");
+    const taken = new Set(listing.ok ? listing.value.entries.map((entry) => entry.name) : []);
+    const name = freeChapterName(CHAPTER_NAME[locale], taken);
+    const address = `project://${name}`;
+    const created = await files.create(address, "file");
+    if (!created.ok) return PROBLEM[locale].replace("{reason}", created.code);
+    const opened = await commands.execute("nbook.editor.open", {address, mode: "permanent"}, {source: "user"});
+    return opened.ok ? null : OPEN_PROBLEM[locale].replace("{name}", name).replace("{reason}", opened.reason);
 }
 
 export function createWelcomeHost(options: WelcomeHostOptions): Component {
@@ -99,7 +116,7 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                 }
             });
 
-            /** 在项目根新建一个空的 Markdown 文件并以正式标签打开（名字按现有文件避开）。 */
+            /** 新建章节（`createChapter`）；进行中按钮忙，失败原因写在按钮下。 */
             const newChapter = async (): Promise<void> => {
                 if (creating.value) return;
                 const files = options.files;
@@ -110,15 +127,8 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                 creating.value = true;
                 problem.value = null;
                 try {
-                    const listing = await files.list("project://");
-                    const taken = new Set(listing.ok ? listing.value.entries.map((entry) => entry.name) : []);
-                    const address = `project://${freeChapterName(CHAPTER_NAME[options.locale()], taken)}`;
-                    const created = await files.create(address, "file");
-                    if (!created.ok) {
-                        problem.value = PROBLEM[options.locale()].replace("{reason}", created.code);
-                        return;
-                    }
-                    execute("nbook.editor.open", {address, mode: "permanent"});
+                    problem.value = await createChapter(files, options.commands, options.locale());
+                    if (problem.value !== null) options.report(problem.value);
                 } finally {
                     creating.value = false;
                 }

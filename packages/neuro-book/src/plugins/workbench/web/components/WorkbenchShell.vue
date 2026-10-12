@@ -42,7 +42,7 @@ import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "./WorkbenchShellLayout.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
-import type {ShellChrome} from "../titlebar/titlebar-source";
+import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
 import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
 import {OPEN_COMMANDS_ID} from "../commands/open-commands";
 import WorkbenchToolPartHost from "./WorkbenchToolPartHost.vue";
@@ -231,14 +231,19 @@ function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string;
     };
 }
 
+/** 视图这一次挂载的实例；还在加载、代际没建立时为 null。 */
+const instanceOf = (viewId: string): ViewInstanceRef | null => {
+    const generation = generations.value.get(viewId);
+    return generation === undefined ? null : {viewId, generation};
+};
+
 /** 视图贡献的标题动作（docs/specs/workbench/views.md 输出 10）；Lab 里没有命令服务（没有 chrome）时没有。 */
-const viewActionsOf = (viewId: string) => props.chrome?.viewActions(state.value.catalog.get(viewId)?.actions ?? [], props.locale) ?? [];
+const viewActionsOf = (viewId: string) => props.chrome?.viewActions(state.value.catalog.get(viewId)?.actions ?? [], props.locale, instanceOf(viewId)) ?? [];
 
 function runViewAction(viewId: string, index: number): void {
     const action = state.value.catalog.get(viewId)?.actions?.[index];
-    const generation = generations.value.get(viewId);
-    if (action === undefined || generation === undefined) return;
-    props.chrome?.runViewAction(action, {viewId, generation});
+    if (action === undefined) return;
+    props.chrome?.runViewAction(action, instanceOf(viewId));
 }
 
 function moveView(payload: MovePayload): void {

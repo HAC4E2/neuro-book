@@ -11,13 +11,12 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import {currentKeyPlatform} from "nbook/plugins/workbench/web/contracts";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";

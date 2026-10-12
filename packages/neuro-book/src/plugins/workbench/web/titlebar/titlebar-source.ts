@@ -6,15 +6,14 @@
 
 import {shallowRef} from "@vue/reactivity";
 
-import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import {formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {ViewAction} from "../../shared/views";
 
-import {formatKeybinding} from "../commands/keymap";
-import type {KeyPlatform} from "../commands/keymap";
 import {OPEN_COMMANDS_ID} from "../commands/open-commands";
 import type {ItemRegistry, StripEntry} from "../items/registry";
 import {buildMenus, TITLEBAR_MENUS} from "./menu-model";
@@ -28,11 +27,22 @@ export interface ShellChrome {
     titleEntries(locale: DisplayLocale): StripEntry[];
     /** 点了一个条目：按它声明的命令执行；条目已不在（入口停止）时什么都不做。 */
     runItem(itemId: string): void;
-    /** 视图标题动作此刻的样子：可用与否看命令的 `when`（不可用时带原因），按下态看 `toggled` 的公开键。 */
-    viewActions(actions: ReadonlyArray<ViewAction>, locale: DisplayLocale): ViewActionEntry[];
-    /** 点了视图标题动作：执行它的命令，`args: "instance"` 时带上被点的视图实例。 */
-    runViewAction(action: ViewAction, instance: {readonly viewId: string; readonly generation: number}): void;
+    /**
+     * 视图标题动作此刻的样子：可用与否看命令的 `when`（不可用时带原因），按下态看 `toggled` 的公开键。视图实例还没建立
+     * （`instance` 为 null，视图第一次显示或重新交付、还在加载）时，要带实例的动作不可用。
+     */
+    viewActions(actions: ReadonlyArray<ViewAction>, locale: DisplayLocale, instance: ViewInstanceRef | null): ViewActionEntry[];
+    /** 点了视图标题动作：执行它的命令，`args: "instance"` 时带上被点的视图实例；要实例而实例还没建立时不执行。 */
+    runViewAction(action: ViewAction, instance: ViewInstanceRef | null): void;
 }
+
+/** 被点的视图实例：视图 id 与它这一次挂载的代际。 */
+export interface ViewInstanceRef {
+    readonly viewId: string;
+    readonly generation: number;
+}
+
+const INSTANCE_LOADING = {"zh-CN": "视图还没加载好", "en-US": "The view has not loaded yet"};
 
 export interface ViewActionEntry {
     readonly action: ViewAction;
@@ -91,22 +101,27 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         },
         statusEntries: (locale) => entries(options.statusItems, locale),
         titleEntries: (locale) => entries(options.titleItems, locale),
-        viewActions: (actions, locale) => {
+        viewActions: (actions, locale, instance) => {
             void version.value;
             return actions.map((action) => {
                 const title = localize(action.title, locale);
                 const enabled = commands.isEnabled(action.command);
                 const read = action.toggled === undefined ? null : state.read(action.toggled);
+                const waiting = action.args === "instance" && instance === null;
                 return {
                     action,
                     title,
-                    disabledReason: enabled.ok ? (enabled.value ? null : title) : enabled.reason,
+                    disabledReason: waiting ? localize(INSTANCE_LOADING, locale) : enabled.ok ? (enabled.value ? null : title) : enabled.reason,
                     ...(read === null ? {} : {pressed: read.status === "ready" && read.value === true}),
                 };
             });
         },
         runViewAction: (action, instance) => {
-            void commands.execute(action.command, action.args === "instance" ? {viewId: instance.viewId, generation: instance.generation} : {}, {source: "user"});
+            if (action.args !== "instance") {
+                void commands.execute(action.command, {}, {source: "user"});
+                return;
+            }
+            if (instance !== null) void commands.execute(action.command, {viewId: instance.viewId, generation: instance.generation}, {source: "user"});
         },
         runItem: (itemId) => {
             const item = [...options.statusItems.shown("en-US"), ...options.titleItems.shown("en-US")].find((entry) => entry.id === itemId);
