@@ -41,3 +41,4 @@ status: active
 | [t03](tasks/t03-design/README.md) | 面板与命令行的设计：领域模型第二版、三轮静态稿（首页 Work 区用卡片）、Proposal 与实施计划；2026-10-12 完成，Proposal `accepted` |
 | [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent` |
 | [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；开发者定先只迁本会话建的，w00017 的 t80、t81 已迁，其余分支暂不动 |
+| [t06](tasks/t06-cli-core/README.md) | 命令行核心：包骨架、写事务、记录读取与领号；2026-10-12 开工 |
