@@ -1,25 +1,24 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {spawn, type ChildProcess} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {HERDR_READ_METHODS} from "../src/herdr/client.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
 import {cleanupFixtures, createFixture, type CliEnvelope, type Fixture} from "./git-fixture.js";
+import {spawnMarked, stopProcess, type MarkedChild} from "./processes.js";
 
-const children: ChildProcess[] = [];
+const children: MarkedChild[] = [];
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => {
-    for (const child of children.splice(0)) child.kill("SIGKILL");
+    for (const child of children.splice(0)) await stopProcess(child);
     for (const close of closers.splice(0)) await close();
     await cleanupFixtures();
 });
 
-/** 起一个环境干净的子进程，扮成 Claude 主进程（CLAUDE_PID 指向它）。 */
-async function spawnProcess(command: string, args: string[], options: {cwd?: string; env?: Record<string, string>} = {}): Promise<ChildProcess> {
-    const child = spawn(command, args, {cwd: options.cwd, env: {PATH: process.env.PATH ?? "", ...options.env}, stdio: "ignore"});
+/** 起一个环境干净的子进程，扮成 Claude 主进程（CLAUDE_PID 指向它）或会话派出的进程。 */
+async function spawnProcess(command: string, args: string[], options: {cwd?: string; env?: Record<string, string>} = {}): Promise<MarkedChild> {
+    const child = await spawnMarked(command, args, options);
     children.push(child);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
     return child;
 }
 
@@ -29,7 +28,7 @@ async function herdrFor(fixture: Fixture, panes: Parameters<typeof startFakeHerd
     return fake;
 }
 
-function claudeEnv(sessionId: string, claude: ChildProcess, extra: Record<string, string> = {}): Record<string, string> {
+function claudeEnv(sessionId: string, claude: MarkedChild, extra: Record<string, string> = {}): Record<string, string> {
     return {CLAUDE_CODE_SESSION_ID: sessionId, CLAUDE_PID: String(claude.pid), ...extra};
 }
 
@@ -131,8 +130,7 @@ describe("租约命令（场景）", () => {
         expect((await listWith()).map((lease) => [lease.state, lease.managed])).toEqual([["valid", true]]);
         fake.panes.splice(0, 1, shellPane("w9:p1"));
         expect((await listWith()).map((lease) => [lease.state, lease.managed])).toEqual([["valid", false]]);
-        claude.kill("SIGKILL");
-        await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
+        await stopProcess(claude);
         expect((await listWith()).map((lease) => lease.state)).toEqual(["session_gone"]);
     });
 
@@ -142,7 +140,7 @@ describe("租约命令（场景）", () => {
         const claude = await spawnProcess("sleep", ["60"]);
         const tool = await spawnProcess("sleep", ["61"], {cwd: fixture.main, env: claudeEnv(sessionId, claude)});
         const shell = await spawnProcess("sh", ["-c", "sleep 62; true"], {cwd: fixture.main, env: {HERDR_PANE_ID: "w9:pJ"}});
-        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid!]}), shellPane("w9:pJ", {shell_pid: shell.pid!})]);
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid]}), shellPane("w9:pJ", {shell_pid: shell.pid})]);
         fake.requests.length = 0;
         const status = await fixture.cli(["status", "--json"], fixture.main, claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath}));
         expect(status.exitCode).toBe(0);

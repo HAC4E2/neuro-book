@@ -1,7 +1,7 @@
-import {randomBytes} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {createServer, type Server} from "node:net";
 import {join} from "node:path";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 /** 假 herdr：Unix socket 上按 JSON 行回应，数据由测试给定，并记下收到的每个请求。 */
 export type FakePane = {
@@ -21,14 +21,16 @@ export type FakeHerdr = {
     close(): Promise<void>;
 };
 
-/** Unix socket 路径上限 107 字节：临时根太深时改放 /tmp 下的短路径。 */
-function socketPathFor(root: string): string {
+/** Unix socket 路径上限 107 字节：给定目录太深时，在测试临时根下另建一个名字短的目录放 socket，关闭时一起删掉。 */
+async function socketPathFor(root: string): Promise<{socketPath: string; ownDir: string | null}> {
     const preferred = join(root, "herdr.sock");
-    return Buffer.byteLength(preferred) <= 100 ? preferred : join("/tmp", `nbdev-fh-${randomBytes(6).toString("hex")}.sock`);
+    if (Buffer.byteLength(preferred) <= 100) return {socketPath: preferred, ownDir: null};
+    const ownDir = await createTestTmpRoot("fh", "dev-panel fake herdr socket");
+    return {socketPath: join(ownDir, "herdr.sock"), ownDir};
 }
 
 export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<FakeHerdr> {
-    const socketPath = socketPathFor(root);
+    const {socketPath, ownDir} = await socketPathFor(root);
     const requests: FakeHerdr["requests"] = [];
     const fake: FakeHerdr = {socketPath, panes, requests, close: async () => {}};
     const server: Server = createServer((socket) => {
@@ -51,6 +53,7 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
     fake.close = async () => {
         await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
         await rm(socketPath, {force: true});
+        if (ownDir) await rm(ownDir, {recursive: true, force: true});
     };
     return fake;
 }

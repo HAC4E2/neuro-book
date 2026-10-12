@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {rm} from "node:fs/promises";
 import {join} from "node:path";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {claudePane, startFakeHerdr} from "../../tests/fake-herdr.js";
 import {createHerdrClient, HERDR_CLI_METHODS, HERDR_READ_METHODS, resolveHerdrSocket} from "./client.js";
 
@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 async function fake() {
-    const root = await mkdtemp(join(tmpdir(), "nbdev-hc-"));
+    const root = await createTestTmpRoot("dev-panel-herdr-client", "dev-panel herdr client");
     const herdr = await startFakeHerdr(root, [claudePane("w9:p1", "11111111-1111-4111-8111-111111111111", {shell_pid: 10, foreground_pids: [11, 12]})]);
     cleanups.push(async () => {
         await herdr.close();
@@ -63,7 +63,9 @@ describe("herdr 客户端", () => {
     });
 
     test("连不上为 server_not_running；总时限用完之后的调用直接超时", async () => {
-        const offline = createHerdrClient({socketPath: join(tmpdir(), "nbdev-no-such-herdr.sock"), allow: HERDR_CLI_METHODS});
+        const missingRoot = await createTestTmpRoot("dev-panel-no-herdr", "dev-panel no herdr");
+        cleanups.push(() => rm(missingRoot, {recursive: true, force: true}));
+        const offline = createHerdrClient({socketPath: join(missingRoot, "missing.sock"), allow: HERDR_CLI_METHODS});
         expect(await offline.availability()).toMatchObject({ok: false, reason: "server_not_running"});
         const herdr = await fake();
         const exhausted = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_CLI_METHODS, budgetMs: 0});

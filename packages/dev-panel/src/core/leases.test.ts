@@ -1,9 +1,9 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {spawn, type ChildProcess} from "node:child_process";
-import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import "../../tests/git-fixture.js";
+import {spawnMarked, stopProcess, type MarkedChild} from "../../tests/processes.js";
 import type {SessionCaller} from "./identity.js";
 import {evaluateLeases, getLease, LEASES_DIR, leaseId, processLiveness, readLeases, releaseLeases, touchLease, type LeaseContext, type LeaseRecord} from "./leases.js";
 import {processStartTicks} from "./procfs.js";
@@ -15,18 +15,15 @@ afterEach(async () => {
 });
 
 async function tempMain(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "nbdev-lease-"));
+    const root = await createTestTmpRoot("dev-panel-leases", "dev-panel leases");
     cleanups.push(async () => rm(root, {recursive: true, force: true}));
     return root;
 }
 
-async function liveProcess(): Promise<{child: ChildProcess; ref: {pid: number; startTicks: string}}> {
-    const child = spawn("sleep", ["30"], {env: {PATH: process.env.PATH ?? ""}, stdio: "ignore"});
-    cleanups.push(async () => {
-        child.kill("SIGKILL");
-    });
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-    return {child, ref: {pid: child.pid!, startTicks: (await processStartTicks(child.pid!))!}};
+async function liveProcess(): Promise<{child: MarkedChild; ref: {pid: number; startTicks: string}}> {
+    const child = await spawnMarked("sleep", ["30"]);
+    cleanups.push(() => stopProcess(child));
+    return {child, ref: {pid: child.pid, startTicks: (await processStartTicks(child.pid))!}};
 }
 
 function claude(sessionId: string, process: {pid: number; startTicks: string} | null, herdr: SessionCaller["herdr"] = null): SessionCaller {
@@ -86,8 +83,7 @@ describe("租约文件", () => {
         const main = await tempMain();
         const first = await liveProcess();
         const taken = await touchLease(main, {caller: claude("aaa", first.ref), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
-        first.child.kill("SIGKILL");
-        await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+        await stopProcess(first.child);
         const gone = evaluateLeases([taken], context({processAlive: await processLiveness([taken])}));
         expect(gone[0]?.state).toBe("session_gone");
 

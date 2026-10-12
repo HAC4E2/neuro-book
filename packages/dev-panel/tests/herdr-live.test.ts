@@ -5,6 +5,7 @@ import {existsSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 import {cleanupFixtures, createFixture, run} from "./git-fixture.js";
+import {spawnMarked} from "./processes.js";
 
 /**
  * L4：在本机 herdr 的命名会话 `nbdev-test` 里跑，绝不碰默认会话。
@@ -45,9 +46,8 @@ describe("真实 herdr（命名会话）", () => {
             const sessionId = randomUUID();
             // `pane.report_agent_session` 单独用不会让一格 bash pane 成为 Agent；用集成同样的 source 报 `report_agent` 才行（2026-10-12 实测）。
             herdr(["pane", "report-agent", paneId, "--source", "herdr:claude", "--agent", "claude", "--state", "idle", "--agent-session-id", sessionId]);
-            const claude = spawn("sleep", ["60"], {env: {PATH: cleanEnv.PATH}, stdio: "ignore"});
+            const claude = await spawnMarked("sleep", ["60"]);
             children.push(claude);
-            await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
             const env = {CLAUDE_CODE_SESSION_ID: sessionId, CLAUDE_PID: String(claude.pid), HERDR_PANE_ID: paneId, HERDR_SOCKET_PATH: socketPath};
 
             const createdTask = await fixture.cli(["task", "new", "w00001", "live", "--title", "真实 herdr", "--json"], fixture.main, env);

@@ -1,11 +1,13 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {spawn, type ChildProcess} from "node:child_process";
+import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
-import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {once} from "node:events";
+import {rm} from "node:fs/promises";
 import {join} from "node:path";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "../../tests/fake-herdr.js";
 import "../../tests/git-fixture.js";
+import {spawnMarked, stopProcess, type MarkedChild} from "../../tests/processes.js";
 import {createHerdrClient, HERDR_CLI_METHODS} from "../herdr/client.js";
 import {resolveCaller} from "./identity.js";
 import {processStartTicks} from "./procfs.js";
@@ -16,7 +18,7 @@ afterEach(async () => {
 });
 
 async function fakeHerdr(panes: Parameters<typeof startFakeHerdr>[1]): Promise<FakeHerdr> {
-    const root = await mkdtemp(join(tmpdir(), "nbdev-id-"));
+    const root = await createTestTmpRoot("dev-panel-identity", "dev-panel identity fake herdr");
     const fake = await startFakeHerdr(root, panes);
     cleanups.push(async () => {
         await fake.close();
@@ -25,16 +27,17 @@ async function fakeHerdr(panes: Parameters<typeof startFakeHerdr>[1]): Promise<F
     return fake;
 }
 
-function sleeper(env: Record<string, string> = {}): ChildProcess {
-    const child = spawn("sleep", ["30"], {env: {PATH: process.env.PATH ?? "", ...env}, stdio: "ignore"});
-    cleanups.push(async () => {
-        child.kill("SIGKILL");
-    });
-    return child;
+/** 一个不存在的 socket 路径（放在本测试自己的临时根里，用完删掉）。 */
+async function missingSocket(): Promise<string> {
+    const root = await createTestTmpRoot("dev-panel-no-herdr", "dev-panel no herdr");
+    cleanups.push(() => rm(root, {recursive: true, force: true}));
+    return join(root, "missing.sock");
 }
 
-async function settle(): Promise<void> {
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+async function sleeper(env: Record<string, string> = {}): Promise<MarkedChild> {
+    const child = await spawnMarked("sleep", ["30"], {env});
+    cleanups.push(() => stopProcess(child));
+    return child;
 }
 
 const client = (socketPath: string) => createHerdrClient({socketPath, allow: HERDR_CLI_METHODS});
@@ -44,9 +47,8 @@ const client = (socketPath: string) => createHerdrClient({socketPath, allow: HER
  * `/proc/<pid>/environ` 里带着那个会话的 id，会被当成嵌套调用归到真实会话上。
  */
 async function claudeProcess(env: Record<string, string> = {}): Promise<{pid: number; startTicks: string}> {
-    const child = sleeper(env);
-    await settle();
-    return {pid: child.pid!, startTicks: (await processStartTicks(child.pid!))!};
+    const child = await sleeper(env);
+    return {pid: child.pid, startTicks: (await processStartTicks(child.pid))!};
 }
 
 describe("认出调用者", () => {
@@ -72,7 +74,7 @@ describe("认出调用者", () => {
 
     test("Claude 环境变量不可信时忽略并警告：缺 CLAUDE_PID、进程已不在、id 不是 UUID", async () => {
         const dead = spawn("true");
-        await new Promise((resolvePromise) => dead.on("close", resolvePromise));
+        await once(dead, "exit");
         for (const env of [
             {CLAUDE_CODE_SESSION_ID: randomUUID()},
             {CLAUDE_CODE_SESSION_ID: randomUUID(), CLAUDE_PID: String(dead.pid)},
@@ -106,10 +108,9 @@ describe("认出调用者", () => {
     });
 
     test("只有 HERDR_PANE_ID：用 pane 上的 Agent 会话认人，进程记前台主进程；普通 shell pane、不存在的 pane、herdr 不可用时为未知", async () => {
-        const omp = sleeper();
-        await settle();
+        const omp = await sleeper();
         const fake = await fakeHerdr([
-            {pane_id: "w9:p3", terminal_id: "term_3", agent: "omp", agent_status: "working", agent_session: {agent: "omp", kind: "path", source: "herdr:omp", value: "/home/x/.omp/s.jsonl"}, foreground_pids: [omp.pid!]},
+            {pane_id: "w9:p3", terminal_id: "term_3", agent: "omp", agent_status: "working", agent_session: {agent: "omp", kind: "path", source: "herdr:omp", value: "/home/x/.omp/s.jsonl"}, foreground_pids: [omp.pid]},
             shellPane("w9:p4"),
         ]);
         const {caller} = await resolveCaller({env: {HERDR_PANE_ID: "w9:p3", OMPCODE: "1"}, herdr: client(fake.socketPath)});
@@ -117,12 +118,12 @@ describe("认出调用者", () => {
             kind: "session",
             ref: {key: "omp:/home/x/.omp/s.jsonl", agent: "omp", sessionId: "/home/x/.omp/s.jsonl", label: null, parentSessionId: null},
             via: "herdr-pane",
-            process: {pid: omp.pid!, startTicks: (await processStartTicks(omp.pid!))!},
+            process: {pid: omp.pid, startTicks: (await processStartTicks(omp.pid))!},
             herdr: {socketPath: fake.socketPath, paneId: "w9:p3", terminalId: "term_3", status: "working", managed: true},
         });
         expect((await resolveCaller({env: {HERDR_PANE_ID: "w9:p4"}, herdr: client(fake.socketPath)})).caller).toEqual({kind: "unknown", reason: "pane_without_agent", herdrPaneId: "w9:p4"});
         expect((await resolveCaller({env: {HERDR_PANE_ID: "w9:gone"}, herdr: client(fake.socketPath)})).caller).toEqual({kind: "unknown", reason: "no_identity", herdrPaneId: "w9:gone"});
-        const offline = await resolveCaller({env: {HERDR_PANE_ID: "w9:p3"}, herdr: client(join(tmpdir(), "nbdev-no-such-herdr.sock"))});
+        const offline = await resolveCaller({env: {HERDR_PANE_ID: "w9:p3"}, herdr: client(await missingSocket())});
         expect(offline.caller).toEqual({kind: "unknown", reason: "herdr_unavailable", herdrPaneId: "w9:p3"});
         expect(offline.warnings.map((warning) => warning.code)).toEqual(["herdr_unavailable"]);
     });

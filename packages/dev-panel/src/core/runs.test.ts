@@ -1,10 +1,9 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
-import {mkdtemp, realpath, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {realpath, rm} from "node:fs/promises";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import "../../tests/git-fixture.js";
+import {spawnMarked, stopProcess, type MarkedChild} from "../../tests/processes.js";
 import type {ClaudeIdentity} from "./identity.js";
 import {bootTime, processStartTicks, readProcessTable, type ProcessEntry} from "./procfs.js";
 import {discoverRuns, type PaneProcesses} from "./runs.js";
@@ -102,22 +101,22 @@ describe("运行的发现与归属（合成进程表）", () => {
 });
 
 describe("运行的发现与归属（真实进程）", () => {
-    const children: Array<ReturnType<typeof spawn>> = [];
-    afterEach(() => {
-        for (const child of children.splice(0)) child.kill("SIGKILL");
+    const children: MarkedChild[] = [];
+    afterEach(async () => {
+        for (const child of children.splice(0)) await stopProcess(child);
     });
 
     test("带工具标记的进程归到会话；只带 HERDR_PANE_ID 的不归任何会话", async () => {
-        const repo = await realpath(await mkdtemp(join(tmpdir(), "nbdev-runs-")));
+        const repo = await realpath(await createTestTmpRoot("dev-panel-runs", "dev-panel runs"));
         try {
-            const claude = spawn("sleep", ["30"], {env: {PATH: process.env.PATH ?? ""}, stdio: "ignore"});
+            const claude = await spawnMarked("sleep", ["30"]);
             children.push(claude);
             const sessionId = randomUUID();
-            const tool = spawn("sleep", ["31"], {cwd: repo, env: {PATH: process.env.PATH ?? "", CLAUDE_PID: String(claude.pid), CLAUDE_CODE_SESSION_ID: sessionId}, stdio: "ignore"});
-            const stray = spawn("sleep", ["32"], {cwd: repo, env: {PATH: process.env.PATH ?? "", HERDR_PANE_ID: "w9:gone"}, stdio: "ignore"});
-            children.push(tool, stray);
-            await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-            expect(await processStartTicks(tool.pid!)).not.toBeNull();
+            const tool = await spawnMarked("sleep", ["31"], {cwd: repo, env: {CLAUDE_PID: String(claude.pid), CLAUDE_CODE_SESSION_ID: sessionId}});
+            children.push(tool);
+            const stray = await spawnMarked("sleep", ["32"], {cwd: repo, env: {HERDR_PANE_ID: "w9:gone"}});
+            children.push(stray);
+            expect(await processStartTicks(tool.pid)).not.toBeNull();
             const {runs} = await discoverRuns({processes: await readProcessTable(), checkoutRoots: [repo], selfPid: process.pid, panes: [], bootTime: await bootTime()});
             expect(runs.find((run) => run.pid === tool.pid)).toMatchObject({owner: {key: `claude:${sessionId}`}, ownerVia: "tool-env", checkout: repo});
             expect(runs.find((run) => run.pid === stray.pid)?.owner ?? null).toBeNull();
