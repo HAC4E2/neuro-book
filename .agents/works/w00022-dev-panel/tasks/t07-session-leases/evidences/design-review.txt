@@ -1,0 +1,217 @@
+# t07 设计审查报告（只读）
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00022-dev-panel/tasks/t07-session-leases/plan.md`。我对照了 t06 代码（worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00022-dev-panel`，HEAD 821e2323），也在本机做了只读核实。没有改任何仓库文件；对默认 herdr 只用了 status、agent list、pane list、pane process-info、api schema 这几个只读命令。实验脚本在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t07-design/`。
+
+**结论**：阻断 2 条，重要 5 条，建议 15 条。两条阻断都在本机复现了：
+- 续期时不刷新会话快照，`claude --resume` 之后租约会永久失效；
+- 按环境变量里的 `HERDR_PANE_ID` 归属运行，会把守护进程和后台会话的宿主进程算成运行。
+
+---
+
+## 阻断
+
+### 1. 续期只改 `lastActivityAt`，不刷新 `session.process` 与 `session.herdr`
+- **类别**：失效计算、接口合同。
+- **位置**：“`src/core/leases.ts`：租约”第一条（“存在就更新 lastActivityAt 与 lastAction”）、失效计算第 4 条、决定点 2。
+- **现象**：失效计算第 4 条用记下的 pid 和 startTicks 判断会话是否还活着。`claude --resume <id>` 会沿用原来的会话 id，但换了进程（`claude --help`：只有加 `--fork-session` 才换 id）。leaseId 只由会话 key 加 Task 决定，所以续期写回的是同一个文件，旧 pid 一直留在里面。结果是这份租约之后每次读都是 `session_gone`，再怎么续期也恢复不了。herdr 一侧同理：pane 跨 workspace 移动后 pane id 会变，`session.herdr.paneId` 却永远是旧值，t11 拿它判断“pane 上换了会话”会误判。
+- **为什么是问题**：
+  - 决定点 2 自己写着“下一次 Task 相关操作会重新取得”，照字面实现做不到。
+  - 这种情况很常见：本机 9 个 herdr 里的 Claude 会话，有 4 个是 `claude --resume <id>` 起的（214844、281695、1268870、3800705），1 个是 `claude -c`（1612715）。
+  - Claude 二进制里还有 `CLAUDE_RELAUNCH_*` 一类自我重启的路径，同样是“id 不变、换进程”。
+- **如何核实**：`ps -eo pid,args | grep -E 'claude (--resume|-c)'`；查看 `claude --help` 里 `--fork-session` 的说明。
+- **建议改法**：
+  - 每次续期都用本次解析出的调用者重写整个 `session`（process、herdr、label）。
+  - 新旧快照不同（pid 或 startTicks 变了），或旧状态不是 `valid` 时，按“重新取得”处理，`acquiredAt` 改为当下。
+  - L2 加一个用例：同一个 id、换一个 pid 续期之后，状态应为 `valid`。
+
+### 2. 按环境变量里的 `HERDR_PANE_ID` 归属，会把守护进程和 Agent 自己的宿主进程列成运行
+- **类别**：运行的发现与归属（所依赖的机制）。
+- **位置**：`runs.ts` 算法第 2 步（排除）与第 4 步第 2、4 条；“验证”里 S6 的预期。
+- **现象**：我按计划的算法在本机只读跑了一遍（`simulate_runs.py`）。共 492 个进程；cwd 在 12 个 checkout 下的候选 50 个，排除 17 个，剩下 23 个根。没被忽略的 5 个根里有 2 个是误报：
+  - **codex 守护进程**（323023，ppid 1，已运行约 14 天）：环境里有 `HERDR_PANE_ID=w1:p7`，但 `pane list` 里已经没有 w1:p7。按第 4 步第 4 条它会归“无主”，S6 预期的“codex 不出现”会失败。
+  - **Claude 后台会话的宿主 `claude bg-pty-host`**（410311，ppid 1，cwd 是仓库根，环境里只有 `HERDR_PANE_ID=w1:pK`）：按第 4 步第 2 条会归到 568d0811 名下，成为一个永远存在的“运行”。
+  - **568d0811 的会话进程 410323 本身**：只有它恰好有 Bash 子进程时，才会因为子进程环境里的 `CLAUDE_PID` 被排除。会话空闲、没有子进程时，它自己也会被列成运行（并进 410311）。
+  - **同类的潜在误报**：
+    - Claude 的 `daemon run`（3941345）和预热的 `bg-spare`（3941378）环境里也带 `HERDR_PANE_ID=w1:pK`。它们这次因为 cwd 不在仓库没进候选，但 spare 被认领后会成为别的会话的宿主。
+    - omp 的 `__omp_worker_daemon_broker`（1274509）带 `HERDR_PANE_ID`，又不在 pane 的前台进程组里；omp 会话的 cwd 在仓库时，它也会被列成运行。
+- **为什么是问题**：
+  - 环境变量是进程启动时继承的。脱离终端的进程（ppid 1）会把它一直带到那格 pane 关掉之后，所以 pane id 只说明“当初从哪格起的”。
+  - 现有排除规则只有两条：有 Agent 的 pane 的前台进程，和候选环境里出现过的 `CLAUDE_PID`。这覆盖不了后台会话（会话进程不在任何 pane 的前台）和 Agent 的辅助进程。
+  - 补充一点：宿主进程的 comm 是 `2.1.288`，argv 被改写成 `claude bg-pty-host`，按名字认 claude 也不可靠。
+- **如何核实**：
+  - `tr '\0' '\n' < /proc/323023/environ | grep HERDR`，再对照 `herdr pane list`（里面没有 w1:p7）；
+  - `ps -o pid,ppid,args -p 410311,410323`；
+  - 看脚本输出里 `env-pane` 与 `env-pane-unowned` 那两行。
+- **建议改法**：
+  - 按环境变量归属时，只认“由 Agent 工具派出的 shell”。
+    - Claude：给子进程的环境由二进制里一个函数统一生成，内容是 `{CLAUDECODE, CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION:"1", CLAUDE_CODE_SESSION_ATTENDED, CLAUDE_PID: process.pid}`，所以 Bash 子进程一定带 `CLAUDE_PID`。
+    - omp：bash 子进程带 `OMPCODE=1`。
+    - 上面列出的宿主进程、会话进程、codex、omp broker 都没有这两个标记；MCP 服务进程（2431708）只有 `CLAUDE_CODE_SESSION_ID`，也没有 `CLAUDE_PID`。
+  - 只有 `HERDR_PANE_ID`、没有工具标记的进程，不按环境归属，退回父进程链。
+  - `HERDR_PANE_ID` 指向 `pane.list` 里不存在的 pane 时，视为没有线索。
+  - 沿父进程链向上先碰到 Agent 进程、而自己又没有工具标记的，算 Agent 的内部进程，直接排除。
+  - 把这几类进程加进 L1 的合成进程表。
+
+---
+
+## 重要
+
+### 3. herdr 记录的“pane 上是哪个会话”会被同一格的其它 Claude 进程改写；嵌套的 `claude -p` 是另一个会话
+- **类别**：身份判定；失效计算（来回抖动）。
+- **位置**：身份判定第 2 条、失效计算第 3 条、“环境核实”里父进程链的反例。
+- **现象**：
+  - herdr 装的 Claude 钩子 `~/.claude/hooks/herdr-agent-state.sh` 在每次 SessionStart（startup、resume、clear、compact、fork）都把 `session_id` 报给环境里的 `HERDR_PANE_ID`。它只跳过子代理（`agent_id`），不区分是不是嵌套进程。
+  - 会话 A 在 pane P 的 Bash 里起一个 `claude -p`（记为 B），B 继承了 `HERDR_ENV`、`HERDR_PANE_ID`、`HERDR_SOCKET_PATH`。B 启动时的钩子会把 P 的会话改报成 B。`--bare` 的帮助文字是“skip hooks”，由此反推普通 `-p` 会运行钩子；这一点是从代码和帮助推断的，没有实测。
+  - **后果一**：A 还活着，它的全部租约却按第 3 条变成 `session_gone`。B 结束后 herdr 仍然报 B，直到 A 下一次 clear、compact 或 resume。
+  - **后果二**：B 的租约被记成“在 P 里、受 herdr 管理”。
+  - **后台会话同理**：568d0811 是 `--fork-session` 出来的后台副本，它的钩子报给继承来的 w1:pK；daemon 和 spare 也带着 w1:pK。
+  - **身份**：嵌套的 claude 会给自己的子进程重设 `CLAUDE_CODE_SESSION_ID` 与 `CLAUDE_PID`（就是第 2 条里那个函数）。所以在 B 里调 nbdev 会认成 `claude:B`，这与 Proposal 的“会话派出的进程按派出它的会话认”不一致，计划也没写这种情况。
+- **为什么是问题**：决定 14 的“会话从 herdr 消失即失效”按字面实现，会在会话还活着时判失效，并随着钩子上报来回切换。
+- **如何核实**：读上面的钩子脚本；`ps -o args -p 410323` 可以看到 `--fork-session`；`/proc/3941345/environ`。另外，顶层 Claude 进程自己的 environ 里没有 `CLAUDE_CODE_SESSION_ID`（1506927、410323、810784 都是 0 条），而嵌套的 claude 会从父 Bash 继承父会话的 id，可以借此认出嵌套。这条是推断，没有实测嵌套的情况。
+- **建议改法**：
+  - Claude 会话以进程存活（`CLAUDE_PID` 加 startTicks）作为“会话还在”的主要依据。herdr 列表里找不到，只表示“现在不受 herdr 管理、不能通知”（`managed: false`），不单独判失效。
+  - omp 会话可以在取得租约时从 `pane.process_info` 记下 omp 主进程的 pid 和 startTicks，同样处理。
+  - 这改变了决定 14 的字面含义，需要开发者确认。
+  - 身份解析时读 `/proc/$CLAUDE_PID/environ`：里面有 `CLAUDE_CODE_SESSION_ID=X`，就说明这是嵌套会话。至少记下 `parentSessionId: X`；要不要直接归到 X，交开发者定。
+  - 把嵌套的 `claude -p` 和后台会话写进“未验证的边界”。
+
+### 4. 租约写入不加锁的前提不成立：释放与续期会互相覆盖，还违反了包内不变量
+- **类别**：并发；违反既有合同。
+- **位置**：`leases.ts` 第二条（写法）；命令合同里 `task status` 那条；CONTEXT 改动表。
+- **现象**：
+  - 计划说“每份租约只属于一个会话”，但 `task status … done` 由任意会话执行，会释放这个 Task 上所有会话的租约，也就是在写别人的文件；并行的子代理又共用父会话的 key。
+  - **租约复活**：会话 S 的 `lease take` 读到“未释放” → 会话 C 写入 `releasedAt` → S 用改名写回 `releasedAt: null`。已释放的租约就复活了：Task 已经 done，“谁在动”里仍显示 S。
+  - **释放晚到**：释放在提交之后、锁外执行。A 执行 `task status done` 并提交 → 在 A 释放之前，B 执行 `task status active`、提交并续期 → A 的释放随后把 B 刚续的租约也放掉。结果 Task 是 active，却没人持有租约。
+  - 计划没要求临时文件名唯一；`readLeases` 扫目录时还可能读到别人写到一半的临时文件。
+  - `packages/dev-panel/CONTEXT.md` 的不变量 5 写的是“所有写入都经同一个写事务（锁、落位、路径限定提交）”。租约绕开了写事务，而计划的 CONTEXT 改动表里没有改这一条。
+- **建议改法**（两种选一种）：
+  - **读取时现算**：租约所属 Task 的当前状态是 done 或 shelved，就不算有效。这样释放文件只是一份记录，竞争中丢了也不影响结果；`lease take` 遇到 done、shelved 的 Task 时报错或警告。
+  - **在记录锁里写**：`task status` 的释放放进写事务（提交成功后、放锁前），`lease take` 短暂取一次锁。
+  - 不论选哪种，都要：临时文件名带 pid 和随机数；`readLeases` 只认 `^[0-9a-f]{24}\.json$`；把 CONTEXT 不变量 5 改成“项目数据与登记表的写入经同一个写事务”，并写明租约的写法。
+
+### 5. `status` 不输出调用者身份，S6 在真实运行时核对不了场景 1、2
+- **类别**：验收映射。
+- **位置**：“status 的输出”；“验证”里的 S6；验收映射的场景 1、2。
+- **现象**：
+  - S6 要核对“本会话认成 `claude:<id>`，pane 为 `w1:p16`”。但 `sessions[]` 只列“有有效租约或有运行”的会话；S6 不取租约，本次调用的祖先链又被排除，所以本会话根本不会出现在输出里。
+  - 场景 2 的 L3 测试只证明了“给定这些环境变量，nbdev 认成谁”，不能证明子代理和 `omp -p` 真的继承了这些变量。
+- **建议改法**：
+  - `status --json` 加一个只读字段 `data.caller`，内容是 `resolveCaller` 的结果，包括判定依据（via）和 herdr pane；人读输出加一行“你是 …”。
+  - 有了它，编码子代理（它本身就是子代理）可以在 S6 核对场景 2 的子代理那一半，以及场景 1 的身份那一半。
+  - `omp -p` 那一半，由主 Agent 跑一次 `omp -p` 执行 `nbdev status --json` 来核对；或者明确记为“从 omp 源码推断”：omp bash 工具的环境是 `{...Bun.env, SHELL, GIT_EDITOR, GPG_TTY, OMPCODE:"1", CLAUDECODE:"1", CI}`，会把父会话的 `CLAUDE_CODE_SESSION_ID` 传下去。
+  - 场景 1 的标签那一半保持“未验证”，不要在 Task 里记成通过。
+
+### 6. done、shelved 的自动释放要放在核心库，面板（t10）改状态时也要触发
+- **类别**：接口合同（后续切片会返工）。
+- **位置**：命令合同里“接到 t06 的命令上”；决定点 4。
+- **现象**：Proposal 第四节写的是“Task 状态经 nbdev **或面板**改成 done 或 shelved 时，自动释放”。计划把释放放在命令行层（`main.ts`），决定点 4 又说面板“以开发者身份写入、不取租约”。t10 照字面实现只会调 `setRecordStatus`，不会释放。
+- **建议改法**：
+  - 核心库提供一个带租约处理的改状态入口，例如 `setTaskStatus(context, input, {caller, now})`：提交成功后按新状态释放或续期；`caller` 为 null 时只释放、不续期。
+  - 命令行与面板都调它；`docs/cli.md` 写明“释放与由谁调用无关”。
+
+### 7. herdr 方法白名单只有一份且包含写方法；t11“扩到第八节完整白名单”会让面板也能写标签
+- **类别**：违反 Proposal 第八节。
+- **位置**：herdr 客户端第二条；`HERDR_ALLOWED_METHODS`。
+- **现象**：第八节第 7 条的放行清单里没有 `pane.report_metadata`，并且专门说明它“由会话自己的命令行调用，不经面板”。计划只有一个常量；t11 在它上面加方法后，面板就能写任意 pane 的标签。
+- **建议改法**：
+  - 分成两份清单。命令行：ping、agent.list、agent.get、pane.list、pane.process_info、pane.report_metadata。面板：照第八节第 7 条。
+  - 用 `createHerdrClient({socketPath, allow})` 由调用方传入清单。
+  - `status` 用只读清单构造客户端，L3 的“status 不写任何文件”就可以直接断言“没有发出写方法”。
+
+---
+
+## 建议
+
+8. **清除标签缺数据来源**（决定点 7、`task status` 那条）。“只清调用者 pane 上指向这个 Task 的标签”需要读 pane 现有的 tokens，但客户端没有对应方法：0.9.1 的 `agent list` 输出里没有 `tokens` 字段，`pane.get` 又不在白名单里。建议改为按调用者自己的租约推断：标签总是最近一次续期写的，所以只有当本会话最近活动的那份有效租约就是这个 Task 时才处理，并且改写成下一份有效租约，而不是直接清空。
+
+9. **决定点 2 与失效计算第 4 条的范围不一致**。决定点 2 写“herdr 外的 Claude 会话”，失效计算第 4 条写“记了 process 的 Claude 会话”，而身份判定一节对所有 Claude 调用者都记 process。要定下一种；按第 3 条的建议，应对所有 Claude 会话生效。
+
+10. **`/clear` 与后台副本留下“幽灵会话”**。Claude 给子进程的会话 id 每次派生时取当前值。`/clear` 换 id 之后（推断：钩子的匹配条件里有 clear，就是为了重报新 id），对 herdr 外的会话：
+    - 旧 id 与新 id 的租约 `CLAUDE_PID` 相同，旧的会挂满 24 小时，`status` 里同一个进程显示成两个会话；
+    - `/clear` 之前派出的长任务带着旧 id，会归到旧 id 名下；
+    - `--bg` 启动时，若同一会话已在运行，会另起一份副本（`claude --help` 原文：starts a copy），副本换新 id（568d0811 就是这样来的）。
+
+    建议：同一个 pid 加 startTicks 出现了更新的会话 id 时，旧租约判为 `superseded`（或 `session_gone`）；`sessions[]` 加一个 `alive` 字段。
+
+11. **“忽略”这一类吞掉了 systemd-run 单元和 VS Code 终端里的进程**。全局规则要求需要活过会话的进程用 `systemd-run`；这类进程的父进程是用户级 systemd、环境是干净的，按计划会被直接忽略。Proposal 写的是“对不上的归无主”。建议至少把 cgroup 为 `…/app.slice/<unit>.service` 的进程列为“无主（单元名）”，或在文档里写明看不见它们。
+
+12. **多个 herdr server**。租约的 `herdr` 字段应记下 `socketPath`；只在用同一个 socket 评估时才用失效计算第 3 条，否则 `herdrChecked: false`。不然在命名会话里取得的租约，用默认 server 评估时会被误判为 `session_gone`。
+
+13. **herdr 调用要有总时限**。按每次 2 秒超时算，ping 通过但之后的调用卡住时，`status` 要等 1 次 agent.list、1 次 pane.list 加 13 次 process_info，约 30 秒。建议：
+    - `status` 给 herdr 一个总时限（例如 2 到 3 秒）；
+    - process_info 并发调用；
+    - 单个 pane 返回 `pane_not_found` 时容忍跳过；
+    - 读到换行为止，并核对 `id`；
+    - 0.9.1 的 `pane.list` 已经带 `agent` 和 `agent_session`，`status` 可以省掉 `agent.list`。
+
+14. **测试夹具**。
+    - 环境变量按前缀删除（`HERDR_*`，删完再设 `HERDR_SOCKET_PATH`；`CLAUDE*`；`OMPCODE`）。计划的固定清单漏了 `HERDR_ENV`、`HERDR_BIN_PATH`、`CLAUDECODE`、`CLAUDE_CODE_ENTRYPOINT`、`CLAUDE_CODE_MESSAGING_SOCKET`。
+    - `fixture.cli` 现在不能传环境变量，场景 2、3、7、8 都需要按用例设置。
+    - `CliIo` 加 `env` 字段，`cli.ts` 传入 `process.env`。
+    - L4 里用 `pane.report_agent_session` 能否让一个跑 bash 的 pane 出现在 `agent.list` 里，没有核实。omp 集成用的是 `pane.report_agent`（参数里有 `agent`、`state`、`agent_session_id`，schema 中可查），建议先在 nbdev-test 里试，不行就改用它。
+    - 启动 `herdr --session nbdev-test server` 的子进程要用清洗过的环境，清理步骤放在 finally 里。
+    - 假 herdr 的 Unix socket 路径不能超过 107 字节。`TMPDIR` 较长时会超；测试支持包的 `assertShortPath` 只在 Windows 上生效。
+
+15. **`releaseLeases` 的签名**。它的 filter 里 `workId` 是必填的，而不带参数的 `release` 要释放全部租约，类型对不上。另外，子代理执行不带参数的 `release` 会释放父会话的全部租约，文档要提醒。
+
+16. **两处未定的边界**。`lease take` 遇到 done、shelved 的 Task 时怎么办，计划没写。`task new`、`work new` 提交失败（例如 `git_lock_timeout`）时，README 已经写好、号也领了，会话会接着在这个 Task 上做，却不取租约。建议这种情况也取得租约，或者在文档里写明。
+
+17. **登记表的 `by` 字段**。t06 的 `parseRegistry` 读取时把每个条目的 `by` 都写成 null（`src/core/registry.ts` 第 61、63 行），并不是在校验。所以只“放宽校验”不够，要改成保留读到的值；合入之前，任何 t06 版本的写入都会丢掉 `by`。
+
+18. **运行的启动时间**。`RunView.startedAt` 要用 `/proc/stat` 里的 `btime`，再加上 startTicks 除以 USER_HZ。Node 拿不到 `sysconf(_SC_CLK_TCK)`；Linux 上 USER_HZ 固定为 100，应在文档里写明这个假设。
+
+19. **环境里的会话 id 可能已过期**。herdr server 现在的环境是干净的（已核实），但如果 herdr server 或 tmux 曾经是从某个 Claude 的 Bash 里起的，所有 pane 都会继承一个旧的 `CLAUDE_CODE_SESSION_ID`。建议只在 `CLAUDE_PID` 存在且进程还活着、id 是 UUID 格式时才信任它，否则忽略并给出警告。
+
+20. **`--as` 的两个边界**。两个外部会话同时用同一个标签会被合成一个会话，文档要写明标签需唯一。在 herdr pane 里用 `--as` 时不应写 pane 标签，因为 pane 上的会话并不是这个外部身份；计划的“在 herdr 里就写 pane 标签”对这种情况有歧义。
+
+21. **给 t08 的提醒**。Proposal 第 196 行规定 `askedBy` 带会话快照，并存在入库的 `versions/` 里，这与 CONTEXT 不变量 1“项目数据里没有任何字段指向会话”冲突；而且 omp 的 `sessionId` 是 `~/.omp` 下的绝对路径。建议 t08 只把 leaseId 入库，或把 `askedBy` 放到 `.local/agent/run/`；t07 相应导出 `getLease`、`evaluateLease` 供 t11 使用。
+
+22. **默认 server 0.9.1 很可能支持 tokens，但失败时可能拿不到错误**。默认 server 0.9.1 的二进制（`/proc/65642/exe`，磁盘上已被 0.9.3 替换）里有 `ttl_ms`、`tokens`、`report_metadata`、`applies_to_source` 等字符串；`pane list` 输出里没有 tokens，多半只是空值不输出，所以支持的可能性大。但如果 server 对不认识的字段静默忽略，计划的“不支持时只给警告”就收不到错误。建议在 `docs/herdr.md` 写明按 server 版本判断，并在合入后的真实观察里核对。
+
+---
+
+## 验收映射
+
+| 场景 | 判断 |
+|---|---|
+| 1 | L3 加 L4 能证明标签写得进去、租约字段正确。身份那一半要靠第 5 条的 `caller` 在 S6 核对；标签在默认 0.9.1 上未验证，Task 里应保持“未验证”。L4 里“扮成 Claude”的做法未核实（见第 14 条）。 |
+| 2 | 把 `answers` 换成 `task status`、`lease take` 不影响证明力，因为身份解析与具体命令无关。但 L3 只证明了映射，没证明真实继承：子代理的继承我在本机复核过，`omp -p` 只是从代码推断。用第 5 条补上真实运行的核对。 |
+| 3、5、6、8 | 用真实运行时可以写出，可行。 |
+| 4 | 可行。 |
+| 7 | 真实 `sleep` 加假 herdr 可行，但只测了正例。要补第 2 条的反例：ppid 为 1、只带 `HERDR_PANE_ID` 的进程；指向不存在 pane 的进程；Agent 的子进程但没有工具标记。 |
+
+另外还缺三类测试：失效计算第 4 条的真实进程用例（起进程 → 记下 → 结束 → 判 `session_gone`）；同一个 id 换 pid 后续期（第 1 条）；Task done 之后租约复活（第 4 条）。
+
+---
+
+## 对决定点的判断
+
+1. **运行归属环境变量优先**：方向同意，但要按第 2 条修改：只认带工具标记的进程；指向不存在 pane 的 `HERDR_PANE_ID` 视为没有线索。
+2. **herdr 外的 Claude 会话按 `CLAUDE_PID` 判失效**：同意，并扩大到所有 Claude 会话，同时要求续期刷新会话快照（第 1、3、9 条）。否则本机 9 个会话里有 5 个是 resume 或 continue 起的，都会受影响。
+3. **未知调用者不自动取得租约**：同意。
+4. **身份只在命令行边界解析**：同意；但自动释放要放进核心库（第 6 条），`CliIo` 要加 `env`。
+5. **直接连 socket**：同意；白名单分两份（第 7 条），并给 `status` 一个总时限（第 13 条）。
+6. **运行不写 `run/procs/`**：同意。
+7. **只清调用者 pane 上的标签**：同意；但要写明“指向这个 Task”按什么判断（第 8 条）。
+8. **L4 建、删命名会话**：同意；server 子进程用清洗过的环境，清理放在 finally 里（第 14 条）。
+
+---
+
+## 未发现问题的方面
+- **子代理的身份**：本机复核过。子代理 Bash 环境里的 `CLAUDE_CODE_SESSION_ID=d02974de…` 与 herdr 报的 w1:p16 一致。Claude 二进制给所有工具子进程都设 `CLAUDE_CODE_CHILD_SESSION=1`，所以计划不依赖它是对的。
+- **`omp -p`**：omp 的 herdr 扩展有两道保护：`OMPCODE=1` 视为嵌套进程；`hasUI !== true` 时不上报。所以 `omp -p` 不会改写 pane 上的会话；omp 的 bash 工具也会把父环境传下去。
+- **扫描 `/proc` 的成本与权限**：
+  - 扫 491 个进程，Bun 用 6 到 7 毫秒，Node 用 22 毫秒；
+  - 278 个进程的 cwd 读不到（别的用户），按计划跳过即可；
+  - 只对候选读 environ，本机 50 个，耗时 3.6 毫秒。
+- **其余设计**：
+  - `comm` 按最后一个 `)` 切分是对的；
+  - 用 startTicks 防 pid 复用的做法正确；
+  - leaseId 的定法、时钟经参数注入、失效与释放的文件不删、坏文件只警告，这几处都没问题；
+  - `report_metadata` 的参数与 0.9.3 的 schema 一致：`tokens` 的值可以为 null、`ttl_ms` 上限 86400000、名字正则相同；
+  - 当天 10 个 Agent（9 个 Claude、1 个 omp）与计划一致。
+
+## 没有核实的
+- 原始 socket 协议：按规则只用 CLI 的只读命令，没有直接连 socket。
+- `/clear` 是否换 id、`claude -p` 是否运行 SessionStart 钩子：从代码与帮助文字推断。
+- 启动命名会话 headless server 的具体命令。
