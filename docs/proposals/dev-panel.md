@@ -570,3 +570,8 @@ Spec 与项目文档随代码在各分支上改。面板的文档视图默认看
 - 2026-10-12｜开发者｜决定 14：取消本地 Work；Task 状态取 `planned`、`active`、`done`、`shelved`，写在 frontmatter；Work 取后三种，并在 README 开头写“目标”；租约在会话消失或 24 小时没有 Task 相关操作时失效，不入库。
 - 2026-10-12｜开发者｜记录迁移先不大范围做，只迁本会话建的记录（已迁 w00017 的 t80、t81，见 t05）。
 - 2026-10-12｜开发者｜接受本提案：17 条待决问题全部按推荐，其中首页的 Work 区用每个 Work 一张卡片（第三轮稿 A）；旧记录的 `status` 不集中补填，迁移或下次更新时补；常驻用正式的用户级 systemd 单元文件。按[实施计划](../../.agents/works/w00022-dev-panel/tasks/t03-design/plan.md)开始实施，开发者不在场时按 autonomous-delivery 的循环推进：计划与实现的审查都用 Claude Code 的 opus 子代理，不用 omp。
+- 2026-10-12｜主 Agent（t06、t07 实施中，待开发者追认）｜实施修正，正文不改，以包内文档为准：
+  - 第二节“没迁”的判定，改为 `master...HEAD` 与 `master HEAD` 两份 diff 的交集：只用三点 diff 时，分支按 t05 恢复记录之后仍会被判成没迁（t06 设计审查发现，主 Agent 复现）。
+  - 第四节身份表“子代理靠 `CLAUDE_CODE_CHILD_SESSION` 认出”不成立：主会话的 Bash 里也有这个变量，它只表示“shell 是 Claude 派出的”；子代理与派出的进程都继承父会话的 `CLAUDE_CODE_SESSION_ID`，按它认即可。
+  - 运行的归属改为先看进程环境变量里继承来的会话 id，再沿父进程链找 pane：实测父进程链会断（进程被收养到 PID 1）。
+  - herdr 外的 omp 没有可用的会话 id，只能用 `--as`。
