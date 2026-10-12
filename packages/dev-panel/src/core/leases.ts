@@ -4,6 +4,7 @@ import {join, resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import type {ProcessRef, SessionCaller, SessionRef} from "./identity.js";
 import {TASK_ID_PATTERN, WORK_ID_PATTERN} from "./ids.js";
+import {isIsoTime, isNullableString, isRecord} from "./json.js";
 import {processAlive} from "./procfs.js";
 import type {TaskStatus} from "./records.js";
 import {AGENT_LOCAL_ROOT} from "./registry.js";
@@ -20,7 +21,6 @@ export const LEASE_STALE_MS = 2 * 3_600_000;
 const LEASE_FILE_PATTERN = /^[0-9a-f]{24}\.json$/u;
 const LEASE_TEMPORARY_PATTERN = /^[0-9a-f]{24}\.json\.tmp-/u;
 const LEASE_ID_PATTERN = /^[0-9a-f]{24}$/u;
-const ISO_TIME_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z$/u;
 const RELEASE_REASONS: readonly string[] = ["released", "task_done", "task_shelved"];
 const READ_BATCH = 64;
 
@@ -70,18 +70,6 @@ function sameProcess(left: ProcessRef | null, right: ProcessRef | null): boolean
     return left === null || right === null ? left === right : processKey(left) === processKey(right);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isIsoTime(value: unknown): value is string {
-    return typeof value === "string" && ISO_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
-}
-
-function isNullableString(value: unknown): value is string | null {
-    return value === null || typeof value === "string";
-}
-
 function parseProcess(value: unknown): ProcessRef | null | undefined {
     if (value === null) return null;
     if (!isRecord(value) || !Number.isInteger(value.pid) || (value.pid as number) <= 0 || typeof value.startTicks !== "string" || !/^[0-9]+$/u.test(value.startTicks)) return undefined;
@@ -94,7 +82,8 @@ function parseLeaseHerdr(value: unknown): LeaseHerdr | null | undefined {
     return {socketPath: value.socketPath, paneId: value.paneId, terminalId: value.terminalId};
 }
 
-function parseSession(value: unknown): LeaseSession | string {
+/** 校验并重建租约里的会话快照；不合规时返回原因。provenance 记的也是这份快照。 */
+export function parseLeaseSession(value: unknown): LeaseSession | string {
     if (!isRecord(value)) return "session 不是对象";
     if (typeof value.key !== "string" || value.key === "" || typeof value.agent !== "string") return "session.key 或 session.agent 不是非空字符串";
     if (!isNullableString(value.sessionId) || !isNullableString(value.label) || !isNullableString(value.parentSessionId)) return "session 的 sessionId、label、parentSessionId 只能是字符串或 null";
@@ -124,7 +113,7 @@ function parseLease(text: string, expectedId: string): {lease: LeaseRecord} | {p
     if (typeof value.workId !== "string" || !WORK_ID_PATTERN.test(value.workId) || typeof value.taskId !== "string" || !TASK_ID_PATTERN.test(value.taskId)) {
         return {problem: "workId 或 taskId 不合编号格式"};
     }
-    const session = parseSession(value.session);
+    const session = parseLeaseSession(value.session);
     if (typeof session === "string") return {problem: session};
     if (!isIsoTime(value.acquiredAt) || !isIsoTime(value.lastActivityAt) || (value.releasedAt !== null && !isIsoTime(value.releasedAt))) {
         return {problem: "acquiredAt、lastActivityAt、releasedAt 不是合法的 ISO 时间"};

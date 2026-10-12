@@ -1,6 +1,6 @@
 /**
  * nbdev 的错误码与退出码。命令行与面板都按 `code` 分支，不看 `message` 的文案。
- * 退出码遵循 Proposal 第十一节：1 运行失败、2 用法错误、3 需要人决定的冲突、5 找不到对象。
+ * 退出码遵循 Proposal 第十一节：1 运行失败、2 用法错误、3 需要人决定的冲突、4 等待超时（含被信号打断）、5 找不到对象。
  */
 export const ERROR_EXIT_CODES = {
     usage: 2,
@@ -8,11 +8,18 @@ export const ERROR_EXIT_CODES = {
     invalid_status: 2,
     invalid_title: 2,
     caller_unknown: 2,
+    invalid_artifact_id: 2,
+    invalid_questions: 2,
+    invalid_answer: 2,
     repository_not_found: 5,
     records_root_not_found: 5,
     work_not_found: 5,
     master_not_found: 5,
     task_not_found: 5,
+    artifact_not_found: 5,
+    question_not_found: 5,
+    entry_missing: 5,
+    no_answers: 5,
     shim_target_not_found: 5,
     main_not_on_master: 3,
     main_busy: 3,
@@ -23,10 +30,16 @@ export const ERROR_EXIT_CODES = {
     target_exists: 3,
     target_missing: 3,
     task_closed: 3,
+    task_not_committed: 3,
+    duplicate_question: 3,
+    artifact_closed: 3,
+    question_closed: 3,
     hash_mismatch: 3,
     uncommitted_changes: 3,
     unsafe_path: 3,
     shim_exists: 3,
+    wait_timeout: 4,
+    wait_interrupted: 4,
     lock_timeout: 1,
     lock_failed: 1,
     lock_compromised: 1,
