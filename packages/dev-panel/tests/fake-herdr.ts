@@ -14,6 +14,8 @@ export type FakePane = {
     foreground_cwd?: string | null;
     shell_pid?: number | null;
     foreground_pids?: number[];
+    /** 快照里 Agent 的状态序号；缺省 0。 */
+    state_change_seq?: number;
 };
 
 export type FakeHerdr = {
@@ -22,6 +24,12 @@ export type FakeHerdr = {
     requests: Array<{method: string; params: Record<string, unknown>}>;
     /** 按方法改写回应：`hang` 不回应（模拟 herdr 卡住），`{code, message}` 回一个错误。 */
     overrides: Record<string, "hang" | {code: string; message: string}>;
+    /** 当前开着的订阅连接数。 */
+    subscriberCount(): number;
+    /** 给每条订阅连接推一行事件（不按订阅类型过滤）。 */
+    emit(event: string, data: Record<string, unknown>): void;
+    /** 断开全部订阅连接（模拟 herdr 重启或连接中断）。 */
+    dropSubscribers(): void;
     close(): Promise<void>;
 };
 
@@ -36,11 +44,29 @@ async function socketPathFor(root: string): Promise<{socketPath: string; ownDir:
 export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<FakeHerdr> {
     const {socketPath, ownDir} = await socketPathFor(root);
     const requests: FakeHerdr["requests"] = [];
-    const fake: FakeHerdr = {socketPath, panes, requests, overrides: {}, close: async () => {}};
+    const subscribers = new Set<Socket>();
+    const fake: FakeHerdr = {
+        socketPath,
+        panes,
+        requests,
+        overrides: {},
+        subscriberCount: () => subscribers.size,
+        emit(event, data) {
+            for (const socket of subscribers) socket.write(`${JSON.stringify({event, data})}\n`);
+        },
+        dropSubscribers() {
+            for (const socket of subscribers) socket.destroy();
+            subscribers.clear();
+        },
+        close: async () => {},
+    };
     const sockets = new Set<Socket>();
     const server: Server = createServer((socket) => {
         sockets.add(socket);
-        socket.on("close", () => sockets.delete(socket));
+        socket.on("close", () => {
+            sockets.delete(socket);
+            subscribers.delete(socket);
+        });
         let buffer = "";
         socket.setEncoding("utf8");
         socket.on("data", (chunk: string) => {
@@ -56,6 +82,7 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
                     newline = buffer.indexOf("\n");
                     continue;
                 }
+                if (request.method === "events.subscribe" && !override) subscribers.add(socket);
                 socket.write(`${JSON.stringify(override ? {id: request.id, error: override} : respond(fake, request))}\n`);
                 newline = buffer.indexOf("\n");
             }
@@ -79,7 +106,19 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
     case "ping":
         return {id, result: {type: "pong", version: "fake", protocol: 22}};
     case "pane.list":
-        return {id, result: {type: "pane_list", panes: fake.panes.map(({shell_pid: _shell, foreground_pids: _fg, ...pane}) => pane)}};
+        return {id, result: {type: "pane_list", panes: fake.panes.map(({shell_pid: _shell, foreground_pids: _fg, state_change_seq: _seq, ...pane}) => pane)}};
+    case "session.snapshot":
+        return {id, result: {type: "session_snapshot", snapshot: {
+            version: "fake",
+            protocol: 22,
+            workspaces: [{workspace_id: "w9", number: 9, label: "fake"}],
+            tabs: [],
+            panes: fake.panes.map(({shell_pid: _shell, foreground_pids: _fg, state_change_seq: _seq, ...pane}) => ({workspace_id: "w9", tab_id: "w9:t0", ...pane})),
+            layouts: [],
+            agents: fake.panes.filter((pane) => pane.agent !== null).map((pane) => ({pane_id: pane.pane_id, agent: pane.agent, agent_status: pane.agent_status, state_change_seq: pane.state_change_seq ?? 0})),
+        }}};
+    case "events.subscribe":
+        return {id, result: {type: "subscription_started"}};
     case "pane.process_info": {
         const pane = paneById(params.pane_id);
         if (!pane) return {id, error: {code: "pane_not_found", message: `pane ${String(params.pane_id)} not found`}};

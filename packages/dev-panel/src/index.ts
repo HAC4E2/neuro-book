@@ -59,7 +59,13 @@ export {
 } from "./core/registry.js";
 export {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
 export {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./core/sources.js";
-export {readProjectStatus, type ArtifactSummary, type InboxItem, type ActiveLease, type ProjectStatus, type RecordSource, type StatusFilter, type StatusOptions, type TaskView, type WorkView} from "./core/status.js";
+export {readProjectRecords, readProjectStatus, readTransitionState, withActivity, type ArtifactSummary, type InboxItem, type ActiveLease, type ProjectRecords, type ProjectStatus, type RecordSource, type StatusFilter, type StatusOptions, type TaskView, type TransitionState, type WorkView} from "./core/status.js";
+export {createBranchChangesCache, type BranchChangesCache} from "./core/sources.js";
+export {checkoutKeys, resolveTaskExecution, type ExecutionCandidate, type ExecutionRule, type TaskExecution} from "./core/checkouts.js";
+export {linkedSpecs, readTaskDetail, type CommitEntry, type EvidenceEntry, type TaskDetail} from "./core/task-detail.js";
+export {branchChangedDocs, classifyDoc, listDocPaths, readDocFile, readDocTree, type DocChange, type DocChangeKind, type DocEntry, type DocFile, type DocGroup, type DocTree} from "./core/docs.js";
+export {isSafeRelativePath, unsafePathReason} from "./core/paths.js";
+export {createNameIndexCache, searchCheckouts, validateSearchQuery, SEARCH_LIMIT_PER_CHECKOUT, SEARCH_TIMEOUT_MS, type CheckoutSearchDone, type NameIndexCache, type SearchCheckout, type SearchHit} from "./core/search.js";
 export {acquireRecordsLock, DEFAULT_LOCK_WAIT_MS, type LockHolder, type RecordsLock} from "./core/lock.js";
 export {
     DEFAULT_GIT_LOCK_WAIT_MS,
@@ -89,15 +95,20 @@ export {resolveCaller, trustedClaudeSession, type Caller, type CallerHerdr, type
 export {
     createHerdrClient,
     HERDR_CLI_METHODS,
+    HERDR_PANEL_READ_METHODS,
     HERDR_READ_METHODS,
     HerdrError,
     resolveHerdrSocket,
     type HerdrAgentSession,
     type HerdrAvailability,
     type HerdrClient,
+    type HerdrEvent,
     type HerdrPane,
     type HerdrProcessInfo,
+    type HerdrSessionSnapshot,
+    type HerdrSnapshotPane,
     type HerdrStatus,
+    type HerdrSubscription,
 } from "./herdr/client.js";
 export {
     evaluateLease,

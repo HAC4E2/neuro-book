@@ -37,6 +37,8 @@ export type TaskRecord = {
     title: string | null;
     status: Recorded<TaskStatus>;
     updated: Recorded<string>;
+    /** README `## 当前状态` 一节的第一行（去掉列表记号）；没有这一节为 null。 */
+    currentState: string | null;
 };
 
 export function workReadmePath(workId: string): string {
@@ -139,7 +141,13 @@ export async function readTaskRecord(checkoutRoot: string, workId: string, taskI
         title: readTitle(parsed?.body ?? ""),
         status,
         updated: recordedUpdated(data, commitDates.get(taskDirPath(workId, taskId))),
+        currentState: firstLine(readSection(parsed?.body ?? "", "当前状态")),
     };
+}
+
+function firstLine(section: string | null): string | null {
+    const line = section?.split("\n").map((entry) => entry.trim()).find((entry) => entry !== "");
+    return line ? line.replace(/^(?:[-*+]|\d+\.)\s+/u, "") : null;
 }
 
 /**

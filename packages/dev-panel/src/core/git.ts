@@ -24,9 +24,14 @@ const LOCATION_VARIABLES = [
     "GIT_PREFIX",
 ] as const;
 
-function gitEnvironment(): NodeJS.ProcessEnv {
-    // 路径一律按字面匹配：记录文件名里出现 * ? [ 时，通配解释会让 add 与 commit 把别人的文件一起暂存并提交。
-    const env: NodeJS.ProcessEnv = {...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LITERAL_PATHSPECS: "1"};
+/**
+ * Git 子进程的环境。路径缺省一律按字面匹配：记录文件名里出现 * ? [ 时，通配解释会让 add 与 commit 把别人的文件一起暂存并提交。
+ * 只有面板的搜索传 `literalPathspecs: false`：它的排除规则（`:(exclude,glob)…`）由服务端写死，不含用户输入。
+ */
+export function gitEnvironment(options: {literalPathspecs?: boolean} = {}): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {...process.env, GIT_TERMINAL_PROMPT: "0"};
+    if (options.literalPathspecs ?? true) env.GIT_LITERAL_PATHSPECS = "1";
+    else delete env.GIT_LITERAL_PATHSPECS;
     for (const name of LOCATION_VARIABLES) delete env[name];
     return env;
 }
