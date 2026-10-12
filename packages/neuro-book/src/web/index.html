@@ -10,6 +10,24 @@
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <title>NeuroBook</title>
         <link rel="stylesheet" href="./host-loading.css" />
+        <!-- 加载页的明暗提示（src/web/host/appearance-hint.ts 记下）：第一帧前取上一次的明暗与颜色；读不到或不合法时按系统明暗。 -->
+        <script>
+            (function () {
+                try {
+                    var hint = JSON.parse(localStorage.getItem("nbook.host-appearance") || "null");
+                    if (hint === null || (hint.appearance !== "light" && hint.appearance !== "dark")) return;
+                    var root = document.documentElement;
+                    var color = /^(#[0-9a-f]{3,8}|rgba?\([0-9., /%]+\))$/i;
+                    root.setAttribute("data-host-appearance", hint.appearance);
+                    root.style.colorScheme = hint.appearance;
+                    ["background", "text", "muted", "accent"].forEach(function (name) {
+                        if (typeof hint[name] === "string" && color.test(hint[name])) root.style.setProperty("--host-loading-" + name, hint[name]);
+                    });
+                } catch (error) {
+                    console.warn("[nbook] 读不出加载页的明暗提示", error);
+                }
+            })();
+        </script>
     </head>
     <body>
         <div id="app">

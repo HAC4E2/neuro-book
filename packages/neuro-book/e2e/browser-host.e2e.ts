@@ -1,10 +1,10 @@
 /**
  * runtime.browser-host 在真实浏览器中的验收：生产构建（`bun run build`）的外壳与后端，本机 Chrome。
- * 覆盖场景 1（挂载前建立实例）、2（引导失败与重试）、4（多窗口隔离）、协议不兼容与页面表之外的路径。引导失败用拦截请求模拟：
+ * 覆盖场景 1（挂载前建立实例）、2（引导失败与重试）、4（多窗口隔离）、13（加载页跟随上次的明暗）、协议不兼容与页面表之外的路径。引导失败用拦截请求模拟：
  * 同源部署下服务端完全停止时浏览器连外壳都取不到，不属于场景 2。
  */
 
-import {rm} from "node:fs/promises";
+import {rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
@@ -105,4 +105,42 @@ test("两个窗口互相独立：关闭一个，另一个照常可用、刷新�
     await expect(rootB).toHaveAttribute("data-window-state", "ready");
     await expect(rootB).not.toHaveAttribute("data-window-instance", instanceB ?? "");
     expect(server.child.exitCode).toBeNull();
+});
+
+test("加载页跟随上次的明暗：系统与产品的明暗相反时，这个浏览器第一次打开按系统，之后第一帧就是产品的明暗（场景 13）", async ({browser}) => {
+    const settings = join(tmp, "state", "settings.json");
+    const LIGHT = "rgb(255, 252, 245)";
+    const DARK = "rgb(45, 41, 37)";
+    try {
+        for (const {system, product, systemFrame, productFrame} of [
+            {system: "dark", product: "light", systemFrame: DARK, productFrame: LIGHT},
+            {system: "light", product: "dark", systemFrame: LIGHT, productFrame: DARK},
+        ] as const) {
+            await writeFile(settings, JSON.stringify({"nbook.workbench/appearance": product}));
+            const context = await browser.newContext({colorScheme: system});
+            const page = await context.newPage();
+            // DOMContentLoaded 时还没有任何模块脚本运行：此刻加载页的底色就是第一帧的底色。
+            await page.addInitScript(() => {
+                document.addEventListener("DOMContentLoaded", () => {
+                    const loading = document.querySelector(".nb-host-loading");
+                    (window as unknown as {firstFrame: string}).firstFrame = loading === null ? "none" : getComputedStyle(loading).backgroundColor;
+                });
+            });
+            const firstFrame = (): Promise<string | undefined> => page.evaluate(() => (window as unknown as {firstFrame?: string}).firstFrame);
+            const root = page.locator("[data-workbench-root]");
+
+            await page.goto(server.url);
+            await expect(root).toHaveAttribute("data-window-state", "ready");
+            expect(await firstFrame()).toBe(systemFrame);
+            await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", product);
+            await expect.poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem("nbook.host-appearance") ?? "null") as {appearance?: string} | null)?.appearance)).toBe(product);
+
+            await page.reload();
+            await expect(root).toHaveAttribute("data-window-state", "ready");
+            expect(await firstFrame()).toBe(productFrame);
+            await context.close();
+        }
+    } finally {
+        await rm(settings, {force: true});
+    }
 });

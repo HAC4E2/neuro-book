@@ -18,6 +18,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {WindowNavigation} from "nbook/shared/host";
 
+import {rememberDocumentAppearance} from "./host/appearance-hint";
 import {readClientIdentity} from "./host/client-identity";
 import {createConnection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
@@ -34,6 +35,8 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     if (container === null) throw new Error("index.html 缺少 #app");
     const clientIdentity = readClientIdentity(() => window.localStorage);
     if (clientIdentity.problem !== null) console.warn(`[nbook] ${clientIdentity.problem}；客户端身份只在本页有效`);
+    // 页面存活期间一直记录，不停止：下一次打开时加载页的第一帧用这里记下的明暗与颜色。
+    rememberDocumentAppearance({root: document.documentElement, storage: () => window.localStorage, warn: (message) => console.warn(`[nbook] ${message}`)});
     const navigation: WindowNavigation = {
         navigateDocument: (href) => location.assign(href),
         reloadDocument: () => location.reload(),

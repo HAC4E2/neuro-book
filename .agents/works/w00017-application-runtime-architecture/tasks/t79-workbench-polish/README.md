@@ -123,6 +123,10 @@ taskId: t79-workbench-polish
     - [控件色](evidences/draft8-warm.png)：配色表里偏冷的控件色一并调暖（nbook 不再“冷暖分家”）。
     - [标题栏](evidences/draft9-titlebar.png)、[横排标志](evidences/draft10-lockup.png)：用带 NeuroBook 字样的横排标志（墨色），之后是项目切换，菜单在项目后。
   - 实现计划见 [plan.md](plan.md) 的“第二轮”。
+- 2026-10-12 S6（加载页跟随产品明暗）完成：
+  - 宿主的前端入口观察文档根上的主题（明暗、主题包与配色的内联变量），每次变了把明暗与面板底色、正文色、淡色、强调色（借一个元素算成 rgb）记进本地存储 `nbook.host-appearance`；两份 `index.html` 头部同一段内联脚本在第一帧前读回，写到根上的 `data-host-appearance`、`color-scheme` 与 `--host-loading-*`，`host-loading.css` 先取这些变量，没有时仍按系统明暗。写放在宿主而不是工作台插件：前端规范不许组件直接读写本地存储。Lab 也写文档根，在 Lab 里切过明暗，下次加载页取的是 Lab 最后的明暗（接受）。
+  - Spec：`runtime/browser-host.md` 启动序列第 1 步、新增场景 13、实现合同与合同测试。
+  - 验证：`appearance-hint.dom.test.ts` 四例（两份内联脚本一字不差；宿主写下的提示由内联脚本读回；还没写主题不记、存储不可用只说一次；坏记录与坏颜色不认）；`browser-host.e2e.ts` 新增场景 13（系统与产品明暗相反的两个方向：第一次按系统，刷新后第一帧是产品的底色），连同 `projects.e2e.ts` 共 13 例全过；typecheck 为 0。变异 6 处：起初存活 1 处（浅色系统下的样式不读提示，用例只测了系统深色一个方向），补上反方向后全部被抓到。
   - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
 
 ## 下一步
