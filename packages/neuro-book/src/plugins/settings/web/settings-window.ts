@@ -380,7 +380,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         const generation = (instance.generation += 1);
         Object.assign(instance, {status: "loading", component: null, error: null});
         const result = await source.load(id);
-        // 等待期间交付被撤回（实例回到 waiting）或又发起了新加载：这次结果作废。
+        // 等待期间交付被撤回、窗口关闭（两者都让实例回到 waiting）或又发起了新加载：这次结果作废。
         if (instance.generation !== generation || instance.status !== "loading") return;
         if (result.status === "stale") instance.status = "waiting";
         else if (result.status === "failed") Object.assign(instance, {status: "load-failed", error: result.error instanceof Error ? result.error.message : String(result.error)});
@@ -455,6 +455,12 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         },
         close: () => {
             open.value = false;
+            // 进行中的加载作废（输出 5）：结果回来时不挂组件、不记为失败；实例回到 waiting，重开时按当前句柄重新加载。
+            for (const instance of pages.values()) {
+                if (instance.status !== "loading") continue;
+                instance.generation += 1;
+                instance.status = "waiting";
+            }
         },
         select: (id) => {
             if (sectionOf(id) !== undefined) chosen.value = id;

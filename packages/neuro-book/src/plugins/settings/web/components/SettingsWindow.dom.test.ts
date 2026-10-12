@@ -118,12 +118,16 @@ describe("SettingsWindow", () => {
         expect(one("[data-settings-layer-notice='unavailable']").textContent).toContain("暂时连不上，不能保存");
     });
 
-    it("“其它”分区：开关、下拉、数字、单行输入与只读项（宽排法）；数字框回车提交，不合 schema 的值被拒、回到实际值", async () => {
+    it("“其它”分区：开关、下拉、数字、单行输入与只读项（宽排法）、生效时机的标注；数字框回车提交，不合 schema 的值被拒、回到实际值", async () => {
         const {host, notices} = await scene("other");
         host.window.select("other");
         await flushPromises();
         expect(all("[data-settings-control]").map((control) => control.dataset.settingsControl)).toEqual(["switch", "number", "switch", "text", "select", "readonly"]);
         expect(one("[data-settings-row='example.notes/tags']").querySelector("[data-settings-row-wide] [data-settings-control='readonly']")).not.toBeNull();
+        // applies 不是 now 时标题后标注生效时机；now 不标。
+        expect(one("[data-settings-row='example.notes/interval'] label").textContent).toContain("下次会话生效");
+        expect(one("[data-settings-row='example.notes/tags'] label").textContent).toContain("重启后生效");
+        expect(one("[data-settings-row='example.notes/autosave'] label").textContent).not.toContain("生效");
         const input = one("[data-settings-row='example.notes/interval'] input") as HTMLInputElement;
         input.value = "1000";
         input.dispatchEvent(new Event("input"));

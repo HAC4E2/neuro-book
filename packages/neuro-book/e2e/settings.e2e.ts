@@ -259,9 +259,10 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
 
-    // Esc 关窗口：齿轮回到没按下；Ctrl+, 再打开同一个窗口。
+    // Esc 关窗口：焦点回到打开窗口之前的位置（第一次是点齿轮打开的），齿轮回到没按下；Ctrl+, 再打开同一个窗口。
     await page.keyboard.press("Escape");
     await expect(settingsWindow(page)).toHaveCount(0);
+    await expect(workbenchGear(page)).toBeFocused();
     await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "false");
     await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
@@ -350,12 +351,15 @@ test("用户层文件改坏：分区顶部出现说明、控件停用；修好�
     await expect(macos).toBeEnabled();
 });
 
-test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸；切换分区时尺寸不变", async ({page}) => {
+test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸，每次打开居中；切换分区时尺寸不变", async ({page}) => {
     await open(page, "/?project=book");
     await workbenchGear(page).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     const width = async (): Promise<number> => Math.round((await dialog.boundingBox())!.width);
+    // 打开时窗口从略小处放大（nb-ui Dialog 的进场动画）：量尺寸与位置之前等它播完，否则量到的是缩放中的外框。
+    const settled = (): Promise<unknown> => dialog.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    await settled();
     const before = await width();
     // 方向键一次 10px（nb-ui 浮动窗口），收窄两次。
     await dialog.locator("[data-dialog-resize='right']").focus();
@@ -369,10 +373,19 @@ test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸；切�
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await workbenchGear(page).click();
-    await expect.poll(width).toBe(resized);
+    await expect(dialog).toBeVisible();
+    await settled();
+    expect(await width()).toBe(resized);
+    // 收窄时左边不动、窗口偏到左边；位置不记，再打开时重新居中。
+    const box = await dialog.boundingBox();
+    const viewport = page.viewportSize();
+    if (box === null || viewport === null) throw new Error("量不到窗口或视口");
+    expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(1);
 
     await page.reload();
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
     await workbenchGear(page).click();
-    await expect.poll(width).toBe(resized);
+    await expect(dialog).toBeVisible();
+    await settled();
+    expect(await width()).toBe(resized);
 });

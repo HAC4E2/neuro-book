@@ -255,7 +255,7 @@ test("新建作品的对话框：没改过点遮罩关闭、改过不关；选�
     await expect(info).toHaveCount(0);
 });
 
-test("设置的“作品”分区：书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 10）", async ({page}) => {
+test("设置的“作品”分区：没设时显示缺省目录；书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 10）", async ({page}) => {
     await openShelf(page);
     const gear = page.locator("[data-shelf-settings]");
     await gear.click();
@@ -265,7 +265,9 @@ test("设置的“作品”分区：书架的齿轮打开设置；“更改…�
     await window.locator("[data-settings-nav='nbook.works']").click();
     await expect(window.locator("[data-settings-section='nbook.works']")).toContainText("作品目录");
     const library = page.locator("[data-works-library]");
-    await expect(library).toHaveText("还没设，第一次新建作品时会记下");
+    // 没设：显示服务端实际会用的缺省目录（场地 HOME 下的 Documents/NeuroBook）。
+    const fallback = `${join(home, "Documents", "NeuroBook")}（缺省）`;
+    await expect(library).toHaveText(fallback);
 
     const change = page.locator("[data-works-library-change]");
     const picker = page.locator("[data-path-picker]");
@@ -292,7 +294,7 @@ test("设置的“作品”分区：书架的齿轮打开设置；“更改…�
 
     // 恢复默认：键从设置里删掉，回到没设（后面的用例要缺省的作品目录）。
     await page.locator("[data-settings-row='nbook.projects/library'] [data-settings-row-reset]").click();
-    await expect(library).toHaveText("还没设，第一次新建作品时会记下");
+    await expect(library).toHaveText(fallback);
     await expect.poll(async () => parseJsonc(await readFile(settingsFile, "utf8")) as unknown).toEqual({});
 });
 

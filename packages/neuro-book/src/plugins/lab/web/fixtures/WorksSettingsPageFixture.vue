@@ -2,19 +2,20 @@
 /**
  * WorksSettingsPage 的 Lab 场景：配置服务来自设置场景的局部宿主（`settings-scene/`），用户层在内存里；目录选择器用 Lab 的
  * 固定目录树。页面拿到的是 `nbook.projects` 自己的配置服务，与产品一样只能写作品目录。写不进去时页面发的 `write-failed`
- * 记进事件 tab（产品里由插件发通知）。
+ * 记进事件 tab（产品里由插件发通知）。有效的作品目录照服务端的算法（`backend/library.ts`）从这份配置算出。
  */
 import {Button} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref} from "vue";
 
 import {librarySetting} from "nbook/plugins/projects/shared/contracts";
 import WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
+import type {LibraryInfo} from "nbook/plugins/projects/web/shelf-page";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
-import {labPathPickerSource} from "./path-picker-source";
+import {LAB_DEFAULT_LIBRARY, labPathPickerSource} from "./path-picker-source";
 import {createSettingsHost} from "./settings-scene/settings-host";
 import type {HostLayer} from "./settings-scene/settings-host";
 
@@ -25,6 +26,7 @@ const subject = useLabSubject<typeof WorksSettingsPage>(() => props.input, ["wri
 /** 场景 → 用户层的初始内容。 */
 const USER: Readonly<Record<string, HostLayer>> = {
     "unset": {},
+    "default-unknown": {},
     "set": {values: {[librarySetting.key]: "/home/writer/books"}},
     "long": {values: {[librarySetting.key]: "/home/writer/Documents/NeuroBook/一个名字很长很长的作品目录/再往下一层/还有一层"}},
     "write-failed": {values: {[librarySetting.key]: "/home/writer/books"}},
@@ -51,6 +53,13 @@ function toggleFailing(): void {
 
 const settings = host.service("nbook.projects");
 const bindings = computed(() => subject.bindings.value);
+
+/** 场景里的 `library()`：设置有值就是它，没有就是缺省目录；default-unknown 场景取不到。 */
+async function readLibrary(): Promise<LibraryInfo | null> {
+    if (props.scene === "default-unknown") return null;
+    const configured = settings.get(librarySetting).trim();
+    return configured === "" ? {path: LAB_DEFAULT_LIBRARY, source: "default"} : {path: configured, source: "setting"};
+}
 </script>
 
 <template>
@@ -58,6 +67,7 @@ const bindings = computed(() => subject.bindings.value);
         v-bind="bindings"
         :settings="settings"
         :source="labPathPickerSource"
+        :read-library="readLibrary"
         class="works-settings-fixture"
         data-lab-subject
     />

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 设置窗口“作品”分区的页面（同名 .md）：作品目录一行，“更改…”打开书架同一个目录选择器，选定后写进用户层
- * （docs/specs/workbench/bookshelf.md 输出 18）。
+ * 设置窗口“作品”分区的页面（同名 .md）：作品目录一行，“更改…”打开书架同一个目录选择器，选定后写进用户层；没设时显示
+ * 服务端实际会用的缺省目录（docs/specs/workbench/bookshelf.md 输出 18）。
  */
 import {Button} from "@notnotype/nb-ui/components";
-import {ref} from "vue";
+import {ref, watch} from "vue";
 
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
@@ -12,6 +12,7 @@ import type {SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {librarySetting} from "../../shared/contracts";
+import type {LibraryInfo} from "../shelf-page";
 import PathPickerDialog from "./PathPickerDialog.vue";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
 
@@ -22,6 +23,8 @@ const props = defineProps<{
     layer: SettingLayer;
     settings: SettingsService;
     source: PathPickerSource;
+    /** 当前有效的作品目录（产品里是 `nbook.projects/projects` 的 `library()`）；取不到为 null。 */
+    readLibrary: () => Promise<LibraryInfo | null>;
     locale: DisplayLocale;
 }>();
 
@@ -31,7 +34,8 @@ const emit = defineEmits<{
 
 const TEXT = {
     change: {"zh-CN": "更改…", "en-US": "Change…"},
-    unset: {"zh-CN": "还没设，第一次新建作品时会记下", "en-US": "Not set yet; it is remembered when you create your first book"},
+    defaultMark: {"zh-CN": "（缺省）", "en-US": " (default)"},
+    defaultUnknown: {"zh-CN": "取不到缺省目录", "en-US": "Could not read the default folder"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
@@ -40,9 +44,29 @@ const picking = ref(false);
 /** 这次选定、还在写的目录：写入结算之前显示它，结算后回到层里的值。 */
 const pending = ref<string | null>(null);
 
+/** 路径文字；空串为没设。空白同样算没设：服务端按 trim 之后判断（`backend/library.ts`）。 */
 function shown(value: unknown): string {
-    return pending.value ?? (typeof value === "string" ? value : "");
+    return pending.value ?? (typeof value === "string" ? value.trim() : "");
 }
+
+/** 没设时显示的缺省目录。取到之前不显示；再取时保留上一次的结果，免得恢复默认时闪一下。 */
+type Fallback = {readonly status: "loading"} | {readonly status: "ready"; readonly path: string} | {readonly status: "failed"};
+const fallback = ref<Fallback>({status: "loading"});
+let reads = 0;
+
+async function readFallback(): Promise<void> {
+    const token = (reads += 1);
+    const library = await props.readLibrary();
+    if (token !== reads) return;
+    if (library === null) fallback.value = {status: "failed"};
+    // source 是 setting：服务端已读到一个设置值、本页还没收到。收到后就不再是没设，这次结果不显示。
+    else if (library.source === "default") fallback.value = {status: "ready", path: library.path};
+}
+
+// 每次进入没设（打开分区时、恢复默认之后）都向服务端取一次：缺省目录由服务端按它的主目录算出。
+watch(() => shown(props.settings.get(librarySetting)) === "", (unset) => {
+    if (unset) void readFallback();
+}, {immediate: true});
 
 async function pick(path: string): Promise<void> {
     picking.value = false;
@@ -68,7 +92,8 @@ async function pick(path: string): Promise<void> {
             @write-failed="(failure) => emit('write-failed', {code: failure.code, detail: failure.detail})"
         >
             <span v-if="shown(row.value) !== ''" class="works-settings__path" data-works-library>{{ shown(row.value) }}</span>
-            <span v-else class="works-settings__unset" data-works-library data-works-library-empty>{{ text(TEXT.unset) }}</span>
+            <span v-else-if="fallback.status === 'ready'" class="works-settings__path" data-works-library data-works-library-default>{{ fallback.path }}<span class="works-settings__mark">{{ text(TEXT.defaultMark) }}</span></span>
+            <span v-else-if="fallback.status === 'failed'" class="works-settings__unknown" data-works-library data-works-library-default-unknown>{{ text(TEXT.defaultUnknown) }}</span>
             <Button
                 :id="row.id"
                 variant="secondary"
@@ -99,7 +124,7 @@ async function pick(path: string): Promise<void> {
 
 /* 与单行输入同宽（settings-window.md 输出 9）：长路径在任意处折行，不撑破行。 */
 .works-settings__path,
-.works-settings__unset {
+.works-settings__unknown {
     max-width: 320px;
     min-width: 0;
     font-size: var(--text-sm);
@@ -112,7 +137,13 @@ async function pick(path: string): Promise<void> {
     color: var(--text-secondary);
 }
 
-.works-settings__unset {
+/* “（缺省）”是说明，不是路径的一部分：界面字体、淡色。 */
+.works-settings__mark {
+    font-family: var(--font-ui);
+    color: var(--text-muted);
+}
+
+.works-settings__unknown {
     color: var(--text-muted);
 }
 </style>

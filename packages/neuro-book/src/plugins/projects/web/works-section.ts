@@ -16,6 +16,7 @@ import type {SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 import type {BrowseOutcome} from "./browse";
 import {shelfText} from "./messages";
+import type {LibraryInfo} from "./shelf-page";
 
 export const WORKS_SECTION = "nbook.works";
 
@@ -36,6 +37,8 @@ export interface WorksPageOptions {
     readonly settings: SettingsService;
     /** 目录选择器的数据来源（`PathPickerDialog` 的 `source`）。 */
     readonly source: {list(path: string | null): Promise<BrowseOutcome>};
+    /** 当前有效的作品目录（远程 `library()`）；取不到为 null，诊断由提供方记。没设时页面据此显示缺省目录。 */
+    readonly library: () => Promise<LibraryInfo | null>;
     readonly locale: Readonly<Ref<DisplayLocale>>;
     readonly notifications: Notifications;
     /** 记诊断：作品目录没写进设置（用户已经看到通知）。 */
@@ -61,6 +64,7 @@ export function createWorksPage(options: WorksPageOptions): Component {
             layer: props.context.layer.value,
             settings: options.settings,
             source: options.source,
+            readLibrary: options.library,
             locale: options.locale.value,
             onWriteFailed: failed,
         }),

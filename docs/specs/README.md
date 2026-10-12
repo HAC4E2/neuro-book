@@ -198,7 +198,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 双模式、F1–F9 交互、剪贴板与 dirty 策略 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
-| 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections` 与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
+| 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections` 与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList`；待晋升 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

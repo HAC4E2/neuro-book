@@ -113,6 +113,13 @@ export const projectsBrowserPlugin: PluginDefinition = {
                     component: (await import("./components/WorksSettingsPage.vue")).default,
                     settings,
                     source: {list: (path) => browseDirectory(remote, path, locale.value)},
+                    // 取不到时页面原位写一句淡色的说明，不发通知（bookshelf.md 输出 18），这里只记诊断。
+                    library: async () => {
+                        const result = await remote.library({});
+                        if (result.ok) return result.value;
+                        diagnostics.record({level: "warn", event: "projects.library-failed", message: `取作品目录失败：${result.code}`, source: {plugin: descriptor.id}});
+                        return null;
+                    },
                     locale,
                     notifications,
                     report: (message) => diagnostics.record({level: "warn", event: "projects.library-not-saved", message, source: {plugin: descriptor.id}}),

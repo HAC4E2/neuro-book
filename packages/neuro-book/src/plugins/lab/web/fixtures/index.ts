@@ -740,7 +740,8 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof WorksSettingsPage>({
             component: "WorksSettingsPage",
             scenes: [
-                {id: "unset", label: "还没设", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "unset", label: "还没设（显示缺省目录）", input: {props: {locale: "zh-CN", layer: "user"}}},
+                {id: "default-unknown", label: "还没设、取不到缺省目录", input: {props: {locale: "zh-CN", layer: "user"}}},
                 {id: "set", label: "设了（已修改）", input: {props: {locale: "zh-CN", layer: "user"}}},
                 {id: "long", label: "很长的路径", input: {props: {locale: "zh-CN", layer: "user"}}},
                 {id: "write-failed", label: "写不进去", input: {props: {locale: "zh-CN", layer: "user"}}},

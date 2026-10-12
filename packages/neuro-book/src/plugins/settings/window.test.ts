@@ -13,6 +13,7 @@ import {join} from "node:path";
 
 import {ref} from "@vue/reactivity";
 import {defineComponent} from "vue";
+import type {Component} from "vue";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
@@ -223,6 +224,8 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         ]);
         // 刷新后回到第一个分区。
         expect(window.section.value).toBe("x.notes.first");
+        // 没有可列的项的 list 分区停用，以原因作提示。
+        expect(window.nav.value.flatMap((group) => group.items).find((item) => item.id === "x.notes.first")?.unavailable).toBe("这个分区还没有设置项");
     });
 
     it("分区里先列没写小组的项，再按声明的顺序列小组；组内按 order、同值按键；指向没有声明的小组按没写处理并记诊断", async () => {
@@ -354,6 +357,37 @@ describe("page 分区的加载（输出 4–6）", () => {
         expect(loads).toBe(1);
     });
 
+    it("加载结果回来时窗口已关闭：丢弃结果，不挂组件、不记为加载失败；重开时重新加载", async () => {
+        const loads: Array<{readonly resolve: (component: Component) => void; readonly reject: (error: Error) => void}> = [];
+        const control = toggle({implementation: {load: () => new Promise<Component>((resolve, reject) => {
+            loads.push({resolve, reject});
+        })}});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, control)]);
+        const {window} = windowFor(started.probe, false);
+        // 结果经注册表与窗口两层 await 才回到实例：让出一轮事件循环，等它们都结算。
+        const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+        window.openWindow({section: "x.notes.page"});
+        await waitUntil("开始加载", () => loads.length === 1);
+        window.close();
+        loads[0]?.resolve(Page);
+        await settled();
+        expect(window.page("x.notes.page")).toMatchObject({status: "waiting", component: null, error: null});
+
+        window.openWindow({});
+        await waitUntil("重开后再次加载", () => loads.length === 2);
+        window.close();
+        loads[1]?.reject(new Error("页面模块下载失败"));
+        await settled();
+        expect(window.page("x.notes.page")).toMatchObject({status: "waiting", component: null, error: null});
+
+        window.openWindow({});
+        await waitUntil("再次重开后又加载", () => loads.length === 3);
+        loads[2]?.resolve(Page);
+        await waitUntil("加载完", () => window.page("x.notes.page").status === "ready");
+        expect(window.page("x.notes.page").component).toBe(Page);
+    });
+
     it("入口激活失败：原位给原因，“重试”恢复并激活后交付并加载；“重试”进行中时 busy", async () => {
         const control = toggle({fail: true, implementation: {load: async () => Page}});
         const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, control, [], {activationEvents: []})]);
@@ -369,9 +403,11 @@ describe("page 分区的加载（输出 4–6）", () => {
         expect(window.page("x.notes.page").busy).toBe(false);
     });
 
-    it("load() 失败给“重新加载”，再加载成功；渲染出错给“重试”，新代际重建；过期代际的报告丢弃", async () => {
+    it("load() 失败给“重新加载”，进行中再点不发起第二次，再加载成功；渲染出错给“重试”，新代际重建；过期代际的报告丢弃", async () => {
         let broken = true;
+        let loads = 0;
         const control = toggle({implementation: {load: async () => {
+            loads += 1;
             if (broken) throw new Error("页面模块下载失败");
             return Page;
         }}});
@@ -382,7 +418,9 @@ describe("page 分区的加载（输出 4–6）", () => {
         expect(window.page("x.notes.page").error).toBe("页面模块下载失败");
         broken = false;
         window.reloadPage("x.notes.page");
+        window.reloadPage("x.notes.page");
         await waitUntil("重新加载完", () => window.page("x.notes.page").status === "ready");
+        expect(loads).toBe(2);
         const generation = window.page("x.notes.page").generation;
         window.pageRenderFailed("x.notes.page", generation - 1, "旧实例的错误");
         expect(window.page("x.notes.page").status).toBe("ready");

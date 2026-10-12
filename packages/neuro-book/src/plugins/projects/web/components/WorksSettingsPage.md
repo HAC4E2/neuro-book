@@ -9,14 +9,15 @@
 
 ## 布局
 
-一行 [`SettingsRow`](../../../../../ui/settings/SettingsRow.md)（标签列加控件列）：标题“作品目录”与说明；控件是路径文字（至多 320px 宽，长路径在任意处折行）加“更改…”按钮；没设时路径的位置写一句淡色的“还没设，第一次新建作品时会记下”。已修改（用户层写了这个键）时有竖线与“恢复默认”，由 `SettingsRow` 画。窄于约 450px 时控件换到标题下面。
+一行 [`SettingsRow`](../../../../../ui/settings/SettingsRow.md)（标签列加控件列）：标题“作品目录”与说明；控件是路径文字（至多 320px 宽，长路径在任意处折行）加“更改…”按钮；没设时路径的位置是服务端实际会用的缺省目录，后面跟淡色的“（缺省）”（例如 `/home/writer/Documents/NeuroBook（缺省）`），取不到时写一句淡色的“取不到缺省目录”。已修改（用户层写了这个键）时有竖线与“恢复默认”，由 `SettingsRow` 画。窄于约 450px 时控件换到标题下面。
 
 ## 交互
 
 - “更改…”打开目录选择器（选目录模式），起点是现在的作品目录；没设时是缺省的作品目录。选择器是模态对话框，叠在设置窗口上面；`Esc` 与取消只关选择器，焦点回到“更改…”。
 - 在选择器里选定一个目录：关掉选择器，经 `settings.update(librarySetting, 路径, {layer: "user"})` 写进用户层；写入结算之前路径文字显示这次选的目录，写成功后就是层里的值；写不进去时发 `write-failed`，路径文字回到层里的实际值。
 - 写入进行中“更改…”停用，不发起第二次。层文件无效或连不上时（`SettingsRow` 交来 `disabled`）“更改…”停用。
-- “恢复默认”由 `SettingsRow` 删掉用户层的键，回到没设；它没写成时同样发 `write-failed`。
+- “恢复默认”由 `SettingsRow` 删掉用户层的键，回到没设、重新显示缺省目录；它没写成时同样发 `write-failed`。
+- 缺省目录经 `readLibrary` 取：每次进入没设（第一次显示、恢复默认之后）取一次，取到之前不显示路径，再取时保留上一次的结果。结果的 `source` 是 `setting` 时（服务端已读到一个设置值、本页还没收到）不显示它，等设置值到了就不再是没设。取不到不影响“更改…”。
 
 ## 数据
 
@@ -24,6 +25,7 @@
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
+import type {LibraryInfo} from "../shelf-page";
 
 type Props = {
     /** 设置窗口当前的标签（页面上下文的 `context.layer`，由插件交给设置窗口的包装组件读出）；这个分区只在“用户”标签下可用。必填、受控。 */
@@ -32,6 +34,8 @@ type Props = {
     settings: SettingsService;
     /** 目录选择器的数据来源（产品里是 `nbook.projects/projects` 的 `browse`）。必填。 */
     source: PathPickerSource;
+    /** 当前有效的作品目录（产品里是 `nbook.projects/projects` 的 `library()`，`{path, source: "setting" | "default"}`）；取不到为 null，诊断由提供方记。必填。 */
+    readLibrary: () => Promise<LibraryInfo | null>;
     /** 显示语言。必填。 */
     locale: DisplayLocale;
 };
@@ -42,24 +46,24 @@ type Emits = {
 };
 ```
 
-没有 slots、expose；attrs 落在根上。根带 `data-works-settings`，路径文字带 `data-works-library`（没设时另带 `data-works-library-empty`），“更改…”带 `data-works-library-change`。
+没有 slots、expose；attrs 落在根上。根带 `data-works-settings`，路径文字带 `data-works-library`（没设、显示缺省目录时另带 `data-works-library-default`，取不到缺省目录时另带 `data-works-library-default-unknown`），“更改…”带 `data-works-library-change`。
 
 ## 状态
 
-- 没设：路径位置是淡色的提示句，没有已修改竖线。
+- 没设：路径位置是缺省目录加淡色的“（缺省）”，没有已修改竖线；缺省目录取到之前路径位置空着，取不到时是淡色的“取不到缺省目录”。
 - 设了：路径文字、已修改竖线与“恢复默认”。
 - 写入中：路径文字是这次选的目录，“更改…”停用。
 - 层不可写（文件有错、连不上）：“更改…”停用；分区顶部的说明由设置窗口画。
-- 加载、空数据：没有；配置服务的读取是同步的，目录列表的加载与失败在选择器里。
+- 加载、空数据：配置服务的读取是同步的；缺省目录的加载与失败见“没设”；目录列表的加载与失败在选择器里。
 
 ## 隐藏通道理由
 
 - `env:portal`：来自 `PathPickerDialog`（模态对话框传送到 body 或宿主给的传送目标）。
-- `state:local`：选择器开着与否、这次写入中的路径。
+- `state:local`：选择器开着与否、这次写入中的路径、没设时取到的缺省目录。
 
 ## 注意事项
 
-- 写入经属性传入的 `settings` 发出（同 `SettingsRow`）：它是调用方给的、可替换的入口，不是组件自己伸出去的通道。page 分区就是这样写自己插件的项（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 输出 6），设置窗口不认识这个插件的项。
+- 写入经属性传入的 `settings` 发出（同 `SettingsRow`），缺省目录经属性传入的 `readLibrary` 读：它们是调用方给的、可替换的入口，不是组件自己伸出去的通道。page 分区就是这样写自己插件的项（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 输出 6），设置窗口不认识这个插件的项。
 
 ## 不支持
 

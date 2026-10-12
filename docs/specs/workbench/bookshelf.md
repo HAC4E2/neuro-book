@@ -79,7 +79,7 @@ owners:
 
 **设置窗口的“作品”分区**
 
-18. `nbook.projects` 向设置窗口贡献 page 分区 `nbook.works`：标题“作品”、图标 `i-lucide-library`、应用组、`order: 30`、column 页面、只在“用户”标签下可用（`layers: ["user"]`，“本作品”标签下左栏停用）。页面一行“作品目录”（`SettingsRow`）：控件是路径文字加“更改…”；没设时路径的位置写“还没设，第一次新建作品时会记下”。
+18. `nbook.projects` 向设置窗口贡献 page 分区 `nbook.works`：标题“作品”、图标 `i-lucide-library`、应用组、`order: 30`、column 页面、只在“用户”标签下可用（`layers: ["user"]`，“本作品”标签下左栏停用）。页面一行“作品目录”（`SettingsRow`）：控件是路径文字加“更改…”；没设时路径的位置是 `library()` 给出的缺省作品目录，后面标“（缺省）”（例如 `/home/writer/Documents/NeuroBook（缺省）`），恢复默认之后同样；`library()` 失败时写一句淡色的“取不到缺省目录”，“更改…”照常可用。
     - “更改…”打开输出 12 的目录选择器（选目录模式），起点是现在的作品目录，没设时是缺省的作品目录。选择器是模态对话框，叠在设置窗口上面；Esc 与取消只关选择器，焦点回到“更改…”。
     - 选定后经本插件的配置服务写进用户层（`update(librarySetting, 路径, {layer: "user"})`），写入结算之前显示这次选的目录；写不进去时发通知（标题同“作品目录没写进设置”），路径回到设置里的实际值。
     - 已修改、“恢复默认”、设置文件有错误或连不上时停用，同设置窗口的其它项（[`settings.window`](../settings/settings-window.md) 输出 10、13、18）。
@@ -145,7 +145,7 @@ owners:
 8. Given 书架上有作品，When 点网格末尾或列表末行的“新建作品”，Then 打开新建作品的对话框；键盘在网格里按 End 再按 Enter 同样打开，选中的作品不变。
 9. Given 新建作品的对话框，When 什么都没改就点遮罩，Then 对话框关闭；When 填了书名再点遮罩，Then 对话框不关；When 点“浏览…”，Then 目录选择器叠在新建对话框上面，按 Esc 只关选择器、焦点回到“浏览…”；When 打开主题色的“自定义…”，Then 取色面板显示在对话框之上、色相条可以拖动。
 
-10. Given 书架，When 点右上角的齿轮，Then 打开设置窗口、齿轮按下；When 在“作品”分区点“更改…”，Then 目录选择器叠在设置窗口上面，按 Esc 只关选择器、焦点回到“更改…”；When 选定一个目录，Then 它写进用户层设置、分区显示这个路径；When 恢复默认，Then 键从设置里删掉、回到“还没设”。
+10. Given 书架，When 点右上角的齿轮，Then 打开设置窗口、齿轮按下；When 在“作品”分区点“更改…”，Then 目录选择器叠在设置窗口上面，按 Esc 只关选择器、焦点回到“更改…”；When 选定一个目录，Then 它写进用户层设置、分区显示这个路径；When 恢复默认，Then 键从设置里删掉、回到显示缺省作品目录并标“（缺省）”。
 
 Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`ShelfDesk`、`ShelfCards`、`BookCard`、`BookCover`、`ShelfList`、`ProjectInfoDialog`、`PathPickerDialog`、`WorksSettingsPage`。
 
@@ -162,5 +162,5 @@ Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进�
 
 - 批准依据：齿轮代替设置菜单与“作品”分区（输出 1、12、18）为 [t80 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md)第 6 节，开发者 2026-10-12 批准；提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐；2026-10-11 改为卡片与列表、加封面与案头，见决策记录）；取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
 - 实现入口：[`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)（取数、刷新与动作）、[`web/bookshelf-home.ts`](../../../packages/neuro-book/src/plugins/projects/web/bookshelf-home.ts)、[`web/components/BookshelfHost.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfHost.vue)、[`web/components/BookshelfPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue) 及同目录的案头、卡片、封面、列表、作品信息对话框与目录选择器组件、[`web/shelf-preferences.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-preferences.ts)；“作品”分区 [`web/works-section.ts`](../../../packages/neuro-book/src/plugins/projects/web/works-section.ts)、[`web/components/WorksSettingsPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/WorksSettingsPage.vue)、共用的列目录 [`web/browse.ts`](../../../packages/neuro-book/src/plugins/projects/web/browse.ts)；首页贡献点在工作台（[ui.workbench-shell](../ui/workbench-shell.md) 输出 36）
-- 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoDialog.dom.test.ts`、`PathPickerDialog.dom.test.ts`、`WorksSettingsPage.dom.test.ts`（输出 18：空态、选定后写进用户层、写不进去发通知并回到实际值、层不可写时停用）
+- 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoDialog.dom.test.ts`、`PathPickerDialog.dom.test.ts`、`WorksSettingsPage.dom.test.ts`（输出 18：没设时的缺省目录与取不到时的说明、选定后写进用户层、写不进去发通知并回到实际值、层不可写时停用）
 - Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7、8、9、10）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）

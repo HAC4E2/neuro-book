@@ -1,7 +1,8 @@
 /**
  * 设置窗口“作品”分区（同名 .md，docs/specs/workbench/bookshelf.md 输出 18）：插件交给设置窗口的页面（`works-section.ts` 的包装
  * 加 `WorksSettingsPage`）。配置来自设置场景的局部宿主（产品里同一个配置实例，用户层的拥有者在内存里，同设置窗口的组件测试），
- * 页面拿到的是 `nbook.projects` 自己的配置服务；目录选择器列一棵固定的目录树。看空态、选定目录后写进用户层、写入失败发通知并
+ * 页面拿到的是 `nbook.projects` 自己的配置服务；目录选择器列一棵固定的目录树；有效的作品目录照服务端的算法
+ * （`backend/library.ts`）从同一份配置算出。看没设时的缺省目录（取不到时的说明）、选定目录后写进用户层、写入失败发通知并
  * 回到实际值、层不可写时停用。
  */
 
@@ -18,6 +19,7 @@ import type {SettingLayer} from "nbook/shared/settings";
 
 import type {BrowseEntry} from "../../shared/contracts";
 import {librarySetting} from "../../shared/contracts";
+import type {LibraryInfo} from "../shelf-page";
 import {createWorksPage} from "../works-section";
 import WorksSettingsPage from "./WorksSettingsPage.vue";
 
@@ -36,14 +38,21 @@ const TREE: Record<string, {parent: string | null; entries: BrowseEntry[]}> = {
     [`${HOME}/books/2026`]: {parent: `${HOME}/books`, entries: []},
 };
 
-function open(user: HostLayer) {
+/** `library`：false 时取不到有效的作品目录（产品里远程调用失败）。 */
+function open(user: HostLayer, library = true) {
     const notices: NotificationInput[] = [];
     const listed: Array<string | null> = [];
     const host = createSettingsHost({settings: [{plugin: "nbook.projects", definition: librarySetting}], sections: [], user, notify: () => undefined, report: () => undefined});
     cleanup.push(() => host.dispose());
+    const settings = host.service("nbook.projects");
     const page = createWorksPage({
         component: WorksSettingsPage,
-        settings: host.service("nbook.projects"),
+        settings,
+        library: async (): Promise<LibraryInfo | null> => {
+            if (!library) return null;
+            const configured = settings.get(librarySetting).trim();
+            return configured === "" ? {path: LIBRARY, source: "default"} : {path: configured, source: "setting"};
+        },
         source: {list: async (path) => {
             listed.push(path);
             const key = path ?? LIBRARY;
@@ -82,10 +91,11 @@ async function choose(entry: string | null): Promise<void> {
 }
 
 describe("WorksSettingsPage", () => {
-    it("没设：写“还没设，第一次新建作品时会记下”，没有已修改标记；“更改…”从缺省的作品目录开始", async () => {
+    it("没设：显示缺省的作品目录并标“缺省”，没有已修改标记；“更改…”从缺省的作品目录开始", async () => {
         const {listed} = open({});
-        expect(one("[data-works-library]").textContent).toBe("还没设，第一次新建作品时会记下");
-        expect(document.body.querySelector("[data-works-library-empty]")).not.toBeNull();
+        await flushPromises();
+        expect(one("[data-works-library]").textContent).toBe(`${LIBRARY}（缺省）`);
+        expect(document.body.querySelector("[data-works-library-default]")).not.toBeNull();
         expect(document.body.querySelector("[data-settings-row-modified]")).toBeNull();
         one<HTMLButtonElement>("[data-works-library-change]").click();
         await flushPromises();
@@ -111,7 +121,19 @@ describe("WorksSettingsPage", () => {
         one<HTMLButtonElement>("[data-settings-row-reset]").click();
         await flushPromises();
         expect(host.user.values()).toEqual({});
-        expect(document.body.querySelector("[data-works-library-empty]")).not.toBeNull();
+        expect(one("[data-works-library]").textContent).toBe(`${LIBRARY}（缺省）`);
+    });
+
+    it("没设又取不到缺省目录：写一句“取不到缺省目录”，“更改…”照常可用", async () => {
+        open({}, false);
+        await flushPromises();
+        expect(one("[data-works-library]").textContent).toBe("取不到缺省目录");
+        expect(document.body.querySelector("[data-works-library-default-unknown]")).not.toBeNull();
+        const change = one<HTMLButtonElement>("[data-works-library-change]");
+        expect(change.disabled).toBe(false);
+        change.click();
+        await flushPromises();
+        expect(document.body.querySelector("[data-path-picker]")).not.toBeNull();
     });
 
     it("写不进去：发通知“作品目录没有记住”，路径回到层里的实际值", async () => {
