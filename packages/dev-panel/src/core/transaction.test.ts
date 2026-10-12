@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {existsSync} from "node:fs";
+import {mkdtemp, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {cleanupFixtures, createFixture, git, run, taskReadme, writeDeadLock, type Fixture} from "../../tests/git-fixture.js";
 import {acquireRecordsLock} from "./lock.js";
@@ -47,6 +48,40 @@ describe("写事务", () => {
         const context = await locateRepository(fixture.main);
         await expect(createWork(context, {slug: "x", title: "x", goal: "x", taskSlug: "y"})).rejects.toMatchObject({code: "main_not_on_master"});
         expect(await git(fixture.main, "status", "--porcelain", "--ignored")).toBe("");
+    });
+
+    test("主工作区正在合并：报 main_busy，不写任何东西", async () => {
+        const fixture = await createFixture("tx-busy");
+        await writeFile(join(fixture.main, ".git/MERGE_HEAD"), `${await git(fixture.main, "rev-parse", "HEAD")}\n`);
+        await expect(createTask(await locateRepository(fixture.main), {workRef: "w00001", slug: "x", title: "x"})).rejects.toMatchObject({code: "main_busy"});
+        expect(await git(fixture.main, "status", "--porcelain", "--ignored")).toBe("");
+    });
+
+    test("等锁期间主工作区切走了 master：拿到锁后复查发现，报 main_not_on_master，不写任何东西", async () => {
+        const fixture = await createFixture("tx-recheck");
+        const context = await locateRepository(fixture.main);
+        const held = await acquireRecordsLock(fixture.main);
+        const pending = createTask(context, {workRef: "w00001", slug: "late", title: "晚到"});
+        const settled = pending.then(() => null, (error: unknown) => error);
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
+        await git(fixture.main, "checkout", "--quiet", "-b", "elsewhere");
+        await held.release();
+        expect(await settled).toMatchObject({code: "main_not_on_master"});
+        expect(await git(fixture.main, "status", "--porcelain", "-uall")).toBe("");
+    });
+
+    test.skipIf(!existsSync("/dev/shm"))(".local 在另一个文件系统上：报 cross_device，不写记录", async () => {
+        const fixture = await createFixture("tx-cross-device");
+        const elsewhere = await mkdtemp("/dev/shm/nbdev-cross-device-");
+        try {
+            if ((await stat(elsewhere)).dev === (await stat(fixture.main)).dev) return;
+            await symlink(elsewhere, join(fixture.main, ".local"));
+            await expect(createTask(await locateRepository(fixture.main), {workRef: "w00001", slug: "x", title: "x"})).rejects.toMatchObject({code: "cross_device"});
+            // 只剩测试自己建的 .local 符号链接（.gitignore 只忽略 .local 下的内容）。
+            expect(await git(fixture.main, "status", "--porcelain", "-uall")).toBe("?? .local");
+        } finally {
+            await rm(elsewhere, {recursive: true, force: true});
+        }
     });
 
     test("task new 要求 Work README 已提交；未跟踪的 Work 报 work_not_committed", async () => {

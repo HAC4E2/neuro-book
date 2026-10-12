@@ -172,6 +172,7 @@ async function currentToken(lockDir: string): Promise<string | null> {
  */
 export async function acquireRecordsLock(mainRoot: string, waitMs: number = DEFAULT_LOCK_WAIT_MS): Promise<RecordsLock> {
     const {lockDir, tmpRoot} = agentPaths(mainRoot);
+    await mkdir(tmpRoot, {recursive: true});
     const startTicks = await processStartTicks(process.pid);
     if (startTicks === null) throw new NbdevError("lock_failed", "读不到本进程的启动时刻（需要 Linux 的 /proc）");
     const owner: LockOwner = {

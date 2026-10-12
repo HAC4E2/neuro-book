@@ -16,7 +16,8 @@ describe("命令行合同", () => {
         const fixture = await createFixture("cli-work-new");
         const worktreeA = await fixture.addWorktree("w00001-a", "feat/a");
         const worktreeB = await fixture.addWorktree("w00001-b", "feat/b");
-        await fixture.addWork("w00004-placeholder", ["t01-a"]);
+        // 主工作区里未跟踪的占号目录是所有来源里的最大号：扫描漏掉主工作区时会发出 w00010。
+        await fixture.addWork("w00010-placeholder", ["t01-a"]);
         await fixture.addWork("w00006-branch-only", ["t01-a"], worktreeB);
         await fixture.commit("branch-only work", worktreeB);
         await git(fixture.main, "checkout", "--quiet", "-b", "remote-source");
@@ -30,15 +31,15 @@ describe("命令行合同", () => {
 
         const result = await fixture.cli(["work", "new", "panel", "--title", "面板", "--goal", "做个面板。", "--task", "design", "--json"], worktreeA);
         expect(result.exitCode).toBe(0);
-        expect(result.json).toMatchObject({schema: "nbdev.work-new/v1", ok: true, data: {workId: "w00009-panel", taskId: "t01-design", commit: {committed: true}}});
+        expect(result.json).toMatchObject({schema: "nbdev.work-new/v1", ok: true, data: {workId: "w00011-panel", taskId: "t01-design", commit: {committed: true}}});
         expect(result.json?.data?.registryOnly).toEqual([]);
-        expect(await readFile(join(fixture.main, ".agents/works/w00009-panel/README.md"), "utf8")).toContain("## 目标\n\n做个面板。");
+        expect(await readFile(join(fixture.main, ".agents/works/w00011-panel/README.md"), "utf8")).toContain("## 目标\n\n做个面板。");
         expect(await git(fixture.main, "rev-parse", "HEAD~1")).toBe(before);
         expect((await git(fixture.main, "show", "--name-only", "--format=", "HEAD")).split("\n").sort()).toEqual([
-            ".agents/works/w00009-panel/README.md",
-            ".agents/works/w00009-panel/tasks/t01-design/README.md",
+            ".agents/works/w00011-panel/README.md",
+            ".agents/works/w00011-panel/tasks/t01-design/README.md",
         ]);
-        expect(await readdir(join(worktreeA, ".agents/works"))).not.toContain("w00009-panel");
+        expect(await readdir(join(worktreeA, ".agents/works"))).not.toContain("w00011-panel");
     });
 
     test("场景 2：task new 之后，主工作区暂存区里别人的改动仍在暂存区，没有进提交", async () => {

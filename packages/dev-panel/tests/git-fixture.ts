@@ -16,19 +16,30 @@ export const CLI_PATH = resolve(import.meta.dirname, "..", "src", "cli.ts");
 
 export type RunResult = {exitCode: number; stdout: string; stderr: string};
 
-export function run(command: string, args: readonly string[], cwd: string, input?: string): Promise<RunResult> {
+/** 运行子进程；超过 `timeoutMs` 就 SIGKILL 结束它并报错，测试超时不会留下孤儿进程。 */
+export function run(command: string, args: readonly string[], cwd: string, input?: string, timeoutMs = 60_000): Promise<RunResult> {
     return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn(command, [...args], {cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"]});
         let stdout = "";
         let stderr = "";
+        const timer = setTimeout(() => {
+            child.kill("SIGKILL");
+            rejectPromise(new Error(`${command} ${args.join(" ")} 超过 ${timeoutMs} 毫秒，已结束；stderr：${stderr}`));
+        }, timeoutMs);
         child.stdout.on("data", (chunk: Buffer) => {
             stdout += chunk.toString("utf8");
         });
         child.stderr.on("data", (chunk: Buffer) => {
             stderr += chunk.toString("utf8");
         });
-        child.on("error", rejectPromise);
-        child.on("close", (code) => resolvePromise({exitCode: code ?? 1, stdout, stderr}));
+        child.on("error", (error) => {
+            clearTimeout(timer);
+            rejectPromise(error);
+        });
+        child.on("close", (code) => {
+            clearTimeout(timer);
+            resolvePromise({exitCode: code ?? 1, stdout, stderr});
+        });
         child.stdin.end(input ?? "");
     });
 }

@@ -101,6 +101,13 @@ describe("过渡期：判定没迁的 Work", () => {
         await expect(readProjectStatus(context)).rejects.toMatchObject({code: "master_not_found"});
     });
 
+    test("整个 Work 目录未跟踪时，Work 与 Task 都标 uncommitted", async () => {
+        const fixture = await createFixture("sources-untracked-work");
+        await fixture.addWork("w00002-untracked", ["t01-a"]);
+        const {status} = await readProjectStatus(await locateRepository(fixture.main), {workRef: "w00002"});
+        expect([status.works[0]?.uncommitted, status.works[0]?.tasks[0]?.uncommitted]).toEqual([true, true]);
+    });
+
     test("执行 worktree：目录名优先于最近改动，时间相同按路径排序", async () => {
         const fixture = await createFixture("sources-choose");
         const taskWorktree = await fixture.addWorktree("w00002-t03-slice", "feat/w00002-t03");
