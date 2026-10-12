@@ -11,6 +11,7 @@ export const ERROR_EXIT_CODES = {
     invalid_artifact_id: 2,
     invalid_questions: 2,
     invalid_answer: 2,
+    unsafe_host: 2,
     repository_not_found: 5,
     records_root_not_found: 5,
     work_not_found: 5,
@@ -20,6 +21,7 @@ export const ERROR_EXIT_CODES = {
     question_not_found: 5,
     entry_missing: 5,
     no_answers: 5,
+    panel_not_running: 5,
     shim_target_not_found: 5,
     main_not_on_master: 3,
     main_busy: 3,
@@ -38,6 +40,8 @@ export const ERROR_EXIT_CODES = {
     uncommitted_changes: 3,
     unsafe_path: 3,
     shim_exists: 3,
+    panel_running: 3,
+    port_in_use: 3,
     wait_timeout: 4,
     wait_interrupted: 4,
     lock_timeout: 1,
@@ -51,6 +55,7 @@ export const ERROR_EXIT_CODES = {
     schema_unsupported: 1,
     invalid_record: 1,
     number_exhausted: 1,
+    build_failed: 1,
     internal: 1,
 } as const;
 

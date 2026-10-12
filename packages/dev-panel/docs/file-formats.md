@@ -58,10 +58,12 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 ```text
 .local/agent/
 ├── registry.json            # 登记表
+├── panel.json               # 在跑的面板（nbdev.panel/v1），见“面板的运行时文件”
 ├── registry.json.lock/      # 写事务的锁目录（事务进行中才有）
 │   └── owner.json           # 持锁者：nbdev.lock-owner/v1，token、pid、进程启动时刻、命令行、cwd
 └── run/
     ├── leases/<leaseId>.json  # 租约（nbdev.lease/v1），见下一节
+    ├── panel.lock             # 面板锁：同一个主工作区同一时刻只跑一个面板
     ├── procs/                 # 经 nbdev 起的进程（t14 起写）
     └── tmp/                   # 写事务的临时目录 <txid>/，以及组装中或接管下来的锁目录；用完删除
 ```
@@ -74,6 +76,24 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - 等锁最多 30 秒，超时报 `lock_timeout`，带上持锁者的 pid、启动时间、命令行与 cwd。
 - `run/tmp/` 必须与 `.agents/works/` 在同一个文件系统上（新目录靠 `rename` 原子地落位），否则报 `cross_device`。
 - 中断的事务可能留下 `run/tmp/<txid>/`，不自动清理。
+
+## 面板的运行时文件
+
+`panel serve` 起来以后写 `.local/agent/panel.json`，退出时删掉：
+
+```json
+{
+    "schema": "nbdev.panel/v1",
+    "pid": 12345, "startTicks": "987654", "startedAt": "2026-10-13T08:00:00.000Z",
+    "instanceId": "1f2e3d4c5b6a7980",
+    "url": "http://127.0.0.1:4400", "artifactUrl": "http://127.0.0.1:4401",
+    "token": "<64 位 hex 的启动令牌>"
+}
+```
+
+- 权限 600：`token` 是登录用的启动令牌（`panel open` 用它签一次性登录票据），只在这份文件里。
+- 先写临时文件再改名（原子）；退出时只删 `pid` 与 `startTicks` 都是自己的那份。读的一方按 `pid` 加启动时刻判断面板是否真的在跑。
+- `run/panel.lock` 记持锁的面板进程（`pid`、`startTicks`、`startedAt`），独占创建；持锁者已退出时接管。
 
 ## 租约
 

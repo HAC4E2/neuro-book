@@ -29,6 +29,8 @@
 | `nbdev answers [<workRef> [<taskRef> [<artifactId>]]]` | `--pending` 或 `--unacked`；`--wait`、`--timeout <秒>`、`--since <答复 id>`（`--wait` 不与 `--pending` 同用）；`--as` | `nbdev.answers/v1` |
 | `nbdev answers ack <workRef> <taskRef> <artifactId>` | `--through <cursor>`、`--include <路径>`（可重复）、`--as` | `nbdev.answers-ack/v1` |
 | `nbdev answers record <workRef> <taskRef> <artifactId>` | `--set <题号>=<值>`（可重复，至少一个；`multi` 用逗号分隔，`confirm` 写 `yes` 或 `no`）、`--comment <题号>=<文字>`（可重复）、`--note`、`--as` | `nbdev.answers-record/v1` |
+| `nbdev panel serve` | `--host`（只接受 `127.0.0.1`、`::1`、`localhost`，缺省 `127.0.0.1`）、`--port`（缺省 4400）、`--artifact-port`（缺省 4401）、`--no-build`（不构建，用现有的 `dist/web`）或 `--static-dir <目录>`（用现成的前端产物） | `nbdev.panel-serve/v1` |
+| `nbdev panel open` | `--print`（只打印登录链接，不打开浏览器） | `nbdev.panel-open/v1` |
 
 - `workRef` 是完整 id（`w00022-dev-panel`）或编号（`w00022`）；`taskRef` 是完整 id 或编号（`t06`、`t100`）。
 - `<提问>` 写 `<artifactId>#<题号>`；Task 提问集里的题可以只写题号。`--by` 另可写 `<workRef>/<taskRef>/<artifactId>#<题号>` 指向别的 Task。
@@ -43,6 +45,7 @@
 - `status`：只读，不取锁，不写任何文件，不加载页面解析器；herdr 只调只读方法，总时限 2.5 秒。
 - `artifact publish`：页面文件由会话直接写在主工作区的产物目录里；在写事务的锁内读上一版、列页面文件、解析提问标记、算 `contentHash`、生成新的题表，写 `versions/v<N>.json`，与产物目录里 Git 有变化的页面文件（不含删除项与 `answers/`）一起提交。内容与题都没变时不出新版本（`unchanged: true`），`--force-version` 照样出。格式与题表规则见 [文件格式](file-formats.md#产物)。
 - `artifact close`、`ask`、`ask withdraw`、`ask supersede`：各写一版新的发布记录，沿用上一版的内容字段，页面不重新解析。`ask` 不给 `--artifact` 时记进 Task 的提问集（`artifacts/questions/`，第一次登记时建它）；指向已关闭的产物报 `artifact_closed`。Task 的提问集不能 `artifact close`（`usage`）：它不能发布，关了就没法重新打开，不要的题逐题 `ask withdraw`。`--about` 只校验路径格式，主工作区与调用者的 checkout 里都找不到时给 `about_not_found` 警告。
+- `panel serve`、`panel open`：见 [面板](panel.md)。`panel serve` 在前台运行，收到 SIGINT、SIGTERM、SIGHUP 时收口退出（退出码 0）。
 - `answers record`：写一份代录的答复（`submittedBy.kind: "agent-transcribed"`）；`--set`、`--comment` 的题号不合格式、或同一道题给了两次时报 `usage`。`answers --since` 不是答复 id 的写法时报 `usage`。`answers ack`：写一份确认，并把 `--include` 列出的记录（相对主工作区根，只收 `.agents/works/` 下的普通文件；目录与被 `.gitignore` 忽略的文件在写任何东西之前报 `usage`）放进同一个提交。`--through` 填读答复时输出里的 `cursor`：只确认 id 不大于它的未确认答复（同一个 `answers/` 目录里 id 在锁内单调生成，不大于游标就是会话读之前已落位），比它新的留着、给 `newer_answers_unacked`。不给 `--through` 时确认锁内看到的全部未确认答复，其中可能有会话没读过的，给 `ack_without_through`。要确认的答复为空时不写，给 `already_acked`，`--include` 的文件也不提交；但有上次提交失败的残留时照样把残留与 `--include` 的文件一起补交（见下文“提交失败后的补救”）。
 - 这些写入都要求：Work README 与 Task README 已提交到 `master`（否则 `work_not_committed`、`task_not_committed`）；Task 的来源是 `master`（判定同 `task status`：来自分支的 Work 里，只在 `master` 上的 Task 或经 nbdev 领号的 Task 可以写，否则 `branch_maintained_record`）。发布、答复、确认都不改 Task README 的 `updated`。
 - 写完之后续期调用者在这个 Task 上的租约，再把“谁写的”记进运行时的 provenance（见 [文件格式](file-formats.md#provenance)）；入库的文件里没有会话。
@@ -102,11 +105,11 @@ stdout 只有一个对象，诊断走 stderr：
 | 退出码 | 含义 | 错误码 |
 |---|---|---|
 | 0 | 成功，含带警告的成功与撞号 | |
-| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`internal` |
-| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer` |
-| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed` |
+| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`internal` |
+| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host` |
+| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`panel_running`、`port_in_use` |
 | 4 | 等待没有结果（`answers --wait`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted` |
-| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers` |
+| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers`、`panel_not_running` |
 
 ## 警告
 
@@ -146,6 +149,8 @@ stdout 只有一个对象，诊断走 stderr：
 | `image_too_large` | 产物目录里有超过 300 KiB 的图片 |
 | `task_images_too_large` | 这个 Task 的 `artifacts/` 与 `evidences/` 里的图片合计超过 5 MiB |
 | `artifact_deletions_not_committed` | 产物目录里有被删的文件，没有随发布提交 |
+| `build_failed` | `panel serve`：前端构建失败，用的是旧的产物（没有旧产物时是错误） |
+| `open_failed` | `panel open`：没能用 `xdg-open` 打开浏览器，链接照样打印出来 |
 | `already_closed` | 产物已经关闭，没有出新版本 |
 | `wait_scope_empty` | `answers --wait` 开始时范围里还没有产物；照常等，等待期间新建的产物会加入范围 |
 | `already_acked` | 要确认的答复（给了 `--through` 时为不比它新的）都已确认，没有写新的确认；有残留时照样补交残留与 `--include` 的文件 |

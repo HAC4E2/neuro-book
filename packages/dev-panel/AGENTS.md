@@ -2,7 +2,7 @@
 
 本包位于 `packages/dev-panel`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。本文件只保留本包的专属规则。
 
-`@notnotype/dev-panel` 是开发者项目面板与命令行 `nbdev` 的核心库，是开发工具，不是 NeuroBook 产品功能：不进 Product、Desktop 与发布产物，不改 `docs/specs/`。方案与取舍见 [Proposal](../../docs/proposals/dev-panel.md)，术语与不变量见 [`CONTEXT.md`](CONTEXT.md)，命令行合同见 [`docs/cli.md`](docs/cli.md)，文件格式见 [`docs/file-formats.md`](docs/file-formats.md)，herdr 的接口、白名单与降级见 [`docs/herdr.md`](docs/herdr.md)。
+`@notnotype/dev-panel` 是开发者项目面板与命令行 `nbdev` 的核心库，是开发工具，不是 NeuroBook 产品功能：不进 Product、Desktop 与发布产物，不改 `docs/specs/`。方案与取舍见 [Proposal](../../docs/proposals/dev-panel.md)，术语与不变量见 [`CONTEXT.md`](CONTEXT.md)，命令行合同见 [`docs/cli.md`](docs/cli.md)，面板见 [`docs/panel.md`](docs/panel.md)，文件格式见 [`docs/file-formats.md`](docs/file-formats.md)，herdr 的接口、白名单与降级见 [`docs/herdr.md`](docs/herdr.md)。
 
 ## 边界
 
@@ -11,6 +11,7 @@
 - `src/index.ts` 与 `src/core/` 只用 Node 兼容 API（根脚本测试在 Node 下导入它们），由两层保证：`tsconfig.core.json` 只带 Node 类型，并把 `bun`、`bun:*` 指到空模块 `types/no-bun-in-core.d.ts`，类型检查拦住 `Bun` 全局与从 bun 模块取导出；`scripts/ci/dev-panel-records.test.ts` 在 Node 下导入公开入口，运行时再拦一次。不要在核心里用 `Bun.*` 或 `bun:*`。
 - 记录锁是本包自己实现的目录锁（`src/core/lock.ts`），持锁者是否存活按 `/proc/<pid>/stat` 的启动时刻判断，没有心跳；不要换回按 mtime 判过期的锁库。
 - 只支持 Linux。
+- `src/server/` 是面板服务（Bun），只在 `nbdev panel serve`、`panel open` 里按需导入，命令行的其它命令不加载它；合同见 [`docs/panel.md`](docs/panel.md)。
 - 页面解析用 `parse5`，只在发布路径里经 `parseQuestionMarkup` 按需导入；`status` 等读取路径不能加载它（`tests/artifacts-cli.test.ts` 用 `tests/no-parse5-preload.ts` 检查）。
 
 ## 测试

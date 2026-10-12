@@ -46,6 +46,11 @@ export async function readHerdrSnapshot(herdr: HerdrClient | null, warnings: War
         warnings.push({code: "herdr_unavailable", message: `读 herdr 的 pane 列表失败：${error.message}`, details: {code: error.code, socketPath: herdr.socketPath}});
         return {available: false, socketPath: herdr.socketPath, version: availability.version, panes: [], processes: null};
     }
+    return {available: true, socketPath: herdr.socketPath, version: availability.version, panes, processes: await readPaneProcesses(herdr, panes, warnings)};
+}
+
+/** 各 pane 的进程信息（并发；单个 pane 失败就跳过并给 `herdr_partial`）。面板用自己维护的 pane 列表调它，不再另取 pane 列表。 */
+export async function readPaneProcesses(herdr: HerdrClient, panes: readonly HerdrPane[], warnings: Warning[]): Promise<PaneProcesses[]> {
     const failed: string[] = [];
     const infos = await Promise.all(panes.map(async (pane) => {
         try {
@@ -62,7 +67,7 @@ export async function readHerdrSnapshot(herdr: HerdrClient | null, warnings: War
         const pane = panes[index]!;
         if (info) processes.push({paneId: pane.paneId, shellPid: info.shellPid, foregroundPids: info.foregroundPids, session: pane.session});
     }
-    return {available: true, socketPath: herdr.socketPath, version: availability.version, panes, processes};
+    return processes;
 }
 
 /** 一批 (Work, Task) 的当前状态：按过渡期规则从 master 或执行 worktree 读 README；读不到或没写状态为 null。 */
@@ -105,10 +110,13 @@ export async function buildLeaseContext(mainRoot: string, transition: Transition
     };
 }
 
-/** 汇总租约、会话与运行。`selfPid` 的进程与它的祖先不算运行（本次调用 nbdev 的那条命令）。 */
-export async function readActivity(mainRoot: string, transition: TransitionState, options: {herdr: HerdrClient | null; now: Date; selfPid: number}): Promise<{activity: Activity; warnings: Warning[]}> {
+/**
+ * 汇总租约、会话与运行。`selfPid` 的进程与它的祖先不算运行（本次调用 nbdev 的那条命令）。
+ * 给了 `snapshot`（面板自己维护的 herdr 状态）就不再调 herdr 取 pane 列表，会话页与活动用同一份 herdr 状态。
+ */
+export async function readActivity(mainRoot: string, transition: TransitionState, options: {herdr: HerdrClient | null; now: Date; selfPid: number; snapshot?: HerdrSnapshot}): Promise<{activity: Activity; warnings: Warning[]}> {
     const warnings: Warning[] = [];
-    const snapshot = await readHerdrSnapshot(options.herdr, warnings);
+    const snapshot = options.snapshot ?? await readHerdrSnapshot(options.herdr, warnings);
     const {leases: records, warnings: leaseWarnings} = await readLeases(mainRoot);
     warnings.push(...leaseWarnings);
     const leaseContext = await buildLeaseContext(mainRoot, transition, records, snapshot, options.now);

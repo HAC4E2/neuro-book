@@ -18,7 +18,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 |---|---|---|
 | `HERDR_READ_METHODS` | `ping`、`pane.list`、`pane.process_info` | `status`、`lease list` |
 | `HERDR_CLI_METHODS` | 上面三个加 `pane.report_metadata` | 写命令（只为写调用者自己 pane 的标签） |
-| 面板的清单 | 由 t11 按 Proposal 第八节第 7 条定，其中没有 `pane.report_metadata` | 面板 |
+| `HERDR_PANEL_READ_METHODS` | `HERDR_READ_METHODS` 加 `session.snapshot`、`events.subscribe`；t11、t12 再按 Proposal 第八节第 7 条补齐，其中没有 `pane.report_metadata` | 面板 |
 
 ## 用到的接口
 
@@ -28,6 +28,8 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `pane.list` | 各 pane 上是哪个 Agent 会话、状态 | `pane_id`、`terminal_id`、`agent`、`agent_status`、`agent_session {agent, kind, value}`；Claude 的 `value` 是会话 id，omp 的是会话文件路径 |
 | `pane.process_info` | pane 的 shell 与前台进程（运行归属、omp 的主进程、写标签前确认调用者在这格 pane 的前台） | `shell_pid`、`foreground_process_group_id`、`foreground_processes[].pid`；pane 不存在为 `pane_not_found` |
 | `pane.report_metadata` | 写或清 `work`、`task` 两个 token | `source: "nbdev"`、`tokens`（值为 `null` 即清除）、`ttl_ms: 86400000` |
+| `session.snapshot`（面板） | 全部 pane、所在 workspace 与各 Agent 的状态序号 | `{type: "session_snapshot", snapshot: {version, workspaces[], panes[], agents[]}}`；`panes[]` 带 `cwd`、`foreground_cwd`、`agent_status`、`agent_session`，`agents[]` 带 `state_change_seq` |
+| `events.subscribe`（面板） | pane 增减与状态变化的推送 | 单独一条长连接：先回 `{id, result: {type: "subscription_started"}}`，之后每行一个 `{event, data}`；订阅类型由面板写死，不订带终端正文的 `pane.output_matched` |
 
 认调用者与 `status` 都直接用 `pane.list` 带的 `agent`、`agent_session`、`agent_status`，不调 `agent.list`、`agent.get`（所以它们不在白名单里）；各 pane 的 `process_info` 并发调用，单个失败就跳过这格并给 `herdr_partial` 警告。
 
@@ -54,6 +56,16 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 看不见的：脱离终端又没有任何工具标记的进程（codex 守护进程、`claude bg-pty-host`、Claude 的 daemon 与 spare）、VS Code 的进程与 VS Code 终端里起的进程、别的终端模拟器里起的进程。它们要么不是运行，要么 nbdev 无从知道是谁起的。会话已经结束、但带着它的 Claude 工具标记的进程看得见，见上面第 4 条。
 
 运行的 `checkout` 取 cwd 所在的最深的 checkout（worktree 在主工作区的 `.worktree/` 下）。`command` 是运行树根进程的命令行；根进程是 Claude Bash 工具的包装（`zsh -c source …/shell-snapshots/… && … && eval '<命令>'`）时显示 eval 里的命令，取不到就显示第一个后代的命令行。
+
+## 面板的订阅与对账
+
+面板常驻一份 herdr 状态（快照加订阅），会话页与活动（谁在动、运行的归属）共用它，不再各自调 `pane.list`。
+
+- **订阅**：全局订阅 `pane.created`、`pane.closed`、`pane.updated`、`pane.moved`、`pane.exited`、`pane.agent_detected`、`workspace.created`、`workspace.closed`、`workspace.renamed`；`pane.agent_status_changed` 只能逐格订阅，每格有 Agent 的 pane 订一条。pane 集合变了（含 `pane.moved`：跨 workspace 移动会换 id）就开一条新的订阅连接，等它回 `subscription_started` 再关旧的，然后用快照对账一次。
+- **没有 `events_lost`**：协议 22 没有这个事件。订阅连接断开就当作可能漏了事件：退避重连，重连后用快照对账。退避的初值 500 毫秒、每次乘 2、上限 30 秒，再加 0 到 20% 的抖动；herdr 不可用时用同样的退避重试快照。
+- **对账**：每 30 秒一次快照。某格 Agent 的 `state_change_seq` 与记下的不同、而面板手上的状态又不是快照里的，就是漏了状态事件，计进 `/api/sessions` 的 `herdr.missedEvents`。
+- **轮询退路**：真实会话上 `pane.agent_status_changed` 会不会推送没有核实（命名会话里的假 pane 不推；默认 server 上观察期间没有状态变化），所以有浏览器连着时每 500 毫秒轮询一次 `pane.list`，事件只当加速；新出现或消失的 pane 触发快照对账。
+- herdr 不阻塞面板开始服务：面板先用“herdr 不可用”的状态起来，快照随后补上。
 
 ## 版本与降级
 
