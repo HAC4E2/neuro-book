@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-rule-followups
-status: planned
+status: active
 ---
 
 # 已确认的规则跟进
