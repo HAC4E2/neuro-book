@@ -221,8 +221,8 @@ async function checkImages(mainRoot: string, workId: string, taskId: string, ref
     if (total > TASK_IMAGE_LIMIT_BYTES) warnings.push({code: "task_images_too_large", message: `这个 Task 入库的图片合计 ${total} 字节，超过 5 MiB：转成 WebP 或缩小，原图留在 ${shots}`, details: {totalBytes: total, limit: TASK_IMAGE_LIMIT_BYTES}});
 }
 
-/** 产物目录里 Git 有变化的文件（不含删除项）；`versions/` 下没提交的只在 `withVersions` 时算上（`--force-version` 的补救）。 */
-async function changedArtifactFiles(mainRoot: string, ref: ArtifactRef, withVersions: boolean): Promise<{changed: string[]; deleted: string[]}> {
+/** 产物目录里 Git 有变化的页面文件（不含删除项）；`versions/`、`answers/` 由 nbdev 写，残留另由 `includeResidue` 收。 */
+async function changedArtifactFiles(mainRoot: string, ref: ArtifactRef): Promise<{changed: string[]; deleted: string[]}> {
     const dir = artifactDirPath(ref);
     const entries = splitNul(await gitOutput(mainRoot, ["status", "--porcelain", "-z", "-uall", "--no-renames", "--", `${dir}/`], {readOnly: true}));
     const changed: string[] = [];
@@ -231,11 +231,30 @@ async function changedArtifactFiles(mainRoot: string, ref: ArtifactRef, withVers
         const code = entry.slice(0, 2);
         const path = entry.slice(3);
         const inner = path.slice(dir.length + 1);
-        if (inner.startsWith("answers/") || (inner.startsWith("versions/") && !withVersions)) continue;
+        if (inner.startsWith("answers/") || inner.startsWith("versions/")) continue;
         if (code.includes("D")) deleted.push(path);
         else changed.push(path);
     }
     return {changed, deleted};
+}
+
+/**
+ * 把这个产物 `versions/`、`answers/` 里还没进 HEAD 的文件（未跟踪，或暂存了没提交）登记进本次提交。两个目录只由 nbdev 写，
+ * 这样的文件只可能是上一次提交失败的残留；不顺带提交，Git 里就会出现跳号的发布记录、引用了缺失答复的确认。
+ */
+async function includeResidue(tx: WriteTx, mainRoot: string, ref: ArtifactRef): Promise<string[]> {
+    const dir = artifactDirPath(ref);
+    const entries = splitNul(await gitOutput(mainRoot, ["status", "--porcelain", "-z", "-uall", "--no-renames", "--", `${dir}/versions/`, `${dir}/answers/`], {readOnly: true}));
+    const residue = entries.filter((entry) => entry.startsWith("??") || entry.startsWith("A")).map((entry) => entry.slice(3)).sort();
+    if (residue.length > 0) {
+        tx.includePaths(residue);
+        tx.warn({code: "residual_records_committed", message: `${dir} 里有 ${residue.length} 个上次提交失败留下的记录文件，这次一起提交`, details: {paths: residue}});
+    }
+    return residue;
+}
+
+function residueMessage(workId: string, taskId: string, artifactId: string): string {
+    return commitMessage(workId, taskId, `补交 ${artifactId} 上次没提交的记录`);
 }
 
 /** 键排好序的序列化：读回来的记录与新算的记录键顺序可能不同，比较内容时不能受它影响。 */
@@ -254,7 +273,8 @@ function sameContent(left: ArtifactVersion, right: ArtifactVersion): boolean {
 
 /**
  * `nbdev artifact publish`：页面文件由会话写在主工作区的产物目录里，这里解析提问、算哈希、生成题表，
- * 写一份发布记录并与有变化的页面文件一起提交。内容与题都没变时不出新版本（`--force-version` 除外）。
+ * 写一份发布记录并与有变化的页面文件一起提交。内容与题都没变时不出新版本（`--force-version` 除外）；
+ * 这时若有上次提交失败的残留，补交残留与有变化的页面文件，所以发布提交失败后重跑同一条命令即可补救。
  */
 export async function publishArtifact(context: RepoContext, input: PublishInput, options: ArtifactOpOptions = {}): Promise<WriteOutcome<PublishData>> {
     assertArtifactId(input.artifactId);
@@ -267,6 +287,7 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
         const ref = {workId, taskId, artifactId: input.artifactId};
         const dir = artifactDirPath(ref);
         const snapshot = await readForWrite(mainRoot, ref);
+        const residue = await includeResidue(tx, mainRoot, ref);
         const previous = snapshot.latest;
         const entry = input.entry ?? previous?.entry ?? "index.html";
         try {
@@ -320,13 +341,16 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
         } : null;
         const base = {workId, taskId, artifactId: input.artifactId, questions: next.questions, dropped: next.dropped, retiredInPage: next.retiredInPage, restored: next.restored, previous: previousInfo};
         if (previous && !input.forceVersion && previous.state === "open" && sameContent(previous, record)) {
-            return {message: null, result: {...base, unchanged: true, version: null, path: null, committedFiles: []}};
+            if (residue.length === 0) return {message: null, result: {...base, unchanged: true, version: null, path: null, committedFiles: []}};
+            const {changed} = await changedArtifactFiles(mainRoot, ref);
+            tx.includePaths(changed);
+            return {message: residueMessage(workId, taskId, input.artifactId), result: {...base, unchanged: true, version: null, path: null, committedFiles: [...residue, ...changed]}};
         }
         const path = versionPath(ref, version);
         versionContent = serialize(record);
         tx.createFile(path, versionContent);
-        const {changed, deleted} = await changedArtifactFiles(mainRoot, ref, input.forceVersion === true);
-        tx.includePaths(changed.filter((changedPath) => changedPath !== path));
+        const {changed, deleted} = await changedArtifactFiles(mainRoot, ref);
+        tx.includePaths(changed);
         if (deleted.length > 0) tx.warn({code: "artifact_deletions_not_committed", message: `产物目录里有 ${deleted.length} 个文件被删掉了，没有随发布提交；需要时手动 git rm 并提交`, details: {paths: deleted}});
         const checks: Warning[] = [];
         await checkImages(mainRoot, workId, taskId, ref, files, checks);
@@ -338,7 +362,7 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
         if (scriptMarkers) tx.warn({code: "questions_in_script", message: "脚本、模板或 noscript 里出现了提问标记：渲染出来的题解析不到，写成静态 HTML", details: {}});
         return {
             message: commitMessage(workId, taskId, `发布 ${input.artifactId} v${version}`),
-            result: {...base, unchanged: false, version, path, committedFiles: [path, ...changed.filter((changedPath) => changedPath !== path)]},
+            result: {...base, unchanged: false, version, path, committedFiles: [path, ...changed, ...residue]},
         };
     });
     const lease = await afterWrite(context, {workId: result.workId, taskId: result.taskId, action: "artifact publish"}, result.path && versionContent ? [{path: result.path, content: versionContent, action: "publish"}] : [], options, warnings);
@@ -358,10 +382,11 @@ async function deriveVersion(context: RepoContext, target: {workRef: string; tas
         const ref = {workId, taskId, artifactId: target.artifactId};
         const snapshot = await readForWrite(context.mainRoot, ref);
         if (!snapshot.latest) throw new NbdevError("artifact_not_found", `产物还没有发布记录：${artifactDirPath(ref)}`, {details: {...ref}});
+        const residue = await includeResidue(tx, context.mainRoot, ref);
         const latest = snapshot.latest;
         const version = latest.version + 1;
         const derived = await derive({...snapshot, latest}, version, tx);
-        if (!derived) return {message: null, result: {workId, taskId, artifactId: ref.artifactId, unchanged: true, version: null, path: null, questions: latest.questions, affected: []}};
+        if (!derived) return {message: residue.length > 0 ? residueMessage(workId, taskId, ref.artifactId) : null, result: {workId, taskId, artifactId: ref.artifactId, unchanged: true, version: null, path: null, questions: latest.questions, affected: []}};
         const record = derivedVersion(latest, action, derived.questions, tx.now, derived.state);
         const path = versionPath(ref, version);
         content = serialize(record);
@@ -436,6 +461,7 @@ export async function askQuestions(context: RepoContext, input: {workRef: string
             if (existing.has(spec.id) || fresh.has(spec.id)) throw new NbdevError("duplicate_question", `题号 ${spec.id} 已经用过（题号不复用，题意变了就换题号）`, {details: {...ref, questionId: spec.id}});
             fresh.add(spec.id);
         }
+        await includeResidue(tx, context.mainRoot, ref);
         const version = nextVersionNumber(snapshot);
         for (const spec of input.questions) {
             if (spec.about && !await pathExists(resolve(context.mainRoot, spec.about)) && !await pathExists(resolve(context.callerRoot, spec.about))) {
@@ -583,6 +609,7 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
             if (!target.questions.some((question) => question.id === questionId)) throw new NbdevError("question_not_found", `说明写给了不存在的题 ${questionId}`, {details: {...ref, questionId}});
         }
         if (problems.length > 0) throw new NbdevError("invalid_answer", problems.map((problem) => `${problem.questionId}：${problem.reason}`).join("；"), {details: {problems}});
+        await includeResidue(tx, context.mainRoot, ref);
         const now = new Date();
         const answerId = nextRecordId((await listAnswerFileNames(context.mainRoot, ref)).map((name) => name.slice(0, -".json".length)), now);
         const answer: AnswerRecord = {
@@ -646,14 +673,17 @@ export async function ackAnswers(context: RepoContext, input: AckInput, options:
         const snapshot = await readForWrite(context.mainRoot, ref);
         if (!snapshot.latest) throw new NbdevError("artifact_not_found", `产物还没有发布记录：${artifactDirPath(ref)}`, {details: {...ref}});
         if (snapshot.answers.length === 0) throw new NbdevError("no_answers", `${input.artifactId} 还没有任何答复`, {details: {...ref}});
+        // 上次确认提交失败时，确认文件已在 answers/ 里、答复都算已确认：残留与 --include 一起补交，否则 README 与确认永远不进 Git。
+        const residue = await includeResidue(tx, context.mainRoot, ref);
         const unacked = unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId).sort();
         const through = input.through;
         const pending = through === undefined ? unacked : unacked.filter((answerId) => answerId <= through);
         const newer = through === undefined ? [] : unacked.filter((answerId) => answerId > through);
         if (newer.length > 0) tx.warn({code: "newer_answers_unacked", message: `有 ${newer.length} 份答复比 --through 新，没有确认：先用 nbdev answers 读它们`, details: {through, answers: newer}});
         if (pending.length === 0) {
-            tx.warn({code: "already_acked", message: `${input.artifactId} 的答复${through === undefined ? "" : `（到 ${through} 为止）`}都已确认，没有写确认${input.include?.length ? "；--include 的文件也没有提交" : ""}`, details: {include: input.include ?? []}});
-            return {message: null, result: {workId, taskId, artifactId: input.artifactId, acked: false, ack: null, path: null, newer}};
+            const leftover = residue.length > 0 ? "；补交了上次没提交的记录与 --include 的文件" : input.include?.length ? "；--include 的文件也没有提交" : "";
+            tx.warn({code: "already_acked", message: `${input.artifactId} 的答复${through === undefined ? "" : `（到 ${through} 为止）`}都已确认，没有写新的确认${leftover}`, details: {include: input.include ?? []}});
+            return {message: residue.length > 0 ? residueMessage(workId, taskId, input.artifactId) : null, result: {workId, taskId, artifactId: input.artifactId, acked: false, ack: null, path: null, newer}};
         }
         if (through === undefined) tx.warn({code: "ack_without_through", message: "没给 --through：确认了锁内看到的全部未确认答复，其中可能有读答复之后才到的；把 answers 输出里的 cursor 传给 --through", details: {answers: pending}});
         const now = new Date();

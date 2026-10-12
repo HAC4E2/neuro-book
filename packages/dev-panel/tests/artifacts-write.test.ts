@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes} from "node:crypto";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
 import {readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
@@ -241,5 +241,60 @@ describe("答复与确认", () => {
         const snapshot = await readArtifact(fixture.main, REF);
         const {unackedAnswers} = await import("../src/core/artifacts.js");
         expect(unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId)).toEqual([late.data.answer.answerId]);
+    });
+});
+
+describe("提交失败之后的补救", () => {
+    const README = `${TASK_DIR}/README.md`;
+    /** 写事务只等 300 毫秒的 index.lock，占住它就能让这次提交以 git_lock_timeout 失败、文件留在主工作区。 */
+    const blocked: ArtifactOpOptions = {...asBob, gitLockWaitMs: 300};
+
+    async function holdIndexLock(fixture: Fixture): Promise<() => Promise<void>> {
+        const indexLock = join(fixture.main, ".git", "index.lock");
+        await writeFile(indexLock, "");
+        return () => rm(indexLock, {force: true});
+    }
+
+    test("发布提交失败后重跑同一条发布：不出新版本，补交上次的发布记录（含已暂存未提交的）与页面", async () => {
+        const {fixture, context} = await setup("residue-publish");
+        await fixture.write(`${DIR}/index.html`, page());
+        const release = await holdIndexLock(fixture);
+        const failed = await publishArtifact(context, {...TARGET, kind: "design"}, blocked);
+        expect(failed.commit).toMatchObject({committed: false, reason: "git_lock_timeout"});
+        await release();
+        // add 成功、commit 失败时残留是已暂存的新文件。
+        await git(fixture.main, "add", "--", versionPath(REF, 1));
+        const again = await publishArtifact(context, TARGET, asBob);
+        const expected = [`${DIR}/index.html`, versionPath(REF, 1)].sort();
+        expect([again.data.unchanged, [...again.data.committedFiles].sort(), again.warnings.map((warning) => warning.code)]).toEqual([true, expected, ["residual_records_committed"]]);
+        if (!again.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, again.commit.sha)).toEqual(expected);
+        expect(await git(fixture.main, "status", "--porcelain", "--untracked-files=all", "--", DIR)).toBe("");
+    });
+
+    test("代录提交失败：下一次确认把那份答复与确认、README 一起提交；确认提交失败：重跑同一条确认补交确认与 README", async () => {
+        const {fixture, context} = await setup("residue-answers");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        let release = await holdIndexLock(fixture);
+        const answered = await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, blocked);
+        expect(answered.commit).toMatchObject({committed: false, reason: "git_lock_timeout"});
+        await release();
+        await fixture.write(README, `${taskReadme("t01-seed")}\n## 决定\n\n1. 用卡片。\n`);
+        const acked = await ackAnswers(context, {...TARGET, through: answered.data.answer.answerId, include: [README]}, asBob);
+        if (!acked.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, acked.commit.sha)).toEqual([answered.data.path, acked.data.path!, README].sort());
+
+        const second = await submitAnswer(context, {...TARGET, values: {approve: true}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        await fixture.write(README, `${taskReadme("t01-seed")}\n## 决定\n\n1. 用卡片。\n2. 批准。\n`);
+        release = await holdIndexLock(fixture);
+        const failedAck = await ackAnswers(context, {...TARGET, through: second.data.answer.answerId, include: [README]}, blocked);
+        expect(failedAck.commit).toMatchObject({committed: false, reason: "git_lock_timeout"});
+        await release();
+        const rerun = await ackAnswers(context, {...TARGET, through: second.data.answer.answerId, include: [README]}, asBob);
+        expect([rerun.data.acked, rerun.warnings.map((warning) => warning.code)]).toEqual([false, ["residual_records_committed", "already_acked"]]);
+        if (!rerun.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, rerun.commit.sha)).toEqual([failedAck.data.path!, README].sort());
+        expect(await git(fixture.main, "status", "--porcelain", "--untracked-files=all", "--", TASK_DIR)).toBe("");
     });
 });

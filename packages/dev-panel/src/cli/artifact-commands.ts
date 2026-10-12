@@ -39,11 +39,13 @@ export const ARTIFACT_USAGE = `  artifact publish <workRef> <taskRef> <artifactI
   answers record <workRef> <taskRef> <artifactId> --set <题号>=<值>… [--comment <题号>=<文字>]… [--note <说明>] [--as <标签>]`;
 
 const DEFAULT_WAIT_SECONDS = 1_800;
-/** 提交失败时为什么不要直接重跑（文件已经写在主工作区）。 */
-const PUBLISH_FAILURE_HINT = "重跑会被判成内容没变；手动提交下面这些路径，或加 --force-version 重跑";
-const ASK_FAILURE_HINT = "重跑会报题号重复；手动提交下面这些路径";
-const DERIVE_FAILURE_HINT = "重跑会报已关闭、已撤回或已取代；手动提交下面这些路径";
-const RECORD_FAILURE_HINT = "重跑会再写一份；手动提交下面这些路径";
+/** 提交失败时怎么补救（文件已经写在主工作区）：下一次写同一个产物会顺带提交 `versions/`、`answers/` 里的残留。 */
+const PUBLISH_FAILURE_HINT = "重跑同一条发布会补交它们（内容没变，不出新版本）";
+const ACK_FAILURE_HINT = "重跑同一条确认会补交它们";
+const ASK_FAILURE_HINT = "不要重跑（会报题号重复），下一次写这个产物时会顺带补交";
+const CLOSE_FAILURE_HINT = "重跑同一条关闭会补交它们";
+const DERIVE_FAILURE_HINT = "不要重跑（会报已撤回或已取代），下一次写这个产物时会顺带补交";
+const RECORD_FAILURE_HINT = "不要重跑（会再写一份），下一次写这个产物时会顺带补交";
 
 function questionLine(question: VersionQuestion): string {
     const options = question.options.length > 0 ? `（${question.options.map((option) => option.value).join("/")}）` : "";
@@ -123,6 +125,14 @@ function artifactLines(view: ArtifactAnswersView): string[] {
     return lines;
 }
 
+/** 没写新记录的结果（内容没变、已经关闭、都已确认）：顺带补交了上次的残留时，照写命令报提交结果，提交失败同样是退出码 1。 */
+function noNewRecord(schema: string, outcome: Parameters<typeof writeOutcome>[1], summary: string, extra: string[], failureHint: string): CommandOutcome {
+    if (!outcome.commit.committed && outcome.commit.reason === "nothing_to_commit") {
+        return {schema, data: {...outcome.data, commit: outcome.commit}, warnings: outcome.warnings, error: null, human: [summary, ...extra]};
+    }
+    return writeOutcome(schema, outcome, `${summary}；补交了上次没提交的记录`, extra, failureHint);
+}
+
 /** 写命令的公共部分：认调用者、调用核心函数、把调用者的警告放在最前。 */
 async function withCaller<T>(io: CliIo, values: Values, run: (context: Awaited<ReturnType<typeof locateRepository>>, options: {caller: Awaited<ReturnType<typeof writeCaller>>["caller"]; herdr: Awaited<ReturnType<typeof writeCaller>>["herdr"]}) => Promise<T & {warnings: Warning[]}>): Promise<T & {warnings: Warning[]}> {
     const context = await locateRepository(io.cwd);
@@ -150,7 +160,7 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
             }, options));
             const {data} = outcome;
             if (data.unchanged) {
-                return {schema: "nbdev.artifact-publish/v1", data: {...data, commit: outcome.commit}, warnings: outcome.warnings, error: null, human: [`${data.artifactId} 的内容与题都没变，没有出新版本（要强制出新版本加 --force-version）`, ...leaseLines({lease: data.lease, released: []})]};
+                return noNewRecord("nbdev.artifact-publish/v1", outcome, `${data.artifactId} 的内容与题都没变，没有出新版本（要强制出新版本加 --force-version）`, leaseLines({lease: data.lease, released: []}), PUBLISH_FAILURE_HINT);
             }
             const previous = data.previous ? [`上一版 v${data.previous.version}（${data.previous.publishedAt}${data.previous.publishedBy ? `，${data.previous.publishedBy} 发布` : ""}）`] : [];
             return writeOutcome("nbdev.artifact-publish/v1", outcome, `已发布 ${data.workId}/${data.taskId} ${data.artifactId} v${data.version}：${data.questions.filter((question) => !question.outcome).length} 道活的题`, [
@@ -169,8 +179,8 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
         async run({io, positionals, values}) {
             const outcome = await withCaller(io, values, (context, options) => closeArtifact(context, {workRef: positionals[0]!, taskRef: positionals[1]!, artifactId: positionals[2]!}, options));
             const {data} = outcome;
-            if (data.unchanged) return {schema: "nbdev.artifact-close/v1", data: {...data, commit: outcome.commit}, warnings: outcome.warnings, error: null, human: [`${data.artifactId} 已经关闭`]};
-            return writeOutcome("nbdev.artifact-close/v1", outcome, `已关闭 ${data.artifactId}（v${data.version}），撤回了 ${data.affected.length} 道未答的题${data.affected.length > 0 ? `：${data.affected.join("、")}` : ""}`, leaseLines({lease: data.lease, released: []}), DERIVE_FAILURE_HINT);
+            if (data.unchanged) return noNewRecord("nbdev.artifact-close/v1", outcome, `${data.artifactId} 已经关闭`, [], CLOSE_FAILURE_HINT);
+            return writeOutcome("nbdev.artifact-close/v1", outcome, `已关闭 ${data.artifactId}（v${data.version}），撤回了 ${data.affected.length} 道未答的题${data.affected.length > 0 ? `：${data.affected.join("、")}` : ""}`, leaseLines({lease: data.lease, released: []}), CLOSE_FAILURE_HINT);
         },
     },
     ask: {
@@ -281,8 +291,8 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
             const outcome = await withCaller(io, values, (context, options) => ackAnswers(context, {workRef: positionals[0]!, taskRef: positionals[1]!, artifactId: positionals[2]!, through: stringValue(values, "through"), include: listValue(values, "include")}, options));
             const {data} = outcome;
             const newer = data.newer.length > 0 ? [`比 --through 新、没有确认的答复：${data.newer.join("、")}；先用 nbdev answers 读它们`] : [];
-            if (!data.acked) return {schema: "nbdev.answers-ack/v1", data: {...data, commit: outcome.commit}, warnings: outcome.warnings, error: null, human: [`${data.artifactId} 的答复都已确认，没有写确认`, ...newer]};
-            return writeOutcome("nbdev.answers-ack/v1", outcome, `已确认 ${data.artifactId} 的 ${data.ack!.answers.length} 份答复：${data.ack!.answers.join("、")}`, [...newer, ...leaseLines({lease: data.lease, released: []})], RECORD_FAILURE_HINT);
+            if (!data.acked) return noNewRecord("nbdev.answers-ack/v1", outcome, `${data.artifactId} 的答复都已确认，没有写新的确认`, newer, ACK_FAILURE_HINT);
+            return writeOutcome("nbdev.answers-ack/v1", outcome, `已确认 ${data.artifactId} 的 ${data.ack!.answers.length} 份答复：${data.ack!.answers.join("、")}`, [...newer, ...leaseLines({lease: data.lease, released: []})], ACK_FAILURE_HINT);
         },
     },
     "answers record": {
