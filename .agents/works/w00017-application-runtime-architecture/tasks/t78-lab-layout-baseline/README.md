@@ -7,7 +7,7 @@ taskId: t78-lab-layout-baseline
 
 ## 目标与范围
 
-未开工。来源：t77 S4 把 Lab 的版面测量接进 `lab-scenes.e2e.ts` 做门禁（[`ui/component-lab.md`](../../../../../docs/specs/ui/component-lab.md) 验收 27），第一次全量跑出一批旧问题。开发者 2026-10-12 看过逐个聚焦的截图对照后，选“门禁带基线，另开 Task 清”。基线在 [`e2e/lab-layout-baseline.ts`](../../../../../packages/neuro-book/e2e/lab-layout-baseline.ts)，门禁对多出来和少了的都失败，所以每修好一处要同步改小基线。
+计划已确认，见 [plan.md](plan.md)；t77 提交后开工。来源：t77 S4 把 Lab 的版面测量接进 `lab-scenes.e2e.ts` 做门禁（[`ui/component-lab.md`](../../../../../docs/specs/ui/component-lab.md) 验收 27），第一次全量跑出一批旧问题。开发者 2026-10-12 看过逐个聚焦的截图对照后，选“门禁带基线，另开 Task 清”。基线在 [`e2e/lab-layout-baseline.ts`](../../../../../packages/neuro-book/e2e/lab-layout-baseline.ts)，门禁对多出来和少了的都失败，所以每修好一处要同步改小基线。
 
 目标是把基线清空：
 
@@ -21,6 +21,13 @@ taskId: t78-lab-layout-baseline
 - t77 的逐个聚焦对照：[总览](../t77-bookshelf-polish-2/evidences/s4-focus-clip-overview.png)（左：现在；右：把裁切容器改成不裁切）。
 - 开门禁时的量值：基线文件本身。
 
+## 当前状态
+
+- 2026-10-12 设计与计划：
+  - 逐个场景量过裁切它的祖先与四边余量，归成几类：填满所在条的控件（标签条、状态栏与条目带、折叠面板标题行），离边 2–3px 的头部图标按钮，贴顶的活动栏，被省略号裁切切掉的标题把手，`Collapsible` 的 6px。
+  - 在真实 Chrome 的 Lab 里键盘聚焦、注入候选样式做对照，没改源码：[内嵌焦点对照](evidences/draft-inset-ring.png)（现状、内嵌柔光、内嵌细线；nbook 明暗与 macos 浅色）、[让位对照](evidences/draft-room.png)（活动栏、面板头、视图分节头、标题把手）。
+  - 开发者选：内嵌细线（柔光版深色下几乎看不见）；活动栏改 38px 加留白；头部图标按钮新增 24px 档、头部 32px 不变；`Collapsible` 改组件，只在动画期间裁切。计划经开发者确认。
+
 ## 下一步
 
-开工时按当时的基线重读范围，写 `plan.md`。
+t77 提交后从 S1（nb-ui）开始。
