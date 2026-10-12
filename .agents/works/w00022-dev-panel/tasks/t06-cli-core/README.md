@@ -18,8 +18,16 @@ status: active
 
 ## 当前状态
 
-2026-10-12 开工：编码子代理先做 t04 第 2 项，再写本 Task 的 `plan.md`，交 opus 子代理做设计审查后实施。
+- 2026-10-12 开工。t04 第 2 项在集成分支提交 `bc7284ab`。
+- [plan.md](plan.md) 写成后交 opus 子代理做设计审查（[报告](evidences/design-review.txt)）：1 阻断、4 重要、8 建议，主 Agent 复现了阻断项（三点 diff 在分支恢复记录后仍报改动）并核实 w00007 是真实的重复分配，13 条全部采纳：
+  - “没迁”改为三点与两点 diff 的交集；
+  - 提交结果按 HEAD 内容判定；
+  - 撞号按 merge-base 继承判定，登记表不作撞号位置；
+  - 写操作要求 Work README 已提交；
+  - CI 补 code-baseline 与 product-platforms 路径；
+  - 其余见计划里的“设计审查的处理”。
+- 编码子代理按处理意见改计划并实施 S1 到 S6。
 
 ## 下一步
 
-`plan.md` 与设计审查。
+实施完成后主 Agent 审查 diff、自跑验证，再交 opus 子代理做实现审查（不阻塞）。

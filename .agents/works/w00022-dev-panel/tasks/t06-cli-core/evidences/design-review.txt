@@ -1,0 +1,211 @@
+# t06 设计审查报告（plan.md，只读）
+
+结论：有 1 条阻断：“没迁”的判定会在 t05 规定的迁移步骤之后误判。另有 4 条重要：提交结果的检测、`live` 判据、未跟踪的 Work、CI 登记有遗漏。其余 8 条是建议。所有实验都在 scratchpad 的 `review-t06-design/` 下完成，没有改动仓库和 worktree。
+
+## 阻断
+
+### 1. 三点 diff 判“没迁”：按 t05 的做法迁移之后，已迁的 Work 和 master 独有的 Work 都会被判成没迁
+- **类别**：正确性 / 不变量
+- **位置**：“`src/core/sources.ts`：过渡期读法”第 1 条（Proposal 第二节原样照搬）
+- **现象**：`git diff --diff-filter=AM master...<HEAD>` 比的是 merge-base 与 HEAD，不是 master 与 HEAD。t05 第 2 步规定“在分支上把 `.agents/works/` 恢复成 master 的版本并提交”。这样提交之后，master 自 merge-base 以来改过或新增的记录，在三点 diff 里都显示为分支上的 A 或 M。
+- **为什么是问题**：
+  - 这些 Work 会被当成“没迁”，从分支的副本读，而这份副本会随 master 继续前进而过时。
+  - 对它们的 `task status` 会以 `branch_maintained_record`（退出码 3）误拒。被误判的包括 w00022 这类从来只在 master 维护的 Work。
+  - Proposal 说“迁完一个 Work 就自动只读 master”。按 t05 自己的迁移流程，这句话不成立。
+  - 分支 cherry-pick master 上的记录提交时，也会出现同样的误判。
+- **如何核实**：实验目录 `g2`。master 上 A 是 v1；分支把 A 改成 v2；master 把 A 改成 v3，并新增 C；分支执行 `git checkout master -- .agents/works` 后提交。结果：
+  - `git diff --name-only --diff-filter=AM master...feat` 列出 A 的 README、C 的 README 和 C 的 Task README；
+  - `git diff --name-only master feat` 为空，说明分支内容与 master 完全一致。
+- **建议改法**：
+  - 一个路径只在同时满足两条时才算分支改动：HEAD 与 merge-base 不同，HEAD 与当前 master 也不同。实现上取 `master...HEAD` 与 `master HEAD` 两份 `--name-only` 结果的交集。
+  - 两条 diff 都加 `--no-renames`。现在 `--diff-filter=AM` 会漏掉被识别成 R 的改名。
+  - 只取符合 `WORK_ID_PATTERN` 的第三段。集成分支自己（bc7284ab）就改了 `.agents/works/README.md`，S5 还会改 `AGENTS.md`；实测 `w00022-dev-panel` 这个 worktree 已经产出一项 `README.md`。
+  - 场景 7 增加一条用例：分支按 t05 的做法恢复记录之后，状态应回到 master 来源。
+
+## 重要
+
+### 2. “被别的提交带走”的检测漏了一个时间窗；index.lock 判断有先查后用的竞态
+- **类别**：正确性
+- **位置**：写事务表第 8 步
+- **现象一（漏掉的时间窗）**：别的会话不带路径的提交，若发生在我们的 `diff --cached` 之后、`git commit -- <路径>` 之前，我们的提交会以退出码 1 失败（“nothing to commit”），此时也没有锁文件。按计划，这会归为“其它失败”，报 `committed: false` 和 `git_failed`，但文件其实已经入库。
+  - 实验目录 `g1`：顺序是 add，diff 返回 1，对方 `git commit` 成功，我们的 commit 返回 1。
+- **现象二（锁文件判断）**：index.lock 冲突时，`git add` 和 `git commit` 都以 128 退出（实测 git 2.55）。别的会话、编辑器或 Claude Code 跑的 `git status` 会顺手拿 index.lock，在本仓库约 25 毫秒。我们的命令失败后再去查锁文件时，它可能已经消失，于是本可以重试的冲突被当成失败。
+  - 写进工作区的新目录正好会触发编辑器的文件监听和随后的 `git status`，所以这种撞车在实际使用里可能发生。
+- **现象三（反方向的误报）**：用 `--include-uncommitted` 把状态改回 HEAD 里的原值时，写完文件与 HEAD 相同，`diff --cached` 返回 0，会被误报成 `viaOtherCommit`。
+- **为什么是问题**：Agent 拿到 `committed: false` 后通常会重跑 `task new`。登记表里旧号已经是 `claimed`，于是会领到第二个号，建出同名的第二个 Task。
+- **建议改法**：
+  - 第 3 步在锁内记下 HEAD。
+  - add 或 commit 失败、或 `diff --cached` 返回 0 时，统一按结果判断：HEAD 里这些路径的 blob 是否等于本次写入的内容，`<起始HEAD>..HEAD` 是否有触及这些路径的提交。由此决定是 `viaOtherCommit`、真正失败，还是 `nothing_to_commit`。
+  - 在 10 秒预算内，退出码 128 一律重试，不以锁文件是否存在为前提；add 与限定路径的 commit 都可以安全重放。
+
+### 3. `live` 判据在真实仓库两个方向都判错，场景 9 的预期值是错的；登记表当撞号来源会让撞号永远消不掉
+- **类别**：正确性
+- **位置**：“`src/core/scan.ts`”撞号一段；“读代码时发现的问题”第 4 条；验证一节的场景 9；待确认第 3 条
+- **现象一（w00003 的 t05）**：`t05-preview-retirement` 出现在 `.worktree/w00005-novel-understanding-spike` 和 `.worktree/w00018-pre-nb-ui-baseline` 的工作区目录里，所以按计划的定义是 `live: true`，不是计划写的 `false`。这两处其实是 master 改过名的旧副本：master 上提交 451f6319a 删除旧目录、新增 `t05-component-lab`。
+- **现象二（w00007）**：`w00007-desktop-supervisor-portable-fix` 不是改名留下的。
+  - 它不在 merge-base 882b039ba 的树里，`origin/fix/windows-supervisor-bun` 比 master 多出 3 个未合入的提交（2026-08-30）；
+  - master 是 9 月 7 日另外建了 `w00007-workflow-message-only-invoke`；
+  - 这是真实的重复分配，计划却判成 `live: false`。
+- **现象三（登记表）**：登记表是扫描来源之一，导入之后所有 id 永远留在表里，本片又没有改成 `abandoned` 的命令。结果：
+  - 即使删掉旧 worktree、清理旧 ref，撞号也不会消失；
+  - 按 Work 规则给一边改号之后，如果改号的是 `claimed` 的那一个，它会永远 `live`，永远挂在收件箱里。
+- **如何核实**：
+  - 用 scratchpad 里的 `scan.py` 复现计划的扫描：下一个 Work 号 w00023、w00017 下一个 Task 号 t84，这两个正确；撞号正好两处，其中 w00003 t05 一边在主工作区，另一边在两个 worktree 里。
+  - `git cat-file -t 64efeb914:…/t05-preview-retirement` 返回 `tree`（id 是从 merge-base 继承的）。
+  - `git cat-file -t 882b039ba:.agents/works/w00007-desktop-supervisor-portable-fix` 报不存在（id 是分支新增的）。
+- **建议改法**：
+  - 按 merge-base 继承关系判定：某个 id 在 `merge-base(该 ref 或 worktree 的 HEAD, master)` 的树里存在、而在 master 上已不存在，就是 master 改名或删除后的旧副本，记为 `live: false`；否则记为 `live: true`。真实仓库上会得到 w00003 为 false、w00007 为 true。
+  - 登记表只用来保留号段（求最大值），不作为撞号的位置来源。“登记了但哪里都找不到”的 id 另列一类。
+  - 场景 9 的预期值等改了判据再重算。
+
+### 4. 给只在主工作区未跟踪的 Work 建 Task 或改状态，会提交出没有 Work README 的 master
+- **类别**：不变量
+- **位置**：`operations.ts` 的 `createTask`（“Work 在 master 上即可”）、`setRecordStatus` 加 `includeUncommitted` 的情形
+- **现象**：
+  - 现在主工作区就有未跟踪的 `.agents/works/w00021-smart-ime-spike/`：有 README 和 t01，`master:` 下不存在。
+  - `workRef` 是按主工作区的目录项解析的，所以 `task new w00021 x` 能通过，事务只会提交新 Task 的 README。
+  - 在干净 checkout（CI）上，master 会触发 `verifyWorkContracts` 的“Work 缺少 README.md”。本地因为有那个未跟踪的 README，检查能过，问题被掩盖。
+  - 同样，对未跟踪的 Work README 用 `--include-uncommitted` 改状态，会只提交 README，触发“Work 缺少 tasks 目录”。
+- **为什么是问题**：计划里“master 上”时而指主工作区的工作树（`listWorkIds`、`workRef`），时而指已提交的 master（三点 diff），两种含义没有统一。
+- **建议改法**：写操作要求 Work README 已在 HEAD 中（`git cat-file -e HEAD:<路径>`），否则报 `uncommitted_changes`（3）或新增一个退出码 3 的错误码。在文档里统一“master 来源”的定义。
+
+### 5. 登记位置漏了 `code-baseline.yml` 和 `product-platforms.yml`，S1 自己跑的验证就会失败
+- **类别**：测试 / 文档
+- **位置**：“要登记的位置”表；待确认第 1 条
+- **现象**：
+  - `scripts/ci/workspace-workflows.test.ts` 有一条用例“code-baseline 与 product-platforms 的 PR paths 覆盖全部 packages 目录”：`packages/` 下每个目录都必须以 `packages/<dir>/**` 出现在这两个 workflow 的 PR paths 里。
+  - 同一测试文件还要求 `product-platforms.yml` 的 push paths 与 PR paths 相等。
+  - 计划只登记了 `workspace-packages.yml`；S1 的自跑验证正好包括这个测试文件。
+- **为什么是问题**：
+  - code-baseline 的路径不是可选项。
+  - 把开发工具加进 product-platforms 的触发路径，与“不进 Product”的定位有张力，而且会触发不必要的产品构建。
+  - 需要开发者定：要么照现有测试加路径，要么修改测试，豁免开发工具包。
+- **建议改法**：补进登记表，并把“product-platforms 加路径还是改测试豁免”列为一条待决项。
+
+## 建议
+
+### 6. proper-lockfile 接管过期锁的过程不是原子的，可能出现两个持锁者，而 `assertHealthy` 只看 `onCompromised` 标志
+- **类别**：不变量
+- **位置**：“`src/core/lock.ts`：锁”；“新目录改名到位前…编号已在锁内唯一”
+- **现象**：
+  - 接管过期锁的流程是 stat 判定过期，再 rmdir，再 mkdir。两个等待者如果都在对方 mkdir 之前看到过期，后者会删掉前者刚建的锁。
+  - 仓库打的补丁会把 mtime 对齐到 2 秒边界，两个持锁者的 mtime 因此可能完全相同，第一次心跳检测不到被抢，`onCompromised` 要推迟到下一次心跳才触发。
+- **实验数据**（`lockrace/run2.sh`：先放一个已过期的锁目录，再让 10 个进程在同一毫秒同时抢，每个持锁 3 秒）：
+
+  | 运行时 | 出现 2 个及以上持锁者 | 两个持锁者都持锁 3 秒且没有任何 compromised 事件 |
+  |---|---|---|
+  | Node | 10 次中 6 次 | 3 次 |
+  | Bun | 6 次中 5 次 | 1 次 |
+
+- **实际概率**：换成实际节奏（`run3.py`：进程在 2 秒内随机到达，按计划的 50 到 250 毫秒随机退避重试），20 次实验中 0 次出现多个持锁者。所以真实概率低，前提是持锁进程被 SIGKILL，而且两个等待者在亚毫秒级的窗口内撞上。
+- **建议改法**：
+  - 取锁后记下锁目录的 inode 和 birthtime；`assertHealthy` 在写登记表、落位、提交之前各比对一次当前锁目录的身份。
+  - 加一条 L4 测试：先放一个过期锁，再并发多次 `task new`，断言号不重复。
+
+### 7. `tsconfig.core.json` 照字面写会直接失败
+- **类别**：代码质量
+- **位置**：包骨架；“`src/index.ts`：公开入口”
+- **现象**（在 scratchpad 的 `tc/` 下实测）：
+  - `"include": ["src/core/**"]` 会报 TS5010（include 不能以 `**` 结尾），应写成 `"src/core"`。
+  - 改正之后，`src/core/*.test.ts`（验收映射里的 `transaction`、`scan`、`sources` 等测试都放在这里）会报 TS2307：只带 Node 类型时找不到 `bun:test`。需要 `exclude: ["**/*.test.ts"]`。
+  - 还要把包根的 `proper-lockfile.d.ts` 加进 include；仓库里没有 `@types/proper-lockfile`。
+- **护栏本身有效**：类型层能拦住 `Bun` 全局和 `bun:*` 模块（实测报 TS2868）。运行层也确认了：`bun x vitest` 按 shebang 在 Node 下运行，`Bun` 为 undefined；用 `.js` 后缀导入 TS 源码，以及默认导入 CJS 的 proper-lockfile，在 vitest 4.1.10 下都正常。
+
+### 8. 写事务接口给 t08、t10 留下返工
+- **类别**：接口与合同
+- **位置**：`WriteTx` 和 `CommitOutcome`
+- **现象**：
+  - Proposal 写事务第 3 条的第一种写法“新文件用独占创建”没有对应接口；t08 的 `versions/vN.json` 和 `answers/*.json` 都需要它。
+  - 没有“把会话已经写好的现有文件一起提交”的接口，`artifact publish` 和 `answers ack --include` 都需要。
+  - `registry import`、`changed: false` 这两种情况没有“无需提交”的结果分支。
+  - 声明新号为 `claimed` 的方式是隐式的。
+  - 错误码表写 `commit_failed`，`CommitOutcome` 的 reason 写 `git_failed`，两处名字不一致。
+- **建议**：现在就加上 `createFile`（落位时 O_EXCL）、`includePaths`、`tx.claim(id)`，以及 `commit: CommitOutcome | null` 或一个 `nothing_to_commit` 分支。
+
+### 9. 锁的预算和锁的前置条件
+- **类别**：安全与性能
+- **现象与建议**：
+  - **等待预算**：等锁的预算（10 秒）等于持锁者等 index.lock 的预算（10 秒）。持锁者一遇到 index.lock 被占，所有等待者都会报 `lock_timeout`。建议让等锁预算明显大于等 index.lock 的预算加上一次事务的耗时，例如 30 秒。
+  - **目录不存在**：`.local/agent/` 不存在时，mkdir 报 ENOENT 而不是 ELOCKED，会作为内部错误抛出。取锁前要先 `mkdir -p .local/agent/run/tmp`。
+  - **跨文件系统**：本机 `.local` 与 `.agents/works` 在同一个 btrfs 子卷，`rename` 是原子的。但 `.local/` 属于用户区，如果被改成指向别的盘的符号链接，改名会报 EXDEV。建议启动时比较两处的 `st_dev`，不一致就明确报错。
+
+### 10. 执行 worktree 的认法没有定义平局
+- **类别**：正确性
+- **位置**：`sources.ts` 第 2 条
+- **现象**：w00001 的 5 个候选（w00002、w00017 主线、t80-drafts、t80-settings-ui、t81-nb-ui）最后一次改记录的提交都是 ed8b6d796（`%ct` 都是 1791394315），按“最近”取不出唯一的一份。
+- **建议**：按 checkout 路径排序作确定的平局规则。
+
+### 11. S6 的预期值已经过时或不准
+- **类别**：文档
+- **现象**：
+  - 场景 8 写“另有 5 份副本”，其中会话临时目录里的审查 worktree 已经不在了（`git worktree list` 现在共 11 项）。按现在的状态，执行 worktree 是 `w00017-runtime-foundation`，另有 4 份副本。
+  - 场景 8 的“t80、t81 来自 master，其余 81 个来自分支”核对正确。
+  - 场景 9 说“只写 `registry.json`”，实际还会短暂建锁目录、写 `run/lock-owner.json`、建 `run/tmp/`。
+- **建议**：S6 运行时用同一个手工扫描脚本现算预期值；判据改为“仓库工作区无变化，`.local/agent` 下只多 `registry.json` 和 `run/`”。
+
+### 12. 规则文字
+- **类别**：文档
+- **现象与建议**：
+  - **`.local/README.md`**：Agent 区写着“只放能重新生成的原始输出，按 Work 与 Task 组织”，与登记表冲突。登记表重建后会丢掉 `claimed`、`abandoned`、`home`、`by`，而“claimed 的 Task 一律算 master 来源”这条正依赖 `claimed`。这句话要改，并写明重建会丢什么。
+  - **Work 规则“记录只放主工作区”第三条**：现在写的是“照旧在原处维护”。要写明没迁的 Work 新建 Task 也一律经 `nbdev` 写进 master（Proposal 第二节），否则仍按旧规则工作的分支会话会把新 Task 建在分支上。
+  - **`updated` 的日期**：没有规定取本地日期还是 UTC 日期，伦敦时间 0 点到 1 点之间两者会差一天。
+  - **未跟踪文件的标记**：`git status` 默认把未跟踪目录合并成一条（例如 `?? …/w00021…/`），要用 `-uall`，或者按前缀双向匹配，才能把 `uncommitted` 标到具体的 Task。
+
+### 13. 测试缺口
+- **类别**：测试
+- **缺口**：
+  - 没有崩溃残留的测试：过期锁加多个等待者，以及 `.local/agent` 不存在的情形；
+  - 没有第 2 条发现里第二个时间窗的测试，以及“改回 HEAD 原值”的误报测试；
+  - 夹具应设 `GIT_CEILING_DIRECTORIES` 为临时根，防止 `TMPDIR` 恰好落在某个仓库里时，`repository_not_found` 的用例爬到外层仓库去。
+
+## 未发现问题的方面
+
+- **限定路径的提交**：暂存区里别人的改动原样保留，也不进提交（实验 `g1`）。新文件必须先 `git add`，否则 commit 报 pathspec 不匹配，计划的顺序是对的。
+- **rename 的原子性**：`.local` 与 `.agents/works` 在同一文件系统、同一 btrfs 子卷，rename 是原子的。
+- **proper-lockfile 的行为**：计划里这几条描述都核实无误：放锁用 rmdir、心跳依赖定时器、用 `realpath: false` 时 `registry.json` 不存在也不会报 ENOENT、精度补丁会让 `retries` 直接失败。
+- **编号格式**：两个编号正则与 bc7284ab 一致。真实仓库下一个 Work 号 w00023、w00017 下一个 Task 号 t84，两者都正确。
+- **性能**：
+  - 114 个 ref 去重成 23 棵树，扫描约 0.07 秒；
+  - 10 个 worktree 的三点 diff 共 0.08 秒；
+  - 每个 checkout 的 `git log --name-only` 不超过 0.03 秒；
+  - `git status` 约 0.01 到 0.025 秒；
+  - 整份 `status` 控制在 1 秒内可行。
+- **治理与文档检查**：`updated` 字段不会触发 `verifyWorkContracts` 报错；Task 模板里不含“行为合同未变”，所以 docs:check 该给的警告还在。
+- **合入后不在 master 上**：主工作区不在 master、或处于合并中时，限定路径的提交会失败，计划先行拒绝是对的。冲突中的 revert 期间限定路径的提交能成功，不构成问题。
+- **验收映射**：场景 1 到 7 和场景 10 都能用真实 Git 与真实子进程写出测试。
+
+## 数量
+
+| 级别 | 条数 | 对应发现 |
+|---|---|---|
+| 阻断 | 1 | 第 1 条 |
+| 重要 | 4 | 第 2 到 5 条 |
+| 建议 | 8 | 第 6 到 13 条 |
+
+## 对待确认项的逐条判断
+
+1. **一致性测试进 CI**：加。另外 code-baseline 和 product-platforms 的 paths 是现有测试强制要求的，并不是可选项。需要开发者定的是 product-platforms 加路径还是改测试豁免开发工具。
+2. **根 `AGENTS.md` 结构图加一行**：同意。现在 88 个非空行，上限 220。
+3. **撞号分 `live` 两类**：不同意现在的判据，改成按 merge-base 继承关系判定，登记表不作撞号来源（第 3 条）。
+4. **claimed 的 Task 一律算 master 来源**：同意。同时把登记表丢失后退回字面规则的代价写进 `docs/cli.md`：同步过 master 的分支上，经 `nbdev` 建的 Task 会被拒写。
+5. **只有未提交的分支记录改动不算没迁**：同意。前提是“没迁”的判定先按第 1 条改正。
+6. **未提交改动默认拒绝，`--include-uncommitted` 才放行**：同意，与 Proposal 待决问题 8 一致。另需加上第 4 条的要求：Work README 必须已提交。
+7. **首次写事务自动整表导入**：同意。导入在锁内完成，并发首写时也只导入一次。
+8. **Work 模板不放 Task 表**：同意。
+9. **在真实仓库跑一次 registry import**：可以跑。它只写本机 `.local/agent/`，实施计划列为授权项的理由（写 master）不适用。但先按第 3 条改判据、重算预期值；如果合入前登记表格式还会变，跑完就删掉。
+10. **写 `~/.local/bin/nbdev`、真实仓库首次建 Work、合入 master**：同意留待开发者授权。
+11. **提交消息用 Work 编号**：同意，与仓库现有的 `docs(w00022): …` 写法一致。
+
+## 实验位置
+
+所有实验都在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t06-design/` 下：
+
+| 目录或脚本 | 内容 |
+|---|---|
+| `g1` | 限定路径的提交，以及别的提交带走文件的竞态 |
+| `g2` | 迁移后三点 diff 的误判 |
+| `g3` | revert 冲突期间的限定路径提交 |
+| `lockrace/` | 过期锁接管的竞态 |
+| `scan.py` | 编号扫描与撞号 |
+| `tc/` | `tsconfig.core.json` |
+| `vt/` | vitest 在 Node 下导入 TS 包 |
