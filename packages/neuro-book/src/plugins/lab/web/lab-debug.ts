@@ -134,7 +134,11 @@ function drawnRingExtent(style: CSSStyleDeclaration): number {
 /** 这条规则聚焦后画不画得出东西：box-shadow 或看得见的 outline。透明的 outline（Tailwind 的 outline-hidden）不算。 */
 function drawsRing(style: CSSStyleDeclaration): boolean {
     const shadow = style.getPropertyValue("box-shadow");
-    if (shadow !== "" && shadow !== "none") return true;
+    if (shadow !== "" && shadow !== "none") {
+        // 只有内阴影（内嵌焦点线）画在元素里面，不会被裁；读不出层的写法（`var(--focus-ring)`）按外扩算。
+        const layers = shadowLayers(shadow);
+        return layers.length === 0 || layers.some((layer) => !layer.inset);
+    }
     const outlineStyle = style.getPropertyValue("outline-style");
     const outlineWidth = style.getPropertyValue("outline-width");
     const outlineColor = style.getPropertyValue("outline-color");
@@ -142,7 +146,7 @@ function drawsRing(style: CSSStyleDeclaration): boolean {
 }
 
 /**
- * 从样式表找“聚焦后会画焦点环”的选择器：含焦点伪类且声明了 box-shadow 或 outline 的规则（怎么从选择器里认出画环的元素见
+ * 从样式表找“聚焦后会画焦点环”的选择器：含焦点伪类且声明了外阴影或 outline 的规则，只画内阴影的不算（怎么从选择器里认出画环的元素见
  * focus-rules.ts）。环不一定画在焦点元素自己身上（`:focus-within`、`:has(... :focus-visible)` 把环画在外框上），
  * 所以不能按“可聚焦”猜。嵌套规则按 `&` 接上父选择器。跨源样式表读不到规则，跳过。
  */

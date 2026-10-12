@@ -8,7 +8,7 @@
 
 ## 布局
 
-按钮是固定正方形的 inline-flex：`sm` 为 26×26px，`md` 为 32×32px，`lg` 为 38×38px。图标和默认插槽内容在正方形内居中，不换行；按钮不会根据内容扩张。窄屏仍保持正方形，连续按钮应由父级安排间距，内容过多时由父级处理布局。
+按钮是固定正方形的 inline-flex：`xs` 为 24×24px（一行 32px 的头部里用，四周各留 4px，外扩焦点光晕不被头部所在的面板裁掉），`sm` 为 26×26px，`md` 为 32×32px，`lg` 为 38×38px。图标和默认插槽内容在正方形内居中，不换行；按钮不会根据内容扩张。窄屏仍保持正方形，连续按钮应由父级安排间距，内容过多时由父级处理布局。
 
 ## 交互
 
@@ -16,13 +16,15 @@
 - `variant` 提供 `default`、`danger`、`accent` 和 `secondary` 四种颜色层级。
 - `disabled` 为真时使用原生 disabled，不响应点击，并显示降低透明度的禁用态。
 - 可通过鼠标或键盘 Tab 聚焦；原生按钮支持 Enter/Space 激活。组件挂载、卸载时不主动转移焦点。
+- 焦点缺省画外扩光晕；`focusRing="inset"` 时画内嵌焦点线，给填满所在的条、四周没有余地的按钮用（光晕会被条裁掉）。
 - `title` 同时提供浏览器悬停提示和在缺少 `ariaLabel` 时的可访问名称；明确的 `ariaLabel` 优先于 `title`。
 
 ## 数据
 
 ```ts
 export type IconButtonVariant = "default" | "danger" | "accent" | "secondary";
-export type IconButtonSize = "sm" | "md" | "lg";
+export type IconButtonSize = "xs" | "sm" | "md" | "lg";
+export type FocusRingStyle = "outer" | "inset";
 
 type IconButtonProps = {
     /** 浏览器悬停提示；默认空字符串；也作为 aria-label 的回退 */
@@ -37,6 +39,8 @@ type IconButtonProps = {
     disabled?: boolean;
     /** 由 nb-ui 图标系统消费的图标 class；默认空字符串 */
     iconClass?: string;
+    /** 焦点画法；默认 "outer"（外扩光晕），"inset" 画内嵌焦点线 */
+    focusRing?: FocusRingStyle;
 };
 
 type IconButtonEmits = {};

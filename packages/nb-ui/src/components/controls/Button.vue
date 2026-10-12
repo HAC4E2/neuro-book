@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import {focusRingClass} from "./focus-ring";
+import type {FocusRingStyle} from "./focus-ring";
+
 export type ButtonVariant = "primary" | "secondary" | "subtle" | "danger" | "ghost";
 export type ButtonSize = "sm" | "md" | "lg";
 
@@ -10,6 +13,7 @@ const props = withDefaults(defineProps<{
     loading?: boolean;
     iconClass?: string;
     type?: "button" | "submit" | "reset";
+    focusRing?: FocusRingStyle;
 }>(), {
     variant: "primary",
     size: "md",
@@ -18,6 +22,7 @@ const props = withDefaults(defineProps<{
     loading: false,
     iconClass: "",
     type: "button",
+    focusRing: "outer",
 });
 
 /*
@@ -57,8 +62,9 @@ function variantClass(): string {
     <button
         :type="props.type"
         :disabled="props.disabled || props.loading"
-        class="nb-ui-focus-ring inline-flex items-center justify-center font-medium whitespace-nowrap outline-none select-none box-border border border-transparent cursor-pointer transition-[background-color,box-shadow,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.975] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:shadow-none disabled:active:transform-none"
+        class="inline-flex items-center justify-center font-medium whitespace-nowrap outline-none select-none box-border border border-transparent cursor-pointer transition-[background-color,box-shadow,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.975] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:shadow-none disabled:active:transform-none"
         :class="[
+            focusRingClass(props.focusRing),
             sizeClass(),
             props.block ? 'w-full' : '',
             variantClass(),

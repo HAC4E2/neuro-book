@@ -5,6 +5,8 @@ import {
     CollapsibleTrigger,
 } from "reka-ui";
 
+import {markCollapseAnimation} from "./collapse-animation";
+
 const props = withDefaults(defineProps<{
     open?: boolean;
     defaultOpen?: boolean;
@@ -33,7 +35,10 @@ const emit = defineEmits<{
         </CollapsibleTrigger>
 
         <CollapsibleContent
-            class="overflow-hidden transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-collapsible-content"
+            class="transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-collapsible-content"
+            @animationstart.self="markCollapseAnimation"
+            @animationend.self="markCollapseAnimation"
+            @animationcancel.self="markCollapseAnimation"
         >
             <slot />
         </CollapsibleContent>
