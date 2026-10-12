@@ -98,11 +98,14 @@ function parseSession(value: unknown): LeaseSession | string {
     if (!isRecord(value)) return "session 不是对象";
     if (typeof value.key !== "string" || value.key === "" || typeof value.agent !== "string") return "session.key 或 session.agent 不是非空字符串";
     if (!isNullableString(value.sessionId) || !isNullableString(value.label) || !isNullableString(value.parentSessionId)) return "session 的 sessionId、label、parentSessionId 只能是字符串或 null";
+    // nestedSessionId 是后加的字段：没有这个键的旧文件按 null 读。
+    const nestedSessionId = value.nestedSessionId === undefined ? null : value.nestedSessionId;
+    if (!isNullableString(nestedSessionId)) return "session.nestedSessionId 只能是字符串或 null";
     const process = parseProcess(value.process);
     if (process === undefined) return "session.process 只能是 {pid: 正整数, startTicks: 数字串} 或 null";
     const herdr = parseLeaseHerdr(value.herdr);
     if (herdr === undefined) return "session.herdr 只能是 {socketPath, paneId, terminalId} 三个字符串或 null";
-    return {key: value.key, agent: value.agent, sessionId: value.sessionId, label: value.label, parentSessionId: value.parentSessionId, process, herdr};
+    return {key: value.key, agent: value.agent, sessionId: value.sessionId, label: value.label, parentSessionId: value.parentSessionId, nestedSessionId, process, herdr};
 }
 
 /**

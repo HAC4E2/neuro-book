@@ -1,11 +1,14 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {spawn, spawnSync, type ChildProcess} from "node:child_process";
 import {randomUUID} from "node:crypto";
+import {once} from "node:events";
 import {existsSync} from "node:fs";
+import {readFile, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {join} from "node:path";
-import {cleanupFixtures, createFixture, run} from "./git-fixture.js";
-import {spawnMarked} from "./processes.js";
+import {join, resolve} from "node:path";
+import {setTimeout as sleep} from "node:timers/promises";
+import {resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {cleanupFixtures, CLI_PATH, createFixture, type CliEnvelope} from "./git-fixture.js";
 
 /**
  * L4：在本机 herdr 的命名会话 `nbdev-test` 里跑，绝不碰默认会话。
@@ -16,6 +19,7 @@ const SESSION = "nbdev-test";
 const herdrInstalled = spawnSync("herdr", ["--version"], {stdio: "ignore"}).status === 0;
 const cleanEnv = {HOME: homedir(), PATH: process.env.PATH ?? "", TERM: "xterm-256color"};
 const socketPath = join(homedir(), ".config", "herdr", "sessions", SESSION, "herdr.sock");
+const PANE_SCRIPT = resolve(import.meta.dirname, "l4-claude-pane.ts");
 
 function herdr(args: string[]): Record<string, unknown> {
     const result = spawnSync("herdr", ["--session", SESSION, ...args], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
@@ -23,51 +27,83 @@ function herdr(args: string[]): Record<string, unknown> {
     return result.stdout.trim() === "" ? {} : JSON.parse(result.stdout) as Record<string, unknown>;
 }
 
-const children: ChildProcess[] = [];
+let server: ChildProcess | null = null;
+
+/** 停掉命名会话的 server 并删除会话；两步都检查退出码，失败就让测试失败并提示手动清理。测试超时也会走到这里。 */
+async function teardownSession(): Promise<void> {
+    if (!server) return;
+    const current = server;
+    server = null;
+    const stop = spawnSync("herdr", ["--session", SESSION, "server", "stop"], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
+    if (current.exitCode === null && current.signalCode === null) {
+        const exited = once(current, "exit");
+        current.kill("SIGKILL");
+        await exited;
+    }
+    const removed = spawnSync("herdr", ["session", "delete", SESSION], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
+    if (removed.status !== 0) throw new Error(`删除命名会话 ${SESSION} 失败（退出码 ${removed.status}），请手动 herdr session delete ${SESSION}：${removed.stderr}`);
+    if (stop.status !== 0) throw new Error(`herdr --session ${SESSION} server stop 退出码 ${stop.status}：${stop.stderr}`);
+}
+
 afterEach(async () => {
-    for (const child of children.splice(0)) child.kill("SIGKILL");
-    await cleanupFixtures();
+    try {
+        await teardownSession();
+    } finally {
+        await cleanupFixtures();
+    }
 });
 
+type StepResult = {args: string[]; exitCode: number | null; stdout: string; stderr: string; tokens: Record<string, string> | null; paneGetError: string | null};
+
 describe("真实 herdr（命名会话）", () => {
-    test.skipIf(!herdrInstalled)("场景 1：herdr 里的 Claude 会话 task new 后，pane get 读回 work、task 标签；改成 done 后标签清掉", async () => {
+    test.skipIf(!herdrInstalled)("场景 1：pane 里的 Claude 会话 task new 后，pane get 读回 work、task 标签；改成 done 后标签清掉", async () => {
         const existing = JSON.parse(spawnSync("herdr", ["session", "list", "--json"], {env: cleanEnv, encoding: "utf8"}).stdout) as {sessions: Array<{name: string}>};
         if (existing.sessions.some((session) => session.name === SESSION)) throw new Error(`本机已有 herdr 会话 ${SESSION}，不覆盖；先确认它没人用再删掉`);
-        const server = spawn("herdr", ["--session", SESSION, "server"], {env: cleanEnv, stdio: "ignore"});
-        children.push(server);
-        try {
-            for (let waited = 0; !existsSync(socketPath); waited += 100) {
-                if (waited > 10_000) throw new Error("命名会话的 herdr server 10 秒内没有起来");
-                await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-            }
-            const fixture = await createFixture("herdr-live");
-            const created = herdr(["workspace", "create", "--cwd", fixture.main, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
-            const paneId = created.result.root_pane.pane_id;
-            const sessionId = randomUUID();
-            // `pane.report_agent_session` 单独用不会让一格 bash pane 成为 Agent；用集成同样的 source 报 `report_agent` 才行（2026-10-12 实测）。
-            herdr(["pane", "report-agent", paneId, "--source", "herdr:claude", "--agent", "claude", "--state", "idle", "--agent-session-id", sessionId]);
-            const claude = await spawnMarked("sleep", ["60"]);
-            children.push(claude);
-            const env = {CLAUDE_CODE_SESSION_ID: sessionId, CLAUDE_PID: String(claude.pid), HERDR_PANE_ID: paneId, HERDR_SOCKET_PATH: socketPath};
-
-            const createdTask = await fixture.cli(["task", "new", "w00001", "live", "--title", "真实 herdr", "--json"], fixture.main, env);
-            expect(createdTask.exitCode).toBe(0);
-            expect(createdTask.json?.data).toMatchObject({lease: {session: {key: `claude:${sessionId}`, herdr: {socketPath, paneId}}}});
-            const tagged = herdr(["pane", "get", paneId]) as {result: {pane: {tokens?: Record<string, string>}}};
-            expect(tagged.result.pane.tokens).toEqual({work: "w00001", task: "t02"});
-
-            const status = await fixture.cli(["status", "--json"], fixture.main, env);
-            expect(status.json?.data).toMatchObject({caller: {kind: "session", herdr: {paneId, managed: true}}, herdr: {available: true, socketPath}});
-
-            expect((await fixture.cli(["task", "status", "w00001", "t02", "done", "--json"], fixture.main, env)).exitCode).toBe(0);
-            const cleared = herdr(["pane", "get", paneId]) as {result: {pane: {tokens?: Record<string, string>}}};
-            expect(cleared.result.pane.tokens ?? {}).toEqual({});
-        } finally {
-            spawnSync("herdr", ["--session", SESSION, "server", "stop"], {env: cleanEnv, stdio: "ignore", timeout: 10_000});
-            server.kill("SIGKILL");
-            await run("herdr", ["session", "delete", SESSION], homedir(), undefined, 10_000, cleanEnv).catch((error: unknown) => {
-                throw new Error(`删除命名会话 ${SESSION} 失败，请手动 herdr session delete ${SESSION}：${String(error)}`);
-            });
+        server = spawn("herdr", ["--session", SESSION, "server"], {env: cleanEnv, stdio: "ignore"});
+        for (let waited = 0; !existsSync(socketPath); waited += 100) {
+            if (waited > 10_000) throw new Error("命名会话的 herdr server 10 秒内没有起来");
+            await sleep(100);
         }
-    }, 60_000);
+        const fixture = await createFixture("herdr-live");
+        const created = herdr(["workspace", "create", "--cwd", fixture.main, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
+        const paneId = created.result.root_pane.pane_id;
+        const sessionId = randomUUID();
+        // `pane.report_agent_session` 单独用不会让一格 bash pane 成为 Agent；用集成同样的 source 报 `report_agent` 才行（2026-10-12 实测）。
+        herdr(["pane", "report-agent", paneId, "--source", "herdr:claude", "--agent", "claude", "--state", "idle", "--agent-session-id", sessionId]);
+
+        // 扮成 Claude 的进程要在这格 pane 的前台运行：nbdev 只给前台进程里有调用者的 pane 写标签。
+        const output = join(fixture.root, "l4-result.json");
+        const planPath = join(fixture.root, "l4-plan.json");
+        await writeFile(planPath, JSON.stringify({
+            sessionId,
+            herdrSession: SESSION,
+            paneId,
+            cwd: fixture.main,
+            cliPath: CLI_PATH,
+            env: {HERDR_PANE_ID: paneId, HERDR_SOCKET_PATH: socketPath, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_CEILING_DIRECTORIES: resolveTmpRoot()},
+            steps: [
+                ["task", "new", "w00001", "live", "--title", "真实 herdr", "--json"],
+                ["status", "--json"],
+                ["task", "status", "w00001", "t02", "done", "--json"],
+            ],
+            output,
+        }));
+        herdr(["pane", "run", paneId, process.execPath, PANE_SCRIPT, planPath]);
+        for (let waited = 0; !existsSync(output); waited += 100) {
+            if (waited > 45_000) throw new Error(`pane 里的脚本 45 秒内没有写出结果；pane 内容：${JSON.stringify(herdr(["pane", "read", paneId]))}`);
+            await sleep(100);
+        }
+        const {pid, results} = JSON.parse(await readFile(output, "utf8")) as {pid: number; results: StepResult[]};
+        const [createdTask, status, done] = results.map((step) => ({...step, json: JSON.parse(step.stdout) as CliEnvelope}));
+
+        // 新仓库第一次领号会初始化登记表；除此之外不应有身份或标签的警告。
+        expect([createdTask!.exitCode, createdTask!.json.warnings.map((warning) => warning.code)]).toEqual([0, ["registry_initialized"]]);
+        expect(createdTask!.json.data).toMatchObject({lease: {session: {key: `claude:${sessionId}`, process: {pid}, herdr: {socketPath, paneId}}}});
+        expect(createdTask!.tokens).toEqual({work: "w00001", task: "t02"});
+
+        expect(status!.json.data).toMatchObject({caller: {kind: "session", herdr: {paneId, managed: true}}, herdr: {available: true, socketPath}});
+
+        expect(done!.exitCode).toBe(0);
+        expect(done!.tokens).toEqual({});
+    }, 90_000);
 });

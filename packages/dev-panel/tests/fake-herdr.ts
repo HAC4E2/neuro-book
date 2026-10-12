@@ -1,5 +1,5 @@
 import {rm} from "node:fs/promises";
-import {createServer, type Server} from "node:net";
+import {createServer, type Server, type Socket} from "node:net";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -18,6 +18,8 @@ export type FakeHerdr = {
     socketPath: string;
     panes: FakePane[];
     requests: Array<{method: string; params: Record<string, unknown>}>;
+    /** 按方法改写回应：`hang` 不回应（模拟 herdr 卡住），`{code, message}` 回一个错误。 */
+    overrides: Record<string, "hang" | {code: string; message: string}>;
     close(): Promise<void>;
 };
 
@@ -32,8 +34,11 @@ async function socketPathFor(root: string): Promise<{socketPath: string; ownDir:
 export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<FakeHerdr> {
     const {socketPath, ownDir} = await socketPathFor(root);
     const requests: FakeHerdr["requests"] = [];
-    const fake: FakeHerdr = {socketPath, panes, requests, close: async () => {}};
+    const fake: FakeHerdr = {socketPath, panes, requests, overrides: {}, close: async () => {}};
+    const sockets = new Set<Socket>();
     const server: Server = createServer((socket) => {
+        sockets.add(socket);
+        socket.on("close", () => sockets.delete(socket));
         let buffer = "";
         socket.setEncoding("utf8");
         socket.on("data", (chunk: string) => {
@@ -44,13 +49,20 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
                 buffer = buffer.slice(newline + 1);
                 const request = JSON.parse(line) as {id: string; method: string; params: Record<string, unknown>};
                 requests.push({method: request.method, params: request.params});
-                socket.write(`${JSON.stringify(respond(fake, request))}\n`);
+                const override = fake.overrides[request.method];
+                if (override === "hang") {
+                    newline = buffer.indexOf("\n");
+                    continue;
+                }
+                socket.write(`${JSON.stringify(override ? {id: request.id, error: override} : respond(fake, request))}\n`);
                 newline = buffer.indexOf("\n");
             }
         });
     });
     await new Promise<void>((resolvePromise) => server.listen(socketPath, resolvePromise));
     fake.close = async () => {
+        // 挂起的连接（`hang`）不会自己结束，server.close 会一直等它们。
+        for (const socket of sockets) socket.destroy();
         await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
         await rm(socketPath, {force: true});
         if (ownDir) await rm(ownDir, {recursive: true, force: true});

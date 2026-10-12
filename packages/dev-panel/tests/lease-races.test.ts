@@ -11,7 +11,7 @@ afterEach(async () => {
     await cleanupFixtures();
 });
 
-const bob: SessionCaller = {kind: "session", ref: {key: "external:bob", agent: "external", sessionId: null, label: "bob", parentSessionId: null}, via: "as", process: null, herdr: null};
+const bob: SessionCaller = {kind: "session", ref: {key: "external:bob", agent: "external", sessionId: null, label: "bob", parentSessionId: null, nestedSessionId: null}, via: "as", process: null, herdr: null};
 
 describe("租约释放的竞争", () => {
     test("释放晚到：A 改成 done 并提交，B 随即改回 active 并续期，A 的释放这时才执行，B 的租约保留", async () => {

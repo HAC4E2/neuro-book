@@ -27,7 +27,7 @@ async function liveProcess(): Promise<{child: MarkedChild; ref: {pid: number; st
 }
 
 function claude(sessionId: string, process: {pid: number; startTicks: string} | null, herdr: SessionCaller["herdr"] = null): SessionCaller {
-    return {kind: "session", ref: {key: `claude:${sessionId}`, agent: "claude", sessionId, label: null, parentSessionId: null}, via: "claude-env", process, herdr};
+    return {kind: "session", ref: {key: `claude:${sessionId}`, agent: "claude", sessionId, label: null, parentSessionId: null, nestedSessionId: null}, via: "claude-env", process, herdr};
 }
 
 const T0 = new Date("2026-10-12T10:00:00.000Z");
@@ -43,7 +43,7 @@ function lease(sessionKey: string, overrides: Partial<LeaseRecord> = {}): LeaseR
         leaseId: leaseId(sessionKey, "w00001-a", "t01-a"),
         workId: "w00001-a",
         taskId: "t01-a",
-        session: {key: sessionKey, agent: "claude", sessionId: sessionKey.slice(7), label: null, parentSessionId: null, process: {pid: 100, startTicks: "5"}, herdr: null},
+        session: {key: sessionKey, agent: "claude", sessionId: sessionKey.slice(7), label: null, parentSessionId: null, nestedSessionId: null, process: {pid: 100, startTicks: "5"}, herdr: null},
         acquiredAt: T0.toISOString(),
         lastActivityAt: T0.toISOString(),
         lastAction: "task new",
@@ -194,7 +194,7 @@ describe("租约文件的校验", () => {
 
 describe("登记表的 by", () => {
     test("读取时保留原值；t06 写出的 null 仍合法", () => {
-        const by = {key: "claude:aaa", agent: "claude", sessionId: "aaa", label: null, parentSessionId: null};
+        const by = {key: "claude:aaa", agent: "claude", sessionId: "aaa", label: null, parentSessionId: null, nestedSessionId: null};
         const registry = parseRegistry(JSON.stringify({schema: "nbdev.registry/v1", works: [
             {workId: "w00001-a", status: "claimed", at: T0.toISOString(), by, home: null, tasks: [{taskId: "t01-a", status: "claimed", at: T0.toISOString(), by: null, home: null}]},
         ]}), "registry.json");

@@ -60,7 +60,7 @@ const PANES: PaneProcesses[] = [
 
 const fakeClaude = async (env: Record<string, string>): Promise<ClaudeIdentity | null> => {
     const sessionId = env.CLAUDE_CODE_SESSION_ID;
-    return sessionId ? {sessionId, process: {pid: Number(env.CLAUDE_PID), startTicks: "1"}, parentSessionId: null} : null;
+    return sessionId ? {sessionId, process: {pid: Number(env.CLAUDE_PID), startTicks: "1"}, parentSessionId: null, nestedSessionId: null} : null;
 };
 
 async function synthetic(panes: PaneProcesses[] | null) {

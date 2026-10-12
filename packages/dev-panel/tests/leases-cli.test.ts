@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {HERDR_READ_METHODS} from "../src/herdr/client.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
 import {cleanupFixtures, createFixture, type CliEnvelope, type Fixture} from "./git-fixture.js";
-import {spawnMarked, stopProcess, type MarkedChild} from "./processes.js";
+import {spawnMarked, startFakeClaude, stopProcess, type FakeClaude, type MarkedChild} from "./processes.js";
 
 const children: MarkedChild[] = [];
 const closers: Array<() => Promise<void>> = [];
@@ -15,7 +15,14 @@ afterEach(async () => {
     await cleanupFixtures();
 });
 
-/** 起一个环境干净的子进程，扮成 Claude 主进程（CLAUDE_PID 指向它）或会话派出的进程。 */
+/** 起一个扮成 Claude 主进程的子进程；nbdev 经它运行，`CLAUDE_PID` 才是 nbdev 的祖先。 */
+async function claudeSession(): Promise<FakeClaude> {
+    const host = await startFakeClaude(randomUUID());
+    closers.push(() => host.stop());
+    return host;
+}
+
+/** 起一个环境干净、与会话无关的子进程（例如普通 shell pane 里的开发服务）。 */
 async function spawnProcess(command: string, args: string[], options: {cwd?: string; env?: Record<string, string>} = {}): Promise<MarkedChild> {
     const child = await spawnMarked(command, args, options);
     children.push(child);
@@ -28,11 +35,7 @@ async function herdrFor(fixture: Fixture, panes: Parameters<typeof startFakeHerd
     return fake;
 }
 
-function claudeEnv(sessionId: string, claude: MarkedChild, extra: Record<string, string> = {}): Record<string, string> {
-    return {CLAUDE_CODE_SESSION_ID: sessionId, CLAUDE_PID: String(claude.pid), ...extra};
-}
-
-type LeaseJson = {leaseId: string; workId: string; taskId: string; state: string; stale: boolean; lastActivityAt: string; managed: boolean; session: {key: string; herdr: unknown}};
+type LeaseJson = {leaseId: string; workId: string; taskId: string; state: string; stale: boolean; lastActivityAt: string; managed: boolean; session: {key: string; herdr: unknown; process: unknown}};
 
 async function leaseList(fixture: Fixture, args: string[] = []): Promise<LeaseJson[]> {
     const result = await fixture.cli(["lease", "list", ...args, "--json"]);
@@ -47,10 +50,10 @@ function data<T>(envelope: CliEnvelope | null): T {
 describe("租约命令（场景）", () => {
     test("场景 1：herdr 里的 Claude 会话 task new，租约记下会话与 pane，并给 pane 写 work、task 标签", async () => {
         const fixture = await createFixture("lease-s1");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId)]);
-        const result = await fixture.cli(["task", "new", "w00001", "lease", "--title", "租约", "--json"], fixture.main, claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath}));
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid]})]);
+        const result = await claude.cli(["task", "new", "w00001", "lease", "--title", "租约", "--json"], fixture.main, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath});
         expect(result.exitCode).toBe(0);
         expect(data<{lease: LeaseJson}>(result.json).lease).toMatchObject({
             workId: "w00001-seed",
@@ -66,10 +69,10 @@ describe("租约命令（场景）", () => {
 
     test("场景 2：子代理里、会话派出的 omp -p 里运行，租约都记在父会话名下，只有一份", async () => {
         const fixture = await createFixture("lease-s2");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        expect((await fixture.cli(["task", "status", "w00001", "t01", "active", "--json"], fixture.main, claudeEnv(sessionId, claude, {CLAUDE_CODE_CHILD_SESSION: "1"}))).exitCode).toBe(0);
-        expect((await fixture.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, claudeEnv(sessionId, claude, {OMPCODE: "1", CLAUDECODE: "1"}))).exitCode).toBe(0);
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        expect((await claude.cli(["task", "status", "w00001", "t01", "active", "--json"], fixture.main, {CLAUDE_CODE_CHILD_SESSION: "1"})).exitCode).toBe(0);
+        expect((await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, {OMPCODE: "1", CLAUDECODE: "1"})).exitCode).toBe(0);
         const leases = await leaseList(fixture);
         expect(leases.map((lease) => [lease.session.key, lease.taskId, lease.state])).toEqual([[`claude:${sessionId}`, "t01-seed", "valid"]]);
     });
@@ -108,9 +111,9 @@ describe("租约命令（场景）", () => {
 
     test("场景 5：task status … done 释放这个 Task 的全部租约，不论哪个会话、由谁调用", async () => {
         const fixture = await createFixture("lease-s5");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        await fixture.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, claudeEnv(sessionId, claude));
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main);
         await fixture.cli(["lease", "take", "w00001", "t01", "--as", "bob", "--json"]);
         const done = await fixture.cli(["task", "status", "w00001", "t01", "done", "--as", "carol", "--json"]);
         expect(done.exitCode).toBe(0);
@@ -121,32 +124,32 @@ describe("租约命令（场景）", () => {
 
     test("场景 6：herdr 里找不到会话只是 managed: false；会话进程不在才失效", async () => {
         const fixture = await createFixture("lease-s6");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId)]);
-        const env = claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath});
-        await fixture.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid]})]);
+        const env = {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath};
+        await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
         const listWith = async () => data<{leases: LeaseJson[]}>((await fixture.cli(["lease", "list", "--json"], fixture.main, {HERDR_SOCKET_PATH: fake.socketPath})).json).leases;
         expect((await listWith()).map((lease) => [lease.state, lease.managed])).toEqual([["valid", true]]);
         fake.panes.splice(0, 1, shellPane("w9:p1"));
         expect((await listWith()).map((lease) => [lease.state, lease.managed])).toEqual([["valid", false]]);
-        await stopProcess(claude);
+        await claude.stop();
         expect((await listWith()).map((lease) => lease.state)).toEqual(["session_gone"]);
     });
 
     test("场景 7：会话 idle 而它派出的进程还在跑，会话下另列运行；普通 shell pane 里的开发服务归无主；status 只调只读方法", async () => {
         const fixture = await createFixture("lease-s7");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        const tool = await spawnProcess("sleep", ["61"], {cwd: fixture.main, env: claudeEnv(sessionId, claude)});
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        const tool = await claude.spawn("sleep", ["61"], {cwd: fixture.main});
         const shell = await spawnProcess("sh", ["-c", "sleep 62; true"], {cwd: fixture.main, env: {HERDR_PANE_ID: "w9:pJ"}});
         const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid]}), shellPane("w9:pJ", {shell_pid: shell.pid})]);
         fake.requests.length = 0;
-        const status = await fixture.cli(["status", "--json"], fixture.main, claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath}));
+        const status = await claude.cli(["status", "--json"], fixture.main, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath});
         expect(status.exitCode).toBe(0);
         const view = data<{caller: unknown; sessions: Array<{key: string; herdr: {status: string}; runs: Array<{pid: number}>}>; unownedRuns: Array<{paneId: string; command: string}>}>(status.json);
         expect(view.caller).toMatchObject({kind: "session", via: "claude-env", ref: {key: `claude:${sessionId}`}, herdr: {paneId: "w9:p1", managed: true}});
-        expect(view.sessions).toEqual([expect.objectContaining({key: `claude:${sessionId}`, herdr: {paneId: "w9:p1", status: "idle"}, runs: [expect.objectContaining({pid: tool.pid})]})]);
+        expect(view.sessions).toEqual([expect.objectContaining({key: `claude:${sessionId}`, herdr: {paneId: "w9:p1", status: "idle"}, runs: [expect.objectContaining({pid: tool})]})]);
         expect(view.unownedRuns).toEqual([expect.objectContaining({paneId: "w9:pJ", command: "sleep 62"})]);
         expect(fake.requests.every((request) => HERDR_READ_METHODS.includes(request.method))).toBe(true);
         expect(status.stdout).not.toContain("pane.report_metadata");
@@ -154,47 +157,61 @@ describe("租约命令（场景）", () => {
 
     test("场景 8：herdr 不在，命令照常完成、给一条警告，租约不记 herdr", async () => {
         const fixture = await createFixture("lease-s8");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        const result = await fixture.cli(["task", "status", "w00001", "t01", "active", "--json"], fixture.main, claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1"}));
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        const result = await claude.cli(["task", "status", "w00001", "t01", "active", "--json"], fixture.main, {HERDR_PANE_ID: "w9:p1"});
         expect(result.exitCode).toBe(0);
         expect(result.json?.warnings.map((warning) => warning.code)).toEqual(["herdr_unavailable"]);
         expect(data<{lease: LeaseJson}>(result.json).lease).toMatchObject({session: {key: `claude:${sessionId}`, herdr: null}});
     });
 
+    test("只靠 HERDR_PANE_ID 认人、pane.process_info 不回应：task status 与 status 照常完成，身份按 pane 认，给 herdr_partial", async () => {
+        const fixture = await createFixture("lease-process-info-hang");
+        const fake = await herdrFor(fixture, [{pane_id: "w9:p3", terminal_id: "term_3", agent: "omp", agent_status: "working", agent_session: {agent: "omp", kind: "path", source: "herdr:omp", value: "/o.jsonl"}}]);
+        fake.overrides["pane.process_info"] = "hang";
+        const env = {HERDR_PANE_ID: "w9:p3", OMPCODE: "1", HERDR_SOCKET_PATH: fake.socketPath};
+        const changed = await fixture.cli(["task", "status", "w00001", "t01", "active", "--json"], fixture.main, env);
+        expect([changed.exitCode, changed.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["herdr_partial"]]);
+        expect(data<{lease: LeaseJson}>(changed.json).lease).toMatchObject({session: {key: "omp:/o.jsonl", process: null}});
+        const status = await fixture.cli(["status", "--json"], fixture.main, env);
+        expect(status.exitCode).toBe(0);
+        expect(status.json?.warnings.map((warning) => warning.code)).toContain("herdr_partial");
+        expect(data<{caller: unknown}>(status.json).caller).toMatchObject({kind: "session", ref: {key: "omp:/o.jsonl"}, process: null});
+    });
+
     test("release：只释放调用者自己的；释放的是 pane 标签当前指向的 Task 时改写成下一份，没有就清空", async () => {
         const fixture = await createFixture("lease-release");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId)]);
-        const env = claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath});
-        await fixture.cli(["task", "new", "w00001", "second", "--title", "第二个", "--json"], fixture.main, env);
-        await fixture.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid]})]);
+        const env = {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath};
+        await claude.cli(["task", "new", "w00001", "second", "--title", "第二个", "--json"], fixture.main, env);
+        await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
         await fixture.cli(["lease", "take", "w00001", "t01", "--as", "other", "--json"]);
         fake.requests.length = 0;
-        const released = await fixture.cli(["release", "w00001", "t01", "--json"], fixture.main, env);
+        const released = await claude.cli(["release", "w00001", "t01", "--json"], fixture.main, env);
         expect(data<{released: LeaseJson[]}>(released.json).released.map((lease) => lease.session.key)).toEqual([`claude:${sessionId}`]);
         const tags = () => fake.requests.filter((request) => request.method === "pane.report_metadata").map((request) => request.params.tokens);
         expect(tags()).toEqual([{work: "w00001", task: "t02"}]);
         fake.requests.length = 0;
-        expect((await fixture.cli(["release", "--json"], fixture.main, env)).exitCode).toBe(0);
+        expect((await claude.cli(["release", "--json"], fixture.main, env)).exitCode).toBe(0);
         expect(tags()).toEqual([{work: null, task: null}]);
         expect((await leaseList(fixture)).map((lease) => lease.session.key)).toEqual(["external:other"]);
     });
 
     test("task status … done 时，调用者 pane 的标签若指向这个 Task，改写成它的下一份租约，没有就清空", async () => {
         const fixture = await createFixture("lease-done-tags");
-        const sessionId = randomUUID();
-        const claude = await spawnProcess("sleep", ["60"]);
-        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId)]);
-        const env = claudeEnv(sessionId, claude, {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath});
-        await fixture.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
-        await fixture.cli(["task", "new", "w00001", "second", "--title", "第二个", "--json"], fixture.main, env);
+        const claude = await claudeSession();
+        const sessionId = claude.sessionId;
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", sessionId, {foreground_pids: [claude.pid]})]);
+        const env = {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath};
+        await claude.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main, env);
+        await claude.cli(["task", "new", "w00001", "second", "--title", "第二个", "--json"], fixture.main, env);
         const tags = () => fake.requests.filter((request) => request.method === "pane.report_metadata").map((request) => request.params.tokens);
         fake.requests.length = 0;
-        expect((await fixture.cli(["task", "status", "w00001", "t01", "done", "--json"], fixture.main, env)).exitCode).toBe(0);
+        expect((await claude.cli(["task", "status", "w00001", "t01", "done", "--json"], fixture.main, env)).exitCode).toBe(0);
         expect(tags()).toEqual([]);
-        expect((await fixture.cli(["task", "status", "w00001", "t02", "shelved", "--json"], fixture.main, env)).exitCode).toBe(0);
+        expect((await claude.cli(["task", "status", "w00001", "t02", "shelved", "--json"], fixture.main, env)).exitCode).toBe(0);
         expect(tags()).toEqual([{work: null, task: null}]);
     });
 });

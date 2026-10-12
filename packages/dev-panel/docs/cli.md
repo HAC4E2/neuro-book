@@ -37,8 +37,8 @@
 
 - **调用者是谁**（每个命令都在边界上解析一次，`status --json` 的 `data.caller` 给出结果）：
   1. `--as <标签>`：外部会话 `external:<标签>`。标签要唯一，两个外部会话用同一个标签会被当成一个会话；在 herdr pane 里用 `--as` 时不写 pane 标签。
-  2. `CLAUDE_CODE_SESSION_ID`：只在 `CLAUDE_PID` 存在、进程还活着、id 是 UUID 时才信，否则给 `claude_env_untrusted` 警告并忽略。子代理与 Claude 会话派出的进程（包括 `omp -p`）都继承它，记在同一个会话名下；嵌套的 `claude -p` 归到外层会话，`parentSessionId` 记外层的 id。
-  3. 只有 `HERDR_PANE_ID`（omp 等）：用那格 pane 上 herdr 认出的 Agent 会话。
+  2. `CLAUDE_CODE_SESSION_ID`：只在 `CLAUDE_PID` 存在、进程还活着、id 是 UUID、并且是调用者进程的祖先时才信，否则给 `claude_env_untrusted` 警告（`details.reason` 为 `invalid` 或 `not_ancestor`）并忽略。环境变量是继承来的：herdr server、tmux 若是从某个 Claude 的 Bash 里起的，里面所有 pane 都会带着那个仍活着的 `CLAUDE_PID`。子代理与 Claude 会话派出的进程（包括 `omp -p`）都继承它，记在同一个会话名下；嵌套的 `claude -p`（外层的 `CLAUDE_PID` 是内层 claude 的祖先）归到外层会话，`parentSessionId` 记外层的 id，`nestedSessionId` 记调用者环境里的内层 id。
+  3. 只有 `HERDR_PANE_ID`（omp 等）：用那格 pane 上 herdr 认出的 Agent 会话，进程记 pane 的前台主进程；读不到 pane 的进程信息时进程记 `null`，给 `herdr_partial` 警告。
   4. 都没有：未知调用者。写命令照常完成但不取得租约（`caller_unknown` 警告）；`lease take`、`release` 报 `caller_unknown`。
 - **自动取得与续期**：`work new`、`task new` 之后取得新 Task 的租约（提交失败但文件已写、号已领时也取）；`task status` 改成别的状态时续期调用者的租约。
 - **自动释放**：Task 改成 `done` 或 `shelved` 时释放这个 Task 的全部租约，与由谁调用无关（面板以开发者身份改状态时同样释放）。
@@ -70,7 +70,7 @@ stdout 只有一个对象，诊断走 stderr：
 - `status` 的临时数据（会话结束或进程退出就消失）：
   - `caller`：`{kind: "session", ref, via, process, herdr}` 或 `{kind: "unknown", reason, herdrPaneId}`；
   - `activeLeases`、`leases`：有效租约 `{sessionKey, agent, label, taskId, lastActivityAt, stale}`，`stale` 表示超过 2 小时没有 Task 相关操作（淡化显示）；
-  - `sessions[]`：有有效租约或有运行的会话，`{key, agent, sessionId, label, parentSessionId, alive, managed, herdr: {paneId, status}, leases, runs}`；`alive` 是会话进程是否还在（不知道时为 `null`），`managed` 表示 herdr 现在的列表里有它（能通知）；
+  - `sessions[]`：有有效租约或有运行的会话，`{key, agent, sessionId, label, parentSessionId, nestedSessionId, alive, managed, herdr: {paneId, status}, leases, runs}`；`alive` 是会话进程是否还在（不知道时为 `null`），`managed` 表示 herdr 现在的列表里有它（能通知）；
   - 运行 `{pid, startedAt, command, cwd, checkout, owner, ownerVia, paneId, unit, descendants}`；`unownedRuns` 是普通 shell pane 里起的进程与 systemd 服务单元（`systemd-run`）里的进程。归属规则见 [herdr 适配](herdr.md#运行的归属)。
 - `registry import` 的 `data`：`added`、`nextWorkNumber`、`nextTaskNumbers`（按 Work id）、`conflicts`、`registryOnly`。
 - `conflicts[]` 的元素：`{kind, label, workId?, live, ids: [{id, live, locations}]}`；`locations` 的元素是 `{source: "main" | "worktree" | "ref", checkout?, ref?, head?}`。一个 id 只出现在 `master` 改名或删除后留下的旧副本里时不算 `live`；一组撞号至少两个 id `live` 时这组 `live`。

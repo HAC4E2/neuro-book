@@ -11,7 +11,7 @@ export const REGISTRY_STATUSES = ["claimed", "imported", "abandoned"] as const;
 export type RegistryStatus = (typeof REGISTRY_STATUSES)[number];
 
 /** 领号的会话（t07 起写；t06 写出的为 null）。 */
-export type RegistryBy = {key: string; agent: string; sessionId: string | null; label: string | null; parentSessionId: string | null};
+export type RegistryBy = {key: string; agent: string; sessionId: string | null; label: string | null; parentSessionId: string | null; nestedSessionId: string | null};
 export type RegistryTaskEntry = {taskId: string; status: RegistryStatus; at: string; by: RegistryBy | null; home: string | null};
 export type RegistryWorkEntry = {workId: string; status: RegistryStatus; at: string; by: RegistryBy | null; home: string | null; tasks: RegistryTaskEntry[]};
 /**
@@ -36,7 +36,7 @@ function parseBy(value: unknown, label: string): RegistryBy | null {
     if (value === null || value === undefined) return null;
     if (!isRecord(value) || typeof value.key !== "string" || typeof value.agent !== "string") throw new NbdevError("invalid_record", `登记表条目的 by 无效：${label}`);
     const optional = (field: unknown) => typeof field === "string" ? field : null;
-    return {key: value.key, agent: value.agent, sessionId: optional(value.sessionId), label: optional(value.label), parentSessionId: optional(value.parentSessionId)};
+    return {key: value.key, agent: value.agent, sessionId: optional(value.sessionId), label: optional(value.label), parentSessionId: optional(value.parentSessionId), nestedSessionId: optional(value.nestedSessionId)};
 }
 
 function parseEntryCommon(value: Record<string, unknown>, label: string): {status: RegistryStatus; at: string; by: RegistryBy | null; home: string | null} {

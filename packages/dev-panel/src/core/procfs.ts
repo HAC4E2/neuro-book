@@ -40,6 +40,20 @@ export async function processAlive(process: {pid: number; startTicks: string}): 
     return await processStartTicks(process.pid) === process.startTicks;
 }
 
+const MAX_ANCESTRY = 256;
+
+/** `ancestor`（pid 加启动时刻）是否在 `descendantPid` 的父进程链上（不含它自己）；链上读不到的进程视为链已断。 */
+export async function isAncestor(ancestor: {pid: number; startTicks: string}, descendantPid: number): Promise<boolean> {
+    let pid = (await readProcStat(descendantPid))?.ppid;
+    for (let steps = 0; pid !== undefined && pid > 0 && steps < MAX_ANCESTRY; steps += 1) {
+        const stat = await readProcStat(pid);
+        if (!stat) return false;
+        if (stat.pid === ancestor.pid) return stat.startTicks === ancestor.startTicks;
+        pid = stat.ppid;
+    }
+    return false;
+}
+
 /** 进程的环境变量；别的用户的进程或已退出的进程为 null。 */
 export async function readEnviron(pid: number): Promise<Record<string, string> | null> {
     let text: string;

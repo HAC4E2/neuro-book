@@ -47,7 +47,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 
 - 只记领号的事实。条目按完整 id 记，同号不同名的各占一条；按 id 排序。
 - `status`：`claimed` 是经 nbdev 领的，`imported` 是扫描补登的，`abandoned` 是领了不用的；三种号都不再发。
-- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId}`；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
+- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
 - 写入在锁内完成，先写同目录临时文件再改名。
 - 登记表不是可重新生成的原始输出：`registry import` 只能从扫描重建 `imported` 条目，`claimed`、`abandoned`、`home`、`by` 会丢失。丢失后，同步过 `master` 的分支上经 nbdev 建的 Task 会被当成分支记录、拒绝写入。
 
@@ -86,7 +86,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
     "workId": "w00022-dev-panel",
     "taskId": "t07-session-leases",
     "session": {
-        "key": "claude:d02974de-…", "agent": "claude", "sessionId": "d02974de-…", "label": null, "parentSessionId": null,
+        "key": "claude:d02974de-…", "agent": "claude", "sessionId": "d02974de-…", "label": null, "parentSessionId": null, "nestedSessionId": null,
         "process": {"pid": 1506927, "startTicks": "122098494"},
         "herdr": {"socketPath": "/home/…/.config/herdr/herdr.sock", "paneId": "w1:p16", "terminalId": "term_…"}
     },

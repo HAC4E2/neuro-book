@@ -42,11 +42,11 @@ const MAX_DESCENDANTS = 5;
 const MAX_COMMAND = 200;
 
 function sessionRefOf(session: HerdrAgentSession): SessionRef {
-    return {key: `${session.agent}:${session.value}`, agent: session.agent, sessionId: session.value, label: null, parentSessionId: null};
+    return {key: `${session.agent}:${session.value}`, agent: session.agent, sessionId: session.value, label: null, parentSessionId: null, nestedSessionId: null};
 }
 
 function claudeRef(identity: ClaudeIdentity): SessionRef {
-    return {key: `claude:${identity.sessionId}`, agent: "claude", sessionId: identity.sessionId, label: null, parentSessionId: identity.parentSessionId};
+    return {key: `claude:${identity.sessionId}`, agent: "claude", sessionId: identity.sessionId, label: null, parentSessionId: identity.parentSessionId, nestedSessionId: identity.nestedSessionId};
 }
 
 export async function discoverRuns(input: DiscoverRunsInput): Promise<{runs: RunView[]; ignored: number}> {
