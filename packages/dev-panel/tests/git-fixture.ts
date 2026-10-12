@@ -11,15 +11,23 @@ process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 process.env.GIT_CEILING_DIRECTORIES = resolveTmpRoot();
 for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"]) delete process.env[name];
+/**
+ * 测试常从 herdr 里的 Claude 会话跑起来：去掉继承来的会话与 herdr 变量（按前缀删，免得漏掉新加的），
+ * 再把 herdr socket 指到一个不存在的路径，被测的命令行就碰不到默认 herdr。用例需要时经 `fixture.cli(…, env)` 显式给。
+ */
+for (const name of Object.keys(process.env)) {
+    if (name.startsWith("HERDR_") || name.startsWith("CLAUDE") || name === "OMPCODE") delete process.env[name];
+}
+process.env.HERDR_SOCKET_PATH = join(resolveTmpRoot(), "no-herdr-in-tests.sock");
 
 export const CLI_PATH = resolve(import.meta.dirname, "..", "src", "cli.ts");
 
 export type RunResult = {exitCode: number; stdout: string; stderr: string};
 
-/** 运行子进程；超过 `timeoutMs` 就 SIGKILL 结束它并报错，测试超时不会留下孤儿进程。 */
-export function run(command: string, args: readonly string[], cwd: string, input?: string, timeoutMs = 60_000): Promise<RunResult> {
+/** 运行子进程；超过 `timeoutMs` 就 SIGKILL 结束它并报错，测试超时不会留下孤儿进程。`env` 叠加在清洗过的环境上。 */
+export function run(command: string, args: readonly string[], cwd: string, input?: string, timeoutMs = 60_000, env: Record<string, string> = {}): Promise<RunResult> {
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(command, [...args], {cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"]});
+        const child = spawn(command, [...args], {cwd, env: {...process.env, ...env}, stdio: ["pipe", "pipe", "pipe"]});
         let stdout = "";
         let stderr = "";
         const timer = setTimeout(() => {
@@ -67,7 +75,7 @@ export type Fixture = {
     addWork(workId: string, taskIds: readonly string[], base?: string, extra?: {work?: string; task?: string}): Promise<void>;
     commit(message: string, base?: string): Promise<string>;
     addWorktree(name: string, branch: string, from?: string): Promise<string>;
-    cli(args: readonly string[], cwd?: string): Promise<RunResult & {json: CliEnvelope | null}>;
+    cli(args: readonly string[], cwd?: string, env?: Record<string, string>): Promise<RunResult & {json: CliEnvelope | null}>;
 };
 
 export type CliEnvelope = {
@@ -112,8 +120,8 @@ export async function createFixture(name: string): Promise<Fixture> {
             await git(main, "worktree", "add", "--quiet", "-b", branch, path, from);
             return path;
         },
-        async cli(args, cwd = main) {
-            const result = await run(process.execPath, [CLI_PATH, ...args], cwd);
+        async cli(args, cwd = main, env = {}) {
+            const result = await run(process.execPath, [CLI_PATH, ...args], cwd, undefined, 60_000, env);
             let json: CliEnvelope | null = null;
             if (args.includes("--json") && result.stdout.trim() !== "") json = JSON.parse(result.stdout) as CliEnvelope;
             return {...result, json};

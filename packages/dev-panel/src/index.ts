@@ -81,3 +81,18 @@ export {
     type OperationResult,
     type SetStatusResult,
 } from "./core/operations.js";
+export {bootTime, processAlive, processStartTicks, readEnviron, readProcessTable, readProcStat, startTimeIso, systemdUnitOf, type ProcessEntry, type ProcStat} from "./core/procfs.js";
+export {resolveCaller, type Caller, type CallerHerdr, type ProcessRef, type SessionCaller, type SessionRef} from "./core/identity.js";
+export {
+    createHerdrClient,
+    HERDR_CLI_METHODS,
+    HERDR_READ_METHODS,
+    HerdrError,
+    resolveHerdrSocket,
+    type HerdrAgentSession,
+    type HerdrAvailability,
+    type HerdrClient,
+    type HerdrPane,
+    type HerdrProcessInfo,
+    type HerdrStatus,
+} from "./herdr/client.js";

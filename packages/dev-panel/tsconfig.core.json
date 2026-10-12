@@ -7,6 +7,6 @@
             "bun:*": ["./types/no-bun-in-core.d.ts"]
         }
     },
-    "include": ["src/index.ts", "src/core"],
+    "include": ["src/index.ts", "src/core", "src/herdr"],
     "exclude": ["**/*.test.ts"]
 }

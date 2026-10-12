@@ -77,5 +77,5 @@ export async function installShim(argv: readonly string[], io: CliIo): Promise<E
 }
 
 if (import.meta.main) {
-    process.exitCode = await installShim(process.argv.slice(2), {cwd: process.cwd(), stdout: process.stdout, stderr: process.stderr});
+    process.exitCode = await installShim(process.argv.slice(2), {cwd: process.cwd(), env: process.env, stdout: process.stdout, stderr: process.stderr});
 }

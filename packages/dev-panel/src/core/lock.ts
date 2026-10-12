@@ -3,6 +3,7 @@ import {lstat, mkdir, readFile, rename, rm, stat, writeFile} from "node:fs/promi
 import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
+import {processAlive, processStartTicks} from "./procfs.js";
 import {AGENT_LOCAL_ROOT, REGISTRY_FILE} from "./registry.js";
 import {WORKS_ROOT} from "./repo.js";
 
@@ -52,21 +53,8 @@ export async function prepareAgentDirectories(mainRoot: string): Promise<void> {
     }
 }
 
-/** `/proc/<pid>/stat` 的第 22 项（进程启动时刻，时钟周期数）；进程不存在时为 null。`comm` 可能含空格与括号，按最后一个 `)` 切。 */
-export async function processStartTicks(pid: number): Promise<string | null> {
-    let text: string;
-    try {
-        text = await readFile(`/proc/${pid}/stat`, "utf8");
-    } catch (error) {
-        if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ESRCH") return null;
-        throw error;
-    }
-    const fields = text.slice(text.lastIndexOf(")") + 2).split(" ");
-    return fields[19] ?? null;
-}
-
 async function ownerAlive(owner: LockOwner): Promise<boolean> {
-    return await processStartTicks(owner.pid) === owner.startTicks;
+    return processAlive(owner);
 }
 
 /**

@@ -2,7 +2,8 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {cleanupFixtures, createFixture} from "../../tests/git-fixture.js";
-import {acquireRecordsLock, agentPaths, inspectLock, prepareAgentDirectories, processStartTicks, takeOverDeadLock} from "./lock.js";
+import {acquireRecordsLock, agentPaths, inspectLock, prepareAgentDirectories, takeOverDeadLock} from "./lock.js";
+import {processStartTicks} from "./procfs.js";
 import {locateRepository} from "./repo.js";
 import {runWriteTransaction} from "./transaction.js";
 

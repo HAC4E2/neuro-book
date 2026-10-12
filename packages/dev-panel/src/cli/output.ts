@@ -1,7 +1,8 @@
 import {isNbdevError, NbdevError, type ExitCode, type Warning} from "../core/errors.js";
 
 export type Writable = {write(chunk: string): unknown};
-export type CliIo = {cwd: string; stdout: Writable; stderr: Writable};
+/** 命令行的输入输出；`env` 是调用者的环境变量（认会话、找 herdr 都从这里取，核心函数不读 `process.env`）。 */
+export type CliIo = {cwd: string; env: NodeJS.ProcessEnv; stdout: Writable; stderr: Writable};
 
 /** 一条命令的结果：`error` 为空即成功（可以带警告）。 */
 export type CommandOutcome = {
