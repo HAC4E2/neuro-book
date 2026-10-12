@@ -131,6 +131,18 @@ describe("写事务", () => {
         expect(rejected.commit.committed === false && rejected.commit.reason === "git_failed" ? rejected.commit.detail : "").toContain("拒绝");
     });
 
+    test("多个操作的事务先查完全部目标再动：后一个目标已存在时，前一个新目录也不落位", async () => {
+        const fixture = await createFixture("tx-validate-first");
+        const context = await locateRepository(fixture.main);
+        await expect(runWriteTransaction(context, {}, async (tx) => {
+            tx.createDirectory(".agents/works/w00001-seed/tasks/t02-fresh", {"README.md": taskReadme("t02-fresh")});
+            tx.createFile(".agents/works/w00001-seed/tasks/t01-seed/README.md", "覆盖已有文件\n");
+            return {message: "docs(w00001): 不该提交", result: null};
+        })).rejects.toMatchObject({code: "target_exists"});
+        expect(await git(fixture.main, "status", "--porcelain", "-uall")).toBe("");
+        expect(await git(fixture.main, "rev-list", "--count", "HEAD")).toBe("1");
+    });
+
     test("路径按字面匹配：文件名像通配符时，不会把别人的文件一起提交", async () => {
         const fixture = await createFixture("tx-literal");
         const dir = ".agents/works/w00001-seed/tasks/t01-seed";

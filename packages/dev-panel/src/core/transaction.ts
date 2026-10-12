@@ -239,9 +239,7 @@ async function commitPaths(mainRoot: string, input: {paths: readonly string[]; m
     });
     const add = await retryOnGitLock(mainRoot, ["add", "--", ...input.paths], lockState);
     if (add.exitCode !== 0) return resolveWith(add);
-    const staged = await runGit(mainRoot, ["diff", "--cached", "--quiet", "--", ...input.paths], {readOnly: true});
-    if (staged.exitCode === 0) return resolveWith(null);
-    if (staged.exitCode !== 1) return resolveWith(staged);
+    // 暂存区里这些路径与 HEAD 相同时（被别的提交带走、或写回了原值），commit 以 1 退出，同样交给 resolveCommitOutcome 判定。
     const commit = await retryOnGitLock(mainRoot, ["commit", "--quiet", "-m", input.message, "--", ...input.paths], lockState);
     if (commit.exitCode !== 0) return resolveWith(commit);
     // 不用 rev-parse HEAD：别的会话可能紧接着又提交了一次，HEAD 已不是我们的提交。

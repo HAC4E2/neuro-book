@@ -132,16 +132,13 @@ class InheritanceChecker {
         return (await runGit(this.mainRoot, ["cat-file", "-e", `${rev}:${path}`], {readOnly: true})).exitCode === 0;
     }
 
-    async isStaleCopy(location: IdLocation, path: string): Promise<boolean> {
-        if (location.source === "main" || !location.head) return false;
-        const base = await this.mergeBase(location.head);
-        if (!base) return false;
-        return await this.exists(base, path) && !await this.exists(MASTER_REF, path);
-    }
-
     async isLive(locations: readonly IdLocation[], path: string): Promise<boolean> {
+        // 主工作区里有，或已提交的 master 里还有，就不可能是“master 改名或删除后留下的旧副本”。
+        if (locations.some((location) => location.source === "main" || !location.head)) return true;
+        if (await this.exists(MASTER_REF, path)) return true;
         for (const location of locations) {
-            if (!await this.isStaleCopy(location, path)) return true;
+            const base = await this.mergeBase(location.head!);
+            if (!base || !await this.exists(base, path)) return true;
         }
         return false;
     }
