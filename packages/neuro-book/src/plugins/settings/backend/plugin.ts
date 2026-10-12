@@ -42,7 +42,10 @@ function layerEntry(location: "server" | "project", placement: ServiceKey<unknow
             const diagnostics = context.services.require(diagnosticsKey);
             const clock = context.services.require(clockKey);
             const declarations = acceptedSettings(context.declarations);
-            const owner = createLayerOwner({path: locate(context), layer, declarations: () => declarations, clock, diagnostics, source: descriptor.id});
+            const path = locate(context);
+            // 项目层的文件在用户登记的作品目录里，路径本就给用户看（runtime/projects.md“路径可见性”），层无效时设置窗口
+            // 显示它；用户层的文件在状态根下，状态根是服务端内部路径、不发给浏览器，快照不带路径。
+            const owner = createLayerOwner({path, layer, declarations: () => declarations, clock, diagnostics, source: descriptor.id, ...(layer === "project" ? {shownPath: path} : {})});
             const ownerResource = context.scope.register({kind: "settings-layer", label: `${descriptor.id} ${layer}`, value: owner, release: (value) => value.close()});
             await owner.ready;
             const instance = createSettingsInstance({

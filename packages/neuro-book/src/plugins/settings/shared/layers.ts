@@ -37,8 +37,11 @@ export type LayerContent =
     /** 文件当前无效：`values` 与 `problems` 是上一份有效内容的（启动时即无效则为空），写入一律拒绝。 */
     | {readonly status: "invalid"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>; readonly detail: string};
 
-/** 拥有者发布的层快照：内容加修订号。 */
-export type LayerSnapshot = LayerContent & {readonly revision: Revision};
+/**
+ * 拥有者发布的层快照：内容加修订号。`path` 是这一层文件的绝对路径，给设置窗口在层无效时指给用户看
+ * （configuration.md 输出 23）；拥有者不发路径时缺省。路径不参与内容比较：同一个拥有者的路径不变。
+ */
+export type LayerSnapshot = LayerContent & {readonly revision: Revision; readonly path?: string};
 
 /**
  * 收到的快照能不能替换当前的：同一启动标识下序号更大才替换，写入结果与订阅推送乱序到达时不倒退。启动标识不同说明

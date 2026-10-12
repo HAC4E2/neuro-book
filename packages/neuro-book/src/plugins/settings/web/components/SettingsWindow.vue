@@ -1,0 +1,367 @@
+<script setup lang="ts">
+/**
+ * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
+ * （docs/specs/settings/settings-window.md）。
+ */
+import {Button, Dialog, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
+import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
+import {computed, nextTick, ref, watch} from "vue";
+
+import {localize} from "nbook/shared/localized-text";
+import type {LocalizedText} from "nbook/shared/localized-text";
+import type {SettingLayer} from "nbook/shared/settings";
+
+import {segmentedWidth} from "../setting-controls";
+import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
+import type {SettingsNavItem, SettingsWindow} from "../settings-window";
+import SettingsListSection from "./SettingsListSection.vue";
+import SettingsPageFrame from "./SettingsPageFrame.vue";
+
+defineOptions({name: "SettingsWindow"});
+
+const props = defineProps<{
+    window: SettingsWindow;
+}>();
+
+const TEXT = {
+    title: {"zh-CN": "设置", "en-US": "Settings"},
+    close: {"zh-CN": "关闭", "en-US": "Close"},
+    nav: {"zh-CN": "设置分区", "en-US": "Settings sections"},
+    tabs: {"zh-CN": "设置的范围", "en-US": "Settings scope"},
+    user: {"zh-CN": "用户", "en-US": "User"},
+    project: {"zh-CN": "本作品", "en-US": "This Book"},
+    invalid: {"zh-CN": "设置文件有错误，修好前这里不能保存", "en-US": "The settings file has errors; changes can't be saved until it is fixed"},
+    unavailable: {"zh-CN": "暂时连不上，不能保存", "en-US": "Temporarily unreachable; changes can't be saved"},
+    empty: {"zh-CN": "没有可以显示的设置", "en-US": "There are no settings to show"},
+} satisfies Record<string, LocalizedText>;
+
+const model = props.window;
+const locale = model.locale;
+const text = (template: LocalizedText): string => localize(template, locale.value);
+
+const root = ref<HTMLElement | null>(null);
+const open = computed(() => model.open.value);
+// 尺寸只在开着时读：记录在第一次打开时才打开（窗口入口的约定）。
+const size = computed(() => (open.value ? model.size.value : DEFAULT_SETTINGS_WINDOW_SIZE));
+const current = computed(() => model.current.value);
+const page = computed(() => (current.value?.kind === "page" && current.value.unavailable === null ? model.page(current.value.id) : null));
+const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
+
+const tabOptions = computed(() => [
+    {value: "user", label: text(TEXT.user)},
+    {value: "project", label: text(TEXT.project)},
+]);
+const tabStyle = computed(() => ({width: segmentedWidth(tabOptions.value.map((option) => option.label))}));
+
+function navDisabled(item: SettingsNavItem): boolean {
+    // 当前项在这个标签下不可用时仍可聚焦：它是左栏的 Tab 停靠点，右边原位写着原因。
+    return item.unavailable !== null && item.id !== model.section.value;
+}
+
+const navItems = computed(() => model.nav.value.flatMap((group) => group.items));
+
+function focusCurrent(): void {
+    root.value?.querySelector<HTMLElement>("[data-settings-nav-current]")?.focus();
+}
+
+function onNavKeydown(event: KeyboardEvent): void {
+    const enabled = navItems.value.filter((item) => item.unavailable === null || item.id === model.section.value);
+    if (enabled.length === 0) return;
+    const at = enabled.findIndex((item) => item.id === model.section.value);
+    const target = event.key === "ArrowDown" ? enabled[Math.min(at + 1, enabled.length - 1)]
+        : event.key === "ArrowUp" ? enabled[Math.max(at - 1, 0)]
+            : event.key === "Home" ? enabled[0]
+                : event.key === "End" ? enabled[enabled.length - 1]
+                    : undefined;
+    if (target === undefined) return;
+    event.preventDefault();
+    model.select(target.id);
+    void nextTick(focusCurrent);
+}
+
+// 已开着时再执行打开命令：把焦点拉回窗口（输出 15“已开着时只聚焦”）。
+watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
+</script>
+
+<template>
+    <Dialog
+        :model-value="open"
+        :modal="false"
+        :title="text(TEXT.title)"
+        :close-label="text(TEXT.close)"
+        closable
+        resizable
+        :show-footer="false"
+        :width="size.width"
+        :height="size.height"
+        :min-width="MIN_SETTINGS_WINDOW_SIZE.width"
+        :min-height="MIN_SETTINGS_WINDOW_SIZE.height"
+        initial-focus="[data-settings-nav-current]"
+        @request-close="model.close()"
+        @update:width="(width: number) => model.resize({width})"
+        @update:height="(height: number) => model.resize({height})"
+    >
+        <div ref="root" class="settings-window" data-settings-window>
+            <SegmentedControl
+                v-if="model.bound.value"
+                class="settings-window__tabs"
+                data-settings-tabs
+                full-width
+                :style="tabStyle"
+                :model-value="model.layer.value"
+                :options="tabOptions"
+                :aria-label="text(TEXT.tabs)"
+                @update:model-value="(value: SegmentedControlValue) => model.setLayer(value as SettingLayer)"
+            />
+            <div class="settings-window__split">
+                <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
+                    <template v-for="(group, index) in model.nav.value" :key="group.category">
+                        <Separator v-if="index > 0" class="settings-window__nav-separator" data-settings-nav-separator />
+                        <Button
+                            v-for="item in group.items"
+                            :key="item.id"
+                            class="settings-window__nav-item"
+                            :variant="item.id === model.section.value ? 'secondary' : 'ghost'"
+                            :icon-class="item.icon"
+                            :disabled="navDisabled(item)"
+                            :title="item.unavailable ?? undefined"
+                            :tabindex="item.id === model.section.value ? 0 : -1"
+                            :aria-current="item.id === model.section.value ? 'page' : undefined"
+                            :data-settings-nav="item.id"
+                            :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
+                            block
+                            @click="model.select(item.id)"
+                        >{{ item.title }}</Button>
+                    </template>
+                </nav>
+                <Separator orientation="vertical" class="settings-window__divider" />
+                <div v-if="current === null" class="settings-window__empty">{{ text(TEXT.empty) }}</div>
+                <!-- fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。 -->
+                <div v-else-if="fill && page !== null" class="settings-window__fill" :data-settings-section="current.id">
+                    <header class="settings-window__heading">
+                        <h2 class="settings-window__title">{{ current.title }}</h2>
+                        <p v-if="current.description !== null" class="settings-window__description">{{ current.description }}</p>
+                    </header>
+                    <p v-if="model.layerNotice.value !== null" class="settings-window__notice" :data-settings-layer-notice="model.layerNotice.value.kind" role="status">
+                        <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
+                        <span>{{ text(model.layerNotice.value.kind === "invalid" ? TEXT.invalid : TEXT.unavailable) }}</span>
+                        <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
+                    </p>
+                    <div class="settings-window__fill-body">
+                        <SettingsPageFrame
+                            :locale="locale"
+                            :delivery="page.delivery"
+                            :status="page.status"
+                            :error="page.error"
+                            :component="page.component"
+                            :context="page.context"
+                            :generation="page.generation"
+                            :busy="page.busy"
+                            @retry-entry="model.retryPageEntry(current.id)"
+                            @reload="model.reloadPage(current.id)"
+                            @retry-render="model.retryPageRender(current.id)"
+                            @render-error="(generation: number, message: string) => model.pageRenderFailed(current!.id, generation, message)"
+                        />
+                    </div>
+                </div>
+                <ScrollArea v-else type="auto" class="settings-window__scroll">
+                    <div class="settings-window__column" :data-settings-section="current.id">
+                        <header class="settings-window__heading">
+                            <h2 class="settings-window__title">{{ current.title }}</h2>
+                            <p v-if="current.description !== null" class="settings-window__description">{{ current.description }}</p>
+                        </header>
+                        <p v-if="model.layerNotice.value !== null" class="settings-window__notice" :data-settings-layer-notice="model.layerNotice.value.kind" role="status">
+                            <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
+                            <span>{{ text(model.layerNotice.value.kind === "invalid" ? TEXT.invalid : TEXT.unavailable) }}</span>
+                            <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
+                        </p>
+                        <p v-if="current.unavailable !== null" class="settings-window__unavailable" data-settings-unavailable>{{ current.unavailable }}</p>
+                        <SettingsListSection v-else-if="current.kind === 'list'" :window="model" :view="current" />
+                        <SettingsPageFrame
+                            v-else-if="page !== null"
+                            :locale="locale"
+                            :delivery="page.delivery"
+                            :status="page.status"
+                            :error="page.error"
+                            :component="page.component"
+                            :context="page.context"
+                            :generation="page.generation"
+                            :busy="page.busy"
+                            @retry-entry="model.retryPageEntry(current.id)"
+                            @reload="model.reloadPage(current.id)"
+                            @retry-render="model.retryPageRender(current.id)"
+                            @render-error="(generation: number, message: string) => model.pageRenderFailed(current!.id, generation, message)"
+                        />
+                    </div>
+                </ScrollArea>
+            </div>
+        </div>
+    </Dialog>
+</template>
+
+<style scoped>
+.settings-window {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    gap: var(--space-5);
+    container-type: inline-size;
+}
+
+.settings-window__tabs {
+    align-self: flex-start;
+    flex-shrink: 0;
+    margin-left: var(--space-2);
+}
+
+.settings-window__split {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+}
+
+/* 左栏四周留出焦点环的余量：它条目多时自己滚动，滚动容器会裁掉贴边的环。 */
+.settings-window__nav {
+    display: flex;
+    width: 180px;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: var(--space-1);
+    overflow-y: auto;
+    padding: var(--space-2) var(--space-5) var(--space-2) var(--space-2);
+}
+
+.settings-window__nav-item {
+    flex-shrink: 0;
+    justify-content: flex-start;
+}
+
+.settings-window__nav-separator {
+    margin-block: var(--space-4);
+}
+
+.settings-window__divider {
+    flex-shrink: 0;
+}
+
+.settings-window__scroll {
+    height: 100%;
+    min-width: 0;
+    flex: 1;
+}
+
+/* 内容列：左边留出已修改竖线的位置（SettingsRow 把它画在行左边 --space-5 处）。 */
+.settings-window__column {
+    max-width: 768px;
+    padding: var(--space-2) var(--space-6) var(--space-6) var(--space-7);
+}
+
+.settings-window__fill {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    padding: var(--space-2) var(--space-6) 0 var(--space-7);
+}
+
+.settings-window__fill-body {
+    min-height: 0;
+    flex: 1;
+}
+
+.settings-window__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-6);
+}
+
+.settings-window__title {
+    margin: 0;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-strong);
+    line-height: var(--leading-tight);
+    color: var(--text-main);
+}
+
+.settings-window__description {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-ui);
+    color: var(--text-muted);
+}
+
+.settings-window__notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin: 0 0 var(--space-6);
+    font-size: var(--text-xs);
+    line-height: var(--leading-ui);
+    color: var(--status-warning);
+}
+
+.settings-window__notice-icon {
+    width: var(--text-sm);
+    height: var(--text-sm);
+    flex-shrink: 0;
+}
+
+.settings-window__path {
+    min-width: 0;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.settings-window__unavailable,
+.settings-window__empty {
+    margin: 0;
+    font-size: var(--text-sm);
+    line-height: var(--leading-ui);
+    color: var(--text-secondary);
+}
+
+.settings-window__empty {
+    padding: var(--space-6);
+}
+
+/* 窄容器（手机宽度的画布）：左栏移到上方、条目换行，右边不封顶。设置窗口只做桌面宽度，这一档只保证不横向溢出。 */
+@container (max-width: 600px) {
+    .settings-window__split {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .settings-window__nav {
+        width: auto;
+        flex-direction: row;
+        flex-wrap: wrap;
+        overflow: visible;
+        padding: var(--space-2);
+    }
+
+    .settings-window__nav-item {
+        width: auto;
+    }
+
+    .settings-window__nav-separator,
+    .settings-window__divider {
+        display: none;
+    }
+
+    .settings-window__scroll {
+        height: auto;
+        flex: none;
+    }
+
+    .settings-window__column,
+    .settings-window__fill {
+        max-width: none;
+        padding-inline: var(--space-6);
+    }
+}
+</style>

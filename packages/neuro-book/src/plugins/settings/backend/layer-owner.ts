@@ -35,6 +35,8 @@ export interface LayerOwnerOptions {
     readonly diagnostics: DiagnosticsService;
     /** 拥有这一层的插件（`nbook.settings`）：诊断记在它名下，用户编辑只接受它自己、没有经过代理的请求。 */
     readonly source: string;
+    /** 写进层快照的文件路径（configuration.md 输出 23）；缺省时快照不带路径。 */
+    readonly shownPath?: string;
 }
 
 export type OwnerWriteResult = LayerWriteResult;
@@ -56,7 +58,8 @@ export interface LayerOwner {
 export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     const boot = randomUUID();
     let seq = 0;
-    let current: LayerSnapshot = {status: "ok", revision: {boot, seq}, values: Object.freeze({}), problems: Object.freeze([])};
+    const located = options.shownPath === undefined ? {} : {path: options.shownPath};
+    let current: LayerSnapshot = {status: "ok", revision: {boot, seq}, values: Object.freeze({}), problems: Object.freeze([]), ...located};
     const listeners = new Set<(snapshot: LayerSnapshot) => void>();
     let closed = false;
     let closing: Promise<void> | null = null;
@@ -81,7 +84,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     const publish = (next: LayerContent): LayerSnapshot => {
         if (sameContent(next, current)) return current;
         seq += 1;
-        current = Object.freeze({...next, revision: Object.freeze({boot, seq})});
+        current = Object.freeze({...next, ...located, revision: Object.freeze({boot, seq})});
         for (const listener of [...listeners]) {
             try {
                 listener(current);

@@ -27,6 +27,12 @@ export type {SettingsSectionCategory, SettingsSectionDeclaration} from "./sectio
 /** 插件依赖它取得按调用方生成的配置服务。 */
 export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<SettingsService>("nbook.settings/settings");
 
+/** 打开本页的设置窗口（docs/specs/settings/settings-window.md 输出 15）；工作台与书架的齿轮执行它。 */
+export const OPEN_SETTINGS_COMMAND = "nbook.settings.open";
+
+/** 公开状态：本页的设置窗口开着时为真；齿轮据此画成按下。 */
+export const SETTINGS_WINDOW_OPEN_KEY = "nbook.settings/windowOpen";
+
 /** 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。 */
 export const localeSetting = defineSetting({
     plugin: "nbook.settings",
@@ -54,9 +60,10 @@ const RevisionSchema = Type.Object({boot: Type.String(), seq: Type.Integer({mini
 const ProblemSchema = Type.Object({key: Type.String(), reason: Type.Union([Type.Literal("invalid-value"), Type.Literal("layer-not-allowed")])}, {additionalProperties: false});
 const ValuesSchema = Type.Record(Type.String(), Type.Unknown());
 
+/** `path`：这一层文件的绝对路径，拥有者不发时缺省（configuration.md 输出 23）；只加可选字段，合同版本不变。 */
 export const LayerSnapshotSchema = Type.Union([
-    Type.Object({status: Type.Literal("ok"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema)}, {additionalProperties: false}),
-    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String()}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("ok"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), path: Type.Optional(Type.String())}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), path: Type.Optional(Type.String())}, {additionalProperties: false}),
 ]);
 
 const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String()}, {additionalProperties: false});

@@ -88,8 +88,8 @@ describe("parseKeybinding", () => {
         expect(parseKeybinding("Mod+Shift+P", "other")).toEqual({ok: true, value: {key: "P", ctrl: true, meta: false, alt: false, shift: true}});
     });
 
-    it("支持 A–Z、0–9、Escape、Enter、Space、F1–F12", () => {
-        for (const key of ["A", "Z", "0", "9", "Escape", "Enter", "Space", "F1", "F12"]) expect(parseKeybinding(`Mod+${key}`, "other").ok).toBe(true);
+    it("支持 A–Z、0–9、逗号、Escape、Enter、Space、F1–F12", () => {
+        for (const key of ["A", "Z", "0", "9", ",", "Escape", "Enter", "Space", "F1", "F12"]) expect(parseKeybinding(`Mod+${key}`, "other").ok).toBe(true);
     });
 
     it("拒绝 chord、重复修饰、空键与未登记的修饰词", () => {
@@ -115,6 +115,17 @@ describe("createKeymapDispatcher", () => {
         app.dispatcher.handle(event);
         expect(app.runs).toEqual(["nbook.quick-open.open-commands"]);
         expect([event.prevented, event.stopped]).toEqual([1, 1]);
+    });
+
+    it("Mod+, 在 mac 上是 ⌘,、其它平台是 Ctrl+,，按下即执行（打开设置）", () => {
+        for (const [platform, init] of [["mac", {key: ",", metaKey: true}], ["other", {key: ",", ctrlKey: true}]] as const) {
+            const app = harness(platform);
+            app.bind("nbook.settings.open", {keybinding: "Mod+,"});
+            const event = press(init);
+            app.dispatcher.handle(event);
+            expect(app.runs).toEqual(["nbook.settings.open"]);
+            expect(event.prevented).toBe(1);
+        }
     });
 
     it("其它平台认 Ctrl 不认 Meta；小写的 event.key 归一后照样命中", () => {
@@ -210,6 +221,8 @@ describe("快捷键的显示", () => {
         expect(formatKeybinding("Shift+Alt+Ctrl+Mod+K", "mac")).toBe("⌃⌥⇧⌘K");
         expect(formatKeybinding("Mod+Shift+P", "other")).toBe("Ctrl+Shift+P");
         expect(formatKeybinding("Alt+F10", "other")).toBe("Alt+F10");
+        expect(formatKeybinding("Mod+,", "mac")).toBe("⌘,");
+        expect(formatKeybinding("Mod+,", "other")).toBe("Ctrl+,");
         expect(formatKeybinding("Mod+Mod+P", "other")).toBe("Mod+Mod+P");
     });
 });

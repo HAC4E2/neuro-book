@@ -21,13 +21,13 @@ import {definitionAt, delegatingPlugins} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
-import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
-import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
+import {clockKey, stateRootKey, windowConnectionKey, windowNavigationKey} from "nbook/shared/host";
+import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
 import {settingsBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
-import {settingsBrowserCore, settingsBrowserPlugin} from "../web/plugin";
+import {settingsBrowserCore, settingsBrowserPlugin, settingsWindowEntry} from "../web/plugin";
 
 export interface WorldWindow {
     readonly app: Application;
@@ -163,13 +163,15 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                 link.set("offline");
             }
             const project = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
-            const settings = windowOptions.quickPick === undefined ? settingsBrowserCore : settingsBrowserPlugin;
+            // 设置窗口的入口要工作台的通知与 Storage，这里的窗口没有它们；要它的测试经 `settingsEntries` 显式加上。
+            const settings = windowOptions.quickPick === undefined ? settingsBrowserCore : {...settingsBrowserPlugin, entries: settingsBrowserPlugin.entries.filter((entry) => entry !== settingsWindowEntry)};
             const app = await started(createApplication(
                 {identity: {location: "browser", instanceId: id, client: `client-${id}`}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {
                     capabilities: [
                         {id: "window.project", key: windowProjectKey, create: () => ({project})},
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
+                        {id: "window.navigation", key: windowNavigationKey, create: () => NO_NAVIGATION},
                         {id: "clock", key: clockKey, create: () => clock},
                         ...(windowOptions.quickPick === undefined ? [] : [{id: "test.quick-pick", key: quickPickKey, create: () => windowOptions.quickPick!}]),
                     ],
@@ -202,6 +204,17 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
         },
     };
 }
+
+/**
+ * 场地里的窗口没有文档可导航，整页导航什么都不做；工作台的入口依赖这项宿主能力（应用命令），装工作台的测试才起得来。
+ */
+const NO_NAVIGATION: WindowNavigation = {
+    navigateDocument: () => undefined,
+    reloadDocument: () => undefined,
+    openExternal: () => "blocked",
+    currentUrl: () => "http://127.0.0.1/",
+    replaceUrl: () => undefined,
+};
 
 function linkState(): {readonly connection: WindowConnection; set(state: WindowConnectionState): void} {
     let current: WindowConnectionState = "offline";

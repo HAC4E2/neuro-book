@@ -15,9 +15,13 @@ import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vu
 import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
+import type SettingsControl from "nbook/plugins/settings/web/components/SettingsControl.vue";
+import type SettingsWindow from "nbook/plugins/settings/web/components/SettingsWindow.vue";
 import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
+import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
+import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
@@ -32,6 +36,8 @@ import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/compone
 import type WorkbenchViewFrame from "nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
+import {localeSetting} from "nbook/plugins/settings/shared/contracts";
+import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
 import type EventLogPanel from "../components/EventLogPanel.vue";
@@ -45,6 +51,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {nbUiFixtures} from "./nb-ui";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
+import {SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /**
@@ -607,6 +614,7 @@ export const labFixtures: LabFixture[] = [
         class: "w-28",
     }),
     ...shelfFixtures(),
+    ...settingsFixtures(),
     ...nbUiFixtures,
 ];
 
@@ -721,6 +729,67 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "project"}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/PathPickerDialog.vue"),
+        }),
+    ];
+}
+
+/**
+ * 设置窗口（docs/specs/settings/settings-window.md）与给页面用的两个组件。窗口与 SettingsRow 由设置场景的局部宿主驱动
+ * （`settings-scene/`）：产品里同一个窗口模型与配置实例，配置层换成内存里的拥有者。
+ */
+function settingsFixtures(): LabFixture[] {
+    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items, layer: "user" | "project", wide = false) => ({setting, layer, locale: "zh-CN" as const, projectTitle: "雾港", wide});
+    return [
+        defineLabFixture<typeof SettingsWindow>({
+            component: "SettingsWindow",
+            noInput: "窗口由场景的局部宿主驱动（窗口模型、配置实例与分区注册表，配置层在内存里），没有可登记的 JSON 输入",
+            scenes: SETTINGS_WINDOW_SCENES.map((scene) => ({id: scene.id, label: scene.label})),
+            load: async () => (await import("./SettingsWindowFixture.vue")).default,
+        }),
+        defineLabFixture<typeof SettingsRow>({
+            component: "SettingsRow",
+            scenes: [
+                {id: "modified", label: "用户层已修改", input: {props: row(appearanceSetting, "user")}},
+                {id: "overridden", label: "被本作品覆盖", input: {props: row(appearanceSetting, "user")}},
+                {id: "inherit", label: "本作品标签：沿用用户设置", input: {props: row(themeSetting, "project")}},
+                {id: "project-set", label: "本作品标签：单独设置了", input: {props: row(appearanceSetting, "project")}},
+                {id: "invalid", label: "层文件有错误（停用）", input: {props: row(appearanceSetting, "user")}},
+                {id: "unreachable", label: "层连不上（停用）", input: {props: row(appearanceSetting, "user")}},
+                {id: "wide", label: "宽排法：控件另起一行", input: {props: row(snippetsSettings.items, "user", true)}},
+                {id: "not-allowed", label: "不允许这一层", input: {props: row(localeSetting, "project")}},
+            ],
+            load: async () => (await import("./SettingsRowFixture.vue")).default,
+        }),
+        defineSubjectFixture<typeof SettingsPageList>({
+            component: "SettingsPageList",
+            class: "w-full max-w-[260px]",
+            scenes: (() => {
+                const providers = [
+                    {id: "deepseek", title: "DeepSeek", description: "api.deepseek.com", icon: "i-lucide-server"},
+                    {id: "openai", title: "OpenAI", description: "api.openai.com", icon: "i-lucide-server"},
+                    {id: "custom", title: "自定义服务", icon: "i-lucide-server", disabledReason: "还没有填写接口地址"},
+                ];
+                return [
+                    {id: "providers", label: "服务商：选中、说明与停用", input: {props: {items: providers, label: "服务商"}, model: {modelValue: "deepseek"}}},
+                    {id: "none", label: "没有选中", input: {props: {items: providers.slice(0, 2), label: "服务商"}, model: {modelValue: null}}},
+                    {id: "long", label: "长标题截断", input: {props: {items: [{id: "a", title: "一个名字很长很长的自建兼容服务（内网）", description: "https://llm.internal.example.com/v1/chat/completions"}, {id: "b", title: "备用"}], label: "服务商"}, model: {modelValue: "a"}}},
+                ];
+            })(),
+            subject: () => import("nbook/ui/settings/SettingsPageList.vue"),
+        }),
+        defineSubjectFixture<typeof SettingsControl>({
+            component: "SettingsControl",
+            class: "",
+            scenes: [
+                {id: "switch", label: "开关", input: {props: {control: {kind: "switch"}, label: "自动保存草稿", locale: "zh-CN"}, model: {modelValue: true}}},
+                {id: "segmented", label: "分段（不超过 3 项）", input: {props: {control: {kind: "segmented", choices: [{value: "light", label: "浅色"}, {value: "dark", label: "深色"}, {value: "system", label: "跟随系统"}]}, label: "明暗", locale: "zh-CN"}, model: {modelValue: "system"}}},
+                {id: "select", label: "下拉（多于 3 项）", input: {props: {control: {kind: "select", choices: [{value: "title", label: "按标题"}, {value: "modified", label: "按修改时间"}, {value: "created", label: "按创建时间"}, {value: "words", label: "按字数"}]}, label: "排序", locale: "zh-CN"}, model: {modelValue: "modified"}}},
+                {id: "number", label: "数字（范围与步长）", input: {props: {control: {kind: "number", integer: true, min: 5, max: 600}, label: "保存间隔", locale: "zh-CN"}, model: {modelValue: 120}}},
+                {id: "text", label: "单行输入（长度上限）", input: {props: {control: {kind: "text", maxLength: 40}, label: "落款", locale: "zh-CN"}, model: {modelValue: "——写于雾港"}}},
+                {id: "readonly", label: "画不了的类型：只读", input: {props: {control: {kind: "readonly"}, label: "常用标签", locale: "zh-CN"}, model: {modelValue: ["人物", "地点", "伏笔"]}}},
+                {id: "disabled", label: "停用", input: {props: {control: {kind: "segmented", choices: [{value: "nbook", label: "NeuroBook"}, {value: "macos", label: "macOS"}]}, label: "主题", locale: "zh-CN", disabled: true}, model: {modelValue: "nbook"}}},
+            ],
+            subject: () => import("nbook/plugins/settings/web/components/SettingsControl.vue"),
         }),
     ];
 }

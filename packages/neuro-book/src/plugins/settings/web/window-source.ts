@@ -14,17 +14,28 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {WindowPluginRetry} from "nbook/shared/host";
-import type {SettingLayer, SettingWriteResult} from "nbook/shared/settings";
+import {SETTINGS_POINT} from "nbook/shared/settings";
+import type {SettingDefinition, SettingLayer, SettingWriteResult} from "nbook/shared/settings";
 
-import type {SettingsInstance} from "../shared/instance";
+import type {InstanceLayerState, SettingsInstance} from "../shared/instance";
 import {userEditProblem} from "../shared/layers";
 import type {DeclaredSetting, LayerEdit} from "../shared/layers";
 import type {LayerEditor} from "../shared/remote-link";
 import type {SettingsPageDelivery, SettingsPageLoad, SettingsSectionEntry, SettingsSectionRegistry} from "./sections";
 
+/** 一条已接受的配置项声明：声明者与可交给配置服务读写的定义。 */
+export interface WindowSetting {
+    readonly plugin: string;
+    readonly definition: SettingDefinition<unknown>;
+}
+
 export interface SettingsWindowSource {
     /** 已接受的分区声明，按分区 id 的码元顺序。 */
     sections(): ReadonlyArray<SettingsSectionEntry>;
+    /** 本窗口已接受的全部配置项声明，按键的码元顺序；插件集合不变，结果也不变。 */
+    settings(): ReadonlyArray<WindowSetting>;
+    /** 一层此刻的情况（设置窗口顶部的层说明）；在 computed 里读会随层更新重算。 */
+    layer(layer: SettingLayer): InstanceLayerState;
     /** 分区的交付状态；在 computed 里读会随交付变化重算。 */
     delivery(sectionId: string): SettingsPageDelivery;
     load(sectionId: string): Promise<SettingsPageLoad>;
@@ -46,6 +57,13 @@ export interface SettingsWindowSourceOptions {
 }
 
 export function createSettingsWindowSource(options: SettingsWindowSourceOptions): SettingsWindowSource {
+    // 定义由已接受的声明写出：与插件自己 `defineSetting` 的结果同形，配置服务按键读写，读到的是同一份声明。
+    const settings: ReadonlyArray<WindowSetting> = Object.freeze([...options.declarations]
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, declared]) => Object.freeze({
+            plugin: declared.plugin,
+            definition: Object.freeze({key, declaration: declared.declaration, contribution: Object.freeze({capability: SETTINGS_POINT, id: key, declaration: declared.declaration})}),
+        })));
     const write = async (key: string, layer: SettingLayer, edit: LayerEdit): Promise<SettingWriteResult> => {
         // 核对顺序同声明者的写入（输出 11），只是不看声明者；调用方身份由拥有者核对。
         const problem = userEditProblem(key, options.declarations.get(key), edit, layer);
@@ -60,6 +78,8 @@ export function createSettingsWindowSource(options: SettingsWindowSourceOptions)
     };
     return {
         sections: () => options.sections.catalog,
+        settings: () => settings,
+        layer: (layer) => options.instance.layer(layer),
         delivery: (sectionId) => options.sections.delivery(sectionId),
         load: (sectionId) => options.sections.load(sectionId),
         retry: (sectionId) => options.sections.retry(sectionId),

@@ -55,10 +55,18 @@ export interface SettingsFacade {
     release(): void;
 }
 
+/** 本实例里一层的整体情况；`path` 是拥有者给出的文件路径，没给为 null。 */
+export type InstanceLayerState =
+    | {readonly status: "absent" | "pending" | "unavailable"}
+    | {readonly status: "ok"; readonly path: string | null}
+    | {readonly status: "invalid"; readonly detail: string; readonly path: string | null};
+
 export interface SettingsInstance {
     /** 每层收到第一份快照、或超时、或失败之后完成；不会 reject。 */
     readonly ready: Promise<void>;
     facade(consumer: ConsumerIdentity): SettingsFacade;
+    /** 一层此刻的情况（设置窗口的层说明）；在 computed 里读会随层更新重算。 */
+    layer(layer: SettingLayer): InstanceLayerState;
     /**
      * 应用别处拿到的层快照（用户编辑的写入结果）：与订阅推送一样，同一启动标识下修订号更大才替换。本实例没有这一层
      * 或已关闭时不做任何事。
@@ -272,9 +280,18 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         };
     };
 
+    const layerState = (layer: SettingLayer): InstanceLayerState => {
+        const state = states.get(layer)?.value;
+        if (state === undefined) return {status: "absent"};
+        if (state.status !== "live") return {status: state.status};
+        const path = state.snapshot.path ?? null;
+        return state.snapshot.status === "ok" ? {status: "ok", path} : {status: "invalid", detail: state.snapshot.detail, path};
+    };
+
     return {
         ready,
         facade,
+        layer: layerState,
         accept: apply,
         close: () => {
             if (closed) return;

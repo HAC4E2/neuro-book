@@ -36,7 +36,8 @@ export interface KeymapDispatcher {
     dispose: Release;
 }
 
-const KEY_TOKEN = /^(?:[A-Z]|[0-9]|Escape|Enter|Space|F(?:[1-9]|1[0-2]))$/u;
+/** 主键：字母、数字、逗号（`Mod+,` 打开设置，与常见编辑器一致）、Escape、Enter、Space 与 F1–F12。 */
+const KEY_TOKEN = /^(?:[A-Z]|[0-9]|,|Escape|Enter|Space|F(?:[1-9]|1[0-2]))$/u;
 const F_KEY = /^F(?:[1-9]|1[0-2])$/u;
 
 function combinationOf(key: string, modifiers: Modifiers): string {
@@ -96,7 +97,7 @@ function normalizeEventKey(key: string): string | null {
     if (key === "Esc") return "Escape";
     if (key.length === 1) {
         if (key >= "a" && key <= "z") return key.toUpperCase();
-        return (key >= "A" && key <= "Z") || (key >= "0" && key <= "9") ? key : null;
+        return (key >= "A" && key <= "Z") || (key >= "0" && key <= "9") || key === "," ? key : null;
     }
     return key === "Escape" || key === "Enter" || F_KEY.test(key) ? key : null;
 }
