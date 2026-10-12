@@ -3,6 +3,7 @@ import {mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises"
 import {join, resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import type {ProcessRef, SessionCaller, SessionRef} from "./identity.js";
+import {TASK_ID_PATTERN, WORK_ID_PATTERN} from "./ids.js";
 import {processAlive} from "./procfs.js";
 import type {TaskStatus} from "./records.js";
 import {AGENT_LOCAL_ROOT} from "./registry.js";
@@ -17,6 +18,9 @@ export const LEASES_DIR = `${AGENT_LOCAL_ROOT}/run/leases`;
 export const LEASE_EXPIRY_MS = 24 * 3_600_000;
 export const LEASE_STALE_MS = 2 * 3_600_000;
 const LEASE_FILE_PATTERN = /^[0-9a-f]{24}\.json$/u;
+const LEASE_ID_PATTERN = /^[0-9a-f]{24}$/u;
+const ISO_TIME_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z$/u;
+const RELEASE_REASONS: readonly string[] = ["released", "task_done", "task_shelved"];
 
 export type LeaseHerdr = {socketPath: string; paneId: string; terminalId: string};
 export type LeaseSession = SessionRef & {process: ProcessRef | null; herdr: LeaseHerdr | null};
@@ -68,20 +72,76 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseLease(text: string): {lease: LeaseRecord} | {problem: string} {
+function isIsoTime(value: unknown): value is string {
+    return typeof value === "string" && ISO_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function isNullableString(value: unknown): value is string | null {
+    return value === null || typeof value === "string";
+}
+
+function parseProcess(value: unknown): ProcessRef | null | undefined {
+    if (value === null) return null;
+    if (!isRecord(value) || !Number.isInteger(value.pid) || (value.pid as number) <= 0 || typeof value.startTicks !== "string" || !/^[0-9]+$/u.test(value.startTicks)) return undefined;
+    return {pid: value.pid as number, startTicks: value.startTicks};
+}
+
+function parseLeaseHerdr(value: unknown): LeaseHerdr | null | undefined {
+    if (value === null) return null;
+    if (!isRecord(value) || typeof value.socketPath !== "string" || typeof value.paneId !== "string" || typeof value.terminalId !== "string") return undefined;
+    return {socketPath: value.socketPath, paneId: value.paneId, terminalId: value.terminalId};
+}
+
+function parseSession(value: unknown): LeaseSession | string {
+    if (!isRecord(value)) return "session 不是对象";
+    if (typeof value.key !== "string" || value.key === "" || typeof value.agent !== "string") return "session.key 或 session.agent 不是非空字符串";
+    if (!isNullableString(value.sessionId) || !isNullableString(value.label) || !isNullableString(value.parentSessionId)) return "session 的 sessionId、label、parentSessionId 只能是字符串或 null";
+    const process = parseProcess(value.process);
+    if (process === undefined) return "session.process 只能是 {pid: 正整数, startTicks: 数字串} 或 null";
+    const herdr = parseLeaseHerdr(value.herdr);
+    if (herdr === undefined) return "session.herdr 只能是 {socketPath, paneId, terminalId} 三个字符串或 null";
+    return {key: value.key, agent: value.agent, sessionId: value.sessionId, label: value.label, parentSessionId: value.parentSessionId, process, herdr};
+}
+
+/**
+ * 逐字段校验后重建记录：租约文件在 `.local/agent/` 下，谁都能改，类型声明代替不了运行期检查。
+ * `leaseId` 必须与文件名一致：释放时按它拼回写路径。
+ */
+function parseLease(text: string, expectedId: string): {lease: LeaseRecord} | {problem: string} {
     let value: unknown;
     try {
         value = JSON.parse(text);
     } catch (error) {
         return {problem: `不是合法 JSON：${error instanceof Error ? error.message : String(error)}`};
     }
-    if (!isRecord(value) || value.schema !== LEASE_SCHEMA || typeof value.leaseId !== "string" || typeof value.workId !== "string" || typeof value.taskId !== "string") {
-        return {problem: "schema 不是 nbdev.lease/v1，或缺少 leaseId、workId、taskId"};
+    if (!isRecord(value) || value.schema !== LEASE_SCHEMA) return {problem: "schema 不是 nbdev.lease/v1"};
+    if (typeof value.leaseId !== "string" || !LEASE_ID_PATTERN.test(value.leaseId) || value.leaseId !== expectedId) return {problem: "leaseId 不是 24 位 hex，或与文件名不一致"};
+    if (typeof value.workId !== "string" || !WORK_ID_PATTERN.test(value.workId) || typeof value.taskId !== "string" || !TASK_ID_PATTERN.test(value.taskId)) {
+        return {problem: "workId 或 taskId 不合编号格式"};
     }
-    if (!isRecord(value.session) || typeof value.session.key !== "string" || typeof value.acquiredAt !== "string" || typeof value.lastActivityAt !== "string") {
-        return {problem: "缺少 session.key、acquiredAt 或 lastActivityAt"};
+    const session = parseSession(value.session);
+    if (typeof session === "string") return {problem: session};
+    if (!isIsoTime(value.acquiredAt) || !isIsoTime(value.lastActivityAt) || (value.releasedAt !== null && !isIsoTime(value.releasedAt))) {
+        return {problem: "acquiredAt、lastActivityAt、releasedAt 不是合法的 ISO 时间"};
     }
-    return {lease: value as unknown as LeaseRecord};
+    if (typeof value.lastAction !== "string") return {problem: "lastAction 不是字符串"};
+    const releaseReason = value.releaseReason;
+    if (releaseReason !== null && (typeof releaseReason !== "string" || !RELEASE_REASONS.includes(releaseReason))) return {problem: `releaseReason 只能是 ${RELEASE_REASONS.join("、")} 或 null`};
+    if ((value.releasedAt === null) !== (releaseReason === null)) return {problem: "releasedAt 与 releaseReason 要么都有、要么都是 null"};
+    return {
+        lease: {
+            schema: LEASE_SCHEMA,
+            leaseId: value.leaseId,
+            workId: value.workId,
+            taskId: value.taskId,
+            session,
+            acquiredAt: value.acquiredAt,
+            lastActivityAt: value.lastActivityAt,
+            lastAction: value.lastAction,
+            releasedAt: value.releasedAt as string | null,
+            releaseReason: releaseReason as ReleaseReason | null,
+        },
+    };
 }
 
 /**
@@ -110,7 +170,7 @@ export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord
             warnings.push({code: "unreadable_lease", message: `租约文件读不了，已跳过：${name}（${systemErrorCode(error)}）`, details: {path: join(LEASES_DIR, name), code: systemErrorCode(error)}});
             continue;
         }
-        const parsed = parseLease(text);
+        const parsed = parseLease(text, name.slice(0, -".json".length));
         if ("lease" in parsed) leases.push(parsed.lease);
         else warnings.push({code: "unreadable_lease", message: `租约文件读不出，已跳过：${name}（${parsed.problem}）`, details: {path: join(LEASES_DIR, name), problem: parsed.problem}});
     }
@@ -119,6 +179,7 @@ export async function readLeases(mainRoot: string): Promise<{leases: LeaseRecord
 
 /** 读一份租约；文件不存在为 null，读不出（内容不合规或权限不够）时抛 `invalid_record`（`touchLease` 会接住并整份重写）。 */
 export async function getLease(mainRoot: string, id: string): Promise<LeaseRecord | null> {
+    if (!LEASE_ID_PATTERN.test(id)) throw new NbdevError("invalid_record", `租约 id 不是 24 位 hex：${id}`, {details: {leaseId: id}});
     let text: string;
     try {
         text = await readFile(leasePath(mainRoot, id), "utf8");
@@ -127,7 +188,7 @@ export async function getLease(mainRoot: string, id: string): Promise<LeaseRecor
         if (systemErrorCode(error) === undefined) throw error;
         throw new NbdevError("invalid_record", `租约文件读不了：${id}（${systemErrorCode(error)}）`, {cause: error, details: {leaseId: id, code: systemErrorCode(error)}});
     }
-    const parsed = parseLease(text);
+    const parsed = parseLease(text, id);
     if ("problem" in parsed) throw new NbdevError("invalid_record", `租约文件读不出：${id}（${parsed.problem}）`, {details: {leaseId: id, problem: parsed.problem}});
     return parsed.lease;
 }

@@ -131,6 +131,36 @@ describe("租约文件", () => {
     });
 });
 
+describe("租约文件的校验", () => {
+    test("字段不合规的文件一律给 unreadable_lease 后跳过：session 只有 key、时间是乱码、leaseId 与文件名不一致或含路径、取值越界", async () => {
+        const main = await tempMain();
+        const good = await touchLease(main, {caller: claude("aaa", null), workId: "w00001-a", taskId: "t01-a", action: "task new", now: T0});
+        const dir = join(main, LEASES_DIR);
+        const variants: Array<[string, (record: Record<string, unknown>) => Record<string, unknown>]> = [
+            ["session 只有 key", (record) => ({...record, session: {key: "claude:x"}})],
+            ["lastActivityAt 是乱码", (record) => ({...record, lastActivityAt: "垃圾"})],
+            ["acquiredAt 不是 ISO 时间", (record) => ({...record, acquiredAt: "2026-10-12"})],
+            ["leaseId 含路径", (record) => ({...record, leaseId: "../../../escape"})],
+            ["releaseReason 越界", (record) => ({...record, releasedAt: T0.toISOString(), releaseReason: "bogus"})],
+            ["只有 releasedAt", (record) => ({...record, releasedAt: T0.toISOString()})],
+            ["process 的 pid 不是正整数", (record) => ({...record, session: {...(record.session as object), process: {pid: -1, startTicks: "5"}}})],
+            ["herdr 缺字段", (record) => ({...record, session: {...(record.session as object), herdr: {socketPath: "/a.sock"}}})],
+            ["workId 不合格式", (record) => ({...record, workId: "../w00001"})],
+        ];
+        for (const [index, [, mutate]] of variants.entries()) {
+            const id = leaseId(`claude:bad${index}`, "w00001-a", "t01-a");
+            await writeFile(join(dir, `${id}.json`), JSON.stringify(mutate({...good, leaseId: id})));
+        }
+        const mismatched = leaseId("claude:mismatch", "w00001-a", "t01-a");
+        await writeFile(join(dir, `${mismatched}.json`), JSON.stringify(good));
+        const {leases, warnings} = await readLeases(main);
+        expect(leases.map((entry) => entry.leaseId)).toEqual([good.leaseId]);
+        expect(warnings.map((warning) => warning.code)).toEqual(Array.from({length: variants.length + 1}, () => "unreadable_lease"));
+        await expect(getLease(main, mismatched)).rejects.toMatchObject({code: "invalid_record"});
+        await expect(getLease(main, "../escape")).rejects.toMatchObject({code: "invalid_record"});
+    });
+});
+
 describe("登记表的 by", () => {
     test("读取时保留原值；t06 写出的 null 仍合法", () => {
         const by = {key: "claude:aaa", agent: "claude", sessionId: "aaa", label: null, parentSessionId: null};

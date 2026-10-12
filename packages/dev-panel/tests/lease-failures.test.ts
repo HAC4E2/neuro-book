@@ -1,6 +1,8 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {chmod, readdir, readFile} from "node:fs/promises";
+import {randomUUID} from "node:crypto";
+import {chmod, readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
+import {claudePane, startFakeHerdr} from "./fake-herdr.js";
 import {cleanupFixtures, createFixture, git, type Fixture} from "./git-fixture.js";
 
 /**
@@ -56,5 +58,21 @@ describe("租约读写失败不让记录操作失败", () => {
         const rewritten = await fixture.cli(["task", "status", "w00001", "t01", "planned", "--as", "bob", "--json"]);
         expect([rewritten.exitCode, rewritten.json?.warnings.map((warning) => warning.code)]).toEqual([0, []]);
         expect(JSON.parse(await readFile(join(leasesDir(fixture), file!), "utf8"))).toMatchObject({session: {key: "external:bob"}, lastAction: "task status"});
+    });
+});
+
+describe("坏的租约文件", () => {
+    test("herdr 可用时，session 只有 key 的租约文件：status 与 lease list 照常出结果，给 unreadable_lease", async () => {
+        const fixture = await createFixture("lease-bad-session");
+        expect((await fixture.cli(["lease", "take", "w00001", "t01", "--as", "bob", "--json"])).exitCode).toBe(0);
+        const [file] = (await readdir(leasesDir(fixture))).filter((name) => name.endsWith(".json"));
+        const path = join(leasesDir(fixture), file!);
+        await writeFile(path, JSON.stringify({...JSON.parse(await readFile(path, "utf8")), session: {key: "external:bob"}}));
+        const fake = await startFakeHerdr(fixture.root, [claudePane("w9:p1", randomUUID())]);
+        restores.push(() => fake.close());
+        for (const args of [["status", "--json"], ["lease", "list", "--json"]]) {
+            const result = await fixture.cli(args, fixture.main, {HERDR_SOCKET_PATH: fake.socketPath});
+            expect([args[0], result.exitCode, result.json?.warnings.map((warning) => warning.code)]).toEqual([args[0], 0, ["unreadable_lease"]]);
+        }
     });
 });
