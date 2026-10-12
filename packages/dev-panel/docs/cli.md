@@ -41,7 +41,8 @@ stdout 只有一个对象，诊断走 stderr：
 ```
 
 - `warnings`、`errors` 的元素是 `{code, message, details?}`，调用方按 `code` 判断，不看 `message`。
-- 写命令的 `data`：`workId`、`taskId`、`paths`、`commit`、`conflicts`。`commit` 是下列之一：
+- 不带命令、命令不认识或参数在分派到命令之前就出错时，`schema` 为 `nbdev.cli/v1`（错误码 `usage`，退出码 2）；`nbdev help --json`（或 `--help --json`）同样用 `nbdev.cli/v1`，`data.usage` 是用法文本。
+- 写命令的 `data`：`workId`、`taskId`、`paths`、`commit`、`conflicts`、`registryOnly`（登记表里有、但哪里都找不到的 id；本次刚领的号不算）。`commit` 是下列之一：
   - `{"committed": true, "sha", "paths", "viaOtherCommit"}`：`viaOtherCommit` 为真表示文件被别的会话不带路径的提交一起带走了，内容已在 `master`；
   - `{"committed": false, "reason": "nothing_to_commit", "paths"}`：写入的内容与 `HEAD` 相同，无需提交；
   - `{"committed": false, "reason": "git_lock_timeout" | "git_failed", "writtenPaths", "detail"}`：文件已写在主工作区但没有提交，退出码 1。不要重跑 `task new`（号已领），先处理 Git 的问题，再手动提交 `writtenPaths`。`git_lock_timeout` 只在等 `index.lock` 约 10 秒仍被占着时出现；其它失败（钩子拒绝、对象库不可写等）是 `git_failed`，`detail` 里有 Git 的输出。Git 退出码 128 而一直没见到 `index.lock` 时，连续 5 次就停止重试。

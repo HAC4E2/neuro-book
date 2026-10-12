@@ -125,7 +125,7 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
             return {
                 ...task,
                 source,
-                branch: source === "branch" ? execution!.chosen.branch : "master",
+                branch: source === "branch" ? execution!.chosen.branch : mainCheckout.branch,
                 checkout: root,
                 uncommitted: source === "master" && dirty.some((path) => path.startsWith(prefix)),
             };

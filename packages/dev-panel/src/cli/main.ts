@@ -198,8 +198,7 @@ function resolveCommand(argv: readonly string[]): {key: string; rest: string[]} 
 export async function runCli(argv: readonly string[], io: CliIo): Promise<ExitCode> {
     const json = argv.includes("--json");
     if (argv[0] === "help" || argv[0] === "--help" || argv[0] === "-h") {
-        io.stdout.write(`${USAGE}\n`);
-        return 0;
+        return emit({schema: "nbdev.cli/v1", data: {usage: USAGE}, warnings: [], error: null, human: [USAGE]}, json, io);
     }
     const resolved = resolveCommand(argv);
     if (!resolved) {

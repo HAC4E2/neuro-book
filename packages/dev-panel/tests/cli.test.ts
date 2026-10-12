@@ -134,10 +134,18 @@ describe("命令行合同", () => {
         expect(await snapshot(fixture)).toBe(before);
         const human = await fixture.cli(["status", "--work", "w00001-seed"]);
         expect(human.stdout).toContain("t01-seed  未标  [master]");
+
+        await git(fixture.main, "checkout", "--quiet", "-b", "elsewhere");
+        const offMaster = await fixture.cli(["status", "--work", "w00001", "--json"]);
+        const work = (offMaster.json?.data?.works as Array<{branch: string; tasks: Array<{branch: string}>}>)[0]!;
+        expect([work.branch, work.tasks[0]?.branch]).toEqual(["elsewhere", "elsewhere"]);
+        expect(offMaster.json?.warnings.map((warning) => warning.code)).toContain("main_not_on_master");
     });
 
-    test("用法错误退出码 2，找不到仓库或对象退出码 5", async () => {
+    test("用法错误退出码 2，找不到仓库或对象退出码 5；help --json 也只输出一个 JSON 对象", async () => {
         const fixture = await createFixture("cli-usage");
+        const help = await fixture.cli(["--help", "--json"]);
+        expect([help.exitCode, help.json?.schema, typeof help.json?.data?.usage]).toEqual([0, "nbdev.cli/v1", "string"]);
         expect((await fixture.cli(["work", "new", "--json"])).json).toMatchObject({ok: false, errors: [{code: "usage"}]});
         expect((await fixture.cli(["frobnicate", "--json"])).exitCode).toBe(2);
         expect((await fixture.cli(["task", "new", "w00001", "Bad_Slug", "--title", "x", "--json"])).exitCode).toBe(2);
