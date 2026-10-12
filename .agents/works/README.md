@@ -18,7 +18,7 @@
 
 - Work 目录使用 `w`、五位非零序号和 kebab-case 名称，例如 `w00001-work-title`。
 - Work README 使用 `schema: nbook.work/v1`，`workId` 与目录一致，`issueId` 为 `i<正整数>` 或 `null`。
-- Task 目录在所属 Work 内使用 `t`、两位非零序号和 kebab-case 名称，例如 `t01-task-title`。
+- Task 目录在所属 Work 内使用 `t`、非零序号和 kebab-case 名称，例如 `t01-task-title`。序号 01 到 99 写两位，100 起写三位（例如 `t100-task-title`）；三位序号不带前导零。
 - Task README 使用 `schema: nbook.task/v2`，`taskId` 与目录一致，不指定正式角色。
 - Work 与 Task 的 frontmatter 写 `status`。Task 取 `planned`（计划中）、`active`（进行中）、`done`（已完成）、`shelved`（已搁置），Work 取后三种。“等开发者答复”不是状态，由未答的提问现算。2026-10-12 以前建的记录没有这个字段，下次更新时补上；治理检查暂不校验取值。
 - Task 不保存 `role`、`actionIssueId`、`agentWorkflow`、`kind`、`worktreeId` 或 `branchId`。治理只校验身份、容器和退役字段；`status` 供面板与命令行汇总，正文是协作参考，都不是权限门禁。

@@ -325,7 +325,8 @@ function normalizePath(path: string): string {
 
 const WORKS_ROOT = ".agents/works";
 const WORK_ID_PATTERN = /^w(?!00000)[0-9]{5}-[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const WORK_TASK_ID_PATTERN = /^t(?!00)[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+// Task 序号 01–99 写两位，100 起写三位；三位不带前导零，否则 t050 与 t50 会成为同一序号的两个身份。
+const WORK_TASK_ID_PATTERN = /^t(?:(?!00)[0-9]{2}|[1-9][0-9]{2})-[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const WORK_ISSUE_ID_PATTERN = /^i[1-9][0-9]*$/u;
 function physicalDirectoryFailure(relativePath: string): string {
     return `Work/Task 目录项必须是物理目录：${relativePath}`;
