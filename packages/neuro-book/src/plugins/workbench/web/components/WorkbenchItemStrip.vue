@@ -100,6 +100,7 @@ function tooltipOf(entry: StripEntry): string | undefined {
                 v-if="entry.command !== null"
                 variant="ghost"
                 size="sm"
+                focus-ring="inset"
                 class="workbench-item-strip__item"
                 :class="`workbench-item-strip__item--${entry.state}`"
                 :disabled="entry.disabledReason !== null"
@@ -119,7 +120,7 @@ function tooltipOf(entry: StripEntry): string | undefined {
             >{{ entry.text }}</span>
         </template>
         <Dropdown v-if="hidden.length > 0" :items="moreItems" align="end" side="top" wrap @select="emit('run', $event)">
-            <Button variant="ghost" size="sm" class="workbench-item-strip__item" :aria-label="localize(MORE, locale)" data-workbench-item-more>
+            <Button variant="ghost" size="sm" focus-ring="inset" class="workbench-item-strip__item" :aria-label="localize(MORE, locale)" data-workbench-item-more>
                 <span class="i-lucide-ellipsis h-3.5 w-3.5" aria-hidden="true"></span>
             </Button>
         </Dropdown>

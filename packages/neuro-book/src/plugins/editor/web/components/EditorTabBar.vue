@@ -95,7 +95,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
             <button
                 type="button"
                 role="tab"
-                class="nb-ui-focus-ring min-w-0 truncate py-1 text-left"
+                class="nb-ui-focus-ring-inset min-w-0 truncate py-1 text-left"
                 :class="tab.preview ? 'italic' : ''"
                 :aria-selected="tab.active ? 'true' : 'false'"
                 :tabindex="tab.active ? 0 : -1"
@@ -112,7 +112,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
             </button>
             <button
                 type="button"
-                class="nb-ui-focus-ring flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                class="nb-ui-focus-ring-inset flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :aria-label="closeLabel(tab.label)"
                 tabindex="-1"
                 :data-editor-tab-close="tab.id"

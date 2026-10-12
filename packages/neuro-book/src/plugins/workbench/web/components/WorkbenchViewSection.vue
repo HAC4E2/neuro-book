@@ -38,7 +38,7 @@ defineSlots<{
     >
         <header v-if="chrome" class="workbench-view-section__head" :data-drag-view="viewId">
             <IconButton
-                size="sm"
+                size="xs"
                 :icon-class="collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
                 :aria-label="collapsed ? expandLabel : collapseLabel"
                 :title="collapsed ? expandLabel : collapseLabel"
@@ -78,7 +78,8 @@ defineSlots<{
     gap: var(--space-1);
     height: 32px;
     min-width: 0;
-    padding-inline: var(--space-1);
+    /* 24px 的图标按钮离左右边各 4px：外扩焦点光环（实色 3.5px）不被分节的裁切切掉。 */
+    padding-inline: var(--space-2);
     border-bottom: var(--border-w) solid var(--divider);
     /* 标题整块是视图的拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
     touch-action: none;
@@ -92,19 +93,23 @@ defineSlots<{
     color: var(--text-muted);
 }
 
+/* 省略号裁切放在把手自己身上：标题不裁切，把手的焦点光环才不会被标题切掉上下。 */
 .workbench-view-section__handle {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
     border-radius: var(--radius-control);
+    text-overflow: ellipsis;
+    vertical-align: middle;
 }
 
 .workbench-view-section__title {
     flex: 1 1 auto;
     min-width: 0;
     margin: 0;
-    overflow: hidden;
     color: var(--text-secondary);
     font-size: var(--text-xs);
     font-weight: 600;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -128,7 +133,8 @@ defineSlots<{
     flex-direction: column;
     width: 32px;
     height: 100%;
-    padding-block: var(--space-1);
+    /* 顶部的展开按钮离边 4px：外扩焦点光环不被分节的裁切切掉（左右是 32px 里放 24px，各余 4px）。 */
+    padding-block: var(--space-2);
     padding-inline: 0;
     border-bottom: 0;
 }

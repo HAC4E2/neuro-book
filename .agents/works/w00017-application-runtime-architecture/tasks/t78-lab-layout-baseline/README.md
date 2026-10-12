@@ -37,6 +37,19 @@ taskId: t78-lab-layout-baseline
   - 基线删去 `Tabs` 三个场景、`Accordion` 两个、`Collapsible`、`CollapsibleSection`，以及外壳布局两个场景里的“光晕被裁 Tabs”，剩 29 个场景。
   - 验证：nb-ui 553 例、两包 typecheck；`lab-scenes`、`lab-shot` 7 例全过；变异 6 处全部被抓到（`IconButton` 不理会 `focusRing`、动画标记不分开始结束、`Tabs` 与 `Accordion` 改回外扩光晕、Lab 把内阴影当环、折叠内容恢复负外边距）；`lab:shot` 六个组件 × nbook、macos × 明暗 × 手机与宽画布全部 0 问题；[键盘聚焦实拍](evidences/s1-inset-focus.png)。
 
+- 2026-10-12 S2（工作台、编辑器与 Lab 夹具）完成，基线清空：
+  - 内嵌焦点线：编辑器标签与标签的关闭按钮，状态栏与条目带的按钮（`focus-ring="inset"`）。关闭按钮在 macos 主题下离标签条的边只有 2.8px（门禁只量默认主题，是 `lab:shot` 的 macos 截图报出来的）。
+  - 让位：活动栏改 `IconButton` 的 `lg`（38px），删去写死的 40px，滚动区上下留 4px；面板头、视图分节头与“移动到”菜单的图标按钮改 `xs`（24px）；视图分节头左右、横向收起竖条上下、工具区头部与面板头右侧、面板导航带末尾各留 4px。
+  - 视图分节标题与工具区容器标题的省略号裁切挪到拖动把手自己身上，标题不再裁切。
+  - Lab 夹具：外壳场景里面板标题行的“面板”按钮与夹具状态栏按钮用内嵌焦点线；视图分节夹具的示例动作按钮改 24px；样例视图压紧上边距与间距（视图只有 58px 高时输入框贴着底边）。
+  - `e2e/lab-layout-baseline.ts` 改为空表，保留比对机制与说明。
+  - 组件文档：`EditorTabBar`、`WorkbenchStatusBar`、`WorkbenchItemStrip`、`WorkbenchActivityBar`、`WorkbenchPanelSurface`、`WorkbenchViewSection`、`WorkbenchToolPartHost`、`WorkbenchMoveViewMenu`。
+  - 验证：
+    - `lab-scenes` 门禁在空基线下连跑三轮都通过（中间一轮在关闭按钮改动之后）；全量 e2e 163 例全过；neuro-book vitest 165 例、typecheck 为 0；
+    - 变异 7 处全部被门禁抓到（编辑器标签改回外扩、状态栏面板按钮去掉内嵌、活动栏滚动区不留白、视图分节头内边距改回 2px、标题重新裁切、面板导航带不留右边距、工具区头部右边距改回 2px）；
+    - `lab:shot` 九个组件 × nbook、macos × 明暗 × 手机与宽画布全部 0 问题（`WorkbenchViewContainerHost` 要指定场景，不指定时 Lab 等不到就绪，是 `lab:shot` 原有的问题；`WorkbenchToolPartHost` 没有自己的场景，验证入口是 `WorkbenchShellLayout`）；[键盘聚焦实拍](evidences/s2-focus.png)。
+  - 未覆盖：门禁只在默认主题（nbook）下量；macos 下的问题靠 `lab:shot` 截图发现，本次改动的组件已在 macos 下截过。
+
 ## 下一步
 
-S2：工作台与编辑器（编辑器标签、状态栏与条目带、活动栏、面板头与视图分节头、标题把手、Lab 样例视图），基线清空。
+收尾：omp 实现审查（不阻塞，t79 照常开工）。

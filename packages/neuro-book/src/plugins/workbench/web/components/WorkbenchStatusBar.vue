@@ -78,8 +78,8 @@ const problemText = computed(() => {
             <template v-if="shown !== null">
                 <span class="workbench-status-bar__problem" role="status" :title="problemText" data-status-problem>{{ problemText }}</span>
                 <template v-if="shown.kind === 'unsaved'">
-                    <Button size="sm" variant="ghost" class="workbench-status-bar__button" @click="emit('retry', shown.record)">{{ text(TEXT.retry) }}</Button>
-                    <Button size="sm" variant="ghost" class="workbench-status-bar__button" @click="emit('discard', shown.record)">{{ text(TEXT.discard) }}</Button>
+                    <Button size="sm" variant="ghost" focus-ring="inset" class="workbench-status-bar__button" @click="emit('retry', shown.record)">{{ text(TEXT.retry) }}</Button>
+                    <Button size="sm" variant="ghost" focus-ring="inset" class="workbench-status-bar__button" @click="emit('discard', shown.record)">{{ text(TEXT.discard) }}</Button>
                 </template>
             </template>
             <WorkbenchItemStrip :locale="locale" :entries="leftItems" :item-height="20" align="start" @run="(id) => emit('run-item', id)" />
@@ -89,6 +89,7 @@ const problemText = computed(() => {
             <Button
                 size="sm"
                 variant="ghost"
+                focus-ring="inset"
                 class="workbench-status-bar__button"
                 :disabled="panelToggleDisabled"
                 data-shell-focus-target="panel-toggle"

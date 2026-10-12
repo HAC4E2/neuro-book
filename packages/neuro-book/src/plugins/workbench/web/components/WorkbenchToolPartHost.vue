@@ -123,7 +123,8 @@ onBeforeUnmount(() => {
     gap: var(--space-1);
     height: 32px;
     min-width: 0;
-    padding-inline: var(--space-3) var(--space-1);
+    /* 右端是 24px 的图标按钮：右边留 4px，外扩焦点光环（实色 3.5px）不被工具区的裁切切掉。 */
+    padding-inline: var(--space-3) var(--space-2);
     border-bottom: var(--border-w) solid var(--divider);
 }
 
@@ -161,16 +162,20 @@ onBeforeUnmount(() => {
     flex: 1 1 auto;
     min-width: 0;
     margin: 0;
-    overflow: hidden;
     color: var(--text-secondary);
     font-size: var(--text-xs);
     font-weight: 600;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+/* 省略号裁切放在把手自己身上：标题不裁切，把手的焦点光环才不会被标题切掉上下。 */
 .workbench-tool-part__handle {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
     border-radius: var(--radius-control);
+    text-overflow: ellipsis;
+    vertical-align: middle;
 }
 
 .workbench-tool-part__actions {

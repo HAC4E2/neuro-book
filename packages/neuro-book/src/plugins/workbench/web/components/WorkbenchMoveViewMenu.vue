@@ -94,6 +94,6 @@ function select(value: string): void {
 
 <template>
     <Dropdown :items="items" :open="open" align="end" compact :disabled="disabled" @update:open="setOpen" @select="select">
-        <IconButton size="sm" icon-class="i-lucide-arrow-right-left" :aria-label="label" :title="label" :disabled="disabled" :data-move-view="viewId" />
+        <IconButton size="xs" icon-class="i-lucide-arrow-right-left" :aria-label="label" :title="label" :disabled="disabled" :data-move-view="viewId" />
     </Dropdown>
 </template>

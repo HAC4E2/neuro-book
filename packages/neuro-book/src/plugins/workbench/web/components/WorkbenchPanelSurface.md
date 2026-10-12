@@ -11,7 +11,7 @@
 
 ## 布局
 
-标题头固定 32px：左边是常驻的导航区（可编程聚焦的落点 `data-shell-focus-target="panel-title"`，外壳在最大化时把焦点交给它；也是拖到 Switcher 的落点 `data-switcher-band="panel"`，没有容器时仍占着框架按钮之外的宽度），里面是导航插槽，插槽没有内容时是标题，右边框架按钮横排、不换行，放不下时标题先截断。`collapsed` 为 true 时只剩标题头（外壳把面板叶压到 32px）。内容区占满剩余高度，滚动由内容自己管。面与分隔线消费主题 token（`--panel-surface`、`--divider`），没有自己的圆角与阴影：面板叶贴着编辑器，边界由外壳的 1px 边界画。
+标题头固定 32px：左边是常驻的导航区（可编程聚焦的落点 `data-shell-focus-target="panel-title"`，外壳在最大化时把焦点交给它；也是拖到 Switcher 的落点 `data-switcher-band="panel"`，没有容器时仍占着框架按钮之外的宽度），里面是导航插槽，插槽没有内容时是标题，右边框架按钮（24px，`IconButton` 的 `xs`）横排、不换行，放不下时标题先截断；标题头右边、导航区末尾各留 4px，按钮的外扩焦点光环不被面板与导航区的裁切切掉。`collapsed` 为 true 时只剩标题头（外壳把面板叶压到 32px）。内容区占满剩余高度，滚动由内容自己管。面与分隔线消费主题 token（`--panel-surface`、`--divider`），没有自己的圆角与阴影：面板叶贴着编辑器，边界由外壳的 1px 边界画。
 
 ## 数据
 

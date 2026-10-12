@@ -14,7 +14,7 @@
 
 ## 布局
 
-Sidebar 与 AuxiliaryBar 画卡片（`--panel-surface`、`--panel-outline`、`--radius-panel`），四周留白归外壳的叶；Panel 不画卡片，填满面板框架的内容区。标题行固定 32px，标签带横向滚动、动作区不让位。区域里没有容器时落点不出现，空正文填满标题行以下的区域、显示 `emptyText`（产品里是“将视图拖动到此处显示”），它是空 Part 的落点。
+Sidebar 与 AuxiliaryBar 画卡片（`--panel-surface`、`--panel-outline`、`--radius-panel`），四周留白归外壳的叶；Panel 不画卡片，填满面板框架的内容区。标题行固定 32px，右边留 4px，标签带横向滚动、动作区不让位；容器标题的省略号裁切在拖动把手自己身上，把手的焦点光环不被标题切掉。区域里没有容器时落点不出现，空正文填满标题行以下的区域、显示 `emptyText`（产品里是“将视图拖动到此处显示”），它是空 Part 的落点。
 
 ## 交互
 
