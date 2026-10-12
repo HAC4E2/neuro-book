@@ -2,6 +2,7 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {cleanupFixtures, createFixture, git, taskReadme} from "../../tests/git-fixture.js";
+import {setRecordStatus} from "./operations.js";
 import {claimTask, emptyRegistry, writeRegistry} from "./registry.js";
 import {listCheckouts, locateRepository} from "./repo.js";
 import {chooseExecutionCheckout, findBranchRecordChanges} from "./sources.js";
@@ -44,6 +45,29 @@ describe("过渡期：判定没迁的 Work", () => {
         await fixture.commit("restore records to master", worktree);
         result = await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main));
         expect(result.changes.size).toBe(0);
+    });
+
+    test("按 t05 迁移（先合进 master、再把分支恢复成 master 版本）之后，master 再改记录仍是 master 来源，写入不被拒", async () => {
+        const fixture = await createFixture("sources-migrated");
+        const worktree = await fixture.addWorktree("w00001-line", "feat/w00001");
+        const branchVersion = taskReadme("t01-seed", "status: active\n");
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", branchVersion, worktree);
+        await fixture.commit("branch maintains record", worktree);
+        expect([...(await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main))).changes.keys()]).toEqual(["w00001-seed"]);
+
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", branchVersion);
+        await fixture.commit("migrate record to master");
+        await git(worktree, "checkout", "master", "--", ".agents/works");
+        await fixture.commit("restore records to master", worktree);
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "status: done\n"));
+        await fixture.commit("master edits the migrated record again");
+        expect((await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main))).changes.size).toBe(0);
+
+        const context = await locateRepository(fixture.main);
+        const {status} = await readProjectStatus(context, {workRef: "w00001"});
+        expect(status.works[0]).toMatchObject({source: "master"});
+        const changed = await setRecordStatus(context, {workRef: "w00001", taskRef: "t01", status: "shelved"});
+        expect(changed.commit).toMatchObject({committed: true});
     });
 
     test("只有未提交的分支记录改动不算没迁，只警告；works 根下的规则文件不算 Work", async () => {

@@ -1,6 +1,6 @@
 import {basename} from "node:path";
 import type {Warning} from "./errors.js";
-import {gitOutput, splitNul} from "./git.js";
+import {gitOutput, splitLines, splitNul} from "./git.js";
 import {WORK_ID_PATTERN} from "./ids.js";
 import {findWork, isClaimedTask, type Registry} from "./registry.js";
 import {MASTER_REF, WORKS_ROOT, type CheckoutInfo} from "./repo.js";
@@ -16,9 +16,56 @@ function workIdOfPath(path: string): string | null {
 }
 
 /**
+ * 两份 diff 的交集里，去掉分支上只是留着 `master` 旧版本的路径：分支上的 blob 等于 merge-base 的版本，
+ * 或等于 `master` 自 merge-base 以来任一提交里的版本，就是旧副本。t05 的迁移先把记录合进 master、再把分支恢复成
+ * master 的版本；之后 master 每改一次，这些路径都会同时出现在两份 diff 里，只有比对 blob 才分得出不是分支改的。
+ */
+async function withoutStaleCopies(mainRoot: string, head: string, candidates: readonly string[]): Promise<string[]> {
+    if (candidates.length === 0) return [];
+    const base = (await gitOutput(mainRoot, ["merge-base", MASTER_REF, head], {readOnly: true})).trim();
+    const history = await gitOutput(mainRoot, ["log", "--no-renames", "--format=%x00%H", "--name-only", `${base}..${MASTER_REF}`, "--", `${WORKS_ROOT}/`], {readOnly: true});
+    const masterCommitsByPath = new Map<string, string[]>();
+    for (const chunk of history.split("\0")) {
+        const [commit, ...paths] = splitLines(chunk);
+        if (!commit) continue;
+        for (const path of paths) {
+            const commits = masterCommitsByPath.get(path);
+            if (commits) commits.push(commit);
+            else masterCommitsByPath.set(path, [commit]);
+        }
+    }
+    const queries: Array<{path: string; role: "branch" | "known"}> = [];
+    const lines: string[] = [];
+    for (const path of candidates) {
+        const revisions: Array<[string, "branch" | "known"]> = [[head, "branch"], [base, "known"], ...(masterCommitsByPath.get(path) ?? []).map((commit): [string, "known"] => [commit, "known"])];
+        for (const [rev, role] of revisions) {
+            queries.push({path, role});
+            lines.push(`${rev}:${path}\n`);
+        }
+    }
+    const output = splitLines(await gitOutput(mainRoot, ["cat-file", "--batch-check=%(objectname) %(objecttype)"], {readOnly: true, input: lines.join("")}));
+    const branchBlob = new Map<string, string>();
+    const knownBlobs = new Map<string, Set<string>>();
+    for (const [index, query] of queries.entries()) {
+        const [oid, type] = (output[index] ?? "").split(" ");
+        if (!oid || type !== "blob") continue;
+        if (query.role === "branch") branchBlob.set(query.path, oid);
+        else {
+            const known = knownBlobs.get(query.path) ?? new Set<string>();
+            known.add(oid);
+            knownBlobs.set(query.path, known);
+        }
+    }
+    return candidates.filter((path) => {
+        const blob = branchBlob.get(path);
+        return blob === undefined || !knownBlobs.get(path)?.has(blob);
+    });
+}
+
+/**
  * 判定哪些 Work 的记录还在分支上维护（过渡期，现算不存标记）。
- * 一个路径要同时满足：分支自分出以来新增或改过（`master...HEAD` 的 AM），且与当前 `master` 仍不同（`master HEAD`）。
- * 只看三点 diff 会在分支按 t05 把记录恢复成 `master` 的版本之后，把 `master` 自分出以来改过的 Work 都误判成没迁。
+ * 一个路径要同时满足：分支自分出以来新增或改过（`master...HEAD` 的 AM），与当前 `master` 仍不同（`master HEAD`），
+ * 而且不是 `master` 某个旧版本的副本（见 `withoutStaleCopies`）。
  * 只有未提交改动的 worktree 不算，只给 `uncommitted_branch_records` 警告。
  */
 export async function findBranchRecordChanges(mainRoot: string, checkouts: readonly CheckoutInfo[]): Promise<{changes: Map<string, CheckoutInfo[]>; warnings: Warning[]}> {
@@ -36,11 +83,9 @@ export async function findBranchRecordChanges(mainRoot: string, checkouts: reado
             gitOutput(checkout.root, ["status", "--porcelain", "-z", "--no-renames", "--", scope], {readOnly: true}),
         ]);
         const differing = new Set(splitNul(againstMaster));
+        const candidates = splitNul(sinceFork).filter((path) => workIdOfPath(path) !== null && differing.has(path));
         const committed = new Set<string>();
-        for (const path of splitNul(sinceFork)) {
-            const workId = workIdOfPath(path);
-            if (workId && differing.has(path)) committed.add(workId);
-        }
+        for (const path of await withoutStaleCopies(mainRoot, checkout.head, candidates)) committed.add(workIdOfPath(path)!);
         const uncommittedOnly = new Set<string>();
         for (const entry of splitNul(uncommitted)) {
             const workId = workIdOfPath(entry.slice(3));
