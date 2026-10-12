@@ -1,0 +1,239 @@
+# w00022/t06 实现审查报告（fae18feb9..821e2323b，只读）
+
+结论：1 条阻断、5 条重要、9 条建议。
+
+- **阻断**：设计审查第 1 条（“没迁”的判定）只修好了恢复记录之后的那一刻。按 t05 迁移完，master 只要再改一次记录，这个 Work 就会重新被判成“来自分支”，接着 `nbdev` 拒绝写它。
+- **重要**：设计审查第 6 条（锁目录身份比对）没有起作用。基线代码下，“预置过期锁后并发领号”这条测试 40 次失败 4 次，其中 3 次领到了重复的号。
+
+所有实验都在 scratchpad 的 `review-t06-impl/` 下完成。
+
+## 阻断
+
+### 1. 迁移后 master 只要再改一次，Work 就翻回“来自分支”，之后写入被拒
+
+- **类别**：正确性 / 不变量
+- **位置**：`packages/dev-panel/src/core/sources.ts:34-42`（`master...HEAD` 与 `master HEAD` 两份 diff 取交集）
+- **现象**：两份 diff 取交集，只在分支刚恢复成 master 版本、而 master 还没往前走的那一刻判对。t05 的流程是：
+  1. 先把分支上的记录合到 master，master 因此在分支分出之后改过这些文件；
+  2. 再把分支恢复成 master 的版本。
+
+  这样分支上的内容与分出点（merge-base）不同。之后 master 只要再改其中任一文件（例如用 `nbdev task status` 改一次状态），这个路径就同时出现在两份 diff 里，Work 又被判成“来自分支”。
+- **为什么是问题**：
+  - 与 `docs/file-formats.md` 写的“分支把记录恢复成 master 的版本后，自动回到 master 来源”不符；
+  - 刚迁好的 Work 在第一次正常维护之后就会被锁死：下一次 `task status` 报 `branch_maintained_record`（退出码 3）；
+  - 同时 `status` 改从分支读，读到的是旧副本。
+- **如何核实**：真实 CLI，scratchpad `rMig/`：
+  1. 分支维护记录时：`source=branch`；
+  2. 按 t05 把记录迁到 master、分支保持与 master 相同之后：`source=master`；
+  3. `nbdev task status w00001 t01 done`：成功提交；
+  4. 再看 `status`：`source=branch`；
+  5. 再改一次：`branch_maintained_record`。
+
+  `sources.test.ts` 的“恢复”用例只测到第 2 步。
+- **建议改法**：“分支改过且与 master 不同”区分不了“分支自己改的”与“分支留着 master 的旧版本”，要换判据：分支上该路径的 blob 如果等于 master 自 merge-base 以来任何一个版本（例如对 `git log --format=%H <mergeBase>..master -- <path>` 加 merge-base，用 `cat-file --batch-check` 取 `<commit>:<path>` 的 blob），就算旧副本，不算分支改动。只对交集里的候选路径做，开销小。补一条测试：恢复之后 master 再提交一次。
+
+## 重要
+
+### 2. 过期锁并发接管时仍会领到重复的号；身份比对基本无效，崩溃残留这条测试不稳定
+
+- **类别**：不变量 / 测试
+- **位置**：
+  - `src/core/lock.ts:141-148`：身份在 `lock()` 返回之后才 `lstat`；
+  - `lock.ts:150-158`：`assertHealthy`；
+  - `tests/concurrency.test.ts:195-213`。
+- **现象**：proper-lockfile 接管过期锁的顺序是 mkdir 成功、探测 mtime、回调，然后才轮到我们的 `lstat`。另一个进程如果在这段时间里 rmdir 再 mkdir，两边记下的身份就都是后建的那个锁目录，两边都能通过全部检查。
+- **数字**：只跑这条测试（`bun test tests/concurrency.test.ts -t 崩溃残留`）各 40 次：
+
+  | 代码 | 失败次数 | 其中“成功的进程里出现重复号” | 其中 `lock_failed` |
+  |---|---|---|---|
+  | 基线（未改动） | 4/40 | 3（例如 6 个成功的进程只有 5 个不同号） | 1 |
+  | 去掉身份比对 | 6/40 | 3 | 3 |
+
+  `lock_failed` 来自 proper-lockfile 探测 mtime 时锁目录已被别人删掉（ENOENT）；测试断言“不允许出现别的失败”，所以也算失败。
+- **为什么是问题**：
+  - 计划把这条风险记为“已用身份比对解决”，实际重复号照样出现，这正是 nbdev 要消除的撞号；
+  - 这条测试在 CI 上大约每 10 次失败 1 次。
+- **建议改法**：不要用 proper-lockfile 的 mtime 过期接管。nbdev 只在本机运行，可以：
+  - 自己用 `mkdir` 加持锁者文件（pid 加进程启动时间）判断持锁者是否存活；
+  - 接管时先把旧锁目录 `rename` 成唯一的墓碑名，只有改名成功的一方再去 mkdir；
+  - 第一次身份不一致时，若还没写任何东西（写登记表之前），重新取锁，而不是报错。
+
+  修好之后，测试要能稳定区分有没有这层保护。
+
+### 3. 发现锁被抢以后放锁，会删掉对方的锁目录和持锁者文件
+
+- **类别**：不变量
+- **位置**：`src/core/lock.ts:159-167`（`release()` 无条件执行 `rm(ownerFile)` 和 proper-lockfile 的 `unlock`；`unlock` 按路径 `rmdir`，见 `node_modules/proper-lockfile/lib/lockfile.js:88-90,272-295`）
+- **现象**：`assertHealthy` 因为锁目录被重建而报 `lock_compromised` 之后，`finally` 照常调用 `release()`。proper-lockfile 不知道锁已经换了主人，照样 rmdir，删掉的是新持锁者的锁目录，还删掉了它写的 `lock-owner.json`，也不给警告。
+- **如何核实**：脚本 `exp/release-other.ts`：A 取锁，外部 rmdir 再 mkdir，模拟 B 接管，再写 B 的 `lock-owner.json`。结果：
+  - A 的 `assertHealthy` 报 `lock_compromised`；
+  - `release()` 返回 null；
+  - B 的锁目录 ENOENT；
+  - B 的 `lock-owner.json` ENOENT。
+- **为什么是问题**：B 还在事务里，锁已经空了，第三个等待者可以进来，于是再出一轮两个持锁者，或者 B 在落位或提交阶段被迫报错并留下未提交的文件。超时诊断用的持锁者信息也丢了。
+- **建议改法**：
+  - `release()` 先比对身份，不一致就既不调 `unlock`，也不删 owner 文件，只返回一条警告；
+  - `rm(ownerFile)` 失败时同样要继续放锁（现在会跳过 `releaseLock()`）。
+
+### 4. 退出码 128 一律重试：真正的错误被拖满 10 秒，还被报成 `git_lock_timeout`
+
+- **类别**：正确性
+- **位置**：`src/core/transaction.ts:166-174`（`retryOnGitLock`）、`:218`（`timedOut: lastFailure?.exitCode === 128`）、`:224`
+- **现象**：Git 的 128 是通用的 fatal 退出码。没有提交身份、pathspec 不匹配、对象库损坏都是 128。
+- **如何核实**：临时仓库去掉 `user.email` 与 `user.name`，并设 `user.useConfigOnly=true`，运行 `nbdev task new w00001 x --title x --json`：
+  - 耗时 10.16 秒，退出码 1；
+  - `reason` 为 `git_lock_timeout`，`detail` 里却是 “Author identity unknown”；
+  - 这 10 秒里记录锁一直被占着。
+
+  另外 `diff --cached` 返回 128 时不重试，也被标成 `git_lock_timeout`。
+- **为什么是问题**：Agent 按 `reason` 处理，会以为只要等一等，不会去修配置；号已经领了，文件也写了。
+- **建议改法**：
+  - 事务第 1 步（取锁之前）先跑 `git var GIT_COMMITTER_IDENT`，在不写任何东西时报错；
+  - 重试照旧不以锁文件为前提，但只有重试期间至少看到过一次 `index.lock` 存在，才标成 `git_lock_timeout`，否则标成 `git_failed`；
+  - 连续若干次 128 而始终没见到锁文件时，可以提前停止重试。
+
+### 5. 任一 worktree 与 master 没有共同祖先，`status` 与大部分写命令整体失败
+
+- **类别**：正确性 / 健壮性
+- **位置**：`src/core/sources.ts:31-37`（`gitOutput` 失败直接抛出）；调用方 `status.ts:56`、`operations.ts:64`
+- **现象**：实测下面几种情况，`status`、`task new` 都以 `git_failed`（退出码 1）失败；`work status`、`task status` 走同一个函数，从代码推断同样失败：
+  - 有一个 worktree 在 orphan 分支上，HEAD 尚未出生（`git worktree list` 给出全 0 的 HEAD）；
+  - 有一个 worktree 的历史与 master 无关；
+  - 主仓库是浅克隆，某个 worktree 的 merge-base 被截断；
+  - 没有 master 分支（例如主分支叫 `main`）。
+
+  `work new` 不走这条路径，不受影响。
+
+  分离 HEAD 的 worktree 正常；已删除但仍登记（prunable）的 worktree 正常，并给 `prunable_worktree` 警告。
+- **为什么是问题**：一个与记录无关的 worktree（例如检出的 gh-pages）会让所有会话都用不了 `nbdev status` 与 `task new`。本仓库目前没有这种 worktree，属于潜在风险。
+- **建议改法**：每个 worktree 的 diff 单独处理，失败时跳过这个 worktree 并给一条警告（与 prunable 的处理方式一样）；没有 master 时给出明确的错误码，而不是 `git_failed`。
+
+### 6. `work new`、`task new` 把刚领的号列进 `registryOnly`
+
+- **类别**：正确性（输出合同）
+- **位置**：`src/core/operations.ts:125,155`（`reportConflicts` 在落位之前、用的是已经登记了新号的 registry）；`scan.ts:189-191`
+- **现象**：实测：
+  - `work new` 输出 `registryOnly: ["w00002-panel", "w00002-panel/t01-design"]`；
+  - `task new` 输出 `["w00002-panel/t02-next"]`；
+  - 紧接着跑 `status`，`registryOnly` 为空。
+- **为什么是问题**：`registryOnly` 在文档里的含义是“领了号、但哪里都找不到”，现在每次写入都会误报，Agent 或面板可能据此去处理“丢失的记录”。
+- **建议改法**：撞号检查在调用 `claimWork`、`claimTask` 之前做，或者把本次领的 id 从 `registryOnly` 里排除。补一条断言。
+
+## 建议
+
+### 7. `src/cli.ts` 是 bin 目标却以 100644 入库，`bun install` 之后工作区就是脏的
+- **类别**：代码质量
+- **现象**：本审查 worktree 在我开始之前就有 ` M packages/dev-panel/src/cli.ts`，只是 mode 从 100644 变成 100755。它的 ctime（19:57:09.828190535）与 `node_modules/.bin/nbdev` 链接的创建时间完全相同，是 bun 链接 bin 时 chmod 的。合入后，主工作区和每个 worktree 跑过 `bun install` 都会多出这一处改动。
+- **建议改法**：提交时把模式改成 100755。
+- **说明**：这处改动不是我造成的，我没有恢复它，所以结束时 `status --short` 仍不是空的。
+
+### 8. `tsconfig.core.json` 拦不住 `import … from "bun"`
+- **类别**：代码质量 / 文档
+- **现象**：
+  - 在 core 里直接用全局 `Bun.version`：类型检查报 TS2868，能拦住；
+  - 在 `records.ts` 里写 `import {file} from "bun"`：核心层类型检查退出码 0，没拦住；只有根测试在 Node 下运行时报 “Cannot find package 'bun'”。
+- **为什么是问题**：包自己的 `typecheck` 与 `test`（也就是 workspace-packages 矩阵）都发现不了；包的 `AGENTS.md` 说“tsconfig.core.json 在类型层守住这一点”，说多了。
+- **建议改法**：在 tsconfig.core 的 `paths` 里把 `bun`、`bun:*` 映射到不存在的路径，或者把文档改成“由类型检查与 Node 下的根测试共同保证”。
+
+### 9. Task 目录里没有 README 时，`task status` 报 `internal`
+- **类别**：正确性
+- **位置**：`operations.ts:206`（直接 `readFile`）
+- **现象**：实测退出码 1，错误码 `internal`，stderr 打出堆栈。
+- **建议改法**：报 `target_missing`（退出码 3）。
+
+### 10. 提交阶段的辅助 Git 调用失败时，不带 `writtenPaths`；提交后取 sha 有竞态
+- **类别**：正确性
+- **位置**：`transaction.ts:211`（`hash-object`）、`:227`（`rev-parse HEAD`）、`:350`；`resolveCommitOutcome` 里的 `ls-tree`、`log`
+- **现象**：
+  - 这些调用失败时直接抛 `git_failed`，没有经过 `withWrittenPaths`。Agent 看不到“号已领、文件已写”，可能重跑，领到第二个号；
+  - 提交成功后用 `rev-parse HEAD` 取 sha，如果别的会话恰好又提交了一次，取到的是别人的提交（目前只会触发 `commit_paths_mismatch` 警告）。
+- **建议改法**：把整个提交阶段包进 `withWrittenPaths`；sha 改用 `git log -1 --format=%H <startHead>..HEAD -- <paths>` 取。
+
+### 11. Git 的 pathspec 默认按通配符匹配
+- **类别**：安全
+- **位置**：`git.ts:182`，以及 `add`、`commit`、`diff --cached`、`ls-tree`、`log` 带的 `-- <paths>`
+- **现象**：现在的路径都是 kebab-case，不受影响。但 `includePaths`、`createFile` 是给 t08 用的，`normalizeRecordPath` 不拒绝 `*`、`?`、`[`；这类文件名会让 `add` 与 `commit` 把别人的文件一起暂存并提交。
+- **建议改法**：写操作统一加 `--literal-pathspecs`（或设环境变量 `GIT_LITERAL_PATHSPECS=1`）。
+
+### 12. 可简化之处
+- **类别**：代码质量
+- `transaction.ts:222-224` 的 `diff --cached` 是多余的：删掉后全部测试仍通过（变异 M7）。暂存区没有变化时，`commit` 以 1 退出，结果交给 `resolveCommitOutcome`，判定完全相同。
+- `scan.ts:139` 对同一路径的每个位置都重复执行 `cat-file -e master:<path>`，可以提到 `isLive` 之外只查一次。
+- `validateOperations` 与 `applyOperation` 的检查重复：去掉前者测试全过（变异 M8）。保留它是为了多操作事务“先查完再动”，那就补一条多操作测试。
+
+### 13. 测试缺口（变异检查存活的项）
+- **类别**：测试
+- 场景 1 的“未跟踪占号目录”不起决定作用：扫描时跳过主工作区之后全部测试仍通过（M1）。两个用例的最大号都来自远程 ref，主工作区的未跟踪目录从来不是最大值。
+- 以下检查删掉之后测试全过：
+  - `main_busy`（M6）；
+  - 锁内再查一次主工作区是否在 master（M9）；
+  - `status` 的 `uncommitted` 标记，去掉 `-uall`（M13）；
+  - 提交前的锁身份比对（M17）；
+  - `cross_device`（M5）。
+- `resolveCommitOutcome` 只有直接调用函数的合成测试。没有真实走一遍“非锁原因的提交失败”，例如 pre-commit hook 拒绝、缺提交身份。
+- 测试辅助函数 `run()` 没有超时，测试超时后也不会结束子进程。
+
+### 14. 文档与输出不一致
+- **类别**：文档
+- `cli.md` 没写未知命令时用的 `nbdev.cli/v1` schema，也没写写命令 `data` 里的 `registryOnly`。
+- `nbdev --help --json`、`nbdev help --json` 打印的是纯文本，违反“`--json` 时 stdout 只有一个 JSON 对象”（`cli/main.ts:200`）。
+- 主工作区不在 master 时，Work 的 `branch` 取主工作区实际所在的分支（`status.ts:138`），Task 却写死 `"master"`（`status.ts:128`），两者不一致。
+
+### 15. install-shim 的边角情况
+- **类别**：安全 / 正确性
+- **位置**：`install-shim.ts:46-55`
+- 目标位置已经是一个目录，或是一个悬空的符号链接时，报 `internal`，而不是 `shim_exists`。
+- 临时文件用 `flag: "w"` 写，遇到符号链接会跟随过去写。
+- 经 `bun run --cwd packages/dev-panel install-shim` 调用时，相对的 `--bin-dir`、`--target` 是相对包目录解析的，文档没有写明。
+
+## 未发现问题的方面
+
+- **`--json` 外壳**：stdout 始终只有一个对象，内部错误、用法错误、`commit_failed` 都一样，诊断走 stderr；真实仓库的 231 KB 输出能正常解析。
+- **退出码**：`ERROR_EXIT_CODES` 与 `docs/cli.md` 的表逐项一致；用法错误、找不到对象都有对应的错误码。
+- **包的边界**：
+  - 公开入口只导出 core，没有跨包深导入，测试支持包经公开子路径 `/tmp` 引用；
+  - 主仓库没有 hook，也没有签名配置。
+- **写事务的收口**：
+  - 锁在 `finally` 里释放；
+  - 临时目录在成功与失败时都删除；
+  - 登记表先写临时文件再改名；
+  - 主工作区暂存区里别人的改动保留（场景 2）；
+  - 主工作区不在 master 时不建 `.local`。
+- **设计审查的落实**：第 2 至 5 条、第 7 至 13 条都按处理意见实现了；第 1 条与第 6 条见上面的阻断第 1 条和重要第 2 条。
+- **真实仓库的只读 `status`**：0.34 秒；下一个 Work 号 w00023；撞号两处，w00003/t05 `live=false`、w00007 `live=true`，与计划的参考值一致。
+- **检查与测试**：`governance:check`、`docs:check` 只有存量警告；根一致性测试 2/2 通过；包测试 34/34 通过；typecheck 通过。没有接近 5 秒默认超时的测试，最长的 10.1 秒那条显式设了 30 秒超时。
+- **规则文字**：与实现一致，没有与现行规则矛盾。`.agents/works/README.md` 第 34 行与第 35 行之间的张力在 base 上就有。
+
+## 各级数量
+
+| 级别 | 条数 | 对应条目 |
+|---|---|---|
+| 阻断 | 1 | 第 1 条 |
+| 重要 | 5 | 第 2 至 6 条 |
+| 建议 | 9 | 第 7 至 15 条 |
+
+## 变异检查（都已用 `git checkout --` 恢复）
+
+| 变异 | 结果 |
+|---|---|
+| M1 扫描时跳过主工作区 | 存活 |
+| M2 去掉 128 重试 | 被测出 |
+| M3 去掉锁身份比对 | 全量跑一次失败 1 次，单独跑 3 次全过；40 次统计 6/40 失败，基线 4/40，测试区分不了 |
+| M4 去掉两份 diff 的交集 | 被测出 |
+| M5 去掉 `cross_device` | 存活 |
+| M6 去掉 `main_busy` | 存活 |
+| M7 去掉 `diff --cached` | 存活 |
+| M8 去掉 `validateOperations` | 存活 |
+| M9 去掉锁内复查 master | 存活 |
+| M10 忽略 `claimed` | 被测出 |
+| M11 去掉 `work_not_committed` | 被测出 |
+| M12 旧副本永不判 stale | 被测出 |
+| M13 `status` 去掉 `-uall` | 存活 |
+| M14 下一个 Task 号忽略登记表 | 被测出 |
+| M15 扫描不含 `refs/heads` | 只被 CLI 场景 6 测出 |
+| M16 `allInHead` 恒为真 | 被测出（3 条失败） |
+| M17 去掉提交前的 `assertHealthy` | 存活 |
+| T1 core 里用全局 `Bun.version` | 类型检查报 TS2868 |
+| T2 core 里 `import … from "bun"` | 类型检查通过，Node 下的根测试失败 |
+
+结束时 `git status --short` 只剩 ` M packages/dev-panel/src/cli.ts`。这处只有 mode 变化，是开审前 `bun install` 造成的（见第 7 条），我没有改它。

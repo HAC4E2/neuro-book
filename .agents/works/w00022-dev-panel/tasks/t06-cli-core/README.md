@@ -39,6 +39,16 @@ status: active
   - 两个持锁者的竞态没有真正触发；
   - 会话身份 `by` 等 t07。
 
+- 实现审查（opus 子代理，[报告](evidences/impl-review.txt)）：1 阻断、5 重要、9 建议，17 处变异检查。主 Agent 复现了阻断项：迁移后 master 再改一次记录，Work 又被判回分支。15 条全部采纳：
+  - 旧副本按 blob 是否等于 master 自 merge-base 以来某个版本判定；
+  - 锁改为自写的 mkdir 锁加持锁者存活判定与墓碑接管，proper-lockfile 在并发下 40 次有 3 次出重复号；
+  - 放锁前比对身份；
+  - 128 只有见过 index.lock 才算锁超时；
+  - 单个 worktree 出错时跳过；
+  - 其余见报告。
+  
+  编码子代理修正中。
+
 ## 下一步
 
-opus 子代理做实现审查（不阻塞），同时开始 t07；写 `~/.local/bin/nbdev`、真实仓库第一次用 nbdev 建 Work、合入 `master` 等开发者授权。
+修正完成后主 Agent 复跑验证；之后实施 t07；写 `~/.local/bin/nbdev`、真实仓库第一次用 nbdev 建 Work、合入 `master` 等开发者授权。
