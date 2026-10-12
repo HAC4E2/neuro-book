@@ -10,6 +10,7 @@ current Work/Task 以 [工作入口](../works/AGENTS.md) 为准，legacy provena
 - [doc-review](doc-review/SKILL.md)：目标读者视角的可理解性、歧义与链接审查，按需独立复核。
 - [diagnosing-bugs](diagnosing-bugs/SKILL.md)：复杂故障或性能回退诊断。
 - [ui-development](ui-development/SKILL.md)：UI 界面与组件开发的真相源路由、组件复用决策、UI 专属检查与回写位置。
+- [design-review](design-review/SKILL.md)：新界面或界面大改要开发者拍板时的注意力排序、草稿 worktree 里的静态稿、本机 HTML 评审板与决定记录。
 - [task-reflection](task-reflection/SKILL.md)：把意外、用户纠正或新规范整理成回写建议，经开发者批准后写入对应真相源；目标位置由领域 Skill 指定。
 
 新增或修改 Skill 时：`name` 保持稳定；`description` 简述用途与触发条件，供宿主发现，不罗列同义触发词抢占其它 Skill；参数型入口用 `argument-hint` 说明参数。`disable-model-invocation: true` 只关闭模型自动调用，不限制文件读取。只有独立触发用途值得长期维护时才新建 Skill，共享参考能放进已有文件就复用。
