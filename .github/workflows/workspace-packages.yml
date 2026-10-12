@@ -19,6 +19,7 @@ on:
       - "packages/llmlint/web/**"
       - "packages/llmlint/skill/**"
       - "packages/llmlint/evals/report/**"
+      - "packages/dev-panel/**"
       - "packages/neuro-book-test-support/**"
       - "packages/neuro-book-contracts/**"
   workflow_dispatch:

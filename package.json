@@ -21,6 +21,7 @@
     "packages/nb-profile",
     "packages/nb-session",
     "packages/llmlint",
+    "packages/dev-panel",
     "packages/neuro-book"
   ],
   "type": "module",
@@ -188,7 +189,8 @@
     "vitepress": "^2.0.0-alpha.17",
     "vitest": "^4.1.2",
     "vue-tsc": "^3.3.7",
-    "@notnotype/neuro-book-test-support": "workspace:*"
+    "@notnotype/neuro-book-test-support": "workspace:*",
+    "@notnotype/dev-panel": "workspace:*"
   },
   "overrides": {
     "diff": "9.0.0"

@@ -55,6 +55,7 @@ neuro-book/
 │   ├── llmlint/skill/              # llmlint Skill 单一源；产品投影由此生成
 │   ├── owned-process/             # 受管子进程托管
 │   ├── file-snapshot-cache/        # 文件快照缓存
+│   ├── dev-panel/                  # 开发工具：nbdev 命令行与开发者面板（w00022）
 │   └── neuro-book-test-support/    # 系统临时根与 fixture 支持
 ├── desktop/                        # Electron、Tauri、共享桥与打包入口
 ├── scripts/                        # 仓库自动化；release/ 有独立发布合同

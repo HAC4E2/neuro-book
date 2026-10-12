@@ -1,0 +1,30 @@
+{
+    "name": "@notnotype/dev-panel",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "bin": {
+        "nbdev": "./src/cli.ts"
+    },
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json",
+        "install-shim": "bun src/install-shim.ts"
+    },
+    "dependencies": {
+        "proper-lockfile": "4.1.2",
+        "yaml": "^2.8.2"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "@types/node": "^26.1.0",
+        "typescript": "^6.0.3"
+    }
+}

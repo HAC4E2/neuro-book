@@ -1,0 +1,29 @@
+# dev-panel 包入口
+
+本包位于 `packages/dev-panel`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。本文件只保留本包的专属规则。
+
+`@notnotype/dev-panel` 是开发者项目面板与命令行 `nbdev` 的核心库，是开发工具，不是 NeuroBook 产品功能：不进 Product、Desktop 与发布产物，不改 `docs/specs/`。方案与取舍见 [Proposal](../../docs/proposals/dev-panel.md)，术语与不变量见 [`CONTEXT.md`](CONTEXT.md)，命令行合同见 [`docs/cli.md`](docs/cli.md)，文件格式见 [`docs/file-formats.md`](docs/file-formats.md)。
+
+## 边界
+
+- Owner：w00022（开发者项目面板）。公开合同是 `src/index.ts` 的导出面与 `nbdev` 的命令行合同。
+- 依赖方向：不依赖 `@notnotype/neuro-book`，不导入根 `scripts/`；根 `scripts/ci/dev-panel-records.test.ts` 导入本包公开入口，是允许的方向。
+- `src/index.ts` 与 `src/core/` 只用 Node 兼容 API（根脚本测试在 Node 下导入它们）；`tsconfig.core.json` 在类型层守住这一点。不要在核心里用 `Bun.*` 或 `bun:*`。
+- 持锁期间的 Git 调用一律异步：`proper-lockfile` 的心跳靠事件循环，同步调用会让锁被判为过期。
+- 只支持 Linux。
+
+## 测试
+
+- 用 `bun test`；临时目录用 `@notnotype/neuro-book-test-support/tmp` 的 `createTestTmpRoot`，仓库建在临时根的子目录里（根目录有测试支持包的标记文件）。
+- Git 夹具见 `tests/git-fixture.ts`：子进程环境隔离开发者的全局配置，并设 `GIT_CEILING_DIRECTORIES`，不会爬到外层仓库。
+- 测试不碰真实仓库的 `.agents/works/` 与 `.local/agent/`；在真实仓库运行命令行属于验收，按 Task 记录执行。
+
+## 完成门禁
+
+```text
+bun run --cwd packages/dev-panel typecheck
+bun run --cwd packages/dev-panel test
+bun x vitest run --config scripts/vitest.config.ts scripts/ci/dev-panel-records.test.ts
+```
+
+触及包级文档或本文件时，另跑仓库门禁 `bun run governance:check` 与 `bun run docs:check`。

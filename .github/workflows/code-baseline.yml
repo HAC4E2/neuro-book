@@ -26,6 +26,7 @@ on:
       - "packages/nb-profile/**"
       - "packages/nb-session/**"
       - "packages/llmlint/**"
+      - "packages/dev-panel/**"
       - "packages/neuro-book/assets/**"
       - "plugins/**"
       - "scripts/**"

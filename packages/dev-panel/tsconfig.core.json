@@ -1,0 +1,8 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "types": ["node"]
+    },
+    "include": ["src/index.ts", "src/core", "proper-lockfile.d.ts"],
+    "exclude": ["**/*.test.ts"]
+}
