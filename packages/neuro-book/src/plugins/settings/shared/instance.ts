@@ -59,6 +59,11 @@ export interface SettingsInstance {
     /** 每层收到第一份快照、或超时、或失败之后完成；不会 reject。 */
     readonly ready: Promise<void>;
     facade(consumer: ConsumerIdentity): SettingsFacade;
+    /**
+     * 应用别处拿到的层快照（用户编辑的写入结果）：与订阅推送一样，同一启动标识下修订号更大才替换。本实例没有这一层
+     * 或已关闭时不做任何事。
+     */
+    accept(layer: SettingLayer, snapshot: LayerSnapshot): void;
     /** 结束订阅与计时；幂等。 */
     close(): void;
 }
@@ -270,6 +275,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
     return {
         ready,
         facade,
+        accept: apply,
         close: () => {
             if (closed) return;
             closed = true;

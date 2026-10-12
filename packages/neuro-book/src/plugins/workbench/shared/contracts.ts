@@ -123,6 +123,14 @@ export const themeSetting = defineSetting({
     schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]),
     default: "nbook",
     title: {"zh-CN": "主题", "en-US": "Theme"},
+    description: {"zh-CN": "界面的形状、字体与配色", "en-US": "Shape, typography and colors of the interface"},
+    section: "nbook.appearance",
+    group: "ui",
+    order: 10,
+    choices: [
+        {value: "nbook", title: {"zh-CN": "NeuroBook", "en-US": "NeuroBook"}},
+        {value: "macos", title: {"zh-CN": "macOS", "en-US": "macOS"}},
+    ],
 });
 
 /** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */
@@ -132,4 +140,12 @@ export const appearanceSetting = defineSetting({
     schema: Type.Union([Type.Literal("light"), Type.Literal("dark"), Type.Literal("system")]),
     default: "light",
     title: {"zh-CN": "明暗", "en-US": "Appearance"},
+    section: "nbook.appearance",
+    group: "ui",
+    order: 20,
+    choices: [
+        {value: "light", title: {"zh-CN": "浅色", "en-US": "Light"}},
+        {value: "dark", title: {"zh-CN": "深色", "en-US": "Dark"}},
+        {value: "system", title: {"zh-CN": "跟随系统", "en-US": "System"}},
+    ],
 });

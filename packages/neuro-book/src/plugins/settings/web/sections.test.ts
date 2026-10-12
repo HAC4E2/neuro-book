@@ -1,0 +1,345 @@
+/**
+ * 设置分区贡献点与分区注册表（docs/specs/settings/settings-window.md 输出 1–5），以及配置项界面字段的登记校验
+ * （docs/specs/settings/configuration.md 输出 21）：真实内核的浏览器实例装产品的 `nbook.settings` 浏览器定义，
+ * 宿主能力 `window.plugins` 用产品的实现接在插件观察者上。设置窗口在产品里是 `nbook.settings` 的另一个入口，这里
+ * 用一个同样属于 `nbook.settings` 的探针入口取设置窗口的数据来源。
+ */
+
+import {afterEach, describe, expect, it} from "bun:test";
+
+import {computed} from "@vue/reactivity";
+import {defineComponent} from "vue";
+import type {Component} from "vue";
+
+import {createApplication} from "@notnotype/nb-runtime/application";
+import type {Application} from "@notnotype/nb-runtime/application";
+import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineServiceKey} from "@notnotype/nb-runtime/services";
+import {Type} from "typebox";
+
+import {definitionAt} from "nbook/manifest";
+import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
+import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
+import {windowProjectKey} from "nbook/shared/projects";
+import {defineSetting, SETTINGS_POINT} from "nbook/shared/settings";
+import {createWindowPlugins} from "nbook/web/host/window-plugins";
+
+import {descriptor} from "../plugin";
+import {SETTINGS_SECTIONS_POINT} from "../shared/contracts";
+import type {SettingsSectionDeclaration} from "../shared/contracts";
+import type {SettingsSectionImplementation} from "./contracts";
+import {settingsBrowserCore} from "./plugin";
+import {settingsWindowSourceKey} from "./window-source";
+import type {SettingsWindowSource} from "./window-source";
+
+const silent = {error: () => undefined};
+const started: Application[] = [];
+
+afterEach(async () => {
+    for (const application of started.splice(0)) expect((await application.stop()).status).toBe("closed");
+});
+
+const title = {"zh-CN": "分区", "en-US": "Section"};
+
+function page(overrides: Partial<SettingsSectionDeclaration> = {}): SettingsSectionDeclaration {
+    return {title, icon: "i-lucide-square", category: "plugins", kind: "page", ...overrides};
+}
+
+function list(overrides: Partial<SettingsSectionDeclaration> = {}): SettingsSectionDeclaration {
+    return {title, icon: "i-lucide-square", category: "plugins", kind: "list", ...overrides};
+}
+
+interface Control {
+    fail: boolean;
+    context: ActivationContext | null;
+    implementation: SettingsSectionImplementation;
+}
+
+const Sample = defineComponent({name: "SamplePage", render: () => null});
+
+function control(overrides: Partial<Control> = {}): Control {
+    return {fail: false, context: null, implementation: {load: async () => Sample}, ...overrides};
+}
+
+/** 贡献分区的测试插件：按开关失败，激活时把同一份实现交给它声明的每个分区。 */
+function contributor(id: string, sections: Readonly<Record<string, unknown>>, toggle: Control, extra: Partial<PluginEntryDefinition> = {}, top: Partial<PluginDefinition> = {}): PluginDefinition {
+    return {
+        id,
+        entries: [{
+            id: "browser",
+            location: "browser",
+            activationEvents: ["onStartup"],
+            contributions: Object.entries(sections).map(([section, declaration]) => ({capability: SETTINGS_SECTIONS_POINT, id: section, declaration})),
+            activate: (context) => {
+                if (toggle.fail) throw new Error("样例入口按开关激活失败");
+                toggle.context = context;
+                return {contributions: {[SETTINGS_SECTIONS_POINT]: Object.fromEntries(Object.keys(sections).map((section) => [section, toggle.implementation]))}};
+            },
+            ...extra,
+        }],
+        ...top,
+    };
+}
+
+interface Started {
+    readonly application: Application;
+    readonly source: SettingsWindowSource;
+    readonly diagnostics: DiagnosticsStore;
+}
+
+/** 浏览器实例：产品的 `nbook.settings` 浏览器定义，另加一个同属 `nbook.settings` 的探针入口（产品里是设置窗口的入口）。 */
+async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<Started> {
+    let source: SettingsWindowSource | null = null;
+    const probe = defineEntry({
+        id: "test-window",
+        location: "browser",
+        activationEvents: ["onStartup"],
+        dependencies: [{key: settingsWindowSourceKey}],
+        activate: (context) => {
+            source = context.services.require(settingsWindowSourceKey);
+            return {};
+        },
+    });
+    const settings = definitionAt("browser", descriptor, {...settingsBrowserCore, entries: [...settingsBrowserCore.entries, probe]});
+    const identity = {location: "browser" as const, instanceId: "settings-sections"};
+    const store = createDiagnosticsStore({identity});
+    let application: Application | null = null;
+    const feed = createWindowPlugins(() => application?.plugins ?? null, (error) => {
+        throw error;
+    });
+    application = createApplication(
+        {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
+        {
+            capabilities: [
+                {id: "clock", key: clockKey, create: () => systemClock},
+                {id: "window.connection", key: windowConnectionKey, create: () => ({state: () => "offline" as const, onChange: () => () => undefined})},
+                {id: "window.project", key: windowProjectKey, create: () => ({project: null})},
+                {id: "window.plugins", key: windowPluginsKey, create: () => feed.capability},
+            ],
+            plugins: [createDiagnosticsPlugin({location: "browser", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}), settings, ...plugins],
+            gates: [],
+            observers: {plugins: feed},
+        },
+    );
+    started.push(application);
+    await application.startup;
+    if (source === null) throw new Error("探针入口没有拿到设置窗口的数据来源");
+    return {application, source, diagnostics: store};
+}
+
+function validation(application: Application, capability: string, id: string): unknown {
+    return application.plugins.contribution(capability, id)[0]?.validation;
+}
+
+/** 入口关闭自己这一代的激活作用域：内核里入口正常停止的真实路径，交付项以 `scope-closed` 撤回。 */
+async function stopEntry(toggle: Control): Promise<void> {
+    expect((await toggle.context?.scope.parent?.close())?.status).toBe("closed");
+}
+
+describe("分区的登记校验", () => {
+    it("id 规则同视图：nbook.* 写 nbook.<名>，其它插件以自己的插件 id 加点开头；不合格的只拒这一条，同插件的其它分区照常", async () => {
+        const {application, source} = await start([
+            contributor("x.notes", {"x.notes.main": page(), "other.page": page(), "x.notes": page(), "x.notes.Upper": page(), [`x.notes.${"a".repeat(121)}`]: page()}, control()),
+            contributor("nbook.extra", {"nbook.extra-page": page(), "x.notes.stolen": page()}, control()),
+        ]);
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.notes.main")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "nbook.extra-page")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "other.page")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.notes 的分区 id 必须以 x.notes. 开头：other.page"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.notes.stolen")).toMatchObject({status: "rejected", detail: "插件 nbook.extra 的分区 id 必须以 nbook. 开头：x.notes.stolen"});
+        for (const id of ["x.notes", "x.notes.Upper", `x.notes.${"a".repeat(121)}`]) expect(validation(application, SETTINGS_SECTIONS_POINT, id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+        // 被拒的分区不进目录；入口照常激活，接受的分区照常交付。
+        expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance", "nbook.extra-page", "x.notes.main"]);
+        expect(source.delivery("x.notes.main")).toEqual({kind: "available"});
+    });
+
+    it("kind 与 groups、layout、layers 的组合：groups 只给 list，layout 与 layers 只给 page；小组 id 合规且不重复，layers 非空不重复", async () => {
+        const groups = [{id: "ui", title}, {id: "more-ui", title}];
+        const cases: Readonly<Record<string, unknown>> = {
+            "x.combo.list-ok": list({groups}),
+            "x.combo.page-ok": page({layout: "fill", layers: ["user"]}),
+            "x.combo.list-layout": list({layout: "column"}),
+            "x.combo.list-layers": list({layers: ["user"]}),
+            "x.combo.page-groups": page({groups}),
+            "x.combo.bad-group": list({groups: [{id: "UI", title}]}),
+            "x.combo.dup-group": list({groups: [{id: "ui", title}, {id: "ui", title}]}),
+            "x.combo.empty-layers": page({layers: []}),
+            "x.combo.dup-layers": page({layers: ["user", "user"]}),
+            "x.combo.bad-kind": {...page(), kind: "tabs"},
+            "x.combo.bad-category": {...page(), category: "editor"},
+            "x.combo.no-icon": {...page(), icon: " "},
+            "x.combo.order": page({order: 2_000_000}),
+            "x.combo.extra": {...page(), minimumWidth: 600},
+            "x.combo.title": {...page(), title: {"zh-CN": "只有中文"}},
+        };
+        const {application} = await start([contributor("x.combo", cases, control())]);
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.list-ok")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.page-ok")).toEqual({status: "accepted"});
+        for (const id of Object.keys(cases).filter((id) => !id.endsWith("-ok"))) {
+            expect(validation(application, SETTINGS_SECTIONS_POINT, id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+        }
+        expect(application.plugins.entryState({plugin: "x.combo", entry: "browser"})?.status).toBe("available");
+    });
+
+    it("只接受浏览器入口的贡献：写在插件顶层为 implementation-required", async () => {
+        const {application, source} = await start([{
+            id: "x.top",
+            contributions: [{capability: SETTINGS_SECTIONS_POINT, id: "x.top.main", declaration: list()}],
+            entries: [{id: "browser", location: "browser", activate: () => ({})}],
+        }]);
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.top.main")).toMatchObject({status: "rejected", reason: "implementation-required"});
+        expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
+    });
+});
+
+describe("分区目录与交付状态", () => {
+    it("外观分区由 nbook.settings 贡献：list，app 组，小组“界面”与“语言”；list 分区只靠声明，入口没激活也可用", async () => {
+        const lazy = contributor("x.lazy", {"x.lazy.list": list(), "x.lazy.page": page()}, control(), {activationEvents: []});
+        const {source} = await start([lazy]);
+        expect(source.sections().find((section) => section.id === "nbook.appearance")).toEqual({
+            id: "nbook.appearance",
+            plugin: "nbook.settings",
+            declaration: {
+                title: {"zh-CN": "外观", "en-US": "Appearance"},
+                description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
+                icon: "i-lucide-palette",
+                category: "app",
+                order: 10,
+                kind: "list",
+                groups: [{id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}}, {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}}],
+            },
+        });
+        expect(source.delivery("nbook.appearance")).toEqual({kind: "available"});
+        expect(source.delivery("x.lazy.list")).toEqual({kind: "available"});
+        // page 分区没有交付实现：声明在目录里，呈现为 declared，加载作废。
+        expect(source.delivery("x.lazy.page")).toEqual({kind: "declared"});
+        expect(await source.load("x.lazy.page")).toEqual({status: "stale"});
+    });
+
+    it("page 交付后可用，每次加载经句柄取实现；入口停止后撤回，之后的加载作废", async () => {
+        let loads = 0;
+        const toggle = control({implementation: {load: async () => {
+            loads += 1;
+            return Sample;
+        }}});
+        const {source} = await start([contributor("x.page", {"x.page.main": page()}, toggle)]);
+        const delivery = computed(() => source.delivery("x.page.main"));
+        expect(delivery.value).toEqual({kind: "available"});
+        expect(await source.load("x.page.main")).toEqual({status: "loaded", component: Sample});
+        expect(await source.load("x.page.main")).toEqual({status: "loaded", component: Sample});
+        expect(loads).toBe(2);
+        await stopEntry(toggle);
+        expect(delivery.value).toEqual({kind: "entry-stopped", reason: "scope-closed"});
+        expect(await source.load("x.page.main")).toEqual({status: "stale"});
+    });
+
+    it("加载进行中入口停止：结果回来时句柄已撤回，结果作废而不是加载失败", async () => {
+        let release: (component: Component) => void = () => undefined;
+        let loading = false;
+        const toggle = control({implementation: {load: () => new Promise<Component>((resolve) => {
+            loading = true;
+            release = resolve;
+        })}});
+        const {source} = await start([contributor("x.page", {"x.page.main": page()}, toggle)]);
+        const pending = source.load("x.page.main");
+        expect(loading).toBe(true);
+        await stopEntry(toggle);
+        release(Sample);
+        expect(await pending).toEqual({status: "stale"});
+    });
+
+    it("page 交出的实现没有 load()：仍算交付，记一条诊断，加载按失败处理；load() 抛错同样是失败", async () => {
+        const {source, diagnostics} = await start([
+            contributor("x.empty", {"x.empty.page": page()}, control({implementation: {}})),
+            contributor("x.broken", {"x.broken.page": page()}, control({implementation: {load: async () => {
+                throw new Error("组件模块加载失败");
+            }}})),
+        ]);
+        expect(source.delivery("x.empty.page")).toEqual({kind: "available"});
+        const empty = await source.load("x.empty.page");
+        expect(empty.status === "failed" && (empty.error as Error).message).toBe("page 分区 x.empty.page 交出的实现没有 load()");
+        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["page 分区 x.empty.page 交出的实现没有 load()，打开时按加载失败显示"]);
+        const broken = await source.load("x.broken.page");
+        expect(broken.status === "failed" && (broken.error as Error).message).toBe("组件模块加载失败");
+    });
+
+    it("入口激活失败：原位给出原因；消除原因后重试，以新代次交付", async () => {
+        const toggle = control({fail: true});
+        const {application, source} = await start([contributor("x.page", {"x.page.main": page()}, toggle, {activationEvents: []})]);
+        const delivery = computed(() => source.delivery("x.page.main"));
+        expect(delivery.value).toEqual({kind: "declared"});
+        expect((await application.plugins.activate({plugin: "x.page", entry: "browser"})).status).toBe("failed");
+        expect(delivery.value).toEqual({kind: "entry-failed", reason: "样例入口按开关激活失败"});
+        toggle.fail = false;
+        expect(await source.retry("x.page.main")).toEqual({status: "activated"});
+        expect(delivery.value).toEqual({kind: "available"});
+        expect(application.plugins.entryState({plugin: "x.page", entry: "browser"})?.generation).toBe(2);
+        expect(await source.retry("nope.section")).toEqual({status: "failed", reason: "未登记的分区 nope.section"});
+    });
+
+    it("入口受阻：原位给出原因，没有重试", async () => {
+        const missing = defineServiceKey<unknown>("x.page/missing");
+        const {source} = await start([contributor("x.page", {"x.page.main": page()}, control(), {dependencies: [{key: missing}]})]);
+        expect(source.delivery("x.page.main").kind).toBe("entry-blocked");
+        expect(await source.retry("x.page.main")).toEqual({status: "not-failed"});
+    });
+});
+
+describe("设置窗口的数据来源只给 nbook.settings 自己", () => {
+    it("别的插件解析它以初始化失败结束；nbook.settings 的入口照常拿到", async () => {
+        const seen: {outcome: string | null} = {outcome: null};
+        const foreign: PluginDefinition = {
+            id: "x.spy",
+            entries: [{
+                id: "browser",
+                location: "browser",
+                activationEvents: ["onStartup"],
+                dependencies: [{key: settingsWindowSourceKey, required: false}],
+                activate: async (context) => {
+                    seen.outcome = (await context.services.resolve(settingsWindowSourceKey)).status;
+                    return {};
+                },
+            }],
+        };
+        const {source} = await start([foreign]);
+        expect(seen.outcome).toBe("unavailable");
+        expect(source.sections().length).toBeGreaterThan(0);
+    });
+});
+
+describe("配置项界面字段的登记校验（configuration.md 输出 21）", () => {
+    it("不合格的 section、group、order、choices、applies 与已删除的 restart 各只拒这一条，同插件的其它配置项与分区照常", async () => {
+        const theme = Type.Union([Type.Literal("a"), Type.Literal("b")]);
+        const good = defineSetting({plugin: "x.ui", name: "good", schema: theme, default: "a", title, section: "x.ui.main", group: "look", order: 1, choices: [{value: "a", title}, {value: "b", title}], applies: "next-session"});
+        const raw = (name: string, overrides: Record<string, unknown>) => ({capability: SETTINGS_POINT, id: `x.ui/${name}`, declaration: {...good.declaration, ...overrides}});
+        const bad = [
+            raw("badSection", {section: "Main"}),
+            raw("badGroup", {group: "Look"}),
+            raw("orphanGroup", {section: undefined}),
+            raw("badOrder", {order: Number.POSITIVE_INFINITY}),
+            raw("missingChoice", {choices: [{value: "a", title}]}),
+            raw("extraChoice", {choices: [{value: "a", title}, {value: "b", title}, {value: "c", title}]}),
+            raw("wrongChoice", {choices: [{value: "a", title}, {value: "B", title}]}),
+            raw("notLiteral", {schema: Type.String(), choices: [{value: "a", title}]}),
+            raw("badApplies", {applies: "later"}),
+            raw("restart", {restart: true}),
+        ];
+        const {application} = await start([contributor("x.ui", {"x.ui.main": list({groups: [{id: "look", title}]})}, control({implementation: {}}), {}, {contributions: [good.contribution, ...bad]})]);
+        expect(validation(application, SETTINGS_POINT, good.key)).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.ui.main")).toEqual({status: "accepted"});
+        for (const contribution of bad) {
+            expect(validation(application, SETTINGS_POINT, contribution.id), contribution.id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+        }
+        expect(validation(application, SETTINGS_POINT, "x.ui/restart")).toMatchObject({detail: "配置项 x.ui/restart 的声明有未知字段：restart"});
+        expect(application.plugins.entryState({plugin: "x.ui", entry: "browser"})?.status).toBe("available");
+    });
+
+    it("指向不存在的分区或小组不在登记时核对：配置项照常被接受", async () => {
+        const orphan = defineSetting({plugin: "x.ui", name: "orphan", schema: Type.Boolean(), default: false, title, section: "x.ui.nowhere", group: "nothing"});
+        const {application} = await start([{id: "x.ui", contributions: [orphan.contribution], entries: [{id: "browser", location: "browser", activate: () => ({})}]}]);
+        expect(validation(application, SETTINGS_POINT, orphan.key)).toEqual({status: "accepted"});
+    });
+});

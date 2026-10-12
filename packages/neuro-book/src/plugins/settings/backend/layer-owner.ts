@@ -1,7 +1,7 @@
 /**
- * 一层的拥有者（docs/specs/settings/configuration.md 输出 4、5、9–14、18，“状态与转换”）：读文件、逐键校验、维护
+ * 一层的拥有者（docs/specs/settings/configuration.md 输出 4、5、9–14、18、19，“状态与转换”）：读文件、逐键校验、维护
  * 层快照、串行处理重读与写入、监视外部修改。本实例的入口与别的实例（经远程服务）都经它写入，两条路一样按内核
- * 填写的调用方身份核对声明者。
+ * 填写的调用方身份核对声明者；用户编辑只经远程服务到达，核对调用方是不是拥有者自己的插件。
  *
  * 重读与写入在同一个串行队列里：较早开始的重读不会在写入之后发布旧内容。写入成功后立即按新文本发布，监视器随后
  * 带回的同一内容比较后不再发布（输出 10）。
@@ -16,8 +16,8 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import type {SettingDeclaration, SettingLayer, SettingsFailure} from "nbook/shared/settings";
 
-import {canonical, sameContent, writeProblem} from "../shared/layers";
-import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult} from "../shared/layers";
+import {canonical, sameContent, userEditProblem, writeProblem} from "../shared/layers";
+import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult, WriteProblem} from "../shared/layers";
 import {readLayerFile, writeLayerFile} from "./layer-file";
 import {editLayerText, parseLayerText} from "./layer-text";
 import {watchLayer} from "./layer-watch";
@@ -33,6 +33,7 @@ export interface LayerOwnerOptions {
     readonly declarations: () => ReadonlyMap<string, DeclaredSetting>;
     readonly clock: RuntimeClock;
     readonly diagnostics: DiagnosticsService;
+    /** 拥有这一层的插件（`nbook.settings`）：诊断记在它名下，用户编辑只接受它自己、没有经过代理的请求。 */
     readonly source: string;
 }
 
@@ -44,7 +45,10 @@ export interface LayerOwner {
     snapshot(): LayerSnapshot;
     /** 之后的每次发布调用一次；返回取消函数。 */
     subscribe(listener: (snapshot: LayerSnapshot) => void): () => void;
+    /** 声明者的写入：只写调用方插件自己声明的项（输出 11）。 */
     write(consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult>;
+    /** 用户编辑：写任何已声明项，调用方必须是 `source` 插件自己、没有经过代理（输出 19）。 */
+    userEdit(consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult>;
     /** 拒绝新的读写，等已接纳的写入结算，关闭监视。幂等。 */
     close(): Promise<void>;
 }
@@ -128,14 +132,26 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     let tail: Promise<unknown> = ready.catch(() => undefined);
 
     const write = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
-        const result = await admitAndWrite(consumer, key, edit);
+        const result = await admitAndWrite(key, edit, () => writeProblem(consumer.plugin, key, options.declarations().get(key), edit, options.layer));
         record(result.ok ? "info" : "warn", "settings.write", "配置写入", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code});
         return result;
     };
 
-    const admitAndWrite = (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> | OwnerWriteResult => {
+    const userEdit = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
+        const result = await admitAndWrite(key, edit, () => {
+            // 用户编辑不核对声明者，调用方是这条路径唯一的授权：先于其它核对，别的调用方不论键与值一律 denied。
+            if (consumer.plugin !== options.source || consumer.via !== null) {
+                return {code: "denied", detail: `用户编辑只接受 ${options.source} 自己、没有经过代理的请求`};
+            }
+            return userEditProblem(key, options.declarations().get(key), edit, options.layer);
+        });
+        record(result.ok ? "info" : "warn", "settings.write", "配置写入（用户编辑）", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code, userEdit: true});
+        return result;
+    };
+
+    const admitAndWrite = (key: string, edit: LayerEdit, admission: () => WriteProblem | null): Promise<OwnerWriteResult> | OwnerWriteResult => {
         if (closed) return {ok: false, code: "unavailable", detail: "配置层的拥有者已停止"};
-        const problem = writeProblem(consumer.plugin, key, options.declarations().get(key), edit, options.layer);
+        const problem = admission();
         if (problem !== null) return {ok: false, ...problem};
         // 核对通过即接纳：同步排进队列，之后的停止会等它走完（“时序与寿命”第 4 条）。
         return enqueue(async (): Promise<OwnerWriteResult> => {
@@ -165,6 +181,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
             };
         },
         write,
+        userEdit,
         close: () => {
             closing ??= (async () => {
                 closed = true;

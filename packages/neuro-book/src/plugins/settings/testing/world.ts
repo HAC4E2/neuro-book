@@ -12,7 +12,7 @@ import type {Application, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor, RemoteLink, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
@@ -47,9 +47,10 @@ export interface SettingsWorld {
     /**
      * `connected: false`：链路建好后、实例激活前就断开（首次订阅失败）。`quickPick`：给窗口一个选择服务，并装上带
      * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。`wrapLink`：包住窗口这一端的链路（每次
-     * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。
+     * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。`settingsEntries`：给窗口里的 `nbook.settings` 另加入口
+     * （产品里设置窗口是本插件的另一个入口），测试据此以 `nbook.settings` 自己的身份调用。
      */
-    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<WorldWindow>;
+    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink; readonly settingsEntries?: ReadonlyArray<PluginEntryDefinition>}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
 
@@ -162,6 +163,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                 link.set("offline");
             }
             const project = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
+            const settings = windowOptions.quickPick === undefined ? settingsBrowserCore : settingsBrowserPlugin;
             const app = await started(createApplication(
                 {identity: {location: "browser", instanceId: id, client: `client-${id}`}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {
@@ -171,7 +173,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                         {id: "clock", key: clockKey, create: () => clock},
                         ...(windowOptions.quickPick === undefined ? [] : [{id: "test.quick-pick", key: quickPickKey, create: () => windowOptions.quickPick!}]),
                     ],
-                    plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, windowOptions.quickPick === undefined ? settingsBrowserCore : settingsBrowserPlugin), ...plugins],
+                    plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, {...settings, entries: [...settings.entries, ...(windowOptions.settingsEntries ?? [])]}), ...plugins],
                     gates: [],
                     remote: node,
                     delegation: DELEGATION,
