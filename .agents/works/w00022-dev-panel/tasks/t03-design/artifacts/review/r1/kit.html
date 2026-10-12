@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>讲解页组件 · 开发面板 r1</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<style>
+.k-main { padding: var(--space-6) var(--space-7) 120px; max-width: 1120px; }
+.k-head { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-6); }
+.k-head h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.k-list { display: flex; flex-direction: column; gap: var(--space-7); }
+.k-sec > header { display: flex; align-items: baseline; gap: var(--space-5); padding: 0 var(--space-2) var(--space-4); }
+.k-sec > header h2 { font-size: 14px; font-weight: var(--weight-strong); white-space: nowrap; }
+.k-sec > header p { color: var(--text-secondary); }
+.k-sec > header .mono { margin-left: auto; color: var(--text-muted); white-space: nowrap; }
+.k-body { padding: var(--space-6); }
+
+/* 候选对比网格 */
+.cands { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-6); }
+.cand { display: flex; flex-direction: column; gap: var(--space-4); }
+.cand .shot { position: relative; display: block; border-radius: 12px; overflow: hidden; border: var(--border-w) solid var(--divider); }
+.cand .shot img { display: block; width: 100%; height: auto; }
+.cand .shot .label { position: absolute; left: 10px; top: 10px; }
+.cand.rec .shot { box-shadow: 0 0 0 1.5px var(--accent-main); border-color: transparent; }
+.cand h3 { font-size: 13px; font-weight: var(--weight-strong); display: flex; gap: var(--space-4); align-items: center; }
+.cand p { color: var(--text-secondary); font-size: var(--text-xs); }
+
+/* 决策卡与表单 */
+.decide-q { font-size: 14px; font-weight: var(--weight-strong); }
+.decide-opts { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-5) calc(-1 * var(--space-5)) var(--space-6); }
+.decide-foot { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; padding-top: var(--space-6); margin-top: var(--space-6); border-top: var(--border-w) solid var(--divider); }
+.submitted { display: none; }
+[data-state="submitted"] .editing { display: none; }
+[data-state="submitted"] .submitted { display: flex; }
+.field { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: var(--space-5) var(--space-7); padding: var(--space-6) 0; }
+.field + .field { border-top: var(--border-w) solid var(--divider); }
+.field .lbl { font-weight: var(--weight-medium); }
+.field .hint { font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-1); }
+.opts-inline { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); }
+.opts-inline label { display: inline-flex; align-items: center; gap: var(--space-4); cursor: pointer; }
+.stack-callouts { display: flex; flex-direction: column; gap: var(--space-4); }
+@media (max-width: 1240px) { .anno-wrap { grid-template-columns: minmax(0, 1fr) 260px; } }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data.js"></script>
+<script src="../assets/panel.js"></script>
+
+<div class="shell" id="shell">
+<div class="page">
+    <header class="topbar">
+        <label class="input" style="width:min(560px,100%)"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><input type="search" placeholder="搜索 Task、文件、提交、讲解页"><span class="kbd">Ctrl</span><span class="kbd">K</span></label>
+        <div class="sp"></div>
+        <div class="hstack" id="right"></div>
+    </header>
+
+    <main class="k-main">
+        <div class="k-head">
+            <div class="crumbs"><a href="#">讲解页</a><svg class="ic"><use href="#i-chevron-right"/></svg><a href="#">w00022 t03</a><svg class="ic"><use href="#i-chevron-right"/></svg><span>讲解页组件</span></div>
+            <h1>讲解页组件（第一批）</h1>
+            <p class="sec">Agent 写讲解页时能直接用的组件。每个组件一个例子、一行用途；例子的内容取自 t80 的评审与提交，标“示例”的是借来演示的旧问题，在这页提交不会写到 <code>answers/</code>。</p>
+        </div>
+
+        <div class="k-list">
+
+            <!-- 1. 候选对比网格 -->
+            <section class="k-sec">
+                <header><h2>候选对比网格</h2><p>同一个问题的几个候选并排，图或 HTML 都行，推荐的那个带外框。</p><span class="mono">nb-candidates</span></header>
+                <div class="panel k-body">
+                    <div class="cands">
+                        <figure class="cand rec">
+                            <a class="shot" href="../../../../../../../../.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/r4/r4-mixed-agent.png"><img src="../../../../../../../../.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/r4/r4-mixed-agent.png" alt="混合排法" loading="lazy"><span class="label badge solid accent">A</span></a>
+                            <h3>混合<span class="badge sm accent">推荐</span></h3>
+                            <p>简单控件标签列加控件列，多行文本、JSON 另起一行铺满内容列。</p>
+                        </figure>
+                        <figure class="cand">
+                            <a class="shot" href="../../../../../../../../.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/r4/r4-stacked-agent.png"><img src="../../../../../../../../.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/r4/r4-stacked-agent.png" alt="竖排" loading="lazy"><span class="label badge solid">B</span></a>
+                            <h3>竖排</h3>
+                            <p>标题、说明、控件从上往下；说明能写长，每项更占高度。</p>
+                        </figure>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. 决策卡 -->
+            <section class="k-sec">
+                <header><h2>决策卡</h2><p>一个要开发者拍板的问题：选项、主 Agent 的推荐与理由、开发者的选择与备注、提交。</p><span class="mono">nb-decision</span></header>
+                <form class="panel k-body" id="decide" data-state="editing">
+                    <div class="hstack wrap" style="gap:var(--space-3)">
+                        <span class="badge sm warning">待定</span><span class="badge sm demo">示例</span>
+                        <span class="xs muted">借 t80 第四轮的问题演示；实际已定为“混合”</span>
+                    </div>
+                    <p class="decide-q" style="margin-top:var(--space-4)">设置窗口固定 960 宽以后，通用列表的每一项用哪种排法？</p>
+                    <div class="editing">
+                        <div class="decide-opts" role="radiogroup">
+                            <label class="choice"><input class="chk" type="radio" name="d1" value="inline"><div><div class="choice-title">标签列加控件列</div><div class="choice-desc">标签列约 200px，控件紧跟其后、左对齐；项少的分区右边空出一块。</div></div></label>
+                            <label class="choice"><input class="chk" type="radio" name="d1" value="stacked"><div><div class="choice-title">竖排（VS Code 式）</div><div class="choice-desc">标题、说明、控件从上往下，控件不拉满；编辑器分区 13 项要滚两屏多。</div></div></label>
+                            <label class="choice"><input class="chk" type="radio" name="d1" value="mixed"><div><div class="hstack" style="gap:var(--space-3)"><span class="choice-title">混合</span><span class="badge sm accent">推荐</span></div><div class="choice-desc">开关、分段、下拉、数字、单行输入用标签列加控件列；宽控件另起一行、占满内容列。</div></div></label>
+                        </div>
+                        <div class="callout accent"><svg class="ic"><use href="#i-sparkles"/></svg><div><b>主 Agent 推荐“混合”。</b>简单项保持紧凑，宽控件把右边的空白吃掉；外观、作品两个分区全是简单控件，混合与第一种画出来一样，差别只在 Agent、向量嵌入这类有长文本的分区。</div></div>
+                        <div style="margin-top:var(--space-6)">
+                            <label class="input area"><textarea name="note" placeholder="备注（可选）：补充理由、附加条件，或者“都不要，改成……”"></textarea></label>
+                        </div>
+                        <div class="decide-foot">
+                            <button class="btn primary" type="submit" disabled>提交</button>
+                            <span class="xs muted">提交后写入 <code>answers/kit/decide-&lt;时间&gt;.json</code>，只追加；Agent 用 <code>nbdev answers</code> 读回。</span>
+                        </div>
+                    </div>
+                    <div class="submitted vstack" style="margin-top:var(--space-5);gap:var(--space-5)">
+                        <div class="callout success"><svg class="ic"><use href="#i-circle-check"/></svg><div><b>已提交，回到会话说一声。</b><div class="sec" id="decide-summary" style="margin-top:var(--space-1)"></div></div></div>
+                        <pre class="code" id="decide-json"></pre>
+                        <div class="hstack"><button class="btn sm ghost" type="button" data-reopen>改答案</button><span class="xs muted">改答案会再写一份新文件，旧的保留；Agent 读最新的一份。</span></div>
+                    </div>
+                </form>
+            </section>
+
+            <!-- 3. 带编号的标注图 -->
+            <section class="k-sec">
+                <header><h2>带编号的标注图</h2><p>在截图上用虚线框加编号指出位置，旁边逐条解释；标注色是界面里不会出现的品红。</p><span class="mono">nb-annotated</span></header>
+                <div class="panel k-body">
+                    <div class="anno-wrap">
+                        <div class="anno">
+                            <img src="../../../../../../../../.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/review/r4/r4-mixed-agent.png" alt="设置窗口：Agent 分区，混合排法">
+                            <div class="box" style="left:17.6%;top:16.4%;width:11.6%;height:4.4%"><span class="pin">1</span></div>
+                            <div class="box" style="left:17.6%;top:22.4%;width:12%;height:41.4%"><span class="pin">2</span></div>
+                            <div class="box" style="left:31.4%;top:32.6%;width:50%;height:11%"><span class="pin">3</span></div>
+                            <div class="box" style="left:31.1%;top:61%;width:50.4%;height:4.8%"><span class="pin">4</span></div>
+                            <div class="box" style="left:31.8%;top:66.4%;width:49.6%;height:13%"><span class="pin">5</span></div>
+                        </div>
+                        <ol class="anno-list">
+                            <li><span class="pin">1</span><div><b class="medium">用户 | 本作品</b><div class="xs sec">切换要编辑的层；每个分区有明确的目标层。</div></div></li>
+                            <li><span class="pin">2</span><div><b class="medium">左栏分区</b><div class="xs sec">应用、AI、插件三组，组间一条线、没有组标题；来自 <code>settings.sections</code>。</div></div></li>
+                            <li><span class="pin">3</span><div><b class="medium">简单项</b><div class="xs sec">开关、数字用标签列加控件列，控件紧跟标签。</div></div></li>
+                            <li><span class="pin">4</span><div><b class="medium">已修改与恢复默认</b><div class="xs sec">左边竖线表示这一层写了这个键；右边按钮从这一层删掉它。</div></div></li>
+                            <li><span class="pin">5</span><div><b class="medium">宽控件</b><div class="xs sec">多行文本另起一行，占满内容列。</div></div></li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. 表单字段 -->
+            <section class="k-sec">
+                <header><h2>表单字段</h2><p>一页里问几件小事：单选、多选、文本，最后一起提交。</p><span class="mono">nb-form</span></header>
+                <form class="panel k-body" id="form" data-state="editing">
+                    <div class="hstack" style="gap:var(--space-3)"><span class="badge sm demo">示例</span><span class="xs muted">问题是编的，演示三种字段</span></div>
+                    <div class="editing">
+                        <div class="field">
+                            <div><div class="lbl">第二轮先画哪一页</div><div class="hint">单选</div></div>
+                            <div class="opts-inline">
+                                <label><input class="chk" type="radio" name="next" value="checkout">Checkout 列表</label>
+                                <label><input class="chk" type="radio" name="next" value="search">搜索结果</label>
+                                <label><input class="chk" type="radio" name="next" value="work">Work 页</label>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <div><div class="lbl">首页“在跑”要显示什么</div><div class="hint">多选</div></div>
+                            <div class="opts-inline">
+                                <label><input class="chk" type="checkbox" name="run" value="port" checked>端口</label>
+                                <label><input class="chk" type="checkbox" name="run" value="elapsed" checked>跑了多久</label>
+                                <label><input class="chk" type="checkbox" name="run" value="log">日志是否在增长</label>
+                                <label><input class="chk" type="checkbox" name="run" value="owner">哪个会话起的</label>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <div><div class="lbl">其它要求</div><div class="hint">文本，可留空</div></div>
+                            <label class="input area"><textarea name="other" placeholder="例如：不要显示 omp 交互会话"></textarea></label>
+                        </div>
+                        <div class="decide-foot" style="margin-top:0">
+                            <button class="btn primary" type="submit">提交</button>
+                            <button class="btn ghost" type="reset">清空</button>
+                        </div>
+                    </div>
+                    <div class="submitted vstack" style="margin-top:var(--space-5);gap:var(--space-5)">
+                        <div class="callout success"><svg class="ic"><use href="#i-circle-check"/></svg><div><b>已提交，回到会话说一声。</b></div></div>
+                        <pre class="code" id="form-json"></pre>
+                        <div class="hstack"><button class="btn sm ghost" type="button" data-reopen>改答案</button></div>
+                    </div>
+                </form>
+            </section>
+
+            <!-- 5. diff 片段 -->
+            <section class="k-sec">
+                <header><h2>diff 片段</h2><p>只放讲清楚一件事需要的几行；行内改动高亮。例子是开发者的决定写进 README 的那次提交。</p><span class="mono">nb-diff</span></header>
+                <div class="panel k-body">
+                    <div class="diff">
+                        <div class="diff-file"><svg class="ic sm"><use href="#i-file-diff"/></svg><span class="mono">.agents/works/w00017…/tasks/t80-settings-ui/README.md</span><span class="sp"></span><span class="mono">067abb24</span><span class="badge sm success">+1</span><span class="badge sm danger">−1</span></div>
+                        <div class="diff-ln hunk"><span></span><span></span><span></span><span>@@ -45,7 +45,7 @@ 当前状态</span></div>
+                        <div class="diff-ln"><span>47</span><span>47</span><span></span><span>- S5 进行中：omp 实现审查（单独的审查 checkout .worktree/w00017-t80-review，固定在 28d4e3de）。</span></div>
+                        <div class="diff-ln del"><span>48</span><span></span><span>-</span><span>- <del>待开发者定：</del>作品分区未设置时的文案“还没设，第一次新建作品时会记下”与书架行为不一致（书架只在用户改过新建位置时才写设置）。</span></div>
+                        <div class="diff-ln add"><span></span><span>48</span><span>+</span><span>- 作品分区未设置时的文案“还没设，第一次新建作品时会记下”与书架行为不一致（书架只在用户改过新建位置时才写设置）。<ins>开发者定：改文案，没设时显示缺省目录（经 library() 取有效目录，标“缺省”），书架行为不变；随 S5 的审查修正一起改。</ins></span></div>
+                        <div class="diff-ln"><span>49</span><span>49</span><span></span><span>- 搭稿时发现的 nb-ui 缺陷记为 t81。另有：缺扁平的分区导航组件……</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. 代码块 -->
+            <section class="k-sec">
+                <header><h2>代码块</h2><p>接口草案、命令、配置；带语言与来源，能一键复制。例子取自 t80 plan.md。</p><span class="mono">nb-code</span></header>
+                <div class="panel k-body">
+                    <div class="hstack" style="margin-bottom:var(--space-4)"><span class="badge sm">ts</span><span class="xs muted mono">t80-settings-ui/plan.md · 第 2 节</span><span class="sp"></span><button class="btn sm ghost" type="button" data-copy="code-1"><svg class="ic sm"><use href="#i-copy"/></svg>复制</button></div>
+<pre class="code" id="code-1"><span class="k">interface</span> <span class="t">SettingsSectionDeclaration</span> {
+    <span class="k">readonly</span> title: <span class="t">LocalizedText</span>;
+    <span class="k">readonly</span> description?: <span class="t">LocalizedText</span>;  <span class="c">// 分区标题下的一行说明</span>
+    <span class="k">readonly</span> icon: <span class="t">string</span>;                 <span class="c">// 图标类名</span>
+    <span class="k">readonly</span> category: <span class="s">"app"</span> | <span class="s">"ai"</span> | <span class="s">"plugins"</span>;  <span class="c">// 左栏分组：应用、AI、插件</span>
+    <span class="k">readonly</span> order?: <span class="t">number</span>;               <span class="c">// 组内顺序，同值按 id</span>
+    <span class="k">readonly</span> kind: <span class="s">"list"</span> | <span class="s">"page"</span>;
+    <span class="k">readonly</span> groups?: <span class="k">readonly</span> {id: <span class="t">string</span>; title: <span class="t">LocalizedText</span>}[];  <span class="c">// 只给 list</span>
+    <span class="k">readonly</span> layout?: <span class="s">"column"</span> | <span class="s">"fill"</span>;   <span class="c">// 只给 page，缺省 column</span>
+}</pre>
+                </div>
+            </section>
+
+            <!-- 7. 提示条 -->
+            <section class="k-sec">
+                <header><h2>提示条</h2><p>四种语义各一个颜色，不按心情选：说明、完成、待审、出错；主 Agent 的推荐用强调色。</p><span class="mono">nb-callout</span></header>
+                <div class="panel k-body stack-callouts">
+                    <div class="callout info"><svg class="ic"><use href="#i-info"/></svg><div><b>说明</b>　t80 分支落后 w00017 主线 4 个提交，合回前要再对齐一次。</div></div>
+                    <div class="callout success"><svg class="ic"><use href="#i-circle-check"/></svg><div><b>完成</b>　S4 已提交 <code>28d4e3de</code>：typecheck 通过，bun 1052 通过，Vitest 195 通过，e2e 28 通过。</div></div>
+                    <div class="callout warning"><svg class="ic"><use href="#i-triangle-alert"/></svg><div><b>待审</b>　omp 审查还在跑（1:57 / 3h），报告已有 1 条“重要”。</div></div>
+                    <div class="callout danger"><svg class="ic"><use href="#i-circle-alert"/></svg><div><b>冲突</b>　t80、t81 只登记在分支上，主线 Task 表到 t79 为止。</div></div>
+                    <div class="callout accent"><svg class="ic"><use href="#i-sparkles"/></svg><div><b>主 Agent 推荐</b>　选“混合”：简单项紧凑，宽控件铺满内容列。</div></div>
+                </div>
+            </section>
+        </div>
+    </main>
+</div>
+</div>
+
+<script>
+const {icon, esc} = NB;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB.sidebar("page"));
+document.getElementById("right").innerHTML = NB.topRight();
+
+const stamp = () => {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+
+/* 决策卡：选了才能提交；提交后显示“已提交”与将写入的 JSON */
+const decide = document.getElementById("decide");
+decide.addEventListener("change", () => {
+    decide.querySelector("[type=submit]").disabled = !decide.querySelector("input[name=d1]:checked");
+});
+decide.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const sel = decide.querySelector("input[name=d1]:checked");
+    const title = sel.closest(".choice").querySelector(".choice-title").textContent;
+    const note = decide.querySelector("textarea").value.trim();
+    const at = stamp();
+    document.getElementById("decide-summary").textContent = `你选了“${title}”${note ? `，备注：${note}` : ""}。`;
+    document.getElementById("decide-json").textContent = JSON.stringify({
+        page: "w00022/t03/review/r1/kit.html", block: "decide", answeredAt: at,
+        choice: sel.value, recommended: "mixed", note: note || null,
+    }, null, 2) + `\n// 将写入 answers/kit/decide-${at.replace(/[-:]/g, "")}.json（本稿只显示，不写文件）`;
+    decide.dataset.state = "submitted";
+});
+
+/* 表单 */
+const form = document.getElementById("form");
+form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const at = stamp();
+    document.getElementById("form-json").textContent = JSON.stringify({
+        page: "w00022/t03/review/r1/kit.html", block: "form", answeredAt: at,
+        next: fd.get("next"), run: fd.getAll("run"), other: (fd.get("other") || "").trim() || null,
+    }, null, 2) + `\n// 将写入 answers/kit/form-${at.replace(/[-:]/g, "")}.json（本稿只显示，不写文件）`;
+    form.dataset.state = "submitted";
+});
+
+document.addEventListener("click", (e) => {
+    const r = e.target.closest("[data-reopen]");
+    if (r) r.closest("form").dataset.state = "editing";
+    const c = e.target.closest("[data-copy]");
+    if (c) {
+        const text = document.getElementById(c.dataset.copy).textContent;
+        navigator.clipboard?.writeText(text).then(() => { c.lastChild.textContent = "已复制"; }, () => { c.lastChild.textContent = "复制失败"; });
+    }
+});
+
+NB.dock(`<span>讲解页组件</span>`);
+</script>
+</body>
+</html>

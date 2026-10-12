@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>领域模型</title>
+<link rel="stylesheet" href="tokens-nbook.css">
+<style>
+body{margin:0;background:var(--bg-page,#f7f6f2);color:var(--text-main,#1f2328);font:15px/1.7 system-ui,"PingFang SC","Noto Sans CJK SC",sans-serif}
+main{max-width:1280px;margin:0 auto;padding:28px 16px 80px}
+h1{font-size:24px;margin:0 0 6px} h2{font-size:18px;margin:36px 0 10px}
+.sub{color:var(--text-muted,#6b6f76)}
+.card{background:var(--bg-panel,#fff);border:1px solid var(--divider,#e3e1da);border-radius:12px;padding:16px 20px;margin:12px 0;overflow:auto}
+.mermaid{text-align:center}
+code{font-family:ui-monospace,monospace;font-size:13px}
+li{margin:4px 0}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid var(--divider,#e3e1da);padding:6px 10px;text-align:left;vertical-align:top}
+th{font-weight:600;white-space:nowrap}
+.keep{color:#1a7f37;font-weight:600} .temp{color:#9a6700;font-weight:600}
+</style></head><body><main>
+<h1>领域模型：开发者项目面板（第二版）</h1>
+<p class="sub">2026-10-12，按开发者对第一版的意见重写，七件事开发者已确认（第 2 件改为面板能任意写仓库）。文字以 <code>.agents/works/w00022-dev-panel/tasks/t03-design/domain-model.md</code> 为准；这一页只把图画出来。</p>
+
+<div class="card"><b>和第一版的区别</b><ol>
+<li>去掉持久的“参与”。会话与 Task 之间只有<b>租约</b>：会话在某个 Task 上做事时临时取得，会话结束或久不活动就失效，不入库。</li>
+<li>项目数据里没有任何东西指向会话。Task 的状态、产物、提问、答复、证据都持久化，任何会话都能读。</li>
+<li>取消本地 Work。Work 与 Task 的记录只放一处：主工作区 <code>master</code> 的 <code>.agents/works/</code>；实现分支只带代码、Spec 与文档的改动。</li>
+<li>区分面板管理的会话（在 herdr 里，答复后能通知回去）和外部会话（不能通知，但能读到答复）。</li>
+</ol></div>
+
+<h2>两层：持久的项目数据，临时的运行时</h2>
+<div class="card"><pre class="mermaid">
+flowchart TB
+    subgraph P["项目数据（持久，入库，只有一份：master 的 .agents/works）"]
+        direction LR
+        W["Work：目标、状态"] --> T["Task：状态、当前情况、决定"]
+        T --> A["产物：设计稿、讲解与报告、审查报告"]
+        A --> Q["提问"] --> AN["答复（只追加）"]
+        T --> E["证据：结论文字、测量数值、精选截图"]
+    end
+    subgraph R["运行时（临时，不入库）"]
+        direction LR
+        S1["面板管理的会话（herdr）"]
+        S2["外部会话（omp -p、别处的 Agent）"]
+        L["租约"]
+        N["通知：followup 或 steer"]
+        RUN["运行：子代理、omp、测试"]
+        S1 --- L
+        S2 --- L
+        S1 --> RUN
+        N --> S1
+    end
+    subgraph D["项目文档（持久，跟着代码在分支上改）"]
+        SP["Spec、ADR、Proposal、规范、Skill"]
+    end
+    L -. "临时占用（只存 id）" .-> T
+    Q -. "提问者租约（只存 id）" .-> L
+    AN -. "租约有效且是面板管理的会话才发" .-> N
+</pre></div>
+
+<h2>类图</h2>
+<div class="card"><pre class="mermaid">
+classDiagram
+    direction TB
+
+    class Work {
+        workId
+        目标
+        状态
+    }
+    class Task {
+        taskId
+        状态
+        当前情况
+    }
+    class Decision["决定"]
+    class Artifact["产物"] {
+        种类：设计稿 | 讲解与报告 | 审查报告
+        版本
+    }
+    class Question["提问"] {
+        题号
+        类型
+    }
+    class Answer["答复"] {
+        时间
+        值
+        答复人：开发者 | 会话代录
+    }
+    class Evidence["证据"]
+    class ProjectDoc["项目文档"] {
+        类型：Spec | ADR | Proposal | 规范 | Skill
+    }
+    class Session["会话"] {
+        会话 id
+        Agent 种类
+        面板管理 | 外部
+    }
+    class Pane
+    class Lease["租约"] {
+        取得时间
+        最近活动
+        失效条件
+    }
+    class Notification["通知"] {
+        投递方式：followup | steer
+        结果
+    }
+    class Run["运行"]
+    class Branch["分支"]
+    class Checkout
+
+    Work "1" *-- "1..*" Task
+    Task "1" *-- "0..*" Decision
+    Task "1" *-- "0..*" Artifact
+    Task "1" *-- "0..*" Evidence
+    Artifact "1" *-- "0..*" Question
+    Task "1" *-- "0..*" Question : 直接挂在 Task 上
+    Question "1" *-- "0..*" Answer
+
+    Session "0..1" -- "0..1" Pane : 现在在
+    Session "1" -- "0..*" Lease
+    Lease "0..*" ..> "1" Task : 临时占用（按 id 引用）
+    Question "0..*" ..> "0..1" Lease : 提问者（按 id 引用，可能已失效）
+    Answer "1" ..> "0..1" Notification : 若提问者租约有效且是面板管理的会话
+    Notification ..> Session : 投给
+    Session "1" --> "0..*" Run : 派出
+
+    Branch "1" -- "0..*" Checkout
+    ProjectDoc "0..*" ..> "1..*" Branch : 按分支有版本
+</pre>
+<p class="sub">实线是持久数据内部的组成；虚线是运行时对项目数据的临时引用（只存 id，对方不知道它）。项目数据里没有任何一条线指向会话。</p></div>
+
+<h2>一个开发流程</h2>
+<div class="card"><pre class="mermaid">
+sequenceDiagram
+    actor Dev as 开发者
+    participant S as 会话（任何 Agent）
+    participant CLI as 命令行 nbdev
+    participant Repo as 项目数据（master 的 .agents/works）
+    participant Panel as 面板
+    participant H as herdr
+
+    Dev->>S: 在任何终端里说“建一个设置界面的 Work，先做调研”
+    S->>CLI: work new settings-ui；task new research
+    CLI->>Repo: 领号，写 Work 与 Task 记录，提交
+    CLI-->>CLI: 给这个会话取得 t01 的租约
+    S->>CLI: artifact publish（含 3 个提问）
+    CLI->>Repo: 写产物与提问，提交；提问记下提问者租约
+    Panel->>Repo: 读到新产物与未答提问
+    Panel-->>Dev: 收件箱：3 个待答
+    Dev->>Panel: 在产物上作答
+    Panel->>Repo: 写答复，提交
+    alt 提问者租约有效，且是面板管理的会话
+        Panel->>H: agent.prompt（followup 或 steer）：一行指针
+        H->>S: 投递
+    else 租约失效，或是外部会话
+        Panel-->>Dev: 答复已保存；没有可通知的会话
+    end
+    S->>CLI: answers t01（任何会话都能读）
+    S->>Repo: 把决定写进 Task 记录，改 Task 状态，提交
+</pre></div>
+
+<h2>七件事（2026-10-12 已确认）</h2>
+<div class="card"><table>
+<tr><th>#</th><th>问题</th><th>决定</th></tr>
+<tr><td>1</td><td>Work 与 Task 的记录放哪里</td><td>只放主工作区 <code>master</code> 的 <code>.agents/works/</code>，实现分支不再带记录；会话在任何 worktree 里干活，都在 <code>master</code> 上路径限定提交记录。备选：单独一个记录分支。已有长期分支的记录迁移另排一个 Task</td></tr>
+<tr><td>2</td><td>面板能不能写仓库</td><td>能，先不限制写什么（开发者改了推荐：原推荐只写新建 Work 与 Task、答复三类）</td></tr>
+<tr><td>3</td><td>答复入不入库</td><td>入库，文件形式，只追加</td></tr>
+<tr><td>4</td><td>证据的边界</td><td><span class="keep">入库</span>：结论文字、不可重现的测量数值、少量精选截图（单张约 300 KB 内、每个 Task 约 5 MB 内）；<span class="temp">本地</span>：完整截图集、日志、测试原始输出</td></tr>
+<tr><td>5</td><td>取消本地 Work</td><td>规则改回只有一类 Work；<code>.local/agent/</code> 只放能重新生成的运行时与原始输出</td></tr>
+<tr><td>6</td><td>Task 状态的取值</td><td>计划中、进行中、已完成、已搁置，写在 frontmatter；“等开发者”现算（有未答提问）</td></tr>
+<tr><td>7</td><td>租约何时失效</td><td>会话在 herdr 里消失即失效；外部或久不活动的 24 小时没有 Task 相关操作即失效；不入库</td></tr>
+</table></div>
+</main>
+<script src="../../../../../../../node_modules/mermaid/dist/mermaid.min.js"></script>
+<script>
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+mermaid.initialize({startOnLoad:true, theme: dark ? 'dark' : 'neutral', securityLevel:'strict', flowchart:{htmlLabels:true, useMaxWidth:true}, class:{useMaxWidth:true}, sequence:{useMaxWidth:true}});
+</script>
+</body></html>

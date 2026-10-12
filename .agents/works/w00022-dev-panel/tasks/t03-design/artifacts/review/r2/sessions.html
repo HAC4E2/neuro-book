@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话 · 开发面板 r2</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<style>
+.s-main { padding: var(--space-6) var(--space-7) 120px; display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.s-list .grp { padding: var(--space-4) var(--space-6) var(--space-2); font-size: var(--text-xs); color: var(--text-muted); }
+.s-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-4); padding: var(--space-4) var(--space-5); margin: 0 var(--space-3); border-radius: 12px; cursor: pointer; }
+.s-item:hover { background: color-mix(in srgb, var(--text-main) 5%, transparent); }
+.s-item[aria-selected="true"] { background: var(--accent-bg); box-shadow: 0 0 0 1.5px var(--accent-main); }
+.s-item .nm { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.s-item .nm span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-medium); }
+.s-item .sub { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-item.pane .nm span:last-child { font-weight: var(--weight-normal); color: var(--text-secondary); }
+.d-head { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6) var(--space-6) var(--space-5); }
+.d-head h1 { font-size: 16px; font-weight: var(--weight-strong); }
+.d-facts { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); font-size: var(--text-xs); color: var(--text-secondary); align-items: center; }
+.d-facts > span { display: inline-flex; align-items: center; gap: var(--space-2); }
+.d-term { margin: 0 var(--space-6); }
+.d-term pre { max-height: 440px; overflow: auto; font-family: "Noto Sans Mono CJK SC", "Sarasa Mono SC", var(--font-mono); font-size: 12px; line-height: 1.55; }
+.d-term .a { color: var(--text-main); }
+.d-term .u { color: var(--accent-text); }
+.d-term .t { color: var(--text-muted); }
+.d-term .st { color: var(--text-muted); }
+.d-term .ok { color: var(--status-success); }
+.compose { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); }
+.compose-row { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
+.compose-row label { display: inline-flex; align-items: center; gap: var(--space-4); cursor: pointer; }
+.compose-row .hint { font-size: var(--text-xs); color: var(--text-muted); }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r2.js"></script>
+<script src="../assets/data-r2-work.js"></script>
+<script src="../assets/panel-r2.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="s-main">
+            <section class="panel s-list" id="list" aria-label="会话列表"></section>
+            <section class="panel" id="detail"></section>
+        </main>
+    </div>
+</div>
+<div id="dlg"></div>
+
+<script>
+const {S, esc, icon} = NB2;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB2.sidebar("sessions"));
+document.getElementById("top").outerHTML = NB2.topbar("搜索会话：名称、Work、Task、pane");
+document.getElementById("dlg").outerHTML = NB2.notifyDialog();
+
+const stLabel = {working: "在工作", idle: "空闲", blocked: "等输入", done: "结束", unknown: "未知"};
+const kindLabel = (k) => k === "claude" ? "Claude" : "omp";
+const nameOf = (s) => s.work ? `${s.work}${s.task ? " › " + s.task : ""} ${s.taskTitle || ""}` : s.title;
+
+/* ---------- 列表 ---------- */
+const groups = [
+    ["在工作", S.sessions.filter((s) => s.status === "working")],
+    ["在等你（推断）", S.sessions.filter((s) => s.status !== "working" && s.waiting && !s.otherRepo)],
+    ["空闲", S.sessions.filter((s) => s.status === "idle" && !s.waiting && !s.otherRepo)],
+    ["别的仓库", S.sessions.filter((s) => s.otherRepo)],
+];
+const item = (s) => `<div class="s-item" role="option" data-pane="${s.pane}" tabindex="0">
+    <div class="nm"><span class="kind">${kindLabel(s.kind)}</span><span>${esc(nameOf(s))}</span></div>
+    <span class="sess-st ${s.status}"><span class="dot ${s.status === "working" ? "info" : ""}"></span>${stLabel[s.status]}</span>
+    <div class="sub">${s.draft ? `<span class="draft-flag">${icon("pencil", "sm")} 有没发出的话 · </span>` : ""}${esc(s.last || s.cwd)}</div>
+</div>`;
+document.getElementById("list").innerHTML = `<div class="panel-h">${icon("message-square")}<h2>会话</h2><span class="count">${S.sessions.length}</span><div class="sp"></div><button class="btn sm ghost" type="button" title="在 herdr 里起一个新会话（本稿不画）">${icon("plus", "sm")}新会话</button></div>
+    <div role="listbox" aria-label="会话">${groups.filter(([, l]) => l.length).map(([g, l]) => `<div class="grp">${esc(g)} ${l.length}</div>${l.map(item).join("")}`).join("")}
+    <div class="grp">不是 Agent 的 pane ${S.panes.length}</div>
+    ${S.panes.map((p) => `<div class="s-item pane"><div class="nm"><span class="kind">${esc(p.pane)}</span><span>${esc(p.note)}</span></div><span></span><div class="sub mono">${esc(p.title)}</div></div>`).join("")}</div>
+    <div style="height:var(--space-4)"></div>`;
+
+/* ---------- 详情 ---------- */
+function termHtml(lines) {
+    return lines.map((l) => {
+        const e = esc(l);
+        if (/^\s*(Opus|ctx |⏵⏵|π >|  ⏵)/.test(l) || /cost \$/.test(l)) return `<span class="st">${e}</span>`;
+        if (/^\s*❯/.test(l)) return `<span class="u">${e}</span>`;
+        if (/^\s*⎿|^\s*Ran |^\s*Read |^\s*Referenced /.test(l)) return `<span class="t">${e}</span>`;
+        if (/^\s*●/.test(l)) return `<span class="a">${e}</span>`;
+        return e;
+    }).join("\n");
+}
+function render(pane) {
+    const s = S.sessions.find((x) => x.pane === pane) || S.sessions[2];
+    document.querySelectorAll(".s-item[data-pane]").forEach((el) => el.setAttribute("aria-selected", String(el.dataset.pane === s.pane)));
+    const lines = S.reads[s.pane];
+    const blocked = s.status === "blocked";
+    document.getElementById("detail").innerHTML = `
+        <div class="d-head">
+            <div class="crumbs"><a href="#">现场</a>${icon("chevron-right")}<a href="#">会话</a>${icon("chevron-right")}<span class="mono">${esc(s.pane)}</span></div>
+            <div class="hstack" style="align-items:flex-start;gap:var(--space-5)">
+                <h1 style="flex:1">${esc(nameOf(s))}</h1>
+                <span class="badge ${s.status === "working" ? "info" : blocked ? "warning" : ""}"><span class="dot"></span>${stLabel[s.status]}</span>
+                <button class="btn sm ghost" type="button" title="herdr agent focus（本稿不执行）">${icon("square-terminal", "sm")}在 herdr 里聚焦</button>
+            </div>
+            <div class="d-facts">
+                <span><span class="kind">${kindLabel(s.kind)}</span><span class="mono">${esc(s.sid)}</span></span>
+                <span>${icon("panel-left", "sm")}pane <span class="mono">${esc(s.pane)}</span></span>
+                <span>${icon("folder", "sm")}${esc(s.cwd)}</span>
+                ${s.work ? `<span>${icon("list-checks", "sm")}<a href="#">${esc(s.work)}${s.task ? " › " + esc(s.task) : ""}</a><span class="badge sm" title="${esc(s.assocFrom)}">推断</span></span>` : `<span class="badge sm">不属于 Work</span>`}
+                <span class="muted">终端标题：${esc(s.title)}${s.titleStale ? "（已过时）" : ""}</span>
+            </div>
+            <div class="xs muted">关联依据：${esc(s.assocFrom)}${s.also ? `；${esc(s.also)}` : ""}</div>
+            ${s.waiting ? `<div class="callout warning xs">${icon("message-square")}<div><b>在等你</b>　${esc(s.last)}<span class="muted">（herdr 只报告“空闲”，这句是读终端最后几行推断的）</span></div></div>` : ""}
+        </div>
+        <div class="d-term nb-dark term">
+            <div class="term-bar"><i></i><i></i><i></i><span>${esc(s.pane)} · 最近 ${lines ? lines.length : 0} 行 · herdr agent read --source recent</span><span class="sp"></span><span>只读</span></div>
+            <pre>${lines ? termHtml(lines) : '<span class="t">（这个会话没有读，示例）</span>'}</pre>
+        </div>
+        <form class="compose" id="compose">
+            ${s.draft ? `<div class="callout warning xs">${icon("pencil")}<div><b>它的输入框里有一句没发出的话</b>：“${esc(s.draft)}”<br>面板发的消息会接在这句后面一起发出；herdr 读不出输入框里有没有字，这一条是从终端画面认出来的。</div></div>` : ""}
+            ${blocked ? `<div class="callout danger xs">${icon("circle-alert")}<div>会话在等输入（例如权限确认），herdr 会拒绝发消息（agent_blocked）。先到终端里处理。</div></div>` : ""}
+            <label class="input area"><textarea placeholder="发给 ${esc(s.pane)}…（Enter 换行，Ctrl+Enter 发送）" ${blocked ? "disabled" : ""}></textarea></label>
+            <div class="compose-row">
+                <label><input class="chk" type="radio" name="when" value="idle" ${s.status === "working" ? "checked" : ""}>它空闲时再发</label>
+                <label><input class="chk" type="radio" name="when" value="now" ${s.status !== "working" ? "checked" : ""}>现在就发</label>
+                <span class="hint">${s.status === "working" ? "它在工作：现在发会排在这一轮后面；空闲时再发由面板排队，等 herdr 报告空闲再发。" : "它空闲：现在发会立刻开始新的一轮。"}</span>
+                <span class="sp"></span>
+                <button class="btn primary" type="submit" ${blocked ? "disabled" : ""}>${icon("send", "sm")}发送</button>
+            </div>
+            <div class="xs muted" id="compose-out">排队中的消息 0。发送经 herdr agent prompt；本稿不真的发送。</div>
+        </form>`;
+    const pre = document.querySelector(".d-term pre");
+    pre.scrollTop = pre.scrollHeight;  // 终端从最新的一行看起
+    document.getElementById("compose").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = e.target.querySelector("textarea").value.trim();
+        const when = e.target.querySelector("input[name=when]:checked").value;
+        if (!text) return;
+        document.getElementById("compose-out").textContent = when === "idle"
+            ? `已排队 1 条：等 ${s.pane} 空闲后发出（本稿不真的发送）。`
+            : `已发给 ${s.pane}（本稿不真的发送）。`;
+        e.target.querySelector("textarea").value = "";
+    });
+}
+document.getElementById("list").addEventListener("click", (e) => {
+    const it = e.target.closest(".s-item[data-pane]");
+    if (!it) return;
+    history.replaceState(null, "", "#" + it.dataset.pane);
+    render(it.dataset.pane);
+});
+render(decodeURIComponent(location.hash.slice(1)) || "w1:pB");
+
+NB2.dock(`<span>会话</span><button class="btn sm secondary" type="button" id="demo-notify">演示通知小窗</button>`);
+document.getElementById("demo-notify")?.addEventListener("click", () => NB2.openNotify(
+    "[面板] w00017 t80 的问题有答复了。\n问题：settings.window 晋升为 implemented？\n答复：批准晋升。备注：先晋升，作品分区的文案以后再看。\n答案：.local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/answers/spec-promotion/20261012T161205.json"));
+</script>
+</body>
+</html>

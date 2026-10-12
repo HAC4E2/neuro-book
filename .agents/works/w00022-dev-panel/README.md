@@ -2,9 +2,14 @@
 schema: nbook.work/v1
 workId: w00022-dev-panel
 issueId: null
+status: active
 ---
 
 # 开发者项目面板与本地／入库边界
+
+## 目标
+
+做一个本地的开发者项目面板（网页，开发者用）与命令行 `nbdev`（Agent 用），把散落在各分支、worktree 与本地目录里的 Work、Task、产物、文档与 Agent 会话收在一处：开发者在面板上看各 Work 的目标与 Task 状态、看产物并答复、经 herdr 接管或通知会话；任何 Agent 经命令行新建 Work 与 Task、发布产物、读答复。项目数据持久入库，会话与租约是临时的。
 
 ## 当前结论与授权
 
@@ -12,18 +17,19 @@ issueId: null
 
 开发者已定：
 
-1. 面板是独立的本地开发工具，放在 `master` 上，不做成 NeuroBook 插件；位置在 `packages/` 或仓库根目录，具体待定。
+1. 面板是独立的本地开发工具，放在 `master` 上，不做成 NeuroBook 插件；后定为 `packages/dev-panel`（见 t03）。
 2. 本 Work 同时重新划定“哪些留在本地、哪些进 Git”：之前全部进 Git，后来引入 `.local/`，这次再优化一轮。
 3. 先做需求分析与功能分析，再定方案。
 4. 开发者用网页，Agent 用命令行；Work 与 Task 编号会撞的问题借这个工具一起解决。
 
-本 Work 目前是纯规划，在主工作区维护唯一快照；进入实现时从 `master` 创建 worktree。
+记录在主工作区维护（[记录只放主工作区](../README.md#记录只放主工作区)）；进入实现时每个 Task 从 `master` 建自己的 worktree。
 
 ## Task
 
 | Task | 当前范围 |
 |---|---|
-| [t01](tasks/t01-requirements/README.md) | 需求分析、功能分析与本地／入库边界的现状调查；2026-10-12 开发者全部确认，并定 Work 分仓库与本地两类 |
-| [t02](tasks/t02-local-vs-repo-rules/README.md) | 按 t01 的判据改规则：`.local/` 分 Agent 区与用户区、Work 两类、验证与截图的入库边界、`design-review` 的路径；把现有评审板与本地产物搬进新结构。编号规则等命令行可用后再改 |
-| [t03](tasks/t03-design/README.md) | 面板与命令行的设计：按 `design-review` 流程定首页注意力排序与静态稿，再写 Proposal 与实施计划；2026-10-12 开工；已定首页 B、内容分类与导航、面板只做 herdr 的网页前端，第二轮静态稿与会话托管调研进行中 |
-| t04 | 已确认的规则跟进：worktree 一个 Task 一个、Task 号允许三位（改治理检查正则）、omp 会话目录改放 `.local/agent`（改用户全局规则）；未开工 |
+| [t01](tasks/t01-requirements/README.md) | 需求分析、功能分析与本地／入库边界的现状调查；2026-10-12 开发者全部确认（其中“Work 分仓库与本地两类”后被领域模型第二版取消） |
+| [t02](tasks/t02-local-vs-repo-rules/README.md) | 按 t01 的判据改规则：`.local/` 分 Agent 区与用户区、验证与截图的入库边界、`design-review` 的路径；已完成，其中本地 Work 与产物留本地两条后被 t03 改掉 |
+| [t03](tasks/t03-design/README.md) | 面板与命令行的设计：首页 B、内容分类与导航、面板只做 herdr 的网页前端、领域模型第二版（项目数据持久、会话与租约临时、记录只放 `master`）已定；接下来重画首页与会话页，写 Proposal 与实施计划 |
+| [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent` |
+| [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；涉及别的会话的分支，未开工 |

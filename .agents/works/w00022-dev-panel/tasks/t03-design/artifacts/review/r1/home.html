@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 · 开发面板 r1</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<style>
+/* ---- 两个候选共用的条目 ---- */
+.tile {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--t-bg);
+    color: var(--t-fg);
+}
+.tile.warning { --t-bg: var(--status-warning-bg); --t-fg: var(--status-warning); }
+.tile.accent { --t-bg: var(--accent-bg); --t-fg: var(--accent-main); }
+.tile.danger { --t-bg: var(--status-danger-bg); --t-fg: var(--status-danger); }
+.tile.neutral { --t-bg: color-mix(in srgb, var(--text-main) 7%, transparent); --t-fg: var(--text-secondary); }
+.tile .ic { width: 18px; height: 18px; }
+
+.inbox-item { display: flex; gap: var(--space-6); align-items: flex-start; }
+.inbox-item .body { flex: 1; min-width: 0; }
+.inbox-item .head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.inbox-item .title { font-size: 14px; font-weight: var(--weight-strong); }
+.inbox-item .summary { margin-top: var(--space-2); color: var(--text-secondary); }
+.inbox-item .note { margin-top: var(--space-3); font-size: var(--text-xs); color: var(--status-warning); display: flex; gap: var(--space-2); align-items: center; }
+.inbox-item .acts { display: flex; gap: var(--space-3); flex: none; align-self: center; }
+
+.task-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-6); align-items: start; }
+.task-row .t1 { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+.task-row .when { color: var(--text-muted); font-size: var(--text-xs); white-space: nowrap; text-align: right; }
+.task-row .tags { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
+.idchip { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
+.idchip b { color: var(--text-main); font-weight: var(--weight-strong); }
+
+.run-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: var(--space-2) var(--space-5); align-items: baseline; }
+.run-row .dot { transform: translateY(-1px); }
+.chg { display: grid; grid-template-columns: 40px 18px minmax(0, 1fr); gap: var(--space-4); align-items: baseline; }
+.chg .ic { color: var(--text-muted); transform: translateY(3px); }
+.chg .t { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+
+.section-note { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ---- 候选 A：单栏 ---- */
+body[data-variant="B"] .vA, body[data-variant="A"] .vB { display: none !important; }
+.a-top { gap: var(--space-6); }
+.a-main { max-width: 1040px; margin: 0 auto; padding: var(--space-7) var(--space-6) 120px; display: flex; flex-direction: column; gap: var(--space-6); }
+.a-search { display: flex; flex-direction: column; gap: var(--space-3); }
+.a-search .input.lg { height: 44px; }
+.a-search .scope { display: flex; gap: var(--space-3); flex-wrap: wrap; padding-left: var(--space-6); }
+.a-inbox .rows .row { padding: 18px var(--space-6); }
+.a-inbox .panel-h { min-height: 56px; }
+.a-inbox .panel-h h2 { font-size: 15px; }
+.run-strip { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-left: var(--space-4); min-width: 0; }
+.run-chip {
+    display: inline-flex; align-items: center; gap: var(--space-3); height: 28px; padding: 0 var(--space-5);
+    border-radius: var(--radius-pill); background: color-mix(in srgb, var(--text-main) 6%, transparent);
+    color: var(--text-main); font-size: var(--text-xs); white-space: nowrap;
+}
+.run-chip:hover { background: color-mix(in srgb, var(--text-main) 12%, transparent); text-decoration: none; }
+#running-a .panel-h { padding-bottom: var(--space-5); align-items: flex-start; }
+#running-a .panel-h > .ic, #running-a .panel-h h2, #running-a .panel-h .count { margin-top: 5px; }
+
+/* ---- 候选 B：左栏 + 两列 ---- */
+.b-top .input { width: min(560px, 100%); }
+.b-main { padding: var(--space-6) var(--space-7) 120px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: var(--space-6); align-items: start; }
+.b-col { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.b-main .inbox-item { gap: var(--space-5); }
+.b-main .tile { width: 28px; height: 28px; border-radius: 8px; }
+.b-main .tile .ic { width: 15px; height: 15px; }
+.b-main .inbox-item .title { font-size: 13px; }
+.b-main .inbox-item .summary { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.b-main .chg { grid-template-columns: 38px 16px minmax(0, 1fr); }
+@media (max-width: 1180px) { .b-main { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body class="backdrop" data-variant="A">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data.js"></script>
+<script src="../assets/panel.js"></script>
+
+<!-- ======================= 候选 A：单栏 ======================= -->
+<div class="vA">
+    <header class="topbar a-top">
+        <div class="brand"><span class="brand-mark">NB</span>开发面板</div>
+        <div id="a-tabs"></div>
+        <div class="sp"></div>
+        <div class="hstack" id="a-right"></div>
+    </header>
+    <main class="a-main">
+        <div class="a-search">
+            <label class="input lg"><span id="a-search-ic"></span><input type="search" placeholder="搜索 Task、文件名与内容、提交、讲解页（跨 11 个 checkout）"><span class="kbd">Ctrl</span><span class="kbd">K</span></label>
+        </div>
+        <section class="panel a-inbox" id="inbox-a"></section>
+        <section class="panel" id="tasks-a"></section>
+        <section class="panel" id="running-a"></section>
+        <section class="panel" id="changes-a"></section>
+    </main>
+</div>
+
+<!-- ======================= 候选 B：左栏 + 两列 ======================= -->
+<div class="vB shell" id="b-shell">
+    <div class="page">
+        <header class="topbar b-top">
+            <label class="input"><span id="b-search-ic"></span><input type="search" placeholder="搜索 Task、文件、提交、讲解页"><span class="kbd">Ctrl</span><span class="kbd">K</span></label>
+            <div class="sp"></div>
+            <div class="hstack" id="b-right"></div>
+        </header>
+        <main class="b-main">
+            <div class="b-col">
+                <section class="panel" id="inbox-b"></section>
+                <section class="panel" id="tasks-b"></section>
+            </div>
+            <div class="b-col">
+                <section class="panel" id="running-b"></section>
+                <section class="panel" id="changes-b"></section>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+const {D, esc, icon} = NB;
+
+/* ---------- 等你处理 ---------- */
+function inbox(compact) {
+    const counts = {};
+    D.inbox.forEach((x) => (counts[x.kindLabel] = (counts[x.kindLabel] || 0) + 1));
+    const filters = compact ? "" : `<div class="seg" role="group" aria-label="筛选">
+        <button type="button" aria-pressed="true">全部 ${D.inbox.length}</button>
+        ${Object.entries(counts).map(([k, n]) => `<button type="button" aria-pressed="false">${esc(k)} ${n}</button>`).join("")}
+    </div>`;
+    const rows = D.inbox.map((x, i) => {
+        const primary = i === 0 && !compact ? "primary" : compact ? "ghost" : "secondary";
+        return `<li class="row hover ${x.demo ? "is-demo" : ""}">
+          <div class="inbox-item">
+            <span class="tile ${x.tone}">${icon(x.icon)}</span>
+            <div class="body">
+              <div class="head">
+                <span class="badge sm ${x.tone === "neutral" ? "" : x.tone}">${esc(x.kindLabel)}</span>
+                ${x.demo ? '<span class="badge sm demo">示例</span>' : ""}
+                <span class="title">${esc(x.title)}</span>
+              </div>
+              <p class="summary">${esc(x.summary)}</p>
+              ${compact ? "" : `<div class="row-meta">${x.meta.map((m) => `<span>${esc(m)}</span>`).join("")}</div>`}
+              ${x.note && !compact ? `<p class="note">${icon("triangle-alert", "sm")}${esc(x.note)}</p>` : ""}
+            </div>
+            <div class="acts"><a class="btn ${compact ? "sm" : ""} ${primary}" href="${x.href}">${esc(x.action)}</a></div>
+          </div>
+        </li>`;
+    }).join("");
+    return `<div class="panel-h">${icon("inbox")}<h2>等你处理</h2><span class="count">${D.inbox.length}</span><div class="sp"></div>${filters}</div>
+        <ul class="rows">${rows}</ul>`;
+}
+
+/* ---------- 进行中的 Task ---------- */
+function vs(t) {
+    if (t.base === "origin/master" && t.ahead === 0 && t.behind === 0) return "与 origin/master 一致";
+    return `对 ${esc(t.base)}：领先 ${t.ahead} · 落后 ${t.behind}`;
+}
+function dirty(t) {
+    if (t.dirty == null) return "";
+    if (t.dirty === 0) return `<span>干净</span>`;
+    return `<span style="color:var(--status-warning)">${icon("circle-dot", "sm")}未提交 ${t.dirty}${t.untracked ? `（含未跟踪 ${t.untracked}）` : ""}</span>`;
+}
+function tasks(compact) {
+    const list = compact ? D.tasks.slice(0, 6) : D.tasks;
+    const rows = list.map((t) => `<li class="row hover">
+        <div class="task-row">
+          <div class="t1">
+            <span class="idchip">${esc(t.work)} · <b>${esc(t.short)}</b></span>
+            <a class="row-title ellipsis" href="${t.short === "t80" ? "task.html" : "#"}" style="color:var(--text-main)">${esc(t.title)}</a>
+            ${t.inferred ? `<span class="badge sm" title="${esc(t.inferred)}">推断</span>` : ""}
+          </div>
+          <div class="when">${esc(t.lastRel)}</div>
+          <div class="row-meta" style="margin-top:0">
+            <span>${icon("git-branch", "sm")}<span class="mono">${esc(t.branch)}</span></span>
+            <span class="mono ellipsis" title="${esc(t.checkout)}">${esc(t.checkout)}</span>
+            <span>${vs(t)}</span>
+            ${dirty(t)}
+          </div>
+          <div class="tags">
+            ${(t.running || []).map((r) => `<span class="badge sm info"><span class="dot"></span>${esc(r)}</span>`).join("")}
+            ${t.inbox ? `<span class="badge sm warning">等你处理 ${t.inbox}</span>` : ""}
+            ${t.pages ? `<span class="badge sm accent">讲解页 ${t.pages}</span>` : ""}
+            ${t.extraCheckouts ? `<span class="badge sm">另 ${t.extraCheckouts} 个 checkout</span>` : ""}
+            ${t.warn ? `<span class="badge sm warning">${esc(t.warn)}</span>` : ""}
+          </div>
+          ${compact ? "" : `<div class="xs muted ellipsis" style="grid-column:1 / -1">最后：${esc(t.lastWhat)}</div>`}
+        </div>
+      </li>`).join("");
+    const more = compact && D.tasks.length > list.length ? `<div class="panel-b" style="padding-top:0"><a class="btn sm ghost" href="#">还有 ${D.tasks.length - list.length} 个 ${icon("chevron-right", "sm")}</a></div>` : "";
+    return `<div class="panel-h">${icon("list-checks")}<h2>进行中的 Task</h2><span class="count">${D.tasks.length}</span><div class="sp"></div>
+        <span class="section-note">按最后动静排序 · 只列近 7 天有动静、有未提交改动或有进程的</span></div>
+        <ul class="rows">${rows}</ul>${more}`;
+}
+
+/* ---------- 在跑 ---------- */
+function running(compact) {
+    const kindLabel = {omp: "omp", dev: "开发服务", job: "长任务"};
+    const rows = D.running.map((r) => `<li class="row">
+        <div class="run-row">
+          <span class="dot ${r.growing ? "info" : r.stale ? "warning" : ""}"></span>
+          <div style="min-width:0">
+            <div class="hstack" style="gap:var(--space-3)"><span class="row-title">${esc(r.label)}</span>${r.port ? `<span class="mono muted">:${r.port}</span>` : ""}${r.stale ? '<span class="badge sm warning">跑了一天</span>' : ""}</div>
+            <div class="row-meta">
+              <span class="mono">PID ${r.pid}</span><span>${esc(r.elapsed)}${r.limit ? ` / ${esc(r.limit)}` : ""}</span>
+              ${compact ? "" : `<span class="mono ellipsis">${esc(r.checkout)}</span>`}
+              <span>${esc(r.task)}</span>
+            </div>
+            ${compact ? "" : `<div class="row-meta">${r.out ? `<span>${esc(r.out)}</span>` : ""}<span>${esc(r.log)}</span></div>`}
+          </div>
+          <div class="hstack" style="gap:var(--space-2)">
+            ${r.kind === "dev" ? `<a class="btn sm secondary" href="#">${icon("external-link", "sm")}Lab</a>` : ""}
+            ${r.kind !== "dev" && r.growing ? `<a class="btn sm ghost" href="#">日志</a>` : ""}
+          </div>
+        </div>
+      </li>`).join("");
+    return `<div class="panel-h" id="running">${icon("activity")}<h2>在跑</h2><span class="count">${D.running.length}</span><div class="sp"></div>
+        <span class="section-note">第一版只列数量与入口</span></div>
+        <ul class="rows">${rows}</ul>`;
+}
+
+/* 候选 A 的在跑：一行条带，只给数量与入口 */
+function runningStrip() {
+    const chips = D.running.map((r) => `<a class="run-chip" href="#" title="${esc(r.checkout)} · ${esc(r.log)}">
+        <span class="dot ${r.growing ? "info" : r.stale ? "warning" : ""}"></span>
+        <span class="medium">${esc(r.label)}${r.port ? ` :${r.port}` : ""}</span>
+        <span class="muted">${esc(r.out && r.kind === "job" ? r.out : r.elapsed)}</span>
+        ${r.stale ? '<span class="badge sm warning">跑了一天</span>' : ""}</a>`).join("");
+    return `<div class="panel-h" id="running">${icon("activity")}<h2>在跑</h2><span class="count">${D.running.length}</span>
+        <div class="run-strip">${chips}</div></div>`;
+}
+
+/* ---------- 最近的变化 ---------- */
+function changes(n) {
+    const kicon = {commit: "git-commit-horizontal", file: "file-text", report: "clipboard-check"};
+    const rows = D.changes.slice(0, n).map((c) => `<li class="row">
+        <div class="chg">
+          <span class="t">${esc(c.t)}</span>${icon(kicon[c.kind])}
+          <div style="min-width:0">
+            <div class="ellipsis">${esc(c.text)}</div>
+            <div class="row-meta" style="margin-top:0"><span>${esc(c.task)}</span>${c.hash ? `<span class="mono">${esc(c.hash)}</span>` : ""}<span class="mono ellipsis">${esc(c.ref)}</span></div>
+          </div>
+        </div>
+      </li>`).join("");
+    return `<div class="panel-h">${icon("history")}<h2>最近的变化</h2><span class="count">今天</span><div class="sp"></div>
+        <a class="btn sm ghost" href="#">全部 ${icon("chevron-right", "sm")}</a></div>
+        <ul class="rows">${rows}</ul>`;
+}
+
+document.getElementById("a-tabs").innerHTML = NB.tabs("home");
+document.getElementById("a-right").innerHTML = NB.topRight();
+document.getElementById("b-right").innerHTML = NB.topRight();
+document.getElementById("a-search-ic").outerHTML = icon("search");
+document.getElementById("b-search-ic").outerHTML = icon("search");
+document.getElementById("b-shell").insertAdjacentHTML("afterbegin", NB.sidebar("home"));
+
+document.getElementById("inbox-a").innerHTML = inbox(false);
+document.getElementById("tasks-a").innerHTML = tasks(false);
+document.getElementById("running-a").innerHTML = runningStrip();
+document.getElementById("changes-a").innerHTML = changes(8);
+document.getElementById("inbox-b").innerHTML = inbox(true);
+document.getElementById("tasks-b").innerHTML = tasks(true);
+document.getElementById("running-b").innerHTML = running(true);
+document.getElementById("changes-b").innerHTML = changes(10);
+document.getElementById("inbox-a").id = "inbox";
+
+/* 筛选只是样子：点了切换按下态 */
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+}));
+
+/* 候选切换：#A / #B */
+const setVariant = (v) => {
+    document.body.dataset.variant = v;
+    document.querySelectorAll(".review-dock .seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+};
+NB.dock(`<span>首页</span><div class="seg" role="group" aria-label="候选">
+    <button type="button" data-v="A" aria-pressed="true">A 单栏</button>
+    <button type="button" data-v="B" aria-pressed="false">B 左栏两列</button></div>`)
+    .addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-v]");
+        if (!b) return;
+        history.replaceState(null, "", "#" + b.dataset.v);
+        setVariant(b.dataset.v);
+    });
+setVariant(location.hash === "#B" ? "B" : "A");
+</script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>命令行 · 开发面板 r1</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<style>
+.c-main { padding: var(--space-6) var(--space-7) 120px; max-width: 1180px; }
+.c-head { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-6); }
+.c-head h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.c-sec { display: flex; flex-direction: column; gap: var(--space-5); margin-bottom: var(--space-8); }
+.c-sec > header { display: flex; align-items: baseline; gap: var(--space-5); padding: 0 var(--space-2); flex-wrap: wrap; }
+.c-sec > header h2 { font-size: 15px; font-weight: var(--weight-strong); font-family: var(--font-mono); }
+.c-sec > header p { color: var(--text-secondary); }
+/* 终端里中英文混排要对齐列：同一款等宽字体同时给拉丁与汉字，汉字恰好两格 */
+.term pre { font-family: "Noto Sans Mono CJK SC", "Sarasa Mono SC", var(--font-mono); font-size: 12.5px; }
+.term.json pre { max-height: 460px; overflow: auto; }
+.notes { display: flex; flex-direction: column; gap: var(--space-3); }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data.js"></script>
+<script src="../assets/panel.js"></script>
+
+<div class="shell" id="shell">
+<div class="page">
+    <header class="topbar">
+        <label class="input" style="width:min(560px,100%)"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><input type="search" placeholder="搜索 Task、文件、提交、讲解页"><span class="kbd">Ctrl</span><span class="kbd">K</span></label>
+        <div class="sp"></div>
+        <div class="hstack" id="right"></div>
+    </header>
+    <main class="c-main">
+        <div class="c-head">
+            <h1>命令行：Agent 用的三条命令</h1>
+            <p class="sec">开发者用网页，Agent 用命令行；两边读同一份数据，下面的输出和首页是同一个快照（2026-10-12 13:40）。每条命令都有给人看的文字与给程序读的 <code>--json</code>。</p>
+            <div class="callout info" style="margin-top:var(--space-3)"><svg class="ic"><use href="#i-info"/></svg><div>命令名 <code>nbdev</code> 是占位，未定。<code>task new</code> 领到的 t82 与 <code>answers</code> 里的答案是<b>示例</b>：本机还没有登记表与答案文件。</div></div>
+        </div>
+
+        <section class="c-sec">
+            <header><h2>nbdev status</h2><p>全局概况：等你处理、进行中的 Task、在跑、checkout 的提醒。</p></header>
+            <div class="nb-dark term"><div class="term-bar"><i></i><i></i><i></i><span>zsh · neuro-book</span></div><pre id="status-text"></pre></div>
+            <div class="nb-dark term json"><div class="term-bar"><i></i><i></i><i></i><span>nbdev status --json</span></div><pre id="status-json"></pre></div>
+        </section>
+
+        <section class="c-sec">
+            <header><h2>nbdev task new</h2><p>领一个 Task 号并建出最小 README；领号前把所有分支与 checkout 里已用的号扫一遍。</p><span class="badge sm demo">示例</span></header>
+            <div class="nb-dark term"><div class="term-bar"><i></i><i></i><i></i><span>zsh · neuro-book</span></div><pre id="new-text"></pre></div>
+            <div class="nb-dark term json"><div class="term-bar"><i></i><i></i><i></i><span>nbdev task new … --json</span></div><pre id="new-json"></pre></div>
+        </section>
+
+        <section class="c-sec">
+            <header><h2>nbdev answers</h2><p>读开发者在面板上提交的答案；读完标为已读，答案文件本身只追加、不改。</p><span class="badge sm demo">示例</span></header>
+            <div class="nb-dark term"><div class="term-bar"><i></i><i></i><i></i><span>zsh · neuro-book</span></div><pre id="ans-text"></pre></div>
+            <div class="nb-dark term json"><div class="term-bar"><i></i><i></i><i></i><span>nbdev answers --unread --json</span></div><pre id="ans-json"></pre></div>
+        </section>
+    </main>
+</div>
+</div>
+
+<script>
+const {D, esc} = NB;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB.sidebar("cli"));
+document.getElementById("right").innerHTML = NB.topRight();
+
+/* 终端排版：汉字与全角标点占两格 */
+const wide = (ch) => /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch);
+const width = (s) => [...s].reduce((n, ch) => n + (wide(ch) ? 2 : 1), 0);
+const pad = (s, w) => s + " ".repeat(Math.max(1, w - width(s)));
+const padL = (s, w) => " ".repeat(Math.max(0, w - width(s))) + s;
+const cut = (s, w) => {
+    let out = "";
+    for (const ch of s) {
+        if (width(out + ch) > w - 2) return out + "..";
+        out += ch;
+    }
+    return out;
+};
+const c = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
+const prompt = (cmd) => `${c("p", "$")} ${c("h", cmd)}\n`;
+
+/* JSON 着色：递归渲染，键、字符串、数值分色 */
+function jsonHtml(v, ind = "") {
+    const ni = ind + "  ";
+    if (v === null || typeof v === "boolean" || typeof v === "number") return c("numv", String(v));
+    if (typeof v === "string") return c("str", JSON.stringify(v));
+    if (Array.isArray(v)) return v.length ? "[\n" + v.map((x) => ni + jsonHtml(x, ni)).join(",\n") + "\n" + ind + "]" : "[]";
+    const ks = Object.keys(v);
+    return ks.length ? "{\n" + ks.map((k) => ni + c("key", JSON.stringify(k)) + ": " + jsonHtml(v[k], ni)).join(",\n") + "\n" + ind + "}" : "{}";
+}
+
+/* ---------- status ---------- */
+(function status() {
+    let o = prompt("nbdev status");
+    o += c("m", `neuro-book · ${D.snapshot} · 11 个 checkout`) + "\n\n";
+
+    o += c("h", `等你处理 ${D.inbox.length}`) + "\n";
+    for (const x of D.inbox) {
+        const who = x.demo ? "（示例）" : `${x.work}${x.task ? " " + x.task : ""}`;
+        o += "  " + c(x.tone === "danger" ? "err" : "warn", pad(x.kindLabel, 10)) + pad(who, 12) + cut(x.summary, 66) + "\n";
+    }
+
+    o += "\n" + c("h", `进行中的 Task ${D.tasks.length}`) + "\n";
+    o += c("m", "  " + pad("TASK", 16) + pad("CHECKOUT", 36) + pad("基线", 12) + padL("领先", 5) + padL("落后", 6) + padL("未提交", 8) + "  " + pad("最后", 12) + "在跑") + "\n";
+    for (const t of D.tasks) {
+        const co = t.checkout.replace(".worktree/", "");
+        const base = t.base === "origin/master" ? "origin" : t.base === "w00017 主线" ? "w00017主线" : t.base;
+        const run = (t.running || []).join("、");
+        o += "  " + pad(`${t.work} ${t.short}`, 16) + pad(cut(co, 34), 36) + pad(base, 12)
+            + padL(String(t.ahead), 5) + padL(String(t.behind), 6)
+            + (t.dirty ? c("warn", padL(String(t.dirty), 8)) : padL(t.dirty === 0 ? "0" : "-", 8))
+            + "  " + pad(t.last, 12) + (run ? c("run", run) : "") + "\n";
+    }
+
+    o += "\n" + c("h", `在跑 ${D.running.length}`) + "\n";
+    o += c("m", "  " + pad("PID", 9) + pad("类型", 10) + pad("跑了多久", 11) + pad("CHECKOUT", 36) + "说明") + "\n";
+    const kind = {omp: "omp", dev: "开发服务", job: "长任务"};
+    for (const r of D.running) {
+        const co = r.checkout.replace(".worktree/", "");
+        const note = r.kind === "dev" ? `:${r.port}  ${r.task}  ${r.stale ? "跑了一天，" : ""}${r.log}` : `${r.task}  ${r.out ? r.out + "，" : ""}${r.log}`;
+        o += "  " + pad(String(r.pid), 9) + pad(kind[r.kind], 10) + pad(r.elapsed, 11) + pad(cut(co, 34), 36) + (r.growing ? c("run", note) : r.stale ? c("warn", note) : note) + "\n";
+    }
+
+    o += "\n" + c("h", "Checkout 11") + c("m", "  干净 7 · 有未提交改动 4") + "\n";
+    o += "  " + c("warn", "!") + " 主工作区有 121 个未提交改动（96 个在 packages/neuro-book/app，w00019 t07–t09）\n";
+    o += "  " + c("warn", "!") + " w00020、w00018 的分支已全部在 master 里，这两个 worktree 可以清理\n";
+    o += "  " + c("warn", "!") + " t80 的审查报告与 omp 会话在会话临时目录，没有登记到 .local/agent\n";
+    o += "\n" + c("m", "详情：nbdev status --json；面板 http://127.0.0.1:4400/（端口未定）") + "\n";
+    document.getElementById("status-text").innerHTML = o;
+
+    const toTask = (t) => ({
+        work: t.work, task: t.task, title: t.title,
+        checkout: t.checkout, branch: t.branch, head: t.head,
+        base: t.base, ahead: t.ahead, behind: t.behind, dirty: t.dirty, untracked: t.untracked ?? 0,
+        lastActivity: t.last, running: t.running, ...(t.inferred ? {taskFrom: "commit-subject"} : {}),
+    });
+    const json = {
+        schema: "nbdev.status/v1",
+        snapshot: "2026-10-12T13:40:00+01:00",
+        repoRoot: D.repoRoot,
+        inbox: D.inbox.map((x) => ({kind: x.kind, work: x.work ?? null, task: x.task ?? null, title: x.title, summary: x.summary, ...(x.demo ? {demo: true} : {})})),
+        tasks: D.tasks.slice(0, 3).map(toTask),
+        tasksOmitted: D.tasks.length - 3,
+        running: D.running.slice(0, 3).map((r) => ({pid: r.pid, kind: r.kind, elapsed: r.elapsed, cwd: r.checkout, port: r.port ?? null, task: r.task, logGrowing: r.growing})),
+        runningOmitted: D.running.length - 3,
+        checkouts: {total: 11, clean: 7, dirty: 4},
+        warnings: [
+            {code: "main-dirty", checkout: "主工作区", dirty: 121},
+            {code: "merged-worktree", checkouts: [".worktree/w00020-startup-exit-api-auth", ".worktree/w00018-pre-nb-ui-baseline"]},
+            {code: "unregistered-report", path: "/tmp/claude-1000/…/t80-review/report.md"},
+        ],
+    };
+    document.getElementById("status-json").innerHTML = prompt("nbdev status --json") + jsonHtml(json)
+        + "\n" + c("m", "（稿子里 tasks、running 只列前 3 条，真输出是全部；*Omitted 字段只在稿子里有）");
+})();
+
+/* ---------- task new ---------- */
+(function taskNew() {
+    let o = prompt('nbdev task new --work w00017 settings-keyboard --title "设置窗口的键盘与焦点"');
+    o += c("h", "核对 w00017 已用的 Task 号") + "\n";
+    const seen = [
+        ["登记表 .local/agent/registry.json", "（还没有，首次运行会建）"],
+        ["refactor/w00017-runtime-foundation", "最大 t79"],
+        ["t80/settings-ui", "最大 t81（t80-settings-ui、t81-nb-ui-text-size-segmented）"],
+        ["t81/nb-ui-fixes", "最大 t81"],
+        ["28d4e3de（.worktree/w00017-t80-review）", "最大 t81"],
+        ["t80/drafts", "最大 t79"],
+        ["主工作区 master（占号副本）", "最大 t79"],
+    ];
+    for (const [ref, r] of seen) o += "  " + pad(ref, 44) + r + "\n";
+    o += "  " + c("warn", "!") + " 登记表外已用：t80、t81（只在分支上，主线 Task 表没有），补登记，归属记为 t80/settings-ui\n";
+    o += "\n" + c("ok", "领到 t82-settings-keyboard") + "\n";
+    o += "  README  .worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/\n";
+    o += "          tasks/t82-settings-keyboard/README.md（w00017 的执行位置；主线 Task 表加一行）\n";
+    o += "  登记    Claude Code 会话 d02974de · 2026-10-12 13:41\n";
+    o += "\n" + c("m", "下一步：nbdev worktree new w00017/t82   （建 .worktree/w00017-t82-settings-keyboard，分支 t82/settings-keyboard）") + "\n";
+    document.getElementById("new-text").innerHTML = o;
+
+    const json = {
+        schema: "nbdev.task-new/v1",
+        work: "w00017-application-runtime-architecture",
+        task: "t82-settings-keyboard",
+        number: 82,
+        title: "设置窗口的键盘与焦点",
+        readme: ".worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t82-settings-keyboard/README.md",
+        registeredBy: {agent: "claude-code", session: "d02974de", at: "2026-10-12T13:41:00+01:00"},
+        seen: [
+            {ref: "refactor/w00017-runtime-foundation", max: 79},
+            {ref: "t80/settings-ui", max: 81},
+            {ref: "t81/nb-ui-fixes", max: 81},
+            {ref: "28d4e3de", checkout: ".worktree/w00017-t80-review", max: 81},
+            {ref: "t80/drafts", max: 79},
+            {ref: "master", max: 79},
+        ],
+        backfilled: [
+            {task: "t80-settings-ui", ref: "t80/settings-ui"},
+            {task: "t81-nb-ui-text-size-segmented", ref: "t81/nb-ui-fixes"},
+        ],
+        conflicts: [],
+    };
+    document.getElementById("new-json").innerHTML = prompt('nbdev task new --work w00017 settings-keyboard --title "设置窗口的键盘与焦点" --json') + jsonHtml(json);
+})();
+
+/* ---------- answers ---------- */
+(function answers() {
+    let o = prompt("nbdev answers --unread");
+    o += c("h", "没读的答案 2") + "\n";
+    o += "  " + pad("w00017 t80", 12) + pad("report-s5/20261012T135210.json", 34) + "审查条目 C1：改，“和 S5 其它修正一起改”\n";
+    o += "  " + pad("w00022 t03", 12) + pad("kit/decide-20261012T135530.json", 34) + "决策卡“每项用哪种排法”：混合（与推荐一致）\n";
+    o += "\n" + prompt("nbdev answers --ack w00017/t80 report-s5/20261012T135210.json");
+    o += c("ok", "已读") + "  记在 answers/.acks.jsonl；答案文件不改\n";
+    o += "\n" + prompt("nbdev answers --task w00022/t03");
+    o += c("h", "w00022 t03 的答案 1") + c("m", "（已读 0）") + "\n";
+    o += "  " + pad("13:55", 7) + pad("kit/decide", 12) + "choice=mixed  note=null\n";
+    o += "\n" + c("m", "还没答的讲解页：w00022 t03 r1 评审板（index.html，5 个待定）") + "\n";
+    document.getElementById("ans-text").innerHTML = o;
+
+    const json = {
+        schema: "nbdev.answers/v1",
+        unread: [
+            {
+                work: "w00017-application-runtime-architecture", task: "t80-settings-ui",
+                page: "report-s5", file: ".local/agent/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/answers/report-s5/20261012T135210.json",
+                answeredAt: "2026-10-12T13:52:10+01:00",
+                answers: {C1: {mark: "改", note: "和 S5 其它修正一起改"}},
+            },
+            {
+                work: "w00022-dev-panel", task: "t03-design",
+                page: "r1/kit.html", file: ".local/agent/works/w00022-dev-panel/tasks/t03-design/answers/kit/decide-20261012T135530.json",
+                answeredAt: "2026-10-12T13:55:30+01:00",
+                answers: {decide: {choice: "mixed", recommended: "mixed", note: null}},
+            },
+        ],
+        unansweredPages: [
+            {work: "w00022-dev-panel", task: "t03-design", page: "review/index.html", pending: 5},
+        ],
+    };
+    document.getElementById("ans-json").innerHTML = prompt("nbdev answers --unread --json") + jsonHtml(json);
+})();
+
+NB.dock(`<span>命令行</span>`);
+</script>
+</body>
+</html>

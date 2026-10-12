@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitHub · 开发面板 r2</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<style>
+.g-main { padding: var(--space-6) var(--space-7) 120px; display: flex; flex-direction: column; gap: var(--space-5); max-width: 1240px; }
+.g-bar { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; padding: 0 var(--space-2); }
+.g-bar h1 { font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.pr { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: var(--space-1) var(--space-5); align-items: start; }
+.pr .st { margin-top: 2px; }
+.pr .st.open { color: var(--status-success); }
+.pr .st.merged { color: var(--accent-main); }
+.pr .st.closed { color: var(--text-muted); }
+.pr .ti { font-weight: var(--weight-medium); }
+.pr .side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; }
+.chk-ok { color: var(--status-success); }
+.chk-fail { color: var(--status-danger); }
+body[data-tab="pr"] #issues, body[data-tab="issues"] #prs { display: none; }
+.lbl { font-size: 11px; }
+</style>
+</head>
+<body class="backdrop" data-tab="pr">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r2.js"></script>
+<script src="../assets/data-r2-work.js"></script>
+<script src="../assets/panel-r2.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="g-main">
+            <div class="g-bar">
+                <h1>GitHub</h1>
+                <span class="mono xs muted">notnotype/neuro-book</span>
+                <div class="seg" role="group" aria-label="类别" id="tab">
+                    <button type="button" aria-pressed="true" data-t="pr">PR 开着 6</button>
+                    <button type="button" aria-pressed="false" data-t="issues">Issue 开着 82</button>
+                </div>
+                <span class="sp"></span>
+                <span class="xs muted">只读，经 gh；16:03 取</span>
+                <a class="btn sm ghost" href="https://github.com/notnotype/neuro-book/pulls"><svg class="ic sm"><use href="#i-external-link"/></svg>在 GitHub 打开</a>
+            </div>
+            <section class="panel" id="prs"></section>
+            <section class="panel" id="issues"></section>
+        </main>
+    </div>
+</div>
+
+<script>
+const {S, esc, icon} = NB2;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB2.sidebar(location.hash === "#issues" ? "gh-issue" : "gh-pr"));
+document.getElementById("top").outerHTML = NB2.topbar("搜索 PR 与 Issue：编号、标题、分支");
+
+/* gh pr list --state open（6 个）与 --state all 里最近合并、关闭的 */
+const open = [
+    {n: 245, title: "fix(runtime): 启动失败有序退出，API 路径不按扩展名放行认证", head: "fix/w00020-startup-exit-api-auth", updated: "2026-09-30", ok: 3, fail: 4, add: 165, del: 8, work: "w00020", local: "分支已全部在 master 里（本地合入），PR 还开着"},
+    {n: 237, title: "fix(agent): 为工具结果建立统一上下文预算并调小工具结果上限", head: "fix/i236-tool-result-context-budget", updated: "2026-09-17", ok: 7, fail: 0, add: 2758, del: 207, work: "Issue #236"},
+    {n: 222, title: "fix(agent): bound context compaction requests", head: "fix/t147-context-compaction-rebase", updated: "2026-09-02", ok: 7, fail: 0, add: 1648, del: 69, work: "旧 Task t147"},
+    {n: 176, title: "fix(agent): Agent 会话头部按钮 title 替换为 Tooltip 提示", head: "fix/i175-agent-header-tooltips", updated: "2026-08-25", ok: 8, fail: 0, add: 47, del: 26, work: "Issue #175"},
+    {n: 171, title: "fix(tool-panel): Novel IDE 工具面板与导航整理（书架入口去重、用户资产页内导航、上传按钮对齐）", head: "fix/i126-tool-panel-navigation", updated: "2026-08-25", ok: 8, fail: 0, add: 16, del: 18, work: "Issue #126"},
+    {n: 17, title: "feat(rp): publish RP branch 0.8.19-rp", head: "rp", updated: "2026-08-24", ok: 0, fail: 0, add: 906417, del: 1806, work: null},
+];
+const closed = S.prs.filter((p) => p.state !== "OPEN");
+const prRow = (p, state) => `<li class="row hover"><div class="pr">
+    <span class="st ${state}">${icon(state === "merged" ? "git-merge" : state === "closed" ? "x" : "git-pull-request")}</span>
+    <div style="min-width:0">
+        <div class="hstack" style="gap:var(--space-3)"><span class="mono xs muted">#${p.n}</span><span class="ti ellipsis">${esc(p.title)}</span></div>
+        <div class="row-meta"><span class="mono">${esc(p.head)} → master</span>${p.work ? `<span>${icon("list-checks", "sm")}${esc(p.work)}</span>` : ""}<span>+${p.add} −${p.del}</span></div>
+        ${p.local ? `<div class="row-meta"><span style="color:var(--status-warning)">${icon("triangle-alert", "sm")}${esc(p.local)}</span></div>` : ""}
+    </div>
+    <div class="side"><span>${esc(p.updated)}</span>${p.ok + p.fail ? `<span>${p.fail ? `<span class="chk-fail">${icon("circle-alert", "sm")} 失败 ${p.fail}</span>` : `<span class="chk-ok">${icon("circle-check", "sm")} 通过 ${p.ok}</span>`}</span>` : "<span>无检查</span>"}</div>
+</div></li>`;
+document.getElementById("prs").innerHTML = `<div class="panel-h">${icon("git-pull-request")}<h2>开着的 PR</h2><span class="count">${open.length}</span><div class="sp"></div><span class="xs muted">分支名里的 w 编号、Issue 号用来关联 Work</span></div>
+    <ul class="rows">${open.map((p) => prRow(p, "open")).join("")}</ul>
+    <div class="panel-h" style="min-height:36px"><h3 class="sec">最近合并或关闭的</h3><span class="count">${closed.length}</span></div>
+    <ul class="rows">${closed.map((p) => prRow({...p, add: p.add, del: p.del, ok: p.checks.ok, fail: p.checks.fail}, p.state === "MERGED" ? "merged" : "closed")).join("")}</ul>`;
+
+/* gh issue list --state open --limit 30 */
+const tone = (l) => l.startsWith("type: bug") ? "danger" : l.startsWith("type: feature") ? "accent" : l.startsWith("status: needs") ? "warning" : l.startsWith("priority: high") ? "warning" : "";
+document.getElementById("issues").innerHTML = `<div class="panel-h">${icon("circle-dot")}<h2>开着的 Issue</h2><span class="count">82，这里是最近更新的 ${S.issues.length} 个</span></div>
+    <ul class="rows">${S.issues.map((i) => `<li class="row hover"><div class="pr">
+        <span class="st open">${icon("circle-dot")}</span>
+        <div style="min-width:0">
+            <div class="hstack" style="gap:var(--space-3)"><span class="mono xs muted">#${i.n}</span><span class="ti ellipsis">${esc(i.title)}</span></div>
+            ${i.labels.length ? `<div class="row-meta">${i.labels.map((l) => `<span class="badge sm ${tone(l)} lbl">${esc(l)}</span>`).join("")}</div>` : ""}
+        </div>
+        <div class="side"><span>${esc(i.updated)}</span>${i.comments ? `<span>${icon("message-square", "sm")} ${i.comments}</span>` : ""}</div>
+    </div></li>`).join("")}</ul>`;
+
+const setTab = (t) => {
+    document.body.dataset.tab = t;
+    document.querySelectorAll("#tab button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
+};
+document.getElementById("tab").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { history.replaceState(null, "", b.dataset.t === "issues" ? "#issues" : "#"); setTab(b.dataset.t); } });
+setTab(location.hash === "#issues" ? "issues" : "pr");
+
+NB2.dock(`<span>GitHub</span>`);
+</script>
+</body>
+</html>

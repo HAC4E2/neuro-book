@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-design
+status: active
 ---
 
 # 面板与命令行的设计
@@ -19,7 +20,7 @@ taskId: t03-design
   3. 正在跑的东西：开发服务、omp、子代理（第一版只显示数量与入口）；
   4. 最近的变化：新提交、新报告、新讲解页；
   5. 搜索框一直在顶部。
-- 第一轮静态稿完成：本机评审板 `.local/agent/works/w00022-dev-panel/tasks/t03-design/review/index.html`，直接是 HTML（首页 A、B 两个候选，Task 页以 t80 为例，讲解页的 7 个组件，命令行三个命令的文字与 JSON 输出），数据是本机 13:40 的真实快照，样式由 `review/build.ts` 从 nb-ui 源码拼出 `tokens-nbook.css`。主 Agent 已在五个待定问题上写了推荐（首页选 B）。画稿时发现 11 条需求问题，写在评审板“画稿时发现的需求问题”一节，多数已在需求补充分析里有对应的待定项。
+- 第一轮静态稿完成：评审板（当时在 `.local/agent`，现为 [`artifacts/review/index.html`](artifacts/review/index.html)），直接是 HTML（首页 A、B 两个候选，Task 页以 t80 为例，讲解页的 7 个组件，命令行三个命令的文字与 JSON 输出），数据是本机 13:40 的真实快照，样式由 `review/build.ts` 从 nb-ui 源码拼出 `tokens-nbook.css`。主 Agent 已在五个待定问题上写了推荐（首页选 B）。画稿时发现 11 条需求问题，写在评审板“画稿时发现的需求问题”一节，多数已在需求补充分析里有对应的待定项。
 - 需求深化完成：[analysis-supplement.md](../t01-requirements/analysis-supplement.md)，主 Agent 抽查后入库；其中待开发者决定的问题，主 Agent 整理成 12 条加若干小项交开发者。
 
 - 开发者对第一轮的决定：
@@ -41,7 +42,15 @@ taskId: t03-design
   9. **面板常驻**：可以用包里的脚本启动常驻，也允许装成用户级 systemd 服务。
   - 调研里其余的推荐（自动排队通知、会话 id 变了不发、可操作设备能发任意文字、参与写 herdr pane 标签并在 `.local/agent` 留一份、跨设备走 Tailscale Serve、设备配对登录、令牌与审计放 `~/.config/nbdev/`、产物页放另一个来源、第一版不读会话 jsonl、herdr server 暂不升级、手机以输入框加纯文本为主），开发者没有提出异议，按推荐处理。
 - 开发者要求从开发者的交互做 UX：有 Work 视角（一个 Work 有多个会话）与会话视角（一个会话做多个 Work），关系混乱，先做 DDD 建模。主 Agent 起草 [领域模型](domain-model.md)（术语、类图、两个视角、限界上下文、用当天的真实场景检验、6 个待确认），评审板加一页离线渲染的类图（本机 mermaid）。
+- 开发者对第一版领域模型的意见（2026-10-12）：会话是临时的，项目数据是持久的，会话只是推进 Work 的途径；会话与 Task 之间是类似租约的临时关系，面板不记 Work、Task 绑定哪个会话，只在开发者与会话之间临时搭通道；区分面板管理的会话（能主动通知）与外部会话；答复持久化后任何会话都能读；网页与 Agent 都能新建 Work 与 Task；Work 视角要看到目标与各 Task 状态；Work、Task、Docs、Spec 要统一管理；取消本地 Work。主 Agent 按此重写为第二版：项目数据与运行时两层、取消“参与”改为租约、Work 与 Task 的记录只放 `master` 的 `.agents/works/`，列出 7 件待确认。
+- 开发者确认第二版（2026-10-12）：
+  10. **记录只放主工作区 `master` 的 `.agents/works/`**，实现分支不再带记录；不采用单独的记录分支。
+  11. **面板能写仓库，先不限制写什么**（原推荐只写新建 Work、Task 与答复三类）。
+  12. **答复入库**，只追加。
+  13. **证据与图片的边界**：结论文字、不可重现的测量数值、少量精选截图入库（单张约 300 KB、每个 Task 约 5 MB 以内）；完整截图集、日志与原始输出留本地。
+  14. **取消本地 Work**；Task 状态 `planned`、`active`、`done`、`shelved` 写 frontmatter，Work 取后三种并在 README 开头写“目标”；租约在会话消失或 24 小时无 Task 相关操作时失效，不入库。
+- 规则随之改写：[Work 规则](../../../README.md)（记录只放主工作区、本地与入库、状态字段、worktree 一个 Task 一个）、[`.local/README.md`](../../../../../.local/README.md)、[测试规范](../../../../../docs/testing/README.md)、[仓库流程](../../../../../docs/standards/repository-workflow.md)、[design-review](../../../../skills/design-review/SKILL.md)；本 Work 的记录补了状态字段。评审板按新规则从 `.local/agent` 搬进本 Task 的 [`artifacts/review/`](artifacts/review/index.html)（约 440 KB，都是文本），引用的 t80 截图暂时仍指向 `.local`，随 [t05](../t05-migrate-records/README.md) 迁移改路径。
 
 ## 下一步
 
-开发者看第一轮静态稿；需求深化的结论并入需求分析后，写 Proposal 与实施计划。
+按领域模型第二版重画首页（Work 视角：目标、各 Task 状态、谁在动）与会话页（会话持有的租约、通知），再写 Proposal 与实施计划。

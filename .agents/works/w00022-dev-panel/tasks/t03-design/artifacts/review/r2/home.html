@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 · 开发面板 r2</title>
+<script>try{var t=localStorage.getItem("nbdp-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="../tokens-nbook.css">
+<link rel="stylesheet" href="../assets/panel.css">
+<link rel="stylesheet" href="../assets/panel-r2.css">
+<style>
+.h-main { padding: var(--space-6) var(--space-7) 120px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(360px, 1fr); gap: var(--space-6); align-items: start; }
+.h-col { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.ib { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: var(--space-2) var(--space-5); align-items: start; }
+.ib .head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
+.ib .title { font-weight: var(--weight-strong); }
+.ib .summary { color: var(--text-secondary); margin-top: var(--space-1); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ib .foot { display: flex; align-items: center; gap: var(--space-5); margin-top: var(--space-3); flex-wrap: wrap; }
+.ib .acts { display: flex; gap: var(--space-3); align-self: center; }
+.idchip { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
+.idchip b { color: var(--text-main); font-weight: var(--weight-strong); }
+.tk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-5); }
+.tk .t1 { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+.tk .when { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; text-align: right; }
+.tk .tags { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
+.ss { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-5); }
+.ss .t1 { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.ss .t1 .name { font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss .last { font-size: var(--text-xs); color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chg { display: grid; grid-template-columns: 38px 16px minmax(0, 1fr); gap: var(--space-4); align-items: baseline; }
+.chg .ic { color: var(--text-muted); transform: translateY(3px); }
+.chg .t { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+.panel-foot { padding: 0 var(--space-6) var(--space-5); display: flex; gap: var(--space-5); flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-muted); }
+.panel-foot a { color: var(--text-secondary); }
+@media (max-width: 1200px) { .h-main { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body class="backdrop">
+<script src="../assets/icons.js"></script>
+<script src="../assets/data-r2.js"></script>
+<script src="../assets/data-r2-work.js"></script>
+<script src="../assets/panel-r2.js"></script>
+
+<div class="shell r2" id="shell">
+    <div class="page">
+        <div id="top"></div>
+        <main class="h-main">
+            <div class="h-col">
+                <section class="panel" id="inbox"></section>
+                <section class="panel" id="tasks"></section>
+            </div>
+            <div class="h-col">
+                <section class="panel" id="sessions"></section>
+                <section class="panel" id="changes"></section>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+const {S, W, esc, icon, statusOf} = NB2;
+document.getElementById("shell").insertAdjacentHTML("afterbegin", NB2.sidebar("home"));
+document.getElementById("top").outerHTML = NB2.topbar();
+
+const chip = (w, t) => w ? `<span class="idchip">${esc(w)}${t ? ` › <b>${esc(t)}</b>` : ""}</span>` : `<span class="badge sm">不属于 Work</span>`;
+
+/* ---------- 收件箱 ---------- */
+(function inbox() {
+    const types = [["question", "问题"], ["review", "审查"], ["approve", "批准"], ["session", "会话"]];
+    const seg = `<div class="seg" role="group" aria-label="筛选">
+        <button type="button" aria-pressed="true" data-f="">全部 ${W.inbox.length}</button>
+        ${types.map(([k, l]) => `<button type="button" aria-pressed="false" data-f="${k}">${l} ${W.inbox.filter((x) => x.type === k).length}</button>`).join("")}</div>`;
+    const rows = W.inbox.map((x) => `<li class="row hover ${x.demo ? "is-demo" : ""}" data-type="${x.type}">
+        <div class="ib">
+            <span class="itype ${x.type}" title="${esc(x.typeLabel)}">${icon(x.icon)}</span>
+            <div style="min-width:0">
+                <div class="head"><span class="badge sm">${esc(x.typeLabel)}</span>${chip(x.work, x.task)}${x.pane ? `<span class="kind">${esc(x.pane)}</span>` : ""}${x.demo ? '<span class="badge sm demo">示例</span>' : ""}${x.inferred ? '<span class="badge sm" title="herdr 只报告“空闲”；“在等你”是读终端最后几行推断的">推断</span>' : ""}</div>
+                <div class="title" style="margin-top:var(--space-2)">${esc(x.title)}</div>
+                <p class="summary">${esc(x.summary)}</p>
+                <div class="foot"><span class="target">${icon("arrow-up-right", "sm")}<a href="${x.targetHref}">${esc(x.target)}</a></span><span class="xs muted">${esc(x.at)}</span></div>
+            </div>
+            <div class="acts">${x.actions.map(([l, v, h]) => `<a class="btn sm ${v}" href="${h}">${esc(l)}</a>`).join("")}</div>
+        </div></li>`).join("");
+    const el = document.getElementById("inbox");
+    el.innerHTML = `<div class="panel-h">${icon("inbox")}<h2>收件箱</h2><span class="count">${W.inbox.length}</span><div class="sp"></div>${seg}</div><ul class="rows">${rows}</ul>
+        <div class="panel-foot"><span>只放要你动手的条目；每条指向产物、文档或会话里的原处。</span></div>`;
+    el.querySelector(".seg").addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        el.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        el.querySelectorAll("li[data-type]").forEach((li) => (li.style.display = !b.dataset.f || li.dataset.type === b.dataset.f ? "" : "none"));
+    });
+})();
+
+/* ---------- 进行中的 Task ---------- */
+(function tasks() {
+    const vs = (t) => t.base === "origin/master" && !t.ahead && !t.behind ? "与 origin/master 一致" : `对 ${esc(t.base)}：领先 ${t.ahead} · 落后 ${t.behind}`;
+    const dirty = (t) => t.dirty == null ? "" : !t.dirty ? "<span>干净</span>" : `<span style="color:var(--status-warning)">未提交 ${t.dirty}${t.untracked ? `（含未跟踪 ${t.untracked}）` : ""}</span>`;
+    const rows = W.tasks.map((t) => {
+        const st = statusOf(t.status);
+        return `<li class="row hover"><div class="tk">
+            <div class="t1"><span class="sdot ${t.status}" title="${esc(st.label)}（近似）"></span>${chip(t.work, t.task)}<a class="row-title ellipsis" style="color:var(--text-main)" href="${t.task === "t80" ? "../r1/task.html" : "#"}">${esc(t.title)}</a></div>
+            <div class="when">${esc(t.last)}</div>
+            <div class="row-meta" style="margin-top:0">
+                <span>${icon("git-branch", "sm")}<span class="mono">${esc(t.branch)}</span></span>
+                <span>${vs(t)}</span>${dirty(t)}
+            </div>
+            <div class="tags">
+                ${t.status === "wait" ? '<span class="badge sm warning">等你</span>' : ""}
+                ${t.status === "merge" ? '<span class="badge sm success">待合入</span>' : ""}
+                ${(t.sessions || []).map((p) => `<a class="badge sm info" href="sessions.html#${p}">${icon("message-square", "sm")}${esc(p)}</a>`).join("")}
+                ${(t.running || []).map((r) => `<span class="badge sm info"><span class="dot"></span>${esc(r)}</span>`).join("")}
+            </div>
+        </div></li>`;
+    }).join("");
+    document.getElementById("tasks").innerHTML = `<div class="panel-h">${icon("list-checks")}<h2>进行中的 Task</h2><span class="count">${W.tasks.length}</span><div class="sp"></div><span class="xs muted">状态是近似值</span></div><ul class="rows">${rows}</ul>`;
+})();
+
+/* ---------- 会话（herdr agent list） ---------- */
+(function sessions() {
+    const order = {working: 0, blocked: 1, idle: 2};
+    const list = S.sessions.filter((s) => !s.otherRepo).sort((a, b) => (order[a.status] - order[b.status]) || (b.waiting ? 1 : 0) - (a.waiting ? 1 : 0));
+    const stLabel = {working: "在工作", idle: "空闲", blocked: "等输入", done: "结束", unknown: "未知"};
+    const rows = list.map((s) => `<li class="row hover" onclick="location.href='sessions.html#${s.pane}'"><div class="ss">
+        <div class="t1"><span class="kind">${s.kind === "claude" ? "Claude" : "omp"}</span><span class="name" title="终端标题${s.titleStale ? "（已过时）" : ""}：${esc(s.title)}">${esc(s.work ? `${s.work} ${s.task || ""} ${s.taskTitle || ""}` : s.title)}</span></div>
+        <span class="sess-st ${s.status}"><span class="dot ${s.status === "working" ? "info" : s.status === "blocked" ? "warning" : ""}"></span>${stLabel[s.status]}</span>
+        <div class="last">${s.waiting ? '<span class="draft-flag">在等你：</span>' : ""}${esc(s.last)}</div>
+        <span class="mono xs muted">${esc(s.pane)}</span>
+        ${s.draft ? `<div class="xs draft-flag" style="grid-column:1/-1">${icon("pencil", "sm")} 输入框里有没发出的话</div>` : ""}
+        ${s.procs ? `<div class="xs" style="grid-column:1/-1;color:var(--status-info)">${s.procs.map(esc).join(" · ")}</div>` : ""}
+    </div></li>`).join("");
+    const other = S.sessions.filter((s) => s.otherRepo);
+    document.getElementById("sessions").innerHTML = `<div class="panel-h">${icon("message-square")}<h2>会话</h2><span class="count">${NB2.counts.working} 在工作 · ${list.length}</span><div class="sp"></div><a class="btn sm ghost" href="sessions.html">全部</a></div>
+        <ul class="rows">${rows}</ul>
+        <div class="panel-foot"><span>来自 herdr；关联的 Work 与 Task 是推断的</span><span>另有别的仓库 ${other.length} 个、非 Agent 的 pane ${S.panes.length} 个</span></div>`;
+})();
+
+/* ---------- 最近的变化 ---------- */
+(function changes() {
+    const kicon = {commit: "git-commit-horizontal", file: "file-text", report: "clipboard-check", run: "play"};
+    document.getElementById("changes").innerHTML = `<div class="panel-h">${icon("history")}<h2>最近的变化</h2><span class="count">13:40 以来</span></div>
+        <ul class="rows">${W.changes.slice(0, 9).map((c) => `<li class="row"><div class="chg"><span class="t">${esc(c.t)}</span>${icon(kicon[c.kind])}
+        <div style="min-width:0"><div class="ellipsis">${esc(c.text)}</div><div class="row-meta" style="margin-top:0"><span>${esc(c.task)}</span>${c.hash ? `<span class="mono">${esc(c.hash)}</span>` : ""}${c.ref ? `<span class="mono">${esc(c.ref)}</span>` : ""}</div></div></div></li>`).join("")}</ul>`;
+})();
+
+NB2.dock(`<span>首页（B）</span>`);
+</script>
+</body>
+</html>

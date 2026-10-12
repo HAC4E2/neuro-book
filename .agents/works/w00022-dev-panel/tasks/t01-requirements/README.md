@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t01-requirements
+status: done
 ---
 
 # 需求分析与功能分析
