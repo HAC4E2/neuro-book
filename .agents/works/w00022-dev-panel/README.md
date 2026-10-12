@@ -44,3 +44,4 @@ status: active
 | [t06](tasks/t06-cli-core/README.md) | 命令行核心：包骨架、写事务、记录读取与领号；2026-10-12 实施与实现审查修正完成，待合入 `master` |
 | [t07](tasks/t07-session-leases/README.md) | 会话身份、运行归属与租约；2026-10-12 实施与实现审查修正完成，待合入 `master` |
 | [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-12 实施完成，实现审查进行中 |
+| [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-12 开工 |
