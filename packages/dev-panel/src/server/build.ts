@@ -7,15 +7,15 @@ import {NbdevError, systemErrorCode} from "../core/errors.js";
 
 /**
  * 前端构建：产物不入库，`panel serve` 发现输入变了就先构建。
- * - 输入（`.build-hash` 的内容）：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 的 `src/` 与 `package.json`
- *   （面板直接用 nb-ui 的源码），以及根 `bun.lock`。与“代码已更新”提示比较的三个路径一致（见 state.ts 的 `CODE_PATHS`）。
+ * - 输入（`.build-hash` 的内容）：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 整个包目录
+ *   （面板直接用 nb-ui 的源码、主题与提交在包里的 `dist/nb-ui.css`），以及根 `bun.lock`。与“代码已更新”提示比较的三个路径一致（见 state.ts 的 `CODE_PATHS`）。
  * - 输出到临时目录，成功后改名替换 `dist/web`：正在跑的面板的 `index.html` 不会指向已被删掉的资源。
  * - 失败时有旧产物就用旧的（`/api/meta` 标出），没有就报 `build_failed`。
  */
 
 export const BUILD_HASH_FILE = ".build-hash";
 
-async function walk(dir: string, files: string[]): Promise<void> {
+async function walk(dir: string, files: string[], skip: ReadonlySet<string>): Promise<void> {
     let entries;
     try {
         entries = await readdir(dir, {withFileTypes: true});
@@ -24,24 +24,19 @@ async function walk(dir: string, files: string[]): Promise<void> {
         throw error;
     }
     for (const entry of entries) {
-        if (entry.name === "node_modules" || entry.name === "dist") continue;
+        if (skip.has(entry.name)) continue;
         const path = join(dir, entry.name);
-        if (entry.isDirectory()) await walk(path, files);
+        if (entry.isDirectory()) await walk(path, files, skip);
         else if (entry.isFile()) files.push(path);
     }
 }
 
 export async function computeBuildHash(packageRoot: string, repoRoot: string): Promise<string> {
     const files: string[] = [];
-    await walk(join(packageRoot, "src", "web"), files);
-    await walk(join(repoRoot, "packages", "nb-ui", "src"), files);
-    files.push(
-        join(packageRoot, "vite.config.ts"),
-        join(packageRoot, "tsconfig.web.json"),
-        join(packageRoot, "package.json"),
-        join(repoRoot, "packages", "nb-ui", "package.json"),
-        join(repoRoot, "bun.lock"),
-    );
+    await walk(join(packageRoot, "src", "web"), files, new Set(["node_modules"]));
+    // nb-ui 的 dist/ 里是提交在包里的 nb-ui.css，要算进去；Nuxt 的生成目录与 playground 不进面板。
+    await walk(join(repoRoot, "packages", "nb-ui"), files, new Set(["node_modules", ".nuxt", ".output", "playground"]));
+    files.push(join(packageRoot, "vite.config.ts"), join(packageRoot, "tsconfig.web.json"), join(packageRoot, "package.json"), join(repoRoot, "bun.lock"));
     const hash = createHash("sha256");
     for (const file of files.sort()) {
         hash.update(relative(repoRoot, file)).update("\0");

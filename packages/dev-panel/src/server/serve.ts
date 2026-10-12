@@ -124,6 +124,8 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                     herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error},
                     parts: Object.fromEntries(Object.entries(parts).map(([name, part]) => [name, {revision: part.revision, at: part.at, error: part.error}])),
                     artifactOrigin: artifactOrigin(requestHost),
+                    // 前端渲染 Markdown 时把 `.agents/works/` 下的图片与证据链接改写到产物来源上；前缀只经登录后的接口交出。
+                    artifactBase: `${artifactOrigin(requestHost)}/a/${artifactPrefix}`,
                 }, [], null);
             }
             if (!ready) return envelope(null, [], {code: "warming_up", message: "面板正在启动"}, 503);

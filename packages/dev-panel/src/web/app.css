@@ -1,0 +1,52 @@
+/*
+ * 面板自己的原子类与 nb-ui 一样不分层：nb-ui.css 的原子类故意不进 @layer（为了 UnoCSS 消费方），
+ * 无层声明总是赢过分层声明；面板若用 @import "tailwindcss"，自己的原子类落在 @layer utilities 里，
+ * `hidden md:flex` 这类响应式写法会输给 nb-ui.css 里同名的 `.flex`。preflight 单独放进 @layer base。
+ */
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+@plugin "@iconify/tailwind4" {
+    prefixes: lucide;
+    iconSelector: ".i-{prefix}-{name}";
+    prefix: false;
+}
+@source "./**/*.vue";
+@source "./**/*.ts";
+
+html, body, #app {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+}
+
+/* Markdown 正文（MarkdownView）：阅读排版消费主题的阅读刻度。 */
+.nbdev-markdown {
+    font-size: var(--reading-size, var(--text-md));
+    line-height: 1.7;
+    max-width: var(--reading-measure, 72ch);
+    overflow-wrap: anywhere;
+}
+.nbdev-markdown h1 { font-size: var(--text-xl); font-weight: 600; margin: 0 0 0.75em; }
+.nbdev-markdown h2 { font-size: var(--text-lg); font-weight: 600; margin: 1.5em 0 0.5em; }
+.nbdev-markdown h3 { font-size: var(--text-md); font-weight: 600; margin: 1.25em 0 0.4em; }
+.nbdev-markdown p, .nbdev-markdown ul, .nbdev-markdown ol, .nbdev-markdown pre, .nbdev-markdown table, .nbdev-markdown blockquote { margin: 0 0 0.9em; }
+.nbdev-markdown ul { list-style: disc; padding-left: 1.4em; }
+.nbdev-markdown ol { list-style: decimal; padding-left: 1.4em; }
+.nbdev-markdown a { color: var(--accent-text, var(--accent-main)); text-decoration: underline; text-underline-offset: 2px; }
+.nbdev-markdown a:not([href]) { color: var(--text-secondary); text-decoration: none; cursor: help; }
+.nbdev-markdown code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-subtle); border-radius: 4px; padding: 0.1em 0.3em; }
+.nbdev-markdown pre { background: var(--bg-subtle); border-radius: var(--radius-control); padding: 0.75em 1em; overflow-x: auto; }
+.nbdev-markdown pre code { background: none; padding: 0; }
+.nbdev-markdown blockquote { border-left: 3px solid var(--divider); padding-left: 0.9em; color: var(--text-secondary); }
+.nbdev-markdown table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
+.nbdev-markdown th, .nbdev-markdown td { border: var(--border-w, 1px) solid var(--divider); padding: 0.35em 0.6em; text-align: left; vertical-align: top; }
+.nbdev-markdown th { background: var(--bg-subtle); font-weight: 600; }
+.nbdev-markdown img { max-width: 100%; }
+.nbdev-markdown hr { border: 0; border-top: var(--border-w, 1px) solid var(--divider); margin: 1.5em 0; }
