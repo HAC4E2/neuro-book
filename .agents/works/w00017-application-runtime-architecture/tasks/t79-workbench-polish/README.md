@@ -138,6 +138,11 @@ taskId: t79-workbench-polish
   - 顺带：`WorkbenchShell.vue` 里自 t66 起没人用的 `.workbench-shell__card` 删掉；Lab 外壳场景的根改用 `--shell-ground`，编辑器、面板占位补上面板底色，场景里看得出卡片。
   - Spec：`ui/workbench-shell.md` 输出 3、38 改写（卡片还是平铺由主题决定）、验收 41 改写、合同测试与 Smoke、批准依据；`theme/system.md` 记 `--shell-*`；`workbench/editor.md` 输出 32 的底色说法。`design-language.md` 的“工作台平铺”一节改为“卡片还是平铺由主题决定”。组件文档 `WorkbenchShellLayout`、`WorkbenchShell`、`WorkbenchTitleBar`、`WorkbenchStatusBar`、`WorkbenchActivityBar`、`WorkbenchToolPartHost`，nb-ui `Splitter`。
   - 验证：`cards.test.ts` 七例（缺省布局、右栏、侧栏拖到零、侧栏隐藏与面板跨到侧栏下方、活动栏隐藏、右侧面板与最大化、紧凑呈现、留白算式），`layout.test.ts` 加缝宽一例，工作台 bun 测试与组件测试全过，nb-ui 554 例全过，typecheck 为 0。e2e：`workbench-views` 的颜色一例改为按主题验分隔方式（nbook：活动栏卡片离左缘与标题栏各 4px、宽 48px、与侧栏相连且相接角为 0、短线是 `--divider`、侧栏与编辑区之间 4px、圆角 12px、标题栏底线与接缝透明；切到 macos：贴边、1px 接缝、`--divider` 的线、没有短线），`workbench-shell` 与 `settings` 的外壳根底色改读 `--shell-ground`、状态栏读 `--shell-chrome-*`，`editor-area` 纸面一例改为编辑区是面板底色、外壳根是窗体底；外壳、视图、拖放、设置、编辑区、标题栏与 Lab 场景门禁共 79 例（修正后重跑 70 例）全过。`lab:shot` 外壳场景、活动栏、面板框架、标题栏、状态栏在 nbook、macos × 明暗 × free、phone 下问题 0 条。变异 11 处全部被抓到（相连不看侧栏通高、不往邻居分支里累加零宽孩子、零尺寸兄弟也算邻居、半缝不扣占用、活动栏叶宽不加缝、卡片不圆角、相连的角照样圆、接缝不改色、布局不读主题缝宽、外壳根不用窗体底、标题栏仍画底线）。
+- 2026-10-12 S9（标题栏）完成：
+  - 左组依次是横排标志（`NeuroBookLockup`，墨色跟随文字色，高 17px）、项目切换（书本图标加显示名，下拉从左边展开）、16px 高的短分隔与菜单入口；右组只剩布局按钮与条目区。最窄一档（不足 600px）把横排标志换成单独的图形标志。左组变宽后，960px 附近“左右等分”放不下：左栏改为最小取内容宽，空间够时搜索仍在正中，不够时往右让。
+  - 新组件 `src/ui/brand/NeuroBookMark.vue`（单独的图形标志，遮罩着色，同 `NeuroBookLockup` 的写法；品牌目录的 README 早就提到它，文件此前不存在），登记 Lab 场景。
+  - Spec：`ui/workbench-shell.md` 输出 28 与宽度三档、验收 32、批准依据；组件文档 `WorkbenchTitleBar`、`NeuroBookMark`（新）。
+  - 验证：`WorkbenchTitleBar.dom.test.ts` 加“左组顺序”一例（6 例全过）；`workbench-titlebar.e2e.ts` 的宽度三档一例加左组顺序与最窄一档的图形标志；标题栏、外壳、项目、书架、欢迎页与 Lab 场景门禁共 33 例全过；typecheck 为 0。开发会话截图与第十轮稿 L1 一致。变异 4 处全部被抓到（标志写回文字、分隔放到菜单后、最窄一档仍是横排标志、左栏不按内容撑开）。
   - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
 
 ## 下一步

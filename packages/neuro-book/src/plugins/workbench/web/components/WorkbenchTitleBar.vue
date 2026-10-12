@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 标题栏（同名 .md）：品牌、应用菜单、命令搜索、项目切换、布局按钮与条目区；只发事件。 */
+/** 标题栏（同名 .md）：品牌标志、项目切换、应用菜单、命令搜索、布局按钮与条目区；只发事件。 */
 import {Button, Dropdown, IconButton, Menubar} from "@notnotype/nb-ui/components";
 import type {DropdownItem, MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
@@ -7,6 +7,8 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
+import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
 import type {StripEntry} from "../items/registry";
 import {withNativeEditing} from "../titlebar/menu-model";
@@ -253,7 +255,17 @@ onBeforeUnmount(() => {
 <template>
     <header ref="root" class="workbench-titlebar" :class="`workbench-titlebar--${mode}`" :aria-label="text(TEXT.label)" data-workbench-titlebar :data-titlebar-mode="mode" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
-            <span v-if="mode !== 'minimal'" class="workbench-titlebar__brand">NeuroBook</span>
+            <NeuroBookLockup v-if="mode !== 'minimal'" class="workbench-titlebar__brand" />
+            <NeuroBookMark v-else class="workbench-titlebar__mark" />
+            <Dropdown v-if="project !== null" :items="projectItems" align="start" @select="select">
+                <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="`${text(TEXT.project)}：${project}`" data-titlebar-project>
+                    <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                    <span class="workbench-titlebar__project-name">{{ project }}</span>
+                    <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                </Button>
+            </Dropdown>
+            <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" data-titlebar-project @click="emit('open-project')">{{ text(TEXT.openProject) }}</Button>
+            <span class="workbench-titlebar__divider" aria-hidden="true"></span>
             <Menubar v-if="mode === 'full'" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
             <Dropdown v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button" data-titlebar-menu-entry>
@@ -280,13 +292,6 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="workbench-titlebar__end">
-            <Dropdown v-if="project !== null" :items="projectItems" align="end" @select="select">
-                <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="`${text(TEXT.project)}：${project}`" data-titlebar-project>
-                    <span class="workbench-titlebar__project-name">{{ project }}</span>
-                    <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-                </Button>
-            </Dropdown>
-            <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" data-titlebar-project @click="emit('open-project')">{{ text(TEXT.openProject) }}</Button>
             <template v-if="mode !== 'minimal'">
                 <IconButton
                     v-for="part in PARTS"
@@ -310,7 +315,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .workbench-titlebar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+    /*
+     * 左右两栏等分，搜索才在整条标题栏的正中；左组（标志、项目、菜单）放不进一半时左栏按内容撑开，搜索往右让，
+     * 不挤出界（项目名有上限、会截断）。
+     */
+    grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(0, 1fr);
     align-items: center;
     gap: var(--space-2);
     width: 100%;
@@ -343,10 +352,30 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
+/* 横排标志（标志 + 字标，墨色跟随文字色）；最窄一档换成单独的图形标志。 */
 .workbench-titlebar__brand {
     flex: 0 0 auto;
-    padding-inline: var(--space-1);
-    font-weight: 600;
+    height: 17px;
+    margin-inline: var(--space-1) var(--space-2);
+}
+
+.workbench-titlebar__mark {
+    flex: 0 0 auto;
+    height: 18px;
+    margin-inline: var(--space-1);
+}
+
+/* 项目切换与菜单之间的短分隔。 */
+.workbench-titlebar__divider {
+    flex: 0 0 auto;
+    width: var(--border-w);
+    height: 16px;
+    margin-inline: var(--space-1);
+    background: var(--divider);
+}
+
+.workbench-titlebar__project-icon {
+    color: var(--text-muted);
 }
 
 .workbench-titlebar__button {

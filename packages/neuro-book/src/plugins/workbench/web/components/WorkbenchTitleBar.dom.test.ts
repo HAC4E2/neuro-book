@@ -38,6 +38,17 @@ describe("WorkbenchTitleBar", () => {
         wrapper.unmount();
     });
 
+    it("左组依次是横排标志、项目切换、短分隔与菜单入口；项目切换带书本图标与显示名", () => {
+        const wrapper = mountBar();
+        const start = wrapper.get(".workbench-titlebar__start").element;
+        const order = [...start.querySelectorAll("[role=img][aria-label=NeuroBook], [data-titlebar-project], .workbench-titlebar__divider, [data-titlebar-menu-entry]")];
+        expect(order.map((element) => element.getAttribute("data-titlebar-project") !== null ? "project" : element.classList.contains("workbench-titlebar__divider") ? "divider" : element.hasAttribute("data-titlebar-menu-entry") ? "menu" : "brand")).toEqual(["brand", "project", "divider", "menu"]);
+        expect(wrapper.get("[data-titlebar-project]").text()).toBe("雾港");
+        expect(wrapper.find("[data-titlebar-project] .i-lucide-book-open").exists()).toBe(true);
+        expect(wrapper.get(".workbench-titlebar__end").find("[data-titlebar-project]").exists()).toBe(false);
+        wrapper.unmount();
+    });
+
     it("没有项目时项目切换直接发 open-project", async () => {
         const wrapper = mountBar(null);
         await wrapper.get("[data-titlebar-project]").trigger("click");

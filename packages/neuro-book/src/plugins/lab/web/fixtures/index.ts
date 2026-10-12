@@ -17,6 +17,7 @@ import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue"
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
 import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
+import type NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
@@ -616,6 +617,15 @@ export const labFixtures: LabFixture[] = [
         ],
         subject: () => import("nbook/ui/brand/NeuroBookLockup.vue"),
         class: "h-[26px] text-[var(--text-main)]",
+    }),
+    defineSubjectFixture<typeof NeuroBookMark>({
+        component: "NeuroBookMark",
+        noInput: "图形标志没有 prop：大小由使用方的 class 给，颜色跟随文字色。",
+        scenes: [
+            {id: "titlebar", label: "窄标题栏大小（18px）"},
+        ],
+        subject: () => import("nbook/ui/brand/NeuroBookMark.vue"),
+        class: "h-[18px] text-[var(--text-main)]",
     }),
     defineSubjectFixture<typeof NeuroBookMood>({
         component: "NeuroBookMood",

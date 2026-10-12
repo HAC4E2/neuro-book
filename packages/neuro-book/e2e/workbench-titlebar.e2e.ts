@@ -147,6 +147,11 @@ test("宽度三档：959/960 与 599/600 两侧、390；任何宽度都有可点
             expect(box!.x + box!.width).toBeLessThanOrEqual(width);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+        // 左组：横排标志（最窄一档换成图形标志）、项目切换、菜单入口依次往右。
+        const brand = titlebar(page).locator(mode === "minimal" ? ".workbench-titlebar__mark" : ".workbench-titlebar__brand");
+        await expect(titlebar(page).locator(mode === "minimal" ? ".workbench-titlebar__brand" : ".workbench-titlebar__mark")).toHaveCount(0);
+        const lefts = await Promise.all([brand, titlebar(page).locator("[data-titlebar-project]"), entry].map(async (target) => (await target.boundingBox())!.x));
+        expect(lefts, `${String(width)} 左组顺序`).toEqual([...lefts].sort((a, b) => a - b));
         await entry.click();
         await expect(openMenu(page)).toBeVisible();
         await page.keyboard.press("Escape");
