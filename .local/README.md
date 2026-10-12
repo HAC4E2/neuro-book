@@ -6,16 +6,23 @@
 
 ## Agent 区：`agent/`
 
-Agent 可以读写。只放能重新生成的原始输出，按 Work 与 Task 组织；Work 与 Task 的记录、产物与答复都在仓库的 `.agents/works/`（见 [Work 规则](../.agents/works/README.md#编号分配与记录位置)）：
+Agent 可以读写。除 nbdev 的登记表外只放能重新生成的原始输出，按 Work 与 Task 组织；Work 与 Task 的记录、产物与答复都在仓库的 `.agents/works/`（见 [Work 规则](../.agents/works/README.md#编号分配与记录位置)）：
 
 ```text
 .local/agent/
+├── registry.json              # nbdev 的编号登记表（不可重新生成，见下）
+├── registry.json.lock/        # nbdev 写事务的锁（事务进行中才有）
+├── run/
+│   ├── lock-owner.json        # 当前持锁的 nbdev 进程（事务进行中才有）
+│   └── tmp/                   # nbdev 写事务的临时目录
 └── works/<workId>/tasks/<taskId>/
     ├── reports/               # 子代理、omp 的会话目录与原始输出；要给开发者看的报告作为产物入库
     ├── shots/                 # 完整截图集与原图；精选的转小后作为产物或证据入库
     └── logs/                  # 测试与检查的原始输出、开发服务日志
 ```
 
+- 登记表 `registry.json` 只记领号的事实，格式见 [nbdev 文件格式](../packages/dev-panel/docs/file-formats.md)。它不是能重新生成的原始输出：`nbdev registry import` 只能从扫描重建 `imported` 条目，`claimed`（经 nbdev 领的号）、`abandoned`、执行位置提示 `home` 会丢；丢了以后，同步过 `master` 的分支上经 nbdev 建的 Task 会被当成分支上的记录、拒绝写入。不要随手删。
+- `run/tmp/` 里的目录来自中断的写事务，确认没有 nbdev 在跑后可以删。
 - 这些东西放这里，不放会话临时目录：`/tmp` 下的会话目录在重启或清理后就没了。会话临时目录只放用完即弃的脚本。
 - 不放密钥与个人数据。
 - 用不到的子目录不建。
