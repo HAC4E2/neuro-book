@@ -294,13 +294,14 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         const file = await guardedFile(checkout.root, rest.join("/"), ".agents/works/");
         if (!file) return plain(404, "找不到");
         const requestHost = req.headers.get("host")!.toLowerCase();
-        const panelOrigins = allowedHosts(panelPort()).map((allowed) => `http://${allowed}`).join(" ");
+        // CSP 的来源表达式不支持 IPv6 字面量（Chrome 会整条报错），所以 `[::1]` 打开的面板嵌不了产物页，用 127.0.0.1 或 localhost。
+        const panelOrigins = allowedHosts(panelPort()).filter((allowed) => !allowed.startsWith("[")).map((allowed) => `http://${allowed}`).join(" ");
         return new Response(Bun.file(file), {headers: {
             ...SECURITY_HEADERS,
             "Content-Type": contentType(file),
             // 地址里有猜不到的前缀，才能放开 CORS：沙箱 iframe 是不透明来源，模块脚本、fetch 与字体都按 CORS 取。
             "Access-Control-Allow-Origin": "*",
-            "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups; frame-ancestors ${panelOrigins} http://${sameHostOn(requestHost, panelPort())}`,
+            "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups; frame-ancestors ${panelOrigins}`,
         }});
     }
 

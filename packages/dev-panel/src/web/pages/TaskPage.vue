@@ -25,9 +25,11 @@ const RULE_LABEL: Record<string, string> = {readme: "README 的执行位置", na
 const readmeHtml = computed(() => {
     const data = page.data.value;
     if (!data?.detail.readme.text) return "";
-    return renderMarkdown(data.detail.readme.text.replace(/^---\n[\s\S]*?\n---\n/u, ""), {checkoutKey: data.task.checkoutKey ?? "main", path: data.detail.readme.path, artifactBase: meta.data.value?.artifactBase ?? null});
+    // frontmatter 与第一个一级标题（页头已经写了标题）不重复显示。
+    return renderMarkdown(data.detail.readme.text.replace(/^---\n[\s\S]*?\n---\n/u, "").replace(/^\s*# .*\n/u, ""), {checkoutKey: data.task.checkoutKey ?? "main", path: data.detail.readme.path, artifactBase: meta.data.value?.artifactBase ?? null});
 });
 const executionKey = computed(() => page.data.value?.detail.execution.chosen.key ?? "main");
+const preferKeys = computed(() => (page.data.value?.detail.execution.candidates ?? []).map((candidate) => candidate.key).join(","));
 
 function followCrumb(item: {href?: string}, event: MouseEvent): void {
     if (!item.href) return;
@@ -72,7 +74,7 @@ function evidenceUrl(path: string): string | null {
                         <ul class="flex flex-col gap-1" style="font-size: var(--text-xs)">
                             <li v-for="candidate in page.data.value.detail.execution.candidates" :key="candidate.key" class="flex flex-wrap items-center gap-1.5">
                                 <Badge v-if="candidate.key === executionKey" tone="accent" variant="soft" size="sm">选中</Badge>
-                                <RouterLink :to="{name: 'docs', query: {checkout: candidate.key}}">{{ candidate.key }}</RouterLink>
+                                <RouterLink :to="{name: 'docs', query: {checkout: candidate.key, prefer: preferKeys}}">{{ candidate.key }}</RouterLink>
                                 <span style="color: var(--text-muted)">{{ candidate.branch ?? "分离 HEAD" }} · 按{{ RULE_LABEL[candidate.rule] }}</span>
                             </li>
                         </ul>
@@ -105,7 +107,7 @@ function evidenceUrl(path: string): string | null {
                     <section v-if="page.data.value.detail.specs.length > 0" class="flex flex-col gap-2">
                         <h2 class="font-semibold">README 链到的 Spec</h2>
                         <ul class="flex flex-col gap-1">
-                            <li v-for="spec in page.data.value.detail.specs" :key="spec"><RouterLink :to="{name: 'docs', query: {checkout: executionKey, path: spec}}">{{ spec }}</RouterLink></li>
+                            <li v-for="spec in page.data.value.detail.specs" :key="spec"><RouterLink :to="{name: 'docs', query: {checkout: executionKey, path: spec, prefer: preferKeys}}">{{ spec }}</RouterLink></li>
                         </ul>
                     </section>
                     <section class="flex flex-col gap-2">

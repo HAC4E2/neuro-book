@@ -7,6 +7,7 @@ import {join} from "node:path";
 import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_READ_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
+import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
@@ -338,6 +339,25 @@ describe("herdr 的常驻状态", () => {
         expect(fake.requests.filter((request) => request.method === "events.subscribe").at(-1)?.params.subscriptions).toContainEqual({type: "pane.agent_status_changed", pane_id: "w9:p2"});
         expect(changes).toBeGreaterThan(0);
     }, 30_000);
+});
+
+describe("前端构建", () => {
+    test("构建失败时有旧产物就用旧的、给出原因；没有旧产物报 build_failed；输入没变不构建", async () => {
+        const fixture = await createFixture("panel-build");
+        const packageRoot = join(fixture.root, "pkg");
+        await mkdir(join(packageRoot, "src", "web"), {recursive: true});
+        await writeFile(join(packageRoot, "package.json"), "{}\n");
+        const distDir = join(packageRoot, "dist", "web");
+        const options = {packageRoot, repoRoot: fixture.root, distDir, log: () => undefined};
+        await expect(ensureWebBuild(options)).rejects.toMatchObject({code: "build_failed"});
+        await mkdir(distDir, {recursive: true});
+        await writeFile(join(distDir, "index.html"), "<html></html>\n");
+        const fallback = await ensureWebBuild(options);
+        expect([fallback.built, fallback.failed?.includes("vite")]).toEqual([false, true]);
+        expect(await Bun.file(join(distDir, "index.html")).text()).toBe("<html></html>\n");
+        await writeFile(join(distDir, ".build-hash"), `${await computeBuildHash(packageRoot, fixture.root)}\n`);
+        expect(await ensureWebBuild(options)).toEqual({built: false, failed: null});
+    });
 });
 
 describe("端口", () => {

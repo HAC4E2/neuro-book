@@ -2,7 +2,7 @@ import {spawn, type ChildProcess} from "node:child_process";
 import {createHash, randomBytes} from "node:crypto";
 import {lstat, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {createRequire} from "node:module";
-import {join, relative, resolve} from "node:path";
+import {dirname, join, relative, resolve} from "node:path";
 import {NbdevError, systemErrorCode} from "../core/errors.js";
 
 /**
@@ -71,7 +71,13 @@ export function stopRunningBuild(): void {
 }
 
 function runVite(packageRoot: string, outDir: string, log: (line: string) => void): Promise<string | null> {
-    const vite = createRequire(join(packageRoot, "package.json")).resolve("vite/bin/vite.js");
+    // vite 的 exports 不导出 bin/：从它的 package.json 所在目录找命令行入口。
+    let vite: string;
+    try {
+        vite = join(dirname(createRequire(join(packageRoot, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
+    } catch (error) {
+        return Promise.resolve(`找不到 vite（先在仓库根运行 bun install）：${error instanceof Error ? error.message : String(error)}`);
+    }
     return new Promise((resolvePromise) => {
         const child = spawn(process.execPath, [vite, "build", "--outDir", outDir, "--emptyOutDir", "--logLevel", "warn"], {cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"]});
         running = child;
