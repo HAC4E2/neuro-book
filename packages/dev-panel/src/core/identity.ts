@@ -16,27 +16,20 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const LABEL_PATTERN = /^[A-Za-z0-9._-]{1,64}$/u;
 const MAX_NESTING = 5;
 
-type ClaudeIdentity = {sessionId: string; process: ProcessRef; parentSessionId: string | null};
+export type ClaudeIdentity = {sessionId: string; process: ProcessRef; parentSessionId: string | null};
 
 /**
- * 从 Claude Code 给工具子进程的环境变量认会话。只在 `CLAUDE_PID` 存在、进程还活着、id 是 UUID 时才信：
+ * 从 Claude Code 给工具子进程的环境变量认会话（身份解析与运行归属共用）；不可信时返回 "untrusted"。只在 `CLAUDE_PID` 存在、进程还活着、id 是 UUID 时才信：
  * herdr server 或 tmux 若曾从某个 Claude 的 Bash 里起过，所有 pane 都会继承一个过期的会话 id。
  * 嵌套的 `claude -p`（会话 A 的 Bash 里起的 B）会给自己的子进程换成 B 的 id；B 的进程环境里仍带着 A 的 id
  * （顶层 Claude 进程的环境里没有这个变量），据此一层层归到最外层会话。
  */
-async function claudeIdentity(env: NodeJS.ProcessEnv, warnings: Warning[]): Promise<ClaudeIdentity | null> {
+export async function trustedClaudeSession(env: Readonly<Record<string, string | undefined>>): Promise<ClaudeIdentity | "untrusted" | null> {
     const sessionId = env.CLAUDE_CODE_SESSION_ID;
     if (!sessionId) return null;
     const pid = Number(env.CLAUDE_PID);
     const stat = Number.isInteger(pid) && pid > 0 ? await readProcStat(pid) : null;
-    if (!UUID_PATTERN.test(sessionId) || !stat) {
-        warnings.push({
-            code: "claude_env_untrusted",
-            message: "环境里的 CLAUDE_CODE_SESSION_ID 不可信（缺 CLAUDE_PID、进程已不在或 id 不是 UUID），已忽略",
-            details: {sessionId, claudePid: env.CLAUDE_PID ?? null},
-        });
-        return null;
-    }
+    if (!UUID_PATTERN.test(sessionId) || !stat) return "untrusted";
     let current: ClaudeIdentity = {sessionId, process: {pid, startTicks: stat.startTicks}, parentSessionId: null};
     for (let depth = 0; depth < MAX_NESTING; depth += 1) {
         const outerEnv = await readEnviron(current.process.pid);
@@ -48,6 +41,17 @@ async function claudeIdentity(env: NodeJS.ProcessEnv, warnings: Warning[]): Prom
         current = {sessionId: outerId, process: {pid: outerPid, startTicks: outerStat.startTicks}, parentSessionId: outerId};
     }
     return current;
+}
+
+async function claudeIdentity(env: NodeJS.ProcessEnv, warnings: Warning[]): Promise<ClaudeIdentity | null> {
+    const identity = await trustedClaudeSession(env);
+    if (identity !== "untrusted") return identity;
+    warnings.push({
+        code: "claude_env_untrusted",
+        message: "环境里的 CLAUDE_CODE_SESSION_ID 不可信（缺 CLAUDE_PID、进程已不在或 id 不是 UUID），已忽略",
+        details: {sessionId: env.CLAUDE_CODE_SESSION_ID ?? null, claudePid: env.CLAUDE_PID ?? null},
+    });
+    return null;
 }
 
 async function herdrAvailable(herdr: HerdrClient | null): Promise<boolean> {

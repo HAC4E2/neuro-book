@@ -83,7 +83,7 @@ export {
     type SetStatusResult,
 } from "./core/operations.js";
 export {bootTime, processAlive, processStartTicks, readEnviron, readProcessTable, readProcStat, startTimeIso, systemdUnitOf, type ProcessEntry, type ProcStat} from "./core/procfs.js";
-export {resolveCaller, type Caller, type CallerHerdr, type ProcessRef, type SessionCaller, type SessionRef} from "./core/identity.js";
+export {resolveCaller, trustedClaudeSession, type Caller, type CallerHerdr, type ClaudeIdentity, type ProcessRef, type SessionCaller, type SessionRef} from "./core/identity.js";
 export {
     createHerdrClient,
     HERDR_CLI_METHODS,
@@ -117,3 +117,4 @@ export {
     type LeaseState,
     type ReleaseReason,
 } from "./core/leases.js";
+export {discoverRuns, type DiscoverRunsInput, type PaneProcesses, type RunView} from "./core/runs.js";
