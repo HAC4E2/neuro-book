@@ -24,3 +24,37 @@ export {
     workNumberLabel,
     type ParsedId,
 } from "./core/ids.js";
+export {
+    assertMainWritable,
+    listCheckouts,
+    locateRepository,
+    MASTER_REF,
+    WORKS_ROOT,
+    type CheckoutInfo,
+    type RepoContext,
+} from "./core/repo.js";
+export {
+    TASK_STATUSES,
+    WORK_STATUSES,
+    listTaskIds,
+    listWorkIds,
+    readTaskRecord,
+    readWorkRecord,
+    type Recorded,
+    type TaskRecord,
+    type TaskStatus,
+    type WorkRecord,
+    type WorkStatus,
+} from "./core/records.js";
+export {
+    REGISTRY_FILE,
+    REGISTRY_SCHEMA,
+    readRegistry,
+    type Registry,
+    type RegistryStatus,
+    type RegistryTaskEntry,
+    type RegistryWorkEntry,
+} from "./core/registry.js";
+export {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
+export {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./core/sources.js";
+export {readProjectStatus, type ProjectStatus, type RecordSource, type StatusFilter, type TaskView, type WorkView} from "./core/status.js";
