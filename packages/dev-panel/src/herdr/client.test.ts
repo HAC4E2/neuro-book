@@ -50,6 +50,18 @@ describe("herdr 客户端", () => {
         expect(herdr.requests).toEqual([]);
     });
 
+    test("只读客户端开 memoizePanes 时 pane 列表只取一次，默认每次都取", async () => {
+        const herdr = await fake();
+        const memoized = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_READ_METHODS, memoizePanes: true});
+        await Promise.all([memoized.listPanes(), memoized.listPanes()]);
+        await memoized.listPanes();
+        expect(herdr.requests.filter((request) => request.method === "pane.list")).toHaveLength(1);
+        const plain = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_CLI_METHODS});
+        await plain.listPanes();
+        await plain.listPanes();
+        expect(herdr.requests.filter((request) => request.method === "pane.list")).toHaveLength(3);
+    });
+
     test("连不上为 server_not_running；总时限用完之后的调用直接超时", async () => {
         const offline = createHerdrClient({socketPath: join(tmpdir(), "nbdev-no-such-herdr.sock"), allow: HERDR_CLI_METHODS});
         expect(await offline.availability()).toMatchObject({ok: false, reason: "server_not_running"});

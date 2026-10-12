@@ -34,11 +34,13 @@ export type Activity = {
 /** 读一次 herdr：pane 列表（带 agent 与 agent_session，省掉 agent.list）与各 pane 的进程信息（并发；单个 pane 失败就跳过）。 */
 export async function readHerdrSnapshot(herdr: HerdrClient | null, warnings: Warning[]): Promise<HerdrSnapshot> {
     if (!herdr) return {available: false, socketPath: null, version: null, panes: [], processes: null};
-    const availability = await herdr.availability();
+    // ping 与 pane.list 并发：herdr 的单次调用常要多等约 100 毫秒（见 docs/herdr.md），串行会叠加。
+    const [availability, listed] = await Promise.all([herdr.availability(), herdr.listPanes().then((panes) => ({panes}), (error: unknown) => ({error}))]);
     if (!availability.ok) return {available: false, socketPath: herdr.socketPath, version: null, panes: [], processes: null};
     let panes: HerdrPane[];
     try {
-        panes = await herdr.listPanes();
+        if ("error" in listed) throw listed.error;
+        panes = listed.panes;
     } catch (error) {
         if (!(error instanceof HerdrError)) throw error;
         warnings.push({code: "herdr_unavailable", message: `读 herdr 的 pane 列表失败：${error.message}`, details: {code: error.code, socketPath: herdr.socketPath}});

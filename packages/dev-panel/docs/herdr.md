@@ -7,6 +7,7 @@ nbdev 经 herdr 认会话、写 pane 标签、找运行所在的 pane。本文�
 - 位置按顺序取：`HERDR_SOCKET_PATH`；`HERDR_SESSION`（命名会话，`~/.config/herdr/sessions/<名>/herdr.sock`）；默认会话 `~/.config/herdr/herdr.sock`。命令行从调用者的环境变量里取，测试一律指到命名会话或假 socket。
 - 协议：一行一个 JSON，请求 `{id, method, params}`，响应 `{id, result}` 或 `{id, error: {code, message}}`。客户端每次调用开一个连接，读到第一个换行为止并核对 `id`。
 - 时限：单次调用 2 秒；`status`、`lease list` 给整个客户端 2.5 秒的总时限，用完之后的调用直接报超时，命令按 herdr 不可用继续。
+- 时延：在本机默认 server 0.9.1 上，Bun 客户端的单次调用有一部分（实测 5% 到 50%，随负载变化）要多等约 100 毫秒，原因未查明；改成连接建立前就写请求没有改善（2026-10-12 实测）。所以 `status`、`lease list` 一次调用里 `pane.list` 只取一次，`ping` 与 `pane.list` 并发，减少串行的调用。
 
 ## 白名单
 

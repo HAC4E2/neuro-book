@@ -77,8 +77,9 @@ let requestCounter = 0;
  * 每次调用开一个连接，读到第一个换行为止并核对 `id`。单次调用超时 `callTimeoutMs`；
  * `budgetMs` 给整个客户端一个总时限，用完后的调用直接报 `timeout`（`status` 不能因为 herdr 卡住而等几十秒）。
  */
-export function createHerdrClient(options: {socketPath: string; allow: readonly string[]; callTimeoutMs?: number; budgetMs?: number}): HerdrClient {
+export function createHerdrClient(options: {socketPath: string; allow: readonly string[]; callTimeoutMs?: number; budgetMs?: number; memoizePanes?: boolean}): HerdrClient {
     const {socketPath, allow} = options;
+    let panesMemo: Promise<HerdrPane[]> | null = null;
     const callTimeout = options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
     const deadline = options.budgetMs === undefined ? Number.POSITIVE_INFINITY : Date.now() + options.budgetMs;
     let available: Promise<HerdrAvailability> | null = null;
@@ -148,11 +149,18 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
             );
             return available;
         },
-        async listPanes() {
-            const result = await call("pane.list", {});
-            const panes = isRecord(result) && Array.isArray(result.panes) ? result.panes : null;
-            if (!panes) throw new HerdrError("protocol_error", "pane.list 的响应缺少 panes");
-            return panes.map(toPane).filter((pane): pane is HerdrPane => pane !== null);
+        listPanes() {
+            const fetchPanes = async () => {
+                const result = await call("pane.list", {});
+                const panes = isRecord(result) && Array.isArray(result.panes) ? result.panes : null;
+                if (!panes) throw new HerdrError("protocol_error", "pane.list 的响应缺少 panes");
+                return panes.map(toPane).filter((pane): pane is HerdrPane => pane !== null);
+            };
+            // 只读命令一次调用里多处要 pane 列表（认调用者、汇总会话），herdr 的单次调用常要多等约 100 毫秒（见 docs/herdr.md），
+            // 所以同一个客户端只取一次。只给一次命令用完即弃的客户端开；常驻的客户端（面板）每次要读最新的 pane。
+            if (!options.memoizePanes) return fetchPanes();
+            panesMemo ??= fetchPanes();
+            return panesMemo;
         },
         async getAgent(target) {
             try {

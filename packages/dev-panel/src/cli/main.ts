@@ -51,7 +51,7 @@ async function writeCaller(io: CliIo, values: Record<string, string | boolean | 
 }
 
 function readOnlyHerdr(io: CliIo): HerdrClient {
-    return createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_READ_METHODS, budgetMs: READ_BUDGET_MS});
+    return createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_READ_METHODS, budgetMs: READ_BUDGET_MS, memoizePanes: true});
 }
 
 function ago(iso: string, now: Date): string {
