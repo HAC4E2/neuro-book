@@ -5,12 +5,28 @@ import {cleanupFixtures, createFixture, git, taskReadme} from "../../tests/git-f
 import {setRecordStatus} from "./operations.js";
 import {claimTask, emptyRegistry, writeRegistry} from "./registry.js";
 import {listCheckouts, locateRepository} from "./repo.js";
-import {chooseExecutionCheckout, findBranchRecordChanges} from "./sources.js";
+import {chooseExecutionCheckout, createBranchChangesCache, findBranchRecordChanges} from "./sources.js";
 import {readProjectStatus} from "./status.js";
 
 afterEach(cleanupFixtures);
 
 describe("过渡期：判定没迁的 Work", () => {
+    test("面板的缓存：结果与现算一致；HEAD 变了重算已提交的部分；未提交的部分在清掉缓存之前不变", async () => {
+        const fixture = await createFixture("sources-cache");
+        const worktree = await fixture.addWorktree("w00001-line", "feat/w00001");
+        const cache = createBranchChangesCache();
+        const keys = async () => [...(await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main), cache)).changes.keys()];
+        expect(await keys()).toEqual([]);
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "status: active\n"), worktree);
+        const uncommittedCodes = async () => (await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main), cache)).warnings.map((warning) => warning.code);
+        expect(await uncommittedCodes()).toEqual([]);
+        cache.uncommitted.clear();
+        expect(await uncommittedCodes()).toEqual(["uncommitted_branch_records"]);
+        await fixture.commit("branch maintains record", worktree);
+        expect(await keys()).toEqual(["w00001-seed"]);
+        expect([...(await findBranchRecordChanges(fixture.main, await listCheckouts(fixture.main))).changes.keys()]).toEqual(["w00001-seed"]);
+    });
+
     test("分支上较新的 Work 标 branch，只在 master 上的 Task 标 master，未分出的 Work 标 master", async () => {
         const fixture = await createFixture("sources-branch");
         await fixture.addWork("w00002-long", ["t01-old"]);

@@ -5,6 +5,17 @@ import {WORK_ID_PATTERN} from "./ids.js";
 import {findWork, isClaimedTask, type Registry} from "./registry.js";
 import {MASTER_REF, WORKS_ROOT, type CheckoutInfo} from "./repo.js";
 
+/**
+ * 过渡期判定的缓存（常驻的面板用；命令行每次现算，不传）。已提交的部分只取决于 master 与该 checkout 的 HEAD，按两者缓存；
+ * 未提交的部分（`uncommitted_branch_records` 的来源）各 checkout 的 `git status` 也缓存，由调用方定时清掉 `uncommitted` 重算。
+ * 登记表不在缓存里：它影响的执行 worktree 与 Task 来源每次都按现读的登记表算。
+ */
+export type BranchChangesCache = {committed: Map<string, Set<string>>; uncommitted: Map<string, Set<string>>};
+
+export function createBranchChangesCache(): BranchChangesCache {
+    return {committed: new Map(), uncommitted: new Map()};
+}
+
 /** 过渡期里一个 Work 的执行 worktree 与其余副本。 */
 export type ExecutionCheckout = {chosen: CheckoutInfo; rule: "home" | "name" | "recent"; others: CheckoutInfo[]};
 
@@ -68,12 +79,14 @@ async function withoutStaleCopies(mainRoot: string, head: string, candidates: re
  * 而且不是 `master` 某个旧版本的副本（见 `withoutStaleCopies`）。
  * 只有未提交改动的 worktree 不算，只给 `uncommitted_branch_records` 警告。
  */
-export async function findBranchRecordChanges(mainRoot: string, checkouts: readonly CheckoutInfo[]): Promise<{changes: Map<string, CheckoutInfo[]>; warnings: Warning[]}> {
+export async function findBranchRecordChanges(mainRoot: string, checkouts: readonly CheckoutInfo[], cache: BranchChangesCache | null = null): Promise<{changes: Map<string, CheckoutInfo[]>; warnings: Warning[]}> {
     const changes = new Map<string, CheckoutInfo[]>();
     const warnings: Warning[] = [];
-    if ((await runGit(mainRoot, ["rev-parse", "--verify", "--quiet", MASTER_REF], {readOnly: true})).exitCode !== 0) {
+    const master = await runGit(mainRoot, ["rev-parse", "--verify", "--quiet", MASTER_REF], {readOnly: true});
+    if (master.exitCode !== 0) {
         throw new NbdevError("master_not_found", "仓库里没有 master 分支：记录只放主工作区的 master", {details: {mainRoot}});
     }
+    const masterSha = master.stdout.trim();
     const linked = checkouts.filter((checkout) => !checkout.isMain);
     const readable: CheckoutInfo[] = [];
     for (const checkout of linked) {
@@ -87,7 +100,7 @@ export async function findBranchRecordChanges(mainRoot: string, checkouts: reado
     }
     const results = await Promise.all(readable.map(async (checkout) => {
         try {
-            return await branchChangesOf(mainRoot, checkout);
+            return await branchChangesOf(mainRoot, checkout, masterSha, cache);
         } catch (error) {
             // 与 master 没有共同祖先、浅克隆截断了历史等：只影响这一个 worktree，跳过它，别让整个 status 与写命令失败。
             if (!isNbdevError(error) || error.code !== "git_failed") throw error;
@@ -114,22 +127,38 @@ export async function findBranchRecordChanges(mainRoot: string, checkouts: reado
     return {changes, warnings};
 }
 
-async function branchChangesOf(mainRoot: string, checkout: CheckoutInfo): Promise<{checkout: CheckoutInfo; committed: Set<string>; uncommittedOnly: Set<string>}> {
+async function committedWorksOf(mainRoot: string, checkout: CheckoutInfo): Promise<Set<string>> {
     const scope = `${WORKS_ROOT}/`;
-    const [sinceFork, againstMaster, uncommitted] = await Promise.all([
+    const [sinceFork, againstMaster] = await Promise.all([
         gitOutput(mainRoot, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=AM", `${MASTER_REF}...${checkout.head}`, "--", scope], {readOnly: true}),
         gitOutput(mainRoot, ["diff", "--name-only", "-z", "--no-renames", MASTER_REF, checkout.head, "--", scope], {readOnly: true}),
-        gitOutput(checkout.root, ["status", "--porcelain", "-z", "--no-renames", "--", scope], {readOnly: true}),
     ]);
     const differing = new Set(splitNul(againstMaster));
     const candidates = splitNul(sinceFork).filter((path) => workIdOfPath(path) !== null && differing.has(path));
     const committed = new Set<string>();
     for (const path of await withoutStaleCopies(mainRoot, checkout.head, candidates)) committed.add(workIdOfPath(path)!);
-    const uncommittedOnly = new Set<string>();
+    return committed;
+}
+
+async function uncommittedWorksOf(checkout: CheckoutInfo): Promise<Set<string>> {
+    const uncommitted = await gitOutput(checkout.root, ["status", "--porcelain", "-z", "--no-renames", "--", `${WORKS_ROOT}/`], {readOnly: true});
+    const workIds = new Set<string>();
     for (const entry of splitNul(uncommitted)) {
         const workId = workIdOfPath(entry.slice(3));
-        if (workId && !committed.has(workId)) uncommittedOnly.add(workId);
+        if (workId) workIds.add(workId);
     }
+    return workIds;
+}
+
+async function branchChangesOf(mainRoot: string, checkout: CheckoutInfo, masterSha: string, cache: BranchChangesCache | null): Promise<{checkout: CheckoutInfo; committed: Set<string>; uncommittedOnly: Set<string>}> {
+    const committedKey = `${masterSha}\0${checkout.head}`;
+    const [committed, uncommitted] = await Promise.all([
+        cache?.committed.get(committedKey) ?? committedWorksOf(mainRoot, checkout),
+        cache?.uncommitted.get(checkout.root) ?? uncommittedWorksOf(checkout),
+    ]);
+    cache?.committed.set(committedKey, committed);
+    cache?.uncommitted.set(checkout.root, uncommitted);
+    const uncommittedOnly = new Set([...uncommitted].filter((workId) => !committed.has(workId)));
     return {checkout, committed, uncommittedOnly};
 }
 

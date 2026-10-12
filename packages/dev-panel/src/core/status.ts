@@ -22,7 +22,7 @@ import {
 import {readRegistry, type Registry} from "./registry.js";
 import {listCheckouts, MASTER_REF, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "./repo.js";
 import {findConflicts, nextWorkNumber, scanNumbers, type NumberConflict} from "./scan.js";
-import {chooseExecutionCheckout, findBranchRecordChanges, taskSourceInBranchWork, type ExecutionCheckout} from "./sources.js";
+import {chooseExecutionCheckout, findBranchRecordChanges, taskSourceInBranchWork, type BranchChangesCache, type ExecutionCheckout} from "./sources.js";
 
 /** 记录从哪里读：`master` 是主工作区（已提交的或标了 `uncommitted` 的）；`branch` 是过渡期的执行 worktree。 */
 export type RecordSource = {source: "master" | "branch"; branch: string | null; checkout: string};
@@ -76,6 +76,9 @@ export type ProjectStatus = {
     herdr: Activity["herdr"];
 };
 
+/** 记录那一部分（不含活动）：Work、Task、收件箱、撞号。各 Work 与 Task 的租约留空，由 `withActivity` 填上。 */
+export type ProjectRecords = Omit<ProjectStatus, "caller" | "sessions" | "unownedRuns" | "ignoredProcesses" | "herdr">;
+
 export type StatusOptions = {herdr?: HerdrClient | null; caller?: Caller | null; now?: Date; selfPid?: number};
 
 export type StatusFilter = {workRef?: string; taskRef?: string};
@@ -88,10 +91,11 @@ export type TransitionState = {
     warnings: Warning[];
 };
 
-export async function readTransitionState(mainRoot: string): Promise<TransitionState> {
+/** `cache` 只给常驻的面板用（见 `BranchChangesCache`）。 */
+export async function readTransitionState(mainRoot: string, cache: BranchChangesCache | null = null): Promise<TransitionState> {
     const checkouts = await listCheckouts(mainRoot);
     const {registry} = await readRegistry(mainRoot);
-    const {changes, warnings} = await findBranchRecordChanges(mainRoot, checkouts);
+    const {changes, warnings} = await findBranchRecordChanges(mainRoot, checkouts, cache);
     return {checkouts, registry, branchChanges: changes, warnings};
 }
 
@@ -151,18 +155,52 @@ async function uncommittedPaths(mainRoot: string): Promise<string[]> {
 }
 
 /**
- * 汇总全部 Work 与 Task 的状态、来源与编号冲突。只读：不取锁，不写任何文件。
+ * 汇总全部 Work 与 Task 的状态、来源与编号冲突，再填上活动（租约、会话、运行）。只读：不取锁，不写任何文件。
+ * 记录与活动并行读；警告的顺序固定为过渡期、活动、记录。
  */
 export async function readProjectStatus(context: RepoContext, filter: StatusFilter = {}, options: StatusOptions = {}): Promise<{status: ProjectStatus; warnings: Warning[]}> {
-    const {mainRoot} = context;
-    const transition = await readTransitionState(mainRoot);
-    const warnings: Warning[] = [...transition.warnings];
-    const {activity, warnings: activityWarnings} = await readActivity(mainRoot, transition, {herdr: options.herdr ?? null, now: options.now ?? new Date(), selfPid: options.selfPid ?? process.pid});
-    warnings.push(...activityWarnings);
+    const transition = await readTransitionState(context.mainRoot);
+    const [{activity, warnings: activityWarnings}, {records, warnings: recordWarnings}] = await Promise.all([
+        readActivity(context.mainRoot, transition, {herdr: options.herdr ?? null, now: options.now ?? new Date(), selfPid: options.selfPid ?? process.pid}),
+        readProjectRecords(context, transition, filter),
+    ]);
+    return {status: withActivity(records, activity, options.caller ?? null), warnings: [...transition.warnings, ...activityWarnings, ...recordWarnings]};
+}
+
+/** 把活动拼进记录：每个 Work 的有效租约（最近活动的在前）与各 Task 上的那几份，以及会话与运行。 */
+export function withActivity(records: ProjectRecords, activity: Activity, caller: Caller | null): ProjectStatus {
     const activeOf = (workId: string): ActiveLease[] => activity.leases
         .filter((lease) => lease.state === "valid" && lease.workId === workId)
         .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
         .map((lease) => ({sessionKey: lease.session.key, agent: lease.session.agent, label: lease.session.label, taskId: lease.taskId, lastActivityAt: lease.lastActivityAt, stale: lease.stale}));
+    const works = records.works.map((work): WorkView => {
+        const workLeases = activeOf(work.workId);
+        return {...work, activeLeases: workLeases, tasks: work.tasks.map((task) => ({...task, leases: workLeases.filter((lease) => lease.taskId === task.taskId)}))};
+    });
+    return {
+        mainRoot: records.mainRoot,
+        callerRoot: records.callerRoot,
+        callerBranch: records.callerBranch,
+        caller,
+        works,
+        inbox: records.inbox,
+        conflicts: records.conflicts,
+        registryOnly: records.registryOnly,
+        nextWorkNumber: records.nextWorkNumber,
+        sessions: activity.sessions,
+        unownedRuns: activity.unownedRuns,
+        ignoredProcesses: activity.ignoredProcesses,
+        herdr: activity.herdr,
+    };
+}
+
+/**
+ * 记录那一部分：全部 Work 与 Task 的状态、来源、产物与文档索引、收件箱与编号冲突。`transition` 由调用方读好传进来
+ * （面板带着缓存读），返回的警告不含 `transition.warnings`。
+ */
+export async function readProjectRecords(context: RepoContext, transition: TransitionState, filter: StatusFilter = {}): Promise<{records: ProjectRecords; warnings: Warning[]}> {
+    const {mainRoot} = context;
+    const warnings: Warning[] = [];
     const head = await runGit(mainRoot, ["symbolic-ref", "--quiet", "HEAD"], {readOnly: true});
     if (head.exitCode !== 0 || head.stdout.trim() !== MASTER_REF) {
         warnings.push({code: "main_not_on_master", message: "主工作区检出的不是 master，照常读工作区", details: {head: head.exitCode === 0 ? head.stdout.trim() : null}});
@@ -193,7 +231,6 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
         const executionTasks = execution ? await listTaskIds(executionRoot, workId) : [];
         const masterTasks = await listTaskIds(mainRoot, workId);
         let taskIds = [...new Set([...executionTasks, ...masterTasks])].sort();
-        const workLeases = activeOf(workId);
         if (filter.taskRef !== undefined) {
             const matched = matchRef(taskIds, filter.taskRef, "task");
             if (matched.length === 0) throw new NbdevError("task_not_found", `找不到 Task：${workId}/${filter.taskRef}`, {details: {workId, taskRef: filter.taskRef}});
@@ -215,7 +252,7 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
                 branch: source === "branch" ? execution!.chosen.branch : mainCheckout.branch,
                 checkout: root,
                 uncommitted: source === "master" && dirty.some((path) => path.startsWith(prefix)),
-                leases: workLeases.filter((lease) => lease.taskId === taskId),
+                leases: [],
             };
         }));
         const counts = emptyCounts();
@@ -230,7 +267,7 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
             documents: await listDocuments(executionRoot, `${WORKS_ROOT}/${workId}`),
             executionRule: execution?.rule ?? null,
             otherCopies: execution?.others.map((other) => ({branch: other.branch, checkout: other.root})) ?? [],
-            activeLeases: workLeases,
+            activeLeases: [],
             taskCounts: counts,
             tasks,
         };
@@ -250,20 +287,15 @@ export async function readProjectStatus(context: RepoContext, filter: StatusFilt
         inbox.push({kind: "number_conflict", label: conflict.label, live: conflict.live});
     }
     return {
-        status: {
+        records: {
             mainRoot,
             callerRoot: context.callerRoot,
             callerBranch: context.callerBranch,
-            caller: options.caller ?? null,
             works,
             inbox,
             conflicts,
             registryOnly,
             nextWorkNumber: workNumberLabel(nextWorkNumber(scan)),
-            sessions: activity.sessions,
-            unownedRuns: activity.unownedRuns,
-            ignoredProcesses: activity.ignoredProcesses,
-            herdr: activity.herdr,
         },
         warnings,
     };
