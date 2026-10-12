@@ -393,3 +393,28 @@
 
 - **真实仓库只读 `status`**：880 到 889 毫秒（上一轮约 870）；`.local/agent` 与 `git status` 前后不变。文档类产物共 107 份，t01 列出 2 份、t03 列出 3 份；t03 与 t80 的评审板、t80 的 omp 审查报告都显示为 `unpublished`，不进收件箱；收件箱只有 2 处撞号（w00007、w00003 的 t05）。
 - **唤醒验证**的临时仓库与脚本在会话临时目录 `t08/wake/` 下（`setup.sh` 已跑过，`dry-run.sh` 实测写答复后约 0.6 秒退出），命令见编码子代理的汇报；由主 Agent 在主会话里做。
+
+## 实现审查之后的改动
+
+审查报告见 [`evidences/impl-review.txt`](evidences/impl-review.txt)（0 阻断、3 重要、11 建议），全部采纳。集成分支提交 `892b03cfc`..`cde9f5c63`，未 push。
+
+| 审查条目 | 改动 | 提交 |
+|---|---|---|
+| 1 确认会覆盖会话没读过的答复 | `answers ack --through <cursor>` 只确认 id 不大于游标的未确认答复，更新的给 `newer_answers_unacked`、列在 `data.newer`；不给 `--through` 时照旧确认全部并给 `ack_without_through`；`answers` 的提示行带上 `--through` | `892b03cfc` |
+| 2 提问集关了就再也不能 `ask` | `artifact close … questions` 报 `usage`，提示逐题 `ask withdraw` | `f4c0a66c2` |
+| 3 `--include` 填目录或被忽略的文件 | 落位前校验：必须是普通文件；用 `git ls-files --others --ignored --exclude-standard` 查被忽略的（`git check-ignore` 不支持 `GIT_LITERAL_PATHSPECS`），都报 `usage`。已确认之后的补交由第 6 条的残留机制完成 | `d65fef9bb`、`ad13cc210` |
+| 4 `--wait` 第一次读与建 known 之间的窗口 | 先列 `answers/` 再完整读 | `67e5a091a` |
+| 5 重开时 `ask` 登记的题不恢复 | 因关闭而撤回的 `ask` 题随重新打开一并恢复 | `ef74b2376` |
+| 6 提交失败的残留后续不带上 | 每次写某产物都顺带提交它 `versions/`、`answers/` 下未进 HEAD 的文件（`??` 与已暂存未提交），给 `residual_records_committed`；发布内容没变、已经关闭、答复都已确认时只补交残留；去掉 `changedArtifactFiles` 的 `withVersions`；失败提示按命令改写 | `ad13cc210`、`cde9f5c63` |
+| 7 `stale` 没有 code | `stale.code` 为 `stale_value` 或 `invalid_value`；`readArtifact` 只为按最新一版不合法的答复读它针对的旧版（`answeredVersions`），`questionStates` 第三个参数必填 | `6a09d9d53` |
+| 8 参数没在边界校验 | `--since`、`--through` 按答复 id 校验（`assertCursor`，核心与命令行都查）；`--set`、`--comment` 的键按题号校验、重复报错、用无原型对象存；`--by` 的产物 id 调 `assertArtifactId` | `8993d7478` |
+| 9 标记解析 | 行内元素直接拼接，块级元素与 `br` 处补空格；`<style>` 不查，脚本、模板、`noscript` 与 `.js` 只认 `data-nbdev-question=`；同题选项名重复报 `duplicate_option_label` | `382e7c91a` |
+| 10 测试缺口 | 只答活的题（撤回、取代、因关闭撤回）；ask、withdraw、supersede、close 的 diff-tree 与无关暂存改动；收件箱不放选答题；锁内时钟改成跨产物的写法；parse5 预载断言 stderr | `8833159af` |
+| 11 不合规的 `updated` 被盖掉 | `origin: invalid` 原样返回 | `7b59c83d2` |
+| 12 `publishedBy` 没核对 sha256 | 改用 `verifiedProvenance`，provenance 读不出的警告转给调用方 | `aa12ab64f` |
+| 13 Skill 没写退出码 0 之后怎么重挂 | 照抄 `cli.md` 的重挂办法；确认改成带 `--through` | `cc1add01c` |
+| 14 `--wait` 的范围 | 范围为空照常等，给 `wait_scope_empty`，stderr 也说明；没指定产物时轮询顺带 readdir 各 Task 的 `artifacts/`，新产物加入范围；命令行只算一次范围（`resolveAnswersScope`），续期租约复用它，删掉 `resolveTaskRef` | `9a4da9261` |
+
+- **第 4 条没有补稳定复现的用例**：窗口在“列 known”与“完整读”两步之间，要稳定撞上只能在产品代码里加测试专用的钩子（禁止清单不允许）；审查用的 4000 个产物加定时写入的实验受时序影响、要几十秒，不适合进测试。改用审查的实验脚本在新代码上复跑三次（4000、4000、2000 个产物），都在约 1.2 到 1.4 秒返回那份答复（改之前超时），脚本在会话临时目录 `t08-fix/exp-wait-race.ts`。
+- **变异检查**：第 1 条（`pending` 不按 `--through` 过滤）、第 3 条（去掉普通文件检查；去掉被忽略检查）、第 6 条（不登记残留；残留只认 `??`）都被新用例杀死。另查了 M1（去掉只答活的题的检查）、M4（收件箱不过滤选答题）、锁内时钟（id 改用 `tx.now`）、第 12 条（改回 `readProvenance`），也都被杀死。
+- **验证**：包测试 146 个全过（含 L4，`nbdev-test` 会话用完已删）；typecheck、根上三个测试文件（175 个）、`governance:check`、`docs:check`、`git diff --check` 都通过。
