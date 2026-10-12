@@ -29,6 +29,10 @@ updated: 2026-10-12
   - `/clear` 是否换会话 id；
   - USER_HZ 为 100 的假设。
 
+- 实现审查（opus 子代理，[报告](evidences/impl-review.txt)）：0 阻断、7 重要、13 建议。主 Agent 用真实 `status` 输出核实了 worktree 里运行的 checkout 被报成主工作区。20 条全部采纳，修正在集成分支 `f421ee8b`..`aff36ea2`（11 个提交），偏差记在 [plan.md](plan.md) 的“实现审查之后的改动”。
+- 主 Agent 复跑：包测试 97 通过（18 个文件，含 L4）；typecheck 通过；根上 174 通过。真实仓库 `status` 约 0.87 秒，两个运行的 checkout 正确。
+- 发现一处小问题，并入下一轮修：`identity.test.ts` 里 `sh -c "sleep 30 & wait"` 的用例只结束外层 `sh`，留下两个被 PID 1 收养的 `sleep 30`。
+
 ## 下一步
 
-opus 子代理做实现审查（不阻塞），同时开始 t08。
+实施完成，等合入 `master`（要开发者授权）后标为 `done`；合入后在真实会话上核对默认 herdr 0.9.1 的 pane 标签。

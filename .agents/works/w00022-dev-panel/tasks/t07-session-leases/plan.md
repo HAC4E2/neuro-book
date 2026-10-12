@@ -339,3 +339,35 @@ Proposal 第三节让发布记录带 `askedBy`（提问者租约与会话快照�
 | 运行列表的 `command` 是运行树的根进程 | Bash 工具派出的命令根是 `zsh -c …` 包装，显示的是包装命令行，不是里面的程序 |
 | `status` 耗时约 960 到 980 毫秒，余量很小 | herdr 0.9.1 上 Bun 客户端的单次调用有一部分要多等约 100 毫秒，原因未查明，连接建立前就写请求也没改善。`3e086d8e1` 让只读命令一次调用只取一次 `pane.list`、`ping` 与 `pane.list` 并发，从约 1070 毫秒降到约 970 毫秒；其余主要花在过渡期状态（约 355 毫秒）。再快要合并 `process_info` 调用或复用过渡期状态，留给后续 |
 | 嵌套的 `claude -p` 的 `parentSessionId` 记外层会话 id | 与关键设计的身份第 2 条一致，写在这里是因为审查第 3 条的措辞可以理解成记内层 id |
+
+## 实现审查之后的改动
+
+审查报告见 [`evidences/impl-review.txt`](evidences/impl-review.txt)（opus 子代理，0 阻断、7 重要、13 建议），20 条全部采纳。集成分支提交 `f421ee8bc` 到 `aff36ea22`，未 push。
+
+| 审查条目 | 改法 | 提交 |
+|---|---|---|
+| 1 记录提交后租约读写失败让命令失败 | `lease-ops` 集中收口：`write_failed`、`invalid_record` 与 EACCES、EPERM、EISDIR、ENOTDIR、EROFS、ENOSPC 转成 `lease_write_failed`；`readLeases` 对单个文件与整个目录读不了都给 `unreadable_lease` 后跳过；`getLease` 读不了时报 `invalid_record`，续期整份重写；`releaseLeases` 某一份写失败时给警告、接着释放其余的 | `3d698c115` |
+| 2 `parseLease` 只校验 5 个字段 | 逐字段校验后重建记录；`leaseId` 必须是 24 位 hex 且与文件名一致；`getLease` 拒绝不合格的 id | `e1432e242` |
+| 3 `process_info` 失败让只靠 pane 认人的命令失败 | 接住 `HerdrError`，给 `herdr_partial`，进程记 `null` | `e0de3d283` |
+| 4 标签写到别人的 pane | 写或清之前用 `pane.process_info` 确认调用者的会话进程在前台，不在就给 `herdr_tag_skipped`；进程未知时同样不写 | `63757f401` |
+| 5 会话已不在的运行被忽略 | 列为无主，带 `sessionHint` 与 `sessionAlive: false`；`docs/herdr.md` 更新 | `b4fe72924` |
+| 6 运行的 checkout 错 | 取最长的匹配根，合成用例断言 checkout | `b4fe72924` |
+| 7 两条合同与四种警告没有测试 | 新增 `tests/lease-contracts.test.ts`；换进程续期的用例改成旧进程仍活着 | `aff36ea22` |
+| 8 测试用固定等待 | `tests/processes.ts` 的 `spawnMarked`（轮询到 environ 带标记）与 `stopProcess`（等 `exit`） | `f421ee8bc` |
+| 9 释放晚到 | 二选一的两条都做了：释放前重读 Task 状态，已被改回就不释放（`lease_release_skipped`）；只释放最近活动不晚于重读时刻的租约，每份写前再重读一次。CONTEXT 不变量 5 与 `file-formats.md` 的说法已改 | `427c0e34f` |
+| 10 `resolveCaller` 串行 | 有 `HERDR_PANE_ID` 时 ping 与 `pane.list` 同时发出 | `e0de3d283` |
+| 11 管道伙伴被列成运行 | 排除与调用者同一进程组的进程（`ProcStat` 加 `pgrp`） | `b4fe72924` |
+| 12 运行的命令没有信息量 | 取 Claude Bash 包装里 `eval '…'` 的内容，取不到用第一个后代 | `b4fe72924` |
+| 13 `CLAUDE_PID` 与调用者无关也能通过 | 认调用者要求 `CLAUDE_PID` 是祖先（否则 `claude_env_untrusted`，`reason: not_ancestor`）；嵌套要求外层是内层的祖先。测试改用 `startFakeClaude`，nbdev 作为它的子进程运行 | `e0de3d283` |
+| 14 租约文件只增不删 | 常规读取跳过修改时间早于 24 小时之前的文件（`--all` 才全读），分批并发读；续期时清理 24 小时前的 `.tmp-*`。5000 个文件实测见下 | `899cfaa16` |
+| 15 availability 与 budget 只适合一次性客户端 | 加 `memoizeAvailability` 选项，命令行的两种客户端开，面板不开；文档写明三个选项只给一次性客户端 | `4f57017da` |
+| 16 临时目录不走 `createTestTmpRoot` | 全部改用；假 herdr 的 socket 路径过长时在测试临时根下另建短目录 | `f421ee8bc` |
+| 17 L4 收尾不可靠 | stop 与 delete 放进 `afterEach`，检查退出码 | `e0de3d283` |
+| 18 白名单比用到的多 | 去掉 `agent.list`、`agent.get` 与 `getAgent` | `4f57017da` |
+| 19 嵌套丢了内层 id | `SessionRef` 加 `nestedSessionId`（租约、登记表的 `by` 读旧文件时按 `null`） | `e0de3d283` |
+| 20 `lease list --work` 不报错 | 与 `status` 一样报 `work_not_found`、`task_not_found` | `5cbe32aa5` |
+
+- **L4 的扮法改了**：第 4、13 条之后，扮成 Claude 的进程既要是 nbdev 的祖先、又要在 pane 的前台。L4 改为用 `herdr pane run` 在命名会话的 pane 里前台运行 `tests/l4-claude-pane.ts`，由它依次运行 nbdev 并读回标签。
+- **5000 个租约文件**（`readLeases` 加 `processLiveness`）：全部是新文件 40 到 44 毫秒；4950 个早于 24 小时、常规读取 12 到 14 毫秒；`--all` 23 毫秒。审查测得的串行读取是 89 毫秒。
+- **变异检查**：第 1 条（收口改成全部抛出；`readLeases` 对单个文件抛出）、第 4 条（去掉前台核对）、第 9 条（去掉重读状态；去掉 `notAfter`）各自都被新用例抓住；审查列的变异 1、2、9 也都被抓住了。
+- **真实仓库只读 `status`**：851 到 899 毫秒；1993174 的 checkout 是 w00005 的 worktree，2118675 是 w00017 的 worktree；1993174 显示的是 eval 里的命令。`ignoredProcesses` 从 20 降到 2，原因是 VS Code server 已经退出（本机现在没有 cwd 在仓库里的 node 进程），不是规则变了。
