@@ -10,69 +10,68 @@
     ├── README.md
     └── tasks/
         └── t01-task-title/
-            └── README.md
+            ├── README.md
+            ├── artifacts/<name>/   # 产物（可选）：index.html 是入口，各轮放 r1/、r2/…，答复放 answers/
+            ├── walkthroughs/       # 可选
+            └── evidences/          # 可选
 ```
 
 - Work 目录使用 `w`、五位非零序号和 kebab-case 名称，例如 `w00001-work-title`。
 - Work README 使用 `schema: nbook.work/v1`，`workId` 与目录一致，`issueId` 为 `i<正整数>` 或 `null`。
 - Task 目录在所属 Work 内使用 `t`、两位非零序号和 kebab-case 名称，例如 `t01-task-title`。
 - Task README 使用 `schema: nbook.task/v2`，`taskId` 与目录一致，不指定正式角色。
-- Task 不保存 `role`、`actionIssueId`、`agentWorkflow`、`kind`、`worktreeId` 或 `branchId`。治理只校验身份、容器和退役字段；正文是协作参考，不是机器状态或权限门禁。
+- Work 与 Task 的 frontmatter 写 `status`。Task 取 `planned`（计划中）、`active`（进行中）、`done`（已完成）、`shelved`（已搁置），Work 取后三种。“等开发者答复”不是状态，由未答的提问现算。2026-10-12 以前建的记录没有这个字段，下次更新时补上；治理检查暂不校验取值。
+- Task 不保存 `role`、`actionIssueId`、`agentWorkflow`、`kind`、`worktreeId` 或 `branchId`。治理只校验身份、容器和退役字段；`status` 供面板与命令行汇总，正文是协作参考，都不是权限门禁。
 - `.agents`、`.agents/works`、Work、`tasks` 与 Task 五级 current 路径必须由真实目录项组成；symlink/junction 不形成 Work/Task identity，`governance:check` 与 `governance:context` 都明确拒绝。
-
-## 仓库 Work 与本地 Work
-
-Work 分两类，写法相同：本文件关于目录与身份、README、Task 与快照的规则两类都适用。
-
-| | 仓库 Work | 本地 Work |
-|---|---|---|
-| 位置 | `.agents/works/<workId>/`，入库 | 主仓库根的 `.local/agent/works/<workId>/`，不入库 |
-| 用于 | 会改代码、规范或长期行为的工作 | 探索、spike、一次性的调查或讨论 |
-
-- 两类共用一个编号空间：本地 Work 同样按下文“编号分配”占号，不与仓库 Work 撞号。
-- 本地 Work 转为仓库 Work：把 Work 与各 Task 的 README（及要入库的文字记录）搬进 `.agents/works/`，编号不变；本地产物留在原处。
-- 两类 Work 的本地产物都放 `.local/agent/works/<workId>/`，布局见 [`.local/README.md`](../../.local/README.md)。
-- 治理检查只看 `.agents/works/`；本地 Work 不受机检，靠同一套写法自律。
-
-## 本地与入库
-
-一件东西进 Git，当且仅当它会约束之后的人或 Agent 的行为，或者丢了就无法重现：
-
-| 进 Git | 留本地（`.local/agent/works/<workId>/`） |
-|---|---|
-| 代码、测试、脚本与配置 | 能重新生成的：截图、构建产物、测试与检查的原始输出、日志 |
-| Spec、ADR、Proposal、规范与 Skill | 讨论材料：草稿、对比图、讲解页、评审板、表单答案 |
-| Work 与 Task 的范围、授权、决定、当前状态，验证结论（跑了什么、多少通过、失败原文） | 子代理与 omp 的报告原文、会话记录 |
-| 不可重现且必须保留的原始数据（例如一次性测量的数值），写成小的文本文件放 `evidences/` | 大体量数据 |
-
-- **决定以文字入库**：讲解页与表单答案只是讨论材料；开发者的决定由 Agent 摘成文字写进 Task README。
-- **截图默认不入库**，包括验收截图；开发者要求时例外。
-- **已入库的不动**：历史里的文件删了也不会让仓库变小，不为瘦身删除已入库的证据或改写历史；本规则从 2026-10-12 起对新内容生效。
 
 ## 编号分配与记录位置
 
+### 记录只放主工作区
+
+Work 与 Task 的记录（README、`artifacts/`、`walkthroughs/`、`evidences/`）只放主工作区 `master` 的 `.agents/works/`，只有这一份。Agent 会话是临时的，记录是持久的：任何会话都从这里读到目标、状态、决定、产物与答复，不依赖当初写它的会话还在。
+
+- 在实现 worktree 里工作时，读写主工作区里的记录（`<主工作区>/.agents/works/<workId>/…`），在主工作区用路径限定提交（`git commit -- <路径>`；主工作区的暂存区里常有别人的改动）。
+- 实现分支只带代码、测试、Spec 与文档的改动，不改 `.agents/works/`；worktree 里的 `.agents/works/` 是分出时的旧副本，不读不改。`governance:context` 默认读它所在 checkout，在 worktree 里查记录时加 `--repo-root <主工作区>`。
+- 本节 2026-10-12 起生效。已在实现分支上维护记录的 Work，迁到主工作区之前照旧在原处维护，迁移见 [w00022 的 t05](w00022-dev-panel/tasks/t05-migrate-records/README.md)。
+
+### 编号分配
+
 Work 的五位序号在项目内唯一，名称不同也不能复用同一序号。各实现 worktree 不独立选择“下一个编号”。
 
-1. 先复用符合目标的 Work。确需新编号时，与并行执行者明确唯一分配者，从查号到本地占号串行完成；无法确认归属时只暂停新编号分配，不阻塞已有 Work。
-2. 分配者在保持 `master` 的主工作区核对已登记 Work，以及本地分支、linked worktree 中尚未合入的 Work；已占用序号不复用。多台机器也通过同一个分配者协调，不各自从本机最大值递增。
-3. 在主工作区创建最小 Work README 和首个已知可执行 Task 即完成本地占号；不要求提交、Issue 编号、push 或远端 `master` 登记。保护已有文件，不因登记授予远端权限。
-4. 需要隔离实现时，从已批准且具备所需源码的本地 `master` revision 创建实现 worktree。占号文件未提交时，仅复制该新 Work 的初始 README 与首个 Task；主树副本此后冻结为占号记录，Work README 指明执行位置，不回填进度。执行状态和证据只在实现 worktree 维护；登记随实现正常集成，不要求独立登记 PR 或非 squash 祖先关系。纯规划可在主树维护唯一快照。
-
-主树占号副本只作执行位置指针，不是第二份当前快照。登记随实现合入后，集成 owner 在已获授权的主树同步中先核对这些副本确为本次创建且未被他人修改、集成结果已完整保留记录，再移除精确的占号副本并同步已集成版本；不清理整个 Work 目录或其它未提交文件。副本被修改、owner 不明或尚无同步授权时保留并报告，不用 stash/reset 或覆盖来获得干净主树。
+1. 先复用符合目标的 Work。确需新编号时，与并行执行者明确唯一分配者，从查号到占号串行完成；无法确认归属时只暂停新编号分配，不阻塞已有 Work。
+2. 分配者在主工作区核对已登记的 Work；记录迁移完成之前，还要核对本地分支与 linked worktree 中尚未合入的 Work。已占用序号不复用。多台机器也通过同一个分配者协调，不各自从本机最大值递增。
+3. 在主工作区创建最小 Work README 和首个已知可执行 Task 并提交，即完成占号；不要求 Issue 编号、push 或远端 `master` 登记。保护已有文件，不因登记授予远端权限。
 
 发现两个不同 Work 撞号时，先暂停冲突身份的集成，由分配者确定保留项，并为另一项重新登记未占用编号。同步修改 Work 目录、`workId`、当前引用及关联执行路径，再用 `governance:context` 核对实际身份；Task 的局部序号无需因 Work 改号改变。已发布的历史记录保留原始身份，在当前记录中说明映射。已提交或推送的内容通过后续提交修正，不覆盖另一项工作，不为改号重写历史或强制推送。
 
-这是协作规则，不是自动锁或跨机器编号服务；治理检查通过不能代替分配协调。规则不追溯搬迁已有 Work；现有冲突按上述方式处理。
+这是协作规则，不是自动锁或跨机器编号服务；治理检查通过不能代替分配协调。现有冲突按上述方式处理。
+
+## 本地与入库
+
+一件东西进 Git，当且仅当它会约束之后的人或 Agent 的行为、开发者或之后的会话要看它，或者丢了就无法重现：
+
+| 进 Git | 留本地（`.local/agent/works/<workId>/tasks/<taskId>/`） |
+|---|---|
+| 代码、测试、脚本与配置 | 能重新生成的：构建产物、测试与检查的原始输出、日志、完整截图集 |
+| Spec、ADR、Proposal、规范与 Skill | 子代理与 omp 的会话目录与原始输出 |
+| Work 与 Task 的目标、范围、授权、状态、决定，验证结论（跑了什么、多少通过、失败原文） | 大体量数据 |
+| 产物（设计稿、讲解与报告、审查报告）与开发者的答复，放 Task 的 `artifacts/` | |
+| 证据：不可重现且必须保留的原始数据（例如一次性测量的数值）、少量精选截图，放 `evidences/` | |
+
+- **决定以文字入库**：答复是讨论记录；开发者的决定由 Agent 摘成文字写进 Task README。
+- **答复只追加**：写进对应产物的 `answers/`，不改已有的答复。
+- **图片有体积上限**：入库的图片（产物引用的图与证据截图）单张约 300 KB 以内，每个 Task 合计约 5 MB 以内；超出时转成 WebP 或缩小，原图留在本地 `shots/`。能用 HTML 直接表达的不截图。
+- **已入库的不动**：历史里的文件删了也不会让仓库变小，不为瘦身删除已入库的证据或改写历史；本规则从 2026-10-12 起对新内容生效。
 
 ## 创建与执行
 
 主 Agent 按当前已知结果创建 Work 与至少一个可执行 Task，可直接执行或按独立边界委派，不预建依赖未知结果的链。CLI 使用 `--work <workId>`，需要具体 Task 时追加 `--task <taskId>`；`governance:context` 输出 `nbook.governance-context/v2`，不再接受 `--role` 或返回角色字段。
 
-需要隔离代码改动时，同一 Work 默认共享 `.worktree/<workId>`；branch 继续使用根规则的 `{type}/{refs}-{slug}`，其中 `refs` 使用 Work 编号。恢复时运行 `governance:context` 记录实际 worktree 与 branch；默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或另建第二身份。执行身份不写入 Work/Task frontmatter。
+需要隔离代码改动时，一个 Task 一个 worktree：从具备所需源码的本地 `master` 创建 `.worktree/<Work 编号>-<Task 编号>-<短名>`，例如 `.worktree/w00017-t80-settings-ui`；branch 使用根规则的 `{type}/{refs}-{slug}`，`refs` 写 Work 与 Task 编号，例如 `feat/w00017-t80-settings-ui`。几个 Task 需要共用一条集成分支时，在 Work README 写明。恢复时在 worktree 里运行 `governance:context` 记录实际 worktree 与 branch；路径已属于其它仓库、Task 或不匹配 branch 时报告冲突并停止，不覆盖或另建第二身份。执行位置写在 Task README 正文，不写入 frontmatter。
 
-Task README 只保留当前快照：目标／范围与非目标、当前状态、授权来源与限制、下一步或阻塞、合同与有效证据链接；不强制固定标题或新状态字段。长期行为在 Spec／组件文档，Work 保存总体范围与授权，Task 引用而不复制。
+Work README 开头写“目标”一节。Task README 只保留当前快照：目标／范围与非目标、当前状态、授权来源与限制、下一步或阻塞、合同与有效证据链接；状态取值写在 frontmatter，正文写具体情况。长期行为在 Spec／组件文档，Work 保存总体目标、范围与授权，Task 引用而不复制。
 
-状态变化时替换已失效快照，不在底部不断追加“当前状态”。需要恢复的决策或历程按需进入 `walkthroughs/`，不可替代的原始证据才进入 `evidences/`，其余按上文“本地与入库”留在本地；小改动不强制建文件或空目录。恢复先读快照，历史仅按问题读取；旧证据与旧授权不能冒充当前状态。
+状态变化时替换已失效快照，不在底部不断追加“当前状态”。交给开发者看的页面进 `artifacts/`，需要恢复的决策或历程按需进入 `walkthroughs/`，不可替代的原始证据才进入 `evidences/`，其余按上文“本地与入库”留在本地；小改动不强制建文件或空目录。恢复先读快照，历史仅按问题读取；旧证据与旧授权不能冒充当前状态。
 
 膨胀的 current Task 在其 owner 可协调的恢复点渐进整理：把失效叙事移入已有 walkthrough，保留日期、授权和失败记录，README 留最新快照与链接。不批量整理无关 Task，不回填历史验证结果。
 
@@ -80,6 +79,6 @@ Task README 只保留当前快照：目标／范围与非目标、当前状态�
 
 ## 收尾与清理
 
-- Work 不新增状态字段；收尾事实写进 Work README 正文。Work 的全部 Task 合入 `master` 后记一行：`已收尾：<master 上的合入提交号>；待清理：<worktree 路径>、<branch>`；未全部合入时不写，改在快照里继续。
+- Work 的全部 Task 合入 `master` 后，把 Work 的 `status` 改为 `done`，并在正文记一行：`已收尾：<master 上的合入提交号>；待清理：<worktree 路径>、<branch>`；未全部合入时不写，改在快照里继续。
 - `governance:worktree` 报告的 `cleanup: "待清理"` 是清单来源：分支已是 `master` 祖先的 worktree 会被标记（判定为 `git merge-base --is-ancestor <branch> refs/heads/master`）；报告只读，不执行删除。
 - 清理 worktree 与分支是受限动作：需开发者明确授权，且只清理 Work README 清单内的项；删除前逐项确认没有未提交改动；清单外的 worktree 一律保留并报告。

@@ -23,10 +23,10 @@ Issue 承载重大或长期交付的公开目标、总体范围与验收；Propo
 
 ## Worktree 与分支
 
-Task 首页保存当前快照；重大历程与原始证据按需放入 `walkthroughs/` 或 `evidences/`。独立 worktree 承载代码，获授权后以 PR 合入 master，不因本地交付强制建报告或 PR。
+Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主工作区路径限定提交，实现分支不改它（见 [记录只放主工作区](../../.agents/works/README.md#记录只放主工作区)）。独立 worktree 承载代码，获授权后以 PR 合入 master，不因本地交付强制建报告或 PR。
 
-- 需要隔离代码改动时，同一Work默认共享`.worktree/<workId>`；分支使用`{type}/{refs}-{slug}`且refs使用Work编号。开发者明确指定既有worktree/branch时沿用该身份并在报告中记录。
-- 默认路径已属于其它仓库、Work或不匹配branch时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
+- 需要隔离代码改动时，一个 Task 一个 worktree：`.worktree/<Work 编号>-<Task 编号>-<短名>`；分支使用 `{type}/{refs}-{slug}`，refs 写 Work 与 Task 编号。几个 Task 共用一条集成分支时在 Work README 写明。开发者明确指定既有 worktree/branch 时沿用该身份并在报告中记录。
+- 默认路径已属于其它仓库、Task 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
 - 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
 - Task 有依赖时顺序推进；已知独立任务在 owner、文件和合同不冲突时并行，不为并行而拆 Task。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。

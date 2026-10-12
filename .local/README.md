@@ -6,20 +6,14 @@
 
 ## Agent 区：`agent/`
 
-Agent 可以读写。按 Work 与 Task 组织，仓库 Work 与本地 Work 用同一套布局（两类 Work 见 [Work 规则](../.agents/works/README.md#仓库-work-与本地-work)）：
+Agent 可以读写。只放能重新生成的原始输出，按 Work 与 Task 组织；Work 与 Task 的记录、产物与答复都在仓库的 `.agents/works/`（见 [Work 规则](../.agents/works/README.md#编号分配与记录位置)）：
 
 ```text
 .local/agent/
-└── works/<workId>/
-    ├── README.md              # 只有本地 Work 才有：Work 本身就在这里
-    ├── review/                # Work 级的讲解页与回顾页（可选）
-    └── tasks/<taskId>/
-        ├── README.md          # 只有本地 Work 才有
-        ├── review/            # 讲解页与评审板：index.html 是入口，各轮的图放 r1/、r2/…
-        ├── answers/           # 开发者提交的答案，只追加不改
-        ├── reports/           # 子代理、omp 的报告原文与会话目录
-        ├── shots/             # 截图（含验收截图）
-        └── logs/              # 测试与检查的原始输出、开发服务日志
+└── works/<workId>/tasks/<taskId>/
+    ├── reports/               # 子代理、omp 的会话目录与原始输出；要给开发者看的报告作为产物入库
+    ├── shots/                 # 完整截图集与原图；精选的转小后作为产物或证据入库
+    └── logs/                  # 测试与检查的原始输出、开发服务日志
 ```
 
 - 这些东西放这里，不放会话临时目录：`/tmp` 下的会话目录在重启或清理后就没了。会话临时目录只放用完即弃的脚本。
