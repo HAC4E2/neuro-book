@@ -9,7 +9,7 @@
 
 ## 布局
 
-外壳根占满页面（父级给它确定的宽高），底色是面板底色 `--panel-surface`（平铺，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），字体 `--font-ui`，文字 `--text-main`。七个 Part 的内容：
+外壳根占满页面（父级给它确定的宽高），底色是主题的 `--shell-ground`（卡片外壳里是窗体底，平铺的主题没有这个变量、用面板底色 `--panel-surface`，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），字体 `--font-ui`，文字 `--text-main`。七个 Part 的内容：
 
 - 标题栏：[`WorkbenchTitleBar`](WorkbenchTitleBar.md)，显示当前作品的显示名（书名，没有时是目录原名）。
 - ActivityBar：[`WorkbenchActivityBar`](WorkbenchActivityBar.md)，Sidebar 的容器切换。
@@ -20,7 +20,7 @@
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
 - 视图标题动作：视图声明的 `actions` 由 [`WorkbenchViewActions`](WorkbenchViewActions.md) 画在“移动到”之前：single 的侧栏与右栏在容器标题行，面板在标签带旁，multiple 在各视图标题行（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 10）。可用与按下态、执行都经 `chrome`（`viewActions`、`runViewAction`），`args: "instance"` 的带上实例层报上来的代际；Lab 里没有 `chrome` 时不画。
 
-ActivityBar、侧栏、右栏与面板和外壳根同一块面板底色，不画外框、圆角与留白；部件之间的线只有外壳网格边界的接缝。右栏与面板空着时缺省不显示（输出 39），规则在布局 store 里，组件只读生效的显隐。
+ActivityBar、侧栏、右栏与面板画面板底色，自己不画外框、圆角与留白；卡片外壳的缝、圆角与投影由 `WorkbenchShellLayout` 按主题变量画，平铺时部件之间的线只有外壳网格边界的接缝。右栏与面板空着时缺省不显示（输出 39），规则在布局 store 里，组件只读生效的显隐。
 
 ## 交互
 

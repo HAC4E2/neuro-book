@@ -7,7 +7,7 @@
  * 注册表与内核撤回的串行窗口（`views/registry.test.ts`）、命令的参数与过期（`commands/view-commands.test.ts`）。
  */
 
-import {mkdir, rm} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
@@ -435,7 +435,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 
-    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；外壳平铺，部件不画外框、圆角与标题行底线", async ({page}) => {
+    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；部件自己不画外框、圆角与标题行底线；nbook 是卡片外壳，macos 平铺（外壳验收 41）", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
@@ -466,6 +466,60 @@ test.describe("产品页：测试插件贡献的视图", () => {
             return widths.some((width) => width !== "0px") || style.borderRadius !== "0px" ? [{selector, widths, radius: style.borderRadius}] : [];
         }));
         expect(drawn).toEqual([]);
+
+        // 外壳的分隔方式：卡片的矩形、圆角与相连处，标题栏底线与网格接缝的颜色。
+        const shellLook = () => page.evaluate(() => {
+            const card = (part: string) => document.querySelector(`[data-shell-card="${part}"]`)!;
+            const box = (part: string) => card(part).getBoundingClientRect();
+            const probe = document.createElement("div");
+            probe.style.backgroundColor = "var(--divider)";
+            document.body.append(probe);
+            const divider = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return {
+                titlebarBottom: document.querySelector("[data-workbench-titlebar]")!.getBoundingClientRect().bottom,
+                activitybar: box("activitybar").toJSON() as DOMRect,
+                sidebar: box("sidebar").toJSON() as DOMRect,
+                editor: box("editor").toJSON() as DOMRect,
+                editorRadius: getComputedStyle(card("editor")).borderTopLeftRadius,
+                activityCorners: [getComputedStyle(card("activitybar")).borderTopLeftRadius, getComputedStyle(card("activitybar")).borderTopRightRadius],
+                sidebarCorners: [getComputedStyle(card("sidebar")).borderTopLeftRadius, getComputedStyle(card("sidebar")).borderTopRightRadius],
+                joinLine: getComputedStyle(card("activitybar"), "::after").backgroundColor,
+                titlebarLine: getComputedStyle(document.querySelector("[data-workbench-titlebar]")!).borderBottomColor,
+                seams: [...new Set([...document.querySelectorAll("[data-workbench-shell] .sash-seam")].map((seam) => getComputedStyle(seam).backgroundColor))],
+                divider,
+            };
+        });
+        const nbook = await shellLook();
+        expect(nbook.editorRadius).toBe("12px");
+        expect(nbook.activityCorners).toEqual(["12px", "0px"]);
+        expect(nbook.sidebarCorners).toEqual(["0px", "12px"]);
+        expect(nbook.activitybar.left).toBeCloseTo(4, 0);
+        expect(nbook.activitybar.width).toBeCloseTo(48, 0);
+        expect(nbook.activitybar.top - nbook.titlebarBottom).toBeCloseTo(4, 0);
+        expect(nbook.sidebar.left).toBeCloseTo(nbook.activitybar.right, 1);
+        expect(nbook.editor.left - nbook.sidebar.right).toBeCloseTo(4, 0);
+        expect(nbook.joinLine).toBe(nbook.divider);
+        expect(nbook.titlebarLine).toBe("rgba(0, 0, 0, 0)");
+        expect(nbook.seams).toEqual(["rgba(0, 0, 0, 0)"]);
+
+        const settings = join(tmp, "state", "settings.json");
+        try {
+            await writeFile(settings, JSON.stringify({"nbook.workbench/theme": "macos"}));
+            await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "macos");
+            const macos = await shellLook();
+            expect(macos.editorRadius).toBe("0px");
+            expect(macos.activitybar.left).toBe(0);
+            expect(macos.activitybar.width).toBe(48);
+            expect(macos.activitybar.top).toBe(macos.titlebarBottom);
+            expect(macos.sidebar.left).toBe(macos.activitybar.right);
+            expect(macos.editor.left - macos.sidebar.right).toBe(1);
+            expect(macos.joinLine).toBe("rgba(0, 0, 0, 0)");
+            expect(macos.titlebarLine).toBe(macos.divider);
+            expect(macos.seams).toEqual([macos.divider]);
+        } finally {
+            await rm(settings, {force: true});
+        }
     });
 
     test("容器网格（Panel 横向）：拖动视图之间的边界只写宽度；收成 32px 竖条再展开回到记忆宽度", async ({page}) => {

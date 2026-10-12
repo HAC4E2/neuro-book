@@ -630,9 +630,10 @@ onBeforeUnmount(() => {
  * 静止接缝：常驻的 1 CSS px `--divider`。它标记的是**边界**本身，不是交互反馈——
  * 所以没有 hover / 拖动态，也不跟着 `disabled` 消失（不能拖不等于边界不存在）。
  * 位置与厚度由 `snapLines()` 写内联（和装饰带同一趟），这里只管颜色；0 宽边界不渲染这个元素。
+ * 宿主可以经 `--nb-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明）。
  */
 .sash-seam {
-    background: var(--divider);
+    background: var(--nb-splitter-seam, var(--divider));
 }
 
 /* 收起/展开是控件形变，走 --motion-base；拖动中关闭，避免跟手延迟。 */

@@ -80,6 +80,11 @@ export interface ShellProjectionInput {
     readonly hiddenParts?: ReadonlyArray<string>;
     /** 用户拖到零的 Part：保留节点与展开尺寸意图，内容 0px、相邻保留 1px 可拖边界。与隐藏（移出树）是两件事。 */
     readonly dragCollapsedParts?: ShellDragCollapseMap;
+    /**
+     * 卡片外壳的缝宽（px，主题的 `--shell-gap`，平铺为 0）：活动栏的叶宽加上它，让出左侧的缝之后卡片仍是 48px，
+     * 38px 按钮的外扩焦点光环不被卡片裁掉（输出 3、38）。
+     */
+    readonly cardGap?: number;
 }
 
 export interface ShellProjection {
@@ -197,6 +202,8 @@ interface SizingState {
     readonly hidden: Readonly<Record<string, true>>;
     readonly dragCollapsed: ShellDragCollapseMap;
     readonly viewportWidth: number;
+    /** 活动栏的叶宽：卡片宽加上卡片外壳的缝。 */
+    readonly activitybarWidth: number;
     sizes: Record<string, number>;
     sashSizes: Record<string, number[]>;
     issues: string[];
@@ -247,7 +254,7 @@ function classifyChild(child: GridNodeInput<string>, axis: GridAxis, state: Sizi
         if (state.effective.collapsed) return {kind: "fixed", size: SHELL_PANEL_COLLAPSED_HEIGHT};
         return {kind: "preference", key, limits, size: restore};
     }
-    if (id === "activitybar") return {kind: "fixed", size: SHELL_ACTIVITYBAR_WIDTH};
+    if (id === "activitybar") return {kind: "fixed", size: state.activitybarWidth};
     if (id === "titlebar") return {kind: "fixed", size: SHELL_TITLEBAR_HEIGHT};
     if (id === "statusbar") return {kind: "fixed", size: SHELL_STATUSBAR_HEIGHT};
     if (id === "sidebar" || id === "auxiliarybar") {
@@ -380,7 +387,7 @@ function compactSizes(root: GridBranchInput<string>, state: SizingState, extent:
     const titlebar = state.hidden.titlebar ? 0 : Math.min(SHELL_TITLEBAR_HEIGHT, height);
     const statusbar = Math.min(SHELL_STATUSBAR_HEIGHT, Math.max(0, height - titlebar));
     const bodyHeight = Math.max(0, height - titlebar - statusbar);
-    const activitybar = state.hidden.activitybar ? 0 : SHELL_ACTIVITYBAR_WIDTH;
+    const activitybar = state.hidden.activitybar ? 0 : state.activitybarWidth;
     const bodyWidth = Math.max(0, width - activitybar);
 
     state.sizes = {};
@@ -389,7 +396,7 @@ function compactSizes(root: GridBranchInput<string>, state: SizingState, extent:
     const main = root.children.find((child) => child.id === SHELL_MAIN_ID) as GridBranchInput<string>;
     writeNode(main, "width", bodyHeight, width, null, state);
     const activityLeaf = main.children.find((child) => child.id === "activitybar");
-    if (activityLeaf !== undefined) writeNode(activityLeaf, "width", activitybar, bodyHeight, shellLeafLimits("activitybar", 0), state);
+    if (activityLeaf !== undefined) writeNode(activityLeaf, "width", activitybar, bodyHeight, {minimumSize: state.activitybarWidth, maximumSize: state.activitybarWidth}, state);
     const body = main.children.find((child) => child.id === SHELL_BODY_ID) as GridBranchInput<string>;
     writeNode(body, "width", bodyWidth, bodyHeight, null, state);
 
@@ -421,8 +428,8 @@ function finiteExtent(extent: GridExtent): GridExtent {
 }
 
 /** split 呈现下横向最小值装不装得下：装不下就退紧凑。 */
-function splitRowFits(position: PanelPosition, hidden: Readonly<Record<string, true>>, dragCollapsed: ShellDragCollapseMap, width: number): boolean {
-    const body = Math.max(0, width - (hidden.activitybar ? 0 : SHELL_ACTIVITYBAR_WIDTH));
+function splitRowFits(position: PanelPosition, hidden: Readonly<Record<string, true>>, dragCollapsed: ShellDragCollapseMap, width: number, activitybarWidth: number): boolean {
+    const body = Math.max(0, width - (hidden.activitybar ? 0 : activitybarWidth));
     // 拖到零的 Part 不再要求展开最小宽度，但保留的 1px 边界照算。
     const sidebars = (hidden.sidebar || dragCollapsed.sidebar === true ? 0 : SHELL_SIDEBAR_MIN_WIDTH) + (hidden.auxiliarybar || dragCollapsed.auxiliarybar === true ? 0 : SHELL_AUXILIARYBAR_MIN_WIDTH);
     const horizontal = isHorizontalPanelPosition(position);
@@ -440,6 +447,8 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
     const dragCollapsed: Partial<Record<ShellDragCollapsiblePart, boolean>> = {};
     for (const part of SHELL_DRAG_COLLAPSIBLE_IDS) if (hidden[part] !== true && input.dragCollapsedParts?.[part] === true) dragCollapsed[part] = true;
     const issues: string[] = [];
+    const gap = input.cardGap ?? 0;
+    const activitybarWidth = SHELL_ACTIVITYBAR_WIDTH + (Number.isFinite(gap) && gap > 0 ? gap : 0);
 
     // 生效的面板状态：左右位置忽略收起与对齐；最大化只在合法组合下成立。
     const storedHorizontal = isHorizontalPanelPosition(input.panel.position);
@@ -451,7 +460,7 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
     // 宽度 ≥ 800 时主体至少 740px：底部与顶部面板装得下（两个侧栏与编辑器最小 594px）；左右面板要 755px，800 宽附近
     // 退紧凑。按实际最小值判定，常量改了也不会给出越界的几何。
     let mode: ShellLayoutMode = extent.width < SHELL_COMPACT_WIDTH ? "compact" : "split";
-    if (mode === "split" && !splitRowFits(position, hidden, dragCollapsed, extent.width)) {
+    if (mode === "split" && !splitRowFits(position, hidden, dragCollapsed, extent.width, activitybarWidth)) {
         mode = "compact";
         issues.push(`容器宽 ${String(extent.width)}px 装不下侧栏与编辑区的最小宽度：已切换紧凑呈现`);
     }
@@ -470,6 +479,7 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
         hidden,
         dragCollapsed,
         viewportWidth: extent.width,
+        activitybarWidth,
         sizes: {},
         sashSizes: {},
         issues,

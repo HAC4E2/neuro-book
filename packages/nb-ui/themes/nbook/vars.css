@@ -290,6 +290,20 @@
     --elevation-menu:
         0 0 0 0.5px color-mix(in srgb, var(--shadow-color) 12%, transparent),
         0 4px 14px -2px color-mix(in srgb, var(--shadow-color) 18%, transparent);
+
+    /*
+     * 工作台外壳是卡片（新应用 docs/specs/ui/workbench-shell.md 输出 38，t79 第七轮稿 K2）：部件是窗体底上的圆角卡片，
+     * 标题栏与状态栏直接落在窗体底上、不画线；卡片之间的缝本身就是边界，网格接缝不画；活动栏与侧栏相连处画一条短线。
+     * 卡片不带外框，浅色只靠一层很淡的投影，深色换成一圈淡外框（见暗色块）。不写这些变量的主题（macos）是平铺。
+     */
+    --shell-gap: 4px;
+    --shell-ground: var(--bg-main);
+    --shell-card-radius: 12px;
+    --shell-card-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
+    --shell-chrome-surface: transparent;
+    --shell-chrome-line: transparent;
+    --shell-seam: transparent;
+    --shell-join-divider: var(--divider);
     /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。
@@ -357,6 +371,8 @@
  * 并且排在它后面。文件末尾那三个块就是这么写的，理由见那里。
  */
 :root[data-nb-theme="nbook"][data-nb-appearance="dark"] {
+    /* 暗色里淡投影看不见，卡片边缘改用一圈淡外框 */
+    --shell-card-shadow: 0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent);
     /* 浮层现在消费单独的 8px 纯 blur；完整的 14px 折射强档及其纯 blur fallback 只给大容器。
        暗色仍压暗而不是提亮，避免背后的颜色被一层灰板吞掉。 */
     --glass-blur: blur(8px) saturate(160%) brightness(0.62);

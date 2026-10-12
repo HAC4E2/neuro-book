@@ -109,8 +109,9 @@ const problemText = computed(() => {
     min-width: 0;
     padding-inline: var(--space-3) var(--space-1);
     overflow: hidden;
-    background: var(--bg-panel);
-    border-top: var(--border-w) solid var(--divider);
+    /* 同标题栏：卡片外壳里落在窗体底上、不画顶线（ui/workbench-shell.md 输出 38）。 */
+    background: var(--shell-chrome-surface, var(--bg-panel));
+    border-top: var(--border-w) solid var(--shell-chrome-line, var(--divider));
     color: var(--text-secondary);
     font-size: var(--text-2xs);
     line-height: 1;

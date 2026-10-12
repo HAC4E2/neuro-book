@@ -577,7 +577,7 @@ test("状态栏条目：Markdown 有字数、没有光标位置；输入后出�
     await closeAll(page);
 });
 
-test("纸面与空态：没有标签时正中一行提示；Markdown 正文在 720px 版心里、17px、行距 1.95，底色与外壳同一块面板底色", async ({page}) => {
+test("纸面与空态：没有标签时正中一行提示；Markdown 正文在 720px 版心里、17px、行距 1.95，编辑区是面板底色、外壳根是主题的窗体底", async ({page}) => {
     await open(page);
     await closeAll(page);
     const empty = page.locator("[data-editor-group-active] [data-editor-empty]");
@@ -599,12 +599,14 @@ test("纸面与空态：没有标签时正中一行提示；Markdown 正文在 7
         probe.style.backgroundColor = "var(--panel-surface)";
         group.append(probe);
         const surface = getComputedStyle(probe).backgroundColor;
+        probe.style.backgroundColor = "var(--shell-ground, var(--panel-surface))";
+        const ground = getComputedStyle(probe).backgroundColor;
         probe.remove();
         const control = group.querySelector(".markdown-control:not([hidden])")!;
         const text = getComputedStyle(group.querySelector("[data-editor-prose]")!);
         return {
             group: getComputedStyle(group).backgroundColor === surface,
-            shell: getComputedStyle(document.querySelector("[data-workbench-shell]")!).backgroundColor === surface,
+            shell: getComputedStyle(document.querySelector("[data-workbench-shell]")!).backgroundColor === ground,
             measure: getComputedStyle(control).maxWidth,
             size: text.fontSize,
             leading: text.lineHeight,

@@ -7,8 +7,10 @@
 import {GridRenderer} from "@notnotype/nb-ui/layout";
 import type {GridGestureCommit} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
-import {computed, nextTick, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
+import {SHELL_CARD_PARTS, shellCardInset, shellCards} from "../shell/cards";
+import type {ShellCardPart} from "../shell/cards";
 import {createShellGrid, projectShell, shellGestureProblem, shellPatch} from "../shell/layout";
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {PanelState} from "../shell/panel-state";
@@ -53,12 +55,32 @@ const rootEl = ref<HTMLElement | null>(null);
 const parkingEl = ref<HTMLElement | null>(null);
 const extent = useLayoutExtent(rootEl);
 
+/**
+ * 主题的缝宽（`--shell-gap`）进几何：活动栏叶宽要加上它（`projectShell` 的 `cardGap`）。主题写在文档根上，换主题或明暗时
+ * 文档根的属性与内联变量会变，这时重读。
+ */
+const cardGap = ref(0);
+function readCardGap(): void {
+    const root = rootEl.value;
+    if (root === null) return;
+    const value = Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-gap"));
+    cardGap.value = Number.isFinite(value) ? value : 0;
+}
+let themeObserver: MutationObserver | null = null;
+onMounted(() => {
+    readCardGap();
+    themeObserver = new MutationObserver(readCardGap);
+    themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["data-nb-theme", "data-nb-appearance", "style"]});
+});
+onBeforeUnmount(() => themeObserver?.disconnect());
+
 const projection = computed(() => projectShell({
     extent: extent.value ?? {width: 0, height: 0},
     preferences: props.sizes,
     panel: props.panel,
     hiddenParts: props.hiddenParts,
     dragCollapsedParts: props.dragCollapsedParts,
+    cardGap: cardGap.value,
 }));
 const grid = computed(() => createShellGrid(projection.value));
 const gestureIssues = ref<readonly string[]>([]);
@@ -186,6 +208,35 @@ watch(projection, (next) => {
 
 watch(rootEl, () => void nextTick(syncTargets));
 
+// ── 卡片 ──────────────────────────────────────────────────────────────────────
+
+/** 各部件四边挨着什么；缝宽与卡片样式是主题变量，平铺的主题缝宽为 0，下面的内边距都是 0。 */
+const cards = computed(() => shellCards(projection.value));
+
+/**
+ * 哪些部件套卡片包装按部件身份定，不看当前投影：包装随隐藏、拖到零出现或消失的话，插槽会换到另一处渲染，
+ * 部件内容被销毁重建（资源管理器的展开状态、编辑器都会丢）。
+ */
+const CARD_PARTS: ReadonlySet<ShellPartId> = new Set(SHELL_CARD_PARTS);
+
+function cardOf(part: ShellPartId) {
+    return cards.value[part as ShellCardPart];
+}
+
+function slotStyle(part: ShellPartId): Record<string, string> {
+    const edges = cardOf(part);
+    if (edges === undefined) return {};
+    return {padding: [edges.top, edges.right, edges.bottom, edges.left].map(shellCardInset).join(" ")};
+}
+
+/** 活动栏与侧栏相连时，两张卡片相接的一侧不圆、不留缝（活动栏是 start，侧栏是 end）。 */
+function joinOf(part: ShellPartId): "start" | "end" | undefined {
+    const edges = cardOf(part);
+    if (edges?.right.kind === "joined") return "start";
+    if (edges?.left.kind === "joined") return "end";
+    return undefined;
+}
+
 </script>
 
 <template>
@@ -223,10 +274,57 @@ watch(rootEl, () => void nextTick(syncTargets));
         <!-- 停放区：没有落点的 Part 内容留在这里，保持挂载，不进焦点顺序与读屏。 -->
         <div ref="parkingEl" class="hidden" aria-hidden="true" inert data-shell-parking>
             <Teleport v-for="part in SHELL_PART_IDS" :key="part" :to="targets[part] ?? undefined" :disabled="targets[part] === undefined">
-                <div :data-shell-slot="part" class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden">
-                    <slot :name="part" :collapsed="part === 'panel' && effectivePanel.collapsed" :effective-panel="effectivePanel" :mode="mode"></slot>
+                <div :data-shell-slot="part" class="box-border flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden" :style="slotStyle(part)">
+                    <div v-if="CARD_PARTS.has(part)" class="workbench-shell-card" :data-shell-card="part" :data-shell-join="joinOf(part)">
+                        <slot :name="part" :collapsed="part === 'panel' && effectivePanel.collapsed" :effective-panel="effectivePanel" :mode="mode"></slot>
+                    </div>
+                    <slot v-else :name="part" :collapsed="part === 'panel' && effectivePanel.collapsed" :effective-panel="effectivePanel" :mode="mode"></slot>
                 </div>
             </Teleport>
         </div>
     </div>
 </template>
+
+<style scoped>
+/*
+ * 卡片外壳（docs/specs/ui/workbench-shell.md 输出 38）：缝、圆角、投影与接缝颜色都是主题变量，缺省即平铺（缝 0、无圆角、
+ * 接缝是 --divider）。部件自己画面板底色，卡片包装只负责把它裁成圆角并投影。
+ */
+.workbench-shell-layout {
+    --nb-splitter-seam: var(--shell-seam, var(--divider));
+}
+
+.workbench-shell-card {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: var(--shell-card-radius, 0px);
+    box-shadow: var(--shell-card-shadow, none);
+}
+
+.workbench-shell-card[data-shell-join="start"] {
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+}
+
+.workbench-shell-card[data-shell-join="end"] {
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
+}
+
+/* 相连的活动栏与侧栏之间一条两端不碰顶底的短线；不需要时主题把颜色设成透明。 */
+.workbench-shell-card[data-shell-join="start"]::after {
+    content: "";
+    position: absolute;
+    inset-block: 10px;
+    inset-inline-end: 0;
+    z-index: 1;
+    width: var(--border-w);
+    background: var(--shell-join-divider, transparent);
+    pointer-events: none;
+}
+</style>

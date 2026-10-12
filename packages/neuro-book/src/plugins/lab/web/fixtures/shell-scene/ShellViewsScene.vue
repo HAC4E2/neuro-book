@@ -204,7 +204,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
 </script>
 
 <template>
-    <div ref="hostEl" class="h-full w-full bg-[var(--bg-panel)] outline-none" tabindex="-1" data-lab-subject data-views-scene>
+    <div ref="hostEl" class="h-full w-full bg-[var(--shell-ground,var(--panel-surface))] outline-none" tabindex="-1" data-lab-subject data-views-scene>
         <WorkbenchShellLayout
             class="h-full w-full"
             :sizes="sizes"
@@ -229,7 +229,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 </WorkbenchToolPartHost>
             </template>
             <template #editor>
-                <div class="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">编辑器</div>
+                <div class="flex h-full items-center justify-center bg-[var(--panel-surface)] text-sm text-[var(--text-muted)]">编辑器</div>
             </template>
             <template #panel="{collapsed}">
                 <WorkbenchPanelSurface title="面板" :collapsed="collapsed" :actions="[{id: 'collapse', label: '收起', icon: 'i-lucide-chevrons-down', disabled: false, pressed: panel.collapsed}]" @action="panel = {...panel, collapsed: !panel.collapsed}">

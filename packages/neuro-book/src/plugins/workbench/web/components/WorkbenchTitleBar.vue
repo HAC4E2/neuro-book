@@ -317,8 +317,9 @@ onBeforeUnmount(() => {
     height: 36px;
     min-width: 0;
     padding-inline: var(--space-2);
-    background: var(--bg-panel);
-    border-bottom: var(--border-w) solid var(--divider);
+    /* 卡片外壳里标题栏落在窗体底上、不画底线（ui/workbench-shell.md 输出 38）：两者都是主题变量，缺省是平铺的样子。 */
+    background: var(--shell-chrome-surface, var(--bg-panel));
+    border-bottom: var(--border-w) solid var(--shell-chrome-line, var(--divider));
     color: var(--text-main);
     font-size: var(--text-xs);
     user-select: none;

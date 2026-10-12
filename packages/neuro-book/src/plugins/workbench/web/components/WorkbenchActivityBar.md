@@ -5,7 +5,7 @@
 
 # WorkbenchActivityBar
 
-主体左侧的通高列，平铺在面板底色上、不画外框与圆角（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段留给全局项（账号、设置，随对应插件加入，现在为空）。它只画按钮与选中标记，点了只发 `select`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
+主体左侧的通高列，画面板底色、自己不画外框与圆角（卡片外壳里外壳给它套卡片、与侧栏相连，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段留给全局项（账号、设置，随对应插件加入，现在为空）。它只画按钮与选中标记，点了只发 `select`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
 
 ## 布局
 

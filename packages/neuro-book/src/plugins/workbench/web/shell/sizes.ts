@@ -46,7 +46,7 @@ export const SHELL_PANEL_MAX_WIDTH = 600;
 /** 拖到零的收起与恢复阈值（CSS px），与 nb-ui 的默认策略同值，这里只是显式声明。 */
 export const SHELL_DRAG_COLLAPSE_THRESHOLD = 24;
 
-/** ActivityBar 叶宽（刚性）：38px 按钮加两侧余量。外壳平铺，各部件贴着窗体与相邻的叶，不再留白（输出 38）。 */
+/** ActivityBar 卡片宽（刚性）：38px 按钮加两侧余量。叶宽是它加上卡片外壳的缝（`projectShell` 的 `cardGap`，平铺为 0，输出 3、38）。 */
 export const SHELL_ACTIVITYBAR_WIDTH = 48;
 
 export const SHELL_SIDEBAR_DEFAULT_WIDTH = 340;
@@ -84,10 +84,9 @@ function rigid(size: number): ShellLeafLimits {
     return {minimumSize: size, maximumSize: size};
 }
 
-export type ShellFixedLeafId = "activitybar" | "sidebar" | "auxiliarybar" | "editor" | "titlebar" | "statusbar";
+export type ShellFixedLeafId = "sidebar" | "auxiliarybar" | "editor" | "titlebar" | "statusbar";
 
 const SHELL_LEAF_LIMITS: Readonly<Record<ShellFixedLeafId, (viewportWidth: number) => ShellLeafLimits>> = {
-    activitybar: () => rigid(SHELL_ACTIVITYBAR_WIDTH),
     sidebar: () => ({minimumSize: SHELL_SIDEBAR_MIN_WIDTH, maximumSize: SHELL_SIDEBAR_MAX_WIDTH}),
     auxiliarybar: (viewportWidth) => ({minimumSize: SHELL_AUXILIARYBAR_MIN_WIDTH, maximumSize: auxiliarybarMaxWidth(viewportWidth)}),
     editor: () => ({minimumSize: 0, maximumSize: SHELL_EDITOR_MAX_WIDTH}),

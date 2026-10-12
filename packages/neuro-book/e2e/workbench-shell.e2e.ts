@@ -403,14 +403,14 @@ test.describe("产品页", () => {
                 return result;
             };
             return [
-                ...read("[data-workbench-shell]", {"background-color": "--panel-surface", "color": "--text-main", "font-family": "--font-ui"}),
+                ...read("[data-workbench-shell]", {"background-color": "--shell-ground", "color": "--text-main", "font-family": "--font-ui"}),
                 ...read(".workbench-panel-surface", {"background-color": "--panel-surface"}),
                 ...read(".workbench-panel-surface__title", {"color": "--text-secondary"}),
-                ...read("[data-workbench-status-bar]", {"background-color": "--bg-panel", "border-top-color": "--divider", "color": "--text-secondary"}),
+                ...read("[data-workbench-status-bar]", {"background-color": "--shell-chrome-surface", "border-top-color": "--shell-chrome-line", "color": "--text-secondary"}),
             ];
         });
         for (const {selector, property, own, token} of resolved) expect(own, `${selector} ${property}`).toBe(token);
-        // 平铺：面板标题行不画底线，面板与编辑区之间只有外壳网格的分隔条；页面根不预留滚动条位置，外壳贴到视口右缘。
+        // 面板标题行不画底线（卡片与平铺都一样）；页面根不预留滚动条位置，外壳贴到视口右缘。
         expect(await page.locator(".workbench-panel-surface__head").evaluate((head) => getComputedStyle(head).borderBottomWidth)).toBe("0px");
         expect(await page.evaluate(() => window.innerWidth - document.querySelector("[data-workbench-shell]")!.getBoundingClientRect().right)).toBe(0);
     });

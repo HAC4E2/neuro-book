@@ -62,7 +62,7 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
     <template v-else>
     <WorkbenchShellLayout
         data-lab-subject
-        class="h-full w-full bg-[var(--bg-panel)]"
+        class="h-full w-full bg-[var(--shell-ground,var(--panel-surface))]"
         :sizes="sizes"
         :panel="panel"
         :context-key="subject.bindings.value.contextKey ?? `lab:${props.scene}`"
@@ -88,7 +88,7 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
             <ShellSampleEditor />
         </template>
         <template #panel="{collapsed}">
-            <div class="flex h-full min-h-0 flex-col">
+            <div class="flex h-full min-h-0 flex-col bg-[var(--panel-surface)]">
                 <div class="flex h-8 flex-none items-center gap-2 px-3 text-xs">
                     <Button size="sm" variant="ghost" focus-ring="inset" data-shell-focus-target="panel-title" @click="setPanel({collapsed: !panel.collapsed})">面板</Button>
                     <span class="text-[var(--text-muted)]">{{ collapsed ? "已收起" : "" }}</span>

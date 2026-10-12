@@ -89,10 +89,10 @@ async function choose(page: Page, text: string): Promise<void> {
 const html = (page: Page, name: "lang" | "data-nb-theme" | "data-nb-appearance") => page.locator("html").getAttribute(name);
 const pageBackground = (page: Page) => page.locator("[data-workbench-shell]").evaluate((element) => getComputedStyle(element).backgroundColor);
 
-/** 首页的背景、文字颜色与字体，以及同一位置上 `--panel-surface`、`--text-main`、`--font-ui` 解析出的值（用探针元素求出；外壳平铺后底色是面板底色）。 */
+/** 首页的背景、文字颜色与字体，以及同一位置上外壳底色（主题的 `--shell-ground`，平铺的主题是面板底色）、`--text-main`、`--font-ui` 解析出的值（用探针元素求出）。 */
 const pageTokens = (page: Page) => page.locator("[data-workbench-shell]").evaluate((element) => {
     const probe = document.createElement("div");
-    probe.style.cssText = "background-color: var(--panel-surface); color: var(--text-main); font-family: var(--font-ui)";
+    probe.style.cssText = "background-color: var(--shell-ground, var(--panel-surface)); color: var(--text-main); font-family: var(--font-ui)";
     element.append(probe);
     const own = getComputedStyle(element);
     const token = getComputedStyle(probe);

@@ -483,9 +483,9 @@ const dropFeedback = computed(() => {
     min-width: 0;
 }
 
-/* 外壳平铺（ui/workbench-shell.md 输出 38）：部件之间不再露出底色，外壳与各部件同一块面板底色。 */
+/* 外壳根是卡片之间露出的窗体底（ui/workbench-shell.md 输出 38）：主题给 --shell-ground；平铺的主题不给，与部件同一块面板底色。 */
 .workbench-shell {
-    background: var(--panel-surface);
+    background: var(--shell-ground, var(--panel-surface));
     color: var(--text-main);
     font-family: var(--font-ui);
 }
@@ -509,13 +509,6 @@ const dropFeedback = computed(() => {
     color: var(--text-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.workbench-shell__card {
-    height: 100%;
-    background: var(--panel-surface);
-    border: var(--border-w) solid var(--panel-outline);
-    border-radius: var(--radius-panel);
 }
 
 .workbench-shell__empty {

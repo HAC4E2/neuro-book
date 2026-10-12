@@ -341,3 +341,13 @@ describe("手势：只保存直接主动的叶", () => {
         expect(short.grid.layout({width: VIEWPORT.width, height: 260}).sizes.panel?.height).toBe(SHELL_PANEL_COLLAPSED_HEIGHT);
     });
 });
+
+describe("卡片外壳的缝宽（输出 3、38）", () => {
+    it("活动栏的叶宽是 48px 加上缝宽，分栏与紧凑呈现都一样；缝宽缺省、为负或不是数时按 0", () => {
+        expect(leafExtent(project({cardGap: 4}).layout, "activitybar").width).toBe(SHELL_ACTIVITYBAR_WIDTH + 4);
+        const compact = projectShell({extent: {width: SHELL_COMPACT_WIDTH - 1, height: 900}, preferences: SHELL_SIZE_DEFAULTS, panel: PANEL, cardGap: 4});
+        expect(compact.mode).toBe("compact");
+        expect(compact.sizes.activitybar).toBe(SHELL_ACTIVITYBAR_WIDTH + 4);
+        for (const cardGap of [undefined, -4, Number.NaN]) expect(leafExtent(project({cardGap}).layout, "activitybar").width).toBe(SHELL_ACTIVITYBAR_WIDTH);
+    });
+});
