@@ -223,7 +223,7 @@ tr + tr td { border-top: var(--border-w) solid var(--divider); }
     </section>
 
     <section class="q" id="r2-artifacts">
-        <h2><span class="badge warning">待定</span>产物页：四类与挂在旁边的问题</h2>
+        <h2><span class="badge success">已定</span>产物页：四类与挂在旁边的问题</h2>
         <p class="q-ask"><b>要你定：</b>四类（设计稿、讲解与报告、审查、证据）的划分与每行的字段（所属 Work › Task、更新时间、未答问题、放在哪、警示）；打开一份设计稿时，问题以侧栏挂在旁边：未答在上、已答收起；问题挂在 Task 上而不在这页时怎么显示。</p>
         <div class="cands"><div class="cand">
                 <a class="pv" href="r2/artifacts.html"><iframe src="r2/artifacts.html" title="产物列表" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
@@ -234,29 +234,29 @@ tr + tr td { border-top: var(--border-w) solid var(--divider); }
                 <h3>打开 t80 评审板</h3>
                 <ul><li>左边是评审板原页（iframe），右边问题侧栏：挂在 Task t80 上的“批准晋升”未答，评审板上 8 个问题已答（答案取自 README 的设计决定，手工对上）。</li></ul>
             </div></div>
-        <dl class="slot"><dt>主 Agent 的推荐</dt><dd>推荐照稿子。问题用约定的标记写在产物里（<code>data-nb-question</code>），侧栏从标记读出，不再手工对；“挂在 Task 上的问题”（例如 Spec 晋升）作为一类独立条目，不必依附某个页面。</dd><dt>开发者的决定</dt><dd>（待定）</dd></dl>
+        <dl class="slot"><dt>主 Agent 的推荐</dt><dd>推荐照稿子。问题用约定的标记写在产物里（<code>data-nb-question</code>），侧栏从标记读出，不再手工对；“挂在 Task 上的问题”（例如 Spec 晋升）作为一类独立条目，不必依附某个页面。</dd><dt>开发者的决定</dt><dd>按推荐（随 Proposal 2026-10-12 接受，见第三节；提问标记的前缀后改为 <code>data-nbdev-*</code>）。</dd></dl>
     </section>
 
     <section class="q" id="r2-docs">
-        <h2><span class="badge warning">待定</span>文档页：按类型的树与切换 checkout</h2>
+        <h2><span class="badge success">已定</span>文档页：按类型的树与切换 checkout</h2>
         <p class="q-ask"><b>要你定：</b>左边按类型分组的树（Spec 按分类展开，其余类型给数量）；顶部切换 checkout，默认 master，切走时标“不是默认的 master”和与 master 的差异；“最近改了什么”放成按钮还是常驻一栏。</p>
         <div class="cands"><div class="cand">
                 <a class="pv" href="r2/docs.html"><iframe src="r2/docs.html" title="文档页（t80/settings-ui 上的 settings-window.md）" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
                 <h3>文档页（t80/settings-ui 上的 settings-window.md）</h3>
                 <ul><li>右边渲染 t80 分支上 5bc8fbda 版本的原文，frontmatter 变成徽章（planned、待晋升），带这份文件的 5 次改动。</li><li>切到 master：这份 Spec 不存在，给出它在哪个分支上；树换成 master 的 35 份。</li><li>t80 分支对 master：Spec 新增 12、删去 7、改动 30，删去的在树底下划掉显示。</li></ul>
             </div></div>
-        <dl class="slot"><dt>主 Agent 的推荐</dt><dd>推荐：从某个 Task 进入时默认看那个 Task 所在的 checkout，从左栏进入时默认看 master；其余照稿子。</dd><dt>开发者的决定</dt><dd>（待定）</dd></dl>
+        <dl class="slot"><dt>主 Agent 的推荐</dt><dd>推荐：从某个 Task 进入时默认看那个 Task 所在的 checkout，从左栏进入时默认看 master；其余照稿子。</dd><dt>开发者的决定</dt><dd>按推荐（随 Proposal 2026-10-12 接受，待决问题 13）；其余照稿子。</dd></dl>
     </section>
 
     <section class="q" id="r2-github">
-        <h2><span class="badge warning">待定</span>GitHub：PR 与 Issue</h2>
+        <h2><span class="badge success">已定</span>GitHub：PR 与 Issue</h2>
         <p class="q-ask"><b>要你定：</b>PR、Issue 放一页两个标签还是各一页；PR 关联 Work 用分支名里的 w 编号与 Issue 号推断；“本地已合入、PR 还开着”这类提示放这里，还是进收件箱。</p>
         <div class="cands"><div class="cand">
                 <a class="pv" href="r2/github.html"><iframe src="r2/github.html" title="GitHub 页" loading="lazy" tabindex="-1"></iframe><span class="open btn sm secondary">打开</span></a>
                 <h3>GitHub 页</h3>
                 <ul><li><code>gh pr list</code>、<code>gh issue list</code> 的只读结果：开着的 PR 6 个、最近合并或关闭的 9 个；开着的 Issue 82 个，列最近更新的 30 个。</li><li>#245（w00020）检查失败 4 项，而它的分支已全部在 master 里。</li></ul>
             </div></div>
-        <dl class="slot"><dt>主 Agent 的推荐</dt><dd>推荐第一版只读（列表、状态、检查结果、跳到 GitHub），写操作放第二版。</dd><dt>开发者的决定</dt><dd>（待定）</dd></dl>
+        <dl class="slot"><dt>主 Agent 的推荐</dt><dd>推荐第一版只读（列表、状态、检查结果、跳到 GitHub），写操作放第二版。</dd><dt>开发者的决定</dt><dd>按推荐：第一版只读（随 Proposal 2026-10-12 接受，待决问题 12）；PR 与 Issue 照稿子放一页、两个标签，“本地已合入、PR 还开着”的提示放这一页（主 Agent 照稿子定，记入待确认清单）。</dd></dl>
     </section>
 
     <section class="q" id="r2-gaps">
