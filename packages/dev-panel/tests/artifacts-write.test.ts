@@ -170,6 +170,30 @@ describe("登记、撤回与取代", () => {
     });
 });
 
+describe("答复只能答活的题；每种写入只提交自己的路径", () => {
+    test("已撤回、已取代、因关闭而撤回的题拒绝答复；ask、withdraw、supersede、close 的提交只含新的发布记录，无关的已暂存改动留在暂存区", async () => {
+        const {fixture, context} = await setup("answers-live-only");
+        await fixture.write(`${DIR}/index.html`, page());
+        await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await fixture.write(".agents/works/w00001-seed/README.md", "unrelated staged change\n");
+        await git(fixture.main, "add", "--", ".agents/works/w00001-seed/README.md");
+        const onlyVersion = async (outcome: {commit: {committed: boolean; sha?: string}; data: {path: string | null}}) => {
+            if (!outcome.commit.committed || !outcome.commit.sha) throw new Error("应已提交");
+            expect(await changedPaths(fixture, outcome.commit.sha)).toEqual([outcome.data.path!]);
+        };
+        await onlyVersion(await askQuestions(context, {...TARGET, questions: [{id: "pulled", type: "text", label: "撤回的题"}, {id: "replaced", type: "text", label: "被取代的题"}]}, asBob));
+        await onlyVersion(await withdrawQuestion(context, {...TARGET, question: "review#pulled"}, asBob));
+        await onlyVersion(await supersedeQuestion(context, {...TARGET, question: "review#replaced", by: "review#layout"}, asBob));
+        const answer = (values: Record<string, unknown>) => submitAnswer(context, {...TARGET, values, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        await expect(answer({pulled: "晚了"})).rejects.toMatchObject({code: "question_closed", details: {questionId: "pulled", outcome: {kind: "withdrawn", reason: "explicit"}}});
+        await expect(answer({replaced: "晚了"})).rejects.toMatchObject({code: "question_closed", details: {questionId: "replaced", outcome: {kind: "superseded"}}});
+        await onlyVersion(await closeArtifact(context, TARGET, asBob));
+        await expect(answer({approve: true})).rejects.toMatchObject({code: "question_closed", details: {questionId: "approve", outcome: {kind: "withdrawn", reason: "closed"}}});
+        expect((await readArtifact(fixture.main, REF)).answers).toEqual([]);
+        expect(await git(fixture.main, "diff", "--cached", "--name-only")).toBe(".agents/works/w00001-seed/README.md");
+    });
+});
+
 describe("答复与确认", () => {
     test("取值按题的定义校验；确认覆盖当时未确认的全部答复，与 --include 的 README 同一个提交；没有新答复时不写", async () => {
         const {fixture, context} = await setup("answers-ack");
@@ -246,18 +270,17 @@ describe("答复与确认", () => {
         await expect(ackAnswers(context, {...TARGET, through: "zzz"}, asBob)).rejects.toMatchObject({code: "usage"});
     });
 
-    test("先读时钟、后拿锁：晚落位的答复 id 仍比先落位的大，确认之后它仍是未确认", async () => {
+    test("答复 id 用锁内重读的时钟：写事务锁前读的时钟（tx.now）早于别的产物刚落位的答复时，id 仍排在后面，跨产物的 --since 不漏", async () => {
         const {fixture, context} = await setup("answers-clock");
         await fixture.write(`${DIR}/index.html`, page());
         await publishArtifact(context, {...TARGET, kind: "design"}, asBob);
+        await askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "note", type: "text", label: "补一句"}]}, asBob);
         const first = await submitAnswer(context, {...TARGET, values: {layout: "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
-        await ackAnswers(context, TARGET, asBob);
-        // 这份答复的写事务“一分钟前就读了时钟”（tx.now），一直等锁到现在才落位。
-        const late = await submitAnswer(context, {...TARGET, values: {approve: true}, submittedBy: {kind: "agent-transcribed"}}, {...asBob, now: () => new Date(Date.now() - 60_000)});
+        // 这份答复的写事务“一分钟前就读了时钟”，一直等锁到现在才落位；它写在另一个产物里，同目录 +1 毫秒的规则帮不上忙。
+        const late = await submitAnswer(context, {workRef: "w00001", taskRef: "t01", artifactId: "questions", values: {note: "后到"}, submittedBy: {kind: "agent-transcribed"}}, {...asBob, now: () => new Date(Date.now() - 60_000)});
         expect(late.data.answer.answerId > first.data.answer.answerId).toBe(true);
-        const snapshot = await readArtifact(fixture.main, REF);
-        const {unackedAnswers} = await import("../src/core/artifacts.js");
-        expect(unackedAnswers(snapshot.answers, snapshot.acks).map((answer) => answer.answerId)).toEqual([late.data.answer.answerId]);
+        const after = await readAnswers(context, {workRef: "w00001", taskRef: "t01", filter: "all", since: first.data.answer.answerId});
+        expect(after.artifacts.map((view) => [view.artifactId, view.answers.map((entry) => entry.answerId)])).toEqual([["questions", [late.data.answer.answerId]]]);
     });
 });
 

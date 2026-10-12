@@ -117,7 +117,7 @@ describe("产物与答复的命令（场景）", () => {
         expect(data<{artifacts: Array<{questions: Array<{question: {id: string}}>}>}>(pending.json).artifacts.map((artifact) => artifact.questions.map((state) => state.question.id))).toEqual([["layout-v2"]]);
     });
 
-    test("场景 3：ask 登记的题进收件箱，ask withdraw 之后消失", async () => {
+    test("场景 3：ask 登记的题进收件箱，ask withdraw 之后消失；选答题不进收件箱", async () => {
         const fixture = await createFixture("cli-ask");
         const asked = await fixture.cli(["ask", "w00001", "t01", "--id", "migrate-order", "--type", "text", "--label", "迁移顺序怎么排", "--as", "bob", "--json"]);
         expect([asked.exitCode, data<{artifactId: string; version: number}>(asked.json)]).toEqual([0, expect.objectContaining({artifactId: "questions", version: 1})]);
@@ -128,6 +128,8 @@ describe("产物与答复的命令（场景）", () => {
         await writeFile(fromFile, JSON.stringify({questions: [{id: "pick", type: "single", label: "选一个", options: "a:甲|b:乙", recommend: "a"}, {id: "ok", type: "confirm", label: "同意吗", required: false}]}));
         const batch = await fixture.cli(["ask", "w00001", "t01", "--from", fromFile, "--as", "bob", "--json"]);
         expect([batch.exitCode, data<{affected: string[]}>(batch.json).affected]).toEqual([0, ["pick", "ok"]]);
+        // 选答题（ok）不进收件箱。
+        expect((await inbox(fixture)).map((item) => item.questionId)).toEqual(["pick"]);
         expect((await fixture.cli(["ask", "w00001", "t01", "--from", fromFile, "--id", "x", "--json"])).exitCode).toBe(2);
     });
 
@@ -262,7 +264,7 @@ describe("产物与答复的命令（场景）", () => {
         expect([light.exitCode, light.stderr]).toEqual([0, ""]);
         expect((await git(fixture.main, "status", "--porcelain", "--untracked-files=all", "--ignored")).split("\n").sort().join("\n")).toBe(before);
         const heavy = await run(process.execPath, ["--preload", NO_PARSE5, CLI_PATH, "artifact", "publish", "w00001", "t01", "review", "--force-version", "--as", "bob", "--json"], fixture.main);
-        expect(heavy.exitCode).not.toBe(0);
+        expect([heavy.exitCode, heavy.stderr]).toEqual([1, expect.stringContaining("parse5 不该")]);
         const done = await fixture.cli(["task", "status", "w00001", "t01", "done", "--as", "bob", "--json"]);
         expect([done.exitCode, done.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["open_questions"]]);
         expect((await readArtifact(fixture.main, REF)).latest?.questions.every((question) => question.outcome === null)).toBe(true);
