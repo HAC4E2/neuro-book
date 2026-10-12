@@ -1,6 +1,7 @@
 /**
  * @notnotype/dev-panel 的公开入口：nbdev 命令行与（后续）面板共用的核心库。
- * 本入口与它引用的 src/core 只用 Node 兼容 API：根脚本测试在 Node 下导入它（tsconfig.core.json 在类型层守住这一点）。
+ * 本入口与它引用的 src/core 只用 Node 兼容 API：根脚本测试在 Node 下导入它。tsconfig.core.json 只带 Node 类型、把 bun 与 bun:* 指到空模块，
+ * 在类型层拦住 Bun 全局与从 bun 模块取导出；Node 下的根测试在运行时再拦一次。
  */
 export {
     ERROR_EXIT_CODES,

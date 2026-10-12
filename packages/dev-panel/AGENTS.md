@@ -8,7 +8,7 @@
 
 - Owner：w00022（开发者项目面板）。公开合同是 `src/index.ts` 的导出面与 `nbdev` 的命令行合同。
 - 依赖方向：不依赖 `@notnotype/neuro-book`，不导入根 `scripts/`；根 `scripts/ci/dev-panel-records.test.ts` 导入本包公开入口，是允许的方向。
-- `src/index.ts` 与 `src/core/` 只用 Node 兼容 API（根脚本测试在 Node 下导入它们）；`tsconfig.core.json` 在类型层守住这一点。不要在核心里用 `Bun.*` 或 `bun:*`。
+- `src/index.ts` 与 `src/core/` 只用 Node 兼容 API（根脚本测试在 Node 下导入它们），由两层保证：`tsconfig.core.json` 只带 Node 类型，并把 `bun`、`bun:*` 指到空模块 `types/no-bun-in-core.d.ts`，类型检查拦住 `Bun` 全局与从 bun 模块取导出；`scripts/ci/dev-panel-records.test.ts` 在 Node 下导入公开入口，运行时再拦一次。不要在核心里用 `Bun.*` 或 `bun:*`。
 - 记录锁是本包自己实现的目录锁（`src/core/lock.ts`），持锁者是否存活按 `/proc/<pid>/stat` 的启动时刻判断，没有心跳；不要换回按 mtime 判过期的锁库。
 - 只支持 Linux。
 
