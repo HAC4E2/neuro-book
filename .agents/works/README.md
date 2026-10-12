@@ -20,6 +20,35 @@
 - Task 不保存 `role`、`actionIssueId`、`agentWorkflow`、`kind`、`worktreeId` 或 `branchId`。治理只校验身份、容器和退役字段；正文是协作参考，不是机器状态或权限门禁。
 - `.agents`、`.agents/works`、Work、`tasks` 与 Task 五级 current 路径必须由真实目录项组成；symlink/junction 不形成 Work/Task identity，`governance:check` 与 `governance:context` 都明确拒绝。
 
+## 仓库 Work 与本地 Work
+
+Work 分两类，写法相同：本文件关于目录与身份、README、Task 与快照的规则两类都适用。
+
+| | 仓库 Work | 本地 Work |
+|---|---|---|
+| 位置 | `.agents/works/<workId>/`，入库 | 主仓库根的 `.local/agent/works/<workId>/`，不入库 |
+| 用于 | 会改代码、规范或长期行为的工作 | 探索、spike、一次性的调查或讨论 |
+
+- 两类共用一个编号空间：本地 Work 同样按下文“编号分配”占号，不与仓库 Work 撞号。
+- 本地 Work 转为仓库 Work：把 Work 与各 Task 的 README（及要入库的文字记录）搬进 `.agents/works/`，编号不变；本地产物留在原处。
+- 两类 Work 的本地产物都放 `.local/agent/works/<workId>/`，布局见 [`.local/README.md`](../../.local/README.md)。
+- 治理检查只看 `.agents/works/`；本地 Work 不受机检，靠同一套写法自律。
+
+## 本地与入库
+
+一件东西进 Git，当且仅当它会约束之后的人或 Agent 的行为，或者丢了就无法重现：
+
+| 进 Git | 留本地（`.local/agent/works/<workId>/`） |
+|---|---|
+| 代码、测试、脚本与配置 | 能重新生成的：截图、构建产物、测试与检查的原始输出、日志 |
+| Spec、ADR、Proposal、规范与 Skill | 讨论材料：草稿、对比图、讲解页、评审板、表单答案 |
+| Work 与 Task 的范围、授权、决定、当前状态，验证结论（跑了什么、多少通过、失败原文） | 子代理与 omp 的报告原文、会话记录 |
+| 不可重现且必须保留的原始数据（例如一次性测量的数值），写成小的文本文件放 `evidences/` | 大体量数据 |
+
+- **决定以文字入库**：讲解页与表单答案只是讨论材料；开发者的决定由 Agent 摘成文字写进 Task README。
+- **截图默认不入库**，包括验收截图；开发者要求时例外。
+- **已入库的不动**：历史里的文件删了也不会让仓库变小，不为瘦身删除已入库的证据或改写历史；本规则从 2026-10-12 起对新内容生效。
+
 ## 编号分配与记录位置
 
 Work 的五位序号在项目内唯一，名称不同也不能复用同一序号。各实现 worktree 不独立选择“下一个编号”。
@@ -43,7 +72,7 @@ Work 的五位序号在项目内唯一，名称不同也不能复用同一序号
 
 Task README 只保留当前快照：目标／范围与非目标、当前状态、授权来源与限制、下一步或阻塞、合同与有效证据链接；不强制固定标题或新状态字段。长期行为在 Spec／组件文档，Work 保存总体范围与授权，Task 引用而不复制。
 
-状态变化时替换已失效快照，不在底部不断追加“当前状态”。需要恢复的决策或历程按需进入 `walkthroughs/`，不可替代的原始证据才进入 `evidences/`；小改动不强制建文件或空目录。界面设计稿、对照图与讨论用截图能从草稿重画，不入库，放主仓库根的 `.local/design-review/<Task>/`（见 [design-review](../skills/design-review/SKILL.md)）。恢复先读快照，历史仅按问题读取；旧证据与旧授权不能冒充当前状态。
+状态变化时替换已失效快照，不在底部不断追加“当前状态”。需要恢复的决策或历程按需进入 `walkthroughs/`，不可替代的原始证据才进入 `evidences/`，其余按上文“本地与入库”留在本地；小改动不强制建文件或空目录。恢复先读快照，历史仅按问题读取；旧证据与旧授权不能冒充当前状态。
 
 膨胀的 current Task 在其 owner 可协调的恢复点渐进整理：把失效叙事移入已有 walkthrough，保留日期、授权和失败记录，README 留最新快照与链接。不批量整理无关 Task，不回填历史验证结果。
 

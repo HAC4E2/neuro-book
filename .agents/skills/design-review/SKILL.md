@@ -19,8 +19,8 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 ## 草稿放在哪里
 
 - **草稿代码**：单独的草稿 worktree（例如 `.worktree/<Work 短名>-<Task>-drafts`，分支 `<Task>/drafts`，不合并、不推送），场景放在 Lab 的 `fixtures/drafts/`，登记改动同样不提交。草稿和编码不在同一个 worktree：开发服务热重载会把编码中途的错误带进草稿截图，草稿的类型错误也会让编码的 typecheck 失败。
-- **评审板**：主仓库根的 `.local/design-review/<Task>/`（git 忽略，删 worktree 不受影响）。`index.html` 是唯一入口，每轮的图放 `r1/`、`r2/`…，按原尺寸保存 PNG，不为体积压缩。
-- **不入库**：设计稿、对照图与讨论用截图都不进 Git；能从草稿场景重画的不算“不可替代的原始证据”（[Work 规则](../../works/README.md)）。验收截图同样放评审板，开发者要求时才入库。
+- **评审板**：主仓库根的 `.local/agent/works/<workId>/tasks/<taskId>/review/`（git 忽略，删 worktree 不受影响；布局见 [`.local/README.md`](../../../.local/README.md)）。`index.html` 是唯一入口，每轮的图放 `r1/`、`r2/`…，按原尺寸保存 PNG，不为体积压缩。实现阶段的验收截图放同一 Task 的 `shots/`。
+- **不入库**：设计稿、对照图、讨论与验收截图都不进 Git，开发者要求时例外（[Work 规则的“本地与入库”](../../works/README.md#本地与入库)）。
 
 ## 评审板怎么写
 
