@@ -1,7 +1,8 @@
 /**
  * 窗口界面的挂载（runtime.browser-host 启动序列第 5 步）：任何时刻容器里要么是宿主页，要么是完整的页面。
  * 窗口、内核与工作台插件都是真的；连接对象返回符合协议的引导响应（真实后端的响应在 window.test.ts 里），
- * 这里要控制的是“先失败、再成功”的时序。
+ * 这里要控制的是“先失败、再成功”的时序。页面切换后通知仍在（workbench.notifications 验收 2）也在这里验：
+ * 队列与工作台入口同寿，两个页面各挂一个视口。
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -13,6 +14,8 @@ import {describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
+import type {NotificationInput, Notifications} from "nbook/plugins/workbench/shared/contracts";
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 
 import {ConnectionError} from "./host/connection";
@@ -51,8 +54,13 @@ function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0, serv
     };
 }
 
+interface TestPlugin {
+    readonly descriptor: PluginDescriptor;
+    readonly definition: PluginDefinition;
+}
+
 /** 贡献一个加载必然失败的页面的插件。 */
-const brokenPage: {descriptor: PluginDescriptor; definition: PluginDefinition} = {
+const brokenPage: TestPlugin = {
     descriptor: {id: "test.broken-page", version: "0.1.0", locations: ["browser"]},
     definition: {
         id: "test.broken-page",
@@ -68,9 +76,35 @@ const brokenPage: {descriptor: PluginDescriptor; definition: PluginDefinition} =
     },
 };
 
-async function mountAt(path: string, options: {failures?: number; withBrokenPage?: boolean; clock?: ManualClock; server?: {current: RemoteRouter}} = {}) {
-    const builtin = options.withBrokenPage === true ? [...builtinBrowserPlugins, brokenPage.descriptor] : builtinBrowserPlugins;
-    const definitions = options.withBrokenPage === true ? {...browserPluginDefinitions, [brokenPage.descriptor.id]: brokenPage.definition} : browserPluginDefinitions;
+/** 经工作台的通知服务发通知的插件：激活时取到服务，测试在页面挂好之后经 `notify` 发。 */
+function notifier(): TestPlugin & {notify(input: NotificationInput): void} {
+    let service: Notifications | null = null;
+    return {
+        descriptor: {id: "test.notifier", version: "0.1.0", locations: ["browser"]},
+        definition: {
+            id: "test.notifier",
+            entries: [{
+                id: "browser",
+                location: "browser",
+                activationEvents: ["onStartup"],
+                dependencies: [{key: notificationsKey}],
+                activate: (context) => {
+                    service = context.services.require(notificationsKey);
+                    return {};
+                },
+            }],
+        },
+        notify: (input) => {
+            if (service === null) throw new Error("test.notifier 没有激活");
+            service.notify(input);
+        },
+    };
+}
+
+async function mountAt(path: string, options: {failures?: number; plugins?: ReadonlyArray<TestPlugin>; clock?: ManualClock; server?: {current: RemoteRouter}} = {}) {
+    const extra = options.plugins ?? [];
+    const builtin = [...builtinBrowserPlugins, ...extra.map((plugin) => plugin.descriptor)];
+    const definitions = {...browserPluginDefinitions, ...Object.fromEntries(extra.map((plugin) => [plugin.descriptor.id, plugin.definition]))};
     const remote = connection(builtin, options.failures, options.server);
     const browserWindow = createBrowserWindow({connection: remote, page: new EventTarget(), console: {error: () => undefined}, navigation: {navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened", currentUrl: () => "http://localhost/", replaceUrl: () => undefined}, builtin, definitions, clock: options.clock});
     await browserWindow.start();
@@ -79,7 +113,7 @@ async function mountAt(path: string, options: {failures?: number; withBrokenPage
     history.replace(path);
     const reloads: string[] = [];
     await mountWindowUi({browserWindow, container, history, navigateDocument: () => undefined, reloadDocument: () => reloads.push("reload")});
-    return {browserWindow, container, reloads, links: remote.links};
+    return {browserWindow, container, history, reloads, links: remote.links};
 }
 
 describe("窗口界面的挂载", () => {
@@ -149,7 +183,7 @@ describe("窗口界面的挂载", () => {
     });
 
     it("当前路径的页面模块加载失败：显示只能刷新的启动失败页，不挂半个页面", async () => {
-        const {browserWindow, container, reloads} = await mountAt("/broken", {withBrokenPage: true});
+        const {browserWindow, container, reloads} = await mountAt("/broken", {plugins: [brokenPage]});
         const host = container.querySelector("[data-browser-host-status]");
         expect(host?.getAttribute("data-browser-host-status")).toBe("startup-failed");
         expect(host?.textContent).toContain("页面模块加载失败（测试注入）");
@@ -158,4 +192,27 @@ describe("窗口界面的挂载", () => {
         expect(reloads).toEqual(["reload"]);
         await browserWindow.stop();
     });
+
+    it("在 `/` 发出的通知，导航到 `/workbench` 后仍在（workbench.notifications 验收 2）", async () => {
+        const plugin = notifier();
+        const {browserWindow, container, history} = await mountAt("/", {plugins: [plugin]});
+        const root = (): Element | null => container.querySelector("[data-workbench-root]");
+        const shown = (): boolean => [...root()?.querySelectorAll("[data-notification-viewport] [role='status']") ?? []].some((node) => node.textContent?.includes("导出完成") === true);
+        // 没有项目时 `/` 是书架首页，`/workbench` 从不用首页贡献：据此分辨两个页面。
+        expect(root()?.hasAttribute("data-workbench-home")).toBe(true);
+        const home = root();
+        plugin.notify({title: "导出完成", message: "第一卷.md", sticky: true});
+        // 视口是异步组件，模块第一次加载要一两秒。
+        await vi.waitFor(() => expect(shown()).toBe(true), {timeout: 10_000});
+
+        // 产品里还没有站内去 `/workbench` 的入口：排好历史记录、不触发地退回 `/`，再前进，走的是浏览器前进的同一条路由导航。
+        history.push("/workbench");
+        history.go(-1, false);
+        history.go(1);
+        await vi.waitFor(() => expect(root()?.hasAttribute("data-workbench-home")).toBe(false));
+        expect(root()).not.toBe(home);
+        // 视口模块已经加载过：新页面挂上就该看到。
+        await vi.waitFor(() => expect(shown()).toBe(true));
+        await browserWindow.stop();
+    }, 15_000);
 });

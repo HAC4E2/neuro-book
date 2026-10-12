@@ -15,7 +15,7 @@ taskId: t77-bookshelf-polish-2
 
 不做：通知的去重与数量上限、`Banner` 的使用者、品牌色进主题、`settings/commands.test.ts` 的既有失败。
 
-行为合同：[`workbench/bookshelf.md`](../../../../../docs/specs/workbench/bookshelf.md) 输出 6、8、11–13 与新增验收；[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) 输出 27 与新增验收；nb-ui 组件文档。
+行为合同：[`workbench/bookshelf.md`](../../../../../docs/specs/workbench/bookshelf.md) 输出 6、8、11–13 与新增验收；[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) 输出 27 与新增验收；[`workbench/notifications.md`](../../../../../docs/specs/workbench/notifications.md) 输出 1 与晋升；nb-ui 组件文档。
 
 ## 前置
 
@@ -23,6 +23,11 @@ taskId: t77-bookshelf-polish-2
 
 ## 当前状态
 
+- 2026-10-12 omp 实现审查期间并行做的（开发者同意）：
+  - 反思回写三条已写入：`design-language.md` 踩过的坑 52（列表类组件外部改值抢焦点）、53（机检报 0 前先验坏样本），根 `AGENTS.md` 补 `bunx` 不支持 `--cwd`。
+  - `workbench/notifications.md` 输出 1 与目标、术语里的“在字段下提示”改成与 S2 的校验规则一致：留在表单里，原因写在状态行。同样漏改的 `ProjectInfoDialog.md`、`BookshelfHost.md` 两处组件文档一并改正。
+  - 通知 Spec 晋升 `implemented`（t76 留下待定）：验收 2 卡在产品里没有站内去 `/workbench` 的入口，开发者选先用入口级测试覆盖。`mount.dom.test.ts` 新增一例：真实窗口、内核与工作台插件，加一个经 `notificationsKey` 发通知的测试插件，在 `/`（书架首页）发通知后经路由前进换到 `/workbench`，页面根换了、通知仍在。补实现合同与三条证据，注册表挪到已实现。
+  - 验证：`mount.dom.test.ts` 7 例全过，neuro-book typecheck 为 0；变异 2 处被抓到（视口卸载时清空队列、每次渲染新建队列），前者断言落在换页之后那一步。
 - 2026-10-12 S4（收口）进行中：Lab 版面测量补强与门禁已完成，omp 实现审查待跑。
   - **测量补强**（`lab-debug.ts`）：
     - 覆盖传送到画布浮层落点的对话框与抽屉，以及 body 上开着的 reka 浮层；
