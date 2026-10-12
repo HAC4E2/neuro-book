@@ -1,6 +1,6 @@
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
-import {NbdevError, type Warning} from "./errors.js";
+import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {gitOutput, runGit, splitNul} from "./git.js";
 import {assertSlug, formatTaskId, formatWorkId, parseWorkId, taskNumberLabel, workNumberLabel} from "./ids.js";
 import {parseFrontmatter, setFrontmatterFields} from "./frontmatter.js";
@@ -197,6 +197,13 @@ export async function setRecordStatus(context: RepoContext, input: {
             taskId = candidate;
             path = taskReadmePath(workId, taskId);
         }
+        let text: string;
+        try {
+            text = await readFile(resolve(mainRoot, path), "utf8");
+        } catch (error) {
+            if (systemErrorCode(error) === "ENOENT") throw new NbdevError("target_missing", `记录的 README 不存在：${path}`, {details: {path}});
+            throw error;
+        }
         const dirty = splitNul(await gitOutput(mainRoot, ["status", "--porcelain", "-z", "-uall", "--no-renames", "--", path], {readOnly: true}));
         if (dirty.length > 0 && !input.includeUncommitted) {
             const diff = await runGit(mainRoot, ["diff", "HEAD", "--", path], {readOnly: true});
@@ -204,7 +211,6 @@ export async function setRecordStatus(context: RepoContext, input: {
                 details: {path, status: dirty.map((entry) => entry.slice(0, 2)), diff: diff.exitCode === 0 && diff.stdout !== "" ? diff.stdout : null},
             });
         }
-        const text = await readFile(resolve(mainRoot, path), "utf8");
         const hash = sha256(text);
         if (input.expectedHash !== undefined && input.expectedHash !== hash) {
             throw new NbdevError("hash_mismatch", `文件在读取之后被改过：${path}`, {details: {path, expected: input.expectedHash, actual: hash}});

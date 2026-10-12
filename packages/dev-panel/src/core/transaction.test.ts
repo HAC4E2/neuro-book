@@ -78,6 +78,8 @@ describe("写事务", () => {
         expect(done.commit).toMatchObject({committed: true});
         expect(await readFile(path, "utf8")).toBe(taskReadme("t01-seed", "status: done\nupdated: 2026-10-12\n"));
         await expect(setRecordStatus(context, {workRef: "w00001", taskRef: "t01", status: "draft"})).rejects.toMatchObject({code: "invalid_status"});
+        await fixture.write(".agents/works/w00001-seed/tasks/t02-no-readme/notes.md", "没有 README\n");
+        await expect(setRecordStatus(context, {workRef: "w00001", taskRef: "t02", status: "done"})).rejects.toMatchObject({code: "target_missing"});
         await expect(setRecordStatus(context, {workRef: "w00001", taskRef: "t01", status: "active", expectedHash: "0".repeat(64)})).rejects.toMatchObject({code: "hash_mismatch"});
     });
 
