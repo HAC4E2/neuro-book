@@ -93,7 +93,7 @@ interface SettingsPageContext {
 
 ### 7. 示例插件（`packages/neuro-book/examples/`）
 
-新增 `example.snippets`“常用片段”：配置项 `example.snippets/items` 是 `{name, text}` 的数组（用户与本作品两层），通用列表画不了，所以贡献一个 column 页面（分区 `example.snippets.main`，plugins 组）：列表加增删改、上下移动；按 `context.layer` 只编辑这一层，本作品层没写时显示“沿用用户设置”与“在本作品里单独设置”。教学注释讲什么时候用整页、怎样按层读写、为什么用 `SettingsRow`。场景测试 `06-settings-page.test.ts` 核对声明被接受、页面交付与撤回、按层写入与越权写入被拒；Lab 场景把设置窗口与这个页面挂在一起供人看。
+新增 `example.snippets`“常用片段”：配置项 `example.snippets/items` 是 `{name, text}` 的数组（用户与本作品两层），通用列表画不了，所以贡献一个 column 页面（分区 `example.snippets.main`，plugins 组）：列表加增删改、上下移动；按 `context.layer` 只编辑这一层，本作品层没写时显示“沿用用户设置”与“在本作品里单独设置”。教学注释讲什么时候用整页、怎样按层读写、为什么用 `SettingsRow`。场景测试 `06-settings-page.test.ts` 核对声明被接受、页面交付与撤回、按层写入与越权写入被拒；页面组件的交互由它自己的 DOM 测试覆盖（Vitest 收集 `examples/**/*.dom.test.ts`）。架构规则不允许产品代码（含 Lab）引用 `examples/`，Lab 用自带的最小页面展示设置窗口挂整页的机制。
 
 ## Spec 与文档改动
 

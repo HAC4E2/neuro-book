@@ -131,12 +131,17 @@ describe("SettingsRow", () => {
         expect(slotOf(wrapper).text()).toBe("\"dark\"");
     });
 
-    it("宽排法：控件另起一行，恢复默认在标题那一行；声明不允许这一层时不画控件", async () => {
+    it("宽排法：控件另起一行，恢复默认在标题那一行，沿用时控件停用；声明不允许这一层时不画控件", async () => {
         const created = host({user: {values: {"nbook.workbench/appearance": "dark"}}, project: {}});
         await flushPromises();
         const wide = row(created, appearanceSetting as SettingDefinition<unknown>, "user", {wide: true});
         expect(wide.find("[data-settings-row-wide] [data-slot]").exists()).toBe(true);
         expect(wide.find("[data-settings-row-head] [data-settings-row-reset]").exists()).toBe(true);
+        // 宽排法沿用时控件也画出来、停用，显示沿用的值。
+        const inherited = row(created, themeSetting as SettingDefinition<unknown>, "project", {wide: true});
+        expect(inherited.attributes("data-settings-row-state")).toBe("inherit");
+        expect(inherited.find("[data-settings-row-wide] [data-slot]").attributes("data-disabled")).toBe("true");
+        expect(inherited.find("[data-settings-row-wide] [data-slot]").text()).toBe("\"nbook\"");
         const notAllowed = row(created, localeSetting as SettingDefinition<unknown>, "project");
         expect(notAllowed.attributes("data-settings-row-state")).toBe("not-allowed");
         expect(notAllowed.text()).toContain("只能在用户设置里改");

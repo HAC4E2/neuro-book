@@ -1,6 +1,6 @@
 # 示例插件
 
-五个按第三方插件写法写的示例插件，演示内核的主要机制与内置插件（`nbook.storage`、`nbook.state`、`nbook.commands`）的用法，也可以当写新插件的样板。每个示例插件都装进真实的内置插件运行，由五个场景测试核对行为。
+六个按第三方插件写法写的示例插件，演示内核的主要机制与内置插件（`nbook.storage`、`nbook.state`、`nbook.commands`、`nbook.settings`）的用法，也可以当写新插件的样板。每个示例插件都装进真实的内置插件运行，由六个场景测试核对行为。
 
 讲解写在代码旁边：每个文件开头说明它演示什么、对应哪个场景，关键的每一步说明做什么、为什么、不这样会怎样，并链接 Spec。本文件只做目录、概念与阅读顺序，不贴代码。
 
@@ -13,12 +13,13 @@
 3. [03-contribution-point](scenarios/03-contribution-point.test.ts)：贡献点。先读 [menu](plugins/menu/)，再读 [file-menu](plugins/file-menu/)。
 4. [04-remote-service](scenarios/04-remote-service.test.ts)：远程服务、项目实例、插件状态与命令。读 [counter](plugins/counter/)。
 5. [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts)：以调用方身份代理。读 notes 的 `web/plugin.ts`。
+6. [06-settings-page](scenarios/06-settings-page.test.ts)：配置项与设置窗口的 page 分区。读 [snippets](plugins/snippets/)：`plugin.ts` → `shared/contracts.ts` → `web/plugin.ts` → `web/snippets.ts` → `web/SnippetsPage.vue`（与 `SnippetsEditor.vue`）。
 
 场景用到的场地与探针在 [`testing/`](testing/)，宿主给示例插件的时钟能力的键在 [`shared/host.ts`](shared/host.ts)。
 
 ## 运行
 
-在应用包目录运行 `bun test examples` 只跑示例的场景；`bun run test` 连同应用包的其它测试一起跑（示例随它运行，内核的公开接口改了、示例没跟上会直接失败）。类型检查随 `bun run typecheck`：后端、共用代码与场景在 `tsconfig.json`，浏览器与共用代码在 `tsconfig.web.json`。
+在应用包目录运行 `bun test examples` 只跑示例的场景；示例插件界面组件的测试（`*.dom.test.ts`，例如 snippets 的设置页）由 Vitest 在 happy-dom 里跑，`bun run test:vitest` 连同应用包的组件测试一起跑（Bun 不能加载 `.vue`）。`bun run test` 两样都跑（示例随它运行，内核的公开接口改了、示例没跟上会直接失败）。类型检查随 `bun run typecheck`：后端、共用代码与场景在 `tsconfig.json`，浏览器与共用代码在 `tsconfig.web.json`。
 
 ## 几个概念
 
@@ -32,6 +33,8 @@
 | 远程服务 | 跨实例的协议：异步、可序列化、有失败码，不构成依赖；第一次调用时激活提供方。同一实例里的调用方也直接用合同 | 任意实例之间 | `defineRemoteService`、`provideRemote`；调用方 `context.remote.use(合同).at(目标)` | notes、counter 的合同 |
 | 贡献与贡献点 | 声明式扩展：拥有者定义扩展点，别的插件交“声明 + 实现”，彼此没有依赖 | 同一实例 | 插件定义的 `contributionPoints`，入口的 `receives` 与 `contributions` | menu 定义、file-menu 贡献；counter 向 `nbook.commands`、`nbook.state` 贡献 |
 | 插件状态 | 一个入口的内存、持久化、派生与公开状态，只经 action 写，随入口代次创建与释放 | 一个入口 | `defineStore`（`nbook/shared/store/store`），公开键 `definePublicState` | counter 的计数与公开键 `example.counter/nonzero` |
+| 配置项 | 用户主动设定的偏好，用户层（`<状态根>/settings.json`）与项目层（`<项目目录>/.nbook/settings.json`）各存一份，越具体越优先、整体覆盖；所有插件都能读，只有声明它的插件能写 | 跨所有运行位置 | `defineSetting`（`nbook/shared/settings`），写在插件描述的 `contributions` 里；经 `nbook.settings` 的 `settingsKey` 读（`get` 有效值、`inspect` 各层）、写（`update(定义, 值, {layer})`） | snippets 的 `example.snippets/items` |
+| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（`nbook.settings` 拥有），page 分区的实现交 `load()`；页面用 `nbook/ui/settings/` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main` |
 
 几个概念之间的关系，以 counter 与 notes 为例：
 
@@ -75,6 +78,7 @@
 | 许多插件各交声明与实现，由一个拥有者统一管理 | 贡献点 | menu 的 `menu.items`；`nbook.commands` 的命令 |
 | 在远程服务之上加东西（同步视图、缓存、代调用方身份访问） | 本地服务包装远程服务，包装处写明加了什么 | notes 的浏览器入口；产品里的 `nbook.storage` |
 | 对方不在时只有一部分功能不可用 | 可选依赖加 `resolve`；对方在别的实例时用远程调用，按 `not-provided` 与 `unavailable` 分别降级，调用前想知道就 `lookup` | notes 服务端的可选 clock；场景 04 的项目计数 |
+| 用户可以改的偏好 | 配置项，不自己存文件；值是开关、选项、数字与单行文字时只写声明，设置窗口按 schema 画；别的类型（列表、对象）贡献 page 分区自己画 | snippets |
 
 ## 运行位置与目录
 
@@ -90,7 +94,7 @@ examples/
 │   ├── plugin.ts            插件描述：id、版本、有入口的运行位置
 │   ├── shared/contracts.ts  对其它插件公开的合同：服务接口与键、远程服务合同、贡献点、公开键与命令 id
 │   ├── backend/plugin.ts    后端代码的插件定义常量（server、project 位置的入口）
-│   └── web/plugin.ts        浏览器代码的插件定义常量
+│   └── web/plugin.ts        浏览器代码的插件定义常量；界面组件（`.vue`）与它并列，只在用到时动态导入
 ├── shared/host.ts           示例宿主给插件的能力的键（时钟）
 ├── scenarios/NN-*.test.ts   场景：把插件装进运行实例、核对行为
 └── testing/                 场地与探针：测试支持代码，不含断言
@@ -98,7 +102,7 @@ examples/
 
 目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../AGENTS.md) 的“目录约定”）：
 
-- 示例插件按第三方插件的写法：引用内核只经 `@notnotype/nb-runtime/<机制>`；引用内置插件与别的示例插件，在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`；宿主能力的键与 `defineRecord`、`defineStore` 这类各插件都要用的工具来自 `nbook/shared/`。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
+- 示例插件按第三方插件的写法：引用内核只经 `@notnotype/nb-runtime/<机制>`；引用内置插件与别的示例插件，在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`；宿主能力的键与 `defineRecord`、`defineStore`、`defineSetting` 这类各插件都要用的工具来自 `nbook/shared/`，宿主与插件共用的界面组件（例如 `SettingsRow`）来自 `nbook/ui/`。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
 - 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../../docs/adr/0025-service-keys-by-id.md)）。
 - 插件定义是常量，没有工厂参数（[ADR 0026](../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力，对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口。
 - `web/` 与 `backend/` 互不引用，只经 `shared/` 交换类型与 schema；`plugin.ts`、`shared/` 与 `web/` 也过浏览器那份类型检查，不用 Bun 与 Node 的接口。
@@ -112,6 +116,7 @@ examples/
 | [counter](plugins/counter/) | server、project | 一份后端定义两个入口。服务端：`defineStore` 把计数持久化进 `nbook.storage`，公开键 `example.counter/nonzero`，命令 `example.counter.reset` 的 `when` 引用它，远程合同与订阅、提供方看到的调用方。项目：每个项目实例一份的计数，第一次调用时按需激活，窗口省略 `.at()` 即到达绑定的项目 |
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：逐条校验、接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明为什么还只能启动即激活 |
+| [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.sections` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
 
 ## 场景
 
@@ -122,11 +127,12 @@ examples/
 | [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | 校验不合格只拒那一条；贡献方停止后撤回；声明先于激活 | [plugins](../../../docs/specs/runtime/plugins.md) 输出第 15–18、23、24 条 |
 | [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../docs/specs/runtime/projects.md)、[store](../../../docs/specs/state/store.md)、[public-state](../../../docs/specs/state/public-state.md)、[commands](../../../docs/specs/workbench/commands.md) |
 | [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新；不在代理允许清单为 `denied` | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
+| [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../docs/specs/settings/settings-window.md)、[configuration](../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
 
 ## 场地与探针
 
 - [`testing/stage.ts`](testing/stage.ts) 像应用包的宿主那样装配运行实例：每个实例装上与产品宿主相同的内置插件（诊断、`nbook.state`、`nbook.storage`，服务端与窗口另有 `nbook.commands`），给出状态根、时钟与项目；服务端带路由，项目实例与窗口经进程内链路连上它，帧照样经 JSON 编解码。状态根在场景的临时目录里，同一个场地再起服务端读到的是上一次写下的数据。`attach` 把一个插件装进子作用域并激活，用来演示调用方停止。
-- [`testing/probes.ts`](testing/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。
+- [`testing/probes.ts`](testing/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。要以某个示例插件**自己**的身份调用时（场景 06 写这个插件声明的配置项），探针作为一个入口加进那个插件的定义，而不是另起一个插件。
 - 场景遵守[测试写法](../../../docs/testing/README.md#测试写法)：真实内核实例与真实内置插件，不用 mock、spy、假计时器与固定等待；时间由场地时钟推进；每个场景在 `afterEach` 里停止全部实例并核对正常关闭，临时目录在 `afterAll` 删除。
 
 ## 还没演示的

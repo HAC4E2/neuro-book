@@ -121,8 +121,9 @@ async function run(action: RowAction): Promise<void> {
                 <span v-else class="settings-row__inherit">{{ text(layer === "project" ? TEXT.userOnly : TEXT.projectOnly) }}</span>
             </div>
         </div>
-        <div v-if="wide && state.kind === 'edit'" class="settings-row__wide" data-settings-row-wide>
-            <slot :value="state.value" :disabled="blocked" :id="controlId" :label="title" />
+        <!-- 宽控件沿用时也画出来、停用：列表这类值一句摘要说不清沿用的是什么。 -->
+        <div v-if="wide && state.kind !== 'not-allowed'" class="settings-row__wide" data-settings-row-wide>
+            <slot :value="state.kind === 'edit' ? state.value : state.inherited" :disabled="state.kind === 'edit' ? blocked : true" :id="controlId" :label="title" />
         </div>
         <p v-if="override !== null" class="settings-row__override" data-settings-row-overridden>
             <span class="i-lucide-info settings-row__override-icon" aria-hidden="true"></span>
