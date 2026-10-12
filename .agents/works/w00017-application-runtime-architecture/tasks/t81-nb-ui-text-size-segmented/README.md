@@ -32,7 +32,7 @@ t78 正在改 nb-ui（`Tabs`、`Accordion`、`Collapsible`、`IconButton` 与 `s
 - **同源的顺手修正**：应用 Lab 夹具里 6 处同样写法；`Tree.vue` 的 `font-[var(--weight-medium)]` 在 UnoCSS 里被编译成 `font-family`，改成两套引擎都对的 `[font-weight:var(--weight-medium)]`。
 - **防回归**：nb-ui 的 `token-consumption.test.ts` 加规则 5（字号类带 `length:` 类型提示）与规则 6（字重、字体族用任意属性写），带正反样例，红翻转验证过；只扫 nb-ui 组件，不覆盖应用 `src/`。
 - **分段控件**：根节点改为网格，各段等宽，宽度随内容时每段取最宽一段的自然宽度，“跟随系统”不再截断；给定宽度与 `fullWidth` 时各段宽度与改前逐像素相同；指示块在网格里补了 `left` 定位。规则写进 `SegmentedControl.md`，Lab 新增场景 `uneven`。
-- **验证**（主 Agent 复跑）：nb-ui `bun run test` 558 通过；应用 `bun run typecheck` 通过、`bun run test:vitest` 165 通过。子代理另跑 `lab-scenes`、`lab-nb-ui`、`lab` e2e 通过，`docs:check`、`governance:check` 无失败。改前改后截图在本机 `.local/design-review/t81-nb-ui/`（`compare/` 是并排对照）。
+- **验证**（主 Agent 复跑）：nb-ui `bun run test` 558 通过；应用 `bun run typecheck` 通过、`bun run test:vitest` 165 通过。子代理另跑 `lab-scenes`、`lab-nb-ui`、`lab` e2e 通过，`docs:check`、`governance:check` 无失败。改前改后截图在本机 `.local/agent/works/w00017-application-runtime-architecture/tasks/t81-nb-ui-text-size-segmented/shots/`（`compare/` 是并排对照）。
 - **未修、只记**：`[font-weight:var(--weight-semibold,600)]` 引用了没登记的 token（只有 normal、medium、strong），一直落在回退值 600（从产物看到，未回查源码位置）；Dropdown 非紧凑项用 Tailwind 常量 `text-xs`（12px）比紧凑项（11px）还大，分段控件的段用字面量字号，都不走 token。
 - **合回**：先于 t80 合入主线；t80 的设置窗口目前给分段控件手动定宽绕开截断，合入 t81 后可去掉。
 
