@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t83-legacy-parity-dnd-titlebar
+status: planned
 ---
 
 # 拖放与标题栏对照旧应用

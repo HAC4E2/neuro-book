@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t79-workbench-polish
+status: done
 ---
 
 # 工作台打磨：打开项目之后的那一页
@@ -122,6 +123,7 @@ taskId: t79-workbench-polish
     - [底色](evidences/draft6-ground.png)、[配色](evidences/draft7-palette.png)：选 K2（标题栏与状态栏落在窗体底上，卡片不带外框），活动栏与侧栏合成一张卡、中间画一条两端不碰顶底的短线，缝 4px；配色 P1（卡片不变，窗体底改暖灰 `#ece8df`，深色 `#201d1a`）。
     - [控件色](evidences/draft8-warm.png)：配色表里偏冷的控件色一并调暖（nbook 不再“冷暖分家”）。
     - [标题栏](evidences/draft9-titlebar.png)、[横排标志](evidences/draft10-lockup.png)：用带 NeuroBook 字样的横排标志（墨色），之后是项目切换，菜单在项目后。
+  - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
   - 实现计划见 [plan.md](plan.md) 的“第二轮”。
 - 2026-10-12 S6（加载页跟随产品明暗）完成：
   - 宿主的前端入口观察文档根上的主题（明暗、主题包与配色的内联变量），每次变了把明暗与面板底色、正文色、淡色、强调色（借一个元素算成 rgb）记进本地存储 `nbook.host-appearance`；两份 `index.html` 头部同一段内联脚本在第一帧前读回，写到根上的 `data-host-appearance`、`color-scheme` 与 `--host-loading-*`，`host-loading.css` 先取这些变量，没有时仍按系统明暗。写放在宿主而不是工作台插件：前端规范不许组件直接读写本地存储。Lab 也写文档根，在 Lab 里切过明暗，下次加载页取的是 Lab 最后的明暗（接受）。
@@ -149,12 +151,13 @@ taskId: t79-workbench-polish
   - Lab：编辑区夹具加“没有标签：标志与提示”场景（固定样例，点了记事件）。
   - Spec：`workbench/editor.md` 输出 32 的空态、验收 19、合同测试、批准依据；组件文档 `EditorGroup`、`EditorArea`。
   - 验证：`editor/empty-tips.test.ts` 两例在真实内核的命令系统上（三行内容、不可用那行消失、mac 按键、英文；命令不存在那行消失）；编辑器 bun 测试 97 例、组件测试 58 例全过，typecheck 为 0。e2e：`editor-area` 纸面一例改为检查标志居中与 132px、三行文字与按键，点“显示所有命令”打开命令面板、点“打开欢迎页”打开欢迎页；`settings` 的语言切换改用提示行的文字观察；编辑区、设置、欢迎页、Lab 编辑器与场景门禁共 27 例全过。`lab:shot` 空态场景在 nbook、macos × 明暗 × free、phone 下问题 0 条。变异 6 处抓到 5 处（不可用的也显示、不写位置、编辑区不转交点击、插件不给提示、标志不定大小）；存活的“mac 也按加号拆”说明那个分支是多余的（mac 的写法本来没有加号），已删掉。
-- 2026-10-12 S11 收口进行中：
-  - 第一轮 omp 实现审查（S1–S5）8 条处理完，见 [implementation-review.md](evidences/implementation-review.md)：C1、C2、C3、C5、C6 修（Firefox 124 的加粗副本、拆分带这一刻的光标、排队的定位在离开后不执行、实例没建立时要实例的动作禁用、新建章节打不开时说明），C4、C7、C8 不改（理由写在记录里）。
-  - 处理中发现 S5 与 S10 在运行时跨插件引用了工作台的 `web/contracts`（快捷键的写法），架构测试不通过；键位的解析与写法挪到命令插件的 `shared/keybinding.ts`。
-  - e2e 全套第一轮 175 例：174 过，`lab.e2e.ts` 的“打开 Lab……不写浏览器存储”失败——S6 起宿主在 Lab 页也写加载页的明暗提示，S6 只跑了宿主与项目两组 e2e 没覆盖到；明暗提示与客户端身份一样是宿主写的，断言与 `ui/component-lab.md` 验收 1 改为列出这两项，单独重跑通过。
-  - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
+- 2026-10-12 S11（收口）完成：
+  - 第一轮 omp 实现审查（S1–S5）8 条：C1、C2、C3、C5、C6 修（Firefox 124 的加粗副本、拆分带这一刻的光标、排队的定位在离开后不执行、实例没建立时要实例的视图动作禁用、新建章节打不开时说明），C4、C7、C8 不改。第二轮（S6–S10 与第一轮的修正）7 条：C1、C2、C3、C4、C7 修（末端零宽部件的占用、标题栏窄宽度下搜索收窄与项目名按档位截断、`--elevation-menu` 登记、内联脚本整条记录才认、第一帧在动画帧里采样），C5 不改、C6 部分不改。逐条理由见 [implementation-review.md](evidences/implementation-review.md)。
+  - 处理中发现 S5 与 S10 在运行时跨插件引用了工作台的 `web/contracts`（快捷键的写法），架构测试不通过：键位的解析与写法挪到命令插件的 `shared/keybinding.ts`。原因是这几片的单元验证直接跑了插件子目录，没照门禁用 `test:affected`，根目录下的架构测试没跑到。
+  - e2e 全套：第一轮修正后 175 例中 174 过，`lab.e2e.ts` 的存储断言因 S6 的宿主明暗提示失败（S6 只跑了宿主与项目两组 e2e），断言与 `ui/component-lab.md` 验收 1 改为列出宿主写的两项；第二轮 175 例全过。第二轮审查的修正之后受影响的 61 例全过；再跑全套 176 例中 175 过，挂的是 `lab.e2e.ts` 场景 20（两个 Lab 窗口同时改偏好），报错是浏览器渲染进程崩溃（`Target crashed`），不是断言失败，当时与最重的 Lab 场景门禁并行。这一例单独连跑 8 次、整个 `lab.e2e.ts` 15 例都过，按偶发的渲染进程崩溃处理。
+  - 收口时 `test:affected --typecheck`：bun 1015 例过、1 例失败（`settings/commands.test.ts` 的“项目层覆盖着主题时……”，S1 之前就失败），组件测试 173 例、nb-ui 554 例全过，typecheck 为 0，架构测试通过；`governance:check`、`docs:check` 没有新增问题。
+  - 收口截图：[nbook](evidences/s11-final-nbook.png)、[macos](evidences/s11-final-macos.png)（开发会话，每个主题与明暗一个新客户端：第一次打开雾港是欢迎页；打开第二章、关掉欢迎页后刷新回到第二章；关掉全部标签是标志与提示；空作品是欢迎页）。
 
 ## 下一步
 
-按 plan.md 第二轮的 S6–S10 实现（待开发者确认计划），S11 收口：第一轮 omp 审查意见、第二轮切片的 omp 审查、e2e 全套两轮，之后关闭 Task。
+无：本 Task 完成。后续在 [t82](../t82-panel-gestures/README.md)（面板拖动手势）与 [t83](../t83-legacy-parity-dnd-titlebar/README.md)（拖放与标题栏对照旧应用）。

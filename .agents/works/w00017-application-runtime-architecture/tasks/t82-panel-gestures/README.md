@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t82-panel-gestures
+status: planned
 ---
 
 # 底部面板的拖动手势

@@ -2,6 +2,7 @@
 schema: nbook.work/v1
 workId: w00017-application-runtime-architecture
 issueId: null
+status: active
 ---
 
 # 应用运行时与内置插件架构
@@ -116,7 +117,7 @@ issueId: null
 | [t76](tasks/t76-bookshelf-polish/README.md) | 书架打磨一：品牌成品与字体；通知的三个去处、工作台通知服务与右下角视口（Spec [`workbench/notifications.md`](../../../docs/specs/workbench/notifications.md) 2026-10-12 随 t77 晋升 implemented）；缺省作品目录、`~`、`library`、`browse`、封面；目录选择器与作品信息窗口；书架页重排为案头加卡片或列表；S0–S6 完成，omp 实现审查 11 条处理完（C6 按收益不改），回写三条已写入 |
 | [t77](tasks/t77-bookshelf-polish-2/README.md) | 书架打磨二：`Dialog` 合并 `DialogWindow`、`InfoTip`、色板与取色面板、作品信息对话框与目录选择器改为模态、新建占位卡、状态栏字数停手后再算；2026-10-11 建立，计划见 [plan.md](tasks/t77-bookshelf-polish-2/plan.md)（opus 子代理审查后修订、开发者确认）；S1–S4 完成（S4 含 Lab 版面测量补强与全场景门禁、通知 Spec 晋升 `implemented`），omp 实现审查 5 条处理完（C4 按合同不改），2026-10-12 完成 |
 | [t78](tasks/t78-lab-layout-baseline/README.md) | 清空 Lab 版面基线：贴边控件的聚焦光晕被裁（编辑器标签条、`Tabs`、`Accordion`、工作台各部件）与 `Collapsible` 的 6px；t77 开门禁时记下，开发者 2026-10-12 选带基线另开 Task 清；设计稿与计划（[plan.md](tasks/t78-lab-layout-baseline/plan.md)）经开发者确认：填满所在条的控件用内嵌焦点细线，其余按钮靠尺寸让出 3.5px，`Collapsible` 只在动画期间裁切；S1（nb-ui）、S2（工作台与编辑器）完成，基线清空，全量 e2e 163 例通过；omp 实现审查 5 条全部属实并处理完（Lab 焦点环判断两处、竖条长标题、两条真实浏览器用例），2026-10-12 完成 |
-| [t79](tasks/t79-workbench-polish/README.md) | 工作台打磨：打开项目之后的那一页（第一眼、空编辑区、从书架进入的过渡、各部件的外观与密度）；2026-10-12 建立；四轮静态稿后开发者确认 12 条决定与计划（[plan.md](tasks/t79-workbench-polish/plan.md)，S1–S6），实现排在 t78 之后 |
+| [t79](tasks/t79-workbench-polish/README.md) | 工作台打磨：打开项目之后的那一页；四轮静态稿后开发者确认 12 条决定与计划（[plan.md](tasks/t79-workbench-polish/plan.md)），S1–S5 完成（书名与加载页、平铺、纸面与光标、资源管理器、欢迎页）；开发者手动审查后改判为卡片外壳（主题决定）、暖色、空态加标志与提示、菜单 8px、标题栏横排标志与项目前移、加载页跟随产品明暗，经第五到第十轮稿在 S6–S10 实现；两轮 omp 实现审查共 15 条处理完（[记录](tasks/t79-workbench-polish/evidences/implementation-review.md)），e2e 全套通过；面板手势与拖放、标题栏对照旧应用另开 t82、t83；2026-10-12 完成 |
 | [t82](tasks/t82-panel-gestures/README.md) | 底部面板的拖动手势：拖到顶即最大化、最大化后从顶部拖下还原、收起后拖开时内容即时显示；开发者 2026-10-12 手动审查 t79 时提出、选另开，未开工 |
 | [t83](tasks/t83-legacy-parity-dnd-titlebar/README.md) | 拖放与标题栏对照旧应用：视图与容器移动的落点指示与动画、标题栏宽度自适应、多级菜单；先调研差距清单再定设计；开发者 2026-10-12 手动审查 t79 时提出，未开工 |
 
