@@ -19,6 +19,7 @@ export const ERROR_EXIT_CODES = {
     ambiguous_task: 3,
     work_not_committed: 3,
     target_exists: 3,
+    target_missing: 3,
     hash_mismatch: 3,
     uncommitted_changes: 3,
     unsafe_path: 3,

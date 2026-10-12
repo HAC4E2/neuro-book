@@ -58,3 +58,25 @@ export {
 export {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
 export {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./core/sources.js";
 export {readProjectStatus, type ProjectStatus, type RecordSource, type StatusFilter, type TaskView, type WorkView} from "./core/status.js";
+export {acquireRecordsLock, DEFAULT_LOCK_WAIT_MS, type LockHolder, type RecordsLock} from "./core/lock.js";
+export {
+    DEFAULT_GIT_LOCK_WAIT_MS,
+    recordDate,
+    resolveCommitOutcome,
+    runWriteTransaction,
+    sha256,
+    type CommitOutcome,
+    type TransactionOptions,
+    type TransactionResult,
+    type WriteTx,
+} from "./core/transaction.js";
+export {
+    createTask,
+    createWork,
+    importRegistry,
+    setRecordStatus,
+    type CreateResult,
+    type ImportResult,
+    type OperationResult,
+    type SetStatusResult,
+} from "./core/operations.js";
