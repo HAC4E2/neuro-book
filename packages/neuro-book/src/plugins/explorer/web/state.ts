@@ -1,6 +1,6 @@
 /**
- * 资源管理器的公开状态（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：只有命令 `when` 要读的
- * 布尔键，不公开选择本身。`when` 只说明有没有可作用的选择，执行时再按选择核对。
+ * 资源管理器的公开状态（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：命令 `when` 要读的
+ * 布尔键与“显示清单文件”标题动作的按下态，不公开选择本身。`when` 只说明有没有可作用的选择，执行时再按选择核对。
  */
 
 import {computed} from "@vue/reactivity";
@@ -21,6 +21,7 @@ export const explorerState = definePublicState("nbook.explorer", {
     canCreateContent: {type: "boolean", unready: false, reason: reason("选中的不是没有正文的内容节点", "The selection is not a content node without content")},
     canConvert: {type: "boolean", unready: false, reason: reason("选中的不是可以转换的文件夹", "The selection is not a folder that can be converted")},
     canEditManifest: {type: "boolean", unready: false, reason: reason("选中的项不在内容文件夹里", "The selection is not in a content folder")},
+    showManifests: {type: "boolean", unready: false, reason: reason("清单文件没有显示", "Manifest files are hidden")},
 });
 
 /** 各公开键此刻的值：由控制器的选择与可用性算出；没有控制器时都为假。产品入口与 Lab 场景共用。 */
@@ -35,5 +36,6 @@ export function explorerStateValues(controller: Readonly<ShallowRef<ExplorerCont
         canCreateContent: available((can) => can.createContent),
         canConvert: available((can) => can.convert),
         canEditManifest: available((can) => can.display || can.include || can.drop),
+        showManifests: computed(() => controller.value?.showManifests.value === true),
     };
 }

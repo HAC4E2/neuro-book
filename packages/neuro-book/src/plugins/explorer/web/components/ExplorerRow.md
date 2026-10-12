@@ -5,7 +5,7 @@
 
 # ExplorerRow
 
-资源管理器树里的一行（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md)）：根、资源、状态（加载中、读取失败、空目录、清单错误），或新建时的内联输入行；改名时资源行换成内联输入。资源行按文件夹类型呈现：内容文件夹里显示展示名，真实名字不同时作副标题；节点行的展开箭头与打开区分开；缺失、未列入、无正文、需要剧情插件、剪切中以短标记标出；缺失与剪切中的行淡化，剪切中的行带 `data-explorer-cut`。行本身不处理键盘，键盘焦点在树上，焦点行以 `active` 画焦点框（`aria-activedescendant` 模式）。
+资源管理器树里的一行（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md)）：根、资源、状态（加载中、读取失败、空目录、清单错误），或新建时的内联输入行；改名时资源行换成内联输入。资源行按文件夹类型呈现：内容文件夹里显示展示名，真实名字不同时作副标题；节点行的展开箭头与打开区分开；缺失、未列入、无正文、需要剧情插件、剪切中以短标记标出；缺失与剪切中的行淡化，剪切中的行带 `data-explorer-cut`。行本身不处理键盘，键盘焦点在树上，焦点行以 `active` 标出（`aria-activedescendant` 模式），只在树是键盘带来的焦点（`:focus-visible`）时画 1.5px 的内嵌焦点线，鼠标点行不画。选中只用强调色浅底与强调色文字，不描边；悬停与选中的底色带圆角。项目根的标题是 `projectTitle`（作品的显示名），没有时是“项目”。
 
 ## 布局
 
@@ -21,10 +21,12 @@ type Props = {
     /** DOM id：树用它作 `aria-activedescendant` 的目标。 */
     domId: string;
     selected: boolean;
-    /** 键盘焦点所在且树拥有焦点：画焦点框。 */
+    /** 键盘焦点所在且树拥有焦点：树是键盘带来的焦点时画内嵌焦点线。 */
     active: boolean;
     /** 行高（px）。 */
     height: number;
+    /** 项目根的标题（作品的显示名）；没有绑定项目时不给，显示“项目”。 */
+    projectTitle?: string | null;
     /** 内联输入：名字、已换成文字的错误、是否在提交；默认 null（不在编辑）。新建的输入行与改名的资源行才会给。 */
     edit?: {name: string; error: string | null; busy: boolean} | null;
 };

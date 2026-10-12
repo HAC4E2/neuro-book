@@ -86,6 +86,19 @@ taskId: t79-workbench-polish
     - 变异 24 处：store 与模型 14 处全部被抓到；控件与样式 10 处有 9 处被抓到，存活的是 Monaco 的显式夹取，已删掉。
     - `lab:shot` 编辑器区在 nbook、macos × 明暗下问题 0 条（默认 300ms 截图时正文还没读到，等 2.5 秒后纸面正常）。[空态与纸面](evidences/s3-paper.png)。
 
+- 2026-10-12 t78 的 omp 实现审查处理完（见 t78），与本 Task 的切片分开提交。
+- 2026-10-12 S4（视图标题动作、根是书名、行的样子与展开动画、打开作品时揭示活动文件）完成：
+  - 视图标题动作：`ViewDeclaration` 加可选 `actions`（命令、图标、标题、`args: "instance"`、`toggled`），声明类型改为深只读（布局 store 的目录本来就是深只读，数组字段让两边对不上）。外壳的 `chrome` 加 `viewActions`（可用与原因看命令自己的 `when`，按下态读 `toggled` 的公开键）与 `runViewAction`（instance 动作带上实例层的代际）；新组件 `WorkbenchViewActions` 画 24px 按钮，single 的侧栏与右栏在容器标题行、面板在标签带旁、multiple 在视图标题行，都在“移动到”之前；Lab 登记三个场景。资源管理器的五个按钮改为声明的动作，删掉视图里的工具栏，新增公开键 `nbook.explorer/showManifests` 作按下态。
+  - 根是书名：窗口的作品信息（S1 的 `project.title`）经视图宿主、视图、树传到行，项目根显示书名；没有绑定项目时仍是“项目”。
+  - 行的样子：行左右各离边 6px，圆角块的悬停与选中底色；焦点行的线改为只在树是键盘带来的焦点时画 1.5px 内嵌线（原来鼠标点行也画 1px，就是终稿上数到的“选中行描边”）。展开收起：树在展开集合变化后的一个 `--motion-base` 里打 `data-expanding`，`TransitionGroup` 只在这时让新行滑下淡入、离开的行反向、其余行的 `top` 过渡；滚动带来的进出不动画，减少动画时不打标记。
+  - 揭示：控制器加 `reveal`（展开各级祖先，行出现后选中并给焦点行，用户先选了别的行则作废）；编辑器新增公开键 `ready` 与 `activeDocument`；资源管理器在控制器与编辑器区都建好后等一个微任务（继续写作在同一刻打开它的文件）读活动标签，揭示一次。计划里“保留现有的手动揭示命令”不成立：没有这条命令，本 Task 不新增。
+  - Spec：`workbench/views.md` 输出 10、验收 7，非目标里去掉“标题动作”；`workbench/files-explorer.md` 的“标题动作”“行的样子”“打开作品时揭示活动文件”三段与验收 17–19，根的标题，“工具栏”的说法改为标题动作；`workbench/editor.md` 两个公开键；`workbench/commands.md` 的 `refresh-files` 触发面。组件文档 `FilesExplorerView`、`ExplorerTree`、`ExplorerRow`、`WorkbenchShell`、`WorkbenchViewActions`。
+  - 验证：
+    - bun 测试 379 例（新增 `workbench/view-actions.test.ts` 在真实内核的命令系统与公开状态上测可用、原因、按下态与 instance 参数，`browse.test.ts` 加“揭示一个地址”）、vitest 165 例全过，typecheck 为 0。这个内核测试起初放在 `web/titlebar/` 下，被浏览器测试的 tsconfig 收进去、带进了后端的 `proper-lockfile`（类型声明只在 node 配置里），挪到插件根目录。
+    - e2e 全套 171 例全过。新增：`files-explorer` 的“项目根是作品名、标题行五个动作、展开动画与焦点线、减少动态”一例，`editor-area` 的“打开作品时揭示一次”一例；原来点 `[data-explorer-tool]` 的改点 `[data-view-action]`。`files-explorer` 的拖动一例按顺序跑时稳定失败：展开目录后立即量行的位置再按下，行还在滑动，按下时指针下面换成了上一行（实际拖走的是 `keep`）；用户按的是看得见的位置，产品的命中按 `elementsFromPoint` 没问题，测试的 `dragOver` 改为先等 `data-expanding` 撤掉。
+    - 变异 12 处全部被抓到（动作不看命令可用、按下态总为假、instance 不带实例、揭示不展开祖先、不等行出现、右键选中不作废揭示、打开作品不揭示、根不用作品名、焦点线不看 focus-visible、展开不打标记、外壳不画动作、清单开关不带按下态）。
+    - `lab:shot` `WorkbenchViewActions`、`ExplorerRow`、`ExplorerTree`、`FilesExplorerView` 在 nbook、macos × 明暗下问题 0 条；[揭示与标题动作](evidences/s4-explorer.png)（开发会话，收起“正文”后刷新：展开到第二章并选中）。
+
 ## 下一步
 
-S4：视图标题动作、资源管理器标题行与根节点书名、行样式与展开动画、打开作品时揭示活动文件。之后处理 t78 实现审查的结论（C5、C1 修 Lab 门禁的焦点环判断，C2 先在 Lab 复现）。
+S5：欢迎页（`editor.pages` 页面标签，`nbook.projects` 贡献：概况、新建与最近打开、入门、快捷入口；新作品自动打开，帮助菜单可再打开，刷新后不恢复）。

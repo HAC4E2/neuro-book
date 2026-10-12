@@ -9,7 +9,7 @@
 
 ## 布局
 
-占满父容器的高度，自己是滚动容器（视图 `layout: "fill"`），细滚动条、`scrollbar-gutter: stable`。行高取主题的 `--control-h-sm`（能装下 `FormInput` 的 `sm` 与焦点框）：一个隐藏的探针元素量出它，主题或字号变了随之重算，并按滚动锚点换算滚动位置，阅读位置停在同一资源上。视口高度用布局盒测量；视图停放时尺寸为零，不改记住的滚动位置。滚动锚点是首个可见行的地址与行内偏移：前方插入或删除行时阅读位置不跳；内容变短时夹到合法范围。
+占满父容器的高度，自己是滚动容器（视图 `layout: "fill"`），细滚动条、`scrollbar-gutter: stable`。行左右各离边 6px，悬停与选中的底色是圆角块。行高取主题的 `--control-h-sm`（能装下 `FormInput` 的 `sm` 与焦点框）：一个隐藏的探针元素量出它，主题或字号变了随之重算，并按滚动锚点换算滚动位置，阅读位置停在同一资源上。视口高度用布局盒测量；视图停放时尺寸为零，不改记住的滚动位置。滚动锚点是首个可见行的地址与行内偏移：前方插入或删除行时阅读位置不跳；内容变短时夹到合法范围。
 
 ## 交互
 
@@ -18,6 +18,7 @@
 - 焦点换了一行（键盘移动）先滚入视口再更新 `aria-activedescendant`；开始内联输入时输入行同样滚入视口。按行 id 的变化触发：前方插入或删除行只改变下标，阅读位置由滚动锚点保持，不被拉回焦点行。
 - Shift+F10 与 ContextMenu 键经 `handleKey` 返回要开菜单的行，树按那一行的位置发出 `row-context`。
 - 树获得与失去焦点时发出 `focus-change`。
+- 展开与收起的动画（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“行的样子”）：展开的目录集合变了之后的一个 `--motion-base`（另加 100ms 余量）里根上打 `data-expanding`，只在这时新出现的行从上方滑下一行高并淡入、离开的行反向、其余行的位置过渡（`TransitionGroup`，名字 `explorer-row`）；滚动时窗口两端进出的行不动画。`--motion-base` 为 0（系统减少动画）时不打。
 - 拖动（手势在 `web/tree-drag.ts`）：在资源行上按下，鼠标与笔移动 6px、触摸按住 200ms 后经 `startDrag` 问宿主能不能拖；能拖时捕获指针，每帧把指针下的行与它在行里的位置（目录行上中下三段、其余行上下两半）经 `drag-hover` 交出，宿主算出动作后经 `drag` 传回，树按它画落点反馈（nb-ui `DropFeedbackOverlay`：移入画整行、调整顺序画插入线，标签说明动作）；松手时把那一刻的落点经 `drag-drop` 交出，由宿主决定提交与否。滚动或行变了而指针没动时撤下落点，原地松手不提交。Escape、指针取消、失去捕获、窗口失焦、页面隐藏发出 `drag-cancel`；`drag` 变为 null（宿主那边取消了）时手势随之收场。拖动结束吞掉末尾的 click。
 
 ## 数据
@@ -34,6 +35,8 @@ type Props = {
     label: string;
     /** 树内按键：没处理、处理了，或要在某一行开右键菜单。`page` 是视口能放下的行数。 */
     handleKey: (key: TreeKey, page: number) => "none" | "handled" | {menu: string};
+    /** 项目根的标题（作品的显示名）；不给时显示“项目”。 */
+    projectTitle?: string | null;
     /** 正在内联输入的行（新建的输入行或改名的资源行）与它的名字、错误文字、是否在提交；默认 null。 */
     editing?: {id: string; name: string; error: string | null; busy: boolean} | null;
     /** 拖动过了门槛：返回 false 时不起拖；默认不能拖。 */

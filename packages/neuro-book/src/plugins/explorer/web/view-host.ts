@@ -13,7 +13,6 @@ import {OPEN_PROJECT_COMMAND} from "nbook/plugins/projects/shared/contracts";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {COLLAPSE_ALL_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
 import type {DropZone} from "./actions/drop";
 import type {CollisionChoice} from "./actions/paste-plan";
 import type {KeyOutcome} from "./controller";
@@ -28,11 +27,11 @@ export interface ExplorerViewHostOptions {
     readonly session: ExplorerSession;
     readonly commands: Pick<CommandService, "execute">;
     readonly locale: ComputedRef<DisplayLocale>;
+    /** 窗口绑定的作品的显示名，项目根显示它；没有绑定项目时为 null。 */
+    readonly projectTitle: string | null;
     /** 命令执行失败（界面已经可用时不该发生）：记诊断。 */
     readonly report: (id: string, reason: string) => void;
 }
-
-type ToolbarAction = "new-file" | "new-folder" | "refresh" | "collapse-all" | "toggle-manifests";
 
 export function createExplorerViewHost(view: Component, options: ExplorerViewHostOptions): Component {
     const {session} = options;
@@ -54,13 +53,6 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
             }));
             // 视图卸载：这个实例上的拖动手势随之消失，控制器里的拖动也取消。
             onBeforeUnmount(() => session.controller.value?.cancelDrag());
-            const toolbar: Readonly<Record<ToolbarAction, () => void>> = {
-                "new-file": () => execute(NEW_FILE_COMMAND),
-                "new-folder": () => execute(NEW_FOLDER_COMMAND),
-                "refresh": () => execute(REFRESH_FILES_COMMAND, {viewId: props.context.id, generation: props.context.generation}),
-                "collapse-all": () => execute(COLLAPSE_ALL_COMMAND),
-                "toggle-manifests": () => execute(TOGGLE_MANIFESTS_COMMAND),
-            };
             return () => {
                 const controller = session.controller.value;
                 const locale = options.locale.value;
@@ -73,11 +65,10 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     rows: controller?.rows.value ?? [],
                     selected: selection?.selected ?? [],
                     focus: selection?.focus ?? null,
-                    showManifests: controller?.showManifests.value ?? false,
                     ready: controller !== null,
+                    projectTitle: options.projectTitle,
                     notice: controller?.notice.value ?? null,
                     problem: session.problem.value,
-                    canCreate: controller?.available.value.create ?? false,
                     editing: editing === null ? null : {
                         id: editing.mode === "create" ? creatingId(editing.creating.parent) : editing.address,
                         name: editing.name,
@@ -93,7 +84,6 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     startDrag: (id: string): boolean => controller?.startDrag(id) ?? false,
                     focusRequest: controller?.focusRequest.value ?? 0,
                     handleKey: (key: TreeKey, page: number): KeyOutcome => controller?.key(key, page) ?? "none",
-                    onToolbar: (action: ToolbarAction) => toolbar[action](),
                     onRowPress: (id: string, modifiers: Modifiers, part: "twisty" | "row") => controller?.click(id, modifiers, part),
                     onRowActivate: (id: string) => controller?.activate(id),
                     onRowContext: (id: string, x: number, y: number) => {

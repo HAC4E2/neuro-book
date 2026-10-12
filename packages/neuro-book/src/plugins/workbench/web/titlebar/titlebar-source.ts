@@ -1,14 +1,17 @@
 /**
  * 外壳的标题栏与状态栏要的数据（docs/specs/ui/workbench-shell.md 外壳四输出 28–35）：应用菜单、命令搜索的快捷键、两侧
- * 的条目。都是响应式读取：命令增减经 `onDidChange` 推进版本号；命令的可用性与勾选状态读公开状态，在 computed 里读会
- * 随值变化重算。组件只拿这里算好的数据，执行一律经命令服务。
+ * 的条目，以及视图标题动作（docs/specs/workbench/views.md 输出 10）。都是响应式读取：命令增减经 `onDidChange` 推进
+ * 版本号；命令的可用性与勾选状态读公开状态，在 computed 里读会随值变化重算。组件只拿这里算好的数据，执行一律经命令服务。
  */
 
 import {shallowRef} from "@vue/reactivity";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
+import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+
+import type {ViewAction} from "../../shared/views";
 
 import {formatKeybinding} from "../commands/keymap";
 import type {KeyPlatform} from "../commands/keymap";
@@ -25,6 +28,19 @@ export interface ShellChrome {
     titleEntries(locale: DisplayLocale): StripEntry[];
     /** 点了一个条目：按它声明的命令执行；条目已不在（入口停止）时什么都不做。 */
     runItem(itemId: string): void;
+    /** 视图标题动作此刻的样子：可用与否看命令的 `when`（不可用时带原因），按下态看 `toggled` 的公开键。 */
+    viewActions(actions: ReadonlyArray<ViewAction>, locale: DisplayLocale): ViewActionEntry[];
+    /** 点了视图标题动作：执行它的命令，`args: "instance"` 时带上被点的视图实例。 */
+    runViewAction(action: ViewAction, instance: {readonly viewId: string; readonly generation: number}): void;
+}
+
+export interface ViewActionEntry {
+    readonly action: ViewAction;
+    readonly title: string;
+    /** 可用时为 null。 */
+    readonly disabledReason: string | null;
+    /** 按下态；没有声明 `toggled` 的动作没有这一项。 */
+    readonly pressed?: boolean;
 }
 
 export interface ShellChromeOptions {
@@ -75,6 +91,23 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         },
         statusEntries: (locale) => entries(options.statusItems, locale),
         titleEntries: (locale) => entries(options.titleItems, locale),
+        viewActions: (actions, locale) => {
+            void version.value;
+            return actions.map((action) => {
+                const title = localize(action.title, locale);
+                const enabled = commands.isEnabled(action.command);
+                const read = action.toggled === undefined ? null : state.read(action.toggled);
+                return {
+                    action,
+                    title,
+                    disabledReason: enabled.ok ? (enabled.value ? null : title) : enabled.reason,
+                    ...(read === null ? {} : {pressed: read.status === "ready" && read.value === true}),
+                };
+            });
+        },
+        runViewAction: (action, instance) => {
+            void commands.execute(action.command, action.args === "instance" ? {viewId: instance.viewId, generation: instance.generation} : {}, {source: "user"});
+        },
         runItem: (itemId) => {
             const item = [...options.statusItems.shown("en-US"), ...options.titleItems.shown("en-US")].find((entry) => entry.id === itemId);
             if (item?.command == null) return;

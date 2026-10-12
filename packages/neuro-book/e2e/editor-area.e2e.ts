@@ -97,12 +97,12 @@ async function atEnd(page: Page, editable = prose(page)): Promise<void> {
 }
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
 
-/** 本页客户端在项目分区里的一条编辑器记录（`local`，按客户端分行）；还没写过为 null。 */
-async function editorRecord(page: Page, key: "editor.session" | "editor.recent"): Promise<Record<string, unknown> | null> {
+/** 本页客户端在项目分区里的一条记录（`local`，按客户端分行）；还没写过为 null。 */
+async function projectRecord(page: Page, key: "editor.session" | "editor.recent" | "explorer.expanded", owner = key.startsWith("explorer.") ? "nbook.explorer" : "nbook.editor"): Promise<Record<string, unknown> | null> {
     const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
     const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
     try {
-        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = ?1 AND client = ?2").get(key, client) as {value: string} | undefined;
+        const row = db.prepare("SELECT value FROM records WHERE owner = ?3 AND key = ?1 AND client = ?2").get(key, client, owner) as {value: string} | undefined;
         return row === undefined ? null : JSON.parse(row.value) as Record<string, unknown>;
     } finally {
         db.close();
@@ -111,7 +111,7 @@ async function editorRecord(page: Page, key: "editor.session" | "editor.recent")
 
 /** 会话记录里这个地址的标签记下的光标。 */
 async function savedCursor(page: Page, address: string): Promise<unknown> {
-    const session = await editorRecord(page, "editor.session") as {groups?: Array<{tabs: Array<{address: string; cursor?: unknown}>}>} | null;
+    const session = await projectRecord(page, "editor.session") as {groups?: Array<{tabs: Array<{address: string; cursor?: unknown}>}>} | null;
     return session?.groups?.flatMap((group) => group.tabs).find((tab) => tab.address === address)?.cursor ?? null;
 }
 
@@ -640,7 +640,7 @@ test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可�
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
     await expect.poll(() => savedCursor(page, "project://notes/cursor.md")).toEqual({offset: 3});
-    await expect.poll(async () => (await editorRecord(page, "editor.recent"))?.addresses).toEqual(["project://notes/cursor.md", "project://notes/clamp.md", "project://data/cursor.txt"]);
+    await expect.poll(async () => (await projectRecord(page, "editor.recent"))?.addresses).toEqual(["project://notes/cursor.md", "project://notes/clamp.md", "project://data/cursor.txt"]);
 
     // 刷新前外部把两个不活动的文件改短：记下的第 2 行、第 11 个位置都已不在。
     await writeFile(join(projectDir, "data/cursor.txt"), "甲");
@@ -660,6 +660,30 @@ test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可�
     await page.locator("[data-editor-tab-label]", {hasText: "clamp.md"}).click();
     await expect(prose(page)).toHaveText("一");
     expect(errors).toEqual([]);
+    await closeAll(page);
+});
+
+test("打开作品时资源管理器揭示一次恢复出的活动文件：展开它所在的目录并选中它；之后切换标签不跟着揭示", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/b.md").dblclick();
+    await item(page, "project://notes/c.md").dblclick();
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).toContainText("c.md");
+    // 收起 notes 并等它记下：刷新后它要靠揭示重新展开。
+    await item(page, "project://notes").click();
+    await expect(item(page, "project://notes")).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(async () => ((await projectRecord(page, "explorer.expanded"))?.paths as string[] | undefined)?.includes("notes")).toBe(false);
+
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await expect(item(page, "project://notes")).toHaveAttribute("aria-expanded", "true");
+    await expect(item(page, "project://notes/c.md")).toHaveAttribute("aria-selected", "true");
+    await expect(item(page, "project://notes/b.md")).toHaveAttribute("aria-selected", "false");
+
+    await page.locator("[data-editor-tab-label]", {hasText: "b.md"}).click();
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).toContainText("b.md");
+    expect(await item(page, "project://notes/c.md").getAttribute("aria-selected")).toBe("true");
+    expect(await item(page, "project://notes/b.md").getAttribute("aria-selected")).toBe("false");
     await closeAll(page);
 });
 

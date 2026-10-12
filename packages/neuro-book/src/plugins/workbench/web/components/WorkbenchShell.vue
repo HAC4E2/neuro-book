@@ -35,6 +35,7 @@ import type {EditorAreaSource} from "../editor-area";
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
+import WorkbenchViewActions from "./WorkbenchViewActions.vue";
 import type {MovePayload, MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
 import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
@@ -230,6 +231,16 @@ function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string;
     };
 }
 
+/** 视图贡献的标题动作（docs/specs/workbench/views.md 输出 10）；Lab 里没有命令服务（没有 chrome）时没有。 */
+const viewActionsOf = (viewId: string) => props.chrome?.viewActions(state.value.catalog.get(viewId)?.actions ?? [], props.locale) ?? [];
+
+function runViewAction(viewId: string, index: number): void {
+    const action = state.value.catalog.get(viewId)?.actions?.[index];
+    const generation = generations.value.get(viewId);
+    if (action === undefined || generation === undefined) return;
+    props.chrome?.runViewAction(action, {viewId, generation});
+}
+
 function moveView(payload: MovePayload): void {
     void props.commands.execute(MOVE_VIEW_COMMAND, payload, {source: "user"});
 }
@@ -344,6 +355,7 @@ const dropFeedback = computed(() => {
                 @target="(element) => setPartTarget(part, element)"
             >
                 <template #actions="{container}">
+                    <WorkbenchViewActions v-if="singleViewOf(container) !== null && viewActionsOf(singleViewOf(container)!).length > 0" :actions="viewActionsOf(singleViewOf(container)!)" @run="(index) => runViewAction(singleViewOf(container)!, index)" />
                     <WorkbenchMoveViewMenu
                         v-if="singleViewOf(container) !== null && moveMenuOf(singleViewOf(container)!) !== null"
                         :label="text(TEXT.moveTo)"
@@ -373,8 +385,10 @@ const dropFeedback = computed(() => {
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。
                     -->
-                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null" class="workbench-shell__panel-tools" data-no-drag>
+                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || viewActionsOf(singleViewOf(selectedOf('panel')!)!).length > 0)" class="workbench-shell__panel-tools" data-no-drag>
+                        <WorkbenchViewActions v-if="viewActionsOf(singleViewOf(selectedOf('panel')!)!).length > 0" :actions="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" @run="(index) => runViewAction(singleViewOf(selectedOf('panel')!)!, index)" />
                         <WorkbenchMoveViewMenu
+                            v-if="moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
                             :label="text(TEXT.moveTo)"
                             :view-id="singleViewOf(selectedOf('panel')!)!"
                             :source-container-id="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.source"
@@ -429,6 +443,7 @@ const dropFeedback = computed(() => {
         @generations="(next) => (generations = next)"
     >
         <template #view-actions="{viewId}">
+            <WorkbenchViewActions v-if="viewActionsOf(viewId).length > 0" :actions="viewActionsOf(viewId)" @run="(index) => runViewAction(viewId, index)" />
             <WorkbenchMoveViewMenu
                 v-if="moveMenuOf(viewId) !== null"
                 :label="text(TEXT.moveTo)"

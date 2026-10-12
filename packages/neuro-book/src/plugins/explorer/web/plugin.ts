@@ -4,7 +4,7 @@
  * 直接打开 Lab 的窗口不读产品偏好、不列目录。
  */
 
-import {computed} from "vue";
+import {computed, watch} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -14,7 +14,8 @@ import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/c
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
+import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ViewDeclaration} from "nbook/plugins/workbench/shared/contracts";
@@ -23,7 +24,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {EXPLORER_COMMAND_DECLARATIONS, explorerCommands} from "./commands";
+import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
 import {explorerLocalized} from "./messages";
 import {explorerStoreFor} from "./preferences";
 import {createExplorerSession} from "./session";
@@ -32,7 +33,45 @@ import {createExplorerViewHost} from "./view-host";
 
 export const EXPLORER_VIEW_ID = "nbook.explorer";
 
-const VIEW: ViewDeclaration = {title: explorerLocalized("title"), icon: "i-lucide-files", location: "sidebar", order: 0, layout: "fill"};
+/** 视图标题上的五个动作（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：外壳画按钮、执行命令。 */
+const VIEW: ViewDeclaration = {
+    title: explorerLocalized("title"),
+    icon: "i-lucide-files",
+    location: "sidebar",
+    order: 0,
+    layout: "fill",
+    actions: [
+        {command: NEW_FILE_COMMAND, icon: "i-lucide-file-plus", title: explorerLocalized("newFile")},
+        {command: NEW_FOLDER_COMMAND, icon: "i-lucide-folder-plus", title: explorerLocalized("newFolder")},
+        {command: REFRESH_FILES_COMMAND, icon: "i-lucide-refresh-cw", title: explorerLocalized("refresh"), args: "instance"},
+        {command: COLLAPSE_ALL_COMMAND, icon: "i-lucide-copy-minus", title: explorerLocalized("collapseAll")},
+        {command: TOGGLE_MANIFESTS_COMMAND, icon: "i-lucide-file-code", title: explorerLocalized("showManifests"), toggled: "nbook.explorer/showManifests"},
+    ],
+};
+
+/**
+ * 打开作品时揭示一次编辑器恢复出的活动文件（docs/specs/workbench/files-explorer.md）。等资源管理器的控制器与编辑器区都建好，
+ * 再等一个微任务：继续写作在编辑器区建好的同一刻打开它的文件，要读这之后的活动标签。那一刻没有活动标签就不揭示；之后切换
+ * 标签也不跟着揭示，免得树跟着乱跳。没有装编辑器时 `nbook.editor/ready` 未声明，什么都不做。
+ */
+function revealOnOpen(state: {read(key: string): PublicStateRead}, controller: () => {reveal(address: string): void} | null, signal: AbortSignal): void {
+    const editorReady = (): boolean => {
+        const read = state.read("nbook.editor/ready");
+        return read.status === "ready" && read.value === true;
+    };
+    let done = false;
+    const stop = watch(() => controller() !== null && editorReady(), (both) => {
+        if (!both || done) return;
+        done = true;
+        queueMicrotask(() => {
+            stop();
+            const active = state.read("nbook.editor/activeDocument");
+            if (signal.aborted || active.status !== "ready" || typeof active.value !== "string" || active.value === "") return;
+            controller()?.reveal(active.value);
+        });
+    }, {immediate: true});
+    signal.addEventListener("abort", stop, {once: true});
+}
 
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -41,7 +80,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
         location: "browser",
         activationEvents: ["onStartup"],
         // 编辑器的文档协调是可选的：编辑器没有加载时复制、移动、删除直接放行。
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: documentCoordinatorKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: publicStateKey}, {key: documentCoordinatorKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
             ...Object.entries(EXPLORER_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -70,6 +109,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
             // 偏好记录的首读与视图代码的下载都在激活时开始，与工作台外壳的挂载同时进行；控制器仍等视图第一次挂上
             // （打开项目到可操作的文件树，files-explorer 的性能标准，w00017 t72 的测量）。
             session.prepare();
+            if (bound) revealOnOpen(context.services.require(publicStateKey), () => session.controller.value, context.signal);
             const importView = (): Promise<typeof import("./components/FilesExplorerView.vue")> => import("./components/FilesExplorerView.vue");
             let viewModule: ReturnType<typeof importView> | null = importView();
             // 预取失败只丢掉这次的结果，`load` 再 import 一次，失败照常由视图宿主原位显示。Chrome 把同一地址的模块下载失败记在
@@ -83,6 +123,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     session,
                     commands,
                     locale,
+                    projectTitle: context.services.require(windowProjectKey).project?.title ?? null,
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
                 }),
             };

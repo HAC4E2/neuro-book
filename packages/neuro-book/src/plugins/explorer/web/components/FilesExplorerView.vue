@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 资源管理器视图的界面（同名 .md）。 */
-import {AlertDialog, Button, ContextMenu, Dialog, FormCheckbox, FormInput, IconButton, Toolbar} from "@notnotype/nb-ui/components";
+import {AlertDialog, Button, ContextMenu, Dialog, FormCheckbox, FormInput} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 
@@ -19,20 +19,17 @@ import type {Modifiers} from "../tree/selection";
 import ExplorerFeedback from "./ExplorerFeedback.vue";
 import ExplorerTree from "./ExplorerTree.vue";
 
-type ToolbarAction = "new-file" | "new-folder" | "refresh" | "collapse-all" | "toggle-manifests";
-
 const props = defineProps<{
     locale: DisplayLocale;
     rows: ReadonlyArray<Row>;
     selected: ReadonlyArray<string>;
     focus: string | null;
-    showManifests: boolean;
     ready: boolean;
     notice: Notice | null;
     problem: FieldProblem | null;
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
-    /** 新建工具按钮是否可用；默认 false。 */
-    canCreate?: boolean;
+    /** 项目根显示的作品名（书名，没有时是目录原名）；没有绑定项目时不给。 */
+    projectTitle?: string | null;
     editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
     /** 打开着的右键菜单：位置与菜单项。 */
     menu?: {readonly x: number; readonly y: number; readonly entries: ReadonlyArray<MenuEntry>} | null;
@@ -47,7 +44,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (event: "toolbar", action: ToolbarAction): void;
     (event: "row-press", id: string, modifiers: Modifiers, part: "twisty" | "row"): void;
     (event: "row-activate", id: string): void;
     (event: "row-context", id: string, x: number, y: number): void;
@@ -94,14 +90,6 @@ const problemText = computed(() => {
     return explorerText(props.locale, key, {reason: problem.code});
 });
 
-const tools = computed(() => [
-    {action: "new-file" as const, icon: "i-lucide-file-plus", label: explorerText(props.locale, "newFile"), pressed: undefined, enabled: props.canCreate === true},
-    {action: "new-folder" as const, icon: "i-lucide-folder-plus", label: explorerText(props.locale, "newFolder"), pressed: undefined, enabled: props.canCreate === true},
-    {action: "refresh" as const, icon: "i-lucide-refresh-cw", label: explorerText(props.locale, "refresh"), pressed: undefined, enabled: true},
-    {action: "collapse-all" as const, icon: "i-lucide-copy-minus", label: explorerText(props.locale, "collapseAll"), pressed: undefined, enabled: true},
-    {action: "toggle-manifests" as const, icon: "i-lucide-file-code", label: explorerText(props.locale, "showManifests"), pressed: props.showManifests, enabled: true},
-]);
-
 const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).map((entry) => (entry.kind === "separator"
     ? {separator: true}
     : {label: entry.label, disabled: entry.disabled, tone: entry.danger ? "danger" : "default", ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}), action: () => emit("menu-command", entry.command)})));
@@ -142,21 +130,7 @@ defineExpose({focusTree});
 </script>
 
 <template>
-    <div class="grid h-full min-h-0 w-full grid-rows-[auto_auto_minmax(0,1fr)_fit-content(40%)] text-sm" data-explorer-view>
-        <Toolbar :aria-label="explorerText(locale, 'title')" class="flex items-center justify-end gap-0.5 px-2 py-1">
-            <IconButton
-                v-for="tool in tools"
-                :key="tool.action"
-                size="sm"
-                :icon-class="tool.icon"
-                :aria-label="tool.label"
-                :title="tool.label"
-                :aria-pressed="tool.pressed"
-                :disabled="!ready || !tool.enabled"
-                :data-explorer-tool="tool.action"
-                @click="emit('toolbar', tool.action)"
-            />
-        </Toolbar>
+    <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_fit-content(40%)] text-sm" data-explorer-view>
         <div class="min-w-0">
             <div v-if="unbound" class="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)]" data-explorer-unbound>
                 <span>{{ explorerText(locale, "noProject") }}</span>
@@ -181,6 +155,7 @@ defineExpose({focusTree});
             :locale="locale"
             :label="explorerText(locale, 'tree')"
             :handle-key="handleKey"
+            :project-title="projectTitle ?? null"
             :editing="editing ?? null"
             :start-drag="startDrag"
             :drag="drag ?? null"

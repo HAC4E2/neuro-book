@@ -55,7 +55,7 @@ owners:
   | `nbook.editor.reopen-with` | `{editor?}`（不给时换成另一种） | `active` | read | auto | — |
 
   `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
-- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。
+- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
   ```ts

@@ -11,7 +11,7 @@ import ExplorerLiveScene from "./explorer-scene/ExplorerLiveScene.vue";
 
 const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof FilesExplorerView>(() => props.input, [
-    "toolbar", "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change", "collision", "recheck", "abandon", "dialog-close",
+    "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change", "collision", "recheck", "abandon", "dialog-close",
 ]);
 </script>
 

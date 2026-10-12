@@ -166,7 +166,7 @@ owners:
 - `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。
 - 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
 - `move-view` 的目标是除来源外的已有容器，或 `newContainerIn` 指定的 ToolPart 里新建的自建容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24；自建容器的身份在这次执行接纳时生成一次）。`targetContainerId` 与 `newContainerIn` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参的两步选择之间视图被移走，同样按过期拒绝。
-- `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。视图标题动作这一触发面做出来之前，资源管理器视图内的工具栏按钮带本实例的视图 id 与代次调用它。
+- `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。它由资源管理器声明的视图标题动作触发（`args: "instance"`，[workbench.views](views.md) 输出 10）：外壳带上被点的视图实例的 id 与代际调用它。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
 
 ### 命令目录（应用）

@@ -3,6 +3,7 @@
  * 前后端都能引用；实现（`load()`）与 `ViewContext` 依赖 Vue，在 `web/contracts.ts`。
  */
 
+import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
@@ -25,7 +26,25 @@ export const VIEW_ID_MAX_LENGTH = 128;
 export const VIEW_MIN_SIZE_FLOOR = 33;
 export const VIEW_MIN_SIZE_DEFAULT = 64;
 
+/** 一个视图至多声明这么多个标题动作：标题行放得下的量级。 */
+export const VIEW_ACTIONS_MAX = 8;
+
 const Size = Type.Number({exclusiveMinimum: 0, maximum: 1_000_000});
+
+/**
+ * 视图标题动作（docs/specs/workbench/views.md 输出 10）：外壳在视图标题行（single 时在容器标题行）画成图标按钮，点了
+ * 执行命令。可用与否、不可用的原因都看命令自己的 `when`（与应用菜单同一规则）。`args: "instance"` 时参数是被点的那个
+ * 视图实例的 `{viewId, generation}`，否则是 `{}`；`toggled` 是公开状态的布尔键，为真时按钮是按下的样子。
+ */
+const ViewActionSchema = Type.Object({
+    command: Type.String({pattern: "\\S"}),
+    icon: Type.String({pattern: "\\S"}),
+    title: LocalizedTextSchema,
+    args: Type.Optional(Type.Literal("instance")),
+    toggled: Type.Optional(Type.String({pattern: "\\S"})),
+}, {additionalProperties: false});
+
+export type ViewAction = DeepReadonly<Static<typeof ViewActionSchema>>;
 const SizePair = Type.Object({width: Type.Optional(Size), height: Type.Optional(Size)}, {additionalProperties: false});
 
 export const ViewDeclarationSchema = Type.Object({
@@ -37,9 +56,11 @@ export const ViewDeclarationSchema = Type.Object({
     minimumSize: Type.Optional(SizePair),
     maximumSize: Type.Optional(SizePair),
     movable: Type.Optional(Type.Boolean()),
+    actions: Type.Optional(Type.Array(ViewActionSchema, {maxItems: VIEW_ACTIONS_MAX})),
 }, {additionalProperties: false});
 
-export type ViewDeclaration = Static<typeof ViewDeclarationSchema>;
+/** 声明是登记后不再改的数据；布局 store 的状态把目录变成深只读，类型就按深只读写，两边一致。 */
+export type ViewDeclaration = DeepReadonly<Static<typeof ViewDeclarationSchema>>;
 
 const VIEW_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
