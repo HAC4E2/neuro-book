@@ -58,12 +58,17 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 ```text
 .local/agent/
 ├── registry.json            # 登记表
-├── registry.json.lock/      # 写事务的锁目录（proper-lockfile；事务进行中才有）
+├── registry.json.lock/      # 写事务的锁目录（事务进行中才有）
+│   └── owner.json           # 持锁者：nbdev.lock-owner/v1，token、pid、进程启动时刻、命令行、cwd
 └── run/
-    ├── lock-owner.json      # 当前持锁进程：pid、启动时间、命令行、cwd（事务进行中才有）
-    └── tmp/<txid>/          # 写事务的临时目录；落位后删除
+    └── tmp/                 # 写事务的临时目录 <txid>/，以及组装中或接管下来的锁目录；用完删除
 ```
 
-- 锁目录 10 秒没有心跳即视为过期，可被接管；等锁最多 30 秒，超时报 `lock_timeout`，带上 `lock-owner.json` 的内容与 pid 是否还活着。
+- 锁目录先在 `run/tmp/` 里连同 `owner.json` 组装好，再改名到位，所以锁目录一出现就带着持锁者信息。
+- 持锁者是否存活按 `/proc/<pid>/stat` 的进程启动时刻判断（pid 在、且启动时刻与 `owner.json` 一致），不靠心跳：持锁者长时间等 Git 也不会被判过期。
+- 持锁者已退出（或 `owner.json` 读不出）时，等待者把锁目录改名成 `run/tmp/` 里唯一的墓碑名再接管，只有改名成功、且改走的正是它看到的那个目录的一方继续；改走的若是别人刚建的活锁就原样改回去。接管时给 `lock_taken_over` 警告。
+- 写登记表之前发现锁已不属于本进程（`owner.json` 的 token 不是自己的），就重新取锁、从头再算，给 `lock_reacquired` 警告；写了登记表之后才发现则报 `lock_compromised`。
+- 放锁前先核对 token，锁已属于别人时什么也不动，只给 `lock_release_skipped` 警告。
+- 等锁最多 30 秒，超时报 `lock_timeout`，带上持锁者的 pid、启动时间、命令行与 cwd。
 - `run/tmp/` 必须与 `.agents/works/` 在同一个文件系统上（新目录靠 `rename` 原子地落位），否则报 `cross_device`。
 - 中断的事务可能留下 `run/tmp/<txid>/`，不自动清理。

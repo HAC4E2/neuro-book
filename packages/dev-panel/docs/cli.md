@@ -76,6 +76,9 @@ stdout 只有一个对象，诊断走 stderr：
 | `commit_via_other_commit` | 本次的文件被别的提交带走 |
 | `commit_paths_mismatch` | 本次提交的路径与预期不一致 |
 | `lock_release_failed` | 放锁失败 |
+| `lock_release_skipped` | 放锁时锁已属于别的进程，没有动它 |
+| `lock_taken_over` | 取锁时接管了已退出进程留下的（或损坏的）锁 |
+| `lock_reacquired` | 写入之前发现锁被别的进程拿走，已重新取锁并重算 |
 | `tmp_cleanup_failed` | 删除本次事务的临时目录失败 |
 
 ## 失败时留下什么

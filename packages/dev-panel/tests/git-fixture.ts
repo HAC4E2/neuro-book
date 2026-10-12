@@ -114,6 +114,24 @@ export async function createFixture(name: string): Promise<Fixture> {
     return fixture;
 }
 
+/**
+ * 放一个“已退出进程留下的”记录锁：pid 是本测试进程，但启动时刻对不上，nbdev 会判它已死并接管。
+ * 用 pid 加错误的启动时刻，而不是找一个已退出的 pid，避免 pid 被复用时测试变得不确定。
+ */
+export async function writeDeadLock(mainRoot: string): Promise<void> {
+    const lockDir = join(mainRoot, ".local/agent/registry.json.lock");
+    await mkdir(lockDir, {recursive: true});
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+        schema: "nbdev.lock-owner/v1",
+        token: "crashed",
+        pid: process.pid,
+        startTicks: "0",
+        startedAt: "2026-10-12T00:00:00.000Z",
+        command: "crashed nbdev",
+        cwd: mainRoot,
+    }));
+}
+
 /** 删除本文件建过的全部临时根；在 `afterEach` 里调用。 */
 export async function cleanupFixtures(): Promise<void> {
     await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));

@@ -11,9 +11,8 @@ Agent 可以读写。除 nbdev 的登记表外只放能重新生成的原始输�
 ```text
 .local/agent/
 ├── registry.json              # nbdev 的编号登记表（不可重新生成，见下）
-├── registry.json.lock/        # nbdev 写事务的锁（事务进行中才有）
+├── registry.json.lock/        # nbdev 写事务的锁，里面的 owner.json 记持锁进程（事务进行中才有）
 ├── run/
-│   ├── lock-owner.json        # 当前持锁的 nbdev 进程（事务进行中才有）
 │   └── tmp/                   # nbdev 写事务的临时目录
 └── works/<workId>/tasks/<taskId>/
     ├── reports/               # 子代理、omp 的会话目录与原始输出；要给开发者看的报告作为产物入库

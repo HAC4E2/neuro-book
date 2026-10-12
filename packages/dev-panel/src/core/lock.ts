@@ -1,23 +1,29 @@
-import {lstat, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {randomBytes} from "node:crypto";
+import {lstat, mkdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
+import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
-import {lock} from "proper-lockfile";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {AGENT_LOCAL_ROOT, REGISTRY_FILE} from "./registry.js";
 import {WORKS_ROOT} from "./repo.js";
 
-/** 锁目录 10 秒没有心跳就可被接管；心跳每 2 秒一次。 */
-const LOCK_STALE_MS = 10_000;
-const LOCK_UPDATE_MS = 2_000;
 /** 等锁的预算要明显大于持锁者等 index.lock 的 10 秒加一次事务的耗时，否则持锁者一遇到 index.lock，所有等待者都会超时。 */
 export const DEFAULT_LOCK_WAIT_MS = 30_000;
+const OWNER_FILE = "owner.json";
+const OWNER_SCHEMA = "nbdev.lock-owner/v1";
 
+/** 锁目录里的持锁者信息。`token` 认这一次持锁；`pid` 加 `startTicks` 认进程（防 pid 复用）。 */
+export type LockOwner = {schema: typeof OWNER_SCHEMA; token: string; pid: number; startTicks: string; startedAt: string; command: string; cwd: string};
 export type LockHolder = {pid: number; startedAt: string; command: string; cwd: string; alive: boolean};
 
 export type RecordsLock = {
-    /** 锁被抢走（心跳报告或锁目录已不是取到的那一个）时抛 `lock_compromised`。 */
+    readonly token: string;
+    /** 取锁时接管过的死锁（持锁者已退出或锁目录损坏），供调用方报告。 */
+    readonly takeovers: readonly Warning[];
+    /** 锁目录仍是本次取到的那一个。 */
+    isHeld(): Promise<boolean>;
+    /** 锁已不属于本进程时抛 `lock_compromised`。 */
     assertHealthy(stage: string): Promise<void>;
-    /** 放锁；失败时返回一条警告而不是抛错，调用方已完成的工作不受影响。 */
+    /** 放锁；锁已不属于本进程时什么也不动，只返回警告。 */
     release(): Promise<Warning | null>;
 };
 
@@ -27,14 +33,13 @@ export function agentPaths(mainRoot: string) {
         agentRoot,
         registryFile: resolve(mainRoot, REGISTRY_FILE),
         lockDir: resolve(mainRoot, `${REGISTRY_FILE}.lock`),
-        ownerFile: resolve(agentRoot, "run", "lock-owner.json"),
         tmpRoot: resolve(agentRoot, "run", "tmp"),
     };
 }
 
 /**
  * 建好 `.local/agent/run/tmp`，并确认它与 `.agents/works` 在同一个文件系统上：
- * 新目录靠 `rename` 原子落位；`.local/` 属于用户区，可能被换成指向别的盘的符号链接。
+ * 新目录靠 `rename` 原子落位，锁目录也在这里组装后改名到位；`.local/` 属于用户区，可能被换成指向别的盘的符号链接。
  */
 export async function prepareAgentDirectories(mainRoot: string): Promise<void> {
     const {tmpRoot} = agentPaths(mainRoot);
@@ -47,123 +52,185 @@ export async function prepareAgentDirectories(mainRoot: string): Promise<void> {
     }
 }
 
-function isAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        if (systemErrorCode(error) === "EPERM") return true;
-        if (systemErrorCode(error) === "ESRCH") return false;
-        throw error;
-    }
-}
-
-/** 读持锁者信息，只用于超时时的诊断：文件不存在为 null；持锁者正在写或写到一半崩溃时，带上读不出的原因。 */
-async function readHolder(ownerFile: string): Promise<{holder: LockHolder | null; problem: string | null}> {
+/** `/proc/<pid>/stat` 的第 22 项（进程启动时刻，时钟周期数）；进程不存在时为 null。`comm` 可能含空格与括号，按最后一个 `)` 切。 */
+export async function processStartTicks(pid: number): Promise<string | null> {
     let text: string;
     try {
-        text = await readFile(ownerFile, "utf8");
+        text = await readFile(`/proc/${pid}/stat`, "utf8");
     } catch (error) {
-        if (systemErrorCode(error) === "ENOENT") return {holder: null, problem: null};
+        if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ESRCH") return null;
         throw error;
     }
+    const fields = text.slice(text.lastIndexOf(")") + 2).split(" ");
+    return fields[19] ?? null;
+}
+
+async function ownerAlive(owner: LockOwner): Promise<boolean> {
+    return await processStartTicks(owner.pid) === owner.startTicks;
+}
+
+/**
+ * 解析持锁者文件。本实现只经“组装好再改名”建锁目录，持锁者文件不会写到一半；
+ * 读不出就说明锁目录是旧格式或已损坏，`problem` 写明原因，调用方按死锁接管并报告。
+ */
+function parseOwner(text: string): {owner: LockOwner | null; problem: string | null} {
     let value: unknown;
     try {
         value = JSON.parse(text);
     } catch (error) {
-        return {holder: null, problem: `lock-owner.json 无法解析：${error instanceof Error ? error.message : String(error)}`};
+        return {owner: null, problem: `持锁者文件不是合法 JSON：${error instanceof Error ? error.message : String(error)}`};
     }
-    if (!value || typeof value !== "object" || typeof (value as {pid?: unknown}).pid !== "number") {
-        return {holder: null, problem: "lock-owner.json 缺少 pid"};
+    const owner = (value && typeof value === "object" ? value : {}) as Partial<LockOwner>;
+    if (owner.schema !== OWNER_SCHEMA || typeof owner.token !== "string" || typeof owner.pid !== "number" || typeof owner.startTicks !== "string") {
+        return {owner: null, problem: "持锁者文件缺少 schema、token、pid 或 startTicks"};
     }
-    const owner = value as {pid: number; startedAt?: unknown; command?: unknown; cwd?: unknown};
-    return {
-        holder: {
-            pid: owner.pid,
-            startedAt: typeof owner.startedAt === "string" ? owner.startedAt : "",
-            command: typeof owner.command === "string" ? owner.command : "",
-            cwd: typeof owner.cwd === "string" ? owner.cwd : "",
-            alive: isAlive(owner.pid),
-        },
-        problem: null,
-    };
+    return {owner: owner as LockOwner, problem: null};
 }
 
-type LockIdentity = {ino: number; birthtimeMs: number};
+/** 看一眼锁目录：`ino` 认目录本身，`owner` 为 null 表示没有可用的持锁者信息（旧格式或损坏，原因在 `problem`）。 */
+export type LockObservation = {ino: number; owner: LockOwner | null; problem: string | null};
 
-async function lockIdentity(lockDir: string): Promise<LockIdentity | null> {
+/** 锁目录不存在时为 null；读持锁者期间锁目录被换掉时为 "changed"，调用方重试即可。 */
+export async function inspectLock(lockDir: string): Promise<LockObservation | null | "changed"> {
+    let before;
     try {
-        const stats = await lstat(lockDir);
-        return {ino: stats.ino, birthtimeMs: stats.birthtimeMs};
+        before = await lstat(lockDir);
     } catch (error) {
         if (systemErrorCode(error) === "ENOENT") return null;
+        throw error;
+    }
+    let parsed: {owner: LockOwner | null; problem: string | null} = {owner: null, problem: "锁目录里没有持锁者文件"};
+    try {
+        parsed = parseOwner(await readFile(join(lockDir, OWNER_FILE), "utf8"));
+    } catch (error) {
+        if (systemErrorCode(error) !== "ENOENT" && systemErrorCode(error) !== "ENOTDIR") throw error;
+    }
+    let after;
+    try {
+        after = await lstat(lockDir);
+    } catch (error) {
+        if (systemErrorCode(error) === "ENOENT") return "changed";
+        throw error;
+    }
+    return after.ino === before.ino ? {ino: before.ino, ...parsed} : "changed";
+}
+
+/**
+ * 接管一个已确认持锁者已死的锁：先把锁目录改名成唯一的墓碑名，只有改名成功的一方继续；
+ * 再确认改走的正是观察到的那个目录。两个等待者可能都看到同一个死锁，慢的一方改走的会是快的一方刚建的活锁，
+ * 这时原样改回去，返回 "lost_race"。
+ */
+export async function takeOverDeadLock(lockDir: string, tmpRoot: string, observation: LockObservation): Promise<"taken" | "lost_race"> {
+    const tombstone = join(tmpRoot, `lock-dead-${process.pid}-${randomBytes(4).toString("hex")}`);
+    try {
+        await rename(lockDir, tombstone);
+    } catch (error) {
+        if (systemErrorCode(error) === "ENOENT") return "lost_race";
+        throw error;
+    }
+    if ((await lstat(tombstone)).ino !== observation.ino) {
+        try {
+            await rename(tombstone, lockDir);
+        } catch (error) {
+            // 改回去之前又有第三个进程建了锁目录：别人的锁已在墓碑里，那个进程的身份比对会发现并停下。
+            if (systemErrorCode(error) !== "EEXIST" && systemErrorCode(error) !== "ENOTEMPTY") throw error;
+        }
+        return "lost_race";
+    }
+    await rm(tombstone, {recursive: true, force: true});
+    return "taken";
+}
+
+/** 在 run/tmp 里组装好带持锁者文件的目录，再改名成锁目录：锁目录一出现就带着持锁者信息。 */
+async function tryCreateLock(lockDir: string, tmpRoot: string, owner: LockOwner): Promise<boolean> {
+    const staging = join(tmpRoot, `lock-new-${process.pid}-${randomBytes(4).toString("hex")}`);
+    await mkdir(staging);
+    try {
+        await writeFile(join(staging, OWNER_FILE), `${JSON.stringify(owner, null, 4)}\n`, {encoding: "utf8", flag: "wx"});
+        await rename(staging, lockDir);
+        return true;
+    } catch (error) {
+        if (systemErrorCode(error) === "EEXIST" || systemErrorCode(error) === "ENOTEMPTY") return false;
+        throw error;
+    } finally {
+        await rm(staging, {recursive: true, force: true});
+    }
+}
+
+async function currentToken(lockDir: string): Promise<string | null> {
+    try {
+        return parseOwner(await readFile(join(lockDir, OWNER_FILE), "utf8")).owner?.token ?? null;
+    } catch (error) {
+        if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") return null;
         throw error;
     }
 }
 
 /**
- * 取主工作区的记录锁（`.local/agent/registry.json.lock`，proper-lockfile 的目录锁）。
- * 只按错误码 ELOCKED 判断被占，自己随机退避重试到 `waitMs`。
- * proper-lockfile 接管过期锁是“判定过期、rmdir、mkdir”三步，不是原子的；所以记下锁目录的 inode 与 birthtime，
- * 在关键步骤前比对，发现锁目录已被别人重建就停下。
+ * 取主工作区的记录锁 `.local/agent/registry.json.lock/`。只支持 Linux：持锁者是否存活按 `/proc/<pid>/stat` 的启动时刻判断，
+ * 不靠心跳，持锁者长时间等 Git 也不会被判过期。持锁者已死就按墓碑改名接管；持锁者活着就随机退避，等到 `waitMs` 为止。
  */
 export async function acquireRecordsLock(mainRoot: string, waitMs: number = DEFAULT_LOCK_WAIT_MS): Promise<RecordsLock> {
-    const paths = agentPaths(mainRoot);
+    const {lockDir, tmpRoot} = agentPaths(mainRoot);
+    const startTicks = await processStartTicks(process.pid);
+    if (startTicks === null) throw new NbdevError("lock_failed", "读不到本进程的启动时刻（需要 Linux 的 /proc）");
+    const owner: LockOwner = {
+        schema: OWNER_SCHEMA,
+        token: randomBytes(16).toString("hex"),
+        pid: process.pid,
+        startTicks,
+        startedAt: new Date().toISOString(),
+        command: process.argv.join(" "),
+        cwd: process.cwd(),
+    };
     const startedAt = Date.now();
-    let compromisedBy: Error | null = null;
-    let releaseLock: () => Promise<void>;
+    const takeovers: Warning[] = [];
     for (;;) {
-        try {
-            releaseLock = await lock(paths.registryFile, {
-                lockfilePath: paths.lockDir,
-                realpath: false,
-                stale: LOCK_STALE_MS,
-                update: LOCK_UPDATE_MS,
-                retries: 0,
-                onCompromised: (error) => {
-                    compromisedBy = error;
-                },
-            });
-            break;
-        } catch (error) {
-            if (systemErrorCode(error) !== "ELOCKED") {
-                throw new NbdevError("lock_failed", `取记录锁失败：${error instanceof Error ? error.message : String(error)}`, {cause: error, details: {lockDir: paths.lockDir}});
-            }
-            if (Date.now() - startedAt >= waitMs) {
-                const {holder, problem} = await readHolder(paths.ownerFile);
-                throw new NbdevError("lock_timeout", `等记录锁超过 ${Math.round(waitMs / 1000)} 秒，持锁者：${holder ? `pid ${holder.pid}（${holder.alive ? "在运行" : "已退出"}）` : problem ?? "未知"}`, {
-                    details: {lockDir: paths.lockDir, waitedMs: Date.now() - startedAt, holder, holderProblem: problem},
+        if (await tryCreateLock(lockDir, tmpRoot, owner)) break;
+        const observation = await inspectLock(lockDir);
+        if (observation === null || observation === "changed") continue;
+        if (observation.owner === null || !await ownerAlive(observation.owner)) {
+            if (await takeOverDeadLock(lockDir, tmpRoot, observation) === "taken") {
+                takeovers.push({
+                    code: "lock_taken_over",
+                    message: observation.owner ? `接管了已退出进程 ${observation.owner.pid} 留下的记录锁` : `接管了损坏的记录锁：${observation.problem ?? "原因不明"}`,
+                    details: {deadOwner: observation.owner, problem: observation.problem},
                 });
             }
-            await sleep(50 + Math.floor(Math.random() * 200));
+            continue;
         }
+        if (Date.now() - startedAt >= waitMs) {
+            const holder: LockHolder = {pid: observation.owner.pid, startedAt: observation.owner.startedAt, command: observation.owner.command, cwd: observation.owner.cwd, alive: true};
+            throw new NbdevError("lock_timeout", `等记录锁超过 ${Math.round(waitMs / 1000)} 秒，持锁者 pid ${holder.pid} 仍在运行`, {
+                details: {lockDir, waitedMs: Date.now() - startedAt, holder},
+            });
+        }
+        await sleep(50 + Math.floor(Math.random() * 200));
     }
-    let identity: LockIdentity | null;
-    try {
-        identity = await lockIdentity(paths.lockDir);
-        await writeFile(paths.ownerFile, `${JSON.stringify({pid: process.pid, startedAt: new Date(startedAt).toISOString(), command: process.argv.join(" "), cwd: process.cwd()}, null, 4)}\n`, "utf8");
-    } catch (error) {
-        await releaseLock();
-        throw new NbdevError("lock_failed", `记录持锁者信息失败：${error instanceof Error ? error.message : String(error)}`, {cause: error, details: {ownerFile: paths.ownerFile}});
-    }
+    const isHeld = async () => await currentToken(lockDir) === owner.token;
     return {
+        token: owner.token,
+        takeovers,
+        isHeld,
         async assertHealthy(stage) {
-            if (compromisedBy) {
-                throw new NbdevError("lock_compromised", `记录锁在${stage}之前被抢走：${(compromisedBy as Error).message}`, {cause: compromisedBy, details: {stage}});
-            }
-            const current = await lockIdentity(paths.lockDir);
-            if (!identity || !current || current.ino !== identity.ino || current.birthtimeMs !== identity.birthtimeMs) {
-                throw new NbdevError("lock_compromised", `记录锁在${stage}之前被别的进程重建`, {details: {stage, expected: identity, current}});
-            }
+            if (!await isHeld()) throw new NbdevError("lock_compromised", `记录锁在${stage}之前已不属于本进程`, {details: {stage, lockDir}});
         },
         async release() {
-            try {
-                await rm(paths.ownerFile, {force: true});
-                await releaseLock();
-                return null;
-            } catch (error) {
-                return {code: "lock_release_failed", message: `放记录锁失败：${error instanceof Error ? error.message : String(error)}`, details: {lockDir: paths.lockDir}};
+            if (!await isHeld()) {
+                return {code: "lock_release_skipped", message: "记录锁已不属于本进程，放锁时没有动它", details: {lockDir}};
             }
+            const tombstone = join(tmpRoot, `lock-released-${process.pid}-${randomBytes(4).toString("hex")}`);
+            try {
+                await rename(lockDir, tombstone);
+            } catch (error) {
+                return {code: "lock_release_failed", message: `放记录锁失败：${error instanceof Error ? error.message : String(error)}`, details: {lockDir}};
+            }
+            try {
+                await rm(tombstone, {recursive: true, force: true});
+            } catch (error) {
+                return {code: "lock_release_failed", message: `锁已放开，但删除旧锁目录失败：${error instanceof Error ? error.message : String(error)}`, details: {tombstone}};
+            }
+            return null;
         },
     };
 }

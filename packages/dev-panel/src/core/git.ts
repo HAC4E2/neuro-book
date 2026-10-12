@@ -30,10 +30,7 @@ function gitEnvironment(): NodeJS.ProcessEnv {
     return env;
 }
 
-/**
- * 异步运行 Git，不因非零退出码抛错；调用方按退出码分支。
- * 必须异步：持锁期间 proper-lockfile 靠事件循环里的定时器刷新锁目录，同步调用会让锁被判为过期。
- */
+/** 异步运行 Git，不因非零退出码抛错；调用方按退出码分支。只读的扫描靠它并行发出多条 Git 命令。 */
 export function runGit(root: string, args: readonly string[], options: GitOptions = {}): Promise<GitResult> {
     const fullArgs = options.readOnly ? ["--no-optional-locks", "-C", root, ...args] : ["-C", root, ...args];
     return new Promise((resolvePromise, rejectPromise) => {

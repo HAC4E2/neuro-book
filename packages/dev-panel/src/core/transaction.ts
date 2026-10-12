@@ -4,7 +4,7 @@ import {dirname, join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {isNbdevError, NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {gitOutput, runGit, splitLines, splitNul, type GitResult} from "./git.js";
-import {acquireRecordsLock, agentPaths, DEFAULT_LOCK_WAIT_MS, prepareAgentDirectories} from "./lock.js";
+import {acquireRecordsLock, agentPaths, DEFAULT_LOCK_WAIT_MS, prepareAgentDirectories, type RecordsLock} from "./lock.js";
 import {claimTask, claimWork, importScanned, readRegistry, writeRegistry, type Registry} from "./registry.js";
 import {assertMainWritable, listCheckouts, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "./repo.js";
 import {scannedIds, scanNumbers, type NumberScan} from "./scan.js";
@@ -245,26 +245,54 @@ export function recordDate(date: Date): string {
     return localDate(date);
 }
 
+/** 写入之前发现锁已不属于本进程时，最多重新取锁的次数。 */
+const LOCK_ATTEMPTS = 3;
+const LOCK_LOST = Symbol("lock lost before writes");
+
+type TransactionBody<T> = (tx: WriteTx) => Promise<{message: string | null; result: T}>;
+
 /**
  * 写事务：命令行与面板的所有写入都经这里，因此串行。
  * 前置检查 → 取锁 → 锁内复查并记下起始 HEAD → body 计算并登记操作 → 校验全部目标 → 在 run/tmp 里准备 →
  * 写登记表 → 落位 → 路径限定提交（或判定无需提交）→ 放锁。各步失败时留下什么见 docs/cli.md。
+ * 写登记表之前发现锁已被别人拿走（还什么都没写），就重新取锁、从头再算一遍，不报错；写了之后才发现则报 `lock_compromised`。
  * `repoWrites: false` 的事务（registry import）不要求主工作区在 master，也不碰仓库。
  */
 export async function runWriteTransaction<T>(
     context: RepoContext,
     options: TransactionOptions & {repoWrites?: boolean},
-    body: (tx: WriteTx) => Promise<{message: string | null; result: T}>,
+    body: TransactionBody<T>,
 ): Promise<TransactionResult<T>> {
     const {mainRoot} = context;
     const repoWrites = options.repoWrites ?? true;
     const now = (options.now ?? (() => new Date()))();
     if (repoWrites) await assertMainWritable(mainRoot);
     await prepareAgentDirectories(mainRoot);
-    const recordsLock = await acquireRecordsLock(mainRoot, options.lockWaitMs ?? DEFAULT_LOCK_WAIT_MS);
-    const warnings: Warning[] = [];
+    for (let attempt = 1; ; attempt += 1) {
+        const recordsLock = await acquireRecordsLock(mainRoot, options.lockWaitMs ?? DEFAULT_LOCK_WAIT_MS);
+        const outcome = await attemptTransaction(context, {repoWrites, now, gitLockWaitMs: options.gitLockWaitMs}, body, recordsLock);
+        if (outcome !== LOCK_LOST) {
+            if (attempt > 1) outcome.warnings.push({code: "lock_reacquired", message: `写入之前发现记录锁被别的进程拿走，已重新取锁并重算（第 ${attempt} 次）`, details: {attempts: attempt}});
+            return outcome;
+        }
+        if (attempt >= LOCK_ATTEMPTS) {
+            throw new NbdevError("lock_compromised", `连续 ${LOCK_ATTEMPTS} 次在写入之前丢了记录锁，什么都没写`, {details: {attempts: attempt}});
+        }
+    }
+}
+
+async function attemptTransaction<T>(
+    context: RepoContext,
+    options: {repoWrites: boolean; now: Date; gitLockWaitMs?: number},
+    body: TransactionBody<T>,
+    recordsLock: RecordsLock,
+): Promise<TransactionResult<T> | typeof LOCK_LOST> {
+    const {mainRoot} = context;
+    const {repoWrites, now} = options;
+    const warnings: Warning[] = [...recordsLock.takeovers];
     const txDir = join(agentPaths(mainRoot).tmpRoot, `${Date.now()}-${process.pid}-${randomBytes(4).toString("hex")}`);
     const written: string[] = [];
+    let lost = false;
     try {
         if (repoWrites) await assertMainWritable(mainRoot);
         const startHead = repoWrites ? (await gitOutput(mainRoot, ["rev-parse", "HEAD"], {readOnly: true})).trim() : "";
@@ -326,10 +354,13 @@ export async function runWriteTransaction<T>(
         const paths = [...new Set([...operations.flatMap(operationPaths), ...included])];
         await validateOperations(mainRoot, operations, included);
         const staged = await stageOperations(txDir, operations);
-        if (registryChanged) {
-            await recordsLock.assertHealthy("写登记表");
-            await writeRegistry(mainRoot, registry);
+        // 到这里还没有写任何东西（staged 只在本事务的临时目录里）：锁丢了就从头再来，号也会重新算。
+        if (!await recordsLock.isHeld()) {
+            lost = true;
+            return LOCK_LOST;
         }
+        if (registryChanged) await writeRegistry(mainRoot, registry);
+        // 登记表已写：此后丢锁不能再悄悄重算，否则本次领的号会变成没人用的 claimed。
         if (operations.length > 0) await recordsLock.assertHealthy("落位");
         try {
             for (const [index, operation] of operations.entries()) {
@@ -342,11 +373,7 @@ export async function runWriteTransaction<T>(
         if (!repoWrites || message === null || paths.length === 0) {
             return {result, commit: {committed: false, reason: "nothing_to_commit", paths}, warnings};
         }
-        try {
-            await recordsLock.assertHealthy("提交");
-        } catch (error) {
-            throw withWrittenPaths(error, paths);
-        }
+        // 落位之后不再查锁：提交只碰本次自己的路径，此时丢锁也不会造成重号，中途放弃反而留下未提交的文件。
         const commit = await commitPaths(mainRoot, {paths, message, startHead, budgetMs: options.gitLockWaitMs ?? DEFAULT_GIT_LOCK_WAIT_MS});
         if (commit.committed && commit.viaOtherCommit) {
             warnings.push({code: "commit_via_other_commit", message: `本次的文件被别的提交一起带走了：${commit.sha}`, details: {sha: commit.sha, paths}});
@@ -363,6 +390,7 @@ export async function runWriteTransaction<T>(
             warnings.push({code: "tmp_cleanup_failed", message: `删除事务临时目录失败：${error instanceof Error ? error.message : String(error)}`, details: {txDir}});
         });
         const releaseWarning = await recordsLock.release();
-        if (releaseWarning) warnings.push(releaseWarning);
+        // 丢锁重来时放锁必然被跳过（锁已属于别人），不必再报。
+        if (releaseWarning && !lost) warnings.push(releaseWarning);
     }
 }

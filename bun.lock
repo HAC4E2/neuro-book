@@ -132,7 +132,6 @@
         "nbdev": "./src/cli.ts",
       },
       "dependencies": {
-        "proper-lockfile": "4.1.2",
         "yaml": "^2.8.2",
       },
       "devDependencies": {

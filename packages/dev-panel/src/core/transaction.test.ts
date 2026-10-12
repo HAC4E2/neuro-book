@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdir, readdir, readFile, rm, utimes, writeFile} from "node:fs/promises";
+import {readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {cleanupFixtures, createFixture, git, taskReadme, type Fixture} from "../../tests/git-fixture.js";
+import {cleanupFixtures, createFixture, git, taskReadme, writeDeadLock, type Fixture} from "../../tests/git-fixture.js";
 import {acquireRecordsLock} from "./lock.js";
 import {createTask, createWork, setRecordStatus} from "./operations.js";
 import {readRegistry} from "./registry.js";
@@ -118,14 +118,13 @@ describe("写事务", () => {
             .toEqual({committed: false, reason: "nothing_to_commit", paths: [path]});
     });
 
-    test("崩溃残留：过期的锁目录可被接管；锁被占时等到超时并报出持锁者", async () => {
+    test("崩溃残留：已退出进程留下的锁被接管；锁被占时等到超时并报出持锁者", async () => {
         const fixture = await createFixture("tx-stale-lock");
-        const lockDir = join(fixture.main, ".local/agent/registry.json.lock");
-        await mkdir(lockDir, {recursive: true});
-        const past = new Date(Date.now() - 60_000);
-        await utimes(lockDir, past, past);
+        await writeDeadLock(fixture.main);
         const context = await locateRepository(fixture.main);
-        expect((await createTask(context, {workRef: "w00001", slug: "after-crash", title: "崩溃之后"})).commit).toMatchObject({committed: true});
+        const afterCrash = await createTask(context, {workRef: "w00001", slug: "after-crash", title: "崩溃之后"});
+        expect(afterCrash.commit).toMatchObject({committed: true});
+        expect(afterCrash.warnings.map((warning) => warning.code)).toContain("lock_taken_over");
 
         const held = await acquireRecordsLock(fixture.main);
         try {

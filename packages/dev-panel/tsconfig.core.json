@@ -3,6 +3,6 @@
     "compilerOptions": {
         "types": ["node"]
     },
-    "include": ["src/index.ts", "src/core", "proper-lockfile.d.ts"],
+    "include": ["src/index.ts", "src/core"],
     "exclude": ["**/*.test.ts"]
 }
