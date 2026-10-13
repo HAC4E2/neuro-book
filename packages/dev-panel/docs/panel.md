@@ -29,7 +29,7 @@
 
 1. 带转发头（`Forwarded`、`X-Forwarded-*`、`X-Real-IP`、`Tailscale-User-Login`、`Tailscale-User-Name`）的拒绝（403）：跨设备上线之前不接受经代理转进来的请求。
 2. `Host` 必须是本来源的 `127.0.0.1:<port>` 或 `localhost:<port>`（421，防 DNS 重绑定；Bun 按 `Host` 头拼 `req.url`，所以直接比 `Host` 头）。
-3. 路径逐段解码：不合法的百分号编码、解码出 NUL、`/`、`.`、`..` 与空段都回 400，不让解码错误变成 500。
+3. URL 解析器先按规范折叠 `.` 与 `..`（含 `%2e` 写法），折叠后的路径照常过下面的检查，所以 `/../x` 等同 `/x`、出不了根（`/../../etc/passwd` 落到单页回退，回 `index.html`，不是那个文件）。剩下的段逐段解码：编码过的 `/` 与 `\`、解码出 NUL、不合法的百分号编码与空段回 400，不让解码错误变成 500。
 4. 面板来源，按这个顺序：
    - `/api/*` 与 `/ws`（不论方法）先要求 `Sec-Fetch-Site` 是 `same-origin` 或 `none`（缺这个头的按 `none` 处理，只有浏览器的跨站请求会带 `cross-site`、`same-site`），再要求登录 cookie（401）。跨站的 `<img src=…/api/search?q=…>` 两道都过不去。
    - 然后，非 `GET`、`HEAD` 的请求要求同源的 `Origin` 加 `X-Nbdev-Csrf` 头（值是服务启动时生成、写进页面 `<meta name="nbdev-csrf">` 的随机令牌）。CSRF 令牌写在不要求登录的 `index.html` 里，本机任何账户都读得到：它只防浏览器里的跨站请求，不是本机账户之间的秘密，写请求靠的是前一步的登录。本片没有写接口，通过校验后回 405。

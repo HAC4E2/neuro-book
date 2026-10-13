@@ -40,8 +40,9 @@ export function sameHostOn(host: string, port: number): string {
 }
 
 /**
- * 把 URL 的路径拆成段并逐段解码。不合法的百分号编码、解码出 NUL 或 `/`、`.`、`..`、空段都拒绝（400），
- * 不让 URIError 变成 500。`trailingSlash` 时允许末尾一个空段（目录形式的地址）。
+ * 把 URL 的路径拆成段并逐段解码。`.` 与 `..`（含 `%2e` 写法）在到这里之前已被 URL 解析器按规范折叠掉（`/../x` 等同 `/x`，
+ * 出不了根），折叠后的路径照常过段检查、白名单与 `realpath`；这里拒绝的是折叠不掉的写法：不合法的百分号编码、
+ * 解码出 NUL、`/` 或 `\` 的段、空段（400），不让 URIError 变成 500。末尾一个空段（目录形式的地址）照收。
  */
 export function decodePath(pathname: string): {segments: string[]} | Rejection {
     const raw = pathname.split("/").slice(1);

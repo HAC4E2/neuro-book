@@ -270,7 +270,7 @@ describe("面板服务的安全", () => {
         expect((await login("garbage")).status).toBe(403);
     }, 30_000);
 
-    test("场景 5：原始请求里的 ..、编码过的 ..、..%2f、%00、不合法的百分号编码都回 4xx，不回 500，也不回 index.html；符号链接与 .env、node_modules 拿不到", async () => {
+    test("场景 5：URL 解析器先折叠 .. 与 %2e%2e，剩下的段再检查：折叠后指向 .git 的回 404，..%2f、%00、不合法的百分号编码回 400，都不回 500；/../../etc/passwd 回 index.html 而不是文件；符号链接与 .env、node_modules 拿不到", async () => {
         const fixture = await publishedFixture("panel-s5-paths");
         await mkdir(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/node_modules"), {recursive: true});
         await writeFile(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/node_modules/x.js"), "secret\n");
@@ -283,6 +283,9 @@ describe("面板服务的安全", () => {
             const response = await rawGet(panel.server.port, path, {Cookie: panel.cookie});
             expect([path, response.status >= 400 && response.status < 500, response.text.includes("panel-index")]).toEqual([path, true, false]);
         }
+        // 折叠出不了根：落到单页回退，拿到的是 index.html，不是 /etc/passwd。
+        const passwd = await rawGet(panel.server.port, "/../../etc/passwd", {Cookie: panel.cookie});
+        expect([passwd.status, passwd.text.includes("panel-index"), passwd.text.includes("root:")]).toEqual([200, true, false]);
         const {body} = await panel.json<{pageUrl: string}>("/api/artifact/w00002-alpha/t01-board/review");
         const base = new URL(body.data.pageUrl).pathname.replace(/index\.html$/u, "");
         const artifactPaths = [`${base}../../../../../../.git/config`, `${base}${"%2e%2e/".repeat(7)}.gitignore`, `${base}..%2f..%2fREADME.md`, `${base}%00`, `${base}%zz`, `${base}config-link`, `${base}outside-link`, `${base}.env`, `${base}node_modules/x.js`];
