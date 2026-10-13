@@ -75,20 +75,24 @@ const created = ref<{workId: string; taskId: string; previewed: string | null} |
  * 开发者看过左栏或首页、确认之后才解锁。
  */
 const unconfirmed = ref(false);
+/** 这次提交的是 Work 还是 Task：回包与“结果未知”的确认都按它处理，不按提交之后的模式（t15）。提交在途时也不让切换。 */
+const submittedMode = ref<"work" | "task">(mode.value);
 const formBlocked = computed(() => disabledReason.value ?? (unconfirmed.value ? "上一次新建的结果未知：先确认建好了没有" : null));
 function confirmUnknown(clear: boolean): void {
     unconfirmed.value = false;
     notice.value = null;
     if (!clear) return;
-    if (mode.value === "work") workForm.value = {...EMPTY_WORK};
+    if (submittedMode.value === "work") workForm.value = {...EMPTY_WORK};
     else taskForm.value = {...EMPTY_TASK, workId: taskForm.value.workId};
 }
 async function submit(): Promise<void> {
     if (unconfirmed.value) return;
     notice.value = null;
     created.value = null;
-    const previewed = mode.value === "work" ? preview.value?.workId ?? null : preview.value?.taskId ?? null;
-    const outcome = mode.value === "work"
+    const submitting = mode.value;
+    submittedMode.value = submitting;
+    const previewed = submitting === "work" ? preview.value?.workId ?? null : preview.value?.taskId ?? null;
+    const outcome = submitting === "work"
         ? await write.run(() => sendJson<WriteData & {workId: string; taskId: string}>("POST", "/api/works", workBody()))
         : await write.run(() => sendJson<WriteData & {workId: string; taskId: string}>("POST", `/api/works/${encodeURIComponent(taskForm.value.workId)}/tasks`, taskBody()));
     if (!outcome.ok) {
@@ -103,17 +107,17 @@ async function submit(): Promise<void> {
     }
     const {workId, taskId} = outcome.body.data;
     created.value = {workId, taskId, previewed};
-    notice.value = successNotice(mode.value === "work" ? `已新建 ${workId} 与 ${taskId}` : `已新建 ${workId}/${taskId}`, outcome.body);
-    if (mode.value === "work") workForm.value = {...EMPTY_WORK};
+    notice.value = successNotice(submitting === "work" ? `已新建 ${workId} 与 ${taskId}` : `已新建 ${workId}/${taskId}`, outcome.body);
+    if (submitting === "work") workForm.value = {...EMPTY_WORK};
     else taskForm.value = {...EMPTY_TASK, workId: taskForm.value.workId};
 }
-const actualId = computed(() => (created.value ? (mode.value === "work" ? created.value.workId : created.value.taskId) : null));
+const actualId = computed(() => (created.value ? (submittedMode.value === "work" ? created.value.workId : created.value.taskId) : null));
 </script>
 
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-4 p-4 md:p-6">
         <h1 class="font-semibold" style="font-size: var(--text-xl)">新建</h1>
-        <SegmentedControl :model-value="mode" :options="MODES" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
+        <SegmentedControl :model-value="mode" :options="MODES" :disabled="write.pending.value" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
         <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
         <section v-if="unconfirmed" class="flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] p-3" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--status-warning)">
             <span>表单已锁住：确认上一次建好了没有再继续。</span>

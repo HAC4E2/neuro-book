@@ -3,6 +3,7 @@ import {Badge, Drawer, FormInput, IconButton, Tooltip} from "@notnotype/nb-ui/co
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "./host/format.js";
+import {pageKey} from "./host/routes.js";
 import {panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readNavOpen, writeAppearance, writeNavOpen, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
@@ -146,7 +147,10 @@ const herdrLabel = computed(() => {
                 </div>
             </header>
             <main class="min-h-0 flex-1 overflow-y-auto">
-                <RouterView />
+                <!-- 按路由名与路径参数重建页面实例，查询参数变化不重建（t15）。 -->
+                <RouterView v-slot="{Component, route: viewRoute}">
+                    <component :is="Component" :key="pageKey(viewRoute)" />
+                </RouterView>
             </main>
         </div>
         <Drawer v-model:open="drawerOpen" direction="left" title="导航">
