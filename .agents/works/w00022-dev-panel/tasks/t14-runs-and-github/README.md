@@ -34,6 +34,20 @@ updated: 2026-10-13
 
 - 2026-10-13 经 `nbdev task new` 新建。编码子代理写 [plan.md](plan.md)，写完交 opus 子代理做设计审查。
 
+- 2026-10-13 设计审查（[报告](evidences/design-review.txt)）：1 阻断、6 重要、12 建议，主 Agent 定为全部采纳。
+  - 阻断：按进程组停服务停不掉 master 的 `dev`。owned-process 让运行时另起会话与进程组，监督器先被杀，运行时成了孤儿，HTTP 照样回应，nbdev 却判“已停”。
+  - 重要：
+    - “还活着”不能只看组长：组长退出后孙进程还留在组里；
+    - 复用的两处没有定义；
+    - checkout 页“未提交”的缓存是错的；
+    - 场景 4 的测法与现有代码冲突；
+    - 作为 systemd 服务找不到 `gh`，要由 `install-service` 写入 `NBDEV_GH_BIN`；
+    - 验收漏了监管进程被 SIGKILL、孙进程另起进程组、TaskStop 的情形。
+  - S0 实测：
+    - `bun run` 会把 SIGTERM 转给脚本；
+    - `kill(-pgid)` 打得到同组的孙进程，打不到另起进程组的后代；
+    - TaskStop 先 SIGTERM，约 1.5 秒后 SIGKILL。
+
 ## 下一步
 
-设计审查的结论处理完后实施。
+按处理意见改计划并实施。

@@ -1,0 +1,376 @@
+# w00022/t14 设计审查报告（plan.md @ 23f27ec51，代码 @ 72799b957，只读）
+
+## 结论
+
+方向是对的：前台监管、日志直接写文件、同一 checkout 复用、默认不停别人起的服务、`worktree new` 用 `/usr/bin/git`、GitHub 只读。主要问题在停服务与收尾，计划的模型是“服务等于 setsid 起的那一个进程组，组长在就是服务在”，这个模型在两处不成立：
+
+- master 的缺省入口经 owned-process 把运行时放进另一个会话，按组发信号反而先杀掉负责收它的监督器（B1）；
+- 组长先退、孙进程留在组里时，计划判“已结束”、再也不停（I1）。
+
+两处都有实验。动手之前要先把停法、“还活着”的判据与对应的 L4 改掉（B1、I1、I6）。
+
+**条数**：阻断 1，重要 6，建议 12。
+
+- 阻断：
+  - B1：按进程组停，停不掉 master 的 `dev`。运行时在另一个会话里，组信号先杀掉 owned-process 监督器，运行时成了孤儿，HTTP 照常回 200。
+- 重要：
+  - I1：“还活着”只看组长，组长退出、孙进程还在时判 `ended`，也不再发信号；
+  - I2：复用的窗口期（登记里还没有 pid）与复用 `NOT_READY` 的运行，都没有定义；
+  - I3：checkout 页“未提交”按 HEAD 与 index mtime 缓存，改了文件也一直不更新；
+  - I4：场景 4 的“PATH 里放失败的假 git”与现有代码冲突，照写测试必失败；
+  - I5：面板作为服务时多半找不到 `~/.local/bin/gh`，要让 `install-service` 写 `NBDEV_GH_BIN`；
+  - I6：验收没有覆盖监管进程被 SIGKILL、开发脚本留孙进程或另起进程组、TaskStop 这几条路径。
+- 建议：
+  - S1：Claude Code 的 TaskStop 是整树 SIGTERM，约 1.5 秒后 SIGKILL，收尾顺序要按这个时限设计；
+  - S2：5xx 不算就绪，w00017 要等 `backend-ready`，`\r` 也算行尾；
+  - S3：不带 Task 的日志名会撞；
+  - S4：没有监管进程（`orphaned`）时免 `--force`，并定义未认出的调用者与登记的写入顺序；
+  - S5：复用时参数不一致要提示，并写明服务随属主会话结束；
+  - S6：监管进程的退出码；
+  - S7：“在跑”页的去重判据；
+  - S8：GitHub 的条数截断、StatusContext、禁交互提示、只在有人看时定时取、字段白名单、按纯文本渲染；
+  - S9：`worktree new` 的 `home` 格式、补登、并发时的错误码、`--type` 取值；
+  - S10：`shot` 去掉浏览器路径注入，`dev_not_running` 用 5；
+  - S11：`find` 的 `recordMatches` 改成纯函数，缺省条数收小；
+  - S12：`--port` 推迟。
+
+**决定点逐条**：
+
+1. 同意：前台监管、由 Agent 的后台机制托管，不自己转成守护进程。
+2. 同意“跟随会话结束”，但实现要改：
+   - Claude Code 下实际是 TaskStop 给整棵树发 SIGTERM、约 1.5 秒后 SIGKILL（实测），pdeathsig 只兜“监管进程单独被杀”这一种；
+   - 停法改成先给组长发 SIGTERM，再按快照 SIGKILL 剩下的进程（B1、I1、S1）；
+   - omp 的 `proc://` 没有核实。
+3. 同意“内置两种就绪行、`--ready-pattern`、再做 HTTP 探测”，补三处：5xx 不算就绪，w00017 等 `backend-ready`，按 `\r` 也切行（S2）。
+4. 同意 nbdev 不分配端口、以就绪行为准；`--port` 的入口分类没有定义，建议推迟（S12）。
+5. 同意（checkout、package、script）这把键；补“锁内起服务、写好 pid 再放锁”，以及 `NOT_READY` 的复用与参数不一致的提示（I2、S5）。
+6. 同意不装依赖，只提示命令。
+7. 同意缺省 `feat`，`--type` 的取值与 CONTRIBUTING 对齐（S9）。
+8. 同意共用 `searchCheckouts`；`recordMatches` 改成纯函数，命令行只匹配记录，缺省条数收小（S11）。
+9. 同意只做薄包装、`TMPDIR` 指到 `/dev/shm`；去掉 `--browser-executable` 的注入（S10）。
+10. 同意面板只读，不能停服务。
+11. 同意加未提交、领先落后、在跑、`home` 四列，不做“可清理”；去掉按 mtime 的缓存（I3）。
+12. 同意白名单两条 `gh … list`、15 秒时限、内存缓存、按退出码降级、`NBDEV_GH_PREFIX`；补 `NBDEV_GH_BIN`、只在有人看时定时取、条数与字段（I5、S8）。
+13. 同意 shell pane 接管继续推迟。
+14. 同意日志的位置与不自动清理，文件名带上 runId（S3）。
+
+**S0 三个探针的实测结论**（假开发脚本加临时 `package.json`，bun 1.4.2）：
+
+1. **`bun run` 收到 SIGTERM 转不转发**：转发。对简单命令的脚本，`bun run` 不经 sh，直接起脚本进程；收到 SIGTERM 转给脚本，并等脚本退出后自己才退出（E1、E2）。
+2. **`kill(-pgid)` 能不能打到组里全部进程**：同组的全部进程都能打到，含孙进程（E2）。组长退出后组仍在，`kill(-pgid, 0)` 能判断组里还有没有进程。打不到另起进程组或会话的后代，而 master 的 `dev` 正是这样（E6、E7'）。
+3. **监管进程被 SIGKILL 后孙进程收不收得干净**：pdeathsig 让组长收到 SIGTERM（E3），`bun run` 再转给脚本；孙进程收不收得干净取决于开发脚本。假脚本不收子进程时，孙进程留在原组，组长已不在（I1）。监管进程空闲 25 秒，pdeathsig 没有提前触发。另测：Claude Code 的 TaskStop 对整棵树先 SIGTERM，约 1.4–1.5 秒后再对整棵树 SIGKILL，`setsid` 挡不住（E5a 到 E5d）。
+
+**各入口起几层进程**（读源码，没有起真实服务）：
+
+- **master `packages/neuro-book` 的 `dev`**：至少六层、两个进程组。
+  - 进程组 X 三层：`bun run dev` → `bun scripts/cli/source-dev.ts` → `bun -e <owned-process 监督器>`；
+  - 另一个会话里的进程组 Y：`bun --no-install run dev:runtime` → `bun scripts/cli/source-runtime.ts` → 依次起 check-migrations、`nuxt:prepare`、`generate`、prepare-system-assets，最后 `bun x nuxt dev --no-fork`（bunx 之下是否还有一层没有核实）。
+- **w00017 的 `dev`**：三层、一个进程组。`bun run dev` → `bun src/server/dev/main.ts`（Vite 在进程内）→ 后端子进程（Bun.spawn，同组，经 stdin 的 `stop` 有序停止）。
+- **nb-ui 的 `nuxt dev playground`**：`bun run` → nuxi，没有 `--no-fork` 时还有 fork 池的子进程，都在同一组（读源码推断）。
+
+
+实验都在审查临时目录（`scratchpad/review-t14-design/`）里做：假开发脚本 `scripts/fake-dev.ts`（打印 listhen 式就绪行、起 HTTP 服务、起一个孙进程 `sleep`、把收到的信号记进文件），假监管进程 `scripts/supervisor.ts`（照计划的起法 `setpriv --pdeathsig TERM -- setsid bun run <script>`，stdout/stderr 直接是日志文件的描述符），仿 master `source-dev` 的 `scripts/fake-source-dev.ts`（用 worktree 里真实的 `packages/owned-process` 起目标）。进程一律按环境变量标记、读 `/proc` 找 PID，没有用 `pgrep -f`、`pkill -f`；每个实验结束都按 PID 收干净，最后核对没有残留。bun 1.4.2，nuxi 3.36.1，listhen 1.10.0，gh 2.97.0。
+
+## 发现
+
+### B1【阻断】按进程组停服务，停不掉 master 的 `dev`：运行时在另一个会话里，组信号先杀掉了负责收它的 owned-process 监督器
+
+- **位置**：plan.md“关键设计”一节的“`dev stop`”（`kill(-pgid)` 先 SIGTERM、10 秒后 SIGKILL）、“会话结束时”（监管进程“按上面的停法停掉整个进程组”）、“计划前的实测”表第一行（“由它起 `bun x nuxt dev --no-fork`”）、风险 1 与场景 2 的判据（“组里全部进程（含孙进程）10 秒内不在”）。
+- **问题**：master 的 `packages/neuro-book` `dev` 不是“source-dev 直接起 nuxt”。真实链路（读 master 源码）：
+  - 进程组 X（nbdev 用 setsid 建的那一组）：`bun run dev` → `bun scripts/cli/source-dev.ts` → `bun -e <owned-process 的 POSIX 监督器>`；
+  - 另一个会话与进程组 Y：owned-process 的监督器以 `detached: true` 起目标（`packages/owned-process/src/posix-supervisor-source.ts` 第 40–43 行），即 `bun --no-install run dev:runtime` → `bun scripts/cli/source-runtime.ts` → 依次起 check-migrations、`nuxt:prepare`、`generate`、prepare-system-assets，最后 `bun x nuxt dev --no-fork`。
+  
+  组 X 收到 SIGTERM 时，owned 监督器没有 SIGTERM 处理（它只在 IPC 断开或收到 terminate 消息时收口），按缺省动作立即退出；source-dev 随后要它 terminate 已经来不及，组 Y 成了孤儿。SIGKILL 升级同样只打组 X。nbdev 看到组 X 没了，就判“已停”。
+- **为什么**：这是 `--package`、`--script` 的缺省组合在 master 上的实际入口，Agent 最常用的就是它。泄漏的运行时继续占着端口；nbdev 的登记已写 `endedAt`，此后 `dev status`、`dev stop` 都不再管它，只能人工处理，与本 Task 要消灭的“记不住 PID 只好 pkill -f”是同一种后果。真实 source-dev 的第一步是对 `NUXT_PORT || PORT || 3000` 发带令牌的 HTTP 关停（`server/runtime/shutdown/product-shutdown-client.ts`，等待上限 `PRODUCT_SHUTDOWN_TIMEOUT_MS = 30_000`），运行时已就绪、端口没顺延时它能自己关掉，所以运行时就绪后的 SIGTERM 不一定漏（从代码推断）。但有三种情形必漏：启动阶段（prepare、generate 时还没有 HTTP 服务）、端口顺延过（HTTP 关停打到 3000 上别的进程）、以及 10 秒的 SIGKILL 升级（30 秒的关停预算还没用完）。
+- **如何核实**（实验 E6、E7'、E8，假目标忽略 SIGTERM 以放大差别）：
+  - E6：`setsid bun run dev-owned` 起来后，组 X 有 3 个进程，目标与它的孙进程在组 Y（`sid` 也不同）。`kill -KILL -- -<X>` 之后组 X 消失，目标 `ppid=1` 继续运行，`curl` 它的地址仍回 200。
+  - E7'：`kill -TERM -- -<X>`（计划的第一步）之后 5 秒，组 X 已不在，目标与孙进程都还在，目标的信号日志里一次 SIGTERM 都没收到。
+  - E8：只给组长 `bun run` 发 SIGTERM。bun run 转给 fake-source-dev，它调 `lease.terminate`，owned 监督器活着，按 TERM、宽限 2 秒、KILL 收掉组 Y。4 秒后一个都不剩。
+- **建议改法**（写进计划的判据）：
+  1. 停法改成“先组长、后整棵树”：
+     - 先只给组长发 SIGTERM，让 `bun run` 转发、开发脚本按自己的顺序收口；
+     - 发信号之前，从组长沿 `/proc/*/stat` 的 ppid 收集全部后代，含另起进程组、另起会话的，记下 pid 与 startTicks，作为快照；等待期间每秒重收一次，把新出现的后代并进来；
+     - 宽限期到了（缺省 10 秒；master 的入口可能要到 30 秒，见上），对快照里仍活着、startTicks 对得上的进程逐个 SIGKILL，再 `kill(-pgid, SIGKILL)`；
+     - “停干净”的判据：快照里的进程与组 X 都不在。
+  2. “从不碰没有登记的进程”改写为“只碰登记的组长、它的进程组，以及在组长还活着时收集到的后代快照（pid 加 startTicks 核对）”。
+  3. 监管进程收到 SIGTERM、SIGINT、SIGHUP 时走同一套停法。
+  4. “计划前的实测”表改正 master 的层级与“两个进程组”这一事实；风险 1、场景 2 的判据从“组里全部进程”改成“快照里的全部进程”。
+  5. L4 加一种假开发脚本：经 `packages/owned-process`（或 `detached: true`）另起进程组。断言 `dev stop` 后快照里的进程全部退出，地址不再回应。
+
+### I1【重要】“还活着”只看组长：组长退出而组里还有进程时判 `ended`、`dev stop` 不发信号；监管进程也不收组里剩下的
+
+- **位置**：plan.md“登记”下的“还活着”三条（第 3 条只比 `/proc/<pid>/stat` 的启动时刻）；“`dev stop`”的“先核对 `/proc/<pgid>` 的启动时刻”；“退出”（服务退出时监管进程只补登记、打 `EXITED`）；“会话结束时”的“没退的，`dev status` 标 `orphaned`”。
+- **问题**：计划把“组长在”当成“服务在”。实测组长 `bun run` 会先退出，组里的孙进程仍留在原进程组里：
+  - `orphaned` 在计划里只在“监管进程不在、组长还在”时出现，覆盖不到“组长不在、组还在”这种情形；
+  - 登记会被判成 `ended`（`pid_reused` 或已结束）；
+  - `dev stop` 走“已结束，不发任何信号”的分支，这组进程从此没人管。
+- **为什么**：计划在“会话结束时”自己写了：孙进程会不会跟着退出，“要看开发脚本自己收不收子进程”。只要开发脚本崩溃、或者先于子进程退出，就会落进这个状态。风险 1 写的缓解（“收不干净的显示成 `orphaned`，属主不在时 `dev stop` 不用 `--force`”）在这里不成立。
+- **如何核实**：
+  - E1：只给 `bun run` 发 SIGTERM，它转给脚本，脚本退出，`bun run` 随之退出；孙进程 `sleep` 留下，`ppid=1`，`pgrp` 仍是原组号。
+  - E3：监管进程被 SIGKILL，pdeathsig 让组长收到 SIGTERM，结果与 E1 相同。
+  - E2：`kill -0 -- -<pgid>` 在组长不在、组里还有进程时仍然成功，组空了才报 ESRCH。
+- **建议改法**：
+  1. “还活着”改成两条任一：组长 pid 在且 startTicks 相同；或组长 pid 不在，但 `kill(-pgid, 0)` 成功。理由写进计划：Linux 在进程组还有成员时不会把这个号分给新进程，组号在、组长不在，组就仍是我们那一组。
+  2. 状态加一种：组长已退、组里还有进程，记为 `leftover`；也可以并进 `orphaned`，并写明原因。`dev stop` 对它照停，停法同 B1。
+  3. 监管进程看到组长退出后，先对组（与 B1 的快照）补 SIGTERM，宽限后补 SIGKILL，再写 `endedAt`，并在登记里记 `leftovers`（被补杀的进程数）。
+  4. L4 断言：fake-dev 起的孙进程不收子进程时，`dev status` 不是 `ended`；`dev stop` 之后孙进程不在。
+
+### I2【重要】复用的窗口期与 `NOT_READY` 的复用没有定义（从计划文本推断）
+
+- **位置**：plan.md“同一 checkout 复用”（“没有：写一份新登记，起服务”；“拿着锁的只有‘查与写登记’这一步”）与“还活着”三条。
+- **问题**：
+  1. **先写登记、后起服务**：两步之间登记里没有 `pid`、`startTicks`。第二个会话这时拿锁查到它，三条“还活着”的判据里第 3 条没法算，结果取决于实现：
+     - 当成“不活”，就会再起一份；场景 1 的“两个会话同时起，只有一个服务”会时好时坏；
+     - 当成“活”，这份登记在监管进程起服务前就崩掉（例如 `setpriv` 不存在）时，会一直挡住后来的人。
+  2. **复用到 `NOT_READY`（url 为空）的运行**：计划只写“有：…输出 `READY <url>`”。url 为空时 B 该输出什么、退出码多少，没有定义。
+- **为什么**：场景 1 是本 Task 的第一条验收；并发起服务在多会话下是常态，Agent 也会在 `NOT_READY` 后重跑 `dev start`。
+- **建议改法**（写成判据）：
+  - 锁内顺序：查登记 → spawn → 读到子进程的 startTicks → 写含 `pid`、`pgid`、`startTicks`、`supervisor` 的登记 → 放锁。spawn 与读 `/proc` 是毫秒级，不会让锁变长。spawn 失败时不写登记，按“起来之前就失败”报错。
+  - 读者遇到 `pid` 为空的登记（别的实现或旧版本写的）：监管进程活着就算 `starting`，不活就算 `ended`（原因 `never_started`）。
+  - 复用到 url 为空的运行：B 自己按同一套就绪规则读那份日志，最多等 `--ready-timeout`；认出就打 `READY`，认不出就打 `NOT_READY <logPath> run=<runId>`。两种都带 `reused: true`、退出码 0。
+
+### I3【重要】checkout 页的“未提交”按 HEAD 与 index 的 mtime 缓存，改了文件也一直显示旧数
+
+- **位置**：plan.md“checkout 页补的列”最后一段（“按 HEAD 与 index 的 mtime 缓存”）；风险 4。
+- **问题**：改动已跟踪的文件、但还没 `git add`，HEAD 与 index 的 mtime 都不变。面板的 Git 读操作一律带 `--no-optional-locks`（`src/core/git.ts` 的 `readOnly`），`git status` 也不会回写 index。所以按这把键缓存的“未提交条数”，要到下一次 `add` 或提交才会变。
+- **为什么**：这一列的用途就是让开发者看出哪个 worktree 有没提交的改动。数会错，而且错的方向正是“看起来是干净的”。
+- **如何核实**：
+  - 临时仓库里提交一个文件，再往文件里追加一行；
+  - 前后各跑一次 `git --no-optional-locks status --porcelain=v1 -uno`：条数从 0 变成 1，`.git/index` 的 mtime 与 HEAD 都没变；
+  - 另在真实仓库上只读量了一遍：17 个 checkout 各跑一次 `status -uno` 加 `rev-list --left-right --count master...HEAD`，4 路并行共 1.2 秒（最慢的一个 0.59 秒）。
+- **建议改法**：
+  - 去掉“HEAD 与 index mtime”这把缓存键；
+  - 改成页面请求时现算，结果按 checkout 留 10 秒左右的短缓存；
+  - 有浏览器连着时跟“活动”这一块的节奏走（最快 5 秒一次）；
+  - 页面上标出“N 秒前”。
+
+### I4【重要】场景 4“`PATH` 前面放一个总是失败的假 `git`，命令照样成功”与现有代码冲突，照写测试必失败
+
+- **位置**：plan.md 切片 S2 的测试列、验收场景 4 的测法；对照 `packages/dev-panel/src/core/git.ts` 的 `runGit`（`spawn("git", …)`，经 `PATH` 查找）与 `src/core/repo.ts` 的 `locateRepository`（第一步就是 `git rev-parse --show-toplevel`）。
+- **问题**：`worktree new` 要先定位仓库，还要列 checkout、在事务里扫描、写登记表，这些都走 `PATH` 里的 `git`。假 `git` 总是失败时，命令在定位仓库这一步就报 `repository_not_found`，根本走不到 `/usr/bin/git worktree add`。
+- **为什么**：编码者为了让这条测试通过，要么把全包的 Git 调用都改成 `/usr/bin/git`（范围外的改动，也违背“不退回 PATH 里的 git”只针对 `worktree add` 的本意），要么放宽断言。
+- **如何核实**：脚本 `scripts/locate-with-fake-git.ts` 调 worktree 里的 `locateRepository`：
+  - `PATH` 前面放一个总以 1 退出的假 `git` 时，结果是 `FAILED repository_not_found 不在 Git 仓库里：…`；
+  - 不放时正常定位。
+- **建议改法**：假 `git` 只在 argv 含 `worktree add` 时写一行记录并以 1 退出，其余参数原样 `exec /usr/bin/git "$@"`。断言两条：
+  - 命令成功；
+  - 假 `git` 的记录文件里没有 `worktree add`，说明 `worktree add` 一定是 `/usr/bin/git` 执行的。
+
+### I5【重要】面板作为 systemd 服务时多半找不到 `gh`：它在 `~/.local/bin`，而计划没让 `install-service` 写 `NBDEV_GH_BIN`
+
+- **位置**：plan.md“GitHub 只读”的降级第一条（“找不到 `gh`（`NBDEV_GH_BIN` 或 `PATH`）”）；切片 S4 的改动清单（没有 `src/install-service.ts`）。对照 `src/install-service.ts` 第 5–7 行与第 41、56 行：herdr 因为“用户管理器的 `PATH` 不保证有 `~/.local/bin`”，安装时已写 `NBDEV_HERDR_BIN`。
+- **问题**：本机的 `gh` 装在 `~/.local/bin/gh`。用户级 systemd 管理器的 `PATH` 里现在有 `~/.local/bin`，但本机没有 `~/.config/environment.d/`，所以这一项来自登录后的桌面会话导入。`Linger=yes` 下机器重启后，面板在登录前就由用户管理器拉起，那时 `PATH` 只有缺省几项，页面会一直显示“没有 gh”，要等有人重启服务才恢复（重启这一段从环境推断，未实测）。
+- **如何核实**（只读）：
+  - `env -i HOME=… PATH=/usr/local/sbin:/usr/local/bin:/usr/bin sh -c 'command -v gh'` 找不到 `gh`；
+  - 同样的最小环境里用绝对路径跑 `gh auth status`，退出码 0：令牌存在 `~/.config/gh/hosts.yml`，不依赖密钥环，所以认证不是问题，问题只在 `PATH`；
+  - 常驻面板进程 `/proc/<pid>/environ` 里的 `PATH` 现在含 `~/.local/bin`，它是在登录之后重启的。
+- **建议改法**：
+  - S4 加一条：`install-service` 安装时用 `which gh` 找到绝对路径，写 `Environment=NBDEV_GH_BIN=<绝对路径>`；找不到时写一行注释，与 herdr 的做法相同；
+  - `docs/panel.md` 的降级说明写明这一点；
+  - L3 加一条：`PATH` 里没有 `gh`、只设 `NBDEV_GH_BIN` 时能取到数据。
+
+### I6【重要】验收没有覆盖计划自己排第一的风险：监管进程被 SIGKILL、开发脚本留下孙进程或另起进程组、Agent 后台机制真的把它停掉
+
+- **位置**：plan.md“验收场景与测法”场景 1 到 3；fake-dev 的描述（“可选再起一个孙进程”）；“开发者或主 Agent 在场的那一步”。
+- **问题**：
+  - 场景 2 只测了“A 的监管进程收到 SIGTERM 时整组收干净”。“会话结束时”与风险 1 依赖的 SIGKILL 加 pdeathsig 路径，只在 S0 探针里看一眼，不进 L4；
+  - fake-dev 的孙进程是“可选”的；
+  - 没有“不收子进程”“忽略 SIGTERM”“另起进程组”这几种开发脚本；
+  - L4 也没写一定要经过真实的 `bun run <script>` 这一层。这一层决定信号怎么转发（见 S0 结论）。
+  - 在场那一步只核对就绪行与 `dev stop`，没有核对“会话的后台任务被停掉时，服务整棵树退出”。计划的推荐 2（跟随会话结束）在合入前后都没有被验证过。
+- **为什么**：B1、I1 的两个缺陷，正好都落在这些没测的路径上。按现在的验收表全部通过之后，它们依旧存在。
+- **建议改法**（补进验收表）：
+  1. **fake-dev 的形态**：用临时 `package.json` 的 `scripts.dev` 经真实 `bun run` 起；孙进程必有；用环境变量切换三种形态：
+     - 不收子进程就退出；
+     - 忽略 SIGTERM；
+     - 经 `detached: true` 另起进程组。
+  2. **L4 新增四条**：
+     - SIGKILL 监管进程：10 秒内快照里的全部进程退出；或者 `dev status` 标 `orphaned` 或 `leftover`，并且 `dev stop` 不加 `--force` 就能停干净；
+     - 组长先退、孙进程留下：不是 `ended`，`dev stop` 能停；
+     - 另起进程组：`dev stop` 后地址不再回应；
+     - 忽略 SIGTERM：升级到 SIGKILL 后停干净。
+  3. **在场那一步加一条**：在 Claude Code 里用后台任务跑 `nbdev dev start`，等到 `READY` 后用 TaskStop 停掉这个任务，核对快照里的进程全部退出。omp 的 `proc://` 同样核一次，因为它的行为没有核实过。
+
+### S1【建议】Claude Code 停后台任务时给整棵进程树发信号，约 1.5 秒后 SIGKILL：监管进程的 10 秒收尾跑不完，收尾顺序要按这个时限设计
+
+- **位置**：plan.md“会话结束时”（“监管进程收到 SIGTERM…按上面的停法停掉整个进程组，补登记”）与决定点 2。
+- **问题**：计划设想会话结束时，信号经监管进程转给服务组（必要时由 pdeathsig 兜底）。实测 Claude Code 的 TaskStop 不是这样：
+  - 它对后台任务的**整棵进程树**同时发 SIGTERM，不分进程组与会话，`setsid` 挡不住；
+  - 约 1.4–1.5 秒后再对整棵树发 SIGKILL。
+
+  所以在 Claude Code 里，服务是被 Claude 直接收掉的。这是好消息：推荐 2 在 Claude Code 下成立，“已经被收养到 PID 1 的进程”除外，它们不在树里。但监管进程拿不到 10 秒，“停整组、等 10 秒、再写 `endedAt`”的收尾通常写不完。
+- **如何核实**：
+  - E5a：后台任务跑假监管进程，监管进程记录信号、不处理。TaskStop 之后，监管进程与另一会话里的 fake-dev 在同一毫秒收到 SIGTERM，3 秒后全部不在。
+  - E5b、E5c：忽略 SIGTERM、每 50 毫秒写一次心跳的进程。从收到 SIGTERM 到最后一次心跳分别是 1461 毫秒与 1419 毫秒。
+  - E5d：服务忽略 SIGTERM，TaskStop 之后它仍被收掉，说明 SIGKILL 也是按树发的。
+  
+  “会话真正结束”（不是 TaskStop）与 omp 的 `proc://` 没法在这里测，未验证。
+- **建议改法**：
+  - 监管进程收到信号后先同步写登记：`stoppingAt`、`stoppedBy: "signal:<名>"`；然后给组长发 SIGTERM；最后尽力补 `endedAt`。
+  - 读者遇到“监管进程不在、组与快照都不在、没有 `endedAt`”的登记，判为 `ended`，原因 `supervisor_killed`，不要停在 `starting` 或 `running`。
+  - “会话结束时”一节写明三点：Claude Code 下由 TaskStop 的树信号收掉；pdeathsig 只兜“监管进程单独被 SIGKILL”这一种情形；omp 的行为待在场那一步核实（见 I6）。
+
+### S2【建议】就绪：5xx 不算就绪；w00017 式要等 `backend-ready`；按 `\r` 也切行
+
+- **位置**：plan.md“认就绪”第 1、3 条；决定点 3。
+- **问题与依据**（读源码）：
+  - **nuxi 3.36.1**（`@nuxt/cli/dist/dev-CQg8KtEQ.mjs`）：
+    - `#createListener`（listhen 在这时打印 `➜ Local:`）先于 `#initializeNuxt`（`buildNuxt`）；
+    - 第一次初始化完成前，请求挂在 `await _initPromise` 上，所以“认出地址后发 HTTP、单次 2 秒、重试到总时限”确实能等到构建完成。计划的这条判断成立，见“已核对”。
+    - 但初始化出错时，处理函数对每个请求回 500 错误页（`#loadingError` → `renderError`）。计划写“收到任何 HTTP 回应才算就绪”，构建失败也会被报成 `READY`。
+  - **w00017**（`src/server/dev/run.ts` 第 88–89 行）：先打 `[dev] page-ready <url>`，再 `supervisor.start()` 起后端。后端就绪另有 `[dev] backend-ready pid=… <后端 url>` 一行。按计划，`READY` 会在后端还没起来时就打出，紧接着的 `shot` 或页面请求可能碰到后端错误。
+  - Nuxt 与 Vite 的进度输出可能用 `\r` 原地改写；只按 `\n` 切行时，就绪行可能和别的内容粘在同一“行”里。
+- **建议改法**：
+  - HTTP 探测只把 2xx、3xx、4xx 当作就绪；5xx 继续探测，超时打 `NOT_READY` 时带上最后一次的状态码。
+  - w00017 的内置规则改成“地址取自 `page-ready`，就绪以随后的 `backend-ready` 为准”。
+  - 切行时 `\r` 与 `\n` 都算行尾；去 ANSI 时把 CSI 与 OSC（`ESC ] … BEL` 或 `ESC \`）都去掉；未完结的末行留到下一次读取再拼。
+
+### S3【建议】不带 Task 的日志文件名会撞：同一 checkout 同一时刻起两个不同的 package 或 script，会写进同一个文件、认到对方的就绪行
+
+- **位置**：plan.md“日志”第 2 条（`.local/agent/logs/dev/<checkout key>-<UTC 时间>.log`）；runId 的示例 `dev-20261013T1315Z-a3f9` 只精确到分钟。
+- **问题**：带 Task 的名字里有 runId 的尾 4 位，不带的没有。同一 checkout 在同一分钟内起 `--package packages/nb-ui` 与 `packages/neuro-book`，或者 `--script dev` 与 `lab`，两份服务会写进同一个日志。各自的监管进程都在读这个文件找就绪行，可能把对方的地址当成自己的 `READY`（从计划文本推断）。
+- **建议改法**：两种日志名都带完整 runId（例如 `dev/<checkout key>-<runId>.log`），以 `O_CREAT|O_EXCL` 打开；runId 的时间部分精确到秒，再加随机尾巴。
+
+### S4【建议】属主、`orphaned` 与登记写入：把“监管进程在不在”当作能不能免 `--force` 的依据，并定义未知调用者与写入顺序
+
+- **位置**：plan.md“`dev stop`”的属主判断（“与租约同一个判据”）；“状态”；“写法与租约相同”。对照 `src/core/leases.ts` 的 `evaluateLeases`：只有 `session.process` 不为空时才可能判 `session_gone`；`--as` 调用者的 `process` 是 null（`identity.ts` 的 `resolveCaller`）。
+- **问题**：
+  1. 用 `--as` 起的服务，属主会话永远算“还在”。监管进程没了（`orphaned`）以后，除了同一个标签，谁停都要 `--force`。计划写的“属主会话已不在，所以 `dev stop` 不用 `--force`”，对这类调用者不成立。
+  2. 计划没说“未认出”的调用者（普通终端里直接跑 `nbdev dev start`，没有 `--as`）能不能起服务、`startedBy` 写什么、谁能停它；现有错误码里有 `caller_unknown`（2），但计划没提。
+  3. 监管进程（写就绪、写退出）与 `dev stop`（写 `stoppedBy`）都改同一个文件，读改写之间没有锁，后写的会覆盖先写的字段。
+- **建议改法**：
+  - 免 `--force` 的条件改成：监管进程不在（`orphaned` 或 I1 的 `leftover`），或属主会话已不在，或调用者就是属主。没有人在监管的服务，谁停都不必确认。
+  - 未认出的调用者可以起服务，`startedBy` 为 null；停它时，监管进程还在就要 `--force`，因为“未认出”与“未认出”不算同一个人。
+  - `dev stop` 先写 `stoppedBy` 再发信号；监管进程写 `endedAt` 前重读一次文件，只补自己的字段。也可以让两者的写入都在 `run/procs/` 的锁里做。
+
+### S5【建议】复用时不提示参数不一致，也不说明“它会随别人的会话一起停”
+
+- **位置**：plan.md“同一 checkout 复用”。
+- **问题**：
+  - B 带了 `--port 4300`、另一套 `--ready-pattern` 或另一个 `--work --task`，拿到的却是 A 起的服务。地址、日志位置都与 B 指定的不同，B 不会收到任何提示。
+  - 按决定点 2，这份服务会随 A 的会话结束而停，B 用着用着就断了，而复用输出里没有属主信息。
+- **建议改法**：
+  - 复用时，B 给的 `--port`、`--ready-pattern`、`--work --task` 与登记不同，就给警告 `reused_with_different_options`，列出不同的项；
+  - `READY` 行与 JSON 带上属主会话键，人读输出加一句“它随 <属主> 的会话结束而停，需要独立的一份请换 checkout”；
+  - 不另加 `--new`，保持“小而实用”。
+
+### S6【建议】监管进程“以同一退出码退出”会和 nbdev 的退出码语义打架
+
+- **位置**：plan.md“退出”（“打印 `EXITED <退出码>`，以同一退出码退出”）；对照 `docs/cli.md`“退出码”一节（3 冲突、4 等待没有结果、5 找不到对象）与 `answers --wait` 的“收到 SIGTERM 或 SIGINT 退出码 4”。
+- **问题**：
+  - 开发脚本自己以 3、4、5 退出时，Agent 读到的含义会被 nbdev 的退出码表误导；
+  - 监管进程因为 `dev stop` 或收到信号而结束时用什么退出码，计划没写。
+- **建议改法**：
+  - 服务的退出码与信号只放在 `EXITED` 行和 JSON 事件里；
+  - 监管进程自己的退出码：被 `dev stop` 停、或收到信号收尾时为 0（或者与 `answers --wait` 一致取 4，二选一写明）；服务自己退出时为 1（`dev_exited`，不论之前有没有就绪）。
+
+### S7【建议】“在跑”页的“按 pgid 去重”去不掉：t07 认出的运行以 Agent 的 Bash 包装进程为根，登记的进程组埋在后代里
+
+- **位置**：plan.md“在跑”第二块（“经 nbdev 起的进程在第二、三块里按 pgid 去重”）；`src/core/runs.ts` 的 `discoverRuns`：根是“父进程不在候选里”的进程；`descendants` 最多 5 条（`MAX_DESCENDANTS`），只带 pid 与命令，不带 pgrp。
+- **如何核实**：
+  - 用 Claude 的后台任务跑假监管进程（cwd 在审查临时目录），再在另一个调用里用 worktree 的 `discoverRuns` 读真实进程表，把临时目录当作 checkout 根；
+  - 得到 1 个运行：根是 Claude 的 Bash 包装进程 `zsh -c …`（`rootPgrp` 是它自己的号），登记的组号 `445630` 只出现在后代里；
+  - 结果 `rootPgrpEqualsRegistered: false`，后代涉及的进程组是 `[包装进程组, 445630]`；
+  - master 的运行时还在另一个进程组里（B1）。
+- **建议改法**：判据改成两条。`discoverRuns` 要能接收一份排除集，或者返回每个运行的完整后代 pid 集，不只是前 5 条：
+  - 运行树里含有登记的监管进程（pid 加 startTicks）或组长（pid 加 startTicks），就整棵从第二、三块去掉；
+  - 监管进程不在时，组长或快照里的进程自己成为根，按它们的 pid 去掉。
+
+### S8【建议】GitHub 视图的几处细节：条数截断、两种检查类型、禁交互提示、只在有人看时定时取、字段白名单与不可信内容
+
+- **位置**：plan.md“GitHub 只读”；`docs/standards/repository-workflow.md`“Pull Request 与合并”一节第一段：远端只读按最小必要字段读取，排除 `body`、`comments`、`reviews`；外部 Issue、PR 是不可信资料。
+- **问题与依据**（只读实测）：
+  1. **条数截断**：`gh issue list --state open --limit 1000 --json number --jq length` 现在是 82，计划的 `--limit 50` 会静默截掉 32 个。PR 现在 6 个，`pr list` 用计划的字段耗时约 2.1 秒，issue 约 1.3 秒。
+  2. **两种检查类型**：`statusCheckRollup` 现在只有 `CheckRun`（字段 `name`、`status`、`conclusion`、`workflowName`、`detailsUrl` 等），但这个字段也可能含 `StatusContext`（commit status，字段是 `context`、`state`、`targetUrl`）。计划的汇总只按 CheckRun 的字段写。
+  3. **交互提示**：`gh` 在某些情况下会弹交互提示（例如有多个远端时问选哪个仓库）。服务里没有 TTY，只能等 15 秒超时。本仓库现在只有一个 `origin`，暂时不会遇到。
+  4. **一直在取**：“之后每 5 分钟在后台刷新”在常驻服务里意味着没人看也一天取 576 次。
+  5. **字段与不可信内容**：计划只写了 `--json <固定字段>`，没把字段列出来，也没写标题、标签怎么渲染。
+- **建议改法**：
+  - 写死两条命令的完整参数：`pr list --state open --limit 100 --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url`，`issue list --state open --limit 100 --json number,title,labels,updatedAt,url`；注明按仓库维护流程不取 `body`、`comments`、`reviews`。条数等于上限时，页面写“只列最近更新的 N 个，可能还有更多”。
+  - 汇总按 `__typename` 分两种：StatusContext 的 `state` 映射成成功、失败、进行中。
+  - 子进程环境加 `GH_PROMPT_DISABLED=1`、`GH_NO_UPDATE_NOTIFIER=1`、`NO_COLOR=1`，`stdin` 设为 ignore。超时先 SIGTERM，再 SIGKILL。`prox` 是 `exec "$@"` 的脚本，不多一层进程，直接杀它就够。
+  - 定时刷新只在有浏览器连着时进行，沿用面板现有的“有浏览器连着时才兜底重算”的做法；没人看时只在打开页面时取。
+  - 标题、标签名一律按纯文本渲染，不走 Markdown 或 `v-html`；链接只收 `https:` 地址。面板的 CSP（`script-src 'self'`）已经挡住了 `javascript:` 链接，这里只是不依赖它。
+
+### S9【建议】`worktree new` 的四处细节：`home` 的格式与现有读者对不上、登记表里可能没有这个 Task、并发时的错误码、`--type` 的取值
+
+- **位置**：plan.md 第二节。对照 `src/core/checkouts.ts` 第 80–81 行与 `src/core/sources.ts` 第 172–173 行：两处都用 `checkout.root === home` 比较，`checkout.root` 是 `git worktree list` 给出的绝对路径。
+- **问题**：
+  1. **`home` 的格式**：计划写 `home: ".worktree/…"`（主工作区相对路径），现有两个读者按绝对路径比，相对路径永远对不上。执行位置的第 2 条规则（目录名前缀 `w00022-t14-`）排在 `home` 之前，所以 Task 页暂时看不出问题；但计划新加的 checkout 页“是哪些 Task 的 home”这一列，以及以后不按命名规则建的 worktree，都会受影响。`docs/file-formats.md` 也没写 `home` 的格式。
+  2. **登记表里没有这个 Task**：t06 之前建的 Task 在登记表里可能没有条目。`WriteTx` 目前也没有写 `home` 的方法，要先补登（事务里的 `tx.scan()` 会补登 `imported`）再写。
+  3. **并发**：两个会话同时 `worktree new` 同一个 Task，先查不存在、后由 `git` 失败的那一个会报 `git_failed`（1），不是 `target_exists`（3）。
+  4. **`--type` 的取值**：根 CONTRIBUTING 列的 Conventional Commit 类型还有 `build`、`ci`。
+- **建议改法**：
+  - `home` 统一写绝对路径，与现有读者一致；或者两个读者改成按主工作区解析相对路径。二选一，并写进 `docs/file-formats.md`。
+  - 写 `home` 用 `repoWrites: false` 的事务：先 `scan()` 补登，再新增一个 `tx.setHome(workId, taskId, path)`。`git worktree add` 留在锁外（它可能要几秒到几十秒，不该占着领号的锁）。锁内只写 `home` 一步；写失败时给警告，不回滚已建的 worktree。
+  - `git worktree add` 失败后重新检查路径与分支，存在就改报 `target_exists`。
+  - `--type` 的取值与 CONTRIBUTING 对齐，或写“根规则的 Conventional Commit 类型”。
+
+### S10【建议】`shot`：去掉 `--browser-executable` 的注入；`dev_not_running` 的退出码用 5
+
+- **位置**：plan.md“`shot`”第 3 点与“对 Playwright 加 Chrome 的固定做法”第 1 条；“接口与数据”的 `dev_not_running`（3）。
+- **问题**：
+  - 两种 `lab:shot`（master 的 `scripts/lab/shot.ts`、w00017 的 `scripts/lab-shot.ts`）不给 `--browser-executable` 时都用 `chromium.launch({channel: "chrome"})`，Playwright 在 Linux 上解析到 `/opt/google/chrome/chrome`，本机存在。nbdev 再注入 `/usr/bin/google-chrome-stable`（一个外壳脚本）没有好处，只多一条要测的分支。
+  - “这个 checkout 没有在跑的开发服务”属于找不到对象，按 Proposal 第十一节应是 5，不是“需要人决定的冲突”（3）。
+- **已核实可行的部分**（实验）：`bun run --cwd <dir> lab:shot -- --url … --out …` 会去掉 `--`，原样把后面的参数交给脚本，`TMPDIR` 也传得过去。`df` 显示 `/tmp` 已用 66%（7.7G 的 tmpfs），`/dev/shm` 只用 1%。把 Playwright 的临时 profile 引到 `/dev/shm/nbdev-shot-<随机>`、跑完删掉，这个做法合理。
+- **建议改法**：不注入 `--browser-executable`，只包装地址、输出目录与 `TMPDIR`；`dev_not_running` 改为 5。
+
+### S11【建议】`find`：共用 `searchCheckouts` 合适，但 `recordMatches` 不能原样搬；命令行的缺省条数要收小
+
+- **位置**：plan.md“`find`”；`src/server/views.ts` 第 329–345 行的 `recordMatches(state: PanelState, q)`，以及 `src/core/search.ts`。
+- **问题**：
+  - `recordMatches` 读的是面板内存里的 `state.records` 与 `state.activity`（含 herdr 会话）。命令行没有这份缓存，要现算 `readProjectRecords`；会话部分还要连 herdr，与“找东西”无关。
+  - `searchCheckouts` 实际用 `ls-files --cached --others --exclude-standard` 和 `git grep --untracked --exclude-standard`，也搜未跟踪、未忽略的文件。计划写“被 Git 跟踪的文件名与内容”，与实现不符。
+  - 现在有 17 个 checkout，`--in all` 加单个 checkout 200 条，最坏会打出三千多行，对 Agent 的上下文不友好。
+- **建议改法**：
+  - 把 `recordMatches` 改成纯函数 `matchRecords(records, q)` 放进核心，面板另外拼会话匹配；命令行只匹配 Work、Task、产物；
+  - 文档写“跟踪的与未被忽略的文件”；
+  - 命令行缺省 `--limit 20`（每个 checkout），另设总上限 200，截断时照常标出。
+
+### S12【建议】范围：按“小而实用”可以推迟的几样
+
+- **`--port`**（plan.md“端口”第 2 条）：它要求“按入口给环境变量，认不出是哪一类时报用法错误”，可是怎样认入口没有写，只能按脚本文本猜。两类入口都会自动顺延端口，地址以就绪行为准，第一版不需要它。有固定端口的需要时，Agent 可以在外面设好环境变量再加 `--ready-pattern`，计划已经给了这条路。建议推迟，决定点 4 改成“nbdev 不分配也不传端口”。
+- **`shot` 的浏览器路径注入**：见 S10。
+- **GitHub 的定时刷新**：改成只在有浏览器连着时刷新，见 S8。
+- **checkout 页的缓存**：不做缓存，现算加短 TTL，见 I3。逻辑反而更少。
+- 其余各项（`find`、`shot`、“在跑”页、GitHub 页、checkout 列）都在 Proposal 待决问题 14 与开发者已确认的第一版范围内，数据大多现成，不建议再砍。“在跑”比 Proposal 第九节多一张只读列表，计划已在“不一致”第 5 条说明，可以接受。
+
+## 已核对、没有问题的
+
+- **前台监管与起法**（决定点 1）：
+  - 留在前台、由 Agent 的后台机制托管，与全局规则“后台与长驻进程”的缺省一致；
+  - stdout、stderr 直接打开成日志文件的描述符，不经监管进程的管道，避开了 BrokenPipe；
+  - `setpriv --pdeathsig TERM -- setsid bun run <script>` 由 Bun.spawn 起：`setsid` 不再 fork，pid、进程组号、会话号三者相同（E1–E3 的进程表）；
+  - pdeathsig 跨 exec 保留，监管进程空闲 25 秒期间子进程没有被提前发信号（E3）。
+- **`bun run` 这一层**：bun 1.4.2 对简单命令的脚本不经 sh，直接起脚本进程；收到 SIGTERM 会转给脚本，并等它退出后自己才退出（E1、E2）。
+- **`kill(-pgid)`**：能打到同组的全部进程，含孙进程；`kill(-pgid, 0)` 能判断组里还有没有进程（E2）。它打不到另起进程组的后代，见 B1。
+- **就绪识别的基本判断**：
+  - nuxi 3.36.1 中 listhen 在 `#createListener` 里打印 `➜ Local:`，早于 `buildNuxt`；首次初始化完成前请求会挂起，所以“认出地址后再做 HTTP 探测”确实能把“开始监听”和“构建完成”分开；
+  - w00017 的 `[dev] page-ready <url> 状态根 …` 能被 `^\[dev\] page-ready (\S+)` 认出，它自己的测试也这样认；
+  - 认不出时打 `NOT_READY` 加日志路径、服务照留，不会卡死；
+  - 两类入口都会自己顺延端口，地址以就绪行为准（决定点 4 的前半句）。
+- **复用的键**（决定点 5）：（checkout 根、package、script）是对的粒度。缺口见 I2、S5。
+- **`worktree new`**：
+  - 命名（`.worktree/<Work 编号>-<Task 编号>-<短名>`、`<type>/<Work 编号>-<Task 编号>-<短名>`）与 Work 规则“创建与执行”、仓库维护流程一致；
+  - `.worktree/` 已被根 `.gitignore` 忽略；
+  - Task 页“执行位置”的目录名规则（`checkouts.ts` 的前缀 `w00022-t14-`）能直接认出新建的 worktree；
+  - 路径或分支已存在报 3、不改名不覆盖，与仓库维护流程“报告冲突并停止”一致；
+  - 只经 argv 用 `/usr/bin/git`、不经 shell，符合全局规则“worktree”一节的判据；
+  - 不改 Task README 与 Work 规则一致；
+  - 不装依赖（决定点 6）合理：依赖安装慢、可能要代理，放进命令就成了要重试的长命令；
+  - 只领号的事务与 `worktree new` 不冲突：它不发新号，`git worktree add` 留在锁外即可（见 S9）。
+- **`find`**：复用 `searchCheckouts`（单个 checkout 200 条、5 秒截断、`-F` 字面匹配、用户输入只经 `-e`）是对的，不必另写一份。
+- **`shot`**：`--` 透传与 `TMPDIR` 的传递已实测可行；输出目录与 `.local/agent/works/<W>/tasks/<T>/shots/` 的约定一致；不替用户起服务（决定点 9）。
+- **GitHub 只读**：
+  - 两条命令都是只读的 `list --json`；
+  - 没登录时 `gh` 以 4 退出并提示 `gh auth login`（以空的 `GH_CONFIG_DIR` 实测）；
+  - 令牌存在 `hosts.yml`，最小环境下认证照常；
+  - `prox` 在 `/usr/local/bin`，是 `exec "$@"` 的脚本，服务的缺省 `PATH` 里找得到；
+  - `POST /api/github/refresh` 走面板现有的 Origin 与 CSRF 校验（`src/server/serve.ts` 第 316–326 行），不经 `gh` 写任何东西；
+  - 计划里没有任何写路径。
+  - 根 AGENTS.md 写明远端只读访问不需要单独授权，仓库维护流程要求按最小字段读取：只要按 S8 把字段白名单写死，“只是知会”的前提成立。
+- **面板只读、没有停止按钮**（决定点 10）：理由（另需审计与确认，收益小）成立，与 Proposal 第九节“现场”只列数据、操作走命令行的口径一致。
+- **shell pane 接管继续推迟**（决定点 13）：理由成立，“给开发服务按 Ctrl+C”这个头号场景由 `dev stop` 承接，更可靠。
+- **日志位置**（决定点 14）：与 Proposal 第四节的 `.local/agent/` 布局与 `works/<W>/tasks/<T>/logs/` 的现行规则一致；不自动清理与决定 6 一致。文件名问题见 S3。
+- **登记的字段**：与补充分析 1.6 节一致；`bootId`、`startTicks` 的防复用做法沿用 `procfs.ts` 的 `processAlive`。判据的缺口见 I1。
+
