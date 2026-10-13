@@ -1,4 +1,4 @@
-import {describe, expect, test} from "bun:test";
+import {afterEach, describe, expect, test} from "bun:test";
 import {computed, effectScope, nextTick, ref} from "vue";
 import {confirmRelogin, panelState, stopPanelData} from "../src/web/host/panel-data.js";
 import {useSessionConsoleHost, type SelectedSession} from "../src/web/host/session-console.js";
@@ -6,6 +6,12 @@ import {gate, until, useWebEnv, type FetchCall, type Reply} from "./web-env.js";
 
 /** 会话页的操作（`host/session-console.ts`，L3）：动作绑定发起时的目标（t15 阶段 1.1、1.2）。环境见 `tests/web-env.ts`。 */
 const web = useWebEnv();
+// 用例中途失败时也收口数据宿主的单例（关推送、取消重连），不连累同一文件里后面的用例。
+const scopes: Array<() => void> = [];
+afterEach(() => {
+    for (const stop of scopes.splice(0)) stop();
+    stopPanelData();
+});
 
 const A: SelectedSession = {paneId: "w1:p1", terminalId: "term_a", sessionKey: "claude:aaaa", agent: "claude", status: "idle"};
 const A2: SelectedSession = {...A, sessionKey: "claude:a222"};
@@ -21,6 +27,7 @@ const posts = (path: string) => web.env.calls.filter((call) => call.method === "
 function mount(initial: SelectedSession | null, terminalAvailable = false) {
     const selected = ref<SelectedSession | null>(initial);
     const scope = effectScope();
+    scopes.push(() => scope.stop());
     const host = scope.run(() => useSessionConsoleHost({selected: computed(() => selected.value), terminalAvailable: ref(terminalAvailable)}))!;
     return {selected, host, stop: () => {
         scope.stop();

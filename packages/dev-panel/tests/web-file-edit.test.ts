@@ -1,4 +1,4 @@
-import {describe, expect, test} from "bun:test";
+import {afterEach, describe, expect, test} from "bun:test";
 import {effectScope, nextTick, ref} from "vue";
 import {useFileEditSession} from "../src/web/host/file-edit-session.js";
 import {stopPanelData} from "../src/web/host/panel-data.js";
@@ -6,6 +6,12 @@ import {gate, until, useWebEnv, type FetchCall, type Reply} from "./web-env.js";
 
 /** 编辑页的编辑会话（`host/file-edit-session.ts`，L3，t15 阶段 1.3、1.4）。环境见 `tests/web-env.ts`。 */
 const web = useWebEnv();
+// 用例中途失败时也收口数据宿主的单例（关推送、取消重连），不连累同一文件里后面的用例。
+const scopes: Array<() => void> = [];
+afterEach(() => {
+    for (const stop of scopes.splice(0)) stop();
+    stopPanelData();
+});
 
 const file = (path: string, text: string, hash: string) => ({path, kind: "task_readme", text, hash, editable: true, reason: null, uncommitted: null, stagedRename: false, changedIn: [], lineLimit: null});
 const commit = {committed: true, sha: "abcdef0123456789", reason: null};
@@ -22,6 +28,7 @@ function serveFiles(texts: Record<string, {text: string; hash: string}>): (call:
 function mount(initial: string) {
     const path = ref<string | null>(initial);
     const scope = effectScope();
+    scopes.push(() => scope.stop());
     const session = scope.run(() => useFileEditSession(path))!;
     return {path, session, stop: () => {
         scope.stop();

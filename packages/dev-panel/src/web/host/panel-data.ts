@@ -169,6 +169,8 @@ export type Resource<T> = {
 /**
  * 页面取一份数据：`path` 变了就重取；它依赖的几块数据（`parts`）变了也重取。
  * 只接受最后一次发出的请求的回应，且回应的 revision 不比已接受的旧。
+ * 推送触发的重取单飞（t15）：在途时再来推送只记一笔，结束后至多再取一次。直接中止重发的话，推送间隔短于请求耗时就永远收不到数据。
+ * 显式 `reload()` 与 `path` 变化照旧中止在途、立即重取：它们多在写入之后调，要的是比这次写入新的数据，不能并进写入前发出的请求。
  */
 export function useResource<T>(path: () => string | null, parts: readonly PartName[]): Resource<T> {
     const data = shallowRef<T | null>(null);
@@ -179,8 +181,12 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
     let accepted: {instance: string; revisions: Revisions} | null = null;
     let controller: AbortController | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let inflight = false;
+    let pushedWhileInflight = false;
+    let disposed = false;
 
     const load = async (keepData: boolean) => {
+        if (disposed) return;
         // 登录失效期间不取数（自带轮询的页面也就停了），重新登录后全部重取。
         if (panelState.unauthorized) return;
         const target = path();
@@ -194,6 +200,7 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
         const mine = ++sequence;
         const local = new AbortController();
         controller = local;
+        inflight = true;
         if (!keepData) {
             data.value = null;
             accepted = null;
@@ -223,17 +230,31 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
             if (mine === sequence) {
                 if (timer) clearTimeout(timer);
                 loading.value = false;
+                inflight = false;
+                if (controller === local) controller = null;
+                if (pushedWhileInflight) {
+                    pushedWhileInflight = false;
+                    void load(true);
+                }
             }
         }
     };
 
-    const subscriber: Subscriber = {parts, refresh: () => void load(true)};
+    const restart = (keepData: boolean) => {
+        pushedWhileInflight = false;
+        void load(keepData);
+    };
+    const subscriber: Subscriber = {parts, refresh: () => {
+        if (inflight) pushedWhileInflight = true;
+        else void load(true);
+    }};
     subscribers.add(subscriber);
-    watch(path, () => void load(false), {immediate: true});
+    watch(path, () => restart(false), {immediate: true});
     onScopeDispose(() => {
+        disposed = true;
         subscribers.delete(subscriber);
         controller?.abort();
         if (timer) clearTimeout(timer);
     });
-    return {data, warnings, error, loading, reload: () => void load(true)};
+    return {data, warnings, error, loading, reload: () => restart(true)};
 }
