@@ -277,3 +277,19 @@ packages/dev-panel/
 - **浏览器验收**（Playwright 加 `/usr/bin/google-chrome-stable`）：临时仓库上逐页截图（1440 明暗两档、390）并走一遍交互（没登录的提示、卡片进 Work 页、Task 表进 Task 页、README 链接进产物页、切 v1 题表、展开已答与已取代、从 Task 的执行 checkout 进文档页、只看有差异的、文档链接改写、顶栏搜索、收件箱进产物页、产物过滤、明暗切换、390 的抽屉与产物页侧栏在下），全部通过、控制台没有错误；390 宽时左栏计算样式 `display: none`、1440 时 `flex`，各页没有横向溢出。真实仓库只读看了首页（w00022 进行中带目标、w00017 来自分支、其余未标）、Work、t80（执行 checkout 按 README 选 `w00017-t80-settings-ui`）、t03 评审板（没发布，iframe 照常渲染）、产物、会话（默认 herdr 0.9.1 已订阅）、checkout、搜索。
 - **场景 6（真实仓库）**：浏览与搜索前后 `find <主工作区> <各 worktree> <git 公共目录> -newer <标记>` 只有面板自己的 `panel.json`、`run/panel.lock` 与它们所在的两个目录（以及验收脚本写的截图）；`git status` 前后一致。面板退出后删了 `panel.json` 与锁，留下的空 `run/` 已删。
 - **场景 7（真实仓库，11 个 checkout，herdr 可用，负载 0.4）**：冷缓存首屏（第一张 Work 卡片渲染完成）p50 216 毫秒、最大 246；热缓存 p50 101、最大 111；`/api/overview` 本机 p50 1 毫秒、117864 字节；首页资源 9 个共 409 KB（未压缩）。冷启动（绑定端口到预热完成）约 0.87 秒。
+
+## 实现审查的修正
+
+实现审查（`evidences/impl-review.txt`，0 阻断、4 重要、9 建议）13 条全部采纳，提交都在集成分支 `feat/w00022-dev-panel`：
+
+- 重要 1（文档接口不走路径守卫）与建议 3（worktree 里没暂存的删除显示成改动）：`2f9979106`。`guardedFile` 移到 `src/core/paths.ts`，`readDocFile` 与 Task README 的读取都经守卫；`listDocPaths` 用 lstat 去掉符号链接与已删除的路径，worktree 里没暂存的删除在文档树里记成 `deleted`。
+- 重要 2（面板重启后页面停在旧数据上）：`0cb68d974`。`/ws` 断开后、每次重连之前先取 `/api/meta`，回 401 就显示“用 nbdev panel open 打开”并停止重连。审查建议“回 200 且实例变了就全部重取”没有单独写：会话只在一个实例里有效，重启后探测必然是 401；回 200 时照常重连，重连后的 `hello` 本来就全部重取。浏览器复测：新实例起来后 1.3 秒显示提示（截图 `shots/review-ws-restart-fixed.png`）。
+- 重要 3（herdr 重试链条线性增长、退避被清零）：`607815c4c`。只有一条重试链；对账在重试期间或 herdr 不可用时跳过；退避只在订阅稳定 10 秒后清零；`/api/sessions` 的 herdr 带 `retries`。
+- 重要 4（登录票据进了 `xdg-open` 的命令行）：`b94c52b26`。不带 `--print` 时写一页跳转页（`$XDG_RUNTIME_DIR/nbdev/`，没有就用 `.local/agent/run/panel-open/`；目录 700、文件 600、独占创建，10 分钟后删），只把 `file://` 路径交给 `xdg-open`；JSON 输出只在 `--print` 时带登录链接。浏览器复测：从跳转页进来已登录（截图 `shots/review-open-page.png`）。
+- 建议 1（预热中收到 SIGTERM 进程不退出）：`0bef31643`。
+- 建议 2（`..` 的说明写错）：`abf96b74b`。
+- 建议 4（搜索取消没测到）：`a8294046b`、`16cfb817e`。用 PATH 垫片把内容搜索换成长跑进程，测客户端断开、新搜索取代旧的（恰好一次 `aborted`）、5 秒截断三种结束后子进程都已退出；三处变异（去掉断开时的取消、去掉取代、去掉超时结束子进程）各自让用例失败。顺带发现 Bun.serve 要等流里有第一行才回响应头，用例不等 fetch 回来就往下走。
+- 建议 5（构建哈希输入的说明）：`433fb4cf4`。
+- 建议 6（cookie 不分端口）、建议 7（写请求的校验排在登录之前）、建议 9（`--host ::1`）：`d44000726`。cookie 名 `nbdev_panel_<端口>`；先跨站与登录、再核写请求的 Origin 与 CSRF；只接受 `127.0.0.1`、`localhost`，`::1` 报 `unsafe_host`。
+- 建议 8（导航入口是按钮不是链接）：`924c91a16`。WorkCard、TaskTable、InboxList、ArtifactList、SearchResults 的入口改成 `<a href>`（地址统一由 `host/routes.ts` 拼），普通左键点击发 `navigate`、由页面 `router.push`，中键与修饰键交给浏览器；面包屑也改成只拦普通左键。浏览器复测 8 类入口：Ctrl 加点击开新标签页、本页不动，普通点击走路由不整页刷新。
+- **验证**：包测试 173 个全过、typecheck（含 `vue-tsc`）、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check`、`git diff --check` 都通过。
