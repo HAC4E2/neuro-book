@@ -139,14 +139,15 @@ function cancelConfirm(): void {
                                 <p style="font-size: var(--text-xs); color: var(--text-secondary)">更早的输出（最近 {{ host.history.value.lines }} 行，{{ relativeTime(host.history.value.at) }}读取）</p>
                                 <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="更早的输出">{{ host.history.value.text || "没有更早的输出" }}</pre>
                             </template>
-                            <TerminalTextView :source="terminal.source" />
+                            <!-- key 是这一条连接：source 在零件实例的一生里不变，换连接就整体重建（t15）。 -->
+                            <TerminalTextView :key="host.connection.value" :source="terminal.source" />
                             <div class="flex flex-wrap gap-2">
                                 <Button size="sm" variant="ghost" icon-class="i-lucide-monitor" @click="showTerminalOnPhone = true">终端画面（只看）</Button>
                                 <Button v-if="selected.agent === 'omp'" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="host.historyPending.value" @click="host.readHistory">{{ host.history.value ? "重读更早的输出" : "更早的输出" }}</Button>
                             </div>
                         </template>
                         <template v-else>
-                            <TerminalView :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="host.askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
+                            <TerminalView :key="host.connection.value" :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="host.askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
                             <Button v-if="narrow && !controlling" class="self-start" size="sm" variant="ghost" icon-class="i-lucide-text" @click="showTerminalOnPhone = false">回到文字视图</Button>
                         </template>
                     </template>

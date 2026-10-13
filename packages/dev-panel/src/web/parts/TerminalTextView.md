@@ -1,5 +1,5 @@
 ---
-标签: ["state:local"]
+标签: ["state:local", "env:timer"]
 ---
 
 # TerminalTextView
@@ -14,9 +14,9 @@
 
 ```ts
 interface TerminalTextViewProps {
-    /** 帧的来源（页面的终端连接）；必填 */
+    /** 帧的来源（页面的终端连接）；必填，在零件实例的一生里不变 */
     source: TerminalSource;
 }
 ```
 
-没有事件、插槽与 expose。解析用的 xterm 实例是零件自己的（`state:local`），卸载时销毁。
+`source` 只在挂载时订阅一次、卸载时取消：宿主换连接时用 key 重建零件（会话页的 key 是“这一条连接”的序号，t15），不在原实例上换 `source`。文字的 200 毫秒节流定时器在卸载时清掉。没有事件、插槽与 expose。解析用的 xterm 实例是零件自己的（`state:local`），卸载时销毁。

@@ -30,7 +30,7 @@
 
 ```ts
 interface TerminalViewProps {
-    /** 帧的来源（页面的终端连接）；必填 */
+    /** 帧的来源（页面的终端连接）；必填，在零件实例的一生里不变（宿主换连接时用 key 重建零件，t15） */
     source: TerminalSource;
     /** 观看还是接管；必填、受控 */
     mode: "watch" | "control";

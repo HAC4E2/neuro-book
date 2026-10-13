@@ -180,7 +180,7 @@
 
 ### 连接与消息
 
-`WS /ws/terminal?pane=<pane id>&terminal=<terminal id>`：一个终端视图一条连接，连接的生命周期就是子进程与控制权的生命周期。观看时子进程是 observe，接管时是 control（control 自己也出帧，接管期间不再要 observe）。
+`WS /ws/terminal?pane=<pane id>&terminal=<terminal id>`：一个终端视图一条连接，连接的生命周期就是子进程与控制权的生命周期。页面按 pane 与终端建连接，换选中的 pane 时关旧连、建新连，终端零件按“这一条连接”重建；同一格换会话时连接与终端都不动（t15）。观看时子进程是 observe，接管时是 control（control 自己也出帧，接管期间不再要 observe）。
 
 - **升级前**只做与 `/ws` 相同的五道安全校验（转发头、Host、登录、`Sec-Fetch-Site`、`Origin`），pane 与 terminal 只核写法，失败回 HTTP 4xx。终端连接不进 `/ws` 的广播、不发 `hello`、不算“有浏览器连着”（不开 500 毫秒的 pane 轮询）。
 - **升级后**核：面板不在退出、终端功能可用、terminal id 在 herdr 里且对应的正是这个 pane、pane 在本仓库且有 Agent、上限（一个终端 4 条，整个面板 16 条）。不过就以关闭码关闭并带原因：
