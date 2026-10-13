@@ -81,9 +81,21 @@ updated: 2026-10-13
     - 包的浏览器验收规则补“去掉 `--hide-scrollbars`”。这一条是回写规范，等开发者批准。
   - 主 Agent 定为：重要 1 与前两条建议交编码子代理修正，第三条建议等开发者批准。
 
+- 两批审查意见的修正（集成分支 `3be97d883..8d644d118`，14 个提交，已 push）逐条见 [plan.md](plan.md) 的“实现审查的修正”。偏离处理意见的有两处：
+  - 复用到连不上的地址时报 `dev_unresponsive`，不替别人停服务；
+  - 终端改按 xterm 的 `device.cell` 算列数，不再用 `@xterm/addon-fit`。
+- 主 Agent 在 `8d644d118` 上复跑，都通过：
+  - 包测试 338 个，含 herdr 0.9.3 与 0.9.1 两组 L4、`dev-live` 18 条；
+  - typecheck、`build:web`；
+  - 根上三个测试文件 177 个，`dev-panel-records` 在 Node 下 5 个；
+  - `governance:check`、`docs:check`、`git diff --check`。
+
+  试算合入 `master` 没有冲突，与主工作区未提交的改动没有交集。
+- 待开发者批准的回写：在 `packages/dev-panel/AGENTS.md` 的浏览器验收规则里补一句：涉及尺寸、溢出或滚动时，去掉 `--hide-scrollbars`。
+
 ## 下一步
 
-实现审查分两路进行：一路审 t14（`23402f959..c5177bc56`），一路审两处追加修正（`c5177bc56..3be97d883`）。审完修正，再请开发者授权合入。合入后在真实仓库上核对：
+等开发者授权合入 `master`。合入后先在主工作区装依赖（去掉了 `@xterm/addon-fit`），重装服务，再在真实仓库上核对：
 
 1. 在自己负责的 worktree 里 `dev start`、`dev stop`；
 2. 下一个新 Task 用 `worktree new`；
