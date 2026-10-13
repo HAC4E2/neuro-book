@@ -3,7 +3,7 @@ import {Badge, Drawer, FormInput, IconButton, Tooltip} from "@notnotype/nb-ui/co
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "./host/format.js";
-import {panelState, startPanelData, useResource} from "./host/panel-data.js";
+import {panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readNavOpen, writeAppearance, writeNavOpen, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
@@ -15,6 +15,7 @@ import LoadState from "./parts/LoadState.vue";
  * 外壳与页面按组件规范豁免（它们是宿主）；左栏的展开与明暗经 host/prefs.ts 记住。390 宽时左栏收进抽屉。
  */
 startPanelData();
+onBeforeUnmount(stopPanelData);
 const route = useRoute();
 const router = useRouter();
 const overview = useResource<Overview>(() => "/api/overview", ["records", "activity"]);

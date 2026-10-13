@@ -20,7 +20,7 @@ const RECONNECT_MAX_MS = 10_000;
 
 export const panelState = reactive({
     instance: "",
-    revisions: {records: 0, activity: 0, sessions: 0, notify: 0} as Revisions,
+    revisions: {records: 0, activity: 0, sessions: 0, notify: 0, github: 0} as Revisions,
     connection: "connecting" as ConnectionState,
     /** 没登录（401）：整个面板只显示“用 nbdev panel open 打开”。 */
     unauthorized: false,
@@ -32,6 +32,7 @@ const subscribers = new Set<Subscriber>();
 let socket: WebSocket | null = null;
 let attempts = 0;
 let started = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 function notify(parts: readonly PartName[], all: boolean): void {
     for (const subscriber of subscribers) {
@@ -89,13 +90,23 @@ function connect(): void {
         panelState.connection = "closed";
         attempts += 1;
         const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** Math.min(attempts - 1, 4));
-        setTimeout(() => {
+        reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
             if (panelState.unauthorized) return;
             void probeBeforeReconnect().then((go) => {
-                if (go && !panelState.unauthorized) connect();
+                if (go && started && !panelState.unauthorized) connect();
             });
         }, delay);
     });
+}
+
+/** 关掉推送连接、取消已排的重连；`socket` 先置空，旧连接的 close 事件不再排重连。 */
+function disconnect(): void {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    const ws = socket;
+    socket = null;
+    ws?.close(1000, "面板数据宿主停止");
 }
 
 /** 外壳挂载时调一次。 */
@@ -103,6 +114,18 @@ export function startPanelData(): void {
     if (started) return;
     started = true;
     connect();
+}
+
+/** 外壳卸载时调：关连接、取消重连，复位连接状态，之后可以再 `startPanelData()`。 */
+export function stopPanelData(): void {
+    started = false;
+    attempts = 0;
+    disconnect();
+    panelState.instance = "";
+    panelState.revisions = {records: 0, activity: 0, sessions: 0, notify: 0, github: 0};
+    panelState.connection = "connecting";
+    panelState.unauthorized = false;
+    panelState.lastPushAt = null;
 }
 
 export type Resource<T> = {

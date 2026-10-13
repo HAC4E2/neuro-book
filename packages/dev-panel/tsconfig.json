@@ -20,6 +20,7 @@
         "tests"
     ],
     "exclude": [
-        "src/web"
+        "src/web",
+        "tests/web-*.ts"
     ]
 }

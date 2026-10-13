@@ -13,8 +13,8 @@
         ".": "./src/index.ts"
     },
     "scripts": {
-        "test": "bun test",
-        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json",
+        "test": "bun test --isolate",
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.web-tests.json",
         "build:web": "vite build",
         "install-shim": "bun src/install-shim.ts",
         "audit-init": "bun src/audit-init.ts",
