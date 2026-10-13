@@ -35,6 +35,8 @@ export type Meta = {
     herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null; autoNotify: boolean};
     audit: AuditState;
     notify: {pending: number; attention: number};
+    /** 网页终端（t12）能不能用：找不到 herdr、setpriv、setsid 或没连 herdr 时为 false，`reason` 写原因。 */
+    terminal: {available: boolean; reason: string | null};
     parts: Record<string, {revision: number; at: string | null; error: string | null}>;
     artifactOrigin: string; artifactBase: string;
     /** 主工作区现在能不能写（不在 master、正在合并或变基时不能）；不能写时写入口隐藏。 */
@@ -88,7 +90,7 @@ export type DocFileData = {checkout: CheckoutRef; path: string; text: string; ti
 export type RunView = {pid: number; startedAt: string; command: string; cwd: string; checkout: string; ownerVia: string | null; paneId: string | null; unit: string | null; sessionHint: string | null; sessionAlive: boolean | null; descendants: Array<{pid: number; command: string}>};
 export type SessionLease = {workId: string; taskId: string; acquiredAt: string; lastActivityAt: string; lastAction: string; stale: boolean};
 export type SessionView = {key: string; agent: string; sessionId: string | null; label: string | null; alive: boolean | null; managed: boolean; herdr: {paneId: string; status: string} | null; leases: SessionLease[]; runs: RunView[]};
-export type PaneView = {paneId: string; agent: string | null; status: string; session: {agent: string; value: string} | null; cwd: string | null; foregroundCwd: string | null; workspaceLabel: string | null; inRepository: boolean};
+export type PaneView = {paneId: string; terminalId: string; agent: string | null; status: string; session: {agent: string; value: string} | null; cwd: string | null; foregroundCwd: string | null; workspaceLabel: string | null; inRepository: boolean};
 export type SessionsData = {
     herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null; missedEvents: number; reconnects: number};
     panes: PaneView[]; sessions: SessionView[]; unownedRuns: RunView[]; ignoredProcesses: number;

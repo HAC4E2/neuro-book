@@ -26,6 +26,10 @@ interface SessionConsoleProps {
     pending: boolean;
     /** 变了就清空输入框（发送成功后页面加一）；必填 */
     resetKey: number;
+    /** 屏幕由 `screen` 插槽给（t12 的实时终端）：不显示快照、“屏幕读于”与“重读屏幕”；可选，默认 false */
+    live?: boolean;
+    /** 正在接管键盘（t12）：不给输入框（直接在终端里打），按钮单击即发（页面经终端连接发），提示改写；可选，默认 false */
+    controlling?: boolean;
 }
 interface SessionConsoleEmits {
     (event: "refresh"): void;
@@ -36,7 +40,7 @@ interface SessionConsoleEmits {
 }
 ```
 
-输入框的草稿是零件自己的（`state:local`），`resetKey` 变了清空。没有插槽与 expose。
+输入框的草稿是零件自己的（`state:local`），`resetKey` 变了清空。插槽 `screen`：替换屏幕快照（t12 放实时终端或手机的文字视图），缺省是快照的 `<pre>`。没有 expose。
 
 ## 不支持
 
