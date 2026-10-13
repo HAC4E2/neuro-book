@@ -30,6 +30,7 @@ status: active
 
 - 实现 Task 严格先后依赖，共用一条集成分支 `feat/w00022-dev-panel`（worktree `.worktree/w00022-dev-panel`，从 `master` 分出）；互相独立的切片另开 worktree，再合回集成分支。
 - 集成分支每次提交后 push 到 `origin` 作备份；合入 `master` 要开发者授权。
+- 2026-10-13 漏出一次：t14 开工时集成分支快进到了 `master`（`23402f959`），带进了下一条说的含账户名的历史；主 Agent 10:28、11:49 两次 push 前没查，这段历史随分支进了公开仓库。开发者定先删远端分支，13:50 已删，远端已没有分支含 `2cca6d3fa`。这些提交在 GitHub 上仍可按提交号访问，直到 GitHub 回收；要彻底清掉，得由开发者向 GitHub 支持申请。此后集成分支不再 push，直到历史洗过；push 任何分支前先查 `git merge-base --is-ancestor 2cca6d3fa <分支>`。
 - 主会话调度，编码交给 opus 子代理；主会话审查 diff、自跑验证。
 - **push `master` 之前必做**（开发者 2026-10-13 定）：本地 `master` 从 `2cca6d3fa`（2026-10-12 23:58）起的历史里有本机另外两个账户的用户名，出现在 t09、t10 的几份记录与审查报告里；当前版本已删，历史里还在。push `master` 之前，按[仓库维护流程](../../../docs/standards/repository-workflow.md)里“本地未推送历史含隐私”那一段重写这段历史，并按新旧对照表更新记录里引用的 `master` 提交号（例如合并提交 `3ef00987a`、`8b44f60ca`、`23f604ebf`）。查找命令：`git log -G '<用户名>' master`，用户名用 `getent passwd 1001 1002` 查。
 
@@ -47,7 +48,7 @@ status: active
 | [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-13 合入 `master`（`3ef00987a`），完成 |
 | [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`3ef00987a`），完成 |
 | [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 实现审查修正后合入 `master`（`8b44f60ca`），完成 |
-| [t11](tasks/t11-notify/README.md) | 通知、会话消息与常驻；2026-10-13 合入 `master`（`23f604ebf`），服务已装、管理脚本已合入（`fcb2bddc5`），场景 1 验收通过，完成；通知误报待修 |
+| [t11](tasks/t11-notify/README.md) | 通知、会话消息与常驻；2026-10-13 合入 `master`（`23f604ebf`），服务已装、管理脚本已合入（`fcb2bddc5`），场景 1 验收通过，完成；通知误报随 t14 修正 |
 | [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 合入 `master`（`98d3d4595`），开发者在场验收通过，完成 |
 | [t13](tasks/t13-cross-device/README.md) | 跨设备访问；2026-10-13 写了计划后搁置：开发者定先不做 Tailscale，SSH 转发加常驻服务够用 |
-| [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充；2026-10-13 开工 |
+| [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充，含 t11 通知误报与 t12 接管尺寸的修正；2026-10-13 两轮实现审查修正后合入 `master`（`76a3da886`） |

@@ -93,12 +93,19 @@ updated: 2026-10-13
   试算合入 `master` 没有冲突，与主工作区未提交的改动没有交集。
 - 待开发者批准的回写：在 `packages/dev-panel/AGENTS.md` 的浏览器验收规则里补一句：涉及尺寸、溢出或滚动时，去掉 `--hide-scrollbars`。
 
+- 2026-10-13 开发者授权后，集成分支 `8d644d118` 本地合入 `master`（合并提交 `76a3da886`，没有 PR、没有 push master）。合并提交上复跑：包测试 327 个（herdr 的 L4 刚在内容相同的 `8d644d118` 上跑过，这次跳过）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
+- 合入后：主工作区装了依赖（去掉了 `@xterm/addon-fit`），常驻服务按新单元重装，单元写入了 `NBDEV_GH_BIN`，前端构建完成，4400 回 200。
+- 在场核对（临时仓库，假开发脚本，经真实 `bun run`）：在本会话里用后台任务跑 `nbdev dev start`，打出 `READY`，属主认成本会话；用 Claude Code 的 TaskStop 停掉后：
+  - `normal` 形态：监管进程、组长、开发脚本、孙进程都退出，登记在 17 毫秒内写成 `ended`（`stopped`，`stoppedBy: signal:SIGTERM`），地址不再回应；
+  - `owned` 形态（仿 master，运行时另起会话）：另起会话的运行时与它的孙进程同样退出，登记 `ended`（`stopped`）。
+- 开发者同日批准回写 `packages/dev-panel/AGENTS.md`：涉及尺寸、溢出或滚动的浏览器验收去掉 `--hide-scrollbars`。
+- 没做的：没在真实仓库上起主应用的开发服务（本机可用内存约 4G，别的实验在跑），master 与 w00017 的就绪行仍只按源码写；omp 的 `proc://` 没核实。
+
 ## 下一步
 
-等开发者授权合入 `master`。合入后先在主工作区装依赖（去掉了 `@xterm/addon-fit`），重装服务，再在真实仓库上核对：
+无。已合入 `master`，标为 `done`。下面几项在真实使用中顺带核对：
 
-1. 在自己负责的 worktree 里 `dev start`、`dev stop`；
+1. Agent 第一次在自己的 worktree 里用 `dev start` 起主应用时，核对就绪行与 `dev stop`；
 2. 下一个新 Task 用 `worktree new`；
-3. 重装服务，让单元写入 `NBDEV_GH_BIN`，请开发者看一眼 GitHub 页；
-4. 下一次真实通知时，尝试记录的 `code` 是 null 而不是 `unwatched`；
-5. 用桌面浏览器接管一次，pty 尺寸接上之后不再变化。
+3. 开发者看一眼 GitHub 页；用桌面浏览器从奇数列的 pty 接管一次，pty 尺寸只变一次；
+4. 下一次真实通知时，尝试记录的 `code` 是 null 而不是 `unwatched`。
