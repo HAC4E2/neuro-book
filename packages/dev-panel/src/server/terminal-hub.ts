@@ -327,7 +327,7 @@ export class TerminalHub {
         // 等锁、读尺寸、写意图、收 observe 期间连接关了或面板要退出：不再起 control（什么都没改过）。
         if (conn.closed || this.exiting) {
             conn.mode = "watch";
-            await this.auditResult(actionId, "takeover", target, {result: "failed", why: conn.closed ? "disconnect" : "panel_exit"});
+            await this.auditResult(conn, actionId, "takeover", target, {result: "failed", why: conn.closed ? "disconnect" : "panel_exit"});
             return;
         }
         // 本面板的另一个浏览器在接管：把接管前的尺寸交给新的接管者，那边释放时不改回（Claude 不会连排两次）。
@@ -344,7 +344,7 @@ export class TerminalHub {
         if (first !== null && first !== "timeout" && first.type === "frame") {
             conn.mode = "control";
             this.options.controls.set(conn.terminalId, {connectionId: conn.id, paneId: conn.paneId, since: new Date(now).toISOString(), device: conn.device});
-            await this.auditResult(actionId, "takeover", target, {result: "attached"});
+            await this.auditResult(conn, actionId, "takeover", target, {result: "attached"});
             // 已经接上、尺寸已改成网页的，连接却在等第一帧时关了（或面板要退出）：照常释放，改回尺寸、写释放行。
             if (conn.closed || this.exiting) return this.release(conn, this.exiting ? "panel_exit" : "disconnect", true);
             this.sendState(conn);
@@ -358,26 +358,27 @@ export class TerminalHub {
         conn.mode = "watch";
         conn.stream = null;
         await stream?.stop();
-        if (conn.closed) return this.auditResult(actionId, "takeover", target, {result: "failed", why: "disconnect"});
+        if (conn.closed) return this.auditResult(conn, actionId, "takeover", target, {result: "failed", why: "disconnect"});
         if (first === "timeout") {
-            await this.auditResult(actionId, "takeover", target, {result: "failed", why: "timeout"});
+            await this.auditResult(conn, actionId, "takeover", target, {result: "failed", why: "timeout"});
             this.error(conn, "takeover_timeout", "接管的握手 5 秒没有回应，没有接管");
         } else if (!(await this.terminalExists(conn.terminalId))) {
-            await this.auditResult(actionId, "takeover", target, {result: "failed", why: "pane_closed"});
+            await this.auditResult(conn, actionId, "takeover", target, {result: "failed", why: "pane_closed"});
             return this.closeConn(conn, TERMINAL_CLOSE.gone, "这个终端不在了");
         } else if (!force && other === null) {
-            await this.auditResult(actionId, "takeover", target, {result: "controlled_elsewhere"});
+            await this.auditResult(conn, actionId, "takeover", target, {result: "controlled_elsewhere"});
             this.send(conn, {t: "need_confirm", reason: "controlled_elsewhere", detail: {text: first?.type === "closed" ? first.reason : null}});
         } else {
-            await this.auditResult(actionId, "takeover", target, {result: "failed", why: "refused"});
+            await this.auditResult(conn, actionId, "takeover", target, {result: "failed", why: "refused"});
             this.error(conn, "takeover_failed", `没有接管：${first?.type === "closed" ? first.reason : "流结束了"}`);
         }
         await this.startWatch(conn);
     }
 
-    private async auditResult(actionId: string, action: "takeover" | "release", target: Record<string, unknown>, detail: Record<string, unknown>): Promise<void> {
+    /** 结果行与释放行的设备与意图行一样取自连接（t13 起不同设备的连接各记各的）。 */
+    private async auditResult(conn: Conn, actionId: string, action: "takeover" | "release", target: Record<string, unknown>, detail: Record<string, unknown>): Promise<void> {
         try {
-            await this.options.audit.append({actionId, phase: "result", action, device: PANEL_DEVELOPER.device, target, detail});
+            await this.options.audit.append({actionId, phase: "result", action, device: conn.device, target, detail});
         } catch (error) {
             if (!(error instanceof Error)) throw error;
             this.options.log(`写审计结果失败（${action}，${actionId}）：${error.message}`);
@@ -457,7 +458,7 @@ export class TerminalHub {
         conn.stream = null;
         this.options.controls.release(conn.terminalId, conn.id);
         const why = restored ? null : control.handedOff ? "handed_off" : control.before === null ? "size_unknown" : "stream_ended";
-        await this.auditResult(control.actionId, "release", {paneId: conn.paneId, terminalId: conn.terminalId, sessionKey: conn.sessionKey}, {reason, durationMs: Date.now() - control.since, ...control.stats, restored, ...(why ? {notRestored: why} : {})});
+        await this.auditResult(conn, control.actionId, "release", {paneId: conn.paneId, terminalId: conn.terminalId, sessionKey: conn.sessionKey}, {reason, durationMs: Date.now() - control.since, ...control.stats, restored, ...(why ? {notRestored: why} : {})});
         this.send(conn, {t: "released", reason, restored, notRestored: why});
         this.restartWatchers(conn.terminalId, conn);
         void this.options.notifier.tick();

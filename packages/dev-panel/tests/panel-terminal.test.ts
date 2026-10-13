@@ -263,6 +263,8 @@ describe("接管", () => {
         const lines = await audit();
         expect(lines.map((line) => [line.action, line.phase])).toEqual([["takeover", "intent"], ["takeover", "result"], ["release", "result"]]);
         expect(new Set(lines.map((line) => line.actionId)).size).toBe(1);
+        // 结果行与释放行的设备与意图行一样取自连接（实现审查 F6）。
+        expect(lines.map((line) => line.device)).toEqual(["local", "local", "local"]);
         expect(lines[2]!.detail).toMatchObject({reason: "user", inputs: 2, enters: 1, pastes: 1, buttons: 1, restored: true});
         expect(JSON.stringify(lines)).not.toContain("密码123");
         // 释放之后文字照常。
