@@ -21,4 +21,4 @@ t83 验收反馈第 7 条：开发者问菜单系统做了没有，记得旧应�
 
 ## 下一步
 
-写实施计划（plan.md，含 Spec 改动），交开发者确认后实施。代码在从 `refactor/w00017-runtime-foundation` 切出的 worktree 里改。
+2026-10-13 开发者确认 [plan.md](plan.md) 并要求开工：一个 omp 审查计划与设计稿（与实现并行），实现完成后另一个 omp 审查代码。实施在 worktree `.worktree/w00017-t84-menu-contributions`（分支 `feat/w00017-t84-menu-contributions`，从 `refactor/w00017-runtime-foundation` 切出），按计划从 S0 开始。
