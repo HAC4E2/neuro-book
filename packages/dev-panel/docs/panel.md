@@ -18,7 +18,7 @@
 回环对本机的其他账户与浏览器里的任意网页都开放（本机另有可登录的账户），所以 `/api/*` 与 `/ws` 都要登录。设备配对与分级在 t13。
 
 1. `panel serve` 生成启动令牌，写进权限 600 的 `.local/agent/panel.json`。
-2. `panel open` 读它、签一张一次性票据（`<nonce>.<过期时刻>.<HMAC>`，5 分钟过期，用一次作废），用 `xdg-open` 打开 `/login?ticket=…`（`--print` 只打印链接）。
+2. `panel open` 读它、签一张一次性票据（`<nonce>.<过期时刻>.<HMAC>`，5 分钟过期，用一次作废），写一页跳转页再用 `xdg-open` 打开（见下）；`--print` 只打印登录链接 `/login?ticket=…`。
 3. 服务核对票据，换成会话 cookie（`nbdev_panel_<面板端口>`，`HttpOnly; SameSite=Strict; Path=/`），重定向到 `/`。会话只在本次服务实例里有效，重启面板后要重新 `panel open`。cookie 名带端口：cookie 不按端口区分，同一个浏览器登录两个面板（不同仓库，或开发时的演示面板）时，名字相同就会互相踢下线。
 
 页面本身与静态资源不要求登录；`/api/*` 没登录回 401（`unauthorized`），前端据此提示“用 nbdev panel open 打开”。
@@ -100,7 +100,10 @@
 3. 构建前端（见下；`--no-build` 跳过、用现有的 `dist/web`，`--static-dir` 用现成的产物目录），预热（记录与活动各算一遍），开始监视。
 4. 收到 SIGINT、SIGTERM 或 SIGHUP 时收口：结束正在跑的 `git grep` 与 `vite build`，停服务，删自己的 `panel.json`，放锁，退出码 0。
 
-`panel open` 读 `panel.json`，面板不在跑时报 `panel_not_running`；在跑就签一次性票据，用 `xdg-open` 打开登录链接（`--print` 只打印）。
+`panel open` 读 `panel.json`，面板不在跑时报 `panel_not_running`；在跑就签一次性票据：
+
+- 不带 `--print`：票据不进任何进程的命令行（`/proc/<pid>/cmdline` 对本机所有账户可读，别的账户能抢先兑换）。写一页跳转页 `open-<随机>.html`（独占创建、权限 600，内容只是 `location.replace(<登录链接>)`），目录是 `$XDG_RUNTIME_DIR/nbdev/`，没有这个变量时用主工作区的 `.local/agent/run/panel-open/`，目录权限 700；只把它的 `file://` 路径交给 `xdg-open`。每次 `panel open` 顺手删掉该目录里超过 10 分钟的跳转页（票据早已过期）。JSON 的 `data` 带 `page`（跳转页路径），`loginUrl` 为 null。
+- `--print`：只打印登录链接（`data.loginUrl`），不写跳转页、不开浏览器。链接打印在自己的终端里，由开发者决定往哪儿粘。
 
 ## 前端构建
 

@@ -1,9 +1,10 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes, randomUUID} from "node:crypto";
-import {mkdir, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {once} from "node:events";
 import {connect} from "node:net";
 import {join} from "node:path";
+import {pathToFileURL} from "node:url";
 import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_READ_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
@@ -458,7 +459,7 @@ describe("nbdev panel serve 与 panel open", () => {
         expect(await Bun.file(panelFile).exists()).toBe(false);
     }, 30_000);
 
-    test("panel serve 写权限 600 的 panel.json、同一个主工作区只能起一个；panel open --print 给出能登录的一次性链接；SIGTERM 收口", async () => {
+    test("panel serve 写权限 600 的 panel.json、同一个主工作区只能起一个；panel open --print 给出能登录的一次性链接，不带 --print 只把私有跳转页交给 xdg-open；SIGTERM 收口", async () => {
         const fixture = await createFixture("panel-cli");
         const staticDir = join(fixture.root, "web");
         await mkdir(staticDir, {recursive: true});
@@ -492,6 +493,38 @@ describe("nbdev panel serve 与 panel open", () => {
             meta = await fetch(`${info.url}/api/overview`, {headers: {Cookie: cookie}});
         }
         expect(meta.status).toBe(200);
+
+        // 不带 --print：票据不进 xdg-open 的命令行，只交一个只有自己能读的跳转页。
+        const shim = join(fixture.root, "open-shim");
+        await mkdir(shim, {recursive: true});
+        await writeFile(join(shim, "xdg-open"), '#!/bin/sh\np="${1#file://}"\nprintf \'%s\\n\' "$#" "$1" "$(stat -c %a "$p")" "$(stat -c %a "$(dirname "$p")")" > "$OPEN_RECORD.tmp"\nmv "$OPEN_RECORD.tmp" "$OPEN_RECORD"\n', {mode: 0o755});
+        const openThroughShim = async (runtimeDir: string, record: string) => {
+            const result = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, XDG_RUNTIME_DIR: runtimeDir, OPEN_RECORD: record});
+            for (let attempt = 0; attempt < 200 && !(await Bun.file(record).exists()); attempt += 1) await Bun.sleep(20);
+            const [argc, arg, fileMode, dirMode] = (await Bun.file(record).text()).trimEnd().split("\n");
+            return {result, argc, arg: arg!, fileMode, dirMode};
+        };
+        const runtimeDir = join(fixture.root, "runtime");
+        await mkdir(join(runtimeDir, "nbdev"), {recursive: true});
+        const stalePage = join(runtimeDir, "nbdev", "open-0000000000000000.html");
+        await writeFile(stalePage, "stale");
+        await utimes(stalePage, new Date(Date.now() - 11 * 60_000), new Date(Date.now() - 11 * 60_000));
+        const viaRuntime = await openThroughShim(runtimeDir, join(fixture.root, "open-1.txt"));
+        const page = (viaRuntime.result.json?.data as {page: string; loginUrl: string | null});
+        expect([viaRuntime.result.exitCode, page.loginUrl, viaRuntime.argc, viaRuntime.fileMode, viaRuntime.dirMode]).toEqual([0, null, "1", "600", "700"]);
+        expect(viaRuntime.arg).toBe(pathToFileURL(page.page).href);
+        expect(viaRuntime.arg.startsWith(`file://${runtimeDir}/nbdev/open-`)).toBe(true);
+        expect(viaRuntime.arg.includes("ticket")).toBe(false);
+        expect(viaRuntime.result.stdout.includes("ticket")).toBe(false);
+        expect(await Bun.file(stalePage).exists()).toBe(false);
+        const pageLogin = /location\.replace\("([^"]+)"\)/u.exec(await Bun.file(page.page).text())?.[1];
+        expect(pageLogin?.startsWith(`${info.url}/login?ticket=`)).toBe(true);
+        expect((await fetch(pageLogin!, {redirect: "manual"})).status).toBe(302);
+        // 没有 XDG_RUNTIME_DIR 时落到主工作区的 .local/agent/run/panel-open/。
+        const viaLocal = await openThroughShim("", join(fixture.root, "open-2.txt"));
+        expect([viaLocal.argc, viaLocal.fileMode, viaLocal.dirMode]).toEqual(["1", "600", "700"]);
+        expect(viaLocal.arg.startsWith(`file://${fixture.main}/.local/agent/run/panel-open/open-`)).toBe(true);
+
         const exited = once(serve, "exit");
         serve.kill("SIGTERM");
         expect((await exited)[0]).toBe(0);

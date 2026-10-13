@@ -2,6 +2,7 @@ import {spawn} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {lstat} from "node:fs/promises";
 import {resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {NbdevError, systemErrorCode, type Warning} from "../core/errors.js";
 import {locateRepository} from "../core/repo.js";
 import {createHerdrClient, HERDR_PANEL_READ_METHODS, resolveHerdrSocket} from "../herdr/client.js";
@@ -110,28 +111,32 @@ export const PANEL_COMMANDS: Record<string, CommandSpec> = {
         options: {print: {type: "boolean"}},
         async run({io, values}): Promise<CommandOutcome> {
             const context = await locateRepository(io.cwd);
-            const [{readRunningPanel}, {createLoginTicket}] = await Promise.all([import("../server/panel-file.js"), import("../server/auth.js")]);
+            const [{readRunningPanel, writeOpenPage}, {createLoginTicket}] = await Promise.all([import("../server/panel-file.js"), import("../server/auth.js")]);
             const panel = await readRunningPanel(context.mainRoot);
             if (!panel) throw new NbdevError("panel_not_running", "面板没有在跑：先运行 nbdev panel serve", {details: {mainRoot: context.mainRoot}});
             const loginUrl = `${panel.url}/login?ticket=${createLoginTicket(panel.token)}`;
             const warnings: Warning[] = [];
+            let page: string | null = null;
             if (values.print !== true) {
+                // 票据不进命令行参数：交给 xdg-open 的只是只有自己能读的跳转页（见 writeOpenPage）。
+                page = await writeOpenPage(context.mainRoot, io.env.XDG_RUNTIME_DIR, loginUrl);
                 const opened = await new Promise<string | null>((resolvePromise) => {
-                    const child = spawn("xdg-open", [loginUrl], {stdio: "ignore", detached: true});
+                    const child = spawn("xdg-open", [pathToFileURL(page!).href], {stdio: "ignore", detached: true});
                     child.on("error", (error) => resolvePromise(error.message));
                     child.on("spawn", () => {
                         child.unref();
                         resolvePromise(null);
                     });
                 });
-                if (opened !== null) warnings.push({code: "open_failed", message: `没能用 xdg-open 打开浏览器（${opened}）；手动打开下面的链接`, details: {}});
+                if (opened !== null) warnings.push({code: "open_failed", message: `没能用 xdg-open 打开浏览器（${opened}）；在浏览器里打开下面的跳转页，或改用 --print`, details: {page}});
             }
             return {
                 schema: "nbdev.panel-open/v1",
-                data: {url: panel.url, loginUrl, pid: panel.pid},
+                // 登录链接只在开发者明确要了（--print）时输出。
+                data: {url: panel.url, loginUrl: values.print === true ? loginUrl : null, page, pid: panel.pid},
                 warnings,
                 error: null,
-                human: [values.print === true || warnings.length > 0 ? `登录链接（5 分钟内有效，用一次作废）：${loginUrl}` : `已在浏览器里打开面板：${panel.url}`],
+                human: [values.print === true ? `登录链接（5 分钟内有效，用一次作废）：${loginUrl}` : warnings.length > 0 ? `跳转页（5 分钟内有效）：${page}` : `已在浏览器里打开面板：${panel.url}`],
             };
         },
     },

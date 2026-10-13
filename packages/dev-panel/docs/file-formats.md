@@ -64,6 +64,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 └── run/
     ├── leases/<leaseId>.json  # 租约（nbdev.lease/v1），见下一节
     ├── panel.lock             # 面板锁：同一个主工作区同一时刻只跑一个面板
+    ├── panel-open/            # 没有 $XDG_RUNTIME_DIR 时 panel open 的跳转页（目录 700、文件 600，10 分钟后删），见 panel.md
     ├── procs/                 # 经 nbdev 起的进程（t14 起写）
     └── tmp/                   # 写事务的临时目录 <txid>/，以及组装中或接管下来的锁目录；用完删除
 ```

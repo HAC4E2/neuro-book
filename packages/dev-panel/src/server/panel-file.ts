@@ -1,5 +1,5 @@
 import {randomBytes} from "node:crypto";
-import {chmod, mkdir, open, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, open, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {NbdevError, systemErrorCode} from "../core/errors.js";
 import {processAlive, processStartTicks} from "../core/procfs.js";
@@ -119,4 +119,32 @@ export async function readRunningPanel(mainRoot: string): Promise<PanelInfo | nu
     const panel = info as PanelInfo;
     if (typeof panel.url !== "string" || typeof panel.token !== "string") return null;
     return await processAlive(panel) ? panel : null;
+}
+
+/** 跳转页留多久：票据 5 分钟过期，过了这段时间的跳转页只剩一个作废的票据，下次 `panel open` 时删掉。 */
+const OPEN_PAGE_TTL_MS = 10 * 60_000;
+
+/**
+ * `panel open` 的跳转页：票据不能进任何进程的命令行参数（`/proc/<pid>/cmdline` 对本机所有账户可读，别的账户能抢先兑换），
+ * 所以写一页只有自己能读的 HTML（目录 700、文件 600），只把 `file://` 路径交给 `xdg-open`；页面用 `location.replace` 进登录链接。
+ * 目录优先 `$XDG_RUNTIME_DIR/nbdev/`，没有就用主工作区的 `.local/agent/run/panel-open/`。返回文件路径。
+ */
+export async function writeOpenPage(mainRoot: string, runtimeDir: string | undefined, loginUrl: string): Promise<string> {
+    const dir = runtimeDir ? resolve(runtimeDir, "nbdev") : resolve(mainRoot, AGENT_LOCAL_ROOT, "run", "panel-open");
+    await mkdir(dir, {recursive: true, mode: 0o700});
+    await chmod(dir, 0o700);
+    const now = Date.now();
+    for (const name of await readdir(dir)) {
+        if (!/^open-[0-9a-f]{16}\.html$/u.test(name)) continue;
+        const path = resolve(dir, name);
+        const stats = await stat(path).catch((error: unknown) => {
+            if (systemErrorCode(error) === "ENOENT") return null;
+            throw error;
+        });
+        if (stats && now - stats.mtimeMs > OPEN_PAGE_TTL_MS) await rm(path, {force: true});
+    }
+    const path = resolve(dir, `open-${randomBytes(8).toString("hex")}.html`);
+    const target = JSON.stringify(loginUrl).replaceAll("<", "\\u003c");
+    await writeFile(path, `<!doctype html>\n<meta charset="utf-8">\n<title>打开 nbdev 面板</title>\n<script>location.replace(${target});</script>\n`, {mode: 0o600, flag: "wx"});
+    return path;
 }
