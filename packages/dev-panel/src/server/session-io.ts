@@ -3,7 +3,8 @@ import {isNbdevError, NbdevError} from "../core/errors.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
 import {assertPlainText} from "../core/text-rules.js";
 import type {HerdrClient} from "../herdr/client.js";
-import {checkDeliverable, checkSession, deliverKeys, deliverText, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
+import {checkDeliverable, checkSession, deliverKeys, deliverText, readHistory, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
+import {lockKeyOf, type ControlRegistry} from "./control-registry.js";
 import {AUTO_NOTIFY_VERSIONS, auditUnavailable, checkError, type Notifier, type PaneLocks} from "./notifier.js";
 import type {PanelState} from "./state.js";
 import {NotReady} from "./views.js";
@@ -18,6 +19,8 @@ import {readFields, statusOf, usage, type Envelope} from "./writes.js";
 
 const KIB = 1024;
 const MAX_PROMPT = 4000;
+/** 更早的输出读多少行：手机上翻得过来、一次响应不大（omp 一行通常不到 200 字节）。 */
+const HISTORY_LINES = 1000;
 const PANE_ID = /^[A-Za-z0-9_.:-]{1,64}$/u;
 /** 面板给的按键（herdr 的逻辑键名，S0 逐个核实过字节）；不接受任意键名。 */
 export const PANEL_KEYS: readonly string[] = ["up", "down", "shift+tab", "enter", "esc", "ctrl+c", "y", "n"];
@@ -26,7 +29,7 @@ const CONFIRM_KEYS = new Set(["shift+tab", "enter", "esc", "ctrl+c", "y", "n"]);
 /** 同一格 pane 3 秒内只允许一次 Ctrl+C：Claude 连按两次会退出。 */
 const CTRL_C_GAP_MS = 3_000;
 
-export type SessionIoDeps = {state: PanelState; notifier: Notifier; locks: PaneLocks; audit: AuditWriter; client: HerdrClient | null; envelope: Envelope; log: (message: string) => void};
+export type SessionIoDeps = {state: PanelState; notifier: Notifier; locks: PaneLocks; controls: ControlRegistry; audit: AuditWriter; client: HerdrClient | null; envelope: Envelope; log: (message: string) => void};
 
 export function createSessionIo(deps: SessionIoDeps) {
     const {state, notifier, locks, client, envelope, log} = deps;
@@ -34,7 +37,7 @@ export function createSessionIo(deps: SessionIoDeps) {
 
     function context(): DeliveryContext {
         if (!client) throw new NbdevError("herdr_unavailable", "面板没有连 herdr");
-        return {client, repoRoots: state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root)};
+        return {client, repoRoots: state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root), controlled: (terminalId) => deps.controls.isControlled(terminalId)};
     }
 
     async function requireAudit(): Promise<void> {
@@ -75,6 +78,14 @@ export function createSessionIo(deps: SessionIoDeps) {
         return envelope({paneId, sessionKey: target.sessionKey, agent: read.agent.agent, status: read.agent.status, focused: read.agent.focused, screen: read.screen}, [], null);
     }
 
+    /** 更早的输出（t12，手机的文字视图）：只给 omp，Claude 回 409 `history_unavailable`；不往会话里写，接管期间照样能读。 */
+    async function history(paneId: string, url: URL): Promise<Response> {
+        const target = {paneId, sessionKey: sessionField(url.searchParams.get("session"))};
+        const read = await readHistory(context(), target, HISTORY_LINES);
+        if (!read.ok) throw checkError(read);
+        return envelope({paneId, sessionKey: target.sessionKey, lines: HISTORY_LINES, text: read.text}, [], null);
+    }
+
     /** 输入框：只发给空闲的会话；正向白名单不过时回 409 带屏幕末尾与摘要，开发者看过之后带回摘要（`confirmScreen`）再发，屏幕变了就再回 409。 */
     async function prompt(req: Request, paneId: string): Promise<Response> {
         const fields = await readFields(req, 32 * KIB, {text: {type: "string", required: true}, expectedSession: {type: "string", required: true}, confirmScreen: {type: "nullable-string"}});
@@ -85,7 +96,7 @@ export function createSessionIo(deps: SessionIoDeps) {
         const target: DeliveryTarget = {paneId, sessionKey: sessionField(fields.expectedSession)};
         await requireAudit();
         const delivery = context();
-        const outcome = await notifier.track(locks.run(paneId, async () => {
+        const outcome = await notifier.track(locks.run(lockKeyOf(state, paneId), async () => {
             const checked = await checkDeliverable(delivery, target);
             if (!checked.ok && !(checked.code === "not_deliverable" && checked.agent && fields.confirmScreen === screenDigest(checked))) throw checkError(checked);
             const before = checked.ok ? checked.agent : checked.agent!;
@@ -119,7 +130,7 @@ export function createSessionIo(deps: SessionIoDeps) {
             lastCtrlC.set(paneId, now);
         }
         const delivery = context();
-        await notifier.track(locks.run(paneId, async () => {
+        await notifier.track(locks.run(lockKeyOf(state, paneId), async () => {
             const checked = await checkSession(delivery, target);
             if (!checked.ok) throw checkError(checked);
             const actionId = newActionId();
@@ -157,6 +168,7 @@ export function createSessionIo(deps: SessionIoDeps) {
         if (req.method === "GET") {
             if (first === "notify" && second === undefined) return notifyView(url);
             if (first === "sessions" && second !== undefined && third === "screen") return screen(paneOf(second), url);
+            if (first === "sessions" && second !== undefined && third === "history") return history(paneOf(second), url);
             return null;
         }
         if (req.method === "POST") {

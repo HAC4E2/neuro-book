@@ -61,8 +61,11 @@ export type HerdrClient = {
     /** `agent.get`：pane 上没有 herdr 认得的 Agent 时为 null（`agent_not_found`）。 */
     agentGet(target: string): Promise<HerdrAgentInfo | null>;
     agentExplain(target: string): Promise<HerdrExplain>;
-    /** `agent.read`：`ansi` 保留转义序列（`strip_ansi: false`）。只用 `visible` 与 `detection`：`recent` 加行数会滚动 Claude 的界面。 */
-    agentRead(target: string, source: "visible" | "detection", format?: "text" | "ansi"): Promise<string>;
+    /**
+     * `agent.read`：`ansi` 保留转义序列（`strip_ansi: false`）。读 Claude 只用 `visible` 与 `detection`：它在备用屏上，
+     * `recent` 加行数会滚动它的界面、工作中直接报错；`recent_unwrapped` 加 `lines` 只给 omp（普通回滚，读它没有副作用）。
+     */
+    agentRead(target: string, source: "visible" | "detection" | "recent_unwrapped", format?: "text" | "ansi", lines?: number): Promise<string>;
     /** `agent.prompt`：单次时限是等待时限加 2 秒。返回体里的 `agent` 是 herdr 回应时看到的状态（可能是旧值）。 */
     agentPrompt(target: string, text: string, wait: {until: HerdrStatus[]; timeoutMs: number}): Promise<{type: string; agent: HerdrAgentInfo | null}>;
     agentSendKeys(target: string, keys: readonly string[]): Promise<void>;
@@ -280,8 +283,8 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
         async agentExplain(target) {
             return toExplain(await call("agent.explain", {target}));
         },
-        async agentRead(target, source, format = "text") {
-            const result = await call("agent.read", {target, source, format, strip_ansi: format === "text"});
+        async agentRead(target, source, format = "text", lines) {
+            const result = await call("agent.read", {target, source, format, strip_ansi: format === "text", ...(lines === undefined ? {} : {lines})});
             const read = isRecord(result) && isRecord(result.read) ? result.read : null;
             if (!read || typeof read.text !== "string") throw new HerdrError("protocol_error", "agent.read 的响应缺少 read.text");
             return read.text;

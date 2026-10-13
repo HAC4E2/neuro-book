@@ -11,12 +11,13 @@ import type {NotifyResult} from "../core/notify.js";
  */
 
 export type DeliveryTarget = {paneId: string; sessionKey: string};
-export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]; sleep?: (ms: number) => Promise<void>};
+/** `controlled`：这个终端正被本面板接管时为真（t12）；接管期间文字与按键都不发（herdr 不拦 API 写入）。 */
+export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]; sleep?: (ms: number) => Promise<void>; controlled?: (terminalId: string) => boolean};
 
 export type CheckFailure = {
     ok: false;
     /** `not_stable`：状态序号变了（之前记下的“空闲”作废）；`settling`：序号没变、只是还不到稳定时长（记下的照样有效）。 */
-    code: "not_found" | "session_changed" | "not_in_repository" | "agent_busy" | "agent_blocked" | "status_unknown" | "not_stable" | "settling" | "not_deliverable" | "herdr_unavailable";
+    code: "not_found" | "session_changed" | "not_in_repository" | "pane_controlled" | "agent_busy" | "agent_blocked" | "status_unknown" | "not_stable" | "settling" | "not_deliverable" | "herdr_unavailable" | "history_unavailable";
     detail: string;
     /** 不可投时屏幕末尾的样子（纯文字），界面拿它给开发者看。 */
     screen: string | null;
@@ -55,8 +56,11 @@ function fail(code: CheckFailure["code"], detail: string, agent: HerdrAgentInfo 
     return {ok: false, code, detail, screen, agent};
 }
 
-/** 只看身份、仓库与状态（不读屏）。`requireIdle`：投文字要 idle 或 done；发按键不要求（按键常用来回应确认界面）。 */
-async function identity(context: DeliveryContext, target: DeliveryTarget, requireIdle: boolean): Promise<{ok: true; agent: HerdrAgentInfo} | CheckFailure> {
+/**
+ * 只看身份、仓库与状态（不读屏）。`use`：投文字（`text`）要 idle 或 done；发按键（`keys`）不要求（按键常用来回应确认界面）；
+ * 读屏（`read`）不往会话里写，这格正被接管时照样能读。
+ */
+async function identity(context: DeliveryContext, target: DeliveryTarget, use: "text" | "keys" | "read"): Promise<{ok: true; agent: HerdrAgentInfo} | CheckFailure> {
     let agent: HerdrAgentInfo | null;
     try {
         agent = await context.client.agentGet(target.paneId);
@@ -67,7 +71,8 @@ async function identity(context: DeliveryContext, target: DeliveryTarget, requir
     if (!agent) return fail("not_found", `${target.paneId} 上没有 herdr 认得的 Agent`);
     if (sessionKeyOf(agent) !== target.sessionKey) return fail("session_changed", `${target.paneId} 上现在是 ${sessionKeyOf(agent) ?? "（没有会话）"}，不是 ${target.sessionKey}`, agent);
     if (!within(agent.cwd, context.repoRoots) && !within(agent.foregroundCwd, context.repoRoots)) return fail("not_in_repository", `${target.paneId} 不在本仓库的 checkout 里`, agent);
-    if (!requireIdle) return {ok: true, agent};
+    if (use !== "read" && context.controlled?.(agent.terminalId)) return fail("pane_controlled", `${target.paneId} 正被你在面板里接管键盘：释放之后再发，或直接在终端里打`, agent);
+    if (use !== "text") return {ok: true, agent};
     if (agent.status === "working") return fail("agent_busy", "会话在工作", agent);
     if (agent.status === "blocked") return fail("agent_blocked", "会话在等确认", agent);
     if (agent.status !== "idle" && agent.status !== "done") return fail("status_unknown", `会话状态是 ${agent.status}`, agent);
@@ -90,7 +95,7 @@ async function screenOf(context: DeliveryContext, agent: HerdrAgentInfo): Promis
 export async function checkDeliverable(context: DeliveryContext, target: DeliveryTarget, options: {stable?: {seq: number | null; since: number}; stableMs?: number; now?: () => number} = {}): Promise<CheckResult> {
     const now = options.now ?? Date.now;
     const sleep = context.sleep ?? defaultSleep;
-    const first = await identity(context, target, true);
+    const first = await identity(context, target, "text");
     if (!first.ok) return first;
     if (options.stable && first.agent.stateChangeSeq !== options.stable.seq) return fail("not_stable", "状态变过，空闲要重新计时", first.agent);
     if (options.stable && now() - options.stable.since < (options.stableMs ?? 3_000)) return fail("settling", "空闲还不到稳定时长", first.agent);
@@ -99,7 +104,7 @@ export async function checkDeliverable(context: DeliveryContext, target: Deliver
         if (!screen.ok) return fail("not_deliverable", screen.detail, first.agent, screen.screen);
         if (first.agent.focused) {
             await sleep(FOCUSED_RECHECK_MS);
-            const again = await identity(context, target, true);
+            const again = await identity(context, target, "text");
             if (!again.ok) return again;
             if (again.agent.stateChangeSeq !== first.agent.stateChangeSeq) return fail("not_stable", "复读期间状态变了", again.agent);
             const second = await screenOf(context, again.agent);
@@ -121,7 +126,7 @@ export type DeliveryOutcome = {result: NotifyResult; code: string | null; messag
  */
 export async function deliverText(context: DeliveryContext, target: DeliveryTarget, text: string, before: HerdrAgentInfo): Promise<DeliveryOutcome> {
     const sleep = context.sleep ?? defaultSleep;
-    const last = await identity(context, target, true);
+    const last = await identity(context, target, "text");
     if (!last.ok) return {result: last.code === "session_changed" ? "session_changed" : last.code === "agent_blocked" ? "agent_blocked" : "not_deliverable", code: last.code, message: last.detail, agent: last.agent};
     if (last.agent.stateChangeSeq !== before.stateChangeSeq) return {result: "not_deliverable", code: "not_stable", message: "判定之后状态变了", agent: last.agent};
     let prompted: {type: string; agent: HerdrAgentInfo | null};
@@ -162,12 +167,12 @@ export async function deliverText(context: DeliveryContext, target: DeliveryTarg
 
 /** 只核身份与仓库（发按键之前、写审计意图之前用）。 */
 export function checkSession(context: DeliveryContext, target: DeliveryTarget): Promise<{ok: true; agent: HerdrAgentInfo} | CheckFailure> {
-    return identity(context, target, false);
+    return identity(context, target, "keys");
 }
 
 /** 按键：只核身份与仓库（任何状态都能发，按键常用来回应确认界面）。 */
 export async function deliverKeys(context: DeliveryContext, target: DeliveryTarget, keys: readonly string[]): Promise<{ok: true; agent: HerdrAgentInfo} | CheckFailure> {
-    const checked = await identity(context, target, false);
+    const checked = await identity(context, target, "keys");
     if (!checked.ok) return checked;
     try {
         await context.client.agentSendKeys(target.paneId, keys);
@@ -180,12 +185,28 @@ export async function deliverKeys(context: DeliveryContext, target: DeliveryTarg
 
 /** 屏幕末尾（会话页）：`visible`，不带行数（`recent` 加行数会滚动 Claude 的界面，工作中还会报错）。 */
 export async function readScreen(context: DeliveryContext, target: DeliveryTarget): Promise<{ok: true; agent: HerdrAgentInfo; screen: string} | CheckFailure> {
-    const checked = await identity(context, target, false);
+    const checked = await identity(context, target, "read");
     if (!checked.ok) return checked;
     try {
         return {ok: true, agent: checked.agent, screen: screenTail(await context.client.agentRead(target.paneId, "visible", "ansi"), 60)};
     } catch (error) {
         if (!(error instanceof HerdrError)) throw error;
         return fail("herdr_unavailable", `读屏失败（${error.code}）：${error.message}`, checked.agent);
+    }
+}
+
+/**
+ * 更早的输出（手机的文字视图，t12）：`recent_unwrapped` 加行数，只给 omp。Claude 在备用屏上，读多于可见行要滚动它的界面、
+ * 工作中直接报错（t11 设计审查 S4），所以不给；它的完整历史在会话的 transcript 里。
+ */
+export async function readHistory(context: DeliveryContext, target: DeliveryTarget, lines: number): Promise<{ok: true; agent: HerdrAgentInfo; text: string} | CheckFailure> {
+    const checked = await identity(context, target, "read");
+    if (!checked.ok) return checked;
+    if (checked.agent.agent !== "omp") return fail("history_unavailable", `${checked.agent.agent} 的更早输出不能从终端读（读多于可见行会滚动它的界面）；看会话的 transcript`, checked.agent);
+    try {
+        return {ok: true, agent: checked.agent, text: (await context.client.agentRead(target.paneId, "recent_unwrapped", "text", lines)).replace(/\s+$/u, "")};
+    } catch (error) {
+        if (!(error instanceof HerdrError)) throw error;
+        return fail("herdr_unavailable", `读更早的输出失败（${error.code}）：${error.message}`, checked.agent);
     }
 }

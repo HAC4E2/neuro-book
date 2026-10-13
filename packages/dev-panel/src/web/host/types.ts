@@ -35,6 +35,8 @@ export type Meta = {
     herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null; autoNotify: boolean};
     audit: AuditState;
     notify: {pending: number; attention: number};
+    /** 网页终端（t12）能不能用：找不到 herdr、setpriv、setsid 或没连 herdr 时为 false，`reason` 写原因。 */
+    terminal: {available: boolean; reason: string | null};
     parts: Record<string, {revision: number; at: string | null; error: string | null}>;
     artifactOrigin: string; artifactBase: string;
     /** 主工作区现在能不能写（不在 master、正在合并或变基时不能）；不能写时写入口隐藏。 */
@@ -88,7 +90,7 @@ export type DocFileData = {checkout: CheckoutRef; path: string; text: string; ti
 export type RunView = {pid: number; startedAt: string; command: string; cwd: string; checkout: string; ownerVia: string | null; paneId: string | null; unit: string | null; sessionHint: string | null; sessionAlive: boolean | null; descendants: Array<{pid: number; command: string}>};
 export type SessionLease = {workId: string; taskId: string; acquiredAt: string; lastActivityAt: string; lastAction: string; stale: boolean};
 export type SessionView = {key: string; agent: string; sessionId: string | null; label: string | null; alive: boolean | null; managed: boolean; herdr: {paneId: string; status: string} | null; leases: SessionLease[]; runs: RunView[]};
-export type PaneView = {paneId: string; agent: string | null; status: string; session: {agent: string; value: string} | null; cwd: string | null; foregroundCwd: string | null; workspaceLabel: string | null; inRepository: boolean};
+export type PaneView = {paneId: string; terminalId: string; agent: string | null; status: string; session: {agent: string; value: string} | null; cwd: string | null; foregroundCwd: string | null; workspaceLabel: string | null; inRepository: boolean};
 export type SessionsData = {
     herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null; missedEvents: number; reconnects: number};
     panes: PaneView[]; sessions: SessionView[]; unownedRuns: RunView[]; ignoredProcesses: number;
@@ -119,12 +121,12 @@ export type EditableFileData = {
 /** 通知（t11）：`/api/notify` 的任务与最近 24 小时的尝试，见 docs/panel.md 的“通知”。 */
 export type NotifyJobState =
     | "audit_unavailable" | "legacy" | "waiting_herdr" | "no_target" | "replaced" | "not_in_repository" | "manual_only"
-    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "ready";
+    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "waiting_takeover" | "ready";
 export type NotifyCandidate = {sessionKey: string; paneId: string; agent: string | null; status: string; asker: boolean};
 export type NotifyJob = {
     workId: string; taskId: string; sessionKey: string; askerPaneId: string | null;
     answers: Array<{answerId: string; artifactId: string}>; legacy: Array<{answerId: string; artifactId: string}>; artifacts: string[]; questions: number;
-    state: NotifyJobState; paneId: string | null; agent: string | null; replacedBy: NotifyCandidate | null; alternatives: NotifyCandidate[];
+    state: NotifyJobState; paneId: string | null; terminalId: string | null; agent: string | null; replacedBy: NotifyCandidate | null; alternatives: NotifyCandidate[];
     waitReason: string | null; screen: string | null; message: string; manualMessage: string; developerMessage: string;
 };
 export type NotifyResult = "pending" | "delivered" | "delivered_into_blocked" | "delivered_maybe_wrong_session" | "uncertain" | "skipped" | "agent_blocked" | "not_deliverable" | "session_changed" | "failed";
@@ -136,3 +138,5 @@ export type NotifyData = {jobs: NotifyJob[]; recent: NotifyAttempt[]; audit: {en
 /** 一次投递的结果（手动发送、输入框）。 */
 export type DeliveryData = {result: NotifyResult; code: string | null; message: string};
 export type ScreenData = {paneId: string; sessionKey: string; agent: string | null; status: string; focused: boolean; screen: string};
+/** omp 的更早输出（t12，手机的文字视图）：`agent.read` 的 `recent_unwrapped` 最近 `lines` 行。 */
+export type HistoryData = {paneId: string; sessionKey: string; lines: number; text: string};

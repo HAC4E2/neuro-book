@@ -13,6 +13,9 @@ import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotRea
 import {createWriteHandler} from "./writes.js";
 import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
 import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
+import {ControlRegistry} from "./control-registry.js";
+import {newConnectionId, TerminalHub, type TerminalSocketData, type TerminalTimings} from "./terminal-hub.js";
+import {resolveTerminalTools} from "./terminal-stream.js";
 import {createSessionIo} from "./session-io.js";
 
 /**
@@ -36,6 +39,8 @@ export type PanelServerOptions = {
     log: (message: string) => void;
     /** 审计的位置（`XDG_CONFIG_HOME`、`HOME`）与作为服务运行时的单元名（`NBDEV_PANEL_UNIT`）从这里取；测试指到临时根。 */
     env: NodeJS.ProcessEnv;
+    /** 网页终端接管的时限（缺省见 `terminal-hub.ts`）；只有测试会改。 */
+    terminalTimings?: Partial<TerminalTimings>;
 };
 
 export type PanelServer = {
@@ -53,7 +58,8 @@ export type PanelServer = {
     stop(): Promise<void>;
 };
 
-type SocketData = {instance: string};
+/** `/ws`（推送）与 `/ws/terminal`（网页终端）共用一组 websocket 回调，按连接种类分派。 */
+type SocketData = {kind: "panel"; instance: string} | TerminalSocketData;
 
 const SECURITY_HEADERS = {"X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"};
 
@@ -117,9 +123,13 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
 
     const audit = createAuditWriter(auditPaths(options.env), state.instanceId);
     const locks = new PaneLocks();
-    const notifier = new Notifier({state, client: options.herdr, audit, locks, log, onChange: () => state.notifyChanged()});
+    const controls = new ControlRegistry();
+    const notifier = new Notifier({state, client: options.herdr, audit, locks, controls, log, onChange: () => state.notifyChanged()});
     const writes = createWriteHandler({state, envelope, log, audit, afterWrite: () => void notifier.tick()});
-    const sessionIo = createSessionIo({state, notifier, locks, audit, client: options.herdr, envelope, log});
+    const sessionIo = createSessionIo({state, notifier, locks, controls, audit, client: options.herdr, envelope, log});
+    const terminalTools = resolveTerminalTools(options.env, options.herdr?.socketPath ?? null, (name) => Bun.which(name));
+    if (!terminalTools.available) log(`网页终端不可用：${terminalTools.reason}`);
+    const terminals = new TerminalHub({state, client: options.herdr, tools: terminalTools, audit, notifier, locks, controls, log, timings: options.terminalTimings});
     // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转）。
     const stopNotifyTrigger = state.onChange((part) => {
         if (part !== "notify" && ready) void notifier.tick();
@@ -161,6 +171,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                     herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, autoNotify: herdr.version !== null && AUTO_NOTIFY_VERSIONS.includes(herdr.version)},
                     audit: auditStatus.enabled ? {enabled: true, initAt: auditStatus.initAt, path: auditStatus.paths.file} : {enabled: false, reason: auditStatus.reason, detail: auditStatus.detail, path: auditStatus.paths.file},
                     notify: {pending: notifier.pendingCount(), attention: notifier.jobs.filter((job) => job.state === "replaced" || job.state === "no_target").length},
+                    terminal: terminals.status(),
                     parts: Object.fromEntries(Object.entries(parts).map(([name, part]) => [name, {revision: part.revision, at: part.at, error: part.error}])),
                     artifactOrigin: artifactOrigin(requestHost),
                     // 前端渲染 Markdown 时把 `.agents/works/` 下的图片与证据链接改写到产物来源上；前缀只经登录后的接口交出。
@@ -323,9 +334,16 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         }
         if (guarded) {
             if (segments[0] === "ws") {
-                if (segments.length !== 1) return plain(404, "找不到");
                 if (!sameOrigin) return plain(403, "forbidden：WebSocket 的 Origin 不是本面板");
-                return server.upgrade(req, {data: {instance: state.instanceId}}) ? undefined : plain(400, "需要 WebSocket 升级");
+                if (segments.length === 1) return server.upgrade(req, {data: {kind: "panel", instance: state.instanceId}}) ? undefined : plain(400, "需要 WebSocket 升级");
+                if (segments.length !== 2 || segments[1] !== "terminal") return plain(404, "找不到");
+                // 升级前只做与 /ws 相同的安全校验；pane、terminal、上限在升级之后核，用关闭码告诉页面原因（浏览器拿不到升级失败的状态码）。
+                const paneId = url.searchParams.get("pane") ?? "";
+                const terminalId = url.searchParams.get("terminal") ?? "";
+                if (!/^[A-Za-z0-9_.:-]{1,64}$/u.test(paneId) || !/^[A-Za-z0-9_][A-Za-z0-9_:.-]{0,127}$/u.test(terminalId)) return plain(400, "缺少 pane 或 terminal");
+                const loginSession = auth.sessionOf(req.headers.get("cookie"))!;
+                const data: TerminalSocketData = {kind: "terminal", instance: state.instanceId, connectionId: newConnectionId(), loginSession, paneId, terminalId};
+                return server.upgrade(req, {data}) ? undefined : plain(400, "需要 WebSocket 升级");
             }
             return api(req, segments, url, requestHost);
         }
@@ -366,13 +384,22 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         idleTimeout: 60,
         fetch: (req, server) => handlePanel(req, server),
         websocket: {
+            // 断线（不发关闭帧）在 30 秒内发现：接管的连接靠它释放控制权（另有 15 秒的应用心跳）。
+            idleTimeout: 30,
             open(ws) {
+                if (ws.data.kind === "terminal") return terminals.open(ws as ServerWebSocket<TerminalSocketData>);
                 sockets.add(ws);
                 state.clientConnected();
                 ws.send(JSON.stringify({type: "hello", instance: state.instanceId, revisions: state.revisions()}));
             },
-            message() {},
+            message(ws, message) {
+                if (ws.data.kind === "terminal") terminals.message(ws as ServerWebSocket<TerminalSocketData>, message);
+            },
+            drain(ws) {
+                if (ws.data.kind === "terminal") terminals.drain(ws as ServerWebSocket<TerminalSocketData>);
+            },
             close(ws) {
+                if (ws.data.kind === "terminal") return terminals.close(ws as ServerWebSocket<TerminalSocketData>);
                 sockets.delete(ws);
                 state.clientDisconnected();
             },
@@ -418,7 +445,9 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             unsubscribe();
             stopNotifyTrigger();
             currentSearch?.abort();
-            // 先等进行中的投递结束（有上限），再停监视：投递途中退出会留下只有意图的记录。
+            // 先释放网页终端的接管（改回尺寸、写释放行）、收掉终端流，再等进行中的投递结束（有上限），最后停监视：
+            // 投递途中退出会留下只有意图的记录。
+            await terminals.stop();
             await notifier.stop();
             state.stop();
             for (const ws of sockets) ws.close(1001, "面板退出");

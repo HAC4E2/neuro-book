@@ -6,6 +6,7 @@ import {PANEL_DEVELOPER} from "../core/identity.js";
 import {computeNotifyJobs, developerMessage, newAttemptId, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyJob, type NotifyRecord, type NotifyResult} from "../core/notify.js";
 import {HerdrError, type HerdrAgentInfo, type HerdrClient, type HerdrSnapshotPane} from "../herdr/client.js";
 import {checkDeliverable, deliverText, PROMPT_WAIT_MS, screenDigest, sessionKeyOf, type CheckFailure, type DeliveryContext, type DeliveryOutcome, type DeliveryTarget} from "./delivery.js";
+import {lockKeyOf, type ControlRegistry} from "./control-registry.js";
 import type {PanelState} from "./state.js";
 
 /**
@@ -26,15 +27,18 @@ const RECENT_MS = 24 * 3600_000;
  * `audit_unavailable` 审计没初始化；`legacy` 只有早于启用时刻的答复；`waiting_herdr` herdr 不可用；
  * `no_target` 提问者不在 herdr 里（结束了、外部会话）；`replaced` 提问者原来的 pane 上换了会话；`not_in_repository` pane 不在本仓库；
  * `manual_only` 这个 herdr 版本不自动投；`waiting_idle` 在工作；`waiting_blocked` 在等确认；`unknown_status` 状态未知；
- * `waiting_input` 空闲但输入框不是认得出的空（有半截字、菜单、认不出的界面）；`ready` 空闲，稳定 3 秒后投。
+ * `waiting_input` 空闲但输入框不是认得出的空（有半截字、菜单、认不出的界面）；`waiting_takeover` 开发者正在面板里接管这个终端的键盘（t12），
+ * 释放之后再判定；`ready` 空闲，稳定 3 秒后投。
  */
 export type NotifyJobState =
     | "audit_unavailable" | "legacy" | "waiting_herdr" | "no_target" | "replaced" | "not_in_repository" | "manual_only"
-    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "ready";
+    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "waiting_takeover" | "ready";
 export type NotifyCandidate = {sessionKey: string; paneId: string; agent: string | null; status: string; asker: boolean};
 export type NotifyJobView = NotifyJob & {
     state: NotifyJobState;
     paneId: string | null;
+    /** 提问者所在终端的 id：按它加锁、判断是否正被接管（pane 跨 workspace 移动会换 pane id，terminal id 不变）。 */
+    terminalId: string | null;
     agent: string | null;
     /** 会话已更换时 pane 上现在的会话。 */
     replacedBy: NotifyCandidate | null;
@@ -51,7 +55,7 @@ export type NotifyJobView = NotifyJob & {
 };
 export type NotifyAttempt = Omit<NotifyRecord, "schema"> & {intentOnly: boolean};
 
-/** 一格 pane 一把锁：通知、文字、按键不会交错地打进同一个输入框。 */
+/** 一个终端一把锁（键是 terminal id，见 `lockKeyOf`）：通知、文字、按键、接管的握手不会交错。 */
 export class PaneLocks {
     private readonly tails = new Map<string, Promise<unknown>>();
 
@@ -73,6 +77,8 @@ export type NotifierOptions = {
     client: HerdrClient | null;
     audit: AuditWriter;
     locks: PaneLocks;
+    /** 本面板正在接管键盘的终端（t12）。 */
+    controls: ControlRegistry;
     log: (message: string) => void;
     /** 任务列表或状态变了（界面经 `/ws` 重取）。 */
     onChange: () => void;
@@ -125,7 +131,7 @@ export class Notifier {
 
     /** 还在排队、会自动发出的任务数（驱动 herdr 监视的兜底轮询）。 */
     pendingCount(): number {
-        return this.jobs.filter((job) => ["waiting_herdr", "waiting_idle", "waiting_blocked", "unknown_status", "waiting_input", "ready"].includes(job.state)).length;
+        return this.jobs.filter((job) => ["waiting_herdr", "waiting_idle", "waiting_blocked", "unknown_status", "waiting_input", "waiting_takeover", "ready"].includes(job.state)).length;
     }
 
     /** 最近 24 小时的尝试与选择，同一次尝试的意图与结果合成一条（只有意图的标 `intentOnly`：面板在投递途中退出）。 */
@@ -162,7 +168,8 @@ export class Notifier {
 
     private deliveryContext(): DeliveryContext | null {
         if (!this.options.client) return null;
-        return {client: this.options.client, repoRoots: this.options.state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root)};
+        const {controls} = this.options;
+        return {client: this.options.client, repoRoots: this.options.state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root), controlled: (terminalId) => controls.isControlled(terminalId)};
     }
 
     private async once(): Promise<void> {
@@ -247,6 +254,7 @@ export class Notifier {
         else if (!pane) jobState = replacedBy ? "replaced" : "no_target";
         else if (!inRepo(pane)) jobState = "not_in_repository";
         else if (!herdr.version || !AUTO_NOTIFY_VERSIONS.includes(herdr.version)) jobState = "manual_only";
+        else if (this.options.controls.isControlled(pane.terminalId)) jobState = "waiting_takeover";
         else if (pane.status === "working") jobState = "waiting_idle";
         else if (pane.status === "blocked") jobState = "waiting_blocked";
         else if (pane.status !== "idle" && pane.status !== "done") jobState = "unknown_status";
@@ -255,6 +263,7 @@ export class Notifier {
             ...job,
             state: jobState,
             paneId: pane?.paneId ?? null,
+            terminalId: pane?.terminalId ?? null,
             agent: pane?.agent ?? null,
             replacedBy,
             alternatives,
@@ -288,7 +297,7 @@ export class Notifier {
     private async tryAuto(context: DeliveryContext, job: NotifyJobView): Promise<void> {
         const paneId = job.paneId!;
         const target = {paneId, sessionKey: job.sessionKey};
-        await this.track(this.options.locks.run(paneId, async () => {
+        await this.track(this.options.locks.run(job.terminalId ?? `pane:${paneId}`, async () => {
             if (this.stopped) return;
             const seen = this.stable.get(paneId);
             if (!seen) {
@@ -376,7 +385,7 @@ export class Notifier {
             throw new NbdevError("session_changed", `${input.target.paneId} 上的 ${input.target.sessionKey} 不是这条通知可以发的会话；刷新之后再选`, {details: {reason: "not_a_candidate"}});
         }
         const developerText = manualText(job, input.target, input.text);
-        const outcome = await this.track(this.options.locks.run(input.target.paneId, async () => {
+        const outcome = await this.track(this.options.locks.run(lockKeyOf(this.options.state, input.target.paneId), async () => {
             const checked = await checkDeliverable(context, input.target);
             if (checked.ok) return this.send(context, job, input.target, checked.agent, true, developerText);
             if (checked.code === "not_deliverable" && checked.agent && input.confirmScreen === screenDigest(checked)) return this.send(context, job, input.target, checked.agent, true, developerText);
@@ -426,8 +435,9 @@ export function auditUnavailable(status: AuditStatus | null): NbdevError {
 /** 判定失败转成接口的错误：屏幕末尾放进 details，界面据此显示并要求两步确认。 */
 export function checkError(failure: CheckFailure): NbdevError {
     const codes = {
-        not_found: "session_changed", session_changed: "session_changed", not_in_repository: "not_in_repository", agent_busy: "agent_busy",
+        not_found: "session_changed", session_changed: "session_changed", not_in_repository: "not_in_repository", pane_controlled: "pane_controlled", agent_busy: "agent_busy",
         agent_blocked: "agent_busy", status_unknown: "agent_busy", not_stable: "agent_busy", settling: "agent_busy", not_deliverable: "not_deliverable", herdr_unavailable: "herdr_unavailable",
+        history_unavailable: "history_unavailable",
     } as const satisfies Record<CheckFailure["code"], string>;
     return new NbdevError(codes[failure.code], failure.detail, {details: {reason: failure.code, screen: failure.screen, screenDigest: failure.code === "not_deliverable" ? screenDigest(failure) : null, status: failure.agent?.status ?? null, sessionKey: failure.agent ? sessionKeyOf(failure.agent) : null}});
 }

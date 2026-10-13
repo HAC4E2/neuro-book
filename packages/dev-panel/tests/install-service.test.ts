@@ -15,7 +15,7 @@ const SCRIPT = join(import.meta.dirname, "..", "src", "install-service.ts");
 
 describe("单元文件", () => {
     test("ExecStart 用 bun 的绝对路径加主工作区的 cli.ts（不经 shim）；带 NBDEV_PANEL_UNIT；2、3 不重启；没有 After=default.target", () => {
-        const text = serviceUnit({mainRoot: "/home/me/neuro-book", bun: "/usr/bin/bun", port: 4400, artifactPort: 4401});
+        const text = serviceUnit({mainRoot: "/home/me/neuro-book", bun: "/usr/bin/bun", port: 4400, artifactPort: 4401, herdrBin: "/home/me/.local/bin/herdr"});
         const lines = text.split("\n");
         expect(serviceUnitName("/home/me/neuro-book")).toBe("nbdev-panel-neuro-book.service");
         expect(lines).toContain("ExecStart=/usr/bin/bun /home/me/neuro-book/packages/dev-panel/src/cli.ts panel serve --port 4400 --artifact-port 4401");
@@ -25,11 +25,15 @@ describe("单元文件", () => {
         expect(lines).toContain("Restart=on-failure");
         expect(lines).toContain("WantedBy=default.target");
         expect(lines.some((line) => line.startsWith("After="))).toBe(false);
+        // t12：终端流的子进程要 herdr 的绝对路径；停止时只给面板 SIGTERM，等它先释放接管、改回尺寸。
+        expect(lines).toContain("Environment=NBDEV_HERDR_BIN=/home/me/.local/bin/herdr");
+        expect(lines).toContain("KillMode=mixed");
+        expect(serviceUnit({mainRoot: "/home/me/neuro-book", bun: "/usr/bin/bun", port: 4400, artifactPort: 4401, herdrBin: null}).split("\n").some((line) => line.startsWith("Environment=NBDEV_HERDR_BIN"))).toBe(false);
         expect(lines[1]).toBe("# nbdev panel unit (installed by @notnotype/dev-panel)");
     });
 
     test("目录名里的空白与 % 按 systemd 的写法转义；单元名里换成 -", () => {
-        const text = serviceUnit({mainRoot: "/home/me/my repo%1", bun: "/usr/bin/bun", port: 4400, artifactPort: 4401});
+        const text = serviceUnit({mainRoot: "/home/me/my repo%1", bun: "/usr/bin/bun", port: 4400, artifactPort: 4401, herdrBin: null});
         expect(serviceUnitName("/home/me/my repo%1")).toBe("nbdev-panel-my-repo-1.service");
         expect(text).toContain('ExecStart=/usr/bin/bun "/home/me/my repo%%1/packages/dev-panel/src/cli.ts" panel serve');
         expect(text).toContain("WorkingDirectory=/home/me/my repo%%1");

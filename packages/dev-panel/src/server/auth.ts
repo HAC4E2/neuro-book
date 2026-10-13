@@ -25,6 +25,8 @@ export type PanelAuth = {
     redeem(ticket: string, now?: number): string | null;
     /** 请求头里的会话 cookie 是否有效。 */
     authorized(cookieHeader: string | null): boolean;
+    /** 请求头里有效的会话 id（终端连接记下它，t13 吊销设备时据此关掉已开的终端）；没有为 null。 */
+    sessionOf(cookieHeader: string | null): string | null;
     cookie(sessionId: string): string;
 };
 
@@ -48,12 +50,15 @@ export function createPanelAuth(token: string, cookieName: () => string = () => 
             return sessionId;
         },
         authorized(cookieHeader) {
-            if (!cookieHeader) return false;
+            return this.sessionOf(cookieHeader) !== null;
+        },
+        sessionOf(cookieHeader) {
+            if (!cookieHeader) return null;
             for (const part of cookieHeader.split(";")) {
                 const [name, ...rest] = part.trim().split("=");
-                if (name === cookieName() && sessions.has(rest.join("="))) return true;
+                if (name === cookieName() && sessions.has(rest.join("="))) return rest.join("=");
             }
-            return false;
+            return null;
         },
         cookie(sessionId) {
             return `${cookieName()}=${sessionId}; HttpOnly; SameSite=Strict; Path=/`;

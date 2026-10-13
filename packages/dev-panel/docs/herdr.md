@@ -1,6 +1,6 @@
 # herdr 适配
 
-nbdev 经 herdr 认会话、写 pane 标签、找运行所在的 pane；面板（t11）还经它往会话的输入框里投通知与文字、发按键。本文写用到的接口、白名单、投递的判据、降级方式与版本假设。实现在 `src/herdr/client.ts`、`src/herdr/screens.ts`（可投的判据）与 `src/server/delivery.ts`（投递）。
+nbdev 经 herdr 认会话、写 pane 标签、找运行所在的 pane；面板（t11）还经它往会话的输入框里投通知与文字、发按键；t12 经 herdr 命令行的终端流看实时终端、接管键盘。本文写用到的接口、白名单、投递的判据、终端流、降级方式与版本假设。实现在 `src/herdr/client.ts`、`src/herdr/screens.ts`（可投的判据）、`src/server/delivery.ts`（投递）、`src/server/terminal-stream.ts`（终端流）与 `src/server/terminal-size.ts`（pty 尺寸）。
 
 ## socket 与协议
 
@@ -19,9 +19,10 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `HERDR_READ_METHODS` | `ping`、`pane.list`、`pane.process_info` | `status`、`lease list` |
 | `HERDR_CLI_METHODS` | 上面三个加 `pane.report_metadata` | 写命令（只为写调用者自己 pane 的标签） |
 | `HERDR_PANEL_READ_METHODS` | `HERDR_READ_METHODS` 加 `session.snapshot`、`events.subscribe` | 面板的只读部分（测试里核对面板没有越过它） |
-| `HERDR_PANEL_METHODS` | `HERDR_PANEL_READ_METHODS` 加 `agent.get`、`agent.explain`、`agent.read`、`agent.prompt`、`agent.send_keys`；Proposal 第八节第 7 条的其余几个（`agent.list`、`agent.wait`、`pane.get`、`pane.read`）等用到时再加，终端的 `observe`、`control` 在 t12 | 面板（t11 起） |
+| `HERDR_PANEL_METHODS` | `HERDR_PANEL_READ_METHODS` 加 `agent.get`、`agent.explain`、`agent.read`、`agent.prompt`、`agent.send_keys`；Proposal 第八节第 7 条的其余几个（`agent.list`、`agent.wait`、`pane.get`、`pane.read`）等用到时再加 | 面板（t11 起） |
+| `HERDR_PANEL_STREAMS` | 命令行的 `terminal session observe`、`terminal session control`（不在 socket 的 JSON 接口里，见“终端流”） | 面板的网页终端（t12） |
 
-`pane.run`、`pane.send_text`、`pane.send_input`、`server.*`、`workspace.*`、`pane.report_metadata` 都不在面板的清单里，在客户端就被拒绝（`tests/delivery.test.ts` 钉住清单的内容）。
+`pane.run`、`pane.send_text`、`pane.send_input`、`server.*`、`workspace.*`、`pane.report_metadata` 都不在面板的清单里，在客户端就被拒绝（`tests/delivery.test.ts` 钉住清单的内容）。终端流是命令行子进程，socket 的白名单管不到它发给 server 的内容，只能靠适配层只拼这两种参数（`streamArgs`：target 只收 terminal id 的写法、尺寸是夹过的整数、takeover 是布尔）。
 
 ## 用到的接口
 
@@ -35,7 +36,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `events.subscribe`（面板） | pane 增减与状态变化的推送 | 单独一条长连接：先回 `{id, result: {type: "subscription_started"}}`，之后每行一个 `{event, data}`；订阅类型由面板写死，不订带终端正文的 `pane.output_matched` |
 | `agent.get`（面板） | 投递前后核对一格的会话、目录、状态与状态序号 | `{type: "agent_info", agent: {pane_id, agent, agent_status, agent_session, cwd, foreground_cwd, focused, state_change_seq}}`；没有 Agent 为 `agent_not_found` |
 | `agent.explain`（面板） | Claude 的输入框是不是认得出的空（正向白名单） | `explain.matched_rule` 是对象 `{id, priority, region, state}`；`fallback_reason`；`evaluated_rules[]` 里 `live_prompt_box` 的 `evidence.region_preview`；omp 没有检测清单，`screen_detection_skipped: true` |
-| `agent.read`（面板） | 读屏：交叉核对与会话页的屏幕末尾 | `source: "visible"`、`format: "ansi"`，不带 `lines`（`recent` 加行数会滚动 Claude 的界面，工作中还会报错）；回 `{type: "pane_read", read: {text, …}}` |
+| `agent.read`（面板） | 读屏：交叉核对与会话页的屏幕末尾；omp 的更早输出（t12） | `source: "visible"`、`format: "ansi"`，不带 `lines`（`recent` 加行数会滚动 Claude 的界面，工作中还会报错）；回 `{type: "pane_read", read: {text, …}}`。只对 omp：`source: "recent_unwrapped"`、`lines: 1000`（omp 是普通回滚，读它没有副作用） |
 | `agent.prompt`（面板） | 投一行文字：粘贴、约 300 毫秒后回车 | `text`、`wait: {until: ["working", "blocked"], timeout_ms: 10000}`；在 `blocked` 时回 `agent_blocked` 且一个字节都不写；等到点回 `agent_prompt_stalled` 或 `timeout`；成功回 `{type: "agent_prompted", agent}` |
 | `agent.send_keys`（面板） | 发按键 | `keys: [逻辑键名]`；一批里有不认识的键名整批回 `invalid_key`、都不发 |
 
@@ -118,6 +119,34 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 
 **向 herdr 提的需求**（这几条做了，判据才能真正闭合）：写回车之前复查 `blocked`；`agent.prompt` 带期望的会话 id 与状态，不符就不写；会话 id 变化推一条事件；`ping` 报 API 能力；不认识的参数报错而不是静默忽略。
 
+## 终端流（t12）
+
+网页终端的画面与键盘不走 socket 的 JSON 接口，走 herdr 命令行的两条流，一个浏览器连接一个子进程（面板怎么用见 [panel.md](panel.md#网页终端t12)）。下面是客户端 0.9.3 的行为，2026-10-13 在命名会话里实测（计划前的探测、设计审查与 L4）；标了 L4 的几条在 server 0.9.3 与 0.9.1 上都核对过（`tests/herdr-live.test.ts`，两组）。
+
+- **命令**：`herdr terminal session observe <terminal id> --cols C --rows R`（只看）、`herdr terminal session control <terminal id> [--takeover] --cols C --rows R`（控制端）。target 必须写在选项前面（写在后面报 unknown option、退出码 2）；target 一律用 terminal id，pane 跨 workspace 移动换 pane id 时流不断（设计审查在 0.9.1 与 0.9.3 上实测）。
+- **起法**：`setpriv --pdeathsig TERM -- setsid <herdr> terminal session …`，stdin、stdout、stderr 都是管道，不要 pty。环境只给 `HOME`、`PATH`、`HERDR_SOCKET_PATH`。
+  - `setpriv --pdeathsig`：observe 不读 stdin，stdin 关掉不退出，读端没了、pane 有输出时也不退出；面板被 SIGKILL 时只有 pdeathsig 收得掉它（L4：父进程被 SIGKILL 之后 observe 与 control 都退出，控制权随之释放）。pdeathsig 跨 exec 保留。
+  - `setsid`：子进程自成一个会话。前台运行 `panel serve` 时终端里的 Ctrl+C 打给整个前台进程组，没有它子进程会与面板同时收到 SIGINT，面板来不及先改回尺寸再 release。
+  - 找不到 `setpriv` 或 `setsid`（util-linux）时终端功能整个关掉（`/api/meta` 的 `terminal.reason`）。herdr 的路径先看 `NBDEV_HERDR_BIN`（绝对路径），再找 `PATH`。
+- **连的是哪个 socket**：`terminal session` 不连 `HERDR_SOCKET_PATH` 指的 JSON 接口，而是连旁边推出来的 `<socket 去掉 .sock>-client.sock`（TUI 的私有协议），不在就直接失败，不退回默认会话。`sun_path` 最长 108 字节，推出来的路径太长会报错；命名会话 `nbdev-test` 推出来的路径不超过 107 字节（L4 核对）。
+- **输出**：stdout 一行一个 JSON。
+  - 帧：`{"type":"terminal.frame","seq":N,"full":bool,"width":W,"height":H,"encoding":"ansi","bytes":"<base64>"}`。第一帧 `full: true`（以 `\e[2J\e[1;1H` 重画整屏），之后是增量；面板不解码，原样转给浏览器。
+  - 结束：`{"type":"terminal.closed","reason":"…"}` 之后退出码 0。原因原文只作显示与日志，归类不看它（见下）。
+  - 帧里的私有模式只有 `?2026`（同步输出）与 `?25`（光标显隐），**没有应用开的模式**：应用开了 bracketed paste（`?2004h`）、鼠标跟踪，帧里都没有。真实 Claude 2.1.296 与 omp 启动后都开着 `?2004h`（S0 在 pty 里录下启动后 8 秒的输出，没发提示词、没有模型调用），所以网页给 Agent pane 在本地打开 bracketed paste。
+- **输入**：stdin 一行一个 JSON：`{"type":"terminal.input","text":"…"}`、`{"type":"terminal.resize","cols":C,"rows":R}`、`{"type":"terminal.release"}`。写错的行只在 stderr 报 input ignored，进程不退。
+- **尺寸**：
+  - control 一连上就把真实终端改成它的 `--cols`、`--rows`（`stty size` 立刻变），`terminal.resize` 立刻生效，release 之后尺寸保持；不带尺寸时用缺省的 120×40，不是原来的尺寸。所以面板在释放前先发一次 resize 改回接管前的尺寸。
+  - observe 只按自己的视口出帧，不改真实尺寸；视口比真实终端大时补空白、小时裁掉右下，帧里分不出哪些是补的。所以观看要先知道真实尺寸。
+  - 真实尺寸从 pane 的 pty 读：`pane.process_info` 的 `shell_pid` → `/proc/<pid>/fd/0` 指向的 `/dev/pts/N` → `stty -F /dev/pts/N size`（只读的 `TIOCGWINSZ`）。L4 核对它与 pane 里 `stty size` 一致。`pane.get` 的 `viewport_rows` 只有行数，`pane.layout` 是含边框的布局格子、TUI 不挂时是无头缺省值，都不用。读不到时按 120×40 看，释放时不改回。
+  - TUI 改窗口尺寸不推任何事件，所以观看期间每 5 秒复查一次 pty 尺寸。
+- **控制者只有一个**：同一终端同时只有一个 control；TUI 客户端不占这个名额。已有控制者时不带 `--takeover` 的 control 第一行就是结束（原文是 already has an attached client），带 `--takeover` 的抢走、前一个收到结束（原文是 taken over）。`terminal.release`、关 stdin、SIGTERM、SIGKILL 之后控制权都释放（随后不带 takeover 的 control 能连上）。
+- **结束原因的归类**只看三样：第一行是帧还是结束、这条流是不是我们发过 release 的、结束之后按 terminal id 在 pane 列表里这个终端还在不在。不看原因文案（L3 的假命令行换一种文案，归类不变）。
+- **接管不独占输入**：control 连着的时候，`agent.prompt` 照样把粘贴加回车写进 pane，`agent.send_keys` 也照样写，读屏判定照常；TUI 里打的字照样进 pane。herdr 只限制“控制端只有一个”并改尺寸。所以面板与 t11 的互斥由面板自己保证（这格被本面板接管时通知、文字、按键都不发，见 [panel.md](panel.md#网页终端t12)），本面板之外的程序调 `agent.prompt` 不受约束。
+- **TUI 在接管中改不动尺寸**：TUI 挂着时，control 连着期间 TUI 改窗口、移焦点都改不动这格的尺寸；release 之后 TUI 立刻按自己的布局改回，之后 TUI 改窗口 pane 跟着变（L4 在两种 server 上都核对，客户端 0.9.3 是开发者现在的组合）。**TUI 收不到任何“网页在接管”的提示**，开发者在 TUI 那边只看到尺寸变了。
+- **时延与开销**：control 打字到两个 observe 都收到帧 3 到 20 毫秒（L4 记录，两种 server 相同）。经 Bun 的 socket 调 `pane.send_text` 再到收到帧，三次实测 19、106、110 毫秒：时而多出约 100 毫秒，与上面“时延”一条的现象相符，原因同样未查明，所以 L4 不拿它判。一个 observe 子进程常驻约 6.6 MB、1 个线程；100×30 的整屏帧约 5.8 KB（base64 之后）。herdr 读端跟不上时自己合并帧。
+
+**向 herdr 提的需求**（终端流）：control 的只输入模式或接管时通知别的客户端（TUI 能看到“网页在接管”）；pane 的真实列数（现在只能读 pty）；尺寸变化推事件；observe 在读端消失时退出；`ping` 报终端流的能力。
+
 ## 版本与降级
 
 | 能力 | 0.9.1（本机默认 server） | 0.9.3（命名会话） |
@@ -125,6 +154,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `agent.get`、`agent.explain`、`agent.read`（`detection`、`visible`） | 有，字段与 0.9.3 相同（S0 只读核对） | 有 |
 | `agent.prompt`、`agent.send_keys` | 二进制里有；S0 不对默认 server 投递，没有实测 | 实测（S0、L4） |
 | `pane.agent_status_changed` 推送 | 没有实测 | 约 0.2 秒 |
+| 终端流（`terminal session observe`、`control`，客户端 0.9.3） | 在命名会话里用同一份 0.9.1 二进制当 server 实测可用（L4，行为同右） | 实测（L4） |
 | `ping` 的 capabilities | 不含 API 能力 | 不含 API 能力 |
 
 `ping` 报不出 API 能力，herdr 又静默忽略不认识的参数，所以只能按版本放行：0.9.1 与 0.9.3 自动投递通知；其它版本只给手动发送（`/api/meta` 的 `herdr.autoNotify` 为 false），判据照旧。
