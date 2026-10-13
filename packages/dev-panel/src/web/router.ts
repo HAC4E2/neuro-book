@@ -13,6 +13,8 @@ export const router = createRouter({
         {path: "/live/sessions", name: "sessions", component: () => import("./pages/SessionsPage.vue")},
         {path: "/live/checkouts", name: "checkouts", component: () => import("./pages/CheckoutsPage.vue")},
         {path: "/search", name: "search", component: () => import("./pages/SearchPage.vue")},
+        {path: "/new", name: "new", component: () => import("./pages/NewPage.vue")},
+        {path: "/edit", name: "edit", component: () => import("./pages/EditPage.vue")},
         {path: "/:rest(.*)*", name: "missing", component: () => import("./pages/MissingPage.vue")},
     ],
 });

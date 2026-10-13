@@ -5,8 +5,12 @@ import {useRouter} from "vue-router";
 import {relativeDay, shortSession, taskLabel, workLabel} from "../host/format.js";
 import {renderMarkdown} from "../host/markdown.js";
 import {useResource} from "../host/panel-data.js";
-import {isPlainClick} from "../host/routes.js";
+import {editHref, isPlainClick} from "../host/routes.js";
+import {useStatusChange} from "../host/status-change.js";
 import type {Meta, TaskPageData} from "../host/types.js";
+import StatusSwitch from "../parts/StatusSwitch.vue";
+import UncommittedDialog from "../parts/UncommittedDialog.vue";
+import WriteNotice from "../parts/WriteNotice.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
 import LoadState from "../parts/LoadState.vue";
@@ -21,6 +25,16 @@ const props = defineProps<{workId: string; taskId: string}>();
 const router = useRouter();
 const page = useResource<TaskPageData>(() => `/api/task/${encodeURIComponent(props.workId)}/${encodeURIComponent(props.taskId)}`, ["records", "activity"]);
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
+const TASK_STATUSES = ["planned", "active", "done", "shelved"];
+const writeBlocked = computed(() => {
+    const writable = meta.data.value?.mainWritable;
+    if (writable && !writable.ok) return `主工作区现在不能写（${writable.message ?? writable.code}）`;
+    const task = page.data.value?.task;
+    if (task?.source === "branch") return `记录在分支 ${task.branch ?? ""} 上维护，在那里改或先迁移`;
+    return null;
+});
+// 改成完成或搁置时核心会释放这个 Task 的全部租约，并提醒还有没答的必答题（警告照列）。
+const status = useStatusChange(() => `/api/works/${encodeURIComponent(props.workId)}/tasks/${encodeURIComponent(props.taskId)}/status`, () => page.data.value?.task.readmeHash ?? null, () => page.reload());
 
 const RULE_LABEL: Record<string, string> = {readme: "README 的执行位置", name: "目录名", home: "登记表", work: "Work 的执行 worktree", master: "主工作区"};
 const readmeHtml = computed(() => {
@@ -57,6 +71,12 @@ function evidenceUrl(path: string): string | null {
                     <StatusChip :status="page.data.value.task.status" size="md" />
                     <h1 class="font-semibold" style="font-size: var(--text-xl)">{{ page.data.value.task.title ?? page.data.value.task.taskId }}</h1>
                 </div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <StatusSwitch :status="page.data.value.task.status.value" :options="TASK_STATUSES" :subject="taskLabel(props.taskId)" :disabled-reason="writeBlocked" :pending="status.write.pending.value" :slow="status.write.slow.value" @confirm="status.change" />
+                    <RouterLink v-if="!writeBlocked" :to="editHref(page.data.value.task.readmePath)" style="font-size: var(--text-xs)">编辑 README</RouterLink>
+                </div>
+                <WriteNotice v-if="status.notice.value" :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
+                <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
                 <p :style="{color: page.data.value.task.currentState ? 'var(--text-secondary)' : 'var(--text-muted)'}">当前情况：{{ page.data.value.task.currentState ?? "未标" }}</p>
                 <div class="flex flex-wrap gap-3" style="font-size: var(--text-xs); color: var(--text-secondary)">
                     <span>{{ page.data.value.task.workId }}/{{ page.data.value.task.taskId }}</span>

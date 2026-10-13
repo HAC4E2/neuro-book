@@ -5,6 +5,7 @@ import {useRoute, useRouter} from "vue-router";
 import {relativeDay} from "../host/format.js";
 import {renderMarkdown} from "../host/markdown.js";
 import {useResource} from "../host/panel-data.js";
+import {editHref} from "../host/routes.js";
 import type {DocFileData, DocTreeData, Meta} from "../host/types.js";
 import CheckoutSwitch from "../parts/CheckoutSwitch.vue";
 import DocTree from "../parts/DocTree.vue";
@@ -53,6 +54,8 @@ function go(query: Record<string, string | undefined>): void {
                     <code>{{ file.data.value.path }}</code>
                     <Badge v-if="!file.data.value.checkout.isMain" tone="warning" variant="soft" size="sm">{{ file.data.value.checkout.key }}（{{ file.data.value.checkout.branch ?? "分离 HEAD" }}）</Badge>
                     <Badge v-for="[key, value] in frontmatter" :key="key" tone="neutral" variant="outline" size="sm">{{ key }}：{{ value }}</Badge>
+                    <!-- 只编辑主工作区的文件：worktree 的暂存区与分支属于别的会话，面板的写事务管不到。能不能改以编辑页的判定为准。 -->
+                    <RouterLink v-if="file.data.value.checkout.isMain && meta.data.value?.mainWritable.ok" class="ml-auto" :to="editHref(file.data.value.path)">编辑</RouterLink>
                 </div>
                 <p v-if="otherBranches.length > 0" style="font-size: var(--text-xs); color: var(--status-warning)">
                     {{ file.data.value.checkout.isMain ? "这些分支改了它" : "别的分支也改了它" }}：<button v-for="key in otherBranches" :key="key" type="button" class="mr-2 underline" @click="go({checkout: key})">{{ key }}</button>

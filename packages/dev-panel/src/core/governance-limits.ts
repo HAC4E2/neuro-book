@@ -2,6 +2,8 @@ import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {systemErrorCode} from "./errors.js";
 
+export {countNonEmptyLines} from "./text-rules.js";
+
 /**
  * 根级治理入口的非空行上限：面板编辑这几份文件时提醒，改超了 master 当场过不了 `governance:check`。
  * 上限的真相源是仓库的治理检查；这里按文本解析那一段常量，不执行仓库脚本（它依赖根上的包），
@@ -25,9 +27,4 @@ export async function readGovernanceLineLimits(mainRoot: string): Promise<Record
         if (systemErrorCode(error) === "ENOENT") return null;
         throw error;
     }
-}
-
-/** 与治理检查同一种数法：去掉只有空白的行。 */
-export function countNonEmptyLines(text: string): number {
-    return text.split(/\r?\n/u).filter((line) => line.trim().length > 0).length;
 }

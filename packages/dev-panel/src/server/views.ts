@@ -204,6 +204,9 @@ export async function artifactView(state: PanelState, input: {workId: string; ta
         data: {
             ref,
             checkoutKey,
+            // 答复表单只给记录在 master 上的 Task：来自分支的由核心拒写（branch_maintained_record），界面先置只读。
+            source: owner.source,
+            branch: owner.branch,
             versions: snapshot.versions,
             latestVersion: latest?.version ?? null,
             version,

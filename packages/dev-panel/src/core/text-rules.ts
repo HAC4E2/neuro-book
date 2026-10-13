@@ -37,3 +37,8 @@ export function assertPlainText(text: string, field: string, multiline: boolean)
     if (problem) throw new NbdevError("invalid_text", `${field}${problem}`, {details: {field, reason: "control_char"}});
     return text;
 }
+
+/** 治理入口非空行上限的数法（与 `governance:check` 相同：去掉只有空白的行）。编辑页实时显示它。 */
+export function countNonEmptyLines(text: string): number {
+    return text.split(/\r?\n/u).filter((line) => line.trim().length > 0).length;
+}
