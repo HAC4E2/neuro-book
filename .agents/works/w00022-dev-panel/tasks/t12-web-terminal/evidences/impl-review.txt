@@ -1,0 +1,150 @@
+# w00022/t12 实现审查报告（3f474ce4c..305c3f1d4，只读）
+
+<!-- 结论段在审查结束时补在本行之后（只追加，不改动下面的发现） -->
+
+## 结论
+
+**阻断 0 条，重要 2 条，建议 6 条。** 子进程与控制权的收口、与 t11 投递的互斥、`/ws/terminal` 的安全校验在真实 herdr（命名会话）上逐项实测都成立，没有找到留下孤儿进程或泄露控制权的路径；要改的集中在前端：
+
+- **重要**
+  - F1：xterm 的 `fontFamily` 里有 `var(--font-mono)`，xterm 6 用 canvas 量字宽时整串被拒，格宽按 `10px sans-serif` 的 “W” 算，与字号无关。这就是“标 记 5 2 6 4 2”的原因，还连带让观看时的字号缩放失效、接管的列数偏少。改法：交给 xterm 的字体串不含 CSS 变量（运行时解析 `--font-mono` 或直接写具体字体）。
+  - F2：接管中把窗口缩到 768px 以下（桌面半屏即可），终端换成文字视图，“释放”按钮与画面都消失、文字视图是空白，控制权却一直占着、通知被挡，直到 15 分钟空闲或切标签页。
+- **建议**
+  - F3：接管尺寸按观看时的容器高度算，小窗写的尺寸不对、接管后再 resize 一次；“抢过来”时用的是观看尺寸。
+  - F4：握手开始后约 100 毫秒内关连接，照样起 control、改了尺寸不改回，审计却记 `failed (disconnect)`。
+  - F5：S4 的“连续 3 次第一行就结束就 4404”只数了“一行都没有”的结束；observe 第一行是 `terminal.closed` 而终端还在时每 200 毫秒无限重起。
+  - F6：审计的结果行与释放行把设备写死成 `local`，没有按 S10 从连接取。
+  - F7：验收表里的几条没有入库测试（`waiting_takeover` 与释放后投递、读不到尺寸不改回、心跳、面板层的 L4）；本审查补做的实验显示行为都对。
+  - F8：读不到 pty 尺寸时不留诊断；`stop()` 注释丢了理由；`panel.md` 还写着“当前没有这样的程序”（S14）；接管中按钮的 `aria-label` 仍写“要确认”；手机切到终端画面后回不到文字视图。
+
+**设计审查 19 条的落实情况**：I1、I2、S1、S2、S3、S5、S6、S7、S8、S9、S11、S12、S13、S15、S17 已落实（S3 要开发者按 README 重装单元才生效：本审查实测旧的缺省 `KillMode` 下停服务时尺寸不改回、释放行记成 `taken_over`）。部分落实的四条：
+
+- **S4**：归类只看结构，这一半对；“连续 3 次第一行就结束就关连接”实现成“连续 3 次一行都没有”，见 F5。
+- **S10**：登录会话与 `closeLoginSession` 已预留，审计设备没有全部取自连接，见 F6。
+- **S14**：接管提示与 `herdr.md` 已改，`panel.md:231` 漏了，见 F8。
+- **S16**：按连接种类分派与场景 3 的新判据已做；它列的 L3 失败路径缺“尺寸读不到时不改回”，“hidden 后 1 秒内”的用例实际按 1.5 秒断言，见 F7。
+
+**结束时的状态**：
+- worktree `git status --short` 为空，HEAD 仍是 `305c3f1d4`。
+- `herdr session list` 只剩 `default`；命名会话 `nbdev-review-t12i` 已停 server 并删除，L4 的 `nbdev-test` 也由测试删掉。
+- 本审查起的面板（4481、4483）、herdr server、observe、control、setpriv、python TUI 包装、假 claude 界面、Chrome 与它的 crashpad 进程都已结束；临时单元已停并 reset。
+- 测试夹具的临时根已清，`/dev/shm/rv-t12i` 已删，`~/.config/nbdev/audit.jsonl` 没动过。
+- 截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/review-*.png`。
+
+## 实验环境
+
+- 审查 worktree `.worktree/w00022-t12-review`（detached，HEAD `305c3f1d4`），只读；实验脚本与日志在会话临时目录 `review-t12-impl/`（`scripts/`、`*.log`）。
+- 用了包里的测试夹具（`tests/git-fixture.ts`、`tests/fake-herdr.ts`、`tests/fake-terminal.ts`）的实验，夹具建在测试支持包的临时根下（假 herdr 的 socket 路径要短于 108 字节，会话临时目录太深放不下），用完由夹具删掉。
+- 真实 herdr 只在自建命名会话 `nbdev-review-t12i` 里起流，pane 里只跑 sh 与 `herdr pane report-agent` 报成 claude 的 bash；对默认 server 只调了只读的 socket 方法。
+
+## 发现
+
+### F1（重要）xterm 的格宽是按“10px sans-serif”量的：`fontFamily` 里的 `var(--font-mono)` 让 canvas 拒收整串字体，中文与数字被拉开
+
+- **位置**：`packages/dev-panel/src/web/parts/TerminalView.vue:73`（`fontFamily: "\"Noto Sans Mono CJK SC\", \"Sarasa Mono SC\", var(--font-mono), monospace"`）；xterm 6.0.0 的 `src/browser/services/CharSizeService.ts:104-126`（`TextMetricsMeasureStrategy`：`ctx.font = \`${fontSize}px ${fontFamily}\``，再 `measureText('W')`）。
+- **现象**：主 Agent 截图里的“标 记 5 2 6 4 2”。xterm 6 优先用 `OffscreenCanvas` 量字宽；canvas 的 `font` 属性不认 CSS 变量，整串赋值被丢弃，仍是缺省的 `10px sans-serif`。于是格宽是 10px 无衬线字体里 “W” 的宽度，与字号无关；DOM 渲染层的 `font-family` 是 CSS，`var()` 照常生效，字形按 Noto Sans Mono CJK SC 画，xterm 再用 `letter-spacing` 把每个字撑满过宽的格子，字与字之间就空出一截。手机文字视图是普通的 `<pre>`，不经 xterm 量字，所以正常。
+- **为什么是问题**：
+  - 画面难读，与 herdr 那边看到的不一致；
+  - 格宽不随字号变：观看时 `watchFontSize` 按容器缩字号（8 到 14px）完全不起作用，窄容器里终端缩不下去，只能横向滚动；
+  - 接管时 fit 插件按错的格宽算列数，比容器放得下的少约四分之一（1440 宽时 122 列，按 13px 的真实格宽 6.5px 能放约 165 列）；
+  - 行高也按 10px 无衬线字体的字框量（页面语言不同、缺省无衬线字体不同时会更矮，独立页面里是 11px 的行装 13px 的字）。
+- **如何核实**：
+  - `scripts/b1-desktop.ts`（面板 4481，临时仓库加命名会话里的假 claude 界面，1440×900 暗色）：观看时字号 14px、接管时 13px，“标记52642”每个数字占 8.8px、每个汉字 17.6px，两种字号下完全一样；行容器的缺省 `letter-spacing` 分别是 1.78px 与 2.28px（= 8.78 − 字形宽 7.0 与 6.5）。日志 `b1.log`，截图 `shots/review-watch-1440-dark.png`、`shots/review-control-1440-dark.png`。
+  - `scripts/b2-font.ts` 加 `fontpage/index.html`（直接加载 node_modules 里的 xterm 6.0.0，定义与 nb-ui 相同的 `--font-mono`）：`canvas.font = "13px … var(--font-mono), monospace"` 读回来是 `10px sans-serif`，“W” 宽 9.44px；同一串字体把变量换成具体值后读回原串，“W” 宽 6.5px。两个终端的格宽分别是 9.43px 与 6.5px，行高 11px 与 19px。对照截图 `shots/review-font-var-vs-resolved.png`：上面一行就是“标 记 5 2 6 4 2”，下面一行正常。日志 `b2.log`。
+- **建议改法**：给 xterm 的 `fontFamily` 不含 `var()`。在 `onMounted` 里从终端容器读一次 `getComputedStyle(frameBox).getPropertyValue("--font-mono")`，拼成具体的字体串再交给 `new Terminal`（或者直接写 `"Noto Sans Mono CJK SC", "Sarasa Mono SC", monospace`，不引用变量）；`TerminalView.md` 写明“xterm 用 canvas 量字，字体串里不能有 CSS 变量”。改完之后 `watchFontSize` 的“等宽字约 0.6 个字号宽”也要按真实格宽（`term` 的格宽或 `fit.proposeDimensions`）重算，否则观看时缩放仍不准；`docs/panel.md` 与截图里的“122 列”会变。
+
+- **F1 补充**：手机 390 宽切到“终端画面（只看）”时最明显：字号已缩到下限 8px，格宽仍是约 8.8px，100 列的画面只露出前 35 列左右、每个字之间隔开一个字宽（`shots/review-phone-terminal-390.png`，`scripts/b3-confirm-phone.ts`，日志 `b3.log`）。
+
+### F2（重要）接管中窗口变窄（小于 768px）：终端换成文字视图，“释放”按钮与终端画面都没了，控制权一直占着
+
+- **位置**：`packages/dev-panel/src/web/pages/SessionsPage.vue:55-61`（`narrowQuery` 按 `(max-width: 767px), (pointer: coarse)` 随时切换）、`:283-292`（`narrow && !showTerminalOnPhone` 时整块换成 `TerminalTextView`，不看是否正在接管）；“释放”只在 `TerminalView` 的状态条里（`packages/dev-panel/src/web/parts/TerminalView.vue:146-150`）；`packages/dev-panel/src/web/host/terminal-socket.ts:52`（新挂上的视图只在观看时发 `resync`）。
+- **现象**：桌面上接管之后把浏览器窗口缩到 700 宽（例如把窗口贴到 1366 或 1440 宽屏幕的半边），页面立刻换成手机版式：终端画面没了，只剩文字视图，而且是“还没有画面”（接管中不发 `resync`，要等下一次输出）；状态条与“释放”按钮随 `TerminalView` 一起卸掉；输入框因为 `controlling` 也不给；按键按钮仍是“单击即发”。服务端那边接管照旧：pty 停在网页尺寸，`waiting_takeover` 挡着通知，页面的心跳照常发，所以只有 15 分钟没有输入或切到别的标签页才会释放。
+- **为什么是问题**：开发者丢了“正在接管”的提示与释放的入口，却仍然占着控制权、改着尺寸、挡着通知；按钮单击即发又没有任何“你在接管”的提示。设计里“手机不给接管”指的是一开始就不给，没有覆盖“桌面接管之后变窄”。
+- **如何核实**：`scripts/b1-desktop.ts` 的“接管中把窗口缩到 700 宽”一段（面板 4481，命名会话）：缩窄之后 `hasRelease: false`、`hasXterm: false`、文字视图是“还没有画面”、没有输入框；pty 仍是 `40 122`，子进程仍是 control。截图 `shots/review-narrow-700-while-control.png`，日志 `b1.log`。
+- **建议改法**：正在接管时不切到文字视图（`narrow && !controlling && !showTerminalOnPhone`），或者一变窄就先发 `release`（原因可记 `user` 或新加 `narrow`）再切；另外把文字视图的 `resync` 条件放宽到“接管中新挂的视图也要整屏”（服务端接管时可以不重起 control，而是把最近一帧整屏缓存起来，或者让页面在接管中不卸 `TerminalView`）。前一种改法最小。
+
+### F3（建议）接管时先按“观看时的高度”算行数：接管小窗写的尺寸不对，接管后再 resize 一次；“抢过来”时干脆用的是观看尺寸
+
+- **位置**：`packages/dev-panel/src/web/parts/TerminalView.vue:52-64`（`proposeControlSize` 在观看状态下量容器；观看时容器高度随行数，`h-[70vh]` 只在 `mode === 'control'` 时才加，`:153`）、`:102-111`（接管后容器变高，ResizeObserver 再发 `resize`）；`packages/dev-panel/src/web/pages/SessionsPage.vue:99-105`（收到 `need_confirm` 时 `takeoverAsk` 已经在确认时清成 null，回退到 `terminal.state.cols/rows`，即观看尺寸）。
+- **现象**：桌面 1440×900：接管小窗写“终端会改成网页的尺寸 122×30”，实际先以 122×30 接管，约 1 秒后又改成 122×40（释放行 `resizes: 1`）。别处在控制时，“抢过来”小窗写“改成 100×30（现在是 100×30）”，带 `--takeover` 起的 control 也是 100×30，之后再改成 122×40。
+- **为什么是问题**：每次接管 Agent 的界面都要连着重排两次；小窗里的“改成多少”不可信，`takeover` 意图行记的尺寸与实际不符；“抢过来”路径的尺寸来源与计划写的“网页终端按字号算出的列数与行数”不一致。
+- **如何核实**：`scripts/b1-desktop.ts`（日志 `b1.log`：小窗 122×30，接管时 pty `30 122`，1.5 秒后 `40 122`，释放行 `resizes: 1`）；`scripts/b3-confirm-phone.ts`（日志 `b3.log`：外面先起一个 100×30 的 control，“抢过来”小窗写 100×30，`takeover` 意图 `cols: 100, rows: 30, takeover: true`，接管时 pty `30 100`、1.5 秒后 `40 122`）。截图 `shots/review-need-confirm-1440-dark.png`。
+- **建议改法**：算接管尺寸时按接管后的容器算（观看时也给终端框固定高度，或者在算之前临时套上接管时的高度再 `proposeDimensions`）；`need_confirm` 时保留第一次算出的尺寸（确认时不要先把 `takeoverAsk` 清掉，或另存一份），不要回退到 `state.cols/rows`。
+
+### F4（建议）握手开始之后、第一帧回来之前连接关了：照样起 control、接管成功又不改回尺寸，审计却记“失败”
+
+- **位置**：`packages/dev-panel/src/server/terminal-hub.ts:294-319`（`handshake` 只在开头看一次 `conn.closed`，之后经过 `readSize`、写审计意图、收 observe 三次 await，再起 control，中间不再看）；`:328-335`（失败路径：第一行是帧、但 `conn.closed` 为真时，直接 `stream.stop()`，只发 release、不先发 resize 改回，审计结果写 `failed`/`disconnect`）。
+- **现象**：页面发出 takeover 之后约 5 到 80 毫秒内关连接（关标签页、切到后台都是关连接），终端停在网页请求的尺寸上，没有任何东西改回；审计里是 `takeover` 意图加结果 `failed (disconnect)`，没有释放行，看不出终端被改过尺寸。连接在起 control 之前就关了的时候（5 毫秒那次），面板仍然为一条已关的连接起了 control。
+- **为什么是问题**：与面板被 SIGKILL 时的后果一样（尺寸停在网页的尺寸），但面板好好的；审计写“没接管上”与事实相反。窗口不宽（握手拿到锁之后约 100 毫秒），所以列为建议。
+- **如何核实**：`scripts/e08-close-during-handshake.ts`（面板 4481，命名会话，pty 原尺寸 100×30，请求 90×25）：在发出 takeover 之后 5、15、30、60、80 毫秒关连接，pty 都变成 `25 90` 且没改回，审计是 `failed (disconnect)`；45、100、150 毫秒时走到了接管成功再以 `disconnect` 释放，尺寸改回。日志 `e08.log`（每次之后脚本在命名会话里手动改回）。
+- **建议改法**：`handshake` 在起 control 之前再看一次 `conn.closed || this.exiting`；失败路径里第一行是帧（已经接上）时，先 `stream.send({type: "resize", …before})` 再收，审计结果记 `attached` 加一行 `release`（原因 `disconnect`），或者至少在 `failed` 行里写明“已改过尺寸、没有改回”。
+
+### F5（建议）“连续 3 次第一行就结束就 4404”只数了“一行都没有”的结束：observe 第一行是 `terminal.closed` 而终端还在时，无限重起
+
+- **位置**：`packages/dev-panel/src/server/terminal-hub.ts:193-210`（`first` 在收到任何一行时就变成 false，传给 `onStreamEnd` 的 `endedBeforeFirstLine` 只表示“一行都没有”）；`:229-232`（只在 `endedBeforeFirstLine` 时 `failures += 1`，否则 200 毫秒后照常重起）。
+- **现象**：设计审查 S4 的处理写的是“观看中流结束：终端还在 → 重起一次 observe（连续 3 次第一行就结束则关连接 4404）”。实现里第一行是 `terminal.closed`（herdr 拒绝这次观看、终端仍在列表里）不计数，于是每 200 毫秒加一次对账就重起一个 setpriv 加 herdr 子进程，一直到页面关掉。结束原因也不进日志（观看分支不记 `closed` 的原文），看日志找不到原因。
+- **为什么是问题**：S4 的兜底没有按处理意见落实；遇到 herdr 拒绝观看的情形（版本不兼容、对账拿到的是旧快照等）就成了每秒四五个子进程的忙循环。
+- **如何核实**：`scripts/e13-observe-closed-loop.ts`（L3 夹具，假命令行的 `gone` 模式：observe 第一行就是 `terminal.closed`，假 herdr 的 pane 列表里终端还在）：6 秒内推了 27 次 `state`（即起了 27 次 observe），连接一直没关。日志 `e13.log`。包里的 L3 只测了“终端也不在了 → 4404”。
+- **建议改法**：计数条件改成“这条 observe 没出过一帧就结束”（`onLine` 里只在收到帧时置位），收到 `closed` 时把原因写进面板日志；补一条 L3（终端在、observe 第一行就 closed → 第三次之后 4404）。
+
+### F6（建议）审计的结果行与释放行把设备写死成 `local`，没有按 S10 从连接取
+
+- **位置**：`packages/dev-panel/src/server/terminal-hub.ts:352-359`（`auditResult` 写 `device: PANEL_DEVELOPER.device`）；对照 `:300`（意图行用 `conn.device`）、`:146`（`state` 里的 `controller.device` 也取自连接）。
+- **现象**：`takeover` 的结果行与 `release` 行不经连接，直接写常量设备；只有意图行取自连接。
+- **为什么是问题**：S10 的处理要求“审计行的 `device` 与 `state` 消息里的控制者都从连接取”，理由就是 t13 不必回头逐处改；现在 t13 引入别的设备之后，同一个 `actionId` 的意图行与结果、释放行会写出不同的设备。从代码推断（t12 里所有设备都是 `local`，没有可观察的差别）。
+- **建议改法**：`auditResult` 收一个 `device` 参数（或直接收 `conn`），三处调用都传 `conn.device`。
+
+### F7（建议）入库的测试没有覆盖计划验收表里的几条；行为本身经本审查的实验核对是对的
+
+- **位置**：`packages/dev-panel/tests/panel-terminal.test.ts`、`packages/dev-panel/tests/herdr-live.test.ts:262-490`；依据是 `.agents/works/w00022-dev-panel/tasks/t12-web-terminal/plan.md` 的“验收场景与测法”与“设计审查的处理”验收一节（S16）。
+- **现象与核实**（缺的测试 → 本审查补做的实验与结果）：
+  - 互斥一行要的 L3“接管期间通知任务是 `waiting_takeover`、没有 `agent.prompt`；释放后稳定 3 秒照常投递”：包里那条用例的标题写了“通知停发”，实际只测了会话页的文字与按键。→ `scripts/e06-notify-takeover.ts`：接管中答复、会话转空闲，任务一直是 `waiting_takeover`，5 秒没有 `agent.prompt`；释放后 3.2 秒投出（`e06.log`）。
+  - S16 列的“尺寸读不到时不改回（I1）”没有 L3。→ `scripts/e10-size-unknown.ts`：读不到 pty 时接管再释放，假命令行只收到 `terminal.release`、没有 resize，`released` 带 `notRestored: size_unknown`（`e10.log`）。
+  - 心跳超时释放没有自动化测试。→ `scripts/e03-heartbeat.ts`（真实 herdr）：接管后不发 `alive`，14.9 秒以 `heartbeat` 释放并改回尺寸（`e03.log`）。
+  - 场景 2 到 4 的面板层 L4（经 WebSocket 接管后 `stty size` 等于请求的尺寸、另一个浏览器确认后抢过来、关连接 2 秒内 control 退出且尺寸改回、`input` 的中文字节、接管中的 Esc 与 Ctrl+C 按钮、粘贴被包起来并清洗）：L4 只测了适配层 `startTerminalStream`，面板层只在没入库的浏览器验收里做过。→ `scripts/e02-real-takeover.ts`、`scripts/b1-desktop.ts`、`scripts/b4-keys-paste.ts`（命名会话，真实 herdr 0.9.3）全部符合：接管后 pty 即请求尺寸，换手后旧的一方 `taken_over`/`handed_off`，关连接 9 毫秒内 control 退出、尺寸改回，假界面收到 `中文` 的 UTF-8、`\x1b`、`\x03` 与 `\e[200~a[201~b\rcd\e[201~`（Esc、BEL 被去掉，换行转 `\r`）。
+  - 场景 1 的 L4 把刺激从计划写的 `pane send-text` 换成了同尺寸 control 打字，`pane.send_text` 的数只打印不判（`herdr.md` 写了理由）。→ `scripts/e09-latency.ts`：pane 里程序的输出到 observe 收到帧中位 3 毫秒、最大 9 毫秒（37 次），`pane.send_text` 一半在 100 毫秒上下，所以换刺激没有掩盖真正关心的那一段时延；但验收表应改写成现在的测法。
+  - “hidden 后 1 秒内收掉子进程”那条用例，标题写 1 秒，断言是收到 `released` 之后再等 1.5 秒。
+- **为什么是问题**：上面几条正是设计审查要求补的失败路径与互斥判据，以后改动中枢时没有回归保护。
+- **建议改法**：把 e06、e10 的场景并进 `tests/panel-terminal.test.ts`（都只用现有的假 herdr 与假命令行）；心跳可以在 L3 里把 `HEARTBEAT_MS` 做成可注入的选项后测；面板层 L4 至少补“经 WebSocket 接管、关连接后 control 退出并改回尺寸”一条；验收表的场景 1 改写成现在的测法。
+
+### F8（建议）几处小问题：静默吞掉的尺寸读取错误、被删掉的注释理由、文档里 S14 没改完的一句、接管中按钮的读屏标签
+
+- **`readPtySize` 失败不留诊断**：`packages/dev-panel/src/server/terminal-size.ts:13-38` 对 `HerdrError`、`readlink` 的 ENOENT/EACCES/ESRCH/EINVAL、`stty` 失败（`stderr: "ignore"`）一律回 null，中枢 `readSize`（`terminal-hub.ts:116-118`）也不记日志。页面只显示“尺寸不确定”，日志里查不到为什么（禁止清单“静默的 catch 至少写一条诊断”）。建议在中枢第一次读不到某个终端的尺寸时记一行原因（错误码或 `stty` 的退出码），之后同一终端不重复记。从代码推断。
+- **删掉了注释里的理由**：`packages/dev-panel/src/server/serve.ts` 的 `stop()` 原注释“先等进行中的投递结束（有上限），再停监视：投递途中退出会留下只有意图的记录”改写后丢了后半句理由（`git diff 3f474ce4c..305c3f1d4 -- packages/dev-panel/src/server/serve.ts`）。建议把“投递途中退出会留下只有意图的记录”留着。
+- **S14 的措辞在 `panel.md` 没改完**：`packages/dev-panel/docs/panel.md:231` 仍写“本面板之外的程序调 `agent.prompt` 不受这条互斥约束；当前没有这样的程序”，而 S14 已指出会话自己就能用 `herdr agent prompt`、`pane send-text` 往这格写（接管提示与 `herdr.md` 都已改）。建议删掉“当前没有这样的程序”，改成与接管提示一致的说法。
+- **接管中按钮的 `aria-label` 仍写“要确认”**：`packages/dev-panel/src/web/parts/SessionConsole.vue:70` 接管时只改了 `title`，`aria-label` 还是 `entry.hint`（如“打断这一轮（要确认）”），而接管中是单击即发（`scripts/b4-keys-paste.ts` 就是按这个标签点到的）。建议 `aria-label` 与 `title` 一起改。
+
+- **F2 补充**：窄屏里点“终端画面（只看）”会把 `TerminalView` 挂回来，状态条与“释放”随之出现，所以有退路；但按钮名写着“只看”，开发者想不到要点它。
+- **F7 补充**：S7 要的“握手超时之后同一格的自动通知照常发出”，包里那条用例断言的是会话页的文字（`POST /prompt`）发出去了，没有经过 `Notifier`；锁确实放开了，换成自动通知更贴近判据。
+- **F8 补充**：手机上切到“终端画面（只看）”之后没有回文字视图的按钮（`showTerminalOnPhone` 只在换 pane 时清零，`packages/dev-panel/src/web/pages/SessionsPage.vue:72-75`），而手机上默认推荐的正是文字视图。
+
+## 勘误（只追加）
+
+- F2 的位置应为 `packages/dev-panel/src/web/pages/SessionsPage.vue:56-62`（`narrowQuery`）与 `:281-292`（模板）；F3 的 `SessionsPage.vue` 位置应为 `:96-107`（`confirmTakeover` 与 `need_confirm` 的处理）。
+- F8 第一条的位置应为 `packages/dev-panel/src/server/terminal-size.ts:14-40`；第二条在 `packages/dev-panel/src/server/serve.ts:446`。
+
+## 已核对、没有问题的
+
+- **子进程的起法**：`setpriv --pdeathsig TERM -- setsid <herdr> terminal session observe|control <terminal id> [--takeover] --cols --rows`，argv 数组、不经 shell；环境只有 `HOME`、`PATH`、`HERDR_SOCKET_PATH`（L3 断言）。实测子进程的 comm 是 herdr、父进程是面板、pgid 与 sid 都等于自己的 pid（`setsid` 没有 fork，pdeathsig 留在同一个进程上；`e04-*.log`）。
+- **收口与控制权**（命名会话、真实 herdr 0.9.3，pty 都核对 `stty -F`）：
+  - 面板 SIGTERM（`e04-term.log`）与给面板进程组 SIGINT（模拟前台 Ctrl+C，`e04-int.log`）：页面收到 `released: panel_exit, restored: true`，约 1 秒内面板与子进程都退出，尺寸改回，随后不带 takeover 的 control 能连上；子进程自成会话，进程组的 SIGINT 打不到它们。
+  - 面板 SIGKILL（`e04-kill.log`）：14 毫秒内 observe 与 control 都退出，控制权释放，尺寸停在网页的 30×100、审计只有接管没有释放行，与 `file-formats.md` 写的一致。
+  - systemd 临时单元（`scripts/e05-killmode.sh`，单元名 `rv-t12i-km-*`，已 reset）：`KillMode=mixed` 时 `panel_exit`、`restored: true`、尺寸改回；缺省的 `control-group` 时子进程与面板同时收到 SIGTERM，释放行记成 `taken_over`、`notRestored: stream_ended`、尺寸没改回，正是 S3 的情形。所以开发者现装的单元（没有 `KillMode=mixed`）合入后必须按 README 重装一次。
+  - 关标签页、切后台（模拟 `visibilitychange`）、断线、心跳超时：分别记 `disconnect`、`hidden`、`disconnect`、`heartbeat`，都改回尺寸、子进程收干净（`b1.log`、`e02.log`、`e03.log`）；切回来只恢复观看。
+  - 重起 observe 的竞态：两条连接随机交错发 resync、takeover、force、release、input、resize 共 192 次（`scripts/e14-stress.ts`），每 100 毫秒采样，子进程数从没超过连接数，关连接后全部收掉；TUI 改尺寸触发 5 秒复查、连发 5 次 resync，都只留一个 observe（`e12.log`）。代码上逐条看了会把 `conn.stream` 置空或起新流的路径（`startWatch` 在 await 之后复查、`restartWatch`、`onStreamEnd`、`release`、`finishControl`、握手失败、`close`、`stop`），没有找到另一条留下孤儿的路径。
+  - 同一条连接在握手之前连发两条 takeover 时（握手前 `readAuditStatus` 的 await 期间状态还是 watch），服务端会接管两次，第一次的 5 秒定时器不清、`actionId` 没有释放行（`scripts/e01-double-takeover.ts`）；页面的“接管键盘”按钮在请求在途时是 loading、禁用，界面上走不到这条路，所以不列为发现。
+- **与 t11 的互斥**：接管登记、锁与 `waiting_takeover`、`pane_controlled` 都按 terminal id；会话页与手动发送的锁键经 `lockKeyOf` 换成 terminal id，自动通知用任务视图带的 `terminalId`，与握手同一把锁；锁内 `identity` 再按 `agent.terminalId` 查登记。接管中会话页文字与按键 409 `pane_controlled`（L3），自动通知 `waiting_takeover`、释放后 3.2 秒投出（`e06.log`）。握手失败、超时都会放锁（L3）。读屏改成不回 `pane_controlled`：`agent.read visible` 不往会话里写，`/screen`、`/history` 只读；按键的两步确认会先读屏、最后一步才收到 409，只是多走一步，不是问题。
+- **两个浏览器换手**（`e02.log`）：后来的先收 `need_confirm: other_browser`，确认后带 `--takeover`，前一个收到 `released: taken_over, notRestored: handed_off` 并回到观看；接管前的尺寸交给新的接管者，它释放时改回最初的 119×40。观看的一方按接管尺寸看。
+- **`/ws/terminal` 的安全校验**（`scripts/e07-upgrade-guards.ts`，原始 HTTP 升级请求）：与 `/ws` 逐项相同：没登录、坏 cookie 401；缺 Origin、`null`、别的来源、产物端口 403；`Sec-Fetch-Site: cross-site`、`same-site` 403；`X-Forwarded-For`、`Forwarded` 403；坏 Host 421；`localhost` 放行。查询参数写法不对 400，多段路径 404。升级之后：terminal 不认识或 pane 对不上 4404、未知消息与坏 JSON 与非整数尺寸 4400、会话键不对回 `error: session_changed` 并照常观看、不在接管时的 `input` 被忽略。target 只能是 herdr 列表里存在的 terminal id，正则排除了 `-` 开头。
+- **审计**：接管一行意图（尺寸、接管前尺寸、是否 `--takeover`、登录会话前 8 位）、一行结果，释放一行（原因、时长、各项统计、`restored`、`notRestored`），没有键盘内容（`b1.log`、`b4.log` 的统计与输入对得上）；观看不写。`restored` 的含义写明是“发出了改回尺寸的指令”，实测正常路径下 pty 确实改回。
+- **尺寸**：`pane.process_info` → `/proc/<shell pid>/fd/0` → `stty -F` 读到的与 pane 里 `stty size` 一致（L4 两种 server）；面板作为 systemd 服务时自己是会话首进程，但打开 tty 的是子进程 `stty`，不会拿到控制终端（`e05` 的单元里 `sizeKnown: true`）。读不到时用 herdr 自己的缺省 120×40 并标“尺寸不确定”、释放不改回（`e10.log`）。接管中 TUI 改窗口改不动尺寸，释放后 TUI 改回自己的布局、观看跟着变（`e12.log`）。
+- **背压**：真实的 Bun WebSocket、客户端 4 秒不读、假命令行刷屏（`scripts/e11-backpressure-real.ts`）：面板进程内存不涨，恢复读之后 2416 帧序号连续、没有 4410。
+- **时延**：pane 里程序的输出到 observe 收到帧中位 3 毫秒、最大 9 毫秒（`e09.log`）；L4 两组（0.9.3、0.9.1）复跑通过（`l4-run.log`）。
+- **前端**：`@xterm/xterm` 6.0.0、`@xterm/addon-fit` 0.11.0 精确版本，`bun.lock` 有完整性校验；配色在运行时套 nbook 暗色配色再读 token，没有字面颜色；接管前提示与“抢过来”两种小窗、切后台释放、心跳 5 秒、重连前探测 `/api/meta`、最终关闭码不重连都按合同；手机 390 宽默认文字视图、没有接管按钮、页面不横向溢出，文字视图 280 毫秒内跟上新输出（含假界面 0.1 秒的轮询），切到终端画面 256 毫秒内出整屏（`b3.log`）；粘贴清洗与本地 bracketed paste、有选中文字时 Ctrl+C 不发 `\x03`（`b4.log`、`b5.log`）。三个新零件都只吃 props、发事件，不发请求，各带同名 `.md`；`@notnotype/nb-ui/themes/nbook` 是 nb-ui 的公开导出。
+- **禁止清单**：结束原因的归类只看结构（第一行是帧还是结束、是否发过 release、终端还在不在），不读原因文案；错误按 `code`（EPIPE 等）分支；产品代码里没有测试专用分支；没有跨包深导入；`stop()` 原有的收口步骤都在。只发现 F8 里的两处（静默的尺寸读取、删掉的注释理由）。
+- **包的检查**：t12 的 L1、L3（4 个文件 27 条）、L4 两组、`typecheck` 复跑通过（`l3-run1.log`、`l4-run.log`、`typecheck.log`）；“面板退出时子进程先没了”那条 L3 连跑 15 次都过（`exit-race-rerun.log`）。
+
+## 勘误（续，只追加）
+
+- “实验环境”第三条不准确：命名会话的 pane 里跑的是 `tests/fixtures/fake-claude-tui.py`（复制成名为 `claude` 的可执行文件，herdr 按进程名认成 Claude，再用 `pane report-agent-session` 报一个会话 id）与一个打印时间戳的 sh 循环；E12 另用 python 的 pty 挂过一次 herdr TUI 客户端（只连命名会话）。都没有起真实的 `claude`、`omp`。
+- 浏览器实验后半段把 Chrome 的临时数据放在 `/dev/shm/rv-t12i`（已删）：`/tmp` 是带用户配额的 tmpfs，别的会话占满了配额，第一次跑 B3 时 Chrome 以 `Disk quota exceeded` 崩溃（不是面板的问题）。KillMode 实验用了两个临时用户单元 `rv-t12i-km-mixed`、`rv-t12i-km-control-group`（已停、已 reset，没有碰 `nbdev-panel-neuro-book.service`）。
