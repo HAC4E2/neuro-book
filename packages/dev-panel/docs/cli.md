@@ -77,7 +77,7 @@
 - **监管进程的退出码**：服务被 `dev stop` 或信号停掉为 0；服务自己退出为 1（`dev_exited`，不论之前有没有就绪）；停完核对不过为 1（`stop_incomplete`）。服务自己的退出码只在 `EXITED` 行里。
 - **复用**：键是（checkout、package、script）。
   - 只复用组长还活着的同键运行（状态 `starting`、`running`，或 `orphaned` 且原因是 `supervisor_gone`）。`leader_exited`（开发脚本已退、只剩没收掉的进程）的服务早就不在了：先按下面的停法收掉（监管进程不在，按属主判据不要 `--force`），给 `leftovers_stopped`，再起新的；收不干净报 `stop_incomplete`。
-  - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；认出就绪时把 `url`、`readyAt` 写回登记（只在还没有 `readyAt` 时写）；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
+  - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；认出就绪时把 `url`、`readyAt` 写回登记（只在还没有 `readyAt` 时写）。等的时候每秒重读登记，复用的服务在就绪之前结束了就打 `EXITED`（退出码取它登记里的，监管进程还没写时为空）、以 1 退出，不再等满时限；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
   - 登记里已就绪的，先按就绪的判据探测一次地址：连得上才打 `READY … reused`；连不上报 `dev_unresponsive`（3），不替别人停服务，按提示先 `dev stop` 再起（不是你起的、属主还在要加 `--force`）。
   - 复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；复用没人监管的（`supervisor_gone`）给 `supervisor_gone`（用完请 `dev stop`）；给的 `--ready-pattern`、`--work --task` 与它起时不同给 `reused_with_different_options`。
 - **停法**（`dev stop`、监管进程收到 SIGTERM、SIGINT、SIGHUP，以及组长自己退出之后的补收，都用同一套）：

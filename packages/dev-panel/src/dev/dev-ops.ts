@@ -268,7 +268,27 @@ async function reuse(context: RepoContext, record: ProcRecord, evaluation: RunEv
         emitEvent({event: "ready", runId: record.runId, url: record.url, logPath: record.logPath, pid: record.pid, reused: true, owner});
         return {exitCode: 0, warnings};
     }
-    const result = await waitReady(record.logPath, record.readyPattern, {deadline: Date.now() + input.readyTimeoutMs, shouldStop: () => false, onUrl: async () => undefined});
+    // 等的时候每秒重读一次登记：复用的服务在就绪之前结束了就不再等满时限、也不打 NOT_READY（t14 实现审查 S1）。
+    const bootId = await currentBootId();
+    let ended: ProcRecord | null = null;
+    let nextCheck = 0;
+    const result = await waitReady(record.logPath, record.readyPattern, {
+        deadline: Date.now() + input.readyTimeoutMs,
+        onUrl: async () => undefined,
+        shouldStop: async () => {
+            if (Date.now() < nextCheck) return false;
+            nextCheck = Date.now() + 1_000;
+            const latest = await readProcRecord(context.mainRoot, record.runId) ?? record;
+            if ((await evaluateRun(latest, bootId)).state !== "ended") return false;
+            ended = latest;
+            return true;
+        },
+    });
+    if (ended !== null) {
+        const gone: ProcRecord = ended;
+        emitEvent({event: "exited", runId: record.runId, exitCode: gone.exitCode, signal: gone.signal, leftovers: gone.leftovers ?? 0});
+        return {exitCode: 1, warnings};
+    }
     const fresh = await readProcRecord(context.mainRoot, record.runId) ?? record;
     if (result.ready && result.url) {
         // 认出就绪写回登记（锁内，只在还没有 readyAt 时写）：`dev status --wait-ready`、`shot` 只看登记（t14 实现审查 I3）。

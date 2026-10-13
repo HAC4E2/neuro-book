@@ -332,6 +332,21 @@ describe("NOT_READY 之后（t14 实现审查 I3）", () => {
     }, 30_000);
 });
 
+describe("复用中途对方退出（t14 实现审查 S1）", () => {
+    test("复用一份还在 starting 的运行，它就绪前自己退出：复用方打 EXITED、以 1 退出，不等满 --ready-timeout", async () => {
+        const s = await setup("dev-reuse-exit", {FAKE_DEV_EXIT_MS: "2500", FAKE_DEV_READY_MS: "60000"});
+        const first = await startDev(s, []);
+        await until(async () => (await records(s.fixture)).length, (count) => count === 1, 10_000, "A 的登记");
+        const started = Date.now();
+        const second = await cli(s, ["dev", "start", "--package", "apps/web", "--ready-timeout", "30", "--json"]);
+        expect(Date.now() - started).toBeLessThan(10_000);
+        expect([second.exitCode, JSON.parse(second.stdout.trim().split("\n")[0]!)]).toEqual([1, expect.objectContaining({event: "exited"})]);
+        expect(second.stdout).not.toContain("not_ready");
+        expect(await first.exited).toBe(1);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 60_000);
+});
+
 describe("PID 复用与重启（场景 3）", () => {
     test("登记里的 pid 被复用：dev status 判 ended、dev stop 不发信号；bootId 变了判 rebooted", async () => {
         const s = await setup("dev-reuse-pid");
