@@ -133,6 +133,14 @@ export function claimTask(registry: Registry, workId: string, taskId: string, at
     work.tasks.push({taskId, status: "claimed", at, by, home: null});
 }
 
+/** 写 Task 的执行位置提示 `home`（`worktree new` 写，绝对路径，与 `checkout.root` 比）；登记表里没有这个 Task 时回 false。 */
+export function setTaskHome(registry: Registry, workId: string, taskId: string, home: string): boolean {
+    const task = findTask(registry, workId, taskId);
+    if (!task) return false;
+    task.home = home;
+    return true;
+}
+
 function sortRegistry(registry: Registry): Registry {
     const works = [...registry.works].sort((left, right) => left.workId.localeCompare(right.workId, "en"));
     return {

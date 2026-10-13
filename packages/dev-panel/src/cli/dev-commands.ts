@@ -6,13 +6,14 @@ import type {DevEvent} from "../dev/dev-ops.js";
 import type {CommandOutcome} from "./output.js";
 
 /**
- * 开发服务的三个命令（t14）。`dev start` 是长命令：边跑边按行输出 `READY`、`NOT_READY`、`EXITED`（`--json` 时是同样含义的 JSON 行），
+ * t14 的命令：开发服务三个与 `worktree new`。`dev start` 是长命令：边跑边按行输出 `READY`、`NOT_READY`、`EXITED`（`--json` 时是同样含义的 JSON 行），
  * 不套一次性的外壳。合同见 docs/cli.md 的“dev”。监管与登记的实现在 `src/dev/`，只在这几个命令里按需导入。
  */
 
 export const DEV_USAGE = `  dev start [--checkout <key|路径>] [--package packages/neuro-book] [--script dev] [--work <W> --task <T>] [--ready-pattern <正则>] [--ready-timeout <秒>] [--grace <秒>] [--as <标签>]
   dev status [--checkout <key|路径>] [--package …] [--script …] [--all] [--wait-ready [--timeout <秒>]]
-  dev stop (<runId> | [--checkout <key|路径>] [--package …] [--script …]) [--force] [--grace <秒>] [--as <标签>]`;
+  dev stop (<runId> | [--checkout <key|路径>] [--package …] [--script …]) [--force] [--grace <秒>] [--as <标签>]
+  worktree new <workRef> <taskRef> [--slug <短名>] [--type feat] [--from master] [--as <标签>]`;
 
 const TARGET_OPTIONS = {checkout: {type: "string"}, package: {type: "string"}, script: {type: "string"}} as const;
 
@@ -33,6 +34,30 @@ function eventLine(event: DevEvent): string {
 }
 
 export const DEV_COMMANDS: Record<string, CommandSpec> = {
+    "worktree new": {
+        schema: "nbdev.worktree-new/v1",
+        positionals: ["workRef", "taskRef"],
+        options: {slug: {type: "string"}, type: {type: "string"}, from: {type: "string"}, ...AS_OPTION},
+        async run({io, positionals, values}): Promise<CommandOutcome> {
+            const {createWorktree} = await import("../core/worktree-ops.js");
+            const context = await locateRepository(io.cwd);
+            const {herdr, caller, warnings} = await writeCaller(io, values);
+            const outcome = await createWorktree(context, {workRef: positionals[0]!, taskRef: positionals[1]!, slug: stringValue(values, "slug") ?? null, type: stringValue(values, "type") ?? "feat", from: stringValue(values, "from") ?? "master"}, {caller, herdr});
+            const {data} = outcome;
+            return {
+                schema: "nbdev.worktree-new/v1",
+                data,
+                warnings: [...warnings, ...outcome.warnings],
+                error: null,
+                human: [
+                    `已建 ${data.path}（分支 ${data.branch}，从 ${data.from}）`,
+                    data.home ? `登记表：${data.workId}/${data.taskId} 的 home 指向它` : "登记表的 home 没写（见警告）",
+                    `Task README 的执行位置写：\`${data.path.slice(data.path.indexOf("/.worktree/") + 1)}\`，分支 \`${data.branch}\``,
+                    `依赖没装：${data.installHint}`,
+                ],
+            };
+        },
+    },
     "dev start": {
         schema: "nbdev.dev-start/v1",
         positionals: [],

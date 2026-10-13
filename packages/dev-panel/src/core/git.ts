@@ -7,6 +7,8 @@ export type GitOptions = {
     /** 读操作加 `--no-optional-locks`：不刷新、不写回 index，不与别的会话抢 index.lock。 */
     readOnly?: boolean;
     input?: string;
+    /** 用这个 git 可执行文件（绝对路径），不经 `PATH` 查找：`worktree new` 的 `worktree add` 一律用 `/usr/bin/git`（omp 会接管会话 shell 里的 `git worktree add`）。 */
+    binary?: string;
 };
 
 /**
@@ -44,7 +46,7 @@ export function gitEnvironment(options: {literalPathspecs?: boolean} = {}): Node
 export function runGit(root: string, args: readonly string[], options: GitOptions = {}): Promise<GitResult> {
     const fullArgs = options.readOnly ? ["--no-optional-locks", "-C", root, ...args] : ["-C", root, ...args];
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn("git", fullArgs, {env: gitEnvironment(), stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]});
+        const child = spawn(options.binary ?? "git", fullArgs, {env: gitEnvironment(), stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]});
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
         let stdinNote: string | null = null;
