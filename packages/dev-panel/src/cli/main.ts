@@ -10,6 +10,7 @@ import type {RunView} from "../core/runs.js";
 import {readProjectStatus, type ProjectStatus, type WorkView} from "../core/status.js";
 import {ARTIFACT_COMMANDS, ARTIFACT_USAGE} from "./artifact-commands.js";
 import {PANEL_COMMANDS, PANEL_USAGE} from "./panel-commands.js";
+import {DEV_COMMANDS, DEV_USAGE} from "./dev-commands.js";
 import {AS_OPTION, JSON_OPTION, leaseLines, readOnlyHerdr, requireValue, shortSession, stringValue, writeCaller, writeOutcome, ago, type CommandSpec, type Values} from "./common.js";
 import {emit, toNbdevError, type CliIo, type CommandOutcome} from "./output.js";
 
@@ -26,6 +27,7 @@ export const USAGE = `用法：nbdev <命令> [参数] [--json]
   status [--work <workRef> [--task <taskRef>]]
 ${ARTIFACT_USAGE}
 ${PANEL_USAGE}
+${DEV_USAGE}
 
 workRef 写完整 id 或编号（w00022），taskRef 写完整 id 或编号（t06、t100）。herdr 外的会话用 --as <标签> 标明自己。
 合同见 packages/dev-panel/docs/cli.md。`;
@@ -256,7 +258,7 @@ const COMMANDS: Record<string, CommandSpec> = {
     },
 };
 
-const ALL_COMMANDS: Record<string, CommandSpec> = {...COMMANDS, ...ARTIFACT_COMMANDS, ...PANEL_COMMANDS};
+const ALL_COMMANDS: Record<string, CommandSpec> = {...COMMANDS, ...ARTIFACT_COMMANDS, ...PANEL_COMMANDS, ...DEV_COMMANDS};
 
 function resolveCommand(argv: readonly string[]): {key: string; rest: string[]} | null {
     const two = argv.slice(0, 2).join(" ");

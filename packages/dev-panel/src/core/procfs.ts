@@ -72,6 +72,18 @@ export async function readEnviron(pid: number): Promise<Record<string, string> |
     return env;
 }
 
+/** 本机全部进程的 `stat`（只读 stat，比 `readProcessTable` 便宜）：收集某个进程的后代用。 */
+export async function readProcStats(): Promise<ProcStat[]> {
+    const pids = (await readdir("/proc")).filter((name) => /^[0-9]+$/u.test(name)).map(Number);
+    const rows = await Promise.all(pids.map((pid) => readProcStat(pid)));
+    return rows.filter((row): row is ProcStat => row !== null);
+}
+
+/** 本次开机的标识：重启之后的登记一律视为已结束。 */
+export async function readBootId(): Promise<string> {
+    return (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+}
+
 export type ProcessEntry = ProcStat & {cmdline: string; cwd: string | null};
 
 /** 本机全部进程（读不到的跳过）。cwd 读不到（别的用户的进程）时为 null。 */

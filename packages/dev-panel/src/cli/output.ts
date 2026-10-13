@@ -12,6 +12,11 @@ export type CommandOutcome = {
     error: NbdevError | null;
     /** 不加 `--json` 时打印到 stdout 的摘要。 */
     human: string[];
+    /**
+     * 长命令（`dev start`）已经边跑边按行输出了事件：成功时不再打一次性的外壳，退出码取 `exitCode`；警告照常写 stderr。
+     * 起来之前就失败的仍按普通命令输出错误外壳。
+     */
+    streamed?: {exitCode: ExitCode};
 };
 
 export type ErrorEntry = {code: string; message: string; details?: Record<string, unknown>};
@@ -32,6 +37,10 @@ function errorEntry(error: NbdevError): ErrorEntry {
  * 否则 stdout 打印摘要，警告与错误走 stderr。
  */
 export function emit(outcome: CommandOutcome, json: boolean, io: CliIo): ExitCode {
+    if (outcome.streamed && !outcome.error) {
+        for (const warning of outcome.warnings) io.stderr.write(json ? `${JSON.stringify({warning})}\n` : `警告 [${warning.code}] ${warning.message}\n`);
+        return outcome.streamed.exitCode;
+    }
     const errors = outcome.error ? [errorEntry(outcome.error)] : [];
     if (json) {
         io.stdout.write(`${JSON.stringify({schema: outcome.schema, ok: outcome.error === null, data: outcome.data ?? null, warnings: outcome.warnings, errors}, null, 2)}\n`);

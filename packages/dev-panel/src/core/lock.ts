@@ -160,6 +160,14 @@ async function currentToken(lockDir: string): Promise<string | null> {
  */
 export async function acquireRecordsLock(mainRoot: string, waitMs: number = DEFAULT_LOCK_WAIT_MS): Promise<RecordsLock> {
     const {lockDir, tmpRoot} = agentPaths(mainRoot);
+    return acquireDirectoryLock(lockDir, tmpRoot, waitMs, "记录锁");
+}
+
+/**
+ * 同一套目录锁的通用入口（`what` 写进错误与警告）：记录锁之外，`run/procs/` 的登记也用它（t14）。
+ * `tmpRoot` 要与锁目录在同一个文件系统上（组装好再改名）。
+ */
+export async function acquireDirectoryLock(lockDir: string, tmpRoot: string, waitMs: number, what: string): Promise<RecordsLock> {
     await mkdir(tmpRoot, {recursive: true});
     const startTicks = await processStartTicks(process.pid);
     if (startTicks === null) throw new NbdevError("lock_failed", "读不到本进程的启动时刻（需要 Linux 的 /proc）");
@@ -182,7 +190,7 @@ export async function acquireRecordsLock(mainRoot: string, waitMs: number = DEFA
             if (await takeOverDeadLock(lockDir, tmpRoot, observation) === "taken") {
                 takeovers.push({
                     code: "lock_taken_over",
-                    message: observation.owner ? `接管了已退出进程 ${observation.owner.pid} 留下的记录锁` : `接管了损坏的记录锁：${observation.problem ?? "原因不明"}`,
+                    message: observation.owner ? `接管了已退出进程 ${observation.owner.pid} 留下的${what}` : `接管了损坏的${what}：${observation.problem ?? "原因不明"}`,
                     details: {deadOwner: observation.owner, problem: observation.problem},
                 });
             }
@@ -190,7 +198,7 @@ export async function acquireRecordsLock(mainRoot: string, waitMs: number = DEFA
         }
         if (Date.now() - startedAt >= waitMs) {
             const holder: LockHolder = {pid: observation.owner.pid, startedAt: observation.owner.startedAt, command: observation.owner.command, cwd: observation.owner.cwd, alive: true};
-            throw new NbdevError("lock_timeout", `等记录锁超过 ${Math.round(waitMs / 1000)} 秒，持锁者 pid ${holder.pid} 仍在运行`, {
+            throw new NbdevError("lock_timeout", `等${what}超过 ${Math.round(waitMs / 1000)} 秒，持锁者 pid ${holder.pid} 仍在运行`, {
                 details: {lockDir, waitedMs: Date.now() - startedAt, holder},
             });
         }
@@ -202,17 +210,17 @@ export async function acquireRecordsLock(mainRoot: string, waitMs: number = DEFA
         takeovers,
         isHeld,
         async assertHealthy(stage) {
-            if (!await isHeld()) throw new NbdevError("lock_compromised", `记录锁在${stage}之前已不属于本进程`, {details: {stage, lockDir}});
+            if (!await isHeld()) throw new NbdevError("lock_compromised", `${what}在${stage}之前已不属于本进程`, {details: {stage, lockDir}});
         },
         async release() {
             if (!await isHeld()) {
-                return {code: "lock_release_skipped", message: "记录锁已不属于本进程，放锁时没有动它", details: {lockDir}};
+                return {code: "lock_release_skipped", message: `${what}已不属于本进程，放锁时没有动它`, details: {lockDir}};
             }
             const tombstone = join(tmpRoot, `lock-released-${process.pid}-${randomBytes(4).toString("hex")}`);
             try {
                 await rename(lockDir, tombstone);
             } catch (error) {
-                return {code: "lock_release_failed", message: `放记录锁失败：${error instanceof Error ? error.message : String(error)}`, details: {lockDir}};
+                return {code: "lock_release_failed", message: `放${what}失败：${error instanceof Error ? error.message : String(error)}`, details: {lockDir}};
             }
             try {
                 await rm(tombstone, {recursive: true, force: true});
