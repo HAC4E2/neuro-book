@@ -5,8 +5,9 @@ import {Terminal} from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {letBrowserCopy, sanitizePaste} from "../host/terminal-input.js";
+import {TERMINAL_FONT_FALLBACK} from "../host/terminal-font.js";
 import type {TerminalFrame, TerminalSource} from "../host/terminal-socket.js";
-import {applyTerminalScope, readTerminalTheme} from "../host/terminal-theme.js";
+import {applyTerminalScope, measureCellRatio, readTerminalFont, readTerminalTheme} from "../host/terminal-theme.js";
 
 /** 会话的实时终端：观看只读，接管时键盘直通；契约见同名 .md。 */
 const props = withDefaults(defineProps<{
@@ -24,6 +25,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{takeover: [cols: number, rows: number]; release: []; input: [data: string, paste: boolean]; resize: [cols: number, rows: number]; "open-link": [url: string]}>();
 
 const CONTROL_FONT = 13;
+/** 观看时字号的范围：再窄的容器（手机的终端画面）也尽量放下整屏，放不下就在框里横向滚动。 */
+const WATCH_FONT_MIN = 5;
+const WATCH_FONT_MAX = 14;
 const host = ref<HTMLDivElement | null>(null);
 const frameBox = ref<HTMLDivElement | null>(null);
 let term: Terminal | null = null;
@@ -32,20 +36,25 @@ let unsubscribe: (() => void) | null = null;
 let observer: ResizeObserver | null = null;
 let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 let pasting = false;
+/** 一格的宽度与字号之比，挂载时按实际字体量（拿不到时按等宽字常见的 0.6）。 */
+let cellRatio = 0.6;
 
-/** 观看时字号按容器宽度缩放（等宽字约 0.6 个字号宽），控制在 8 到 14px。 */
+/** 观看时字号按容器宽度与列数缩放，控制在 `WATCH_FONT_MIN` 到 `WATCH_FONT_MAX`。 */
 function watchFontSize(cols: number): number {
     const width = frameBox.value?.clientWidth ?? 800;
-    return Math.max(8, Math.min(14, Math.floor((width - 16) / (cols * 0.6))));
+    return Math.max(WATCH_FONT_MIN, Math.min(WATCH_FONT_MAX, Math.floor((width - 16) / (cols * cellRatio))));
+}
+
+function fitWatchFont(): void {
+    if (!term || props.mode !== "watch") return;
+    const size = watchFontSize(term.cols);
+    if (term.options.fontSize !== size) term.options.fontSize = size;
 }
 
 function onFrame(frame: TerminalFrame): void {
     if (!term) return;
     if (term.cols !== frame.w || term.rows !== frame.h) term.resize(frame.w, frame.h);
-    if (props.mode === "watch") {
-        const size = watchFontSize(frame.w);
-        if (term.options.fontSize !== size) term.options.fontSize = size;
-    }
+    fitWatchFont();
     term.write(frame.bytes);
 }
 
@@ -66,11 +75,19 @@ function requestTakeover(): void {
 onMounted(() => {
     const element = host.value!;
     applyTerminalScope(frameBox.value!);
+    let fontFamily = readTerminalFont(frameBox.value!);
+    let ratio = measureCellRatio(fontFamily);
+    if (ratio === null) {
+        console.warn(`终端字体串不被 canvas 接受，改用缺省的等宽字体：${fontFamily}`);
+        fontFamily = TERMINAL_FONT_FALLBACK;
+        ratio = measureCellRatio(fontFamily);
+    }
+    if (ratio !== null && ratio > 0) cellRatio = ratio;
     term = new Terminal({
         scrollback: 0,
         disableStdin: props.mode !== "control",
         cursorBlink: false,
-        fontFamily: "\"Noto Sans Mono CJK SC\", \"Sarasa Mono SC\", var(--font-mono), monospace",
+        fontFamily,
         fontSize: CONTROL_FONT,
         theme: readTerminalTheme(frameBox.value!),
         linkHandler: {
@@ -103,7 +120,8 @@ onMounted(() => {
         if (resizeTimer) clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
             resizeTimer = null;
-            if (props.mode !== "control" || !fit || !term) return;
+            if (props.mode === "watch") return fitWatchFont();
+            if (!fit || !term) return;
             const size = fit.proposeDimensions();
             if (size && size.cols > 0 && size.rows > 0 && (size.cols !== props.cols || size.rows !== props.rows)) emit("resize", size.cols, size.rows);
         }, 150);
@@ -118,7 +136,7 @@ watch(() => props.mode, (mode) => {
         term.options.fontSize = CONTROL_FONT;
         term.focus();
     } else {
-        term.options.fontSize = watchFontSize(term.cols);
+        fitWatchFont();
     }
 });
 watch(() => props.bracketedPaste, (on) => term?.write(on ? "\u001b[?2004h" : "\u001b[?2004l"));
