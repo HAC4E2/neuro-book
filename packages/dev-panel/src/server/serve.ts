@@ -41,8 +41,8 @@ export type PanelServer = {
     readonly auth: PanelAuth;
     /** 前端产物目录（构建或测试注入之后才有）；没有时页面回 503。 */
     setStatic(dir: string, build: {failed: string | null}): Promise<void>;
-    /** 预热（记录与活动各算一遍）并开始监视；之前 `/api/*` 回 503。 */
-    warm(): Promise<void>;
+    /** 预热（记录与活动各算一遍）并开始监视；之前 `/api/*` 回 503。预热中途已经 `stop()` 时不挂监视，返回 false。 */
+    warm(): Promise<boolean>;
     stop(): Promise<void>;
 };
 
@@ -357,9 +357,12 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         },
         async warm() {
             await state.warm();
+            // 预热进行中收到退出信号时，收口已经做过：不再挂监视与定时器，否则进程收口后还活着。
+            if (state.stopped) return false;
             state.watchAll();
             ready = true;
             for (const ws of sockets) ws.send(JSON.stringify({type: "changed", instance: state.instanceId, parts: ["records", "activity", "sessions"], revisions: state.revisions()}));
+            return true;
         },
         async stop() {
             unsubscribe();

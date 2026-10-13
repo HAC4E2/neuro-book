@@ -96,8 +96,7 @@ export const PANEL_COMMANDS: Record<string, CommandSpec> = {
                 if (build.failed !== null && !await exists(resolve(distDir, "index.html"))) throw new NbdevError("build_failed", build.failed);
                 if (build.failed !== null) warnings.push({code: "build_failed", message: `前端构建失败，用的是旧的产物：${build.failed}`, details: {}});
                 await server.setStatic(distDir, build);
-                await Promise.race([server.warm(), stopped]);
-                log("预热完成");
+                if (await Promise.race([server.warm(), stopped.then(() => false)])) log("预热完成");
                 await stopped;
                 return {schema: "nbdev.panel-serve/v1", data: {url: server.url, artifactUrl: server.artifactUrl}, warnings, error: null, human: ["面板已退出"]};
             } finally {

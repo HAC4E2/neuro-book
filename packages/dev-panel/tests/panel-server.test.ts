@@ -437,6 +437,27 @@ describe("端口", () => {
 });
 
 describe("nbdev panel serve 与 panel open", () => {
+    test("预热进行中收到 SIGTERM：收口后进程退出（退出码 0），不再挂上监视与定时器", async () => {
+        const fixture = await createFixture("panel-warm-term");
+        const staticDir = join(fixture.root, "web");
+        await mkdir(staticDir, {recursive: true});
+        await writeFile(join(staticDir, "index.html"), "<!doctype html><html><head></head><body>panel-index</body></html>\n");
+        // 让预热的第一步（读面板代码所在的树）慢 3 秒，信号一定落在预热中途。
+        const shim = join(fixture.root, "shim");
+        await mkdir(shim, {recursive: true});
+        await writeFile(join(shim, "git"), '#!/bin/sh\ncase "$*" in *HEAD:packages/dev-panel*) sleep 3;; esac\nexec /usr/bin/git "$@"\n', {mode: 0o755});
+        const {CLI_PATH} = await import("./git-fixture.js");
+        const serve: MarkedChild = await spawnMarked(process.execPath, [CLI_PATH, "panel", "serve", "--port", "0", "--artifact-port", "0", "--static-dir", staticDir], {cwd: fixture.main, env: {PATH: `${shim}:${process.env.PATH ?? ""}`}});
+        closers.push(() => stopProcess(serve));
+        const panelFile = join(fixture.main, ".local/agent/panel.json");
+        while (!(await Bun.file(panelFile).exists())) await Bun.sleep(20);
+        const exited = once(serve, "exit");
+        serve.kill("SIGTERM");
+        const [code] = await Promise.race([exited, Bun.sleep(8_000).then(() => [null])]);
+        expect(code).toBe(0);
+        expect(await Bun.file(panelFile).exists()).toBe(false);
+    }, 30_000);
+
     test("panel serve 写权限 600 的 panel.json、同一个主工作区只能起一个；panel open --print 给出能登录的一次性链接；SIGTERM 收口", async () => {
         const fixture = await createFixture("panel-cli");
         const staticDir = join(fixture.root, "web");

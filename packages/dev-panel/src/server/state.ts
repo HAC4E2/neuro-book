@@ -125,6 +125,8 @@ export class PanelState {
     }
 
     sessionsRevision = 0;
+    /** `stop()` 之后为 true：之后的 `watchAll()` 与 herdr 的 `start()` 都不再挂监视与定时器。 */
+    stopped = false;
 
     onChange(listener: (part: PartName) => void): () => void {
         this.listeners.add(listener);
@@ -173,6 +175,7 @@ export class PanelState {
 
     /** 开始监视与定时检查。 */
     watchAll(): void {
+        if (this.stopped) return;
         const {mainRoot} = this.context;
         this.watchRecords(resolve(mainRoot, WORKS_ROOT));
         this.watchLeases();
@@ -195,6 +198,7 @@ export class PanelState {
     }
 
     stop(): void {
+        this.stopped = true;
         for (const watcher of this.watchers) watcher.close();
         for (const timer of this.timers) clearInterval(timer);
         if (this.debounce) clearTimeout(this.debounce);
