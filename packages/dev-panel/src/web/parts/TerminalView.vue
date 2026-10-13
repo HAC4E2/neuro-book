@@ -28,6 +28,8 @@ const CONTROL_FONT = 13;
 /** 观看时字号的范围：再窄的容器（手机的终端画面）也尽量放下整屏，放不下就在框里横向滚动。 */
 const WATCH_FONT_MIN = 5;
 const WATCH_FONT_MAX = 14;
+/** 接管时终端框的高度（观看时框高随行数）。接管尺寸按这个高度算，接上之后不必再 resize 一次。 */
+const CONTROL_BOX = {height: "70vh", minHeight: "16rem"} as const;
 const host = ref<HTMLDivElement | null>(null);
 const frameBox = ref<HTMLDivElement | null>(null);
 let term: Terminal | null = null;
@@ -58,12 +60,18 @@ function onFrame(frame: TerminalFrame): void {
     term.write(frame.bytes);
 }
 
+/** 按接管后的样子量：框临时套上接管时的高度、字号换成 13px，量完同步改回（中间不会画到屏幕上）。 */
 function proposeControlSize(): {cols: number; rows: number} | null {
-    if (!term || !fit) return null;
-    const before = term.options.fontSize;
+    const box = frameBox.value;
+    if (!term || !fit || !box) return null;
+    const before = {fontSize: term.options.fontSize, height: box.style.height, minHeight: box.style.minHeight};
+    box.style.height = CONTROL_BOX.height;
+    box.style.minHeight = CONTROL_BOX.minHeight;
     term.options.fontSize = CONTROL_FONT;
     const proposed = fit.proposeDimensions();
-    term.options.fontSize = before;
+    term.options.fontSize = before.fontSize;
+    box.style.height = before.height;
+    box.style.minHeight = before.minHeight;
     return proposed && proposed.cols > 0 && proposed.rows > 0 ? {cols: proposed.cols, rows: proposed.rows} : null;
 }
 
@@ -168,7 +176,7 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
             </template>
         </div>
         <p v-if="mode === 'control'" style="color: var(--text-muted); font-size: var(--text-2xs)">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。herdr 那边（键盘与其它程序）照样能写进来。</p>
-        <div ref="frameBox" class="overflow-x-auto rounded-[var(--radius-panel)] p-2" :class="mode === 'control' ? 'h-[70vh] min-h-64' : ''" style="background: var(--bg-main)">
+        <div ref="frameBox" class="overflow-x-auto rounded-[var(--radius-panel)] p-2" :style="{background: 'var(--bg-main)', ...(mode === 'control' ? CONTROL_BOX : {})}">
             <div ref="host" class="h-full" />
         </div>
     </section>

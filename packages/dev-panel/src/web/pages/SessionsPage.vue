@@ -62,6 +62,8 @@ narrowQuery.addEventListener("change", onNarrow);
 onBeforeUnmount(() => narrowQuery.removeEventListener("change", onNarrow));
 const showTerminalOnPhone = ref(false);
 
+/** 最近一次按接管后的终端框算出的尺寸：“抢过来”沿用它，不退回观看时的尺寸。 */
+let requestedSize: {cols: number; rows: number} | null = null;
 /** 选中会话的终端连接：换了终端就关掉旧的、连新的（连接随作用域销毁）。 */
 const terminal = shallowRef<TerminalSocket | null>(null);
 let terminalScope: EffectScope | null = null;
@@ -71,6 +73,7 @@ watch(() => (selected.value && terminalAvailable.value ? `${selected.value.paneI
     terminalScope = null;
     terminal.value = null;
     showTerminalOnPhone.value = false;
+    requestedSize = null;
     if (!key || !selected.value) return;
     const target = {paneId: selected.value.paneId, terminalId: selected.value.terminalId};
     terminalScope = effectScope();
@@ -91,6 +94,7 @@ const controllerNote = computed(() => {
 const lastConflict = ref<{reason: "controlled_elsewhere" | "other_browser"; text: string | null; since: string | null} | null>(null);
 const takeoverAsk = ref<{cols: number; rows: number; force: boolean} | null>(null);
 function askTakeover(cols: number, rows: number): void {
+    requestedSize = {cols, rows};
     takeoverAsk.value = {cols, rows, force: false};
 }
 function confirmTakeover(): void {
@@ -103,8 +107,8 @@ function confirmTakeover(): void {
 watch(() => terminal.value?.state.notice ?? null, (notice) => {
     if (!notice || !terminal.value) return;
     if (notice.kind === "need_confirm") {
-        const last = terminal.value.state;
-        takeoverAsk.value = {cols: takeoverAsk.value?.cols ?? last.cols, rows: takeoverAsk.value?.rows ?? last.rows, force: true};
+        const size = requestedSize ?? {cols: terminal.value.state.cols, rows: terminal.value.state.rows};
+        takeoverAsk.value = {...size, force: true};
         lastConflict.value = {reason: notice.reason, text: notice.text, since: notice.since};
         return;
     }
