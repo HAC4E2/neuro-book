@@ -191,6 +191,11 @@ async function resolveLeaseWork(context: RepoContext, transition: TransitionStat
     return works[0]!;
 }
 
+/** 按编号或完整 id 找到 Task（`dev start --work --task`、`worktree new` 用；与租约同一套找法）。 */
+export async function resolveTaskTarget(context: RepoContext, workRef: string, taskRef: string): Promise<{workId: string; taskId: string}> {
+    return resolveLeaseTarget(context, await readTransitionState(context.mainRoot), workRef, taskRef);
+}
+
 /** 按引用找到 Work 与 Task（`master` 或过渡期的执行 worktree 里都算）。租约是运行时数据，来自分支的 Task 也能取得。 */
 async function resolveLeaseTarget(context: RepoContext, transition: TransitionState, workRef: string, taskRef: string): Promise<{workId: string; taskId: string}> {
     const workId = await resolveLeaseWork(context, transition, workRef);

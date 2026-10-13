@@ -3,7 +3,7 @@
  * 只有数据宿主（`panel-data.ts`）与页面经这里取数，零件不碰它。
  */
 
-export type PartName = "records" | "activity" | "sessions" | "notify";
+export type PartName = "records" | "activity" | "sessions" | "notify" | "github";
 export type Revisions = Record<PartName, number>;
 export type ApiWarning = {code: string; message: string; details?: Record<string, unknown>};
 export type Envelope<T> = {schema: string; ok: boolean; data: T; warnings: ApiWarning[]; errors: Array<{code: string; message: string; details?: Record<string, unknown>}>; instance: string; revisions: Revisions};

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {Button} from "@notnotype/nb-ui/components";
-import {FitAddon} from "@xterm/addon-fit";
 import {Terminal} from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
@@ -33,7 +32,6 @@ const CONTROL_BOX = {height: "70vh", minHeight: "16rem"} as const;
 const host = ref<HTMLDivElement | null>(null);
 const frameBox = ref<HTMLDivElement | null>(null);
 let term: Terminal | null = null;
-let fit: FitAddon | null = null;
 let unsubscribe: (() => void) | null = null;
 let observer: ResizeObserver | null = null;
 let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -60,19 +58,50 @@ function onFrame(frame: TerminalFrame): void {
     term.write(frame.bytes);
 }
 
+/**
+ * xterm 的渲染尺寸（私有字段）。`@xterm/addon-fit` 读的也是这个对象，不过它读 `css.cell`；这里读 `device.cell`。
+ * 升级 xterm 时要核对：`device.cell` 仍是不随列数变的一格（设备像素），见同名 .md。
+ */
+type XtermRenderDimensions = {_core: {_renderService: {dimensions: {device: {cell: {width: number; height: number}}}}}};
+
+/**
+ * 按框量终端放得下多少列、多少行，结果只取决于框的尺寸与字号，量几次都一样：
+ * - 一格的宽高用 `device.cell` 除以 dpr，不用 fit 的 `css.cell`。xterm 的 DOM 渲染器先把整屏宽度取整再除回列数，`css.cell` 随当前列数变：
+ *   13px 时字宽 6.5，当前列数是奇数时格宽进位、量出的列数少 1，接上之后变成偶数列，再量又多 1，于是又 resize 一次；
+ * - 量的时候先把框的溢出藏起来：框里还是旧尺寸的画面时，13px 下可能溢出、出滚动条，桌面浏览器的滚动条占位，把内容区挤掉一行几列
+ *   （无头 Chrome 缺省不画滚动条，验收时要带上它才看得出）。
+ * 改动都在同一个同步块里改回，中间不会画到屏幕上。
+ */
+function proposeSize(box: HTMLElement): {cols: number; rows: number} | null {
+    const element = term?.element;
+    const parent = element?.parentElement;
+    if (!term || !element || !parent) return null;
+    const cell = (term as unknown as XtermRenderDimensions)._core._renderService.dimensions.device.cell;
+    const dpr = window.devicePixelRatio || 1;
+    if (!(cell.width > 0 && cell.height > 0)) return null;
+    const overflow = box.style.overflow;
+    box.style.overflow = "hidden";
+    const outer = getComputedStyle(parent);
+    const inner = getComputedStyle(element);
+    const width = Math.max(0, parseInt(outer.width)) - parseInt(inner.paddingLeft) - parseInt(inner.paddingRight);
+    const height = parseInt(outer.height) - parseInt(inner.paddingTop) - parseInt(inner.paddingBottom);
+    box.style.overflow = overflow;
+    return {cols: Math.max(2, Math.floor(width / (cell.width / dpr))), rows: Math.max(1, Math.floor(height / (cell.height / dpr)))};
+}
+
 /** 按接管后的样子量：框临时套上接管时的高度、字号换成 13px，量完同步改回（中间不会画到屏幕上）。 */
 function proposeControlSize(): {cols: number; rows: number} | null {
     const box = frameBox.value;
-    if (!term || !fit || !box) return null;
+    if (!term || !box) return null;
     const before = {fontSize: term.options.fontSize, height: box.style.height, minHeight: box.style.minHeight};
     box.style.height = CONTROL_BOX.height;
     box.style.minHeight = CONTROL_BOX.minHeight;
     term.options.fontSize = CONTROL_FONT;
-    const proposed = fit.proposeDimensions();
+    const proposed = proposeSize(box);
     term.options.fontSize = before.fontSize;
     box.style.height = before.height;
     box.style.minHeight = before.minHeight;
-    return proposed && proposed.cols > 0 && proposed.rows > 0 ? {cols: proposed.cols, rows: proposed.rows} : null;
+    return proposed;
 }
 
 function requestTakeover(): void {
@@ -104,8 +133,6 @@ onMounted(() => {
             },
         },
     });
-    fit = new FitAddon();
-    term.loadAddon(fit);
     term.open(element);
     if (props.bracketedPaste) term.write("\u001b[?2004h");
     term.attachCustomKeyEventHandler((event) => !letBrowserCopy(event, term?.hasSelection() ?? false));
@@ -129,9 +156,9 @@ onMounted(() => {
         resizeTimer = setTimeout(() => {
             resizeTimer = null;
             if (props.mode === "watch") return fitWatchFont();
-            if (!fit || !term) return;
-            const size = fit.proposeDimensions();
-            if (size && size.cols > 0 && size.rows > 0 && (size.cols !== props.cols || size.rows !== props.rows)) emit("resize", size.cols, size.rows);
+            if (!term || !frameBox.value) return;
+            const size = proposeSize(frameBox.value);
+            if (size && (size.cols !== props.cols || size.rows !== props.rows)) emit("resize", size.cols, size.rows);
         }, 150);
     });
     observer.observe(frameBox.value!);

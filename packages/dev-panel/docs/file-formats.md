@@ -47,7 +47,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 
 - 只记领号的事实。条目按完整 id 记，同号不同名的各占一条；按 id 排序。
 - `status`：`claimed` 是经 nbdev 领的，`imported` 是扫描补登的，`abandoned` 是领了不用的；三种号都不再发。
-- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；开发者在面板上领的号是 `{key: "developer:local", agent: "developer", sessionId: null, label: "local", parentSessionId: null, nestedSessionId: null}`（`local` 在 t13 换成配对设备的名字）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
+- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；开发者在面板上领的号是 `{key: "developer:local", agent: "developer", sessionId: null, label: "local", parentSessionId: null, nestedSessionId: null}`（`local` 在 t13 换成配对设备的名字）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，`worktree new` 写，是 worktree 的**绝对路径**（读者按 `git worktree list` 给出的 `checkout.root` 比较）；没有为 null。
 - 写入在锁内完成，先写同目录临时文件再改名。
 - 登记表不是可重新生成的原始输出：`registry import` 只能从扫描重建 `imported` 条目，`claimed`、`abandoned`、`home`、`by` 会丢失。丢失后，同步过 `master` 的分支上经 nbdev 建的 Task 会被当成分支记录、拒绝写入。
 
@@ -65,7 +65,8 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
     ├── leases/<leaseId>.json  # 租约（nbdev.lease/v1），见下一节
     ├── panel.lock             # 面板锁：同一个主工作区同一时刻只跑一个面板
     ├── panel-open/            # 没有 $XDG_RUNTIME_DIR 时 panel open 的跳转页（目录 700、文件 600，10 分钟后删），见 panel.md
-    ├── procs/                 # 经 nbdev 起的进程（t14 起写）
+    ├── procs/<runId>.json     # 经 nbdev 起的进程（nbdev.proc/v1），见“进程登记”
+    ├── procs.lock/            # 写进程登记的锁目录（与记录锁同一套做法）
     └── tmp/                   # 写事务的临时目录 <txid>/，以及组装中或接管下来的锁目录；用完删除
 ```
 
@@ -95,6 +96,36 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - 权限 600：`token` 是登录用的启动令牌（`panel open` 用它签一次性登录票据），只在这份文件里。
 - 先写临时文件再改名（原子）；退出时只删 `pid` 与 `startTicks` 都是自己的那份。读的一方按 `pid` 加启动时刻判断面板是否真的在跑。
 - `run/panel.lock` 记持锁的面板进程（`pid`、`startTicks`、`startedAt`），独占创建；持锁者已退出时接管。
+
+## 进程登记
+
+`.local/agent/run/procs/<runId>.json`（`nbdev.proc/v1`，目录 700、文件 600，写临时文件再改名），由 `dev start` 写（t14）。一份运行由三样组成：监管进程（`dev start` 自己）、`setsid` 起的组长（`pid` 等于 `pgid`）、从组长沿 ppid 收集到的后代快照（含另起进程组、另起会话的）。
+
+```json
+{
+    "schema": "nbdev.proc/v1", "runId": "dev-20261013T131502Z-a3f9c2d1", "kind": "dev",
+    "checkout": "/…/.worktree/w00017-t83-dnd-titlebar", "checkoutKey": "w00017-t83-dnd-titlebar", "package": "packages/neuro-book", "script": "dev",
+    "argv": ["bun", "run", "dev"], "readyPattern": null, "workId": null, "taskId": null,
+    "logPath": "/…/.local/agent/logs/dev/w00017-t83-dnd-titlebar-dev-20261013T131502Z-a3f9c2d1.log", "bootId": "…",
+    "startedAt": "…", "startedBy": {"key": "claude:…", "agent": "claude", "label": null, "process": {"pid": 123, "startTicks": "…"}},
+    "supervisor": {"pid": 456, "startTicks": "…"}, "pid": 789, "pgid": 789, "startTicks": "…",
+    "descendants": [{"pid": 790, "startTicks": "…"}],
+    "url": "http://127.0.0.1:4217/", "readyAt": "…", "lastProbeStatus": 200,
+    "stoppingAt": null, "stoppedBy": null, "endedAt": null, "endedReason": null, "exitCode": null, "signal": null, "leftovers": null, "leftoverPids": []
+}
+```
+
+- `runId` 是 `dev-<YYYYMMDDTHHMMSSZ>-<8 位十六进制>`，日志名带它。
+- 登记在锁里先写好 `pid`、`startTicks` 再放锁（锁内起服务）；读到没有 `pid` 的登记时，监管进程活着算 `starting`，不活算 `ended`（`never_started`）。
+- `descendants`：监管进程每 2 秒重收一次，新出现的并进来，上限 256 个。后代被收养到 PID 1 之后 ppid 链就断了，所以要在还连着的时候记下。组长还在时，它进程组里的进程也一并记下；组长退出、监管进程给它收尸时再收一次组里剩下的（这时组里还有进程的话组号不会被复用）。读者只凭这里的组员认进程组（见“状态”）。
+- `startedBy`：认不出的调用者为 null。`stoppedBy`：`dev stop` 的调用者会话键（`--force` 时后缀“（--force）”），或 `signal:<名>`。
+- 监管进程与 `dev stop` 都在 `run/procs.lock/` 里读改写，各改各的字段。
+- **状态**（读取时现算）：下面任一条成立就算还活着：监管进程 pid 在且启动时刻相同；组长 pid 在且启动时刻相同；进程组仍是我们那一组（组长不在、`/proc/<pgid>` 也不在，`kill(-pgid, 0)` 成功，且快照里至少有一个进程 pid 与启动时刻都对得上、并在这个组里。我们的组还有成员时 Linux 不把这个号分给新进程，组空了以后号可以再分给别的组长：`/proc/<pgid>` 在而启动时刻与登记的组长不同，就是号已被复用；EPERM 是别的用户的组。这两种都不算我们的组）；快照里有进程 pid 在且启动时刻相同。
+  - `starting`：活着、还没就绪；`running`：活着、已就绪、监管进程在；
+  - `orphaned`：活着但监管进程不在，原因 `supervisor_gone`（组长还在）或 `leader_exited`（组长已退、组里或快照里还有进程）；
+  - `ended`：都不成立，原因 `exited`、`stopped`、`supervisor_killed`（没有 `endedAt`、也没有 `stoppingAt`）、`rebooted`（`bootId` 不是本次开机的）、`never_started`。有 `endedReason`、没有 `endedAt` 时按写下的原因。
+- **停完核对不过**（`stop_incomplete`）：还有我们的进程没收掉时不写 `endedAt`，`leftoverPids` 记它们的 pid，带启动时刻的残留并进 `descendants`：状态按上面的判据是 `orphaned`（`leader_exited`），再 `dev stop` 还能收，残留自己没了之后按 `endedReason` 算已结束。只是就绪地址仍有回应、我们的进程都已不在时，那个地址上的服务不是这份运行的进程：照写 `endedAt`，`leftoverPids` 为空，只在命令的输出里报 `stop_incomplete`（`urlResponding: true`）。
+- 不自动清理；面板与 `dev status` 只列还活着的与 24 小时内结束的。
 
 ## 租约
 
@@ -303,7 +334,7 @@ artifacts/<artifactId>/
 
 - `sessionKey` 是发给谁；`askerKey` 是提问者（手动另选会话时两者不同，这份对提问者也算办完）。
 - 每次尝试两份：调 herdr 之前独占创建一份 `result: "pending"` 的意图，拿到结果后另写一份同一个 `attemptId` 的结果。只有意图、没有结果的按 `uncertain` 算（面板在投递途中退出）。开发者选“不通知”只写一份 `skipped`（`paneId` 为 null）。
-- `result`：`delivered`、`delivered_into_blocked`（投递时弹出了确认界面，回车可能确认了它；`code: state_jumped` 是投递后状态序号跳了两格以上）、`delivered_maybe_wrong_session`（投递的瞬间换了会话）、`uncertain`（`code` 是 `agent_prompt_stalled`、`timeout` 或 `client_timeout`：写进去了但没看到会话开始工作，不重发）、`skipped` 算办完；`agent_blocked`、`not_deliverable`、`session_changed`、`failed` 没写进去，下次照常排队。
+- `result`：`delivered`（`code: unwatched` 是面板这时没订阅到这一格的状态事件，没核对回车前后有没有弹出确认界面）、`delivered_into_blocked`（投递时弹出了确认界面，回车可能确认了它；`code: passed_blocked` 是投递后经过了确认界面、又回到了工作。更早的记录里可能有 `code: state_jumped`，那是按状态序号的差值判的，别的会话同时变状态就会误报）、`delivered_maybe_wrong_session`（投递的瞬间换了会话）、`uncertain`（`code` 是 `agent_prompt_stalled`、`timeout` 或 `client_timeout`：写进去了但没看到会话开始工作，不重发）、`skipped` 算办完；`agent_blocked`、`not_deliverable`、`session_changed`、`failed` 没写进去，下次照常排队。
 - 目录 700、文件 600，独占创建（与租约目录同样的写法）；不自动清理。读不出的跳过并给 `unreadable_notify_record`。
 
 ## 审计

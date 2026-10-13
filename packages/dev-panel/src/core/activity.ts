@@ -2,9 +2,10 @@ import {HerdrError, type HerdrClient, type HerdrPane, type HerdrStatus} from "..
 import type {Warning} from "./errors.js";
 import type {SessionRef} from "./identity.js";
 import {evaluateLeases, processLiveness, readLeases, type EvaluatedLease, type LeaseContext, type LeaseRecord} from "./leases.js";
-import {bootTime, readProcessTable} from "./procfs.js";
+import {bootTime, processAlive, readProcessTable} from "./procfs.js";
 import {listTaskIds, readTaskRecord, type TaskStatus} from "./records.js";
 import {discoverRuns, type PaneProcesses, type RunView} from "./runs.js";
+import {currentBootId, readProcRecords} from "./procs.js";
 import {chooseExecutionCheckout, taskSourceInBranchWork} from "./sources.js";
 import type {TransitionState} from "./status.js";
 
@@ -110,6 +111,21 @@ export async function buildLeaseContext(mainRoot: string, transition: Transition
     };
 }
 
+/** 经 nbdev 起、还没结束的运行涉及的 pid（监管进程、组长、后代快照）：这些归“在跑”页的第一块，不再算会话的运行或无主的运行。 */
+async function registeredRunPids(mainRoot: string, warnings: Warning[]): Promise<Set<number>> {
+    const {records, warnings: recordWarnings} = await readProcRecords(mainRoot);
+    warnings.push(...recordWarnings);
+    const bootId = await currentBootId();
+    const pids = new Set<number>();
+    for (const record of records) {
+        if (record.endedAt || record.bootId !== bootId) continue;
+        // 核对启动时刻：登记里的 pid 被复用时不把别人的进程藏起来。
+        const refs = [record.supervisor, ...(record.pid !== null && record.startTicks !== null ? [{pid: record.pid, startTicks: record.startTicks}] : []), ...record.descendants];
+        for (const ref of refs) if (await processAlive(ref)) pids.add(ref.pid);
+    }
+    return pids;
+}
+
 /**
  * 汇总租约、会话与运行。`selfPid` 的进程与它的祖先不算运行（本次调用 nbdev 的那条命令）。
  * 给了 `snapshot`（面板自己维护的 herdr 状态）就不再调 herdr 取 pane 列表，会话页与活动用同一份 herdr 状态。
@@ -131,6 +147,7 @@ export async function readActivity(mainRoot: string, transition: TransitionState
         selfPid: options.selfPid,
         panes: snapshot.processes,
         bootTime: await bootTime(),
+        exclude: await registeredRunPids(mainRoot, warnings),
     });
 
     const sessions = new Map<string, SessionView>();

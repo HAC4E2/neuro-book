@@ -9,6 +9,8 @@ import {HerdrError, type HerdrClient, type HerdrEvent, type HerdrSnapshotPane, t
  * - 状态事件为主（0.9.3 上约 0.2 秒推送，见 docs/herdr.md）；有浏览器连着时另外每 500 毫秒轮询一次 `pane.list`，
  *   没有浏览器、只有待发的通知时放慢到 15 秒（兜底，herdr 日志一天多约 2 MB）。会话 id 变了 herdr 不推事件，靠轮询与对账发现。
  * - `pane.agent_status_changed` 只能逐格订阅：pane 增减时开一条新的订阅连接，等它回 `subscription_started` 再关旧的，然后对账。
+ * - 投递窗口要知道这一格中途有没有经过 `blocked`（`watchStatus`）：herdr 的 `state_change_seq` 是全服务器共用的一个计数，
+ *   数不出一格变了几次，只能看这一格的状态事件。
  */
 
 export type HerdrMode = "starting" | "subscribed" | "polling" | "unavailable" | "disabled";
@@ -25,6 +27,13 @@ export type HerdrState = {
     /** 累计的失败次数（快照失败与订阅断开），用来看退避是否在起作用。 */
     retries: number;
 };
+
+/**
+ * 看一格 pane 一段时间里的状态事件（投递窗口用）。`statuses()` 是收到的状态，按到达顺序；`intact()` 为假表示这段时间里订阅断过、
+ * 或换了一条不再订这格的连接，`statuses()` 可能不全。用完 `close()`。
+ */
+export type StatusWatch = {statuses(): readonly HerdrSnapshotPane["status"][]; intact(): boolean; close(): void};
+type Watch = {paneId: string; statuses: HerdrSnapshotPane["status"][]; intact: boolean};
 
 export type HerdrMonitorTimings = {reconcileMs: number; pollMs: number; pendingPollMs: number; backoffInitialMs: number; backoffMaxMs: number; stableMs: number};
 export const DEFAULT_HERDR_TIMINGS: HerdrMonitorTimings = {reconcileMs: 30_000, pollMs: 500, pendingPollMs: 15_000, backoffInitialMs: 500, backoffMaxMs: 30_000, stableMs: 10_000};
@@ -45,6 +54,7 @@ export class HerdrMonitor {
     private state: HerdrState;
     private subscription: HerdrSubscription | null = null;
     private subscribedPanes = "";
+    private readonly watches = new Set<Watch>();
     private attempts = 0;
     private seq = new Map<string, number>();
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -64,6 +74,14 @@ export class HerdrMonitor {
 
     current(): HerdrState {
         return this.state;
+    }
+
+    /** 当前的订阅连接订着这格的状态事件才给；否则为 null（还没连上、断线重连中、pane 刚出现还没换连接）。 */
+    watchStatus(paneId: string): StatusWatch | null {
+        if (!this.subscription || !this.subscribedPanes.split(",").includes(paneId)) return null;
+        const watch: Watch = {paneId, statuses: [], intact: true};
+        this.watches.add(watch);
+        return {statuses: () => watch.statuses, intact: () => watch.intact, close: () => this.watches.delete(watch)};
     }
 
     /** 不阻塞：服务先开始监听，herdr 的状态随后补上。 */
@@ -105,6 +123,7 @@ export class HerdrMonitor {
         if (this.stableTimer) clearTimeout(this.stableTimer);
         this.subscription?.close();
         this.subscription = null;
+        for (const watch of this.watches) watch.intact = false;
     }
 
     /** 排一次退避重试；已经排着一次就不再排（只有一条重试链）。 */
@@ -179,6 +198,7 @@ export class HerdrMonitor {
             const previous = this.subscription;
             this.subscription = next;
             this.subscribedPanes = key;
+            for (const watch of this.watches) if (!agentPanes.includes(watch.paneId)) watch.intact = false;
             previous?.close();
             this.update({mode: "subscribed"});
             // 订阅稳定保持一段时间才把退避清零。
@@ -196,6 +216,7 @@ export class HerdrMonitor {
             if (this.stopped || this.subscription !== next) return;
             this.subscription = null;
             this.subscribedPanes = "";
+            for (const watch of this.watches) watch.intact = false;
             if (this.stableTimer) clearTimeout(this.stableTimer);
             this.stableTimer = null;
             this.update({mode: "polling", reconnects: this.state.reconnects + 1});
@@ -207,6 +228,7 @@ export class HerdrMonitor {
         if (event.event === "pane.agent_status_changed" && typeof event.data.pane_id === "string" && typeof event.data.agent_status === "string") {
             const paneId = event.data.pane_id;
             const status = event.data.agent_status as HerdrSnapshotPane["status"];
+            for (const watch of this.watches) if (watch.paneId === paneId) watch.statuses.push(status);
             this.update({panes: this.state.panes.map((pane) => (pane.paneId === paneId ? {...pane, status} : pane))});
             return;
         }

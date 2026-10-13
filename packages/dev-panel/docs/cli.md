@@ -32,6 +32,12 @@
 | `nbdev answers record <workRef> <taskRef> <artifactId>` | `--set <题号>=<值>`（可重复，至少一个；`multi` 用逗号分隔，`confirm` 写 `yes` 或 `no`）、`--comment <题号>=<文字>`（可重复）、`--note`、`--as` | `nbdev.answers-record/v1` |
 | `nbdev panel serve` | `--host`（只接受 `127.0.0.1` 与 `localhost`，缺省 `127.0.0.1`）、`--port`（缺省 4400）、`--artifact-port`（缺省 4401）、`--no-build`（不构建，用现有的 `dist/web`）或 `--static-dir <目录>`（用现成的前端产物） | `nbdev.panel-serve/v1` |
 | `nbdev panel open` | `--print`（只打印登录链接，不打开浏览器） | `nbdev.panel-open/v1` |
+| `nbdev dev start` | `--checkout <key 或路径>`（缺省调用者所在的 checkout）、`--package`（缺省 `packages/neuro-book`）、`--script`（缺省 `dev`）、`--work <workRef> --task <taskRef>`（日志放进这个 Task）、`--ready-pattern <正则>`、`--ready-timeout <秒>`（缺省 180）、`--grace <秒>`（停时的宽限期，缺省 10）、`--as` | `nbdev.dev-start/v1`（长命令，见“开发服务”） |
+| `nbdev dev status` | `--checkout`、`--package`、`--script`、`--all`（全部 checkout）、`--wait-ready`、`--timeout <秒>` | `nbdev.dev-status/v1` |
+| `nbdev dev stop [<runId>]` | 不给 runId 时按 `--checkout`、`--package`、`--script` 找；`--force`、`--grace <秒>`、`--as` | `nbdev.dev-stop/v1` |
+| `nbdev worktree new <workRef> <taskRef>` | `--slug <短名>`（缺省 Task 的 slug）、`--type`（缺省 `feat`）、`--from`（缺省 `master`）、`--as` | `nbdev.worktree-new/v1` |
+| `nbdev find <词>` | `--in <checkout key 或 all>`（缺省 all）、`--name`（只找文件名，不跑内容搜索，条数与截断只算文件名）、`--limit <n>`（每个 checkout，缺省 20） | `nbdev.find/v1` |
+| `nbdev shot [-- <参数…>]` | `--checkout`、`--package`（缺省 `packages/neuro-book`）、`--work <workRef> --task <taskRef>`、`--url <地址>`；`--` 之后的参数原样交给 `lab:shot` | `nbdev.shot/v1` |
 
 - `workRef` 是完整 id（`w00022-dev-panel`）或编号（`w00022`）；`taskRef` 是完整 id 或编号（`t06`、`t100`）。
 - `<提问>` 写 `<artifactId>#<题号>`；Task 提问集里的题可以只写题号。`--by` 另可写 `<workRef>/<taskRef>/<artifactId>#<题号>` 指向别的 Task。
@@ -52,6 +58,53 @@
 - 写完之后续期调用者在这个 Task 上的租约，再把“谁写的”记进运行时的 provenance（见 [文件格式](file-formats.md#provenance)）；入库的文件里没有会话。
 - 写进记录的文字（标题、目标、说明、备注、文字答复）拒绝 C0 控制字符（允许制表符）；换行只在正文类字段里允许，标题必须是一行。标题报 `invalid_title`，其余报 `invalid_text`（`details.field`）。面板的写接口用同一份规则。
 - 每次写事务在 `git add` 之前重读本次写入的每个文件：与写入的内容不同（别的进程在落位之后又改了它）就不提交，报 `changed_after_write`（`details.writtenPaths`），文件留在工作区；提交里混进了不是这次写的内容时给 `commit_included_foreign_changes`。
+
+### 开发服务、worktree、查找与截图（t14）
+
+**`dev start`** 自己就是监管进程，留在前台，由 Agent 的后台机制托管（Claude Code 的 `run_in_background`、omp 的 `proc://`），会话结束时随会话退出（全局规则“后台与长驻进程”）。要活过会话的服务不在本命令范围内。
+
+- **起法**：在 `<checkout>/<package>` 里运行 `setpriv --pdeathsig TERM -- setsid bun run <script>`。服务的 stdout、stderr 直接是日志文件的描述符，监管进程不在了也不会 BrokenPipe。找不到 `setpriv` 或 `setsid` 报 `tool_missing`，`package.json` 里没有这个脚本报 `script_not_found`，`package.json` 不是合法 JSON 报 `invalid_record`（`details.path`）。
+- **日志**：带 `--work --task` 时是主工作区 `.local/agent/works/<W>/tasks/<T>/logs/<runId>.log`，否则是 `.local/agent/logs/dev/<checkout key>-<runId>.log`，独占创建；不自动清理。
+- **就绪**：
+  - 读日志的新增部分，`\r` 与 `\n` 都算行尾，去掉 ANSI 的 CSI 与 OSC；
+  - 内置两种就绪行：w00017 一系的 `[dev] page-ready <url>`（就绪以随后的 `[dev] backend-ready` 为准），以及 listhen 的 `➜ Local: <url>`（master、nb-ui 与 Lab 的 Nuxt）；`--ready-pattern` 给了就只认它，第一个捕获组是地址；
+  - 认出地址之后 HTTP 探测，2xx、3xx、4xx 算就绪，5xx（nuxi 构建失败时对每个请求回 500）继续探测。
+- **输出**：长命令，不套一次性的外壳。stdout 是按行的事件，`--json` 时每行一个 JSON 对象（`event` 字段）：
+  - `READY <url> run=<runId> [reused] [owner=<会话键>]`（`ready`）；
+  - `NOT_READY <日志> run=<runId> [status=<最后一次的状态码>] [reused]`（`not_ready`）：到 `--ready-timeout` 还没就绪，服务照留、照常监管。监管进程之后照样读日志、探测（探测放慢到 2 秒一次），就绪时补写登记的 `url`、`readyAt`，**再打一行 `READY`**：`NOT_READY` 之后可能还会有 `READY`；
+  - `EXITED <退出码或信号> run=<runId> [leftovers=<n>]`（`exited`）：服务退出，`leftovers` 是组长退出后补收的进程数（快照里与进程组里还活着的，按 pid 去重）。
+  - 起来之前就失败（参数、checkout、脚本、工具）照常输出错误外壳与退出码。
+- **监管进程的退出码**：服务被 `dev stop` 或信号停掉为 0；服务自己退出为 1（`dev_exited`，不论之前有没有就绪）；停完核对不过为 1（`stop_incomplete`）。服务自己的退出码只在 `EXITED` 行里。
+- **复用**：键是（checkout、package、script）。
+  - 只复用组长还活着的同键运行（状态 `starting`、`running`，或 `orphaned` 且原因是 `supervisor_gone`）。`leader_exited`（开发脚本已退、只剩没收掉的进程）的服务早就不在了：先按下面的停法收掉（监管进程不在，按属主判据不要 `--force`），给 `leftovers_stopped`，再起新的；收不干净报 `stop_incomplete`。
+  - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；认出就绪时把 `url`、`readyAt` 写回登记（只在还没有 `readyAt` 时写）。等的时候每秒重读登记，复用的服务在就绪之前结束了就打 `EXITED`（退出码取它登记里的，监管进程还没写时为空）、以 1 退出，不再等满时限；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
+  - 登记里已就绪的，先按就绪的判据探测一次地址：连得上才打 `READY … reused`；连不上报 `dev_unresponsive`（3），不替别人停服务，按提示先 `dev stop` 再起（不是你起的、属主还在要加 `--force`）。
+  - 复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；复用没人监管的（`supervisor_gone`）给 `supervisor_gone`（用完请 `dev stop`）；给的 `--ready-pattern`、`--work --task` 与它起时不同给 `reused_with_different_options`。
+- **停法**（`dev stop`、监管进程收到 SIGTERM、SIGINT、SIGHUP，以及组长自己退出之后的补收，都用同一套）：
+  1. 先写登记的 `stoppingAt`、`stoppedBy`；
+  2. 组长还在就**只给组长发 SIGTERM**（`bun run` 转给开发脚本，按它自己的顺序收口：master 的 source-dev 经 owned-process 收掉另一个会话里的运行时）；组长已不在就给进程组与后代快照里还活着的发 SIGTERM；
+  3. 宽限期内每 250 毫秒重收后代，到期对快照里仍活着、启动时刻对得上的进程逐个 SIGKILL，再对进程组 SIGKILL；
+  4. 快照与进程组都不在、就绪地址连不上才算停干净，否则报 `stop_incomplete`，列出残留的 pid。还有进程没收掉时登记不记为结束，状态是 `orphaned`，可以再 `dev stop`；只是地址仍有回应、我们的进程都不在时照记为结束（见 [文件格式](file-formats.md#进程登记)）。
+
+  只碰登记的组长、它的进程组与收集到的后代快照，每个都核对 pid 与启动时刻；进程组按 [file-formats.md](file-formats.md#进程登记) “还活着”里的判据确认仍是我们那一组才发信号（组号可能已被别的组长复用）；不按命令行文本找进程。Claude Code 的 TaskStop 给整棵树同时发 SIGTERM、约 1.5 秒后整棵 SIGKILL，所以收到信号时先写登记、再发 SIGTERM，剩下的尽力而为。
+- **`dev stop` 与属主**：已结束的（含 PID 被复用、重启过）不发任何信号，只补 `endedAt`，回 `skipped`。下面任一条成立就不要 `--force`：监管进程不在（没人监管）、属主会话已不在、调用者就是属主；否则报 `run_owned_by_other`（`details.owner` 写明属主）。认不出的调用者可以起服务（登记的 `startedBy` 为 null），停这样的、监管进程还在的服务要 `--force`。
+- **`dev status`**：缺省列出调用者所在 checkout 上还活着的与 24 小时内结束的运行，`--all` 列全部 checkout。状态见 [文件格式](file-formats.md#进程登记)。`--wait-ready` 等这份服务就绪，超时报 `dev_not_ready`（退出码 4），没有这份服务报 `run_not_found`。
+
+**`worktree new`**：按 Work 规则“创建与执行”一节建 `.worktree/<Work 编号>-<Task 编号>-<短名>` 与分支 `<type>/<Work 编号>-<Task 编号>-<短名>`。
+
+- `worktree add` 一律用 `/usr/bin/git`，直接起子进程、不经 shell：omp 会接管会话 shell 里的 `git worktree add`。`/usr/bin/git` 不存在报 `git_failed`，不退回 `PATH` 里的 git。其余 Git 调用照旧走 `PATH`。
+- 路径已存在或分支已存在报 `target_exists`（退出码 3，`details` 写明是哪一个），不自动改名、不覆盖；两个会话同时建同一个，后失败的那一个也报 `target_exists`。
+- `--type` 只收根 CONTRIBUTING 的 `feat`、`fix`、`docs`、`refactor`、`test`、`build`、`ci`、`chore`。
+- 建好之后在登记表写这个 Task 的 `home`（绝对路径，先补登登记表里没有的 Task）并续期调用者的租约；写 `home` 失败只给 `home_not_written`，不回滚。**不装依赖**，输出最后一行提示 `cd <路径> && bun install`；Task README 的执行位置由会话自己写。
+
+**`find`**：与面板的搜索同一套实现。记录（Work、Task、产物的编号与标题）加各 checkout 里跟踪的与未被忽略的文件的文件名与内容；每个 checkout 缺省 20 条、合计最多 200 条，截断时 `truncated: true`。没有命中也是退出码 0。
+
+**`shot`**：只做薄包装，截图逻辑全在目标 checkout 的 `lab:shot` 里。
+
+- 地址：`--url`，没有就取这个 checkout 上经 nbdev 起、能复用（判据同 `dev start` 的复用）、已就绪且地址此刻按就绪判据连得上的服务的地址；都没有报 `dev_not_running`（退出码 5）。
+- 输出目录：带 `--work --task` 时是 `.local/agent/works/<W>/tasks/<T>/shots/<UTC 时间>/`，否则是 `.local/agent/shots/<UTC 时间>/`。
+- `TMPDIR` 指到 `/dev/shm/nbdev-shot-<随机>`，跑完删掉：`/tmp` 是带配额的内存盘，Chrome 的临时数据会把它占满。
+- 不注入浏览器路径。`package.json` 里没有 `lab:shot` 报 `shot_unavailable`（3），`package.json` 不是合法 JSON 报 `invalid_record`（1，`details.path`）；`lab:shot` 失败报 `shot_failed`（1），带它 stderr 的末尾。
 
 ### 会话与租约
 
@@ -108,11 +161,11 @@ stdout 只有一个对象，诊断走 stderr：
 | 退出码 | 含义 | 错误码 |
 |---|---|---|
 | 0 | 成功，含带警告的成功与撞号 | |
-| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`request_aborted`、`herdr_unavailable`、`systemctl_failed`、`journalctl_failed`、`internal` |
+| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`request_aborted`、`herdr_unavailable`、`systemctl_failed`、`journalctl_failed`、`dev_exited`、`stop_incomplete`、`tool_missing`、`shot_failed`、`internal` |
 | 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`invalid_text`、`invalid_record_edit`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host`、`payload_too_large`、`unsupported_media_type`、`key_not_allowed` |
-| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use`、`audit_unavailable`、`session_changed`、`not_deliverable`、`agent_busy`、`not_in_repository`、`key_rate_limited`、`service_exists`、`pane_controlled`（这格正被你在面板里接管键盘，t12）、`history_unavailable`（只有 omp 能读更早的输出，t12） |
-| 4 | 等待没有结果（`answers --wait`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted` |
-| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`service_not_installed`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers`、`panel_not_running` |
+| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use`、`audit_unavailable`、`session_changed`、`not_deliverable`、`agent_busy`、`not_in_repository`、`key_rate_limited`、`service_exists`、`pane_controlled`（这格正被你在面板里接管键盘，t12）、`history_unavailable`（只有 omp 能读更早的输出，t12）、`run_owned_by_other`、`dev_unresponsive`、`shot_unavailable` |
+| 4 | 等待没有结果（`answers --wait`、`dev status --wait-ready`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted`、`dev_not_ready` |
+| 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`service_not_installed`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers`、`panel_not_running`、`run_not_found`、`script_not_found`、`dev_not_running` |
 
 ## 警告
 
@@ -170,6 +223,15 @@ stdout 只有一个对象，诊断走 stderr：
 | `schema_unsupported` | 读列表时遇到不认识主版本的文件，已跳过 |
 | `audit_write_failed` | 面板：写仓库成功了，但审计初始化过却写不进去（权限、属主不对），这次没记上 |
 | `unreadable_notify_record` | 面板：某份通知的尝试记录读不出或格式不对，已跳过（只影响去重与历史） |
+| `reused_other_owner` | `dev start` 复用了别的会话（或认不出的调用者）起的服务：它随属主的会话结束而停 |
+| `reused_with_different_options` | `dev start` 复用了已在跑的服务，给的 `--ready-pattern`、`--work --task` 与它起时不同、没有生效（`details.differences`） |
+| `unreadable_proc_record` | 某份进程登记读不出或格式不对，已跳过 |
+| `proc_record_write_failed` | `dev start` 收到信号时没能写登记（之后的读者按 `supervisor_killed` 判） |
+| `supervisor_gone` | `dev start` 复用了监管进程已不在的服务：没有人监管它，用完请 `dev stop` |
+| `leftovers_stopped` | `dev start` 先收掉了同键的残留（开发脚本已退、只剩没收掉的进程），再起新的 |
+| `proc_snapshot_failed`、`ready_watch_failed` | 监管进程记后代快照、读日志认就绪时出错（诊断用） |
+| `stop_incomplete` | 监管进程收尾时还有进程没收掉（`details.leftoverPids`）；`dev stop` 遇到同样情形报同名错误 |
+| `home_not_written` | `worktree new` 建好了 worktree，但没能在登记表写 `home` |
 
 ## `answers --wait`
 

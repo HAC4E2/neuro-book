@@ -168,8 +168,8 @@ export class Notifier {
 
     private deliveryContext(): DeliveryContext | null {
         if (!this.options.client) return null;
-        const {controls} = this.options;
-        return {client: this.options.client, repoRoots: this.options.state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root), controlled: (terminalId) => controls.isControlled(terminalId)};
+        const {controls, state} = this.options;
+        return {client: this.options.client, repoRoots: state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root), controlled: (terminalId) => controls.isControlled(terminalId), watchStatus: (paneId) => state.herdr.watchStatus(paneId)};
     }
 
     private async once(): Promise<void> {

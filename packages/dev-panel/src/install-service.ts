@@ -44,8 +44,11 @@ function execArg(value: string): string {
     return /[\s"'\\]/u.test(escaped) ? `"${escaped.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"` : escaped;
 }
 
-/** `herdrBin`：安装时找到的 herdr 绝对路径（终端流的子进程要它；用户管理器的 `PATH` 不保证有 `~/.local/bin`），找不到为 null。 */
-export function serviceUnit(input: {mainRoot: string; bun: string; port: number; artifactPort: number; herdrBin: string | null}): string {
+/**
+ * `herdrBin`、`ghBin`：安装时找到的 herdr 与 gh 的绝对路径（终端流的子进程要 herdr，GitHub 页要 gh）；找不到为 null。
+ * 用户管理器的 `PATH` 不保证有 `~/.local/bin`：开机后、登录前由它拉起的面板，`PATH` 只有缺省几项（t14 设计审查 I5）。
+ */
+export function serviceUnit(input: {mainRoot: string; bun: string; port: number; artifactPort: number; herdrBin: string | null; ghBin: string | null}): string {
     const unit = serviceUnitName(input.mainRoot);
     const cli = join(input.mainRoot, "packages", "dev-panel", "src", "cli.ts");
     return [
@@ -60,6 +63,7 @@ export function serviceUnit(input: {mainRoot: string; bun: string; port: number;
         `WorkingDirectory=${unitValue(input.mainRoot)}`,
         `Environment=NBDEV_PANEL_UNIT=${unit}`,
         input.herdrBin === null ? "# 安装时找不到 herdr：要网页终端就加一行 Environment=NBDEV_HERDR_BIN=<herdr 的绝对路径>" : `Environment=${execArg(`NBDEV_HERDR_BIN=${input.herdrBin}`)}`,
+        input.ghBin === null ? "# 安装时找不到 gh：要 GitHub 页就加一行 Environment=NBDEV_GH_BIN=<gh 的绝对路径>" : `Environment=${execArg(`NBDEV_GH_BIN=${input.ghBin}`)}`,
         `ExecStart=${[input.bun, cli, "panel", "serve", "--port", String(input.port), "--artifact-port", String(input.artifactPort)].map(execArg).join(" ")}`,
         "Restart=on-failure",
         "RestartSec=5",
@@ -137,7 +141,7 @@ export async function installService(argv: readonly string[], io: CliIo): Promis
         const artifactPort = portOption(values["artifact-port"], 4401, "artifact-port");
         const cliPath = join(mainRoot, "packages", "dev-panel", "src", "cli.ts");
         if (!await readIfExists(cliPath)) throw new NbdevError("shim_target_not_found", `主工作区里没有 nbdev：${cliPath}`, {details: {mainRoot, cliPath}});
-        const content = serviceUnit({mainRoot, bun: process.execPath, port, artifactPort, herdrBin: io.env.NBDEV_HERDR_BIN && isAbsolute(io.env.NBDEV_HERDR_BIN) ? io.env.NBDEV_HERDR_BIN : Bun.which("herdr")});
+        const content = serviceUnit({mainRoot, bun: process.execPath, port, artifactPort, herdrBin: io.env.NBDEV_HERDR_BIN && isAbsolute(io.env.NBDEV_HERDR_BIN) ? io.env.NBDEV_HERDR_BIN : Bun.which("herdr"), ghBin: io.env.NBDEV_GH_BIN && isAbsolute(io.env.NBDEV_GH_BIN) ? io.env.NBDEV_GH_BIN : Bun.which("gh")});
         const commands = [["daemon-reload"], ["enable", "--now", unit]];
         if (existing?.kind === "other") throw new NbdevError("service_exists", `${unitPath} 不是普通文件（目录或符号链接），不覆盖`, {details: {unitPath}});
         if (existing && !ours && !values.force) throw new NbdevError("service_exists", `${unitPath} 已存在且不是本脚本写的；确认覆盖时加 --force`, {details: {unitPath}});

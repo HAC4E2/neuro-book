@@ -76,8 +76,9 @@ const fakeClaude = async (env: Record<string, string>): Promise<ClaudeIdentity |
     return {sessionId, process: {pid: Number(env.CLAUDE_PID), startTicks: "1"}, parentSessionId: null, nestedSessionId: null};
 };
 
-async function synthetic(panes: PaneProcesses[] | null) {
+async function synthetic(panes: PaneProcesses[] | null, exclude?: ReadonlySet<number>) {
     return discoverRuns({
+        exclude,
         processes: PROCESSES,
         checkoutRoots: [REPO, `${REPO}/.worktree/w00005-a`, `${REPO}/.worktree/w00017-a`],
         selfPid: 801,
@@ -112,6 +113,11 @@ describe("运行的发现与归属（合成进程表）", () => {
         // 被忽略的根：codex（200）、bg-pty-host（300，后台会话 301 并在它下面）、daemon（303）、spare（304）、VS Code（700）。
         expect(ignored).toBe(5);
         expect(runs[0]?.startedAt).toBe(new Date((1_790_000_000 + 102) * 1000).toISOString());
+    });
+
+    test("经 nbdev 起的运行（排除集里的 pid 出现在根或任何后代里）整棵不算（t14 设计审查 S7）", async () => {
+        const {runs} = await synthetic(PANES, new Set([103, 950]));
+        expect(runs.map((run) => run.pid)).toEqual([302, 403, 501, 600, 610]);
     });
 
     test("herdr 不可用时只按 Claude 的工具标记归属，其余没有 pane 可查", async () => {

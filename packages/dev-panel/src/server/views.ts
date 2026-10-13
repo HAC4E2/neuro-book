@@ -11,6 +11,7 @@ import {isNbdevError, systemErrorCode, type Warning} from "../core/errors.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
 import {withActivity, type ProjectStatus, type TaskView, type WorkView} from "../core/status.js";
+import {matchRecords} from "../core/search.js";
 import {readTaskDetail} from "../core/task-detail.js";
 import type {PanelState} from "./state.js";
 
@@ -77,6 +78,8 @@ export function overviewView(state: PanelState): {data: unknown; warnings: Warni
             inbox: status.inbox.map((item) => (item.kind === "question" ? {...item, askerActive: item.askedBy === null ? null : validKeys.has(item.askedBy)} : item)),
             nextWorkNumber: status.nextWorkNumber,
             sessions: {total: activity.sessions.length, byStatus: statusCounts, unownedRuns: activity.unownedRuns.length, herdr: {available: herdr.available, mode: herdr.mode}},
+            // 左栏“在跑”的数：经 nbdev 起、还没结束的服务加无主的运行（t14）。
+            runs: (state.activity.part.value?.procs ?? []).filter((run) => run.state !== "ended").length + activity.unownedRuns.length,
         },
         warnings,
     };
@@ -329,15 +332,7 @@ export function sessionsView(state: PanelState): {data: unknown; warnings: Warni
 export function recordMatches(state: PanelState, q: string): Array<Record<string, unknown>> {
     const lower = q.toLowerCase();
     const has = (text: string | null | undefined) => typeof text === "string" && text.toLowerCase().includes(lower);
-    const matches: Array<Record<string, unknown>> = [];
-    for (const work of state.records.part.value?.records.works ?? []) {
-        if (has(work.workId) || has(work.title)) matches.push({kind: "work", workId: work.workId, title: work.title});
-        for (const task of work.tasks) {
-            if (has(task.taskId) || has(task.title)) matches.push({kind: "task", workId: work.workId, taskId: task.taskId, title: task.title});
-            for (const artifact of task.artifacts) if (has(artifact.artifactId) || has(artifact.title)) matches.push({kind: "artifact", workId: work.workId, taskId: task.taskId, artifactId: artifact.artifactId, title: artifact.title});
-        }
-        for (const artifact of work.artifacts) if (has(artifact.artifactId) || has(artifact.title)) matches.push({kind: "artifact", workId: work.workId, taskId: null, artifactId: artifact.artifactId, title: artifact.title});
-    }
+    const matches: Array<Record<string, unknown>> = [...matchRecords({works: state.records.part.value?.records.works ?? []}, q)];
     for (const session of state.activity.part.value?.activity.sessions ?? []) {
         if (has(session.key) || has(session.label)) matches.push({kind: "session", key: session.key, label: session.label});
     }

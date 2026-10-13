@@ -121,7 +121,9 @@ const herdrLabel = computed(() => {
                 <section class="flex flex-col gap-0.5">
                     <h2 class="nav-heading">现场</h2>
                     <RouterLink to="/live/sessions" class="nav-item" active-class="nav-active"><span class="i-lucide-terminal size-4" aria-hidden="true" />会话<span v-if="overview.data.value" class="ml-auto" style="color: var(--text-muted); font-size: var(--text-xs)">{{ overview.data.value.sessions.total }}</span></RouterLink>
+                    <RouterLink to="/live/runs" class="nav-item" active-class="nav-active"><span class="i-lucide-activity size-4" aria-hidden="true" />在跑<span v-if="overview.data.value" class="ml-auto" style="color: var(--text-muted); font-size: var(--text-xs)">{{ overview.data.value.runs }}</span></RouterLink>
                     <RouterLink to="/live/checkouts" class="nav-item" active-class="nav-active"><span class="i-lucide-git-fork size-4" aria-hidden="true" />checkout</RouterLink>
+                    <RouterLink to="/live/github" class="nav-item" active-class="nav-active"><span class="i-lucide-git-pull-request size-4" aria-hidden="true" />GitHub</RouterLink>
                 </section>
             </nav>
         </aside>
@@ -154,7 +156,9 @@ const herdrLabel = computed(() => {
                 <RouterLink to="/artifacts" class="nav-item">产物</RouterLink>
                 <RouterLink to="/docs" class="nav-item">文档</RouterLink>
                 <RouterLink to="/live/sessions" class="nav-item">会话</RouterLink>
+                <RouterLink to="/live/runs" class="nav-item">在跑</RouterLink>
                 <RouterLink to="/live/checkouts" class="nav-item">checkout</RouterLink>
+                <RouterLink to="/live/github" class="nav-item">GitHub</RouterLink>
             </nav>
         </Drawer>
     </div>

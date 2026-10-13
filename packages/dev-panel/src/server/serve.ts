@@ -10,13 +10,15 @@ import {allowedHosts, contentType, decodePath, guardedFile, rejectForwarded, rej
 import {PanelState, type PartName} from "./state.js";
 import {assertMainWritable} from "../core/repo.js";
 import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
-import {createWriteHandler} from "./writes.js";
+import {createWriteHandler, readFields, statusOf} from "./writes.js";
 import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
 import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
 import {ControlRegistry} from "./control-registry.js";
 import {newConnectionId, TerminalHub, type TerminalSocketData, type TerminalTimings} from "./terminal-hub.js";
 import {resolveTerminalTools} from "./terminal-stream.js";
 import {createSessionIo} from "./session-io.js";
+import {GithubCache} from "./github.js";
+import {CheckoutStatusCache, checkoutsView, githubView, runsView} from "./live-views.js";
 
 /**
  * 面板服务：两个来源（`Bun.serve` 各一个）。
@@ -129,10 +131,12 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     const sessionIo = createSessionIo({state, notifier, locks, controls, audit, client: options.herdr, envelope, log});
     const terminalTools = resolveTerminalTools(options.env, options.herdr?.socketPath ?? null, (name) => Bun.which(name));
     if (!terminalTools.available) log(`网页终端不可用：${terminalTools.reason}`);
+    const github = new GithubCache({cwd: context.mainRoot, env: options.env, hasClients: () => state.hasClients(), onChanged: () => state.githubChanged(), log});
+    const checkoutStatuses = new CheckoutStatusCache();
     const terminals = new TerminalHub({state, client: options.herdr, tools: terminalTools, audit, notifier, locks, controls, log, timings: options.terminalTimings});
-    // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转）。
+    // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转；GitHub 的数据与通知无关）。
     const stopNotifyTrigger = state.onChange((part) => {
-        if (part !== "notify" && ready) void notifier.tick();
+        if (part !== "notify" && part !== "github" && ready) void notifier.tick();
     });
     const serviceUnit = options.env.NBDEV_PANEL_UNIT && /^[A-Za-z0-9@._-]{1,128}$/u.test(options.env.NBDEV_PANEL_UNIT) ? options.env.NBDEV_PANEL_UNIT : null;
 
@@ -222,6 +226,19 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 return envelope(data, warnings, null);
             }
             if (route === "search" && rest.length === 0) return search(req, url);
+            if (route === "runs" && rest.length === 0) {
+                const {data, warnings} = runsView(state);
+                return envelope(data, warnings, null);
+            }
+            if (route === "checkouts" && rest.length === 0) {
+                const {data, warnings} = await checkoutsView(state, checkoutStatuses);
+                return envelope(data, warnings, null);
+            }
+            // 只读当前这一份，不触发取数：页面收到“github 变了”就重取这里（t14 实现审查 B1）。
+            if (route === "github" && rest.length === 0) {
+                const {data, warnings} = githubView(state, github.current());
+                return envelope(data, warnings, null);
+            }
             const handled = await sessionIo(req, segments, url);
             if (handled) return handled;
             return notFound();
@@ -324,6 +341,21 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         }
         if (req.method !== "GET" && req.method !== "HEAD") {
             if (!sameOrigin || !equalSecret(req.headers.get("x-nbdev-csrf"), csrf)) return plain(403, "forbidden：跨来源的写请求，或缺少 CSRF 令牌");
+            if (segments[0] === "api" && req.method === "POST" && segments.length === 3 && segments[1] === "github" && segments[2] === "refresh") {
+                // 只是让面板重取一次 GitHub 的只读数据，不经 gh 写任何东西。`ifStale`：页面打开时发，到了间隔才取、不等结果；
+                // 不带是“刷新”按钮，立即取并等结果。
+                let fields: Record<string, unknown>;
+                try {
+                    fields = await readFields(req, 1024, {ifStale: {type: "boolean"}});
+                } catch (error) {
+                    if (!isNbdevError(error)) throw error;
+                    return envelope(null, [], {code: error.code, message: error.message, details: error.details}, statusOf(error));
+                }
+                if (fields.ifStale === true) github.touch();
+                else await github.refresh();
+                const {data, warnings} = githubView(state, github.current());
+                return envelope(data, warnings, null);
+            }
             if (segments[0] === "api") return (await sessionIo(req, segments, url)) ?? writes(req, segments, url);
             return plain(405, "method_not_allowed：这里没有写接口");
         }
@@ -436,6 +468,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             // 预热进行中收到退出信号时，收口已经做过：不再挂监视与定时器，否则进程收口后还活着。
             if (state.stopped) return false;
             state.watchAll();
+            github.start();
             ready = true;
             notifier.start();
             for (const ws of sockets) ws.send(JSON.stringify({type: "changed", instance: state.instanceId, parts: ["records", "activity", "sessions"], revisions: state.revisions()}));
@@ -448,6 +481,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             // 先释放网页终端的接管（改回尺寸、写释放行）、收掉终端流，再等进行中的投递结束（有上限），最后停监视：
             // 投递途中退出会留下只有意图的记录。
             await terminals.stop();
+            github.stop();
             await notifier.stop();
             state.stop();
             for (const ws of sockets) ws.close(1001, "面板退出");
