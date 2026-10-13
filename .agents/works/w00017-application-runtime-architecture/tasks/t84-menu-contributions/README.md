@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t84-menu-contributions
-status: active
+status: done
 updated: 2026-10-13
 ---
 
@@ -34,6 +34,6 @@ t83 验收反馈第 7 条：开发者问菜单系统做了没有，记得旧应�
 - S6：全套 e2e 199 例全过；`lab:shot` 的 `TitleActions` 各场景问题 0 条；Spec 证据已补（`f8a8cb083`），`menus.md` 在注册表标“待晋升”，晋升待开发者批准。
 - 实现审查（omp）4 条全部属实，修正在 `eed97eb4e`，逐条见 [evidences/implementation-review.md](evidences/implementation-review.md)，任务说明与报告原文在 [artifacts/omp-impl-review](artifacts/omp-impl-review/)。修正后 `test:affected --typecheck` 中 bun 1124 例、组件测试 208 例全过，全套 e2e 199 例全过。
 
-## 下一步
+## 收尾（2026-10-13）
 
-交开发者：`menus.md` 是否晋升 `implemented`；分支 `feat/w00017-t84-menu-contributions` 何时合回 `refactor/w00017-runtime-foundation`。
+开发者批准 `menus.md` 晋升 `implemented`（`78df16c58`，补“实现合同”一节），并同意合回：已合进 `refactor/w00017-runtime-foundation`（`e4cbd1248`，树与 t84 分支一致；全套验证在 `eed97eb4e` 上跑过，之后只改了 Spec），已推送。
