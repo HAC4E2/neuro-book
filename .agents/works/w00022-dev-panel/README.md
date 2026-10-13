@@ -31,6 +31,7 @@ status: active
 - 实现 Task 严格先后依赖，共用一条集成分支 `feat/w00022-dev-panel`（worktree `.worktree/w00022-dev-panel`，从 `master` 分出）；互相独立的切片另开 worktree，再合回集成分支。
 - 集成分支每次提交后 push 到 `origin` 作备份；合入 `master` 要开发者授权。
 - 主会话调度，编码交给 opus 子代理；主会话审查 diff、自跑验证。
+- **push `master` 之前必做**（开发者 2026-10-13 定）：本地 `master` 从 `2cca6d3fa`（2026-10-12 23:58）起的历史里有本机另外两个账户的用户名，出现在 t09、t10 的几份记录与审查报告里；当前版本已删，历史里还在。push `master` 之前，按[仓库维护流程](../../../docs/standards/repository-workflow.md)里“本地未推送历史含隐私”那一段重写这段历史，并按新旧对照表更新记录里引用的 `master` 提交号（例如合并提交 `3ef00987a`、`8b44f60ca`、`23f604ebf`）。查找命令：`git log -G '<用户名>' master`，用户名用 `getent passwd 1001 1002` 查。
 
 ## Task
 
