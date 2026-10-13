@@ -14,14 +14,16 @@
 
 - **修回归**：t79 在外壳根上设 `--nb-splitter-seam: var(--shell-seam, var(--divider))`，继承进了卡片里的容器分栏，nbook 下分栏边界透明。改为只作用在外壳网格自己的边界上（外壳网格的分隔条带外壳的标记，按标记设），容器分栏另取主题变量 `--shell-pane-divider`（nbook 是 `--divider`；macos 不声明，回落到贯穿的接缝）。
 - **开放式分割线**：nb-ui `Splitter` 的接缝加一个变量 `--nb-splitter-seam-inset`（沿长轴两端各缩进多少，缺省 0）；nbook 的容器分栏设 10px（横排的竖线）与 12px（竖排的横线），同活动栏与侧栏之间那条短线。命中区不变。
-- **紧凑的展开标记**：箭头 14px、不画按钮框，标题行左边距 6px；面板里收成 32px 的竖条，箭头同样 14px。
+- **紧凑的展开标记**（第三轮 R3-2）：箭头 12px、不画按钮框、与图标间距 2px，标题行左边距 8px；悬停底色左右各留 4px、上下各留 3px，圆角 6px，不贴满整行。面板里收成 32px 的竖条同理，箭头 12px，悬停底色四周留 3px。
 - **整行收起**：标题行除动作区外整行是一个可点的区域：点击切换收起（按下到松开移动不超过 6px 才算点击，超过就是拖动，与现有拖动门槛一致）；收起的竖条与标题行整条可点展开。键盘：标题行可聚焦，Enter 切换收起，空格仍是拿起拖动（外壳三输出 23）。现有的箭头按钮保留为同一个动作的可见标记，不再单独占 Tab 停留。
 - **全部收起时的剩余区**：容器里可见视图全部收起时，剩余区显示与空 Part 同一种淡色占位（第 2 节）。
 
 ### 1a. 拖动边界的悬停线（nb-ui `Splitter.vue`、`sash-feedback.ts`，`themes/nbook/vars.css`）
 
 - 悬停与拖动时的线走主题变量：`--nb-sash-line-color`（缺省 `--accent-main`）、`--nb-sash-line-size`（缺省 3px，与现在的几何一致）、`--nb-sash-line-inset`（沿长轴两端缩进，缺省 0）、`--nb-sash-line-radius`（缺省 0），登记进 token 表。几何仍由 `sashBandBox` 算，厚度与缩进从变量读。
-- nbook 卡片主题：2px、强调色 80%、缩进 16px（缝加卡片圆角）、圆头；macos 平铺不声明，保持现在的样子。
+- 自由端与相交端分开（第三轮 R3-1）：只有自由端（碰到容器边缘的一端）按 `--nb-sash-line-inset` 缩进，碰到另一条边界的一端照旧连着，相交处成 T 形或十字形。线的两端是不是自由端由渲染器按网格结构判断（边界的两端是否落在别的边界上）。
+- 发光：`--nb-sash-line-glow`（缺省 none），nbook 设成 `--focus-ring`，线芯 1px 强调色 85%，与输入框聚焦同源。
+- nbook 卡片主题：线芯 1px、发光、自由端缩进 16px（缝加卡片圆角）；macos 平铺不声明，保持现在的样子。
 
 ### 2. 空区域与高亮（`components/WorkbenchToolPartHost.vue`，nb-ui `styles.css`、`themes/nbook/vars.css`）
 
