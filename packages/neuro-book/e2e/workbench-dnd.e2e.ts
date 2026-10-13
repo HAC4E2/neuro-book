@@ -393,6 +393,35 @@ test.describe("产品页：拖放", () => {
         await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
     });
 
+    test("全部收起时键盘也能插在标题之间：Tab 到内容区后方向键经过每条标题之前与最后，Enter 插入并展开", async ({page}) => {
+        await open(page);
+        await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        for (const id of [A, B]) await page.locator(`[data-view-section="${id}"] [data-view-toggle]`).click();
+        for (const id of [A, B]) await settledStrip(page, id);
+        const label = page.locator("[data-drop-feedback-label]");
+        const labelText = () => page.evaluate(async () => {
+            await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+            return document.querySelector("[data-drop-feedback-label]")?.textContent ?? "";
+        });
+        await tabOf(page, "panel", `view:${E}`).focus();
+        await page.keyboard.press("Space");
+        await expect(ghost(page)).toBeVisible();
+        for (let step = 0; step < 8 && !(await labelText()).startsWith("放在"); step += 1) await page.keyboard.press("Tab");
+        // Tab 进区域时停在第一个位置；依次经过：甲之前、乙之前、乙之后
+        const seen: string[] = [];
+        for (let step = 0; step < 3; step += 1) {
+            seen.push((await labelText()).trim());
+            await page.keyboard.press("ArrowDown");
+        }
+        expect(seen).toEqual(["放在“样例甲”前", "放在“样例乙”前", "放在“样例乙”后"]);
+        // 末尾再按下也停在最后；往回一格是乙之前
+        await page.keyboard.press("ArrowUp");
+        await expect(label).toHaveText("放在“样例乙”前");
+        await page.keyboard.press("Enter");
+        await expect.poll(() => host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-view-section")))).toEqual([A, E, B]);
+        await expect(page.locator(`[data-view-section="${E}"]`)).toHaveAttribute("data-view-collapsed", "false");
+    });
+
     test("一个展开、其余收起：拖到收起分栏的前半插在它前面、不拆细条；挨着展开的分栏时与它平分", async ({page}) => {
         await open(page);
         await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));

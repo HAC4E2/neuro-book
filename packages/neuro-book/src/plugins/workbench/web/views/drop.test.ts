@@ -227,6 +227,21 @@ describe("内容区", () => {
             expect([next.views?.["t.a"]?.collapsed, next.views?.["t.b"]?.collapsed]).toEqual([undefined, true]);
         });
 
+        it("整容器插到收起栏旁、挨着展开的分栏：拖入的可见成员都展开，连同原来收起的一起与它平分", () => {
+            // 来源：面板里丁展开、戊收起；目标：侧栏甲展开、乙收起
+            let both = applies(applies(merged, {kind: "set-view-collapsed", viewId: "t.b", collapsed: true}), {kind: "move-view", viewId: "t.e", sourceContainerId: "view:t.e", targetContainerId: "view:t.d"});
+            both = applies(both, {kind: "set-view-collapsed", viewId: "t.e", collapsed: true});
+            const layout = {containerId: "view:t.a", rect: rect(60, 0, 400, 400), members: [{id: "t.a", rect: rect(60, 0, 400, 367)}, {id: "t.b", rect: rect(60, 368, 400, 400)}]};
+            // 来源量得到：丁 400px 宽，戊是 32px 竖条（不是它的份额，按尺寸意图 240 算）
+            const sourceContent = {containerId: "view:t.d", rect: rect(100, 600, 533, 800), members: [{id: "t.d", rect: rect(100, 600, 500, 800)}, {id: "t.e", rect: rect(501, 600, 533, 800)}]};
+            const decision = resolveDrop(input(both, {kind: "container", containerId: "view:t.d", part: "panel", viewIds: ["t.d", "t.e"]}, target, {x: 100, y: 375}, {content: layout, sourceContent}));
+            expect(decision).toMatchObject({kind: "commit", intent: {kind: "merge-container", expand: true, split: {hitViewId: "t.a", side: "after", sourceSizes: {"t.d": 400, "t.e": 240}}}});
+            const next = applies(both, (decision as {intent: ViewIntent}).intent);
+            expect(world(next).placement.containers.get("view:t.a")?.members).toEqual(["t.a", "t.d", "t.e", "t.b"]);
+            expect([next.views?.["t.a"]?.height, next.views?.["t.d"]?.height, next.views?.["t.e"]?.height]).toEqual([120, 75, 45]);
+            expect([next.views?.["t.d"]?.collapsed, next.views?.["t.e"]?.collapsed, next.views?.["t.b"]?.collapsed]).toEqual([undefined, undefined, true]);
+        });
+
         it("整容器落在收起的分栏之间：整组并入插入位并展开", () => {
             const decision = resolveDrop(input(bothCollapsed, {kind: "container", containerId: "view:t.d", part: "panel", viewIds: ["t.d"]}, target, {x: 100, y: 40}, {content: strips}));
             expect(decision).toMatchObject({kind: "commit", intent: {kind: "merge-container", beforeViewId: "t.b", expand: true}, preview: {count: 1, insertion: {viewId: "t.b", side: "before"}}});

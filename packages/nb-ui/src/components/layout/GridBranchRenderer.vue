@@ -46,14 +46,26 @@ function slotName(id: string): string {
 /**
  * 子节点的四边：沿本分支主轴，第一个以后的子节点前边挨着本分支的分隔线、最后一个以前的后边也是，其余边沿用本分支的。
  * 本分支自己的分隔线横穿交叉轴，两端就是本分支交叉轴上的两条边：悬停线据此判断一端是连着外层的线还是自由端。
+ *
+ * 0px 的边界没有线、也不会亮：它和它那一侧的兄弟都是 0 时，子节点这条边其实就是本分支的边，沿用外层的；那一侧的
+ * 兄弟有尺寸时，挨着的是兄弟的内容，这一端是自由端。
  */
 function childEdges(index: number): BranchEdges {
     const id = branch.value?.id;
-    const before = id !== undefined && index > 0 ? `${id}:${index - 1}` : null;
-    const after = id !== undefined && index < children.value.length - 1 ? `${id}:${index}` : null;
-    return axis.value === "width"
-        ? {...props.edges, left: before ?? props.edges.left, right: after ?? props.edges.right}
-        : {...props.edges, top: before ?? props.edges.top, bottom: after ?? props.edges.bottom};
+    const sashes = id === undefined ? [] : props.layout.sashSizes[id] ?? [];
+    const main = (child: GridNode<unknown>): number => {
+        const size = props.layout.sizes[child.id];
+        return size === undefined ? 0 : axis.value === "width" ? size.width : size.height;
+    };
+    const edge = (sash: number, siblings: GridNode<unknown>[], outer: string | null): string | null => {
+        if ((sashes[sash] ?? 0) > 0) return `${id}:${sash}`;
+        return siblings.every((sibling) => main(sibling) <= 0) ? outer : null;
+    };
+    const outerBefore = axis.value === "width" ? props.edges.left : props.edges.top;
+    const outerAfter = axis.value === "width" ? props.edges.right : props.edges.bottom;
+    const before = id !== undefined && index > 0 ? edge(index - 1, children.value.slice(0, index), outerBefore) : outerBefore;
+    const after = id !== undefined && index < children.value.length - 1 ? edge(index, children.value.slice(index + 1), outerAfter) : outerAfter;
+    return axis.value === "width" ? {...props.edges, left: before, right: after} : {...props.edges, top: before, bottom: after};
 }
 
 const sashLineEnds = computed(() => axis.value === "width"

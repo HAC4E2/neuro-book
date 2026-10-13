@@ -162,16 +162,31 @@ test("逐级让位：从 1440 收到 390 依次收起横排标志、菜单栏、
     }
     expect(Object.keys(firstWidth).map(Number).sort()).toEqual([0, 1, 2, 3, 4, 5]);
 
-    // 收成 ≡ 后（M1）：一组一行，方向键展开子菜单
+    // 收成 ≡ 后（M1）：一组一行；键盘与指针都能进子菜单执行命令
     await page.setViewportSize({width: firstWidth[2]!, height: 700});
     await expect.poll(levelAt).toBe(2);
-    await live("button[data-titlebar-menu-entry]").click();
+    // 侧栏隐藏时它的叶不在了：直接在页面里读，不等元素出现
+    const sidebarShown = () => page.evaluate(() => (document.querySelector('[data-leaf="sidebar"]')?.getBoundingClientRect().width ?? 0) > 0);
+    expect(await sidebarShown()).toBe(true);
+    await live("button[data-titlebar-menu-entry]").focus();
+    await page.keyboard.press("Enter");
     const rows = openMenu(page).getByRole("menuitem");
     await expect(rows).toHaveText(["文件", "编辑", "视图", "帮助"]);
-    await rows.nth(2).hover();
-    await expect(page.getByRole("menuitemcheckbox", {name: "侧栏"})).toBeVisible();
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
+    await rows.nth(2).focus();
+    await page.keyboard.press("ArrowRight");
+    const toggleSidebar = page.getByRole("menuitemcheckbox", {name: "侧栏"});
+    await expect(page.getByRole("menuitem", {name: "命令面板"})).toBeFocused();
+    for (let step = 0; step < 6 && !(await toggleSidebar.evaluate((element) => element === document.activeElement)); step += 1) await page.keyboard.press("ArrowDown");
+    await expect(toggleSidebar).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect.poll(sidebarShown).toBe(false);
+    await expect(openMenu(page)).toHaveCount(0);
+    // 指针：悬停展开子菜单，点子项
+    await live("button[data-titlebar-menu-entry]").click();
+    await openMenu(page).getByRole("menuitem", {name: "视图"}).hover();
+    await page.getByRole("menuitemcheckbox", {name: "侧栏"}).click();
+    await expect.poll(sidebarShown).toBe(true);
+    await expect(openMenu(page)).toHaveCount(0);
 
     // 回差：从刚收起菜单栏的宽度往回放宽，不到 40px 不放，够了才放
     await page.setViewportSize({width: firstWidth[2]! + 30, height: 700});

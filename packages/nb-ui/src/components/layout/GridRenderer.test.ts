@@ -402,6 +402,39 @@ describe("命中结果映射到分界线的状态", () => {
             inner: {start: "mid:0", end: null},
         });
     });
+
+    it("0px 边界没有线：它那一侧的兄弟也是 0 时沿用外层的边，兄弟有尺寸时是自由端", () => {
+        // root 横排 [left | right]，right 横排 [zero(0px) | stack]、二者之间 0px；stack 竖排 [a | b]
+        const tree = (zeroWidth: number) => createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "horizontal",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "zero", ref: "zero", size: {width: zeroWidth, height: 0}, ...(zeroWidth === 0 ? {minimumSize: {width: 0, height: 0}, maximumSize: {width: 0, height: Number.POSITIVE_INFINITY}, sizing: "fixed" as const} : {})},
+                        {kind: "branch", id: "stack", orientation: "vertical", size: {width: 699 - zeroWidth, height: 0}, children: [
+                            {kind: "leaf", id: "a", ref: "a", size: {width: 0, height: 300}},
+                            {kind: "leaf", id: "b", ref: "b", size: {width: 0, height: 299}},
+                        ]},
+                    ],
+                },
+            ],
+        }, {sashSize: (branchId) => (branchId === "right" ? 0 : SASH)});
+        const endsOf = (grid: Grid<string>) => {
+            const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+            return Object.fromEntries(wrapper.findAllComponents(Splitter).map((splitter) => [splitter.props("branchId"), splitter.props("sashLineEnds")]));
+        };
+        // 0px 的兄弟：stack 的横线左端其实挨着根的竖线
+        expect(endsOf(tree(0)).stack).toEqual({start: "root:0", end: null});
+        // 兄弟有 120px：左端挨着的是兄弟的内容，没有线
+        expect(endsOf(tree(120)).stack).toEqual({start: null, end: null});
+    });
 });
 
 describe("拖动期间的预览布局", () => {

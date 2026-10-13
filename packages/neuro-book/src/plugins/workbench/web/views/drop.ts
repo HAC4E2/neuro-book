@@ -180,15 +180,17 @@ function sizesAlong(orientation: GridOrientation, members: ReadonlyArray<GridDro
 
 /**
  * 来源比例：先用来源容器的实测几何（覆盖全部要搬的可见成员时），量不出来（来源停在停放区）退到尺寸意图（没记录过
- * 取 240）。只当比例用。
+ * 取 240）。只当比例用。收起的成员量到的是 32px 细条，不是它的份额：它要在落点展开时（插到收起栏旁）按尺寸意图算。
  */
 function sourceRatios(input: DropInput, source: ContainerPresentation, viewIds: ReadonlyArray<string>): Record<string, number> {
+    const intent = (id: string): number => source.views.find((view) => view.id === id)?.size ?? DEFAULT_SIZE;
+    const collapsed = new Set(source.views.filter((view) => view.collapsed).map((view) => view.id));
     const geometry = input.rects.sourceContent;
     if (geometry !== null && geometry !== undefined && geometry.containerId === source.id) {
         const measured = sizesAlong(orientationOf(source), geometry.members);
-        if (viewIds.every((id) => (measured[id] ?? 0) > 0)) return Object.fromEntries(viewIds.map((id) => [id, measured[id]!]));
+        if (viewIds.every((id) => collapsed.has(id) || (measured[id] ?? 0) > 0)) return Object.fromEntries(viewIds.map((id) => [id, collapsed.has(id) ? intent(id) : measured[id]!]));
     }
-    return Object.fromEntries(viewIds.map((id) => [id, source.views.find((view) => view.id === id)?.size ?? DEFAULT_SIZE]));
+    return Object.fromEntries(viewIds.map((id) => [id, intent(id)]));
 }
 
 /** 收起分栏前后的插入位：插在 `beforeViewId` 之前（缺省插在最后），预览是那条插入线。 */
@@ -293,8 +295,9 @@ function resolveContent(input: DropInput, target: Extract<DropTarget, {kind: "co
     // 只有展开的成员参与半区：收起成员的细条几何不是它的份额（intents.ts 的并入同此）。
     const expanded = from.views.filter((view) => !view.collapsed).map((view) => view.id);
     if (hit.kind === "insert") {
+        // 插到收起栏旁时拖入的可见成员都会展开，都参与平分
         const neighbour = expandedNeighbourOf(container, hit.beforeViewId, null);
-        const placement = neighbour !== null ? {split: {...neighbour, sourceSizes: sourceRatios(input, from, expanded)}} : hit.beforeViewId === undefined ? {} : {beforeViewId: hit.beforeViewId};
+        const placement = neighbour !== null ? {split: {...neighbour, sourceSizes: sourceRatios(input, from, from.views.map((view) => view.id))}} : hit.beforeViewId === undefined ? {} : {beforeViewId: hit.beforeViewId};
         return {kind: "commit", intent: {...base, ...placement, expand: true}, preview: insertPreview(hit, orientation, count)};
     }
     return {kind: "commit", intent: {...base, split: {hitViewId: hit.hitViewId, side: hit.side, sourceSizes: sourceRatios(input, from, expanded)}}, preview: {indicator: null, areaRect: hit.halfRect, orientation, count}};

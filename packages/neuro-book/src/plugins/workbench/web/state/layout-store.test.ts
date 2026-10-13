@@ -656,10 +656,12 @@ describe("拖放的保存冲突（外壳三）", () => {
         expect(value.views?.["t.a"]?.container).toBeUndefined();
     });
 
-    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写、revision 不动，显示回到最新值，原因进 patchProblems", async () => {
+    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写、revision 不动（连同放进收起面板时的展开），显示回到最新值，原因进 patchProblems", async () => {
         const w = await world();
         const [a] = await pair(w);
         a.store.actions.applyView({kind: "move-view", viewId: "t.e", sourceContainerId: "view:t.e", targetContainerId: "view:t.d"});
+        // 面板收着：A 以为是把甲放进收起的面板，会顺带展开它
+        expect(a.store.actions.setPanelCollapsed(true)).toBe(true);
         await saved(a.store);
         const other = await openLayout(w, "other", "c");
         other.store.actions.acceptViewCatalog(catalog);
@@ -677,5 +679,6 @@ describe("拖放的保存冲突（外壳三）", () => {
         if (before.status !== "ok") throw new Error(`最新值应已存在：${before.status}`);
         expect(a.store.state.customizations.display).toEqual(before.value);
         expect(a.store.state.placement.views.get("t.a")?.container).toBe("view:t.a");
+        expect(a.store.state.panel.collapsed).toBe(true);
     });
 });

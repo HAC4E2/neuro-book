@@ -217,7 +217,7 @@ const inside = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >=
 
 /**
  * 每个位置是一个落在区域里的坐标，交给与指针同一份命中与判定：Switcher 是每个条目的前缘（插到它之前）与末个条目
- * 之后；内容区是每个可见分节的前半与后半（插到它之前、之后）；全部收成细条时与空 Part 一样只有中心一个位置。
+ * 之后；内容区是每个可见分节的前半与后半（插到它之前、之后）；全部收成细条时是每条之前与最后一条之后。
  */
 export function keyboardStops(region: HTMLElement): KeyboardStops {
     const rect = readDropRect(region);
@@ -239,12 +239,24 @@ export function keyboardStops(region: HTMLElement): KeyboardStops {
         const axis = region.dataset.containerAxis === "horizontal" ? "horizontal" : "vertical";
         const content = readContentRects(region);
         const sections = [...region.querySelectorAll<HTMLElement>("[data-view-section]")].filter((section) => section.closest("[data-container-host]") === region);
-        if (content === null || sections.every((section) => section.dataset.viewCollapsed === "true")) return {axis: null, points: [center]};
-        const points = content.members.flatMap((member) => {
+        if (content === null) return {axis: null, points: [center]};
+        const at = (member: (typeof content.members)[number], ratio: number): GridDropPoint => {
             const start = axis === "horizontal" ? member.rect.left : member.rect.top;
             const size = axis === "horizontal" ? member.rect.right - member.rect.left : member.rect.bottom - member.rect.top;
-            return [0.25, 0.75].map((ratio) => (axis === "horizontal" ? {x: start + size * ratio, y: (member.rect.top + member.rect.bottom) / 2} : {x: (member.rect.left + member.rect.right) / 2, y: start + size * ratio}));
-        });
+            return axis === "horizontal" ? {x: start + size * ratio, y: (member.rect.top + member.rect.bottom) / 2} : {x: (member.rect.left + member.rect.right) / 2, y: start + size * ratio};
+        };
+        // 全部收起：每条标题之前一个插入位，最后一个之后再一个（有剩余区就停在剩余区里），与指针的插入位一一对应。
+        if (sections.every((section) => section.dataset.viewCollapsed === "true")) {
+            const points = content.members.map((member) => at(member, 0.25));
+            const last = content.members.at(-1);
+            if (last !== undefined) {
+                const end = axis === "horizontal" ? last.rect.right : last.rect.bottom;
+                const limit = axis === "horizontal" ? rect.right : rect.bottom;
+                points.push(limit - end > 4 ? (axis === "horizontal" ? {x: (end + limit) / 2, y: center.y} : {x: center.x, y: (end + limit) / 2}) : at(last, 0.75));
+            }
+            return {axis, points: points.filter((point) => inside(rect, point))};
+        }
+        const points = content.members.flatMap((member) => [0.25, 0.75].map((ratio) => at(member, ratio)));
         return {axis, points: points.filter((point) => inside(rect, point))};
     }
     return {axis: null, points: [center]};

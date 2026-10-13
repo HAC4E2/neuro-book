@@ -306,9 +306,10 @@ function mergeContainer(state: IntentState, intent: Extract<ViewIntent, {kind: "
     const sourceSlice = state.presentation.containers.get(source.id);
     const visibleMovers = sourceSlice?.views ?? [];
     if (intent.expand === true) for (const view of visibleMovers) views[view.id] = {...views[view.id], collapsed: null};
-    // 半区只分给展开的拖入成员：收起成员的尺寸是它的展开记忆，随归属迁移、不改。全部收起时只并入，不拆命中窗格。
-    const expandedMovers = visibleMovers.filter((view) => !view.collapsed).map((view) => view.id);
-    if (intent.split !== undefined && expandedMovers.length > 0 && !splitSizes(state, target.part, intent.split, expandedMovers, views)) {
+    // 半区只分给落点之后展开的拖入成员：收起成员的尺寸是它的展开记忆，随归属迁移、不改，全部收起时只并入、不拆命中
+    // 窗格；带 expand（插到收起栏旁）时拖入的可见成员都会展开，都参与分配。
+    const sharing = visibleMovers.filter((view) => intent.expand === true || !view.collapsed).map((view) => view.id);
+    if (intent.split !== undefined && sharing.length > 0 && !splitSizes(state, target.part, intent.split, sharing, views)) {
         return rejected("invalid", "量不出半区的来源比例");
     }
     return {kind: "patch", patch: {

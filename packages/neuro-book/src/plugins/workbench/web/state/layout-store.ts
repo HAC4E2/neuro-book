@@ -226,7 +226,8 @@ function defineLayoutStore(records: LayoutRecords) {
                                 const outcome = applyPatch(value, result.patch, catalog.value);
                                 // 修改函数可能被调用多次：同一条原因只记一次。
                                 if (outcome.problem !== null && !patchProblems.value.includes(outcome.problem)) patchProblems.value = [...patchProblems.value, outcome.problem].slice(-20);
-                                if (!opensPanel && reveal === undefined) return outcome.value;
+                                // 补丁的前提在最新值上不成立时整条不写：随它一起的展开、显示也不写，免得空着展开一个没接到东西的 Part。
+                                if (outcome.problem !== null || (!opensPanel && reveal === undefined)) return outcome.value;
                                 next = editable(outcome.value);
                             } else {
                                 next = editable(value);
