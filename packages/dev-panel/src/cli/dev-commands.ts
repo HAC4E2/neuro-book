@@ -2,18 +2,24 @@ import {NbdevError} from "../core/errors.js";
 import {resolveTaskTarget} from "../core/lease-ops.js";
 import {locateRepository} from "../core/repo.js";
 import {AS_OPTION, shortSession, stringValue, writeCaller, type CommandSpec, type Values} from "./common.js";
+import type {CheckoutSearchDone, SearchHit} from "../core/search.js";
 import type {DevEvent} from "../dev/dev-ops.js";
 import type {CommandOutcome} from "./output.js";
 
 /**
- * t14 的命令：开发服务三个与 `worktree new`。`dev start` 是长命令：边跑边按行输出 `READY`、`NOT_READY`、`EXITED`（`--json` 时是同样含义的 JSON 行），
+ * t14 的命令：开发服务三个、`worktree new`、`find`、`shot`。`dev start` 是长命令：边跑边按行输出 `READY`、`NOT_READY`、`EXITED`（`--json` 时是同样含义的 JSON 行），
  * 不套一次性的外壳。合同见 docs/cli.md 的“dev”。监管与登记的实现在 `src/dev/`，只在这几个命令里按需导入。
  */
 
 export const DEV_USAGE = `  dev start [--checkout <key|路径>] [--package packages/neuro-book] [--script dev] [--work <W> --task <T>] [--ready-pattern <正则>] [--ready-timeout <秒>] [--grace <秒>] [--as <标签>]
   dev status [--checkout <key|路径>] [--package …] [--script …] [--all] [--wait-ready [--timeout <秒>]]
   dev stop (<runId> | [--checkout <key|路径>] [--package …] [--script …]) [--force] [--grace <秒>] [--as <标签>]
-  worktree new <workRef> <taskRef> [--slug <短名>] [--type feat] [--from master] [--as <标签>]`;
+  worktree new <workRef> <taskRef> [--slug <短名>] [--type feat] [--from master] [--as <标签>]
+  find <词> [--in <checkout key|all>] [--name] [--limit 20]
+  shot [--checkout <key|路径>] [--package packages/neuro-book] [--work <W> --task <T>] [--url <地址>] -- <交给 lab:shot 的参数…>`;
+
+/** `find` 的总条数上限：17 个 checkout 每个 20 条时也不会把几千行塞进 Agent 的上下文（t14 设计审查 S11）。 */
+const FIND_TOTAL_LIMIT = 200;
 
 const TARGET_OPTIONS = {checkout: {type: "string"}, package: {type: "string"}, script: {type: "string"}} as const;
 
@@ -34,6 +40,72 @@ function eventLine(event: DevEvent): string {
 }
 
 export const DEV_COMMANDS: Record<string, CommandSpec> = {
+    find: {
+        schema: "nbdev.find/v1",
+        positionals: ["q"],
+        options: {in: {type: "string"}, name: {type: "boolean"}, limit: {type: "string"}},
+        async run({io, positionals, values}): Promise<CommandOutcome> {
+            const {createNameIndexCache, matchRecords, searchCheckouts, validateSearchQuery} = await import("../core/search.js");
+            const {readProjectRecords, readTransitionState} = await import("../core/status.js");
+            const {checkoutKeys} = await import("../core/checkouts.js");
+            const {listCheckouts} = await import("../core/repo.js");
+            const q = validateSearchQuery(positionals[0]!);
+            const limitText = stringValue(values, "limit");
+            const limit = limitText === undefined ? 20 : Number(limitText);
+            if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new NbdevError("usage", `--limit 写 1 到 200：${limitText}`);
+            const context = await locateRepository(io.cwd);
+            const {records, warnings} = await readProjectRecords(context, await readTransitionState(context.mainRoot));
+            const recordHits = values.name === true ? [] : matchRecords(records, q).slice(0, 50);
+            const checkouts = (await listCheckouts(context.mainRoot)).filter((checkout) => !checkout.prunable);
+            const keys = checkoutKeys(checkouts);
+            const scope = stringValue(values, "in") ?? "all";
+            const targets = checkouts.filter((checkout) => scope === "all" || keys.get(checkout.root) === scope);
+            if (targets.length === 0) throw new NbdevError("usage", `找不到 checkout：${scope}（写 checkout key 或 all）`, {details: {known: [...keys.values()]}});
+            const hits: SearchHit[] = [];
+            const done: CheckoutSearchDone[] = [];
+            let truncated = false;
+            await searchCheckouts({
+                q,
+                checkouts: targets.map((checkout) => ({key: keys.get(checkout.root)!, root: checkout.root, head: checkout.head})),
+                names: createNameIndexCache(),
+                signal: new AbortController().signal,
+                limit,
+                onHit: (hit) => {
+                    if (values.name === true && hit.kind !== "name") return;
+                    if (hits.length < FIND_TOTAL_LIMIT) hits.push(hit);
+                    else truncated = true;
+                },
+                onCheckoutDone: (entry) => {
+                    done.push(entry);
+                    truncated ||= entry.truncated;
+                },
+            });
+            const human = [
+                ...recordHits.map((hit) => `记录 ${hit.kind}  ${hit.kind === "work" ? hit.workId : hit.kind === "task" ? `${hit.workId}/${hit.taskId}` : `${hit.workId}/${hit.taskId ?? "-"}/${hit.artifactId}`}  ${hit.title ?? ""}`),
+                ...hits.map((hit) => `${hit.checkout}:${hit.path}${hit.line !== null ? `:${hit.line}: ${hit.text ?? ""}` : ""}`),
+                ...done.filter((entry) => entry.error).map((entry) => `${entry.checkout}：搜索出错（${entry.error}）`),
+            ];
+            if (truncated) human.push(`结果已截断（每个 checkout ${limit} 条、合计 ${FIND_TOTAL_LIMIT} 条）`);
+            if (human.length === 0) human.push("没有命中");
+            return {schema: "nbdev.find/v1", data: {records: recordHits, hits, checkouts: done, truncated}, warnings, error: null, human};
+        },
+    },
+    shot: {
+        schema: "nbdev.shot/v1",
+        positionals: ["参数…"],
+        positionalsRange: [0, 100],
+        options: {checkout: {type: "string"}, package: {type: "string"}, work: {type: "string"}, task: {type: "string"}, url: {type: "string"}},
+        async run({io, positionals, values}): Promise<CommandOutcome> {
+            const {runShot} = await import("../dev/shot.js");
+            const workRef = stringValue(values, "work");
+            const taskRef = stringValue(values, "task");
+            if ((workRef === undefined) !== (taskRef === undefined)) throw new NbdevError("usage", "--work 与 --task 要一起给");
+            const context = await locateRepository(io.cwd);
+            const task = workRef !== undefined && taskRef !== undefined ? await resolveTaskTarget(context, workRef, taskRef) : null;
+            const result = await runShot(context, io.cwd, {checkoutRef: stringValue(values, "checkout") ?? null, packageDir: stringValue(values, "package") ?? "packages/neuro-book", url: stringValue(values, "url") ?? null, task, passthrough: positionals}, io.env);
+            return {schema: "nbdev.shot/v1", data: result, warnings: [], error: null, human: [`截图在 ${result.outDir}（${result.files.length} 个文件）`, ...result.files.map((file) => `  ${file}`)]};
+        },
+    },
     "worktree new": {
         schema: "nbdev.worktree-new/v1",
         positionals: ["workRef", "taskRef"],

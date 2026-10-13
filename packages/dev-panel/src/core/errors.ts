@@ -84,6 +84,7 @@ export const ERROR_EXIT_CODES = {
     dev_exited: 1,
     stop_incomplete: 1,
     tool_missing: 1,
+    shot_failed: 1,
     request_aborted: 1,
     herdr_unavailable: 1,
     systemctl_failed: 1,

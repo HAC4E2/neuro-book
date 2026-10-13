@@ -2,6 +2,7 @@ import {spawn, type ChildProcess} from "node:child_process";
 import {NbdevError} from "./errors.js";
 import {gitEnvironment, gitOutput, splitNul} from "./git.js";
 import {isSafeRelativePath} from "./paths.js";
+import type {ProjectRecords} from "./status.js";
 
 /**
  * 面板的跨 checkout 搜索：文件名与内容。只读（`--no-optional-locks`），子进程可随时结束。
@@ -19,6 +20,27 @@ const EXCLUDES = [":(exclude,glob)**/evidences/**", ":(exclude,glob)**/experimen
 export type SearchHit = {checkout: string; kind: "name" | "content"; path: string; line: number | null; text: string | null};
 export type SearchCheckout = {key: string; root: string; head: string};
 export type CheckoutSearchDone = {checkout: string; count: number; truncated: boolean; elapsedMs: number; error: string | null};
+
+export type RecordMatch =
+    | {kind: "work"; workId: string; title: string | null}
+    | {kind: "task"; workId: string; taskId: string; title: string | null}
+    | {kind: "artifact"; workId: string; taskId: string | null; artifactId: string; title: string | null};
+
+/** 记录里 Work、Task、产物的编号与标题的匹配（不分大小写，纯函数）：面板的搜索与 `nbdev find` 共用（t14 设计审查 S11）。 */
+export function matchRecords(records: Pick<ProjectRecords, "works">, q: string): RecordMatch[] {
+    const lower = q.toLowerCase();
+    const has = (text: string | null | undefined) => typeof text === "string" && text.toLowerCase().includes(lower);
+    const matches: RecordMatch[] = [];
+    for (const work of records.works) {
+        if (has(work.workId) || has(work.title)) matches.push({kind: "work", workId: work.workId, title: work.title});
+        for (const task of work.tasks) {
+            if (has(task.taskId) || has(task.title)) matches.push({kind: "task", workId: work.workId, taskId: task.taskId, title: task.title});
+            for (const artifact of task.artifacts) if (has(artifact.artifactId) || has(artifact.title)) matches.push({kind: "artifact", workId: work.workId, taskId: task.taskId, artifactId: artifact.artifactId, title: artifact.title});
+        }
+        for (const artifact of work.artifacts) if (has(artifact.artifactId) || has(artifact.title)) matches.push({kind: "artifact", workId: work.workId, taskId: null, artifactId: artifact.artifactId, title: artifact.title});
+    }
+    return matches;
+}
 
 /** 去掉首尾空白后：非空、不含控制字符、长度 2 到 200；不合格报 `usage`。 */
 export function validateSearchQuery(raw: string): string {
