@@ -320,7 +320,7 @@ describe("面板服务的安全", () => {
 });
 
 describe("面板服务的启动与搜索", () => {
-    test("预热完成之前 /api/* 回 503、/api/meta 照常；搜索词不合格回 400；新的搜索结束旧的", async () => {
+    test("预热完成之前 /api/* 回 503、/api/meta 照常；搜索词不合格回 400", async () => {
         const fixture = await createFixture("panel-warm");
         await fixture.write("docs/a.md", "needle\n".repeat(50));
         await fixture.commit("docs");
@@ -333,11 +333,84 @@ describe("面板服务的启动与搜索", () => {
         expect((await fetch(`${server.url}/`)).status).toBe(503);
         await server.warm();
         for (const q of ["", "a", "a%0Ab", "x".repeat(201)]) expect([q.slice(0, 5), (await fetch(`${server.url}/api/search?q=${q}`, {headers: {Cookie: cookie}})).status]).toEqual([q.slice(0, 5), 400]);
-        const [first, second] = await Promise.all(["needle", "needle"].map((q) => fetch(`${server.url}/api/search?q=${q}`, {headers: {Cookie: cookie}}).then((response) => response.text())));
-        const ends = [first!, second!].map((text) => text.trim().split("\n").map((line) => JSON.parse(line) as {type: string; aborted?: boolean}).at(-1));
-        expect(ends.map((end) => end?.type)).toEqual(["end", "end"]);
-        expect(ends.filter((end) => end?.aborted).length).toBeLessThanOrEqual(1);
     }, 30_000);
+
+    test("搜索的三种结束：客户端断开、新的搜索取代旧的、5 秒截断，都结束 git grep 子进程", async () => {
+        const fixture = await createFixture("panel-search-cancel");
+        await fixture.write("docs/a.md", "needle\n");
+        await fixture.commit("docs");
+        await fixture.addWorktree("search-wt", "search-wt");
+        const staticDir = join(fixture.root, "web");
+        await mkdir(staticDir, {recursive: true});
+        await writeFile(join(staticDir, "index.html"), "<!doctype html><html><head></head><body>panel-index</body></html>\n");
+        // 内容搜索换成一个长跑的进程（exec 之后 PID 不变，记下来查它是否已退出）；其余 Git 命令照常。
+        const shim = join(fixture.root, "grep-shim");
+        const pidFile = join(fixture.root, "grep-pids");
+        await mkdir(shim, {recursive: true});
+        await writeFile(join(shim, "git"), `#!/bin/sh\ncase " $* " in *" grep -I "*) echo $$ >> "${pidFile}"; exec sleep 30;; esac\nexec /usr/bin/git "$@"\n`, {mode: 0o755});
+        const {CLI_PATH} = await import("./git-fixture.js");
+        const serve: MarkedChild = await spawnMarked(process.execPath, [CLI_PATH, "panel", "serve", "--port", "0", "--artifact-port", "0", "--static-dir", staticDir], {cwd: fixture.main, env: {PATH: `${shim}:${process.env.PATH ?? ""}`}});
+        closers.push(() => stopProcess(serve));
+        const panelFile = join(fixture.main, ".local/agent/panel.json");
+        while (!(await Bun.file(panelFile).exists())) await Bun.sleep(20);
+        const opened = await fixture.cli(["panel", "open", "--print", "--json"]);
+        const login = await fetch((opened.json?.data as {loginUrl: string}).loginUrl, {redirect: "manual"});
+        const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
+        const base = (await Bun.file(panelFile).json() as {url: string}).url;
+        while ((await fetch(`${base}/api/overview`, {headers: {Cookie: cookie}})).status === 503) await Bun.sleep(50);
+
+        const pids = async () => (await Bun.file(pidFile).exists() ? (await Bun.file(pidFile).text()).trim().split("\n").map(Number) : []);
+        const waitForPids = async (count: number) => {
+            while ((await pids()).length < count) await Bun.sleep(20);
+            return (await pids()).slice(count - 2, count);
+        };
+        const alive = async (pid: number) => {
+            const stat = await Bun.file(`/proc/${pid}/stat`).text().catch((error: unknown) => {
+                if ((error as {code?: string}).code === "ENOENT") return null;
+                throw error;
+            });
+            return stat !== null && stat.slice(stat.lastIndexOf(")") + 2)[0] !== "Z";
+        };
+        const allExited = async (group: number[], withinMs: number) => {
+            const deadline = Date.now() + withinMs;
+            while (Date.now() < deadline) {
+                if (!(await Promise.all(group.map(alive))).some(Boolean)) return true;
+                await Bun.sleep(20);
+            }
+            return false;
+        };
+        type Line = {type: string; truncated?: boolean; aborted?: boolean};
+        const readAll = async (response: Response) => (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as Line);
+
+        // Bun.serve 等流里有第一行才回响应头（这里的内容搜索没有命中，要到结束才有），所以下面都不等 fetch 回来就往下走。
+        // 客户端断开：两个 checkout 的子进程都结束。
+        const disconnect = new AbortController();
+        const dropped = fetch(`${base}/api/search?q=needle`, {headers: {Cookie: cookie}, signal: disconnect.signal}).then(
+            () => "responded",
+            (error: unknown) => (error instanceof Error && error.name === "AbortError" ? "aborted" : Promise.reject(error)),
+        );
+        const droppedPids = await waitForPids(2);
+        disconnect.abort();
+        expect(await dropped).toBe("aborted");
+        expect(await allExited(droppedPids, 2_000)).toBe(true);
+
+        // 新的搜索取代旧的：旧的恰好以 aborted 结束、子进程结束；新的不受影响，跑到 5 秒截断，子进程随后结束。
+        const first = fetch(`${base}/api/search?q=needle`, {headers: {Cookie: cookie}}).then(readAll);
+        const firstPids = await waitForPids(4);
+        const startedSecond = Date.now();
+        const second = fetch(`${base}/api/search?q=needle`, {headers: {Cookie: cookie}}).then(readAll);
+        const firstLines = await first;
+        expect(Date.now() - startedSecond).toBeLessThan(2_000);
+        expect(firstLines.at(-1)).toMatchObject({type: "end", truncated: true, aborted: true});
+        expect(await allExited(firstPids, 2_000)).toBe(true);
+        const secondPids = await waitForPids(6);
+        expect(await Promise.all(secondPids.map(alive))).toEqual([true, true]);
+        const secondLines = await second;
+        expect(Date.now() - startedSecond).toBeGreaterThanOrEqual(4_500);
+        expect(secondLines.at(-1)).toMatchObject({type: "end", truncated: true, aborted: false});
+        expect([firstLines, secondLines].filter((lines) => lines.at(-1)?.aborted === true).length).toBe(1);
+        expect(await allExited(secondPids, 2_000)).toBe(true);
+    }, 40_000);
 });
 
 describe("herdr 的常驻状态", () => {
