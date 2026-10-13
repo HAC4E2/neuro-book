@@ -65,7 +65,7 @@ issueId: null
 | [t28](tasks/t28-platform-planned-specs/README.md) | 按已接受的平台设计写 10 份 `planned` Spec（插件清单、宿主、通道、API 文档、热插拔、安装、代码装载、公开 API、看门狗），并做跨模型审查；只改文档 |
 | [t80](tasks/t80-settings-ui/README.md) | 设置界面与贡献点（设置窗口、`settings.sections`、用户编辑写入、活动栏底部条目与页面浮层、两处入口）；S1–S5 完成，`settings-window.md` 2026-10-13 晋升 `implemented`，合回 w00017（`01722510f`），完成；记录 2026-10-12 迁到主工作区 |
 | [t81](tasks/t81-nb-ui-text-size-segmented/README.md) | nb-ui 字号写法被编译成颜色、分段控件截断长选项；2026-10-13 合回 w00017（`efb75a2b5`），完成；记录 2026-10-12 迁到主工作区 |
-| [t84](tasks/t84-menu-contributions/README.md) | 菜单贡献点：t83 验收反馈第 7 条，先对照旧应用的菜单贡献定设计；2026-10-13 经 nbdev 建在主工作区，未开工 |
+| [t84](tasks/t84-menu-contributions/README.md) | 菜单贡献点：标题栏菜单、视图标题（含“⋯”）、资源管理器右键、编辑区标题四处位置，共同合同 `workbench/menus.md` 2026-10-13 晋升 `implemented`；计划与实现各一轮 omp 审查（11 条、4 条）均已处理；合回 w00017（`e4cbd1248`），完成 |
 
 **下一阶段（开发者 2026-10-13 定）**：先把 workbench 打磨完成，期间不接新的产品功能；打磨完成后把 w00017 合并到 `master`，再同步各分支、按 `master` 上的新工作流（记录只放主工作区、nbdev 与开发者面板）治理项目。workbench 与插件化改造已基本跑通。
 
