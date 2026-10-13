@@ -52,3 +52,4 @@ status: active
 | [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 合入 `master`（`98d3d4595`），开发者在场验收通过，完成 |
 | [t13](tasks/t13-cross-device/README.md) | 跨设备访问；2026-10-13 写了计划后搁置：开发者定先不做 Tailscale，SSH 转发加常驻服务够用 |
 | [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充，含 t11 通知误报与 t12 接管尺寸的修正；2026-10-13 两轮实现审查修正后合入 `master`（`76a3da886`） |
+| [t15](tasks/t15-ui-polish/README.md) | 面板界面打磨：左栏可调宽度、细滚动条、系统审查 UI、UX 与前端设计后调优；2026-10-13 开工，先审查 |
