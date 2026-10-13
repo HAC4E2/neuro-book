@@ -22,3 +22,7 @@ t83 验收反馈第 7 条：开发者问菜单系统做了没有，记得旧应�
 ## 下一步
 
 2026-10-13 开发者确认 [plan.md](plan.md) 并要求开工：一个 omp 审查计划与设计稿（与实现并行），实现完成后另一个 omp 审查代码。实施在 worktree `.worktree/w00017-t84-menu-contributions`（分支 `feat/w00017-t84-menu-contributions`，从 `refactor/w00017-runtime-foundation` 切出），按计划从 S0 开始。
+
+- S0（`a9d258cd4`）：新建 `docs/specs/workbench/menus.md`，四份位置所在的 Spec 与注册表同步。
+- S1（`e6c065a67`）：菜单项的共同合同（命令插件 `shared/menus.ts`）与测试，变异 8 处全部被抓到。
+- 计划审查（omp）11 条全部属实，处理写在 [plan.md](plan.md) 末节“实施中的修订”，任务说明与报告在 [artifacts/omp-plan-review](artifacts/omp-plan-review/)。
