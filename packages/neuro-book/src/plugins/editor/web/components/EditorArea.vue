@@ -14,12 +14,21 @@ import type {FileEditorKind} from "../groups/groups";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorGroup from "./EditorGroup.vue";
+import type {EditorGroupTitleActions} from "./EditorGroup.vue";
 
 /** 编辑器区内的键位对应的意图：宿主把它换成命令执行（组件不认识命令）。 */
 export type EditorIntent = "save" | "close" | "split-right";
 
-const props = defineProps<{area: EditorArea; locale: DisplayLocale; control: (kind: FileEditorKind) => Component; pages?: EditorPageSource | null; emptyTips?: ReadonlyArray<EmptyTip>}>();
-const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void}>();
+const props = defineProps<{
+    area: EditorArea;
+    locale: DisplayLocale;
+    control: (kind: FileEditorKind) => Component;
+    pages?: EditorPageSource | null;
+    emptyTips?: ReadonlyArray<EmptyTip>;
+    /** 活动组的标题动作（`title-actions.ts`）：只画在 `group` 那一组；没有时为 null。 */
+    titleActions?: EditorGroupTitleActions | null;
+}>();
+const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
 const extent = useLayoutExtent(root);
@@ -81,7 +90,17 @@ const dialog = computed(() => props.area.dialog.value);
             :on-gesture-commit="host.onGestureCommit"
         >
             <template #leaf="{node}">
-                <EditorGroup :area="area" :group-id="node.id" :locale="locale" :control="control" :pages="pages ?? null" :empty-tips="emptyTips ?? []" @run-tip="(command) => emit('run-tip', command)" />
+                <EditorGroup
+                    :area="area"
+                    :group-id="node.id"
+                    :locale="locale"
+                    :control="control"
+                    :pages="pages ?? null"
+                    :empty-tips="emptyTips ?? []"
+                    :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
+                    @run-tip="(command) => emit('run-tip', command)"
+                    @title-action="(key) => emit('title-action', key)"
+                />
             </template>
         </GridRenderer>
         <Dialog

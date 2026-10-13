@@ -20,6 +20,8 @@ type Props = {
     pages?: EditorPageSource | null;
     /** 空编辑组的提示（输出 32，`web/empty-tips.ts` 按命令可用性筛好），原样交给每个编辑组；缺省为空。 */
     emptyTips?: ReadonlyArray<EmptyTip>;
+    /** 活动组的标题动作（输出 34，`web/title-actions.ts` 算好）：只交给 `group` 那一组；缺省 null。 */
+    titleActions?: {group: string; model: TitleActionsModel; identity: string} | null;
 };
 
 type Emits = {
@@ -27,6 +29,8 @@ type Emits = {
     intent: ["save" | "close" | "split-right"];
     /** 点了某个编辑组空态里的一条提示：宿主执行这条命令。 */
     "run-tip": [command: string];
+    /** 点了活动组的一个标题动作：宿主按 key 执行。 */
+    "title-action": [key: string];
 };
 ```
 
@@ -41,4 +45,4 @@ type Emits = {
 ## 不支持
 
 - 不拖动标签换组、不拖到边缘拆分（另行交付）。
-- 不渲染面包屑、编辑器工具栏。
+- 不渲染面包屑。

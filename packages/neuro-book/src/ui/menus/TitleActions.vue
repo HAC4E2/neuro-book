@@ -1,16 +1,16 @@
 <script setup lang="ts">
-/** 视图的标题动作（同名 .md）：一排 24px 图标按钮加“⋯”下拉，点了交给宿主执行。 */
+/** 标题行的动作（同名 .md）：一排 24px 图标按钮加“⋯”下拉，点了交给宿主执行。视图标题与编辑区标题共用。 */
 import {Dropdown, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownItem} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
-import type {ViewActionsModel} from "../titlebar/titlebar-source";
+import type {TitleActionsModel} from "./title-actions";
 
-defineOptions({name: "WorkbenchViewActions"});
+defineOptions({name: "TitleActions"});
 
 const props = defineProps<{
-    model: ViewActionsModel;
-    /** 菜单身份（视图、容器与模式、交付状态、代际）：变了就关掉打开着的“⋯”，之前的选择不执行。 */
+    model: TitleActionsModel;
+    /** 菜单身份（拥有者定：视图标题是视图、容器与模式、交付状态、代际）：变了就关掉打开着的“⋯”，之前的选择不执行。 */
     identity: string;
     /** “⋯”的可访问名称。 */
     moreLabel: string;
@@ -52,7 +52,7 @@ function select(key: string): void {
 </script>
 
 <template>
-    <span class="workbench-view-actions">
+    <span class="title-actions">
         <IconButton
             v-for="entry in model.buttons"
             :key="entry.key"
@@ -62,18 +62,18 @@ function select(key: string): void {
             :title="entry.disabledReason ?? entry.title"
             :aria-pressed="entry.pressed"
             :disabled="entry.disabledReason !== null"
-            :data-view-action="entry.command"
-            :data-view-action-key="entry.key"
+            :data-title-action="entry.command"
+            :data-title-action-key="entry.key"
             @click="emit('run', entry.key)"
         />
         <Dropdown v-if="model.menu.length > 0" :items="items" :open="open" align="end" compact @update:open="setOpen" @select="select">
-            <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" :title="moreLabel" data-view-actions-more />
+            <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" :title="moreLabel" data-title-actions-more />
         </Dropdown>
     </span>
 </template>
 
 <style scoped>
-.workbench-view-actions {
+.title-actions {
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;

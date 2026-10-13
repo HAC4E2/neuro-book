@@ -828,13 +828,13 @@ test.describe("产品页：别的插件给视图贡献的标题动作（docs/spe
         await expect(sample(page, C)).toBeVisible();
         const sidebar = page.locator('[data-tool-part="sidebar"]');
         // 丙自己的动作收进了“⋯”，所以标题行里的按钮只有贡献的那一个，后面是“⋯”与“移动到”。
-        await expect(sidebar.locator("[data-view-action-key]")).toHaveCount(1);
-        const button = sidebar.locator('[data-view-action-key="test.menus.view-button"]');
+        await expect(sidebar.locator("[data-title-action-key]")).toHaveCount(1);
+        const button = sidebar.locator('[data-title-action-key="test.menus.view-button"]');
         await expect(button).toHaveAttribute("aria-label", "测试按钮");
-        const order = await sidebar.locator("[data-view-action-key], [data-view-actions-more], [data-move-view]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-view-action-key") ?? (node.hasAttribute("data-view-actions-more") ? "more" : "move")));
+        const order = await sidebar.locator("[data-title-action-key], [data-title-actions-more], [data-move-view]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? (node.hasAttribute("data-title-actions-more") ? "more" : "move")));
         expect(order).toEqual(["test.menus.view-button", "more", "move"]);
 
-        await sidebar.locator("[data-view-actions-more]").click();
+        await sidebar.locator("[data-title-actions-more]").click();
         const menu = page.getByRole("menu");
         await expect(menu).toBeVisible();
         expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["样例的菜单动作", "---", "测试菜单项"]);

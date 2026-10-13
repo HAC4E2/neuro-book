@@ -11,10 +11,10 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -23,7 +23,8 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {documentCoordinatorKey, EDITOR_PAGES_POINT, validateEditorPageContribution} from "../shared/contracts";
+import {documentCoordinatorKey, EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, validateEditorPageContribution, validateEditorTitleItem} from "../shared/contracts";
+import type {EditorTitleItemDeclaration} from "../shared/contracts";
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
@@ -34,6 +35,7 @@ import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
 import {editorState, editorStateValues} from "./state";
 import {EDITOR_STATUS_ITEMS, editorStatusItems} from "./status-items";
+import {createEditorTitleActions} from "./title-actions";
 import {EDITOR_TITLEBAR_MENU_ITEMS} from "./titlebar-menu";
 
 export const EDITOR_AREA_ID = "nbook.editor.area";
@@ -43,14 +45,18 @@ const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SP
 
 export const editorBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [{id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution}],
+    contributionPoints: [
+        {id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution},
+        // 编辑区标题的菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
+        {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem},
+    ],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: windowRescueKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: windowRescueKey, required: false}],
         provides: [documentCoordinatorKey],
-        receives: [EDITOR_PAGES_POINT],
+        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT],
         contributions: [
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
             ...Object.entries(EDITOR_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -148,6 +154,12 @@ export const editorBrowserPlugin: PluginDefinition = {
                 void commandsVersion.value;
                 return emptyTips(commands, locale.value, platform);
             };
+            const titleItems = new MenuItemRegistry(context.declarations.list<EditorTitleItemDeclaration>(EDITOR_TITLE_POINT), context.signal);
+            const titles = createEditorTitleActions({area: () => session.area.value, commands, state: context.services.require(publicStateKey), items: () => titleItems.items(), platform});
+            const titleActions = () => {
+                void commandsVersion.value;
+                return titles.current(locale.value);
+            };
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const {default: EditorArea} = await import("./components/EditorArea.vue");
@@ -160,7 +172,10 @@ export const editorBrowserPlugin: PluginDefinition = {
                     return defineComponent({
                         name: "EditorAreaHost",
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
-                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), onRunTip: execute, onIntent: (intent: "save" | "close" | "split-right") => {
+                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), onRunTip: execute, onTitleAction: (key: string) => {
+                            session.area.value?.activeHandle.value?.flushPendingChange();
+                            titles.run(key);
+                        }, onIntent: (intent: "save" | "close" | "split-right") => {
                             // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             execute(INTENTS[intent]);
@@ -171,7 +186,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const published = bindingsOf(editorState, editorStateValues(session.area));
             return {
                 services: [provide(documentCoordinatorKey, session.coordinator)],
-                receivers: {[EDITOR_PAGES_POINT]: pages.receiver()},
+                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
                     [COMMANDS_POINT]: editorCommands(session.area, pages),

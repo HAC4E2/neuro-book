@@ -37,7 +37,7 @@ import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/Workb
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
 import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/components/WorkbenchViewContainerHost.vue";
 import type WorkbenchViewFrame from "nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue";
-import type WorkbenchViewActions from "nbook/plugins/workbench/web/components/WorkbenchViewActions.vue";
+import type TitleActions from "nbook/ui/menus/TitleActions.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
@@ -422,8 +422,8 @@ export const labFixtures: LabFixture[] = [
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue"),
     }),
-    defineSubjectFixture<typeof WorkbenchViewActions>({
-        component: "WorkbenchViewActions",
+    defineSubjectFixture<typeof TitleActions>({
+        component: "TitleActions",
         events: ["run"],
         scenes: (() => {
             const entry = (key: string, command: string, icon: string | null, title: string, extra: {disabledReason?: string; pressed?: boolean} = {}) => ({
@@ -450,7 +450,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "more", label: "“⋯”：自己的菜单动作与别的插件贡献的（分节、勾选、禁用带原因）", input: {props: {...base, model: {buttons: buttons(false, true), menu}}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchViewActions.vue"),
+        subject: () => import("nbook/ui/menus/TitleActions.vue"),
     }),
     defineSubjectFixture<typeof WorkbenchDragFeedback>({
         component: "WorkbenchDragFeedback",

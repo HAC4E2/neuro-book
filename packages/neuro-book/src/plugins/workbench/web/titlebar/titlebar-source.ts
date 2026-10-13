@@ -12,6 +12,8 @@ import type {CommandService, KeyPlatform, MenuFacts, MenuItemRegistry} from "nbo
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {assembleTitleActions} from "nbook/ui/menus/title-actions";
+import type {TitleActionCandidate, TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {TITLEBAR_MENU_GROUPS} from "../../shared/menus";
 import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../../shared/menus";
@@ -40,9 +42,9 @@ export interface ShellChrome {
      * `workbench.view-title` 贡献的在后；按钮至多 8 个，多出的收进“⋯”。可用与否看命令的 `when`（不可用时带原因），按下态看
      * `toggled` 的公开键；视图实例还没建立（`instance` 为 null）时，要实例的动作不可用。
      */
-    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, locale: DisplayLocale, instance: ViewInstanceRef | null): ViewActionsModel;
+    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, locale: DisplayLocale, instance: ViewInstanceRef | null): TitleActionsModel;
     /**
-     * 点了视图标题的一个动作（按 `ViewActionEntry.key` 找，不按位置找：显示的列表会随 `when` 与按钮预算变）：执行它的命令，
+     * 点了视图标题的一个动作（按 `TitleActionEntry.key` 找，不按位置找：显示的列表会随 `when` 与按钮预算变）：执行它的命令，
      * 要实例的带上被点的视图实例；要实例而实例还没建立、或这一项已不在时不执行。
      */
     runViewAction(viewId: string, actions: ReadonlyArray<ViewAction>, key: string, instance: ViewInstanceRef | null): void;
@@ -58,25 +60,6 @@ const INSTANCE_LOADING = {"zh-CN": "视图还没加载好", "en-US": "The view h
 
 /** 标题栏菜单没有位置参数。 */
 const NO_CONTEXTS: ReadonlySet<string> = new Set();
-
-export interface ViewActionEntry {
-    /** 稳定身份：视图自己的动作是 `own:<在 actions 里的序号>`，贡献来的是贡献 id。 */
-    readonly key: string;
-    readonly command: string;
-    readonly title: string;
-    /** 收进“⋯”的项可以没有图标。 */
-    readonly icon: string | null;
-    /** 可用时为 null。 */
-    readonly disabledReason: string | null;
-    /** 按下态；没有声明 `toggled` 的动作没有这一项。 */
-    readonly pressed?: boolean;
-}
-
-/** 视图标题行里的动作：按钮一排，“⋯”里按节分好（节之间画分隔线）；`menu` 为空时不画“⋯”。 */
-export interface ViewActionsModel {
-    readonly buttons: ReadonlyArray<ViewActionEntry>;
-    readonly menu: ReadonlyArray<ReadonlyArray<ViewActionEntry>>;
-}
 
 const OWN = "own:";
 
@@ -155,7 +138,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         viewActions: (viewId, actions, locale, instance) => {
             void version.value;
             const loading = localize(INSTANCE_LOADING, locale);
-            const own = actions.map((action, index): {readonly entry: ViewActionEntry; readonly menu: boolean} => {
+            const own = actions.map((action, index): TitleActionCandidate => {
                 const title = localize(action.title, locale);
                 const enabled = commands.isEnabled(action.command);
                 const read = action.toggled === undefined ? null : state.read(action.toggled);
@@ -170,7 +153,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                 }};
             });
             const contributed = arrangeMenu(options.viewTitle.items().filter((item) => item.declaration.view === viewId), {...facts(locale), contexts: INSTANCE_CONTEXT})
-                .map((section) => section.map((item): {readonly entry: ViewActionEntry; readonly menu: boolean} => ({menu: item.placement === "menu", entry: {
+                .map((section) => section.map((item): TitleActionCandidate => ({menu: item.placement === "menu", entry: {
                     key: item.id,
                     command: item.command,
                     title: item.label,
@@ -178,13 +161,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                     disabledReason: item.context === "instance" && instance === null ? loading : item.enabled ? null : (item.reason ?? item.label),
                     ...(item.checked === null ? {} : {pressed: item.checked}),
                 }})));
-            const inline = [...own.filter((item) => !item.menu), ...contributed.flat().filter((item) => !item.menu)].map((item) => item.entry);
-            const menu = [
-                inline.slice(VIEW_ACTIONS_MAX),
-                own.filter((item) => item.menu).map((item) => item.entry),
-                ...contributed.map((section) => section.filter((item) => item.menu).map((item) => item.entry)),
-            ].filter((section) => section.length > 0);
-            return {buttons: inline.slice(0, VIEW_ACTIONS_MAX), menu};
+            return assembleTitleActions(own, contributed, VIEW_ACTIONS_MAX);
         },
         runViewAction: (viewId, actions, key, instance) => {
             const target = instance === null ? {} : {viewId: instance.viewId, generation: instance.generation};

@@ -6,6 +6,8 @@ import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
+import TitleActions from "nbook/ui/menus/TitleActions.vue";
+import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import type {EditorArea, EditorControlHandle} from "../area";
 import type {EmptyTip} from "../empty-tips";
@@ -24,10 +26,14 @@ const props = withDefaults(defineProps<{
     pages?: EditorPageSource | null;
     /** 组里没有标签时显示的提示（已按可用性筛好）。 */
     emptyTips?: ReadonlyArray<EmptyTip>;
-}>(), {pages: null, emptyTips: () => []});
+    /** 标签条右侧的标题动作：只有活动组拿到，别的组为 null（docs/specs/workbench/editor.md 输出 34）。 */
+    titleActions?: EditorGroupTitleActions | null;
+}>(), {pages: null, emptyTips: () => [], titleActions: null});
 
-/** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。 */
-const emit = defineEmits<{(event: "run-tip", command: string): void}>();
+/** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作：交出它的 key。 */
+const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void}>();
+
+const hasTitleActions = computed(() => props.titleActions !== null && (props.titleActions.model.buttons.length > 0 || props.titleActions.model.menu.length > 0));
 
 const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
@@ -86,6 +92,14 @@ const kinds = computed((): FileEditorKind[] => {
     const present = new Set((group.value?.tabs ?? []).map((tab) => tab.editor));
     return (["markdown", "code"] as const).filter((kind) => present.has(kind));
 });
+
+export interface EditorGroupTitleActions {
+    /** 拿到标题动作的组（活动组）。 */
+    readonly group: string;
+    readonly model: TitleActionsModel;
+    /** “⋯”的菜单身份：活动组、活动标签与地址。 */
+    readonly identity: string;
+}
 </script>
 
 <template>
@@ -98,16 +112,29 @@ const kinds = computed((): FileEditorKind[] => {
         @focusin="area.focusGroup(groupId)"
         @pointerdown="area.focusGroup(groupId)"
     >
-        <EditorTabBar
-            :tabs="tabs"
-            :label="editorText(locale, 'tabsLabel')"
-            :close-label="(name: string) => editorText(locale, 'closeTab', {name})"
-            :unsaved-label="editorText(locale, 'unsaved')"
-            @activate="(id: string) => area.activate(id)"
-            @pin="(id: string) => area.pin(id)"
-            @close="(id: string) => void area.close(id)"
-            @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
-        />
+        <!-- 标签多时标签条自己横向滚动，标题动作固定在右侧、不随之滚动。 -->
+        <div class="editor-group__header">
+            <EditorTabBar
+                class="editor-group__tabs"
+                :tabs="tabs"
+                :label="editorText(locale, 'tabsLabel')"
+                :close-label="(name: string) => editorText(locale, 'closeTab', {name})"
+                :unsaved-label="editorText(locale, 'unsaved')"
+                @activate="(id: string) => area.activate(id)"
+                @pin="(id: string) => area.pin(id)"
+                @close="(id: string) => void area.close(id)"
+                @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
+            />
+            <TitleActions
+                v-if="hasTitleActions"
+                class="editor-group__title-actions"
+                :model="titleActions!.model"
+                :identity="titleActions!.identity"
+                :more-label="editorText(locale, 'moreActions')"
+                data-editor-title-actions
+                @run="(key: string) => emit('title-action', key)"
+            />
+        </div>
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
             <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>
@@ -162,6 +189,24 @@ const kinds = computed((): FileEditorKind[] => {
 </template>
 
 <style scoped>
+/* 标签条与标题动作一行：标签条占剩下的宽度、放不下时自己横向滚动，标题动作不收缩（docs/specs/workbench/editor.md 输出 34）。 */
+.editor-group__header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: stretch;
+    background: var(--panel-surface);
+}
+
+.editor-group__tabs {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.editor-group__title-actions {
+    align-self: center;
+    padding-inline: var(--space-1) var(--space-2);
+}
+
 /* 空态（docs/specs/workbench/editor.md 输出 32）：正中一个淡色的图形标志，下面几行提示，说明靠右、按键或位置靠左。 */
 .editor-group__empty {
     display: flex;

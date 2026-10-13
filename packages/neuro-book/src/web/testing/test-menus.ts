@@ -10,6 +10,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {EDITOR_TITLE_POINT} from "nbook/plugins/editor/shared/contracts";
+import type {EditorTitleItemDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {EXPLORER_CONTEXT_POINT} from "nbook/plugins/explorer/shared/contracts";
 import type {ExplorerContextItemDeclaration} from "nbook/plugins/explorer/shared/contracts";
 import {notificationsKey, WORKBENCH_VIEW_TITLE_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -45,6 +47,11 @@ const EXPLORER_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: 
     {id: "test.menus.explorer-any", declaration: {section: "2", command: TEST_MENUS_RECORD_COMMAND, label: label("测试固定参数"), args: {from: "explorer"}}},
 ];
 
+/** 编辑区标题：只对 `.md` 的按钮，执行时收到活动标签的地址（editor.md 验收 21）。 */
+const EDITOR_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: EditorTitleItemDeclaration}> = [
+    {id: "test.menus.editor-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, icon: "i-lucide-eye", label: label("测试编辑区按钮"), extensions: [".md"], context: "resource"}},
+];
+
 export function createTestMenusBrowserPlugin(): PluginDefinition {
     return {
         id: testMenusDescriptor.id,
@@ -57,6 +64,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                 {capability: COMMANDS_POINT, id: TEST_MENUS_RECORD_COMMAND, declaration: RECORD},
                 ...VIEW_TITLE_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_VIEW_TITLE_POINT, id, declaration})),
                 ...EXPLORER_ITEMS.map(({id, declaration}) => ({capability: EXPLORER_CONTEXT_POINT, id, declaration})),
+                ...EDITOR_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TITLE_POINT, id, declaration})),
             ],
             activate: (context) => {
                 const notifications = context.services.require(notificationsKey);
@@ -67,6 +75,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                     }}},
                     [WORKBENCH_VIEW_TITLE_POINT]: menuImplementations(VIEW_TITLE_ITEMS),
                     [EXPLORER_CONTEXT_POINT]: menuImplementations(EXPLORER_ITEMS),
+                    [EDITOR_TITLE_POINT]: menuImplementations(EDITOR_ITEMS),
                 }};
             },
         })],
