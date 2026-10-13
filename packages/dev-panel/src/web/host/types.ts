@@ -125,7 +125,7 @@ export type NotifyJob = {
     workId: string; taskId: string; sessionKey: string; askerPaneId: string | null;
     answers: Array<{answerId: string; artifactId: string}>; legacy: Array<{answerId: string; artifactId: string}>; artifacts: string[]; questions: number;
     state: NotifyJobState; paneId: string | null; agent: string | null; replacedBy: NotifyCandidate | null; alternatives: NotifyCandidate[];
-    waitReason: string | null; screen: string | null; message: string; manualMessage: string;
+    waitReason: string | null; screen: string | null; message: string; manualMessage: string; developerMessage: string;
 };
 export type NotifyResult = "pending" | "delivered" | "delivered_into_blocked" | "delivered_maybe_wrong_session" | "uncertain" | "skipped" | "agent_blocked" | "not_deliverable" | "session_changed" | "failed";
 export type NotifyAttempt = {

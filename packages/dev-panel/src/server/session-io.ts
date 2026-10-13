@@ -133,14 +133,14 @@ export function createSessionIo(deps: SessionIoDeps) {
     }
 
     async function send(req: Request): Promise<Response> {
-        const fields = await readFields(req, 4 * KIB, {workId: {type: "string", required: true}, taskId: {type: "string", required: true}, sessionKey: {type: "string", required: true}, target: {type: "object", required: true}, confirmScreen: {type: "boolean"}});
+        const fields = await readFields(req, 32 * KIB, {workId: {type: "string", required: true}, taskId: {type: "string", required: true}, sessionKey: {type: "string", required: true}, target: {type: "object", required: true}, confirmScreen: {type: "boolean"}, text: {type: "nullable-string"}});
         const target = fields.target as Record<string, unknown>;
         if (typeof target.paneId !== "string" || !PANE_ID.test(target.paneId) || typeof target.sessionKey !== "string" || Object.keys(target).length !== 2) {
             throw usage("target 要写成 {paneId, sessionKey}", {field: "target", reason: "type"});
         }
         const outcome = await notifier.sendManual({
             workId: fields.workId as string, taskId: fields.taskId as string, sessionKey: fields.sessionKey as string,
-            target: {paneId: target.paneId, sessionKey: target.sessionKey}, confirmScreen: fields.confirmScreen === true,
+            target: {paneId: target.paneId, sessionKey: target.sessionKey}, confirmScreen: fields.confirmScreen === true, text: (fields.text as string | null | undefined) ?? null,
         });
         return envelope({result: outcome.result, code: outcome.code, message: outcome.message}, [], null);
     }

@@ -136,8 +136,8 @@
 | `waiting_input` | 空闲但输入框不是认得出的空（`waitReason`、`screen`）；状态序号变了（`agent.get`，不读屏）或过了 15 秒才重读屏幕 | 原因与屏幕末尾，可手动发 |
 | `unknown_status` | 状态未知，不自动投 | 可手动发（仍要空闲） |
 | `waiting_herdr` | herdr 不可用 | 排着 |
-| `replaced` | 提问者不在 herdr 里，它提问时所在的 pane 上换了一个本仓库里的会话（`replacedBy`） | 小窗：发给现在的会话，或不通知 |
-| `no_target` | 提问者不在 herdr 里（结束了、外部会话） | 列出持有这个 Task 有效租约、在 herdr 里、pane 在本仓库的会话（`alternatives`），各一个“通知它”；没有就写“会话下次读答复时会看到” |
+| `replaced` | 提问者不在 herdr 里，它提问时所在的 pane 上换了一个本仓库里的会话（`replacedBy`） | 小窗：发给现在的会话（开发者名义的普通消息，见下），或不通知 |
+| `no_target` | 提问者不在 herdr 里（结束了、外部会话） | 列出持有这个 Task 有效租约、在 herdr 里、pane 在本仓库的会话（`alternatives`），各一个“通知它”（开小窗，开发者名义的普通消息）；没有就写“会话下次读答复时会看到” |
 | `not_in_repository` | 提问者的 pane 已不在本仓库 | 不自动通知，可选别的会话 |
 | `manual_only` | 这个 herdr 版本不自动投递（只放行 0.9.1 与 0.9.3） | 可手动发 |
 | `legacy` | 只有早于启用时刻的答复 | 可手动发 |
@@ -148,13 +148,14 @@
   - 按产物逐个读、逐个确认：Task 级的 `answers --json` 会列出没有答复的产物（报告、未答的提问集），对它们 `ack` 报 `no_answers`，输出也成倍变长。
   - 读答复不带 `--unacked`：别的会话先确认之后，这个会话照样读得到与自己有关的答复。
   - 手动发给提问者时连旧答复一起（`manualMessage`）。
+- **发给不是提问者的会话**（会话已更换后的新会话、持有租约的会话）：根 `AGENTS.md` 的 `[nbdev]` 规则只让提问者照做，所以面板不给它们发 `[nbdev]` 通知，而是发一段以开发者名义的普通消息。小窗预填 `developerMessage`（“开发者在面板上答复了 <W>/<T> 的提问（产物 a、b，共 N 题）。请对括号里列出的每个产物，运行 …”，连旧答复一起），开发者可以先改，确认后才发；同样经过投递前的判定，审计照记（`detail.kind: developer_message` 与全文）。这是开发者亲手做的决定，会话按普通用户消息处理。
 - 同一格 pane 的所有发送（通知、文字、按键）在面板里经一把按 pane 的互斥串行。收到 SIGTERM 时先等进行中的投递结束（上限为等待时限加 2 秒），再收口。
 
 **接口**（写请求的校验同“写接口”，在它之前已核过转发头、Host、登录、`Sec-Fetch-Site`、Origin 与 CSRF）：
 
 | 接口 | 请求体（JSON） | 结果 |
 |---|---|---|
-| `POST /api/notify/send` | `{workId, taskId, sessionKey, target: {paneId, sessionKey}, confirmScreen?}`：`sessionKey` 是提问者（任务的键），`target` 只能是这条任务列出的会话（提问者本人、`replacedBy`、`alternatives`），否则 409 `session_changed`（`details.reason: not_a_candidate`） | `{result, code, message}`；`result` 见尝试记录 |
+| `POST /api/notify/send` | `{workId, taskId, sessionKey, target: {paneId, sessionKey}, text?, confirmScreen?}`：`sessionKey` 是提问者（任务的键），`target` 只能是这条任务列出的会话（提问者本人、`replacedBy`、`alternatives`），否则 409 `session_changed`（`details.reason: not_a_candidate`）。发给提问者本人时不带 `text`，发的是指针消息（带了回 400，`reason: asker`）；发给别的会话必须带开发者确认过的 `text`（最长 4000 字，拒绝 C0 控制字符，不能以 `[nbdev]` 开头：`reason` 为 `missing`、`too_long`、`nbdev_prefix`） | `{result, code, message}`；`result` 见尝试记录 |
 | `POST /api/notify/skip` | `{workId, taskId, sessionKey}` | 记 `skipped`，这些答复（连旧答复）对这个提问者办完 |
 | `POST /api/sessions/:paneId/prompt` | `{text, expectedSession, confirmScreen?}`：最长 4000 字，拒绝 C0 控制字符（允许换行与制表符） | `{result, code, message}` |
 | `POST /api/sessions/:paneId/keys` | `{keys, expectedSession, confirmed?}`：一次 1 到 4 个，只收 `up`、`down`、`shift+tab`、`enter`、`esc`、`ctrl+c`、`y`、`n`（其它 400 `key_not_allowed`）；除上、下之外都要 `confirmed: true`（只防前端误发，确认框在前端）；一次最多一个 `ctrl+c`，同一格 3 秒内第二次 409 `key_rate_limited`（调 herdr 之前记账） | `{sent}` |
@@ -243,7 +244,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 - **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就显示上面那句并停止重连，否则照常重连（重连后的 `hello` 全部重取）。
 - **偏好**（明暗、左栏各 Work 的展开、通知里“知道了”的尝试）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
 - **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
-- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，t11 加 `NotifyStatus`、`ReplacedDialog`、`ScreenConfirmDialog`、`SessionConsole`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
+- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，t11 加 `NotifyStatus`、`DeveloperMessageDialog`、`ScreenConfirmDialog`、`SessionConsole`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
 - **画法**（t03 第三轮已定）：持久的照常画实线的面；临时的（会话、租约、谁在动、运行）一律信息色虚线框，角上标“临时”，单独的租约是虚线胶囊，失效的划掉。没有字段的值显示“未标”；面板不推断状态，所以多数 Work 的计数条是“未标”的灰色。
 - **写入的界面**（t10）：零件不发请求；写请求、预览请求、300 毫秒去抖、“2 秒后提示在等别的写入完成”的定时器、`beforeunload`、复制到剪贴板都在页面里（`host/writes.ts`、`host/status-change.ts`）。写请求的错误保留 `details` 与 `data`。字段校验直接导入核心的纯函数（`validateAnswerValue`、`SLUG_PATTERN`、标题与控制字符的规则），不复制规则。主工作区不能写、记录来自分支时，写入口隐藏或只读并写明原因。外壳不监听也不接受来自产物 iframe 的消息：答复只经侧栏表单。错误码到界面动作：
 

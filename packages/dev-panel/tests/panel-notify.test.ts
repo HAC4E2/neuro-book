@@ -32,6 +32,7 @@ const KEY_A = `claude:${SESSION_A}`;
 const KEY_B = `claude:${SESSION_B}`;
 const KEY_C = `claude:${SESSION_C}`;
 const TASK = {workId: "w00001-seed", taskId: "t01-seed"};
+const DEVELOPER_MESSAGE = "开发者在面板上答复了 w00001/t01 的提问（产物 review，共 2 题）。请对括号里列出的每个产物，运行 nbdev answers w00001 t01 <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack w00001 t01 <产物> --through <该次输出里的 cursor>。";
 const MESSAGE = "[nbdev] w00001/t01 有 2 题新的开发者答复（产物 review）。对括号里列出的每个产物，运行 nbdev answers w00001 t01 <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack w00001 t01 <产物> --through <该次输出里的 cursor>。";
 
 type Body = {ok: boolean; data: Record<string, unknown>; errors: Array<{code: string; message: string; details?: Record<string, unknown>}>; warnings: Array<{code: string}>};
@@ -248,6 +249,8 @@ describe("自动通知", () => {
         await until(() => panel.jobs(), (jobs) => jobs[0]?.state === "manual_only", 5_000, "manual_only");
         await Bun.sleep(3_500);
         expect(fake.prompts).toEqual([]);
+        const withText = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target: {paneId: "w9:p1", sessionKey: KEY_A}, text: "随便写的"});
+        expect([withText.status, withText.body.errors[0]?.details?.reason]).toEqual([400, "asker"]);
         const sent = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target: {paneId: "w9:p1", sessionKey: KEY_A}});
         expect([sent.status, sent.body.data.result]).toEqual([200, "delivered"]);
         expect(fake.prompts.map((prompt) => prompt.text)).toEqual([MESSAGE]);
@@ -256,7 +259,7 @@ describe("自动通知", () => {
 });
 
 describe("找不到提问者", () => {
-    test("场景 3：提问者原来的 pane 上换了会话：replaced，不发；发给现在的会话恰好一次", async () => {
+    test("场景 3：提问者原来的 pane 上换了会话：replaced，不发；发给现在的会话的是开发者确认过的普通消息（不带 [nbdev]），恰好一次", async () => {
         const {fixture, fake, panel} = await setup("notify-replaced", {panes: (main) => [claudePane("w9:p1", SESSION_B, {cwd: main, foreground_cwd: main})]});
         await answer(panel);
         const jobs = await until(() => panel.jobs(), (list) => list[0]?.state === "replaced", 5_000, "replaced");
@@ -265,9 +268,20 @@ describe("找不到提问者", () => {
         expect(fake.prompts).toEqual([]);
         const wrong = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target: {paneId: "w9:p1", sessionKey: KEY_C}});
         expect([wrong.status, wrong.body.errors[0]?.code]).toEqual([409, "session_changed"]);
-        const sent = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target: {paneId: "w9:p1", sessionKey: KEY_B}});
+        expect(jobs[0]!.developerMessage).toBe(DEVELOPER_MESSAGE);
+        const target = {paneId: "w9:p1", sessionKey: KEY_B};
+        const refused = [
+            await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target}),
+            await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target, text: "  "}),
+            await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target, text: MESSAGE}),
+        ];
+        expect(refused.map((call) => [call.status, call.body.errors[0]?.details?.reason])).toEqual([[400, "missing"], [400, "missing"], [400, "nbdev_prefix"]]);
+        const edited = `${DEVELOPER_MESSAGE}（改过）`;
+        const sent = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target, text: edited});
         expect([sent.status, sent.body.data.result]).toEqual([200, "delivered"]);
-        expect(fake.prompts).toEqual([{target: "w9:p1", text: MESSAGE}]);
+        expect(fake.prompts).toEqual([{target: "w9:p1", text: edited}]);
+        const notifyAudit = (await auditLines(fixture)).find((line) => line.action === "notify" && line.phase === "intent");
+        expect([notifyAudit?.detail.kind, notifyAudit?.detail.text]).toEqual(["developer_message", edited]);
         expect(await panel.jobs()).toEqual([]);
         const records = await notifyRecords(fixture);
         expect(records.map((record) => [record.result, record.sessionKey, record.askerKey, record.manual])).toEqual([["pending", KEY_B, KEY_A, true], ["delivered", KEY_B, KEY_A, true]]);
@@ -281,9 +295,9 @@ describe("找不到提问者", () => {
         await answer(panel);
         const jobs = await until(() => panel.jobs(), (list) => list[0]?.state === "no_target" && list[0].alternatives.length > 0, 5_000, "no_target 带候选");
         expect([jobs[0]!.sessionKey, jobs[0]!.alternatives.map((entry) => [entry.sessionKey, entry.paneId])]).toEqual(["external:bob", [[KEY_C, "w9:p3"]]]);
-        const sent = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: "external:bob", target: {paneId: "w9:p3", sessionKey: KEY_C}});
+        const sent = await panel.send("POST", "/api/notify/send", {...TASK, sessionKey: "external:bob", target: {paneId: "w9:p3", sessionKey: KEY_C}, text: DEVELOPER_MESSAGE});
         expect([sent.status, sent.body.data.result]).toEqual([200, "delivered"]);
-        expect(fake.prompts).toEqual([{target: "w9:p3", text: MESSAGE}]);
+        expect(fake.prompts).toEqual([{target: "w9:p3", text: DEVELOPER_MESSAGE}]);
         expect(await panel.jobs()).toEqual([]);
 
         // 第二份答复：选“不通知”，记 skipped，任务消失、不发。

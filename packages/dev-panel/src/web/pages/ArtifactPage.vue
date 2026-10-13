@@ -10,10 +10,10 @@ import {useNotifyActions} from "../host/notify-actions.js";
 import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
 import AnswerForm from "../parts/AnswerForm.vue";
+import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
 import LoadState from "../parts/LoadState.vue";
 import NotifyStatus from "../parts/NotifyStatus.vue";
 import QuestionPanel from "../parts/QuestionPanel.vue";
-import ReplacedDialog from "../parts/ReplacedDialog.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
 import WriteNotice from "../parts/WriteNotice.vue";
 
@@ -66,7 +66,7 @@ watch(answerJobs, (jobs) => {
     const job = jobs.find((entry) => entry.state === "replaced");
     if (!job || lastAnswerId.value === null || autoOpened.has(lastAnswerId.value)) return;
     autoOpened.add(lastAnswerId.value);
-    notifyActions.replaced.value = job;
+    notifyActions.openReplaced(job);
 });
 
 type AnswerInput = {values: Record<string, unknown>; comments: Record<string, string>; note: string | null};
@@ -131,7 +131,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                         <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
                         <section v-if="lastAnswerId" class="flex flex-col gap-1.5" aria-label="这份答复的通知">
                             <h2 class="font-semibold" style="font-size: var(--text-xs)">通知</h2>
-                            <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.send(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => (notifyActions.replaced.value = job)" @dismiss="notifyActions.dismiss" />
+                            <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
                             <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
                         </section>
                         <AnswerForm v-if="showForm" :questions="data.questions" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer" />
@@ -140,7 +140,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                 </aside>
             </div>
         </template>
-        <ReplacedDialog :open="notifyActions.replaced.value !== null" :job="notifyActions.replaced.value" :pending="notifyActions.pending.value" @send="(job, target) => notifyActions.send(job, target)" @skip="(job) => notifyActions.skip(job)" />
+        <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
         <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
     </div>
 </template>

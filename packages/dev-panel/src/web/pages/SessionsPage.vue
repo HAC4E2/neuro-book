@@ -8,10 +8,10 @@ import {deliveryNotice, useNotifyActions} from "../host/notify-actions.js";
 import {useResource} from "../host/panel-data.js";
 import type {DeliveryData, Meta, NotifyData, ScreenData, SessionsData} from "../host/types.js";
 import {describeFailure, type Notice} from "../host/writes.js";
+import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LoadState from "../parts/LoadState.vue";
 import NotifyStatus from "../parts/NotifyStatus.vue";
-import ReplacedDialog from "../parts/ReplacedDialog.vue";
 import RunList from "../parts/RunList.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
 import SessionConsole from "../parts/SessionConsole.vue";
@@ -162,7 +162,7 @@ async function pressKey(key: string): Promise<void> {
                 <h2 class="font-semibold">通知</h2>
                 <p v-if="audit && !audit.enabled && audit.reason === 'not_initialized'" style="font-size: var(--text-xs); color: var(--status-warning)">审计还没初始化：不发通知，也不能替你打字或按键。在终端运行 <code>bun run --cwd packages/dev-panel audit-init</code>（建 {{ audit.path }}）。</p>
                 <p v-else-if="audit && !audit.enabled" style="font-size: var(--text-xs); color: var(--status-warning)">审计不可用：不发通知，也不能替你打字或按键。{{ audit.detail }}</p>
-                <NotifyStatus :jobs="notify.data.value?.jobs ?? []" :attempts="recent" show-task :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有排队的通知，最近 24 小时也没有发过" @send="(job, target) => notifyActions.send(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => (notifyActions.replaced.value = job)" @dismiss="notifyActions.dismiss" />
+                <NotifyStatus :jobs="notify.data.value?.jobs ?? []" :attempts="recent" show-task :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有排队的通知，最近 24 小时也没有发过" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
                 <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
             </section>
             <section v-if="paneId" class="flex flex-col gap-2 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="会话详情">
@@ -196,7 +196,7 @@ async function pressKey(key: string): Promise<void> {
             </EphemeralFrame>
             <p v-if="data.ignoredProcesses > 0" style="font-size: var(--text-xs); color: var(--text-muted)">另有 {{ data.ignoredProcesses }} 个短命或无关的进程没有列出</p>
         </template>
-        <ReplacedDialog :open="notifyActions.replaced.value !== null" :job="notifyActions.replaced.value" :pending="notifyActions.pending.value" @send="(job, target) => notifyActions.send(job, target)" @skip="(job) => notifyActions.skip(job)" />
+        <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
         <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value || consolePending" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
     </div>
 </template>

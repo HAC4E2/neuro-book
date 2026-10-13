@@ -1,8 +1,9 @@
 import type {AuditStatus, AuditWriter} from "../core/audit.js";
 import {newActionId, readAuditStatus} from "../core/audit.js";
 import {NbdevError, type Warning} from "../core/errors.js";
+import {assertPlainText} from "../core/text-rules.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
-import {computeNotifyJobs, newAttemptId, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyJob, type NotifyRecord, type NotifyResult} from "../core/notify.js";
+import {computeNotifyJobs, developerMessage, newAttemptId, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyJob, type NotifyRecord, type NotifyResult} from "../core/notify.js";
 import {HerdrError, type HerdrAgentInfo, type HerdrClient, type HerdrSnapshotPane} from "../herdr/client.js";
 import {checkDeliverable, deliverText, PROMPT_WAIT_MS, sessionKeyOf, type CheckFailure, type DeliveryContext, type DeliveryOutcome, type DeliveryTarget} from "./delivery.js";
 import type {PanelState} from "./state.js";
@@ -42,9 +43,11 @@ export type NotifyJobView = NotifyJob & {
     /** 最近一次判定不可投的原因与屏幕末尾（`waiting_input`）。 */
     waitReason: string | null;
     screen: string | null;
-    /** 自动投递的整行文字（新答复）；手动发送连旧答复一起（`manualMessage`）。 */
+    /** 自动投递的整行文字（新答复）；手动发给提问者时连旧答复一起（`manualMessage`）。 */
     message: string;
     manualMessage: string;
+    /** 发给不是提问者的会话（`replacedBy`、`alternatives`）时预填的普通消息，不带 `[nbdev]`，开发者发之前可以改。 */
+    developerMessage: string;
 };
 export type NotifyAttempt = Omit<NotifyRecord, "schema"> & {intentOnly: boolean};
 
@@ -258,6 +261,7 @@ export class Notifier {
             screen: wait?.screen ?? null,
             message: pointerMessage(job),
             manualMessage: pointerMessage({...job, ...job.withLegacy}),
+            developerMessage: developerMessage({...job, ...job.withLegacy}),
         };
     }
 
@@ -312,15 +316,19 @@ export class Notifier {
     }
 
     /** 写意图（审计与尝试记录），投递，再写结果。意图写不进去就不投（fail closed）。 */
-    private async send(context: DeliveryContext, job: NotifyJob, target: DeliveryTarget, before: HerdrAgentInfo, manual: boolean): Promise<DeliveryOutcome> {
+    /**
+     * `developerText`：发给不是提问者的会话时，开发者确认过的普通消息；为 null 时发指针消息（自动投递与手动发给提问者）。
+     */
+    private async send(context: DeliveryContext, job: NotifyJob, target: DeliveryTarget, before: HerdrAgentInfo, manual: boolean, developerText: string | null = null): Promise<DeliveryOutcome> {
         const {mainRoot} = this.options.state.context;
         const answers = (manual ? [...job.answers, ...job.legacy] : job.answers).map((entry) => entry.answerId);
-        const text = pointerMessage(manual ? {...job, ...job.withLegacy} : job);
+        const text = developerText ?? pointerMessage(manual ? {...job, ...job.withLegacy} : job);
+        const kind = developerText === null ? "pointer" : "developer_message";
         const attemptId = newAttemptId();
         const actionId = newActionId();
         const base = {attemptId, workId: job.workId, taskId: job.taskId, sessionKey: target.sessionKey, askerKey: job.sessionKey, paneId: target.paneId, answers, manual};
         const auditTarget = {paneId: target.paneId, sessionKey: target.sessionKey, workId: job.workId, taskId: job.taskId};
-        await this.options.audit.append({actionId, phase: "intent", action: "notify", device: PANEL_DEVELOPER.device, target: auditTarget, detail: {text, answers, manual, askerKey: job.sessionKey}});
+        await this.options.audit.append({actionId, phase: "intent", action: "notify", device: PANEL_DEVELOPER.device, target: auditTarget, detail: {text, kind, answers, manual, askerKey: job.sessionKey}});
         await writeNotifyRecord(mainRoot, {...base, at: new Date().toISOString(), result: "pending", code: null, message: null});
         const outcome = await deliverText(context, target, text, before);
         await writeNotifyRecord(mainRoot, {...base, at: new Date().toISOString(), result: outcome.result, code: outcome.code, message: outcome.message});
@@ -350,7 +358,7 @@ export class Notifier {
      * 过同样的判据（身份、仓库、空闲、紧贴投递的复核）；正向白名单不过时先回 409 `not_deliverable` 带屏幕末尾，
      * 开发者看过之后带 `confirmScreen` 再发。目标只能是这条任务列出的会话。
      */
-    async sendManual(input: {workId: string; taskId: string; sessionKey: string; target: DeliveryTarget; confirmScreen: boolean}): Promise<DeliveryOutcome> {
+    async sendManual(input: {workId: string; taskId: string; sessionKey: string; target: DeliveryTarget; confirmScreen: boolean; text: string | null}): Promise<DeliveryOutcome> {
         await this.compute();
         if (!this.audit?.enabled) throw auditUnavailable(this.audit);
         const context = this.deliveryContext();
@@ -360,10 +368,11 @@ export class Notifier {
         if (!candidates.some((entry) => entry.paneId === input.target.paneId && entry.sessionKey === input.target.sessionKey)) {
             throw new NbdevError("session_changed", `${input.target.paneId} 上的 ${input.target.sessionKey} 不是这条通知可以发的会话；刷新之后再选`, {details: {reason: "not_a_candidate"}});
         }
+        const developerText = manualText(job, input.target, input.text);
         const outcome = await this.track(this.options.locks.run(input.target.paneId, async () => {
             const checked = await checkDeliverable(context, input.target);
-            if (checked.ok) return this.send(context, job, input.target, checked.agent, true);
-            if (checked.code === "not_deliverable" && input.confirmScreen && checked.agent) return this.send(context, job, input.target, checked.agent, true);
+            if (checked.ok) return this.send(context, job, input.target, checked.agent, true, developerText);
+            if (checked.code === "not_deliverable" && input.confirmScreen && checked.agent) return this.send(context, job, input.target, checked.agent, true, developerText);
             throw checkError(checked);
         }));
         await this.compute();
@@ -381,6 +390,26 @@ export class Notifier {
         await this.compute();
     }
 }
+
+const MAX_DEVELOPER_TEXT = 4000;
+
+/**
+ * 手动发送的文字：发给提问者本人是固定的指针消息（不收别的文字）；发给不是提问者的会话（会话已更换后的新会话、持有租约的会话）
+ * 必须带开发者确认过的普通消息，不能以 `[nbdev]` 开头——那一句规则只让提问者照做（t11 实现审查第 2 条）。
+ */
+function manualText(job: NotifyJobView, target: DeliveryTarget, text: string | null): string | null {
+    const asker = target.paneId === job.paneId && target.sessionKey === job.sessionKey;
+    if (asker) {
+        if (text !== null) throw new NbdevError("usage", "发给提问者的是固定的指针消息，不带 text", {details: {field: "text", reason: "asker"}});
+        return null;
+    }
+    if (text === null || text.trim() === "") throw new NbdevError("usage", "发给不是提问者的会话要带开发者确认过的消息（text）", {details: {field: "text", reason: "missing"}});
+    if (text.length > MAX_DEVELOPER_TEXT) throw new NbdevError("usage", `消息超过 ${MAX_DEVELOPER_TEXT} 字`, {details: {field: "text", reason: "too_long"}});
+    assertPlainText(text, "消息", true);
+    if (text.trimStart().startsWith("[nbdev]")) throw new NbdevError("usage", "发给不是提问者的会话的消息不能以 [nbdev] 开头：那是只给提问者的自动通知", {details: {field: "text", reason: "nbdev_prefix"}});
+    return text;
+}
+
 
 export function auditUnavailable(status: AuditStatus | null): NbdevError {
     const detail = status && !status.enabled ? status.detail : "审计不可用";
