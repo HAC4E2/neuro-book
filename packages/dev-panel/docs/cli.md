@@ -75,7 +75,11 @@
   - `EXITED <退出码或信号> run=<runId> [leftovers=<n>]`（`exited`）：服务退出，`leftovers` 是组长退出后补收的进程数。
   - 起来之前就失败（参数、checkout、脚本、工具）照常输出错误外壳与退出码。
 - **监管进程的退出码**：服务被 `dev stop` 或信号停掉为 0；服务自己退出为 1（`dev_exited`，不论之前有没有就绪）；停完核对不过为 1（`stop_incomplete`）。服务自己的退出码只在 `EXITED` 行里。
-- **复用**：键是（checkout、package、script）。在 `run/procs/` 的锁里查有没有还活着的同键运行，有就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；给的 `--ready-pattern`、`--work --task` 与它起时不同给 `reused_with_different_options`。
+- **复用**：键是（checkout、package、script）。
+  - 只复用组长还活着的同键运行（状态 `starting`、`running`，或 `orphaned` 且原因是 `supervisor_gone`）。`leader_exited`（开发脚本已退、只剩没收掉的进程）的服务早就不在了：先按下面的停法收掉（监管进程不在，按属主判据不要 `--force`），给 `leftovers_stopped`，再起新的；收不干净报 `stop_incomplete`。
+  - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
+  - 登记里已就绪的，先按就绪的判据探测一次地址：连得上才打 `READY … reused`；连不上报 `dev_unresponsive`（3），不替别人停服务，按提示先 `dev stop` 再起（不是你起的、属主还在要加 `--force`）。
+  - 复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；复用没人监管的（`supervisor_gone`）给 `supervisor_gone`（用完请 `dev stop`）；给的 `--ready-pattern`、`--work --task` 与它起时不同给 `reused_with_different_options`。
 - **停法**（`dev stop`、监管进程收到 SIGTERM、SIGINT、SIGHUP，以及组长自己退出之后的补收，都用同一套）：
   1. 先写登记的 `stoppingAt`、`stoppedBy`；
   2. 组长还在就**只给组长发 SIGTERM**（`bun run` 转给开发脚本，按它自己的顺序收口：master 的 source-dev 经 owned-process 收掉另一个会话里的运行时）；组长已不在就给进程组与后代快照里还活着的发 SIGTERM；
@@ -97,7 +101,7 @@
 
 **`shot`**：只做薄包装，截图逻辑全在目标 checkout 的 `lab:shot` 里。
 
-- 地址：`--url`，没有就取这个 checkout 上经 nbdev 起、已就绪的服务的地址；都没有报 `dev_not_running`（退出码 5）。
+- 地址：`--url`，没有就取这个 checkout 上经 nbdev 起、能复用（判据同 `dev start` 的复用）、已就绪且地址此刻按就绪判据连得上的服务的地址；都没有报 `dev_not_running`（退出码 5）。
 - 输出目录：带 `--work --task` 时是 `.local/agent/works/<W>/tasks/<T>/shots/<UTC 时间>/`，否则是 `.local/agent/shots/<UTC 时间>/`。
 - `TMPDIR` 指到 `/dev/shm/nbdev-shot-<随机>`，跑完删掉：`/tmp` 是带配额的内存盘，Chrome 的临时数据会把它占满。
 - 不注入浏览器路径。`package.json` 里没有 `lab:shot` 报 `shot_unavailable`（3）；`lab:shot` 失败报 `shot_failed`（1），带它 stderr 的末尾。
@@ -159,7 +163,7 @@ stdout 只有一个对象，诊断走 stderr：
 | 0 | 成功，含带警告的成功与撞号 | |
 | 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`request_aborted`、`herdr_unavailable`、`systemctl_failed`、`journalctl_failed`、`dev_exited`、`stop_incomplete`、`tool_missing`、`shot_failed`、`internal` |
 | 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`invalid_text`、`invalid_record_edit`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host`、`payload_too_large`、`unsupported_media_type`、`key_not_allowed` |
-| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use`、`audit_unavailable`、`session_changed`、`not_deliverable`、`agent_busy`、`not_in_repository`、`key_rate_limited`、`service_exists`、`pane_controlled`（这格正被你在面板里接管键盘，t12）、`history_unavailable`（只有 omp 能读更早的输出，t12）、`run_owned_by_other`、`shot_unavailable` |
+| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use`、`audit_unavailable`、`session_changed`、`not_deliverable`、`agent_busy`、`not_in_repository`、`key_rate_limited`、`service_exists`、`pane_controlled`（这格正被你在面板里接管键盘，t12）、`history_unavailable`（只有 omp 能读更早的输出，t12）、`run_owned_by_other`、`dev_unresponsive`、`shot_unavailable` |
 | 4 | 等待没有结果（`answers --wait`、`dev status --wait-ready`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted`、`dev_not_ready` |
 | 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`service_not_installed`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers`、`panel_not_running`、`run_not_found`、`script_not_found`、`dev_not_running` |
 
@@ -223,6 +227,8 @@ stdout 只有一个对象，诊断走 stderr：
 | `reused_with_different_options` | `dev start` 复用了已在跑的服务，给的 `--ready-pattern`、`--work --task` 与它起时不同、没有生效（`details.differences`） |
 | `unreadable_proc_record` | 某份进程登记读不出或格式不对，已跳过 |
 | `proc_record_write_failed` | `dev start` 收到信号时没能写登记（之后的读者按 `supervisor_killed` 判） |
+| `supervisor_gone` | `dev start` 复用了监管进程已不在的服务：没有人监管它，用完请 `dev stop` |
+| `leftovers_stopped` | `dev start` 先收掉了同键的残留（开发脚本已退、只剩没收掉的进程），再起新的 |
 | `proc_snapshot_failed`、`ready_watch_failed` | 监管进程记后代快照、读日志认就绪时出错（诊断用） |
 | `stop_incomplete` | 监管进程收尾时还有进程没收掉（`details.leftoverPids`）；`dev stop` 遇到同样情形报同名错误 |
 | `home_not_written` | `worktree new` 建好了 worktree，但没能在登记表写 `home` |

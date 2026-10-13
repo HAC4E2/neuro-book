@@ -52,6 +52,7 @@ export const ERROR_EXIT_CODES = {
     panel_running: 3,
     port_in_use: 3,
     run_owned_by_other: 3,
+    dev_unresponsive: 3,
     shot_unavailable: 3,
     stale_version: 3,
     not_editable: 3,

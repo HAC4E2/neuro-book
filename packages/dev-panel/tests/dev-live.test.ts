@@ -228,6 +228,77 @@ describe("dev stop 与属主（场景 2）", () => {
     }, 90_000);
 });
 
+/** 手写一份登记（监管进程、组长由测试给定）。 */
+async function writeRecord(s: Setup, runId: string, fields: Record<string, unknown>): Promise<void> {
+    await s.fixture.write(`${PROCS_DIR}/${runId}.json`, JSON.stringify({
+        schema: "nbdev.proc/v1", runId, kind: "dev", checkout: s.fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: ["bun", "run", "dev"],
+        readyPattern: null, workId: null, taskId: null, logPath: join(s.fixture.root, "x.log"), bootId: readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
+        startedAt: new Date().toISOString(), startedBy: null, descendants: [], url: null, readyAt: null, lastProbeStatus: null, stoppingAt: null, stoppedBy: null,
+        endedAt: null, endedReason: null, exitCode: null, signal: null, leftovers: null, leftoverPids: [], ...fields,
+    }));
+}
+
+/** 一个自己是组长的 sleep（pid 等于组号）。 */
+async function detachedSleep(): Promise<{pid: number; startTicks: string}> {
+    const child = spawn("sleep", ["60"], {stdio: "ignore", detached: true});
+    cleanups.push(async () => {
+        child.kill("SIGKILL");
+    });
+    return {pid: child.pid!, startTicks: (await processStartTicks(child.pid!))!};
+}
+
+describe("复用的判据（t14 实现审查 I2）", () => {
+    test("开发脚本已退、只剩孙进程（leader_exited）：不复用，先收掉残留（leftovers_stopped）再起新的", async () => {
+        const s = await setup("dev-reuse-leftover", {FAKE_DEV_MODE: "leave"});
+        const first = await startDev(s, []);
+        const oldRun = /run=(\S+)/u.exec(await readyLine(first))![1]!;
+        await until(async () => (await records(s.fixture))[0]!.descendants.length, (count) => count > 0, 10_000, "快照记下孙进程");
+        const leftover = fakePids(s.pidsFile).find((entry) => entry.role === "sleep")!.pid;
+        process.kill(first.pid, "SIGKILL");
+        await first.exited;
+        const orphan = async () => (JSON.parse((await cli(s, ["dev", "status", "--package", "apps/web", "--json"])).stdout) as {data: {runs: Array<{runId: string; state: string; reason: string}>}}).data.runs.find((run) => run.runId === oldRun)!;
+        await until(orphan, (run) => run.state === "orphaned" && run.reason === "leader_exited", 10_000, "leader_exited");
+        const second = await startDev(s, []);
+        const line = await readyLine(second);
+        expect(line).toMatch(/^READY /u);
+        expect(line).not.toContain(" reused");
+        expect(/run=(\S+)/u.exec(line)![1]).not.toBe(oldRun);
+        expect(existsSync(`/proc/${leftover}`)).toBe(false);
+        expect((await orphan()).state).toBe("ended");
+        process.kill(second.pid, "SIGTERM");
+        await second.exited;
+        // 监管进程的警告在它退出时写 stderr。
+        expect(readFileSync(`${second.out}.err`, "utf8")).toContain("leftovers_stopped");
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 60_000);
+
+    test("登记已就绪、地址连不上：dev start 报 dev_unresponsive（3），shot 不拿它的地址（5）；没人监管、地址连得上：复用并给 supervisor_gone，shot 拿它的地址", async () => {
+        const s = await setup("dev-reuse-probe");
+        await s.fixture.write("apps/web/package.json", JSON.stringify({name: "web", private: true, scripts: {dev: `bun ${FAKE_DEV}`, "lab:shot": "true"}}));
+        const supervisor = await detachedSleep();
+        const leader = await detachedSleep();
+        const runId = "dev-20261013T000000Z-0000000d";
+        await writeRecord(s, runId, {supervisor, pid: leader.pid, pgid: leader.pid, startTicks: leader.startTicks, url: "http://127.0.0.1:1/", readyAt: new Date().toISOString(), lastProbeStatus: 200});
+        const dead = await cli(s, ["dev", "start", "--package", "apps/web", "--json"]);
+        expect([dead.exitCode, (JSON.parse(dead.stdout) as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([3, "dev_unresponsive"]);
+        const noShot = await cli(s, ["shot", "--package", "apps/web", "--json"]);
+        expect([noShot.exitCode, (JSON.parse(noShot.stdout) as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([5, "dev_not_running"]);
+        expect((await records(s.fixture)).length).toBe(1);
+
+        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok")});
+        cleanups.push(async () => {
+            await server.stop(true);
+        });
+        const url = `http://127.0.0.1:${server.port}/`;
+        await writeRecord(s, runId, {supervisor: {pid: supervisor.pid, startTicks: `${supervisor.startTicks}0`}, pid: leader.pid, pgid: leader.pid, startTicks: leader.startTicks, url, readyAt: new Date().toISOString(), lastProbeStatus: 200});
+        const reused = await cli(s, ["dev", "start", "--package", "apps/web", "--json"]);
+        expect([reused.exitCode, JSON.parse(reused.stdout.trim().split("\n")[0]!)]).toEqual([0, expect.objectContaining({event: "ready", url, runId, reused: true})]);
+        expect(reused.stderr).toContain("supervisor_gone");
+        const shot = await cli(s, ["shot", "--package", "apps/web", "--json"]);
+        expect([shot.exitCode, (JSON.parse(shot.stdout) as {data: {url: string}}).data.url]).toEqual([0, url]);
+    }, 60_000);
+});
+
 describe("PID 复用与重启（场景 3）", () => {
     test("登记里的 pid 被复用：dev status 判 ended、dev stop 不发信号；bootId 变了判 rebooted", async () => {
         const s = await setup("dev-reuse-pid");

@@ -6,11 +6,11 @@ import {join, relative, resolve} from "node:path";
 import {NbdevError} from "../core/errors.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import type {RepoContext} from "../core/repo.js";
-import {listRuns, resolveDevTarget} from "./dev-ops.js";
+import {listRuns, resolveDevTarget, reusable, urlReady} from "./dev-ops.js";
 
 /**
  * `nbdev shot`（t14）：只做薄包装，把三件事交给目标 checkout 自己的 `lab:shot`：
- * - 地址：`--url`，没有就取这个 checkout 上还活着、已就绪的服务的地址；
+ * - 地址：`--url`，没有就取这个 checkout 上能复用（组长还在）、已就绪、地址此刻连得上的服务的地址（判据同 `dev start` 的复用）；
  * - 输出目录：`.local/agent/works/<W>/tasks/<T>/shots/<UTC 时间>/`，不带 Task 时是 `.local/agent/shots/<UTC 时间>/`；
  * - `TMPDIR`：指到 `/dev/shm/nbdev-shot-<随机>`，跑完删掉。`/tmp` 是带配额的内存盘，Chrome 的临时数据曾把它占满、浏览器崩溃。
  * 不注入浏览器路径：两种 `lab:shot` 缺省用 `channel: "chrome"`（t14 设计审查 S10）。截图逻辑全在 `lab:shot` 里，这里不另写。
@@ -34,10 +34,14 @@ export async function runShot(context: RepoContext, cwd: string, input: ShotInpu
     let url = input.url;
     if (url === null) {
         const {runs} = await listRuns(context.mainRoot);
-        const alive = runs.filter((run) => run.checkout === target.checkout.root && run.state !== "ended" && run.url && run.readyAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-        url = alive[0]?.url ?? null;
+        const ready = runs.filter((run) => run.checkout === target.checkout.root && reusable(run) && run.url && run.readyAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+        for (const run of ready) {
+            if (!await urlReady(run.url!)) continue;
+            url = run.url;
+            break;
+        }
     }
-    if (url === null) throw new NbdevError("dev_not_running", `${target.key} 上没有经 nbdev 起、已就绪的开发服务：先 nbdev dev start，或用 --url 指定`, {details: {checkout: target.checkout.root}});
+    if (url === null) throw new NbdevError("dev_not_running", `${target.key} 上没有经 nbdev 起、已就绪且地址连得上的开发服务：先 nbdev dev start，或用 --url 指定`, {details: {checkout: target.checkout.root}});
     const stamp = new Date().toISOString().replace(/[-:]/gu, "").replace(/\.\d+Z$/u, "Z");
     const outDir = input.task
         ? resolve(context.mainRoot, AGENT_LOCAL_ROOT, "works", input.task.workId, "tasks", input.task.taskId, "shots", stamp)

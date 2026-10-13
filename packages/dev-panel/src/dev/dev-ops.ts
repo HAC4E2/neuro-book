@@ -10,7 +10,7 @@ import {isRecord} from "../core/json.js";
 import {processAlive, processStartTicks} from "../core/procfs.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {listCheckouts, type CheckoutInfo, type RepoContext} from "../core/repo.js";
-import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
+import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type RunEvaluation, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
 import {compileReadyPattern, createReadyMatcher, LineSplitter, readyStatus, stripAnsi} from "./ready.js";
 
 /**
@@ -103,6 +103,20 @@ async function probeStatus(url: string): Promise<number | null> {
     }
 }
 
+/** 地址按就绪的判据回应（2xx 到 4xx）。 */
+export async function urlReady(url: string): Promise<boolean> {
+    const status = await probeStatus(url);
+    return status !== null && readyStatus(status);
+}
+
+/**
+ * 能复用的运行：组长还活着（`starting`、`running`、`supervisor_gone`）。`leader_exited` 只是开发脚本退出后没收掉的进程，
+ * 服务早就不在了；它不算 `ended` 只是为了让 `dev stop` 收得到（t14 实现审查 I2）。`shot` 取地址用同一个判据。
+ */
+export function reusable(evaluation: Pick<RunEvaluation, "state" | "reason">): boolean {
+    return evaluation.state === "starting" || evaluation.state === "running" || (evaluation.state === "orphaned" && evaluation.reason === "supervisor_gone");
+}
+
 /**
  * 从日志里等就绪（新起的与复用的共用）：逐段读日志、去 ANSI、按行认地址，认出之后 HTTP 探测到 2xx、3xx、4xx 为止。
  * `onUrl` 在认出地址时调一次（写进登记）；到时限还没就绪回 `ready: false` 与最后一次的状态码。
@@ -170,11 +184,21 @@ export async function devStart(context: RepoContext, cwd: string, input: DevStar
     const supervisorTicks = await processStartTicks(process.pid);
     if (supervisorTicks === null) throw new NbdevError("internal", "读不到本进程的启动时刻（/proc）");
 
+    // 同键的残留（组长已退、只剩没收掉的进程）先按停法收掉再起新的；监管进程已不在，按 dev stop 的属主判据不要 --force。
+    // 停法要等宽限期，放在锁外（停法自己要拿登记锁）。
+    for (const record of (await readProcRecords(context.mainRoot)).records.filter((entry) => sameKey(entry, target))) {
+        const evaluation = await evaluateRun(record, bootId);
+        if (evaluation.state !== "orphaned" || evaluation.reason !== "leader_exited") continue;
+        await stopRun(context.mainRoot, record, `${startedBy?.key ?? "unknown"}（dev start 收残留）`, input.graceMs);
+        warnings.push({code: "leftovers_stopped", message: `同键的 ${record.runId} 开发脚本已退出、只剩没收掉的进程，已按停法收掉再起新的`, details: {runId: record.runId}});
+    }
+
     let child: ChildProcess | null = null;
-    const picked = await withProcsLock(context.mainRoot, async (): Promise<{reused: ProcRecord} | {fresh: ProcRecord}> => {
+    const picked = await withProcsLock(context.mainRoot, async (): Promise<{reused: ProcRecord; evaluation: RunEvaluation} | {fresh: ProcRecord}> => {
         const {records} = await readProcRecords(context.mainRoot);
         for (const record of records.filter((entry) => sameKey(entry, target))) {
-            if ((await evaluateRun(record, bootId)).state !== "ended") return {reused: record};
+            const evaluation = await evaluateRun(record, bootId);
+            if (reusable(evaluation)) return {reused: record, evaluation};
         }
         const runId = newRunId();
         const logPath = logPathFor(context.mainRoot, target, input.task, runId);
@@ -201,12 +225,15 @@ export async function devStart(context: RepoContext, cwd: string, input: DevStar
         return {fresh: record};
     });
 
-    if ("reused" in picked) return reuse(context, picked.reused, input, caller, emitEvent, warnings);
+    if ("reused" in picked) return reuse(context, picked.reused, picked.evaluation, input, caller, emitEvent, warnings);
     return supervise(context, picked.fresh, child!, input, emitEvent, warnings);
 }
 
-/** 复用别人起的：按同一套规则读它的日志等就绪；参数与登记不同时给警告（t14 设计审查 I2、S5）。 */
-async function reuse(context: RepoContext, record: ProcRecord, input: DevStartInput, caller: Caller, emitEvent: (event: DevEvent) => void, warnings: Warning[]): Promise<DevStartResult> {
+/**
+ * 复用别人起的：按同一套规则读它的日志等就绪；参数与登记不同时给警告（t14 设计审查 I2、S5）。
+ * 登记里已就绪的先探测一次地址，连不上报 `dev_unresponsive`，不替别人停服务（停要过 dev stop 的属主判据）。
+ */
+async function reuse(context: RepoContext, record: ProcRecord, evaluation: RunEvaluation, input: DevStartInput, caller: Caller, emitEvent: (event: DevEvent) => void, warnings: Warning[]): Promise<DevStartResult> {
     const differences: string[] = [];
     if (input.readyPattern !== null && input.readyPattern !== record.readyPattern) differences.push("ready-pattern");
     if (input.task && (input.task.workId !== record.workId || input.task.taskId !== record.taskId)) differences.push("work/task");
@@ -214,7 +241,13 @@ async function reuse(context: RepoContext, record: ProcRecord, input: DevStartIn
     const owner = record.startedBy?.key ?? null;
     const mine = caller.kind === "session" && owner === caller.ref.key;
     if (!mine) warnings.push({code: "reused_other_owner", message: `这份服务由 ${owner ?? "未认出的调用者"} 起，随它的会话结束而停；要独立的一份请换 checkout`, details: {runId: record.runId, owner}});
+    if (evaluation.state === "orphaned") warnings.push({code: "supervisor_gone", message: `没有人监管 ${record.runId}（监管进程不在了），用完请 nbdev dev stop ${record.runId}`, details: {runId: record.runId}});
     if (record.readyAt && record.url) {
+        if (!await urlReady(record.url)) {
+            throw new NbdevError("dev_unresponsive", `同键的 ${record.runId} 登记为已就绪，但地址 ${record.url} 现在连不上：先 nbdev dev stop ${record.runId}${mine || evaluation.state === "orphaned" ? "" : "（不是你起的、它的属主还在要加 --force）"}，再起`, {
+                details: {runId: record.runId, url: record.url, owner},
+            });
+        }
         emitEvent({event: "ready", runId: record.runId, url: record.url, logPath: record.logPath, pid: record.pid, reused: true, owner});
         return {exitCode: 0, warnings};
     }
@@ -378,27 +411,31 @@ export async function devStop(mainRoot: string, input: StopInput, caller: Caller
                 details: {runId: record.runId, owner: owner ? {key: owner.key, agent: owner.agent, label: owner.label, alive: true} : null},
             });
         }
-        const by = `${callerKey ?? "unknown"}${input.force && !isOwner ? "（--force）" : ""}`;
-        const latest = await updateProcRecord(mainRoot, record.runId, (entry) => {
-            entry.stoppingAt ??= new Date().toISOString();
-            entry.stoppedBy = by;
-        }) ?? record;
-        const outcome = await stopRunProcesses(latest, {graceMs: input.graceMs});
-        // 监管进程还在时由它补 endedAt；等它一会儿，不在了（或本来就不在）就自己补。
-        for (let waited = 0; waited < 3_000 && await processAlive(latest.supervisor); waited += 100) await sleep(100);
-        await updateProcRecord(mainRoot, record.runId, (entry) => {
-            entry.endedAt ??= new Date().toISOString();
-            entry.endedReason ??= "stopped";
-            if (!outcome.clean) entry.leftoverPids = outcome.leftoverPids;
-        });
-        if (!outcome.clean) {
-            throw new NbdevError("stop_incomplete", `停 ${record.runId} 之后还有进程没收掉${outcome.urlResponding ? "，地址仍有回应" : ""}：${outcome.leftoverPids.join("、") || "（未知）"}`, {
-                details: {runId: record.runId, leftoverPids: outcome.leftoverPids, urlResponding: outcome.urlResponding},
-            });
-        }
+        await stopRun(mainRoot, record, `${callerKey ?? "unknown"}${input.force && !isOwner ? "（--force）" : ""}`, input.graceMs);
         stopped.push(record.runId);
     }
     return {stopped, skipped};
+}
+
+/** 按停法停一份运行（`dev stop` 与 `dev start` 收残留共用）：先写 `stoppingAt`、`stoppedBy`，再停，核对不过报 `stop_incomplete`。 */
+async function stopRun(mainRoot: string, record: ProcRecord, by: string, graceMs: number): Promise<void> {
+    const latest = await updateProcRecord(mainRoot, record.runId, (entry) => {
+        entry.stoppingAt ??= new Date().toISOString();
+        entry.stoppedBy = by;
+    }) ?? record;
+    const outcome = await stopRunProcesses(latest, {graceMs});
+    // 监管进程还在时由它补 endedAt；等它一会儿，不在了（或本来就不在）就自己补。
+    for (let waited = 0; waited < 3_000 && await processAlive(latest.supervisor); waited += 100) await sleep(100);
+    await updateProcRecord(mainRoot, record.runId, (entry) => {
+        entry.endedAt ??= new Date().toISOString();
+        entry.endedReason ??= "stopped";
+        if (!outcome.clean) entry.leftoverPids = outcome.leftoverPids;
+    });
+    if (!outcome.clean) {
+        throw new NbdevError("stop_incomplete", `停 ${record.runId} 之后还有进程没收掉${outcome.urlResponding ? "，地址仍有回应" : ""}：${outcome.leftoverPids.join("、") || "（未知）"}`, {
+            details: {runId: record.runId, leftoverPids: outcome.leftoverPids, urlResponding: outcome.urlResponding},
+        });
+    }
 }
 
 /** `dev status --wait-ready`：等这份服务就绪，超时报 `dev_not_ready`。 */
