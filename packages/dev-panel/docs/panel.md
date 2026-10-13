@@ -270,7 +270,7 @@ herdr 不拦 API 写入（见 [herdr.md](herdr.md#终端流t12)），互斥由�
   - 在跑：这个 checkout 上还活着的登记服务；
   - `home` 是它的 Task（登记表）。
 
-  未提交与领先落后在请求时现算，4 路并行，每个 checkout 留 10 秒（HEAD 变了就重算），页面标“N 秒前算的”。不按 HEAD 与 index 的 mtime 缓存：没 `add` 的改动不改 index（面板的 Git 读操作带 `--no-optional-locks`），会一直显示“干净”。不做“可清理”。
+  未提交与领先落后在请求时现算，4 路并行，每个 checkout 留 10 秒（HEAD 变了就重算）。页面开着时每 10 秒自己重取一次（改文件不改变“活动”，只随推送重取会一直显示旧值），标“N 秒前算的”、按秒走。不按 HEAD 与 index 的 mtime 缓存：没 `add` 的改动不改 index（面板的 Git 读操作带 `--no-optional-locks`），会一直显示“干净”。不做“可清理”。
 - **GitHub**（`/live/github`）：
   - 面板只调白名单里写死的两条命令：`gh pr list --state open --limit 100 --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url` 与 `gh issue list --state open --limit 100 --json number,title,labels,updatedAt,url`，cwd 是主工作区。按仓库维护流程，不取 `body`、`comments`、`reviews`。条数到上限时页面写“只列最近更新的 N 个，可能还有更多”。
   - 检查汇总按 `__typename` 分：`CheckRun` 看 `status` 与 `conclusion`，`StatusContext` 看 `state`；失败的逐个列出。分支名是 `<type>/<Work 编号>-<Task 编号>-…` 且找得到 Task 时链到面板的 Task 页。
