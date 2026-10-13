@@ -168,7 +168,7 @@
 
 - **顺序**：字段与长度、键名白名单 → 审计可用（否则 409 `audit_unavailable`，什么都不调）→ Ctrl+C 限速 → `agent.get` 核对会话键（`expectedSession` 为空或 pane 上没有会话一律拒绝）、pane 在本仓库、文字还要求空闲 → 写审计意图（写不进去就不发）→ 调 herdr → 写审计结果。
 - **文字与手动发送的两步确认**：正向白名单不过时回 409 `not_deliverable`，`details.screen` 是屏幕末尾，`details.screenDigest` 是这一屏的摘要（判定原因加屏幕末尾的 sha256）；开发者看过之后把摘要原样放进 `confirmScreen` 再发。服务端重新判定，摘要不同（两次请求之间屏幕变了）就再回 409、给新屏幕与新摘要，不发；紧贴投递的核对照做。
-- **会话页的动作绑定发起时的目标**（t15）：按键与文字的两步确认、接管小窗都记下打开时的 pane、终端与会话（`src/web/host/session-console.ts`）；确认那一刻选中的目标变了（推送里这格换了会话、后退换了 `?pane=`、pane 没了）就不发，关掉小窗并提示目标变了。读屏与读更早的输出回来时目标还是发起时的那个才显示。按键的确认框用打开前这一次读到的屏幕；这次没读到也照开（Esc、Ctrl+C 常在会话失控时用），但写明没读到的原因、框里是多久以前读到的画面。输入框的草稿按 pane 记：换 pane 时清空；同一格换会话（`/compact`、`/clear`）时保留，输入框上方提示“发出去会发给新会话”；给 A 的发送回来时已经换到别处，不清那边的草稿。服务端的 `expectedSession` 照旧核对，挡住面板还没轮询到会话已换的窗口。
+- **会话页的动作绑定发起时的目标**（t15）：按键与文字的两步确认、接管小窗都记下打开时的 pane、终端与会话（`src/web/host/session-console.ts`）；确认那一刻选中的目标变了（推送里这格换了会话、后退换了 `?pane=`、pane 没了）就不发，关掉小窗并提示目标变了。读屏与读更早的输出回来时目标还是发起时的那个才显示。按键的确认框用打开前这一次读到的屏幕；这次没读到也照开（Esc、Ctrl+C 常在会话失控时用），但写明没读到的原因、框里是多久以前读到的画面。输入框的草稿按 pane 记：换 pane 时清空；同一格换会话（`/compact`、`/clear`）时保留，输入框上方提示“发出去会发给新会话”；发送成功后清空草稿：回包回来时已经换到别的格，不清那边的；还是同一格、只是换了会话（发的就是 `/clear`）照样清，并收起换会话的提示。服务端的 `expectedSession` 照旧核对，挡住面板还没轮询到会话已换的窗口。
 - **HTTP 状态**：用法 400，冲突 409（`session_changed`、`agent_busy`：在工作、在等确认或状态未知、`not_in_repository`、`not_deliverable`、`audit_unavailable`、`key_rate_limited`、`pane_controlled`：这格正被你在面板里接管键盘，t12），找不到 404（`question_not_found`：没有这条任务），`herdr_unavailable` 503。投递本身的结果（`delivered_into_blocked`、`uncertain` 等）在 200 的 `data.result` 里。
 
 ## 网页终端（t12）

@@ -137,6 +137,22 @@ describe("阶段 1 实现审查的建议", () => {
         stop();
     });
 
+    test("建议 2：发文字在途时同一格换了会话（发的是 /clear）：回包后清空输入框、收起“会话换了”", async () => {
+        const hold = gate();
+        web.env.respond(screenOf);
+        web.env.respond((call) => (call.url.endsWith("/prompt") ? {data: {result: "delivered_maybe_wrong_session", code: null, message: "投递的瞬间换了会话"}, wait: hold.promise} : undefined));
+        const {selected, host, stop} = mount(A);
+        const reset0 = host.resetKey.value;
+        const sending = host.sendPrompt("/clear");
+        selected.value = A2;
+        await nextTick();
+        expect([host.resetKey.value, host.sessionChange.value]).toEqual([reset0, {from: A.sessionKey, to: A2.sessionKey}]);
+        hold.open();
+        await sending;
+        expect([host.resetKey.value, host.sessionChange.value]).toEqual([reset0 + 1, null]);
+        stop();
+    });
+
     test("建议 1：读到了就用这一次的屏幕，说明里不写旧画面", async () => {
         let reads = 0;
         web.env.respond((call) => {

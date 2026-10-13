@@ -14,7 +14,7 @@ import {describeFailure, type Notice} from "./writes.js";
  *   挡住“面板还没轮询到会话已换”的窗口；
  * - 读屏、读更早的输出带序号，回来时目标还是发起时的那个才写；按键的确认框用这次读到的屏幕，没读到时注明框里是多久以前的画面；
  * - 输入框的草稿按 pane 记：换 pane 时经 `resetKey` 清空；同一格换会话（`/compact`、`/clear`）时保留，给出 `sessionChange` 提示；
- *   发送的回包只在目标没变时才清草稿。
+ *   发送成功的回包只在还是同一格（pane 加终端）时清草稿：发的若是 `/clear`，回包到时这格多半已换了会话，输入框里的就是刚发出去的字。
  * 终端连接按 `paneId + terminalId` 建（重新登录后也重建），每建一条连接 `connection` 加一，页面拿它给终端零件当 key
  * （`source` 在零件实例的一生里不变）。
  */
@@ -25,7 +25,12 @@ export type ScreenRead = {ok: true; data: ScreenData} | {ok: false; message: str
 export type SelectedSession = ConsoleTarget & {agent: string | null; status: string};
 
 export function sameTarget(a: ConsoleTarget | null, b: ConsoleTarget | null): boolean {
-    return a !== null && b !== null && a.paneId === b.paneId && a.terminalId === b.terminalId && a.sessionKey === b.sessionKey;
+    return samePane(a, b) && a?.sessionKey === b?.sessionKey;
+}
+
+/** 同一格（pane 加终端），不管会话：草稿按格记。 */
+export function samePane(a: ConsoleTarget | null, b: ConsoleTarget | null): boolean {
+    return a !== null && b !== null && a.paneId === b.paneId && a.terminalId === b.terminalId;
 }
 
 const label = (target: ConsoleTarget) => `${shortSession(target.sessionKey)}（pane ${target.paneId}）`;
@@ -164,8 +169,8 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
             const body = await sendJson<DeliveryData>("POST", `/api/sessions/${encodeURIComponent(target.paneId)}/prompt`, {text, expectedSession: target.sessionKey, confirmScreen});
             notice.value = deliveryNotice(body.data, target.paneId);
             const written = body.data.result !== "not_deliverable" && body.data.result !== "agent_blocked" && body.data.result !== "session_changed";
-            // 回包回来时已经换到别的目标：不清那边的草稿。
-            if (written && sameTarget(target, current.value)) {
+            // 回包回来时已经换到别的格：不清那边的草稿。同一格换了会话（发的就是 `/clear`）照样清，并收起“会话换了”的提示。
+            if (written && samePane(target, current.value)) {
                 resetKey.value += 1;
                 sessionChange.value = null;
             }
