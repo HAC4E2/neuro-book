@@ -54,6 +54,11 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
         directory: "packages/llmlint",
         commands: "bun run verify",
     },
+    {
+        name: "dev-panel",
+        directory: "packages/dev-panel",
+        commands: "bun run typecheck\nbun run test",
+    },
 ];
 
 export type WorkspacePackageSelection = {

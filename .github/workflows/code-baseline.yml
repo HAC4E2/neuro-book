@@ -26,6 +26,7 @@ on:
       - "packages/nb-profile/**"
       - "packages/nb-session/**"
       - "packages/llmlint/**"
+      - "packages/dev-panel/**"
       - "packages/neuro-book/assets/**"
       - "plugins/**"
       - "scripts/**"
@@ -105,7 +106,7 @@ jobs:
       - name: Typecheck repository scripts
         run: bun x tsc --noEmit -p scripts/tsconfig.json
       - name: Check workflow and Docker contracts
-        run: bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts scripts/ci/workspace-workflows.test.ts scripts/build/dockerfile-contract.test.ts
+        run: bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts scripts/ci/workspace-workflows.test.ts scripts/ci/dev-panel-records.test.ts scripts/build/dockerfile-contract.test.ts
 
   typecheck:
     name: Typecheck

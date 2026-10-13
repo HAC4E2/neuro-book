@@ -12,14 +12,14 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 1. **现状与参照**：截现状；有旧应用或旧稿时先调研，清单写成 Task 目录下的 Markdown（文字，入库）。沿用旧设计的机制时说明它防什么、现在还要不要，交开发者决定。
 2. **注意力排序**：先和开发者确认首先看什么、默认收起什么、什么时候整块收起，再出视觉候选；版式未定时的视觉迭代会被反复推翻。
 3. **静态稿**：在 Lab 里用真实 nb-ui 组件与主题 token 搭一次性的草稿场景，不改产品源码。背景可以用真实页面的截图。一轮只问一两个问题，同一个问题的候选并排。
-4. **评审板**：每轮的图与说明放进评审板（见下文），主 Agent 逐张看过、写好推荐，再请开发者看。
-5. **记录决定**：开发者的决定按编号写进 Task README（文字），计划写进 `plan.md`；评审板只是讨论材料。
+4. **评审板**：每轮的图与说明放进评审板（见下文），待定的问题写成提问，主 Agent 逐张看过、写好推荐，用 `nbdev artifact publish` 发布，再请开发者看。
+5. **记录决定**：用 `nbdev answers` 读开发者的答复，把决定按编号写进 Task README（文字），再用 `nbdev answers ack … --through <cursor> --include <Task README>` 与 README 一起提交；计划写进 `plan.md`。评审板只是讨论材料。
 6. **定稿之后**：把行为写进 Spec，再按计划实施。
 
 ## 草稿放在哪里
 
 - **草稿代码**：单独的草稿 worktree（例如 `.worktree/<Work 短名>-<Task>-drafts`，分支 `<Task>/drafts`，不合并、不推送），场景放在 Lab 的 `fixtures/drafts/`，登记改动同样不提交。草稿和编码不在同一个 worktree：开发服务热重载会把编码中途的错误带进草稿截图，草稿的类型错误也会让编码的 typecheck 失败。
-- **评审板**：Task 的产物，放主工作区的 `.agents/works/<workId>/tasks/<taskId>/artifacts/review/`，入库，任何会话都能读到。`index.html` 是唯一入口，每轮的图放 `r1/`、`r2/`…，开发者的答复放 `answers/`。图片按 [本地与入库](../../works/README.md#本地与入库) 的体积上限转成 WebP，原图与完整截图集留在本地 `.local/agent/works/<workId>/tasks/<taskId>/shots/`。
+- **评审板**：Task 的产物，放主工作区的 `.agents/works/<workId>/tasks/<taskId>/artifacts/review/`，入库，任何会话都能读到。`index.html` 是唯一入口，每轮的图放 `r1/`、`r2/`…；`versions/`（发布记录）与 `answers/`（开发者的答复与确认）只由 nbdev 写。图片按 [本地与入库](../../works/README.md#本地与入库) 的体积上限转成 WebP，原图与完整截图集留在本地 `.local/agent/works/<workId>/tasks/<taskId>/shots/`。
 - **不入库**：草稿代码（留在草稿 worktree，不提交）与完整截图集。
 
 ## 评审板怎么写
@@ -28,6 +28,15 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 - 每节写：要开发者定什么、各候选（图或 HTML）、主 Agent 的推荐与理由、开发者的决定。
 - 结构、贡献关系、对照表、流程这类能用 HTML 直接表达的，写成 HTML，不截图；“长什么样”用真实组件的截图。
 - 标注稿（例如“哪里能贡献”）用界面里不会出现的固定标注色画虚线框加编号，旁边一栏逐条解释；能贡献与不能贡献用两种颜色区分。
+
+## 提问、发布与答复
+
+- **待定的问题写成提问**：在包住这一节的元素上加 `data-nbdev-question="<题号>"` 与 `data-nbdev-type`，候选上加 `data-nbdev-option="<值>"`，推荐写 `data-nbdev-recommend`；写法见 [提问标记](../../../packages/dev-panel/docs/file-formats.md#提问标记) 与 [例子页](../../../packages/dev-panel/docs/examples/questions.html)。标题里的“待定”“已定”徽标、候选里的“打开”按钮加 `data-nbdev-skip`，不进题目与选项名。标题后直接跟兄弟元素的扁平板，先给每道题包一层 `section`。
+- **发布**：每轮写好后运行 `nbdev artifact publish <workId> <taskId> review --kind design`（第一次要 `--kind`），它解析提问、检查图片体积、写发布记录并与页面文件一起提交。输出逐题列出解析到的题，核对一遍。题意变了就换题号；被后一轮取代的问题换题号或从页面删掉，输出会列出被取代的题（已答的题删掉不算取代）。
+- **读答复**：`nbdev answers <workId> <taskId> review --json`，记下输出里的 `cursor`；要挂着等，加 `--wait`，用会话自己的后台机制运行。退出码 4（超时、被打断，或被宿主结束）时按原参数重挂；退出码 0 是有了答复，先处理答复并 `answers ack --through <cursor>`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。开发者在会话里口头定的，用 `nbdev answers record … --set <题号>=<值>` 代录。
+- **确认**：决定写进 Task README 之后运行 `nbdev answers ack <workId> <taskId> review --through <cursor> --include <Task README 的路径>`，确认与 README 同一个提交。`cursor` 取读答复时输出里的那个：只确认读过的答复；读完之后开发者又交的会给 `newer_answers_unacked`，读了它们再确认一次。
+- 页面上的“待定”“已定”徽标只给人看，哪道题待答、已答、被取代以发布记录与答复为准。
+- **过渡条款**：nbdev 不可用、或还没获授权在真实仓库使用时，按旧做法：直接写产物目录，路径限定提交（`git commit -- <路径>`），答复与决定照旧写进 Task README。
 
 ## 派草稿子代理
 

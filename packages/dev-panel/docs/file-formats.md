@@ -1,0 +1,285 @@
+# nbdev 文件格式
+
+每个由 nbdev 写的文件都带 `schema`（`nbdev.*/v1`）；主版本不认识就报 `schema_unsupported`（读列表时只给警告），不猜。
+
+## 记录的读法
+
+Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。nbdev 读：
+
+| 内容 | 来源 | `origin` |
+|---|---|---|
+| 标题 | 正文第一个一级标题 | |
+| 状态 | frontmatter `status`；Task 取 `planned`、`active`、`done`、`shelved`，Work 取后三种 | `recorded`；没有字段为 `unset`；取值不在集合里为 `invalid`（带 `raw`） |
+| Work 目标 | `## 目标` 一节的正文 | `recorded`；没有这一节时取一级标题后的第一段，为 `inferred`；都没有为 `unset` |
+| 最近更新 | frontmatter `updated`（`YYYY-MM-DD`，本机本地日期）；Task 的产物目录（`artifacts/`）最后一次提交的日期更晚时取它 | `recorded`；没有字段时取最后一次碰这个 Task（或 Work）目录的提交日期，为 `commit`；取了产物目录的日期也为 `commit`；都没有为 `unset` |
+
+- 不从正文推断 Task 状态。
+- nbdev 写记录时只按行改 `status` 与 `updated`，不重新序列化整个 frontmatter。发布、答复、确认都不改 README 的 `updated`（改了就要把会话正在改的 README 一起提交），所以“最近更新”另看产物目录的提交日期。
+- 只读 README 与 Task 目录这一层的目录项，不递归 `evidences/`；产物只读 `artifacts/<id>/` 下的 `versions/` 与 `answers/` 两层（见下文“产物”）。
+
+## 来源
+
+`status` 输出里每个 Work 与 Task 带 `source`：
+
+- `master`：已提交到 `master` 的记录，从主工作区读。只在主工作区工作树里、还没提交的，标 `uncommitted: true`。
+- `branch`：过渡期内记录还在分支上维护的 Work，带 `branch` 与 `checkout`，从执行 worktree 的工作区读（含未提交内容）；`otherCopies` 列出其余副本。判定：某个已检出 worktree 的 `HEAD` 上，有路径同时出现在 `git diff --no-renames --diff-filter=AM master...HEAD` 与 `git diff --no-renames master HEAD` 里。分支把记录恢复成 `master` 的版本后，自动回到 `master` 来源。
+- 来自分支的 Work 里，只在 `master` 上有的 Task 与登记表里 `claimed` 的 Task（经 nbdev 新建）来源为 `master`，其余为 `branch`。
+
+## 登记表 `.local/agent/registry.json`
+
+```json
+{
+    "schema": "nbdev.registry/v1",
+    "works": [
+        {
+            "workId": "w00022-dev-panel",
+            "status": "imported",
+            "at": "2026-10-12T18:00:00.000Z",
+            "by": null,
+            "home": null,
+            "tasks": [
+                {"taskId": "t06-cli-core", "status": "claimed", "at": "2026-10-12T18:05:00.000Z", "by": null, "home": null}
+            ]
+        }
+    ]
+}
+```
+
+- 只记领号的事实。条目按完整 id 记，同号不同名的各占一条；按 id 排序。
+- `status`：`claimed` 是经 nbdev 领的，`imported` 是扫描补登的，`abandoned` 是领了不用的；三种号都不再发。
+- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
+- 写入在锁内完成，先写同目录临时文件再改名。
+- 登记表不是可重新生成的原始输出：`registry import` 只能从扫描重建 `imported` 条目，`claimed`、`abandoned`、`home`、`by` 会丢失。丢失后，同步过 `master` 的分支上经 nbdev 建的 Task 会被当成分支记录、拒绝写入。
+
+## 锁与临时目录
+
+都在主工作区的 `.local/agent/` 下，不入库：
+
+```text
+.local/agent/
+├── registry.json            # 登记表
+├── panel.json               # 在跑的面板（nbdev.panel/v1），见“面板的运行时文件”
+├── registry.json.lock/      # 写事务的锁目录（事务进行中才有）
+│   └── owner.json           # 持锁者：nbdev.lock-owner/v1，token、pid、进程启动时刻、命令行、cwd
+└── run/
+    ├── leases/<leaseId>.json  # 租约（nbdev.lease/v1），见下一节
+    ├── panel.lock             # 面板锁：同一个主工作区同一时刻只跑一个面板
+    ├── panel-open/            # 没有 $XDG_RUNTIME_DIR 时 panel open 的跳转页（目录 700、文件 600，10 分钟后删），见 panel.md
+    ├── procs/                 # 经 nbdev 起的进程（t14 起写）
+    └── tmp/                   # 写事务的临时目录 <txid>/，以及组装中或接管下来的锁目录；用完删除
+```
+
+- 锁目录先在 `run/tmp/` 里连同 `owner.json` 组装好，再改名到位，所以锁目录一出现就带着持锁者信息。
+- 持锁者是否存活按 `/proc/<pid>/stat` 的进程启动时刻判断（pid 在、且启动时刻与 `owner.json` 一致），不靠心跳：持锁者长时间等 Git 也不会被判过期。
+- 持锁者已退出（或 `owner.json` 读不出）时，等待者把锁目录改名成 `run/tmp/` 里唯一的墓碑名再接管，只有改名成功、且改走的正是它看到的那个目录的一方继续；改走的若是别人刚建的活锁就原样改回去。接管时给 `lock_taken_over` 警告。
+- 写登记表之前发现锁已不属于本进程（`owner.json` 的 token 不是自己的），就重新取锁、从头再算，给 `lock_reacquired` 警告；写了登记表之后才发现则报 `lock_compromised`。
+- 放锁前先核对 token，锁已属于别人时什么也不动，只给 `lock_release_skipped` 警告。
+- 等锁最多 30 秒，超时报 `lock_timeout`，带上持锁者的 pid、启动时间、命令行与 cwd。
+- `run/tmp/` 必须与 `.agents/works/` 在同一个文件系统上（新目录靠 `rename` 原子地落位），否则报 `cross_device`。
+- 中断的事务可能留下 `run/tmp/<txid>/`，不自动清理。
+
+## 面板的运行时文件
+
+`panel serve` 起来以后写 `.local/agent/panel.json`，退出时删掉：
+
+```json
+{
+    "schema": "nbdev.panel/v1",
+    "pid": 12345, "startTicks": "987654", "startedAt": "2026-10-13T08:00:00.000Z",
+    "instanceId": "1f2e3d4c5b6a7980",
+    "url": "http://127.0.0.1:4400", "artifactUrl": "http://127.0.0.1:4401",
+    "token": "<64 位 hex 的启动令牌>"
+}
+```
+
+- 权限 600：`token` 是登录用的启动令牌（`panel open` 用它签一次性登录票据），只在这份文件里。
+- 先写临时文件再改名（原子）；退出时只删 `pid` 与 `startTicks` 都是自己的那份。读的一方按 `pid` 加启动时刻判断面板是否真的在跑。
+- `run/panel.lock` 记持锁的面板进程（`pid`、`startTicks`、`startedAt`），独占创建；持锁者已退出时接管。
+
+## 租约
+
+`.local/agent/run/leases/<leaseId>.json`，`nbdev.lease/v1`。租约是运行时数据，不入库；`leaseId` 是 `sha256(会话 key + 换行 + workId + / + taskId)` 的前 24 位 hex，一个会话在一个 Task 上只有一份。
+
+```json
+{
+    "schema": "nbdev.lease/v1",
+    "leaseId": "3f2a0c…",
+    "workId": "w00022-dev-panel",
+    "taskId": "t07-session-leases",
+    "session": {
+        "key": "claude:d02974de-…", "agent": "claude", "sessionId": "d02974de-…", "label": null, "parentSessionId": null, "nestedSessionId": null,
+        "process": {"pid": 1506927, "startTicks": "122098494"},
+        "herdr": {"socketPath": "/home/…/.config/herdr/herdr.sock", "paneId": "w1:p16", "terminalId": "term_…"}
+    },
+    "acquiredAt": "2026-10-12T19:00:00.000Z",
+    "lastActivityAt": "2026-10-12T19:05:00.000Z",
+    "lastAction": "task status",
+    "releasedAt": null,
+    "releaseReason": null
+}
+```
+
+- **取得与续期**是同一个动作，每次都用本次认出的调用者重写整个 `session`。旧记录已释放、超过 24 小时、进程变了（`claude --resume` 沿用会话 id 但换了进程），或旧进程已不在时，按重新取得处理，`acquiredAt` 改为当下。
+- **有效性在读取时现算**，按顺序：
+  1. 已释放（`releasedAt` 不为空）：`released`；
+  2. 所属 Task 现在的状态是 `done` 或 `shelved`：`task_closed`；
+  3. 超过 24 小时没有 Task 相关操作：`expired`；
+  4. 记了 `process` 而进程已不在或启动时刻不同：`session_gone`；
+  5. 同一个进程后来出现了别的会话 id（`/clear`、后台副本）：较早的会话为 `superseded`；
+  6. 其余：`valid`。
+- **herdr 不判失效**：herdr 的列表里找不到这个会话只表示 `managed: false`（现在不能通知）。只在租约记的 `socketPath` 与本次评估用的 socket 相同时才算 `managed`。
+- `stale`：超过 2 小时没有 Task 相关操作，只用于淡化显示。
+- **写法**：先写同目录临时文件（名字带 pid 与随机数）再改名；读取时只认 `^[0-9a-f]{24}\.json$`，并逐字段校验（`leaseId` 必须与文件名一致；三个时间是 ISO 时间；`releasedAt` 与 `releaseReason` 同时有或同时为 `null`；`session.process`、`session.herdr` 的形状），读不了或不合规的文件给 `unreadable_lease` 警告后跳过。租约不进写事务的锁，有效性现算，所以写入的竞争不会让已关闭的 Task 重新有人“在动”。仍可能出现的偏差：同一份租约的续期与释放互相覆盖时，丢一次 `lastActivityAt` 更新，或刚续期的租约被记成已释放，要到这个会话下一次 Task 相关操作才恢复。按 Task 释放（改成 `done`、`shelved` 之后）时先重读 Task 状态，已被改回就不释放，并只释放最近活动不晚于重读时刻的租约；每份写之前再重读一次，剩下的窗口是毫秒级。
+- 失效与释放的文件不删。常规读取跳过修改时间早于 24 小时之前的文件（每次续期、释放都会重写文件，这样的租约必然已过期或已释放），`lease list --all` 才全读；续期时顺手删掉 24 小时前崩溃留下的 `.tmp-*` 临时文件。`releaseReason` 取 `released`（`nbdev release`）、`task_done`、`task_shelved`。
+
+## 产物
+
+产物属于 Task，放在 `.agents/works/<workId>/tasks/<taskId>/artifacts/<artifactId>/`（Work 级的放 Work 目录下同名的 `artifacts/`，只索引、不能经命令行写）。`artifactId` 是 kebab-case（`^[a-z0-9]+(-[a-z0-9]+)*$`，最长 48 个字符）；`questions` 保留给 Task 的提问集。
+
+```text
+artifacts/<artifactId>/
+├── index.html  r1/  assets/ …     # 页面文件：会话直接写
+├── versions/v<N>.json             # 发布记录：nbdev 写，之后不改
+└── answers/
+    ├── <答复 id>.json              # 答复：只追加
+    └── ack-<id>.json              # 确认
+```
+
+- `versions/`、`answers/` 只由 nbdev（以后加上面板）写；会话只写页面文件。
+- 读取时产物只读 `versions/` 与 `answers/` 两层，不读页面文件（发布时才读）。
+- Task 目录第一层除 `README.md` 外的 `.md` 是**文档类产物**：按文件索引（`{path, title}`，`title` 取第一个一级标题），没有发布记录；Work 目录第一层同样处理。
+
+### 发布记录 `versions/v<N>.json`
+
+```json
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00022-dev-panel", "taskId": "t03-design", "artifactId": "review",
+    "version": 2, "supersedes": 1, "action": "publish",
+    "kind": "design", "title": "开发面板评审板", "state": "open",
+    "entry": "index.html", "contentHash": "<sha256>",
+    "questions": [
+        {"id": "home-layout", "type": "single", "label": "首页的 Work 区用卡片还是表",
+         "options": [{"value": "cards", "label": "A 每个 Work 一张卡片"}, {"value": "table", "label": "B 一张表"}],
+         "required": true, "recommend": ["cards"], "origin": "markup", "page": "index.html", "about": null,
+         "since": 1, "outcome": null}
+    ],
+    "publishedAt": "2026-10-12T21:30:00.000Z"
+}
+```
+
+- `action`：这一版由哪个动作产生，`publish`、`close`、`ask`、`withdraw`、`supersede`。非发布动作沿用上一版的 `kind`、`title`、`entry`、`contentHash`，页面不重新解析。
+- `kind`：`design`、`report`、`review`；Task 提问集为 `questions`（`entry`、`contentHash` 为 `null`）。`state`：`open` 或 `closed`。
+- 每道题：`origin` 是 `markup`（来自页面标记）或 `ask`（来自 `nbdev ask`）；`page` 是题所在的页面（`ask` 登记的、或已答后从页面删掉的为 `null`）；`about` 是 `--about` 记的仓库根相对路径；`since` 是题号第一次出现的版本。
+- `outcome`：`null`（活的）；`{kind: "withdrawn", in: N, reason: "explicit" | "closed"}`；`{kind: "superseded", in: N, by: null | {workId, taskId, artifactId, questionId}}`（`by` 是完整 id；`null` 表示被这一版的页面取代）。
+- **最新一版带全部题**，被取代、撤回的也在；状态只看最新一版与答复。最新一版读不出时不退回旧版，读取给警告、写入报 `invalid_record`。
+- `contentHash`：产物目录里 Git 会跟踪的文件（`git ls-files -z --cached --others --exclude-standard`，去掉 `versions/`、`answers/`，只算磁盘上还在的），路径相对产物目录、按 UTF-8 字节序排序，对“路径、NUL、文件内容的 sha256、换行”逐行求 sha256。遇到符号链接拒绝发布。
+
+### 新版本的题表
+
+发布时由上一版与页面标记生成（全在写事务的锁内）：
+
+| 情形 | 处理 |
+|---|---|
+| 页面里的题号在上一版里是活的 | 沿用 `since`，题目与选项用新的定义 |
+| 页面里的新题号 | `since` 为本版 |
+| 上一版来自页面、这次页面里没有了、还没答 | 记为被本版取代，`--keep <题号>` 可以原样保留 |
+| 同上，但已经答过 | 保留，`page` 记 `null` |
+| 已撤回或已取代的题号又出现在页面里 | 结局不变，不复活 |
+| 产物已关闭、这次发布重新打开它 | 因关闭而撤回的题里，页面里还在的与 `nbdev ask` 登记的恢复成活的 |
+| 页面里的题号与 `nbdev ask` 登记的同号 | `duplicate_question`，发布失败 |
+
+关闭（`artifact close`）把还没答的题记成 `{kind: "withdrawn", reason: "closed"}`，已答的不动。Task 的提问集不能关闭。
+
+### 状态现算
+
+1. `outcome` 不为 `null`：`withdrawn` 或 `superseded`。
+2. 否则取这道题最新的一份答复（按答复 id）：取值**按最新一版的题目定义**校验合法，为 `answered`，并标出这份答复针对哪一版；不合法就回到 `open`，同时把那份旧答复列进 `stale`（不往前找更早的答复），`stale.code` 写明原因：按它针对的那一版合法、按最新一版不合法（选项后来改了）为 `stale_value`；按它针对的那一版也不合法（手改坏的文件，或那一版读不出）为 `invalid_value`。
+3. 否则 `open`。
+
+产物另算：`openRequired`（`open` 的必答题数）；**未确认的答复**是集合差，答复 id 不在任何一份确认的 `answers[]` 里就算未确认；采纳状态：有未确认的答复为 `waiting`（等会话采纳），有答复且都已确认为 `adopted`，没有答复为 `none`。收件箱只放 `open` 的必答题与撞号。
+
+## 提问标记
+
+写在产物目录里任意一个 `.html` 页上，题号在整个产物内唯一。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）。
+
+| 属性 | 含义 |
+|---|---|
+| `data-nbdev-question="<题号>"` | 一道题的范围，放在包住这道题的元素上，必须写显式的结束标签。题号 `^[a-z0-9][a-z0-9-]{0,62}$`；题意变了就换题号 |
+| `data-nbdev-type` | 必填：`single`、`multi`、`text`、`confirm`（答复是 `true` 或 `false`） |
+| `data-nbdev-label` | 题目；没有时取范围内第一个 `h1` 到 `h6` 的文字（不进入选项元素）。最长 200 字 |
+| `data-nbdev-option="<值>"` | 选项元素。选项名依次取它的 `data-nbdev-label`、它里面第一个标题、它自己的文字；最长 80 字 |
+| `data-nbdev-options` | 题上的一行写法：若干个 `值:名称`，用竖线分隔（没有名称时名称就是值）；或 `@review`（改 `fix`、不改 `skip`、要讨论 `discuss`）。不与 `data-nbdev-option` 混用 |
+| `data-nbdev-optional` | 选答；缺省必答 |
+| `data-nbdev-recommend="<值>[,<值>]"` | 推荐的选项 |
+| `data-nbdev-skip` | 取题目、选项名的文字时跳过这个元素（徽标、按钮） |
+
+- 前缀用 `data-nbdev-`：`data-nb-` 已被 nb-ui 用了十几种属性。
+- `single`、`multi` 至少两个选项，选项值在题内唯一、用与题号相同的字符集，选项名在题内也不能重复（`duplicate_option_label`）；`text`、`confirm` 不能有选项；推荐的值必须是选项之一。
+- 题不能嵌套。题外的选项报 `option_outside_question`：多半是 HTML 自动闭合把它挤了出去（例如 `<p>` 里放了块级元素）。范围元素没有显式结束标签报 `question_not_closed`。
+- 不合规就整体不发布（`invalid_questions`），`details.problems[]` 是 `{page, line, column, questionId, code, message}`。
+- 取题目与选项名的文字时，行内元素直接拼接，块级元素与 `br` 处补一个空格，连续空白折叠成一个空格。
+- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告。这里只认属性写法（`data-nbdev-question=`）：脚本里按属性查询、`<style>` 里的属性选择器不算。
+- 扁平的板（标题后跟兄弟元素）要先给每道题包一层元素（通常是 `section`）。
+
+## 答复与确认
+
+### 答复 `answers/<答复 id>.json`
+
+```json
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00022-dev-panel", "taskId": "t03-design", "artifactId": "review",
+    "answerId": "20261012T213012345Z-1a2b3c4d",
+    "artifactVersion": 2, "contentHash": "<那一版的 contentHash>",
+    "submittedAt": "2026-10-12T21:30:12.000Z",
+    "submittedBy": {"kind": "developer", "device": "desk"},
+    "values": {"home-layout": "cards"},
+    "comments": {"home-layout": "卡片更清楚"},
+    "note": null
+}
+```
+
+- **答复 id**：`<UTC 时间，精确到毫秒>-<8 位 hex>`。在写事务的锁内重新读时钟生成并保证单调：时间取 `max(当下, 这个 answers/ 目录里最大的 id + 1 毫秒)`，所以字典序就是落位的顺序。`submittedAt` 是开发者按下提交的时刻，与 id 分开。
+- `submittedBy`：`{kind: "developer", device}`（面板），或 `{kind: "agent-transcribed"}`（`answers record` 代录）。入库的答复里没有会话；谁代录的记在 provenance 里。
+- `values` 只含这次填的题；`comments` 可选，逐题写理由。改答案就再写一份，旧的不删。
+- 写入时取值按答复针对的那一版校验（`single` 是选项值；`multi` 是不重复的选项值数组、至少一个；`text` 非空、最长 10000 字；`confirm` 是布尔值），只能答活的题。
+
+### 确认 `answers/ack-<id>.json`
+
+```json
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00022-dev-panel", "taskId": "t03-design", "artifactId": "review",
+    "ackId": "20261012T214000000Z-5e6f7a8b",
+    "answers": ["20261012T213012345Z-1a2b3c4d"],
+    "through": "20261012T213012345Z-1a2b3c4d",
+    "included": [".agents/works/w00022-dev-panel/tasks/t03-design/README.md"],
+    "ackedAt": "2026-10-12T21:40:00.000Z"
+}
+```
+
+- `answers` 是这次确认覆盖的答复：锁内算出的未确认答复里 id 不大于 `--through`（会话读答复时的游标）的那些，没给 `--through` 时为全部未确认的答复。`through` 是其中最大的 id，只用于显示。`included` 是同一个提交里的其它路径（写了决定的 Task README）。id 的生成同答复。
+
+## provenance
+
+`.local/agent/run/provenance/<与入库文件相对 .agents/works/ 的路径相同>`，`nbdev.provenance/v1`，运行时、不入库：某个入库文件（发布记录、代录的答复、确认）是哪个会话写的。
+
+```json
+{
+    "schema": "nbdev.provenance/v1",
+    "path": ".agents/works/w00022-dev-panel/tasks/t03-design/artifacts/review/versions/v2.json",
+    "sha256": "<入库文件内容的 sha256>",
+    "action": "publish",
+    "leaseId": "3f2a0c…",
+    "session": {"key": "claude:d02974de-…", "…": "同租约里的会话快照"},
+    "recordedAt": "2026-10-12T21:30:00.000Z"
+}
+```
+
+- 写入后先续期调用者的租约，再记 provenance；调用者未知时不记，失败只给 `provenance_write_failed` 警告。
+- **提问者**：题的 `since` 那一版的 provenance，`sha256` 与磁盘上的发布记录一致才认（发布记录被删掉又重建时，旧记录不会冒认）。找不到时为 `null`：别的机器上、删过 `.local`、记录被重建过。
+
+## 进程的启动时刻
+
+会话进程与运行的身份都用 `/proc/<pid>/stat` 的第 22 项（进程启动时刻，时钟周期数）配合 pid，防 pid 被复用。换算成时间用 `/proc/stat` 的 `btime + startTicks / 100`：Linux 的 USER_HZ 固定为 100，Node 拿不到 `sysconf(_SC_CLK_TCK)`，这个假设只影响显示的启动时间。

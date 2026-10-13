@@ -137,6 +137,26 @@ describe("Work 与 Task 当前容器门禁", () => {
 
         expect(verifyWorkContracts(repoRoot)).toEqual([]);
     });
+    it("Task 序号 01 到 99 用两位、100 起用三位均通过", async () => {
+        const repoRoot = await createTestTmpRoot("governance-task-number", "governance-task-number-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-numbers/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-numbers\nissueId: null\n---\n\n# Work\n");
+        for (const taskId of ["t01-first", "t09-single-digit", "t99-last-two-digit", "t100-first-three-digit", "t999-last"]) {
+            await writeText(repoRoot, `.agents/works/w00001-numbers/tasks/${taskId}/README.md`, `---\nschema: nbook.task/v2\ntaskId: ${taskId}\n---\n\n# Task\n`);
+        }
+
+        expect(verifyWorkContracts(repoRoot)).toEqual([]);
+    });
+
+    it.each(["t00-zero", "t000-zero", "t050-leading-zero", "t001-leading-zero", "t1-one-digit", "t1000-four-digit"])("Task 序号格式非法时失败：%s", async (taskId) => {
+        const repoRoot = await createTestTmpRoot("governance-task-number-invalid", "governance-task-number-invalid-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, ".agents/works/w00001-numbers/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-numbers\nissueId: null\n---\n\n# Work\n");
+        await writeText(repoRoot, `.agents/works/w00001-numbers/tasks/${taskId}/README.md`, `---\nschema: nbook.task/v2\ntaskId: ${taskId}\n---\n\n# Task\n`);
+
+        expect(verifyWorkContracts(repoRoot)).toEqual([`Work Task 标识格式无效：.agents/works/w00001-numbers/tasks/${taskId}`]);
+    });
+
     it("Work 必须直接包含至少一个 Task", async () => {
         const repoRoot = await createTestTmpRoot("governance-work-empty", "governance-work-empty-test");
         fixtureRoots.push(repoRoot);

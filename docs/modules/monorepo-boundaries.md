@@ -20,6 +20,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同、Product Runtime、Des
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；包级治理资产覆盖专属行为，统一文档站只投影用户入口 |
 | Manager | `packages/neuro-book-manager/` | `@notnotype/neuro-book-manager`、`neuro-book` bin、Desktop 正式 subpath | 独立包；拥有 UAC client/broker 与 Product verifier，exports 的 types/runtime 条件必须同时覆盖真实消费者 |
 | Desktop Envelope | `desktop/` 与 `packages/neuro-book-contracts/src/desktop*` | Electron/Tauri、Manager、Desktop Contract | 保持根级独立安装图；宿主实现通过 contracts 或 Manager 正式 subpath 消费，不深导入应用或 sibling 源码 |
+| 开发工具 | `packages/dev-panel/` | `nbdev` 命令行（用户级 shim 指向主工作区）、后续的开发者面板、根 `scripts/ci/dev-panel-records.test.ts` | 开发工具，不是产品功能：不进 Product、Desktop 与发布产物；不依赖主应用、不导入根 `scripts/`；读写主工作区的 `.agents/works/` 与 `.local/agent/` |
 
 所有 `packages/*` 默认继承根 Rule/Skill/Role、临时根、安全和 Git 规则。包可以保留自己的 `AGENTS.md`、`docs/`、legacy `.agents/tasks/` 和 `PROJECT-STATUS.md`，但 current Work/Task 只在根 `.agents/works/` 创建；`AGENTS.md` 必须引用 `../../AGENTS.md`。`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
 

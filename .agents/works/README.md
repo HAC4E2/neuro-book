@@ -18,9 +18,9 @@
 
 - Work 目录使用 `w`、五位非零序号和 kebab-case 名称，例如 `w00001-work-title`。
 - Work README 使用 `schema: nbook.work/v1`，`workId` 与目录一致，`issueId` 为 `i<正整数>` 或 `null`。
-- Task 目录在所属 Work 内使用 `t`、两位非零序号和 kebab-case 名称，例如 `t01-task-title`。
+- Task 目录在所属 Work 内使用 `t`、非零序号和 kebab-case 名称，例如 `t01-task-title`。序号 01 到 99 写两位，100 起写三位（例如 `t100-task-title`）；三位序号不带前导零。
 - Task README 使用 `schema: nbook.task/v2`，`taskId` 与目录一致，不指定正式角色。
-- Work 与 Task 的 frontmatter 写 `status`。Task 取 `planned`（计划中）、`active`（进行中）、`done`（已完成）、`shelved`（已搁置），Work 取后三种。“等开发者答复”不是状态，由未答的提问现算。2026-10-12 以前建的记录没有这个字段，下次更新时补上；治理检查暂不校验取值。
+- Work 与 Task 的 frontmatter 写 `status`。Task 取 `planned`（计划中）、`active`（进行中）、`done`（已完成）、`shelved`（已搁置），Work 取后三种。“等开发者答复”不是状态，由未答的提问现算。2026-10-12 以前建的记录没有这个字段，下次更新时补上；治理检查暂不校验取值。frontmatter 可另写 `updated: YYYY-MM-DD`（最近一次改记录的本机本地日期）：`nbdev` 写记录时自动更新，直接编辑记录时顺手改；没有这个字段时，面板与 `nbdev status` 退回最后一次提交的日期。
 - Task 不保存 `role`、`actionIssueId`、`agentWorkflow`、`kind`、`worktreeId` 或 `branchId`。治理只校验身份、容器和退役字段；`status` 供面板与命令行汇总，正文是协作参考，都不是权限门禁。
 - `.agents`、`.agents/works`、Work、`tasks` 与 Task 五级 current 路径必须由真实目录项组成；symlink/junction 不形成 Work/Task identity，`governance:check` 与 `governance:context` 都明确拒绝。
 
@@ -32,19 +32,19 @@ Work 与 Task 的记录（README、`artifacts/`、`walkthroughs/`、`evidences/`
 
 - 在实现 worktree 里工作时，读写主工作区里的记录（`<主工作区>/.agents/works/<workId>/…`），在主工作区用路径限定提交（`git commit -- <路径>`；主工作区的暂存区里常有别人的改动）。
 - 实现分支只带代码、测试、Spec 与文档的改动，不改 `.agents/works/` 下的 Work 目录；worktree 里的 Work 目录是分出时的旧副本，不读不改。本目录的 `README.md`、`AGENTS.md` 是治理规则，不是记录，按治理文档的流程修改。`governance:context` 默认读它所在 checkout，在 worktree 里查记录时加 `--repo-root <主工作区>`。
-- 本节 2026-10-12 起生效。已在实现分支上维护记录的 Work，迁到主工作区之前照旧在原处维护，迁移见 [w00022 的 t05](w00022-dev-panel/tasks/t05-migrate-records/README.md)。
+- 本节 2026-10-12 起生效。已在实现分支上维护记录的 Work，迁到主工作区之前照旧在原处维护，迁移见 [w00022 的 t05](w00022-dev-panel/tasks/t05-migrate-records/README.md)；这类 Work 新建 Task 也一律经 `nbdev task new` 写进 `master`，不在分支上建。
 
 ### 编号分配
 
-Work 的五位序号在项目内唯一，名称不同也不能复用同一序号。各实现 worktree 不独立选择“下一个编号”。
+Work 的五位序号在项目内唯一，名称不同也不能复用同一序号；Task 序号在所属 Work 内唯一。新编号经命令行 `nbdev` 领取（[命令行合同](../../packages/dev-panel/docs/cli.md)），各会话不自己选“下一个编号”。
 
-1. 先复用符合目标的 Work。确需新编号时，与并行执行者明确唯一分配者，从查号到占号串行完成；无法确认归属时只暂停新编号分配，不阻塞已有 Work。
-2. 分配者在主工作区核对已登记的 Work；记录迁移完成之前，还要核对本地分支与 linked worktree 中尚未合入的 Work。已占用序号不复用。多台机器也通过同一个分配者协调，不各自从本机最大值递增。
-3. 在主工作区创建最小 Work README 和首个已知可执行 Task 并提交，即完成占号；不要求 Issue 编号、push 或远端 `master` 登记。保护已有文件，不因登记授予远端权限。
+1. 先复用符合目标的 Work。确需新编号时用 `nbdev work new`（Work 与首个 Task 一起建）或 `nbdev task new`：它在主工作区的锁里扫描主工作区、登记表、全部本地与远程跟踪分支和各 worktree，取最大值加一，建最小 README，并在 `master` 上路径限定提交。领号即占号，不要求 Issue 编号、push 或远端登记；保护已有文件，不因登记授予远端权限。
+2. `nbdev` 不在 PATH 上时，用 `bun <主工作区>/packages/dev-panel/src/cli.ts …` 调同一入口；仍不可用才手工建号：按上面同样的来源取最大值加一，在主工作区建记录并提交，下次 `nbdev` 扫描会补登并给出警告。
+3. 改 Work 或 Task 的状态用 `nbdev work status`、`nbdev task status`：只改 `status` 与 `updated` 两行并提交；目标文件有别人未提交的改动时默认拒绝。
 
-发现两个不同 Work 撞号时，先暂停冲突身份的集成，由分配者确定保留项，并为另一项重新登记未占用编号。同步修改 Work 目录、`workId`、当前引用及关联执行路径，再用 `governance:context` 核对实际身份；Task 的局部序号无需因 Work 改号改变。已发布的历史记录保留原始身份，在当前记录中说明映射。已提交或推送的内容通过后续提交修正，不覆盖另一项工作，不为改号重写历史或强制推送。
+`nbdev` 发现同一序号有两个名称（撞号）时照常发号，在输出的 `conflicts` 里列出各处位置，不自动改名。处理撞号时先暂停冲突身份的集成，由开发者或主 Agent 确定保留项，并为另一项领一个新号。同步修改 Work 目录、`workId`、当前引用及关联执行路径，再用 `governance:context` 核对实际身份；Task 的局部序号无需因 Work 改号改变。已发布的历史记录保留原始身份，在当前记录中说明映射。已提交或推送的内容通过后续提交修正，不覆盖另一项工作，不为改号重写历史或强制推送。
 
-这是协作规则，不是自动锁或跨机器编号服务；治理检查通过不能代替分配协调。现有冲突按上述方式处理。
+`nbdev` 只在本机加锁，不是跨机器的编号服务；治理检查通过不能代替领号。现有冲突按上述方式处理。
 
 ## 本地与入库
 
