@@ -115,8 +115,20 @@ export class TerminalHub {
         return this.paneOf(terminalId) !== null;
     }
 
-    private readSize(paneId: string): Promise<TerminalSize | null> {
-        return this.options.client ? readPtySize(this.options.client, paneId) : Promise.resolve(null);
+    /** 读不到尺寸的终端：同一个终端只在第一次读不到时记一行原因，读到之后再读不到才再记。 */
+    private readonly sizeUnknown = new Set<string>();
+
+    private async readSize(conn: Conn): Promise<TerminalSize | null> {
+        if (!this.options.client) return null;
+        const size = await readPtySize(this.options.client, conn.paneId, {
+            onUnknown: (reason) => {
+                if (this.sizeUnknown.has(conn.terminalId)) return;
+                this.sizeUnknown.add(conn.terminalId);
+                this.options.log(`读不到终端 ${conn.terminalId}（${conn.paneId}）的 pty 尺寸，观看按 120×40、释放时不改回：${reason}`);
+            },
+        });
+        if (size) this.sizeUnknown.delete(conn.terminalId);
+        return size;
     }
 
     /** 升级之后：pane 是本仓库里 herdr 认得出 Agent 的 pane、terminal id 对得上、上限；不过就以关闭码告诉页面原因。 */
@@ -157,7 +169,7 @@ export class TerminalHub {
     private async startWatch(conn: Conn): Promise<void> {
         if (conn.closed || this.exiting || !this.options.tools.available) return;
         const controlling = [...this.conns.values()].find((entry) => entry.terminalId === conn.terminalId && entry.mode === "control" && entry.control);
-        const size = controlling?.control ? controlling.control.size : await this.readSize(conn.paneId);
+        const size = controlling?.control ? controlling.control.size : await this.readSize(conn);
         // 读尺寸期间另一次重起（5 秒复查、别的连接接管或释放、页面要 resync）已经起了 observe：不再起第二个，否则旧的成了收不到的孤儿。
         if (conn.closed || this.exiting || conn.mode !== "watch" || conn.stream) return;
         conn.sizeKnown = size !== null;
@@ -170,7 +182,7 @@ export class TerminalHub {
     /** 观看期间每 5 秒复查真实尺寸（TUI 改尺寸没有任何事件，设计审查实测）；接管期间不复查（TUI 改不动正被接管的终端）。 */
     private async recheckWatch(conn: Conn): Promise<void> {
         if (conn.closed || conn.mode !== "watch" || this.options.controls.isControlled(conn.terminalId)) return;
-        const size = await this.readSize(conn.paneId);
+        const size = await this.readSize(conn);
         if (conn.closed || conn.mode !== "watch") return;
         const next = size ?? FALLBACK_SIZE;
         if (next.cols !== conn.watchSize.cols || next.rows !== conn.watchSize.rows || (size !== null) !== conn.sizeKnown) await this.restartWatch(conn);
@@ -311,7 +323,7 @@ export class TerminalHub {
             conn.mode = "watch";
             return;
         }
-        const before = other?.control ? other.control.before : await this.readSize(conn.paneId);
+        const before = other?.control ? other.control.before : await this.readSize(conn);
         const actionId = newActionId();
         const target = {paneId: conn.paneId, terminalId: conn.terminalId, sessionKey: conn.sessionKey};
         try {

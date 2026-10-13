@@ -229,7 +229,7 @@ herdr 不拦 API 写入（见 [herdr.md](herdr.md#终端流t12)），互斥由�
 
 - 这格被本面板接管时，通知任务是 `waiting_takeover`，不自动投递；释放时现算一次，之后照常走稳定 3 秒与正向白名单。
 - 手动发送、会话页的文字与按键回 409 `pane_controlled`（接管者自己的页面在接管期间不给输入框，按钮走终端连接）；读屏（`/screen`、`/history`）照常。锁内紧贴投递的 `agent.get` 拿到 terminal id 后还会再查一次“正被接管”。
-- 本面板之外的程序调 `agent.prompt` 不受这条互斥约束；当前没有这样的程序。
+- 这条互斥只管面板自己：herdr 那边的键盘、别的程序，以及会话自己的 herdr 命令行（`herdr agent prompt`、`pane send-text`）都不受约束，照样能写进这格，与接管提示写的一致。
 
 ### 安全与审计
 

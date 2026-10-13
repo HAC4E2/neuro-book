@@ -443,7 +443,8 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             unsubscribe();
             stopNotifyTrigger();
             currentSearch?.abort();
-            // 先释放网页终端的接管（改回尺寸、写释放行）、收掉终端流，再等进行中的投递结束（有上限），最后停监视。
+            // 先释放网页终端的接管（改回尺寸、写释放行）、收掉终端流，再等进行中的投递结束（有上限），最后停监视：
+            // 投递途中退出会留下只有意图的记录。
             await terminals.stop();
             await notifier.stop();
             state.stop();

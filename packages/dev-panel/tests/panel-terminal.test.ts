@@ -155,10 +155,12 @@ const inputsOf = async (state: string, terminal = TERMINAL) => existsSync(join(s
 
 describe("观看", () => {
     test("第一帧整屏、屏幕变了出增量；读不到 pty 尺寸时按 120×40 并标“尺寸不确定”；连接关掉之后子进程不在", async () => {
-        const {connect, state, fake} = await setup("term-watch");
+        const {connect, state, fake, logs} = await setup("term-watch");
         const client = await connect();
         const status = await client.next("state");
         expect(status).toMatchObject({mode: "watch", cols: 120, rows: 40, sizeKnown: false, controller: null, terminalId: TERMINAL});
+        // 读不到的原因进面板日志，同一个终端只记一次（实现审查 F8）。
+        expect(logs.filter((line) => line.startsWith(`读不到终端 ${TERMINAL}`))).toEqual([`读不到终端 ${TERMINAL}（w9:p1）的 pty 尺寸，观看按 120×40、释放时不改回：herdr 没有给出 pane 的 shell pid`]);
         const first = await client.next("frame");
         expect([first.full, first.w, first.h]).toEqual([true, 120, 40]);
         await writeFile(join(state, `screen-${TERMINAL}.txt`), "新的一行");
