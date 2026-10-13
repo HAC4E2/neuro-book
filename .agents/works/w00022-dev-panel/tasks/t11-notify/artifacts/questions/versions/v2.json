@@ -1,0 +1,43 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t11-notify",
+    "artifactId": "questions",
+    "version": 2,
+    "supersedes": 1,
+    "action": "withdraw",
+    "kind": "questions",
+    "title": "t11-notify 的提问",
+    "state": "open",
+    "entry": null,
+    "contentHash": null,
+    "questions": [
+        {
+            "id": "notify-smoke",
+            "type": "single",
+            "label": "通知验收：选哪个？",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "甲"
+                },
+                {
+                    "value": "b",
+                    "label": "乙"
+                }
+            ],
+            "required": true,
+            "recommend": [],
+            "origin": "ask",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "explicit"
+            }
+        }
+    ],
+    "publishedAt": "2026-10-13T08:13:35.003Z"
+}
