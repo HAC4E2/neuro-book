@@ -13,5 +13,9 @@ export default defineConfig({
         emptyOutDir: true,
         // 面板只在本机开，产物大小不是问题；单个大块比一堆小块少几次往返。
         chunkSizeWarningLimit: 2_000,
+        // Vite 8 缺省用 Lightning CSS 压缩 CSS，它把 `backdrop-filter` 与 `-webkit-backdrop-filter` 当成同一属性的前缀变体、
+        // 只留后写的那条；nb-ui 先写不带前缀的，结果只剩 Chrome 不认的 `-webkit-`，浮层（对话框）没有背景模糊、背后的字透出来。
+        // 换回 esbuild 压缩就两条都留着；`tests/web-build.test.ts` 核对产物。nb-ui 改成前缀在前之后可以去掉这一行。
+        cssMinify: "esbuild",
     },
 });
