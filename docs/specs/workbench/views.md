@@ -39,7 +39,7 @@ interface ViewDeclaration {
     readonly icon: string;                               // 图标类名，例如 i-lucide-files
     readonly location: "sidebar" | "auxiliarybar" | "panel"; // 默认位置
     readonly order?: number;                             // 同一位置内的顺序，同值按 id
-    readonly layout: "scroll" | "fill";                  // scroll：外壳给内边距并负责滚动；fill：视图占满、自己滚动
+    readonly layout: "scroll" | "fill";                  // scroll：外壳给内边距并负责滚动；fill：视图占满、自己滚动，内边距用外壳给的 --view-inset-inline、--view-inset-block
     readonly minimumSize?: {readonly width?: number; readonly height?: number};
     readonly maximumSize?: {readonly width?: number; readonly height?: number};
     readonly movable?: boolean;                          // 默认 true

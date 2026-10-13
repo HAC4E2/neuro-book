@@ -110,7 +110,16 @@ function reportRenderError(generation: number, message: string): void {
 </template>
 
 <style scoped>
+/*
+ * 视图的内边距只有外框这一个来源（docs/specs/workbench/views.md 的 layout）：scroll 由这里加；fill 视图要整行铺满
+ * （选中底色通到边），不能整体加，就把同一个值经 `--view-inset-inline`、`--view-inset-block` 交给视图，视图用在行内的
+ * 缩进上，两类视图的文字起点才对齐。scroll 里这两个变量是 0，视图照用也不会加两次。
+ */
 .workbench-view-frame {
+    --nb-view-pad-inline: var(--space-3);
+    --nb-view-pad-block: var(--space-2);
+    --view-inset-inline: var(--nb-view-pad-inline);
+    --view-inset-block: var(--nb-view-pad-block);
     width: 100%;
     height: 100%;
     min-width: 0;
@@ -124,7 +133,9 @@ function reportRenderError(generation: number, message: string): void {
 }
 
 .workbench-view-frame__padding {
-    padding: var(--space-2) var(--space-3);
+    --view-inset-inline: 0px;
+    --view-inset-block: 0px;
+    padding: var(--nb-view-pad-block) var(--nb-view-pad-inline);
 }
 
 .workbench-view-frame__notice {

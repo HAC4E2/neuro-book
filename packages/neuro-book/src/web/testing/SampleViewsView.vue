@@ -26,7 +26,8 @@ const lines = Array.from({length: 60}, (_, index) => `${props.context.id} · 第
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 flex-col gap-2 text-sm" :data-sample-view="context.id" :data-instance="instance" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value" :data-focused-part="focusedPart">
+    <!-- 内边距取外框给的值（fill 时是外框的内边距，scroll 时是 0）：样例甲（fill）与其余样例（scroll）的文字起点对齐。 -->
+    <div class="flex h-full min-h-0 flex-col gap-2 text-sm" style="padding: var(--view-inset-block, 0px) var(--view-inset-inline, 0px)" :data-sample-view="context.id" :data-instance="instance" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value" :data-focused-part="focusedPart">
         <div class="text-xs text-[var(--text-muted)]">实例 #{{ instance }} · 代际 {{ context.generation }} · {{ context.location.value }}</div>
         <div data-sample-input><FormInput v-model="draft" size="sm" placeholder="样例输入" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-sample-scroll>

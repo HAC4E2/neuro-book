@@ -159,6 +159,23 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-activity-container]")).toHaveCount(3);
     });
 
+    test("视图的内边距只有外框一个来源：fill 的样例甲与 scroll 的样例丁，第一行文字离各自外框的距离相同且不为零", async ({page}) => {
+        await open(page);
+        const offset = (viewId: string) => page.locator(`[data-view-frame="${viewId}"]`).evaluate((frame) => {
+            const line = frame.querySelector("[data-sample-view] > :first-child");
+            if (line === null) throw new Error("样例视图没有第一行");
+            const outer = frame.getBoundingClientRect();
+            const inner = line.getBoundingClientRect();
+            return {left: inner.left - outer.left, top: inner.top - outer.top};
+        });
+        await expect(sample(page, A)).toBeVisible();
+        await expect(sample(page, D)).toBeVisible();
+        const fill = await offset(A);
+        expect(fill.left).toBeGreaterThan(0);
+        expect(fill.top).toBeGreaterThan(0);
+        expect(await offset(D)).toEqual(fill);
+    });
+
     test("编辑器槽：挂测试插件贡献的内容；面板最大化时停放（visible 为假）不重挂，还原后同一实例", async ({page}) => {
         await open(page);
         const area = page.locator("[data-sample-editor-area]");
