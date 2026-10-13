@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.menus
 owners:
   - nbook.commands
@@ -115,9 +115,15 @@ interface MenuItemDeclaration {
 
 Smoke：`e2e/workbench-titlebar.e2e.ts`、`e2e/workbench-views.e2e.ts`、`e2e/files-explorer.e2e.ts`、`e2e/editor-area.e2e.ts` 里的菜单用例（测试插件 `test.menus`）。
 
+## 实现合同
+
+- 公开入口：命令插件的 `plugins/commands/shared/contracts.ts`（`MenuItemDeclaration`、`menuLocation`、`menuItemValidator`、`arrangeMenu`、`matchesExtensions`、`MenuItemRegistry`、`menuImplementations`）；四个贡献点 id 与声明类型从各拥有者的 `shared/contracts.ts` 导出（`WORKBENCH_TITLEBAR_MENU_POINT`、`WORKBENCH_VIEW_TITLE_POINT`、`EXPLORER_CONTEXT_POINT`、`EDITOR_TITLE_POINT`）；标题行的按钮与“⋯”是共享前端组件 `src/ui/menus/TitleActions.vue` 与 `title-actions.ts`。
+- owner 与依赖方向：共同合同归 `nbook.commands`，只依赖内核的贡献类型与命令的键位写法；每个位置的拥有者依赖它，定义自己的贡献点、给出当前文件与参数并执行；贡献方只引用拥有者的 `shared/contracts.ts`；`src/ui/menus` 不认识命令与插件。
+- 不变量：贡献点要求实现、菜单项交空实现，`MenuItemRegistry` 只给出已交付且没撤回的项，撤回推进它的版本、读它的 computed 随之重算（`workbench/titlebar-menu.test.ts`）。拥有者执行时按菜单项 id（贡献 id 或自己的 key）重新找回声明，不按显示位置（`workbench/view-actions.test.ts`、`editor/title-actions.test.ts`）。放不下的按钮回到它所在的节，拥有者自己的一节在前（`ui/menus/title-actions.test.ts`）。
+
 ## 证据
 
 - 实现入口：共同合同 [`commands/shared/menus.ts`](../../../packages/neuro-book/src/plugins/commands/shared/menus.ts)（经命令插件的 `shared/contracts.ts` 导出）；位置 [`workbench/shared/menus.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/menus.ts)、[`explorer/shared/contracts.ts`](../../../packages/neuro-book/src/plugins/explorer/shared/contracts.ts)、[`editor/shared/contracts.ts`](../../../packages/neuro-book/src/plugins/editor/shared/contracts.ts)；标题行的按钮与“⋯” [`ui/menus/TitleActions.vue`](../../../packages/neuro-book/src/ui/menus/TitleActions.vue)、[`ui/menus/title-actions.ts`](../../../packages/neuro-book/src/ui/menus/title-actions.ts)
 - 合同测试：[`commands/shared/menus.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/menus.test.ts)（输出 1–5 与规则表：真实命令注册表）、[`workbench/titlebar-menu.test.ts`](../../../packages/neuro-book/src/plugins/workbench/titlebar-menu.test.ts)（真实内核：组与节、贡献方入口停止、引用别的插件的命令、校验）、[`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)、[`editor/title-actions.test.ts`](../../../packages/neuro-book/src/plugins/editor/title-actions.test.ts)、组件测试 `TitleActions.dom.test.ts`、`FilesExplorerActions.dom.test.ts` 的贡献项一例、nb-ui `ContextMenu.test.ts` 的勾选项一例
 - Smoke：验收 1 由 [`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（视图标题）、[`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（资源管理器右键）、[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（编辑区标题）里各自新增的一例覆盖，测试插件 `test.menus`；标题栏菜单的条目由 [`workbench-titlebar.e2e.ts`](../../../packages/neuro-book/e2e/workbench-titlebar.e2e.ts) 逐项比对；验收 2、3 由 `titlebar-menu.test.ts` 与 `menus.test.ts` 覆盖
-- 批准依据：[可扩展应用平台](../../proposals/extensible-application-platform.md)（accepted）“插件的浏览器部分”一节：菜单位置由拥有者定义并规定菜单项收到的参数与局部上下文；开发者 2026-10-13 确认第一版做四处位置与按后缀的局部条件（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t84-menu-contributions/design.md`）。
+- 批准依据：[可扩展应用平台](../../proposals/extensible-application-platform.md)（accepted）“插件的浏览器部分”一节：菜单位置由拥有者定义并规定菜单项收到的参数与局部上下文；开发者 2026-10-13 确认第一版做四处位置与按后缀的局部条件、同日批准晋升 `implemented`（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t84-menu-contributions/design.md`）。

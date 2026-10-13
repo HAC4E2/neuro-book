@@ -168,6 +168,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
 | 配置 | [`settings/configuration.md`](settings/configuration.md) | 配置项声明（含给设置窗口用的字段）、默认值与用户层、项目层的合成、外部改文件即时生效、只写自己声明的项、用户编辑的写入路径、跨实例分发与就绪；密钥与本机层只定合同 |
 | 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections` 与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
+| 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
 | 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作 |
@@ -182,7 +183,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 |---|---|---|
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 七个 Part 的几何与面板形态、紧凑呈现、布局记录与公开状态（外壳一）；容器与视图（外壳二）；拖放（外壳三） |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回（随外壳二） |
-| 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题）；待晋升 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消 |
