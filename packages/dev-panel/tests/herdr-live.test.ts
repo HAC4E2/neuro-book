@@ -14,6 +14,7 @@ import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {checkDeliverable, deliverKeys, deliverText, type DeliveryContext} from "../src/server/delivery.js";
+import {HerdrMonitor, type StatusWatch} from "../src/server/herdr-monitor.js";
 import {startPanelServer} from "../src/server/serve.js";
 import {readPtySize, type TerminalSize} from "../src/server/terminal-size.js";
 import {resolveTerminalTools, startTerminalStream, type StreamKind, type StreamLine, type TerminalStream, type TerminalTools} from "../src/server/terminal-stream.js";
@@ -167,10 +168,42 @@ describe("真实 herdr（命名会话）", () => {
     }, 90_000);
 });
 
+describe("真实 herdr 的状态序号与状态事件（t11 的通知误报）", () => {
+    test.skipIf(!herdrInstalled)("state_change_seq 是全服务器共用的计数：后变状态的那一格序号更大，与各自变了几次无关；面板的订阅按格收到状态事件，B 经过的 blocked 只出现在 B 上", async () => {
+        await startSessionServer();
+        const fixture = await createFixture("herdr-live-seq");
+        const a = await fakeClaude(join(fixture.root, "a"), fixture.main);
+        const b = await fakeClaude(join(fixture.root, "b"), fixture.main);
+        const client = createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS});
+        const monitor = new HerdrMonitor(client, () => undefined, () => undefined);
+        closers.push(async () => monitor.stop());
+        monitor.start();
+        let watches: [StatusWatch | null, StatusWatch | null] = [null, null];
+        for (let waited = 0; !(watches[0] && watches[1]); waited += 50) {
+            if (waited > 10_000) throw new Error(`10 秒内面板的订阅没有订上两格：${JSON.stringify(monitor.current())}`);
+            watches.forEach((watch) => watch?.close());
+            watches = [monitor.watchStatus(a.paneId), monitor.watchStatus(b.paneId)];
+            await sleep(50);
+        }
+        const [watchA, watchB] = watches as [StatusWatch, StatusWatch];
+        // 真实 claude 第一次进目录的信任确认，herdr 判 blocked（tests/fixtures/screens.json）。
+        const trust = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "screens.json"), "utf8")) as {samples: Array<{name: string; visibleAnsi: string}>}).samples.find((sample) => sample.name === "claude-trust")!.visibleAnsi;
+        for (const text of [trust, SCREENS["idle-empty"]!, trust, SCREENS["idle-empty"]!]) await b.show(text);
+        await a.show(trust);
+        const [infoA, infoB] = await Promise.all([client.agentGet(a.paneId), client.agentGet(b.paneId)]);
+        expect([infoA!.status, watchA.statuses(), watchA.intact()]).toEqual(["blocked", ["blocked"], true]);
+        expect([watchB.statuses().filter((status) => status === "blocked").length, watchB.intact()]).toEqual([2, true]);
+        // 每格一份计数的话，A 只变了两次（起来时一次）、B 变了五次，A 的序号会更小。
+        expect(infoA!.stateChangeSeq!).toBeGreaterThan(infoB!.stateChangeSeq!);
+        watchA.close();
+        watchB.close();
+    }, 90_000);
+});
+
 const SCREENS = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "fake-claude-screens.json"), "utf8")) as {screens: Record<string, string>}).screens;
 
 /** 在命名会话里起一格假 Claude：可执行文件名是 claude（herdr 按进程名认），再报一个会话 id。 */
-async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
+async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; show: (text: string) => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
     const bin = join(root, "bin");
     await mkdir(bin, {recursive: true});
     await copyFile(resolve(import.meta.dirname, "fixtures", "fake-claude-tui.py"), join(bin, "claude"));
@@ -194,14 +227,16 @@ async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; s
     const sessionId = randomUUID();
     herdr(["pane", "report-agent-session", paneId, "--source", "herdr:claude", "--agent", "claude", "--agent-session-id", sessionId]);
     await sleep(1_500);
+    // herdr 按清单读屏要一点时间（S0 实测 1.5 秒够）。
+    const show = async (text: string) => {
+        await writeFile(screenFile, text);
+        await sleep(1_500);
+    };
     return {
         paneId,
         sessionId,
-        // herdr 按清单读屏要一点时间（S0 实测 1.5 秒够）。
-        async screen(name) {
-            await writeFile(screenFile, SCREENS[name]!);
-            await sleep(1_500);
-        },
+        screen: (name) => show(SCREENS[name]!),
+        show,
         async bytes() {
             return (await readFile(log, "utf8")).split("\n").filter((line) => line !== "");
         },

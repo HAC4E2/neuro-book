@@ -75,6 +75,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 - **退避的规则**：初值 500 毫秒、每次乘 2、上限 30 秒，再加 0 到 20% 的抖动。重试只有一条链：已经排着一次重试时，新的失败只计数、不再排第二次；30 秒的对账在重试期间（herdr 不可用、订阅断了还没重连）跳过。退避计数只在订阅连上并稳定保持 10 秒之后清零，快照对账成功不清零：“连上就断”的订阅因此按退避逐次拉长，不会停在 500 毫秒。累计的失败次数在 `/api/sessions` 的 `herdr.retries`。
 - 会话的 revision 只在显示用到的字段变化时增加（各 pane 的状态、Agent、会话、目录、workspace 名与 herdr 是否可用）；订阅与轮询之间的切换不单独推送。
 - **对账**：每 30 秒一次快照。某格 Agent 的 `state_change_seq` 与记下的不同、而面板手上的状态又不是快照里的，就是漏了状态事件，计进 `/api/sessions` 的 `herdr.missedEvents`。
+- **状态序号**：`state_change_seq` 是 herdr 全服务器共用的一个计数，哪一格 Agent 变了状态，就取下一个值记在那一格上（t11 验收后用默认 server 0.9.1 的只读快照核实：各格的值散落在同一区间、互不重复；0.9.3 的命名会话里由 `tests/herdr-live.test.ts` 钉住：后变状态的那一格序号更大，与各自变了几次无关）。同一格前后相等就是没变过，对账、空闲稳定与紧贴投递的复核都只这样比；差值却数不出这一格变了几次，别的会话同时变状态也会推高它。要知道一格中途经过了哪些状态，只能看它的 `pane.agent_status_changed`。
 - **事件为主、轮询兜底**：0.9.3 的命名会话里，名为 `claude` 的假 TUI 改状态约 0.2 秒就推 `pane.agent_status_changed`（t11 S0；默认 server 0.9.1 上没有可观察的状态变化，没有实测）。有浏览器连着时另外每 500 毫秒轮询一次 `pane.list`；没有浏览器、只有待发的通知时放慢到 15 秒，herdr 日志一天多约 5800 次请求、约 2 MB。新出现或消失的 pane 触发快照对账。
 - **会话 id 变了不推事件**：`/clear`、`/compact`、`--resume` 之后 pane 上的会话 id 会变（S0 用 `report-agent-session --session-start-source clear|compact|resume` 都改掉了 id），herdr 不为此推任何事件。面板靠轮询与 30 秒的对账发现，投递前的 `agent.get` 是最后一道核对。
 - herdr 不阻塞面板开始服务：面板先用“herdr 不可用”的状态起来，快照随后补上。
@@ -95,7 +96,12 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 5. **聚焦的那一格**（`focused: true`，开发者的键盘最可能在那里）：隔 1 秒再读一次，两次都可投才投。
 6. **紧贴投递再核一次**：`agent.get` 的会话键、目录、状态与 `state_change_seq` 都与判定时相同，才调 `agent.prompt`。
 
-**投递之后**：先看 `agent.prompt` 的返回体，约 500 毫秒后再 `agent.get` 一次。会话键变了记 `delivered_maybe_wrong_session`；状态是 `blocked` 且 `state_change_seq` 与投递前不同，记 `delivered_into_blocked`（回车可能确认了刚弹出的确认界面，界面醒目提示马上看终端）；状态序号一次跳了两格以上（正常只有“空闲到工作”一格），或者返回体里是 `blocked`，也记 `delivered_into_blocked`（`code: state_jumped`）：确认界面弹出后又被回车确认，会话已回到 working，只看最后的状态看不出来。herdr 回 `agent_prompt_stalled`、`timeout` 或本地 `client_timeout` 都记 `uncertain`：已经写入，不重发。
+**投递之后**：调 `agent.prompt` 之前先从面板的订阅收下这一格在投递窗口里的 `pane.agent_status_changed`；先看 `agent.prompt` 的返回体，约 500 毫秒后再 `agent.get` 一次。
+- 会话键变了记 `delivered_maybe_wrong_session`；
+- 状态是 `blocked` 且 `state_change_seq` 与投递前不同，记 `delivered_into_blocked`（回车可能确认了刚弹出的确认界面，界面醒目提示马上看终端）；
+- 返回体里是 `blocked`，或窗口里这一格的状态事件出现过 `blocked`，也记 `delivered_into_blocked`（`code: passed_blocked`）：确认界面弹出后又被回车确认，会话已回到 working，只看最后的状态看不出来。herdr 没认出的 `blocked` 不会有事件，这种照样看不出来；
+- 面板这时的订阅没订着这一格（还没连上、断线重连中、pane 刚出现还没换连接），或者窗口里订阅断过，记 `delivered` 加 `code: unwatched`：投递照样算办完，只剩前两条核对，界面注明没核对确认界面。不再用状态序号的差值退而求其次，它数不出这一格变了几次（见“状态序号”）；
+- herdr 回 `agent_prompt_stalled`、`timeout` 或本地 `client_timeout` 都记 `uncertain`：已经写入，不重发。
 
 **手动发送**（会话已更换后发给新会话、没有可通知的会话时选一个、旧答复、这个版本不自动投）与会话页的文字过同样的判据，只是不要求“空闲稳定”；正向白名单不过时先把屏幕末尾给开发者看，确认之后才发。
 

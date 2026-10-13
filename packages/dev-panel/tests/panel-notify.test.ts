@@ -143,11 +143,9 @@ async function stopPanel(panel: Panel): Promise<void> {
     await (panel as Panel & {stop: () => Promise<void>}).stop();
 }
 
-/** 改一格 pane 的状态：序号加一、推一条状态事件，再对账一次（不依赖订阅何时连上）。 */
+/** 改一格 pane 的状态（全局序号加一、推一条状态事件），再对账一次（不依赖订阅何时连上）。 */
 async function setStatus(fake: FakeHerdr, panel: Panel, pane: FakePane, status: string): Promise<void> {
-    pane.agent_status = status;
-    pane.state_change_seq = (pane.state_change_seq ?? 0) + 1;
-    fake.emit("pane.agent_status_changed", {pane_id: pane.pane_id, agent_status: status});
+    fake.setStatus(pane.pane_id, status);
     await panel.server.state.herdr.refresh();
 }
 
@@ -175,7 +173,7 @@ async function auditLines(fixture: Fixture): Promise<AuditLine[]> {
     return (await readFile(file, "utf8")).split("\n").filter((line) => line !== "").map((line) => JSON.parse(line) as AuditLine);
 }
 
-async function notifyRecords(fixture: Fixture): Promise<Array<{result: string; sessionKey: string; askerKey: string; manual: boolean; attemptId: string}>> {
+async function notifyRecords(fixture: Fixture): Promise<Array<{result: string; code: string | null; sessionKey: string; askerKey: string; manual: boolean; attemptId: string}>> {
     const dir = join(fixture.main, NOTIFY_ROOT);
     if (!existsSync(dir)) return [];
     const names = (await readdir(dir)).sort();
@@ -199,6 +197,8 @@ describe("自动通知", () => {
         expect(await panel.jobs()).toEqual([]);
         const records = await notifyRecords(fixture);
         expect(records.map((record) => [record.result, record.sessionKey, record.manual])).toEqual([["pending", KEY_A, false], ["delivered", KEY_A, false]]);
+        // 面板的订阅订着这一格，投递窗口里的状态事件看得到（不是 unwatched 的退路）。
+        expect(records[1]!.code).toBeNull();
         expect(records[0]!.attemptId).toBe(records[1]!.attemptId);
         const recent = (await panel.get("/api/notify")).body.data.recent as Array<{result: string; intentOnly: boolean}>;
         expect(recent.map((entry) => [entry.result, entry.intentOnly])).toEqual([["delivered", false]]);
@@ -261,8 +261,7 @@ describe("自动通知", () => {
         await setStatus(fake, second, pane, "idle");
         await until(async () => fake.prompts.length, (count) => count > 0, 8_000, "重起之后投递");
         await stopPanel(second);
-        pane.agent_status = "idle";
-        pane.state_change_seq = (pane.state_change_seq ?? 0) + 1;
+        fake.setStatus(pane.pane_id, "idle");
         const third = await startPanel(fixture, fake);
         await Bun.sleep(4_500);
         expect(await third.jobs()).toEqual([]);

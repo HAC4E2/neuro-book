@@ -23,7 +23,10 @@ export type HerdrStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 export type HerdrAgentSession = {agent: string; kind: string; value: string};
 /** `cwd` 是 pane 的 shell 所在目录，`foregroundCwd` 是前台进程所在目录；herdr 不知道时为 null。`focused`：herdr 当前聚焦的那一格（开发者的键盘最可能在那里）。 */
 export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null; cwd: string | null; foregroundCwd: string | null; focused: boolean};
-/** `agent.get` 与 `agent.prompt` 返回的一个 Agent：比 pane 多一个状态序号（每次状态变化加 1）。 */
+/**
+ * `agent.get` 与 `agent.prompt` 返回的一个 Agent：比 pane 多一个状态序号。序号是 herdr 全服务器共用的一个计数，这格最后一次变状态时
+ * 取下一个值记在它身上：同一格前后相等就是没变过，差值却数不出这格变了几次（别的 pane 变状态也会推高它）。
+ */
 export type HerdrAgentInfo = HerdrPane & {stateChangeSeq: number | null};
 /** `agent.explain` 里投递判据要用的几项：命中的规则、退路、`live_prompt_box` 的区域预览（规则不在清单里时为 null）。 */
 export type HerdrExplain = {state: string | null; matchedRule: string | null; fallbackReason: string | null; screenDetectionSkipped: boolean; livePromptBoxPreview: string | null; manifestVersion: string | null};

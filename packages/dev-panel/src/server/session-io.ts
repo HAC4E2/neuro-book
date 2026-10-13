@@ -37,7 +37,7 @@ export function createSessionIo(deps: SessionIoDeps) {
 
     function context(): DeliveryContext {
         if (!client) throw new NbdevError("herdr_unavailable", "面板没有连 herdr");
-        return {client, repoRoots: state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root), controlled: (terminalId) => deps.controls.isControlled(terminalId)};
+        return {client, repoRoots: state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root), controlled: (terminalId) => deps.controls.isControlled(terminalId), watchStatus: (paneId) => state.herdr.watchStatus(paneId)};
     }
 
     async function requireAudit(): Promise<void> {

@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import {HerdrError, type HerdrAgentInfo, type HerdrClient} from "../herdr/client.js";
 import {judgeDeliverable} from "../herdr/screens.js";
 import type {NotifyResult} from "../core/notify.js";
+import type {StatusWatch} from "./herdr-monitor.js";
 
 /**
  * 往一格 Agent 的输入框里投一行文字（t11 的通知、会话页的文字），以及发按键。判据见 docs/herdr.md 的“投递”：
@@ -11,8 +12,11 @@ import type {NotifyResult} from "../core/notify.js";
  */
 
 export type DeliveryTarget = {paneId: string; sessionKey: string};
-/** `controlled`：这个终端正被本面板接管时为真（t12）；接管期间文字与按键都不发（herdr 不拦 API 写入）。 */
-export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]; sleep?: (ms: number) => Promise<void>; controlled?: (terminalId: string) => boolean};
+/**
+ * `controlled`：这个终端正被本面板接管时为真（t12）；接管期间文字与按键都不发（herdr 不拦 API 写入）。
+ * `watchStatus`：面板的 herdr 订阅，投递窗口里看这一格有没有经过 `blocked`；不给、或订阅这时没订着这格时，投递记 `delivered` 加 `code: unwatched`。
+ */
+export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]; sleep?: (ms: number) => Promise<void>; controlled?: (terminalId: string) => boolean; watchStatus?: (paneId: string) => StatusWatch | null};
 
 export type CheckFailure = {
     ok: false;
@@ -122,24 +126,33 @@ export type DeliveryOutcome = {result: NotifyResult; code: string | null; messag
 
 /**
  * 投递：紧贴着再 `agent.get` 复核会话、仓库、状态与状态序号（`before` 是判定时看到的），再 `agent.prompt`；
- * 之后用返回体与约 500 毫秒后的 `agent.get` 判断有没有在回车前后弹出确认界面（还在等确认，或状态序号一次跳了两格以上）、有没有换了会话。
+ * 之后用返回体、投递窗口里这一格的状态事件与约 500 毫秒后的 `agent.get` 判断有没有在回车前后弹出确认界面、有没有换了会话。
  */
 export async function deliverText(context: DeliveryContext, target: DeliveryTarget, text: string, before: HerdrAgentInfo): Promise<DeliveryOutcome> {
-    const sleep = context.sleep ?? defaultSleep;
     const last = await identity(context, target, "text");
     if (!last.ok) return {result: last.code === "session_changed" ? "session_changed" : last.code === "agent_blocked" ? "agent_blocked" : "not_deliverable", code: last.code, message: last.detail, agent: last.agent};
     if (last.agent.stateChangeSeq !== before.stateChangeSeq) return {result: "not_deliverable", code: "not_stable", message: "判定之后状态变了", agent: last.agent};
+    const watch = context.watchStatus?.(target.paneId) ?? null;
+    try {
+        return await promptAndCheck(context, target, text, last.agent, watch);
+    } finally {
+        watch?.close();
+    }
+}
+
+async function promptAndCheck(context: DeliveryContext, target: DeliveryTarget, text: string, last: HerdrAgentInfo, watch: StatusWatch | null): Promise<DeliveryOutcome> {
+    const sleep = context.sleep ?? defaultSleep;
     let prompted: {type: string; agent: HerdrAgentInfo | null};
     try {
         prompted = await context.client.agentPrompt(target.paneId, text, {until: ["working", "blocked"], timeoutMs: PROMPT_WAIT_MS});
     } catch (error) {
         if (!(error instanceof HerdrError)) throw error;
-        if (error.code === "agent_blocked") return {result: "agent_blocked", code: error.code, message: "会话在等确认，一个字节都没写", agent: last.agent};
+        if (error.code === "agent_blocked") return {result: "agent_blocked", code: error.code, message: "会话在等确认，一个字节都没写", agent: last};
         if (error.code === "agent_prompt_stalled" || error.code === "timeout" || error.code === "client_timeout") {
-            return {result: "uncertain", code: error.code, message: "已写入，但没看到会话开始工作；请看终端，不要重发", agent: last.agent};
+            return {result: "uncertain", code: error.code, message: "已写入，但没看到会话开始工作；请看终端，不要重发", agent: last};
         }
-        if (error.code === "agent_not_found" || error.code === "agent_not_running" || error.code === "pane_not_found") return {result: "session_changed", code: error.code, message: error.message, agent: last.agent};
-        return {result: "failed", code: error.code, message: error.message, agent: last.agent};
+        if (error.code === "agent_not_found" || error.code === "agent_not_running" || error.code === "pane_not_found") return {result: "session_changed", code: error.code, message: error.message, agent: last};
+        return {result: "failed", code: error.code, message: error.message, agent: last};
     }
     await sleep(AFTER_PROMPT_MS);
     let after: HerdrAgentInfo | null = prompted.agent;
@@ -153,15 +166,15 @@ export async function deliverText(context: DeliveryContext, target: DeliveryTarg
     if (after && sessionKeyOf(after) !== target.sessionKey) {
         return {result: "delivered_maybe_wrong_session", code: null, message: "投递的瞬间 pane 上换了会话，请看终端", agent: after};
     }
-    if (after && after.status === "blocked" && after.stateChangeSeq !== last.agent.stateChangeSeq) {
+    if (after && after.status === "blocked" && after.stateChangeSeq !== last.stateChangeSeq) {
         return {result: "delivered_into_blocked", code: null, message: "投递时会话弹出了确认界面，回车可能确认了它，请马上看终端", agent: after};
     }
-    // 正常是“空闲到工作”一次变化。跳了两次以上，或者返回体里出现过 blocked，多半是回车前后弹出了确认界面、回车又确认了它
-    // （会话已回到 working，上面那条看不出来；t11 实现审查第 7 条）。宁可多提示一次。
-    const jumps = after?.stateChangeSeq != null && last.agent.stateChangeSeq !== null ? after.stateChangeSeq - last.agent.stateChangeSeq : 0;
-    if (jumps >= 2 || prompted.agent?.status === "blocked") {
-        return {result: "delivered_into_blocked", code: "state_jumped", message: "投递后状态变了不止一次，可能经过了确认界面、回车确认了它，请马上看终端", agent: after};
+    // 回车前后弹出确认界面、回车又确认了它时，会话已回到 working，上面那条看不出来（t11 实现审查第 7 条）：看返回体与这一格的状态事件。
+    // 不能用状态序号的差值数次数：它是全服务器共用的计数，别的会话同时变状态也会推高它（t11 的通知误报）。
+    if (prompted.agent?.status === "blocked" || watch?.statuses().includes("blocked")) {
+        return {result: "delivered_into_blocked", code: "passed_blocked", message: "投递后会话经过了确认界面，回车可能确认了它，请马上看终端", agent: after};
     }
+    if (!watch?.intact()) return {result: "delivered", code: "unwatched", message: "已投递；面板这时没订阅到这一格的状态事件，看不出回车前后有没有弹出过确认界面", agent: after};
     return {result: "delivered", code: null, message: "已投递", agent: after};
 }
 

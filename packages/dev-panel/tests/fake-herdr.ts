@@ -14,7 +14,8 @@ export type FakePane = {
     foreground_cwd?: string | null;
     shell_pid?: number | null;
     foreground_pids?: number[];
-    /** 快照里 Agent 的状态序号；缺省 0。 */
+    /** Agent 的状态序号：真实 herdr 是全服务器共用的一个计数，这格最后一次变状态时取下一个值记在它身上（见 docs/herdr.md 的“状态序号”）；缺省 0。
+     * 测试里改状态用 `fake.setStatus`，它推高全局计数并推送事件。 */
     state_change_seq?: number;
     focused?: boolean;
     /** `agent.explain` 的回应：命中的规则 id、退路、`live_prompt_box` 的区域预览（undefined 表示清单里没有这条规则）。 */
@@ -25,7 +26,7 @@ export type FakePane = {
     history?: string;
     /** `agent.prompt` 时这格 pane 怎么反应：进入工作（缺省）、没反应（herdr 等到点回 `agent_prompt_stalled`）、
      * 回车前后弹出确认界面（回应里状态是旧的 working，之后变 blocked）、投递的瞬间换了会话、
-     * 弹出的确认界面又被回车确认了（回应里是 working，之后还是 working，状态序号跳了三格）。 */
+     * 弹出的确认界面又被回车确认了（先 blocked 再 working，各推一条状态事件，回应里是 working）。 */
     on_prompt?: "working" | "stall" | "blocked_after" | "switch_session" | "blocked_then_working";
 };
 
@@ -38,6 +39,12 @@ export type FakeHerdr = {
     /** `ping` 与快照报的版本；缺省 `fake`（面板不对它自动投递，测通知时设成 0.9.3）。 */
     version: string;
     panes: FakePane[];
+    /** 全局的状态序号（初值是给定各 pane 里最大的那个）。 */
+    seq: number;
+    /** 改一格 pane 的状态：全局序号加一记在这格上，给每条订阅连接推一条 `pane.agent_status_changed`。 */
+    setStatus(paneId: string, status: string): void;
+    /** 给了就在 `agent.prompt` 写入之后、这格变状态之前调用（模拟投递窗口里别的事，例如别的 pane 变状态、订阅断开）。 */
+    duringPrompt: (() => void) | null;
     requests: Array<{method: string; params: Record<string, unknown>; at: number}>;
     /** 给了就在回 `subscription_started` 之后这么多毫秒断开订阅连接（模拟“连上就断”）。 */
     dropSubscriptionsAfterMs: number | null;
@@ -71,6 +78,16 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
         socketPath,
         version: "fake",
         panes,
+        seq: Math.max(0, ...panes.map((pane) => pane.state_change_seq ?? 0)),
+        setStatus(paneId, status) {
+            const pane = fake.panes.find((entry) => entry.pane_id === paneId);
+            if (!pane) throw new Error(`假 herdr 里没有 ${paneId}`);
+            fake.seq += 1;
+            pane.state_change_seq = fake.seq;
+            pane.agent_status = status;
+            fake.emit("pane.agent_status_changed", {pane_id: paneId, agent_status: status});
+        },
+        duringPrompt: null,
         requests,
         overrides: {},
         dropSubscriptionsAfterMs: null,
@@ -78,7 +95,7 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
         keys: [],
         subscriberCount: () => subscribers.size,
         emit(event, data) {
-            for (const socket of subscribers) socket.write(`${JSON.stringify({event, data})}\n`);
+            for (const socket of subscribers) if (socket.writable) socket.write(`${JSON.stringify({event, data})}\n`);
         },
         dropSubscribers() {
             for (const socket of subscribers) socket.destroy();
@@ -92,6 +109,12 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
         socket.on("close", () => {
             sockets.delete(socket);
             subscribers.delete(socket);
+        });
+        // 被测的面板关掉连接是正常的（停面板、换订阅连接）：之后再推事件会碰到 EPIPE 或 ECONNRESET，当作这条连接已经走了。
+        socket.on("error", (error: NodeJS.ErrnoException) => {
+            if (error.code !== "EPIPE" && error.code !== "ECONNRESET") console.error(`假 herdr 的连接出错：${error.message}`);
+            subscribers.delete(socket);
+            socket.destroy();
         });
         let buffer = "";
         socket.setEncoding("utf8");
@@ -198,22 +221,20 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
         fake.prompts.push({target: pane.pane_id, text: String(params.text)});
         const behavior = pane.on_prompt ?? "working";
         if (behavior === "stall") return new Promise((done) => setTimeout(() => done({id, error: {code: "agent_prompt_stalled", message: "stalled"}}), 50));
-        const seq = (pane.state_change_seq ?? 0) + 1;
+        fake.duringPrompt?.();
         if (behavior === "blocked_after") {
-            const stale = agentInfo({...pane, agent_status: "working"});
-            pane.agent_status = "blocked";
-            pane.state_change_seq = seq + 1;
+            fake.setStatus(pane.pane_id, "working");
+            const stale = agentInfo(pane);
+            fake.setStatus(pane.pane_id, "blocked");
             return {id, result: {type: "agent_prompted", agent: stale}};
         }
         if (behavior === "blocked_then_working") {
-            const stale = agentInfo({...pane, agent_status: "working", state_change_seq: seq});
-            pane.agent_status = "working";
-            pane.state_change_seq = seq + 2;
-            return {id, result: {type: "agent_prompted", agent: stale}};
+            fake.setStatus(pane.pane_id, "blocked");
+            fake.setStatus(pane.pane_id, "working");
+            return {id, result: {type: "agent_prompted", agent: agentInfo(pane)}};
         }
         if (behavior === "switch_session" && pane.agent_session) pane.agent_session = {...pane.agent_session, value: `${pane.agent_session.value}-new`};
-        pane.agent_status = "working";
-        pane.state_change_seq = seq;
+        fake.setStatus(pane.pane_id, "working");
         return {id, result: {type: "agent_prompted", agent: agentInfo(pane)}};
     }
     default:
