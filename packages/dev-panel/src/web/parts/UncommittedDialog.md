@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: ["env:portal", "env:global"]
 ---
 
 # UncommittedDialog
@@ -26,4 +26,4 @@ interface UncommittedDialogEmits {
 }
 ```
 
-没有插槽与 expose。底层是 nb-ui 的 `Dialog`。
+没有插槽与 expose。内容经 nb-ui 的 `Dialog` 渲染到 `body`（`env:portal`），Esc 与点遮罩关闭（`env:global`，都发 `cancel`）。
