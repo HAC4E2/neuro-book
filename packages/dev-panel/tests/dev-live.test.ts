@@ -299,6 +299,39 @@ describe("复用的判据（t14 实现审查 I2）", () => {
     }, 60_000);
 });
 
+describe("NOT_READY 之后（t14 实现审查 I3）", () => {
+    test("服务比 --ready-timeout 晚就绪：先 NOT_READY，之后监管进程补写登记、再打 READY；dev status --wait-ready 拿得到", async () => {
+        const s = await setup("dev-late-ready", {FAKE_DEV_READY_MS: "3500"});
+        const sup = await startDev(s, ["--ready-timeout", "1"]);
+        expect(await readyLine(sup)).toMatch(/^NOT_READY /u);
+        const waited = await cli(s, ["dev", "status", "--package", "apps/web", "--wait-ready", "--timeout", "15", "--json"]);
+        expect(waited.exitCode).toBe(0);
+        const lines = await until(() => sup.lines(), (all) => all.some((line) => line.startsWith("READY ")), 10_000, "后来的 READY");
+        expect(lines.findIndex((line) => line.startsWith("NOT_READY "))).toBeLessThan(lines.findIndex((line) => line.startsWith("READY ")));
+        expect((await records(s.fixture))[0]).toMatchObject({url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/$/u), readyAt: expect.any(String)});
+        process.kill(sup.pid, "SIGTERM");
+        expect(await sup.exited).toBe(0);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 60_000);
+
+    test("复用方认出就绪时把 url 与 readyAt 写回登记（监管进程不在、登记还没有 readyAt）", async () => {
+        const s = await setup("dev-reuse-writeback");
+        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok")});
+        cleanups.push(async () => {
+            await server.stop(true);
+        });
+        const url = `http://127.0.0.1:${server.port}/`;
+        const leader = await detachedSleep();
+        const logPath = join(s.fixture.root, "late.log");
+        await writeFile(logPath, `  \u001b[32m➜\u001b[39m Local:    \u001b[36m${url}\u001b[39m\n`);
+        const runId = "dev-20261013T000000Z-0000000e";
+        await writeRecord(s, runId, {logPath, supervisor: {pid: leader.pid, startTicks: `${leader.startTicks}0`}, pid: leader.pid, pgid: leader.pid, startTicks: leader.startTicks});
+        const reused = await cli(s, ["dev", "start", "--package", "apps/web", "--json"]);
+        expect([reused.exitCode, JSON.parse(reused.stdout.trim().split("\n")[0]!)]).toEqual([0, expect.objectContaining({event: "ready", url, reused: true})]);
+        expect((await records(s.fixture))[0]).toMatchObject({url, readyAt: expect.any(String)});
+    }, 30_000);
+});
+
 describe("PID 复用与重启（场景 3）", () => {
     test("登记里的 pid 被复用：dev status 判 ended、dev stop 不发信号；bootId 变了判 rebooted", async () => {
         const s = await setup("dev-reuse-pid");

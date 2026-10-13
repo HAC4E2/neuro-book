@@ -28,6 +28,8 @@ const TAIL_INTERVAL_MS = 200;
 const SNAPSHOT_INTERVAL_MS = 2_000;
 const PROBE_TIMEOUT_MS = 2_000;
 const PROBE_INTERVAL_MS = 500;
+/** 打过 `NOT_READY` 之后探测放慢：服务可能一直回 5xx，不必每半秒打它一次。 */
+const LATE_PROBE_INTERVAL_MS = 2_000;
 /** 组长自己退出之后补收剩下的进程时的宽限期：服务已经在收口，不必等满 10 秒。 */
 const LEFTOVER_GRACE_MS = 3_000;
 
@@ -117,11 +119,20 @@ export function reusable(evaluation: Pick<RunEvaluation, "state" | "reason">): b
     return evaluation.state === "starting" || evaluation.state === "running" || (evaluation.state === "orphaned" && evaluation.reason === "supervisor_gone");
 }
 
+type WaitReadyOptions = {
+    deadline: number;
+    shouldStop: () => boolean | Promise<boolean>;
+    /** 认出地址时调一次（写进登记）。 */
+    onUrl: (url: string) => Promise<void>;
+    /** 给了就在到时限时调一次、然后接着等（监管进程打 `NOT_READY` 之后照样认就绪，t14 实现审查 I3）；不给就到时限结束。 */
+    onTimeout?: (lastStatus: number | null) => Promise<void>;
+};
+
 /**
  * 从日志里等就绪（新起的与复用的共用）：逐段读日志、去 ANSI、按行认地址，认出之后 HTTP 探测到 2xx、3xx、4xx 为止。
- * `onUrl` 在认出地址时调一次（写进登记）；到时限还没就绪回 `ready: false` 与最后一次的状态码。
+ * 就绪回 `ready: true`；停下（`shouldStop`，或没给 `onTimeout` 时到时限）回 `ready: false` 与最后一次的状态码。
  */
-async function waitReady(logPath: string, pattern: string | null, deadline: number, shouldStop: () => boolean, onUrl: (url: string) => Promise<void>): Promise<{ready: boolean; url: string | null; lastStatus: number | null}> {
+async function waitReady(logPath: string, pattern: string | null, options: WaitReadyOptions): Promise<{ready: boolean; url: string | null; lastStatus: number | null}> {
     const matcher = createReadyMatcher(pattern ? compileReadyPattern(pattern) : null);
     const splitter = new LineSplitter();
     const decoder = new TextDecoder();
@@ -129,9 +140,15 @@ async function waitReady(logPath: string, pattern: string | null, deadline: numb
     let lastStatus: number | null = null;
     let urlNoted = false;
     let nextProbe = 0;
+    let timedOut = false;
     const handle = await open(logPath, "r");
     try {
-        while (Date.now() < deadline && !shouldStop()) {
+        while (!await options.shouldStop()) {
+            if (!timedOut && Date.now() >= options.deadline) {
+                if (!options.onTimeout) break;
+                timedOut = true;
+                await options.onTimeout(lastStatus);
+            }
             const buffer = Buffer.alloc(64 * 1024);
             for (;;) {
                 const {bytesRead} = await handle.read(buffer, 0, buffer.length, offset);
@@ -142,12 +159,12 @@ async function waitReady(logPath: string, pattern: string | null, deadline: numb
             const progress = matcher.progress();
             if (progress.url && !urlNoted) {
                 urlNoted = true;
-                await onUrl(progress.url);
+                await options.onUrl(progress.url);
             }
             if (progress.url && progress.ready && Date.now() >= nextProbe) {
                 lastStatus = await probeStatus(progress.url);
                 if (lastStatus !== null && readyStatus(lastStatus)) return {ready: true, url: progress.url, lastStatus};
-                nextProbe = Date.now() + PROBE_INTERVAL_MS;
+                nextProbe = Date.now() + (timedOut ? LATE_PROBE_INTERVAL_MS : PROBE_INTERVAL_MS);
             }
             await sleep(TAIL_INTERVAL_MS);
         }
@@ -251,10 +268,19 @@ async function reuse(context: RepoContext, record: ProcRecord, evaluation: RunEv
         emitEvent({event: "ready", runId: record.runId, url: record.url, logPath: record.logPath, pid: record.pid, reused: true, owner});
         return {exitCode: 0, warnings};
     }
-    const result = await waitReady(record.logPath, record.readyPattern, Date.now() + input.readyTimeoutMs, () => false, async () => undefined);
+    const result = await waitReady(record.logPath, record.readyPattern, {deadline: Date.now() + input.readyTimeoutMs, shouldStop: () => false, onUrl: async () => undefined});
     const fresh = await readProcRecord(context.mainRoot, record.runId) ?? record;
-    if (result.ready && result.url) emitEvent({event: "ready", runId: record.runId, url: result.url, logPath: record.logPath, pid: fresh.pid, reused: true, owner});
-    else emitEvent({event: "not_ready", runId: record.runId, logPath: record.logPath, lastStatus: result.lastStatus, reused: true, owner});
+    if (result.ready && result.url) {
+        // 认出就绪写回登记（锁内，只在还没有 readyAt 时写）：`dev status --wait-ready`、`shot` 只看登记（t14 实现审查 I3）。
+        const readyUrl = result.url;
+        await updateProcRecord(context.mainRoot, record.runId, (entry) => {
+            if (entry.readyAt !== null || entry.endedAt !== null) return;
+            entry.url = readyUrl;
+            entry.readyAt = new Date().toISOString();
+            entry.lastProbeStatus = result.lastStatus;
+        });
+        emitEvent({event: "ready", runId: record.runId, url: result.url, logPath: record.logPath, pid: fresh.pid, reused: true, owner});
+    } else emitEvent({event: "not_ready", runId: record.runId, logPath: record.logPath, lastStatus: result.lastStatus, reused: true, owner});
     return {exitCode: 0, warnings};
 }
 
@@ -309,25 +335,30 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
     }, SNAPSHOT_INTERVAL_MS);
 
     try {
-        const readiness = waitReady(record.logPath, input.readyPattern, Date.now() + input.readyTimeoutMs, () => leaderGone || stopping !== null, async (url) => {
+        // 到 --ready-timeout 打 NOT_READY，之后照样读日志、探测，就绪时补写登记、再打 READY（t14 实现审查 I3）。
+        const readiness = waitReady(record.logPath, input.readyPattern, {
+            deadline: Date.now() + input.readyTimeoutMs,
+            shouldStop: () => leaderGone || stopping !== null,
+            onUrl: async (url) => {
+                await update((entry) => {
+                    entry.url = url;
+                });
+            },
+            onTimeout: async (lastStatus) => {
+                await update((entry) => {
+                    entry.lastProbeStatus = lastStatus;
+                });
+                emitEvent({event: "not_ready", runId, logPath: record.logPath, lastStatus, reused: false, owner: record.startedBy?.key ?? null});
+            },
+        }).then(async (result) => {
+            if (leaderGone || stopping || !result.ready || !result.url) return;
+            const url = result.url;
             await update((entry) => {
                 entry.url = url;
+                entry.readyAt ??= new Date().toISOString();
+                entry.lastProbeStatus = result.lastStatus;
             });
-        }).then(async (result) => {
-            if (leaderGone || stopping) return;
-            if (result.ready && result.url) {
-                await update((entry) => {
-                    entry.url = result.url;
-                    entry.readyAt = new Date().toISOString();
-                    entry.lastProbeStatus = result.lastStatus;
-                });
-                emitEvent({event: "ready", runId, url: result.url, logPath: record.logPath, pid: record.pid, reused: false, owner: record.startedBy?.key ?? null});
-            } else {
-                await update((entry) => {
-                    entry.lastProbeStatus = result.lastStatus;
-                });
-                emitEvent({event: "not_ready", runId, logPath: record.logPath, lastStatus: result.lastStatus, reused: false, owner: record.startedBy?.key ?? null});
-            }
+            emitEvent({event: "ready", runId, url, logPath: record.logPath, pid: record.pid, reused: false, owner: record.startedBy?.key ?? null});
         });
         const {code, signal} = await exited;
         await readiness.catch((error: unknown) => warnings.push({code: "ready_watch_failed", message: `读日志认就绪时出错：${error instanceof Error ? error.message : String(error)}`}));

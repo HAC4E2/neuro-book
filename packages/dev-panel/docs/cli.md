@@ -71,13 +71,13 @@
   - 认出地址之后 HTTP 探测，2xx、3xx、4xx 算就绪，5xx（nuxi 构建失败时对每个请求回 500）继续探测。
 - **输出**：长命令，不套一次性的外壳。stdout 是按行的事件，`--json` 时每行一个 JSON 对象（`event` 字段）：
   - `READY <url> run=<runId> [reused] [owner=<会话键>]`（`ready`）；
-  - `NOT_READY <日志> run=<runId> [status=<最后一次的状态码>] [reused]`（`not_ready`）：到 `--ready-timeout` 还没就绪，服务照留、照常监管；
+  - `NOT_READY <日志> run=<runId> [status=<最后一次的状态码>] [reused]`（`not_ready`）：到 `--ready-timeout` 还没就绪，服务照留、照常监管。监管进程之后照样读日志、探测（探测放慢到 2 秒一次），就绪时补写登记的 `url`、`readyAt`，**再打一行 `READY`**：`NOT_READY` 之后可能还会有 `READY`；
   - `EXITED <退出码或信号> run=<runId> [leftovers=<n>]`（`exited`）：服务退出，`leftovers` 是组长退出后补收的进程数。
   - 起来之前就失败（参数、checkout、脚本、工具）照常输出错误外壳与退出码。
 - **监管进程的退出码**：服务被 `dev stop` 或信号停掉为 0；服务自己退出为 1（`dev_exited`，不论之前有没有就绪）；停完核对不过为 1（`stop_incomplete`）。服务自己的退出码只在 `EXITED` 行里。
 - **复用**：键是（checkout、package、script）。
   - 只复用组长还活着的同键运行（状态 `starting`、`running`，或 `orphaned` 且原因是 `supervisor_gone`）。`leader_exited`（开发脚本已退、只剩没收掉的进程）的服务早就不在了：先按下面的停法收掉（监管进程不在，按属主判据不要 `--force`），给 `leftovers_stopped`，再起新的；收不干净报 `stop_incomplete`。
-  - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
+  - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；认出就绪时把 `url`、`readyAt` 写回登记（只在还没有 `readyAt` 时写）；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
   - 登记里已就绪的，先按就绪的判据探测一次地址：连得上才打 `READY … reused`；连不上报 `dev_unresponsive`（3），不替别人停服务，按提示先 `dev stop` 再起（不是你起的、属主还在要加 `--force`）。
   - 复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；复用没人监管的（`supervisor_gone`）给 `supervisor_gone`（用完请 `dev stop`）；给的 `--ready-pattern`、`--work --task` 与它起时不同给 `reused_with_different_options`。
 - **停法**（`dev stop`、监管进程收到 SIGTERM、SIGINT、SIGHUP，以及组长自己退出之后的补收，都用同一套）：
