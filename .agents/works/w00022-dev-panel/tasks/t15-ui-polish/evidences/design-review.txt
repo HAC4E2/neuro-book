@@ -1,0 +1,261 @@
+# t15 计划设计审查（plan.md 草案，基线 8a1a2a105，只读）
+
+## 结论
+
+**阻断 0 条、重要 7 条、建议 10 条。** 阶段 1 的八条根因都按源码核过、成立，改法方向对；但计划要先改几处再开工，其中两处是计划本身会引入的新问题，一处是同类错位的遗漏：
+
+- 重要 1：1.2 给 SessionConsole 按会话加 key，会连带重建插槽里的实时终端（实验核实插槽随父重建），接管中 /clear 之后终端空屏、失焦。草稿改用已有的 resetKey，终端只按连接身份加 key。
+- 重要 2：Work、Task、产物页随路由参数复用实例，状态切换的“重试”会以 B 的端点与哈希发出 A 上选的状态，在 master 上提交（实验核实）。阶段 1 加一片：外壳按 params 给页面加 key。
+- 重要 3：1.1、1.3 的浏览器验收靠 goBack 换目标，但会话页选会话用 replace、从 Task 页进编辑页造不出相邻历史，验收测不到要测的路径。改用路由 push 造历史。
+- 重要 4：bun test 默认各文件共用模块注册表，panel-data 的单例状态在用例之间与文件之间串；遗留的重连定时器会让另一个文件里无关的用例失败（实验核实）。给单例一个产品里也用的 stop 入口，前端宿主测试用 --isolate 单独跑。
+- 重要 5：决定点 1 改成阻挡层之后，重登的恢复路径没写全：会话页终端不会重连，同一实例重登不重取，带轮询的页面照常打 401。
+- 重要 6：D2 放开观看后，接管的服务端闸门要显式写：现在的会话核对对“没有会话的 pane”是 null 等于 null，会放行。
+- 重要 7：文档差异按计划推荐对 master 当前提交求差异，与文档树标“改动”的口径（合并基点三点 diff）不一致；删去的文件也过不了现有白名单。
+
+**阶段 1 能否按计划开工**：能，改完计划文本再开：1.2 的 key 位置按重要 1 改；1.0 的测试环境里先做 panel-data 的 stop 入口与 --isolate 分组（重要 4）；加重要 2 那一片；1.5 写全决定点 1 的恢复路径（重要 5）；1.1、1.3 的验收造法按重要 3 改。其余建议可以在对应的片里顺手处理。
+
+**决定点**：13 条里同意 11 条（第 1 条有条件：要补重要 5），部分反对第 2 条（不同意用 key 实现，也不同意同一格换会话就清空草稿），反对第 12 条（基线应与文档树同口径）。主 Agent 对第 10 条的改法（速览面板里放产物页面的沙箱 iframe，不放表单）同意，条件是 iframe 与产物页共用一个零件。两件环境事项同意，重启 4490 时必须沿用原来的 XDG_CONFIG_HOME 等环境，否则审计会写进开发者真实的审计文件。
+
+审查对象：.agents/works/w00022-dev-panel/tasks/t15-ui-polish/plan.md（未提交草案）。依据：同目录 design.md（D1 到 D5）、README.md、../../followups.md，以及本地 .local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/reports/ 下四份审查报告。代码看集成分支 worktree .worktree/w00022-dev-panel（HEAD 8a1a2a105，工作区干净）。下文的代码路径都相对仓库根，packages/dev-panel/src/web/ 简写为 web/，packages/dev-panel/src/server/ 简写为 server/。
+做过的实验都是临时脚本（不入库），按绝对路径导入 worktree 里的模块，没有改被跟踪的文件，没有起面板、没有开浏览器、没有调 herdr。
+
+## 条目（按核实顺序追加）
+
+### 重要 1：给 SessionConsole 按会话身份加 key，会在接管中把实时终端整个重建
+
+- **位置**：plan.md 1.2 改法第二点（“给 SessionConsole 加会话身份 key（paneId + sessionKey）”）与决定点 2；web/pages/SessionsPage.vue:282-302（TerminalView 在 SessionConsole 的 #screen 插槽里，298 行）；web/pages/SessionsPage.vue:71-81（终端连接只按 paneId+terminalId 重建）；web/host/terminal-socket.ts:252-255；web/parts/TerminalView.vue:123-176；server/terminal-hub.ts:156、300-308；packages/dev-panel/docs/herdr.md:80。
+- **问题**：插槽内容属于子组件的渲染树，SessionConsole 一按 key 重建，插槽里的 TerminalView（或 TerminalTextView）也随之卸载、重新挂载。而同一格 pane 换会话（/clear、--resume，按 docs/herdr.md:80 还有 /compact）时终端与连接都没变，接管也不会因此结束。于是开发者接管着 Claude、在终端里打 /clear 回车，面板轮询到新会话 id 之后，正在用的 xterm 被换成一个新实例：
+  1. 新实例从空屏开始，而 source.subscribe 只在观看时发 resync（terminal-socket.ts:254），接管中拿不到整屏，只收到之后的增量帧，画面错乱或残缺，直到 TUI 整屏重画；
+  2. 新实例挂载时不 focus：term.focus() 只在 mode 变化的 watch 里调（TerminalView.vue:167-176），接管中 mode 没变，键盘输入落到页面上，开发者要再点一次终端；
+  3. 服务端照旧认为这个连接在控制（conn.sessionKey 只在 open 时记一次，terminal-hub.ts:156；会话换了不释放），所以界面显示“你已接管键盘”，键盘却不在终端里。
+  观看中换会话也会重建 xterm（会发 resync，能恢复，但每次 /compact 都闪一次），输入框里写了一半的字也一起丢掉。
+- **为什么**：计划要的是“换会话就丢掉给旧会话写的草稿”，但 key 放在 SessionConsole 上，连带重建了不该随会话变化的终端视图；而接管正是开发者直接在终端里操作、最可能当场 /clear 的场景。终端的身份是 paneId+terminalId，与会话身份是两回事，计划在 1.2 里把两者绑到了同一棵子树上。
+- **如何核实**：从代码推断（插槽归属是 Vue 的确定语义）。浏览器里可以这样复现修好前后的差别：接管 A，对 A 运行 pane report-agent-session 换会话 id，等 500 毫秒轮询之后看 .xterm-rows 是否被清空、document.activeElement 是否还是 xterm 的 helper textarea。
+- **建议改法**：
+  - TerminalView、TerminalTextView 的 key 只取终端身份；更稳的是取“这一条连接”的身份（页面在 71-81 行的 watch 里每建一个 socket 就加一的序号），与 source 对象的生命期一一对应，合同“source 在实例一生里不变”就由构造保证；
+  - 草稿随会话清空，改用 SessionConsole 已有的 resetKey（.md 的合同就是“变了清空输入框”）：页面在会话身份变化时把 resetKey 加一，或者把草稿与输入框抽成插槽之外的一个小零件、只给它加 key。不要给包着插槽的 SessionConsole 加 key；
+  - 浏览器验收补一个场景：接管 A 期间对 A 换会话 id，断言仍是“你已接管键盘”、终端画面没被清空、打字仍进 A 的日志。
+- **补充核实（实验）**：用 happy-dom 加真实的 vue 跑了一个最小树：父零件按 `p1:<会话>` 加 key，插槽里的子零件按终端身份 `p1:t1` 加 key（不变），把会话从 A 改成 B。输出 `Term#1 unmounted`、`Term#2 mounted`：子零件自己的 key 没变也照样重建。上面“从代码推断”的第一步因此是实测成立的；接管中的后果（空屏、失焦）仍是从代码推断。
+
+### 重要 2：同类的身份错位漏了一处：页面实例随路由参数复用，状态切换的“重试”会改到另一个 Task 上
+
+- **位置**：web/App.vue:148（RouterView 没有 key）；web/router.ts:6-9（work、task、artifact 三个带参数的路由）；web/host/status-change.ts:172-218；web/pages/TaskPage.vue:37、78；web/pages/WorkPage.vue:189、215；web/pages/ArtifactPage.vue:29-31、73-97、133。
+- **问题**：在同一个 Work 里从 Task A 点左栏到 Task B，vue-router 复用同一个 TaskPage 实例、只换 props（ArtifactPage.vue:29-31 专门 watch 参数去清 version，说明作者知道这一点）。useStatusChange 的 notice、pending 与 last 都挂在实例上，换参数时不清；endpoint() 与 expectedHash() 在发送时现读。于是：
+  1. 在 A 上改状态遇到等锁超时（lock_timeout）或面板刚启动（warming_up），提示带“重试”；等锁最长 30 秒，开发者这时很可能已经点去了 B；
+  2. 提示留在 B 的页面上，点“重试”会以 B 的端点、B 当前的 README 哈希发出 A 上选的状态，服务端的哈希核对拦不住（哈希就是 B 的），B 被改成 done 或 shelved，核心随之释放 B 的全部租约，并在 master 上提交；
+  3. A 的写请求在途时换到 B，A 的“状态已改”或“结果未知”提示也落在 B 的页面上。
+  产物页同理：答复的“重试”是 submitAnswer(lastAnswer)，现读 data.value，换到另一个产物后会把 A 的答案按 B 的 workId、artifactId、最新版本发出去（题号相同时服务端照收）；formErrors、lastAnswerId、notice 都不随参数清。产物页之间直接切换现在少见（只有前进后退），状态切换那一条是常见操作。
+- **为什么**：这正是计划阶段 1 要收的“异步状态迁移里的身份错位”，而且后果是写到错误的记录、进 master。计划只核查了会话页、编辑页与通知（plan.md 75 行），没有覆盖按参数复用的三个页面。
+- **如何核实（实验）**：在 effectScope 里用真实的 useStatusChange，假 fetch 先回 409 lock_timeout、再回成功；props 从 tA 改成 tB 后调 retry()。输出：A 上的结果“没有改 retry = true”；换到 B 之后提示还在；重试发出的请求是 `{"url":"/api/works/w1/tasks/tB/status","body":{"status":"done","expectedHash":"hashB",...}}`，提示“状态已改 已提交 abcdef012”。页面实例复用是 vue-router 的既定行为，未在浏览器里复现。
+- **建议改法**（二选一，推荐第一种）：
+  - 在外壳给带参数的页面按参数重建实例：`<RouterView v-slot="{Component, route}">` 里给 `<component>` 加 `:key`，取路由名加 params（不含 query，免得 ?pane=、?path=、以后的 ?peek= 也重建）。这样整类“结果与重试落到新页面”一次收掉，新页面不用逐个记得清状态；在途请求的回包只写进已卸载实例的状态，无害。代价是 Work 之间、Task 之间切换不再就地复用（这些页面本来就整页重取）；
+  - 或者在 useStatusChange 里把端点在 change 时捕获、retry 用捕获的端点并要求页面的身份未变，同时页面在参数变化时清 notice、pending、formErrors、lastAnswerId 与 lastAnswer。
+  无论哪种，都在阶段 1 加一条：L3 用上面的实验做回归（换参数之后 retry 不发请求或提示已清），浏览器验收在 Task 页制造一次等锁超时（page.route 把这次 POST 改成 409 lock_timeout），点左栏到另一个 Task，断言提示不在、没有“重试”。
+
+### 重要 3：1.1 与 1.3 的浏览器验收靠 page.goBack() 换目标，但写法造不出那两条相邻的历史
+
+- **位置**：plan.md 1.1 浏览器验收场景一、场景三（105、107 行），1.3 浏览器验收（161-163 行）；web/pages/SessionsPage.vue:131-133（open 用 router.replace）；web/App.vue:123、138（进会话页的链接都不带 ?pane=）；web/pages/EditPage.vue:139。
+- **问题**：
+  - 会话页“从列表打开 A”走 `router.replace`，不留历史。场景一“先打开 B，再从列表打开 A，确认框出现后 page.goBack() 回到 B”实际退回的是进会话页之前的那一页：SessionsPage 被卸载，确认框随之消失，审计与假 Claude 日志里自然也没有新的按键。这条用例在修复之前也会“通过”前两个断言，测不到“目标变了自动取消”这条路径（“出现提示”那条断言会失败，但失败原因与要测的无关）。场景三同理。
+  - 1.3 写“经 Task 页的‘编辑 README’链接进入”造 /edit?path=B、/edit?path=A 两条相邻历史：从 Task 页进编辑页，历史是 [Task 页, 编辑 A]，后退回到 Task 页，走的是 onBeforeRouteLeave 而不是要测的 onBeforeRouteUpdate 换文件路径。只有计划里的另一个写法（经 __vue_app__ 上的路由 push）能造出来。
+- **为什么**：验收是阶段 1 唯一覆盖模板接线（:key、确认框关闭、提示位置）的手段（plan.md 45-49 行），造法不对，这几条就等于没有浏览器证据。
+- **如何核实**：读代码。站内没有任何链接带 ?pane=（grep 'pane=' 只在 SessionsPage 与 terminal-socket 的连接地址里出现），会话页里换 pane 只有 replace 一条路。
+- **建议改法**：两处都统一用路由的 push 造历史（`document.querySelector('#app').__vue_app__.config.globalProperties.$router.push(...)`，计划已允许“只用于驱动验收”），依次 push `?pane=B`、`?pane=A`（或 /edit?path=B、/edit?path=A），每步等页面就绪再继续；后退之后先断言 URL 是 B、页面仍是会话页（或编辑页），再断言确认框关闭与提示。顺带写明 page.on('dialog') 要在 goBack 之前挂上（1.3 的原生确认框）。
+
+### 重要 4：测试方法对模块单例的处理不够：同一进程里的状态与遗留定时器会让无关用例失败
+
+- **位置**：plan.md 共同做法的测试方法（36-50 行）与风险“模块级单例”（466 行）；web/host/panel-data.ts:21-34（panelState、subscribers、socket、attempts、started 都是模块级）、87-98（重连定时器没有保存）、102-106（started 之后 startPanelData 不再建连接）；packages/dev-panel/package.json 的 test 脚本是不带 --isolate 的 `bun test`。
+- **问题**：
+  1. bun test 默认所有测试文件共用一个模块注册表（实验：两个文件导入同一模块，第二个文件看到第一个文件改过的计数与同一个随机 id；加 --isolate 后各自独立）。计划把推送相关用例放进同一个文件，只解决了“同一文件里不并行”，没解决“用例之间共用状态”：第一个用例 startPanelData() 之后 started 永远为真，后面的用例拿不到新的 /ws；1.5 的用例把 panelState.unauthorized 置真、关掉连接之后，同一文件里排在后面的推送用例（1.6、1.7）再也收不到推送，用例顺序一换就红。别的文件（web-session-console、web-file-edit）一旦触发 401，经新的 onAuthLost 也会翻转这份全局状态。
+  2. 遗留定时器会打到别的文件。实验：用例里装上假 WebSocket 与 location，startPanelData()，触发一次 close，然后按计划拆掉环境。约 1 秒后模块级的重连定时器照常触发：probeBeforeReconnect 用真实 fetch 取相对地址失败、只告警，接着 connect() 读 location 抛 ReferenceError，记在下一个文件里一个与面板无关、正在 sleep 的用例头上：`(fail) 另一个文件里与面板无关的用例`。1.5 会把这条定时器存下来并在失效时取消，但正常断线的重连路径仍然没有停止入口；terminal-socket 的心跳与重连定时器在 scope.stop() 时会清，这一点没问题。
+  3. 环境的装法有顺序要求：vue 的 runtime-dom 在模块求值时就调 `document.createElement("template")`（实验：先装只有 querySelector 的假 document 再导入 vue，直接 TypeError）。测试文件用静态 import 先载入 vue、再在用例里装环境就没事，但 web-env.ts 要么给假 document 补上 createElement，要么写明“只在 vue 载入之后安装”。
+  4. 计划没有测重连与实例变化这两条与单飞交织的路径：单飞在途时来了 hello（实例变了，全部重取），在途的旧实例回包会被接受（实例不同不算回退），之后补取一次拿到新实例的数据——这是对的，但要有用例钉住；决定点 1 的“我已重新登录”恢复路径也没有用例（见重要 5）。
+- **为什么**：阶段 1 每个提交都要过全量测试（plan.md 308 行），这类与顺序、时序相关的失败会表现成无关用例偶发变红，最容易诱导出“加一个测试专用的 reset 导出”或“放宽断言”，正是禁止清单要防的。
+- **如何核实（实验）**：两组临时脚本：一组是两个测试文件共用模块的计数（不加与加 --isolate 对比）；一组是上面的遗留重连定时器，复现时第二个文件的用例被记为 fail，堆栈指向 web/host/panel-data.ts:81 的 location。
+- **建议改法**：
+  - 给 panel-data 的单例一个产品里也要用的生命期：startPanelData() 返回或另导出 stopPanelData()，关闭 /ws、清掉重连定时器、复位 started 与 attempts，外壳卸载时调用，认证失效时也走它（omp 报告“重构路线第二步”已经提了“为全应用 WS 增加明确 stop/dispose owner”）。这不是测试专用导出，测试用它在每个用例结束时收口；panelState 的复位也放进同一个入口；
+  - 新的前端宿主测试单独成组用 --isolate 跑（例如 test 脚本拆成 `bun test --isolate tests/web-*.test.ts` 与其余两段，或在 web-env.ts 的拆除里断言没有挂着的定时器），不要靠“放进同一个文件”；
+  - web-env.ts 的拆除用 afterEach 保证失败时也执行；假 WebSocket 要带 OPEN 等静态常量与 readyState（terminal-socket.ts:264 用 `WebSocket.OPEN` 判断能不能发）。
+
+### 勘误（行号）
+
+前面几条里有几处行号取自多文件拼接输出，按单个文件更正如下（结论不变）：
+- 重要 1：web/host/terminal-socket.ts:252-255 应为 50-53，`:254` 应为 52（只在观看时发 resync）。
+- 重要 2：web/host/status-change.ts:172-218 应为 20-70（last 在 24 行，发送时现读 endpoint() 在 29 行，retry 在 67 行）；web/pages/WorkPage.vue:189、215 应为 35、61；web/router.ts:6-9 应为 8-11。
+- 重要 4：web/host/terminal-socket.ts:264 应为 62（`ws?.readyState === WebSocket.OPEN`）。
+
+### 重要 5：决定点 1（阻挡层、页面不卸载）的恢复路径没写全：终端连接回不来，同实例重登不重取，定时器照常打 401
+
+- **位置**：plan.md 1.5 改法（193-203 行）与决定点 1（422-424 行）；web/App.vue:85-88；web/host/panel-data.ts:51、56（hello 只在实例变了或 attempts>0 时全部重取）；web/host/terminal-socket.ts:111-120、136-156（断线后 probe 回 401 就置 unauthorized 并不再连，status 停在 "connecting"）；web/host/terminal-socket.ts:23（4401“登录已失效”是终止码）；server/terminal-hub.ts:504；web/pages/CheckoutsPage.vue:17（每 10 秒 reload）。
+- **问题**：现在登录失效时外壳整页换成提示，恢复只能刷新页面，所以页面里各处“停下来”之后不需要“再起来”。改成阻挡层、页面保持挂载之后，“我已重新登录”只重探 /api/meta、撤掉阻挡层、重连 /ws，下面三处没有着落：
+  1. 会话页的终端连接：失效时它要么收到 4401（终止码，status 置 closed 并显示“登录已失效”），要么断线后 probe 回 401 停在 "connecting"。页面没有任何东西让它重连：终端作用域只在 paneId+terminalId 变化时重建（SessionsPage.vue:71-81）。重登之后会话详情一直是“登录已失效”或“连接中”，开发者得关掉详情再打开；
+  2. 数据：/ws 重连后的 hello 只在实例变了（面板重启）或 attempts>0 时触发全部重取。面板重启造成的失效没问题（实例变了）；但同一实例里的失效（清 cookie、以后 t13 吊销设备，计划自己的验收就是 clearCookies）如果 1.5 的实现先把 socket 置空再关（为了不排重连），attempts 仍是 0，重连后不重取，阻挡期间错过的推送就丢了，页面停在旧数据上；
+  3. 阻挡期间定时器照跑：checkout 页每 10 秒 reload 一次、每次回 401、每次再触发一遍失效；推送重取停了，这类页面自带的轮询没停。无害但会刷日志，也说明“失效之后停止一切取数”不能只靠关 /ws。
+- **为什么**：决定点 1 的价值就是重登后能接着用（草稿还在、可以再保存）；终端与数据没有恢复路径，开发者看到的是“草稿在、其它都坏了”，又会退回刷新页面。
+- **如何核实**：读代码，见上面的行号；未在浏览器里实测。
+- **建议改法**：
+  - 在 panel-data 里把认证当成一个有“代”的状态：失效时 authEpoch 不变、unauthorized 为真；重登成功时 authEpoch 加一、unauthorized 置假，并显式全部重取（等同 notify([], true)），不依赖 hello 的判定；
+  - 会话页终端作用域的 watch 键里带上 authEpoch（或 unauthorized 由真变假时重建），重登后自动重连、只恢复观看；
+  - useResource 在 unauthorized 时不发请求（reload 与补取都直接返回），checkout 页这类自带轮询也就自然停了；
+  - 测试补两条：同实例失效再重登，所有订阅了的资源各重取一次；会话页的终端作用域在重登后重建（组合函数层可测）。浏览器验收补：clearCookies 触发失效，用 nbdev panel open --print 的链接在新标签页登录，回原标签页点“我已重新登录”，断言编辑框里的字还在、会话页终端重新出画面。
+
+### 重要 6：D2 放开观看之后，接管的服务端闸门要显式写出来；现在的会话核对对“没有会话的 pane”会放行
+
+- **位置**：plan.md“要改服务端的几处”D2 一行（400 行）；server/terminal-hub.ts:75（keyOf：pane 没有会话时为 null）、150-151（现在唯一挡住非 Agent pane 的地方在 open）、300-308（takeover 只比 `keyOf(pane) !== message.expectedSession`）、412-445（input、resize、key 都只要求已在控制中）。
+- **问题**：计划写“/ws/terminal 放开对 Agent 会话的要求，只允许观看，接管与发消息仍只对 Agent 会话”，没写在哪里拦。现在能接管的前提完全靠 open 里那一行（pane.agent 为 null 或没有会话就以 4403 关连接）。一旦为观看放开它，takeover 里的核对对非 Agent pane 是 `null !== message.expectedSession`：页面（或任何持有登录 cookie 的同源脚本）发 `{"t":"takeover","expectedSession":null,...}` 就能通过，接下来 input、key 都只看“是否在控制中”，等于普通 shell 的接管被顺带打开了，而 D2 与后续清单都写着“普通 shell 的接管继续推迟”。
+- **为什么**：键盘直通一个普通 shell 的影响面比 Agent 会话大得多（sudo、任意命令），这正是被推迟的理由；闸门换位置时不写清楚，最容易出现“观看放开了、接管也跟着放开了”。
+- **如何核实**：读代码，见上面的行号；JSON 的 null 与 keyOf 的 null 严格相等。现在的代码因为 open 的闸门在，不可利用。
+- **建议改法**：在 D2 的服务端改动里写明并加测试：takeover 先要求 `pane.agent !== null`、`keyOf(pane) !== null` 且 `typeof message.expectedSession === "string"`，否则回 error（例如 `not_allowed`，不关连接、照常观看）；/api/sessions/:pane/prompt、/keys 的 agent.get 核对本来就要求有会话（docs/panel.md:169），补一条测试钉住“非 Agent pane 回拒”即可。panel-terminal 的 L3 加：对非 Agent pane 能观看、takeover（含 expectedSession 为 null、空串、伪造串）一律被拒、审计里没有 takeover 行。
+
+### 重要 7：文档差异的基线（决定点 12）与文档树标“改动”的口径不一致，路径白名单也接不住删去的文件
+
+- **位置**：plan.md“要改服务端的几处”文档差异一行（402 行）与决定点 12（455-457 行）；packages/dev-panel/src/core/docs.ts:79-88（branchChangedDocs 用 `master...HEAD` 三点 diff）、90-101（工作区未提交的改动）、107-127（readDocTree：分支改的、master 有这里没有的）；server/views.ts:275-279（/api/docs/file 的白名单是这个 checkout 的文档树或记录）。
+- **问题**：
+  1. 计划推荐“对 master 这个引用求差异”，理由是“与文档树标改动的口径一致（要核对）”。核对结果：树上标“改动”的口径是“分支自分出以来改过的（master 与 HEAD 的合并基点，三点 diff）加工作区没提交的”，另列 master 在分支分出之后新增的（master_only）。如果差异接口按计划写的“在那个 checkout 里对 master 求这一个文件的差异”（两点 diff，对 master 当前的提交），那么分支分出之后 master 也改过的文件，差异里会混进 master 那边的新改动，显示成“分支把这些行删了或改回去了”，与树上“这个分支改了它”的含义对不上，读的人会误判分支做了什么；
+  2. “新增与删除的文件给整份”：删去的文件（树上的 deleted）与 master_only 的文件在这个 checkout 的文档树里不存在，按现在 /api/docs/file 的白名单（views.ts:278）会 404；新增而没跟踪的文件（树上 `??` 记成新增）不在 `git diff` 的输出里，要单独取工作区文件。
+- **为什么**：差异视图是开发者第 4 条现场下钻的核心，基线错了比没有更糟；白名单照抄现有的会让一半的“改动”点不开。
+- **如何核实**：读代码，见上面的行号；没有起 git 实验。
+- **建议改法**：
+  - 决定点 12 改成“与树同口径”：分支改的文件，差异取“合并基点 → 工作区”（`git diff <merge-base master HEAD> -- <path>`，含未提交改动；未跟踪的新文件整份当新增）；master_only 的文件整份显示 master 的版本并写明“分支分出之后 master 新增的”；需要的话另给一个“与 master 当前比”的次要切换，不作缺省；
+  - 白名单取“这个 checkout 的文档树 ∪ 这个 checkout 的 changes 列出的路径 ∪ 记录里的文档”，路径照常过现有的路径守卫，git 参数用 `--` 隔开路径、只读调用带 `--no-optional-locks`（core/git.ts:47 的 readOnly 已有）。
+
+### 建议 1：1.3 的根因描述有一处不准，保存在途时离开的提示也不对
+
+- **位置**：plan.md 143 行（“onBeforeRouteUpdate 拦得住 dirty 的情形，拦不住‘刚点了保存’的情形”）；web/pages/EditPage.vue:33、56-69、137-139。
+- **问题**：保存在途时 base 还没换，draft 仍不等于 base.text，dirty 为真，所以 onBeforeRouteUpdate 与 onBeforeRouteLeave 都会弹“有未保存的改动，离开会丢掉”。也就是说并不是“拦不住”，而是拦了、文案不对：开发者点“确定离开”以为丢掉了，这次保存其实照常在 master 上提交。计划的修法（代号作废回包）只保证新文件不被旧回包改写，开发者仍看不到 A 到底保存成没有。
+- **建议改法**：与 1.4 的“保存在途时只读”一致，保存在途时两个路由守卫直接拒绝离开并给一行提示“正在保存，等结果回来再离开”（等锁最长 30 秒）；把 143 行的根因改成“守卫会弹框，但文案说会丢掉，开发者确认后旧回包落到新文件上”。浏览器验收在 1.4 的“延迟 3 秒放行 PUT”里顺带点一次左栏，断言没有离开、有提示。
+
+### 建议 2：1.6 的单飞不要把显式 reload() 也合并进在途请求
+
+- **位置**：plan.md 1.6 改法（227-231 行）；web/pages/EditPage.vue:34-38、64-68；web/host/panel-data.ts:177、185。
+- **问题**：计划让“在途时再来推送或 reload()”都只记一笔。推送合并是对的（饥饿只来自推送风暴）；但 reload() 多半是写入之后调的，意思是“要比这次写入新的数据”，合并进一个写入之前发出的在途请求，会先接受一份写入前的数据。编辑页最明显：保存成功后 draft 等于新 base、不 dirty，这时如果有一个保存前发出的 /api/files 在途（hello 触发的全部重取），它的旧文本回来时 watch 会把 base 与 draft 改回保存前的内容，补取回来再改回新的；中间开发者若已开始打字（只读已解除），dirty 为真、补取被忽略，编辑器就停在“旧基线加新输入”，下次保存报 hash_mismatch、差异里是自己刚保存的内容。/api/files 不订阅任何块（parts 为空），revision 判据保护不到它。
+- **建议改法**：只有推送触发的 refresh 合并；reload() 保持现在的“中止在途、立即重取”（调用点都是写入之后、重试按钮与 checkout 页 10 秒一次的轮询，不会形成风暴）。另外两个小点写进改法：path 变了要把 dirty 复位；unauthorized 为真时不补取（与重要 5 一起）。测试加一条：在途请求挂起时调 reload()，旧回包不写进 data。
+
+### 建议 3：几处浏览器验收的造法要改细
+
+- **位置**：plan.md 1.6 验收（245-248 行）、1.7 验收（274 行）、1.4 验收（181-182 行）、“要先实测”第 3 条（413 行）；server/state.ts:35、245-250；server/views.ts:99-114、132（readmeHash 在视图里现算）；web/parts/WorkCard.vue:30-31。
+- **问题**：
+  1. “每 300 毫秒改一次某个 Work 的 README 正文”：records 的推送只在记录的指纹变了时发（state.ts 里 records 的指纹是 `JSON.stringify(value.records)`），README 的正文本身不进记录（哈希在视图里现算），只改正文多半一条推送都没有；records 的重算又是 300 毫秒的尾随去抖（每次改动重新计时），改动间隔等于去抖时长时重算可能一直被往后推。结果是“首页数据至少换过 3 次”失败，或者推送间隔根本不短于请求耗时，造不出要测的饥饿条件；
+  2. 1.7 的“改一下这个 Work 的 README 触发推送重取”同一个问题；
+  3. 1.4 的“点保存后立即往编辑框打字：断言打不进去”：Playwright 的 fill 会等元素可编辑，readonly 时一直等到超时，用例会以超时失败而不是断言失败；
+  4. “要先实测”第 3 条写 vue-router 4，装的是 5.1.0（vue-router 5.1.0，package.json 写 ^5.1.0）。
+- **建议改法**：改记录里有、首页卡片上看得见的字段（例如 Work 的目标，WorkCard 显示它），间隔取 700 毫秒左右、page.route 的延迟取 2 秒（大于去抖加重算，小于请求耗时）；1.7 同样改目标；1.4 用 focus 加 keyboard.type，断言值没变且带 readonly 属性；第 3 条改成 vue-router 5。
+
+### 建议 4：会话页还有两处小的目标错位，顺手在 1.1、1.2 里收掉
+
+- **位置**：web/pages/SessionsPage.vue:197-198（发送成功后 resetKey 加一）、107-114（need_confirm 时现读 terminal 与尺寸开“抢过来”小窗）。
+- **问题**：
+  1. 给 A 的发送在途时切到 B，A 的回包到了照样 resetKey 加一，清掉的是开发者刚给 B 打的字（不论按计划给 SessionConsole 加 key，还是按重要 1 改用 resetKey，都会这样）；
+  2. 服务端回 need_confirm 时开的“抢过来”小窗没有记目标；计划只说“接管小窗也记下目标”，要写明这个分支记的是“发出接管请求时的目标”。
+- **建议改法**：发送的回包只在目标仍等于当前选中时才清草稿；need_confirm 打开的小窗沿用发起接管时记下的目标。L3 各加一条。
+
+（补核建议 3 第 1 点：packages/dev-panel/src/core/records.ts:23-43，WorkRecord 只有标题、目标、状态、updated 等字段，目标取“目标”一节或第一段；改 README 的第一段或目标一节会改指纹，改别处的正文不会。）
+
+### 建议 5：2c 接 Splitter 的几个接线细节要写进计划
+
+- **位置**：plan.md 阶段 2 的 2c（322 行）与“要先实测”第 2 条（409-412 行）；packages/nb-ui/src/components/layout/Splitter.vue:295-310（未受控时 `watch([..., () => props.panels])` 按数组身份重新分配）、290-293（约束变了作废手势）、548、554-557（根与每块面板都 overflow-hidden，面板按 id 用 v-for 渲染）；web/App.vue:66-69（外壳每 15 秒重渲染一次）。
+- **问题**：
+  1. 未受控模式下，只要 panels 数组换了一个对象（且不在拖动中），Splitter 就按 defaultSizePx 重新分配，用户拖出来的宽度被冲回默认值。外壳每 15 秒因为时钟重渲染一次，模板里写字面量数组 `:panels="[...]"` 就会每 15 秒把左栏弹回去；
+  2. “收起”状态由宿主经 panels[].collapse.collapsed 输入（Splitter.md“状态随 panels 配置输入，不由组件另存”），gesture-end 的 collapsed 映射要回写，否则拖过阈值吸附之后下一次重新分配又展开；
+  3. 根与每块面板都裁切溢出，main 的滚动必须放在右侧面板里面的一层上，这与“一页一个竖向滚动者”一致，但外壳现在的 grid 要整体换掉，不是把 Splitter 塞进 grid 的一格。
+- **建议改法**：panels 用 computed 生成，左栏的 defaultSizePx 绑“用户要的宽度”（从 prefs 同步读，gesture-end 时更新这份 ref 再写 prefs），maxSizePx 取 min(480, 视口 40%)：这样重新分配是幂等的，窗口变窄时夹住、变宽时恢复，也满足 D4；collapse 状态由宿主持有并在 gesture-end 回写。窄屏沿用同一个 Splitter、面板 id 不变（v-for 按 id 渲染，插槽内容不会重挂），只改 sashSizes 为 0、左栏 collapsed、disabled。“要先实测”第 2 条的验法保留，再加一条：拖到 360px 后等 20 秒（跨过一次时钟重渲染），宽度不变。
+
+### 建议 6：2a、2d、2e 各有一处会与会话页、终端冲突
+
+- **位置**：plan.md 2a（320 行，“路由元信息声明铺满（文档、会话）”）、2d（323 行，“/ 与 Ctrl+K 聚焦”）、2e（324 行，“路由切换后焦点放到页标题”）；web/pages/SessionsPage.vue:131-137（选会话是改 query）；web/pages/DocsPage.vue:33-35（选文档也是改 query）。
+- **问题**：
+  1. 会话页现在是一长列纵向堆叠（通知、详情、几组列表），靠 main 滚动。2a 若把会话页声明成“铺满”、main 不再滚，阶段 4 的左右两栏还没做，会话页下半截会被裁掉。会话页应在阶段 4 改成两栏时再改声明，2a 只声明文档页；
+  2. 全局的 `/` 与 Ctrl+K：接管终端时键盘焦点在 xterm 的隐藏 textarea 里，Ctrl+K 是 readline 的删到行尾、Claude 输入框里也用；编辑页的 textarea 里 `/` 是正文字符。快捷键必须在焦点位于可编辑元素（含 `.xterm-helper-textarea`）时不处理，也不能在捕获阶段 preventDefault；
+  3. “路由切换后焦点放到页标题”若对 query 变化也生效，会话页点一个会话、文档页点一个文档、以后速览面板改 ?peek=，焦点都会被拽回页标题，键盘用户在树和列表里无法连续操作。只在路由名或 params 变化时移焦点。
+- **建议改法**：按上面三点写进 2a、2d、2e 的内容与验收（例如 2d 加验收：接管中按 Ctrl+K 与 `/`，终端日志收到、搜索框没有获得焦点）。
+
+### 建议 7：D2 的两处细节：读“更早的输出”对备用屏程序的副作用、“审计照记观看”与合同相反
+
+- **位置**：plan.md“要改服务端的几处”D2 一行（400 行）；packages/dev-panel/docs/herdr.md:39（`recent` 带行数会滚动 Claude 的界面）；packages/dev-panel/docs/panel.md:212、241（“观看不写审计”）。
+- **问题**：
+  1. 普通 pane 里常跑备用屏程序（vim、less、htop、带 TUI 的开发服务）。herdr.md 记的是“读多于可见行会滚动 Claude 的界面”，这多半是备用屏的共性而不是 Claude 独有；计划的实测只写了“0.9.1 与 0.9.3 上 pane.read 的参数与副作用”，没有把备用屏程序列进实测对象；
+  2. 计划写“审计照记观看”，现行合同是“观看不写审计”。若意思是“照旧（不记）”，换个说法；若要开始记“观看非 Agent pane”或“读了 1000 行历史”（shell 历史里可能有口令），那是合同变化，要改 panel.md 与 file-formats.md 的审计格式并交开发者定。
+- **建议改法**：实测矩阵加一格跑 vim 或 less 的 pane；规则写成“前台程序在备用屏时不给往回翻，只给当前屏”；审计一句改成明确的取舍。
+
+### 建议 8：速览面板放产物 iframe（主 Agent 对决定点 10 的改法）时，iframe 要与产物页共用一个零件
+
+- **位置**：plan.md 决定点 10（449-451 行）；web/pages/ArtifactPage.vue:122-130（sandbox、referrerpolicy、color-scheme: light、白底与“页面是当前版本”的说明）。
+- **问题**：产物页 iframe 的几项属性各有理由（不给 allow-same-origin、亮色垫白底见 127-128 行的注释），速览面板再写一份很容易漏一项；iframe 里按 Esc 不会冒泡到面板外，速览的“关闭”只靠 Esc 会失灵；打开速览时焦点若进了 iframe，键盘用户回不到面板。
+- **建议改法**：把 iframe 连同那行“页面是当前版本”的说明抽成一个零件（例如 parts/ArtifactFrame.vue 与同名 .md），产物页与速览面板都用它；速览面板打开时焦点放在面板标题，有可见的关闭按钮；状态行用产物接口已有的 state、待答数与版本。
+
+## 决定点意见
+
+1. **登录失效时的呈现（阻挡层，页面不卸载）**：同意，有条件。前提是把恢复路径补全（重要 5）：重登之后显式全部重取、会话页终端重连、失效期间 useResource 不发请求。否则只保住了草稿，其它都要刷新。
+2. **会话输入框的草稿随目标切换**：部分反对。反对用“给 SessionConsole 加 key”实现（重要 1：会连带重建插槽里的终端，接管中失焦、空屏）。对“换会话就清空”本身也有保留：按 docs/herdr.md:80，/compact 也会换会话 id，开发者在输入框里写到一半、Claude 自动压缩一次，字就没了，而从开发者看这仍是同一段对话。建议：换 pane 时清空（经 resetKey）；同一格换会话时保留草稿，在输入框上方给一行“这格的会话换了（A → B），发出去会发给 B”，发送仍带当时的 expectedSession，由服务端核对。若主 Agent 仍要清空，也用 resetKey 而不是 key。
+3. **终端零件不加防御性的 watch(source)**：同意。补一句：key 取“这一条连接”的序号（页面每建一个 socket 加一）比取 paneId+terminalId 更直接地保证“source 在实例一生里不变”，也不用另写 watch。
+4. **保存在途时编辑器只读**：同意。另见建议 1：保存在途时也拒绝站内离开，否则只读挡住了打字、挡不住“以为丢掉了其实提交了”。
+5. **同一地址在不同组件之间共用请求，本阶段不做**：同意。补一个事实：重复的不只外壳与首页、会话页，Work、Task、文档、编辑、产物、新建、会话七个页面各有一份 /api/meta（订阅 records 或 notify），外壳那份订阅全部四块；/api/meta 便宜，单飞之后不会饥饿，开销仍可以接受。
+6. **重取遇到 404 时保留旧数据、给“回到上一级”**：同意。
+7. **抽屉断点改到 lg**：同意。会话页的“手机”判定（SessionsPage.vue:56 的 `(max-width: 767px), (pointer: coarse)`）与抽屉断点是两回事，计划里写明两个断点各管什么，不要顺手一起改到 1024（那会让 768 到 1024 宽的桌面窗口失去接管）。
+8. **左栏完全收起、顶栏给展开按钮**：同意。
+9. **Work 页就地展开按需取 Task 接口**：同意。补一句：每个展开的行都是一份订阅 records 与 activity 的资源，Task 接口每次要跑一次 git log 与执行 checkout 的判定（core/task-detail.ts:81-102），展开多行时每次推送就是多次 git；展开的行只订阅 records，或限制同时展开的行数（例如最多 3 行），二选一写进计划。
+10. **速览面板显示什么（主 Agent 改为：产物也显示页面本身的沙箱 iframe，加状态行与“去答复 / 打开完整页”，不放答复表单）**：同意主 Agent 的改法。开发者第 3 条要的是“不跳页就能看产物”，只给摘要解决不了；不放表单则避开了表单状态与产物页重复、窄宽下难填两个问题，与后续清单里“产物页内就地答复”推迟的口径一致。实现条件见建议 8（iframe 与产物页共用一个零件、焦点与关闭按钮）。
+11. **接管时退出键盘用 Ctrl+]**：同意。Chrome 在 Linux 上不占用它，Claude 与 omp 的界面也不靠它；接管只开放给 Agent 会话，与 vim 的 Ctrl+] 冲突的情形（普通 shell 接管）本来就推迟了。提示条上写明，并保留“释放”按钮作为主要入口。
+12. **文档差异的基线**：反对计划的推荐（对 master 这个引用求差异）。理由见重要 7：文档树标“改动”用的是合并基点（三点 diff）加未提交改动，对 master 当前的提交求两点差异会把 master 那边的新改动混进来；应与树同口径（合并基点 → 工作区），master_only 的文件整份显示 master 的版本。
+13. **不引入组件挂载测试**：同意，但要承认代价并补上：重要 1 这类“key 放在哪一层”的接线错误只有挂载才测得到，计划靠浏览器验收覆盖，就要把“接管中换会话 id”“同一终端换会话不重建终端”写成验收场景。另外，本审查用 happy-dom 加真实的 vue、渲染函数（不经 .vue 编译）几行就验证了插槽重建，说明以后真要测接线，不一定要引入 .vue loader 与 @vue/test-utils。
+
+**计划没列、会改变产品行为的决定**：
+- 页面实例是否按路由参数重建（重要 2 的推荐改法）：会改变 Work 之间、Task 之间切换时的行为（不再就地复用），建议主 Agent 定，不必问开发者。
+- 保存在途时是否拒绝站内离开（建议 1）。
+- 同一格换会话时草稿去留（决定点 2 的意见）。
+- D2 是否给“观看非 Agent pane、读它的历史”记审计（建议 7）：这是合同变化，要交开发者。
+
+**两件环境事项**：
+- 对命名会话 nbdev-ui-review 做 herdr 写调用（再起一格假 Claude、改会话 id）：同意。它是隔离的命名会话，与开发者的默认 herdr 无关；做完把多起的那一格关掉，记录里写明用过哪几条命令。按 docs/herdr.md:49，让新的一格成为 Claude 会话要用 `pane report-agent ... --source herdr:claude --agent claude --agent-session-id <id>`，单独 report-agent-session 不会进 agent.list。
+- 4490 面板改由集成分支的代码起、在同一个克隆上：同意。条件是沿用原来那份环境：同一个克隆作 cwd、同样的 XDG_CONFIG_HOME（审计在克隆的 xdg/nbdev/ 下；漏了它，接管与按键的审计会写进开发者真实的 ~/.config/nbdev/audit.jsonl）、同一个命名会话的 herdr socket、同样的 4490/4491 端口与产物来源；起之前先停旧的、用记下的 PID 收口，重启后审查浏览器要重新登录。
+
+## 禁止清单（计划层面）
+
+- **按错误文案分支**：没有。1.5 明确“只看状态码”。实现时注意 web/host/api.ts:23-34 的 readEnvelope 先解析 JSON、解析失败就抛 bad_response：401 的判断要放在解析之前（按 response.status），否则回应不是 JSON 的 401 会漏掉。
+- **静默 catch**：没有。1.5 是“触发事件，同时照常抛 ApiError”，局部说明保留。
+- **为测试放宽或加专用分支**：计划自己写明不加；风险在重要 4：模块单例与遗留定时器最容易逼出一个“只给测试用的 reset 导出”。按重要 4 给单例一个产品里也用的 stop 入口，就不必越线。
+- **删任务之外的代码**：没有。删掉的是 useResource、probeBeforeReconnect、SearchPage、terminal-socket 里各自的 401 分支，改走同一出口，属于本任务的收口。
+- **跨包深导入**：Splitter 与 SplitterPanelConfig、SplitterGestureState 都从 `@notnotype/nb-ui/components` 的公开入口导出（packages/nb-ui/src/components/index.ts:44、115-128）。收起状态的类型 SashCollapseState 没有按名字公开导出，宿主写类型时用 `NonNullable<SplitterPanelConfig["collapse"]>`，不要去导 layout/grid-types；useSashGesture 不碰（composables 入口没有导出它）。
+- **门禁**：plan.md 308 行只写了 typecheck、build:web 与相关测试；packages/dev-panel/AGENTS.md 的完成门禁还有 `bun x vitest run --config scripts/vitest.config.ts scripts/ci/dev-panel-records.test.ts`，触及包内文档（docs/panel.md、parts 的 .md）时还要跑 `bun run governance:check` 与 `bun run docs:check`。阶段末的全量按这份清单写全。
+
+## 已核对、没有问题的
+
+- **阶段 1 八条的根因**：逐条按源码核过，都成立。阻断 1：SessionsPage.vue:190-256 的 sendPrompt、sendKey 执行时现读 selected，确认回调存的是闭包；pressKey 在 254 行 await readScreen() 之后不查目标；补充二（接管确认 100-106 行现读 selected 与 terminal）也成立；通知那一支（notify-actions.ts:77-99）带着 job 与 target，确实已绑定。重要 3：两个终端零件只在 onMounted 订阅，页面 watch 在同一回调里先置 null 再赋新值。重要 4、5：EditPage.vue:34-38、56-69、178。重要 6：NewPage.vue:54-57 把预览的 401 当预览问题；panel-data.ts:92 的重连定时器没存。重要 7：panel-data.ts:131-133、177；state.ts:131-134（records 或 sessions 变了接着重算 activity）。重要 8：十个页面都只在 !data 时显示 LoadState（逐页 grep 过）；Meta.parts 带 error（types.ts:42）。重要 9：terminal-socket.ts:124-125、172。
+- **计划前的核实**：.nbdev-markdown 的 max-width: var(--reading-measure, 72ch)（app.css:33）；产物接口已有 answers（types.ts:82）；收件箱的提问带 workId、taskId、artifactId（types.ts:20）；xterm 6.0.0 的 .xterm-viewport 是绝对定位、overflow-y: scroll（xterm.css:93-101），ITheme 有三个 scrollbarSlider 颜色（xterm.d.ts:365-375），藏掉原生轨道不改测量，与计划一致。
+- **服务端的会话核对仍有用**：/keys、/prompt 经 agent.get 核对 expectedSession（docs/panel.md:169），takeover 核对 keyOf(pane)（terminal-hub.ts:308）；客户端把目标绑在打开时之后，服务端的核对仍能挡住“面板还没轮询到会话已换”的窗口，计划保留它是对的。
+- **状态切换的 uncommitted 二次确认**：换到另一个 Task 后确认，服务端在锁内先比 expectedHash（core/operations.ts:215），A 的哈希对不上 B，会回 hash_mismatch，不会写错；重要 2 只涉及“重试”与在途结果。
+- **单飞与 revision 判据**：在途请求遇到 hello（面板重启），旧实例的回包因实例不同不算回退、会被接受，随后补取一次拿到新实例的数据，最终一致；只是需要用例钉住（重要 4 第 4 点）。
+- **1.8 的改法**：把“因后台不连”记成 paused，正常切后台、断线重连、probe 之后恰好切后台三条路径都会落到 paused，回到前台由现有分支恢复；终止码不重连、disposed 不连接两条合同不受影响。浏览器验收用 Object.defineProperty 改 visibilityState 再派发事件是可行的模拟。
+- **1.5 的验收造法**：clearCookies 不会关掉已建立的 /ws，所以“之后没有新的 /ws 握手、旧的被关”只能来自客户端的失效处理，判据钉得住；401 是 JSON 外壳（server/serve.ts:340）。
+- **2c 的 iframe 屏蔽**：nb-ui 的手势在根上 setPointerCapture（composables/useSashGesture.ts:352），拖动中 iframe 本来抢不走指针；计划里的屏蔽不是必须，但无害。
+- **断点切换不重挂 RouterView**：Splitter 按 panel.id 用 v-for 渲染面板（Splitter.vue:554），面板 id 不变时插槽内容保留；“窄屏沿用同一个 Splitter”的思路可行（细节见建议 5）。
+- **checkout 未跟踪扫描**：现有的 git 调用带 readOnly（core/git.ts:47 加 --no-optional-locks，live-views.ts:36），不会抢其它会话的 index.lock；新扫描沿用即可。checkoutsView 等全部 checkout 算完才回，计划写的“超过阈值给‘未算’”要落成每个 checkout 各自的超时，否则一个大 worktree 会拖住整页。
+- **决定点 13 的依据**：根目录确有 happy-dom 与 @vue/test-utils，本包没有声明，计划的描述属实。
+
+### 建议 9：新建页提交在途时还能切“新建 Work / 新建 Task”，回包按切换后的模式处理
+
+- **位置**：web/pages/NewPage.vue:86-109（submit 在回包后读 mode.value 决定标题与清哪张表）、79-85（confirmUnknown 也按当前模式清表）、116（SegmentedControl 提交中不禁用）。
+- **问题**：新建 Work 等锁时切到“新建 Task”，Work 建好之后清掉的是正在填的 Task 表，填好的 Work 表原样留着；结果未知时点“已经建好了，清空表单”同样清错表。Work 表留着、切回去还能再点一次“新建 Work”，有领第二个号的风险（结果未知那一支本来就是为了防这个才锁表）。属于计划要收的同一类“异步结果按现在的状态处理”，影响小、改起来也小。
+- **建议改法**：submit 开始时记下模式，回包与 confirmUnknown 都用记下的模式；或者提交在途时禁用模式切换（与表单的 fieldset disabled 一致）。可以并进重要 2 的那一片。
+
+（补“已核对”两条：文档页切 checkout 时两份资源的地址都含 checkout，走 load(false) 清掉旧数据，页面上没有写入动作，没有错位；搜索页每次新搜索先中止旧流，结果只在 controller 仍是自己时落定，没有错位。）
+
+### 建议 10：阶段 2 到 4 的切片总体合理，补三处先后与一处没写的布局取舍
+
+- **位置**：plan.md 阶段 2 到 4 的切片表与“先后”（316-404 行）。
+- **意见**：2a → 2b → 2c、2d 与 2e 在 2b 之后、3a → 3b、3c 先于阶段 4 的写入页，这些依赖都对；StaleNotice 在 3d 收进 LoadState 也顺。补：
+  1. 阶段 1 加一片“页面实例按路由参数重建”（重要 2），放在 1.1 之后、1.3 之前即可，与其它片不冲突；建议 9 可并进这一片；
+  2. 会话页的“铺满”声明从 2a 挪到阶段 4 会话页改两栏的那一片（建议 6 第 1 点）；
+  3. D2 的服务端改动（非 Agent pane 观看、pane.read 白名单）先于会话页两栏的前端片单独提交，带重要 6 的拒绝用例与建议 7 的备用屏实测，审查时能单独看安全面；
+  4. 没写的取舍：速览面板（D1）是推开正文还是浮在上面。左栏默认 300、最大 480（D4），1280 宽时再推出一个 480 左右的速览面板，Task 页正文只剩约 500px，比阅读宽度还窄。建议写明：宽屏（例如 1440 以上）并排，窄于它时速览面板浮在正文上（不推开），手机上整屏；这条影响 3b 的“阅读档”宽度怎么算，最好在 3b 之前定。
+
+## 已核对、没有问题的（续）
+
+建议 9、10 是写完上一节之后补核的，按“只追加”的规则接在后面；本节收尾，补上一节里的说明：
+
+- 上一节第一条里的“阻断 1、重要 3 到 9”用的是 omp 报告的编号，不是本报告的编号。
+- 文档页切 checkout：tree 与 file 两份资源的地址都含 checkout，切换时走 load(false) 清掉旧数据，页面上没有写入动作，没有身份错位。
+- 搜索页的流式搜索：新搜索先中止旧流，finished 与 flush 只在 controller 仍是自己时落定，没有身份错位（中止与 100 毫秒刷新之间的极短竞争可以忽略）。
+- 新建页的预览：refreshPreview 用 previewSequence 只接受最后一次预览，没有错位；只有提交那一支有建议 9 的问题。
+- 决定点 11 里“Claude 与 omp 不用 Ctrl+]”是按已知快捷键推断，未实测；实施时在假 Claude 与 omp 的 pane 上各按一次确认不被吞掉、也不触发别的动作。
+- omp 报告附带的隔离脚本（reports/scripts/omp/）没有重跑；本审查用到的结论另写了实验，见重要 1、2、4。
