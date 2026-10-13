@@ -1,0 +1,300 @@
+# w00022/t11 实现审查报告（c896a742b..0e3a40c9e，只读）
+
+## 结论
+
+**阻断 0 条，重要 5 条，建议 4 条。** 方向与大部分细节都落实了，门禁全过。但投递安全与通知循环各有一处要在场景 1 之前修：
+
+- 判“暗色占位”时把带颜色的输入当成空（重要 1）；
+- 同一个会话在两个 Task 上同时待发时，两条通知都发不出（重要 9）。
+
+根 `AGENTS.md` 那一句建议改两处后再交开发者批准（重要 2、3）。
+
+**各条一句话**（编号是发现的顺序）：
+
+- **重要 1**：`screens.ts` 的 SGR 解析把 `38;2;r;g;b`、`48;2;…`、`38;5;2` 里的参数 `2` 当成暗色。带 RGB 颜色的输入框内容被当成“占位”，判为空、照投。在真实 herdr 0.9.3 的命名会话里复现：粘贴加回车写进了有字的输入框。Claude 2.1.296 会给输入里的 `ultrathink` 上 RGB 彩虹色。
+- **重要 2**：规则写“`<W>`、`<T>` 必须是你自己提过问的 Task”，面板却有“发给现在的会话（`/clear` 后的新会话）”“通知持有租约的会话”两条路径，专门发给没提过问的会话；小窗还承诺“它会照着读答复”。
+- **重要 3**：读答复去掉 `--unacked` 后，“对输出里每个产物运行 ack”会落到没有答复的产物上（报告、未答的提问集），报 `no_answers`、退出码 5。4 份评审板的 Task 上，输出从 20,608 字符变成 80,041 字符。
+- **重要 4**：收口时有一个会失败的发送在进行，`Notifier.stop()` 的 `Promise.all` 抛出，`server.stop()` 后半段被跳过：锁放了、`panel.json` 删了，进程却不退出、端口照常回应。用真实的 `panel serve` 复现。
+- **重要 9**：同一个会话同时有两个 Task 的通知待发时，第二条任务每轮都把第一条刚记下的“空闲稳定”记录当成不稳定删掉，形成活锁。两条都停在 `ready`、永远不发，每 3 秒调一次 `agent.get`。用真实的 `panel serve` 复现：25 秒投递 0 次，对照组 7 秒投递 1 次。
+- **建议 5**：暗色下产物页深底黑字的原因：iframe 的行内底色用了面板主题色，而 Chrome 只在 iframe 载入时按明暗是否一致垫白底，切换明暗不重算。先亮后暗时复现。改法是 iframe 设 `color-scheme: light; background: #fff`，切换下验证有效。
+- **建议 6**：“看过屏幕再确认”只带一个布尔，不绑定看到的那一屏；两次请求之间换成认不出的确认界面也照发（已复现）。
+- **建议 7**：投递后核对只在 500 毫秒后“仍在等确认”时报 `delivered_into_blocked`；回车确认了弹出的确认界面时会话回到 working，记成 `delivered`。可以用状态序号的跳数补上。
+- **建议 8**：`unknown_status` 那一行给了“通知”按钮，手动发送却要求空闲，按了必定 409。
+
+**设计审查 20 条**：都有对应的实现，逐条见“设计审查 20 条的落实”。落实有缺口、有误或带出新问题的：
+
+- B1：SGR 解析与确认绑定，见重要 1、建议 6；
+- I5：规则与手动路径矛盾，见重要 2；
+- I2：去掉 `--unacked` 的改法带出 `no_answers` 与输出变长，见重要 3；
+- S2：稳定判据按 pane 存、按任务删，活锁，见重要 9；
+- S11：收口提前抛出，见重要 4；
+- I1：事后核对有盲区，见建议 7。
+
+L4 的负样本覆盖了设计审查列的前三种：认不出的确认界面、详细记录视图、选单（`/` 命令表、模型选择），另有“输入框有字”。第四种“灰色占位”按真实 Claude 改成了可投样本（偏离已记录），但缺“带颜色的真输入”这一反例。
+
+**根 `AGENTS.md` 那一句**：
+
+- 成立的部分：
+  - 与 `pointerMessage` 的模板逐字对应；
+  - 白名单只放行“读答复”“带 cursor 确认”两条；
+  - 只认用户消息；
+  - 读答复不带 `--unacked` 达到了 I2 的目的，`cursor` 的含义没有变。
+- 建议批准前改两处：
+  1. “必须是你自己提过问的 Task”与两条手动路径矛盾（重要 2），要么放宽为“提过问或持有租约的 Task”，要么去掉发给非提问者的路径；
+  2. 改成按消息括号里列出的产物逐个运行 `nbdev answers <W> <T> <产物> --json` 与 `answers ack … --through <cursor>`（重要 3），这样仍不带 `--unacked`、输出只含这些产物、不会 ack 到没有答复的产物。`pointerMessage` 与它的 L2 断言要同步改。
+- 另外，omp 是否读根 `AGENTS.md` 仍未核实。
+
+**结束时的状态**：
+
+- 审查 worktree：`git status --short` 为空，HEAD 仍是 `0e3a40c9e`。前端构建与全部脚本、临时仓库、日志都在本目录（`scratchpad/review-t11-impl/`）。
+- herdr：
+  - 自建的命名会话 `nbdev-review-t11i` 每次用完都停掉、删除了；
+  - `herdr session list` 现在是 `default` 与 `nbdev-review-t12`。后者由另一个进程（父进程 1506927）在 05:30 起，不是本审查建的，没有动它；
+  - 审查开始时还看到一个别人在用的 `nbdev-test`，没有碰，它之后被其主人删了，原 L4 测试因此改在自建会话里跑；
+  - 对默认 server 只调了 `ping`、`session.snapshot`。
+- 进程：
+  - 本审查起的面板与假 herdr 都用记下的 PID 收尾，4460 以上的端口没有监听，没有残留；
+  - 开发者的面板（pid 3751249）在收尾检查时已不在，4400、4401 也没有监听。本审查没有对它发过信号：所有 `kill` 都只针对自己起、在输出里记下的 PID。
+- 没有建 `~/.config/nbdev/`，没有安装或启用 systemd 单元，没有碰主工作区 `.local/agent/` 下的 `panel.json` 与锁。
+
+截图在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00022-dev-panel/tasks/t11-notify/shots/review-t11-iframe-*.png`。
+
+## 发现
+
+### 重要 1：判“暗色占位”的 SGR 解析把 24 位色、256 色 2 号当成暗色，带颜色的输入框内容一律判为“空”，可投
+
+- **位置**：`packages/dev-panel/src/herdr/screens.ts:33-48`（`segments`），由第 89 行 `typed` 使用。
+- **现象**：`segments` 把一个 SGR 的参数按 `;` 拆开后逐个看，见到 `"2"` 就置暗色。可 `38;2;r;g;b`（24 位前景色）、`48;2;r;g;b`（24 位背景色）里的第二个参数就是 `2`，`38;5;2`（256 色的 2 号）最后一个参数也是 `2`。于是凡是用 24 位色（或 256 色 2 号）着色的文字都被当成暗色，进而被当成“占位或建议文字”，`typed` 为空。交叉核对拦不住：它比的是 herdr 的预览与这一行 `❯` 之后的**全部**文字（暗的、不暗的都算），两边都含这段字，照样一致。
+- **为什么是问题**：
+  - “输入框里有字就不投”是这次投递判据的核心（设计审查 B1、I1：防止指针消息接在开发者的半截字后面一起提交）。
+  - herdr 把屏幕转成 ANSI 时，所有 RGB 颜色都写成 `38;2;r;g;b`（`tests/fixtures/screens.json` 里真实 Claude 的横线、状态栏都是这样）。只要 Claude 给输入框里的内容上了任何 RGB 颜色，例如粘贴块、关键词高亮之类，或者 256 色的 2 号，面板就会认成“空输入框”，把粘贴加回车打进去，开发者准备了一半的输入被连同指针消息一起提交。
+  - 真实 Claude 2.1.296 给输入框里哪些内容上色、用哪种颜色写法，本审查没有核实（按规则不起真实 `claude`），所以“实际会被触发”是从代码推断的。解析错误本身是确定的，下面的实验在真实 herdr 上复现了。
+- **如何核实**：
+  - 纯函数：`scripts/e1-sgr-dim.ts`，结果在 `e1-sgr-dim.out`。无色的半截字判 `input_not_empty`（对）；`❯ \x1b[38;2;255;255;255m我正在打的半截字`、`❯ \x1b[38;5;2m[Pasted text #1 +40 lines]`、`❯ \x1b[48;2;40;40;40mhello` 都判 `{"ok":true}`。
+  - 真实 herdr 0.9.3：`scripts/e2-live-colored-input.ts`，结果在 `e2-live-colored-input.out`。在自建命名会话 `nbdev-review-t11i` 里起名为 `claude` 的假界面（`tests/fixtures/fake-claude-tui.py`），把输入行分别画成无色、24 位色、256 色 2 号的半截字。herdr 三次都认成 `live_prompt_box`，预览是 `❯ 我正在打的半截字` 或 `❯ [Pasted text #1 +40 lines]`；`agent.read visible ansi` 原样带回 `\x1b[38;2;255;255;255m` 与 `\x1b[38;5;2m`。无色的判不可投；后两种 `checkDeliverable` 回 `ok`，`deliverText` 写入了 `\x1b[200~[nbdev] E2 …\x1b[201~` 和 300 毫秒后的 `\r`。会话用完已停、已删。
+- **建议改法**：
+  1. SGR 按标准解析：遇到 `38`、`48`、`58` 时，后面是 `5;n` 就跳过 2 个参数，是 `2;r;g;b` 就跳过 4 个，冒号子参数写法 `38:2::r:g:b` 整段跳过；只有独立的参数 `2` 才开暗色，`22` 与 `0`（以及空参数）才关。
+  2. 占位的认法收紧：`❯` 之后去掉空白，只允许“空”或“紧接着的一整段暗色文字”这两种形态，暗色段之后再出现任何字都不可投。
+  3. L1 加反例：带 `38;2`、`48;2`、`38;5;2` 颜色的输入（输入框里有字）判不可投。L4 的负样本加一份带颜色的输入。
+
+### 重要 2：根 `AGENTS.md` 那一句“`<W>`、`<T>` 必须是你自己提过问的 Task”，与“发给现在的会话”“通知持有租约的会话”两条手动路径矛盾
+
+- **位置**：根 `AGENTS.md:21`（提交 `0e3a40c9e`）；`packages/dev-panel/src/server/notifier.ts:353-371`（`sendManual` 的候选含 `replacedBy` 与 `alternatives`）；`packages/dev-panel/src/web/parts/ReplacedDialog.vue:24`（小窗文案“现在的会话没读过这道题。发给它，它会照着读答复并记进 Task”）；`packages/dev-panel/src/web/parts/NotifyStatus.vue:52-58`（`no_target`、`legacy`、`not_in_repository` 时列出持有租约的会话，按钮“通知 …”）。
+- **现象**：
+  - 规则让收到 `[nbdev]` 的会话只在“`<W>`、`<T>` 是你自己提过问的 Task”时照做。
+  - 面板却有两条路径，专门把同一行指针消息发给**没提过问**的会话：
+    - 会话已更换时“发给现在的会话”：`/clear` 之后的新会话，小窗自己也写着“现在的会话没读过这道题”；
+    - 没有可通知的会话时“通知它”：持有这个 Task 租约、但不一定提过问的会话。
+  - L3 的场景 3、4（`tests/panel-notify.test.ts:226-260`）测的正是发给这两类会话，断言“已投递”就算通过。
+- **为什么是问题**：
+  - 守规则的会话收到这两类消息应当不照做。于是这两条路径要么白发，要么要靠会话违反规则才起作用。
+  - 小窗对开发者承诺的“它会照着读答复并记进 Task”与规则相反，开发者无从知道该信哪一个。
+  - 这一句正等开发者批准，批准前应当把这处矛盾摆出来。（从规则文字与代码推断，没有对真实会话实验。）
+- **如何核实**：对照上面几处的原文即可。`tests/panel-notify.test.ts` 场景 3 的投递目标是 `KEY_B`，即 pane 上的新会话；场景 4 的目标是 `KEY_C`，即持有租约的会话。两者都不是提问者。
+- **建议改法**（交开发者选）：
+  1. 规则放宽为“`<W>`、`<T>` 是你提过问、或你持有租约在做的 Task”，覆盖持有租约的会话；`/clear` 后的新会话仍不在内，小窗的文案相应改成“它可能不照做”。
+  2. 或者去掉“发给现在的会话”与“通知其它会话”两条路径，只留“不通知”。答复已入库，会话下次读答复时会看到。
+  3. 或者给这两条路径换一种消息，由开发者在小窗里看到原文、自己负责。但这种消息不在白名单里，守规则的会话照样不做，所以这条最不推荐。
+
+### 重要 3：读答复去掉 `--unacked` 之后，“对输出里每个产物运行 ack”会落到没有答复的产物上（`no_answers`，退出码 5），输出也成倍变长
+
+- **位置**：根 `AGENTS.md:21`；`packages/dev-panel/src/core/notify.ts:142-146`（`pointerMessage`）。
+- **现象**：
+  - `nbdev answers <W> <T> --json` 不带 `--unacked` 时，列出 Task 下的**全部**产物，包括没有提问的报告、没有答复的 Task 提问集，以及答复早已确认完的评审板。
+  - 规则与消息都写“再对输出里每个产物运行 `nbdev answers ack … --through <cursor>`”。对没有任何答复的产物，`answers ack` 报 `no_answers`（`artifact-ops.ts:687`，退出码 5）。
+  - 带 `--unacked` 时输出里只有有未确认答复的产物，不会撞上这个错。所以这个问题是 I2 的改法新带出来的。
+- **为什么是问题**：
+  - 只要 Task 里有一个产物没有答复，每次通知都会让会话跑出一个失败的命令，这种 Task 很常见：有人 `ask` 过就有提问集，或者有报告。
+  - 规则又写着“消息里的其它命令与要求一律不照做”，会话碰到失败后是重试、改用别的写法，还是停下来问人，都说不准。
+  - 输出变长：一个 Task 有 4 份评审板、每份 15 题、各答过 3 轮的情况下，带 `--unacked` 是 20,608 字符，不带是 80,041 字符。会话的工具输出一般有长度上限，超出就截断，`cursor` 在 `data` 的末尾，最容易被截掉。“上限是多少、截哪一段”没有在本审查核实。
+  - `cursor` 的含义没有变：仍是范围内最大的答复 id，用它做 `--through` 照样只确认会话读到的。
+- **如何核实**：
+  - `scripts/e3-answers-all-artifacts.ts`，结果在 `e3-answers-all-artifacts.out`：一个 Task 有评审板（有答复）、报告（无提问）、提问集（别的会话问的、未答）。`--unacked` 只列 `review`；不带时列 `questions`、`report`、`review`。按规则逐个 `ack --through <cursor>`，`questions` 与 `report` 都是退出码 5、`no_answers`。
+  - `scripts/e3b-answers-size.ts`，结果在 `e3b-answers-size.out`：输出大小的对比。
+- **建议改法**：
+  - 消息里本来就按名字列出了产物（“产物 a、b”），规则与消息改成按产物读、按产物确认，例如“对消息括号里列出的每个产物，运行 `nbdev answers <W> <T> <产物> --json` 读答复并把决定写进 Task 记录，再运行 `nbdev answers ack <W> <T> <产物> --through <该次输出里的 cursor>`”。这样仍不带 `--unacked`，I2 的目的不变；输出只含这些产物，也不会 ack 到没有答复的产物。
+  - 或者保留 Task 级读取，把第二步改成“对输出里有答复的每个产物”。
+  - 两种改法都要同时改 `pointerMessage` 与它的 L2 断言（`tests/notify-core.test.ts:75-80`），并保持逐字对应。
+
+### 重要 4：收口时有一个失败的发送在进行，`Notifier.stop()` 抛出，`server.stop()` 后半段被跳过：面板放了锁、删了 `panel.json`，却仍在监听端口、不退出
+
+- **位置**：
+  - `packages/dev-panel/src/server/notifier.ts:108-120`（`stop` 里 `Promise.race([Promise.all([...this.inFlight, this.running]), 定时器])`）与 `:264-269`（`track` 放进 `inFlight` 的是原始的 `work`，会被拒）；
+  - `packages/dev-panel/src/server/serve.ts`（`stop()` 里 `await notifier.stop()` 在 `state.stop()`、关 WebSocket、`panel.stop(true)`、`artifacts.stop(true)` 之前）；
+  - `packages/dev-panel/src/cli/panel-commands.ts:60-68`（逐步收口，每步的异常只记一行日志）。
+- **现象**：`sendManual` 判定不过时抛 409，`tryAuto` 里写审计或写记录失败时也会抛，这时 `track` 收进去的 promise 被拒。收口期间只要有一个这样的 promise 被拒，`Promise.all` 立刻拒绝，`Notifier.stop()` 跟着抛出，`server.stop()` 停在 `await notifier.stop()` 这一行：`state.stop()`（herdr 监视的定时器与订阅、文件监视）没做，两个 `Bun.serve` 也没关。命令行的收口记一行“收口时出错”，接着删 `panel.json`、放锁，打印“面板已退出”，但事件循环里还有监听的端口与定时器，进程不退出。
+- **为什么是问题**：
+  - 前台运行时，开发者按 Ctrl+C 看到“面板已退出”，面板其实还在：端口照常回应、登录的 cookie 照常可用，而锁已经放掉，再起一个面板会撞上 `port_in_use`。
+  - 作为服务运行时，`systemctl --user stop`/`restart` 要等满 `TimeoutStopSec=30` 再 SIGKILL。
+  - 这与 S11“收到 SIGTERM 先等进行中的投递结束（有上限），再收口”的合同不符：第一个失败就不再等其余进行中的投递。
+  - 触发要求收口恰好落在一次会失败的发送当中，概率不高；但后果是收口半途而废，属于禁止清单里的“丢掉清理语句”。
+- **如何核实**：`scripts/e4-stop-reject.ts`（借用 `scripts/panel-setup.ts`、`fake-herdr-proc.ts`、`panel-proc.ts`），结果在 `e4-stop-reject.out`。
+  - 用真实的 `nbdev panel serve`（worktree 的 `cli.ts`，临时仓库，审计指到临时 `XDG_CONFIG_HOME`，假 herdr 报 0.9.2，任务是 `manual_only`），端口 4461 到 4464。
+  - 对照组：没有进行中的发送，SIGTERM 后 100 毫秒退出，端口关闭。
+  - 实验组：让假 herdr 的 `agent.read` 不回应，发起手动发送，400 毫秒后发 SIGTERM。2 秒后读屏本地超时，`sendManual` 抛 409，日志记“收口时出错：读屏失败（client_timeout）”与“面板已退出”。之后 20 秒进程仍在，`/api/meta` 仍回 HTTP 200，`panel.json` 与面板锁都已删除。脚本最后用记下的 PID 结束了它。
+- **建议改法**：`stop()` 里改用 `Promise.allSettled([...this.inFlight, this.running])`。或者让 `track` 收进 `inFlight` 的是 `work.catch(() => undefined)`：注释原意是“只为收口时等它”，失败已经经 `work` 交给调用方。顺带把会话页的文字与按键也纳入同一份 `inFlight`，它们现在不在里面，收口时不等。加一条 L3：在进行中的手动发送失败的同时收口，断言 `server.stop()` 正常返回、端口关闭。
+
+### 建议 5：暗色模式下产物页 iframe 深底黑字（t09 起就有）：原因是 iframe 元素自己的底色用了面板的主题色，Chrome 只在 iframe 载入时按明暗是否一致决定要不要垫白底
+
+- **位置**：`packages/dev-panel/src/web/pages/ArtifactPage.vue:127`，iframe 的行内样式 `background: var(--page-surface, var(--bg-main))`。
+- **现象与原因**：
+  - 产物页多半没有自己的底色、用缺省的黑字。iframe 元素的底色取面板的 `--page-surface`，暗色时是 `rgb(45, 41, 37)`，会从透明的页面后面透出来。
+  - Chrome 的规则是：iframe 元素的 `color-scheme`（随面板根元素，暗色时为 `dark`）与页面的不一致时，在页面后面垫一层不透明的白底。这一层是在 iframe **载入时**决定的，之后面板切换明暗不会重算。
+  - 所以直接在暗色下打开产物页是白底黑字，看得清；先在亮色下打开、再切到暗色（系统切换，或顶栏的明暗按钮），就成了深底黑字。主 Agent 的截图是后一种情形。
+- **如何核实**：`scripts/e6-iframe-dark.ts` 与 `scripts/e6b-iframe-dark-switch.ts`，结果在 `e6-iframe-dark.out`、`e6b-iframe-dark-switch.out`。真实面板用 worktree 构建的前端、临时仓库，Chrome 稳定版。截图在 `.local/agent/works/w00022-dev-panel/tasks/t11-notify/shots/review-t11-iframe-*.png`：
+  - `review-t11-iframe-dark-as-is.png`：直接以暗色打开，白底黑字；
+  - `review-t11-iframe-switch-{system,toggle}-as-is.png`：亮色打开再切暗，深底黑字，复现了问题；
+  - `review-t11-iframe-switch-*-fix-no-bg.png`：只去掉底色、切换之后，透出外层的深色，没有修好；
+  - `review-t11-iframe-switch-*-fix-light-white.png`：iframe 设 `color-scheme: light` 与白底，两种切换下都是白底黑字；
+  - `review-t11-iframe-dark-light-scheme.png`：只设 `color-scheme: light`、保留主题底色，载入时就是深底黑字。
+- **建议改法**：iframe 的行内样式改成 `color-scheme: light; background: #fff`，或者 `background: Canvas` 配 `color-scheme: light`，不用面板的主题色。并在旁边注释原因：产物页按亮色画、多半没有自己的底色；Chrome 只在载入时按明暗是否一致垫白底，切换明暗不重算。想支持暗色的产物页自己设底色即可。
+
+### 建议 6：“看过屏幕再确认”的确认不绑定开发者看到的那一屏
+
+- **位置**：`packages/dev-panel/src/server/session-io.ts:88-91`（`prompt`：`checked.code === "not_deliverable" && fields.confirmScreen === true` 就发）；`packages/dev-panel/src/server/notifier.ts:363-367`（`sendManual` 同样的写法）；前端 `src/web/host/notify-actions.ts:62-72`、`src/web/pages/SessionsPage.vue` 的 `sendPrompt`。
+- **现象**：
+  - 第一次请求判定不可投，回 409 并附屏幕末尾，开发者看过、点“仍然发送”。
+  - 第二次请求只带 `confirmScreen: true`，服务端重新判定。不论这次为什么不可投、屏幕是不是还是刚才那一屏，都照发。
+  - 两次之间开发者可能读了好几秒；屏幕换成 herdr 认不出的确认界面（状态仍是 idle）时，粘贴加回车就会打进这个确认界面。这正是 B1 要挡的情形，而开发者确认的是另一屏。
+- **为什么是问题**：开发者同意的是“对这一屏发送”，不是“这个 pane 无论现在是什么样都发”。概率不高：两次请求之间要恰好换屏，而且要换成 herdr 认不出的界面；但改起来不难。
+- **如何核实**：`scripts/e7-confirm-screen-toctou.ts`，结果在 `e7-confirm-screen-toctou.out`。真实的 `panel serve`、假 herdr，端口 4469。第一次 `POST /api/sessions/w9:p1/prompt` 回 409 `not_deliverable`，屏幕是“❯ 我正在打的半截字”；随后把假 pane 换成认不出的确认界面（`fallback: default_known_agent_idle_fallback`，状态 idle），带 `confirmScreen: true` 再发，回 200 `delivered`，假 herdr 收到了 `agent.prompt`。
+- **建议改法**：409 里多给一个屏幕摘要，例如 `screenTail` 文字加判定原因的 sha256；确认时把它带回来（`confirmScreen: <摘要>`）。服务端重新判定，摘要不同就再回 409，附新屏幕，不发。
+
+### 建议 7：投递后核对只在 500 毫秒后“仍在等确认”时报 `delivered_into_blocked`；回车恰好确认了刚弹出的确认界面时，状态已回到 working，记成 `delivered`
+
+- **位置**：`packages/dev-panel/src/server/delivery.ts:130-145`。
+- **现象**：判据是 `after.status === "blocked" && after.stateChangeSeq !== before.stateChangeSeq`。设计审查 I1 担心的那种情形是：粘贴之后、回车之前弹出确认界面，回车把它确认了。这时会话会进入 working，约 500 毫秒后的 `agent.get` 看到的是 working，结果记 `delivered`，界面不会醒目提示。
+- **为什么是问题**：`delivered_into_blocked` 的用处，是在“回车可能确认了确认界面”时叫开发者马上看终端。最该提示的那一种情形，它偏偏报不出来。t11 只投空闲的会话，确认界面很少在空闲时自己冒出来，所以概率低。从代码推断，没有实验。
+- **建议改法**：用状态序号的跳数补一条。从投递前的 `stateChangeSeq` 到 500 毫秒后，正常是“空闲到工作”一次变化；跳了 2 次以上，或者返回体与复读之间出现过 blocked，就标成要看终端，可以新加一个结果，也可以并入 `delivered_into_blocked`。状态序号每次变化加 1，S0 的记录里有。
+
+### 建议 8：`unknown_status` 那一行给了“通知 …”按钮，可手动发送照样要求空闲，这个按钮按了一定是 409
+
+- **位置**：`packages/dev-panel/src/web/parts/NotifyStatus.vue:52-58`（`targets()` 对 `unknown_status` 给提问者本人的按钮）；`packages/dev-panel/src/server/delivery.ts:61-63`（文字投递要求 `idle` 或 `done`，否则 `status_unknown`）；`notifier.ts:391-396`（`status_unknown` 转成 409 `agent_busy`）；`docs/panel.md` 的状态表写的是“`unknown_status` … 可手动发（仍要空闲）”。
+- **现象**：状态未知就不是空闲，所以这一行的“通知”按钮永远走到 409，界面显示“通知没有发出去”。计划的“设计审查的处理”里，“状态未知时手动发”与“状态必须是 idle 或 done”本身就矛盾，实现照后者做，按钮却照前者给了。从代码推断。
+- **建议改法**：`unknown_status` 不给按钮，只写“状态未知，空闲之后自动判定”，同时改掉文档里“可手动发”；或者明确允许“状态未知时看屏幕、两步确认后发”，那就要在 `identity` 里给手动发送单开一条路。前一种更简单，与“不在工作中投递”一致。
+
+#### 重要 1 的补充：Claude 2.1.296 确实会给输入内容上 RGB 颜色
+
+- 只读查了本机 Claude 2.1.296 的二进制（`strings ~/.local/share/claude/versions/2.1.296`，没有运行它）。里面有一段代码在文字里找 `\bultrathink\b`，再逐字套上 `rainbow_red` 到 `rainbow_violet` 七种颜色；这七种颜色定义成 `rgb(235,95,87)` 这样的 RGB 值，herdr 读屏时写成 `38;2;r;g;b`。主题里其余颜色也大多是 `rgb(...)`。
+- 推断：开发者在输入框里只打了 `ultrathink`、还没写后文时，面板会认成空输入框，把指针消息接在后面提交。粘贴块、`@` 文件引用等是否也着色，没有查到。
+- 无论哪种情形，修好 SGR 的解析就都不再误判。
+
+### 重要 9：同一个会话同时有两个 Task 的通知待发时，两条都永远发不出去（“空闲稳定”的记录被第二条任务当场删掉）
+
+- **位置**：`packages/dev-panel/src/server/notifier.ts:164-175`（`once` 按任务逐条 `tryAuto`）、`:280-307`（`tryAuto`）；`packages/dev-panel/src/server/delivery.ts:85-87`（`not_stable` 把“序号变了”和“还不到 3 秒”合成一个码）。
+- **现象**：
+  - “空闲稳定”的记录按 pane 存（`this.stable`），任务却是按（Task、提问者）一条。同一个会话在两个 Task 上都有待发的通知时，这两条任务落在同一格 pane 上。
+  - 每一轮里，第一条任务发现没有记录，就记下“第一次看到空闲”的状态序号与时刻，然后返回。第二条任务紧接着拿这份刚记下的记录去判定，因为还不到 3 秒，判 `not_stable`，`tryAuto` 随即把记录删掉。
+  - 3.1 秒后的下一轮又是这样。两条任务一直停在 `ready`（界面写“空闲，几秒内通知”），一条也发不出去，每 3 秒对这格 pane 调一次 `agent.get`，直到其中一条任务因为别的原因消失。
+- **为什么是问题**：
+  - 一个主会话推进同一个 Work 的几个 Task、在几个 Task 上都提过问，开发者一次把两边都答了，这是常见的用法。
+  - 这时通知静默失效，界面一直说马上就发。
+  - L3 只测了一个 Task 一个提问者的情形，没有覆盖到。
+- **如何核实**：`scripts/e9-two-jobs-same-pane.ts`，结果在 `e9-two-jobs-same-pane.out`。真实的 `panel serve`、假 herdr 0.9.3，端口 4471 到 4474，同一个 Claude 会话 A（`w9:p1`，空闲，在本仓库）。
+  - 对照组：只有 t01 的提问被答复，7 秒内投递 1 次。
+  - 实验组：t01、t02 各一题、都被答复，25 秒内投递 0 次，两条任务都停在 `ready`，期间 `agent.get` 调了 24 次。
+- **建议改法**：
+  - `checkDeliverable` 把两种不稳定分开：“序号变了”与“还不到 3 秒”。`tryAuto` 只在序号变了时删除记录；还不到 3 秒的只排下一次唤醒。
+  - 或者按 pane 合并：一格 pane 一轮只处理一条任务，前一条投出去之后会话进入工作，后一条等下一次空闲。
+  - L3 加一条：同一个会话、两个 Task，两次投递都在。
+
+## 设计审查 20 条的落实
+
+| 条 | 落实 | 说明 |
+|---|---|---|
+| B1 正向白名单 | 落实，有缺口 | `agent.explain` 必须命中 `live_prompt_box`、没有退路、清单里还有这条规则；读屏交叉核对；手动发送也过判据，不过时先看屏幕再两步确认。按真实 Claude 的暗色占位扩了判据（偏离已记录）。缺口：SGR 解析错误（重要 1）、确认不绑定屏幕（建议 6）。L4 负样本见下面“测试” |
+| I1 300 毫秒窗口 | 落实 | 文档如实写；投递后核对；聚焦的那一格隔 1 秒复读；steer 与“工作中仍然发送”不做；向 herdr 的需求写进 `docs/herdr.md`。事后察觉有盲区（建议 7） |
+| I2 别的会话的确认 | 落实 | 判据按确认的 provenance，没有 provenance 时退回“已确认就算办完”；L2 有从仓库读的用例。去掉 `--unacked` 带出了新问题（重要 3） |
+| I3 启用时刻 | 落实 | 按选项 2，记在 `~/.config/nbdev/init.json`，按答复 id 里的时刻比较 |
+| I4 续接与过期租约 | 落实 | 按会话键在 herdr 里找，与租约无关；L3 场景 1 的提问者没有租约 |
+| I5 `[nbdev]` 白名单 | 落实，有矛盾 | 两条命令的白名单，只认用户输入轮。“必须是你自己提过问的 Task”与手动发给非提问者矛盾（重要 2） |
+| I6 S0 与降级 | 落实 | 按版本放行 0.9.1 与 0.9.3；S0 三项；L4 用名为 `claude` 的假界面 |
+| I7 场景 3 的造法 | 落实 | L4 用 `report-agent-session … --session-start-source clear`；文档写明换会话没有事件 |
+| S1 客户端时限 | 落实 | `agent.prompt` 取 10 秒加 2 秒；`client_timeout` 与 herdr 的 `timeout`、`agent_prompt_stalled` 分开 |
+| S2 稳定判据 | 落实，有缺陷 | 按 `state_change_seq` 与时刻判。同一格 pane 上有两条任务时互相删记录，形成活锁（重要 9） |
+| S3 事件为主 | 落实 | 有待发、没有浏览器时 15 秒兜底；`waiting_input` 只在序号变了或 15 秒后重读屏幕；日志增量写进文档 |
+| S4 屏幕用 visible | 落实 | `agent.read visible ansi`，不带行数 |
+| S5 `NBDEV_PANEL_UNIT` | 落实 | 只认这个变量，还校验写法；L3 有用例 |
+| S6 `ExecStart` 与单元 | 落实 | bun 与 `cli.ts` 的绝对路径；没有 `After=`；t12 用 herdr 绝对路径记在计划里 |
+| S7 审计 | 落实 | 包脚本 `audit-init`；初始化前不开放三类动作；`actionId`；进程内串行；每次写之前核对属主与权限 |
+| S8 按键与输入框 | 落实 | Shift+Tab 两步确认；y、n 未核实，写进文案与文档；`confirmed` 如实写成只防前端误发；校验顺序；按 pane 的互斥 |
+| S9 人工验收 | 落实 | 场景 2 取消；场景 1 用规则合入后新开的会话；写明会留下 4 个提交 |
+| S10 范围 | 落实 | 没有 `authz.ts`；会话页与通知交互没有上评审板，事后截图 |
+| S11 先写意图 | 落实，收口有缺陷 | 尝试记录先写意图；只有意图的按 `uncertain` 算办完；收到 SIGTERM 等进行中的投递。但有一个失败就提前抛出，面板不退出（重要 4） |
+| S12 判定合并 | 落实 | 找会话与“已更换”合成一个判定；紧贴投递的 `agent.get` 复核会话键、目录、状态与序号 |
+
+## 已核对、没有问题的
+
+- **门禁**（在审查 worktree 里跑，结果在本目录）：
+  - 包测试除 L4 外 248 条全过（`test-run.log`）；
+  - L4 的 3 条复制到 `l4copy/`，只把会话名改成 `nbdev-review-t11i`、导入改成绝对路径，全过（`l4-review-run.log`）。原文件用的 `nbdev-test` 当时正被别人用，没有动它；
+  - `typecheck` 通过；`vite build` 输出到本目录的 `web-dist/` 通过；
+  - `governance:check`、`docs:check` 通过，只有存量的 `§` 警告；
+  - 根的 `dev-panel-records` 5 条在 Node 下通过；`git diff --check` 通过。
+- **投递只在空闲时**：
+  - 文字（通知、手动发送、会话页）在判定与紧贴投递时都要求 `idle` 或 `done`，`working` 回 `agent_busy`，`blocked` 回 `agent_busy` 或排队；
+  - 只有按键在任何状态都能发（设计如此：回应确认界面、打断）。
+  - 没有在会话工作中投文字的路径。
+- **暗色的其它来源**（重要 1 之外）：
+  - 半截字、`/` 命令表、`@` 文件选单都有不暗的字，判不可投；模型选择、详细记录、认不出的确认界面由 `agent.explain` 挡住。
+  - 按 Tab 接受的建议文字只在输入框为空时出现，粘贴会替换它，回车提交的是面板的文字，判可投没有问题。
+  - 用“上”调出的历史是正常亮度的字，判不可投。
+  - Ctrl+R 历史搜索的样子没有取样，判不了，列为未验证。
+  - 判定只看两条横线之间、`❯` 开头的那一行，加上 herdr 预览的交叉核对，不会把屏幕别处的暗色字算进来。
+- **身份与仓库**：
+  - 每次文字与按键都 `agent.get` 核对会话键（`expectedSession` 为空、pane 上没有会话都拒绝），以及 `cwd` 或 `foreground_cwd` 在本仓库的某个 checkout 里；
+  - 手动发送的目标只能是任务列出的会话；L4 验证了换了会话 id 之后文字与按键都被拒绝、不写字节。
+- **herdr**：
+  - 面板的白名单是 10 个方法，测试钉住了清单；
+  - `agent.prompt`、`agent.send_keys` 只在 `delivery.ts` 的 `deliverText`、`deliverKeys` 里调；
+  - 按快照的 `version` 放行，对默认 server 只读调 `ping` 与 `session.snapshot`，确认快照的 `version` 就是 server 版本 0.9.1（`e5-default-readonly.out`）；
+  - 本地超时是 `client_timeout`，与 herdr 的 `timeout`、`agent_prompt_stalled` 分开；
+  - 同一格 pane 的通知、文字、按键都经 `PaneLocks` 串行。
+- **会话页**：
+  - 校验顺序：转发头、Host、登录、`Sec-Fetch-Site`、Origin 与 CSRF（`serve.ts`），然后 `Content-Type`、体积、字段、长度、控制字符（`readFields` 与 `assertPlainText`），与 t10 一致；
+  - 按键是固定的 8 个，危险键前后端都要两步确认，一次最多一个 Ctrl+C，同一格 3 秒内只一次（调 herdr 之前记账）；
+  - 审计不可用时三类动作都回 409、不调 herdr（L3 有用例）。
+- **审计**：
+  - `audit-init` 建目录 700、`audit.jsonl` 600、`init.json`，再跑不改启用时刻；
+  - 每次写之前用 `lstat` 核对是否符号链接、属主、权限，不对就不可用并写明原因；
+  - 意图行与结果行共用 `actionId`；进程内一条队列、每行一次 `O_APPEND`；
+  - t10 的五个写接口事后补一行结果：未初始化跳过，初始化过却写不进去给 `audit_write_failed`；
+  - 写进审计的只有动作、目标、提交 sha 与路径、指针消息与会话页的文字、键名，不记答复的取值与编辑内容。文字全文进审计按决定点 6 处理，开发者知情。
+- **通知现算**：
+  - 提问者取题第一次出现的那一版的 provenance；
+  - 只有开发者的答复会通知；
+  - 别的会话的确认不算办完，确认没有 provenance 时退回“已确认就算办完”；
+  - 题的 provenance 读不到时这一题不通知，产物页写明“提问者不明”；
+  - 启用时刻与尝试记录分开存放；先写意图，只有意图的按 `uncertain` 算；重启后现算（L3 场景 5）；
+  - 写接口成功后直接触发现算；`waiting_input` 只在状态序号变了或过了 15 秒才重读屏幕。
+- **`[nbdev]` 一句**：
+  - 与 `pointerMessage` 的模板逐字对应（反引号与占位除外），L2 钉住了消息原文；
+  - 白名单只放行“读答复”与“带 cursor 确认”两条；
+  - `cursor` 的含义不变：仍是范围内最大的答复 id，只确认读到的。输出里每个产物也带自己的 `cursor`，两种都能用；
+  - 规则限定只认用户消息、不认文件和工具输出里的 `[nbdev]` 行。
+  - 问题见重要 2、3。omp 是否读根 `AGENTS.md` 没有核实，计划说要在命名会话里核对，实施记录里没有写到。
+- **常驻**：用 E8 的 `--dry-run` 看了生成的单元（`e8-install-dry-run.out`），只读核对，没有安装：
+  - `ExecStart=/usr/bin/bun <主工作区>/packages/dev-panel/src/cli.ts panel serve --port 4400 --artifact-port 4401`、`WorkingDirectory`、`Environment=NBDEV_PANEL_UNIT=…`；
+  - `Restart=on-failure`、`RestartPreventExitStatus=2 3`，与 `unsafe_host` 2、`port_in_use` 与 `panel_running` 3 一致；`TimeoutStopSec=30`；
+  - 没有 `After=`；stdout、stderr 走缺省的 journal；
+  - `--dry-run` 不写文件、不调 systemctl；`--uninstall`、`--force`、标记行、符号链接不覆盖都有 L2；
+  - 面板已在跑时报 `panel_running`；服务写的 `panel.json` 与锁沿用原来的按 pid 加启动时刻认人。
+- **前端**：
+  - 新零件 `NotifyStatus`、`ReplacedDialog`、`ScreenConfirmDialog`、`SessionConsole` 都有同名 `.md`，也都不发请求、不碰存储。请求在 `host/notify-actions.ts` 与页面里，偏好经 `prefs.ts`；
+  - 小窗没有关闭叉，只有两个出口；顶栏计数与审计提示按 `/api/notify` 与 `/api/meta`。
+- **禁止清单**：
+  - 没有按错误文案分支：都按 `HerdrError.code`、`NbdevError.code` 分；
+  - 新增的 `.catch(() => undefined)` 都用于排队，失败另经原 promise 交给调用方，没有静默吞掉的 catch；
+  - 测试改动是机械的适配（`timeout` 改名 `client_timeout`、`env` 参数、`focused` 字段），没有放宽断言，产品代码里没有只为测试的分支（`sleep`、`now` 是注入点）；
+  - 删掉的行都换成了新写法，没有删任务之外的代码；
+  - 没有跨包深导入（只用 `@notnotype/nb-ui/components`、`@notnotype/neuro-book-test-support/tmp` 这两个公开子路径）；
+  - 丢掉清理语句的见重要 4。
+- **未验证**（本审查也没有做）：
+  - y、n 能不能回答 Claude 的确认界面；
+  - `/compact` 是否改会话 id；
+  - 默认 server 0.9.1 上的 `agent.prompt`、`agent.send_keys` 与状态推送；
+  - Claude 的粘贴块等输入内容用什么颜色；
+  - Ctrl+R 历史搜索的屏幕；
+  - omp 是否读根 `AGENTS.md`；
+  - 会话的工具输出上限具体是多少。
+
