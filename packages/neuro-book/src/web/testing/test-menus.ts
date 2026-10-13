@@ -10,6 +10,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {EXPLORER_CONTEXT_POINT} from "nbook/plugins/explorer/shared/contracts";
+import type {ExplorerContextItemDeclaration} from "nbook/plugins/explorer/shared/contracts";
 import {notificationsKey, WORKBENCH_VIEW_TITLE_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ViewTitleItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import {recordedText, TEST_MENUS_RECORD_COMMAND, testMenusDescriptor} from "nbook/shared/testing/menus-contract";
@@ -37,6 +39,12 @@ const VIEW_TITLE_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration
     {id: "test.menus.view-menu", declaration: {view: SAMPLE_VIEW_IDS.gamma, section: "1", command: TEST_MENUS_RECORD_COMMAND, placement: "menu", label: label("测试菜单项"), context: "instance"}},
 ];
 
+/** 资源管理器右键：一条只对 `.md` 的、带选择的项，一条对任何资源都在的、带固定参数的项（files-explorer.md 验收 20）。 */
+const EXPLORER_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: ExplorerContextItemDeclaration}> = [
+    {id: "test.menus.explorer-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, label: label("测试右键项"), extensions: [".md"], context: "selection"}},
+    {id: "test.menus.explorer-any", declaration: {section: "2", command: TEST_MENUS_RECORD_COMMAND, label: label("测试固定参数"), args: {from: "explorer"}}},
+];
+
 export function createTestMenusBrowserPlugin(): PluginDefinition {
     return {
         id: testMenusDescriptor.id,
@@ -48,6 +56,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
             contributions: [
                 {capability: COMMANDS_POINT, id: TEST_MENUS_RECORD_COMMAND, declaration: RECORD},
                 ...VIEW_TITLE_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_VIEW_TITLE_POINT, id, declaration})),
+                ...EXPLORER_ITEMS.map(({id, declaration}) => ({capability: EXPLORER_CONTEXT_POINT, id, declaration})),
             ],
             activate: (context) => {
                 const notifications = context.services.require(notificationsKey);
@@ -57,6 +66,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                         return {ok: true, value: null};
                     }}},
                     [WORKBENCH_VIEW_TITLE_POINT]: menuImplementations(VIEW_TITLE_ITEMS),
+                    [EXPLORER_CONTEXT_POINT]: menuImplementations(EXPLORER_ITEMS),
                 }};
             },
         })],

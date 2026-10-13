@@ -16,6 +16,9 @@ export interface ContextMenuItem {
     title?: string;
     /** danger 用于删除等破坏性动作 */
     tone?: "default" | "danger";
+    /** checkbox：画成勾选项（`menuitemcheckbox`），勾选态由 checked 受控，组件不代为切换 */
+    type?: "item" | "checkbox";
+    checked?: boolean;
     /** 为 true 时渲染为分隔线，忽略其它字段 */
     separator?: boolean;
 }

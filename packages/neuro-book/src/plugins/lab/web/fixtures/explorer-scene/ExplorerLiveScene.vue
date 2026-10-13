@@ -9,6 +9,7 @@ import {computed, onBeforeUnmount, ref, shallowRef} from "vue";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
+import {MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {Release} from "nbook/plugins/commands/shared/contracts";
 import {EXPLORER_COMMAND_DECLARATIONS, explorerCommands} from "nbook/plugins/explorer/web/commands";
 import FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
@@ -97,9 +98,13 @@ for (const [id, declaration] of Object.entries(EXPLORER_COMMAND_DECLARATIONS)) {
     else record("command-error", `${id}：${registered.reason}`);
 }
 
+/** 场景没有别的插件，右键菜单只有资源管理器自己的固定动作；注册表随场景卸载停止。 */
+const scene = new AbortController();
 const Host = createExplorerViewHost(FilesExplorerView, {
     session,
     commands: registry,
+    state: {read: () => ({status: "undeclared"})},
+    contextMenu: new MenuItemRegistry([], scene.signal),
     locale: computed(() => LAB_LOCALE),
     // 产品里是窗口绑定的作品的书名。
     projectTitle: "雾港",
@@ -126,6 +131,7 @@ onBeforeUnmount(() => {
     session.dispose();
     for (const release of releases.splice(0)) release();
     memory.dispose();
+    scene.abort();
 });
 </script>
 

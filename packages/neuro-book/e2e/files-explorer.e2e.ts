@@ -12,8 +12,8 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {startProductServer} from "./fixtures";
-import type {ProductServer} from "./fixtures";
+import {startProbeServer, startProductServer} from "./fixtures";
+import type {ProbeServer, ProductServer} from "./fixtures";
 
 const MANIFEST = `<?xml version="1.0" encoding="UTF-8"?>
 <content>
@@ -491,4 +491,60 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     expect(await readFile(join(projectDir, "moves", "m2.md"), "utf8")).toBe("M2");
     expect(await exists(join(projectDir, "moves", "keep", "m2.md"))).toBe(false);
     await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test.describe("右键菜单的贡献项（docs/specs/workbench/files-explorer.md 的“右键菜单”，验收 20）", () => {
+    let menusTmp = "";
+    let probe: ProbeServer;
+
+    test.beforeAll(async () => {
+        menusTmp = await createTestTmpRoot("neuro-book-e2e", "explorer-context");
+        const stateRoot = join(menusTmp, "state");
+        const book = join(menusTmp, "Book");
+        const id = randomUUID();
+        await mkdir(join(book, ".nbook"), {recursive: true});
+        await mkdir(stateRoot, {recursive: true});
+        await writeFile(join(book, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
+        await writeFile(join(book, "a.md"), "甲\n");
+        await writeFile(join(book, "b.txt"), "乙\n");
+        await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: book}]}));
+        // `test.menus` 往 `explorer.context` 贡献两项：只对 .md、带选择的“测试右键项”，与带固定参数的“测试固定参数”。
+        probe = await startProbeServer(stateRoot, {env: {NBOOK_TEST_PLUGINS: "test.menus"}});
+    });
+
+    test.afterAll(async () => {
+        expect(await probe.stop()).toBe(0);
+        if (menusTmp !== "") await rm(menusTmp, {recursive: true, force: true});
+    });
+
+    const entries = (page: Page) => page.getByRole("menu").locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())));
+
+    test("贡献项排在固定动作之后、每节前一条分隔线；只对 .md 的项只在右键 .md 时出现，执行时收到选择的地址；多选里有别的后缀时不出现；根行没有贡献项", async ({page}) => {
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await expect(item(page, "project://a.md")).toBeVisible();
+
+        await item(page, "project://a.md").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect((await entries(page)).slice(-5)).toEqual(["删除Delete", "---", "测试右键项", "---", "测试固定参数"]);
+        await page.getByRole("menuitem", {name: "测试右键项"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({addresses: ["project://a.md"]})}`)).toBeVisible();
+
+        await item(page, "project://b.txt").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect((await entries(page)).slice(-3)).toEqual(["删除Delete", "---", "测试固定参数"]);
+        await page.getByRole("menuitem", {name: "测试固定参数"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({from: "explorer"})}`)).toBeVisible();
+
+        // a.md 与 b.txt 一起选中后右键：后缀不全匹配，只对 .md 的项不出现。
+        await item(page, "project://a.md").click({modifiers: ["Control"]});
+        await item(page, "project://b.txt").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect(await entries(page)).not.toContain("测试右键项");
+        await page.keyboard.press("Escape");
+
+        await item(page, "project://").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect(await entries(page)).not.toContain("测试固定参数");
+        await page.keyboard.press("Escape");
+    });
 });

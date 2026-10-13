@@ -70,6 +70,20 @@ describe("ContextMenu 键盘", () => {
         expect(wrapper.emitted("close")).toEqual([["select"]]);
     });
 
+    it("勾选项画成 menuitemcheckbox，aria-checked 跟着 checked；禁用项的 title 也是读屏描述", async () => {
+        const wrapper = mount(ContextMenu, {props: {visible: true, x: 10, y: 10, items: [
+            {label: "显示隐藏文件", type: "checkbox", checked: true, action: () => chosen.push("勾")},
+            {label: "导出", disabled: true, title: "没有选中的章节"},
+        ]}, attachTo: document.body});
+        mounted.push(wrapper);
+        await flushPromises();
+        const items = Array.from(document.querySelectorAll<HTMLElement>("[role^=menuitem]"));
+        expect(items.map((item) => [item.textContent?.trim(), item.getAttribute("role"), item.getAttribute("aria-checked"), item.getAttribute("aria-description")])).toEqual([
+            ["显示隐藏文件", "menuitemcheckbox", "true", null],
+            ["导出", "menuitem", null, "没有选中的章节"],
+        ]);
+    });
+
     it("关闭原因：Tab（阻止默认的焦点移动）、Escape、菜单外点击各自带上", async () => {
         const wrapper = await open();
         const tab = new KeyboardEvent("keydown", {key: "Tab", shiftKey: true, bubbles: true, cancelable: true});

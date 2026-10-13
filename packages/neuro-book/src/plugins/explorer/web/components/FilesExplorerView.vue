@@ -59,7 +59,7 @@ const emit = defineEmits<{
     (event: "edit-input", name: string): void;
     (event: "edit-commit"): void;
     (event: "edit-cancel"): void;
-    (event: "menu-command", command: string): void;
+    (event: "menu-command", key: string): void;
     (event: "menu-close"): void;
     (event: "delete-confirm"): void;
     (event: "display-commit", title: string, icon: string): void;
@@ -92,7 +92,15 @@ const problemText = computed(() => {
 
 const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).map((entry) => (entry.kind === "separator"
     ? {separator: true}
-    : {label: entry.label, disabled: entry.disabled, tone: entry.danger ? "danger" : "default", ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}), action: () => emit("menu-command", entry.command)})));
+    : {
+        label: entry.label,
+        disabled: entry.disabled,
+        tone: entry.danger ? "danger" : "default",
+        ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}),
+        ...(entry.reason === null ? {} : {title: entry.reason}),
+        ...(entry.checked === null ? {} : {type: "checkbox" as const, checked: entry.checked}),
+        action: () => emit("menu-command", entry.key),
+    })));
 
 const deleteDialog = computed(() => (props.dialog?.kind === "delete" ? props.dialog : null));
 const displayDialog = computed(() => (props.dialog?.kind === "display" ? props.dialog : null));
