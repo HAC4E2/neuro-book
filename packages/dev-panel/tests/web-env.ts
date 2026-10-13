@@ -158,15 +158,23 @@ function uninstall(): void {
     current = null;
 }
 
-/** 每个用例前装一份新环境、后拆掉；返回的对象总指向当前用例的那一份。 */
-export function useWebEnv(): {readonly env: WebEnv} {
+/**
+ * 每个用例前装一份新环境、后拆掉；返回的对象总指向当前用例的那一份。
+ * `teardown` 在拆环境之前跑（用例中途失败也跑）：停掉用例建的 scope、收口数据宿主，它们的清理还要碰 `document`、`WebSocket`。
+ * 不另写 afterEach：bun 按注册顺序跑 afterEach，写在 `useWebEnv()` 之后的会在环境拆掉之后才跑。
+ */
+export function useWebEnv(teardown: () => void = () => {}): {readonly env: WebEnv} {
     const holder: {env: WebEnv | null} = {env: null};
     beforeEach(() => {
         holder.env = install();
     });
     afterEach(() => {
-        uninstall();
-        holder.env = null;
+        try {
+            teardown();
+        } finally {
+            uninstall();
+            holder.env = null;
+        }
     });
     return {
         get env(): WebEnv {

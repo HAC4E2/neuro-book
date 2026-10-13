@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, test} from "bun:test";
+import {describe, expect, test} from "bun:test";
 import {effectScope as createScope, ref, type EffectScope} from "vue";
 import {getJson, sendJson, streamLines} from "../src/web/host/api.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "../src/web/host/panel-data.js";
@@ -6,19 +6,18 @@ import {useWrite} from "../src/web/host/writes.js";
 import {until, useWebEnv} from "./web-env.js";
 
 /** 数据宿主（`host/panel-data.ts`，L3）：推送、重取与收口。环境见 `tests/web-env.ts`。 */
-const web = useWebEnv();
 // 用例中途失败时也收口数据宿主的单例（关推送、取消重连），不连累同一文件里后面的用例。
 const scopes: EffectScope[] = [];
+const web = useWebEnv(() => {
+    for (const scope of scopes.splice(0)) scope.stop();
+    stopPanelData();
+});
 /** 用例里建的 scope 都登记在这里，结束时（失败也）停掉，免得遗留的资源在后面的用例里继续取数。 */
 function effectScope(): EffectScope {
     const scope = createScope();
     scopes.push(scope);
     return scope;
 }
-afterEach(() => {
-    for (const scope of scopes.splice(0)) scope.stop();
-    stopPanelData();
-});
 
 describe("数据宿主的收口", () => {
     test("stopPanelData 关掉推送连接、取消重连；之后能再 startPanelData", async () => {

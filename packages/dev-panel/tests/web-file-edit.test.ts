@@ -1,14 +1,13 @@
-import {afterEach, describe, expect, test} from "bun:test";
+import {describe, expect, test} from "bun:test";
 import {effectScope, nextTick, ref} from "vue";
 import {useFileEditSession} from "../src/web/host/file-edit-session.js";
 import {stopPanelData} from "../src/web/host/panel-data.js";
 import {gate, until, useWebEnv, type FetchCall, type Reply} from "./web-env.js";
 
 /** 编辑页的编辑会话（`host/file-edit-session.ts`，L3，t15 阶段 1.3、1.4）。环境见 `tests/web-env.ts`。 */
-const web = useWebEnv();
 // 用例中途失败时也收口数据宿主的单例（关推送、取消重连），不连累同一文件里后面的用例。
 const scopes: Array<() => void> = [];
-afterEach(() => {
+const web = useWebEnv(() => {
     for (const stop of scopes.splice(0)) stop();
     stopPanelData();
 });

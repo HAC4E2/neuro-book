@@ -119,7 +119,12 @@ export function useTerminalSocket(target: {paneId: string; terminalId: string}) 
     }
 
     function connect(): void {
-        if (disposed || document.visibilityState === "hidden") return;
+        if (disposed) return;
+        // 在后台建起（或重连时恰在后台）：记为暂停，回到前台由 onVisibility 的 paused 分支连上（t15）。
+        if (document.visibilityState === "hidden") {
+            state.status = "paused";
+            return;
+        }
         state.status = "connecting";
         state.closedReason = null;
         framed = false;
