@@ -60,6 +60,20 @@ function onFrame(frame: TerminalFrame): void {
     term.write(frame.bytes);
 }
 
+/**
+ * fit 按框的内容区量。框里还是旧尺寸的画面时，13px 下可能溢出、出滚动条，把内容区挤掉一行几列；按这个量出来的尺寸接上之后
+ * 画面不再溢出、滚动条消失，ResizeObserver 又量出大一点的尺寸、再 resize 一次（桌面浏览器的滚动条占位，无头 Chrome 缺省不占位）。
+ * 所以量的时候先把框的溢出藏起来，量完同步改回（中间不会画到屏幕上）。
+ */
+function proposeWithoutScrollbars(box: HTMLElement): {cols: number; rows: number} | null {
+    if (!fit) return null;
+    const overflow = box.style.overflow;
+    box.style.overflow = "hidden";
+    const proposed = fit.proposeDimensions();
+    box.style.overflow = overflow;
+    return proposed && proposed.cols > 0 && proposed.rows > 0 ? {cols: proposed.cols, rows: proposed.rows} : null;
+}
+
 /** 按接管后的样子量：框临时套上接管时的高度、字号换成 13px，量完同步改回（中间不会画到屏幕上）。 */
 function proposeControlSize(): {cols: number; rows: number} | null {
     const box = frameBox.value;
@@ -68,11 +82,11 @@ function proposeControlSize(): {cols: number; rows: number} | null {
     box.style.height = CONTROL_BOX.height;
     box.style.minHeight = CONTROL_BOX.minHeight;
     term.options.fontSize = CONTROL_FONT;
-    const proposed = fit.proposeDimensions();
+    const proposed = proposeWithoutScrollbars(box);
     term.options.fontSize = before.fontSize;
     box.style.height = before.height;
     box.style.minHeight = before.minHeight;
-    return proposed && proposed.cols > 0 && proposed.rows > 0 ? {cols: proposed.cols, rows: proposed.rows} : null;
+    return proposed;
 }
 
 function requestTakeover(): void {
@@ -129,9 +143,9 @@ onMounted(() => {
         resizeTimer = setTimeout(() => {
             resizeTimer = null;
             if (props.mode === "watch") return fitWatchFont();
-            if (!fit || !term) return;
-            const size = fit.proposeDimensions();
-            if (size && size.cols > 0 && size.rows > 0 && (size.cols !== props.cols || size.rows !== props.rows)) emit("resize", size.cols, size.rows);
+            if (!term || !frameBox.value) return;
+            const size = proposeWithoutScrollbars(frameBox.value);
+            if (size && (size.cols !== props.cols || size.rows !== props.rows)) emit("resize", size.cols, size.rows);
         }, 150);
     });
     observer.observe(frameBox.value!);
