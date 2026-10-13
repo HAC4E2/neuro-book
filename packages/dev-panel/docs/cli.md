@@ -84,7 +84,7 @@
   1. 先写登记的 `stoppingAt`、`stoppedBy`；
   2. 组长还在就**只给组长发 SIGTERM**（`bun run` 转给开发脚本，按它自己的顺序收口：master 的 source-dev 经 owned-process 收掉另一个会话里的运行时）；组长已不在就给进程组与后代快照里还活着的发 SIGTERM；
   3. 宽限期内每 250 毫秒重收后代，到期对快照里仍活着、启动时刻对得上的进程逐个 SIGKILL，再对进程组 SIGKILL；
-  4. 快照与进程组都不在、就绪地址连不上才算停干净，否则报 `stop_incomplete`，列出残留的 pid。
+  4. 快照与进程组都不在、就绪地址连不上才算停干净，否则报 `stop_incomplete`，列出残留的 pid。还有进程没收掉时登记不记为结束，状态是 `orphaned`，可以再 `dev stop`；只是地址仍有回应、我们的进程都不在时照记为结束（见 [文件格式](file-formats.md#进程登记)）。
 
   只碰登记的组长、它的进程组与收集到的后代快照，每个都核对 pid 与启动时刻；进程组按 [file-formats.md](file-formats.md#进程登记) “还活着”里的判据确认仍是我们那一组才发信号（组号可能已被别的组长复用）；不按命令行文本找进程。Claude Code 的 TaskStop 给整棵树同时发 SIGTERM、约 1.5 秒后整棵 SIGKILL，所以收到信号时先写登记、再发 SIGTERM，剩下的尽力而为。
 - **`dev stop` 与属主**：已结束的（含 PID 被复用、重启过）不发任何信号，只补 `endedAt`，回 `skipped`。下面任一条成立就不要 `--force`：监管进程不在（没人监管）、属主会话已不在、调用者就是属主；否则报 `run_owned_by_other`（`details.owner` 写明属主）。认不出的调用者可以起服务（登记的 `startedBy` 为 null），停这样的、监管进程还在的服务要 `--force`。

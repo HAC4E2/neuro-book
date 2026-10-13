@@ -6,6 +6,7 @@
  *   本进程收到 SIGTERM 时经监督器的 stdin 让它收掉运行时）；
  * - `FAKE_DEV_STYLE`：`listhen`（缺省，`➜ Local: <url>`，带 ANSI）、`nbook`（`[dev] page-ready <url>`，再隔 `FAKE_DEV_BACKEND_MS` 打 `[dev] backend-ready`）、`none`；
  * - `FAKE_DEV_READY_MS`：打就绪行之前等多久；`FAKE_DEV_STATUS`：HTTP 回的状态码（缺省 200）；`FAKE_DEV_EXIT_MS`：过这么久自己以 3 退出；
+ * - `FAKE_DEV_ANNOUNCE_URL`：就绪行里报这个地址而不是自己的（扮“就绪地址上是别的服务”）；
  * - `FAKE_DEV_PIDS`：把各角色的 pid 追加到这个文件（`<角色> <pid>`），测试据此核对进程都不在了。
  */
 import {spawn} from "node:child_process";
@@ -21,7 +22,7 @@ note(role, process.pid);
 function serve(): void {
     const status = Number(process.env.FAKE_DEV_STATUS ?? "200");
     const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("fake dev", {status})});
-    const url = `http://127.0.0.1:${server.port}/`;
+    const url = process.env.FAKE_DEV_ANNOUNCE_URL ?? `http://127.0.0.1:${server.port}/`;
     const style = process.env.FAKE_DEV_STYLE ?? "listhen";
     setTimeout(() => {
         // 先打一行用 \r 原地改写的进度，再打就绪行：就绪识别要按 \r 切行。

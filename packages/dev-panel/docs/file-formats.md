@@ -123,7 +123,8 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - **状态**（读取时现算）：下面任一条成立就算还活着：监管进程 pid 在且启动时刻相同；组长 pid 在且启动时刻相同；进程组仍是我们那一组（组长不在、`/proc/<pgid>` 也不在，`kill(-pgid, 0)` 成功，且快照里至少有一个进程 pid 与启动时刻都对得上、并在这个组里。我们的组还有成员时 Linux 不把这个号分给新进程，组空了以后号可以再分给别的组长：`/proc/<pgid>` 在而启动时刻与登记的组长不同，就是号已被复用；EPERM 是别的用户的组。这两种都不算我们的组）；快照里有进程 pid 在且启动时刻相同。
   - `starting`：活着、还没就绪；`running`：活着、已就绪、监管进程在；
   - `orphaned`：活着但监管进程不在，原因 `supervisor_gone`（组长还在）或 `leader_exited`（组长已退、组里或快照里还有进程）；
-  - `ended`：都不成立，原因 `exited`、`stopped`、`supervisor_killed`（没有 `endedAt`、也没有 `stoppingAt`）、`rebooted`（`bootId` 不是本次开机的）、`never_started`。
+  - `ended`：都不成立，原因 `exited`、`stopped`、`supervisor_killed`（没有 `endedAt`、也没有 `stoppingAt`）、`rebooted`（`bootId` 不是本次开机的）、`never_started`。有 `endedReason`、没有 `endedAt` 时按写下的原因。
+- **停完核对不过**（`stop_incomplete`）：还有我们的进程没收掉时不写 `endedAt`，`leftoverPids` 记它们的 pid，带启动时刻的残留并进 `descendants`：状态按上面的判据是 `orphaned`（`leader_exited`），再 `dev stop` 还能收，残留自己没了之后按 `endedReason` 算已结束。只是就绪地址仍有回应、我们的进程都已不在时，那个地址上的服务不是这份运行的进程：照写 `endedAt`，`leftoverPids` 为空，只在命令的输出里报 `stop_incomplete`（`urlResponding: true`）。
 - 不自动清理；面板与 `dev status` 只列还活着的与 24 小时内结束的。
 
 ## 租约

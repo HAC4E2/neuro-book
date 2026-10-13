@@ -237,7 +237,8 @@ export async function evaluateRun(record: ProcRecord, bootId: string): Promise<R
     const aliveDescendants: ProcRef[] = [];
     for (const entry of record.descendants) if (await processAlive(entry)) aliveDescendants.push(entry);
     const anything = supervisorAlive || leaderAlive || group || aliveDescendants.length > 0;
-    if (!anything) return {...dead, reason: record.stoppingAt ? "stopped" : "supervisor_killed"};
+    // 停完还有残留时登记先写了原因、没写 endedAt（t14 实现审查 S2）：残留后来自己没了，按写下的原因算。
+    if (!anything) return {...dead, reason: record.endedReason ?? (record.stoppingAt ? "stopped" : "supervisor_killed")};
     if (!supervisorAlive) return {state: "orphaned", reason: leaderAlive ? "supervisor_gone" : "leader_exited", supervisorAlive, leaderAlive, groupAlive: group, aliveDescendants};
     return {state: record.readyAt ? "running" : "starting", reason: null, supervisorAlive, leaderAlive, groupAlive: group, aliveDescendants};
 }

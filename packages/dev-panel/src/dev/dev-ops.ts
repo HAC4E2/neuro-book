@@ -10,7 +10,7 @@ import {isRecord} from "../core/json.js";
 import {processAlive, processStartTicks} from "../core/procfs.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {listCheckouts, type CheckoutInfo, type RepoContext} from "../core/repo.js";
-import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type RunEvaluation, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
+import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type ProcRef, type RunEvaluation, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
 import {compileReadyPattern, createReadyMatcher, LineSplitter, readyStatus, stripAnsi} from "./ready.js";
 
 /**
@@ -385,6 +385,7 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
         // 组长退出之后：是“正在停”就等停法走完；否则（服务自己退出）补收组里与快照里剩下的进程（t14 设计审查 I1）。
         let leftovers = 0;
         let leftoverPids: number[] = [];
+        let leftoverRefs: ProcRef[] = [];
         if (stopping) await stopping;
         // 组长刚由本进程收尸：组里还有进程时组号不会被复用，组里剩下的都是这份运行的，趁现在记进快照
         // （读者只凭快照里的组员认这个组，t14 实现审查 I1）。
@@ -399,9 +400,12 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
             leftovers = evaluation.aliveDescendants.length + (evaluation.groupAlive ? 1 : 0);
             const outcome = await stopRunProcesses(latest, {graceMs: wasStopping ? input.graceMs : LEFTOVER_GRACE_MS});
             leftoverPids = outcome.leftoverPids;
+            leftoverRefs = outcome.snapshot.filter((entry) => outcome.leftoverPids.includes(entry.pid));
         }
         await update((entry) => {
-            entry.endedAt ??= new Date().toISOString();
+            // 还有进程没收掉就不写 endedAt：读者按快照里的残留判 orphaned，`dev stop` 还能再收（t14 实现审查 S2）。
+            if (leftoverPids.length === 0) entry.endedAt ??= new Date().toISOString();
+            else entry.descendants = mergeRefs(entry.descendants, leftoverRefs);
             entry.endedReason ??= wasStopping ? "stopped" : "exited";
             entry.exitCode = code;
             entry.signal = signal;
@@ -477,10 +481,13 @@ async function stopRun(mainRoot: string, record: ProcRecord, by: string, graceMs
     const outcome = await stopRunProcesses(latest, {graceMs});
     // 监管进程还在时由它补 endedAt；等它一会儿，不在了（或本来就不在）就自己补。
     for (let waited = 0; waited < 3_000 && await processAlive(latest.supervisor); waited += 100) await sleep(100);
+    // 还有进程没收掉：不写 endedAt，残留（带启动时刻）并进快照，读者判 orphaned，再 dev stop 还能收（t14 实现审查 S2）。
+    // 只是地址仍有回应、我们的进程都不在了：那个地址上的服务不是这份运行的进程，照写 endedAt，只在输出里报 stop_incomplete。
     await updateProcRecord(mainRoot, record.runId, (entry) => {
-        entry.endedAt ??= new Date().toISOString();
         entry.endedReason ??= "stopped";
-        if (!outcome.clean) entry.leftoverPids = outcome.leftoverPids;
+        entry.leftoverPids = outcome.leftoverPids;
+        if (outcome.leftoverPids.length > 0) entry.descendants = mergeRefs(entry.descendants, outcome.snapshot.filter((ref) => outcome.leftoverPids.includes(ref.pid)));
+        else entry.endedAt ??= new Date().toISOString();
     });
     if (!outcome.clean) {
         throw new NbdevError("stop_incomplete", `停 ${record.runId} 之后还有进程没收掉${outcome.urlResponding ? "，地址仍有回应" : ""}：${outcome.leftoverPids.join("、") || "（未知）"}`, {

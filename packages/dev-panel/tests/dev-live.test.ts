@@ -347,6 +347,53 @@ describe("复用中途对方退出（t14 实现审查 S1）", () => {
     }, 60_000);
 });
 
+describe("停完核对不过（t14 实现审查 S2）", () => {
+    test("还有进程收不掉：不写 endedAt，状态 orphaned、再 dev stop 还会去收；残留没了之后按 stopped 结束", async () => {
+        const s = await setup("dev-stop-leftover");
+        // 僵尸进程扛得过 SIGKILL（要等父进程收尸）：用它扮“停不掉的残留”。父进程 exec 成 sleep 60，不收尸。
+        const parent = spawn("/bin/sh", ["-c", "sleep 0.1 & exec sleep 60"], {stdio: "ignore"});
+        cleanups.push(async () => {
+            parent.kill("SIGKILL");
+        });
+        const zombie = await until(async () => {
+            for (const name of await readdir("/proc")) {
+                if (!/^\d+$/u.test(name)) continue;
+                const stat = await readProcStat(Number(name));
+                if (stat && stat.ppid === parent.pid && readFileSync(`/proc/${name}/stat`, "utf8").includes(") Z ")) return stat;
+            }
+            return null;
+        }, (found) => found !== null, 5_000, "僵尸进程");
+        const runId = "dev-20261013T000000Z-0000000f";
+        await writeRecord(s, runId, {supervisor: {pid: parent.pid, startTicks: "1"}, pid: parent.pid, pgid: null, startTicks: "1", descendants: [{pid: zombie!.pid, startTicks: zombie!.startTicks}]});
+        const status = async () => (JSON.parse((await cli(s, ["dev", "status", "--package", "apps/web", "--json"])).stdout) as {data: {runs: Array<{state: string; reason: string}>}}).data.runs[0]!;
+        const stop = await cli(s, ["dev", "stop", runId, "--grace", "1", "--json"]);
+        expect([stop.exitCode, (JSON.parse(stop.stdout) as {errors: Array<{code: string; details: {leftoverPids: number[]}}>}).errors[0]]).toEqual([1, expect.objectContaining({code: "stop_incomplete", details: expect.objectContaining({leftoverPids: [zombie!.pid]})})]);
+        expect((await records(s.fixture))[0]).toMatchObject({endedAt: null, endedReason: "stopped", leftoverPids: [zombie!.pid]});
+        expect(await status()).toMatchObject({state: "orphaned", reason: "leader_exited"});
+        expect((await cli(s, ["dev", "stop", runId, "--grace", "1", "--json"])).exitCode).toBe(1);
+        parent.kill("SIGKILL");
+        await until(() => existsSync(`/proc/${zombie!.pid}`), (present) => !present, 5_000, "僵尸被收尸");
+        expect(await status()).toMatchObject({state: "ended", reason: "stopped"});
+    }, 30_000);
+
+    test("只是就绪地址上是别的服务：我们的进程都收掉了，报 stop_incomplete（urlResponding），登记照记为结束", async () => {
+        const other = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("other")});
+        cleanups.push(async () => {
+            await other.stop(true);
+        });
+        const s = await setup("dev-stop-url", {FAKE_DEV_ANNOUNCE_URL: `http://127.0.0.1:${other.port}/`});
+        const sup = await startDev(s, []);
+        expect(await readyLine(sup)).toMatch(/^READY /u);
+        const stop = await cli(s, ["dev", "stop", "--package", "apps/web", "--force", "--grace", "1", "--json"]);
+        expect([stop.exitCode, (JSON.parse(stop.stdout) as {errors: Array<{code: string; details: Record<string, unknown>}>}).errors[0]]).toEqual([1, expect.objectContaining({code: "stop_incomplete", details: expect.objectContaining({leftoverPids: [], urlResponding: true})})]);
+        await sup.exited;
+        expect((await records(s.fixture))[0]).toMatchObject({endedAt: expect.any(String), endedReason: "stopped", leftoverPids: []});
+        const again = await cli(s, ["dev", "stop", "--package", "apps/web", "--json"]);
+        expect([again.exitCode, (JSON.parse(again.stdout) as {data: {skipped: Array<{reason: string}>}}).data.skipped.map((entry) => entry.reason)]).toEqual([0, ["stopped"]]);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 60_000);
+});
+
 describe("PID 复用与重启（场景 3）", () => {
     test("登记里的 pid 被复用：dev status 判 ended、dev stop 不发信号；bootId 变了判 rebooted", async () => {
         const s = await setup("dev-reuse-pid");
