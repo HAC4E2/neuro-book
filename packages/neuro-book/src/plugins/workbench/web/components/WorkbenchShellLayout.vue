@@ -33,6 +33,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (event: "resize", payload: {contextKey: string; patch: ShellSizePatch}): void;
     (event: "layout", facts: ShellLayoutFacts): void;
+    /** 手势预览里已经被拉出来、投影里还收着的部件（拖到零的 Part、最大化下的编辑器）；手势结束或预览撤回时发空集。 */
+    (event: "preview", parts: ReadonlyArray<ShellPartId>): void;
 }>();
 
 interface PartSlotProps {
@@ -188,14 +190,26 @@ function onGesturePreview(preview: GridGesturePreview<unknown>): void {
         if (size !== undefined && size.width > 0 && size.height > 0) shown.add(part);
     }
     if (shown.size === previewShown.value.size && [...shown].every((part) => previewShown.value.has(part))) return;
-    previewShown.value = shown;
-    void nextTick(syncTargets);
+    setPreviewShown(shown);
 }
 
 function onGestureSettled(): void {
     if (previewShown.value.size === 0) return;
-    previewShown.value = new Set();
-    void nextTick(syncTargets);
+    setPreviewShown(new Set());
+}
+
+/**
+ * 换预览集合并搬内容：与投影变化同一套先后——先记下滚动与焦点，下一轮按新落点搬，再下一轮恢复。宿主同时拿到集合，让视图
+ * 的首次加载与“可见”跟着预览走（第一次拉出拖到零的面板时视图就加载，不等松手），持久的拖到零位仍等落账。
+ */
+function setPreviewShown(shown: ReadonlySet<ShellPartId>): void {
+    const focus = memory.capture(rootEl.value);
+    previewShown.value = shown;
+    emit("preview", [...shown]);
+    void nextTick(() => {
+        syncTargets();
+        void nextTick(() => memory.restore(focus, rootEl.value));
+    });
 }
 
 function parkedParts(): ReadonlySet<ShellPartId> {

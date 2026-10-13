@@ -121,6 +121,33 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
     }
 
+    test("面板拖到零后刷新、视图还没加载过：按住往外拉，松手前视图就加载并可见（外壳一输出 8）", async ({page}) => {
+        await open(page);
+        await expect(sample(page, E)).toBeVisible();
+        const sash = page.getByRole("separator", {name: "调整 editor 与 panel 的高度"});
+        const press = async (): Promise<{x: number; y: number}> => {
+            const found = await sash.boundingBox();
+            if (found === null) throw new Error("没有面板与编辑器之间的边界");
+            const start = {x: found.x + found.width / 2, y: found.y + found.height / 2};
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            return start;
+        };
+        let start = await press();
+        await page.mouse.move(start.x, start.y + 700, {steps: 6});
+        await page.mouse.up();
+        await expect(sample(page, E)).toBeHidden();
+        await page.reload();
+        await open(page);
+        // 刷新后面板仍拖到零：面板里的视图一次都没加载
+        await expect(sample(page, E)).toHaveCount(0);
+        start = await press();
+        await page.mouse.move(start.x, start.y - 220, {steps: 10});
+        await expect(sample(page, E)).toBeVisible();
+        await page.mouse.up();
+        await expect(sample(page, E)).toBeVisible();
+    });
+
     test("全链路：视图按声明出现在默认位置，第一次有效可见才加载，代际为 1", async ({page}) => {
         await open(page);
         await expect(sample(page, A)).toBeVisible();

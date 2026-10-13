@@ -126,11 +126,13 @@ function setTarget(part: ViewLocation, element: HTMLElement | null): void {
     else partTargets[part] = element;
 }
 
+/** 手势预览里已经拉出来、场景状态里还收着的部件：与产品外壳一样，视图跟着预览加载与可见。 */
+const previewParts = shallowRef<ReadonlyArray<string>>([]);
 const sidebarVisible = computed(() => !hiddenParts.value.includes("sidebar") && dragCollapsed.value.sidebar !== true);
 const shownParts = computed<ViewLocation[]>(() => [
-    ...(sidebarVisible.value ? ["sidebar" as const] : []),
-    ...(!hiddenParts.value.includes("auxiliarybar") && dragCollapsed.value.auxiliarybar !== true ? ["auxiliarybar" as const] : []),
-    ...(!panel.value.hidden && !panel.value.collapsed && dragCollapsed.value.panel !== true ? ["panel" as const] : []),
+    ...(sidebarVisible.value || (!hiddenParts.value.includes("sidebar") && previewParts.value.includes("sidebar")) ? ["sidebar" as const] : []),
+    ...(!hiddenParts.value.includes("auxiliarybar") && (dragCollapsed.value.auxiliarybar !== true || previewParts.value.includes("auxiliarybar")) ? ["auxiliarybar" as const] : []),
+    ...(!panel.value.hidden && !panel.value.collapsed && (dragCollapsed.value.panel !== true || previewParts.value.includes("panel")) ? ["panel" as const] : []),
 ]);
 
 function selectedOf(part: ViewLocation): ContainerPresentation | null {
@@ -216,6 +218,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
             :drag-collapsed-parts="dragCollapsed"
             :memory="memory"
             @resize="onResize"
+            @preview="(parts: ReadonlyArray<string>) => (previewParts = parts)"
         >
             <template #titlebar>
                 <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">NeuroBook · 视图场景</div>
