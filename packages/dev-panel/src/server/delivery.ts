@@ -145,6 +145,11 @@ export async function deliverText(context: DeliveryContext, target: DeliveryTarg
     return {result: "delivered", code: null, message: "已投递", agent: after};
 }
 
+/** 只核身份与仓库（发按键之前、写审计意图之前用）。 */
+export function checkSession(context: DeliveryContext, target: DeliveryTarget): Promise<{ok: true; agent: HerdrAgentInfo} | CheckFailure> {
+    return identity(context, target, false);
+}
+
 /** 按键：只核身份与仓库（任何状态都能发，按键常用来回应确认界面）。 */
 export async function deliverKeys(context: DeliveryContext, target: DeliveryTarget, keys: readonly string[]): Promise<{ok: true; agent: HerdrAgentInfo} | CheckFailure> {
     const checked = await identity(context, target, false);

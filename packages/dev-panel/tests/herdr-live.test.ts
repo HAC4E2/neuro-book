@@ -11,7 +11,7 @@ import {resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {locateRepository} from "../src/core/repo.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {startPanelServer} from "../src/server/serve.js";
-import {cleanupFixtures, CLI_PATH, createFixture, type CliEnvelope} from "./git-fixture.js";
+import {cleanupFixtures, CLI_PATH, createFixture, panelEnv, type CliEnvelope} from "./git-fixture.js";
 
 /**
  * L4：在本机 herdr 的命名会话 `nbdev-test` 里跑，绝不碰默认会话。
@@ -136,7 +136,7 @@ describe("真实 herdr（命名会话）", () => {
         }
         expect(existsSync(exit)).toBe(false);
         const token = randomBytes(32).toString("hex");
-        const panel = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined});
+        const panel = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined, env: panelEnv(fixture)});
         closers.push(() => panel.stop());
         const staticDir = join(fixture.root, "web");
         await mkdir(staticDir, {recursive: true});

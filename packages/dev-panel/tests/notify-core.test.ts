@@ -69,7 +69,7 @@ describe("待发通知的现算", () => {
     test("早于启用时刻的答复只进 legacy（只能手动发），不计入题数", () => {
         const jobs = computeNotifyJobs({tasks: [task([answer(OLD, {layout: "cards"}), answer(ID1, {port: "4400"})])], records: [], enabledAt: ENABLED});
         expect(keys(jobs)).toEqual([[A, [], [OLD]], [B, [ID1], []]].sort());
-        expect(jobs.find((job) => job.sessionKey === A)?.questions).toBe(0);
+        expect(jobs.find((job) => job.sessionKey === A)).toMatchObject({questions: 0, artifacts: [], withLegacy: {artifacts: ["questions"], questions: 1}});
     });
 
     test("指针消息与根 AGENTS.md 那一句逐字对应：一行、读答复不带 --unacked", () => {

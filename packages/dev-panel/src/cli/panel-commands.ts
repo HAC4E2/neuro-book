@@ -5,7 +5,7 @@ import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {NbdevError, systemErrorCode, type Warning} from "../core/errors.js";
 import {locateRepository} from "../core/repo.js";
-import {createHerdrClient, HERDR_PANEL_READ_METHODS, resolveHerdrSocket} from "../herdr/client.js";
+import {createHerdrClient, HERDR_PANEL_METHODS, resolveHerdrSocket} from "../herdr/client.js";
 import {stringValue, type CommandSpec} from "./common.js";
 import type {CommandOutcome} from "./output.js";
 
@@ -83,9 +83,9 @@ export const PANEL_COMMANDS: Record<string, CommandSpec> = {
             const warnings: Warning[] = [];
             try {
                 const token = randomBytes(32).toString("hex");
-                const herdr = createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_PANEL_READ_METHODS});
+                const herdr = createHerdrClient({socketPath: resolveHerdrSocket(io.env), allow: HERDR_PANEL_METHODS});
                 // 先绑定两个端口再构建：端口被占时立刻失败，不白等构建。
-                const server = await startPanelServer({context, host, port, artifactPort, herdr, token, log});
+                const server = await startPanelServer({context, host, port, artifactPort, herdr, token, log, env: io.env});
                 cleanups.push(() => server.stop());
                 await writePanelInfo(context.mainRoot, {instanceId: server.instanceId, url: server.url, artifactUrl: server.artifactUrl, token});
                 cleanups.push(() => removePanelInfo(context.mainRoot));

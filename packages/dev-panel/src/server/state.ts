@@ -21,11 +21,12 @@ import {HerdrMonitor} from "./herdr-monitor.js";
  * - **活动**（租约、会话、运行）：租约是否有效是读取时现算的（会话退出、过期、Task 关闭都不碰租约文件），
  *   所以有浏览器连着时每 5 秒整份重算；记录或会话变化时也重算。监视租约目录只当加速。
  * - **会话**：`HerdrMonitor`。
+ * - **通知**：`Notifier` 现算的通知任务（t11），变了就经 `notifyChanged()` 推送。
  * 每块的重算单飞并合并；失败时保留上一份，在 `meta` 里标错。只有显示用到的字段变了才增加 revision。
  */
 
 export type Part<T> = {value: T | null; revision: number; at: string | null; error: string | null};
-export type PartName = "records" | "activity" | "sessions";
+export type PartName = "records" | "activity" | "sessions" | "notify";
 export type RecordsValue = {records: ProjectRecords; transition: TransitionState; warnings: Warning[]};
 export type ActivityValue = {activity: Activity; warnings: Warning[]};
 
@@ -137,6 +138,7 @@ export class PanelState {
     }
 
     sessionsRevision = 0;
+    notifyRevision = 0;
     /** `stop()` 之后为 true：之后的 `watchAll()` 与 herdr 的 `start()` 都不再挂监视与定时器。 */
     stopped = false;
 
@@ -146,7 +148,12 @@ export class PanelState {
     }
 
     revisions(): Record<PartName, number> {
-        return {records: this.records.part.revision, activity: this.activity.part.revision, sessions: this.sessionsRevision};
+        return {records: this.records.part.revision, activity: this.activity.part.revision, sessions: this.sessionsRevision, notify: this.notifyRevision};
+    }
+
+    notifyChanged(): void {
+        this.notifyRevision += 1;
+        for (const listener of this.listeners) listener("notify");
     }
 
     keyOf(root: string): string | null {

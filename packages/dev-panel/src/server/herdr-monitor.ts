@@ -6,7 +6,8 @@ import {HerdrError, type HerdrClient, type HerdrEvent, type HerdrSnapshotPane, t
  *   对账时各 Agent 的 `state_change_seq` 与记下的不同，就是漏了状态事件（计进 `missedEvents`）。
  * - 重试只有一条链：已经排着一次重试时不再排第二次，30 秒的对账在重试期间跳过；退避计数只在订阅稳定保持 10 秒后清零，
  *   快照成功不清零（否则“连上就断”的订阅会一直以 500 毫秒重连）。
- * - 真实会话会不会推送 `pane.agent_status_changed` 没有核实，所以有浏览器连着时每 500 毫秒轮询一次 `pane.list`，事件只当加速。
+ * - 状态事件为主（0.9.3 上约 0.2 秒推送，见 docs/herdr.md）；有浏览器连着时另外每 500 毫秒轮询一次 `pane.list`，
+ *   没有浏览器、只有待发的通知时放慢到 15 秒（兜底，herdr 日志一天多约 2 MB）。会话 id 变了 herdr 不推事件，靠轮询与对账发现。
  * - `pane.agent_status_changed` 只能逐格订阅：pane 增减时开一条新的订阅连接，等它回 `subscription_started` 再关旧的，然后对账。
  */
 
@@ -25,8 +26,8 @@ export type HerdrState = {
     retries: number;
 };
 
-export type HerdrMonitorTimings = {reconcileMs: number; pollMs: number; backoffInitialMs: number; backoffMaxMs: number; stableMs: number};
-export const DEFAULT_HERDR_TIMINGS: HerdrMonitorTimings = {reconcileMs: 30_000, pollMs: 500, backoffInitialMs: 500, backoffMaxMs: 30_000, stableMs: 10_000};
+export type HerdrMonitorTimings = {reconcileMs: number; pollMs: number; pendingPollMs: number; backoffInitialMs: number; backoffMaxMs: number; stableMs: number};
+export const DEFAULT_HERDR_TIMINGS: HerdrMonitorTimings = {reconcileMs: 30_000, pollMs: 500, pendingPollMs: 15_000, backoffInitialMs: 500, backoffMaxMs: 30_000, stableMs: 10_000};
 
 const GLOBAL_EVENTS = ["pane.created", "pane.closed", "pane.updated", "pane.moved", "pane.exited", "pane.agent_detected", "workspace.created", "workspace.closed", "workspace.renamed"];
 /** 退避：初值 500 毫秒、每次乘 2、上限 30 秒，再加 0 到 20% 的抖动（多个面板或重启后不同时重连）。 */
@@ -50,6 +51,9 @@ export class HerdrMonitor {
     private stableTimer: ReturnType<typeof setTimeout> | null = null;
     private reconcileTimer: ReturnType<typeof setInterval> | null = null;
     private pollTimer: ReturnType<typeof setInterval> | null = null;
+    private pollEvery: number | null = null;
+    private active = false;
+    private pending = false;
     private refreshing: Promise<void> | null = null;
     private refreshAgain = false;
     private stopped = false;
@@ -72,14 +76,25 @@ export class HerdrMonitor {
         }, this.timings.reconcileMs);
     }
 
-    /** 有浏览器连着时开 500 毫秒的轮询，没有时关掉。 */
+    /** 有浏览器连着时开 500 毫秒的轮询。 */
     setActive(active: boolean): void {
+        this.active = active;
+        this.applyPolling();
+    }
+
+    /** 有待发的通知时（没有浏览器也）开 15 秒的兜底轮询。 */
+    setPending(pending: boolean): void {
+        this.pending = pending;
+        this.applyPolling();
+    }
+
+    private applyPolling(): void {
         if (!this.client || this.stopped) return;
-        if (active && !this.pollTimer) this.pollTimer = setInterval(() => void this.poll(), this.timings.pollMs);
-        if (!active && this.pollTimer) {
-            clearInterval(this.pollTimer);
-            this.pollTimer = null;
-        }
+        const every = this.active ? this.timings.pollMs : this.pending ? this.timings.pendingPollMs : null;
+        if (every === this.pollEvery) return;
+        if (this.pollTimer) clearInterval(this.pollTimer);
+        this.pollTimer = every === null ? null : setInterval(() => void this.poll(), every);
+        this.pollEvery = every;
     }
 
     stop(): void {
@@ -211,7 +226,7 @@ export class HerdrMonitor {
             const byId = new Map(listed.map((pane) => [pane.paneId, pane]));
             this.update({panes: this.state.panes.map((pane) => {
                 const fresh = byId.get(pane.paneId)!;
-                return {...pane, status: fresh.status, agent: fresh.agent, session: fresh.session, cwd: fresh.cwd, foregroundCwd: fresh.foregroundCwd};
+                return {...pane, status: fresh.status, agent: fresh.agent, session: fresh.session, cwd: fresh.cwd, foregroundCwd: fresh.foregroundCwd, focused: fresh.focused};
             })});
         } catch (error) {
             if (!(error instanceof HerdrError)) throw error;

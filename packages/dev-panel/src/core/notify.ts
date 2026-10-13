@@ -58,6 +58,8 @@ export type NotifyJob = {
     artifacts: string[];
     /** 这些答复覆盖的、这个会话问的题数。 */
     questions: number;
+    /** 手动发送时连旧答复一起：产物与题数（新旧答复里的题去重后计数）。 */
+    withLegacy: {artifacts: string[]; questions: number};
     /** 提问时记下的 pane（provenance），判断“会话已更换”用；读不到为 null。 */
     askerPaneId: string | null;
 };
@@ -94,7 +96,7 @@ function doneSet(records: readonly NotifyRecord[]): Set<string> {
  */
 export function computeNotifyJobs(input: {tasks: readonly TaskNotifyInput[]; records: readonly NotifyRecord[]; enabledAt: string}): NotifyJob[] {
     const done = doneSet(input.records);
-    const jobs = new Map<string, NotifyJob & {questionIds: Set<string>}>();
+    const jobs = new Map<string, Omit<NotifyJob, "questions" | "withLegacy"> & {questionIds: Set<string>; allQuestionIds: Set<string>; allArtifacts: string[]}>();
     for (const task of input.tasks) {
         for (const artifact of task.artifacts) {
             const ackedBy = new Map<string, Array<string | null>>();
@@ -113,7 +115,7 @@ export function computeNotifyJobs(input: {tasks: readonly TaskNotifyInput[]; rec
                     const key = `${task.workId}\0${task.taskId}\0${asker}`;
                     let job = jobs.get(key);
                     if (!job) {
-                        job = {workId: task.workId, taskId: task.taskId, sessionKey: asker, answers: [], legacy: [], artifacts: [], questions: 0, askerPaneId: artifact.askerPanes.get(questionId) ?? null, questionIds: new Set()};
+                        job = {workId: task.workId, taskId: task.taskId, sessionKey: asker, answers: [], legacy: [], artifacts: [], askerPaneId: artifact.askerPanes.get(questionId) ?? null, questionIds: new Set(), allQuestionIds: new Set(), allArtifacts: []};
                         jobs.set(key, job);
                     }
                     const entry = {answerId: answer.answerId, artifactId: artifact.artifactId};
@@ -123,12 +125,14 @@ export function computeNotifyJobs(input: {tasks: readonly TaskNotifyInput[]; rec
                         job.questionIds.add(`${artifact.artifactId}#${questionId}`);
                         if (!job.artifacts.includes(artifact.artifactId)) job.artifacts.push(artifact.artifactId);
                     }
+                    job.allQuestionIds.add(`${artifact.artifactId}#${questionId}`);
+                    if (!job.allArtifacts.includes(artifact.artifactId)) job.allArtifacts.push(artifact.artifactId);
                     job.askerPaneId ??= artifact.askerPanes.get(questionId) ?? null;
                 }
             }
         }
     }
-    return [...jobs.values()].map(({questionIds, ...job}) => ({...job, questions: questionIds.size}));
+    return [...jobs.values()].map(({questionIds, allQuestionIds, allArtifacts, ...job}) => ({...job, questions: questionIds.size, withLegacy: {artifacts: allArtifacts, questions: allQuestionIds.size}}));
 }
 
 /**

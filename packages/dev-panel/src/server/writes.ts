@@ -1,4 +1,5 @@
 import {submitAnswer} from "../core/artifact-ops.js";
+import {newActionId, readAuditStatus, type AuditAction, type AuditWriter} from "../core/audit.js";
 import {editRecordFile} from "../core/edit-ops.js";
 import {isNbdevError, NbdevError, type Warning} from "../core/errors.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
@@ -14,18 +15,25 @@ import {NotReady, currentStatus} from "./views.js";
  * 面板以开发者身份写（`PANEL_DEVELOPER`）：不取租约，提交信息标“面板”，登记表的 `by` 是开发者。合同见 docs/panel.md 的“写接口”。
  */
 
-type Envelope = (data: unknown, warnings: Warning[], error: {code: string; message: string; details?: unknown} | null, status?: number) => Response;
-export type WriteDeps = {state: PanelState; envelope: Envelope; log: (message: string) => void};
+export type Envelope = (data: unknown, warnings: Warning[], error: {code: string; message: string; details?: unknown} | null, status?: number) => Response;
+export type WriteDeps = {
+    state: PanelState;
+    envelope: Envelope;
+    log: (message: string) => void;
+    audit: AuditWriter;
+    /** 写成功之后（通知要现算：第二份答复不改变记录缓存的指纹，不会经推送触发）。 */
+    afterWrite: () => void;
+};
 
 const KIB = 1024;
 /** 编辑的内容上限 1 MiB（核心再按字节核一次）；JSON 的转义与其余字段另留余量。 */
 const LIMITS = {answer: 256 * KIB, create: 16 * KIB, status: 4 * KIB, edit: 2 * 1024 * KIB, preview: 16 * KIB};
 const MAX_NOTE = 2000;
 
-type FieldType = "string" | "number" | "boolean" | "object" | "nullable-string" | "nullable-number";
-type Schema = Record<string, {type: FieldType; required?: boolean}>;
+type FieldType = "string" | "number" | "boolean" | "object" | "nullable-string" | "nullable-number" | "string-array";
+export type Schema = Record<string, {type: FieldType; required?: boolean}>;
 
-function usage(message: string, details: Record<string, unknown>): NbdevError {
+export function usage(message: string, details: Record<string, unknown>): NbdevError {
     return new NbdevError("usage", message, {details});
 }
 
@@ -63,11 +71,12 @@ function typeOk(value: unknown, type: FieldType): boolean {
     case "object": return typeof value === "object" && value !== null && !Array.isArray(value);
     case "nullable-string": return value === null || typeof value === "string";
     case "nullable-number": return value === null || (typeof value === "number" && Number.isFinite(value));
+    case "string-array": return Array.isArray(value) && value.every((entry) => typeof entry === "string");
     }
 }
 
 /** 顶层必须是对象；只收列出的字段（拼错的字段名不会被静默忽略），类型不对、缺必填都回 400。 */
-async function readFields(req: Request, limit: number, schema: Schema, preview = false): Promise<Record<string, unknown>> {
+export async function readFields(req: Request, limit: number, schema: Schema, preview = false): Promise<Record<string, unknown>> {
     const type = (req.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
     if (type !== "application/json") throw new NbdevError("unsupported_media_type", "写请求的 Content-Type 必须是 application/json", {details: {contentType: type}});
     const text = await readBody(req, limit);
@@ -122,10 +131,10 @@ function knownArtifact(state: PanelState, workId: string, taskId: string, artifa
 }
 
 /** HTTP 状态：用法 400（体积 413、类型 415），冲突 409，找不到 404，等锁超时 503（确定什么都没写），其余 500。 */
-function statusOf(error: NbdevError): number {
+export function statusOf(error: NbdevError): number {
     if (error.code === "payload_too_large") return 413;
     if (error.code === "unsupported_media_type") return 415;
-    if (error.code === "lock_timeout") return 503;
+    if (error.code === "lock_timeout" || error.code === "herdr_unavailable") return 503;
     if (error.exitCode === 2) return 400;
     if (error.exitCode === 3) return 409;
     if (error.exitCode === 5) return 404;
@@ -142,15 +151,36 @@ export function createWriteHandler(deps: WriteDeps) {
      * 写成功后等记录与活动各重算一次（这次重算在写入之后才开始）再回应：回应里的 revisions 已包含这次写入，
      * 前端拿到回应就能跳到新建的 Work，不会因为缓存还没算到它而 404。
      */
-    async function respond(outcome: WriteOutcome): Promise<Response> {
+    async function respond(outcome: WriteOutcome, action: AuditAction, target: Record<string, unknown>): Promise<Response> {
         await state.records.run();
         await state.activity.run();
         const {commit} = outcome;
         const data = {changed: true, ...outcome.data, commit};
+        const warnings = [...outcome.warnings, ...await auditWrite(action, target, commit)];
+        deps.afterWrite();
         if (!commit.committed && commit.reason !== "nothing_to_commit") {
-            return envelope(data, outcome.warnings, {code: "commit_failed", message: `已写入、没有提交（${commit.reason}）：${commit.writtenPaths.join("、")}；手动提交这些路径`, details: {reason: commit.reason, writtenPaths: commit.writtenPaths, detail: commit.detail}}, 500);
+            return envelope(data, warnings, {code: "commit_failed", message: `已写入、没有提交（${commit.reason}）：${commit.writtenPaths.join("、")}；手动提交这些路径`, details: {reason: commit.reason, writtenPaths: commit.writtenPaths, detail: commit.detail}}, 500);
         }
-        return envelope(data, outcome.warnings, null);
+        return envelope(data, warnings, null);
+    }
+
+    /**
+     * 写仓库之后补一行审计结果（S7）：审计没初始化时跳过（面板照常写，`/api/meta` 标着审计未开启）；
+     * 初始化过却写不进去（权限、属主不对）只给警告——仓库已经改了，git 历史也记着，回错会让开发者以为没写成。
+     */
+    async function auditWrite(action: AuditAction, target: Record<string, unknown>, commit: CommitOutcome): Promise<Warning[]> {
+        const status = await readAuditStatus(deps.audit.paths);
+        if (!status.enabled && status.reason === "not_initialized") return [];
+        try {
+            await deps.audit.append({actionId: newActionId(), phase: "result", action, device: PANEL_DEVELOPER.device, target, detail: commit.committed
+                ? {committed: true, sha: commit.sha, paths: commit.paths}
+                : {committed: false, reason: commit.reason, paths: commit.reason === "nothing_to_commit" ? commit.paths : commit.writtenPaths}});
+            return [];
+        } catch (error) {
+            if (!(error instanceof Error)) throw error;
+            log(`写审计失败（${action}）：${error.message}`);
+            return [{code: "audit_write_failed", message: `已写入，但审计没记上：${error.message}`, details: {action}}];
+        }
     }
 
     async function answers(req: Request): Promise<Response> {
@@ -176,7 +206,7 @@ export function createWriteHandler(deps: WriteDeps) {
             submittedBy: {kind: "developer", device: PANEL_DEVELOPER.device},
             submittedAt: new Date().toISOString(),
         }, options(req));
-        return respond(outcome);
+        return respond(outcome, "answer", {workId, taskId, artifactId});
     }
 
     const WORK_FIELDS: Schema = {
@@ -199,13 +229,13 @@ export function createWriteHandler(deps: WriteDeps) {
 
     async function works(req: Request): Promise<Response> {
         const fields = await readFields(req, LIMITS.create, WORK_FIELDS);
-        return respond(await createWork(state.context, workInput(fields), options(req)));
+        return respond(await createWork(state.context, workInput(fields), options(req)), "create_work", {slug: str(fields, "slug")});
     }
 
     async function tasks(req: Request, workId: string): Promise<Response> {
         knownWork(state, workId);
         const fields = await readFields(req, LIMITS.create, TASK_FIELDS);
-        return respond(await createTask(state.context, taskInput(workId, fields), options(req)));
+        return respond(await createTask(state.context, taskInput(workId, fields), options(req)), "create_task", {workId, slug: str(fields, "slug")});
     }
 
     async function status(req: Request, workId: string, taskId: string | null): Promise<Response> {
@@ -216,14 +246,14 @@ export function createWriteHandler(deps: WriteDeps) {
         const outcome = taskId === null
             ? await setRecordStatus(state.context, input, options(req))
             : await setTaskStatus(state.context, {...input, taskRef: taskId}, options(req));
-        return respond(outcome);
+        return respond(outcome, "status", {workId, taskId, status: input.status});
     }
 
     async function edit(req: Request, url: URL): Promise<Response> {
         const path = url.searchParams.get("path");
         if (path === null) throw usage("缺少 path", {field: "path", reason: "missing"});
         const fields = await readFields(req, LIMITS.edit, {content: {type: "string", required: true}, baseHash: {type: "string", required: true}, includeUncommitted: {type: "boolean"}});
-        return respond(await editRecordFile(state.context, {path, content: str(fields, "content")!, baseHash: str(fields, "baseHash")!, includeUncommitted: fields.includeUncommitted === true}, options(req)));
+        return respond(await editRecordFile(state.context, {path, content: str(fields, "content")!, baseHash: str(fields, "baseHash")!, includeUncommitted: fields.includeUncommitted === true}, options(req)), "edit", {path});
     }
 
     /** 预览与写接口走同一套校验，只是不取锁、不写文件；字段可以不全（表单还在填）。 */

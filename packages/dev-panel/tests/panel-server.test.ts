@@ -12,7 +12,7 @@ import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
-import {cleanupFixtures, createFixture, git, run, taskReadme, workReadme, type Fixture} from "./git-fixture.js";
+import {cleanupFixtures, createFixture, git, panelEnv, run, taskReadme, workReadme, type Fixture} from "./git-fixture.js";
 import {startFakeClaude, spawnMarked, stopProcess, type MarkedChild} from "./processes.js";
 
 /** L3：面板服务在进程内起（端口取 0），前端产物用桩页面注入，不依赖 dist/web。 */
@@ -50,6 +50,7 @@ async function startPanel(fixture: Fixture, panes: Parameters<typeof startFakeHe
         herdr: fake ? createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS}) : null,
         token,
         log: (message) => logs.push(message),
+        env: panelEnv(fixture),
     });
     closers.push(() => server.stop());
     await server.setStatic(staticDir, {failed: null});
@@ -325,7 +326,7 @@ describe("面板服务的启动与搜索", () => {
         await fixture.write("docs/a.md", "needle\n".repeat(50));
         await fixture.commit("docs");
         const token = randomBytes(32).toString("hex");
-        const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined});
+        const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined, env: panelEnv(fixture)});
         closers.push(() => server.stop());
         const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket(token))}`;
         expect((await fetch(`${server.url}/api/overview`, {headers: {Cookie: cookie}})).status).toBe(503);
@@ -425,7 +426,7 @@ describe("herdr 的常驻状态", () => {
 
     test("herdr 一直不在：只有一条重试链，次数按退避有上界（对账定时器不另起链）", async () => {
         const fixture = await createFixture("panel-monitor-down");
-        const timings = {reconcileMs: 30, pollMs: 500, backoffInitialMs: 20, backoffMaxMs: 200, stableMs: 500};
+        const timings = {reconcileMs: 30, pollMs: 500, pendingPollMs: 15_000, backoffInitialMs: 20, backoffMaxMs: 200, stableMs: 500};
         const monitor = new HerdrMonitor(createHerdrClient({socketPath: join(fixture.root, "no-herdr.sock"), allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, timings);
         closers.push(async () => monitor.stop());
         monitor.start();
@@ -441,7 +442,7 @@ describe("herdr 的常驻状态", () => {
         const fake = await startFakeHerdr(fixture.root, [claudePane("w9:p1", randomUUID())]);
         closers.push(() => fake.close());
         fake.dropSubscriptionsAfterMs = 5;
-        const timings = {reconcileMs: 60_000, pollMs: 500, backoffInitialMs: 40, backoffMaxMs: 5_000, stableMs: 1_000};
+        const timings = {reconcileMs: 60_000, pollMs: 500, pendingPollMs: 15_000, backoffInitialMs: 40, backoffMaxMs: 5_000, stableMs: 1_000};
         const monitor = new HerdrMonitor(createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, timings);
         closers.push(async () => monitor.stop());
         monitor.start();
@@ -506,7 +507,7 @@ describe("端口", () => {
             await holder.stop(true);
         });
         const context = await locateRepository(fixture.main);
-        const attempt = (port: number, artifactPort: number) => startPanelServer({context, host: "127.0.0.1", port, artifactPort, herdr: null, token: "t", log: () => undefined});
+        const attempt = (port: number, artifactPort: number) => startPanelServer({context, host: "127.0.0.1", port, artifactPort, herdr: null, token: "t", log: () => undefined, env: panelEnv(fixture)});
         await expect(attempt(holder.port!, 0)).rejects.toMatchObject({code: "port_in_use"});
         await expect(attempt(0, holder.port!)).rejects.toMatchObject({code: "port_in_use"});
         const ok = await attempt(0, 0);

@@ -32,6 +32,8 @@ export const HERDR_KEYS = new Set(["up", "down", "shift+tab", "enter", "esc", "c
 
 export type FakeHerdr = {
     socketPath: string;
+    /** `ping` 与快照报的版本；缺省 `fake`（面板不对它自动投递，测通知时设成 0.9.3）。 */
+    version: string;
     panes: FakePane[];
     requests: Array<{method: string; params: Record<string, unknown>; at: number}>;
     /** 给了就在回 `subscription_started` 之后这么多毫秒断开订阅连接（模拟“连上就断”）。 */
@@ -64,6 +66,7 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
     const subscribers = new Set<Socket>();
     const fake: FakeHerdr = {
         socketPath,
+        version: "fake",
         panes,
         requests,
         overrides: {},
@@ -129,12 +132,12 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
     const paneById = (paneId: unknown) => fake.panes.find((pane) => pane.pane_id === paneId);
     switch (method) {
     case "ping":
-        return {id, result: {type: "pong", version: "fake", protocol: 22}};
+        return {id, result: {type: "pong", version: fake.version, protocol: 22}};
     case "pane.list":
         return {id, result: {type: "pane_list", panes: fake.panes.map(({shell_pid: _shell, foreground_pids: _fg, state_change_seq: _seq, explain: _explain, visible: _visible, on_prompt: _prompt, ...pane}) => pane)}};
     case "session.snapshot":
         return {id, result: {type: "session_snapshot", snapshot: {
-            version: "fake",
+            version: fake.version,
             protocol: 22,
             workspaces: [{workspace_id: "w9", number: 9, label: "fake"}],
             tabs: [],

@@ -11,6 +11,9 @@ import {PanelState, type PartName} from "./state.js";
 import {assertMainWritable} from "../core/repo.js";
 import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
 import {createWriteHandler} from "./writes.js";
+import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
+import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
+import {createSessionIo} from "./session-io.js";
 
 /**
  * 面板服务：两个来源（`Bun.serve` 各一个）。
@@ -31,6 +34,8 @@ export type PanelServerOptions = {
     herdr: HerdrClient | null;
     token: string;
     log: (message: string) => void;
+    /** 审计的位置（`XDG_CONFIG_HOME`、`HOME`）与作为服务运行时的单元名（`NBDEV_PANEL_UNIT`）从这里取；测试指到临时根。 */
+    env: NodeJS.ProcessEnv;
 };
 
 export type PanelServer = {
@@ -110,7 +115,16 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     }), {status, headers: {...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8"}});
     const notFound = () => envelope(null, [], {code: "not_found", message: "找不到"}, 404);
 
-    const writes = createWriteHandler({state, envelope, log});
+    const audit = createAuditWriter(auditPaths(options.env), state.instanceId);
+    const locks = new PaneLocks();
+    const notifier = new Notifier({state, client: options.herdr, audit, locks, log, onChange: () => state.notifyChanged()});
+    const writes = createWriteHandler({state, envelope, log, audit, afterWrite: () => void notifier.tick()});
+    const sessionIo = createSessionIo({state, notifier, locks, audit, client: options.herdr, envelope, log});
+    // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转）。
+    const stopNotifyTrigger = state.onChange((part) => {
+        if (part !== "notify" && ready) void notifier.tick();
+    });
+    const serviceUnit = options.env.NBDEV_PANEL_UNIT && /^[A-Za-z0-9@._-]{1,128}$/u.test(options.env.NBDEV_PANEL_UNIT) ? options.env.NBDEV_PANEL_UNIT : null;
 
     /** 主工作区现在能不能写（不在 master、正在合并或变基时不能）：前端据此隐藏写入口，不必等每个请求回 409。 */
     async function mainWritability(): Promise<{ok: boolean; code: string | null; message: string | null}> {
@@ -135,13 +149,18 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 const herdr = state.herdr.current();
                 const mainWritable = await mainWritability();
                 const parts = {records: state.records.part, activity: state.activity.part};
+                const auditStatus = await readAuditStatus(audit.paths);
                 return envelope({
                     instance: state.instanceId,
                     startedAt: state.startedAt,
                     ready,
                     codeChanged: state.codeChanged,
+                    // 作为服务运行时（单元文件写了 NBDEV_PANEL_UNIT）提示里写重启命令；前台运行时为 null，提示“在终端重启”。
+                    service: {unit: serviceUnit, restartCommand: serviceUnit ? `systemctl --user restart ${serviceUnit}` : null},
                     build: state.build,
-                    herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error},
+                    herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, autoNotify: herdr.version !== null && AUTO_NOTIFY_VERSIONS.includes(herdr.version)},
+                    audit: auditStatus.enabled ? {enabled: true, initAt: auditStatus.initAt, path: auditStatus.paths.file} : {enabled: false, reason: auditStatus.reason, detail: auditStatus.detail, path: auditStatus.paths.file},
+                    notify: {pending: notifier.pendingCount(), attention: notifier.jobs.filter((job) => job.state === "replaced" || job.state === "no_target").length},
                     parts: Object.fromEntries(Object.entries(parts).map(([name, part]) => [name, {revision: part.revision, at: part.at, error: part.error}])),
                     artifactOrigin: artifactOrigin(requestHost),
                     // 前端渲染 Markdown 时把 `.agents/works/` 下的图片与证据链接改写到产物来源上；前缀只经登录后的接口交出。
@@ -192,6 +211,8 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 return envelope(data, warnings, null);
             }
             if (route === "search" && rest.length === 0) return search(req, url);
+            const handled = await sessionIo(req, segments, url);
+            if (handled) return handled;
             return notFound();
         } catch (error) {
             if (error instanceof NotReady) return envelope(null, [], {code: "warming_up", message: error.message}, 503);
@@ -292,7 +313,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         }
         if (req.method !== "GET" && req.method !== "HEAD") {
             if (!sameOrigin || !equalSecret(req.headers.get("x-nbdev-csrf"), csrf)) return plain(403, "forbidden：跨来源的写请求，或缺少 CSRF 令牌");
-            if (segments[0] === "api") return writes(req, segments, url);
+            if (segments[0] === "api") return (await sessionIo(req, segments, url)) ?? writes(req, segments, url);
             return plain(405, "method_not_allowed：这里没有写接口");
         }
         if (segments[0] === "login" && segments.length === 1) {
@@ -389,12 +410,16 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             if (state.stopped) return false;
             state.watchAll();
             ready = true;
+            notifier.start();
             for (const ws of sockets) ws.send(JSON.stringify({type: "changed", instance: state.instanceId, parts: ["records", "activity", "sessions"], revisions: state.revisions()}));
             return true;
         },
         async stop() {
             unsubscribe();
+            stopNotifyTrigger();
             currentSearch?.abort();
+            // 先等进行中的投递结束（有上限），再停监视：投递途中退出会留下只有意图的记录。
+            await notifier.stop();
             state.stop();
             for (const ws of sockets) ws.close(1001, "面板退出");
             await Promise.all([panel?.stop(true), artifacts?.stop(true)]);

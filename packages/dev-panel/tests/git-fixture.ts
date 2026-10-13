@@ -88,6 +88,11 @@ export type CliEnvelope = {
 
 const fixtureRoots: string[] = [];
 
+/** 面板服务的环境：审计（`XDG_CONFIG_HOME`）指到临时根，不碰真实的 `~/.config/nbdev/`。 */
+export function panelEnv(fixture: Pick<Fixture, "root">): NodeJS.ProcessEnv {
+    return {HOME: join(fixture.root, "home"), XDG_CONFIG_HOME: join(fixture.root, "config")};
+}
+
 /** 新建一个临时仓库：`<root>/main` 是主工作区，带 `.gitignore` 与一个已提交的种子 Work（w00001-seed/t01-seed）。 */
 export async function createFixture(name: string): Promise<Fixture> {
     const root = await createTestTmpRoot(`dev-panel-${name}`, `dev-panel ${name}`);
