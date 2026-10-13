@@ -70,6 +70,9 @@ updated: 2026-10-13
   - 补测试，含面板层 L4。
 - 主 Agent 复跑：包测试 288 个（含 0.9.3 与 0.9.1 两组 L4）、typecheck、`build:web`、根上三个测试文件 177 个、`dev-panel-records` 在 Node 下退出码 0、`governance:check`、`docs:check` 都通过。看截图，字距已正常。
 
+- 2026-10-13 开发者授权后，集成分支 `72799b957` 本地合入 `master`（合并提交 `98d3d4595`，在服务脚本的合并 `fcb2bddc5` 之后，没有 PR、没有 push master）。合并后复跑：包测试 286 个（L4 在 `72799b957` 上跑过，这次跳过）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
+- 重装常驻服务：单元多了 `KillMode=mixed` 与 `NBDEV_HERDR_BIN`。第一次重启时前端构建失败，原因是主工作区的 `node_modules` 没有 t12 新加的 `@xterm` 依赖，面板用了旧产物。在主工作区按已提交的 `bun.lock` 运行 `bun install --frozen-lockfile` 后 `service:restart`，构建与预热都正常。以后合入改了依赖的提交，要先在主工作区装依赖再重启服务。
+
 ## 下一步
 
-合入 `master`（要开发者授权）、重装 systemd 单元，再请开发者在场做五步验收。
+请开发者在场做五步验收（见 [plan.md](plan.md) 的“设计审查的处理”验收一节），之后标为 `done`。

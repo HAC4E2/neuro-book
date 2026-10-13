@@ -76,6 +76,8 @@ updated: 2026-10-13
 
 - 2026-10-13 开发者停掉手动起的面板后，按授权运行 `install-service`：`~/.config/systemd/user/nbdev-panel-neuro-book.service` 已 `enable --now`，状态 `active`，约 1 秒预热完成，日志在 `journalctl --user -u nbdev-panel-neuro-book.service`。
 
+- 2026-10-13 按开发者要求，加了管理服务的包脚本 `service`、`service:status|start|stop|restart|logs`。它们在单独的分支 `feat/w00022-t11-service-scripts`（`583c3d1cd`）上完成，经开发者授权，与 t12 一起合入 `master`（合并提交 `fcb2bddc5`）。
+
 ## 下一步
 
 开发者在场时做场景 1；之后标为 `done`。
