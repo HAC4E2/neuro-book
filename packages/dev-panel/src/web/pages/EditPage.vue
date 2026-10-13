@@ -23,7 +23,7 @@ const route = useRoute();
 const router = useRouter();
 const path = computed(() => (typeof route.query.path === "string" ? route.query.path : null));
 const session = useFileEditSession(path);
-const {file, draft, dirty, write, notice, uncommitted, mismatch} = session;
+const {file, draft, dirty, write, saving, notice, uncommitted, mismatch} = session;
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 
 const blocked = computed(() => {
@@ -47,8 +47,16 @@ async function copyDraft(): Promise<void> {
 }
 
 const LEAVE = "有未保存的改动，离开会丢掉。确定离开？";
-onBeforeRouteLeave(() => !dirty.value || window.confirm(LEAVE));
-onBeforeRouteUpdate((to) => to.query.path === route.query.path || !dirty.value || window.confirm(LEAVE));
+/** 站内离开：保存在途时直接拒绝（这次保存照样会提交，离开不会丢掉它，等结果回来再走）；有未保存的改动时确认。 */
+function mayLeave(): boolean {
+    if (saving.value) {
+        notice.value = {tone: "warning", title: "正在保存", message: "等它完成再离开（等别的写入最长 30 秒）", items: [], retry: false};
+        return false;
+    }
+    return !dirty.value || window.confirm(LEAVE);
+}
+onBeforeRouteLeave(() => mayLeave());
+onBeforeRouteUpdate((to) => to.query.path === route.query.path || mayLeave());
 function guardUnload(event: BeforeUnloadEvent): void {
     if (!dirty.value) return;
     event.preventDefault();
@@ -87,7 +95,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
                     <Button size="sm" variant="danger" @click="session.takeCurrent">{{ mismatch.maybeMine ? "载入新版本" : "载入新版本（丢掉我的改动）" }}</Button>
                 </div>
             </section>
-            <FileEditor v-model="draft" :preview-html="previewHtml" :readonly="blocked !== null" :line-limit="file.data.value.lineLimit" @navigate="(href) => router.push(href)" />
+            <FileEditor v-model="draft" :preview-html="previewHtml" :readonly="blocked !== null || saving" :line-limit="file.data.value.lineLimit" @navigate="(href) => router.push(href)" />
             <div class="flex flex-wrap items-center gap-2">
                 <Button :loading="write.pending.value" :disabled="!dirty || blocked !== null || mismatch !== null" @click="session.save()">保存并提交</Button>
                 <Button variant="ghost" :disabled="!dirty || write.pending.value" @click="session.discard">放弃改动</Button>

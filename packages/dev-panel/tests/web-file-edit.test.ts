@@ -96,3 +96,29 @@ describe("换文件之后不留旧文件的状态（1.3）", () => {
         stop();
     });
 });
+
+describe("保存在途时（1.4）", () => {
+    test("saving 为真；挂起期间草稿被改了（绕过只读）：回包不覆盖草稿、仍算未保存；正常保存后草稿换成服务端文本", async () => {
+        const hold = gate();
+        web.env.respond(serveFiles({"a.md": {text: "A 原文", hash: "ha"}}));
+        let puts = 0;
+        web.env.respond((call) => {
+            if (call.method !== "PUT") return undefined;
+            puts += 1;
+            return puts === 1 ? {data: {changed: true, commit, text: "A 一\n", nextHash: "h1"}, wait: hold.promise} : {data: {changed: true, commit, text: "A 二（updated 改过）\n", nextHash: "h2"}};
+        });
+        const {session, stop} = mount("a.md");
+        await until(() => session.base.value, (value) => value !== null);
+        session.draft.value = "A 一";
+        const saving = session.save();
+        expect(session.saving.value).toBe(true);
+        session.draft.value = "A 一，又打了几个字";
+        hold.open();
+        await saving;
+        expect([session.saving.value, session.base.value?.hash, session.draft.value, session.dirty.value]).toEqual([false, "h1", "A 一，又打了几个字", true]);
+        session.draft.value = "A 二";
+        await session.save();
+        expect([session.draft.value, session.dirty.value, session.notice.value?.title]).toEqual(["A 二（updated 改过）\n", false, "已保存"]);
+        stop();
+    });
+});

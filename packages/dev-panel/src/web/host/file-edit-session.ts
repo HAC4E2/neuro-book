@@ -10,6 +10,7 @@ import {failureNotice, successNotice, uncommittedOf, useWrite, type Notice, type
  * “编辑页的未保存改动”；路由守卫、`beforeunload`、剪贴板仍在页面里。
  * - 换文件（`path` 变了）：会话代号加一，基线、草稿、冲突与提示都清掉，新文件到达后建立新基线；旧文件在途的回包回来时代号对不上，
  *   只丢状态更新，写入本身照样发生（t15 阶段 1.3）；
+ * - 保存在途时 `saving` 为真：页面据此把编辑器置只读、拒绝站内离开（t15 阶段 1.4）。
  * 不订阅推送：别人改了文件时不能悄悄换掉开发者正在改的文本，保存时由 `baseHash` 发现。
  */
 
@@ -54,9 +55,10 @@ export function useFileEditSession(path: Ref<string | null>) {
         if (outcome.ok) {
             uncommitted.value = null;
             mismatch.value = null;
-            // 核心会改 README 的 updated：编辑器换成服务端写下的最终文本，下一次保存以它为基准。
+            // 核心会改 README 的 updated：基线换成服务端写下的最终文本，下一次保存以它为基准。保存在途时编辑器只读，草稿
+            // 本该仍等于提交的文本；不等时（只读被绕过）留着草稿，它比基线新，仍算未保存。
             base.value = {text: outcome.body.data.text, hash: outcome.body.data.nextHash};
-            draft.value = outcome.body.data.text;
+            if (draft.value === submitted) draft.value = outcome.body.data.text;
             notice.value = successNotice("已保存", outcome.body);
             // 重取一次元信息：一起提交了别人的改动之后，“有别人没提交的改动”的提示要消失。草稿与基线相同时重取不会冲掉文字。
             file.reload();
