@@ -14,8 +14,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
-import {startProductServer} from "./fixtures";
-import type {ProductServer} from "./fixtures";
+import {startProbeServer, startProductServer} from "./fixtures";
+import type {ProbeServer, ProductServer} from "./fixtures";
 
 /** 含方言、CRLF、`*` 列表、标准 ruby 与 frontmatter 的章节：编辑器的写法与它不同，用来看字节保持。 */
 const DIALECT = [
@@ -714,4 +714,100 @@ test("服务端重启：终态页列出未保存的正文", async ({page}) => {
     await expect(page.locator("[data-browser-host-status=\"server-restarted\"], [data-browser-host-status=\"project-gone\"]")).toBeVisible({timeout: 30_000});
     await expect(page.locator("[data-host-rescued-item] code")).toHaveText("project://notes/e.md");
     await expect(page.locator("[data-host-rescued-item] textarea")).toHaveValue("第五章来不及保存\n");
+});
+
+test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验收 21）", () => {
+    let titleTmp = "";
+    let probe: ProbeServer;
+
+    test.beforeAll(async () => {
+        titleTmp = await createTestTmpRoot("neuro-book-e2e", "editor-title");
+        const stateRoot = join(titleTmp, "state");
+        const book = join(titleTmp, "Book");
+        const id = randomUUID();
+        await mkdir(join(book, ".nbook"), {recursive: true});
+        await mkdir(stateRoot, {recursive: true});
+        await writeFile(join(book, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
+        await writeFile(join(book, "a.md"), "甲\n");
+        await writeFile(join(book, "b.txt"), "乙\n");
+        await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: book}]}));
+        // `test.menus` 往 `editor.title` 贡献一个只对 .md、带 resource 的按钮“测试编辑区按钮”。
+        probe = await startProbeServer(stateRoot, {env: {NBOOK_TEST_PLUGINS: "test.menus"}});
+    });
+
+    test.afterAll(async () => {
+        expect(await probe.stop()).toBe(0);
+        if (titleTmp !== "") await rm(titleTmp, {recursive: true, force: true});
+    });
+
+    const actions = (page: Page) => page.locator("[data-editor-title-actions]");
+
+    test("活动组标签条右侧：向右拆分、贡献的 .md 按钮与“⋯”（里面是用其它编辑器重新打开）；换成 .txt 时贡献的按钮消失；两个组时只画在活动组；点贡献的按钮收到活动标签的地址", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await item(page, "project://a.md").dblclick();
+        // 作品第一次在本窗口打开时欢迎页也自动打开（workbench.bookshelf 输出 20）：只认 a.md 的标签。
+        await expect(tabs(page).filter({hasText: "a.md"})).toHaveCount(1);
+        const active = page.locator("[data-editor-group-active] [data-editor-title-actions]");
+        await expect(active.locator("[data-title-action-key]")).toHaveCount(2);
+        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "test.menus.editor-md", "more"]);
+        await active.locator("[data-title-actions-more]").click();
+        await expect(page.getByRole("menu").getByRole("menuitem", {name: "用其它编辑器重新打开"})).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        await active.locator('[data-title-action-key="test.menus.editor-md"]').click();
+        await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
+
+        await item(page, "project://b.txt").dblclick();
+        await expect(active.locator('[data-title-action-key="test.menus.editor-md"]')).toHaveCount(0);
+
+        await active.locator('[data-title-action-key="own:split-right"]').click();
+        await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        await expect(actions(page)).toHaveCount(1);
+        const groups = page.locator("[data-editor-group]");
+        const first = groups.first();
+        await first.locator("[data-editor-tab]").filter({hasText: "a.md"}).click();
+        await expect(first).toHaveAttribute("data-editor-group-active", "");
+        await expect(first.locator("[data-editor-title-actions]")).toHaveCount(1);
+        await expect(actions(page)).toHaveCount(1);
+        await expect(first.locator('[data-title-action-key="test.menus.editor-md"]')).toHaveCount(1);
+    });
+
+    test("编辑组窄到放不下按钮时：按钮都收进“⋯”，“⋯”与至少一个标签宽的标签条都在这一组里，“⋯”里仍能执行拆分与贡献的项", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await item(page, "project://a.md").dblclick();
+        const group = page.locator("[data-editor-group-active]");
+        const more = group.locator("[data-title-actions-more]");
+        /** 向右拆分活动组：按钮还在时点按钮，收进“⋯”以后从“⋯”里点。 */
+        const splitRight = async (): Promise<void> => {
+            const count = await page.locator("[data-editor-group]").count();
+            const button = group.locator('[data-title-action-key="own:split-right"]');
+            if (await button.count() > 0) await button.click();
+            else {
+                await more.click();
+                await page.getByRole("menu").getByRole("menuitem", {name: "向右拆分编辑器"}).click();
+            }
+            await expect(page.locator("[data-editor-group]")).toHaveCount(count + 1);
+        };
+        for (let index = 0; index < 3; index += 1) await splitRight();
+        const groupBox = await group.boundingBox();
+        expect(groupBox).not.toBeNull();
+        // 放不下一个按钮：标题行里只剩“⋯”（editor.md 输出 34：编辑组窄时按宽度再少）。
+        expect(groupBox!.width).toBeLessThan(104 + 24 + 26);
+        await expect(group.locator("[data-title-action-key]")).toHaveCount(0);
+        const moreBox = await more.boundingBox();
+        const tabsBox = await group.getByRole("tablist").boundingBox();
+        expect(moreBox).not.toBeNull();
+        expect(tabsBox).not.toBeNull();
+        expect(moreBox!.x).toBeGreaterThanOrEqual(groupBox!.x);
+        expect(moreBox!.x + moreBox!.width).toBeLessThanOrEqual(groupBox!.x + groupBox!.width + 0.5);
+        expect(tabsBox!.width).toBeGreaterThanOrEqual(groupBox!.width - 24 - 8 - 1);
+
+        await more.click();
+        const menu = page.getByRole("menu");
+        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
+        await menu.getByRole("menuitem", {name: "测试编辑区按钮"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
+    });
 });

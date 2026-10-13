@@ -11,6 +11,9 @@ import type {Component} from "vue";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import TitleActions from "nbook/ui/menus/TitleActions.vue";
+import {NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
+import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {
     PANEL_COMMAND_DECLARATIONS,
@@ -38,7 +41,6 @@ import type {EditorAreaSource} from "../editor-area";
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
-import WorkbenchViewActions from "./WorkbenchViewActions.vue";
 import type {MovePayload, MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
 import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
@@ -84,6 +86,7 @@ const TEXT = {
     dropMergeContainer: {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
     dropReveal: {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
     more: {"zh-CN": "更多", "en-US": "More"},
+    moreActions: {"zh-CN": "更多操作", "en-US": "More Actions"},
     dropBefore: {"zh-CN": "放在“{title}”前", "en-US": "Place before “{title}”"},
     dropAfter: {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
 } satisfies Record<string, LocalizedText>;
@@ -250,13 +253,22 @@ const instanceOf = (viewId: string): ViewInstanceRef | null => {
     return generation === undefined ? null : {viewId, generation};
 };
 
-/** 视图贡献的标题动作（docs/specs/workbench/views.md 输出 10）；Lab 里没有命令服务（没有 chrome）时没有。 */
-const viewActionsOf = (viewId: string) => props.chrome?.viewActions(state.value.catalog.get(viewId)?.actions ?? [], props.locale, instanceOf(viewId)) ?? [];
+/** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
+const viewActionsOf = (viewId: string): TitleActionsModel => props.chrome?.viewActions(viewId, state.value.catalog.get(viewId)?.actions ?? [], props.locale, instanceOf(viewId)) ?? NO_TITLE_ACTIONS;
 
-function runViewAction(viewId: string, index: number): void {
-    const action = state.value.catalog.get(viewId)?.actions?.[index];
-    if (action === undefined) return;
-    props.chrome?.runViewAction(action, instanceOf(viewId));
+const hasViewActions = (viewId: string): boolean => {
+    const model = viewActionsOf(viewId);
+    return model.buttons.length > 0 || model.menu.length > 0;
+};
+
+/** 标题动作“⋯”的菜单身份：与“移动到”同一组事实（视图、所在容器与模式、交付状态与实例代际），任一变化就关闭菜单。 */
+function viewActionsIdentity(viewId: string): string {
+    const container = state.value.placement.views.get(viewId)?.container ?? "";
+    return `${viewId}|${container}|${presentation.value.containers.get(container)?.mode ?? ""}|${props.views.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`;
+}
+
+function runViewAction(viewId: string, key: string): void {
+    props.chrome?.runViewAction(viewId, state.value.catalog.get(viewId)?.actions ?? [], key, instanceOf(viewId));
 }
 
 function moveView(payload: MovePayload): void {
@@ -463,7 +475,7 @@ const dropFeedback = computed(() => {
                 @target="(element) => setPartTarget(part, element)"
             >
                 <template #actions="{container}">
-                    <WorkbenchViewActions v-if="singleViewOf(container) !== null && viewActionsOf(singleViewOf(container)!).length > 0" :actions="viewActionsOf(singleViewOf(container)!)" @run="(index) => runViewAction(singleViewOf(container)!, index)" />
+                    <TitleActions v-if="singleViewOf(container) !== null && hasViewActions(singleViewOf(container)!)" :model="viewActionsOf(singleViewOf(container)!)" :identity="viewActionsIdentity(singleViewOf(container)!)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(singleViewOf(container)!, key)" />
                     <WorkbenchMoveViewMenu
                         v-if="singleViewOf(container) !== null && moveMenuOf(singleViewOf(container)!) !== null"
                         :label="text(TEXT.moveTo)"
@@ -493,8 +505,8 @@ const dropFeedback = computed(() => {
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。
                     -->
-                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || viewActionsOf(singleViewOf(selectedOf('panel')!)!).length > 0)" class="workbench-shell__panel-tools" data-no-drag>
-                        <WorkbenchViewActions v-if="viewActionsOf(singleViewOf(selectedOf('panel')!)!).length > 0" :actions="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" @run="(index) => runViewAction(singleViewOf(selectedOf('panel')!)!, index)" />
+                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || hasViewActions(singleViewOf(selectedOf('panel')!)!))" class="workbench-shell__panel-tools" data-no-drag>
+                        <TitleActions v-if="hasViewActions(singleViewOf(selectedOf('panel')!)!)" :model="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" :identity="viewActionsIdentity(singleViewOf(selectedOf('panel')!)!)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(singleViewOf(selectedOf('panel')!)!, key)" />
                         <WorkbenchMoveViewMenu
                             v-if="moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
                             :label="text(TEXT.moveTo)"
@@ -551,7 +563,7 @@ const dropFeedback = computed(() => {
         @generations="(next) => (generations = next)"
     >
         <template #view-actions="{viewId}">
-            <WorkbenchViewActions v-if="viewActionsOf(viewId).length > 0" :actions="viewActionsOf(viewId)" @run="(index) => runViewAction(viewId, index)" />
+            <TitleActions v-if="hasViewActions(viewId)" :model="viewActionsOf(viewId)" :identity="viewActionsIdentity(viewId)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(viewId, key)" />
             <WorkbenchMoveViewMenu
                 v-if="moveMenuOf(viewId) !== null"
                 :label="text(TEXT.moveTo)"

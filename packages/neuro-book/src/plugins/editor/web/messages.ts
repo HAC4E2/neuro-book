@@ -8,6 +8,7 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 const TEXT = {
     areaLabel: {"zh-CN": "编辑器", "en-US": "Editor"},
     tabsLabel: {"zh-CN": "打开的编辑器", "en-US": "Open editors"},
+    moreActions: {"zh-CN": "更多操作", "en-US": "More Actions"},
     close: {"zh-CN": "关闭", "en-US": "Close"},
     closeTab: {"zh-CN": "关闭 {name}", "en-US": "Close {name}"},
     unsaved: {"zh-CN": "未保存", "en-US": "Unsaved"},

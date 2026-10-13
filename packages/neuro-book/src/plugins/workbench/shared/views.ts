@@ -42,6 +42,8 @@ const ViewActionSchema = Type.Object({
     title: LocalizedTextSchema,
     args: Type.Optional(Type.Literal("instance")),
     toggled: Type.Optional(Type.String({pattern: "\\S"})),
+    /** inline（缺省）画成按钮，menu 收进标题行末尾的“⋯”（docs/specs/workbench/views.md 输出 10）。 */
+    placement: Type.Optional(Type.Union([Type.Literal("inline"), Type.Literal("menu")])),
 }, {additionalProperties: false});
 
 export type ViewAction = DeepReadonly<Static<typeof ViewActionSchema>>;

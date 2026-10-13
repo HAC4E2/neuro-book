@@ -11,7 +11,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, formatKeybinding, menuImplementations} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
@@ -21,7 +21,8 @@ import {displayLocale, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settin
 import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, quickPickKey, WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {TitlebarMenuItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {HomeDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WorkbenchHomeImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
@@ -48,6 +49,12 @@ const HOME_DECLARATION: HomeDeclaration = {title: {"zh-CN": "书架", "en-US": "
 
 /** “帮助 > 欢迎”与命令面板打开欢迎页的命令。 */
 export const WELCOME_COMMAND = "nbook.help.welcome";
+
+/** 标题栏菜单里归作品插件的条目（docs/specs/ui/workbench-shell.md 外壳四输出 29）：文件组的打开项目、帮助组的欢迎。 */
+const TITLEBAR_MENU_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: TitlebarMenuItemDeclaration}> = [
+    {id: "nbook.projects.menu.open", declaration: {group: "file", section: "1_open", command: OPEN_PROJECT_COMMAND}},
+    {id: "nbook.projects.menu.welcome", declaration: {group: "help", section: "1_help", order: 1, command: WELCOME_COMMAND}},
+];
 const WELCOME_DECLARATION: CommandDeclaration = {
     title: {"zh-CN": "欢迎", "en-US": "Welcome"},
     category: {"zh-CN": "帮助", "en-US": "Help"},
@@ -73,6 +80,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
             {capability: COMMANDS_POINT, id: WELCOME_COMMAND, declaration: WELCOME_DECLARATION},
+            ...TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
             {capability: WORKBENCH_HOME_POINT, id: BOOKSHELF_HOME_ID, declaration: HOME_DECLARATION},
             {capability: SETTINGS_SECTIONS_POINT, id: WORKS_SECTION, declaration: WORKS_SECTION_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: WELCOME_PAGE_ID, declaration: WELCOME_PAGE},
@@ -177,6 +185,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                 [WORKBENCH_HOME_POINT]: {[BOOKSHELF_HOME_ID]: home},
                 [EDITOR_PAGES_POINT]: {[WELCOME_PAGE_ID]: welcome},
                 [SETTINGS_SECTIONS_POINT]: {[WORKS_SECTION]: works},
+                [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(TITLEBAR_MENU_ITEMS),
             }};
         },
     })],

@@ -110,9 +110,27 @@ describe("FilesExplorerView：右键菜单", () => {
         expect(wrapper.emitted("menu-close")).toHaveLength(1);
 
         const root = rows().find((row) => row.id === "project://");
-        expect(menuEntries(root!, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.command : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder", "-", "nbook.files.paste"]);
+        expect(menuEntries(root!, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.key : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder", "-", "nbook.files.paste"]);
         const gone = rows().find((row) => row.id === "project://lore.content/gone") as EntryRow;
-        expect(menuEntries(gone, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.command : "-"))).toContain("nbook.files.drop-entry");
+        expect(menuEntries(gone, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.key : "-"))).toContain("nbook.files.drop-entry");
+    });
+
+    it("别的插件贡献的项：不可用的带原因作读屏描述，勾选项画成 menuitemcheckbox；点了发出它的 key", async () => {
+        const contributed = [
+            {kind: "separator" as const},
+            {kind: "item" as const, key: "menu:acme.export", label: "导出", disabled: true, reason: "没有选中的章节", checked: null, danger: false, shortcut: null},
+            {kind: "item" as const, key: "menu:acme.pin", label: "固定", disabled: false, reason: null, checked: true, danger: false, shortcut: null},
+        ];
+        const alice = rows().find((row) => row.id === "project://lore.content/alice") as EntryRow;
+        const wrapper = view({menu: {x: 10, y: 20, entries: [...menuEntries(alice, ALL, "zh-CN"), ...contributed]}});
+        await flushPromises();
+        const items = [...document.querySelectorAll<HTMLElement>("[role^=menuitem]")].slice(-2);
+        expect(items.map((item) => [item.textContent?.trim(), item.getAttribute("role"), item.getAttribute("aria-checked"), item.getAttribute("aria-description")])).toEqual([
+            ["导出", "menuitem", null, "没有选中的章节"],
+            ["固定", "menuitemcheckbox", "true", null],
+        ]);
+        items[1]!.click();
+        expect(wrapper.emitted("menu-command")).toEqual([["menu:acme.pin"]]);
     });
 
     it("Tab 关闭菜单、焦点回到树；点菜单外关闭时焦点留在被点的按钮上", async () => {

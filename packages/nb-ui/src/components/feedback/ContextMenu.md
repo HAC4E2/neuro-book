@@ -36,6 +36,10 @@ interface ContextMenuItem {
     title?: string;
     /** 危险操作样式；可选，默认 "default" */
     tone?: "default" | "danger";
+    /** "checkbox" 时画成勾选项（`menuitemcheckbox`，`aria-checked` 跟着 checked）；可选，默认普通项 */
+    type?: "item" | "checkbox";
+    /** 勾选项的勾选态；受控，选择后由宿主自己改 */
+    checked?: boolean;
     /** 是否渲染分隔线；可选，true 时忽略其余字段 */
     separator?: boolean;
 }

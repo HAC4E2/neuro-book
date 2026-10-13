@@ -19,18 +19,28 @@ import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {EditorAreaContext, EditorAreaImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
-import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
+import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 const view = (name: string, location: ViewDeclaration["location"], icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
 
 const VIEWS: Readonly<Record<string, ViewDeclaration>> = {
     [SAMPLE_VIEW_IDS.alpha]: view("样例甲", "sidebar", "i-lucide-files", {layout: "fill"}),
     [SAMPLE_VIEW_IDS.beta]: view("样例乙", "sidebar", "i-lucide-list-tree", {order: 1}),
-    [SAMPLE_VIEW_IDS.gamma]: view("样例丙", "sidebar", "i-lucide-clock", {order: 2}),
+    // 丙自己声明一个收进“⋯”的动作；`test.menus` 另给它贡献按钮与“⋯”里的项（views.md 验收 8）。
+    [SAMPLE_VIEW_IDS.gamma]: view("样例丙", "sidebar", "i-lucide-clock", {order: 2, actions: [{command: SAMPLE_VIEWS_MARK_COMMAND, icon: "i-lucide-bookmark", title: {"zh-CN": "样例的菜单动作", "en-US": "Sample Menu Action"}, placement: "menu"}]}),
     [SAMPLE_VIEW_IDS.delta]: view("样例丁", "auxiliarybar", "i-lucide-notebook-pen"),
     [SAMPLE_VIEW_IDS.omega]: view("样例戊", "panel", "i-lucide-terminal"),
     // 长标题：看面板标签带放不下时的溢出与键盘切换。
     [SAMPLE_VIEW_IDS.zeta]: view("样例己：一个很长的面板视图标题", "panel", "i-lucide-scroll-text", {order: 1}),
+};
+
+const MARK_DECLARATION: CommandDeclaration = {
+    title: {"zh-CN": "样例的菜单动作", "en-US": "Sample Menu Action"},
+    category: {"zh-CN": "测试", "en-US": "Test"},
+    description: "Do nothing (test only).",
+    args: Type.Object({}, {additionalProperties: false}),
+    effect: "read",
+    expose: {agent: "never"},
 };
 
 const STOP_DECLARATION: CommandDeclaration = {
@@ -76,6 +86,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
             contributions: [
                 ...Object.entries(VIEWS).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_STOP_COMMAND, declaration: STOP_DECLARATION},
+                {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_MARK_COMMAND, declaration: MARK_DECLARATION},
                 {capability: WORKBENCH_EDITOR_AREA_POINT, id: SAMPLE_EDITOR_AREA_ID, declaration: {order: 0}},
             ],
             activate: (context) => {
@@ -102,7 +113,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                 return {contributions: {
                     [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(VIEWS).map((id) => [id, implementation(id)])),
                     [WORKBENCH_EDITOR_AREA_POINT]: {[SAMPLE_EDITOR_AREA_ID]: editorArea},
-                    [COMMANDS_POINT]: {[SAMPLE_VIEWS_STOP_COMMAND]: stop},
+                    [COMMANDS_POINT]: {[SAMPLE_VIEWS_STOP_COMMAND]: stop, [SAMPLE_VIEWS_MARK_COMMAND]: {run: () => ({ok: true, value: null})}},
                 }};
             },
         }],

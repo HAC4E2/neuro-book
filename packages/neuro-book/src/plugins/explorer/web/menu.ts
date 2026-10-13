@@ -28,13 +28,16 @@ export const MENU_COMMANDS = {
     paste: PASTE_COMMAND,
 } as const;
 
-/** 菜单的一项：`command` 是要执行的命令 id；分隔线没有命令。 */
+/**
+ * 菜单的一项：`key` 是点了以后交回宿主的身份——固定动作就是它的命令 id，别的插件贡献的是 `menu:<贡献 id>`（宿主据此带上
+ * 选择执行）；分隔线没有。`reason` 是不可用的原因，`checked` 为 null 时不是勾选项。
+ */
 export type MenuEntry =
-    | {readonly kind: "item"; readonly command: string; readonly label: string; readonly disabled: boolean; readonly danger: boolean; readonly shortcut: string | null}
+    | {readonly kind: "item"; readonly key: string; readonly label: string; readonly disabled: boolean; readonly reason: string | null; readonly checked: boolean | null; readonly danger: boolean; readonly shortcut: string | null}
     | {readonly kind: "separator"};
 
 export function menuEntries(row: Row, available: Availability, locale: DisplayLocale): MenuEntry[] {
-    const item = (command: string, label: ExplorerMessage, enabled: boolean, extra: {danger?: boolean; shortcut?: string} = {}): MenuEntry => ({kind: "item", command, label: explorerText(locale, label), disabled: !enabled, danger: extra.danger ?? false, shortcut: extra.shortcut ?? null});
+    const item = (command: string, label: ExplorerMessage, enabled: boolean, extra: {danger?: boolean; shortcut?: string} = {}): MenuEntry => ({kind: "item", key: command, label: explorerText(locale, label), disabled: !enabled, reason: null, checked: null, danger: extra.danger ?? false, shortcut: extra.shortcut ?? null});
     const separator: MenuEntry = {kind: "separator"};
     const create = [item(MENU_COMMANDS.newFile, "newFile", available.create), item(MENU_COMMANDS.newFolder, "newFolder", available.create)];
     const paste = item(MENU_COMMANDS.paste, "paste", available.paste, {shortcut: "Ctrl+V"});

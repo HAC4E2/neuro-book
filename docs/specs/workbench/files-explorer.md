@@ -97,7 +97,7 @@ owners:
 - 树内按键由树在自己的列表元素拥有焦点时处理，执行同一条命令；命令声明里不写键位：宿主的键位分发是全局的，树没有焦点时 Delete 不能删文件，而右键菜单执行命令时焦点在菜单上。内联输入、对话框与编辑器有焦点时树不处理这些键。
 - `when` 读 `nbook.explorer` 的公开布尔键：`ready`（控制器已建、偏好首读完成）、`canCreate`、`hasSelection`、`canPaste`、`canReorder`、`canCreateContent`、`canConvert`、`canEditManifest`。`when` 只说明有没有可作用的选择，执行时再按选择核对，不合格返回 `unavailable` 与原因；从命令面板执行时作用于当前选择，不要求树有焦点。
 - 没有控制器时命令为 `unavailable`（资源管理器尚未打开）；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。内联输入与确认框的状态在控制器里：视图停放或重建后在新的实例里接着显示，提交的仍是发起时冻结的对象。
-- 右键菜单是资源管理器自己的固定动作；开放的 `explorer/context` 贡献点随第一个消费者再做（视图标题动作已随“标题动作”一段实现）。
+- **右键菜单**：先是资源管理器自己的固定动作，按被右键的那一行与此刻的可用性给出；之后是别的插件经贡献点 `explorer.context` 贡献的菜单项（共同规则见 [`workbench.menus`](menus.md)），与固定动作之间画一条分隔线。贡献项的当前文件是这次右键作用的选择（右键已选行时是整个选择、未选行时是这一行，同上面的选择规则），`context: "selection"` 的项执行时收到 `{addresses}`（这些资源的地址，按树里的顺序）。根行只有合法的根级动作，没有贡献项。
 
 **当前根与目标**：当前根取焦点行的方案（焦点在根行上时取该根），没有焦点时取第一个可用的根。新建与无选择的粘贴以选中的目录、选中文件的父目录或当前根为目标；选中多项时不猜，动作不可用。内容文件夹里新建的项插到选中项之前。
 
@@ -213,10 +213,11 @@ owners:
 17. Given 打开过 `notes/b.md`、`notes/c.md`（活动的是 c）并收起了 `notes` 的窗口，When 刷新，Then `notes` 展开、c 被选中，b 没有选中；When 切到 b 的标签，Then 资源管理器的选择不变。行出现之前用户选了别的行时揭示作废。
 18. Given 绑定项目“雾港”的窗口，When 看资源管理器，Then 项目根的标题是“雾港”；标题行里有五个 24px 的动作按钮，视图里没有自己的工具栏。
 19. Given 展开一个目录，When 逐帧看，Then 新行从上方滑下并淡入、下面的行随之移动，`--motion-base` 之后停下；用鼠标点行时焦点行不画焦点线，方向键之后画 1.5px 的内嵌焦点线。
+20. Given 一个测试插件往 `explorer.context` 贡献一条 `extensions: [".md"]`、`context: "selection"` 的菜单项，When 右键 `a.md`，Then 它在固定动作之后、隔一条分隔线出现；When 点它，Then 命令收到 `{addresses: [a.md 的地址]}`；When 选中 `a.md` 与 `b.txt` 后右键，Then 它不出现；When 右键项目根，Then 没有贡献项。
 
 ## 证据
 
 - 批准依据：“标题动作”“行的样子”“打开作品时揭示活动文件”与验收 17–19 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节，开发者 2026-10-12 确认；开发者于 2026-09-26 在访谈后确认整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：文件夹类型取代双模式、用户资产根、按需加载、乐观切换与性能标准。2026-10-03 开发者参照 VS Code 把进度条延迟由 100 毫秒改为 800 毫秒，此前编辑区保持空白。同日确定性能标准的参考机器，桌面版不单独测（依据 [t42](../../../.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/README.md) 测量）。“新应用的插件、命令与界面”一节与验收 14–16（独立插件、具名动作命令化、两份展开记录、结果未知门禁、剪贴板不跟随改名、行高与排序入口）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t70 条目（按推荐先做，待开发者追认）。
-- 合同测试：打开作品时揭示活动文件为 [`explorer/browse.test.ts`](../../../packages/neuro-book/src/plugins/explorer/browse.test.ts) 的“揭示一个地址”一例（真实 Files 场地）。
-- Smoke：验收 17 为 [`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts) 的“打开作品时资源管理器揭示一次恢复出的活动文件”，验收 18、19 为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts) 的“项目根是作品名、标题行五个动作……”一例；[`scripts/perf/files-perf.ts`](../../../packages/neuro-book/scripts/perf/files-perf.ts)（`bun run perf:files`，验收 12 的性能标准，生产构建、参考机器的本机 Chrome）
+- 合同测试：右键菜单的贡献项为组件测试 `FilesExplorerActions.dom.test.ts` 的“别的插件贡献的项”一例；打开作品时揭示活动文件为 [`explorer/browse.test.ts`](../../../packages/neuro-book/src/plugins/explorer/browse.test.ts) 的“揭示一个地址”一例（真实 Files 场地）。
+- Smoke：验收 20 为 `files-explorer.e2e.ts` 的“贡献项排在固定动作之后……”一例（测试插件 `test.menus`）；验收 17 为 [`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts) 的“打开作品时资源管理器揭示一次恢复出的活动文件”，验收 18、19 为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts) 的“项目根是作品名、标题行五个动作……”一例；[`scripts/perf/files-perf.ts`](../../../packages/neuro-book/scripts/perf/files-perf.ts)（`bun run perf:files`，验收 12 的性能标准，生产构建、参考机器的本机 Chrome）
 - 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)。主页面双窗口与 Lab 已验证，t25 完成本机合同复核并修复原生拖动等缺口；服务侧路径 move/rename 在 Windows 本机的预检后目标抢占测试已保住源与目标，完整 Windows 产品镜像构建成功。Linux/macOS、其它文件系统及跨机器基础操作仍待验证，保持 `planned`。新应用（`packages/neuro-book` 的 `nbook.explorer` 插件）的实现与验收映射见 [t70](../../../.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/README.md)：验收 1–8、10、11（浏览部分）、13 的 Lab 部分与 14–16 有真实内核、真实磁盘与真实 Chrome 的测试；9（dirty 文档）随编辑器区，12（性能）随性能 Task，跨机器未验证。

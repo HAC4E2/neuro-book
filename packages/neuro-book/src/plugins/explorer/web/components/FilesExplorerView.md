@@ -11,7 +11,7 @@
 
 视图自己不画工具栏：新建文件、新建文件夹、刷新、全部收起、显示清单文件是视图声明的标题动作，由外壳画在标题行里（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 10）。纵向网格：提示条按内容高度；树 `minmax(0, 1fr)` 占满剩余高度并自己滚动；结果区的行是 `fit-content(40%)`，按内容高度、最多视图高度的 40%，结果区在行内滚动。窄到 `390px` 时树的标签先截断。
 
-- 右键菜单（nb-ui `ContextMenu`，键盘可操作）按 `menu` 的位置与菜单项显示，点一项发出它的命令 id；菜单关闭时发出 `menu-close`；选择、Escape 或 Tab 关闭时焦点回到树上（菜单项开始的内联输入或对话框会再把焦点拿走），点菜单外关闭时焦点留在被点的地方。
+- 右键菜单（nb-ui `ContextMenu`，键盘可操作）按 `menu` 的位置与菜单项显示：不可用的项禁用、原因作悬停提示与读屏描述，勾选项画成 `menuitemcheckbox`；点一项发出它的 key（固定动作是命令 id，别的插件经 `explorer.context` 贡献的是 `menu:<贡献 id>`）；菜单关闭时发出 `menu-close`；选择、Escape 或 Tab 关闭时焦点回到树上（菜单项开始的内联输入或对话框会再把焦点拿走），点菜单外关闭时焦点留在被点的地方。
 - 删除确认（nb-ui `AlertDialog`）列出受影响的最外层项与数量，说明不能恢复，焦点默认在取消上；受影响项多时只有列表在框内滚动，按钮始终可见。有会丢失未保存修改的打开文档时（`dialog.unsaved`）另列一段。关闭完成（`closed`）后焦点回到树上。
 - 复制有未保存修改的文件（`dialog.kind === "dirty-copy"`，nb-ui `Dialog`）：列出这些文档，按钮依次是取消、复制磁盘版本、先保存再复制；请求关闭等于取消。
 - 展示名对话框（nb-ui `Dialog`）有展示名与图标两个输入框，留空即去掉；提交中禁用按钮。
@@ -66,8 +66,8 @@ type Emits = {
     (event: "edit-input", name: string): void;
     (event: "edit-commit"): void;
     (event: "edit-cancel"): void;
-    /** 点了右键菜单的一项：它的命令 id。 */
-    (event: "menu-command", command: string): void;
+    /** 点了右键菜单的一项：它的 key（`web/menu.ts` 的 `MenuEntry`）。 */
+    (event: "menu-command", key: string): void;
     (event: "menu-close"): void;
     (event: "delete-confirm"): void;
     (event: "display-commit", title: string, icon: string): void;

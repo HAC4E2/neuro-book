@@ -14,14 +14,15 @@ import {readServerConfig} from "nbook/server/config";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
+import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
 import {sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 import {createTestPlugin, TEST_PLUGIN_IDS} from "./test-plugins";
 import type {TestPluginId} from "./test-plugins";
 
 /** 有浏览器入口的测试插件：描述要进本进程清单。只有浏览器入口的（没有服务端定义）不进服务端的插件列表。 */
-const BROWSER_TEST_PLUGINS = [remoteProbeDescriptor, sampleViewsDescriptor];
-const BROWSER_ONLY_IDS: ReadonlyArray<string> = [sampleViewsDescriptor.id];
+const BROWSER_TEST_PLUGINS = [remoteProbeDescriptor, sampleViewsDescriptor, testMenusDescriptor];
+const BROWSER_ONLY_IDS: ReadonlyArray<string> = [sampleViewsDescriptor.id, testMenusDescriptor.id];
 
 const requested = (process.env.NBOOK_TEST_PLUGINS ?? "").split(",").filter(Boolean);
 const unknown = requested.filter((id) => !(TEST_PLUGIN_IDS as ReadonlyArray<string>).includes(id) && !BROWSER_ONLY_IDS.includes(id));

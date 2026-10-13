@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 拖动标签换组、拖到边缘拆分、固定标签与多行标签条（随编辑器拖放另行交付）；面包屑、编辑器工具栏（状态栏的文档项见输出 26–28）。
+- 拖动标签换组、拖到边缘拆分、固定标签与多行标签条（随编辑器拖放另行交付）；面包屑（状态栏的文档项见输出 26–28）；编辑器标签的右键菜单与正文的右键菜单（随第一个往里加东西的插件定义菜单位置；编辑区标题见输出 34）。
 - 自动保存；未保存的修改跨页面刷新保留。
 - Markdown 富文本里的批注侧栏、选区浮动菜单、斜杠命令、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
@@ -155,6 +155,7 @@ owners:
 **页面**
 
 33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。页面标签不进第 5 条的会话记录，刷新后不恢复（活动的是页面时，记录里的活动项是它左边最近的文件标签）。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（会话记录读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。
+34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
 
 ## 状态与转换
 
@@ -224,11 +225,13 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 19. Given 没有标签的编辑组，When 看内容区，Then 正中是 132px 的淡色标志与“显示所有命令 Ctrl Shift P”“新建文件”“打开欢迎页”三行提示；When 点“显示所有命令”，Then 命令面板打开；When 点“打开欢迎页”，Then 欢迎页以标签打开；When 打开 Markdown 文件，Then 正文在 720px 的版心里，17px、行距 1.95，编辑区是面板底色。
 20. Given 一个声明了 `openOnFirstVisit` 的页面，When 新客户端第一次打开作品，Then 页面标签自动打开、只有它；When 刷新，Then 它不恢复；When 再执行 `open-page`，Then 不开第二个、切到已开的那个；页面标签不能拆分、不能换编辑器，可以关闭。
 
+21. Given 一个测试插件往 `editor.title` 贡献一个 `extensions: [".md"]`、`context: "resource"` 的按钮，When 编辑组里活动的是 `a.md`，Then 标签条右侧有“向右拆分”与这个按钮、末尾是“⋯”（里面有“用其它编辑器重新打开”）；When 切到 `b.txt`，Then 这个按钮消失；When 有两个组，Then 只有活动组画标题动作，点另一个组的标签后标题动作移过去；When 连续拆分到活动组放不下一个按钮，Then 标题行里只剩“⋯”，“⋯”与标签条都在这一组里，“⋯”里能执行拆分与贡献的项；When 点测试插件的按钮，Then 命令收到 `{address: a.md 的地址}`；When 活动的是欢迎页，Then 这个按钮不出现。
+
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。
 
 ## 证据
 
 - 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）；输出 32 的空态改为标志与提示，为 t79 计划第二轮第 11 节，开发者 2026-10-12 选第五轮稿 E1。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
-- 合同测试：空编辑组的提示（输出 32）为 [`editor/empty-tips.test.ts`](../../../packages/neuro-book/src/plugins/editor/empty-tips.test.ts)（真实命令系统：筛选、按键与位置、语言）；页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
-- Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 20：欢迎页自动打开、不恢复、只开一个）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）
+- 合同测试：编辑区标题（输出 34）为 [`editor/title-actions.test.ts`](../../../packages/neuro-book/src/plugins/editor/title-actions.test.ts)（真实命令注册表与编辑组布局：自己的与贡献的项、按后缀、resource 参数、按钮上限、菜单身份）；空编辑组的提示（输出 32）为 [`editor/empty-tips.test.ts`](../../../packages/neuro-book/src/plugins/editor/empty-tips.test.ts)（真实命令系统：筛选、按键与位置、语言）；页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
+- Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；验收 21 与编辑区标题在 390px 下的布局为“编辑区标题”一组，测试插件 `test.menus`；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 20：欢迎页自动打开、不恢复、只开一个）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）

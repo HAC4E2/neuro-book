@@ -5,7 +5,7 @@
 
 # WorkbenchTitleBar
 
-工作台顶部 36px 的标题栏（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳四输出 28–31）：品牌标志、项目切换、应用菜单、居中的命令搜索、三个布局按钮与条目区。组件只呈现给定的菜单与条目、发出动作；菜单由能力模型（[`titlebar/menu-model.ts`](../titlebar/menu-model.ts)）生成，执行由外壳经命令服务完成。
+工作台顶部 36px 的标题栏（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳四输出 28–31）：品牌标志、项目切换、应用菜单、居中的命令搜索、三个布局按钮与条目区。组件只呈现给定的菜单与条目、发出动作；菜单的条目来自贡献点 `workbench.titlebar-menu`，由 [`titlebar/titlebar-source.ts`](../titlebar/titlebar-source.ts) 按菜单项的共同规则（[`workbench/menus.md`](../../../../../../../docs/specs/workbench/menus.md)）算好交来，执行由外壳经命令服务完成。
 
 ## 布局
 

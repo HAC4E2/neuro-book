@@ -14,7 +14,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
@@ -34,6 +34,8 @@ import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBEN
 import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {itemValidator, validateActivityBarItemContribution, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
+import {validateTitlebarMenuItem, validateViewTitleItem, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
+import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../shared/menus";
 import {validateOverlayContribution, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
 import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewDeclaration} from "../shared/views";
@@ -46,6 +48,7 @@ import {createNotifications} from "./notifications";
 import {ActivityItemRegistry} from "./items/activity-items";
 import {ItemRegistry} from "./items/registry";
 import {createOverlayHost, OverlaySlot} from "./overlays";
+import {WORKBENCH_TITLEBAR_MENU_ITEMS} from "./titlebar/menu-items";
 import {createShellChrome} from "./titlebar/titlebar-source";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";
@@ -82,13 +85,16 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", validate: validateActivityBarItemContribution},
         {id: WORKBENCH_OVERLAYS_POINT, implementation: "required", validate: validateOverlayContribution},
         {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
+        // 菜单项只有声明，同活动栏条目交空实现：这样它随贡献方入口出现与消失（docs/specs/workbench/menus.md）。
+        {id: WORKBENCH_TITLEBAR_MENU_POINT, implementation: "required", validate: validateTitlebarMenuItem},
+        {id: WORKBENCH_VIEW_TITLE_POINT, implementation: "required", validate: validateViewTitleItem},
     ],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}],
         provides: [workbenchRootKey, quickPickKey, notificationsKey],
-        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT],
+        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
         contributions: [
             {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: PROFILE_ITEM, declaration: PROFILE_DECLARATION},
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
@@ -99,6 +105,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             ...Object.entries(APP_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(VIEW_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...workbenchState.contributions,
+            ...WORKBENCH_TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
         ],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -118,7 +125,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const statusItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_STATUSBAR_ITEMS_POINT), stateService, reportItem, context.signal);
             const titleItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_TITLEBAR_ITEMS_POINT), stateService, reportItem, context.signal);
             const activityItems = new ActivityItemRegistry(context.declarations.list<ActivityBarItemDeclaration>(WORKBENCH_ACTIVITYBAR_ITEMS_POINT), stateService, context.signal);
-            const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, activityItems, platform: currentKeyPlatform(), signal: context.signal});
+            const titlebarMenu = new MenuItemRegistry(context.declarations.list<TitlebarMenuItemDeclaration>(WORKBENCH_TITLEBAR_MENU_POINT), context.signal);
+            const viewTitle = new MenuItemRegistry(context.declarations.list<ViewTitleItemDeclaration>(WORKBENCH_VIEW_TITLE_POINT), context.signal);
+            const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, activityItems, titlebarMenu, viewTitle, platform: currentKeyPlatform(), signal: context.signal});
             const overlays = new OverlaySlot(context.signal);
             const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
@@ -166,9 +175,10 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             ]);
             return {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick), provide(notificationsKey, {notify: (input) => notifications.notify(input)})],
-                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver()},
+                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
+                    [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },

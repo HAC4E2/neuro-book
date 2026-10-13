@@ -20,11 +20,15 @@ type Props = {
     pages?: EditorPageSource | null;
     /** 没有标签时的提示，宿主已按命令可用性筛好（`web/empty-tips.ts`）；缺省为空，空态只有标志。 */
     emptyTips?: ReadonlyArray<{command: string; label: string; keys: ReadonlyArray<string> | null; hint: string | null}>;
+    /** 标签条右侧的标题动作（输出 34）：只有活动组拿到（`group` 是这一组），别的组为 null；缺省 null。 */
+    titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;
 };
 
 type Emits = {
     /** 点了空态里的一条提示：交出它的命令 id，由宿主执行。 */
     (event: "run-tip", command: string): void;
+    /** 点了标题动作：交出它的 key，由宿主执行。 */
+    (event: "title-action", key: string): void;
 };
 ```
 
@@ -32,7 +36,7 @@ type Emits = {
 
 ## 布局与状态
 
-底色是面板底色 `--panel-surface`（纸面，与外壳同一块面）。纵向：标签条（`EditorTabBar`）、2px 的进度条位（活动文档 800 ms 后仍在读取时出现一条往复的细条，取强调色 `--accent-main`，减少动效时为静止的整条；细条只是装饰，同时给读屏一条“正在读取”的状态并把内容区标为 `aria-busy`）、状态条、内容区。内容区：
+底色是面板底色 `--panel-surface`（纸面，与外壳同一块面）。纵向：标签条一行（`EditorTabBar` 占剩下的宽度、放不下时自己横向滚动；拿到 `titleActions` 时右侧是共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md)，不随标签滚动、不收缩；这一行的宽度用 `ResizeObserver` 量，按它决定放几个按钮：至多 4 个，给标签条至少留一个截断标签的宽度，放不下一个按钮时只剩“⋯”）、2px 的进度条位（活动文档 800 ms 后仍在读取时出现一条往复的细条，取强调色 `--accent-main`，减少动效时为静止的整条；细条只是装饰，同时给读屏一条“正在读取”的状态并把内容区标为 `aria-busy`）、状态条、内容区。内容区：
 
 - 没有标签：内容区正中是淡色的图形标志（`NeuroBookMark`，132px，组很矮时缩小）与 `emptyTips` 给的几行提示，两列对齐：说明靠右，快捷键（nb-ui `Kbd`）或入口位置靠左。每行是一个原生按钮，点了发 `run-tip`。它是两列对齐的列表行（像资源管理器的行），不是按钮控件：nb-ui `Button` 自带的固定高度、内边距与 inline-flex 装不进跨两列的 subgrid 行，所以不用它；焦点用全局焦点环，悬停是 `--bg-hover`（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 32）。
 - 打开失败：原因与“重试”（`role="alert"`）。
@@ -45,4 +49,4 @@ type Emits = {
 
 ## 不支持
 
-- 不显示面包屑、编辑器工具栏与差异比较。
+- 不显示面包屑与差异比较。

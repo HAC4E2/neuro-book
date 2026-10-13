@@ -22,6 +22,8 @@ export {WORKBENCH_OVERLAYS_POINT} from "./overlays";
 export type {OverlayDeclaration} from "./overlays";
 export {WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "./home";
 export type {HomeDeclaration} from "./home";
+export {WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "./menus";
+export type {TitlebarMenuGroup, TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "./menus";
 
 /** 贡献点 id。 */
 export const WORKBENCH_PAGES_POINT = "workbench.pages";

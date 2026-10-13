@@ -26,6 +26,9 @@ export const SAMPLE_EDITOR_AREA_ID = "test.sample-views.editor-area";
 /** 测试命令：入口关闭自己这一代的激活作用域（真实的 `scope-closed` 撤回，声明仍在）。 */
 export const SAMPLE_VIEWS_STOP_COMMAND = "test.sample-views.stop";
 
+/** 样例视图丙自己声明、收进“⋯”的标题动作执行的命令：什么都不做（docs/specs/workbench/views.md 验收 8）。 */
+export const SAMPLE_VIEWS_MARK_COMMAND = "test.sample-views.mark";
+
 export const SAMPLE_VIEWS_SWITCHES = {
     failActivation: "test.sample-views/fail-activation",
     failLoad: "test.sample-views/fail-load",

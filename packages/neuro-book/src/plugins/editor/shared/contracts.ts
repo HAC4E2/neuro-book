@@ -1,7 +1,7 @@
 /**
  * `nbook.editor` 对其它插件公开的合同（docs/specs/workbench/editor.md 的“输入与前置条件”）：文档协调服务，资源管理器
- * 在复制、移动、改名与删除前经它结算未保存的修改；页面贡献点 `editor.pages`（输出 33），欢迎页这类不对应文件的标签。
- * 其它插件在运行时只引用本文件。
+ * 在复制、移动、改名与删除前经它结算未保存的修改；页面贡献点 `editor.pages`（输出 33），欢迎页这类不对应文件的标签；编辑区标题的
+ * 菜单位置 `editor.title`（输出 34）。其它插件在运行时只引用本文件。
  */
 
 import {Type} from "typebox";
@@ -12,6 +12,8 @@ import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
+import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {LocalizedTextSchema} from "nbook/shared/localized-text";
 
 /** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、磁盘冲突。 */
@@ -51,6 +53,18 @@ export interface DocumentCoordinator {
 export const documentCoordinatorKey: ServiceKey<DocumentCoordinator> = defineServiceKey<DocumentCoordinator>("nbook.editor/documents");
 
 export const EDITOR_PAGES_POINT = "editor.pages";
+
+/**
+ * 编辑区标题的菜单位置（docs/specs/workbench/editor.md 输出 34，菜单项的共同规则见 docs/specs/workbench/menus.md）：活动编辑组
+ * 标签条右侧的按钮与“⋯”。当前文件是活动组的活动标签（是文件时），`context: "resource"` 的项执行时收到 `{address}`。
+ */
+export const EDITOR_TITLE_POINT = "editor.title";
+
+export type EditorTitleItemDeclaration = MenuItemDeclaration;
+
+export const editorTitleLocation = menuLocation(EDITOR_TITLE_POINT, {...MENU_BUTTON, ...MENU_EXTENSIONS}, {contexts: ["resource"], buttons: true});
+
+export const validateEditorTitleItem = menuItemValidator(editorTitleLocation);
 
 /** 按 id 打开一个页面（同一页面在窗口里只开一个，已开就切过去）。 */
 export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";

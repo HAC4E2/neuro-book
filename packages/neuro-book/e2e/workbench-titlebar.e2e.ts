@@ -59,7 +59,7 @@ async function editA(page: Page, typed: string): Promise<void> {
     await expect(prose(page)).toContainText(typed);
 }
 
-test("标题栏 36px、状态栏 22px；菜单只有命令目录里有的项，禁用项带原因，旧桌面专属项都不出现", async ({page}) => {
+test("标题栏 36px、状态栏 22px；四个菜单的条目由各插件贡献、逐项与约定一致，禁用项带原因，旧桌面专属项都不出现", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     expect((await titlebar(page).boundingBox())?.height).toBe(36);
@@ -67,15 +67,25 @@ test("标题栏 36px、状态栏 22px；菜单只有命令目录里有的项，�
     await expect(titlebar(page)).toHaveAttribute("data-titlebar-level", "0");
 
     const labels: string[] = [];
+    const structure: Record<string, string[]> = {};
     for (const group of ["文件", "编辑", "视图", "帮助"]) {
         await titlebar(page).getByRole("menuitem", {name: group}).click();
         await expect(openMenu(page)).toBeVisible();
         // 玻璃浮层要真的有模糊：构建的 CSS 压缩曾把标准写法删掉、只留 -webkit-，Chrome 里菜单是透明的
         expect(await openMenu(page).evaluate((menu) => getComputedStyle(menu).backdropFilter)).not.toBe("none");
         labels.push(...(await openMenu(page).locator('[role^="menuitem"]').allTextContents()).map((text) => text.trim()));
+        // 只取条目的标题（菜单项第一格）与它是不是勾选项：快捷键的写法与此刻勾没勾上不属于这张表。
+        structure[group] = await openMenu(page).evaluate((menu) => [...menu.querySelectorAll('[role^="menuitem"], [role="separator"]')].map((node) => (node.getAttribute("role") === "separator" ? "---" : `${(node.firstElementChild?.textContent ?? "").trim()}${node.getAttribute("role") === "menuitemcheckbox" ? "（勾选项）" : ""}`)));
         await page.keyboard.press("Escape");
         await expect(openMenu(page)).toHaveCount(0);
     }
+    // 条目由各插件贡献，内容、顺序与分节（分隔线）是外壳四输出 29 的条目表
+    expect(structure).toEqual({
+        文件: ["打开项目", "---", "保存", "全部保存", "还原为磁盘版本", "---", "关闭编辑器", "关闭其它编辑器"],
+        编辑: ["撤销", "重做"],
+        视图: ["命令面板", "---", "侧栏（勾选项）", "右栏（勾选项）", "活动栏（勾选项）", "面板（勾选项）", "面板位置", "最大化/还原面板", "---", "向右拆分编辑器", "向下拆分编辑器", "用其它编辑器重新打开", "---", "切换主题", "切换明暗", "切换界面语言", "---", "重新载入"],
+        帮助: ["欢迎", "文档"],
+    });
     for (const absent of ["打开文件", "设置", "退出", "剪切", "复制", "粘贴", "全选", "放大", "缩小", "关于"]) expect(labels.some((label) => label.startsWith(absent)), absent).toBe(false);
     expect(labels.some((label) => label.startsWith("重新载入"))).toBe(true);
 

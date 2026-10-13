@@ -12,10 +12,10 @@ import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 
 const menus: MenuGroup[] = [
     {id: "edit", label: "编辑", sections: [[
-        {id: "nbook.edit.undo", command: "nbook.edit.undo", args: {}, label: "撤销", enabled: true, reason: null, shortcut: null, checked: null},
-        {id: "nbook.edit.redo", command: "nbook.edit.redo", args: {}, label: "重做", enabled: false, reason: "没有活动的编辑器", shortcut: null, checked: null},
+        {id: "nbook.edit.undo", command: "nbook.edit.undo", args: {}, label: "撤销", enabled: true, reason: null, shortcut: null, checked: null, context: null, icon: null, placement: "inline"},
+        {id: "nbook.edit.redo", command: "nbook.edit.redo", args: {}, label: "重做", enabled: false, reason: "没有活动的编辑器", shortcut: null, checked: null, context: null, icon: null, placement: "inline"},
     ]]},
-    {id: "view", label: "视图", sections: [[{id: "nbook.view.set-part-hidden sidebar", command: "nbook.view.set-part-hidden", args: {part: "sidebar"}, label: "侧栏", enabled: true, reason: null, shortcut: null, checked: true}]]},
+    {id: "view", label: "视图", sections: [[{id: "nbook.view.set-part-hidden sidebar", command: "nbook.view.set-part-hidden", args: {part: "sidebar"}, label: "侧栏", enabled: true, reason: null, shortcut: null, checked: true, context: null, icon: null, placement: "inline"}]]},
 ];
 const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: false, disabled: false}, auxiliarybar: {pressed: false, disabled: true}};
 

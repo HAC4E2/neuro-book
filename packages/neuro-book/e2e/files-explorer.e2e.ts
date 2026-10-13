@@ -12,8 +12,8 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {startProductServer} from "./fixtures";
-import type {ProductServer} from "./fixtures";
+import {startProbeServer, startProductServer} from "./fixtures";
+import type {ProbeServer, ProductServer} from "./fixtures";
 
 const MANIFEST = `<?xml version="1.0" encoding="UTF-8"?>
 <content>
@@ -94,7 +94,7 @@ test("项目根是作品名、标题行五个动作；展开时新行滑下淡�
     await open(page);
     // 作品没有书名：项目根显示目录原名。
     await expect(item(page, "project://").locator("[data-explorer-label]")).toHaveText("Book");
-    const actions = page.locator("[data-view-action]");
+    const actions = page.locator('[data-tool-part="sidebar"] [data-title-action]');
     await expect(actions).toHaveCount(5);
     for (const box of await actions.evaluateAll((buttons) => buttons.map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]))) expect(box).toEqual([24, 24]);
     await expect(page.locator("[data-explorer-view] [role=toolbar]")).toHaveCount(0);
@@ -159,9 +159,9 @@ test("显示清单文件与展开记录：重新加载后恢复；收起再展�
     await open(page);
     await item(page, "project://lore.content").click();
     await expect(item(page, "project://lore.content/alice")).toBeVisible();
-    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]").click();
     await expect(item(page, "project://lore.content/content.xml")).toBeVisible();
-    await expect(page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
     await item(page, "user://").click();
     await expect(item(page, "user://notes.md")).toBeVisible();
 
@@ -169,11 +169,11 @@ test("显示清单文件与展开记录：重新加载后恢复；收起再展�
     await expect(tree(page)).toBeVisible();
     await expect(item(page, "project://lore.content/content.xml")).toBeVisible();
     await expect(item(page, "user://notes.md")).toBeVisible();
-    await expect(page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
 
     // 恢复原状，后面的用例不受影响。
-    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").click();
-    await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
     await expect(item(page, "project://lore.content/alice")).toHaveCount(0);
     await item(page, "user://").click();
     await expect(item(page, "user://notes.md")).toHaveCount(0);
@@ -226,7 +226,7 @@ test("大目录：只渲染视口附近的行；键盘走到末尾，焦点行�
     await expect.poll(async () => (await middle.boundingBox())?.height).toBe(height);
     await expect.poll(async () => Math.abs(await anchorTop() - anchored)).toBeLessThan(1.5);
 
-    await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
     await expect(item(page, "project://big/file-0000.md")).toHaveCount(0);
 });
 
@@ -382,7 +382,7 @@ test("工具栏新建：输入行出现在选中的目录里，Enter 后排他�
     await open(page);
     if (await item(page, "project://ops").getAttribute("aria-expanded") !== "true") await item(page, "project://ops").click();
     await pick(page, "project://ops/keep.md");
-    await page.locator("[data-view-action=\"nbook.files.new-file\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.new-file\"]").click();
     const input = page.locator("[data-explorer-edit] input");
     await expect(input).toBeFocused();
     await page.keyboard.type("keep.md");
@@ -467,11 +467,11 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     await dragOver(page, "project://moves/m2.md", "project://moves/keep");
     await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
     // 指针还按着：用 DOM 事件按下工具栏的切换按钮，不动指针。
-    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").dispatchEvent("click");
-    await expect(page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]").dispatchEvent("click");
+    await expect(page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
     await page.mouse.up();
-    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]").click();
 
     // 树要能滚动：展开大目录（moves 在它之后），滚到底让 moves 出现，从它开始拖，滚轮让指针下换了一行。
     await item(page, "project://big").click();
@@ -490,5 +490,61 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     expect(sent).toEqual([]);
     expect(await readFile(join(projectDir, "moves", "m2.md"), "utf8")).toBe("M2");
     expect(await exists(join(projectDir, "moves", "keep", "m2.md"))).toBe(false);
-    await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test.describe("右键菜单的贡献项（docs/specs/workbench/files-explorer.md 的“右键菜单”，验收 20）", () => {
+    let menusTmp = "";
+    let probe: ProbeServer;
+
+    test.beforeAll(async () => {
+        menusTmp = await createTestTmpRoot("neuro-book-e2e", "explorer-context");
+        const stateRoot = join(menusTmp, "state");
+        const book = join(menusTmp, "Book");
+        const id = randomUUID();
+        await mkdir(join(book, ".nbook"), {recursive: true});
+        await mkdir(stateRoot, {recursive: true});
+        await writeFile(join(book, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
+        await writeFile(join(book, "a.md"), "甲\n");
+        await writeFile(join(book, "b.txt"), "乙\n");
+        await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: book}]}));
+        // `test.menus` 往 `explorer.context` 贡献两项：只对 .md、带选择的“测试右键项”，与带固定参数的“测试固定参数”。
+        probe = await startProbeServer(stateRoot, {env: {NBOOK_TEST_PLUGINS: "test.menus"}});
+    });
+
+    test.afterAll(async () => {
+        expect(await probe.stop()).toBe(0);
+        if (menusTmp !== "") await rm(menusTmp, {recursive: true, force: true});
+    });
+
+    const entries = (page: Page) => page.getByRole("menu").locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())));
+
+    test("贡献项排在固定动作之后、每节前一条分隔线；只对 .md 的项只在右键 .md 时出现，执行时收到选择的地址；多选里有别的后缀时不出现；根行没有贡献项", async ({page}) => {
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await expect(item(page, "project://a.md")).toBeVisible();
+
+        await item(page, "project://a.md").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect((await entries(page)).slice(-5)).toEqual(["删除Delete", "---", "测试右键项", "---", "测试固定参数"]);
+        await page.getByRole("menuitem", {name: "测试右键项"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({addresses: ["project://a.md"]})}`)).toBeVisible();
+
+        await item(page, "project://b.txt").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect((await entries(page)).slice(-3)).toEqual(["删除Delete", "---", "测试固定参数"]);
+        await page.getByRole("menuitem", {name: "测试固定参数"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({from: "explorer"})}`)).toBeVisible();
+
+        // a.md 与 b.txt 一起选中后右键：后缀不全匹配，只对 .md 的项不出现。
+        await item(page, "project://a.md").click({modifiers: ["Control"]});
+        await item(page, "project://b.txt").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect(await entries(page)).not.toContain("测试右键项");
+        await page.keyboard.press("Escape");
+
+        await item(page, "project://").click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        expect(await entries(page)).not.toContain("测试固定参数");
+        await page.keyboard.press("Escape");
+    });
 });

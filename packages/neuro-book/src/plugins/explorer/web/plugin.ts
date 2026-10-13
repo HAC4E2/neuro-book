@@ -10,7 +10,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
@@ -24,6 +24,8 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
+import {EXPLORER_CONTEXT_POINT, validateExplorerContextItem} from "../shared/contracts";
+import type {ExplorerContextItemDeclaration} from "../shared/contracts";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
 import {explorerLocalized} from "./messages";
 import {explorerStoreFor} from "./preferences";
@@ -75,12 +77,15 @@ function revealOnOpen(state: {read(key: string): PublicStateRead}, controller: (
 
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
+    // 右键菜单的贡献点：菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
+    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", validate: validateExplorerContextItem}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
         // 编辑器的文档协调是可选的：编辑器没有加载时复制、移动、删除直接放行。
         dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: publicStateKey}, {key: documentCoordinatorKey, required: false}],
+        receives: [EXPLORER_CONTEXT_POINT],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
             ...Object.entries(EXPLORER_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -118,10 +123,13 @@ export const explorerBrowserPlugin: PluginDefinition = {
             viewModule.catch(() => {
                 viewModule = null;
             });
+            const contextMenu = new MenuItemRegistry(context.declarations.list<ExplorerContextItemDeclaration>(EXPLORER_CONTEXT_POINT), context.signal);
             const view: ViewImplementation = {
                 load: async () => createExplorerViewHost((await (viewModule ?? importView())).default, {
                     session,
                     commands,
+                    state: context.services.require(publicStateKey),
+                    contextMenu,
                     locale,
                     projectTitle: context.services.require(windowProjectKey).project?.title ?? null,
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
@@ -129,6 +137,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
             };
             const published = bindingsOf(explorerState, explorerStateValues(session.controller));
             return {
+                receivers: {[EXPLORER_CONTEXT_POINT]: contextMenu.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[EXPLORER_VIEW_ID]: view},
                     [COMMANDS_POINT]: explorerCommands(session, () => locale.value),
