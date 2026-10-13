@@ -308,6 +308,17 @@
     --shell-pane-divider: var(--divider);
     --shell-pane-divider-inset: 10px;
     /*
+     * 拖动边界的悬停线（t83 第三轮稿 R3-1）：1px 强调色线芯加与输入框聚焦同源的发光；自由端缩进 16px（缝加卡片圆角），
+     * 正好不碰卡片的圆角，碰到另一条亮着的线的一端照旧连着。落点高亮比缺省深：卡片底色偏暖，12% 看不清。
+     */
+    --sash-line-color: color-mix(in srgb, var(--accent-main) 85%, transparent);
+    --sash-line-size: 1px;
+    --sash-line-inset: 16px;
+    --sash-line-radius: 2px;
+    --sash-line-glow: var(--focus-ring);
+    --drop-area-fill: color-mix(in srgb, var(--accent-main) 20%, transparent);
+    --drop-area-border: var(--accent-main);
+    /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。
      * 它比浮层档（18/48）明显更远更散：对话框压住整个窗口，浮层只压住一小片。

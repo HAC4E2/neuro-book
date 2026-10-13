@@ -682,9 +682,9 @@ input.nb-ui-native-input[type="number"] {
 
 .nb-ui-drop-indicator[data-drop-indicator="area"],
 .nb-ui-drop-indicator[data-drop-indicator="entry"] {
-    border: 1px solid color-mix(in srgb, var(--accent-main) 70%, transparent);
+    border: 1px solid var(--drop-area-border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    background: var(--drop-area-fill);
     box-shadow: var(--elevation-raised);
     transition: opacity var(--motion-fast) var(--ease-standard);
 }

@@ -11,6 +11,7 @@ import {
     nbRadiusTokens,
     nbSpacingTokens,
     nbThemeDecorTokens,
+    nbThemeFeedbackTokens,
     nbThemeMetricTokens,
     nbThemeRoleTokens,
     nbTypographyTokens,
@@ -40,6 +41,7 @@ const CORE_GROUPS: LabTokenGroup[] = [
     {id: "theme-metric", label: "主题 · 度量", tokens: nbThemeMetricTokens},
     {id: "theme-decor", label: "主题 · 装饰", tokens: nbThemeDecorTokens},
     {id: "theme-role", label: "主题 · 角色", tokens: nbThemeRoleTokens},
+    {id: "theme-feedback", label: "主题 · 交互反馈", tokens: nbThemeFeedbackTokens},
 ];
 
 /** 全部分组：核心组加上已装主题声明、核心组没有的变量。 */

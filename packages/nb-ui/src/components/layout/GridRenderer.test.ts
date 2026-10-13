@@ -333,6 +333,75 @@ describe("命中结果映射到分界线的状态", () => {
         await nextTick();
         expect(zeroSash.hasAttribute("data-sash-hover")).toBe(false);
     });
+
+    it("悬停线的两端：交汇处两条一起亮时，横线挨着竖线的一端连着；只亮横线时两端都按自由端缩进", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        stubLayout(wrapper);
+        await nextTick();
+        const ends = (key: string) => {
+            const line = wrapper.get<HTMLElement>(`[data-sash="${key}"] > .sash-line`).element;
+            return {start: line.dataset.joinedStart === "true", end: line.dataset.joinedEnd === "true"};
+        };
+        const innerSash = wrapper.get<HTMLElement>('[data-sash="right:0"]').element;
+
+        // 交点按下：两根轴进同一场手势，同时亮
+        innerSash.dispatchEvent(pointerEvent("pointerdown", 302, 302));
+        await nextTick();
+        expect(ends("right:0")).toEqual({start: true, end: false});
+        expect(ends("root:0")).toEqual({start: false, end: false});
+        innerSash.dispatchEvent(pointerEvent("pointerup", 302, 302));
+        await nextTick();
+
+        // 只按横线：竖线没亮，横线左端也是自由端
+        innerSash.dispatchEvent(pointerEvent("pointerdown", 600, 300));
+        await nextTick();
+        expect(innerSash.getAttribute("data-sash-active")).toBe("true");
+        expect(ends("right:0")).toEqual({start: false, end: false});
+        innerSash.dispatchEvent(pointerEvent("pointerup", 600, 300));
+    });
+
+    it("每个分支的线两端挨着哪条外层分隔线按树结构算：前后有兄弟时是本层的分隔线，没有就沿用外层的边", () => {
+        // root 横排 [left | mid | right]，mid 竖排 [top | inner]，inner 横排 [a | b]
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 200, height: 0}},
+                {
+                    kind: "branch",
+                    id: "mid",
+                    orientation: "vertical",
+                    size: {width: 500, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 200}},
+                        {
+                            kind: "branch",
+                            id: "inner",
+                            orientation: "horizontal",
+                            size: {width: 0, height: 300},
+                            children: [
+                                {kind: "leaf", id: "a", ref: "a", size: {width: 250, height: 0}},
+                                {kind: "leaf", id: "b", ref: "b", size: {width: 250, height: 0}},
+                            ],
+                        },
+                    ],
+                },
+                {kind: "leaf", id: "right", ref: "right", size: {width: 200, height: 0}},
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        const ends = Object.fromEntries(wrapper.findAllComponents(Splitter).map((splitter) => [splitter.props("branchId"), splitter.props("sashLineEnds")]));
+        expect(ends).toEqual({
+            // 根的竖线上下都是网格外缘
+            root: {start: null, end: null},
+            // mid 的横线左右挨着根的两条竖线
+            mid: {start: "root:0", end: "root:1"},
+            // inner 的竖线上端挨着 mid 的横线，下端是网格外缘
+            inner: {start: "mid:0", end: null},
+        });
+    });
 });
 
 describe("拖动期间的预览布局", () => {

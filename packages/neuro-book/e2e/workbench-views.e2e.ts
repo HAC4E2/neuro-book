@@ -557,6 +557,65 @@ test.describe("产品页：测试插件贡献的视图", () => {
         }
     });
 
+    test("拖动边界的悬停线取主题 token：nbook 是对齐接缝的 1px 线芯加发光、自由端缩进 16px，交汇处两条同时亮时连着；macos 是贴满的 3px 实线", async ({page}) => {
+        await open(page);
+        const sidebarSash = page.locator('[data-sash="body:0"]');
+        const panelSash = page.locator('[data-sash="panel-stack:0"]');
+        await expect(sidebarSash).toBeVisible();
+        await expect(panelSash).toBeVisible();
+        // 线盒沿长轴的两端（相对分隔盒）与线芯：线芯的位置按线盒加 ::before 的偏移算，与静止接缝比。
+        const lineOf = (key: string) => page.evaluate((sashKey) => {
+            const sash = document.querySelector(`[data-sash="${sashKey}"]`)!;
+            const line = sash.querySelector<HTMLElement>(".sash-line")!;
+            const seam = sash.querySelector<HTMLElement>(".sash-seam")!.getBoundingClientRect();
+            const box = line.getBoundingClientRect();
+            const style = getComputedStyle(line);
+            const core = getComputedStyle(line, "::before");
+            const vertical = line.dataset.axis === "width";
+            return {
+                ends: vertical ? [style.top, style.bottom] : [style.left, style.right],
+                coreSize: vertical ? core.width : core.height,
+                coreAtSeam: vertical ? box.left + Number.parseFloat(core.left) - seam.left : box.top + Number.parseFloat(core.top) - seam.top,
+                glow: core.boxShadow !== "none",
+            };
+        }, key);
+        const centre = async (locator: typeof sidebarSash) => {
+            const box = (await locator.boundingBox())!;
+            return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+        };
+
+        // 只悬停竖线（离交汇处远）：停够时长亮起，两端都是自由端
+        const vertical = await centre(sidebarSash);
+        const horizontal = await centre(panelSash);
+        await page.mouse.move(vertical.x, (await sidebarSash.boundingBox())!.y + 120);
+        await expect(sidebarSash).toHaveAttribute("data-sash-revealed", "true");
+        const nbook = await lineOf("body:0");
+        expect(nbook).toMatchObject({ends: ["16px", "16px"], coreSize: "1px", glow: true});
+        expect(nbook.coreAtSeam).toBeCloseTo(0, 3);
+
+        // 交汇处按下：两条一起亮，横线挨着竖线的左端连着，右端仍缩进
+        await page.mouse.move(vertical.x, horizontal.y);
+        await page.mouse.down();
+        await expect(panelSash).toHaveAttribute("data-sash-active", "true");
+        await expect(sidebarSash).toHaveAttribute("data-sash-active", "true");
+        expect((await lineOf("panel-stack:0")).ends).toEqual(["0px", "16px"]);
+        await page.mouse.up();
+
+        const settings = join(tmp, "state", "settings.json");
+        try {
+            await writeFile(settings, JSON.stringify({"nbook.workbench/theme": "macos"}));
+            await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "macos");
+            await page.mouse.move(vertical.x, (await sidebarSash.boundingBox())!.y + 160);
+            await expect(sidebarSash).toHaveAttribute("data-sash-revealed", "true");
+            const macos = await lineOf("body:0");
+            expect(macos.ends).toEqual(["0px", "0px"]);
+            expect(macos.coreSize).toBe("3px");
+            expect(macos.glow).toBe(false);
+        } finally {
+            await rm(settings, {force: true});
+        }
+    });
+
     test("容器网格（Panel 横向）：拖动视图之间的边界只写宽度；收成 32px 竖条再展开回到记忆宽度", async ({page}) => {
         await open(page);
         await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例戊");

@@ -11,7 +11,7 @@
 
 填满父级。网格用 nb-ui 的 `useLayoutExtent` 测量承载盒、`useGridLayout` 落账，叶尺寸来自呈现模型：展开的视图按意图分配（没记录过取 240），收起的视图固定 32px。single 只有一个叶，没有边界；empty 时显示 `empty` 插槽。
 
-分栏之间的线由它自己定，不继承外壳网格的接缝：颜色取主题变量 `--shell-pane-divider`（缺省 `--divider`），沿长轴两端的缩进取 `--shell-pane-divider-inset`（缺省 0，贯穿）。外壳根上的接缝色在卡片主题里是透明的，继承下来分栏之间就看不出分界（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）。
+分栏之间的线由它自己定，不继承外壳网格的接缝：颜色取主题变量 `--shell-pane-divider`（缺省 `--divider`），沿长轴两端的缩进取 `--shell-pane-divider-inset`（缺省 0，贯穿）。外壳根上的接缝色在卡片主题里是透明的，继承下来分栏之间就看不出分界（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）。拖动边界时亮起的悬停线，自由端缩进也取 `--shell-pane-divider-inset`，亮起来正好盖住分割线。
 
 ## 交互
 

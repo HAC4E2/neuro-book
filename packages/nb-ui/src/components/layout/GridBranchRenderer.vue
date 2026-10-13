@@ -13,11 +13,15 @@ import type {GridAxis, GridBranch, GridLeaf, GridLayoutResult, GridNode} from ".
 
 defineOptions({name: "GridBranchRenderer"});
 
-const props = defineProps<{
+/** 分支四边挨着的外层分隔线键（`<branchId>:<index>`）；挨着网格外缘时为 null。 */
+type BranchEdges = {top: string | null; right: string | null; bottom: string | null; left: string | null};
+
+const props = withDefaults(defineProps<{
     node: GridNode<unknown>;
     layout: GridLayoutResult;
     disabled: boolean;
-}>();
+    edges?: BranchEdges;
+}>(), {edges: () => ({top: null, right: null, bottom: null, left: null})});
 
 defineSlots<{
     leaf(props: {node: GridLeaf<unknown>}): unknown;
@@ -38,6 +42,23 @@ const sashSizes = computed(() => {
 function slotName(id: string): string {
     return "panel-" + id;
 }
+
+/**
+ * 子节点的四边：沿本分支主轴，第一个以后的子节点前边挨着本分支的分隔线、最后一个以前的后边也是，其余边沿用本分支的。
+ * 本分支自己的分隔线横穿交叉轴，两端就是本分支交叉轴上的两条边：悬停线据此判断一端是连着外层的线还是自由端。
+ */
+function childEdges(index: number): BranchEdges {
+    const id = branch.value?.id;
+    const before = id !== undefined && index > 0 ? `${id}:${index - 1}` : null;
+    const after = id !== undefined && index < children.value.length - 1 ? `${id}:${index}` : null;
+    return axis.value === "width"
+        ? {...props.edges, left: before ?? props.edges.left, right: after ?? props.edges.right}
+        : {...props.edges, top: before ?? props.edges.top, bottom: after ?? props.edges.bottom};
+}
+
+const sashLineEnds = computed(() => axis.value === "width"
+    ? {start: props.edges.top, end: props.edges.bottom}
+    : {start: props.edges.left, end: props.edges.right});
 </script>
 
 <template>
@@ -49,10 +70,11 @@ function slotName(id: string): string {
         :sash-sizes="sashSizes"
         :sizes-px="sizesPx"
         :disabled="disabled"
+        :sash-line-ends="sashLineEnds"
         class="h-full w-full"
     >
-        <template v-for="child in children" :key="child.id" #[slotName(child.id)]>
-            <GridBranchRenderer v-if="child.kind === 'branch'" :node="child" :layout="layout" :disabled="disabled">
+        <template v-for="(child, index) in children" :key="child.id" #[slotName(child.id)]>
+            <GridBranchRenderer v-if="child.kind === 'branch'" :node="child" :layout="layout" :disabled="disabled" :edges="childEdges(index)">
                 <!-- 递归时把 leaf 插槽继续往下传：作用域插槽不会自动穿透到子组件 -->
                 <template #leaf="scope">
                     <slot name="leaf" :node="scope.node"></slot>

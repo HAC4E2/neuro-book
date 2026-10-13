@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
             data-container-target
             :data-selected-container="selected.id"
         ></div>
-        <div v-else class="workbench-tool-part__empty" :data-empty-part="part">{{ emptyText }}</div>
+        <div v-else class="workbench-tool-part__empty" :data-empty-part="part"><div class="workbench-tool-part__empty-box">{{ emptyText }}</div></div>
     </section>
 </template>
 
@@ -191,11 +191,28 @@ onBeforeUnmount(() => {
     overflow: hidden;
 }
 
+/*
+ * 空着的区域整块都是落点；里面内缩 8px 的虚线框把“可以放在这里”画出来，提示居中（t83 第一轮稿 D2）。框画在里层：
+ * 内缩若做在落点自己身上，框外那一圈就接不住投放。
+ */
 .workbench-tool-part__empty {
+    display: flex;
     flex: 1 1 auto;
     min-height: 0;
+    padding: 8px;
+}
+
+.workbench-tool-part__empty-box {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
     padding: var(--space-3);
+    border: 1px dashed color-mix(in srgb, var(--text-main) 24%, transparent);
+    border-radius: 10px;
     color: var(--text-muted);
     font-size: var(--text-xs);
+    text-align: center;
 }
 </style>

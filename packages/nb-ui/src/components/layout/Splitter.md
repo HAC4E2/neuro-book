@@ -14,7 +14,7 @@
 
 分隔线使用 `role="separator"`，提供与相邻面板关联的 `aria-controls`、方向、当前值、最小/最大值和像素文本。可聚焦分隔线响应主轴方向键，每步 10px，Shift 调整 1px；Home / End 移到可行范围端点，Enter 切换相邻可收起面板。按键抬起时提交该次键盘会话。Escape 取消会话；窗口失焦、浏览器夺走指针捕获、外部约束/身份/方向变化或卸载也会取消而不提交；分隔线失去焦点时结束键盘会话。
 
-指针按下开始拖动后，移动预览随手势更新，松开后提交一次。细指针命中带外扩 5px，触摸粗指针为 15px；相交候选最多同时选一条宽度轴和一条高度轴，但独立 Splitter 只有一个方向。悬停命中立即改变 resize 光标，停留 250ms 后才显示装饰线；拖动或键盘聚焦时装饰线立即显示。禁用状态与 0px sash 不可交互。`collapse` 配置允许边界拖动越过阈值后吸附至收起尺寸，并在反向越过恢复阈值时恢复；状态随 `panels` 配置输入，不由组件另存。`collapse.toggleable` 为 false 的面板只经拖动收起与展开，分隔条上的 `Enter` 跳过它。
+指针按下开始拖动后，移动预览随手势更新，松开后提交一次。细指针命中带外扩 5px，触摸粗指针为 15px；相交候选最多同时选一条宽度轴和一条高度轴，但独立 Splitter 只有一个方向。悬停命中立即改变 resize 光标，停留 250ms 后才显示装饰线；拖动或键盘聚焦时装饰线立即显示。装饰线的样子取主题 token：线芯颜色 `--sash-line-color`、厚度 `--sash-line-size`（缺省 3px 铺满装饰带；更细时对齐静止接缝）、圆角 `--sash-line-radius`、发光 `--sash-line-glow`；长轴两端按 `--sash-line-inset` 缩进，`sashLineEnds` 指到的那条外层线也亮着时这一端不缩、连着它。禁用状态与 0px sash 不可交互。`collapse` 配置允许边界拖动越过阈值后吸附至收起尺寸，并在反向越过恢复阈值时恢复；状态随 `panels` 配置输入，不由组件另存。`collapse.toggleable` 为 false 的面板只经拖动收起与展开，分隔条上的 `Enter` 跳过它。
 
 ## 数据
 
@@ -50,6 +50,11 @@ type SplitterProps = {
     sizesPx?: readonly number[];
     /** 所属 Grid 的分支 id；独立使用时省略。用于分隔线身份；默认 "panels"。 */
     branchId?: string;
+    /**
+     * Grid 内部用：分隔线沿长轴两端挨着的外层分隔线键（`<branchId>:<index>`），挨着容器边缘为 null；默认两端都是 null。
+     * 那条线也亮着时这一端连着（T 形交汇），否则按 `--sash-line-inset` 缩进。
+     */
+    sashLineEnds?: {start: string | null; end: string | null};
 };
 
 type SplitterEmits = {
