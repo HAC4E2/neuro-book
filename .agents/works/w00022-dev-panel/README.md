@@ -47,3 +47,4 @@ status: active
 | [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`3ef00987a`），完成 |
 | [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 实现审查修正后合入 `master`（`8b44f60ca`），完成 |
 | [t11](tasks/t11-notify/README.md) | 通知、会话消息与常驻；2026-10-13 实施完成，实现审查中 |
+| [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 开工 |
