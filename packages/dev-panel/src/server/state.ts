@@ -45,20 +45,32 @@ class Refresher<T> {
     part: Part<T> = {value: null, revision: 0, at: null, error: null};
     private fingerprint = "";
     private running: Promise<void> | null = null;
-    private again = false;
+    /** 正在算时又被要求重算：合并成一次排在后面的重算。 */
+    private queued: {promise: Promise<void>; resolve: () => void} | null = null;
 
     constructor(private readonly name: PartName, private readonly compute: () => Promise<T>, private readonly fingerprintOf: (value: T) => string, private readonly onChanged: (name: PartName) => void, private readonly log: (message: string) => void) {}
 
+    /**
+     * 重算一次，返回的承诺在一次“调用之后才开始”的重算完成时兑现：正在算的那次可能读的是写入之前的文件，
+     * 写接口要等到包含自己这次写入的结果再回应（前端紧接着跳到新 Work 不会 404）。
+     */
     run(): Promise<void> {
         if (this.running) {
-            this.again = true;
-            return this.running;
+            if (!this.queued) {
+                let resolve!: () => void;
+                const promise = new Promise<void>((done) => {
+                    resolve = done;
+                });
+                this.queued = {promise, resolve};
+            }
+            return this.queued.promise;
         }
         this.running = this.once().finally(() => {
             this.running = null;
-            if (this.again) {
-                this.again = false;
-                void this.run();
+            const queued = this.queued;
+            if (queued) {
+                this.queued = null;
+                void this.run().finally(() => queued.resolve());
             }
         });
         return this.running;

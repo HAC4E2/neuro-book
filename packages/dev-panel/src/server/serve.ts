@@ -8,7 +8,9 @@ import {createNameIndexCache, searchCheckouts, validateSearchQuery} from "../cor
 import {createPanelAuth, type PanelAuth} from "./auth.js";
 import {allowedHosts, contentType, decodePath, guardedFile, rejectForwarded, rejectHost, sameHostOn, type Rejection} from "./guard.js";
 import {PanelState, type PartName} from "./state.js";
-import {artifactsView, artifactView, docFileView, docsTreeView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
+import {assertMainWritable} from "../core/repo.js";
+import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
+import {createWriteHandler} from "./writes.js";
 
 /**
  * 面板服务：两个来源（`Bun.serve` 各一个）。
@@ -18,7 +20,7 @@ import {artifactsView, artifactView, docFileView, docsTreeView, NotReady, overvi
  */
 
 export const PANEL_API_SCHEMA = "nbdev.panel-api/v1";
-/** 产物来源上留给 t10 表单脚本的保留路径（本片回 404）。 */
+/** 产物来源上的保留路径（回 404）：t10 不做页内答复，留着以后用，不让它与 checkout key 撞名。 */
 export const RESERVED_ARTIFACT_SEGMENT = "_nbdev";
 
 export type PanelServerOptions = {
@@ -108,6 +110,19 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     }), {status, headers: {...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8"}});
     const notFound = () => envelope(null, [], {code: "not_found", message: "找不到"}, 404);
 
+    const writes = createWriteHandler({state, envelope, log});
+
+    /** 主工作区现在能不能写（不在 master、正在合并或变基时不能）：前端据此隐藏写入口，不必等每个请求回 409。 */
+    async function mainWritability(): Promise<{ok: boolean; code: string | null; message: string | null}> {
+        try {
+            await assertMainWritable(context.mainRoot);
+            return {ok: true, code: null, message: null};
+        } catch (error) {
+            if (!isNbdevError(error)) throw error;
+            return {ok: false, code: error.code, message: error.message};
+        }
+    }
+
     const panelCsp = (requestHost: string) => [
         "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", `img-src 'self' data: ${artifactOrigin(requestHost)}`,
         `connect-src 'self' ws://${requestHost}`, `frame-src ${artifactOrigin(requestHost)}`, "frame-ancestors 'none'", "form-action 'none'", "base-uri 'none'", "object-src 'none'",
@@ -118,6 +133,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         try {
             if (route === "meta" && rest.length === 0) {
                 const herdr = state.herdr.current();
+                const mainWritable = await mainWritability();
                 const parts = {records: state.records.part, activity: state.activity.part};
                 return envelope({
                     instance: state.instanceId,
@@ -130,6 +146,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                     artifactOrigin: artifactOrigin(requestHost),
                     // 前端渲染 Markdown 时把 `.agents/works/` 下的图片与证据链接改写到产物来源上；前缀只经登录后的接口交出。
                     artifactBase: `${artifactOrigin(requestHost)}/a/${artifactPrefix}`,
+                    mainWritable,
                 }, [], null);
             }
             if (!ready) return envelope(null, [], {code: "warming_up", message: "面板正在启动"}, 503);
@@ -138,7 +155,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 return envelope(data, warnings, null);
             }
             if (route === "work" && rest.length === 1) {
-                const view = workView(state, rest[0]!);
+                const view = await workView(state, rest[0]!);
                 return view ? envelope(view.data, view.warnings, null) : notFound();
             }
             if (route === "task" && rest.length === 2) {
@@ -162,6 +179,12 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 const path = url.searchParams.get("path");
                 if (path === null) return notFound();
                 const view = await docFileView(state, url.searchParams.get("checkout") ?? "main", path);
+                return view ? envelope(view.data, view.warnings, null) : notFound();
+            }
+            if (route === "files" && rest.length === 0) {
+                const path = url.searchParams.get("path");
+                if (path === null) return notFound();
+                const view = await fileView(state, path);
                 return view ? envelope(view.data, view.warnings, null) : notFound();
             }
             if (route === "sessions" && rest.length === 0) {
@@ -269,7 +292,8 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         }
         if (req.method !== "GET" && req.method !== "HEAD") {
             if (!sameOrigin || !equalSecret(req.headers.get("x-nbdev-csrf"), csrf)) return plain(403, "forbidden：跨来源的写请求，或缺少 CSRF 令牌");
-            return plain(405, "method_not_allowed：面板本片只读");
+            if (segments[0] === "api") return writes(req, segments, url);
+            return plain(405, "method_not_allowed：这里没有写接口");
         }
         if (segments[0] === "login" && segments.length === 1) {
             const sessionId = auth.redeem(url.searchParams.get("ticket") ?? "");
@@ -315,6 +339,10 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     panel = listen(options.port, (port) => Bun.serve<SocketData>({
         hostname: host,
         port,
+        // 写请求等锁最长 30 秒，持锁者还可能等 index.lock 10 秒。默认的 10 秒空闲超时会切断还在等回应的连接
+        // （Bun 1.4.2 实测切的是没有请求体的请求，带 JSON 请求体的没切；不依赖这个细节）：浏览器看到失败，
+        // 处理函数却照样写入，开发者再按一次就多领一个号。
+        idleTimeout: 60,
         fetch: (req, server) => handlePanel(req, server),
         websocket: {
             open(ws) {

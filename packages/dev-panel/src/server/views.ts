@@ -1,8 +1,12 @@
-import {readdir} from "node:fs/promises";
+import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {Activity} from "../core/activity.js";
 import {artifactContentHash, artifactDirPath, QUESTIONS_ARTIFACT, questionStates, readArtifact, type ArtifactRef} from "../core/artifacts.js";
 import {branchChangedDocs, listDocPaths, readDocFile, readDocTree} from "../core/docs.js";
+import {readEditableFile} from "../core/edit-ops.js";
+import {readGovernanceLineLimits} from "../core/governance-limits.js";
+import {guardedFile} from "../core/paths.js";
+import {sha256} from "../core/transaction.js";
 import {isNbdevError, systemErrorCode, type Warning} from "../core/errors.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
@@ -88,7 +92,13 @@ function findTask(status: ProjectStatus, workId: string, taskId: string): {work:
     return work && task ? {work, task} : null;
 }
 
-export function workView(state: PanelState, workId: string): {data: unknown; warnings: Warning[]} | null {
+/** README 的 sha256：状态切换带它做 `expectedHash`，绑定开发者看到的那一版。读不出时为 null。 */
+async function readmeHashOf(root: string, path: string): Promise<string | null> {
+    const real = await guardedFile(root, path);
+    return real === null ? null : sha256(await readFile(real));
+}
+
+export async function workView(state: PanelState, workId: string): Promise<{data: unknown; warnings: Warning[]} | null> {
     const {status, warnings} = currentStatus(state);
     const work = findWork(status, workId);
     if (!work) return null;
@@ -98,6 +108,7 @@ export function workView(state: PanelState, workId: string): {data: unknown; war
         data: {
             ...work,
             checkoutKey: state.keyOf(work.checkout),
+            readmeHash: await readmeHashOf(work.checkout, workReadmePath(work.workId)),
             openRequired: openRequiredOf(work),
             tasks: work.tasks.map((task) => ({...task, checkoutKey: state.keyOf(task.checkout)})),
             sessions: sessions.map((session) => ({key: session.key, agent: session.agent, label: session.label, alive: session.alive, herdr: session.herdr, leases: session.leases.filter((lease) => lease.workId === workId), runs: session.runs.length})),
@@ -115,7 +126,7 @@ export async function taskView(state: PanelState, workId: string, taskId: string
     const detail = await readTaskDetail(state.context.mainRoot, records.transition, {workId, taskId, recordRoot: found.task.checkout}, detailWarnings);
     return {
         data: {
-            task: {...found.task, checkoutKey: state.keyOf(found.task.checkout)},
+            task: {...found.task, checkoutKey: state.keyOf(found.task.checkout), readmeHash: await readmeHashOf(found.task.checkout, taskReadmePath(workId, taskId))},
             work: {workId: found.work.workId, title: found.work.title, source: found.work.source, branch: found.work.branch},
             detail,
         },
@@ -268,6 +279,21 @@ export async function docFileView(state: PanelState, checkoutKey: string, path: 
         if ((await branchDocs(other)).has(path)) changedIn.push(state.keyOf(other.root)!);
     }
     return {data: {checkout: {key: checkoutKey, branch: checkout.branch, isMain: checkout.isMain}, ...file, changedIn}, warnings: []};
+}
+
+/**
+ * 编辑页：主工作区里一个文件的原文、哈希、能不能编辑与原因、未提交改动；另附改过它的分支（打开时就提醒）
+ * 与根级治理入口的非空行上限。白名单之外的路径返回 null（404），见 `readEditableFile`。
+ */
+export async function fileView(state: PanelState, path: string): Promise<{data: unknown; warnings: Warning[]} | null> {
+    const file = await readEditableFile(state.context, path);
+    if (!file) return null;
+    const changedIn: Array<{key: string; branch: string | null}> = [];
+    for (const other of state.checkouts.filter((candidate) => !candidate.isMain && !candidate.prunable)) {
+        if ((await branchDocs(other)).has(path)) changedIn.push({key: state.keyOf(other.root)!, branch: other.branch});
+    }
+    const limits = await readGovernanceLineLimits(state.context.mainRoot);
+    return {data: {...file, changedIn, lineLimit: limits?.[path] ?? null}, warnings: []};
 }
 
 /** 会话页：herdr 的 pane（会话 id、Agent、状态、是否开在本仓库里）、会话持有的租约与它的运行、无主的运行、checkout 列表。 */
