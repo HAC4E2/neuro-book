@@ -28,6 +28,12 @@ export function serviceUnitName(mainRoot: string): string {
     return `nbdev-panel-${basename(mainRoot).replace(/[^A-Za-z0-9_.-]/gu, "-")}.service`;
 }
 
+/** 用户单元目录 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`；`XDG_CONFIG_HOME` 不是绝对路径时按 XDG 规范忽略。 */
+export function userUnitDir(env: NodeJS.ProcessEnv): string {
+    const configHome = env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.startsWith("/") ? env.XDG_CONFIG_HOME : join(env.HOME ?? homedir(), ".config");
+    return join(configHome, "systemd", "user");
+}
+
 /** systemd 的值：`%` 是说明符要写成 `%%`；`ExecStart` 的参数含空白或引号时加双引号。 */
 function unitValue(value: string): string {
     return value.replaceAll("%", "%%");
@@ -105,12 +111,11 @@ export async function installService(argv: readonly string[], io: CliIo): Promis
         }
         const {mainRoot} = await locateRepository(values.target ? resolve(io.cwd, values.target) : import.meta.dirname);
         const unit = serviceUnitName(mainRoot);
-        const configHome = io.env.XDG_CONFIG_HOME && io.env.XDG_CONFIG_HOME.startsWith("/") ? io.env.XDG_CONFIG_HOME : join(io.env.HOME ?? homedir(), ".config");
-        const unitDir = join(configHome, "systemd", "user");
+        const unitDir = userUnitDir(io.env);
         const unitPath = join(unitDir, unit);
         const existing = await readIfExists(unitPath);
         const ours = existing?.text?.includes(SERVICE_MARKER) === true;
-        const stopHint = `停止：systemctl --user stop ${unit}；日志：journalctl --user -u ${unit}`;
+        const stopHint = `停止：bun run --cwd packages/dev-panel service:stop（即 systemctl --user stop ${unit}）；日志：bun run --cwd packages/dev-panel service:logs（即 journalctl --user -u ${unit}）`;
 
         if (values.uninstall) {
             const commands = existing ? [["disable", "--now", unit], ["daemon-reload"]] : [];
