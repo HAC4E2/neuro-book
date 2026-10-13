@@ -436,7 +436,17 @@ const dropFeedback = computed(() => {
             </div>
         </template>
         <template #activitybar>
-            <WorkbenchActivityBar :label="text(TEXT.activityBar)" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" :drag-hint="text(TEXT.dragHint)" :more-label="text(TEXT.more)" @select="selectSidebarContainer" />
+            <WorkbenchActivityBar
+                :label="text(TEXT.activityBar)"
+                :containers="activityContainers"
+                :selected="presentation.parts.sidebar.selected"
+                :sidebar-visible="sidebarVisible"
+                :drag-hint="text(TEXT.dragHint)"
+                :more-label="text(TEXT.more)"
+                :items="chrome?.activityEntries(locale) ?? []"
+                @select="selectSidebarContainer"
+                @run-item="(id) => chrome?.runItem(id)"
+            />
         </template>
         <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
             <WorkbenchToolPartHost

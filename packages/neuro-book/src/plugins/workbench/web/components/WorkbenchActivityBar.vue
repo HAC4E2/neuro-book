@@ -1,5 +1,8 @@
 <script setup lang="ts">
-/** 活动栏（同名 .md）：Sidebar 的容器切换按钮；点了只发 `select`，切换与打开 Sidebar 由宿主做。 */
+/**
+ * 活动栏（同名 .md）：上段是 Sidebar 的容器切换按钮（放不下时末尾的收进“更多”），底段是贡献来的全局项；点了只发 `select`
+ * 或 `run-item`，切换、打开 Sidebar 与执行命令由宿主做。
+ */
 import {Dropdown, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
@@ -11,6 +14,18 @@ export interface ActivityContainer {
     readonly icon: string;
 }
 
+/** 底段的一个全局项（docs/specs/ui/workbench-shell.md 输出 40）。 */
+export interface ActivityItem {
+    readonly id: string;
+    readonly title: string;
+    readonly icon: string;
+    /** 没有命令的条目是不可点的占位。 */
+    readonly command: {readonly id: string; readonly args: Readonly<Record<string, unknown>>} | null;
+    /** 不是切换按钮为 null。 */
+    readonly pressed: boolean | null;
+    readonly disabledReason: string | null;
+}
+
 defineOptions({name: "WorkbenchActivityBar"});
 
 const props = withDefaults(defineProps<{
@@ -20,12 +35,14 @@ const props = withDefaults(defineProps<{
     sidebarVisible: boolean;
     /** 条目作为拖动源的说明（写到 `aria-description`），例如“按空格拿起并拖动”。 */
     dragHint: string;
+    items?: ReadonlyArray<ActivityItem>;
     /** 放不下时收起其余条目的“更多”按钮的可访问名称。 */
     moreLabel?: string;
-}>(), {moreLabel: "更多"});
+}>(), {items: () => [], moreLabel: "更多"});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
+    (event: "run-item", id: string): void;
 }>();
 
 /**
@@ -85,7 +102,31 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
                 <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-activity-bar__item" data-activity-more />
             </Dropdown>
         </div>
-        <div class="workbench-activity-bar__footer"></div>
+        <div class="workbench-activity-bar__footer" data-activity-items>
+            <template v-for="item in items" :key="item.id">
+                <!-- 停用的按钮不触发悬停提示组件：停用时原因写在原生 title 上。 -->
+                <Tooltip v-if="item.command !== null" :text="item.title" placement="right" :disabled="item.disabledReason !== null">
+                    <IconButton
+                        size="lg"
+                        :icon-class="item.icon"
+                        :aria-label="item.title"
+                        :title="item.disabledReason ?? ''"
+                        :aria-pressed="item.pressed ?? undefined"
+                        :disabled="item.disabledReason !== null"
+                        :data-activity-item="item.id"
+                        class="workbench-activity-bar__item"
+                        :class="{'workbench-activity-bar__item--pressed': item.pressed === true}"
+                        @click="emit('run-item', item.id)"
+                    />
+                </Tooltip>
+                <!-- 没有命令：不可点的占位（不以可操作的假入口呈现），样子同书架右上角的头像位。 -->
+                <Tooltip v-else :text="item.title" placement="right">
+                    <span class="workbench-activity-bar__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" data-activity-item-placeholder>
+                        <span class="workbench-activity-bar__placeholder-circle"><span class="workbench-activity-bar__placeholder-icon" :class="item.icon" aria-hidden="true"></span></span>
+                    </span>
+                </Tooltip>
+            </template>
+        </div>
     </nav>
 </template>
 
@@ -116,11 +157,19 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
     scrollbar-width: none;
 }
 
+/* 底段贴着列底，不滚动：放不下时上段先滚动。上下留出与上段相同的余地，按钮的焦点光环不被列裁掉。 */
 .workbench-activity-bar__footer {
     display: flex;
     flex: 0 0 auto;
     flex-direction: column;
     align-items: center;
+    gap: var(--space-1);
+    width: 100%;
+    padding-block: var(--space-2);
+}
+
+.workbench-activity-bar__footer:empty {
+    padding-block: 0;
 }
 
 .workbench-activity-bar .workbench-activity-bar__item {
@@ -139,5 +188,36 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
 .workbench-activity-bar .workbench-activity-bar__item--active {
     background: var(--bg-hover);
     color: var(--accent-text);
+}
+
+/* 底段的切换按钮按下（例如设置窗口开着）：灰底、正文色，不用强调色；强调色只给上段的当前容器。 */
+.workbench-activity-bar .workbench-activity-bar__item--pressed {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+/* 占位与按钮同占一格（38px），圆形的样子与书架右上角的头像位一致。 */
+.workbench-activity-bar__placeholder {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+}
+
+.workbench-activity-bar__placeholder-circle {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: var(--border-w) solid var(--control-outline);
+    border-radius: var(--radius-pill);
+    background: var(--control-surface);
+    color: var(--text-muted);
+}
+
+.workbench-activity-bar__placeholder-icon {
+    width: var(--text-sm);
+    height: var(--text-sm);
 }
 </style>

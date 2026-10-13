@@ -1,5 +1,6 @@
 /**
- * `nbook.settings` 的服务键与远程服务合同（docs/specs/settings/configuration.md）。
+ * `nbook.settings` 的服务键与远程服务合同（docs/specs/settings/configuration.md），以及设置分区贡献点
+ * `settings.sections` 的声明（docs/specs/settings/settings-window.md）。
  *
  * 两份远程合同的方法与事件相同，只是层不同：`nbook.settings/user` 由服务端实例提供，`nbook.settings/project` 由项目
  * 实例提供。写入的调用方身份由内核填写，输入里没有插件字段。拥有者一侧的失败统一以业务失败码 `settings-failed`
@@ -20,9 +21,17 @@ import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/set
 import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 export {SETTINGS_POINT};
+export {SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT} from "./sections";
+export type {SettingsSectionCategory, SettingsSectionDeclaration} from "./sections";
 
 /** 插件依赖它取得按调用方生成的配置服务。 */
 export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<SettingsService>("nbook.settings/settings");
+
+/** 打开本页的设置窗口（docs/specs/settings/settings-window.md 输出 15）；工作台与书架的齿轮执行它。 */
+export const OPEN_SETTINGS_COMMAND = "nbook.settings.open";
+
+/** 公开状态：本页的设置窗口开着时为真；齿轮据此画成按下。 */
+export const SETTINGS_WINDOW_OPEN_KEY = "nbook.settings/windowOpen";
 
 /** 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。 */
 export const localeSetting = defineSetting({
@@ -32,6 +41,14 @@ export const localeSetting = defineSetting({
     default: "zh-CN",
     title: {"zh-CN": "界面语言", "en-US": "Display Language"},
     layers: ["user"],
+    section: "nbook.appearance",
+    group: "language",
+    order: 10,
+    // 语言名用它自己的语言写，换到看不懂的语言后也找得回来。
+    choices: [
+        {value: "zh-CN", title: {"zh-CN": "简体中文", "en-US": "简体中文"}},
+        {value: "en-US", title: {"zh-CN": "English", "en-US": "English"}},
+    ],
 });
 
 /** 当前显示语言；在 computed 或 effect 里读时随设置变化重新求值。 */
@@ -43,22 +60,29 @@ const RevisionSchema = Type.Object({boot: Type.String(), seq: Type.Integer({mini
 const ProblemSchema = Type.Object({key: Type.String(), reason: Type.Union([Type.Literal("invalid-value"), Type.Literal("layer-not-allowed")])}, {additionalProperties: false});
 const ValuesSchema = Type.Record(Type.String(), Type.Unknown());
 
+/** `path`：这一层文件的绝对路径，拥有者不发时缺省（configuration.md 输出 23）；只加可选字段，合同版本不变。 */
 export const LayerSnapshotSchema = Type.Union([
-    Type.Object({status: Type.Literal("ok"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema)}, {additionalProperties: false}),
-    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String()}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("ok"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), path: Type.Optional(Type.String())}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), path: Type.Optional(Type.String())}, {additionalProperties: false}),
 ]);
 
 const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String()}, {additionalProperties: false});
 const Written = Type.Object({snapshot: LayerSnapshotSchema}, {additionalProperties: false});
 const failures = {"settings-failed": SettingsFailedDetail};
 
+const SetInput = Type.Object({key: Type.String(), value: Type.Unknown()}, {additionalProperties: false});
+const KeyInput = Type.Object({key: Type.String()}, {additionalProperties: false});
+
 /**
- * 只写调用方插件自己声明的项；成功时带回写后的层快照，调用方据此先更新本实例再结算。删除是单独的方法，不靠 JSON
- * 保留 undefined。
+ * `set`、`remove` 只写调用方插件自己声明的项；`edit`、`unset` 是用户编辑（configuration.md 输出 19），写任何已声明项，
+ * 只接受内核填写的调用方是 `nbook.settings` 且没有经过代理的请求。成功时都带回写后的层快照，调用方据此先更新本实例
+ * 再结算。删除是单独的方法，不靠 JSON 保留 undefined。
  */
 const methods = {
-    set: {input: Type.Object({key: Type.String(), value: Type.Unknown()}, {additionalProperties: false}), output: Written, effect: "write", errors: failures},
-    remove: {input: Type.Object({key: Type.String()}, {additionalProperties: false}), output: Written, effect: "write", errors: failures},
+    set: {input: SetInput, output: Written, effect: "write", errors: failures},
+    remove: {input: KeyInput, output: Written, effect: "write", errors: failures},
+    edit: {input: SetInput, output: Written, effect: "write", errors: failures},
+    unset: {input: KeyInput, output: Written, effect: "write", errors: failures},
 } as const;
 
 /** 订阅先推一次当前快照，之后层的状态、键值、被丢弃的键或无效原因变化时推送。 */

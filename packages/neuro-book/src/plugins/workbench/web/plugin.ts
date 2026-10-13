@@ -1,6 +1,7 @@
 /**
  * `nbook.workbench` 浏览器入口：提供窗口挂载的页面表（`/` 与 `/workbench`），定义页面贡献点 `workbench.pages`、视图贡献点
- * `workbench.views`、编辑器槽贡献点 `workbench.editor-area`、两个条目贡献点与无项目首页贡献点 `workbench.home`；
+ * `workbench.views`、编辑器槽贡献点 `workbench.editor-area`、三个条目贡献点（状态栏、标题栏、活动栏底部）、页面浮层贡献点
+ * `workbench.overlays` 与无项目首页贡献点 `workbench.home`；向活动栏底部贡献头像占位；
  * 向命令系统贡献面板入口命令、切换主题与明暗的命令、五条面板命令，向其它插件提供选择服务（命令面板的选择模式），
  * 公开外壳的布局状态（`state.public`）；`/` 页挂着命令宿主（命令面板与浏览器键位分发）与文档根的设置（界面语言、
  * 产品主题）。布局 store 在外壳页面第一次挂载时才创建（`state/layout-host.ts`）；视图注册表在激活时就建立，接收者从
@@ -31,17 +32,20 @@ import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands"
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
-import {itemValidator, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
-import type {ItemDeclaration} from "../shared/items";
+import {itemValidator, validateActivityBarItemContribution, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
+import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
+import {validateOverlayContribution, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
 import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
+import type {ActivityBarItemImplementation} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
 import {createWorkbenchPages} from "./home-page";
 import {HomeSlot} from "./home-slot";
 import {createNotifications} from "./notifications";
+import {ActivityItemRegistry} from "./items/activity-items";
 import {ItemRegistry} from "./items/registry";
-
+import {createOverlayHost, OverlaySlot} from "./overlays";
 import {createShellChrome} from "./titlebar/titlebar-source";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";
@@ -54,6 +58,18 @@ const WorkbenchDocument = defineAsyncComponent(() => import("./document/Workbenc
 const WorkbenchShell = defineAsyncComponent(() => import("./components/WorkbenchShell.vue"));
 const Notifications = defineAsyncComponent(() => import("./components/WorkbenchNotifications.vue"));
 
+/**
+ * 头像占位（docs/specs/ui/workbench-shell.md 输出 40）：账户插件迁回前不可点，样子同书架右上角的头像位；账户插件迁回时由它
+ * 贡献真正的头像，这一条随之删去。排在设置齿轮（1000）之上。
+ */
+const PROFILE_ITEM = "nbook.workbench.profile";
+const PROFILE_DECLARATION: ActivityBarItemDeclaration = {
+    title: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
+    icon: "i-lucide-user-round",
+    order: 900,
+};
+const NO_IMPLEMENTATION: ActivityBarItemImplementation = Object.freeze({});
+
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
@@ -62,6 +78,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
         {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
         {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)},
+        // 条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象（同设置的 list 分区）。
+        {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", validate: validateActivityBarItemContribution},
+        {id: WORKBENCH_OVERLAYS_POINT, implementation: "required", validate: validateOverlayContribution},
         {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
     ],
     entries: [defineEntry({
@@ -69,8 +88,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}],
         provides: [workbenchRootKey, quickPickKey, notificationsKey],
-        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_HOME_POINT],
+        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT],
         contributions: [
+            {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: PROFILE_ITEM, declaration: PROFILE_DECLARATION},
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_APPEARANCE_COMMAND, declaration: SWITCH_APPEARANCE_DECLARATION},
@@ -97,7 +117,10 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             };
             const statusItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_STATUSBAR_ITEMS_POINT), stateService, reportItem, context.signal);
             const titleItems = new ItemRegistry(context.declarations.list<ItemDeclaration>(WORKBENCH_TITLEBAR_ITEMS_POINT), stateService, reportItem, context.signal);
-            const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, platform: currentKeyPlatform(), signal: context.signal});
+            const activityItems = new ActivityItemRegistry(context.declarations.list<ActivityBarItemDeclaration>(WORKBENCH_ACTIVITYBAR_ITEMS_POINT), stateService, context.signal);
+            const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, activityItems, platform: currentKeyPlatform(), signal: context.signal});
+            const overlays = new OverlaySlot(context.signal);
+            const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
             const layout = createLayoutHost(() => {
                 const store = layoutStoreFor(project !== null).create(context, {storage, diagnostics});
@@ -132,6 +155,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value}),
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
+                renderOverlays: () => h(OverlayHost),
                 projectName,
                 home: homeSlot,
                 reportHome: (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}),
@@ -142,8 +166,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             ]);
             return {
                 services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick), provide(notificationsKey, {notify: (input) => notifications.notify(input)})],
-                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver()},
+                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver()},
                 contributions: {
+                    [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },

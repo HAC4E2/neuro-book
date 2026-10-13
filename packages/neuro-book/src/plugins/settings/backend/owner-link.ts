@@ -1,6 +1,6 @@
 /**
  * 层拥有者的两种出口：本实例里的配置经 `ownerLink` 直接读写它；别的实例经远程服务到达 `remoteLayer`。两条路都按
- * 内核填写的调用方身份写入，拥有者核对声明者。
+ * 内核填写的调用方身份写入，拥有者核对声明者。用户编辑（`edit`、`unset`）只在远程服务上：设置窗口在浏览器里。
  */
 
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
@@ -30,6 +30,8 @@ export function remoteLayer(owner: LayerOwner, consumer: ConsumerIdentity): Remo
         methods: {
             set: async (input) => outcome(await owner.write(consumer, input.key, {kind: "set", value: input.value})),
             remove: async (input) => outcome(await owner.write(consumer, input.key, {kind: "delete"})),
+            edit: async (input) => outcome(await owner.userEdit(consumer, input.key, {kind: "set", value: input.value})),
+            unset: async (input) => outcome(await owner.userEdit(consumer, input.key, {kind: "delete"})),
         },
         events: {
             layer: {

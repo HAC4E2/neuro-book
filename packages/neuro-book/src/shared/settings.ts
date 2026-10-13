@@ -25,6 +25,21 @@ export type SettingLayer = "user" | "project";
 
 export const SETTING_LAYERS: ReadonlyArray<SettingLayer> = ["user", "project"];
 
+/** 改动什么时候完全生效；只给界面提示用，读取照常给最新值。 */
+export const SETTING_APPLIES = ["now", "next-run", "next-session", "restart"] as const;
+
+export type SettingApplies = (typeof SETTING_APPLIES)[number];
+
+/** 字面量联合里一个字面量能取的值。 */
+export type SettingLiteral = string | number | boolean;
+
+/** 字面量联合的一个选项在界面上的名字。 */
+export interface SettingChoiceDeclaration<T = SettingLiteral> {
+    readonly value: T;
+    readonly title: LocalizedText;
+    readonly description?: LocalizedText;
+}
+
 /** 贡献点上的一条声明。 */
 export interface SettingDeclaration {
     readonly schema: TSchema;
@@ -33,8 +48,15 @@ export interface SettingDeclaration {
     readonly description?: LocalizedText;
     /** 允许写这个键的层，非空。 */
     readonly layers: ReadonlyArray<SettingLayer>;
-    /** 改后要重启才完全生效；只给界面提示用，读取照常给最新值。 */
-    readonly restart: boolean;
+    /** 设置窗口里所在的分区（贡献点 `settings.sections` 的 id）；分区存不存在不在登记时核对。 */
+    readonly section?: string;
+    /** 分区里的小组 id；只能和 `section` 一起写。 */
+    readonly group?: string;
+    /** 小组内的顺序，同值按键。 */
+    readonly order?: number;
+    /** schema 是字面量联合时，每个字面量恰好一个选项。 */
+    readonly choices?: ReadonlyArray<SettingChoiceDeclaration>;
+    readonly applies: SettingApplies;
     /** 密钥存储尚未实现，声明 `true` 被拒。 */
     readonly secret?: boolean;
 }
@@ -58,13 +80,43 @@ export interface SettingOptions<Schema extends TSchema> {
     readonly title: LocalizedText;
     readonly description?: LocalizedText;
     readonly layers?: ReadonlyArray<SettingLayer>;
-    readonly restart?: boolean;
+    readonly section?: string;
+    readonly group?: string;
+    readonly order?: number;
+    readonly choices?: ReadonlyArray<SettingChoiceDeclaration<Static<Schema>>>;
+    /** 缺省 `now`。 */
+    readonly applies?: SettingApplies;
 }
 
 /** 以点分段的小驼峰：`appearance`、`editor.fontSize`。 */
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$/u;
 const MAX_NAME = 128;
-const FIELDS = new Set(["schema", "default", "title", "description", "layers", "restart", "secret"]);
+const FIELDS = new Set(["schema", "default", "title", "description", "layers", "section", "group", "order", "choices", "applies", "secret"]);
+const CHOICE_FIELDS = new Set(["value", "title", "description"]);
+
+/**
+ * 设置分区 id 的形状（docs/specs/settings/settings-window.md“输入与前置条件”）：点分的小写段、至多 128 个字符，与视图 id
+ * 同一写法。前缀归谁由分区的贡献点核对；配置项的 `section` 引用别的插件的分区，只核对形状。
+ */
+export const SETTINGS_SECTION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
+export const SETTINGS_SECTION_ID_MAX_LENGTH = 128;
+/** 分区里小组 id 的形状：一个小写段、至多 64 个字符。 */
+export const SETTINGS_GROUP_ID = /^[a-z][a-z0-9-]*$/u;
+export const SETTINGS_GROUP_ID_MAX_LENGTH = 64;
+/** 分区与配置项的 `order` 的范围，与视图的 `order` 相同。 */
+export const SETTINGS_ORDER_LIMIT = 1_000_000;
+
+export function isSettingsSectionId(value: unknown): value is string {
+    return typeof value === "string" && value.length <= SETTINGS_SECTION_ID_MAX_LENGTH && SETTINGS_SECTION_ID.test(value);
+}
+
+export function isSettingsGroupId(value: unknown): value is string {
+    return typeof value === "string" && value.length <= SETTINGS_GROUP_ID_MAX_LENGTH && SETTINGS_GROUP_ID.test(value);
+}
+
+export function isSettingsOrder(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= SETTINGS_ORDER_LIMIT;
+}
 
 /** 在模块加载时校验定义，不合规则抛 TypeError；返回冻结对象。 */
 export function defineSetting<Schema extends TSchema>(options: SettingOptions<Schema>): SettingDefinition<Static<Schema>> {
@@ -75,12 +127,21 @@ export function defineSetting<Schema extends TSchema>(options: SettingOptions<Sc
         title: options.title,
         ...(options.description === undefined ? {} : {description: options.description}),
         layers: [...(options.layers ?? SETTING_LAYERS)],
-        restart: options.restart ?? false,
+        ...(options.section === undefined ? {} : {section: options.section}),
+        ...(options.group === undefined ? {} : {group: options.group}),
+        ...(options.order === undefined ? {} : {order: options.order}),
+        ...(options.choices === undefined ? {} : {choices: options.choices}),
+        applies: options.applies ?? "now",
     };
     // 先校验再冻结：默认值不是 JSON 时复制它本身就会抛出别的错误。
     const problem = settingDeclarationProblem(options.plugin, key, raw);
     if (problem !== null) throw new TypeError(problem);
-    const declaration: SettingDeclaration = Object.freeze({...raw, default: freezeJson(raw.default), layers: Object.freeze(raw.layers)});
+    const declaration: SettingDeclaration = Object.freeze({
+        ...raw,
+        default: freezeJson(raw.default),
+        layers: Object.freeze(raw.layers),
+        ...(raw.choices === undefined ? {} : {choices: freezeJson(raw.choices)}),
+    });
     return Object.freeze({key, declaration, contribution: Object.freeze({capability: SETTINGS_POINT, id: key, declaration})});
 }
 
@@ -108,7 +169,55 @@ export function settingDeclarationProblem(plugin: string, key: string, declarati
     }
     if (!Value.Check(LocalizedTextSchema, fields.title)) return `配置项 ${key} 的 title 必须是中英两份文本`;
     if (fields.description !== undefined && !Value.Check(LocalizedTextSchema, fields.description)) return `配置项 ${key} 的 description 必须是中英两份文本`;
-    if (typeof fields.restart !== "boolean") return `配置项 ${key} 的 restart 必须是布尔`;
+    if (fields.section !== undefined && !isSettingsSectionId(fields.section)) return `配置项 ${key} 的 section 必须是分区 id：点分的小写段，至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符`;
+    if (fields.group !== undefined && fields.section === undefined) return `配置项 ${key} 写了 group 却没有 section：小组只在分区里有意义`;
+    if (fields.group !== undefined && !isSettingsGroupId(fields.group)) return `配置项 ${key} 的 group 必须是小组 id：一个小写段，至多 ${String(SETTINGS_GROUP_ID_MAX_LENGTH)} 个字符`;
+    if (fields.order !== undefined && !isSettingsOrder(fields.order)) return `配置项 ${key} 的 order 必须是 -${String(SETTINGS_ORDER_LIMIT)} 到 ${String(SETTINGS_ORDER_LIMIT)} 之间的数`;
+    if (fields.choices !== undefined) {
+        const problem = choicesProblem(fields.schema as TSchema, fields.choices);
+        if (problem !== null) return `配置项 ${key} 的 choices ${problem}`;
+    }
+    if (!(SETTING_APPLIES as ReadonlyArray<unknown>).includes(fields.applies)) return `配置项 ${key} 的 applies 必须是 ${SETTING_APPLIES.join("、")} 之一`;
+    return null;
+}
+
+/**
+ * schema 是字面量联合（`Type.Union` 的成员全是 `Type.Literal`）时，它的全部字面量；否则为 null。字面量只取 JSON 的
+ * 标量：字符串、有限数与布尔。
+ */
+export function literalUnionValues(schema: unknown): ReadonlyArray<SettingLiteral> | null {
+    if (typeof schema !== "object" || schema === null) return null;
+    const members = (schema as {readonly anyOf?: unknown}).anyOf;
+    if (!Array.isArray(members) || members.length === 0) return null;
+    const values: SettingLiteral[] = [];
+    for (const member of members) {
+        if (typeof member !== "object" || member === null || !Object.hasOwn(member, "const")) return null;
+        const value = (member as {readonly const: unknown}).const;
+        if (typeof value !== "string" && typeof value !== "boolean" && !(typeof value === "number" && Number.isFinite(value))) return null;
+        values.push(value);
+    }
+    return values;
+}
+
+/** `choices` 与 schema 的字面量一一对应：每个字面量恰好一个选项，没有多出的值。 */
+function choicesProblem(schema: TSchema, choices: unknown): string | null {
+    const literals = literalUnionValues(schema);
+    if (literals === null) return "只能用在字面量联合的 schema 上";
+    if (!Array.isArray(choices)) return "必须是数组";
+    const seen: SettingLiteral[] = [];
+    for (const choice of choices as ReadonlyArray<unknown>) {
+        if (typeof choice !== "object" || choice === null || Array.isArray(choice)) return "的每一项必须是对象";
+        const fields = choice as Record<string, unknown>;
+        const extra = Object.keys(fields).filter((field) => !CHOICE_FIELDS.has(field));
+        if (extra.length > 0) return `有未知字段：${extra.join("、")}`;
+        if (!Value.Check(LocalizedTextSchema, fields.title)) return "的 title 必须是中英两份文本";
+        if (fields.description !== undefined && !Value.Check(LocalizedTextSchema, fields.description)) return "的 description 必须是中英两份文本";
+        if (!literals.includes(fields.value as SettingLiteral)) return `里的 ${JSON.stringify(fields.value)} 不是 schema 的字面量`;
+        if (seen.includes(fields.value as SettingLiteral)) return `里的 ${JSON.stringify(fields.value)} 出现了不止一次`;
+        seen.push(fields.value as SettingLiteral);
+    }
+    const missing = literals.filter((literal) => !seen.includes(literal));
+    if (missing.length > 0) return `缺少字面量 ${missing.map((literal) => JSON.stringify(literal)).join("、")} 的选项`;
     return null;
 }
 

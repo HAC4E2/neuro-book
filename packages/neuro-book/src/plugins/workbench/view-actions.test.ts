@@ -26,6 +26,7 @@ import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 
 import type {ViewAction} from "./shared/views";
+import {ActivityItemRegistry} from "./web/items/activity-items";
 import {ItemRegistry} from "./web/items/registry";
 import {createShellChrome} from "./web/titlebar/titlebar-source";
 
@@ -117,7 +118,7 @@ describe("视图标题动作（views.md 输出 10）", () => {
         const calls: unknown[] = [];
         const {commands, state, signal} = await start([example(enabled, on, calls)]);
         const items = () => new ItemRegistry([], state, () => undefined, signal);
-        const chrome = createShellChrome({commands, state, statusItems: items(), titleItems: items(), platform: "other", signal});
+        const chrome = createShellChrome({commands, state, statusItems: items(), titleItems: items(), activityItems: new ActivityItemRegistry([], state, signal), platform: "other", signal});
 
         const instance = {viewId: "example.view", generation: 3};
         expect(chrome.viewActions([ACT, TOGGLE], "zh-CN", instance).map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["动作", "现在不能做", undefined], ["开关", null, false]]);

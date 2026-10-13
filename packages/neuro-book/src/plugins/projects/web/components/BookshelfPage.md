@@ -7,7 +7,7 @@
 
 没有打开作品时的首页（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 1 到 8）。直接压在窗体底纹上，内容列至多 1120px 宽、居中。自上而下：
 
-- 标题栏：品牌标志与字标后接“· 书房”；右侧设置菜单（切换主题、明暗、界面语言，分隔，作品目录…）与头像位（只预留，不可点，提示“个人资料尚未开放”）。
+- 标题栏：品牌标志与字标后接“· 书房”；右侧一个齿轮按钮（打开设置窗口；窗口开着时画成按下：灰底、正文色）紧挨在头像位左边，头像位只预留，不可点，提示“个人资料尚未开放”。切换主题、明暗、界面语言在命令面板与设置窗口里，作品目录在设置窗口的“作品”分区里改。
 - 案头 [`ShelfDesk`](ShelfDesk.md)：统计、最近写到、看板娘；空书架时是问候。
 - 书架：标题“书架 N 部”，右侧视图切换（卡片、列表）、排序（最近编辑、书名、字数）、“打开已有作品…”与“新建作品”。下面是 [`ShelfCards`](ShelfCards.md)（卡片，空书架时是两张待写的书）或 [`ShelfList`](ShelfList.md)。
 
@@ -29,14 +29,15 @@ type Props = {
     library: string;
     /** 一部作品的封面图地址；没有封面为 null。 */
     coverSrc: (item: ShelfItem) => string | null;
+    /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`）：齿轮画成按下（`aria-pressed`）。缺省 false。 */
+    settingsOpen?: boolean;
 };
 type Emits = {
     "update:view": [view]; "update:sort": [sort]; "update:activeId": [id: string];
     continue: [id: string]; open: [id: string]; "open-new-window": [id: string]; edit: [id: string]; remove: [id: string];
     create: []; "add-existing": []; retry: [];
-    /** 设置菜单里的命令 id。 */
-    command: [id: string];
-    "change-library": [];
+    /** 点了齿轮。 */
+    "open-settings": [];
 };
 ```
 

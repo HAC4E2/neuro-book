@@ -67,6 +67,8 @@ const SHELF = {
     unavailable: {"zh-CN": "服务端暂时不可用", "en-US": "the server is temporarily unavailable"},
     popupBlocked: {"zh-CN": "浏览器拦截了新标签页，请允许本站打开弹出窗口", "en-US": "The browser blocked the new tab; allow pop-ups for this site"},
     libraryNotSaved: {"zh-CN": "作品已建成，但作品目录没有写进设置：{reason}", "en-US": "The book was created, but the library folder was not written to settings: {reason}"},
+    /** 设置窗口“作品”分区里改作品目录（输出 21）没写成。 */
+    libraryChangeNotSaved: {"zh-CN": "作品目录没有写进设置：{reason}", "en-US": "The library folder was not written to settings: {reason}"},
     createInvalid: {"zh-CN": "{field}不合规：{reason}", "en-US": "{field} is invalid: {reason}"},
     createInvalidParent: {"zh-CN": "作品目录不可用：{reason}", "en-US": "The library folder cannot be used: {reason}"},
     createExists: {"zh-CN": "同名目录已存在（{path}）：改个书名，或用“打开已有作品”", "en-US": "A folder with this name already exists ({path}): change the title, or use “Open an Existing Book”"},

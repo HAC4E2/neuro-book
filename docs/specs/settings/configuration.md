@@ -15,7 +15,8 @@ owners:
 
 不承诺：
 
-- 通用设置界面、用户编辑的写入路径与密钥存储：本 Spec 只定它们的合同（“用户编辑”“密钥”两节，planned 子条目），随设置界面与第一个密钥使用者实现。
+- 设置窗口（分区、控件与给页面用的组件）：见 [`settings.window`](settings-window.md)；本 Spec 只定它写入用的用户编辑路径（输出 19）与声明里给界面用的字段。
+- 密钥存储与本机层：本 Spec 只定合同（“密钥”“本机层”两节，planned 子条目），分别随第一个密钥使用者与桌面端实现。
 - 内存层、策略层、语言或资源级覆盖（VS Code 的 `[markdown]`）、多套用户配置（VS Code 的 Profile）、层间对象深合并：每个键整体覆盖。
 - 启动配置：端口、状态根等由宿主的环境变量决定（[`runtime.server-host`](../runtime/server-host.md)），不经本插件。
 - 跨设备同步。
@@ -31,7 +32,7 @@ owners:
 - **层拥有者**：user 层归服务端实例的 `nbook.settings` 入口，project 层归该项目当前项目实例的 `nbook.settings` 入口（与 [Storage](../storage/persistence.md) 的分区归属一致）。拥有者读写文件、校验、发布层快照。
 - **层快照**：拥有者对一层的当前看法：状态、有效的键值、被丢弃的键、修订号。
 - **有效值**：一个实例里，按本实例可用的层合成的值。
-- **参与者**：声明者；`nbook.settings`（拥有贡献点 `settings.properties`，在服务端、项目、浏览器三种位置各有入口，提供 `settingsKey`）；读取方（任何插件）；用户（改文件，或以后经设置界面）。
+- **参与者**：声明者；`nbook.settings`（拥有贡献点 `settings.properties`，在服务端、项目、浏览器三种位置各有入口，提供 `settingsKey`）；读取方（任何插件）；用户（改文件，或经设置窗口）。
 
 ## 输入与前置条件
 
@@ -57,12 +58,17 @@ export const themeSetting = defineSetting({
 | `default` | JSON 能如实表示的值（规则同 [远程服务与 RPC 协议](../runtime/plugin-channel.md) 的帧编码：没有 `undefined`、非有限数、类实例、函数、循环），且符合 `schema` |
 | `layers` | `["user"]`、`["project"]` 或两者，缺省两者 |
 | `title` | 中英两份；`description` 可选，同样中英两份 |
-| `restart` | 布尔，缺省 `false`：改后是否要重启才完全生效 |
+| `section` | 可选，设置窗口里所在的分区 id（[`settings.window`](settings-window.md) 的分区 id 写法）；可以是别的插件贡献的分区 |
+| `group` | 可选，分区里的小组 id（一个小写段，至多 64 个字符）；只能和 `section` 一起写 |
+| `order` | 可选，小组内的顺序，-1000000 到 1000000 之间的数；同值按键 |
+| `choices` | 可选，`[{value, title, description?}]`：`schema` 是若干字面量的联合（`Type.Union` 的成员全是字符串、有限数或布尔的 `Type.Literal`）时，给每个字面量一个中英标题，与字面量一一对应 |
+| `applies` | `"now"`（缺省）、`"next-run"`、`"next-session"`、`"restart"`：改动什么时候完全生效 |
 | `secret` | 本期声明 `true` 被拒（密钥存储尚未实现） |
 
 - 插件把对外的配置定义写在自己的 `shared/contracts.ts`，描述与读取方引用同一常量。
 - **作者规则**：会执行程序、指定网络地址或凭据、改变数据位置的配置项必须只允许用户层：项目层文件可能来自别人的仓库。
-- `restart: true` 不改变读取：服务照常给出最新的值，消费者自己决定只在启动时采用；界面据此提示“重启后生效”。
+- `applies` 不改变读取：服务照常给出最新的值，消费者自己决定什么时候采用（下次运行、下次会话、重启后）；设置窗口据此在标题后标注生效时机。
+- 分区与小组存不存在不在登记时核对：分区是浏览器入口的贡献，配置项在每个实例都登记。指向不存在的分区或小组时怎样呈现，见 [`settings.window`](settings-window.md)。
 
 ### 接口
 
@@ -128,13 +134,25 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 17. **层不可达与恢复**：订阅一层失败或订阅被结束时，该层为 `unavailable`，按其它层与默认值合成并记诊断。窗口在连接回到在线时重新订阅因连接问题失败的层；同一服务端进程、同一项目代次内断线重连，已建立的订阅由内核重建并先收到当时的快照（[远程服务与 RPC 协议](../runtime/plugin-channel.md) 输出 7）。服务端已换进程、项目代次已结束时窗口整体失效（[`runtime.browser-host`](../runtime/browser-host.md)），不重试。
 18. **审计**：拥有者每次写入记一条诊断：键、层、调用方插件与 `via`、结果码，不记值；外部修改记变化的键。
 
-### 用户编辑（planned）
+### 用户编辑
 
-19. 拥有者的远程服务另有用户编辑方法：写任何已声明项的允许层，只接受内核填写的调用方是 `nbook.settings` 自己且没有经过代理的请求；按 schema 与层校验，记审计。设置界面是 `nbook.settings` 自己的入口，经这条路径写入。直接改文件也是用户编辑。
+19. 层拥有者的远程服务另有用户编辑方法 `edit`（设值）与 `unset`（删去这一层里的这个键）：写任何已声明项，不核对声明者。拥有者先核对调用方：内核填写的调用方必须是 `nbook.settings` 自己、没有经过代理，别的插件与经代理的请求（包括 `nbook.settings` 代别的入口发出的）不论键与值一律 `denied`；之后依次核对已声明（`undeclared`）、值（`invalid-value`）、本层允许（`layer-not-allowed`）。删除不存在的键、写入相同的值、文件的保留原文、无效层与写入失败同输出 11、13、14；审计（输出 18）标明是用户编辑。设置窗口（[`settings.window`](settings-window.md)）是 `nbook.settings` 自己的入口，经这条路径写入：本窗口没有项目层时写项目层为 `no-project`；成功返回时本窗口已应用写后的层快照，其它实例经订阅收到（同输出 15）。直接改文件也是用户编辑。
 
 ### 密钥（planned）
 
 20. 声明 `secret: true` 的项只在服务端有值：任何接口不把值发往客户端，客户端只能看到“已设置/未设置”、只能写入或清除；无法解密时读取为 `secret-unreadable`；审计不记值。存储方式随第一个使用者定，不用明文加打码。
+
+### 界面字段
+
+21. **界面字段的登记期校验**：`section` 不是分区 id 的写法、`group` 不是小组 id 的写法或没有 `section`、`order` 不是范围内的有限数、`choices` 用在不是字面量联合的 `schema` 上或与字面量不一一对应（少一个、多一个、值不是字面量、同一值出现两次）或选项的 `title`、`description` 缺语言、`applies` 不是四个值之一，以及声明了字段表以外的字段（包括已删除的 `restart`），各使这一条声明以 `invalid-declaration` 被拒，原因可查；同一插件的其它贡献照常（同输出 1）。
+
+### 本机层（planned）
+
+22. 只在本机生效的项（与这台机器有关的路径、显示缩放）放在本机层：值只在写入它的机器上生效。随桌面端实现，层的落点、优先级与声明写法到时补进本 Spec；在此之前声明里写本机层按未知层被拒（输出 1）。
+
+### 层文件的位置
+
+23. **层快照带文件路径**：层快照可以带这一层文件的绝对路径（可选字段 `path`），设置窗口在这一层无效时把它指给用户（[`settings.window`](settings-window.md) 输出 13）。项目层的拥有者带上它：文件在用户登记的作品目录里，那条路径本就显示给用户（[`runtime.projects`](../runtime/projects.md)“路径可见性”）；用户层的文件在状态根下，状态根是服务端内部路径、不发给浏览器，用户层的快照不带路径。同一个拥有者的路径不变，不参与“内容变了才发布”的比较（输出 10）。远程合同只加可选字段，版本不变。
 
 ## 状态与转换
 
@@ -169,7 +187,7 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 
 | 失败码 | 含义 | 调用方怎么办 |
 |---|---|---|
-| `denied` | 调用方不是这一项的声明者 | — |
+| `denied` | 调用方不是这一项的声明者；用户编辑时调用方不是 `nbook.settings` 自己或经过了代理 | — |
 | `undeclared` | 键没有被接受的声明 | 检查声明 |
 | `invalid-value` | 值不符合 schema 或不是 JSON 能如实表示的值 | 修正值 |
 | `layer-not-allowed` | 声明不允许写这一层 | 换层 |
@@ -184,7 +202,7 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 ## 边界与兼容
 
 - **owner**：`nbook.settings` 拥有配置文件、层快照、贡献点 `settings.properties` 与三端入口；内核提供顶层声明式贡献的登记、按调用方门面与跨实例委托。
-- **公开接口**：`defineSetting`、`SettingDefinition`、`SettingsService` 与失败码（`nbook/shared/settings`）；`settingsKey`。远程服务 `nbook.settings/user`、`nbook.settings/project` 是本插件实例之间的协议，别的插件直接调用也只能写自己声明的项。
+- **公开接口**：`defineSetting`、`SettingDefinition`、`SettingsService` 与失败码（`nbook/shared/settings`）；`settingsKey`。声明字段只增不改，新增的可选字段不影响旧声明；已删除的 `restart` 由 `applies` 取代。远程服务 `nbook.settings/user`、`nbook.settings/project` 是本插件实例之间的协议，别的插件直接调用也只能写自己声明的项，用户编辑方法只对 `nbook.settings` 自己开放。
 - **信任**：项目层可能来自别人的仓库，靠作者规则（只允许用户层）挡住能改本机行为的项；命名空间与声明者核对防误用，不防恶意的受信代码（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md)）。
 
 ## 验收与 Smoke
@@ -196,15 +214,16 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 5. **两个写入者**：两个服务端进程打开同一项目，各写一个不同的键，两键都在文件里。
 6. **就绪与恢复**：服务端在窗口订阅前断开，窗口按默认值启动；连接恢复后收到文件里的值。
 7. **只读与链接**：只读文件、悬空链接写入为 `write-failed`，文件与链接不变。
+8. **用户编辑**：绑定作品的窗口里，设置窗口的入口以 `nbook.settings` 的身份写工作台声明的主题：用户层文件的注释与别的键不变，返回时本窗口已是新值，另一个窗口与项目实例经订阅收到；写本作品层再 `unset` 回到用户层的值；别的插件直接调用与经代理的 `nbook.settings` 请求都为 `denied`，文件不变；审计标明是用户编辑。
 
 Smoke：`smoke:server` 经打包产物在带注释的 `settings.json` 上以客户端身份写一个键，注释保留；文件损坏时服务端照常启动并记诊断。`e2e/settings.e2e.ts` 在本机 Chrome 覆盖场景 2、3 与界面语言、主题的显示。
 
 ## 实现合同
 
-- **公开入口**：`nbook/shared/settings`（`defineSetting`、`settingDeclarationProblem`、`SettingDefinition`、`SettingsService`、`SettingInspection`、`SettingWriteResult`、`SETTINGS_FAILURES`、`SETTINGS_POINT`）；`nbook/plugins/settings/shared/contracts`（服务键 `settingsKey`、配置项 `localeSetting`、`displayLocale(设置服务)`、三条设置命令共用的 `switchSetting`，远程合同 `userSettingsContract`、`projectSettingsContract`：方法 `set`、`remove`，事件 `layer`）；插件定义 `settingsBackendPlugin`（服务端入口拥有用户层，文件在宿主能力 `stateRootKey` 给出的状态根下；项目入口拥有项目层，文件在 `currentProjectKey.root` 下）与 `settingsBrowserPlugin`（配置核心入口 `browser` 与贡献“切换界面语言”的 `commands` 入口；不装工作台的测试实例用只有核心入口的 `settingsBrowserCore`）。各插件的配置定义写在自己的 `shared/contracts.ts`（工作台的 `themeSetting`、`appearanceSetting`），描述的 `contributions` 引用同一常量。
+- **公开入口**：`nbook/shared/settings`（`defineSetting`、`settingDeclarationProblem`、`SettingDefinition`、`SettingDeclaration`、`SettingChoiceDeclaration`、`SETTING_APPLIES`、`literalUnionValues`、`SettingsService`、`SettingInspection`、`SettingWriteResult`、`SETTINGS_FAILURES`、`SETTINGS_POINT`）；`nbook/plugins/settings/shared/contracts`（服务键 `settingsKey`、配置项 `localeSetting`、`displayLocale(设置服务)`、三条设置命令共用的 `switchSetting`，远程合同 `userSettingsContract`、`projectSettingsContract`：方法 `set`、`remove`、`edit`、`unset`，事件 `layer`）；用户编辑在浏览器里的调用入口是 `plugins/settings/web/window-source.ts` 的设置窗口数据来源，只经服务发给 `nbook.settings` 自己的入口，不是公开接口；插件定义 `settingsBackendPlugin`（服务端入口拥有用户层，文件在宿主能力 `stateRootKey` 给出的状态根下；项目入口拥有项目层，文件在 `currentProjectKey.root` 下）与 `settingsBrowserPlugin`（配置核心入口 `browser` 与贡献“切换界面语言”的 `commands` 入口；不装工作台的测试实例用只有核心入口的 `settingsBrowserCore`）。各插件的配置定义写在自己的 `shared/contracts.ts`（工作台的 `themeSetting`、`appearanceSetting`），描述的 `contributions` 引用同一常量。
 - **owner 与依赖方向**：`nbook.settings` 依赖内核的顶层贡献登记（`runtime.plugin-manifest` 输出 11，宿主经 `nbook/manifest` 的 `pluginsAt`、`definitionAt` 装配）、按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`，`nbook.settings` 在代理允许清单里）；三个位置的入口都依赖诊断与宿主时钟 `clockKey`，浏览器另依赖窗口的项目绑定与连接状态 `windowConnectionKey`。文件解析与单键编辑用 `jsonc-parser`，写入锁用 `proper-lockfile`，都只在服务端与项目子进程里。命令系统、工作台与项目界面依赖 `settingsKey` 取显示语言；配置核心不依赖它们，“切换界面语言”在另一个入口里，免得服务装配的静态环（可选依赖也算）。
 - **关键不变量**：
-  - 层文件只在拥有它的实例里读写；别的实例经远程服务到达，拥有者按内核填写的调用方身份核对声明者，不信任输入（输出 11，验收 2）。
+  - 层文件只在拥有它的实例里读写；别的实例经远程服务到达，拥有者按内核填写的调用方身份核对声明者，用户编辑另核对调用方是 `nbook.settings` 自己且没有经过代理，不信任输入（输出 11、19，验收 2、8）。
   - 同一文件的重读与写入在拥有者的同一个串行队列里，核对通过的写入同步排进队列，停止时等它走完；快照内容变了才换修订号并发布（输出 10、15，“时序与寿命”）。
   - 编辑后的文本重新解析并通过读取的检查才落盘；写入持锁、改名前核对文件身份，悬空链接与只读文件不写（输出 13、14，验收 4、5、7）。
   - 监视路径与链接目标上最近存在的目录，目录身份变了先关旧监视再建新的；合并与截止都经注入的时钟（输出 9、16）。
@@ -213,6 +232,6 @@ Smoke：`smoke:server` 经打包产物在带注释的 `settings.json` 上以客�
 ## 证据
 
 - 批准依据：[插件的数据与状态](../../proposals/plugin-data-model.md) 第 6、7、8 节、[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 6、11 节、[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)；设计轮决定由开发者 2026-10-08 确认，见 [t64 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md)。
-- 实现入口：[`src/shared/settings.ts`](../../../packages/neuro-book/src/shared/settings.ts)、[`plugins/settings/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/backend/plugin.ts)、[`plugins/settings/web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)、[`plugins/settings/shared/instance.ts`](../../../packages/neuro-book/src/plugins/settings/shared/instance.ts)、[`plugins/settings/backend/layer-owner.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-owner.ts)
-- 合同测试：[`settings.test.ts`](../../../packages/neuro-book/src/plugins/settings/settings.test.ts)、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)、[`layer-owner.test.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts)、[`layer-text.test.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-text.test.ts)、[`instance.test.ts`](../../../packages/neuro-book/src/plugins/settings/shared/instance.test.ts)、[`layers.test.ts`](../../../packages/neuro-book/src/plugins/settings/shared/layers.test.ts)、[`settings.test.ts`（声明）](../../../packages/neuro-book/src/shared/settings.test.ts)
+- 实现入口：[`src/shared/settings.ts`](../../../packages/neuro-book/src/shared/settings.ts)、[`plugins/settings/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/backend/plugin.ts)、[`plugins/settings/web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)、[`plugins/settings/shared/instance.ts`](../../../packages/neuro-book/src/plugins/settings/shared/instance.ts)、[`plugins/settings/backend/layer-owner.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-owner.ts)、[`plugins/settings/web/window-source.ts`](../../../packages/neuro-book/src/plugins/settings/web/window-source.ts)
+- 合同测试：[`settings.test.ts`](../../../packages/neuro-book/src/plugins/settings/settings.test.ts)、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)、[`layer-owner.test.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts)、[`layer-text.test.ts`](../../../packages/neuro-book/src/plugins/settings/backend/layer-text.test.ts)、[`instance.test.ts`](../../../packages/neuro-book/src/plugins/settings/shared/instance.test.ts)、[`layers.test.ts`](../../../packages/neuro-book/src/plugins/settings/shared/layers.test.ts)、[`settings.test.ts`（声明）](../../../packages/neuro-book/src/shared/settings.test.ts)、[`sections.test.ts`（界面字段经内核登记）](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)
 - Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（S9）、[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)

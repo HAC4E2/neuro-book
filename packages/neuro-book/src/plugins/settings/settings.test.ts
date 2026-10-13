@@ -1,6 +1,6 @@
 /**
- * `nbook.settings` 三端入口（docs/specs/settings/configuration.md 输出 3、6–8、11、12、15–17，验收 1、2、6）：服务端、
- * 项目与浏览器都是真实的内核实例，经进程内链路连到服务端路由，配置文件是真实临时目录里的文件。
+ * `nbook.settings` 三端入口（docs/specs/settings/configuration.md 输出 3、6–8、11、12、15–17、19，验收 1、2、6）：
+ * 服务端、项目与浏览器都是真实的内核实例，经进程内链路连到服务端路由，配置文件是真实临时目录里的文件。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -9,8 +9,10 @@ import {dirname, join} from "node:path";
 
 import {computed} from "@vue/reactivity";
 
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import type {RemoteLink} from "@notnotype/nb-runtime/remote";
+import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -19,10 +21,13 @@ import {defineSetting, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
-import {settingsKey} from "./shared/contracts";
+import {projectSettingsContract, settingsKey, userSettingsContract} from "./shared/contracts";
+import type {SettingsContract} from "./shared/contracts";
 import {FIRST_SNAPSHOT_MS} from "./shared/instance";
 import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
+import {settingsWindowSourceKey} from "./web/window-source";
+import type {SettingsWindowSource} from "./web/window-source";
 
 const title = {"zh-CN": "项", "en-US": "Item"};
 const theme = defineSetting({plugin: "x.ui", name: "theme", schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]), default: "nbook", title});
@@ -246,11 +251,13 @@ describe("授权与值", () => {
 describe("手写的声明", () => {
     it("不经 defineSetting 的声明：默认值在接受时复制并深冻结，读取方改不动，作者手里的原对象也不影响有效值", async () => {
         const created = await world();
-        const raw = {schema: Type.Object({nested: Type.Object({label: Type.String()})}), default: {nested: {label: "a"}}, title, layers: ["user", "project"], restart: false};
+        const raw = {schema: Type.Object({nested: Type.Object({label: Type.String()})}), default: {nested: {label: "a"}}, title, layers: ["user", "project"], applies: "now"};
         const opts = defineSetting({plugin: "x.raw", name: "opts", schema: raw.schema, default: {nested: {label: "a"}}, title});
         const probe: Probe = {service: null};
         const rawPlugin: PluginDefinition = {...plugin("x.raw", "browser", probe), contributions: [{capability: SETTINGS_POINT, id: opts.key, declaration: raw}]};
-        await created.window("w", [rawPlugin], {bound: false});
+        const window = await created.window("w", [rawPlugin], {bound: false});
+        // 手写的声明要被接受，下面读到的才是它的默认值，而不是 defineSetting 那份。
+        expect(window.app.plugins.contribution(SETTINGS_POINT, opts.key)[0]?.validation).toEqual({status: "accepted"});
         const value = service(probe).get(opts);
         expect(Object.isFrozen(value) && Object.isFrozen(value.nested)).toBe(true);
         raw.default.nested.label = "changed";
@@ -308,5 +315,205 @@ describe("就绪与恢复", () => {
         const writing = service(w.ui).update(theme, "macos");
         window.disconnect();
         expect(await writing).toMatchObject({ok: false, code: "unknown-outcome"});
+    });
+});
+
+describe("用户编辑（输出 19）", () => {
+    /** 远程调用的结果折成配置的失败码：拥有者一侧的失败经业务失败码 settings-failed 带回。 */
+    type Outcome = "ok" | string;
+
+    async function call(remote: Pick<ActivationContext["remote"], "use">, contract: SettingsContract, method: "edit" | "unset", key: string, value?: unknown): Promise<Outcome> {
+        const client = contract === userSettingsContract ? remote.use(userSettingsContract) : remote.use(projectSettingsContract);
+        const result = method === "edit" ? await client.edit({key, value}) : await client.unset({key});
+        if (result.ok) return "ok";
+        return result.code === "settings-failed" ? (result.detail as {readonly code: string}).code : result.code;
+    }
+
+    interface Relay {
+        edit(contract: SettingsContract, key: string, value: unknown): Promise<Outcome>;
+    }
+
+    const relayKey = defineServiceKey<Relay>("nbook.settings/test-relay");
+
+    interface Window {
+        source: SettingsWindowSource | null;
+        relay: Relay | null;
+        /** `test-window` 入口自己的远程访问：调用方是 `nbook.settings`、没有经过代理。 */
+        remote: ActivationContext["remote"] | null;
+    }
+
+    function window(): Window {
+        return {source: null, relay: null, remote: null};
+    }
+
+    /** 包住窗口一端的链路：`hold()` 之后推迟收到的订阅推送，让写入结果先于层快照的推送到达。 */
+    function eventGate(): {wrap: (link: RemoteLink) => RemoteLink; hold(): void; release(): void} {
+        let held = false;
+        const queued: Array<() => void> = [];
+        return {
+            wrap: (link) => ({
+                send: (frame) => link.send(frame),
+                onFrame: (listener) => link.onFrame((value) => {
+                    if (held && (value as {readonly type?: unknown}).type === "event") {
+                        queued.push(() => listener(value));
+                        return;
+                    }
+                    listener(value);
+                }),
+                onClose: (listener) => link.onClose(listener),
+                close: () => link.close(),
+            }),
+            hold: () => {
+                held = true;
+            },
+            release: () => {
+                held = false;
+                for (const deliver of queued.splice(0)) deliver();
+            },
+        };
+    }
+
+    /**
+     * 窗口里 `nbook.settings` 另加的两个入口：`test-window` 像设置窗口那样取数据来源；`test-relay` 以调用方的身份代发
+     * `edit`，于是拥有者看到的调用方是 `nbook.settings`、`via` 也是 `nbook.settings`。
+     */
+    function settingsEntries(target: Window): PluginEntryDefinition[] {
+        return [
+            defineEntry({
+                id: "test-relay",
+                location: "browser",
+                provides: [relayKey],
+                remoteDelegates: [userSettingsContract, projectSettingsContract],
+                activate: (context) => ({
+                    services: [providePerConsumer(relayKey, (consumer) => ({
+                        edit: (contract: SettingsContract, key: string, value: unknown) => call(context.remote.on(consumer), contract, "edit", key, value),
+                    }))],
+                }),
+            }),
+            defineEntry({
+                id: "test-window",
+                location: "browser",
+                activationEvents: ["onStartup"],
+                dependencies: [{key: settingsWindowSourceKey}, {key: relayKey}],
+                activate: (context) => {
+                    target.source = context.services.require(settingsWindowSourceKey);
+                    target.relay = context.services.require(relayKey);
+                    target.remote = context.remote;
+                    return {};
+                },
+            }),
+        ];
+    }
+
+    /** 别的插件：拿到自己的远程访问，直接调用两份合同。 */
+    function intruder(target: {remote: ActivationContext["remote"] | null}): PluginDefinition {
+        return {
+            id: "x.intruder",
+            entries: [defineEntry({
+                id: "browser",
+                location: "browser",
+                activationEvents: ["onStartup"],
+                activate: (context) => {
+                    target.remote = context.remote;
+                    return {};
+                },
+            })],
+        };
+    }
+
+    function windowSource(target: Window): SettingsWindowSource {
+        if (target.source === null) throw new Error("设置窗口的入口还没激活");
+        return target.source;
+    }
+
+    it("别的插件直接调用 edit、unset 为 denied，两层都是；文件不变", async () => {
+        const user = "{\"x.ui/theme\": \"macos\"}";
+        const created = await world({user, project: user});
+        await created.project(1, both("project", probes()));
+        const outsider: {remote: ActivationContext["remote"] | null} = {remote: null};
+        await created.window("w", [...both("browser", probes()), intruder(outsider)]);
+        const remote = outsider.remote!;
+        expect(await call(remote, userSettingsContract, "edit", theme.key, "nbook")).toBe("denied");
+        expect(await call(remote, userSettingsContract, "unset", theme.key)).toBe("denied");
+        expect(await call(remote, projectSettingsContract, "edit", theme.key, "nbook")).toBe("denied");
+        // 调用方先于键与值核对：未声明的键、不合 schema 的值同样是 denied。
+        expect(await call(remote, userSettingsContract, "edit", "x.ui/missing", 1)).toBe("denied");
+        expect(await readFile(created.userFile, "utf8")).toBe(user);
+        expect(await readFile(created.projectFile, "utf8")).toBe(user);
+    });
+
+    it("经代理的 nbook.settings 请求为 denied：拥有者只接受 nbook.settings 自己、没有经过代理的请求", async () => {
+        const created = await world();
+        await created.project(1, both("project", probes()));
+        const target = window();
+        await created.window("w", both("browser", probes()), {settingsEntries: settingsEntries(target)});
+        expect(await target.relay!.edit(userSettingsContract, theme.key, "macos")).toBe("denied");
+        expect(await target.relay!.edit(projectSettingsContract, theme.key, "macos")).toBe("denied");
+        await expect(readFile(created.userFile, "utf8")).rejects.toThrow();
+        const audit = created.diagnostics("hub").query({}).records.filter((entry) => entry.event === "settings.write");
+        expect(audit.map((entry) => entry.data)).toContainEqual({key: theme.key, layer: "user", plugin: "nbook.settings", via: "nbook.settings", code: "denied", userEdit: true});
+    });
+
+    it("nbook.settings 自己写任何已声明项的允许层：其余内容按原文保留，返回时本窗口已是新值，别处经订阅收到；unset 删掉这一层的键；审计标出用户编辑", async () => {
+        const userText = "// 我的设置\n{\n\t\"x.ui/font\": {\"family\": \"serif\", \"size\": 12}, // 字体\n\t\"unknown/key\": 1,\n}\n";
+        const created = await world({user: userText});
+        const project = probes();
+        await created.project(1, both("project", project));
+        const target = window();
+        const ui = probes();
+        const gate = eventGate();
+        await created.window("w", both("browser", ui), {settingsEntries: settingsEntries(target), wrapLink: gate.wrap});
+        const other = probes();
+        await created.window("w-other", both("browser", other));
+        const source = windowSource(target);
+
+        // 主题是 x.ui 声明的，nbook.settings 照样能写。层快照的推送被推迟：返回时本窗口已是新值，靠的是写入结果。
+        gate.hold();
+        expect(await source.edit(theme.key, "user", "macos")).toEqual({ok: true});
+        expect(service(ui.ui).inspect(theme).user).toEqual({status: "ok", value: "macos"});
+        gate.release();
+        expect(await readFile(created.userFile, "utf8")).toBe("// 我的设置\n{\n\t\"x.ui/font\": {\"family\": \"serif\", \"size\": 12}, // 字体\n\t\"unknown/key\": 1,\n\t\"x.ui/theme\": \"macos\",\n}\n");
+        await waitUntil("另一个窗口收到", () => service(other.ui).get(theme) === "macos");
+
+        // 项目层：本作品单独设置，再移除。
+        expect(await source.edit(theme.key, "project", "nbook")).toEqual({ok: true});
+        expect(service(ui.ui).inspect(theme)).toMatchObject({value: "nbook", source: "project"});
+        await waitUntil("项目实例收到", () => service(project.ui).get(theme) === "nbook");
+        expect(await source.unset(theme.key, "project")).toEqual({ok: true});
+        expect(service(ui.ui).inspect(theme)).toMatchObject({value: "macos", source: "user", project: {status: "ok"}});
+        expect(JSON.parse(await readFile(created.projectFile, "utf8"))).toEqual({});
+
+        // 恢复默认：从用户层删掉，注释与别的键不动。
+        expect(await source.unset(theme.key, "user")).toEqual({ok: true});
+        expect(await readFile(created.userFile, "utf8")).toBe(userText);
+
+        const audit = created.diagnostics("hub").query({}).records.filter((entry) => entry.event === "settings.write").map((entry) => entry.data);
+        expect(audit).toContainEqual({key: theme.key, layer: "user", plugin: "nbook.settings", via: null, code: "ok", userEdit: true});
+    });
+
+    it("不允许的层 layer-not-allowed、未声明 undeclared、值不合 schema invalid-value、未绑定作品的窗口写项目层 no-project、文件无效 layer-invalid", async () => {
+        const created = await world();
+        await created.project(1, both("project", probes()));
+        const bound = window();
+        await created.window("w", both("browser", probes()), {settingsEntries: settingsEntries(bound)});
+        const free = window();
+        await created.window("w-free", both("browser", probes()), {bound: false, settingsEntries: settingsEntries(free)});
+        expect(await windowSource(bound).edit(locale.key, "project", "en-US")).toMatchObject({ok: false, code: "layer-not-allowed"});
+        expect(await windowSource(bound).edit("x.ui/missing", "user", 1)).toMatchObject({ok: false, code: "undeclared"});
+        expect(await windowSource(bound).edit(theme.key, "user", "solarized")).toMatchObject({ok: false, code: "invalid-value"});
+        expect(await windowSource(bound).edit(font.key, "user", {family: "mono", size: Number.NaN})).toMatchObject({ok: false, code: "invalid-value"});
+        expect(await windowSource(free).edit(theme.key, "project", "macos")).toMatchObject({ok: false, code: "no-project"});
+        expect(await windowSource(free).edit(locale.key, "user", "en-US")).toEqual({ok: true});
+        await expect(readFile(created.projectFile, "utf8")).rejects.toThrow();
+        // 拥有者自己也核对，不靠浏览器一侧先挡：nbook.settings 直接调用远程方法得到同样的失败码。
+        expect(await call(bound.remote!, userSettingsContract, "edit", "x.ui/missing", 1)).toBe("undeclared");
+        expect(await call(bound.remote!, userSettingsContract, "edit", theme.key, "solarized")).toBe("invalid-value");
+        expect(await call(bound.remote!, projectSettingsContract, "edit", locale.key, "en-US")).toBe("layer-not-allowed");
+        expect(await call(bound.remote!, projectSettingsContract, "unset", "x.ui/missing")).toBe("undeclared");
+
+        // 拥有者写入前按磁盘上的当前文本核对，不必等层快照跟上。
+        await writeFile(created.userFile, "{\"x.ui/theme\": ");
+        expect(await windowSource(bound).edit(theme.key, "user", "macos")).toMatchObject({ok: false, code: "layer-invalid"});
+        expect(await readFile(created.userFile, "utf8")).toBe("{\"x.ui/theme\": ");
     });
 });

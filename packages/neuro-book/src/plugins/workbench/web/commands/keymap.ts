@@ -43,7 +43,7 @@ function normalizeEventKey(key: string): string | null {
     if (key === "Esc") return "Escape";
     if (key.length === 1) {
         if (key >= "a" && key <= "z") return key.toUpperCase();
-        return (key >= "A" && key <= "Z") || (key >= "0" && key <= "9") ? key : null;
+        return (key >= "A" && key <= "Z") || (key >= "0" && key <= "9") || key === "," ? key : null;
     }
     return key === "Escape" || key === "Enter" || F_KEY.test(key) ? key : null;
 }

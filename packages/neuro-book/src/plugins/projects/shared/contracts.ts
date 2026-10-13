@@ -24,7 +24,9 @@ export const librarySetting = defineSetting({
     schema: Type.String(),
     default: "",
     title: {"zh-CN": "作品目录", "en-US": "Library Folder"},
+    description: {"zh-CN": "新建作品时默认放在这里", "en-US": "New works are created here by default"},
     layers: ["user"],
+    section: "nbook.works",
 });
 
 /** 作品信息的上限（docs/specs/runtime/projects.md 输出第 13 条）；校验在服务端做，输入 schema 只定形状，失败码带字段名。 */

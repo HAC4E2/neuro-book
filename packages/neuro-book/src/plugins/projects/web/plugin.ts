@@ -1,6 +1,7 @@
 /**
  * `nbook.projects` 浏览器入口：向命令系统贡献“打开项目”与“欢迎”，向工作台的 `workbench.home` 贡献书架页、向编辑器的
- * `editor.pages` 贡献欢迎页（docs/specs/workbench/bookshelf.md）。选择候选用工作台的选择服务（命令面板的选择模式），整页导航与新标签页用宿主能力 `windowNavigationKey`。
+ * `editor.pages` 贡献欢迎页，向设置窗口贡献“作品”分区（docs/specs/workbench/bookshelf.md）。选择候选用工作台的选择服务
+ * （命令面板的选择模式），整页导航与新标签页用宿主能力 `windowNavigationKey`。
  */
 
 import {Type} from "typebox";
@@ -16,7 +17,9 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
+import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {notificationsKey, quickPickKey, WORKBENCH_HOME_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {HomeDeclaration} from "nbook/plugins/workbench/shared/contracts";
@@ -28,12 +31,14 @@ import {descriptor} from "../plugin";
 import {projectsRemoteContract} from "../shared/contracts";
 import {projectCoverUrl} from "../shared/cover";
 import {createBookshelfHome} from "./bookshelf-home";
+import {browseDirectory} from "./browse";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
 import type {OpenProjectHost} from "./open-project";
 import {createShelfPage} from "./shelf-page";
 import type {CoverTransport, CoverTransportResult} from "./shelf-page";
 import {shelfPreferencesStore} from "./shelf-preferences";
 import type {ShelfPreferencesStore} from "./shelf-preferences";
+import {createWorksPage, WORKS_SECTION, WORKS_SECTION_DECLARATION} from "./works-section";
 import {createWelcomeHost, WELCOME_PAGE_ID} from "./welcome";
 
 const DECLARATION: CommandDeclaration = {...OPEN_PROJECT_DECLARATION, args: Type.Object({}, {additionalProperties: false})};
@@ -64,11 +69,12 @@ export const projectsBrowserPlugin: PluginDefinition = {
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: filesKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
             {capability: COMMANDS_POINT, id: WELCOME_COMMAND, declaration: WELCOME_DECLARATION},
             {capability: WORKBENCH_HOME_POINT, id: BOOKSHELF_HOME_ID, declaration: HOME_DECLARATION},
+            {capability: SETTINGS_SECTIONS_POINT, id: WORKS_SECTION, declaration: WORKS_SECTION_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: WELCOME_PAGE_ID, declaration: WELCOME_PAGE},
         ],
         activate: async (context) => {
@@ -82,6 +88,12 @@ export const projectsBrowserPlugin: PluginDefinition = {
             const notifications = context.services.require(notificationsKey);
             const commands = context.services.require(commandServiceKey);
             const locale = computed(() => displayLocale(settings));
+            const state = context.services.require(publicStateKey);
+            // 书架右上角的齿轮按下与否：读设置插件的公开键，与工作台活动栏的齿轮同一个来源。
+            const settingsOpen = computed(() => {
+                const read = state.read(SETTINGS_WINDOW_OPEN_KEY);
+                return read.status === "ready" && read.value === true;
+            });
             const host: OpenProjectHost = {
                 remote,
                 quickPick,
@@ -96,6 +108,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                 load: async () => createBookshelfHome({
                     component: (await import("./components/BookshelfHost.vue")).default,
                     locale,
+                    settingsOpen,
                     createPage: () => createShelfPage({
                         remote,
                         clock,
@@ -116,6 +129,24 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         }},
                         report: (event, message) => diagnostics.record({level: "warn", event, message, source: {plugin: descriptor.id}}),
                     }),
+                }),
+            };
+            const works: SettingsPageImplementation = {
+                // 设置窗口第一次显示“作品”分区时才调用。
+                load: async () => createWorksPage({
+                    component: (await import("./components/WorksSettingsPage.vue")).default,
+                    settings,
+                    source: {list: (path) => browseDirectory(remote, path, locale.value)},
+                    // 取不到时页面原位写一句淡色的说明，不发通知（bookshelf.md 输出 21），这里只记诊断。
+                    library: async () => {
+                        const result = await remote.library({});
+                        if (result.ok) return result.value;
+                        diagnostics.record({level: "warn", event: "projects.library-failed", message: `取作品目录失败：${result.code}`, source: {plugin: descriptor.id}});
+                        return null;
+                    },
+                    locale,
+                    notifications,
+                    report: (message) => diagnostics.record({level: "warn", event: "projects.library-not-saved", message, source: {plugin: descriptor.id}}),
                 }),
             };
             const project = context.services.require(windowProjectKey).project;
@@ -145,6 +176,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                 },
                 [WORKBENCH_HOME_POINT]: {[BOOKSHELF_HOME_ID]: home},
                 [EDITOR_PAGES_POINT]: {[WELCOME_PAGE_ID]: welcome},
+                [SETTINGS_SECTIONS_POINT]: {[WORKS_SECTION]: works},
             }};
         },
     })],

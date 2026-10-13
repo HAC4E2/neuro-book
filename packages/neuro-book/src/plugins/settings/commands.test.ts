@@ -9,7 +9,7 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -17,6 +17,8 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {publicStateKey} from "nbook/plugins/state/shared/contracts";
+import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {descriptor as storageDescriptor} from "nbook/plugins/storage/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
@@ -30,11 +32,11 @@ import {definitionAt} from "nbook/manifest";
 import {textOf} from "nbook/shared/localized-text";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
-import {displayLocale, settingsKey} from "./shared/contracts";
+import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "./shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
-import {SWITCH_LOCALE_COMMAND} from "./web/plugin";
+import {settingsWindowEntry, settingsWindowState, SWITCH_LOCALE_COMMAND} from "./web/plugin";
 
 let tmp = "";
 let counter = 0;
@@ -66,6 +68,7 @@ function picker(answer: (request: QuickPickRequest) => QuickPickResult): QuickPi
 interface Reader {
     commands: CommandService | null;
     settings: SettingsService | null;
+    state: PublicStateService | null;
 }
 
 /** 读出命令服务与配置服务；另贡献一条 `when` 引用未声明公开键的命令，用来看不满足的原因。 */
@@ -76,11 +79,12 @@ function reader(target: Reader): PluginDefinition {
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
-            dependencies: [{key: commandServiceKey}, {key: settingsKey}],
+            dependencies: [{key: commandServiceKey}, {key: settingsKey}, {key: publicStateKey}],
             contributions: [{capability: COMMANDS_POINT, id: "x.reader.guarded", declaration: {title: {"zh-CN": "受限", "en-US": "Guarded"}, description: "guarded", args: Type.Object({}, {additionalProperties: false}), effect: "read", when: {requires: ["x.reader/missing"]}}}],
             activate: (context) => {
                 target.commands = context.services.require(commandServiceKey);
                 target.settings = context.services.require(settingsKey);
+                target.state = context.services.require(publicStateKey);
                 return {contributions: {[COMMANDS_POINT]: {"x.reader.guarded": {run: () => ({ok: true, value: null})}}}};
             },
         })],
@@ -100,7 +104,7 @@ async function world(user?: string): Promise<SettingsWorld> {
 }
 
 async function window(created: SettingsWorld, id: string, quickPick: QuickPick): Promise<Reader> {
-    const target: Reader = {commands: null, settings: null};
+    const target: Reader = {commands: null, settings: null, state: null};
     await created.window(id, [statePlugin, commandsPlugin, reader(target)], {bound: false, quickPick});
     return target;
 }
@@ -157,34 +161,34 @@ describe("切换界面语言", () => {
     });
 });
 
+/**
+ * 服务端与项目实例只登记工作台描述里的声明；窗口装真实的工作台（选择服务由它的命令面板提供，这里没挂页面）与它依赖
+ * 的 Storage 浏览器入口（没挂外壳页面，布局 store 不会创建，服务端不需要 Storage）。
+ */
+async function themeWorld(files: {readonly user?: string; readonly project?: string}): Promise<SettingsWorld> {
+    counter += 1;
+    const root = join(tmp, `theme-${String(counter)}`);
+    for (const [path, text] of [[join(root, "state", "settings.json"), files.user], [join(root, "Book", ".nbook", "settings.json"), files.project]] as const) {
+        if (text === undefined) continue;
+        await mkdir(join(path, ".."), {recursive: true});
+        await writeFile(path, text);
+    }
+    await mkdir(join(root, "Book"), {recursive: true});
+    const created = await settingsWorld(root, [definitionAt("server", workbenchDescriptor, undefined)]);
+    worlds.push(created);
+    await created.project(1, [definitionAt("project", workbenchDescriptor, undefined)]);
+    return created;
+}
+
+async function workbenchWindow(created: SettingsWorld, id: string, bound: boolean, settingsEntries: ReadonlyArray<PluginEntryDefinition> = []): Promise<Reader> {
+    const target: Reader = {commands: null, settings: null, state: null};
+    // 产品窗口里工作台是必需插件、启动即激活；这里由一个依赖选择服务的插件把它拉起来。
+    const activator: PluginDefinition = {id: "x.activator", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: quickPickKey}], activate: () => ({})})]};
+    await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", storageDescriptor, storageBrowserPlugin), definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target)], {bound, settingsEntries});
+    return target;
+}
+
 describe("切换主题与明暗（工作台贡献）", () => {
-    /**
-     * 服务端与项目实例只登记工作台描述里的声明；窗口装真实的工作台（选择服务由它的命令面板提供，这里没挂页面）与它依赖
-     * 的 Storage 浏览器入口（没挂外壳页面，布局 store 不会创建，服务端不需要 Storage）。
-     */
-    async function themeWorld(files: {readonly user?: string; readonly project?: string}): Promise<SettingsWorld> {
-        counter += 1;
-        const root = join(tmp, `theme-${String(counter)}`);
-        for (const [path, text] of [[join(root, "state", "settings.json"), files.user], [join(root, "Book", ".nbook", "settings.json"), files.project]] as const) {
-            if (text === undefined) continue;
-            await mkdir(join(path, ".."), {recursive: true});
-            await writeFile(path, text);
-        }
-        await mkdir(join(root, "Book"), {recursive: true});
-        const created = await settingsWorld(root, [definitionAt("server", workbenchDescriptor, undefined)]);
-        worlds.push(created);
-        await created.project(1, [definitionAt("project", workbenchDescriptor, undefined)]);
-        return created;
-    }
-
-    async function workbenchWindow(created: SettingsWorld, id: string, bound: boolean): Promise<Reader> {
-        const target: Reader = {commands: null, settings: null};
-        // 产品窗口里工作台是必需插件、启动即激活；这里由一个依赖选择服务的插件把它拉起来。
-        const activator: PluginDefinition = {id: "x.activator", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: quickPickKey}], activate: () => ({})})]};
-        await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", storageDescriptor, storageBrowserPlugin), definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target)], {bound});
-        return target;
-    }
-
     it("项目层覆盖着主题时，绑定项目的窗口里切换主题写项目层；未绑定的窗口写用户层；明暗同样；非法参数不写", async () => {
         const created = await themeWorld({project: "{\"nbook.workbench/theme\": \"macos\"}"});
         const bound = await workbenchWindow(created, "w-bound", true);
@@ -209,5 +213,34 @@ describe("切换主题与明暗（工作台贡献）", () => {
         expect(await free.commands!.execute(SWITCH_THEME_COMMAND, {theme: "solarized"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
         // 没给参数时经命令面板选择；这个窗口没有挂页面，选择不可用。
         expect(await free.commands!.execute(SWITCH_THEME_COMMAND, {}, {source: "user"})).toMatchObject({ok: false, code: "unavailable"});
+    });
+});
+
+describe("打开设置窗口（settings-window.md 输出 15）", () => {
+    it("命令登记为只读、不对 Agent 开放、默认键位 Mod+,；公开键的限定名与合同常量一致", async () => {
+        const created = await themeWorld({});
+        const window = await workbenchWindow(created, "w-open", false, [settingsWindowEntry]);
+        expect(window.commands!.get(OPEN_SETTINGS_COMMAND)).toMatchObject({ok: true, value: {effect: "read", keybinding: "Mod+,", expose: {agent: "never"}, title: {"zh-CN": "打开设置"}}});
+        expect(settingsWindowState.key("windowOpen")).toBe(SETTINGS_WINDOW_OPEN_KEY);
+        expect(window.state!.read(SETTINGS_WINDOW_OPEN_KEY)).toEqual({status: "ready", value: false});
+    });
+
+    it("分区不在左栏里为 invalid-args，未绑定作品要本作品标签为 unavailable，都不打开；合法的打开后公开键为真；Agent 调用为 not-exposed", async () => {
+        const created = await themeWorld({});
+        const window = await workbenchWindow(created, "w-open", false, [settingsWindowEntry]);
+        expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {section: "x.nowhere"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {layer: "project"}, {source: "user"})).toMatchObject({ok: false, code: "unavailable"});
+        expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {layer: "book"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(window.state!.read(SETTINGS_WINDOW_OPEN_KEY)).toEqual({status: "ready", value: false});
+        expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {}, {source: "agent", callerId: "x.agent"})).toMatchObject({ok: false, code: "not-exposed"});
+        expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {section: "nbook.appearance"}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(window.state!.read(SETTINGS_WINDOW_OPEN_KEY)).toEqual({status: "ready", value: true});
+    });
+
+    it("绑定作品的窗口可以直接打开本作品标签", async () => {
+        const created = await themeWorld({});
+        const window = await workbenchWindow(created, "w-open", true, [settingsWindowEntry]);
+        expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {layer: "project"}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(window.state!.read(SETTINGS_WINDOW_OPEN_KEY)).toEqual({status: "ready", value: true});
     });
 });

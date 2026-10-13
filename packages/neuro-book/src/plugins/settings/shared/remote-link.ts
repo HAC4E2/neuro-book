@@ -1,7 +1,8 @@
 /**
  * 到别的实例里的层拥有者的路（浏览器的两层、项目实例的用户层）。订阅以 `nbook.settings` 自己的身份建立：读不需要
  * 区分调用方，一个实例一条订阅。写入以原调用方的身份（`context.remote.on(调用方)`）经代理发出，拥有者看到的调用方
- * 是原插件、`via` 为 `nbook.settings`，据此核对声明者。
+ * 是原插件、`via` 为 `nbook.settings`，据此核对声明者。用户编辑（`remoteLayerEditor`）反过来以本入口自己的身份发出，
+ * 拥有者看到的调用方是 `nbook.settings`、没有 `via`。
  */
 
 import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
@@ -13,7 +14,7 @@ import type {SettingsFailure} from "nbook/shared/settings";
 import {projectSettingsContract, userSettingsContract} from "./contracts";
 import type {SettingsContract} from "./contracts";
 import type {LayerLink} from "./instance";
-import type {LayerSnapshot, LayerWriteResult} from "./layers";
+import type {LayerEdit, LayerSnapshot, LayerWriteResult} from "./layers";
 
 /** 订阅以这些原因结束时不再重订：窗口整体失效，或调用方自己释放。 */
 const TERMINAL_ENDS: ReadonlySet<string> = new Set(["server-restarted", "project-gone", "released"]);
@@ -33,6 +34,25 @@ export function remoteLayerLink(remote: ActivationContext["remote"], contract: S
             const delegated = remote.on(consumer);
             const client = contract === userSettingsContract ? delegated.use(userSettingsContract) : delegated.use(projectSettingsContract);
             const result = edit.kind === "set" ? await client.set({key, value: edit.value}) : await client.remove({key});
+            return result.ok ? {ok: true, snapshot: frozen(result.value.snapshot as LayerSnapshot)} : fromRemote(result);
+        },
+    };
+}
+
+/** 用户编辑的一条路：写任何已声明项的这一层，成功带回写后的层快照。 */
+export interface LayerEditor {
+    edit(key: string, edit: LayerEdit): Promise<LayerWriteResult>;
+}
+
+/**
+ * 用户编辑经远程服务的 `edit`、`unset` 到达层的拥有者（configuration.md 输出 19）。以 `remote` 所属入口自己的身份
+ * 发出，不经 `remote.on`：拥有者只接受 `nbook.settings` 自己、没有经过代理的请求。失败的折算同声明者的写入。
+ */
+export function remoteLayerEditor(remote: ActivationContext["remote"], contract: SettingsContract): LayerEditor {
+    return {
+        edit: async (key, edit) => {
+            const client = contract === userSettingsContract ? remote.use(userSettingsContract) : remote.use(projectSettingsContract);
+            const result = edit.kind === "set" ? await client.edit({key, value: edit.value}) : await client.unset({key});
             return result.ok ? {ok: true, snapshot: frozen(result.value.snapshot as LayerSnapshot)} : fromRemote(result);
         },
     };

@@ -43,6 +43,20 @@ export interface ItemImplementation {
     state?(): "normal" | "warning" | "error";
 }
 
+/**
+ * 活动栏底部条目的实现（docs/specs/ui/workbench-shell.md 输出 40）：条目是纯声明，没有要实现的东西；内核要求入口贡献都
+ * 给出实现，交空对象，外壳不读它。
+ */
+export type ActivityBarItemImplementation = Readonly<Record<string, never>>;
+
+/**
+ * 页面浮层的实现（输出 41）：只取得组件定义，工作台在页面根上挂一份；组件不收属性，要的数据由贡献方在 `load()` 里绑好。
+ * 加载失败或渲染出错只影响这一个浮层。
+ */
+export interface WorkbenchOverlayImplementation {
+    load(): Promise<Component>;
+}
+
 /** 编辑器槽贡献的实现：外壳挂编辑器槽时才加载组件。 */
 export interface EditorAreaImplementation {
     load(): Promise<Component>;

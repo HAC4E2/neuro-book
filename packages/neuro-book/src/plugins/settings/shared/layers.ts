@@ -37,8 +37,11 @@ export type LayerContent =
     /** 文件当前无效：`values` 与 `problems` 是上一份有效内容的（启动时即无效则为空），写入一律拒绝。 */
     | {readonly status: "invalid"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>; readonly detail: string};
 
-/** 拥有者发布的层快照：内容加修订号。 */
-export type LayerSnapshot = LayerContent & {readonly revision: Revision};
+/**
+ * 拥有者发布的层快照：内容加修订号。`path` 是这一层文件的绝对路径，给设置窗口在层无效时指给用户看
+ * （configuration.md 输出 23）；拥有者不发路径时缺省。路径不参与内容比较：同一个拥有者的路径不变。
+ */
+export type LayerSnapshot = LayerContent & {readonly revision: Revision; readonly path?: string};
 
 /**
  * 收到的快照能不能替换当前的：同一启动标识下序号更大才替换，写入结果与订阅推送乱序到达时不倒退。启动标识不同说明
@@ -86,9 +89,27 @@ export function effectiveOf(key: string, declaration: SettingDeclaration, layers
  * 写入的核对（configuration.md 输出 11 的顺序：已声明、声明者、值、允许的层）。实例在选路前、拥有者在落盘前各做一遍：
  * 实例给调用方正确的失败原因，拥有者守住副作用的边界，两处用同一个函数，顺序不会走样。
  */
-export function writeProblem(plugin: string | null, key: string, declared: DeclaredSetting | undefined, edit: LayerEdit, layer: SettingLayer): {readonly code: SettingsFailure; readonly detail: string} | null {
+export function writeProblem(plugin: string | null, key: string, declared: DeclaredSetting | undefined, edit: LayerEdit, layer: SettingLayer): WriteProblem | null {
     if (declared === undefined) return {code: "undeclared", detail: `配置项 ${key} 没有被接受的声明`};
     if (plugin !== declared.plugin) return {code: "denied", detail: `配置项 ${key} 由 ${declared.plugin} 声明，${plugin ?? "宿主"} 不能写`};
+    return contentProblem(key, declared, edit, layer);
+}
+
+/**
+ * 用户编辑的核对（configuration.md 输出 19）：与 `writeProblem` 相同，只是不看声明者。调用方是不是 `nbook.settings`
+ * 由拥有者按内核填写的身份另行核对。
+ */
+export function userEditProblem(key: string, declared: DeclaredSetting | undefined, edit: LayerEdit, layer: SettingLayer): WriteProblem | null {
+    if (declared === undefined) return {code: "undeclared", detail: `配置项 ${key} 没有被接受的声明`};
+    return contentProblem(key, declared, edit, layer);
+}
+
+export interface WriteProblem {
+    readonly code: SettingsFailure;
+    readonly detail: string;
+}
+
+function contentProblem(key: string, declared: DeclaredSetting, edit: LayerEdit, layer: SettingLayer): WriteProblem | null {
     if (edit.kind === "set" && !isJson(edit.value)) return {code: "invalid-value", detail: "值不是 JSON 能如实表示的值"};
     if (edit.kind === "set" && !Value.Check(declared.declaration.schema, edit.value)) return {code: "invalid-value", detail: `值不符合配置项 ${key} 的 schema`};
     if (!declared.declaration.layers.includes(layer)) return {code: "layer-not-allowed", detail: `配置项 ${key} 不允许写 ${layer} 层`};

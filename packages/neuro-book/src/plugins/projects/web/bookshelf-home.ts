@@ -15,6 +15,8 @@ export interface BookshelfHomeOptions {
     /** `components/BookshelfHost.vue`。 */
     readonly component: Component;
     readonly locale: Readonly<Ref<DisplayLocale>>;
+    /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`）：齿轮画成按下。 */
+    readonly settingsOpen: Readonly<Ref<boolean>>;
     readonly createPage: () => ShelfPage;
 }
 
@@ -24,7 +26,7 @@ export function createBookshelfHome(options: BookshelfHomeOptions): Component {
         setup() {
             const page = options.createPage();
             onBeforeUnmount(() => page.dispose());
-            return () => h(options.component, {page, locale: options.locale.value});
+            return () => h(options.component, {page, locale: options.locale.value, settingsOpen: options.settingsOpen.value});
         },
     });
 }

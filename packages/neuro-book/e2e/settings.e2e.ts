@@ -9,6 +9,7 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
+import {parse as parseJsonc} from "jsonc-parser";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -216,4 +217,175 @@ test("Lab 显示期间改产品主题：Lab 的文档根不变；回到产品页
         dev.child.kill("SIGTERM");
         expect(await dev.exit).toBe(0);
     }
+});
+
+// ── 设置窗口（docs/specs/settings/settings-window.md 验收 1–4，ui/workbench-shell.md 验收 43–44，bookshelf.md 输出 1） ──
+
+const settingsWindow = (page: Page) => page.locator("[data-settings-window]");
+const workbenchGear = (page: Page) => page.locator("[data-activity-item='nbook.settings']");
+const shelfGear = (page: Page) => page.locator("[data-shelf-settings]");
+const row = (page: Page, key: string) => page.locator(`[data-settings-row="${key}"]`);
+/** 设置文件按 JSONC 读：删掉一个键时写入路径保留注释，可能留下合法的尾随逗号。 */
+const readSettings = async (path: string): Promise<unknown> => parseJsonc(await readFile(path, "utf8")) as unknown;
+
+/** 按 `Ctrl+,`：命令宿主随页面异步加载，按到窗口出现（或已开着的窗口拿回焦点）为止。 */
+async function pressOpenSettings(page: Page): Promise<void> {
+    await expect(async () => {
+        await page.keyboard.press("Control+,");
+        await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+    }).toPass();
+}
+
+test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗口；再触发只聚焦；窗口开着时齿轮按下", async ({page}) => {
+    const problems: string[] = [];
+    watchConsole(page, problems);
+    await open(page, "/?project=book");
+    // 活动栏最下面：头像占位在上、齿轮在下。
+    const bottom = page.locator("[data-activity-items] [data-activity-item]");
+    await expect(bottom).toHaveCount(2);
+    expect(await bottom.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-activity-item")))).toEqual(["nbook.workbench.profile", "nbook.settings"]);
+    await expect(page.locator("[data-activity-item='nbook.workbench.profile']")).toHaveAttribute("aria-label", "个人资料尚未开放");
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "false");
+
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
+    // 焦点挪到窗口里别处，再点齿轮：还是这一个窗口，焦点回到左栏的当前项。
+    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
+    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    await pressOpenSettings(page);
+    await expect(settingsWindow(page)).toHaveCount(1);
+
+    // Esc 关窗口：焦点回到打开窗口之前的位置（第一次是点齿轮打开的），齿轮回到没按下；Ctrl+, 再打开同一个窗口。
+    await page.keyboard.press("Escape");
+    await expect(settingsWindow(page)).toHaveCount(0);
+    await expect(workbenchGear(page)).toBeFocused();
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "false");
+    await pressOpenSettings(page);
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Escape");
+
+    // 书架：右上角的齿轮在头像左边，打开同一个窗口（首页也挂着设置浮层）。
+    await open(page, "/");
+    await expect(page.locator("[data-bookshelf-page]")).toBeVisible();
+    await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "false");
+    await shelfGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "true");
+    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    await shelfGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
+    // 没有绑定作品：没有“用户 | 本作品”。
+    await expect(page.locator("[data-settings-tabs]")).toHaveCount(0);
+    expect(problems).toEqual([]);
+});
+
+test("用户标签改主题，两个页面即时变化；本作品标签单独设明暗后用户标签出现覆盖提示（写着书名），移除后消失", async ({browser}) => {
+    const context = await browser.newContext();
+    const a = await context.newPage();
+    const b = await context.newPage();
+    await open(a, "/?project=book");
+    await open(b, "/?project=book");
+    await workbenchGear(a).click();
+    await expect(settingsWindow(a)).toBeVisible();
+
+    await row(a, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).click();
+    await expect.poll(() => html(a, "data-nb-theme")).toBe("macos");
+    await expect.poll(() => html(b, "data-nb-theme")).toBe("macos");
+    await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "macos"});
+
+    await a.locator("[data-settings-tabs]").getByRole("radio", {name: "本作品"}).click();
+    const appearance = row(a, "nbook.workbench/appearance");
+    await expect(appearance).toHaveAttribute("data-settings-row-state", "inherit");
+    await appearance.locator("[data-settings-row-override]").click();
+    await expect(appearance).toHaveAttribute("data-settings-row-state", "edit");
+    await appearance.getByRole("radio", {name: "深色"}).click();
+    await expect.poll(() => readSettings(projectFile())).toEqual({"nbook.workbench/appearance": "dark"});
+    await expect.poll(() => html(b, "data-nb-appearance")).toBe("dark");
+
+    await a.locator("[data-settings-tabs]").getByRole("radio", {name: "用户"}).click();
+    // 没写书名：书名是目录原名 Book（不是短名 book）。
+    await expect(appearance.locator("[data-settings-row-overridden]")).toContainText("《Book》");
+
+    await a.locator("[data-settings-tabs]").getByRole("radio", {name: "本作品"}).click();
+    await appearance.locator("[data-settings-row-remove]").click();
+    await expect(appearance).toHaveAttribute("data-settings-row-state", "inherit");
+    await a.locator("[data-settings-tabs]").getByRole("radio", {name: "用户"}).click();
+    await expect(appearance.locator("[data-settings-row-overridden]")).toHaveCount(0);
+    await expect.poll(() => readSettings(projectFile())).toEqual({});
+    await context.close();
+});
+
+test("改过的项有已修改标记；恢复默认后键从 settings.json 删掉，其余内容与注释不变", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    const appearance = row(page, "nbook.workbench/appearance");
+    await expect(appearance).not.toHaveAttribute("data-settings-row-modified", "");
+    await appearance.getByRole("radio", {name: "深色"}).click();
+    await expect(appearance).toHaveAttribute("data-settings-row-modified", "");
+    await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "dark"});
+
+    await appearance.locator("[data-settings-row-reset]").click();
+    await expect(appearance).not.toHaveAttribute("data-settings-row-modified", "");
+    await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "nbook"});
+    const written = await readFile(userFile(), "utf8");
+    expect(written).toContain("// 我的设置");
+    expect(written).toContain("// 主题");
+});
+
+test("用户层文件改坏：分区顶部出现说明、控件停用；修好后说明消失、控件恢复", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    const macos = row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"});
+    await expect(macos).toBeEnabled();
+    await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
+    await expect(page.locator("[data-settings-layer-notice='invalid']")).toBeVisible();
+    await expect(macos).toBeDisabled();
+    await writeFile(userFile(), USER_FILE);
+    await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
+    await expect(macos).toBeEnabled();
+});
+
+test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸，每次打开居中；切换分区时尺寸不变", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const width = async (): Promise<number> => Math.round((await dialog.boundingBox())!.width);
+    // 打开时窗口从略小处放大（nb-ui Dialog 的进场动画）：量尺寸与位置之前等它播完，否则量到的是缩放中的外框。
+    const settled = (): Promise<unknown> => dialog.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    await settled();
+    const before = await width();
+    // 方向键一次 10px（nb-ui 浮动窗口），收窄两次。
+    await dialog.locator("[data-dialog-resize='right']").focus();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(width).toBeLessThan(before);
+    const resized = await width();
+    await page.locator("[data-settings-nav='nbook.works']").click();
+    expect(await width()).toBe(resized);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await workbenchGear(page).click();
+    await expect(dialog).toBeVisible();
+    await settled();
+    expect(await width()).toBe(resized);
+    // 收窄时左边不动、窗口偏到左边；位置不记，再打开时重新居中。
+    const box = await dialog.boundingBox();
+    const viewport = page.viewportSize();
+    if (box === null || viewport === null) throw new Error("量不到窗口或视口");
+    expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(1);
+
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+    await workbenchGear(page).click();
+    await expect(dialog).toBeVisible();
+    await settled();
+    expect(await width()).toBe(resized);
 });

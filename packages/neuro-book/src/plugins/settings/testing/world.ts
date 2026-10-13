@@ -12,7 +12,7 @@ import type {Application, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor, RemoteLink, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
@@ -27,7 +27,7 @@ import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
 import {settingsBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
-import {settingsBrowserCore, settingsBrowserPlugin} from "../web/plugin";
+import {settingsBrowserCore, settingsBrowserPlugin, settingsWindowEntry} from "../web/plugin";
 
 export interface WorldWindow {
     readonly app: Application;
@@ -47,20 +47,12 @@ export interface SettingsWorld {
     /**
      * `connected: false`：链路建好后、实例激活前就断开（首次订阅失败）。`quickPick`：给窗口一个选择服务，并装上带
      * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。`wrapLink`：包住窗口这一端的链路（每次
-     * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。
+     * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。`settingsEntries`：给窗口里的 `nbook.settings` 另加入口
+     * （产品里设置窗口是本插件的另一个入口），测试据此以 `nbook.settings` 自己的身份调用。
      */
-    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<WorldWindow>;
+    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink; readonly settingsEntries?: ReadonlyArray<PluginEntryDefinition>}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
-
-/** 窗口没有挂页面，整页导航无处发生；工作台的浏览器入口把导航列为必需依赖，窗口照产品宿主那样提供它。 */
-const NO_PAGE_NAVIGATION: WindowNavigation = {
-    navigateDocument: () => undefined,
-    reloadDocument: () => undefined,
-    openExternal: () => "blocked",
-    currentUrl: () => "http://localhost/",
-    replaceUrl: () => undefined,
-};
 
 export interface SettingsWorldOptions {
     /** 服务端给出状态根之前等它：服务端的配置入口激活因此挂起，用来验证首个快照的截止。 */
@@ -171,17 +163,19 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                 link.set("offline");
             }
             const project = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, generation: node.binding.generation};
+            // 设置窗口的入口要工作台的通知与 Storage，这里的窗口没有它们；要它的测试经 `settingsEntries` 显式加上。
+            const settings = windowOptions.quickPick === undefined ? settingsBrowserCore : {...settingsBrowserPlugin, entries: settingsBrowserPlugin.entries.filter((entry) => entry !== settingsWindowEntry)};
             const app = await started(createApplication(
                 {identity: {location: "browser", instanceId: id, client: `client-${id}`}, stopSignal: new AbortController().signal, emergency: () => undefined},
                 {
                     capabilities: [
                         {id: "window.project", key: windowProjectKey, create: () => ({project})},
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
+                        {id: "window.navigation", key: windowNavigationKey, create: () => NO_NAVIGATION},
                         {id: "clock", key: clockKey, create: () => clock},
-                        {id: "window.navigation", key: windowNavigationKey, create: () => NO_PAGE_NAVIGATION},
                         ...(windowOptions.quickPick === undefined ? [] : [{id: "test.quick-pick", key: quickPickKey, create: () => windowOptions.quickPick!}]),
                     ],
-                    plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, windowOptions.quickPick === undefined ? settingsBrowserCore : settingsBrowserPlugin), ...plugins],
+                    plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, {...settings, entries: [...settings.entries, ...(windowOptions.settingsEntries ?? [])]}), ...plugins],
                     gates: [],
                     remote: node,
                     delegation: DELEGATION,
@@ -210,6 +204,17 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
         },
     };
 }
+
+/**
+ * 场地里的窗口没有文档可导航，整页导航什么都不做；工作台的入口依赖这项宿主能力（应用命令），装工作台的测试才起得来。
+ */
+const NO_NAVIGATION: WindowNavigation = {
+    navigateDocument: () => undefined,
+    reloadDocument: () => undefined,
+    openExternal: () => "blocked",
+    currentUrl: () => "http://127.0.0.1/",
+    replaceUrl: () => undefined,
+};
 
 function linkState(): {readonly connection: WindowConnection; set(state: WindowConnectionState): void} {
     let current: WindowConnectionState = "offline";

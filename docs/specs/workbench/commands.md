@@ -136,13 +136,14 @@ owners:
 
 ### 命令目录（设置）
 
-三条命令给了参数就直接写入、不打开选择；没给参数时经命令面板的选择模式列出可选值，用户取消为成功、无副作用。
+三条切换命令给了参数就直接写入、不打开选择；没给参数时经命令面板的选择模式列出可选值，用户取消为成功、无副作用。打开设置窗口的行为、参数的失败与公开键 `nbook.settings/windowOpen` 见 [`settings.window`](../settings/settings-window.md) 输出 15。
 
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
 | `nbook.settings.switch-locale` | 切换界面语言 / Change Display Language | `{locale?}`（`zh-CN`\|`en-US`） | 无 | write | auto | `nbook.settings` 浏览器入口；写用户层 |
 | `nbook.settings.switch-theme` | 切换主题 / Change Theme | `{theme?}`（`nbook`\|`macos`） | 无 | write | auto | `nbook.workbench`；写入目标 `auto` |
 | `nbook.settings.switch-appearance` | 切换明暗 / Change Appearance | `{appearance?}`（`light`\|`dark`\|`system`） | 无 | write | auto | `nbook.workbench`；写入目标 `auto` |
+| `nbook.settings.open` | 打开设置 / Open Settings | `{section?, layer?}`（`layer`：`user`\|`project`） | 无 | read | never（给人看的窗口） | `nbook.settings` 浏览器的设置窗口入口；默认键位 `Mod+,` |
 
 - 域取 `settings`：内置命令的域表示功能领域，不等于提供方插件 id。
 - 配置写入失败转换为命令失败：`denied` → `denied`；`unavailable`、`no-project` → `unavailable`；`invalid-value` → `invalid-args`；其余 → `execution-error`，`reason` 写明配置的失败码与说明。
@@ -234,6 +235,7 @@ owners:
 | 键位 | 命令 |
 |---|---|
 | `Ctrl/Cmd+Shift+P` | `nbook.quick-open.open-commands` |
+| `Ctrl/Cmd+,` | `nbook.settings.open` |
 
 `Mod` 在 macOS 上是 Cmd，其它平台是 Ctrl。浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
 

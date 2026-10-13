@@ -14,7 +14,8 @@ export type KeyModifiers = {ctrl: boolean; meta: boolean; alt: boolean; shift: b
 
 export type ParsedKeybinding = {key: string} & KeyModifiers;
 
-const KEY_TOKEN = /^(?:[A-Z]|[0-9]|Escape|Enter|Space|F(?:[1-9]|1[0-2]))$/u;
+/** 主键：字母、数字、逗号（`Mod+,` 打开设置，与常见编辑器一致）、Escape、Enter、Space 与 F1–F12。 */
+const KEY_TOKEN = /^(?:[A-Z]|[0-9]|,|Escape|Enter|Space|F(?:[1-9]|1[0-2]))$/u;
 
 function invalid(reason: string): CommandResult<ParsedKeybinding> {
     return {ok: false, code: "invalid-args", reason};

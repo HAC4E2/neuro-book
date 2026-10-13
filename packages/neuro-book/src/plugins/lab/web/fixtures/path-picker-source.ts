@@ -5,6 +5,8 @@ import type {PathPickerSource} from "nbook/plugins/projects/web/components/PathP
 
 const HOME = "/home/writer";
 const LIBRARY = `${HOME}/Documents/NeuroBook`;
+/** 场景里的缺省作品目录：选择器的缺省起点，也是“作品”分区没设时显示的目录。 */
+export const LAB_DEFAULT_LIBRARY = LIBRARY;
 
 const TREE: Record<string, {readonly parent: string | null; readonly entries: BrowseEntry[]}> = {
     "/": {parent: null, entries: [{name: "home", path: "/home", kind: "directory", title: null}]},
