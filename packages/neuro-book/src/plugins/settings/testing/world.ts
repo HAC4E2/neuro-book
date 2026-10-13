@@ -21,8 +21,8 @@ import {definitionAt, delegatingPlugins} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
-import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
-import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
+import {clockKey, stateRootKey, windowConnectionKey, windowNavigationKey} from "nbook/shared/host";
+import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
 import {settingsBackendPlugin} from "../backend/plugin";
@@ -52,6 +52,15 @@ export interface SettingsWorld {
     window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
+
+/** 窗口没有挂页面，整页导航无处发生；工作台的浏览器入口把导航列为必需依赖，窗口照产品宿主那样提供它。 */
+const NO_PAGE_NAVIGATION: WindowNavigation = {
+    navigateDocument: () => undefined,
+    reloadDocument: () => undefined,
+    openExternal: () => "blocked",
+    currentUrl: () => "http://localhost/",
+    replaceUrl: () => undefined,
+};
 
 export interface SettingsWorldOptions {
     /** 服务端给出状态根之前等它：服务端的配置入口激活因此挂起，用来验证首个快照的截止。 */
@@ -169,6 +178,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                         {id: "window.project", key: windowProjectKey, create: () => ({project})},
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
                         {id: "clock", key: clockKey, create: () => clock},
+                        {id: "window.navigation", key: windowNavigationKey, create: () => NO_PAGE_NAVIGATION},
                         ...(windowOptions.quickPick === undefined ? [] : [{id: "test.quick-pick", key: quickPickKey, create: () => windowOptions.quickPick!}]),
                     ],
                     plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, windowOptions.quickPick === undefined ? settingsBrowserCore : settingsBrowserPlugin), ...plugins],
