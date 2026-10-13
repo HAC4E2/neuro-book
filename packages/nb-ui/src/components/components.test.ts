@@ -1965,7 +1965,7 @@ describe("nb-ui dialog anatomy", () => {
         expect(rows[0]?.attributes("data-selected")).toBe("");
         expect(rows[0]?.attributes("aria-selected")).toBe("true");
         expect(rows[0]?.classes()).toContain("data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)]");
-        expect(rows[0]?.classes()).toContain("data-[selected]:font-[var(--weight-medium)]");
+        expect(rows[0]?.classes()).toContain("data-[selected]:[font-weight:var(--weight-medium)]");
         expect(rows[0]?.classes().some((name) => name.startsWith("border-l") || name.includes(":border-l"))).toBe(false);
 
         await rows[1]?.trigger("click");

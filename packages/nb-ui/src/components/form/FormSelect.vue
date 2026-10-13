@@ -209,7 +209,7 @@ const {
                             <SelectItemText class="block truncate">{{ option.label }}</SelectItemText>
                             <span
                                 v-if="option.description"
-                                class="mt-[calc(var(--space-1)*0.5)] block truncate text-[var(--text-2xs)] font-normal text-[var(--text-muted)] group-data-[state=checked]:text-[var(--accent-text)]"
+                                class="mt-[calc(var(--space-1)*0.5)] block truncate text-[length:var(--text-2xs)] font-normal text-[var(--text-muted)] group-data-[state=checked]:text-[var(--accent-text)]"
                             >{{ option.description }}</span>
                         </span>
                         <SelectItemIndicator v-if="!props.hideCheckmark" class="shrink-0">

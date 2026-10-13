@@ -51,7 +51,7 @@ const rows = computed<readonly CommandRow[]>(() => {
 </script>
 
 <template>
-    <section class="mt-2 flex flex-col gap-2 text-[var(--text-xs)] text-[var(--text-muted)]" data-lab-command-inspector>
+    <section class="mt-2 flex flex-col gap-2 text-[length:var(--text-xs)] text-[var(--text-muted)]" data-lab-command-inspector>
         <div
             v-if="failure !== ''"
             role="alert"

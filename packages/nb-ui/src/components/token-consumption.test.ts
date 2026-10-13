@@ -2,6 +2,8 @@ import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
+import {nbTypographyTokens} from "../theme/tokens";
+
 /**
  * 组件 token 消费静态扫描（Task 150）。
  *
@@ -11,6 +13,10 @@ import {describe, expect, it} from "vitest";
  * 2. 动效只消费 --motion-* / --ease-standard，不写死时长或缓动（design-language.md 动效节）。
  * 3. 组件不写字面颜色（ui-development-spec §2.2；颜色来自配色变量或 token）。
  * 4. 禁 transition-all / transition: all（属性列表必须显式，动效节禁条）。
+ * 5. 排版 token 写进 `text-` 时带 `length:` 类型提示：Tailwind v4 与 UnoCSS 都把方括号里不带提示的 `var()`
+ *    当成颜色，`text-[var(--text-xs)]` 编译成 `color: var(--text-xs)`，字号没设上，颜色也作废。
+ * 6. 排版 token 不写进 `font-[…]`：Tailwind v4 把 `font-[var(--weight-medium)]` 当字重，UnoCSS 当字体族
+ *    （`font-family: var(--weight-medium)`），带类型提示也一样；用任意属性 `[font-weight:var(--weight-*)]`。
  *
  * 凡是「扫源码找有没有出现 X」的断言都必须先剥注释——本仓同一形状的坑已经踩过两次
  * （见 theme-packages.test.ts 里 readVarsDeclarations 的注释），扫的是代码不是散文。
@@ -58,6 +64,15 @@ function stripComments(source: string): string {
         .replace(/^[ \t]*\/\/.*$/gm, blank);
 }
 
+/**
+ * 规则 5 的匹配式：`text-[var(--<排版 token>…)]` 与 v4 简写 `text-(--<排版 token>)`。名单取自 nbTypographyTokens，
+ * 新增字号档不用改这里；配色变量（`--text-main` 这类）不在名单里，写成 `text-[var(--text-main)]` 当颜色是对的。
+ */
+const UNTYPED_TYPOGRAPHY_TEXT = new RegExp(String.raw`\btext-(?:\[var\(|\()(?:${nbTypographyTokens.join("|")})(?=[,)])`);
+
+/** 规则 6 的匹配式：`font-[var(--<排版 token>…)]`、`font-(--<排版 token>)`，以及它们带类型提示的写法。 */
+const TYPOGRAPHY_IN_FONT_UTILITY = new RegExp(String.raw`\bfont-(?:\[(?:[a-z-]+:)?var\(|\((?:[a-z-]+:)?)(?:${nbTypographyTokens.join("|")})(?=[,)])`);
+
 interface Rule {
     name: string;
     pattern: RegExp;
@@ -98,6 +113,16 @@ const RULES: Rule[] = [
         pattern: /\b(?:backdropFilter|WebkitBackdropFilter)\s*:|\bbackgroundColor\s*:\s*['"]color-mix\(in srgb, var\(--bg-panel\)/,
         reason: "浮层材质必须统一消费 --overlay-surface / --overlay-blur / --elevation-popover 或 useDropdownSurfaceStyle / useDropdownFloating（ui-development-spec §9）",
     },
+    {
+        name: "字号类带 length: 类型提示",
+        pattern: UNTYPED_TYPOGRAPHY_TEXT,
+        reason: "不带类型提示的 var() 被当成颜色，编译出 color: var(--text-xs)、字号没设上；写 text-[length:var(--text-xs)]",
+    },
+    {
+        name: "字重与字体族用任意属性写",
+        pattern: TYPOGRAPHY_IN_FONT_UTILITY,
+        reason: "font-[var(--weight-*)] 在 UnoCSS 里编译成 font-family；写 [font-weight:var(--weight-*)] 或 [font-family:var(--font-*)]",
+    },
 ];
 
 function violationsFor(rule: Rule, files: string[]): string[] {
@@ -128,6 +153,20 @@ describe("组件 token 消费静态扫描", () => {
             expect(violationsFor(rule, files)).toEqual([]);
         });
     }
+
+    it("字号类的检查认得出不带类型提示的写法，放过带提示的与配色变量", () => {
+        const untyped = ["text-[var(--text-xs)]", "hover:text-[var(--text-sm)]", "text-[var(--text-2xs,11px)]", "text-(--text-md)"];
+        const typed = ["text-[length:var(--text-xs)]", "text-(length:--text-xs)", "text-[var(--text-main)]", "text-[var(--text-muted)]", "text-[var(--text-secondary)]"];
+        expect(untyped.filter((sample) => !UNTYPED_TYPOGRAPHY_TEXT.test(sample))).toEqual([]);
+        expect(typed.filter((sample) => UNTYPED_TYPOGRAPHY_TEXT.test(sample))).toEqual([]);
+    });
+
+    it("字重类的检查认得出 font-[…] 里的排版 token，放过任意属性写法与常量档", () => {
+        const flagged = ["font-[var(--weight-medium)]", "data-[selected]:font-[var(--weight-medium)]", "font-[number:var(--weight-strong)]", "font-(--weight-strong)", "font-[var(--font-mono)]"];
+        const allowed = ["[font-weight:var(--weight-medium)]", "data-[selected]:[font-weight:var(--weight-medium)]", "[font-family:var(--font-mono)]", "font-medium", "font-mono"];
+        expect(flagged.filter((sample) => !TYPOGRAPHY_IN_FONT_UTILITY.test(sample))).toEqual([]);
+        expect(allowed.filter((sample) => TYPOGRAPHY_IN_FONT_UTILITY.test(sample))).toEqual([]);
+    });
 
     it("豁免清单里的文件仍然存在（防止豁免变成死条目）", () => {
         const existing = new Set(files.map((path) => join(path).slice(COMPONENTS_DIR.length + 1).replaceAll("\\", "/")));

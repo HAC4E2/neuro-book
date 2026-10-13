@@ -94,7 +94,7 @@ onBeforeUnmount(() => {
 <template>
     <div class="flex h-full min-h-[420px] min-w-0 flex-col bg-[var(--panel-surface)]">
         <LabFixtureControls>
-            <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[var(--text-xs)] text-[var(--text-muted)]">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[length:var(--text-xs)] text-[var(--text-muted)]">
                 <span class="font-mono text-[var(--text-main)]">{{ sample?.path ?? "无活动编辑器" }}</span>
                 <span class="max-w-[280px] truncate font-mono text-[var(--text-secondary)]" data-lab-command-result>{{ lastResult }}</span>
                 <div class="flex-1"></div>
@@ -105,13 +105,13 @@ onBeforeUnmount(() => {
                 <Button size="sm" variant="secondary" :disabled="!enabled('nbook.edit.undo')" @click="run('nbook.edit.undo', {source: 'agent', callerId: 'lab'})">以 Agent 撤销</Button>
                 <Button size="sm" variant="secondary" @click="run('nbook.quick-open.open-commands')">命令面板</Button>
             </div>
-            <p class="mt-1.5 text-[var(--text-xs)] text-[var(--text-muted)]">面板由本场景的局部命令宿主挂载：点“命令面板”或在本场景内按 Ctrl/Cmd+Shift+P 打开，打开时它是受检零件。</p>
+            <p class="mt-1.5 text-[length:var(--text-xs)] text-[var(--text-muted)]">面板由本场景的局部命令宿主挂载：点“命令面板”或在本场景内按 Ctrl/Cmd+Shift+P 打开，打开时它是受检零件。</p>
             <LabCommandInspector :scene="scene" />
         </LabFixtureControls>
 
         <LabCommandSceneLayer :scene="scene" />
 
-        <div v-if="sample === null" class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-[var(--text-sm)] text-[var(--text-muted)]">
+        <div v-if="sample === null" class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]">
             <p class="text-[var(--text-main)]">这个场景没有活动编辑器。</p>
             <p>编辑器命令不登记，行号跳转不可用：触发面应当拒绝，而不是猜一个目标。</p>
         </div>

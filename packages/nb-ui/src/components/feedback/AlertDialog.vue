@@ -99,7 +99,7 @@ function onCloseAutoFocus(event: Event): void {
                         </slot>
                     </AlertDialogTitle>
 
-                    <AlertDialogDescription v-if="props.description || $slots.description" class="text-[var(--text-sm)] text-[var(--text-secondary)] leading-relaxed">
+                    <AlertDialogDescription v-if="props.description || $slots.description" class="text-[length:var(--text-sm)] text-[var(--text-secondary)] leading-relaxed">
                         <slot name="description">
                             {{ props.description }}
                         </slot>

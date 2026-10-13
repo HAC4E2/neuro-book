@@ -91,7 +91,7 @@ onMounted(() => emit("ready", handle));
         :readonly="props.readonly"
         :rows="16"
         :aria-label="props.label"
-        class="h-full w-full resize-none font-mono text-[var(--text-sm)] leading-[1.6]"
+        class="h-full w-full resize-none font-mono text-[length:var(--text-sm)] leading-[1.6]"
         data-lab-sample-editor
         @update:model-value="onInput"
         @focus="emit('focus', true)"

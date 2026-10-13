@@ -51,8 +51,8 @@ const field = useFormFieldContext();
 
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
-    ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[var(--text-xs)]"
-    : "nb-ui-control-h-md nb-ui-control-px text-[var(--text-sm)]");
+    ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]"
+    : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
 
 // prefix 与裸 input 两个分支共享同一份属性绑定，排除组件层 size prop 避免原生 HTMLInputElement size 属性类型冲突
 const inputAttrs = computed(() => ({
