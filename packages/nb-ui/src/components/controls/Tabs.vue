@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import {computed, nextTick, ref} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
+import Dropdown from "./Dropdown.vue";
+import type {DropdownItem} from "./dropdown.types";
+import {adaptTabs} from "./tabs-adapt";
+import type {TabsAdaptState} from "./tabs-adapt";
 
 // 线性标签页（仅标签栏，内容面板由消费方渲染）。
 // 与 SegmentedControl 的分工：Tabs 用于页面/区块级导航（底部指示线），SegmentedControl 用于紧凑的互斥模式切换。
@@ -18,6 +22,8 @@ export type TabsItem = {
 };
 export type TabsSize = "sm" | "md";
 
+defineOptions({inheritAttrs: false});
+
 const props = withDefaults(defineProps<{
     modelValue: string;
     items: TabsItem[];
@@ -25,16 +31,26 @@ const props = withDefaults(defineProps<{
     size?: TabsSize;
     /** 标签栏下方的底边线；铺在本来就没有线的标题行里（工作台平铺的工具区标题行）时关掉。 */
     baseline?: boolean;
+    /** 放不下时：`scroll` 在标签栏内横向滚动；`adapt` 逐级让位（截断、只留图标、收进“更多”）。 */
+    overflow?: "scroll" | "adapt";
+    /** `adapt` 的截断宽度：一个标签最宽多少 px。 */
+    maxItemWidth?: number;
+    /** `adapt` 的“更多”按钮文字，后面跟收起来的个数。 */
+    moreLabel?: string;
 }>(), {
     ariaLabel: "",
     size: "md",
     baseline: true,
+    overflow: "scroll",
+    maxItemWidth: 96,
+    moreLabel: "更多",
 });
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
 }>();
 
+const attrs = useAttrs();
 const tablistRef = ref<HTMLDivElement | null>(null);
 
 const enabledItems = computed(() => props.items.filter((item) => !item.disabled));
@@ -88,6 +104,84 @@ function tabClass(item: TabsItem): string {
     }
     return "text-[var(--text-secondary)] hover:text-[var(--text-main)] after:bg-transparent";
 }
+
+/** 标签的盒子：真实标签与测量层共用，测出来的宽度才对得上。 */
+const tabBoxClass = computed(() => [
+    "relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)]",
+    props.size === "sm" ? "h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]" : "h-[var(--control-h-md)] px-[var(--control-px)] text-[var(--text-sm)]",
+]);
+
+// ── 宽度适配（overflow="adapt"，同名 .md） ─────────────────────────────────
+
+const adaptive = computed(() => props.overflow === "adapt");
+const rootRef = ref<HTMLDivElement | null>(null);
+const measureRef = ref<HTMLDivElement | null>(null);
+const adapt = shallowRef<TabsAdaptState>({level: 0, hidden: new Set()});
+
+/**
+ * 截断及以后：标签有最大宽度，标题末尾省略，悬停显示全名。收进“更多”那一档里标签带可能窄到连选中的加“更多”都放不下，
+ * 这时标签可以再收缩，标题出省略号，不被标签带硬切。
+ */
+const truncating = computed(() => adaptive.value && adapt.value.level >= 1);
+/** 只留图标：选中的照旧带标题，没有图标的也带。 */
+function iconOnly(item: TabsItem): boolean {
+    return adaptive.value && adapt.value.level >= 2 && !isSelected(item) && item.iconClass !== undefined;
+}
+const visibleItems = computed(() => (adaptive.value ? props.items.filter((item) => !adapt.value.hidden.has(item.value)) : props.items));
+const moreItems = computed<DropdownItem[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
+
+/** 按测量层的实测宽度与标签带的可用宽度求这一档；量不到（还没挂上、不可见）时保持原状。 */
+function measure(): void {
+    const root = rootRef.value;
+    const layer = measureRef.value;
+    const list = tablistRef.value;
+    if (!adaptive.value || root === null || layer === null || list === null) {
+        return;
+    }
+    const natural = Array.from(layer.querySelectorAll<HTMLElement>("[data-measure-tab]"), (element) => element.getBoundingClientRect().width);
+    const available = root.clientWidth;
+    if (available <= 0 || natural.length !== props.items.length) {
+        return;
+    }
+    adapt.value = adaptTabs({
+        items: props.items.map((item) => ({value: item.value, hasIcon: item.iconClass !== undefined})),
+        natural,
+        iconOnly: layer.querySelector<HTMLElement>("[data-measure-icon]")?.getBoundingClientRect().width ?? 0,
+        more: layer.querySelector<HTMLElement>("[data-measure-more]")?.getBoundingClientRect().width ?? 0,
+        gap: Number.parseFloat(getComputedStyle(list).columnGap) || 0,
+        available,
+        maxItemWidth: props.maxItemWidth,
+        selected: props.modelValue,
+    }, adapt.value);
+}
+
+let observer: ResizeObserver | null = null;
+onMounted(() => {
+    if (typeof ResizeObserver === "function") {
+        observer = new ResizeObserver(() => measure());
+    }
+    watch([rootRef, measureRef], ([root, layer], _previous, onCleanup) => {
+        if (observer === null || root === null || layer === null) {
+            return;
+        }
+        observer.observe(root);
+        observer.observe(layer);
+        onCleanup(() => observer?.disconnect());
+        measure();
+    }, {immediate: true});
+});
+onBeforeUnmount(() => observer?.disconnect());
+// 选中项变了：在渲染之前重排（被收起来的那个要换出来），键盘移动后的焦点才能落到它上面。
+watch(() => props.modelValue, () => measure());
+// 标签或截断宽度变了：测量层先重渲染，再量。
+watch([() => props.items, () => props.maxItemWidth, () => props.size], () => void nextTick(measure));
+
+function selectHidden(value: string): void {
+    const item = props.items.find((candidate) => candidate.value === value);
+    if (item !== undefined) {
+        select(item);
+    }
+}
 </script>
 
 <template>
@@ -101,8 +195,59 @@ function tabClass(item: TabsItem): string {
         标签栏配一根滚动条，看起来像坏了。负 margin 会踩同一个坑，换成绝对定位并没有绕开。
 
         代价：指示线现在贴在边线上方而不是压住它，视觉上厚度少 1px。
+
+        宽度适配时外面多一层：标签带、“更多”与测量层并排，attrs 落在这一层上（滚动时落在标签带上）。
     -->
-    <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">
+    <div
+        v-if="adaptive"
+        ref="rootRef"
+        v-bind="attrs"
+        class="nb-ui-tabs-adapt relative flex min-w-0 items-end"
+        :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''"
+        :data-tabs-level="adapt.level"
+    >
+        <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex min-w-0 items-end gap-[var(--space-2)] overflow-hidden" @keydown="handleKeydown">
+            <button
+                v-for="item in visibleItems"
+                :key="item.value"
+                v-bind="item.attrs"
+                type="button"
+                role="tab"
+                :id="item.id"
+                :aria-controls="item.controls"
+                :aria-label="iconOnly(item) ? item.label : undefined"
+                :title="truncating ? item.label : undefined"
+                :data-tab-value="item.value"
+                :aria-selected="isSelected(item)"
+                :tabindex="isSelected(item) ? 0 : -1"
+                :disabled="item.disabled"
+                class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
+                :class="[tabBoxClass, tabClass(item)]"
+                :style="truncating ? {maxWidth: `${props.maxItemWidth}px`, ...(adapt.level === 3 ? {flexShrink: 1, minWidth: '0'} : {})} : undefined"
+                @click="select(item)"
+            >
+                <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
+                <span v-if="!iconOnly(item)" class="min-w-0 truncate">{{ item.label }}</span>
+                <span v-if="item.count !== undefined && !iconOnly(item)" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
+            </button>
+        </div>
+        <Dropdown v-if="moreItems.length > 0" :items="moreItems" compact align="end" @select="selectHidden">
+            <button type="button" class="nb-ui-focus-ring-inset text-[var(--text-secondary)] hover:text-[var(--text-main)]" :class="tabBoxClass" data-tabs-more>
+                {{ props.moreLabel }} {{ moreItems.length }}<span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
+            </button>
+        </Dropdown>
+        <!-- 测量层：完整标题的每个标签、只留图标的标签与“更多”，不可见、不占位、不进无障碍树。 -->
+        <div ref="measureRef" class="nb-ui-tabs-adapt__measure" aria-hidden="true" inert>
+            <span v-for="item in props.items" :key="item.value" :class="tabBoxClass" data-measure-tab>
+                <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
+                <span>{{ item.label }}</span>
+                <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] px-[var(--space-1)] font-mono text-[var(--text-2xs)]">{{ item.count }}</span>
+            </span>
+            <span :class="tabBoxClass" data-measure-icon><span class="h-[1.15em] w-[1.15em] shrink-0"></span></span>
+            <span :class="tabBoxClass" data-measure-more>{{ props.moreLabel }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
+        </div>
+    </div>
+    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">
         <button
             v-for="item in props.items"
             :key="item.value"
@@ -115,8 +260,8 @@ function tabClass(item: TabsItem): string {
             :aria-selected="isSelected(item)"
             :tabindex="isSelected(item) ? 0 : -1"
             :disabled="item.disabled"
-            class="nb-ui-focus-ring-inset relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
-            :class="[props.size === 'sm' ? 'h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]' : 'h-[var(--control-h-md)] px-[var(--control-px)] text-[var(--text-sm)]', tabClass(item)]"
+            class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
+            :class="[tabBoxClass, tabClass(item)]"
             @click="select(item)"
         >
             <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
@@ -125,3 +270,18 @@ function tabClass(item: TabsItem): string {
         </button>
     </div>
 </template>
+
+<style scoped>
+/* 测量层叠在标签带下面：不可见、不接指针、不撑高度，子元素照常按内容宽度排开，量得出各自的宽度。 */
+.nb-ui-tabs-adapt__measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: nowrap;
+}
+</style>

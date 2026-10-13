@@ -9,7 +9,7 @@
 
 ## 布局
 
-宽度由外壳的 ActivityBar 叶决定（48px），按钮用 `IconButton` 的 38px 档（`lg`）、竖排、间距 4px，滚动区上下各留 4px：左右与上下都给外扩焦点光环留出余地，不被滚动区裁掉；容器多到放不下时上段在列内纵向滚动，不撑破列。选中标记只在 `sidebarVisible` 为 true 时出现：Sidebar 看不见时没有“当前在看”的容器。
+宽度由外壳的 ActivityBar 叶决定（48px），按钮用 `IconButton` 的 38px 档（`lg`）、竖排、间距 4px，滚动区上下各留 4px：左右与上下都给外扩焦点光环留出余地，不被滚动区裁掉；容器多到放不下时，排在后面的收进上段末尾的“更多”（同样是 38px 的按钮，下拉列出收起来的容器），与状态栏条目同一个预算（`items/item-strip.ts` 的 `layoutStrip`），选中的优先、总在外面；量不到上段高度（还没挂上）时全部摆出来，上段自己纵向滚动兜底，不撑破列。选中标记只在 `sidebarVisible` 为 true 时出现：Sidebar 看不见时没有“当前在看”的容器。
 
 ## 交互
 
@@ -41,6 +41,8 @@ type Props = {
     sidebarVisible: boolean;
     /** 按钮作为拖动源的说明，写到 `aria-description`，例如“按空格拿起并拖动”。 */
     dragHint: string;
+    /** 收起其余条目的“更多”按钮的可访问名称；默认 "更多"。 */
+    moreLabel?: string;
 };
 
 type Emits = {

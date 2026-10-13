@@ -5,10 +5,17 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {Tabs} from "@notnotype/nb-ui/components";
 
 import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import type {ContainerPresentation, PartPresentation} from "../views/presentation";
 import {switcherPanelId, switcherTabId} from "./switcher-ids";
+
+/**
+ * 标签带放不下时逐级让位（docs/specs/ui/workbench-shell.md 输出 25）：截断到 96px 时每个标签还读得出图标加四五个字，
+ * 再窄就只留图标、收进“更多”。
+ */
+const TAB_MAX_WIDTH = 96;
+const MORE: LocalizedText = {"zh-CN": "更多", "en-US": "More"};
 
 defineOptions({name: "WorkbenchToolPartHost"});
 
@@ -74,6 +81,9 @@ onBeforeUnmount(() => {
                     v-if="tabs.length > 0"
                     class="workbench-tool-part__tabs"
                     size="sm"
+                    overflow="adapt"
+                    :max-item-width="TAB_MAX_WIDTH"
+                    :more-label="localize(MORE, locale)"
                     :baseline="false"
                     :model-value="presentation.selected ?? ''"
                     :items="tabs"

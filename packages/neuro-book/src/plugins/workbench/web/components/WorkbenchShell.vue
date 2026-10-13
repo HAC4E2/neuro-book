@@ -83,6 +83,7 @@ const TEXT = {
     dropMoveContainer: {"zh-CN": "移动容器", "en-US": "Move container"},
     dropMergeContainer: {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
     dropReveal: {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
+    more: {"zh-CN": "更多", "en-US": "More"},
     dropBefore: {"zh-CN": "放在“{title}”前", "en-US": "Place before “{title}”"},
     dropAfter: {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
 } satisfies Record<string, LocalizedText>;
@@ -435,7 +436,7 @@ const dropFeedback = computed(() => {
             </div>
         </template>
         <template #activitybar>
-            <WorkbenchActivityBar :label="text(TEXT.activityBar)" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" :drag-hint="text(TEXT.dragHint)" @select="selectSidebarContainer" />
+            <WorkbenchActivityBar :label="text(TEXT.activityBar)" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" :drag-hint="text(TEXT.dragHint)" :more-label="text(TEXT.more)" @select="selectSidebarContainer" />
         </template>
         <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
             <WorkbenchToolPartHost
@@ -477,7 +478,7 @@ const dropFeedback = computed(() => {
         <template #panel="{collapsed}">
             <WorkbenchPanelSurface :title="text(TEXT.panel)" :collapsed="collapsed" :actions="frameActions" @action="run">
                 <template #nav>
-                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" :baseline="false" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
+                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" overflow="adapt" :max-item-width="96" :more-label="text(TEXT.more)" :baseline="false" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
                     <!--
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。

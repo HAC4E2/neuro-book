@@ -616,6 +616,71 @@ test.describe("产品页：测试插件贡献的视图", () => {
         }
     });
 
+    test("面板标签带变窄时逐级让位：完整 → 截断 → 选中的留标题其余只留图标 → 收进“更多”，选中的始终带标题；从“更多”选中后它回到标签带", async ({page}) => {
+        await open(page);
+        // 面板里三个容器：戊、己（长标题）与从右栏搬来的丁
+        await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "新建容器（在面板）");
+        const band = page.locator('.workbench-panel-surface [data-tabs-level]');
+        const level = () => band.getAttribute("data-tabs-level");
+        const selectedLabel = () => page.locator('.workbench-panel-surface [role="tab"][aria-selected="true"]').innerText();
+        await expect(page.locator('.workbench-panel-surface [role="tab"]')).toHaveCount(3);
+        const seen = new Set<string>();
+        for (const width of [1920, 1700, 1500, 1440, 1360, 1280, 1200, 1120, 1040, 980, 920, 860]) {
+            await page.setViewportSize({width, height: 900});
+            await expect.poll(async () => (await band.boundingBox())?.width ?? 0).toBeGreaterThan(0);
+            const current = (await level())!;
+            seen.add(current);
+            // 选中的始终带标题
+            expect((await selectedLabel()).trim().length).toBeGreaterThan(0);
+            if (current === "3") {
+                const more = page.locator('.workbench-panel-surface [data-tabs-more]');
+                await expect(more).toBeVisible();
+                const shown = await page.locator('.workbench-panel-surface [role="tab"]').count();
+                await expect(more).toContainText(`更多 ${String(3 - shown)}`);
+            }
+        }
+        expect([...seen].sort()).toEqual(["0", "1", "2", "3"]);
+        // 最窄时键盘移到收起来的标签：它被选中、换到标签带里，焦点落在它身上
+        const selectedTab = page.locator('.workbench-panel-surface [role="tab"][aria-selected="true"]');
+        await selectedTab.focus();
+        for (const key of ["Home", "End"]) {
+            const before = await selectedTab.getAttribute("data-tab-value");
+            await page.keyboard.press(key);
+            await expect(selectedTab).not.toHaveAttribute("data-tab-value", before!);
+            await expect(selectedTab).toBeFocused();
+        }
+        // 最窄时从“更多”选一个收起来的：它被选中，回到标签带（收起来的换成别的）
+        await page.locator('.workbench-panel-surface [data-tabs-more]').click();
+        const hiddenOne = page.getByRole("menu").getByRole("menuitem").first();
+        const name = (await hiddenOne.innerText()).trim();
+        await hiddenOne.click();
+        await expect(page.locator('.workbench-panel-surface [role="tab"][aria-selected="true"]')).toContainText(name.slice(0, 2));
+    });
+
+    test("活动栏放不下时，末尾的条目收进底部的“更多”，选中的总在外面；从“更多”选中后它回到活动栏", async ({page}) => {
+        await open(page);
+        // 侧栏里放六个容器
+        for (const [scope, viewId] of [['[data-tool-part="auxiliarybar"]', D], [".workbench-panel-surface", E], [".workbench-panel-surface", F]] as const) await moveVia(page, scope, viewId, "新建容器（在侧栏）");
+        const entries = page.locator("[data-activity-container]");
+        await expect(entries).toHaveCount(6);
+        await expect(page.locator("[data-activity-more]")).toHaveCount(0);
+        await page.setViewportSize({width: 1440, height: 300});
+        const more = page.locator("[data-activity-more]");
+        await expect(more).toBeVisible();
+        await expect.poll(() => entries.count()).toBeLessThan(6);
+        const shown = await entries.count();
+        // 条目与“更多”都在活动栏里，不滚动
+        const band = await page.locator('[data-switcher-band="sidebar"]').evaluate((element) => ({scroll: element.scrollHeight, client: element.clientHeight}));
+        expect(band.scroll).toBeLessThanOrEqual(band.client);
+        await more.click();
+        const menu = page.getByRole("menu").getByRole("menuitem");
+        await expect(menu).toHaveCount(6 - shown);
+        await menu.last().click();
+        const lastId = await page.evaluate(() => [...document.querySelectorAll("[data-activity-container]")].map((element) => element.getAttribute("data-activity-container")));
+        await expect(page.locator('[data-activity-container][aria-pressed="true"]')).toHaveCount(1);
+        expect(lastId.length).toBe(shown);
+    });
+
     test("容器网格（Panel 横向）：拖动视图之间的边界只写宽度；收成 32px 竖条再展开回到记忆宽度", async ({page}) => {
         await open(page);
         await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "样例戊");
