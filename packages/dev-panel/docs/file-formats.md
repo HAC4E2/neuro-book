@@ -11,10 +11,10 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 | 标题 | 正文第一个一级标题 | |
 | 状态 | frontmatter `status`；Task 取 `planned`、`active`、`done`、`shelved`，Work 取后三种 | `recorded`；没有字段为 `unset`；取值不在集合里为 `invalid`（带 `raw`） |
 | Work 目标 | `## 目标` 一节的正文 | `recorded`；没有这一节时取一级标题后的第一段，为 `inferred`；都没有为 `unset` |
-| 最近更新 | frontmatter `updated`（`YYYY-MM-DD`，本机本地日期）；Task 的产物目录（`artifacts/`）最后一次提交的日期更晚时取它 | `recorded`；没有字段时取最后一次碰这个 Task（或 Work）目录的提交日期，为 `commit`；取了产物目录的日期也为 `commit`；都没有为 `unset` |
+| 最近更新 | frontmatter `updated`（`YYYY-MM-DD`，本机本地日期）；Task 的产物目录（`artifacts/`）或 Task 目录第一层文档（README 之外的 `.md`）最后一次提交的日期更晚时取较晚的 | `recorded`；没有字段时取最后一次碰这个 Task（或 Work）目录的提交日期，为 `commit`；取了产物目录或文档的日期也为 `commit`；都没有为 `unset` |
 
 - 不从正文推断 Task 状态。
-- nbdev 写记录时只按行改 `status` 与 `updated`，不重新序列化整个 frontmatter。发布、答复、确认都不改 README 的 `updated`（改了就要把会话正在改的 README 一起提交），所以“最近更新”另看产物目录的提交日期。
+- nbdev 写记录时只按行改 `status` 与 `updated`，不重新序列化整个 frontmatter。发布、答复、确认与面板编辑 Task 里的其它文档都不改 README 的 `updated`（改了就要把会话正在改的 README 一起提交），所以“最近更新”另看产物目录与文档的提交日期。面板编辑 README 本身时由核心把 `updated` 改成当天。
 - 只读 README 与 Task 目录这一层的目录项，不递归 `evidences/`；产物只读 `artifacts/<id>/` 下的 `versions/` 与 `answers/` 两层（见下文“产物”）。
 
 ## 来源
@@ -47,7 +47,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 
 - 只记领号的事实。条目按完整 id 记，同号不同名的各占一条；按 id 排序。
 - `status`：`claimed` 是经 nbdev 领的，`imported` 是扫描补登的，`abandoned` 是领了不用的；三种号都不再发。
-- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
+- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；开发者在面板上领的号是 `{key: "developer:local", agent: "developer", sessionId: null, label: "local", parentSessionId: null, nestedSessionId: null}`（`local` 在 t13 换成配对设备的名字）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
 - 写入在锁内完成，先写同目录临时文件再改名。
 - 登记表不是可重新生成的原始输出：`registry import` 只能从扫描重建 `imported` 条目，`claimed`、`abandoned`、`home`、`by` 会丢失。丢失后，同步过 `master` 的分支上经 nbdev 建的 Task 会被当成分支记录、拒绝写入。
 

@@ -1,6 +1,6 @@
 # 面板
 
-开发者项目面板的合同：两个来源、登录、请求校验与路径守卫、接口、缓存与刷新、`panel serve` 与 `panel open`、前端构建。命令行合同见 [cli.md](cli.md)，文件格式见 [file-formats.md](file-formats.md)，herdr 的订阅与对账见 [herdr.md](herdr.md#面板的订阅与对账)。本片（t09）只读，不写任何项目数据。
+开发者项目面板的合同：两个来源、登录、请求校验与路径守卫、接口、写接口（t10）、缓存与刷新、`panel serve` 与 `panel open`、前端构建。命令行合同见 [cli.md](cli.md)，文件格式见 [file-formats.md](file-formats.md)，herdr 的订阅与对账见 [herdr.md](herdr.md#面板的订阅与对账)。读接口与 t09 相同；t10 加了答复、新建、状态切换与编辑的写接口，与命令行走同一个核心函数、同一把锁、同一种路径限定的提交。
 
 ## 两个来源
 
@@ -10,7 +10,7 @@
 | 产物 | `127.0.0.1:4401` | 只读的静态文件：`/a/<随机前缀>/<checkout key>/.agents/works/…`，只给 `.agents/works/` 下的文件，没有接口 |
 
 - **只绑回环**：`--host` 只接受 `127.0.0.1` 与 `localhost`，别的地址（含 `0.0.0.0` 与 `::1`）报 `unsafe_host`；这台机器上绑不了的地址也报 `unsafe_host`。不收 IPv6：本机的 `lo` 关了 IPv6，有 IPv6 的机器上 Chrome 的 CSP 也写不了 IPv6 字面量，产物页嵌不进来。端口被占报 `port_in_use`，不自动换端口。
-- **产物来源的随机前缀**在服务启动时生成，只经 `/api/artifact` 交给面板：网页猜不到地址，读不走只在本机、或只在未推送分支上的产物；有了它才能回 `Access-Control-Allow-Origin: *`（沙箱 iframe 是不透明来源，模块脚本、`fetch` 与字体都按 CORS 取）。`/a/<前缀>/_nbdev/` 是留给 t10 表单脚本的保留路径，本片回 404。
+- **产物来源的随机前缀**在服务启动时生成，只经 `/api/artifact` 交给面板：网页猜不到地址，读不走只在本机、或只在未推送分支上的产物；有了它才能回 `Access-Control-Allow-Origin: *`（沙箱 iframe 是不透明来源，模块脚本、`fetch` 与字体都按 CORS 取）。`/a/<前缀>/_nbdev/` 是保留路径，回 404（t10 不做页内答复，留着不让它与 checkout key 撞名）。
 - 产物来源与面板来源用同一种主机名：请求是 `localhost:4400` 时，iframe 指 `localhost:4401`。
 
 ## 登录
@@ -32,7 +32,7 @@
 3. URL 解析器先按规范折叠 `.` 与 `..`（含 `%2e` 写法），折叠后的路径照常过下面的检查，所以 `/../x` 等同 `/x`、出不了根（`/../../etc/passwd` 落到单页回退，回 `index.html`，不是那个文件）。剩下的段逐段解码：编码过的 `/` 与 `\`、解码出 NUL、不合法的百分号编码与空段回 400，不让解码错误变成 500。
 4. 面板来源，按这个顺序：
    - `/api/*` 与 `/ws`（不论方法）先要求 `Sec-Fetch-Site` 是 `same-origin` 或 `none`（缺这个头的按 `none` 处理，只有浏览器的跨站请求会带 `cross-site`、`same-site`），再要求登录 cookie（401）。跨站的 `<img src=…/api/search?q=…>` 两道都过不去。
-   - 然后，非 `GET`、`HEAD` 的请求要求同源的 `Origin` 加 `X-Nbdev-Csrf` 头（值是服务启动时生成、写进页面 `<meta name="nbdev-csrf">` 的随机令牌）。CSRF 令牌写在不要求登录的 `index.html` 里，本机任何账户都读得到：它只防浏览器里的跨站请求，不是本机账户之间的秘密，写请求靠的是前一步的登录。本片没有写接口，通过校验后回 405。
+   - 然后，非 `GET`、`HEAD` 的请求要求同源的 `Origin` 加 `X-Nbdev-Csrf` 头（值是服务启动时生成、写进页面 `<meta name="nbdev-csrf">` 的随机令牌）。CSRF 令牌写在不要求登录的 `index.html` 里，本机任何账户都读得到：它只防浏览器里的跨站请求，不是本机账户之间的秘密，写请求靠的是前一步的登录。通过之后 `/api/*` 交给写接口（见“写接口”），没有对应的写路由回 405；`/api` 之外的写请求一律 405。
    - `/ws` 的升级要求 `Origin` 是面板自己的来源（缺失与 `null` 都拒绝）。
 5. 产物来源只接受 `GET`、`HEAD`（405）。
 
@@ -50,18 +50,19 @@
 
 ## 接口
 
-全是 `GET`。JSON 接口的外壳是 `{schema: "nbdev.panel-api/v1", ok, data, warnings, errors, instance, revisions}`：`instance` 是服务实例 id（重启后变），`revisions` 是各块数据（`records`、`activity`、`sessions`）的版本号；前端只接受更新的数据。预热完成之前回 503（`warming_up`），`/api/meta` 除外。
+读接口全是 `GET`（写接口见下一节）。JSON 接口的外壳是 `{schema: "nbdev.panel-api/v1", ok, data, warnings, errors, instance, revisions}`：`instance` 是服务实例 id（重启后变），`revisions` 是各块数据（`records`、`activity`、`sessions`）的版本号；前端只接受更新的数据。预热完成之前回 503（`warming_up`），`/api/meta` 除外。
 
 | 接口 | 内容 |
 |---|---|
-| `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、前端构建是否失败、herdr 的状态、各块数据的刷新时刻与错误、产物来源的地址 |
+| `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、前端构建是否失败、herdr 的状态、各块数据的刷新时刻与错误、产物来源的地址、`mainWritable`（`{ok, code, message}`：主工作区现在能不能写，不在 master 或正在合并、变基时不能，前端据此隐藏写入口） |
 | `/api/overview` | 首页与左栏：各 Work 与 Task 的摘要（状态、目标、最近更新、当前情况、来源、待答数、谁在动）、收件箱（提问带 `askedBy` 与 `askerActive`：提问者的租约是否还有效）、会话的计数（明细在 `/api/sessions`） |
-| `/api/work/:workId` | Work 页：完整的 Work（Task 表、产物与文档类产物、谁在动）与相关会话 |
-| `/api/task/:workId/:taskId` | Task 页：Task 摘要、README 原文、证据（第一层）、链到的 Spec、执行 checkout 的候选与选中的、执行 checkout 上的提交 |
+| `/api/work/:workId` | Work 页：完整的 Work（Task 表、产物与文档类产物、谁在动）与相关会话；`readmeHash`（README 的 sha256，状态切换带它） |
+| `/api/task/:workId/:taskId` | Task 页：Task 摘要（含 `readmeHash`）、README 原文、证据（第一层）、链到的 Spec、执行 checkout 的候选与选中的、执行 checkout 上的提交 |
 | `/api/artifacts` | 产物列表：有发布记录的（设计稿、讲解与报告、审查、提问集）与没发布的、文档类产物、各 Task 的证据数 |
-| `/api/artifact/:workId/:taskId/:artifactId?version=` | 产物页：版本列表、题与状态（`version` 只切换题表）、答复、确认、iframe 地址（产物来源上磁盘里的当前页面）、`unpublishedChanges`（磁盘内容与最新一版的 `contentHash` 不同）。Work 级产物的 `taskId` 写 `-` |
+| `/api/artifact/:workId/:taskId/:artifactId?version=` | 产物页：版本列表、题与状态（`version` 只切换题表）、答复、确认、iframe 地址（产物来源上磁盘里的当前页面）、`unpublishedChanges`（磁盘内容与最新一版的 `contentHash` 不同）、记录来源（`source`、`branch`）。Work 级产物的 `taskId` 写 `-` |
 | `/api/docs/tree?checkout=` | 文档树（按类型分组）；不是主工作区时附与 master 的差异（见下） |
 | `/api/docs/file?checkout=&path=` | 一份文档：原文、frontmatter、标题、这个 checkout 上最近 5 次提交、哪些已检出的分支改了它（`changedIn`） |
+| `/api/files?path=` | 编辑页：主工作区里一个文件的原文与 sha256、种类（Work README、Task README、文档类产物、主工作区文档）、能不能编辑与原因、未提交的改动（已暂存与工作区分开）、是不是暂存区里一次改名的一端、改过它的分支、根级治理入口的非空行上限。编辑白名单之外的路径回 404 |
 | `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree） |
 | `/api/search?q=&checkout=` | 搜索，NDJSON 流（见下） |
 | `/ws` | 先推 `{type: "hello", instance, revisions}`，之后每块数据变了推 `{type: "changed", instance, parts, revisions}` |
@@ -82,6 +83,37 @@
 - 排除 `**/evidences/**`、`**/experiments/**`、`**/node_modules/**`；搜索用单独的 Git 调用（不带 `GIT_LITERAL_PATHSPECS`，pathspec 由服务端写死，用户输入只经 `-e`）。结果逐行套段检查。
 - 每个 checkout 的文件名与内容各最多 200 条，读满就结束子进程；5 秒截断。全局同一时刻只跑一组：有新搜索或客户端断开就结束旧的子进程，被取代的那组最后一行带 `aborted: true`。
 
+## 写接口
+
+每个接口直接调命令行用的同一个核心函数，取同一把锁（`.local/agent/registry.json.lock`），在 master 上做路径限定的提交。面板以开发者身份写（调用者种类 `developer`，`device` 在 t13 之前一律 `local`）：不取租约；提交信息标“面板”（`面板新建`、`面板编辑`、`面板记下`，状态改动加“（面板）”）；登记表新号的 `by` 是 `{key: "developer:local", agent: "developer", label: "local", 其余 null}`；答复的 `submittedBy` 是 `{kind: "developer", device: "local"}`，`submittedAt` 是服务端收到请求的时刻。
+
+| 接口 | 核心函数 | 请求体（JSON）| 上限 |
+|---|---|---|---|
+| `POST /api/answers` | `submitAnswer`（`requireLatest`） | `{workId, taskId, artifactId, version, values, comments?, note?}` | 256 KiB |
+| `POST /api/works` | `createWork` | `{slug, title, goal, issue?, taskSlug, taskTitle?, taskStatus?}` | 16 KiB |
+| `POST /api/works/:workId/tasks` | `createTask` | `{slug, title, goal?, status?}` | 16 KiB |
+| `POST /api/works/:workId/status` | `setRecordStatus` | `{status, expectedHash, includeUncommitted?}` | 4 KiB |
+| `POST /api/works/:workId/tasks/:taskId/status` | `setTaskStatus` | 同上 | 4 KiB |
+| `PUT /api/files?path=` | `editRecordFile` | `{content, baseHash, includeUncommitted?}` | 2 MiB（内容 1 MiB） |
+| `POST /api/preview/work`、`/api/preview/task` | `previewCreateWork`、`previewCreateTask`（不取锁、不写文件） | 同新建；`/task` 另带 `workId`；字段可以不全 | 16 KiB |
+
+**每个写请求的校验**（在“请求校验”第 4 条之后，失败一律 4xx，不进核心函数）：`Content-Type` 必须是 `application/json`（415 `unsupported_media_type`）；请求体按上表限长，读到上限就停（413 `payload_too_large`）；必须是 JSON 对象，只收列出的字段（多出的、拼错的字段名 400 `usage`，`details.field`），类型不对、缺必填 400；路径参数与请求体里的 `workId`、`taskId`、`artifactId` 只接受缓存里存在的值（404）；题号按题号格式校验、存进无原型的对象。写进记录的文字拒绝 C0 控制字符（允许制表符），换行只在正文类字段（目标、说明、备注、文字答复、编辑内容）里允许（核心的规则，命令行一致）：标题报 `invalid_title`，其余报 `invalid_text`。
+
+**HTTP 状态**：用法错误 400，冲突 409，找不到 404，`lock_timeout` 与 `warming_up` 503（确定什么都没写），其余运行失败 500。写入成功但提交失败（`commit.reason` 为 `git_lock_timeout` 或 `git_failed`）回 500 `commit_failed`，`details.writtenPaths` 与 `data.commit` 列出已写的文件；`nothing_to_commit`（内容或状态没变）回 200，`data.changed: false`。成功时 `data` 是核心的结果加 `changed` 与 `commit`。
+
+**并发与时序**：
+
+- 写请求等锁沿用 t06 定的 30 秒，持锁者还可能等 `index.lock` 10 秒。面板来源的 `idleTimeout` 设 60 秒，不在等锁时切断连接（Bun 1.4.2 实测默认的 10 秒会切断没有请求体的请求）。
+- 取到锁之后、写第一个文件之前看一次请求是否已断开：断开了就放锁、什么都不写（`request_aborted`，只进面板日志），免得开发者看不到结果再按一次就多领一个号。写了之后才断开的照常提交。
+- 写成功后，等记录与活动各重算一次（这次重算在写入之后开始）再回应，回应的 `revisions` 已包含这次写入：前端拿到回应就能打开新建的 Work。
+- **哈希绑定**：状态切换带 `expectedHash`、编辑带 `baseHash`（开发者看到的那一版的 sha256，必填）。核心在锁内先比哈希（不一致 409 `hash_mismatch`，`details.currentHash`），再查暂存的改名（目标是暂存区里一次改名或复制的一端时 409 `staged_rename`，不给放行），再查未提交改动（409 `uncommitted_changes`，`details` 带 `currentHash`、`status`、`staged`、`unstaged`、`untracked`）。开发者看过差异、选“连同这些改动一起提交”后，前端带 `includeUncommitted: true` 与 `currentHash` 重发（待决问题 8）；这些改动会以面板的名义提交进 master。
+- **落位之后的核对**：`git add` 之前重读本次写入的每个文件，与写入的内容不同（别的进程在这之间改了它）就不提交，409 `changed_after_write`（`details.writtenPaths`），你的改动留在工作区。提交里的 blob 与写入内容不同时给警告 `commit_included_foreign_changes`。
+- 答复只收针对最新一版的（`requireLatest`，锁内比对，否则 409 `stale_version`，`details.latestVersion`）；Work 级产物没有发布记录，不能答。
+
+**编辑**（`editRecordFile`）：只改主工作区里已有的文件，不新建、不删除、不改名；worktree 上的文件不给改（写事务的锁与提交只覆盖主工作区）。在锁内判定能不能改：段检查合格（与“路径守卫”相同）、从仓库根到文件每一段都不是符号链接、是普通文件，再按类——Work 与 Task 的 README（记录来源是 master、README 已提交；来自分支的报 `branch_maintained_record`）、Work 与 Task 目录第一层的文档类产物（在重算的记录索引里逐字出现）、主工作区的文档（在重算的文档树里逐字出现）；不合格 409 `not_editable`（`details.reason`）。README 的新内容在锁内校验：frontmatter 能解析，`schema`、`workId` 或 `taskId`、`issueId`、`status` 与原文相同（改状态要用状态切换），不新增治理检查禁止的旧字段，否则 400 `invalid_record_edit`（`details.problems`）；有改动时核心把 `updated` 改成当天。编辑其它文档不碰 README。
+
+**审计**推迟到 t11（建 `~/.config/nbdev/` 要授权）：t10 期间面板的每次写入都是一个提交信息带“面板”的提交，`git log` 查得到；提交失败、`nothing_to_commit` 与只写了登记表的情形没有提交可查，t11 加审计时要覆盖。
+
 ## 缓存与刷新
 
 页面请求只读内存里的缓存，从不现算整份 `status`。分三块各自刷新，变了就经 `/ws` 推“哪块变了”；只有显示用到的字段变了才增加 revision（运行的子进程数随时在变，不算）。每块的重算单飞并合并（进行中又来变化只再排一次）；失败时保留上一份，在 `/api/meta` 的 `parts.<块>.error` 标出。
@@ -89,6 +121,7 @@
 - **记录**（Work、Task、收件箱、撞号）：`fs.watch` 递归监视主工作区的 `.agents/works/`（去抖 300 毫秒，过滤 `evidences/`）；每 5 秒看一次 `git worktree list` 与 master 的 sha，变了才重算（过渡期判定的已提交部分按 master 与各 checkout 的 HEAD 缓存）；有浏览器连着时每 30 秒兜底整份重算，顺带重算各 worktree 未提交的记录改动。
 - **活动**（租约、会话、运行）：租约是否有效是读取时现算的（会话退出、过期、Task 关闭都不碰租约文件），所以有浏览器连着时每 5 秒整份重算；记录或会话变化时也重算。监视租约目录只当加速，目录不存在时先监视 `.local/agent/`，都不在就只靠 5 秒的重算；面板不建这些目录。
 - **会话**：见 [herdr.md](herdr.md#面板的订阅与对账)。herdr 不阻塞服务开始监听。
+- 重算单飞并合并：进行中又被要求重算时排一次在后面，等它的调用方拿到的是这次之后才开始的结果（写接口据此等到包含自己写入的数据）。
 - **代码已更新**：每 5 秒比较 `git rev-parse HEAD:packages/dev-panel`、`HEAD:packages/nb-ui`、`HEAD:bun.lock` 与启动时的，不同就在 `/api/meta` 标 `codeChanged`。只改记录的提交不会触发。
 
 ## `panel serve` 与 `panel open`
@@ -121,18 +154,36 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | 路由 | 页面 | 依据 |
 |---|---|---|
 | `/` | 首页：收件箱在上（提问带提问者，提问者的租约已失效时划掉）；进行中与未标的 Work 卡片，按最近更新排序；完成、搁置与超过 30 天没有更新的收进“其余 N 个” | t03 第三轮首页 A |
-| `/work/:workId` | Work 页：目标、Task 表、现在谁在动、Work 级的文档与产物 | t03 第三轮 Work 页 |
-| `/work/:workId/task/:taskId` | Task 页：当前情况、README、执行 checkout 的候选与它上面的提交、产物与文档类产物、链到的 Spec、证据、谁在动 | Proposal 第九节 |
+| `/work/:workId` | Work 页：目标、Task 表、现在谁在动、Work 级的文档与产物；状态切换、编辑 README、新建 Task 的入口 | t03 第三轮 Work 页 |
+| `/work/:workId/task/:taskId` | Task 页：当前情况、README、执行 checkout 的候选与它上面的提交、产物与文档类产物、链到的 Spec、证据、谁在动；状态切换、编辑 README 的入口 | Proposal 第九节 |
 | `/artifacts` | 产物列表：按类分组，可过滤 | t03 第二轮产物页 |
-| `/artifact/:workId/:taskId/:artifactId` | 产物页：左边是产物来源上的沙箱 iframe（`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是问题侧栏；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-` | t03 第二轮产物页 |
+| `/artifact/:workId/:taskId/:artifactId` | 产物页：左边是产物来源上的沙箱 iframe（`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复表单与问题侧栏；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-` | t03 第二轮产物页 |
 | `/docs?checkout=&path=&prefer=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选 | t03 第二轮文档页 |
 | `/live/sessions` | 会话：持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态 | t03 第三轮会话页左半边 |
 | `/live/checkouts` | checkout：分支、HEAD、是哪个 Work 的执行 worktree、路径 | Proposal 第九节 |
 | `/search?q=` | 搜索结果：流式出现，按 checkout 分组，截断时标出 | t03 第二轮顶栏 |
+| `/new?workId=` | 新建 Work 或 Task：表单与随填随变的预览（预计领到的号、要写的文件与内容、提交信息；号以提交时为准）；结果区写实际领到的 id，与预览不同时多一行说明 | t03 第三轮新建表单 |
+| `/edit?path=` | 编辑主工作区里的一个文件：编辑与预览、打开时就提醒哪些分支改过它、根级治理入口显示非空行数与上限 | t10 |
 
-- **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。
+- **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、新建、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。
 - **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就显示上面那句并停止重连，否则照常重连（重连后的 `hello` 全部重取）。
 - **偏好**（明暗、左栏各 Work 的展开）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
 - **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
-- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
+- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
 - **画法**（t03 第三轮已定）：持久的照常画实线的面；临时的（会话、租约、谁在动、运行）一律信息色虚线框，角上标“临时”，单独的租约是虚线胶囊，失效的划掉。没有字段的值显示“未标”；面板不推断状态，所以多数 Work 的计数条是“未标”的灰色。
+- **写入的界面**（t10）：零件不发请求；写请求、预览请求、300 毫秒去抖、“2 秒后提示在等别的写入完成”的定时器、`beforeunload`、复制到剪贴板都在页面里（`host/writes.ts`、`host/status-change.ts`）。写请求的错误保留 `details` 与 `data`。字段校验直接导入核心的纯函数（`validateAnswerValue`、`SLUG_PATTERN`、标题与控制字符的规则），不复制规则。主工作区不能写、记录来自分支时，写入口隐藏或只读并写明原因。外壳不监听也不接受来自产物 iframe 的消息：答复只经侧栏表单。错误码到界面动作：
+
+| 情形 | 界面 |
+|---|---|
+| 提交中 | 按钮禁用；2 秒后提示“在等别的写入完成” |
+| 200 | 成功；`changed: false` 写“内容没变，没有提交”；警告照列 |
+| 400 | 字段级错误显示在字段旁（`details.field`、`details.problems`） |
+| 409 `hash_mismatch` | 状态切换：重新取数并说明；编辑：取现在的版本，与打开时的原文按行比（前端算，`host/line-diff.ts`），显示“别人改了什么”，给“载入新版本（丢掉我的改动）”与“复制我的改动” |
+| 409 `uncommitted_changes` | 差异对话框（已暂存与工作区分两段），“取消”与“连同这些改动一起提交” |
+| 409 `staged_rename`、`changed_after_write` | 说明原因，不给提交；后者列出已写入未提交的路径 |
+| 409 其它（`branch_maintained_record`、`main_not_on_master`、`main_busy`、`work_not_committed`、`task_not_committed`、`task_closed`、`question_closed`、`artifact_closed`、`stale_version`、`not_editable`） | 显示错误说明；数据已过时的（`stale_version`、`question_closed` 等）重新取数 |
+| 503 `lock_timeout`、`warming_up` | 什么都没写，给“重试” |
+| 500 `commit_failed` | “已写入、没有提交”，列出路径与补救办法 |
+| 网络错误、连接被断开 | “结果未知”，重新取数，不给“重试” |
+
+- **编辑页的未保存改动**：站内跳转（左栏、链接、改 `?path=`）用 `onBeforeRouteLeave`、`onBeforeRouteUpdate` 拦，关标签页与刷新用 `beforeunload` 拦。保存成功后编辑器换成服务端写下的最终文本与新哈希（README 的 `updated` 被核心改过）。
