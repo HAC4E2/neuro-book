@@ -30,6 +30,7 @@
 - 前端的字段校验直接导入核心的纯模块（`src/core/text-rules.ts`、`questions.ts`、`ids.ts`），不复制规则；这几份模块不能加 `node:` 依赖，否则 `vue-tsc` 与前端构建会失败。
 - 服务端测试不依赖 `dist/web`：`startPanelServer` 之后用 `setStatic` 注入桩页面（见 `tests/panel-server.test.ts`）。
 - 浏览器验收用 Playwright 加本机的 `/usr/bin/google-chrome-stable`（`chromium.launch({executablePath})`），在临时仓库上起 `nbdev panel serve`，用 `nbdev panel open --print` 拿登录链接；截图留在本地 `.local/agent/works/<workId>/tasks/<taskId>/shots/`，不入库。面板进程用会话的后台机制起，记下 PID、日志写文件，用完发 SIGTERM（它会删 `panel.json`、放锁）。
+- 涉及尺寸、溢出或滚动的浏览器验收，`launch` 要加 `ignoreDefaultArgs: ["--hide-scrollbars"]`：Playwright 起的无头 Chrome 缺省不画滚动条，滚动条占位挤掉的行列在验收里看不出来（t12 接管后又改一次尺寸就是这样漏掉的）。
 
 ## 完成门禁
 
