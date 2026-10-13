@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t83-legacy-parity-dnd-titlebar
-status: active
+status: done
 ---
 
 # 拖放与标题栏对照旧应用
@@ -100,8 +100,11 @@ status: active
 2. 展开标记仍是单独的一个 Tab 停留：标题文字已经是可聚焦的拖动把手（名称是“拖动 X”），再让它按 Enter 收起，同一个按钮就有两种意思；收起留给带 `aria-expanded` 的展开标记。
 3. 全部收起时剩余区的淡色占位不做：它只在计划里，没有出过稿；第二轮稿里剩余区是留白，剩余区现在等于“插在最后”。
 
-## 下一步
+## 收尾（2026-10-13）
 
-交开发者验收：带样例视图的探针服务按需重起（临时状态，随会话结束），可以试拖放、收起栏插入、预备区（先在标题栏隐藏右栏或面板再拖）、标签带与标题栏的让位（拉窄窗口）。两条分支（t82，以及叠在其上的 t83）何时合回 `refactor/w00017-runtime-foundation` 由开发者安排；t81（标签字号）合进来后标签带的切换点会随之变小。
+开发者验收后定了余下几项：
 
-不在本次范围、可另开 Task：“更多”里的拖放插入（拖到“更多”上展开菜单、插到菜单里的容器前后）；反馈第 7 条（菜单贡献点）。
+- 合回 w00017：2026-10-13 开发者同意合回：t81、t82、t83 依次以合并提交合进 `refactor/w00017-runtime-foundation`（`efb75a2b5`、`eae52372c`、`325bb257b`），冲突只在 nb-ui `Tabs.vue`（t83 抽出的标签盒子类套上 t81 的 `text-[length:…]` 字号写法）与 `dist/nb-ui.css`（重新构建）。同时修了 `settings/commands.test.ts` 那例老失败（`73cbdf4b4`：t74 起工作台的浏览器入口必需整页导航能力，配置测试场地的窗口没提供）。合并后验证：`test:affected --typecheck --since 687c463da` 中 bun 1044 例、nb-ui 575 例、组件测试 174 例全过，typecheck 为 0；全套 e2e 189 例全过；`docs:check`、`governance:check` 无失败。
+- “更多”里的拖放插入（拖到“更多”上展开菜单、插到菜单里的容器前后）：不做。
+- 反馈第 7 条（菜单贡献点）：另开 t84，记录只在主工作区 `master` 上（`.agents/works/w00017-application-runtime-architecture/tasks/t84-menu-contributions/`）。
+- 调研用的只读参照 worktree `.worktree/w00017-t83-legacy-ref` 已删。

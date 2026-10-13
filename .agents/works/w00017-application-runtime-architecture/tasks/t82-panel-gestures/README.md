@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t82-panel-gestures
-status: active
+status: done
 ---
 
 # 底部面板的拖动手势
@@ -28,6 +28,6 @@ status: active
 - omp 实现审查（`f0ae4278..a9d66632`）7 条：C2–C7 修（`05732fc3`、`f7a0ebbb`），C1 只写明作用范围。逐条见 [evidences/implementation-review.md](evidences/implementation-review.md)，任务说明与报告原文在 [artifacts/omp-review-1](artifacts/omp-review-1/)。其中 C7 正是开发者最初说的“拖开时面板是白的，好像没加载”：刷新后第一次拉出拖到零的面板，原来要松手视图才加载，现在在拖动中就加载。
 - 收口验证：`test:affected --typecheck --since f0ae4278a` 中 bun 1026 例过、1 例失败（已知的 `settings/commands.test.ts`），组件测试 173 例、nb-ui 560 例全过，typecheck 为 0。全套 e2e 179 例中 176 过，挂的 3 例都是开发会话里等不到 Lab 就绪：单独重跑时 Lab 的主题偏好一例、设置里的 Lab 主题一例各连过 2 次，标题栏条目区一例 5 次过 4 次（w00017 worktree 上 2 次都过）；这一类在没有 t82 改动的 w00017 worktree 上同样偶发（Lab 场景 20 三次挂一次），按当前机器负载下的偶发处理。
 
-## 下一步
+## 合回
 
-交开发者验收：可以在带样例视图的探针 http://127.0.0.1:4351/?project=project 上拖面板试（临时状态与示例作品的拷贝，随会话结束）。两条分支（t82，以及之后叠在其上的 t83）何时合回 `refactor/w00017-runtime-foundation` 由开发者安排。
+2026-10-13 开发者同意合回：t81、t82、t83 依次以合并提交合进 `refactor/w00017-runtime-foundation`（`efb75a2b5`、`eae52372c`、`325bb257b`）；t82 本身没有冲突，冲突只在 nb-ui `Tabs.vue`（t83 抽出的标签盒子类套上 t81 的 `text-[length:…]` 字号写法）与 `dist/nb-ui.css`（重新构建）。同时修了 `settings/commands.test.ts` 那例老失败（`73cbdf4b4`：t74 起工作台的浏览器入口必需整页导航能力，配置测试场地的窗口没提供）。合并后验证：`test:affected --typecheck --since 687c463da` 中 bun 1044 例、nb-ui 575 例、组件测试 174 例全过，typecheck 为 0；全套 e2e 189 例全过；`docs:check`、`governance:check` 无失败。
