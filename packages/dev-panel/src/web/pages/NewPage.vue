@@ -113,6 +113,10 @@ async function submit(): Promise<void> {
     if (submitting === "work") workForm.value = {...EMPTY_WORK};
     else taskForm.value = {...EMPTY_TASK, workId: taskForm.value.workId};
 }
+// 带“重试”的失败提示属于提交时的那一种：切换模式后“重试”会提交另一张表，所以切换时收起它（t15 阶段 1 实现审查建议 4）。
+watch(mode, () => {
+    if (notice.value?.retry) notice.value = null;
+});
 const actualId = computed(() => (created.value ? (submittedMode.value === "work" ? created.value.workId : created.value.taskId) : null));
 </script>
 
