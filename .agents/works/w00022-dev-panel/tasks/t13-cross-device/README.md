@@ -32,6 +32,8 @@ updated: 2026-10-13
 
 - 2026-10-13 经 `nbdev task new` 新建。编码子代理写 [plan.md](plan.md)，写完交 opus 子代理做设计审查。
 
+- 2026-10-13 开发者决定先不做 Tailscale：现在的 SSH 端口转发加 systemd 常驻服务已经够用。本 Task 搁置；进行中的设计审查已停，没有出报告。[plan.md](plan.md) 留作以后的起点，其中只读查到的事实（tailnet 里有别人的设备、回环上能伪造 Tailscale 身份头、tailnet 没开 HTTPS 证书）以后重启时要重新核实。
+
 ## 下一步
 
-设计审查的结论处理完后实施。
+无。要跨设备访问时再从 plan.md 接着做设计审查。
