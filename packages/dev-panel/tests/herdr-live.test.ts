@@ -11,10 +11,10 @@ import {setTimeout as sleep} from "node:timers/promises";
 import {resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {auditPaths, initAudit} from "../src/core/audit.js";
 import {locateRepository} from "../src/core/repo.js";
-import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
+import {createHerdrClient, HERDR_PANEL_METHODS, HERDR_PANEL_READ_METHODS, type HerdrClient} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {checkDeliverable, deliverKeys, deliverText, type DeliveryContext} from "../src/server/delivery.js";
-import {HerdrMonitor, type StatusWatch} from "../src/server/herdr-monitor.js";
+import {HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer} from "../src/server/serve.js";
 import {readPtySize, type TerminalSize} from "../src/server/terminal-size.js";
 import {resolveTerminalTools, startTerminalStream, type StreamKind, type StreamLine, type TerminalStream, type TerminalTools} from "../src/server/terminal-stream.js";
@@ -75,6 +75,14 @@ async function startSessionServer(bin = "herdr"): Promise<void> {
         await sleep(100);
     }
 }
+
+// 主工作区里不入库的 0.9.1 二进制（开发者的默认 server 是 0.9.1）：只拿来当命名会话的 server，客户端命令照旧用 PATH 里的；不在时跳过这一版本。
+const MAIN = dirname(spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {cwd: import.meta.dirname, encoding: "utf8"}).stdout.trim());
+const HERDR_091 = join(MAIN, ".local", "agent", "works", "w00022-dev-panel", "tasks", "t12-web-terminal", "herdr-0.9.1", "herdr");
+const SERVER_VARIANTS = [
+    {name: "0.9.3", bin: "herdr", present: herdrInstalled, note: "本机的 herdr"},
+    {name: "0.9.1", bin: HERDR_091, present: herdrInstalled && existsSync(HERDR_091), note: `${HERDR_091} 不在时跳过`},
+];
 
 type StepResult = {args: string[]; exitCode: number | null; stdout: string; stderr: string; tokens: Record<string, string> | null; paneGetError: string | null};
 
@@ -168,55 +176,104 @@ describe("真实 herdr（命名会话）", () => {
     }, 90_000);
 });
 
-describe("真实 herdr 的状态序号与状态事件（t11 的通知误报）", () => {
-    test.skipIf(!herdrInstalled)("state_change_seq 是全服务器共用的计数：后变状态的那一格序号更大，与各自变了几次无关；面板的订阅按格收到状态事件，B 经过的 blocked 只出现在 B 上", async () => {
-        await startSessionServer();
-        const fixture = await createFixture("herdr-live-seq");
-        const a = await fakeClaude(join(fixture.root, "a"), fixture.main);
-        const b = await fakeClaude(join(fixture.root, "b"), fixture.main);
-        const client = createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS});
-        const monitor = new HerdrMonitor(client, () => undefined, () => undefined);
+describe("真实 herdr 的状态序号与投递窗口（t11 的通知误报）", () => {
+    /** 起面板的 herdr 监视，等它的订阅订上这几格。 */
+    async function subscribedMonitor(paneIds: string[]): Promise<HerdrMonitor> {
+        const monitor = new HerdrMonitor(createHerdrClient({socketPath, allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined);
         closers.push(async () => monitor.stop());
         monitor.start();
-        let watches: [StatusWatch | null, StatusWatch | null] = [null, null];
-        for (let waited = 0; !(watches[0] && watches[1]); waited += 50) {
-            if (waited > 10_000) throw new Error(`10 秒内面板的订阅没有订上两格：${JSON.stringify(monitor.current())}`);
-            watches.forEach((watch) => watch?.close());
-            watches = [monitor.watchStatus(a.paneId), monitor.watchStatus(b.paneId)];
+        for (let waited = 0; ; waited += 50) {
+            const probes = paneIds.map((paneId) => monitor.watchStatus(paneId));
+            probes.forEach((probe) => probe?.close());
+            if (probes.every((probe) => probe !== null)) return monitor;
+            if (waited > 10_000) throw new Error(`10 秒内面板的订阅没有订上 ${paneIds.join("、")}：${JSON.stringify(monitor.current())}`);
             await sleep(50);
         }
-        const [watchA, watchB] = watches as [StatusWatch, StatusWatch];
-        // 真实 claude 第一次进目录的信任确认，herdr 判 blocked（tests/fixtures/screens.json）。
-        const trust = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "screens.json"), "utf8")) as {samples: Array<{name: string; visibleAnsi: string}>}).samples.find((sample) => sample.name === "claude-trust")!.visibleAnsi;
-        for (const text of [trust, SCREENS["idle-empty"]!, trust, SCREENS["idle-empty"]!]) await b.show(text);
-        await a.show(trust);
-        const [infoA, infoB] = await Promise.all([client.agentGet(a.paneId), client.agentGet(b.paneId)]);
-        console.log(`L4 t11 状态序号：A ${infoA!.stateChangeSeq} ${JSON.stringify(watchA.statuses())}，B ${infoB!.stateChangeSeq} ${JSON.stringify(watchB.statuses())}`);
-        expect([infoA!.status, watchA.statuses(), watchA.intact()]).toEqual(["blocked", ["blocked"], true]);
-        // B 换了四次屏幕；机器忙时 herdr 读屏可能合并掉其中的变化，只要求看到过 blocked。
-        expect([watchB.statuses().includes("blocked"), watchB.intact()]).toEqual([true, true]);
-        // 每格一份计数的话，A 只变了两次（起来时一次）、B 至少两次，A 的序号不会更大。
-        expect(infoA!.stateChangeSeq!).toBeGreaterThan(infoB!.stateChangeSeq!);
-        watchA.close();
-        watchB.close();
-    }, 90_000);
+    }
+
+    for (const variant of SERVER_VARIANTS) {
+        test.skipIf(!variant.present)(`server ${variant.name}（${variant.note}）：state_change_seq 是全服务器共用的计数，后变状态的那一格序号更大、与各自变了几次无关；面板的订阅按格收到状态事件，B 经过的 blocked 只出现在 B 上`, async () => {
+            await startSessionServer(variant.bin);
+            const fixture = await createFixture(`herdr-live-seq-${variant.name}`);
+            const a = await fakeClaude(join(fixture.root, "a"), fixture.main);
+            const b = await fakeClaude(join(fixture.root, "b"), fixture.main);
+            const monitor = await subscribedMonitor([a.paneId, b.paneId]);
+            const client = createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS});
+            const watchA = monitor.watchStatus(a.paneId)!;
+            const watchB = monitor.watchStatus(b.paneId)!;
+            for (const text of [TRUST_SCREEN, SCREENS["idle-empty"]!, TRUST_SCREEN, SCREENS["idle-empty"]!]) await b.show(text);
+            await a.show(TRUST_SCREEN);
+            const [infoA, infoB] = await Promise.all([client.agentGet(a.paneId), client.agentGet(b.paneId)]);
+            console.log(`L4 t11 server ${variant.name} 状态序号：A ${infoA!.stateChangeSeq} ${JSON.stringify(watchA.statuses())}，B ${infoB!.stateChangeSeq} ${JSON.stringify(watchB.statuses())}`);
+            expect([infoA!.status, watchA.statuses(), watchA.intact()]).toEqual(["blocked", ["blocked"], true]);
+            // B 换了四次屏幕；机器忙时 herdr 读屏可能合并掉其中的变化，只要求看到过 blocked。
+            expect([watchB.statuses().includes("blocked"), watchB.intact()]).toEqual([true, true]);
+            // 每格一份计数的话，A 只变了两次（起来时一次）、B 至少两次，A 的序号不会更大。
+            expect(infoA!.stateChangeSeq!).toBeGreaterThan(infoB!.stateChangeSeq!);
+            watchA.close();
+            watchB.close();
+        }, 90_000);
+
+        test.skipIf(!variant.present)(`server ${variant.name}（${variant.note}）：带观察的投递：进入工作记 delivered；投递窗口里别的会话变两次状态（序号差不小于 2）仍记 delivered；粘贴时弹出确认、回车确认了它记 passed_blocked`, async () => {
+            await startSessionServer(variant.bin);
+            const fixture = await createFixture(`herdr-live-window-${variant.name}`);
+            const a = await fakeClaude(join(fixture.root, "a"), fixture.main);
+            const b = await fakeClaude(join(fixture.root, "b"), fixture.main);
+            const monitor = await subscribedMonitor([a.paneId, b.paneId]);
+            const full = createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS});
+            const target = {paneId: a.paneId, sessionKey: `claude:${a.sessionId}`};
+            /** 投一次：A 先回到空输入框；`duringWindow` 在观察开始之后、`agent.prompt` 之前跑（投递窗口里的别的事）。 */
+            const deliver = async (label: string, duringWindow: (() => Promise<void>) | null = null) => {
+                await a.screen("idle-empty");
+                const client: HerdrClient = {...full, async agentPrompt(paneId, text, wait) {
+                    if (duringWindow) await duringWindow();
+                    return full.agentPrompt(paneId, text, wait);
+                }};
+                const context: DeliveryContext = {client, repoRoots: [fixture.main], watchStatus: (paneId) => monitor.watchStatus(paneId)};
+                const checked = await checkDeliverable(context, target);
+                if (!checked.ok) throw new Error(`${label}：判定不可投（${checked.code}：${checked.detail}）`);
+                const outcome = await deliverText(context, target, `[nbdev] L4 ${label}`, checked.agent);
+                const jump = (outcome.agent?.stateChangeSeq ?? 0) - (checked.agent.stateChangeSeq ?? 0);
+                console.log(`L4 t11 server ${variant.name} 投递 ${label}：${outcome.result} ${outcome.code} 序号差 ${jump}`);
+                return {result: outcome.result, code: outcome.code, jump};
+            };
+            await a.react("work");
+            expect(await deliver("正常")).toMatchObject({result: "delivered", code: null});
+            const busy = await deliver("别的会话变两次", async () => {
+                await b.screen("working");
+                await b.screen("idle-empty");
+            });
+            expect([busy.result, busy.code, busy.jump >= 2]).toEqual(["delivered", null, true]);
+            await a.react("blocked_in_paste");
+            expect(await deliver("粘贴时弹出确认")).toMatchObject({result: "delivered_into_blocked", code: "passed_blocked"});
+        }, 120_000);
+    }
 });
 
 const SCREENS = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "fake-claude-screens.json"), "utf8")) as {screens: Record<string, string>}).screens;
+/** 真实 claude 第一次进目录的信任确认，herdr 判 blocked（tests/fixtures/screens.json）。 */
+const TRUST_SCREEN = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "screens.json"), "utf8")) as {samples: Array<{name: string; visibleAnsi: string}>}).samples.find((sample) => sample.name === "claude-trust")!.visibleAnsi;
 
-/** 在命名会话里起一格假 Claude：可执行文件名是 claude（herdr 按进程名认），再报一个会话 id。 */
-async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; show: (text: string) => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
+/**
+ * 在命名会话里起一格假 Claude：可执行文件名是 claude（herdr 按进程名认），再报一个会话 id。
+ * `react`：对输入作出反应的方式（见 `fake-claude-tui.py`：`work` 回车后画“工作中”，`blocked_in_paste` 粘贴时先画信任确认）。
+ */
+async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; show: (text: string) => Promise<void>; react: (mode: "none" | "work" | "blocked_in_paste") => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
     const bin = join(root, "bin");
     await mkdir(bin, {recursive: true});
     await copyFile(resolve(import.meta.dirname, "fixtures", "fake-claude-tui.py"), join(bin, "claude"));
     await chmod(join(bin, "claude"), 0o755);
     const screenFile = join(root, "screen.txt");
     const log = join(root, "tui.log");
+    const reactFile = join(root, "react.json");
+    const reactScreens = join(root, "react-screens.json");
     await writeFile(screenFile, SCREENS["idle-empty"]!);
     await writeFile(log, "");
+    await writeFile(reactFile, JSON.stringify({mode: "none"}));
+    await writeFile(reactScreens, JSON.stringify({working: SCREENS.working, trust: TRUST_SCREEN}));
     const created = herdr(["workspace", "create", "--cwd", cwd, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
     const paneId = created.result.root_pane.pane_id;
-    herdr(["pane", "run", paneId, `SCREEN='${screenFile}' FAKE_LOG='${log}' '${join(bin, "claude")}'`]);
+    herdr(["pane", "run", paneId, `SCREEN='${screenFile}' FAKE_LOG='${log}' REACT='${reactFile}' REACT_SCREENS='${reactScreens}' '${join(bin, "claude")}'`]);
     const detected = () => {
         // 认出来之前 `agent get` 以非零退出（agent_not_found），这里只看有没有认成 claude。
         const result = spawnSync("herdr", ["--session", SESSION, "agent", "get", paneId], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
@@ -239,6 +296,9 @@ async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; s
         sessionId,
         screen: (name) => show(SCREENS[name]!),
         show,
+        async react(mode) {
+            await writeFile(reactFile, JSON.stringify({mode}));
+        },
         async bytes() {
             return (await readFile(log, "utf8")).split("\n").filter((line) => line !== "");
         },
@@ -298,9 +358,6 @@ describe("真实 herdr 的投递（t11，命名会话里名为 claude 的假界�
 });
 
 describe("真实 herdr 的终端流（t12，命名会话）", () => {
-    // 主工作区里不入库的 0.9.1 二进制（开发者的默认 server 是 0.9.1）：只拿来当命名会话的 server，不在时这一组跳过。
-    const MAIN = dirname(spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {cwd: import.meta.dirname, encoding: "utf8"}).stdout.trim());
-    const HERDR_091 = join(MAIN, ".local", "agent", "works", "w00022-dev-panel", "tasks", "t12-web-terminal", "herdr-0.9.1", "herdr");
     const PARENT_SCRIPT = resolve(import.meta.dirname, "l4-terminal-parent.ts");
     const same = (a: TerminalSize | null, b: TerminalSize | null) => a !== null && b !== null && a.cols === b.cols && a.rows === b.rows;
 
@@ -412,11 +469,7 @@ os.waitpid(pid, 0)`;
         return {resize: (nextCols, nextRows) => void wrapper.stdin!.write(`${nextCols} ${nextRows}\n`)};
     }
 
-    const variants = [
-        {name: "0.9.3", bin: "herdr", present: herdrInstalled, note: "本机的 herdr"},
-        {name: "0.9.1", bin: HERDR_091, present: herdrInstalled && existsSync(HERDR_091), note: `${HERDR_091} 不在时跳过`},
-    ];
-    for (const variant of variants) {
+    for (const variant of SERVER_VARIANTS) {
         test.skipIf(!variant.present)(`server ${variant.name}（${variant.note}）：pty 尺寸；两个 observe 同时看、不改尺寸；control 改尺寸、已有控制者时不带 takeover 被拒、带 takeover 抢走、resize、release 后能再连；TUI 在接管中改不动尺寸、释放后能；父进程被 SIGKILL 后子进程退出、控制权释放`, async () => {
             await startSessionServer(variant.bin);
             const fixture = await createFixture(`herdr-live-term-${variant.name}`);

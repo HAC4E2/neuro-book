@@ -3,7 +3,7 @@ import {rm} from "node:fs/promises";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createHerdrClient, HERDR_PANEL_METHODS, HERDR_PANEL_READ_METHODS} from "../src/herdr/client.js";
 import {checkDeliverable, deliverKeys, deliverText, type DeliveryContext} from "../src/server/delivery.js";
-import {HerdrMonitor} from "../src/server/herdr-monitor.js";
+import {DEFAULT_HERDR_TIMINGS, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {claudePane, startFakeHerdr, type FakeHerdr, type FakePane} from "./fake-herdr.js";
 
 /** t11 投递（L3，假 herdr）：判定的每一种拒绝、紧贴投递的复核、投递后的核对（面板的订阅看投递窗口里的状态事件）、白名单。 */
@@ -133,6 +133,39 @@ describe("投递与之后的核对", () => {
         expect([outcome.result, outcome.code]).toEqual(["delivered_into_blocked", "passed_blocked"]);
     });
 
+    test("返回体里是 blocked（粘贴时弹出确认、之后回车确认了它）：没有订阅也报 passed_blocked（不靠事件）", async () => {
+        const {context} = await setup({on_prompt: "blocked_in_reply"}, {watched: false});
+        const checked = await checkDeliverable(context, target);
+        const outcome = await deliverText(context, target, "x", checked.ok ? checked.agent : (null as never));
+        expect([outcome.result, outcome.code, outcome.agent?.status]).toEqual(["delivered_into_blocked", "passed_blocked", "working"]);
+    });
+
+    test("投递窗口里换了订阅连接：还订着的这一格记 delivered、code null；被去掉的那一格记 unwatched", async () => {
+        const SESSION_2 = "22222222-2222-4222-8222-222222222222";
+        for (const [who, expected] of [["w9:p1", {result: "delivered", code: null}], ["w9:p2", {result: "delivered", code: "unwatched"}]] as const) {
+            const {fake, context} = await setup();
+            const subscribes = () => fake.requests.filter((request) => request.method === "events.subscribe").length;
+            const before = subscribes();
+            // 窗口里 w9:p2 不再是 Agent：面板对账后换一条只订 w9:p1 的连接。
+            fake.duringPrompt = () => {
+                fake.panes[1]!.agent = null;
+                fake.emit("pane.updated", {pane_id: "w9:p2"});
+            };
+            // 等换线完成（新连接回了 subscription_started、旧的关掉）再做投递后的核对。
+            context.sleep = async () => {
+                for (let waited = 0; !(subscribes() > before && fake.subscriberCount() === 1); waited += 20) {
+                    if (waited > 3_000) throw new Error("3 秒内没有换订阅连接");
+                    await Bun.sleep(20);
+                }
+                await Bun.sleep(50);
+            };
+            const goal = who === "w9:p1" ? target : {paneId: "w9:p2", sessionKey: `claude:${SESSION_2}`};
+            const checked = await checkDeliverable(context, goal);
+            const outcome = await deliverText(context, goal, "x", checked.ok ? checked.agent : (null as never));
+            expect([who, outcome.result, outcome.code]).toEqual([who, expected.result, expected.code]);
+        }
+    });
+
     test("退路：没有订阅、或投递窗口里订阅断了，记 delivered 加 unwatched；最后还停在 blocked 的照样报（不靠事件）", async () => {
         const plain = await setup({}, {watched: false});
         const checked = await checkDeliverable(plain.context, target);
@@ -155,6 +188,44 @@ describe("投递与之后的核对", () => {
         const moved = await setup({cwd: "/elsewhere", foreground_cwd: "/elsewhere"});
         expect(await deliverKeys(moved.context, target, ["enter"])).toMatchObject({ok: false, code: "not_in_repository"});
         expect(moved.fake.keys).toEqual([]);
+    });
+});
+
+describe("面板订阅的观察（watchStatus）", () => {
+    test("订阅没连上（轮询中）、新 pane 还没换连接时回 null；连上、换上之后才给", async () => {
+        const root = await createTestTmpRoot("dev-panel-watch", "dev-panel watchStatus");
+        closers.push(() => rm(root, {recursive: true, force: true}));
+        const fake = await startFakeHerdr(root, [claudePane("w9:p1", SESSION, {cwd: REPO, state_change_seq: 1})]);
+        closers.push(() => fake.close());
+        fake.overrides["events.subscribe"] = {code: "nope", message: "拒绝订阅"};
+        const monitor = new HerdrMonitor(createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, {...DEFAULT_HERDR_TIMINGS, reconcileMs: 200});
+        closers.push(async () => monitor.stop());
+        monitor.start();
+        for (let waited = 0; !(monitor.current().available && monitor.current().mode === "polling"); waited += 10) {
+            if (waited > 3_000) throw new Error(`3 秒内没进轮询：${JSON.stringify(monitor.current())}`);
+            await Bun.sleep(10);
+        }
+        expect(monitor.watchStatus("w9:p1")).toBeNull();
+        delete fake.overrides["events.subscribe"];
+        for (let waited = 0; monitor.current().mode !== "subscribed"; waited += 10) {
+            if (waited > 3_000) throw new Error("3 秒内没订上");
+            await Bun.sleep(10);
+        }
+        const first = monitor.watchStatus("w9:p1");
+        expect(first).not.toBeNull();
+        first!.close();
+        fake.panes.push(claudePane("w9:p3", "33333333-3333-4333-8333-333333333333", {cwd: REPO, state_change_seq: 2}));
+        expect(monitor.watchStatus("w9:p3")).toBeNull();
+        fake.emit("pane.created", {pane_id: "w9:p3"});
+        for (let waited = 0; ; waited += 10) {
+            const watch = monitor.watchStatus("w9:p3");
+            if (watch) {
+                watch.close();
+                break;
+            }
+            if (waited > 3_000) throw new Error("3 秒内新 pane 没订上");
+            await Bun.sleep(10);
+        }
     });
 });
 

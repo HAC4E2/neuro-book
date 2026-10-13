@@ -26,8 +26,9 @@ export type FakePane = {
     history?: string;
     /** `agent.prompt` 时这格 pane 怎么反应：进入工作（缺省）、没反应（herdr 等到点回 `agent_prompt_stalled`）、
      * 回车前后弹出确认界面（回应里状态是旧的 working，之后变 blocked）、投递的瞬间换了会话、
-     * 弹出的确认界面又被回车确认了（先 blocked 再 working，各推一条状态事件，回应里是 working）。 */
-    on_prompt?: "working" | "stall" | "blocked_after" | "switch_session" | "blocked_then_working";
+     * 弹出的确认界面又被回车确认了（先 blocked 再 working，各推一条状态事件，回应里是 working）、
+     * 同样经过确认界面但回应里是 blocked（真实 herdr 在粘贴时弹出确认就这样回：它等到的是 blocked，之后回车确认了它）。 */
+    on_prompt?: "working" | "stall" | "blocked_after" | "switch_session" | "blocked_then_working" | "blocked_in_reply";
 };
 
 /** 设计审查的假 TUI 画的 Claude 空输入框（`tests/fixtures/screens.json` 的 fake-idle-empty）。 */
@@ -227,6 +228,12 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
             const stale = agentInfo(pane);
             fake.setStatus(pane.pane_id, "blocked");
             return {id, result: {type: "agent_prompted", agent: stale}};
+        }
+        if (behavior === "blocked_in_reply") {
+            fake.setStatus(pane.pane_id, "blocked");
+            const reply = agentInfo(pane);
+            fake.setStatus(pane.pane_id, "working");
+            return {id, result: {type: "agent_prompted", agent: reply}};
         }
         if (behavior === "blocked_then_working") {
             fake.setStatus(pane.pane_id, "blocked");
