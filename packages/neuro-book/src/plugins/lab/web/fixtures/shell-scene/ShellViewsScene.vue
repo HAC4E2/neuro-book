@@ -176,7 +176,7 @@ function move(payload: MovePayload): void {
 
 const drag = shallowRef<DragSession | null>(null);
 onMounted(() => {
-    drag.value = createDragSession({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog.value, enabled: () => true, commit: apply});
+    drag.value = createDragSession({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog.value, enabled: () => true, commit: (decision) => apply(decision.intent)});
 });
 onBeforeUnmount(() => drag.value?.dispose());
 const dragState = computed(() => drag.value?.state.value ?? null);

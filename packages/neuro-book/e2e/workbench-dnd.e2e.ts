@@ -501,6 +501,26 @@ test.describe("产品页：拖放", () => {
         await expect(page.locator(`[data-sample-view="${E}"]`)).toBeVisible();
     });
 
+    test("放下后的收尾：高亮从落点滑到视图最终所在的位置再淡出，之后不留反馈；减少动效时同样收掉", async ({page}) => {
+        await open(page);
+        await dragTo(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
+        await page.mouse.up();
+        const area = page.locator("[data-drop-feedback-area]");
+        // 区域滑到乙最终的分节上（绘制盒四边内缩 6px）
+        await expect.poll(async () => {
+            const section = (await page.locator(`[data-view-section="${B}"]`).boundingBox())!;
+            const box = (await area.boundingBox().catch(() => null)) ?? {x: 0, y: 0, width: 0, height: 0};
+            return Math.max(Math.abs(box.x - section.x - 6), Math.abs(box.y - section.y - 6), Math.abs(box.width - section.width + 12), Math.abs(box.height - section.height + 12));
+        }, {intervals: [20]}).toBeLessThan(2);
+        await expect(page.locator("[data-drop-feedback]")).toHaveCount(0);
+
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await dropAt(page, page.locator(`[data-activity-container="view:${C}"]`), await halfOf(page, B, "after"));
+        await expect(page.locator(`[data-view-section="${C}"]`)).toBeVisible();
+        await expect(page.locator("[data-drop-feedback]")).toHaveCount(0);
+    });
+
     test("多视图的面板容器搬到侧栏再搬回面板：成员顺序不变，轴随区域横转纵、纵转横", async ({page}) => {
         await open(page);
         await dropAt(page, tabOf(page, "panel", `view:${F}`), await halfOf(page, E, "after"));

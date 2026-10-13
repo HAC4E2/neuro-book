@@ -35,13 +35,13 @@ type Props = {
 };
 ```
 
-没有事件、slot 与 expose。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
+事件只有 `settled`：放下后的收尾淡完了（转发覆盖层的同名事件），宿主据此清掉收尾的预览。没有 slot 与 expose。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
 
 ## 隐藏通道理由
 
-- `env:portal`：拖影与预览都用视口坐标，要避开祖先的裁剪与 transform，所以放到 `body` 下。
+- `env:portal`：拖影、预备区与预览都用视口坐标，要避开祖先的裁剪与 transform，所以放到 `body` 下。
 - `env:global`：拖动中的光标与禁选写在全局样式里，按根元素上的 `data-workbench-dragging` 生效；标记由拖动会话写、会话结束时删。
 
 ## 不支持
 
-不求命中、不判定、不提交；没有放下动画。
+不求命中、不判定、不提交；放下后的收尾只画宿主给的矩形（覆盖层的 `settling`），最终位置由宿主量。

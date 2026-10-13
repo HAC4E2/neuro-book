@@ -10,7 +10,7 @@
 
 有效反馈以 Teleport 放到 `body` 下，覆盖整个 viewport，固定定位且 `pointer-events: none`，不会挡住拖放目标。半区、插入线和条目形状使用传入的 viewport client 坐标。半区四边按 `min(6px, 尺寸/4)` 内缩；插入线只沿长轴两端按 `min(2px, 长轴/4)` 内缩，厚度与插入边界保留原值。有效半区存在时不再绘制插入线，避免把一个落点读成两个；独立条目矩形不内缩。
 
-非空标签放在有效几何旁：锚点优先级为半区、条目、插入线。足够大的半区中标签居中；否则先尝试放在锚点下方，空间不足时放到上方，并夹在 viewport 内侧 8px。只有插入线、且 `labelAt` 为 `line-end` 时，标签的末端贴线的末端（横线的右端、竖线的下端），中线压在线上，不盖住线下方的一行。标签尺寸由元素实测；文案、图标或视口变化会重新测量，纯坐标变化复用测量结果。`armed: false` 只把半区反馈淡化到 35%，不改变几何。形状出现时半区淡入，连续更换目标时半区与随行标签过渡；插入线即时定位。系统启用减少动效时取消这些过渡。
+非空标签放在有效几何旁：锚点优先级为半区、条目、插入线。足够大的半区中标签居中；否则先尝试放在锚点下方，空间不足时放到上方，并夹在 viewport 内侧 8px。只有插入线、且 `labelAt` 为 `line-end` 时，标签的末端贴线的末端（横线的右端、竖线的下端），中线压在线上，不盖住线下方的一行。提交后宿主可以给 `settling: true` 的预览做收尾：不画插线、条目与提示，区域沿用位置与尺寸的过渡滑到 `areaRect`，`--motion-base` 之后用 `--motion-fast` 淡出，淡完发 `settled`；没有可画的区域或系统减少动效时标记收尾就发 `settled`（减少动效时区域不可见），宿主不会被一层不消失的预览卡住。区域带 `data-drop-settling`。标签尺寸由元素实测；文案、图标或视口变化会重新测量，纯坐标变化复用测量结果。`armed: false` 只把半区反馈淡化到 35%，不改变几何。形状出现时半区淡入，连续更换目标时半区与随行标签过渡；插入线即时定位。系统启用减少动效时取消这些过渡。
 
 遮罩根内另有 `aria-live="polite"`、`aria-atomic="true"` 的隐藏区域，只播报 trim 后的标签文案，不随几何逐帧播报。焦点和拖放手势由宿主保持。
 
@@ -33,6 +33,8 @@ type DropFeedbackPreview = Readonly<{
     readonly armed?: boolean;
     /** 只有插入线时标签放在哪：缺省 "below"（线的下方居中）；"line-end" 贴线的末端。 */
     readonly labelAt?: "below" | "line-end";
+    /** 收尾：`areaRect` 是拖进去的东西最终所在的矩形，区域滑到那里再淡出，淡完发 `settled`。 */
+    readonly settling?: boolean;
 }>;
 
 type DropFeedbackOverlayProps = {
@@ -44,7 +46,10 @@ type DropFeedbackOverlayProps = {
     iconClass?: string;
 };
 
-type DropFeedbackOverlayEmits = Record<never, never>;
+type DropFeedbackOverlayEmits = {
+    /** 收尾的淡出结束（或没有可画的区域、系统减少动效）：宿主清掉预览。 */
+    (event: "settled"): void;
+};
 type DropFeedbackOverlaySlots = Record<never, never>;
 ```
 

@@ -4,7 +4,8 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
-import {computed, defineAsyncComponent, defineComponent, h, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef} from "vue";
+import type {GridDropRect, GridOrientation} from "@notnotype/nb-ui/layout";
+import {computed, defineAsyncComponent, defineComponent, h, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
@@ -27,6 +28,8 @@ import type {LayoutStore} from "../state/layout-store";
 import type {ViewLocation} from "../../shared/views";
 import {createDragSession} from "../views/drag-session";
 import type {DragSession} from "../views/drag-session";
+import type {DropDecision} from "../views/drop";
+import type {ViewIntent} from "../views/intents";
 import {moveTargetsOf} from "../views/presentation";
 import type {ContainerPresentation} from "../views/presentation";
 import type {ViewSource} from "../views/registry";
@@ -286,14 +289,70 @@ onMounted(() => {
         catalog: () => state.value.catalog,
         enabled: () => state.value.ready,
         revealZones: () => shellLayout.value?.revealZoneRects() ?? [],
-        commit: (intent, reveal) => {
-            props.layout.actions.applyView(intent, reveal === undefined ? {} : {reveal});
+        commit: (decision) => {
+            const result = props.layout.actions.applyView(decision.intent, decision.reveal === undefined ? {} : {reveal: decision.reveal});
+            if (result.kind !== "rejected") startSettle(decision);
         },
     });
 });
 onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.state.value ?? null);
+
+/**
+ * 放下后的收尾（外壳三输出 22）：高亮从松手时的落点滑到拖进去的东西最终所在的位置再淡出。松手那一刻先接住当时的
+ * 矩形（覆盖层的同一个节点不断开）；提交引起的重排不是一帧完成的（Teleport 搬动、容器换模式后标题行变化、网格按
+ * 新测量重算各晚一帧），所以之后每帧跟着量、覆盖层的过渡跟着走，连续两帧不变（最多 20 帧）才标记收尾开始淡出，
+ * 否则还没走到终点就淡没了。量不到就直接结束；新的拖动开始时丢掉。
+ */
+const SETTLE_TRACK_FRAMES = 20;
+const settle = shallowRef<{readonly rect: GridDropRect; readonly orientation: GridOrientation; readonly final: boolean; readonly token: symbol} | null>(null);
+
+function settledRectOf(intent: ViewIntent): GridDropRect | null {
+    const root = hostEl.value;
+    if (root === null) return null;
+    const selectors = intent.kind === "move-view" ? [`[data-view-section="${CSS.escape(intent.viewId)}"]`]
+        : intent.kind === "merge-container" ? intent.sourceViewIds.map((id) => `[data-view-section="${CSS.escape(id)}"]`)
+            : intent.kind === "detach-view" || intent.kind === "move-container" || intent.kind === "select-container" ? [`[data-container-host="${CSS.escape(intent.containerId)}"]`]
+                : [];
+    const rects = selectors.flatMap((selector) => [...root.querySelectorAll(selector)].map((element) => element.getBoundingClientRect())).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (rects.length === 0) return null;
+    return {left: Math.min(...rects.map((rect) => rect.left)), top: Math.min(...rects.map((rect) => rect.top)), right: Math.max(...rects.map((rect) => rect.right)), bottom: Math.max(...rects.map((rect) => rect.bottom))};
+}
+
+function startSettle(decision: Extract<DropDecision, {kind: "commit"}>): void {
+    const from = decision.preview.areaRect ?? decision.preview.indicator;
+    if (from === null) return;
+    const token = Symbol("settle");
+    const orientation = decision.preview.orientation;
+    settle.value = {rect: from, orientation, final: false, token};
+    let frames = 0;
+    let stable = 0;
+    let last = "";
+    const track = (): void => {
+        if (settle.value?.token !== token) return;
+        frames += 1;
+        const rect = settledRectOf(decision.intent);
+        if (rect === null) {
+            settle.value = null;
+            return;
+        }
+        const key = JSON.stringify(rect);
+        if (key === last) stable += 1;
+        else {
+            stable = 0;
+            last = key;
+        }
+        const done = stable >= 2 || frames >= SETTLE_TRACK_FRAMES;
+        settle.value = {rect, orientation, final: done, token};
+        if (!done) requestAnimationFrame(track);
+    };
+    requestAnimationFrame(track);
+}
+
+watch(dragState, (next) => {
+    if (next !== null) settle.value = null;
+});
 /** 拖动时浮出的预备区：名称与图标；指针正停在上面的那块由落点高亮接管，不再画自己的提示。 */
 const revealZones = computed(() => {
     const current = dragState.value;
@@ -312,6 +371,10 @@ const dragGhost = computed(() => {
     return title === undefined ? null : {label: text(title), icon, x: point.x, y: point.y};
 });
 const dropFeedback = computed(() => {
+    const finishing = settle.value;
+    if (dragState.value === null && finishing !== null) {
+        return {preview: {areaRect: finishing.rect, entryRect: null, indicator: null, orientation: finishing.orientation, settling: finishing.final}, label: "", kind: "settle", count: 0};
+    }
     const decision = dragState.value?.decision ?? null;
     const preview = decision === null || decision.kind === "rejected" ? null : (decision.preview ?? null);
     if (preview === null) return {preview: null, label: "", kind: "", count: 0};
@@ -494,7 +557,7 @@ const dropFeedback = computed(() => {
             <div class="workbench-shell__empty">{{ text(TEXT.emptyContainer) }}</div>
         </template>
     </WorkbenchViewInstances>
-    <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
+    <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" @settled="settle = null" />
     </div>
 </template>
 

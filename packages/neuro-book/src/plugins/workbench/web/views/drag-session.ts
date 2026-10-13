@@ -23,8 +23,6 @@ import type {ShallowRef} from "vue";
 
 import type {GridDropPoint} from "@notnotype/nb-ui/layout";
 
-import type {ViewLocation} from "../../shared/views";
-import type {ViewIntent} from "./intents";
 import {isSameDropAction, layoutKeyOf, resolveDrop} from "./drop";
 import type {DropDecision, DropRects, DropSource} from "./drop";
 import {containerHostIn, dragSourceAt, dropHitAt, entryIn, keyboardRegions, keyboardStops, readContentRects, readDropRect, readSwitcherRects, revealAt, sectionIn} from "./drop-dom";
@@ -46,8 +44,8 @@ export interface DragSessionOptions {
     enabled(): boolean;
     /** 拿起时浮出的预备区（此刻没显示的 Part 显示出来会在的矩形）；整场拖动不变。缺省没有。 */
     revealZones?(): ReadonlyArray<RevealZoneRect>;
-    /** 提交一次已显示过的动作；`reveal` 是落在预备区时要同次显示的 Part。 */
-    commit(intent: ViewIntent, reveal?: ViewLocation): void;
+    /** 提交一次已显示过的动作：意图、落在预备区时要同次显示的 Part（`reveal`），以及松手时的预览（收尾从那里开始）。 */
+    commit(decision: Extract<DropDecision, {kind: "commit"}>): void;
 }
 
 /** 进行中的拖动：拖影与落点反馈只读它。 */
@@ -248,7 +246,7 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         const final = evaluate(current);
         const shown = current.shown;
         end(false);
-        if (final !== null && final !== "cancelled" && final.kind === "commit" && isSameDropAction(shown, final)) options.commit(final.intent, final.reveal);
+        if (final !== null && final !== "cancelled" && final.kind === "commit" && isSameDropAction(shown, final)) options.commit(final);
         if (current.keyboard !== null) requestAnimationFrame(() => returnFocus(current));
     }
 
