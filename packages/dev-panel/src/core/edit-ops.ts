@@ -78,7 +78,8 @@ export async function classifyEditable(scope: RecordScope, path: string): Promis
     }
     match = TASK_DOCUMENT.exec(path);
     if (match) {
-        const {workId, taskId} = await resolveWritableTask(scope, match[1]!, match[2]!);
+        // Task README 还没提交时不给改它目录里的文档：否则 master 上会出现没有 README 的 Task 目录（与产物、答复的写入同一条不变量）。
+        const {workId, taskId} = await resolveWritableTask(scope, match[1]!, match[2]!, {requireCommittedReadme: true});
         sameId(path, `${workId}/${taskId}`, `${match[1]}/${match[2]}`);
         const listed = await listDocuments(mainRoot, `${WORKS_ROOT}/${workId}/tasks/${taskId}`);
         if (!listed.some((document) => document.path === path)) throw notEditable(path, "not_listed", "不在 Task 的文档类产物里");

@@ -148,6 +148,19 @@ describe("编辑白名单", () => {
     });
 });
 
+test("Task README 还没提交时，它目录里的文档不能编辑（task_not_committed），读得到并写明原因", async () => {
+    const fixture = await createFixture("edit-task-doc-uncommitted");
+    await fixture.write(".agents/works/w00001-seed/tasks/t02-manual/README.md", taskReadme("t02-manual"));
+    await fixture.write(".agents/works/w00001-seed/tasks/t02-manual/notes.md", "# 笔记\n");
+    const context = await locateRepository(fixture.main);
+    const path = ".agents/works/w00001-seed/tasks/t02-manual/notes.md";
+    const file = await readEditableFile(context, path);
+    expect([file?.editable, file?.reason?.code]).toEqual([false, "task_not_committed"]);
+    const head = await git(fixture.main, "rev-parse", "HEAD");
+    expect((await rejection(editRecordFile(context, {path, content: "# 笔记\n改过。\n", baseHash: file!.hash, includeUncommitted: true}, DEV))).code).toBe("task_not_committed");
+    expect(await git(fixture.main, "rev-parse", "HEAD")).toBe(head);
+});
+
 describe("编辑", () => {
     test("README：哈希不一致报 hash_mismatch（带 currentHash）；frontmatter 改坏、改状态、改 id、加旧字段都拒绝；合规的编辑改 updated 并只提交这一个文件；内容不变不提交", async () => {
         const fixture = await createFixture("edit-readme");
