@@ -4,7 +4,7 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
-import {computed, defineAsyncComponent, defineComponent, h, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, markRaw, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef} from "vue";
 import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
@@ -79,6 +79,7 @@ const TEXT = {
     dropDetachView: {"zh-CN": "新建容器", "en-US": "New container"},
     dropMoveContainer: {"zh-CN": "移动容器", "en-US": "Move container"},
     dropMergeContainer: {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
+    dropReveal: {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
     dropBefore: {"zh-CN": "放在“{title}”前", "en-US": "Place before “{title}”"},
     dropAfter: {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
 } satisfies Record<string, LocalizedText>;
@@ -168,6 +169,9 @@ function onLayout(facts: ShellLayoutFacts): void {
 /** 三层 Teleport 共用一份滚动与焦点记忆；外壳一生不换。 */
 const memory = new TeleportMemory();
 const hostEl = ref<HTMLElement | null>(null);
+const shellLayout = useTemplateRef<InstanceType<typeof WorkbenchShellLayout>>("shellLayout");
+/** 预备区的图标：与标题栏的布局按钮同一套。 */
+const REVEAL_ICONS: Readonly<Record<ViewLocation, string>> = {sidebar: "i-lucide-panel-left", auxiliarybar: "i-lucide-panel-right", panel: "i-lucide-panel-bottom"};
 const partTargets = reactive<Partial<Record<ViewLocation, HTMLElement>>>({});
 function setPartTarget(part: ViewLocation, element: HTMLElement | null): void {
     if (element === null) delete partTargets[part];
@@ -281,14 +285,22 @@ onMounted(() => {
         presentation: () => presentation.value,
         catalog: () => state.value.catalog,
         enabled: () => state.value.ready,
-        commit: (intent) => {
-            props.layout.actions.applyView(intent);
+        revealZones: () => shellLayout.value?.revealZoneRects() ?? [],
+        commit: (intent, reveal) => {
+            props.layout.actions.applyView(intent, reveal === undefined ? {} : {reveal});
         },
     });
 });
 onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.state.value ?? null);
+/** 拖动时浮出的预备区：名称与图标；指针正停在上面的那块由落点高亮接管，不再画自己的提示。 */
+const revealZones = computed(() => {
+    const current = dragState.value;
+    if (current === null) return [];
+    const active = current.decision?.kind === "commit" ? current.decision.reveal : undefined;
+    return current.zones.map((zone) => ({part: zone.part, rect: zone.rect, label: text(PART_LABELS[zone.part]), icon: REVEAL_ICONS[zone.part], active: zone.part === active}));
+});
 const dragGhost = computed(() => {
     const current = dragState.value;
     if (current === null) return null;
@@ -304,6 +316,9 @@ const dropFeedback = computed(() => {
     const preview = decision === null || decision.kind === "rejected" ? null : (decision.preview ?? null);
     if (preview === null) return {preview: null, label: "", kind: "", count: 0};
     const kind = decision!.kind === "commit" ? decision!.intent.kind : "noop";
+    if (decision!.kind === "commit" && decision!.reveal !== undefined) {
+        return {preview: {areaRect: preview.areaRect, entryRect: null, indicator: null, orientation: preview.orientation}, label: text(formatText(TEXT.dropReveal, {part: text(PART_LABELS[decision!.reveal])})), kind, count: preview.count};
+    }
     // 收起分栏前后的插入位：提示说放在谁前后，贴在插入线的末端，不盖住下一行的标题。
     const near = preview.insertion;
     const nearTitle = near === undefined ? undefined : state.value.catalog.get(near.viewId)?.title;
@@ -323,6 +338,7 @@ const dropFeedback = computed(() => {
 <template>
     <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onFocusIn">
     <WorkbenchShellLayout
+        ref="shellLayout"
         class="workbench-shell"
         :sizes="state.sizes"
         :panel="state.panel"
@@ -478,7 +494,7 @@ const dropFeedback = computed(() => {
             <div class="workbench-shell__empty">{{ text(TEXT.emptyContainer) }}</div>
         </template>
     </WorkbenchViewInstances>
-    <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
+    <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
     </div>
 </template>
 

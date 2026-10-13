@@ -32,7 +32,7 @@
  */
 
 import {createGrid} from "@notnotype/nb-ui/layout";
-import type {Grid, GridAxis, GridBranch, GridBranchInput, GridExtent, GridGestureCommit, GridLeafInput, GridNodeInput} from "@notnotype/nb-ui/layout";
+import type {Grid, GridAxis, GridBranch, GridBranchInput, GridExtent, GridGestureCommit, GridLayoutResult, GridLeafInput, GridNode, GridNodeInput} from "@notnotype/nb-ui/layout";
 
 import {isHorizontalPanelPosition, panelMaximizable} from "./panel-state";
 import type {PanelAlignment, PanelPosition, PanelState} from "./panel-state";
@@ -550,6 +550,37 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
 export function createShellGrid(projection: ShellProjection): Grid<string> {
     const sash = projection.sashSizes;
     return createGrid(projection.tree, {sashSize: (branchId, index) => sash[branchId]?.[index] ?? 0});
+}
+
+/** 节点在网格根里的矩形（CSS px，原点是网格根的左上角）。 */
+export interface ShellNodeRect {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+}
+
+/**
+ * 每个节点在网格根里的矩形：网格的呈现只给尺寸，位置按树沿各分支的主轴把前面的兄弟与边界占用累加出来。
+ */
+export function shellNodeRects(grid: Grid<string>, layout: GridLayoutResult): Record<string, ShellNodeRect> {
+    const rects: Record<string, ShellNodeRect> = {};
+    const place = (node: GridNode<string>, x: number, y: number): void => {
+        const size = layout.sizes[node.id] ?? {width: 0, height: 0};
+        rects[node.id] = {left: x, top: y, right: x + size.width, bottom: y + size.height};
+        if (node.kind !== "branch") return;
+        const horizontal = node.orientation === "horizontal";
+        const sash = layout.sashSizes[node.id] ?? [];
+        let cursor = horizontal ? x : y;
+        node.children.forEach((child, index) => {
+            const childSize = layout.sizes[child.id] ?? {width: 0, height: 0};
+            place(child, horizontal ? cursor : x, horizontal ? y : cursor);
+            cursor += (horizontal ? childSize.width : childSize.height) + (sash[index] ?? 0);
+        });
+    };
+    const root = grid.root();
+    if (root !== null) place(root, 0, 0);
+    return rects;
 }
 
 // ── 手势 ─────────────────────────────────────────────────────────────────────

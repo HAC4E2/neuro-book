@@ -10,6 +10,7 @@
  * - Switcher（标签带、ActivityBar 条目带）只有插入位：`resolveListInsertion({edgeGap: 4})`，预览只有那一条插入线。
  *   视图落 Switcher 是建新容器（`detach-view`），容器落 Switcher 是整容器换序或迁区（`move-container`）。
  * - 空 Part 整区一个落点；Part 一旦有了容器，这个落点就失效并拒绝。
+ * - 预备区（拖动时浮出的、此刻没显示的 Part）整区一个落点，语义同空 Part；提交带上要显示的 Part，同次显示出来。
  *
  * 由旧应用 `workbench-drop.ts`（已人工验证）改写：几何算法照搬，意图与容器身份换成 v2（位置就是 ToolPart id、
  * 三类容器、`intents.ts` 的意图），旧的静态容器抑制标记与工作面代际不搬，换成发起时冻结的布局代次 `layoutKey`。
@@ -41,7 +42,9 @@ export type DropSource =
 export type DropTarget =
     | {readonly kind: "switcher"; readonly part: ViewLocation; readonly beforeContainerId?: string}
     | {readonly kind: "content"; readonly containerId: string; readonly part: ViewLocation}
-    | {readonly kind: "empty"; readonly part: ViewLocation};
+    | {readonly kind: "empty"; readonly part: ViewLocation}
+    /** 拖动时浮出的预备区：这个 Part 此刻没显示。 */
+    | {readonly kind: "reveal"; readonly part: ViewLocation};
 
 export interface ContentRects {
     readonly containerId: string;
@@ -61,6 +64,8 @@ export interface DropRects {
     readonly content?: ContentRects | null;
     readonly switcher?: SwitcherRects | null;
     readonly empty?: GridDropRect | null;
+    /** 预备区的矩形。 */
+    readonly reveal?: GridDropRect | null;
     /** 来源容器的内容几何：来源比例优先从这里取；量不出来时退到尺寸意图。 */
     readonly sourceContent?: ContentRects | null;
 }
@@ -91,7 +96,8 @@ export interface DropPreview {
 }
 
 export type DropDecision =
-    | {readonly kind: "commit"; readonly intent: ViewIntent; readonly preview: DropPreview}
+    /** `reveal`：落在预备区，提交时同次把这个 Part 显示出来。 */
+    | {readonly kind: "commit"; readonly intent: ViewIntent; readonly preview: DropPreview; readonly reveal?: ViewLocation}
     | {readonly kind: "noop"; readonly preview?: DropPreview}
     | {readonly kind: "rejected"; readonly reason: string};
 
@@ -105,7 +111,7 @@ function rejection(reason: string): DropDecision {
 
 /** 松手时提交的是不是已经显示过的那一次：意图逐字段相同。 */
 export function isSameDropAction(previous: DropDecision | null, next: DropDecision): boolean {
-    return previous !== null && previous.kind === "commit" && next.kind === "commit" && JSON.stringify(previous.intent) === JSON.stringify(next.intent);
+    return previous !== null && previous.kind === "commit" && next.kind === "commit" && JSON.stringify(previous.intent) === JSON.stringify(next.intent) && previous.reveal === next.reveal;
 }
 
 function validRect(rect: GridDropRect | null | undefined): GridDropRect | null {
@@ -311,6 +317,29 @@ function resolveEmpty(input: DropInput, target: Extract<DropTarget, {kind: "empt
     return {kind: "commit", intent: {kind: "move-container", containerId: from.id, sourcePart: from.part, targetPart: target.part}, preview: {indicator: null, areaRect: rect, orientation, count: source.viewIds.length}};
 }
 
+/**
+ * 预备区：没显示的 Part 整区一个落点，视图建新容器、容器整个迁过来（Part 里已有容器时排在最后）。容器本来就在这个
+ * Part（侧栏拖到零时活动栏里的条目）：只选中它。都同次显示这个 Part。
+ */
+function resolveReveal(input: DropInput, target: Extract<DropTarget, {kind: "reveal"}>): DropDecision {
+    const rect = validRect(input.rects.reveal);
+    if (rect === null) return noop();
+    const orientation: GridOrientation = target.part === "panel" ? "horizontal" : "vertical";
+    const source = input.source;
+    if (source.kind === "view") {
+        const from = viewSourceOf(input, source);
+        if (typeof from === "string") return rejection(from);
+        const intent: ViewIntent = {kind: "detach-view", viewId: source.viewId, sourceContainerId: source.containerId, containerId: input.newContainerId, targetPart: target.part};
+        return {kind: "commit", intent, preview: {indicator: null, areaRect: rect, orientation, count: 1}, reveal: target.part};
+    }
+    const from = containerSourceOf(input, source);
+    if (typeof from === "string") return rejection(from);
+    const intent: ViewIntent = from.part === target.part
+        ? {kind: "select-container", part: target.part, containerId: from.id}
+        : {kind: "move-container", containerId: from.id, sourcePart: from.part, targetPart: target.part};
+    return {kind: "commit", intent, preview: {indicator: null, areaRect: rect, orientation, count: source.viewIds.length}, reveal: target.part};
+}
+
 function resolveSwitcher(input: DropInput, target: Extract<DropTarget, {kind: "switcher"}>): DropDecision {
     const rects = input.rects.switcher;
     if (rects === null || rects === undefined) return noop();
@@ -366,5 +395,7 @@ export function resolveDrop(input: DropInput): DropDecision {
             return resolveEmpty(input, input.target);
         case "switcher":
             return resolveSwitcher(input, input.target);
+        case "reveal":
+            return resolveReveal(input, input.target);
     }
 }

@@ -7,10 +7,10 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGridGestureSession} from "@notnotype/nb-ui/layout";
-import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNode, GridNodeInput} from "@notnotype/nb-ui/layout";
+import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNodeInput} from "@notnotype/nb-ui/layout";
 
-import {createShellGrid, projectShell, SHELL_BODY_ID, SHELL_CONTENT_ROW_ID, SHELL_MAIN_ID, SHELL_PANEL_STACK_ID, SHELL_ROOT_ID, shellGestureProblem, shellPatch, shellSettleableBranch} from "./layout";
-import type {ShellProjectionInput} from "./layout";
+import {createShellGrid, projectShell, SHELL_BODY_ID, SHELL_CONTENT_ROW_ID, SHELL_MAIN_ID, SHELL_PANEL_STACK_ID, SHELL_ROOT_ID, shellGestureProblem, shellNodeRects, shellPatch, shellSettleableBranch} from "./layout";
+import type {ShellNodeRect, ShellProjectionInput} from "./layout";
 import {
     SASH_PX,
     SHELL_ACTIVITYBAR_WIDTH,
@@ -31,12 +31,7 @@ import type {PanelState} from "./panel-state";
 const VIEWPORT: GridExtent = {width: 1440, height: 900};
 const PANEL: PanelState = {position: "bottom", alignment: "center", hidden: false, collapsed: false, maximized: false};
 
-interface Rect {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-}
+type Rect = ShellNodeRect;
 
 function project(overrides: Partial<ShellProjectionInput> = {}) {
     const input: ShellProjectionInput = {extent: VIEWPORT, preferences: SHELL_SIZE_DEFAULTS, panel: PANEL, hiddenParts: [], ...overrides};
@@ -45,27 +40,9 @@ function project(overrides: Partial<ShellProjectionInput> = {}) {
     return {projection, grid, layout: grid.layout(input.extent)};
 }
 
-/** 从树与呈现尺寸复原每个节点的绝对矩形：不重叠、在容器内这类断言只有它证得了。 */
-function collectRects(node: GridNode<string>, layout: GridLayoutResult, origin: {x: number; y: number}): Record<string, Rect> {
-    const size = layout.sizes[node.id] ?? {width: 0, height: 0};
-    const rects: Record<string, Rect> = {[node.id]: {left: origin.x, top: origin.y, right: origin.x + size.width, bottom: origin.y + size.height}};
-    if (node.kind === "branch") {
-        const horizontal = node.orientation === "horizontal";
-        const sash = layout.sashSizes[node.id] ?? [];
-        let cursor = horizontal ? origin.x : origin.y;
-        node.children.forEach((child, index) => {
-            const childSize = layout.sizes[child.id] ?? {width: 0, height: 0};
-            Object.assign(rects, collectRects(child, layout, horizontal ? {x: cursor, y: origin.y} : {x: origin.x, y: cursor}));
-            cursor += (horizontal ? childSize.width : childSize.height) + (sash[index] ?? 0);
-        });
-    }
-    return rects;
-}
-
 function rectsOf(grid: Grid<string>, layout: GridLayoutResult): Record<string, Rect> {
-    const root = grid.root();
-    if (root?.kind !== "branch") throw new Error("需要根分支");
-    return collectRects(root, layout, {x: 0, y: 0});
+    if (grid.root()?.kind !== "branch") throw new Error("需要根分支");
+    return shellNodeRects(grid, layout);
 }
 
 function leafExtent(layout: GridLayoutResult, id: string): GridExtent {

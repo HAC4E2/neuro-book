@@ -259,6 +259,29 @@ describe("空 Part", () => {
     });
 });
 
+describe("预备区（外壳三输出 20）", () => {
+    const zone = rect(1000, 72, 1400, 860);
+
+    it("视图落预备区：建新容器，提交带上要显示的 Part；预览是整块预备区", () => {
+        const decision = resolveDrop(input({}, {kind: "view", viewId: "t.b", containerId: "view:t.b", part: "sidebar"}, {kind: "reveal", part: "auxiliarybar"}, {x: 1200, y: 400}, {reveal: zone}));
+        expect(decision).toMatchObject({kind: "commit", intent: {kind: "detach-view", viewId: "t.b", targetPart: "auxiliarybar", containerId: NEW}, preview: {areaRect: zone, indicator: null}, reveal: "auxiliarybar"});
+        expect(world(applies({}, (decision as {intent: ViewIntent}).intent)).placement.parts.auxiliarybar).toEqual([NEW]);
+    });
+
+    it("容器落别的 Part 的预备区整个迁过去；本来就在这个 Part（侧栏拖到零时活动栏的条目）只选中它；都带上要显示的 Part", () => {
+        const across = resolveDrop(input({}, {kind: "container", containerId: "view:t.d", part: "panel", viewIds: ["t.d"]}, {kind: "reveal", part: "sidebar"}, {x: 100, y: 300}, {reveal: rect(48, 40, 388, 860)}));
+        expect(across).toMatchObject({kind: "commit", intent: {kind: "move-container", containerId: "view:t.d", sourcePart: "panel", targetPart: "sidebar"}, reveal: "sidebar"});
+        const home = resolveDrop(input({}, {kind: "container", containerId: "view:t.b", part: "sidebar", viewIds: ["t.b"]}, {kind: "reveal", part: "sidebar"}, {x: 100, y: 300}, {reveal: rect(48, 40, 388, 860)}));
+        expect(home).toMatchObject({kind: "commit", intent: {kind: "select-container", part: "sidebar", containerId: "view:t.b"}, reveal: "sidebar"});
+    });
+
+    it("同一个意图落在预备区与别处不算同一个动作；预备区矩形量不出来是无操作", () => {
+        const viaZone = resolveDrop(input({}, {kind: "view", viewId: "t.b", containerId: "view:t.b", part: "sidebar"}, {kind: "reveal", part: "auxiliarybar"}, {x: 1200, y: 400}, {reveal: zone}));
+        expect(viaZone.kind === "commit" && isSameDropAction(viaZone, {...viaZone, reveal: undefined})).toBe(false);
+        expect(resolveDrop(input({}, {kind: "view", viewId: "t.b", containerId: "view:t.b", part: "sidebar"}, {kind: "reveal", part: "auxiliarybar"}, {x: 1200, y: 400}, {reveal: null}))).toEqual({kind: "noop"});
+    });
+});
+
 describe("动作一致性", () => {
     it("松手只提交已经显示过的那一次：意图逐字段相同才算", () => {
         const a = {kind: "commit" as const, intent: {kind: "select-container" as const, part: "sidebar" as const, containerId: "view:t.a"}, preview: {indicator: null, areaRect: null, orientation: "vertical" as const, count: 1}};

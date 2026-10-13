@@ -216,6 +216,48 @@ describe("空着的右栏与面板（ui/workbench-shell.md 输出 39）", () => 
         expect(Number(revisionOf())).toBe(Number(before) + 1);
         expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toMatchObject({panel: {collapsed: false}, views: {"test.b": {container: "custom:44444444-4444-4444-8444-444444444444"}}});
     });
+
+    it("落在预备区：同一次写入把 Part 显示出来——空右栏记为主动显示过，隐藏又收起的面板显示且展开，拖到零的侧栏清掉；意图无变化时照样显示", async () => {
+        const w = await world();
+        const views: ViewCatalog = new Map([
+            ["test.a", {title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a", location: "sidebar", layout: "scroll"}],
+            ["test.b", {title: {"zh-CN": "乙", "en-US": "B"}, icon: "i-b", location: "sidebar", layout: "scroll"}],
+            ["test.c", {title: {"zh-CN": "丙", "en-US": "C"}, icon: "i-c", location: "sidebar", layout: "scroll"}],
+            ["test.d", {title: {"zh-CN": "丁", "en-US": "D"}, icon: "i-d", location: "panel", layout: "scroll"}],
+        ]);
+        const {store, storage} = await openLayout(w, "w", "c", false, views);
+        expect(store.state.hiddenParts).toEqual(["auxiliarybar"]);
+        // 记录还没写过时修订号按 0 算：这一次显示与放进去的视图只写一次。
+        const revisionOf = (): number => (store.state.customizations.base?.status === "ok" ? Number(store.state.customizations.base.revision) : 0);
+
+        const before = revisionOf();
+        expect(store.actions.applyView({kind: "detach-view", viewId: "test.b", sourceContainerId: "view:test.b", containerId: "custom:55555555-5555-4555-8555-555555555555", targetPart: "auxiliarybar"}, {reveal: "auxiliarybar"}).kind).toBe("patch");
+        expect(store.state.hiddenParts).toEqual([]);
+        await saved(store);
+        expect(revisionOf()).toBe(before + 1);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toMatchObject({shownParts: ["auxiliarybar"]});
+
+        expect(store.actions.setPanelCollapsed(true)).toBe(true);
+        expect(store.actions.setPanelHidden(true)).toBe(true);
+        await saved(store);
+        expect(store.actions.applyView({kind: "move-container", containerId: "view:test.a", sourcePart: "sidebar", targetPart: "panel"}, {reveal: "panel"}).kind).toBe("patch");
+        expect([store.state.panel.hidden, store.state.panel.collapsed]).toEqual([false, false]);
+
+        // 先把侧栏的选中记下来，之后再选它就是无变化。
+        const selected = store.state.presentation.parts.sidebar.selected!;
+        store.actions.applyView({kind: "select-container", part: "sidebar", containerId: selected});
+        store.actions.commitSizes({dragCollapsed: {sidebar: true}});
+        await saved(store);
+        expect(store.state.dragCollapsed.sidebar).toBe(true);
+        expect(store.actions.applyView({kind: "select-container", part: "sidebar", containerId: selected}, {reveal: "sidebar"})).toEqual({kind: "unchanged"});
+        expect(store.state.dragCollapsed.sidebar).toBe(false);
+        // 拒绝的意图不显示
+        store.actions.commitSizes({dragCollapsed: {sidebar: true}});
+        await saved(store);
+        expect(store.actions.applyView({kind: "select-container", part: "sidebar", containerId: "view:不存在"}, {reveal: "sidebar"}).kind).toBe("rejected");
+        await saved(store);
+        expect(store.state.dragCollapsed.sidebar).toBe(true);
+    });
 });
 
 describe("瞬时最大化与呈现事实", () => {
