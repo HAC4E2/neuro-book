@@ -20,8 +20,8 @@ export type DeliverabilityReason =
     | "unknown_screen"       // 屏幕的样子认不出
     | "agent_unsupported";   // 没有取样过的 Agent 种类
 
-/** 一个 SGR 序列：`ESC [ 参数 m`。 */
-const SGR = /\x1b\[([0-9;]*)m/gu;
+/** 一个 SGR 序列：`ESC [ 参数 m`（参数里可以有冒号写法的子参数）。 */
+const SGR = /\x1b\[([0-9;:]*)m/gu;
 /** 其它控制序列（光标移动等）与回车，判断文字时丢掉。 */
 const OTHER_ESCAPES = /\x1b\[[0-9;?]*[A-Za-ln-z]|\x1b[()][0-9A-Za-z]|\r/gu;
 
@@ -29,7 +29,30 @@ function plain(line: string): string {
     return line.replace(SGR, "").replace(OTHER_ESCAPES, "");
 }
 
-/** 把一行带 SGR 的文字拆成（文字，是否暗色）段：`2` 打开暗色，`0` 与 `22` 关掉。 */
+/**
+ * 一个 SGR 序列之后“暗色”是开是关。按标准逐个参数读：`38`、`48`、`58`（前景、背景、下划线颜色）后面的 `5;n` 或 `2;r;g;b`
+ * 是颜色的值，整段跳过；冒号写法（`38:2::r:g:b`）本身就是一个参数，也跳过。只有独立的 `2` 才开暗色，`22` 与 `0`（含空参数）关。
+ * 把颜色值里的 `2` 当成暗色，带 RGB 颜色的输入（Claude 给 `ultrathink` 上的彩虹色）就会被当成占位文字（t11 实现审查第 1 条）。
+ */
+export function applySgr(params: string, dim: boolean): boolean {
+    const list = params === "" ? [""] : params.split(";");
+    for (let index = 0; index < list.length; index += 1) {
+        const param = list[index]!;
+        if (param.includes(":")) continue;
+        const code = param === "" ? 0 : Number(param);
+        if (code === 38 || code === 48 || code === 58) {
+            const mode = list[index + 1];
+            if (mode === "5") index += 2;
+            else if (mode === "2") index += 4;
+            continue;
+        }
+        if (code === 2) dim = true;
+        else if (code === 0 || code === 22) dim = false;
+    }
+    return dim;
+}
+
+/** 把一行带 SGR 的文字拆成（文字，是否暗色）段。 */
 function segments(line: string): Array<{text: string; dim: boolean}> {
     const parts: Array<{text: string; dim: boolean}> = [];
     let dim = false;
@@ -37,11 +60,7 @@ function segments(line: string): Array<{text: string; dim: boolean}> {
     const source = line.replace(OTHER_ESCAPES, "");
     for (const match of source.matchAll(SGR)) {
         if (match.index! > last) parts.push({text: source.slice(last, match.index), dim});
-        const codes = match[1] === "" ? ["0"] : match[1]!.split(";");
-        for (const code of codes) {
-            if (code === "2") dim = true;
-            else if (code === "0" || code === "22") dim = false;
-        }
+        dim = applySgr(match[1]!, dim);
         last = match.index! + match[0].length;
     }
     if (last < source.length) parts.push({text: source.slice(last), dim});
@@ -53,9 +72,28 @@ const squeeze = (text: string) => text.replace(/[❯\s ]/gu, "");
 const isRule = (line: string) => /^[─━]{10,}\s*$/u.test(plain(line).trim());
 
 /**
+ * `❯` 之后的输入框是不是“空”：去掉空白之后，只允许什么都没有，或者紧跟在 `❯` 后面的一整段暗色文字（占位或建议文字，
+ * S0 实测刚起来的 Claude 就有）。暗色之前或之后再有任何不暗的字，或者出现第二段暗色，都算开发者打了字。
+ */
+function promptIsEmpty(rest: ReadonlyArray<{text: string; dim: boolean}>): boolean {
+    let stage: "before" | "dim" | "after" = "before";
+    for (const part of rest) {
+        const visible = squeeze(part.text) !== "";
+        if (!visible) {
+            if (stage === "dim" && !part.dim) stage = "after";
+            continue;
+        }
+        if (!part.dim) return false;
+        if (stage === "after") return false;
+        stage = "dim";
+    }
+    return true;
+}
+
+/**
  * Claude：herdr 的 `agent.explain` 为准，屏幕只做交叉核对。
  * - 命中的规则必须是 `live_prompt_box`、没有退路，且清单里还有这条规则；
- * - 屏幕上两条横线之间、以 `❯` 开头的那一行，`❯` 之后不暗的文字为空（暗色的是占位或建议文字，S0 实测刚起来的会话就有）；
+ * - 屏幕上两条横线之间、以 `❯` 开头的那一行，`❯` 之后是空的，或者只有紧跟着的一整段暗色文字（见 `promptIsEmpty`）；
  * - herdr 的区域预览与这一行 `❯` 之后的全部文字一致。
  */
 function judgeClaude(explain: HerdrExplain, visibleAnsi: string): Deliverability {
@@ -86,8 +124,7 @@ function judgeClaude(explain: HerdrExplain, visibleAnsi: string): Deliverability
             rest.push({text: part.text.slice(at + 1), dim: part.dim});
         }
     }
-    const typed = squeeze(rest.filter((part) => !part.dim).map((part) => part.text).join(""));
-    if (typed !== "") return {ok: false, reason: "input_not_empty", detail: "输入框里有字"};
+    if (!promptIsEmpty(rest)) return {ok: false, reason: "input_not_empty", detail: "输入框里有字"};
     const shown = squeeze(rest.map((part) => part.text).join(""));
     if (squeeze(explain.livePromptBoxPreview) !== shown) {
         return {ok: false, reason: "cross_check_mismatch", detail: "herdr 的区域预览与屏幕上的输入框对不上"};

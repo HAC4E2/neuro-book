@@ -88,7 +88,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 2. **只投本仓库的 pane**（`cwd` 或 `foreground_cwd` 在本仓库的某个 checkout 里），状态必须是 `idle` 或 `done`：`working` 排队，`blocked` 排队并提示“在等确认”，`unknown` 不自动投。
 3. **空闲稳定**（自动通知）：第一次看到空闲时记下 `agent.get` 的 `state_change_seq` 与时刻；之后序号不变、且过了 3 秒才投（防状态抖动，不是对误判的缓解）。
 4. **正向白名单**：只在认出“空输入框”时投，认不出就不投。
-   - Claude：`agent.explain` 命中 `live_prompt_box`、没有 `fallback_reason`，清单里还有这条规则（远程更新可能改掉它）；读屏交叉核对：`visible` 的 ANSI 屏幕上夹在两条横线之间、以 `❯` 开头的那一行，`❯` 之后不暗的文字为空（暗色 `\x1b[2m` 的是占位或建议文字），且这条规则的 `region_preview` 与这一行 `❯` 之后的全部文字一致（去掉空白比较）。
+   - Claude：`agent.explain` 命中 `live_prompt_box`、没有 `fallback_reason`，清单里还有这条规则（远程更新可能改掉它）；读屏交叉核对：`visible` 的 ANSI 屏幕上夹在两条横线之间、以 `❯` 开头的那一行，`❯` 之后去掉空白只能是空的，或者只有紧跟着的一整段暗色文字（占位或建议文字），暗色之前或之后再有任何字都算有字；且这条规则的 `region_preview` 与这一行 `❯` 之后的全部文字一致（去掉空白比较）。SGR 按标准解析：`38`、`48`、`58` 后面的 `5;n`、`2;r;g;b` 与冒号写法是颜色值，整段跳过，只有独立的参数 `2` 才是暗色（Claude 给 `ultrathink` 上 RGB 彩虹色，herdr 读屏时写成 `38;2;r;g;b`，曾被误当成暗色占位，t11 实现审查第 1 条）。
    - omp：没有检测清单，按 S0 对真实 omp 的取样：最后一行是 `╰─` 且后面没有字、上一行是状态栏。
    - 认不出的确认界面（退路 `default_known_agent_idle_fallback`、状态仍是 idle）、详细记录视图（`transcript_viewer`）、模型选择（`model_picker_menu`）、`/` 命令表、输入框里有字都不投；这几种 herdr 自己照样会写入粘贴加回车。
 5. **聚焦的那一格**（`focused: true`，开发者的键盘最可能在那里）：隔 1 秒再读一次，两次都可投才投。

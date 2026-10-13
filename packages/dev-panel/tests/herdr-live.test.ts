@@ -208,14 +208,14 @@ describe("真实 herdr 的投递（t11，命名会话里名为 claude 的假界�
         };
     }
 
-    test.skipIf(!herdrInstalled)("认不出的确认界面、详细记录、模型选择、命令表、输入框有字都判不可投、不写一个字节；空输入框（含暗色占位）可投、投进去；按键的字节；换了会话 id 就拒绝", async () => {
+    test.skipIf(!herdrInstalled)("认不出的确认界面、详细记录、模型选择、命令表、输入框有字（含 RGB 颜色的字）都判不可投、不写一个字节；空输入框（含暗色占位）可投、投进去；按键的字节；换了会话 id 就拒绝", async () => {
         await startSessionServer();
         const fixture = await createFixture("herdr-live-deliver");
         const tui = await fakeClaude(fixture.root, fixture.main);
         const context: DeliveryContext = {client: createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS}), repoRoots: [fixture.main]};
         const target = {paneId: tui.paneId, sessionKey: `claude:${tui.sessionId}`};
 
-        for (const name of ["unknown-confirm", "transcript", "model-picker", "slash-menu", "idle-typed"]) {
+        for (const name of ["unknown-confirm", "transcript", "model-picker", "slash-menu", "idle-typed", "idle-colored"]) {
             await tui.screen(name);
             await tui.clearLog();
             const checked = await checkDeliverable(context, target);

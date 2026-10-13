@@ -20,6 +20,31 @@ describe("能不能往输入框里投", () => {
         expect(judgeDeliverable({agent: "codex", explain: null, visibleAnsi: "❯ \n"})).toMatchObject({ok: false, reason: "agent_unsupported"});
     });
 
+    test("颜色值里的 2 不是暗色：RGB、256 色、背景色、冒号写法的输入都算有字；暗色之后跟着正常字、两段暗色也算有字（t11 实现审查第 1 条）", () => {
+        const sample = samples.find((entry) => entry.name === "claude-placeholder")!;
+        const promptLine = sample.visibleAnsi.split("\n").find((line) => line.includes("❯"))!;
+        const rainbow = ["235;95;87", "245;139;87", "250;195;95", "145;200;130", "130;170;220", "155;130;200", "200;130;180"];
+        const ultrathink = [..."ultrathink"].map((char, index) => `\u001b[38;2;${rainbow[index % rainbow.length]}m${char}`).join("") + "\u001b[39m";
+        const cases: Array<[string, string, boolean]> = [
+            ["RGB 前景色的半截字", "❯ \u001b[38;2;255;255;255m我正在打的半截字\u001b[0m", false],
+            ["Claude 给 ultrathink 上的彩虹色", `❯ ${ultrathink}`, false],
+            ["256 色 2 号的粘贴块", "❯ \u001b[38;5;2m[Pasted text #1 +40 lines]\u001b[0m", false],
+            ["RGB 背景色", "❯ \u001b[48;2;40;40;40mhello\u001b[0m", false],
+            ["冒号写法的 RGB", "❯ \u001b[38:2::255:0:0mhi\u001b[0m", false],
+            ["暗色之后跟着正常字", "❯ \u001b[2mTry \"x\"\u001b[0m abc", false],
+            ["正常字之后跟着暗色", "❯ abc \u001b[2mTry \"x\"\u001b[0m", false],
+            ["两段暗色", "❯ \u001b[2mTry\u001b[0m \u001b[2m\"x\"\u001b[0m", false],
+            ["暗色加 RGB 颜色的占位", "❯ \u001b[2;38;2;120;120;120mTry \"x\"\u001b[0m   ", true],
+            ["暗色占位，之后只有空白", "❯ \u001b[2mTry \"x\"\u001b[22m   ", true],
+        ];
+        for (const [name, line, ok] of cases) {
+            const visibleAnsi = sample.visibleAnsi.replace(promptLine, line);
+            const text = line.replace(/\u001b\[[0-9;:]*m/gu, "");
+            const explain = {...sample.explain, livePromptBoxPreview: `${text}\n`};
+            expect([name, judgeDeliverable({agent: "claude", explain, visibleAnsi}).ok]).toEqual([name, ok]);
+        }
+    });
+
     test("占位文字只在暗色时算空：同样的文字不暗就是开发者打的字", () => {
         const sample = samples.find((entry) => entry.name === "claude-placeholder")!;
         const undimmed = sample.visibleAnsi.replace("\u001b[2m", "");
