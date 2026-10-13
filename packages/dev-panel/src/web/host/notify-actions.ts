@@ -27,7 +27,7 @@ export function isAttention(attempt: NotifyAttempt): boolean {
 export function deliveryNotice(result: DeliveryData, target: string): Notice {
     switch (result.result) {
     case "delivered": return {tone: "success", title: "已投递", message: `已发给 ${target}`, items: [], retry: false};
-    case "delivered_into_blocked": return {tone: "error", title: "投递时会话弹出了确认界面", message: "回车可能确认了它，请马上看终端", items: [], retry: false};
+    case "delivered_into_blocked": return {tone: "error", title: result.code === "state_jumped" ? "投递后状态变了不止一次" : "投递时会话弹出了确认界面", message: result.code === "state_jumped" ? "可能经过了确认界面、回车确认了它，请马上看终端" : "回车可能确认了它，请马上看终端", items: [], retry: false};
     case "delivered_maybe_wrong_session": return {tone: "warning", title: "投递的瞬间换了会话", message: "消息可能进了别的会话，请看终端", items: [], retry: false};
     case "uncertain": return {tone: "warning", title: "结果未知", message: "已写入，但没看到会话开始工作；请看终端，不要重发", items: [], retry: false};
     default: return {tone: "warning", title: "没有发出去", message: `${result.message}（${result.code ?? result.result}）`, items: [], retry: false};

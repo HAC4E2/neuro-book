@@ -22,8 +22,9 @@ export type FakePane = {
     /** `agent.read source=visible` 的屏幕（带 ANSI）。 */
     visible?: string;
     /** `agent.prompt` 时这格 pane 怎么反应：进入工作（缺省）、没反应（herdr 等到点回 `agent_prompt_stalled`）、
-     * 回车前后弹出确认界面（回应里状态是旧的 working，之后变 blocked）、投递的瞬间换了会话。 */
-    on_prompt?: "working" | "stall" | "blocked_after" | "switch_session";
+     * 回车前后弹出确认界面（回应里状态是旧的 working，之后变 blocked）、投递的瞬间换了会话、
+     * 弹出的确认界面又被回车确认了（回应里是 working，之后还是 working，状态序号跳了三格）。 */
+    on_prompt?: "working" | "stall" | "blocked_after" | "switch_session" | "blocked_then_working";
 };
 
 /** 设计审查的假 TUI 画的 Claude 空输入框（`tests/fixtures/screens.json` 的 fake-idle-empty）。 */
@@ -200,6 +201,12 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
             const stale = agentInfo({...pane, agent_status: "working"});
             pane.agent_status = "blocked";
             pane.state_change_seq = seq + 1;
+            return {id, result: {type: "agent_prompted", agent: stale}};
+        }
+        if (behavior === "blocked_then_working") {
+            const stale = agentInfo({...pane, agent_status: "working", state_change_seq: seq});
+            pane.agent_status = "working";
+            pane.state_change_seq = seq + 2;
             return {id, result: {type: "agent_prompted", agent: stale}};
         }
         if (behavior === "switch_session" && pane.agent_session) pane.agent_session = {...pane.agent_session, value: `${pane.agent_session.value}-new`};

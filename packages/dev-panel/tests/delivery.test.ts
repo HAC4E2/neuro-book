@@ -87,8 +87,8 @@ describe("投递与之后的核对", () => {
         expect([outcome.result, outcome.code, fake.prompts.length]).toEqual(["not_deliverable", "not_stable", 0]);
     });
 
-    test("回车前后弹出确认界面：delivered_into_blocked；投递的瞬间换了会话：delivered_maybe_wrong_session；herdr 没看到开始工作：uncertain", async () => {
-        for (const [behavior, expected] of [["blocked_after", "delivered_into_blocked"], ["switch_session", "delivered_maybe_wrong_session"], ["stall", "uncertain"]] as const) {
+    test("回车前后弹出确认界面（还在等确认，或状态序号跳了两格以上）：delivered_into_blocked；投递的瞬间换了会话：delivered_maybe_wrong_session；herdr 没看到开始工作：uncertain；正常一格：delivered", async () => {
+        for (const [behavior, expected] of [["blocked_after", "delivered_into_blocked"], ["blocked_then_working", "delivered_into_blocked"], ["switch_session", "delivered_maybe_wrong_session"], ["stall", "uncertain"], ["working", "delivered"]] as const) {
             const {context} = await setup({on_prompt: behavior});
             const checked = await checkDeliverable(context, target);
             const outcome = await deliverText(context, target, "x", checked.ok ? checked.agent : (null as never));

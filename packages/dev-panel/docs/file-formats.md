@@ -303,7 +303,7 @@ artifacts/<artifactId>/
 
 - `sessionKey` 是发给谁；`askerKey` 是提问者（手动另选会话时两者不同，这份对提问者也算办完）。
 - 每次尝试两份：调 herdr 之前独占创建一份 `result: "pending"` 的意图，拿到结果后另写一份同一个 `attemptId` 的结果。只有意图、没有结果的按 `uncertain` 算（面板在投递途中退出）。开发者选“不通知”只写一份 `skipped`（`paneId` 为 null）。
-- `result`：`delivered`、`delivered_into_blocked`（投递时弹出了确认界面，回车可能确认了它）、`delivered_maybe_wrong_session`（投递的瞬间换了会话）、`uncertain`（`code` 是 `agent_prompt_stalled`、`timeout` 或 `client_timeout`：写进去了但没看到会话开始工作，不重发）、`skipped` 算办完；`agent_blocked`、`not_deliverable`、`session_changed`、`failed` 没写进去，下次照常排队。
+- `result`：`delivered`、`delivered_into_blocked`（投递时弹出了确认界面，回车可能确认了它；`code: state_jumped` 是投递后状态序号跳了两格以上）、`delivered_maybe_wrong_session`（投递的瞬间换了会话）、`uncertain`（`code` 是 `agent_prompt_stalled`、`timeout` 或 `client_timeout`：写进去了但没看到会话开始工作，不重发）、`skipped` 算办完；`agent_blocked`、`not_deliverable`、`session_changed`、`failed` 没写进去，下次照常排队。
 - 目录 700、文件 600，独占创建（与租约目录同样的写法）；不自动清理。读不出的跳过并给 `unreadable_notify_record`。
 
 ## 审计

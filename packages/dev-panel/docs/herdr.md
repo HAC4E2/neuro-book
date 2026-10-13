@@ -94,7 +94,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 5. **聚焦的那一格**（`focused: true`，开发者的键盘最可能在那里）：隔 1 秒再读一次，两次都可投才投。
 6. **紧贴投递再核一次**：`agent.get` 的会话键、目录、状态与 `state_change_seq` 都与判定时相同，才调 `agent.prompt`。
 
-**投递之后**：先看 `agent.prompt` 的返回体，约 500 毫秒后再 `agent.get` 一次。会话键变了记 `delivered_maybe_wrong_session`；状态是 `blocked` 且 `state_change_seq` 与投递前不同，记 `delivered_into_blocked`（回车可能确认了刚弹出的确认界面，界面醒目提示马上看终端）。herdr 回 `agent_prompt_stalled`、`timeout` 或本地 `client_timeout` 都记 `uncertain`：已经写入，不重发。
+**投递之后**：先看 `agent.prompt` 的返回体，约 500 毫秒后再 `agent.get` 一次。会话键变了记 `delivered_maybe_wrong_session`；状态是 `blocked` 且 `state_change_seq` 与投递前不同，记 `delivered_into_blocked`（回车可能确认了刚弹出的确认界面，界面醒目提示马上看终端）；状态序号一次跳了两格以上（正常只有“空闲到工作”一格），或者返回体里是 `blocked`，也记 `delivered_into_blocked`（`code: state_jumped`）：确认界面弹出后又被回车确认，会话已回到 working，只看最后的状态看不出来。herdr 回 `agent_prompt_stalled`、`timeout` 或本地 `client_timeout` 都记 `uncertain`：已经写入，不重发。
 
 **手动发送**（会话已更换后发给新会话、没有可通知的会话时选一个、旧答复、这个版本不自动投）与会话页的文字过同样的判据，只是不要求“空闲稳定”；正向白名单不过时先把屏幕末尾给开发者看，确认之后才发。
 

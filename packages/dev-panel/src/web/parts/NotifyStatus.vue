@@ -65,7 +65,7 @@ function attemptLine(attempt: NotifyAttempt): {tone: Tone; text: string; attenti
     if (attempt.intentOnly) return {tone: "warning", text: `面板在投递途中退出，不知道 ${target} 收到没有，请看终端 · ${when}`, attention: true};
     switch (attempt.result) {
     case "delivered": return {tone: "success", text: `已通知 ${target}${via} · ${when}`, attention: false};
-    case "delivered_into_blocked": return {tone: "danger", text: `投递时 ${target} 弹出了确认界面，回车可能确认了它，请马上看终端 · ${when}`, attention: true};
+    case "delivered_into_blocked": return {tone: "danger", text: attempt.code === "state_jumped" ? `投递后 ${target} 的状态变了不止一次，可能经过了确认界面、回车确认了它，请马上看终端 · ${when}` : `投递时 ${target} 弹出了确认界面，回车可能确认了它，请马上看终端 · ${when}`, attention: true};
     case "delivered_maybe_wrong_session": return {tone: "warning", text: `投递的瞬间 ${attempt.paneId ?? ""} 上换了会话，消息可能进了别的会话，请看终端 · ${when}`, attention: true};
     case "uncertain": return {tone: "warning", text: `已写入 ${target}，但没看到它开始工作；请看终端，不要重发 · ${when}`, attention: true};
     case "skipped": return {tone: "neutral", text: `选了不通知 ${shortSession(attempt.askerKey)} · ${when}`, attention: false};

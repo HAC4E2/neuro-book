@@ -117,7 +117,7 @@ export type DeliveryOutcome = {result: NotifyResult; code: string | null; messag
 
 /**
  * 投递：紧贴着再 `agent.get` 复核会话、仓库、状态与状态序号（`before` 是判定时看到的），再 `agent.prompt`；
- * 之后用返回体与约 500 毫秒后的 `agent.get` 判断有没有在回车前后弹出确认界面、有没有换了会话。
+ * 之后用返回体与约 500 毫秒后的 `agent.get` 判断有没有在回车前后弹出确认界面（还在等确认，或状态序号一次跳了两格以上）、有没有换了会话。
  */
 export async function deliverText(context: DeliveryContext, target: DeliveryTarget, text: string, before: HerdrAgentInfo): Promise<DeliveryOutcome> {
     const sleep = context.sleep ?? defaultSleep;
@@ -150,6 +150,12 @@ export async function deliverText(context: DeliveryContext, target: DeliveryTarg
     }
     if (after && after.status === "blocked" && after.stateChangeSeq !== last.agent.stateChangeSeq) {
         return {result: "delivered_into_blocked", code: null, message: "投递时会话弹出了确认界面，回车可能确认了它，请马上看终端", agent: after};
+    }
+    // 正常是“空闲到工作”一次变化。跳了两次以上，或者返回体里出现过 blocked，多半是回车前后弹出了确认界面、回车又确认了它
+    // （会话已回到 working，上面那条看不出来；t11 实现审查第 7 条）。宁可多提示一次。
+    const jumps = after?.stateChangeSeq != null && last.agent.stateChangeSeq !== null ? after.stateChangeSeq - last.agent.stateChangeSeq : 0;
+    if (jumps >= 2 || prompted.agent?.status === "blocked") {
+        return {result: "delivered_into_blocked", code: "state_jumped", message: "投递后状态变了不止一次，可能经过了确认界面、回车确认了它，请马上看终端", agent: after};
     }
     return {result: "delivered", code: null, message: "已投递", agent: after};
 }
