@@ -36,7 +36,7 @@ const DEVELOPER_MESSAGE = "开发者在面板上答复了 w00001/t01 的提问�
 const MESSAGE = "[nbdev] w00001/t01 有 2 题新的开发者答复（产物 review）。对括号里列出的每个产物，运行 nbdev answers w00001 t01 <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack w00001 t01 <产物> --through <该次输出里的 cursor>。";
 
 type Body = {ok: boolean; data: Record<string, unknown>; errors: Array<{code: string; message: string; details?: Record<string, unknown>}>; warnings: Array<{code: string}>};
-type Job = {sessionKey: string; state: string; paneId: string | null; replacedBy: {sessionKey: string; paneId: string} | null; alternatives: Array<{sessionKey: string; paneId: string}>; answers: Array<{answerId: string}>; legacy: unknown[]; message: string; manualMessage: string};
+type Job = {sessionKey: string; state: string; paneId: string | null; replacedBy: {sessionKey: string; paneId: string} | null; alternatives: Array<{sessionKey: string; paneId: string}>; answers: Array<{answerId: string}>; legacy: unknown[]; message: string; manualMessage: string; developerMessage: string};
 type Panel = {
     server: PanelServer;
     send(method: string, path: string, body: unknown): Promise<{status: number; body: Body}>;
@@ -255,6 +255,24 @@ describe("自动通知", () => {
         expect([sent.status, sent.body.data.result]).toEqual([200, "delivered"]);
         expect(fake.prompts.map((prompt) => prompt.text)).toEqual([MESSAGE]);
         expect(await panel.jobs()).toEqual([]);
+    }, 30_000);
+});
+
+describe("收口（t11 实现审查第 4 条）", () => {
+    test("收口时正好有一个会失败的手动发送：stop 照常返回，端口不再回应", async () => {
+        const {fake, panel} = await setup("notify-stop-reject", {version: "0.9.2", panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main})]});
+        await answer(panel);
+        await until(() => panel.jobs(), (jobs) => jobs[0]?.state === "manual_only", 5_000, "manual_only");
+        // 读屏不回应：手动发送在 2 秒后以本地超时失败（503 herdr_unavailable）。
+        fake.overrides["agent.read"] = "hang";
+        const sending = panel.send("POST", "/api/notify/send", {...TASK, sessionKey: KEY_A, target: {paneId: "w9:p1", sessionKey: KEY_A}}).catch((error: unknown) => error);
+        await until(async () => fake.requests.some((request) => request.method === "agent.read"), (seen) => seen, 5_000, "手动发送进行到读屏");
+        const url = panel.server.url;
+        await stopPanel(panel);
+        await sending;
+        const after = await fetch(`${url}/api/meta`).then(() => "回应了", () => "连不上");
+        expect(after).toBe("连不上");
+        expect(fake.prompts).toEqual([]);
     }, 30_000);
 });
 

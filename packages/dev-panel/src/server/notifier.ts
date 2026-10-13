@@ -113,8 +113,9 @@ export class Notifier {
         if (this.timer) clearInterval(this.timer);
         if (this.stableTimer) clearTimeout(this.stableTimer);
         let limit: ReturnType<typeof setTimeout> | null = null;
+        // allSettled：收口时正好有一个会失败的发送，也要等完其余的再往下收（t11 实现审查第 4 条）。
         await Promise.race([
-            Promise.all([...this.inFlight, this.running]),
+            Promise.allSettled([...this.inFlight, this.running]),
             new Promise((done) => {
                 limit = setTimeout(done, PROMPT_WAIT_MS + 2_000);
             }),
@@ -265,10 +266,13 @@ export class Notifier {
         };
     }
 
-    private track<T>(work: Promise<T>): Promise<T> {
-        this.inFlight.add(work);
-        // 只为收口时等它：失败照样经 `work` 交给调用方。
-        void work.catch(() => undefined).finally(() => this.inFlight.delete(work));
+    /**
+     * 记下进行中的发送（通知、会话页的文字与按键），收口时等它们结束。集合里放的是已经吞掉结果的副本，失败照样经 `work` 交给调用方。
+     */
+    track<T>(work: Promise<T>): Promise<T> {
+        const settled: Promise<unknown> = work.then(() => undefined, () => undefined);
+        this.inFlight.add(settled);
+        void settled.then(() => this.inFlight.delete(settled));
         return work;
     }
 

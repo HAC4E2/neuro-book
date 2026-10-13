@@ -85,7 +85,7 @@ export function createSessionIo(deps: SessionIoDeps) {
         const target: DeliveryTarget = {paneId, sessionKey: sessionField(fields.expectedSession)};
         await requireAudit();
         const delivery = context();
-        const outcome = await locks.run(paneId, async () => {
+        const outcome = await notifier.track(locks.run(paneId, async () => {
             const checked = await checkDeliverable(delivery, target);
             if (!checked.ok && !(checked.code === "not_deliverable" && fields.confirmScreen === true && checked.agent)) throw checkError(checked);
             const before = checked.ok ? checked.agent : checked.agent!;
@@ -96,7 +96,7 @@ export function createSessionIo(deps: SessionIoDeps) {
             await notifier.auditResult(actionId, "prompt", auditTarget, {result: result.result, code: result.code});
             log(`会话页向 ${target.sessionKey}（${paneId}）发了文字：${result.result}${result.code ? `（${result.code}）` : ""}`);
             return result;
-        });
+        }));
         return envelope({result: outcome.result, code: outcome.code, message: outcome.message}, [], null);
     }
 
@@ -119,7 +119,7 @@ export function createSessionIo(deps: SessionIoDeps) {
             lastCtrlC.set(paneId, now);
         }
         const delivery = context();
-        await locks.run(paneId, async () => {
+        await notifier.track(locks.run(paneId, async () => {
             const checked = await checkSession(delivery, target);
             if (!checked.ok) throw checkError(checked);
             const actionId = newActionId();
@@ -128,7 +128,7 @@ export function createSessionIo(deps: SessionIoDeps) {
             const sent = await deliverKeys(delivery, target, list);
             await notifier.auditResult(actionId, "keys", auditTarget, sent.ok ? {result: "sent", code: null} : {result: "not_sent", code: sent.code});
             if (!sent.ok) throw checkError(sent);
-        });
+        }));
         return envelope({sent: list}, [], null);
     }
 
