@@ -124,7 +124,9 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                         <span class="i-lucide-info size-3.5" aria-hidden="true" />页面是当前版本（磁盘上的），切换版本只切换右边的题表
                         <a class="ml-auto" :href="data.pageUrl" target="_blank" rel="noopener noreferrer">单独打开</a>
                     </div>
-                    <iframe :src="data.pageUrl" sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer" class="min-h-[32rem] w-full flex-1 rounded-[var(--radius-panel)]" style="border: var(--border-w, 1px) solid var(--divider); background: var(--page-surface, var(--bg-main))" :title="`${data.title ?? props.artifactId} 的页面`" />
+                    <!-- 产物页按亮色画、多半没有自己的底色。iframe 不用面板的主题色：Chrome 只在载入时按明暗是否一致垫白底，
+                         面板切到暗色不重算，就成了深底黑字（t11 实现审查第 5 条）。想支持暗色的产物页自己设底色。 -->
+                    <iframe :src="data.pageUrl" sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer" class="min-h-[32rem] w-full flex-1 rounded-[var(--radius-panel)]" style="border: var(--border-w, 1px) solid var(--divider); color-scheme: light; background: #fff" :title="`${data.title ?? props.artifactId} 的页面`" />
                 </section>
                 <aside class="min-w-0 rounded-[var(--radius-panel)] p-4" :class="{'lg:col-span-2': !data.pageUrl}" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="问题">
                     <div class="flex flex-col gap-4">
