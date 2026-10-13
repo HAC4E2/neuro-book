@@ -72,7 +72,7 @@
 - **输出**：长命令，不套一次性的外壳。stdout 是按行的事件，`--json` 时每行一个 JSON 对象（`event` 字段）：
   - `READY <url> run=<runId> [reused] [owner=<会话键>]`（`ready`）；
   - `NOT_READY <日志> run=<runId> [status=<最后一次的状态码>] [reused]`（`not_ready`）：到 `--ready-timeout` 还没就绪，服务照留、照常监管。监管进程之后照样读日志、探测（探测放慢到 2 秒一次），就绪时补写登记的 `url`、`readyAt`，**再打一行 `READY`**：`NOT_READY` 之后可能还会有 `READY`；
-  - `EXITED <退出码或信号> run=<runId> [leftovers=<n>]`（`exited`）：服务退出，`leftovers` 是组长退出后补收的进程数。
+  - `EXITED <退出码或信号> run=<runId> [leftovers=<n>]`（`exited`）：服务退出，`leftovers` 是组长退出后补收的进程数（快照里与进程组里还活着的，按 pid 去重）。
   - 起来之前就失败（参数、checkout、脚本、工具）照常输出错误外壳与退出码。
 - **监管进程的退出码**：服务被 `dev stop` 或信号停掉为 0；服务自己退出为 1（`dev_exited`，不论之前有没有就绪）；停完核对不过为 1（`stop_incomplete`）。服务自己的退出码只在 `EXITED` 行里。
 - **复用**：键是（checkout、package、script）。

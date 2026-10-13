@@ -7,7 +7,7 @@ import {checkoutKeys} from "../core/checkouts.js";
 import {NbdevError, systemErrorCode, type Warning} from "../core/errors.js";
 import type {Caller} from "../core/identity.js";
 import {isRecord} from "../core/json.js";
-import {processAlive, processStartTicks} from "../core/procfs.js";
+import {processAlive, processStartTicks, readProcStats} from "../core/procfs.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {listCheckouts, type CheckoutInfo, type RepoContext} from "../core/repo.js";
 import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type ProcRef, type RunEvaluation, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
@@ -397,7 +397,9 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
         const wasStopping = latest.stoppingAt !== null;
         const evaluation = await evaluateRun({...latest, endedAt: null}, latest.bootId);
         if (evaluation.groupAlive || evaluation.aliveDescendants.length > 0) {
-            leftovers = evaluation.aliveDescendants.length + (evaluation.groupAlive ? 1 : 0);
+            // 按 pid 去重：组里的进程多半也在快照里（t14 实现审查 S4）。
+            const groupPids = evaluation.groupAlive ? (await readProcStats()).filter((stat) => stat.pgrp === latest.pgid).map((stat) => stat.pid) : [];
+            leftovers = new Set([...evaluation.aliveDescendants.map((entry) => entry.pid), ...groupPids]).size;
             const outcome = await stopRunProcesses(latest, {graceMs: wasStopping ? input.graceMs : LEFTOVER_GRACE_MS});
             leftoverPids = outcome.leftoverPids;
             leftoverRefs = outcome.snapshot.filter((entry) => outcome.leftoverPids.includes(entry.pid));

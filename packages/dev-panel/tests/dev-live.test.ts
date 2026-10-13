@@ -479,7 +479,8 @@ describe("收口的几条路径（设计审查 B1、I1、I6）", () => {
         const sup = await startDev(s, []);
         await readyLine(sup);
         expect(await sup.exited).toBe(1);
-        expect(sup.lines().at(-1)).toMatch(/^EXITED 3 run=\S+ leftovers=\d+/u);
+        // 只留下孙进程 sleep：它既在进程组里又在快照里，只算一次（t14 实现审查 S4）。
+        expect(sup.lines().at(-1)).toMatch(/^EXITED 3 run=\S+ leftovers=1$/u);
         expect(alivePids(s.pidsFile)).toEqual([]);
     }, 60_000);
 
