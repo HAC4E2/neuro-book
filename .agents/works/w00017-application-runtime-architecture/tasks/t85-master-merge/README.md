@@ -9,14 +9,22 @@ updated: 2026-10-13
 
 ## 目标与范围
 
-把 w00017 集成分支合入 master：在集成 worktree 里合并、解冲突、全量验证；push master 前按仓库流程重写含本机其他账户名的历史，并做一轮仓库空间清理
+把 w00017 集成分支合入 master：在集成 worktree 里合并、解冲突、全量验证；push master 前按仓库流程重写含本机其他账户名的历史（见 [w00022 README](../../../w00022-dev-panel/README.md) 的“实施”一节），并做一轮仓库空间清理。开发者 2026-10-13 授权 master 的历史重写与推送、空间清理；主工作区未提交的旧应用 UI 改动要保留，供新应用迁移时参考。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：行为合同未变。合并只解冲突，产品代码与 w00017 一致；开发者面板提案按新的提案规则补 frontmatter。
 
-## 当前状态
+执行位置：`.worktree/w00017-t85-master-merge`，分支 `chore/w00017-t85-master-merge`（从 `master` 经 nbdev 创建）。
 
-2026-10-13 经 nbdev 新建，尚未开工。
+## 进展
+
+- 主工作区未提交的改动（2026-09-28 至 10-02，w00019 的提示词编辑器、Lab 治理、输入框，w00021 的记录，owned-process 的改动，共 194 个路径，含已暂存的组件改目录）原样存进本地分支 `archive/legacy-ui-tuning`（`8ff073401`），逐个路径与工作区文件比对一致；不合并、不推送。没放进去的：w00022 t15 的 `plan.md`（另一个会话正在改，之后它自己提交了）与根目录的 `install.sh`（ossutil 安装脚本）。主工作区的文件与暂存区没有动。
+- 合并提交 `19e590c9d`（父提交 `f1b78083e`、`e4cbd1248`），9 处冲突的处理写在提交说明里：CI 照 w00017（`product-platforms.yml` 删除，`code-baseline.yml` 补 `packages/dev-panel`）；根 `package.json` 保留两边的包；`AGENTS.md`、`packages/AGENTS.md`、Monorepo 边界、提案索引用 w00017 的写法并补开发者面板；测试规范取并集；本 Work README 的 Task 行按编号合并。
+- 验证（合并结果）：`bun install --frozen-lockfile` 无变化；`governance:check`、`docs:check` 0 失败；`test:affected --all --typecheck` 17 项中 14 项通过，失败 3 项是 w00017 分支原有的（在 `.worktree/w00017-runtime-foundation` 原样复现，合并没改这两个包）：llmlint 的 `typecheck` 找不到 `diff-match-patch`、`test:vitest` 找不到 `web/` 的 tsconfig，neuro-book-test-support 的 `paths.test.ts` 一例（超长临时根没有被拒绝）。
+- 历史重写已演练（只生成对象，不动引用）：从 `2cca6d3fa` 起 138 个提交换号，13 个旧文件版本删去账户名（用词与 `012f1a1e4` 的清理一致），各分支末端的树与原来逐字节相同；新历史里能到达的 24380 个文件版本没有账户名。受影响的引用：`master`、`feat/w00022-dev-panel`、`archive/legacy-ui-tuning`、本 Task 分支，以及 `w00022-t15-review` 的分离 HEAD 和三处 ORIG_HEAD。w00022 记录里引用的 94 个提交号要随之更新。
+- 空间清理第一批：删除 governance 标为“待清理”的 `.worktree/w00018-pre-nb-ui-baseline`、`.worktree/w00020-startup-exit-api-auth` 与本地分支 `chore/w00018-pre-nb-ui-baseline`、`fix/w00020-startup-exit-api-auth`（都已在 master，工作区干净）。
 
 ## 下一步
 
-待补充。
+1. 新应用全套 e2e（合并结果）与开发者面板对新应用的 `dev`、`lab:shot` 冒烟。
+2. 开发者暂停 w00022 等会话后：主工作区移走会被合并改到的旧应用文件（已在归档分支），`master` 快进到合并提交；正式重写历史（按旧号核对、一次性移动引用，删除指向旧提交的 reflog 条目并留审计，gc，核对旧对象已不存在）；更新 w00022 记录里的提交号；push `master`。
+3. 清理第二批：t80、t84 的 worktree 与分支，本地分支 `remote`、`backup/w00017-before-trailer-cleanup`。远端 89 个按祖先关系未合入的旧分支只列出，删除要开发者另行同意。
