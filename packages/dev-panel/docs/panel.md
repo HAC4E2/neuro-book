@@ -134,7 +134,7 @@
 | `waiting_idle` | 在工作 | “已排队：这一轮结束后通知” |
 | `waiting_blocked` | 在等确认 | “在等确认，排着” |
 | `waiting_input` | 空闲但输入框不是认得出的空（`waitReason`、`screen`）；状态序号变了（`agent.get`，不读屏）或过了 15 秒才重读屏幕 | 原因与屏幕末尾，可手动发 |
-| `unknown_status` | 状态未知，不自动投 | 可手动发（仍要空闲） |
+| `unknown_status` | 状态未知，不自动投 | “空闲之后自动判定”，不给手动发送（手动发送同样要求空闲） |
 | `waiting_herdr` | herdr 不可用 | 排着 |
 | `replaced` | 提问者不在 herdr 里，它提问时所在的 pane 上换了一个本仓库里的会话（`replacedBy`） | 小窗：发给现在的会话（开发者名义的普通消息，见下），或不通知 |
 | `no_target` | 提问者不在 herdr 里（结束了、外部会话） | 列出持有这个 Task 有效租约、在 herdr 里、pane 在本仓库的会话（`alternatives`），各一个“通知它”（开小窗，开发者名义的普通消息）；没有就写“会话下次读答复时会看到” |

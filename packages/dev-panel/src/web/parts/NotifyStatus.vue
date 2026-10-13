@@ -40,7 +40,7 @@ function jobLine(job: NotifyJob): {tone: Tone; text: string} {
     case "manual_only": return {tone: "neutral", text: `这个 herdr 版本不自动投递；可以手动通知 ${asker}`};
     case "waiting_idle": return {tone: "accent", text: `已排队：${asker} 这一轮结束后通知`};
     case "waiting_blocked": return {tone: "warning", text: `已排队：${asker} 在等确认，排着`};
-    case "unknown_status": return {tone: "warning", text: `已排队：${asker} 的状态未知，不自动投`};
+    case "unknown_status": return {tone: "warning", text: `已排队：${asker} 的状态未知，空闲之后自动判定`};
     case "waiting_input": return {tone: "warning", text: `已排队：等 ${asker} 的输入框清空（${job.waitReason ?? "认不出输入框"}）`};
     case "ready": return {tone: "accent", text: `${asker} 空闲，几秒内通知`};
     }
@@ -48,7 +48,8 @@ function jobLine(job: NotifyJob): {tone: Tone; text: string} {
 
 /** 这一行可以手动发给谁：提问者本人（不自动投的几种）、持有租约的会话。会话已更换的走小窗。 */
 function targets(job: NotifyJob): NotifyCandidate[] {
-    const asker: NotifyCandidate[] = job.paneId && ["legacy", "manual_only", "unknown_status", "waiting_input"].includes(job.state)
+    // 状态未知不给按钮：手动发送同样要求空闲，按了一定是 409（t11 实现审查第 8 条）。
+    const asker: NotifyCandidate[] = job.paneId && ["legacy", "manual_only", "waiting_input"].includes(job.state)
         ? [{sessionKey: job.sessionKey, paneId: job.paneId, agent: job.agent, status: "", asker: true}]
         : [];
     const others = ["no_target", "legacy", "not_in_repository"].includes(job.state) ? job.alternatives : [];
