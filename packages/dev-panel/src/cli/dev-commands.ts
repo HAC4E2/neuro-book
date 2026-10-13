@@ -70,8 +70,8 @@ export const DEV_COMMANDS: Record<string, CommandSpec> = {
                 names: createNameIndexCache(),
                 signal: new AbortController().signal,
                 limit,
+                namesOnly: values.name === true,
                 onHit: (hit) => {
-                    if (values.name === true && hit.kind !== "name") return;
                     if (hits.length < FIND_TOTAL_LIMIT) hits.push(hit);
                     else truncated = true;
                 },

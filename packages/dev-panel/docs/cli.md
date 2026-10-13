@@ -36,7 +36,7 @@
 | `nbdev dev status` | `--checkout`、`--package`、`--script`、`--all`（全部 checkout）、`--wait-ready`、`--timeout <秒>` | `nbdev.dev-status/v1` |
 | `nbdev dev stop [<runId>]` | 不给 runId 时按 `--checkout`、`--package`、`--script` 找；`--force`、`--grace <秒>`、`--as` | `nbdev.dev-stop/v1` |
 | `nbdev worktree new <workRef> <taskRef>` | `--slug <短名>`（缺省 Task 的 slug）、`--type`（缺省 `feat`）、`--from`（缺省 `master`）、`--as` | `nbdev.worktree-new/v1` |
-| `nbdev find <词>` | `--in <checkout key 或 all>`（缺省 all）、`--name`（只找文件名）、`--limit <n>`（每个 checkout，缺省 20） | `nbdev.find/v1` |
+| `nbdev find <词>` | `--in <checkout key 或 all>`（缺省 all）、`--name`（只找文件名，不跑内容搜索，条数与截断只算文件名）、`--limit <n>`（每个 checkout，缺省 20） | `nbdev.find/v1` |
 | `nbdev shot [-- <参数…>]` | `--checkout`、`--package`（缺省 `packages/neuro-book`）、`--work <workRef> --task <taskRef>`、`--url <地址>`；`--` 之后的参数原样交给 `lab:shot` | `nbdev.shot/v1` |
 
 - `workRef` 是完整 id（`w00022-dev-panel`）或编号（`w00022`）；`taskRef` 是完整 id 或编号（`t06`、`t100`）。

@@ -140,7 +140,8 @@ function grepCheckout(checkout: SearchCheckout, q: string, limit: number, signal
  * 在几个 checkout 上并发搜索，逐条回调结果；每个 checkout 做完回调一次（先做完的先送，慢的后送）。
  * 文件名的匹配先于内容；每个 checkout 文件名与内容各最多 `limit` 条。
  */
-export async function searchCheckouts(options: {q: string; checkouts: readonly SearchCheckout[]; names: NameIndexCache; signal: AbortSignal; limit?: number; timeoutMs?: number; onHit: (hit: SearchHit) => void; onCheckoutDone: (done: CheckoutSearchDone) => void}): Promise<void> {
+/** `namesOnly`：只找文件名，不跑内容搜索（`nbdev find --name`），数与截断也只算文件名。 */
+export async function searchCheckouts(options: {q: string; checkouts: readonly SearchCheckout[]; names: NameIndexCache; signal: AbortSignal; limit?: number; timeoutMs?: number; namesOnly?: boolean; onHit: (hit: SearchHit) => void; onCheckoutDone: (done: CheckoutSearchDone) => void}): Promise<void> {
     const q = validateSearchQuery(options.q);
     const limit = options.limit ?? SEARCH_LIMIT_PER_CHECKOUT;
     const started = Date.now();
@@ -166,7 +167,9 @@ export async function searchCheckouts(options: {q: string; checkouts: readonly S
             if (!(caught instanceof NbdevError)) throw caught;
             error = caught.message;
         }
-        const content = options.signal.aborted ? {count: 0, truncated: true, error: null} : await grepCheckout(checkout, q, limit, options.signal, deadline, options.onHit);
+        const content = options.namesOnly ? {count: 0, truncated: false, error: null}
+            : options.signal.aborted ? {count: 0, truncated: true, error: null}
+            : await grepCheckout(checkout, q, limit, options.signal, deadline, options.onHit);
         options.onCheckoutDone({checkout: checkout.key, count: nameCount + content.count, truncated: nameTruncated || content.truncated, elapsedMs: Date.now() - started, error: error ?? content.error});
     }));
 }

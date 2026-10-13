@@ -23,6 +23,10 @@ describe("find", () => {
         const names = (await fixture.cli(["find", "notes", "--name", "--json"])).json!.data as {records: unknown[]; hits: Array<{kind: string}>};
         expect(names.records).toEqual([]);
         expect(names.hits.every((hit) => hit.kind === "name")).toBe(true);
+        // --name 不跑内容搜索：内容命中再多也不算进条数与截断（t14 实现审查 S3）。
+        await fixture.write("docs/zeta.md", "zeta\n".repeat(10));
+        const onlyName = (await fixture.cli(["find", "zeta", "--name", "--limit", "5", "--json"])).json!.data as {hits: Array<{kind: string; path: string}>; checkouts: Array<{count: number; truncated: boolean}>; truncated: boolean};
+        expect([onlyName.hits.map((hit) => [hit.kind, hit.path]), onlyName.truncated, onlyName.checkouts.map((entry) => [entry.count, entry.truncated])]).toEqual([[["name", "docs/zeta.md"]], false, [[1, false]]]);
         const limited = (await fixture.cli(["find", "seed", "--limit", "1", "--json"])).json!.data as {truncated: boolean};
         expect(limited.truncated).toBe(true);
         expect((await fixture.cli(["find", "seed", "--in", "nope", "--json"])).exitCode).toBe(2);
