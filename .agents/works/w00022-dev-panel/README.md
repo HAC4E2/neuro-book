@@ -48,5 +48,6 @@ status: active
 | [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`3ef00987a`），完成 |
 | [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 实现审查修正后合入 `master`（`8b44f60ca`），完成 |
 | [t11](tasks/t11-notify/README.md) | 通知、会话消息与常驻；2026-10-13 合入 `master`（`23f604ebf`），等安装服务与场景 1 |
-| [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 实施完成，实现审查中 |
+| [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 实现审查修正完成，等合入 |
 | [t13](tasks/t13-cross-device/README.md) | 跨设备访问；2026-10-13 写了计划后搁置：开发者定先不做 Tailscale，SSH 转发加常驻服务够用 |
+| [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充；2026-10-13 开工 |
