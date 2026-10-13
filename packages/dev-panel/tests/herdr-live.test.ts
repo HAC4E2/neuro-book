@@ -5,7 +5,8 @@ import {once} from "node:events";
 import {existsSync, readFileSync} from "node:fs";
 import {chmod, copyFile, mkdir, readFile, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {join, resolve} from "node:path";
+import {createConnection} from "node:net";
+import {dirname, join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {locateRepository} from "../src/core/repo.js";
@@ -13,6 +14,8 @@ import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {checkDeliverable, deliverKeys, deliverText, type DeliveryContext} from "../src/server/delivery.js";
 import {startPanelServer} from "../src/server/serve.js";
+import {readPtySize, type TerminalSize} from "../src/server/terminal-size.js";
+import {resolveTerminalTools, startTerminalStream, type StreamKind, type StreamLine, type TerminalStream, type TerminalTools} from "../src/server/terminal-stream.js";
 import {cleanupFixtures, CLI_PATH, createFixture, panelEnv, type CliEnvelope} from "./git-fixture.js";
 
 /**
@@ -60,11 +63,11 @@ afterEach(async () => {
     }
 });
 
-/** 起命名会话的 server；本机已有同名会话时不覆盖。 */
-async function startSessionServer(): Promise<void> {
+/** 起命名会话的 server（`bin` 给另一个版本的 herdr 时用它当 server，客户端命令照旧用 PATH 里的）；本机已有同名会话时不覆盖。 */
+async function startSessionServer(bin = "herdr"): Promise<void> {
     const existing = JSON.parse(spawnSync("herdr", ["session", "list", "--json"], {env: cleanEnv, encoding: "utf8"}).stdout) as {sessions: Array<{name: string}>};
     if (existing.sessions.some((session) => session.name === SESSION)) throw new Error(`本机已有 herdr 会话 ${SESSION}，不覆盖；先确认它没人用再删掉`);
-    server = spawn("herdr", ["--session", SESSION, "server"], {env: cleanEnv, stdio: "ignore"});
+    server = spawn(bin, ["--session", SESSION, "server"], {env: cleanEnv, stdio: "ignore"});
     for (let waited = 0; !existsSync(socketPath); waited += 100) {
         if (waited > 10_000) throw new Error("命名会话的 herdr server 10 秒内没有起来");
         await sleep(100);
@@ -254,4 +257,234 @@ describe("真实 herdr 的投递（t11，命名会话里名为 claude 的假界�
         await sleep(300);
         expect(await tui.bytes()).toEqual([]);
     }, 120_000);
+});
+
+describe("真实 herdr 的终端流（t12，命名会话）", () => {
+    // 主工作区里不入库的 0.9.1 二进制（开发者的默认 server 是 0.9.1）：只拿来当命名会话的 server，不在时这一组跳过。
+    const MAIN = dirname(spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {cwd: import.meta.dirname, encoding: "utf8"}).stdout.trim());
+    const HERDR_091 = join(MAIN, ".local", "agent", "works", "w00022-dev-panel", "tasks", "t12-web-terminal", "herdr-0.9.1", "herdr");
+    const PARENT_SCRIPT = resolve(import.meta.dirname, "l4-terminal-parent.ts");
+    const same = (a: TerminalSize | null, b: TerminalSize | null) => a !== null && b !== null && a.cols === b.cols && a.rows === b.rows;
+
+    async function until<T>(read: () => T | Promise<T>, ok: (value: T) => boolean, ms: number, what: string): Promise<T> {
+        const started = Date.now();
+        for (;;) {
+            const value = await read();
+            if (ok(value)) return value;
+            if (Date.now() - started > ms) throw new Error(`${ms} 毫秒内没等到：${what}（最后是 ${JSON.stringify(value)}）`);
+            await sleep(50);
+        }
+    }
+
+    /** 一次 socket 调用（白名单外的 `pane.send_text` 只在测试里用来往 pane 里打字；`herdr` 命令行是同步起的，会挡住收帧的计时）。 */
+    function rawCall(method: string, params: Record<string, unknown>): Promise<unknown> {
+        return new Promise((resolveCall, reject) => {
+            const socket = createConnection(socketPath);
+            let buffer = "";
+            socket.on("connect", () => socket.write(`${JSON.stringify({id: "l4", method, params})}\n`));
+            socket.on("data", (chunk) => {
+                buffer += chunk.toString("utf8");
+                const newline = buffer.indexOf("\n");
+                if (newline < 0) return;
+                socket.end();
+                const response = JSON.parse(buffer.slice(0, newline)) as {result?: unknown; error?: unknown};
+                if (response.error) reject(new Error(`${method}：${JSON.stringify(response.error)}`));
+                else resolveCall(response.result);
+            });
+            socket.on("error", reject);
+        });
+    }
+
+    type Collected = {stream: TerminalStream; lines: StreamLine[]; first: Promise<StreamLine | null>; seenAt(text: string): number | null};
+    /** 起一条流并记下每一行与它到达的时刻；收口登记在 closers 里。 */
+    function collect(tools: TerminalTools, kind: StreamKind, terminalId: string, size: TerminalSize, takeover = false): Collected {
+        const lines: StreamLine[] = [];
+        const arrivals: Array<{at: number; text: string}> = [];
+        let resolveFirst: (line: StreamLine | null) => void = () => undefined;
+        const first = new Promise<StreamLine | null>((done) => (resolveFirst = done));
+        const stream = startTerminalStream(tools, kind, terminalId, size, takeover, {
+            onLine: (line) => {
+                lines.push(line);
+                if (line.type === "frame") arrivals.push({at: performance.now(), text: Buffer.from(line.bytes, "base64").toString("utf8")});
+                resolveFirst(line);
+            },
+            onBadLine: (line) => lines.push({type: "closed", reason: `读不懂的行：${line}`}),
+            onStderr: () => undefined,
+        });
+        void stream.exited.then(() => resolveFirst(null));
+        closers.push(() => stream.stop());
+        return {
+            stream, lines, first,
+            seenAt(text) {
+                let joined = "";
+                for (const arrival of arrivals) {
+                    joined += arrival.text;
+                    if (joined.includes(text)) return arrival.at;
+                }
+                return null;
+            },
+        };
+    }
+
+    /** 在一个 pty（cols×rows）里挂 herdr 的 TUI；往它的 stdin 写“列 行”改窗口尺寸。 */
+    async function attachTui(cols: number, rows: number): Promise<{resize(cols: number, rows: number): void}> {
+        const script = `import os, pty, sys, fcntl, termios, struct, select, signal
+def size(fd, c, r):
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", r, c, 0, 0))
+c, r = int(sys.argv[1]), int(sys.argv[2])
+pid, fd = pty.fork()
+if pid == 0:
+    size(0, c, r)
+    os.execvp(sys.argv[3], sys.argv[3:])
+size(fd, c, r)
+print(pid, flush=True)
+inp = sys.stdin.fileno()
+while True:
+    ready, _, _ = select.select([fd, inp], [], [], 0.5)
+    if fd in ready:
+        try:
+            if not os.read(fd, 65536):
+                break
+        except OSError:
+            break
+    if inp in ready:
+        line = os.read(inp, 1024).decode()
+        if not line:
+            break
+        for item in line.strip().splitlines():
+            c, r = map(int, item.split())
+            size(fd, c, r)
+try:
+    os.kill(pid, signal.SIGTERM)
+except ProcessLookupError:
+    pass
+os.waitpid(pid, 0)`;
+        const wrapper = spawn("python3", ["-I", "-c", script, String(cols), String(rows), "herdr", "--session", SESSION], {env: cleanEnv, stdio: ["pipe", "pipe", "inherit"]});
+        const [line] = await once(wrapper.stdout!, "data") as [Buffer];
+        const tuiPid = Number(line.toString("utf8").trim());
+        closers.push(async () => {
+            if (wrapper.exitCode === null && wrapper.signalCode === null) {
+                const exited = once(wrapper, "exit");
+                wrapper.stdin!.end();
+                await Promise.race([exited, sleep(5_000)]);
+                if (wrapper.exitCode === null && wrapper.signalCode === null) wrapper.kill("SIGKILL");
+            }
+            if (existsSync(`/proc/${tuiPid}`)) process.kill(tuiPid, "SIGKILL");
+        });
+        return {resize: (nextCols, nextRows) => void wrapper.stdin!.write(`${nextCols} ${nextRows}\n`)};
+    }
+
+    const variants = [
+        {name: "0.9.3", bin: "herdr", present: herdrInstalled, note: "本机的 herdr"},
+        {name: "0.9.1", bin: HERDR_091, present: herdrInstalled && existsSync(HERDR_091), note: `${HERDR_091} 不在时跳过`},
+    ];
+    for (const variant of variants) {
+        test.skipIf(!variant.present)(`server ${variant.name}（${variant.note}）：pty 尺寸；两个 observe 同时看、不改尺寸；control 改尺寸、已有控制者时不带 takeover 被拒、带 takeover 抢走、resize、release 后能再连；TUI 在接管中改不动尺寸、释放后能；父进程被 SIGKILL 后子进程退出、控制权释放`, async () => {
+            await startSessionServer(variant.bin);
+            const fixture = await createFixture(`herdr-live-term-${variant.name}`);
+            const created = herdr(["workspace", "create", "--cwd", fixture.main, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
+            const paneId = created.result.root_pane.pane_id;
+            const client = createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS});
+            const terminalId = (await client.listPanes()).find((pane) => pane.paneId === paneId)!.terminalId;
+            expect(terminalId).not.toBe("");
+
+            // 终端流连的是 socket 旁边的 `-client.sock`（TUI 的私有协议），sun_path 108 字节，推出来的路径要放得下。
+            const clientSocket = socketPath.replace(/\.sock$/u, "-client.sock");
+            expect(existsSync(clientSocket)).toBe(true);
+            expect(Buffer.byteLength(clientSocket)).toBeLessThanOrEqual(107);
+            const resolved = resolveTerminalTools({PATH: process.env.PATH ?? ""}, socketPath, (name) => Bun.which(name));
+            if (!resolved.available) throw new Error(resolved.reason);
+            const tools = resolved.tools;
+
+            // pty：`/proc/<shell pid>/fd/0` 是 pty，`stty -F` 读到的与 pane 里 `stty size` 一致。
+            const sizeFile = join(fixture.root, "size.txt");
+            herdr(["pane", "run", paneId, `stty size > '${sizeFile}'`]);
+            const inPane = await until(() => (existsSync(sizeFile) ? readFileSync(sizeFile, "utf8").trim() : ""), (text) => /^\d+ \d+$/u.test(text), 10_000, "pane 里的 stty size");
+            const before = await readPtySize(client, paneId);
+            expect(before === null ? null : `${before.rows} ${before.cols}`).toBe(inPane);
+
+            // 场景 1：两个 observe 同时看；pane 里有输出后两边都收到；观看不改尺寸。
+            const a = collect(tools, "observe", terminalId, before!);
+            const b = collect(tools, "observe", terminalId, before!);
+            expect([(await a.first)?.type, (await b.first)?.type]).toEqual(["frame", "frame"]);
+            expect(a.lines[0]).toMatchObject({full: true});
+            // 时延：经同尺寸的 control 打字（pane 里的 shell 回显），量到两个 observe 都收到帧，即 herdr 到面板子进程这一段（照实记，超过 50 毫秒算失败）。
+            // 经 socket 的 `pane.send_text` 另记一个数：Bun 的 socket 客户端有时多等约 100 毫秒（herdr.md 的“时延”），不拿它判。
+            const writer = collect(tools, "control", terminalId, before!);
+            expect((await writer.first)?.type).toBe("frame");
+            const latencies: number[] = [];
+            for (let round = 0; round < 5; round += 1) {
+                const marker = `MARK${randomBytes(4).toString("hex")}`;
+                const started = performance.now();
+                writer.stream.send({type: "input", text: marker});
+                await until(() => [a.seenAt(marker), b.seenAt(marker)], (seen) => seen.every((at) => at !== null), 5_000, "两个 observe 都收到");
+                latencies.push(Math.max(a.seenAt(marker)!, b.seenAt(marker)!) - started);
+            }
+            await writer.stream.stop();
+            const viaSocket = `MARK${randomBytes(4).toString("hex")}`;
+            const socketStarted = performance.now();
+            await rawCall("pane.send_text", {pane_id: paneId, text: viaSocket});
+            await until(() => [a.seenAt(viaSocket), b.seenAt(viaSocket)], (seen) => seen.every((at) => at !== null), 5_000, "send_text 之后两个 observe 都收到");
+            const socketLatency = Math.max(a.seenAt(viaSocket)!, b.seenAt(viaSocket)!) - socketStarted;
+            console.log(`L4 t12 server ${variant.name}：control 打字到两个 observe 都收到帧 ${latencies.map((value) => value.toFixed(1)).join("、")} 毫秒；经 socket 的 pane.send_text ${socketLatency.toFixed(1)} 毫秒`);
+            expect(Math.max(...latencies)).toBeLessThan(50);
+            expect(await readPtySize(client, paneId)).toEqual(before);
+            await a.stream.stop();
+            const marker2 = `MARK${randomBytes(4).toString("hex")}`;
+            await rawCall("pane.send_text", {pane_id: paneId, text: marker2});
+            await until(() => b.seenAt(marker2), (at) => at !== null, 5_000, "关掉一个之后另一个照常收到");
+            await b.stream.stop();
+
+            // 场景 2：control 一连上就改尺寸；已有控制者时不带 takeover 第一行就是结束；带 takeover 抢走，前一个收到结束。
+            const first = collect(tools, "control", terminalId, {cols: 90, rows: 25});
+            expect((await first.first)?.type).toBe("frame");
+            await until(() => readPtySize(client, paneId), (size) => same(size, {cols: 90, rows: 25}), 3_000, "control 改成 90×25");
+            const refused = collect(tools, "control", terminalId, {cols: 80, rows: 24});
+            expect((await refused.first)?.type).toBe("closed");
+            expect(await refused.stream.exited).toBe(0);
+            const taker = collect(tools, "control", terminalId, {cols: 100, rows: 28}, true);
+            expect((await taker.first)?.type).toBe("frame");
+            await first.stream.exited;
+            expect(first.lines.at(-1)?.type).toBe("closed");
+            expect(first.stream.released).toBe(false);
+            await until(() => readPtySize(client, paneId), (size) => same(size, {cols: 100, rows: 28}), 3_000, "takeover 改成 100×28");
+            taker.stream.send({type: "resize", cols: 95, rows: 26});
+            await until(() => readPtySize(client, paneId), (size) => same(size, {cols: 95, rows: 26}), 3_000, "resize 立刻生效");
+            // 释放：先改回接管前的尺寸，再 release；之后不带 takeover 的 control 能连上。
+            taker.stream.send({type: "resize", cols: before!.cols, rows: before!.rows});
+            await taker.stream.stop();
+            expect(await readPtySize(client, paneId)).toEqual(before);
+            const again = collect(tools, "control", terminalId, before!);
+            expect((await again.first)?.type).toBe("frame");
+            await again.stream.stop();
+
+            // 场景 3：挂一个 TUI（0.9.3 客户端，开发者现在的组合）。接管中 TUI 改窗口，pane 的尺寸不变；释放后 TUI 改回它的布局，再改窗口 pane 跟着变。
+            const tui = await attachTui(100, 30);
+            const laidOut = await until(() => readPtySize(client, paneId), (size) => size !== null && size.cols <= 100 && size.rows <= 30, 10_000, "TUI 挂上之后按它的布局");
+            const held = collect(tools, "control", terminalId, {cols: 90, rows: 25});
+            expect((await held.first)?.type).toBe("frame");
+            await until(() => readPtySize(client, paneId), (size) => same(size, {cols: 90, rows: 25}), 3_000, "接管改成 90×25");
+            tui.resize(120, 36);
+            await sleep(1_500);
+            expect(await readPtySize(client, paneId)).toEqual({cols: 90, rows: 25});
+            await held.stream.stop();
+            const relaid = await until(() => readPtySize(client, paneId), (size) => size !== null && !same(size, {cols: 90, rows: 25}), 5_000, "释放之后 TUI 改回它的布局");
+            tui.resize(100, 30);
+            await until(() => readPtySize(client, paneId), (size) => same(size, laidOut), 5_000, "TUI 改窗口之后 pane 跟着变");
+            console.log(`L4 t12 server ${variant.name}：TUI 布局 ${JSON.stringify(laidOut)}，TUI 放大后释放得到 ${JSON.stringify(relaid)}`);
+
+            // 收口：父进程被 SIGKILL 之后 observe 与 control 子进程都退出（pdeathsig），控制权释放。
+            const parent = spawn(process.execPath, [PARENT_SCRIPT, socketPath, terminalId], {env: {HOME: homedir(), PATH: process.env.PATH ?? ""}, stdio: ["ignore", "pipe", "inherit"]});
+            closers.push(async () => {
+                if (parent.exitCode === null && parent.signalCode === null) parent.kill("SIGKILL");
+            });
+            const [ready] = await once(parent.stdout!, "data") as [Buffer];
+            const pids = JSON.parse(ready.toString("utf8").trim()) as {observe: number; control: number};
+            parent.kill("SIGKILL");
+            await until(() => [pids.observe, pids.control].filter((pid) => existsSync(`/proc/${pid}`)), (alive) => alive.length === 0, 3_000, "父进程被 SIGKILL 之后子进程退出");
+            const after = collect(tools, "control", terminalId, {cols: 80, rows: 24});
+            expect((await after.first)?.type).toBe("frame");
+            await after.stream.stop();
+        }, 120_000);
+    }
 });
