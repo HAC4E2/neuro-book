@@ -1,0 +1,167 @@
+# w00022/t14 实现审查报告（23402f959..c5177bc56，只读）
+
+## 结论
+
+开发服务的主干（监管进程、组长、后代快照三样；只给组长 SIGTERM 的停法；信号到达 5 毫秒内写登记；仿 TaskStop、pdeathsig、leave、ignore、owned 几条路径）都按设计审查落实了，实验与 L4 都对得上。要在合入前改的是一处会自我放大的循环，另有四处判据或刷新上的缺口：
+
+- **阻断 1 条**：
+  - B1：GitHub 页开着、`gh` 取不到数据（没登录、找不到、出错、旧数据超过 5 分钟）时，“推送 → 页面重取 → `touch()` 再取”成环：没登录时 10 秒调 `gh` 10556 次，找不到 `gh` 时 10 秒推送 10 万多次；真实前端 8 秒 1612 次。
+- **重要 4 条**：
+  - I1：组号判据不防“组空了、号被另一个组长复用”：`dev stop` 不要 `--force` 就给无关进程组发 SIGTERM、SIGKILL，`dev start` 复用死运行打 `READY`；EPERM 也当“还在”，停时报 `internal`。
+  - I2：`orphaned`/`leader_exited`（开发脚本已退、只剩孙进程）也被复用，立即打 `READY <连不上的地址> reused`。
+  - I3：打出 `NOT_READY` 后监管进程不再读日志，服务后来就绪也一直是 `starting`，`dev status --wait-ready` 必超时、`shot` 报 `dev_not_running`。
+  - I4：checkout 页只在“活动”变了才重取，改了已跟踪的文件 20 秒后仍显示“干净、刚刚算的”。
+- **建议 6 条**：S1 复用中途对方退出仍等满时限；S2 `stop_incomplete` 之后登记成了 `ended`（计划写 `orphaned`）；S3 `find --name` 误标截断；S4 `leftovers` 计数重复；S5 同名失败检查分不出、`v-for` key 重复；S6 几处注释与文档出入（`lease-ops.ts` 注释错位、`github.ts` 引用不存在的测试文件、坏 `package.json` 报成 `script_not_found`、`src/index.ts` 没导出且没记偏离）。
+
+**设计审查 19 条的落实**：
+
+- 已落实：B1、I2、I4、I5、S1、S2、S3、S4、S5、S6、S7、S9、S10、S11、S12。
+- 落实有误或不全：
+  - I1（“还活着”的判据）：四条判据与 `leader_exited` 都做了，但第 3 条“组号在就是我们那一组”只在我们的组还有成员时成立，没有排除号被复用成别的组（本报告 I1）。
+  - I3（checkout 页不能按 mtime 缓存）：服务端改成现算加 10 秒缓存，页面却不按 5 秒重取、“N 秒前”不走（本报告 I4）。
+  - S8（GitHub 的细节）：白名单、字段、环境变量、StatusContext、纯文本、截断提示都做了；“没人看时不取、有人看时 5 分钟一次”在失败状态下被循环打破（本报告 B1）。
+  - I6（验收覆盖）：要求的 L4 都有，但场景 3 的 pid 复用只用了非组长进程，测不到 I1；仿 TaskStop 的用例只断言 `ended`，没断言 `stoppingAt` 与原因；真实 TaskStop 与 omp `proc://` 留在合入后的在场一步（Task README 已记为未验证）。
+  - 停法第 6 步“核对不过 → `orphaned` 加 `leftoverPids`”：实现写成 `ended`（本报告 S2）。
+
+**结束时的状态**：
+
+- 审查 worktree `.worktree/w00022-t14-review`：`git status --short` 为空，HEAD 仍是 `3be97d883`；前端是构建到 `/dev/shm` 的，没有写进 worktree。
+- 进程：实验起的假开发脚本、监管进程、面板（端口 4480 到 4485）、Chrome 都已结束，4480 到 4489 没有监听；没有碰常驻面板 `nbdev-panel-neuro-book.service`（4400、4401），没有调 herdr，真实 `gh` 一次也没跑。
+- 临时目录：`/dev/shm/review-t14-impl/`（临时仓库、前端产物、Chrome 用户数据）已删；实验脚本与输出留在审查目录的 `scripts/`、`logs/`；截图 13 张在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t14-runs-and-github/shots/review-*.png`。
+- 真实仓库上只做了只读的事（读文件；对 15 个真实 checkout 跑面板 checkout 页那两条只读 Git 命令量耗时），没有起开发服务、没有建 worktree、没有跑 nbdev 的写命令。
+
+
+## 发现
+
+### I1【重要】组号判据不防“组空了、号被另一个组长复用”：`dev stop` 会给无关进程组发 SIGTERM、SIGKILL，`dev start` 会复用一份早已死掉的运行
+
+- **位置**：`packages/dev-panel/src/core/procs.ts:194-205`（`groupAlive`：`kill(-pgid, 0)` 成功或 EPERM 就算“组还在”）、`:220`（组长不在时只看 `groupAlive`）、`:225`（据此判 `orphaned`/`leader_exited`）、`:307`、`:312`、`:326`（`stopRunProcesses` 对 `-pgid` 发 SIGTERM、SIGKILL）；`src/dev/dev-ops.ts:177`（复用只看 `state !== "ended"`）、`:368`（`orphaned` 免 `--force`）。
+- **现象**：登记里的组长已不在、它的 pid 后来被分给了一个**自己是组长**的无关进程（pid 等于 pgid：交互 shell 的作业、`setsid`、`detached: true` 起的子进程都是这样）。这时 `kill(-pgid, 0)` 成功，读者把这份运行判成 `orphaned`（`leader_exited`）：
+  - `dev stop <runId>` 或 `dev stop --checkout …` 不要 `--force`（监管进程不在），直接对 `-pgid` 发 SIGTERM，宽限期后再 SIGKILL，**无关进程被杀**；
+  - 同键的 `dev start` 复用它：登记里有 `readyAt` 与 `url` 时立即打 `READY <早已不回应的地址> reused`、退出码 0，不起新服务；
+  - 号被别的用户（root）的组长复用时，`groupAlive` 把 EPERM 也当成“还在”，`dev stop` 在 `signal()` 里抛 EPERM，报 `internal`。
+- **为什么是问题**：
+  - 计划“设计审查的处理”一节与 `docs/file-formats.md` 的“还活着”第 3 条依据是“进程组还有成员时，Linux 不把这个号分给新进程”。这句话只在**我们的组还有成员**时成立；组空了以后号可以再分配，新进程再 `setsid`/`setpgid` 就成了同号的另一个组。判据没有区分这两种情形，违背“只碰登记的组长、它的进程组与快照，每个都核对 pid 与启动时刻”。
+  - 留着这种登记的情形正是主路径：Claude Code 的 TaskStop 在 1.5 秒后整树 SIGKILL，监管进程来不及写 `endedAt`（只写了 `stoppingAt`），登记永远停在“读时现算”。本机 `pid_max` 是 4194304，开机 15.3 天共 fork 1754 万次（`/proc/stat`），pid 约 3.6 天绕一圈。单次检查撞上的概率不高（要那个号此刻正被一个组长占着），但后果是不经 `--force` 杀掉别人的进程组，且修法很小。
+- **如何核实**（照实现自己场景 3 的测法手写登记，只是复用 pid 的进程换成组长）：
+  - `scripts/e3-pgid-reuse.ts`：`spawn("sleep", {detached: true})`（pid == pgid），登记的 `pid`、`pgid` 写它、`startTicks` 写旧值、监管进程不在。结果：`dev status` 是 `orphaned leader_exited`（`groupAlive: true`）；`dev stop <runId>` 退出码 0、`stopped: [runId]`，**sleep 被杀**（`logs/e3.log`）。
+  - `scripts/e3b-reuse-dead.ts`：同上，登记带 `readyAt`、`url: http://127.0.0.1:1/`、`stoppingAt`（TaskStop 之后的样子）。`dev start --json` 79 毫秒返回 `{"event":"ready","url":"http://127.0.0.1:1/","reused":true}`，退出码 0（`logs/e3b.log`）。
+  - `scripts/e3c-eperm.ts`：pid 写 root 的组长 `irqbalance`（508）。`dev status` 是 `orphaned`，`dev stop` 退出码 1、`internal: kill() failed: EPERM`（`logs/e3c.log`；只有被拒绝的信号，root 进程不受影响）。
+  - 实现的 L4 场景 3（`tests/dev-live.test.ts:231-255`）用的 `sleep` 不是组长，所以没测到这一支。
+- **建议改法**：
+  - `evaluateRun` 与 `stopRunProcesses` 里，组长 pid 在、启动时刻对不上（即号已被复用）时，判组“不是我们的”：我们的组还有成员时这个号不可能被重新分配，所以“`/proc/<pgid>` 存在且启动时刻不同”就足以排除；`groupAlive` 的 EPERM 回 false（我们的进程不会是别的用户的）。
+  - 组长与 `/proc/<pgid>` 都不在、`kill(-pgid, 0)` 成功时，可再要求组里至少有一个成员在快照里（pid 加启动时刻），否则只按快照判。
+  - L4 场景 3 加一条：复用 pid 的进程是组长（`detached: true`），断言 `ended` 且 `dev stop` 不发信号、进程仍活着。
+
+### I2【重要】复用不看服务还在不在：组长已退、只剩孙进程（`orphaned`/`leader_exited`）的运行也被复用，立即打 `READY <连不上的地址> reused`
+
+- **位置**：`packages/dev-panel/src/dev/dev-ops.ts:176-178`（同键、`state !== "ended"` 就复用）、`:217-219`（登记有 `readyAt` 与 `url` 就直接打 `READY`，不探测）；`src/dev/shot.ts:156`（`shot` 取地址同样只看 `state !== "ended"` 与 `readyAt`）。
+- **现象**：`orphaned` 有两种原因。`supervisor_gone` 时组长（`bun run` 与开发脚本）还在，服务多半还能用；`leader_exited` 时开发脚本已经退出，剩下的只是没收掉的孙进程，HTTP 服务早就不在了。实现对两者一视同仁：B 的 `dev start` 复用这份运行、立即打 `READY <url> reused`、退出码 0，不起新服务；在 `dev stop` 之前，这个 checkout 上谁来 `dev start` 都只拿到这个死地址。复用 `orphaned` 时也没有计划正文写的 `supervisor_gone` 警告（“没有人监管它，用完请 dev stop”），只有 `reused_other_owner`。
+- **为什么是问题**：场景 1 的用途是让后来的会话拿到一个能用的地址。`leader_exited` 正是设计审查 I1 要求“不判 `ended`、能停”的那种残留，它“不是 `ended`”是为了让 `dev stop` 收得到，不等于“服务还在”。Agent 拿到 `READY` 会接着 `shot` 或请求页面，失败后很难想到要先 `dev stop` 一份“在跑”的服务。
+- **如何核实**：`scripts/e4-reuse-leftover.ts`（临时仓库，假开发脚本 `leave` 形态，经真实 `bun run`）：A 起服务到 `READY http://127.0.0.1:40907/`、快照有了之后 SIGKILL 监管进程；组长经 pdeathsig 退出，`sleep` 留下。`dev status` 是 `orphaned leader_exited`，地址连不上；B 的 `dev start --json` 立即回 `{"event":"ready","url":"http://127.0.0.1:40907/","reused":true}`、退出码 0（`logs/e4.log`）。之后 `dev stop` 不加 `--force` 停干净，没有残留。
+- **建议改法**：
+  - 复用只认组长还活着的运行（`starting`、`running`、`supervisor_gone`）；遇到 `leader_exited` 先按停法收掉残留（属主判据与 `dev stop` 相同，`orphaned` 本来就免 `--force`），再起新的；
+  - 复用已就绪的运行时先探测一次地址（与就绪同一套判据），连不上就按 `NOT_READY` 或“不复用”处理；
+  - 复用 `orphaned` 时加回 `supervisor_gone` 警告，或在 `cli.md` 写明不再给；`shot` 取地址用同一个判据。
+
+### I3【重要】打出 `NOT_READY` 之后监管进程不再读日志：服务后来就绪了，登记也一直是 `starting`，`dev status --wait-ready` 必超时、`shot` 报 `dev_not_running`
+
+- **位置**：`packages/dev-panel/src/dev/dev-ops.ts:278-297`（`waitReady` 到 `--ready-timeout` 就结束，`not_ready` 分支只写 `lastProbeStatus`，之后没有任何地方再写 `readyAt`）、`:221-224`（复用方自己读日志认出就绪，但 `onUrl` 是空函数、也不写 `readyAt`）、`:398-407`（`waitRunReady` 只看登记的 `readyAt`）；`src/dev/shot.ts:156`（只认有 `readyAt` 的运行）。
+- **现象**：服务比 `--ready-timeout` 晚就绪时，监管进程打 `NOT_READY` 后停止读日志，登记的 `url`、`readyAt` 永远是 null：`dev status` 与面板一直显示 `starting`（启动中）；`dev status --wait-ready` 不论等多久都以 4（`dev_not_ready`）结束；不带 `--url` 的 `shot` 报 `dev_not_running`。只有复用（另一次 `dev start`）能认出它已就绪，但复用也不把结果写回登记。
+- **为什么是问题**：`cli.md` 写的是“`NOT_READY`：到 `--ready-timeout` 还没就绪，服务照留、照常监管”，`--wait-ready` 写的是“等这份服务就绪”。冷启动的 Nuxt 首次构建（`nuxt:prepare`、`generate` 再加构建）可能超过缺省的 180 秒，Agent 看到 `NOT_READY` 后最自然的下一步正是 `dev status --wait-ready` 或直接 `shot`，两条都走不通。
+- **如何核实**：`scripts/e5-late-ready.ts`：假开发脚本 4 秒后才打就绪行，`dev start --ready-timeout 2`。结果：`NOT_READY …`；4 秒后日志里已有 `➜ Local:`，登记 `readyAt: null, url: null`，`dev status` 是 `starting`；`dev status --wait-ready --timeout 5` 5.1 秒后以 4 退出（`dev_not_ready`）；同键再 `dev start` 立即 `READY … reused`（`logs/e5.log`）。
+- **建议改法**：`NOT_READY` 只是给调用者的一行输出，监管进程继续按同一套规则读日志与探测，就绪时补写 `url`、`readyAt` 并再打一行 `READY`（`cli.md` 写明 `NOT_READY` 之后可能还有 `READY`）；或者让 `--wait-ready` 与复用一样自己读日志认就绪、认出后写回登记。
+
+### B1【阻断】GitHub 页开着、`gh` 取不到数据时，面板与页面进入死循环：没登录时 10 秒调了 10556 次 `gh`，找不到 `gh` 时 10 秒推了 10 万多次
+
+- **位置**：`packages/dev-panel/src/server/serve.ts:237-240`（每次 `GET /api/github` 都调 `github.touch()`）；`src/server/github.ts:175-177`（`touch()` 只看上一次**成功**的时刻 `view.at`：从没成功过或成功超过 5 分钟，就再取）、`:198-201`（每次 `set` 都 `onChanged`，`refreshing: true` 与失败结果各推一次）、`:203-207`（失败、`unavailable`、`not_logged_in` 都不更新 `at`）；`src/web/pages/GithubPage.vue:18`（`useResource(…, ["github"])`：每收到 `github` 推送就重新 `GET /api/github`）。另 `serve.ts:138-140`：每次 `github` 推送还会触发一次 `notifier.tick()`。
+- **现象**：取失败之后 `set(…)` 推 `github` → 页面重新 `GET /api/github` → `touch()` 看到 `at` 仍是 null（或超过 5 分钟）→ 立刻再取 → 失败 → 推送 → 再 GET……只要 GitHub 页开着就不停：
+  - `not_logged_in`（`gh` 以 4 退出）、`error`、`stale`（网络断了、限流、502，且上一份超过 5 分钟）：背靠背地起 `gh`，失败得多快就调得多快；
+  - `unavailable`（找不到 `gh`）：不起子进程，但面板与浏览器在推送与请求之间空转。
+- **为什么是问题**：这几种降级是 `docs/panel.md`“现场”一节写明的常规状态（没有 `gh`、没登录、超时、读不懂），设计审查 S8 还专门要求“没人看时不取、有人看时 5 分钟一次”。现在恰恰在出错时变成每秒上千次：面板是常驻服务，CPU 被占满；网络或限流引起的失败会被放大成对 GitHub API 的连续请求（用开发者的令牌）。计划写的“合入后重装服务、请开发者看一眼 GitHub 页”之前，只要服务单元还没有 `NBDEV_GH_BIN`、开机后登录前起的面板 `PATH` 里没有 `gh`（设计审查 I5 的情形），打开这一页就会触发。
+- **如何核实**：`scripts/e6-gh-loop.ts <ok|auth|missing>`：面板在脚本进程里起（临时仓库，端口 4480/4481），一个 ws 客户端照 `useResource` 的做法，打开时 `GET /api/github`，之后每收到含 `github` 的推送就再 GET 一次；假 `gh` 每次被调用写一行日志。10 秒的结果（`logs/e6.log`）：
+  - `ok`：调 `gh` 2 次、推送 2 次（正常）；
+  - `auth`（以 4 退出）：调 `gh` **10556 次**、推送 10556 次；
+  - `missing`（`PATH=/usr/bin:/bin`、没有 `NBDEV_GH_BIN`）：推送 **108758 次**、`GET /api/github` 108760 次。
+  - 包里的 L3（`tests/panel-live.test.ts:102-126`）只用 HTTP 轮询、没有连 `/ws`，所以测不到。
+- **建议改法**：
+  - `GithubCache` 记“上一次尝试”的时刻（不论成败），`touch()` 按它判断（例如失败后至少隔 30 到 60 秒才因打开页面而重取），手动“刷新”另算；
+  - 让 GET 不带副作用：打开页面时由页面显式发一次“需要数据”（或 GET 带参数），推送触发的重取不再 `touch()`；
+  - `refreshing: true` 这一步不必单独推送，或推送只在结果变了时发；`notifier.tick()` 的触发排除 `github`；
+  - L3 加一条连着 `/ws`、照页面方式重取的用例，断言失败状态下 10 秒内 `gh` 只被调一到两次。
+
+### I4【重要】checkout 页只在“活动”变了才重取：改了已跟踪的文件，页面 20 秒后仍显示“干净、刚刚算的”（设计审查 I3 只落实了服务端一半）
+
+- **位置**：`packages/dev-panel/src/web/pages/CheckoutsPage.vue:14`（`useResource("/api/checkouts", ["records", "activity"])`：只有收到这两块的推送才重取）、`:17`、`:28`（“未提交与领先落后是 {{ relativeTime(computedAt) }}算的”只在渲染时算一次）；`src/server/state.ts:85-89`（“活动”每 5 秒重算，但指纹不变就不推送）；`src/web/host/format.ts:33-40`（`relativeTime` 按分钟取整，1 分钟内都是“刚刚”）。
+- **现象**：服务端 `/api/checkouts` 现算、10 秒短缓存都对了；但页面不会自己重取。改动一个已跟踪的文件不会改变“活动”的指纹（租约、会话、运行都没变），于是不推送、页面不重取，“未提交”一直是旧值；旁边的“N 秒前算的”也不走，始终写“刚刚算的”。
+- **为什么是问题**：计划“设计审查的处理”一节 I3 写的是“有浏览器连着时随‘活动’这一块（5 秒）重取”“页面上标‘N 秒前’”。设计审查 I3 指出的后果是“数会错，而且错的方向正是‘看起来是干净的’”。现在的表现正是这样：没有 Agent 在动的时候（开发者自己改文件、Agent 空闲），页面显示“干净”并声称是刚算的。
+- **如何核实**：`scripts/e11-browser.ts`（临时仓库，面板端口 4482，真实前端，1440 宽）：打开 `/live/checkouts`，主工作区一行“干净”；改写已跟踪的 `docs/a.md`，等 20 秒：这一行仍是“干净”，字样仍是“未提交与领先落后是 刚刚算的”，这 20 秒里页面发出的 `/api/checkouts` 请求是 0；同一时刻直接请求 `/api/checkouts` 得到 `dirty=1`（`logs/e11.log`）。
+- **建议改法**：页面开着时自己按 10 秒左右重取 `/api/checkouts`（服务端已有 10 秒缓存，不会放大开销），或者让服务端在“活动”的定时检查里顺带重算 checkout 状态、变了就推一块 `checkouts`；“N 秒前”用一个每秒或每 10 秒走的时钟渲染，按秒显示。
+
+- **B1 补充核实（真实前端）**：`scripts/e11-browser.ts` 另起一个面板（端口 4484），`gh` 从一开始就以 4 退出，用 Chrome 打开 `/live/github`：8 秒里假 `gh` 被调 1612 次、页面发出 `GET /api/github` 1628 次，页面上显示的是“gh 没登录”（`logs/e11.log`，截图 `shots/review-github-not-logged-in-1440.png`）。
+
+### S1【建议】复用一份还在 `starting` 的运行时，它中途退出了，复用方仍等满 `--ready-timeout`，最后打 `NOT_READY … reused`、退出码 0
+
+- **位置**：`packages/dev-panel/src/dev/dev-ops.ts:221`（复用方的 `waitReady` 传 `() => false`，不看这份运行是否已结束）、`:224`。
+- **现象与为什么**：A 的服务就绪前就退出（`dev_exited`，端口被占、构建崩了都会这样）时，B 还在读那份日志，等到 `--ready-timeout`（缺省 180 秒）才打 `NOT_READY`，并带 `reused`、退出码 0。按 `cli.md`，`NOT_READY` 的意思是“服务照留、照常监管”，B 会以为服务还在，而它 3 分钟前就没了。
+- **如何核实**：`scripts/e12-reuse-wait.ts`：A 的假脚本 3 秒后自己以 3 退出，B 在第 1 秒复用、`--ready-timeout 10`。A 在 +2.2 秒打 `EXITED 3 … leftovers=2`、以 1 退出；B 在 +10.2 秒才回 `{"event":"not_ready",…,"reused":true}`、退出码 0（`logs/e12.log`；同时验证了 `reused_with_different_options` 会给出）。
+- **建议改法**：复用方的 `shouldStop` 每轮重读登记、按 `evaluateRun` 判断，`ended` 就停，输出 `EXITED`（或一个“复用的服务已结束”的错误）而不是 `NOT_READY`。
+
+### S2【建议】停完核对不过时写了 `endedAt`，状态成了 `ended (stopped)`，与计划写的“`orphaned` 加 `leftoverPids`”不一致；`leftoverPids` 读者也不看
+
+- **位置**：`packages/dev-panel/src/dev/dev-ops.ts:382-386`（`dev stop` 不论干不干净都补 `endedAt`）、`:312-319`（监管进程同样）；`src/core/procs.ts:215`（有 `endedAt` 就直接 `ended`，不看 `leftoverPids`）；`stopRunProcesses` 收到的新快照（`outcome.snapshot`）也不写回登记。
+- **现象与为什么**：计划“设计审查的处理”停法第 6 步写“否则状态是 `orphaned`，登记记 `leftoverPids`”。实现报了 `stop_incomplete`，登记却已是 `ended`，第二次 `dev stop` 回 `skipped`，面板把它归进“已结束”。实际能触发的多半是“地址仍有回应”（`leftoverPids` 为空），真有进程扛过 SIGKILL 的情形很少，所以列为建议。
+- **如何核实**：`scripts/e13-stop-incomplete.ts`：就绪地址指向一个不属于这份运行的服务。`dev stop --force` 以 1 退出（`stop_incomplete`，`urlResponding: true`）；登记 `endedAt` 有值、`endedReason: stopped`；`dev status` 是 `ended stopped`；再 `dev stop` 回 `skipped`（`logs/e13.log`）。
+- **建议改法**：核对不过时不写 `endedAt`（或另写 `incompleteAt`），`evaluateRun` 把 `leftoverPids`（带启动时刻）并进快照判断；或者在 `cli.md`、`file-formats.md` 写明“`stop_incomplete` 之后登记记为已结束，残留的 pid 只在输出里”，并在计划里记一笔偏离。
+
+### S3【建议】`find --name` 仍跑内容搜索，内容命中被截断时也标“结果已截断”
+
+- **位置**：`packages/dev-panel/src/cli/dev-commands.ts:67-81`（`--name` 只在 `onHit` 里丢掉内容命中，`truncated ||= entry.truncated` 把内容的截断算进来）；`src/core/search.ts:181-184`。
+- **现象与为什么**：`find zeta --name --limit 5`：只有 1 个文件名命中，输出却写“结果已截断（每个 checkout 5 条、合计 200 条）”，`checkouts[].count` 是 6（含丢掉的内容命中）。Agent 会以为还有更多文件名没列出来；17 个 checkout 上还白跑 17 次 `git grep`。
+- **如何核实**：`scripts/e9-find.ts`（`logs/e9.log`）。
+- **建议改法**：`searchCheckouts` 加一个“只找文件名”的选项，跳过 `grepCheckout`；`--name` 时截断只看文件名部分。
+
+### S4【建议】`EXITED` 的 `leftovers` 把“进程组还在”算成 1 个，组里的进程又在快照里再算一次
+
+- **位置**：`packages/dev-panel/src/dev/dev-ops.ts:307-308`（`leftovers = aliveDescendants.length + (groupAlive ? 1 : 0)`）。
+- **现象与为什么**：`cli.md` 写“`leftovers` 是组长退出后补收的进程数”。只留下一个孙进程 `sleep` 时，它既在进程组里又在快照里，打出来是 `leftovers=2`（`logs/e12.log` 的 `EXITED 3 … leftovers=2`）。L4 只断言 `leftovers=\d+`，测不到。
+- **建议改法**：按 pid 去重：快照里活着的，加上进程组里（读 `/proc/*/stat` 的 pgrp）不在快照里的；或者文档改成“补收前还活着的快照进程数，进程组另计”。
+
+### S5【建议】PR 的失败检查只显示名字、以名字作 `v-for` 的 key：不同工作流里同名的检查分不出来，key 也会重复
+
+- **位置**：`packages/dev-panel/src/web/parts/PrList.vue:68-72`（`:key="check.name"`，只显示 `check.name`）；`src/server/github.ts:58-65`（`CheckRun` 只取 `name`，丢了 `workflowName`）。
+- **现象与为什么**：两个工作流各有一个叫 `test` 的检查都失败时，页面上是两个一样的“✕ test”（截图 `shots/review-github-390-dark.png`），只能点进链接才知道是哪个；Vue 的 `v-for` key 重复，数据更新时可能错位复用节点。
+- **建议改法**：`CheckSummary.failed` 带上 `workflowName`（计划实测里 `gh` 本来就返回它），显示成“ci / test”；key 用下标或 `workflowName + name + url`。
+
+### S6【建议】几处注释与文档的小出入
+
+- `packages/dev-panel/src/core/lease-ops.ts:194-195`：新函数 `resolveTaskTarget` 的文档注释插在了原有 `resolveLeaseTarget` 的注释与函数之间，现在两段 JSDoc 叠在 `resolveTaskTarget` 上，`resolveLeaseTarget` 失去了注释（“按引用找到 Work 与 Task……租约是运行时数据”那段）。
+- `packages/dev-panel/src/server/github.ts:17`：注释写“`tests/panel-github.test.ts` 钉住”，这个文件不存在，钉住两条命令的是 `tests/panel-live.test.ts`。
+- `packages/dev-panel/src/dev/dev-ops.ts:55-63`：`package.json` 不是合法 JSON 时 `readScripts` 回 null，报成 `script_not_found`（“没有脚本 dev”），把“文件坏了”改报成“找不到脚本”；`src/dev/shot.ts:151` 同样的情形则抛 `internal`。两处可以统一成带文件路径的 `invalid_record` 一类错误。
+- 计划“接口与数据”写“`src/index.ts` 导出登记的读取与 `worktree new` 的核心函数”，实现没有导出，“实施进度”的偏离里也没记。按“小而实用”不做也可以，但要在计划里记一笔。
+
+## 已核对、没有问题的
+
+实验脚本都在审查目录 `scripts/`，输出在 `logs/`；临时仓库建在 `/dev/shm/review-t14-impl/`（已删）。真实仓库上只做了只读的事：读文件，以及 `scripts/e10-checkouts-timing.ts` 对 15 个真实 checkout 跑 `git --no-optional-locks status --porcelain=v1 -uno` 与 `rev-list --left-right --count`（就是面板 checkout 页会跑的两条只读命令）。
+
+- **开发服务的生命周期**（B1、I1 的主体，S1、S4、S6）：
+  - 一份运行由监管进程、组长（`setpriv --pdeathsig TERM -- setsid bun run`，pid 等于 pgid）、后代快照三样组成；快照每 2 秒从组长沿 ppid 收集（含另起会话的），已知快照里的进程也当根继续往下收，上限 256，每项都核对启动时刻；监管进程、组长、快照的“还活着”都核对 pid 加启动时刻（组号那一条的缺口见 I1）。
+  - 停法只有 `stopRunProcesses` 一处：组长在就只给组长 SIGTERM，组长不在给组与快照 SIGTERM，宽限期内每 250 毫秒重收，到期逐个 SIGKILL 再 `kill(-pgid, SIGKILL)`，最后核对快照、进程组与地址。没有按命令行文本找进程的路径。
+  - 监管进程收到 SIGTERM：5 毫秒内登记里就有 `stoppingAt`、`stoppedBy: "signal:SIGTERM"`，开发脚本 6 毫秒内收到 SIGTERM；监管进程以 0 退出、打 `EXITED 0`，登记 `ended/stopped`，没有残留（`scripts/e7-signal-timing.ts`，`logs/e7.log`）。
+  - 仿 TaskStop（整树 SIGTERM，1.5 秒后整树 SIGKILL）：普通脚本在 1.5 秒内就收完、`endedAt` 写上；忽略 SIGTERM 的脚本让监管进程来不及写 `endedAt`，登记只有 `stoppingAt`，读者判 `ended/stopped`，没有残留（`logs/e7.log`、`logs/e7c.log`）。
+  - 包里 t14 相关的测试 7 个文件 32 条全过（`dev-live` 10 条 L4、`worktree-new`、`find-shot`、`panel-live`、`install-service`、`ready.test`、`runs.test`），`typecheck` 通过。`dev-live` 的 L4 除场景 3（手写登记）外都经临时 `package.json` 的 `scripts.dev` 由真实 `bun run` 起、`fake-dev.ts` 必起孙进程 `sleep`；四种形态（normal、leave、ignore、owned）、监管进程被 SIGKILL、仿 TaskStop 都覆盖到了。
+  - 登记的读改写都在 `run/procs.lock` 里（`updateProcRecord`），监管进程与 `dev stop` 各改各的字段：`--force` 停的用例里 `stoppedBy`（来自 `dev stop`）与 `endedReason`、`exitCode`（来自监管进程）都在。
+  - 状态与原因：`starting`、`running`、`orphaned`（`supervisor_gone`、`leader_exited`）、`ended`（`exited`、`stopped`、`supervisor_killed`、`rebooted`、`never_started`）与 `docs/file-formats.md` 一致。
+- **复用**（I2、S5、S12）：锁内顺序是“查登记、spawn、读启动时刻、写含 pid 的完整登记、放锁”，两个会话同时起只有一份（L4）；复用到还没就绪的运行时自己读日志认就绪（`logs/e5.log` 的 B）；`reused_with_different_options`、`reused_other_owner`、`READY … owner=` 都有；没有 `--port`。属主三条豁免（监管进程不在、属主会话不在、调用者是属主）与认不出的调用者要 `--force`，L4 都覆盖。
+- **就绪识别**（S2、S3）：`\r`、`\n` 切行，未完的末行留到下次；CSI 与 OSC（BEL 或 `ESC \` 结尾）都去掉；listhen 的 `➜ Local:`、w00017 的 `page-ready` 加随后的 `backend-ready`；探测 2xx 到 4xx 算就绪、5xx 继续，`NOT_READY` 带最后的状态码；runId 精确到秒加 8 位随机，日志名带完整 runId、`openSync(…, "wx")`。
+- **输出与退出码**：`READY`、`NOT_READY`、`EXITED` 与 JSON 事件、`streamed` 外壳、起来之前失败照常走错误外壳、监管进程的退出码（被停 0、自己退出 1、核对不过 1），与 `cli.md` 一致；新错误码与退出码表一致。
+- **`worktree new`**（I4、S9）：路径 `.worktree/<Work 编号>-<Task 编号>-<短名>`、分支 `<type>/<…>` 与 `.agents/works/README.md`“创建与执行”一致；`worktree add` 只用 `/usr/bin/git`（argv、不经 shell），其余 Git 走 `PATH`；`home` 写绝对路径、先 `scan()` 补登、锁外建 worktree、写失败只警告；`--type` 八种与 CONTRIBUTING 一致；不装依赖。并发实测 4 轮都是一个成功、一个 `target_exists`（3），`home` 是绝对路径；`--from` 写成 `--orphan`、`-b`、`master^{tree}` 都在 `rev-parse --verify …^{commit}` 处被拦成用法错误（`scripts/e8-worktree.ts`，`logs/e8.log`）。
+- **`find`、`shot`**（S10、S11）：`matchRecords` 是核心里的纯函数，面板另拼会话匹配；缺省每个 checkout 20 条、合计 200 条、截断标出（`--name` 的小问题见 S3）；`shot` 不注入浏览器路径，`TMPDIR` 指 `/dev/shm/nbdev-shot-*`（700，跑完删），`dev_not_running` 退出码 5、`shot_unavailable` 3、`shot_failed` 1。
+- **面板现场**：
+  - “在跑”：`discoverRuns` 的排除集按完整后代判断，登记的服务不再出现在会话的运行与无主的运行里（浏览器里 leave 形态留下的 `sleep` 也没有混进“无主的运行”）。
+  - checkout：服务端现算、4 路并行、10 秒缓存；15 个真实 checkout 冷算 104 到 210 毫秒，最慢的单个 20 毫秒（`logs/e10.log`）。页面不重取的问题见 I4。
+  - GitHub：只有写死的两条 `gh … list`（字段白名单、`--limit 100`）；`NBDEV_GH_BIN` 优先、再找 `PATH`、都没有时 `unavailable` 并写明原因；子进程环境带三个变量、stdin 是 ignore；15 秒先 SIGTERM、2 秒后 SIGKILL；按退出码 4 判没登录；`StatusContext` 与 `CheckRun` 两种；条数到上限的提示；`POST /api/github/refresh` 在登录检查之后、再过 Origin 与 CSRF（`serve.ts:335-349`）。循环问题见 B1。
+  - `install-service` 写 `Environment=NBDEV_GH_BIN=<绝对路径>`，找不到写注释。
+- **安全**：新的三个读接口都在 `guarded` 的登录检查之后，唯一的写接口过 CSRF；`gh` 的参数与环境不含任何用户输入；`dev start` 的 `--script` 必须是 `package.json` 里已有的键、经 argv 交给 `bun run`，`--package` 拒绝绝对路径与 `..`；`find` 的词经 `-F -e` 交给 `git grep`；`shot` 的透传参数经 argv。`--ready-pattern` 只在调用者自己的监管进程里（以及之后复用它的 `dev start` 里）执行，写出灾难性回溯只会卡住调用者自己，面板不执行它。标题、标签、分支名按文本插值渲染（浏览器里 `<img src=x onerror=…>` 原样显示为文字），链接只收 `https:`（`ProcList` 只给 http、https）。
+- **前端**：三个新零件 `ProcList`、`PrList`、`IssueList` 只吃 props、不发请求，各有同名 `.md`；用 nb-ui 的 `Badge`、`Button`、`Table` 与 token。浏览器（Chrome，390 与 1440，明暗）：三页都没有页面级横向溢出，checkout 表在 390 宽时在自己的框里横向滚动（1024 对 343）；GitHub 页的按钮只有“刷新”；控制台没有错误与警告。截图 `shots/review-{runs,checkouts,github}-{390,1440}-{light,dark}.png`。
+- **禁止清单**：没有按错误文案分支（`gh` 按退出码、`worktree new` 失败后重查路径与分支）；没有吞掉错误的空 `catch`（`urlResponds`、`probeStatus` 把连接失败当“没回应”是语义本身）；没有跳过测试、放宽断言或测试专用分支；没有跨包深导入；`lock.ts` 抽出 `acquireDirectoryLock` 时放锁与接管的语句都保留了。小出入见 S6。
