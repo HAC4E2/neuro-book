@@ -12,7 +12,7 @@ import {describeFailure, type Notice} from "./writes.js";
  * “通知与会话页”“网页终端”。所有动作都绑定发起时的目标 `{paneId, terminalId, sessionKey}`（t15 阶段 1.1）：
  * - 两步确认与接管小窗记下打开时的目标；确认那一刻选中的目标变了就不发，给一条提示。服务端的 `expectedSession` 照旧核对，
  *   挡住“面板还没轮询到会话已换”的窗口；
- * - 读屏、读更早的输出带序号，回来时目标还是发起时的那个才写；
+ * - 读屏、读更早的输出带序号，回来时目标还是发起时的那个才写；按键的确认框用这次读到的屏幕，没读到时注明框里是多久以前的画面；
  * - 输入框的草稿按 pane 记：换 pane 时经 `resetKey` 清空；同一格换会话（`/compact`、`/clear`）时保留，给出 `sessionChange` 提示；
  *   发送的回包只在目标没变时才清草稿。
  * 终端连接按 `paneId + terminalId` 建（重新登录后也重建），每建一条连接 `connection` 加一，页面拿它给终端零件当 key
@@ -20,6 +20,8 @@ import {describeFailure, type Notice} from "./writes.js";
  */
 
 export type ConsoleTarget = {paneId: string; terminalId: string; sessionKey: string};
+/** 一次读屏的结果；目标没了或回来时目标已经变了为 null。 */
+export type ScreenRead = {ok: true; data: ScreenData} | {ok: false; message: string} | null;
 export type SelectedSession = ConsoleTarget & {agent: string | null; status: string};
 
 export function sameTarget(a: ConsoleTarget | null, b: ConsoleTarget | null): boolean {
@@ -27,6 +29,11 @@ export function sameTarget(a: ConsoleTarget | null, b: ConsoleTarget | null): bo
 }
 
 const label = (target: ConsoleTarget) => `${shortSession(target.sessionKey)}（pane ${target.paneId}）`;
+
+function ago(iso: string): string {
+    const seconds = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1_000));
+    return seconds < 90 ? `${seconds} 秒前` : `${Math.round(seconds / 60)} 分钟前`;
+}
 
 /** 要两步确认的键：确认框里写将要发生什么。 */
 export const KEY_CONFIRM: Record<string, {label: string; message: string}> = {
@@ -110,19 +117,24 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
         if (next) void readScreen();
     }, {immediate: true});
 
-    async function readScreen(): Promise<void> {
+    /** 读一次屏幕；只有最后发起的那次写进状态，但每次都把自己的结果交回调用方（确认框要的是这一次读到的）。 */
+    async function readScreen(): Promise<ScreenRead> {
         const target = current.value;
-        if (!target) return;
+        if (!target) return null;
         const mine = ++readSequence;
         try {
             const body = await getJson<ScreenData>(`/api/sessions/${encodeURIComponent(target.paneId)}/screen?session=${encodeURIComponent(target.sessionKey)}`);
-            if (mine !== readSequence || !sameTarget(target, current.value)) return;
-            screen.value = body.data;
-            screenAt.value = new Date().toISOString();
+            if (!sameTarget(target, current.value)) return null;
+            if (mine === readSequence) {
+                screen.value = body.data;
+                screenAt.value = new Date().toISOString();
+            }
+            return {ok: true, data: body.data};
         } catch (error) {
             if (!(error instanceof ApiError)) throw error;
-            if (mine !== readSequence || !sameTarget(target, current.value)) return;
-            notice.value = {tone: "warning", title: "读不到屏幕", message: error.message, items: [], retry: false};
+            if (!sameTarget(target, current.value)) return null;
+            if (mine === readSequence) notice.value = {tone: "warning", title: "读不到屏幕", message: error.message, items: [], retry: false};
+            return {ok: false, message: error.message};
         }
     }
 
@@ -205,10 +217,13 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
             await sendKey(target, key, false);
             return;
         }
-        await readScreen();
+        const read = await readScreen();
         // 读屏期间目标变了：不开确认框（目标变化的 watch 已经清过状态）。
-        if (!sameTarget(target, current.value)) return;
-        confirm.value = {target, title: `将按下 ${confirmKey.label}`, message: confirmKey.message, screen: screen.value?.screen ?? null, confirmLabel: `按下 ${confirmKey.label}`, action: {kind: "key", key}};
+        if (read === null || !sameTarget(target, current.value)) return;
+        // 这次没读到也开框（Esc、Ctrl+C 常在会话失控时用，不能因为读屏偶发失败就按不下去），但写明框里是旧画面。
+        const earlier = screen.value && screenAt.value ? {text: screen.value.screen, at: screenAt.value} : null;
+        const message = read.ok ? confirmKey.message : `${confirmKey.message}这次没读到屏幕（${read.message}）${earlier ? `，下面是 ${ago(earlier.at)}读到的画面，现在可能已经不一样了` : "，看不到会话现在的样子"}。`;
+        confirm.value = {target, title: `将按下 ${confirmKey.label}`, message, screen: read.ok ? read.data.screen : earlier?.text ?? null, confirmLabel: `按下 ${confirmKey.label}`, action: {kind: "key", key}};
     }
 
     async function confirmRun(): Promise<void> {

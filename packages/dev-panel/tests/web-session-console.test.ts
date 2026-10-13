@@ -121,6 +121,37 @@ describe("两步确认绑定打开时的目标（阻断 1）", () => {
     });
 });
 
+describe("阶段 1 实现审查的建议", () => {
+    test("建议 1：确认前重读屏幕失败，确认框写明这次没读到、框里是多久以前的画面", async () => {
+        let reads = 0;
+        web.env.respond((call) => {
+            if (!call.url.includes("/screen?")) return undefined;
+            reads += 1;
+            return reads === 1 ? screenOf(call) : {status: 503, errors: [{code: "herdr_unavailable", message: "herdr 读屏超时"}]};
+        });
+        const {host, stop} = mount(A);
+        await until(() => host.screen.value, (value) => value !== null);
+        await host.pressKey("enter");
+        expect(host.confirm.value?.screen).toBe("屏幕 claude:aaaa");
+        expect(host.confirm.value?.message).toMatch(/这次没读到屏幕（herdr 读屏超时），下面是 \d+ 秒前读到的画面/u);
+        stop();
+    });
+
+    test("建议 1：读到了就用这一次的屏幕，说明里不写旧画面", async () => {
+        let reads = 0;
+        web.env.respond((call) => {
+            if (!call.url.includes("/screen?")) return undefined;
+            reads += 1;
+            return {data: {paneId: A.paneId, sessionKey: A.sessionKey, agent: "claude", status: "idle", focused: false, screen: `第 ${reads} 屏`}};
+        });
+        const {host, stop} = mount(A);
+        await until(() => host.screen.value, (value) => value !== null);
+        await host.pressKey("esc");
+        expect([host.confirm.value?.screen, host.confirm.value?.message.includes("没读到")]).toEqual(["第 2 屏", false]);
+        stop();
+    });
+});
+
 describe("终端连接与接管（重要 3、阻断 1 的接管）", () => {
     test("同一格换会话不重建连接；换 pane 时关掉旧连接、连序号加一", async () => {
         web.env.respond(screenOf);
