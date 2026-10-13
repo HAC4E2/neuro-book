@@ -387,3 +387,21 @@ GET  /api/meta                                 // 加 terminal: {available, reas
 - S4 文档：`985a02871`、`305c3f1d4`（`docs/herdr.md` 的“终端流（t12）”、`docs/panel.md` 的“网页终端（t12）”、`docs/file-formats.md` 审计、`docs/cli.md` 错误码，包 `AGENTS.md` 的 L4 一句）。`governance:check`、`docs:check` 无失败。
 - S5 L4：`b7a1b1916`（`tests/herdr-live.test.ts` 的 t12 一组，server 0.9.3 与 0.9.1 各一次，都通过）：pty 尺寸与 pane 里 `stty size` 一致；两个 observe 同时看，control 打字到两边都收到帧 3 到 20 毫秒，观看不改尺寸；control 改尺寸、已有控制者时不带 takeover 第一行就是结束、带 takeover 抢走、resize、改回后 release、之后不带 takeover 能连上；TUI（0.9.3 客户端，100×30）挂着时接管中改窗口 pane 尺寸不变，释放后 TUI 改回布局、再改窗口 pane 跟着变；父进程被 SIGKILL 后 observe 与 control 退出、控制权释放；client socket 路径不超过 107 字节。
 - 全量验证（2026-10-13）：包 `bun test` 279 条全过，`typecheck`、`build:web` 通过；根 vitest 3 个文件 177 条、Node 下 `dev-panel-records` 5 条通过；浏览器验收重跑（假界面 22 项全过、控制台没有错误；omp 的更早输出在假 herdr 上 390 宽与 1440 宽各验一次）。演示宿主都已停，命名会话已删，没有残留进程。
+
+## 实现审查的修正
+
+实现审查（[`evidences/impl-review.txt`](evidences/impl-review.txt)，0 阻断、2 重要、6 建议）全部采纳，集成分支上每条单独提交（未 push）：
+
+| 条 | 提交 | 改了什么 |
+|---|---|---|
+| F1 字距被拉开 | `609c01ed8` | 交给 xterm 的字体串不含 CSS 变量：挂载时读 `--font-mono` 的计算值拼成具体字体（`host/terminal-font.ts`），canvas 仍不接受就换缺省等宽字体；按量出的格宽与字号之比缩观看字号（5 到 14px，容器变了就重算）。L1 断言字体串不含 `var(`；浏览器断言格宽约为字号的一半 |
+| F3 接管尺寸 | `be9723042` | 接管尺寸按接管后的终端框量（临时套上 70vh 的框高与 13px 再量，同步改回）；“抢过来”沿用第一次量的尺寸 |
+| F2、F8（前端） | `9cbe33674` | 接管中窗口变窄仍留在终端视图（选这种而不是自动释放：缩窄窗口不等于离开，键盘还在这个页面上；释放入口与接管提示都在，终端按窄框 resize），释放后才换文字视图；手机的终端画面加“回到文字视图”；接管中按钮的 `aria-label` 与 `title` 写接管中的说明（Ctrl+C 接管中不限速，说明里去掉“3 秒”） |
+| F4 握手中关连接 | `45bbb65b8` | 起 control 之前再查一次连接与退出；control 已接上才关的，照常释放、改回尺寸，审计记 `attached` 加 `disconnect` 的释放行；握手期间 `close` 不插手，由握手收尾。L3 用假命令行的两个延时（`observeExitDelayMs`、`controlDelayMs`）复现 e08 的两种时机 |
+| F5 observe 第一行就结束 | `aa83bb62e` | 没出一帧就结束（含第一行就是 `terminal.closed`）都计入连续 3 次，到了回 4404；`closed` 的原文进面板日志。L3 复现 e13 |
+| F6 审计的设备 | `8c7012ad7` | 结果行与释放行的设备取自连接 |
+| F8（服务端与文档） | `29a0817ce` | 读不到 pty 尺寸时把原因记进面板日志（同一终端只记一次）；恢复 `stop()` 注释的理由；`panel.md` 的互斥说明改成与接管提示一致 |
+| F7 补测试 | `72799b957` | `waiting_takeover` 与释放后投递；读不到尺寸不改回；心跳与空闲释放（接管时限改成可注入的选项）；S7 改为断言自动通知；“1 秒内”照实断言；面板层 L4（0.9.3、0.9.1 两组）：经 WebSocket 接管后 pty 是请求的尺寸，关连接后约 60 毫秒 control 退出、尺寸改回 |
+
+- 验收表场景 1 的 L4 测法已按实际改写：用同尺寸 control 打字作刺激，`pane.send_text` 的数只记录不判（理由见 `docs/herdr.md` 的“时延与开销”）。
+- 验证（2026-10-13）：包 `bun test` 288 条全过（含 L4 两组），`typecheck`、`build:web` 通过；根 vitest 3 个文件 177 条、Node 下 `dev-panel-records` 5 条通过；`governance:check`、`docs:check` 无失败。浏览器复测在临时仓库加命名会话上：原验收 22 项与修正复测 15 项全过、控制台没有错误；截图 `t12-fix-*` 在本地 `shots/`。演示宿主已停，命名会话已删，Chrome 的临时数据放在 `/dev/shm` 并已删除。
