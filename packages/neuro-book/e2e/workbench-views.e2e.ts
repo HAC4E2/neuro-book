@@ -256,12 +256,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(before);
     });
 
-    test("收起：multiple 收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
+    test("收起：multiple 点标题行收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
         const section = (viewId: string) => page.locator(`[data-view-section="${viewId}"]`);
-        await section(A).locator("[data-view-toggle]").click();
+        // 标题行整行可点：点标题文字，不点展开标记。
+        await section(A).locator(".workbench-view-section__title").click();
         await expect(section(A)).toHaveAttribute("data-view-collapsed", "true");
         await expect.poll(async () => (((await customizations(page)).value?.views as Record<string, {collapsed?: boolean}> | undefined)?.[A]?.collapsed)).toBe(true);
 
@@ -462,7 +463,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 
-    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；部件自己不画外框、圆角与标题行底线；nbook 是卡片外壳，macos 平铺（外壳验收 41）", async ({page}) => {
+    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；部件自己不画外框、圆角与标题行底线；nbook 是卡片外壳、分栏之间是两端缩进的开放式分割线，macos 平铺、分栏线贯穿（外壳验收 41）", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
@@ -494,7 +495,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         }));
         expect(drawn).toEqual([]);
 
-        // 外壳的分隔方式：卡片的矩形、圆角与相连处，标题栏底线与网格接缝的颜色。
+        // 外壳的分隔方式：卡片的矩形、圆角与相连处，标题栏底线与网格接缝的颜色；卡片里分栏之间的线（侧栏此刻是甲、乙两个分栏）。
         const shellLook = () => page.evaluate(() => {
             const card = (part: string) => document.querySelector(`[data-shell-card="${part}"]`)!;
             const box = (part: string) => card(part).getBoundingClientRect();
@@ -513,7 +514,12 @@ test.describe("产品页：测试插件贡献的视图", () => {
                 sidebarCorners: [getComputedStyle(card("sidebar")).borderTopLeftRadius, getComputedStyle(card("sidebar")).borderTopRightRadius],
                 joinLine: getComputedStyle(card("activitybar"), "::after").backgroundColor,
                 titlebarLine: getComputedStyle(document.querySelector("[data-workbench-titlebar]")!).borderBottomColor,
-                seams: [...new Set([...document.querySelectorAll("[data-workbench-shell] .sash-seam")].map((seam) => getComputedStyle(seam).backgroundColor))],
+                seams: [...new Set([...document.querySelectorAll("[data-workbench-shell] .sash-seam")].filter((seam) => seam.closest("[data-container-host]") === null).map((seam) => getComputedStyle(seam).backgroundColor))],
+                paneSeams: [...document.querySelectorAll("[data-container-host] .sash-seam")].map((seam) => {
+                    const style = getComputedStyle(seam);
+                    const [start, end] = (seam as HTMLElement).dataset.axis === "width" ? [style.top, style.bottom] : [style.left, style.right];
+                    return {color: style.backgroundColor, start, end};
+                }),
                 divider,
             };
         });
@@ -529,6 +535,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(nbook.joinLine).toBe(nbook.divider);
         expect(nbook.titlebarLine).toBe("rgba(0, 0, 0, 0)");
         expect(nbook.seams).toEqual(["rgba(0, 0, 0, 0)"]);
+        expect(nbook.paneSeams).toEqual([{color: nbook.divider, start: "10px", end: "10px"}]);
 
         const settings = join(tmp, "state", "settings.json");
         try {
@@ -544,6 +551,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
             expect(macos.joinLine).toBe("rgba(0, 0, 0, 0)");
             expect(macos.titlebarLine).toBe(macos.divider);
             expect(macos.seams).toEqual([macos.divider]);
+            expect(macos.paneSeams).toEqual([{color: macos.divider, start: "0px", end: "0px"}]);
         } finally {
             await rm(settings, {force: true});
         }

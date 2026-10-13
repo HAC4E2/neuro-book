@@ -411,22 +411,23 @@ function scheduleSnap(): void {
  * 写呈现用的四个长度：主轴起点/厚度 + 交叉轴铺满分隔盒。
  * 不用负 inset 外扩（那正是收起边界被裁细的来源），也不用 transform 叠位移（几何与样式各留一份会互相打架）。
  */
+/**
+ * 写装饰的几何：只写主轴（起点与厚度），长轴两端交给样式（按 `data-axis`，取缩进变量，缺省贴满）。宿主与主题改变量就能
+ * 缩进，不用重新测量；内联只写主轴，换方向时把另一方向留下的值清掉。
+ */
 function writeDecorationGeometry(element: HTMLElement, box: SashBandBox, horizontal: boolean): void {
     const style = element.style;
     const start = `${Math.round(box.startPx * 10000) / 10000}px`;
     const thickness = `${Math.round(box.thicknessPx * 10000) / 10000}px`;
+    style.top = style.bottom = style.left = style.right = "";
     if (horizontal) {
         style.height = "";
         style.left = start;
         style.width = thickness;
-        style.top = "0px";
-        style.bottom = "0px";
     } else {
         style.width = "";
         style.top = start;
         style.height = thickness;
-        style.left = "0px";
-        style.right = "0px";
     }
 }
 
@@ -609,11 +610,13 @@ onBeforeUnmount(() => {
                             :ref="(value) => setSeamRef(index, value as Element | null)"
                             aria-hidden="true"
                             class="sash-seam pointer-events-none absolute"
+                            :data-axis="axis"
                         />
                         <span
                             :ref="(value) => setLineRef(index, value as Element | null)"
                             aria-hidden="true"
                             class="sash-line pointer-events-none absolute"
+                            :data-axis="axis"
                         />
                     </template>
                 </div>
@@ -630,10 +633,32 @@ onBeforeUnmount(() => {
  * 静止接缝：常驻的 1 CSS px `--divider`。它标记的是**边界**本身，不是交互反馈——
  * 所以没有 hover / 拖动态，也不跟着 `disabled` 消失（不能拖不等于边界不存在）。
  * 位置与厚度由 `snapLines()` 写内联（和装饰带同一趟），这里只管颜色；0 宽边界不渲染这个元素。
- * 宿主可以经 `--nb-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明）。
+ * 宿主可以经 `--nb-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明），经 `--nb-splitter-seam-inset`
+ * 让它沿长轴两端缩进（开放式分割线）。
  */
 .sash-seam {
     background: var(--nb-splitter-seam, var(--divider));
+}
+
+/* 长轴两端：竖向的接缝（宽度轴的分隔）缩上下，横向的缩左右；装饰带照旧贴满。主轴由 `snapLines()` 写内联。 */
+.sash-seam[data-axis="width"] {
+    top: var(--nb-splitter-seam-inset, 0px);
+    bottom: var(--nb-splitter-seam-inset, 0px);
+}
+
+.sash-seam[data-axis="height"] {
+    left: var(--nb-splitter-seam-inset, 0px);
+    right: var(--nb-splitter-seam-inset, 0px);
+}
+
+.sash-line[data-axis="width"] {
+    top: 0;
+    bottom: 0;
+}
+
+.sash-line[data-axis="height"] {
+    left: 0;
+    right: 0;
 }
 
 /* 收起/展开是控件形变，走 --motion-base；拖动中关闭，避免跟手延迟。 */

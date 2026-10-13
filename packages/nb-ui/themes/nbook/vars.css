@@ -304,6 +304,9 @@
     --shell-chrome-line: transparent;
     --shell-seam: transparent;
     --shell-join-divider: var(--divider);
+    /* 卡片里容器分栏之间的线：两端各缩进 10px 的开放式分割线，与活动栏、侧栏之间那条短线同一种。 */
+    --shell-pane-divider: var(--divider);
+    --shell-pane-divider-inset: 10px;
     /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。

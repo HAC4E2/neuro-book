@@ -308,6 +308,9 @@
 .h-\[1px\] {
   height: 1px;
 }
+.h-\[14px\] {
+  height: 14px;
+}
 .h-\[18px\] {
   height: 18px;
 }
@@ -475,6 +478,9 @@
 }
 .w-\[1px\] {
   width: 1px;
+}
+.w-\[14px\] {
+  width: 14px;
 }
 .w-\[18px\] {
   width: 18px;
@@ -1500,6 +1506,9 @@
 }
 .text-\[20px\] {
   font-size: 20px;
+}
+.text-\[length\:9\.6px\] {
+  font-size: 9.6px;
 }
 .text-\[length\:var\(--text-sm\)\] {
   font-size: var(--text-sm);

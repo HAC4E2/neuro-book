@@ -4,7 +4,7 @@ import {IconButton} from "@notnotype/nb-ui/components";
 
 defineOptions({name: "WorkbenchViewSection"});
 
-defineProps<{
+const props = defineProps<{
     viewId: string;
     title: string;
     icon: string;
@@ -21,6 +21,26 @@ const emit = defineEmits<{
     (event: "toggle-collapsed", collapsed: boolean): void;
 }>();
 
+/** 与拖动会话的起拖门槛一致：按下到松开移动超过它就是拖动，不算点击。 */
+const CLICK_SLOP_PX = 6;
+let pressedAt: {x: number; y: number} | null = null;
+
+function onHeadPointerDown(event: PointerEvent): void {
+    pressedAt = {x: event.clientX, y: event.clientY};
+}
+
+/**
+ * 整行点击切换收起（docs/specs/ui/workbench-shell.md 外壳二输出 16）：按下后移动过门槛的是拖动。带 `data-no-drag` 的
+ * 展开标记与动作区的点击归它们自己，展开标记已经切过一次，这里不再切。
+ */
+function onHeadClick(event: MouseEvent): void {
+    const start = pressedAt;
+    pressedAt = null;
+    if (event.target instanceof Element && event.target.closest("[data-no-drag]") !== null) return;
+    if (start !== null && Math.hypot(event.clientX - start.x, event.clientY - start.y) > CLICK_SLOP_PX) return;
+    emit("toggle-collapsed", !props.collapsed);
+}
+
 defineSlots<{
     actions?(): unknown;
     default?(): unknown;
@@ -36,9 +56,9 @@ defineSlots<{
         :data-view-section="viewId"
         :data-view-collapsed="chrome && collapsed ? 'true' : 'false'"
     >
-        <header v-if="chrome" class="workbench-view-section__head" :data-drag-view="viewId">
+        <header v-if="chrome" class="workbench-view-section__head" :data-drag-view="viewId" @pointerdown="onHeadPointerDown" @click="onHeadClick">
             <IconButton
-                size="xs"
+                size="2xs"
                 :icon-class="collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
                 :aria-label="collapsed ? expandLabel : collapseLabel"
                 :title="collapsed ? expandLabel : collapseLabel"
@@ -72,23 +92,42 @@ defineSlots<{
 }
 
 .workbench-view-section__head {
+    position: relative;
+    isolation: isolate;
     display: flex;
     flex: 0 0 32px;
     align-items: center;
-    gap: var(--space-1);
+    gap: 2px;
     height: 32px;
     min-width: 0;
-    /* 24px 的图标按钮离左右边各 4px：外扩焦点光环（实色 3.5px）不被分节的裁切切掉。 */
-    padding-inline: var(--space-2);
+    /* 14px 的展开标记离左边 8px：外扩焦点光环（实色 3.5px）不被分节的裁切切掉；右边 6px 给动作区的 24px 按钮留 4px 以上。 */
+    padding-inline: 8px 6px;
+    cursor: pointer;
     /* 标题整块是视图的拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
     touch-action: none;
     user-select: none;
+}
+
+/* 整行可点的悬停底色：左右各留 4px、上下各留 3px，不贴满整行（t83 第三轮稿 R3-2）。 */
+.workbench-view-section__head::before {
+    position: absolute;
+    z-index: -1;
+    inset: 3px 4px;
+    border-radius: 6px;
+    background: transparent;
+    content: "";
+    transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.workbench-view-section__head:hover::before {
+    background: var(--bg-hover);
 }
 
 .workbench-view-section__icon {
     flex: 0 0 auto;
     width: 14px;
     height: 14px;
+    margin-inline-start: 2px;
     color: var(--text-muted);
 }
 
@@ -135,9 +174,18 @@ defineSlots<{
     flex-direction: column;
     width: 32px;
     height: 100%;
-    /* 顶部的展开按钮离边 4px：外扩焦点光环不被分节的裁切切掉（左右是 32px 里放 24px，各余 4px）。 */
-    padding-block: var(--space-2);
+    /* 顶部的展开标记离边 8px、左右各余 9px：外扩焦点光环不被分节的裁切切掉。 */
+    padding-block: 8px;
     padding-inline: 0;
+}
+
+/* 竖条的悬停底色四周各留 3px。 */
+.workbench-view-section--horizontal.workbench-view-section--collapsed .workbench-view-section__head::before {
+    inset: 3px;
+}
+
+.workbench-view-section--horizontal.workbench-view-section--collapsed .workbench-view-section__icon {
+    margin-inline-start: 0;
 }
 
 /* 竖排的标题要能比文字短：不写 min-height 时弹性项最矮也是文字的高度，长标题会伸出竖条、在底边被截断而没有省略号。 */

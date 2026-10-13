@@ -3,7 +3,7 @@ import {focusRingClass} from "./focus-ring";
 import type {FocusRingStyle} from "./focus-ring";
 
 export type IconButtonVariant = "default" | "danger" | "accent" | "secondary";
-export type IconButtonSize = "xs" | "sm" | "md" | "lg";
+export type IconButtonSize = "2xs" | "xs" | "sm" | "md" | "lg";
 
 const props = withDefaults(defineProps<{
     title?: string;
@@ -28,6 +28,10 @@ const props = withDefaults(defineProps<{
  * 零 Layout Shift，禁用态禁止任何缩放。
  */
 function sizeClass(): string {
+    if (props.size === "2xs") {
+        // 标题行里的展开标记：14px 方框、12px 图标，整行可点时它只是状态的落点，不占标题前的空间。
+        return "h-[14px] w-[14px] text-[length:9.6px] rounded-[4px]";
+    }
     if (props.size === "xs") {
         // 一行 32px 的头部里的图标按钮：四周各留 4px，外扩光晕不被头部所在的面板裁掉。
         return "h-[24px] w-[24px] text-xs rounded-[6px]";
