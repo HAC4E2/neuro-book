@@ -45,7 +45,7 @@ type GridRendererProps = {
 type GridRendererEmits = {
     /** 手势建立并冻结上下文时发出。 */
     (event: "gesture-start", info: {sessionId: string; contextKey: string; source: SplitterGestureSource; revision: number; sashes: readonly GridSashRef[]}): void;
-    /** 每次产生新几何预览时发出。 */
+    /** 每次产生新几何预览时发出；预览撤回、画面回到已发布的布局时（拖回基线、无变化松手、取消、提交被拒）也发一次，`changes` 为空、`layout` 是已发布的布局。 */
     (event: "gesture-update", preview: GridGesturePreview<unknown>): void;
     /** 手势正常结束时发出最终提交；无变化时没有提交。 */
     (event: "gesture-end", commit: GridGestureCommit): void;

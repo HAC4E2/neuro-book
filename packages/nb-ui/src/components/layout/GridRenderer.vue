@@ -111,7 +111,11 @@ function publishedMatches(previewLayout: GridLayoutResult, published: GridLayout
 
 function onPreview(next: GridGesturePreview<unknown> | null): void {
     if (next === null) {
+        // 预览撤回（拖回基线、无变化松手、取消、提交被拒）也是一次几何变化：宿主可能按预览改了别的状态（例如把内容提前
+        // 搬出停放区），要知道画面已回到已发布的布局。已经在基线上时不重复发。
+        const wasPreviewing = preview.value !== null;
         preview.value = null;
+        if (wasPreviewing) emit("gesture-update", {layout: props.layout, tree: props.node, changes: [], issues: []});
         return;
     }
     preview.value = next;

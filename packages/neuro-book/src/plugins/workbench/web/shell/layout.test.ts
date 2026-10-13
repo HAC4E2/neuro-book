@@ -419,6 +419,36 @@ describe("面板拖到顶即最大化（输出 4、7、8）", () => {
         expect(shellPatch(session.finish()!)).toEqual({panelMaximized: false, panelHeight: 541});
     });
 
+    it("从最大化一场拖回：面板仍守自己的最小尺寸，再往下越过阈值就是拖到零（不写 0、不改尺寸记录）", () => {
+        // 最大化：editor 0、面板 841
+        const stop = panelBoundary({panel: {...PANEL, maximized: true}});
+        expect(stop.update({x: 0, y: 770})?.changes[0]).toMatchObject({target: {editor: 761, panel: 80}});
+        const zero = panelBoundary({panel: {...PANEL, maximized: true}});
+        const change = zero.update({x: 0, y: 830})?.changes[0];
+        expect(change).toMatchObject({target: {editor: 841, panel: 0}, collapsed: {editor: false, panel: true}});
+        expect(shellPatch(zero.finish()!)).toEqual({panelMaximized: false, dragCollapsed: {panel: true}});
+    });
+
+    it("面板拖到零时一次拉到顶：同一次求解就是最大化", () => {
+        const session = panelBoundary({dragCollapsedParts: {panel: true}});
+        const change = session.update({x: 0, y: -800})?.changes[0];
+        expect(change?.collapsed).toEqual({editor: true, panel: false});
+        expect(change?.target.editor).toBe(0);
+    });
+
+    it("矮到面板退成标题头时：标题栏 36、状态栏 22、标题头 32 不被挤，editor 取剩下的非负余量，网格与投影一致", () => {
+        for (const height of [200, 170, 100]) {
+            const {projection, layout} = project({extent: {width: 1440, height}});
+            expect(projection.effectivePanel.collapsed).toBe(true);
+            expect(leafExtent(layout, "titlebar").height).toBeCloseTo(SHELL_TITLEBAR_HEIGHT, 6);
+            expect(leafExtent(layout, "statusbar").height).toBeCloseTo(SHELL_STATUSBAR_HEIGHT, 6);
+            expect(leafExtent(layout, "panel").height).toBeCloseTo(SHELL_PANEL_COLLAPSED_HEIGHT, 6);
+            const editor = height - SHELL_TITLEBAR_HEIGHT - SHELL_STATUSBAR_HEIGHT - SHELL_PANEL_COLLAPSED_HEIGHT;
+            expect(leafExtent(layout, "editor").height).toBeCloseTo(editor, 6);
+            expect(projection.sizes.editor).toBeCloseTo(editor, 6);
+        }
+    });
+
     it("右侧面板同样：往编辑器那边拖到底即最大化", () => {
         const session = panelBoundary({panel: {...PANEL, position: "right"}}, "width");
         const change = session.update({x: -2000, y: 0})?.changes[0];

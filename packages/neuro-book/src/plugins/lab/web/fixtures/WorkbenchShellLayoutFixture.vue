@@ -39,6 +39,8 @@ function setPanel(patch: Partial<PanelState>): void {
 function onResize(payload: {contextKey: string; patch: ShellSizePatch}): void {
     subject.write("props", "sizes", mergeShellSizePatch(sizes.value, payload.patch));
     if (payload.patch.dragCollapsed !== undefined) subject.write("props", "dragCollapsedParts", {...dragCollapsed.value, ...payload.patch.dragCollapsed});
+    // 编辑器拖到零即最大化、拖回即还原：只改场景里面板的内存位，与产品的布局 store 一致。
+    if (payload.patch.panelMaximized !== undefined) subject.write("props", "panel", {...panel.value, maximized: payload.patch.panelMaximized});
 }
 
 function onLayout(facts: ShellLayoutFacts): void {

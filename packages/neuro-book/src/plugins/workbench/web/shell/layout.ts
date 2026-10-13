@@ -380,12 +380,21 @@ function distributeBranch(branch: GridBranchInput<string>, state: SizingState): 
     }
 
     const editorCollapsible = editorCollapsibleHere(branch, state);
+    // 面板在这一轴上最少还要占多少：标题头 32、拖到零 0、展开时它的最小尺寸。内容节点的最小尺寸不能超过剩下的空间，
+    // 否则网格为了保住它会去挤标题头与标题栏、状态栏（矮窗口里编辑器只该取非负余量，输出 5）。
+    const panelFloor = state.effective.collapsed ? SHELL_PANEL_COLLAPSED_HEIGHT : state.dragCollapsed.panel === true ? 0 : axis === "width" ? SHELL_PANEL_MIN_WIDTH : SHELL_PANEL_MIN_HEIGHT;
     branch.children.forEach((child, index) => {
         const role = roles[index]!;
         // 面板同列的内容节点（编辑器或包着它的内容行）在面板轴上带编辑器的最小尺寸：拖面板时停在那里，或者越过阈值把编辑器拖到零。
-        const contentLimits = branch.id === SHELL_PANEL_STACK_ID && child.id !== "panel" ? {minimumSize: minimumMain(child, axis, state), maximumSize: SHELL_EDITOR_MAX_WIDTH} : null;
-        assignNode(child, axis, sizes[index]!, branchCross, role.kind === "preference" || role.kind === "drag-collapsed" ? role.limits : contentLimits, state);
+        const contentLimits = branch.id === SHELL_PANEL_STACK_ID && child.id !== "panel" ? {minimumSize: Math.min(minimumMain(child, axis, state), Math.max(0, available - panelFloor)), maximumSize: SHELL_EDITOR_MAX_WIDTH} : null;
+        // 最大化的面板占满这一列，但仍守自己的最小尺寸与拖到零：从最大化一场拖回时，面板照常停在最小值、越过阈值才拖到零。
+        const maximizedPanel = maximizedHere && child.id === "panel" ? shellPanelAxisLimits(axis, {collapsed: false}) : null;
+        assignNode(child, axis, sizes[index]!, branchCross, role.kind === "preference" || role.kind === "drag-collapsed" ? role.limits : (maximizedPanel ?? contentLimits), state);
         if (editorCollapsible && child.id === "editor") writeEditorCollapse(child, state.effective.maximized, sizes[index]!);
+        if (maximizedPanel !== null) {
+            const key: PreferenceKey = axis === "width" ? "panelWidth" : "panelHeight";
+            writeCollapseIntent(child, axis, {kind: "preference", restore: clampLeafSize(state.preferences[key], maximizedPanel), size: sizes[index]!});
+        }
         if (role.kind === "drag-collapsed") {
             // 呈现 0px，意图保留展开尺寸：恢复与“记忆尺寸”都读它。
             writeCollapseIntent(child, axis, {kind: "drag-collapsed", restore: role.restore, size: role.restore});

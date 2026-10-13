@@ -352,6 +352,11 @@ test.describe("产品页", () => {
         await expect.poll(async () => (await box(page, "panel")).height).toBeGreaterThan(150);
         await expect.poll(slotParked.bind(null, "panel")).toBe(false);
         await expect(page.locator("[data-shell-slot=\"panel\"]")).toBeVisible();
+        // 按着拖回按下点：画面回到零，内容也回到停放区；再拉出来又出现
+        await page.mouse.move(start.x, start.y, {steps: 8});
+        await expect.poll(slotParked.bind(null, "panel")).toBe(true);
+        await page.mouse.move(start.x, start.y - 200, {steps: 8});
+        await expect.poll(slotParked.bind(null, "panel")).toBe(false);
         await page.mouse.up();
         expect(await slotParked("panel")).toBe(false);
     });
@@ -507,6 +512,28 @@ test.describe("Lab", () => {
             return {inside: box(".workbench-view-section__title").bottom <= head.bottom, ellipsis: getComputedStyle(handle).textOverflow === "ellipsis" && handle.scrollHeight > handle.clientHeight, toggleOnTop: box("[data-view-toggle]").top < box(".workbench-view-section__title").top};
         });
         expect(facts).toEqual({inside: true, ellipsis: true, toggleOnTop: true});
+    });
+
+    test("Lab 外壳场景里拖到顶即最大化、往下拖还原：松手后保持（场景接住了补丁里的最大化）", async ({page}) => {
+        await page.goto(`${dev.pageUrl}lab?c=WorkbenchShellLayout&s=default`);
+        await expect(page.locator("[data-shell-sample]")).toBeVisible();
+        const sash = page.getByRole("separator", {name: "调整 editor 与 panel 的高度"});
+        const editorParked = () => page.locator("[data-shell-slot=\"editor\"]").evaluate((element) => element.closest("[data-shell-parking]") !== null);
+        const drag = async (dy: number): Promise<void> => {
+            const found = await sash.boundingBox();
+            if (found === null) throw new Error("没有面板与编辑器之间的边界");
+            await page.mouse.move(found.x + found.width / 2, found.y + found.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(found.x + found.width / 2, found.y + found.height / 2 + dy, {steps: 8});
+            await page.mouse.up();
+        };
+        await drag(-2000);
+        // 编辑器内容只在投影真的最大化时才停放：场景没接住补丁时投影仍是展开，内容不会进停放区。
+        await expect.poll(editorParked).toBe(true);
+        expect((await box(page, "editor")).height).toBe(0);
+        await drag(300);
+        await expect.poll(editorParked).toBe(false);
+        expect((await box(page, "editor")).height).toBeGreaterThan(0);
     });
 
     test("同一场景里换位置、最大化、隐藏、紧凑往返：编辑器样例不重挂，输入与滚动保留", async ({page}) => {

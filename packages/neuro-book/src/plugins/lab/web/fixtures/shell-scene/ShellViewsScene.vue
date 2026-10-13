@@ -117,6 +117,8 @@ const partTargets = reactive<Partial<Record<ViewLocation, HTMLElement>>>({});
 function onResize(payload: {contextKey: string; patch: ShellSizePatch}): void {
     sizes.value = mergeShellSizePatch(sizes.value, payload.patch);
     if (payload.patch.dragCollapsed !== undefined) dragCollapsed.value = {...dragCollapsed.value, ...payload.patch.dragCollapsed};
+    // 编辑器拖到零即最大化、拖回即还原：只改场景里面板的内存位，与产品的布局 store 一致。
+    if (payload.patch.panelMaximized !== undefined) panel.value = {...panel.value, maximized: payload.patch.panelMaximized};
 }
 
 function setTarget(part: ViewLocation, element: HTMLElement | null): void {
