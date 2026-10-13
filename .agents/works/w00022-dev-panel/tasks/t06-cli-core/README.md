@@ -1,7 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t06-cli-core
-status: active
+status: done
+updated: 2026-10-13
 ---
 
 # 命令行核心：包骨架、写事务、记录读取与领号
