@@ -1,7 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t80-settings-ui
-status: active
+status: done
+updated: 2026-10-13
 ---
 
 # 设置界面：`nbook.settings` 的界面与贡献点
@@ -55,6 +56,12 @@ status: active
   - `settings-window.md` 补“实现合同”与三行证据，注册表标“待晋升”，`status` 仍为 planned，等开发者批准晋升。
 - 搭稿时发现的 nb-ui 缺陷记为 [t81](../t81-nb-ui-text-size-segmented/README.md)。另有：缺扁平的分区导航组件（设置窗口先在应用里自己做）；带候选的输入框与其它控件外观不统一、`FormNumberInput` 没有单位后缀的位置（编辑器分区接入时处理）。
 
-## 下一步
+## 收尾（2026-10-13）
 
-2026-10-12 开发者决定先保存进度、暂不定 `settings-window.md` 的晋升：t80 作为开发者项目面板（w00022）的第一个验证对象，晋升决定、评审板、审查报告等以后经面板处理。之后：t81 合入后去掉设置窗口给分段控件的手动定宽；t81、t80 依次合回 w00017 主线（主线 worktree 由别的会话占用，合并时间由开发者协调）。
+2026-10-12 开发者先保存进度、暂不定晋升；2026-10-13 批准 `settings-window.md` 晋升 `implemented`，并同意合回。
+
+- 对齐主线（`20b127a7c`）：把 t81、t82、t83 合回之后的 w00017 合进本分支。冲突：键位解析已挪到命令插件的 `shared/keybinding.ts`，逗号主键搬过去；活动栏的“更多”收起（t83）与底段全局项并存；作品插件的欢迎页（t79）与“作品”分区并存；书架 Spec 两边编号撞了，欢迎页先进主线（输出 18–20、验收 10–12），“作品”分区顺延为输出 21、验收 13，代码与测试里的引用一并改；配置测试场地两边都补了整页导航能力，留本分支那份；主线新加的 `view-actions.test.ts` 补上本 Task 新增的必填项 `activityItems`。
+- 去掉分段控件的估宽（`c7c8c7bf0`）：t81 之后 nb-ui 分段控件宽度随内容时各段等宽、长选项完整显示。
+- 晋升（`267930561`）：`settings-window.md` 改为 `implemented`，注册表挪到“已实现规范”；三份 Spec 证据里链到本 Task `plan.md` 的地方改写路径（记录只在主工作区，分支上链不到，合进 `master` 后可改回链接）。
+- 验证：typecheck 为 0，`test:affected --typecheck` 中 bun 1107 例、nb-ui 575 例、组件测试 205 例全过；全套 e2e 195 例全过；`docs:check`、`governance:check` 无失败；`lab:shot` 设置窗口与设置行全部场景在 1400×900 与手机画布下问题 0 条。
+- 合回 w00017（`01722510f`，树与上面验证的分支一致），已推送。
