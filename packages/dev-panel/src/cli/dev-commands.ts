@@ -189,7 +189,7 @@ export const DEV_COMMANDS: Record<string, CommandSpec> = {
         options: {...TARGET_OPTIONS, force: {type: "boolean"}, grace: {type: "string"}, ...AS_OPTION},
         async run({io, positionals, values}): Promise<CommandOutcome> {
             const {DEFAULT_GRACE_MS, devStop, resolveDevTarget} = await import("../dev/dev-ops.js");
-            const {assertRunId} = await import("../dev/procs.js");
+            const {assertRunId} = await import("../core/procs.js");
             const context = await locateRepository(io.cwd);
             const runId = positionals[0] !== undefined ? assertRunId(positionals[0]) : null;
             const target = runId === null ? await resolveDevTarget(context, stringValue(values, "checkout") ?? null, stringValue(values, "package") ?? "packages/neuro-book", stringValue(values, "script") ?? "dev", io.cwd) : null;

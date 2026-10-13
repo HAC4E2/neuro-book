@@ -7,7 +7,7 @@ import {readdir, readFile, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {processAlive, processStartTicks, readProcStat} from "../src/core/procfs.js";
-import {collectDescendants, parseProcRecord, PROCS_DIR, type ProcRecord} from "../src/dev/procs.js";
+import {collectDescendants, parseProcRecord, PROCS_DIR, type ProcRecord} from "../src/core/procs.js";
 import {cleanupFixtures, CLI_PATH, createFixture, type Fixture} from "./git-fixture.js";
 import {startFakeClaude, type FakeClaude} from "./processes.js";
 

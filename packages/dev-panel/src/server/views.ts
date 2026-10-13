@@ -78,6 +78,8 @@ export function overviewView(state: PanelState): {data: unknown; warnings: Warni
             inbox: status.inbox.map((item) => (item.kind === "question" ? {...item, askerActive: item.askedBy === null ? null : validKeys.has(item.askedBy)} : item)),
             nextWorkNumber: status.nextWorkNumber,
             sessions: {total: activity.sessions.length, byStatus: statusCounts, unownedRuns: activity.unownedRuns.length, herdr: {available: herdr.available, mode: herdr.mode}},
+            // 左栏“在跑”的数：经 nbdev 起、还没结束的服务加无主的运行（t14）。
+            runs: (state.activity.part.value?.procs ?? []).filter((run) => run.state !== "ended").length + activity.unownedRuns.length,
         },
         warnings,
     };

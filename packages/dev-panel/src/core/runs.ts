@@ -38,6 +38,11 @@ export type DiscoverRunsInput = {
     /** herdr 不可用时为 null：只能按工具标记里的 Claude 那一条归属。 */
     panes: readonly PaneProcesses[] | null;
     bootTime: number;
+    /**
+     * 经 nbdev 起的运行（`run/procs/` 的监管进程、组长与后代快照）的 pid：运行树里（根或任何后代）含有其中之一，整棵不算会话的运行或无主的运行，
+     * 由“在跑”页的第一块列出（t14 设计审查 S7）。按完整后代集合判断，不只看显示用的前 5 条。
+     */
+    exclude?: ReadonlySet<number>;
     /** 以下三个默认读真实的 /proc；合成进程表的测试注入替身。 */
     readEnv?: (pid: number) => Promise<Record<string, string> | null>;
     unitOf?: (pid: number) => Promise<string | null>;
@@ -142,6 +147,7 @@ export async function discoverRuns(input: DiscoverRunsInput): Promise<{runs: Run
     const runs: RunView[] = [];
     let ignored = 0;
     for (const root of roots) {
+        if (input.exclude && (input.exclude.has(root.pid) || (descendantsByRoot.get(root.pid) ?? []).some((entry) => input.exclude!.has(entry.pid)))) continue;
         const attribution = await attribute(root, {envOf, resolveClaude, unitOf, panesById, paneOfPid, agentPids, byPid});
         if (attribution === "exclude") continue;
         if (attribution === "ignore") {

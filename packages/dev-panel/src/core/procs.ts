@@ -2,11 +2,11 @@ import {randomBytes} from "node:crypto";
 import {chmod, mkdir, readdir, readFile, rename, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
-import {NbdevError, systemErrorCode, type Warning} from "../core/errors.js";
-import {isIsoTime, isNullableString, isRecord} from "../core/json.js";
-import {acquireDirectoryLock, agentPaths, type RecordsLock} from "../core/lock.js";
-import {processAlive, readBootId, readProcStats, type ProcStat} from "../core/procfs.js";
-import {AGENT_LOCAL_ROOT} from "../core/registry.js";
+import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
+import {isIsoTime, isNullableString, isRecord} from "./json.js";
+import {acquireDirectoryLock, agentPaths, type RecordsLock} from "./lock.js";
+import {processAlive, readBootId, readProcStats, type ProcStat} from "./procfs.js";
+import {AGENT_LOCAL_ROOT} from "./registry.js";
 
 /**
  * 经 nbdev 起的进程的登记（t14）：主工作区 `.local/agent/run/procs/<runId>.json`（`nbdev.proc/v1`）。格式见 docs/file-formats.md。
@@ -337,6 +337,17 @@ export function mergeRefs(a: readonly ProcRef[], b: readonly ProcRef[]): ProcRef
     const map = new Map<string, ProcRef>();
     for (const entry of [...a, ...b]) map.set(`${entry.pid}:${entry.startTicks}`, entry);
     return [...map.values()].slice(0, MAX_DESCENDANTS);
+}
+
+export type RunView = ProcRecord & RunEvaluation;
+
+/** `dev status` 与面板共用：全部登记加现算的状态。 */
+export async function listProcRuns(mainRoot: string): Promise<{runs: RunView[]; warnings: Warning[]}> {
+    const {records, warnings} = await readProcRecords(mainRoot);
+    const bootId = await readBootId();
+    const runs: RunView[] = [];
+    for (const record of records) runs.push({...record, ...await evaluateRun(record, bootId)});
+    return {runs, warnings};
 }
 
 export async function currentBootId(): Promise<string> {

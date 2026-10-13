@@ -25,6 +25,8 @@ export type Overview = {
     inbox: InboxItem[];
     nextWorkNumber: string;
     sessions: {total: number; byStatus: Record<string, number>; unownedRuns: number; herdr: {available: boolean; mode: string}};
+    /** 经 nbdev 起、还没结束的服务加无主的运行（左栏“在跑”的数，t14）。 */
+    runs: number;
 };
 
 export type AuditState = {enabled: true; initAt: string; path: string} | {enabled: false; reason: string; detail: string; path: string};
@@ -140,3 +142,22 @@ export type DeliveryData = {result: NotifyResult; code: string | null; message: 
 export type ScreenData = {paneId: string; sessionKey: string; agent: string | null; status: string; focused: boolean; screen: string};
 /** omp 的更早输出（t12，手机的文字视图）：`agent.read` 的 `recent_unwrapped` 最近 `lines` 行。 */
 export type HistoryData = {paneId: string; sessionKey: string; lines: number; text: string};
+
+/** 经 nbdev 起的一份服务（t14，`run/procs/` 的登记加现算的状态；格式见 docs/file-formats.md）。 */
+export type ProcRunView = {
+    runId: string; checkout: string; checkoutKey: string; package: string; script: string; logPath: string; startedAt: string;
+    startedBy: {key: string; agent: string; label: string | null} | null; workId: string | null; taskId: string | null;
+    url: string | null; readyAt: string | null; lastProbeStatus: number | null; endedAt: string | null; exitCode: number | null; signal: string | null;
+    state: "starting" | "running" | "orphaned" | "ended"; reason: string | null; supervisorAlive: boolean;
+};
+export type RunsData = {procs: ProcRunView[]; sessions: Array<{key: string; agent: string; label: string | null; alive: boolean | null; runs: RunView[]}>; unownedRuns: RunView[]};
+export type CheckoutRow = {
+    key: string; root: string; branch: string | null; head: string; isMain: boolean; executionOf: string[]; homeOf: Array<{workId: string; taskId: string}>;
+    runs: Array<{runId: string; package: string; script: string; state: string; url: string | null}>;
+    dirty: number | null; ahead: number | null; behind: number | null; error: string | null; at: string;
+};
+export type CheckoutsData = {checkouts: CheckoutRow[]};
+export type CheckSummary = {success: number; failure: number; pending: number; failed: Array<{name: string; url: string | null}>};
+export type PrView = {number: number; title: string; branch: string; draft: boolean; reviewDecision: string | null; updatedAt: string; url: string | null; checks: CheckSummary; task: {workId: string; taskId: string} | null};
+export type IssueView = {number: number; title: string; labels: string[]; updatedAt: string; url: string | null};
+export type GithubData = {state: "idle" | "ok" | "stale" | "unavailable" | "not_logged_in" | "error"; at: string | null; error: string | null; refreshing: boolean; prs: PrView[]; issues: IssueView[]; truncated: {prs: boolean; issues: boolean}};

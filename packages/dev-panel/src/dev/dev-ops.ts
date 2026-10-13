@@ -10,7 +10,7 @@ import {isRecord} from "../core/json.js";
 import {processAlive, processStartTicks} from "../core/procfs.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {listCheckouts, type CheckoutInfo, type RepoContext} from "../core/repo.js";
-import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, type ProcRecord, type RunEvaluation, type StartedBy} from "./procs.js";
+import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
 import {compileReadyPattern, createReadyMatcher, LineSplitter, readyStatus, stripAnsi} from "./ready.js";
 
 /**
@@ -328,16 +328,7 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
     }
 }
 
-export type RunView = ProcRecord & RunEvaluation;
-
-/** `dev status` 与面板共用：全部登记加现算的状态。 */
-export async function listRuns(mainRoot: string): Promise<{runs: RunView[]; warnings: Warning[]}> {
-    const {records, warnings} = await readProcRecords(mainRoot);
-    const bootId = await currentBootId();
-    const runs: RunView[] = [];
-    for (const record of records) runs.push({...record, ...await evaluateRun(record, bootId)});
-    return {runs, warnings};
-}
+export {listProcRuns as listRuns, type RunView} from "../core/procs.js";
 
 export type StopInput = {runId: string | null; target: DevTarget | null; force: boolean; graceMs: number};
 
@@ -404,10 +395,10 @@ export async function devStop(mainRoot: string, input: StopInput, caller: Caller
 }
 
 /** `dev status --wait-ready`：等这份服务就绪，超时报 `dev_not_ready`。 */
-export async function waitRunReady(mainRoot: string, target: DevTarget, timeoutMs: number): Promise<RunView> {
+export async function waitRunReady(mainRoot: string, target: DevTarget, timeoutMs: number): Promise<ProcRunView> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-        const {runs} = await listRuns(mainRoot);
+        const {runs} = await listProcRuns(mainRoot);
         const run = runs.filter((entry) => sameKey(entry, target) && entry.state !== "ended").sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
         if (!run) throw new NbdevError("run_not_found", "这个 checkout 上没有经 nbdev 起的这份服务", {details: {checkout: target.checkout.root}});
         if (run.readyAt) return run;

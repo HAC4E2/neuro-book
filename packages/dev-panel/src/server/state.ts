@@ -7,6 +7,7 @@ import {checkoutKeys} from "../core/checkouts.js";
 import {systemErrorCode, type Warning} from "../core/errors.js";
 import {gitOutput, runGit} from "../core/git.js";
 import {LEASES_DIR} from "../core/leases.js";
+import {listProcRuns, type RunView as ProcRunView} from "../core/procs.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {MASTER_REF, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "../core/repo.js";
 import {createBranchChangesCache} from "../core/sources.js";
@@ -26,9 +27,10 @@ import {HerdrMonitor} from "./herdr-monitor.js";
  */
 
 export type Part<T> = {value: T | null; revision: number; at: string | null; error: string | null};
-export type PartName = "records" | "activity" | "sessions" | "notify";
+export type PartName = "records" | "activity" | "sessions" | "notify" | "github";
 export type RecordsValue = {records: ProjectRecords; transition: TransitionState; warnings: Warning[]};
-export type ActivityValue = {activity: Activity; warnings: Warning[]};
+/** `procs`：经 nbdev 起的运行（还活着的，加 24 小时内结束的），“在跑”页的第一块（t14）。 */
+export type ActivityValue = {activity: Activity; procs: ProcRunView[]; warnings: Warning[]};
 
 const DEBOUNCE_MS = 300;
 const CHECK_MS = 5_000;
@@ -102,6 +104,7 @@ function activityFingerprint(value: ActivityValue): string {
         leases: activity.leases.filter((lease) => lease.state === "valid").map((lease) => [lease.leaseId, lease.taskId, lease.stale, lease.lastActivityAt]),
         sessions: activity.sessions.map((session) => [session.key, session.alive, session.herdr?.status ?? null, session.leases.length, session.runs.map((run) => [run.pid, run.command, run.checkout])]),
         unowned: activity.unownedRuns.map((run) => [run.pid, run.command, run.checkout]),
+        procs: value.procs.map((run) => [run.runId, run.state, run.reason, run.url, run.readyAt]),
     });
 }
 
@@ -139,6 +142,7 @@ export class PanelState {
 
     sessionsRevision = 0;
     notifyRevision = 0;
+    githubRevision = 0;
     /** `stop()` 之后为 true：之后的 `watchAll()` 与 herdr 的 `start()` 都不再挂监视与定时器。 */
     stopped = false;
 
@@ -148,12 +152,23 @@ export class PanelState {
     }
 
     revisions(): Record<PartName, number> {
-        return {records: this.records.part.revision, activity: this.activity.part.revision, sessions: this.sessionsRevision, notify: this.notifyRevision};
+        return {records: this.records.part.revision, activity: this.activity.part.revision, sessions: this.sessionsRevision, notify: this.notifyRevision, github: this.githubRevision};
     }
 
     notifyChanged(): void {
         this.notifyRevision += 1;
         for (const listener of this.listeners) listener("notify");
+    }
+
+    /** GitHub 的只读数据取回来了（t14）：经 `/ws` 推“github 变了”。 */
+    githubChanged(): void {
+        this.githubRevision += 1;
+        for (const listener of this.listeners) listener("github");
+    }
+
+    /** 有浏览器连着：GitHub 只在这时定时刷新（t14 设计审查 S8）。 */
+    hasClients(): boolean {
+        return this.clients > 0;
     }
 
     keyOf(root: string): string | null {
@@ -180,7 +195,10 @@ export class PanelState {
             ? {available: true, socketPath: herdr.socketPath, version: herdr.version, panes: herdr.panes, processes: await readPaneProcesses(client, herdr.panes, warnings)}
             : {available: false, socketPath: herdr.socketPath, version: null, panes: [], processes: null};
         const {activity, warnings: activityWarnings} = await readActivity(this.context.mainRoot, transition, {herdr: null, now: new Date(), selfPid: process.pid, snapshot});
-        return {activity, warnings: [...warnings, ...activityWarnings]};
+        const {runs, warnings: procWarnings} = await listProcRuns(this.context.mainRoot);
+        const dayAgo = Date.now() - 24 * 3_600_000;
+        const procs = runs.filter((run) => run.state !== "ended" || Date.parse(run.endedAt ?? run.startedAt) >= dayAgo).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+        return {activity, procs, warnings: [...warnings, ...activityWarnings, ...procWarnings]};
     }
 
     /** 预热：记录与活动各算一遍（herdr 不等，随后补上）。 */
