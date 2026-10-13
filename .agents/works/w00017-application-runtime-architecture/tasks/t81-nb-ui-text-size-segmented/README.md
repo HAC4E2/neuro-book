@@ -1,7 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t81-nb-ui-text-size-segmented
-status: active
+status: done
+updated: 2026-10-13
 ---
 
 # nb-ui：字号写法被编译成颜色、分段控件截断长选项
@@ -37,7 +38,7 @@ t78 正在改 nb-ui（`Tabs`、`Accordion`、`Collapsible`、`IconButton` 与 `s
 - **分段控件**：根节点改为网格，各段等宽，宽度随内容时每段取最宽一段的自然宽度，“跟随系统”不再截断；给定宽度与 `fullWidth` 时各段宽度与改前逐像素相同；指示块在网格里补了 `left` 定位。规则写进 `SegmentedControl.md`，Lab 新增场景 `uneven`。
 - **验证**（主 Agent 复跑）：nb-ui `bun run test` 558 通过；应用 `bun run typecheck` 通过、`bun run test:vitest` 165 通过。子代理另跑 `lab-scenes`、`lab-nb-ui`、`lab` e2e 通过，`docs:check`、`governance:check` 无失败。改前改后截图在本机 `.local/agent/works/w00017-application-runtime-architecture/tasks/t81-nb-ui-text-size-segmented/shots/`（`compare/` 是并排对照）。
 - **未修、只记**：`[font-weight:var(--weight-semibold,600)]` 引用了没登记的 token（只有 normal、medium、strong），一直落在回退值 600（从产物看到，未回查源码位置）；Dropdown 非紧凑项用 Tailwind 常量 `text-xs`（12px）比紧凑项（11px）还大，分段控件的段用字面量字号，都不走 token。
-- **合回**：先于 t80 合入主线；t80 的设置窗口目前给分段控件手动定宽绕开截断，合入 t81 后可去掉。
+- **合回**：2026-10-13 开发者同意，先于 t80 合进 `refactor/w00017-runtime-foundation`（合并提交 `efb75a2b5`，随后合 t82、t83）；t83 新抽出的标签盒子类在合并时改用本 Task 的 `text-[length:…]` 写法。合并后 w00017 上 typecheck、受影响单元测试与全套 e2e 189 例都过（见 t83 记录）。t80 的设置窗口目前给分段控件手动定宽绕开截断，t80 合回时可去掉。
 
 ## 验收
 
