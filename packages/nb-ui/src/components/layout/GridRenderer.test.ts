@@ -460,6 +460,69 @@ describe("Grid 手势会话的收起与显式恢复", () => {
 });
 
 /**
+ * 吸收余量的叶（`sizing` 为缺省的 weight）同样能带收起意图：工作台用它把“面板拖到顶”做成编辑器拖到零。
+ * 纵向分支：编辑器 600（minimum 120，收起到 0），面板固定 200、没有上限，中间 1px。
+ */
+describe("余量叶的收起", () => {
+    const EXTENT = {width: 700, height: 801};
+
+    function column(editorCollapsed: boolean): Grid<string> {
+        return createGrid<string>({
+            kind: "branch",
+            id: "column",
+            orientation: "vertical",
+            children: [
+                {
+                    kind: "leaf",
+                    id: "editor",
+                    ref: "editor",
+                    size: {width: 700, height: editorCollapsed ? 0 : 600},
+                    minimumSize: {width: 0, height: 120},
+                    collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: editorCollapsed},
+                },
+                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: editorCollapsed ? 800 : 200}, minimumSize: {width: 0, height: 80}, sizing: "fixed"},
+            ],
+        }, {sashSize: SASH});
+    }
+
+    function open(grid: Grid<string>): GridGestureSession<string> {
+        return createGridGestureSession<string>({
+            sessionId: "session-weight",
+            contextKey: "grid-weight",
+            source: "pointer",
+            revision: 1,
+            root: grid.root(),
+            extent: EXTENT,
+            layout: grid.layout(EXTENT),
+            sashSize: SASH,
+            sashes: [{branchId: "column", index: 0, axis: "height"}],
+        });
+    }
+
+    it("往上拖到编辑器低于 minimum − 阈值时吸附成 0，面板占满；拖回 minimum 以上又展开", () => {
+        const session = open(column(false));
+        expect(session.update({x: 0, y: -400})?.changes[0]).toMatchObject({target: {editor: 200, panel: 600}});
+        // 理想高度 80 < 120 − 24：吸附
+        expect(session.update({x: 0, y: -520})?.changes[0]).toMatchObject({target: {editor: 0, panel: 800}, collapsed: {editor: true}});
+        // 理想高度 100 仍在阈值内：保持收起，几何不变
+        expect(session.update({x: 0, y: -500})?.changes[0]).toMatchObject({target: {editor: 0, panel: 800}, collapsed: {editor: true}});
+        // 回到 minimum 以上：展开，跟着指针
+        const back = session.update({x: 0, y: -440})?.changes[0];
+        expect(back).toMatchObject({target: {editor: 160, panel: 640}});
+        expect(back?.collapsed).toEqual({});
+        expect(session.finish()?.changes[0]).toMatchObject({target: {editor: 160, panel: 640}});
+    });
+
+    it("从收起的编辑器往下拖：不到 minimum 保持收起，越过就展开并提交展开", () => {
+        const session = open(column(true));
+        expect(session.update({x: 0, y: 60})).toBeNull();
+        const expanded = session.update({x: 0, y: 150})?.changes[0];
+        expect(expanded).toMatchObject({target: {editor: 150, panel: 650}, collapsed: {editor: false}});
+        expect(session.finish()?.changes[0]).toMatchObject({target: {editor: 150, panel: 650}, collapsed: {editor: false}});
+    });
+});
+
+/**
  * 键盘层把 Enter 与方向/Home/End 拆成两场互不混用的会话：一场只做一件事，抬起才提交一次，
  * 期间另一类键不参与（否则 Enter 的显式恢复会被随后的绝对位移重新收回，或反之）。
  */
