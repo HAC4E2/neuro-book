@@ -46,6 +46,10 @@ updated: 2026-10-13
   - 重要 2：根上的 `dev-panel-records.test.ts` 在 Node 下因 `runGit` 对 stdin 的 EPIPE 偶发以 1 退出，这是 t06 就有的问题，已随 t06 合入 master。
   - 建议：编辑 Task 里的文档要求 Task README 已提交；“结果未知”时真的重新取数，新建页不能再按；预览失败不挡提交；一起提交后清掉未提交提示；`UncommittedDialog.md` 补能力标签。
 
+- 实现审查的修正（集成分支 `d734dd21..c896a742`，6 个提交，已 push）逐条见 [plan.md](plan.md) 的“实现审查的修正”。主 Agent 复跑：包测试 201 个、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过；`dev-panel-records` 在 Node 下连跑两次，退出码都是 0、没有 EPIPE。暗色对话框复测已不透字。
+- 审查报的 EPIPE 在本机没能用旧代码直接复现；修好的依据是并发 2000 次 `git rev-parse` 的对照（改前 2 次未处理的 EPIPE，改后 0 次）。
+- nb-ui 里 `backdrop-filter` 的写法顺序没改（不带前缀的写在前面，Lightning CSS 会丢掉它）；主应用经 Nuxt 用 Vite 7、缺省 esbuild 压缩，不受影响。
+
 ## 下一步
 
-编码子代理修实现审查的问题；修完后合入 master（要开发者授权）。
+合入 `master`（要开发者授权）。

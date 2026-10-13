@@ -344,3 +344,20 @@ editRecordFile(context, {path, content, baseHash, includeUncommitted, acceptedDi
 4. **预览的号与实际的号不同**：预览不取锁。界面明确写“以提交时为准”，结果区写出差别；不会造成撞号，因为真领号在锁内。
 5. **写请求等锁最长 30 秒**：浏览器请求会挂这么久。界面在 2 秒后提示“在等别的写入完成”，超时回 503 并让开发者重试。
 6. **前端表单的校验与核心的校验不一致**：前端复制了一份规则，可能落后于核心。服务端始终以核心的校验为准，前端的只用于提前提示；验收里有“前端放行、服务端拒绝”的用例（构造一个前端不拦的非法值直接 `POST`）。
+
+## 实现审查的修正
+
+实现审查（`evidences/impl-review.txt`，0 阻断、2 重要、5 建议，另一条范围外的偶发失败）全部采纳，提交都在集成分支 `feat/w00022-dev-panel`：
+
+- 重要第 1 条（暗色对话框透字）：`e8d14ab73`。`vite.config.ts` 的 `build` 加 `cssMinify: "esbuild"`，注释写明 Lightning CSS 会丢掉写在前面的不带前缀的 `backdrop-filter`；不改 nb-ui。新用例 `tests/web-build.test.ts` 真跑一次 `vite build`，断言每条 `-webkit-backdrop-filter` 都有同值的不带前缀的写法（去掉这个设置时用例失败）。浏览器复测：暗色与亮色下对话框面的计算样式都是 `blur(8px) saturate(1.3) brightness(1)`，背后的字糊开（截图 `shots/t10-review-fix-dialog-dark.png`、`-light.png`）。
+- 重要第 7 条（`runGit` 的 EPIPE）：`18888a300`。只在给了 `input` 时才开 stdin（其余 `ignore`）；给了的那条挂 `error` 监听，EPIPE 把一行说明附进结果的 stderr 后忽略，其它错误照常拒绝。Node（tsx）下并发 2000 次 `git rev-parse`：改前 2 次未处理的 EPIPE，改后 0 次。根上的 `dev-panel-records.test.ts` 在 Node 下连跑 5 次，退出码都是 0、没有 EPIPE。
+- 建议第 2 条（Task 文档不要求 README 已提交）：`0d59e0c30`。`TASK_DOCUMENT` 一支加 `requireCommittedReadme: true`，读接口给 `task_not_committed` 并只读；L2 补用例（去掉参数时失败）。
+- 建议第 3、4、5 条：`e70733b4f`。
+  - 结果未知：编辑页重取一次文件，变了就进差异并写明“多半是你刚才那次保存已经生效”，没变就写“这次保存没有生效，可以再保存”；新建页锁住表单，提示“先刷新看看建好了没有”，给“已经建好了，清空表单”“没有建成，还要再建”两个出口；产物页与状态切换照旧重新取数，提示改成按页面说。
+  - 预览失败：两个新建表单只吸收字段名在表单里的问题，预览本身失败只在预览区显示，不挡提交，与注释一致。
+  - 一起提交之后：保存成功后重取一次文件的元信息，提示条消失（编辑器没有未保存的改动，不会冲掉文字）。
+  - 浏览器复测（临时仓库，Playwright 用 `route.fetch()` 加 `abort("connectionreset")` 造“服务端写成、浏览器断开”）8 项全部通过，截图 `shots/t10-review-fix-edit-unknown.png`、`-new-unknown.png`、`-edit-after-confirm.png`。
+- 建议第 6 条：`17a423b68`。`UncommittedDialog.md` 的标签改为 `env:portal`、`env:global`，正文写明渲染到 `body`、Esc 与遮罩关闭。
+- 范围外（t09 的用例读 `/proc` 时没放过 `ESRCH`）：`c896a742b`。
+- **验证**：包测试 201 个全过、typecheck（含 `vue-tsc`）、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check`、`git diff --check` 都通过。
+- 审查里“根上的修法在 nb-ui（前缀写在前、标准写法在后）”没有做：t10 约定不改 nb-ui，交开发者决定是否另开一处改；改了之后面板的 `cssMinify` 可以去掉。
