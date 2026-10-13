@@ -282,7 +282,8 @@ async function pressKey(key: string): Promise<void> {
                 <SessionConsole v-if="selected" :session="selected" :screen="screen?.screen ?? null" :screen-at="screenAt" :disabled-reason="consoleDisabled" :pending="consolePending" :reset-key="resetKey" :live="terminal !== null" :controlling="controlling" @refresh="readScreen" @prompt="(text) => sendPrompt(text)" @key="pressKey">
                     <template v-if="terminal" #screen>
                         <p v-if="terminal.state.closedReason" style="color: var(--status-warning); font-size: var(--text-xs)">{{ terminal.state.closedReason }}</p>
-                        <template v-else-if="narrow && !showTerminalOnPhone">
+                        <!-- 接管中不换成文字视图（桌面窗口缩窄时）：释放的入口与“正在接管”的提示都在终端视图里。 -->
+                        <template v-else-if="narrow && !showTerminalOnPhone && !controlling">
                             <template v-if="history">
                                 <p style="font-size: var(--text-xs); color: var(--text-secondary)">更早的输出（最近 {{ history.lines }} 行，{{ relativeTime(history.at) }}读取）</p>
                                 <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="更早的输出">{{ history.text || "没有更早的输出" }}</pre>
@@ -293,7 +294,10 @@ async function pressKey(key: string): Promise<void> {
                                 <Button v-if="selected.agent === 'omp'" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="historyPending" @click="readHistory">{{ history ? "重读更早的输出" : "更早的输出" }}</Button>
                             </div>
                         </template>
-                        <TerminalView v-else :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
+                        <template v-else>
+                            <TerminalView :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
+                            <Button v-if="narrow && !controlling" class="self-start" size="sm" variant="ghost" icon-class="i-lucide-text" @click="showTerminalOnPhone = false">回到文字视图</Button>
+                        </template>
                     </template>
                 </SessionConsole>
                 <p v-else style="color: var(--text-muted)">pane {{ paneId }} 上没有 herdr 认得出的会话，或它不在本仓库里</p>

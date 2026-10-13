@@ -28,7 +28,7 @@ interface SessionConsoleProps {
     resetKey: number;
     /** 屏幕由 `screen` 插槽给（t12 的实时终端）：不显示快照、“屏幕读于”与“重读屏幕”；可选，默认 false */
     live?: boolean;
-    /** 正在接管键盘（t12）：不给输入框（直接在终端里打），按钮单击即发（页面经终端连接发），提示改写；可选，默认 false */
+    /** 正在接管键盘（t12）：不给输入框（直接在终端里打），按钮单击即发（页面经终端连接发），按钮的 title 与 aria-label 改成接管中的说明；可选，默认 false */
     controlling?: boolean;
 }
 interface SessionConsoleEmits {

@@ -23,15 +23,16 @@ const draft = ref("");
 watch(() => props.resetKey, () => {
     draft.value = "";
 });
-const KEYS: Array<{key: string; label: string; hint: string}> = [
-    {key: "up", label: "↑", hint: "上（翻历史、选上一项）"},
-    {key: "down", label: "↓", hint: "下（选下一项）"},
-    {key: "shift+tab", label: "Shift+Tab", hint: "切换权限模式（要确认）"},
-    {key: "enter", label: "Enter", hint: "回车：会确认确认界面上的缺省项（要确认）"},
-    {key: "esc", label: "Esc", hint: "打断这一轮（要确认）"},
-    {key: "ctrl+c", label: "Ctrl+C", hint: "打断；连按两次 Claude 会退出，3 秒内只能按一次（要确认）"},
-    {key: "y", label: "y", hint: "回答确认界面（未核实是否有效，要确认）"},
-    {key: "n", label: "n", hint: "回答确认界面（未核实是否有效，要确认）"},
+/** `hint` 是不接管时的说明（经接口发，要确认的键先给屏幕再确认）；`controlHint` 是接管中的说明（经终端连接，单击即发、不限速）。 */
+const KEYS: Array<{key: string; label: string; hint: string; controlHint: string}> = [
+    {key: "up", label: "↑", hint: "上（翻历史、选上一项）", controlHint: "上（接管中，单击即发）"},
+    {key: "down", label: "↓", hint: "下（选下一项）", controlHint: "下（接管中，单击即发）"},
+    {key: "shift+tab", label: "Shift+Tab", hint: "切换权限模式（要确认）", controlHint: "切换权限模式（接管中，单击即发）"},
+    {key: "enter", label: "Enter", hint: "回车：会确认确认界面上的缺省项（要确认）", controlHint: "回车（接管中，单击即发）"},
+    {key: "esc", label: "Esc", hint: "打断这一轮（要确认）", controlHint: "打断这一轮（接管中，单击即发）"},
+    {key: "ctrl+c", label: "Ctrl+C", hint: "打断；连按两次 Claude 会退出，3 秒内只能按一次（要确认）", controlHint: "打断；连按两次 Claude 会退出（接管中，单击即发）"},
+    {key: "y", label: "y", hint: "回答确认界面（未核实是否有效，要确认）", controlHint: "y（接管中，单击即发）"},
+    {key: "n", label: "n", hint: "回答确认界面（未核实是否有效，要确认）", controlHint: "n（接管中，单击即发）"},
 ];
 const idle = computed(() => props.session.status === "idle" || props.session.status === "done");
 const promptBlocked = computed(() => {
@@ -67,7 +68,7 @@ function send(): void {
             </div>
         </form>
         <div class="flex flex-wrap gap-1.5" role="group" aria-label="按键">
-            <Button v-for="entry in KEYS" :key="entry.key" size="sm" variant="secondary" :title="controlling ? `${entry.label}（接管中，单击即发）` : entry.hint" :aria-label="entry.hint" :disabled="pending || (disabledReason !== null && !controlling)" @click="emit('key', entry.key)">{{ entry.label }}</Button>
+            <Button v-for="entry in KEYS" :key="entry.key" size="sm" variant="secondary" :title="controlling ? entry.controlHint : entry.hint" :aria-label="controlling ? entry.controlHint : entry.hint" :disabled="pending || (disabledReason !== null && !controlling)" @click="emit('key', entry.key)">{{ entry.label }}</Button>
         </div>
     </section>
 </template>
