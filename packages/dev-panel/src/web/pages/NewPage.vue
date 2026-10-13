@@ -75,6 +75,8 @@ const created = ref<{workId: string; taskId: string; previewed: string | null} |
  * 开发者看过左栏或首页、确认之后才解锁。
  */
 const unconfirmed = ref(false);
+/** nb-ui 的 SegmentedControl 只能按选项禁用：提交在途时禁用另一项，当前这项保持选中的样子。 */
+const modeOptions = computed(() => MODES.map((option) => ({...option, disabled: write.pending.value && option.value !== mode.value})));
 /** 这次提交的是 Work 还是 Task：回包与“结果未知”的确认都按它处理，不按提交之后的模式（t15）。提交在途时也不让切换。 */
 const submittedMode = ref<"work" | "task">(mode.value);
 const formBlocked = computed(() => disabledReason.value ?? (unconfirmed.value ? "上一次新建的结果未知：先确认建好了没有" : null));
@@ -117,7 +119,7 @@ const actualId = computed(() => (created.value ? (submittedMode.value === "work"
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-4 p-4 md:p-6">
         <h1 class="font-semibold" style="font-size: var(--text-xl)">新建</h1>
-        <SegmentedControl :model-value="mode" :options="MODES" :disabled="write.pending.value" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
+        <SegmentedControl :model-value="mode" :options="modeOptions" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
         <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
         <section v-if="unconfirmed" class="flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] p-3" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--status-warning)">
             <span>表单已锁住：确认上一次建好了没有再继续。</span>
