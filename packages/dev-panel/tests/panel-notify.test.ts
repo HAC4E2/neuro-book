@@ -32,7 +32,7 @@ const KEY_A = `claude:${SESSION_A}`;
 const KEY_B = `claude:${SESSION_B}`;
 const KEY_C = `claude:${SESSION_C}`;
 const TASK = {workId: "w00001-seed", taskId: "t01-seed"};
-const MESSAGE = "[nbdev] w00001/t01 有 2 题新的开发者答复（产物 review）。运行 nbdev answers w00001 t01 --json 读答复并把决定写进 Task 记录；再对输出里每个产物运行 nbdev answers ack w00001 t01 <产物> --through <该次输出里的 cursor>。";
+const MESSAGE = "[nbdev] w00001/t01 有 2 题新的开发者答复（产物 review）。对括号里列出的每个产物，运行 nbdev answers w00001 t01 <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack w00001 t01 <产物> --through <该次输出里的 cursor>。";
 
 type Body = {ok: boolean; data: Record<string, unknown>; errors: Array<{code: string; message: string; details?: Record<string, unknown>}>; warnings: Array<{code: string}>};
 type Job = {sessionKey: string; state: string; paneId: string | null; replacedBy: {sessionKey: string; paneId: string} | null; alternatives: Array<{sessionKey: string; paneId: string}>; answers: Array<{answerId: string}>; legacy: unknown[]; message: string; manualMessage: string};

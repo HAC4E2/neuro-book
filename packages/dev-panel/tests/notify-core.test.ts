@@ -5,7 +5,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {submitAnswer} from "../src/core/artifact-ops.js";
 import type {AckRecord, AnswerRecord} from "../src/core/artifacts.js";
 import {auditPaths, createAuditWriter, initAudit, newActionId, readAuditStatus} from "../src/core/audit.js";
-import {computeNotifyJobs, newAttemptId, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyRecord, type TaskNotifyInput} from "../src/core/notify.js";
+import {computeNotifyJobs, developerMessage, newAttemptId, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyRecord, type TaskNotifyInput} from "../src/core/notify.js";
 import {locateRepository} from "../src/core/repo.js";
 import {CLI_PATH, cleanupFixtures, createFixture, run, type CliEnvelope} from "./git-fixture.js";
 
@@ -72,11 +72,14 @@ describe("待发通知的现算", () => {
         expect(jobs.find((job) => job.sessionKey === A)).toMatchObject({questions: 0, artifacts: [], withLegacy: {artifacts: ["questions"], questions: 1}});
     });
 
-    test("指针消息与根 AGENTS.md 那一句逐字对应：一行、读答复不带 --unacked", () => {
-        const text = pointerMessage({workId: "w00022-dev-panel", taskId: "t03-design", artifacts: ["review", "questions"], questions: 4});
-        expect(text).toBe("[nbdev] w00022/t03 有 4 题新的开发者答复（产物 review、questions）。运行 nbdev answers w00022 t03 --json 读答复并把决定写进 Task 记录；再对输出里每个产物运行 nbdev answers ack w00022 t03 <产物> --through <该次输出里的 cursor>。");
+    test("指针消息与根 AGENTS.md 那一句逐字对应：一行、按括号里的产物逐个读与确认、读答复不带 --unacked", () => {
+        const job = {workId: "w00022-dev-panel", taskId: "t03-design", artifacts: ["review", "questions"], questions: 4};
+        const text = pointerMessage(job);
+        expect(text).toBe("[nbdev] w00022/t03 有 4 题新的开发者答复（产物 review、questions）。对括号里列出的每个产物，运行 nbdev answers w00022 t03 <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack w00022 t03 <产物> --through <该次输出里的 cursor>。");
         expect(text.includes("\n")).toBe(false);
         expect(text.length).toBeLessThan(300);
+        // 发给不是提问者的会话：开发者名义的普通消息，不带 [nbdev]。
+        expect(developerMessage(job)).toBe("开发者在面板上答复了 w00022/t03 的提问（产物 review、questions，共 4 题）。请对括号里列出的每个产物，运行 nbdev answers w00022 t03 <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack w00022 t03 <产物> --through <该次输出里的 cursor>。");
     });
 });
 

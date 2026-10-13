@@ -136,13 +136,30 @@ export function computeNotifyJobs(input: {tasks: readonly TaskNotifyInput[]; rec
 }
 
 /**
- * 指针消息：一行，不放答复正文。与根 `AGENTS.md` 里 `[nbdev]` 那一句逐字对应（两条命令的白名单），读答复不带 `--unacked`：
- * 别的会话先确认之后，这个会话照样读得到与自己有关的答复。
+ * 指针消息：一行，不放答复正文。与根 `AGENTS.md` 里 `[nbdev]` 那一句逐字对应（两条命令的白名单）。按括号里列出的产物逐个读、
+ * 逐个确认：Task 级的 `answers --json` 会列出没有答复的产物（报告、未答的提问集），对它们 `ack` 报 `no_answers`，输出也成倍变长
+ * （t11 实现审查第 3 条）。读答复不带 `--unacked`：别的会话先确认之后，这个会话照样读得到与自己有关的答复（设计审查 I2）。
  */
 export function pointerMessage(job: Pick<NotifyJob, "workId" | "taskId" | "artifacts" | "questions">): string {
-    const work = workNumberLabel(parseWorkId(job.workId)?.number ?? 0);
-    const task = taskNumberLabel(parseTaskId(job.taskId)?.number ?? 0);
-    return `[nbdev] ${work}/${task} 有 ${job.questions} 题新的开发者答复（产物 ${job.artifacts.join("、")}）。运行 nbdev answers ${work} ${task} --json 读答复并把决定写进 Task 记录；再对输出里每个产物运行 nbdev answers ack ${work} ${task} <产物> --through <该次输出里的 cursor>。`;
+    const {work, task} = labels(job);
+    return `[nbdev] ${work}/${task} 有 ${job.questions} 题新的开发者答复（产物 ${job.artifacts.join("、")}）。${readAndAck(work, task)}`;
+}
+
+/**
+ * 开发者手动发给“不是提问者”的会话（会话已更换后的新会话、持有租约的会话）时预填的普通消息：不带 `[nbdev]`，
+ * 按开发者亲手发的普通用户消息处理。`[nbdev]` 规则只认提问者，不能为这两条路径放宽（t11 实现审查第 2 条）。开发者发之前可以改。
+ */
+export function developerMessage(job: Pick<NotifyJob, "workId" | "taskId" | "artifacts" | "questions">): string {
+    const {work, task} = labels(job);
+    return `开发者在面板上答复了 ${work}/${task} 的提问（产物 ${job.artifacts.join("、")}，共 ${job.questions} 题）。请${readAndAck(work, task)}`;
+}
+
+function labels(job: Pick<NotifyJob, "workId" | "taskId">): {work: string; task: string} {
+    return {work: workNumberLabel(parseWorkId(job.workId)?.number ?? 0), task: taskNumberLabel(parseTaskId(job.taskId)?.number ?? 0)};
+}
+
+function readAndAck(work: string, task: string): string {
+    return `对括号里列出的每个产物，运行 nbdev answers ${work} ${task} <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack ${work} ${task} <产物> --through <该次输出里的 cursor>。`;
 }
 
 /** 读一个 Task 的通知输入：只读有开发者答复的产物；提问者与确认者从 provenance 读（只读，不改任何文件）。 */

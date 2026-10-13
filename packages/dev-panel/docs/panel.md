@@ -144,7 +144,10 @@
 | `audit_unavailable` | 审计不可用 | 提示初始化 |
 
 - **按会话键找提问者**，与租约是否有效、是否续接无关；pane id 只用来判“会话已更换”。
-- **指针消息**（一行，不放答复正文；与根 `AGENTS.md` 里 `[nbdev]` 那一句逐字对应）：`[nbdev] <W>/<T> 有 N 题新的开发者答复（产物 a、b）。运行 nbdev answers <W> <T> --json 读答复并把决定写进 Task 记录；再对输出里每个产物运行 nbdev answers ack <W> <T> <产物> --through <该次输出里的 cursor>。` 读答复不带 `--unacked`：别的会话先确认之后，这个会话照样读得到与自己有关的答复。手动发送连旧答复一起（`manualMessage`）。
+- **指针消息**（一行，不放答复正文；与根 `AGENTS.md` 里 `[nbdev]` 那一句逐字对应）：`[nbdev] <W>/<T> 有 N 题新的开发者答复（产物 a、b）。对括号里列出的每个产物，运行 nbdev answers <W> <T> <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack <W> <T> <产物> --through <该次输出里的 cursor>。`
+  - 按产物逐个读、逐个确认：Task 级的 `answers --json` 会列出没有答复的产物（报告、未答的提问集），对它们 `ack` 报 `no_answers`，输出也成倍变长。
+  - 读答复不带 `--unacked`：别的会话先确认之后，这个会话照样读得到与自己有关的答复。
+  - 手动发给提问者时连旧答复一起（`manualMessage`）。
 - 同一格 pane 的所有发送（通知、文字、按键）在面板里经一把按 pane 的互斥串行。收到 SIGTERM 时先等进行中的投递结束（上限为等待时限加 2 秒），再收口。
 
 **接口**（写请求的校验同“写接口”，在它之前已核过转发头、Host、登录、`Sec-Fetch-Site`、Origin 与 CSRF）：
