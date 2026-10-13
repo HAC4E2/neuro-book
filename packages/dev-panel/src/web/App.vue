@@ -6,18 +6,26 @@ import {relativeTime, taskLabel, workLabel} from "./host/format.js";
 import {panelState, startPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readNavOpen, writeAppearance, writeNavOpen, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
-import type {Meta, Overview} from "./host/types.js";
+import {attentionCount} from "./host/notify-actions.js";
+import type {Meta, NotifyData, Overview} from "./host/types.js";
 import LoadState from "./parts/LoadState.vue";
 
 /**
- * 外壳：左栏（首页与收件箱、工作的 Work › Task 树、产物、文档、现场）、顶栏（搜索、数据新旧、代码已更新、herdr、明暗）、页面。
+ * 外壳：左栏（首页与收件箱、工作的 Work › Task 树、产物、文档、现场）、顶栏（搜索、数据新旧、代码已更新、通知要处理的计数、审计、herdr、明暗）、页面。
  * 外壳与页面按组件规范豁免（它们是宿主）；左栏的展开与明暗经 host/prefs.ts 记住。390 宽时左栏收进抽屉。
  */
 startPanelData();
 const route = useRoute();
 const router = useRouter();
 const overview = useResource<Overview>(() => "/api/overview", ["records", "activity"]);
-const meta = useResource<Meta>(() => "/api/meta", ["records", "activity", "sessions"]);
+const meta = useResource<Meta>(() => "/api/meta", ["records", "activity", "sessions", "notify"]);
+const notify = useResource<NotifyData>(() => "/api/notify", ["notify"]);
+const attention = computed(() => attentionCount(notify.data.value));
+/** 代码更新之后怎么重启：作为服务运行时给 systemctl 命令（不放重启按钮：面板不经 HTTP 结束自己）。 */
+const restartHint = computed(() => {
+    const command = meta.data.value?.service.restartCommand;
+    return command ? `代码已更新：运行 ${command} 后生效` : "代码已更新：在终端重启 nbdev panel serve 后生效";
+});
 
 const appearance = ref<Appearance>(readAppearance());
 const appearanceLabel = computed(() => ({system: "明暗：跟随系统", light: "明暗：亮", dark: "明暗：暗"})[appearance.value]);
@@ -124,7 +132,9 @@ const herdrLabel = computed(() => {
                     <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与 checkout 里的文件" aria-label="搜索" />
                 </form>
                 <div class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
-                    <Badge v-if="meta.data.value?.codeChanged" tone="accent" variant="soft" size="sm" icon-class="i-lucide-refresh-cw">代码已更新，重启面板后生效</Badge>
+                    <Badge v-if="meta.data.value?.codeChanged" tone="accent" variant="soft" size="sm" icon-class="i-lucide-refresh-cw">{{ restartHint }}</Badge>
+                    <RouterLink v-if="attention > 0" to="/live/sessions#notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
+                    <Tooltip v-if="meta.data.value && !meta.data.value.audit.enabled" :text="meta.data.value.audit.reason === 'not_initialized' ? '不发通知，也不能替你打字或按键：运行 bun run --cwd packages/dev-panel audit-init' : `不发通知，也不能替你打字或按键：${meta.data.value.audit.detail}`"><Badge tone="neutral" variant="outline" size="sm">审计未开启</Badge></Tooltip>
                     <Badge v-if="meta.data.value?.build.failed" tone="danger" variant="soft" size="sm">前端构建失败，用的是旧版</Badge>
                     <Badge v-if="panelState.connection !== 'open'" tone="warning" variant="soft" size="sm">{{ panelState.connection === "connecting" ? "正在连接" : "推送断开，正在重连" }}</Badge>
                     <Badge v-if="herdrLabel" :tone="herdrLabel.tone" variant="outline" size="sm">{{ herdrLabel.text }}</Badge>

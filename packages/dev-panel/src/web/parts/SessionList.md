@@ -12,7 +12,13 @@
 interface SessionListProps {
     /** 会话（`/api/sessions` 的 `sessions`）；必填 */
     sessions: SessionView[];
+    /** 在 herdr 里的会话旁给“屏幕与输入”按钮（t11 的会话详情）；可选，默认 false */
+    openable?: boolean;
+}
+interface SessionListEmits {
+    /** 点了某个会话的“屏幕与输入”：它所在的 pane */
+    (event: "open", paneId: string): void;
 }
 ```
 
-没有事件、插槽与 expose。空数组时显示“没有会话持有租约或运行”。
+没有插槽与 expose。空数组时显示“没有会话持有租约或运行”。

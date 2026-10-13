@@ -6,17 +6,22 @@ import {relativeTime, taskLabel, workLabel} from "../host/format.js";
 import {sendJson} from "../host/api.js";
 import {useResource} from "../host/panel-data.js";
 import {isPlainClick} from "../host/routes.js";
-import type {ArtifactPageData, Meta, WriteData} from "../host/types.js";
+import {useNotifyActions} from "../host/notify-actions.js";
+import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
 import AnswerForm from "../parts/AnswerForm.vue";
 import LoadState from "../parts/LoadState.vue";
+import NotifyStatus from "../parts/NotifyStatus.vue";
 import QuestionPanel from "../parts/QuestionPanel.vue";
+import ReplacedDialog from "../parts/ReplacedDialog.vue";
+import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
 import WriteNotice from "../parts/WriteNotice.vue";
 
 /**
  * 产物页（t03 第二轮产物页）：左边是产物来源上的原页（沙箱 iframe，不给同源），右边是问题侧栏与答复表单（t10）。
  * 页面文件不按版本保存，所以切版本只切换题表，iframe 上标“页面是当前版本”；磁盘内容与最新一版不同时标“有未发布的改动”。
  * 答复只经侧栏表单提交：外壳不监听 iframe 发来的消息（页面自己的脚本能伪造任何取值）。390 宽时侧栏移到 iframe 下面。
+ * 答复成功后侧栏多一块“通知”（t11）：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次。
  */
 const props = defineProps<{workId: string; taskId: string; artifactId: string}>();
 const router = useRouter();
@@ -50,6 +55,20 @@ const answerDisabled = computed(() => {
     if (current.version !== current.latestVersion) return `只能对最新一版（v${current.latestVersion}）答复；切回最新一版再答`;
     return null;
 });
+const notify = useResource<NotifyData>(() => (data.value?.ref.taskId ? `/api/notify?workId=${encodeURIComponent(data.value.ref.workId)}&taskId=${encodeURIComponent(data.value.ref.taskId)}` : null), ["notify", "sessions"]);
+const notifyActions = useNotifyActions(() => notify.reload());
+/** 最近一次提交成功的答复：只显示它的通知。 */
+const lastAnswerId = ref<string | null>(null);
+const answerJobs = computed(() => (notify.data.value?.jobs ?? []).filter((job) => [...job.answers, ...job.legacy].some((entry) => entry.answerId === lastAnswerId.value)));
+const answerAttempts = computed(() => (notify.data.value?.recent ?? []).filter((attempt) => lastAnswerId.value !== null && attempt.answers.includes(lastAnswerId.value)));
+const autoOpened = new Set<string>();
+watch(answerJobs, (jobs) => {
+    const job = jobs.find((entry) => entry.state === "replaced");
+    if (!job || lastAnswerId.value === null || autoOpened.has(lastAnswerId.value)) return;
+    autoOpened.add(lastAnswerId.value);
+    notifyActions.replaced.value = job;
+});
+
 type AnswerInput = {values: Record<string, unknown>; comments: Record<string, string>; note: string | null};
 let lastAnswer: AnswerInput | null = null;
 async function submitAnswer(answer: AnswerInput): Promise<void> {
@@ -62,6 +81,8 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
     const outcome = await write.run(() => sendJson<WriteData>("POST", "/api/answers", body));
     if (outcome.ok) {
         notice.value = successNotice("答复已提交", outcome.body);
+        lastAnswerId.value = (outcome.body.data as WriteData & {answer?: {answerId: string}}).answer?.answerId ?? null;
+        notify.reload();
         resetKey.value += 1;
         artifact.reload();
         return;
@@ -108,11 +129,18 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                 <aside class="min-w-0 rounded-[var(--radius-panel)] p-4" :class="{'lg:col-span-2': !data.pageUrl}" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="问题">
                     <div class="flex flex-col gap-4">
                         <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
+                        <section v-if="lastAnswerId" class="flex flex-col gap-1.5" aria-label="这份答复的通知">
+                            <h2 class="font-semibold" style="font-size: var(--text-xs)">通知</h2>
+                            <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.send(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => (notifyActions.replaced.value = job)" @dismiss="notifyActions.dismiss" />
+                            <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                        </section>
                         <AnswerForm v-if="showForm" :questions="data.questions" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer" />
                         <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" :answering="showForm" />
                     </div>
                 </aside>
             </div>
         </template>
+        <ReplacedDialog :open="notifyActions.replaced.value !== null" :job="notifyActions.replaced.value" :pending="notifyActions.pending.value" @send="(job, target) => notifyActions.send(job, target)" @skip="(job) => notifyActions.skip(job)" />
+        <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
     </div>
 </template>
