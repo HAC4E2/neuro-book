@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {Button} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
-import {HERDR_STATUS_LABEL, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {attemptNeedsAttention, HERDR_STATUS_LABEL, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
 import type {NotifyAttempt, NotifyCandidate, NotifyJob} from "../host/types.js";
 
 /** 通知任务与尝试的状态行（t11）；契约见同名 .md。 */
@@ -59,19 +59,28 @@ function targets(job: NotifyJob): NotifyCandidate[] {
 
 const canSkip = (job: NotifyJob) => !["waiting_idle", "waiting_blocked", "ready", "audit_unavailable", "waiting_herdr"].includes(job.state);
 
-const ATTENTION = new Set(["delivered_into_blocked", "delivered_maybe_wrong_session", "uncertain"]);
 function attemptLine(attempt: NotifyAttempt): {tone: Tone; text: string; attention: boolean} {
+    const line = attemptText(attempt);
+    return {...line, attention: attemptNeedsAttention(attempt)};
+}
+
+function attemptText(attempt: NotifyAttempt): {tone: Tone; text: string} {
     const target = who(attempt.paneId, attempt.sessionKey);
     const via = attempt.askerKey !== attempt.sessionKey ? `（替 ${shortSession(attempt.askerKey)}）` : "";
     const when = relativeTime(attempt.at);
-    if (attempt.intentOnly) return {tone: "warning", text: `面板在投递途中退出，不知道 ${target} 收到没有，请看终端 · ${when}`, attention: true};
+    if (attempt.intentOnly) return {tone: "warning", text: `面板在投递途中退出，不知道 ${target} 收到没有，请看终端 · ${when}`};
     switch (attempt.result) {
-    case "delivered": return {tone: "success", text: attempt.code === "unwatched" ? `已通知 ${target}${via}（面板这时没订阅到它的状态事件，没核对回车前后有没有弹出过确认界面） · ${when}` : `已通知 ${target}${via} · ${when}`, attention: false};
-    case "delivered_into_blocked": return {tone: "danger", text: attempt.code === "passed_blocked" ? `投递后 ${target} 经过了确认界面，回车可能确认了它，请马上看终端 · ${when}` : `投递时 ${target} 弹出了确认界面，回车可能确认了它，请马上看终端 · ${when}`, attention: true};
-    case "delivered_maybe_wrong_session": return {tone: "warning", text: `投递的瞬间 ${attempt.paneId ?? ""} 上换了会话，消息可能进了别的会话，请看终端 · ${when}`, attention: true};
-    case "uncertain": return {tone: "warning", text: `已写入 ${target}，但没看到它开始工作；请看终端，不要重发 · ${when}`, attention: true};
-    case "skipped": return {tone: "neutral", text: `选了不通知 ${shortSession(attempt.askerKey)} · ${when}`, attention: false};
-    default: return {tone: "neutral", text: `没发出去（${attempt.code ?? attempt.result}），还在排队 · ${when}`, attention: false};
+    // 没核对确认界面：与会话页发送后的提示一样用 warning。
+    case "delivered": return attempt.code === "unwatched"
+        ? {tone: "warning", text: `已通知 ${target}${via}，但面板这时没订阅到它的状态事件，没核对回车前后有没有弹出过确认界面 · ${when}`}
+        : {tone: "success", text: `已通知 ${target}${via} · ${when}`};
+    case "delivered_into_blocked":
+        if (attempt.code === "state_jumped") return {tone: "neutral", text: `已通知 ${target}${via}；当时的旧判据说状态序号跳了不止一格，可能是误报，看一眼终端 · ${when}`};
+        return {tone: "danger", text: attempt.code === "passed_blocked" ? `投递后 ${target} 经过了确认界面，回车可能确认了它，请马上看终端 · ${when}` : `投递时 ${target} 弹出了确认界面，回车可能确认了它，请马上看终端 · ${when}`};
+    case "delivered_maybe_wrong_session": return {tone: "warning", text: `投递的瞬间 ${attempt.paneId ?? ""} 上换了会话，消息可能进了别的会话，请看终端 · ${when}`};
+    case "uncertain": return {tone: "warning", text: `已写入 ${target}，但没看到它开始工作；请看终端，不要重发 · ${when}`};
+    case "skipped": return {tone: "neutral", text: `选了不通知 ${shortSession(attempt.askerKey)} · ${when}`};
+    default: return {tone: "neutral", text: `没发出去（${attempt.code ?? attempt.result}），还在排队 · ${when}`};
     }
 }
 

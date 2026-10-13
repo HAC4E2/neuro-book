@@ -1,4 +1,4 @@
-import type {RecordedValue} from "./types.js";
+import type {NotifyAttempt, RecordedValue} from "./types.js";
 
 /** 记录字段的显示：状态的中文名与色调；没有字段的显示“未标”，不合规的显示“不合规”（不推断）。 */
 
@@ -61,6 +61,16 @@ export function taskLabel(taskId: string): string {
 
 export function workLabel(workId: string): string {
     return workId.slice(0, 6);
+}
+
+/**
+ * 要开发者马上看终端的通知尝试（醒目色调、算进要处理的条数，可以逐条“知道了”）：投递途中面板退出、投进了确认界面、换了会话、结果未知。
+ * 旧记录里的 `state_jumped` 不算：那是按状态序号的差值判的，别的会话同时变状态就会误报（t11 的通知误报）。
+ */
+export function attemptNeedsAttention(attempt: Pick<NotifyAttempt, "intentOnly" | "result" | "code">): boolean {
+    if (attempt.intentOnly) return true;
+    if (attempt.result === "delivered_into_blocked") return attempt.code !== "state_jumped";
+    return attempt.result === "delivered_maybe_wrong_session" || attempt.result === "uncertain";
 }
 
 export const HERDR_STATUS_LABEL: Record<string, string> = {idle: "空闲", working: "工作中", blocked: "受阻", done: "完成一轮", unknown: "未知", unmanaged: "不在 herdr 里"};

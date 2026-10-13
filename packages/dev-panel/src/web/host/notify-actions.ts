@@ -1,7 +1,8 @@
 import {computed, ref} from "vue";
 import {ApiError, sendJson} from "./api.js";
+import {attemptNeedsAttention} from "./format.js";
 import {readDismissedNotify, writeDismissedNotify} from "./prefs.js";
-import type {DeliveryData, NotifyAttempt, NotifyCandidate, NotifyData, NotifyJob} from "./types.js";
+import type {DeliveryData, NotifyCandidate, NotifyData, NotifyJob} from "./types.js";
 import {describeFailure, type Notice} from "./writes.js";
 
 /**
@@ -17,11 +18,7 @@ const dismissed = ref<string[]>(readDismissedNotify());
 export function attentionCount(data: NotifyData | null): number {
     if (!data) return 0;
     const jobs = data.jobs.filter((job) => job.state === "replaced" || job.state === "no_target").length;
-    return jobs + data.recent.filter((attempt) => isAttention(attempt) && !dismissed.value.includes(attempt.attemptId)).length;
-}
-
-export function isAttention(attempt: NotifyAttempt): boolean {
-    return attempt.intentOnly || ["delivered_into_blocked", "delivered_maybe_wrong_session", "uncertain"].includes(attempt.result);
+    return jobs + data.recent.filter((attempt) => attemptNeedsAttention(attempt) && !dismissed.value.includes(attempt.attemptId)).length;
 }
 
 export function deliveryNotice(result: DeliveryData, target: string): Notice {
