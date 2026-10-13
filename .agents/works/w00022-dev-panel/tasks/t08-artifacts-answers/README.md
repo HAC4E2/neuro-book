@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-artifacts-answers
-status: active
-updated: 2026-10-12
+status: done
+updated: 2026-10-13
 ---
 
 # 产物、提问与答复（命令行）
