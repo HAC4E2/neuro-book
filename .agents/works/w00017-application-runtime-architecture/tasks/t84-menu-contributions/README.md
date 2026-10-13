@@ -31,4 +31,9 @@ t83 验收反馈第 7 条：开发者问菜单系统做了没有，记得旧应�
 - S3（`563f6bf24`）：视图动作的 `placement` 与“⋯”、`workbench.view-title`、按 key 执行、“⋯”沿用“移动到”的菜单身份；测试插件 `test.menus`；实施中发现视图标题的 `context: "instance"` 不是“当前文件”，共同规则改为由位置说明此刻给得出哪些参数（`menus.md` 输出 1 同步）；变异 7 处全部被抓到。
 - S4（`3140a1230`）：资源管理器右键开放 `explorer.context`，贡献项排在固定动作之后、按后缀与多选过滤、收到打开菜单时的选择；菜单项补上禁用原因与勾选（nb-ui `ContextMenuItem` 加 `type`、`checked`）；变异 2 处（真实浏览器）都被抓到。
 - S5（`0e4728679`、`734e3a5cb`）：编辑区标题 `editor.title`；按钮与“⋯”的组件挪成共享的 `src/ui/menus/TitleActions`，视图标题与编辑区共用，数据属性改为 `data-title-action`；变异 4 处全部被抓到。`0e4728679` 只含组件改名：那次 `git add` 因一条已改名的路径报错整体没执行，其余改动在下一个提交补上（已推送，没有改写历史）。
-- S6：全套 e2e 199 例全过；`lab:shot` 的 `TitleActions` 各场景问题 0 条；Spec 证据已补（`f8a8cb083`），`menus.md` 在注册表标“待晋升”，晋升待开发者批准。实现审查（omp）进行中。
+- S6：全套 e2e 199 例全过；`lab:shot` 的 `TitleActions` 各场景问题 0 条；Spec 证据已补（`f8a8cb083`），`menus.md` 在注册表标“待晋升”，晋升待开发者批准。
+- 实现审查（omp）4 条全部属实，修正在 `eed97eb4e`，逐条见 [evidences/implementation-review.md](evidences/implementation-review.md)，任务说明与报告原文在 [artifacts/omp-impl-review](artifacts/omp-impl-review/)。修正后 `test:affected --typecheck` 中 bun 1124 例、组件测试 208 例全过，全套 e2e 199 例全过。
+
+## 下一步
+
+交开发者：`menus.md` 是否晋升 `implemented`；分支 `feat/w00017-t84-menu-contributions` 何时合回 `refactor/w00017-runtime-foundation`。
