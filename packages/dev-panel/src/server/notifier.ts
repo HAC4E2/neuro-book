@@ -55,6 +55,7 @@ export class PaneLocks {
     run<T>(paneId: string, work: () => Promise<T>): Promise<T> {
         const previous = this.tails.get(paneId) ?? Promise.resolve();
         const next = previous.then(work);
+        // 队尾只用来排队：这次的失败照样经 `next` 交给调用方，不让它拖垮后面排着的发送。
         const tail = next.catch(() => undefined);
         this.tails.set(paneId, tail);
         void tail.then(() => {
@@ -181,6 +182,7 @@ export class Notifier {
             return info !== null && info.stateChangeSeq !== wait.seq;
         } catch (error) {
             if (!(error instanceof HerdrError)) throw error;
+            this.options.log(`读 ${paneId} 的状态序号失败（${error.code}），这次不重读屏幕`);
             return false;
         }
     }
@@ -261,6 +263,7 @@ export class Notifier {
 
     private track<T>(work: Promise<T>): Promise<T> {
         this.inFlight.add(work);
+        // 只为收口时等它：失败照样经 `work` 交给调用方。
         void work.catch(() => undefined).finally(() => this.inFlight.delete(work));
         return work;
     }
