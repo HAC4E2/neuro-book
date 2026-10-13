@@ -1,7 +1,4 @@
-import {lstat, realpath} from "node:fs/promises";
-import {relative, resolve, sep} from "node:path";
-import {systemErrorCode} from "../core/errors.js";
-import {unsafePathReason} from "../core/paths.js";
+export {guardedFile} from "../core/paths.js";
 
 /**
  * 两个来源共用的请求校验与路径守卫。校验失败一律 4xx，不进业务逻辑。
@@ -62,28 +59,6 @@ export function decodePath(pathname: string): {segments: string[]} | Rejection {
         segments.push(decoded);
     }
     return {segments};
-}
-
-/**
- * 守卫：`relativePath` 相对 `root`，先做段检查；`realpath` 之后必须仍在根下，并对真实路径的相对部分再做一遍段检查
- * （仓库里一个指向 `.git/config` 或 `.env` 的符号链接，两条都能挡住）。只返回普通文件。不合格返回 null。
- */
-export async function guardedFile(root: string, relativePath: string, requirePrefix: string | null = null): Promise<string | null> {
-    if (unsafePathReason(relativePath) !== null) return null;
-    if (requirePrefix !== null && !relativePath.startsWith(requirePrefix)) return null;
-    let real: string;
-    let realRoot: string;
-    try {
-        [real, realRoot] = await Promise.all([realpath(resolve(root, relativePath)), realpath(root)]);
-    } catch (error) {
-        if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR" || systemErrorCode(error) === "ELOOP") return null;
-        throw error;
-    }
-    const inside = relative(realRoot, real);
-    if (inside === "" || inside.startsWith(`..${sep}`) || inside === ".." || unsafePathReason(inside.split(sep).join("/")) !== null) return null;
-    if (requirePrefix !== null && !inside.split(sep).join("/").startsWith(requirePrefix)) return null;
-    const stats = await lstat(real);
-    return stats.isFile() ? real : null;
 }
 
 /** 静态资源与产物文件的 Content-Type（只认常见的几种，其余按二进制下载）。 */

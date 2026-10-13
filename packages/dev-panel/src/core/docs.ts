@@ -1,8 +1,9 @@
-import {readdir, readFile} from "node:fs/promises";
+import {lstat, readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {systemErrorCode} from "./errors.js";
 import {parseFrontmatter, readTitle} from "./frontmatter.js";
 import {gitOutput, splitNul} from "./git.js";
+import {guardedFile} from "./paths.js";
 import {MASTER_REF} from "./repo.js";
 import type {CommitEntry} from "./task-detail.js";
 
@@ -56,11 +57,23 @@ async function rootMarkdown(root: string): Promise<string[]> {
     }
 }
 
-/** 一个 checkout 里的文档（已跟踪的与未被忽略的未跟踪文件），按路径排序。 */
+/**
+ * 一个 checkout 里的文档（已跟踪的与未被忽略的未跟踪文件），按路径排序。磁盘上不是普通文件的不列：
+ * 符号链接（Git 照样列出它，读它会读到链接指向的文件，见 `readDocFile`）与工作区里已删掉、还没暂存删除的文件。
+ */
 export async function listDocPaths(root: string): Promise<string[]> {
     const scopes = [...DOC_SCOPES, ...await rootMarkdown(root)];
     const listed = splitNul(await gitOutput(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...scopes], {readOnly: true}));
-    return [...new Set(listed)].filter((path) => classifyDoc(path) !== null).sort();
+    const docs = [...new Set(listed)].filter((path) => classifyDoc(path) !== null).sort();
+    const regular = await Promise.all(docs.map(async (path) => {
+        try {
+            return (await lstat(resolve(root, path))).isFile();
+        } catch (error) {
+            if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") return false;
+            throw error;
+        }
+    }));
+    return docs.filter((_path, index) => regular[index]);
 }
 
 /** 分支自分出以来改过的文档（`master...HEAD` 的三点 diff），值是 `A`、`M`、`D`。面板按 checkout 的 HEAD 缓存它。 */
@@ -114,11 +127,16 @@ export async function readDocTree(root: string, isMain: boolean, mainDocs: reado
     return {docs, changes};
 }
 
-/** 读一份文档：原文、frontmatter（读不出时为 null）、标题与这个 checkout 上最近 5 次碰过它的提交。路径由调用方按文档树核对过。 */
+/**
+ * 读一份文档：原文、frontmatter（读不出时为 null）、标题与这个 checkout 上最近 5 次碰过它的提交。
+ * 路径由调用方按文档树核对过，这里再经路径守卫（`guardedFile`）读：白名单只核对路径，挡不住指向 `.env` 或仓库外的符号链接。
+ */
 export async function readDocFile(root: string, path: string): Promise<DocFile | null> {
+    const real = await guardedFile(root, path);
+    if (real === null) return null;
     let text: string;
     try {
-        text = await readFile(resolve(root, path), "utf8");
+        text = await readFile(real, "utf8");
     } catch (error) {
         if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "EISDIR") return null;
         throw error;

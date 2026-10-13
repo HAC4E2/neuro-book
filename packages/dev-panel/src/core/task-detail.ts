@@ -2,6 +2,7 @@ import {lstat, readdir, readFile} from "node:fs/promises";
 import {posix, resolve} from "node:path";
 import {resolveTaskExecution, type TaskExecution} from "./checkouts.js";
 import {isNbdevError, systemErrorCode, type Warning} from "./errors.js";
+import {guardedFile} from "./paths.js";
 import {gitOutput} from "./git.js";
 import {taskDirPath, taskReadmePath} from "./records.js";
 import {MASTER_REF} from "./repo.js";
@@ -81,7 +82,8 @@ export async function readTaskDetail(mainRoot: string, transition: TransitionSta
     const {workId, taskId, recordRoot} = task;
     const taskDir = taskDirPath(workId, taskId);
     const readmePath = taskReadmePath(workId, taskId);
-    const text = await readText(resolve(recordRoot, readmePath));
+    const real = await guardedFile(recordRoot, readmePath);
+    const text = real === null ? null : await readText(real);
     const execution = await resolveTaskExecution(mainRoot, transition, workId, taskId, recordRoot);
     const chosen = execution.chosen;
     const onMain = chosen.rule === "master";

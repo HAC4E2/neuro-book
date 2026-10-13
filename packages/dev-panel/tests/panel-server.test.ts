@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes, randomUUID} from "node:crypto";
-import {mkdir, symlink, writeFile} from "node:fs/promises";
+import {mkdir, rm, symlink, writeFile} from "node:fs/promises";
 import {once} from "node:events";
 import {connect} from "node:net";
 import {join} from "node:path";
@@ -192,6 +192,28 @@ describe("面板服务（场景）", () => {
             expect([path, checkout, (await panel.get(`/api/docs/file?checkout=${checkout}&path=${encodeURIComponent(path)}`)).status]).toEqual([path, checkout, 404]);
         }
         expect((await panel.get("/api/docs/tree?checkout=nope")).status).toBe(404);
+    }, 30_000);
+
+    test("文档接口走路径守卫：指向 .env 与仓库外的 .md 符号链接不进树、读不到；worktree 里没暂存的删除记成 deleted、不在树里", async () => {
+        const fixture = await createFixture("panel-doc-guard");
+        await fixture.write("docs/specs/ui/shell.md", "# 外壳\n");
+        await fixture.write(".env", "SECRET_TOKEN=hunter2\n");
+        await mkdir(join(fixture.main, "docs/specs/ui"), {recursive: true});
+        await symlink("../../../.env", join(fixture.main, "docs/specs/ui/leak.md"));
+        await symlink("/etc/hostname", join(fixture.main, "docs/specs/ui/host.md"));
+        await git(fixture.main, "add", "-f", "--", "docs/specs/ui/leak.md", "docs/specs/ui/host.md", "docs/specs/ui/shell.md");
+        await git(fixture.main, "commit", "--quiet", "-m", "docs with links", "--", "docs/specs/ui/leak.md", "docs/specs/ui/host.md", "docs/specs/ui/shell.md");
+        const worktree = await fixture.addWorktree("w00001-line", "feat/w00001");
+        await rm(join(worktree, "docs/specs/ui/shell.md"));
+        const panel = await startPanel(fixture, null);
+        const tree = await panel.json<{docs: Array<{path: string}>}>("/api/docs/tree?checkout=main");
+        expect(tree.body.data.docs.map((doc) => doc.path)).toEqual(["docs/specs/ui/shell.md"]);
+        for (const path of ["docs/specs/ui/leak.md", "docs/specs/ui/host.md"]) {
+            const response = await panel.get(`/api/docs/file?checkout=main&path=${encodeURIComponent(path)}`);
+            expect([path, response.status, (await response.text()).includes("hunter2")]).toEqual([path, 404, false]);
+        }
+        const branch = await panel.json<{docs: Array<{path: string}>; changes: Array<{path: string; change: string}>}>("/api/docs/tree?checkout=w00001-line");
+        expect([branch.body.data.docs.map((doc) => doc.path), branch.body.data.changes]).toEqual([[], [{path: "docs/specs/ui/shell.md", change: "deleted"}]]);
     }, 30_000);
 
     test("场景 4：会话 idle、它派出的进程还在跑：会话页里会话是 idle，运行列在它下面；普通 shell 里的进程归无主", async () => {
