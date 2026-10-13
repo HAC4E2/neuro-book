@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nb-story 界面评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8; --mark: #d9468f;
+    --radius: 10px; --mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+header.top b { font-size: 15px; }
+header.top small { color: var(--muted); }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.ask { margin: 10px 0 12px; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+.opt-row td:first-child { white-space: nowrap; }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+/* 骨架示意：只表达区域和优先级，不是视觉稿 */
+.wire { display: grid; grid-template-columns: 150px 1fr 280px; grid-template-rows: 46px 1fr 28px; gap: 6px; height: 360px; margin: 12px 0; font-size: 12px; }
+.wire > div { border: 1.5px dashed var(--mark); border-radius: 8px; padding: 6px 8px; color: var(--text); background: color-mix(in srgb, var(--mark) 5%, transparent); }
+.wire .n { font-family: var(--mono); color: var(--mark); font-weight: 700; margin-right: 4px; }
+.wire .topbar { grid-column: 1 / 4; display: flex; gap: 18px; align-items: center; }
+.wire .nav { grid-row: 2; }
+.wire .main { grid-row: 2; }
+.wire .drawer { grid-row: 2; }
+.wire .foot { grid-column: 1 / 4; }
+.legend { display: grid; grid-template-columns: 28px 1fr; gap: 4px 8px; font-size: 13px; }
+.legend .n { font-family: var(--mono); color: var(--mark); font-weight: 700; }
+code { font-family: var(--mono); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 1 轮 · 2026-10-13</small></header>
+<main>
+
+<div class="lead">
+    <h1>第 1 轮：先定注意力排序</h1>
+    <p>nb-story 第一版是网页查看器加问答，数据是 w00005 t34 自动抽取的前 100 章。视觉稿要在“首先看什么、默认收起什么、什么时候整块收起”定了以后再画，否则会被反复推翻。所以这一轮只有五道题：首页、默认收起、问答的位置、嵌进 NeuroBook 后的尺寸、旧查看器的机制沿用哪些。</p>
+    <p>每道题都写了推荐和理由（带色框的是推荐项）。现状的截图和问题在最下面；完整清单见 Task 目录的 <code>reference.md</code>。</p>
+</div>
+
+<div class="round">待定</div>
+
+<section class="q" data-nbdev-question="home" data-nbdev-type="single" data-nbdev-recommend="chapter">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>1. 打开一本书，首先看到什么？</h2>
+    <p class="ask">这决定首页，也决定左侧导航的第一项。三种都能做，差别是第一眼服务哪种用法。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="chapter">
+            <h3>本章：这一章发生了什么、变了什么</h3>
+            <p>读到的这一章的情节概括，新出现的人，揭晓的秘密，数值变动，新提出和被解答的悬念。拨动“读到哪里”就换一章。</p>
+        </div>
+        <div class="opt" data-nbdev-option="reader">
+            <h3>原文阅读器，旁边跟着显示相关的人和记录</h3>
+            <p>边读边查：点哪段，右边就是这一段涉及的人物、秘密和数值。适合第一次读这本书的人。</p>
+        </div>
+        <div class="opt" data-nbdev-option="overview">
+            <h3>全书总览</h3>
+            <p>主要人物、秘密矩阵、未解悬念数、数值余额放在一页上，先看全局。</p>
+        </div>
+    </div>
+    <div class="rec-note"><b>推荐“本章”。</b>开发者说这个图要帮人“梳理剧情”，梳理最先要的是“发生了什么、变了什么”；隔几天回来接着读、或者读完一章回顾，也都从这里开始。原文阅读器和全书总览仍然各占一页，一键就到。</div>
+</section>
+
+<section class="q" data-nbdev-question="default-collapsed" data-nbdev-type="multi" data-nbdev-recommend="minor-entities,record-ids,block-summaries,trivial-questions,long-alias-list">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>2. 哪些东西默认收起或不显示？（可多选）</h2>
+    <p class="ask">图里的东西很多（176 个对象、1,739 条说法、227 条没解开的悬念），全摊开就是现在 t28 的样子。选中的项默认收起，点一下展开；没选的照常显示。</p>
+    <table>
+        <tr><th>选项</th><th>收起后怎么找到</th></tr>
+        <tr class="opt-row" data-nbdev-option="minor-entities" data-nbdev-label="次要人物（舍友、导购员这类路人）"><td>次要人物（舍友、导购员这类路人）</td><td>名册底部“次要”一栏，搜索照样能搜到</td></tr>
+        <tr class="opt-row" data-nbdev-option="record-ids" data-nbdev-label="记录编号（s3-19、q1-1）"><td>记录编号（s3-19、q1-1）</td><td>鼠标悬停时显示，复制链接时带上</td></tr>
+        <tr class="opt-row" data-nbdev-option="block-summaries" data-nbdev-label="原文里夹着的段落块概括"><td>原文里夹着的段落块概括</td><td>阅读器上一个开关</td></tr>
+        <tr class="opt-row" data-nbdev-option="trivial-questions" data-nbdev-label="琐碎的悬念（只在一章里出现、没有后续的）"><td>琐碎的悬念（只在一章里出现、没有后续的）</td><td>悬念页“全部”页签</td></tr>
+        <tr class="opt-row" data-nbdev-option="long-alias-list" data-nbdev-label="人物卡里的长称呼表（只先显示主要的几个）"><td>人物卡里的长称呼表（只先显示主要的几个）</td><td>“全部 45 个称呼”展开</td></tr>
+        <tr class="opt-row" data-nbdev-option="inferred-records" data-nbdev-label="标了“推断”的记录"><td>标了“推断”的记录</td><td>筛选项“含推断”</td></tr>
+    </table>
+    <div class="rec-note"><b>推荐收起前五项，“推断”的记录照常显示。</b>推断不是噪音：书里很多关键信息（例如“深蓝猫娘就是南嘉鱼”）读者只能推断，藏起来反而缺了一块；标签已经说明它是推断。</div>
+</section>
+
+<section class="q" data-nbdev-question="qa-place" data-nbdev-type="single" data-nbdev-recommend="topbar-to-page">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>3. 问答放在哪里？</h2>
+    <p class="ask">问答默认用“图当目录”，要等十几秒到两三分钟，过程分步显示（在图里找记录、读第几章、作答中），答案带依据编号，点开看原文。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="topbar-to-page">
+            <h3>顶栏常驻一个提问框，回车后进问答页</h3>
+            <p>在任何页面都能问，问题自动带上当前的“读到哪里”；问答页有完整的进度、答案、依据和历史。</p>
+        </div>
+        <div class="opt" data-nbdev-option="drawer">
+            <h3>右侧抽屉里问</h3>
+            <p>不离开当前页面，但抽屉窄，长答案和依据原文挤在一起；抽屉还要放人物卡和原文，三样东西抢一个位置。</p>
+        </div>
+        <div class="opt" data-nbdev-option="page">
+            <h3>只在左侧导航的“问答”页里问</h3>
+            <p>最简单，但要先切页面才能问。</p>
+        </div>
+    </div>
+    <div class="rec-note"><b>推荐顶栏提问框加问答页。</b>提问的冲动往往发生在看人物卡或秘密的时候，入口要在手边；答案需要宽的地方放依据和原文。</div>
+</section>
+
+<section class="q" data-nbdev-question="embed-size" data-nbdev-type="single" data-nbdev-recommend="editor-area">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>4. 以后嵌进 NeuroBook，主要以什么尺寸出现？</h2>
+    <p class="ask">这决定窄的时候先收起哪一块。单独使用时是整个浏览器窗口；嵌进 NeuroBook 后是工作台里的视图，可能在编辑区，也可能在侧栏。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="editor-area">
+            <h3>编辑区里的整页视图（和单独使用时差不多宽）</h3>
+            <p>窄到放不下三栏时：右侧抽屉改成盖在主区上面，再窄左侧导航收成图标条。</p>
+        </div>
+        <div class="opt" data-nbdev-option="sidebar">
+            <h3>侧栏里的窄条，写作时放在稿子旁边</h3>
+            <p>窄条要另设计一个精简版（例如只有人物卡和“谁知道什么”），第一版就要做两套布局。</p>
+        </div>
+        <div class="opt" data-nbdev-option="both">
+            <h3>两种都要</h3>
+            <p>整页是主体，侧栏精简版以后再做；第一版只保证整页在窄宽度下不坏。</p>
+        </div>
+    </div>
+    <div class="rec-note"><b>推荐编辑区整页。</b>第一版数据是“拆书”用的已抽好的书，不是正在写的稿子，旁边对照写作的需求还没有出现；侧栏精简版等写作场景定了再设计。</div>
+</section>
+
+<section class="q" data-nbdev-question="keep-mechanisms" data-nbdev-type="multi" data-nbdev-recommend="reading-position,paragraph-records,name-highlight,assertion-tags,no-record-legend">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>5. 旧查看器（t28）的机制沿用哪些？（可多选）</h2>
+    <p class="ask">每一项写了它防什么。选中的沿用，没选的在产品里去掉或改掉。</p>
+    <table>
+        <tr><th>机制</th><th>防什么</th></tr>
+        <tr class="opt-row" data-nbdev-option="reading-position" data-nbdev-label="读到哪里（选章加拖动条）"><td>读到哪里（选章加拖动条）</td><td>剧透：后文的称呼、身份、知情、数值提前出现</td></tr>
+        <tr class="opt-row" data-nbdev-option="paragraph-records" data-nbdev-label="原文段落上的记录条数，点段落看记录"><td>原文段落上的记录条数，点段落看记录</td><td>图上的话没有依据</td></tr>
+        <tr class="opt-row" data-nbdev-option="name-highlight" data-nbdev-label="原文里名字带底色、可点开"><td>原文里名字带底色、可点开</td><td>认不出化名和代号</td></tr>
+        <tr class="opt-row" data-nbdev-option="assertion-tags" data-nbdev-label="“明说、推断、角色的说法”标签"><td>“明说、推断、角色的说法”标签</td><td>把推断或角色的一面之词当事实</td></tr>
+        <tr class="opt-row" data-nbdev-option="no-record-legend" data-nbdev-label="“没有记录不等于不知道”的说明（改成秘密矩阵的图例）"><td>“没有记录不等于不知道”的说明（改成秘密矩阵的图例）</td><td>把没记录误读成“不知道”</td></tr>
+        <tr class="opt-row" data-nbdev-option="stats-page" data-nbdev-label="“说明与统计”页（草稿写了多少条、程序生成了多少项）"><td>“说明与统计”页（草稿写了多少条、程序生成了多少项）</td><td>开发核对程序生成了什么；普通用户用不上</td></tr>
+    </table>
+    <div class="rec-note"><b>推荐沿用前五项，去掉“说明与统计”页。</b>前五项都在防“把图当定论”或剧透，是产品的核心；统计页留给开发，“关于这本书”只写来源和“自动抽取，以原文为准”。</div>
+</section>
+
+<div class="round">参考：建议的骨架（不是视觉稿）</div>
+
+<section class="q">
+    <p>五道题按推荐定下时的区域划分。虚线框是区域，编号对应右边的说明；尺寸、颜色、组件都还没画。</p>
+    <div class="wire">
+        <div class="topbar"><span><span class="n">1</span>书名</span><span><span class="n">2</span>读到第 37 章（选章、拖动条、上一章、下一章）</span><span><span class="n">3</span>搜索人物、称呼、说法、原文</span><span><span class="n">4</span>提问框</span></div>
+        <div class="nav"><span class="n">5</span>本章<br>人物<br>秘密<br>数值<br>悬念<br>时间线<br>情节<br>原文<br>问答</div>
+        <div class="main"><span class="n">6</span>主区：当前页</div>
+        <div class="drawer"><span class="n">7</span>右侧抽屉（默认关）：人物卡，或点出处打开的原文段落和前后文</div>
+        <div class="foot"><span class="n">8</span>页脚：自动抽取，以原文为准</div>
+    </div>
+    <div class="legend">
+        <span class="n">1</span><span>书名；点开是“关于这本书”（来源、章数、抽取说明）。</span>
+        <span class="n">2</span><span>读到哪里：常驻；所有页面、搜索、人物卡、问答都只用到这里为止的内容。</span>
+        <span class="n">3</span><span>全局搜索：结果按人物、说法、原文分组；人物结果直接打开人物卡。</span>
+        <span class="n">4</span><span>提问框：回车进问答页（第 3 题）。</span>
+        <span class="n">5</span><span>左侧导航：第一项是首页（第 1 题）；窄时收成图标条（第 4 题）。</span>
+        <span class="n">6</span><span>主区；每个画面都有链接地址（书、页、人物、阅读位置）。</span>
+        <span class="n">7</span><span>右侧抽屉：任何名字、任何“章.段”编号都在这里打开，不离开当前页面；窄时盖在主区上面。</span>
+        <span class="n">8</span><span>页脚常驻提醒。</span>
+    </div>
+</section>
+
+<div class="round">参考：现状（t28 开发用查看器，前 100 章）</div>
+
+<section class="q">
+    <p>t28 是给开发者核对设计用的单个离线页面，不是产品。下面五张是它现在的样子和主要问题；完整截图集在本地，不入库。</p>
+    <div class="shots">
+        <figure><img src="r1/t28-tab-text.webp" alt="t28 原文页"><figcaption>原文：100 个章号排成一行放不下；概括块夹在正文里打断阅读；右侧没选段落时空着一半。</figcaption></figure>
+        <figure><img src="r1/t28-entity-detail.webp" alt="t28 对象详情"><figcaption>对象：名册按首次出现排，舍友、导购员和主角并列；处处是长描述标签；详情是一长页。</figcaption></figure>
+        <figure><img src="r1/t28-tab-secret.webp" alt="t28 秘密与知情"><figcaption>秘密：11 个秘密各一张表，要一张张往下翻，看不出“某个人知道哪些”。</figcaption></figure>
+        <figure><img src="r1/t28-tab-ledger.webp" alt="t28 状态"><figcaption>状态：数值没有余额曲线，任务进度和数值混在一起，一屏只看到几笔。</figcaption></figure>
+        <figure><img src="r1/t28-tab-question.webp" alt="t28 疑问"><figcaption>疑问：227 条未解或部分解答排成一长列，看不出这一章新提出、新解答了什么。</figcaption></figure>
+    </div>
+</section>
+
+</main>
+</body>
+</html>
