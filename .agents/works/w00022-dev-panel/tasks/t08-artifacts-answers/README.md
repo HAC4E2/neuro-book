@@ -51,7 +51,8 @@ updated: 2026-10-12
   - 提交失败的残留随下一次写入补交；
   - `--wait` 先列目录再读，并能发现新建的产物。
 - 主 Agent 复跑：包测试 146 通过（含 L4）；typecheck 通过；根上 175 通过；没有残留进程，也没有 pane 标签。
+- 2026-10-13 开发者授权后，集成分支 `16cfb817e` 本地合入 `master`（合并提交 `3ef00987a`，没有 PR、没有 push master）；合并提交上复跑包测试 173 个、typecheck、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check` 都通过。
 
 ## 下一步
 
-实施完成，等合入 `master`（要开发者授权）后标为 `done`。
+无。已合入 `master`，标为 `done`。

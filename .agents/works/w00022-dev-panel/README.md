@@ -39,10 +39,10 @@ status: active
 | [t01](tasks/t01-requirements/README.md) | 需求分析、功能分析与本地／入库边界的现状调查；2026-10-12 开发者全部确认（其中“Work 分仓库与本地两类”后被领域模型第二版取消） |
 | [t02](tasks/t02-local-vs-repo-rules/README.md) | 按 t01 的判据改规则：`.local/` 分 Agent 区与用户区、验证与截图的入库边界、`design-review` 的路径；已完成，其中本地 Work 与产物留本地两条后被 t03 改掉 |
 | [t03](tasks/t03-design/README.md) | 面板与命令行的设计：领域模型第二版、三轮静态稿（首页 Work 区用卡片）、Proposal 与实施计划；2026-10-12 完成，Proposal `accepted` |
-| [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent` |
+| [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent`；2026-10-13 随集成分支合入 `master`，完成 |
 | [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；开发者定先只迁本会话建的，w00017 的 t80、t81 已迁，其余分支暂不动 |
-| [t06](tasks/t06-cli-core/README.md) | 命令行核心：包骨架、写事务、记录读取与领号；2026-10-12 实施与实现审查修正完成，待合入 `master` |
-| [t07](tasks/t07-session-leases/README.md) | 会话身份、运行归属与租约；2026-10-12 实施与实现审查修正完成，待合入 `master` |
-| [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-13 实施与实现审查修正完成，待合入 `master` |
-| [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实施完成，实现审查中 |
+| [t06](tasks/t06-cli-core/README.md) | 命令行核心：包骨架、写事务、记录读取与领号；2026-10-13 合入 `master`（`3ef00987a`），完成 |
+| [t07](tasks/t07-session-leases/README.md) | 会话身份、运行归属与租约；2026-10-13 合入 `master`（`3ef00987a`），完成 |
+| [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-13 合入 `master`（`3ef00987a`），完成 |
+| [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`3ef00987a`），完成 |
 | [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 开工 |

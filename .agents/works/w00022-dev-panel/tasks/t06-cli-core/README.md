@@ -48,7 +48,8 @@ status: active
   - 其余见报告。
   
 - 实现审查的修正已在集成分支提交（`bfa4d70d`..`7db92c99`，14 个提交），偏差记在 [plan.md](plan.md) 的“实现审查之后的改动”：持锁者文件放在锁目录里一起改名到位；去掉提交前那次锁身份比对（落位后只提交自己的路径，丢锁不会重号）。主 Agent 复跑：包测试 48 通过；typecheck 通过；根上 174 通过；预置死锁后并发领号的测试抽跑 10 次 0 失败（子代理跑 40 次 0 失败）。审查第 1、2、4 条的变异检查都能被测出。真实仓库只读 `status` 约 0.61 秒（多了旧副本的 blob 比对）。
+- 2026-10-13 开发者授权后，集成分支 `16cfb817e` 本地合入 `master`（合并提交 `3ef00987a`，没有 PR、没有 push master）；合并提交上复跑包测试 173 个、typecheck、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check` 都通过。`~/.local/bin/nbdev` 已由 `install-shim` 写入（指向主工作区的 `packages/dev-panel/src/cli.ts`）。
 
 ## 下一步
 
-实施完成，等合入 `master`（要开发者授权）后标为 `done`；写 `~/.local/bin/nbdev`、真实仓库第一次用 nbdev 建 Work 也等授权。写 `~/.local/bin/nbdev`、真实仓库第一次用 nbdev 建 Work、合入 `master` 等开发者授权。
+无。已合入 `master`，标为 `done`。
