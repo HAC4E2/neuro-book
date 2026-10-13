@@ -21,6 +21,11 @@ export type DropFeedbackPreview = Readonly<{
     readonly orientation: GridOrientation;
     /** false 表示保留上一份半区但当前不可提交；缺省按可提交绘制。 */
     readonly armed?: boolean;
+    /**
+     * 只有插线时药丸放在哪：缺省在线的下方居中；`line-end` 贴在线的末端（横线的右端、竖线的下端），线压着的是
+     * 一排标题时不盖住下一行的标题。
+     */
+    readonly labelAt?: "below" | "line-end";
 }>;
 </script>
 
@@ -148,15 +153,15 @@ const hasVisibleFeedback = computed(() => {
 });
 
 /** 标签锚点：依序取有效半区、条目、插线；锚点始终是 `preview` 的语义矩形，不是内缩后的绘制盒。 */
-const anchor = computed<{rect: GridDropRect; area: boolean} | null>(() => {
+const anchor = computed<{rect: GridDropRect; area: boolean; line: boolean} | null>(() => {
     if (areaRect.value !== null) {
-        return {rect: areaRect.value, area: true};
+        return {rect: areaRect.value, area: true, line: false};
     }
     if (entryRect.value !== null) {
-        return {rect: entryRect.value, area: false};
+        return {rect: entryRect.value, area: false, line: false};
     }
     if (lineRect.value !== null) {
-        return {rect: lineRect.value, area: false};
+        return {rect: lineRect.value, area: false, line: true};
     }
     return null;
 });
@@ -250,9 +255,17 @@ const labelLayout = computed<{left: string; top: string} | null>(() => {
     const anchorHeight = target.rect.bottom - target.rect.top;
     const marginX = Math.min(VIEWPORT_MARGIN_PX, Math.max(0, (viewportWidth - size.width) / 2));
     const marginY = Math.min(VIEWPORT_MARGIN_PX, Math.max(0, (viewportHeight - size.height) / 2));
-    const left = target.rect.left + (anchorWidth - size.width) / 2;
+    let left = target.rect.left + (anchorWidth - size.width) / 2;
     let top: number;
-    if (target.area && anchorWidth >= size.width + LABEL_FIT_PADDING_PX && anchorHeight >= size.height + LABEL_FIT_PADDING_PX) {
+    if (target.line && props.preview?.labelAt === "line-end") {
+        // 药丸的末端与线的末端对齐、中线压在线上
+        if (anchorWidth >= anchorHeight) {
+            left = target.rect.right - size.width;
+            top = target.rect.top + (anchorHeight - size.height) / 2;
+        } else {
+            top = target.rect.bottom - size.height;
+        }
+    } else if (target.area && anchorWidth >= size.width + LABEL_FIT_PADDING_PX && anchorHeight >= size.height + LABEL_FIT_PADDING_PX) {
         // 半区容得下「标签 + 16px」：贴正中最贴近指针所指的区域
         top = target.rect.top + (anchorHeight - size.height) / 2;
     } else {

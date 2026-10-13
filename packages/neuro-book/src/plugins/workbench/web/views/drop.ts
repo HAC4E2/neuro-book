@@ -4,8 +4,9 @@
  *
  * - 一份判定：预览与将要提交的意图同出一次求值，不会出现“高亮了这里、提交去了别处”。
  * - 保守：几何过期、锚点消失、目标量不出来时拒绝或无操作，不猜目标；非法方向、量不出来的目标只给不带预览的无操作。
- * - 内容区用 nb-ui `resolveGridInsertion`：每个可见叶沿目标轴前后各 50%，中点归后半，没有中央禁投区；命中边缘就是
- *   半区并入（`split`）。全部可见视图都收成细条时，落点是细条之后的剩余区（`expand`）。
+ * - 内容区用 nb-ui `resolveGridInsertion`：每个可见叶沿目标轴前后各 50%，中点归后半，没有中央禁投区；命中展开的
+ *   叶就是半区并入（`split`）。命中收起的细条、或全部可见视图都收起时，按列表插入位（`resolveListInsertion`）插在
+ *   前后，预览是一条插入线，剩余区等于插在最后；拖入的视图在插入位展开（`expand`），插入位挨着展开的叶时与它平分。
  * - Switcher（标签带、ActivityBar 条目带）只有插入位：`resolveListInsertion({edgeGap: 4})`，预览只有那一条插入线。
  *   视图落 Switcher 是建新容器（`detach-view`），容器落 Switcher 是整容器换序或迁区（`move-container`）。
  * - 空 Part 整区一个落点；Part 一旦有了容器，这个落点就失效并拒绝。
@@ -20,7 +21,7 @@ import type {GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOri
 import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
 import {immovableMemberOf} from "./intents";
-import type {ViewIntent} from "./intents";
+import type {SplitPlacement, ViewIntent} from "./intents";
 import type {ViewCatalog} from "./placement";
 import type {ContainerPresentation, Presentation} from "./presentation";
 
@@ -78,13 +79,15 @@ export interface DropInput {
 }
 
 export interface DropPreview {
-    /** 插入线：只有 Switcher 的插入位画。 */
+    /** 插入线：Switcher 的插入位与内容区收起分栏的前后插入位画。 */
     readonly indicator: GridDropRect | null;
     /** 接收区域：边缘并入的命中半区、剩余区或空 Part 的整个内容区。 */
     readonly areaRect: GridDropRect | null;
     readonly orientation: GridOrientation;
     /** 拖动的视图数（容器源是全部实际成员数）。 */
     readonly count: number;
+    /** 内容区的插入位挨着谁：提示写“放在 X 前／后”。 */
+    readonly insertion?: {readonly viewId: string; readonly side: "before" | "after"};
 }
 
 export type DropDecision =
@@ -148,16 +151,6 @@ function containerSourceOf(input: DropInput, source: Extract<DropSource, {kind: 
     return container;
 }
 
-/** 全部可见成员都收成细条时的落点：末条细条之后、内容盒之内的连续区域。 */
-function remainderOf(container: ContainerPresentation, geometry: ContentRects): GridDropRect | null {
-    const collapsed = new Set(container.views.filter((view) => view.collapsed).map((view) => view.id));
-    if (geometry.members.length === 0 || !geometry.members.every((member) => collapsed.has(member.id))) return null;
-    const horizontal = container.axis === "horizontal";
-    const boundary = geometry.members.reduce((end, member) => Math.max(end, horizontal ? member.rect.right : member.rect.bottom), horizontal ? geometry.rect.left : geometry.rect.top);
-    const area = horizontal ? {...geometry.rect, left: boundary} : {...geometry.rect, top: boundary};
-    return isGridDropRect(area) ? area : null;
-}
-
 interface EdgeHit {
     readonly hitViewId: string;
     readonly side: "before" | "after";
@@ -192,15 +185,54 @@ function sourceRatios(input: DropInput, source: ContainerPresentation, viewIds: 
     return Object.fromEntries(viewIds.map((id) => [id, source.views.find((view) => view.id === id)?.size ?? DEFAULT_SIZE]));
 }
 
-type ContentHit = {readonly kind: "remainder"; readonly area: GridDropRect} | ({readonly kind: "edge"} & EdgeHit);
+/** 收起分栏前后的插入位：插在 `beforeViewId` 之前（缺省插在最后），预览是那条插入线。 */
+interface InsertHit {
+    readonly beforeViewId: string | undefined;
+    readonly indicator: GridDropRect;
+    readonly near: NonNullable<DropPreview["insertion"]>;
+}
 
+type ContentHit = ({readonly kind: "edge"} & EdgeHit) | ({readonly kind: "insert"} & InsertHit);
+
+/**
+ * 收起的细条只有 32px，拆半区会只亮 16px、份额也说不通，所以命中它（或全部收起）时改按列表插入位：细条的前半、
+ * 间隙与后一条的前半归同一个插入位，剩余区归“插在最后”。
+ */
 function contentHitOf(input: DropInput, target: ContainerPresentation, geometry: ContentRects): ContentHit | null {
-    const remainder = remainderOf(target, geometry);
-    if (remainder !== null) return {kind: "remainder", area: remainder};
-    const insertion = resolveGridInsertion({orientation: orientationOf(target), point: input.point, containerRect: geometry.rect, members: geometry.members, edgeRatio: CONTENT_EDGE_RATIO});
-    if (insertion === null || insertion.kind === "keep") return null;
-    const edge = edgeHitOf(insertion);
-    return edge === null ? null : {kind: "edge", ...edge};
+    const collapsed = new Set(target.views.filter((view) => view.collapsed).map((view) => view.id));
+    const orientation = orientationOf(target);
+    const allCollapsed = geometry.members.length > 0 && geometry.members.every((member) => collapsed.has(member.id));
+    if (!allCollapsed) {
+        const insertion = resolveGridInsertion({orientation, point: input.point, containerRect: geometry.rect, members: geometry.members, edgeRatio: CONTENT_EDGE_RATIO});
+        if (insertion === null || insertion.kind === "keep") return null;
+        const edge = edgeHitOf(insertion);
+        if (edge === null) return null;
+        if (!collapsed.has(edge.hitViewId)) return {kind: "edge", ...edge};
+    }
+    const list = resolveListInsertion({orientation, point: input.point, containerRect: geometry.rect, members: geometry.members});
+    const last = geometry.members.at(-1);
+    if (list === null || last === undefined) return null;
+    const beforeViewId = list.beforeId ?? undefined;
+    return {kind: "insert", beforeViewId, indicator: list.indicator, near: beforeViewId === undefined ? {viewId: last.id, side: "after"} : {viewId: beforeViewId, side: "before"}};
+}
+
+/**
+ * 插入位挨着的展开分栏（被拖的视图自己不算）：拖入的视图与它平分，同半区的规则；两边都收起或在头尾时只插入，
+ * 份额由网格按意图分，全部收起时就是剩余区。
+ */
+function expandedNeighbourOf(container: ContainerPresentation, beforeViewId: string | undefined, excluded: string | null): Pick<SplitPlacement, "hitViewId" | "side"> | null {
+    const visible = container.views.filter((view) => view.id !== excluded);
+    const at = beforeViewId === undefined ? visible.length : visible.findIndex((view) => view.id === beforeViewId);
+    if (at === -1) return null;
+    const previous = visible[at - 1];
+    const next = visible[at];
+    if (previous !== undefined && !previous.collapsed) return {hitViewId: previous.id, side: "after"};
+    if (next !== undefined && !next.collapsed) return {hitViewId: next.id, side: "before"};
+    return null;
+}
+
+function insertPreview(hit: InsertHit, orientation: GridOrientation, count: number): DropPreview {
+    return {indicator: hit.indicator, areaRect: null, orientation, count, insertion: hit.near};
 }
 
 function resolveContent(input: DropInput, target: Extract<DropTarget, {kind: "content"}>): DropDecision {
@@ -218,8 +250,18 @@ function resolveContent(input: DropInput, target: Extract<DropTarget, {kind: "co
         if (typeof from === "string") return rejection(from);
         const hit = contentHitOf(input, container, geometry);
         if (hit === null) return noop();
-        if (hit.kind === "remainder") {
-            return {kind: "commit", intent: {kind: "move-view", viewId: source.viewId, sourceContainerId: source.containerId, targetContainerId: container.id, expand: true}, preview: {indicator: null, areaRect: hit.area, orientation, count: 1}};
+        const move = {kind: "move-view" as const, viewId: source.viewId, sourceContainerId: source.containerId, targetContainerId: container.id};
+        if (hit.kind === "insert") {
+            const preview = insertPreview(hit, orientation, 1);
+            if (source.containerId === container.id) {
+                // 插入位就在它自己前后：原位不提交。
+                const others = container.members.filter((id) => id !== source.viewId);
+                const at = hit.beforeViewId === undefined ? others.length : others.indexOf(hit.beforeViewId);
+                if (hit.beforeViewId === source.viewId || container.members.indexOf(source.viewId) === at) return noop(preview);
+            }
+            const neighbour = expandedNeighbourOf(container, hit.beforeViewId, source.viewId);
+            const placement = neighbour !== null ? {split: {...neighbour, sourceSizes: {[source.viewId]: 1}}} : hit.beforeViewId === undefined ? {} : {beforeViewId: hit.beforeViewId};
+            return {kind: "commit", intent: {...move, ...placement, expand: true}, preview};
         }
         if (source.containerId === container.id && hit.hitViewId === source.viewId) return noop();
         const preview: DropPreview = {indicator: null, areaRect: hit.halfRect, orientation, count: 1};
@@ -229,7 +271,7 @@ function resolveContent(input: DropInput, target: Extract<DropTarget, {kind: "co
             const at = hit.side === "before" ? others.indexOf(hit.hitViewId) : others.indexOf(hit.hitViewId) + 1;
             if (container.members.indexOf(source.viewId) === at) return noop(preview);
         }
-        return {kind: "commit", intent: {kind: "move-view", viewId: source.viewId, sourceContainerId: source.containerId, targetContainerId: container.id, split: {hitViewId: hit.hitViewId, side: hit.side, sourceSizes: {[source.viewId]: 1}}}, preview};
+        return {kind: "commit", intent: {...move, split: {hitViewId: hit.hitViewId, side: hit.side, sourceSizes: {[source.viewId]: 1}}}, preview};
     }
     const from = containerSourceOf(input, source);
     if (typeof from === "string") return rejection(from);
@@ -242,9 +284,13 @@ function resolveContent(input: DropInput, target: Extract<DropTarget, {kind: "co
     if (hit === null) return noop();
     const count = source.viewIds.length;
     const base = {kind: "merge-container" as const, sourceContainerId: from.id, targetContainerId: container.id, sourceViewIds: [...source.viewIds]};
-    if (hit.kind === "remainder") return {kind: "commit", intent: {...base, expand: true}, preview: {indicator: null, areaRect: hit.area, orientation, count}};
     // 只有展开的成员参与半区：收起成员的细条几何不是它的份额（intents.ts 的并入同此）。
     const expanded = from.views.filter((view) => !view.collapsed).map((view) => view.id);
+    if (hit.kind === "insert") {
+        const neighbour = expandedNeighbourOf(container, hit.beforeViewId, null);
+        const placement = neighbour !== null ? {split: {...neighbour, sourceSizes: sourceRatios(input, from, expanded)}} : hit.beforeViewId === undefined ? {} : {beforeViewId: hit.beforeViewId};
+        return {kind: "commit", intent: {...base, ...placement, expand: true}, preview: insertPreview(hit, orientation, count)};
+    }
     return {kind: "commit", intent: {...base, split: {hitViewId: hit.hitViewId, side: hit.side, sourceSizes: sourceRatios(input, from, expanded)}}, preview: {indicator: null, areaRect: hit.halfRect, orientation, count}};
 }
 

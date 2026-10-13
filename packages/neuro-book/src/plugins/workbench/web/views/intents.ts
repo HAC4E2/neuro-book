@@ -350,6 +350,37 @@ function setViewCollapsed(state: IntentState, intent: Extract<ViewIntent, {kind:
     return {kind: "patch", patch: {views: {[intent.viewId]: {collapsed: intent.collapsed ? true : null}}}};
 }
 
+/**
+ * 这次意图把视图或容器从别的 Part 带进哪个 Part；同一 Part 里挪动、不搬东西的意图为 null。外壳据此让收起成标题头
+ * 的面板同次展开（docs/specs/ui/workbench-shell.md 输出 39）。
+ */
+export function arrivalPartOf(placement: Placement, intent: ViewIntent): ViewLocation | null {
+    const partOfContainer = (containerId: string): ViewLocation | null => placement.containers.get(containerId)?.part ?? null;
+    let from: ViewLocation | null;
+    let to: ViewLocation | null;
+    switch (intent.kind) {
+        case "move-view":
+            from = partOfContainer(intent.sourceContainerId);
+            to = partOfContainer(intent.targetContainerId);
+            break;
+        case "detach-view":
+            from = partOfContainer(intent.sourceContainerId);
+            to = intent.targetPart;
+            break;
+        case "move-container":
+            from = intent.sourcePart;
+            to = intent.targetPart;
+            break;
+        case "merge-container":
+            from = partOfContainer(intent.sourceContainerId);
+            to = partOfContainer(intent.targetContainerId);
+            break;
+        default:
+            return null;
+    }
+    return to !== null && from !== to ? to : null;
+}
+
 export function applyIntent(state: IntentState, intent: ViewIntent): IntentResult {
     switch (intent.kind) {
         case "select-container": {

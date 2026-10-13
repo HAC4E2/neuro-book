@@ -79,6 +79,8 @@ const TEXT = {
     dropDetachView: {"zh-CN": "新建容器", "en-US": "New container"},
     dropMoveContainer: {"zh-CN": "移动容器", "en-US": "Move container"},
     dropMergeContainer: {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
+    dropBefore: {"zh-CN": "放在“{title}”前", "en-US": "Place before “{title}”"},
+    dropAfter: {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
 } satisfies Record<string, LocalizedText>;
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
@@ -302,6 +304,13 @@ const dropFeedback = computed(() => {
     const preview = decision === null || decision.kind === "rejected" ? null : (decision.preview ?? null);
     if (preview === null) return {preview: null, label: "", kind: "", count: 0};
     const kind = decision!.kind === "commit" ? decision!.intent.kind : "noop";
+    // 收起分栏前后的插入位：提示说放在谁前后，贴在插入线的末端，不盖住下一行的标题。
+    const near = preview.insertion;
+    const nearTitle = near === undefined ? undefined : state.value.catalog.get(near.viewId)?.title;
+    if (decision!.kind === "commit" && near !== undefined && nearTitle !== undefined) {
+        const label = text(formatText(near.side === "before" ? TEXT.dropBefore : TEXT.dropAfter, {title: text(nearTitle)}));
+        return {preview: {areaRect: null, entryRect: null, indicator: preview.indicator, orientation: preview.orientation, labelAt: "line-end" as const}, label, kind, count: preview.count};
+    }
     const label = kind === "move-view" ? text(TEXT.dropMoveView)
         : kind === "detach-view" ? text(TEXT.dropDetachView)
             : kind === "move-container" ? text(TEXT.dropMoveContainer)

@@ -107,6 +107,14 @@ describe("DropFeedbackOverlay", () => {
         expect(document.querySelector("[data-drop-feedback-live]")?.textContent).toContain("移动视图");
     });
 
+    it("labelAt 为 line-end：横线的药丸右端贴线的右端、中线压在线上；竖线的药丸下端贴线的下端", async () => {
+        const wrapper = await render(preview({indicator: rect(20, 100, 260, 2), labelAt: "line-end"}));
+        expect(labelPosition()).toEqual({left: 280 - 120, top: 100 + (2 - 28) / 2});
+        await wrapper.setProps({preview: preview({indicator: rect(150, 40, 2, 120), orientation: "horizontal", labelAt: "line-end"})});
+        await nextTick();
+        expect(labelPosition()).toEqual({left: 150 + (2 - 120) / 2, top: 160 - 28});
+    });
+
     it("内容落点只画一个内缩矩形，插线不叠加，原始命中几何不被回写", async () => {
         const value = preview({areaRect: rect(10, 20, 400, 160), indicator: rect(10, 60, 400, 2)});
         await render(value);

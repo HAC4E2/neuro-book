@@ -47,6 +47,13 @@ async function halfOf(page: Page, viewId: string, side: "before" | "after"): Pro
     return axis === "horizontal" ? {x: box.x + box.width * ratio, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + box.height * ratio};
 }
 
+/** 收起有形变动画：等这个分节缩成 32px 的细条再量它的位置，量到半路的几何会把指针放到别处。 */
+async function settledStrip(page: Page, viewId: string): Promise<void> {
+    const section = page.locator(`[data-view-section="${viewId}"]`);
+    await expect(section).toHaveAttribute("data-view-collapsed", "true");
+    await expect.poll(async () => Math.round((await section.boundingBox())!.height)).toBe(32);
+}
+
 /** 一次完整的指针拖放：拖到 `to` 松手，等拖影消失。 */
 async function dropAt(page: Page, source: Locator, to: {x: number; y: number}): Promise<void> {
     await dragTo(page, source, to);
@@ -349,22 +356,70 @@ test.describe("产品页：拖放", () => {
         await expect(host(page, `view:${F}`)).toHaveAttribute("data-container-axis", "vertical");
     });
 
-    test("全部可见视图收成细条：落点是细条之后的剩余区，拖入的视图展开、原有细条保持收起", async ({page}) => {
+    test("全部可见视图收成细条：剩余区与标题之间都是插入位，预览是插入线、提示贴在线的右端；放下后拖入的视图在插入位展开，原有的保持收起", async ({page}) => {
         await open(page);
         const sidebar = page.locator('[data-tool-part="sidebar"]');
         await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
         for (const id of [A, B]) await page.locator(`[data-view-section="${id}"] [data-view-toggle]`).click();
-        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+        for (const id of [A, B]) await settledStrip(page, id);
+        const sections = () => host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-view-section")));
+        const label = page.locator("[data-drop-feedback-label]");
+        const line = page.locator("[data-drop-feedback-line]");
+
+        // 剩余区：插在最后
         const box = (await sidebar.boundingBox())!;
         await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), {x: box.x + box.width / 2, y: box.y + box.height - 40});
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
-        const area = (await page.locator("[data-drop-feedback-area]").boundingBox())!;
+        await expect(line).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-area]")).toHaveCount(0);
+        await expect(label).toContainText("放在“样例乙”后");
+        const lineBox = (await line.boundingBox())!;
         const strips = (await page.locator(`[data-view-section="${B}"]`).boundingBox())!;
-        expect(area.y).toBeGreaterThanOrEqual(strips.y + strips.height - 1);
+        expect(lineBox.y).toBeGreaterThanOrEqual(strips.y + strips.height - 2);
+        const pill = (await label.boundingBox())!;
+        expect(Math.abs(pill.x + pill.width - (lineBox.x + lineBox.width))).toBeLessThan(4);
         await page.mouse.up();
         await expect(page.locator(`[data-view-section="${C}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        expect(await sections()).toEqual([A, B, C]);
         await expect(page.locator(`[data-view-section="${A}"]`)).toHaveAttribute("data-view-collapsed", "true");
         await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+
+        // 甲、乙两条标题之间：右栏的丁插到乙前面
+        await dragTo(page, tabOf(page, "auxiliarybar", `view:${D}`), await halfOf(page, B, "before"));
+        await expect(label).toContainText("放在“样例乙”前");
+        await page.mouse.up();
+        await expect.poll(sections).toEqual([A, D, B, C]);
+        await expect(page.locator(`[data-view-section="${D}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+    });
+
+    test("一个展开、其余收起：拖到收起分栏的前半插在它前面、不拆细条；挨着展开的分栏时与它平分", async ({page}) => {
+        await open(page);
+        await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        await page.locator(`[data-view-section="${B}"] [data-view-toggle]`).click();
+        await settledStrip(page, B);
+        await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), await halfOf(page, B, "before"));
+        await expect(page.locator("[data-drop-feedback-line]")).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-area]")).toHaveCount(0);
+        await expect(page.locator("[data-drop-feedback-label]")).toContainText("放在“样例乙”前");
+        await page.mouse.up();
+        await expect.poll(() => host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-view-section")))).toEqual([A, C, B]);
+        await expect(page.locator(`[data-view-section="${C}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+        const heightOf = async (id: string) => (await page.locator(`[data-view-section="${id}"]`).boundingBox())!.height;
+        await expect.poll(async () => Math.abs((await heightOf(A)) - (await heightOf(C)))).toBeLessThan(2);
+    });
+
+    test("面板收成标题头：从侧栏拖进面板的标签带，面板展开并显示拖进来的容器", async ({page}) => {
+        await open(page);
+        const panel = page.locator('[data-leaf="panel"]');
+        await page.locator('[data-panel-action="nbook.view.set-panel-collapsed"]').click();
+        await expect.poll(async () => (await panel.boundingBox())!.height).toBe(32);
+        const last = (await tabOf(page, "panel", `view:${F}`).boundingBox())!;
+        await dropAt(page, page.locator(`[data-activity-container="view:${C}"]`), {x: last.x + last.width + 30, y: last.y + last.height / 2});
+        await expect(tabOf(page, "panel", `view:${C}`)).toHaveAttribute("aria-selected", "true");
+        await expect.poll(async () => (await panel.boundingBox())!.height).toBeGreaterThan(32);
+        await expect(page.locator(`[data-sample-view="${C}"]`)).toBeVisible();
     });
 
     test("多视图的面板容器搬到侧栏再搬回面板：成员顺序不变，轴随区域横转纵、纵转横", async ({page}) => {

@@ -21,7 +21,7 @@ import {clampLeafSize, clampPanelHeight, clampPanelWidth, SHELL_SIZE_DEFAULTS, s
 import type {ShellDragCollapseMap, ShellHideablePart, ShellLayoutFacts, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
 import {isHorizontalPanelPosition, PANEL_ALIGNMENTS, PANEL_DEFAULTS, PANEL_POSITIONS, panelMaximizable} from "../shell/panel-state";
 import type {PanelAlignment, PanelPosition, PanelPreferences, PanelState} from "../shell/panel-state";
-import {applyIntent, applyPatch} from "../views/intents";
+import {applyIntent, applyPatch, arrivalPartOf} from "../views/intents";
 import type {IntentResult, ViewIntent} from "../views/intents";
 import {computePlacement} from "../views/placement";
 import type {ViewCatalog} from "../views/placement";
@@ -212,11 +212,16 @@ function defineLayoutStore(records: LayoutRecords) {
                 applyView: (intent: ViewIntent): IntentResult => {
                     const result = applyIntent({catalog: catalog.value, placement: placement.value, presentation: presentation.value, customizations: customizations.display}, intent);
                     if (result.kind === "patch") {
+                        // 从别处放进收起成标题头的面板：同次展开，放进去的东西看得见（输出 39）。
+                        const opensPanel = panel.value.collapsed && arrivalPartOf(placement.value, intent) === "panel";
                         void customizations.commit((value) => {
                             const outcome = applyPatch(value, result.patch, catalog.value);
                             // 修改函数可能被调用多次：同一条原因只记一次。
                             if (outcome.problem !== null && !patchProblems.value.includes(outcome.problem)) patchProblems.value = [...patchProblems.value, outcome.problem].slice(-20);
-                            return outcome.value;
+                            if (!opensPanel) return outcome.value;
+                            const next = editable(outcome.value);
+                            next.panel = {...next.panel, collapsed: false};
+                            return next;
                         });
                     }
                     return result;

@@ -169,19 +169,71 @@ describe("内容区", () => {
         expect(Object.keys((decision as {intent: {split: {sourceSizes: Record<string, number>}}}).intent.split.sourceSizes)).toEqual(["t.d"]);
     });
 
-    it("全部可见视图收成细条：落点是细条之后的剩余区，拖入的视图展开、原有细条保持收起", () => {
-        let collapsed = applies(merged, {kind: "set-view-collapsed", viewId: "t.a", collapsed: true});
-        collapsed = applies(collapsed, {kind: "set-view-collapsed", viewId: "t.b", collapsed: true});
+    describe("收起的分栏当落点（t83 第二轮 R2-3）", () => {
+        const view = (viewId: string) => ({kind: "view" as const, viewId, containerId: `view:${viewId}`, part: "sidebar" as const});
+        const target = {kind: "content" as const, containerId: "view:t.a", part: "sidebar" as const};
+        // 甲、乙都收成 32px 标题行，下面是剩余区。
+        const bothCollapsed = applies(applies(merged, {kind: "set-view-collapsed", viewId: "t.a", collapsed: true}), {kind: "set-view-collapsed", viewId: "t.b", collapsed: true});
         const strips = {containerId: "view:t.a", rect: rect(60, 0, 400, 400), members: [{id: "t.a", rect: rect(60, 0, 400, 32)}, {id: "t.b", rect: rect(60, 33, 400, 65)}]};
-        const decision = resolveDrop(input(collapsed, {kind: "view", viewId: "t.c", containerId: "view:t.c", part: "sidebar"}, {kind: "content", containerId: "view:t.a", part: "sidebar"}, {x: 100, y: 300}, {content: strips}));
-        expect(decision).toMatchObject({kind: "commit", intent: {kind: "move-view", expand: true}, preview: {areaRect: {top: 65, bottom: 400}}});
-        const next = applies(collapsed, (decision as {intent: ViewIntent}).intent);
-        expect(next.views?.["t.a"]?.collapsed).toBe(true);
-        expect(next.views?.["t.c"]?.collapsed).toBeUndefined();
-        // 细条已占满内容盒：没有剩余区，回到边缘并入。
-        const full = {containerId: "view:t.a", rect: rect(60, 0, 400, 65), members: strips.members};
-        const edge = resolveDrop(input(collapsed, {kind: "view", viewId: "t.c", containerId: "view:t.c", part: "sidebar"}, {kind: "content", containerId: "view:t.a", part: "sidebar"}, {x: 100, y: 60}, {content: full}));
-        expect(edge).toMatchObject({kind: "commit", intent: {kind: "move-view", split: {hitViewId: "t.b", side: "after"}}});
+
+        it("全部收起：标题之间与最后都是插入位，剩余区等于插在最后；预览是插入线；拖入的视图在插入位展开，原有的保持收起", () => {
+            const between = resolveDrop(input(bothCollapsed, view("t.c"), target, {x: 100, y: 40}, {content: strips}));
+            expect(between).toMatchObject({kind: "commit", intent: {kind: "move-view", beforeViewId: "t.b", expand: true}, preview: {areaRect: null, insertion: {viewId: "t.b", side: "before"}}});
+            expect(between.kind === "commit" && between.preview.indicator).toBeTruthy();
+            expect(between.kind === "commit" && "split" in between.intent).toBe(false);
+            const next = applies(bothCollapsed, (between as {intent: ViewIntent}).intent);
+            expect(world(next).placement.containers.get("view:t.a")?.members).toEqual(["t.a", "t.c", "t.b"]);
+            expect([next.views?.["t.a"]?.collapsed, next.views?.["t.b"]?.collapsed, next.views?.["t.c"]?.collapsed]).toEqual([true, true, undefined]);
+
+            const remainder = resolveDrop(input(bothCollapsed, view("t.c"), target, {x: 100, y: 300}, {content: strips}));
+            expect(remainder).toMatchObject({kind: "commit", intent: {kind: "move-view", expand: true}, preview: {insertion: {viewId: "t.b", side: "after"}}});
+            expect(remainder.kind === "commit" && "beforeViewId" in remainder.intent).toBe(false);
+            expect(world(applies(bothCollapsed, (remainder as {intent: ViewIntent}).intent)).placement.containers.get("view:t.a")?.members).toEqual(["t.a", "t.b", "t.c"]);
+            // 细条占满内容盒、没有剩余区时同样按插入位，不拆细条。
+            const full = resolveDrop(input(bothCollapsed, view("t.c"), target, {x: 100, y: 60}, {content: {...strips, rect: rect(60, 0, 400, 65)}}));
+            expect(full).toMatchObject({kind: "commit", intent: {kind: "move-view", expand: true}, preview: {insertion: {viewId: "t.b", side: "after"}}});
+        });
+
+        it("命中收起的细条：按前后插入、不拆半区；挨着展开的分栏时与它平分，挨着的都收起时只插入", () => {
+            const tailCollapsed = applies(merged, {kind: "set-view-collapsed", viewId: "t.b", collapsed: true});
+            const layout = {containerId: "view:t.a", rect: rect(60, 0, 400, 400), members: [{id: "t.a", rect: rect(60, 0, 400, 367)}, {id: "t.b", rect: rect(60, 368, 400, 400)}]};
+            const front = resolveDrop(input(tailCollapsed, view("t.c"), target, {x: 100, y: 375}, {content: layout}));
+            expect(front).toMatchObject({kind: "commit", intent: {kind: "move-view", split: {hitViewId: "t.a", side: "after"}, expand: true}, preview: {areaRect: null, insertion: {viewId: "t.b", side: "before"}}});
+            const split = applies(tailCollapsed, (front as {intent: ViewIntent}).intent);
+            expect(world(split).placement.containers.get("view:t.a")?.members).toEqual(["t.a", "t.c", "t.b"]);
+            expect([split.views?.["t.a"]?.height, split.views?.["t.c"]?.height, split.views?.["t.b"]?.collapsed]).toEqual([120, 120, true]);
+
+            const back = resolveDrop(input(tailCollapsed, view("t.c"), target, {x: 100, y: 395}, {content: layout}));
+            expect(back).toMatchObject({kind: "commit", intent: {kind: "move-view", expand: true}, preview: {insertion: {viewId: "t.b", side: "after"}}});
+            expect(back.kind === "commit" && ("split" in back.intent || "beforeViewId" in back.intent)).toBe(false);
+            const appended = applies(tailCollapsed, (back as {intent: ViewIntent}).intent);
+            expect(world(appended).placement.containers.get("view:t.a")?.members).toEqual(["t.a", "t.b", "t.c"]);
+            expect(appended.views?.["t.a"]?.height).toBeUndefined();
+            // 展开的叶照旧拆半区。
+            expect(resolveDrop(input(tailCollapsed, view("t.c"), target, {x: 100, y: 100}, {content: layout}))).toMatchObject({kind: "commit", intent: {split: {hitViewId: "t.a", side: "before"}}});
+        });
+
+        it("同一容器里挪收起的视图：插入位就在它自己前后是带线的无操作，其它位置改顺序并展开它", () => {
+            const own = {...view("t.a"), containerId: "view:t.a"};
+            for (const y of [10, 40]) {
+                const inPlace = resolveDrop(input(bothCollapsed, own, target, {x: 100, y}, {content: strips}));
+                expect(inPlace.kind).toBe("noop");
+                expect(inPlace.kind === "noop" && inPlace.preview?.indicator).toBeTruthy();
+            }
+            const last = resolveDrop(input(bothCollapsed, own, target, {x: 100, y: 300}, {content: strips}));
+            expect(last).toMatchObject({kind: "commit", intent: {kind: "move-view", expand: true}});
+            const next = applies(bothCollapsed, (last as {intent: ViewIntent}).intent);
+            expect(world(next).placement.containers.get("view:t.a")?.members).toEqual(["t.b", "t.a"]);
+            expect([next.views?.["t.a"]?.collapsed, next.views?.["t.b"]?.collapsed]).toEqual([undefined, true]);
+        });
+
+        it("整容器落在收起的分栏之间：整组并入插入位并展开", () => {
+            const decision = resolveDrop(input(bothCollapsed, {kind: "container", containerId: "view:t.d", part: "panel", viewIds: ["t.d"]}, target, {x: 100, y: 40}, {content: strips}));
+            expect(decision).toMatchObject({kind: "commit", intent: {kind: "merge-container", beforeViewId: "t.b", expand: true}, preview: {count: 1, insertion: {viewId: "t.b", side: "before"}}});
+            const next = applies(bothCollapsed, (decision as {intent: ViewIntent}).intent);
+            expect(world(next).placement.containers.get("view:t.a")?.members).toEqual(["t.a", "t.d", "t.b"]);
+            expect(next.views?.["t.d"]?.collapsed).toBeUndefined();
+        });
     });
 
     it("几何过期（来自别的容器或含非成员）：拒绝；内容盒量不出来：无操作", () => {

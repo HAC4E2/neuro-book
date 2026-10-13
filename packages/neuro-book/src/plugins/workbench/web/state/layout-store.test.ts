@@ -193,6 +193,29 @@ describe("空着的右栏与面板（ui/workbench-shell.md 输出 39）", () => 
         expect(store.state.hiddenParts).toEqual([]);
         expect(store.state.panel.hidden).toBe(false);
     });
+
+    it("从别的区域放进收起成标题头的面板：同次展开（与放进的东西一起写）；面板里自己换序不展开", async () => {
+        const w = await world();
+        const mixed: ViewCatalog = new Map([
+            ["test.a", {title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a", location: "sidebar", layout: "scroll"}],
+            ["test.b", {title: {"zh-CN": "乙", "en-US": "B"}, icon: "i-b", location: "sidebar", layout: "scroll"}],
+            ["test.d", {title: {"zh-CN": "丁", "en-US": "D"}, icon: "i-d", location: "panel", layout: "scroll"}],
+            ["test.e", {title: {"zh-CN": "戊", "en-US": "E"}, icon: "i-e", location: "panel", layout: "scroll"}],
+        ]);
+        const {store, storage} = await openLayout(w, "w", "c", false, mixed);
+        expect(store.actions.setPanelCollapsed(true)).toBe(true);
+        expect(store.actions.applyView({kind: "move-container", containerId: "view:test.e", sourcePart: "panel", targetPart: "panel", beforeContainerId: "view:test.d"}).kind).toBe("patch");
+        await saved(store);
+        expect(store.state.panel.collapsed).toBe(true);
+        const revisionOf = (): string | null => (store.state.customizations.base?.status === "ok" ? store.state.customizations.base.revision : null);
+        const before = revisionOf();
+
+        expect(store.actions.applyView({kind: "detach-view", viewId: "test.b", sourceContainerId: "view:test.b", containerId: "custom:44444444-4444-4444-8444-444444444444", targetPart: "panel"}).kind).toBe("patch");
+        expect(store.state.panel.collapsed).toBe(false);
+        await saved(store);
+        expect(Number(revisionOf())).toBe(Number(before) + 1);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toMatchObject({panel: {collapsed: false}, views: {"test.b": {container: "custom:44444444-4444-4444-8444-444444444444"}}});
+    });
 });
 
 describe("瞬时最大化与呈现事实", () => {
