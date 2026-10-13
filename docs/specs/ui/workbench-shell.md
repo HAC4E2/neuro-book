@@ -140,20 +140,17 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
     - 项目切换显示当前项目的显示名，没有项目时显示“打开项目…”；点开至少有“打开项目…”（`nbook.project.open`）。作品列表随书架页的作品数据加入。
     - 布局按钮是切换按钮，按下态取输出 32 的公开键，经输出 32 的命令执行。
     - 浏览器里不画窗口控制。
-29. **应用菜单**：四组（文件、编辑、视图、帮助），每一项是一条 canonical 命令加固定参数，执行一律经命令服务。菜单由能力模型生成：
-    - 命令不在命令目录里（贡献方没加载）、或只属于桌面宿主而当前不是桌面：不画；
-    - 命令不可用：画成禁用，悬停与读屏给出命令给的原因；
-    - 标题取命令的标题；同一命令带不同参数出现几次时（侧栏、右栏、活动栏），条目用菜单定义给的标题。勾选项的勾选状态取公开状态；快捷键取命令声明的键位；
-    - 分隔线两侧有一侧为空时去掉，一组全被裁掉时不画这一组。
+29. **应用菜单**：四组（文件、编辑、视图、帮助）的标题与顺序由工作台定，条目来自贡献点 `workbench.titlebar-menu`：各插件给自己的命令贡献菜单项、声明所属的组；条目的显示、可用、标题、快捷键、勾选、排序与分隔线按 [`workbench.menus`](../workbench/menus.md)，执行一律经命令服务。
+    - 一组里没有显示的条目时不画这一组。
     - 菜单的编辑项（撤销、重做）与命令面板一样作用于活动编辑器，不按焦点区分；焦点在原生输入框时菜单不代替它撤销。
-    - 条目：
+    - 产品里的条目与贡献方（节之间是分隔线）：
 
-      | 组 | 条目（命令与固定参数） |
-      |---|---|
-      | 文件 | 打开项目（`nbook.project.open`）｜保存、全部保存、还原为磁盘版本（`nbook.editor.save`、`save-all`、`revert`）｜关闭编辑器、关闭其它编辑器（`nbook.editor.close`、`close-others`） |
-      | 编辑 | 撤销、重做（`nbook.edit.undo`、`redo`） |
-      | 视图 | 命令面板（`nbook.quick-open.open-commands`）｜侧栏、右栏、活动栏（`nbook.view.set-part-hidden {part}`，勾选）、面板（`nbook.view.set-panel-hidden`，勾选）、面板位置（`set-panel-position`）、最大化面板（`toggle-panel-maximized`）｜向右拆分、向下拆分、用其它编辑器重新打开（`nbook.editor.split-right`、`split-down`、`reopen-with`）｜切换主题、明暗、界面语言（`nbook.settings.switch-theme`、`switch-appearance`、`switch-locale`）｜重新载入（`nbook.app.reload`） |
-      | 帮助 | 欢迎（`nbook.help.welcome`，由书架插件贡献）、文档（`nbook.help.documentation`） |
+      | 组 | 条目（命令与固定参数） | 贡献方 |
+      |---|---|---|
+      | 文件 | 打开项目（`nbook.project.open`）｜保存、全部保存、还原为磁盘版本（`nbook.editor.save`、`save-all`、`revert`）｜关闭编辑器、关闭其它编辑器（`nbook.editor.close`、`close-others`） | 作品、编辑器 |
+      | 编辑 | 撤销、重做（`nbook.edit.undo`、`redo`） | 编辑器 |
+      | 视图 | 命令面板（`nbook.quick-open.open-commands`）｜侧栏、右栏、活动栏（`nbook.view.set-part-hidden {part}`，勾选）、面板（`nbook.view.set-panel-hidden`，勾选）、面板位置（`set-panel-position`）、最大化面板（`toggle-panel-maximized`）｜向右拆分、向下拆分、用其它编辑器重新打开（`nbook.editor.split-right`、`split-down`、`reopen-with`）｜切换主题、明暗、界面语言（`nbook.settings.switch-theme`、`switch-appearance`、`switch-locale`）｜重新载入（`nbook.app.reload`） | 工作台、编辑器、设置 |
+      | 帮助 | 欢迎（`nbook.help.welcome`）、文档（`nbook.help.documentation`） | 作品、工作台 |
 
     - 旧桌面菜单的 15 个 id 的去向见 [workbench.commands](../workbench/commands.md) 的“兼容与安全”。
 30. **逐级让位**：按标题栏容器的实测宽度（不是窗口宽度）与各部件此刻的实测宽度，放不下就收下一项，不写死宽度边界，语言、项目名长短不同时切换点跟着变：
