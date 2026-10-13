@@ -2943,8 +2943,8 @@ input.nb-ui-native-input[type="number"] {
   background-color: var(--overlay-surface);
   background-image: none;
   box-shadow: var(--elevation-popover);
-  backdrop-filter: var(--overlay-blur);
   -webkit-backdrop-filter: var(--overlay-blur);
+  backdrop-filter: var(--overlay-blur);
   --nb-popover-pad: var(--space-3);
   --nb-popover-inner-radius: max(2px, calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad)));
 }
@@ -2953,8 +2953,8 @@ input.nb-ui-native-input[type="number"] {
   border-radius: var(--radius-control);
   background-color: var(--bg-panel);
   background-image: none;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   color: var(--text-main);
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
@@ -3240,8 +3240,8 @@ input.nb-ui-native-input[type="number"] {
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   box-shadow: var(--elevation-raised);
-  backdrop-filter: var(--overlay-blur);
   -webkit-backdrop-filter: var(--overlay-blur);
+  backdrop-filter: var(--overlay-blur);
 }
 .nb-ui-drop-indicator-label__icon {
   flex: none;
@@ -3263,8 +3263,8 @@ input.nb-ui-native-input[type="number"] {
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .nb-ui-drop-indicator-label {
     background: var(--panel-surface);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 @property --tw-translate-x {

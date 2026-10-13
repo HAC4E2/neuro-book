@@ -557,7 +557,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         }
     });
 
-    test("拖动边界的悬停线取主题 token：nbook 是对齐接缝的 1px 线芯加发光、自由端缩进 16px，交汇处两条同时亮时连着；macos 是贴满的 3px 实线", async ({page}) => {
+    test("拖动边界的悬停线取主题 token：nbook 是 3px 实线、不发光、自由端缩进 16px，交汇处两条同时亮时连着，线芯设细时对齐接缝；macos 是贴满的 3px 实线", async ({page}) => {
         await open(page);
         const sidebarSash = page.locator('[data-sash="body:0"]');
         const panelSash = page.locator('[data-sash="panel-stack:0"]');
@@ -589,9 +589,14 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const horizontal = await centre(panelSash);
         await page.mouse.move(vertical.x, (await sidebarSash.boundingBox())!.y + 120);
         await expect(sidebarSash).toHaveAttribute("data-sash-revealed", "true");
-        const nbook = await lineOf("body:0");
-        expect(nbook).toMatchObject({ends: ["16px", "16px"], coreSize: "1px", glow: true});
-        expect(nbook.coreAtSeam).toBeCloseTo(0, 3);
+        expect(await lineOf("body:0")).toMatchObject({ends: ["16px", "16px"], coreSize: "3px", glow: false});
+        // 主题把线芯设细时，细线芯对齐静止接缝（不在 3px 装饰带里居中，否则摊成两条半透明的线）
+        await page.evaluate(() => document.documentElement.style.setProperty("--sash-line-size", "1px"));
+        await page.setViewportSize({width: 1441, height: 900});
+        await expect.poll(async () => (await lineOf("body:0")).coreSize).toBe("1px");
+        expect((await lineOf("body:0")).coreAtSeam).toBeCloseTo(0, 3);
+        await page.evaluate(() => document.documentElement.style.removeProperty("--sash-line-size"));
+        await page.setViewportSize({width: 1440, height: 900});
 
         // 交汇处按下：两条一起亮，横线挨着竖线的左端连着，右端仍缩进
         await page.mouse.move(vertical.x, horizontal.y);

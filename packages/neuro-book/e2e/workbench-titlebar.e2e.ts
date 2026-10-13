@@ -70,6 +70,8 @@ test("标题栏 36px、状态栏 22px；菜单只有命令目录里有的项，�
     for (const group of ["文件", "编辑", "视图", "帮助"]) {
         await titlebar(page).getByRole("menuitem", {name: group}).click();
         await expect(openMenu(page)).toBeVisible();
+        // 玻璃浮层要真的有模糊：构建的 CSS 压缩曾把标准写法删掉、只留 -webkit-，Chrome 里菜单是透明的
+        expect(await openMenu(page).evaluate((menu) => getComputedStyle(menu).backdropFilter)).not.toBe("none");
         labels.push(...(await openMenu(page).locator('[role^="menuitem"]').allTextContents()).map((text) => text.trim()));
         await page.keyboard.press("Escape");
         await expect(openMenu(page)).toHaveCount(0);
