@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t14-runs-and-github
-status: active
+status: done
 updated: 2026-10-13
 ---
 
