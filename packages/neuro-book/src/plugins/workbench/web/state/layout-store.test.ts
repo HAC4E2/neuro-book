@@ -129,9 +129,9 @@ describe("默认、按字段写与同值", () => {
         await saved(store);
         expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual({hiddenParts: ["titlebar"], dragCollapsed: {auxiliarybar: true}});
         expect(await read(storage, LAYOUT_RECORDS.user.side)).toEqual({sidebarWidth: 300});
-        // 200 与默认相同不写；9000 夹到上限 600。
-        expect(await read(storage, LAYOUT_RECORDS.user.panelSize)).toEqual({panelHeight: 600});
-        expect(store.state.sizes).toMatchObject({sidebarWidth: 300, panelHeight: 600});
+        // 200 与默认相同不写；面板没有固定上限，9000 照写，呈现时按可用空间压缩。
+        expect(await read(storage, LAYOUT_RECORDS.user.panelSize)).toEqual({panelHeight: 9000});
+        expect(store.state.sizes).toMatchObject({sidebarWidth: 300, panelHeight: 9000});
     });
 });
 
@@ -225,6 +225,25 @@ describe("瞬时最大化与呈现事实", () => {
         store.actions.setPanelCollapsed(true);
         expect(store.actions.togglePanelMaximized()).toBe(true);
         expect(store.state.panel).toMatchObject({collapsed: false, maximized: true});
+    });
+
+    it("拖动的补丁里的最大化与命令是同一个内存位：拖成最大化不写记录、面板高度不变，拖回时写新高度，换位置时清除", async () => {
+        const w = await world();
+        const {store, storage} = await openLayout(w, "w", "c");
+        store.actions.acceptLayoutFacts(facts("split", false));
+        store.actions.commitSizes({panelMaximized: true});
+        expect(store.state.panel.maximized).toBe(true);
+        await saved(store);
+        expect(await read(storage, LAYOUT_RECORDS.user.panelSize)).toBe("missing");
+
+        store.actions.commitSizes({panelMaximized: false, panelHeight: 541});
+        expect(store.state.panel.maximized).toBe(false);
+        await saved(store);
+        expect(await read(storage, LAYOUT_RECORDS.user.panelSize)).toEqual({panelHeight: 541});
+
+        store.actions.commitSizes({panelMaximized: true});
+        store.actions.setPanelPosition("right");
+        expect(store.state.panel.maximized).toBe(false);
     });
 });
 
