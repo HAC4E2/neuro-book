@@ -107,4 +107,4 @@ status: done
 - 合回 w00017：2026-10-13 开发者同意合回：t81、t82、t83 依次以合并提交合进 `refactor/w00017-runtime-foundation`（`efb75a2b5`、`eae52372c`、`325bb257b`），冲突只在 nb-ui `Tabs.vue`（t83 抽出的标签盒子类套上 t81 的 `text-[length:…]` 字号写法）与 `dist/nb-ui.css`（重新构建）。同时修了 `settings/commands.test.ts` 那例老失败（`73cbdf4b4`：t74 起工作台的浏览器入口必需整页导航能力，配置测试场地的窗口没提供）。合并后验证：`test:affected --typecheck --since 687c463da` 中 bun 1044 例、nb-ui 575 例、组件测试 174 例全过，typecheck 为 0；全套 e2e 189 例全过；`docs:check`、`governance:check` 无失败。
 - “更多”里的拖放插入（拖到“更多”上展开菜单、插到菜单里的容器前后）：不做。
 - 反馈第 7 条（菜单贡献点）：另开 t84，记录只在主工作区 `master` 上（`.agents/works/w00017-application-runtime-architecture/tasks/t84-menu-contributions/`）。
-- 调研用的只读参照 worktree `.worktree/w00017-t83-legacy-ref` 已删。
+- 调研用的只读参照 worktree `.worktree/w00017-t83-legacy-ref` 已删；合回后 t81、t82、t83 的 worktree、本地分支与远端的 t82、t83 分支也已删（删前确认都是 w00017 的祖先、远端与本地同一提交）。
