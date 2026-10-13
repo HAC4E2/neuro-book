@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t09-panel-readonly
-status: active
+status: done
 updated: 2026-10-13
 ---
 
