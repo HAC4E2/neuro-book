@@ -21,7 +21,9 @@ export type FakePane = {
 export type FakeHerdr = {
     socketPath: string;
     panes: FakePane[];
-    requests: Array<{method: string; params: Record<string, unknown>}>;
+    requests: Array<{method: string; params: Record<string, unknown>; at: number}>;
+    /** 给了就在回 `subscription_started` 之后这么多毫秒断开订阅连接（模拟“连上就断”）。 */
+    dropSubscriptionsAfterMs: number | null;
     /** 按方法改写回应：`hang` 不回应（模拟 herdr 卡住），`{code, message}` 回一个错误。 */
     overrides: Record<string, "hang" | {code: string; message: string}>;
     /** 当前开着的订阅连接数。 */
@@ -50,6 +52,7 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
         panes,
         requests,
         overrides: {},
+        dropSubscriptionsAfterMs: null,
         subscriberCount: () => subscribers.size,
         emit(event, data) {
             for (const socket of subscribers) socket.write(`${JSON.stringify({event, data})}\n`);
@@ -76,13 +79,16 @@ export async function startFakeHerdr(root: string, panes: FakePane[]): Promise<F
                 const line = buffer.slice(0, newline);
                 buffer = buffer.slice(newline + 1);
                 const request = JSON.parse(line) as {id: string; method: string; params: Record<string, unknown>};
-                requests.push({method: request.method, params: request.params});
+                requests.push({method: request.method, params: request.params, at: Date.now()});
                 const override = fake.overrides[request.method];
                 if (override === "hang") {
                     newline = buffer.indexOf("\n");
                     continue;
                 }
-                if (request.method === "events.subscribe" && !override) subscribers.add(socket);
+                if (request.method === "events.subscribe" && !override) {
+                    subscribers.add(socket);
+                    if (fake.dropSubscriptionsAfterMs !== null) setTimeout(() => socket.destroy(), fake.dropSubscriptionsAfterMs);
+                }
                 socket.write(`${JSON.stringify(override ? {id: request.id, error: override} : respond(fake, request))}\n`);
                 newline = buffer.indexOf("\n");
             }

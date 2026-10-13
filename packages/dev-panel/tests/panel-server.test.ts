@@ -345,6 +345,37 @@ describe("herdr 的常驻状态", () => {
         expect(backoffDelay(0, () => 1)).toBe(600);
     });
 
+    test("herdr 一直不在：只有一条重试链，次数按退避有上界（对账定时器不另起链）", async () => {
+        const fixture = await createFixture("panel-monitor-down");
+        const timings = {reconcileMs: 30, pollMs: 500, backoffInitialMs: 20, backoffMaxMs: 200, stableMs: 500};
+        const monitor = new HerdrMonitor(createHerdrClient({socketPath: join(fixture.root, "no-herdr.sock"), allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, timings);
+        closers.push(async () => monitor.stop());
+        monitor.start();
+        await Bun.sleep(2_000);
+        // 20、40、80、160 之后每次约 200 到 240 毫秒：两秒里不到 15 次；对账若另起链，每 30 毫秒就多一条。
+        expect(monitor.current()).toMatchObject({available: false, mode: "unavailable"});
+        expect(monitor.current().retries).toBeLessThanOrEqual(15);
+        expect(monitor.current().retries).toBeGreaterThanOrEqual(5);
+    }, 10_000);
+
+    test("订阅连上就断：重连间隔按 2 的幂增长，快照成功不清零退避", async () => {
+        const fixture = await createFixture("panel-monitor-flap");
+        const fake = await startFakeHerdr(fixture.root, [claudePane("w9:p1", randomUUID())]);
+        closers.push(() => fake.close());
+        fake.dropSubscriptionsAfterMs = 5;
+        const timings = {reconcileMs: 60_000, pollMs: 500, backoffInitialMs: 40, backoffMaxMs: 5_000, stableMs: 1_000};
+        const monitor = new HerdrMonitor(createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, timings);
+        closers.push(async () => monitor.stop());
+        monitor.start();
+        const subscribes = () => fake.requests.filter((request) => request.method === "events.subscribe").map((request) => request.at);
+        while (subscribes().length < 6) await Bun.sleep(20);
+        const times = subscribes();
+        const gaps = times.slice(1).map((time, index) => time - times[index]!);
+        // 第 n 次的退避是 40 × 2^n（加 0 到 20% 的抖动）：后一个间隔至少是前一个的 1.5 倍。
+        for (let index = 1; index < 5; index += 1) expect(gaps[index]!).toBeGreaterThanOrEqual(gaps[index - 1]! * 1.5);
+        expect(gaps[4]!).toBeGreaterThanOrEqual(600);
+    }, 20_000);
+
     test("订阅断开后重连并对账；对账发现状态序号变了而没收到事件，计一次漏事件；pane 增减时换订阅连接", async () => {
         const fixture = await createFixture("panel-monitor");
         const fake = await startFakeHerdr(fixture.root, [claudePane("w9:p1", randomUUID(), {state_change_seq: 1})]);

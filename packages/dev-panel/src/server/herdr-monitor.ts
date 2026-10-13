@@ -4,6 +4,8 @@ import {HerdrError, type HerdrClient, type HerdrEvent, type HerdrSnapshotPane, t
  * 面板常驻的 herdr 状态：快照加订阅，会话页与活动共用这一份（不再各自调 pane.list，两份会对不上）。
  * - 协议 22 没有 `events_lost`：订阅连接断开就当作可能漏了事件，退避重连后用快照对账；另外每 30 秒对账一次，
  *   对账时各 Agent 的 `state_change_seq` 与记下的不同，就是漏了状态事件（计进 `missedEvents`）。
+ * - 重试只有一条链：已经排着一次重试时不再排第二次，30 秒的对账在重试期间跳过；退避计数只在订阅稳定保持 10 秒后清零，
+ *   快照成功不清零（否则“连上就断”的订阅会一直以 500 毫秒重连）。
  * - 真实会话会不会推送 `pane.agent_status_changed` 没有核实，所以有浏览器连着时每 500 毫秒轮询一次 `pane.list`，事件只当加速。
  * - `pane.agent_status_changed` 只能逐格订阅：pane 增减时开一条新的订阅连接，等它回 `subscription_started` 再关旧的，然后对账。
  */
@@ -19,22 +21,23 @@ export type HerdrState = {
     error: string | null;
     missedEvents: number;
     reconnects: number;
+    /** 累计的失败次数（快照失败与订阅断开），用来看退避是否在起作用。 */
+    retries: number;
 };
 
-const GLOBAL_EVENTS = ["pane.created", "pane.closed", "pane.updated", "pane.moved", "pane.exited", "pane.agent_detected", "workspace.created", "workspace.closed", "workspace.renamed"];
-const RECONCILE_MS = 30_000;
-const POLL_MS = 500;
-const BACKOFF_INITIAL_MS = 500;
-const BACKOFF_MAX_MS = 30_000;
+export type HerdrMonitorTimings = {reconcileMs: number; pollMs: number; backoffInitialMs: number; backoffMaxMs: number; stableMs: number};
+export const DEFAULT_HERDR_TIMINGS: HerdrMonitorTimings = {reconcileMs: 30_000, pollMs: 500, backoffInitialMs: 500, backoffMaxMs: 30_000, stableMs: 10_000};
 
+const GLOBAL_EVENTS = ["pane.created", "pane.closed", "pane.updated", "pane.moved", "pane.exited", "pane.agent_detected", "workspace.created", "workspace.closed", "workspace.renamed"];
 /** 退避：初值 500 毫秒、每次乘 2、上限 30 秒，再加 0 到 20% 的抖动（多个面板或重启后不同时重连）。 */
-export function backoffDelay(attempt: number, random: () => number = Math.random): number {
-    const base = Math.min(BACKOFF_MAX_MS, BACKOFF_INITIAL_MS * 2 ** attempt);
+export function backoffDelay(attempt: number, random: () => number = Math.random, timings: Pick<HerdrMonitorTimings, "backoffInitialMs" | "backoffMaxMs"> = DEFAULT_HERDR_TIMINGS): number {
+    const base = Math.min(timings.backoffMaxMs, timings.backoffInitialMs * 2 ** attempt);
     return Math.round(base * (1 + 0.2 * random()));
 }
 
-function fingerprint(panes: readonly HerdrSnapshotPane[]): string {
-    return JSON.stringify(panes.map((pane) => [pane.paneId, pane.status, pane.agent, pane.session?.value ?? null, pane.cwd, pane.foregroundCwd, pane.workspaceLabel]));
+/** 会话页显示用到的字段；订阅与轮询之间的切换不在里面（重连时会来回切，单独推送只会让页面空转）。 */
+function fingerprint(state: HerdrState): string {
+    return JSON.stringify([state.available, state.panes.map((pane) => [pane.paneId, pane.status, pane.agent, pane.session?.value ?? null, pane.cwd, pane.foregroundCwd, pane.workspaceLabel])]);
 }
 
 export class HerdrMonitor {
@@ -43,15 +46,16 @@ export class HerdrMonitor {
     private subscribedPanes = "";
     private attempts = 0;
     private seq = new Map<string, number>();
-    private timers = new Set<ReturnType<typeof setTimeout>>();
+    private retryTimer: ReturnType<typeof setTimeout> | null = null;
+    private stableTimer: ReturnType<typeof setTimeout> | null = null;
     private reconcileTimer: ReturnType<typeof setInterval> | null = null;
     private pollTimer: ReturnType<typeof setInterval> | null = null;
     private refreshing: Promise<void> | null = null;
     private refreshAgain = false;
     private stopped = false;
 
-    constructor(private readonly client: HerdrClient | null, private readonly onChange: () => void, private readonly log: (message: string) => void) {
-        this.state = {available: false, mode: client ? "starting" : "disabled", version: null, socketPath: client?.socketPath ?? null, panes: [], at: null, error: null, missedEvents: 0, reconnects: 0};
+    constructor(private readonly client: HerdrClient | null, private readonly onChange: () => void, private readonly log: (message: string) => void, private readonly timings: HerdrMonitorTimings = DEFAULT_HERDR_TIMINGS) {
+        this.state = {available: false, mode: client ? "starting" : "disabled", version: null, socketPath: client?.socketPath ?? null, panes: [], at: null, error: null, missedEvents: 0, reconnects: 0, retries: 0};
     }
 
     current(): HerdrState {
@@ -60,15 +64,18 @@ export class HerdrMonitor {
 
     /** 不阻塞：服务先开始监听，herdr 的状态随后补上。 */
     start(): void {
-        if (!this.client) return;
+        if (!this.client || this.stopped || this.reconcileTimer) return;
         void this.refresh();
-        this.reconcileTimer = setInterval(() => void this.refresh(), RECONCILE_MS);
+        this.reconcileTimer = setInterval(() => {
+            // 重试期间（herdr 不在、订阅断了）交给退避链，对账不另起一条。
+            if (this.retryTimer === null && this.state.available) void this.refresh();
+        }, this.timings.reconcileMs);
     }
 
     /** 有浏览器连着时开 500 毫秒的轮询，没有时关掉。 */
     setActive(active: boolean): void {
         if (!this.client || this.stopped) return;
-        if (active && !this.pollTimer) this.pollTimer = setInterval(() => void this.poll(), POLL_MS);
+        if (active && !this.pollTimer) this.pollTimer = setInterval(() => void this.poll(), this.timings.pollMs);
         if (!active && this.pollTimer) {
             clearInterval(this.pollTimer);
             this.pollTimer = null;
@@ -79,23 +86,28 @@ export class HerdrMonitor {
         this.stopped = true;
         if (this.reconcileTimer) clearInterval(this.reconcileTimer);
         if (this.pollTimer) clearInterval(this.pollTimer);
-        for (const timer of this.timers) clearTimeout(timer);
+        if (this.retryTimer) clearTimeout(this.retryTimer);
+        if (this.stableTimer) clearTimeout(this.stableTimer);
         this.subscription?.close();
         this.subscription = null;
     }
 
-    private later(ms: number, action: () => void): void {
-        const timer = setTimeout(() => {
-            this.timers.delete(timer);
-            if (!this.stopped) action();
-        }, ms);
-        this.timers.add(timer);
+    /** 排一次退避重试；已经排着一次就不再排（只有一条重试链）。 */
+    private scheduleRetry(reason: string): void {
+        this.state = {...this.state, retries: this.state.retries + 1};
+        if (this.retryTimer !== null || this.stopped) return;
+        const delay = backoffDelay(this.attempts++, Math.random, this.timings);
+        this.log(`${reason}，${delay} 毫秒后重试`);
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            if (!this.stopped) void this.refresh();
+        }, delay);
     }
 
     private update(patch: Partial<HerdrState>): void {
-        const before = `${fingerprint(this.state.panes)}|${this.state.available}|${this.state.mode}`;
+        const before = fingerprint(this.state);
         this.state = {...this.state, ...patch, at: new Date().toISOString()};
-        if (`${fingerprint(this.state.panes)}|${this.state.available}|${this.state.mode}` !== before) this.onChange();
+        if (fingerprint(this.state) !== before) this.onChange();
     }
 
     /** 快照对账（单飞：进行中又要对账，就在这一轮结束后再来一次）。 */
@@ -128,14 +140,11 @@ export class HerdrMonitor {
                 this.seq.set(pane.paneId, pane.stateChangeSeq);
             }
             this.update({available: true, version: snapshot.version, panes: snapshot.panes, error: null, missedEvents: this.state.missedEvents + missed, mode: this.subscription ? "subscribed" : "polling"});
-            this.attempts = 0;
             this.ensureSubscription();
         } catch (error) {
             if (!(error instanceof HerdrError)) throw error;
             this.update({available: false, mode: "unavailable", panes: [], error: `${error.code}：${error.message}`});
-            const delay = backoffDelay(this.attempts++);
-            this.log(`herdr 不可用（${error.code}），${delay} 毫秒后重试`);
-            this.later(delay, () => void this.refresh());
+            this.scheduleRetry(`herdr 不可用（${error.code}）`);
         }
     }
 
@@ -157,6 +166,12 @@ export class HerdrMonitor {
             this.subscribedPanes = key;
             previous?.close();
             this.update({mode: "subscribed"});
+            // 订阅稳定保持一段时间才把退避清零。
+            if (this.stableTimer) clearTimeout(this.stableTimer);
+            this.stableTimer = setTimeout(() => {
+                this.stableTimer = null;
+                if (this.subscription === next) this.attempts = 0;
+            }, this.timings.stableMs);
             void this.refresh();
         }, (error: unknown) => {
             this.log(`herdr 订阅没有开始：${error instanceof Error ? error.message : String(error)}`);
@@ -166,10 +181,10 @@ export class HerdrMonitor {
             if (this.stopped || this.subscription !== next) return;
             this.subscription = null;
             this.subscribedPanes = "";
+            if (this.stableTimer) clearTimeout(this.stableTimer);
+            this.stableTimer = null;
             this.update({mode: "polling", reconnects: this.state.reconnects + 1});
-            const delay = backoffDelay(this.attempts++);
-            this.log(`herdr 订阅断开（${reason}），${delay} 毫秒后重连并对账`);
-            this.later(delay, () => void this.refresh());
+            this.scheduleRetry(`herdr 订阅断开（${reason}），重连并对账`);
         });
     }
 

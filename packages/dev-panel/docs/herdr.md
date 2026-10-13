@@ -62,7 +62,9 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 面板常驻一份 herdr 状态（快照加订阅），会话页与活动（谁在动、运行的归属）共用它，不再各自调 `pane.list`。
 
 - **订阅**：全局订阅 `pane.created`、`pane.closed`、`pane.updated`、`pane.moved`、`pane.exited`、`pane.agent_detected`、`workspace.created`、`workspace.closed`、`workspace.renamed`；`pane.agent_status_changed` 只能逐格订阅，每格有 Agent 的 pane 订一条。pane 集合变了（含 `pane.moved`：跨 workspace 移动会换 id）就开一条新的订阅连接，等它回 `subscription_started` 再关旧的，然后用快照对账一次。
-- **没有 `events_lost`**：协议 22 没有这个事件。订阅连接断开就当作可能漏了事件：退避重连，重连后用快照对账。退避的初值 500 毫秒、每次乘 2、上限 30 秒，再加 0 到 20% 的抖动；herdr 不可用时用同样的退避重试快照。
+- **没有 `events_lost`**：协议 22 没有这个事件。订阅连接断开就当作可能漏了事件：退避重连，重连后用快照对账。herdr 不可用时用同样的退避重试快照。
+- **退避的规则**：初值 500 毫秒、每次乘 2、上限 30 秒，再加 0 到 20% 的抖动。重试只有一条链：已经排着一次重试时，新的失败只计数、不再排第二次；30 秒的对账在重试期间（herdr 不可用、订阅断了还没重连）跳过。退避计数只在订阅连上并稳定保持 10 秒之后清零，快照对账成功不清零：“连上就断”的订阅因此按退避逐次拉长，不会停在 500 毫秒。累计的失败次数在 `/api/sessions` 的 `herdr.retries`。
+- 会话的 revision 只在显示用到的字段变化时增加（各 pane 的状态、Agent、会话、目录、workspace 名与 herdr 是否可用）；订阅与轮询之间的切换不单独推送。
 - **对账**：每 30 秒一次快照。某格 Agent 的 `state_change_seq` 与记下的不同、而面板手上的状态又不是快照里的，就是漏了状态事件，计进 `/api/sessions` 的 `herdr.missedEvents`。
 - **轮询退路**：真实会话上 `pane.agent_status_changed` 会不会推送没有核实（命名会话里的假 pane 不推；默认 server 上观察期间没有状态变化），所以有浏览器连着时每 500 毫秒轮询一次 `pane.list`，事件只当加速；新出现或消失的 pane 触发快照对账。
 - herdr 不阻塞面板开始服务：面板先用“herdr 不可用”的状态起来，快照随后补上。

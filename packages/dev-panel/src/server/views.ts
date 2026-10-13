@@ -285,7 +285,7 @@ export function sessionsView(state: PanelState): {data: unknown; warnings: Warni
     }
     return {
         data: {
-            herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, missedEvents: herdr.missedEvents, reconnects: herdr.reconnects},
+            herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, missedEvents: herdr.missedEvents, reconnects: herdr.reconnects, retries: herdr.retries},
             panes: herdr.panes.map((pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd)})),
             sessions: activity?.activity.sessions ?? [],
             unownedRuns: activity?.activity.unownedRuns ?? [],
