@@ -1,12 +1,12 @@
 # 面板
 
-开发者项目面板的合同：两个来源、登录、请求校验与路径守卫、接口、写接口（t10）、通知与会话页（t11）、审计（t11）、缓存与刷新、`panel serve` 与 `panel open`、常驻（t11）、前端构建。命令行合同见 [cli.md](cli.md)，文件格式见 [file-formats.md](file-formats.md)，herdr 的订阅与对账见 [herdr.md](herdr.md#面板的订阅与对账)，投递的判据见 [herdr.md](herdr.md#投递t11)。读接口与 t09 相同；t10 加了答复、新建、状态切换与编辑的写接口，与命令行走同一个核心函数、同一把锁、同一种路径限定的提交；t11 加了答复之后通知提问的会话、会话页的屏幕与输入框与按键、审计与 systemd 用户服务。
+开发者项目面板的合同：两个来源、登录、请求校验与路径守卫、接口、写接口（t10）、通知与会话页（t11）、网页终端（t12）、审计（t11）、缓存与刷新、`panel serve` 与 `panel open`、常驻（t11）、前端构建。命令行合同见 [cli.md](cli.md)，文件格式见 [file-formats.md](file-formats.md)，herdr 的订阅与对账见 [herdr.md](herdr.md#面板的订阅与对账)，投递的判据见 [herdr.md](herdr.md#投递t11)。读接口与 t09 相同；t10 加了答复、新建、状态切换与编辑的写接口，与命令行走同一个核心函数、同一把锁、同一种路径限定的提交；t11 加了答复之后通知提问的会话、会话页的屏幕与输入框与按键、审计与 systemd 用户服务；t12 加了会话页的实时终端与接管键盘（herdr 那边的终端流见 [herdr.md](herdr.md#终端流t12)）。
 
 ## 两个来源
 
 | 来源 | 地址 | 内容 |
 |---|---|---|
-| 面板 | `127.0.0.1:4400` | 前端页面（`dist/web`，单页路由回退到 `index.html`）、`/api/*` 的 JSON、`/ws` 的推送、`/login` 的一次性登录 |
+| 面板 | `127.0.0.1:4400` | 前端页面（`dist/web`，单页路由回退到 `index.html`）、`/api/*` 的 JSON、`/ws` 的推送、`/ws/terminal` 的网页终端（t12）、`/login` 的一次性登录 |
 | 产物 | `127.0.0.1:4401` | 只读的静态文件：`/a/<随机前缀>/<checkout key>/.agents/works/…`，只给 `.agents/works/` 下的文件，没有接口 |
 
 - **只绑回环**：`--host` 只接受 `127.0.0.1` 与 `localhost`，别的地址（含 `0.0.0.0` 与 `::1`）报 `unsafe_host`；这台机器上绑不了的地址也报 `unsafe_host`。不收 IPv6：本机的 `lo` 关了 IPv6，有 IPv6 的机器上 Chrome 的 CSP 也写不了 IPv6 字面量，产物页嵌不进来。端口被占报 `port_in_use`，不自动换端口。
@@ -15,7 +15,7 @@
 
 ## 登录
 
-回环对本机的其他账户与浏览器里的任意网页都开放（本机另有可登录的账户），所以 `/api/*` 与 `/ws` 都要登录。设备配对与分级在 t13。
+回环对本机的其他账户与浏览器里的任意网页都开放（本机另有可登录的账户），所以 `/api/*`、`/ws` 与 `/ws/terminal` 都要登录。设备配对与分级在 t13。
 
 1. `panel serve` 生成启动令牌，写进权限 600 的 `.local/agent/panel.json`。
 2. `panel open` 读它、签一张一次性票据（`<nonce>.<过期时刻>.<HMAC>`，5 分钟过期，用一次作废），写一页跳转页再用 `xdg-open` 打开（见下）；`--print` 只打印登录链接 `/login?ticket=…`。
@@ -33,7 +33,7 @@
 4. 面板来源，按这个顺序：
    - `/api/*` 与 `/ws`（不论方法）先要求 `Sec-Fetch-Site` 是 `same-origin` 或 `none`（缺这个头的按 `none` 处理，只有浏览器的跨站请求会带 `cross-site`、`same-site`），再要求登录 cookie（401）。跨站的 `<img src=…/api/search?q=…>` 两道都过不去。
    - 然后，非 `GET`、`HEAD` 的请求要求同源的 `Origin` 加 `X-Nbdev-Csrf` 头（值是服务启动时生成、写进页面 `<meta name="nbdev-csrf">` 的随机令牌）。CSRF 令牌写在不要求登录的 `index.html` 里，本机任何账户都读得到：它只防浏览器里的跨站请求，不是本机账户之间的秘密，写请求靠的是前一步的登录。通过之后 `/api/*` 交给写接口（见“写接口”），没有对应的写路由回 405；`/api` 之外的写请求一律 405。
-   - `/ws` 的升级要求 `Origin` 是面板自己的来源（缺失与 `null` 都拒绝）。
+   - `/ws` 与 `/ws/terminal` 的升级要求 `Origin` 是面板自己的来源（缺失与 `null` 都拒绝）。浏览器的 WebSocket 不能带自定义头，CSRF 由 `Origin` 加 `SameSite=Strict` 的 cookie 挡。
 5. 产物来源只接受 `GET`、`HEAD`（405）。
 
 响应头：面板来源的页面带 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: <产物来源>; connect-src 'self' ws://<host>; frame-src <产物来源>; frame-ancestors 'none'; form-action 'none'; base-uri 'none'; object-src 'none'`；产物来源带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups; frame-ancestors <面板来源>`。两边都带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。
@@ -54,7 +54,7 @@
 
 | 接口 | 内容 |
 |---|---|
-| `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、`service`（`{unit, restartCommand}`：作为 systemd 服务运行时的单元名与重启命令，前台运行时都是 null，见“常驻”）、前端构建是否失败、herdr 的状态（含 `autoNotify`：这个版本是否自动投递通知）、`audit`（`{enabled, initAt}` 或 `{enabled: false, reason, detail}`）、`notify`（`{pending, attention}`：排队的与要开发者处理的任务数）、各块数据的刷新时刻与错误、产物来源的地址、`mainWritable`（`{ok, code, message}`：主工作区现在能不能写，不在 master 或正在合并、变基时不能，前端据此隐藏写入口） |
+| `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、`service`（`{unit, restartCommand}`：作为 systemd 服务运行时的单元名与重启命令，前台运行时都是 null，见“常驻”）、前端构建是否失败、herdr 的状态（含 `autoNotify`：这个版本是否自动投递通知）、`audit`（`{enabled, initAt}` 或 `{enabled: false, reason, detail}`）、`notify`（`{pending, attention}`：排队的与要开发者处理的任务数）、各块数据的刷新时刻与错误、产物来源的地址、`mainWritable`（`{ok, code, message}`：主工作区现在能不能写，不在 master 或正在合并、变基时不能，前端据此隐藏写入口）、`terminal`（`{available, reason}`：网页终端能不能用，t12） |
 | `/api/overview` | 首页与左栏：各 Work 与 Task 的摘要（状态、目标、最近更新、当前情况、来源、待答数、谁在动）、收件箱（提问带 `askedBy` 与 `askerActive`：提问者的租约是否还有效）、会话的计数（明细在 `/api/sessions`） |
 | `/api/work/:workId` | Work 页：完整的 Work（Task 表、产物与文档类产物、谁在动）与相关会话；`readmeHash`（README 的 sha256，状态切换带它） |
 | `/api/task/:workId/:taskId` | Task 页：Task 摘要（含 `readmeHash`）、README 原文、证据（第一层）、链到的 Spec、执行 checkout 的候选与选中的、执行 checkout 上的提交 |
@@ -65,9 +65,11 @@
 | `/api/files?path=` | 编辑页：主工作区里一个文件的原文与 sha256、种类（Work README、Task README、文档类产物、主工作区文档）、能不能编辑与原因、未提交的改动（已暂存与工作区分开）、是不是暂存区里一次改名的一端、改过它的分支、根级治理入口的非空行上限。编辑白名单之外的路径回 404 |
 | `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree） |
 | `/api/notify?workId=&taskId=` | 通知任务（`jobs`）与最近 24 小时的尝试（`recent`，同一次尝试的意图与结果合成一条，只有意图的标 `intentOnly`）、审计状态、这个 herdr 版本是否自动投递；两个参数可选（见“通知与会话页”） |
-| `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed` |
+| `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed`；这格正被接管时照常能读 |
+| `/api/sessions/:paneId/history?session=` | omp 的更早输出（t12，手机的文字视图用）：`agent.read` 的 `recent_unwrapped` 最近 1000 行；Claude 回 409 `history_unavailable`（见“网页终端”的手机一条） |
 | `/api/search?q=&checkout=` | 搜索，NDJSON 流（见下） |
 | `/ws` | 先推 `{type: "hello", instance, revisions}`，之后每块数据变了推 `{type: "changed", instance, parts, revisions}` |
+| `/ws/terminal?pane=&terminal=` | 网页终端，一个终端视图一条（见“网页终端”） |
 
 ### Task 的执行 checkout
 
@@ -134,6 +136,7 @@
 | `waiting_idle` | 在工作 | “已排队：这一轮结束后通知” |
 | `waiting_blocked` | 在等确认 | “在等确认，排着” |
 | `waiting_input` | 空闲但输入框不是认得出的空（`waitReason`、`screen`）；状态序号变了（`agent.get`，不读屏）或过了 15 秒才重读屏幕 | 原因与屏幕末尾，可手动发 |
+| `waiting_takeover` | 开发者正在面板里接管这个终端的键盘（t12） | “释放之后再通知” |
 | `unknown_status` | 状态未知，不自动投 | “空闲之后自动判定”，不给手动发送（手动发送同样要求空闲） |
 | `waiting_herdr` | herdr 不可用 | 排着 |
 | `replaced` | 提问者不在 herdr 里，它提问时所在的 pane 上换了一个本仓库里的会话（`replacedBy`） | 小窗：发给现在的会话（开发者名义的普通消息，见下），或不通知 |
@@ -149,7 +152,7 @@
   - 读答复不带 `--unacked`：别的会话先确认之后，这个会话照样读得到与自己有关的答复。
   - 手动发给提问者时连旧答复一起（`manualMessage`）。
 - **发给不是提问者的会话**（会话已更换后的新会话、持有租约的会话）：根 `AGENTS.md` 的 `[nbdev]` 规则只让提问者照做，所以面板不给它们发 `[nbdev]` 通知，而是发一段以开发者名义的普通消息。小窗预填 `developerMessage`（“开发者在面板上答复了 <W>/<T> 的提问（产物 a、b，共 N 题）。请对括号里列出的每个产物，运行 …”，连旧答复一起），开发者可以先改，确认后才发；同样经过投递前的判定，审计照记（`detail.kind: developer_message` 与全文）。这是开发者亲手做的决定，会话按普通用户消息处理。
-- 同一格 pane 的所有发送（通知、文字、按键）在面板里经一把按 pane 的互斥串行。收到 SIGTERM 时先等进行中的投递结束（上限为等待时限加 2 秒），再收口。
+- 同一个终端的所有发送（通知、文字、按键）与网页终端的接管在面板里经一把按 terminal id 的互斥串行（t12 之前按 pane id；pane 跨 workspace 移动会换 pane id）。收到 SIGTERM 时先等进行中的投递结束（上限为等待时限加 2 秒），再收口。
 
 **接口**（写请求的校验同“写接口”，在它之前已核过转发头、Host、登录、`Sec-Fetch-Site`、Origin 与 CSRF）：
 
@@ -162,7 +165,91 @@
 
 - **顺序**：字段与长度、键名白名单 → 审计可用（否则 409 `audit_unavailable`，什么都不调）→ Ctrl+C 限速 → `agent.get` 核对会话键（`expectedSession` 为空或 pane 上没有会话一律拒绝）、pane 在本仓库、文字还要求空闲 → 写审计意图（写不进去就不发）→ 调 herdr → 写审计结果。
 - **文字与手动发送的两步确认**：正向白名单不过时回 409 `not_deliverable`，`details.screen` 是屏幕末尾，`details.screenDigest` 是这一屏的摘要（判定原因加屏幕末尾的 sha256）；开发者看过之后把摘要原样放进 `confirmScreen` 再发。服务端重新判定，摘要不同（两次请求之间屏幕变了）就再回 409、给新屏幕与新摘要，不发；紧贴投递的核对照做。
-- **HTTP 状态**：用法 400，冲突 409（`session_changed`、`agent_busy`：在工作、在等确认或状态未知、`not_in_repository`、`not_deliverable`、`audit_unavailable`、`key_rate_limited`），找不到 404（`question_not_found`：没有这条任务），`herdr_unavailable` 503。投递本身的结果（`delivered_into_blocked`、`uncertain` 等）在 200 的 `data.result` 里。
+- **HTTP 状态**：用法 400，冲突 409（`session_changed`、`agent_busy`：在工作、在等确认或状态未知、`not_in_repository`、`not_deliverable`、`audit_unavailable`、`key_rate_limited`、`pane_controlled`：这格正被你在面板里接管键盘，t12），找不到 404（`question_not_found`：没有这条任务），`herdr_unavailable` 503。投递本身的结果（`delivered_into_blocked`、`uncertain` 等）在 200 的 `data.result` 里。
+
+## 网页终端（t12）
+
+会话详情里的屏幕末尾换成实时终端：观看是只读的实时画面；需要时接管键盘直接操作，离开时把控制权交还。herdr 那边的两条流、尺寸与控制者的规则见 [herdr.md](herdr.md#终端流t12)。实现在 `src/server/terminal-hub.ts`（中枢）、`src/web/host/terminal-socket.ts`（页面的连接）与零件 `TerminalView`、`TerminalTextView`、`TakeoverDialog`。
+
+- **开放给谁**：本仓库 checkout 里、herdr 认得出 Agent（有会话键）的 pane，观看与接管都是。普通 shell pane 推迟到 t14：会话页只列 Agent pane，没有 shell pane 的入口；Agent pane 有会话键，页面看到的与服务端核对的是同一个会话，换了会话（`/clear`）能发现；shell pane 的入口、按钮与字节表要与“在跑”的开发服务一起设计。别的仓库的 pane 只在列表里列出。
+- **能不能用**：`/api/meta` 的 `terminal`。找不到 herdr（`NBDEV_HERDR_BIN` 或 `PATH`）、`setpriv` 或 `setsid`，或面板没连 herdr 时不可用，会话页退回 t11 的屏幕末尾。
+
+### 连接与消息
+
+`WS /ws/terminal?pane=<pane id>&terminal=<terminal id>`：一个终端视图一条连接，连接的生命周期就是子进程与控制权的生命周期。观看时子进程是 observe，接管时是 control（control 自己也出帧，接管期间不再要 observe）。
+
+- **升级前**只做与 `/ws` 相同的五道安全校验（转发头、Host、登录、`Sec-Fetch-Site`、`Origin`），pane 与 terminal 只核写法，失败回 HTTP 4xx。终端连接不进 `/ws` 的广播、不发 `hello`、不算“有浏览器连着”（不开 500 毫秒的 pane 轮询）。
+- **升级后**核：面板不在退出、终端功能可用、terminal id 在 herdr 里且对应的正是这个 pane、pane 在本仓库且有 Agent、上限（一个终端 4 条，整个面板 16 条）。不过就以关闭码关闭并带原因：
+
+| 关闭码 | 原因 | 页面 |
+|---|---|---|
+| 1001 | 面板退出 | 重连 |
+| 4400 | 消息不对：不是 JSON 对象、不认识的类型、尺寸不是整数、输入不是文字或超过 64 KiB、键名不在清单里 | 不重连，显示原因 |
+| 4401 | 登录失效（t13 吊销设备时用） | 不重连，显示原因 |
+| 4403 | 不是本仓库里 herdr 认得出 Agent 的 pane | 不重连，显示原因 |
+| 4404 | 终端不在了（pane 关了或换了 id），或观看的流连续 3 次一开始就结束 | 不重连，显示原因 |
+| 4409 | 超过上限 | 不重连，显示原因 |
+| 4410 | 积压太多、Bun 丢了帧 | 重连（第一帧就是整屏） |
+| 4503 | 终端功能不可用 | 不重连，显示原因 |
+
+- 其它断开（网络、Bun 的空闲超时 30 秒）：重连前先取一次 `/api/meta`，回 401 就停止重连（与 `/ws` 一样），否则退避重连（1 秒起、翻倍、上限 10 秒）。**重连之后只恢复观看，不自动重新接管。**
+- **服务端 → 页面**（JSON 文本消息）：
+  - `{t: "state", mode: "watch" | "control", cols, rows, sizeKnown, controller, paneId, terminalId, agent}`：模式或尺寸变了就推。`controller` 是 null 或 `{by: "this" | "other_browser", since, device}`（本面板里谁在接管）；`sizeKnown: false` 时页面写“尺寸不确定，可能裁切”。
+  - `{t: "frame", seq, full, w, h, b}`：herdr 的帧，`b` 是 base64，原样转发。
+  - `{t: "need_confirm", reason: "controlled_elsewhere" | "other_browser", detail}`：接管要先确认（见下）。
+  - `{t: "released", reason, restored, notRestored}`：释放了，之后回到观看。
+  - `{t: "error", code, message}`：`audit_unavailable`、`session_changed`、`busy`（正在接管或握手）、`takeover_timeout`、`takeover_failed`、`herdr_unavailable`（按钮没发出去）。
+- **页面 → 服务端**：`{t: "takeover", cols, rows, expectedSession, force}`；`{t: "input", data, paste?}`、`{t: "resize", cols, rows}`、`{t: "key", key}`（这三种只在接管时收，尺寸夹到 20 到 400 列、5 到 200 行，键名同 t11 的按键清单）；`{t: "release", reason?: "hidden"}`；`{t: "alive"}`（接管期间每 5 秒）；`{t: "resync"}`（观看时，连接推过帧之后才挂上的视图要整屏：服务端重起 observe）。
+
+### 观看
+
+- observe 的视口取 pane 的 pty 尺寸；这格正被本面板接管时取接管的尺寸。读不到时用 120×40，标“尺寸不确定”。设计审查建议过读不到时取 `pane.get` 的 `viewport_rows` 补行数，没有采用：列数仍然不知道，裁切照样会发生，不如明说不确定。
+- 每 5 秒复查一次尺寸，变了就重起 observe（新的第一帧是整屏）；本面板接管、resize、释放之后，看这格的其它连接按新尺寸重起。重起与读尺寸并发时只留一个 observe。
+- 观看中流结束：终端还在就重起，不在就 4404。
+- 观看不改尺寸、不写审计、不往会话里写任何东西。页面切到后台时观看也停（页面关掉终端连接），切回来再连，第一帧就是整屏。
+
+### 接管与释放
+
+- **前提**：审计可用（与 t11 的文字、按键一样，否则 `audit_unavailable`、连接照常观看）；页面带来的会话键与这格现在的一致（否则 `session_changed`）；不在手机上（见下）。
+- **接管前的提示**（页面的模态框，确认才发 `takeover`）：终端会改成网页的尺寸（写出新旧两个尺寸），herdr 那边重排，释放时改回；herdr 那边（键盘与其它程序）照样能写进这个终端，两边的输入会混在一起；接管期间面板不自动投递通知，会话页的输入框不用；切到别的标签页、关掉页面、断线、15 分钟没有输入都会自动释放。
+- **握手**在这个终端的锁里（与 t11 的通知、文字、按键同一把，排在进行中的投递后面）：读接管前的 pty 尺寸，写审计意图（写不进去就不接管），收掉这条连接的 observe，先不带 `--takeover` 起 control，等第一行最多 5 秒：
+  - 是帧：接管成功，登记“这个终端由本面板的这条连接控制”，写审计结果 `attached`，推 `state`；
+  - 是结束、终端还在：别处（本面板之外）在控制，审计结果 `controlled_elsewhere`，推 `need_confirm`（`controlled_elsewhere`，`detail.text` 是 herdr 的原文）；开发者确认“抢过来”之后页面带 `force: true` 再来，这次带 `--takeover`；
+  - 本面板另一个浏览器在控制：不起 control，直接推 `need_confirm`（`other_browser`，`detail.since` 是它开始的时刻）；确认之后带 `--takeover` 抢过来，那边收到 `released`（`taken_over`）、回到观看。接管前的尺寸交给新的接管者，那边释放时不改回，新的接管者释放时改回最初的尺寸；
+  - 5 秒没有第一行：收掉子进程，`takeover_timeout`，审计结果 `failed`，锁放开；终端不在了：4404。
+- **接管期间**：键盘输入原样经 `terminal.input` 写进去；窗口尺寸变了，页面去抖 150 毫秒后发 `resize`。按钮单击即发（键盘本来就直通，再两步确认没有意义），经 `agent.send_keys`（herdr 按应用当前的模式编码），不逐条写审计，计入释放行的统计。粘贴先去掉 Esc 与其它 C0 控制字符（换行、制表符除外），挡住用 `\e[201~` 提前结束粘贴的路子；Agent pane 在 xterm 本地打开 bracketed paste，多行粘贴被包起来、不会逐行回车。Ctrl+C 有选中的文字时是复制、不发；Ctrl+W、Ctrl+T、Ctrl+N 浏览器拦不住，状态条写明，删词用 Alt+Backspace。
+- **释放**（任何原因同一个收口）：读到过接管前的尺寸、又不是交给了另一个浏览器，先发 resize 改回；再 release、关 stdin，1 秒不退 SIGTERM，再 1 秒 SIGKILL；写审计的释放行；推 `released` 并回到观看；看这格的其它连接按恢复后的尺寸重起；通知现算一次。`restored` 的含义是“发出了改回尺寸的指令”，不是核对过 pty 的结果；没改回时 `notRestored` 写原因（`size_unknown`、`handed_off`、`stream_ended`）。
+- **释放的原因**：`user`（点释放）、`hidden`（页面切到后台：页面先发 release 再关连接）、`disconnect`（连接关了）、`heartbeat`（15 秒没有心跳：网络断了而 TCP 还没断）、`idle`（15 分钟没有输入）、`taken_over`（被本面板之外或本面板另一个浏览器抢走）、`pane_closed`（终端不在了）、`panel_exit`（面板退出）、`session_closed`（登录失效，t13）。
+- herdr 的 TUI 收不到任何“网页在接管”的提示（herdr 没有给它推的接口；在 TUI 上弹通知要给白名单加 `notification.show`，t12 不做）。
+
+### 与 t11 的互斥
+
+herdr 不拦 API 写入（见 [herdr.md](herdr.md#终端流t12)），互斥由面板自己保证：
+
+- 这格被本面板接管时，通知任务是 `waiting_takeover`，不自动投递；释放时现算一次，之后照常走稳定 3 秒与正向白名单。
+- 手动发送、会话页的文字与按键回 409 `pane_controlled`（接管者自己的页面在接管期间不给输入框，按钮走终端连接）；读屏（`/screen`、`/history`）照常。锁内紧贴投递的 `agent.get` 拿到 terminal id 后还会再查一次“正被接管”。
+- 本面板之外的程序调 `agent.prompt` 不受这条互斥约束；当前没有这样的程序。
+
+### 安全与审计
+
+- **谁能看、谁能接管**：登录了的浏览器。t13 之前只有本机与经 SSH 转发过来的设备能登录；开发者 2026-10-13 定别的设备登录后与本机权限相同，所以不分级。每条终端连接记下升级时的登录会话与设备（t12 一律 `local`）；中枢有“关掉某个登录会话的全部终端连接（接管先释放）”的入口，留给 t13 吊销设备。
+- **帧里有屏幕上的一切，包括秘密**：密钥、令牌、开发者粘贴的内容都会经帧到浏览器。面板不缓存帧、不落盘、不写进日志（日志只记读不懂的行与子进程的 stderr，各截断）；帧只在登录过的连接上传。跨设备之后（t13）帧会经转发到别的设备，与“面板登录等于 SSH 登录”（Proposal 第八节）一致。
+- **键盘内容不进审计**（t12 决定点 2）：审计写接管的意图与结果、释放行的统计（输入条数与字节数、回车、粘贴次数与字节数、resize、按钮、时长），不写按了什么（格式见 [file-formats.md](file-formats.md#审计)）。这与 t11 决定点 6（文字与通知的全文进审计）不同：那是一条一条、开发者看着发出去的消息；接管是连续的键盘流，会有 sudo、ssh 的密码，Proposal 第八节第 9 条本来就写“文字或长度”。代价是跨设备之后，审计回答不了“在终端里打了什么”，要看会话的 transcript 与终端。观看不写审计。
+- **背压**：WebSocket 积压超过 1 MiB 就暂停读这条连接的子进程 stdout，`drain` 时恢复（herdr 读端跟不上时自己合并帧；Bun 停读之后还会先攒几百 KB），一条连接的面板内存约 1.5 MiB 封顶。`send` 回 0（Bun 丢了帧）就以 4410 关连接让页面重连，不带着缺帧的画面继续。
+
+### 手机
+
+窄于 768px 或 `(pointer: coarse)` 时：
+
+- 默认文字视图：同一条 observe 流，页面里一个不挂到页面上的 xterm 实例解析帧，最多每 200 毫秒把当前屏幕转成可换行的文字。实时，不调 `agent.read`，不会滚动 Claude 的界面。可以切到“终端画面（只看）”。
+- 不给接管（t12 决定点 3）：xterm.js 上的中文输入法不稳、屏幕太小，接管还会把真实终端改成手机的尺寸。输入框与按键用 t11 的（同一个零件、同一个接口与判据）。
+- **更早的输出**只给 omp：`GET /api/sessions/:paneId/history?session=` 读 `recent_unwrapped` 最近 1000 行，点一次读一次。Claude 回 409 `history_unavailable`：它在备用屏上，读多于可见行要滚动它的界面、工作中直接报错（t11 设计审查 S4）；完整历史在会话的 transcript 里。这与 Proposal 第七节写的 `recent-unwrapped` 不同（t12 决定点 10）。
+
+### 退出
+
+`stop()` 先把中枢标成“正在退出”（此后子进程自己退出一律记 `panel_exit`，不回到观看、不重起），释放全部接管（改回尺寸、写释放行），收全部 observe，以 1001 关连接，再走 t11 的收口。作为服务运行时单元的 `KillMode=mixed` 只给面板 SIGTERM、等它收口，`TimeoutStopSec` 到了才 SIGKILL 剩下的。面板被 SIGKILL 时子进程靠 pdeathsig 退出、控制权随之释放，但尺寸没有改回，审计里有接管、没有释放行。
+
+**没有验证的**：真实输入法（fcitx5）上的组合输入（自动化只用 Playwright 的 `insertText` 模拟提交一段文字）；在真实 Claude 上接管（只在名为 claude 的假界面上做过）；真实 TUI 上开发者看到的重排。这几项在开发者在场的验收里做（Task 的计划“设计审查的处理”一节）。
 
 ## 审计
 
@@ -170,8 +257,8 @@
 
 - **初始化**：包脚本 `bun run --cwd packages/dev-panel audit-init`（不进 nbdev 的命令面）建目录（700）、空的 `audit.jsonl`（600）与 `init.json`（启用时刻）；开发者亲手运行它就是授权。面板与命令行都不建这个目录。已经初始化过再运行不改启用时刻。
 - **可用**：目录与文件都在、都是属主为自己的普通目录与文件、权限不宽于 700 与 600、`init.json` 读得出。每次写之前核对，不符合按 `audit_unavailable` 处理并写明原因（`reason`：`not_initialized`、`not_regular`、`bad_owner`、`bad_mode`、`unreadable`）。
-- **审计不可用时**：通知、文字、按键都不开放（409 `audit_unavailable`，界面提示）；写仓库照常（未初始化时不补审计，初始化过却写不进去时给警告 `audit_write_failed`）。
-- **写什么**：通知、文字、按键各写一行意图（`phase: "intent"`）、一行结果（`phase: "result"`），用同一个 `actionId` 关联，意图写成了才调 herdr；写仓库（`answer`、`create_work`、`create_task`、`status`、`edit`）在写事务之后只写一行结果（提交 sha 或失败理由、路径，不记文件内容）。文字与通知的全文进审计（决定点 6：开发者知情，秘密会进审计）。
+- **审计不可用时**：通知、文字、按键与网页终端的接管都不开放（409 `audit_unavailable`，界面提示；观看照常）；写仓库照常（未初始化时不补审计，初始化过却写不进去时给警告 `audit_write_failed`）。
+- **写什么**：通知、文字、按键各写一行意图（`phase: "intent"`）、一行结果（`phase: "result"`），用同一个 `actionId` 关联，意图写成了才调 herdr；网页终端的接管写一行意图、一行结果，释放再写一行（只有统计，没有键盘内容，见“网页终端”）；写仓库（`answer`、`create_work`、`create_task`、`status`、`edit`）在写事务之后只写一行结果（提交 sha 或失败理由、路径，不记文件内容）。文字与通知的全文进审计（决定点 6：开发者知情，秘密会进审计）。
 - 面板进程里只有一个写者，排队串行，每行一次 `O_APPEND` 追加。
 
 ## 缓存与刷新
@@ -192,7 +279,7 @@
 1. 在 `.local/agent/run/panel.lock` 取面板锁（同一个主工作区已有面板在跑时报 `panel_running`）。
 2. 绑定两个端口（被占时立刻报 `port_in_use`），写 `panel.json`；预热完成之前 `/api/*` 回 503，页面回“正在启动”。
 3. 构建前端（见下；`--no-build` 跳过、用现有的 `dist/web`，`--static-dir` 用现成的产物目录），预热（记录与活动各算一遍），开始监视。
-4. 收到 SIGINT、SIGTERM 或 SIGHUP 时收口：结束正在跑的 `git grep` 与 `vite build`，等进行中的投递结束（上限 12 秒），停服务，删自己的 `panel.json`，放锁，退出码 0。
+4. 收到 SIGINT、SIGTERM 或 SIGHUP 时收口：结束正在跑的 `git grep` 与 `vite build`，释放网页终端的接管、收掉终端流（见“网页终端”的退出），等进行中的投递结束（上限 12 秒），停服务，删自己的 `panel.json`，放锁，退出码 0。
 
 `panel open` 读 `panel.json`，面板不在跑时报 `panel_not_running`；在跑就签一次性票据：
 
@@ -220,7 +307,7 @@ bun run --cwd packages/dev-panel install-service -- --uninstall [--force] [--jso
 ```
 
 - 单元 `nbdev-panel-<主工作区目录名>.service`（本机是 `nbdev-panel-neuro-book.service`），写在 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`；一个主工作区一个面板。安装写单元、`systemctl --user daemon-reload`、`enable --now`；卸载 `disable --now`、删单元、`daemon-reload`。`--dry-run` 只打印将写的文件与命令。
-- `ExecStart` 是运行安装脚本的 bun 的绝对路径加主工作区 `packages/dev-panel/src/cli.ts` 的绝对路径，不经 shim（shim 可以被指到 worktree；用户管理器的 `PATH` 不保证有 `~/.local/bin`）。`Environment=NBDEV_PANEL_UNIT=<单元名>`：面板只凭它判断自己是服务（`INVOCATION_ID` 在 KDE 的终端标签页里也有）。`Restart=on-failure`，`RestartPreventExitStatus=2 3`（用法错误与冲突重启也不会好），`TimeoutStopSec=30`；没有 `After=default.target`。
+- `ExecStart` 是运行安装脚本的 bun 的绝对路径加主工作区 `packages/dev-panel/src/cli.ts` 的绝对路径，不经 shim（shim 可以被指到 worktree；用户管理器的 `PATH` 不保证有 `~/.local/bin`）。`Environment=NBDEV_PANEL_UNIT=<单元名>`：面板只凭它判断自己是服务（`INVOCATION_ID` 在 KDE 的终端标签页里也有）。`Restart=on-failure`，`RestartPreventExitStatus=2 3`（用法错误与冲突重启也不会好），`TimeoutStopSec=30`；没有 `After=default.target`。t12 加两行：`Environment=NBDEV_HERDR_BIN=<安装时找到的 herdr 的绝对路径>`（找不到时写一行注释，说明要网页终端就自己加上），`KillMode=mixed`（停单元时只给面板 SIGTERM，等它改回尺寸、release 之后再收剩下的子进程；缺省会同时给终端流的子进程 SIGTERM）。已经装过的单元要重装一次才有这两行。
 - 同名文件不是本脚本写的（靠文件头的标记行认）不覆盖、不删，除非 `--force`；面板已经在跑时先提示停掉（`panel_running`）。`systemctl` 失败报 `systemctl_failed`。
 - 日志 `journalctl --user -u <单元>`，停止 `systemctl --user stop <单元>`。服务写的 `panel.json` 照旧在主工作区的 `.local/agent/`，`nbdev panel open` 用法不变；重启之后要重新 `panel open`。本机 `Linger=yes`，注销后服务照常。
 
@@ -245,7 +332,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | `/artifacts` | 产物列表：按类分组，可过滤 | t03 第二轮产物页 |
 | `/artifact/:workId/:taskId/:artifactId` | 产物页：左边是产物来源上的沙箱 iframe（`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复表单与问题侧栏；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-`。答复成功后侧栏多一块“通知”：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次（t11） | t03 第二轮产物页 |
 | `/docs?checkout=&path=&prefer=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选 | t03 第二轮文档页 |
-| `/live/sessions?pane=` | 会话：最上面是通知（排队的、要处理的、最近 24 小时发过的，t11）；持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态。`?pane=` 选中一格会话，显示屏幕末尾（打开时与每次发送后各读一次，不轮询）、输入框与按键（t11） | t03 第三轮会话页左半边 |
+| `/live/sessions?pane=` | 会话：最上面是通知（排队的、要处理的、最近 24 小时发过的，t11）；持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态。`?pane=` 选中一格会话，显示实时终端（观看与接管，t12；手机上是文字视图）、输入框与按键（t11）；网页终端不可用时显示屏幕末尾（打开时与每次发送后各读一次，不轮询） | t03 第三轮会话页（“观看中”“你已接管键盘”两种状态条） |
 | `/live/checkouts` | checkout：分支、HEAD、是哪个 Work 的执行 worktree、路径 | Proposal 第九节 |
 | `/search?q=` | 搜索结果：流式出现，按 checkout 分组，截断时标出 | t03 第二轮顶栏 |
 | `/new?workId=` | 新建 Work 或 Task：表单与随填随变的预览（预计领到的号、要写的文件与内容、提交信息；号以提交时为准）；结果区写实际领到的 id，与预览不同时多一行说明 | t03 第三轮新建表单 |
@@ -255,7 +342,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 - **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就显示上面那句并停止重连，否则照常重连（重连后的 `hello` 全部重取）。
 - **偏好**（明暗、左栏各 Work 的展开、通知里“知道了”的尝试）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
 - **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
-- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，t11 加 `NotifyStatus`、`DeveloperMessageDialog`、`ScreenConfirmDialog`、`SessionConsole`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
+- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，t11 加 `NotifyStatus`、`DeveloperMessageDialog`、`ScreenConfirmDialog`、`SessionConsole`，t12 加 `TerminalView`、`TerminalTextView`、`TakeoverDialog`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
 - **画法**（t03 第三轮已定）：持久的照常画实线的面；临时的（会话、租约、谁在动、运行）一律信息色虚线框，角上标“临时”，单独的租约是虚线胶囊，失效的划掉。没有字段的值显示“未标”；面板不推断状态，所以多数 Work 的计数条是“未标”的灰色。
 - **写入的界面**（t10）：零件不发请求；写请求、预览请求、300 毫秒去抖、“2 秒后提示在等别的写入完成”的定时器、`beforeunload`、复制到剪贴板都在页面里（`host/writes.ts`、`host/status-change.ts`）。写请求的错误保留 `details` 与 `data`。字段校验直接导入核心的纯函数（`validateAnswerValue`、`SLUG_PATTERN`、标题与控制字符的规则），不复制规则。主工作区不能写、记录来自分支时，写入口隐藏或只读并写明原因。外壳不监听也不接受来自产物 iframe 的消息：答复只经侧栏表单。错误码到界面动作：
 

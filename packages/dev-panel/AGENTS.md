@@ -19,7 +19,7 @@
 - 用 `bun test`；临时目录用 `@notnotype/neuro-book-test-support/tmp` 的 `createTestTmpRoot`，仓库建在临时根的子目录里（根目录有测试支持包的标记文件）。
 - Git 夹具见 `tests/git-fixture.ts`：子进程环境隔离开发者的全局配置，并设 `GIT_CEILING_DIRECTORIES`，不会爬到外层仓库。
 - 测试不碰真实仓库的 `.agents/works/` 与 `.local/agent/`；在真实仓库运行命令行属于验收，按 Task 记录执行。发布、提问、答复只在临时仓库里测：真实仓库第一次用 nbdev 写要开发者授权。
-- 测试不碰默认 herdr：`tests/git-fixture.ts` 在导入时按前缀删掉 `HERDR_*`、`CLAUDE*`、`OMPCODE`，并把 `HERDR_SOCKET_PATH` 指到不存在的路径；需要 herdr 的 L3 用 `tests/fake-herdr.ts`。L4（`tests/herdr-live.test.ts`）只用命名会话 `nbdev-test`，herdr 子进程只拿 HOME、PATH、TERM，用完停 server、删会话；本机没有 herdr 时跳过，记为未验证。
+- 测试不碰默认 herdr：`tests/git-fixture.ts` 在导入时按前缀删掉 `HERDR_*`、`CLAUDE*`、`OMPCODE`，并把 `HERDR_SOCKET_PATH` 指到不存在的路径；需要 herdr 的 L3 用 `tests/fake-herdr.ts`。L4（`tests/herdr-live.test.ts`）只用命名会话 `nbdev-test`，herdr 子进程只拿 HOME、PATH、TERM，用完停 server、删会话；本机没有 herdr 时跳过，记为未验证。t12 的终端流另用主工作区里不入库的 herdr 0.9.1 二进制当命名会话的 server 跑一组（路径见测试），二进制不在时这一组跳过；网页终端的 L3 用 `tests/fake-herdr-cli.ts` 扮 herdr 命令行。
 - 扮成 Claude 主进程（`CLAUDE_PID`）时用 `tests/processes.ts` 的 `startFakeClaude`，经它运行 nbdev：nbdev 要求 `CLAUDE_PID` 是调用者的祖先；也不能用测试进程自己扮，从真实 Claude 会话里跑起来的测试进程，`/proc/<pid>/environ` 里带着那个会话的 id，会被当成嵌套调用。L4 里扮成 Claude 的进程还要在 pane 的前台（写标签前会核对），由 `herdr pane run` 在 pane 里运行 `tests/l4-claude-pane.ts`。
 - 等子进程就绪用 `spawnMarked`（轮询到 `/proc/<pid>/environ` 带上标记），结束用 `stopProcess`（等到 `exit`），不用固定等待。
 
