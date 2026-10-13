@@ -6,18 +6,26 @@ import type {TerminalFrame, TerminalSource} from "../host/terminal-socket.js";
 /** 终端当前屏幕的纯文字视图（手机用）；契约见同名 .md。 */
 const props = defineProps<{source: TerminalSource}>();
 const text = ref("");
+/** 文字最多每 200 毫秒更新一次：会话刷屏时帧很密，逐帧重排文字在手机上费电。 */
+const THROTTLE_MS = 200;
 let term: Terminal | null = null;
 let unsubscribe: (() => void) | null = null;
+let pending: ReturnType<typeof setTimeout> | null = null;
+
+function refresh(): void {
+    pending = null;
+    if (!term) return;
+    const buffer = term.buffer.active;
+    const lines: string[] = [];
+    for (let index = 0; index < buffer.length; index += 1) lines.push(buffer.getLine(index)?.translateToString(true) ?? "");
+    text.value = lines.join("\n").replace(/\s+$/u, "");
+}
 
 function onFrame(frame: TerminalFrame): void {
     if (!term) return;
     if (term.cols !== frame.w || term.rows !== frame.h) term.resize(frame.w, frame.h);
     term.write(frame.bytes, () => {
-        if (!term) return;
-        const buffer = term.buffer.active;
-        const lines: string[] = [];
-        for (let index = 0; index < buffer.length; index += 1) lines.push(buffer.getLine(index)?.translateToString(true) ?? "");
-        text.value = lines.join("\n").replace(/\s+$/u, "");
+        if (pending === null) pending = setTimeout(refresh, THROTTLE_MS);
     });
 }
 
@@ -27,6 +35,7 @@ onMounted(() => {
     unsubscribe = props.source.subscribe(onFrame);
 });
 onBeforeUnmount(() => {
+    if (pending !== null) clearTimeout(pending);
     unsubscribe?.();
     term?.dispose();
     term = null;

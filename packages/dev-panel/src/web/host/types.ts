@@ -138,3 +138,5 @@ export type NotifyData = {jobs: NotifyJob[]; recent: NotifyAttempt[]; audit: {en
 /** 一次投递的结果（手动发送、输入框）。 */
 export type DeliveryData = {result: NotifyResult; code: string | null; message: string};
 export type ScreenData = {paneId: string; sessionKey: string; agent: string | null; status: string; focused: boolean; screen: string};
+/** omp 的更早输出（t12，手机的文字视图）：`agent.read` 的 `recent_unwrapped` 最近 `lines` 行。 */
+export type HistoryData = {paneId: string; sessionKey: string; lines: number; text: string};

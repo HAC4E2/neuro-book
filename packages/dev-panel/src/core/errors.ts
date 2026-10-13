@@ -59,6 +59,7 @@ export const ERROR_EXIT_CODES = {
     key_rate_limited: 3,
     service_exists: 3,
     pane_controlled: 3,
+    history_unavailable: 3,
     wait_timeout: 4,
     wait_interrupted: 4,
     lock_timeout: 1,

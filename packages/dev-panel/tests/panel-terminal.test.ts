@@ -233,6 +233,10 @@ describe("接管", () => {
         const refused = await fetch(`${server.url}/api/sessions/w9:p1/prompt`, {method: "POST", headers: {Cookie: cookie, Origin: server.url, "X-Nbdev-Csrf": csrf, "Content-Type": "application/json"}, body: JSON.stringify({text: "你好", expectedSession: KEY_A})});
         expect([refused.status, (await refused.json() as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([409, "pane_controlled"]);
         expect(fake.prompts).toEqual([]);
+        const keysRefused = await fetch(`${server.url}/api/sessions/w9:p1/keys`, {method: "POST", headers: {Cookie: cookie, Origin: server.url, "X-Nbdev-Csrf": csrf, "Content-Type": "application/json"}, body: JSON.stringify({keys: ["up"], expectedSession: KEY_A})});
+        expect(keysRefused.status).toBe(409);
+        // 读屏不往会话里写，接管期间照样能读（另一个浏览器这时打开会话页要看屏幕）。
+        expect((await fetch(`${server.url}/api/sessions/w9:p1/screen?session=${encodeURIComponent(KEY_A)}`, {headers: {Cookie: cookie}})).status).toBe(200);
         const releaseFrom = client.messages.length;
         client.send({t: "release"});
         expect(await client.next("released", releaseFrom)).toMatchObject({reason: "user", restored: true});
@@ -336,6 +340,20 @@ describe("接管", () => {
             await until(() => streamProcesses(fake.socketPath).length === 0, 1_500, `${how} 之后子进程退出`);
         }
     }, 60_000);
+});
+
+describe("更早的输出（手机的文字视图）", () => {
+    test("omp 读 recent_unwrapped 加行数；Claude 回 409 history_unavailable、不调 agent.read", async () => {
+        const omp: FakePane = {...claudePane("w9:p3", SESSION_A), terminal_id: "term_w9:p3", agent: "omp", agent_session: {agent: "omp", kind: "path", source: "herdr:omp", value: "/s/o.jsonl"}, history: "第一行\n第二行\n\n"};
+        const {server, cookie, fake} = await setup("term-history", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main}), {...omp, cwd: main, foreground_cwd: main}]});
+        const read = await fetch(`${server.url}/api/sessions/w9:p3/history?session=${encodeURIComponent("omp:/s/o.jsonl")}`, {headers: {Cookie: cookie}});
+        expect(read.status).toBe(200);
+        expect((await read.json() as {data: {text: string; lines: number}}).data).toMatchObject({text: "第一行\n第二行", lines: 1000});
+        expect(fake.requests.filter((request) => request.method === "agent.read").map((request) => request.params)).toEqual([{target: "w9:p3", source: "recent_unwrapped", format: "text", strip_ansi: true, lines: 1000}]);
+        const refused = await fetch(`${server.url}/api/sessions/w9:p1/history?session=${encodeURIComponent(KEY_A)}`, {headers: {Cookie: cookie}});
+        expect([refused.status, (await refused.json() as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([409, "history_unavailable"]);
+        expect(fake.requests.filter((request) => request.method === "agent.read")).toHaveLength(1);
+    }, 30_000);
 });
 
 describe("背压与退出（设计审查 S2、S3）", () => {

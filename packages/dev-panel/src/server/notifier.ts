@@ -437,6 +437,7 @@ export function checkError(failure: CheckFailure): NbdevError {
     const codes = {
         not_found: "session_changed", session_changed: "session_changed", not_in_repository: "not_in_repository", pane_controlled: "pane_controlled", agent_busy: "agent_busy",
         agent_blocked: "agent_busy", status_unknown: "agent_busy", not_stable: "agent_busy", settling: "agent_busy", not_deliverable: "not_deliverable", herdr_unavailable: "herdr_unavailable",
+        history_unavailable: "history_unavailable",
     } as const satisfies Record<CheckFailure["code"], string>;
     return new NbdevError(codes[failure.code], failure.detail, {details: {reason: failure.code, screen: failure.screen, screenDigest: failure.code === "not_deliverable" ? screenDigest(failure) : null, status: failure.agent?.status ?? null, sessionKey: failure.agent ? sessionKeyOf(failure.agent) : null}});
 }

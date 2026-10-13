@@ -3,7 +3,7 @@ import {isNbdevError, NbdevError} from "../core/errors.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
 import {assertPlainText} from "../core/text-rules.js";
 import type {HerdrClient} from "../herdr/client.js";
-import {checkDeliverable, checkSession, deliverKeys, deliverText, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
+import {checkDeliverable, checkSession, deliverKeys, deliverText, readHistory, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
 import {lockKeyOf, type ControlRegistry} from "./control-registry.js";
 import {AUTO_NOTIFY_VERSIONS, auditUnavailable, checkError, type Notifier, type PaneLocks} from "./notifier.js";
 import type {PanelState} from "./state.js";
@@ -19,6 +19,8 @@ import {readFields, statusOf, usage, type Envelope} from "./writes.js";
 
 const KIB = 1024;
 const MAX_PROMPT = 4000;
+/** 更早的输出读多少行：手机上翻得过来、一次响应不大（omp 一行通常不到 200 字节）。 */
+const HISTORY_LINES = 1000;
 const PANE_ID = /^[A-Za-z0-9_.:-]{1,64}$/u;
 /** 面板给的按键（herdr 的逻辑键名，S0 逐个核实过字节）；不接受任意键名。 */
 export const PANEL_KEYS: readonly string[] = ["up", "down", "shift+tab", "enter", "esc", "ctrl+c", "y", "n"];
@@ -74,6 +76,14 @@ export function createSessionIo(deps: SessionIoDeps) {
         const read = await readScreen(context(), target);
         if (!read.ok) throw checkError(read);
         return envelope({paneId, sessionKey: target.sessionKey, agent: read.agent.agent, status: read.agent.status, focused: read.agent.focused, screen: read.screen}, [], null);
+    }
+
+    /** 更早的输出（t12，手机的文字视图）：只给 omp，Claude 回 409 `history_unavailable`；不往会话里写，接管期间照样能读。 */
+    async function history(paneId: string, url: URL): Promise<Response> {
+        const target = {paneId, sessionKey: sessionField(url.searchParams.get("session"))};
+        const read = await readHistory(context(), target, HISTORY_LINES);
+        if (!read.ok) throw checkError(read);
+        return envelope({paneId, sessionKey: target.sessionKey, lines: HISTORY_LINES, text: read.text}, [], null);
     }
 
     /** 输入框：只发给空闲的会话；正向白名单不过时回 409 带屏幕末尾与摘要，开发者看过之后带回摘要（`confirmScreen`）再发，屏幕变了就再回 409。 */
@@ -158,6 +168,7 @@ export function createSessionIo(deps: SessionIoDeps) {
         if (req.method === "GET") {
             if (first === "notify" && second === undefined) return notifyView(url);
             if (first === "sessions" && second !== undefined && third === "screen") return screen(paneOf(second), url);
+            if (first === "sessions" && second !== undefined && third === "history") return history(paneOf(second), url);
             return null;
         }
         if (req.method === "POST") {

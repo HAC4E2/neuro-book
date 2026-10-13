@@ -7,7 +7,7 @@ import {HERDR_STATUS_LABEL, relativeTime, shortSession} from "../host/format.js"
 import {deliveryNotice, useNotifyActions} from "../host/notify-actions.js";
 import {useResource} from "../host/panel-data.js";
 import {useTerminalSocket, type TerminalSocket} from "../host/terminal-socket.js";
-import type {DeliveryData, Meta, NotifyData, ScreenData, SessionsData} from "../host/types.js";
+import type {DeliveryData, HistoryData, Meta, NotifyData, ScreenData, SessionsData} from "../host/types.js";
 import {describeFailure, type Notice} from "../host/writes.js";
 import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
@@ -159,9 +159,29 @@ async function readScreen(): Promise<void> {
 watch(() => selected.value?.sessionKey ?? null, (key) => {
     screen.value = null;
     screenAt.value = null;
+    history.value = null;
     consoleNotice.value = null;
     if (key) void readScreen();
 }, {immediate: true});
+
+/** 更早的输出（手机的文字视图，只给 omp）：点一次读一次，不轮询。Claude 不给，见 docs/panel.md 的“手机”。 */
+const history = ref<{text: string; lines: number; at: string} | null>(null);
+const historyPending = ref(false);
+async function readHistory(): Promise<void> {
+    const current = selected.value;
+    if (!current) return;
+    historyPending.value = true;
+    try {
+        const body = await getJson<HistoryData>(`/api/sessions/${encodeURIComponent(current.paneId)}/history?session=${encodeURIComponent(current.sessionKey)}`);
+        if (selected.value?.paneId !== current.paneId) return;
+        history.value = {text: body.data.text, lines: body.data.lines, at: new Date().toISOString()};
+    } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        consoleNotice.value = {tone: "warning", title: "读不到更早的输出", message: error.message, items: [], retry: false};
+    } finally {
+        historyPending.value = false;
+    }
+}
 
 async function sendPrompt(text: string, confirmScreen: string | null = null): Promise<void> {
     const current = selected.value;
@@ -259,8 +279,15 @@ async function pressKey(key: string): Promise<void> {
                     <template v-if="terminal" #screen>
                         <p v-if="terminal.state.closedReason" style="color: var(--status-warning); font-size: var(--text-xs)">{{ terminal.state.closedReason }}</p>
                         <template v-else-if="narrow && !showTerminalOnPhone">
+                            <template v-if="history">
+                                <p style="font-size: var(--text-xs); color: var(--text-secondary)">更早的输出（最近 {{ history.lines }} 行，{{ relativeTime(history.at) }}读取）</p>
+                                <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="更早的输出">{{ history.text || "没有更早的输出" }}</pre>
+                            </template>
                             <TerminalTextView :source="terminal.source" />
-                            <Button size="sm" variant="ghost" icon-class="i-lucide-monitor" @click="showTerminalOnPhone = true">终端画面（只看）</Button>
+                            <div class="flex flex-wrap gap-2">
+                                <Button size="sm" variant="ghost" icon-class="i-lucide-monitor" @click="showTerminalOnPhone = true">终端画面（只看）</Button>
+                                <Button v-if="selected.agent === 'omp'" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="historyPending" @click="readHistory">{{ history ? "重读更早的输出" : "更早的输出" }}</Button>
+                            </div>
                         </template>
                         <TerminalView v-else :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
                     </template>
