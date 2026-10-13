@@ -63,7 +63,7 @@
 
 **`dev start`** 自己就是监管进程，留在前台，由 Agent 的后台机制托管（Claude Code 的 `run_in_background`、omp 的 `proc://`），会话结束时随会话退出（全局规则“后台与长驻进程”）。要活过会话的服务不在本命令范围内。
 
-- **起法**：在 `<checkout>/<package>` 里运行 `setpriv --pdeathsig TERM -- setsid bun run <script>`。服务的 stdout、stderr 直接是日志文件的描述符，监管进程不在了也不会 BrokenPipe。找不到 `setpriv` 或 `setsid` 报 `tool_missing`，`package.json` 里没有这个脚本报 `script_not_found`。
+- **起法**：在 `<checkout>/<package>` 里运行 `setpriv --pdeathsig TERM -- setsid bun run <script>`。服务的 stdout、stderr 直接是日志文件的描述符，监管进程不在了也不会 BrokenPipe。找不到 `setpriv` 或 `setsid` 报 `tool_missing`，`package.json` 里没有这个脚本报 `script_not_found`，`package.json` 不是合法 JSON 报 `invalid_record`（`details.path`）。
 - **日志**：带 `--work --task` 时是主工作区 `.local/agent/works/<W>/tasks/<T>/logs/<runId>.log`，否则是 `.local/agent/logs/dev/<checkout key>-<runId>.log`，独占创建；不自动清理。
 - **就绪**：
   - 读日志的新增部分，`\r` 与 `\n` 都算行尾，去掉 ANSI 的 CSI 与 OSC；
@@ -104,7 +104,7 @@
 - 地址：`--url`，没有就取这个 checkout 上经 nbdev 起、能复用（判据同 `dev start` 的复用）、已就绪且地址此刻按就绪判据连得上的服务的地址；都没有报 `dev_not_running`（退出码 5）。
 - 输出目录：带 `--work --task` 时是 `.local/agent/works/<W>/tasks/<T>/shots/<UTC 时间>/`，否则是 `.local/agent/shots/<UTC 时间>/`。
 - `TMPDIR` 指到 `/dev/shm/nbdev-shot-<随机>`，跑完删掉：`/tmp` 是带配额的内存盘，Chrome 的临时数据会把它占满。
-- 不注入浏览器路径。`package.json` 里没有 `lab:shot` 报 `shot_unavailable`（3）；`lab:shot` 失败报 `shot_failed`（1），带它 stderr 的末尾。
+- 不注入浏览器路径。`package.json` 里没有 `lab:shot` 报 `shot_unavailable`（3），`package.json` 不是合法 JSON 报 `invalid_record`（1，`details.path`）；`lab:shot` 失败报 `shot_failed`（1），带它 stderr 的末尾。
 
 ### 会话与租约
 

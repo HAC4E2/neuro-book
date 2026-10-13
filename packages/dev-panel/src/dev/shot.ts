@@ -1,12 +1,12 @@
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
-import {mkdir, mkdtemp, readdir, readFile, rm} from "node:fs/promises";
+import {mkdir, mkdtemp, readdir, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 import {NbdevError} from "../core/errors.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import type {RepoContext} from "../core/repo.js";
-import {listRuns, resolveDevTarget, reusable, urlReady} from "./dev-ops.js";
+import {listRuns, readPackageScripts, resolveDevTarget, reusable, urlReady} from "./dev-ops.js";
 
 /**
  * `nbdev shot`（t14）：只做薄包装，把三件事交给目标 checkout 自己的 `lab:shot`：
@@ -29,7 +29,7 @@ async function listFiles(dir: string): Promise<string[]> {
 export async function runShot(context: RepoContext, cwd: string, input: ShotInput, env: NodeJS.ProcessEnv): Promise<ShotResult> {
     const target = await resolveDevTarget(context, input.checkoutRef, input.packageDir, "dev", cwd);
     const packageRoot = join(target.checkout.root, target.packageDir);
-    const scripts = existsSync(join(packageRoot, "package.json")) ? (JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {scripts?: Record<string, unknown>}).scripts ?? {} : {};
+    const scripts = await readPackageScripts(packageRoot);
     if (typeof scripts["lab:shot"] !== "string") throw new NbdevError("shot_unavailable", `${packageRoot}/package.json 里没有 lab:shot`, {details: {package: packageRoot}});
     let url = input.url;
     if (url === null) {

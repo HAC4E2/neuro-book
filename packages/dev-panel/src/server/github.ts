@@ -14,7 +14,7 @@ import {isRecord} from "../core/json.js";
 export const GH_LIMIT = 100;
 const PR_FIELDS = "number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url";
 const ISSUE_FIELDS = "number,title,labels,updatedAt,url";
-/** 写死的两条命令（`tests/panel-github.test.ts` 钉住）。 */
+/** 写死的两条命令（`tests/panel-live.test.ts` 钉住）。 */
 export const GH_COMMANDS = {
     prs: ["pr", "list", "--state", "open", "--limit", String(GH_LIMIT), "--json", PR_FIELDS],
     issues: ["issue", "list", "--state", "open", "--limit", String(GH_LIMIT), "--json", ISSUE_FIELDS],

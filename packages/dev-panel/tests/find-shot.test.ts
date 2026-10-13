@@ -60,6 +60,12 @@ describe("shot", () => {
         expect([noScript.exitCode, noScript.json?.errors[0]?.code]).toEqual([3, "shot_unavailable"]);
         const failing = await fixture.cli(["shot", "--package", "apps/web", "--url", "http://127.0.0.1:1/", "--json"], fixture.main, {FAKE_SHOT_FAIL: "1"});
         expect([failing.exitCode, failing.json?.errors[0]?.code]).toEqual([1, "shot_failed"]);
+        // package.json 坏了：shot 与 dev start 都报带路径的 invalid_record，不改报成找不到脚本（t14 实现审查 S6）。
+        await fixture.write("apps/broken/package.json", "{");
+        for (const args of [["shot", "--package", "apps/broken", "--url", "http://127.0.0.1:1/"], ["dev", "start", "--package", "apps/broken"]]) {
+            const broken = await fixture.cli([...args, "--json"]);
+            expect([args[0], broken.exitCode, broken.json?.errors[0]?.code, String((broken.json?.errors[0]?.details as {path?: string} | undefined)?.path)]).toEqual([args[0], 1, "invalid_record", join(fixture.main, "apps/broken/package.json")]);
+        }
         expect(failing.json?.errors[0]?.message).toContain("截图失败：假的");
     }, 60_000);
 });

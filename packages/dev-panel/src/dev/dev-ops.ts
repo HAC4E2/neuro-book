@@ -54,14 +54,27 @@ export async function resolveDevTarget(context: RepoContext, checkoutRef: string
     return {checkout, key: keys.get(checkout.root)!, packageDir, script};
 }
 
-async function readScripts(dir: string): Promise<Record<string, unknown> | null> {
+/**
+ * `<dir>/package.json` 的 `scripts`（`dev` 与 `shot` 共用）。没有这个文件、或没有 `scripts` 时回空对象（调用方再报找不到脚本）；
+ * 文件不是合法 JSON 时报带路径的 `invalid_record`，不把“文件坏了”改报成“找不到脚本”。
+ */
+export async function readPackageScripts(dir: string): Promise<Record<string, unknown>> {
+    const path = join(dir, "package.json");
+    let text: string;
     try {
-        const value = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as unknown;
-        return isRecord(value) && isRecord(value.scripts) ? value.scripts : null;
+        text = await readFile(path, "utf8");
     } catch (error) {
-        if (systemErrorCode(error) === "ENOENT" || error instanceof SyntaxError) return null;
+        if (systemErrorCode(error) === "ENOENT") return {};
         throw error;
     }
+    let value: unknown;
+    try {
+        value = JSON.parse(text);
+    } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        throw new NbdevError("invalid_record", `${path} 不是合法的 JSON：${error.message}`, {details: {path}});
+    }
+    return isRecord(value) && isRecord(value.scripts) ? value.scripts : {};
 }
 
 /** 在 `PATH` 里找可执行文件（Node 没有 `which`）。 */
@@ -184,8 +197,8 @@ export async function devStart(context: RepoContext, cwd: string, input: DevStar
     const warnings: Warning[] = [];
     const target = await resolveDevTarget(context, input.checkoutRef, input.packageDir, input.script, cwd);
     const packageRoot = join(target.checkout.root, target.packageDir);
-    const scripts = await readScripts(packageRoot);
-    if (!scripts || typeof scripts[target.script] !== "string") throw new NbdevError("script_not_found", `${packageRoot}/package.json 里没有脚本 ${target.script}`, {details: {package: packageRoot, script: target.script}});
+    const scripts = await readPackageScripts(packageRoot);
+    if (typeof scripts[target.script] !== "string") throw new NbdevError("script_not_found", `${packageRoot}/package.json 里没有脚本 ${target.script}`, {details: {package: packageRoot, script: target.script}});
     if (input.readyPattern !== null) {
         try {
             compileReadyPattern(input.readyPattern);
