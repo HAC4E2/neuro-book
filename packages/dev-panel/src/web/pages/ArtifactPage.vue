@@ -69,7 +69,9 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
     const {failure} = outcome;
     const problems = Array.isArray(failure.details.problems) ? failure.details.problems as Array<{questionId: string; reason: string}> : [];
     formErrors.value = Object.fromEntries([...problems.map((problem) => [problem.questionId, problem.reason]), ...(typeof failure.details.questionId === "string" ? [[failure.details.questionId, failure.message]] : [])]);
-    notice.value = failureNotice("答复没有提交", failure);
+    notice.value = failure.action === "unknown"
+        ? {...failureNotice("结果未知", failure), message: `${failure.message}。已重新载入，看下面“已答”里有没有这次的答复`}
+        : failureNotice("答复没有提交", failure);
     if (failure.action === "reload" || failure.action === "unknown") artifact.reload();
 }
 

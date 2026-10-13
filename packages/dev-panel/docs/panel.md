@@ -184,6 +184,6 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | 409 其它（`branch_maintained_record`、`main_not_on_master`、`main_busy`、`work_not_committed`、`task_not_committed`、`task_closed`、`question_closed`、`artifact_closed`、`stale_version`、`not_editable`） | 显示错误说明；数据已过时的（`stale_version`、`question_closed` 等）重新取数 |
 | 503 `lock_timeout`、`warming_up` | 什么都没写，给“重试” |
 | 500 `commit_failed` | “已写入、没有提交”，列出路径与补救办法 |
-| 网络错误、连接被断开 | “结果未知”，重新取数，不给“重试” |
+| 网络错误、连接被断开 | “结果未知”，不给“重试”，按页面核对一次：产物页与状态切换重新取数；编辑页重取文件，变了就显示差异并写明“多半是你刚才那次保存已经生效”，没变就写“没有生效，可以再保存”；新建页锁住表单，直到开发者确认上一次建好了没有 |
 
 - **编辑页的未保存改动**：站内跳转（左栏、链接、改 `?path=`）用 `onBeforeRouteLeave`、`onBeforeRouteUpdate` 拦，关标签页与刷新用 `beforeunload` 拦。保存成功后编辑器换成服务端写下的最终文本与新哈希（README 的 `updated` 被核心改过）。

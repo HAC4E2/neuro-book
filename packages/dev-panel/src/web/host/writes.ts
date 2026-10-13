@@ -28,7 +28,8 @@ export function describeFailure(error: unknown): WriteFailure {
     }
     const base = {code: error.code, details: error.details, data: error.data, warnings: error.warnings};
     const written = Array.isArray(error.details.writtenPaths) ? error.details.writtenPaths.map(String) : [];
-    if (error.status === 0) return {...base, message: "结果未知：连接中途断开了。已重新载入；刷新后看这次写入有没有生效，不要直接再提交一次", action: "unknown", writtenPaths: []};
+    // 各页面接着按自己的数据核对一次（重新取数、或锁住表单），并在提示里补上核对的结果。
+    if (error.status === 0) return {...base, message: "连接中途断开了，这次写入可能已经生效，也可能没有。不要直接再提交一次", action: "unknown", writtenPaths: []};
     if (error.code === "lock_timeout") return {...base, message: "等别的写入超时（30 秒），这次什么都没写", action: "retry", writtenPaths: []};
     if (error.code === "warming_up") return {...base, message: "面板正在启动，稍后再试", action: "retry", writtenPaths: []};
     if (error.code === "commit_failed") return {...base, message: `已写入、没有提交：${written.join("、")}。在终端检查后手动提交这些路径`, action: "none", writtenPaths: written};

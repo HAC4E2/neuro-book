@@ -13,6 +13,7 @@ const emit = defineEmits<{"update:modelValue": [value: TaskFormValue]; submit: [
 
 const update = <K extends keyof TaskFormValue>(key: K, value: TaskFormValue[K]) => emit("update:modelValue", {...props.modelValue, [key]: value});
 const STATUS_OPTIONS = [{value: "planned", label: "计划中"}, {value: "active", label: "进行中"}];
+const FIELDS = new Set(["workId", "slug", "title", "goal", "status"]);
 const workOptions = computed(() => props.works.map((work) => ({value: work.workId, label: work.title ? `${work.workId.slice(0, 6)} ${work.title}` : work.workId})));
 
 const errors = computed(() => {
@@ -21,7 +22,8 @@ const errors = computed(() => {
     if (value.slug !== "" && !SLUG_PATTERN.test(value.slug)) found.slug = "只能是小写字母、数字与连字符";
     if (value.title !== "") found.title = titleProblem(value.title) ?? "";
     if (value.goal !== "") found.goal = controlCharProblem(value.goal, true) ?? "";
-    for (const problem of props.problems) found[problem.field] ||= problem.message;
+    // 只吸收表单里有的字段：预览本身失败（`preview`）只在预览区显示，不挡提交。
+    for (const problem of props.problems) if (FIELDS.has(problem.field)) found[problem.field] ||= problem.message;
     return found;
 });
 const complete = computed(() => props.modelValue.workId !== "" && props.modelValue.slug !== "" && props.modelValue.title !== "" && Object.values(errors.value).every((message) => !message));

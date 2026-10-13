@@ -13,6 +13,7 @@ const emit = defineEmits<{"update:modelValue": [value: WorkFormValue]; submit: [
 
 const update = <K extends keyof WorkFormValue>(key: K, value: WorkFormValue[K]) => emit("update:modelValue", {...props.modelValue, [key]: value});
 const STATUS_OPTIONS = [{value: "planned", label: "计划中"}, {value: "active", label: "进行中"}];
+const FIELDS = new Set(["slug", "title", "goal", "issue", "taskSlug", "taskTitle", "taskStatus"]);
 
 /** 本地的即时提示（同一份核心规则），服务端预览的问题按字段补上。 */
 const errors = computed(() => {
@@ -24,7 +25,8 @@ const errors = computed(() => {
     if (value.taskTitle !== "") found.taskTitle = titleProblem(value.taskTitle) ?? "";
     if (value.goal !== "") found.goal = controlCharProblem(value.goal, true) ?? "";
     if (value.issue !== "" && !/^[1-9][0-9]*$/u.test(value.issue)) found.issue = "Issue 编号是正整数";
-    for (const problem of props.problems) found[problem.field] ||= problem.message;
+    // 只吸收表单里有的字段：预览本身失败（`preview`）只在预览区显示，不挡提交。
+    for (const problem of props.problems) if (FIELDS.has(problem.field)) found[problem.field] ||= problem.message;
     return found;
 });
 const complete = computed(() => ["slug", "title", "goal", "taskSlug"].every((key) => props.modelValue[key as keyof WorkFormValue] !== "") && Object.values(errors.value).every((message) => !message));

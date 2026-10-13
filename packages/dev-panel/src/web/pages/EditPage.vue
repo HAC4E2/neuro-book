@@ -8,7 +8,7 @@ import {renderMarkdown} from "../host/markdown.js";
 import {useResource} from "../host/panel-data.js";
 import {docHref} from "../host/routes.js";
 import type {EditableFileData, Meta, UncommittedChanges, WriteData} from "../host/types.js";
-import {failureNotice, successNotice, uncommittedOf, useWrite, type Notice} from "../host/writes.js";
+import {failureNotice, successNotice, uncommittedOf, useWrite, type Notice, type WriteFailure} from "../host/writes.js";
 import DiffView from "../parts/DiffView.vue";
 import FileEditor from "../parts/FileEditor.vue";
 import LoadState from "../parts/LoadState.vue";
@@ -50,7 +50,8 @@ const previewHtml = computed(() => (path.value ? renderMarkdown(draft.value.repl
 const write = useWrite();
 const notice = ref<Notice | null>(null);
 const uncommitted = ref<{currentHash: string; changes: UncommittedChanges} | null>(null);
-const mismatch = ref<{text: string; hash: string; diff: string} | null>(null);
+/** `maybeMine`：结果未知之后取到的新版本，差异多半就是自己刚才那次保存。 */
+const mismatch = ref<{text: string; hash: string; diff: string; maybeMine?: boolean} | null>(null);
 
 async function save(includeUncommitted = false, baseHash = base.value?.hash ?? ""): Promise<void> {
     if (!path.value || !base.value) return;
@@ -63,6 +64,8 @@ async function save(includeUncommitted = false, baseHash = base.value?.hash ?? "
         base.value = {text: outcome.body.data.text, hash: outcome.body.data.nextHash};
         draft.value = outcome.body.data.text;
         notice.value = successNotice("已保存", outcome.body);
+        // 重取一次元信息：一起提交了别人的改动之后，“有别人没提交的改动”的提示要消失。编辑器此时没有未保存的改动，重取不会冲掉文字。
+        file.reload();
         return;
     }
     const {failure} = outcome;
@@ -75,7 +78,31 @@ async function save(includeUncommitted = false, baseHash = base.value?.hash ?? "
         await loadMismatch();
         return;
     }
+    if (failure.action === "unknown") {
+        await checkAfterUnknown(failure);
+        return;
+    }
     notice.value = failureNotice("没有保存", failure);
+}
+
+/**
+ * 结果未知（连接中途断开）：取一次现在的文件。与打开时不同，多半是刚才那次保存已经生效，进“别人改了什么”并写明；
+ * 相同，就是没写成，可以再保存。
+ */
+async function checkAfterUnknown(failure: WriteFailure): Promise<void> {
+    if (!path.value || !base.value) return;
+    try {
+        const current = (await getJson<EditableFileData>(`/api/files?path=${encodeURIComponent(path.value)}`)).data;
+        if (current.hash === base.value.hash) {
+            notice.value = {...failureNotice("没有保存", failure), message: "连接中途断开了；重新取了一次，文件没有变，这次保存没有生效，可以再保存"};
+            return;
+        }
+        mismatch.value = {text: current.text, hash: current.hash, diff: diffText(lineDiff(base.value.text, current.text)), maybeMine: true};
+        notice.value = {...failureNotice("结果未知", failure), message: "连接中途断开了；重新取了一次，文件已经变了，多半是你刚才那次保存已经生效，看下面的差异"};
+    } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        notice.value = {...failureNotice("结果未知", failure), message: `${failure.message}。重新取文件也失败了（${error.message}），刷新页面再看`};
+    }
 }
 
 /** 打开之后别人改了：取现在的版本，与打开时的原文按行比，给“别人改了什么”。 */
@@ -141,11 +168,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
             <p v-if="blocked" style="color: var(--status-warning)">{{ blocked }}</p>
             <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="save()" />
             <section v-if="mismatch" class="flex flex-col gap-2 rounded-[var(--radius-panel)] p-3" style="border: var(--border-w, 1px) solid var(--status-warning)">
-                <p class="font-semibold">文件在你打开之后被改过，没有保存。别人改了什么：</p>
+                <p class="font-semibold">{{ mismatch.maybeMine ? "文件变了，多半是你刚才那次保存已经生效。与打开时相比：" : "文件在你打开之后被改过，没有保存。别人改了什么：" }}</p>
                 <DiffView :text="mismatch.diff || '（只有空白不同）'" />
                 <div class="flex flex-wrap gap-2">
                     <Button size="sm" variant="secondary" @click="copyDraft">复制我的改动</Button>
-                    <Button size="sm" variant="danger" @click="takeCurrent">载入新版本（丢掉我的改动）</Button>
+                    <Button size="sm" variant="danger" @click="takeCurrent">{{ mismatch.maybeMine ? "载入新版本" : "载入新版本（丢掉我的改动）" }}</Button>
                 </div>
             </section>
             <FileEditor v-model="draft" :preview-html="previewHtml" :readonly="blocked !== null" :line-limit="file.data.value.lineLimit" @navigate="(href) => router.push(href)" />

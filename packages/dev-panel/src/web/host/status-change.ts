@@ -41,7 +41,9 @@ export function useStatusChange(endpoint: () => string, expectedHash: () => stri
         pending.value = null;
         notice.value = failure.action === "show_diff"
             ? {tone: "warning", title: "没有改", message: "README 在你打开之后被改过，已重新载入；看过之后再改", items: [], retry: false}
-            : failureNotice("没有改", failure);
+            : failure.action === "unknown"
+                ? {...failureNotice("结果未知", failure), message: `${failure.message}。已重新载入，看状态有没有改过来`}
+                : failureNotice("没有改", failure);
         if (failure.action === "show_diff" || failure.action === "reload" || failure.action === "unknown") reload();
     }
 
