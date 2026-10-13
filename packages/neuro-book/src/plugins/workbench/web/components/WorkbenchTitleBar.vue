@@ -13,6 +13,8 @@ import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import type {StripEntry} from "../items/registry";
 import {withNativeEditing} from "../titlebar/menu-model";
 import type {MenuEntry, MenuGroup} from "../titlebar/menu-model";
+import {titlebarLevel} from "../titlebar/yield";
+import type {TitlebarWidths} from "../titlebar/yield";
 import WorkbenchItemStrip from "./WorkbenchItemStrip.vue";
 
 type Part = "sidebar" | "panel" | "auxiliarybar";
@@ -49,9 +51,13 @@ const TEXT = {
     nativeEditing: {"zh-CN": "焦点在输入框里时由它自己撤销", "en-US": "The focused input handles undo itself"},
 } satisfies Record<string, LocalizedText>;
 
-/** 宽度三档的边界（外壳四输出 30）：按四组菜单、居中搜索与项目名的实际宽度估算。 */
-const FULL_WIDTH = 960;
-const COMPACT_WIDTH = 600;
+/**
+ * 判定让位时搜索要留的宽度（外壳四输出 30）：两侧先让，搜索留着这么宽；全部收完以后搜索才继续收窄，网格保证它最窄
+ * 120px、仍是一条带文字的长条。取值按第一轮让位表（中文、项目名两个字时约 1040、900、760、640、520 处切换）反推。
+ */
+const SEARCH_COMFORT = 480;
+/** 条目区收到最少时只剩“更多”，与条目同高的方形按钮。 */
+const ITEMS_MORE = 28;
 const PART_ICONS: Readonly<Record<Part, string>> = {sidebar: "i-lucide-panel-left", panel: "i-lucide-panel-bottom", auxiliarybar: "i-lucide-panel-right"};
 const PARTS: ReadonlyArray<Part> = ["sidebar", "panel", "auxiliarybar"];
 const OPEN_PROJECT = "open-project";
@@ -60,13 +66,60 @@ const GROUP_PREFIX = "group:";
 const text = (value: LocalizedText): string => localize(value, props.locale);
 
 const root = ref<HTMLElement | null>(null);
-// 按边框盒量：三档的边界是标题栏自己的宽度，含左右内边距。
+const measureEl = ref<HTMLElement | null>(null);
+// 按边框盒量：让位看的是标题栏自己的宽度，含左右内边距。
 const {width} = useElementSize(root, undefined, {box: "border-box"});
-/** 没量到宽度之前（首帧、测试环境）按完整呈现。 */
-const mode = computed<"full" | "compact" | "minimal">(() => {
-    if (width.value <= 0 || width.value >= FULL_WIDTH) return "full";
-    return width.value >= COMPACT_WIDTH ? "compact" : "minimal";
+const {width: measuredWidth} = useElementSize(measureEl, undefined, {box: "border-box"});
+
+/**
+ * 逐级让位（外壳四输出 30，`titlebar/yield.ts`）：0 全部展开，往上依次收起横排标志、菜单栏、快捷键提示、布局按钮、项目名。
+ * 各部件的宽度从测量层量（语言、项目名、快捷键变了随之变），没量到之前（首帧、测试环境）按全部展开。
+ */
+const level = ref(0);
+
+function outer(element: Element | null): number {
+    if (!(element instanceof HTMLElement)) return 0;
+    const style = getComputedStyle(element);
+    return element.getBoundingClientRect().width + (Number.parseFloat(style.marginLeft) || 0) + (Number.parseFloat(style.marginRight) || 0);
+}
+
+function measuredWidths(): TitlebarWidths | null {
+    const bar = root.value;
+    const layer = measureEl.value;
+    if (bar === null || layer === null) return null;
+    const part = (name: string): number => outer(layer.querySelector(`[data-measure="${name}"]`));
+    const barStyle = getComputedStyle(bar);
+    const startStyle = getComputedStyle(bar.querySelector(".workbench-titlebar__start") ?? bar);
+    const gap = Number.parseFloat(startStyle.columnGap) || 0;
+    const search = bar.querySelector("[data-titlebar-search]");
+    const shortcut = props.searchShortcut === null ? 0 : part("shortcut") + (search === null ? 0 : Number.parseFloat(getComputedStyle(search).columnGap) || 0);
+    return {
+        lockup: part("lockup"),
+        mark: part("mark"),
+        project: part("project"),
+        projectIcon: part("project-icon"),
+        divider: part("divider"),
+        menubar: part("menubar"),
+        menuIcon: part("menu-icon"),
+        shortcut,
+        layout: part("layout"),
+        items: props.items.length > 0 ? ITEMS_MORE : 0,
+        gap,
+        chrome: (Number.parseFloat(barStyle.paddingLeft) || 0) + (Number.parseFloat(barStyle.paddingRight) || 0) + 2 * (Number.parseFloat(barStyle.columnGap) || 0),
+        search: SEARCH_COMFORT,
+    };
+}
+
+watch([width, measuredWidth], () => {
+    const widths = width.value > 0 ? measuredWidths() : null;
+    if (widths !== null) level.value = titlebarLevel(widths, width.value, level.value);
 });
+
+const showLockup = computed(() => level.value < 1);
+const showMenubar = computed(() => level.value < 2);
+const showShortcut = computed(() => level.value < 3);
+const showLayout = computed(() => level.value < 4);
+const showProjectName = computed(() => level.value < 5);
 
 /** 菜单打开前焦点在原生输入框里：撤销、重做不代替它（外壳四输出 29）。 */
 const nativeEditing = ref(false);
@@ -106,11 +159,12 @@ const menubar = computed<MenubarMenuData[]>(() => menus.value.map((group) => ({
     items: sectioned(group.sections, itemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const compactItems = computed<DropdownItem[]>(() => menus.value.flatMap((group, groupIndex) => [
-    ...(groupIndex === 0 ? [] : [{label: "", value: `sep-${group.id}`, separator: true}]),
-    {label: group.label, value: `${GROUP_PREFIX}${group.id}`, disabled: true},
-    ...sectioned(group.sections, dropdownItemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
-]));
+/** 收成 ≡ 后（M1）：一组一行，悬停或方向键展开它的子菜单，同完整菜单栏的分组。 */
+const compactItems = computed<DropdownItem[]>(() => menus.value.map((group) => ({
+    label: group.label,
+    value: `${GROUP_PREFIX}${group.id}`,
+    children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
+})));
 
 const projectItems = computed<DropdownItem[]>(() => [{label: text(TEXT.openProject), value: OPEN_PROJECT}]);
 
@@ -253,26 +307,25 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header ref="root" class="workbench-titlebar" :class="`workbench-titlebar--${mode}`" :aria-label="text(TEXT.label)" data-workbench-titlebar :data-titlebar-mode="mode" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
+    <header ref="root" class="workbench-titlebar" :aria-label="text(TEXT.label)" data-workbench-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
-            <NeuroBookLockup v-if="mode !== 'minimal'" class="workbench-titlebar__brand" />
+            <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
             <NeuroBookMark v-else class="workbench-titlebar__mark" />
             <Dropdown v-if="project !== null" :items="projectItems" align="start" @select="select">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="`${text(TEXT.project)}：${project}`" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-                    <span class="workbench-titlebar__project-name">{{ project }}</span>
+                    <span v-if="showProjectName" class="workbench-titlebar__project-name">{{ project }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                 </Button>
             </Dropdown>
-            <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" data-titlebar-project @click="emit('open-project')">{{ text(TEXT.openProject) }}</Button>
+            <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" :title="text(TEXT.openProject)" :aria-label="text(TEXT.openProject)" data-titlebar-project @click="emit('open-project')">
+                <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                <span v-if="showProjectName">{{ text(TEXT.openProject) }}</span>
+            </Button>
             <span class="workbench-titlebar__divider" aria-hidden="true"></span>
-            <Menubar v-if="mode === 'full'" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
+            <Menubar v-if="showMenubar" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
             <Dropdown v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
-                <Button variant="ghost" size="sm" class="workbench-titlebar__button" data-titlebar-menu-entry>
-                    <span class="i-lucide-menu h-4 w-4" aria-hidden="true"></span>
-                    <span v-if="mode === 'compact'">{{ text(TEXT.menu) }}</span>
-                    <span v-else class="sr-only">{{ text(TEXT.menu) }}</span>
-                </Button>
+                <IconButton size="sm" icon-class="i-lucide-menu" :aria-label="text(TEXT.menu)" :title="text(TEXT.menu)" class="workbench-titlebar__button" data-titlebar-menu-entry />
             </Dropdown>
         </div>
 
@@ -286,13 +339,13 @@ onBeforeUnmount(() => {
                 @click="emit('search')"
             >
                 <span class="i-lucide-search h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-                <span v-if="mode !== 'minimal'" class="workbench-titlebar__search-label">{{ text(TEXT.search) }}</span>
-                <kbd v-if="mode !== 'minimal' && searchShortcut !== null" class="workbench-titlebar__kbd">{{ searchShortcut }}</kbd>
+                <span class="workbench-titlebar__search-label">{{ text(TEXT.search) }}</span>
+                <kbd v-if="showShortcut && searchShortcut !== null" class="workbench-titlebar__kbd">{{ searchShortcut }}</kbd>
             </Button>
         </div>
 
         <div class="workbench-titlebar__end">
-            <template v-if="mode !== 'minimal'">
+            <template v-if="showLayout">
                 <IconButton
                     v-for="part in PARTS"
                     :key="part"
@@ -309,6 +362,32 @@ onBeforeUnmount(() => {
             </template>
             <WorkbenchItemStrip v-if="items.length > 0" class="workbench-titlebar__items" :locale="locale" :entries="items" :item-height="28" align="end" @run="(id) => emit('run-item', id)" />
         </div>
+
+        <!--
+            测量层：各部件在各种样子下的宽度（逐级让位按它算），不可见、不占位、不进无障碍树与 Tab 顺序。复本只复刻样子：不带角色、
+            id 与真元素的类名（样式由下面的选择器套上），按类名、角色或文字找真元素的地方不会碰到它。
+        -->
+        <div ref="measureEl" class="workbench-titlebar__measure" aria-hidden="true" inert>
+            <NeuroBookLockup class="workbench-titlebar__measure-lockup" data-measure="lockup" />
+            <NeuroBookMark class="workbench-titlebar__measure-mark" data-measure="mark" />
+            <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" data-measure="project">
+                <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0"></span>
+                <span class="workbench-titlebar__measure-name">{{ project ?? text(TEXT.openProject) }}</span>
+                <span v-if="project !== null" class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
+            </Button>
+            <Button variant="ghost" size="sm" class="workbench-titlebar__button" data-measure="project-icon">
+                <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0"></span>
+                <span v-if="project !== null" class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
+            </Button>
+            <span class="workbench-titlebar__measure-divider" data-measure="divider"></span>
+            <!-- 菜单栏的复本：与 nb-ui Menubar 的 sm、flat 触发器同样的间距、内边距与字号；那边改了这里要跟着改。 -->
+            <span class="inline-flex items-center gap-0.5" data-measure="menubar">
+                <span v-for="group in menubar" :key="group.id" class="px-2 py-0.5 text-[12px] font-medium">{{ group.label }}</span>
+            </span>
+            <IconButton size="sm" icon-class="i-lucide-menu" aria-label="" class="workbench-titlebar__button" data-measure="menu-icon" />
+            <kbd class="workbench-titlebar__kbd" data-measure="shortcut">{{ searchShortcut }}</kbd>
+            <span class="workbench-titlebar__measure-group" data-measure="layout"><IconButton v-for="part in PARTS" :key="part" size="sm" :icon-class="PART_ICONS[part]" aria-label="" /></span>
+        </div>
     </header>
 </template>
 
@@ -317,10 +396,11 @@ onBeforeUnmount(() => {
     display: grid;
     /*
      * 左右两栏等分，搜索才在整条标题栏的正中；左组（标志、项目、菜单）放不进一半时左栏按内容撑开，搜索往右让。
-     * 两边都不让挤掉：左右栏最小取内容宽（项目名按档位有上限、会截断，条目区有上限、多的收进“更多”），空间不够时
-     * 收窄的是中间的搜索，最窄 36px（只剩图标）。
+     * 两边都不让挤掉：左右栏最小取内容宽（项目名有上限、会截断，条目区有上限、多的收进“更多”），空间不够时收窄的是
+     * 中间的搜索，最宽 560px、最窄 120px；再不够就按 `level` 逐级收起两侧的项（外壳四输出 30）。
      */
-    grid-template-columns: minmax(max-content, 1fr) minmax(36px, 360px) minmax(max-content, 1fr);
+    position: relative;
+    grid-template-columns: minmax(max-content, 1fr) minmax(120px, 560px) minmax(max-content, 1fr);
     align-items: center;
     gap: var(--space-2);
     width: 100%;
@@ -336,7 +416,8 @@ onBeforeUnmount(() => {
 }
 
 .workbench-titlebar__start,
-.workbench-titlebar__end {
+.workbench-titlebar__end,
+.workbench-titlebar__measure-group {
     display: flex;
     align-items: center;
     gap: var(--space-1);
@@ -353,21 +434,24 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
-/* 横排标志（标志 + 字标，墨色跟随文字色）；最窄一档换成单独的图形标志。 */
-.workbench-titlebar__brand {
+/* 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。测量层的复本同样的盒子。 */
+.workbench-titlebar__brand,
+.workbench-titlebar__measure-lockup {
     flex: 0 0 auto;
     height: 17px;
     margin-inline: var(--space-1) var(--space-2);
 }
 
-.workbench-titlebar__mark {
+.workbench-titlebar__mark,
+.workbench-titlebar__measure-mark {
     flex: 0 0 auto;
     height: 18px;
     margin-inline: var(--space-1);
 }
 
 /* 项目切换与菜单之间的短分隔。 */
-.workbench-titlebar__divider {
+.workbench-titlebar__divider,
+.workbench-titlebar__measure-divider {
     flex: 0 0 auto;
     width: var(--border-w);
     height: 16px;
@@ -396,11 +480,6 @@ onBeforeUnmount(() => {
     font-size: inherit;
 }
 
-.workbench-titlebar--minimal .workbench-titlebar__search {
-    width: 32px;
-    justify-content: center;
-}
-
 .workbench-titlebar__search-label {
     flex: 1 1 auto;
     min-width: 0;
@@ -422,15 +501,8 @@ onBeforeUnmount(() => {
     max-width: 220px;
 }
 
-.workbench-titlebar--compact .workbench-titlebar__project {
-    max-width: 160px;
-}
-
-.workbench-titlebar--minimal .workbench-titlebar__project {
-    max-width: 120px;
-}
-
-.workbench-titlebar__project-name {
+.workbench-titlebar__project-name,
+.workbench-titlebar__measure-name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -444,5 +516,19 @@ onBeforeUnmount(() => {
 .workbench-titlebar__items {
     flex: 0 1 auto;
     max-width: 320px;
+}
+
+/* 测量层：叠在标题栏下面，不可见、不接指针、不撑高度；子元素按内容宽度排开，量得出各自的宽度。 */
+.workbench-titlebar__measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: nowrap;
 }
 </style>

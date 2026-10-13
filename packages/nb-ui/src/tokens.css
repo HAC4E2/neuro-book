@@ -173,6 +173,17 @@
        横在玻璃对话框中间，整块玻璃就破了。 */
     --strip-surface: var(--bg-subtle);
     --divider: var(--border-color);
+
+    /* 交互反馈：拖动边界的悬停线与拖放的落点高亮。缺省就是一条 3px 的强调色实线、一层 12% 的淡底加 70% 的框。
+       --sash-line-size 是线芯厚度（装饰带最多 3px，超过按装饰带算）；--sash-line-inset 只作用在自由端，
+       碰到另一条同时亮着的边界的一端照旧连着（Splitter.md）。 */
+    --sash-line-color: var(--accent-main);
+    --sash-line-size: 3px;
+    --sash-line-inset: 0px;
+    --sash-line-radius: 0px;
+    --sash-line-glow: none;
+    --drop-area-fill: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    --drop-area-border: color-mix(in srgb, var(--accent-main) 70%, transparent);
 }
 
 /*

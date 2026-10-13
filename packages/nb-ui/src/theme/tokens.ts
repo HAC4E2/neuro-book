@@ -108,8 +108,18 @@ export const nbThemeRoleTokens = [
     "--divider",
 ] as const;
 
+/** 交互反馈：拖动边界的悬停线、拖放的落点高亮。主题决定线是实线还是发光、两端缩不缩、高亮多深。 */
+export const nbThemeFeedbackTokens = [
+    "--sash-line-color",
+    "--sash-line-size",
+    "--sash-line-inset",
+    "--sash-line-radius",
+    "--sash-line-glow",
+    "--drop-area-fill",
+    "--drop-area-border",
+] as const;
 /** 主题层基线的合集 */
-export const nbThemeTokens = [...nbThemeMetricTokens, ...nbThemeDecorTokens, ...nbThemeRoleTokens] as const;
+export const nbThemeTokens = [...nbThemeMetricTokens, ...nbThemeDecorTokens, ...nbThemeRoleTokens, ...nbThemeFeedbackTokens] as const;
 
 export type NbThemeToken = typeof nbThemeTokens[number];
 

@@ -42,6 +42,11 @@ const props = withDefaults(defineProps<{
     sizesPx?: readonly number[];
     /** 所属 Grid 的分支 id；独立使用时省略。分隔线身份与 aria 都用它。 */
     branchId?: string;
+    /**
+     * Grid 内部用：本分支的分隔线沿长轴两端挨着的外层分隔线（`<branchId>:<index>`），挨着的是容器边缘时为 null。
+     * 那条线此刻也亮着，这一端就连着它，不按 `--sash-line-inset` 缩进。
+     */
+    sashLineEnds?: {start: string | null; end: string | null};
 }>(), {
     direction: "horizontal",
     disabled: false,
@@ -49,6 +54,7 @@ const props = withDefaults(defineProps<{
     sashSizes: () => [],
     sizesPx: undefined,
     branchId: "panels",
+    sashLineEnds: () => ({start: null, end: null}),
 });
 
 const emit = defineEmits<{
@@ -377,8 +383,18 @@ function isCross(index: number): boolean {
 
 /** 已满足停留时长（或正在拖、键盘聚焦）的线才显示装饰；`hovered` 只决定光标。 */
 function isRevealed(index: number): boolean {
-    const key = sashKey(index);
+    return isLit(sashKey(index));
+}
+
+/** 同一 scope 里任一条线（含外层分支的）此刻亮不亮；键盘聚焦只亮一条，不需要连。 */
+function isLit(key: string): boolean {
     return scope.revealed.has(key) || scope.active.has(key);
+}
+
+/** 线的这一端连着另一条亮着的线（T 形交汇）；挨着容器边缘或那条线没亮时按自由端缩进。 */
+function endJoined(end: "start" | "end"): boolean {
+    const key = props.sashLineEnds[end];
+    return key !== null && isLit(key);
 }
 
 const viewportScale = ref(typeof window === "undefined" ? 1 : (window.devicePixelRatio || 1));
@@ -408,25 +424,23 @@ function scheduleSnap(): void {
 }
 
 /**
- * 写呈现用的四个长度：主轴起点/厚度 + 交叉轴铺满分隔盒。
- * 不用负 inset 外扩（那正是收起边界被裁细的来源），也不用 transform 叠位移（几何与样式各留一份会互相打架）。
+ * 写装饰的几何：只写主轴（起点与厚度），长轴两端交给样式（按 `data-axis`，取缩进变量，缺省贴满）。宿主与主题改变量就能
+ * 缩进，不用重新测量；换方向时把另一方向留下的值清掉。不用负 inset 外扩（那正是收起边界被裁细的来源），也不用
+ * transform 叠位移（几何与样式各留一份会互相打架）。
  */
 function writeDecorationGeometry(element: HTMLElement, box: SashBandBox, horizontal: boolean): void {
     const style = element.style;
     const start = `${Math.round(box.startPx * 10000) / 10000}px`;
     const thickness = `${Math.round(box.thicknessPx * 10000) / 10000}px`;
+    style.top = style.bottom = style.left = style.right = "";
     if (horizontal) {
         style.height = "";
         style.left = start;
         style.width = thickness;
-        style.top = "0px";
-        style.bottom = "0px";
     } else {
         style.width = "";
         style.top = start;
         style.height = thickness;
-        style.left = "0px";
-        style.right = "0px";
     }
 }
 
@@ -456,21 +470,42 @@ function snapLines(): void {
             afterPx: renderedSizes.value[index + 1] ?? 0,
             alignmentDeltaPx: (snappedCenter - center) / scale,
         });
-        const line = lineEls.get(index);
-        if (line !== null && line !== undefined && band !== null) {
-            writeDecorationGeometry(line, band, horizontal);
-        }
         /**
          * 接缝只认自己的盒：它标记的是边界本身，前后面板收起与否都不该把它推开，
          * 不套用装饰带的相邻面板扩展范围；设备像素对齐最多偏移半个设备像素。
          * 接缝盒没测到就不写——宁可不画，也不画一条位置不确定的线。
          */
+        const seamStartPx = Number.isFinite(box) && box > 0
+            ? (Math.round((center - SEAM_THICKNESS_PX * scale / 2) * dpr) / dpr - origin) / scale
+            : null;
+        const line = lineEls.get(index);
+        if (line !== null && line !== undefined && band !== null) {
+            writeDecorationGeometry(line, band, horizontal);
+            writeLineCore(line, band, seamStartPx);
+        }
         const seam = seamEls.get(index);
-        if (seam !== null && seam !== undefined && Number.isFinite(box) && box > 0) {
-            const startPx = (Math.round((center - SEAM_THICKNESS_PX * scale / 2) * dpr) / dpr - origin) / scale;
-            writeDecorationGeometry(seam, {startPx, thicknessPx: SEAM_THICKNESS_PX}, horizontal);
+        if (seam !== null && seam !== undefined && seamStartPx !== null) {
+            writeDecorationGeometry(seam, {startPx: seamStartPx, thicknessPx: SEAM_THICKNESS_PX}, horizontal);
         }
     }
+}
+
+/**
+ * 线芯：主题经 `--sash-line-size` 把线画得比装饰带细（例如 1px 加发光）。装饰带按中心对齐设备像素，细线在里面居中
+ * 会摊成两条半透明的线，所以细线芯对齐静止接缝（近端边落在设备像素上，奇数宽都是实的），再夹进装饰带，不越出去
+ * 被祖先裁掉。不比装饰带细时清掉变量，线芯铺满装饰带，就是原来的样子。
+ */
+function writeLineCore(element: HTMLElement, band: SashBandBox, seamStartPx: number | null): void {
+    const size = Number.parseFloat(getComputedStyle(element).getPropertyValue("--sash-line-size"));
+    if (seamStartPx === null || !(size > 0) || size >= band.thicknessPx) {
+        element.style.removeProperty("--nb-sash-core-start");
+        element.style.removeProperty("--nb-sash-core-size");
+        return;
+    }
+    const wanted = seamStartPx + (SEAM_THICKNESS_PX - size) / 2;
+    const start = Math.min(Math.max(wanted, band.startPx), band.startPx + band.thicknessPx - size);
+    element.style.setProperty("--nb-sash-core-start", `${Math.round((start - band.startPx) * 10000) / 10000}px`);
+    element.style.setProperty("--nb-sash-core-size", `${size}px`);
 }
 
 function setSeamRef(index: number, value: Element | null): void {
@@ -602,18 +637,22 @@ onBeforeUnmount(() => {
                           收起边界（相邻 0px）向内贴边，不会越出分隔盒被祖先的 `overflow-hidden` 裁细；
                           它盖在接缝之上，静止态透明，悬停满 SASH_HOVER_DELAY_MS 才淡入，按下与键盘聚焦立即全亮
                           ——显隐在下面 scoped CSS 里按 separator 自己的 data 属性取，不走祖先 group。
-                        两层都用分隔盒的交叉轴铺满（上下 / 左右为 0），只写内联几何，不动分隔盒与命中盒。
+                        两层的内联几何都只写主轴，长轴两端由样式按缩进变量定；不动分隔盒与命中盒。
                     -->
                     <template v-if="sashSizes[index] !== 0">
                         <span
                             :ref="(value) => setSeamRef(index, value as Element | null)"
                             aria-hidden="true"
                             class="sash-seam pointer-events-none absolute"
+                            :data-axis="axis"
                         />
                         <span
                             :ref="(value) => setLineRef(index, value as Element | null)"
                             aria-hidden="true"
                             class="sash-line pointer-events-none absolute"
+                            :data-axis="axis"
+                            :data-joined-start="endJoined('start') ? 'true' : undefined"
+                            :data-joined-end="endJoined('end') ? 'true' : undefined"
                         />
                     </template>
                 </div>
@@ -630,10 +669,75 @@ onBeforeUnmount(() => {
  * 静止接缝：常驻的 1 CSS px `--divider`。它标记的是**边界**本身，不是交互反馈——
  * 所以没有 hover / 拖动态，也不跟着 `disabled` 消失（不能拖不等于边界不存在）。
  * 位置与厚度由 `snapLines()` 写内联（和装饰带同一趟），这里只管颜色；0 宽边界不渲染这个元素。
- * 宿主可以经 `--nb-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明）。
+ * 宿主可以经 `--nb-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明），经 `--nb-splitter-seam-inset`
+ * 让它沿长轴两端缩进（开放式分割线）。
  */
 .sash-seam {
     background: var(--nb-splitter-seam, var(--divider));
+}
+
+/* 长轴两端：竖向的接缝（宽度轴的分隔）缩上下，横向的缩左右；装饰带照旧贴满。主轴由 `snapLines()` 写内联。 */
+.sash-seam[data-axis="width"] {
+    top: var(--nb-splitter-seam-inset, 0px);
+    bottom: var(--nb-splitter-seam-inset, 0px);
+}
+
+.sash-seam[data-axis="height"] {
+    left: var(--nb-splitter-seam-inset, 0px);
+    right: var(--nb-splitter-seam-inset, 0px);
+}
+
+/*
+ * 悬停线的长轴两端：自由端按主题的 `--sash-line-inset` 缩进；连着另一条亮着的线的一端（`data-joined-*`，T 形交汇）
+ * 照旧到头，两条线连成一体。
+ */
+.sash-line[data-axis="width"] {
+    top: var(--sash-line-inset, 0px);
+    bottom: var(--sash-line-inset, 0px);
+}
+
+.sash-line[data-axis="height"] {
+    left: var(--sash-line-inset, 0px);
+    right: var(--sash-line-inset, 0px);
+}
+
+.sash-line[data-axis="width"][data-joined-start] {
+    top: 0;
+}
+
+.sash-line[data-axis="width"][data-joined-end] {
+    bottom: 0;
+}
+
+.sash-line[data-axis="height"][data-joined-start] {
+    left: 0;
+}
+
+.sash-line[data-axis="height"][data-joined-end] {
+    right: 0;
+}
+
+/* 线芯：颜色、圆角与发光取主题 token；位置与厚度由 `writeLineCore()` 写成变量，没写时铺满装饰带。 */
+.sash-line::before {
+    position: absolute;
+    border-radius: var(--sash-line-radius, 0px);
+    background: var(--sash-line-color, var(--accent-main));
+    box-shadow: var(--sash-line-glow, none);
+    content: "";
+}
+
+.sash-line[data-axis="width"]::before {
+    top: 0;
+    bottom: 0;
+    left: var(--nb-sash-core-start, 0px);
+    width: var(--nb-sash-core-size, 100%);
+}
+
+.sash-line[data-axis="height"]::before {
+    left: 0;
+    right: 0;
+    top: var(--nb-sash-core-start, 0px);
+    height: var(--nb-sash-core-size, 100%);
 }
 
 /* 收起/展开是控件形变，走 --motion-base；拖动中关闭，避免跟手延迟。 */
@@ -645,10 +749,9 @@ onBeforeUnmount(() => {
  * 装饰带的显隐状态完全在这里：用 separator 的**直属子选择器**取自己的 data 属性，
  * 而不是 `group-data-*` 工具类——一条线的状态与父级/兄弟的 group 无关，
  * 祖先上恰好也叫 `group` 的节点不该把状态混进来。
- * 几何（left/top/width/height）由 `snapLines()` 写内联，样式只负责颜色与透明度。
+ * 主轴几何由 `snapLines()` 写内联，这里只管透明度；线芯的颜色与发光在上面的 `::before`。
  */
 .sash-line {
-    background: var(--accent-main);
     opacity: 0;
     transition-property: opacity;
     transition-duration: var(--motion-fast);

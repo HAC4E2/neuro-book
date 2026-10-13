@@ -193,6 +193,71 @@ describe("空着的右栏与面板（ui/workbench-shell.md 输出 39）", () => 
         expect(store.state.hiddenParts).toEqual([]);
         expect(store.state.panel.hidden).toBe(false);
     });
+
+    it("从别的区域放进收起成标题头的面板：同次展开（与放进的东西一起写）；面板里自己换序不展开", async () => {
+        const w = await world();
+        const mixed: ViewCatalog = new Map([
+            ["test.a", {title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a", location: "sidebar", layout: "scroll"}],
+            ["test.b", {title: {"zh-CN": "乙", "en-US": "B"}, icon: "i-b", location: "sidebar", layout: "scroll"}],
+            ["test.d", {title: {"zh-CN": "丁", "en-US": "D"}, icon: "i-d", location: "panel", layout: "scroll"}],
+            ["test.e", {title: {"zh-CN": "戊", "en-US": "E"}, icon: "i-e", location: "panel", layout: "scroll"}],
+        ]);
+        const {store, storage} = await openLayout(w, "w", "c", false, mixed);
+        expect(store.actions.setPanelCollapsed(true)).toBe(true);
+        expect(store.actions.applyView({kind: "move-container", containerId: "view:test.e", sourcePart: "panel", targetPart: "panel", beforeContainerId: "view:test.d"}).kind).toBe("patch");
+        await saved(store);
+        expect(store.state.panel.collapsed).toBe(true);
+        const revisionOf = (): string | null => (store.state.customizations.base?.status === "ok" ? store.state.customizations.base.revision : null);
+        const before = revisionOf();
+
+        expect(store.actions.applyView({kind: "detach-view", viewId: "test.b", sourceContainerId: "view:test.b", containerId: "custom:44444444-4444-4444-8444-444444444444", targetPart: "panel"}).kind).toBe("patch");
+        expect(store.state.panel.collapsed).toBe(false);
+        await saved(store);
+        expect(Number(revisionOf())).toBe(Number(before) + 1);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toMatchObject({panel: {collapsed: false}, views: {"test.b": {container: "custom:44444444-4444-4444-8444-444444444444"}}});
+    });
+
+    it("落在预备区：同一次写入把 Part 显示出来——空右栏记为主动显示过，隐藏又收起的面板显示且展开，拖到零的侧栏清掉；意图无变化时照样显示", async () => {
+        const w = await world();
+        const views: ViewCatalog = new Map([
+            ["test.a", {title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a", location: "sidebar", layout: "scroll"}],
+            ["test.b", {title: {"zh-CN": "乙", "en-US": "B"}, icon: "i-b", location: "sidebar", layout: "scroll"}],
+            ["test.c", {title: {"zh-CN": "丙", "en-US": "C"}, icon: "i-c", location: "sidebar", layout: "scroll"}],
+            ["test.d", {title: {"zh-CN": "丁", "en-US": "D"}, icon: "i-d", location: "panel", layout: "scroll"}],
+        ]);
+        const {store, storage} = await openLayout(w, "w", "c", false, views);
+        expect(store.state.hiddenParts).toEqual(["auxiliarybar"]);
+        // 记录还没写过时修订号按 0 算：这一次显示与放进去的视图只写一次。
+        const revisionOf = (): number => (store.state.customizations.base?.status === "ok" ? Number(store.state.customizations.base.revision) : 0);
+
+        const before = revisionOf();
+        expect(store.actions.applyView({kind: "detach-view", viewId: "test.b", sourceContainerId: "view:test.b", containerId: "custom:55555555-5555-4555-8555-555555555555", targetPart: "auxiliarybar"}, {reveal: "auxiliarybar"}).kind).toBe("patch");
+        expect(store.state.hiddenParts).toEqual([]);
+        await saved(store);
+        expect(revisionOf()).toBe(before + 1);
+        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toMatchObject({shownParts: ["auxiliarybar"]});
+
+        expect(store.actions.setPanelCollapsed(true)).toBe(true);
+        expect(store.actions.setPanelHidden(true)).toBe(true);
+        await saved(store);
+        expect(store.actions.applyView({kind: "move-container", containerId: "view:test.a", sourcePart: "sidebar", targetPart: "panel"}, {reveal: "panel"}).kind).toBe("patch");
+        expect([store.state.panel.hidden, store.state.panel.collapsed]).toEqual([false, false]);
+
+        // 先把侧栏的选中记下来，之后再选它就是无变化。
+        const selected = store.state.presentation.parts.sidebar.selected!;
+        store.actions.applyView({kind: "select-container", part: "sidebar", containerId: selected});
+        store.actions.commitSizes({dragCollapsed: {sidebar: true}});
+        await saved(store);
+        expect(store.state.dragCollapsed.sidebar).toBe(true);
+        expect(store.actions.applyView({kind: "select-container", part: "sidebar", containerId: selected}, {reveal: "sidebar"})).toEqual({kind: "unchanged"});
+        expect(store.state.dragCollapsed.sidebar).toBe(false);
+        // 拒绝的意图不显示
+        store.actions.commitSizes({dragCollapsed: {sidebar: true}});
+        await saved(store);
+        expect(store.actions.applyView({kind: "select-container", part: "sidebar", containerId: "view:不存在"}, {reveal: "sidebar"}).kind).toBe("rejected");
+        await saved(store);
+        expect(store.state.dragCollapsed.sidebar).toBe(true);
+    });
 });
 
 describe("瞬时最大化与呈现事实", () => {
@@ -591,10 +656,12 @@ describe("拖放的保存冲突（外壳三）", () => {
         expect(value.views?.["t.a"]?.container).toBeUndefined();
     });
 
-    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写、revision 不动，显示回到最新值，原因进 patchProblems", async () => {
+    it("带半区的并入在保存时前提不成立（目标容器已被另一个窗口挪到侧栏）：整条不写、revision 不动（连同放进收起面板时的展开），显示回到最新值，原因进 patchProblems", async () => {
         const w = await world();
         const [a] = await pair(w);
         a.store.actions.applyView({kind: "move-view", viewId: "t.e", sourceContainerId: "view:t.e", targetContainerId: "view:t.d"});
+        // 面板收着：A 以为是把甲放进收起的面板，会顺带展开它
+        expect(a.store.actions.setPanelCollapsed(true)).toBe(true);
         await saved(a.store);
         const other = await openLayout(w, "other", "c");
         other.store.actions.acceptViewCatalog(catalog);
@@ -612,5 +679,6 @@ describe("拖放的保存冲突（外壳三）", () => {
         if (before.status !== "ok") throw new Error(`最新值应已存在：${before.status}`);
         expect(a.store.state.customizations.display).toEqual(before.value);
         expect(a.store.state.placement.views.get("t.a")?.container).toBe("view:t.a");
+        expect(a.store.state.panel.collapsed).toBe(true);
     });
 });

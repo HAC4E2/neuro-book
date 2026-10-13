@@ -126,6 +126,27 @@ export function dropHitAt(root: Element, point: GridDropPoint, partOf: (containe
     return null;
 }
 
+/** 预备区：没显示的 Part，以及它显示出来会在的矩形（视口坐标）。 */
+export interface RevealZoneRect {
+    readonly part: ViewLocation;
+    readonly rect: GridDropRect;
+}
+
+/**
+ * 指针处的预备区。预备区叠在当前布局上、自己不接指针，所以按几何找；真实落点优先：指针下第一个业务元素在任何落点
+ * 里（包括落点里的工具区）时不算预备区，只有落在编辑器这类不接收视图的地方才轮到它。
+ */
+export function revealAt(root: Element, point: GridDropPoint, zones: ReadonlyArray<RevealZoneRect>): RevealZoneRect | null {
+    if (zones.length === 0) return null;
+    for (const element of root.ownerDocument.elementsFromPoint(point.x, point.y)) {
+        if (element.closest(FEEDBACK_SELECTOR) !== null) continue;
+        const target = element.closest(TARGET_SELECTOR);
+        if (target !== null && root.contains(target)) return null;
+        break;
+    }
+    return zones.find((zone) => inside(zone.rect, point)) ?? null;
+}
+
 /**
  * Switcher 几何：条目带的可见矩形，与按显示顺序的条目。条目用未裁剪的外框：滚出标签带的条目仍要参与排序，
  * `resolveListInsertion` 自己把它们夹进条目带。
@@ -196,7 +217,7 @@ const inside = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >=
 
 /**
  * 每个位置是一个落在区域里的坐标，交给与指针同一份命中与判定：Switcher 是每个条目的前缘（插到它之前）与末个条目
- * 之后；内容区是每个可见分节的前半与后半（插到它之前、之后）；全部收成细条时与空 Part 一样只有中心一个位置。
+ * 之后；内容区是每个可见分节的前半与后半（插到它之前、之后）；全部收成细条时是每条之前与最后一条之后。
  */
 export function keyboardStops(region: HTMLElement): KeyboardStops {
     const rect = readDropRect(region);
@@ -218,12 +239,24 @@ export function keyboardStops(region: HTMLElement): KeyboardStops {
         const axis = region.dataset.containerAxis === "horizontal" ? "horizontal" : "vertical";
         const content = readContentRects(region);
         const sections = [...region.querySelectorAll<HTMLElement>("[data-view-section]")].filter((section) => section.closest("[data-container-host]") === region);
-        if (content === null || sections.every((section) => section.dataset.viewCollapsed === "true")) return {axis: null, points: [center]};
-        const points = content.members.flatMap((member) => {
+        if (content === null) return {axis: null, points: [center]};
+        const at = (member: (typeof content.members)[number], ratio: number): GridDropPoint => {
             const start = axis === "horizontal" ? member.rect.left : member.rect.top;
             const size = axis === "horizontal" ? member.rect.right - member.rect.left : member.rect.bottom - member.rect.top;
-            return [0.25, 0.75].map((ratio) => (axis === "horizontal" ? {x: start + size * ratio, y: (member.rect.top + member.rect.bottom) / 2} : {x: (member.rect.left + member.rect.right) / 2, y: start + size * ratio}));
-        });
+            return axis === "horizontal" ? {x: start + size * ratio, y: (member.rect.top + member.rect.bottom) / 2} : {x: (member.rect.left + member.rect.right) / 2, y: start + size * ratio};
+        };
+        // 全部收起：每条标题之前一个插入位，最后一个之后再一个（有剩余区就停在剩余区里），与指针的插入位一一对应。
+        if (sections.every((section) => section.dataset.viewCollapsed === "true")) {
+            const points = content.members.map((member) => at(member, 0.25));
+            const last = content.members.at(-1);
+            if (last !== undefined) {
+                const end = axis === "horizontal" ? last.rect.right : last.rect.bottom;
+                const limit = axis === "horizontal" ? rect.right : rect.bottom;
+                points.push(limit - end > 4 ? (axis === "horizontal" ? {x: (end + limit) / 2, y: center.y} : {x: center.x, y: (end + limit) / 2}) : at(last, 0.75));
+            }
+            return {axis, points: points.filter((point) => inside(rect, point))};
+        }
+        const points = content.members.flatMap((member) => [0.25, 0.75].map((ratio) => at(member, ratio)));
         return {axis, points: points.filter((point) => inside(rect, point))};
     }
     return {axis: null, points: [center]};

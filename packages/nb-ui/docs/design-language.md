@@ -79,11 +79,13 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 上表“直接压在窗体底纹上”的面板靠间距分开，适用于书架、设置这类独立页面。工作台不同：它铺满视口，部件之间是
 外壳网格的可拖边界。部件之间怎么分开是主题的选择，外壳只读主题变量（`--shell-gap`、`--shell-ground`、
 `--shell-card-radius`、`--shell-card-shadow`、`--shell-chrome-surface`、`--shell-chrome-line`、`--shell-seam`、
-`--shell-join-divider`，[`ui/workbench-shell.md`](../../../docs/specs/ui/workbench-shell.md) 输出 38）：
+`--shell-join-divider`、`--shell-pane-divider`、`--shell-pane-divider-inset`，
+[`ui/workbench-shell.md`](../../../docs/specs/ui/workbench-shell.md) 输出 38）：
 
 - **卡片**（nbook）：部件是窗体底上的圆角卡片，缝本身就是边界，所以网格接缝、标题栏底线与状态栏顶线都不画；
   卡片不带外框，只靠底色差和一层很淡的投影（暗色换成一圈淡外框）。活动栏与通高的侧栏合成一张卡片，中间一条两端
-  不碰顶底的短线。开发者 2026-10-12 看过平铺后认为线太细、边界模糊，选回卡片。
+  不碰顶底的短线。开发者 2026-10-12 看过平铺后认为线太细、边界模糊，选回卡片。卡片里同一个容器的分栏之间仍要
+  一条线，否则分栏连成一片；这条线两端不碰卡片边（开放式分割线）。
 - **平铺**（macos，也是变量的缺省）：部件贴着窗体与彼此，同一块面板底色，可见的线只有标题栏底线、网格接缝与
   状态栏顶线。
 

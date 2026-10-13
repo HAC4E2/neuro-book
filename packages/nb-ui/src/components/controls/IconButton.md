@@ -8,7 +8,7 @@
 
 ## 布局
 
-按钮是固定正方形的 inline-flex：`xs` 为 24×24px（一行 32px 的头部里用，四周各留 4px，外扩焦点光晕不被头部所在的面板裁掉），`sm` 为 26×26px，`md` 为 32×32px，`lg` 为 38×38px。图标和默认插槽内容在正方形内居中，不换行；按钮不会根据内容扩张。窄屏仍保持正方形，连续按钮应由父级安排间距，内容过多时由父级处理布局。
+按钮是固定正方形的 inline-flex：`2xs` 为 14×14px（图标 12px，用在整行可点的标题行里当展开标记，离裁切边至少 4px），`xs` 为 24×24px（一行 32px 的头部里用，四周各留 4px，外扩焦点光晕不被头部所在的面板裁掉），`sm` 为 26×26px，`md` 为 32×32px，`lg` 为 38×38px。图标和默认插槽内容在正方形内居中，不换行；按钮不会根据内容扩张。窄屏仍保持正方形，连续按钮应由父级安排间距，内容过多时由父级处理布局。
 
 ## 交互
 
@@ -23,7 +23,7 @@
 
 ```ts
 export type IconButtonVariant = "default" | "danger" | "accent" | "secondary";
-export type IconButtonSize = "xs" | "sm" | "md" | "lg";
+export type IconButtonSize = "2xs" | "xs" | "sm" | "md" | "lg";
 export type FocusRingStyle = "outer" | "inset";
 
 type IconButtonProps = {

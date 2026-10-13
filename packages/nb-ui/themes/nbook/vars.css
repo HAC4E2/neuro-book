@@ -304,6 +304,16 @@
     --shell-chrome-line: transparent;
     --shell-seam: transparent;
     --shell-join-divider: var(--divider);
+    /* 卡片里容器分栏之间的线：两端各缩进 10px 的开放式分割线，与活动栏、侧栏之间那条短线同一种。 */
+    --shell-pane-divider: var(--divider);
+    --shell-pane-divider-inset: 10px;
+    /*
+     * 拖动边界的悬停线（t83 第三轮稿 R3-1）：沿用缺省的 3px 强调色实线、不发光，自由端缩进 16px（缝加卡片圆角），
+     * 正好不碰卡片的圆角，碰到另一条亮着的线的一端照旧连着。落点高亮比缺省深：卡片底色偏暖，12% 看不清。
+     */
+    --sash-line-inset: 16px;
+    --drop-area-fill: color-mix(in srgb, var(--accent-main) 20%, transparent);
+    --drop-area-border: var(--accent-main);
     /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。

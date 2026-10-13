@@ -78,7 +78,7 @@ type PartSlotProps = {
 };
 ```
 
-- 不 expose。attrs 落在组件根上；根带 `data-workbench-shell`、`data-shell-layout="split|compact"` 与 `data-layout-diagnostics`（最近几条降级与手势诊断）。
+- expose `revealZoneRects(): Array<{part: "sidebar" | "auxiliarybar" | "panel"; rect: {left, top, right, bottom}}>`：此刻没显示的侧栏、右栏、面板显示出来会在的矩形（视口坐标），拖动会话拿起时取一次当预备区（外壳三输出 20）；紧凑呈现时为空。attrs 落在组件根上；根带 `data-workbench-shell`、`data-shell-layout="split|compact"` 与 `data-layout-diagnostics`（最近几条降级与手势诊断）。
 - 手势结算：落账前整批核对（含不产生保存的分支则整场拒绝），经 nb-ui `useGridLayout` 一次 `resizeBranches`；落账后从这批提交算出补丁。交汇处的两根轴属于同一场手势，补丁里可能同时有侧栏宽度与面板高度。
 
 ## 状态

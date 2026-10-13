@@ -109,14 +109,14 @@ watch(() => props.collapsed, (isCollapsed) => {
 /* nav / content 是 Lab 当前的主题角色入口；两者都可由页面指向同一材质层。 */
 .nb-lab-panel--nav {
     background: var(--lab-nav-surface, var(--sidebar-surface, var(--bg-sidebar)));
-    backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
     -webkit-backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
+    backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
 }
 
 .nb-lab-panel--content {
     background: var(--lab-content-surface, var(--panel-surface, var(--bg-panel)));
-    backdrop-filter: var(--lab-content-blur, none);
     -webkit-backdrop-filter: var(--lab-content-blur, none);
+    backdrop-filter: var(--lab-content-blur, none);
 }
 
 /* 形状归使用方；本零件只负责内容角色对应的面。 */

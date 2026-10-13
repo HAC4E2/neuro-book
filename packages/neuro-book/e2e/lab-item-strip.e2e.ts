@@ -120,17 +120,19 @@ test("“更多”里的长文字换行显示全文，纯文字条目是禁用�
     await page.keyboard.press("Escape");
 });
 
-test("标题栏：长英文项目名、英文界面与条目共存，三档宽度下标志、项目、菜单入口、搜索、布局按钮与条目都在标题栏里、互不重叠（外壳四验收 35）", async ({page}) => {
+test("标题栏：长英文项目名、英文界面与条目共存，各个宽度下标志、项目、菜单入口、搜索、布局按钮与条目都在标题栏里、互不重叠（外壳四验收 35）", async ({page}) => {
     await page.setViewportSize({width: 1700, height: 900});
     for (const width of [1280, 960, 959, 700, 600, 599, 390]) {
         await openScene(page, `c=WorkbenchTitleBar&s=long&theme=nbook&vp=${String(width)}x120`);
         const layout = await page.locator(".lab-main [data-lab-stage] [data-workbench-titlebar]").evaluate((bar) => {
             const box = bar.getBoundingClientRect();
+            // 测量层（不可见，量让位用的复本）不算
             const parts = [...bar.querySelectorAll<HTMLElement>(".workbench-titlebar__brand, .workbench-titlebar__mark, [data-titlebar-project], [data-titlebar-menu-entry], [data-titlebar-search], [data-titlebar-layout], [data-workbench-item], [data-workbench-item-more]")]
+                .filter((element) => element.closest(".workbench-titlebar__measure") === null)
                 .map((element) => element.getBoundingClientRect())
                 .filter((rect) => rect.width > 0)
                 .map((rect) => ({left: rect.left - box.left, right: rect.right - box.left}));
-            return {mode: bar.getAttribute("data-titlebar-mode"), width: box.width, parts, scroll: bar.scrollWidth};
+            return {mode: `档 ${bar.getAttribute("data-titlebar-level") ?? ""}`, width: box.width, parts, scroll: bar.scrollWidth};
         });
         expect(layout.scroll, `${String(width)} 标题栏不出现横向溢出`).toBeLessThanOrEqual(Math.ceil(layout.width));
         const sorted = [...layout.parts].sort((a, b) => a.left - b.left);

@@ -11,7 +11,9 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} 
 
 import {SHELL_CARD_PARTS, shellCardInset, shellCards} from "../shell/cards";
 import type {ShellCardPart} from "../shell/cards";
-import {createShellGrid, projectShell, shellGestureProblem, shellPatch} from "../shell/layout";
+import {createShellGrid, projectShell, SHELL_ROOT_ID, shellGestureProblem, shellPatch} from "../shell/layout";
+import {revealZones} from "../shell/reveal";
+import type {RevealPart} from "../shell/reveal";
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {PanelState} from "../shell/panel-state";
 import {SHELL_DRAG_COLLAPSIBLE_IDS, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
@@ -281,6 +283,19 @@ function joinOf(part: ShellPartId): "start" | "end" | undefined {
     return undefined;
 }
 
+/**
+ * 拖动时浮出的预备区（docs/specs/ui/workbench-shell.md 外壳三输出 20）：此刻没显示的侧栏、右栏、面板显示出来会在的矩形，
+ * 换成视口坐标。拖动会话在拿起时取一次；网格根量不出来（紧凑呈现、还没挂上）时没有。
+ */
+function revealZoneRects(): Array<{part: RevealPart; rect: {left: number; top: number; right: number; bottom: number}}> {
+    const measured = extent.value;
+    const origin = rootEl.value?.querySelector<HTMLElement>(`[data-splitter="${SHELL_ROOT_ID}"]`)?.getBoundingClientRect();
+    if (measured === null || origin === undefined) return [];
+    const zones = revealZones({extent: measured, preferences: props.sizes, panel: props.panel, hiddenParts: props.hiddenParts, dragCollapsedParts: props.dragCollapsedParts, cardGap: cardGap.value});
+    return zones.map(({part, rect}) => ({part, rect: {left: origin.left + rect.left, top: origin.top + rect.top, right: origin.left + rect.right, bottom: origin.top + rect.bottom}}));
+}
+
+defineExpose({revealZoneRects});
 </script>
 
 <template>

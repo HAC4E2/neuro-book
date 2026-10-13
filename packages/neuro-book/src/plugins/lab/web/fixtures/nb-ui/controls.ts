@@ -206,6 +206,13 @@ export const controlsFixtures: LabFixture[] = [
             {id: "default", label: "带计数与不可用项", input: {props: {items: TABS, ariaLabel: "检视", size: "md"}, model: {modelValue: "doc"}}},
             {id: "small", label: "小号", input: {props: {items: TABS, ariaLabel: "检视", size: "sm"}, model: {modelValue: "events"}}},
             {id: "overflow", label: "放不下时横向滚动", input: {props: {items: Array.from({length: 16}, (_, index) => ({value: `ch-${String(index)}`, label: `第 ${String(index + 1)} 章`, iconClass: "i-lucide-file-text"})), ariaLabel: "章节", size: "sm"}, model: {modelValue: "ch-0"}}},
+            // 拖画布宽度看四档：完整、截断到 96px、只留图标、收进“更多”。
+            {id: "adapt", label: "放不下时逐级让位", input: {props: {items: [
+                {value: "terminal", label: "终端", iconClass: "i-lucide-terminal"},
+                {value: "output", label: "输出：一个很长的面板标题", iconClass: "i-lucide-scroll-text"},
+                {value: "problems", label: "问题", iconClass: "i-lucide-circle-alert", count: 3},
+                {value: "history", label: "历史记录", iconClass: "i-lucide-history"},
+            ], ariaLabel: "面板", size: "sm", overflow: "adapt"}, model: {modelValue: "problems"}}},
         ],
         subject: nbUiSubject("Tabs"),
     }),

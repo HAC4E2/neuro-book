@@ -189,6 +189,16 @@ export const manifest: NbThemeManifest = {
             fallback: "transparent",
             description: "活动栏与侧栏相连时两者之间那条短线的颜色。",
         },
+        {
+            name: "--shell-pane-divider",
+            fallback: "var(--divider)",
+            description: "同一个视图容器里分栏之间那条线的颜色（不继承外壳网格的接缝色）。",
+        },
+        {
+            name: "--shell-pane-divider-inset",
+            fallback: "0px",
+            description: "分栏之间那条线沿长轴两端的缩进；0 是贯穿的接缝，大于 0 是两端不碰到头的开放式分割线。",
+        },
     ],
     providesColorways: ["nbook-light", "nbook-dark"],
     defaultColorway: {light: "nbook-light", dark: "nbook-dark"},

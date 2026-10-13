@@ -290,11 +290,11 @@ defineExpose({focus: focusTree});
     >
         <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
         <TransitionGroup name="explorer-row" tag="div" class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}">
-            <!-- 行左右各留 6px：悬停与选中的底色是圆角块，不贴着侧栏的边。 -->
+            <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
             <ExplorerRow
                 v-for="item in rendered"
                 :key="item.row.id"
-                class="explorer-tree__row absolute left-1.5 right-1.5"
+                class="explorer-tree__row absolute"
                 :style="{top: `${String(item.index * rowHeight)}px`}"
                 :row="item.row"
                 :locale="locale"
@@ -318,6 +318,11 @@ defineExpose({focus: focusTree});
 </template>
 
 <style scoped>
+.explorer-tree__row {
+    left: var(--view-inset-inline, 6px);
+    right: var(--view-inset-inline, 6px);
+}
+
 .explorer-tree[data-explorer-dragging] {
     cursor: grabbing;
 }
