@@ -31,7 +31,7 @@ describe("herdr 客户端", () => {
         const herdr = await fake();
         const client = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_CLI_METHODS});
         expect(await client.availability()).toEqual({ok: true, version: "fake", socketPath: herdr.socketPath});
-        expect(await client.listPanes()).toEqual([{paneId: "w9:p1", terminalId: "term_w9:p1", agent: "claude", status: "idle", session: {agent: "claude", kind: "id", value: "11111111-1111-4111-8111-111111111111"}, cwd: null, foregroundCwd: null}]);
+        expect(await client.listPanes()).toEqual([{paneId: "w9:p1", terminalId: "term_w9:p1", agent: "claude", status: "idle", session: {agent: "claude", kind: "id", value: "11111111-1111-4111-8111-111111111111"}, cwd: null, foregroundCwd: null, focused: false}]);
         expect(await client.processInfo("w9:p1")).toEqual({paneId: "w9:p1", shellPid: 10, foregroundGroupId: 11, foregroundPids: [11, 12]});
         expect(await client.processInfo("w9:missing")).toBeNull();
         await client.reportTaskTokens("w9:p1", {work: "w00022", task: "t07"});
@@ -80,7 +80,7 @@ describe("herdr 客户端", () => {
         expect(await offline.availability()).toMatchObject({ok: false, reason: "server_not_running"});
         const herdr = await fake();
         const exhausted = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_CLI_METHODS, budgetMs: 0});
-        await expect(exhausted.listPanes()).rejects.toMatchObject({code: "timeout"});
+        await expect(exhausted.listPanes()).rejects.toMatchObject({code: "client_timeout"});
         expect(herdr.requests).toEqual([]);
     });
 });
