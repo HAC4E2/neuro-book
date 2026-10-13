@@ -7,7 +7,8 @@ import {panelState} from "./panel-data.js";
  * - 页面切到后台：接管先发 release（原因 hidden），然后连观看一起关掉；切回来再连，只恢复观看（不自动重新接管）；
  * - 接管期间每 5 秒发一次心跳（服务端 15 秒没收到就释放）；
  * - 断线后重连前先取一次 `/api/meta`，回 401 就停（与 `/ws` 一样）；服务端用 4403、4404、4409、4503 关闭时不重连，显示原因。
- * 帧经 `source.subscribe` 交给零件（`TerminalView`、`TerminalTextView`），零件不碰连接。
+ * 帧经 `source.subscribe` 交给零件（`TerminalView`、`TerminalTextView`），零件不碰连接；连接推过帧之后才挂上的零件错过了整屏，
+ * 观看时发 `resync` 让服务端重起 observe（接管时只能等下一次输出）。
  */
 
 export type TerminalFrame = {seq: number; full: boolean; w: number; h: number; bytes: Uint8Array};
@@ -42,13 +43,16 @@ export function useTerminalSocket(target: {paneId: string; terminalId: string}) 
         pending: false,
     });
     const listeners = new Set<(frame: TerminalFrame) => void>();
+    let ws: WebSocket | null = null;
+    /** 这条连接已经推过帧：之后新挂上的视图错过了整屏，观看时请服务端重起 observe（接管时只能等下一次输出）。 */
+    let framed = false;
     const source: TerminalSource = {
         subscribe(listener) {
             listeners.add(listener);
+            if (framed && state.mode === "watch") send({t: "resync"});
             return () => listeners.delete(listener);
         },
     };
-    let ws: WebSocket | null = null;
     let attempts = 0;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let reconnect: ReturnType<typeof setTimeout> | null = null;
@@ -71,6 +75,7 @@ export function useTerminalSocket(target: {paneId: string; terminalId: string}) 
             return;
         }
         if (message.t === "frame") {
+            framed = true;
             const frame: TerminalFrame = {seq: message.seq as number, full: message.full === true, w: message.w as number, h: message.h as number, bytes: decode(message.b as string)};
             for (const listener of listeners) listener(frame);
             return;
@@ -120,6 +125,7 @@ export function useTerminalSocket(target: {paneId: string; terminalId: string}) 
         if (disposed || document.visibilityState === "hidden") return;
         state.status = "connecting";
         state.closedReason = null;
+        framed = false;
         const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/terminal?pane=${encodeURIComponent(target.paneId)}&terminal=${encodeURIComponent(target.terminalId)}`);
         ws = socket;
         socket.addEventListener("open", () => {

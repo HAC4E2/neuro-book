@@ -143,6 +143,9 @@ const consoleDisabled = computed(() => {
     return null;
 });
 
+/** 更早的输出（手机的文字视图，只给 omp）：点一次读一次，不轮询。Claude 不给，见 docs/panel.md 的“手机”。 */
+const history = ref<{text: string; lines: number; at: string} | null>(null);
+const historyPending = ref(false);
 async function readScreen(): Promise<void> {
     const current = selected.value;
     if (!current) return;
@@ -164,9 +167,6 @@ watch(() => selected.value?.sessionKey ?? null, (key) => {
     if (key) void readScreen();
 }, {immediate: true});
 
-/** 更早的输出（手机的文字视图，只给 omp）：点一次读一次，不轮询。Claude 不给，见 docs/panel.md 的“手机”。 */
-const history = ref<{text: string; lines: number; at: string} | null>(null);
-const historyPending = ref(false);
 async function readHistory(): Promise<void> {
     const current = selected.value;
     if (!current) return;

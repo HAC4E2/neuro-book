@@ -156,7 +156,8 @@ export class TerminalHub {
         if (conn.closed || this.exiting || !this.options.tools.available) return;
         const controlling = [...this.conns.values()].find((entry) => entry.terminalId === conn.terminalId && entry.mode === "control" && entry.control);
         const size = controlling?.control ? controlling.control.size : await this.readSize(conn.paneId);
-        if (conn.closed || this.exiting || conn.mode !== "watch") return;
+        // 读尺寸期间另一次重起（5 秒复查、别的连接接管或释放、页面要 resync）已经起了 observe：不再起第二个，否则旧的成了收不到的孤儿。
+        if (conn.closed || this.exiting || conn.mode !== "watch" || conn.stream) return;
         conn.sizeKnown = size !== null;
         conn.watchSize = size ?? FALLBACK_SIZE;
         this.spawn(conn, "observe", false);
@@ -253,6 +254,10 @@ export class TerminalHub {
             return;
         case "release":
             if (conn.mode === "control") void this.release(conn, message.reason === "hidden" ? "hidden" : "user", false);
+            return;
+        // 页面上新挂的视图错过了第一帧（手机的文字视图与终端画面之间切换）：观看时重起 observe，第一帧就是整屏。接管时不理（control 不能重起而不重新抢）。
+        case "resync":
+            if (conn.mode === "watch") void this.restartWatch(conn);
             return;
         default: return this.closeConn(conn, TERMINAL_CLOSE.badMessage, `不认识的消息：${String(message.t)}`);
         }

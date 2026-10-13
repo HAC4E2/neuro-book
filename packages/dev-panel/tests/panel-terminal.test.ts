@@ -163,6 +163,12 @@ describe("观看", () => {
         await writeFile(join(state, `screen-${TERMINAL}.txt`), "新的一行");
         await until(() => client.messages.filter((message) => message.t === "frame").length >= 2, 5_000, "增量帧");
         expect(streamProcesses(fake.socketPath).length).toBe(1);
+        // 页面上新挂的视图要整屏：resync 重起 observe；连着发几次也只留一个子进程。
+        const from = client.messages.length;
+        for (let count = 0; count < 3; count += 1) client.send({t: "resync"});
+        expect(await client.next("frame", from)).toMatchObject({full: true});
+        await Bun.sleep(1_500);
+        expect(streamProcesses(fake.socketPath).length).toBe(1);
         client.ws.close();
         await client.closed;
         await until(() => streamProcesses(fake.socketPath).length === 0, 3_000, "关连接之后子进程退出");
