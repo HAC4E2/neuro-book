@@ -1,0 +1,12 @@
+{
+    "_说明": "L4 的假 Claude 界面（tests/fixtures/fake-claude-tui.py 画的原样内容）：t11 S0 的假 TUI 样本，另加一份输入框里有暗色占位文字的空输入框。",
+    "screens": {
+        "idle-empty": "● 上一轮的回复。\n\n────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────\n  ? for shortcuts\n",
+        "idle-typed": "● 上一轮的回复。\n\n────────────────────────────────────────────────────────────\n❯ 我正在打的半截字\n────────────────────────────────────────────────────────────\n  ? for shortcuts\n",
+        "slash-menu": "● 上一轮的回复。\n\n────────────────────────────────────────────────────────────\n❯ /\n────────────────────────────────────────────────────────────\n  /add-dir            Add a new working directory\n  /agents             Manage agent configurations\n  /clear              Clear conversation history\n  /compact            Clear history but keep a summary\n",
+        "model-picker": " Select model\n Switch between Claude models. Applies to this session and future Claude Code sessions.\n\n ❯ 1. Default (recommended)  Opus\n   2. Sonnet\n   3. Haiku\n\n Enter to set as default · Esc to cancel\n",
+        "transcript": "● 某次回复\n\n  Showing detailed transcript · ctrl+o to toggle\n",
+        "unknown-confirm": "● 一个新的确认界面。\n\n────────────────────────────────────────────────────────────\n Allow Claude to fetch https://example.com ?\n ❯ Allow once\n   Always allow\n   Deny\n",
+        "idle-placeholder": "● 上一轮的回复。\n\n────────────────────────────────────────────────────────────\n❯ \u001b[2mTry \"refactor the panel\"\u001b[0m\n────────────────────────────────────────────────────────────\n  ? for shortcuts\n"
+    }
+}

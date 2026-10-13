@@ -2,14 +2,16 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {spawn, spawnSync, type ChildProcess} from "node:child_process";
 import {randomBytes, randomUUID} from "node:crypto";
 import {once} from "node:events";
-import {existsSync} from "node:fs";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
+import {existsSync, readFileSync} from "node:fs";
+import {chmod, copyFile, mkdir, readFile, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
 import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {locateRepository} from "../src/core/repo.js";
+import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
+import {checkDeliverable, deliverKeys, deliverText, type DeliveryContext} from "../src/server/delivery.js";
 import {startPanelServer} from "../src/server/serve.js";
 import {cleanupFixtures, CLI_PATH, createFixture, panelEnv, type CliEnvelope} from "./git-fixture.js";
 
@@ -159,4 +161,97 @@ describe("真实 herdr（命名会话）", () => {
         const waited = JSON.parse(await readFile(out, "utf8")) as {data: {artifacts: Array<{unacked: string[]}>}};
         expect(waited.data.artifacts[0]!.unacked).toEqual([body.data.answer.answerId]);
     }, 90_000);
+});
+
+describe("真实 herdr 的投递（t11，命名会话里名为 claude 的假界面）", () => {
+    const SCREENS = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "fake-claude-screens.json"), "utf8")) as {screens: Record<string, string>}).screens;
+
+    /** 在命名会话里起一格假 Claude：可执行文件名是 claude（herdr 按进程名认），再报一个会话 id。 */
+    async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
+        const bin = join(root, "bin");
+        await mkdir(bin, {recursive: true});
+        await copyFile(resolve(import.meta.dirname, "fixtures", "fake-claude-tui.py"), join(bin, "claude"));
+        await chmod(join(bin, "claude"), 0o755);
+        const screenFile = join(root, "screen.txt");
+        const log = join(root, "tui.log");
+        await writeFile(screenFile, SCREENS["idle-empty"]!);
+        await writeFile(log, "");
+        const created = herdr(["workspace", "create", "--cwd", cwd, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
+        const paneId = created.result.root_pane.pane_id;
+        herdr(["pane", "run", paneId, `SCREEN='${screenFile}' FAKE_LOG='${log}' '${join(bin, "claude")}'`]);
+        const detected = () => {
+            // 认出来之前 `agent get` 以非零退出（agent_not_found），这里只看有没有认成 claude。
+            const result = spawnSync("herdr", ["--session", SESSION, "agent", "get", paneId], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
+            return result.status === 0 && result.stdout.includes('"agent":"claude"');
+        };
+        for (let waited = 0; !detected(); waited += 200) {
+            if (waited > 15_000) throw new Error(`15 秒内 herdr 没有把假界面认成 claude：${JSON.stringify(herdr(["pane", "get", paneId]))}`);
+            await sleep(200);
+        }
+        const sessionId = randomUUID();
+        herdr(["pane", "report-agent-session", paneId, "--source", "herdr:claude", "--agent", "claude", "--agent-session-id", sessionId]);
+        await sleep(1_500);
+        return {
+            paneId,
+            sessionId,
+            // herdr 按清单读屏要一点时间（S0 实测 1.5 秒够）。
+            async screen(name) {
+                await writeFile(screenFile, SCREENS[name]!);
+                await sleep(1_500);
+            },
+            async bytes() {
+                return (await readFile(log, "utf8")).split("\n").filter((line) => line !== "");
+            },
+            async clearLog() {
+                await writeFile(log, "");
+            },
+        };
+    }
+
+    test.skipIf(!herdrInstalled)("认不出的确认界面、详细记录、模型选择、命令表、输入框有字都判不可投、不写一个字节；空输入框（含暗色占位）可投、投进去；按键的字节；换了会话 id 就拒绝", async () => {
+        await startSessionServer();
+        const fixture = await createFixture("herdr-live-deliver");
+        const tui = await fakeClaude(fixture.root, fixture.main);
+        const context: DeliveryContext = {client: createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS}), repoRoots: [fixture.main]};
+        const target = {paneId: tui.paneId, sessionKey: `claude:${tui.sessionId}`};
+
+        for (const name of ["unknown-confirm", "transcript", "model-picker", "slash-menu", "idle-typed"]) {
+            await tui.screen(name);
+            await tui.clearLog();
+            const checked = await checkDeliverable(context, target);
+            expect([name, checked.ok]).toEqual([name, false]);
+            await sleep(300);
+            expect([name, await tui.bytes()]).toEqual([name, []]);
+        }
+
+        for (const name of ["idle-empty", "idle-placeholder"]) {
+            await tui.screen(name);
+            await tui.clearLog();
+            const checked = await checkDeliverable(context, target);
+            expect([name, checked.ok ? "ok" : `${checked.code}：${checked.detail}`]).toEqual([name, "ok"]);
+            const outcome = await deliverText(context, target, `[nbdev] L4 ${name}`, checked.ok ? checked.agent : (null as never));
+            // 假界面不会进入工作，herdr 等到点：已写入、不重发。
+            expect([name, outcome.result]).toEqual([name, "uncertain"]);
+            const written = (await tui.bytes()).join("\n");
+            expect([name, written.includes(`[nbdev] L4 ${name}`), written.includes("\\r")]).toEqual([name, true, true]);
+        }
+
+        await tui.screen("idle-empty");
+        const KEY_BYTES: Record<string, string> = {up: "'\\x1b[A'", down: "'\\x1b[B'", "shift+tab": "'\\x1b[Z'", enter: "'\\r'", esc: "'\\x1b'", "ctrl+c": "'\\x03'", y: "'y'", n: "'n'"};
+        for (const [key, bytes] of Object.entries(KEY_BYTES)) {
+            await tui.clearLog();
+            expect((await deliverKeys(context, target, [key])).ok).toBe(true);
+            await sleep(300);
+            expect([key, (await tui.bytes()).map((line) => line.slice(line.indexOf(" ") + 1)).join("")]).toEqual([key, `b${bytes}`]);
+        }
+
+        // `/clear` 之后会话 id 变了，herdr 不推事件；按旧会话键投递在紧贴投递的核对上被拒绝，不写字节。
+        herdr(["pane", "report-agent-session", tui.paneId, "--source", "herdr:claude", "--agent", "claude", "--agent-session-id", randomUUID(), "--session-start-source", "clear"]);
+        await sleep(500);
+        await tui.clearLog();
+        expect(await checkDeliverable(context, target)).toMatchObject({ok: false, code: "session_changed"});
+        expect(await deliverKeys(context, target, ["enter"])).toMatchObject({ok: false, code: "session_changed"});
+        await sleep(300);
+        expect(await tui.bytes()).toEqual([]);
+    }, 120_000);
 });
