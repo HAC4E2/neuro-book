@@ -74,6 +74,8 @@ updated: 2026-10-13
 - 2026-10-13 按开发者授权，集成分支 `3f474ce4c` 本地合入 `master`（合并提交 `23f604ebf`，没有 PR、没有 push master），根 `AGENTS.md` 的 `[nbdev]` 一句随之生效。合并提交上复跑：包测试 251 个（L4 刚在 `3f474ce4c` 上跑过，包内容与它相同，这次跳过以免与 t12 的命名会话冲突）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
 - 2026-10-13 运行审计初始化：`~/.config/nbdev/` 权限 700，`audit.jsonl` 与 `init.json` 权限 600，启用时刻 `2026-10-13T05:13:06Z`；这之前的答复不自动通知。
 
+- 2026-10-13 开发者停掉手动起的面板后，按授权运行 `install-service`：`~/.config/systemd/user/nbdev-panel-neuro-book.service` 已 `enable --now`，状态 `active`，约 1 秒预热完成，日志在 `journalctl --user -u nbdev-panel-neuro-book.service`。
+
 ## 下一步
 
-开发者手动起的面板停掉之后安装 systemd 用户服务；开发者在场时做场景 1；之后标为 `done`。
+开发者在场时做场景 1；之后标为 `done`。
