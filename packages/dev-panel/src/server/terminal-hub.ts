@@ -26,9 +26,9 @@ const LIMIT_TOTAL = 16;
 const LIMIT_PER_TERMINAL = 4;
 const FALLBACK_SIZE = {cols: 120, rows: 40};
 const WATCH_RECHECK_MS = 5_000;
-const HANDSHAKE_MS = 5_000;
-const HEARTBEAT_MS = 15_000;
-const IDLE_MS = 15 * 60_000;
+/** 接管的几个时限：握手等第一行、没有心跳、没有输入。合同里的值是缺省值；测试可以改小（`TerminalHubOptions.timings`）。 */
+export type TerminalTimings = {handshakeMs: number; heartbeatMs: number; idleMs: number};
+const DEFAULT_TIMINGS: TerminalTimings = {handshakeMs: 5_000, heartbeatMs: 15_000, idleMs: 15 * 60_000};
 const BACKPRESSURE_BYTES = 1024 * 1024;
 const MAX_INPUT = 64 * 1024;
 
@@ -68,6 +68,7 @@ export type TerminalHubOptions = {
     locks: PaneLocks;
     controls: ControlRegistry;
     log: (message: string) => void;
+    timings?: Partial<TerminalTimings>;
 };
 
 const streamOf = (conn: Conn): TerminalStream | null => conn.stream;
@@ -76,8 +77,11 @@ const keyOf = (pane: HerdrSnapshotPane) => (pane.session ? `${pane.session.agent
 export class TerminalHub {
     private readonly conns = new Map<string, Conn>();
     private exiting = false;
+    private readonly timings: TerminalTimings;
 
-    constructor(private readonly options: TerminalHubOptions) {}
+    constructor(private readonly options: TerminalHubOptions) {
+        this.timings = {...DEFAULT_TIMINGS, ...options.timings};
+    }
 
     status(): {available: boolean; reason: string | null} {
         return this.options.tools.available ? {available: true, reason: null} : {available: false, reason: this.options.tools.reason};
@@ -345,9 +349,9 @@ export class TerminalHub {
         // 本面板的另一个浏览器在接管：把接管前的尺寸交给新的接管者，那边释放时不改回（Claude 不会连排两次）。
         if (other?.control) other.control.handedOff = true;
         const now = Date.now();
-        conn.control = {actionId, since: now, before, size, lastAlive: now, lastInput: now, stats: {inputs: 0, inputBytes: 0, enters: 0, pastes: 0, pasteBytes: 0, resizes: 0, buttons: 0}, handedOff: false, timer: setInterval(() => this.checkControl(conn), 5_000)};
+        conn.control = {actionId, since: now, before, size, lastAlive: now, lastInput: now, stats: {inputs: 0, inputBytes: 0, enters: 0, pastes: 0, pasteBytes: 0, resizes: 0, buttons: 0}, handedOff: false, timer: setInterval(() => this.checkControl(conn), Math.min(5_000, Math.ceil(this.timings.heartbeatMs / 3)))};
         const first = await new Promise<StreamLine | null | "timeout">((resolve) => {
-            const timer = setTimeout(() => resolve("timeout"), HANDSHAKE_MS);
+            const timer = setTimeout(() => resolve("timeout"), this.timings.handshakeMs);
             this.spawn(conn, "control", force || other !== null, (line) => {
                 clearTimeout(timer);
                 resolve(line);
@@ -401,8 +405,8 @@ export class TerminalHub {
         const control = conn.control;
         if (!control || conn.mode !== "control") return;
         const now = Date.now();
-        if (now - control.lastAlive > HEARTBEAT_MS) void this.release(conn, "heartbeat", false);
-        else if (now - control.lastInput > IDLE_MS) void this.release(conn, "idle", false);
+        if (now - control.lastAlive > this.timings.heartbeatMs) void this.release(conn, "heartbeat", false);
+        else if (now - control.lastInput > this.timings.idleMs) void this.release(conn, "idle", false);
     }
 
     private input(conn: Conn, message: Record<string, unknown>): void {

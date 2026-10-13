@@ -2,13 +2,14 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {spawn, spawnSync, type ChildProcess} from "node:child_process";
 import {randomBytes, randomUUID} from "node:crypto";
 import {once} from "node:events";
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {chmod, copyFile, mkdir, readFile, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
 import {createConnection} from "node:net";
 import {dirname, join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {auditPaths, initAudit} from "../src/core/audit.js";
 import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
@@ -166,51 +167,51 @@ describe("真实 herdr（命名会话）", () => {
     }, 90_000);
 });
 
-describe("真实 herdr 的投递（t11，命名会话里名为 claude 的假界面）", () => {
-    const SCREENS = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "fake-claude-screens.json"), "utf8")) as {screens: Record<string, string>}).screens;
+const SCREENS = (JSON.parse(readFileSync(resolve(import.meta.dirname, "fixtures", "fake-claude-screens.json"), "utf8")) as {screens: Record<string, string>}).screens;
 
-    /** 在命名会话里起一格假 Claude：可执行文件名是 claude（herdr 按进程名认），再报一个会话 id。 */
-    async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
-        const bin = join(root, "bin");
-        await mkdir(bin, {recursive: true});
-        await copyFile(resolve(import.meta.dirname, "fixtures", "fake-claude-tui.py"), join(bin, "claude"));
-        await chmod(join(bin, "claude"), 0o755);
-        const screenFile = join(root, "screen.txt");
-        const log = join(root, "tui.log");
-        await writeFile(screenFile, SCREENS["idle-empty"]!);
-        await writeFile(log, "");
-        const created = herdr(["workspace", "create", "--cwd", cwd, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
-        const paneId = created.result.root_pane.pane_id;
-        herdr(["pane", "run", paneId, `SCREEN='${screenFile}' FAKE_LOG='${log}' '${join(bin, "claude")}'`]);
-        const detected = () => {
-            // 认出来之前 `agent get` 以非零退出（agent_not_found），这里只看有没有认成 claude。
-            const result = spawnSync("herdr", ["--session", SESSION, "agent", "get", paneId], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
-            return result.status === 0 && result.stdout.includes('"agent":"claude"');
-        };
-        for (let waited = 0; !detected(); waited += 200) {
-            if (waited > 15_000) throw new Error(`15 秒内 herdr 没有把假界面认成 claude：${JSON.stringify(herdr(["pane", "get", paneId]))}`);
-            await sleep(200);
-        }
-        const sessionId = randomUUID();
-        herdr(["pane", "report-agent-session", paneId, "--source", "herdr:claude", "--agent", "claude", "--agent-session-id", sessionId]);
-        await sleep(1_500);
-        return {
-            paneId,
-            sessionId,
-            // herdr 按清单读屏要一点时间（S0 实测 1.5 秒够）。
-            async screen(name) {
-                await writeFile(screenFile, SCREENS[name]!);
-                await sleep(1_500);
-            },
-            async bytes() {
-                return (await readFile(log, "utf8")).split("\n").filter((line) => line !== "");
-            },
-            async clearLog() {
-                await writeFile(log, "");
-            },
-        };
+/** 在命名会话里起一格假 Claude：可执行文件名是 claude（herdr 按进程名认），再报一个会话 id。 */
+async function fakeClaude(root: string, cwd: string): Promise<{paneId: string; sessionId: string; screen: (name: string) => Promise<void>; bytes: () => Promise<string[]>; clearLog: () => Promise<void>}> {
+    const bin = join(root, "bin");
+    await mkdir(bin, {recursive: true});
+    await copyFile(resolve(import.meta.dirname, "fixtures", "fake-claude-tui.py"), join(bin, "claude"));
+    await chmod(join(bin, "claude"), 0o755);
+    const screenFile = join(root, "screen.txt");
+    const log = join(root, "tui.log");
+    await writeFile(screenFile, SCREENS["idle-empty"]!);
+    await writeFile(log, "");
+    const created = herdr(["workspace", "create", "--cwd", cwd, "--no-focus"]) as {result: {root_pane: {pane_id: string}}};
+    const paneId = created.result.root_pane.pane_id;
+    herdr(["pane", "run", paneId, `SCREEN='${screenFile}' FAKE_LOG='${log}' '${join(bin, "claude")}'`]);
+    const detected = () => {
+        // 认出来之前 `agent get` 以非零退出（agent_not_found），这里只看有没有认成 claude。
+        const result = spawnSync("herdr", ["--session", SESSION, "agent", "get", paneId], {env: cleanEnv, encoding: "utf8", timeout: 10_000});
+        return result.status === 0 && result.stdout.includes('"agent":"claude"');
+    };
+    for (let waited = 0; !detected(); waited += 200) {
+        if (waited > 15_000) throw new Error(`15 秒内 herdr 没有把假界面认成 claude：${JSON.stringify(herdr(["pane", "get", paneId]))}`);
+        await sleep(200);
     }
+    const sessionId = randomUUID();
+    herdr(["pane", "report-agent-session", paneId, "--source", "herdr:claude", "--agent", "claude", "--agent-session-id", sessionId]);
+    await sleep(1_500);
+    return {
+        paneId,
+        sessionId,
+        // herdr 按清单读屏要一点时间（S0 实测 1.5 秒够）。
+        async screen(name) {
+            await writeFile(screenFile, SCREENS[name]!);
+            await sleep(1_500);
+        },
+        async bytes() {
+            return (await readFile(log, "utf8")).split("\n").filter((line) => line !== "");
+        },
+        async clearLog() {
+            await writeFile(log, "");
+        },
+    };
+}
 
+describe("真实 herdr 的投递（t11，命名会话里名为 claude 的假界面）", () => {
     test.skipIf(!herdrInstalled)("认不出的确认界面、详细记录、模型选择、命令表、输入框有字（含 RGB 颜色的字）都判不可投、不写一个字节；空输入框（含暗色占位）可投、投进去；按键的字节；换了会话 id 就拒绝", async () => {
         await startSessionServer();
         const fixture = await createFixture("herdr-live-deliver");
@@ -486,5 +487,59 @@ os.waitpid(pid, 0)`;
             expect((await after.first)?.type).toBe("frame");
             await after.stream.stop();
         }, 120_000);
+
+        test.skipIf(!variant.present)(`server ${variant.name}（${variant.note}）面板层：经 WebSocket 接管后 pty 是请求的尺寸；关连接之后 2 秒内 control 退出、尺寸改回、审计有 disconnect 的释放行`, async () => {
+            await startSessionServer(variant.bin);
+            const fixture = await createFixture(`herdr-live-panel-term-${variant.name}`);
+            const tui = await fakeClaude(fixture.root, fixture.main);
+            await initAudit(auditPaths(panelEnv(fixture)));
+            const token = randomBytes(32).toString("hex");
+            const herdrBin = Bun.which("herdr")!;
+            const server = await startPanelServer({
+                context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0,
+                herdr: createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS}), token, log: () => undefined,
+                env: {...panelEnv(fixture), NBDEV_HERDR_BIN: herdrBin},
+            });
+            closers.push(() => server.stop());
+            await mkdir(join(fixture.root, "web"), {recursive: true});
+            await writeFile(join(fixture.root, "web", "index.html"), "<!doctype html><html><head></head><body>panel</body></html>\n");
+            await server.setStatic(join(fixture.root, "web"), {failed: null});
+            await server.warm();
+            const pane = await until(() => server.state.herdr.current().panes.find((entry) => entry.paneId === tui.paneId) ?? null, (entry) => entry?.session?.value === tui.sessionId, 10_000, "面板认出假 claude 的会话");
+            const terminalId = pane!.terminalId;
+            const client = createHerdrClient({socketPath, allow: HERDR_PANEL_METHODS});
+            const before = await readPtySize(client, tui.paneId);
+            expect(before).not.toBeNull();
+            const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket(token))}`;
+            const ws = new WebSocket(`${server.url.replace("http", "ws")}/ws/terminal?pane=${encodeURIComponent(tui.paneId)}&terminal=${encodeURIComponent(terminalId)}`, {headers: {Cookie: cookie, Origin: server.url}} as never);
+            const messages: Array<Record<string, unknown>> = [];
+            ws.addEventListener("message", (event) => messages.push(JSON.parse(String(event.data)) as Record<string, unknown>));
+            const closed = new Promise<void>((done) => ws.addEventListener("close", () => done()));
+            await new Promise((done) => ws.addEventListener("open", done));
+            await until(() => messages.some((message) => message.t === "frame"), (seen) => seen, 5_000, "第一帧");
+            ws.send(JSON.stringify({t: "takeover", cols: 90, rows: 25, expectedSession: `claude:${tui.sessionId}`, force: false}));
+            await until(() => messages.some((message) => message.t === "state" && message.mode === "control"), (seen) => seen, 5_000, "接管");
+            expect(await readPtySize(client, tui.paneId)).toEqual({cols: 90, rows: 25});
+            // 这个终端的流子进程（按命令行认：herdr terminal session … <terminal id>）。
+            const streams = () => readdirSync("/proc").filter((name) => /^\d+$/u.test(name)).filter((name) => {
+                try {
+                    const cmdline = readFileSync(`/proc/${name}/cmdline`, "utf8").split("\0");
+                    return cmdline.includes("terminal") && cmdline.includes("session") && cmdline.includes(terminalId);
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ESRCH") return false;
+                    throw error;
+                }
+            });
+            expect(streams().length).toBe(1);
+            const closedAt = Date.now();
+            ws.close();
+            await closed;
+            await until(() => streams().length, (count) => count === 0, 2_000, "关连接之后 control 退出");
+            console.log(`L4 t12 server ${variant.name} 面板层：关连接到 control 退出 ${Date.now() - closedAt} 毫秒`);
+            expect(await readPtySize(client, tui.paneId)).toEqual(before);
+            const audit = readFileSync(auditPaths(panelEnv(fixture)).file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as {action: string; phase: string; detail: Record<string, unknown>});
+            expect(audit.map((line) => [line.action, line.phase, line.detail.result ?? line.detail.reason ?? null])).toEqual([["takeover", "intent", null], ["takeover", "result", "attached"], ["release", "result", "disconnect"]]);
+            expect(audit[2]!.detail).toMatchObject({restored: true});
+        }, 90_000);
     }
 });

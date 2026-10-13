@@ -14,7 +14,7 @@ import {createWriteHandler} from "./writes.js";
 import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
 import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
 import {ControlRegistry} from "./control-registry.js";
-import {newConnectionId, TerminalHub, type TerminalSocketData} from "./terminal-hub.js";
+import {newConnectionId, TerminalHub, type TerminalSocketData, type TerminalTimings} from "./terminal-hub.js";
 import {resolveTerminalTools} from "./terminal-stream.js";
 import {createSessionIo} from "./session-io.js";
 
@@ -39,6 +39,8 @@ export type PanelServerOptions = {
     log: (message: string) => void;
     /** 审计的位置（`XDG_CONFIG_HOME`、`HOME`）与作为服务运行时的单元名（`NBDEV_PANEL_UNIT`）从这里取；测试指到临时根。 */
     env: NodeJS.ProcessEnv;
+    /** 网页终端接管的时限（缺省见 `terminal-hub.ts`）；只有测试会改。 */
+    terminalTimings?: Partial<TerminalTimings>;
 };
 
 export type PanelServer = {
@@ -127,7 +129,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     const sessionIo = createSessionIo({state, notifier, locks, controls, audit, client: options.herdr, envelope, log});
     const terminalTools = resolveTerminalTools(options.env, options.herdr?.socketPath ?? null, (name) => Bun.which(name));
     if (!terminalTools.available) log(`网页终端不可用：${terminalTools.reason}`);
-    const terminals = new TerminalHub({state, client: options.herdr, tools: terminalTools, audit, notifier, locks, controls, log});
+    const terminals = new TerminalHub({state, client: options.herdr, tools: terminalTools, audit, notifier, locks, controls, log, timings: options.terminalTimings});
     // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转）。
     const stopNotifyTrigger = state.onChange((part) => {
         if (part !== "notify" && ready) void notifier.tick();

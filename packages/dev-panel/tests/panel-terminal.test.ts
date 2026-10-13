@@ -2,16 +2,17 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {spawn, type ChildProcess} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {existsSync, readdirSync, readFileSync} from "node:fs";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {once} from "node:events";
 import {auditPaths, createAuditWriter, initAudit} from "../src/core/audit.js";
+import {PROVENANCE_ROOT} from "../src/core/provenance.js";
 import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {startTerminalStream, type TerminalTools} from "../src/server/terminal-stream.js";
-import {TerminalHub} from "../src/server/terminal-hub.js";
+import {TerminalHub, type TerminalTimings} from "../src/server/terminal-hub.js";
 import {ControlRegistry} from "../src/server/control-registry.js";
 import {PaneLocks, type Notifier} from "../src/server/notifier.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr, type FakePane} from "./fake-herdr.js";
@@ -92,8 +93,29 @@ function streamProcesses(socketPath: string): number[] {
 
 type Setup = {fixture: Fixture; fake: FakeHerdr; panes: FakePane[]; server: PanelServer; state: string; tools: TerminalTools; cookie: string; csrf: string; logs: string[]; connect(paneId?: string, terminalId?: string): Promise<Client>; audit(): Promise<Array<Record<string, unknown> & {action: string; phase: string; actionId: string; detail: Record<string, unknown>}>>};
 
-async function setup(name: string, options: {panes?: (main: string) => FakePane[]; terminals?: Record<string, FakeTerminalSettings>; audit?: boolean} = {}): Promise<Setup> {
+/** 发布一份一道题的评审板，提问者改成 pane `w9:p1` 上的会话 A：答复之后面板要通知它。 */
+async function publishQuestion(fixture: Fixture): Promise<void> {
+    await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/index.html", "<!doctype html><title>评审板</title><section data-nbdev-question=\"layout\" data-nbdev-type=\"single\"><h2>版式</h2><div data-nbdev-option=\"cards\"><h3>卡片</h3></div><div data-nbdev-option=\"table\"><h3>表</h3></div></section>");
+    const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"]);
+    expect([result.exitCode, result.json?.errors]).toEqual([0, []]);
+    for (const entry of await readdir(join(fixture.main, PROVENANCE_ROOT), {withFileTypes: true, recursive: true})) {
+        if (!entry.isFile()) continue;
+        const file = join(entry.parentPath, entry.name);
+        const record = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+        record.session = {key: KEY_A, agent: "claude", sessionId: SESSION_A, label: null, parentSessionId: null, nestedSessionId: null, process: null, herdr: {socketPath: "/fake/herdr.sock", paneId: "w9:p1", terminalId: TERMINAL}};
+        await writeFile(file, `${JSON.stringify(record, null, 4)}\n`);
+    }
+}
+
+/** 以开发者身份答复上面那道题（经面板的写接口）。 */
+async function answer(url: string, cookie: string, csrf: string): Promise<void> {
+    const posted = await fetch(`${url}/api/answers`, {method: "POST", headers: {Cookie: cookie, Origin: url, "X-Nbdev-Csrf": csrf, "Content-Type": "application/json"}, body: JSON.stringify({workId: "w00001-seed", taskId: "t01-seed", artifactId: "review", version: 1, values: {layout: "cards"}, note: null})});
+    expect(posted.status).toBe(200);
+}
+
+async function setup(name: string, options: {panes?: (main: string) => FakePane[]; terminals?: Record<string, FakeTerminalSettings>; audit?: boolean; prepare?: (fixture: Fixture) => Promise<void>; timings?: Partial<TerminalTimings>} = {}): Promise<Setup> {
     const fixture = await createFixture(name);
+    await options.prepare?.(fixture);
     if (options.audit !== false) await initAudit(auditPaths(panelEnv(fixture)));
     const panes = options.panes?.(fixture.main) ?? [claudePane("w9:p1", SESSION_A, {cwd: fixture.main, foreground_cwd: fixture.main})];
     const fake = await startFakeHerdr(fixture.root, panes);
@@ -105,7 +127,7 @@ async function setup(name: string, options: {panes?: (main: string) => FakePane[
     const server = await startPanelServer({
         context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0,
         herdr: createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_METHODS}), token, log: (line) => void logs.push(line),
-        env: {...panelEnv(fixture), NBDEV_HERDR_BIN: tools.herdrBin},
+        env: {...panelEnv(fixture), NBDEV_HERDR_BIN: tools.herdrBin}, terminalTimings: options.timings,
     });
     let stopped = false;
     closers.push(async () => {
@@ -353,17 +375,19 @@ describe("接管", () => {
         expect(lines[2]!.detail).toMatchObject({restored: true});
     }, 30_000);
 
-    test("握手 5 秒没有回应：error takeover_timeout，锁放开，之后同一格的文字照常发", async () => {
-        const {connect, server, cookie, csrf, fake} = await setup("term-timeout", {terminals: {[TERMINAL]: {mode: "silent"}}});
+    test("握手 5 秒没有回应：error takeover_timeout，锁放开，之后同一格的自动通知照常发出", async () => {
+        const {connect, server, cookie, csrf, fake} = await setup("term-timeout", {terminals: {[TERMINAL]: {mode: "silent"}}, prepare: publishQuestion});
         const client = await connect();
         await client.next("state");
         const started = Date.now();
         client.send({t: "takeover", cols: 100, rows: 30, expectedSession: KEY_A, force: false});
         expect(await client.next("error", 0, 10_000)).toMatchObject({code: "takeover_timeout"});
         expect(Date.now() - started).toBeLessThan(9_000);
-        const prompt = await fetch(`${server.url}/api/sessions/w9:p1/prompt`, {method: "POST", headers: {Cookie: cookie, Origin: server.url, "X-Nbdev-Csrf": csrf, "Content-Type": "application/json"}, body: JSON.stringify({text: "你好", expectedSession: KEY_A})});
-        expect(prompt.status).toBe(200);
-        expect(fake.prompts.length).toBe(1);
+        // 自动通知与握手同一把锁：锁放开了，答复之后空闲稳定 3 秒就投出去（设计审查 S7）。
+        await answer(server.url, cookie, csrf);
+        await until(() => fake.prompts.length > 0, 12_000, "自动通知");
+        expect(fake.prompts[0]).toMatchObject({target: "w9:p1"});
+        expect(fake.prompts[0]!.text.startsWith("[nbdev] ")).toBe(true);
     }, 40_000);
 
     test("审计不可用：观看照常，接管回 audit_unavailable", async () => {
@@ -391,7 +415,7 @@ describe("接管", () => {
             await until(async () => (await audit()).some((line) => line.action === "release"), 5_000, `${how} 的释放行`);
             const release = (await audit()).find((line) => line.action === "release")!;
             expect([how, release.detail.reason, release.detail.restored]).toEqual([how, how, true]);
-            await until(() => streamProcesses(fake.socketPath).length === 0, 1_500, `${how} 之后子进程退出`);
+            await until(() => streamProcesses(fake.socketPath).length === 0, 1_000, `${how} 之后子进程退出`);
         }
     }, 60_000);
 });
@@ -408,6 +432,66 @@ describe("更早的输出（手机的文字视图）", () => {
         expect([refused.status, (await refused.json() as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([409, "history_unavailable"]);
         expect(fake.requests.filter((request) => request.method === "agent.read")).toHaveLength(1);
     }, 30_000);
+});
+
+describe("接管的失败路径与互斥（实现审查 F7）", () => {
+    test("接管期间通知任务是 waiting_takeover、不调 agent.prompt；释放后空闲稳定 3 秒照常投递", async () => {
+        const {connect, server, cookie, csrf, fake} = await setup("term-notify", {prepare: publishQuestion});
+        const client = await connect();
+        await client.next("frame");
+        client.send({t: "takeover", cols: 100, rows: 30, expectedSession: KEY_A, force: false});
+        await until(() => client.messages.some((message) => message.t === "state" && message.mode === "control"), 5_000, "接管");
+        await answer(server.url, cookie, csrf);
+        const jobs = async () => ((await (await fetch(`${server.url}/api/notify`, {headers: {Cookie: cookie}})).json()) as {data: {jobs: Array<{state: string}>}}).data.jobs;
+        await until(async () => (await jobs())[0]?.state === "waiting_takeover", 8_000, "waiting_takeover");
+        await Bun.sleep(4_000);
+        expect(fake.prompts).toEqual([]);
+        expect((await jobs())[0]?.state).toBe("waiting_takeover");
+        const from = client.messages.length;
+        client.send({t: "release"});
+        await client.next("released", from);
+        const released = Date.now();
+        await until(() => fake.prompts.length > 0, 12_000, "释放后投递");
+        expect(Date.now() - released).toBeGreaterThanOrEqual(2_500);
+        expect(fake.prompts[0]).toMatchObject({target: "w9:p1"});
+    }, 40_000);
+
+    test("读不到 pty 尺寸：接管照常，释放时不改回（只发 release、没有 resize），释放行 restored: false、notRestored: size_unknown", async () => {
+        const {connect, state, audit} = await setup("term-size-unknown");
+        const client = await connect();
+        expect(await client.next("state")).toMatchObject({sizeKnown: false});
+        client.send({t: "takeover", cols: 100, rows: 30, expectedSession: KEY_A, force: false});
+        await until(() => client.messages.some((message) => message.t === "state" && message.mode === "control"), 5_000, "接管");
+        const from = client.messages.length;
+        client.send({t: "release"});
+        expect(await client.next("released", from)).toMatchObject({reason: "user", restored: false, notRestored: "size_unknown"});
+        expect((await inputsOf(state)).map((input) => input.type)).toEqual(["terminal.release"]);
+        expect(JSON.parse(await readFile(join(state, `size-${TERMINAL}.json`), "utf8"))).toEqual({cols: 100, rows: 30});
+        const release = (await audit()).find((line) => line.action === "release")!;
+        expect(release.detail).toMatchObject({restored: false, notRestored: "size_unknown"});
+        expect((await audit()).find((line) => line.action === "takeover" && line.phase === "intent")!.detail).toMatchObject({before: null});
+    }, 30_000);
+
+    test("心跳超时与空闲都会释放（时限改小），尺寸改回", async () => {
+        for (const [how, timings] of [["heartbeat", {heartbeatMs: 900}], ["idle", {idleMs: 1_200}]] as const) {
+            const shell = await ptyShell(70, 20);
+            const {connect, state} = await setup(`term-${how}`, {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main, shell_pid: shell})], timings});
+            const client = await connect();
+            await client.next("frame");
+            client.send({t: "takeover", cols: 100, rows: 30, expectedSession: KEY_A, force: false});
+            await until(() => client.messages.some((message) => message.t === "state" && message.mode === "control"), 5_000, "接管");
+            const from = client.messages.length;
+            // 空闲：心跳照发、不输入；心跳超时：什么都不发。
+            const alive = how === "idle" ? setInterval(() => client.send({t: "alive"}), 200) : null;
+            try {
+                expect(await client.next("released", from, 5_000)).toMatchObject({reason: how, restored: true});
+            } finally {
+                if (alive) clearInterval(alive);
+            }
+            expect(JSON.parse(await readFile(join(state, `size-${TERMINAL}.json`), "utf8"))).toEqual({cols: 70, rows: 20});
+            expect(await client.next("state", from)).toMatchObject({mode: "watch"});
+        }
+    }, 40_000);
 });
 
 describe("背压与退出（设计审查 S2、S3）", () => {
