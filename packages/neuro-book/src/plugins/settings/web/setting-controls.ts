@@ -55,25 +55,6 @@ export function settingControl(declaration: SettingDeclaration, locale: DisplayL
     return {kind: "readonly"};
 }
 
-/** 估字宽：汉字等全角字符一个字宽，大写字母与数字约七成，空格三成，其余约六成。 */
-function emWidth(label: string): number {
-    let width = 0;
-    for (const char of label) {
-        const code = char.codePointAt(0) ?? 0;
-        width += code >= 0x2e80 ? 1 : /[A-Z0-9]/u.test(char) ? 0.68 : char === " " ? 0.3 : 0.58;
-    }
-    return width;
-}
-
-/**
- * 分段控件的 CSS 宽度：最长的选项名按 `--text-xs` 估出的宽度，加段内左右内边距（各 12px）与一点余量，乘以段数，再加外槽的
- * 内边距与描边。nb-ui 的分段控件宽度随内容时各段等分、长选项被截断（w00017 t81），在那之前显式给宽度，控件用 `full-width`。
- */
-export function segmentedWidth(labels: ReadonlyArray<string>): string {
-    const widest = Math.max(0, ...labels.map(emWidth));
-    return `calc(${String(Math.ceil(widest * labels.length * 100) / 100)} * var(--text-xs) + ${String(labels.length * 32 + 6)}px)`;
-}
-
 /** 只写出有值的字段：控件描述要能原样当作 JSON（Lab 的场景输入），JSON 里没有 undefined。 */
 function optional<K extends string>(key: K, value: number | undefined): Partial<Record<K, number>> {
     return value === undefined ? {} : {[key]: value} as Record<K, number>;

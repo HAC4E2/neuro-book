@@ -7,7 +7,6 @@ import {computed, ref, watch} from "vue";
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-import {segmentedWidth} from "../setting-controls";
 import type {SettingControl} from "../setting-controls";
 
 defineOptions({name: "SettingsControl"});
@@ -29,7 +28,6 @@ const TEXT = {
     fileOnly: {"zh-CN": "只能在设置文件里改", "en-US": "Can only be changed in the settings file"},
 } satisfies Record<string, LocalizedText>;
 
-const segmentedStyle = computed(() => (props.control.kind === "segmented" ? {width: segmentedWidth(props.control.choices.map((choice) => choice.label))} : undefined));
 
 const segmentedOptions = computed(() => (props.control.kind === "segmented" ? props.control.choices.map((choice) => ({value: choice.value as SegmentedControlValue, label: choice.label, disabled: props.disabled})) : []));
 /** 下拉的值只能是字符串：用选项的序号作值，选中后换回字面量。 */
@@ -95,8 +93,6 @@ const summary = computed(() => {
         v-else-if="control.kind === 'segmented'"
         class="settings-control"
         data-settings-control="segmented"
-        full-width
-        :style="segmentedStyle"
         :model-value="modelValue as SegmentedControlValue"
         :options="segmentedOptions"
         :aria-label="label"

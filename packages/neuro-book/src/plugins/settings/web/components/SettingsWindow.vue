@@ -11,7 +11,6 @@ import {localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
 
-import {segmentedWidth} from "../setting-controls";
 import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
 import type {SettingsNavItem, SettingsWindow} from "../settings-window";
 import SettingsListSection from "./SettingsListSection.vue";
@@ -51,7 +50,6 @@ const tabOptions = computed(() => [
     {value: "user", label: text(TEXT.user)},
     {value: "project", label: text(TEXT.project)},
 ]);
-const tabStyle = computed(() => ({width: segmentedWidth(tabOptions.value.map((option) => option.label))}));
 
 function navDisabled(item: SettingsNavItem): boolean {
     // 当前项在这个标签下不可用时仍可聚焦：它是左栏的 Tab 停靠点，右边原位写着原因。
@@ -106,8 +104,6 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
                 v-if="model.bound.value"
                 class="settings-window__tabs"
                 data-settings-tabs
-                full-width
-                :style="tabStyle"
                 :model-value="model.layer.value"
                 :options="tabOptions"
                 :aria-label="text(TEXT.tabs)"
