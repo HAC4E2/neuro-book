@@ -72,12 +72,6 @@ onBeforeUnmount(() => {
     if (timer) clearTimeout(timer);
 });
 
-function openRecord(match: SearchRecordMatch): void {
-    if (match.kind === "work" && match.workId) void router.push(`/work/${match.workId}`);
-    else if (match.kind === "task" && match.workId && match.taskId) void router.push(`/work/${match.workId}/task/${match.taskId}`);
-    else if (match.kind === "artifact" && match.workId) void router.push(`/artifact/${match.workId}/${match.taskId ?? "-"}/${match.artifactId}`);
-    else void router.push("/live/sessions");
-}
 </script>
 
 <template>
@@ -86,6 +80,6 @@ function openRecord(match: SearchRecordMatch): void {
             搜索“{{ route.query.q }}”<Spinner v-if="!finished && !error" size="sm" label="搜索中" />
         </h1>
         <LoadState v-if="error" :loading="false" :error="error" @retry="run(String(route.query.q ?? ''))" />
-        <SearchResults :records="records" :hits="hits" :done="done" :finished="finished" @open-record="openRecord" @open-hit="(hit) => router.push({name: 'docs', query: {checkout: hit.checkout, path: hit.path}})" />
+        <SearchResults :records="records" :hits="hits" :done="done" :finished="finished" @navigate="(href) => router.push(href)" />
     </div>
 </template>

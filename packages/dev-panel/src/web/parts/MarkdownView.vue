@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import {isPlainClick} from "../host/routes.js";
+
 const emit = defineEmits<{navigate: [href: string]}>();
 defineProps<{html: string}>();
 
 function onClick(event: MouseEvent): void {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!isPlainClick(event)) return;
     const anchor = (event.target as Element | null)?.closest("a[data-internal]");
     if (!anchor) return;
     event.preventDefault();

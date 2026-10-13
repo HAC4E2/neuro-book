@@ -3,6 +3,7 @@ import {Breadcrumb} from "@notnotype/nb-ui/components";
 import {useRouter} from "vue-router";
 import {HERDR_STATUS_LABEL, relativeDay, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
 import {useResource} from "../host/panel-data.js";
+import {isPlainClick} from "../host/routes.js";
 import type {WorkView} from "../host/types.js";
 import BranchNote from "../parts/BranchNote.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
@@ -18,7 +19,7 @@ const router = useRouter();
 const work = useResource<WorkView>(() => `/api/work/${encodeURIComponent(props.workId)}`, ["records", "activity"]);
 
 function followCrumb(item: {href?: string}, event: MouseEvent): void {
-    if (!item.href) return;
+    if (!item.href || !isPlainClick(event)) return;
     event.preventDefault();
     void router.push(item.href);
 }
@@ -46,7 +47,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
             </header>
             <section class="flex flex-col gap-2" aria-labelledby="tasks-title">
                 <h2 id="tasks-title" class="font-semibold" style="font-size: var(--text-lg)">Task</h2>
-                <TaskTable :tasks="work.data.value.tasks" @open="(taskId) => router.push(`/work/${props.workId}/task/${taskId}`)" />
+                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" @navigate="(href) => router.push(href)" />
             </section>
             <EphemeralFrame title="现在谁在动">
                 <p v-if="work.data.value.sessions.length === 0" style="color: var(--text-muted)">没有会话持有这个 Work 的租约</p>

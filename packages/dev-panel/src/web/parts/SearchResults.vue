@@ -2,10 +2,16 @@
 import {Badge} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {taskLabel, workLabel} from "../host/format.js";
+import {docHref, isPlainClick, searchRecordHref} from "../host/routes.js";
 import type {SearchCheckoutDone, SearchHit, SearchRecordMatch} from "../host/types.js";
 
 const props = defineProps<{records: SearchRecordMatch[]; hits: SearchHit[]; done: SearchCheckoutDone[]; finished: boolean}>();
-defineEmits<{"open-record": [match: SearchRecordMatch]; "open-hit": [hit: SearchHit]}>();
+const emit = defineEmits<{navigate: [href: string]}>();
+function follow(event: MouseEvent, href: string): void {
+    if (!isPlainClick(event)) return;
+    event.preventDefault();
+    emit("navigate", href);
+}
 
 const groups = computed(() => {
     const byCheckout = new Map<string, SearchHit[]>();
@@ -26,9 +32,9 @@ function recordText(match: SearchRecordMatch): string {
             <h2 class="font-semibold">Work、Task、产物与会话</h2>
             <ul class="flex flex-col">
                 <li v-for="(match, index) in records" :key="index">
-                    <button type="button" class="flex w-full items-center gap-2 px-1 py-1 text-left hover:bg-[var(--bg-hover)]" @click="$emit('open-record', match)">
+                    <a :href="searchRecordHref(match)" class="flex w-full items-center gap-2 px-1 py-1 hover:bg-[var(--bg-hover)]" @click="follow($event, searchRecordHref(match))">
                         <Badge tone="neutral" variant="outline" size="sm">{{ KIND_LABEL[match.kind] }}</Badge><span class="truncate">{{ recordText(match) }}</span>
-                    </button>
+                    </a>
                 </li>
             </ul>
         </section>
@@ -41,10 +47,10 @@ function recordText(match: SearchRecordMatch): string {
             </h2>
             <ul class="flex flex-col" style="font-size: var(--text-xs)">
                 <li v-for="(hit, index) in group.hits" :key="index" class="min-w-0">
-                    <button v-if="hit.path.endsWith('.md')" type="button" class="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]" @click="$emit('open-hit', hit)">
+                    <a v-if="hit.path.endsWith('.md')" :href="docHref(hit.checkout, hit.path)" class="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 px-1 py-0.5 hover:bg-[var(--bg-hover)]" @click="follow($event, docHref(hit.checkout, hit.path))">
                         <span class="font-medium">{{ hit.path }}<template v-if="hit.line">:{{ hit.line }}</template></span>
                         <code v-if="hit.text" class="min-w-0 flex-1 truncate" style="color: var(--text-secondary)">{{ hit.text }}</code>
-                    </button>
+                    </a>
                     <div v-else class="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 px-1 py-0.5">
                         <span>{{ hit.path }}<template v-if="hit.line">:{{ hit.line }}</template></span>
                         <code v-if="hit.text" class="min-w-0 flex-1 truncate" style="color: var(--text-secondary)">{{ hit.text }}</code>

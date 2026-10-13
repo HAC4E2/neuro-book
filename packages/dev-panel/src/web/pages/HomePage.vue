@@ -4,7 +4,7 @@ import {computed, ref} from "vue";
 import {useRouter} from "vue-router";
 import {daysSince, HERDR_STATUS_LABEL} from "../host/format.js";
 import {useResource} from "../host/panel-data.js";
-import type {InboxQuestion, Overview, OverviewWork} from "../host/types.js";
+import type {Overview, OverviewWork} from "../host/types.js";
 import InboxList from "../parts/InboxList.vue";
 import LoadState from "../parts/LoadState.vue";
 import WorkCard from "../parts/WorkCard.vue";
@@ -30,9 +30,7 @@ const sessionLine = computed(() => {
     return `${sessions.total} 个会话${parts.length > 0 ? `（${parts.join("、")}）` : ""}${sessions.unownedRuns > 0 ? `，${sessions.unownedRuns} 个无主的运行` : ""}`;
 });
 
-function openQuestion(item: InboxQuestion): void {
-    void router.push(`/artifact/${item.workId}/${item.taskId}/${item.artifactId}`);
-}
+const navigate = (href: string) => void router.push(href);
 </script>
 
 <template>
@@ -44,7 +42,7 @@ function openQuestion(item: InboxQuestion): void {
                     收件箱<span style="color: var(--text-muted); font-size: var(--text-sm)">{{ overview.data.value.inbox.length }}</span>
                 </h1>
                 <div class="rounded-[var(--radius-panel)] px-3 py-1" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
-                    <InboxList :items="overview.data.value.inbox" @open-question="openQuestion" />
+                    <InboxList :items="overview.data.value.inbox" @navigate="navigate" />
                 </div>
             </section>
             <section class="flex flex-col gap-3" aria-labelledby="works-title">
@@ -53,7 +51,7 @@ function openQuestion(item: InboxQuestion): void {
                     <RouterLink to="/live/sessions" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ sessionLine }}</RouterLink>
                 </div>
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    <WorkCard v-for="work in current" :key="work.workId" :work="work" @open="(workId) => router.push(`/work/${workId}`)" />
+                    <WorkCard v-for="work in current" :key="work.workId" :work="work" @navigate="navigate" />
                 </div>
                 <p v-if="current.length === 0" style="color: var(--text-muted)">最近 {{ STALE_DAYS }} 天没有在动的 Work</p>
                 <div v-if="rest.length > 0" class="flex flex-col gap-3">
@@ -61,7 +59,7 @@ function openQuestion(item: InboxQuestion): void {
                         其余 {{ rest.length }} 个 Work（完成、搁置或超过 {{ STALE_DAYS }} 天没有更新）
                     </Button>
                     <div v-if="showRest" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        <WorkCard v-for="work in rest" :key="work.workId" :work="work" @open="(workId) => router.push(`/work/${workId}`)" />
+                        <WorkCard v-for="work in rest" :key="work.workId" :work="work" @navigate="navigate" />
                     </div>
                 </div>
             </section>

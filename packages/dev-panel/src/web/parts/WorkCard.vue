@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeDay, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {isPlainClick, workHref} from "../host/routes.js";
 import type {OverviewWork} from "../host/types.js";
 import BranchNote from "./BranchNote.vue";
 import EphemeralFrame from "./EphemeralFrame.vue";
@@ -9,17 +10,22 @@ import StatusBar from "./StatusBar.vue";
 import StatusChip from "./StatusChip.vue";
 
 defineProps<{work: OverviewWork}>();
-defineEmits<{open: [workId: string]}>();
+const emit = defineEmits<{navigate: [href: string]}>();
+function follow(event: MouseEvent, href: string): void {
+    if (!isPlainClick(event)) return;
+    event.preventDefault();
+    emit("navigate", href);
+}
 </script>
 
 <template>
     <article class="flex min-w-0 flex-col gap-3 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
         <header class="flex min-w-0 items-start gap-2">
             <StatusChip :status="work.status" />
-            <button type="button" class="min-w-0 flex-1 text-left font-semibold hover:underline focus-visible:underline" style="font-size: var(--text-md)" @click="$emit('open', work.workId)">
+            <a :href="workHref(work.workId)" class="min-w-0 flex-1 font-semibold hover:underline focus-visible:underline" style="font-size: var(--text-md)" @click="follow($event, workHref(work.workId))">
                 <span style="color: var(--text-muted)">{{ workLabel(work.workId) }}</span>
                 {{ work.title ?? work.workId }}
-            </button>
+            </a>
         </header>
         <p class="line-clamp-3" :style="{color: work.goal.value ? 'var(--text-secondary)' : 'var(--text-muted)'}">
             {{ work.goal.value ?? "目标：未标" }}

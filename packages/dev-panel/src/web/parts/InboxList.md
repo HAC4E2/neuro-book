@@ -16,9 +16,9 @@ interface InboxListProps {
     items: Array<InboxQuestion | InboxConflict>;
 }
 interface InboxListEmits {
-    /** 点一道题：打开它所在的产物页 */
-    (event: "open-question", item: InboxQuestion): void;
+    /** 普通左键点了一个入口；参数是面板内的地址，由页面 `router.push`。中键与带修饰键的点击交给浏览器（新标签页） */
+    (event: "navigate", href: string): void;
 }
 ```
 
-没有插槽与 expose。撞号没有对应页面，只列出来，点不了。
+没有插槽与 expose。每道题是去它所在产物页的真实链接（`<a href>`），能在新标签页打开。撞号没有对应页面，只列出来，点不了。

@@ -4,6 +4,7 @@ import {computed, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
 import {useResource} from "../host/panel-data.js";
+import {isPlainClick} from "../host/routes.js";
 import type {ArtifactPageData} from "../host/types.js";
 import LoadState from "../parts/LoadState.vue";
 import QuestionPanel from "../parts/QuestionPanel.vue";
@@ -29,7 +30,7 @@ const crumbs = computed(() => [
     {label: props.artifactId, current: true},
 ]);
 function followCrumb(item: {href?: string}, event: MouseEvent): void {
-    if (!item.href) return;
+    if (!item.href || !isPlainClick(event)) return;
     event.preventDefault();
     void router.push(item.href);
 }

@@ -5,6 +5,7 @@ import {useRouter} from "vue-router";
 import {relativeDay, shortSession, taskLabel, workLabel} from "../host/format.js";
 import {renderMarkdown} from "../host/markdown.js";
 import {useResource} from "../host/panel-data.js";
+import {isPlainClick} from "../host/routes.js";
 import type {Meta, TaskPageData} from "../host/types.js";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
@@ -32,7 +33,7 @@ const executionKey = computed(() => page.data.value?.detail.execution.chosen.key
 const preferKeys = computed(() => (page.data.value?.detail.execution.candidates ?? []).map((candidate) => candidate.key).join(","));
 
 function followCrumb(item: {href?: string}, event: MouseEvent): void {
-    if (!item.href) return;
+    if (!item.href || !isPlainClick(event)) return;
     event.preventDefault();
     void router.push(item.href);
 }

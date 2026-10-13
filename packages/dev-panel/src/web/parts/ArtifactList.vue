@@ -2,10 +2,16 @@
 import {Badge, EmptyState} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {taskLabel, workLabel} from "../host/format.js";
+import {artifactHref, docHref, isPlainClick, taskHref} from "../host/routes.js";
 import type {ArtifactListItem, DocumentListItem, EvidenceListItem} from "../host/types.js";
 
 const props = defineProps<{artifacts: ArtifactListItem[]; documents: DocumentListItem[]; evidences: EvidenceListItem[]}>();
-defineEmits<{"open-artifact": [item: ArtifactListItem]; "open-document": [item: DocumentListItem]; "open-task": [workId: string, taskId: string]}>();
+const emit = defineEmits<{navigate: [href: string]}>();
+function follow(event: MouseEvent, href: string): void {
+    if (!isPlainClick(event)) return;
+    event.preventDefault();
+    emit("navigate", href);
+}
 
 const GROUPS: Array<{key: ArtifactListItem["category"]; title: string}> = [
     {key: "design", title: "设计稿"}, {key: "report", title: "讲解与报告"}, {key: "review", title: "审查报告"},
@@ -23,13 +29,13 @@ const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${
             <h2 class="font-semibold">{{ group.title }} <span style="color: var(--text-muted)">{{ group.items.length }}</span></h2>
             <ul class="flex flex-col">
                 <li v-for="item in group.items" :key="`${item.workId}/${item.taskId}/${item.artifactId}`" class="border-b last:border-b-0" style="border-color: var(--divider)">
-                    <button type="button" class="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1.5 text-left hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]" @click="$emit('open-artifact', item)">
+                    <a :href="artifactHref(item.workId, item.taskId, item.artifactId)" class="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1.5 hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]" @click="follow($event, artifactHref(item.workId, item.taskId, item.artifactId))">
                         <span class="min-w-0 flex-1 truncate font-medium">{{ item.title ?? item.artifactId }}</span>
                         <span style="color: var(--text-muted); font-size: var(--text-xs)">{{ where(item.workId, item.taskId) }} · {{ item.artifactId }}<template v-if="item.version"> · v{{ item.version }}</template></span>
                         <Badge v-if="item.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
                         <Badge v-if="item.openRequired > 0" tone="warning" variant="soft" size="sm">待答 {{ item.openRequired }}</Badge>
                         <Badge v-if="item.adoption && ADOPTION[item.adoption]" :tone="item.adoption === 'waiting' ? 'accent' : 'success'" variant="soft" size="sm">{{ ADOPTION[item.adoption] }}</Badge>
-                    </button>
+                    </a>
                 </li>
             </ul>
         </section>
@@ -37,10 +43,10 @@ const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${
             <h2 class="font-semibold">文档类产物 <span style="color: var(--text-muted)">{{ documents.length }}</span></h2>
             <ul class="flex flex-col">
                 <li v-for="item in documents" :key="item.path" class="border-b last:border-b-0" style="border-color: var(--divider)">
-                    <button type="button" class="flex w-full min-w-0 flex-wrap items-center gap-x-2 px-1 py-1.5 text-left hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]" @click="$emit('open-document', item)">
+                    <a :href="docHref(item.checkoutKey ?? 'main', item.path)" class="flex w-full min-w-0 flex-wrap items-center gap-x-2 px-1 py-1.5 hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]" @click="follow($event, docHref(item.checkoutKey ?? 'main', item.path))">
                         <span class="min-w-0 flex-1 truncate">{{ item.title ?? item.path.slice(item.path.lastIndexOf("/") + 1) }}</span>
                         <span style="color: var(--text-muted); font-size: var(--text-xs)">{{ where(item.workId, item.taskId) }}</span>
-                    </button>
+                    </a>
                 </li>
             </ul>
         </section>
@@ -48,9 +54,9 @@ const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${
             <h2 class="font-semibold">证据 <span style="color: var(--text-muted)">{{ evidences.length }} 个 Task</span></h2>
             <ul class="flex flex-wrap gap-2">
                 <li v-for="item in evidences" :key="`${item.workId}/${item.taskId}`">
-                    <button type="button" class="rounded-[var(--radius-control)] px-2 py-1 hover:bg-[var(--bg-hover)]" style="border: var(--border-w, 1px) solid var(--divider); font-size: var(--text-xs)" @click="$emit('open-task', item.workId, item.taskId)">
+                    <a :href="taskHref(item.workId, item.taskId)" class="inline-block rounded-[var(--radius-control)] px-2 py-1 hover:bg-[var(--bg-hover)]" style="border: var(--border-w, 1px) solid var(--divider); font-size: var(--text-xs)" @click="follow($event, taskHref(item.workId, item.taskId))">
                         {{ where(item.workId, item.taskId) }} · {{ item.count }} 份
-                    </button>
+                    </a>
                 </li>
             </ul>
         </section>

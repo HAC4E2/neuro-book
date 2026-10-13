@@ -20,9 +20,9 @@ interface SearchResultsProps {
     finished: boolean;
 }
 interface SearchResultsEmits {
-    (event: "open-record", match: SearchRecordMatch): void;
-    (event: "open-hit", hit: SearchHit): void;
+    /** 普通左键点了一个入口；参数是面板内的地址，由页面 `router.push`。中键与带修饰键的点击交给浏览器（新标签页） */
+    (event: "navigate", href: string): void;
 }
 ```
 
-没有插槽与 expose。Markdown 文件的匹配点了打开文档页；其它文件面板不提供正文，只列出来。
+没有插槽与 expose。记录的匹配与 Markdown 文件的匹配是真实链接（`<a href>`，去对应页与文档页），能在新标签页打开；其它文件面板不提供正文，只列出来。

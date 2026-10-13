@@ -3,7 +3,7 @@ import {FormInput} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 import {useRouter} from "vue-router";
 import {useResource} from "../host/panel-data.js";
-import type {ArtifactListItem, ArtifactsData, DocumentListItem} from "../host/types.js";
+import type {ArtifactsData} from "../host/types.js";
 import ArtifactList from "../parts/ArtifactList.vue";
 import LoadState from "../parts/LoadState.vue";
 
@@ -24,12 +24,6 @@ const filtered = computed(() => {
         evidences: data.evidences.filter((item) => match(item.workId, item.taskId, item.taskTitle)),
     };
 });
-function openArtifact(item: ArtifactListItem): void {
-    void router.push(`/artifact/${item.workId}/${item.taskId ?? "-"}/${item.artifactId}`);
-}
-function openDocument(item: DocumentListItem): void {
-    void router.push({name: "docs", query: {checkout: item.checkoutKey ?? "main", path: item.path}});
-}
 </script>
 
 <template>
@@ -39,6 +33,6 @@ function openDocument(item: DocumentListItem): void {
             <div class="w-full max-w-sm"><FormInput v-model="filter" placeholder="按 Work、Task 或标题过滤" aria-label="过滤产物" /></div>
         </div>
         <LoadState v-if="!filtered" :loading="list.loading.value" :error="list.error.value" label="正在读取产物" @retry="list.reload()" />
-        <ArtifactList v-else :artifacts="filtered.artifacts" :documents="filtered.documents" :evidences="filtered.evidences" @open-artifact="openArtifact" @open-document="openDocument" @open-task="(workId, taskId) => router.push(`/work/${workId}/task/${taskId}`)" />
+        <ArtifactList v-else :artifacts="filtered.artifacts" :documents="filtered.documents" :evidences="filtered.evidences" @navigate="(href) => router.push(href)" />
     </div>
 </template>

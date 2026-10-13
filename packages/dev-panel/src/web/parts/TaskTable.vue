@@ -2,12 +2,18 @@
 import {Badge, Table} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {relativeDay, shortSession, taskLabel} from "../host/format.js";
+import {isPlainClick, taskHref} from "../host/routes.js";
 import type {TaskView} from "../host/types.js";
 import LeaseChip from "./LeaseChip.vue";
 import StatusChip from "./StatusChip.vue";
 
-const props = defineProps<{tasks: TaskView[]}>();
-defineEmits<{open: [taskId: string]}>();
+const props = defineProps<{workId: string; tasks: TaskView[]}>();
+const emit = defineEmits<{navigate: [href: string]}>();
+function follow(event: MouseEvent, href: string): void {
+    if (!isPlainClick(event)) return;
+    event.preventDefault();
+    emit("navigate", href);
+}
 
 type Row = {taskId: string; title: string; status: string; current: string; updated: string; artifacts: string; open: string; source: string; leases: string; task: TaskView};
 const rows = computed<Row[]>(() => props.tasks.map((task) => ({taskId: task.taskId, title: "", status: "", current: "", updated: "", artifacts: "", open: "", source: "", leases: "", task})));
@@ -26,9 +32,9 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string; al
 <template>
     <Table :columns="columns" :rows="rows" row-key="taskId" density="compact" :hoverable="false" empty-text="这个 Work 还没有 Task">
         <template #cell-title="{row}">
-            <button type="button" class="text-left hover:underline focus-visible:underline" @click="$emit('open', row.task.taskId)">
+            <a :href="taskHref(workId, row.task.taskId)" class="hover:underline focus-visible:underline" @click="follow($event, taskHref(workId, row.task.taskId))">
                 <span style="color: var(--text-muted)">{{ taskLabel(row.task.taskId) }}</span> {{ row.task.title ?? row.task.taskId }}
-            </button>
+            </a>
         </template>
         <template #cell-status="{row}"><StatusChip :status="row.task.status" /></template>
         <template #cell-current="{row}">

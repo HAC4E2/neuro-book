@@ -18,10 +18,9 @@ interface ArtifactListProps {
     evidences: EvidenceListItem[];
 }
 interface ArtifactListEmits {
-    (event: "open-artifact", item: ArtifactListItem): void;
-    (event: "open-document", item: DocumentListItem): void;
-    (event: "open-task", workId: string, taskId: string): void;
+    /** 普通左键点了一个入口；参数是面板内的地址，由页面 `router.push`。中键与带修饰键的点击交给浏览器（新标签页） */
+    (event: "navigate", href: string): void;
 }
 ```
 
-没有插槽与 expose。全部为空时显示空态。
+没有插槽与 expose。全部为空时显示空态。产物、文档类产物与证据的入口都是真实链接（`<a href>`，分别去产物页、文档页、Task 页），能在新标签页打开。
