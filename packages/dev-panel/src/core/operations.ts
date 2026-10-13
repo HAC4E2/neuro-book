@@ -1,20 +1,21 @@
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
-import {gitOutput, runGit, splitNul} from "./git.js";
 import {assertSlug, formatTaskId, formatWorkId, parseWorkId, taskNumberLabel, workNumberLabel} from "./ids.js";
 import {openRequiredQuestions} from "./artifacts.js";
 import {parseFrontmatter, setFrontmatterFields} from "./frontmatter.js";
 import {listTaskIds, listWorkIds, TASK_STATUSES, taskReadmePath, WORK_STATUSES, workReadmePath, type TaskStatus} from "./records.js";
-import type {Caller} from "./identity.js";
+import type {Caller, DeveloperCaller} from "./identity.js";
 import {releaseTaskLeases, touchCallerLease, type LeaseEffects, type LeaseOptions} from "./lease-ops.js";
-import {isClaimedTask, type RegistryBy} from "./registry.js";
-import {existsInCommit, WORKS_ROOT, type RepoContext} from "./repo.js";
-import {findConflicts, nextTaskNumber, nextWorkNumber, type NumberConflict, type NumberScan} from "./scan.js";
+import {isClaimedTask, readRegistry, type RegistryBy} from "./registry.js";
+import {existsInCommit, listCheckouts, WORKS_ROOT, type RepoContext} from "./repo.js";
+import {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type NumberConflict, type NumberScan} from "./scan.js";
 import {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./sources.js";
 import {matchRef} from "./status.js";
 import {taskReadmeTemplate, workReadmeTemplate} from "./templates.js";
+import {assertPlainText, assertTitle} from "./text-rules.js";
 import {recordDate, runWriteTransaction, sha256, type CommitOutcome, type TransactionOptions, type WriteTx} from "./transaction.js";
+import {assertNotStagedRename, readUncommitted} from "./uncommitted.js";
 
 export type OperationResult<T> = {data: T; commit: CommitOutcome; warnings: Warning[]};
 export type CreateResult = {workId: string; taskId: string; paths: string[]; conflicts: NumberConflict[]; registryOnly: string[]} & LeaseEffects;
@@ -26,12 +27,6 @@ export type ImportResult = {
     conflicts: NumberConflict[];
     registryOnly: string[];
 };
-
-function assertTitle(title: string, label: string): string {
-    const trimmed = title.trim();
-    if (trimmed === "" || /[\r\n]/u.test(trimmed)) throw new NbdevError("invalid_title", `${label}必须是非空的单行文字`, {details: {title}});
-    return trimmed;
-}
 
 function assertTaskStatus(status: string): TaskStatus {
     if (!(TASK_STATUSES as readonly string[]).includes(status)) {
@@ -57,12 +52,14 @@ async function reportConflicts(tx: WriteTx, scan: NumberScan): Promise<{conflict
 }
 
 type WritableWork = {workId: string; execution: ExecutionCheckout | null};
+/** 解析可写的记录要用的：写事务里是锁内读的，预览（不取锁）时是现读的。 */
+export type RecordScope = Pick<WriteTx, "context" | "checkouts" | "registry">;
 
 /**
  * 解析要写的 Work：只认主工作区里、Work README 已提交到 `master` 的；
  * `whole` 为真（改 Work 本身）时，记录还在分支上维护的 Work 拒写。
  */
-async function resolveWritableWork(tx: WriteTx, workRef: string, whole: boolean): Promise<WritableWork> {
+export async function resolveWritableWork(tx: RecordScope, workRef: string, whole: boolean): Promise<WritableWork> {
     const {mainRoot} = tx.context;
     const {changes} = await findBranchRecordChanges(mainRoot, tx.checkouts);
     const matched = matchRef(await listWorkIds(mainRoot), workRef, "work");
@@ -98,7 +95,7 @@ async function resolveWritableWork(tx: WriteTx, workRef: string, whole: boolean)
  * 或经 nbdev 领号的 Task 可以写；同一个 Task 在执行 worktree 里也有、又不是经 nbdev 领的，就还在分支上维护，拒写。
  * `requireCommittedReadme`：产物与答复的写入要求 Task README 已提交，否则 `master` 上会出现没有 Task README 的提交。
  */
-export async function resolveWritableTask(tx: WriteTx, workRef: string, taskRef: string, options: {requireCommittedReadme?: boolean} = {}): Promise<{workId: string; taskId: string; execution: ExecutionCheckout | null}> {
+export async function resolveWritableTask(tx: RecordScope, workRef: string, taskRef: string, options: {requireCommittedReadme?: boolean} = {}): Promise<{workId: string; taskId: string; execution: ExecutionCheckout | null}> {
     const {mainRoot} = tx.context;
     const {workId, execution} = await resolveWritableWork(tx, workRef, false);
     const matched = matchRef(await listTaskIds(mainRoot, workId), taskRef, "task");
@@ -119,20 +116,13 @@ export async function resolveWritableTask(tx: WriteTx, workRef: string, taskRef:
 }
 
 /** 领号新建 Work 与首个 Task（Work 必须至少有一个 Task），提交这两个 README。 */
-export async function createWork(context: RepoContext, input: {
-    slug: string;
-    title: string;
-    goal: string;
-    taskSlug: string;
-    taskTitle?: string;
-    issueNumber?: number;
-    taskStatus?: string;
-}, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
+export async function createWork(context: RepoContext, input: CreateInput, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
     assertSlug(input.slug);
     assertSlug(input.taskSlug);
     const title = assertTitle(input.title, "Work 标题");
     const taskTitle = assertTitle(input.taskTitle ?? input.title, "Task 标题");
-    if (input.goal.trim() === "") throw new NbdevError("usage", "--goal 不能为空");
+    if (input.goal.trim() === "") throw new NbdevError("usage", "--goal 不能为空", {details: {field: "goal"}});
+    assertPlainText(input.goal, "goal", true);
     if (input.issueNumber !== undefined && (!Number.isInteger(input.issueNumber) || input.issueNumber < 1)) {
         throw new NbdevError("usage", `--issue 必须是正整数：${input.issueNumber}`);
     }
@@ -153,7 +143,7 @@ export async function createWork(context: RepoContext, input: {
             [`tasks/${taskId}/README.md`]: taskReadmeTemplate({taskId, title: taskTitle, goal: null, status: taskStatus, date}),
         });
         return {
-            message: `docs(${workNumberLabel(number)}): nbdev 新建 Work ${workId} 与 ${taskId}`,
+            message: `docs(${workNumberLabel(number)}): ${actorOf(options.caller)}新建 Work ${workId} 与 ${taskId}`,
             result: {workId, taskId, paths: [workReadmePath(workId), taskReadmePath(workId, taskId)], ...found},
         };
     });
@@ -163,15 +153,10 @@ export async function createWork(context: RepoContext, input: {
 }
 
 /** 领该 Work 的下一个 Task 号，建 Task README 并提交；记录还在分支上维护的 Work 也一律写进 master。 */
-export async function createTask(context: RepoContext, input: {
-    workRef: string;
-    slug: string;
-    title: string;
-    goal?: string;
-    status?: string;
-}, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
+export async function createTask(context: RepoContext, input: CreateTaskInput, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
     assertSlug(input.slug);
     const title = assertTitle(input.title, "Task 标题");
+    if (input.goal !== undefined) assertPlainText(input.goal, "goal", true);
     const status = assertTaskStatus(input.status ?? "planned");
     const {result, commit, warnings} = await runWriteTransaction(context, options, async (tx) => {
         const {workId} = await resolveWritableWork(tx, input.workRef, false);
@@ -185,7 +170,7 @@ export async function createTask(context: RepoContext, input: {
             "README.md": taskReadmeTemplate({taskId, title, goal: input.goal ?? null, status, date}),
         });
         return {
-            message: `docs(${workId.slice(0, 6)}): nbdev 新建 ${taskId}`,
+            message: `docs(${workId.slice(0, 6)}): ${actorOf(options.caller)}新建 ${taskId}`,
             result: {workId, taskId, paths: [taskReadmePath(workId, taskId)], ...found},
         };
     });
@@ -195,7 +180,8 @@ export async function createTask(context: RepoContext, input: {
 
 /**
  * 改 Work 或 Task 的状态：只改 frontmatter 的 status 与 updated 两行。
- * 目标文件在主工作区有未提交改动时默认拒绝（路径限定的提交会把这些改动一起带进去），`includeUncommitted` 才放行。
+ * 锁内先比 `expectedHash`（调用方看到的那一版），再查未提交改动：有改动时默认拒绝（路径限定的提交会把这些改动一起带进去），
+ * `includeUncommitted` 才放行；目标是暂存区里一次改名的一端时一律拒绝。
  */
 export async function setRecordStatus(context: RepoContext, input: {
     workRef: string;
@@ -203,7 +189,7 @@ export async function setRecordStatus(context: RepoContext, input: {
     status: string;
     includeUncommitted?: boolean;
     expectedHash?: string;
-}, options: TransactionOptions = {}): Promise<OperationResult<SetStatusResult>> {
+}, options: TransactionOptions & {caller?: Caller | null} = {}): Promise<OperationResult<SetStatusResult>> {
     const allowed: readonly string[] = input.taskRef === undefined ? WORK_STATUSES : TASK_STATUSES;
     if (!allowed.includes(input.status)) {
         throw new NbdevError("invalid_status", `${input.taskRef === undefined ? "Work" : "Task"} 状态只能是 ${allowed.join("、")}：${input.status}`, {details: {status: input.status, allowed}});
@@ -225,16 +211,16 @@ export async function setRecordStatus(context: RepoContext, input: {
             if (systemErrorCode(error) === "ENOENT") throw new NbdevError("target_missing", `记录的 README 不存在：${path}`, {details: {path}});
             throw error;
         }
-        const dirty = splitNul(await gitOutput(mainRoot, ["status", "--porcelain", "-z", "-uall", "--no-renames", "--", path], {readOnly: true}));
-        if (dirty.length > 0 && !input.includeUncommitted) {
-            const diff = await runGit(mainRoot, ["diff", "HEAD", "--", path], {readOnly: true});
-            throw new NbdevError("uncommitted_changes", `${path} 在主工作区有未提交的改动；确认要一起提交时加 --include-uncommitted`, {
-                details: {path, status: dirty.map((entry) => entry.slice(0, 2)), diff: diff.exitCode === 0 && diff.stdout !== "" ? diff.stdout : null},
-            });
-        }
         const hash = sha256(text);
         if (input.expectedHash !== undefined && input.expectedHash !== hash) {
-            throw new NbdevError("hash_mismatch", `文件在读取之后被改过：${path}`, {details: {path, expected: input.expectedHash, actual: hash}});
+            throw new NbdevError("hash_mismatch", `文件在读取之后被改过：${path}`, {details: {path, expected: input.expectedHash, actual: hash, currentHash: hash}});
+        }
+        await assertNotStagedRename(mainRoot, path);
+        const uncommitted = await readUncommitted(mainRoot, path);
+        if (uncommitted && !input.includeUncommitted) {
+            throw new NbdevError("uncommitted_changes", `${path} 在主工作区有未提交的改动；确认要一起提交时加 --include-uncommitted`, {
+                details: {path, currentHash: hash, ...uncommitted},
+            });
         }
         const parsed = parseFrontmatter(text);
         if (!parsed.ok) throw new NbdevError("invalid_record", `记录的 frontmatter 无法读取（${parsed.reason}）：${path}`, {details: {path}});
@@ -244,7 +230,7 @@ export async function setRecordStatus(context: RepoContext, input: {
         }
         tx.replaceFile(path, setFrontmatterFields(text, {status: input.status, updated: recordDate(tx.now)}), hash);
         return {
-            message: `docs(${workId.slice(0, 6)}): ${taskId ?? workId} 状态改为 ${input.status}`,
+            message: `docs(${workId.slice(0, 6)}): ${taskId ?? workId} 状态改为 ${input.status}${options.caller?.kind === "developer" ? "（面板）" : ""}`,
             result: {workId, taskId, path, previous, next: input.status, changed: true},
         };
     });
@@ -284,8 +270,106 @@ function leaseOptionsOf(options: Partial<LeaseOptions> & {now?: () => Date}): Le
     return {caller: options.caller ?? null, herdr: options.herdr ?? null, now: options.now};
 }
 
+/** 登记表里开发者领的号记谁：`null` 已经表示“认不出的调用者”，开发者要分得出来。形状沿用会话的 `RegistryBy`。 */
+export function developerBy(caller: DeveloperCaller): RegistryBy {
+    return {key: `developer:${caller.device}`, agent: "developer", sessionId: null, label: caller.device, parentSessionId: null, nestedSessionId: null};
+}
+
 function byOf(caller: Caller | null | undefined): RegistryBy | null {
-    return caller?.kind === "session" ? caller.ref : null;
+    if (caller?.kind === "session") return caller.ref;
+    if (caller?.kind === "developer") return developerBy(caller);
+    return null;
+}
+
+/** 提交信息里的动作主语：开发者在面板上写的标“面板”，其余是 nbdev。 */
+export function actorOf(caller: Caller | null | undefined): string {
+    return caller?.kind === "developer" ? "面板" : "nbdev ";
+}
+
+export type CreateInput = {slug: string; title: string; goal: string; taskSlug: string; taskTitle?: string; issueNumber?: number; taskStatus?: string};
+export type CreateTaskInput = {workRef: string; slug: string; title: string; goal?: string; status?: string};
+export type PreviewProblem = {field: string; code: string; message: string};
+/** 新建的预览：预计领到的号、要写的文件与内容、提交信息；字段不合规时 `problems` 非空，其余尽量给出。 */
+export type CreatePreview = {workId: string | null; taskId: string | null; paths: string[]; files: Record<string, string>; message: string | null; problems: PreviewProblem[]};
+
+function collect(problems: PreviewProblem[], field: string, check: () => void): boolean {
+    try {
+        check();
+        return true;
+    } catch (error) {
+        if (!(error instanceof NbdevError)) throw error;
+        problems.push({field, code: error.code, message: error.message});
+        return false;
+    }
+}
+
+/** 不取锁时解析记录要用的范围：现读登记表与 checkout 列表（预览、面板读“能不能编辑”）。 */
+export async function readRecordScope(context: RepoContext): Promise<RecordScope> {
+    const [{registry}, checkouts] = await Promise.all([readRegistry(context.mainRoot), listCheckouts(context.mainRoot)]);
+    return {context, checkouts, registry};
+}
+
+/** 预览只读：现读登记表与编号扫描，不取锁、不写登记表、不补登 `imported`。号以提交时为准。 */
+async function previewScope(context: RepoContext): Promise<{scope: RecordScope; scan: NumberScan}> {
+    const scope = await readRecordScope(context);
+    return {scope, scan: await scanNumbers(context.mainRoot, scope.checkouts, scope.registry)};
+}
+
+/** `createWork` 的预览：校验与模板同一份。 */
+export async function previewCreateWork(context: RepoContext, input: CreateInput, options: {caller?: Caller | null; now?: () => Date} = {}): Promise<CreatePreview> {
+    const problems: PreviewProblem[] = [];
+    const slugOk = collect(problems, "slug", () => assertSlug(input.slug));
+    const taskSlugOk = collect(problems, "taskSlug", () => assertSlug(input.taskSlug));
+    collect(problems, "title", () => assertTitle(input.title, "Work 标题"));
+    if (input.taskTitle !== undefined) collect(problems, "taskTitle", () => assertTitle(input.taskTitle!, "Task 标题"));
+    collect(problems, "goal", () => {
+        if (input.goal.trim() === "") throw new NbdevError("usage", "目标不能为空");
+        assertPlainText(input.goal, "goal", true);
+    });
+    if (input.issueNumber !== undefined) collect(problems, "issue", () => {
+        if (!Number.isInteger(input.issueNumber) || input.issueNumber! < 1) throw new NbdevError("usage", `Issue 必须是正整数：${input.issueNumber}`);
+    });
+    collect(problems, "taskStatus", () => assertTaskStatus(input.taskStatus ?? "planned"));
+    const {scan} = await previewScope(context);
+    const number = nextWorkNumber(scan);
+    const workId = slugOk ? formatWorkId(number, input.slug) : null;
+    const taskId = taskSlugOk ? formatTaskId(1, input.taskSlug) : null;
+    if (problems.length > 0 || workId === null || taskId === null) return {workId, taskId, paths: [], files: {}, message: null, problems};
+    const date = recordDate((options.now ?? (() => new Date()))());
+    const files = {
+        [workReadmePath(workId)]: workReadmeTemplate({workId, issueId: input.issueNumber === undefined ? null : `i${input.issueNumber}`, title: input.title.trim(), goal: input.goal, date}),
+        [taskReadmePath(workId, taskId)]: taskReadmeTemplate({taskId, title: (input.taskTitle ?? input.title).trim(), goal: null, status: assertTaskStatus(input.taskStatus ?? "planned"), date}),
+    };
+    return {workId, taskId, paths: Object.keys(files), files, message: `docs(${workNumberLabel(number)}): ${actorOf(options.caller)}新建 Work ${workId} 与 ${taskId}`, problems};
+}
+
+/** `createTask` 的预览。 */
+export async function previewCreateTask(context: RepoContext, input: CreateTaskInput, options: {caller?: Caller | null; now?: () => Date} = {}): Promise<CreatePreview> {
+    const problems: PreviewProblem[] = [];
+    const slugOk = collect(problems, "slug", () => assertSlug(input.slug));
+    collect(problems, "title", () => assertTitle(input.title, "Task 标题"));
+    if (input.goal !== undefined) collect(problems, "goal", () => assertPlainText(input.goal!, "goal", true));
+    collect(problems, "status", () => assertTaskStatus(input.status ?? "planned"));
+    const {scope, scan} = await previewScope(context);
+    let workId: string | null = null;
+    try {
+        ({workId} = await resolveWritableWork(scope, input.workRef, false));
+    } catch (error) {
+        if (!(error instanceof NbdevError)) throw error;
+        problems.push({field: "workId", code: error.code, message: error.message});
+    }
+    const taskId = workId !== null && slugOk ? formatTaskId(nextTaskNumber(scan, workId), input.slug) : null;
+    if (problems.length > 0 || workId === null || taskId === null) return {workId, taskId, paths: [], files: {}, message: null, problems};
+    const date = recordDate((options.now ?? (() => new Date()))());
+    const path = taskReadmePath(workId, taskId);
+    return {
+        workId,
+        taskId,
+        paths: [path],
+        files: {[path]: taskReadmeTemplate({taskId, title: input.title.trim(), goal: input.goal ?? null, status: assertTaskStatus(input.status ?? "planned"), date})},
+        message: `docs(${workId.slice(0, 6)}): ${actorOf(options.caller)}新建 ${taskId}`,
+        problems,
+    };
 }
 
 /** 按扫描结果补登 `imported` 条目，只写登记表；可以重复运行，结果不变。 */

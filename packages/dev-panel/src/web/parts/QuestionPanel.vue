@@ -3,7 +3,8 @@ import {Badge, Collapsible} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 import type {QuestionState, VersionQuestion} from "../host/types.js";
 
-const props = defineProps<{questions: QuestionState[]; version: number; latestVersion: number}>();
+/** `answering`：上面有答复表单时不再重复列未答的题，只留已答与已取代、撤回的。 */
+const props = withDefaults(defineProps<{questions: QuestionState[]; version: number; latestVersion: number; answering?: boolean}>(), {answering: false});
 const answeredOpen = ref(false);
 const retiredOpen = ref(false);
 
@@ -30,10 +31,10 @@ function outcomeText(state: QuestionState): string {
 
 <template>
     <div class="flex flex-col gap-4">
-        <p v-if="version !== latestVersion" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--text-xs)">
+        <p v-if="version !== latestVersion && !answering" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--text-xs)">
             看的是 v{{ version }} 的题表（最新是 v{{ latestVersion }}）；状态按全部答复现算
         </p>
-        <section class="flex flex-col gap-2">
+        <section v-if="!answering" class="flex flex-col gap-2">
             <h3 class="font-semibold">未答 {{ open.length }}</h3>
             <p v-if="open.length === 0" style="color: var(--text-muted)">没有未答的题</p>
             <article v-for="state in open" :key="state.question.id" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0" style="border-color: var(--divider)">

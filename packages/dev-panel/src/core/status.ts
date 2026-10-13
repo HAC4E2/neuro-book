@@ -135,13 +135,15 @@ async function summarizeArtifacts(root: string, mainRoot: string, workId: string
 }
 
 /**
- * “最近更新”：frontmatter 的 `updated` 与产物目录最后一次提交的日期中较晚的那个（发布、答复、确认都不改 README）。
+ * “最近更新”：frontmatter 的 `updated`、产物目录与 Task 目录第一层文档最后一次提交的日期中最晚的那个
+ * （发布、答复、确认与编辑 Task 里的其它文档都不改 README）。
  * 不合规的 `updated` 原样返回：盖成提交日期会把“这一行写错了”与原值一起丢掉。
  */
-function laterUpdated(updated: TaskRecord["updated"], artifactsDate: string | undefined): TaskRecord["updated"] {
-    if (updated.origin === "invalid" || artifactsDate === undefined) return updated;
-    if (updated.value !== null && updated.value >= artifactsDate) return updated;
-    return {value: artifactsDate, origin: "commit"};
+function laterUpdated(updated: TaskRecord["updated"], ...commitDates: Array<string | undefined>): TaskRecord["updated"] {
+    const latest = commitDates.filter((date): date is string => date !== undefined).sort().at(-1);
+    if (updated.origin === "invalid" || latest === undefined) return updated;
+    if (updated.value !== null && updated.value >= latest) return updated;
+    return {value: latest, origin: "commit"};
 }
 
 function emptyCounts(): WorkView["taskCounts"] {
@@ -245,7 +247,7 @@ export async function readProjectRecords(context: RepoContext, transition: Trans
             const prefix = `${taskDirPath(workId, taskId)}/`;
             return {
                 ...task,
-                updated: laterUpdated(task.updated, dates.get(`${taskDirPath(workId, taskId)}/artifacts`)),
+                updated: laterUpdated(task.updated, dates.get(`${taskDirPath(workId, taskId)}/artifacts`), dates.get(`${taskDirPath(workId, taskId)}/documents`)),
                 artifacts: await summarizeArtifacts(root, mainRoot, workId, taskId, inbox, warnings),
                 documents: await listDocuments(root, taskDirPath(workId, taskId)),
                 source,

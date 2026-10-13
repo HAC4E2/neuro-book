@@ -32,6 +32,8 @@ export type Meta = {
     herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null};
     parts: Record<string, {revision: number; at: string | null; error: string | null}>;
     artifactOrigin: string; artifactBase: string;
+    /** 主工作区现在能不能写（不在 master、正在合并或变基时不能）；不能写时写入口隐藏。 */
+    mainWritable: {ok: boolean; code: string | null; message: string | null};
 };
 
 export type ArtifactSummary = {artifactId: string; kind: string | null; title: string | null; version: number | null; state: "open" | "closed" | "unpublished"; publishedAt: string | null; openRequired: number; adoption: "none" | "waiting" | "adopted" | null};
@@ -40,7 +42,7 @@ export type TaskView = OverviewTask & {
     workId: string; readmePath: string; branch: string | null; checkout: string; checkoutKey: string | null; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[];
 };
 export type WorkSession = {key: string; agent: string; label: string | null; alive: boolean | null; herdr: {paneId: string; status: string} | null; leases: Array<{taskId: string; lastActivityAt: string; stale: boolean}>; runs: number};
-export type WorkView = Omit<OverviewWork, "tasks"> & {readmePath: string; artifacts: ArtifactSummary[]; documents: DocumentEntry[]; otherCopies: Array<{branch: string | null; checkout: string}>; tasks: TaskView[]; sessions: WorkSession[]};
+export type WorkView = Omit<OverviewWork, "tasks"> & {readmePath: string; readmeHash: string | null; artifacts: ArtifactSummary[]; documents: DocumentEntry[]; otherCopies: Array<{branch: string | null; checkout: string}>; tasks: TaskView[]; sessions: WorkSession[]};
 
 export type ExecutionCandidate = {key: string; root: string; branch: string | null; rule: "readme" | "name" | "home" | "work" | "master"};
 export type CommitEntry = {sha: string; date: string; author: string; subject: string};
@@ -51,7 +53,7 @@ export type TaskDetail = {
     execution: {chosen: ExecutionCandidate; candidates: ExecutionCandidate[]};
     commits: {checkout: string; range: "branch" | "task"; entries: CommitEntry[]};
 };
-export type TaskPageData = {task: TaskView; work: {workId: string; title: string | null; source: string; branch: string | null}; detail: TaskDetail};
+export type TaskPageData = {task: TaskView & {readmeHash: string | null}; work: {workId: string; title: string | null; source: string; branch: string | null}; detail: TaskDetail};
 
 export type ArtifactListItem = ArtifactSummary & {workId: string; taskId: string | null; taskTitle: string | null; workTitle: string | null; category: "design" | "report" | "review" | "questions" | "unpublished" | "other"};
 export type DocumentListItem = DocumentEntry & {workId: string; taskId: string | null; checkoutKey: string | null};
@@ -67,7 +69,7 @@ export type AnswerRecord = {answerId: string; artifactVersion: number; submitted
 export type AckRecord = {ackId: string; answers: string[]; through: string; included: string[]; ackedAt: string};
 export type ArtifactPageData = {
     ref: {workId: string; taskId: string | null; artifactId: string};
-    checkoutKey: string | null; versions: number[]; latestVersion: number | null; version: number | null; kind: string | null; title: string | null;
+    checkoutKey: string | null; source: "master" | "branch"; branch: string | null; versions: number[]; latestVersion: number | null; version: number | null; kind: string | null; title: string | null;
     state: "open" | "closed" | "unpublished"; publishedAt: string | null; questions: QuestionState[]; answers: AnswerRecord[]; acks: AckRecord[];
     unpublishedChanges: boolean | null; pageUrl: string | null; pageIsCurrent: boolean;
 };
@@ -91,3 +93,20 @@ export type SessionsData = {
 export type SearchRecordMatch = {type: "record"; kind: "work" | "task" | "artifact" | "session"; workId?: string; taskId?: string | null; artifactId?: string; title?: string | null; key?: string; label?: string | null};
 export type SearchHit = {type: "hit"; checkout: string; kind: "name" | "content"; path: string; line: number | null; text: string | null};
 export type SearchCheckoutDone = {type: "checkout_done"; checkout: string; count: number; truncated: boolean; elapsedMs: number; error: string | null};
+
+/** 写接口的回应里都有：核心的结果加提交结果。 */
+export type CommitOutcome =
+    | {committed: true; sha: string; paths: string[]; viaOtherCommit: boolean}
+    | {committed: false; reason: "nothing_to_commit"; paths: string[]}
+    | {committed: false; reason: "git_lock_timeout" | "git_failed"; writtenPaths: string[]; detail: string};
+export type WriteData = {changed: boolean; commit: CommitOutcome};
+
+export type PreviewProblem = {field: string; code: string; message: string};
+export type CreatePreviewData = {workId: string | null; taskId: string | null; paths: string[]; files: Record<string, string>; message: string | null; problems: PreviewProblem[]};
+
+export type UncommittedChanges = {status: string[]; staged: string | null; unstaged: string | null; untracked: boolean};
+export type EditableFileData = {
+    path: string; kind: "work_readme" | "task_readme" | "record_document" | "repo_doc" | null; text: string; hash: string; editable: boolean;
+    reason: {code: string; message: string} | null; uncommitted: UncommittedChanges | null; stagedRename: boolean;
+    changedIn: Array<{key: string; branch: string | null}>; lineLimit: number | null;
+};

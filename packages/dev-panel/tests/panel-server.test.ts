@@ -367,8 +367,10 @@ describe("面板服务的启动与搜索", () => {
             return (await pids()).slice(count - 2, count);
         };
         const alive = async (pid: number) => {
+            // 进程已退出：目录没了是 ENOENT；正在退出的那一瞬间读 stat 会得到 ESRCH。两者都算退出。
             const stat = await Bun.file(`/proc/${pid}/stat`).text().catch((error: unknown) => {
-                if ((error as {code?: string}).code === "ENOENT") return null;
+                const code = (error as {code?: string}).code;
+                if (code === "ENOENT" || code === "ESRCH") return null;
                 throw error;
             });
             return stat !== null && stat.slice(stat.lastIndexOf(")") + 2)[0] !== "Z";

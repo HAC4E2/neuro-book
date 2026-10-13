@@ -42,6 +42,7 @@ watch(() => route.fullPath, () => {
     drawerOpen.value = false;
 });
 
+const mainWritable = computed(() => meta.data.value?.mainWritable ?? null);
 const navWorks = computed(() => (overview.data.value?.works ?? []).filter((work) => work.status.value === null || work.status.value === "active"));
 const inboxCount = computed(() => overview.data.value?.inbox.length ?? 0);
 
@@ -101,6 +102,10 @@ const herdrLabel = computed(() => {
                     <p v-if="overview.data.value && navWorks.length === 0" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">没有进行中或未标的 Work</p>
                 </section>
                 <section class="flex flex-col gap-0.5">
+                    <RouterLink v-if="mainWritable?.ok" to="/new" class="nav-item" active-class="nav-active"><span class="i-lucide-plus size-4" aria-hidden="true" />新建 Work 或 Task</RouterLink>
+                    <p v-else-if="mainWritable" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">主工作区现在不能写（{{ mainWritable.code }}），写入口已隐藏</p>
+                </section>
+                <section class="flex flex-col gap-0.5">
                     <h2 class="nav-heading">资料</h2>
                     <RouterLink to="/artifacts" class="nav-item" active-class="nav-active"><span class="i-lucide-files size-4" aria-hidden="true" />产物</RouterLink>
                     <RouterLink to="/docs" class="nav-item" active-class="nav-active"><span class="i-lucide-book-open size-4" aria-hidden="true" />文档</RouterLink>
@@ -135,6 +140,7 @@ const herdrLabel = computed(() => {
             <nav class="flex flex-col gap-1 p-2" aria-label="面板导航">
                 <RouterLink to="/" class="nav-item">首页与收件箱<Badge v-if="inboxCount > 0" tone="warning" variant="soft" size="sm" class="ml-auto">{{ inboxCount }}</Badge></RouterLink>
                 <RouterLink v-for="work in navWorks" :key="work.workId" :to="`/work/${work.workId}`" class="nav-item"><span class="truncate"><span style="color: var(--text-muted)">{{ workLabel(work.workId) }}</span> {{ work.title ?? work.workId }}</span></RouterLink>
+                <RouterLink v-if="mainWritable?.ok" to="/new" class="nav-item">新建 Work 或 Task</RouterLink>
                 <RouterLink to="/artifacts" class="nav-item">产物</RouterLink>
                 <RouterLink to="/docs" class="nav-item">文档</RouterLink>
                 <RouterLink to="/live/sessions" class="nav-item">会话</RouterLink>

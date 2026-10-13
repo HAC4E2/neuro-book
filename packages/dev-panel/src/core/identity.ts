@@ -11,9 +11,14 @@ export type ProcessRef = {pid: number; startTicks: string};
 /** 调用者在 herdr 里的位置；`managed` 表示 herdr 现在的列表里能找到这个会话（能通知），与会话是否还在无关。 */
 export type CallerHerdr = {socketPath: string; paneId: string; terminalId: string; status: HerdrPane["status"]; managed: boolean};
 export type SessionCaller = {kind: "session"; ref: SessionRef; via: "as" | "claude-env" | "herdr-pane"; process: ProcessRef | null; herdr: CallerHerdr | null};
+/** 开发者本人（面板的写入）：没有会话，不取租约；`device` 在 t13 换成配对设备的名字。命令行不会产生这种调用者。 */
+export type DeveloperCaller = {kind: "developer"; device: string};
 export type Caller =
     | SessionCaller
+    | DeveloperCaller
     | {kind: "unknown"; reason: "no_identity" | "herdr_unavailable" | "pane_without_agent"; herdrPaneId: string | null};
+
+export const PANEL_DEVELOPER: DeveloperCaller = {kind: "developer", device: "local"};
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const LABEL_PATTERN = /^[A-Za-z0-9._-]{1,64}$/u;

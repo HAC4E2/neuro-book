@@ -1,4 +1,5 @@
 import type {DefaultTreeAdapterMap} from "parse5";
+import {controlCharProblem} from "./text-rules.js";
 
 /**
  * 提问：题的定义、页面里的提问标记（`data-nbdev-*`）与答复取值的校验。格式见 docs/file-formats.md 的“提问标记”。
@@ -81,7 +82,8 @@ export function validateAnswerValue(question: Pick<QuestionDefinition, "type" | 
         return value.every((entry) => typeof entry === "string" && allowed.has(entry)) ? null : `只能从选项里选：${[...allowed].join("、")}`;
     case "text":
         if (typeof value !== "string" || value.trim() === "") return "要填非空的文字";
-        return value.length > MAX_TEXT_ANSWER_LENGTH ? `文字超过 ${MAX_TEXT_ANSWER_LENGTH} 字` : null;
+        if (value.length > MAX_TEXT_ANSWER_LENGTH) return `文字超过 ${MAX_TEXT_ANSWER_LENGTH} 字`;
+        return controlCharProblem(value, true);
     case "confirm":
         return typeof value === "boolean" ? null : "只能是 true 或 false";
     }

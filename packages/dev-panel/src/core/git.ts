@@ -1,5 +1,5 @@
 import {spawn} from "node:child_process";
-import {NbdevError} from "./errors.js";
+import {NbdevError, systemErrorCode} from "./errors.js";
 
 export type GitResult = {exitCode: number; stdout: string; stderr: string};
 
@@ -36,24 +36,40 @@ export function gitEnvironment(options: {literalPathspecs?: boolean} = {}): Node
     return env;
 }
 
-/** 异步运行 Git，不因非零退出码抛错；调用方按退出码分支。只读的扫描靠它并行发出多条 Git 命令。 */
+/**
+ * 异步运行 Git，不因非零退出码抛错；调用方按退出码分支。只读的扫描靠它并行发出多条 Git 命令。
+ * 只有给了 `input` 才开 stdin：不读 stdin 的 Git 子命令先退出时，往它的 stdin 写会得到 EPIPE，
+ * Node 下没有监听的 EPIPE 是未处理的异常（t10 实现审查第 7 条）。
+ */
 export function runGit(root: string, args: readonly string[], options: GitOptions = {}): Promise<GitResult> {
     const fullArgs = options.readOnly ? ["--no-optional-locks", "-C", root, ...args] : ["-C", root, ...args];
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn("git", fullArgs, {env: gitEnvironment(), stdio: ["pipe", "pipe", "pipe"]});
+        const child = spawn("git", fullArgs, {env: gitEnvironment(), stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]});
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
-        child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-        child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+        let stdinNote: string | null = null;
+        child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
+        child.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
         child.on("error", (error) => rejectPromise(new NbdevError("git_failed", `无法启动 git：${error.message}`, {cause: error, details: {args: fullArgs}})));
         child.on("close", (code, signal) => {
+            const errorText = Buffer.concat(stderr).toString("utf8");
             resolvePromise({
                 exitCode: code ?? (signal ? 128 : 1),
                 stdout: Buffer.concat(stdout).toString("utf8"),
-                stderr: Buffer.concat(stderr).toString("utf8"),
+                stderr: stdinNote === null ? errorText : `${errorText}${errorText === "" || errorText.endsWith("\n") ? "" : "\n"}${stdinNote}\n`,
             });
         });
-        child.stdin.end(options.input ?? "");
+        if (options.input !== undefined) {
+            child.stdin!.on("error", (error) => {
+                // Git 没读完输入就退出了：失败由退出码与 stderr 报出，这里只把原因附进 stderr。
+                if (systemErrorCode(error) === "EPIPE") {
+                    stdinNote = `nbdev：git 在读完输入之前关闭了 stdin（EPIPE）`;
+                    return;
+                }
+                rejectPromise(new NbdevError("git_failed", `写 git 的 stdin 失败：${error.message}`, {cause: error, details: {args: fullArgs}}));
+            });
+            child.stdin!.end(options.input);
+        }
     });
 }
 

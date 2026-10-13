@@ -11,6 +11,11 @@ const STATUS: Record<string, {label: string; tone: Tone}> = {
     shelved: {label: "搁置", tone: "warning"},
 };
 
+/** 状态取值的中文名（状态切换的下拉与确认用）。 */
+export function statusLabel(value: string): string {
+    return STATUS[value]?.label ?? value;
+}
+
 export function statusDisplay(status: RecordedValue): {label: string; tone: Tone; marked: boolean} {
     if (status.origin === "invalid") return {label: "不合规", tone: "danger", marked: true};
     if (status.value === null) return {label: "未标", tone: "neutral", marked: false};

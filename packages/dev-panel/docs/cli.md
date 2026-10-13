@@ -40,7 +40,7 @@
 
 - `work new`：领下一个 Work 号，在主工作区建 Work README（`status: active`、`updated`、“目标”一节）与首个 Task README（`status: planned`、`updated`），在 `master` 上提交这两个文件。
 - `task new`：领该 Work 的下一个 Task 号，建 Task README 并提交。Work README 必须已提交到 `master`（否则 `work_not_committed`）；记录还在分支上维护的 Work 也一律写进 `master`。不改 Work README。
-- `work status`、`task status`：只改 frontmatter 的 `status` 与 `updated` 两行并提交。取值与现值相同时不写不提交。记录来自分支、或 Work README 未提交时拒绝。目标文件在主工作区有未提交改动时默认拒绝，`--include-uncommitted` 才连同这些改动一起提交。
+- `work status`、`task status`：只改 frontmatter 的 `status` 与 `updated` 两行并提交。取值与现值相同时不写不提交。记录来自分支、或 Work README 未提交时拒绝。目标文件是暂存区里一次改名或复制的一端时一律拒绝（`staged_rename`：只提交它会拆开那次改名）。目标文件在主工作区有未提交改动时默认拒绝（`uncommitted_changes`，`details` 带 `currentHash`、`status`、`staged`（`git diff --cached`）、`unstaged`（`git diff`）、`untracked`），`--include-uncommitted` 才连同这些改动一起提交。调用方给了期望的哈希（面板）时先比哈希、再查未提交改动。
 - `registry import`：按扫描结果补登 `imported` 条目，只写 `.local/agent/registry.json`，可以重复运行。
 - `status`：只读，不取锁，不写任何文件，不加载页面解析器；herdr 只调只读方法，总时限 2.5 秒。
 - `artifact publish`：页面文件由会话直接写在主工作区的产物目录里；在写事务的锁内读上一版、列页面文件、解析提问标记、算 `contentHash`、生成新的题表，写 `versions/v<N>.json`，与产物目录里 Git 有变化的页面文件（不含删除项与 `answers/`）一起提交。内容与题都没变时不出新版本（`unchanged: true`），`--force-version` 照样出。格式与题表规则见 [文件格式](file-formats.md#产物)。
@@ -49,6 +49,8 @@
 - `answers record`：写一份代录的答复（`submittedBy.kind: "agent-transcribed"`）；`--set`、`--comment` 的题号不合格式、或同一道题给了两次时报 `usage`。`answers --since` 不是答复 id 的写法时报 `usage`。`answers ack`：写一份确认，并把 `--include` 列出的记录（相对主工作区根，只收 `.agents/works/` 下的普通文件；目录与被 `.gitignore` 忽略的文件在写任何东西之前报 `usage`）放进同一个提交。`--through` 填读答复时输出里的 `cursor`：只确认 id 不大于它的未确认答复（同一个 `answers/` 目录里 id 在锁内单调生成，不大于游标就是会话读之前已落位），比它新的留着、给 `newer_answers_unacked`。不给 `--through` 时确认锁内看到的全部未确认答复，其中可能有会话没读过的，给 `ack_without_through`。要确认的答复为空时不写，给 `already_acked`，`--include` 的文件也不提交；但有上次提交失败的残留时照样把残留与 `--include` 的文件一起补交（见下文“提交失败后的补救”）。
 - 这些写入都要求：Work README 与 Task README 已提交到 `master`（否则 `work_not_committed`、`task_not_committed`）；Task 的来源是 `master`（判定同 `task status`：来自分支的 Work 里，只在 `master` 上的 Task 或经 nbdev 领号的 Task 可以写，否则 `branch_maintained_record`）。发布、答复、确认都不改 Task README 的 `updated`。
 - 写完之后续期调用者在这个 Task 上的租约，再把“谁写的”记进运行时的 provenance（见 [文件格式](file-formats.md#provenance)）；入库的文件里没有会话。
+- 写进记录的文字（标题、目标、说明、备注、文字答复）拒绝 C0 控制字符（允许制表符）；换行只在正文类字段里允许，标题必须是一行。标题报 `invalid_title`，其余报 `invalid_text`（`details.field`）。面板的写接口用同一份规则。
+- 每次写事务在 `git add` 之前重读本次写入的每个文件：与写入的内容不同（别的进程在落位之后又改了它）就不提交，报 `changed_after_write`（`details.writtenPaths`），文件留在工作区；提交里混进了不是这次写的内容时给 `commit_included_foreign_changes`。
 
 ### 会话与租约
 
@@ -92,7 +94,7 @@ stdout 只有一个对象，诊断走 stderr：
 - `status` 的 `data` 另有：
   - `inbox[]`：只放要开发者动手的事，`{kind: "question", workId, taskId, artifactId, questionId, label, type, version, since, askedBy}`（`open` 的必答题；`askedBy` 是运行时的会话键，读不到为 `null`）与 `{kind: "number_conflict", label, live}`；带 `--work` 时只列范围内的；
   - Task 的 `artifacts[]`：`{artifactId, kind, title, version, state, publishedAt, openRequired, adoption}`，没有发布记录的 `state` 为 `unpublished`；Task 与 Work 的 `documents[]`：`{path, title}`；Work 的 `artifacts[]`（Work 级产物，只索引）；
-  - Task 的 `updated`：frontmatter 的 `updated` 与产物目录最后一次提交的日期中较晚的那个；frontmatter 的值不合规（`origin: invalid`）时原样给出。
+  - Task 的 `updated`：frontmatter 的 `updated`、产物目录与 Task 目录第一层文档（README 之外的 `.md`）最后一次提交的日期中最晚的那个；frontmatter 的值不合规（`origin: invalid`）时原样给出。
 - `artifact publish` 的 `data`：`workId`、`taskId`、`artifactId`、`unchanged`、`version`、`path`、`questions`（新版本的全部题）、`dropped`（被这一版取代的题）、`retiredInPage`、`restored`、`committedFiles`、`previous`（`{version, publishedAt, publishedBy}`，`publishedBy` 读 provenance）、`lease`、`commit`。`artifact close`、`ask`、`ask withdraw`、`ask supersede` 的 `data`：`workId`、`taskId`、`artifactId`、`unchanged`、`version`、`path`、`questions`、`affected`、`lease`、`commit`。
 - `answers` 的 `data`：`artifacts[]` 与 `cursor`（范围内最大的答复 id）。每个产物：`workId`、`taskId`、`artifactId`、`kind`、`title`、`version`、`state`、`publishedAt`、`openRequired`、`adoption`（`none`、`waiting`、`adopted`）、`questions[]`（`{question, state, answer, stale}`，`answer` 带 `answerId`、`value`、`artifactVersion`、`submittedAt`、`comment`；`stale` 是按最新一版不合法、作废了的最新答复，字段同 `answer` 外加 `reason`（文案）与 `code`（`stale_value`：按它针对的那一版合法、选项后来改了；`invalid_value`：按那一版也不合法），没有时为 `null`，按 `code` 分支）、`answers[]`、`acks[]`、`unacked[]`、`cursor`。`--pending` 只留有 `open` 必答题的产物、题也只留这些；`--unacked` 只留有未确认答复的产物；`--since` 只留有更新答复的产物、答复也只留这些。指定了 Task 时续期调用者的租约。
 - `answers ack` 的 `data`：`acked`、`ack`、`path`、`newer`（比 `--through` 新、没有确认的答复 id）、`lease`、`commit`；`answers record` 的 `data`：`answer`、`path`、`lease`、`commit`。
@@ -105,9 +107,9 @@ stdout 只有一个对象，诊断走 stderr：
 | 退出码 | 含义 | 错误码 |
 |---|---|---|
 | 0 | 成功，含带警告的成功与撞号 | |
-| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`internal` |
-| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host` |
-| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`panel_running`、`port_in_use` |
+| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`request_aborted`、`internal` |
+| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`invalid_text`、`invalid_record_edit`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host`、`payload_too_large`、`unsupported_media_type` |
+| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use` |
 | 4 | 等待没有结果（`answers --wait`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted` |
 | 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers`、`panel_not_running` |
 
@@ -135,6 +137,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `main_not_on_master` | `status` 时主工作区不在 `master`，照常读工作区 |
 | `commit_via_other_commit` | 本次的文件被别的提交带走 |
 | `commit_paths_mismatch` | 本次提交的路径与预期不一致 |
+| `commit_included_foreign_changes` | 提交里有不是这次写的内容：落位后的核对通过之后、`git add` 之前别的进程又改了这个文件（`details.paths`） |
 | `lock_release_failed` | 放锁失败 |
 | `lock_release_skipped` | 放锁时锁已属于别的进程，没有动它 |
 | `lock_taken_over` | 取锁时接管了已退出进程留下的（或损坏的）锁 |
@@ -175,5 +178,6 @@ stdout 只有一个对象，诊断走 stderr：
 ## 失败时留下什么
 
 - 取锁之前或锁内校验失败（退出码 2、3、5，以及 `lock_timeout`）：不写任何记录。
-- 登记表已写、落位或提交失败：号已经是 `claimed`，不会再发；已落位的文件留在主工作区，输出 `writtenPaths`。
+- 登记表已写、落位或提交失败：号已经是 `claimed`，不会再发；已落位的文件留在主工作区，输出 `writtenPaths`。落位之后文件又被别的进程改了（`changed_after_write`）同样不提交，文件留在工作区。
+- `invalid_text`、`invalid_record_edit`、`payload_too_large`、`unsupported_media_type`、`stale_version`、`not_editable`、`request_aborted` 只有面板的写接口会遇到（`invalid_text` 命令行也会）；含义见 [面板](panel.md#写接口)。
 - `.local/agent/run/tmp/` 里中断事务留下的目录不自动清理，确认没有 nbdev 在跑后可以删。

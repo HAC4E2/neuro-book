@@ -9,6 +9,9 @@ export const taskHref = (workId: string, taskId: string) => `/work/${workId}/tas
 /** Work 级产物的 Task 段写 `-`，与读接口一致。 */
 export const artifactHref = (workId: string, taskId: string | null, artifactId: string) => `/artifact/${workId}/${taskId ?? "-"}/${artifactId}`;
 export const docHref = (checkoutKey: string, path: string) => `/docs?checkout=${encodeURIComponent(checkoutKey)}&path=${encodeURIComponent(path)}`;
+/** 编辑页只编辑主工作区里的文件。 */
+export const editHref = (path: string) => `/edit?path=${encodeURIComponent(path)}`;
+export const newHref = (workId: string | null = null) => (workId ? `/new?workId=${encodeURIComponent(workId)}` : "/new");
 
 /** 搜索里记录的匹配去哪一页；会话没有单独的页，去会话列表。 */
 export function searchRecordHref(match: SearchRecordMatch): string {
