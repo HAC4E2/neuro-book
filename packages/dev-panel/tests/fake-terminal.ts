@@ -19,7 +19,7 @@ export async function fakeTerminalTools(name: string, terminals: Record<string, 
     const state = join(dirname(socketPath), "fake-cli");
     await mkdir(state, {recursive: true});
     await writeFile(join(state, "config.json"), JSON.stringify({terminals}));
-    return {tools: {herdrBin: join(bin, "herdr"), setprivBin: "/usr/bin/setpriv", socketPath}, state};
+    return {tools: {herdrBin: join(bin, "herdr"), setprivBin: "/usr/bin/setpriv", setsidBin: "/usr/bin/setsid", socketPath}, state};
 }
 
 export async function cleanupFakeTerminals(): Promise<void> {

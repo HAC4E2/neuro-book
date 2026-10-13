@@ -33,8 +33,8 @@ const alive = (pid: number) => existsSync(`/proc/${pid}`) && !readFileSync(`/pro
 
 describe("参数与解析（L1）", () => {
     test("只拼 observe 与 control 两种参数；target 不能以 - 开头；尺寸夹在范围里；setpriv 包在最外层", () => {
-        const tools = {herdrBin: "/x/herdr", setprivBin: "/usr/bin/setpriv", socketPath: "/x/herdr.sock"};
-        expect(streamArgs(tools, "control", "term_1a2b", {cols: 1000, rows: 2}, true)).toEqual(["/usr/bin/setpriv", "--pdeathsig", "TERM", "--", "/x/herdr", "terminal", "session", "control", "term_1a2b", "--takeover", "--cols", "400", "--rows", "5"]);
+        const tools = {herdrBin: "/x/herdr", setprivBin: "/usr/bin/setpriv", setsidBin: "/usr/bin/setsid", socketPath: "/x/herdr.sock"};
+        expect(streamArgs(tools, "control", "term_1a2b", {cols: 1000, rows: 2}, true)).toEqual(["/usr/bin/setpriv", "--pdeathsig", "TERM", "--", "/usr/bin/setsid", "/x/herdr", "terminal", "session", "control", "term_1a2b", "--takeover", "--cols", "400", "--rows", "5"]);
         expect(streamArgs(tools, "observe", "term_1", {cols: 80, rows: 24}, true)).not.toContain("--takeover");
         for (const bad of ["--takeover", "-x", "a b", "", "term;rm"]) expect(() => streamArgs(tools, "observe", bad, {cols: 80, rows: 24})).toThrow();
         expect(() => streamArgs(tools, "attach" as never, "term_1", {cols: 80, rows: 24})).toThrow();
@@ -50,8 +50,10 @@ describe("参数与解析（L1）", () => {
     test("找不到 herdr 或 setpriv 时终端功能关掉，写明原因", () => {
         expect(resolveTerminalTools({}, null, () => "/usr/bin/x")).toMatchObject({available: false});
         expect(resolveTerminalTools({}, "/x.sock", () => null)).toMatchObject({available: false});
-        expect(resolveTerminalTools({NBDEV_HERDR_BIN: "/nonexistent/herdr"}, "/x.sock", (name) => (name === "setpriv" ? "/usr/bin/setpriv" : null))).toMatchObject({available: false});
-        expect(resolveTerminalTools({NBDEV_HERDR_BIN: process.execPath}, "/x.sock", (name) => (name === "setpriv" ? "/usr/bin/setpriv" : null))).toMatchObject({available: true, tools: {herdrBin: process.execPath}});
+        const util = (name: string) => (name === "setpriv" ? "/usr/bin/setpriv" : name === "setsid" ? "/usr/bin/setsid" : null);
+        expect(resolveTerminalTools({NBDEV_HERDR_BIN: "/nonexistent/herdr"}, "/x.sock", util)).toMatchObject({available: false});
+        expect(resolveTerminalTools({NBDEV_HERDR_BIN: process.execPath}, "/x.sock", (name) => (name === "setpriv" ? "/usr/bin/setpriv" : null))).toMatchObject({available: false});
+        expect(resolveTerminalTools({NBDEV_HERDR_BIN: process.execPath}, "/x.sock", util)).toMatchObject({available: true, tools: {herdrBin: process.execPath}});
     });
 });
 

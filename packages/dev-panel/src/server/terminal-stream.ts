@@ -5,7 +5,8 @@ import {isAbsolute} from "node:path";
  * herdr 的两条终端流（t12）：`herdr terminal session observe|control <terminal id> …`，每个浏览器连接一个子进程。协议与实测见
  * docs/herdr.md 的“终端流”。这里只拼这两种参数（`HERDR_PANEL_STREAMS`），target 只收 herdr 列出来的 terminal id 的形状，
  * 尺寸只收范围内的整数：流不经 JSON 接口，客户端的方法白名单管不到命令行发给 server 的内容。
- * 子进程一律经 `setpriv --pdeathsig TERM` 起：observe 不读 stdin、读端没了也不退出，面板异常退出时只有父进程死亡信号能收掉它。
+ * 子进程一律经 `setpriv --pdeathsig TERM -- setsid` 起：observe 不读 stdin、读端没了也不退出，面板异常退出时只有父进程死亡信号能收掉它；
+ * 自成会话，面板前台运行时终端的 Ctrl+C 只打到面板，由面板按顺序收口。
  */
 
 export const HERDR_PANEL_STREAMS = ["observe", "control"] as const;
@@ -16,7 +17,7 @@ export type StreamClosed = {type: "closed"; reason: string};
 export type StreamLine = StreamFrame | StreamClosed;
 export type StreamInput = {type: "input"; text: string} | {type: "resize"; cols: number; rows: number} | {type: "release"};
 
-export type TerminalTools = {herdrBin: string; setprivBin: string; socketPath: string};
+export type TerminalTools = {herdrBin: string; setprivBin: string; setsidBin: string; socketPath: string};
 export type ToolsStatus = {available: true; tools: TerminalTools} | {available: false; reason: string};
 
 export const SIZE_LIMITS = {minCols: 20, maxCols: 400, minRows: 5, maxRows: 200} as const;
@@ -41,8 +42,9 @@ export function resolveTerminalTools(env: NodeJS.ProcessEnv, socketPath: string 
     const herdrBin = env.NBDEV_HERDR_BIN && isAbsolute(env.NBDEV_HERDR_BIN) ? env.NBDEV_HERDR_BIN : which("herdr");
     if (!herdrBin || !executable(herdrBin)) return {available: false, reason: "找不到 herdr 命令（设 NBDEV_HERDR_BIN 为它的绝对路径）"};
     const setprivBin = which("setpriv");
-    if (!setprivBin || !executable(setprivBin)) return {available: false, reason: "找不到 setpriv（util-linux）：没有它，面板异常退出时收不掉终端流的子进程"};
-    return {available: true, tools: {herdrBin, setprivBin, socketPath}};
+    const setsidBin = which("setsid");
+    if (!setprivBin || !executable(setprivBin) || !setsidBin || !executable(setsidBin)) return {available: false, reason: "找不到 setpriv 或 setsid（util-linux）：没有它们，面板退出时收不掉终端流的子进程、来不及释放接管"};
+    return {available: true, tools: {herdrBin, setprivBin, setsidBin, socketPath}};
 }
 
 /** 尺寸夹到范围里；不是整数就不收。 */
@@ -85,8 +87,10 @@ export function streamArgs(tools: TerminalTools, kind: StreamKind, terminalId: s
     if (!TERMINAL_ID.test(terminalId)) throw new Error(`terminal id 的写法不对：${terminalId}`);
     const clamped = clampSize(size.cols, size.rows);
     if (!clamped) throw new Error("尺寸不是整数");
+    // setsid：子进程自成一个会话，前台运行时终端里的 Ctrl+C 不会同时打到它，面板来得及先改回尺寸、再 release。
+    // pdeathsig 跨 exec 保留：面板异常退出时子进程照样被收掉。
     return [
-        tools.setprivBin, "--pdeathsig", "TERM", "--",
+        tools.setprivBin, "--pdeathsig", "TERM", "--", tools.setsidBin,
         tools.herdrBin, "terminal", "session", kind, terminalId,
         ...(kind === "control" && takeover ? ["--takeover"] : []),
         "--cols", String(clamped.cols), "--rows", String(clamped.rows),
@@ -149,11 +153,18 @@ export function startTerminalStream(tools: TerminalTools, kind: StreamKind, term
         const decoder = new TextDecoder();
         for await (const chunk of child.stderr) handlers.onStderr(decoder.decode(chunk).slice(0, 500));
     })();
+    // 子进程已经死了、`exited` 还没兑现时写会抛 EPIPE：当作写不进去（调用方按“没有改回尺寸”“没有发出”处理）。
     const write = (text: string): boolean => {
         if (!stdinOpen) return false;
-        child.stdin.write(text);
-        child.stdin.flush();
-        return true;
+        try {
+            child.stdin.write(text);
+            child.stdin.flush();
+            return true;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EPIPE") throw error;
+            stdinOpen = false;
+            return false;
+        }
     };
     const resume = () => {
         paused = false;
@@ -184,7 +195,11 @@ export function startTerminalStream(tools: TerminalTools, kind: StreamKind, term
                 }
                 if (stdinOpen) {
                     stdinOpen = false;
-                    await Promise.resolve(child.stdin.end());
+                    try {
+                        await Promise.resolve(child.stdin.end());
+                    } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code !== "EPIPE") throw error;
+                    }
                 }
                 // 停读的流不读完就不会退出：收口时放开。
                 resume();
