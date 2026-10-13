@@ -28,7 +28,9 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string}> =
             <span v-if="computedAt" style="color: var(--text-muted); font-size: var(--text-xs)">未提交与领先落后是 {{ relativeTime(computedAt) }}算的</span>
         </div>
         <LoadState v-if="!checkouts.data.value" :loading="checkouts.loading.value" :error="checkouts.error.value" label="正在读取 checkout" @retry="checkouts.reload()" />
+        <!-- 列多：窄屏上整张表横向滚动，不把每列挤成一字一行。 -->
         <div v-else class="overflow-x-auto">
+            <div class="min-w-[64rem]">
             <Table :columns="columns" :rows="rows" row-key="key" density="compact" :hoverable="false">
                 <template #cell-key="{row}">
                     <RouterLink :to="{name: 'docs', query: {checkout: row.checkout.key}}">{{ row.checkout.key }}</RouterLink>
@@ -47,7 +49,7 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string}> =
                 </template>
                 <template #cell-runs="{row}">
                     <span v-if="row.checkout.runs.length === 0" style="color: var(--text-muted)">—</span>
-                    <span v-for="run in row.checkout.runs" :key="run.runId" class="block break-all" style="font-size: var(--text-xs)">{{ run.script }}<template v-if="run.url"> {{ run.url }}</template></span>
+                    <span v-for="run in row.checkout.runs" :key="run.runId" class="block break-all" style="font-size: var(--text-xs)">{{ run.url ? `${run.script} · ${run.url}` : run.script }}</span>
                 </template>
                 <template #cell-homes="{row}">
                     <span v-if="row.checkout.homeOf.length === 0" style="color: var(--text-muted)">—</span>
@@ -59,6 +61,7 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string}> =
                 </template>
                 <template #cell-root="{row}"><code class="break-all" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ row.checkout.root }}</code></template>
             </Table>
+            </div>
         </div>
     </div>
 </template>
