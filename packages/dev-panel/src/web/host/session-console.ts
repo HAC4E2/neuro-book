@@ -2,6 +2,7 @@ import {computed, effectScope, onScopeDispose, ref, shallowRef, watch, type Effe
 import {ApiError, getJson, sendJson} from "./api.js";
 import {shortSession} from "./format.js";
 import {deliveryNotice} from "./notify-actions.js";
+import {panelState} from "./panel-data.js";
 import {useTerminalSocket, type TerminalSocket} from "./terminal-socket.js";
 import type {DeliveryData, HistoryData, ScreenData} from "./types.js";
 import {describeFailure, type Notice} from "./writes.js";
@@ -14,7 +15,8 @@ import {describeFailure, type Notice} from "./writes.js";
  * - 读屏、读更早的输出带序号，回来时目标还是发起时的那个才写；
  * - 输入框的草稿按 pane 记：换 pane 时经 `resetKey` 清空；同一格换会话（`/compact`、`/clear`）时保留，给出 `sessionChange` 提示；
  *   发送的回包只在目标没变时才清草稿。
- * 终端连接按 `paneId + terminalId` 建，每建一条连接 `connection` 加一，页面拿它给终端零件当 key（`source` 在零件实例的一生里不变）。
+ * 终端连接按 `paneId + terminalId` 建（重新登录后也重建），每建一条连接 `connection` 加一，页面拿它给终端零件当 key
+ * （`source` 在零件实例的一生里不变）。
  */
 
 export type ConsoleTarget = {paneId: string; terminalId: string; sessionKey: string};
@@ -52,7 +54,8 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
     const terminal = shallowRef<TerminalSocket | null>(null);
     const connection = ref(0);
     let terminalScope: EffectScope | null = null;
-    watch(() => (current.value && options.terminalAvailable.value ? `${current.value.paneId}\0${current.value.terminalId}` : null), (key) => {
+    // 重新登录之后（`authEpoch` 变了）也重建连接：失效期间旧连接停在“登录已失效”或不再重连。
+    watch(() => (current.value && options.terminalAvailable.value && !panelState.unauthorized ? `${current.value.paneId}\0${current.value.terminalId}\0${panelState.authEpoch}` : null), (key) => {
         terminalScope?.stop();
         terminalScope = null;
         terminal.value = null;

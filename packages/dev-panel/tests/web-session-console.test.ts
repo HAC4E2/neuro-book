@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test";
 import {computed, effectScope, nextTick, ref} from "vue";
-import {stopPanelData} from "../src/web/host/panel-data.js";
+import {confirmRelogin, panelState, stopPanelData} from "../src/web/host/panel-data.js";
 import {useSessionConsoleHost, type SelectedSession} from "../src/web/host/session-console.js";
 import {gate, until, useWebEnv, type FetchCall, type Reply} from "./web-env.js";
 
@@ -165,6 +165,29 @@ describe("终端连接与接管（重要 3、阻断 1 的接管）", () => {
         socket.push({t: "need_confirm", reason: "other_browser", detail: {since: "2026-10-13T00:00:00Z"}});
         await nextTick();
         expect(host.takeoverAsk.value).toMatchObject({target: {sessionKey: A.sessionKey}, cols: 120, rows: 40, force: true});
+        stop();
+    });
+});
+
+describe("重新登录之后（1.5）", () => {
+    test("登录失效时关掉终端连接；重新登录后按新的 authEpoch 重建连接", async () => {
+        let lost = false;
+        web.env.respond((call) => (lost && call.url !== "/api/meta" ? {status: 401} : undefined));
+        web.env.respond(screenOf);
+        web.env.respond((call) => (call.url === "/api/meta" ? {data: {}} : undefined));
+        const {host, stop} = mount(A, true);
+        expect([host.connection.value, web.env.sockets().length]).toEqual([1, 1]);
+        lost = true;
+        await host.readScreen();
+        expect(panelState.unauthorized).toBe(true);
+        await nextTick();
+        expect(web.env.sockets()[0]!.closedWith).not.toBeNull();
+        expect(host.terminal.value).toBeNull();
+        lost = false;
+        expect(await confirmRelogin()).toBeNull();
+        await nextTick();
+        expect(host.connection.value).toBe(2);
+        expect(web.env.sockets().at(-1)!.url).toContain("terminal=term_a");
         stop();
     });
 });

@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import {Badge, Drawer, FormInput, IconButton, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {Badge, Button, Drawer, FormInput, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "./host/format.js";
 import {pageKey} from "./host/routes.js";
-import {panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
+import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readNavOpen, writeAppearance, writeNavOpen, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
 import type {Meta, NotifyData, Overview} from "./host/types.js";
-import LoadState from "./parts/LoadState.vue";
 
 /**
  * 外壳：左栏（首页与收件箱、工作的 Work › Task 树、产物、文档、现场）、顶栏（搜索、数据新旧、代码已更新、通知要处理的计数、审计、herdr、明暗）、页面。
@@ -28,6 +27,23 @@ const restartHint = computed(() => {
     const command = meta.data.value?.service.restartCommand;
     return command ? `代码已更新：运行 ${command} 后生效` : "代码已更新：在终端重启 nbdev panel serve 后生效";
 });
+
+/** 登录失效的提示：出现时把焦点放进去；“我已重新登录”重探之后解除，失败写明原因。 */
+const authDialog = ref<HTMLElement | null>(null);
+const relogging = ref(false);
+const reloginError = ref<string | null>(null);
+watch(() => panelState.unauthorized, (lost) => {
+    reloginError.value = null;
+    if (lost) void nextTick(() => authDialog.value?.querySelector("button")?.focus());
+});
+async function relogin(): Promise<void> {
+    relogging.value = true;
+    try {
+        reloginError.value = await confirmRelogin();
+    } finally {
+        relogging.value = false;
+    }
+}
 
 const appearance = ref<Appearance>(readAppearance());
 const appearanceLabel = computed(() => ({system: "明暗：跟随系统", light: "明暗：亮", dark: "明暗：暗"})[appearance.value]);
@@ -84,10 +100,16 @@ const herdrLabel = computed(() => {
 </script>
 
 <template>
-    <div v-if="panelState.unauthorized" class="flex h-full items-center justify-center p-6">
-        <LoadState :loading="false" :error="{message: '没有登录：在终端运行 nbdev panel open，用它打开的一次性链接登录（面板重启后要重新打开）'}" :retryable="false" />
+    <!-- 登录失效时页面不卸载（草稿、填了一半的答复都还在），盖一层提示、整个外壳 inert；重新登录后点按钮接着用（t15）。 -->
+    <div v-if="panelState.unauthorized" class="fixed inset-0 z-50 flex items-center justify-center p-6" style="background: color-mix(in srgb, var(--bg-main) 75%, transparent)">
+        <section ref="authDialog" role="alertdialog" aria-modal="true" aria-labelledby="auth-lost-title" aria-describedby="auth-lost-message" class="flex max-w-md flex-col gap-3 rounded-[var(--radius-panel)] p-5" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
+            <h2 id="auth-lost-title" class="font-semibold">没有登录，或登录已失效</h2>
+            <p id="auth-lost-message" style="color: var(--text-secondary)">在终端运行 <code>nbdev panel open</code>，用它给的一次性链接登录（在这个浏览器的另一个标签页里打开也行；面板重启后要重新登录）。这一页还开着，没保存的改动都在；登录后点下面的按钮接着用。</p>
+            <p v-if="reloginError" role="status" style="color: var(--status-warning); font-size: var(--text-xs)">{{ reloginError }}</p>
+            <Button variant="primary" :loading="relogging" @click="relogin">我已重新登录</Button>
+        </section>
     </div>
-    <div v-else class="grid h-full grid-cols-1 md:grid-cols-[15.5rem_minmax(0,1fr)]">
+    <div class="grid h-full grid-cols-1 md:grid-cols-[15.5rem_minmax(0,1fr)]" :inert="panelState.unauthorized || undefined">
         <aside class="hidden min-h-0 flex-col overflow-y-auto border-r md:flex" style="background: var(--sidebar-surface, var(--bg-sidebar)); border-color: var(--divider)" aria-label="面板导航">
             <nav class="flex flex-col gap-4 p-3">
                 <RouterLink to="/" class="flex items-center gap-2 px-2 font-semibold"><span class="i-lucide-layout-dashboard size-4" aria-hidden="true" />nbdev 面板</RouterLink>

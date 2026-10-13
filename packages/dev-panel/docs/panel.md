@@ -21,7 +21,7 @@
 2. `panel open` 读它、签一张一次性票据（`<nonce>.<过期时刻>.<HMAC>`，5 分钟过期，用一次作废），写一页跳转页再用 `xdg-open` 打开（见下）；`--print` 只打印登录链接 `/login?ticket=…`。
 3. 服务核对票据，换成会话 cookie（`nbdev_panel_<面板端口>`，`HttpOnly; SameSite=Strict; Path=/`），重定向到 `/`。会话只在本次服务实例里有效，重启面板后要重新 `panel open`。cookie 名带端口：cookie 不按端口区分，同一个浏览器登录两个面板（不同仓库，或开发时的演示面板）时，名字相同就会互相踢下线。
 
-页面本身与静态资源不要求登录；`/api/*` 没登录回 401（`unauthorized`），前端据此提示“用 nbdev panel open 打开”。
+页面本身与静态资源不要求登录；`/api/*` 没登录回 401（`unauthorized`），前端据此提示“用 nbdev panel open 打开”。前端任何 `/api/*` 请求回 401（读、写、预览、探测、流式搜索）都进入登录失效状态：停止推送、重连与取数，页面保持挂载（没保存的改动还在），上面盖一层提示；在这个浏览器里用新链接登录之后点“我已重新登录”，重探 `/api/meta` 通过就全部重取、会话页的终端重连（只恢复观看，不自动重新接管）（t15）。
 
 ## 请求校验
 
@@ -180,7 +180,7 @@
 
 ### 连接与消息
 
-`WS /ws/terminal?pane=<pane id>&terminal=<terminal id>`：一个终端视图一条连接，连接的生命周期就是子进程与控制权的生命周期。页面按 pane 与终端建连接，换选中的 pane 时关旧连、建新连，终端零件按“这一条连接”重建；同一格换会话时连接与终端都不动（t15）。观看时子进程是 observe，接管时是 control（control 自己也出帧，接管期间不再要 observe）。
+`WS /ws/terminal?pane=<pane id>&terminal=<terminal id>`：一个终端视图一条连接，连接的生命周期就是子进程与控制权的生命周期。页面按 pane 与终端建连接，换选中的 pane 时关旧连、建新连，终端零件按“这一条连接”重建；同一格换会话时连接与终端都不动（t15）。登录失效时关掉连接，重新登录后重建。观看时子进程是 observe，接管时是 control（control 自己也出帧，接管期间不再要 observe）。
 
 - **升级前**只做与 `/ws` 相同的五道安全校验（转发头、Host、登录、`Sec-Fetch-Site`、`Origin`），pane 与 terminal 只核写法，失败回 HTTP 4xx。终端连接不进 `/ws` 的广播、不发 `hello`、不算“有浏览器连着”（不开 500 毫秒的 pane 轮询）。
 - **升级后**核：面板不在退出、终端功能可用、terminal id 在 herdr 里且对应的正是这个 pane、pane 在本仓库且有 Agent、上限（一个终端 4 条，整个面板 16 条）。不过就以关闭码关闭并带原因：
@@ -389,7 +389,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | `/edit?path=` | 编辑主工作区里的一个文件：编辑与预览、打开时就提醒哪些分支改过它、根级治理入口显示非空行数与上限 | t10 |
 
 - **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、新建、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新与重启命令、通知要处理的计数（会话已更换、没有可通知的会话，以及没点“知道了”的醒目尝试；点了去会话页）、审计未开启、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。页面按路由名与路径参数重建实例（`host/routes.ts` 的 `pageKey`）：Work、Task、产物页之间切换，上一个页面的提示、“重试”与在途的回包不会落到新页面上；查询参数（`?pane=`、`?path=`、`?checkout=`）变化不重建，由页面自己处理（t15）。新建页提交在途时不能切换“新建 Work / 新建 Task”，回包与“结果未知”的确认按提交时的那一种处理。
-- **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就显示上面那句并停止重连，否则照常重连（重连后的 `hello` 全部重取）。
+- **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时进入登录失效状态（见“登录”）：`api.ts` 只按状态码判断，经同一个出口通知数据宿主；失效期间资源不发请求。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就进入失效状态并停止重连，否则照常重连（重连后的 `hello` 全部重取）。外壳卸载时 `stopPanelData()` 关连接、取消重连。
 - **偏好**（明暗、左栏各 Work 的展开、通知里“知道了”的尝试）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
 - **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
 - **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，t11 加 `NotifyStatus`、`DeveloperMessageDialog`、`ScreenConfirmDialog`、`SessionConsole`，t12 加 `TerminalView`、`TerminalTextView`、`TakeoverDialog`，t14 加 `ProcList`、`PrList`、`IssueList`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。

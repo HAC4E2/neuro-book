@@ -1,5 +1,5 @@
 import {onScopeDispose, reactive, ref, shallowRef, watch, type Ref} from "vue";
-import {ApiError, getJson, type ApiWarning, type PartName, type Revisions} from "./api.js";
+import {ApiError, getJson, onAuthLost, type ApiWarning, type PartName, type Revisions} from "./api.js";
 
 /**
  * 面板的数据宿主（单例）：全应用只有一条 `/ws`，外壳与各页面共用。
@@ -22,8 +22,12 @@ export const panelState = reactive({
     instance: "",
     revisions: {records: 0, activity: 0, sessions: 0, notify: 0, github: 0} as Revisions,
     connection: "connecting" as ConnectionState,
-    /** 没登录（401）：整个面板只显示“用 nbdev panel open 打开”。 */
+    /**
+     * 登录失效（任何 `/api/*` 回 401）：停止推送、重连与取数，外壳盖一层提示、页面不卸载（草稿还在）。
+     * 重新登录后 `confirmRelogin()` 解除，`authEpoch` 加一（会话页据此重建终端连接），全部重取。
+     */
     unauthorized: false,
+    authEpoch: 0,
     /** 最近一次推送到达的时刻（顶栏显示数据的新旧）。 */
     lastPushAt: null as string | null,
 });
@@ -61,20 +65,17 @@ function onMessage(event: MessageEvent): void {
 
 /**
  * 重连之前先取一次 `/api/meta`：会话只在一个服务实例里有效，面板重启后 `/ws` 的升级回 401，
- * 浏览器却只报一次断开、拿不到状态码，只靠重连会永远停在旧数据上。这里回 401 就置 `unauthorized` 并停止重连；
+ * 浏览器却只报一次断开、拿不到状态码，只靠重连会永远停在旧数据上。这里回 401 就经登录失效的出口进入失效状态并停止重连；
  * 其余情形（200，连不上，还在启动的 503）照常退避重连，重连后的 `hello` 负责全部重取。
  */
 async function probeBeforeReconnect(): Promise<boolean> {
     try {
         await getJson<unknown>("/api/meta");
     } catch (caught) {
-        if (caught instanceof ApiError && caught.status === 401) {
-            panelState.unauthorized = true;
-            return false;
-        }
-        console.warn("重连前探测面板失败，照常重连", caught);
+        // 回 401 时登录失效的出口已经停掉一切（见 `onAuthLost`）。
+        if (!(caught instanceof ApiError && caught.status === 401)) console.warn("重连前探测面板失败，照常重连", caught);
     }
-    return true;
+    return !panelState.unauthorized;
 }
 
 function connect(): void {
@@ -116,6 +117,33 @@ export function startPanelData(): void {
     connect();
 }
 
+onAuthLost(() => {
+    if (panelState.unauthorized) return;
+    panelState.unauthorized = true;
+    disconnect();
+});
+
+/**
+ * 外壳的“我已重新登录”：重探 `/api/meta`，通过就解除登录失效、`authEpoch` 加一、重连推送，并全部重取（不靠 `hello`：
+ * 同一个服务实例里失效再重登，`hello` 不会触发全部重取）。回 `null` 表示好了，否则是还不行的原因。
+ */
+export async function confirmRelogin(): Promise<string | null> {
+    try {
+        await getJson<unknown>("/api/meta");
+    } catch (caught) {
+        if (!(caught instanceof ApiError)) throw caught;
+        return caught.status === 401 ? "还是没有登录：用 nbdev panel open 给的新链接在这个浏览器里登录一次" : `连不上面板：${caught.message}`;
+    }
+    panelState.unauthorized = false;
+    panelState.authEpoch += 1;
+    if (started) {
+        attempts = 0;
+        connect();
+    }
+    notify([], true);
+    return null;
+}
+
 /** 外壳卸载时调：关连接、取消重连，复位连接状态，之后可以再 `startPanelData()`。 */
 export function stopPanelData(): void {
     started = false;
@@ -125,6 +153,7 @@ export function stopPanelData(): void {
     panelState.revisions = {records: 0, activity: 0, sessions: 0, notify: 0, github: 0};
     panelState.connection = "connecting";
     panelState.unauthorized = false;
+    panelState.authEpoch = 0;
     panelState.lastPushAt = null;
 }
 
@@ -152,6 +181,8 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const load = async (keepData: boolean) => {
+        // 登录失效期间不取数（自带轮询的页面也就停了），重新登录后全部重取。
+        if (panelState.unauthorized) return;
         const target = path();
         controller?.abort();
         if (timer) clearTimeout(timer);
@@ -184,7 +215,6 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
             if (caught instanceof DOMException && caught.name === "AbortError") return;
             if (mine !== sequence) return;
             if (caught instanceof ApiError) {
-                if (caught.status === 401) panelState.unauthorized = true;
                 error.value = {code: caught.code, message: caught.message, status: caught.status};
             } else {
                 error.value = {code: "internal", message: caught instanceof Error ? caught.message : String(caught), status: 0};

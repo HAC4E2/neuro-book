@@ -19,7 +19,24 @@ export class ApiError extends Error {
     }
 }
 
+const authLostListeners = new Set<() => void>();
+
+/**
+ * 登录失效的统一出口（t15）：任何 `/api/*` 回应是 401（读、写、预览、探测、流式搜索）都通知这里，由数据宿主进入登录失效状态。
+ * 调用方照常收到 `ApiError`，局部的说明仍然成立。只看状态码：401 的回应不一定是 JSON。
+ */
+export function onAuthLost(listener: () => void): () => void {
+    authLostListeners.add(listener);
+    return () => authLostListeners.delete(listener);
+}
+
+function noticeAuth(response: Response): void {
+    if (response.status !== 401) return;
+    for (const listener of [...authLostListeners]) listener();
+}
+
 async function readEnvelope<T>(response: Response): Promise<Envelope<T>> {
+    noticeAuth(response);
     let body: Envelope<T> | null = null;
     try {
         body = await response.json() as Envelope<T>;
@@ -63,6 +80,7 @@ export async function sendJson<T>(method: "POST" | "PUT", path: string, body: un
 export async function streamLines(path: string, onLine: (line: Record<string, unknown>) => void, signal: AbortSignal): Promise<void> {
     const response = await fetch(path, {signal});
     if (!response.ok) {
+        noticeAuth(response);
         let code = "http_error";
         let message = `HTTP ${response.status}`;
         try {
