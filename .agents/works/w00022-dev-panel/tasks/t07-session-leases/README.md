@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-session-leases
-status: active
-updated: 2026-10-12
+status: done
+updated: 2026-10-13
 ---
 
 # 会话身份、运行归属与租约
