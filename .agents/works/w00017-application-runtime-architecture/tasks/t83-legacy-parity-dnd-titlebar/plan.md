@@ -22,7 +22,7 @@
 - 悬停与拖动时的线走主题变量：`--nb-sash-line-color`（缺省 `--accent-main`）、`--nb-sash-line-size`（缺省 3px，与现在的几何一致）、`--nb-sash-line-inset`（沿长轴两端缩进，缺省 0）、`--nb-sash-line-radius`（缺省 0），登记进 token 表。几何仍由 `sashBandBox` 算，厚度与缩进从变量读。
 - 自由端与相交端分开（第三轮 R3-1）：只有自由端（碰到容器边缘的一端）按 `--nb-sash-line-inset` 缩进，碰到另一条边界的一端照旧连着，相交处成 T 形或十字形。线的两端是不是自由端由渲染器按网格结构判断（边界的两端是否落在别的边界上）。
 - 发光：`--nb-sash-line-glow`（缺省 none），nbook 设成 `--focus-ring`，线芯 1px 强调色 85%，与输入框聚焦同源。
-- nbook 卡片主题：线芯 1px、发光、自由端缩进 16px（缝加卡片圆角）；macos 平铺不声明，保持现在的样子。
+- nbook 卡片主题：线芯 1px、发光、自由端缩进 16px（缝加卡片圆角）；macos 平铺不声明，保持现在的样子。验收时（2026-10-13）开发者认为发光不如实线，nbook 改用缺省的 3px 实线、不发光，缩进与交汇处相连不变；发光 token 留在 nb-ui，缺省 none。
 
 ### 2. 空区域与高亮（`components/WorkbenchToolPartHost.vue`，nb-ui `styles.css`、`themes/nbook/vars.css`）
 
