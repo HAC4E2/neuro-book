@@ -155,6 +155,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `artifact_deletions_not_committed` | 产物目录里有被删的文件，没有随发布提交 |
 | `build_failed` | `panel serve`：前端构建失败，用的是旧的产物（没有旧产物时是错误） |
 | `open_failed` | `panel open`：没能用 `xdg-open` 打开浏览器，打印跳转页的路径（`details.page`），手动在浏览器里打开它或改用 `--print` |
+| `no_display` | `panel open`：没有桌面环境（`DISPLAY`、`WAYLAND_DISPLAY` 都没设），没有调 `xdg-open`；按消息里的命令从你的电脑转发两个端口，再用 `--print`（`details.panelPort`、`details.artifactPort`） |
 | `already_closed` | 产物已经关闭，没有出新版本 |
 | `wait_scope_empty` | `answers --wait` 开始时范围里还没有产物；照常等，等待期间新建的产物会加入范围 |
 | `already_acked` | 要确认的答复（给了 `--through` 时为不比它新的）都已确认，没有写新的确认；有残留时照样补交残留与 `--include` 的文件 |

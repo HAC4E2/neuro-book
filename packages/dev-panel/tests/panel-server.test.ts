@@ -550,7 +550,7 @@ describe("nbdev panel serve 与 panel open", () => {
         closers.push(() => stopProcess(serve));
         const panelFile = join(fixture.main, ".local/agent/panel.json");
         while (!(await Bun.file(panelFile).exists())) await Bun.sleep(20);
-        const info = await Bun.file(panelFile).json() as {url: string; pid: number};
+        const info = await Bun.file(panelFile).json() as {url: string; artifactUrl: string; pid: number};
         expect(((await Bun.file(panelFile).stat()).mode & 0o777).toString(8)).toBe("600");
         expect(info.pid).toBe(serve.pid);
         const second = await fixture.cli(["panel", "serve", "--port", "0", "--artifact-port", "0", "--static-dir", staticDir, "--json"]);
@@ -577,11 +577,18 @@ describe("nbdev panel serve 与 panel open", () => {
         await mkdir(shim, {recursive: true});
         await writeFile(join(shim, "xdg-open"), '#!/bin/sh\np="${1#file://}"\nprintf \'%s\\n\' "$#" "$1" "$(stat -c %a "$p")" "$(stat -c %a "$(dirname "$p")")" > "$OPEN_RECORD.tmp"\nmv "$OPEN_RECORD.tmp" "$OPEN_RECORD"\n', {mode: 0o755});
         const openThroughShim = async (runtimeDir: string, record: string) => {
-            const result = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, XDG_RUNTIME_DIR: runtimeDir, OPEN_RECORD: record});
+            const result = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, XDG_RUNTIME_DIR: runtimeDir, OPEN_RECORD: record, DISPLAY: ":0"});
             for (let attempt = 0; attempt < 200 && !(await Bun.file(record).exists()); attempt += 1) await Bun.sleep(20);
             const [argc, arg, fileMode, dirMode] = (await Bun.file(record).text()).trimEnd().split("\n");
             return {result, argc, arg: arg!, fileMode, dirMode};
         };
+        // 没有桌面环境（经 SSH 登进来）：不调 xdg-open、不写跳转页，警告里写怎么转发两个端口。
+        const headless = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, OPEN_RECORD: join(fixture.root, "open-headless.txt"), DISPLAY: "", WAYLAND_DISPLAY: ""});
+        const headlessPorts = [new URL(info.url).port, new URL(info.artifactUrl).port];
+        expect([headless.exitCode, (headless.json?.data as {page: string | null}).page, headless.json?.warnings.map((warning) => warning.code)]).toEqual([0, null, ["no_display"]]);
+        expect(headless.json?.warnings[0]?.message).toContain(`ssh -L ${headlessPorts[0]}:127.0.0.1:${headlessPorts[0]} -L ${headlessPorts[1]}:127.0.0.1:${headlessPorts[1]}`);
+        await Bun.sleep(300);
+        expect(await Bun.file(join(fixture.root, "open-headless.txt")).exists()).toBe(false);
         const runtimeDir = join(fixture.root, "runtime");
         await mkdir(join(runtimeDir, "nbdev"), {recursive: true});
         const stalePage = join(runtimeDir, "nbdev", "open-0000000000000000.html");

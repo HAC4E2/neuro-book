@@ -117,7 +117,17 @@ export const PANEL_COMMANDS: Record<string, CommandSpec> = {
             const loginUrl = `${panel.url}/login?ticket=${createLoginTicket(panel.token)}`;
             const warnings: Warning[] = [];
             let page: string | null = null;
-            if (values.print !== true) {
+            // 经 SSH 登进来、没有桌面环境时 xdg-open 打不开任何东西：直接告诉开发者怎么从自己的电脑上用。
+            const noDisplay = values.print !== true && !io.env.DISPLAY && !io.env.WAYLAND_DISPLAY;
+            if (noDisplay) {
+                const panelPort = new URL(panel.url).port;
+                const artifactPort = new URL(panel.artifactUrl).port;
+                warnings.push({
+                    code: "no_display",
+                    message: `没有桌面环境：在你的电脑上用 ssh -L ${panelPort}:127.0.0.1:${panelPort} -L ${artifactPort}:127.0.0.1:${artifactPort} <这台机器> 转发两个端口，再在这里运行 nbdev panel open --print，把链接粘进你电脑的浏览器`,
+                    details: {panelPort: Number(panelPort), artifactPort: Number(artifactPort)},
+                });
+            } else if (values.print !== true) {
                 // 票据不进命令行参数：交给 xdg-open 的只是只有自己能读的跳转页（见 writeOpenPage）。
                 page = await writeOpenPage(context.mainRoot, io.env.XDG_RUNTIME_DIR, loginUrl);
                 const opened = await new Promise<string | null>((resolvePromise) => {
@@ -136,7 +146,7 @@ export const PANEL_COMMANDS: Record<string, CommandSpec> = {
                 data: {url: panel.url, loginUrl: values.print === true ? loginUrl : null, page, pid: panel.pid},
                 warnings,
                 error: null,
-                human: [values.print === true ? `登录链接（5 分钟内有效，用一次作废）：${loginUrl}` : warnings.length > 0 ? `跳转页（5 分钟内有效）：${page}` : `已在浏览器里打开面板：${panel.url}`],
+                human: [values.print === true ? `登录链接（5 分钟内有效，用一次作废）：${loginUrl}` : noDisplay ? "没有打开浏览器" : warnings.length > 0 ? `跳转页（5 分钟内有效）：${page}` : `已在浏览器里打开面板：${panel.url}`],
             };
         },
     },
