@@ -222,7 +222,20 @@ bun run --cwd packages/dev-panel install-service -- --uninstall [--force] [--jso
 - 单元 `nbdev-panel-<主工作区目录名>.service`（本机是 `nbdev-panel-neuro-book.service`），写在 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`；一个主工作区一个面板。安装写单元、`systemctl --user daemon-reload`、`enable --now`；卸载 `disable --now`、删单元、`daemon-reload`。`--dry-run` 只打印将写的文件与命令。
 - `ExecStart` 是运行安装脚本的 bun 的绝对路径加主工作区 `packages/dev-panel/src/cli.ts` 的绝对路径，不经 shim（shim 可以被指到 worktree；用户管理器的 `PATH` 不保证有 `~/.local/bin`）。`Environment=NBDEV_PANEL_UNIT=<单元名>`：面板只凭它判断自己是服务（`INVOCATION_ID` 在 KDE 的终端标签页里也有）。`Restart=on-failure`，`RestartPreventExitStatus=2 3`（用法错误与冲突重启也不会好），`TimeoutStopSec=30`；没有 `After=default.target`。
 - 同名文件不是本脚本写的（靠文件头的标记行认）不覆盖、不删，除非 `--force`；面板已经在跑时先提示停掉（`panel_running`）。`systemctl` 失败报 `systemctl_failed`。
-- 日志 `journalctl --user -u <单元>`，停止 `systemctl --user stop <单元>`。服务写的 `panel.json` 照旧在主工作区的 `.local/agent/`，`nbdev panel open` 用法不变；重启之后要重新 `panel open`。本机 `Linger=yes`，注销后服务照常。
+- 看状态、启停、重启与看日志用下面的 `service` 脚本（原始命令是 `systemctl --user status|start|stop|restart <单元>`、`journalctl --user -u <单元>`）。服务写的 `panel.json` 照旧在主工作区的 `.local/agent/`，`nbdev panel open` 用法不变；重启之后要重新 `panel open`。本机 `Linger=yes`，注销后服务照常。
+
+装好之后用包脚本管理，不用记单元名：
+
+```text
+bun run --cwd packages/dev-panel service <status|start|stop|restart|logs> [--target <checkout>] [--follow] [--lines <n>]
+bun run --cwd packages/dev-panel service:status    # 另有 service:start、service:stop、service:restart、service:logs
+bun run --cwd packages/dev-panel service:logs --follow
+```
+
+- 单元名与主工作区的定位同 `install-service`（`--target` 缺省是脚本所在仓库的主工作区，给了 worktree 也按它的主工作区）。单元文件不存在时报 `service_not_installed`（退出码 5），先运行 `install-service`。
+- `status`：`systemctl --user status <单元> --no-pager`。`start`、`stop`、`restart`：`systemctl --user <动作> <单元>`，成功后打印一行结果，`start`、`restart` 之后提示浏览器要重新运行 `nbdev panel open --print` 登录。
+- `logs`：`journalctl --user -u <单元> --no-pager -n <n>`，`--lines` 缺省 100；`--follow` 再加 `-f` 前台跟随（先显示最近 n 行），Ctrl+C 结束。`--follow`、`--lines` 只用于 `logs`。
+- systemctl、journalctl 的输出直接到终端，退出码照传：`status` 在服务停着时是 3，这是 systemctl 的语义。脚本自己的失败按 nbdev 的错误码：用法错误 `usage`（2）、`service_not_installed`（5）、systemctl 或 journalctl 起不来 `systemctl_failed`、`journalctl_failed`（1）。脚本被 SIGINT、SIGTERM、SIGHUP 结束时先把信号转给子进程，等它退出再照传它的退出码。
 
 ## 前端构建
 

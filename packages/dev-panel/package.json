@@ -18,7 +18,13 @@
         "build:web": "vite build",
         "install-shim": "bun src/install-shim.ts",
         "audit-init": "bun src/audit-init.ts",
-        "install-service": "bun src/install-service.ts"
+        "install-service": "bun src/install-service.ts",
+        "service": "bun src/service.ts",
+        "service:status": "bun src/service.ts status",
+        "service:start": "bun src/service.ts start",
+        "service:stop": "bun src/service.ts stop",
+        "service:restart": "bun src/service.ts restart",
+        "service:logs": "bun src/service.ts logs"
     },
     "dependencies": {
         "@notnotype/nb-ui": "workspace:*",
