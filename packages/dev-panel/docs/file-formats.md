@@ -47,7 +47,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 
 - 只记领号的事实。条目按完整 id 记，同号不同名的各占一条；按 id 排序。
 - `status`：`claimed` 是经 nbdev 领的，`imported` 是扫描补登的，`abandoned` 是领了不用的；三种号都不再发。
-- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；开发者在面板上领的号是 `{key: "developer:local", agent: "developer", sessionId: null, label: "local", parentSessionId: null, nestedSessionId: null}`（`local` 在 t13 换成配对设备的名字）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，由后续的 `worktree new` 写。
+- `by`：领号会话 `{key, agent, sessionId, label, parentSessionId, nestedSessionId}`（`nestedSessionId` 是后加的，没有这个键的条目按 `null` 读）；开发者在面板上领的号是 `{key: "developer:local", agent: "developer", sessionId: null, label: "local", parentSessionId: null, nestedSessionId: null}`（`local` 在 t13 换成配对设备的名字）；未知调用者与 t07 之前写的条目为 `null`，读取时原样保留。`home`：执行位置提示，`worktree new` 写，是 worktree 的**绝对路径**（读者按 `git worktree list` 给出的 `checkout.root` 比较）；没有为 null。
 - 写入在锁内完成，先写同目录临时文件再改名。
 - 登记表不是可重新生成的原始输出：`registry import` 只能从扫描重建 `imported` 条目，`claimed`、`abandoned`、`home`、`by` 会丢失。丢失后，同步过 `master` 的分支上经 nbdev 建的 Task 会被当成分支记录、拒绝写入。
 
@@ -65,7 +65,8 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
     ├── leases/<leaseId>.json  # 租约（nbdev.lease/v1），见下一节
     ├── panel.lock             # 面板锁：同一个主工作区同一时刻只跑一个面板
     ├── panel-open/            # 没有 $XDG_RUNTIME_DIR 时 panel open 的跳转页（目录 700、文件 600，10 分钟后删），见 panel.md
-    ├── procs/                 # 经 nbdev 起的进程（t14 起写）
+    ├── procs/<runId>.json     # 经 nbdev 起的进程（nbdev.proc/v1），见“进程登记”
+    ├── procs.lock/            # 写进程登记的锁目录（与记录锁同一套做法）
     └── tmp/                   # 写事务的临时目录 <txid>/，以及组装中或接管下来的锁目录；用完删除
 ```
 
@@ -95,6 +96,35 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - 权限 600：`token` 是登录用的启动令牌（`panel open` 用它签一次性登录票据），只在这份文件里。
 - 先写临时文件再改名（原子）；退出时只删 `pid` 与 `startTicks` 都是自己的那份。读的一方按 `pid` 加启动时刻判断面板是否真的在跑。
 - `run/panel.lock` 记持锁的面板进程（`pid`、`startTicks`、`startedAt`），独占创建；持锁者已退出时接管。
+
+## 进程登记
+
+`.local/agent/run/procs/<runId>.json`（`nbdev.proc/v1`，目录 700、文件 600，写临时文件再改名），由 `dev start` 写（t14）。一份运行由三样组成：监管进程（`dev start` 自己）、`setsid` 起的组长（`pid` 等于 `pgid`）、从组长沿 ppid 收集到的后代快照（含另起进程组、另起会话的）。
+
+```json
+{
+    "schema": "nbdev.proc/v1", "runId": "dev-20261013T131502Z-a3f9c2d1", "kind": "dev",
+    "checkout": "/…/.worktree/w00017-t83-dnd-titlebar", "checkoutKey": "w00017-t83-dnd-titlebar", "package": "packages/neuro-book", "script": "dev",
+    "argv": ["bun", "run", "dev"], "readyPattern": null, "workId": null, "taskId": null,
+    "logPath": "/…/.local/agent/logs/dev/w00017-t83-dnd-titlebar-dev-20261013T131502Z-a3f9c2d1.log", "bootId": "…",
+    "startedAt": "…", "startedBy": {"key": "claude:…", "agent": "claude", "label": null, "process": {"pid": 123, "startTicks": "…"}},
+    "supervisor": {"pid": 456, "startTicks": "…"}, "pid": 789, "pgid": 789, "startTicks": "…",
+    "descendants": [{"pid": 790, "startTicks": "…"}],
+    "url": "http://127.0.0.1:4217/", "readyAt": "…", "lastProbeStatus": 200,
+    "stoppingAt": null, "stoppedBy": null, "endedAt": null, "endedReason": null, "exitCode": null, "signal": null, "leftovers": null, "leftoverPids": []
+}
+```
+
+- `runId` 是 `dev-<YYYYMMDDTHHMMSSZ>-<8 位十六进制>`，日志名带它。
+- 登记在锁里先写好 `pid`、`startTicks` 再放锁（锁内起服务）；读到没有 `pid` 的登记时，监管进程活着算 `starting`，不活算 `ended`（`never_started`）。
+- `descendants`：监管进程每 2 秒重收一次，新出现的并进来，上限 256 个。后代被收养到 PID 1 之后 ppid 链就断了，所以要在还连着的时候记下。
+- `startedBy`：认不出的调用者为 null。`stoppedBy`：`dev stop` 的调用者会话键（`--force` 时后缀“（--force）”），或 `signal:<名>`。
+- 监管进程与 `dev stop` 都在 `run/procs.lock/` 里读改写，各改各的字段。
+- **状态**（读取时现算）：下面任一条成立就算还活着：监管进程 pid 在且启动时刻相同；组长 pid 在且启动时刻相同；组长不在但 `kill(-pgid, 0)` 成功（进程组还有成员时，Linux 不把这个号分给新进程）；快照里有进程 pid 在且启动时刻相同。
+  - `starting`：活着、还没就绪；`running`：活着、已就绪、监管进程在；
+  - `orphaned`：活着但监管进程不在，原因 `supervisor_gone`（组长还在）或 `leader_exited`（组长已退、组里或快照里还有进程）；
+  - `ended`：都不成立，原因 `exited`、`stopped`、`supervisor_killed`（没有 `endedAt`、也没有 `stoppingAt`）、`rebooted`（`bootId` 不是本次开机的）、`never_started`。
+- 不自动清理；面板与 `dev status` 只列还活着的与 24 小时内结束的。
 
 ## 租约
 
