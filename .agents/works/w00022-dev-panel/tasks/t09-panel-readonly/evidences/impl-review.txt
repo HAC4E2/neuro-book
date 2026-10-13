@@ -55,7 +55,7 @@
 
 - **位置**：`packages/dev-panel/src/cli/panel-commands.ts:117-127`（`spawn("xdg-open", [loginUrl])`）。
 - **现象**：`panel open` 把 `http://127.0.0.1:4400/login?ticket=…` 作为 `xdg-open` 的参数；`xdg-open` 再把它交给浏览器（冷启动时浏览器主进程的命令行里也一直带着它）。本机 `/proc` 没有 `hidepid`（`findmnt /proc` 的选项是 `rw,nosuid,nodev,noexec,relatime`），`/proc/<pid>/cmdline` 对所有账户可读。从 `xdg-open` 启动到浏览器真正请求登录链接之间（热浏览器几十毫秒，冷启动一两秒），别的账户轮询 `/proc` 就能拿到票据先去兑换，拿到会话 cookie；开发者的浏览器随后拿到 403，多半以为是偶发、再 `panel open` 一次，而对方的会话一直有效到面板重启。
-- **为什么是问题**：t09 加登录正是为了挡本机其他账户（计划“设计审查的处理”第 1 条：本机另有 两个可登录账户、sshd 在运行），`docs/panel.md`“登录”一节也以此为前提。票据走进程参数，这道门就对同一批人开着。这是设计层面的漏洞（计划里就写了“`panel open` 打开一次性链接”），实现照做了。
+- **为什么是问题**：t09 加登录正是为了挡本机其他账户（计划“设计审查的处理”第 1 条：本机另有两个可登录账户、sshd 在运行），`docs/panel.md`“登录”一节也以此为前提。票据走进程参数，这道门就对同一批人开着。这是设计层面的漏洞（计划里就写了“`panel open` 打开一次性链接”），实现照做了。
 - **如何核实**：在 `repo1` 的面板上，用 `shim-xdg/xdg-open`（记下 PID、睡 5 秒、不开浏览器）代替真的 `xdg-open` 跑 `panel open`：
   - `stat /proc/<xdg-open pid>/cmdline` 是 `-r--r--r--`，里面就是带票据的登录链接；
   - 另一个进程拿这条链接 `curl` 一次：302 加 `Set-Cookie: nbdev_panel=…`；

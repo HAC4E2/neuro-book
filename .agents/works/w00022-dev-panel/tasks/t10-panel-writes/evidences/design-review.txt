@@ -47,7 +47,7 @@
 
 - **位置**：plan“切片”表 S2 行“`src/server/serve.ts`（非 `GET` 在 CSRF 之后交给 `writes.ts`，不再一律 405）”；第二节“每个写请求的校验”第 1 条。代码 `src/server/serve.ts:258-262`（非 GET 分支：只查 Origin 与 CSRF，然后回 405）在 `:268-271`（`/api` 的 `Sec-Fetch-Site` 与登录 cookie）之前；`serve.ts:237-239` 与 `:348`：`index.html` 不要求登录，CSRF 令牌就写在它的 `<meta>` 里。
 - **问题**：现在的代码里，非 GET 请求先过“同源 Origin 加 CSRF”，再也不经过登录检查（因为直接 return 405）。S2 说“在 CSRF 之后交给 writes.ts”，照字面就是把 `:261` 的 405 换成 `writes(...)`，写接口就不查 cookie、也不查 `Sec-Fetch-Site`。
-- **为什么**：CSRF 令牌不是秘密：任何本机进程 `GET /` 就能从页面拿到；`Origin` 是非浏览器客户端随便填的头。t09 已核实本机还有 两个可登录账户（t09 README），这正是登录要防的人。两道检查里只有 cookie 是认证。
+- **为什么**：CSRF 令牌不是秘密：任何本机进程 `GET /` 就能从页面拿到；`Origin` 是非浏览器客户端随便填的头。t09 已核实本机还有两个可登录账户（t09 README），这正是登录要防的人。两道检查里只有 cookie 是认证。
 - **如何核实**：`scripts/csrf-without-login.ts`（临时仓库，端口 4433/4434）：
   - `GET /` 不带 cookie 回 200，页面里有 CSRF 令牌；
   - `POST /api/works` 不带 cookie、带这个令牌与 `Origin: http://127.0.0.1:4433`，回 **405**（说明已通过 CSRF 关、没有碰到登录关）；
