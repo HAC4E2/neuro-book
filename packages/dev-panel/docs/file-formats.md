@@ -320,7 +320,7 @@ artifacts/<artifactId>/
 - `action`：`notify`、`prompt`、`keys` 各写一行意图（`phase: "intent"`，`detail` 是整行文字、整段文字或键名）与一行结果（`phase: "result"`，`detail.result`、`detail.code`），用同一个 `actionId` 关联；`answer`、`create_work`、`create_task`、`status`、`edit` 只写一行结果（`detail` 是 `committed` 与 `sha`，或失败理由与路径；不记文件内容）。
 - **网页终端（t12）**：
   - `takeover` 一行意图：`target` 加 `terminalId`；`detail` 是请求的 `cols`、`rows`，接管前读到的 pty 尺寸 `before`（`{cols, rows}`，读不到为 null；本面板另一个浏览器换手时是它记下的那份），是否带了 `--takeover`（`takeover`），登录会话 id 的前 8 位（`loginSession`）。
-  - `takeover` 一行结果（同一个 `actionId`）：`detail.result` 是 `attached`、`controlled_elsewhere`（别处在控制，等开发者确认“抢过来”）或 `failed`（`why`：`timeout` 握手 5 秒没回应、`pane_closed`、`refused` 带了 takeover 仍被拒、`disconnect` 握手期间连接关了）。
+  - `takeover` 一行结果（同一个 `actionId`）：`detail.result` 是 `attached`、`controlled_elsewhere`（别处在控制，等开发者确认“抢过来”）或 `failed`（`why`：`timeout` 握手 5 秒没回应、`pane_closed`、`refused` 带了 takeover 仍被拒、`disconnect` 起 control 之前连接关了、`panel_exit` 起 control 之前面板要退出；这几种都没有改过尺寸。control 接上之后连接才关的，记 `attached` 再加一行释放）。
   - 接管成功之后，释放时再写一行 `release` 结果（同一个 `actionId`，没有意图行）：`detail.reason`（`user`、`hidden`、`disconnect`、`heartbeat`、`idle`、`taken_over`、`pane_closed`、`panel_exit`、`session_closed`）、`durationMs`，统计 `inputs`、`inputBytes`、`enters`、`pastes`、`pasteBytes`、`resizes`、`buttons`，`restored`（释放前发出了改回原尺寸的指令）与没改回时的 `notRestored`（`size_unknown` 接管前读不到尺寸、`handed_off` 交给了本面板的另一个浏览器、`stream_ended` 流已经结束）。**键盘输入的内容不写**（见 [panel.md](panel.md#网页终端t12)）。
   - 有 `takeover` 的 `attached`、同一个 `actionId` 却没有 `release` 行：面板在接管中异常退出（被 SIGKILL 或崩溃）。控制权已随子进程释放（子进程经 `setpriv --pdeathsig` 起，父进程一死就收到 SIGTERM），但 pty 的尺寸没有改回。面板启动时不补写这一行。
   - 观看不写审计。

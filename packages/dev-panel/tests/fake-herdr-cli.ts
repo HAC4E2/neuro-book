@@ -1,7 +1,8 @@
 /**
  * 假的 `herdr terminal session observe|control`（t12 的 L3）：只认面板拼的那两种参数。状态目录是 `HERDR_SOCKET_PATH` 旁边的
  * `fake-cli/`（面板只给子进程三个环境变量，测试的设定只能从 socket 的位置推出来）：
- * - `config.json`：`{terminals: {<terminal id>: {mode?: "normal" | "silent" | "gone" | "flood", reasons?: "a" | "b"}}}`；
+ * - `config.json`：`{terminals: {<terminal id>: {mode?: "normal" | "silent" | "gone" | "flood", reasons?: "a" | "b", controlDelayMs?, observeExitDelayMs?}}}`；
+ *   `controlDelayMs`：control 接上（占控制权、改尺寸）之后隔这么久才出第一帧；`observeExitDelayMs`：observe 收到 SIGTERM 之后隔这么久才退出；
  * - `owner-<id>.json`：当前的控制者（pid），模拟“同一终端只有一个 control”与 `--takeover`；
  * - `size-<id>.json`：control 设的尺寸（模拟真实终端被改了尺寸）；
  * - `inputs-<id>.jsonl`：control 收到的每一行输入；`screen-<id>.txt`：测试改它，observe 就出一帧增量。
@@ -30,7 +31,7 @@ for (let index = 4; index < args.length; index += 1) {
     }
 }
 const state = join(dirname(process.env.HERDR_SOCKET_PATH ?? "/nonexistent/x.sock"), "fake-cli");
-const config = existsSync(join(state, "config.json")) ? JSON.parse(readFileSync(join(state, "config.json"), "utf8")) as {terminals?: Record<string, {mode?: string; reasons?: string}>} : {};
+const config = existsSync(join(state, "config.json")) ? JSON.parse(readFileSync(join(state, "config.json"), "utf8")) as {terminals?: Record<string, {mode?: string; reasons?: string; controlDelayMs?: number; observeExitDelayMs?: number}>} : {};
 const settings = config.terminals?.[target] ?? {mode: "gone"};
 const reasons = settings.reasons === "b"
     ? {gone: `终端 ${target} 不见了`, busy: `已经有人控制 ${target}`, taken: "控制权被别人拿走", detached: "已分离"}
@@ -62,7 +63,9 @@ else if (kind === "control") {
     }
     writeFileSync(ownerFile, JSON.stringify({pid: process.pid}));
     writeFileSync(join(state, `size-${target}.json`), JSON.stringify({cols, rows}));
-    frame(`fake ${target} ${cols}x${rows}`, true);
+    const firstFrame = () => frame(`fake ${target} ${cols}x${rows}`, true);
+    if (settings.controlDelayMs) setTimeout(firstFrame, settings.controlDelayMs);
+    else firstFrame();
     setInterval(() => {
         const owner = existsSync(ownerFile) ? (JSON.parse(readFileSync(ownerFile, "utf8")) as {pid: number}).pid : null;
         if (owner !== process.pid) closed(reasons.taken);
@@ -110,5 +113,6 @@ else if (kind === "control") {
 }
 process.on("SIGTERM", () => {
     if (kind === "control" && existsSync(ownerFile) && (JSON.parse(readFileSync(ownerFile, "utf8")) as {pid: number}).pid === process.pid) rmSync(ownerFile, {force: true});
-    process.exit(0);
+    if (kind === "observe" && settings.observeExitDelayMs) setTimeout(() => process.exit(0), settings.observeExitDelayMs);
+    else process.exit(0);
 });

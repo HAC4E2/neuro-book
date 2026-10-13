@@ -55,6 +55,8 @@ type Conn = {
     failures: number;
     control: Control | null;
     closed: boolean;
+    /** 接管的握手在进行（含排锁）：这期间连接关了，由握手收尾（改回尺寸、写审计、收子进程），`close` 不插手。 */
+    handshaking: boolean;
 };
 
 export type TerminalHubOptions = {
@@ -122,7 +124,7 @@ export class TerminalHub {
         const data = ws.data;
         const conn: Conn = {
             id: data.connectionId, ws, loginSession: data.loginSession, device: PANEL_DEVELOPER.device, terminalId: data.terminalId, paneId: data.paneId,
-            sessionKey: "", agent: "", mode: "watch", stream: null, watchSize: FALLBACK_SIZE, sizeKnown: false, watchTimer: null, failures: 0, control: null, closed: false,
+            sessionKey: "", agent: "", mode: "watch", stream: null, watchSize: FALLBACK_SIZE, sizeKnown: false, watchTimer: null, failures: 0, control: null, closed: false, handshaking: false,
         };
         this.conns.set(conn.id, conn);
         if (this.exiting) return this.closeConn(conn, TERMINAL_CLOSE.panelExit, "面板正在退出");
@@ -288,11 +290,20 @@ export class TerminalHub {
             return;
         }
         conn.mode = "handshake";
-        await this.options.locks.run(conn.terminalId, () => this.handshake(conn, size, force, other ?? null));
+        conn.handshaking = true;
+        try {
+            await this.options.locks.run(conn.terminalId, () => this.handshake(conn, size, force, other ?? null));
+        } finally {
+            conn.handshaking = false;
+            if (conn.closed) await this.dispose(conn);
+        }
     }
 
     private async handshake(conn: Conn, size: {cols: number; rows: number}, force: boolean, other: Conn | null): Promise<void> {
-        if (conn.closed || this.exiting) return;
+        if (conn.closed || this.exiting) {
+            conn.mode = "watch";
+            return;
+        }
         const before = other?.control ? other.control.before : await this.readSize(conn.paneId);
         const actionId = newActionId();
         const target = {paneId: conn.paneId, terminalId: conn.terminalId, sessionKey: conn.sessionKey};
@@ -306,6 +317,12 @@ export class TerminalHub {
         const watching = conn.stream;
         conn.stream = null;
         await watching?.stop();
+        // 等锁、读尺寸、写意图、收 observe 期间连接关了或面板要退出：不再起 control（什么都没改过）。
+        if (conn.closed || this.exiting) {
+            conn.mode = "watch";
+            await this.auditResult(actionId, "takeover", target, {result: "failed", why: conn.closed ? "disconnect" : "panel_exit"});
+            return;
+        }
         // 本面板的另一个浏览器在接管：把接管前的尺寸交给新的接管者，那边释放时不改回（Claude 不会连排两次）。
         if (other?.control) other.control.handedOff = true;
         const now = Date.now();
@@ -317,10 +334,12 @@ export class TerminalHub {
                 resolve(line);
             });
         });
-        if (first !== null && first !== "timeout" && first.type === "frame" && !conn.closed) {
+        if (first !== null && first !== "timeout" && first.type === "frame") {
             conn.mode = "control";
             this.options.controls.set(conn.terminalId, {connectionId: conn.id, paneId: conn.paneId, since: new Date(now).toISOString(), device: conn.device});
             await this.auditResult(actionId, "takeover", target, {result: "attached"});
+            // 已经接上、尺寸已改成网页的，连接却在等第一帧时关了（或面板要退出）：照常释放，改回尺寸、写释放行。
+            if (conn.closed || this.exiting) return this.release(conn, this.exiting ? "panel_exit" : "disconnect", true);
             this.sendState(conn);
             this.restartWatchers(conn.terminalId, conn);
             return;
@@ -332,7 +351,7 @@ export class TerminalHub {
         conn.mode = "watch";
         conn.stream = null;
         await stream?.stop();
-        if (conn.closed) return void this.auditResult(actionId, "takeover", target, {result: "failed", why: "disconnect"});
+        if (conn.closed) return this.auditResult(actionId, "takeover", target, {result: "failed", why: "disconnect"});
         if (first === "timeout") {
             await this.auditResult(actionId, "takeover", target, {result: "failed", why: "timeout"});
             this.error(conn, "takeover_timeout", "接管的握手 5 秒没有回应，没有接管");
@@ -437,19 +456,21 @@ export class TerminalHub {
         void this.options.notifier.tick();
     }
 
-    /** 连接关了（标签页关掉、切到后台、断线）：接管先释放，再收子进程。 */
+    /** 连接关了（标签页关掉、切到后台、断线）：接管先释放，再收子进程。握手进行中时由握手收尾（见 `takeover`）。 */
     close(ws: Socket): void {
         const conn = this.conns.get(ws.data.connectionId);
         if (!conn) return;
         conn.closed = true;
         if (conn.watchTimer) clearInterval(conn.watchTimer);
-        void (async () => {
-            await this.release(conn, "disconnect", true);
-            const stream = conn.stream;
-            conn.stream = null;
-            await stream?.stop();
-            this.conns.delete(conn.id);
-        })();
+        if (!conn.handshaking) void this.dispose(conn);
+    }
+
+    private async dispose(conn: Conn): Promise<void> {
+        await this.release(conn, "disconnect", true);
+        const stream = conn.stream;
+        conn.stream = null;
+        await stream?.stop();
+        this.conns.delete(conn.id);
     }
 
     /** t13 吊销设备时用：关掉某个登录会话的全部终端连接（接管先释放）。 */

@@ -9,7 +9,10 @@ import type {TerminalTools} from "../src/server/terminal-stream.js";
  */
 const roots: string[] = [];
 
-export async function fakeTerminalTools(name: string, terminals: Record<string, {mode?: string; reasons?: string}>, socketDir?: string): Promise<{tools: TerminalTools; state: string}> {
+/** 一个假终端的设定（含义见 `tests/fake-herdr-cli.ts` 的文件头）。 */
+export type FakeTerminalSettings = {mode?: string; reasons?: string; controlDelayMs?: number; observeExitDelayMs?: number};
+
+export async function fakeTerminalTools(name: string, terminals: Record<string, FakeTerminalSettings>, socketDir?: string): Promise<{tools: TerminalTools; state: string}> {
     const root = await createTestTmpRoot(`dev-panel-${name}`, `dev-panel ${name}`);
     roots.push(root);
     const bin = join(root, "bin");

@@ -217,6 +217,7 @@
   - 是结束、终端还在：别处（本面板之外）在控制，审计结果 `controlled_elsewhere`，推 `need_confirm`（`controlled_elsewhere`，`detail.text` 是 herdr 的原文）；开发者确认“抢过来”之后页面带 `force: true` 再来，这次带 `--takeover`；
   - 本面板另一个浏览器在控制：不起 control，直接推 `need_confirm`（`other_browser`，`detail.since` 是它开始的时刻）；确认之后带 `--takeover` 抢过来，那边收到 `released`（`taken_over`）、回到观看。接管前的尺寸交给新的接管者，那边释放时不改回，新的接管者释放时改回最初的尺寸；
   - 5 秒没有第一行：收掉子进程，`takeover_timeout`，审计结果 `failed`，锁放开；终端不在了：4404。
+  - 握手期间连接关了（关标签页、切后台）：control 还没起就不起，审计结果 `failed`（`disconnect`），什么都没改过；已经接上（尺寸已改成网页的）就照常释放，改回尺寸，审计是 `attached` 加一行原因为 `disconnect` 的释放（实现审查 F4）。
 - **接管期间**：键盘输入原样经 `terminal.input` 写进去；窗口尺寸变了，页面去抖 150 毫秒后发 `resize`。按钮单击即发（键盘本来就直通，再两步确认没有意义），经 `agent.send_keys`（herdr 按应用当前的模式编码），不逐条写审计，计入释放行的统计。粘贴先去掉 Esc 与其它 C0 控制字符（换行、制表符除外），挡住用 `\e[201~` 提前结束粘贴的路子；Agent pane 在 xterm 本地打开 bracketed paste，多行粘贴被包起来、不会逐行回车。Ctrl+C 有选中的文字时是复制、不发；Ctrl+W、Ctrl+T、Ctrl+N 浏览器拦不住，状态条写明，删词用 Alt+Backspace。
 - **释放**（任何原因同一个收口）：读到过接管前的尺寸、又不是交给了另一个浏览器，先发 resize 改回；再 release、关 stdin，1 秒不退 SIGTERM，再 1 秒 SIGKILL；写审计的释放行；推 `released` 并回到观看；看这格的其它连接按恢复后的尺寸重起；通知现算一次。`restored` 的含义是“发出了改回尺寸的指令”，不是核对过 pty 的结果；没改回时 `notRestored` 写原因（`size_unknown`、`handed_off`、`stream_ended`）。
 - **释放的原因**：`user`（点释放）、`hidden`（页面切到后台：页面先发 release 再关连接）、`disconnect`（连接关了）、`heartbeat`（15 秒没有心跳：网络断了而 TCP 还没断）、`idle`（15 分钟没有输入）、`taken_over`（被本面板之外或本面板另一个浏览器抢走）、`pane_closed`（终端不在了）、`panel_exit`（面板退出）、`session_closed`（登录失效，t13）。

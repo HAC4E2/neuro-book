@@ -15,7 +15,7 @@ import {TerminalHub} from "../src/server/terminal-hub.js";
 import {ControlRegistry} from "../src/server/control-registry.js";
 import {PaneLocks, type Notifier} from "../src/server/notifier.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr, type FakePane} from "./fake-herdr.js";
-import {cleanupFakeTerminals, fakeTerminalTools} from "./fake-terminal.js";
+import {cleanupFakeTerminals, fakeTerminalTools, type FakeTerminalSettings} from "./fake-terminal.js";
 import {cleanupFixtures, createFixture, panelEnv, type Fixture} from "./git-fixture.js";
 
 /**
@@ -92,7 +92,7 @@ function streamProcesses(socketPath: string): number[] {
 
 type Setup = {fixture: Fixture; fake: FakeHerdr; panes: FakePane[]; server: PanelServer; state: string; tools: TerminalTools; cookie: string; csrf: string; connect(paneId?: string, terminalId?: string): Promise<Client>; audit(): Promise<Array<Record<string, unknown> & {action: string; phase: string; actionId: string; detail: Record<string, unknown>}>>};
 
-async function setup(name: string, options: {panes?: (main: string) => FakePane[]; terminals?: Record<string, {mode?: string; reasons?: string}>; audit?: boolean} = {}): Promise<Setup> {
+async function setup(name: string, options: {panes?: (main: string) => FakePane[]; terminals?: Record<string, FakeTerminalSettings>; audit?: boolean} = {}): Promise<Setup> {
     const fixture = await createFixture(name);
     if (options.audit !== false) await initAudit(auditPaths(panelEnv(fixture)));
     const panes = options.panes?.(fixture.main) ?? [claudePane("w9:p1", SESSION_A, {cwd: fixture.main, foreground_cwd: fixture.main})];
@@ -304,6 +304,40 @@ describe("接管", () => {
         const releases = (await audit()).filter((line) => line.action === "release");
         expect(releases.map((line) => [line.detail.reason, line.detail.restored])).toEqual([["taken_over", false], ["user", true]]);
     }, 40_000);
+
+    test("握手期间连接关了、control 还没起（在收 observe）：不起 control、什么都不改；审计结果 failed（disconnect），没有释放行（实现审查 F4）", async () => {
+        const shell = await ptyShell(77, 23);
+        const {connect, state, fake, audit} = await setup("term-close-early", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main, shell_pid: shell})], terminals: {[TERMINAL]: {observeExitDelayMs: 800}}});
+        const client = await connect();
+        await client.next("frame");
+        client.send({t: "takeover", cols: 100, rows: 30, expectedSession: KEY_A, force: false});
+        await Bun.sleep(200);
+        client.ws.close();
+        await client.closed;
+        await until(() => streamProcesses(fake.socketPath).length === 0, 5_000, "子进程都退出");
+        await until(async () => (await audit()).some((line) => line.phase === "result"), 3_000, "审计结果");
+        expect(existsSync(join(state, `size-${TERMINAL}.json`))).toBe(false);
+        expect(await inputsOf(state)).toEqual([]);
+        expect((await audit()).map((line) => [line.action, line.phase, line.detail.result ?? null, line.detail.why ?? null])).toEqual([["takeover", "intent", null, null], ["takeover", "result", "failed", "disconnect"]]);
+    }, 30_000);
+
+    test("握手期间连接关了、control 已经接上（尺寸已改）但第一帧还没到：照常释放，改回尺寸；审计 attached 加 disconnect 的释放行（实现审查 F4）", async () => {
+        const shell = await ptyShell(77, 23);
+        const {connect, state, fake, audit} = await setup("term-close-late", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main, shell_pid: shell})], terminals: {[TERMINAL]: {controlDelayMs: 1_000}}});
+        const client = await connect();
+        await client.next("frame");
+        client.send({t: "takeover", cols: 100, rows: 30, expectedSession: KEY_A, force: false});
+        await until(() => existsSync(join(state, `size-${TERMINAL}.json`)), 3_000, "control 改了尺寸");
+        client.ws.close();
+        await client.closed;
+        await until(() => streamProcesses(fake.socketPath).length === 0, 6_000, "子进程都退出");
+        await until(async () => (await audit()).some((line) => line.action === "release"), 3_000, "释放行");
+        expect(JSON.parse(await readFile(join(state, `size-${TERMINAL}.json`), "utf8"))).toEqual({cols: 77, rows: 23});
+        expect((await inputsOf(state)).map((input) => input.type)).toEqual(["terminal.resize", "terminal.release"]);
+        const lines = await audit();
+        expect(lines.map((line) => [line.action, line.phase, line.detail.result ?? line.detail.reason ?? null])).toEqual([["takeover", "intent", null], ["takeover", "result", "attached"], ["release", "result", "disconnect"]]);
+        expect(lines[2]!.detail).toMatchObject({restored: true});
+    }, 30_000);
 
     test("握手 5 秒没有回应：error takeover_timeout，锁放开，之后同一格的文字照常发", async () => {
         const {connect, server, cookie, csrf, fake} = await setup("term-timeout", {terminals: {[TERMINAL]: {mode: "silent"}}});
