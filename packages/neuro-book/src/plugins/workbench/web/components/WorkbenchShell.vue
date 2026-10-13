@@ -94,7 +94,9 @@ const EditorAreaFailed = markRaw(defineComponent({
     props: {error: {type: Error, required: true}},
     setup: (failed) => () => h("p", {"class": "workbench-shell__editor-failed", "role": "alert"}, text(formatText(TEXT.editorFailed, {reason: failed.error.message}))),
 }));
-const editorContext: EditorAreaContext = {visible: computed(() => state.value.facts?.effectivePanel.maximized !== true)};
+/** 手势预览里已经拉出来、记录里还收着的部件（外壳布局按预览报上来，手势结束清空）：视图的首次加载与“可见”跟着它走。 */
+const previewParts = shallowRef<ReadonlyArray<ShellPartId>>([]);
+const editorContext: EditorAreaContext = {visible: computed(() => state.value.facts?.effectivePanel.maximized !== true || previewParts.value.includes("editor"))};
 const editorComponent = computed((): Component | null => {
     const provider = props.editorArea?.current.value ?? null;
     if (provider === null) return null;
@@ -176,13 +178,14 @@ const selectedOf = (part: ViewLocation): ContainerPresentation | null => {
     return id === null ? null : (presentation.value.containers.get(id) ?? null);
 };
 const sidebarVisible = computed(() => !state.value.hiddenParts.includes("sidebar") && state.value.dragCollapsed.sidebar !== true);
-/** 看得见的工具区域：未隐藏、未拖到零；面板还要未收起成标题头。 */
+/** 看得见的工具区域：未隐藏、未拖到零（或正被拉出来）；面板还要未收起成标题头。 */
 const shownParts = computed<ViewLocation[]>(() => {
     const {hiddenParts, dragCollapsed, facts} = state.value;
+    const pulled = previewParts.value;
     const shown: ViewLocation[] = [];
-    if (sidebarVisible.value) shown.push("sidebar");
-    if (!hiddenParts.includes("auxiliarybar") && dragCollapsed.auxiliarybar !== true) shown.push("auxiliarybar");
-    if (!panelHidden.value && facts?.effectivePanel.collapsed !== true) shown.push("panel");
+    if (sidebarVisible.value || pulled.includes("sidebar")) shown.push("sidebar");
+    if (!hiddenParts.includes("auxiliarybar") && (dragCollapsed.auxiliarybar !== true || pulled.includes("auxiliarybar"))) shown.push("auxiliarybar");
+    if (!state.value.panel.hidden && (dragCollapsed.panel !== true || pulled.includes("panel")) && facts?.effectivePanel.collapsed !== true) shown.push("panel");
     return shown;
 });
 
@@ -321,6 +324,7 @@ const dropFeedback = computed(() => {
         :memory="memory"
         @resize="onResize"
         @layout="onLayout"
+        @preview="(parts: ReadonlyArray<ShellPartId>) => (previewParts = parts)"
     >
         <template #titlebar>
             <WorkbenchTitleBar

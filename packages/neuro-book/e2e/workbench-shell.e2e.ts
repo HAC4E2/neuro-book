@@ -298,6 +298,69 @@ test.describe("产品页", () => {
         await expect(toggle).toHaveText("隐藏面板");
     });
 
+    test("面板上沿拖过 600 不停、拖到顶即最大化且不写尺寸、往下拖还原并保存；拖到零后往外拖，松手前内容就在（输出 4、7、8）", async ({page}) => {
+        await open(page);
+        const sash = page.getByRole("separator", {name: "调整 editor 与 panel 的高度"});
+        const slotParked = (part: string) => page.locator(`[data-shell-slot="${part}"]`).evaluate((element) => element.closest("[data-shell-parking]") !== null);
+        const press = async (): Promise<{x: number; y: number}> => {
+            const found = await sash.boundingBox();
+            if (found === null) throw new Error("没有面板与编辑器之间的边界");
+            const start = {x: found.x + found.width / 2, y: found.y + found.height / 2};
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            return start;
+        };
+        // 主体 842：editor 641、边界 1、面板 200。
+        const before = revisions();
+        let start = await press();
+        await page.mouse.move(start.x, start.y - 450, {steps: 6});
+        await expect.poll(async () => (await box(page, "panel")).height).toBe(650);
+        await page.mouse.move(start.x, start.y - 620, {steps: 6});
+        await expect.poll(async () => (await box(page, "editor")).height).toBe(0);
+        await page.mouse.up();
+        await expect.poll(slotParked.bind(null, "editor")).toBe(true);
+        await expect(frame(page, "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "true");
+        expect((await box(page, "panel")).height).toBe(841);
+        // 拖成最大化不写尺寸记录；最大化只在内存，刷新后面板回到原来的高度。
+        expect(revisions()["layout-sizes-panel"]).toBe(before["layout-sizes-panel"]);
+        await page.reload();
+        await open(page);
+        expect((await box(page, "panel")).height).toBe(200);
+
+        // 从最大化往下拖过编辑器的最小高度：还原，面板高度跟着指针并保存一次。
+        start = await press();
+        await page.mouse.move(start.x, start.y - 620, {steps: 6});
+        await page.mouse.up();
+        await expect.poll(async () => (await box(page, "editor")).height).toBe(0);
+        const maximized = revisions();
+        start = await press();
+        await page.mouse.move(start.x, start.y + 300, {steps: 6});
+        await page.mouse.up();
+        await expect.poll(async () => (await box(page, "editor")).height).toBe(300);
+        expect((await box(page, "panel")).height).toBe(541);
+        await expect(frame(page, "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "false");
+        await expect.poll(() => revisions()["layout-sizes-panel"]).toBe(maximized.all + 1);
+
+        // 拖到零，再往外拖：松手前面板的内容已经搬回落点、看得见。
+        start = await press();
+        await page.mouse.move(start.x, start.y + 700, {steps: 6});
+        await page.mouse.up();
+        await expect.poll(async () => (await box(page, "panel")).height).toBe(0);
+        expect(await slotParked("panel")).toBe(true);
+        start = await press();
+        await page.mouse.move(start.x, start.y - 200, {steps: 8});
+        await expect.poll(async () => (await box(page, "panel")).height).toBeGreaterThan(150);
+        await expect.poll(slotParked.bind(null, "panel")).toBe(false);
+        await expect(page.locator("[data-shell-slot=\"panel\"]")).toBeVisible();
+        // 按着拖回按下点：画面回到零，内容也回到停放区；再拉出来又出现
+        await page.mouse.move(start.x, start.y, {steps: 8});
+        await expect.poll(slotParked.bind(null, "panel")).toBe(true);
+        await page.mouse.move(start.x, start.y - 200, {steps: 8});
+        await expect.poll(slotParked.bind(null, "panel")).toBe(false);
+        await page.mouse.up();
+        expect(await slotParked("panel")).toBe(false);
+    });
+
     test("保存失败：状态栏显示“布局未保存”，库恢复后点“重试”补上", async ({page}) => {
         await open(page);
         const rename = (from: string, to: string): void => {
@@ -338,7 +401,7 @@ test.describe("产品页", () => {
         expect((await box(page, "editor")).height).toBeGreaterThan(0);
     });
 
-    test("临界尺寸：840 宽分栏时编辑器与面板至少 272、五个框架按钮完整可见；390×260 时面板退到标题头，显示与还原仍可完成", async ({page}) => {
+    test("临界尺寸：840 宽分栏时编辑器与面板至少 272、五个框架按钮完整可见；390×260 时面板压缩、给其余 Part 留 120px；390×230 时退到标题头，显示与还原仍可完成", async ({page}) => {
         await open(page);
         const fullyVisible = async (): Promise<boolean> => {
             const panel = await box(page, "panel");
@@ -350,8 +413,12 @@ test.describe("产品页", () => {
         await expect.poll(async () => (await box(page, "editor")).width).toBeGreaterThanOrEqual(272);
         await expect.poll(fullyVisible).toBe(true);
 
+        // 主体 202：面板压到 82，其余 Part 合计 120
         await page.setViewportSize({width: 390, height: 260});
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-shell-layout", "compact");
+        await expect.poll(async () => (await box(page, "panel")).height).toBe(82);
+        // 主体 172：面板的最小高度 80 也放不下，退到标题头
+        await page.setViewportSize({width: 390, height: 230});
         await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
         expect((await box(page, "editor")).height).toBeGreaterThan(20);
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-layout-diagnostics", /标题头/u);
@@ -445,6 +512,28 @@ test.describe("Lab", () => {
             return {inside: box(".workbench-view-section__title").bottom <= head.bottom, ellipsis: getComputedStyle(handle).textOverflow === "ellipsis" && handle.scrollHeight > handle.clientHeight, toggleOnTop: box("[data-view-toggle]").top < box(".workbench-view-section__title").top};
         });
         expect(facts).toEqual({inside: true, ellipsis: true, toggleOnTop: true});
+    });
+
+    test("Lab 外壳场景里拖到顶即最大化、往下拖还原：松手后保持（场景接住了补丁里的最大化）", async ({page}) => {
+        await page.goto(`${dev.pageUrl}lab?c=WorkbenchShellLayout&s=default`);
+        await expect(page.locator("[data-shell-sample]")).toBeVisible();
+        const sash = page.getByRole("separator", {name: "调整 editor 与 panel 的高度"});
+        const editorParked = () => page.locator("[data-shell-slot=\"editor\"]").evaluate((element) => element.closest("[data-shell-parking]") !== null);
+        const drag = async (dy: number): Promise<void> => {
+            const found = await sash.boundingBox();
+            if (found === null) throw new Error("没有面板与编辑器之间的边界");
+            await page.mouse.move(found.x + found.width / 2, found.y + found.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(found.x + found.width / 2, found.y + found.height / 2 + dy, {steps: 8});
+            await page.mouse.up();
+        };
+        await drag(-2000);
+        // 编辑器内容只在投影真的最大化时才停放：场景没接住补丁时投影仍是展开，内容不会进停放区。
+        await expect.poll(editorParked).toBe(true);
+        expect((await box(page, "editor")).height).toBe(0);
+        await drag(300);
+        await expect.poll(editorParked).toBe(false);
+        expect((await box(page, "editor")).height).toBeGreaterThan(0);
     });
 
     test("同一场景里换位置、最大化、隐藏、紧凑往返：编辑器样例不重挂，输入与滚动保留", async ({page}) => {

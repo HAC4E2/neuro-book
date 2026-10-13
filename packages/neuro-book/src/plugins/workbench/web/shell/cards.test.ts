@@ -65,12 +65,13 @@ describe("外壳部件的卡片边", () => {
         expect(cards({hiddenParts: ["activitybar"]}).sidebar?.left).toEqual(outer);
     });
 
-    it("面板在右侧：编辑区与面板横排；最大化时编辑区为零，面板顶到标题栏下", () => {
+    it("面板在右侧：编辑区与面板横排；最大化时编辑区为零，面板顶到标题栏下（留出 1px 边界）", () => {
         const right = cards({hiddenParts: ["auxiliarybar"], panel: {...PANEL, position: "right"}});
         expect(right.editor?.right).toEqual(inner(1));
         expect(right.panel).toEqual({top: outer, right: outer, bottom: outer, left: inner(1)});
+        // 最大化时编辑区为零，面板与它之间仍有 1px 可拖边界：面板顶边贴着窗体、带上这 1px 的占用
         const maximized = cards({panel: {...PANEL, maximized: true}});
-        expect(maximized.panel?.top).toEqual(outer);
+        expect(maximized.panel?.top).toEqual({kind: "outer", occupied: 1});
     });
 
     it("紧凑呈现：其余部件在活动栏右侧上下排，都不与活动栏相连", () => {

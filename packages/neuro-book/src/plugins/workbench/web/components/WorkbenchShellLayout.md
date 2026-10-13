@@ -19,8 +19,9 @@
 
 ## 交互
 
-- 拖动边界：边界在流内占 1px，命中区更宽；拖过最小或最大值停在边界。松手一次落账，组件按这次提交发出一个 `resize`；从拖到零的边界拉回时跟随指针。
-- 键盘：边界可聚焦，方向键 10px、Shift 1px、Home/End 到端点、Enter 收起或恢复相邻可拖到零的 Part。Escape、pointercancel、失焦、容器尺寸或 `contextKey` 变化取消整场手势，不发 `resize`。
+- 拖动边界：边界在流内占 1px，命中区更宽；拖过最小或最大值停在边界。松手一次落账，组件按这次提交发出一个 `resize`；从拖到零的边界拉回时跟随指针。面板与编辑器之间的边界能一直拖到编辑器的最小尺寸，再往前越过 24px 编辑器就被拖到零，即最大化，补丁里是 `panelMaximized`；最大化时这条边界仍是 1px，往回拖就还原。
+- 拖动中的停放：从拖到零（或最大化下的编辑器）往外拉时，手势预览一给出尺寸，内容就从停放区搬回落点，拖的过程中看得到，同时发 `preview`；按着拖回零、取消或提交被拒时回到停放区。搬动与投影变化同一套滚动与焦点记忆。往零拖时不提前停放，等落账。
+- 键盘：边界可聚焦，方向键 10px、Shift 1px、Home/End 到端点、Enter 收起或恢复相邻可拖到零的 Part（编辑器的拖到零只经指针，Enter 不会因此最大化）。Escape、pointercancel、失焦、容器尺寸或 `contextKey` 变化取消整场手势，不发 `resize`。
 - 焦点与滚动：结构变化（换位置、对齐、隐藏、最大化、紧凑往返）时，Part 内容在落点之间搬动，搬完后按 `memory` 还原外壳里所有可见元素的滚动位置，并恢复原焦点；焦点所在内容被停放时，隐藏面板把焦点交给 `data-shell-focus-target="panel-toggle"`，最大化交给 `data-shell-focus-target="panel-title"`（这两个标记由插槽内容提供，找不到时落到组件根）。焦点已在外壳之外（菜单、对话框）时不动。
 - `disabled` 为 true 时边界不能拖动、键盘不能调整，进行中的手势取消。
 
@@ -52,6 +53,11 @@ type Emits = {
     (event: "resize", payload: {contextKey: string; patch: ShellSizePatch}): void;
     /** 呈现事实变化时发出（测得容器尺寸之后）：模式、生效的面板状态与降级诊断。不是保存意图。 */
     (event: "layout", facts: ShellLayoutFacts): void;
+    /**
+     * 手势预览里已经拉出来、投影里还收着的部件（拖到零的 Part、最大化下的编辑器）变化时发出；手势结束或预览撤回时发空数组。
+     * 宿主据此让视图的首次加载与“可见”跟着预览走，不是保存意图。
+     */
+    (event: "preview", parts: ReadonlyArray<ShellPartId>): void;
 };
 
 type Slots = {

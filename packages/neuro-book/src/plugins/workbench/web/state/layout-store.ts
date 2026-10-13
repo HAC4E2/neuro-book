@@ -193,6 +193,8 @@ function defineLayoutStore(records: LayoutRecords) {
                 commitSizes: (patch: ShellSizePatch): void => {
                     commitSizeFields(side, ["sidebarWidth", "auxiliarybarWidth"], patch, (name, value) => clampLeafSize(value, shellLeafLimits(name === "sidebarWidth" ? "sidebar" : "auxiliarybar", Number.MAX_SAFE_INTEGER)));
                     commitSizeFields(panelSize, ["panelHeight", "panelWidth"], patch, (name, value) => (name === "panelHeight" ? clampPanelHeight(value) : clampPanelWidth(value)));
+                    // 编辑器拖到零即最大化、拖回即还原：与“最大化/还原面板”命令同一个内存位，不落盘（输出 7）。
+                    if (patch.panelMaximized !== undefined) maximized.value = patch.panelMaximized;
                     const collapse = patch.dragCollapsed;
                     if (collapse !== undefined && Object.entries(collapse).some(([part, value]) => (dragCollapsed.value[part as keyof ShellDragCollapseMap] ?? false) !== value)) {
                         void customizations.commit((value) => {

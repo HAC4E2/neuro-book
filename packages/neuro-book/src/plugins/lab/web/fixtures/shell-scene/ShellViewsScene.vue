@@ -117,6 +117,8 @@ const partTargets = reactive<Partial<Record<ViewLocation, HTMLElement>>>({});
 function onResize(payload: {contextKey: string; patch: ShellSizePatch}): void {
     sizes.value = mergeShellSizePatch(sizes.value, payload.patch);
     if (payload.patch.dragCollapsed !== undefined) dragCollapsed.value = {...dragCollapsed.value, ...payload.patch.dragCollapsed};
+    // 编辑器拖到零即最大化、拖回即还原：只改场景里面板的内存位，与产品的布局 store 一致。
+    if (payload.patch.panelMaximized !== undefined) panel.value = {...panel.value, maximized: payload.patch.panelMaximized};
 }
 
 function setTarget(part: ViewLocation, element: HTMLElement | null): void {
@@ -124,11 +126,13 @@ function setTarget(part: ViewLocation, element: HTMLElement | null): void {
     else partTargets[part] = element;
 }
 
+/** 手势预览里已经拉出来、场景状态里还收着的部件：与产品外壳一样，视图跟着预览加载与可见。 */
+const previewParts = shallowRef<ReadonlyArray<string>>([]);
 const sidebarVisible = computed(() => !hiddenParts.value.includes("sidebar") && dragCollapsed.value.sidebar !== true);
 const shownParts = computed<ViewLocation[]>(() => [
-    ...(sidebarVisible.value ? ["sidebar" as const] : []),
-    ...(!hiddenParts.value.includes("auxiliarybar") && dragCollapsed.value.auxiliarybar !== true ? ["auxiliarybar" as const] : []),
-    ...(!panel.value.hidden && !panel.value.collapsed && dragCollapsed.value.panel !== true ? ["panel" as const] : []),
+    ...(sidebarVisible.value || (!hiddenParts.value.includes("sidebar") && previewParts.value.includes("sidebar")) ? ["sidebar" as const] : []),
+    ...(!hiddenParts.value.includes("auxiliarybar") && (dragCollapsed.value.auxiliarybar !== true || previewParts.value.includes("auxiliarybar")) ? ["auxiliarybar" as const] : []),
+    ...(!panel.value.hidden && !panel.value.collapsed && (dragCollapsed.value.panel !== true || previewParts.value.includes("panel")) ? ["panel" as const] : []),
 ]);
 
 function selectedOf(part: ViewLocation): ContainerPresentation | null {
@@ -214,6 +218,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
             :drag-collapsed-parts="dragCollapsed"
             :memory="memory"
             @resize="onResize"
+            @preview="(parts: ReadonlyArray<string>) => (previewParts = parts)"
         >
             <template #titlebar>
                 <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">NeuroBook · 视图场景</div>

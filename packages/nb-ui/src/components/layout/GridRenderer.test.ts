@@ -387,6 +387,34 @@ describe("拖动期间的预览布局", () => {
     });
 });
 
+describe("预览撤回也通知宿主", () => {
+    it("拖出去再拖回按下点：几何回到已发布的布局时同样发一次 gesture-update（changes 为空），宿主据此撤掉依赖预览的状态", async () => {
+        const grid = nestedGrid();
+        const published = grid.layout(CONTAINER);
+        const wrapper = mountRenderer(grid.root(), published, {onGestureCommit: () => ({ok: true})});
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+        rootSash.dispatchEvent(pointerEvent("pointermove", 420, 80));
+        await settleFrame();
+        expect((wrapper.emitted("gesture-update")!.at(-1)![0] as GridGesturePreview<string>).changes).not.toHaveLength(0);
+
+        rootSash.dispatchEvent(pointerEvent("pointermove", 300, 80));
+        await settleFrame();
+        const back = wrapper.emitted("gesture-update")!.at(-1)![0] as GridGesturePreview<string>;
+        expect(back.changes).toHaveLength(0);
+        expect(back.layout.sizes.left!.width).toBeCloseTo(published.sizes.left!.width, 6);
+        expect(panelMainPx(wrapper, "left")).toBeCloseTo(published.sizes.left!.width, 6);
+        const count = wrapper.emitted("gesture-update")!.length;
+
+        // 已经在基线上时不重复发
+        rootSash.dispatchEvent(pointerEvent("pointerup", 300, 80));
+        await nextTick();
+        expect(wrapper.emitted("gesture-update")).toHaveLength(count);
+    });
+});
+
 /**
  * 会话层：拖动落地收起、显式恢复与提交的收口规则（不经过 DOM）。
  * 左栏固定 200（minimum 150），收起保留 32，记忆尺寸 200。
@@ -456,6 +484,128 @@ describe("Grid 手势会话的收起与显式恢复", () => {
         // 回到按下基线：净变化为零
         expect(session.update({x: 0, y: 0})).toBeNull();
         expect(session.finish()).toBeNull();
+    });
+});
+
+/**
+ * 吸收余量的叶（`sizing` 为缺省的 weight）同样能带收起意图：工作台用它把“面板拖到顶”做成编辑器拖到零。
+ * 纵向分支：编辑器 600（minimum 120，收起到 0），面板固定 200、没有上限，中间 1px。
+ */
+describe("余量叶的收起", () => {
+    const EXTENT = {width: 700, height: 801};
+
+    function column(editorCollapsed: boolean): Grid<string> {
+        return createGrid<string>({
+            kind: "branch",
+            id: "column",
+            orientation: "vertical",
+            children: [
+                {
+                    kind: "leaf",
+                    id: "editor",
+                    ref: "editor",
+                    size: {width: 700, height: editorCollapsed ? 0 : 600},
+                    minimumSize: {width: 0, height: 120},
+                    collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: editorCollapsed},
+                },
+                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: editorCollapsed ? 800 : 200}, minimumSize: {width: 0, height: 80}, sizing: "fixed"},
+            ],
+        }, {sashSize: SASH});
+    }
+
+    function open(grid: Grid<string>): GridGestureSession<string> {
+        return createGridGestureSession<string>({
+            sessionId: "session-weight",
+            contextKey: "grid-weight",
+            source: "pointer",
+            revision: 1,
+            root: grid.root(),
+            extent: EXTENT,
+            layout: grid.layout(EXTENT),
+            sashSize: SASH,
+            sashes: [{branchId: "column", index: 0, axis: "height"}],
+        });
+    }
+
+    it("往上拖到编辑器低于 minimum − 阈值时吸附成 0，面板占满；拖回 minimum 以上又展开", () => {
+        const session = open(column(false));
+        expect(session.update({x: 0, y: -400})?.changes[0]).toMatchObject({target: {editor: 200, panel: 600}});
+        // 理想高度 80 < 120 − 24：吸附
+        expect(session.update({x: 0, y: -520})?.changes[0]).toMatchObject({target: {editor: 0, panel: 800}, collapsed: {editor: true}});
+        // 理想高度 100 仍在阈值内：保持收起，几何不变
+        expect(session.update({x: 0, y: -500})?.changes[0]).toMatchObject({target: {editor: 0, panel: 800}, collapsed: {editor: true}});
+        // 回到 minimum 以上：展开，跟着指针
+        const back = session.update({x: 0, y: -440})?.changes[0];
+        expect(back).toMatchObject({target: {editor: 160, panel: 640}});
+        expect(back?.collapsed).toEqual({});
+        expect(session.finish()?.changes[0]).toMatchObject({target: {editor: 160, panel: 640}});
+    });
+
+    it("两侧都可收起时，Enter 跳过标了只经拖动的余量叶，恢复另一侧拖到零的面板", () => {
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "column",
+            orientation: "vertical",
+            children: [
+                {
+                    kind: "leaf",
+                    id: "editor",
+                    ref: "editor",
+                    size: {width: 700, height: 800},
+                    minimumSize: {width: 0, height: 120},
+                    collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false},
+                },
+                {
+                    kind: "leaf",
+                    id: "panel",
+                    ref: "panel",
+                    size: {width: 700, height: 200},
+                    minimumSize: {width: 0, height: 80},
+                    sizing: "fixed",
+                    collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
+                },
+            ],
+        }, {sashSize: SASH});
+        const session = open(grid);
+        expect(session.toggleCollapsed()?.changes[0]).toMatchObject({target: {editor: 600, panel: 200}, collapsed: {panel: false}});
+    });
+
+    it("两侧都可收起、同一帧里一侧要展开另一侧要收起：一次求解就到位，同一位移重复输入结果不变", () => {
+        // 面板拖到零（0），编辑器 800：一次往上 800，面板要展开、编辑器要收起
+        const fromZero = (): Grid<string> => createGrid<string>({
+            kind: "branch",
+            id: "column",
+            orientation: "vertical",
+            children: [
+                {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 800}, minimumSize: {width: 0, height: 120}, collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false}},
+                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: 200}, minimumSize: {width: 0, height: 80}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: true}},
+            ],
+        }, {sashSize: SASH});
+        const up = open(fromZero());
+        const first = up.update({x: 0, y: -800})?.changes[0];
+        expect(first).toMatchObject({target: {editor: 0, panel: 800}, collapsed: {editor: true, panel: false}});
+        expect(up.update({x: 0, y: -800})?.changes[0]).toMatchObject({target: first!.target, collapsed: first!.collapsed});
+
+        // 反过来：编辑器收着（最大化）、面板 800，一次往下 800，编辑器要展开、面板要收起
+        const maximized = (): Grid<string> => createGrid<string>({
+            kind: "branch",
+            id: "column",
+            orientation: "vertical",
+            children: [
+                {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 0}, minimumSize: {width: 0, height: 120}, collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: true, toggleable: false}},
+                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: 800}, minimumSize: {width: 0, height: 80}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: false}},
+            ],
+        }, {sashSize: SASH});
+        const down = open(maximized());
+        expect(down.update({x: 0, y: 800})?.changes[0]).toMatchObject({target: {editor: 800, panel: 0}, collapsed: {editor: false, panel: true}});
+    });
+
+    it("从收起的编辑器往下拖：不到 minimum 保持收起，越过就展开并提交展开", () => {
+        const session = open(column(true));
+        expect(session.update({x: 0, y: 60})).toBeNull();
+        const expanded = session.update({x: 0, y: 150})?.changes[0];
+        expect(expanded).toMatchObject({target: {editor: 150, panel: 650}, collapsed: {editor: false}});
+        expect(session.finish()?.changes[0]).toMatchObject({target: {editor: 150, panel: 650}, collapsed: {editor: false}});
     });
 });
 

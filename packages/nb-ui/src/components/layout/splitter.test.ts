@@ -1229,6 +1229,26 @@ describe("Splitter 会话的显式折叠与提交", () => {
         expect(commit?.changes[0]).toMatchObject({target: {outline: 180, editor: 318}, collapsed: {outline: false}});
     });
 
+    it("标了只经拖动（toggleable: false）的面板：拖过阈值照样收起，Enter 不切换它", () => {
+        const panels = sashPanelsOfConfig([{...COLLAPSIBLE_PANELS[0]!, collapse: {...COLLAPSIBLE_PANELS[0]!.collapse!, toggleable: false}}, ...COLLAPSIBLE_PANELS.slice(1)], [200, 298, 200]);
+        const open = (): SplitterGestureSession => createSplitterSession({
+            sessionId: "session-2",
+            contextKey: "outline",
+            source: "keyboard",
+            revision: 3,
+            branchId: "outline",
+            axis: "width",
+            ids: panels.map((panel) => panel.id),
+            panels,
+            baselinePx: [200, 298, 200],
+            sashIndex: 0,
+            extent: {width: 700, height: 0},
+        });
+        // 分隔条另一侧的 editor 没有收起意图：显式切换没有对象
+        expect(open().toggleCollapsed()).toBeNull();
+        expect(open().update({x: -150, y: 0})).toMatchObject({sizesPx: [0, 498, 200], collapsed: {outline: true}});
+    });
+
     it("Home / End 从线的当前位置换算绝对位移，不落在最后一段位移上重解", () => {
         const session = collapsibleSession();
         session.update({x: 40, y: 0});
