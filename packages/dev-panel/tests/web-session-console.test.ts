@@ -153,6 +153,23 @@ describe("阶段 1 实现审查的建议", () => {
         stop();
     });
 
+    test("建议 3：给 A 的文字回 not_deliverable 时已经换到 B：不开“仍然发送”，提示带 A 的 pane 号与原文", async () => {
+        const hold = gate();
+        web.env.respond(screenOf);
+        web.env.respond((call) => (call.url.endsWith("/prompt") ? {status: 409, errors: [{code: "not_deliverable", message: "输入框里有字", details: {screen: "❯ 半截", screenDigest: "d1"}}], wait: hold.promise} : undefined));
+        const {selected, host, stop} = mount(A);
+        const sending = host.sendPrompt("给 A 的话");
+        selected.value = B;
+        await nextTick();
+        hold.open();
+        await sending;
+        expect(host.confirm.value).toBeNull();
+        // notice 是响应式代理，数组属性用 toMatchObject 比不上，拆成普通值比。
+        expect([host.notice.value?.tone, host.notice.value?.title, [...(host.notice.value?.items ?? [])]]).toEqual(["warning", "没有发出去", ["原文：给 A 的话"]]);
+        expect(host.notice.value?.message).toContain(`pane ${A.paneId}`);
+        stop();
+    });
+
     test("建议 1：读到了就用这一次的屏幕，说明里不写旧画面", async () => {
         let reads = 0;
         web.env.respond((call) => {

@@ -185,6 +185,9 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
                         confirmLabel: "仍然发送",
                         action: {kind: "prompt", text, digest: error.details.screenDigest},
                     };
+                } else {
+                    // 目标已经换了：不再问“仍然发送”，但要说清这段没发出去；换了格时输入框也已清空，附上原文。
+                    notice.value = {tone: "warning", title: "没有发出去", message: `给 ${label(target)} 的文字没有发出去（${error.message}）；目标已经换了，没有再问`, items: samePane(target, current.value) ? [] : [`原文：${text}`], retry: false};
                 }
             } else {
                 notice.value = {tone: "error", title: "没有发出去", message: describeFailure(error).message, items: [], retry: false};
