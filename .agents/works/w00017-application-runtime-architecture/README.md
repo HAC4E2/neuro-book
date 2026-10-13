@@ -63,9 +63,11 @@ issueId: null
 | [t26](tasks/t26-platform-architecture-redesign/README.md) | 2026-09-28 需求重做与设计走查：需求记入 ADR 0022；可扩展应用平台设计 2026-09-30 `accepted`；无产品代码改动 |
 | [t27](tasks/t27-platform-risk-gates/README.md) | 风险门 G0（自有服务端入口与 WebSocket 升级）、G1（运行时加载组件共享 Vue 与 nb-ui）、G2（看门狗、进程重启、worker 池）的一次性验证 |
 | [t28](tasks/t28-platform-planned-specs/README.md) | 按已接受的平台设计写 10 份 `planned` Spec（插件清单、宿主、通道、API 文档、热插拔、安装、代码装载、公开 API、看门狗），并做跨模型审查；只改文档 |
-| [t80](tasks/t80-settings-ui/README.md) | 设置界面与贡献点（设置窗口、`settings.sections`、用户编辑写入、活动栏底部条目与页面浮层、两处入口）；S1–S5 已在分支 `t80/settings-ui` 提交，`settings-window.md` 晋升暂缓；记录 2026-10-12 迁到主工作区 |
+| [t80](tasks/t80-settings-ui/README.md) | 设置界面与贡献点（设置窗口、`settings.sections`、用户编辑写入、活动栏底部条目与页面浮层、两处入口）；S1–S5 完成，`settings-window.md` 2026-10-13 晋升 `implemented`，合回 w00017（`01722510f`），完成；记录 2026-10-12 迁到主工作区 |
 | [t81](tasks/t81-nb-ui-text-size-segmented/README.md) | nb-ui 字号写法被编译成颜色、分段控件截断长选项；2026-10-13 合回 w00017（`efb75a2b5`），完成；记录 2026-10-12 迁到主工作区 |
 | [t84](tasks/t84-menu-contributions/README.md) | 菜单贡献点：t83 验收反馈第 7 条，先对照旧应用的菜单贡献定设计；2026-10-13 经 nbdev 建在主工作区，未开工 |
+
+**下一阶段（开发者 2026-10-13 定）**：先把 workbench 打磨完成，期间不接新的产品功能；打磨完成后把 w00017 合并到 `master`，再同步各分支、按 `master` 上的新工作流（记录只放主工作区、nbdev 与开发者面板）治理项目。workbench 与插件化改造已基本跑通。
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
