@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: settings.window
 owners:
   - nbook.settings
@@ -197,7 +197,7 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 
 ## 证据
 
-- 批准依据：开发者批准的 [t80 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md)“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）。
+- 批准依据：开发者批准的 t80 实施计划（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md`）“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）；开发者 2026-10-13 批准晋升为 `implemented`。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`）
 - 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、[`web/setting-controls.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/setting-controls.test.ts)（通用控件的选择）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
 - Smoke：[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（验收 1–4、6：工作台与书架的齿轮、`Ctrl+,`、`Esc` 后焦点回到打开前的位置，两个页面即时变化，本作品覆盖与移除，恢复默认后的文件，文件改坏与修好，尺寸跨关闭与刷新、每次打开居中）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（“作品”分区的目录选择器叠在窗口上）；Lab 场景 `SettingsWindow`、`SettingsRow`、`SettingsPageList`、`SettingsControl`
