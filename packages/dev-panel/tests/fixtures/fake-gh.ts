@@ -26,7 +26,8 @@ if (args[0] === "pr") {
     process.stdout.write(JSON.stringify([
         {number: 7, title: "<b>标题</b> 加粗不生效", headRefName: "feat/w00001-t01-seed", isDraft: false, reviewDecision: "", updatedAt: "2026-10-13T08:00:00Z", url: "https://github.com/x/y/pull/7", statusCheckRollup: [
             {__typename: "CheckRun", name: "build", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://github.com/x/y/runs/1"},
-            {__typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "https://github.com/x/y/runs/2"},
+            {__typename: "CheckRun", name: "test", workflowName: "ci", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "https://github.com/x/y/runs/2"},
+            {__typename: "CheckRun", name: "test", workflowName: "nightly", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "https://github.com/x/y/runs/4"},
             {__typename: "CheckRun", name: "lint", status: "IN_PROGRESS", conclusion: "", detailsUrl: "https://github.com/x/y/runs/3"},
             {__typename: "StatusContext", context: "ci/legacy", state: "ERROR", targetUrl: "javascript:alert(1)"},
             {__typename: "StatusContext", context: "ci/ok", state: "SUCCESS", targetUrl: "https://ci.example/ok"},

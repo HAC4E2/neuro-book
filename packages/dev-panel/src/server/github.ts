@@ -31,7 +31,8 @@ export const GH_RETRY_AFTER_FAILURE_MS = 60_000;
 /** gh 以 4 退出：没登录（gh 的退出码约定）。 */
 const GH_AUTH_REQUIRED = 4;
 
-export type CheckSummary = {success: number; failure: number; pending: number; failed: Array<{name: string; url: string | null}>};
+/** `failed` 的 `workflow`：CheckRun 所在的工作流（`workflowName`），不同工作流里可能有同名的检查；StatusContext 没有，为 null。 */
+export type CheckSummary = {success: number; failure: number; pending: number; failed: Array<{name: string; workflow: string | null; url: string | null}>};
 export type PrView = {number: number; title: string; branch: string; draft: boolean; reviewDecision: string | null; updatedAt: string; url: string | null; checks: CheckSummary};
 export type IssueView = {number: number; title: string; labels: string[]; updatedAt: string; url: string | null};
 export type GithubState = "idle" | "ok" | "stale" | "unavailable" | "not_logged_in" | "error";
@@ -55,6 +56,7 @@ export function summarizeChecks(rollup: unknown): CheckSummary {
         if (!isRecord(item)) continue;
         let outcome: "success" | "failure" | "pending";
         let name: string;
+        let workflow: string | null = null;
         let url: string | null;
         if (item.__typename === "StatusContext") {
             name = typeof item.context === "string" ? item.context : "status";
@@ -62,12 +64,13 @@ export function summarizeChecks(rollup: unknown): CheckSummary {
             outcome = item.state === "SUCCESS" ? "success" : item.state === "FAILURE" || item.state === "ERROR" ? "failure" : "pending";
         } else {
             name = typeof item.name === "string" ? item.name : "check";
+            workflow = typeof item.workflowName === "string" && item.workflowName !== "" ? item.workflowName : null;
             url = httpsUrl(item.detailsUrl);
             if (item.status !== "COMPLETED") outcome = "pending";
             else outcome = ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(String(item.conclusion)) ? "success" : "failure";
         }
         summary[outcome] += 1;
-        if (outcome === "failure") summary.failed.push({name, url});
+        if (outcome === "failure") summary.failed.push({name, workflow, url});
     }
     return summary;
 }

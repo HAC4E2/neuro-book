@@ -2,11 +2,12 @@
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeTime} from "../host/format.js";
 import {isPlainClick, taskHref} from "../host/routes.js";
-import type {PrView} from "../host/types.js";
+import type {CheckSummary, PrView} from "../host/types.js";
 
 /** 开着的 PR（GitHub 只读）；契约见同名 .md。标题与分支是外部内容，一律按纯文本渲染。 */
 defineProps<{prs: PrView[]}>();
 const emit = defineEmits<{navigate: [href: string]}>();
+const checkLabel = (check: CheckSummary["failed"][number]) => (check.workflow ? `${check.workflow} / ${check.name}` : check.name);
 function follow(event: MouseEvent, href: string): void {
     if (!isPlainClick(event)) return;
     event.preventDefault();
@@ -33,10 +34,10 @@ const REVIEW: Record<string, string> = {APPROVED: "已批准", CHANGES_REQUESTED
                 <span>· 检查：<span style="color: var(--status-success)">{{ pr.checks.success }} 过</span><template v-if="pr.checks.failure > 0">，<span style="color: var(--status-danger)">{{ pr.checks.failure }} 失败</span></template><template v-if="pr.checks.pending > 0">，{{ pr.checks.pending }} 进行中</template></span>
             </div>
             <ul v-if="pr.checks.failed.length > 0" class="flex flex-wrap gap-x-3" style="font-size: var(--text-xs)">
-                <li v-for="check in pr.checks.failed" :key="check.name">
+                <li v-for="(check, index) in pr.checks.failed" :key="index">
                     <span class="i-lucide-x size-3 align-middle" style="color: var(--status-danger)" aria-hidden="true" />
-                    <a v-if="check.url" :href="check.url" target="_blank" rel="noopener noreferrer">{{ check.name }}</a>
-                    <span v-else>{{ check.name }}</span>
+                    <a v-if="check.url" :href="check.url" target="_blank" rel="noopener noreferrer">{{ checkLabel(check) }}</a>
+                    <span v-else>{{ checkLabel(check) }}</span>
                 </li>
             </ul>
         </li>

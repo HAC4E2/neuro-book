@@ -157,7 +157,7 @@ export type CheckoutRow = {
     dirty: number | null; ahead: number | null; behind: number | null; error: string | null; at: string;
 };
 export type CheckoutsData = {checkouts: CheckoutRow[]};
-export type CheckSummary = {success: number; failure: number; pending: number; failed: Array<{name: string; url: string | null}>};
+export type CheckSummary = {success: number; failure: number; pending: number; failed: Array<{name: string; workflow: string | null; url: string | null}>};
 export type PrView = {number: number; title: string; branch: string; draft: boolean; reviewDecision: string | null; updatedAt: string; url: string | null; checks: CheckSummary; task: {workId: string; taskId: string} | null};
 export type IssueView = {number: number; title: string; labels: string[]; updatedAt: string; url: string | null};
 export type GithubData = {state: "idle" | "ok" | "stale" | "unavailable" | "not_logged_in" | "error"; at: string | null; error: string | null; refreshing: boolean; prs: PrView[]; issues: IssueView[]; truncated: {prs: boolean; issues: boolean}};

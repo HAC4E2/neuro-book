@@ -91,7 +91,7 @@ describe("GitHub 只读页（场景 5）", () => {
         expect((await panel.post("/api/github/refresh", true, {ifStale: true})).status).toBe(200);
         const data = await until(async () => (await panel.get("/api/github")).body.data as GithubData, (value) => value.state === "ok", 15_000, "GitHub 数据");
         expect(data.prs[0]).toMatchObject({number: 7, title: "<b>标题</b> 加粗不生效", branch: "feat/w00001-t01-seed", draft: false, reviewDecision: null, url: "https://github.com/x/y/pull/7", task: {workId: "w00001-seed", taskId: "t01-seed"}});
-        expect(data.prs[0]!.checks).toEqual({success: 2, failure: 2, pending: 1, failed: [{name: "test", url: "https://github.com/x/y/runs/2"}, {name: "ci/legacy", url: null}]});
+        expect(data.prs[0]!.checks).toEqual({success: 2, failure: 3, pending: 1, failed: [{name: "test", workflow: "ci", url: "https://github.com/x/y/runs/2"}, {name: "test", workflow: "nightly", url: "https://github.com/x/y/runs/4"}, {name: "ci/legacy", workflow: null, url: null}]});
         expect(data.prs[1]).toMatchObject({number: 8, draft: true, reviewDecision: "APPROVED", url: null, task: null});
         expect(data.issues.length).toBe(100);
         expect(data.truncated).toEqual({prs: false, issues: true});
