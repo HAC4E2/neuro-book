@@ -105,6 +105,8 @@ export {classifyEditable, editRecordFile, MAX_EDIT_BYTES, readEditableFile, type
 export {assertNotStagedRename, readUncommitted, type UncommittedChanges} from "./core/uncommitted.js";
 export {assertPlainText, assertTitle, controlCharProblem, titleProblem} from "./core/text-rules.js";
 export {countNonEmptyLines, GOVERNANCE_CONTRACT_PATH, parseGovernanceLineLimits, readGovernanceLineLimits} from "./core/governance-limits.js";
+export {answerTime, computeNotifyJobs, newAttemptId, NOTIFY_ROOT, NOTIFY_SCHEMA, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyJob, type NotifyRecord, type NotifyResult, type TaskNotifyInput} from "./core/notify.js";
+export {AUDIT_INIT_SCHEMA, AUDIT_SCHEMA, auditPaths, createAuditWriter, initAudit, newActionId, readAuditStatus, type AuditAction, type AuditEntry, type AuditPaths, type AuditStatus, type AuditWriter} from "./core/audit.js";
 export {bootTime, processAlive, processStartTicks, readEnviron, readProcessTable, readProcStat, startTimeIso, systemdUnitOf, type ProcessEntry, type ProcStat} from "./core/procfs.js";
 export {PANEL_DEVELOPER, resolveCaller, trustedClaudeSession, type Caller, type CallerHerdr, type ClaudeIdentity, type DeveloperCaller, type ProcessRef, type SessionCaller, type SessionRef} from "./core/identity.js";
 export {
