@@ -23,11 +23,19 @@
 - 扮成 Claude 主进程（`CLAUDE_PID`）时用 `tests/processes.ts` 的 `startFakeClaude`，经它运行 nbdev：nbdev 要求 `CLAUDE_PID` 是调用者的祖先；也不能用测试进程自己扮，从真实 Claude 会话里跑起来的测试进程，`/proc/<pid>/environ` 里带着那个会话的 id，会被当成嵌套调用。L4 里扮成 Claude 的进程还要在 pane 的前台（写标签前会核对），由 `herdr pane run` 在 pane 里运行 `tests/l4-claude-pane.ts`。
 - 等子进程就绪用 `spawnMarked`（轮询到 `/proc/<pid>/environ` 带上标记），结束用 `stopProcess`（等到 `exit`），不用固定等待。
 
+## 面板前端
+
+- 前端在 `src/web/`（Vue 3 加 Vite，组件来自 nb-ui），合同见 [`docs/panel.md`](docs/panel.md#前端)。`tsconfig.json` 排除 `src/web`，前端的类型检查走 `tsconfig.web.json`（`vue-tsc`，已并进 `typecheck`）；构建 `bun run --cwd packages/dev-panel build:web`，产物 `dist/web/` 不入库。
+- 零件（`src/web/parts/`）遵守 [组件规范](../../docs/standards/code/components.md)：同名 `.md`、能力标签、只经 props、emits、slots 连接；页面与外壳是宿主。偏好只经 `src/web/host/prefs.ts` 读写浏览器存储。
+- 服务端测试不依赖 `dist/web`：`startPanelServer` 之后用 `setStatic` 注入桩页面（见 `tests/panel-server.test.ts`）。
+- 浏览器验收用 Playwright 加本机的 `/usr/bin/google-chrome-stable`（`chromium.launch({executablePath})`），在临时仓库上起 `nbdev panel serve`，用 `nbdev panel open --print` 拿登录链接；截图留在本地 `.local/agent/works/<workId>/tasks/<taskId>/shots/`，不入库。面板进程用会话的后台机制起，记下 PID、日志写文件，用完发 SIGTERM（它会删 `panel.json`、放锁）。
+
 ## 完成门禁
 
 ```text
 bun run --cwd packages/dev-panel typecheck
 bun run --cwd packages/dev-panel test
+bun run --cwd packages/dev-panel build:web
 bun x vitest run --config scripts/vitest.config.ts scripts/ci/dev-panel-records.test.ts
 ```
 

@@ -110,3 +110,26 @@
 - 输出到临时目录，成功后改名替换 `dist/web`：正在跑的面板的页面不会指向已被删掉的资源。
 - 失败时有旧产物就用旧的（`/api/meta` 的 `build.failed`、命令的 `build_failed` 警告）；没有旧产物报 `build_failed`（退出码 1）。
 - 合入 `master` 后由主工作区的代码运行，构建产物也在主工作区的包目录里；常驻与 systemd 单元在 t11。
+
+## 前端
+
+Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history 模式（服务端回退到 `index.html`）。组件来自 nb-ui，主题是 nbook（`installTheme` 加 `applyColorway`，不经 Nuxt），明暗跟随系统，可在顶栏切换。面板自己的原子类与 nb-ui 一样不分层地引入（`tailwindcss/theme.css` 加 `tailwindcss/utilities.css`，preflight 单独放进 `@layer base`）：nb-ui.css 的原子类不在 `@layer` 里，分层的原子类会输给它，`hidden md:flex` 这类写法就失效了。
+
+| 路由 | 页面 | 依据 |
+|---|---|---|
+| `/` | 首页：收件箱在上（提问带提问者，提问者的租约已失效时划掉）；进行中与未标的 Work 卡片，按最近更新排序；完成、搁置与超过 30 天没有更新的收进“其余 N 个” | t03 第三轮首页 A |
+| `/work/:workId` | Work 页：目标、Task 表、现在谁在动、Work 级的文档与产物 | t03 第三轮 Work 页 |
+| `/work/:workId/task/:taskId` | Task 页：当前情况、README、执行 checkout 的候选与它上面的提交、产物与文档类产物、链到的 Spec、证据、谁在动 | Proposal 第九节 |
+| `/artifacts` | 产物列表：按类分组，可过滤 | t03 第二轮产物页 |
+| `/artifact/:workId/:taskId/:artifactId` | 产物页：左边是产物来源上的沙箱 iframe（`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是问题侧栏；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-` | t03 第二轮产物页 |
+| `/docs?checkout=&path=&prefer=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选 | t03 第二轮文档页 |
+| `/live/sessions` | 会话：持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态 | t03 第三轮会话页左半边 |
+| `/live/checkouts` | checkout：分支、HEAD、是哪个 Work 的执行 worktree、路径 | Proposal 第九节 |
+| `/search?q=` | 搜索结果：流式出现，按 checkout 分组，截断时标出 | t03 第二轮顶栏 |
+
+- **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。
+- **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。
+- **偏好**（明暗、左栏各 Work 的展开）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
+- **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
+- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
+- **画法**（t03 第三轮已定）：持久的照常画实线的面；临时的（会话、租约、谁在动、运行）一律信息色虚线框，角上标“临时”，单独的租约是虚线胶囊，失效的划掉。没有字段的值显示“未标”；面板不推断状态，所以多数 Work 的计数条是“未标”的灰色。
