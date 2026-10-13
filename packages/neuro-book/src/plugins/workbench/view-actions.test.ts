@@ -202,7 +202,7 @@ describe("别的插件贡献的标题动作（views.md 输出 11）", () => {
         expect(chrome.viewActions(VIEW, actions, "zh-CN", null).menu[1]![0]!.disabledReason).toBe("视图还没加载好");
     });
 
-    it("按钮（自己的加贡献来的）至多 8 个，多出的按顺序收进“⋯”的第一节", async () => {
+    it("按钮（自己的加贡献来的）至多 8 个，放不下的贡献按钮回到它所在的节、收进“⋯”", async () => {
         const chrome = await start([example(ref(true), ref(false), []), more(Array.from({length: 4}, (_, index) => ({id: `example.more.b${String(index)}`, declaration: {view: VIEW, section: "1", order: index, command: TOGGLE.command, icon: "i-more"}})))]);
         const own: ViewAction[] = Array.from({length: 6}, () => ACT);
         const model = chrome.viewActions(VIEW, own, "zh-CN", {viewId: VIEW, generation: 1});

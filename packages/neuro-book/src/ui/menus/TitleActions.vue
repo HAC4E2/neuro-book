@@ -30,6 +30,7 @@ const items = computed<DropdownItem[]>(() => props.model.menu.flatMap((section, 
         disabled: entry.disabledReason !== null,
         ...(entry.disabledReason === null ? {} : {title: entry.disabledReason}),
         ...(entry.pressed === undefined ? {} : {type: "checkbox" as const, checked: entry.pressed}),
+        ...(entry.shortcut === undefined ? {} : {shortcut: entry.shortcut}),
     })),
 ]));
 

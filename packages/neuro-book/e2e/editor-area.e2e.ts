@@ -773,13 +773,41 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
         await expect(first.locator('[data-title-action-key="test.menus.editor-md"]')).toHaveCount(1);
     });
 
-    test("390 × 844：标题动作与最后一个标签都在视口里，页面没有横向溢出", async ({page}) => {
-        await page.setViewportSize({width: 390, height: 844});
-        await page.goto(new URL("/?project=book&open=project://a.md", probe.url).href);
-        await expect(page.locator("[data-editor-group-active] [data-editor-title-actions]")).toBeVisible();
-        const box = await page.locator("[data-editor-group-active] [data-editor-title-actions]").boundingBox();
-        expect(box).not.toBeNull();
-        expect(box!.x + box!.width).toBeLessThanOrEqual(390);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    test("编辑组窄到放不下按钮时：按钮都收进“⋯”，“⋯”与至少一个标签宽的标签条都在这一组里，“⋯”里仍能执行拆分与贡献的项", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await item(page, "project://a.md").dblclick();
+        const group = page.locator("[data-editor-group-active]");
+        const more = group.locator("[data-title-actions-more]");
+        /** 向右拆分活动组：按钮还在时点按钮，收进“⋯”以后从“⋯”里点。 */
+        const splitRight = async (): Promise<void> => {
+            const count = await page.locator("[data-editor-group]").count();
+            const button = group.locator('[data-title-action-key="own:split-right"]');
+            if (await button.count() > 0) await button.click();
+            else {
+                await more.click();
+                await page.getByRole("menu").getByRole("menuitem", {name: "向右拆分编辑器"}).click();
+            }
+            await expect(page.locator("[data-editor-group]")).toHaveCount(count + 1);
+        };
+        for (let index = 0; index < 3; index += 1) await splitRight();
+        const groupBox = await group.boundingBox();
+        expect(groupBox).not.toBeNull();
+        // 放不下一个按钮：标题行里只剩“⋯”（editor.md 输出 34：编辑组窄时按宽度再少）。
+        expect(groupBox!.width).toBeLessThan(104 + 24 + 26);
+        await expect(group.locator("[data-title-action-key]")).toHaveCount(0);
+        const moreBox = await more.boundingBox();
+        const tabsBox = await group.getByRole("tablist").boundingBox();
+        expect(moreBox).not.toBeNull();
+        expect(tabsBox).not.toBeNull();
+        expect(moreBox!.x).toBeGreaterThanOrEqual(groupBox!.x);
+        expect(moreBox!.x + moreBox!.width).toBeLessThanOrEqual(groupBox!.x + groupBox!.width + 0.5);
+        expect(tabsBox!.width).toBeGreaterThanOrEqual(groupBox!.width - 24 - 8 - 1);
+
+        await more.click();
+        const menu = page.getByRole("menu");
+        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
+        await menu.getByRole("menuitem", {name: "测试编辑区按钮"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
     });
 });

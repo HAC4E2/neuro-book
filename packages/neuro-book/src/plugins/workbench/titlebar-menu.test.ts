@@ -175,21 +175,27 @@ describe("标题栏菜单的贡献", () => {
         expect(view().map((entry) => [entry.enabled, entry.checked])).toEqual([[true, null], [true, true]]);
     });
 
-    it("贡献方入口开始停止，它的菜单项立即不显示；提供命令的入口停止，引用这条命令的别的插件的项也不显示", async () => {
+    it("贡献撤回后它的菜单项不显示（经 computed 读也重算）；提供命令的入口停止，引用这条命令的别的插件的项也不显示", async () => {
         const commands = control();
         const extra = control();
         const {chrome} = await start([
             commandPlugin([{id: "test.menu.item.save", declaration: {group: "file", section: "2_save", command: "test.menu.save"}}], commands),
             menuOnlyPlugin("test.extra", [{id: "test.extra.open", declaration: {group: "file", section: "1_open", command: "test.menu.open"}}], extra),
+            // 一直在线的贡献方：它的项引用 `test.menu` 的命令。
+            menuOnlyPlugin("test.stay", [{id: "test.stay.open", declaration: {group: "help", section: "1", command: "test.menu.open"}}], control()),
         ]);
-        expect(shape(chrome)).toEqual([["文件", [["test.extra.open"], ["test.menu.item.save"]]]]);
-        // 直接求值：入口开始停止时句柄先失去 published（不是响应式的），撤回稍后才到。
+        // 界面经 computed 读：撤回送达时它重算（menus.md 的“时序与寿命”）。
+        const shown = computed(() => shape(chrome));
+        expect(shown.value).toEqual([["文件", [["test.extra.open"], ["test.menu.item.save"]]], ["帮助", [["test.stay.open"]]]]);
+        // 入口开始停止时句柄先失去 published（不是响应式的）：重新求值已经看不到它，撤回稍后才到。
         const closingExtra = extra.context!.scope.parent!.close();
-        expect(shape(chrome)).toEqual([["文件", [["test.menu.item.save"]]]]);
+        expect(shape(chrome)).toEqual([["文件", [["test.menu.item.save"]]], ["帮助", [["test.stay.open"]]]]);
         expect((await closingExtra).status).toBe("closed");
+        expect(shown.value).toEqual([["文件", [["test.menu.item.save"]]], ["帮助", [["test.stay.open"]]]]);
+        // 提供命令的入口停止：它贡献的项不显示，还在线的 `test.stay` 引用它的命令的项也不显示。
         const closingCommands = commands.context!.scope.parent!.close();
         expect((await closingCommands).status).toBe("closed");
-        expect(shape(chrome)).toEqual([]);
+        expect(shown.value).toEqual([]);
     });
 
     it("只接受浏览器入口的贡献；id 在自己的命名空间里；组不认识、位置没有的字段都被拒", async () => {

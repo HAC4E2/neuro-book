@@ -143,6 +143,8 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                 const enabled = commands.isEnabled(action.command);
                 const read = action.toggled === undefined ? null : state.read(action.toggled);
                 const waiting = action.args === "instance" && instance === null;
+                const metadata = commands.get(action.command);
+                const keybinding = metadata.ok ? metadata.value.keybinding : undefined;
                 return {menu: action.placement === "menu", entry: {
                     key: `${OWN}${String(index)}`,
                     command: action.command,
@@ -150,6 +152,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                     icon: action.icon,
                     disabledReason: waiting ? loading : enabled.ok ? (enabled.value ? null : title) : enabled.reason,
                     ...(read === null ? {} : {pressed: read.status === "ready" && read.value === true}),
+                    ...(keybinding === undefined ? {} : {shortcut: formatKeybinding(keybinding, options.platform)}),
                 }};
             });
             const contributed = arrangeMenu(options.viewTitle.items().filter((item) => item.declaration.view === viewId), {...facts(locale), contexts: INSTANCE_CONTEXT})
@@ -160,6 +163,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                     icon: item.icon,
                     disabledReason: item.context === "instance" && instance === null ? loading : item.enabled ? null : (item.reason ?? item.label),
                     ...(item.checked === null ? {} : {pressed: item.checked}),
+                    ...(item.shortcut === null ? {} : {shortcut: item.shortcut}),
                 }})));
             return assembleTitleActions(own, contributed, VIEW_ACTIONS_MAX);
         },

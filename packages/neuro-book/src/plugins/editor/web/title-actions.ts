@@ -1,10 +1,11 @@
 /**
  * 编辑区标题的动作（docs/specs/workbench/editor.md 输出 34）：只画在活动编辑组的标签条右侧——编辑器的命令与它们的 `when`
  * 都按活动组算，画在别的组上会读错可用性。编辑器自己的“向右拆分”（按钮）与“用其它编辑器重新打开”（“⋯”里）在前，别的
- * 插件经 `editor.title` 贡献的在后（菜单项的共同规则见 docs/specs/workbench/menus.md），按钮至多 4 个。
+ * 插件经 `editor.title` 贡献的在后（菜单项的共同规则见 docs/specs/workbench/menus.md）。按钮至多 4 个；编辑组窄时由组按自己
+ * 的宽度给出更少的个数（`model(maxButtons)`），给标签条至少留 `EDITOR_TITLE_TAB_RESERVE`。
  */
 
-import {arrangeMenu} from "nbook/plugins/commands/shared/contracts";
+import {arrangeMenu, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {localize} from "nbook/shared/localized-text";
@@ -19,6 +20,9 @@ import {nameOf} from "./messages";
 
 export const EDITOR_TITLE_MAX_BUTTONS = 4;
 
+/** 编辑组窄时给标签条至少留的宽度（一个截断的标签），加上标题动作两侧的内边距。 */
+export const EDITOR_TITLE_TAB_RESERVE = 96 + 8;
+
 /** 编辑器自己的标题动作：key 以 `own:` 开头，与贡献 id 分开。 */
 const OWN: ReadonlyArray<{readonly key: string; readonly command: string; readonly icon: string; readonly menu: boolean}> = [
     {key: "own:split-right", command: SPLIT_RIGHT_COMMAND, icon: "i-lucide-columns-2", menu: false},
@@ -30,10 +34,10 @@ const NONE: ReadonlySet<string> = new Set();
 
 export interface EditorTitleActions {
     /**
-     * 活动组的标题动作；没有编辑区时为 null。`identity` 是“⋯”的菜单身份：活动组、活动标签与它的地址，任一变化就关闭打开着的
-     * 菜单（输出 34）。响应式：在 computed 或渲染函数里读。
+     * 活动组的标题动作；没有编辑区时为 null。`model(maxButtons)` 按组给出的按钮个数拼好（至多 4 个）；`identity` 是“⋯”的菜单
+     * 身份：活动组、活动标签与它的地址，任一变化就关闭打开着的菜单（输出 34）。响应式：在 computed 或渲染函数里读。
      */
-    current(locale: DisplayLocale): {readonly group: string; readonly model: TitleActionsModel; readonly identity: string} | null;
+    current(locale: DisplayLocale): {readonly group: string; readonly model: (maxButtons: number) => TitleActionsModel; readonly identity: string} | null;
     /** 点了一个动作：按 key 找回动作执行；带 `context: "resource"` 的项收到此刻活动标签的地址，活动标签不是文件时不执行。 */
     run(key: string): void;
 }
@@ -65,7 +69,15 @@ export function createEditorTitleActions(options: {
                 if (!command.ok) return [];
                 const title = localize(command.value.title, locale);
                 const enabled = options.commands.isEnabled(action.command);
-                return [{menu: action.menu, entry: {key: action.key, command: action.command, title, icon: action.icon, disabledReason: enabled.ok ? (enabled.value ? null : title) : enabled.reason}}];
+                const keybinding = command.value.keybinding;
+                return [{menu: action.menu, entry: {
+                    key: action.key,
+                    command: action.command,
+                    title,
+                    icon: action.icon,
+                    disabledReason: enabled.ok ? (enabled.value ? null : title) : enabled.reason,
+                    ...(keybinding === undefined ? {} : {shortcut: formatKeybinding(keybinding, options.platform)}),
+                }}];
             });
             const contributed = arrangeMenu(options.items(), {
                 command: (id) => {
@@ -88,8 +100,9 @@ export function createEditorTitleActions(options: {
                 icon: item.icon,
                 disabledReason: item.enabled ? null : (item.reason ?? item.label),
                 ...(item.checked === null ? {} : {pressed: item.checked}),
+                ...(item.shortcut === null ? {} : {shortcut: item.shortcut}),
             }})));
-            return {group, model: assembleTitleActions(own, contributed, EDITOR_TITLE_MAX_BUTTONS), identity: `${group}|${tab?.id ?? ""}|${tab?.address ?? ""}`};
+            return {group, model: (maxButtons) => assembleTitleActions(own, contributed, Math.min(maxButtons, EDITOR_TITLE_MAX_BUTTONS)), identity: `${group}|${tab?.id ?? ""}|${tab?.address ?? ""}`};
         },
         run: (key) => {
             const own = OWN.find((action) => action.key === key);

@@ -1,16 +1,18 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
 import {Button, Kbd} from "@notnotype/nb-ui/components";
-import {computed} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
+import {buttonBudget} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import type {EditorArea, EditorControlHandle} from "../area";
 import type {EmptyTip} from "../empty-tips";
+import {EDITOR_TITLE_MAX_BUTTONS, EDITOR_TITLE_TAB_RESERVE} from "../title-actions";
 import type {FileEditorKind} from "../groups/groups";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
@@ -33,7 +35,22 @@ const props = withDefaults(defineProps<{
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作：交出它的 key。 */
 const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void}>();
 
-const hasTitleActions = computed(() => props.titleActions !== null && (props.titleActions.model.buttons.length > 0 || props.titleActions.model.menu.length > 0));
+/** 标签条一行的宽度：标题动作按它决定放几个按钮，标签条至少留一个截断标签的宽度（输出 34）。 */
+const header = ref<HTMLElement | null>(null);
+const headerWidth = ref<number | null>(null);
+let observer: ResizeObserver | null = null;
+onMounted(() => {
+    const element = header.value;
+    if (element === null || typeof ResizeObserver !== "function") return;
+    observer = new ResizeObserver(() => {
+        headerWidth.value = element.clientWidth > 0 ? element.clientWidth : null;
+    });
+    observer.observe(element);
+});
+onBeforeUnmount(() => observer?.disconnect());
+
+const titleModel = computed((): TitleActionsModel | null => (props.titleActions === null ? null : props.titleActions.model(buttonBudget(headerWidth.value, EDITOR_TITLE_TAB_RESERVE, EDITOR_TITLE_MAX_BUTTONS))));
+const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.value.buttons.length > 0 || titleModel.value.menu.length > 0));
 
 const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
@@ -96,7 +113,8 @@ const kinds = computed((): FileEditorKind[] => {
 export interface EditorGroupTitleActions {
     /** 拿到标题动作的组（活动组）。 */
     readonly group: string;
-    readonly model: TitleActionsModel;
+    /** 按组给出的按钮个数拼好的标题动作。 */
+    readonly model: (maxButtons: number) => TitleActionsModel;
     /** “⋯”的菜单身份：活动组、活动标签与地址。 */
     readonly identity: string;
 }
@@ -113,7 +131,7 @@ export interface EditorGroupTitleActions {
         @pointerdown="area.focusGroup(groupId)"
     >
         <!-- 标签多时标签条自己横向滚动，标题动作固定在右侧、不随之滚动。 -->
-        <div class="editor-group__header">
+        <div ref="header" class="editor-group__header">
             <EditorTabBar
                 class="editor-group__tabs"
                 :tabs="tabs"
@@ -128,7 +146,7 @@ export interface EditorGroupTitleActions {
             <TitleActions
                 v-if="hasTitleActions"
                 class="editor-group__title-actions"
-                :model="titleActions!.model"
+                :model="titleModel!"
                 :identity="titleActions!.identity"
                 :more-label="editorText(locale, 'moreActions')"
                 data-editor-title-actions

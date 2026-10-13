@@ -156,9 +156,14 @@ export const editorBrowserPlugin: PluginDefinition = {
             };
             const titleItems = new MenuItemRegistry(context.declarations.list<EditorTitleItemDeclaration>(EDITOR_TITLE_POINT), context.signal);
             const titles = createEditorTitleActions({area: () => session.area.value, commands, state: context.services.require(publicStateKey), items: () => titleItems.items(), platform});
+            // 命令增减不经响应式通知：标题动作在渲染与组的 computed 里求值时都读一次版本号。
             const titleActions = () => {
                 void commandsVersion.value;
-                return titles.current(locale.value);
+                const current = titles.current(locale.value);
+                return current === null ? null : {...current, model: (maxButtons: number) => {
+                    void commandsVersion.value;
+                    return current.model(maxButtons);
+                }};
             };
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {

@@ -21,7 +21,7 @@ type Props = {
     /** 空编辑组的提示（输出 32，`web/empty-tips.ts` 按命令可用性筛好），原样交给每个编辑组；缺省为空。 */
     emptyTips?: ReadonlyArray<EmptyTip>;
     /** 活动组的标题动作（输出 34，`web/title-actions.ts` 算好）：只交给 `group` 那一组；缺省 null。 */
-    titleActions?: {group: string; model: TitleActionsModel; identity: string} | null;
+    titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;
 };
 
 type Emits = {
