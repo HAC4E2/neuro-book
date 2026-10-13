@@ -1,0 +1,108 @@
+# w00022 追加修正实现审查报告（c5177bc56..3be97d883，只读）
+
+## 结论
+
+**阻断 0 条，重要 1 条，建议 3 条。** 下面“发现”一节按核实的先后排列。
+
+- **t11 通知误报的修正成立。** 真实 herdr 的命名会话里 0.9.3 与 0.9.1 都实测过：别的会话在投递窗口里变两次状态（序号差 3），记 `delivered`；这一格在粘贴窗口里弹出确认、又被回车确认，记 `passed_blocked`。观察对象在所有路径上都释放；`unwatched` 的条件完整；自动通知与手动发送用同一套判据；只比相等的序号用法没有受影响。只剩界面与测试上的小问题：
+  - 建议 1：旧的 `state_jumped` 记录现在显示成最肯定的“投递时弹出了确认界面”。
+  - 建议 2：`watchStatus` 的门槛、换连接时的 `intact`、返回体是 blocked 的那一支、0.9.1 上的 L4，都没有测试钉住。
+- **t12 接管后又改一次尺寸的修正部分成立。** 滚动条这个原因确实消掉了：抢过来的场景从“136×27 再变 139×28、释放行 `resizes: 3`”变成“一次到位、`resizes: 1`”；接管中缩窄只 resize 一次；手机与文字视图不受影响，溢出在所有路径上都改回。但还有一个原因没处理，就是**重要 1**：xterm 的格宽随当前列数取整。从奇数列的 pty 普通接管，在 1280 宽（七个高度）和 1592 宽下照样会再 resize 一次（138 变 139、186 变 187）。开发者原来报的“186 变 187”在修正后的构建里原样复现。
+- 建议 3：包的浏览器验收规则里没写“去掉 `--hide-scrollbars`”。
+- **结束时的状态**：
+  - 审查 worktree：HEAD 仍是 `3be97d883`，`git status --short` 为空。临时 worktree `/dev/shm/review-t14-fixes/before` 已经 `git worktree remove --force`，`/dev/shm/review-t14-fixes/` 已删。
+  - herdr：`herdr session list` 只剩 `default`；对默认 server 只调了 `ping` 与 `session.snapshot`。
+  - 进程：本审查起的 herdr server、面板（端口 4490、4491）、Chrome 都已结束，按记下的 PID 核对过没有残留。开发者的常驻面板与真实的审计文件（`$XDG_CONFIG_HOME/nbdev/audit.jsonl` 的缺省位置）没碰过：审计文件最后修改是 09:21，早于本审查开始。
+  - 截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/review-fix-*.png`；脚本与日志在本报告同目录的 `scripts/`、`logs/`。
+
+## 发现
+
+### 建议 1：旧记录里的 `state_jumped` 现在显示成最肯定的“投递时弹出了确认界面”
+
+- **位置**：`packages/dev-panel/src/web/parts/NotifyStatus.vue:70`；`packages/dev-panel/docs/file-formats.md:336`。
+- **现象**：修正删掉了 `state_jumped` 的专用文案。旧记录的 `code` 仍是 `state_jumped`，它不等于 `passed_blocked`，于是走到另一个分支，显示“投递时 X 弹出了确认界面，回车可能确认了它，请马上看终端”，醒目色调、要逐条“知道了”。修正之前它显示的是语气更弱的“状态变了不止一次，可能经过了确认界面”。
+- **为什么是问题**：`file-formats.md` 刚写明旧的 `state_jumped` 是按序号差判的、会误报；t11 验收时那两条（自动通知与手动“你好”）就是误报。现在界面对这类已知不可靠的记录给出最肯定的说法，与文档相反。影响有限：`recent()` 只取 24 小时内的尝试（`src/server/notifier.ts:23`），这两条过一天就不再显示。
+- **如何核实**：读代码。`attempt.code === "passed_blocked"` 不成立时走 `投递时 ${target} 弹出了确认界面…` 这一支；`isAttention` 与 `ATTENTION` 只看 `result`，所以照样算要处理的一条。
+- **建议改法**：给 `state_jumped` 留一支弱化的文案，例如“（旧判据，可能误报）投递后序号跳了不止一格，看一眼终端”，不标醒目；或者按文档的说法直接当 `delivered` 显示。顺带一提：同一个 `delivered` 加 `unwatched`，在会话页的提示（`src/web/host/notify-actions.ts:29`）里是 warning 色调，在尝试列表（`NotifyStatus.vue:69`）里是 success 色调，可以统一一下。
+
+### 建议 2：包里的测试没有钉住 `HerdrMonitor.watchStatus` 的门槛、换连接时的 `intact`，也没有在真实 herdr 上走一遍带观察的投递
+
+- **位置**：`packages/dev-panel/tests/delivery.test.ts:146`（“退路”那条测试）、`packages/dev-panel/src/server/herdr-monitor.ts:81`、`:201`；`packages/dev-panel/tests/herdr-live.test.ts:171`。
+- **现象**：
+  - L3 的“没有订阅”用的是 `setup({}, {watched: false})`，`context.watchStatus` 根本不给，测的是 `deliverText` 拿到 null 之后的退路，没有测 `HerdrMonitor.watchStatus` 自己在“订阅为空（轮询中）”“pane 刚出现、还没换连接”时返回 null。
+  - 换订阅连接时“新的连接不再订这格就把它的观察标成不完整、还订着的保持完整”（`herdr-monitor.ts:201`）没有测试。
+  - `prompted.agent?.status === "blocked"`（返回体里是 blocked）这一支没有测试：假 herdr 的回应里永远不是 blocked。真实 herdr 会这样回（见下面的实验 s3）。
+  - 新 L4 只在 0.9.3 上跑。开发者的默认 server 是 0.9.1（只读的 `ping` 核实），`AUTO_NOTIFY_VERSIONS` 也包括 0.9.1；t12 那一组 L4 已经按两个版本参数化了。L4 也没有一条真的经过 `deliverText`、带观察的投递：现有的 L4 投递测试不给 `watchStatus`，假界面不进入工作，结果都是 `uncertain`。
+- **为什么是问题**：这几处正是修正新增的判据。将来改 `ensureSubscription` 或订阅换线的顺序，L3 与 L4 都不会失败。现在的行为我实测都对（见下），所以只列为建议。
+- **如何核实**：
+  - `scripts/exp-watch-gates.ts`（假 herdr，日志 `logs/exp-watch-gates.log`）。不存在的 pane、新 pane 还没换连接：`watchStatus` 都是 null。去掉一格之后换连接：那一格的观察 `intact` 为 false，留下的那格仍为 true，换线之后的事件照样收到。订阅断开、重连被拒时 `watchStatus` 为 null，投递记 `delivered` 加 `unwatched`。`monitor.stop()` 之后 `intact` 为 false。
+  - `scripts/exp-window.ts`（命名会话 `nbdev-review-t14f`，0.9.3 与 0.9.1 各跑一遍，日志 `logs/exp-window-093.log`、`logs/exp-window-091.log`），用会对输入作反应的假 Claude（`scripts/react-claude.py`）：两个版本结果相同（见“已核对”一节）。
+- **建议改法**：L3 加两条：一条直接调 `monitor.watchStatus` 看轮询中与新 pane 的 null；一条在投递窗口里让假 herdr 发 `pane.closed` 换连接，看留下的格仍是 `delivered`、`code: null`，被去掉的格是 `unwatched`。假 herdr 加一种 `on_prompt`，回应体里是 blocked。新 L4 按 t12 的写法对 0.9.3 与 0.9.1 参数化；可以把 `react-claude.py` 这种“收到粘贴就弹确认、回车后进入工作”的假界面收进 L4，钉住真实 herdr 上的 `passed_blocked` 与“别的格同时变状态仍是 delivered”。
+
+### 重要 1：藏掉滚动条之后，`fit` 的取整还会让接管后再 resize 一次（1280 宽、从普通尺寸接管就能复现）
+
+- **位置**：`packages/dev-panel/src/web/parts/TerminalView.vue:68`-`75`（`proposeWithoutScrollbars` 用 `fit.proposeDimensions()`）、`:141`-`150`（ResizeObserver）；根源在 `@xterm/xterm` 6.0.0 的 `src/browser/renderer/dom/DomRenderer.ts:124`-`126` 与 `@xterm/addon-fit` 0.11.0 的 `proposeDimensions`。
+- **现象**：桌面 1280 宽、DPR 1，pty 原本是 119×40（命名会话里 pane 的初始尺寸），点“接管键盘”。修正之后小窗写 138×N，接上之后约 0.25 秒 pty 又变成 139×N，释放行 `resizes: 1`。1280×600、700、800、900、1000、1200、1400 七个高度全部如此。修正之前同样的操作是 136×N 再变 139×N，所以修正把差距从 3 列缩到 1 列，没有消掉。`TerminalView.md` 写的“接上之后不必再改一次尺寸”在这里不成立，开发者看到的现象（接管后过一会儿又改一次尺寸）还在。
+- **为什么是问题**：xterm 的 DOM 渲染器先把整屏宽度取整，`css.canvas.width = Math.round(列数 × 字宽 × dpr / dpr)`，再用 `css.cell.width = css.canvas.width / 列数` 算格宽；fit 按这个格宽取 `floor(可用宽 / 格宽)`。所以量出来的列数跟终端当前的列数有关：13px 的 Noto Sans Mono CJK SC 字宽正好 6.5，当前列数是奇数时整屏宽度要进 0.5 像素，格宽变成 `6.5 + 0.5/列数`。可用宽 904 时，当前 119 列量出 138；接上以后当前是 138 列（偶数），格宽 6.5，量出 139。切到接管模式时框的高度变了，ResizeObserver 必然触发一次，这次量出的 139 跟 138 不同，于是又发一次 `resize`。编码者的复测只走了“从 206 列抢过来”这一条：206 是偶数，格宽没有进位，所以没碰上。开发者原来报的是 186 列变 187 列、45 行变 46 行。13px 下一格 6.5 像素，15 像素宽的竖滚动条至少吃掉 2 列，只差 1 列更像是这里说的取整；多出的那一行可以由横滚动条解释（这一段是推断：开发者当时的窗口与 pty 尺寸不知道）。如果推断成立，开发者原来看到的列数变化，这次修正之后多半还会出现。
+- **如何核实**：`scripts/t12-resize.ts`（临时仓库、命名会话 `nbdev-review-t14f`、端口 4490 起的面板、去掉 `--hide-scrollbars` 的 Chrome；假 Claude `scripts/react-claude.py` 把每次 SIGWINCH 的尺寸记进日志）。
+  - `bun t12-resize.ts before,after fresh@1280x800,fresh@1280x600`（`logs/t12-fresh-cmp.log`）：修正前是 `136x28` 然后 `139x28`，修正后是 `138x28` 然后 `139x28`。页面里按 xterm 的算法预测：字宽 6.5，可用宽 904，当前 119 列时量出 138，当前 138 列时量出 139，与实测一致。
+  - `bun t12-resize.ts before,after fresh@1592x900`（`logs/t12-1592.log`，可用宽 1216，可用宽除以字宽约 187.08）：修正前是 `184x32` 然后 `187x32`，修正后是 `186x32` 然后 `187x32`。列数正好是开发者报的“186 变 187”。
+  - `logs/t12-sweep-after.log`、`logs/t12-tall.log`：1280 宽下各个高度都是 138 再 139；1024×768、1100×1300、1600×1300、1920×1080、1440×900（DPR 1.25）、1366×768（DPR 1.5）没有第二次。是否出现取决于可用宽度除以字宽的小数部分，以及原来的列数是不是奇数。两种模式下框的宽度相同（都是 920），所以外层滚动条不是原因。
+- **建议改法**：二选一。
+  - 接管时记下量尺寸用的框内容尺寸；ResizeObserver 回调里框的尺寸没变就不再量、不再发。这样不管取整怎么进位，切模式那一次都不会多发。
+  - 自己算列数，格宽用与列数无关的字宽，不用 fit 的 `css.cell.width`。比如 `floor(可用宽 × dpr / device.cell.width)`；行同理，用 `device.cell.height`。
+  - 无论选哪种，都补一条浏览器验收：从奇数列的 pty 接管，断言 pty 只变一次。
+
+### 建议 3：包的浏览器验收规则没写“去掉 `--hide-scrollbars`”
+
+- **位置**：`packages/dev-panel/AGENTS.md` 的“面板前端”最后一条（浏览器验收用 Playwright 加本机 Chrome）。
+- **现象**：这次的尺寸问题，之前的浏览器验收（t12 的 F3）没发现，原因是 Playwright 起无头 Chrome 时缺省带 `--hide-scrollbars`，滚动条不占位。这条教训现在只写在零件文档 `src/web/parts/TerminalView.md` 里，和主工作区 t14 `plan.md` 的追加修正里。包里所有浏览器验收都照着用的那条规则没写。
+- **为什么是问题**：以后别的零件（会话页、checkout 表格的横向滚动、手机宽度）做验收时，还会在不画滚动条的浏览器里看，同类问题照样漏掉。
+- **如何核实**：审查 worktree 里 `git grep -n "hide-scrollbars\|无头 Chrome"`，提到“无头 Chrome 不画滚动条”的只有 `TerminalView.md:17` 与 `TerminalView.vue:65` 的注释。本审查的 `scripts/t12-resize.ts` 带 `ignoreDefaultArgs: ["--hide-scrollbars"]` 复现出了修正前的两次 resize（`logs/t12-steal.log`：`136x27` 再 `139x28`，释放行 `resizes: 3`）。
+- **建议改法**：在那条规则后补半句：“涉及尺寸、溢出或滚动的验收，`launch` 加 `ignoreDefaultArgs: ["--hide-scrollbars"]`，桌面浏览器的滚动条占位”。这条属于回写规范，按 `task-reflection` 交开发者批准后再写。
+
+## 已核对、没有问题的
+
+脚本与日志都在本审查的临时目录 `review-t14-fixes/` 下（`scripts/`、`logs/`）；截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/review-fix-*.png`。
+
+### t11 通知误报（`cbe883a0e`、`3be97d883`）
+
+- **全局计数与按格的事件（实测）**：在命名会话 `nbdev-review-t14f` 里分别用 server 0.9.3 与 0.9.1 跑（`scripts/exp-window.ts` 的 E1），两个版本结果相同。开始时 A 3、B 6；B 换四次屏幕、A 换一次之后，A 11、B 10。A 的观察只有 `["blocked"]`，B 的是 `["blocked","done","blocked","done"]`，两者都 `intact`。默认 server（0.9.1）上只调了 `ping` 与 `session.snapshot`：九格 Agent 的序号互不重复、散在同一个区间。`docs/herdr.md` 的“状态序号”一条属实。
+- **观察窗口的边界（实测，0.9.3 与 0.9.1 结果相同）**：观察在紧贴投递的 `agent.get` 之后、`agent.prompt` 之前同步开始（`delivery.ts:135`），由 `finally` 在返回体与约 500 毫秒后的 `agent.get` 都看完后关闭（`:136`-`140`）。日志里“观察开始”和“prompt 发出”在同一毫秒。同一次状态变化的事件比反映它的 RPC 晚 2 到 30 毫秒，500 毫秒的等待足够。各场景的结果：
+  - s1 正常进入工作：`delivered`、`null`。
+  - s2 投递窗口里别的格变了两次（working、done），序号差 3：`delivered`、`null`，旧判据在这里会误报。
+  - s3 粘贴后弹出确认、回车确认了它：返回体是 `blocked`，事件是 `["blocked","working"]`，记 `passed_blocked`。
+  - s3b 确认后 400 毫秒才进入工作：最后停在 blocked，记 `delivered_into_blocked`、`null`。
+  - s4 进入工作 300 毫秒后才 blocked：最后停在 blocked，记 `code: null`，与修正前相同。
+  - s4b 1.5 秒后才 blocked：在窗口外，记 `delivered`、`null`。
+  - 窗口太长会不会把无关的 blocked 算进来：窗口里的 blocked 最后多半还停着，修正前也照样报。要在不到 1 秒里冒出与投递无关、又已经消失的 blocked，Claude 得在收到消息后不到 1 秒就弹出权限确认，不现实。窗口开始前的旧 blocked 事件晚到、落进窗口：自动通知要求同一个序号稳定 3 秒，不会发生；手动发送之间隔着判定的几次 RPC，事件要晚到几百毫秒才会落进来，不列。
+- **`unwatched` 的条件**：`scripts/exp-watch-gates.ts` 核实了这几种情形，结果都与 `docs/herdr.md` 一致：没订阅、新 pane 还没换连接、订阅断了且重连被拒都给 null，投递记 `unwatched`；订阅断开、`stop()` 都把观察标为不完整；换连接时只把不再订的那格标为不完整。真的经过 blocked 却记成 `delivered` 加 `code: null`，只有一种可能：herdr 没认出那次 blocked，文档已写明。
+- **释放**：`scripts/exp-watch-gates.ts` 逐条走了 stall（uncertain）、`agent_blocked`、其它 herdr 错误（failed）、非 `HerdrError` 抛出、正常、没订阅，每次之后监视集合都是 0；真实 herdr 上投六次之后也是 0。没有累积监听器。
+- **两处同一判据**：`notifier.ts:172` 与 `session-io.ts:40` 都把 `state.herdr.watchStatus` 传进同一个 `deliverText`。
+- **序号只比相等**：`delivery.ts:104`、`:113`、`:134`、`:169`，`notifier.ts:193`、`:312`、`:324`，`herdr-monitor.ts:171`-`174` 都是同一格前后比相等。`src/` 全量搜过，没有别处还在用差值或跨 pane 比较；`client.ts` 的注释已改。
+- **兼容与文案**：`passed_blocked`、`unwatched` 的文案与 `docs/file-formats.md`、`docs/herdr.md` 一致；`unwatched` 不算要处理的一条（`isAttention`、`ATTENTION` 只看 `result`）。`state_jumped` 的显示见“建议 1”。
+- **测试没有被放宽**：原来五种行为的那条 L3 现在连 `code` 一起核对。新加的三条覆盖：别的 pane 变两次、这一格只进入工作；这一格经过 blocked、同时别的格也变状态；没订阅、订阅中途断开、最后停在 blocked。`panel-notify` 新加了“自动通知的记录 `code` 为 null”，钉住面板接线。`3be97d883` 的放宽仍然钉得住要钉的东西：B 至少看到一次 blocked，说明 B 至少变过一次；如果每格各算一份计数，A 只变了一次，序号不可能大于 B，所以 `A > B` 仍然证明是全局计数；A 的观察严格等于 `["blocked"]`，钉住事件按格到达。本审查单独跑这条 L4 通过（A 6 `["blocked"]`，B 5 `["blocked","idle","blocked","done"]`）。
+- **全量**：审查 worktree 里 `bun test` 322 条全过（含 L4 的两个 server 版本），`typecheck` 通过。
+
+### t12 接管后又改一次尺寸（`85396c02d`）
+
+- **复现与复测**：`scripts/t12-resize.ts`，用去掉 `--hide-scrollbars` 的 Chrome；修正前的 web 用 `c5177bc56` 的临时 worktree 构建（`logs/t12-steal.log`）。A 在 2400×1500 下先接管，把 pty 变成 206×54，B 在 1280×800 下抢过来：
+  - 修正前：小窗写 `136x27`，pty 先 `136x27`、0.2 秒后变 `139x28`；接管中缩到 900 宽变两次（`80x27` 再 `80x28`）；B 的释放行 `resizes: 3`。
+  - 修正后：小窗写 `139x28`，pty 只变一次；缩窄也只变一次（`80x28`）；释放行 `resizes: 1`。
+  - DPR 1.25、1.5、2 下抢过来同样只变一次。
+- **溢出在所有路径上恢复**：`proposeWithoutScrollbars` 改内联 `overflow`、量、改回，三步在同一个同步块里，中间没有 `await`。量成功、量不出（返回 null）、接管失败、释放、卸载都不会留下 `overflow: hidden`。实测每次释放之后，框的内联 `overflow` 为空，计算值是 `auto`。
+- **手机与文字视图**：`phone` 场景（390×844，DPR 3，触屏），先由另一个窗口接管把 pty 变成 206 列。默认是文字视图；切到“终端画面（只看）”后不给接管，框可以横向滚动（`scrollWidth` 523 大于 `clientWidth` 324，`scrollLeft` 设 100 读回 100），内联 `overflow` 为空。截图 `review-fix-phone-text-390-after.png`、`review-fix-phone-terminal-390-after.png`。手机不走 `proposeWithoutScrollbars`：观看时 ResizeObserver 只调 `fitWatchFont`。
+- **别的第二次 resize 来源**：
+  - 外层滚动条：测过的全部视口（1280 宽七个高度，以及 1024×768、1100×1300、1366×768、1440×900、1592×900、1600×1300、1920×1080）下，观看与接管两种模式的框宽都相同，不是来源。
+  - 字体：终端字体是本机的 Noto Sans Mono CJK SC，不经网络加载；xterm 在改字号时同步重量。
+  - 设备像素比：1.25、1.5、2 下没有出现第二次。
+  - `fit` 取整会出现，见“重要 1”。
+- **禁止清单**（两件修正一起看）：
+  - 没有按错误文案分支，都按 `error.code`。
+  - 没有新的静默 `catch`：假 herdr 的连接错误处理只对 EPIPE、ECONNRESET 不打印，并写了原因，其余照样打印。
+  - 没有为了过测试掩盖问题：L4 的放宽有记录，也仍然钉得住。
+  - 没有删任务之外的代码，没有丢清理语句：`deliverText` 新加了关观察的 `finally`；`TerminalView` 的 `!fit` 判断挪进了新函数。
+  - 没有跨包深导入：`delivery.ts` 只从同包的 `herdr-monitor.ts` 导入类型。
+  - 没有测试专用分支：`DeliveryContext.watchStatus` 不给时走 `unwatched`，是产品里也会走到的退路；产品的两处都给了。
+  - `TerminalView.md` 已随实现更新。
+
