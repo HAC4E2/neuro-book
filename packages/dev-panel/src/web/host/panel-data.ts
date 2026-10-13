@@ -1,4 +1,4 @@
-import {onScopeDispose, reactive, ref, shallowRef, watch, type Ref} from "vue";
+import {computed, onScopeDispose, reactive, ref, shallowRef, watch, type ComputedRef, type Ref} from "vue";
 import {ApiError, getJson, onAuthLost, type ApiWarning, type PartName, type Revisions} from "./api.js";
 
 /**
@@ -163,6 +163,10 @@ export type Resource<T> = {
     error: Ref<ResourceError | null>;
     /** 请求已经等了 200 毫秒以上还没回来（快的请求不闪加载态）。 */
     loading: Ref<boolean>;
+    /** 最近一次接受数据的时刻（ISO）。 */
+    receivedAt: Ref<string | null>;
+    /** 已有数据、这次重取却失败：页面显示的是上次读到的内容（`StaleNotice`，t15）。 */
+    stale: ComputedRef<boolean>;
     reload(): void;
 };
 
@@ -177,6 +181,7 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
     const warnings = shallowRef<ApiWarning[]>([]);
     const error = ref<ResourceError | null>(null);
     const loading = ref(false);
+    const receivedAt = ref<string | null>(null);
     let sequence = 0;
     let accepted: {instance: string; revisions: Revisions} | null = null;
     let controller: AbortController | null = null;
@@ -194,6 +199,7 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
         if (timer) clearTimeout(timer);
         if (target === null) {
             data.value = null;
+            receivedAt.value = null;
             loading.value = false;
             return;
         }
@@ -204,6 +210,7 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
         if (!keepData) {
             data.value = null;
             accepted = null;
+            receivedAt.value = null;
         }
         timer = setTimeout(() => {
             if (mine === sequence) loading.value = true;
@@ -216,6 +223,7 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
                 accepted = {instance: body.instance, revisions: body.revisions};
                 data.value = body.data;
                 warnings.value = body.warnings;
+                receivedAt.value = new Date().toISOString();
             }
             error.value = null;
         } catch (caught) {
@@ -256,5 +264,6 @@ export function useResource<T>(path: () => string | null, parts: readonly PartNa
         controller?.abort();
         if (timer) clearTimeout(timer);
     });
-    return {data, warnings, error, loading, reload: () => restart(true)};
+    const stale = computed(() => data.value !== null && error.value !== null);
+    return {data, warnings, error, loading, receivedAt, stale, reload: () => restart(true)};
 }

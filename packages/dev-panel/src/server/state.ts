@@ -84,9 +84,11 @@ class Refresher<T> {
             const value = await this.compute();
             const print = this.fingerprintOf(value);
             const changed = print !== this.fingerprint;
+            const recovered = this.part.error !== null;
             this.part = {value, revision: changed ? this.part.revision + 1 : this.part.revision, at: new Date().toISOString(), error: null};
             this.fingerprint = print;
-            if (changed) this.onChanged(this.name);
+            // 从失败恢复也推一次：顶栏的“后台重算失败”提示靠重取 /api/meta 才会消失（t15）。
+            if (changed || recovered) this.onChanged(this.name);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.log(`重算 ${this.name} 失败，保留上一份：${message}`);

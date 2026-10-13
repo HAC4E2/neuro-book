@@ -256,3 +256,35 @@ describe("推送触发的重取单飞（1.6）", () => {
         stopPanelData();
     });
 });
+
+describe("已有数据时重取失败（1.7）", () => {
+    test("先成功、再 503：保留数据，stale 为真，receivedAt 仍是第一次的时刻；再成功：stale 为假、receivedAt 更新", async () => {
+        let calls = 0;
+        web.env.respond((call) => {
+            if (call.url !== "/api/work/a") return undefined;
+            calls += 1;
+            return calls === 2 ? {status: 503, errors: [{code: "unavailable", message: "后台忙"}]} : {data: {n: calls}};
+        });
+        const scope = effectScope();
+        const resource = scope.run(() => useResource<{n: number}>(() => "/api/work/a", ["records"]))!;
+        await until(() => resource.data.value, (value) => value !== null);
+        const first = resource.receivedAt.value;
+        expect([resource.stale.value, typeof first]).toEqual([false, "string"]);
+        await Bun.sleep(5);
+        resource.reload();
+        await until(() => resource.error.value, (value) => value !== null);
+        expect([resource.data.value, resource.error.value?.status, resource.stale.value, resource.receivedAt.value]).toEqual([{n: 1}, 503, true, first]);
+        resource.reload();
+        await until(() => resource.data.value, (value) => value?.n === 3);
+        expect([resource.stale.value, resource.error.value]).toEqual([false, null]);
+        expect(resource.receivedAt.value! > first!).toBe(true);
+    });
+
+    test("首次就失败：没有数据，stale 为假（由 LoadState 处理）", async () => {
+        web.env.respond((call) => (call.url === "/api/work/a" ? {status: 404, errors: [{code: "not_found", message: "没有这个 Work"}]} : undefined));
+        const scope = effectScope();
+        const resource = scope.run(() => useResource<{n: number}>(() => "/api/work/a", ["records"]))!;
+        await until(() => resource.error.value, (value) => value !== null);
+        expect([resource.data.value, resource.error.value?.status, resource.stale.value, resource.receivedAt.value]).toEqual([null, 404, false, null]);
+    });
+});

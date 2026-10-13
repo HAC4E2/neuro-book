@@ -11,6 +11,7 @@ import CheckoutSwitch from "../parts/CheckoutSwitch.vue";
 import DocTree from "../parts/DocTree.vue";
 import LoadState from "../parts/LoadState.vue";
 import MarkdownView from "../parts/MarkdownView.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 
 /**
  * 文档页（t03 第二轮文档页）：左边按类型的树，顶部切 checkout（缺省主工作区；从 Task 进入时是它的执行 checkout，`prefer` 带上候选），
@@ -24,6 +25,8 @@ const prefer = computed(() => (typeof route.query.prefer === "string" ? route.qu
 const tree = useResource<DocTreeData>(() => `/api/docs/tree?checkout=${encodeURIComponent(checkout.value)}`, ["records"]);
 const file = useResource<DocFileData>(() => (path.value ? `/api/docs/file?checkout=${encodeURIComponent(checkout.value)}&path=${encodeURIComponent(path.value)}` : null), ["records"]);
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
+/** 文档找不到（404）时回到同一 checkout 的文档树。 */
+const treeHref = computed(() => `/docs?checkout=${encodeURIComponent(checkout.value)}`);
 const changedOnly = ref(false);
 
 const html = computed(() => (file.data.value ? renderMarkdown(file.data.value.body, {checkoutKey: checkout.value, path: file.data.value.path, artifactBase: meta.data.value?.artifactBase ?? null}) : ""));
@@ -43,10 +46,12 @@ function go(query: Record<string, string | undefined>): void {
                 <p style="color: var(--text-secondary)">与主工作区（master）的差异 {{ tree.data.value.changes.length }} 处</p>
                 <label class="flex items-center gap-2"><Switch v-model="changedOnly" aria-label="只看有差异的" />只看有差异的</label>
             </div>
+            <StaleNotice v-if="tree.stale.value" :error="tree.error.value!" :received-at="tree.receivedAt.value" @retry="tree.reload()" />
             <LoadState v-if="!tree.data.value" :loading="tree.loading.value" :error="tree.error.value" label="正在读取文档树" @retry="tree.reload()" />
             <DocTree v-else :docs="tree.data.value.docs" :changes="tree.data.value.changes" :selected="path" :changed-only="changedOnly" @open="(value) => go({path: value})" />
         </aside>
         <section class="min-h-0 min-w-0 overflow-y-auto p-4 md:p-6">
+            <StaleNotice v-if="file.stale.value" :error="file.error.value!" :received-at="file.receivedAt.value" :up-href="treeHref" up-label="回到文档树" @navigate="(href) => router.push(href)" @retry="file.reload()" />
             <p v-if="!path" style="color: var(--text-muted)">在左边选一份文档</p>
             <LoadState v-else-if="!file.data.value" :loading="file.loading.value" :error="file.error.value" label="正在读取文档" @retry="file.reload()" />
             <article v-else class="flex flex-col gap-3">

@@ -6,6 +6,7 @@ import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LoadState from "../parts/LoadState.vue";
 import ProcList from "../parts/ProcList.vue";
 import RunList from "../parts/RunList.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 import {shortSession} from "../host/format.js";
 
 /**
@@ -19,6 +20,7 @@ const data = computed(() => runs.data.value);
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-5 p-4 md:p-6">
         <h1 class="font-semibold" style="font-size: var(--text-xl)">在跑</h1>
+        <StaleNotice v-if="runs.stale.value" :error="runs.error.value!" :received-at="runs.receivedAt.value" @retry="runs.reload()" />
         <LoadState v-if="!data" :loading="runs.loading.value" :error="runs.error.value" label="正在读取在跑的进程" @retry="runs.reload()" />
         <template v-else>
             <EphemeralFrame title="经 nbdev 起的服务">

@@ -91,6 +91,9 @@ const freshness = computed(() => {
     const at = meta.data.value?.parts.records?.at;
     return at ? `数据 ${relativeTime(at)}` : "数据还没有读到";
 });
+const PART_LABEL: Record<string, string> = {records: "记录", activity: "活动"};
+/** 后台重算失败的块：服务端保留上一份，页面显示的就是它（t15；阶段 2 改成横幅）。 */
+const failedParts = computed(() => Object.entries(meta.data.value?.parts ?? {}).filter(([, part]) => part.error !== null).map(([name, part]) => ({name, label: PART_LABEL[name] ?? name, error: part.error!})));
 const herdrLabel = computed(() => {
     const herdr = meta.data.value?.herdr;
     if (!herdr) return null;
@@ -168,6 +171,7 @@ const herdrLabel = computed(() => {
                     <Tooltip :text="appearanceLabel"><IconButton :icon-class="appearance === 'dark' ? 'i-lucide-moon' : appearance === 'light' ? 'i-lucide-sun' : 'i-lucide-sun-moon'" :aria-label="appearanceLabel" @click="cycleAppearance" /></Tooltip>
                 </div>
             </header>
+            <p v-for="part in failedParts" :key="part.name" role="status" class="border-b px-3 py-1" style="background: var(--bg-subtle); border-color: var(--divider); color: var(--status-warning); font-size: var(--text-xs)">后台重算{{ part.label }}失败，显示的是上一份：{{ part.error }}</p>
             <main class="min-h-0 flex-1 overflow-y-auto">
                 <!-- 按路由名与路径参数重建页面实例，查询参数变化不重建（t15）。 -->
                 <RouterView v-slot="{Component, route: viewRoute}">

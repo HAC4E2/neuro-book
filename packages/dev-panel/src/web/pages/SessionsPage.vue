@@ -15,6 +15,7 @@ import RunList from "../parts/RunList.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
 import SessionConsole from "../parts/SessionConsole.vue";
 import SessionList from "../parts/SessionList.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 import TakeoverDialog from "../parts/TakeoverDialog.vue";
 import TerminalTextView from "../parts/TerminalTextView.vue";
 import TerminalView from "../parts/TerminalView.vue";
@@ -110,6 +111,7 @@ function cancelConfirm(): void {
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-5 p-4 md:p-6">
         <h1 class="font-semibold" style="font-size: var(--text-xl)">会话</h1>
+        <StaleNotice v-if="sessions.stale.value" :error="sessions.error.value!" :received-at="sessions.receivedAt.value" @retry="sessions.reload()" />
         <LoadState v-if="!data" :loading="sessions.loading.value" :error="sessions.error.value" label="正在读取会话" @retry="sessions.reload()" />
         <template v-else>
             <p class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
