@@ -63,6 +63,151 @@
 
 只读调用：`gh auth status`、`gh pr list`、`gh issue list`，各几次；`git show`、`git grep` 读了几个分支的 `package.json` 与 dev 入口。没有起任何开发服务，没有建 worktree。
 
+## 设计审查的处理
+
+设计审查（[`evidences/design-review.txt`](evidences/design-review.txt)，1 阻断、6 重要、12 建议）全部采纳，主 Agent 的处理意见见本节。**本节与下文正文冲突时以本节为准**，正文保留草案原貌。
+
+### 服务的组成、停法与“还活着”（B1、I1、S1、S4、S6）
+
+- **一份运行由三样组成**，不再是“setsid 起的那一个进程组”：
+  - 监管进程，记 pid 与启动时刻；
+  - 组长，即 `setsid` 起的那个进程，pid 等于组号；
+  - 后代快照：从组长沿 `/proc/*/stat` 的 ppid 收集到的全部后代，**含另起进程组、另起会话的**（master 的 `dev` 经 owned-process 把运行时放进另一个会话），每个记 pid 与启动时刻。
+- **快照**：监管进程活着时每 2 秒重收一次，新出现的并进来，写进登记的 `descendants`（上限 256 个）。后代被收养到 PID 1 之后，ppid 链就断了，所以要在还连着的时候记下。
+- **还活着**：下面任一条成立就算。
+  1. 监管进程 pid 在，启动时刻相同；
+  2. 组长 pid 在，启动时刻相同；
+  3. 组长不在但 `kill(-组号, 0)` 成功。进程组还有成员时，Linux 不会把这个号分给新进程，所以组号在就仍是我们那一组；
+  4. 快照里有进程 pid 在、启动时刻相同。
+- **状态**：
+  - `starting`：活着、还没就绪；
+  - `running`：活着、已就绪、监管进程在；
+  - `orphaned`：活着但监管进程不在。原因写 `supervisor_gone`；组长已退、组里或快照里还有进程时写 `leader_exited`（审查建议的 `leftover` 并进这一类）；
+  - `ended`：上面四条都不成立。原因写 `exited`、`stopped`、`supervisor_killed`、`rebooted`，登记里没有 pid 时写 `never_started`。
+- **停法**：`stopRun` 一处实现，`dev stop`、监管进程收到信号、组长自己退出之后的收尾都用它。
+  1. 在 `run/procs/` 的锁里先写 `stoppingAt` 与 `stoppedBy`；
+  2. 重收一次快照；
+  3. 组长还在：**只给组长发 SIGTERM**，`bun run` 转给开发脚本，开发脚本按自己的顺序收口。master 的 source-dev 就是这样让 owned-process 收掉另一个会话里的运行时（审查 E8）。组长已不在：给进程组与快照里还活着的进程各发 SIGTERM；
+  4. 等宽限期（缺省 10 秒，`--grace <秒>` 可改，master 的入口可能要到 30 秒），期间每 500 毫秒重收一次后代；
+  5. 宽限期到了，对快照里仍活着、启动时刻对得上的进程逐个 SIGKILL，再 `kill(-组号, SIGKILL)`；
+  6. **核对**：快照里的进程与进程组都不在，就绪地址（有的话）也连不上，才判“已停”。否则状态是 `orphaned`，登记记 `leftoverPids`，输出列出这些 pid，退出码 1（`stop_incomplete`）。
+- **只碰这些进程**：登记的组长、它的进程组、组长活着时收集到的快照（每个都核对 pid 与启动时刻）。从不按命令行文本找进程。
+- **监管进程收到 SIGTERM、SIGINT、SIGHUP**（S1）：
+  - Claude Code 的 TaskStop 给整棵树同时发 SIGTERM，约 1.5 秒后再整棵 SIGKILL，监管进程拿不到 10 秒；
+  - 所以收到信号后，先**同步**写登记（`stoppingAt`、`stoppedBy: "signal:<名>"`）并给组长发 SIGTERM，在 100 毫秒量级内做完这两步，之后再尽力走完停法、补 `endedAt`；
+  - 读者遇到“没有 `endedAt`、什么都不活着”的登记，判 `ended`：有 `stoppingAt` 时原因是 `stopped`，没有时是 `supervisor_killed`。
+- **组长自己退出之后**：监管进程对进程组与快照补一次停法，即上面第 3 步以后，组长已不在的那一支。登记记 `leftovers`（被补收的进程数），再写 `endedAt`。
+- **会话结束时**：
+  - Claude Code 下由 TaskStop 的树信号收掉（审查 E5 实测）；
+  - `pdeathsig` 只兜“监管进程单独被 SIGKILL”这一种情形；
+  - omp 的 `proc://` 怎么停任务没有核实，放进合入后在场的那一步。
+- **属主与 `--force`**（S4）：下面任一条成立就不要 `--force`：
+  - 监管进程不在（`orphaned`）：没人在监管的服务谁停都不必确认；
+  - 属主会话已不在；
+  - 调用者就是属主（会话键相同）。
+
+  认不出的调用者（普通终端里直接跑，没有 `--as`）可以起服务，`startedBy` 为 null。停 `startedBy` 为 null、监管进程还在的服务要 `--force`：认不出的和认不出的不算同一个人。
+- **写登记**：监管进程与 `dev stop` 都在 `run/procs/` 的目录锁里读改写，各改各的字段。监管进程写 `endedAt` 前重读一次文件。
+- **退出码**（S6）：
+  - 服务自己的退出码与信号只放在 `EXITED` 行与 JSON 事件里；
+  - 监管进程被 `dev stop` 停、或收到信号收尾，以 0 退出；
+  - 服务自己退出（不论之前有没有就绪），以 1（`dev_exited`）退出；
+  - 停法第 6 步核对不过，以 1（`stop_incomplete`）退出。
+
+### 复用（I2、S5、S12）
+
+- **锁内顺序**：查登记 → spawn → 读组长的启动时刻 → 写含 `pid`、`pgid`、`startTicks`、`supervisor` 的完整登记 → 放锁。spawn 与读 `/proc` 是毫秒级，锁不会变长。spawn 失败时不写登记，按“起来之前就失败”报错。
+- 读者遇到没有 `pid` 的登记（别的实现或旧版本写的）：监管进程活着就算 `starting`，不活就算 `ended`（`never_started`）。
+- **复用到 `starting` 或地址为空（`NOT_READY`）的运行**：后来的 `dev start` 自己按同一套就绪规则读那份日志，最多等 `--ready-timeout`。认出就打 `READY`，认不出就打 `NOT_READY <日志> run=<runId>`。两种都带 `reused: true`，退出码 0。
+- **复用时**：
+  - 给的 `--ready-pattern`、`--work --task` 与登记不同，给警告 `reused_with_different_options`，列出不同的项；
+  - `READY` 行与 JSON 都带属主会话键，人读输出加一句“它随 <属主> 的会话结束而停；要独立的一份请换 checkout”；
+  - 不加 `--new`。
+- **`--port` 推迟**（S12）：决定点 4 改为“nbdev 不分配也不传端口”。要固定端口时，Agent 在外面设好环境变量再加 `--ready-pattern`。
+
+### 就绪与日志（S2、S3）
+
+- 切行时 `\r`、`\n` 都算行尾，没写完的末行留到下次读取再拼；去 ANSI 时 CSI 与 OSC（以 BEL 或 `ESC \` 结尾）都去掉。
+- **w00017 式**：地址取自 `[dev] page-ready <url>`，就绪以随后的 `[dev] backend-ready` 为准。
+- **listhen 式**：地址取自 `➜ Local:`。
+- **HTTP 探测**：2xx、3xx、4xx 算就绪；5xx（nuxi 构建失败时对每个请求回 500）继续探测；超时打 `NOT_READY` 时带上最后一次的状态码。
+- **runId**：`dev-<YYYYMMDDTHHMMSSZ>-<8 位十六进制>`。
+- **日志名**带完整 runId，以 `O_CREAT|O_EXCL` 打开：有 Task 时是 `works/<W>/tasks/<T>/logs/<runId>.log`，没有时是 `logs/dev/<checkout key>-<runId>.log`。
+
+### checkout 页（I3）
+
+去掉按 HEAD 与 index mtime 的缓存。改为：
+- 新接口 `/api/checkouts`，请求时现算：`git status --porcelain=v1 -uno` 的条数，加 `rev-list --left-right --count master...HEAD`，4 路并行；
+- 每个 checkout 留 10 秒短缓存，页面上标“N 秒前”；
+- 有浏览器连着时随“活动”这一块（5 秒）重取。
+
+审查实测 17 个 checkout 共 1.2 秒。
+
+### `worktree new`（I4、S9）
+
+- **场景 4 的测法**：假 `git` 只在 argv 含 `worktree add` 时写一行记录并以 1 退出，其余参数原样 `exec /usr/bin/git "$@"`。断言两条：命令成功；假 `git` 的记录里没有 `worktree add`。仓库定位等其它 Git 调用照旧走 `PATH`，不改。
+- **`home` 写绝对路径**，与现有两个读者（`checkouts.ts`、`sources.ts` 都按 `checkout.root` 的绝对路径比）一致，并写进 `docs/file-formats.md`。
+- **写法**：
+  1. `git worktree add` 在锁外先做（可能要几十秒，不占领号的锁）；
+  2. 再用不写仓库的事务：`scan()` 补登没有条目的 Task，然后新增的 `tx.setHome(workId, taskId, 绝对路径)`；
+  3. 写失败只给警告，不回滚已建的 worktree。
+- **并发**：`git worktree add` 失败之后重新检查路径与分支，存在就改报 `target_exists`（3），不报 `git_failed`。
+- **`--type`**：与 CONTRIBUTING 对齐，取 `feat`、`fix`、`docs`、`refactor`、`test`、`build`、`ci`、`chore`。
+
+### `shot`、`find`（S10、S11）
+
+- **`shot`**：不注入 `--browser-executable`（两种 `lab:shot` 缺省用 `channel: "chrome"`），只包装地址、输出目录与 `TMPDIR`。`dev_not_running` 改为退出码 5。
+- **`find`**：
+  - `recordMatches` 改成核心里的纯函数 `matchRecords(records, q)`，面板另外拼会话的匹配；命令行只匹配 Work、Task、产物；
+  - 文档写“跟踪的与未被忽略的文件”（与 `searchCheckouts` 的实际做法一致）；
+  - 命令行缺省 `--limit 20`（每个 checkout），总上限 200，截断照常标出。
+
+### GitHub（I5、S8）
+
+- **`gh` 的路径**：`install-service` 照 herdr 的做法，安装时写 `Environment=NBDEV_GH_BIN=<绝对路径>`，找不到时写一行注释。面板用这个绝对路径，没有时再找 `PATH`，都找不到就降级并写明原因。L3 加一条：`PATH` 里没有 `gh`、只设 `NBDEV_GH_BIN` 时能取到数据。
+- **写死的两条命令**：
+  - `pr list --state open --limit 100 --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url`
+  - `issue list --state open --limit 100 --json number,title,labels,updatedAt,url`
+
+  按仓库维护流程，不取 `body`、`comments`、`reviews`。条数等于上限时，页面写“只列最近更新的 N 个，可能还有更多”。
+- **检查汇总**按 `__typename` 分两种，`StatusContext` 的 `state` 映射成成功、失败、进行中。
+- **子进程环境**：加 `GH_PROMPT_DISABLED=1`、`GH_NO_UPDATE_NOTIFIER=1`、`NO_COLOR=1`，stdin 是 ignore；超时先 SIGTERM，再 SIGKILL。
+- **定时刷新**只在有浏览器连着时进行；没人看时只在打开页面时取。
+- 标题、标签名一律按纯文本渲染；链接只收 `https:`。
+
+### “在跑”页的去重（S7）
+
+`discoverRuns` 加一个排除集：登记的监管进程、组长与快照里的 pid。运行树里（根或任何后代）含有排除集里的进程，就整棵从“会话的运行”“无主的运行”里去掉。为此 `discoverRuns` 内部按完整后代集合判断，不只看显示用的前 5 条。
+
+### 验收补充（I6）
+
+- **假开发脚本** `tests/fixtures/fake-dev.ts`：一律经临时 `package.json` 的 `scripts` 由真实的 `bun run` 起，孙进程必有。用环境变量切四种形态：
+  - `normal`：收到 SIGTERM 时收掉孙进程再退出；
+  - `leave`：不收孙进程就退出；
+  - `ignore`：忽略 SIGTERM；
+  - `owned`：仿 master，脚本起一个不处理 SIGTERM 的监督器，监督器以 `detached` 另起会话起运行时，脚本收到 SIGTERM 时经监督器的 stdin 让它收掉运行时。
+- **L4 新增**：
+  - SIGKILL 监管进程：10 秒内快照里的进程全部退出；或者状态是 `orphaned`，并且 `dev stop` 不加 `--force` 就能停干净；
+  - `leave`：组长退出之后不是 `ended`，监管进程补收孙进程；
+  - `owned`：`dev stop` 之后快照里的进程全部退出，地址不再回应。另断言只给组长发 SIGTERM 时运行时也收到了；
+  - `ignore`：升级到 SIGKILL 后停干净；
+  - 仿 TaskStop：对监管进程的整棵树同时发 SIGTERM，1.5 秒后整棵 SIGKILL，断言之后快照里的全部进程不在、登记判 `ended`。
+- **在场那一步加一条**：在 Claude Code 里用后台任务跑 `nbdev dev start`，等到 `READY` 后用 TaskStop 停掉，核对快照里的进程全部退出；omp 的 `proc://` 同样核一次。
+
+### 决定点的改动
+
+- 2：照推荐，停法与收尾按上面改；
+- 3：加 5xx、`backend-ready`、`\r`；
+- 4：nbdev 不分配也不传端口（`--port` 推迟）；
+- 5：锁内起服务、写好 pid 再放锁，`NOT_READY` 的复用与参数不一致的提示；
+- 7：`--type` 取 CONTRIBUTING 的八种；
+- 8：`matchRecords` 纯函数，缺省 20 条；
+- 9：不注入浏览器路径；
+- 11：现算加 10 秒短缓存；
+- 12：`NBDEV_GH_BIN`、只在有人看时刷新、条数与字段写死；
+- 14：日志名带完整 runId；
+- 6、10、13 照原推荐。
+
 ## 关键设计
 
 ### 一、`dev start`、`dev stop`、`dev status`
@@ -402,3 +547,18 @@ POST /api/github/refresh    只是让面板立刻重取一次；不经 gh 写任
   - 读了 `node_modules` 里 listhen 与 get-port-please 的源码。
 
   没有起开发服务，没有建 worktree，没有残留进程。
+- 2026-10-13：设计审查的处理写进上面一节。集成分支先快进到 master（`23402f959`，带进服务脚本）。S1 `867c98b45`：`dev start`、`dev status`、`dev stop`。L4 共 10 条（`tests/dev-live.test.ts`，假开发脚本的四种形态，经真实 `bun run`），都只在临时仓库里起。
+- S2 `26263e3e7`：`worktree new`（L3 `tests/worktree-new.test.ts`，场景 4 按设计审查 I4 的测法）。S3 `427f16bd4`：`find`、`shot`（L3 `tests/find-shot.test.ts`）。S4 `fd9359dee`：面板现场三页、`install-service` 写 `NBDEV_GH_BIN`、`procs` 挪进核心（`src/core/procs.ts`，核心的活动要用它去重）；L3 `tests/panel-live.test.ts`（假 `gh`）。
+- S5 文档 `6b9376e62`。浏览器验收（临时仓库，假开发脚本加假 `gh`）发现 checkout 页在 390 宽时每列被挤成一字一行，改成整张表横向滚动：`c5177bc56`。
+- 修完 checkout 列之后重启宿主、用最新构建复跑浏览器验收：16 项全过，控制台没有错误与警告；390 宽的 checkout 页整张表在框里横向滚动，页面本身不溢出。截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t14-runs-and-github/shots/`。
+- 全量验证（集成分支 `3be97d883`，含下面两件追加修正）：包里 `bun test` 322 条全过（含 L4：herdr 命名会话、server 0.9.3 与 0.9.1 两组，`dev-live` 10 条）；`typecheck`、`build:web` 通过；根上 `dev-panel-records`、`workspace-workflows`、`agent-governance` 三个测试文件 177 条通过，`dev-panel-records` 在 Node 下 5 条通过；`governance:check`、`docs:check` 没有失败（只有仓库存量的警告）；`git diff --check` 干净。第一次全量时新加的 L4 状态序号测试失败过一次（同时在跑根上的测试，herdr 读屏合并掉了 B 的一次变化），断言放宽为“B 看到过 blocked”（`3be97d883`）之后单独连跑三次、全量再跑一次都过。
+
+## 追加修正（t14 之后，各自单独提交）
+
+- **t11 通知误报** `cbe883a0e`：herdr 的 `state_change_seq` 是全服务器共用的一个计数，一格变状态时取下一个值记在它身上，所以只能比相等，差值数不出这一格变了几次。`delivery.ts` 原先用“投递前后序号差大于等于 2”判断经过了确认界面，别的会话同时变状态就误报。改为：
+  - 调 `agent.prompt` 之前向面板的 `HerdrMonitor` 要这一格的状态观察（`watchStatus`），投递窗口里收到的 `pane.agent_status_changed` 出现过 `blocked`，或返回体里是 `blocked`，记 `delivered_into_blocked`，`code: passed_blocked`（取代 `state_jumped`）；
+  - 退路：订阅这时没订着这一格（没连上、重连中、pane 刚出现还没换连接）或窗口里订阅断过，记 `delivered` 加 `code: unwatched`，界面注明没核对确认界面；最后还停在 `blocked` 的那条照旧，不靠事件；
+  - 逐处核对过：只比相等的地方（`delivery.ts` 的稳定与紧贴投递复核、notifier 的重读屏幕与稳定记录、monitor 的对账）照旧；`client.ts` 里“每次状态变化加 1”的注释改掉；
+  - 文档：`docs/herdr.md` 加“状态序号”一条，“投递之后”改写；`docs/file-formats.md` 的 `result` 说明里加 `passed_blocked`、`unwatched`，注明旧记录里的 `state_jumped` 会误报；
+  - 测试：假 herdr 改成全局计数（`fake.setStatus` 推高全局序号并推事件，`duringPrompt` 模拟投递窗口里的别的事）；L3 断言别的 pane 在窗口里变两次状态时记 `delivered`（且序号差确实大于等于 2），这一格经过 `blocked` 时照报 `passed_blocked`，没订阅或订阅中途断开时记 `unwatched`；L4 在 0.9.3 命名会话里用两格假 Claude（信任确认界面判 `blocked`）钉住全局计数与按格的事件（`3be97d883` 放宽了对 B 事件条数的断言，并打印两格的序号：A 6、B 5，B 的事件是 blocked、idle、blocked、done）。另用一个一次性命名会话实测：两格各变一次状态，序号是 1 与 2；B 变四次之后 A 再变一次，A 是 7、B 是 6。
+- **t12 接管后又改一次尺寸** `85396c02d`：原因是量接管尺寸时终端框里还是旧尺寸的画面，13px 下溢出、出滚动条，把内容区挤掉一行几列；接上之后画面不再溢出、滚动条消失，ResizeObserver 又量出大一点的尺寸、再 resize 一次。无头 Chrome 缺省带 `--hide-scrollbars`，滚动条不占位，所以之前的验收（F3）看不出来。改为量的时候先把框的溢出藏起来，接管中窗口变化同样处理；`TerminalView.md` 写明。复现与复测（临时仓库加命名会话，去掉 `--hide-scrollbars`；A 用 2400×1500 先接管把 pty 变成 206×54，B 用 1280×800 抢过来）：修之前小窗写 136×27、接上后变成 139×28、B 的释放行 `resizes: 1`；修之后小窗 139×28、接上后与 2 秒后都是 139×28、`resizes: 0`；接管中把窗口缩到 900 宽只 resize 一次。t12 的验收脚本 `accept-review.ts` 15 项复跑全过。截图与脚本在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/`。

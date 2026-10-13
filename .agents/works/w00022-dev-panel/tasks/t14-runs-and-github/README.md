@@ -48,6 +48,29 @@ updated: 2026-10-13
     - `kill(-pgid)` 打得到同组的孙进程，打不到另起进程组的后代；
     - TaskStop 先 SIGTERM，约 1.5 秒后 SIGKILL。
 
+- 2026-10-13 实施完成（集成分支 `23402f959..c5177bc56`）：S1 开发服务、S2 `worktree new`、S3 `find` 与 `shot`、S4 面板现场三页与 `NBDEV_GH_BIN`、S5 文档，另修窄屏 checkout 表。各片的提交、浏览器验收 16 项与偏离见 [plan.md](plan.md) 的“实施进度”。
+- 同一轮里修了 t11、t12 验收留下的两处（`c5177bc56..3be97d883`），见 [plan.md](plan.md) 的“追加修正”：
+  - 通知误报：改为在投递窗口里看这一格的状态事件，不再比全局序号的差值；
+  - 接管后又改一次尺寸：量尺寸时先藏起终端框的溢出。
+- 主 Agent 在 `3be97d883` 上复跑，都通过：
+  - 包测试 322 个，含 herdr 0.9.3 与 0.9.1 两组 L4、`dev-live` 10 条；
+  - typecheck 与 `build:web`；
+  - 根上三个测试文件 177 个，`dev-panel-records` 在 Node 下 5 个；
+  - `governance:check`、`docs:check`、`git diff --check`。
+
+  跑完没有残留进程，herdr 只剩 `default`。集成分支已 push。
+- 验收只在临时仓库上做，没有在真实仓库上起开发服务、建 worktree。`gh` 只用假的。
+- 未验证：
+  - 真实 Claude Code 的 TaskStop、omp 的 `proc://`：只在测试里仿了 TaskStop；
+  - 真实 master 与 w00017 的就绪行：只按源码写；
+  - 默认 server 0.9.1 上状态事件的推送时序：L4 的状态事件测试只跑在 0.9.3。
+
 ## 下一步
 
-按处理意见改计划并实施。
+实现审查分两路进行：一路审 t14（`23402f959..c5177bc56`），一路审两处追加修正（`c5177bc56..3be97d883`）。审完修正，再请开发者授权合入。合入后在真实仓库上核对：
+
+1. 在自己负责的 worktree 里 `dev start`、`dev stop`；
+2. 下一个新 Task 用 `worktree new`；
+3. 重装服务，让单元写入 `NBDEV_GH_BIN`，请开发者看一眼 GitHub 页；
+4. 下一次真实通知时，尝试记录的 `code` 是 null 而不是 `unwatched`；
+5. 用桌面浏览器接管一次，pty 尺寸接上之后不再变化。
