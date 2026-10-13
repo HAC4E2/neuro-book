@@ -132,7 +132,8 @@ export async function confirmRelogin(): Promise<string | null> {
         await getJson<unknown>("/api/meta");
     } catch (caught) {
         if (!(caught instanceof ApiError)) throw caught;
-        return caught.status === 401 ? "还是没有登录：用 nbdev panel open 给的新链接在这个浏览器里登录一次" : `连不上面板：${caught.message}`;
+        // 其它失败的原文已经说清楚了（连不上是“连不上面板：……”，启动中是“面板正在启动”），不再加前缀。
+        return caught.status === 401 ? "还是没有登录：用 nbdev panel open 给的新链接在这个浏览器里登录一次" : caught.message;
     }
     panelState.unauthorized = false;
     panelState.authEpoch += 1;

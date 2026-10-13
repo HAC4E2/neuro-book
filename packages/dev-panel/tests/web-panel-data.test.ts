@@ -117,6 +117,12 @@ describe("登录失效与重新登录（1.5）", () => {
         expect(panelState.unauthorized).toBe(true);
         stopPanelData();
     });
+
+    test("重新登录时面板连不上：原因只说一遍“连不上面板”（审查建议 5）", async () => {
+        web.env.respond(() => ({wait: Promise.reject(new TypeError("Failed to fetch"))}));
+        const reason = await confirmRelogin();
+        expect([reason?.startsWith("连不上面板：它可能已经退出"), reason?.split("连不上面板").length]).toEqual([true, 2]);
+    });
 });
 
 describe("推送触发的重取单飞（1.6）", () => {
