@@ -5,7 +5,7 @@
  * 落账前的整批核对与落账后的补丁、Part 内容的稳定寿命与焦点策略。
  */
 import {GridRenderer} from "@notnotype/nb-ui/layout";
-import type {GridGestureCommit} from "@notnotype/nb-ui/layout";
+import type {GridGestureCommit, GridGesturePreview} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
@@ -167,10 +167,40 @@ function focusTarget(target: "panel-toggle" | "panel-title"): void {
  * 呈现为 0 的 Part 内容也要停放：最大化时的编辑器、拖到零的 Part 只是被压成 0 尺寸，内容若留在落点里，Tab 仍能进去、
  * 读屏仍会读到。停放区是 `inert` 的，放进去就不可交互（Spec 外壳一输出 10）。
  */
-function parkedParts(): ReadonlySet<ShellPartId> {
+function projectedParked(): ReadonlySet<ShellPartId> {
     const parked = new Set<ShellPartId>();
     if (projection.value.effectivePanel.maximized) parked.add("editor");
     for (const part of SHELL_DRAG_COLLAPSIBLE_IDS) if (projection.value.dragCollapsed[part] === true) parked.add(part);
+    return parked;
+}
+
+/**
+ * 拖动中已经被拉出来的部件：投影里还是拖到零（或最大化下的编辑器），但手势预览已经给了它尺寸，内容先搬回落点，拖的过程中
+ * 就看得到（输出 8）。只在拉出时提前搬，往零拖时等落账再停放：拖过阈值又拖回来，内容不闪。手势结束或取消时清空——落账后
+ * 投影已经展开它；取消则回到停放区。
+ */
+const previewShown = shallowRef<ReadonlySet<ShellPartId>>(new Set());
+
+function onGesturePreview(preview: GridGesturePreview<unknown>): void {
+    const shown = new Set<ShellPartId>();
+    for (const part of projectedParked()) {
+        const size = preview.layout.sizes[part];
+        if (size !== undefined && size.width > 0 && size.height > 0) shown.add(part);
+    }
+    if (shown.size === previewShown.value.size && [...shown].every((part) => previewShown.value.has(part))) return;
+    previewShown.value = shown;
+    void nextTick(syncTargets);
+}
+
+function onGestureSettled(): void {
+    if (previewShown.value.size === 0) return;
+    previewShown.value = new Set();
+    void nextTick(syncTargets);
+}
+
+function parkedParts(): ReadonlySet<ShellPartId> {
+    const parked = new Set(projectedParked());
+    for (const part of previewShown.value) parked.delete(part);
     return parked;
 }
 
@@ -257,6 +287,9 @@ function joinOf(part: ShellPartId): "start" | "end" | undefined {
             :revision="host.revision.value"
             :on-gesture-commit="acceptGesture"
             :on-issues="noteIssues"
+            @gesture-update="onGesturePreview"
+            @gesture-end="onGestureSettled"
+            @gesture-cancel="onGestureSettled"
         />
 
         <!-- 紧凑呈现：activitybar 仍是主体左侧通高列，其余 Part 在它右侧纵向排布，没有可拖边界。 -->
