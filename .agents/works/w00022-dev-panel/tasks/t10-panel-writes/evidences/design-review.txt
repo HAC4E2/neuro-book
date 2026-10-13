@@ -1,0 +1,344 @@
+# w00022/t10 设计审查报告（plan.md @ 1ba3565cb，代码 @ fe4358d4f，只读）
+
+## 结论
+
+0 条阻断、5 条重要、13 条建议。计划的主干站得住：写接口复用核心函数与同一把锁，路径限定的提交不会碰到别人暂存的无关改动，预览不经写事务就不会写文件。下面五处要在实施前改进计划。
+
+**重要**：
+
+1. 写接口照 S2 的写法插在 CSRF 之后会绕过登录，而 CSRF 令牌不登录就能拿到（实验）。
+2. Bun 默认 10 秒空闲超时会在等锁时切断浏览器请求，处理函数照样写入，“超时请重试”会造成重复新建（实验）。
+3. `classifyDoc` 对 `..`、`.git` 段照样返回分组，不能当编辑白名单（实验）。
+4. “落位后再查一次 `git status`、不同就不提交”定义不成立：干净文件落位后状态必然变化（实验）。
+5. README 编辑不校验 frontmatter，改坏会直接进 master；在编辑器里改 `status` 会绕开状态切换的租约处理（从代码推断）。
+
+**建议**：第 6 到 18 条，分别是：
+
+- 预览的 GET 查询串有长度上限；
+- `acceptedDiffHash` 与哈希重复；
+- 差异对话框看不出暂存版本与暂存的重命名；
+- 场景 3 的论证；
+- 场景 1 的 L4 要先确认命令已挂上；
+- 漏掉的失败路径与 `nothing_to_commit`；
+- 写后缓存的竞态；
+- `stale_version` 要放进锁里；
+- 前端的宿主与状态；
+- 用调用者种类代替 `source`；
+- 控制字符；
+- S4 推迟；
+- “打开之后别人才改”不给差异。
+
+**决定点**：
+
+1. 改：t10 只做侧栏表单，S4 推迟（范围变更，交开发者确认）。
+2. 同意。
+3. 同意，由调用者种类决定，不加 `source`。
+4. 同意不改 README；“最近更新”的扩展要写进 S1、S5 与不一致清单。
+5. 同意，写明不改 nb-ui。
+6. 同意（与实施计划本来一致）。
+7. 同意，附白名单、打开时提示分支改动、治理入口行数上限三个条件。
+8. 改：用必填的 `expectedHash`/`baseHash` 绑定，去掉 `acceptedDiffHash` 与 `diff_changed`。
+
+## 发现
+
+实验脚本都在 `scratchpad/review-t10-design/scripts/`，临时仓库在同目录的 `tmp/` 或测试支持包的临时根里；没有在真实仓库上写入，真实仓库只做了 `--no-optional-locks` 的只读查询。
+
+### 1.【重要】写接口如果照 S2 的写法插在 CSRF 校验之后，会绕过登录；而 CSRF 令牌不登录就能拿到
+
+- **位置**：plan“切片”表 S2 行“`src/server/serve.ts`（非 `GET` 在 CSRF 之后交给 `writes.ts`，不再一律 405）”；第二节“每个写请求的校验”第 1 条。代码 `src/server/serve.ts:258-262`（非 GET 分支：只查 Origin 与 CSRF，然后回 405）在 `:268-271`（`/api` 的 `Sec-Fetch-Site` 与登录 cookie）之前；`serve.ts:237-239` 与 `:348`：`index.html` 不要求登录，CSRF 令牌就写在它的 `<meta>` 里。
+- **问题**：现在的代码里，非 GET 请求先过“同源 Origin 加 CSRF”，再也不经过登录检查（因为直接 return 405）。S2 说“在 CSRF 之后交给 writes.ts”，照字面就是把 `:261` 的 405 换成 `writes(...)`，写接口就不查 cookie、也不查 `Sec-Fetch-Site`。
+- **为什么**：CSRF 令牌不是秘密：任何本机进程 `GET /` 就能从页面拿到；`Origin` 是非浏览器客户端随便填的头。t09 已核实本机还有 两个可登录账户（t09 README），这正是登录要防的人。两道检查里只有 cookie 是认证。
+- **如何核实**：`scripts/csrf-without-login.ts`（临时仓库，端口 4433/4434）：
+  - `GET /` 不带 cookie 回 200，页面里有 CSRF 令牌；
+  - `POST /api/works` 不带 cookie、带这个令牌与 `Origin: http://127.0.0.1:4433`，回 **405**（说明已通过 CSRF 关、没有碰到登录关）；
+  - 不带令牌回 403；`GET /api/overview` 不带 cookie 回 401。
+- **建议改法**：
+  - S2 写成：“写请求在 `/api` 分支里、`Sec-Fetch-Site` 与登录 cookie 通过之后，再查 Origin、CSRF、`Content-Type`，然后交给 `writes.ts`”；把第二节第 1 条的顺序与代码对齐。
+  - 安全 L3 的“没登录 401”一条要带上**有效的 CSRF 令牌与同源 Origin**（否则 403 会先挡住，测不到登录关）。
+
+### 2.【重要】Bun 默认 10 秒空闲超时会在等锁期间切断浏览器请求，而处理函数照样写入并提交；界面的“超时请重试”会造成重复新建
+
+- **位置**：plan 第二节“写请求等锁沿用核心的 30 秒……界面在请求超过 2 秒仍未返回时写‘在等别的写入完成’”；风险第 5 条“超时回 503 并让开发者重试”。代码 `src/server/serve.ts:308-324`：`Bun.serve` 没有设 `idleTimeout`。`src/core/lock.ts:11` 等锁 30 秒，`transaction.ts:13` 持锁者再等 `index.lock` 10 秒。
+- **问题**：
+  - Bun 1.4.2 的 `Bun.serve` 默认 10 秒空闲超时。等锁超过 10 秒时连接被服务器关掉，浏览器拿到网络错误，而不是 503。
+  - 处理函数不会因此停下：它继续等锁、写文件、提交。
+  - 开发者看到“失败”后再按一次“新建 Work”，就领了第二个号、建了第二个 Work。答复则多出一份。
+- **为什么**：t03 的锁注释（`lock.ts:10`）本来就假设持锁者可能等 `index.lock` 10 秒，所以等锁 10 秒以上是设计内的情形，不是极端情况。
+- **如何核实**：`scripts/idle-timeout2.ts`（端口 4432，外部 `curl` 当客户端）。
+  - 处理函数等 25 秒：12.0 秒时 curl 报 `(52) Empty reply from server`，Bun 打印 `Bun.serve() timed out a request after 10 seconds`；25.0 秒时处理函数照常走到“写入并提交”那一步。
+  - 客户端 3 秒主动断开：`req.signal` 在 3.0 秒触发 abort，处理函数仍然跑完。
+  - 注意：同一进程里用 `fetch` 当客户端时不会触发这个超时（`scripts/idle-timeout.ts`），所以 L3 进程内测试测不到，必须用外部客户端或浏览器测。
+- **建议改法**（写成判据）：
+  - 面板来源的 `Bun.serve` 设 `idleTimeout`，不小于“等锁 30 秒加 Git 锁 10 秒加一次事务”，例如 60 秒（Bun 上限 255）。
+  - 写事务接受一个 `AbortSignal`：取到锁之后、写登记表之前看一次，客户端已经断开就放锁、什么都不写。断开发生在落位之后的，照常提交。
+  - 界面把“网络错误或连接被断开”与 503 分开：前者写“结果未知，已重新载入列表”，然后重取数据，不给“重试”按钮；只有 503 `lock_timeout`（确定什么都没写）才给“重试”。
+  - 验收加一条外部客户端的 L3：先占住锁 15 秒，再发 `POST /api/works`，断言连接没有被切断、只领了一个号；另测客户端 3 秒后断开，断言什么都没写。
+
+### 3.【重要】编辑白名单不能用 `classifyDoc` 当判据：它对 `..`、`.git` 段照样返回分组
+
+- **位置**：plan 第五节“能编辑的文件”表第三行“t09 文档树在主工作区列出的路径（`classifyDoc` 不为 null）”；S1 行“`replaceFile` 的路径护栏扩成‘记录或 `classifyDoc` 认得的文档’，仍拒绝符号链接与 `.git`”。代码 `src/core/docs.ts:26-48`（只查后缀与 `node_modules`、`evidences`、`experiments`、`dist`，不查 `..`、`.`、空段、`.git`、`.local`）；现有护栏 `transaction.ts:61-68` 只认 `.agents/works/`。
+- **问题**：两处写法把“文档树列出的”与“`classifyDoc` 不为 null”当成一回事，S1 的护栏也只说拒绝符号链接与 `.git`，没说拒绝 `..`。
+- **为什么**：`classifyDoc` 是给已经列出来的路径分组用的，不是安全判据。护栏若改成“`classifyDoc` 不为 null 加拒绝 `.git` 段”，`docs/../../<别的仓库>/README.md` 这类路径能通过：`assertNoSymlinkOnPath` 逐段 `lstat` 都是真实目录，文件存在就会被改写；之后 `git add` 因为路径在仓库外而失败，文件却已经写了。
+- **如何核实**：`scripts/classify.ts`：
+  - `docs/../.local/agent/notes.md`、`docs/../../../etc/x.md` 都返回 `{group: "repo"}`；
+  - `vitepress/../.git/description.md` 返回 `{group: "site", section: "../.git"}`；
+  - `docs/.git/x.md`、`docs//specs/x.md`、`docs/./specs/x.md` 也都不为 null。
+- **建议改法**（判据）：
+  - 主工作区的文档可编辑，当且仅当同时满足：
+    - `unsafePathReason(path) === null`（`src/core/paths.ts`，已拒绝 `..`、`.`、空段、`.git`、`node_modules`、`.env*`、`.local` 等）；
+    - 在锁内重新算的 `listDocPaths(mainRoot)` 里**逐字**出现；
+    - 路径上没有符号链接，目标是普通文件。
+  - 事务层的护栏（`normalizeRecordPath` 的扩展）保留现有的段检查，不委托给 `classifyDoc`。
+  - L2 加上面几条路径的拒绝用例。
+
+### 4.【重要】“落位后、提交前再查一次 `git status`，与落位前不同就不提交”定义不成立：干净文件落位后状态一定会变
+
+- **位置**：plan 第五节“路径限定的提交会带走同一文件里别人已暂存的改动”一段；风险第 1 条；S1 行“落位后提交前再查一次目标的 `git status`”。
+- **问题**：
+  - 落位之后，目标文件的工作区内容是我们写的，`git status` 必然从空变成 ` M`。照字面实现，每一次干净文件的编辑与状态切换都会被判“变了”而不提交。
+  - 已经脏的文件前后都是 ` M` 或 `MM`，又什么都比不出来。
+- **为什么**：这一步真正要防的，是别的会话在我们落位之后又往同一个文件里写了东西。`git status` 的两个字母表达不了“内容是不是我们写的那份”。另外，`commitPaths` 的 `expectedBlobs` 是提交前对工作区现算的 `hash-object`（`transaction.ts:246-247`），也认不出外来改动。
+- **如何核实**：`scripts/pathspec-commit.ts` 末尾：
+  - 干净文件落位前后 `git status --porcelain` 为 `""` 与 `" M docs/specs/a.md"`，不相等；
+  - `MM` 文件落位前后都是 `"MM …"`，相等。
+- **建议改法**（判据）：
+  - 第二次检查改为在 `git add` 之前重读目标文件，`sha256` 必须等于本次写入的内容，不等就不提交，回 409 `uncommitted_changes`（details 带 `writtenPaths`）。
+  - `expectedBlobs` 改用本次写入的内容来算（`git hash-object --stdin --path=<路径>`），提交后比对 `<sha>:<路径>`。不一致时给警告 `commit_included_foreign_changes`。
+  - L2 测：落位后用钩子改写文件，断言不提交。
+
+### 5.【重要】编辑 Work 与 Task 的 README 时不校验 frontmatter；改坏了会直接提交进 master，在编辑器里改 `status` 还会绕开状态切换的租约处理
+
+- **位置**：plan 第五节“能编辑的文件”“`updated`”两段，以及“接口与数据”里 `editRecordFile` 的签名：只写了哈希、未提交改动与 `updated`，没有内容校验。参照 `scripts/ci/agent-governance-contract.ts:371-384`、`:418-429`（`governance:check` 要求 Work 与 Task README 有可读的 frontmatter，`schema` 与 `workId`/`taskId` 与目录一致，`issueId` 合规，没有旧字段）；`src/core/operations.ts:258-281`（`setTaskStatus` 在 `done`、`shelved` 时释放租约并给 `open_questions` 警告）。
+- **问题**：
+  - 编辑器里是整份 README 原文，包括 frontmatter。`editRecordFile` 照收照写，然后直接在 master 上提交。
+  - 多删一个 `---`、改错 `taskId`、把 `status` 写成 `Done`，master 当场就过不了 `governance:check`，`nbdev status` 也会把它显示成无效记录。
+  - 在编辑器里把 `status: active` 改成 `done`，只是一次普通编辑：不释放租约，不提醒还有没答的必答题。这与“同一件事走同一套实现”相悖。
+- **为什么**：到 t10 为止，nbdev 写进记录的内容都由模板或按行改写（`setFrontmatterFields`）生成，改完重新解析核对。面板编辑是第一条把任意文本写进记录并提交的路径。决定记录的人改的是唯一的一份。（从代码推断，没有实验。）
+- **如何核实**：读上面三处代码。`verifyWorkContracts` 对缺少或改错 frontmatter 的 README 报 `Work Task 缺少有效 frontmatter`、`taskId 与目录不一致`。
+- **建议改法**（判据）：`editRecordFile` 对 Work 与 Task 的 README 在锁内做以下校验，任何一条不满足就回 400（新错误码 `invalid_record_edit`，或复用 `invalid_record`），不写文件：
+  - 新内容的 frontmatter 能用 `parseFrontmatter` 读出；
+  - `schema`、`workId` 或 `taskId`、`issueId` 与原文相同；
+  - `status` 与原文相同（改状态要用状态下拉，提示文字写清楚）；
+  - 不新增 `actionIssueId` 等旧字段。
+  - L2 补对应的拒绝用例。
+
+### 6.【建议】预览接口用 GET 把“目标”放进查询串，约 1800 个汉字以上就回 431，而写接口收 16 KiB
+
+- **位置**：plan“接口与数据”的 `GET /api/preview/work?…&goal=…`、`/task?…&goal=…`；写接口 `POST /api/works` 上限 16 KiB。
+- **问题与为什么**：Bun.serve 对请求行与头有大小上限。目标写长一点，预览就失败，而同样的内容提交能成功，界面上表现为“预览坏了”。
+- **如何核实**：`scripts/url-limit.ts`（端口 4435）：
+  - 1500 个汉字（URL 13551 字节）回 200；
+  - 2000 个汉字（URL 18051 字节）回 431。
+- **建议改法**：预览改成 `POST /api/preview/work`、`/task`，用 JSON 请求体。和写接口走同一套校验（登录、同源、CSRF、`Content-Type`、限长、多余字段），只是不取锁、不写文件。或者给目标定一个两边一致的上限，并写进校验。
+
+### 7.【建议】决定点 8 的 `acceptedDiffHash` 与已有的 `expectedHash`/`baseHash` 重复；`git diff` 文本当绑定物也不稳
+
+- **位置**：plan 第四节第 3 步、第五节“待决问题 8”、“接口与数据”最后一条（`acceptedDiffHash` 是 `git diff HEAD -- <路径>` 输出的 sha256）、决定点 8。代码 `src/core/operations.ts:228-238`（`setRecordStatus` 先查未提交改动，再比哈希），`src/core/git.ts:31-37`（Git 子进程不加 `--no-ext-diff`、`--no-color`）。
+- **问题**：
+  - 状态请求的 `expectedHash` 与编辑请求的 `baseHash` 都是必填，核心在锁内拿它比对工作区全文。要提交的内容等于“工作区内容加本次改动”，`git diff HEAD` 只是 HEAD 与工作区内容的函数。工作区被哈希钉住之后，差异只会因为 HEAD 前进而变，而 HEAD 前进只会让差异变小。所以 `acceptedDiffHash` 加不了新的保护，却多一个错误码与一轮往返。
+  - 反过来，用 diff 文本做哈希还会无谓失败：`index <短 id>..<短 id>` 一行的缩写长度会随对象库增长而变长；`diff.external`、`textconv`、`color.diff=always` 等用户配置也会改变输出，甚至让显示的差异不反映真实字节。本机眼下没有这些配置（`git config --get-regexp` 为空），但面板以后作为常驻服务运行，用的是开发者的全局配置。
+- **如何核实**：推理见上；本机配置查询为空，属于从代码推断。
+- **建议改法**（判据）：
+  - 决定点 8 改为“用必填的 `expectedHash`/`baseHash` 绑定，去掉 `acceptedDiffHash` 与 `diff_changed`”。
+  - 409 `uncommitted_changes` 的 details 加 `currentHash`。状态切换的确认请求把它当 `expectedHash`（状态切换不依赖开发者读过正文）；编辑在 `baseHash` 不一致时先走 `hash_mismatch`，也就是重新载入。
+  - `editRecordFile` 在锁内先比 `baseHash`，再查未提交改动，顺序写进 plan。
+  - 给开发者看的差异固定加 `--no-ext-diff --no-textconv --no-color --full-index`。
+
+### 8.【建议】差异对话框只给 `git diff HEAD`：暂存了的那一份与“暂存的重命名”都看不出来
+
+- **位置**：plan 第五节“待决问题 8”（`git diff HEAD -- <路径>`，未跟踪给全文）。
+- **问题**：
+  - `MM`（暂存了 X，工作区又改成 Y）：对话框只显示 HEAD 到 Y 的差异。提交时 `git add` 会用工作区内容覆盖暂存区里的 X，对话框却看不出“还有一份暂存的版本会被替换”。
+  - 别的会话 `git mv` 了一份文档、目标恰好是重命名后的新名：status 为 `A `，差异显示成“新文件”，提交只带走了重命名的一半。
+- **如何核实**：`scripts/pathspec-commit.ts`（临时仓库）：
+  - 暂存区先有 `R100 docs/specs/other.md → docs/specs/renamed.md`，按 `transaction.ts` 的方式编辑并提交 `renamed.md`。提交里只有 `A docs/specs/renamed.md`，HEAD 同时有 `other.md` 与 `renamed.md`，暂存区留下 `D docs/specs/other.md`。
+  - `MM` 时 `git diff HEAD` 只有 `+worktree-Y`，`git diff --cached` 才有 `+staged-X`。
+  - 同一个实验也确认了：与目标无关的暂存重命名（`R100 app/x.vue → app/y.vue`）提交前后原样留着。
+- **建议改法**：
+  - 状态里有暂存项（X 列非空格）时，对话框把 `git diff --cached -- <路径>` 与 `git diff -- <路径>` 分两段显示。
+  - 用 `git diff --cached -M --name-status` 查出目标是某个暂存重命名或复制的一端时，直接拒绝（409，`reason: staged_rename`），不给“一起提交”。
+  - 真实主工作区眼下有 46 个暂存的重命名，都在 `packages/neuro-book/app/components/agent/` 下，不在文档树里，所以这条眼下碰不到。
+
+### 9.【建议】场景 3 的“等价于 `governance:check`”只证明了格式，证明不了“不撞号”
+
+- **位置**：plan“验收场景与测法”场景 3 的“根测试”一句：“面板与命令行调的是同一个核心函数，这一条等价于‘都通过 governance:check’”。
+- **论证里成立的部分**：
+  - 两边写出的 README 来自同一个模板函数、同一个写事务。
+  - `verifyWorkContracts` 是 `governance:check`（`scripts/ci/agent-governance.ts:26`）里唯一检查 Work 与 Task 记录的一项，其余几项（治理文件、ownership、bunfig 等）与新建 Work 无关。
+  - 所以“在临时仓库上 `verifyWorkContracts` 为空”可以代表“都通过 `governance:check`”。
+- **不成立的部分**：`governance:check` 不检查 Work 号是否重复。场景 3 真正要防的撞号，`governance:check` 发现不了。
+- **如何核实**：`scripts/dup-work.ts`：临时目录里放 `w00023-panel` 与 `w00023-cli` 两个 Work，`verifyWorkContracts` 返回 `[]`。
+- **建议改法**：场景 3 的判据写成两条：
+  1. L3 断言两个 `workId` 的编号不同，且登记表里两条都是 `claimed`（plan 已有，这一条才是主判据）；
+  2. 根测试的 `verifyWorkContracts` 为空，只证明格式。
+  - 根测试里两次 `createWork` 的编号也要断言不同。
+
+### 10.【建议】场景 1 的 L4 可行，但要等 pane 里的命令真的挂上才发 POST，否则测不出“等到”
+
+- **位置**：plan 场景 1 的 L4（在命名会话 `nbdev-test` 的 pane 里跑 `answers --wait`，读 pane 的输出或退出标记）。参照 `docs/cli.md` 的“`answers --wait`”一节：缺省按未确认的答复选，已有未确认的答复时立即返回。
+- **问题**：在 pane 里拿不到子进程的 stderr。如果 POST 先于 `--wait` 挂上，等待的命令一启动就看到这份未确认的答复，立即返回。测试照样通过，却没有证明“挂着的命令被这次提交唤醒”。读 pane 屏幕判断输出也容易受折行与重绘影响。
+- **可行性**：现有 `tests/herdr-live.test.ts` 已经用 `herdr --session nbdev-test pane run` 在 pane 前台跑脚本、结果写文件、用完 `server stop` 并 `session delete`，同一套做法可以照搬，也不碰默认 server。
+- **建议改法**（判据）：
+  - pane 里运行 `nbdev answers … --wait --timeout 60 --json >out 2>err; echo $? >exit`；
+  - 测试轮询 `err` 出现“等待中”之后才 POST；
+  - 断言 POST 之前 `exit` 文件不存在，POST 之后 5 秒内出现且内容为 0，`out` 的 `unacked` 里是这份答复。
+  - 另外，这条 L4 比 L3 多证明的只是“在 herdr pane 里也一样”，价值有限；时间紧可以只留 L3，L4 记为可选。
+
+### 11.【建议】错误映射与验收漏了几条真实会遇到的失败路径
+
+- **位置**：plan 第二节“错误码映射”与第一条要点，“验收场景与测法”的安全与只读两条；代码 `src/core/transaction.ts:15-18`（`CommitOutcome` 的三种失败理由）、`src/core/operations.ts:81-85`、`:115-117`、`src/core/repo.ts:158-178`。
+- **问题**：
+  - “核心返回 `commit.committed: false` 时回 500 `commit_failed`”没有排除 `reason: "nothing_to_commit"`。状态没变（`changed: false`）、编辑内容与原文相同时，核心也返回 `committed: false`，照字面实现会回 500。
+  - 503 有两种：`warming_up` 与 `lock_timeout`，界面要按 `code` 分开（只有后者给“重试”，见第 2 条）。
+  - 下面几条在测法里都没有出现：
+    - 主工作区不在 master（`main_not_on_master`）或正在合并、变基（`main_busy`）；
+    - Work README 还没提交（`work_not_committed`，新建 Task 时会碰到）；
+    - 答复对应的 Task README 还没提交（`task_not_committed`）；
+    - `index.lock` 一直被占，提交阶段超时（`git_lock_timeout`），应当回 500，带 `writtenPaths`。
+- **建议改法**（判据）：
+  - 映射写成：`committed: false` 且 `reason` 为 `git_lock_timeout` 或 `git_failed` 时回 500 `commit_failed`；`nothing_to_commit` 回 200，`data.changed: false`。
+  - `/api/meta` 加 `mainWritable: {ok, code, branch}`（用 `assertMainWritable` 的判据），主工作区不可写时整站的写入口统一置灰并给一行说明，不用等每个请求 409。
+  - L3 补四条：在临时仓库切到别的分支后 POST 回 409 `main_not_on_master`，且什么都没写；Work README 未提交时新建 Task 回 409 `work_not_committed`；占住 `index.lock` 超过 10 秒时回 500，`writtenPaths` 非空；编辑内容不变时回 200，`changed: false`，没有新提交。
+
+### 12.【建议】写成功后“排一次重算”不等它完成，回应先到，前端紧接着跳到新 Work 会拿到 404
+
+- **位置**：plan 第二节“写成功后服务端立即排一次记录与活动的重算（不等去抖）”；第三节“提交成功后结果区显示实际的 id”。代码 `src/server/views.ts:91-94`、`serve.ts:136-138`（Work 页只读缓存，缓存里没有就回 404）；`src/server/state.ts:57-70`（重算是异步单飞；t09 实测整份记录约 0.5 秒）。
+- **问题**：写接口回 200 时缓存里还没有新 Work 或新 Task。前端照结果跳到 `/work/w00023-…`，或者马上在新 Work 下建 Task（plan 的第 5 条规定路径参数只认缓存里有的值），都会得到 404。（从代码推断。）
+- **建议改法**：写接口在回应之前 `await state.records.run()`（以及 `activity.run()`），回应里的 `revisions` 用重算之后的值。或者前端拿到写结果后，等 `/ws` 推来的 `records` revision 不小于回应里的值再跳转。二选一写进 plan。
+
+### 13.【建议】`stale_version` 的检查要放进锁里；`AnswerBody.taskId` 允许 null，但核心不支持
+
+- **位置**：plan“接口与数据”的 `AnswerBody`（`taskId: string | null`、`version`）与“`version` 必须等于最新一版（否则 409 `stale_version`）”。代码 `src/core/artifact-ops.ts:585-596`（`submitAnswer` 的 `taskRef: string`，`artifactVersion` 缺省取锁内的最新一版）、`src/core/artifacts.ts:30`（“`taskId` 为 null 的是 Work 级的产物（只索引，不能经命令行写）”）。
+- **问题**：
+  - 如果服务端先按缓存比对 `version`，再调 `submitAnswer`，两步之间有人发布新版本：不传 `artifactVersion` 时答复会被记成新一版，并带上新一版的 `contentHash`；传了，核心会按旧版本照收（Proposal 的行为）。两种都不是 plan 写的“只收最新一版”。
+  - Work 级产物没有发布记录，也就没有题，`taskId: null` 的请求没有核心函数可调。
+- **建议改法**：
+  - 核心加一个选项（例如 `requireLatest: true`），在锁内比对，不一致时报 `stale_version`；面板总是传 `artifactVersion: body.version` 加上这个选项。
+  - `AnswerBody.taskId` 改为必填字符串；Work 级产物的侧栏不出表单。
+
+### 14.【建议】前端：写请求与副作用放在宿主里；离开页面的提示要覆盖站内跳转；错误要带 details；几处状态没写全
+
+- **位置**：plan S3 行（新零件清单）、第五节“编辑器”（`beforeunload`）、第一节“提交前在表单里先按题的定义校验（前端复制一份判据）”、风险第 6 条。代码与规范：
+  - `docs/standards/code/components.md:127`：非宿主组件不得声明 `io:mutate`、`state:shared-write`；`:66-80`：`env:timer`、`env:global`、`env:clipboard` 都计入耦合，并要求写明理由；
+  - `src/web/host/api.ts:30-34`：`getJson` 出错时只留 `status`、`code`、`message`，丢掉 `details` 与 `data`；
+  - `packages/nb-ui/src/components/form/FormTextarea.md`：受控 textarea，没有预览；
+  - t09 的约束是“不改 nb-ui”；
+  - `src/core/questions.ts:1-15`：顶层只有 `import type`，`validateAnswerValue` 是纯函数。
+- **问题与改法**（每条都可以直接写成判据）：
+  1. **零件不发请求**：`AnswerForm`、`NewWorkForm`、`NewTaskForm`、`StatusSwitch`、`FileEditor`、`CreatePreview` 只经 props、emits 连接，标签最多 `state:local`。以下都放在页面（宿主）里：写请求、预览请求、300 毫秒去抖与“2 秒后提示在等锁”的定时器（`env:timer`）、`beforeunload`（`env:global`）、“复制我的改动”（`env:clipboard`）。plan 现在只列了零件名，没说这些副作用放在哪里。
+  2. **站内跳转**：`beforeunload` 只管关标签页与刷新。点左栏、点链接、改 `?path=` 都是 vue-router 的站内跳转，不会触发它，未保存的改动就丢了。编辑页要同时加 `onBeforeRouteLeave` 与 `onBeforeRouteUpdate`。
+  3. **错误带详情**：写请求的错误对象要保留 `errors[0].details` 与 `data`。差异对话框要 `details.diff`、`status`、`currentHash`；提交失败要 `data.commit.writtenPaths`。现有的 `ApiError` 会把它们丢掉。
+  4. **不改 nb-ui**：“`FormTextarea` 加预览切换”改写成“`FileEditor` 零件组合 `FormTextarea`、`SegmentedControl` 与 `MarkdownView`，不改 nb-ui”。
+  5. **保存后同步**：核心会改 `updated`，保存成功后编辑器要换成服务端回的最终文本与 `nextHash`。否则屏幕上的文本与磁盘不一致；下一次保存虽然不会出错，但看到的 `updated` 是旧的。
+  6. **来自分支的产物**：Task 或 Work 来自分支时，侧栏表单只读，并写明“记录在分支上维护”。核心会回 409 `branch_maintained_record`，plan 第四节只写了状态下拉，没写答复表单。
+  7. **前端校验直接导入核心**：`validateAnswerValue`、`SLUG_PATTERN` 与标题规则都没有 Node 依赖，前端可以直接导入，不必“复制一份判据”。风险第 6 条随之消失。
+  8. **状态表**：plan 里写一张“错误码到界面动作”的表，至少覆盖：
+     - 提交中（按钮禁用；2 秒后提示“在等别的写入完成”）；
+     - 成功（含 `changed: false` 与 `commit_via_other_commit` 警告）；
+     - 400 字段级错误；
+     - 409 的 `hash_mismatch`、`uncommitted_changes`、`branch_maintained_record`、`question_closed`、`stale_version`、`main_not_on_master`、`main_busy`、`work_not_committed`；
+     - 503 的 `lock_timeout` 与 `warming_up`；
+     - 500 `commit_failed`；
+     - 网络错误或连接被断开（结果未知，见第 2 条）。
+
+### 15.【建议】决定点 3 的实现：用调用者的种类区分“面板”，不另加 `source` 参数
+
+- **位置**：plan S1 行“`createWork`、`createTask`、`setRecordStatus` 加可选的 `source: "cli" | "panel"`，只影响提交信息……登记表 `by` 接受开发者身份”。代码 `src/core/operations.ts:287-289`（`byOf` 只认会话调用者）、`src/core/identity.ts:14-16`（`Caller` 只有 `session` 与 `unknown` 两种）、`src/core/lease-ops.ts:135-140`（调用者不是会话时不取租约，非 null 时给 `caller_unknown`）。
+- **问题**：`source` 与 `caller` 是两个独立的旋钮，可能组合出“`source: panel` 加会话调用者”这种不该有的情况。登记表的 `by`、提交信息里的“面板”、是否给 `caller_unknown` 警告，三处要各自判断。`source` 只改提交信息，本身不会让两条路径在逻辑上分叉，但会多出一个必须与 `caller` 保持一致的参数。
+- **建议改法**：
+  - `Caller` 加一种 `{kind: "developer", device: "local"}`。
+  - `byOf` 按它返回决定点 2 的开发者身份；提交信息按它加“面板”；`touchCallerLease` 遇到它静默返回 null，不给 `caller_unknown`。
+  - 命令行不会产生这种调用者，所以命令行的行为不变，也不需要 `source`。
+
+### 16.【建议】JSON 能带进命令行带不进来的控制字符
+
+- **位置**：plan 第二节第 4 条（只校验字段类型）；代码 `src/core/operations.ts:30-34`（`assertTitle` 只拒绝 `\r`、`\n`）。
+- **问题**：命令行参数里不可能有 NUL，JSON 字符串可以有（`\u0000`）。标题、目标、说明与文字答复里混进 NUL 或其它 C0 控制字符后会写进 README 或答复。README 里一旦有 NUL，Git 会把它当二进制文件，以后差异对话框只能显示“Binary files differ”。（从 Git 的二进制判定推断，没有实验。）
+- **建议改法**：写接口对所有字符串字段拒绝 C0 控制字符，允许 `\t`；多行字段另外允许 `\n`。`editRecordFile` 已经写了“不含 NUL”，把同一条规则推广到全部字段。
+
+### 17.【建议】S4（页内答复）：这一片不做，侧栏表单单独交付；若坚持做，注入的边界要写死
+
+- **位置**：plan 第一节“页内答复”、S4 行、决定点 1、不一致第 1、2 条、风险第 2 条。
+- **我的意见：t10 不做 S4。** 理由：
+  - **没有用户**：真实仓库里还没有任何产物用了 `data-nbdev-question`（`grep` 只在 t08 的 plan 与审查记录里命中），t03 的评审板也没有页内作答的控件。
+  - **侧栏已经够用**：侧栏表单是必做的，覆盖全部题型；页内控件只是同一份数据的第二个入口。
+  - **消息通道认不了身份**：沙箱 iframe 里页面自己的脚本收得到 `init` 与 `nonce`。plan 已经承认这一点，所以只能“填表不提交”。这样一来，页内答复的价值只剩“在题旁边点”，代价却是改写 HTML、Shadow DOM 控件与一套消息协议。
+  - **注入的边界多**，见下。
+- **砍掉以后场景 2 还剩什么**：外壳不监听来自 iframe 的任何消息。场景 2 照样能测，而且比“只剩服务端那条”多一条：
+  - 浏览器：在 iframe 里 `parent.postMessage({type: "nbdev:fill", values: {"no-such": "x"}}, "*")`，断言没有发出 `POST`（拦截请求计数）、`answers/` 下没有新文件；
+  - L3：`POST /api/answers` 带不存在的题号回 404 `question_not_found`，`git status` 不变。
+  - 把场景 2 的措辞改成“外壳不接受来自 iframe 的答复，不写文件”，记进不一致，交开发者确认。这是 Proposal 第三节与实施计划 t10 范围里写明的功能，砍掉属于范围变更。
+- **若坚持做，plan 要写死的边界**：
+  - 按字节插入，不经解码再编码：插在文件末尾即可，HTML 解析器会把 `</html>` 之后的 `<script>` 放进 body。不要找第一个 `</body>`，因为内联脚本的字符串里可能也有 `</body>`。
+  - 不用 UTF-8 严格解码不了的页面（`TextDecoder` 的 `fatal: true`），不注入。
+  - 回应用新的 `Response(bytes)`，不沿用 `Bun.file` 的 `Content-Length`；HEAD 请求同样处理。
+  - 页面自己的 `<meta http-equiv="Content-Security-Policy">` 可能禁掉注入的脚本，plan 已写“侧栏照常可用”，这一条可以不改。
+  - 用框架渲染的页面会把宿主元素重绘掉，要用 `MutationObserver` 补回，或者明确“只支持静态 HTML 页面”。
+  - 页面发来的取值不覆盖开发者已经在侧栏改过的题；提交前在确认处列出“来自页面”的题。
+  - 更省的替代做法：不注入，只约定一个可选的消息协议。外壳在 iframe 载入后发 `init`，页面（例如 design-review 的模板）自己决定要不要实现页内控件。这样不用改写回应，也不用 `_nbdev/form.js`。
+
+### 18.【建议】“打开之后别人才改”这种更常见的顺序，面板走 `hash_mismatch`，不给差异；场景 4 与 Proposal 的“给出差异”只测到了一种顺序
+
+- **位置**：
+  - plan 第五节“基准哈希”：`hash_mismatch` 只给“重新载入（丢掉我的改动）”与“复制我的改动”，不做三方合并，也不显示差异；
+  - 场景 4 的 L3：先写 README 再 `GET /api/files`；
+  - Proposal 第二节“并发时的处理”表：“会话直接改 Task README，面板同时改同一份 | 面板比对哈希，不一致就拒绝并给出差异”。
+- **问题**：会话在开发者打开编辑页之后才改文件，是“同时改”最常见的情形。这时 `PUT` 先碰到 `baseHash` 不一致，界面只说“被改过”，看不到别人改了什么，开发者只能在“丢掉我的改动”与“复制下来自己对”之间选。场景 4 的 L3 只覆盖“先改后打开”。
+- **建议改法**：
+  - `hash_mismatch` 时，界面用打开时的原文与重新取到的当前文本算一份行级差异，显示“别人改了什么”。行级 LCS 几十行代码就能写，不需要新依赖。或者服务端在 409 的 details 里带当前文本，由前端出差异。
+  - 场景 4 的 L3 补一条“先 `GET`，再写文件，再 `PUT`”：断言回 409 `hash_mismatch`、details 里有 `currentHash`，文件不变、没有提交。
+
+## 决定点 1 到 8
+
+| 点 | 表态 | 理由与条件 |
+|---|---|---|
+| 1. 页内答复做不做 | **改**：t10 只做侧栏表单，S4 推迟 | 见第 17 条。属于对 Proposal 与实施计划的范围变更，要交开发者确认。场景 2 改成“外壳不接受来自 iframe 的答复”，浏览器加“iframe 发消息之后没有 POST”的断言 |
+| 2. 登记表 `by` 记开发者身份 | 同意 | `by` 只存不读（`registry.ts` 之外没有读它的逻辑），不影响任何判定。实现上由新的调用者种类产生（第 15 条） |
+| 3. 提交信息标“面板” | 同意 | 由调用者种类决定，不加 `source` 参数（第 15 条）。答复的“记下”本来就只有开发者答复才会出现，再加“面板”二字也不冲突 |
+| 4. 编辑其它文档时不改 README 的 `updated` | 同意不改 README；“最近更新”的扩展要写进切片，否则推迟 | 扩展改的是共用的读模型，`nbdev status --json` 的 `updated` 口径也跟着变（`docs/cli.md:95`、`docs/file-formats.md:14`），不只是首页。S1 的文件清单没有 `records.ts`、`status.ts`，S5 也没列这两处文档。它和本片的编辑功能直接相关，改动小（`readCommitDates` 的同一次 `git log` 就能取到），可以做，但要写进 S1、S5 和不一致清单，并加一条测试 |
+| 5. 编辑器用 `FormTextarea` 加预览 | 同意，措辞改成“`FileEditor` 零件组合现有组件，不改 nb-ui” | 见第 14 条第 4 点 |
+| 6. 审计推迟到 t11 | 同意 | 这其实与实施计划一致：t03 plan 的 t11 范围就有审计，授权表也把 `~/.config/nbdev/` 放在 t11、t13；只与 Proposal 第八节第 9 条的字面不一致。补一句：提交失败、`nothing_to_commit`、只写了登记表这几种情形没有提交可查，t11 加审计时要覆盖到 |
+| 7. 主工作区文档给编辑、直接提交到 master | 同意，附三个条件 | 与“代码改动在 worktree 完成”不冲突：Spec 不是代码；开发者在面板上亲手改，正是根 `AGENTS.md` 说的“用户明确指定的主工作区改动”；`docs/specs/AGENTS.md` 要求的“人类批准”也由开发者本人满足；决定 11 已经授权“先不限制写什么”。条件：① 白名单按第 3 条；② 编辑页在打开时就显示“这些分支改了它”（t09 的 `changedIn`），不要等保存后才提醒；③ 提交前不跑 `docs:check` 与 `governance:check`，根级治理入口有行数上限（`AGENTS.md` 220 行非空行、`WATCHDOG.md` 40 行，`agent-governance-contract.ts:56-60`），改超了 master 当场就过不了检查。至少在这几份文件的编辑页上写明上限；可选做法是提交后在后台跑一次 `governance:check`，把结果作为警告推给界面 |
+| 8. 放行未提交改动时绑定差异 | **改**：用必填的 `expectedHash`/`baseHash` 绑定，去掉 `acceptedDiffHash` 与 `diff_changed` | 见第 7 条：工作区内容已被哈希钉住，差异文本的哈希加不了新保护，还会因为对象 id 缩写变长或差异相关的配置而无谓失败。409 的 details 带 `currentHash` 供确认请求使用 |
+
+## 与 Proposal、实施计划的“不一致”八条
+
+| 条 | 理由是否成立 | 备注 |
+|---|---|---|
+| 1 页内只填不交 | 成立 | 页面脚本收得到 `init` 与 `nonce`，plan 的分析正确 |
+| 2 页内答复可能砍掉 | 成立，但这是范围变更 | 要交开发者确认；砍掉后场景 2 的测法见第 17 条，比“只剩服务端那条”多一条浏览器断言 |
+| 3 新建 Work 不选状态 | 成立 | 与 `nbdev work new` 一致，建完再改状态只多一步 |
+| 4 审计推迟到 t11 | 成立 | 与实施计划其实一致（见决定点 6），措辞可以改成“与 Proposal 第八节第 9 条的时间点不一致，与实施计划一致” |
+| 5 worktree 上的文档不给编辑 | 成立 | 写事务的锁与提交都只覆盖主工作区；worktree 的暂存区与分支属于别的会话 |
+| 6 `updated` 只对 README 本身改 | 成立 | 随之而来的“最近更新”口径变化没有列出（见决定点 4） |
+| 7 答复只能针对最新一版 | 成立 | 核心仍接受旧版本；面板这边的检查要放进锁里（第 13 条） |
+| 8 `device` 一律 `local` | 成立 | |
+
+**没有列出的不一致**：
+
+1. **仓库规则**：`docs/standards/repository-workflow.md:30` 写“目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动”。待决问题 8 的“连同这些改动一起提交”与它相反。开发者接受 Proposal 时按推荐定了待决问题 8，所以这是有授权的例外，但应当列出，并写明后果：别的会话还没提交的改动，会以“面板编辑”的名义提交进 master，提交作者是主工作区的 Git 身份。
+2. **“最近更新”的口径**：改了 `nbdev status` 的输出（见决定点 4）。
+3. **场景 4 与 Proposal“并发时的处理”表**：“打开之后别人才改”时面板不给差异（第 18 条）。
+4. **等锁 30 秒**：Proposal 第二节写“取锁超过 10 秒就失败”，30 秒是 t06 定的（`lock.ts:10-11`），不是 t10 新改的。plan 第二节写“沿用核心的 30 秒”，建议引一句 t06 的出处，免得读者以为是 t10 的改动。
+5. **若采纳第 17 条**：场景 2 的措辞要改。
+
+## 已核对、没有问题的
+
+- **同一套实现、同一把锁**：`createWork`、`createTask`、`setRecordStatus`、`setTaskStatus`、`submitAnswer` 都经 `runWriteTransaction` 取 `.local/agent/registry.json.lock`。面板是单进程，同一进程里的并发写请求也互斥：锁按 token 认持有、按 pid 加启动时刻认存活，第二个请求看到持锁者活着就等。实验 `scripts/same-process-lock.ts`：同一进程里并发三次 `createWork`，得到 w00002、w00003、w00004，三个提交各自独立。
+- **别人暂存的改动**：与目标无关的暂存改动不会被带进路径限定的提交（`git commit -- <路径>` 是 `--only` 语义）。实验 `scripts/pathspec-commit.ts`：`R100 app/x.vue → app/y.vue` 在提交前后原样留在暂存区。真实主工作区的 46 个暂存重命名都在 `packages/neuro-book/app/components/agent/` 下，`classifyDoc` 对它们返回 null，不在可编辑范围内。
+- **主工作区的前置检查**：`assertMainWritable` 在取锁之前与锁内各查一次“检出的是 master、不在合并或变基中”（`transaction.ts:316-318`、`:347`）。
+- **预览不写文件**：只要预览不经 `runWriteTransaction`，就不会写任何东西。`scan.ts`、`sources.ts`、`status.ts`、`records.ts` 里的 Git 调用都带 `--no-optional-locks`；补登 `imported` 只发生在事务的 `tx.scan()` 里；`.local/agent/run/tmp` 只由 `prepareAgentDirectories` 与 `acquireRecordsLock` 建。plan 的 L2 用例加上 `find -newer` 的只读不变量足以证明。
+- **注入**：slug、标题、目标进不了 frontmatter，也进不了提交信息。
+  - slug 走 `SLUG_PATTERN`；
+  - 标题拒绝换行，只进正文的一级标题；
+  - 目标只进正文；
+  - frontmatter 里由用户输入决定的只有 `issueId`，由正整数拼成；
+  - 提交信息只含校验过的 `workId`、`taskId` 与白名单内的路径；
+  - `FRONTMATTER_PATTERN` 从文件开头锚定，遇到第一个 `---` 就结束，正文里的 `---` 与 YAML 特殊字符影响不到它。
+  - 剩下的只有控制字符（第 16 条）。
+- **场景 5“只改两行”**：`setFrontmatterFields` 按行替换、改完重新解析核对，成立。缺 `updated` 字段时是新增一行，判据写成“只有 `status` 与 `updated` 两行变化”即可。
+- **租约**：面板调用者为 null 时，`setTaskStatus` 改成 `done`、`shelved` 只释放、不续期，改成别的状态也不报 `caller_unknown`（`lease-ops.ts:137-138`）。重新打标签只针对调用者自己的 pane：命令行里由别的会话改成 done，同样不会清第三方 pane 的标签，面板与命令行没有差别。
+- **请求校验**：`Content-Type: application/json`、同源 Origin、`Sec-Fetch-Site`、`SameSite=Strict` 的 cookie 加 CSRF 头，跨站表单与跨站 fetch 都过不去（前提是第 1 条的顺序）。`JSON.parse` 出来的 `__proto__` 是自有键，按字段白名单比对能拒绝。
+- **过渡期**：来自分支的 Work 与 Task，状态切换与编辑都由 `resolveWritableWork`、`resolveWritableTask` 拒绝（`branch_maintained_record`）；新建 Task 写进 master。场景 6 的 L3 测法成立。
+- **退出时的写事务**（从代码推断）：`panel serve` 收到信号后不调用 `process.exit`（`cli.ts:8` 只设 `exitCode`），进行中的写事务还在等的 Git 子进程会让事件循环继续，事务能跑完。连按两次 Ctrl-C 例外：第一次之后信号处理函数已被移除，第二次会直接结束进程。
+- **若保留 S4**：面板来源的 CSP 有 `frame-src <产物来源>`，iframe 导航不到外站，`init` 消息不会发到产物来源之外的页面。

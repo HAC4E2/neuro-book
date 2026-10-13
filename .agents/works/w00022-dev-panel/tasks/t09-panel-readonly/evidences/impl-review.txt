@@ -1,0 +1,162 @@
+# w00022/t09 实现审查报告（cde9f5c63..fe4358d4f，只读）
+
+## 结论
+
+阻断 0 条，重要 4 条，建议 9 条。只读与本机安全的主体做得扎实：请求校验、产物来源、单页回退、搜索的取消与输入隔离都经原始请求与真实子进程复核过，没有找到能绕过段检查的写法（主 Agent 看到的 `/../../etc/passwd` 回 `index.html` 只是文档写错，见建议 2）。要在合入前处理的是：
+
+1. 重要 1：`/api/docs/file` 没走路径守卫，文档目录里的 `.md` 符号链接能读出 `.env` 与仓库外的文件（与 `docs/panel.md` 的守卫合同不符）；
+2. 重要 2：面板重启后，开着的页面停在旧数据上、只显示“推送断开”，不提示重新登录；
+3. 重要 3：herdr 不可用时重试链条每 30 秒多一条、线性增长；订阅反复断开时退避被清零，停在约 500 毫秒；
+4. 重要 4：一次性登录票据经 `xdg-open` 的命令行参数传递，本机其他账户能从 `/proc` 读到并抢先兑换（设计层面的问题）。
+
+结束时：审查 worktree `git status --short` 为空，HEAD 仍是 `fe4358d4f`（构建产物放在本目录 `web-dist/`，vite 在包的 `node_modules/` 下建的空 `.vite-temp` 已删）；`herdr session list` 只剩 `default`；实验起的面板、假 herdr 与 Playwright 的浏览器都已结束，没有 44xx 端口在监听；真实仓库的 `.local/agent/` 只剩原有的 `works/`。
+
+## 基线
+
+- 审查 worktree `.worktree/w00022-t09-review`，HEAD `fe4358d4f`。包测试 168 个全过（含 L4，跑完 `herdr session list` 只剩 `default`）；`typecheck`（含 `vue-tsc`）通过。日志在本目录 `test.log`、`typecheck.log`。
+
+## 发现
+
+### 重要 1：`/api/docs/file` 不走路径守卫，跟随符号链接读出 `.env` 与仓库外的文件
+
+- **位置**：`packages/dev-panel/src/server/views.ts:259-265`（`docFileView`）；`packages/dev-panel/src/core/docs.ts:118-125`（`readDocFile` 直接 `readFile(resolve(root, path))`）。
+- **现象**：白名单只核对“路径在不在 `git ls-files` 列出的文档里”，之后直接 `readFile`，没有 `guardedFile` 的 `realpath`、根内检查和对真实路径的段检查。`git ls-files --cached --others` 会列出符号链接（模式 120000），`classifyDoc` 只看 `.md` 后缀，所以 `docs/specs/ui/leak.md -> ../../../.env` 这样的链接会把 `.env` 原样交给浏览器，指向仓库外（`/etc/hostname`、`~/.ssh/…`）的也一样。
+- **为什么是问题**：`docs/panel.md`“路径守卫”一节写的是“面板的文件类接口与产物来源共用：……`realpath` 之后必须仍在这个 checkout 的根下，并对真实路径的相对部分再做一遍段检查（仓库里指向 `.git/config` 或 `.env` 的符号链接也拿不到）”；t09 计划“路径守卫”与设计审查第 2、18 条也要求文件接口用同一个守卫函数。现在只有产物来源与静态资源用了 `guardedFile`。t09 里看的人只有已登录的开发者，后果有限；但合同声称有这道防线，t13 开放其他设备与分级之后，任何一个分支里提交的 `.md` 符号链接都能读出面板进程能读的任意文件。
+- **如何核实**：`scripts/setup-repo.sh` 建临时仓库 `repo1`（提交了 `docs/specs/ui/leak.md -> ../../../.env` 与 `docs/specs/ui/host.md -> /etc/hostname`），`scripts/serve.sh p1 repo1 4420 4421` 起面板、`scripts/login.sh` 换 cookie 后：
+  - `GET /api/docs/file?checkout=main&path=docs/specs/ui/leak.md` 回 200，`text` 是 `SECRET_TOKEN=hunter2\n`；
+  - `GET …path=docs/specs/ui/host.md` 回 200，`text` 是 `archlinux\n`；
+  - 两份都出现在 `/api/docs/tree` 的 `docs` 里。
+- **建议改法**：`readDocFile` 改为先经 `guardedFile(root, path)` 拿真实路径（不合格返回 null，路由回 404），再读；`listDocPaths` 可以顺带丢掉符号链接（`ls-files -s` 看模式，或 `lstat`），树里就不出现读不了的条目。补一条 L3：提交指向 `.env` 与仓库外文件的 `.md` 链接，断言 404。`readTaskDetail` 读 README（`task-detail.ts:84`）同理可以走同一个守卫。
+
+### 重要 2：面板重启后，开着的页面一直停在旧数据上、显示“推送断开，正在重连”，不提示重新登录
+
+- **位置**：`packages/dev-panel/src/web/host/panel-data.ts:61-78`（`connect` 的 `close` 处理）、`:36-59`（只有收到 `hello`/`changed` 才重取）；`packages/dev-panel/src/server/serve.ts:268-276`（`/ws` 没登录回 401）。
+- **现象**：会话只在本次服务实例里有效。面板一重启，浏览器里旧 cookie 作废：`/ws` 的升级回 401，前端只把它当成断线，每 1 到 10 秒重连一次，永远连不上；因为没有推送，`useResource` 也不会重取，`panelState.unauthorized` 永远不会被置上。页面继续显示重启前的数据，顶栏是“推送断开，正在重连”，直到开发者点到别的页面触发一次 `/api/*` 才看到“没有登录”。
+- **为什么是问题**：`docs/panel.md`“前端”一节写“服务重启（实例 id 变了）或推送重连后全部重取……`/api/*` 回 401 时整个面板只显示‘用 nbdev panel open 打开’”。重启又是常规操作：顶栏的“代码已更新，重启面板后生效”就在引导开发者重启。重启后所有开着的标签页悄悄变成旧数据，与面板“1 秒内反映”的定位相反。
+- **如何核实**：`scripts/ws-restart.ts`（Playwright 加 `/usr/bin/google-chrome-stable`）：用 `panel open --print` 的链接登录 `repo4` 上的面板，首页出来后结束面板、同端口再起一个实例，等 20 秒：
+  - 页面上没有“没有登录”，顶栏是“推送断开，正在重连”（截图 `.local/agent/works/w00022-dev-panel/tasks/t09-panel-readonly/shots/review-ws-restart-stale.png`）；
+  - 重启后 `/ws` 重连了 4 次，每次都是 `open` 之后报 `HTTP Authentication failed` 再 `close`，期间没有任何 `/api/*` 请求；
+  - 点左栏“产物”之后才出现“没有登录”。输出见 `ws-restart.out`。
+- **建议改法**：`/ws` 断开后、重连之前先取一次 `/api/meta`（它也要登录）：回 401 就置 `unauthorized` 并停止重连；回 200 而实例 id 变了就全部重取。或者连续几次升级失败后改为探测一次 `/api/meta`。浏览器自己拿不到升级失败的状态码，所以要靠这次探测。
+
+### 重要 3：herdr 的重连退避不按合同增长：herdr 不在时重试链条每 30 秒多一条；订阅反复断开时退避被快照成功清零
+
+- **位置**：`packages/dev-panel/src/server/herdr-monitor.ts:62-66`（`start` 里 30 秒的 `setInterval(refresh)`）、`:133-139`（`doRefresh` 失败就 `later(backoff, refresh)`）、`:131`（快照成功就 `attempts = 0`）、`:165-173`（订阅断开后 `later(backoff, refresh)`）。
+- **现象**：
+  1. herdr 不可用时，每次 `refresh` 失败都另排一个退避定时器；30 秒的对账定时器不看是否已有待重试的定时器，照样调 `refresh`，失败后又排一个。于是每 30 秒多出一条永不停止的重试链，重试次数与日志行数随运行时间线性增长（单飞只防并发，不防这些错开的定时器）。
+  2. 订阅连接开始后又断开时，`closed` 把 `attempts` 加一再排重连，但重连先做的快照对账一成功就把 `attempts` 清零，新订阅再断，又从 500 毫秒开始。退避永远停在 500 到 600 毫秒，不会增长到 30 秒。
+- **为什么是问题**：`docs/herdr.md` 与计划“设计审查的处理”第 12 条定的是“重连退避初值 500 毫秒、上限 30 秒、乘 2、加 0 到 20% 的抖动”；herdr 不可用是面板明确支持的状态（会话页“herdr 不可用时给出说明”），t11 之后面板常驻。按现在的写法，herdr 关着跑一天，约有 2880 条链，每条在上限处约 33 秒一次，合计每秒约 87 次连接尝试与日志行；订阅被 herdr 断开的情形下每秒两次重连并对账（每次对账还连带一次活动重算）。
+- **如何核实**：
+  - herdr 不在（`HERDR_SOCKET_PATH` 指向不存在的路径），`repo1` 上的面板 `p1`、没有浏览器连着，`p1.log` 里每分钟的“herdr 不可用”行数：8、7、9、15、17、19、25、29、32、35、38、41、49、53（00:18 到 00:31，一刻钟里涨了六倍多），链条每 30 秒多一条；`p4b.log` 里能直接看到对账时刻（:24、:54）各起一条新链。
+  - `scripts/fake-herdr-drop.ts`：快照与 pane 列表正常、`events.subscribe` 回 `subscription_started` 后 100 毫秒断开。`repo2` 上的面板 `p2` 每分钟发起 100 到 200 次订阅（`fh-drop.sock.log`），`p2.log` 里的重连延时一直是 5xx 毫秒；`mode` 在“轮询”与“已订阅”之间来回，`/api/meta` 的 `revisions.sessions` 10 秒涨了 30（4017 到 4047），每个连着的浏览器每秒要收三次 `sessions` 推送并重取。
+- **建议改法**：重试只有一条链：`later` 之前若已有待重试的定时器就不再排；对账定时器在 `unavailable` 期间跳过（交给退避链），或对账失败不排退避。`attempts` 只在订阅稳定一段时间（例如连上超过 30 秒）之后才清零，或订阅与快照各用自己的计数。补一条测试：假 herdr 连续拒绝 90 秒内的请求数有上界；订阅连上即断时，第 N 次重连的间隔按 2 的幂增长。
+
+### 重要 4：一次性登录票据经 `xdg-open` 的命令行参数传给浏览器，本机其他账户能从 `/proc` 读到并抢先兑换
+
+- **位置**：`packages/dev-panel/src/cli/panel-commands.ts:117-127`（`spawn("xdg-open", [loginUrl])`）。
+- **现象**：`panel open` 把 `http://127.0.0.1:4400/login?ticket=…` 作为 `xdg-open` 的参数；`xdg-open` 再把它交给浏览器（冷启动时浏览器主进程的命令行里也一直带着它）。本机 `/proc` 没有 `hidepid`（`findmnt /proc` 的选项是 `rw,nosuid,nodev,noexec,relatime`），`/proc/<pid>/cmdline` 对所有账户可读。从 `xdg-open` 启动到浏览器真正请求登录链接之间（热浏览器几十毫秒，冷启动一两秒），别的账户轮询 `/proc` 就能拿到票据先去兑换，拿到会话 cookie；开发者的浏览器随后拿到 403，多半以为是偶发、再 `panel open` 一次，而对方的会话一直有效到面板重启。
+- **为什么是问题**：t09 加登录正是为了挡本机其他账户（计划“设计审查的处理”第 1 条：本机另有 两个可登录账户、sshd 在运行），`docs/panel.md`“登录”一节也以此为前提。票据走进程参数，这道门就对同一批人开着。这是设计层面的漏洞（计划里就写了“`panel open` 打开一次性链接”），实现照做了。
+- **如何核实**：在 `repo1` 的面板上，用 `shim-xdg/xdg-open`（记下 PID、睡 5 秒、不开浏览器）代替真的 `xdg-open` 跑 `panel open`：
+  - `stat /proc/<xdg-open pid>/cmdline` 是 `-r--r--r--`，里面就是带票据的登录链接；
+  - 另一个进程拿这条链接 `curl` 一次：302 加 `Set-Cookie: nbdev_panel=…`；
+  - 同一条链接再用一次（相当于开发者的浏览器）：403。
+  - 跨账户读取没有实测（本机只用当前账户），依据是 `/proc` 的挂载选项与文件权限。
+- **建议改法**：照 Jupyter 的做法（它为同一个原因引入了“打开文件”）：`panel open` 在只有自己可读的位置（`$XDG_RUNTIME_DIR`，或 `.local/agent/run/` 下权限 600 的文件）写一页带跳转的 HTML（`<meta http-equiv="refresh" content="0;url=…/login?ticket=…">`），只把 `file://` 路径交给 `xdg-open`，用完删掉；`--print` 照旧打印链接。`SameSite=Strict` 只限制发送，`file://` 跳过来时 cookie 照样能设上，之后页面的同源请求都带得上。另把票据有效期缩短到一两分钟也能缩小窗口，但不能代替前者。
+
+### 建议 1：预热期间收到 SIGTERM，进程收口后不退出（预热完成时又挂上了监视与定时器）
+
+- **位置**：`packages/dev-panel/src/cli/panel-commands.ts:99-101`（`Promise.race([server.warm(), stopped])`，赢的是 `stopped` 也照样打印“预热完成”）；`packages/dev-panel/src/server/serve.ts:351-356`（`warm` 跑完无条件 `state.watchAll()`）；`packages/dev-panel/src/server/state.ts:166-185`（`warm` 里 `herdr.start()`、`watchAll` 都不看是否已停）；`packages/dev-panel/src/server/herdr-monitor.ts:62-66`（`start` 不看 `stopped`）。
+- **现象**：信号在预热进行中到达时，`stopped` 先兑现，收口照常执行（停服务、删 `panel.json`、放锁、打印“面板已退出”）；但预热随后跑完，又调 `herdr.start()`（新的 30 秒定时器）与 `watchAll()`（`fs.watch` 加两个 `setInterval`），事件循环一直活着，进程不退出，每 5 秒照样跑 Git。只有第二个 SIGTERM（这时信号处理器已摘掉）才结束它，退出码 143。
+- **为什么是问题**：`docs/panel.md`“`panel serve` 与 `panel open`”第 4 条：收到 SIGINT、SIGTERM 或 SIGHUP 时收口、退出码 0。窗口不大（真实仓库冷启动约 0.9 秒），所以列为建议；t11 改成 systemd 单元后，启动中被 stop 会一直等到 `TimeoutStopSec` 再被 SIGKILL。
+- **如何核实**：`shim-slow/git` 让预热第一步（`rev-parse HEAD:bun.lock`）慢 3 秒，`repo3` 上起面板（`p3`），`panel.json` 出现 0.5 秒后发 SIGTERM：日志依次是“收到 SIGTERM”“预热完成”“面板已退出”，`panel.json` 与锁都删了、两个端口也放了，但 20 秒后进程还在（`/proc/<pid>/fd` 里有一个 inotify）；再发一次 SIGTERM 才退出，退出码 143（`p3.log`、`p3.exit`）。
+- **建议改法**：`warm()` 在 `state.warm()` 之后、`watchAll()` 之前检查是否已停（`stop()` 置一个标志），已停就不挂监视；`HerdrMonitor.start()` 开头也看 `stopped`；`panel-commands.ts` 只在 `warm()` 真正完成时打印“预热完成”。
+
+### 建议 2：未编码的 `..` 回 200 的 `index.html` 只是文档写错，没有绕过；`docs/panel.md` 与守卫的注释要改写
+
+- **位置**：`packages/dev-panel/docs/panel.md`“请求校验”第 3 条；`packages/dev-panel/src/server/guard.ts:42-45` 的注释；`packages/dev-panel/tests/panel-server.test.ts:247` 的用例名。
+- **现象**：`..`、`.`，以及 `%2e%2e`、`.%2e` 这类写法，在进 `handlePanel` 之前就被 URL 解析器（Bun 构造 `req.url`，代码里再 `new URL(req.url)`）按 WHATWG 规则折叠掉，折叠只在 URL 路径内部进行，出不了根；折叠后的路径照常走段检查、白名单与 `realpath`。所以 `/../../etc/passwd` 变成 `/etc/passwd`，落到单页回退，回 200 的 `index.html`，不泄露任何文件。文档写的“`.`、`..` 与空段都回 400”只对折叠不掉的写法成立：编码过的分隔符（`..%2f`、`%5c`）、NUL、不合法的百分号编码与空段确实回 400。现有用例里 `/../.git/config` 回 4xx，是因为折叠后的 `.git` 段以点开头被单页回退拒绝（404），不是因为 `..` 被拒。
+- **为什么是问题**：合同写的与实际行为不同，读者会以为有一道并不存在的 400 检查；用例名“不回 index.html”也只对选中的输入成立。
+- **如何核实**：`scripts/path-probe.ts` 用原始套接字对两个来源各发二十来种写法（输出 `path-probe.out`），没有一条泄露 `.env`、`.git/config` 或 `/etc/passwd`：
+  - 面板来源：`/../../etc/passwd`、`/%2e%2e/%2e%2e/etc/passwd` 回 200 的 `index.html`；`..%2f`、`%2e%2e%2f`、`%5c`、`%c0%ae`（不合法 UTF-8）、`//etc/passwd` 回 400；`/.git/config`、`/.GIT/config`、`%252e%252e`（双重编码只解一次，成了字面段名）、反斜杠（WHATWG 把 `\` 当分隔符先折叠）、`;`、`/%2eenv`、全角点 `%ef%bc%8e` 都回 404；绝对形式的请求目标 `GET http://127.0.0.1:4420/../.env` 回 404。
+  - 产物来源：各种穿越写法回 404 或 400；`/.agents/./works/…` 折叠后合法，回 200；`_nbdev` 保留路径 404。
+  - 大小写不同的 `.GIT`：Linux 文件系统区分大小写，它不是 `.git` 目录，`.env` 的检查已按小写比较。Unicode 归一化：Linux 不做文件名归一化，全角点不等于 `.`。符号链接：产物来源的 `realpath` 加真实路径的段检查挡住了（文档接口的问题见重要 1）。
+- **建议改法**：`docs/panel.md` 第 3 条改成“URL 解析器先按规范折叠 `.` 与 `..`（含 `%2e` 写法），折叠后的路径照常过下面的检查，所以 `/../x` 等同 `/x`；编码过的 `/` 与 `\`、NUL、不合法的百分号编码与空段回 400”；`guard.ts` 的注释同步；用例名改成与断言一致，另加一条 `/../../etc/passwd` 回 `index.html` 而不是文件内容的断言，把这个行为钉住。
+
+### 建议 3：worktree 里没暂存的删除在文档树里显示成“改动”，点进去 404
+
+- **位置**：`packages/dev-panel/src/core/docs.ts:94-107`（`readDocTree`）。
+- **现象**：文件只从磁盘删掉、还没 `git rm` 时，`ls-files --cached` 仍列出它，`git status` 给 ` D`。`readDocTree` 对“在 `paths` 里、代码是 `D`”的条目记成 `modified`，树里照常是可点的条目，点开 `/api/docs/file` 回 404。已暂存的删除（`git rm`）不在 `paths` 里，会正确记成 `deleted`。
+- **为什么是问题**：`docs/panel.md`“文档树与差异”把工作区里没提交的删除归为 `deleted`；Agent 常常先删文件再提交，这时差异列表与可点性都不对。
+- **如何核实**：`repo1` 的 worktree 里 `rm docs/specs/ui/shell.md`（不暂存），`/api/docs/tree?checkout=w00001-t01-board` 的 `changes` 是 `[{path: "docs/specs/ui/shell.md", change: "modified"}]`，`docs` 里仍有它；`/api/docs/file` 对它回 404。核实后已 `git checkout --` 还原。
+- **建议改法**：`uncommitted` 里是 `D` 的路径记成 `deleted`，并从 `docs` 里拿掉（或标成不可点），与已暂存的删除同一口径。
+
+### 建议 4：搜索取消的关键边界没有测到；“新的搜索结束旧的”这条断言允许 0 次取消
+
+- **位置**：`packages/dev-panel/tests/panel-server.test.ts:306-309`。
+- **现象**：两个并发搜索在很小的夹具上很快就都跑完，断言写的是 `aborted` 的个数 `<= 1`，0 次取消也通过，所以这条用例并不能证明“新搜索结束旧的”；客户端断开结束子进程、5 秒截断结束子进程，都没有用例。
+- **为什么是问题**：设计审查第 3 条与 `docs/panel.md`“搜索”把这三点列为合同；回归时没有用例会失败。
+- **如何核实**：实现本身是对的。`shim-grep/git` 把内容搜索换成长跑的单进程（`exec sleep 30`，PID 记进 `grep-pids`），`repo4` 上的面板 `p4`：
+  - `curl -m 1` 断开：两个 checkout 的子进程 0.3 秒内都结束；
+  - 第一个搜索进行中发第二个：第一个的子进程结束，第一个流最后一行 `{"type":"end","truncated":true,"aborted":true}`；
+  - 不打断：5.0 秒时两个子进程结束，`end` 的 `truncated: true`。
+- **建议改法**：测试里用同样的 PATH 垫片（或把超时与 Git 命令做成 `startPanelServer` 的可选参数）让内容搜索变慢，断言恰好 1 次 `aborted`、子进程在断开与超时后都已退出。
+
+### 建议 5：`docs/panel.md` 的构建哈希输入与代码不一致
+
+- **位置**：`packages/dev-panel/docs/panel.md`“前端构建”第 1 条；`packages/dev-panel/src/server/build.ts:34-39`。
+- **现象**：文档写“nb-ui 的 `src/` 与 `package.json`”，代码哈希的是 nb-ui 整个包目录（排除 `node_modules`、`.nuxt`、`.output`、`playground`）。代码是对的：面板还用到 `themes/nbook` 与 `dist/nb-ui.css`，它们不在 `src/` 里。
+- **建议改法**：文档按代码改，写明包括 `themes/` 与 `dist/nb-ui.css`。
+
+### 建议 6：会话 cookie 不分端口：同一个浏览器登录第二个面板，就把第一个踢下线
+
+- **位置**：`packages/dev-panel/src/server/auth.ts:107`、`:155-157`（cookie 名固定为 `nbdev_panel`，`Path=/`）。
+- **现象**：cookie 按主机名、名字与路径区分，不按端口。两个面板（不同仓库，或 t10 到 t14 开发时在临时仓库上起的演示面板）都在 `127.0.0.1` 上，后登录的那个用同名 cookie 覆盖前一个，前一个的 `/api/*` 随即 401。顺带一点：这个 cookie 也会发给同一主机名上任何端口的服务（包括本机其他账户起的监听），只是要开发者主动去访问那个端口。
+- **为什么是问题**：登录要求开发者每次重新 `panel open`，被踢下线时页面只说“没有登录”，看不出原因；面板文档没有提到同一浏览器只能登录一个面板。
+- **如何核实**：`scripts/cookie-clobber.ts`：同一个浏览器上下文先登录 `repo1` 的面板（4420，`/api/overview` 200），再登录 `repo2` 的面板（4422，200），回头再请求 4420：401；上下文里只剩一个 `nbdev_panel@127.0.0.1/`（`cookie-clobber.out`）。
+- **建议改法**：cookie 名带上面板端口或实例 id 的一段（例如 `nbdev_panel_4400`），服务只认自己的名字；或在 `docs/panel.md`“登录”一节写明这个限制。
+
+### 建议 7：写请求的校验排在登录之前，t10 若照注释“直接用这道校验”接上写接口，写操作不用登录
+
+- **位置**：`packages/dev-panel/src/server/serve.ts:258-262`（非 `GET`、`HEAD` 先核 Origin 与 CSRF，然后直接回 405）与 `:268-271`（`Sec-Fetch-Site` 与登录只在 `GET` 的 `/api`、`/ws` 分支里）；`docs/panel.md`“请求校验”第 4 条。
+- **现象**：没登录、但带同源 `Origin` 与正确 `X-Nbdev-Csrf` 的 `POST /api/overview` 回 405，而不是 401：写请求根本没经过登录检查。CSRF 令牌写在 `index.html` 里，而页面本身不要求登录，本机任何账户 `curl /` 就能拿到；非浏览器客户端也能随意写 `Origin`。
+- **为什么是问题**：t09 没有写接口，现在不可利用。但注释与文档都写“t10 直接用这道校验”，照这个位置接上写接口，就等于写操作只靠一个本机人人可读的令牌，与“`/api/*` 都要登录”的合同相反，挡不住设计审查第 1 条说的本机其他账户。
+- **如何核实**：对 `repo1` 的面板：不带 cookie `curl /` 拿到 `nbdev-csrf`；不带 cookie、带 `Origin: http://127.0.0.1:4420` 与这个令牌 `POST /api/overview` 回 405；同一路径的 `GET` 回 401。
+- **建议改法**：把 `/api/*` 与 `/ws` 的 `Sec-Fetch-Site` 与登录检查挪到方法分支之前，写请求在登录之后再核 Origin 与 CSRF；文档写明 CSRF 令牌只防浏览器跨站，不是本机账户之间的秘密。
+
+### 建议 8：去 Work、Task、产物页的入口是按钮不是链接
+
+- **位置**：`packages/dev-panel/src/web/parts/WorkCard.vue:19`、`TaskTable.vue:29`、`InboxList.vue:15`、`ArtifactList.vue:26`、`:40`、`:51`、`SearchResults.vue:29`、`:44`。
+- **现象**：这些零件按“只发事件”的约定，用 `<button>` 发 `open` 事件、由页面 `router.push`。读屏软件读成“按钮”，键盘与鼠标都不能在新标签页打开 Work、Task 或产物（中键、Ctrl 加点击无效），地址也没法复制。
+- **为什么是问题**：面板是开发者同时看多个 Work 的工具，在新标签页打开是常用操作；导航用按钮也不符合可访问性的常规语义。零件规范要求的只是不碰路由，不要求放弃链接语义。
+- **如何核实**：读代码；`MarkdownView.vue` 已经示范了另一种做法（真实的 `<a href>`，普通点击时 `preventDefault` 再发 `navigate` 事件）。
+- **建议改法**：零件接收 `href`（或由页面传入的地址函数）渲染成 `<a>`，普通左键点击时 `preventDefault` 并发事件，修饰键与中键交给浏览器。
+
+### 建议 9：`--host ::1` 名义上支持，实际在本机报“内部错误”，在有 IPv6 的机器上产物页也嵌不进来
+
+- **位置**：`packages/dev-panel/src/cli/panel-commands.ts:19`（`LOOPBACK` 含 `::1`）；`packages/dev-panel/src/server/serve.ts:87-96`（只把 `EADDRINUSE` 转成 `port_in_use`）、`:297-298`（注释：`[::1]` 打开的面板嵌不了产物页）；`docs/panel.md`“两个来源”、`docs/cli.md` 的 `panel serve` 一行。
+- **现象**：本机 `lo` 关了 IPv6（`/proc/sys/net/ipv6/conf/lo/disable_ipv6` 为 1），`panel serve --host ::1` 以 `nbdev 内部错误：Error: EADDRNOTAVAIL` 加调用栈退出（锁照常放了）。在 IPv6 可用的机器上，按代码自己的注释，CSP 的来源表达式写不了 IPv6 字面量，`[::1]` 打开的面板嵌不了产物页；这一点只写在注释里，文档把 `::1` 与另两个并列为可选值。
+- **为什么是问题**：用户按文档选了一个可选值，得到的是内部错误或残缺的产物页。
+- **如何核实**：`scripts/serve.sh p6 repo1 4420 4421 --host ::1`，日志 `p6.log` 是上面的内部错误；产物页嵌不进来的部分本机无法实测，从代码与注释推断。
+- **建议改法**：`--host` 去掉 `::1`（`Host` 头照旧接受 `[::1]:<port>`），或保留但在文档写明限制；`listen` 把 `EADDRNOTAVAIL` 转成带说明的用法错误。
+
+## 已核对、没有问题的
+
+- 登录票据：`<nonce>.<过期>.<HMAC-SHA256>`，`timingSafeEqual` 比较，过期、重放、别的实例签的、乱写的票据都回 403（用例加 `curl` 复核）；会话 cookie 是 `HttpOnly; SameSite=Strict; Path=/`，只在本次实例有效。
+- `panel.json` 权限 600、临时文件加改名的原子写、退出时只删 pid 与启动时刻都是自己的那份；`panel.lock` 用 `wx` 独占创建，持锁者已退出时接管，第二个 `panel serve` 报 `panel_running`。
+- 请求校验：带 `X-Forwarded-*`、`Forwarded` 回 403；`Host` 不对（含 `localhost.evil`、不带端口）回 421；`Sec-Fetch-Site` 为 `cross-site`、`same-site` 回 403；没登录的 `/api/*` 与 `/ws` 回 401；`/ws` 缺 `Origin`、`Origin: null`、外站 `Origin` 都回 403（实测）。
+- 响应头：`index.html` 的 CSP 与 `docs/panel.md` 一字不差（含 `form-action`、`base-uri`、`object-src` 与显式的 `ws://`）；产物来源带 `sandbox allow-scripts allow-forms allow-popups` 与 `frame-ancestors`；两边都有 `nosniff`、`no-referrer`、`no-store`。
+- 产物来源：随机前缀（18 字节）用常量时间比较，只给 `.agents/works/` 下的文件，`_nbdev` 保留路径 404，符号链接经 `realpath` 加真实路径的段检查挡住；iframe 不给同源，“单独打开”在顶层也因 CSP 的 `sandbox` 是不透明来源。
+- id 参数（workId、taskId、artifactId、version、checkout key）都在缓存里查，不拼路径；`/api/docs/file` 的白名单本身挡住了 `..`、`.env`、`.git/config`、`package.json`（符号链接见重要 1）。
+- 单页回退：任何一段以点开头都不给 `index.html`，`/.git/config`、`/.env` 回 404。
+- Markdown：DOMPurify 的 `FORBID_TAGS`、`FORBID_ATTR` 与文档一致；`javascript:` 由 DOMPurify 去掉；`//host` 开头的链接按仓库路径解析后去掉；外链加 `noopener noreferrer`；外部图片被 CSP 的 `img-src` 挡住。
+- 搜索：用户输入只经 `-e` 进入，pathspec 由服务端写死、不带 `GIT_LITERAL_PATHSPECS`，结果逐行套段检查；新搜索、客户端断开、5 秒截断三种情形下子进程都被结束（实测，见建议 4）；`q` 的长度与控制字符校验回 400。
+- 缓存：`Refresher` 单飞并合并、失败保留上一份并标错、只在指纹变化时加 revision；`fs.watch` 递归监视在 Bun 加 Linux 上能覆盖之后新建的 Work 与 Task 目录（实测：新目录里的改动 1.5 到 2 秒内反映到 `/api/overview`）；真实仓库 `.agents/works/` 373 个目录，远低于 inotify 上限 524288。
+- 执行 checkout 的五级候选、去重与“选第一个”与 `docs/panel.md` 一致；文档树的两类差异与 master 指主工作区的口径一致（没暂存的删除见建议 3）。
+- 构建：哈希输入覆盖面板源码、配置、nb-ui 整包与 `bun.lock`，与“代码已更新”比较的三个路径一致；输出到临时目录再改名替换；失败时有旧产物就用旧的、没有就 `build_failed`（用例覆盖）。
+- 信号：正常运行时 SIGTERM、SIGHUP 都收口并以 0 退出（SIGHUP 实测），`panel.json` 与锁都删了；端口被占时另一个已绑定的端口也放掉（用例）。
+- t07 遗留：pane 的 `cwd` 与前台进程目录都不在本仓库时给 `herdr_tag_skipped`（`other_repository`）且不写标签；`answers --wait` 不带 `--as` 时 `caller_unknown` 只出现一次（用例断言是精确相等）。
+- 前端：`usePanelData` 是单例、全应用一条 `/ws`；只接受最后一次请求且 revision 不倒退的回应；390 宽下首页、Work、Task、产物列表、产物页、文档、会话、checkout、搜索九页都没有页面级横向溢出，控制台没有错误（`narrow.out`）；偏好只经 `host/prefs.ts`，读写包了 try/catch。
+- nb-ui：只从 `exports` 列出的入口导入（`.`、`./components`、`./themes/*`、`./styles.css`），没有深导入；用到的颜色变量都在 nb-ui 的 colorway 合同里，没有硬编码颜色。
+- 禁止清单：没有按错误文案分支；新增的 `catch` 都有诊断或写明理由的回退；产品代码里没有测试专用分支（`--static-dir` 是公开选项，已记入计划不一致第 14 条）；`status`、`sources`、`activity` 的拆分保留了原有语义与注释，没有删任务外的代码，也没有丢清理语句。
+- 真实仓库：短暂只读起了一次（`--static-dir` 指向会话目录里的构建产物，没在 worktree 里构建）。herdr 0.9.1 已订阅，连着 `/ws` 45 秒里 0 次重连、0 次漏事件；冷启动到预热完成约 0.8 秒；全 checkout 搜索 0.92 秒、结束后没有残留子进程。SIGTERM 后 `panel.json` 与锁都删了，剩下的空 `run/` 已 `rmdir`；主工作区 `git status --porcelain` 前后一致。
+- 包测试里的 L4 跑完，`herdr session list` 只剩 `default`。
