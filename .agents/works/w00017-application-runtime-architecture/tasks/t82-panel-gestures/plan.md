@@ -20,8 +20,8 @@
 
 把“拖到顶即最大化”看成编辑器在面板所在的那一轴上拖到零，和侧栏、右栏、面板的拖到零用同一套收起判定（`nested-grid` 的阈值吸附），不另写一套手势。
 
-- **上限**：面板高、面板宽不再有固定的 600 上限，只受“编辑器最小尺寸”约束（高 120、宽 272，输出 4）。`shellPanelAxisLimits` 的 `maximumSize` 改为不设上限；`SHELL_PANEL_MAX_HEIGHT`、`SHELL_PANEL_MAX_WIDTH` 删掉，`clampPanelHeight` 只夹下限。
-- **编辑器的收起意图**：最大化可用时（`panelMaximizable(position, alignment)` 为真、分栏呈现、面板没有收起为标题头），在编辑器与面板同在的那个分支里，给编辑器叶写收起意图：`collapsedSize: 0`、阈值沿用 `SHELL_DRAG_COLLAPSE_THRESHOLD`（24px）、`collapsed` 等于当前是否最大化。编辑器仍是吸收余量的叶，不改成 `fixed`。往上拖到编辑器的理想高度低于 `120 − 24` 时吸附成 0，就是最大化；从最大化往下拖，编辑器回到 120 以上时展开，就是还原，面板高度跟着指针。
+- **上限**：面板高、面板宽不再有固定的 600 上限，只受“编辑器最小尺寸”约束（高 120、宽 272，输出 4）。`shellPanelAxisLimits` 的 `maximumSize` 改为不设上限；`SHELL_PANEL_MAX_HEIGHT`、`SHELL_PANEL_MAX_WIDTH` 删掉，`clampPanelHeight` 只夹下限。连带：偏好可能比窗口还大（在高窗口里拖到 700 再把窗口变矮），所以高度装不下时先把面板压到给编辑器留出最小高度 120，连面板最小高度 80 都放不下才退到 32px 标题头；现在是偏好放不下就直接退成标题头。分栏与紧凑呈现一样，Spec 输出 5 写明。
+- **编辑器的收起意图**：最大化可用时（`panelMaximizable(position, alignment)` 为真、分栏呈现、面板没有收起为标题头），在编辑器与面板同在的那个分支里，给编辑器叶写收起意图：`collapsedSize: 0`、阈值沿用 `SHELL_DRAG_COLLAPSE_THRESHOLD`（24px）、`collapsed` 等于当前是否最大化。编辑器仍是吸收余量的叶，不改成 `fixed`。收起意图标 `toggleable: false`：面板在底部或右侧时编辑器在边界前侧，网格的 Enter 优先切换前侧，不标就会把“恢复拖到零的面板”（输出 8）变成最大化；这个选项在 S1 加进 nb-ui（网格与独立 `Splitter` 一致）。往上拖到编辑器的理想高度低于 `120 − 24` 时吸附成 0，就是最大化；从最大化往下拖，编辑器回到 120 以上时展开，就是还原，面板高度跟着指针。
 - **边界**：最大化时面板与编辑器之间的边界保留 1px（`shellSashSize` 只在“收起为标题头”时返回 0）。最大化下编辑器内容照旧停放。
 - **最大化不可用时**（水平位置但对齐不是居中，面板跨到侧栏下方）：编辑器不写收起意图，面板拖到编辑器的最小高度就停住。
 - **落账**：`shellPatch` 看到 `change.collapsed.editor`：为 true 时补丁写 `panelMaximized: true`；为 false 时写 `panelMaximized: false`，并照常写面板这一轴的新尺寸。`ShellSizePatch` 加 `panelMaximized?: boolean`。
@@ -47,7 +47,7 @@
 
 | 文件 | 改什么 |
 |---|---|
-| `docs/specs/ui/workbench-shell.md` | 输出 4：面板高、宽不再有固定上限，只受编辑器最小尺寸约束；输出 7 的“瞬时最大化”：也可以把边界往编辑器那边拖过编辑器最小尺寸减 24px 得到，最大化时边界保留，往回拖过最小尺寸即还原；输出 8：从拖到零或最大化拉回时，内容在拖动中就出现；验收 3、4 补对应的 Given/When/Then |
+| `docs/specs/ui/workbench-shell.md` | 输出 5：高度装不下时先压缩面板、最小值也放不下才退到标题头；输出 4：面板高、宽不再有固定上限，只受编辑器最小尺寸约束；输出 7 的“瞬时最大化”：也可以把边界往编辑器那边拖过编辑器最小尺寸减 24px 得到，最大化时边界保留，往回拖过最小尺寸即还原；输出 8：从拖到零或最大化拉回时，内容在拖动中就出现；验收 3、4 补对应的 Given/When/Then |
 | `packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.md` | 手势中的停放规则 |
 | `packages/nb-ui/src/components/layout/grid.md` | 只在需要补余量叶收起时改 |
 
@@ -55,9 +55,9 @@
 
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| S1 | 第 1 节前置 | nb-ui 网格对余量叶收起的测试（需要时补实现） | `bun run --cwd packages/nb-ui test`、`typecheck` |
-| S2 | 第 1、2 节 | 上限、编辑器收起意图、边界、补丁、内存最大化；Spec 输出 4、7 | `bun run test:affected --typecheck` |
-| S3 | 第 3 节 | 拖动中显示内容；Spec 输出 8；组件文档 | 同上；`lab:shot` 外壳场景 |
+| S1 | 第 1 节前置 | nb-ui 网格对余量叶收起的测试；收起意图加 `toggleable`（`845359e5`、`8d61bcb9`） | `bun run --cwd packages/nb-ui test`、`typecheck` |
+| S2 | 第 1、2 节 | 上限、编辑器收起意图、边界、补丁、内存最大化、高度装不下先压缩；Spec 输出 4、5、7（`ab218d9f`） | `bun run test:affected --typecheck` |
+| S3 | 第 3 节 | 拖动中显示内容；Spec 输出 8；组件文档；e2e（`22052ed6`） | 同上；`lab:shot` 外壳场景 |
 | S4 | — | e2e、验收映射、omp 审查与修正、收口截图 | 受影响 e2e 与全套 e2e |
 
 ## 验收映射
@@ -66,7 +66,7 @@
 |---|---|
 | 输出 4（无固定上限） | `shell/layout.test.ts`：1440×1400 的视口里面板能拖到 1000px；编辑器始终不小于 120 |
 | 输出 7（拖成最大化、拖回还原） | `shell/layout.test.ts`：可最大化的位置与对齐给编辑器写收起意图、不可最大化时不写、最大化时边界 1px；`shellPatch` 的编辑器收起与展开两例；`state/layout-store.test.ts`：补丁里的最大化只在内存、换位置后清除 |
-| 输出 8（拖动中显示内容） | `WorkbenchShellLayout.dom.test.ts`：预览把拖到零的面板展开时内容在面板叶里、取消后回到停放区、实例不重建 |
+| 输出 8（拖动中显示内容） | `e2e/workbench-shell.e2e.ts` 的面板手势一例：拖到零后用真实指针往外拉，松手前内容已在面板落点、可见（happy-dom 量不出盒子尺寸、只按紧凑呈现，组件测试测不到手势，改由 e2e 覆盖） |
 | 验收 3、4、6 | `e2e/workbench-shell.e2e.ts` 加三例：真实指针把面板上沿拖到顶松手 → 最大化，编辑器停放、刷新后不再最大化；从最大化往下拖 → 还原，高度跟着指针；面板拖到零后慢慢往外拖，松手前面板内容可见 |
 
 ## 验证
