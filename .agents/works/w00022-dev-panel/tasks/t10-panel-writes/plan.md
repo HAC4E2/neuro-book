@@ -9,6 +9,110 @@
 - **工作方式**：同前。集成分支 `feat/w00022-dev-panel`，每片单独提交，编码子代理不 push；记录只在主工作区改。验收只在临时仓库上做；**不在真实仓库上用面板写入**，真实仓库第一次写入等开发者授权。
 - **约束**：核心库保持 Node 兼容；服务端在 `src/server/`（Bun）；前端在 `src/web/`；零件遵守组件规范；只支持 Linux；不新增前端依赖（见决定点 5）。
 
+## 设计审查的处理
+
+设计审查（`evidences/design-review.txt`，0 阻断、5 重要、13 建议）18 条全部采纳；主 Agent 的处理意见与开发者的范围决定见本节。**本节与下文正文冲突时以本节为准**，正文保留为草案原貌。
+
+### 范围
+
+- **S4（页内答复）不做**（建议 17、决定点 1）。侧栏表单是唯一的答复入口。场景 2 改为两条：服务端拒绝伪造的题号（`POST /api/answers` 带不存在的题号回 404 `question_not_found`，`answers/` 下没有新文件，`git status` 不变）；外壳不监听、也不接受来自 iframe 的答复消息（浏览器里在 iframe 内 `parent.postMessage({type: "nbdev:fill", …}, "*")` 之后没有发出写请求、没有新文件）。产物来源的 `_nbdev/` 保留路径照旧 404。
+- 正文里所有关于页内答复、`form.js`、`nonce`、注入的内容作废；“不一致”第 1、2 条改为下面新的第 2 条。
+
+### 服务端与核心（逐条）
+
+- **写接口挂在登录之后**（重要 1）：已随 t09 实现审查建议 7 改好（`d44000726`）。写请求的顺序：转发头、`Host`、路径解码、`/api` 的 `Sec-Fetch-Site` 与登录 cookie，然后非 `GET` 才核同源 `Origin` 与 `X-Nbdev-Csrf`，再查 `Content-Type`，最后交给 `src/server/writes.ts`（没有对应的写路由时仍回 405）。安全 L3 的“没登录 401”带有效的 CSRF 令牌与同源 `Origin`。
+- **空闲超时与客户端断开**（重要 2）：面板来源的 `Bun.serve` 设 `idleTimeout: 60`（秒；不小于等锁 30 秒加 Git 锁 10 秒加一次事务）。写事务接受 `signal`：取到锁之后、写第一个文件（登记表或落位）之前看一次，客户端已断开就放锁、什么都不写（新错误码 `request_aborted`，只进面板日志）；断开发生在写之后的照常提交。前端把网络错误与连接被断开显示成“结果未知，已重新载入；刷新后查看”，重取数据，不给“重试”；只有 503 `lock_timeout`（确定什么都没写）给“重试”。验收加外部客户端（`curl`）的 L3：占锁 15 秒再 `POST /api/works`，连接没被切断、只领一个号；另测客户端 3 秒后断开，什么都没写。
+- **编辑白名单**（重要 3）：在锁内判定，三类都要求 `unsafePathReason(path) === null`、从仓库根到文件每一段都不是符号链接、目标是普通文件，再按类：
+  - Work 与 Task 的 README：路径逐字等于 `workReadmePath`、`taskReadmePath`，记录来源是 master（`resolveWritableWork(whole)`、`resolveWritableTask`，README 已提交）；
+  - 文档类产物：Work 或 Task 目录第一层的其它 `.md`，在锁内重算的记录索引（`listDocuments`）里逐字出现，所属 Work 或 Task 可写；
+  - 主工作区的文档：在锁内重算的 `listDocPaths(mainRoot)` 里逐字出现。
+  - 判定不用 `classifyDoc`。写事务加一种操作“改仓库文件”，护栏保留现有的段检查（`unsafePathReason`），不委托给白名单。不合格回 409 `not_editable`（`details.reason`）。L2 补审查实验里的路径（`docs/../.local/agent/notes.md`、`docs/../../../etc/x.md`、`vitepress/../.git/description.md`、`docs/.git/x.md`、`docs//specs/x.md`、`docs/./specs/x.md`）与符号链接的拒绝用例。
+- **落位之后的核对**（重要 4）：删掉“落位前后 `git status` 不同就不提交”。写事务在 `git add` 之前、锁内重读本次写入的每个文件，sha256 必须等于写入的内容，不等就不提交，报 409 `changed_after_write`，details 带 `writtenPaths` 与变了的路径，界面写“你的改动已在工作区，没有提交”。提交后比对的 `expectedBlobs` 改用写入的内容算（`git hash-object --stdin --path=<路径>`），提交里的 blob 与之不同时给警告 `commit_included_foreign_changes`。这一条在核心里，命令行同样受益。
+- **README 的 frontmatter 校验**（重要 5）：编辑 Work 或 Task 的 README 时在锁内校验新内容：frontmatter 能解析；`schema`、`workId` 或 `taskId`、`issueId`、`status` 与原文相同（改状态只能走状态切换）；不新增治理检查禁止的旧字段（`actionIssueId`、`agentWorkflow`、`kind`、`worktreeId`、`branchId`、`role`）。不通过回 400 `invalid_record_edit`（`details.problems`），不写文件。`updated` 由核心改成当天。
+- **预览改 POST**（建议 6）：`POST /api/preview/work`、`POST /api/preview/task`，JSON 请求体，与写接口走同一套校验（登录、同源、CSRF、`Content-Type`、限长、多余字段），只是不取锁、不写文件。
+- **用哈希绑定**（建议 7、决定点 8）：去掉 `acceptedDiffHash` 与 `diff_changed`。状态请求的 `expectedHash` 与编辑请求的 `baseHash` 在面板这边必填；核心在锁内先比哈希（不一致 409 `hash_mismatch`，details 带 `currentHash`），再查未提交改动（409 `uncommitted_changes`，details 带 `currentHash` 与差异）。确认请求带 `includeUncommitted: true`，哈希用 `currentHash`。`setRecordStatus` 的检查顺序随之改成先哈希后未提交改动（命令行 `--expect-hash` 同时撞上两条时先报 `hash_mismatch`）。给开发者看的差异固定加 `--no-ext-diff --no-textconv --no-color --full-index`。
+- **差异分两段、拒绝暂存的改名**（建议 8）：`uncommitted_changes` 的 details 分 `staged`（`git diff --cached`）与 `unstaged`（`git diff`），未跟踪的文件标 `untracked: true`；对话框分两段显示。目标是暂存区里一次改名或复制的一端（`git diff --cached -M -C --name-status`）时一律拒绝，409 `staged_rename`，不给“一起提交”。命令行的状态切换同样拒绝。
+- **场景 3 的判据**（建议 9）：L3 断言两个 `workId` 编号不同、都已提交、登记表两条都是 `claimed`（主判据）；根测试的 `verifyWorkContracts` 为空只证明格式，两次 `createWork` 的编号也断言不同。删掉“等价于 governance:check”。
+- **场景 1 的 L4**（建议 10）：pane 里运行 `nbdev answers … --wait --timeout 60 --json >out 2>err; echo $? >exit`，测试等 `err` 出现“等待中”后才 `POST`；断言 `POST` 之前 `exit` 不存在，之后 5 秒内出现且为 0，`out` 的 `unacked` 里是这份答复。
+- **漏掉的失败路径**（建议 11）：`committed: false` 且 `reason` 为 `git_lock_timeout`、`git_failed` 时回 500 `commit_failed`（`data.commit.writtenPaths`）；`nothing_to_commit` 回 200，`data.changed: false`。`/api/meta` 加 `mainWritable: {ok, code, branch}`（`assertMainWritable` 的判据），不能写时前端隐藏写入口并写一行说明。L3 补：主工作区切到别的分支后写请求回 409 `main_not_on_master` 且什么都没写；Work README 未提交时新建 Task 回 409 `work_not_committed`；占住 `index.lock` 超过 10 秒时回 500、`writtenPaths` 非空；编辑内容不变时回 200、`changed: false`、没有新提交。
+- **写后等重算**（建议 12）：写接口在回应之前等记录与活动各重算一次（这次重算在写入之后开始），回应的 `revisions` 是重算之后的值；前端拿到回应就能跳到新 Work，不会 404。
+- **`stale_version` 进锁**（建议 13）：`submitAnswer` 加 `requireLatest` 选项，锁内比对 `artifactVersion` 与最新一版，不一致报 409 `stale_version`（details 带 `latestVersion`）；面板总是传 `artifactVersion` 加 `requireLatest`。`AnswerBody.taskId` 必填（Work 级产物没有发布记录、没有题，侧栏不出表单）。
+- **调用者种类 `developer`**（建议 15、决定点 2、3）：不加 `source`。`Caller` 加 `{kind: "developer", device: "local"}`；登记表的 `by`（`{key: "developer:local", agent: "developer", label: "local", 其余 null}`）、提交信息里的“面板”（`面板新建`、`面板编辑`、`面板记下`、状态改动加“（面板）”）都从它推出；`touchCallerLease` 遇到它静默不取租约，不给 `caller_unknown`。命令行不会产生这种调用者，行为不变。
+- **控制字符**（建议 16）：核心对写进记录的文字统一拒绝 C0 控制字符（允许 `\t`），换行只在正文类字段（目标、说明、备注、文字答复、编辑内容）允许；标题报 `invalid_title`，其余报 `invalid_text`（`details.field`）。规则在核心里，命令行与面板一致。
+- **`hash_mismatch` 也给差异**（建议 18）：编辑页遇到 `hash_mismatch` 时重新取当前文本，由**前端**算打开时版本与当前版本之间的行级差异（LCS，几十行的纯函数，不加依赖），显示“别人改了什么”，给“载入新版本（丢掉我的改动）”与“复制我的改动”。场景 4 两种顺序都测：先改后打开（`uncommitted_changes`）、先打开后改（`hash_mismatch`，details 有 `currentHash`，文件不变、没有提交）。
+
+### 前端（建议 14）
+
+- 零件不发请求：`AnswerForm`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`StatusSwitch`、`DiffView`、`FileEditor` 只经 props、emits 连接，最多 `state:local`。写请求、预览请求、300 毫秒去抖与“2 秒后提示在等锁”的定时器、`beforeunload`、“复制我的改动”都在页面（宿主）里。
+- 编辑页用 `onBeforeRouteLeave`、`onBeforeRouteUpdate` 拦站内跳转的未保存改动，另加 `beforeunload`。
+- 写请求的错误对象保留 `errors[0].details` 与 `data`（差异、`currentHash`、`writtenPaths`）。
+- 不改 nb-ui：`FileEditor` 组合 `FormTextarea`、`SegmentedControl` 与 `MarkdownView`。
+- 保存成功后编辑器换成服务端回的最终文本与新哈希。
+- 来自分支的 Work、Task 与产物：状态下拉、编辑入口、答复表单都只读，写明“记录在分支上维护”。
+- 前端校验直接导入核心的纯函数（`validateAnswerValue`、`SLUG_PATTERN`、标题与控制字符的规则），不复制规则；风险第 6 条随之消失。
+- 错误码到界面动作：
+
+| 情形 | 界面 |
+|---|---|
+| 提交中 | 按钮禁用；2 秒后提示“在等别的写入完成” |
+| 200 | 成功；`changed: false` 写“内容没变，没有提交”；警告（`commit_via_other_commit`、`open_questions`、`number_conflicts` 等）照列 |
+| 400 | 字段级错误显示在字段旁（`details.field`、`details.problems`） |
+| 409 `hash_mismatch` | 状态切换：重新取数，写“README 在你打开之后被改过”；编辑：显示两版之间的差异，给“载入新版本”“复制我的改动” |
+| 409 `uncommitted_changes` | 差异对话框（已暂存、工作区分两段），“取消”与“连同这些改动一起提交” |
+| 409 `staged_rename`、`changed_after_write` | 说明原因，不给提交；后者列出 `writtenPaths`，写“你的改动已在工作区，没有提交” |
+| 409 其它（`branch_maintained_record`、`main_not_on_master`、`main_busy`、`work_not_committed`、`task_not_committed`、`task_closed`、`question_closed`、`artifact_closed`、`stale_version`、`not_editable`） | 显示错误说明；`stale_version`、`question_closed` 重新取数 |
+| 404 | 对象已不存在，重新取数 |
+| 503 `lock_timeout` | “等锁超时，什么都没写”，给“重试” |
+| 503 `warming_up` | “面板正在启动”，给“重试” |
+| 500 `commit_failed` | “已写入、没有提交”，列 `writtenPaths` 与补救办法 |
+| 网络错误、连接被断开 | “结果未知，已重新载入；刷新后查看”，不给“重试” |
+
+### 决定点
+
+1. 改：只做侧栏表单，S4 不做（见“范围”）。
+2. 同意，由调用者种类 `developer` 产生（第 15 条）。
+3. 同意，由调用者种类决定，不加 `source`。
+4. 同意不改 README 的 `updated`；“最近更新”扩成 `updated`、产物目录与 Task 目录第一层文档（README 之外的 `.md`）最后一次提交的日期中最晚的那个。这改的是共用的读模型，`nbdev status --json` 的 `updated` 口径跟着变：写进 S1（`records.ts` 的 `readCommitDates`、`status.ts`，加一条测试）、S5（`docs/cli.md`、`docs/file-formats.md`）与“不一致”。
+5. 同意，`FileEditor` 组合现有组件，不改 nb-ui。
+6. 同意；“不一致”第 4 条措辞改为“与 Proposal 第八节第 9 条的时间点不一致，与实施计划一致”。t11 加审计时要覆盖提交失败、`nothing_to_commit`、只写了登记表这几种没有提交可查的情形。
+7. 同意，附三个条件：编辑白名单按第 3 条；编辑页打开时就显示“这些分支改了它”（t09 的 `changedIn`）；编辑根级治理入口时提醒非空行数上限，上限从仓库的治理检查（`scripts/ci/agent-governance-contract.ts` 的 `GOVERNANCE_NON_EMPTY_LINE_LIMITS`）读出（按文本解析、不执行），读不到就不提醒，编辑器实时显示当前非空行数。
+8. 改：用必填的 `expectedHash`、`baseHash` 绑定（第 7 条）。
+
+### 切片（替换正文的切片表）
+
+| 切片 | 内容 |
+|---|---|
+| S1 核心 | 调用者种类 `developer`；`previewCreateWork`、`previewCreateTask`（不取锁）；`resolveWritableWork`、`resolveWritableTask` 改收只读的范围对象，预览也能用；控制字符规则（纯模块，前端可导入）；`setRecordStatus` 先比哈希、差异分两段、拒绝暂存的改名；写事务加“改仓库文件”、`signal`、落位后核对与 `commit_included_foreign_changes`；`submitAnswer` 的 `requireLatest`；新文件 `src/core/edit-ops.ts`（`readEditableFile`、`editRecordFile`）；“最近更新”的扩展；新错误码。L2 测试 |
+| S2 写接口 | `src/server/writes.ts`；`serve.ts` 接上写路由与 `idleTimeout`；`GET /api/files`、`/api/work` 与 `/api/task` 的 `readmeHash`、`/api/meta` 的 `mainWritable` 与治理行数上限；`state.ts` 的写后重算。L3 测试（含外部客户端的空闲超时与断开） |
+| S3 前端 | 零件与页面（产物页侧栏表单、Work 与 Task 页的状态切换与入口、`/new`、`/edit`）；`host/api.ts` 的写请求与错误详情；行级差异的纯函数 |
+| S4 | 不做 |
+| S5 文档与验收 | `docs/panel.md`、`docs/cli.md`、`docs/file-formats.md`、包 `AGENTS.md`；浏览器验收（只在临时仓库）；场景 1 的 L4 |
+
+## 实施进度（编码子代理随做随记）
+
+- S1 核心：`ff6a24ce4`。调用者种类 `developer`（`PANEL_DEVELOPER`）、`previewCreateWork`、`previewCreateTask`、`readRecordScope`；控制字符规则（`src/core/text-rules.ts`，纯模块，前端直接导入）；`setRecordStatus` 先比哈希、差异分两段、拒绝暂存的改名（`src/core/uncommitted.ts`）；写事务加 `replaceRepoFile`、`signal`（`request_aborted`）、落位后核对（`changed_after_write`）与 `commit_included_foreign_changes`；`submitAnswer` 的 `requireLatest`（`stale_version`）；`src/core/edit-ops.ts`（`classifyEditable`、`readEditableFile`、`editRecordFile`，README 校验报 `invalid_record_edit`）；“最近更新”加 Task 目录第一层文档的提交日期；治理入口行数上限按文本读（`src/core/governance-limits.ts`）。L2：`tests/panel-writes-core.test.ts`（12 条）；根测试加场景 3 的并发新建与行数上限的一致性。
+- S2 写接口：`1f0e5ef11`。`src/server/writes.ts`；`serve.ts` 接上写路由、`idleTimeout: 60`、`/api/files`、`/api/meta` 的 `mainWritable`；`/api/work`、`/api/task` 的 `readmeHash`；`Refresher.run()` 改成等一次“调用之后才开始”的重算。L3：`tests/panel-writes.test.ts`（13 条，含 curl 的等锁 15 秒与 3 秒断开）。变异检查：去掉写后等重算、去掉断开检查，对应用例失败。
+- S3 前端：`4714c80a5`。零件 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`（比计划多后两个：确认对话框与结果提示在三个页面复用）；页面 `/new`、`/edit`，产物页侧栏表单，Work 与 Task 页的状态切换与入口，文档页的编辑入口，左栏的新建入口；`host/writes.ts`、`host/status-change.ts`、`host/line-diff.ts`。
+- S5 文档：`1c457de98`（`docs/panel.md` 的写接口与写入界面、`docs/cli.md` 的新错误码与警告、`docs/file-formats.md` 的开发者 `by` 与最近更新、包 `AGENTS.md`）；场景 1 的 L4：`d734dd21a`（命名会话 `nbdev-test`，用完已删）。
+- **验证**：包测试 199 个全过（含两条 L4）、typecheck（含 `vue-tsc`）、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check`、`git diff --check` 都通过。
+- **浏览器验收**（临时仓库，Playwright 加 `/usr/bin/google-chrome-stable`，脚本在会话临时目录 `t10/browser/accept.ts`，截图在 `.local/agent/works/w00022-dev-panel/tasks/t10-panel-writes/shots/`）：iframe 里 `postMessage` 两条伪造的答复消息之后没有写请求、没有新文件；侧栏表单答三题提交，多一份答复、提交信息“面板记下”；新建 Work 领到的号与预览一致，点“打开”马上进新 Work 页（不 404）；Task 状态改成完成，徽章变“完成”、提交信息带“（面板）”；编辑 README 保存后提交“面板编辑 t01 README”、编辑器换成服务端文本（`updated` 是今天）；先改后打开弹出差异对话框，取消后文件不变；先打开后改显示“别人改了什么”、文件不变；有未保存改动时点左栏被拦下；来自分支的 Work 没有编辑入口并写明原因；编辑 `AGENTS.md` 显示“非空行 1 / 220”；产物页、新建页、编辑页 390 宽没有横向溢出。
+
+### 与处理意见不同的地方
+
+- **空闲超时**：照做 `idleTimeout: 60`，但 Bun 1.4.2 实测默认的 10 秒只切断没有请求体的请求，带 JSON 请求体的等 13 秒也没被切（会话临时目录 `idle2.ts`）；所以“等锁 15 秒不被切断”的 curl 用例去掉这个设置也照样通过，它只是验收，不是这个设置的回归用例。设置保留，注释写明。
+- **新建之后不自动跳转**：结果区给“打开 Work”“打开 Task”的链接，与预览不同时多一行说明；没有自动跳到新 Work（跳走就看不到“号变了”的那行）。回应之前已等记录重算，点链接不会 404（浏览器验收已核）。
+- **对写接口发 `GET`**：回 404（读接口里没有这条路由），不是正文说的 405；其它方法与没有的写路由回 405。
+- **编辑请求体上限**：2 MiB，内容本身的 1 MiB 由核心按字节核（JSON 转义要余量）。
+- **落位后核对的错误码**：用新的 `changed_after_write`（409，带 `writtenPaths`），不复用 `uncommitted_changes`：后者会让界面弹出“一起提交”的确认，而这时你的改动已经在工作区。
+- **编辑页的读接口**：白名单之外（`not_editable` 的任何原因）一律 404；在白名单上但现在不能写的（来自分支等）照常返回并标原因。
+
+### 未验证的边界
+
+- 没有在真实仓库上用面板写入（等开发者授权）。
+- `commit_included_foreign_changes` 只用 PATH 里的 git 垫片在 `git add` 之前改文件验证过，真实的并发窗口很窄，没有自然复现。
+- 浏览器只验了 Chrome；`beforeunload` 的拦截只看了站内跳转（Playwright 默认关掉对话框），关标签页的提示没有在有界面的浏览器里看。
+- 两个标签页同时编辑同一个文件：由 `baseHash` 保证后保存的一方拿到 `hash_mismatch`，L3 覆盖了单方的“先打开后改”，没有在浏览器里开两个标签页测。
+
 ## 关键设计
 
 ### 一、答复从哪里填
@@ -220,6 +324,15 @@ editRecordFile(context, {path, content, baseHash, includeUncommitted, acceptedDi
 6. **“写入某个 Task 的文件时同时改 `updated`”只对 README 本身成立**（决定点 4）：Proposal 第二节写的是写入 Task 的任何文件都改。
 7. **答复只能针对最新一版**：Proposal 第三节说“开发者对着旧版本提交时照收，按旧版本记”。面板的表单只给最新一版出控件（旧版题表只读）；核心的 `submitAnswer` 仍接受旧版本（命令行与以后的面板都能用），只是面板不提供这个入口，因为产物页的页面始终是磁盘上的当前版本（t09），对着旧题表答容易答错题意。
 8. **`submittedBy.device` 在 t13 之前一律是 `local`**：Proposal 的设备名来自配对，t13 才有。
+
+设计审查补的漏项（第 1、2、4 条的措辞以“设计审查的处理”为准）：
+
+9. **页内答复不做**（取代第 1、2 条）：Proposal 第三节与实施计划 t10 的范围里有页内答复，本片只做侧栏表单；场景 2 改为“服务端拒绝伪造题号”加“外壳不接受来自 iframe 的答复消息”。属于范围变更，交开发者确认。
+10. **第 4 条的措辞**：审计推迟与 Proposal 第八节第 9 条的时间点不一致，与实施计划（t11）一致。
+11. **仓库规则**：`docs/standards/repository-workflow.md` 写“目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动”。待决问题 8 的“连同这些改动一起提交”与它相反；开发者接受 Proposal 时按推荐定了待决问题 8，是有授权的例外。后果：别的会话还没提交的改动会以“面板编辑”或状态切换的名义提交进 master，提交作者是主工作区的 Git 身份。
+12. **“最近更新”的口径**：扩成 `updated`、产物目录与 Task 目录第一层文档最后一次提交日期中最晚的那个，`nbdev status` 的输出跟着变（决定点 4）。
+13. **场景 4 与 Proposal“并发时的处理”表**：“打开之后别人才改”走 `hash_mismatch`，差异由前端用两版文本算出，不是服务端给的 `git diff`。
+14. **等锁 30 秒**：Proposal 第二节写“取锁超过 10 秒就失败”；30 秒是 t06 定的（`lock.ts`），不是 t10 的改动。
 
 ## 风险
 

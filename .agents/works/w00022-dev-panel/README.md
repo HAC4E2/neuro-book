@@ -45,4 +45,4 @@ status: active
 | [t07](tasks/t07-session-leases/README.md) | 会话身份、运行归属与租约；2026-10-13 合入 `master`（`3ef00987a`），完成 |
 | [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-13 合入 `master`（`3ef00987a`），完成 |
 | [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`3ef00987a`），完成 |
-| [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 开工 |
+| [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 实施完成，实现审查中 |
