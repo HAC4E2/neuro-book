@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t11-notify",
+    "artifactId": "questions",
+    "answerId": "20261013T081222601Z-b5a6d4ed",
+    "artifactVersion": 1,
+    "contentHash": null,
+    "submittedAt": "2026-10-13T08:12:21.876Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "notify-smoke": "a"
+    },
+    "comments": {},
+    "note": null
+}
