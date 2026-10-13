@@ -90,7 +90,7 @@ function streamProcesses(socketPath: string): number[] {
     return pids;
 }
 
-type Setup = {fixture: Fixture; fake: FakeHerdr; panes: FakePane[]; server: PanelServer; state: string; tools: TerminalTools; cookie: string; csrf: string; connect(paneId?: string, terminalId?: string): Promise<Client>; audit(): Promise<Array<Record<string, unknown> & {action: string; phase: string; actionId: string; detail: Record<string, unknown>}>>};
+type Setup = {fixture: Fixture; fake: FakeHerdr; panes: FakePane[]; server: PanelServer; state: string; tools: TerminalTools; cookie: string; csrf: string; logs: string[]; connect(paneId?: string, terminalId?: string): Promise<Client>; audit(): Promise<Array<Record<string, unknown> & {action: string; phase: string; actionId: string; detail: Record<string, unknown>}>>};
 
 async function setup(name: string, options: {panes?: (main: string) => FakePane[]; terminals?: Record<string, FakeTerminalSettings>; audit?: boolean} = {}): Promise<Setup> {
     const fixture = await createFixture(name);
@@ -101,9 +101,10 @@ async function setup(name: string, options: {panes?: (main: string) => FakePane[
     fake.version = "0.9.3";
     const {tools, state} = await fakeTerminalTools(name, options.terminals ?? {[TERMINAL]: {}}, dirname(fake.socketPath));
     const token = randomBytes(32).toString("hex");
+    const logs: string[] = [];
     const server = await startPanelServer({
         context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0,
-        herdr: createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_METHODS}), token, log: () => undefined,
+        herdr: createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_METHODS}), token, log: (line) => void logs.push(line),
         env: {...panelEnv(fixture), NBDEV_HERDR_BIN: tools.herdrBin},
     });
     let stopped = false;
@@ -141,7 +142,7 @@ async function setup(name: string, options: {panes?: (main: string) => FakePane[
         };
     };
     return {
-        fixture, fake, panes, server, state, tools, cookie, csrf, connect,
+        fixture, fake, panes, server, state, tools, cookie, csrf, logs, connect,
         async audit() {
             const file = auditPaths(panelEnv(fixture)).file;
             if (!existsSync(file)) return [];
@@ -207,6 +208,15 @@ describe("观看", () => {
             });
             expect(result).not.toBe("open");
         }
+    }, 30_000);
+
+    test("终端还在、observe 第一行就是 terminal.closed：重起到第 3 次就以 4404 关，不无限重起；结束原因进日志（实现审查 F5）", async () => {
+        const {connect, logs} = await setup("term-closed-first", {terminals: {[TERMINAL]: {mode: "gone"}}});
+        const client = await connect();
+        const closed = await Promise.race([client.closed, Bun.sleep(6_000).then(() => null)]);
+        expect(closed).toMatchObject({code: 4404});
+        expect(client.messages.filter((message) => message.t === "state").length).toBeLessThanOrEqual(3);
+        expect(logs.some((line) => line.includes("observe）结束：terminal attach ended"))).toBe(true);
     }, 30_000);
 
     test("观看中流结束、终端也不在了：4404", async () => {

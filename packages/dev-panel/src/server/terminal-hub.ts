@@ -51,7 +51,7 @@ type Conn = {
     watchSize: {cols: number; rows: number};
     sizeKnown: boolean;
     watchTimer: ReturnType<typeof setInterval> | null;
-    /** 连续几次 observe 第一行就结束（终端还在）：到 3 次就关连接，不无限重起。 */
+    /** 连续几次 observe 没出一帧就结束（一行都没有，或第一行就是 `terminal.closed`；终端还在）：到 3 次就关连接，不无限重起。 */
     failures: number;
     control: Control | null;
     closed: boolean;
@@ -193,14 +193,21 @@ export class TerminalHub {
         if (!this.options.tools.available) throw new Error("终端工具不可用");
         const size = kind === "control" ? conn.control?.size ?? conn.watchSize : conn.watchSize;
         let first = true;
+        /** 这条流出过帧没有：没出过帧就结束（一行都没有，或第一行就是 `terminal.closed`）算一次失败。 */
+        let framed = false;
         const stream = startTerminalStream(this.options.tools.tools, kind, conn.terminalId, size, takeover, {
             onLine: (line) => {
                 if (first) {
                     first = false;
                     onFirst?.(line);
-                    if (line.type === "frame" && kind === "observe") conn.failures = 0;
                 }
-                if (line.type === "frame" && conn.stream === stream) this.send(conn, {t: "frame", seq: line.seq, full: line.full, w: line.width, h: line.height, b: line.bytes});
+                if (line.type === "closed") {
+                    this.options.log(`终端流 ${conn.terminalId}（${kind}）结束：${line.reason}`);
+                    return;
+                }
+                if (!framed && kind === "observe") conn.failures = 0;
+                framed = true;
+                if (conn.stream === stream) this.send(conn, {t: "frame", seq: line.seq, full: line.full, w: line.width, h: line.height, b: line.bytes});
             },
             onBadLine: (line) => this.options.log(`终端流 ${conn.terminalId} 有一行读不懂，已跳过：${line}`),
             onStderr: (text) => this.options.log(`终端流 ${conn.terminalId}（${kind}）：${text.trim()}`),
@@ -208,13 +215,13 @@ export class TerminalHub {
         conn.stream = stream;
         void stream.exited.then(() => {
             if (first) onFirst?.(null);
-            void this.onStreamEnd(conn, stream, first);
+            void this.onStreamEnd(conn, stream, !framed);
         });
         return stream;
     }
 
     /** 流结束：不是被替换、不是我们收的，按三样归类（见类注释）。 */
-    private async onStreamEnd(conn: Conn, stream: TerminalStream, endedBeforeFirstLine: boolean): Promise<void> {
+    private async onStreamEnd(conn: Conn, stream: TerminalStream, endedWithoutFrame: boolean): Promise<void> {
         if (conn.stream !== stream || conn.closed) return;
         if (conn.mode === "handshake") return;
         if (conn.mode === "control" && conn.control) {
@@ -228,7 +235,7 @@ export class TerminalHub {
         if (this.exiting) return;
         conn.stream = null;
         if (!(await this.terminalExists(conn.terminalId))) return this.closeConn(conn, TERMINAL_CLOSE.gone, "这个终端不在了");
-        if (endedBeforeFirstLine) conn.failures += 1;
+        if (endedWithoutFrame) conn.failures += 1;
         if (conn.failures >= 3) return this.closeConn(conn, TERMINAL_CLOSE.gone, "观看的流连续结束，终端可能不可用");
         await Bun.sleep(200);
         await this.startWatch(conn);
