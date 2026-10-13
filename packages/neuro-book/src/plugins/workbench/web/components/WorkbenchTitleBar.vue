@@ -363,24 +363,30 @@ onBeforeUnmount(() => {
             <WorkbenchItemStrip v-if="items.length > 0" class="workbench-titlebar__items" :locale="locale" :entries="items" :item-height="28" align="end" @run="(id) => emit('run-item', id)" />
         </div>
 
-        <!-- 测量层：各部件在各种样子下的宽度（逐级让位按它算），不可见、不占位、不进无障碍树与 Tab 顺序。 -->
+        <!--
+            测量层：各部件在各种样子下的宽度（逐级让位按它算），不可见、不占位、不进无障碍树与 Tab 顺序。复本只复刻样子：不带角色、
+            id 与真元素的类名（样式由下面的选择器套上），按类名、角色或文字找真元素的地方不会碰到它。
+        -->
         <div ref="measureEl" class="workbench-titlebar__measure" aria-hidden="true" inert>
-            <NeuroBookLockup class="workbench-titlebar__brand" data-measure="lockup" />
-            <NeuroBookMark class="workbench-titlebar__mark" data-measure="mark" />
+            <NeuroBookLockup class="workbench-titlebar__measure-lockup" data-measure="lockup" />
+            <NeuroBookMark class="workbench-titlebar__measure-mark" data-measure="mark" />
             <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" data-measure="project">
                 <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0"></span>
-                <span class="workbench-titlebar__project-name">{{ project ?? text(TEXT.openProject) }}</span>
+                <span class="workbench-titlebar__measure-name">{{ project ?? text(TEXT.openProject) }}</span>
                 <span v-if="project !== null" class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
             </Button>
             <Button variant="ghost" size="sm" class="workbench-titlebar__button" data-measure="project-icon">
                 <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0"></span>
                 <span v-if="project !== null" class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
             </Button>
-            <span class="workbench-titlebar__divider" data-measure="divider"></span>
-            <Menubar :menus="menubar" size="sm" variant="flat" data-measure="menubar" />
+            <span class="workbench-titlebar__measure-divider" data-measure="divider"></span>
+            <!-- 菜单栏的复本：与 nb-ui Menubar 的 sm、flat 触发器同样的间距、内边距与字号；那边改了这里要跟着改。 -->
+            <span class="inline-flex items-center gap-0.5" data-measure="menubar">
+                <span v-for="group in menubar" :key="group.id" class="px-2 py-0.5 text-[12px] font-medium">{{ group.label }}</span>
+            </span>
             <IconButton size="sm" icon-class="i-lucide-menu" aria-label="" class="workbench-titlebar__button" data-measure="menu-icon" />
             <kbd class="workbench-titlebar__kbd" data-measure="shortcut">{{ searchShortcut }}</kbd>
-            <span class="workbench-titlebar__start" data-measure="layout"><IconButton v-for="part in PARTS" :key="part" size="sm" :icon-class="PART_ICONS[part]" aria-label="" /></span>
+            <span class="workbench-titlebar__measure-group" data-measure="layout"><IconButton v-for="part in PARTS" :key="part" size="sm" :icon-class="PART_ICONS[part]" aria-label="" /></span>
         </div>
     </header>
 </template>
@@ -410,7 +416,8 @@ onBeforeUnmount(() => {
 }
 
 .workbench-titlebar__start,
-.workbench-titlebar__end {
+.workbench-titlebar__end,
+.workbench-titlebar__measure-group {
     display: flex;
     align-items: center;
     gap: var(--space-1);
@@ -427,21 +434,24 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
-/* 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。 */
-.workbench-titlebar__brand {
+/* 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。测量层的复本同样的盒子。 */
+.workbench-titlebar__brand,
+.workbench-titlebar__measure-lockup {
     flex: 0 0 auto;
     height: 17px;
     margin-inline: var(--space-1) var(--space-2);
 }
 
-.workbench-titlebar__mark {
+.workbench-titlebar__mark,
+.workbench-titlebar__measure-mark {
     flex: 0 0 auto;
     height: 18px;
     margin-inline: var(--space-1);
 }
 
 /* 项目切换与菜单之间的短分隔。 */
-.workbench-titlebar__divider {
+.workbench-titlebar__divider,
+.workbench-titlebar__measure-divider {
     flex: 0 0 auto;
     width: var(--border-w);
     height: 16px;
@@ -491,7 +501,8 @@ onBeforeUnmount(() => {
     max-width: 220px;
 }
 
-.workbench-titlebar__project-name {
+.workbench-titlebar__project-name,
+.workbench-titlebar__measure-name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
