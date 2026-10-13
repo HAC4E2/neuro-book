@@ -1,0 +1,13 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t11-notify",
+    "artifactId": "questions",
+    "ackId": "20261013T081242989Z-1e5d2675",
+    "answers": [
+        "20261013T081222601Z-b5a6d4ed"
+    ],
+    "through": "20261013T081222601Z-b5a6d4ed",
+    "included": [],
+    "ackedAt": "2026-10-13T08:12:42.989Z"
+}
