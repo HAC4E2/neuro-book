@@ -1,0 +1,39 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t11-notify",
+    "artifactId": "questions",
+    "version": 1,
+    "supersedes": null,
+    "action": "ask",
+    "kind": "questions",
+    "title": "t11-notify 的提问",
+    "state": "open",
+    "entry": null,
+    "contentHash": null,
+    "questions": [
+        {
+            "id": "notify-smoke",
+            "type": "single",
+            "label": "通知验收：选哪个？",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "甲"
+                },
+                {
+                    "value": "b",
+                    "label": "乙"
+                }
+            ],
+            "required": true,
+            "recommend": [],
+            "origin": "ask",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-13T08:11:24.065Z"
+}
