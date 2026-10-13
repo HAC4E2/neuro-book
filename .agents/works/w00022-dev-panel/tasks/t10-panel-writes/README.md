@@ -41,6 +41,11 @@ updated: 2026-10-13
 - 验收只在临时仓库上做，没有在真实仓库上用面板写入。
 - 未验证：`commit_included_foreign_changes` 只用 git 垫片验证过；只验了 Chrome；关标签页时的 `beforeunload` 提示没在有界面的浏览器里看；两个标签页同时编辑同一个文件只有 L3 覆盖。
 
+- 2026-10-13 实现审查（[报告](evidences/impl-review.txt)）：0 阻断、2 重要、5 建议，设计审查 18 条全部落实。主 Agent 定为全部采纳，范围外的一条偶发失败也一起修。
+  - 重要 1：暗色对话框透字。原因是 Vite 8 缺省的 Lightning CSS 压缩丢了 nb-ui 里不带前缀的 `backdrop-filter`；面板改用 esbuild 压缩 CSS，nb-ui 本身不改。
+  - 重要 2：根上的 `dev-panel-records.test.ts` 在 Node 下因 `runGit` 对 stdin 的 EPIPE 偶发以 1 退出，这是 t06 就有的问题，已随 t06 合入 master。
+  - 建议：编辑 Task 里的文档要求 Task README 已提交；“结果未知”时真的重新取数，新建页不能再按；预览失败不挡提交；一起提交后清掉未提交提示；`UncommittedDialog.md` 补能力标签。
+
 ## 下一步
 
-交 opus 子代理做实现审查（不阻塞），同时开始 t11。
+编码子代理修实现审查的问题；修完后合入 master（要开发者授权）。

@@ -1,0 +1,148 @@
+# w00022/t10 实现审查报告（16cfb817e..d734dd21a，只读）
+
+## 结论
+
+0 条阻断、2 条重要、5 条建议。写入安全、与命令行同一套实现、并发与 Git 这三块都站得住：写接口在登录之后，校验顺序没有能绕过的；编辑白名单在锁内重算，写不到 `.git`、`.local`、`package.json`、代码文件与仓库外；README 改不了 `status`；主工作区暂存区里别人的改动不会被带进面板的提交。两条“重要”都不在写入逻辑本身：
+
+**重要**：
+
+- 正文第 1 条：暗色下“未提交改动”对话框透字，原因是面板前端构建用 Lightning CSS 压缩 CSS 时把 nb-ui 写在前面的 `backdrop-filter` 丢了，只剩 Chrome 不认的 `-webkit-backdrop-filter`；不是零件样式，也不是 Dialog 用法。`vite.config.ts` 加 `cssMinify: "esbuild"` 即可（实验）。
+- 正文第 7 条：根上的完成门禁 `scripts/ci/dev-panel-records.test.ts` 在 Node 下 5 次全跑 5 次以 1 退出（未处理的 EPIPE，栈在 `git.ts:56`）；根因是 t06 的 `runGit` 对不读 stdin 的 Git 也写 stdin，t10 的新用例与更多 Git 调用让它几乎每次出现；CI 的 code-baseline 跑这份测试（实验）。
+
+**建议**：
+
+- 正文第 2 条：编辑 Task 目录里的文档不要求 Task README 已提交，确认后 master 上会出现没有 README 的 Task 目录（实验；改法是补一个参数）。
+- 正文第 3 条：“结果未知”在编辑页与新建页没有重新取数，新建页的表单原样可以再交一次（实验）。
+- 正文第 4 条：新建页预览失败会挡住提交，与注释相反（实验）。
+- 正文第 5 条：编辑页“一起提交”成功之后，“有别人没提交的改动”的提示条还在（实验）。
+- 正文第 6 条：`UncommittedDialog.md` 的能力标签写空，与仓库里包 Dialog 的组件的写法不一致。
+
+正文按发现的先后编号。
+
+**设计审查 18 条的落实**：全部落实，没有落实错的。逐条：1 写接口在登录之后（实测顺序）；2 `idleTimeout: 60`、`signal` 与 `request_aborted`、界面的“结果未知”（界面部分见正文第 3 条）；3 白名单不用 `classifyDoc`，锁内重算，审查列的六种绕路写法与符号链接都拒绝；4 落位后按写入内容核对、`commit_included_foreign_changes`；5 README frontmatter 锁内校验；6 预览改 POST；7 必填哈希绑定、去掉 `acceptedDiffHash`、差异固定参数；8 两段差异与 `staged_rename`（命令行同样）；9 场景 3 的两条判据；10 L4 先等“等待中”；11 漏掉的失败路径与 `mainWritable`；12 写后等重算；13 `stale_version` 进锁、`taskId` 必填；14 前端宿主与状态表（`unknown` 的细节见正文第 3 条）；15 调用者种类 `developer`；16 控制字符；17 S4 不做、外壳不听 iframe（浏览器实测）；18 前端算“别人改了什么”。
+
+**结束时的状态**：worktree `git status --short` 为空，HEAD 仍是 `d734dd21a`；面板（PID 3617738，端口 4443/4444）已 SIGTERM 退出，本审查起的浏览器都已关闭，没有残留进程；`herdr session list` 有 `default` 与 `nbdev-review-t11`，后者不是本审查建的（包测试的 L4 建删的 `nbdev-test` 已删），没有动它。写入只在 `scratchpad/review-t10-impl/tmp/` 的临时仓库上做；对真实仓库只做了 `--no-optional-locks` 的只读查询；前端构建输出到 scratchpad，没有写 worktree 的 `dist/`。截图在 `.local/agent/works/w00022-dev-panel/tasks/t10-panel-writes/shots/review-*.png`。
+
+
+## 发现
+
+实验脚本在 `scratchpad/review-t10-impl/scripts/`，临时仓库在同目录的 `tmp/`，日志在 `logs/`。
+
+### 1.【重要】暗色下“未提交改动”对话框透字：面板前端构建的 CSS 压缩把 nb-ui 的 `backdrop-filter` 丢了，不是零件样式也不是 Dialog 用法的问题
+
+- **位置**：
+  - `packages/dev-panel/vite.config.ts:11-16`（`build` 没有设 `cssMinify`，Vite 8.1.4 缺省用 Lightning CSS 压缩 CSS）；
+  - 输入：`packages/nb-ui/dist/nb-ui.css:2874-2884`（`.nb-ui-popover-surface` 先写 `backdrop-filter: var(--overlay-blur)`，后写 `-webkit-backdrop-filter: var(--overlay-blur)`）；
+  - 受影响的使用处：`packages/dev-panel/src/web/parts/UncommittedDialog.vue:15`（nb-ui 的 `Dialog`，面是 `.nb-ui-popover-surface .nb-ui-dialog-surface`）。
+- **现象**：nbook 主题暗色下对话框的面是 `color-mix(in srgb, #2d2925 75%, transparent)`，本来要配 8px 的背景模糊（`--overlay-blur`）。浏览器里对话框面的计算样式 `backdrop-filter: none`，背后编辑器的字以 25% 透过来，清楚地叠在说明文字与差异上（亮色下面是 65% 不透明，同样透字，只是没那么扎眼）。
+- **原因**（实验）：
+  - 构建产物 `assets/index-*.css` 里这条规则只剩 `-webkit-backdrop-filter:var(--overlay-blur)`，没有不带前缀的那条；Chrome 不认 `-webkit-backdrop-filter`，所以没有模糊。
+  - 同一份源码用 `vite build --minify false` 构建，两条都在；用 `build.cssMinify: "esbuild"` 构建，两条也都在。所以是压缩这一步丢的。
+  - 直接用 Lightning CSS 转 `.a{backdrop-filter:var(--b);-webkit-backdrop-filter:var(--b)}`，压缩与不压缩、给不给 `targets`（含 chrome 120、safari 16）都只留最后一条 `-webkit-` 的。它把两条当成同一属性的前缀变体合并，保留后写的那条；nb-ui 的写法恰好是不带前缀的在前。
+  - 零件自己的样式没有碰面色与模糊；`Dialog` 的用法（`size="lg"`、缺省的不透明遮罩）也没问题。下拉菜单（`FormSelect`）不受影响：它的模糊由 `useDropdownSurfaceStyle` 以内联样式给出，实测计算样式是 `blur(8px)`。
+- **为什么是问题**：这个对话框是让开发者确认“把别人没提交的改动一起提交进 master”的地方，说明文字与差异要读清楚；现在暗色下背后的正文和对话框的字叠在一起。另外面板里所有只靠 `.nb-ui-popover-surface` 类给模糊的浮层都一样没有模糊，主题的设计意图在面板里静默失效。
+- **如何核实**：
+  - 临时仓库 `tmp/h-browser`，面板 4443/4444（`scripts/serve.sh`、`scripts/browser-setup.ts`）。
+  - `scripts/browser.ts dialog`：暗色、亮色各开一次编辑页触发对话框，读计算样式（日志 `logs/browser-dialog.log`：`backdrop: "none"`，`--overlay-blur` 能解析成 `blur(8px) …`）。截图 `shots/review-dialog-dark.png`、`review-dialog-light.png`。
+  - `scripts/browser-css.ts`：枚举命中对话框面的样式规则，只有一条 `.nb-ui-popover-surface`，它的 `backdrop-filter` 为空（`logs/browser-css.log`）。
+  - `scripts/lcss.ts`：Lightning CSS 的转换结果（`logs/lightningcss.log`）。`logs/vite-build-nominify.log`、`logs/vite-build-esbuildcss.log`：两种构建的产物里两条都在。
+  - `scripts/browser-blurfix.ts`：只在页面里注入 `.nb-ui-popover-surface{backdrop-filter:var(--overlay-blur)}` 后截图 `shots/review-dialog-dark-with-backdrop-filter.png`，背后的字变成糊团，对话框的字清楚。
+- **建议改法**：
+  - 面板这边（不改 nb-ui）：`vite.config.ts` 的 `build` 加 `cssMinify: "esbuild"`（已验证产物两条都在），或者 `cssMinify: false`（配置里已写明面板只在本机开、不在乎产物大小）；写一句注释说明 Lightning CSS 会丢掉写在前面的不带前缀的 `backdrop-filter`。
+  - 根上的修法在 nb-ui：前缀写在前、标准写法写在后（`styles.css:159-160`、`:661-662` 两处），这是通行顺序，任何用 Lightning CSS 的消费方都会踩到。t10 约定不改 nb-ui，交开发者决定是否另开一处改。
+
+### 2.【建议】编辑 Task 目录里的文档不要求 Task README 已提交：确认之后 master 上会出现没有 README 的 Task 目录
+
+- **位置**：`packages/dev-panel/src/core/edit-ops.ts:79-86`（`TASK_DOCUMENT` 一支调 `resolveWritableTask(scope, w, t)`，没有传 `{requireCommittedReadme: true}`）；对照 `src/core/operations.ts:96-117` 的注释“产物与答复的写入要求 Task README 已提交，否则 `master` 上会出现没有 Task README 的提交”，以及同文件 README 一支（`edit-ops.ts:69`）是传了的。
+- **现象**：Task README 与它目录里的 `notes.md` 都还没提交（会话按 Work 规则的兜底办法手工建号、还没来得及提交），面板编辑 `notes.md`：读接口给 `editable: true`；保存时弹“这个文件还没入库”的对话框，确认后提交里只有 `notes.md`。HEAD 上这个 Task 目录没有 README。
+- **为什么是问题**：主工作区里 README 在磁盘上，本地的 `governance:check` 看不出来；但任何干净 checkout（CI、别的 worktree 同步 master）都报 `Work Task 缺少 README.md`。核心对产物、答复、确认都用 `task_not_committed` 守住了这条不变量，编辑是唯一漏掉的写入路径。发生的前提是主工作区里有一个未提交的 Task README（`nbdev task new` 会立即提交，所以只在手工建号或迁移的间隙出现），概率低，但改法只有一个参数。
+- **如何核实**：`scripts/task-doc-uncommitted-readme.ts`（日志 `logs/task-doc-uncommitted-readme.log`）：`editable: true`；第一次保存 `uncommitted_changes`（`status: ["??"]`、`untracked: true`）；确认后提交成功，`git ls-tree HEAD` 只有 `notes.md`；对 `git archive HEAD` 的导出跑 `verifyWorkContracts` 得到 `Work Task 缺少 README.md：…/t02-manual/README.md`，主工作区本身为空；同一个 Task 上 `submitAnswer` 报 `task_not_committed`。
+- **建议改法**：`TASK_DOCUMENT` 一支改成 `resolveWritableTask(scope, match[1]!, match[2]!, {requireCommittedReadme: true})`（读接口随之在 `reason` 里给出 `task_not_committed`，编辑页只读并写明原因）；L2 补一条。
+
+### 3.【建议】“结果未知”在编辑页与新建页的处理与说明不符：没有重新取数，新建页的表单原样可以再交一次
+
+- **位置**：`packages/dev-panel/src/web/host/writes.ts:31`（文案“已重新载入；刷新后看这次写入有没有生效，不要直接再提交一次”）；`src/web/pages/EditPage.vue:68-78`（`unknown` 只出提示，不重取）；`src/web/pages/NewPage.vue:80-83`（失败时保留表单，按钮照常可按）。
+- **现象**（浏览器实验，服务端照常写入、浏览器拿到连接重置）：
+  - 编辑页：提示写“已重新载入”，但页面没有重取（编辑页本来就不订阅推送）；“保存并提交”仍可按。再按一次走 `hash_mismatch`，“别人改了什么”里显示的其实是自己刚才那次保存。不会写第二次，只是说明对不上。
+  - 新建页：提示同上；表单字段原样保留、“新建 Work”仍可按。服务端那次已经建好了 `w00002-lost`，再按一次就会领第二个号（请求不带幂等键；从代码推断，没有再按）。
+- **为什么是问题**：设计审查第 2 条要防的正是“看到失败再按一次就多领一个号”。服务端的 `idleTimeout` 与 `request_aborted` 已经把这个窗口压得很窄（回环上基本只剩面板进程中途退出），剩下的只靠一句提示；而新建页上“再按一次”是最顺手的动作。
+- **如何核实**：`scripts/browser.ts failures`（日志 `logs/browser-failures.log`）：Playwright 用 `route.fetch()` 把请求送到服务端、再 `route.abort("connectionreset")`。编辑页 `saveEnabled: true`、`retryVisible: false`、服务端已有提交；新建页 `submitEnabled: true`、`slugStillFilled: "lost"`、服务端已有 `docs(w00002): 面板新建 Work w00002-lost 与 t01-first`。
+- **建议改法**：
+  - 新建页拿到 `unknown` 时把提交按钮置灰，直到开发者在左栏或结果区确认过（例如结果区写“去左栏看有没有新 Work”，并给“我已确认，清空表单”与“我已确认，还要再建”两个按钮），或者至少清空短名；
+  - 编辑页拿到 `unknown` 时重取一次 `/api/files`，哈希变了就直接进“别人改了什么”的分支并写明“可能是你刚才那次保存已经生效”；
+  - 文案按页面分开：没有重新载入的页面不写“已重新载入”。
+
+### 4.【建议】新建页：预览接口失败会挡住提交，与注释“预览失败不挡提交”相反
+
+- **位置**：`packages/dev-panel/src/web/pages/NewPage.vue:55-57`（注释与把失败写成 `problems: [{field: "preview", …}]`）；`src/web/parts/NewWorkForm.vue:27-30`、`NewTaskForm.vue:24-27`（`errors` 吸收全部 `problems`，`complete` 要求全部为空）。
+- **现象**：预览回 500 时提交按钮被禁用，预览区写“preview：预览时 git 失败”，按钮旁没有说明。
+- **为什么是问题**：注释与行为相反，后来的人会按注释理解。实际影响小：预览与新建读的是同一份扫描，预览失败时新建多半也会失败。
+- **如何核实**：`scripts/browser.ts failures` 的第三段，`page.route` 把 `/api/preview/work` 换成 500，表单填全后 `submitDisabled: true`。
+- **建议改法**：二选一并让注释与之一致：要么零件只吸收字段名在表单里的 `problems`（`preview` 这一条只在预览区显示），要么改注释为“预览失败时不让提交”，并在按钮旁写原因。
+
+### 5.【建议】编辑页“连同改动一起提交”成功之后，“这个文件有别人没提交的改动”的提示条还在
+
+- **位置**：`packages/dev-panel/src/web/pages/EditPage.vue:59-66`（保存成功只换 `base` 与 `draft`，不重取 `file`）、`:135-137`（提示条读 `file.data.value.uncommitted`）。
+- **现象**：确认一起提交、提示“已保存，已提交 …”之后，页面上方仍写“主工作区里这个文件有别人没提交的改动（ M）”，而 `git status` 里这个文件已经干净。
+- **为什么是问题**：开发者刚确认过把别人的改动一起提交，紧接着又看到“有别人没提交的改动”，会以为提交没带上或又被改了。下一次保存不受影响（服务端现算）。
+- **如何核实**：`scripts/browser2.ts` 第二段（日志 `logs/browser2.log`：`bannerStillVisible: true`、`gitStatusOfFile: ""`），截图 `shots/review-edit-after-confirm.png`。
+- **建议改法**：保存成功后把本地的 `uncommitted` 置空（或者只重取 `/api/files` 的元信息，不覆盖编辑器文本）。
+
+### 6.【建议】`UncommittedDialog.md` 的能力标签写成空，与仓库里包一层 Dialog 的组件的写法不一致
+
+- **位置**：`packages/dev-panel/src/web/parts/UncommittedDialog.md:1-3`（`标签: []`）。nb-ui 的 `Dialog.md` 是 `[state:local, env:portal, env:global]`；仓库里包一层 Dialog 的组件都把这两条写上，例如 `packages/neuro-book/app/components/common/LucideIconPickerDialog.md`（`[state:local, env:portal, env:global]`）、`common/Dialog.md`。
+- **为什么是问题**：组件规范的能力标签是“对实现的如实描述”，`env:portal` 还要求写出渲染目标（这里是 `body`）。不影响行为，只是声明与仓库惯例不一致。
+- **建议改法**：标为 `[env:portal, env:global]`，正文写一句“内容经 nb-ui 的 Dialog 渲染到 body，Esc 与遮罩点击关闭”。
+
+### 7.【重要】根上的完成门禁 `scripts/ci/dev-panel-records.test.ts` 在 Node 下因未处理的 EPIPE 失败（5 次全跑 5 次退出码 1）；根因在 `git.ts`，t10 的新用例与更多 Git 调用让它几乎每次出现
+
+- **位置**：`packages/dev-panel/src/core/git.ts:43`、`:56`（`stdio` 一律 `pipe`，`child.stdin.end(options.input ?? "")` 对不读 stdin 的 Git 子命令也写一次，`child.stdin` 没有 `error` 监听）。触发它的是 `scripts/ci/dev-panel-records.test.ts:85-100`（t10 新加的“面板与命令行同时新建 Work…”）；CI 在 `.github/workflows/code-baseline.yml:109` 跑这份测试。
+- **现象**：
+  - `bun x vitest run --config scripts/vitest.config.ts scripts/ci/dev-panel-records.test.ts` 连跑 5 次，每次都是 `Tests 5 passed`，但每次带 1 到 5 个 `Uncaught Exception: Error: write EPIPE`（栈指向 `git.ts:56`），vitest 以 1 退出。
+  - 只跑 t10 之前就有的三条用例：3 次里 1 次出现同样的 EPIPE；只跑 t10 新加的那条：3 次里 2 次出现。
+  - 同一个 `runGit` 并发跑 800 次 `git rev-parse`：Node（tsx）下 1 次未处理的 EPIPE，Bun 下 0 次。
+- **为什么是问题**：计划的“验证”一节写根上三个测试文件全部通过，但在本机 Node v26.10.0 下这份文件稳定失败，CI 的 code-baseline 也跑它，会时红时绿。核心库对外声明 Node 兼容（包 `AGENTS.md` 的“边界”一节），在 Node 进程里这是一个未处理的异常，不只是测试噪音。面板与 `nbdev` 跑在 Bun 上，实测没有这个问题，所以不影响产品行为。根因是 t06 的 `git.ts`，不是 t10 写的；t10 的写入路径多了 `hash-object`、`diff --cached`、`status` 等调用，新用例又并发两次 `createWork` 再编辑，命中的机会大了很多。
+- **如何核实**：日志 `logs/root-test.log`、`logs/root-test-1.log` 到 `-4.log`（全跑）、`logs/root-test-old-*.log`（只跑旧用例）、`logs/root-test-new-*.log`（只跑新用例）；`scripts/epipe-stress.ts`（Bun）与 `scripts/epipe-stress.mts`（Node，经 `node_modules/.bin/tsx`），日志 `logs/epipe-node.log`。
+- **建议改法**：`runGit` 只在给了 `input` 时才给子进程开 stdin（`stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]`）；给了 `input` 的那条再挂 `child.stdin.on("error", …)`，EPIPE 记一条诊断后忽略（子进程提前退出时以退出码与 stderr 报失败），其它错误照常拒绝。改完连跑几次根上的这份测试确认没有未处理的错误。
+
+## 范围外的顺带发现（不计入条数）
+
+- `packages/dev-panel/tests/panel-server.test.ts:369-373`（t09 的用例）读 `/proc/<pid>/stat` 时只放过 `ENOENT`，进程正在退出时读会得到 `ESRCH`，用例偶发失败。本次全跑包测试 198 过 1 败就是它（`logs/pkg-test.log`），单独重跑这个文件 18 个全过（`logs/panel-server-rerun.log`）。计划“验证”一节写的“199 个全过”在本机不稳定复现。建议把 `ESRCH` 与 `ENOENT` 同样当作“已退出”。
+- herdr：本审查只跑了包测试里的 L4（建、删 `nbdev-test`），结束时 `herdr session list` 有 `default` 与 `nbdev-review-t11`；后者不是本审查建的（看名字是 t11 的审查会话），没有动它。
+
+## 已核对、没有问题的
+
+- **写接口的校验顺序**（`src/server/serve.ts:273-297`，`src/server/writes.ts:70-94`）：转发头 → `Host` → 路径解码 → `/api` 的 `Sec-Fetch-Site` 与登录 → 非 `GET` 的同源 `Origin` 与 CSRF → `Content-Type` → 限长 → 字段。`scripts/server-guards.ts` 逐条实测（日志 `logs/server-guards.log`）：没登录（CSRF 与 Origin 都对，或都缺）401；缺 Origin、`Origin: null`、产物来源做 Origin、CSRF 错 403；`Sec-Fetch-Site: same-site` 403；`X-Forwarded-For` 403；别的 `Host` 421；`text/plain`、`application/x-www-form-urlencoded`、`multipart/form-data`、没有 `Content-Type` 都 415；`application/json; charset=utf-8` 收；分块传输、没有 `Content-Length` 的超长请求体边读边数回 413；顶层 `__proto__` 回 400（`unknown_field`）；标题带 NUL、目标带 CR、`issue` 是字符串都 400。（带 BOM 的 JSON 被解码器去掉 BOM 后照常处理，属正常。）没有能绕过登录的路径。
+- **编辑白名单**（`src/core/edit-ops.ts:48-98`，在写事务里调用，锁内重算 `listDocPaths` 与 `listDocuments`）：同一实验对 `.git/description.md`、`docs/../.git/description.md`、经符号链接指向 `.git` 的 `docs/gitlink/…`、`.local/agent/notes.md`、`package.json`、`packages/foo/src/x.ts`、经符号链接出仓库的 `docs/specs/ext/x.md`、`.agents/works/README.md`、证据目录与产物目录里的 `.md`、`%2e%2e/…`、`/etc/passwd` 都是读 404、写 409 `not_editable`，文件内容不变；文档树上的 `docs/…`、`packages/foo/docs/…`、`AGENTS.md`、`vitepress/…` 与 Task 第一层文档能改、各自一个路径限定的提交。只编辑已存在的普通文件、整条路径不经过符号链接、拒绝非 `.md`，都由 L2 覆盖。读接口对白名单之外返回 404，不会借编辑页读出别的文件。
+- **README 的 frontmatter 校验**（`edit-ops.ts:115-132`）：`scripts/readme-edits.ts`（`logs/readme-edits.log`）：重复的 `status` 键（YAML 解析即失败）、flow 映射里写 `status: done`、`!!str done`、开头加 BOM、新增 `agentWorkflow` 都拒绝；`status` 只加引号、正文里再写一段 `---` 块都放行且状态不变。改 `status` 只能走状态切换。
+- **新建表单的注入**：`scripts/create-injection.ts`（`logs/create-injection.log`）：目标里写一整段 `---\nstatus: shelved\nissueId: i9\n---`、`## 目标`、`# 伪造的标题`，标题里写 `---` 与 HTML，frontmatter 仍是模板写的（`status: active`、`issueId: null`），提交信息只含 id，`verifyWorkContracts` 为空；短名带换行报 `invalid_slug`。
+- **与命令行同一套实现**：`writes.ts` 的每个接口都直接调 `submitAnswer`、`createWork`、`createTask`、`setRecordStatus`、`setTaskStatus`、`editRecordFile`，都经 `runWriteTransaction` 取同一把锁；预览只调 `previewCreateWork`、`previewCreateTask`，不经写事务。调用者种类 `developer` 只影响三处：登记表的 `by`、提交信息里的“面板”、`touchCallerLease` 不给 `caller_unknown`；命令行不会产生这种调用者，`actorOf` 对其它调用者返回原来的 `nbdev `，提交信息与命令行行为不变。命令行这边因 t10 改变的只有已写进 `docs/cli.md` 的几条（控制字符、先哈希后未提交改动、`staged_rename`、`changed_after_write`、`uncommitted_changes` 的 details 形状）。
+- **主工作区暂存区里别人的改动**：`scripts/git-scenarios.ts`（`logs/git-scenarios.log`）：
+  - 暂存区里有别人改的文档、一次无关的改名（`R100 x.md → y.md`）、一个新文件时，面板编辑一个干净的文档，提交只有目标，暂存区前后逐字相同；
+  - 状态切换时，同一个 Task 目录里别人暂存的新文件没被带走；
+  - 目标是暂存改名的新名、或旧名被重建，都报 `staged_rename`，HEAD 不变；
+  - 目标先暂存 X、工作区再改成 Y（`MM`）：拒绝时差异分 `staged` 与 `unstaged` 两段，确认后提交的是 Y 加面板的改动，暂存区与工作区都干净；
+  - 别人新建并暂存的文档（`A `）默认拒绝并给出暂存差异；
+  - `index.lock` 被占时编辑已落位、没提交，`commit` 带 `writtenPaths`，写接口回 500 `commit_failed`（L3 已测）。
+- **哈希绑定与顺序**：状态切换必带 `expectedHash`、编辑必带 `baseHash`；核心锁内先比哈希（`hash_mismatch` 带 `currentHash`），再查暂存的改名，再查未提交改动（`uncommitted_changes` 带 `currentHash`、两段差异、`untracked`）；给人看的差异固定加 `--no-ext-diff --no-textconv --no-color --full-index`。`acceptedDiffHash` 与 `diff_changed` 已去掉。
+- **落位后的核对**：`verifyWritten`（`src/core/transaction.ts:263-279`）在 `git add` 之前按写入内容核对，`expectedBlobs` 用写入内容经 `hash-object --stdin --path=` 算；`changed_after_write` 带 `writtenPaths`，`commit_included_foreign_changes` 照列。L2 两条垫片用例覆盖。真实主工作区没有 Git 钩子（`core.hooksPath` 为空，`hooks/` 里只有样例），不会因钩子改写文件而误报。
+- **客户端断开与空闲超时**：`request_aborted` 的检查在取锁、暂存到临时目录之后，写登记表之前；`idleTimeout: 60`；L3 用 curl 测了等锁 15 秒不被切断、只领一个号，以及 3 秒断开什么都不写（本次包测试全跑通过）。
+- **写后等重算**：`Refresher.run()` 改成返回一次“调用之后才开始”的重算；逐段推演了正在算、已排队、无运行三种情形，语义正确；`once()` 内部吞掉 `Error` 只记日志，不会让写接口在提交之后回 500。
+- **答复**：`requireLatest` 在锁内比对，旧版本回 409 `stale_version`（带 `latestVersion`）；伪造题号 404 `question_not_found`，`__proto__` 键 400；`taskId` 必填，Work 级产物不出表单。浏览器里在 iframe 内连发两条伪造的 `postMessage`（`nbdev:fill`、`nbdev:submit`）之后没有任何非 GET 请求、没有新答复、侧栏表单没被填（`logs/browser-iframe.log`）；前端代码里唯一的 `message` 监听在 WebSocket 上。侧栏表单直接导入核心的 `validateAnswerValue` 与 `controlCharProblem`；提交之后表单预填的是刚交的取值（`logs/browser2.log`）。
+- **前端**：
+  - 状态切换 503 `lock_timeout` 写“这次什么都没写”并给“重试”；`hash_mismatch` 不写、写“README 在你打开之后被改过，已重新载入”（`logs/browser3.log`）；
+  - 编辑页有未保存改动时点左栏被 `confirm` 拦下，关页触发 `beforeunload`（`logs/browser-leave.log`）；
+  - 零件不发请求：`src/web/parts/` 里没有 `fetch`、`sendJson`、定时器、剪贴板与全局监听；九个新零件都有同名 `.md`；nb-ui 没有改动；
+  - 390 宽下新建页、编辑页、产物页、Task 页、Work 页都没有横向溢出（`logs/browser-narrow.log`，截图 `shots/review-390-*.png`）；
+  - 前端构建不会把 `parse5` 打进去（`questions.ts` 的动态导入被摇掉）。
+- **测试**：没有为通过而放宽的断言，产品代码里没有测试专用的分支；`artifacts-cli.test.ts` 的改动是按“最近更新”的新口径加断言。L4 先等 pane 里那条命令把“等待中”写进 stderr 文件再提交，提交前断言 `exit` 文件不存在，之后 5 秒内为 0、`unacked` 是这份答复。`typecheck`（含 `vue-tsc`）通过。
+- **禁止清单**：
+  - 没有按错误文案分支（核心与界面都按 `code`）；
+  - 新增的 `catch` 都带错误变量、要么改写成带码的错误要么记日志或出提示，没有静默吞掉；
+  - 没有为让测试通过而掩盖问题；
+  - 删除的行都是被等价改写的（`assertTitle` 挪进 `text-rules.ts`、`resolveWritable*` 改收范围对象、`commitPaths` 的 `expectedBlobs` 改由写入内容算），没有删任务之外的代码或配置；
+  - 写事务的 `finally`（删临时目录、放锁）、`Refresher` 的 `running = null` 都保留；
+  - 没有跨包深导入（前端导入的是本包 `src/core/` 的纯模块）；
+  - 没有把能做的事标成“做不到”。
+- **设计审查 18 条**：逐条核对都已落实（见结论段）；“实施进度”里偏离处理意见的 7 处理由成立：空闲超时用例不是回归用例这一点已在注释与文档写明；`changed_after_write` 单列错误码比复用 `uncommitted_changes` 更对（后者会让界面弹“一起提交”）。
+
