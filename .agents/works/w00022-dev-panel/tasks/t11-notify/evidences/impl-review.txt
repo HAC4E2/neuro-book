@@ -57,7 +57,7 @@ L4 的负样本覆盖了设计审查列的前三种：认不出的确认界面�
   - 开发者的面板（pid 3751249）在收尾检查时已不在，4400、4401 也没有监听。本审查没有对它发过信号：所有 `kill` 都只针对自己起、在输出里记下的 PID。
 - 没有建 `~/.config/nbdev/`，没有安装或启用 systemd 单元，没有碰主工作区 `.local/agent/` 下的 `panel.json` 与锁。
 
-截图在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00022-dev-panel/tasks/t11-notify/shots/review-t11-iframe-*.png`。
+截图在 `.local/agent/works/w00022-dev-panel/tasks/t11-notify/shots/review-t11-iframe-*.png`。
 
 ## 发现
 
