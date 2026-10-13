@@ -33,7 +33,7 @@ async function until<T>(read: () => T | Promise<T>, ok: (value: T) => boolean, m
     }
 }
 
-type Panel = {server: PanelServer; fixture: Fixture; get(path: string): Promise<{status: number; body: {data: Record<string, unknown>; errors: Array<{code: string}>}}>; post(path: string, csrf?: boolean): Promise<{status: number}>};
+type Panel = {server: PanelServer; fixture: Fixture; cookie: string; get(path: string): Promise<{status: number; body: {data: Record<string, unknown>; errors: Array<{code: string}>}}>; post(path: string, csrf?: boolean, body?: unknown): Promise<{status: number}>};
 
 /** 假 gh：sh 包装再交给 bun 跑 `fake-gh.ts`；模式写在一个文件里，测试中途可以改。 */
 async function fakeGh(fixture: Fixture): Promise<{bin: string; log: string; mode: (value: string) => Promise<void>; env: Record<string, string>}> {
@@ -64,13 +64,13 @@ async function startPanel(fixture: Fixture, env: Record<string, string>): Promis
     const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket(token))}`;
     const csrf = /name="nbdev-csrf" content="([^"]+)"/u.exec(await (await fetch(`${server.url}/`)).text())![1]!;
     return {
-        server, fixture,
+        server, fixture, cookie,
         async get(path) {
             const response = await fetch(`${server.url}${path}`, {headers: {Cookie: cookie}});
             return {status: response.status, body: await response.json() as {data: Record<string, unknown>; errors: Array<{code: string}>}};
         },
-        async post(path, withCsrf = true) {
-            const response = await fetch(`${server.url}${path}`, {method: "POST", headers: {Cookie: cookie, Origin: server.url, ...(withCsrf ? {"X-Nbdev-Csrf": csrf} : {}), "Content-Type": "application/json"}, body: "{}"});
+        async post(path, withCsrf = true, body = {}) {
+            const response = await fetch(`${server.url}${path}`, {method: "POST", headers: {Cookie: cookie, Origin: server.url, ...(withCsrf ? {"X-Nbdev-Csrf": csrf} : {}), "Content-Type": "application/json"}, body: JSON.stringify(body)});
             await response.body?.cancel();
             return {status: response.status};
         },
@@ -84,7 +84,11 @@ describe("GitHub 只读页（场景 5）", () => {
         const fixture = await createFixture("gh-ok");
         const gh = await fakeGh(fixture);
         const panel = await startPanel(fixture, {...gh.env, NBDEV_GH_BIN: gh.bin, PATH: "/usr/bin:/bin", FAKE_GH_ISSUES: "100"});
+        // GET 只读、不触发取数；打开页面时页面发 ifStale。
         await panel.get("/api/github");
+        await sleep(500);
+        expect(readFileSync(gh.log, "utf8")).toBe("");
+        expect((await panel.post("/api/github/refresh", true, {ifStale: true})).status).toBe(200);
         const data = await until(async () => (await panel.get("/api/github")).body.data as GithubData, (value) => value.state === "ok", 15_000, "GitHub 数据");
         expect(data.prs[0]).toMatchObject({number: 7, title: "<b>标题</b> 加粗不生效", branch: "feat/w00001-t01-seed", draft: false, reviewDecision: null, url: "https://github.com/x/y/pull/7", task: {workId: "w00001-seed", taskId: "t01-seed"}});
         expect(data.prs[0]!.checks).toEqual({success: 2, failure: 2, pending: 1, failed: [{name: "test", url: "https://github.com/x/y/runs/2"}, {name: "ci/legacy", url: null}]});
@@ -102,7 +106,7 @@ describe("GitHub 只读页（场景 5）", () => {
     test("降级：找不到 gh、没登录（以 4 退出）、输出读不懂；取过一次之后超时保留上一份并标 stale", async () => {
         const missing = await createFixture("gh-missing");
         const none = await startPanel(missing, {PATH: "/usr/bin:/bin"});
-        await none.get("/api/github");
+        await none.post("/api/github/refresh", true, {ifStale: true});
         expect(await until(async () => (await none.get("/api/github")).body.data as GithubData, (value) => value.state === "unavailable", 10_000, "unavailable")).toMatchObject({error: expect.stringContaining("NBDEV_GH_BIN")});
 
         const fixture = await createFixture("gh-degrade");
@@ -123,6 +127,54 @@ describe("GitHub 只读页（场景 5）", () => {
         const stale = (await panel.get("/api/github")).body.data as GithubData;
         expect(stale).toMatchObject({state: "stale", at: ok.at, error: expect.stringContaining("15 秒")});
         expect(stale.prs.length).toBe(2);
+    }, 60_000);
+
+    test("取不到数据时不成环（t14 实现审查 B1）：照页面的方式连着 /ws、每次推送就重取 GET，没登录、找不到 gh、出错三种状态下 10 秒里 gh 只跑一轮、推送有上限", async () => {
+        type Probe = {mode: string; gh: Awaited<ReturnType<typeof fakeGh>> | null; panel: Panel; pushes: number; gets: number; ws: WebSocket};
+        const probes: Probe[] = [];
+        const pending: Array<Promise<unknown>> = [];
+        for (const mode of ["auth", "missing", "fail"]) {
+            const fixture = await createFixture(`gh-loop-${mode}`);
+            const gh = mode === "missing" ? null : await fakeGh(fixture);
+            if (gh) await gh.mode(mode);
+            const panel = await startPanel(fixture, gh ? {...gh.env, NBDEV_GH_BIN: gh.bin} : {PATH: "/usr/bin:/bin"});
+            const ws = new WebSocket(`ws://127.0.0.1:${panel.server.port}/ws`, {headers: {Cookie: panel.cookie, Origin: panel.server.url}} as unknown as string[]);
+            closers.push(async () => ws.close());
+            const probe: Probe = {mode, gh, panel, pushes: 0, gets: 0, ws};
+            ws.onmessage = (event) => {
+                const message = JSON.parse(String(event.data)) as {type: string; parts?: string[]};
+                if (message.type !== "changed" || !(message.parts ?? []).includes("github")) return;
+                probe.pushes += 1;
+                probe.gets += 1;
+                pending.push(panel.get("/api/github"));
+            };
+            await new Promise((resolveOpen) => (ws.onopen = resolveOpen));
+            probes.push(probe);
+        }
+        // 打开页面：GET 一次，再发一次 ifStale。
+        for (const probe of probes) {
+            probe.gets += 1;
+            await probe.panel.get("/api/github");
+            expect((await probe.panel.post("/api/github/refresh", true, {ifStale: true})).status).toBe(200);
+        }
+        await sleep(10_000);
+        for (const probe of probes) {
+            const calls = probe.gh ? readFileSync(probe.gh.log, "utf8").trim().split("\n").filter(Boolean).length : 0;
+            const state = ((await probe.panel.get("/api/github")).body.data as GithubData).state;
+            // 一轮是两条命令（PR 与 Issue）。
+            const expected: Record<string, string> = {auth: "not_logged_in", missing: "unavailable", fail: "error"};
+            expect([probe.mode, state, calls <= 2, probe.pushes >= 1 && probe.pushes <= 2, probe.gets <= 3]).toEqual([probe.mode, expected[probe.mode]!, true, true, true]);
+        }
+        // 失败之后打开页面不到 60 秒不重取；“刷新”按钮照样立即取。
+        const auth = probes[0]!;
+        const before = readFileSync(auth.gh!.log, "utf8").trim().split("\n").length;
+        await auth.panel.post("/api/github/refresh", true, {ifStale: true});
+        await sleep(500);
+        expect(readFileSync(auth.gh!.log, "utf8").trim().split("\n").length).toBe(before);
+        await auth.panel.post("/api/github/refresh");
+        expect(readFileSync(auth.gh!.log, "utf8").trim().split("\n").length).toBe(before + 2);
+        for (const probe of probes) probe.ws.close();
+        await Promise.all(pending);
     }, 60_000);
 });
 

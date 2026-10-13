@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge, Button} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {computed, onMounted, ref} from "vue";
 import {useRouter} from "vue-router";
 import {ApiError, sendJson} from "../host/api.js";
 import {relativeTime} from "../host/format.js";
@@ -12,7 +12,8 @@ import PrList from "../parts/PrList.vue";
 
 /**
  * GitHub 只读页（t14，Proposal 待决问题 12）：开着的 PR（检查结果）与 Issue，都链到 GitHub；没有任何写按钮。
- * 数据由面板在后台用 `gh` 取：打开页面时取一次，有浏览器连着时每 5 分钟刷新；“刷新”立即取。取到之后经 `/ws` 推“github 变了”。
+ * 数据由面板在后台用 `gh` 取：打开页面时发一次“需要数据”（`ifStale`，到了间隔才取），有浏览器连着时每 5 分钟刷新；“刷新”立即取。
+ * 取完之后经 `/ws` 推“github 变了”，页面只重取 `/api/github`（这个 GET 不触发取数，推送与取数不会互相引发）。
  */
 const router = useRouter();
 const github = useResource<GithubData>(() => "/api/github", ["github"]);
@@ -31,6 +32,12 @@ async function refresh(): Promise<void> {
         pending.value = false;
     }
 }
+onMounted(() => {
+    void sendJson<GithubData>("POST", "/api/github/refresh", {ifStale: true}).catch((error: unknown) => {
+        if (!(error instanceof ApiError)) throw error;
+        refreshError.value = error.message;
+    });
+});
 const STATE: Record<GithubData["state"], {label: string; tone: "success" | "warning" | "danger" | "neutral"}> = {
     idle: {label: "还没取", tone: "neutral"}, ok: {label: "最新", tone: "success"}, stale: {label: "旧数据", tone: "warning"},
     unavailable: {label: "没有 gh", tone: "warning"}, not_logged_in: {label: "gh 没登录", tone: "warning"}, error: {label: "取不到", tone: "danger"},

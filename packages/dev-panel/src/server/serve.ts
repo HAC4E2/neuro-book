@@ -10,7 +10,7 @@ import {allowedHosts, contentType, decodePath, guardedFile, rejectForwarded, rej
 import {PanelState, type PartName} from "./state.js";
 import {assertMainWritable} from "../core/repo.js";
 import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
-import {createWriteHandler} from "./writes.js";
+import {createWriteHandler, readFields, statusOf} from "./writes.js";
 import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
 import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
 import {ControlRegistry} from "./control-registry.js";
@@ -134,9 +134,9 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     const github = new GithubCache({cwd: context.mainRoot, env: options.env, hasClients: () => state.hasClients(), onChanged: () => state.githubChanged(), log});
     const checkoutStatuses = new CheckoutStatusCache();
     const terminals = new TerminalHub({state, client: options.herdr, tools: terminalTools, audit, notifier, locks, controls, log, timings: options.terminalTimings});
-    // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转）。
+    // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转；GitHub 的数据与通知无关）。
     const stopNotifyTrigger = state.onChange((part) => {
-        if (part !== "notify" && ready) void notifier.tick();
+        if (part !== "notify" && part !== "github" && ready) void notifier.tick();
     });
     const serviceUnit = options.env.NBDEV_PANEL_UNIT && /^[A-Za-z0-9@._-]{1,128}$/u.test(options.env.NBDEV_PANEL_UNIT) ? options.env.NBDEV_PANEL_UNIT : null;
 
@@ -234,8 +234,8 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 const {data, warnings} = await checkoutsView(state, checkoutStatuses);
                 return envelope(data, warnings, null);
             }
+            // 只读当前这一份，不触发取数：页面收到“github 变了”就重取这里（t14 实现审查 B1）。
             if (route === "github" && rest.length === 0) {
-                github.touch();
                 const {data, warnings} = githubView(state, github.current());
                 return envelope(data, warnings, null);
             }
@@ -342,8 +342,17 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         if (req.method !== "GET" && req.method !== "HEAD") {
             if (!sameOrigin || !equalSecret(req.headers.get("x-nbdev-csrf"), csrf)) return plain(403, "forbidden：跨来源的写请求，或缺少 CSRF 令牌");
             if (segments[0] === "api" && req.method === "POST" && segments.length === 3 && segments[1] === "github" && segments[2] === "refresh") {
-                // 只是让面板立刻重取一次 GitHub 的只读数据，不经 gh 写任何东西。
-                await github.refresh();
+                // 只是让面板重取一次 GitHub 的只读数据，不经 gh 写任何东西。`ifStale`：页面打开时发，到了间隔才取、不等结果；
+                // 不带是“刷新”按钮，立即取并等结果。
+                let fields: Record<string, unknown>;
+                try {
+                    fields = await readFields(req, 1024, {ifStale: {type: "boolean"}});
+                } catch (error) {
+                    if (!isNbdevError(error)) throw error;
+                    return envelope(null, [], {code: error.code, message: error.message, details: error.details}, statusOf(error));
+                }
+                if (fields.ifStale === true) github.touch();
+                else await github.refresh();
                 const {data, warnings} = githubView(state, github.current());
                 return envelope(data, warnings, null);
             }

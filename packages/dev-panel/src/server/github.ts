@@ -23,6 +23,11 @@ const TIMEOUT_MS = 15_000;
 const KILL_AFTER_MS = 2_000;
 /** 有浏览器连着时多久刷新一次；没人看时只在打开页面时取（t14 设计审查 S8）。 */
 export const GH_REFRESH_MS = 5 * 60_000;
+/**
+ * 上一次没取到（没登录、找不到 gh、出错、超时）时，打开页面至少隔这么久才再取；手动“刷新”不受限。
+ * 失败得多快就重取多快，会把一次失败放大成对 gh 与 GitHub 的连续请求（t14 实现审查 B1）。
+ */
+export const GH_RETRY_AFTER_FAILURE_MS = 60_000;
 /** gh 以 4 退出：没登录（gh 的退出码约定）。 */
 const GH_AUTH_REQUIRED = 4;
 
@@ -159,11 +164,17 @@ function runGh(argv: readonly string[], args: readonly string[], cwd: string, en
     });
 }
 
-/** 内存里的一份 GitHub 数据：单飞，失败时保留上一份并标 `stale`。 */
+/**
+ * 内存里的一份 GitHub 数据：单飞，失败时保留上一份并标 `stale`。
+ * 每次尝试只在结束时推送一次“github 变了”，开始取时不推：页面收到推送会重取 `/api/github`，而这个 GET 不触发取数，
+ * 打开页面的“需要数据”另由页面显式发（`touch`），所以推送与取数不会互相引发（t14 实现审查 B1）。
+ */
 export class GithubCache {
     private view: GithubView = {state: "idle", at: null, error: null, refreshing: false, prs: [], issues: [], truncated: {prs: false, issues: false}};
     private inflight: Promise<void> | null = null;
     private timer: ReturnType<typeof setInterval> | null = null;
+    /** 上一次尝试结束的时刻，不论成败；`touch()` 按它判断要不要再取。 */
+    private attemptedAt: number | null = null;
 
     constructor(private readonly options: {cwd: string; env: NodeJS.ProcessEnv; hasClients: () => boolean; onChanged: () => void; log: (message: string) => void}) {}
 
@@ -171,9 +182,11 @@ export class GithubCache {
         return this.view;
     }
 
-    /** 打开页面时：从没取过、或上一份超过刷新间隔，就在后台取一次（不等它）。 */
+    /** 打开页面时：从没取过，或离上一次尝试超过间隔（上次取到了按刷新间隔，没取到按 60 秒），就在后台取一次（不等它）。 */
     touch(): void {
-        if (this.view.at === null || Date.now() - Date.parse(this.view.at) > GH_REFRESH_MS) void this.refresh();
+        if (this.inflight) return;
+        const wait = this.view.state === "ok" ? GH_REFRESH_MS : GH_RETRY_AFTER_FAILURE_MS;
+        if (this.attemptedAt === null || Date.now() - this.attemptedAt >= wait) void this.refresh();
     }
 
     start(): void {
@@ -195,16 +208,18 @@ export class GithubCache {
         return this.inflight;
     }
 
-    private set(next: Partial<GithubView>): void {
-        this.view = {...this.view, ...next};
+    /** 一次尝试的结果：记下尝试时刻、推送一次。 */
+    private finish(next: Omit<Partial<GithubView>, "refreshing">): void {
+        this.attemptedAt = Date.now();
+        this.view = {...this.view, ...next, refreshing: false};
         this.options.onChanged();
     }
 
     private async fetch(): Promise<void> {
-        this.set({refreshing: true});
+        this.view = {...this.view, refreshing: true};
         const resolved = await resolveGh(this.options.env);
-        if ("reason" in resolved) return this.set({state: "unavailable", error: resolved.reason, refreshing: false});
-        const fail = (error: string) => this.set({state: this.view.at !== null && (this.view.state === "ok" || this.view.state === "stale") ? "stale" : "error", error, refreshing: false});
+        if ("reason" in resolved) return this.finish({state: "unavailable", error: resolved.reason});
+        const fail = (error: string) => this.finish({state: this.view.at !== null && (this.view.state === "ok" || this.view.state === "stale") ? "stale" : "error", error});
         let results: [RunResult, RunResult];
         try {
             results = await Promise.all([runGh(resolved.argv, GH_COMMANDS.prs, this.options.cwd, this.options.env), runGh(resolved.argv, GH_COMMANDS.issues, this.options.cwd, this.options.env)]);
@@ -214,7 +229,7 @@ export class GithubCache {
             return fail(`起不来 gh：${error.message}`);
         }
         const [prs, issues] = results;
-        if (prs.code === GH_AUTH_REQUIRED || issues.code === GH_AUTH_REQUIRED) return this.set({state: "not_logged_in", error: "gh 没有登录：在终端运行 gh auth login", refreshing: false});
+        if (prs.code === GH_AUTH_REQUIRED || issues.code === GH_AUTH_REQUIRED) return this.finish({state: "not_logged_in", error: "gh 没有登录：在终端运行 gh auth login"});
         const bad = [prs, issues].find((result) => result.timedOut || result.code !== 0);
         if (bad) {
             const message = bad.timedOut ? `gh 超过 ${TIMEOUT_MS / 1000} 秒没有回应` : `gh 以 ${bad.code} 退出：${bad.stderr.trim().split("\n").slice(-3).join(" ")}`;
@@ -224,7 +239,7 @@ export class GithubCache {
         try {
             const prList = parsePrs(prs.stdout);
             const issueList = parseIssues(issues.stdout);
-            this.set({state: "ok", at: new Date().toISOString(), error: null, refreshing: false, prs: prList, issues: issueList, truncated: {prs: prList.length >= GH_LIMIT, issues: issueList.length >= GH_LIMIT}});
+            this.finish({state: "ok", at: new Date().toISOString(), error: null, prs: prList, issues: issueList, truncated: {prs: prList.length >= GH_LIMIT, issues: issueList.length >= GH_LIMIT}});
         } catch (error) {
             if (!(error instanceof SyntaxError)) throw error;
             this.options.log(`gh 的输出读不懂：${error.message}`);

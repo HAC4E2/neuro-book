@@ -275,7 +275,12 @@ herdr 不拦 API 写入（见 [herdr.md](herdr.md#终端流t12)），互斥由�
   - 面板只调白名单里写死的两条命令：`gh pr list --state open --limit 100 --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url` 与 `gh issue list --state open --limit 100 --json number,title,labels,updatedAt,url`，cwd 是主工作区。按仓库维护流程，不取 `body`、`comments`、`reviews`。条数到上限时页面写“只列最近更新的 N 个，可能还有更多”。
   - 检查汇总按 `__typename` 分：`CheckRun` 看 `status` 与 `conclusion`，`StatusContext` 看 `state`；失败的逐个列出。分支名是 `<type>/<Work 编号>-<Task 编号>-…` 且找得到 Task 时链到面板的 Task 页。
   - 标题、分支名、标签是外部的不可信内容，一律按纯文本渲染；链接只收 `https:`。
-  - 打开页面时取一次（上一份超过 5 分钟才重取），有浏览器连着时每 5 分钟刷新，“刷新”（`POST /api/github/refresh`，走写请求的 Origin 与 CSRF 校验，不经 `gh` 写任何东西）立即取。单飞，结果只在内存里，取到后经 `/ws` 推 `github` 这一块。
+  - 什么时候取：
+    - 打开页面时，页面发一次 `POST /api/github/refresh`，带 `{"ifStale": true}`：从没取过、上一份取到了且超过 5 分钟、或上一次没取到且已过 60 秒，才在后台取，不等结果；
+    - 有浏览器连着时，取到过的数据每 5 分钟刷新；
+    - “刷新”按钮发不带 `ifStale` 的同一个请求，立即取并等结果，不受上面的间隔限制。
+
+    这个接口走写请求的 Origin 与 CSRF 校验，不经 `gh` 写任何东西。单飞，结果只在内存里。每次尝试只在结束时经 `/ws` 推一次 `github` 这一块，开始取时不推；`GET /api/github` 只读当前这一份、不触发取数。页面收到推送只重取这个 GET，所以推送与取数不会互相引发：曾经每次 GET 都会触发取数，`gh` 一直失败时，推送、重取、再取数成环，10 秒调了上万次 `gh`（t14 实现审查 B1）。`github` 的推送也不触发通知的重算。
   - 子进程环境加 `GH_PROMPT_DISABLED=1`、`GH_NO_UPDATE_NOTIFIER=1`、`NO_COLOR=1`，stdin 关掉；单次 15 秒，超时先 SIGTERM、2 秒后 SIGKILL。
   - `gh` 的路径：先看 `NBDEV_GH_BIN`（绝对路径，`install-service` 写进单元），再找 `PATH`；`NBDEV_GH_PREFIX`（例如 `prox`）给了就放在前面。
   - 降级按退出码，不看文案：找不到 `gh` 是 `unavailable`（写明设 `NBDEV_GH_BIN`）；以 4 退出是 `not_logged_in`（提示 `gh auth login`）；超时、其它非零或输出读不懂时，取过就保留上一份标 `stale`，没取过是 `error`。
