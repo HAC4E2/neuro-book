@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t09-panel-readonly
 status: active
-updated: 2026-10-12
+updated: 2026-10-13
 ---
 
 # 面板服务与只读视图
@@ -31,8 +31,17 @@ updated: 2026-10-12
   - 构建加锁并原子替换；
   - 场景 5、6 的测法。
 - 另并入一条 t07 遗留问题：对别的仓库的操作不写 pane 标签。
-- 编码子代理按处理意见改计划并实施。
+- 2026-10-13 实施完成，集成分支 `cde9f5c6..fe4358d4`，已 push。各片提交、验收与测量见 [plan.md 的实施进度](plan.md#实施进度编码子代理随做随记)，与 Proposal、稿子的出入见同文件“与 Proposal、实施计划的不一致”第 8 到 14 条。
+- 主 Agent 复跑：包测试 168 个、typecheck（含 `vue-tsc`）、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check` 都通过。
+- 主 Agent 在真实仓库上起面板，用 curl 核对：
+  - 没登录的 `/api/*` 回 401；登录链接换到 `HttpOnly; SameSite=Strict` 的 cookie，票据第二次用回 403；
+  - 跨站（`Sec-Fetch-Site: cross-site`）、带 `X-Forwarded-For`、没有 CSRF 头的 POST、`/ws` 不带或带外站 `Origin` 都回 403，伪造 `Host` 回 421；
+  - `/api/docs/file` 对 `.env`、`.git/config`、`package.json`、`../../etc/passwd` 都回 404，对 `AGENTS.md` 回 200；
+  - 产物来源前缀错、穿越、不在 `.agents/works/` 下都回 404；两个端口只绑 `127.0.0.1`；
+  - SIGTERM 后删了 `panel.json` 与锁。
+- 与文档不符的一处：未编码的 `..` 与 `%2e%2e` 在进处理函数之前就被 Bun 按 URL 规范折叠掉了，所以 `/../../etc/passwd` 回的是单页回退的 200（`index.html`），不是 `docs/panel.md` 写的 400。没有泄露文件，交实现审查定怎么写。
+- 未验证：真实会话上会不会推送 `pane.agent_status_changed`（靠快照加 500 毫秒轮询也能工作）；SIGHUP 的收口；`xdg-open` 真的打开浏览器；Chrome 以外的浏览器。
 
 ## 下一步
 
-实施完成后主 Agent 复跑验证、在浏览器里看一遍，再交 opus 子代理做实现审查（不阻塞）。
+交 opus 子代理做实现审查（不阻塞），同时开始 t10。

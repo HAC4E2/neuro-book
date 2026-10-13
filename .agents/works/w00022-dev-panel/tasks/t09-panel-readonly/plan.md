@@ -1,6 +1,6 @@
 # t09 实施计划：面板服务与只读视图
 
-草案，交主 Agent 与设计审查（编码子代理 2026-10-12 写）。范围以 [实施计划的 t09 一节](../t03-design/plan.md#t09-面板服务与只读视图)（场景 1 到 7）为准，设计依据是 [Proposal](../../../../../docs/proposals/dev-panel.md) 第七节的会话列表、第八节（访问与安全，只做只读与本机部分）、第九节（视图），以及待决问题 1、2、3、13（开发者已按推荐同意：首页 Work 区用卡片；Vue 3 加 Vite、不用 Nuxt，样式取 nb-ui 的 token 与主题；面板 `127.0.0.1:4400`、产物来源 `4401`；文档视图从 Task 进入看该 Task 的 checkout，从左栏进入看 master）。视图依据 t03 [评审板](../t03-design/artifacts/review/index.html)：第三轮（首页 A、Work 页、会话页）为主；第二轮的产物页、文档页照稿子；GitHub 视图留给 t14。
+草案，交主 Agent 与设计审查（编码子代理 2026-10-12 写；2026-10-13 按设计审查改，正文与“设计审查的处理”一节不一致时以后者为准）。范围以 [实施计划的 t09 一节](../t03-design/plan.md#t09-面板服务与只读视图)（场景 1 到 7）为准，设计依据是 [Proposal](../../../../../docs/proposals/dev-panel.md) 第七节的会话列表、第八节（访问与安全，只做只读与本机部分）、第九节（视图），以及待决问题 1、2、3、13（开发者已按推荐同意：首页 Work 区用卡片；Vue 3 加 Vite、不用 Nuxt，样式取 nb-ui 的 token 与主题；面板 `127.0.0.1:4400`、产物来源 `4401`；文档视图从 Task 进入看该 Task 的 checkout，从左栏进入看 master）。视图依据 t03 [评审板](../t03-design/artifacts/review/index.html)：第三轮（首页 A、Work 页、会话页）为主；第二轮的产物页、文档页照稿子；GitHub 视图留给 t14。
 
 ## Context
 
@@ -65,7 +65,7 @@ packages/dev-panel/
   4. 产物来源只接受 `GET`、`HEAD`。
 - **响应头**：面板来源 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src <产物来源>; frame-ancestors 'none'`；产物来源 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups; frame-ancestors <面板来源>`；两边都加 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。产物来源与面板来源用同一种主机名（请求是 `localhost:4400` 时 iframe 指 `localhost:4401`）。
 - **路径守卫**（面板的文件类接口与产物来源共用一个函数）：路径相对某个 checkout 的根，解码后逐段检查；拒绝 `..`、空段、以 `/` 开头、任何一段是 `.git`、`node_modules` 或以 `.env` 开头；`realpath` 之后必须仍在这个 checkout 的根下（防符号链接逃逸）；产物来源另要求在 `.agents/works/` 下。checkout 用登记的 key 指定（`main` 或 worktree 目录名），不接受任意绝对路径。
-- **登录**：本片不做（见决定点 1）。面板只绑回环、拒绝转发头、校验 `Host` 与 `Origin`，只读；设备配对与登录在 t13。
+- **登录**：本片做最小的本机登录（启动令牌换 cookie，见“设计审查的处理”第 1 条）；设备配对与分级在 t13。
 
 **接口**（全是 `GET`，返回 `{schema, ok, data, warnings, errors}`，与命令行的 `--json` 同一个外壳）：
 
@@ -211,7 +211,7 @@ packages/dev-panel/
 
 | 点 | 推荐 | 理由 |
 |---|---|---|
-| 1. t09 到 t13 之间本机要不要登录（Proposal 第八节第 3 条要求回环请求也登录） | t09 不做登录：只绑回环、拒绝转发头、校验 `Host` 与 `Origin`、只读；登录随 t13 的设备配对一起做 | 回环要登录是为了 Tailscale Serve 转发进来的请求，而转发头在 t13 之前一律拒绝；本机能连上回环的进程本来就能直接读仓库；本片没有写接口 |
+| 1. t09 到 t13 之间本机要不要登录（Proposal 第八节第 3 条要求回环请求也登录） | ~~t09 不做登录~~ 已撤回：t09 做启动令牌登录（见“设计审查的处理”第 1 条） | 本机另有 两个可登录账户、sshd 在运行，回环对他们开放 |
 | 2. 前端构建产物入不入库 | 不入库；`panel serve` 发现源码变了就先构建，`--no-build` 跳过 | 产物有约 500 KB，每次改界面都会搅动；根 `.gitignore` 已忽略 `dist/`；合入后主工作区第一次起面板时自动构建 |
 | 3. 默认 herdr 上的 `session.snapshot` 与 `events.subscribe` | 允许面板与验收对默认 server 调这两个只读方法 | 它们不改 herdr 的状态；面板上线后本来就要调；不调就无法核实 0.9.1 上的行为，只能全程轮询 |
 | 4. 面板的偏好（明暗、左栏展开）存哪 | 经 `host/prefs.ts` 一处读写 `localStorage`，组件不碰 | 前端规范禁止组件裸写浏览器存储、要求经宿主；面板没有 NeuroBook 的 Storage 服务，偏好也不值得写进仓库或 `.local` |
@@ -219,10 +219,61 @@ packages/dev-panel/
 
 ## 与 Proposal、实施计划的不一致
 
-1. **登录推迟到 t13**（决定点 1）：Proposal 第八节第 3 条写“回环请求同样要登录，本机浏览器用 `nbdev panel open` 拿一次性登录链接”。本片的 `panel open` 只打开地址。
+1. **登录只做一半**：Proposal 第八节第 3 条的“本机浏览器用 `nbdev panel open` 拿一次性登录链接”本片做；设备配对与分级在 t13。
 2. **没有 `events_lost`**：Proposal 第七节写“收到 `events_lost` 就重新订阅并对账”，协议 22 没有这个事件，改为连接断开即对账加定时对账；状态事件只能逐格订阅。
 3. **面板的 herdr 白名单本片只放只读的五个方法**：Proposal 第八节第 7 条的完整清单在 t11、t12 补齐。
 4. **会话页本片没有终端、没有排队的通知**：稿子的右半边是 t12，通知是 t11；“在等你”只认登记的提问，不从终端推断（Proposal 第三节）。
 5. **Task 的“当前情况”取 README `## 当前状态` 一节的第一行**：Proposal 第九节列了这一栏，没说从哪读；没有这一节显示“未标”。
 6. **GitHub 视图不在本片**（主 Agent 定为 t14）。
 7. **零件不进 Component Lab**：组件规范要求应用侧组件在 Lab 登记，面板在别的包里，Lab 挂不了；状态靠浏览器验收里的夹具数据摆出来。
+8. **首页不做状态推断**（设计审查第 15 条）：第三轮稿子按“推断”画 Work 的状态与计数，核心没有推断；没有 `status` 的显示“未标”，计数条是“未标”的灰色。超过 30 天没有更新的 Work 与完成、搁置的一起收进“其余 N 个”。
+9. **去掉“最近的变化”**：没有数据来源，首页只留收件箱、Work 卡片与一行会话计数。
+10. **搜索**：稿子顶栏搜的是 Work、Task、产物、会话（与文档、提交），本片把缓存里 Work、Task、产物标题与会话的匹配放在最前，再搜各 checkout 的文件名与内容；不搜提交。
+11. **checkout 页不做“可清理”**：判据在根 `scripts/` 的 `governance:worktree`，本包不能导入根脚本，另写一套会分叉。
+12. **收件箱显示提问者的租约是否失效**：`askedBy` 与活动拼起来，失效的划掉（稿子有，计划原先没写）。
+13. **产物页不按版本切换页面**：页面文件不按版本保存，切版本只切题表，iframe 上标“页面是当前版本”；版本切换用下拉选择（分段控件把 `v2` 截成了 `v..`）。
+14. **`panel serve` 多一个 `--static-dir`**：用现成的前端产物、不构建；服务端测试注入桩页面，命令行测试也用它，不依赖 `dist/web`。
+
+## 设计审查的处理
+
+审查报告见 [`evidences/design-review.txt`](evidences/design-review.txt)（0 阻断、12 重要、8 建议），主 Agent 2026-10-13 定为全部采纳，另加一条 t07 遗留问题。逐条对应如下；与正文不一致时以本节为准。
+
+| 条目 | 处理 | 落在哪片 |
+|---|---|---|
+| 1 回环对本机其他账户开放 | 本机登录：`panel serve` 生成随机启动令牌，写进权限 600 的 `panel.json`；`panel open` 打开一次性链接 `/login?ticket=<一次性票据>`（票据由令牌派生、用一次作废，5 分钟过期），服务换成 `HttpOnly; SameSite=Strict; Path=/` 的会话 cookie 后重定向到首页；`/api/*` 与 `/ws` 都要求带这个 cookie，缺了回 401，页面本身（`index.html` 与静态资源）不要求 cookie，前端拿到 401 时提示“用 nbdev panel open 打开”。cookie 只认本次服务实例（重启后作废）。设备配对与分级仍在 t13 | S2 |
+| 2 文件接口是黑名单、搜索绕过守卫 | `/api/docs/file` 只接受同一 checkout 的 `/api/docs/tree` 列出的路径，其余 404；搜索结果逐行套同一个段检查（`.git`、`node_modules`、`.env*`、`.local`、`workspace` 等开头的段一律丢弃）；`workId`、`taskId`、`artifactId`、`version`、checkout key 只接受缓存里存在的值，不拿来拼路径 | S1、S2 |
+| 3 跨站 GET 触发搜索、没有取消与校验 | 二选一定为：所有 `/api/*` 要求 `Sec-Fetch-Site` 为 `same-origin` 或 `none`（缺这个头的按 `none` 处理，只有浏览器跨站请求会带 `cross-site`、`same-site`）；加上第 1 条的 `SameSite=Strict` cookie，跨站请求两道都过不去。搜索全局同一时刻只跑一组，有新搜索或客户端断开（`req.signal`）时立刻结束旧的子进程；`q` 去掉首尾空白后：非空、不含控制字符、长度 2 到 200，否则 400；前端去抖 300 毫秒 | S1、S2、S4 |
+| 4 `GIT_LITERAL_PATHSPECS` 让排除失效 | 搜索用单独的 Git 调用（`runSearchGit`）：不带 `GIT_LITERAL_PATHSPECS`，pathspec 由服务端写死（`:(exclude,glob)**/evidences/**`、`**/experiments/**`、`**/node_modules/**`）；文件名搜索的 `ls-files` 结果按 checkout 的 HEAD 缓存；每个 checkout 读满 200 行就结束子进程；结果按 checkout 完成的先后送出，慢的后送 | S1 |
+| 5 “该 Task 的 checkout”没有定义 | 定义 **执行 checkout**，候选依次：① README“执行位置”一节写的 worktree 路径或分支；② 目录名匹配 `<Work 编号>-<Task 编号>-*` 的 worktree（多份时都列出）；③ 登记表的 `home`；④ Work 的执行 worktree；⑤ master。`/api/task` 返回候选列表与选中的那个；CheckoutSwitch 列出这些候选；Task 页的提交列表在执行 checkout 上取（`git log -n 20 -- <Task 目录> <候选的改动路径>` 改为取执行 checkout 分支相对 master 的提交，没有分支时取 Task 目录的提交）。场景 3 的夹具改成“记录在 master、代码在 worktree” | S1、S3、S4 |
+| 6 活动缓存失效不全 | 有浏览器连着时每 5 秒整份重算活动（租约评估加运行）；记录或会话（herdr）有变化时也触发。租约目录的监视只当加速，目录不存在时先监视 `.local/agent/`（再不存在就只靠 5 秒的重算），面板不建目录 | S2 |
+| 7 “代码已更新”按 master HEAD 判断 | 比较 `git rev-parse HEAD:packages/dev-panel`、`HEAD:packages/nb-ui` 与 `HEAD:bun.lock` 三个对象 id，与启动时的不同才提示；`.build-hash` 的输入与之保持一致（见第 10 条） | S2 |
+| 8 产物来源 | 地址形如 `/a/<随机前缀>/<checkout key>/.agents/works/…`，前缀在服务启动时生成，只经 `/api/artifact` 交给面板；带前缀的请求回 `Access-Control-Allow-Origin: *`。产物页不按版本切换页面，只切换题表，iframe 上标“页面是当前版本”；磁盘内容的哈希与最新发布的 `contentHash` 不同时标“有未发布的改动”；补上 Work 级产物的地址（`/api/artifact/:workId/-/:artifactId`）。产物来源给 t10 的表单脚本留保留路径 `/a/<前缀>/_nbdev/`（本片回 404） | S2、S4 |
+| 9 Tailwind 层叠 | 面板与 nb-ui 一样不分层地引入原子类：`@import "tailwindcss/theme.css"` 加 `@import "tailwindcss/utilities.css"`，preflight 单独放进 `@layer base`；S3 的浏览器验收核对 390 宽时左栏显示与隐藏的计算样式 | S3 |
+| 10 `panel serve` 的锁、构建与收口 | 先在 `.local/agent/run/panel.lock`（`.local/agent/` 不存在时建 `run/`；这是面板自己的运行时目录，不算项目数据）取一把面板锁，拿不到报 `panel_running`；先绑定两个端口再构建，预热完成之前 `/api/*` 回 503；构建输出到临时目录，完成后改名替换 `dist/web`；构建失败时有旧产物就用旧的、在 `/api/meta` 标 `buildFailed`，没有旧产物就以 `build_failed` 退出；`.build-hash` 的输入是 `src/web/**`、`vite.config.ts`、`tsconfig.web.json`、`package.json`、nb-ui 包目录（`src/`、`package.json`）与 `bun.lock`；`panel.json` 原子写入（临时文件加改名），退出时只删 pid 与启动时刻都是自己的那份；SIGHUP 与 SIGINT、SIGTERM 一样收口，结束正在跑的 `git grep` 与 `vite build` | S2 |
+| 11 场景 5、6 的测法 | 场景 6：浏览前 touch 一个标记文件，浏览后 `find <主工作区> <各 worktree> <git 公共目录> -newer <标记>` 断言为空（排除 `panel.json`、`panel.lock`、`dist/`）。场景 5：用原始套接字发未编码的 `..`、`%2e%2e`、`..%2f`、`%00`、不合法的百分号编码，逐条断言 4xx；URIError 与 NUL 都不能变成 500；单页回退不能对 `/.git/config` 回 200 的 `index.html`（回退只给不带点的路径） | S2 |
+| 12 herdr | 对账用 `agents[].state_change_seq` 判断有没有漏事件；全局订阅加 `pane.moved`；换订阅连接时先等新连接回 `subscription_started` 再关旧连接，然后用快照对账一次；重连退避初值 500 毫秒、上限 30 秒、乘 2、加 0 到 20% 的抖动，写进 herdr.md；轮询退路 500 毫秒（有浏览器连着时）；会话页与活动用同一份 herdr 状态（快照加事件）。“真实会话会不会推送事件”记为未验证 | S1、S2 |
+| 13 缓存细节 | 30 秒兜底重算 `uncommitted_branch_records`；过渡期判定的缓存键加上登记表的修改时间；`fs.watch` 的事件过滤掉 `evidences/`；重算单飞并合并（进行中又来变化只再排一次），失败时保留上一份、在 `/api/meta` 标错；herdr 不阻塞服务开始监听；30 秒兜底只在有浏览器连着时跑 | S2 |
+| 14 宿主与推送 | 回应带各块的 `revision` 与服务实例 id，宿主只接受更新的数据；概览只放会话与运行的计数，明细放 `/api/sessions`；判断“变了没有”只比较显示用到的字段；`usePanelData` 是单例，全应用只有一条 `/ws` | S2、S3 |
+| 15 与稿子的对应 | 首页不做状态推断，没有 `status` 的显示“未标”；超过 30 天没有更新的 Work 收进“其余 N 个”（done 与 shelved 也收进去）；去掉“最近的变化”；搜索结果把缓存里 Work、Task、产物标题与会话的匹配放在最前面；checkout 页不做“可清理”；收件箱显示提问者的租约是否失效（`askedBy` 与活动拼起来）。都写进“与 Proposal、实施计划的不一致” | S3、S4 |
+| 16 Markdown 与 CSP | DOMPurify 配 `FORBID_TAGS: [style, form, input, button, textarea, select]` 与 `FORBID_ATTR: [style]`；CSP 加 `form-action 'none'`、`base-uri 'none'`、`object-src 'none'`，`img-src` 加产物来源，`connect-src` 显式写出 `ws://<host>:<port>`；链接改写：`.md` 转成文档页，产物目录里的文件转成产物页，图片走产物来源 | S4 |
+| 17 文档树与差异 | 树用 `ls-files -z --cached --others --exclude-standard`；差异分两类：分支改的（`master...HEAD` 三点 diff 加工作区状态）与 master 新增、分支还没有的（`HEAD..master` 里新增、三点 diff 里没有的）；这里的“master”指主工作区的工作区（未提交的 master 文档也算），写进 panel.md | S1 |
+| 18 路径守卫 | `realpath` 之后对相对路径再做一遍段检查；checkout 的 key 撞名时改用路径哈希；产物来源留 `_nbdev/` 保留路径 | S2 |
+| 19 工程与测试 | `tsconfig.json` 排除 `src/web`；服务端测试不依赖 `dist/web`，静态目录可以注入；拆分 `readProjectRecords` 前后，在同一个夹具上对 `status --json` 做一次整份比对（去掉时间字段），带 `--work`、`--task` 的过滤与报错情形 | S1、S2 |
+| 20 场景 7 的测法 | 预热完成、herdr 可用；浏览器冷、热各测一组；“首屏”以第一张 Work 卡片渲染完成为准；每组 10 次，报 p50 与最大值，同时记录 `/api/overview` 的服务端耗时与字节数；注明当时本机的负载 | S5 |
+| t07 遗留：临时仓库的操作标到真实 pane | 写或清标签之前，确认 pane 的 `cwd` 或 `foreground_cwd` 在被操作仓库的某个 checkout 下；都不在就不写，给 `herdr_tag_skipped`（`reason: other_repository`）；补 L3。`answers --wait` 不带 `--as` 时 `caller_unknown` 出现两次，一并修掉 | S1 |
+
+- **herdr 白名单**：面板用 `HERDR_PANEL_READ_METHODS`（`ping`、`session.snapshot`、`pane.list`、`pane.process_info`、`events.subscribe`），订阅类型由服务端写死，不订 `pane.output_matched`。
+- **新错误码**：`panel_not_running`、`panel_running`、`port_in_use`、`unsafe_host`、`build_failed`。
+
+## 实施进度（编码子代理随做随记）
+
+- S1：`e9a38bfff`（拆 `readProjectRecords`、过渡期缓存；拆分前后在同一夹具上整份比对 `status --json`，含 `--work`、`--task`、三种报错与人读输出，完全一致，脚本在会话临时目录 `t09/compare/`）、`93f0a910b`（t07 遗留：pane 不在仓库里不写标签；`caller_unknown` 只给一次）、`86538b608`（执行 checkout、文档树、搜索、herdr 快照与订阅）。
+- S2：`cd85e1bad`（面板服务、登录、守卫、缓存与推送、`panel serve`/`panel open`、docs/panel.md）。
+- S3：`2c38b87c9`（外壳、首页、Work 与 Task 页）。
+- S4：`5fc077df7`（产物、文档、会话、checkout、搜索页；顺带修 vite 入口的解析与产物来源 CSP 的 IPv6）。
+- 浏览器冒烟用的临时仓库脚本在会话临时目录 `t09/demo/setup.ts`，浏览器脚本 `t09/browser/smoke.ts`，截图在 `.local/agent/works/w00022-dev-panel/tasks/t09-panel-readonly/shots/`。
+- 之后：`b557c0803`（产物页版本切换改用下拉）、`fe4358d4f`（面板前端的文档与包内约定）。
+- **验证**：包测试 168 个全过（含 L4，`nbdev-test` 会话用完已删）、typecheck（含 `vue-tsc`）、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check`、`git diff --check` 都通过。
+- **浏览器验收**（Playwright 加 `/usr/bin/google-chrome-stable`）：临时仓库上逐页截图（1440 明暗两档、390）并走一遍交互（没登录的提示、卡片进 Work 页、Task 表进 Task 页、README 链接进产物页、切 v1 题表、展开已答与已取代、从 Task 的执行 checkout 进文档页、只看有差异的、文档链接改写、顶栏搜索、收件箱进产物页、产物过滤、明暗切换、390 的抽屉与产物页侧栏在下），全部通过、控制台没有错误；390 宽时左栏计算样式 `display: none`、1440 时 `flex`，各页没有横向溢出。真实仓库只读看了首页（w00022 进行中带目标、w00017 来自分支、其余未标）、Work、t80（执行 checkout 按 README 选 `w00017-t80-settings-ui`）、t03 评审板（没发布，iframe 照常渲染）、产物、会话（默认 herdr 0.9.1 已订阅）、checkout、搜索。
+- **场景 6（真实仓库）**：浏览与搜索前后 `find <主工作区> <各 worktree> <git 公共目录> -newer <标记>` 只有面板自己的 `panel.json`、`run/panel.lock` 与它们所在的两个目录（以及验收脚本写的截图）；`git status` 前后一致。面板退出后删了 `panel.json` 与锁，留下的空 `run/` 已删。
+- **场景 7（真实仓库，11 个 checkout，herdr 可用，负载 0.4）**：冷缓存首屏（第一张 Work 卡片渲染完成）p50 216 毫秒、最大 246；热缓存 p50 101、最大 111；`/api/overview` 本机 p50 1 毫秒、117864 字节；首页资源 9 个共 409 KB（未压缩）。冷启动（绑定端口到预热完成）约 0.87 秒。
