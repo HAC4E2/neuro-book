@@ -36,6 +36,95 @@
 
 没有验证、留给实施的 S0（见切片）：target 写 terminal id 行不行；默认 server 0.9.1 上 observe 与 control 能不能用；多个 observe 时 herdr server 的开销；TUI 改尺寸时有没有事件。
 
+## 设计审查的处理
+
+设计审查（`evidences/design-review.txt`，0 阻断、2 重要、17 建议）全部采纳，主 Agent 的处理意见见本节。**本节与下文正文冲突时以本节为准**，正文保留为草案原貌；“与 Proposal、实施计划的不一致”“风险”“需要开发者批准或参与”“推迟”四节已按本节改写。
+
+### 尺寸（I1、S1）
+
+- **真实尺寸从 pane 的 pty 读**：`pane.process_info` 取 `shell_pid` → `readlink /proc/<shell_pid>/fd/0` 得到 `/dev/pts/N`（只认这个形状）→ `stty -F /dev/pts/N size`（只读的 `TIOCGWINSZ`，不改终端；面板不是会话首进程，打开 tty 不会成为它的控制终端）。审查实测与 pane 里的 `stty size` 一致；`pane.layout` 的矩形含边框、TUI 不挂时是无头缺省值，**不再用**，也不进白名单。
+- **读不到**（pid 没了、fd 0 不是 pty、`stty` 失败）：观看照常，observe 用 120×40，状态条写“尺寸不确定，可能裁切”；接管照常；**释放时不改回尺寸**，释放行记 `restored: false`，状态条写明原因。
+- **观看**期间每 5 秒按上面的办法复查（审查实测 TUI 改尺寸没有任何事件），变了就重起 observe。
+- **接管期间不复查、没有“重新适配”按钮**（S1）：审查在开发者现在的组合（0.9.1 server 加 0.9.3 TUI）上实测，control 连着时 TUI 改窗口、移焦点都改不动这格的尺寸；release 之后 TUI 立刻改回自己的布局。
+- 决定点 7 改为：尺寸来源换成 pty，读到了就在释放前改回，读不到就不改回。
+
+### S0 与 0.9.1（I2、S13）
+
+- **删掉“对默认 server 的真实 pane 起 observe”**，开发者先前对它的同意不再用。改用主工作区不入库的 0.9.1 二进制 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/herdr-0.9.1/herdr`（只读，不改不动）：在命名会话里把它当 server 起，用 0.9.3 客户端核对两条流；L4 加一组 0.9.1 server 的用例，路径不在时跳过并写明原因，二进制不进仓库。
+- **bracketed paste 已核对**（S13，2026-10-13，在 pty 里起真实的 `claude` 2.1.296 与 `omp`，不发提示词，Claude 的费用一直是 `$0.0000`，录下启动后 8 秒的输出）：两者启动后都开着 `?2004h`（Claude 中途关过一次又重开，最后是开着）。Claude 另开了鼠标跟踪（`?1000h` 等）与备用屏，omp 关了应用光标键（`?1l`）。所以 Agent pane 在 xterm 本地打开 bracketed paste 成立。
+- 对默认 herdr 只做只读的 socket 调用（`ping`、`session.snapshot`、`pane.list`、`pane.process_info`、`agent.get`），不起任何流。
+
+### 子进程与收口（S2、S3、S4、S12、S17）
+
+- **背压**（S2）：`ws.getBufferedAmount()` 超过 1 MiB 就暂停读这条连接的子进程 stdout，WebSocket 的 `drain` 回调里降到阈值以下再继续读；observe 与 control 同一做法，不重起、不释放。herdr 读端跟不上时自己合并帧（审查 E11）；Bun 停读之后还会先攒约几百 KB（实测 240 到 370 KB）才把背压传给子进程，所以一条连接的面板内存上限约 1 MiB 加 0.5 MiB。`send` 的返回值逐帧检查，丢了（返回 0）就关连接让页面重连，不带着缺帧的画面继续。
+- **systemd 停止**（S3）：`install-service` 生成的单元加 `KillMode=mixed`（只给面板 SIGTERM，等它收口完再 SIGKILL 剩下的），注释写原因；补 L2 核对单元内容。`stop()` 先把中枢标成“正在退出”：此后子进程退出一律记 `panel_exit`，不回到观看、不重起；正在接管的先改回尺寸、release，再收子进程。
+- **结束原因的归类**（S4）只看三样：第一行是帧还是 `terminal.closed`；这条流是不是我们发过 release 的；结束之后按 terminal id 在 herdr 的 pane 列表里这个终端还在不在。原因原文只作显示与日志。
+  - 接管握手：不带 takeover、第一行就是 closed、终端还在 → `need_confirm`（“可能有别的程序在控制”）；终端不在 → `pane_closed`；带 takeover 仍是 closed → `error`，显示原文。
+  - 接管中流结束、不是我们 release 的：终端还在 → `taken_over`（显示“被别处接管或断开”）；不在 → `pane_closed`。
+  - 观看中流结束：终端还在 → 重起一次 observe（连续 3 次第一行就结束则关连接 4404）；不在 → 4404。
+  - L3 的假命令行故意换一种原因文案，断言归类不变。
+- **socket**（S12）：`terminal session` 命令不连 `HERDR_SOCKET_PATH` 指的 JSON 接口，而是连旁边推出来的 `<socket 去掉 .sock>-client.sock`（TUI 的私有协议），不在就直接失败、不退回默认会话；`sun_path` 最长 108 字节，推出来的路径超长会报错。写进 `docs/herdr.md`；L4 核对命名会话推出的路径不超过 107 字节。白名单管不到命令行发给 server 的内容，只能靠只拼两种参数。
+- **审计里只有接管、没有释放**（S17）：`docs/file-formats.md` 写明“`takeover` 结果为 `attached`、同一 `actionId` 没有 `release` 行：面板在接管中异常退出，控制权已随子进程（pdeathsig）释放，尺寸没有改回”；面板启动时不补写。
+
+### 按 terminal id 记（S5）
+
+- 子进程的 target 一律用 terminal id（审查实测 0.9.1、0.9.3 都可以，pane 跨 workspace 移动换 pane id 时流不断）。
+- 中枢的连接表、“正在接管”的登记、通知的 `waiting_takeover`、接口的 `pane_controlled` 都以 terminal id 为键。
+- **t11 的 `PaneLocks` 改按 terminal id 加锁**，三处取 terminal id 的办法：
+  - 自动通知：任务视图本来就从监视器的 pane 列表找到 pane，带上它的 `terminalId`；
+  - 手动发送：目标会话也从 pane 列表找（候选本来就来自那里）；
+  - 会话页的文字与按键：URL 里是 pane id，按监视器的 pane 列表换成 terminal id；列表里没有（刚出现的 pane）时退回用 `pane:<pane id>` 作键。锁内的 `agent.get` 拿到真正的 terminal id 后再查一次“正被接管”，作最后一道。
+- 同一面板里两个浏览器换手时，不先改回原尺寸再按新尺寸接管：把“接管前的尺寸”交给新的接管者，释放时再改回。
+
+### 连接与安全（S6、S9、S10、S16）
+
+- **升级前**只做与 `/ws` 相同的五道安全校验（转发头、Host、登录、`Sec-Fetch-Site`、`Origin`），失败回 HTTP 4xx。**升级之后**立刻核 pane 是本仓库里 herdr 认得出的 Agent pane、terminal id 对得上、上限，不过就以 4403、4404、4409 关闭并带原因，页面显示原因。
+- **审计只挡接管**：审计不可用时 `takeover` 回 `{t: "error", code: "audit_unavailable"}`，连接照常观看。
+- **页面切到后台**（S9）：接管先释放；观看也停（页面关掉终端连接），切回来再连，第一帧就是整屏。
+- **t13 预留**（S10）：每条终端连接记下升级时的登录会话 id（`PanelAuth` 加 `sessionOf(cookie)`）与设备（t12 一律 `local`）；中枢提供“关掉某个登录会话的全部终端连接（接管先释放）”的入口，t12 只在面板退出时用；审计行的 `device` 与 `state` 消息里的控制者都从连接取。
+- **websocket 回调按连接种类分派**（S16）：`SocketData` 带 `kind: "panel" | "terminal"`。终端连接不进广播集合、不发 `hello`、不计入 `clientConnected`（不开 500 毫秒的 pane 轮询）；`/ws/terminal` 的 `Origin` 核对与 `/ws` 相同。
+- **断线重连**沿用 `/ws` 的做法：先取 `/api/meta`，回 401 就停止重连。
+
+### 接管的握手与范围（S7、S8、S14）
+
+- **握手有时限**（S7）：等第一行最多 5 秒，超时就按收口阶梯结束子进程、回 `error: takeover_timeout`、审计结果 `failed`。握手期间占着这格的锁，5 秒之后一定放开；L3 用“连上之后一行都不出”的假命令行测，并断言之后同一格的自动通知照常发出。
+- **只对 Agent pane**（S8）：t12 的观看与接管都只开放给本仓库里 herdr 认得出 Agent（有会话键）的 pane；普通 shell pane 推迟到 t14，与“在跑”的开发服务一起做。观看也限 Agent pane 的理由：会话页只列 Agent pane，没有 shell pane 的入口；Agent pane 有会话键，页面看到的与服务端核对的是同一个会话，换了会话（`/clear`）能发现；shell pane 的入口、按钮与字节表要一起设计，归 t14。
+- **措辞**（S14）：herdr 不拦任何 API 写入。接管期间 herdr 那边的键盘、别的程序、会话自己的 herdr 命令行（`herdr agent prompt`、`pane send-text`）都能写进这格；面板只保证自己不发。接管提示写“herdr 那边（键盘与其它程序）照样能写进来”。
+
+### 前端（S15）
+
+- 终端配色在运行时读：在一个带暗色主题作用域的探针元素上 `getComputedStyle` 读背景、前景、光标、选区与红、绿、黄、蓝四个状态色；其余 ANSI 色用 xterm.js 的缺省值，不写字面颜色；`TerminalView.md` 写明。
+
+### 验收（S11、S16）
+
+- 场景 3 的判据换成能区分“已释放”的两条：不带 takeover 的 control 能连上；在 pty 里挂一个 TUI，TUI 改窗口尺寸之后 pane 的 `stty size` 跟着变（接管中不变）。不用“TUI 打字进 pane”。
+- 补 L3 的失败路径：握手超时（S7）、尺寸读不到时不改回（I1）、原因文案变了归类不变（S4）、hidden 后 1 秒内收掉子进程（S9）、`stop()` 期间子进程先退出记 `panel_exit`（S3）、背压时内存有上限且帧序号连续（S2）。
+- **开发者在场那一步**（S11）改成：
+  1. 用常驻的面板（或前台 `nbdev panel serve`）打开会话页，选一格自己挑的、空闲的 Claude 会话，看实时终端是否与 herdr 里的一致；
+  2. 点“接管键盘”，读提示后确认；看 herdr 那边这格的尺寸是否变成网页的尺寸；
+  3. 在网页终端里用输入法打一句中文，确认会话的输入框里出现了，再用 Backspace 删掉；Esc 按钮只按一次，若打开了菜单再按一次 Esc 关掉；
+  4. 切到别的标签页再切回来：状态条应是“观看中”，没有自动重新接管；herdr 那边尺寸改回原样；
+  5. 把观察告诉主 Agent；主 Agent 核对 `~/.config/nbdev/audit.jsonl` 里有这次的 `takeover` 意图、结果与 `release`（原因 `hidden`），释放行没有输入内容。
+
+### 决定点的改动
+
+- 2：同意。`docs/panel.md` 写明与 t11 决定点 6（输入框与通知的文字全文进审计）为什么不同：那是一条一条、开发者看着发出的消息；接管是连续的键盘流，会有 sudo、ssh 的密码，Proposal 第八节第 9 条本来就写“文字或长度”。也写明跨设备之后审计回答不了“打了什么”。
+- 5：只开放本仓库里的 Agent pane，普通 shell pane 推迟到 t14（S8）。
+- 7：尺寸来源换成 pty，读不到就不改回（I1）。
+- 9：先不带 `--takeover`、请开发者确认再抢；归类不看原因文案（S4）。
+- 其余照推荐。
+
+### 切片（替换正文的切片表）
+
+| 切片 | 内容 |
+|---|---|
+| S0 探针 | 已做：bracketed paste（见上）。实施中做：假界面 pane 的 `/proc/<shell_pid>/fd/0` 是 pty 且 `stty -F` 与 pane 里一致；0.9.1 二进制当 server 时两条流可用（并入 L4） |
+| S1 herdr 流适配 | `src/herdr/streams.ts`（白名单的两种参数、terminal id 作 target、`setpriv`、三个环境变量、逐行解析、暂停读、收口阶梯）；`src/server/terminal-size.ts`（pty 尺寸）；`NBDEV_HERDR_BIN`；`install-service` 加 `NBDEV_HERDR_BIN` 与 `KillMode=mixed`；`PaneLocks` 改按 terminal id；新错误码 `pane_controlled` |
+| S2 终端中枢 | `src/server/terminal-hub.ts`、`/ws/terminal` 与按种类分派的 websocket 回调、`PanelAuth.sessionOf`、通知与会话页的互斥、`/api/meta.terminal` |
+| S3 前端 | xterm.js、`TerminalView`、`TerminalTextView`、`TakeoverDialog`、宿主模块；会话页接上 |
+| S4 文档 | herdr、panel、file-formats、cli |
+| S5 验收 | L4（0.9.3 与 0.9.1 两组）、浏览器（临时仓库加命名会话） |
+
 ## 关键设计
 
 ### 一、子进程：只用 herdr 命令行的两条流
@@ -236,48 +325,51 @@ GET  /api/meta                                 // 加 terminal: {available, reas
 
 ## 与 Proposal、实施计划的不一致
 
-1. **接管不独占输入**：Proposal 第七节与调研写“同一终端同时只能有一个控制者”，容易读成“接管之后只有网页能打字”。实测 herdr 的 TUI 与 `agent.prompt` 在接管期间照样能写进 pane；本计划把这一点写进接管提示，并由面板自己挡住自己的自动投递。
+1. **接管不独占输入**：Proposal 第七节与调研写“同一终端同时只能有一个控制者”，容易读成“接管之后只有网页能打字”。实测 herdr 不拦任何 API 写入：接管期间 herdr 那边的键盘、别的程序与会话自己的 herdr 命令行都能写进这格（S14）。本计划把这一点写进接管提示，面板只保证自己不发。
 2. **手机的纯文本视图不用 `recent_unwrapped`**（Claude）：Proposal 第七节与实施计划写 `agent.read --source recent-unwrapped`；本计划对 Claude 用 observe 流里的当前屏幕，只对 omp 给“更早的输出”（决定点 10）。
 3. **接管期间按钮不两步确认**：t11 的按键两步确认只用于不接管时（决定点 4）。
-4. **释放时改回尺寸**：Proposal 没有写；本计划加上（决定点 7）。
-5. **白名单另加只读的 `pane.get`、`pane.layout`**：`pane.get` 在 Proposal 第八节第 7 条的名单里；`pane.layout` 不在，加它是为了取列数。
+4. **释放时改回尺寸**：Proposal 没有写；本计划在读得到 pty 尺寸时改回，读不到不改回（决定点 7，I1）。
+5. **白名单不加 `pane.layout`**：尺寸从 pty 读（`pane.process_info` 已在白名单，读 `/proc` 与 `stty -F` 在面板本机做）。
 6. **多一个本机依赖 `setpriv`**（util-linux）：Proposal 没有提；没有它终端功能关掉（决定点 12）。
-7. **自动释放多两条**：15 秒没有心跳、15 分钟没有输入（决定点 6）。
+7. **自动释放多两条**：15 秒没有心跳、15 分钟没有输入（决定点 6）；页面切到后台时观看也停（S9）。
 8. **场景 1 的“约 20 毫秒”**：L4 量的是 herdr 到面板子进程（实测约 3 毫秒）；浏览器里含渲染，按 300 毫秒判，数值照实记。
+9. **只对 Agent pane**：实施计划写“会话的实时终端”，本计划只开放 herdr 认得出 Agent 的 pane，普通 shell pane 推迟到 t14（S8）。
+10. **systemd 单元加 `KillMode=mixed`**（S3）：t11 的单元没有写。
+11. **t11 的按 pane 互斥改按 terminal id**（S5）。
 
 ## 风险
 
 按影响排序，前两条是我认为最大的两处。
 
-1. **接管不独占输入，尺寸会来回争**：
-   - 起因：herdr 只限制“控制端”只有一个；TUI、`agent.prompt`、`agent.send_keys` 在接管期间都能写进 pane；TUI 挂着时开发者一操作 TUI 就可能把尺寸改回它的布局（调研引 herdr 文档“最后一个操作的客户端决定尺寸”），而网页的 control 不会知道。
-   - 最坏的情况：开发者以为键盘被网页独占，另一边的输入混进来；或者网页按旧尺寸画、Agent 按新尺寸排，画面错位。
-   - 缓解：接管提示写明两边都能打字；面板自己的自动投递与文字、按键在接管期间全部停下；观看与接管都按 `pane.get` 的行数每 5 秒复查，和接管的尺寸不一致时状态条提示“herdr 那边改了尺寸”，给“按网页尺寸重新适配”按钮（不自动抢回，免得来回争）；释放时改回原尺寸。
-   - 剩下的：TUI 那边收不到任何提示；列数拿不到，只能按布局推。都写进向 herdr 提的需求（PaneInfo 暴露列数与行数、control 的只输入模式、接管时通知别的客户端）。
+1. **接管不独占输入**：
+   - 起因：herdr 只限制“控制端”只有一个，不拦 API 写入；TUI、别的程序、会话自己的 herdr 命令行在接管期间都能写进 pane。尺寸不会被 TUI 改回（审查在 0.9.1 加 0.9.3 TUI 上实测），只有输入会混。
+   - 最坏的情况：开发者以为键盘被网页独占，另一边的输入混进来。
+   - 缓解：接管提示写明；面板自己的自动投递与文字、按键在接管期间全部停下（按 terminal id 判断）。
+   - 剩下的：TUI 那边收不到任何提示。写进向 herdr 提的需求（control 的只输入模式、接管时通知别的客户端）。
 2. **子进程与控制权收不干净**：
-   - 起因：observe 不读 stdin，读端没了也不退出（实测），面板异常退出就留下孤儿，每个约 6.6 MB，还占着 herdr server 的观看者；控制权要靠子进程退出才释放，浏览器断线却不一定马上让服务端知道。
-   - 缓解：子进程一律经 `setpriv --pdeathsig TERM` 起（实测 Bun 父进程被 SIGKILL 后子进程随即被收掉），没有 `setpriv` 就不开终端；连接关闭、`stop()`、超上限、背压都走同一个收口阶梯（release、SIGTERM、SIGKILL、等 `exit`）；接管期间 5 秒一次心跳、15 秒没收到就释放；WebSocket 空闲超时 30 秒；作为服务运行时 systemd 停单元还会收整个 cgroup。L3、L4 都断言子进程真的退了（看 `/proc`）。
-3. **观看的尺寸不准会裁切**：列数只能从 `pane.layout` 推，TUI 没挂着或被别的 control 改过尺寸时可能不对；帧里分不出补的空白。缓解：本面板接管时用自己设的尺寸；状态条写“尺寸不确定”；向 herdr 要列数。
-4. **帧里不带应用的终端模式**：bracketed paste、应用光标键都同步不过来。缓解：Claude 与 omp 的 pane 在 xterm 本地打开 bracketed paste，粘贴先清洗；按钮走 `agent.send_keys`；普通 shell 的多行粘贴先确认。
+   - 起因：observe 不读 stdin，读端没了也不退出，面板异常退出就留下孤儿；作为 systemd 服务停止时缺省会同时给子进程 SIGTERM，来不及改回尺寸；浏览器断线不一定马上让服务端知道。
+   - 缓解：子进程一律经 `setpriv --pdeathsig TERM` 起，没有 `setpriv` 就不开终端；单元加 `KillMode=mixed`；连接关闭、`stop()`、超上限都走同一个收口阶梯；接管期间 15 秒没有心跳就释放；页面切后台时观看也停。L3、L4 都断言子进程真的退了（看 `/proc`）。审计里“有接管、没有释放”的含义写进文档。
+3. **尺寸读不到**：shell 的 pid 没了、fd 0 不是 pty 时只能按 120×40 看，释放时不改回。状态条写明；向 herdr 要列数。
+4. **帧里不带应用的终端模式**：Claude 与 omp 实测开着 bracketed paste，本地打开；粘贴先清洗；按钮走 `agent.send_keys`。
 5. **浏览器与输入法**：Ctrl+W、Ctrl+T 拦不住；xterm.js 上的中文输入法只能人验。缓解：按钮、提示，长文字推荐输入框。
-6. **默认 server 0.9.1 上的两条流没有实测**：客户端 0.9.3 对 0.9.1 的 server 起 observe、control 能不能用，只能在开发者同意后验（S0 的只读 observe 与开发者在场的接管）。不能用时终端功能对这个 server 关掉，会话页回到 t11 的快照。
+6. **默认 server 0.9.1**：两条流已在同一个 0.9.1 二进制（命名会话里）上验证；真实 pane 只在开发者在场那一步碰。
 7. **帧里有秘密**：见“安全与审计”。面板不落盘，但浏览器里有；跨设备之后范围更大（t13）。
 
 ## 需要开发者批准或参与
 
 | 事项 | 时机 | 性质 |
 |---|---|---|
-| 接管不独占输入（herdr 的 TUI 与 API 照样能写）、TUI 收不到提示：这是 herdr 的现状，按本计划提示开发者，不另做 | 实施前 | 知情 |
-| 决定点 2（键盘内容不进审计）、3（手机不给接管）、5（只看本仓库的 pane）、10（Claude 的手机视图不用 `recent_unwrapped`） | 实施前 | 范围与隐私的取舍，按推荐先定，待确认 |
-| S0：对默认 server 一格空闲的真实 pane 起一次只读的 observe（不改尺寸、不输入，只核对 0.9.1 能不能出帧）；屏幕内容会经过编码子代理的进程 | S0 | 对默认 herdr 的只读访问，要同意；不同意就留到开发者在场的那一步 |
-| 真实 pane 上接管一次键盘（步骤见“开发者在场的那一步”） | 合入后 | 开发者参与 |
-| 已装 systemd 单元的话，t12 合入后重装一次（单元多一行 `NBDEV_HERDR_BIN`） | 合入后 | 用户级服务 |
+| 接管不独占输入（herdr 那边的键盘与其它程序照样能写）、TUI 收不到提示：这是 herdr 的现状，按本计划提示开发者，不另做 | 实施前 | 知情 |
+| 决定点 2（键盘内容不进审计；跨设备之后审计回答不了“打了什么”）、3（手机不给接管）、5（只开放本仓库的 Agent pane，shell pane 推迟到 t14）、10（Claude 的手机视图不用 `recent_unwrapped`） | 实施前 | 范围与隐私的取舍，按推荐先定，待确认 |
+| 真实 pane 上接管一次键盘（步骤见“设计审查的处理”的验收一节） | 合入后 | 开发者参与 |
+| 已装 systemd 单元的话，t12 合入后重装一次（单元多 `NBDEV_HERDR_BIN` 与 `KillMode=mixed`） | 合入后 | 用户级服务 |
 
-依赖安装（`@xterm/xterm`、`@xterm/addon-fit`）、本地提交、命名会话里的测试，都属于本地可逆操作，按 P-005 不再逐项询问。
+依赖安装（`@xterm/xterm`、`@xterm/addon-fit`）、本地提交、命名会话里的测试，都属于本地可逆操作，按 P-005 不再逐项询问。对默认 server 起 observe 的那一项已经删掉（I2）。
 
 ## 推迟（不在 t12）
 
 - 鼠标事件（要 server 0.9.2 以上）；在面板里启动新会话；
+- 普通 shell pane 的观看与接管（t14，与“在跑”的开发服务一起，S8）；
 - Claude 的完整历史（要读会话 jsonl，Proposal 第一版不读）；
 - 在 herdr 的 TUI 上弹“网页接管了”的通知（决定点 8）；
 - 观看别的仓库的 pane（决定点 5）；
@@ -288,3 +380,10 @@ GET  /api/meta                                 // 加 terminal: {available, reas
 ## 实施进度（编码子代理随做随记）
 
 - 2026-10-13：计划写完，交设计审查。计划前的实测见上；命名会话已删，没有残留进程，没有对默认 server 起 observe 或 control。
+- 2026-10-13：设计审查的处理写进上面一节；S0 的 bracketed paste 已核对（真实 `claude`、`omp` 都开着 `?2004h`，没有模型调用）。
+- S1 herdr 流适配：`9cc93dc96`（另加 `setsid`：子进程自成会话，前台运行时终端的 Ctrl+C 不会同时打到它）。S2 终端中枢：`73e55ae7c`（L3 `tests/panel-terminal.test.ts` 13 条、`tests/terminal-stream.test.ts` 7 条；实现中发现子进程已死、`exited` 未兑现时写 stdin 会抛 EPIPE，已按“写不进去”处理）。
+- S3 前端：`1e46624e4`（`@xterm/xterm` 6.0.0、`@xterm/addon-fit` 0.11.0 精确版本）。浏览器验收在临时仓库与命名会话 `nbdev-test` 的假界面上跑，24 项全过、控制台没有错误；截图在本地 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/`。演示宿主已停，命名会话已删，没有残留进程。
+- S3 补：`27dcbf6f6`（omp 的更早输出 `GET /api/sessions/:pane/history`，`recent_unwrapped` 1000 行，Claude 回 409 `history_unavailable`；手机文字视图每 200 毫秒更新；读屏不再因“正被接管”回 `pane_controlled`：另一个浏览器这时打开会话页要看屏幕）。`f1c4018af` 修三处：27dcbf6f6 的会话页在立即执行的 watch 里用到后声明的状态，页面初始化报 TDZ（浏览器验收发现）；连接推过帧之后才挂上的视图（手机文字视图切到终端画面）拿不到整屏，加 `resync`（观看时重起 observe）；读尺寸期间另一次重起已起 observe 时会起第二个、旧的成孤儿（L3 加断言，去掉修正时 3 个子进程）。
+- S4 文档：`985a02871`、`305c3f1d4`（`docs/herdr.md` 的“终端流（t12）”、`docs/panel.md` 的“网页终端（t12）”、`docs/file-formats.md` 审计、`docs/cli.md` 错误码，包 `AGENTS.md` 的 L4 一句）。`governance:check`、`docs:check` 无失败。
+- S5 L4：`b7a1b1916`（`tests/herdr-live.test.ts` 的 t12 一组，server 0.9.3 与 0.9.1 各一次，都通过）：pty 尺寸与 pane 里 `stty size` 一致；两个 observe 同时看，control 打字到两边都收到帧 3 到 20 毫秒，观看不改尺寸；control 改尺寸、已有控制者时不带 takeover 第一行就是结束、带 takeover 抢走、resize、改回后 release、之后不带 takeover 能连上；TUI（0.9.3 客户端，100×30）挂着时接管中改窗口 pane 尺寸不变，释放后 TUI 改回布局、再改窗口 pane 跟着变；父进程被 SIGKILL 后 observe 与 control 退出、控制权释放；client socket 路径不超过 107 字节。
+- 全量验证（2026-10-13）：包 `bun test` 279 条全过，`typecheck`、`build:web` 通过；根 vitest 3 个文件 177 条、Node 下 `dev-panel-records` 5 条通过；浏览器验收重跑（假界面 22 项全过、控制台没有错误；omp 的更早输出在假 herdr 上 390 宽与 1440 宽各验一次）。演示宿主都已停，命名会话已删，没有残留进程。

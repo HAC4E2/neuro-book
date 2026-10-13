@@ -44,6 +44,17 @@ updated: 2026-10-13
     - 切到后台时观看也停（S9）；
     - 为 t13 预留：终端连接记下登录会话（S10）。
 
+- 2026-10-13 实施完成（集成分支 `3f474ce4..305c3f1d4`，8 个提交，已 push）：S1 终端流适配、S2 终端中枢与 `/ws/terminal`、S3 前端（xterm 观看与接管、手机文字视图、omp 的更早输出）、S4 文档、S5 L4。各片提交、浏览器验收 22 项与偏离处理意见的地方见 [plan.md](plan.md) 的“实施进度”。
+- S0：
+  - 真实 Claude 2.1.296 与 omp 都开着 bracketed paste，取样时没有任何模型调用；
+  - 读 pty 得到的尺寸与 `stty size` 一致；
+  - 复制出来的 0.9.1 当 server 时两条流可用，行为与 0.9.3 相同。
+- 主 Agent 复跑：
+  - 通过的有：包测试 279 个（含 L4，server 用 0.9.3 与 0.9.1 各一组）、typecheck、`build:web`、根上三个测试文件 177 个、`dev-panel-records` 在 Node 下退出码 0、`governance:check`、`docs:check`。
+  - 没有残留的 observe 子进程，herdr 只剩 `default`。
+- 主 Agent 看截图发现一处：xterm 画面里的中文与数字字距被拉开（“标 记 5 2 6 4 2”），手机文字视图正常，交实现审查看。
+- 未验证：真实输入法（fcitx5）、在真实 Claude 上接管、浏览器吞掉的 Ctrl+W、Ctrl+T、Ctrl+N，以及 herdr TUI 那边的重排观感。这些留给开发者在场的五步。
+
 ## 下一步
 
-编码子代理修完 t11 实现审查的问题后，按处理意见改计划并实施。
+交 opus 子代理做实现审查。修正后合入 `master`、重装 systemd 单元（多了 `NBDEV_HERDR_BIN` 与 `KillMode=mixed`），再请开发者在场做五步验收。
