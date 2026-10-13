@@ -1,0 +1,38 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261013T140832371Z-8153e139",
+    "artifactVersion": 1,
+    "contentHash": "9e15cd0fe8571895baaa097f6305f996745c3023cf8320495dcf35624c0f5542",
+    "submittedAt": "2026-10-13T14:08:31.936Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "home": "overview",
+        "default-collapsed": [
+            "minor-entities",
+            "record-ids",
+            "block-summaries",
+            "trivial-questions",
+            "long-alias-list"
+        ],
+        "qa-place": "topbar-to-page",
+        "embed-size": "both",
+        "keep-mechanisms": [
+            "reading-position",
+            "paragraph-records",
+            "name-highlight",
+            "assertion-tags",
+            "no-record-legend",
+            "stats-page"
+        ]
+    },
+    "comments": {
+        "home": "打开一本书，应该回到上一次的界面。否则进入全书总览。"
+    },
+    "note": "这种布局类似 ide，我希望各个面板之间是可以拖拽改变尺寸的，并且还能收起的。这一部分代码可以参考 nb-ui 或者 neuro-book workbench 的 grid 代码。看看能否复用"
+}
