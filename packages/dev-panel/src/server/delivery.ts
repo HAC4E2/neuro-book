@@ -14,7 +14,8 @@ export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]
 
 export type CheckFailure = {
     ok: false;
-    code: "not_found" | "session_changed" | "not_in_repository" | "agent_busy" | "agent_blocked" | "status_unknown" | "not_stable" | "not_deliverable" | "herdr_unavailable";
+    /** `not_stable`：状态序号变了（之前记下的“空闲”作废）；`settling`：序号没变、只是还不到稳定时长（记下的照样有效）。 */
+    code: "not_found" | "session_changed" | "not_in_repository" | "agent_busy" | "agent_blocked" | "status_unknown" | "not_stable" | "settling" | "not_deliverable" | "herdr_unavailable";
     detail: string;
     /** 不可投时屏幕末尾的样子（纯文字），界面拿它给开发者看。 */
     screen: string | null;
@@ -82,9 +83,8 @@ export async function checkDeliverable(context: DeliveryContext, target: Deliver
     const sleep = context.sleep ?? defaultSleep;
     const first = await identity(context, target, true);
     if (!first.ok) return first;
-    if (options.stable && (first.agent.stateChangeSeq !== options.stable.seq || now() - options.stable.since < (options.stableMs ?? 3_000))) {
-        return fail("not_stable", "空闲还不稳定", first.agent);
-    }
+    if (options.stable && first.agent.stateChangeSeq !== options.stable.seq) return fail("not_stable", "状态变过，空闲要重新计时", first.agent);
+    if (options.stable && now() - options.stable.since < (options.stableMs ?? 3_000)) return fail("settling", "空闲还不到稳定时长", first.agent);
     try {
         const screen = await screenOf(context, first.agent);
         if (!screen.ok) return fail("not_deliverable", screen.detail, first.agent, screen.screen);

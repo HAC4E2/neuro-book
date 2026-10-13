@@ -59,10 +59,10 @@ describe("投递前的判定", () => {
         }
     });
 
-    test("空闲要稳定：状态序号变了或不足 3 秒都不投", async () => {
+    test("空闲要稳定：状态序号变了（not_stable）或不足 3 秒（settling）都不投", async () => {
         const {context} = await setup();
         expect(await checkDeliverable(context, target, {stable: {seq: 4, since: 0}, now: () => 10_000})).toMatchObject({ok: false, code: "not_stable"});
-        expect(await checkDeliverable(context, target, {stable: {seq: 5, since: 9_000}, now: () => 10_000})).toMatchObject({ok: false, code: "not_stable"});
+        expect(await checkDeliverable(context, target, {stable: {seq: 5, since: 9_000}, now: () => 10_000})).toMatchObject({ok: false, code: "settling"});
         expect((await checkDeliverable(context, target, {stable: {seq: 5, since: 6_000}, now: () => 10_000})).ok).toBe(true);
     });
 

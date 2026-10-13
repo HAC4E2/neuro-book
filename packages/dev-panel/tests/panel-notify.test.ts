@@ -12,7 +12,7 @@ import {createHerdrClient, HERDR_PANEL_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, startFakeHerdr, type FakeHerdr, type FakePane} from "./fake-herdr.js";
-import {cleanupFixtures, createFixture, panelEnv, type Fixture} from "./git-fixture.js";
+import {cleanupFixtures, createFixture, panelEnv, taskReadme, type Fixture} from "./git-fixture.js";
 
 /**
  * t11 通知与会话页（L3）：面板在进程内起，herdr 是假的（版本报 0.9.3）。提问者的会话由改写 provenance 扮成 Claude 会话
@@ -69,11 +69,17 @@ async function filesUnder(dir: string): Promise<string[]> {
 }
 
 /** 发布一份两道题的评审板（`--as bob`）；`asker` 给了就把提问者改成这个 Claude 会话（provenance 记着它当时在 `w9:p1`）。 */
-async function published(name: string, asker: string | null, socketPath = "/fake/herdr.sock"): Promise<Fixture> {
+async function published(name: string, asker: string | null, socketPath = "/fake/herdr.sock", tasks: readonly string[] = ["t01-seed"]): Promise<Fixture> {
     const fixture = await createFixture(name);
-    await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/index.html", page());
-    const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"]);
-    expect([result.exitCode, result.json?.errors]).toEqual([0, []]);
+    for (const taskId of tasks.filter((entry) => entry !== "t01-seed")) {
+        await fixture.write(`.agents/works/w00001-seed/tasks/${taskId}/README.md`, taskReadme(taskId));
+        await fixture.commit(`add ${taskId}`);
+    }
+    for (const taskId of tasks) {
+        await fixture.write(`.agents/works/w00001-seed/tasks/${taskId}/artifacts/review/index.html`, page());
+        const result = await fixture.cli(["artifact", "publish", "w00001", taskId.slice(0, 3), "review", "--kind", "design", "--as", "bob", "--json"]);
+        expect([result.exitCode, result.json?.errors]).toEqual([0, []]);
+    }
     if (asker !== null) {
         for (const file of await filesUnder(join(fixture.main, PROVENANCE_ROOT))) {
             const record = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
@@ -202,6 +208,26 @@ describe("自动通知", () => {
         expect([lines[1]!.detail.text, lines[2]!.detail.result, lines[1]!.device]).toEqual([MESSAGE, "delivered", "local"]);
         expect((await stat(auditPaths(panelEnv(fixture)).file)).mode & 0o777).toBe(0o600);
     }, 30_000);
+
+    test("同一个会话在两个 Task 上都有待发的通知：两条都在合理的时间里发出（t11 实现审查第 9 条）", async () => {
+        const fixture = await published("notify-two-tasks", SESSION_A, "/fake/herdr.sock", ["t01-seed", "t02-more"]);
+        await initAudit(auditPaths(panelEnv(fixture)));
+        const pane = claudePane("w9:p1", SESSION_A, {cwd: fixture.main, foreground_cwd: fixture.main, state_change_seq: 1});
+        const fake = await startFakeHerdr(fixture.root, [pane]);
+        closers.push(() => fake.close());
+        fake.version = "0.9.3";
+        const panel = await startPanel(fixture, fake);
+        for (const taskId of ["t01-seed", "t02-more"]) {
+            const posted = await panel.send("POST", "/api/answers", {workId: "w00001-seed", taskId, artifactId: "review", version: 1, values: {layout: "cards"}, note: null});
+            expect([taskId, posted.status]).toEqual([taskId, 200]);
+        }
+        await until(async () => fake.prompts.length, (count) => count >= 1, 10_000, "第一条投递");
+        // 投递之后假会话进入工作；回到空闲后，第二条在下一次稳定之后发出。
+        await setStatus(fake, panel, pane, "idle");
+        await until(async () => fake.prompts.length, (count) => count >= 2, 10_000, "第二条投递");
+        expect(fake.prompts.map((prompt) => prompt.text.slice(0, 18)).sort()).toEqual(["[nbdev] w00001/t01", "[nbdev] w00001/t02"]);
+        await until(() => panel.jobs(), (jobs) => jobs.length === 0, 5_000, "两条任务都办完");
+    }, 40_000);
 
     test("场景 7：在等确认不发（waiting_blocked）；空闲但屏幕认不出（waiting_input）也不发；状态变化之后重读、认出空输入框才发", async () => {
         const {fake, panes, panel} = await setup("notify-blocked", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main, agent_status: "blocked", state_change_seq: 1})]});

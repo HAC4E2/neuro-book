@@ -306,10 +306,13 @@ export class Notifier {
             }
             const checked = await checkDeliverable(context, target, {stable: seen, stableMs: STABLE_MS});
             if (!checked.ok) {
+                // 只有状态序号变了才作废“空闲”的记录；还不到 3 秒的照样留着。同一格 pane 上有两条任务时，第二条曾把第一条
+                // 刚记下的当成不稳定删掉，两条都永远发不出（t11 实现审查第 9 条）。
                 if (checked.code === "not_stable") {
                     this.stable.delete(paneId);
                     this.wakeAfterStable();
-                } else if (checked.code === "not_deliverable") this.waits.set(paneId, {reason: checked.detail, screen: checked.screen, at: Date.now(), seq: checked.agent?.stateChangeSeq ?? null});
+                } else if (checked.code === "settling") this.wakeAfterStable();
+                else if (checked.code === "not_deliverable") this.waits.set(paneId, {reason: checked.detail, screen: checked.screen, at: Date.now(), seq: checked.agent?.stateChangeSeq ?? null});
                 else this.options.log(`通知 ${job.workId}/${job.taskId} → ${job.sessionKey} 这次不投：${checked.detail}`);
                 return;
             }
@@ -424,7 +427,7 @@ export function auditUnavailable(status: AuditStatus | null): NbdevError {
 export function checkError(failure: CheckFailure): NbdevError {
     const codes = {
         not_found: "session_changed", session_changed: "session_changed", not_in_repository: "not_in_repository", agent_busy: "agent_busy",
-        agent_blocked: "agent_busy", status_unknown: "agent_busy", not_stable: "agent_busy", not_deliverable: "not_deliverable", herdr_unavailable: "herdr_unavailable",
+        agent_blocked: "agent_busy", status_unknown: "agent_busy", not_stable: "agent_busy", settling: "agent_busy", not_deliverable: "not_deliverable", herdr_unavailable: "herdr_unavailable",
     } as const satisfies Record<CheckFailure["code"], string>;
     return new NbdevError(codes[failure.code], failure.detail, {details: {reason: failure.code, screen: failure.screen, status: failure.agent?.status ?? null, sessionKey: failure.agent ? sessionKeyOf(failure.agent) : null}});
 }
