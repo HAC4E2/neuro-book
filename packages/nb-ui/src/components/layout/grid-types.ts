@@ -40,6 +40,11 @@ export type SashCollapsePolicy = {
     collapseThreshold: number;
     /** 从收起锚点向外的恢复阈值（CSS px）。 */
     expandThreshold: number;
+    /**
+     * false：只经拖动越过阈值收起与展开，分隔条上的 Enter 与显式切换跳过它、作用于另一侧（缺省 true）。用在被另一侧
+     * 挤到底的余量叶上：分隔条的显式恢复仍属于原来那个可收起的面板。
+     */
+    toggleable?: boolean;
 };
 
 export type SashCollapseState = SashCollapsePolicy & {collapsed: boolean};

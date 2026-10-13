@@ -513,6 +513,35 @@ describe("余量叶的收起", () => {
         expect(session.finish()?.changes[0]).toMatchObject({target: {editor: 160, panel: 640}});
     });
 
+    it("两侧都可收起时，Enter 跳过标了只经拖动的余量叶，恢复另一侧拖到零的面板", () => {
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "column",
+            orientation: "vertical",
+            children: [
+                {
+                    kind: "leaf",
+                    id: "editor",
+                    ref: "editor",
+                    size: {width: 700, height: 800},
+                    minimumSize: {width: 0, height: 120},
+                    collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false},
+                },
+                {
+                    kind: "leaf",
+                    id: "panel",
+                    ref: "panel",
+                    size: {width: 700, height: 200},
+                    minimumSize: {width: 0, height: 80},
+                    sizing: "fixed",
+                    collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
+                },
+            ],
+        }, {sashSize: SASH});
+        const session = open(grid);
+        expect(session.toggleCollapsed()?.changes[0]).toMatchObject({target: {editor: 600, panel: 200}, collapsed: {panel: false}});
+    });
+
     it("从收起的编辑器往下拖：不到 minimum 保持收起，越过就展开并提交展开", () => {
         const session = open(column(true));
         expect(session.update({x: 0, y: 60})).toBeNull();
