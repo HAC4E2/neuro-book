@@ -27,9 +27,14 @@ export type Overview = {
     sessions: {total: number; byStatus: Record<string, number>; unownedRuns: number; herdr: {available: boolean; mode: string}};
 };
 
+export type AuditState = {enabled: true; initAt: string; path: string} | {enabled: false; reason: string; detail: string; path: string};
 export type Meta = {
     instance: string; startedAt: string; ready: boolean; codeChanged: boolean; build: {failed: boolean; message: string | null};
-    herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null};
+    /** 作为服务运行时的单元名与重启命令；前台运行时都是 null。 */
+    service: {unit: string | null; restartCommand: string | null};
+    herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null; autoNotify: boolean};
+    audit: AuditState;
+    notify: {pending: number; attention: number};
     parts: Record<string, {revision: number; at: string | null; error: string | null}>;
     artifactOrigin: string; artifactBase: string;
     /** 主工作区现在能不能写（不在 master、正在合并或变基时不能）；不能写时写入口隐藏。 */
@@ -110,3 +115,24 @@ export type EditableFileData = {
     reason: {code: string; message: string} | null; uncommitted: UncommittedChanges | null; stagedRename: boolean;
     changedIn: Array<{key: string; branch: string | null}>; lineLimit: number | null;
 };
+
+/** 通知（t11）：`/api/notify` 的任务与最近 24 小时的尝试，见 docs/panel.md 的“通知”。 */
+export type NotifyJobState =
+    | "audit_unavailable" | "legacy" | "waiting_herdr" | "no_target" | "replaced" | "not_in_repository" | "manual_only"
+    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "ready";
+export type NotifyCandidate = {sessionKey: string; paneId: string; agent: string | null; status: string; asker: boolean};
+export type NotifyJob = {
+    workId: string; taskId: string; sessionKey: string; askerPaneId: string | null;
+    answers: Array<{answerId: string; artifactId: string}>; legacy: Array<{answerId: string; artifactId: string}>; artifacts: string[]; questions: number;
+    state: NotifyJobState; paneId: string | null; agent: string | null; replacedBy: NotifyCandidate | null; alternatives: NotifyCandidate[];
+    waitReason: string | null; screen: string | null; message: string; manualMessage: string; developerMessage: string;
+};
+export type NotifyResult = "pending" | "delivered" | "delivered_into_blocked" | "delivered_maybe_wrong_session" | "uncertain" | "skipped" | "agent_blocked" | "not_deliverable" | "session_changed" | "failed";
+export type NotifyAttempt = {
+    attemptId: string; at: string; workId: string; taskId: string; sessionKey: string; askerKey: string; paneId: string | null;
+    answers: string[]; result: NotifyResult; code: string | null; message: string | null; manual: boolean; intentOnly: boolean;
+};
+export type NotifyData = {jobs: NotifyJob[]; recent: NotifyAttempt[]; audit: {enabled: boolean; reason?: string; detail?: string} | null; auto: {versions: string[]; version: string | null; enabled: boolean}};
+/** 一次投递的结果（手动发送、输入框）。 */
+export type DeliveryData = {result: NotifyResult; code: string | null; message: string};
+export type ScreenData = {paneId: string; sessionKey: string; agent: string | null; status: string; focused: boolean; screen: string};

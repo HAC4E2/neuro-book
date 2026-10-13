@@ -1,6 +1,6 @@
 # 面板
 
-开发者项目面板的合同：两个来源、登录、请求校验与路径守卫、接口、写接口（t10）、缓存与刷新、`panel serve` 与 `panel open`、前端构建。命令行合同见 [cli.md](cli.md)，文件格式见 [file-formats.md](file-formats.md)，herdr 的订阅与对账见 [herdr.md](herdr.md#面板的订阅与对账)。读接口与 t09 相同；t10 加了答复、新建、状态切换与编辑的写接口，与命令行走同一个核心函数、同一把锁、同一种路径限定的提交。
+开发者项目面板的合同：两个来源、登录、请求校验与路径守卫、接口、写接口（t10）、通知与会话页（t11）、审计（t11）、缓存与刷新、`panel serve` 与 `panel open`、常驻（t11）、前端构建。命令行合同见 [cli.md](cli.md)，文件格式见 [file-formats.md](file-formats.md)，herdr 的订阅与对账见 [herdr.md](herdr.md#面板的订阅与对账)，投递的判据见 [herdr.md](herdr.md#投递t11)。读接口与 t09 相同；t10 加了答复、新建、状态切换与编辑的写接口，与命令行走同一个核心函数、同一把锁、同一种路径限定的提交；t11 加了答复之后通知提问的会话、会话页的屏幕与输入框与按键、审计与 systemd 用户服务。
 
 ## 两个来源
 
@@ -50,11 +50,11 @@
 
 ## 接口
 
-读接口全是 `GET`（写接口见下一节）。JSON 接口的外壳是 `{schema: "nbdev.panel-api/v1", ok, data, warnings, errors, instance, revisions}`：`instance` 是服务实例 id（重启后变），`revisions` 是各块数据（`records`、`activity`、`sessions`）的版本号；前端只接受更新的数据。预热完成之前回 503（`warming_up`），`/api/meta` 除外。
+读接口全是 `GET`（写接口见下一节）。JSON 接口的外壳是 `{schema: "nbdev.panel-api/v1", ok, data, warnings, errors, instance, revisions}`：`instance` 是服务实例 id（重启后变），`revisions` 是各块数据（`records`、`activity`、`sessions`、`notify`）的版本号；前端只接受更新的数据。预热完成之前回 503（`warming_up`），`/api/meta` 除外。
 
 | 接口 | 内容 |
 |---|---|
-| `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、前端构建是否失败、herdr 的状态、各块数据的刷新时刻与错误、产物来源的地址、`mainWritable`（`{ok, code, message}`：主工作区现在能不能写，不在 master 或正在合并、变基时不能，前端据此隐藏写入口） |
+| `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、`service`（`{unit, restartCommand}`：作为 systemd 服务运行时的单元名与重启命令，前台运行时都是 null，见“常驻”）、前端构建是否失败、herdr 的状态（含 `autoNotify`：这个版本是否自动投递通知）、`audit`（`{enabled, initAt}` 或 `{enabled: false, reason, detail}`）、`notify`（`{pending, attention}`：排队的与要开发者处理的任务数）、各块数据的刷新时刻与错误、产物来源的地址、`mainWritable`（`{ok, code, message}`：主工作区现在能不能写，不在 master 或正在合并、变基时不能，前端据此隐藏写入口） |
 | `/api/overview` | 首页与左栏：各 Work 与 Task 的摘要（状态、目标、最近更新、当前情况、来源、待答数、谁在动）、收件箱（提问带 `askedBy` 与 `askerActive`：提问者的租约是否还有效）、会话的计数（明细在 `/api/sessions`） |
 | `/api/work/:workId` | Work 页：完整的 Work（Task 表、产物与文档类产物、谁在动）与相关会话；`readmeHash`（README 的 sha256，状态切换带它） |
 | `/api/task/:workId/:taskId` | Task 页：Task 摘要（含 `readmeHash`）、README 原文、证据（第一层）、链到的 Spec、执行 checkout 的候选与选中的、执行 checkout 上的提交 |
@@ -64,6 +64,8 @@
 | `/api/docs/file?checkout=&path=` | 一份文档：原文、frontmatter、标题、这个 checkout 上最近 5 次提交、哪些已检出的分支改了它（`changedIn`） |
 | `/api/files?path=` | 编辑页：主工作区里一个文件的原文与 sha256、种类（Work README、Task README、文档类产物、主工作区文档）、能不能编辑与原因、未提交的改动（已暂存与工作区分开）、是不是暂存区里一次改名的一端、改过它的分支、根级治理入口的非空行上限。编辑白名单之外的路径回 404 |
 | `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree） |
+| `/api/notify?workId=&taskId=` | 通知任务（`jobs`）与最近 24 小时的尝试（`recent`，同一次尝试的意图与结果合成一条，只有意图的标 `intentOnly`）、审计状态、这个 herdr 版本是否自动投递；两个参数可选（见“通知与会话页”） |
+| `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed` |
 | `/api/search?q=&checkout=` | 搜索，NDJSON 流（见下） |
 | `/ws` | 先推 `{type: "hello", instance, revisions}`，之后每块数据变了推 `{type: "changed", instance, parts, revisions}` |
 
@@ -112,17 +114,76 @@
 
 **编辑**（`editRecordFile`）：只改主工作区里已有的文件，不新建、不删除、不改名；worktree 上的文件不给改（写事务的锁与提交只覆盖主工作区）。在锁内判定能不能改：段检查合格（与“路径守卫”相同）、从仓库根到文件每一段都不是符号链接、是普通文件，再按类——Work 与 Task 的 README（记录来源是 master、README 已提交；来自分支的报 `branch_maintained_record`）、Work 与 Task 目录第一层的文档类产物（在重算的记录索引里逐字出现）、主工作区的文档（在重算的文档树里逐字出现）；不合格 409 `not_editable`（`details.reason`）。README 的新内容在锁内校验：frontmatter 能解析，`schema`、`workId` 或 `taskId`、`issueId`、`status` 与原文相同（改状态要用状态切换），不新增治理检查禁止的旧字段，否则 400 `invalid_record_edit`（`details.problems`）；有改动时核心把 `updated` 改成当天。编辑其它文档不碰 README。
 
-**审计**推迟到 t11（建 `~/.config/nbdev/` 要授权）：t10 期间面板的每次写入都是一个提交信息带“面板”的提交，`git log` 查得到；提交失败、`nothing_to_commit` 与只写了登记表的情形没有提交可查，t11 加审计时要覆盖。
+**审计**：每个写接口在写事务之后补一行审计结果（见“审计”）；审计没初始化时跳过，初始化过却写不进去时照常回应、给警告 `audit_write_failed`。
+
+## 通知与会话页（t11）
+
+答复之后，面板给提问的会话的输入框里投一行指针消息，会话照着读答复、记进 Task 并确认。会话页能看一格会话的屏幕末尾、往它的输入框里发文字、发按键。投什么、什么时候投、什么时候不投，判据见 [herdr.md](herdr.md#投递t11)。t11 不做 steer，也不做“会话工作中仍然发送”：会话在工作时一律排队，只投给空闲、且输入框认出为空的会话。
+
+**通知任务**不落盘，每次现算；`.local/agent/run/notify/` 只记“对哪几份答复、向哪个会话做过什么”（格式见 [file-formats.md](file-formats.md#通知的尝试记录)）。
+
+- 一条任务的键是（Task、提问者会话）。它覆盖的答复：这个 Task 里开发者提交的、对这个会话问的至少一道题有取值、还没对它办完的答复（代录的答复是会话自己写的，不通知）。提问者取题第一次出现的那一版的 provenance。
+- 一份答复对提问者 X 算办完：尝试记录里有对 X 的 `delivered`、`delivered_into_blocked`、`delivered_maybe_wrong_session`、`uncertain` 或 `skipped`（手动另选会话发的，也算 X 这一份）；只有意图、没有结果的按 `uncertain` 算（面板在投递途中退出，界面提示看终端）；或者覆盖它的确认的 provenance 会话键就是 X。别的会话的确认不算 X 办完；确认没有 provenance（换了机器、删了 `.local`）时退回“已确认就算办完”，这时可能漏通知。`run/notify/` 丢了，办完的最多重发一次。
+- **启用时刻**是审计初始化的时刻（`init.json`）。答复 id 里的时刻早于它的只进 `legacy`，不自动发、可以手动发；审计没初始化时任务都是 `audit_unavailable`，不发。
+- **什么时候现算**：记录、活动、会话变了，写接口成功之后（第二份答复不改变记录缓存的指纹，不会经推送触发），以及每 15 秒兜底。有排队的任务、没有浏览器时 herdr 的兜底轮询放慢到 15 秒。
+- **任务的状态**（`jobs[].state`）：
+
+| 状态 | 含义 | 界面 |
+|---|---|---|
+| `ready` | 空闲，稳定 3 秒、判定可投之后自动发 | “几秒内通知” |
+| `waiting_idle` | 在工作 | “已排队：这一轮结束后通知” |
+| `waiting_blocked` | 在等确认 | “在等确认，排着” |
+| `waiting_input` | 空闲但输入框不是认得出的空（`waitReason`、`screen`）；状态序号变了（`agent.get`，不读屏）或过了 15 秒才重读屏幕 | 原因与屏幕末尾，可手动发 |
+| `unknown_status` | 状态未知，不自动投 | “空闲之后自动判定”，不给手动发送（手动发送同样要求空闲） |
+| `waiting_herdr` | herdr 不可用 | 排着 |
+| `replaced` | 提问者不在 herdr 里，它提问时所在的 pane 上换了一个本仓库里的会话（`replacedBy`） | 小窗：发给现在的会话（开发者名义的普通消息，见下），或不通知 |
+| `no_target` | 提问者不在 herdr 里（结束了、外部会话） | 列出持有这个 Task 有效租约、在 herdr 里、pane 在本仓库的会话（`alternatives`），各一个“通知它”（开小窗，开发者名义的普通消息）；没有就写“会话下次读答复时会看到” |
+| `not_in_repository` | 提问者的 pane 已不在本仓库 | 不自动通知，可选别的会话 |
+| `manual_only` | 这个 herdr 版本不自动投递（只放行 0.9.1 与 0.9.3） | 可手动发 |
+| `legacy` | 只有早于启用时刻的答复 | 可手动发 |
+| `audit_unavailable` | 审计不可用 | 提示初始化 |
+
+- **按会话键找提问者**，与租约是否有效、是否续接无关；pane id 只用来判“会话已更换”。
+- **指针消息**（一行，不放答复正文；与根 `AGENTS.md` 里 `[nbdev]` 那一句逐字对应）：`[nbdev] <W>/<T> 有 N 题新的开发者答复（产物 a、b）。对括号里列出的每个产物，运行 nbdev answers <W> <T> <产物> --json 读答复并把决定写进 Task 记录；再运行 nbdev answers ack <W> <T> <产物> --through <该次输出里的 cursor>。`
+  - 按产物逐个读、逐个确认：Task 级的 `answers --json` 会列出没有答复的产物（报告、未答的提问集），对它们 `ack` 报 `no_answers`，输出也成倍变长。
+  - 读答复不带 `--unacked`：别的会话先确认之后，这个会话照样读得到与自己有关的答复。
+  - 手动发给提问者时连旧答复一起（`manualMessage`）。
+- **发给不是提问者的会话**（会话已更换后的新会话、持有租约的会话）：根 `AGENTS.md` 的 `[nbdev]` 规则只让提问者照做，所以面板不给它们发 `[nbdev]` 通知，而是发一段以开发者名义的普通消息。小窗预填 `developerMessage`（“开发者在面板上答复了 <W>/<T> 的提问（产物 a、b，共 N 题）。请对括号里列出的每个产物，运行 …”，连旧答复一起），开发者可以先改，确认后才发；同样经过投递前的判定，审计照记（`detail.kind: developer_message` 与全文）。这是开发者亲手做的决定，会话按普通用户消息处理。
+- 同一格 pane 的所有发送（通知、文字、按键）在面板里经一把按 pane 的互斥串行。收到 SIGTERM 时先等进行中的投递结束（上限为等待时限加 2 秒），再收口。
+
+**接口**（写请求的校验同“写接口”，在它之前已核过转发头、Host、登录、`Sec-Fetch-Site`、Origin 与 CSRF）：
+
+| 接口 | 请求体（JSON） | 结果 |
+|---|---|---|
+| `POST /api/notify/send` | `{workId, taskId, sessionKey, target: {paneId, sessionKey}, text?, confirmScreen?}`：`sessionKey` 是提问者（任务的键），`target` 只能是这条任务列出的会话（提问者本人、`replacedBy`、`alternatives`），否则 409 `session_changed`（`details.reason: not_a_candidate`）。发给提问者本人时不带 `text`，发的是指针消息（带了回 400，`reason: asker`）；发给别的会话必须带开发者确认过的 `text`（最长 4000 字，拒绝 C0 控制字符，不能以 `[nbdev]` 开头：`reason` 为 `missing`、`too_long`、`nbdev_prefix`） | `{result, code, message}`；`result` 见尝试记录 |
+| `POST /api/notify/skip` | `{workId, taskId, sessionKey}` | 记 `skipped`，这些答复（连旧答复）对这个提问者办完 |
+| `POST /api/sessions/:paneId/prompt` | `{text, expectedSession, confirmScreen?}`：最长 4000 字，拒绝 C0 控制字符（允许换行与制表符） | `{result, code, message}` |
+| `POST /api/sessions/:paneId/keys` | `{keys, expectedSession, confirmed?}`：一次 1 到 4 个，只收 `up`、`down`、`shift+tab`、`enter`、`esc`、`ctrl+c`、`y`、`n`（其它 400 `key_not_allowed`）；除上、下之外都要 `confirmed: true`（只防前端误发，确认框在前端）；一次最多一个 `ctrl+c`，同一格 3 秒内第二次 409 `key_rate_limited`（调 herdr 之前记账） | `{sent}` |
+
+- **顺序**：字段与长度、键名白名单 → 审计可用（否则 409 `audit_unavailable`，什么都不调）→ Ctrl+C 限速 → `agent.get` 核对会话键（`expectedSession` 为空或 pane 上没有会话一律拒绝）、pane 在本仓库、文字还要求空闲 → 写审计意图（写不进去就不发）→ 调 herdr → 写审计结果。
+- **文字与手动发送的两步确认**：正向白名单不过时回 409 `not_deliverable`，`details.screen` 是屏幕末尾，`details.screenDigest` 是这一屏的摘要（判定原因加屏幕末尾的 sha256）；开发者看过之后把摘要原样放进 `confirmScreen` 再发。服务端重新判定，摘要不同（两次请求之间屏幕变了）就再回 409、给新屏幕与新摘要，不发；紧贴投递的核对照做。
+- **HTTP 状态**：用法 400，冲突 409（`session_changed`、`agent_busy`：在工作、在等确认或状态未知、`not_in_repository`、`not_deliverable`、`audit_unavailable`、`key_rate_limited`），找不到 404（`question_not_found`：没有这条任务），`herdr_unavailable` 503。投递本身的结果（`delivered_into_blocked`、`uncertain` 等）在 200 的 `data.result` 里。
+
+## 审计
+
+`${XDG_CONFIG_HOME:-~/.config}/nbdev/audit.jsonl`：只追加，一行一个 JSON（格式见 [file-formats.md](file-formats.md#审计)）。不放 `.local/agent/`：Agent 能读写那里。
+
+- **初始化**：包脚本 `bun run --cwd packages/dev-panel audit-init`（不进 nbdev 的命令面）建目录（700）、空的 `audit.jsonl`（600）与 `init.json`（启用时刻）；开发者亲手运行它就是授权。面板与命令行都不建这个目录。已经初始化过再运行不改启用时刻。
+- **可用**：目录与文件都在、都是属主为自己的普通目录与文件、权限不宽于 700 与 600、`init.json` 读得出。每次写之前核对，不符合按 `audit_unavailable` 处理并写明原因（`reason`：`not_initialized`、`not_regular`、`bad_owner`、`bad_mode`、`unreadable`）。
+- **审计不可用时**：通知、文字、按键都不开放（409 `audit_unavailable`，界面提示）；写仓库照常（未初始化时不补审计，初始化过却写不进去时给警告 `audit_write_failed`）。
+- **写什么**：通知、文字、按键各写一行意图（`phase: "intent"`）、一行结果（`phase: "result"`），用同一个 `actionId` 关联，意图写成了才调 herdr；写仓库（`answer`、`create_work`、`create_task`、`status`、`edit`）在写事务之后只写一行结果（提交 sha 或失败理由、路径，不记文件内容）。文字与通知的全文进审计（决定点 6：开发者知情，秘密会进审计）。
+- 面板进程里只有一个写者，排队串行，每行一次 `O_APPEND` 追加。
 
 ## 缓存与刷新
 
-页面请求只读内存里的缓存，从不现算整份 `status`。分三块各自刷新，变了就经 `/ws` 推“哪块变了”；只有显示用到的字段变了才增加 revision（运行的子进程数随时在变，不算）。每块的重算单飞并合并（进行中又来变化只再排一次）；失败时保留上一份，在 `/api/meta` 的 `parts.<块>.error` 标出。
+页面请求只读内存里的缓存，从不现算整份 `status`。分四块各自刷新，变了就经 `/ws` 推“哪块变了”；只有显示用到的字段变了才增加 revision（运行的子进程数随时在变，不算）。每块的重算单飞并合并（进行中又来变化只再排一次）；失败时保留上一份，在 `/api/meta` 的 `parts.<块>.error` 标出。
 
 - **记录**（Work、Task、收件箱、撞号）：`fs.watch` 递归监视主工作区的 `.agents/works/`（去抖 300 毫秒，过滤 `evidences/`）；每 5 秒看一次 `git worktree list` 与 master 的 sha，变了才重算（过渡期判定的已提交部分按 master 与各 checkout 的 HEAD 缓存）；有浏览器连着时每 30 秒兜底整份重算，顺带重算各 worktree 未提交的记录改动。
 - **活动**（租约、会话、运行）：租约是否有效是读取时现算的（会话退出、过期、Task 关闭都不碰租约文件），所以有浏览器连着时每 5 秒整份重算；记录或会话变化时也重算。监视租约目录只当加速，目录不存在时先监视 `.local/agent/`，都不在就只靠 5 秒的重算；面板不建这些目录。
 - **会话**：见 [herdr.md](herdr.md#面板的订阅与对账)。herdr 不阻塞服务开始监听。
+- **通知**：通知任务的列表或状态变了（见“通知与会话页”）。通知自己的变化不再触发通知的现算。
 - 重算单飞并合并：进行中又被要求重算时排一次在后面，等它的调用方拿到的是这次之后才开始的结果（写接口据此等到包含自己写入的数据）。
-- **代码已更新**：每 5 秒比较 `git rev-parse HEAD:packages/dev-panel`、`HEAD:packages/nb-ui`、`HEAD:bun.lock` 与启动时的，不同就在 `/api/meta` 标 `codeChanged`。只改记录的提交不会触发。
+- **代码已更新**：每 5 秒比较 `git rev-parse HEAD:packages/dev-panel`、`HEAD:packages/nb-ui`、`HEAD:bun.lock` 与启动时的，不同就在 `/api/meta` 标 `codeChanged`。只改记录的提交不会触发。顶栏的提示写出重启命令：作为服务运行时是 `systemctl --user restart <单元>`，前台运行时是“在终端重启 nbdev panel serve”。不放重启按钮：面板不经 HTTP 结束自己。
 
 ## `panel serve` 与 `panel open`
 
@@ -131,12 +192,37 @@
 1. 在 `.local/agent/run/panel.lock` 取面板锁（同一个主工作区已有面板在跑时报 `panel_running`）。
 2. 绑定两个端口（被占时立刻报 `port_in_use`），写 `panel.json`；预热完成之前 `/api/*` 回 503，页面回“正在启动”。
 3. 构建前端（见下；`--no-build` 跳过、用现有的 `dist/web`，`--static-dir` 用现成的产物目录），预热（记录与活动各算一遍），开始监视。
-4. 收到 SIGINT、SIGTERM 或 SIGHUP 时收口：结束正在跑的 `git grep` 与 `vite build`，停服务，删自己的 `panel.json`，放锁，退出码 0。
+4. 收到 SIGINT、SIGTERM 或 SIGHUP 时收口：结束正在跑的 `git grep` 与 `vite build`，等进行中的投递结束（上限 12 秒），停服务，删自己的 `panel.json`，放锁，退出码 0。
 
 `panel open` 读 `panel.json`，面板不在跑时报 `panel_not_running`；在跑就签一次性票据：
 
 - 不带 `--print`：票据不进任何进程的命令行（`/proc/<pid>/cmdline` 对本机所有账户可读，别的账户能抢先兑换）。写一页跳转页 `open-<随机>.html`（独占创建、权限 600，内容只是 `location.replace(<登录链接>)`），目录是 `$XDG_RUNTIME_DIR/nbdev/`，没有这个变量时用主工作区的 `.local/agent/run/panel-open/`，目录权限 700；只把它的 `file://` 路径交给 `xdg-open`。每次 `panel open` 顺手删掉该目录里超过 10 分钟的跳转页（票据早已过期）。JSON 的 `data` 带 `page`（跳转页路径），`loginUrl` 为 null。
 - `--print`：只打印登录链接（`data.loginUrl`），不写跳转页、不开浏览器。链接打印在自己的终端里，由开发者决定往哪儿粘。
+- 不带 `--print`、而 `DISPLAY` 与 `WAYLAND_DISPLAY` 都没有设（经 SSH 登进来、没有桌面环境）：不调 `xdg-open`、不写跳转页，给警告 `no_display`，写明下面的转发命令（端口取面板实际在用的）。
+
+### 从别的电脑用（SSH 转发）
+
+面板只绑回环；跨设备访问（t13）之前，从别的电脑用它走 SSH 端口转发，不改面板的配置：
+
+1. 在你的电脑上转发两个端口，本地端口与面板的端口保持一致：`ssh -L 4400:127.0.0.1:4400 -L 4401:127.0.0.1:4401 <这台机器>`。产物来源的地址按请求的主机名与产物端口拼（`localhost:4400` 的页面嵌 `localhost:4401`），本地端口换了，产物页就嵌不进来。
+2. 在这条 SSH 会话里（或另开一条）运行 `nbdev panel open --print`，把打印的一次性链接粘进你电脑的浏览器（5 分钟内有效，用一次作废）。
+3. 面板重启后会话作废，重新 `panel open --print`。
+
+别的电脑经转发进来，在面板看来也是回环上的请求，登录照样要一次性链接；开发者 2026-10-13 定别的设备登录后与本机权限相同。
+
+## 常驻（t11）
+
+包脚本把面板装成 systemd 用户服务（不进 nbdev 的命令面）：
+
+```text
+bun run --cwd packages/dev-panel install-service [-- --dry-run] [--port 4400] [--artifact-port 4401] [--target <checkout>] [--force] [--json]
+bun run --cwd packages/dev-panel install-service -- --uninstall [--force] [--json]
+```
+
+- 单元 `nbdev-panel-<主工作区目录名>.service`（本机是 `nbdev-panel-neuro-book.service`），写在 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`；一个主工作区一个面板。安装写单元、`systemctl --user daemon-reload`、`enable --now`；卸载 `disable --now`、删单元、`daemon-reload`。`--dry-run` 只打印将写的文件与命令。
+- `ExecStart` 是运行安装脚本的 bun 的绝对路径加主工作区 `packages/dev-panel/src/cli.ts` 的绝对路径，不经 shim（shim 可以被指到 worktree；用户管理器的 `PATH` 不保证有 `~/.local/bin`）。`Environment=NBDEV_PANEL_UNIT=<单元名>`：面板只凭它判断自己是服务（`INVOCATION_ID` 在 KDE 的终端标签页里也有）。`Restart=on-failure`，`RestartPreventExitStatus=2 3`（用法错误与冲突重启也不会好），`TimeoutStopSec=30`；没有 `After=default.target`。
+- 同名文件不是本脚本写的（靠文件头的标记行认）不覆盖、不删，除非 `--force`；面板已经在跑时先提示停掉（`panel_running`）。`systemctl` 失败报 `systemctl_failed`。
+- 日志 `journalctl --user -u <单元>`，停止 `systemctl --user stop <单元>`。服务写的 `panel.json` 照旧在主工作区的 `.local/agent/`，`nbdev panel open` 用法不变；重启之后要重新 `panel open`。本机 `Linger=yes`，注销后服务照常。
 
 ## 前端构建
 
@@ -145,7 +231,7 @@
 - 输入：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 整个包目录（排除 `node_modules`、`.nuxt`、`.output`、`playground`；面板直接用 nb-ui 的源码，还用到它的 `themes/` 与提交在包里的 `dist/nb-ui.css`），根 `bun.lock`。哈希写进 `dist/web/.build-hash`，一致就不构建。
 - 输出到临时目录，成功后改名替换 `dist/web`：正在跑的面板的页面不会指向已被删掉的资源。
 - 失败时有旧产物就用旧的（`/api/meta` 的 `build.failed`、命令的 `build_failed` 警告）；没有旧产物报 `build_failed`（退出码 1）。
-- 合入 `master` 后由主工作区的代码运行，构建产物也在主工作区的包目录里；常驻与 systemd 单元在 t11。
+- 合入 `master` 后由主工作区的代码运行，构建产物也在主工作区的包目录里；常驻见“常驻”。
 
 ## 前端
 
@@ -157,19 +243,19 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | `/work/:workId` | Work 页：目标、Task 表、现在谁在动、Work 级的文档与产物；状态切换、编辑 README、新建 Task 的入口 | t03 第三轮 Work 页 |
 | `/work/:workId/task/:taskId` | Task 页：当前情况、README、执行 checkout 的候选与它上面的提交、产物与文档类产物、链到的 Spec、证据、谁在动；状态切换、编辑 README 的入口 | Proposal 第九节 |
 | `/artifacts` | 产物列表：按类分组，可过滤 | t03 第二轮产物页 |
-| `/artifact/:workId/:taskId/:artifactId` | 产物页：左边是产物来源上的沙箱 iframe（`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复表单与问题侧栏；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-` | t03 第二轮产物页 |
+| `/artifact/:workId/:taskId/:artifactId` | 产物页：左边是产物来源上的沙箱 iframe（`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复表单与问题侧栏；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-`。答复成功后侧栏多一块“通知”：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次（t11） | t03 第二轮产物页 |
 | `/docs?checkout=&path=&prefer=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选 | t03 第二轮文档页 |
-| `/live/sessions` | 会话：持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态 | t03 第三轮会话页左半边 |
+| `/live/sessions?pane=` | 会话：最上面是通知（排队的、要处理的、最近 24 小时发过的，t11）；持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态。`?pane=` 选中一格会话，显示屏幕末尾（打开时与每次发送后各读一次，不轮询）、输入框与按键（t11） | t03 第三轮会话页左半边 |
 | `/live/checkouts` | checkout：分支、HEAD、是哪个 Work 的执行 worktree、路径 | Proposal 第九节 |
 | `/search?q=` | 搜索结果：流式出现，按 checkout 分组，截断时标出 | t03 第二轮顶栏 |
 | `/new?workId=` | 新建 Work 或 Task：表单与随填随变的预览（预计领到的号、要写的文件与内容、提交信息；号以提交时为准）；结果区写实际领到的 id，与预览不同时多一行说明 | t03 第三轮新建表单 |
 | `/edit?path=` | 编辑主工作区里的一个文件：编辑与预览、打开时就提醒哪些分支改过它、根级治理入口显示非空行数与上限 | t10 |
 
-- **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、新建、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。
+- **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、新建、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新与重启命令、通知要处理的计数（会话已更换、没有可通知的会话，以及没点“知道了”的醒目尝试；点了去会话页）、审计未开启、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。
 - **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就显示上面那句并停止重连，否则照常重连（重连后的 `hello` 全部重取）。
-- **偏好**（明暗、左栏各 Work 的展开）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
+- **偏好**（明暗、左栏各 Work 的展开、通知里“知道了”的尝试）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
 - **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
-- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
+- **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，t10 加 `AnswerForm`、`StatusSwitch`、`NewWorkForm`、`NewTaskForm`、`CreatePreview`、`DiffView`、`UncommittedDialog`、`FileEditor`、`WriteNotice`，t11 加 `NotifyStatus`、`DeveloperMessageDialog`、`ScreenConfirmDialog`、`SessionConsole`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。去别的页的入口是真实链接（`<a href>`，地址都由 `host/routes.ts` 拼），普通左键点击时零件 `preventDefault` 并发 `navigate`，由页面 `router.push`；中键与带修饰键的点击交给浏览器（新标签页、复制地址）。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
 - **画法**（t03 第三轮已定）：持久的照常画实线的面；临时的（会话、租约、谁在动、运行）一律信息色虚线框，角上标“临时”，单独的租约是虚线胶囊，失效的划掉。没有字段的值显示“未标”；面板不推断状态，所以多数 Work 的计数条是“未标”的灰色。
 - **写入的界面**（t10）：零件不发请求；写请求、预览请求、300 毫秒去抖、“2 秒后提示在等别的写入完成”的定时器、`beforeunload`、复制到剪贴板都在页面里（`host/writes.ts`、`host/status-change.ts`）。写请求的错误保留 `details` 与 `data`。字段校验直接导入核心的纯函数（`validateAnswerValue`、`SLUG_PATTERN`、标题与控制字符的规则），不复制规则。主工作区不能写、记录来自分支时，写入口隐藏或只读并写明原因。外壳不监听也不接受来自产物 iframe 的消息：答复只经侧栏表单。错误码到界面动作：
 

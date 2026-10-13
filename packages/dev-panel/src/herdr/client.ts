@@ -7,10 +7,12 @@ import {systemErrorCode} from "../core/errors.js";
  * herdr 的 socket 客户端：一行一个 JSON，请求 `{id, method, params}`，响应 `{id, result}` 或 `{id, error: {code, message}}`。
  * herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`、`pane.run`），所以白名单由调用方显式传入，
  * 白名单外的方法在这里直接拒绝、不发出去。命令行用 `HERDR_CLI_METHODS`；`status` 用只读的 `HERDR_READ_METHODS`；
- * 面板用只读的 `HERDR_PANEL_READ_METHODS`，t11、t12 再按 Proposal 第八节第 7 条补齐（其中没有 `pane.report_metadata`：标签只由会话自己的命令行写）。
+ * 面板用 `HERDR_PANEL_METHODS`：只读的 `HERDR_PANEL_READ_METHODS` 加 t11 的通知、文字与按键（`agent.prompt`、`agent.send_keys`）
+ * 与它们之前的核对（`agent.get`、`agent.explain`、`agent.read`，都不改界面）；t12 再补终端的。其中没有 `pane.report_metadata`：标签只由会话自己的命令行写。
  */
 export const HERDR_READ_METHODS: readonly string[] = ["ping", "pane.list", "pane.process_info"];
 export const HERDR_PANEL_READ_METHODS: readonly string[] = [...HERDR_READ_METHODS, "session.snapshot", "events.subscribe"];
+export const HERDR_PANEL_METHODS: readonly string[] = [...HERDR_PANEL_READ_METHODS, "agent.get", "agent.explain", "agent.read", "agent.prompt", "agent.send_keys"];
 export const HERDR_CLI_METHODS: readonly string[] = [...HERDR_READ_METHODS, "pane.report_metadata"];
 
 const TAG_SOURCE = "nbdev";
@@ -19,8 +21,12 @@ const DEFAULT_CALL_TIMEOUT_MS = 2_000;
 
 export type HerdrStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 export type HerdrAgentSession = {agent: string; kind: string; value: string};
-/** `cwd` 是 pane 的 shell 所在目录，`foregroundCwd` 是前台进程所在目录；herdr 不知道时为 null。 */
-export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null; cwd: string | null; foregroundCwd: string | null};
+/** `cwd` 是 pane 的 shell 所在目录，`foregroundCwd` 是前台进程所在目录；herdr 不知道时为 null。`focused`：herdr 当前聚焦的那一格（开发者的键盘最可能在那里）。 */
+export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null; cwd: string | null; foregroundCwd: string | null; focused: boolean};
+/** `agent.get` 与 `agent.prompt` 返回的一个 Agent：比 pane 多一个状态序号（每次状态变化加 1）。 */
+export type HerdrAgentInfo = HerdrPane & {stateChangeSeq: number | null};
+/** `agent.explain` 里投递判据要用的几项：命中的规则、退路、`live_prompt_box` 的区域预览（规则不在清单里时为 null）。 */
+export type HerdrExplain = {state: string | null; matchedRule: string | null; fallbackReason: string | null; screenDetectionSkipped: boolean; livePromptBoxPreview: string | null; manifestVersion: string | null};
 export type HerdrProcessInfo = {paneId: string; shellPid: number | null; foregroundGroupId: number | null; foregroundPids: number[]};
 /** 一格 pane 在快照里的样子：pane 本身，加上它所在的 workspace 与 Agent 的状态序号（`state_change_seq`，对账时判断有没有漏掉状态事件）。 */
 export type HerdrSnapshotPane = HerdrPane & {workspaceId: string; workspaceLabel: string | null; tabId: string; stateChangeSeq: number | null};
@@ -31,7 +37,7 @@ export type HerdrEvent = {event: string; data: Record<string, unknown>};
 export type HerdrSubscription = {ready: Promise<void>; closed: Promise<{reason: string}>; close(): void};
 export type HerdrAvailability = {ok: true; version: string; socketPath: string} | {ok: false; reason: string; socketPath: string; detail: string};
 
-/** herdr 调用失败：`code` 是 herdr 的错误码（如 `pane_not_found`），或本客户端的 `server_not_running`、`timeout`、`protocol_error`、`method_not_allowed`。 */
+/** herdr 调用失败：`code` 是 herdr 的错误码（如 `pane_not_found`、`agent_blocked`，herdr 自己等待到点是 `timeout`），或本客户端的 `server_not_running`、`client_timeout`（本地时限）、`protocol_error`、`method_not_allowed`。 */
 export class HerdrError extends Error {
     readonly code: string;
 
@@ -52,6 +58,14 @@ export type HerdrClient = {
     clearTaskTokens(paneId: string): Promise<void>;
     /** `session.snapshot`：全部 pane（带 cwd 与 Agent 状态）与 Agent 的状态序号。 */
     snapshot(): Promise<HerdrSessionSnapshot>;
+    /** `agent.get`：pane 上没有 herdr 认得的 Agent 时为 null（`agent_not_found`）。 */
+    agentGet(target: string): Promise<HerdrAgentInfo | null>;
+    agentExplain(target: string): Promise<HerdrExplain>;
+    /** `agent.read`：`ansi` 保留转义序列（`strip_ansi: false`）。只用 `visible` 与 `detection`：`recent` 加行数会滚动 Claude 的界面。 */
+    agentRead(target: string, source: "visible" | "detection", format?: "text" | "ansi"): Promise<string>;
+    /** `agent.prompt`：单次时限是等待时限加 2 秒。返回体里的 `agent` 是 herdr 回应时看到的状态（可能是旧值）。 */
+    agentPrompt(target: string, text: string, wait: {until: HerdrStatus[]; timeoutMs: number}): Promise<{type: string; agent: HerdrAgentInfo | null}>;
+    agentSendKeys(target: string, keys: readonly string[]): Promise<void>;
     /** `events.subscribe`：单独开一条长连接，之后每读到一行事件回调一次。订阅类型由调用方写死。 */
     subscribe(subscriptions: ReadonlyArray<Record<string, unknown>>, onEvent: (event: HerdrEvent) => void, onMalformed?: (line: string) => void): HerdrSubscription;
 };
@@ -81,6 +95,29 @@ function toPane(value: unknown): HerdrPane | null {
         session,
         cwd: typeof value.cwd === "string" ? value.cwd : null,
         foregroundCwd: typeof value.foreground_cwd === "string" ? value.foreground_cwd : null,
+        focused: value.focused === true,
+    };
+}
+
+function toAgentInfo(value: unknown): HerdrAgentInfo | null {
+    const pane = toPane(value);
+    if (!pane || !isRecord(value)) return null;
+    return {...pane, stateChangeSeq: typeof value.state_change_seq === "number" ? value.state_change_seq : null};
+}
+
+function toExplain(value: unknown): HerdrExplain {
+    const explain = isRecord(value) && isRecord(value.explain) ? value.explain : null;
+    if (!explain) throw new HerdrError("protocol_error", "agent.explain 的响应缺少 explain");
+    const rules = Array.isArray(explain.evaluated_rules) ? explain.evaluated_rules : [];
+    const box = rules.find((rule) => isRecord(rule) && rule.id === "live_prompt_box");
+    const evidence = isRecord(box) && isRecord(box.evidence) ? box.evidence : null;
+    return {
+        state: typeof explain.state === "string" ? explain.state : null,
+        matchedRule: isRecord(explain.matched_rule) && typeof explain.matched_rule.id === "string" ? explain.matched_rule.id : null,
+        fallbackReason: typeof explain.fallback_reason === "string" ? explain.fallback_reason : null,
+        screenDetectionSkipped: explain.screen_detection_skipped === true,
+        livePromptBoxPreview: evidence && typeof evidence.region_preview === "string" ? evidence.region_preview : null,
+        manifestVersion: typeof explain.manifest_version === "string" ? explain.manifest_version : null,
     };
 }
 
@@ -122,10 +159,11 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
     const deadline = options.budgetMs === undefined ? Number.POSITIVE_INFINITY : Date.now() + options.budgetMs;
     let available: Promise<HerdrAvailability> | null = null;
 
-    function call(method: string, params: Record<string, unknown>): Promise<unknown> {
+    /** `timeoutMs`：单次调用的时限，缺省是客户端的；`agent.prompt` 要等 herdr 的 `wait`，单独给（t11 设计审查 S1）。 */
+    function call(method: string, params: Record<string, unknown>, timeoutMs = callTimeout): Promise<unknown> {
         if (!allow.includes(method)) return Promise.reject(new HerdrError("method_not_allowed", `herdr 方法不在白名单里：${method}`));
         const remaining = deadline - Date.now();
-        if (remaining <= 0) return Promise.reject(new HerdrError("timeout", `herdr 调用超过总时限：${method}`));
+        if (remaining <= 0) return Promise.reject(new HerdrError("client_timeout", `herdr 调用超过总时限：${method}`));
         const id = `nbdev:${process.pid}:${++requestCounter}`;
         return new Promise((resolvePromise, rejectPromise) => {
             const socket = createConnection(socketPath);
@@ -138,7 +176,8 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
                 socket.destroy();
                 outcome();
             };
-            const timer = setTimeout(() => finish(() => rejectPromise(new HerdrError("timeout", `herdr 调用超时：${method}`))), Math.min(callTimeout, remaining));
+            // 本地的时限用 `client_timeout`，与 herdr 自己回的 `timeout`（等待到点）区分开。
+            const timer = setTimeout(() => finish(() => rejectPromise(new HerdrError("client_timeout", `herdr 调用超时：${method}`))), Math.min(timeoutMs, remaining));
             socket.setEncoding("utf8");
             socket.on("connect", () => socket.write(`${JSON.stringify({id, method, params})}\n`));
             socket.on("data", (chunk: string) => {
@@ -226,6 +265,34 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
         },
         async snapshot() {
             return toSnapshot(await call("session.snapshot", {}));
+        },
+        async agentGet(target) {
+            try {
+                const result = await call("agent.get", {target});
+                const info = toAgentInfo(isRecord(result) ? result.agent : null);
+                if (!info) throw new HerdrError("protocol_error", "agent.get 的响应缺少 agent");
+                return info;
+            } catch (error) {
+                if (error instanceof HerdrError && (error.code === "agent_not_found" || error.code === "pane_not_found")) return null;
+                throw error;
+            }
+        },
+        async agentExplain(target) {
+            return toExplain(await call("agent.explain", {target}));
+        },
+        async agentRead(target, source, format = "text") {
+            const result = await call("agent.read", {target, source, format, strip_ansi: format === "text"});
+            const read = isRecord(result) && isRecord(result.read) ? result.read : null;
+            if (!read || typeof read.text !== "string") throw new HerdrError("protocol_error", "agent.read 的响应缺少 read.text");
+            return read.text;
+        },
+        async agentPrompt(target, text, wait) {
+            const result = await call("agent.prompt", {target, text, wait: {until: wait.until, timeout_ms: wait.timeoutMs}}, wait.timeoutMs + 2_000);
+            const info = toAgentInfo(isRecord(result) ? result.agent : null);
+            return {type: isRecord(result) && typeof result.type === "string" ? result.type : "unknown", agent: info};
+        },
+        async agentSendKeys(target, keys) {
+            await call("agent.send_keys", {target, keys: [...keys]});
         },
         subscribe(subscriptions, onEvent, onMalformed) {
             return openSubscription(socketPath, allow, callTimeout, subscriptions, onEvent, onMalformed ?? (() => undefined));

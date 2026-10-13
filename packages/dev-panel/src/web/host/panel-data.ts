@@ -20,7 +20,7 @@ const RECONNECT_MAX_MS = 10_000;
 
 export const panelState = reactive({
     instance: "",
-    revisions: {records: 0, activity: 0, sessions: 0} as Revisions,
+    revisions: {records: 0, activity: 0, sessions: 0, notify: 0} as Revisions,
     connection: "connecting" as ConnectionState,
     /** 没登录（401）：整个面板只显示“用 nbdev panel open 打开”。 */
     unauthorized: false,

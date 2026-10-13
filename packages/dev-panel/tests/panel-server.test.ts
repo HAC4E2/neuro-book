@@ -12,7 +12,7 @@ import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
-import {cleanupFixtures, createFixture, git, run, taskReadme, workReadme, type Fixture} from "./git-fixture.js";
+import {cleanupFixtures, createFixture, git, panelEnv, run, taskReadme, workReadme, type Fixture} from "./git-fixture.js";
 import {startFakeClaude, spawnMarked, stopProcess, type MarkedChild} from "./processes.js";
 
 /** L3：面板服务在进程内起（端口取 0），前端产物用桩页面注入，不依赖 dist/web。 */
@@ -50,6 +50,7 @@ async function startPanel(fixture: Fixture, panes: Parameters<typeof startFakeHe
         herdr: fake ? createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS}) : null,
         token,
         log: (message) => logs.push(message),
+        env: panelEnv(fixture),
     });
     closers.push(() => server.stop());
     await server.setStatic(staticDir, {failed: null});
@@ -325,7 +326,7 @@ describe("面板服务的启动与搜索", () => {
         await fixture.write("docs/a.md", "needle\n".repeat(50));
         await fixture.commit("docs");
         const token = randomBytes(32).toString("hex");
-        const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined});
+        const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined, env: panelEnv(fixture)});
         closers.push(() => server.stop());
         const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket(token))}`;
         expect((await fetch(`${server.url}/api/overview`, {headers: {Cookie: cookie}})).status).toBe(503);
@@ -425,7 +426,7 @@ describe("herdr 的常驻状态", () => {
 
     test("herdr 一直不在：只有一条重试链，次数按退避有上界（对账定时器不另起链）", async () => {
         const fixture = await createFixture("panel-monitor-down");
-        const timings = {reconcileMs: 30, pollMs: 500, backoffInitialMs: 20, backoffMaxMs: 200, stableMs: 500};
+        const timings = {reconcileMs: 30, pollMs: 500, pendingPollMs: 15_000, backoffInitialMs: 20, backoffMaxMs: 200, stableMs: 500};
         const monitor = new HerdrMonitor(createHerdrClient({socketPath: join(fixture.root, "no-herdr.sock"), allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, timings);
         closers.push(async () => monitor.stop());
         monitor.start();
@@ -441,7 +442,7 @@ describe("herdr 的常驻状态", () => {
         const fake = await startFakeHerdr(fixture.root, [claudePane("w9:p1", randomUUID())]);
         closers.push(() => fake.close());
         fake.dropSubscriptionsAfterMs = 5;
-        const timings = {reconcileMs: 60_000, pollMs: 500, backoffInitialMs: 40, backoffMaxMs: 5_000, stableMs: 1_000};
+        const timings = {reconcileMs: 60_000, pollMs: 500, pendingPollMs: 15_000, backoffInitialMs: 40, backoffMaxMs: 5_000, stableMs: 1_000};
         const monitor = new HerdrMonitor(createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS}), () => undefined, () => undefined, timings);
         closers.push(async () => monitor.stop());
         monitor.start();
@@ -506,7 +507,7 @@ describe("端口", () => {
             await holder.stop(true);
         });
         const context = await locateRepository(fixture.main);
-        const attempt = (port: number, artifactPort: number) => startPanelServer({context, host: "127.0.0.1", port, artifactPort, herdr: null, token: "t", log: () => undefined});
+        const attempt = (port: number, artifactPort: number) => startPanelServer({context, host: "127.0.0.1", port, artifactPort, herdr: null, token: "t", log: () => undefined, env: panelEnv(fixture)});
         await expect(attempt(holder.port!, 0)).rejects.toMatchObject({code: "port_in_use"});
         await expect(attempt(0, holder.port!)).rejects.toMatchObject({code: "port_in_use"});
         const ok = await attempt(0, 0);
@@ -549,7 +550,7 @@ describe("nbdev panel serve 与 panel open", () => {
         closers.push(() => stopProcess(serve));
         const panelFile = join(fixture.main, ".local/agent/panel.json");
         while (!(await Bun.file(panelFile).exists())) await Bun.sleep(20);
-        const info = await Bun.file(panelFile).json() as {url: string; pid: number};
+        const info = await Bun.file(panelFile).json() as {url: string; artifactUrl: string; pid: number};
         expect(((await Bun.file(panelFile).stat()).mode & 0o777).toString(8)).toBe("600");
         expect(info.pid).toBe(serve.pid);
         const second = await fixture.cli(["panel", "serve", "--port", "0", "--artifact-port", "0", "--static-dir", staticDir, "--json"]);
@@ -576,11 +577,18 @@ describe("nbdev panel serve 与 panel open", () => {
         await mkdir(shim, {recursive: true});
         await writeFile(join(shim, "xdg-open"), '#!/bin/sh\np="${1#file://}"\nprintf \'%s\\n\' "$#" "$1" "$(stat -c %a "$p")" "$(stat -c %a "$(dirname "$p")")" > "$OPEN_RECORD.tmp"\nmv "$OPEN_RECORD.tmp" "$OPEN_RECORD"\n', {mode: 0o755});
         const openThroughShim = async (runtimeDir: string, record: string) => {
-            const result = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, XDG_RUNTIME_DIR: runtimeDir, OPEN_RECORD: record});
+            const result = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, XDG_RUNTIME_DIR: runtimeDir, OPEN_RECORD: record, DISPLAY: ":0"});
             for (let attempt = 0; attempt < 200 && !(await Bun.file(record).exists()); attempt += 1) await Bun.sleep(20);
             const [argc, arg, fileMode, dirMode] = (await Bun.file(record).text()).trimEnd().split("\n");
             return {result, argc, arg: arg!, fileMode, dirMode};
         };
+        // 没有桌面环境（经 SSH 登进来）：不调 xdg-open、不写跳转页，警告里写怎么转发两个端口。
+        const headless = await fixture.cli(["panel", "open", "--json"], fixture.main, {PATH: `${shim}:${process.env.PATH ?? ""}`, OPEN_RECORD: join(fixture.root, "open-headless.txt"), DISPLAY: "", WAYLAND_DISPLAY: ""});
+        const headlessPorts = [new URL(info.url).port, new URL(info.artifactUrl).port];
+        expect([headless.exitCode, (headless.json?.data as {page: string | null}).page, headless.json?.warnings.map((warning) => warning.code)]).toEqual([0, null, ["no_display"]]);
+        expect(headless.json?.warnings[0]?.message).toContain(`ssh -L ${headlessPorts[0]}:127.0.0.1:${headlessPorts[0]} -L ${headlessPorts[1]}:127.0.0.1:${headlessPorts[1]}`);
+        await Bun.sleep(300);
+        expect(await Bun.file(join(fixture.root, "open-headless.txt")).exists()).toBe(false);
         const runtimeDir = join(fixture.root, "runtime");
         await mkdir(join(runtimeDir, "nbdev"), {recursive: true});
         const stalePage = join(runtimeDir, "nbdev", "open-0000000000000000.html");

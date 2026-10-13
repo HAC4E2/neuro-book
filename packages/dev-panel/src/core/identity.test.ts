@@ -178,6 +178,6 @@ describe("认出调用者", () => {
         fake.overrides["pane.process_info"] = "hang";
         const {caller, warnings} = await resolveCaller({env: {HERDR_PANE_ID: "w9:p3", OMPCODE: "1"}, herdr: client(fake.socketPath, 200)});
         expect(caller).toMatchObject({kind: "session", ref: {key: "omp:/o.jsonl"}, via: "herdr-pane", process: null, herdr: {paneId: "w9:p3"}});
-        expect(warnings.map((warning) => [warning.code, warning.details?.code])).toEqual([["herdr_partial", "timeout"]]);
+        expect(warnings.map((warning) => [warning.code, warning.details?.code])).toEqual([["herdr_partial", "client_timeout"]]);
     });
 });

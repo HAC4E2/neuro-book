@@ -1,5 +1,5 @@
 /**
- * 面板的偏好（明暗、左栏各组的展开）：只在这一处读写 localStorage，组件不碰浏览器存储。
+ * 面板的偏好（明暗、左栏各组的展开、通知里“知道了”的尝试）：只在这一处读写 localStorage，组件不碰浏览器存储。
  * 键都带 `nbdev-panel:` 前缀；读写都包 try/catch（隐私模式、存储被禁用时照常工作，只是记不住）。
  * localStorage 按来源分开：`127.0.0.1:4400` 与 `localhost:4400` 各有一份，可以接受。
  */
@@ -49,4 +49,21 @@ export function readNavOpen(): Record<string, boolean> {
 
 export function writeNavOpen(value: Record<string, boolean>): void {
     write("nav-open", JSON.stringify(value));
+}
+
+/** 通知里“知道了”的尝试（attemptId）：只在本浏览器记住，最多留最近 200 个。 */
+export function readDismissedNotify(): string[] {
+    const value = read("notify-dismissed");
+    if (!value) return [];
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+    } catch (error) {
+        console.warn("面板偏好 notify-dismissed 不是合法 JSON，按缺省处理", error);
+        return [];
+    }
+}
+
+export function writeDismissedNotify(value: readonly string[]): void {
+    write("notify-dismissed", JSON.stringify(value.slice(-200)));
 }

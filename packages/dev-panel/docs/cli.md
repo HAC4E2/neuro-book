@@ -7,6 +7,7 @@
 - 用户级入口 `~/.local/bin/nbdev` 是一个 shim，由 `bun run --cwd packages/dev-panel install-shim` 写入，内容只有 `exec <bun 的绝对路径> "<主工作区>/packages/dev-panel/src/cli.ts" "$@"`。shim 跑的是主工作区里的代码：worktree 分支里可能没有这个命令，或者是旧版本。
 - 没装 shim 时直接运行 `bun <主工作区>/packages/dev-panel/src/cli.ts <命令>`。不要用 `bun run --cwd`：它会把 cwd 换成包目录，命令行就不知道调用者在哪。
 - `install-shim` 的参数：`--bin-dir <目录>`（缺省 `~/.local/bin`）、`--target <checkout>`（缺省主工作区）、`--force`（覆盖不是本脚本写的同名文件或符号链接；目标是目录时一律不覆盖）、`--json`（`schema` 为 `nbdev.install-shim/v1`）。相对路径按当前目录解析；经 `bun run --cwd packages/dev-panel install-shim -- …` 调用时当前目录是包目录，所以 `--bin-dir`、`--target` 最好写绝对路径。
+- 另外两个包脚本也不进 nbdev 的命令面（它们是开发者用的，不是 Agent 用的）：`audit-init` 初始化审计目录（`nbdev.audit-init/v1`，见 [panel.md](panel.md#审计)），`install-service` 把面板装成 systemd 用户服务（`nbdev.install-service/v1`，见 [panel.md](panel.md#常驻t11)）。
 
 ## 命令
 
@@ -107,9 +108,9 @@ stdout 只有一个对象，诊断走 stderr：
 | 退出码 | 含义 | 错误码 |
 |---|---|---|
 | 0 | 成功，含带警告的成功与撞号 | |
-| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`request_aborted`、`internal` |
-| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`invalid_text`、`invalid_record_edit`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host`、`payload_too_large`、`unsupported_media_type` |
-| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use` |
+| 1 | 运行失败 | `lock_timeout`、`lock_failed`、`lock_compromised`、`cross_device`、`git_failed`、`git_identity_missing`、`commit_failed`、`write_failed`、`schema_unsupported`、`invalid_record`、`number_exhausted`、`build_failed`、`request_aborted`、`herdr_unavailable`、`systemctl_failed`、`internal` |
+| 2 | 用法错误 | `usage`、`invalid_slug`、`invalid_status`、`invalid_title`、`invalid_text`、`invalid_record_edit`、`caller_unknown`、`invalid_artifact_id`、`invalid_questions`、`invalid_answer`、`unsafe_host`、`payload_too_large`、`unsupported_media_type`、`key_not_allowed` |
+| 3 | 需要人决定的冲突 | `main_not_on_master`、`main_busy`、`branch_maintained_record`、`ambiguous_work`、`ambiguous_task`、`work_not_committed`、`task_not_committed`、`target_exists`、`target_missing`、`task_closed`、`hash_mismatch`、`uncommitted_changes`、`staged_rename`、`changed_after_write`、`unsafe_path`、`shim_exists`、`duplicate_question`、`artifact_closed`、`question_closed`、`stale_version`、`not_editable`、`panel_running`、`port_in_use`、`audit_unavailable`、`session_changed`、`not_deliverable`、`agent_busy`、`not_in_repository`、`key_rate_limited`、`service_exists` |
 | 4 | 等待没有结果（`answers --wait`）：超时或被信号打断 | `wait_timeout`、`wait_interrupted` |
 | 5 | 找不到对象 | `repository_not_found`、`records_root_not_found`、`master_not_found`、`work_not_found`、`task_not_found`、`shim_target_not_found`、`artifact_not_found`、`question_not_found`、`entry_missing`、`no_answers`、`panel_not_running` |
 
@@ -154,6 +155,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `artifact_deletions_not_committed` | 产物目录里有被删的文件，没有随发布提交 |
 | `build_failed` | `panel serve`：前端构建失败，用的是旧的产物（没有旧产物时是错误） |
 | `open_failed` | `panel open`：没能用 `xdg-open` 打开浏览器，打印跳转页的路径（`details.page`），手动在浏览器里打开它或改用 `--print` |
+| `no_display` | `panel open`：没有桌面环境（`DISPLAY`、`WAYLAND_DISPLAY` 都没设），没有调 `xdg-open`；按消息里的命令从你的电脑转发两个端口，再用 `--print`（`details.panelPort`、`details.artifactPort`） |
 | `already_closed` | 产物已经关闭，没有出新版本 |
 | `wait_scope_empty` | `answers --wait` 开始时范围里还没有产物；照常等，等待期间新建的产物会加入范围 |
 | `already_acked` | 要确认的答复（给了 `--through` 时为不比它新的）都已确认，没有写新的确认；有残留时照样补交残留与 `--include` 的文件 |
@@ -166,6 +168,8 @@ stdout 只有一个对象，诊断走 stderr：
 | `unreadable_artifact_record` | 某个发布记录、答复或确认读不出，已跳过 |
 | `unreadable_provenance` | 某个 provenance 文件读不出，按没有处理 |
 | `schema_unsupported` | 读列表时遇到不认识主版本的文件，已跳过 |
+| `audit_write_failed` | 面板：写仓库成功了，但审计初始化过却写不进去（权限、属主不对），这次没记上 |
+| `unreadable_notify_record` | 面板：某份通知的尝试记录读不出或格式不对，已跳过（只影响去重与历史） |
 
 ## `answers --wait`
 

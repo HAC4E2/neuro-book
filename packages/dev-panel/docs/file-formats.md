@@ -280,6 +280,46 @@ artifacts/<artifactId>/
 - 写入后先续期调用者的租约，再记 provenance；调用者未知时不记，失败只给 `provenance_write_failed` 警告。
 - **提问者**：题的 `since` 那一版的 provenance，`sha256` 与磁盘上的发布记录一致才认（发布记录被删掉又重建时，旧记录不会冒认）。找不到时为 `null`：别的机器上、删过 `.local`、记录被重建过。
 
+## 通知的尝试记录
+
+`.local/agent/run/notify/<时刻>-<attemptId>-intent|result.json`，`nbdev.notify/v1`，运行时、不入库：面板对哪几份答复、向哪个会话做过什么（t11，见 [panel.md](panel.md#通知与会话页t11)）。待发的通知不落盘，每次现算；这些记录只用来去重与显示历史。
+
+```json
+{
+    "schema": "nbdev.notify/v1",
+    "attemptId": "a1b2c3d4e5f6",
+    "at": "2026-10-13T08:00:00.000Z",
+    "workId": "w00022-dev-panel", "taskId": "t03-design",
+    "sessionKey": "claude:d02974de-…",
+    "askerKey": "claude:d02974de-…",
+    "paneId": "w1:p16",
+    "answers": ["20261013T075959123Z-…"],
+    "result": "delivered",
+    "code": null,
+    "message": "已投递",
+    "manual": false
+}
+```
+
+- `sessionKey` 是发给谁；`askerKey` 是提问者（手动另选会话时两者不同，这份对提问者也算办完）。
+- 每次尝试两份：调 herdr 之前独占创建一份 `result: "pending"` 的意图，拿到结果后另写一份同一个 `attemptId` 的结果。只有意图、没有结果的按 `uncertain` 算（面板在投递途中退出）。开发者选“不通知”只写一份 `skipped`（`paneId` 为 null）。
+- `result`：`delivered`、`delivered_into_blocked`（投递时弹出了确认界面，回车可能确认了它；`code: state_jumped` 是投递后状态序号跳了两格以上）、`delivered_maybe_wrong_session`（投递的瞬间换了会话）、`uncertain`（`code` 是 `agent_prompt_stalled`、`timeout` 或 `client_timeout`：写进去了但没看到会话开始工作，不重发）、`skipped` 算办完；`agent_blocked`、`not_deliverable`、`session_changed`、`failed` 没写进去，下次照常排队。
+- 目录 700、文件 600，独占创建（与租约目录同样的写法）；不自动清理。读不出的跳过并给 `unreadable_notify_record`。
+
+## 审计
+
+`${XDG_CONFIG_HOME:-~/.config}/nbdev/`（目录 700），由包脚本 `audit-init` 建（见 [panel.md](panel.md#审计)）：
+
+- `init.json`（600）：`{"schema": "nbdev.audit-init/v1", "at": "<初始化的时刻>"}`。这个时刻也是通知的启用时刻：答复 id 里的时刻早于它的答复不自动通知。再运行 `audit-init` 不改它。
+- `audit.jsonl`（600）：只追加，一行一个 JSON：
+
+```json
+{"schema":"nbdev.audit/v1","at":"2026-10-13T08:00:00.000Z","instance":"<面板实例 id>","actionId":"9f8e7d6c5b4a3921","phase":"intent","action":"notify","device":"local","target":{"paneId":"w1:p16","sessionKey":"claude:…","workId":"w00022-dev-panel","taskId":"t03-design"},"detail":{"text":"[nbdev] …","answers":["…"],"manual":false,"askerKey":"claude:…"}}
+```
+
+- `action`：`notify`、`prompt`、`keys` 各写一行意图（`phase: "intent"`，`detail` 是整行文字、整段文字或键名）与一行结果（`phase: "result"`，`detail.result`、`detail.code`），用同一个 `actionId` 关联；`answer`、`create_work`、`create_task`、`status`、`edit` 只写一行结果（`detail` 是 `committed` 与 `sha`，或失败理由与路径；不记文件内容）。
+- `device` 在 t13 之前一律 `local`。
+
 ## 进程的启动时刻
 
 会话进程与运行的身份都用 `/proc/<pid>/stat` 的第 22 项（进程启动时刻，时钟周期数）配合 pid，防 pid 被复用。换算成时间用 `/proc/stat` 的 `btime + startTicks / 100`：Linux 的 USER_HZ 固定为 100，Node 拿不到 `sysconf(_SC_CLK_TCK)`，这个假设只影响显示的启动时间。

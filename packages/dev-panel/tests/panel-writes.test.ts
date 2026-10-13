@@ -10,7 +10,7 @@ import {locateRepository} from "../src/core/repo.js";
 import {sha256} from "../src/core/transaction.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
-import {CLI_PATH, cleanupFixtures, createFixture, git, run, taskReadme, type Fixture} from "./git-fixture.js";
+import {CLI_PATH, cleanupFixtures, createFixture, git, panelEnv, run, taskReadme, type Fixture} from "./git-fixture.js";
 
 /**
  * t10 面板写接口（L3）：服务在进程内起（端口取 0），前端产物用桩页面注入。场景 1 到 6 的接口部分、请求校验、
@@ -43,7 +43,7 @@ async function startPanel(fixture: Fixture): Promise<Panel> {
     await writeFile(join(staticDir, "index.html"), "<!doctype html><html><head><title>面板</title></head><body>panel-index</body></html>\n");
     const token = randomBytes(32).toString("hex");
     const logs: string[] = [];
-    const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: (message) => logs.push(message)});
+    const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: (message) => logs.push(message), env: panelEnv(fixture)});
     closers.push(() => server.stop());
     await server.setStatic(staticDir, {failed: null});
     await server.warm();
