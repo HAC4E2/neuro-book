@@ -82,7 +82,7 @@
   3. 宽限期内每 250 毫秒重收后代，到期对快照里仍活着、启动时刻对得上的进程逐个 SIGKILL，再对进程组 SIGKILL；
   4. 快照与进程组都不在、就绪地址连不上才算停干净，否则报 `stop_incomplete`，列出残留的 pid。
 
-  只碰登记的组长、它的进程组与收集到的后代快照，每个都核对 pid 与启动时刻；不按命令行文本找进程。Claude Code 的 TaskStop 给整棵树同时发 SIGTERM、约 1.5 秒后整棵 SIGKILL，所以收到信号时先写登记、再发 SIGTERM，剩下的尽力而为。
+  只碰登记的组长、它的进程组与收集到的后代快照，每个都核对 pid 与启动时刻；进程组按 [file-formats.md](file-formats.md#进程登记) “还活着”里的判据确认仍是我们那一组才发信号（组号可能已被别的组长复用）；不按命令行文本找进程。Claude Code 的 TaskStop 给整棵树同时发 SIGTERM、约 1.5 秒后整棵 SIGKILL，所以收到信号时先写登记、再发 SIGTERM，剩下的尽力而为。
 - **`dev stop` 与属主**：已结束的（含 PID 被复用、重启过）不发任何信号，只补 `endedAt`，回 `skipped`。下面任一条成立就不要 `--force`：监管进程不在（没人监管）、属主会话已不在、调用者就是属主；否则报 `run_owned_by_other`（`details.owner` 写明属主）。认不出的调用者可以起服务（登记的 `startedBy` 为 null），停这样的、监管进程还在的服务要 `--force`。
 - **`dev status`**：缺省列出调用者所在 checkout 上还活着的与 24 小时内结束的运行，`--all` 列全部 checkout。状态见 [文件格式](file-formats.md#进程登记)。`--wait-ready` 等这份服务就绪，超时报 `dev_not_ready`（退出码 4），没有这份服务报 `run_not_found`。
 

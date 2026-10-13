@@ -266,7 +266,8 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
     const snapshotTimer = setInterval(() => {
         void (async () => {
             if (leaderGone || record.pid === null || record.startTicks === null) return;
-            const found = await collectDescendants([{pid: record.pid, startTicks: record.startTicks}], record.descendants);
+            // 组长是本进程的子进程、还没收尸，组号就是我们的：组里的进程一并记下。
+            const found = await collectDescendants([{pid: record.pid, startTicks: record.startTicks}], record.descendants, record.pgid);
             const merged = mergeRefs(record.descendants, found);
             if (merged.length !== record.descendants.length) await update((entry) => {
                 entry.descendants = mergeRefs(entry.descendants, found);
@@ -301,6 +302,12 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
         let leftovers = 0;
         let leftoverPids: number[] = [];
         if (stopping) await stopping;
+        // 组长刚由本进程收尸：组里还有进程时组号不会被复用，组里剩下的都是这份运行的，趁现在记进快照
+        // （读者只凭快照里的组员认这个组，t14 实现审查 I1）。
+        const members = await collectDescendants([], record.descendants, record.pgid);
+        if (members.length > 0) await update((entry) => {
+            entry.descendants = mergeRefs(entry.descendants, members);
+        });
         const latest = await readProcRecord(mainRoot, runId) ?? record;
         const wasStopping = latest.stoppingAt !== null;
         const evaluation = await evaluateRun({...latest, endedAt: null}, latest.bootId);

@@ -5,7 +5,7 @@ import {setTimeout as sleep} from "node:timers/promises";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {isIsoTime, isNullableString, isRecord} from "./json.js";
 import {acquireDirectoryLock, agentPaths, type RecordsLock} from "./lock.js";
-import {processAlive, readBootId, readProcStats, type ProcStat} from "./procfs.js";
+import {processAlive, readBootId, readProcStat, readProcStats, type ProcStat} from "./procfs.js";
 import {AGENT_LOCAL_ROOT} from "./registry.js";
 
 /**
@@ -190,22 +190,38 @@ export async function updateProcRecord(mainRoot: string, runId: string, mutate: 
     }, waitMs);
 }
 
-/** 进程组里还有没有进程：组长不在、组还在时组号不会被分给新进程（Linux 不复用还被组或会话用着的号），所以组号在就仍是我们那一组。 */
-export function groupAlive(pgid: number | null): boolean {
-    if (pgid === null || pgid <= 1) return false;
+/** 这个号上有没有进程组（不管是谁的）。EPERM 是别的用户的组，不会是我们起的。 */
+function anyGroupAt(pgid: number): boolean {
     try {
         process.kill(-pgid, 0);
         return true;
     } catch (error) {
         const code = systemErrorCode(error);
-        if (code === "ESRCH") return false;
-        if (code === "EPERM") return true;
+        if (code === "ESRCH" || code === "EPERM") return false;
         throw error;
     }
 }
 
 function leaderRef(record: ProcRecord): ProcRef | null {
     return record.pid !== null && record.startTicks !== null ? {pid: record.pid, startTicks: record.startTicks} : null;
+}
+
+/**
+ * 登记的进程组还在、而且仍是我们那一组（t14 实现审查 I1）。我们的组还有成员时，Linux 不把这个号分给新进程；组空了以后号可以再分配，
+ * 新进程再 `setsid` 就成了同号的另一组。所以：
+ * - `/proc/<组号>` 在：是登记的组长本人（启动时刻对得上）才算，对不上说明号已被复用、我们的组早就空了；
+ * - `/proc/<组号>` 不在、这个号上却有组：要有 `members` 里的进程（pid 与启动时刻都对得上）在这个组里，否则不算，只按快照判断。
+ */
+export async function ownGroupAlive(record: Pick<ProcRecord, "pgid" | "startTicks">, members: readonly ProcRef[]): Promise<boolean> {
+    const pgid = record.pgid;
+    if (pgid === null || pgid <= 1 || !anyGroupAt(pgid)) return false;
+    const holder = await readProcStat(pgid);
+    if (holder) return holder.startTicks === record.startTicks;
+    for (const member of members) {
+        const stat = await readProcStat(member.pid);
+        if (stat && stat.startTicks === member.startTicks && stat.pgrp === pgid) return true;
+    }
+    return false;
 }
 
 /** 按“监管进程、组长、进程组、快照”四样判断状态（设计审查 I1、S1、I2）。 */
@@ -217,7 +233,7 @@ export async function evaluateRun(record: ProcRecord, bootId: string): Promise<R
     const leader = leaderRef(record);
     if (!leader) return supervisorAlive ? {...dead, state: "starting", supervisorAlive} : {...dead, reason: "never_started"};
     const leaderAlive = await processAlive(leader);
-    const group = !leaderAlive && groupAlive(record.pgid);
+    const group = !leaderAlive && await ownGroupAlive(record, record.descendants);
     const aliveDescendants: ProcRef[] = [];
     for (const entry of record.descendants) if (await processAlive(entry)) aliveDescendants.push(entry);
     const anything = supervisorAlive || leaderAlive || group || aliveDescendants.length > 0;
@@ -229,9 +245,13 @@ export async function evaluateRun(record: ProcRecord, bootId: string): Promise<R
 /**
  * 从根进程沿 ppid 收集后代（含另起进程组、另起会话的），并上已知快照里还活着的；每个记 pid 与启动时刻。
  * 快照里的进程也当作根继续往下收：它们可能已被收养到 PID 1，但它们自己的子进程仍挂在它们下面。
+ * `group`：这个进程组里的进程也算（被收养后 ppid 链断了的组员）。只有调用方确知这个组是我们的才给：组长还在（启动时刻对得上），
+ * 或监管进程刚给组长收了尸（组里还有进程时组号不会被复用）。
  */
-export async function collectDescendants(roots: readonly ProcRef[], known: readonly ProcRef[]): Promise<ProcRef[]> {
+export async function collectDescendants(roots: readonly ProcRef[], known: readonly ProcRef[], group: number | null = null): Promise<ProcRef[]> {
     const stats = await readProcStats();
+    const members = group === null ? [] : stats.filter((stat) => stat.pgrp === group && stat.pid !== group).map((stat) => ({pid: stat.pid, startTicks: stat.startTicks}));
+    const seeds = [...known, ...members];
     const byPid = new Map<number, ProcStat>(stats.map((stat) => [stat.pid, stat]));
     const children = new Map<number, ProcStat[]>();
     for (const stat of stats) {
@@ -241,7 +261,7 @@ export async function collectDescendants(roots: readonly ProcRef[], known: reado
     }
     const result = new Map<number, ProcRef>();
     const queue: number[] = [];
-    for (const root of [...roots, ...known]) {
+    for (const root of [...roots, ...seeds]) {
         const stat = byPid.get(root.pid);
         if (!stat || stat.startTicks !== root.startTicks) continue;
         if (!roots.some((entry) => entry.pid === root.pid)) result.set(root.pid, root);
@@ -300,37 +320,39 @@ export async function urlResponds(url: string, timeoutMs = 1_000): Promise<boole
 export async function stopRunProcesses(record: ProcRecord, options: {graceMs: number}): Promise<StopOutcome> {
     const leader = leaderRef(record);
     const roots = leader ? [leader] : [];
-    let snapshot = await collectDescendants(roots, record.descendants);
+    // 组长还在时组是我们的，组里的进程一并记进快照：组长退出之后，读者只凭快照里的组员认这个组（ownGroupAlive）。
+    const collect = async (known: readonly ProcRef[]) => collectDescendants(roots, known, leader !== null && await processAlive(leader) ? record.pgid : null);
+    let snapshot = await collect(record.descendants);
     const leaderAlive = leader !== null && await processAlive(leader);
     if (leaderAlive) signal(leader.pid, "SIGTERM");
     else {
-        if (groupAlive(record.pgid)) signal(-record.pgid!, "SIGTERM");
+        if (await ownGroupAlive(record, snapshot)) signal(-record.pgid!, "SIGTERM");
         for (const entry of snapshot) await signalRef(entry, "SIGTERM");
     }
     const anyAlive = async () => {
         if (leader && await processAlive(leader)) return true;
-        if (groupAlive(record.pgid)) return true;
+        if (await ownGroupAlive(record, snapshot)) return true;
         for (const entry of snapshot) if (await processAlive(entry)) return true;
         return false;
     };
     const deadline = Date.now() + options.graceMs;
     while (Date.now() < deadline) {
-        snapshot = mergeRefs(snapshot, await collectDescendants(roots, snapshot));
+        snapshot = mergeRefs(snapshot, await collect(snapshot));
         if (!await anyAlive()) break;
         await sleep(250);
     }
     let killed = 0;
     if (await anyAlive()) {
-        snapshot = mergeRefs(snapshot, await collectDescendants(roots, snapshot));
+        snapshot = mergeRefs(snapshot, await collect(snapshot));
         for (const entry of [...(leader ? [leader] : []), ...snapshot]) if (await signalRef(entry, "SIGKILL")) killed += 1;
-        if (groupAlive(record.pgid)) signal(-record.pgid!, "SIGKILL");
+        if (await ownGroupAlive(record, snapshot)) signal(-record.pgid!, "SIGKILL");
         for (let waited = 0; waited < 2_000 && await anyAlive(); waited += 100) await sleep(100);
     }
     const leftoverPids: number[] = [];
     if (leader && await processAlive(leader)) leftoverPids.push(leader.pid);
     for (const entry of snapshot) if (await processAlive(entry)) leftoverPids.push(entry.pid);
     const urlResponding = record.url !== null && await urlResponds(record.url);
-    return {clean: leftoverPids.length === 0 && !groupAlive(record.pgid) && !urlResponding, leftoverPids, urlResponding, killed, snapshot};
+    return {clean: leftoverPids.length === 0 && !await ownGroupAlive(record, snapshot) && !urlResponding, leftoverPids, urlResponding, killed, snapshot};
 }
 
 export function mergeRefs(a: readonly ProcRef[], b: readonly ProcRef[]): ProcRef[] {

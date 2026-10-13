@@ -253,6 +253,30 @@ describe("PID 复用与重启（场景 3）", () => {
         expect((JSON.parse(stop.stdout) as {data: {skipped: Array<{runId: string; reason: string}>}}).data.skipped).toEqual([{runId: "dev-20261013T000000Z-0000000a", reason: "supervisor_killed"}]);
         expect(await processAlive({pid: sleeper.pid!, startTicks: ticks})).toBe(true);
     }, 30_000);
+
+    test("复用 pid 的进程本身是组长（detached，pid 等于组号）：判 ended，dev stop 不发信号，它仍活着（t14 实现审查 I1）", async () => {
+        const s = await setup("dev-reuse-pgid");
+        const leader = spawn("sleep", ["60"], {stdio: "ignore", detached: true});
+        cleanups.push(async () => {
+            leader.kill("SIGKILL");
+        });
+        const ticks = (await processStartTicks(leader.pid!))!;
+        expect(readFileSync(`/proc/${leader.pid}/stat`, "utf8").split(") ")[1]!.split(" ")[2]).toBe(String(leader.pid));
+        const runId = "dev-20261013T000000Z-0000000c";
+        // TaskStop 之后的样子：只写了 stoppingAt，监管进程来不及写 endedAt；登记的组长、组号是现在这个无关组长的 pid。
+        await s.fixture.write(`${PROCS_DIR}/${runId}.json`, JSON.stringify({
+            schema: "nbdev.proc/v1", runId, kind: "dev", checkout: s.fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: ["bun", "run", "dev"],
+            readyPattern: null, workId: null, taskId: null, logPath: join(s.fixture.root, "x.log"), bootId: readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
+            startedAt: new Date().toISOString(), startedBy: null, supervisor: {pid: leader.pid, startTicks: `${ticks}0`}, pid: leader.pid, pgid: leader.pid, startTicks: `${ticks}0`, descendants: [],
+            url: "http://127.0.0.1:1/", readyAt: new Date().toISOString(), lastProbeStatus: 200, stoppingAt: new Date().toISOString(), stoppedBy: "signal:SIGTERM",
+            endedAt: null, endedReason: null, exitCode: null, signal: null, leftovers: null, leftoverPids: [],
+        }));
+        const status = await cli(s, ["dev", "status", "--package", "apps/web", "--json"]);
+        expect((JSON.parse(status.stdout) as {data: {runs: Array<{state: string; reason: string; groupAlive: boolean}>}}).data.runs.map((run) => [run.state, run.reason, run.groupAlive])).toEqual([["ended", "stopped", false]]);
+        const stop = await cli(s, ["dev", "stop", runId, "--json"]);
+        expect([stop.exitCode, (JSON.parse(stop.stdout) as {data: {skipped: Array<{runId: string; reason: string}>}}).data.skipped]).toEqual([0, [{runId, reason: "stopped"}]]);
+        expect(await processAlive({pid: leader.pid!, startTicks: ticks})).toBe(true);
+    }, 30_000);
 });
 
 describe("收口的几条路径（设计审查 B1、I1、I6）", () => {
