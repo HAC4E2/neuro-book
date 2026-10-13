@@ -17,7 +17,8 @@
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json",
         "build:web": "vite build",
         "install-shim": "bun src/install-shim.ts",
-        "audit-init": "bun src/audit-init.ts"
+        "audit-init": "bun src/audit-init.ts",
+        "install-service": "bun src/install-service.ts"
     },
     "dependencies": {
         "@notnotype/nb-ui": "workspace:*",

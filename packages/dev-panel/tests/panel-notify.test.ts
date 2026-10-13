@@ -94,7 +94,7 @@ async function writeLease(fixture: Fixture, sessionId: string, paneId: string): 
     }));
 }
 
-async function startPanel(fixture: Fixture, fake: FakeHerdr | null): Promise<Panel> {
+async function startPanel(fixture: Fixture, fake: FakeHerdr | null, env: NodeJS.ProcessEnv = panelEnv(fixture)): Promise<Panel> {
     const staticDir = join(fixture.root, "web");
     await mkdir(staticDir, {recursive: true});
     await writeFile(join(staticDir, "index.html"), "<!doctype html><html><head><title>面板</title></head><body>panel-index</body></html>\n");
@@ -102,7 +102,7 @@ async function startPanel(fixture: Fixture, fake: FakeHerdr | null): Promise<Pan
     const server = await startPanelServer({
         context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0,
         herdr: fake ? createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_METHODS}) : null,
-        token, log: () => undefined, env: panelEnv(fixture),
+        token, log: () => undefined, env,
     });
     let stopped = false;
     const stop = async () => {
@@ -389,5 +389,18 @@ describe("写仓库的审计（场景 8）", () => {
         expect([refused.status, refused.body.errors[0]?.code, refused.body.errors[0]?.details?.reason]).toEqual([409, "audit_unavailable", "bad_mode"]);
         expect(fake.requests.filter((request) => request.method.startsWith("agent."))).toEqual([]);
         expect((await auditLines(fixture)).length).toBe(5);
+    }, 30_000);
+});
+
+describe("常驻（S5）", () => {
+    test("单元文件给的 NBDEV_PANEL_UNIT：/api/meta 写出单元名与重启命令；没有或写法不对时为 null", async () => {
+        const fixture = await createFixture("notify-service-meta");
+        const cases: Array<[string | undefined, string | null]> = [["nbdev-panel-main.service", "systemctl --user restart nbdev-panel-main.service"], [undefined, null], ["bad unit; rm -rf", null]];
+        for (const [unit, command] of cases) {
+            const panel = await startPanel(fixture, null, {...panelEnv(fixture), ...(unit === undefined ? {} : {NBDEV_PANEL_UNIT: unit})});
+            const meta = await panel.get("/api/meta");
+            expect([unit, meta.body.data.service]).toEqual([unit, {unit: command === null ? null : unit, restartCommand: command}]);
+            await stopPanel(panel);
+        }
     }, 30_000);
 });

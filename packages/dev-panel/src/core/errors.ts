@@ -74,6 +74,7 @@ export const ERROR_EXIT_CODES = {
     build_failed: 1,
     request_aborted: 1,
     herdr_unavailable: 1,
+    systemctl_failed: 1,
     internal: 1,
 } as const;
 
