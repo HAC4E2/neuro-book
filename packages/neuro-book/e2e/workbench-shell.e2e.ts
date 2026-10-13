@@ -396,7 +396,7 @@ test.describe("产品页", () => {
         expect((await box(page, "editor")).height).toBeGreaterThan(0);
     });
 
-    test("临界尺寸：840 宽分栏时编辑器与面板至少 272、五个框架按钮完整可见；390×260 时面板退到标题头，显示与还原仍可完成", async ({page}) => {
+    test("临界尺寸：840 宽分栏时编辑器与面板至少 272、五个框架按钮完整可见；390×260 时面板压缩、给其余 Part 留 120px；390×230 时退到标题头，显示与还原仍可完成", async ({page}) => {
         await open(page);
         const fullyVisible = async (): Promise<boolean> => {
             const panel = await box(page, "panel");
@@ -408,8 +408,12 @@ test.describe("产品页", () => {
         await expect.poll(async () => (await box(page, "editor")).width).toBeGreaterThanOrEqual(272);
         await expect.poll(fullyVisible).toBe(true);
 
+        // 主体 202：面板压到 82，其余 Part 合计 120
         await page.setViewportSize({width: 390, height: 260});
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-shell-layout", "compact");
+        await expect.poll(async () => (await box(page, "panel")).height).toBe(82);
+        // 主体 172：面板的最小高度 80 也放不下，退到标题头
+        await page.setViewportSize({width: 390, height: 230});
         await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
         expect((await box(page, "editor")).height).toBeGreaterThan(20);
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-layout-diagnostics", /标题头/u);
