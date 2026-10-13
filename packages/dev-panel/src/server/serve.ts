@@ -72,7 +72,8 @@ function equalSecret(given: string | null, expected: string): boolean {
 export async function startPanelServer(options: PanelServerOptions): Promise<PanelServer> {
     const {context, host, log} = options;
     const state = new PanelState(context, options.herdr, log);
-    const auth = createPanelAuth(options.token);
+    // cookie 名带上面板端口：cookie 不按端口区分，同一个浏览器登录第二个面板时同名 cookie 会把第一个踢下线。
+    const auth = createPanelAuth(options.token, () => `nbdev_panel_${panelPort()}`);
     const csrf = randomBytes(24).toString("base64url");
     const artifactPrefix = randomBytes(18).toString("base64url");
     const names = createNameIndexCache();
@@ -90,6 +91,9 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         } catch (error) {
             if (systemErrorCode(error) === "EADDRINUSE") {
                 throw new NbdevError("port_in_use", `端口 ${port} 已被占用；换一个端口（--port、--artifact-port）或先停掉占用它的进程`, {details: {port}});
+            }
+            if (systemErrorCode(error) === "EADDRNOTAVAIL") {
+                throw new NbdevError("unsafe_host", `这台机器上绑不了 ${host}（地址不可用）；用 127.0.0.1`, {details: {host, port}});
             }
             throw error;
         }
@@ -255,8 +259,15 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         const {segments} = decoded;
         const origin = req.headers.get("origin");
         const sameOrigin = origin !== null && allowedHosts(panelPort()).some((allowed) => origin === `http://${allowed}`);
+        const guarded = segments[0] === "api" || segments[0] === "ws";
+        // 顺序：先跨站与登录，再核写请求的 Origin 与 CSRF。CSRF 令牌写在不要求登录的 index.html 里，本机任何账户都读得到，
+        // 它只防浏览器里的跨站请求，不是本机账户之间的秘密；写请求必须先过登录。
+        if (guarded) {
+            const site = req.headers.get("sec-fetch-site");
+            if (site !== null && site !== "same-origin" && site !== "none") return plain(403, "forbidden：跨站请求");
+            if (!auth.authorized(req.headers.get("cookie"))) return segments[0] === "api" ? envelope(null, [], {code: "unauthorized", message: "没有登录：用 nbdev panel open 打开面板"}, 401) : plain(401, "unauthorized");
+        }
         if (req.method !== "GET" && req.method !== "HEAD") {
-            // 本片没有写接口；校验先建好（t10 直接用）：同源的 Origin 加页面里的 CSRF 令牌。
             if (!sameOrigin || !equalSecret(req.headers.get("x-nbdev-csrf"), csrf)) return plain(403, "forbidden：跨来源的写请求，或缺少 CSRF 令牌");
             return plain(405, "method_not_allowed：面板本片只读");
         }
@@ -265,10 +276,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             if (!sessionId) return plain(403, "登录链接无效或已过期：用 nbdev panel open 重新打开");
             return new Response(null, {status: 302, headers: {...SECURITY_HEADERS, "Set-Cookie": auth.cookie(sessionId), Location: "/"}});
         }
-        if (segments[0] === "api" || segments[0] === "ws") {
-            const site = req.headers.get("sec-fetch-site");
-            if (site !== null && site !== "same-origin" && site !== "none") return plain(403, "forbidden：跨站请求");
-            if (!auth.authorized(req.headers.get("cookie"))) return segments[0] === "api" ? envelope(null, [], {code: "unauthorized", message: "没有登录：用 nbdev panel open 打开面板"}, 401) : plain(401, "unauthorized");
+        if (guarded) {
             if (segments[0] === "ws") {
                 if (segments.length !== 1) return plain(404, "找不到");
                 if (!sameOrigin) return plain(403, "forbidden：WebSocket 的 Origin 不是本面板");
@@ -294,8 +302,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         const file = await guardedFile(checkout.root, rest.join("/"), ".agents/works/");
         if (!file) return plain(404, "找不到");
         const requestHost = req.headers.get("host")!.toLowerCase();
-        // CSP 的来源表达式不支持 IPv6 字面量（Chrome 会整条报错），所以 `[::1]` 打开的面板嵌不了产物页，用 127.0.0.1 或 localhost。
-        const panelOrigins = allowedHosts(panelPort()).filter((allowed) => !allowed.startsWith("[")).map((allowed) => `http://${allowed}`).join(" ");
+        const panelOrigins = allowedHosts(panelPort()).map((allowed) => `http://${allowed}`).join(" ");
         return new Response(Bun.file(file), {headers: {
             ...SECURITY_HEADERS,
             "Content-Type": contentType(file),

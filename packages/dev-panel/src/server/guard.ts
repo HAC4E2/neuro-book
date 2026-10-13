@@ -20,9 +20,12 @@ export function rejectForwarded(headers: Headers): Rejection | null {
     return null;
 }
 
-/** 本来源允许的 `Host`：`127.0.0.1`、`localhost`、`[::1]` 加端口。 */
+/**
+ * 本来源允许的 `Host`：`127.0.0.1`、`localhost` 加端口。不收 `[::1]`：面板只绑 IPv4 回环（本机的 lo 关了 IPv6），
+ * 有 IPv6 的机器上 Chrome 的 CSP 也写不了 IPv6 字面量，`[::1]` 打开的面板嵌不进产物页。
+ */
 export function allowedHosts(port: number): string[] {
-    return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
+    return [`127.0.0.1:${port}`, `localhost:${port}`];
 }
 
 export function rejectHost(headers: Headers, port: number): Rejection | null {

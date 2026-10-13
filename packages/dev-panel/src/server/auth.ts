@@ -6,7 +6,8 @@ import {createHmac, randomBytes, timingSafeEqual} from "node:crypto";
  * 浏览器打开 `/login?ticket=…`，服务核对后换成只在本次服务实例里有效的会话 cookie。
  */
 
-export const SESSION_COOKIE = "nbdev_panel";
+/** 会话 cookie 名的前缀；实际的名字带上面板端口（`nbdev_panel_4400`）。 */
+export const SESSION_COOKIE_PREFIX = "nbdev_panel";
 export const TICKET_TTL_MS = 5 * 60_000;
 
 function mac(token: string, payload: string): string {
@@ -27,7 +28,7 @@ export type PanelAuth = {
     cookie(sessionId: string): string;
 };
 
-export function createPanelAuth(token: string): PanelAuth {
+export function createPanelAuth(token: string, cookieName: () => string = () => SESSION_COOKIE_PREFIX): PanelAuth {
     const used = new Map<string, number>();
     const sessions = new Set<string>();
     return {
@@ -50,12 +51,12 @@ export function createPanelAuth(token: string): PanelAuth {
             if (!cookieHeader) return false;
             for (const part of cookieHeader.split(";")) {
                 const [name, ...rest] = part.trim().split("=");
-                if (name === SESSION_COOKIE && sessions.has(rest.join("="))) return true;
+                if (name === cookieName() && sessions.has(rest.join("="))) return true;
             }
             return false;
         },
         cookie(sessionId) {
-            return `${SESSION_COOKIE}=${sessionId}; HttpOnly; SameSite=Strict; Path=/`;
+            return `${cookieName()}=${sessionId}; HttpOnly; SameSite=Strict; Path=/`;
         },
     };
 }

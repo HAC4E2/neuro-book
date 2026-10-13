@@ -54,7 +54,7 @@ async function startPanel(fixture: Fixture, panes: Parameters<typeof startFakeHe
     await server.setStatic(staticDir, {failed: null});
     await server.warm();
     const sessionId = server.auth.redeem(createLoginTicket(token))!;
-    const cookie = `nbdev_panel=${sessionId}`;
+    const cookie = `nbdev_panel_${server.port}=${sessionId}`;
     const get = (path: string, headers: Record<string, string> = {}) => fetch(`${server.url}${path}`, {headers: {Cookie: cookie, ...headers}, redirect: "manual"});
     return {
         server, token, fake, cookie, logs, get,
@@ -253,6 +253,10 @@ describe("面板服务的安全", () => {
         const index = await (await panel.get("/")).text();
         const csrf = /name="nbdev-csrf" content="([^"]+)"/u.exec(index)![1]!;
         expect((await fetch(`${panel.server.url}/api/overview`, {method: "POST", headers: {Cookie: panel.cookie, Origin: panel.server.url, "X-Nbdev-Csrf": csrf}})).status).toBe(405);
+        // 写请求先过登录：没有 cookie 时，令牌与同源 Origin 都对也回 401（令牌在不要求登录的页面里，本机人人读得到）。
+        expect((await fetch(`${panel.server.url}/api/overview`, {method: "POST", headers: {Origin: panel.server.url, "X-Nbdev-Csrf": csrf}})).status).toBe(401);
+        // cookie 名带端口：别的端口的同名前缀 cookie 不算登录。
+        expect((await fetch(`${panel.server.url}/api/overview`, {headers: {Cookie: panel.cookie.replace(`nbdev_panel_${panel.server.port}=`, "nbdev_panel_1=")}})).status).toBe(401);
         const upgrade = await fetch(`${panel.server.url}/ws`, {headers: {Cookie: panel.cookie, Origin: "http://evil.example", Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": randomBytes(16).toString("base64")}});
         expect(upgrade.status).toBe(403);
 
@@ -319,7 +323,7 @@ describe("面板服务的启动与搜索", () => {
         const token = randomBytes(32).toString("hex");
         const server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token, log: () => undefined});
         closers.push(() => server.stop());
-        const cookie = `nbdev_panel=${server.auth.redeem(createLoginTicket(token))}`;
+        const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket(token))}`;
         expect((await fetch(`${server.url}/api/overview`, {headers: {Cookie: cookie}})).status).toBe(503);
         expect((await fetch(`${server.url}/api/meta`, {headers: {Cookie: cookie}})).status).toBe(200);
         expect((await fetch(`${server.url}/`)).status).toBe(503);
@@ -405,6 +409,7 @@ describe("nbdev panel serve 与 panel open", () => {
         await mkdir(staticDir, {recursive: true});
         await writeFile(join(staticDir, "index.html"), "<!doctype html><html><head></head><body>panel-index</body></html>\n");
         expect((await fixture.cli(["panel", "serve", "--host", "0.0.0.0", "--json"])).json?.errors[0]?.code).toBe("unsafe_host");
+        expect((await fixture.cli(["panel", "serve", "--host", "::1", "--json"])).json?.errors[0]?.code).toBe("unsafe_host");
         expect((await fixture.cli(["panel", "open", "--print", "--json"])).json?.errors[0]?.code).toBe("panel_not_running");
         const { CLI_PATH } = await import("./git-fixture.js");
         const serve: MarkedChild = await spawnMarked(process.execPath, [CLI_PATH, "panel", "serve", "--port", "0", "--artifact-port", "0", "--static-dir", staticDir], {cwd: fixture.main});

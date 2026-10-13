@@ -16,7 +16,7 @@ export const PANEL_USAGE = `  panel serve [--host 127.0.0.1] [--port 4400] [--ar
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
 const REPO_ROOT = resolve(PACKAGE_ROOT, "..", "..");
 const DIST_DIR = resolve(PACKAGE_ROOT, "dist", "web");
-const LOOPBACK = ["127.0.0.1", "::1", "localhost"];
+const LOOPBACK = ["127.0.0.1", "localhost"];
 
 function portValue(text: string | undefined, fallback: number, name: string): number {
     if (text === undefined) return fallback;

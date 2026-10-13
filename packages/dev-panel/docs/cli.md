@@ -29,7 +29,7 @@
 | `nbdev answers [<workRef> [<taskRef> [<artifactId>]]]` | `--pending` 或 `--unacked`；`--wait`、`--timeout <秒>`、`--since <答复 id>`（`--wait` 不与 `--pending` 同用）；`--as` | `nbdev.answers/v1` |
 | `nbdev answers ack <workRef> <taskRef> <artifactId>` | `--through <cursor>`、`--include <路径>`（可重复）、`--as` | `nbdev.answers-ack/v1` |
 | `nbdev answers record <workRef> <taskRef> <artifactId>` | `--set <题号>=<值>`（可重复，至少一个；`multi` 用逗号分隔，`confirm` 写 `yes` 或 `no`）、`--comment <题号>=<文字>`（可重复）、`--note`、`--as` | `nbdev.answers-record/v1` |
-| `nbdev panel serve` | `--host`（只接受 `127.0.0.1`、`::1`、`localhost`，缺省 `127.0.0.1`）、`--port`（缺省 4400）、`--artifact-port`（缺省 4401）、`--no-build`（不构建，用现有的 `dist/web`）或 `--static-dir <目录>`（用现成的前端产物） | `nbdev.panel-serve/v1` |
+| `nbdev panel serve` | `--host`（只接受 `127.0.0.1` 与 `localhost`，缺省 `127.0.0.1`）、`--port`（缺省 4400）、`--artifact-port`（缺省 4401）、`--no-build`（不构建，用现有的 `dist/web`）或 `--static-dir <目录>`（用现成的前端产物） | `nbdev.panel-serve/v1` |
 | `nbdev panel open` | `--print`（只打印登录链接，不打开浏览器） | `nbdev.panel-open/v1` |
 
 - `workRef` 是完整 id（`w00022-dev-panel`）或编号（`w00022`）；`taskRef` 是完整 id 或编号（`t06`、`t100`）。

@@ -9,7 +9,7 @@
 | 面板 | `127.0.0.1:4400` | 前端页面（`dist/web`，单页路由回退到 `index.html`）、`/api/*` 的 JSON、`/ws` 的推送、`/login` 的一次性登录 |
 | 产物 | `127.0.0.1:4401` | 只读的静态文件：`/a/<随机前缀>/<checkout key>/.agents/works/…`，只给 `.agents/works/` 下的文件，没有接口 |
 
-- **只绑回环**：`--host` 只接受 `127.0.0.1`、`::1`、`localhost`，别的地址（含 `0.0.0.0`）报 `unsafe_host`。端口被占报 `port_in_use`，不自动换端口。
+- **只绑回环**：`--host` 只接受 `127.0.0.1` 与 `localhost`，别的地址（含 `0.0.0.0` 与 `::1`）报 `unsafe_host`；这台机器上绑不了的地址也报 `unsafe_host`。不收 IPv6：本机的 `lo` 关了 IPv6，有 IPv6 的机器上 Chrome 的 CSP 也写不了 IPv6 字面量，产物页嵌不进来。端口被占报 `port_in_use`，不自动换端口。
 - **产物来源的随机前缀**在服务启动时生成，只经 `/api/artifact` 交给面板：网页猜不到地址，读不走只在本机、或只在未推送分支上的产物；有了它才能回 `Access-Control-Allow-Origin: *`（沙箱 iframe 是不透明来源，模块脚本、`fetch` 与字体都按 CORS 取）。`/a/<前缀>/_nbdev/` 是留给 t10 表单脚本的保留路径，本片回 404。
 - 产物来源与面板来源用同一种主机名：请求是 `localhost:4400` 时，iframe 指 `localhost:4401`。
 
@@ -19,7 +19,7 @@
 
 1. `panel serve` 生成启动令牌，写进权限 600 的 `.local/agent/panel.json`。
 2. `panel open` 读它、签一张一次性票据（`<nonce>.<过期时刻>.<HMAC>`，5 分钟过期，用一次作废），用 `xdg-open` 打开 `/login?ticket=…`（`--print` 只打印链接）。
-3. 服务核对票据，换成会话 cookie（`nbdev_panel`，`HttpOnly; SameSite=Strict; Path=/`），重定向到 `/`。会话只在本次服务实例里有效，重启面板后要重新 `panel open`。
+3. 服务核对票据，换成会话 cookie（`nbdev_panel_<面板端口>`，`HttpOnly; SameSite=Strict; Path=/`），重定向到 `/`。会话只在本次服务实例里有效，重启面板后要重新 `panel open`。cookie 名带端口：cookie 不按端口区分，同一个浏览器登录两个面板（不同仓库，或开发时的演示面板）时，名字相同就会互相踢下线。
 
 页面本身与静态资源不要求登录；`/api/*` 没登录回 401（`unauthorized`），前端据此提示“用 nbdev panel open 打开”。
 
@@ -28,12 +28,12 @@
 两个来源都按顺序做，失败一律 4xx，不进业务逻辑：
 
 1. 带转发头（`Forwarded`、`X-Forwarded-*`、`X-Real-IP`、`Tailscale-User-Login`、`Tailscale-User-Name`）的拒绝（403）：跨设备上线之前不接受经代理转进来的请求。
-2. `Host` 必须是本来源的 `127.0.0.1:<port>`、`localhost:<port>` 或 `[::1]:<port>`（421，防 DNS 重绑定；Bun 按 `Host` 头拼 `req.url`，所以直接比 `Host` 头）。
+2. `Host` 必须是本来源的 `127.0.0.1:<port>` 或 `localhost:<port>`（421，防 DNS 重绑定；Bun 按 `Host` 头拼 `req.url`，所以直接比 `Host` 头）。
 3. 路径逐段解码：不合法的百分号编码、解码出 NUL、`/`、`.`、`..` 与空段都回 400，不让解码错误变成 500。
-4. 面板来源：
-   - `/api/*` 与 `/ws` 要求 `Sec-Fetch-Site` 是 `same-origin` 或 `none`（缺这个头的按 `none` 处理，只有浏览器的跨站请求会带 `cross-site`、`same-site`），再要求登录 cookie。跨站的 `<img src=…/api/search?q=…>` 两道都过不去。
+4. 面板来源，按这个顺序：
+   - `/api/*` 与 `/ws`（不论方法）先要求 `Sec-Fetch-Site` 是 `same-origin` 或 `none`（缺这个头的按 `none` 处理，只有浏览器的跨站请求会带 `cross-site`、`same-site`），再要求登录 cookie（401）。跨站的 `<img src=…/api/search?q=…>` 两道都过不去。
+   - 然后，非 `GET`、`HEAD` 的请求要求同源的 `Origin` 加 `X-Nbdev-Csrf` 头（值是服务启动时生成、写进页面 `<meta name="nbdev-csrf">` 的随机令牌）。CSRF 令牌写在不要求登录的 `index.html` 里，本机任何账户都读得到：它只防浏览器里的跨站请求，不是本机账户之间的秘密，写请求靠的是前一步的登录。本片没有写接口，通过校验后回 405。
    - `/ws` 的升级要求 `Origin` 是面板自己的来源（缺失与 `null` 都拒绝）。
-   - 非 `GET`、`HEAD` 的请求要求同源的 `Origin` 加 `X-Nbdev-Csrf` 头（值是服务启动时生成、写进页面 `<meta name="nbdev-csrf">` 的随机令牌）；本片没有写接口，通过校验后回 405，t10 直接用这道校验。
 5. 产物来源只接受 `GET`、`HEAD`（405）。
 
 响应头：面板来源的页面带 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: <产物来源>; connect-src 'self' ws://<host>; frame-src <产物来源>; frame-ancestors 'none'; form-action 'none'; base-uri 'none'; object-src 'none'`；产物来源带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups; frame-ancestors <面板来源>`。两边都带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。
