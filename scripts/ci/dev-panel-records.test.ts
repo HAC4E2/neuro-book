@@ -1,11 +1,12 @@
 import {execFile as execFileCallback} from "node:child_process";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {ackAnswers, askQuestions, createTask, createWork, locateRepository, parseTaskId, parseWorkId, publishArtifact, submitAnswer} from "@notnotype/dev-panel";
-import {verifyWorkContracts} from "#scripts/ci/agent-governance-contract";
+import {ackAnswers, askQuestions, createTask, createWork, editRecordFile, locateRepository, PANEL_DEVELOPER, parseTaskId, parseWorkId, publishArtifact, readGovernanceLineLimits, submitAnswer} from "@notnotype/dev-panel";
+import {GOVERNANCE_NON_EMPTY_LINE_LIMITS, verifyWorkContracts} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 /**
@@ -80,6 +81,27 @@ describe("nbdev 记录与治理检查一致", () => {
         expect(verifyWorkContracts(main)).toEqual([]);
         expect(await runGit(main, ["status", "--porcelain"])).toBe("");
     }, 30_000);
+
+    it("面板与命令行同时新建 Work：编号不同（防撞号的主判据），记录格式通过 verifyWorkContracts；面板编辑过的 README 仍然通过", async () => {
+        const main = await createRepository("dev-panel-concurrent-create");
+        const context = await locateRepository(main);
+        const [panel, cli] = await Promise.all([
+            createWork(context, {slug: "panel", title: "面板建的", goal: "面板。", taskSlug: "first"}, {caller: PANEL_DEVELOPER}),
+            createWork(context, {slug: "cli", title: "命令行建的", goal: "命令行。", taskSlug: "first"}),
+        ]);
+        expect([panel.commit.committed, cli.commit.committed]).toEqual([true, true]);
+        expect(panel.data.workId.slice(0, 6)).not.toBe(cli.data.workId.slice(0, 6));
+        const path = `.agents/works/${panel.data.workId}/tasks/t01-first/README.md`;
+        const text = await readFile(join(main, path));
+        const edited = await editRecordFile(context, {path, content: `${text.toString("utf8")}\n面板补的一段。\n`, baseHash: createHash("sha256").update(text).digest("hex")}, {caller: PANEL_DEVELOPER});
+        expect(edited.commit.committed).toBe(true);
+        expect(verifyWorkContracts(main)).toEqual([]);
+        expect(await runGit(main, ["status", "--porcelain"])).toBe("");
+    }, 30_000);
+
+    it("面板按文本读出的治理入口行数上限与治理检查导出的常量一致", async () => {
+        expect(await readGovernanceLineLimits(join(dirname(new URL(import.meta.url).pathname), "../.."))).toEqual(GOVERNANCE_NON_EMPTY_LINE_LIMITS);
+    });
 
     it("编号格式与治理检查逐个一致", async () => {
         const root = await createTestTmpRoot("dev-panel-id-format", "dev-panel-id-format-test");

@@ -152,7 +152,8 @@ function firstLine(section: string | null): string | null {
 
 /**
  * 一次 `git log` 取 scope 下每个 Work 目录与 Task 目录最后一次被提交碰到的日期（`YYYY-MM-DD`，提交者时间的日期部分），
- * 另记每个 Task 的 `artifacts/` 的日期（“最近更新”取它与 `updated` 中较晚的那个）。日志从新到旧，按路径前缀取第一次出现。
+ * 另记每个 Task 的 `artifacts/` 与 Task 目录第一层文档（README 之外的 `.md`，键 `<Task 目录>/documents`）的日期：
+ * “最近更新”取它们与 `updated` 中最晚的那个。日志从新到旧，按路径前缀取第一次出现。
  */
 export async function readCommitDates(checkoutRoot: string, rev: string, scope: string): Promise<Map<string, string>> {
     const dates = new Map<string, string>();
@@ -170,6 +171,7 @@ export async function readCommitDates(checkoutRoot: string, rev: string, scope: 
                 const taskDir = segments.slice(0, 5).join("/");
                 if (!dates.has(taskDir)) dates.set(taskDir, date);
                 if (segments[5] === "artifacts" && !dates.has(`${taskDir}/artifacts`)) dates.set(`${taskDir}/artifacts`, date);
+                if (segments.length === 6 && segments[5]!.endsWith(".md") && segments[5] !== "README.md" && !dates.has(`${taskDir}/documents`)) dates.set(`${taskDir}/documents`, date);
             }
         }
     }

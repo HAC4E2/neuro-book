@@ -79,19 +79,34 @@ export {
     type WriteTx,
 } from "./core/transaction.js";
 export {
+    actorOf,
     createTask,
     createWork,
+    developerBy,
     importRegistry,
+    previewCreateTask,
+    previewCreateWork,
+    readRecordScope,
     resolveWritableTask,
+    resolveWritableWork,
     setRecordStatus,
     setTaskStatus,
+    type CreateInput,
+    type CreatePreview,
     type CreateResult,
+    type CreateTaskInput,
     type ImportResult,
     type OperationResult,
+    type PreviewProblem,
+    type RecordScope,
     type SetStatusResult,
 } from "./core/operations.js";
+export {classifyEditable, editRecordFile, MAX_EDIT_BYTES, readEditableFile, type EditableFile, type EditableKind, type EditableTarget, type EditInput, type EditResult} from "./core/edit-ops.js";
+export {assertNotStagedRename, readUncommitted, type UncommittedChanges} from "./core/uncommitted.js";
+export {assertPlainText, assertTitle, controlCharProblem, titleProblem} from "./core/text-rules.js";
+export {countNonEmptyLines, GOVERNANCE_CONTRACT_PATH, parseGovernanceLineLimits, readGovernanceLineLimits} from "./core/governance-limits.js";
 export {bootTime, processAlive, processStartTicks, readEnviron, readProcessTable, readProcStat, startTimeIso, systemdUnitOf, type ProcessEntry, type ProcStat} from "./core/procfs.js";
-export {resolveCaller, trustedClaudeSession, type Caller, type CallerHerdr, type ClaudeIdentity, type ProcessRef, type SessionCaller, type SessionRef} from "./core/identity.js";
+export {PANEL_DEVELOPER, resolveCaller, trustedClaudeSession, type Caller, type CallerHerdr, type ClaudeIdentity, type DeveloperCaller, type ProcessRef, type SessionCaller, type SessionRef} from "./core/identity.js";
 export {
     createHerdrClient,
     HERDR_CLI_METHODS,

@@ -6,6 +6,7 @@ import {isNbdevError, NbdevError, systemErrorCode, type Warning} from "./errors.
 import {gitOutput, runGit, splitLines, splitNul, type GitResult} from "./git.js";
 import {acquireRecordsLock, agentPaths, DEFAULT_LOCK_WAIT_MS, prepareAgentDirectories, type RecordsLock} from "./lock.js";
 import {claimTask, claimWork, importScanned, readRegistry, writeRegistry, type Registry, type RegistryBy} from "./registry.js";
+import {unsafePathReason} from "./paths.js";
 import {assertMainWritable, listCheckouts, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "./repo.js";
 import {scannedIds, scanNumbers, type NumberScan} from "./scan.js";
 
@@ -21,6 +22,11 @@ export type TransactionOptions = {
     now?: () => Date;
     lockWaitMs?: number;
     gitLockWaitMs?: number;
+    /**
+     * 面板的写请求：取到锁之后、写第一个文件之前看一次，客户端已经断开就放锁、什么都不写（`request_aborted`）。
+     * 开发者看不到结果时会再提交一次，照写就会多领一个号、多一份答复。写了之后才断开的照常提交。
+     */
+    signal?: AbortSignal;
 };
 
 export type WriteTx = {
@@ -41,6 +47,11 @@ export type WriteTx = {
     createFile(target: string, content: string): void;
     /** 改已有文件：落位前重读，sha256 与 `expectedHash` 不同就报 `hash_mismatch`。 */
     replaceFile(target: string, content: string, expectedHash: string): void;
+    /**
+     * 改 `.agents/works/` 之外的仓库文件（面板编辑主工作区的文档），其余同 `replaceFile`。
+     * 这里只做段检查（`unsafePathReason`）与符号链接检查；能不能改（白名单）由调用方在锁内判定。
+     */
+    replaceRepoFile(target: string, content: string, expectedHash: string): void;
     /** 调用方已写好的现有文件，一起提交。 */
     includePaths(paths: readonly string[]): void;
     warn(warning: Warning): void;
@@ -67,7 +78,14 @@ function normalizeRecordPath(path: string): string {
     return normalized;
 }
 
-async function assertNoSymlinkOnPath(mainRoot: string, relativePath: string): Promise<void> {
+/** 仓库里的任意文件：段检查与面板读文件的守卫相同（拒绝 `..`、`.git`、`node_modules`、`.env*`、`.local` 等）。 */
+function normalizeRepoPath(path: string): string {
+    const reason = unsafePathReason(path);
+    if (reason !== null) throw new NbdevError("unsafe_path", `不能写这个路径（${reason}）：${path}`, {details: {path, reason}});
+    return path;
+}
+
+export async function assertNoSymlinkOnPath(mainRoot: string, relativePath: string): Promise<void> {
     const segments = relativePath.split("/");
     for (let index = 1; index <= segments.length; index += 1) {
         const partial = segments.slice(0, index).join("/");
@@ -237,14 +255,47 @@ export async function resolveCommitOutcome(mainRoot: string, input: {
     };
 }
 
-async function commitPaths(mainRoot: string, input: {paths: readonly string[]; message: string; startHead: string; budgetMs: number}): Promise<CommitOutcome> {
+/**
+ * 落位之后、`git add` 之前重读本次写入的每个文件：别的会话（不经 nbdev、不取锁）可能在这之间又改了同一个文件，
+ * 路径限定的提交会把它的改动当成我们的一起提交。不一样就不提交，报 `changed_after_write`。
+ * 返回各路径应有的 blob：写入的按写入的内容算（`--path` 让 Git 按这个路径的属性过滤，与 `git add` 一致），一起提交的现有文件按工作区算。
+ */
+async function verifyWritten(mainRoot: string, paths: readonly string[], written: ReadonlyMap<string, string>): Promise<Map<string, string>> {
+    const changed: string[] = [];
+    for (const [path, content] of written) {
+        if (sha256(await readFile(resolve(mainRoot, path))) !== sha256(content)) changed.push(path);
+    }
+    if (changed.length > 0) {
+        throw new NbdevError("changed_after_write", `写完之后、提交之前有别的进程又改了：${changed.join("、")}；你的改动已在工作区，没有提交`, {details: {changed}});
+    }
+    const blobs = new Map<string, string>();
+    const others = paths.filter((path) => !written.has(path));
+    const otherHashes = others.length > 0 ? splitLines(await gitOutput(mainRoot, ["hash-object", "--", ...others], {readOnly: true})) : [];
+    others.forEach((path, index) => blobs.set(path, otherHashes[index] ?? ""));
+    for (const [path, content] of written) {
+        blobs.set(path, (await gitOutput(mainRoot, ["hash-object", "--stdin", `--path=${path}`], {readOnly: true, input: content})).trim());
+    }
+    return blobs;
+}
+
+/** 提交里这些路径的 blob 与应有的不同：核对之后、`git add` 之前的一瞬间有别的改动混了进来。 */
+async function foreignChanges(mainRoot: string, sha: string, expectedBlobs: ReadonlyMap<string, string>): Promise<string[]> {
+    const listing = splitNul(await gitOutput(mainRoot, ["ls-tree", "-r", "-z", sha, "--", ...expectedBlobs.keys()], {readOnly: true}));
+    const committed = new Map(listing.map((entry) => {
+        const tab = entry.indexOf("\t");
+        return [entry.slice(tab + 1), entry.slice(0, tab).split(" ")[2] ?? ""] as const;
+    }));
+    return [...expectedBlobs].filter(([path, blob]) => committed.get(path) !== blob).map(([path]) => path);
+}
+
+/** `foreign`：自己的提交里与写入内容不同的路径（见 `foreignChanges`）。 */
+async function commitPaths(mainRoot: string, input: {paths: readonly string[]; written: ReadonlyMap<string, string>; message: string; startHead: string; budgetMs: number}): Promise<{commit: CommitOutcome; foreign: string[]}> {
     const lockState: GitLockState = {
         indexLockPath: (await gitOutput(mainRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index.lock"], {readOnly: true})).trim(),
         deadline: Date.now() + input.budgetMs,
         sawIndexLock: false,
     };
-    const hashes = splitLines(await gitOutput(mainRoot, ["hash-object", "--", ...input.paths], {readOnly: true}));
-    const expectedBlobs = new Map(input.paths.map((path, index) => [path, hashes[index] ?? ""]));
+    const expectedBlobs = await verifyWritten(mainRoot, input.paths, input.written);
     const resolveWith = (lastFailure: GitResult | null) => resolveCommitOutcome(mainRoot, {
         startHead: input.startHead,
         paths: input.paths,
@@ -253,14 +304,14 @@ async function commitPaths(mainRoot: string, input: {paths: readonly string[]; m
         timedOut: lastFailure?.exitCode === 128 && lockState.sawIndexLock,
     });
     const add = await retryOnGitLock(mainRoot, ["add", "--", ...input.paths], lockState);
-    if (add.exitCode !== 0) return resolveWith(add);
+    if (add.exitCode !== 0) return {commit: await resolveWith(add), foreign: []};
     // 暂存区里这些路径与 HEAD 相同时（被别的提交带走、或写回了原值），commit 以 1 退出，同样交给 resolveCommitOutcome 判定。
     const commit = await retryOnGitLock(mainRoot, ["commit", "--quiet", "-m", input.message, "--", ...input.paths], lockState);
-    if (commit.exitCode !== 0) return resolveWith(commit);
+    if (commit.exitCode !== 0) return {commit: await resolveWith(commit), foreign: []};
     // 不用 rev-parse HEAD：别的会话可能紧接着又提交了一次，HEAD 已不是我们的提交。
     const sha = (await gitOutput(mainRoot, ["log", "-1", "--format=%H", `${input.startHead}..HEAD`, "--", ...input.paths], {readOnly: true})).trim();
     if (sha === "") throw new NbdevError("git_failed", "git commit 报告成功，但在起始 HEAD 之后找不到触及本次路径的提交", {details: {startHead: input.startHead, paths: [...input.paths]}});
-    return {committed: true, sha, paths: [...input.paths], viaOtherCommit: false};
+    return {commit: {committed: true, sha, paths: [...input.paths], viaOtherCommit: false}, foreign: await foreignChanges(mainRoot, sha, expectedBlobs)};
 }
 
 function withWrittenPaths(error: unknown, writtenPaths: readonly string[]): unknown {
@@ -320,7 +371,7 @@ export async function runWriteTransaction<T>(
     await prepareAgentDirectories(mainRoot);
     for (let attempt = 1; ; attempt += 1) {
         const recordsLock = await acquireRecordsLock(mainRoot, options.lockWaitMs ?? DEFAULT_LOCK_WAIT_MS);
-        const outcome = await attemptTransaction(context, {repoWrites, now, gitLockWaitMs: options.gitLockWaitMs}, body, recordsLock);
+        const outcome = await attemptTransaction(context, {repoWrites, now, gitLockWaitMs: options.gitLockWaitMs, signal: options.signal}, body, recordsLock);
         if (outcome !== LOCK_LOST) {
             if (attempt > 1) outcome.warnings.push({code: "lock_reacquired", message: `写入之前发现记录锁被别的进程拿走，已重新取锁并重算（第 ${attempt} 次）`, details: {attempts: attempt}});
             return outcome;
@@ -333,7 +384,7 @@ export async function runWriteTransaction<T>(
 
 async function attemptTransaction<T>(
     context: RepoContext,
-    options: {repoWrites: boolean; now: Date; gitLockWaitMs?: number},
+    options: {repoWrites: boolean; now: Date; gitLockWaitMs?: number; signal?: AbortSignal},
     body: TransactionBody<T>,
     recordsLock: RecordsLock,
 ): Promise<TransactionResult<T> | typeof LOCK_LOST> {
@@ -393,6 +444,9 @@ async function attemptTransaction<T>(
             replaceFile(target, content, expectedHash) {
                 operations.push({kind: "replace", target: normalizeRecordPath(target), content, expectedHash});
             },
+            replaceRepoFile(target, content, expectedHash) {
+                operations.push({kind: "replace", target: normalizeRepoPath(target), content, expectedHash});
+            },
             includePaths(paths) {
                 included.push(...paths.map(normalizeRecordPath));
             },
@@ -408,6 +462,9 @@ async function attemptTransaction<T>(
         if (!await recordsLock.isHeld()) {
             lost = true;
             return LOCK_LOST;
+        }
+        if (options.signal?.aborted) {
+            throw new NbdevError("request_aborted", "提交写入的客户端已经断开，什么都没写", {details: {}});
         }
         if (registryChanged) await writeRegistry(mainRoot, registry);
         // 登记表已写：此后丢锁不能再悄悄重算，否则本次领的号会变成没人用的 claimed。
@@ -427,7 +484,14 @@ async function attemptTransaction<T>(
         // 提交阶段里任何一条 Git 调用失败时，文件都已经写在主工作区、号已经领了：错误里带上 writtenPaths，免得调用方重跑领第二个号。
         let commit: CommitOutcome;
         try {
-            commit = await commitPaths(mainRoot, {paths, message, startHead, budgetMs: options.gitLockWaitMs ?? DEFAULT_GIT_LOCK_WAIT_MS});
+            const writtenContent = new Map(operations.flatMap((operation): Array<[string, string]> => operation.kind === "directory"
+                ? Object.entries(operation.files).map(([file, content]) => [`${operation.target}/${file}`, content])
+                : [[operation.target, operation.content]]));
+            const committed = await commitPaths(mainRoot, {paths, written: writtenContent, message, startHead, budgetMs: options.gitLockWaitMs ?? DEFAULT_GIT_LOCK_WAIT_MS});
+            commit = committed.commit;
+            if (commit.committed && committed.foreign.length > 0) {
+                warnings.push({code: "commit_included_foreign_changes", message: `提交里有不是这次写的内容（核对之后、提交之前混进来的）：${committed.foreign.join("、")}`, details: {sha: commit.sha, paths: committed.foreign}});
+            }
             if (commit.committed && commit.viaOtherCommit) {
                 warnings.push({code: "commit_via_other_commit", message: `本次的文件被别的提交一起带走了：${commit.sha}`, details: {sha: commit.sha, paths}});
             } else if (commit.committed) {

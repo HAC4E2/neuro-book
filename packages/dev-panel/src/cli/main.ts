@@ -32,6 +32,7 @@ workRef 写完整 id 或编号（w00022），taskRef 写完整 id 或编号（t0
 
 function callerLine(caller: Caller): string {
     if (caller.kind === "unknown") return `你是：未认出（${caller.reason}）。写命令不会取得租约；herdr 外的会话可以加 --as <标签>`;
+    if (caller.kind === "developer") return `你是：开发者（${caller.device}）`;
     const where = caller.herdr ? `herdr ${caller.herdr.paneId}${caller.herdr.managed ? "" : "，herdr 列表里找不到这个会话"}` : "不在 herdr 里";
     const nested = caller.ref.parentSessionId ? "，嵌套调用，归到外层会话" : "";
     return `你是：${shortSession(caller.ref.key)}（${where}${nested}；子代理与这个会话派出的进程都记在它名下）`;

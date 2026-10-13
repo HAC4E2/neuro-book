@@ -135,7 +135,8 @@ async function guardLeaseIo<T>(warnings: Warning[], what: string, fallback: T, a
 export async function touchCallerLease(context: RepoContext, target: {workId: string; taskId: string; action: string}, options: LeaseOptions, warnings: Warning[]): Promise<LeaseRecord | null> {
     const {caller} = options;
     if (!caller || caller.kind !== "session") {
-        if (caller) warnings.push({code: "caller_unknown", message: "认不出调用者是哪个会话，没有取得租约；herdr 外的会话可以加 --as <标签>", details: {reason: caller.reason}});
+        // 开发者在面板上写，本来就没有会话可以取租约，不是“认不出”。
+        if (caller?.kind === "unknown") warnings.push({code: "caller_unknown", message: "认不出调用者是哪个会话，没有取得租约；herdr 外的会话可以加 --as <标签>", details: {reason: caller.reason}});
         return null;
     }
     const lease = await guardLeaseIo(warnings, "写租约", null, () => touchLease(context.mainRoot, {caller, workId: target.workId, taskId: target.taskId, action: target.action, now: nowOf(options)}));
@@ -204,7 +205,7 @@ async function resolveLeaseTarget(context: RepoContext, transition: TransitionSt
 
 function requireSession(caller: Caller | null): SessionCaller {
     if (caller?.kind === "session") return caller;
-    throw new NbdevError("caller_unknown", "认不出调用者是哪个会话；herdr 外的会话加 --as <标签>", {details: {reason: caller?.reason ?? "no_identity"}});
+    throw new NbdevError("caller_unknown", "认不出调用者是哪个会话；herdr 外的会话加 --as <标签>", {details: {reason: caller?.kind === "unknown" ? caller.reason : "no_identity"}});
 }
 
 /** `nbdev lease take`：Task 已 done 或 shelved 时报 `task_closed`。 */

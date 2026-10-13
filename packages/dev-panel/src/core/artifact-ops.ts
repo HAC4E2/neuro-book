@@ -48,6 +48,7 @@ import {WORKS_ROOT, type RepoContext} from "./repo.js";
 import {chooseExecutionCheckout, taskSourceInBranchWork} from "./sources.js";
 import {matchRef, readTransitionState} from "./status.js";
 import {runWriteTransaction, type CommitOutcome, type TransactionOptions, type WriteTx} from "./transaction.js";
+import {assertPlainText} from "./text-rules.js";
 
 /**
  * 产物、提问、答复与确认的写入，以及答复的读取与等待。写入都经写事务：读上一版、列页面文件、解析页面、算哈希、
@@ -572,6 +573,8 @@ export type AnswerInput = {
     note?: string | null;
     /** 答复针对的版本（面板填开发者打开的那一版）；缺省为最新一版。 */
     artifactVersion?: number;
+    /** 只收针对最新一版的答复（面板）：在锁内比对，`artifactVersion` 不是最新一版时报 `stale_version`。 */
+    requireLatest?: boolean;
     submittedBy: SubmittedBy;
     /** 开发者按下提交的时刻；缺省为写入时。 */
     submittedAt?: string;
@@ -593,6 +596,9 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
         if (!snapshot.latest) throw new NbdevError("artifact_not_found", `产物还没有发布记录：${artifactDirPath(ref)}`, {details: {...ref}});
         const latest = snapshot.latest;
         const targetVersion = input.artifactVersion ?? latest.version;
+        if (input.requireLatest && targetVersion !== latest.version) {
+            throw new NbdevError("stale_version", `${input.artifactId} 已经发布了 v${latest.version}，答复针对的 v${targetVersion} 不是最新一版；重新载入再答`, {details: {...ref, version: targetVersion, latestVersion: latest.version}});
+        }
         const target = targetVersion === latest.version ? latest : await readArtifactVersion(context.mainRoot, ref, targetVersion, []);
         if (!target) throw new NbdevError("artifact_not_found", `${input.artifactId} 没有 v${targetVersion}`, {details: {...ref, version: targetVersion}});
         const values: Record<string, unknown> = {...input.values};
@@ -609,9 +615,11 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
             const reason = validateAnswerValue(definition, value);
             if (reason) problems.push({questionId, reason});
         }
-        for (const questionId of Object.keys(input.comments ?? {})) {
+        for (const [questionId, comment] of Object.entries(input.comments ?? {})) {
             if (!target.questions.some((question) => question.id === questionId)) throw new NbdevError("question_not_found", `说明写给了不存在的题 ${questionId}`, {details: {...ref, questionId}});
+            assertPlainText(comment, `comments.${questionId}`, true);
         }
+        if (input.note) assertPlainText(input.note, "note", true);
         if (problems.length > 0) throw new NbdevError("invalid_answer", problems.map((problem) => `${problem.questionId}：${problem.reason}`).join("；"), {details: {problems}});
         await includeResidue(tx, context.mainRoot, ref);
         const now = new Date();
@@ -633,7 +641,7 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
         const path = answerPath(ref, answerId);
         content = serialize(answer);
         tx.createFile(path, content);
-        const verb = input.submittedBy.kind === "agent-transcribed" ? "代录" : "记下";
+        const verb = input.submittedBy.kind === "agent-transcribed" ? "代录" : options.caller?.kind === "developer" ? "面板记下" : "记下";
         return {message: commitMessage(workId, taskId, `${verb} ${input.artifactId} 的答复`), result: {workId, taskId, artifactId: input.artifactId, answer, path}};
     });
     const lease = await afterWrite(context, {workId: result.workId, taskId: result.taskId, action: "answers record"}, content ? [{path: result.path, content, action: "record"}] : [], options, warnings);

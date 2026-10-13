@@ -235,7 +235,7 @@ describe("产物与答复的命令（场景）", () => {
         expect(await git(fixture.main, "status", "--porcelain", "--", DIR)).toBe("");
     });
 
-    test("场景 8 与最近更新：status 列出 Task 与 Work 目录里的 Markdown；Task 的最近更新取 updated 与产物提交日期中较晚的，updated 不合规时原样给出", async () => {
+    test("场景 8 与最近更新：status 列出 Task 与 Work 目录里的 Markdown；Task 的最近更新取 updated、Task 目录第一层文档与产物提交日期中最晚的，updated 不合规时原样给出", async () => {
         const fixture = await createFixture("cli-documents");
         await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "updated: 2026-01-01\n"));
         await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/requirements.md", "# 需求分析\n");
@@ -252,9 +252,16 @@ describe("产物与答复的命令（场景）", () => {
             ["t01-seed", ["需求分析"], [["review", "unpublished"]]],
             ["t03-design", ["领域模型"], []],
         ]);
+        // requirements.md 是今天提交的，比 README 的 updated（2026-01-01）晚。
+        const today = (await git(fixture.main, "log", "-1", "--format=%cI")).slice(0, 10);
+        expect(work.tasks[0]!.updated).toEqual({value: today, origin: "commit"});
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "updated: 2099-01-01\n"));
+        await fixture.commit("future updated");
+        expect(data<{works: Works}>((await fixture.cli(["status", "--json"])).json).works[0]!.tasks[0]!.updated).toEqual({value: "2099-01-01", origin: "recorded"});
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/README.md", taskReadme("t01-seed", "updated: 2026-01-01\n"));
+        await fixture.commit("old updated");
         expect((await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"])).exitCode).toBe(0);
         const after = data<{works: Works}>((await fixture.cli(["status", "--json"])).json).works[0]!.tasks[0]!;
-        const today = (await git(fixture.main, "log", "-1", "--format=%cI")).slice(0, 10);
         expect(after.updated).toEqual({value: today, origin: "commit"});
 
         // 不合规的 updated 不被产物的提交日期盖掉。
