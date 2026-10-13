@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
     live?: boolean;
     /** 正在接管键盘：不给输入框（直接在终端里打），按钮单击即发。 */
     controlling?: boolean;
-}>(), {live: false, controlling: false});
+    /** 同一格 pane 换了会话、草稿留着时的一行提示（发出去会发给新会话）。 */
+    sessionChange?: string | null;
+}>(), {live: false, controlling: false, sessionChange: null});
 const emit = defineEmits<{refresh: []; prompt: [text: string]; key: [key: string]}>();
 
 const MAX = 4000;
@@ -59,6 +61,7 @@ function send(): void {
         <slot name="screen">
             <pre class="max-h-96 min-h-24 overflow-auto rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-2xs)" aria-label="屏幕末尾">{{ screen ?? "还没读到屏幕" }}</pre>
         </slot>
+        <p v-if="sessionChange && !controlling" role="status" style="color: var(--status-warning); font-size: var(--text-xs)">{{ sessionChange }}</p>
         <p v-if="promptBlocked && !controlling" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ promptBlocked }}</p>
         <form v-if="!controlling" class="flex flex-col gap-2" @submit.prevent="send">
             <FormTextarea v-model="draft" :rows="4" :maxlength="MAX" :disabled="promptBlocked !== null" placeholder="发给这个会话的文字（替你在它的输入框里打字并回车）" aria-label="发给会话的文字" />

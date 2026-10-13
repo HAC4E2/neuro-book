@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import {Badge, Button} from "@notnotype/nb-ui/components";
-import {computed, effectScope, onBeforeUnmount, ref, shallowRef, watch, type EffectScope} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
-import {ApiError, getJson, sendJson} from "../host/api.js";
 import {HERDR_STATUS_LABEL, relativeTime, shortSession} from "../host/format.js";
-import {deliveryNotice, useNotifyActions} from "../host/notify-actions.js";
+import {useNotifyActions} from "../host/notify-actions.js";
 import {useResource} from "../host/panel-data.js";
-import {useTerminalSocket, type TerminalSocket} from "../host/terminal-socket.js";
-import type {DeliveryData, HistoryData, Meta, NotifyData, ScreenData, SessionsData} from "../host/types.js";
-import {describeFailure, type Notice} from "../host/writes.js";
+import {useSessionConsoleHost} from "../host/session-console.js";
+import type {Meta, NotifyData, SessionsData} from "../host/types.js";
 import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LoadState from "../parts/LoadState.vue";
@@ -29,6 +27,7 @@ import WriteNotice from "../parts/WriteNotice.vue";
  * 屏幕打开时与每次发送后各读一次，不轮询；要确认的键先重读屏幕、给开发者看过再发。
  * t12：网页终端可用时（`/api/meta.terminal`），会话详情里的屏幕换成实时终端（手机上是文字视图，可切到终端画面只看），
  * 可以接管键盘；接管期间按钮单击即发、经终端连接，输入框不给。连接、心跳、切后台的释放在 `host/terminal-socket.ts`。
+ * 对选中会话的操作（终端连接、读屏、发送、两步确认、接管小窗）在 `host/session-console.ts`，都绑定发起时的目标（t15）。
  */
 const route = useRoute();
 const router = useRouter();
@@ -51,6 +50,9 @@ const selected = computed(() => {
     if (!pane?.session || !pane.inRepository) return null;
     return {paneId: pane.paneId, terminalId: pane.terminalId, sessionKey: `${pane.session.agent}:${pane.session.value}`, agent: pane.agent, status: pane.status};
 });
+const terminalAvailable = computed(() => meta.data.value?.terminal?.available === true);
+const host = useSessionConsoleHost({selected, terminalAvailable});
+const terminal = host.terminal;
 
 /** 手机（窄屏或粗指针）：默认文字视图，不给接管。 */
 const narrowQuery = window.matchMedia("(max-width: 767px), (pointer: coarse)");
@@ -61,25 +63,10 @@ const onNarrow = () => {
 narrowQuery.addEventListener("change", onNarrow);
 onBeforeUnmount(() => narrowQuery.removeEventListener("change", onNarrow));
 const showTerminalOnPhone = ref(false);
-
-/** 最近一次按接管后的终端框算出的尺寸：“抢过来”沿用它，不退回观看时的尺寸。 */
-let requestedSize: {cols: number; rows: number} | null = null;
-/** 选中会话的终端连接：换了终端就关掉旧的、连新的（连接随作用域销毁）。 */
-const terminal = shallowRef<TerminalSocket | null>(null);
-let terminalScope: EffectScope | null = null;
-const terminalAvailable = computed(() => meta.data.value?.terminal?.available === true);
-watch(() => (selected.value && terminalAvailable.value ? `${selected.value.paneId}\0${selected.value.terminalId}` : null), (key) => {
-    terminalScope?.stop();
-    terminalScope = null;
-    terminal.value = null;
+watch(host.connection, () => {
     showTerminalOnPhone.value = false;
-    requestedSize = null;
-    if (!key || !selected.value) return;
-    const target = {paneId: selected.value.paneId, terminalId: selected.value.terminalId};
-    terminalScope = effectScope();
-    terminal.value = terminalScope.run(() => useTerminalSocket(target)) ?? null;
-}, {immediate: true});
-onBeforeUnmount(() => terminalScope?.stop());
+});
+
 const controlling = computed(() => terminal.value?.state.mode === "control");
 const takeoverBlocked = computed(() => {
     if (narrow.value) return "手机上不给接管，用下面的输入框";
@@ -90,41 +77,6 @@ const controllerNote = computed(() => {
     const controller = terminal.value?.state.controller;
     return controller && controller.by === "other_browser" ? `面板的另一个浏览器正在接管（${relativeTime(controller.since)}起）` : null;
 });
-/** 接管前的提示：先按网页尺寸开小窗；服务端回 need_confirm 时同一个小窗改成“抢过来”。 */
-const lastConflict = ref<{reason: "controlled_elsewhere" | "other_browser"; text: string | null; since: string | null} | null>(null);
-const takeoverAsk = ref<{cols: number; rows: number; force: boolean} | null>(null);
-function askTakeover(cols: number, rows: number): void {
-    requestedSize = {cols, rows};
-    takeoverAsk.value = {cols, rows, force: false};
-}
-function confirmTakeover(): void {
-    const ask = takeoverAsk.value;
-    const current = selected.value;
-    if (!ask || !current || !terminal.value) return;
-    terminal.value.takeover(ask.cols, ask.rows, current.sessionKey, ask.force);
-    takeoverAsk.value = null;
-}
-watch(() => terminal.value?.state.notice ?? null, (notice) => {
-    if (!notice || !terminal.value) return;
-    if (notice.kind === "need_confirm") {
-        const size = requestedSize ?? {cols: terminal.value.state.cols, rows: terminal.value.state.rows};
-        takeoverAsk.value = {...size, force: true};
-        lastConflict.value = {reason: notice.reason, text: notice.text, since: notice.since};
-        return;
-    }
-    if (notice.kind === "released") {
-        const why: Record<string, string> = {user: "你点了释放", hidden: "页面切到了后台", heartbeat: "15 秒没有心跳", idle: "15 分钟没有输入", taken_over: "被别处接管或断开", pane_closed: "终端不在了", panel_exit: "面板退出", disconnect: "连接断开", session_closed: "登录失效"};
-        const size: Record<string, string> = {size_unknown: "读不到接管前的尺寸，没有改回", handed_off: "交给了另一个浏览器", stream_ended: "流已经结束，没有改回"};
-        consoleNotice.value = {tone: notice.reason === "user" ? "info" : "warning", title: "已释放键盘", message: `${why[notice.reason] ?? notice.reason}；${notice.restored ? "终端尺寸已改回" : size[notice.notRestored ?? ""] ?? "尺寸没有改回"}`, items: [], retry: false};
-    } else {
-        consoleNotice.value = {tone: "error", title: "没有接管", message: notice.message, items: [], retry: false};
-    }
-    terminal.value.dismissNotice();
-});
-function cancelTakeover(): void {
-    takeoverAsk.value = null;
-    lastConflict.value = null;
-}
 function openLink(url: string): void {
     window.open(url, "_blank", "noopener,noreferrer");
 }
@@ -136,123 +88,22 @@ function close(): void {
     void router.replace({query: rest});
 }
 
-const screen = ref<ScreenData | null>(null);
-const screenAt = ref<string | null>(null);
-const consolePending = ref(false);
-const consoleNotice = ref<Notice | null>(null);
-const resetKey = ref(0);
 const consoleDisabled = computed(() => {
     if (audit.value && !audit.value.enabled) return audit.value.reason === "not_initialized" ? "审计还没初始化：运行 bun run --cwd packages/dev-panel audit-init 之后才能替你打字或按键" : `审计不可用，不能替你打字或按键：${audit.value.detail}`;
     if (data.value && !data.value.herdr.available) return "herdr 不可用";
     return null;
 });
+const sessionChangeNote = computed(() => (host.sessionChange.value ? `这格的会话换了（${shortSession(host.sessionChange.value.from)} → ${shortSession(host.sessionChange.value.to)}），发出去会发给后者` : null));
 
-/** 更早的输出（手机的文字视图，只给 omp）：点一次读一次，不轮询。Claude 不给，见 docs/panel.md 的“手机”。 */
-const history = ref<{text: string; lines: number; at: string} | null>(null);
-const historyPending = ref(false);
-async function readScreen(): Promise<void> {
-    const current = selected.value;
-    if (!current) return;
-    try {
-        const body = await getJson<ScreenData>(`/api/sessions/${encodeURIComponent(current.paneId)}/screen?session=${encodeURIComponent(current.sessionKey)}`);
-        if (selected.value?.paneId !== current.paneId) return;
-        screen.value = body.data;
-        screenAt.value = new Date().toISOString();
-    } catch (error) {
-        if (!(error instanceof ApiError)) throw error;
-        consoleNotice.value = {tone: "warning", title: "读不到屏幕", message: error.message, items: [], retry: false};
-    }
+/** 确认框只有一个：会话页自己的（按键、文字），或通知的（手动发送判定不可投）。 */
+const activeConfirm = computed(() => host.confirm.value ?? notifyActions.confirm.value);
+function runConfirm(): void {
+    if (host.confirm.value) void host.confirmRun();
+    else void notifyActions.confirmRun();
 }
-watch(() => selected.value?.sessionKey ?? null, (key) => {
-    screen.value = null;
-    screenAt.value = null;
-    history.value = null;
-    consoleNotice.value = null;
-    if (key) void readScreen();
-}, {immediate: true});
-
-async function readHistory(): Promise<void> {
-    const current = selected.value;
-    if (!current) return;
-    historyPending.value = true;
-    try {
-        const body = await getJson<HistoryData>(`/api/sessions/${encodeURIComponent(current.paneId)}/history?session=${encodeURIComponent(current.sessionKey)}`);
-        if (selected.value?.paneId !== current.paneId) return;
-        history.value = {text: body.data.text, lines: body.data.lines, at: new Date().toISOString()};
-    } catch (error) {
-        if (!(error instanceof ApiError)) throw error;
-        consoleNotice.value = {tone: "warning", title: "读不到更早的输出", message: error.message, items: [], retry: false};
-    } finally {
-        historyPending.value = false;
-    }
-}
-
-async function sendPrompt(text: string, confirmScreen: string | null = null): Promise<void> {
-    const current = selected.value;
-    if (!current) return;
-    consolePending.value = true;
-    consoleNotice.value = null;
-    try {
-        const body = await sendJson<DeliveryData>("POST", `/api/sessions/${encodeURIComponent(current.paneId)}/prompt`, {text, expectedSession: current.sessionKey, confirmScreen});
-        consoleNotice.value = deliveryNotice(body.data, current.paneId);
-        if (body.data.result !== "not_deliverable" && body.data.result !== "agent_blocked" && body.data.result !== "session_changed") resetKey.value += 1;
-    } catch (error) {
-        if (error instanceof ApiError && error.code === "not_deliverable" && typeof error.details.screenDigest === "string") {
-            const digest = error.details.screenDigest;
-            notifyActions.openScreenConfirm({
-                title: confirmScreen === null ? "输入框不是认得出的空" : "屏幕变了，再看一次",
-                message: `${current.paneId} 的输入框里可能有字、开着菜单或别的界面（${error.message}）。看过屏幕再决定：仍然发送会把你的文字连同回车打进去。`,
-                screen: typeof error.details.screen === "string" ? error.details.screen : null,
-                confirmLabel: "仍然发送",
-                run: () => sendPrompt(text, digest),
-            });
-        } else {
-            consoleNotice.value = {tone: "error", title: "没有发出去", message: describeFailure(error).message, items: [], retry: false};
-        }
-    } finally {
-        consolePending.value = false;
-        await readScreen();
-    }
-}
-
-const KEY_CONFIRM: Record<string, {label: string; message: string}> = {
-    "shift+tab": {label: "Shift+Tab", message: "将按下 Shift+Tab：切换会话的权限模式（例如进出计划模式、自动接受编辑）。"},
-    enter: {label: "Enter", message: "将按下 Enter：会提交输入框，或确认确认界面上的缺省项（可能是“允许执行”）。"},
-    esc: {label: "Esc", message: "将按下 Esc：打断会话正在做的这一轮。"},
-    "ctrl+c": {label: "Ctrl+C", message: "将按下 Ctrl+C：打断会话；Claude 连按两次会退出，同一会话 3 秒内只能按一次。"},
-    y: {label: "y", message: "将按下 y：回答确认界面。y 能不能回答 Claude 的确认界面还没有核实，可能批准一次危险的工具调用。"},
-    n: {label: "n", message: "将按下 n：回答确认界面（还没有核实是否有效）。"},
-};
-
-async function sendKey(key: string, confirmed: boolean): Promise<void> {
-    const current = selected.value;
-    if (!current) return;
-    consolePending.value = true;
-    consoleNotice.value = null;
-    try {
-        await sendJson<{sent: string[]}>("POST", `/api/sessions/${encodeURIComponent(current.paneId)}/keys`, {keys: [key], expectedSession: current.sessionKey, ...(confirmed ? {confirmed: true} : {})});
-        consoleNotice.value = {tone: "success", title: "已按下", message: `${KEY_CONFIRM[key]?.label ?? key} → ${current.paneId}`, items: [], retry: false};
-    } catch (error) {
-        consoleNotice.value = {tone: "error", title: "没有按下", message: describeFailure(error).message, items: [], retry: false};
-    } finally {
-        consolePending.value = false;
-        await readScreen();
-    }
-}
-
-async function pressKey(key: string): Promise<void> {
-    // 接管期间单击即发，经终端连接（键盘本来就直通，再两步确认没有意义）。
-    if (controlling.value && terminal.value) {
-        terminal.value.key(key);
-        return;
-    }
-    const confirm = KEY_CONFIRM[key];
-    if (!confirm) {
-        await sendKey(key, false);
-        return;
-    }
-    await readScreen();
-    notifyActions.openScreenConfirm({title: `将按下 ${confirm.label}`, message: confirm.message, screen: screen.value?.screen ?? null, confirmLabel: `按下 ${confirm.label}`, run: () => sendKey(key, true)});
+function cancelConfirm(): void {
+    if (host.confirm.value) host.cancelConfirm();
+    else notifyActions.confirm.value = null;
 }
 </script>
 
@@ -279,29 +130,29 @@ async function pressKey(key: string): Promise<void> {
                     <h2 class="font-semibold">会话详情</h2>
                     <Button class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-x" @click="close">关闭</Button>
                 </div>
-                <SessionConsole v-if="selected" :session="selected" :screen="screen?.screen ?? null" :screen-at="screenAt" :disabled-reason="consoleDisabled" :pending="consolePending" :reset-key="resetKey" :live="terminal !== null" :controlling="controlling" @refresh="readScreen" @prompt="(text) => sendPrompt(text)" @key="pressKey">
+                <SessionConsole v-if="selected" :session="selected" :screen="host.screen.value?.screen ?? null" :screen-at="host.screenAt.value" :disabled-reason="consoleDisabled" :pending="host.pending.value" :reset-key="host.resetKey.value" :session-change="sessionChangeNote" :live="terminal !== null" :controlling="controlling" @refresh="host.readScreen" @prompt="(text) => host.sendPrompt(text)" @key="host.pressKey">
                     <template v-if="terminal" #screen>
                         <p v-if="terminal.state.closedReason" style="color: var(--status-warning); font-size: var(--text-xs)">{{ terminal.state.closedReason }}</p>
                         <!-- 接管中不换成文字视图（桌面窗口缩窄时）：释放的入口与“正在接管”的提示都在终端视图里。 -->
                         <template v-else-if="narrow && !showTerminalOnPhone && !controlling">
-                            <template v-if="history">
-                                <p style="font-size: var(--text-xs); color: var(--text-secondary)">更早的输出（最近 {{ history.lines }} 行，{{ relativeTime(history.at) }}读取）</p>
-                                <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="更早的输出">{{ history.text || "没有更早的输出" }}</pre>
+                            <template v-if="host.history.value">
+                                <p style="font-size: var(--text-xs); color: var(--text-secondary)">更早的输出（最近 {{ host.history.value.lines }} 行，{{ relativeTime(host.history.value.at) }}读取）</p>
+                                <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="更早的输出">{{ host.history.value.text || "没有更早的输出" }}</pre>
                             </template>
                             <TerminalTextView :source="terminal.source" />
                             <div class="flex flex-wrap gap-2">
                                 <Button size="sm" variant="ghost" icon-class="i-lucide-monitor" @click="showTerminalOnPhone = true">终端画面（只看）</Button>
-                                <Button v-if="selected.agent === 'omp'" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="historyPending" @click="readHistory">{{ history ? "重读更早的输出" : "更早的输出" }}</Button>
+                                <Button v-if="selected.agent === 'omp'" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="host.historyPending.value" @click="host.readHistory">{{ host.history.value ? "重读更早的输出" : "更早的输出" }}</Button>
                             </div>
                         </template>
                         <template v-else>
-                            <TerminalView :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
+                            <TerminalView :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="host.askTakeover" @release="terminal.release()" @input="(data, paste) => terminal?.input(data, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink" />
                             <Button v-if="narrow && !controlling" class="self-start" size="sm" variant="ghost" icon-class="i-lucide-text" @click="showTerminalOnPhone = false">回到文字视图</Button>
                         </template>
                     </template>
                 </SessionConsole>
                 <p v-else style="color: var(--text-muted)">pane {{ paneId }} 上没有 herdr 认得出的会话，或它不在本仓库里</p>
-                <WriteNotice v-if="consoleNotice" :notice="consoleNotice" @dismiss="consoleNotice = null" />
+                <WriteNotice v-if="host.notice.value" :notice="host.notice.value" @dismiss="host.notice.value = null" />
             </section>
             <EphemeralFrame title="持有租约或运行的会话">
                 <SessionList :sessions="data.sessions" openable @open="open" />
@@ -326,7 +177,7 @@ async function pressKey(key: string): Promise<void> {
             <p v-if="data.ignoredProcesses > 0" style="font-size: var(--text-xs); color: var(--text-muted)">另有 {{ data.ignoredProcesses }} 个短命或无关的进程没有列出</p>
         </template>
         <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
-        <TakeoverDialog :open="takeoverAsk !== null" :current="{cols: terminal?.state.cols ?? 0, rows: terminal?.state.rows ?? 0, known: terminal?.state.sizeKnown ?? false}" :next="{cols: takeoverAsk?.cols ?? 0, rows: takeoverAsk?.rows ?? 0}" :conflict="takeoverAsk?.force ? lastConflict : null" :pending="terminal?.state.pending ?? false" @confirm="confirmTakeover" @cancel="cancelTakeover" />
-        <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value || consolePending" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
+        <TakeoverDialog :open="host.takeoverAsk.value !== null" :current="{cols: terminal?.state.cols ?? 0, rows: terminal?.state.rows ?? 0, known: terminal?.state.sizeKnown ?? false}" :next="{cols: host.takeoverAsk.value?.cols ?? 0, rows: host.takeoverAsk.value?.rows ?? 0}" :conflict="host.takeoverAsk.value?.force ? host.lastConflict.value : null" :pending="terminal?.state.pending ?? false" @confirm="host.confirmTakeover" @cancel="host.cancelTakeover" />
+        <ScreenConfirmDialog :open="activeConfirm !== null" :title="activeConfirm?.title ?? ''" :message="activeConfirm?.message ?? ''" :screen="activeConfirm?.screen ?? null" :confirm-label="activeConfirm?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value || host.pending.value" @confirm="runConfirm" @cancel="cancelConfirm" />
     </div>
 </template>

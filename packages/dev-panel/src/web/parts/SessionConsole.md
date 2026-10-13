@@ -30,6 +30,8 @@ interface SessionConsoleProps {
     live?: boolean;
     /** 正在接管键盘（t12）：不给输入框（直接在终端里打），按钮单击即发（页面经终端连接发），按钮的 title 与 aria-label 改成接管中的说明；可选，默认 false */
     controlling?: boolean;
+    /** 同一格 pane 换了会话、草稿留着时输入框上方的一行提示（发出去会发给新会话，t15）；可选，默认 null */
+    sessionChange?: string | null;
 }
 interface SessionConsoleEmits {
     (event: "refresh"): void;
@@ -40,7 +42,7 @@ interface SessionConsoleEmits {
 }
 ```
 
-输入框的草稿是零件自己的（`state:local`），`resetKey` 变了清空。插槽 `screen`：替换屏幕快照（t12 放实时终端或手机的文字视图），缺省是快照的 `<pre>`。没有 expose。
+输入框的草稿是零件自己的（`state:local`），`resetKey` 变了清空。会话页的宿主按 pane 记草稿（t15）：换 pane 时、给当前目标发送成功后才加 `resetKey`；同一格换会话（`/compact`、`/clear`）时不加，改给 `sessionChange`。宿主不给本零件加 key：插槽里是实时终端，按会话重建本零件会连带重建终端。插槽 `screen`：替换屏幕快照（t12 放实时终端或手机的文字视图），缺省是快照的 `<pre>`。没有 expose。
 
 ## 不支持
 
