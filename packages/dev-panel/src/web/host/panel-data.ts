@@ -5,7 +5,7 @@ import {ApiError, getJson, type ApiWarning, type PartName, type Revisions} from 
  * 面板的数据宿主（单例）：全应用只有一条 `/ws`，外壳与各页面共用。
  * - 推送只说“哪块变了”（`records`、`activity`、`sessions`），订阅了这几块的资源各自重取；
  * - 回应带服务实例 id 与各块的 revision，只接受更新的数据：两次“变了”触发的两次重取，旧的回应后到时丢掉；
- * - 服务重启（实例 id 变了）时全部重取；连接断开后退避重连。
+ * - 服务重启（实例 id 变了）时全部重取；连接断开后退避重连，每次重连前先探一次 `/api/meta`（见 `probeBeforeReconnect`）。
  * 页面经 `useResource` 取数，零件只吃 props。
  */
 
@@ -58,6 +58,24 @@ function onMessage(event: MessageEvent): void {
     attempts = 0;
 }
 
+/**
+ * 重连之前先取一次 `/api/meta`：会话只在一个服务实例里有效，面板重启后 `/ws` 的升级回 401，
+ * 浏览器却只报一次断开、拿不到状态码，只靠重连会永远停在旧数据上。这里回 401 就置 `unauthorized` 并停止重连；
+ * 其余情形（200，连不上，还在启动的 503）照常退避重连，重连后的 `hello` 负责全部重取。
+ */
+async function probeBeforeReconnect(): Promise<boolean> {
+    try {
+        await getJson<unknown>("/api/meta");
+    } catch (caught) {
+        if (caught instanceof ApiError && caught.status === 401) {
+            panelState.unauthorized = true;
+            return false;
+        }
+        console.warn("重连前探测面板失败，照常重连", caught);
+    }
+    return true;
+}
+
 function connect(): void {
     panelState.connection = "connecting";
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
@@ -72,7 +90,10 @@ function connect(): void {
         attempts += 1;
         const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** Math.min(attempts - 1, 4));
         setTimeout(() => {
-            if (!panelState.unauthorized) connect();
+            if (panelState.unauthorized) return;
+            void probeBeforeReconnect().then((go) => {
+                if (go && !panelState.unauthorized) connect();
+            });
         }, delay);
     });
 }

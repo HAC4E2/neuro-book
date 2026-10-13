@@ -131,7 +131,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | `/search?q=` | 搜索结果：流式出现，按 checkout 分组，截断时标出 | t03 第二轮顶栏 |
 
 - **外壳**：左栏（首页与收件箱、工作的 Work › Task 树、产物、文档、现场）、顶栏（搜索、推送是否连着、代码已更新、前端构建失败、herdr 的状态、数据的新旧、明暗）。390 宽时左栏收进抽屉（nb-ui 的 `Drawer`）。
-- **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。
+- **数据宿主**（`src/web/host/panel-data.ts`）：单例，全应用只有一条 `/ws`。页面经 `useResource(path, parts)` 取数，推送说哪块变了就重取订阅了它的资源；只接受最后一次请求的回应，且回应的 revision 不比已接受的旧；服务重启（实例 id 变了）或推送重连后全部重取。加载态延时 200 毫秒出现。`/api/*` 回 401 时整个面板只显示“用 nbdev panel open 打开”。`/ws` 断开后、每次重连之前先取一次 `/api/meta`：浏览器拿不到升级失败的状态码，面板重启后旧 cookie 作废，只靠重连会一直停在旧数据上；探测回 401 就显示上面那句并停止重连，否则照常重连（重连后的 `hello` 全部重取）。
 - **偏好**（明暗、左栏各 Work 的展开）只经 `src/web/host/prefs.ts` 一处读写 `localStorage`（键带 `nbdev-panel:` 前缀，读写包 try/catch）；组件不碰浏览器存储。`127.0.0.1` 与 `localhost` 各有一份偏好。
 - **Markdown**（`src/web/host/markdown.ts`）：`marked` 转 HTML，DOMPurify 清洗（`FORBID_TAGS: style、form、input、button、textarea、select、iframe、object、embed`，`FORBID_ATTR: style`），再改写链接：相对路径按文档所在目录解析成仓库路径，`.md` 转成文档页，产物目录转成产物页，`.agents/works/` 下的其它文件与图片走产物来源（`/api/meta` 的 `artifactBase`），其余仓库文件面板不提供，链接去掉、图片不显示。
 - **零件**（`src/web/parts/`）：`LoadState`、`StatusChip`、`StatusBar`、`LeaseChip`、`EphemeralFrame`、`BranchNote`、`WorkCard`、`InboxList`、`TaskTable`、`MarkdownView`、`QuestionPanel`、`ArtifactList`、`DocTree`、`CheckoutSwitch`、`SessionList`、`RunList`、`SearchResults`，各有同名 `.md`。零件只吃 props、只发事件；页面与外壳是宿主。零件不进 Component Lab（Lab 在 NeuroBook 应用里，挂面板的组件就要让产品包依赖开发工具），状态在浏览器验收里用临时仓库的数据摆出来。
