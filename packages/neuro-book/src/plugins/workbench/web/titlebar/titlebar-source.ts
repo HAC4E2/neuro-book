@@ -7,18 +7,19 @@
 
 import {shallowRef} from "@vue/reactivity";
 
-import {formatKeybinding} from "nbook/plugins/commands/shared/contracts";
-import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
+import {arrangeMenu, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import type {CommandService, KeyPlatform, MenuFacts, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
+import {TITLEBAR_MENU_GROUPS} from "../../shared/menus";
+import type {TitlebarMenuItemDeclaration} from "../../shared/menus";
 import type {ViewAction} from "../../shared/views";
 
 import {OPEN_COMMANDS_ID} from "../commands/open-commands";
 import type {ActivityItemRegistry, ShownActivityItem} from "../items/activity-items";
 import type {ItemRegistry, StripEntry} from "../items/registry";
-import {buildMenus, TITLEBAR_MENUS} from "./menu-model";
 import type {MenuGroup} from "./menu-model";
 
 /** 交给活动栏的一个底部条目：再带上命令此刻不可用的原因（有命令且不可用时）。 */
@@ -65,6 +66,8 @@ export interface ShellChromeOptions {
     readonly statusItems: ItemRegistry;
     readonly titleItems: ItemRegistry;
     readonly activityItems: ActivityItemRegistry;
+    /** 标题栏菜单的菜单项（`workbench.titlebar-menu`）。 */
+    readonly titlebarMenu: MenuItemRegistry<TitlebarMenuItemDeclaration>;
     readonly platform: KeyPlatform;
     readonly signal: AbortSignal;
 }
@@ -91,17 +94,24 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
     return {
         menus: (locale) => {
             void version.value;
-            return buildMenus(TITLEBAR_MENUS, {
-                commands: commands.list(),
+            const items = options.titlebarMenu.items();
+            const facts: MenuFacts = {
+                command: (id) => {
+                    const command = commands.get(id);
+                    return command.ok ? command.value : null;
+                },
                 isEnabled: (id) => commands.isEnabled(id),
-                checked: (key) => {
+                isOn: (key) => {
                     const read = state.read(key);
                     return read.status === "ready" && read.value === true;
                 },
-                desktop: false,
                 locale,
                 platform: options.platform,
-            });
+                current: null,
+            };
+            return TITLEBAR_MENU_GROUPS
+                .map((group) => ({id: group.id, label: localize(group.title, locale), sections: arrangeMenu(items.filter((item) => item.declaration.group === group.id), facts)}))
+                .filter((group) => group.sections.length > 0);
         },
         searchShortcut: () => {
             void version.value;

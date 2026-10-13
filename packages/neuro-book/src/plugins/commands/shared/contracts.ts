@@ -167,6 +167,6 @@ export const commandsRemoteContract = defineRemoteService({
 });
 
 export {currentKeyPlatform, formatKeybinding, parseKeybinding} from "./keybinding";
-export {arrangeMenu, matchesExtensions, MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "./menus";
-export type {MenuCurrentFiles, MenuEntry, MenuFacts, MenuItemDeclaration, MenuLocation} from "./menus";
+export {arrangeMenu, matchesExtensions, MENU_BUTTON, MENU_EXTENSIONS, menuImplementations, MenuItemRegistry, menuItemValidator, menuLocation} from "./menus";
+export type {MenuCurrentFiles, MenuEntry, MenuFacts, MenuItemDeclaration, MenuItemImplementation, MenuLocation} from "./menus";
 export type {KeyModifiers, KeyPlatform, ParsedKeybinding} from "./keybinding";

@@ -16,7 +16,7 @@ import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-run
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
@@ -118,7 +118,7 @@ describe("视图标题动作（views.md 输出 10）", () => {
         const calls: unknown[] = [];
         const {commands, state, signal} = await start([example(enabled, on, calls)]);
         const items = () => new ItemRegistry([], state, () => undefined, signal);
-        const chrome = createShellChrome({commands, state, statusItems: items(), titleItems: items(), activityItems: new ActivityItemRegistry([], state, signal), platform: "other", signal});
+        const chrome = createShellChrome({commands, state, statusItems: items(), titleItems: items(), activityItems: new ActivityItemRegistry([], state, signal), titlebarMenu: new MenuItemRegistry([], signal), platform: "other", signal});
 
         const instance = {viewId: "example.view", generation: 3};
         expect(chrome.viewActions([ACT, TOGGLE], "zh-CN", instance).map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["动作", "现在不能做", undefined], ["开关", null, false]]);

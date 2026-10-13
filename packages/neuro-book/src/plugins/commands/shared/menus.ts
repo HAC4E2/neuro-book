@@ -4,11 +4,12 @@
  * 画菜单、给参数、执行由拥有者做。纯模块，不碰 DOM 与运行时，前后端都能引用。
  */
 
+import {shallowRef} from "@vue/reactivity";
 import {Type} from "typebox";
 import type {TObject, TProperties, TSchema} from "typebox";
 import {Value} from "typebox/value";
 
-import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import {localize, LocalizedTextSchema} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
@@ -79,6 +80,7 @@ const ITEM_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
  */
 export function menuItemValidator(location: MenuLocation): (descriptor: ContributionDescriptor) => string | null {
     return (descriptor) => {
+        if (descriptor.location !== "browser") return `${location.point} 只接受浏览器入口的贡献`;
         const id = descriptor.id;
         if (id.length > 128 || !ITEM_ID.test(id)) return `菜单项 id 必须是点分的小写段、至多 128 个字符：${id}`;
         const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
@@ -92,6 +94,67 @@ export function menuItemValidator(location: MenuLocation): (descriptor: Contribu
         if (location.buttons && declaration.placement !== "menu" && declaration.icon === undefined) return `菜单项 ${id} 画成按钮，要有 icon`;
         return null;
     };
+}
+
+/**
+ * 菜单项只有声明，实现是这个空对象（menus.md 的“输入与前置条件”）：内核只能对整个贡献点规定要不要实现，菜单项又要随贡献方
+ * 入口出现与消失，所以写在入口下、交空实现。
+ */
+export type MenuItemImplementation = Readonly<Record<string, never>>;
+
+const NO_IMPLEMENTATION: MenuItemImplementation = Object.freeze({});
+
+/** 贡献方在激活产出里交给某个菜单位置的实现：每条菜单项一个空对象。 */
+export function menuImplementations(items: ReadonlyArray<{readonly id: string}>): Readonly<Record<string, MenuItemImplementation>> {
+    return Object.fromEntries(items.map((item) => [item.id, NO_IMPLEMENTATION]));
+}
+
+type MenuHandle = ContributionHandle<MenuItemDeclaration, MenuItemImplementation>;
+
+/**
+ * 一个菜单位置的注册表，拥有者在入口激活时建：声明目录在那一刻取得、之后不变；交付句柄在 `published` 时记下、`revoke` 时
+ * 去掉，入口开始停止时句柄先失去 `published`，从那一刻起这一项就不再给出（menus.md 的“时序与寿命”）。`items()` 是响应式的：
+ * 在 computed 里读，交付与撤回时重算。
+ */
+export class MenuItemRegistry<Declaration extends MenuItemDeclaration = MenuItemDeclaration> {
+    readonly #catalog: ReadonlyMap<string, Declaration>;
+    readonly #handles = new Map<string, MenuHandle>();
+    readonly #version = shallowRef(0);
+    #stopped = false;
+
+    constructor(declarations: ReadonlyArray<ContributionDescriptor<Declaration>>, signal: AbortSignal) {
+        this.#catalog = new Map(declarations.map((descriptor) => [descriptor.id, descriptor.declaration]));
+        signal.addEventListener("abort", () => {
+            this.#stopped = true;
+            this.#version.value += 1;
+        }, {once: true});
+    }
+
+    receiver(): ContributionReceiver<MenuItemDeclaration, MenuItemImplementation> {
+        return {
+            published: (handle) => {
+                this.#handles.set(handle.id, handle);
+                this.#version.value += 1;
+            },
+            revoke: (handle) => {
+                if (this.#handles.get(handle.id) !== handle) return;
+                this.#handles.delete(handle.id);
+                this.#version.value += 1;
+            },
+        };
+    }
+
+    /** 此刻已交付的菜单项，按 id 的码元顺序；`arrangeMenu` 再按节与顺序排。 */
+    items(): Array<{readonly id: string; readonly declaration: Declaration}> {
+        void this.#version.value;
+        if (this.#stopped) return [];
+        const items: Array<{readonly id: string; readonly declaration: Declaration}> = [];
+        for (const [id, handle] of this.#handles) {
+            const declaration = this.#catalog.get(id);
+            if (declaration !== undefined && handle.published) items.push({id, declaration});
+        }
+        return items.sort((a, b) => compare(a.id, b.id));
+    }
 }
 
 /** 位置此刻的当前文件：文件给名字（地址最后一段），文件夹给 null。 */

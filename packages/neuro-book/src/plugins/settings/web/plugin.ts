@@ -16,12 +16,12 @@ import {Type} from "typebox";
 import {computed} from "@vue/reactivity";
 import {defineComponent, h} from "vue";
 
-import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, quickPickKey, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {ActivityBarItemDeclaration, OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ActivityBarItemDeclaration, OverlayDeclaration, TitlebarMenuItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
@@ -43,6 +43,11 @@ import {settingsWindowSizeStore, sizeStorePort} from "./window-size";
 import {createSettingsWindowSource, provideSettingsWindowSource, settingsWindowSourceKey} from "./window-source";
 
 export const SWITCH_LOCALE_COMMAND = "nbook.settings.switch-locale";
+
+/** 标题栏视图组里“切换主题、明暗”之后的“切换界面语言”（docs/specs/ui/workbench-shell.md 外壳四输出 29）。 */
+const LOCALE_MENU_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: TitlebarMenuItemDeclaration}> = [
+    {id: "nbook.settings.menu.locale", declaration: {group: "view", section: "4_appearance", order: 3, command: SWITCH_LOCALE_COMMAND}},
+];
 
 /** 写用户层（界面语言只允许用户层）；Agent 带参数即可切换，plan、discuss 模式下按命令系统的规则只读。 */
 export const SWITCH_LOCALE_DECLARATION: CommandDeclaration = {
@@ -226,7 +231,10 @@ export const settingsBrowserPlugin: PluginDefinition = {
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件），启动即激活。
         activationEvents: ["onStartup"],
         dependencies: [{key: settingsKey}, {key: quickPickKey}],
-        contributions: [{capability: COMMANDS_POINT, id: SWITCH_LOCALE_COMMAND, declaration: SWITCH_LOCALE_DECLARATION}],
+        contributions: [
+            {capability: COMMANDS_POINT, id: SWITCH_LOCALE_COMMAND, declaration: SWITCH_LOCALE_DECLARATION},
+            ...LOCALE_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
+        ],
         activate: (context) => {
             const settings = context.services.require(settingsKey);
             const quickPick = context.services.require(quickPickKey);
@@ -239,7 +247,7 @@ export const settingsBrowserPlugin: PluginDefinition = {
                 choices: [{id: "zh-CN", label: "简体中文"}, {id: "en-US", label: "English"}],
                 title: SWITCH_LOCALE_DECLARATION.title,
             });
-            return {contributions: {[COMMANDS_POINT]: {[SWITCH_LOCALE_COMMAND]: {run}}}};
+            return {contributions: {[COMMANDS_POINT]: {[SWITCH_LOCALE_COMMAND]: {run}}, [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(LOCALE_MENU_ITEMS)}};
         },
     }), settingsWindowEntry],
 };

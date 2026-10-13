@@ -148,7 +148,7 @@ function dropdownItemOf(entry: MenuEntry): DropdownItem {
     };
 }
 
-/** 节与节之间放一条分隔线；节本身不会为空（能力模型已裁掉）。 */
+/** 节与节之间放一条分隔线；节本身不会为空（`arrangeMenu` 不给出空节）。 */
 function sectioned<T>(sections: ReadonlyArray<ReadonlyArray<MenuEntry>>, map: (entry: MenuEntry) => T, separator: (index: number) => T): T[] {
     return sections.flatMap((section, index) => [...(index === 0 ? [] : [separator(index)]), ...section.map(map)]);
 }
