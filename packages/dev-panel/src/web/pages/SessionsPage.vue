@@ -84,7 +84,7 @@ watch(() => selected.value?.sessionKey ?? null, (key) => {
     if (key) void readScreen();
 }, {immediate: true});
 
-async function sendPrompt(text: string, confirmScreen = false): Promise<void> {
+async function sendPrompt(text: string, confirmScreen: string | null = null): Promise<void> {
     const current = selected.value;
     if (!current) return;
     consolePending.value = true;
@@ -94,13 +94,14 @@ async function sendPrompt(text: string, confirmScreen = false): Promise<void> {
         consoleNotice.value = deliveryNotice(body.data, current.paneId);
         if (body.data.result !== "not_deliverable" && body.data.result !== "agent_blocked" && body.data.result !== "session_changed") resetKey.value += 1;
     } catch (error) {
-        if (error instanceof ApiError && error.code === "not_deliverable" && !confirmScreen) {
+        if (error instanceof ApiError && error.code === "not_deliverable" && typeof error.details.screenDigest === "string") {
+            const digest = error.details.screenDigest;
             notifyActions.openScreenConfirm({
-                title: "输入框不是认得出的空",
+                title: confirmScreen === null ? "输入框不是认得出的空" : "屏幕变了，再看一次",
                 message: `${current.paneId} 的输入框里可能有字、开着菜单或别的界面（${error.message}）。看过屏幕再决定：仍然发送会把你的文字连同回车打进去。`,
                 screen: typeof error.details.screen === "string" ? error.details.screen : null,
                 confirmLabel: "仍然发送",
-                run: () => sendPrompt(text, true),
+                run: () => sendPrompt(text, digest),
             });
         } else {
             consoleNotice.value = {tone: "error", title: "没有发出去", message: describeFailure(error).message, items: [], retry: false};

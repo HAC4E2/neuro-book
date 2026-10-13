@@ -5,7 +5,7 @@ import {assertPlainText} from "../core/text-rules.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
 import {computeNotifyJobs, developerMessage, newAttemptId, pointerMessage, readNotifyRecords, readTaskNotifyInput, writeNotifyRecord, type NotifyJob, type NotifyRecord, type NotifyResult} from "../core/notify.js";
 import {HerdrError, type HerdrAgentInfo, type HerdrClient, type HerdrSnapshotPane} from "../herdr/client.js";
-import {checkDeliverable, deliverText, PROMPT_WAIT_MS, sessionKeyOf, type CheckFailure, type DeliveryContext, type DeliveryOutcome, type DeliveryTarget} from "./delivery.js";
+import {checkDeliverable, deliverText, PROMPT_WAIT_MS, screenDigest, sessionKeyOf, type CheckFailure, type DeliveryContext, type DeliveryOutcome, type DeliveryTarget} from "./delivery.js";
 import type {PanelState} from "./state.js";
 
 /**
@@ -363,9 +363,9 @@ export class Notifier {
     /**
      * 手动发送：会话已更换后发给新会话、没有可通知的会话时选一个、旧答复或这个 herdr 版本不自动投时发给提问者。
      * 过同样的判据（身份、仓库、空闲、紧贴投递的复核）；正向白名单不过时先回 409 `not_deliverable` 带屏幕末尾，
-     * 开发者看过之后带 `confirmScreen` 再发。目标只能是这条任务列出的会话。
+     * 开发者看过之后带回那一屏的摘要（`confirmScreen`）再发，屏幕变了就再回 409。目标只能是这条任务列出的会话。
      */
-    async sendManual(input: {workId: string; taskId: string; sessionKey: string; target: DeliveryTarget; confirmScreen: boolean; text: string | null}): Promise<DeliveryOutcome> {
+    async sendManual(input: {workId: string; taskId: string; sessionKey: string; target: DeliveryTarget; confirmScreen: string | null; text: string | null}): Promise<DeliveryOutcome> {
         await this.compute();
         if (!this.audit?.enabled) throw auditUnavailable(this.audit);
         const context = this.deliveryContext();
@@ -379,7 +379,7 @@ export class Notifier {
         const outcome = await this.track(this.options.locks.run(input.target.paneId, async () => {
             const checked = await checkDeliverable(context, input.target);
             if (checked.ok) return this.send(context, job, input.target, checked.agent, true, developerText);
-            if (checked.code === "not_deliverable" && input.confirmScreen && checked.agent) return this.send(context, job, input.target, checked.agent, true, developerText);
+            if (checked.code === "not_deliverable" && checked.agent && input.confirmScreen === screenDigest(checked)) return this.send(context, job, input.target, checked.agent, true, developerText);
             throw checkError(checked);
         }));
         await this.compute();
@@ -429,5 +429,5 @@ export function checkError(failure: CheckFailure): NbdevError {
         not_found: "session_changed", session_changed: "session_changed", not_in_repository: "not_in_repository", agent_busy: "agent_busy",
         agent_blocked: "agent_busy", status_unknown: "agent_busy", not_stable: "agent_busy", settling: "agent_busy", not_deliverable: "not_deliverable", herdr_unavailable: "herdr_unavailable",
     } as const satisfies Record<CheckFailure["code"], string>;
-    return new NbdevError(codes[failure.code], failure.detail, {details: {reason: failure.code, screen: failure.screen, status: failure.agent?.status ?? null, sessionKey: failure.agent ? sessionKeyOf(failure.agent) : null}});
+    return new NbdevError(codes[failure.code], failure.detail, {details: {reason: failure.code, screen: failure.screen, screenDigest: failure.code === "not_deliverable" ? screenDigest(failure) : null, status: failure.agent?.status ?? null, sessionKey: failure.agent ? sessionKeyOf(failure.agent) : null}});
 }

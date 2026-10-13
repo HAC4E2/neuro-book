@@ -3,7 +3,7 @@ import {isNbdevError, NbdevError} from "../core/errors.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
 import {assertPlainText} from "../core/text-rules.js";
 import type {HerdrClient} from "../herdr/client.js";
-import {checkDeliverable, checkSession, deliverKeys, deliverText, readScreen, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
+import {checkDeliverable, checkSession, deliverKeys, deliverText, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
 import {AUTO_NOTIFY_VERSIONS, auditUnavailable, checkError, type Notifier, type PaneLocks} from "./notifier.js";
 import type {PanelState} from "./state.js";
 import {NotReady} from "./views.js";
@@ -75,9 +75,9 @@ export function createSessionIo(deps: SessionIoDeps) {
         return envelope({paneId, sessionKey: target.sessionKey, agent: read.agent.agent, status: read.agent.status, focused: read.agent.focused, screen: read.screen}, [], null);
     }
 
-    /** 输入框：只发给空闲的会话；正向白名单不过时回 409 带屏幕末尾，开发者看过之后带 `confirmScreen` 再发。 */
+    /** 输入框：只发给空闲的会话；正向白名单不过时回 409 带屏幕末尾与摘要，开发者看过之后带回摘要（`confirmScreen`）再发，屏幕变了就再回 409。 */
     async function prompt(req: Request, paneId: string): Promise<Response> {
-        const fields = await readFields(req, 32 * KIB, {text: {type: "string", required: true}, expectedSession: {type: "string", required: true}, confirmScreen: {type: "boolean"}});
+        const fields = await readFields(req, 32 * KIB, {text: {type: "string", required: true}, expectedSession: {type: "string", required: true}, confirmScreen: {type: "nullable-string"}});
         const text = fields.text as string;
         if (text.trim() === "") throw usage("文字不能为空", {field: "text", reason: "missing"});
         if (text.length > MAX_PROMPT) throw usage(`文字超过 ${MAX_PROMPT} 字`, {field: "text", reason: "too_long"});
@@ -87,7 +87,7 @@ export function createSessionIo(deps: SessionIoDeps) {
         const delivery = context();
         const outcome = await notifier.track(locks.run(paneId, async () => {
             const checked = await checkDeliverable(delivery, target);
-            if (!checked.ok && !(checked.code === "not_deliverable" && fields.confirmScreen === true && checked.agent)) throw checkError(checked);
+            if (!checked.ok && !(checked.code === "not_deliverable" && checked.agent && fields.confirmScreen === screenDigest(checked))) throw checkError(checked);
             const before = checked.ok ? checked.agent : checked.agent!;
             const actionId = newActionId();
             const auditTarget = {paneId, sessionKey: target.sessionKey};
@@ -133,14 +133,14 @@ export function createSessionIo(deps: SessionIoDeps) {
     }
 
     async function send(req: Request): Promise<Response> {
-        const fields = await readFields(req, 32 * KIB, {workId: {type: "string", required: true}, taskId: {type: "string", required: true}, sessionKey: {type: "string", required: true}, target: {type: "object", required: true}, confirmScreen: {type: "boolean"}, text: {type: "nullable-string"}});
+        const fields = await readFields(req, 32 * KIB, {workId: {type: "string", required: true}, taskId: {type: "string", required: true}, sessionKey: {type: "string", required: true}, target: {type: "object", required: true}, confirmScreen: {type: "nullable-string"}, text: {type: "nullable-string"}});
         const target = fields.target as Record<string, unknown>;
         if (typeof target.paneId !== "string" || !PANE_ID.test(target.paneId) || typeof target.sessionKey !== "string" || Object.keys(target).length !== 2) {
             throw usage("target 要写成 {paneId, sessionKey}", {field: "target", reason: "type"});
         }
         const outcome = await notifier.sendManual({
             workId: fields.workId as string, taskId: fields.taskId as string, sessionKey: fields.sessionKey as string,
-            target: {paneId: target.paneId, sessionKey: target.sessionKey}, confirmScreen: fields.confirmScreen === true, text: (fields.text as string | null | undefined) ?? null,
+            target: {paneId: target.paneId, sessionKey: target.sessionKey}, confirmScreen: (fields.confirmScreen as string | null | undefined) ?? null, text: (fields.text as string | null | undefined) ?? null,
         });
         return envelope({result: outcome.result, code: outcome.code, message: outcome.message}, [], null);
     }

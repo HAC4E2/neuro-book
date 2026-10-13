@@ -398,7 +398,20 @@ describe("审计（场景 8）与会话页", () => {
         pane.visible = "──────────────────────────────\n❯ 半截\n──────────────────────────────\n";
         const refused = await panel.send("POST", "/api/sessions/w9:p1/prompt", {text: "再来", expectedSession: KEY_A});
         expect([refused.status, refused.body.errors[0]?.code, String(refused.body.errors[0]?.details?.screen).includes("半截")]).toEqual([409, "not_deliverable", true]);
-        const confirmed = await panel.send("POST", "/api/sessions/w9:p1/prompt", {text: "再来", expectedSession: KEY_A, confirmScreen: true});
+        const digest = refused.body.errors[0]?.details?.screenDigest as string;
+        expect(typeof digest).toBe("string");
+        // 两次请求之间换成认不出的确认界面：带着旧屏幕的摘要确认，不发、给新屏幕（t11 实现审查第 6 条）。
+        pane.explain = {matched: null, fallback: "default_known_agent_idle_fallback", preview: ""};
+        pane.visible = "● 一个新的确认界面。\n\n──────────────────────────────\n Allow Claude to fetch https://example.com ?\n ❯ Allow once\n";
+        const changed = await panel.send("POST", "/api/sessions/w9:p1/prompt", {text: "再来", expectedSession: KEY_A, confirmScreen: digest});
+        expect([changed.status, changed.body.errors[0]?.code, String(changed.body.errors[0]?.details?.screen).includes("Allow once")]).toEqual([409, "not_deliverable", true]);
+        expect(changed.body.errors[0]?.details?.screenDigest).not.toBe(digest);
+        const legacyBoolean = await panel.send("POST", "/api/sessions/w9:p1/prompt", {text: "再来", expectedSession: KEY_A, confirmScreen: true});
+        expect(legacyBoolean.status).toBe(400);
+        expect(fake.prompts.map((prompt) => prompt.text)).toEqual(["继续\n第二行"]);
+        pane.explain = {matched: "live_prompt_box", fallback: null, preview: "❯ 半截\n"};
+        pane.visible = "──────────────────────────────\n❯ 半截\n──────────────────────────────\n";
+        const confirmed = await panel.send("POST", "/api/sessions/w9:p1/prompt", {text: "再来", expectedSession: KEY_A, confirmScreen: digest});
         expect([confirmed.status, confirmed.body.data.result]).toEqual([200, "delivered"]);
         expect(fake.prompts.map((prompt) => prompt.text)).toEqual(["继续\n第二行", "再来"]);
 

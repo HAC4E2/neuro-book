@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {HerdrError, type HerdrAgentInfo, type HerdrClient} from "../herdr/client.js";
 import {judgeDeliverable} from "../herdr/screens.js";
 import type {NotifyResult} from "../core/notify.js";
@@ -24,6 +25,14 @@ export type CheckFailure = {
 export type CheckResult = {ok: true; agent: HerdrAgentInfo; screen: string} | CheckFailure;
 
 export const PROMPT_WAIT_MS = 10_000;
+
+/**
+ * 不可投时开发者看到的那一屏的摘要：判定原因加屏幕末尾的 sha256。确认时带回来，服务端重新判定后比对，
+ * 不同就不发、再给新屏幕：开发者同意的是“对这一屏发送”，不是“这个 pane 不管现在什么样都发”（t11 实现审查第 6 条）。
+ */
+export function screenDigest(failure: Pick<CheckFailure, "detail" | "screen">): string {
+    return createHash("sha256").update(`${failure.detail}\0${failure.screen ?? ""}`).digest("hex");
+}
 const FOCUSED_RECHECK_MS = 1_000;
 const AFTER_PROMPT_MS = 500;
 

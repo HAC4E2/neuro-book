@@ -161,7 +161,7 @@
 | `POST /api/sessions/:paneId/keys` | `{keys, expectedSession, confirmed?}`：一次 1 到 4 个，只收 `up`、`down`、`shift+tab`、`enter`、`esc`、`ctrl+c`、`y`、`n`（其它 400 `key_not_allowed`）；除上、下之外都要 `confirmed: true`（只防前端误发，确认框在前端）；一次最多一个 `ctrl+c`，同一格 3 秒内第二次 409 `key_rate_limited`（调 herdr 之前记账） | `{sent}` |
 
 - **顺序**：字段与长度、键名白名单 → 审计可用（否则 409 `audit_unavailable`，什么都不调）→ Ctrl+C 限速 → `agent.get` 核对会话键（`expectedSession` 为空或 pane 上没有会话一律拒绝）、pane 在本仓库、文字还要求空闲 → 写审计意图（写不进去就不发）→ 调 herdr → 写审计结果。
-- **文字与手动发送的两步确认**：正向白名单不过时回 409 `not_deliverable`，`details.screen` 是屏幕末尾；开发者看过之后带 `confirmScreen: true` 再发，紧贴投递的核对照做。
+- **文字与手动发送的两步确认**：正向白名单不过时回 409 `not_deliverable`，`details.screen` 是屏幕末尾，`details.screenDigest` 是这一屏的摘要（判定原因加屏幕末尾的 sha256）；开发者看过之后把摘要原样放进 `confirmScreen` 再发。服务端重新判定，摘要不同（两次请求之间屏幕变了）就再回 409、给新屏幕与新摘要，不发；紧贴投递的核对照做。
 - **HTTP 状态**：用法 400，冲突 409（`session_changed`、`agent_busy`：在工作、在等确认或状态未知、`not_in_repository`、`not_deliverable`、`audit_unavailable`、`key_rate_limited`），找不到 404（`question_not_found`：没有这条任务），`herdr_unavailable` 503。投递本身的结果（`delivered_into_blocked`、`uncertain` 等）在 200 的 `data.result` 里。
 
 ## 审计

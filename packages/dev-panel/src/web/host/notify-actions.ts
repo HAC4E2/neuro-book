@@ -75,7 +75,7 @@ export function useNotifyActions(reload: () => void) {
     }
 
     /** `text`：发给不是提问者的会话时开发者确认过的消息；发给提问者为 null（服务端发指针消息）。 */
-    async function deliver(job: NotifyJob, target: Target, text: string | null, confirmScreen = false): Promise<void> {
+    async function deliver(job: NotifyJob, target: Target, text: string | null, confirmScreen: string | null = null): Promise<void> {
         notice.value = null;
         const outcome = await post("/api/notify/send", {workId: job.workId, taskId: job.taskId, sessionKey: job.sessionKey, target, confirmScreen, text});
         compose.value = null;
@@ -84,13 +84,14 @@ export function useNotifyActions(reload: () => void) {
             return;
         }
         const {error} = outcome;
-        if (error.code === "not_deliverable" && !confirmScreen) {
+        if (error.code === "not_deliverable" && typeof error.details.screenDigest === "string") {
+            const digest = error.details.screenDigest;
             confirm.value = {
-                title: "输入框不是认得出的空",
+                title: confirmScreen === null ? "输入框不是认得出的空" : "屏幕变了，再看一次",
                 message: `${target.paneId} 的输入框里可能有字、开着菜单或别的界面（${error.message}）。看过屏幕再决定：仍然发送会把这一行连同回车打进去。`,
                 screen: typeof error.details.screen === "string" ? error.details.screen : null,
                 confirmLabel: "仍然发送",
-                run: () => deliver(job, target, text, true),
+                run: () => deliver(job, target, text, digest),
             };
             return;
         }
