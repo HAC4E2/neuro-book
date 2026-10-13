@@ -1,11 +1,12 @@
 /**
- * 工作台拥有的菜单位置（docs/specs/workbench/menus.md 的位置表）：标题栏应用菜单 `workbench.titlebar-menu`。菜单项的共同形状、
- * 校验与排序在命令插件的共享合同里，这里只加位置自己的字段。声明是纯数据，前后端都能引用。
+ * 工作台拥有的菜单位置（docs/specs/workbench/menus.md 的位置表）：标题栏应用菜单 `workbench.titlebar-menu` 与视图标题
+ * `workbench.view-title`。菜单项的共同形状、校验与排序在命令插件的共享合同里，这里只加位置自己的字段。声明是纯数据，
+ * 前后端都能引用。
  */
 
 import {Type} from "typebox";
 
-import {menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
+import {MENU_BUTTON, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import type {LocalizedText} from "nbook/shared/localized-text";
 
@@ -26,3 +27,15 @@ export type TitlebarMenuItemDeclaration = MenuItemDeclaration & {readonly group:
 export const titlebarMenuLocation = menuLocation(WORKBENCH_TITLEBAR_MENU_POINT, {group: Type.Union(TITLEBAR_MENU_GROUPS.map((group) => Type.Literal(group.id)))});
 
 export const validateTitlebarMenuItem = menuItemValidator(titlebarMenuLocation);
+
+/**
+ * 别的插件给某个视图加的标题动作（docs/specs/workbench/views.md 输出 11）：`view` 是视图 id，可以是别的插件的视图；
+ * `context: "instance"` 执行时收到被点的视图实例。
+ */
+export const WORKBENCH_VIEW_TITLE_POINT = "workbench.view-title";
+
+export type ViewTitleItemDeclaration = MenuItemDeclaration & {readonly view: string};
+
+export const viewTitleLocation = menuLocation(WORKBENCH_VIEW_TITLE_POINT, {view: Type.String({pattern: "\\S", maxLength: 128}), ...MENU_BUTTON}, {contexts: ["instance"], buttons: true});
+
+export const validateViewTitleItem = menuItemValidator(viewTitleLocation);

@@ -1,0 +1,64 @@
+/**
+ * 测试插件 `test.menus` 的浏览器入口（描述与命令见 `nbook/shared/testing/menus-contract`）：贡献方与菜单位置的拥有者、
+ * 被贡献的视图分属不同插件，菜单项 id 归本插件，视图 id 归 `test.sample-views`。
+ */
+
+import {Type} from "typebox";
+
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+
+import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
+import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {notificationsKey, WORKBENCH_VIEW_TITLE_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewTitleItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
+import {recordedText, TEST_MENUS_RECORD_COMMAND, testMenusDescriptor} from "nbook/shared/testing/menus-contract";
+import {SAMPLE_VIEW_IDS} from "nbook/shared/testing/sample-views-contract";
+
+const RECORD: CommandDeclaration = {
+    title: {"zh-CN": "记下收到的参数", "en-US": "Record Arguments"},
+    category: {"zh-CN": "测试", "en-US": "Test"},
+    description: "Notify the arguments this command received (test only).",
+    args: Type.Object({
+        from: Type.Optional(Type.String()),
+        viewId: Type.Optional(Type.String()),
+        generation: Type.Optional(Type.Integer()),
+        addresses: Type.Optional(Type.Array(Type.String())),
+        address: Type.Optional(Type.String()),
+    }, {additionalProperties: false}),
+    effect: "read",
+};
+
+const label = (zh: string) => ({"zh-CN": zh, "en-US": zh});
+
+/** 给样例视图丙的标题加一个按钮与一个“⋯”里的项（docs/specs/workbench/views.md 验收 8）。 */
+const VIEW_TITLE_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: ViewTitleItemDeclaration}> = [
+    {id: "test.menus.view-button", declaration: {view: SAMPLE_VIEW_IDS.gamma, section: "1", command: TEST_MENUS_RECORD_COMMAND, icon: "i-lucide-star", label: label("测试按钮"), args: {from: "view-button"}}},
+    {id: "test.menus.view-menu", declaration: {view: SAMPLE_VIEW_IDS.gamma, section: "1", command: TEST_MENUS_RECORD_COMMAND, placement: "menu", label: label("测试菜单项"), context: "instance"}},
+];
+
+export function createTestMenusBrowserPlugin(): PluginDefinition {
+    return {
+        id: testMenusDescriptor.id,
+        entries: [defineEntry({
+            id: "browser",
+            location: "browser",
+            activationEvents: ["onStartup"],
+            dependencies: [{key: notificationsKey}],
+            contributions: [
+                {capability: COMMANDS_POINT, id: TEST_MENUS_RECORD_COMMAND, declaration: RECORD},
+                ...VIEW_TITLE_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_VIEW_TITLE_POINT, id, declaration})),
+            ],
+            activate: (context) => {
+                const notifications = context.services.require(notificationsKey);
+                return {contributions: {
+                    [COMMANDS_POINT]: {[TEST_MENUS_RECORD_COMMAND]: {run: (args: unknown) => {
+                        notifications.notify({message: recordedText(args), sticky: true});
+                        return {ok: true, value: null};
+                    }}},
+                    [WORKBENCH_VIEW_TITLE_POINT]: menuImplementations(VIEW_TITLE_ITEMS),
+                }};
+            },
+        })],
+    };
+}

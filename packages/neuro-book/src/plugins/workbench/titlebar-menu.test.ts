@@ -66,7 +66,7 @@ function ownerPlugin(owner: {chrome: ShellChrome | null}): PluginDefinition {
                 const state = context.services.require(publicStateKey);
                 const titlebarMenu = new MenuItemRegistry(context.declarations.list<TitlebarMenuItemDeclaration>(WORKBENCH_TITLEBAR_MENU_POINT), context.signal);
                 const empty = (): ItemRegistry => new ItemRegistry([], state, () => undefined, context.signal);
-                owner.chrome = createShellChrome({commands: context.services.require(commandServiceKey), state, statusItems: empty(), titleItems: empty(), activityItems: new ActivityItemRegistry([], state, context.signal), titlebarMenu, platform: "other", signal: context.signal});
+                owner.chrome = createShellChrome({commands: context.services.require(commandServiceKey), state, statusItems: empty(), titleItems: empty(), activityItems: new ActivityItemRegistry([], state, context.signal), titlebarMenu, viewTitle: new MenuItemRegistry([], context.signal), platform: "other", signal: context.signal});
                 return {receivers: {[WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver()}};
             },
         }],

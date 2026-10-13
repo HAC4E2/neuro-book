@@ -73,7 +73,7 @@ function ownerPlugin(owner: Owner): PluginDefinition {
                 const state = context.services.require(publicStateKey);
                 const activityItems = new ActivityItemRegistry(context.declarations.list<ActivityBarItemDeclaration>(WORKBENCH_ACTIVITYBAR_ITEMS_POINT), state, context.signal);
                 const empty = (): ItemRegistry => new ItemRegistry([], state, () => undefined, context.signal);
-                owner.chrome = createShellChrome({commands: context.services.require(commandServiceKey), state, statusItems: empty(), titleItems: empty(), activityItems, titlebarMenu: new MenuItemRegistry([], context.signal), platform: "other", signal: context.signal});
+                owner.chrome = createShellChrome({commands: context.services.require(commandServiceKey), state, statusItems: empty(), titleItems: empty(), activityItems, titlebarMenu: new MenuItemRegistry([], context.signal), viewTitle: new MenuItemRegistry([], context.signal), platform: "other", signal: context.signal});
                 return {receivers: {[WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver()}};
             },
         }],

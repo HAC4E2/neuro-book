@@ -14,7 +14,8 @@ import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {TITLEBAR_MENU_GROUPS} from "../../shared/menus";
-import type {TitlebarMenuItemDeclaration} from "../../shared/menus";
+import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../../shared/menus";
+import {VIEW_ACTIONS_MAX} from "../../shared/views";
 import type {ViewAction} from "../../shared/views";
 
 import {OPEN_COMMANDS_ID} from "../commands/open-commands";
@@ -35,12 +36,16 @@ export interface ShellChrome {
     /** 点了一个条目：按它声明的命令执行；条目已不在（入口停止）时什么都不做。 */
     runItem(itemId: string): void;
     /**
-     * 视图标题动作此刻的样子：可用与否看命令的 `when`（不可用时带原因），按下态看 `toggled` 的公开键。视图实例还没建立
-     * （`instance` 为 null，视图第一次显示或重新交付、还在加载）时，要带实例的动作不可用。
+     * 一个视图的标题动作此刻的样子（docs/specs/workbench/views.md 输出 10、11）：视图自己声明的 `actions` 在前，别的插件经
+     * `workbench.view-title` 贡献的在后；按钮至多 8 个，多出的收进“⋯”。可用与否看命令的 `when`（不可用时带原因），按下态看
+     * `toggled` 的公开键；视图实例还没建立（`instance` 为 null）时，要实例的动作不可用。
      */
-    viewActions(actions: ReadonlyArray<ViewAction>, locale: DisplayLocale, instance: ViewInstanceRef | null): ViewActionEntry[];
-    /** 点了视图标题动作：执行它的命令，`args: "instance"` 时带上被点的视图实例；要实例而实例还没建立时不执行。 */
-    runViewAction(action: ViewAction, instance: ViewInstanceRef | null): void;
+    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, locale: DisplayLocale, instance: ViewInstanceRef | null): ViewActionsModel;
+    /**
+     * 点了视图标题的一个动作（按 `ViewActionEntry.key` 找，不按位置找：显示的列表会随 `when` 与按钮预算变）：执行它的命令，
+     * 要实例的带上被点的视图实例；要实例而实例还没建立、或这一项已不在时不执行。
+     */
+    runViewAction(viewId: string, actions: ReadonlyArray<ViewAction>, key: string, instance: ViewInstanceRef | null): void;
 }
 
 /** 被点的视图实例：视图 id 与它这一次挂载的代际。 */
@@ -51,14 +56,32 @@ export interface ViewInstanceRef {
 
 const INSTANCE_LOADING = {"zh-CN": "视图还没加载好", "en-US": "The view has not loaded yet"};
 
+/** 标题栏菜单没有位置参数。 */
+const NO_CONTEXTS: ReadonlySet<string> = new Set();
+
 export interface ViewActionEntry {
-    readonly action: ViewAction;
+    /** 稳定身份：视图自己的动作是 `own:<在 actions 里的序号>`，贡献来的是贡献 id。 */
+    readonly key: string;
+    readonly command: string;
     readonly title: string;
+    /** 收进“⋯”的项可以没有图标。 */
+    readonly icon: string | null;
     /** 可用时为 null。 */
     readonly disabledReason: string | null;
     /** 按下态；没有声明 `toggled` 的动作没有这一项。 */
     readonly pressed?: boolean;
 }
+
+/** 视图标题行里的动作：按钮一排，“⋯”里按节分好（节之间画分隔线）；`menu` 为空时不画“⋯”。 */
+export interface ViewActionsModel {
+    readonly buttons: ReadonlyArray<ViewActionEntry>;
+    readonly menu: ReadonlyArray<ReadonlyArray<ViewActionEntry>>;
+}
+
+const OWN = "own:";
+
+/** 视图标题的位置参数：实例总给得出，还没建立时由这里禁用（views.md 输出 10）。 */
+const INSTANCE_CONTEXT: ReadonlySet<string> = new Set(["instance"]);
 
 export interface ShellChromeOptions {
     readonly commands: CommandService;
@@ -68,6 +91,8 @@ export interface ShellChromeOptions {
     readonly activityItems: ActivityItemRegistry;
     /** 标题栏菜单的菜单项（`workbench.titlebar-menu`）。 */
     readonly titlebarMenu: MenuItemRegistry<TitlebarMenuItemDeclaration>;
+    /** 别的插件给视图标题加的动作（`workbench.view-title`）。 */
+    readonly viewTitle: MenuItemRegistry<ViewTitleItemDeclaration>;
     readonly platform: KeyPlatform;
     readonly signal: AbortSignal;
 }
@@ -91,26 +116,29 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         return registry.shown(locale).map((item) => ({...item, disabledReason: disabledReason(item)}));
     };
 
+    /** 菜单项求值要的事实：命令目录、可用性、公开状态；标题栏菜单没有位置参数，视图标题另给 `instance`。 */
+    const facts = (locale: DisplayLocale): MenuFacts => ({
+        command: (id) => {
+            const command = commands.get(id);
+            return command.ok ? command.value : null;
+        },
+        isEnabled: (id) => commands.isEnabled(id),
+        isOn: (key) => {
+            const read = state.read(key);
+            return read.status === "ready" && read.value === true;
+        },
+        locale,
+        platform: options.platform,
+        current: null,
+        contexts: NO_CONTEXTS,
+    });
+
     return {
         menus: (locale) => {
             void version.value;
             const items = options.titlebarMenu.items();
-            const facts: MenuFacts = {
-                command: (id) => {
-                    const command = commands.get(id);
-                    return command.ok ? command.value : null;
-                },
-                isEnabled: (id) => commands.isEnabled(id),
-                isOn: (key) => {
-                    const read = state.read(key);
-                    return read.status === "ready" && read.value === true;
-                },
-                locale,
-                platform: options.platform,
-                current: null,
-            };
             return TITLEBAR_MENU_GROUPS
-                .map((group) => ({id: group.id, label: localize(group.title, locale), sections: arrangeMenu(items.filter((item) => item.declaration.group === group.id), facts)}))
+                .map((group) => ({id: group.id, label: localize(group.title, locale), sections: arrangeMenu(items.filter((item) => item.declaration.group === group.id), facts(locale))}))
                 .filter((group) => group.sections.length > 0);
         },
         searchShortcut: () => {
@@ -124,27 +152,51 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
             void version.value;
             return options.activityItems.shown(locale).map((item) => ({...item, disabledReason: disabledReason(item)}));
         },
-        viewActions: (actions, locale, instance) => {
+        viewActions: (viewId, actions, locale, instance) => {
             void version.value;
-            return actions.map((action) => {
+            const loading = localize(INSTANCE_LOADING, locale);
+            const own = actions.map((action, index): {readonly entry: ViewActionEntry; readonly menu: boolean} => {
                 const title = localize(action.title, locale);
                 const enabled = commands.isEnabled(action.command);
                 const read = action.toggled === undefined ? null : state.read(action.toggled);
                 const waiting = action.args === "instance" && instance === null;
-                return {
-                    action,
+                return {menu: action.placement === "menu", entry: {
+                    key: `${OWN}${String(index)}`,
+                    command: action.command,
                     title,
-                    disabledReason: waiting ? localize(INSTANCE_LOADING, locale) : enabled.ok ? (enabled.value ? null : title) : enabled.reason,
+                    icon: action.icon,
+                    disabledReason: waiting ? loading : enabled.ok ? (enabled.value ? null : title) : enabled.reason,
                     ...(read === null ? {} : {pressed: read.status === "ready" && read.value === true}),
-                };
+                }};
             });
+            const contributed = arrangeMenu(options.viewTitle.items().filter((item) => item.declaration.view === viewId), {...facts(locale), contexts: INSTANCE_CONTEXT})
+                .map((section) => section.map((item): {readonly entry: ViewActionEntry; readonly menu: boolean} => ({menu: item.placement === "menu", entry: {
+                    key: item.id,
+                    command: item.command,
+                    title: item.label,
+                    icon: item.icon,
+                    disabledReason: item.context === "instance" && instance === null ? loading : item.enabled ? null : (item.reason ?? item.label),
+                    ...(item.checked === null ? {} : {pressed: item.checked}),
+                }})));
+            const inline = [...own.filter((item) => !item.menu), ...contributed.flat().filter((item) => !item.menu)].map((item) => item.entry);
+            const menu = [
+                inline.slice(VIEW_ACTIONS_MAX),
+                own.filter((item) => item.menu).map((item) => item.entry),
+                ...contributed.map((section) => section.filter((item) => item.menu).map((item) => item.entry)),
+            ].filter((section) => section.length > 0);
+            return {buttons: inline.slice(0, VIEW_ACTIONS_MAX), menu};
         },
-        runViewAction: (action, instance) => {
-            if (action.args !== "instance") {
-                void commands.execute(action.command, {}, {source: "user"});
+        runViewAction: (viewId, actions, key, instance) => {
+            const target = instance === null ? {} : {viewId: instance.viewId, generation: instance.generation};
+            if (key.startsWith(OWN)) {
+                const action = actions[Number(key.slice(OWN.length))];
+                if (action === undefined || (action.args === "instance" && instance === null)) return;
+                void commands.execute(action.command, action.args === "instance" ? target : {}, {source: "user"});
                 return;
             }
-            if (instance !== null) void commands.execute(action.command, {viewId: instance.viewId, generation: instance.generation}, {source: "user"});
+            const item = options.viewTitle.items().find((candidate) => candidate.id === key && candidate.declaration.view === viewId);
+            if (item === undefined || (item.declaration.context === "instance" && instance === null)) return;
+            void commands.execute(item.declaration.command, item.declaration.context === "instance" ? target : (item.declaration.args ?? {}), {source: "user"});
         },
         runItem: (itemId) => {
             const item = [...options.statusItems.shown("en-US"), ...options.titleItems.shown("en-US"), ...options.activityItems.shown("en-US")].find((entry) => entry.id === itemId);

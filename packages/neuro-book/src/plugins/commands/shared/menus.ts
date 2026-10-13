@@ -170,6 +170,8 @@ export interface MenuFacts {
     readonly platform: KeyPlatform;
     /** 这个位置此刻没有当前文件（或位置根本没有当前文件）为 null。 */
     readonly current: MenuCurrentFiles | null;
+    /** 位置此刻给得出的参数名（`context` 的取值）；给不出的项不显示。 */
+    readonly contexts: ReadonlySet<string>;
 }
 
 /** 此刻要画的一项：文字已按语言取好。参数由拥有者按 `args` 或 `context` 给。 */
@@ -207,9 +209,8 @@ export function arrangeMenu(items: ReadonlyArray<{readonly id: string; readonly 
         const command = facts.command(declaration.command);
         if (command === null) continue;
         if (!(declaration.when?.requires ?? []).every((key) => facts.isOn(key))) continue;
-        const needsFile = declaration.extensions !== undefined || declaration.context !== undefined;
-        if (needsFile && facts.current === null) continue;
-        if (declaration.extensions !== undefined && !matchesExtensions(declaration.extensions, facts.current ?? [])) continue;
+        if (declaration.extensions !== undefined && (facts.current === null || !matchesExtensions(declaration.extensions, facts.current))) continue;
+        if (declaration.context !== undefined && !facts.contexts.has(declaration.context)) continue;
         const enabled = facts.isEnabled(command.id);
         shown.push({section: declaration.section, order: declaration.order ?? 0, entry: {
             id,

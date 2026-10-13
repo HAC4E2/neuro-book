@@ -803,3 +803,45 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.getByRole("menu")).toHaveCount(0);
     });
 });
+test.describe("产品页：别的插件给视图贡献的标题动作（docs/specs/workbench/views.md 输出 10、11，验收 8）", () => {
+    let tmp = "";
+    let server: ProbeServer;
+
+    test.beforeAll(async () => {
+        tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-view-title");
+        await mkdir(join(tmp, "state"), {recursive: true});
+        // `test.menus` 往样例视图丙贡献按钮与“⋯”里的项；菜单项 id 归它，视图 id 归 `test.sample-views`。
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views,test.menus", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor"}});
+    });
+
+    test.afterAll(async () => {
+        expect(await server.stop()).toBe(0);
+        if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+    });
+
+    test.use({viewport: {width: 1440, height: 900}});
+
+    test("视图自己的按钮在前、贡献的在后；“⋯”里自己的 menu 动作在前、分隔线后是贡献的；贡献项执行时收到固定参数或这个视图实例", async ({page}) => {
+        await page.goto(new URL("/workbench", server.url).href);
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await page.locator(`[data-activity-container="view:${C}"]`).click();
+        await expect(sample(page, C)).toBeVisible();
+        const sidebar = page.locator('[data-tool-part="sidebar"]');
+        // 丙自己的动作收进了“⋯”，所以标题行里的按钮只有贡献的那一个，后面是“⋯”与“移动到”。
+        await expect(sidebar.locator("[data-view-action-key]")).toHaveCount(1);
+        const button = sidebar.locator('[data-view-action-key="test.menus.view-button"]');
+        await expect(button).toHaveAttribute("aria-label", "测试按钮");
+        const order = await sidebar.locator("[data-view-action-key], [data-view-actions-more], [data-move-view]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-view-action-key") ?? (node.hasAttribute("data-view-actions-more") ? "more" : "move")));
+        expect(order).toEqual(["test.menus.view-button", "more", "move"]);
+
+        await sidebar.locator("[data-view-actions-more]").click();
+        const menu = page.getByRole("menu");
+        await expect(menu).toBeVisible();
+        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["样例的菜单动作", "---", "测试菜单项"]);
+        await menu.getByRole("menuitem", {name: "测试菜单项"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({viewId: C, generation: Number(await sample(page, C).getAttribute("data-generation"))})}`)).toBeVisible();
+
+        await button.click();
+        await expect(page.getByText(`收到 ${JSON.stringify({from: "view-button"})}`)).toBeVisible();
+    });
+});

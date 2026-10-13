@@ -52,6 +52,7 @@ function facts(commands: ReturnType<typeof registry>["commands"], overrides: Par
         locale: "zh-CN",
         platform: "other",
         current: null,
+        contexts: new Set(),
         ...overrides,
     };
 }
@@ -80,7 +81,7 @@ describe("显示与排序（输出 1、4）", () => {
         expect(ids(arrangeMenu(items, facts(commands, {isOn: () => true})))).toEqual([["t.a"]]);
     });
 
-    it("要当前文件的项（extensions 或 context）在没有当前文件时不显示；后缀不匹配时不显示", () => {
+    it("带 extensions 的项要有当前文件且后缀匹配；带 context 的项要位置此刻给得出这个参数", () => {
         const {commands} = registry(["a", "b", "c"]);
         const items = [
             item("t.md", {command: cmd("a"), extensions: [".md"]}),
@@ -88,8 +89,11 @@ describe("显示与排序（输出 1、4）", () => {
             item("t.plain", {command: cmd("c")}),
         ];
         expect(ids(arrangeMenu(items, facts(commands)))).toEqual([["t.plain"]]);
-        expect(ids(arrangeMenu(items, facts(commands, {current: ["notes.txt"]})))).toEqual([["t.ctx", "t.plain"]]);
-        expect(ids(arrangeMenu(items, facts(commands, {current: ["第一章.md"]})))).toEqual([["t.ctx", "t.md", "t.plain"]]);
+        const withFile = (current: ReadonlyArray<string>) => facts(commands, {current, contexts: new Set(["resource"])});
+        expect(ids(arrangeMenu(items, withFile(["notes.txt"])))).toEqual([["t.ctx", "t.plain"]]);
+        expect(ids(arrangeMenu(items, withFile(["第一章.md"])))).toEqual([["t.ctx", "t.md", "t.plain"]]);
+        // 有当前文件但位置此刻给不出这个参数名：带 context 的项不显示。
+        expect(ids(arrangeMenu(items, facts(commands, {current: ["第一章.md"]})))).toEqual([["t.md", "t.plain"]]);
     });
 });
 

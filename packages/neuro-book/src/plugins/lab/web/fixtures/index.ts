@@ -426,23 +426,28 @@ export const labFixtures: LabFixture[] = [
         component: "WorkbenchViewActions",
         events: ["run"],
         scenes: (() => {
-            const entry = (command: string, icon: string, title: string, extra: {disabledReason?: string; pressed?: boolean} = {}) => ({
-                action: {command, icon, title: {"zh-CN": title, "en-US": title}},
-                title,
+            const entry = (key: string, command: string, icon: string | null, title: string, extra: {disabledReason?: string; pressed?: boolean} = {}) => ({
+                key, command, icon, title,
                 disabledReason: extra.disabledReason ?? null,
                 ...(extra.pressed === undefined ? {} : {pressed: extra.pressed}),
             });
-            const actions = (manifests: boolean, canCreate: boolean) => [
-                entry("nbook.files.new-file", "i-lucide-file-plus", "新建文件", canCreate ? {} : {disabledReason: "没有可以新建的位置"}),
-                entry("nbook.files.new-folder", "i-lucide-folder-plus", "新建文件夹", canCreate ? {} : {disabledReason: "没有可以新建的位置"}),
-                entry("nbook.view.refresh-files", "i-lucide-refresh-cw", "刷新"),
-                entry("nbook.files.collapse-all", "i-lucide-copy-minus", "全部收起"),
-                entry("nbook.files.toggle-manifests", "i-lucide-file-code", "显示清单文件", {pressed: manifests}),
+            const buttons = (manifests: boolean, canCreate: boolean) => [
+                entry("own:0", "nbook.files.new-file", "i-lucide-file-plus", "新建文件", canCreate ? {} : {disabledReason: "没有可以新建的位置"}),
+                entry("own:1", "nbook.files.new-folder", "i-lucide-folder-plus", "新建文件夹", canCreate ? {} : {disabledReason: "没有可以新建的位置"}),
+                entry("own:2", "nbook.view.refresh-files", "i-lucide-refresh-cw", "刷新"),
+                entry("own:3", "nbook.files.collapse-all", "i-lucide-copy-minus", "全部收起"),
+                entry("own:4", "nbook.files.toggle-manifests", "i-lucide-file-code", "显示清单文件", {pressed: manifests}),
+            ];
+            const base = {identity: "nbook.files|view:nbook.files|single|published|1", moreLabel: "更多操作"};
+            const menu = [
+                [entry("own:5", "nbook.files.toggle-hidden", null, "显示隐藏文件", {pressed: true}), entry("own:6", "nbook.files.reveal-in-system", "i-lucide-folder-open", "在系统中显示")],
+                [entry("acme.export.selection", "acme.export.selection", "i-lucide-download", "导出选中的章节", {disabledReason: "没有选中的章节"})],
             ];
             return [
-                {id: "default", label: "资源管理器的五个动作", input: {props: {actions: actions(false, true)}}},
-                {id: "pressed", label: "开关按下", input: {props: {actions: actions(true, true)}}},
-                {id: "disabled", label: "不可用：禁用并给出原因", input: {props: {actions: actions(false, false)}}},
+                {id: "default", label: "资源管理器的五个动作", input: {props: {...base, model: {buttons: buttons(false, true), menu: []}}}},
+                {id: "pressed", label: "开关按下", input: {props: {...base, model: {buttons: buttons(true, true), menu: []}}}},
+                {id: "disabled", label: "不可用：禁用并给出原因", input: {props: {...base, model: {buttons: buttons(false, false), menu: []}}}},
+                {id: "more", label: "“⋯”：自己的菜单动作与别的插件贡献的（分节、勾选、禁用带原因）", input: {props: {...base, model: {buttons: buttons(false, true), menu}}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchViewActions.vue"),
