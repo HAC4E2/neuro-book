@@ -902,6 +902,11 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：容器查询只作用于容器的后代，元素不能既设 `container-type`，又当自己那条 `@container` 规则的目标。
 判据：容器和要换布局的元素分两层，外层设 `container-type`，网格放在里面一层。
 
+**56. 比浏览器基线新的 CSS 值写法会让整条声明作废**
+现象：编辑区标签的加粗副本写成 `content: attr(data-label) / ""`。审查按兼容数据指出 Firefox 124 不认带替代文本的写法，副本会消失，切换活动标签时其它标签跟着跳（本机没有 Firefox，未复现）。
+根因：浏览器不认一条声明里的值语法时，丢掉的是整条声明，不是只丢不认的那一段。
+判据：用比浏览器基线（`docs/specs/runtime/browser-host.md` 的输入与前置条件）新的写法（例如带替代文本的 `content`）时，先写一条基线浏览器能认的声明兜底，再写新写法覆盖。伪元素副本已经 `visibility: hidden` 时不进可访问名称，不需要替代文本。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
@@ -1142,6 +1147,11 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 现象：Lab 按主题焦点环的扩散量判裁切，四套主题一律读成默认的 3.5px；修的时候又把纯黑的环当成了透明。
 根因：`getPropertyValue("--focus-ring")` 只替换 `var()`，给出 `0 0 0 4px color-mix(…, transparent)` 这样的原文；只按带 px 的长度、按出现 `transparent` 字样去解析，全部落空。`rgb(0, 0, 0)` 末尾的 0 是蓝色，不是透明度。
 判据：`getPropertyValue('--x')` 读到的是自定义属性的原文（只替换 `var()`，无单位的 0、`color-mix(…)` 都原样保留），只有 `box-shadow` 这类标准属性的计算值才会规范化；按原文语法解析，或者去读一个用了它的标准属性。透明度只写在斜杠后面或 `rgba` 的第四个参数里，`rgb(0, 0, 0)` 末尾的 0 是蓝色。
+
+**57. 测第一帧外观时，`DOMContentLoaded` 和节点插入那一刻都不对**
+现象：e2e 验加载页第一帧的颜色，在 `DOMContentLoaded` 时读，或者在加载页节点刚插入时读，读到的是透明或 `none`（实测）。
+根因：`DOMContentLoaded` 在模块脚本执行之后才触发，那时页面可能已经换过样子，不代表第一帧；节点刚插入时样式表可能还没生效，更早的帧里 body 也可能还没解析到。
+判据：在 `requestAnimationFrame` 循环里采样，取第一个画出该元素的帧。
 ---
 
 ## 九、给 UI agent 的检查表
