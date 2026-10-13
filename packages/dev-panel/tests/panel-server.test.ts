@@ -354,7 +354,9 @@ describe("面板服务的启动与搜索", () => {
         const panelFile = join(fixture.main, ".local/agent/panel.json");
         while (!(await Bun.file(panelFile).exists())) await Bun.sleep(20);
         const opened = await fixture.cli(["panel", "open", "--print", "--json"]);
+        expect([opened.exitCode, opened.stderr]).toEqual([0, ""]);
         const login = await fetch((opened.json?.data as {loginUrl: string}).loginUrl, {redirect: "manual"});
+        expect(login.status).toBe(302);
         const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
         const base = (await Bun.file(panelFile).json() as {url: string}).url;
         while ((await fetch(`${base}/api/overview`, {headers: {Cookie: cookie}})).status === 503) await Bun.sleep(50);
