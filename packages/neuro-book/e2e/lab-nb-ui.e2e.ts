@@ -218,3 +218,62 @@ test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选�
     await expect(menu).toBeHidden();
     await expect.poll(() => recordedEvents(page)).toContain("copy-path");
 });
+
+test("内嵌焦点线：键盘聚焦 Tabs 的标签与 Accordion 的标题行时只画一圈 1.5px 的内阴影，没有外扩的光环（t78）", async ({page}) => {
+    // 计算样式里的 box-shadow 按层拆开（颜色函数里的逗号不算）。
+    const focusedShadow = () => page.evaluate(() => getComputedStyle(document.activeElement!).boxShadow.split(/,(?![^(]*\))/u).map((layer) => layer.trim()));
+    await openScene(page, "c=Tabs&s=default");
+    await stage(page).getByRole("tab", {selected: true}).focus();
+    // 方向键换标签：焦点随之移动，是键盘带来的焦点（:focus-visible）。
+    await page.keyboard.press("ArrowRight");
+    await expect(stage(page).getByRole("tab", {selected: true})).toBeFocused();
+    await expect.poll(focusedShadow).toEqual([expect.stringMatching(/0px 0px 0px 1\.5px inset$/u)]);
+
+    await openScene(page, "c=Accordion&s=single");
+    await stage(page).getByRole("button", {name: /第一卷/u}).focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(stage(page).getByRole("button", {name: /第二卷/u})).toBeFocused();
+    await expect.poll(focusedShadow).toEqual([expect.stringMatching(/0px 0px 0px 1\.5px inset$/u)]);
+});
+
+test("折叠内容只在高度动画进行中裁切：展开与收起时打上 data-animating、结束后去掉，展开后不裁；快速开合与减少动态时不残留（t78）", async ({page}) => {
+    // 记下舞台里 data-animating 的每一次变化：内容的开合状态与有没有这个属性。
+    const record = () => page.evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as {__animating: string[]}).__animating = log;
+        new MutationObserver((records) => {
+            for (const changed of records) {
+                const target = changed.target as Element;
+                log.push(`${target.getAttribute("data-state") ?? ""}:${target.hasAttribute("data-animating") ? "on" : "off"}`);
+            }
+        }).observe(document.querySelector("[data-lab-stage]")!, {subtree: true, attributes: true, attributeFilter: ["data-animating"]});
+    });
+    const log = () => page.evaluate(() => (window as unknown as {__animating: string[]}).__animating);
+    const settled = async (): Promise<void> => {
+        await expect.poll(() => stage(page).locator("[data-animating]").count()).toBe(0);
+    };
+    const openOverflow = () => stage(page).locator(".nb-accordion-content[data-state=\"open\"]").evaluate((content) => getComputedStyle(content).overflow);
+
+    await openScene(page, "c=Accordion&s=single");
+    await record();
+    await stage(page).getByRole("button", {name: /第二卷/u}).click();
+    await expect.poll(log).toEqual(expect.arrayContaining(["open:on", "open:off", "closed:on", "closed:off"]));
+    await settled();
+    expect(await openOverflow()).toBe("visible");
+
+    // 快速开合：收起的动画被重新展开打断（animationcancel），等重新展开的动画开始再等它结束，同样不留标记。
+    const second = stage(page).getByRole("button", {name: /第二卷/u});
+    const before = (await log()).length;
+    await second.click();
+    await second.click();
+    await expect.poll(async () => (await log()).slice(before)).toContain("open:on");
+    await settled();
+    expect(await openOverflow()).toBe("visible");
+
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await openScene(page, "c=Accordion&s=single");
+    await stage(page).getByRole("button", {name: /第二卷/u}).click();
+    await expect(stage(page).locator(".nb-accordion-content[data-state=\"open\"]")).toContainText("北上的渡口");
+    await settled();
+    expect(await openOverflow()).toBe("visible");
+});

@@ -64,12 +64,14 @@ test("标题栏 36px、状态栏 22px；菜单只有命令目录里有的项，�
     await open(page);
     expect((await titlebar(page).boundingBox())?.height).toBe(36);
     expect((await page.locator("[data-workbench-status-bar]").boundingBox())?.height).toBe(22);
-    await expect(titlebar(page)).toHaveAttribute("data-titlebar-mode", "full");
+    await expect(titlebar(page)).toHaveAttribute("data-titlebar-level", "0");
 
     const labels: string[] = [];
     for (const group of ["文件", "编辑", "视图", "帮助"]) {
         await titlebar(page).getByRole("menuitem", {name: group}).click();
         await expect(openMenu(page)).toBeVisible();
+        // 玻璃浮层要真的有模糊：构建的 CSS 压缩曾把标准写法删掉、只留 -webkit-，Chrome 里菜单是透明的
+        expect(await openMenu(page).evaluate((menu) => getComputedStyle(menu).backdropFilter)).not.toBe("none");
         labels.push(...(await openMenu(page).locator('[role^="menuitem"]').allTextContents()).map((text) => text.trim()));
         await page.keyboard.press("Escape");
         await expect(openMenu(page)).toHaveCount(0);
@@ -129,29 +131,70 @@ test("从“编辑”菜单撤销：点击与 F10 加方向键两条路径都让
     await expect(titlebar(page).locator("[data-titlebar-search]")).toBeFocused();
 });
 
-test("宽度三档：959/960 与 599/600 两侧、390；任何宽度都有可点的菜单入口，长项目名下关键按钮完整可见", async ({page}) => {
+test("逐级让位：从 1440 收到 390 依次收起横排标志、菜单栏、快捷键提示、布局按钮、项目名；任何宽度都有可点的菜单入口，关键按钮完整可见；放宽要多 40px", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
-    // 三档按标题栏自己的宽度算；窗口比它宽出的部分（外壳的边距）加回去，才能让标题栏正好落在边界上。
-    const offset = 1440 - (await titlebar(page).boundingBox())!.width;
-    for (const [titleWidth, mode] of [[960, "full"], [959, "compact"], [600, "compact"], [599, "minimal"], [390, "minimal"]] as const) {
-        const width = Math.round(titleWidth + offset);
+    // 测量层里的复本不算
+    const live = (selector: string) => titlebar(page).locator(`${selector}:not(.workbench-titlebar__measure *)`);
+    const levelAt = async () => Number(await titlebar(page).getAttribute("data-titlebar-level"));
+    const firstWidth: Record<number, number> = {};
+    let previous = 0;
+    for (let width = 1440; width >= 390; width -= 10) {
         await page.setViewportSize({width, height: 700});
-        expect((await titlebar(page).boundingBox())!.width).toBe(titleWidth);
-        await expect(titlebar(page)).toHaveAttribute("data-titlebar-mode", mode);
-        const entry = mode === "full" ? titlebar(page).getByRole("menuitem", {name: "文件"}) : titlebar(page).locator("button[data-titlebar-menu-entry]");
-        for (const target of [entry, titlebar(page).locator("[data-titlebar-search]"), titlebar(page).locator("[data-titlebar-project]")]) {
+        await expect.poll(async () => (await titlebar(page).boundingBox())!.width).toBeLessThanOrEqual(width);
+        const level = await levelAt();
+        expect(level, `${String(width)} 档位只增不减`).toBeGreaterThanOrEqual(previous);
+        previous = level;
+        firstWidth[level] ??= width;
+        // 每一档的样子
+        await expect(live(".workbench-titlebar__brand")).toHaveCount(level < 1 ? 1 : 0);
+        await expect(live(".workbench-titlebar__mark")).toHaveCount(level < 1 ? 0 : 1);
+        await expect(live("[data-titlebar-search] kbd")).toHaveCount(level < 3 ? 1 : 0);
+        await expect(live("[data-titlebar-layout]")).toHaveCount(level < 4 ? 3 : 0);
+        await expect(live(".workbench-titlebar__project-name")).toHaveCount(level < 5 ? 1 : 0);
+        const entry = level < 2 ? titlebar(page).getByRole("menuitem", {name: "文件"}) : live("button[data-titlebar-menu-entry]");
+        for (const target of [entry, live("[data-titlebar-search]"), live("[data-titlebar-project]")]) {
             const box = await target.boundingBox();
             expect(box, `${String(width)} ${await target.textContent()}`).not.toBeNull();
             expect(box!.x).toBeGreaterThanOrEqual(0);
             expect(box!.x + box!.width).toBeLessThanOrEqual(width);
         }
+        expect((await live("[data-titlebar-search]").boundingBox())!.width, `${String(width)} 搜索最窄 120`).toBeGreaterThanOrEqual(119.5);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-        await entry.click();
-        await expect(openMenu(page)).toBeVisible();
-        await page.keyboard.press("Escape");
-        await expect(openMenu(page)).toHaveCount(0);
     }
+    expect(Object.keys(firstWidth).map(Number).sort()).toEqual([0, 1, 2, 3, 4, 5]);
+
+    // 收成 ≡ 后（M1）：一组一行；键盘与指针都能进子菜单执行命令
+    await page.setViewportSize({width: firstWidth[2]!, height: 700});
+    await expect.poll(levelAt).toBe(2);
+    // 侧栏隐藏时它的叶不在了：直接在页面里读，不等元素出现
+    const sidebarShown = () => page.evaluate(() => (document.querySelector('[data-leaf="sidebar"]')?.getBoundingClientRect().width ?? 0) > 0);
+    expect(await sidebarShown()).toBe(true);
+    await live("button[data-titlebar-menu-entry]").focus();
+    await page.keyboard.press("Enter");
+    const rows = openMenu(page).getByRole("menuitem");
+    await expect(rows).toHaveText(["文件", "编辑", "视图", "帮助"]);
+    await rows.nth(2).focus();
+    await page.keyboard.press("ArrowRight");
+    const toggleSidebar = page.getByRole("menuitemcheckbox", {name: "侧栏"});
+    await expect(page.getByRole("menuitem", {name: "命令面板"})).toBeFocused();
+    for (let step = 0; step < 6 && !(await toggleSidebar.evaluate((element) => element === document.activeElement)); step += 1) await page.keyboard.press("ArrowDown");
+    await expect(toggleSidebar).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect.poll(sidebarShown).toBe(false);
+    await expect(openMenu(page)).toHaveCount(0);
+    // 指针：悬停展开子菜单，点子项
+    await live("button[data-titlebar-menu-entry]").click();
+    await openMenu(page).getByRole("menuitem", {name: "视图"}).hover();
+    await page.getByRole("menuitemcheckbox", {name: "侧栏"}).click();
+    await expect.poll(sidebarShown).toBe(true);
+    await expect(openMenu(page)).toHaveCount(0);
+
+    // 回差：从刚收起菜单栏的宽度往回放宽，不到 40px 不放，够了才放
+    await page.setViewportSize({width: firstWidth[2]! + 30, height: 700});
+    await expect.poll(levelAt).toBe(2);
+    await page.setViewportSize({width: firstWidth[2]! + 60, height: 700});
+    await expect.poll(levelAt).toBeLessThan(2);
 });
 
 test("侧栏按钮、视图菜单的勾选与命令面板的“切换区域显隐”一致；命令面板省略参数时先选区域，取消不改", async ({page}) => {

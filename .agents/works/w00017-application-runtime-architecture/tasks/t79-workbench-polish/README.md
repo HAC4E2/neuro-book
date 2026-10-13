@@ -1,6 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t79-workbench-polish
+status: done
 ---
 
 # 工作台打磨：打开项目之后的那一页
@@ -74,6 +75,89 @@ taskId: t79-workbench-polish
     - 变异 18 处全部被抓到：store 8 处（空着只看容器、只看声明、不看主动显示、空右栏不隐藏、空面板不隐藏、显示不记、隐藏不撤、所有区域都记），外观 10 处（活动栏外框、工具区标题行底线、外壳底色、根预留滚动条、标签条底线、不预留加粗宽度、活动标签不加粗、标签条末尾不留余量、两条容器标签带的底边线）。
     - `lab:shot` 外壳、活动栏、面板框架、视图分节、标签栏在 nbook、macos × 明暗 × 1280 下问题 0 条；Lab 门禁通过。[平铺对照](evidences/s2-flat.png)（开发会话的雾港，nbook、macos × 明暗，以及显示右栏与面板后）：可见的线只有标题栏底线、侧栏与编辑区的接缝、状态栏顶线，右缘贴边。编辑区的灰底归 S3。
 
+- 2026-10-12 S3（纸面、一句话空态、光标恢复、最近打开）完成：
+  - 纸面：编辑区、编辑组与标签条改用面板底色；Markdown 控件的版心、留白、字号、行距、段距做成控件根上的变量，取开发者选定的 B 稿数值（720px 含左右各 48px、上 64px 下 120px、17px、1.95、1.1em）。空态改为内容区正中一行淡色的“在左边的资源管理器里打开一个文件”。
+  - 光标：组模型的标签加可选的 `cursor`（Markdown 记 `{offset}`，源码记 `{line, column}`，写法与编辑器对不上的不记、不恢复；换编辑器丢掉，拆分带过去），会话记录的 schema 加可选字段、版本不变。视图绑定带上标签记下的光标与 `remember`；两个控件在第一次为文档建视图状态时放回光标并滚到它，光标停下 1 秒、失焦、换文档时交出。Markdown 按文档大小夹到末尾；Monaco 的 `setPosition` 自己按模型校正（写了显式夹取后变异存活，删掉了）。恢复会话时复用继续写作的等待与取消，活动标签就绪后只聚焦；读取失败不另提示。
+  - 最近打开：新记录 `editor.recent`（project/local，至多 10 个，最近在前），编辑器区的 `open` 交出地址，会话里建 store；欢迎页（S5）从会话取。
+  - Spec：`workbench/editor.md` 新增输出 30–32、验收 17–19，数据一节记 `cursor` 与 `editor.recent`；组件文档 `MarkdownControl`、`MonacoControl`、`EditorGroup`、`EditorArea`。计划里“记录版本加一”改为版本不变（加一会让 Storage 把旧记录判为不支持的版本、整个会话丢掉）。
+  - 验证：
+    - 编辑器 bun 测试 93 例全过（`area.test.ts` 新增“上次的光标与最近打开”四例，`groups.test.ts` 加快照往返一例，新增 `recent.test.ts` 两例在真实 Storage 场地上）；相关 vitest 81 例全过，typecheck 为 0。
+    - e2e：`editor-area` 新增“纸面与空态”“重新打开回到上次的光标”两例（源码文件光标第 2 行第 4 列、Markdown 光标在正文中间、另一个 Markdown 光标在末尾，外部把两个不活动的文件改短后刷新：直接输入落在 Markdown 原来的光标处，源码光标夹到第 1 行行尾，改短的 Markdown 打开无页面错误；`editor.recent` 按打开先后排好）。`bookshelf-stats` 原来用“刷新后正文没有焦点”代表“不再按继续写作定位”，恢复会话后会聚焦，改成刷新前把光标挪到开头、刷新后输入落在开头；同一例里紧跟中文输入后的第一个 Ctrl+Home 被吞（光标留在末尾，0.5 秒后再按就动了，dev 会话里手动不复现），改为先等标签变成未保存再按，原因没有查明。`settings` 的空态文字随之改。
+    - e2e 全套 166 例：165 过；`workbench-titlebar` 的“从编辑菜单撤销”一例在全套里失败一次（F10、右、回车后“撤销”项没拿到焦点），单独跑 3 次、`--repeat-each 8` 全过，判为负载下的偶发，没有查明。
+    - 变异 24 处：store 与模型 14 处全部被抓到；控件与样式 10 处有 9 处被抓到，存活的是 Monaco 的显式夹取，已删掉。
+    - `lab:shot` 编辑器区在 nbook、macos × 明暗下问题 0 条（默认 300ms 截图时正文还没读到，等 2.5 秒后纸面正常）。[空态与纸面](evidences/s3-paper.png)。
+
+- 2026-10-12 t78 的 omp 实现审查处理完（见 t78），与本 Task 的切片分开提交。
+- 2026-10-12 S4（视图标题动作、根是书名、行的样子与展开动画、打开作品时揭示活动文件）完成：
+  - 视图标题动作：`ViewDeclaration` 加可选 `actions`（命令、图标、标题、`args: "instance"`、`toggled`），声明类型改为深只读（布局 store 的目录本来就是深只读，数组字段让两边对不上）。外壳的 `chrome` 加 `viewActions`（可用与原因看命令自己的 `when`，按下态读 `toggled` 的公开键）与 `runViewAction`（instance 动作带上实例层的代际）；新组件 `WorkbenchViewActions` 画 24px 按钮，single 的侧栏与右栏在容器标题行、面板在标签带旁、multiple 在视图标题行，都在“移动到”之前；Lab 登记三个场景。资源管理器的五个按钮改为声明的动作，删掉视图里的工具栏，新增公开键 `nbook.explorer/showManifests` 作按下态。
+  - 根是书名：窗口的作品信息（S1 的 `project.title`）经视图宿主、视图、树传到行，项目根显示书名；没有绑定项目时仍是“项目”。
+  - 行的样子：行左右各离边 6px，圆角块的悬停与选中底色；焦点行的线改为只在树是键盘带来的焦点时画 1.5px 内嵌线（原来鼠标点行也画 1px，就是终稿上数到的“选中行描边”）。展开收起：树在展开集合变化后的一个 `--motion-base` 里打 `data-expanding`，`TransitionGroup` 只在这时让新行滑下淡入、离开的行反向、其余行的 `top` 过渡；滚动带来的进出不动画，减少动画时不打标记。
+  - 揭示：控制器加 `reveal`（展开各级祖先，行出现后选中并给焦点行，用户先选了别的行则作废）；编辑器新增公开键 `ready` 与 `activeDocument`；资源管理器在控制器与编辑器区都建好后等一个微任务（继续写作在同一刻打开它的文件）读活动标签，揭示一次。计划里“保留现有的手动揭示命令”不成立：没有这条命令，本 Task 不新增。
+  - Spec：`workbench/views.md` 输出 10、验收 7，非目标里去掉“标题动作”；`workbench/files-explorer.md` 的“标题动作”“行的样子”“打开作品时揭示活动文件”三段与验收 17–19，根的标题，“工具栏”的说法改为标题动作；`workbench/editor.md` 两个公开键；`workbench/commands.md` 的 `refresh-files` 触发面。组件文档 `FilesExplorerView`、`ExplorerTree`、`ExplorerRow`、`WorkbenchShell`、`WorkbenchViewActions`。
+  - 验证：
+    - bun 测试 379 例（新增 `workbench/view-actions.test.ts` 在真实内核的命令系统与公开状态上测可用、原因、按下态与 instance 参数，`browse.test.ts` 加“揭示一个地址”）、vitest 165 例全过，typecheck 为 0。这个内核测试起初放在 `web/titlebar/` 下，被浏览器测试的 tsconfig 收进去、带进了后端的 `proper-lockfile`（类型声明只在 node 配置里），挪到插件根目录。
+    - e2e 全套 171 例全过。新增：`files-explorer` 的“项目根是作品名、标题行五个动作、展开动画与焦点线、减少动态”一例，`editor-area` 的“打开作品时揭示一次”一例；原来点 `[data-explorer-tool]` 的改点 `[data-view-action]`。`files-explorer` 的拖动一例按顺序跑时稳定失败：展开目录后立即量行的位置再按下，行还在滑动，按下时指针下面换成了上一行（实际拖走的是 `keep`）；用户按的是看得见的位置，产品的命中按 `elementsFromPoint` 没问题，测试的 `dragOver` 改为先等 `data-expanding` 撤掉。
+    - 变异 12 处全部被抓到（动作不看命令可用、按下态总为假、instance 不带实例、揭示不展开祖先、不等行出现、右键选中不作废揭示、打开作品不揭示、根不用作品名、焦点线不看 focus-visible、展开不打标记、外壳不画动作、清单开关不带按下态）。
+    - `lab:shot` `WorkbenchViewActions`、`ExplorerRow`、`ExplorerTree`、`FilesExplorerView` 在 nbook、macos × 明暗下问题 0 条；[揭示与标题动作](evidences/s4-explorer.png)（开发会话，收起“正文”后刷新：展开到第二章并选中）。
+
+- 2026-10-12 S5（欢迎页）完成：
+  - 页面标签：编辑器新增贡献点 `editor.pages`（声明标题、图标、`openOnFirstVisit`，实现交出组件）与命令 `nbook.editor.open-page`。页面标签的地址是 `page://<id>`，窗口里只开一个，切过去时连同它所在的组；它没有文档：不读盘、不算 dirty、没有光标，不能拆分、不能换编辑器，`nbook.editor.open` 不接受这类地址。会话快照只收文件标签，活动的是页面时记它左边最近的文件标签；公开键 `activeDocument` 为空串。“第一次打开”看会话记录读到“不存在”，带继续写作参数时不开。
+  - 欢迎页由 `nbook.projects` 贡献：宿主（`web/welcome.ts`）每次挂上时取书架条目（简介与统计）和项目根的列出（快捷入口），新建章节在项目根按 `新章节.md`、`新章节 2.md`……避开已有名字建空文件再以正式标签打开，快捷入口的文件经 `nbook.editor.open`、文件夹经新命令 `nbook.files.reveal {expand: true}`，回到书架整页导航；组件 `WelcomePage` 是受控零件，命令面板的快捷键按平台写成按键。帮助菜单加“欢迎”（`nbook.help.welcome`；起初叫 `nbook.projects.welcome`，被内置命令的 domain 清单拒绝）。对文件服务的依赖可选：项目插件的测试装配没有文件插件，必需依赖会让它激活失败。
+  - Spec：`workbench/editor.md` 输出 33、验收 20、`editor.pages` 输入与数据一节；`workbench/bookshelf.md` 新增“欢迎页”输出 18–20、验收 10–12；`workbench/commands.md`（`nbook.help.welcome`、`nbook.files.reveal`、`open-page`）、`workbench/files-explorer.md` 揭示命令、`ui/workbench-shell.md` 帮助菜单。组件文档 `WelcomePage`（新）、`EditorGroup`、`EditorArea`。计划第 6 节补了实施中的修订。
+  - 验证：
+    - bun 测试 777 例过、1 例失败：`settings/commands.test.ts` 的“项目层覆盖着主题时……”报工作台 `provider-blocked`，在 S1 之前的提交（`3800c43f~1`）的临时 worktree 里同样失败，不是本 Task 引入的，没有处理。vitest 168 例全过，typecheck 为 0。新增 `welcome.test.ts`（快捷入口的筛选与次序、新章节的名字）、`WelcomePage.dom.test.ts` 三例、`area.test.ts` 的“页面标签”、`groups.test.ts` 的“页面标签不进快照”，`projects.test.ts` 断言帮助命令登记成功。
+    - e2e：新增 `welcome.e2e.ts` 三例（验收 10–12）；全套 174 例全过。
+    - 变异：单元 12 处全部被抓到；e2e 5 处抓到 4 处，存活的是“活动页面时 `activeDocument` 仍报页面地址”（e2e 里没有读它的地方），补了 `area.test.ts` 的断言后被抓到。
+    - `lab:shot` `WelcomePage` 五个场景（作品、新作品、新建失败、没有绑定项目、英文）问题 0 条。[欢迎页](evidences/s5-welcome.png)（开发会话的雾港新客户端，与 Lab 的新作品场景）。
+
+- 2026-10-12 S6 进行中：收口截图 [nbook](evidences/s6-final-nbook.png)、[macos](evidences/s6-final-macos.png)（开发会话，每个主题与明暗一个新客户端：第一次打开雾港是欢迎页；打开第二章、关掉欢迎页后刷新回到第二章并在资源管理器里选中；关掉全部标签是一句话空态；空作品是欢迎页；无页面错误）。omp 实现审查在跑。
+- 2026-10-12 开发者手动审查，提出的意见与处理：
+  - 开发者选：
+    13. 外壳改回卡片分隔（改判第 8、11 条的平铺与“只留三条线”）：线条太细、边界模糊，要旧应用那种卡片。卡片还是平铺只由主题决定：外壳读主题变量（部件间的缝、部件圆角、外框与阴影），nbook 用卡片，不加设置项。
+    14. 空态加一个灰色的标志与几条快捷键提示，像 VS Code（改判第 10 条的“只有一句提示”）。
+    15. 加载页跟随产品的明暗（改判计划里“加载页在应用起来前按系统明暗取底色”）：开发者系统是深色、产品是浅色，进入工作台时加载页是暗的。
+    16. 菜单浮层与菜单按钮不搭（浮层圆角 12px、磨砂与较大的阴影，按钮圆角约 4.5px）：在 t79 里调。
+    17. 标题栏加标志、调整项目切换的位置（开发者稍后补充）。
+  - 第五到第十轮静态稿（真实工作台上注入候选样式）与开发者的选择：
+    - [卡片、空态、菜单](evidences/draft5-cards.png)（另见 [空态](evidences/draft5-empty.png)、[菜单](evidences/draft5-menu.png)）：空态选 E1（灰色标志与三条提示），菜单选 M1（圆角 8px、投影收小、仍磨砂）；卡片在当时的冷灰底下倾向 K1，认为灰底配色有问题。
+    - [底色](evidences/draft6-ground.png)、[配色](evidences/draft7-palette.png)：选 K2（标题栏与状态栏落在窗体底上，卡片不带外框），活动栏与侧栏合成一张卡、中间画一条两端不碰顶底的短线，缝 4px；配色 P1（卡片不变，窗体底改暖灰 `#ece8df`，深色 `#201d1a`）。
+    - [控件色](evidences/draft8-warm.png)：配色表里偏冷的控件色一并调暖（nbook 不再“冷暖分家”）。
+    - [标题栏](evidences/draft9-titlebar.png)、[横排标志](evidences/draft10-lockup.png)：用带 NeuroBook 字样的横排标志（墨色），之后是项目切换，菜单在项目后。
+  - 另开 Task：面板拖动手势归 [t82](../t82-panel-gestures/README.md)；视图与容器拖放的落点指示与动画、标题栏宽度自适应与多级菜单对照旧应用，归 [t83](../t83-legacy-parity-dnd-titlebar/README.md)。这几条都不是 t79 改出来的。
+  - 实现计划见 [plan.md](plan.md) 的“第二轮”。
+- 2026-10-12 S6（加载页跟随产品明暗）完成：
+  - 宿主的前端入口观察文档根上的主题（明暗、主题包与配色的内联变量），每次变了把明暗与面板底色、正文色、淡色、强调色（借一个元素算成 rgb）记进本地存储 `nbook.host-appearance`；两份 `index.html` 头部同一段内联脚本在第一帧前读回，写到根上的 `data-host-appearance`、`color-scheme` 与 `--host-loading-*`，`host-loading.css` 先取这些变量，没有时仍按系统明暗。写放在宿主而不是工作台插件：前端规范不许组件直接读写本地存储。Lab 也写文档根，在 Lab 里切过明暗，下次加载页取的是 Lab 最后的明暗（接受）。
+  - Spec：`runtime/browser-host.md` 启动序列第 1 步、新增场景 13、实现合同与合同测试。
+  - 验证：`appearance-hint.dom.test.ts` 四例（两份内联脚本一字不差；宿主写下的提示由内联脚本读回；还没写主题不记、存储不可用只说一次；坏记录与坏颜色不认）；`browser-host.e2e.ts` 新增场景 13（系统与产品明暗相反的两个方向：第一次按系统，刷新后第一帧是产品的底色），连同 `projects.e2e.ts` 共 13 例全过；typecheck 为 0。变异 6 处：起初存活 1 处（浅色系统下的样式不读提示，用例只测了系统深色一个方向），补上反方向后全部被抓到。
+- 2026-10-12 S7（nbook 暖色与菜单浮层）完成：
+  - nbook 配色表里原来的冷灰换成暖色：浅色窗体底 `#ece8df`、侧栏底 `#f4f0e8`、悬停 `#e7e2d8`、边框 `#ddd7cc`／`#c3bcb0`、阴影基色 `#3b342b`；深色窗体底 `#201d1a`、侧栏底 `#272420`、悬停 `#3a3530`、边框 `#3e3933`／`#504a43`；`--bg-subtle`、`--border-accent`、`--shadow-panel`、`--overlay-bg`、深色 `--text-inverse` 同步。纸（`--bg-panel`）不变，“纸比桌亮”等三条不变量仍成立。配色文件开头与角色映射的说明改写（器械与纸同一色相、靠明度分层）；`design-language.md` 的内容角色表与“冷暖分家”一段改为冷暖由主题选。
+  - 菜单：nbook `--radius-menu` 12px 改 8px；nb-ui 新增 `--elevation-menu`（缺省等于 `--elevation-popover`），`.nb-ui-menu-surface` 读它，nbook 给一圈 0.5px 细边加一层近投影；`ui-development-spec.md` 补一句。`dist/nb-ui.css` 重新生成。
+  - 验证：nb-ui 554 例全过；新应用的测试里没有写死旧色值；`lab:shot` 的 `Menubar`、`Dropdown`（禁用场景点不开、跳过）在 nbook、macos × 明暗下问题 0 条；开发会话实测标题栏“文件”菜单圆角 8px、投影为新的两层，窗体底 `rgb(236, 232, 223)`。
+- 2026-10-12 S8（卡片外壳）完成：
+  - 卡片还是平铺是主题变量（`--shell-gap`、`--shell-ground`、`--shell-card-radius`、`--shell-card-shadow`、`--shell-chrome-surface`、`--shell-chrome-line`、`--shell-seam`、`--shell-join-divider`），缺省即平铺；nbook 在 `vars.css` 给卡片的值（缝 4px、圆角 12px、浅色淡投影、深色一圈淡外框、标题栏与状态栏透明无线、接缝透明、短线 `--divider`）并在 manifest 的 `declares` 登记（fallback 是平铺），macos 不写。
+  - 缝的几何：新纯函数 `shell/cards.ts` 读投影的树、尺寸与边界占用，给每个部件四边各挨着什么（贴边、相邻并累计中间的边界与零宽部件、与活动栏相连）；外壳布局组件把它写成插槽包装的内边距（贴边整缝、相邻半缝减去一半占用、相连 0），里面一层卡片包装承担圆角、裁切与投影，活动栏与通高侧栏相接的角为 0、中间一条离顶底 10px 的短线。包装按部件身份静态套上：随投影出现或消失的话插槽会换处渲染、部件内容被重建。网格接缝经 nb-ui `Splitter` 新开的 `--nb-splitter-seam` 改色。
+  - 活动栏：Lab 门禁报 38px 按钮的外扩光环被 44px 的卡片裁掉。叶宽改为 48px 加上主题缝宽（`projectShell` 新输入 `cardGap`，外壳布局从文档根读 `--shell-gap`，主题或明暗变化时重读），卡片保持 48px；固定叶上下限表里不再用的活动栏一项删掉。
+  - 顺带：`WorkbenchShell.vue` 里自 t66 起没人用的 `.workbench-shell__card` 删掉；Lab 外壳场景的根改用 `--shell-ground`，编辑器、面板占位补上面板底色，场景里看得出卡片。
+  - Spec：`ui/workbench-shell.md` 输出 3、38 改写（卡片还是平铺由主题决定）、验收 41 改写、合同测试与 Smoke、批准依据；`theme/system.md` 记 `--shell-*`；`workbench/editor.md` 输出 32 的底色说法。`design-language.md` 的“工作台平铺”一节改为“卡片还是平铺由主题决定”。组件文档 `WorkbenchShellLayout`、`WorkbenchShell`、`WorkbenchTitleBar`、`WorkbenchStatusBar`、`WorkbenchActivityBar`、`WorkbenchToolPartHost`，nb-ui `Splitter`。
+  - 验证：`cards.test.ts` 七例（缺省布局、右栏、侧栏拖到零、侧栏隐藏与面板跨到侧栏下方、活动栏隐藏、右侧面板与最大化、紧凑呈现、留白算式），`layout.test.ts` 加缝宽一例，工作台 bun 测试与组件测试全过，nb-ui 554 例全过，typecheck 为 0。e2e：`workbench-views` 的颜色一例改为按主题验分隔方式（nbook：活动栏卡片离左缘与标题栏各 4px、宽 48px、与侧栏相连且相接角为 0、短线是 `--divider`、侧栏与编辑区之间 4px、圆角 12px、标题栏底线与接缝透明；切到 macos：贴边、1px 接缝、`--divider` 的线、没有短线），`workbench-shell` 与 `settings` 的外壳根底色改读 `--shell-ground`、状态栏读 `--shell-chrome-*`，`editor-area` 纸面一例改为编辑区是面板底色、外壳根是窗体底；外壳、视图、拖放、设置、编辑区、标题栏与 Lab 场景门禁共 79 例（修正后重跑 70 例）全过。`lab:shot` 外壳场景、活动栏、面板框架、标题栏、状态栏在 nbook、macos × 明暗 × free、phone 下问题 0 条。变异 11 处全部被抓到（相连不看侧栏通高、不往邻居分支里累加零宽孩子、零尺寸兄弟也算邻居、半缝不扣占用、活动栏叶宽不加缝、卡片不圆角、相连的角照样圆、接缝不改色、布局不读主题缝宽、外壳根不用窗体底、标题栏仍画底线）。
+- 2026-10-12 S9（标题栏）完成：
+  - 左组依次是横排标志（`NeuroBookLockup`，墨色跟随文字色，高 17px）、项目切换（书本图标加显示名，下拉从左边展开）、16px 高的短分隔与菜单入口；右组只剩布局按钮与条目区。最窄一档（不足 600px）把横排标志换成单独的图形标志。左组变宽后，960px 附近“左右等分”放不下：左栏改为最小取内容宽，空间够时搜索仍在正中，不够时往右让。
+  - 新组件 `src/ui/brand/NeuroBookMark.vue`（单独的图形标志，遮罩着色，同 `NeuroBookLockup` 的写法；品牌目录的 README 早就提到它，文件此前不存在），登记 Lab 场景。
+  - Spec：`ui/workbench-shell.md` 输出 28 与宽度三档、验收 32、批准依据；组件文档 `WorkbenchTitleBar`、`NeuroBookMark`（新）。
+  - 验证：`WorkbenchTitleBar.dom.test.ts` 加“左组顺序”一例（6 例全过）；`workbench-titlebar.e2e.ts` 的宽度三档一例加左组顺序与最窄一档的图形标志；标题栏、外壳、项目、书架、欢迎页与 Lab 场景门禁共 33 例全过；typecheck 为 0。开发会话截图与第十轮稿 L1 一致。变异 4 处全部被抓到（标志写回文字、分隔放到菜单后、最窄一档仍是横排标志、左栏不按内容撑开）。
+- 2026-10-12 S10（空态）完成：
+  - 没有标签的编辑组正中是淡色的图形标志（`NeuroBookMark`，132px，组很矮时先缩）与三行提示，说明靠右、按键或位置靠左（每行一个按钮，用 subgrid 跨两列对齐，按钮仍可聚焦）：“显示所有命令”写命令面板的快捷键（从命令声明读、按平台写，mac 是一串符号），“新建文件”“打开欢迎页”写入口位置；命令不存在或不可用时那一行不显示，点一行由插件经命令服务执行。
+  - 新模块 `editor/web/empty-tips.ts`（三条提示的定义与筛选）；插件在渲染时求值（可用性读公开状态，命令增减记版本号），`EditorArea` 与 `EditorGroup` 加 `emptyTips` 与 `run-tip`。工作台合同补导出 `KeyPlatform`。编辑器文字表里原来那句空态提示删掉。
+  - Lab：编辑区夹具加“没有标签：标志与提示”场景（固定样例，点了记事件）。
+  - Spec：`workbench/editor.md` 输出 32 的空态、验收 19、合同测试、批准依据；组件文档 `EditorGroup`、`EditorArea`。
+  - 验证：`editor/empty-tips.test.ts` 两例在真实内核的命令系统上（三行内容、不可用那行消失、mac 按键、英文；命令不存在那行消失）；编辑器 bun 测试 97 例、组件测试 58 例全过，typecheck 为 0。e2e：`editor-area` 纸面一例改为检查标志居中与 132px、三行文字与按键，点“显示所有命令”打开命令面板、点“打开欢迎页”打开欢迎页；`settings` 的语言切换改用提示行的文字观察；编辑区、设置、欢迎页、Lab 编辑器与场景门禁共 27 例全过。`lab:shot` 空态场景在 nbook、macos × 明暗 × free、phone 下问题 0 条。变异 6 处抓到 5 处（不可用的也显示、不写位置、编辑区不转交点击、插件不给提示、标志不定大小）；存活的“mac 也按加号拆”说明那个分支是多余的（mac 的写法本来没有加号），已删掉。
+- 2026-10-12 S11（收口）完成：
+  - 第一轮 omp 实现审查（S1–S5）8 条：C1、C2、C3、C5、C6 修（Firefox 124 的加粗副本、拆分带这一刻的光标、排队的定位在离开后不执行、实例没建立时要实例的视图动作禁用、新建章节打不开时说明），C4、C7、C8 不改。第二轮（S6–S10 与第一轮的修正）7 条：C1、C2、C3、C4、C7 修（末端零宽部件的占用、标题栏窄宽度下搜索收窄与项目名按档位截断、`--elevation-menu` 登记、内联脚本整条记录才认、第一帧在动画帧里采样），C5 不改、C6 部分不改。逐条理由见 [implementation-review.md](evidences/implementation-review.md)。
+  - 处理中发现 S5 与 S10 在运行时跨插件引用了工作台的 `web/contracts`（快捷键的写法），架构测试不通过：键位的解析与写法挪到命令插件的 `shared/keybinding.ts`。原因是这几片的单元验证直接跑了插件子目录，没照门禁用 `test:affected`，根目录下的架构测试没跑到。
+  - e2e 全套：第一轮修正后 175 例中 174 过，`lab.e2e.ts` 的存储断言因 S6 的宿主明暗提示失败（S6 只跑了宿主与项目两组 e2e），断言与 `ui/component-lab.md` 验收 1 改为列出宿主写的两项；第二轮 175 例全过。第二轮审查的修正之后受影响的 61 例全过；再跑全套 176 例中 175 过，挂的是 `lab.e2e.ts` 场景 20（两个 Lab 窗口同时改偏好），报错是浏览器渲染进程崩溃（`Target crashed`），不是断言失败，当时与最重的 Lab 场景门禁并行。这一例单独连跑 8 次、整个 `lab.e2e.ts` 15 例都过，按偶发的渲染进程崩溃处理。
+  - 收口时 `test:affected --typecheck`：bun 1015 例过、1 例失败（`settings/commands.test.ts` 的“项目层覆盖着主题时……”，S1 之前就失败），组件测试 173 例、nb-ui 554 例全过，typecheck 为 0，架构测试通过；`governance:check`、`docs:check` 没有新增问题。
+  - 收口截图：[nbook](evidences/s11-final-nbook.png)、[macos](evidences/s11-final-macos.png)（开发会话，每个主题与明暗一个新客户端：第一次打开雾港是欢迎页；打开第二章、关掉欢迎页后刷新回到第二章；关掉全部标签是标志与提示；空作品是欢迎页）。
+
 ## 下一步
 
-S3：编辑区纸面、一句话空态、光标位置恢复、最近打开列表。
+无：本 Task 完成。后续在 [t82](../t82-panel-gestures/README.md)（面板拖动手势）与 [t83](../t83-legacy-parity-dnd-titlebar/README.md)（拖放与标题栏对照旧应用）。

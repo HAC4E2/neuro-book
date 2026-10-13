@@ -135,12 +135,14 @@ describe("FilesExplorerView：右键菜单", () => {
         await wrapper.setProps({menu: {...menu}});
         await flushPromises();
         expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
-        const refresh = wrapper.get<HTMLButtonElement>("[data-explorer-tool=\"refresh\"]").element;
-        refresh.focus();
-        refresh.click();
+        // 视图外面的一个按钮（例如外壳画在标题上的视图动作）。
+        const outside = document.body.appendChild(Object.assign(document.createElement("button"), {textContent: "外面"}));
+        outside.focus();
+        outside.click();
         await flushPromises();
         expect(wrapper.emitted("menu-close")).toHaveLength(2);
-        expect(document.activeElement).toBe(refresh);
+        expect(document.activeElement).toBe(outside);
+        outside.remove();
     });
 });
 

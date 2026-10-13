@@ -15,10 +15,13 @@
 
 承载盒是组件根本身：父级要给它确定的宽高，根上不加 padding、border（测量按布局盒，混进去会少算）。
 
+卡片还是平铺由主题变量决定（Spec 输出 38），缺省是平铺。活动栏、侧栏、编辑器、右栏与面板的内容各包在一层卡片包装（`data-shell-card`）里，包装承担圆角（`--shell-card-radius`）、裁切与投影（`--shell-card-shadow`）；包装外的插槽按 `shell/cards.ts` 算出的四边留内边距：贴着窗体、标题栏或状态栏的一边 `--shell-gap`，挨着别的部件的一边半缝减去两者之间边界占用的一半，与活动栏相连的侧栏那一边 0。活动栏与通高的侧栏相连时两张卡片相接的角为 0（`data-shell-join="start"`、`"end"`），中间画一条两端离顶底 10px 的短线（`--shell-join-divider`）。网格接缝的颜色经 nb-ui `Splitter` 的 `--nb-splitter-seam` 取 `--shell-seam`。标题栏与状态栏没有卡片包装。
+
 ## 交互
 
-- 拖动边界：边界在流内占 1px，命中区更宽；拖过最小或最大值停在边界。松手一次落账，组件按这次提交发出一个 `resize`；从拖到零的边界拉回时跟随指针。
-- 键盘：边界可聚焦，方向键 10px、Shift 1px、Home/End 到端点、Enter 收起或恢复相邻可拖到零的 Part。Escape、pointercancel、失焦、容器尺寸或 `contextKey` 变化取消整场手势，不发 `resize`。
+- 拖动边界：边界在流内占 1px，命中区更宽；拖过最小或最大值停在边界。松手一次落账，组件按这次提交发出一个 `resize`；从拖到零的边界拉回时跟随指针。面板与编辑器之间的边界能一直拖到编辑器的最小尺寸，再往前越过 24px 编辑器就被拖到零，即最大化，补丁里是 `panelMaximized`；最大化时这条边界仍是 1px，往回拖就还原。
+- 拖动中的停放：从拖到零（或最大化下的编辑器）往外拉时，手势预览一给出尺寸，内容就从停放区搬回落点，拖的过程中看得到，同时发 `preview`；按着拖回零、取消或提交被拒时回到停放区。搬动与投影变化同一套滚动与焦点记忆。往零拖时不提前停放，等落账。
+- 键盘：边界可聚焦，方向键 10px、Shift 1px、Home/End 到端点、Enter 收起或恢复相邻可拖到零的 Part（编辑器的拖到零只经指针，Enter 不会因此最大化）。Escape、pointercancel、失焦、容器尺寸或 `contextKey` 变化取消整场手势，不发 `resize`。
 - 焦点与滚动：结构变化（换位置、对齐、隐藏、最大化、紧凑往返）时，Part 内容在落点之间搬动，搬完后按 `memory` 还原外壳里所有可见元素的滚动位置，并恢复原焦点；焦点所在内容被停放时，隐藏面板把焦点交给 `data-shell-focus-target="panel-toggle"`，最大化交给 `data-shell-focus-target="panel-title"`（这两个标记由插槽内容提供，找不到时落到组件根）。焦点已在外壳之外（菜单、对话框）时不动。
 - `disabled` 为 true 时边界不能拖动、键盘不能调整，进行中的手势取消。
 
@@ -50,6 +53,11 @@ type Emits = {
     (event: "resize", payload: {contextKey: string; patch: ShellSizePatch}): void;
     /** 呈现事实变化时发出（测得容器尺寸之后）：模式、生效的面板状态与降级诊断。不是保存意图。 */
     (event: "layout", facts: ShellLayoutFacts): void;
+    /**
+     * 手势预览里已经拉出来、投影里还收着的部件（拖到零的 Part、最大化下的编辑器）变化时发出；手势结束或预览撤回时发空数组。
+     * 宿主据此让视图的首次加载与“可见”跟着预览走，不是保存意图。
+     */
+    (event: "preview", parts: ReadonlyArray<ShellPartId>): void;
 };
 
 type Slots = {
@@ -70,7 +78,7 @@ type PartSlotProps = {
 };
 ```
 
-- 不 expose。attrs 落在组件根上；根带 `data-workbench-shell`、`data-shell-layout="split|compact"` 与 `data-layout-diagnostics`（最近几条降级与手势诊断）。
+- expose `revealZoneRects(): Array<{part: "sidebar" | "auxiliarybar" | "panel"; rect: {left, top, right, bottom}}>`：此刻没显示的侧栏、右栏、面板显示出来会在的矩形（视口坐标），拖动会话拿起时取一次当预备区（外壳三输出 20）；紧凑呈现时为空。attrs 落在组件根上；根带 `data-workbench-shell`、`data-shell-layout="split|compact"` 与 `data-layout-diagnostics`（最近几条降级与手势诊断）。
 - 手势结算：落账前整批核对（含不产生保存的分支则整场拒绝），经 nb-ui `useGridLayout` 一次 `resizeBranches`；落账后从这批提交算出补丁。交汇处的两根轴属于同一场手势，补丁里可能同时有侧栏宽度与面板高度。
 
 ## 状态

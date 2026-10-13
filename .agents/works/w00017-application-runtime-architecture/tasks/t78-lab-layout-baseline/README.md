@@ -50,6 +50,8 @@ taskId: t78-lab-layout-baseline
     - `lab:shot` 九个组件 × nbook、macos × 明暗 × 手机与宽画布全部 0 问题（`WorkbenchViewContainerHost` 要指定场景，不指定时 Lab 等不到就绪，是 `lab:shot` 原有的问题；`WorkbenchToolPartHost` 没有自己的场景，验证入口是 `WorkbenchShellLayout`）；[键盘聚焦实拍](evidences/s2-focus.png)。
   - 未覆盖：门禁只在默认主题（nbook）下量；macos 下的问题靠 `lab:shot` 截图发现，本次改动的组件已在 macos 下截过。
 
+- 2026-10-12 omp 实现审查 5 条全部属实，处理完（[审查与处理](evidences/implementation-review.md)）：Lab 门禁的焦点环判断补上“内阴影混 `var()` 外阴影”（C5）与 outline 简写用 `var()`（C1，base 上已有）；横向收起竖条里的长标题伸出竖条、没有省略号（C2，Lab 实测属实）已修；折叠动画与内嵌焦点线补真实浏览器用例（C3、C4）。变异 7 处全部被抓到。Task 完成。
+
 ## 下一步
 
-收尾：omp 实现审查（不阻塞，t79 照常开工）。
+无。

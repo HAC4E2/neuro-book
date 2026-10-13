@@ -148,6 +148,57 @@ export const manifest: NbThemeManifest = {
             fallback: "34em",
             description: "稿面行宽，单位 em。CJK 下 1em 是一个汉字宽，所以这个数就是「每行多少字」。",
         },
+        /* 工作台外壳的分隔方式（新应用 docs/specs/ui/workbench-shell.md 输出 38）：fallback 就是平铺，不写这些变量的主题是平铺。 */
+        {
+            name: "--shell-gap",
+            fallback: "0px",
+            description: "工作台外壳部件之间、部件与窗体边缘的缝。0 是平铺；大于 0 时部件成为窗体底上的卡片。",
+        },
+        {
+            name: "--shell-ground",
+            fallback: "var(--panel-surface)",
+            description: "工作台外壳根的底色，卡片之间露出来的就是它。平铺时与部件同一块面板底色。",
+        },
+        {
+            name: "--shell-card-radius",
+            fallback: "0px",
+            description: "工作台部件卡片的圆角。",
+        },
+        {
+            name: "--shell-card-shadow",
+            fallback: "none",
+            description: "工作台部件卡片的投影（box-shadow 整条）。",
+        },
+        {
+            name: "--shell-chrome-surface",
+            fallback: "var(--bg-panel)",
+            description: "工作台标题栏与状态栏的底色；卡片外壳里设为透明，落在窗体底上。",
+        },
+        {
+            name: "--shell-chrome-line",
+            fallback: "var(--divider)",
+            description: "标题栏底线与状态栏顶线的颜色；卡片外壳里不需要线时设为透明。",
+        },
+        {
+            name: "--shell-seam",
+            fallback: "var(--divider)",
+            description: "工作台网格边界上 1px 接缝的颜色；卡片之间的缝本身就是边界时设为透明。",
+        },
+        {
+            name: "--shell-join-divider",
+            fallback: "transparent",
+            description: "活动栏与侧栏相连时两者之间那条短线的颜色。",
+        },
+        {
+            name: "--shell-pane-divider",
+            fallback: "var(--divider)",
+            description: "同一个视图容器里分栏之间那条线的颜色（不继承外壳网格的接缝色）。",
+        },
+        {
+            name: "--shell-pane-divider-inset",
+            fallback: "0px",
+            description: "分栏之间那条线沿长轴两端的缩进；0 是贯穿的接缝，大于 0 是两端不碰到头的开放式分割线。",
+        },
     ],
     providesColorways: ["nbook-light", "nbook-dark"],
     defaultColorway: {light: "nbook-light", dark: "nbook-dark"},

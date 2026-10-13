@@ -21,6 +21,16 @@ export type DropFeedbackPreview = Readonly<{
     readonly orientation: GridOrientation;
     /** false 表示保留上一份半区但当前不可提交；缺省按可提交绘制。 */
     readonly armed?: boolean;
+    /**
+     * 只有插线时药丸放在哪：缺省在线的下方居中；`line-end` 贴在线的末端（横线的右端、竖线的下端），线压着的是
+     * 一排标题时不盖住下一行的标题。
+     */
+    readonly labelAt?: "below" | "line-end";
+    /**
+     * 收尾：宿主在提交后把 `areaRect` 换成拖进去的东西最终所在的矩形并标记收尾，区域沿用位置与尺寸的过渡滑到那里，
+     * `--motion-base` 之后用 `--motion-fast` 淡出，淡完发 `settled`；不画插线、条目与提示。减少动效时立即发 `settled`。
+     */
+    readonly settling?: boolean;
 }>;
 </script>
 
@@ -37,7 +47,8 @@ export type DropFeedbackPreview = Readonly<{
  *   和非空文案就显示；
  * - 无障碍（`[data-drop-feedback-live]`）：独立 aria-live 播报，仅在语义标签变化时更新，不逐像素播报。
  * - 动效：区域首次出现淡入；连续换区复用同一节点，对绘制位置/尺寸做过渡，提示随行但文案立即更新。
- *   插线即时定位；取消即卸载、没有离场帧；减少动效时直接呈现目标几何。
+ *   插线即时定位；取消即卸载、没有离场帧；减少动效时直接呈现目标几何。提交后的收尾（`settling`）滑到最终位置再
+ *   淡出，淡完发 `settled`，宿主据此清掉预览。
  *
  * 皮肤在 `DropIndicator` / `DropIndicatorLabel` 上，本组件只提供 Teleport、定位、内缩、标签测量与动效。
  * 命中与提交始终用 `preview` 的原始矩形；内缩只改绘制盒，不回写 `preview`。
@@ -60,6 +71,11 @@ const props = defineProps<{
     label: string;
     /** 提示图标 class；业务种类 → 图标的映射归调用方。 */
     iconClass?: string;
+}>();
+
+const emit = defineEmits<{
+    /** 收尾的淡出结束（或没有可画的区域、系统减少动效）：宿主清掉预览。 */
+    (event: "settled"): void;
 }>();
 
 const attrs = useAttrs();
@@ -148,15 +164,15 @@ const hasVisibleFeedback = computed(() => {
 });
 
 /** 标签锚点：依序取有效半区、条目、插线；锚点始终是 `preview` 的语义矩形，不是内缩后的绘制盒。 */
-const anchor = computed<{rect: GridDropRect; area: boolean} | null>(() => {
+const anchor = computed<{rect: GridDropRect; area: boolean; line: boolean} | null>(() => {
     if (areaRect.value !== null) {
-        return {rect: areaRect.value, area: true};
+        return {rect: areaRect.value, area: true, line: false};
     }
     if (entryRect.value !== null) {
-        return {rect: entryRect.value, area: false};
+        return {rect: entryRect.value, area: false, line: false};
     }
     if (lineRect.value !== null) {
-        return {rect: lineRect.value, area: false};
+        return {rect: lineRect.value, area: false, line: true};
     }
     return null;
 });
@@ -250,9 +266,17 @@ const labelLayout = computed<{left: string; top: string} | null>(() => {
     const anchorHeight = target.rect.bottom - target.rect.top;
     const marginX = Math.min(VIEWPORT_MARGIN_PX, Math.max(0, (viewportWidth - size.width) / 2));
     const marginY = Math.min(VIEWPORT_MARGIN_PX, Math.max(0, (viewportHeight - size.height) / 2));
-    const left = target.rect.left + (anchorWidth - size.width) / 2;
+    let left = target.rect.left + (anchorWidth - size.width) / 2;
     let top: number;
-    if (target.area && anchorWidth >= size.width + LABEL_FIT_PADDING_PX && anchorHeight >= size.height + LABEL_FIT_PADDING_PX) {
+    if (target.line && props.preview?.labelAt === "line-end") {
+        // 药丸的末端与线的末端对齐、中线压在线上
+        if (anchorWidth >= anchorHeight) {
+            left = target.rect.right - size.width;
+            top = target.rect.top + (anchorHeight - size.height) / 2;
+        } else {
+            top = target.rect.bottom - size.height;
+        }
+    } else if (target.area && anchorWidth >= size.width + LABEL_FIT_PADDING_PX && anchorHeight >= size.height + LABEL_FIT_PADDING_PX) {
         // 半区容得下「标签 + 16px」：贴正中最贴近指针所指的区域
         top = target.rect.top + (anchorHeight - size.height) / 2;
     } else {
@@ -268,10 +292,27 @@ const labelLayout = computed<{left: string; top: string} | null>(() => {
     };
 });
 
-/** 视图为 0（量不出可用区域）时不渲染药丸，形状与播报照常。 */
+/** 视图为 0（量不出可用区域）时不渲染药丸，形状与播报照常；收尾时没有提示。 */
 const labelVisible = computed(() => {
-    return labelText.value !== "" && anchor.value !== null && viewport.value.width > 0 && viewport.value.height > 0;
+    return labelText.value !== "" && anchor.value !== null && viewport.value.width > 0 && viewport.value.height > 0 && props.preview?.settling !== true;
 });
+
+const settling = computed(() => props.preview?.settling === true);
+
+/**
+ * 收尾结束的两种来源：区域的淡出动画放完；或者根本没有淡出可等——没有可画的区域、系统减少动效（那时动画被关掉，
+ * `animationend` 不会来）。后者在标记收尾时立即发，宿主不会被一层永远不消失的预览卡住。
+ */
+watch(settling, (next) => {
+    if (!next) return;
+    const reduced = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (areaBoxStyle.value === null || reduced) emit("settled");
+});
+
+function onAreaAnimationEnd(event: AnimationEvent): void {
+    // 作用域样式会给关键帧名加后缀
+    if (settling.value && event.animationName.startsWith("nb-drop-feedback-settle")) emit("settled");
+}
 
 /** 首帧只把待测标签设成 hidden，等真实测量回填坐标后才可见。 */
 const labelStyle = computed<LabelStyle>(() => {
@@ -307,10 +348,12 @@ watch(
                 v-if="areaBoxStyle !== null"
                 variant="area"
                 class="nb-ui-drop-feedback__area"
-                :class="{'nb-ui-drop-feedback__area--standby': props.preview?.armed === false}"
+                :class="{'nb-ui-drop-feedback__area--standby': props.preview?.armed === false, 'nb-ui-drop-feedback__area--settling': settling}"
                 data-drop-feedback-area
                 :data-drop-armed="props.preview?.armed === false ? 'false' : 'true'"
+                :data-drop-settling="settling ? 'true' : undefined"
                 :style="areaBoxStyle"
+                @animationend="onAreaAnimationEnd"
             />
 
             <!-- 插入线：只在没有有效半区的落点（切换器换序 / 空头部）显示 -->
@@ -396,6 +439,17 @@ watch(
     opacity: 0.35;
 }
 
+/* 收尾：位置与尺寸照常过渡到最终矩形，过渡走完（--motion-base）再淡出。 */
+@keyframes nb-drop-feedback-settle {
+    to {
+        opacity: 0;
+    }
+}
+
+.nb-ui-drop-feedback__area--settling {
+    animation: nb-drop-feedback-settle var(--motion-fast) var(--ease-standard) var(--motion-base) forwards;
+}
+
 .nb-ui-drop-feedback__label--area {
     transition: left var(--motion-base) var(--ease-standard), top var(--motion-base) var(--ease-standard);
 }
@@ -405,6 +459,10 @@ watch(
     .nb-ui-drop-feedback__label--area {
         animation: none;
         transition: none;
+    }
+
+    .nb-ui-drop-feedback__area--settling {
+        visibility: hidden;
     }
 }
 

@@ -166,8 +166,12 @@ input.nb-ui-native-input[type="number"] {
     background-color: var(--overlay-surface);
     background-image: none;
     box-shadow: var(--elevation-popover);
-    backdrop-filter: var(--overlay-blur);
+    /*
+     * 带前缀的必须写在标准写法前面（本文件其余几处同理）：应用构建的 CSS 压缩把同值的一对当成重复，只留后一条；
+     * 后一条若是 `-webkit-`，Chrome 就没有模糊，玻璃浮层看上去是透明的。
+     */
     -webkit-backdrop-filter: var(--overlay-blur);
+    backdrop-filter: var(--overlay-blur);
 
     /*
      * 内圈的同心半径。这条不是外观，是**几何约束**，所以和外观一起放在这个登记处：
@@ -196,8 +200,8 @@ input.nb-ui-native-input[type="number"] {
     border-radius: var(--radius-control);
     background-color: var(--bg-panel);
     background-image: none;
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     color: var(--text-main);
     font-size: var(--text-xs);
     line-height: var(--leading-tight);
@@ -208,9 +212,10 @@ input.nb-ui-native-input[type="number"] {
     -webkit-user-select: none;
 }
 
-/* 菜单 / 下拉的几何 modifier。外圈 12px 时，默认 6px 内边距与 1px 描边推出约 5px 内圈。 */
+/* 菜单 / 下拉的半径与投影 modifier：两者各有一档主题变量；贴边菜单项的内圈半径照上面的公式由外圈推出。 */
 .nb-ui-menu-surface {
     --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+    box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 
 /* 仅整块玻璃 surface opt-in 镜面层；菜单、下拉等小浮层默认不铺面渐变。 */
@@ -681,9 +686,9 @@ input.nb-ui-native-input[type="number"] {
 
 .nb-ui-drop-indicator[data-drop-indicator="area"],
 .nb-ui-drop-indicator[data-drop-indicator="entry"] {
-    border: 1px solid color-mix(in srgb, var(--accent-main) 70%, transparent);
+    border: 1px solid var(--drop-area-border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    background: var(--drop-area-fill);
     box-shadow: var(--elevation-raised);
     transition: opacity var(--motion-fast) var(--ease-standard);
 }
@@ -710,8 +715,8 @@ input.nb-ui-native-input[type="number"] {
     font-weight: var(--weight-medium);
     line-height: var(--leading-tight);
     box-shadow: var(--elevation-raised);
-    backdrop-filter: var(--overlay-blur);
     -webkit-backdrop-filter: var(--overlay-blur);
+    backdrop-filter: var(--overlay-blur);
 }
 
 .nb-ui-drop-indicator-label__icon {
@@ -737,7 +742,7 @@ input.nb-ui-native-input[type="number"] {
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
     .nb-ui-drop-indicator-label {
         background: var(--panel-surface);
-        backdrop-filter: none;
         -webkit-backdrop-filter: none;
+        backdrop-filter: none;
     }
 }

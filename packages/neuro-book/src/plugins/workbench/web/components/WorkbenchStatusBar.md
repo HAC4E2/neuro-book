@@ -9,7 +9,7 @@
 
 ## 布局
 
-单行，高 22px，左组可收缩、内容过长时截断，右组固定贴右。`390×844` 下项目名先截断，问题提示与按钮保持可点。面取 `--bg-panel`，顶部分隔线取 `--divider`，文字取 `--text-secondary`。按钮几乎填满 22px 的条，焦点画成按钮里面的一圈内嵌焦点线（`focusRing="inset"`）。
+单行，高 22px，左组可收缩、内容过长时截断，右组固定贴右。`390×844` 下项目名先截断，问题提示与按钮保持可点。面取 `--shell-chrome-surface`（缺省 `--bg-panel`），顶部分隔线取 `--shell-chrome-line`（缺省 `--divider`），卡片外壳里两者透明（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），文字取 `--text-secondary`。按钮几乎填满 22px 的条，焦点画成按钮里面的一圈内嵌焦点线（`focusRing="inset"`）。
 
 ## 数据
 

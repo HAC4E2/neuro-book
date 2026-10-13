@@ -5,13 +5,13 @@
 
 # WorkbenchActivityBar
 
-主体左侧的通高列，平铺在面板底色上、不画外框与圆角（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段是插件经贡献点 `workbench.activitybar-items` 交来的全局项（输出 40：现在是头像占位与设置齿轮）。它只画按钮、选中标记与按下态，点了只发 `select` 或 `run-item`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar、执行哪条命令，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
+主体左侧的通高列，画面板底色、自己不画外框与圆角（卡片外壳里外壳给它套卡片、与侧栏相连，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段是插件经贡献点 `workbench.activitybar-items` 交来的全局项（输出 40：现在是头像占位与设置齿轮）。它只画按钮、选中标记与按下态，点了只发 `select` 或 `run-item`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar、执行哪条命令，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
 
 ## 布局
 
-宽度由外壳的 ActivityBar 叶决定（48px），按钮用 `IconButton` 的 38px 档（`lg`）、竖排、间距 4px，滚动区上下各留 4px：左右与上下都给外扩焦点光环留出余地，不被滚动区裁掉；容器多到放不下时上段在列内纵向滚动，不撑破列。选中标记只在 `sidebarVisible` 为 true 时出现：Sidebar 看不见时没有“当前在看”的容器。
+宽度由外壳的 ActivityBar 叶决定（48px），按钮用 `IconButton` 的 38px 档（`lg`）、竖排、间距 4px，滚动区上下各留 4px：左右与上下都给外扩焦点光环留出余地，不被滚动区裁掉；容器多到放不下时，排在后面的收进上段末尾的“更多”（同样是 38px 的按钮，下拉列出收起来的容器），与状态栏条目同一个预算（`items/item-strip.ts` 的 `layoutStrip`），选中的优先、总在外面；量不到上段高度（还没挂上）时全部摆出来，上段自己纵向滚动兜底，不撑破列。选中标记只在 `sidebarVisible` 为 true 时出现：Sidebar 看不见时没有“当前在看”的容器。
 
-底段贴着列底，按 `items` 的顺序从上往下排，不滚动、不让位（上段先滚动）：
+底段贴着列底，按 `items` 的顺序从上往下排，不滚动、不让位（放不下时上段先把末尾的容器收进“更多”）：
 
 - 有命令的条目是与上段同样的 38px 图标按钮（淡色图标，悬停灰底、正文色）；声明了切换状态且为真时画成按下：灰底、图标正文色，不用强调色（强调色留给上段的“当前容器”）。
 - 没有命令的条目是不可点的占位，样子同书架右上角的头像位：30px 的圆、细外框、控件底色、淡色图标，放在 38px 的格子里居中。
@@ -65,6 +65,8 @@ type Props = {
     dragHint: string;
     /** 底段的全局项，已按顺序排好；缺省没有。受控。 */
     items?: ReadonlyArray<ActivityItem>;
+    /** 收起其余条目的“更多”按钮的可访问名称；默认 "更多"。 */
+    moreLabel?: string;
 };
 
 type Emits = {

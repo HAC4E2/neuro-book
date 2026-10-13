@@ -1,5 +1,5 @@
 /**
- * 设置窗口的“作品”分区（docs/specs/workbench/bookshelf.md 输出 18）：`nbook.projects` 向 `settings.sections` 贡献的 column
+ * 设置窗口的“作品”分区（docs/specs/workbench/bookshelf.md 输出 21）：`nbook.projects` 向 `settings.sections` 贡献的 column
  * 页面，只在“用户”标签下可用。设置窗口只给页面 `context`；本插件的配置服务、目录选择器的数据来源、显示语言与写不进去时的
  * 通知在这里接上。用渲染函数写：插件的合同测试在 bun test 里导入插件，bun 不能加载 `.vue`。
  */

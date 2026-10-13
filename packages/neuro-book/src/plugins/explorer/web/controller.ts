@@ -178,6 +178,11 @@ export interface ExplorerController {
     /** 树要重新拿到焦点（编辑或确认结束）：视图看到它变化就把焦点放回树上。 */
     readonly focusRequest: Readonly<ShallowRef<number>>;
     click(id: string, modifiers: Modifiers, part: RowPart): void;
+    /**
+     * 揭示一个地址（打开作品时编辑器恢复出的活动文件）：展开它的各级祖先，行出现后选中它、焦点给它，树随焦点滚到可见处；
+     * 不移动页面焦点。行出现之前用户点了别的行，揭示作废。
+     */
+    reveal(address: string): void;
     /** 双击：以常驻方式打开。 */
     activate(id: string): void;
     contextSelect(id: string): void;
@@ -693,6 +698,16 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         drag,
         available,
         focusRequest,
+        reveal: (address) => {
+            if (disposed) return;
+            for (let ancestor = parentAddress(address); ancestor !== null; ancestor = parentAddress(ancestor)) model.expand(ancestor);
+            if (rows.value.some((row) => row.id === address)) {
+                selection.value = {selected: [address], focus: address, anchor: address};
+                pendingFocus = null;
+            } else {
+                pendingFocus = address;
+            }
+        },
         click: (id, modifiers, part) => {
             const row = find(id);
             if (row === undefined || row.kind === "status" || row.kind === "edit") return;

@@ -38,6 +38,10 @@ let detach: (() => void) | null = null;
 let applying = false;
 let unmounted = false;
 let themeObserver: MutationObserver | null = null;
+let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 光标停下这么久才记到标签上（随会话记录保存，输出 30）；换文档与失焦时立即记。 */
+const CURSOR_REMEMBER_MS = 1000;
 
 const stateOf = (binding: ViewBinding): CodeViewState | null => binding.slot.state as CodeViewState | null;
 
@@ -77,6 +81,7 @@ const adopt = (binding: ViewBinding, state: CodeViewState): void => {
 const enter = (binding: ViewBinding): void => {
     if (monaco === null || editor === null) return;
     let state = stateOf(binding);
+    const fresh = state === null;
     if (state === null) {
         const model = monaco.editor.createModel(binding.document.text.value, languageOf(binding.document.target.value.path));
         state = {model, view: null, confirmed: binding.document.revision.value, held: false, source: binding.document.text.value, base: valueOf(model)};
@@ -87,6 +92,14 @@ const enter = (binding: ViewBinding): void => {
     }
     editor.setModel(state.model);
     if (state.view !== null) editor.restoreViewState(state.view);
+    // 第一次为这份文档建模型、标签记着上次的光标：放回去并滚到它（输出 30）。Monaco 按模型校正位置，正文变短时自己夹到
+    // 末尾，滚动用校正后的位置。
+    const cursor = binding.cursor;
+    if (fresh && cursor !== null && "line" in cursor) {
+        editor.setPosition({lineNumber: cursor.line, column: cursor.column});
+        const placed = editor.getPosition();
+        if (placed !== null) editor.revealPositionInCenter(placed);
+    }
     readPosition();
     editor.updateOptions({readOnly: props.readonly});
     bound = binding;
@@ -97,8 +110,19 @@ const enter = (binding: ViewBinding): void => {
     });
 };
 
+/** 把光标记到当前绑定的标签上。 */
+const rememberCursor = (): void => {
+    if (cursorTimer !== null) {
+        clearTimeout(cursorTimer);
+        cursorTimer = null;
+    }
+    const at = editor?.getModel() === null ? null : editor?.getPosition() ?? null;
+    if (bound !== null && at !== null) bound.remember({line: at.lineNumber, column: at.column});
+};
+
 const leave = (binding: ViewBinding): void => {
     const state = stateOf(binding);
+    if (bound === binding) rememberCursor();
     if (state !== null && editor !== null && editor.getModel() === state.model) state.view = editor.saveViewState();
     detach?.();
     detach = null;
@@ -147,6 +171,7 @@ const handle: EditorControlHandle = {
     undo: () => editor?.trigger("nbook", "undo", null),
     redo: () => editor?.trigger("nbook", "redo", null),
     flushPendingChange: () => undefined,
+    rememberCursor,
     navigation: {
         getLineCount: () => editor?.getModel()?.getLineCount() ?? null,
         revealLine: (line) => {
@@ -194,9 +219,17 @@ onMounted(async () => {
         const state = stateOf(binding);
         if (state !== null) commit(binding, state);
     });
-    editor.onDidChangeCursorSelection(readPosition);
+    editor.onDidChangeCursorSelection(() => {
+        readPosition();
+        if (bound === null) return;
+        if (cursorTimer !== null) clearTimeout(cursorTimer);
+        cursorTimer = setTimeout(rememberCursor, CURSOR_REMEMBER_MS);
+    });
     editor.onDidFocusEditorText(() => emit("focus", true));
-    editor.onDidBlurEditorText(() => emit("focus", false));
+    editor.onDidBlurEditorText(() => {
+        rememberCursor();
+        emit("focus", false);
+    });
     // 主题或明暗变了（文档根上的 token 换了）：重新生成 Monaco 的主题。
     themeObserver = new MutationObserver(applyTheme);
     themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-appearance", "data-nb-theme"]});

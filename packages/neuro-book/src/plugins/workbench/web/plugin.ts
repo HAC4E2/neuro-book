@@ -14,7 +14,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
@@ -46,7 +46,6 @@ import {createNotifications} from "./notifications";
 import {ActivityItemRegistry} from "./items/activity-items";
 import {ItemRegistry} from "./items/registry";
 import {createOverlayHost, OverlaySlot} from "./overlays";
-import {currentKeyPlatform} from "./commands/keymap";
 import {createShellChrome} from "./titlebar/titlebar-source";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";

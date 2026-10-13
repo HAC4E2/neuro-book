@@ -26,6 +26,8 @@ const props = defineProps<{
     locale: DisplayLocale;
     label: string;
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
+    /** 项目根显示的作品名；不给时显示“项目”。 */
+    projectTitle?: string | null;
     /** 正在内联输入的行：新建的输入行或改名的资源行，以及名字、错误文字与是否在提交。 */
     editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
     /** 拖动过了门槛：返回 false 时不起拖。缺省不能拖。 */
@@ -212,6 +214,33 @@ onMounted(() => {
     });
 });
 onBeforeUnmount(() => gesture?.dispose());
+
+/**
+ * 展开收起的动画（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：树是虚拟列表，滚动时窗口两端也有
+ * 行进出，不能一律做进出动画。只在展开的目录变了之后的一个 `--motion-base` 里打 `data-expanding`，样式只在这时让新出现的行
+ * 从上方滑下并淡入、离开的行反向、其余行的位置跟着过渡。系统减少动画时这个时长是 0，不打。watch 在渲染之前跑，标记与新行
+ * 同一次渲染出现，进场的过渡才有起点。
+ */
+const expanding = ref(false);
+let expandingTimer: ReturnType<typeof setTimeout> | null = null;
+/** 动画结束后多留这么久再撤标记：离开的行可能晚一帧开始过渡，撤早了会被截断。 */
+const EXPANDING_SLACK_MS = 100;
+const expandedIds = computed(() => props.rows.flatMap((row) => ((row.kind === "root" || row.kind === "entry") && row.expanded ? [row.id] : [])).join("\n"));
+watch(expandedIds, () => {
+    const element = root.value;
+    if (element === null) return;
+    const duration = Number.parseFloat(getComputedStyle(element).getPropertyValue("--motion-base"));
+    if (!(duration > 0)) return;
+    if (expandingTimer !== null) clearTimeout(expandingTimer);
+    expanding.value = true;
+    expandingTimer = setTimeout(() => {
+        expanding.value = false;
+        expandingTimer = null;
+    }, duration + EXPANDING_SLACK_MS);
+});
+onBeforeUnmount(() => {
+    if (expandingTimer !== null) clearTimeout(expandingTimer);
+});
 // 控制器结束了这场拖动（切换显示、源或落点失效）：手势随之收场。
 watch(() => props.drag == null, (ended) => {
     if (!ended) return;
@@ -235,7 +264,7 @@ const dropLabel = computed(() => {
     if (action === undefined || action.kind === "none") return "";
     if (action.kind === "reorder") return explorerText(props.locale, "dropReorder");
     const row = props.rows.find((candidate) => candidate.id === action.target);
-    const name = row?.kind === "entry" ? row.label : row?.kind === "root" ? explorerText(props.locale, row.scheme === "project" ? "projectRoot" : "userRoot") : action.target;
+    const name = row?.kind === "entry" ? row.label : row?.kind === "root" ? (row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot")) : action.target;
     return explorerText(props.locale, "dropInto", {name});
 });
 
@@ -251,21 +280,25 @@ defineExpose({focus: focusTree});
         :aria-label="label"
         :aria-activedescendant="activeDescendant"
         class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-none"
+        :style="{'--explorer-row-height': `${String(rowHeight)}px`}"
         data-explorer-tree
+        :data-expanding="expanding ? '' : undefined"
         @scroll="onScroll"
         @keydown="onKeydown"
         @focus="onFocus"
         @blur="onBlur"
     >
         <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
-        <div class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}">
+        <TransitionGroup name="explorer-row" tag="div" class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}">
+            <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
             <ExplorerRow
                 v-for="item in rendered"
                 :key="item.row.id"
-                class="absolute left-0 right-0"
+                class="explorer-tree__row absolute"
                 :style="{top: `${String(item.index * rowHeight)}px`}"
                 :row="item.row"
                 :locale="locale"
+                :project-title="projectTitle ?? null"
                 :dom-id="domId(item.row.id)"
                 :selected="selectedSet.has(item.row.id)"
                 :active="treeFocused && item.row.id === focus"
@@ -279,14 +312,29 @@ defineExpose({focus: focusTree});
                 @context="(event) => context(item.row, event)"
                 @retry="item.row.kind === 'status' && emit('retry', item.row.parent)"
             />
-        </div>
+        </TransitionGroup>
         <DropFeedbackOverlay :preview="dropPreview" :label="dropLabel" :data-explorer-drop="drag?.action.kind" />
     </div>
 </template>
 
 <style scoped>
+.explorer-tree__row {
+    left: var(--view-inset-inline, 6px);
+    right: var(--view-inset-inline, 6px);
+}
+
 .explorer-tree[data-explorer-dragging] {
     cursor: grabbing;
+}
+
+.explorer-tree[data-expanding] .explorer-tree__row {
+    transition: top var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.explorer-tree[data-expanding] .explorer-row-enter-from,
+.explorer-tree[data-expanding] .explorer-row-leave-to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--explorer-row-height)));
 }
 
 .explorer-tree {

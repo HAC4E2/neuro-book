@@ -39,6 +39,8 @@ function setPanel(patch: Partial<PanelState>): void {
 function onResize(payload: {contextKey: string; patch: ShellSizePatch}): void {
     subject.write("props", "sizes", mergeShellSizePatch(sizes.value, payload.patch));
     if (payload.patch.dragCollapsed !== undefined) subject.write("props", "dragCollapsedParts", {...dragCollapsed.value, ...payload.patch.dragCollapsed});
+    // 编辑器拖到零即最大化、拖回即还原：只改场景里面板的内存位，与产品的布局 store 一致。
+    if (payload.patch.panelMaximized !== undefined) subject.write("props", "panel", {...panel.value, maximized: payload.patch.panelMaximized});
 }
 
 function onLayout(facts: ShellLayoutFacts): void {
@@ -62,7 +64,7 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
     <template v-else>
     <WorkbenchShellLayout
         data-lab-subject
-        class="h-full w-full bg-[var(--bg-panel)]"
+        class="h-full w-full bg-[var(--shell-ground,var(--panel-surface))]"
         :sizes="sizes"
         :panel="panel"
         :context-key="subject.bindings.value.contextKey ?? `lab:${props.scene}`"
@@ -88,7 +90,7 @@ const alignment = computed({get: () => panel.value.alignment, set: (value: strin
             <ShellSampleEditor />
         </template>
         <template #panel="{collapsed}">
-            <div class="flex h-full min-h-0 flex-col">
+            <div class="flex h-full min-h-0 flex-col bg-[var(--panel-surface)]">
                 <div class="flex h-8 flex-none items-center gap-2 px-3 text-xs">
                     <Button size="sm" variant="ghost" focus-ring="inset" data-shell-focus-target="panel-title" @click="setPanel({collapsed: !panel.collapsed})">面板</Button>
                     <span class="text-[var(--text-muted)]">{{ collapsed ? "已收起" : "" }}</span>

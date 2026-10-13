@@ -27,7 +27,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 flex-col gap-2 p-3 text-sm" :data-shell-sample="instance" :data-created="created" :data-unmounted="unmounted">
+    <div class="flex h-full min-h-0 flex-col gap-2 bg-[var(--panel-surface)] p-3 text-sm" :data-shell-sample="instance" :data-created="created" :data-unmounted="unmounted">
         <div class="text-xs text-[var(--text-muted)]">样例编辑器 · 实例 #{{ instance }} · 创建 {{ created }} · 卸载 {{ unmounted }}</div>
         <div data-shell-sample-input><FormInput v-model="draft" size="sm" placeholder="输入几个字，再搬动面板" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-shell-sample-scroll>

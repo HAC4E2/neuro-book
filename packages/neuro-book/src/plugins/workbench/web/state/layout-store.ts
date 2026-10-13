@@ -21,7 +21,8 @@ import {clampLeafSize, clampPanelHeight, clampPanelWidth, SHELL_SIZE_DEFAULTS, s
 import type {ShellDragCollapseMap, ShellHideablePart, ShellLayoutFacts, ShellSizePatch, ShellSizePreferences} from "../shell/sizes";
 import {isHorizontalPanelPosition, PANEL_ALIGNMENTS, PANEL_DEFAULTS, PANEL_POSITIONS, panelMaximizable} from "../shell/panel-state";
 import type {PanelAlignment, PanelPosition, PanelPreferences, PanelState} from "../shell/panel-state";
-import {applyIntent, applyPatch} from "../views/intents";
+import type {ViewLocation} from "../../shared/views";
+import {applyIntent, applyPatch, arrivalPartOf} from "../views/intents";
 import type {IntentResult, ViewIntent} from "../views/intents";
 import {computePlacement} from "../views/placement";
 import type {ViewCatalog} from "../views/placement";
@@ -193,6 +194,8 @@ function defineLayoutStore(records: LayoutRecords) {
                 commitSizes: (patch: ShellSizePatch): void => {
                     commitSizeFields(side, ["sidebarWidth", "auxiliarybarWidth"], patch, (name, value) => clampLeafSize(value, shellLeafLimits(name === "sidebarWidth" ? "sidebar" : "auxiliarybar", Number.MAX_SAFE_INTEGER)));
                     commitSizeFields(panelSize, ["panelHeight", "panelWidth"], patch, (name, value) => (name === "panelHeight" ? clampPanelHeight(value) : clampPanelWidth(value)));
+                    // 编辑器拖到零即最大化、拖回即还原：与“最大化/还原面板”命令同一个内存位，不落盘（输出 7）。
+                    if (patch.panelMaximized !== undefined) maximized.value = patch.panelMaximized;
                     const collapse = patch.dragCollapsed;
                     if (collapse !== undefined && Object.entries(collapse).some(([part, value]) => (dragCollapsed.value[part as keyof ShellDragCollapseMap] ?? false) !== value)) {
                         void customizations.commit((value) => {
@@ -206,15 +209,36 @@ function defineLayoutStore(records: LayoutRecords) {
                 acceptViewCatalog: (next: ViewCatalog): void => {
                     catalog.value = next;
                 },
-                /** 一次视图或容器的意图；拒绝与无变化都不写。返回合成结果，命令据此给出失败码。 */
-                applyView: (intent: ViewIntent): IntentResult => {
+                /**
+                 * 一次视图或容器的意图；拒绝与无变化都不写。返回合成结果，命令据此给出失败码。`reveal`：落在拖动时浮出的
+                 * 预备区，同一次写入把这个 Part 显示出来（隐藏位、拖到零都清掉，右栏记为主动显示过，面板也不收起），意图
+                 * 本身无变化（选中本来就选中的容器）时照样显示。
+                 */
+                applyView: (intent: ViewIntent, options: {reveal?: ViewLocation} = {}): IntentResult => {
                     const result = applyIntent({catalog: catalog.value, placement: placement.value, presentation: presentation.value, customizations: customizations.display}, intent);
-                    if (result.kind === "patch") {
+                    const reveal = result.kind === "rejected" ? undefined : options.reveal;
+                    if (result.kind === "patch" || reveal !== undefined) {
+                        // 从别处放进收起成标题头的面板：同次展开，放进去的东西看得见（输出 39）。
+                        const opensPanel = panel.value.collapsed && arrivalPartOf(placement.value, intent) === "panel";
                         void customizations.commit((value) => {
-                            const outcome = applyPatch(value, result.patch, catalog.value);
-                            // 修改函数可能被调用多次：同一条原因只记一次。
-                            if (outcome.problem !== null && !patchProblems.value.includes(outcome.problem)) patchProblems.value = [...patchProblems.value, outcome.problem].slice(-20);
-                            return outcome.value;
+                            let next: Customizations;
+                            if (result.kind === "patch") {
+                                const outcome = applyPatch(value, result.patch, catalog.value);
+                                // 修改函数可能被调用多次：同一条原因只记一次。
+                                if (outcome.problem !== null && !patchProblems.value.includes(outcome.problem)) patchProblems.value = [...patchProblems.value, outcome.problem].slice(-20);
+                                // 补丁的前提在最新值上不成立时整条不写：随它一起的展开、显示也不写，免得空着展开一个没接到东西的 Part。
+                                if (outcome.problem !== null || (!opensPanel && reveal === undefined)) return outcome.value;
+                                next = editable(outcome.value);
+                            } else {
+                                next = editable(value);
+                            }
+                            if (opensPanel || reveal === "panel") next.panel = {...next.panel, collapsed: false, ...(reveal === "panel" ? {hidden: false} : {})};
+                            if (reveal === "sidebar" || reveal === "auxiliarybar") {
+                                if (next.hiddenParts?.includes(reveal) === true) next.hiddenParts = next.hiddenParts.filter((name) => name !== reveal);
+                                if (reveal === "auxiliarybar" && !(next.shownParts ?? []).includes(reveal)) next.shownParts = [...(next.shownParts ?? []), reveal];
+                            }
+                            if (reveal !== undefined && next.dragCollapsed?.[reveal] === true) next.dragCollapsed = {...next.dragCollapsed, [reveal]: false};
+                            return next;
                         });
                     }
                     return result;

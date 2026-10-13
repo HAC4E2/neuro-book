@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-没有绑定项目的窗口打开 `/` 时看到书架页（书房）：上半是案头（写作统计、最近写到、看板娘），一步回到上次写到的地方；下半是全部作品，卡片与列表两种视图，能新建作品、打开已有作品、修改作品信息与封面、移出书架。作品目录在设置窗口的“作品”分区里改，这个分区也由 `nbook.projects` 贡献（输出 18）。数据来自 `nbook.projects` 的远程服务（[`runtime.projects`](../runtime/projects.md)），统计只读缓存与运行中项目的实时状态，不为显示统计而打开项目。
+没有绑定项目的窗口打开 `/` 时看到书架页（书房）：上半是案头（写作统计、最近写到、看板娘），一步回到上次写到的地方；下半是全部作品，卡片与列表两种视图，能新建作品、打开已有作品、修改作品信息与封面、移出书架。作品目录在设置窗口的“作品”分区里改，这个分区也由 `nbook.projects` 贡献（输出 21）。数据来自 `nbook.projects` 的远程服务（[`runtime.projects`](../runtime/projects.md)），统计只读缓存与运行中项目的实时状态，不为显示统计而打开项目。
 
 不承诺：
 
@@ -77,18 +77,24 @@ owners:
 13. 编辑信息：同一个对话框（没有保存位置），关闭规则同第 11 条，改书名、简介、主题色与封面（换、移除）；保存后书架立即显示新值。失败同第 11 条。
 14. 从书架移除：先确认（说明只取消登记、不删目录）；作品正在打开或在关闭宽限期内时发通知说明原因并不移除。移除后选中下一部（没有时上一部），焦点回到书架；书架空了时焦点到“新建作品”。
 
-**设置窗口的“作品”分区**
-
-18. `nbook.projects` 向设置窗口贡献 page 分区 `nbook.works`：标题“作品”、图标 `i-lucide-library`、应用组、`order: 30`、column 页面、只在“用户”标签下可用（`layers: ["user"]`，“本作品”标签下左栏停用）。页面一行“作品目录”（`SettingsRow`）：控件是路径文字加“更改…”；没设时路径的位置是 `library()` 给出的缺省作品目录，后面标“（缺省）”（例如 `/home/writer/Documents/NeuroBook（缺省）`），恢复默认之后同样；`library()` 失败时写一句淡色的“取不到缺省目录”，“更改…”照常可用。
-    - “更改…”打开输出 12 的目录选择器（选目录模式），起点是现在的作品目录，没设时是缺省的作品目录。选择器是模态对话框，叠在设置窗口上面；Esc 与取消只关选择器，焦点回到“更改…”。
-    - 选定后经本插件的配置服务写进用户层（`update(librarySetting, 路径, {layer: "user"})`），写入结算之前显示这次选的目录；写不进去时发通知（标题同“作品目录没写进设置”），路径回到设置里的实际值。
-    - 已修改、“恢复默认”、设置文件有错误或连不上时停用，同设置窗口的其它项（[`settings.window`](../settings/settings-window.md) 输出 10、13、18）。
-
 **取数与刷新**
 
 15. 第一次取数期间显示骨架；第一次取数失败显示原因与“重试”。
 16. 页面可见时每 30 秒刷新一次，窗口重新获得焦点时也刷新，两者合并；同一时间至多一个请求在途，迟到的旧响应丢弃；页面隐藏或离开时停止。
 17. 刷新失败保留上次的数据，发一条常驻通知“书架没有更新”（带原因与“重试”），再失败只换内容不堆第二条，刷新成功后收回；某部作品的统计取不到时只影响那一部，按 `stale` 或 `none` 显示。
+
+**欢迎页**（作品打开之后的那一页，贡献到编辑器的页面贡献点 `editor.pages`，[workbench.editor](editor.md) 输出 33）
+
+18. 内容：书名（显示名）、简介（没有时写“还没有简介”）与统计（字数 · 篇数，过时的带“统计于…”，还没统计写“尚未统计”，与书卡同一写法）；“开始”里是主按钮“新建章节”、快捷入口与“回到书架”；“最近打开”是编辑器的最近打开（[workbench.editor](editor.md) 输出 31）的前 5 个，写出所在目录，没有时一句“还没有打开过文件”；“入门”是三条固定提示，第二条带命令面板的快捷键。没有绑定项目的窗口只显示“没有打开作品”与“回到书架”。
+19. 动作：“新建章节”在项目根建一个空的 Markdown 文件（`新章节.md`，同名已在时依次加 2、3）并以正式标签打开，失败时按钮下写出原因（文件建好了但打不开时写“建好了 X，但打不开”与原因）；快捷入口是项目根下名字以“大纲”“设定”开头的文件与文件夹（大纲在前，同类按名字），文件点了打开，文件夹点了在资源管理器里展开并选中（`nbook.files.reveal`）；最近打开点了打开；“回到书架”整页导航到 `/`。
+20. 打开：作品第一次在本窗口打开时自动打开（声明 `openOnFirstVisit`）；之后经“帮助 > 欢迎”（命令 `nbook.help.welcome`，命令面板里同名）打开，窗口里只有一个欢迎页；刷新后不恢复。每次成为活动标签时重新取一次作品信息与项目根的列出。
+
+**设置窗口的“作品”分区**
+
+21. `nbook.projects` 向设置窗口贡献 page 分区 `nbook.works`：标题“作品”、图标 `i-lucide-library`、应用组、`order: 30`、column 页面、只在“用户”标签下可用（`layers: ["user"]`，“本作品”标签下左栏停用）。页面一行“作品目录”（`SettingsRow`）：控件是路径文字加“更改…”；没设时路径的位置是 `library()` 给出的缺省作品目录，后面标“（缺省）”（例如 `/home/writer/Documents/NeuroBook（缺省）`），恢复默认之后同样；`library()` 失败时写一句淡色的“取不到缺省目录”，“更改…”照常可用。
+    - “更改…”打开输出 12 的目录选择器（选目录模式），起点是现在的作品目录，没设时是缺省的作品目录。选择器是模态对话框，叠在设置窗口上面；Esc 与取消只关选择器，焦点回到“更改…”。
+    - 选定后经本插件的配置服务写进用户层（`update(librarySetting, 路径, {layer: "user"})`），写入结算之前显示这次选的目录；写不进去时发通知（标题同“作品目录没写进设置”），路径回到设置里的实际值。
+    - 已修改、“恢复默认”、设置文件有错误或连不上时停用，同设置窗口的其它项（[`settings.window`](../settings/settings-window.md) 输出 10、13、18）。
 
 ## 状态与转换
 
@@ -145,14 +151,17 @@ owners:
 8. Given 书架上有作品，When 点网格末尾或列表末行的“新建作品”，Then 打开新建作品的对话框；键盘在网格里按 End 再按 Enter 同样打开，选中的作品不变。
 9. Given 新建作品的对话框，When 什么都没改就点遮罩，Then 对话框关闭；When 填了书名再点遮罩，Then 对话框不关；When 点“浏览…”，Then 目录选择器叠在新建对话框上面，按 Esc 只关选择器、焦点回到“浏览…”；When 打开主题色的“自定义…”，Then 取色面板显示在对话框之上、色相条可以拖动。
 
-10. Given 书架，When 点右上角的齿轮，Then 打开设置窗口、齿轮按下；When 在“作品”分区点“更改…”，Then 目录选择器叠在设置窗口上面，按 Esc 只关选择器、焦点回到“更改…”；When 选定一个目录，Then 它写进用户层设置、分区显示这个路径；When 恢复默认，Then 键从设置里删掉、回到显示缺省作品目录并标“（缺省）”。
+10. Given 带书名与简介、根下有 `大纲.md` 与 `设定/` 的作品，When 新客户端打开它，Then 欢迎页自动打开、是唯一的标签，书名、简介、统计行、“打开大纲”“打开设定”与入门都在，最近打开写“还没有打开过文件”；When 刷新，Then 欢迎页不恢复。
+11. Given 欢迎页，When 点“新建章节”两次（中间切回欢迎页），Then 项目根先后多出 `新章节.md`、`新章节 2.md`，都以正式标签打开。
+12. Given 欢迎页，When 点“打开大纲”，Then 大纲以标签打开、之后出现在最近打开里；When 点“打开设定”，Then 资源管理器里 `设定` 展开并选中；When 从“帮助”菜单点“欢迎”，Then 切回同一个欢迎页、标签不多出一个；When 点“回到书架”，Then 整页导航到书架页。
+13. Given 书架，When 点右上角的齿轮，Then 打开设置窗口、齿轮按下；When 在“作品”分区点“更改…”，Then 目录选择器叠在设置窗口上面，按 Esc 只关选择器、焦点回到“更改…”；When 选定一个目录，Then 它写进用户层设置、分区显示这个路径；When 恢复默认，Then 键从设置里删掉、回到显示缺省作品目录并标“（缺省）”。
 
-Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`ShelfDesk`、`ShelfCards`、`BookCard`、`BookCover`、`ShelfList`、`ProjectInfoDialog`、`PathPickerDialog`、`WorksSettingsPage`。
+Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进程、本机 Chrome）；Lab 场景 `BookshelfPage`、`ShelfDesk`、`ShelfCards`、`BookCard`、`BookCover`、`ShelfList`、`ProjectInfoDialog`、`PathPickerDialog`、`WelcomePage`、`WorksSettingsPage`；欢迎页 `e2e/welcome.e2e.ts`。
 
 ## 实现合同
 
 - **公开入口**：`nbook/plugins/projects/shared/contracts`（远程合同与 `ShelfItemSchema`、`librarySetting`）、`nbook/plugins/projects/shared/cover`（封面规则与地址）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）；页面模型 `createShelfPage`（`web/shelf-page.ts`）与组件是 `nbook.projects` 的内部实现。
-- **owner 与依赖方向**：书架页只经 `nbook.projects/projects` 的远程服务与封面路由取数与写入（[`runtime.projects`](../runtime/projects.md) 输出 17 到 21），用工作台的通知服务、首页贡献点 `workbench.home`、命令服务、公开状态（齿轮的按下态）与宿主的整页导航、新标签页、设置与 Storage（偏好记录）；“作品”分区经设置的贡献点 `settings.sections` 交给设置窗口，写作品目录用本插件自己的配置服务；不引用编辑器，继续写作只经地址参数（[`workbench.editor`](editor.md) 输出 29）。目录选择器用 nb-ui 的 `FileBrowser`，数据来源只有 `browse`（书架与“作品”分区共用 `web/browse.ts`）。
+- **owner 与依赖方向**：书架页只经 `nbook.projects/projects` 的远程服务与封面路由取数与写入（[`runtime.projects`](../runtime/projects.md) 输出 17 到 21），用工作台的通知服务、首页贡献点 `workbench.home`、命令服务、公开状态（齿轮的按下态）与宿主的整页导航、新标签页、设置与 Storage（偏好记录）；“作品”分区经设置的贡献点 `settings.sections` 交给设置窗口，写作品目录用本插件自己的配置服务；书架页不引用编辑器，继续写作只经地址参数（[`workbench.editor`](editor.md) 输出 29）；欢迎页贡献到编辑器的页面贡献点 `editor.pages`，经命令打开文件（`nbook.editor.open`）、揭示文件夹（`nbook.files.reveal`）与打开页面（`nbook.editor.open-page`），只引用编辑器的共享合同。目录选择器用 nb-ui 的 `FileBrowser`，数据来源只有 `browse`（书架与“作品”分区共用 `web/browse.ts`）。
 - **关键不变量**：
   - 同一时间至多一个书架请求在途，页面隐藏时不刷新，卸载后迟到的响应不改状态（验收 6 与状态表）。
   - 新建、修改信息、移出成功后以服务端的结果刷新，界面不先行改数据；移出后选中相邻的一部、焦点回到书架（验收 4）。
@@ -160,7 +169,7 @@ Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进�
 
 ## 证据
 
-- 批准依据：齿轮代替设置菜单与“作品”分区（输出 1、12、18）为 [t80 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md)第 6 节，开发者 2026-10-12 批准；提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐；2026-10-11 改为卡片与列表、加封面与案头，见决策记录）；取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
+- 批准依据：齿轮代替设置菜单与“作品”分区（输出 1、12、21，验收 13）为 [t80 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md)第 6 节，开发者 2026-10-12 批准；欢迎页（输出 18–20、验收 10–12）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 6 节，开发者 2026-10-12 确认；提案 [书架页](../../proposals/bookshelf.md)（开发者 2026-10-10 同意全部推荐；2026-10-11 改为卡片与列表、加封面与案头，见决策记录）；取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-10 的 t75 条目（按推荐先做，待开发者追认）。
 - 实现入口：[`web/shelf-page.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-page.ts)（取数、刷新与动作）、[`web/bookshelf-home.ts`](../../../packages/neuro-book/src/plugins/projects/web/bookshelf-home.ts)、[`web/components/BookshelfHost.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfHost.vue)、[`web/components/BookshelfPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue) 及同目录的案头、卡片、封面、列表、作品信息对话框与目录选择器组件、[`web/shelf-preferences.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-preferences.ts)；“作品”分区 [`web/works-section.ts`](../../../packages/neuro-book/src/plugins/projects/web/works-section.ts)、[`web/components/WorksSettingsPage.vue`](../../../packages/neuro-book/src/plugins/projects/web/components/WorksSettingsPage.vue)、共用的列目录 [`web/browse.ts`](../../../packages/neuro-book/src/plugins/projects/web/browse.ts)；首页贡献点在工作台（[ui.workbench-shell](../ui/workbench-shell.md) 输出 36）
-- 合同测试：[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoDialog.dom.test.ts`、`PathPickerDialog.dom.test.ts`、`WorksSettingsPage.dom.test.ts`（输出 18：没设时的缺省目录与取不到时的说明、选定后写进用户层、写不进去发通知并回到实际值、层不可写时停用）
-- Smoke：[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7、8、9、10）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）
+- 合同测试：欢迎页（输出 18–20）为 [`welcome-chapter.test.ts`](../../../packages/neuro-book/src/plugins/projects/welcome-chapter.test.ts)（新建章节：内存文件适配器与真实命令服务，名字避让、正式标签、打开失败的原因）、[`web/welcome.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/welcome.test.ts)（快捷入口的筛选与次序、新章节的名字）、组件测试 `WelcomePage.dom.test.ts`、[`projects.test.ts`](../../../packages/neuro-book/src/plugins/projects/projects.test.ts) 的命令登记（`nbook.help.welcome`）；[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（输出 9 到 17 与状态表：真实服务端与浏览器实例、真实通知队列、注入时钟）、[`shelf-format.test.ts`](../../../packages/neuro-book/src/plugins/projects/web/shelf-format.test.ts)、组件测试 `BookshelfPage.dom.test.ts`（焦点交回书架）、`ShelfCards.dom.test.ts`、`ShelfDesk.dom.test.ts`、`ShelfList.dom.test.ts`、`ProjectInfoDialog.dom.test.ts`、`PathPickerDialog.dom.test.ts`、`WorksSettingsPage.dom.test.ts`（输出 21：没设时的缺省目录与取不到时的说明、选定后写进用户层、写不进去发通知并回到实际值、层不可写时停用）
+- Smoke：欢迎页为 [`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 10–12）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（验收 1 的无统计部分、3、4、5、7、8、9、13）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（验收 1、2）；验收 6 由 `shelf-page.test.ts` 的刷新失败一组覆盖；Lab 场景 `BookshelfPage` 等（[`lab:shot` 截图](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/evidences/)）

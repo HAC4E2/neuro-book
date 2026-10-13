@@ -51,7 +51,7 @@ function handleChange(event: Event): void {
 
 <template>
     <label
-        class="group inline-flex items-start gap-2.5 text-[var(--text-sm)] text-[var(--text-main)] select-none transition-opacity"
+        class="group inline-flex items-start gap-2.5 text-[length:var(--text-sm)] text-[var(--text-main)] select-none transition-opacity"
         :class="props.disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'"
     >
         <input

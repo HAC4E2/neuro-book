@@ -6,17 +6,20 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNode} from "@notnotype/nb-ui/layout";
+import {createGridGestureSession} from "@notnotype/nb-ui/layout";
+import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNodeInput} from "@notnotype/nb-ui/layout";
 
-import {createShellGrid, projectShell, SHELL_BODY_ID, SHELL_CONTENT_ROW_ID, SHELL_MAIN_ID, SHELL_PANEL_STACK_ID, SHELL_ROOT_ID, shellGestureProblem, shellPatch, shellSettleableBranch} from "./layout";
-import type {ShellProjectionInput} from "./layout";
+import {createShellGrid, projectShell, SHELL_BODY_ID, SHELL_CONTENT_ROW_ID, SHELL_MAIN_ID, SHELL_PANEL_STACK_ID, SHELL_ROOT_ID, shellGestureProblem, shellNodeRects, shellPatch, shellSettleableBranch} from "./layout";
+import type {ShellNodeRect, ShellProjectionInput} from "./layout";
 import {
+    SASH_PX,
     SHELL_ACTIVITYBAR_WIDTH,
     SHELL_COMPACT_WIDTH,
     SHELL_EDITOR_MIN_HEIGHT,
     SHELL_EDITOR_MIN_WIDTH,
     SHELL_PANEL_COLLAPSED_HEIGHT,
     SHELL_PANEL_DEFAULT_HEIGHT,
+    SHELL_PANEL_MIN_HEIGHT,
     SHELL_SIZE_DEFAULTS,
     SHELL_STATUSBAR_HEIGHT,
     SHELL_TITLEBAR_HEIGHT,
@@ -28,12 +31,7 @@ import type {PanelState} from "./panel-state";
 const VIEWPORT: GridExtent = {width: 1440, height: 900};
 const PANEL: PanelState = {position: "bottom", alignment: "center", hidden: false, collapsed: false, maximized: false};
 
-interface Rect {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-}
+type Rect = ShellNodeRect;
 
 function project(overrides: Partial<ShellProjectionInput> = {}) {
     const input: ShellProjectionInput = {extent: VIEWPORT, preferences: SHELL_SIZE_DEFAULTS, panel: PANEL, hiddenParts: [], ...overrides};
@@ -42,27 +40,9 @@ function project(overrides: Partial<ShellProjectionInput> = {}) {
     return {projection, grid, layout: grid.layout(input.extent)};
 }
 
-/** 从树与呈现尺寸复原每个节点的绝对矩形：不重叠、在容器内这类断言只有它证得了。 */
-function collectRects(node: GridNode<string>, layout: GridLayoutResult, origin: {x: number; y: number}): Record<string, Rect> {
-    const size = layout.sizes[node.id] ?? {width: 0, height: 0};
-    const rects: Record<string, Rect> = {[node.id]: {left: origin.x, top: origin.y, right: origin.x + size.width, bottom: origin.y + size.height}};
-    if (node.kind === "branch") {
-        const horizontal = node.orientation === "horizontal";
-        const sash = layout.sashSizes[node.id] ?? [];
-        let cursor = horizontal ? origin.x : origin.y;
-        node.children.forEach((child, index) => {
-            const childSize = layout.sizes[child.id] ?? {width: 0, height: 0};
-            Object.assign(rects, collectRects(child, layout, horizontal ? {x: cursor, y: origin.y} : {x: origin.x, y: cursor}));
-            cursor += (horizontal ? childSize.width : childSize.height) + (sash[index] ?? 0);
-        });
-    }
-    return rects;
-}
-
 function rectsOf(grid: Grid<string>, layout: GridLayoutResult): Record<string, Rect> {
-    const root = grid.root();
-    if (root?.kind !== "branch") throw new Error("需要根分支");
-    return collectRects(root, layout, {x: 0, y: 0});
+    if (grid.root()?.kind !== "branch") throw new Error("需要根分支");
+    return shellNodeRects(grid, layout);
 }
 
 function leafExtent(layout: GridLayoutResult, id: string): GridExtent {
@@ -141,11 +121,12 @@ describe("拓扑与 activitybar 通高", () => {
         expect(rects.panel!.left).toBeGreaterThanOrEqual(0);
     });
 
-    it("最大化：面板占满编辑器所在列，侧栏与 activitybar 尺寸不变，editor 退到 0；不合法的组合不最大化", () => {
-        const {layout, grid} = project({panel: {...PANEL, maximized: true}});
+    it("最大化：面板占满编辑器所在列，侧栏与 activitybar 尺寸不变，editor 退到 0、与面板之间仍是 1px 可拖边界；不合法的组合不最大化", () => {
+        const {projection, layout, grid} = project({panel: {...PANEL, maximized: true}});
         const rects = rectsOf(grid, layout);
         expect(leafExtent(layout, "editor").height).toBe(0);
-        expect(rects.panel!.top).toBeCloseTo(rects[SHELL_PANEL_STACK_ID]!.top, 6);
+        expect(projection.sashSizes[SHELL_PANEL_STACK_ID]).toEqual([SASH_PX]);
+        expect(rects.panel!.top).toBeCloseTo(rects[SHELL_PANEL_STACK_ID]!.top + SASH_PX, 6);
         expect(rects.panel!.bottom).toBeCloseTo(rects[SHELL_PANEL_STACK_ID]!.bottom, 6);
         expect(leafExtent(layout, "activitybar").width).toBe(SHELL_ACTIVITYBAR_WIDTH);
         expect(leafExtent(layout, "sidebar").width).toBe(340);
@@ -162,8 +143,17 @@ describe("拓扑与 activitybar 通高", () => {
 });
 
 describe("降级与紧凑呈现", () => {
-    it("短高度：面板仅在呈现退到 32px 标题头，editor 仍有最小高度，并给出诊断", () => {
-        const extent = {width: 1440, height: 260};
+    it("矮一些时面板先压缩：给 editor 留出最小高度，面板压进剩下的空间（不写回偏好），并给出诊断", () => {
+        const {projection, layout} = project({extent: {width: 1440, height: 260}, preferences: {...SHELL_SIZE_DEFAULTS, panelHeight: 700}});
+        expect(projection.effectivePanel.collapsed).toBe(false);
+        expect(leafExtent(layout, "editor").height).toBeCloseTo(SHELL_EDITOR_MIN_HEIGHT, 6);
+        expect(leafExtent(layout, "panel").height).toBeCloseTo(260 - SHELL_TITLEBAR_HEIGHT - SHELL_STATUSBAR_HEIGHT - SASH_PX - SHELL_EDITOR_MIN_HEIGHT, 6);
+        expect(projection.issues.some((issue) => issue.includes("压缩"))).toBe(true);
+    });
+
+    it("短到面板的最小高度也放不下：面板仅在呈现退到 32px 标题头，editor 仍有最小高度，并给出诊断", () => {
+        // 主体 172px：172 − 1 − 80 < 120
+        const extent = {width: 1440, height: 230};
         const {projection, layout} = project({extent});
         expect(projection.effectivePanel.collapsed).toBe(true);
         expect(leafExtent(layout, "panel").height).toBe(SHELL_PANEL_COLLAPSED_HEIGHT);
@@ -173,8 +163,13 @@ describe("降级与紧凑呈现", () => {
         expect(projection.issues.some((issue) => issue.includes("标题头"))).toBe(true);
     });
 
-    it("紧凑呈现同样做高度降级：390×260 时面板退到 32px 标题头、编辑器拿到余量，并给出诊断", () => {
-        const {projection, layout} = project({extent: {width: 390, height: 260}});
+    it("紧凑呈现同样做高度降级：390×260 时面板压到给其余 Part 留出 120px；390×230 时退到 32px 标题头，并给出诊断", () => {
+        // 紧凑呈现不跑网格，外壳按投影的尺寸直接排叶
+        const roomy = project({extent: {width: 390, height: 260}});
+        expect(roomy.projection.effectivePanel.collapsed).toBe(false);
+        expect(roomy.projection.sizes.panel).toBeCloseTo(260 - SHELL_TITLEBAR_HEIGHT - SHELL_STATUSBAR_HEIGHT - SHELL_EDITOR_MIN_HEIGHT, 6);
+        expect(roomy.projection.sizes.panel).toBeGreaterThanOrEqual(SHELL_PANEL_MIN_HEIGHT);
+        const {projection, layout} = project({extent: {width: 390, height: 230}});
         expect(projection.mode).toBe("compact");
         expect(projection.effectivePanel.collapsed).toBe(true);
         expect(leafExtent(layout, "panel").height).toBe(SHELL_PANEL_COLLAPSED_HEIGHT);
@@ -334,10 +329,124 @@ describe("手势：只保存直接主动的叶", () => {
 
     it("外部容器变化让面板降级后，旧基线的提交整场拒绝", () => {
         const tall = project();
-        const short = project({extent: {width: VIEWPORT.width, height: 260}});
+        const short = project({extent: {width: VIEWPORT.width, height: 230}});
         const change = changeOf(tall.grid, tall.layout, SHELL_PANEL_STACK_ID, ["panel"], (baseline) => shift(baseline, "editor", "panel", 50));
         const settled = settle(short.grid, commitOf([change]));
         expect(settled.ok).toBe(false);
-        expect(short.grid.layout({width: VIEWPORT.width, height: 260}).sizes.panel?.height).toBe(SHELL_PANEL_COLLAPSED_HEIGHT);
+        expect(short.grid.layout({width: VIEWPORT.width, height: 230}).sizes.panel?.height).toBe(SHELL_PANEL_COLLAPSED_HEIGHT);
+    });
+});
+
+/** 投影树里按 id 找节点（建树前的输入，带收起意图）。 */
+function nodeOf(node: GridNodeInput<string>, id: string): GridNodeInput<string> | null {
+    if (node.id === id) return node;
+    if (node.kind !== "branch") return null;
+    for (const child of node.children) {
+        const found = nodeOf(child, id);
+        if (found !== null) return found;
+    }
+    return null;
+}
+
+/** 在面板与编辑器之间的那条边界上开一场真实的手势会话。 */
+function panelBoundary(overrides: Partial<ShellProjectionInput> = {}, axis: GridAxis = "height") {
+    const {projection, grid, layout} = project(overrides);
+    return createGridGestureSession<string>({
+        sessionId: "panel-boundary",
+        contextKey: "shell",
+        source: "pointer",
+        revision: 1,
+        root: grid.root(),
+        extent: overrides.extent ?? VIEWPORT,
+        layout,
+        sashSize: (branchId, index) => projection.sashSizes[branchId]?.[index] ?? 0,
+        sashes: [{branchId: SHELL_PANEL_STACK_ID, index: 0, axis}],
+    });
+}
+
+describe("面板拖到顶即最大化（输出 4、7、8）", () => {
+    it("面板没有固定上限：高窗口里 1000px 的偏好照呈现，editor 仍在最小高度以上", () => {
+        const {layout} = project({extent: {width: 1440, height: 1400}, preferences: {...SHELL_SIZE_DEFAULTS, panelHeight: 1000}});
+        expect(leafExtent(layout, "panel").height).toBe(1000);
+        expect(leafExtent(layout, "editor").height).toBeGreaterThanOrEqual(SHELL_EDITOR_MIN_HEIGHT);
+    });
+
+    it("能最大化的组合给编辑器写只经拖动的收起意图（最大化时为收起），不能最大化的不写", () => {
+        expect(nodeOf(project().projection.tree, "editor")?.collapse).toMatchObject({collapsedSize: 0, collapsed: false, toggleable: false});
+        expect(nodeOf(project({panel: {...PANEL, maximized: true}}).projection.tree, "editor")?.collapse).toMatchObject({collapsed: true, toggleable: false});
+        expect(nodeOf(project({panel: {...PANEL, position: "right"}}).projection.tree, "editor")?.collapse).toMatchObject({collapsed: false});
+        expect(nodeOf(project({panel: {...PANEL, alignment: "left"}}).projection.tree, "editor")?.collapse).toBeUndefined();
+        expect(nodeOf(project({panel: {...PANEL, collapsed: true}}).projection.tree, "editor")?.collapse).toBeUndefined();
+        expect(nodeOf(project({extent: {width: 700, height: 900}}).projection.tree, "editor")?.collapse).toBeUndefined();
+    });
+
+    it("往上拖：停在 editor 的最小高度；再往上越过阈值即最大化，补丁只有最大化、不改面板高度", () => {
+        // 默认：editor 641、面板 200
+        const session = panelBoundary();
+        expect(session.update({x: 0, y: -521})?.changes[0]).toMatchObject({target: {editor: SHELL_EDITOR_MIN_HEIGHT, panel: 721}});
+        expect(session.update({x: 0, y: -560})?.changes[0]).toMatchObject({target: {editor: 0, panel: 841}, collapsed: {editor: true}});
+        expect(shellPatch(session.finish()!)).toEqual({panelMaximized: true});
+    });
+
+    it("从最大化往下拖：不到 editor 的最小高度保持最大化，越过就还原，面板高度跟着指针", () => {
+        const session = panelBoundary({panel: {...PANEL, maximized: true}});
+        expect(session.update({x: 0, y: 60})).toBeNull();
+        const change = session.update({x: 0, y: 300})?.changes[0];
+        expect(change).toMatchObject({target: {editor: 300, panel: 541}, collapsed: {editor: false}});
+        expect(shellPatch(session.finish()!)).toEqual({panelMaximized: false, panelHeight: 541});
+    });
+
+    it("从最大化一场拖回：面板仍守自己的最小尺寸，再往下越过阈值就是拖到零（不写 0、不改尺寸记录）", () => {
+        // 最大化：editor 0、面板 841
+        const stop = panelBoundary({panel: {...PANEL, maximized: true}});
+        expect(stop.update({x: 0, y: 770})?.changes[0]).toMatchObject({target: {editor: 761, panel: 80}});
+        const zero = panelBoundary({panel: {...PANEL, maximized: true}});
+        const change = zero.update({x: 0, y: 830})?.changes[0];
+        expect(change).toMatchObject({target: {editor: 841, panel: 0}, collapsed: {editor: false, panel: true}});
+        expect(shellPatch(zero.finish()!)).toEqual({panelMaximized: false, dragCollapsed: {panel: true}});
+    });
+
+    it("面板拖到零时一次拉到顶：同一次求解就是最大化", () => {
+        const session = panelBoundary({dragCollapsedParts: {panel: true}});
+        const change = session.update({x: 0, y: -800})?.changes[0];
+        expect(change?.collapsed).toEqual({editor: true, panel: false});
+        expect(change?.target.editor).toBe(0);
+    });
+
+    it("矮到面板退成标题头时：标题栏 36、状态栏 22、标题头 32 不被挤，editor 取剩下的非负余量，网格与投影一致", () => {
+        for (const height of [200, 170, 100]) {
+            const {projection, layout} = project({extent: {width: 1440, height}});
+            expect(projection.effectivePanel.collapsed).toBe(true);
+            expect(leafExtent(layout, "titlebar").height).toBeCloseTo(SHELL_TITLEBAR_HEIGHT, 6);
+            expect(leafExtent(layout, "statusbar").height).toBeCloseTo(SHELL_STATUSBAR_HEIGHT, 6);
+            expect(leafExtent(layout, "panel").height).toBeCloseTo(SHELL_PANEL_COLLAPSED_HEIGHT, 6);
+            const editor = height - SHELL_TITLEBAR_HEIGHT - SHELL_STATUSBAR_HEIGHT - SHELL_PANEL_COLLAPSED_HEIGHT;
+            expect(leafExtent(layout, "editor").height).toBeCloseTo(editor, 6);
+            expect(projection.sizes.editor).toBeCloseTo(editor, 6);
+        }
+    });
+
+    it("右侧面板同样：往编辑器那边拖到底即最大化", () => {
+        const session = panelBoundary({panel: {...PANEL, position: "right"}}, "width");
+        const change = session.update({x: -2000, y: 0})?.changes[0];
+        expect(change?.collapsed).toEqual({editor: true});
+        expect(change?.target.editor).toBe(0);
+    });
+
+    it("面板拖到零后，边界上的 Enter 仍恢复面板，不变成最大化", () => {
+        const session = panelBoundary({dragCollapsedParts: {panel: true}});
+        const change = session.toggleCollapsed()?.changes[0];
+        expect(change?.collapsed).toEqual({panel: false});
+        expect(change?.target.panel).toBe(SHELL_PANEL_DEFAULT_HEIGHT);
+    });
+});
+
+describe("卡片外壳的缝宽（输出 3、38）", () => {
+    it("活动栏的叶宽是 48px 加上缝宽，分栏与紧凑呈现都一样；缝宽缺省、为负或不是数时按 0", () => {
+        expect(leafExtent(project({cardGap: 4}).layout, "activitybar").width).toBe(SHELL_ACTIVITYBAR_WIDTH + 4);
+        const compact = projectShell({extent: {width: SHELL_COMPACT_WIDTH - 1, height: 900}, preferences: SHELL_SIZE_DEFAULTS, panel: PANEL, cardGap: 4});
+        expect(compact.mode).toBe("compact");
+        expect(compact.sizes.activitybar).toBe(SHELL_ACTIVITYBAR_WIDTH + 4);
+        for (const cardGap of [undefined, -4, Number.NaN]) expect(leafExtent(project({cardGap}).layout, "activitybar").width).toBe(SHELL_ACTIVITYBAR_WIDTH);
     });
 });

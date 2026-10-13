@@ -25,13 +25,14 @@
  *
  * 尺寸口径：
  * - 偏好只有四个绝对值：侧栏宽、右栏宽、面板高、面板宽；编辑器永远吸收余量；
- * - 只有可调整的边界占 1px：activitybar 相邻、titlebar 与 statusbar 相邻、面板收起或最大化时都不占；
- * - 偏好装不下时先把余量降到 0，再按“偏好减最小值”的可缩空间同比压到容器内（不写回偏好）；连最小值都装不下时进入
- *   紧凑呈现（宽度轴）或把面板退到 32px 标题头（高度轴），并给诊断。
+ * - 只有可调整的边界占 1px：activitybar 相邻、titlebar 与 statusbar 相邻、面板收起为标题头时都不占；最大化时面板与编辑器之间
+ *   仍是 1px，编辑器在那里被拖到零，往回拖就还原；
+ * - 偏好装不下时先给编辑器留出它的最小尺寸，再按“偏好减最小值”的可缩空间同比压到容器内（不写回偏好）；连最小值都装不下时
+ *   进入紧凑呈现（宽度轴）或把面板退到 32px 标题头（高度轴），并给诊断。
  */
 
 import {createGrid} from "@notnotype/nb-ui/layout";
-import type {Grid, GridAxis, GridBranch, GridBranchInput, GridExtent, GridGestureCommit, GridLeafInput, GridNodeInput} from "@notnotype/nb-ui/layout";
+import type {Grid, GridAxis, GridBranch, GridBranchInput, GridExtent, GridGestureCommit, GridLayoutResult, GridLeafInput, GridNode, GridNodeInput} from "@notnotype/nb-ui/layout";
 
 import {isHorizontalPanelPosition, panelMaximizable} from "./panel-state";
 import type {PanelAlignment, PanelPosition, PanelState} from "./panel-state";
@@ -49,6 +50,7 @@ import {
     SHELL_EDITOR_MIN_WIDTH,
     SHELL_HIDDEN_PART_IDS,
     SHELL_PANEL_COLLAPSED_HEIGHT,
+    SHELL_PANEL_MIN_HEIGHT,
     SHELL_PANEL_MIN_WIDTH,
     SHELL_SIDEBAR_MIN_WIDTH,
     SHELL_STATUSBAR_HEIGHT,
@@ -80,6 +82,11 @@ export interface ShellProjectionInput {
     readonly hiddenParts?: ReadonlyArray<string>;
     /** 用户拖到零的 Part：保留节点与展开尺寸意图，内容 0px、相邻保留 1px 可拖边界。与隐藏（移出树）是两件事。 */
     readonly dragCollapsedParts?: ShellDragCollapseMap;
+    /**
+     * 卡片外壳的缝宽（px，主题的 `--shell-gap`，平铺为 0）：活动栏的叶宽加上它，让出左侧的缝之后卡片仍是 48px，
+     * 38px 按钮的外扩焦点光环不被卡片裁掉（输出 3、38）。
+     */
+    readonly cardGap?: number;
 }
 
 export interface ShellProjection {
@@ -197,6 +204,8 @@ interface SizingState {
     readonly hidden: Readonly<Record<string, true>>;
     readonly dragCollapsed: ShellDragCollapseMap;
     readonly viewportWidth: number;
+    /** 活动栏的叶宽：卡片宽加上卡片外壳的缝。 */
+    readonly activitybarWidth: number;
     sizes: Record<string, number>;
     sashSizes: Record<string, number[]>;
     issues: string[];
@@ -207,7 +216,7 @@ function shellSashSize(state: SizingState, leftId: string, rightId: string): num
     if (state.mode === "compact") return 0;
     const rigidNeighbour = (id: string): boolean => id === "activitybar" || id === "titlebar" || id === "statusbar";
     if (rigidNeighbour(leftId) || rigidNeighbour(rightId)) return 0;
-    if ((leftId === "panel" || rightId === "panel") && (state.effective.collapsed || state.effective.maximized)) return 0;
+    if ((leftId === "panel" || rightId === "panel") && state.effective.collapsed) return 0;
     return SASH_PX;
 }
 
@@ -239,7 +248,7 @@ function classifyChild(child: GridNodeInput<string>, axis: GridAxis, state: Sizi
     const id = child.id;
     if (id === "panel") {
         if (state.effective.maximized) return {kind: "remainder"};
-        const limits = shellPanelAxisLimits(axis, {collapsed: false, maximized: false});
+        const limits = shellPanelAxisLimits(axis, {collapsed: false});
         const key: PreferenceKey = axis === "width" ? "panelWidth" : "panelHeight";
         const restore = clampLeafSize(state.preferences[key], limits);
         noteClamped(state, key, restore);
@@ -247,7 +256,7 @@ function classifyChild(child: GridNodeInput<string>, axis: GridAxis, state: Sizi
         if (state.effective.collapsed) return {kind: "fixed", size: SHELL_PANEL_COLLAPSED_HEIGHT};
         return {kind: "preference", key, limits, size: restore};
     }
-    if (id === "activitybar") return {kind: "fixed", size: SHELL_ACTIVITYBAR_WIDTH};
+    if (id === "activitybar") return {kind: "fixed", size: state.activitybarWidth};
     if (id === "titlebar") return {kind: "fixed", size: SHELL_TITLEBAR_HEIGHT};
     if (id === "statusbar") return {kind: "fixed", size: SHELL_STATUSBAR_HEIGHT};
     if (id === "sidebar" || id === "auxiliarybar") {
@@ -268,17 +277,45 @@ function noteClamped(state: SizingState, key: PreferenceKey, shown: number): voi
     if (saved !== shown) state.issues.push(`${key} 的偏好 ${String(saved)}px 越出可用区间：已按 ${String(shown)}px 呈现（不改写记录）`);
 }
 
-/** 高度轴的降级：展开的面板与 editor 的最小高度装不下时，只在呈现中把面板退到 32px 标题头，偏好不动。 */
+/**
+ * 高度轴的降级：连展开面板的最小高度与 editor 的最小高度都装不下时，只在呈现中把面板退到 32px 标题头，偏好不动。偏好比可用
+ * 空间大但最小值装得下时不退：分配会给编辑器留出最小高度、把面板压进剩下的空间（面板没有固定上限，偏好可能来自更高的窗口）。
+ */
 function preflightPanelCollapse(branch: GridBranchInput<string>, state: SizingState): void {
     if (branch.orientation !== "vertical" || state.effective.collapsed || state.effective.maximized) return;
     if (!isHorizontalPanelPosition(state.effective.position) || !branch.children.some((child) => child.id === "panel")) return;
+    if (state.dragCollapsed.panel === true) return;
     const sash = branchSash(state, branch).reduce((sum, size) => sum + size, 0);
     const available = Math.max(0, branch.size!.height - sash);
-    const desired = clampPanelHeight(state.preferences.panelHeight);
-    if (available - desired < SHELL_EDITOR_MIN_HEIGHT) {
+    if (available - SHELL_PANEL_MIN_HEIGHT < SHELL_EDITOR_MIN_HEIGHT) {
         state.effective.collapsed = true;
-        state.issues.push(`外壳高度不足 editor ≥ ${String(SHELL_EDITOR_MIN_HEIGHT)}px 与面板 ${String(desired)}px：面板仅在呈现退回 ${String(SHELL_PANEL_COLLAPSED_HEIGHT)}px 标题头`);
+        state.issues.push(`外壳高度不足 editor ≥ ${String(SHELL_EDITOR_MIN_HEIGHT)}px 与面板 ≥ ${String(SHELL_PANEL_MIN_HEIGHT)}px：面板仅在呈现退回 ${String(SHELL_PANEL_COLLAPSED_HEIGHT)}px 标题头`);
     }
+}
+
+/**
+ * 编辑器在面板所在的分支里可以被拖到零，那就是瞬时最大化（输出 7）：只在最大化成立的组合下——分栏呈现、编辑器与面板同为
+ * panel-stack 的子节点（水平居中或左右位置）、面板没有退到标题头。
+ */
+function editorCollapsibleHere(branch: GridBranchInput<string>, state: SizingState): boolean {
+    if (state.mode !== "split" || branch.id !== SHELL_PANEL_STACK_ID || state.effective.collapsed) return false;
+    if (!panelMaximizable(state.effective.position, state.effective.alignment)) return false;
+    return branch.children.some((child) => child.id === "editor") && branch.children.some((child) => child.id === "panel");
+}
+
+/**
+ * 编辑器的收起意图：吸附与展开都看它的最小尺寸，所以最大化时也照写最小尺寸。只经拖动收起（`toggleable: false`）：编辑器在
+ * 边界前侧时，边界上的 Enter 仍要恢复拖到零的面板（输出 8），不能变成最大化。
+ */
+function writeEditorCollapse(node: GridNodeInput<string>, maximized: boolean, size: number): void {
+    node.collapse = {
+        collapsedSize: 0,
+        restoreSize: Math.max(0, size),
+        collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
+        expandThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
+        collapsed: maximized,
+        toggleable: false,
+    };
 }
 
 /** 只把尺寸与约束写到节点上，不递归（紧凑呈现按显式计划逐层调用）。 */
@@ -319,9 +356,9 @@ function distributeBranch(branch: GridBranchInput<string>, state: SizingState): 
     const sizes = roles.map((role) => (role.kind === "remainder" || role.kind === "drag-collapsed" ? 0 : role.size));
     let preferredTotal = preferred.reduce((sum, entry) => sum + entry.role.size, 0);
     const budget = Math.max(0, available - fixedTotal);
-    // 余量（编辑器所在的那部分）先留出它自己的最小宽度，偏好再在剩下的里面分；否则侧栏按偏好占满，编辑器与它下面的
-    // 面板会被压到几十 px，面板的框架按钮被裁掉。
-    const reserve = maximizedHere ? 0 : remainders.reduce((sum, index) => sum + minimumWidth(branch.children[index]!, axis, state), 0);
+    // 余量（编辑器所在的那部分）先留出它自己的最小尺寸，偏好再在剩下的里面分；否则侧栏按偏好占满，编辑器与它下面的
+    // 面板会被压到几十 px，面板的框架按钮被裁掉。高度轴同理：面板没有固定上限，编辑器的 120px 靠这里留。
+    const reserve = maximizedHere ? 0 : remainders.reduce((sum, index) => sum + minimumMain(branch.children[index]!, axis, state), 0);
     if (preferredTotal > budget - reserve) {
         // 偏好装不下：按“偏好减最小值”的可缩空间同比压到容器内，不写回偏好。
         const shrinkable = preferred.reduce((sum, entry) => sum + Math.max(0, entry.role.size - entry.role.limits.minimumSize), 0);
@@ -342,9 +379,22 @@ function distributeBranch(branch: GridBranchInput<string>, state: SizingState): 
         state.issues.push(`分支 ${branch.id} 没有余量叶：剩余 ${String(rest)}px 未分配`);
     }
 
+    const editorCollapsible = editorCollapsibleHere(branch, state);
+    // 面板在这一轴上最少还要占多少：标题头 32、拖到零 0、展开时它的最小尺寸。内容节点的最小尺寸不能超过剩下的空间，
+    // 否则网格为了保住它会去挤标题头与标题栏、状态栏（矮窗口里编辑器只该取非负余量，输出 5）。
+    const panelFloor = state.effective.collapsed ? SHELL_PANEL_COLLAPSED_HEIGHT : state.dragCollapsed.panel === true ? 0 : axis === "width" ? SHELL_PANEL_MIN_WIDTH : SHELL_PANEL_MIN_HEIGHT;
     branch.children.forEach((child, index) => {
         const role = roles[index]!;
-        assignNode(child, axis, sizes[index]!, branchCross, role.kind === "preference" || role.kind === "drag-collapsed" ? role.limits : null, state);
+        // 面板同列的内容节点（编辑器或包着它的内容行）在面板轴上带编辑器的最小尺寸：拖面板时停在那里，或者越过阈值把编辑器拖到零。
+        const contentLimits = branch.id === SHELL_PANEL_STACK_ID && child.id !== "panel" ? {minimumSize: Math.min(minimumMain(child, axis, state), Math.max(0, available - panelFloor)), maximumSize: SHELL_EDITOR_MAX_WIDTH} : null;
+        // 最大化的面板占满这一列，但仍守自己的最小尺寸与拖到零：从最大化一场拖回时，面板照常停在最小值、越过阈值才拖到零。
+        const maximizedPanel = maximizedHere && child.id === "panel" ? shellPanelAxisLimits(axis, {collapsed: false}) : null;
+        assignNode(child, axis, sizes[index]!, branchCross, role.kind === "preference" || role.kind === "drag-collapsed" ? role.limits : (maximizedPanel ?? contentLimits), state);
+        if (editorCollapsible && child.id === "editor") writeEditorCollapse(child, state.effective.maximized, sizes[index]!);
+        if (maximizedPanel !== null) {
+            const key: PreferenceKey = axis === "width" ? "panelWidth" : "panelHeight";
+            writeCollapseIntent(child, axis, {kind: "preference", restore: clampLeafSize(state.preferences[key], maximizedPanel), size: sizes[index]!});
+        }
         if (role.kind === "drag-collapsed") {
             // 呈现 0px，意图保留展开尺寸：恢复与“记忆尺寸”都读它。
             writeCollapseIntent(child, axis, {kind: "drag-collapsed", restore: role.restore, size: role.restore});
@@ -357,11 +407,15 @@ function distributeBranch(branch: GridBranchInput<string>, state: SizingState): 
 }
 
 /**
- * 一个余量节点在宽度轴上至少要多宽才可用：编辑器的最小宽度，加上同一行里左右面板与侧栏的最小宽度（拖到零的不算）。
- * 高度轴返回 0：高度不足由面板退到标题头处理（`preflightPanelCollapse`）。
+ * 一个余量节点沿 `axis` 至少要多大才可用。宽度轴：编辑器的最小宽度，加上同一行里左右面板与侧栏的最小宽度（拖到零的不算）。
+ * 高度轴：只有编辑器有最小高度，内容行取其中最大的；侧栏、右栏的高度跟着行走。
  */
-function minimumWidth(node: GridNodeInput<string>, axis: GridAxis, state: SizingState): number {
-    if (axis !== "width") return 0;
+function minimumMain(node: GridNodeInput<string>, axis: GridAxis, state: SizingState): number {
+    if (axis === "height") {
+        if (node.kind === "leaf") return node.id === "editor" ? SHELL_EDITOR_MIN_HEIGHT : 0;
+        const children = node.children.map((child) => minimumMain(child, axis, state));
+        return node.orientation === "vertical" ? children.reduce((sum, height) => sum + height, 0) : Math.max(0, ...children);
+    }
     if (node.kind === "leaf") {
         if (node.id === "editor") return SHELL_EDITOR_MIN_WIDTH;
         if (state.dragCollapsed[node.id as ShellDragCollapsiblePart] === true) return 0;
@@ -369,7 +423,7 @@ function minimumWidth(node: GridNodeInput<string>, axis: GridAxis, state: Sizing
         if (node.id === "sidebar" || node.id === "auxiliarybar") return shellLeafLimits(node.id, state.viewportWidth).minimumSize;
         return 0;
     }
-    const children = node.children.map((child) => minimumWidth(child, axis, state));
+    const children = node.children.map((child) => minimumMain(child, axis, state));
     return node.orientation === "horizontal" ? children.reduce((sum, width) => sum + width, 0) + Math.max(0, children.length - 1) * SASH_PX : Math.max(0, ...children);
 }
 
@@ -380,7 +434,7 @@ function compactSizes(root: GridBranchInput<string>, state: SizingState, extent:
     const titlebar = state.hidden.titlebar ? 0 : Math.min(SHELL_TITLEBAR_HEIGHT, height);
     const statusbar = Math.min(SHELL_STATUSBAR_HEIGHT, Math.max(0, height - titlebar));
     const bodyHeight = Math.max(0, height - titlebar - statusbar);
-    const activitybar = state.hidden.activitybar ? 0 : SHELL_ACTIVITYBAR_WIDTH;
+    const activitybar = state.hidden.activitybar ? 0 : state.activitybarWidth;
     const bodyWidth = Math.max(0, width - activitybar);
 
     state.sizes = {};
@@ -389,17 +443,18 @@ function compactSizes(root: GridBranchInput<string>, state: SizingState, extent:
     const main = root.children.find((child) => child.id === SHELL_MAIN_ID) as GridBranchInput<string>;
     writeNode(main, "width", bodyHeight, width, null, state);
     const activityLeaf = main.children.find((child) => child.id === "activitybar");
-    if (activityLeaf !== undefined) writeNode(activityLeaf, "width", activitybar, bodyHeight, shellLeafLimits("activitybar", 0), state);
+    if (activityLeaf !== undefined) writeNode(activityLeaf, "width", activitybar, bodyHeight, {minimumSize: state.activitybarWidth, maximumSize: state.activitybarWidth}, state);
     const body = main.children.find((child) => child.id === SHELL_BODY_ID) as GridBranchInput<string>;
     writeNode(body, "width", bodyWidth, bodyHeight, null, state);
 
     const panelPresent = body.children.some((child) => child.id === "panel");
-    // 与分栏呈现同一条高度降级：展开的面板让其余 Part 拿不到编辑器的最小高度时，只在呈现中退到 32px 标题头。
-    if (panelPresent && !state.effective.collapsed && bodyHeight - clampPanelHeight(state.preferences.panelHeight) < SHELL_EDITOR_MIN_HEIGHT) {
+    // 与分栏呈现同一条高度降级：面板压到最小高度也让其余 Part 拿不到编辑器的最小高度时，只在呈现中退到 32px 标题头；
+    // 偏好放不下但最小值放得下时把面板压进去。
+    if (panelPresent && !state.effective.collapsed && bodyHeight - SHELL_PANEL_MIN_HEIGHT < SHELL_EDITOR_MIN_HEIGHT) {
         state.effective.collapsed = true;
         state.issues.push(`紧凑呈现高度 ${String(bodyHeight)}px 装不下编辑器与展开的面板：面板仅在呈现退回 ${String(SHELL_PANEL_COLLAPSED_HEIGHT)}px 标题头`);
     }
-    const panelSize = panelPresent ? (state.effective.collapsed ? SHELL_PANEL_COLLAPSED_HEIGHT : Math.min(clampPanelHeight(state.preferences.panelHeight), bodyHeight)) : 0;
+    const panelSize = panelPresent ? (state.effective.collapsed ? SHELL_PANEL_COLLAPSED_HEIGHT : Math.min(clampPanelHeight(state.preferences.panelHeight), bodyHeight - SHELL_EDITOR_MIN_HEIGHT)) : 0;
     const others = body.children.length - (panelPresent ? 1 : 0);
     const rest = Math.max(0, bodyHeight - panelSize);
     if (others > 0 && rest <= 0) state.issues.push(`紧凑呈现高度 ${String(bodyHeight)}px 不足：主体叶取 0`);
@@ -421,8 +476,8 @@ function finiteExtent(extent: GridExtent): GridExtent {
 }
 
 /** split 呈现下横向最小值装不装得下：装不下就退紧凑。 */
-function splitRowFits(position: PanelPosition, hidden: Readonly<Record<string, true>>, dragCollapsed: ShellDragCollapseMap, width: number): boolean {
-    const body = Math.max(0, width - (hidden.activitybar ? 0 : SHELL_ACTIVITYBAR_WIDTH));
+function splitRowFits(position: PanelPosition, hidden: Readonly<Record<string, true>>, dragCollapsed: ShellDragCollapseMap, width: number, activitybarWidth: number): boolean {
+    const body = Math.max(0, width - (hidden.activitybar ? 0 : activitybarWidth));
     // 拖到零的 Part 不再要求展开最小宽度，但保留的 1px 边界照算。
     const sidebars = (hidden.sidebar || dragCollapsed.sidebar === true ? 0 : SHELL_SIDEBAR_MIN_WIDTH) + (hidden.auxiliarybar || dragCollapsed.auxiliarybar === true ? 0 : SHELL_AUXILIARYBAR_MIN_WIDTH);
     const horizontal = isHorizontalPanelPosition(position);
@@ -440,6 +495,8 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
     const dragCollapsed: Partial<Record<ShellDragCollapsiblePart, boolean>> = {};
     for (const part of SHELL_DRAG_COLLAPSIBLE_IDS) if (hidden[part] !== true && input.dragCollapsedParts?.[part] === true) dragCollapsed[part] = true;
     const issues: string[] = [];
+    const gap = input.cardGap ?? 0;
+    const activitybarWidth = SHELL_ACTIVITYBAR_WIDTH + (Number.isFinite(gap) && gap > 0 ? gap : 0);
 
     // 生效的面板状态：左右位置忽略收起与对齐；最大化只在合法组合下成立。
     const storedHorizontal = isHorizontalPanelPosition(input.panel.position);
@@ -451,7 +508,7 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
     // 宽度 ≥ 800 时主体至少 740px：底部与顶部面板装得下（两个侧栏与编辑器最小 594px）；左右面板要 755px，800 宽附近
     // 退紧凑。按实际最小值判定，常量改了也不会给出越界的几何。
     let mode: ShellLayoutMode = extent.width < SHELL_COMPACT_WIDTH ? "compact" : "split";
-    if (mode === "split" && !splitRowFits(position, hidden, dragCollapsed, extent.width)) {
+    if (mode === "split" && !splitRowFits(position, hidden, dragCollapsed, extent.width, activitybarWidth)) {
         mode = "compact";
         issues.push(`容器宽 ${String(extent.width)}px 装不下侧栏与编辑区的最小宽度：已切换紧凑呈现`);
     }
@@ -470,6 +527,7 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
         hidden,
         dragCollapsed,
         viewportWidth: extent.width,
+        activitybarWidth,
         sizes: {},
         sashSizes: {},
         issues,
@@ -492,6 +550,37 @@ export function projectShell(input: ShellProjectionInput): ShellProjection {
 export function createShellGrid(projection: ShellProjection): Grid<string> {
     const sash = projection.sashSizes;
     return createGrid(projection.tree, {sashSize: (branchId, index) => sash[branchId]?.[index] ?? 0});
+}
+
+/** 节点在网格根里的矩形（CSS px，原点是网格根的左上角）。 */
+export interface ShellNodeRect {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+}
+
+/**
+ * 每个节点在网格根里的矩形：网格的呈现只给尺寸，位置按树沿各分支的主轴把前面的兄弟与边界占用累加出来。
+ */
+export function shellNodeRects(grid: Grid<string>, layout: GridLayoutResult): Record<string, ShellNodeRect> {
+    const rects: Record<string, ShellNodeRect> = {};
+    const place = (node: GridNode<string>, x: number, y: number): void => {
+        const size = layout.sizes[node.id] ?? {width: 0, height: 0};
+        rects[node.id] = {left: x, top: y, right: x + size.width, bottom: y + size.height};
+        if (node.kind !== "branch") return;
+        const horizontal = node.orientation === "horizontal";
+        const sash = layout.sashSizes[node.id] ?? [];
+        let cursor = horizontal ? x : y;
+        node.children.forEach((child, index) => {
+            const childSize = layout.sizes[child.id] ?? {width: 0, height: 0};
+            place(child, horizontal ? cursor : x, horizontal ? y : cursor);
+            cursor += (horizontal ? childSize.width : childSize.height) + (sash[index] ?? 0);
+        });
+    };
+    const root = grid.root();
+    if (root !== null) place(root, 0, 0);
+    return rects;
 }
 
 // ── 手势 ─────────────────────────────────────────────────────────────────────
@@ -529,8 +618,12 @@ export function shellPatch(commit: GridGestureCommit): ShellSizePatch {
         for (const [childId, collapsed] of Object.entries(change.collapsed)) {
             if ((SHELL_DRAG_COLLAPSIBLE_IDS as ReadonlyArray<string>).includes(childId)) dragCollapsed[childId as ShellDragCollapsiblePart] = collapsed;
         }
+        const editorCollapse = change.collapsed.editor;
+        if (editorCollapse !== undefined) patch.panelMaximized = editorCollapse;
         for (const childId of change.active) {
             if (change.collapsed[childId] === true) continue;
+            // 编辑器被拖到零的这一次，面板的目标是“占满”而不是新的尺寸意图：不写，还原时回到拖之前的尺寸。
+            if (childId === "panel" && editorCollapse === true) continue;
             const before = change.baseline[childId];
             const after = change.target[childId];
             if (before === undefined || after === undefined || Math.abs(after - before) <= 1e-6) continue;

@@ -291,7 +291,7 @@ describe("Spec projects 场景 11：打开项目", () => {
 });
 
 describe("Spec projects 输出 10：命令登记", () => {
-    it("产品的浏览器插件装配后，“打开项目”在本窗口的命令表里（人类可见、当前可用）", async () => {
+    it("产品的浏览器插件装配后，“打开项目”与“欢迎”在本窗口的命令表里（人类可见、当前可用）", async () => {
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "window-1"}});
         let commands: CommandService | null = null;
         const plugins = [
@@ -317,6 +317,8 @@ describe("Spec projects 输出 10：命令登记", () => {
         expect(await app.startup).toMatchObject({status: "available", failures: []});
         expect(commands!.get("nbook.project.open")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "打开项目"}}});
         expect(commands!.isEnabled("nbook.project.open")).toEqual({ok: true, value: true});
+        // “帮助 > 欢迎”（bookshelf.md 的“欢迎页”）：命令在命令表里，人类可见。
+        expect(commands!.get("nbook.help.welcome")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "欢迎"}}});
         await app.stop();
     });
 });

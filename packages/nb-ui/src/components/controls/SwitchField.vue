@@ -25,8 +25,8 @@ const emit = defineEmits<{
         @click="emit('update:modelValue', !props.modelValue)"
     >
         <span class="min-w-0">
-            <span class="block text-[var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)] transition-colors">{{ props.label }}</span>
-            <span v-if="props.description" class="mt-0.5 block text-[var(--text-xs)] text-[var(--text-muted)]">{{ props.description }}</span>
+            <span class="block text-[length:var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)] transition-colors">{{ props.label }}</span>
+            <span v-if="props.description" class="mt-0.5 block text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ props.description }}</span>
         </span>
         <span
             class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-[var(--radius-pill)] border-[length:var(--border-w)] p-0.5 transition-[background-color,border-color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"

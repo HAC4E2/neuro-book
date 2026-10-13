@@ -1,6 +1,6 @@
 /**
  * 列服务端上的一个目录给目录选择器（`PathPickerDialog`）：书架的“打开已有作品”、新建时的“浏览…”与设置窗口“作品”分区的
- * “更改…”走同一条路径（docs/specs/workbench/bookshelf.md 输出 12、18）。失败原因按当前语言写好，给选择器显示。
+ * “更改…”走同一条路径（docs/specs/workbench/bookshelf.md 输出 12、21）。失败原因按当前语言写好，给选择器显示。
  */
 
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";

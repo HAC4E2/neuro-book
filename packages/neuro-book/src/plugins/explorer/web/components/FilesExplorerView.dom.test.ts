@@ -1,6 +1,6 @@
 /**
- * FilesExplorerView 与 ExplorerFeedback（同名 .md）：工具栏的动作与可用性、显示清单文件的按下状态、未打开项目与停止
- * 同步的提示、偏好记录的三种问题、结果区的提示与关闭、英文界面。行数据由真实的投影算出。
+ * FilesExplorerView 与 ExplorerFeedback（同名 .md）：还没就绪时的加载中、未打开项目与停止同步的提示、偏好记录的三种
+ * 问题、结果区的提示与关闭、英文界面。行数据由真实的投影算出。标题上的五个动作由外壳按视图声明画（views.md 输出 10）。
  */
 
 import {mount} from "@vue/test-utils";
@@ -18,18 +18,14 @@ const LIVE: RootState[] = [
 ];
 
 function view(props: Record<string, unknown> = {}) {
-    return mount(FilesExplorerView, {props: {locale: "zh-CN", rows: rows(LIVE), selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}});
+    return mount(FilesExplorerView, {props: {locale: "zh-CN", rows: rows(LIVE), selected: [], focus: null, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}});
 }
 
 describe("FilesExplorerView", () => {
-    it("工具栏发出动作；显示清单文件是切换按钮；还没就绪时按钮禁用、树换成加载中", async () => {
-        const wrapper = view({showManifests: true});
-        for (const action of ["refresh", "collapse-all", "toggle-manifests"]) await wrapper.get(`[data-explorer-tool="${action}"]`).trigger("click");
-        expect(wrapper.emitted("toolbar")).toEqual([["refresh"], ["collapse-all"], ["toggle-manifests"]]);
-        expect(wrapper.get("[data-explorer-tool=\"toggle-manifests\"]").attributes("aria-pressed")).toBe("true");
-        expect(wrapper.get("[data-explorer-tool=\"refresh\"]").attributes("aria-pressed")).toBeUndefined();
+    it("还没就绪时树换成加载中，按状态播报；视图里不再画自己的工具栏", async () => {
+        const wrapper = view();
+        expect(wrapper.find("[role=toolbar]").exists()).toBe(false);
         await wrapper.setProps({ready: false});
-        expect(wrapper.get("[data-explorer-tool=\"refresh\"]").attributes("disabled")).toBeDefined();
         expect(wrapper.find("[role=tree]").exists()).toBe(false);
         const loading = wrapper.get("[data-explorer-loading]");
         expect(loading.text()).toBe("正在读取…");

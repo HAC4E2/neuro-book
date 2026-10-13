@@ -15,6 +15,8 @@ const props = defineProps<{
     selected: boolean;
     active: boolean;
     height: number;
+    /** 项目根显示的作品名（书名，没有时是目录原名）；没有绑定项目时不给，显示“项目”。 */
+    projectTitle?: string | null;
     /** 内联输入（新建与改名）：名字、已换成文字的错误、是否在提交。 */
     edit?: {readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
 }>();
@@ -68,7 +70,7 @@ const indent = computed(() => `${String(8 + props.row.depth * INDENT)}px`);
 
 const label = computed(() => {
     const row = props.row;
-    if (row.kind === "root") return explorerText(props.locale, row.scheme === "project" ? "projectRoot" : "userRoot");
+    if (row.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot");
     if (row.kind === "entry") return row.label;
     if (row.kind === "edit") return "";
     switch (row.status) {
@@ -173,7 +175,7 @@ const inputLabel = computed(() => {
         v-else-if="row.kind !== 'status'"
         :id="domId"
         role="treeitem"
-        class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 pr-2 text-sm"
+        class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 rounded-[var(--radius-control)] pr-2 text-sm transition-colors [transition-duration:var(--motion-fast)]"
         :class="[selected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]', row.kind === 'entry' && (row.type === 'missing' || row.cut) ? 'opacity-60' : '']"
         :data-explorer-cut="row.kind === 'entry' && row.cut ? '' : undefined"
         :style="{height: `${height}px`, paddingLeft: indent}"
@@ -219,7 +221,11 @@ const inputLabel = computed(() => {
 </template>
 
 <style scoped>
-.explorer-row[data-active="true"] {
-    box-shadow: inset 0 0 0 1px var(--focus-outline);
+/*
+ * 选中只用浅底与强调色文字，不描边（docs/specs/workbench/files-explorer.md）。键盘焦点所在的行画内嵌焦点线，只在树是键盘
+ * 带来的焦点时画：用鼠标点了一行，树也拿到焦点，但不该多出一圈线。
+ */
+[data-explorer-tree]:focus-visible .explorer-row[data-active="true"] {
+    box-shadow: inset 0 0 0 1.5px var(--focus-outline);
 }
 </style>

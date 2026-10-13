@@ -1,5 +1,5 @@
 /**
- * 设置窗口“作品”分区（同名 .md，docs/specs/workbench/bookshelf.md 输出 18）：插件交给设置窗口的页面（`works-section.ts` 的包装
+ * 设置窗口“作品”分区（同名 .md，docs/specs/workbench/bookshelf.md 输出 21）：插件交给设置窗口的页面（`works-section.ts` 的包装
  * 加 `WorksSettingsPage`）。配置来自设置场景的局部宿主（产品里同一个配置实例，用户层的拥有者在内存里，同设置窗口的组件测试），
  * 页面拿到的是 `nbook.projects` 自己的配置服务；目录选择器列一棵固定的目录树；有效的作品目录照服务端的算法
  * （`backend/library.ts`）从同一份配置算出。看没设时的缺省目录（取不到时的说明）、选定目录后写进用户层、写入失败发通知并

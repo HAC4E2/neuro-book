@@ -5,19 +5,16 @@ import type {ColorwayMeta} from "../../src/colorway/colorway-store";
  * nbook 自带的两套配色。两套都写全 33 色，不从内置 dark spread。
  *
  * 理由是整套色都换了基准：内置 dark 与 macos-dark 是**通体冷中性**（#18181b / #1c1c1e 一系），
- * nbook 要的是**冷暖分家**。spread 之后要改的项比留下的还多，反而看不出哪些是刻意的。
+ * nbook 是**通体暖色**，spread 之后要改的项比留下的还多，反而看不出哪些是刻意的。
  *
- * 冷暖分家就是这套配色的全部身份，也是它与 macOS 主题真正的分界：
+ * 身份是**暖的桌面，象牙的纸**：器械（窗体底、侧栏、工具栏、菜单、按钮，走 --bg-main / --bg-sidebar）与纸
+ * （--bg-panel，内容面板与稿面都从它派生）同一色相，靠明度分层，纸比桌亮一档。
  *
- * · **器械是冷的**：窗体底、侧栏、工具栏、菜单、按钮——一整套导航层走 --bg-main / --bg-sidebar
- *   这一系冷灰，和 macOS 一个路子，因为它本来就该像操作系统的一部分。
- * · **纸是暖的**：只有 --bg-panel 偏暖，而内容面板与稿面都从它派生。
+ * 器械原先是冷灰（冷暖分家）。2026-10-12 工作台改成卡片外壳，窗体底大面积露在卡片之间，冷灰的底衬着暖色卡片
+ * 显得不协调，开发者看过对照稿后选了暖灰（t79 第六到第八轮静态稿）。早先试过的「整套都偏暖一点」看不出来，是因为
+ * 偏移只有 3～5 个通道单位；现在桌与纸的明度差有十来个单位，分层靠的就是它，不是色相。
  *
- * 第一版试过「整套都偏暖一点」，实测的结果是**看不出来**——低亮度下 3～5 个通道单位的色相偏移
- * 在屏幕上等于零，一眼看去和 macOS 没有区别，等于没有身份。让冷暖同屏才有对比可看，
- * 而这个对比恰好就是主题的论点：器械和稿面是两种材质。
- *
- * 强调色保持 System Blue 不动：冷强调压在冷器械上是同族，落到暖纸上才跳出来——
+ * 强调色保持 System Blue 不动：整页都是暖色，冷的强调色在哪里都跳得出来——
  * 「当前章节」「主操作」这些恰恰都出现在纸的附近。
  *
  * 三条不变量，任何一条破了这套主题的论点就没了：
@@ -33,28 +30,28 @@ import type {ColorwayMeta} from "../../src/colorway/colorway-store";
  * 且 --status-info 刻意选青而不是蓝：强调色已经占了蓝，两个蓝在一起分不出「当前」和「运行中」。
  */
 
-/** 夜：冷灰的器械，暖白的纸 */
+/** 夜：暖黑的器械，暖白的纸 */
 const NBOOK_DARK: NbColorwayVars = {
     "--color-scheme": "dark",
-    // 桌面。冷，全屏最暗
-    "--bg-main": "#1a1b1e",
-    // 纸。**唯一偏暖的面**，内容面板与稿面都从它派生。不变量 ①：必须亮于 --bg-main
+    // 桌面，全屏最暗
+    "--bg-main": "#201d1a",
+    // 纸，内容面板与稿面都从它派生。不变量 ①：必须亮于 --bg-main
     "--bg-panel": "#2d2925",
-    // 器械。冷，玻璃分区（侧栏 / 工具栏 / 浮层 / 按钮）全部从它派生
-    "--bg-sidebar": "#212328",
-    "--bg-subtle": "color-mix(in srgb, #212328 78%, #2d2925)",
+    // 器械，玻璃分区（侧栏 / 工具栏 / 浮层 / 按钮）全部从它派生
+    "--bg-sidebar": "#272420",
+    "--bg-subtle": "color-mix(in srgb, #272420 78%, #2d2925)",
     // 不变量 ②：亮于 --bg-panel。输入框是从纸上抬起，不是挖下去
     "--bg-input": "#383129",
-    // 悬停主要出现在列表与菜单里，所以跟器械走冷
-    "--bg-hover": "#33353b",
+    // 悬停主要出现在列表与菜单里，跟器械同色相
+    "--bg-hover": "#3a3530",
     // 暖白，不是 #fafafa：这是墨色，纯中性白落在纸上会显得发青
     "--text-main": "#efe9df",
     "--text-secondary": "#c3bcb0",
     "--text-muted": "#918a7e",
-    "--text-inverse": "#1a1b1e",
-    "--border-color": "#383a40",
-    "--border-strong": "#494c53",
-    "--border-accent": "color-mix(in srgb, #0a84ff 46%, #383a40)",
+    "--text-inverse": "#201d1a",
+    "--border-color": "#3e3933",
+    "--border-strong": "#504a43",
+    "--border-accent": "color-mix(in srgb, #0a84ff 46%, #3e3933)",
     // System Blue（暗色档）。落在暖纸上才跳出来，这是它保持不变的理由
     "--accent-main": "#0a84ff",
     "--accent-bg": "rgba(10, 132, 255, 0.16)",
@@ -88,22 +85,22 @@ const NBOOK_DARK: NbColorwayVars = {
     "--overlay-bg": "rgba(0, 0, 0, 0.28)",
 };
 
-/** 昼：同一套东西在白天。器械是冷灰，纸接近象牙白，强调色压深一档才压得住纸 */
+/** 昼：同一套东西在白天。器械是暖灰，纸接近象牙白，强调色压深一档才压得住纸 */
 const NBOOK_LIGHT: NbColorwayVars = {
     "--color-scheme": "light",
-    "--bg-main": "#e3e4e6",
+    "--bg-main": "#ece8df",
     "--bg-panel": "#fffcf5",
-    "--bg-sidebar": "#edeef0",
-    "--bg-subtle": "color-mix(in srgb, #edeef0 78%, #fffcf5)",
+    "--bg-sidebar": "#f4f0e8",
+    "--bg-subtle": "color-mix(in srgb, #f4f0e8 78%, #fffcf5)",
     "--bg-input": "#fffcf5",
-    "--bg-hover": "#dcdee1",
+    "--bg-hover": "#e7e2d8",
     "--text-main": "#1f1c17",
     "--text-secondary": "#57534b",
     "--text-muted": "#8b857b",
     "--text-inverse": "#fffcf5",
-    "--border-color": "#d8d9dc",
-    "--border-strong": "#bcbec2",
-    "--border-accent": "color-mix(in srgb, #007aff 46%, #d8d9dc)",
+    "--border-color": "#ddd7cc",
+    "--border-strong": "#c3bcb0",
+    "--border-accent": "color-mix(in srgb, #007aff 46%, #ddd7cc)",
     // System Blue（亮色档）
     "--accent-main": "#007aff",
     "--accent-bg": "rgba(0, 122, 255, 0.10)",
@@ -121,11 +118,11 @@ const NBOOK_LIGHT: NbColorwayVars = {
     "--status-danger": "#c0342a",
     "--status-danger-bg": "rgba(192, 52, 42, 0.10)",
     "--status-danger-border": "rgba(192, 52, 42, 0.26)",
-    // 纸的影子落在冷灰的桌面上，所以阴影基色也跟着冷：暖阴影压在冷底上会发紫
-    "--shadow-color": "#33353a",
-    "--shadow-panel": "0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14)",
+    // 阴影基色跟着桌面走：落在暖灰上的冷阴影会发青
+    "--shadow-color": "#3b342b",
+    "--shadow-panel": "0 1px 2px rgba(59, 52, 43, 0.10), 0 18px 44px rgba(59, 52, 43, 0.14)",
     /* 同暗色：遮罩压得越重，压在它上面的玻璃对话框越没东西可采，见 NBOOK_DARK 那一段 */
-    "--overlay-bg": "rgba(51, 53, 58, 0.16)",
+    "--overlay-bg": "rgba(59, 52, 43, 0.16)",
 };
 
 export const nbookColorways: Record<string, NbColorwayVars> = {

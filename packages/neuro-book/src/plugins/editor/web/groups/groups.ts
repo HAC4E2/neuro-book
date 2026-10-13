@@ -13,13 +13,36 @@ import type {Grid, GridNode, GridSnapshot} from "@notnotype/nb-ui/grid";
 
 import {isWithin, rebase} from "../documents/address";
 
-export type EditorKind = "markdown" | "code";
+/** 打开文件的两种编辑器；会话记录里只有它们。 */
+export type FileEditorKind = "markdown" | "code";
+
+/** `page`：不对应文件的页面标签（输出 33），地址是 `page://<页面 id>`，不进会话记录。 */
+export type EditorKind = FileEditorKind | "page";
+
+/**
+ * 标签上次的光标（输出 30）：Markdown 富文本记文档里的位置，源码编辑器记行与列（都从 1 起）。两种写法分开，换了编辑器
+ * 的标签不会把一种当成另一种。
+ */
+export type TabCursor = {readonly offset: number} | {readonly line: number; readonly column: number};
 
 export interface EditorTab {
     readonly id: string;
     readonly address: string;
     readonly editor: EditorKind;
     readonly preview: boolean;
+    readonly cursor?: TabCursor;
+}
+
+/** 光标的写法与编辑器种类对得上；页面没有光标。 */
+function cursorFits(editor: EditorKind, cursor: TabCursor): boolean {
+    if (editor === "page") return false;
+    return editor === "markdown" ? "offset" in cursor : "line" in cursor;
+}
+
+function sameCursor(left: TabCursor | undefined, right: TabCursor): boolean {
+    if (left === undefined) return false;
+    if ("offset" in left) return "offset" in right && left.offset === right.offset;
+    return "line" in right && left.line === right.line && left.column === right.column;
 }
 
 export interface EditorGroup {
@@ -29,10 +52,10 @@ export interface EditorGroup {
     readonly active: string | null;
 }
 
-/** 存进记录的形状：布局是 grid 快照，标签只有地址、编辑器与 preview。 */
+/** 存进记录的形状：布局是 grid 快照，标签只有地址、编辑器、preview 与上次的光标。 */
 export interface GroupsSnapshot {
     readonly layout: GridSnapshot;
-    readonly groups: ReadonlyArray<{readonly id: string; readonly tabs: ReadonlyArray<{readonly address: string; readonly editor: EditorKind; readonly preview: boolean}>; readonly active: number | null}>;
+    readonly groups: ReadonlyArray<{readonly id: string; readonly tabs: ReadonlyArray<{readonly address: string; readonly editor: FileEditorKind; readonly preview: boolean; readonly cursor?: TabCursor}>; readonly active: number | null}>;
     readonly activeGroup: string;
 }
 
@@ -59,12 +82,14 @@ export interface EditorGroups {
     /** 关闭标签：同组激活右侧的（没有时左侧）；组空了且还有别的组时组随之关闭。返回被关的标签。 */
     close(tabId: string): EditorTab | null;
     closeOthers(tabId: string): ReadonlyArray<EditorTab>;
-    /** 在标签所在组的右侧或下方新建组、打开同一文档（permanent），新组成为活动组。 */
+    /** 在标签所在组的右侧或下方新建组、打开同一文档（permanent），新组成为活动组。页面标签不拆分（同一页面只开一个），返回 null。 */
     split(tabId: string, direction: SplitDirection): EditorTab | null;
     /** 同组里移动一位（键盘排序）。 */
     move(tabId: string, delta: -1 | 1): void;
-    /** 用另一种编辑器打开同一标签。 */
+    /** 用另一种编辑器打开同一标签；上次的光标是另一种写法，随之丢掉。 */
     setEditor(tabId: string, editor: EditorKind): void;
+    /** 记下标签的光标；标签已关、写法与编辑器对不上或与记下的相同时不变。 */
+    setCursor(tabId: string, cursor: TabCursor): void;
     /** 地址改名或移动：标签跟到新地址；`kept` 里的地址留在原处。 */
     rebind(from: string, to: string, kept?: ReadonlyArray<string>): void;
     /** 关闭这些地址及其后代的标签，返回被关的标签。 */
@@ -182,11 +207,12 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
         },
         split: (tabId, direction) => {
             const found = locate(tabId);
-            if (found === null) return null;
+            if (found === null || found.tab.editor === "page") return null;
             const id = newId("g");
             const result = grid.splitLeaf(found.group.id, {branchId: newId("b"), orientation: direction === "right" ? "horizontal" : "vertical", side: "after", leaf: {kind: "leaf", id, ref: id}});
             if (!result.ok) return null;
-            const tab: EditorTab = {id: newId("t"), address: found.tab.address, editor: found.tab.editor, preview: false};
+            // 新组的视图从原标签记下的光标开始。
+            const tab: EditorTab = {id: newId("t"), address: found.tab.address, editor: found.tab.editor, preview: false, ...(found.tab.cursor === undefined ? {} : {cursor: found.tab.cursor})};
             const index = groups.value.findIndex((group) => group.id === found.group.id);
             const next = [...groups.value];
             next.splice(index + 1, 0, {id, tabs: [tab], active: tab.id});
@@ -207,8 +233,13 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
         },
         setEditor: (tabId, editor) => {
             const found = locate(tabId);
-            if (found === null || found.tab.editor === editor) return;
-            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, editor} : tab))});
+            if (found === null || found.tab.editor === editor || found.tab.editor === "page" || editor === "page") return;
+            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {id: tab.id, address: tab.address, editor, preview: tab.preview} : tab))});
+        },
+        setCursor: (tabId, cursor) => {
+            const found = locate(tabId);
+            if (found === null || !cursorFits(found.tab.editor, cursor) || sameCursor(found.tab.cursor, cursor)) return;
+            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, cursor} : tab))});
         },
         rebind: (from, to, kept = []) => {
             const follows = (address: string): boolean => isWithin(address, from) && !kept.includes(address);
@@ -227,12 +258,26 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
             layout: grid.serialize(),
             groups: groups.value.map((group) => ({
                 id: group.id,
-                tabs: group.tabs.map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview})),
-                active: group.active === null ? null : group.tabs.findIndex((tab) => tab.id === group.active),
+                tabs: filesOf(group).map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.cursor === undefined ? {} : {cursor: tab.cursor})})),
+                active: activeFileIndex(group),
             })),
             activeGroup: activeGroup.value,
         }),
     };
+}
+
+/** 组里打开文件的标签：页面标签不进会话记录（输出 33）。 */
+function filesOf(group: EditorGroup): Array<EditorTab & {readonly editor: FileEditorKind}> {
+    return group.tabs.filter((tab): tab is EditorTab & {readonly editor: FileEditorKind} => tab.editor !== "page");
+}
+
+/** 记录里的活动项：活动的是页面时取它左边最近的文件标签，没有就取右边的；组里没有文件标签为 null。 */
+function activeFileIndex(group: EditorGroup): number | null {
+    const files = filesOf(group);
+    const at = group.tabs.findIndex((tab) => tab.id === group.active);
+    if (at < 0) return null;
+    const nearest = [...group.tabs.slice(0, at + 1)].reverse().find((tab) => tab.editor !== "page") ?? group.tabs.slice(at).find((tab) => tab.editor !== "page");
+    return nearest === undefined ? null : files.findIndex((tab) => tab.id === nearest.id);
 }
 
 /** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
@@ -249,7 +294,8 @@ function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorG
     const groups = snapshot.groups.map((group): EditorGroup => {
         const tabs = group.tabs.map((saved): EditorTab => {
             tab += 1;
-            return {id: `r${String(tab)}`, address: saved.address, editor: saved.editor, preview: saved.preview};
+            const restored: EditorTab = {id: `r${String(tab)}`, address: saved.address, editor: saved.editor, preview: saved.preview};
+            return saved.cursor !== undefined && cursorFits(saved.editor, saved.cursor) ? {...restored, cursor: saved.cursor} : restored;
         });
         const active = group.active === null ? null : (tabs[group.active]?.id ?? tabs[0]?.id ?? null);
         return {id: group.id, tabs, active};

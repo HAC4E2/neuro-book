@@ -167,7 +167,7 @@ owners:
 - `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。
 - 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
 - `move-view` 的目标是除来源外的已有容器，或 `newContainerIn` 指定的 ToolPart 里新建的自建容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24；自建容器的身份在这次执行接纳时生成一次）。`targetContainerId` 与 `newContainerIn` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参的两步选择之间视图被移走，同样按过期拒绝。
-- `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。视图标题动作这一触发面做出来之前，资源管理器视图内的工具栏按钮带本实例的视图 id 与代次调用它。
+- `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。它由资源管理器声明的视图标题动作触发（`args: "instance"`，[workbench.views](views.md) 输出 10）：外壳带上被点的视图实例的 id 与代际调用它。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
 
 ### 命令目录（应用）
@@ -178,13 +178,14 @@ owners:
 |---|---|---|---|---|---|
 | `nbook.app.reload` | 重新载入 / Reload | `{}` | 无 | read | never（整页重新加载会打断 Agent 所在的窗口） |
 | `nbook.help.documentation` | 文档 / Documentation | `{}` | 无 | read | never（新标签页只对人有用） |
+| `nbook.help.welcome` | 欢迎 / Welcome | `{}` | 无 | read | never（由 `nbook.projects` 贡献：打开本窗口作品的欢迎页，[workbench.bookshelf](bookshelf.md) 输出 20） |
 
 - 重新载入沿用页面已有的离开保护：编辑器有未保存的正文时浏览器先问，用户取消则留在原页面，正文不变。重新载入保持当前地址，项目参数不变。
 - 文档在新标签页打开 NeuroBook 用户文档站（地址是 `nbook.workbench` 的常量）；新标签被浏览器拦截时命令以 `unavailable` 结束，原因说明被拦截。
 
 ### 命令目录（资源管理器）
 
-由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与树内按键见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`，Agent 暴露一律 `never`。`when` 都另要求 `nbook.explorer/ready`。
+由 `nbook.explorer` 的浏览器入口贡献，作用于本窗口资源管理器的选择；行为、公开键与树内按键见 [`workbench.files-explorer`](files-explorer.md#新应用的插件命令与界面)。参数一律 `{}`、Agent 暴露一律 `never`，只有 `nbook.files.reveal` 例外：参数 `{address, expand?}`，展开地址的各级祖先、选中它并滚到可见处，`expand` 时连它自己一起展开，Agent `auto`，不进命令面板（欢迎页的快捷入口用它）。`when` 都另要求 `nbook.explorer/ready`。
 
 | 命令 id | 标题 | `when.requires`（除 `ready`） | `effect` | 树内按键 |
 |---|---|---|---|---|
@@ -205,6 +206,7 @@ owners:
 | `nbook.files.include` | 加入清单 / Add to Manifest | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.drop-entry` | 从清单移除 / Remove from Manifest | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.clear-cut` | 清除剪切标记 / Clear Cut | — | read | Escape |
+| `nbook.files.reveal` | 在资源管理器中显示 / Reveal in Explorer | — | read | — |
 
 - 树内按键不是命令声明里的默认键位：由资源管理器的树在自己拥有焦点时处理并执行这条命令（宿主的键位分发是全局的，`Delete` 不能在树之外删文件）。从命令面板执行时作用于当前选择，不要求树有焦点。
 - 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。
@@ -212,7 +214,7 @@ owners:
 
 ### 命令目录（编辑器）（planned）
 
-由 `nbook.editor` 的浏览器入口贡献，作用于活动编辑组的活动标签；参数、`when`、`effect`、Agent 暴露与编辑器区内的键位见 [workbench.editor](editor.md#输入与前置条件)：`nbook.editor.open`、`save`、`save-all`、`revert`、`close`、`close-others`、`split-right`、`split-down`、`reopen-with`。第一批的四条编辑器命令同时由它登记，`when` 改用公开键 `nbook.editor/active`、`nbook.editor/writable`、`nbook.editor/lineNavigation`；Lab 命令场景改以 `lab.` 前缀的 id 登记样板编辑器自己的命令。
+由 `nbook.editor` 的浏览器入口贡献，作用于活动编辑组的活动标签；参数、`when`、`effect`、Agent 暴露与编辑器区内的键位见 [workbench.editor](editor.md#输入与前置条件)：`nbook.editor.open`、`open-page`、`save`、`save-all`、`revert`、`close`、`close-others`、`split-right`、`split-down`、`reopen-with`。第一批的四条编辑器命令同时由它登记，`when` 改用公开键 `nbook.editor/active`、`nbook.editor/writable`、`nbook.editor/lineNavigation`；Lab 命令场景改以 `lab.` 前缀的 id 登记样板编辑器自己的命令。
 
 ### 上下文键（第一批）
 
@@ -237,7 +239,7 @@ owners:
 
 `Mod` 在 macOS 上是 Cmd，其它平台是 Ctrl。浏览器不可拦截或与宿主冲突的系统组合不注册；控件局部按键（对话框 Escape、列表导航、编辑器内部按键）不属于本能力。`Ctrl/Cmd+P` 文件快速打开不在本批。
 
-**快捷键的显示**：命令面板、应用菜单与标题栏的命令搜索按钮显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
+**快捷键的显示**：命令面板、应用菜单、标题栏的命令搜索按钮、欢迎页的入门提示与空编辑组的提示显示同一种写法，取命令声明的 `keybinding`，按平台写出：macOS 用 `⌃⌥⇧⌘` 符号并按这个次序（`Mod+Shift+P` 写作 `⇧⌘P`），其它平台写 `Ctrl+Shift+P`。只显示命令声明的键位；编辑器区、资源管理器树这类局部按键不冒充全局键位。
 
 ### 兼容与安全
 
@@ -295,7 +297,7 @@ owners:
   - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts` 的定义表。
 - 中英文本：`packages/neuro-book/src/shared/localized-text.ts`。
 - 浏览器界面 `packages/neuro-book/src/plugins/workbench/web/`：
-  - `commands/keymap.ts` 负责键位解析与分发。
+  - `commands/keymap.ts` 负责按键事件的分发；键位的解析与按平台的写法在命令插件的 `shared/keybinding.ts`（经 `nbook/plugins/commands/shared/contracts` 导出），工作台之外显示快捷键的插件也经它，不引用工作台的代码。
   - `commands/WorkbenchCommandHost.vue` 是 `/` 页上的界面宿主。
   - `commands/open-commands.ts` 是面板入口命令与“当前面板”槽位。
   - 命令面板见 [`workbench.quick-open`](quick-open.md)。

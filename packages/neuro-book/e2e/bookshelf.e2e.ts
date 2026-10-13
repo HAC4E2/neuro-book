@@ -1,5 +1,5 @@
 /**
- * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7、8、9、10）：生产构建的后端与前端，真实的项目目录、
+ * 书架页在真实 Chrome 中的验收（docs/specs/workbench/bookshelf.md 验收 1、3、4、5、7、8、9、13）：生产构建的后端与前端，真实的项目目录、
  * 登记表、用户层配置与封面文件。项目 `book` 先登记好；第二个目录经“打开已有作品”的选择器登记；新作品建在缺省作品目录
  * （场地的 HOME 下的 Documents/NeuroBook）里。等页面上可观察的变化，不按时长等待。
  */
@@ -255,7 +255,7 @@ test("新建作品的对话框：没改过点遮罩关闭、改过不关；选�
     await expect(info).toHaveCount(0);
 });
 
-test("设置的“作品”分区：没设时显示缺省目录；书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 10）", async ({page}) => {
+test("设置的“作品”分区：没设时显示缺省目录；书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 13）", async ({page}) => {
     await openShelf(page);
     const gear = page.locator("[data-shelf-settings]");
     await gear.click();

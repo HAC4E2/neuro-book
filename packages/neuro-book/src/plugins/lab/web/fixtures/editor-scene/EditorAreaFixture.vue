@@ -2,7 +2,8 @@
 /**
  * EditorArea 的 Lab 集成场景（docs/specs/workbench/editor.md，同名 .md）：产品里同一个编辑器区控制器、组与标签模型、
  * 文档模型与控件，文件客户端换成内存适配器（`explorer-scene/memory-files.ts`，与真实 Files 对过契约）。保存、外部改写、
- * 外部删除都真的改变场景数据；切场景时控制器与订阅一起释放。场景 `split` 先拆成两组。
+ * 外部删除都真的改变场景数据；切场景时控制器与订阅一起释放。场景 `split` 先拆成两组；场景 `empty` 不打开文件，空态带上
+ * 与产品同样的三行提示（产品里由插件按命令可用性筛出，这里是固定样例），点了只记事件。
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
@@ -11,6 +12,7 @@ import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
+import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorKind} from "nbook/plugins/editor/web/groups/groups";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -41,8 +43,10 @@ const area = createEditorArea({
     initial: null,
     report: (error) => record("error", error instanceof Error ? error.message : String(error)),
 });
-area.open("project://chapters/第一章.md", {mode: "permanent"});
-area.open("project://chapters/第二章.md", {mode: "preview"});
+if (props.scene !== "empty") {
+    area.open("project://chapters/第一章.md", {mode: "permanent"});
+    area.open("project://chapters/第二章.md", {mode: "preview"});
+}
 if (props.scene === "split") {
     area.split("right");
     area.open("project://notes/设定.json", {mode: "permanent"});
@@ -63,6 +67,11 @@ const reads = [{value: "normal", label: "正常"}, {value: "held", label: "扣�
 const setReads = (value: string | number | boolean | null): void => {
     memory.readsHeld.value = value === "held";
 };
+const emptyTips: ReadonlyArray<EmptyTip> = [
+    {command: "nbook.quick-open.open-commands", label: "显示所有命令", keys: ["Ctrl", "Shift", "P"], hint: null},
+    {command: "nbook.files.new-file", label: "新建文件", keys: null, hint: "资源管理器标题行的“新建文件”"},
+    {command: "nbook.help.welcome", label: "打开欢迎页", keys: null, hint: "帮助 › 欢迎"},
+];
 const onIntent = (intent: string): void => {
     record("intent", intent);
     if (intent === "save") void area.save().then((result) => record("save", result.ok ? "ok" : result.reason));
@@ -80,7 +89,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <EditorArea :area="area" :locale="locale" :control="control" class="h-full w-full" data-lab-subject @intent="onIntent" />
+    <EditorArea :area="area" :locale="locale" :control="control" :empty-tips="emptyTips" class="h-full w-full" data-lab-subject @intent="onIntent" @run-tip="(command) => record('run-tip', command)" />
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>
             <span class="text-[var(--text-secondary)]">正文读取</span>

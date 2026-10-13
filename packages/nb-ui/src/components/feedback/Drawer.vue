@@ -81,10 +81,10 @@ const emit = defineEmits<{
                 <div v-if="props.title || $slots.header" class="flex items-center justify-between px-5 py-4 border-b border-[var(--divider)]">
                     <slot name="header">
                         <div>
-                            <DrawerTitle v-if="props.title" class="text-[var(--text-md)] font-semibold text-[var(--text-main)]">
+                            <DrawerTitle v-if="props.title" class="text-[length:var(--text-md)] font-semibold text-[var(--text-main)]">
                                 {{ props.title }}
                             </DrawerTitle>
-                            <DrawerDescription v-if="props.description" class="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">
+                            <DrawerDescription v-if="props.description" class="text-[length:var(--text-xs)] text-[var(--text-muted)] mt-0.5">
                                 {{ props.description }}
                             </DrawerDescription>
                         </div>

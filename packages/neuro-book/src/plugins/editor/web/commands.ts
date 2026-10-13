@@ -10,7 +10,9 @@ import type {ShallowRef} from "@vue/reactivity";
 
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
 
+import {OPEN_PAGE_COMMAND} from "../shared/contracts";
 import type {ActionResult, EditorArea} from "./area";
+import type {EditorPageRegistry} from "./pages";
 import {editorState} from "./state";
 
 export const OPEN_COMMAND = "nbook.editor.open";
@@ -41,6 +43,8 @@ const OPEN_ARGS = Type.Object({
     reveal: Type.Optional(Type.Literal("end")),
 }, {additionalProperties: false});
 
+const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
+
 /** 不给 `editor` 时换成另一种（命令面板里不必手写参数）。 */
 const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")]))}, {additionalProperties: false});
 
@@ -56,6 +60,8 @@ const GO_TO_LINE_ARGS = Type.Object({
 
 export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclaration>> = {
     [OPEN_COMMAND]: {title: title("打开文件", "Open File"), category: EDITOR, description: "Open a resource address in the active editor group; preview tabs are replaced by the next preview open.", args: OPEN_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
+    // 要参数、不进命令面板：用户经各页面自己的命令打开（例如“帮助 > 欢迎”）。
+    [OPEN_PAGE_COMMAND]: {title: title("打开页面", "Open Page"), category: EDITOR, description: "Open an editor page (a tab that is not a file, such as the welcome page) by its contribution id; a page already open in the window is activated instead of opened twice.", args: OPEN_PAGE_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
     [SAVE_COMMAND]: {title: title("保存", "Save"), category: EDITOR, description: "Save the active document against its disk baseline; a changed disk is reported as a conflict, never overwritten.", args: NO_ARGS, effect: "write", when: when("dirty"), expose: {agent: "confirm"}},
     [SAVE_ALL_COMMAND]: {title: title("全部保存", "Save All"), category: EDITOR, description: "Save every open document with unsaved changes.", args: NO_ARGS, effect: "write", expose: {agent: "confirm"}},
     [REVERT_COMMAND]: {title: title("还原为磁盘版本", "Revert to Disk Version"), category: EDITOR, description: "Discard the active document's unsaved changes and reload it from disk.", args: NO_ARGS, effect: "write", when: when("active"), expose: {agent: "never", hints: {destructive: true}}},
@@ -75,7 +81,7 @@ const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, cod
 const fromAction = (result: ActionResult): CommandResult<unknown> => (result.ok ? {ok: true, value: null} : unavailable(result.reason));
 
 /** 命令的实现：执行时才问编辑器区，不在登记时捕获。 */
-export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>): Record<string, CommandImplementation> {
+export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pages: Pick<EditorPageRegistry, "available">): Record<string, CommandImplementation> {
     const run = (action: (current: EditorArea, args: unknown) => CommandResult<unknown> | Promise<CommandResult<unknown>>): CommandImplementation => ({
         run: (args) => {
             const current = area.value;
@@ -97,6 +103,11 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>): R
         [OPEN_COMMAND]: run((current, args) => {
             const {address, mode, editor, reveal} = args as Static<typeof OPEN_ARGS>;
             return fromAction(current.open(address, {mode, ...(editor === undefined ? {} : {editor}), ...(reveal === undefined ? {} : {reveal})}));
+        }),
+        [OPEN_PAGE_COMMAND]: run((current, args) => {
+            const {id} = args as Static<typeof OPEN_PAGE_ARGS>;
+            if (!pages.available(id)) return unavailable(`没有页面 ${id}，或贡献它的插件还没就绪`);
+            return fromAction(current.openPage(id));
         }),
         [SAVE_COMMAND]: run(async (current) => fromAction(await current.save())),
         [SAVE_ALL_COMMAND]: run(async (current) => fromAction(await current.saveAll())),

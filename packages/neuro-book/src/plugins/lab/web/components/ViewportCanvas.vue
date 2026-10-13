@@ -373,8 +373,8 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
    页面可以用 --lab-surface / --lab-surface-blur 改写；不改写时落回主题的实心面板色。 */
 .nb-lab-stage-box--panel {
     background: var(--lab-surface, var(--panel-surface, var(--bg-panel)));
-    backdrop-filter: var(--lab-surface-blur, none);
     -webkit-backdrop-filter: var(--lab-surface-blur, none);
+    backdrop-filter: var(--lab-surface-blur, none);
 }
 
 .nb-lab-stage-box--page {

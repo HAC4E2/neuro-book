@@ -1,9 +1,12 @@
 <script setup lang="ts">
 /**
- * 活动栏（同名 .md）：上段是 Sidebar 的容器切换按钮，底段是贡献来的全局项；点了只发 `select` 或 `run-item`，切换、打开
- * Sidebar 与执行命令由宿主做。
+ * 活动栏（同名 .md）：上段是 Sidebar 的容器切换按钮（放不下时末尾的收进“更多”），底段是贡献来的全局项；点了只发 `select`
+ * 或 `run-item`，切换、打开 Sidebar 与执行命令由宿主做。
  */
-import {IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Dropdown, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, onMounted, ref} from "vue";
+
+import {layoutStrip} from "../items/item-strip";
 
 export interface ActivityContainer {
     readonly id: string;
@@ -25,7 +28,7 @@ export interface ActivityItem {
 
 defineOptions({name: "WorkbenchActivityBar"});
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
     label: string;
     containers: ReadonlyArray<ActivityContainer>;
     selected: string | null;
@@ -33,18 +36,54 @@ withDefaults(defineProps<{
     /** 条目作为拖动源的说明（写到 `aria-description`），例如“按空格拿起并拖动”。 */
     dragHint: string;
     items?: ReadonlyArray<ActivityItem>;
-}>(), {items: () => []});
+    /** 放不下时收起其余条目的“更多”按钮的可访问名称。 */
+    moreLabel?: string;
+}>(), {items: () => [], moreLabel: "更多"});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
     (event: "run-item", id: string): void;
 }>();
+
+/**
+ * 条目放不下时，末尾的收进底部的“更多”（docs/specs/ui/workbench-shell.md 输出 25）：与状态栏条目同一个预算
+ * （`layoutStrip`），选中的优先级最高、总在外面。量不到条目区（还没挂上）时全部摆出来，条目区自己纵向滚动兜底。
+ */
+const bandEl = ref<HTMLElement | null>(null);
+const available = ref<number | null>(null);
+const ITEM_PX = 38;
+
+function measureBand(): void {
+    const band = bandEl.value;
+    if (band === null) return;
+    const style = getComputedStyle(band);
+    const height = band.clientHeight - (Number.parseFloat(style.paddingTop) || 0) - (Number.parseFloat(style.paddingBottom) || 0);
+    available.value = height > 0 ? height : null;
+}
+
+let observer: ResizeObserver | null = null;
+onMounted(() => {
+    measureBand();
+    if (typeof ResizeObserver !== "function" || bandEl.value === null) return;
+    observer = new ResizeObserver(measureBand);
+    observer.observe(bandEl.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
+
+const strip = computed(() => {
+    const room = available.value;
+    if (room === null || bandEl.value === null) return {shown: props.containers.map((container) => container.id), hidden: [] as string[]};
+    const gap = Number.parseFloat(getComputedStyle(bandEl.value).rowGap) || 0;
+    return layoutStrip(props.containers.map((container, index) => ({id: container.id, order: index, priority: container.id === props.selected ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
+});
+const shownContainers = computed(() => props.containers.filter((container) => strip.value.shown.includes(container.id)));
+const moreItems = computed(() => props.containers.filter((container) => strip.value.hidden.includes(container.id)).map((container) => ({label: container.label, value: container.id, iconClass: container.icon})));
 </script>
 
 <template>
     <nav class="workbench-activity-bar" :aria-label="label">
-        <div class="workbench-activity-bar__containers" data-switcher-band="sidebar">
-            <Tooltip v-for="container in containers" :key="container.id" :text="container.label" placement="right">
+        <div ref="bandEl" class="workbench-activity-bar__containers" data-switcher-band="sidebar">
+            <Tooltip v-for="container in shownContainers" :key="container.id" :text="container.label" placement="right">
                 <IconButton
                     size="lg"
                     :icon-class="container.icon"
@@ -59,6 +98,9 @@ const emit = defineEmits<{
                     @click="emit('select', container.id)"
                 />
             </Tooltip>
+            <Dropdown v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" compact @select="(id: string) => emit('select', id)">
+                <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-activity-bar__item" data-activity-more />
+            </Dropdown>
         </div>
         <div class="workbench-activity-bar__footer" data-activity-items>
             <template v-for="item in items" :key="item.id">

@@ -5,13 +5,12 @@
 
 # FilesExplorerView
 
-资源管理器视图的界面（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md)）：顶部工具栏、偏好与根状态的提示、虚拟树、底部结果区，以及右键菜单、删除确认框、展示名对话框与碰撞对话框；拖动的手势与落点反馈在树里。它是受控零件：数据全部经 props 进来，动作经事件交给宿主（`web/view-host.ts`），宿主再执行命令或调控制器；组件不知道命令 id，也不持有文件客户端。
+资源管理器视图的界面（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md)）：偏好与根状态的提示、虚拟树、底部结果区，以及右键菜单、删除确认框、展示名对话框与碰撞对话框；拖动的手势与落点反馈在树里。它是受控零件：数据全部经 props 进来，动作经事件交给宿主（`web/view-host.ts`），宿主再执行命令或调控制器；组件不知道命令 id，也不持有文件客户端。
 
 ## 布局
 
-纵向网格：工具栏固定高度；提示条按内容高度；树 `minmax(0, 1fr)` 占满剩余高度并自己滚动；结果区的行是 `fit-content(40%)`，按内容高度、最多视图高度的 40%，结果区在行内滚动。窄到 `390px` 时工具栏按钮不换行，树的标签先截断。
+视图自己不画工具栏：新建文件、新建文件夹、刷新、全部收起、显示清单文件是视图声明的标题动作，由外壳画在标题行里（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 10）。纵向网格：提示条按内容高度；树 `minmax(0, 1fr)` 占满剩余高度并自己滚动；结果区的行是 `fit-content(40%)`，按内容高度、最多视图高度的 40%，结果区在行内滚动。窄到 `390px` 时树的标签先截断。
 
-- 工具栏：新建文件、新建文件夹（`canCreate` 为假时禁用）、刷新、全部收起、显示清单文件（切换按钮，`aria-pressed`）。
 - 右键菜单（nb-ui `ContextMenu`，键盘可操作）按 `menu` 的位置与菜单项显示，点一项发出它的命令 id；菜单关闭时发出 `menu-close`；选择、Escape 或 Tab 关闭时焦点回到树上（菜单项开始的内联输入或对话框会再把焦点拿走），点菜单外关闭时焦点留在被点的地方。
 - 删除确认（nb-ui `AlertDialog`）列出受影响的最外层项与数量，说明不能恢复，焦点默认在取消上；受影响项多时只有列表在框内滚动，按钮始终可见。有会丢失未保存修改的打开文档时（`dialog.unsaved`）另列一段。关闭完成（`closed`）后焦点回到树上。
 - 复制有未保存修改的文件（`dialog.kind === "dirty-copy"`，nb-ui `Dialog`）：列出这些文档，按钮依次是取消、复制磁盘版本、先保存再复制；请求关闭等于取消。
@@ -27,14 +26,13 @@ type Props = {
     rows: ReadonlyArray<Row>;
     selected: ReadonlyArray<string>;
     focus: string | null;
-    showManifests: boolean;
-    /** 控制器已建、偏好首读结束：工具栏可用。 */
+    /** 控制器已建、偏好首读结束：树挂上。 */
     ready: boolean;
     notice: Notice | null;
     problem: FieldProblem | null;
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
-    /** 新建按钮可用；默认 false。 */
-    canCreate?: boolean;
+    /** 项目根显示的作品名（书名，没有时是目录原名）；没有绑定项目时不给，显示“项目”。 */
+    projectTitle?: string | null;
     /** 正在内联输入的行（见 ExplorerTree）；默认 null。 */
     editing?: {id: string; name: string; error: string | null; busy: boolean} | null;
     /** 打开着的右键菜单：视口坐标与菜单项（`web/menu.ts` 的 `MenuEntry`）；默认 null。 */
@@ -52,10 +50,7 @@ type Props = {
     focusRequest?: number;
 };
 
-type ToolbarAction = "new-file" | "new-folder" | "refresh" | "collapse-all" | "toggle-manifests";
-
 type Emits = {
-    (event: "toolbar", action: ToolbarAction): void;
     (event: "row-press", id: string, modifiers: Modifiers, part: "twisty" | "row"): void;
     (event: "row-activate", id: string): void;
     (event: "row-context", id: string, x: number, y: number): void;
@@ -95,7 +90,7 @@ type Emits = {
 
 ## 状态
 
-`ready` 为假时工具栏按钮禁用、树区域显示加载中（占位带 `role="status"` 与 `aria-busy="true"`，读屏软件能得知在忙）；没有行时（不应出现，两个根总在）显示空。
+`ready` 为假时树区域显示加载中（占位带 `role="status"` 与 `aria-busy="true"`，读屏软件能得知在忙）；没有行时（不应出现，两个根总在）显示空。
 
 ## 隐藏通道理由
 

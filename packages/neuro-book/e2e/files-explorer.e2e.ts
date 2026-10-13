@@ -90,6 +90,53 @@ async function open(page: Page, bound = true): Promise<void> {
     await expect(tree(page)).toBeVisible();
 }
 
+test("项目根是作品名、标题行五个动作；展开时新行滑下淡入、动画后撤掉标记；鼠标点行不画焦点线、方向键之后画 1.5px 内嵌线；减少动态时不动画（验收 18、19）", async ({page}) => {
+    await open(page);
+    // 作品没有书名：项目根显示目录原名。
+    await expect(item(page, "project://").locator("[data-explorer-label]")).toHaveText("Book");
+    const actions = page.locator("[data-view-action]");
+    await expect(actions).toHaveCount(5);
+    for (const box of await actions.evaluateAll((buttons) => buttons.map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]))) expect(box).toEqual([24, 24]);
+    await expect(page.locator("[data-explorer-view] [role=toolbar]")).toHaveCount(0);
+
+    // 记下树上展开标记的开关与进场的行。
+    const record = () => page.evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as {__expanding: string[]}).__expanding = log;
+        const treeElement = document.querySelector("[data-explorer-tree]")!;
+        new MutationObserver((records) => {
+            for (const changed of records) {
+                const target = changed.target as Element;
+                if (changed.attributeName === "data-expanding") log.push(target.hasAttribute("data-expanding") ? "on" : "off");
+                else if (target.classList.contains("explorer-row-enter-active") && !log.includes("enter")) log.push("enter");
+            }
+        }).observe(treeElement, {subtree: true, attributes: true, attributeFilter: ["data-expanding", "class"]});
+    });
+    const log = () => page.evaluate(() => (window as unknown as {__expanding: string[]}).__expanding);
+    await record();
+    await item(page, "project://ops").click();
+    await expect(item(page, "project://ops/keep.md")).toBeVisible();
+    // 标记与进场的行在同一次渲染里出现，记录里谁先谁后不定；最后撤掉标记。
+    await expect.poll(log).toEqual(expect.arrayContaining(["on", "enter", "off"]));
+    expect((await log()).at(-1)).toBe("off");
+
+    const active = () => page.evaluate(() => getComputedStyle(document.querySelector(".explorer-row[data-active=\"true\"]")!).boxShadow);
+    await item(page, "project://ops/keep.md").click();
+    expect(await active()).toBe("none");
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(active).toMatch(/0px 0px 0px 1\.5px inset$/u);
+    await item(page, "project://ops").click();
+    await expect(item(page, "project://ops/keep.md")).toHaveCount(0);
+
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await record();
+    await item(page, "project://ops").click();
+    await expect(item(page, "project://ops/keep.md")).toBeVisible();
+    await item(page, "project://ops").click();
+    await expect(item(page, "project://ops/keep.md")).toHaveCount(0);
+    expect(await log()).not.toContain("on");
+});
+
 test("三类文件夹按呈现规则显示；点普通目录展开、点文件在编辑器里以预览打开；用户资产根默认折叠", async ({page}) => {
     await open(page);
     await expect(item(page, "project://lore.content")).toBeVisible();
@@ -112,9 +159,9 @@ test("显示清单文件与展开记录：重新加载后恢复；收起再展�
     await open(page);
     await item(page, "project://lore.content").click();
     await expect(item(page, "project://lore.content/alice")).toBeVisible();
-    await page.locator("[data-explorer-tool=\"toggle-manifests\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").click();
     await expect(item(page, "project://lore.content/content.xml")).toBeVisible();
-    await expect(page.locator("[data-explorer-tool=\"toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
     await item(page, "user://").click();
     await expect(item(page, "user://notes.md")).toBeVisible();
 
@@ -122,11 +169,11 @@ test("显示清单文件与展开记录：重新加载后恢复；收起再展�
     await expect(tree(page)).toBeVisible();
     await expect(item(page, "project://lore.content/content.xml")).toBeVisible();
     await expect(item(page, "user://notes.md")).toBeVisible();
-    await expect(page.locator("[data-explorer-tool=\"toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
 
     // 恢复原状，后面的用例不受影响。
-    await page.locator("[data-explorer-tool=\"toggle-manifests\"]").click();
-    await page.locator("[data-explorer-tool=\"collapse-all\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
     await expect(item(page, "project://lore.content/alice")).toHaveCount(0);
     await item(page, "user://").click();
     await expect(item(page, "user://notes.md")).toHaveCount(0);
@@ -179,7 +226,7 @@ test("大目录：只渲染视口附近的行；键盘走到末尾，焦点行�
     await expect.poll(async () => (await middle.boundingBox())?.height).toBe(height);
     await expect.poll(async () => Math.abs(await anchorTop() - anchored)).toBeLessThan(1.5);
 
-    await page.locator("[data-explorer-tool=\"collapse-all\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
     await expect(item(page, "project://big/file-0000.md")).toHaveCount(0);
 });
 
@@ -335,7 +382,7 @@ test("工具栏新建：输入行出现在选中的目录里，Enter 后排他�
     await open(page);
     if (await item(page, "project://ops").getAttribute("aria-expanded") !== "true") await item(page, "project://ops").click();
     await pick(page, "project://ops/keep.md");
-    await page.locator("[data-explorer-tool=\"new-file\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.new-file\"]").click();
     const input = page.locator("[data-explorer-edit] input");
     await expect(input).toBeFocused();
     await page.keyboard.type("keep.md");
@@ -359,6 +406,8 @@ const center = async (page: Page, address: string): Promise<{x: number; y: numbe
 
 /** 在一行上按下并越过拖动门槛，停在另一行的 `offset`（相对行高的比例）处，不松手。 */
 async function dragOver(page: Page, from: string, to: string, offset = 0.5): Promise<void> {
+    // 刚展开的目录里行还在滑动：先等动画走完再量位置，否则按下时指针下面已经换成别的行。
+    await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-expanding");
     const start = await center(page, from);
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
@@ -418,11 +467,11 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     await dragOver(page, "project://moves/m2.md", "project://moves/keep");
     await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
     // 指针还按着：用 DOM 事件按下工具栏的切换按钮，不动指针。
-    await page.locator("[data-explorer-tool=\"toggle-manifests\"]").dispatchEvent("click");
-    await expect(page.locator("[data-explorer-tool=\"toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
+    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").dispatchEvent("click");
+    await expect(page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
     await page.mouse.up();
-    await page.locator("[data-explorer-tool=\"toggle-manifests\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.toggle-manifests\"]").click();
 
     // 树要能滚动：展开大目录（moves 在它之后），滚到底让 moves 出现，从它开始拖，滚轮让指针下换了一行。
     await item(page, "project://big").click();
@@ -441,5 +490,5 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     expect(sent).toEqual([]);
     expect(await readFile(join(projectDir, "moves", "m2.md"), "utf8")).toBe("M2");
     expect(await exists(join(projectDir, "moves", "keep", "m2.md"))).toBe(false);
-    await page.locator("[data-explorer-tool=\"collapse-all\"]").click();
+    await page.locator("[data-view-action=\"nbook.files.collapse-all\"]").click();
 });

@@ -142,7 +142,15 @@ const ViewTarget = defineComponent({
 </template>
 
 <style scoped>
+/*
+ * 分栏之间的线由容器自己定：外壳根上的 `--nb-splitter-seam` 是外壳网格的接缝（卡片主题里透明，卡片之间的缝就是边界），
+ * 不能继承到卡片里面的分栏，否则分栏之间看不出分界（docs/specs/ui/workbench-shell.md 输出 38）。悬停线的自由端缩进
+ * 跟分割线一样长，亮起来正好盖住它，不在两头露出一截灰线。
+ */
 .workbench-view-container-host {
+    --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
+    --nb-splitter-seam-inset: var(--shell-pane-divider-inset, 0px);
+    --sash-line-inset: var(--shell-pane-divider-inset, 0px);
     width: 100%;
     height: 100%;
     min-width: 0;

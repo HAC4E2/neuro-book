@@ -185,4 +185,26 @@ describe("WorkbenchViewSection", () => {
         expect(wrapper.attributes("data-view-collapsed")).toBe("false");
         expect(unmounted).toBe(0);
     });
+
+    it("标题整行点击切换收起；动作区的点击、按下后移动过门槛的（拖动）不切；点展开标记只切一次", async () => {
+        const wrapper = mount(WorkbenchViewSection, {props: base, slots: {actions: () => h("button", {"data-action": ""}, "动作")}, attachTo: document.body});
+        wrappers.push(wrapper);
+        const head = wrapper.get("header");
+        await wrapper.get("[data-drag-handle]").trigger("click");
+        expect(wrapper.emitted("toggle-collapsed")).toEqual([[true]]);
+
+        await wrapper.get("[data-action]").trigger("click");
+        expect(wrapper.emitted("toggle-collapsed")).toHaveLength(1);
+
+        await head.trigger("pointerdown", {clientX: 10, clientY: 10});
+        await head.trigger("click", {clientX: 30, clientY: 10});
+        expect(wrapper.emitted("toggle-collapsed")).toHaveLength(1);
+
+        await head.trigger("pointerdown", {clientX: 10, clientY: 10});
+        await head.trigger("click", {clientX: 13, clientY: 11});
+        expect(wrapper.emitted("toggle-collapsed")).toHaveLength(2);
+
+        await wrapper.get("[data-view-toggle]").trigger("click");
+        expect(wrapper.emitted("toggle-collapsed")).toHaveLength(3);
+    });
 });

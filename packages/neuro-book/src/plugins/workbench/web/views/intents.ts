@@ -306,9 +306,10 @@ function mergeContainer(state: IntentState, intent: Extract<ViewIntent, {kind: "
     const sourceSlice = state.presentation.containers.get(source.id);
     const visibleMovers = sourceSlice?.views ?? [];
     if (intent.expand === true) for (const view of visibleMovers) views[view.id] = {...views[view.id], collapsed: null};
-    // 半区只分给展开的拖入成员：收起成员的尺寸是它的展开记忆，随归属迁移、不改。全部收起时只并入，不拆命中窗格。
-    const expandedMovers = visibleMovers.filter((view) => !view.collapsed).map((view) => view.id);
-    if (intent.split !== undefined && expandedMovers.length > 0 && !splitSizes(state, target.part, intent.split, expandedMovers, views)) {
+    // 半区只分给落点之后展开的拖入成员：收起成员的尺寸是它的展开记忆，随归属迁移、不改，全部收起时只并入、不拆命中
+    // 窗格；带 expand（插到收起栏旁）时拖入的可见成员都会展开，都参与分配。
+    const sharing = visibleMovers.filter((view) => intent.expand === true || !view.collapsed).map((view) => view.id);
+    if (intent.split !== undefined && sharing.length > 0 && !splitSizes(state, target.part, intent.split, sharing, views)) {
         return rejected("invalid", "量不出半区的来源比例");
     }
     return {kind: "patch", patch: {
@@ -348,6 +349,37 @@ function setViewCollapsed(state: IntentState, intent: Extract<ViewIntent, {kind:
     const recorded = state.customizations.views?.[intent.viewId]?.collapsed === true;
     if (recorded === intent.collapsed) return {kind: "unchanged"};
     return {kind: "patch", patch: {views: {[intent.viewId]: {collapsed: intent.collapsed ? true : null}}}};
+}
+
+/**
+ * 这次意图把视图或容器从别的 Part 带进哪个 Part；同一 Part 里挪动、不搬东西的意图为 null。外壳据此让收起成标题头
+ * 的面板同次展开（docs/specs/ui/workbench-shell.md 输出 39）。
+ */
+export function arrivalPartOf(placement: Placement, intent: ViewIntent): ViewLocation | null {
+    const partOfContainer = (containerId: string): ViewLocation | null => placement.containers.get(containerId)?.part ?? null;
+    let from: ViewLocation | null;
+    let to: ViewLocation | null;
+    switch (intent.kind) {
+        case "move-view":
+            from = partOfContainer(intent.sourceContainerId);
+            to = partOfContainer(intent.targetContainerId);
+            break;
+        case "detach-view":
+            from = partOfContainer(intent.sourceContainerId);
+            to = intent.targetPart;
+            break;
+        case "move-container":
+            from = intent.sourcePart;
+            to = intent.targetPart;
+            break;
+        case "merge-container":
+            from = partOfContainer(intent.sourceContainerId);
+            to = partOfContainer(intent.targetContainerId);
+            break;
+        default:
+            return null;
+    }
+    return to !== null && from !== to ? to : null;
 }
 
 export function applyIntent(state: IntentState, intent: ViewIntent): IntentResult {

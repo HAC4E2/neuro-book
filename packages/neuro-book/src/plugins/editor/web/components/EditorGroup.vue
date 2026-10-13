@@ -1,18 +1,33 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
-import {Button} from "@notnotype/nb-ui/components";
+import {Button, Kbd} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
 import type {EditorArea, EditorControlHandle} from "../area";
-import type {EditorKind} from "../groups/groups";
+import type {EmptyTip} from "../empty-tips";
+import type {FileEditorKind} from "../groups/groups";
+import {pageIdOf} from "../pages";
+import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorTabBar from "./EditorTabBar.vue";
 import type {TabItem} from "./EditorTabBar.vue";
 
-const props = defineProps<{area: EditorArea; groupId: string; locale: DisplayLocale; control: (kind: EditorKind) => Component}>();
+const props = withDefaults(defineProps<{
+    area: EditorArea;
+    groupId: string;
+    locale: DisplayLocale;
+    control: (kind: FileEditorKind) => Component;
+    pages?: EditorPageSource | null;
+    /** 组里没有标签时显示的提示（已按可用性筛好）。 */
+    emptyTips?: ReadonlyArray<EmptyTip>;
+}>(), {pages: null, emptyTips: () => []});
+
+/** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。 */
+const emit = defineEmits<{(event: "run-tip", command: string): void}>();
 
 const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
@@ -22,7 +37,10 @@ const active = computed(() => props.area.groups.activeGroup.value === props.grou
 
 const tabs = computed((): TabItem[] => (group.value?.tabs ?? []).map((tab) => {
     const opened = props.area.documents.get(tab.address);
-    return {id: tab.id, label: nameOf(tab.address), title: tab.address, preview: tab.preview, dirty: opened?.dirty.value === true, active: tab.id === group.value?.active};
+    // 页面标签（输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
+    const page = pageIdOf(tab.address);
+    const label = page === null ? nameOf(tab.address) : (props.pages?.title(page, props.locale) ?? page);
+    return {id: tab.id, label, title: page === null ? tab.address : label, preview: tab.preview, dirty: opened?.dirty.value === true, active: tab.id === group.value?.active};
 }));
 
 type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
@@ -57,18 +75,22 @@ const failure = computed(() => {
     return editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: current.failure.value?.code ?? ""});
 });
 
-const onReady = (kind: EditorKind, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, kind, handle);
+const onReady = (kind: FileEditorKind, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, kind, handle);
+
+/** 活动标签是页面时的页面 id；文件标签为 null。 */
+const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(activeTab.value.address)));
+const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
 
 // 控件按编辑器种类各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。
-const kinds = computed((): EditorKind[] => {
-    const present = new Set<EditorKind>((group.value?.tabs ?? []).map((tab) => tab.editor));
+const kinds = computed((): FileEditorKind[] => {
+    const present = new Set((group.value?.tabs ?? []).map((tab) => tab.editor));
     return (["markdown", "code"] as const).filter((kind) => present.has(kind));
 });
 </script>
 
 <template>
     <section
-        class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--bg-main)]"
+        class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="editorText(locale, 'areaLabel')"
         :data-editor-group="groupId"
@@ -102,10 +124,24 @@ const kinds = computed((): EditorKind[] => {
             <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
         </div>
         <div class="relative min-h-0 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
-            <p v-if="activeTab === null" class="p-6 text-sm text-[var(--text-muted)]" data-editor-empty>{{ editorText(locale, "empty") }}</p>
+            <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
+                <NeuroBookMark class="editor-group__mark" aria-hidden="true" />
+                <div v-if="emptyTips.length > 0" class="editor-group__tips">
+                    <button v-for="tip in emptyTips" :key="tip.command" type="button" class="editor-group__tip nb-ui-focus-ring" :data-editor-empty-tip="tip.command" @click="emit('run-tip', tip.command)">
+                        <span class="editor-group__tip-label">{{ tip.label }}</span>
+                        <span v-if="tip.keys !== null" class="editor-group__tip-keys"><Kbd v-for="key in tip.keys" :key="key">{{ key }}</Kbd></span>
+                        <span v-else class="editor-group__tip-hint">{{ tip.hint }}</span>
+                    </button>
+                </div>
+            </div>
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
                 <p>{{ failure }}</p>
                 <Button size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>
+            </div>
+            <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
+            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
+                <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
+                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[13px] text-[var(--text-muted)]" data-editor-page-missing>{{ editorText(locale, "pageMissing") }}</p>
             </div>
             <template v-for="kind in kinds" :key="kind">
                 <div v-show="binding !== null && binding.kind === kind" class="absolute inset-0" :data-editor-kind="kind">
@@ -126,6 +162,63 @@ const kinds = computed((): EditorKind[] => {
 </template>
 
 <style scoped>
+/* 空态（docs/specs/workbench/editor.md 输出 32）：正中一个淡色的图形标志，下面几行提示，说明靠右、按键或位置靠左。 */
+.editor-group__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 36px;
+    height: 100%;
+    padding: 24px;
+    overflow: hidden;
+}
+
+/* 组被拆得很矮时标志先缩（宽随高），提示不被挤掉。 */
+.editor-group__mark {
+    flex: 0 1 132px;
+    min-height: 32px;
+    height: auto;
+    color: color-mix(in srgb, var(--text-main) 9%, transparent);
+}
+
+.editor-group__tips {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 14px;
+    row-gap: 2px;
+    font-size: 13px;
+}
+
+/* 每行是一个按钮：跨两列并沿用外层的列（subgrid），两列在各行之间对齐，按钮本身仍可聚焦。 */
+.editor-group__tip {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    text-align: left;
+}
+
+.editor-group__tip:hover {
+    background: var(--bg-hover);
+}
+
+.editor-group__tip-label {
+    text-align: right;
+}
+
+.editor-group__tip-keys {
+    display: flex;
+    gap: 3px;
+}
+
+.editor-group__tip-hint {
+    color: var(--text-muted);
+}
+
 .editor-group__progress {
     animation: editor-group-progress 1.2s var(--ease-standard) infinite;
 }

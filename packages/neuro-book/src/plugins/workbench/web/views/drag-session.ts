@@ -23,10 +23,10 @@ import type {ShallowRef} from "vue";
 
 import type {GridDropPoint} from "@notnotype/nb-ui/layout";
 
-import type {ViewIntent} from "./intents";
 import {isSameDropAction, layoutKeyOf, resolveDrop} from "./drop";
 import type {DropDecision, DropRects, DropSource} from "./drop";
-import {containerHostIn, dragSourceAt, dropHitAt, entryIn, keyboardRegions, keyboardStops, readContentRects, readDropRect, readSwitcherRects, sectionIn} from "./drop-dom";
+import {containerHostIn, dragSourceAt, dropHitAt, entryIn, keyboardRegions, keyboardStops, readContentRects, readDropRect, readSwitcherRects, revealAt, sectionIn} from "./drop-dom";
+import type {KeyboardStops, RevealZoneRect} from "./drop-dom";
 import {customContainerId} from "./placement";
 import type {ViewCatalog} from "./placement";
 import type {Presentation} from "./presentation";
@@ -42,8 +42,10 @@ export interface DragSessionOptions {
     catalog(): ViewCatalog;
     /** 布局可写时为真；否则不起拖。 */
     enabled(): boolean;
-    /** 提交一次已显示过的动作。 */
-    commit(intent: ViewIntent): void;
+    /** 拿起时浮出的预备区（此刻没显示的 Part 显示出来会在的矩形）；整场拖动不变。缺省没有。 */
+    revealZones?(): ReadonlyArray<RevealZoneRect>;
+    /** 提交一次已显示过的动作：意图、落在预备区时要同次显示的 Part（`reveal`），以及松手时的预览（收尾从那里开始）。 */
+    commit(decision: Extract<DropDecision, {kind: "commit"}>): void;
 }
 
 /** 进行中的拖动：拖影与落点反馈只读它。 */
@@ -54,6 +56,8 @@ export interface DragState {
     /** 这一次的判定；没有命中任何落点为 null。 */
     readonly decision: DropDecision | null;
     readonly keyboard: boolean;
+    /** 这场拖动浮出的预备区。 */
+    readonly zones: ReadonlyArray<RevealZoneRect>;
 }
 
 export interface DragSession {
@@ -70,9 +74,19 @@ interface Pending {
     timer: ReturnType<typeof setTimeout> | null;
 }
 
+/** 键盘能去的区域：真实落点的元素，或预备区（排在真实落点之后）。 */
+type KeyboardRegion = {readonly kind: "element"; readonly element: HTMLElement} | {readonly kind: "zone"; readonly zone: RevealZoneRect};
+
+/** 区域里键盘能停的位置：预备区只有中心一个。 */
+function stopsOf(region: KeyboardRegion): KeyboardStops {
+    if (region.kind === "element") return keyboardStops(region.element);
+    const {rect} = region.zone;
+    return {axis: null, points: [{x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2}]};
+}
+
 /** 键盘拖动的位置：第几个区域的第几个位置。区域列表在拿起时取一次，布局代次不变它就不变。 */
 interface KeyboardCursor {
-    readonly regions: ReadonlyArray<HTMLElement>;
+    readonly regions: ReadonlyArray<KeyboardRegion>;
     region: number;
     stop: number;
 }
@@ -85,6 +99,8 @@ interface Active {
     /** 拿起时的源元素：结束后焦点回到它（或重渲染后同一个源的新元素）。 */
     readonly origin: HTMLElement;
     readonly newContainerId: string;
+    /** 拿起时求出的预备区。 */
+    readonly zones: ReadonlyArray<RevealZoneRect>;
     point: GridDropPoint;
     /** 最后一次发布过的提交动作；放下只认它。 */
     shown: DropDecision | null;
@@ -136,11 +152,17 @@ export function createDragSession(options: DragSessionOptions): DragSession {
     function evaluate(current: Active): DropDecision | null | "cancelled" {
         const presentation = options.presentation();
         if (layoutKeyOf(presentation) !== current.source.layoutKey) return "cancelled";
-        const hit = dropHitAt(root, current.point, partOf);
-        if (hit === null) return null;
         const sourceHost = containerHostIn(root, current.source.containerId);
+        const sourceContent = sourceHost === null ? null : readContentRects(sourceHost);
+        // 键盘停在预备区上就是它（预备区可能叠在真实落点上，按中心命中会落到下面去）；指针先认真实落点，落空才找预备区。
+        const cursorRegion = current.keyboard?.regions[current.keyboard.region];
+        const hit = cursorRegion?.kind === "zone" ? null : dropHitAt(root, current.point, partOf);
+        const zone = cursorRegion?.kind === "zone" ? cursorRegion.zone : hit === null ? revealAt(root, current.point, current.zones) : null;
+        const common = {source: current.source, point: current.point, presentation, catalog: options.catalog(), layoutKey: current.source.layoutKey, newContainerId: current.newContainerId};
+        if (zone !== null) return resolveDrop({...common, target: {kind: "reveal", part: zone.part}, rects: {sourceContent, reveal: zone.rect}});
+        if (hit === null) return null;
         const rects: DropRects = {
-            sourceContent: sourceHost === null ? null : readContentRects(sourceHost),
+            sourceContent,
             ...(hit.target.kind === "switcher" ? {switcher: readSwitcherRects(hit.element, hit.target.part)}
                 : hit.target.kind === "empty" ? {empty: readDropRect(hit.element)}
                     : {content: readContentRects(hit.element)}),
@@ -167,7 +189,7 @@ export function createDragSession(options: DragSessionOptions): DragSession {
             return;
         }
         current.shown = decision?.kind === "commit" ? decision : null;
-        state.value = {source: current.source, point: current.point, decision, keyboard: current.keyboard !== null};
+        state.value = {source: current.source, point: current.point, decision, keyboard: current.keyboard !== null, zones: current.zones};
     }
 
     function schedule(): void {
@@ -224,15 +246,15 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         const final = evaluate(current);
         const shown = current.shown;
         end(false);
-        if (final !== null && final !== "cancelled" && final.kind === "commit" && isSameDropAction(shown, final)) options.commit(final.intent);
+        if (final !== null && final !== "cancelled" && final.kind === "commit" && isSameDropAction(shown, final)) options.commit(final);
         if (current.keyboard !== null) requestAnimationFrame(() => returnFocus(current));
     }
 
     /** 键盘拖动移到第 `region` 个区域的第 `stop` 个位置（夹在范围内），立即发布。 */
     function moveKeyboard(current: Active, cursor: KeyboardCursor, region: number, stop: number): void {
-        const element = cursor.regions[region];
-        if (element === undefined) return;
-        const stops = keyboardStops(element).points;
+        const target = cursor.regions[region];
+        if (target === undefined) return;
+        const stops = stopsOf(target).points;
         if (stops.length === 0) return;
         cursor.region = region;
         cursor.stop = Math.max(0, Math.min(stop, stops.length - 1));
@@ -257,8 +279,8 @@ export function createDragSession(options: DragSessionOptions): DragSession {
             const count = cursor.regions.length;
             moveKeyboard(current, cursor, (cursor.region + (event.shiftKey ? count - 1 : 1)) % count, 0);
         } else {
-            const element = cursor.regions[cursor.region];
-            const step = element === undefined ? 0 : stepOf(event.key, keyboardStops(element).axis);
+            const target = cursor.regions[cursor.region];
+            const step = target === undefined ? 0 : stepOf(event.key, stopsOf(target).axis);
             if (step !== 0) moveKeyboard(current, cursor, cursor.region, cursor.stop + step);
         }
     }
@@ -313,9 +335,10 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         // 从源自己的原位开始，直接 Enter 是无操作：容器源是它在条目带上的条目的前缘，视图源是它自己分节里的位置。
         // 都找不到（源条目不可见）时停在源的中心，不落到区域的第一个位置（那是一次真实的移动）。
         const cursor = next.keyboard;
-        const stops = keyboardStops(cursor.regions[cursor.region]!).points;
-        const home = cursor.regions[cursor.region]!;
-        const own = (next.source.kind === "view" ? sectionIn(home, next.source.viewId) : entryIn(home, next.source.containerId)) ?? next.origin;
+        const start = cursor.regions[cursor.region]!;
+        const stops = stopsOf(start).points;
+        const home = start.kind === "element" ? start.element : null;
+        const own = (home === null ? null : next.source.kind === "view" ? sectionIn(home, next.source.viewId) : entryIn(home, next.source.containerId)) ?? next.origin;
         const box = own.getBoundingClientRect();
         const at = stops.findIndex((point) => point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom);
         if (at !== -1) {
@@ -334,7 +357,7 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         // 捕获到源上：指针移出窗口后仍收得到移动与松手。门槛期间松手或取消都会清掉 pending，到这里指针仍按着；
         // 源在门槛期间被卸下时不捕获，松手与取消照样由窗口监听收到。
         if (from.element.isConnected) from.element.setPointerCapture(from.pointerId);
-        begin({pointerId: from.pointerId, keyboard: null, source: from.source, origin: from.element, newContainerId: customContainerId(crypto.randomUUID()), point: from.start, shown: null});
+        begin({pointerId: from.pointerId, keyboard: null, source: from.source, origin: from.element, newContainerId: customContainerId(crypto.randomUUID()), zones: options.revealZones?.() ?? [], point: from.start, shown: null});
     }
 
     function onPointerDown(event: PointerEvent): void {
@@ -392,7 +415,9 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         if (found === null || !(event.target === found.element || (event.target instanceof HTMLElement && event.target.hasAttribute("data-drag-handle")))) return;
         const source = freezeSource(options.presentation(), options.catalog(), found.viewId, found.containerId);
         if (source === null) return;
-        const regions = keyboardRegions(root, partOf);
+        // 预备区排在真实落点之后，按侧栏、右栏、面板的顺序（求出来就是这个顺序）。
+        const zones = options.revealZones?.() ?? [];
+        const regions: KeyboardRegion[] = [...keyboardRegions(root, partOf).map((element) => ({kind: "element" as const, element})), ...zones.map((zone) => ({kind: "zone" as const, zone}))];
         // 起点区域：容器源是它在 Switcher 上的条目所在的条目带，视图源是它所在的内容区；找不到就从第一个区域开始。
         const home = source.kind === "container"
             ? root.querySelector(`[data-switcher-entry="${CSS.escape(source.containerId)}"]`)?.closest("[data-switcher-band]")
@@ -400,8 +425,8 @@ export function createDragSession(options: DragSessionOptions): DragSession {
         if (regions.length === 0) return;
         event.preventDefault();
         event.stopPropagation();
-        const region = Math.max(0, regions.findIndex((element) => element === home));
-        begin({pointerId: null, keyboard: {regions, region, stop: 0}, source, origin: event.target as HTMLElement, newContainerId: customContainerId(crypto.randomUUID()), point: {x: 0, y: 0}, shown: null});
+        const region = Math.max(0, regions.findIndex((candidate) => candidate.kind === "element" && candidate.element === home));
+        begin({pointerId: null, keyboard: {regions, region, stop: 0}, source, origin: event.target as HTMLElement, newContainerId: customContainerId(crypto.randomUUID()), zones, point: {x: 0, y: 0}, shown: null});
     }
 
     root.addEventListener("pointerdown", onPointerDown, true);

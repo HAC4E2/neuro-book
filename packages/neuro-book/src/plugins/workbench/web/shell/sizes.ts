@@ -32,21 +32,22 @@ export const SASH_PX = 1;
 export const SHELL_TITLEBAR_HEIGHT = 36;
 export const SHELL_STATUSBAR_HEIGHT = 22;
 
-/** 水平面板高度：默认 200、拖动区间 80..600、收起时只剩 32px 标题头。 */
+/**
+ * 水平面板高度：默认 200、最小 80、收起时只剩 32px 标题头。没有固定上限：面板能一直拖到编辑器的最小尺寸，再往前就是
+ * 编辑器拖到零，即最大化（Spec 外壳一输出 4、7）。
+ */
 export const SHELL_PANEL_DEFAULT_HEIGHT = 200;
 export const SHELL_PANEL_MIN_HEIGHT = 80;
-export const SHELL_PANEL_MAX_HEIGHT = 600;
 export const SHELL_PANEL_COLLAPSED_HEIGHT = 32;
 
-/** 左右面板宽度：默认 320、拖动区间 160..600（与高度分开记忆）。 */
+/** 左右面板宽度：默认 320、最小 160（与高度分开记忆），同样没有固定上限。 */
 export const SHELL_PANEL_DEFAULT_WIDTH = 320;
 export const SHELL_PANEL_MIN_WIDTH = 160;
-export const SHELL_PANEL_MAX_WIDTH = 600;
 
 /** 拖到零的收起与恢复阈值（CSS px），与 nb-ui 的默认策略同值，这里只是显式声明。 */
 export const SHELL_DRAG_COLLAPSE_THRESHOLD = 24;
 
-/** ActivityBar 叶宽（刚性）：38px 按钮加两侧余量。外壳平铺，各部件贴着窗体与相邻的叶，不再留白（输出 38）。 */
+/** ActivityBar 卡片宽（刚性）：38px 按钮加两侧余量。叶宽是它加上卡片外壳的缝（`projectShell` 的 `cardGap`，平铺为 0，输出 3、38）。 */
 export const SHELL_ACTIVITYBAR_WIDTH = 48;
 
 export const SHELL_SIDEBAR_DEFAULT_WIDTH = 340;
@@ -84,10 +85,9 @@ function rigid(size: number): ShellLeafLimits {
     return {minimumSize: size, maximumSize: size};
 }
 
-export type ShellFixedLeafId = "activitybar" | "sidebar" | "auxiliarybar" | "editor" | "titlebar" | "statusbar";
+export type ShellFixedLeafId = "sidebar" | "auxiliarybar" | "editor" | "titlebar" | "statusbar";
 
 const SHELL_LEAF_LIMITS: Readonly<Record<ShellFixedLeafId, (viewportWidth: number) => ShellLeafLimits>> = {
-    activitybar: () => rigid(SHELL_ACTIVITYBAR_WIDTH),
     sidebar: () => ({minimumSize: SHELL_SIDEBAR_MIN_WIDTH, maximumSize: SHELL_SIDEBAR_MAX_WIDTH}),
     auxiliarybar: (viewportWidth) => ({minimumSize: SHELL_AUXILIARYBAR_MIN_WIDTH, maximumSize: auxiliarybarMaxWidth(viewportWidth)}),
     editor: () => ({minimumSize: 0, maximumSize: SHELL_EDITOR_MAX_WIDTH}),
@@ -100,13 +100,11 @@ export function shellLeafLimits(leafId: ShellFixedLeafId, viewportWidth: number)
     return SHELL_LEAF_LIMITS[leafId](viewportWidth);
 }
 
-/** 面板在其主轴上的最小与最大值：高度轴收起时刚性 32px；最大化时上限放开。宽度轴没有收起。 */
-export function shellPanelAxisLimits(axis: ShellAxis, panel: Readonly<{collapsed: boolean; maximized: boolean}>): ShellLeafLimits {
-    if (axis === "width") {
-        return {minimumSize: SHELL_PANEL_MIN_WIDTH, maximumSize: panel.maximized ? SHELL_EDITOR_MAX_WIDTH : SHELL_PANEL_MAX_WIDTH};
-    }
+/** 面板在其主轴上的最小与最大值：高度轴收起时刚性 32px；没有固定上限，装不装得下由分配给编辑器留出的最小尺寸决定。 */
+export function shellPanelAxisLimits(axis: ShellAxis, panel: Readonly<{collapsed: boolean}>): ShellLeafLimits {
+    if (axis === "width") return {minimumSize: SHELL_PANEL_MIN_WIDTH, maximumSize: SHELL_EDITOR_MAX_WIDTH};
     if (panel.collapsed) return rigid(SHELL_PANEL_COLLAPSED_HEIGHT);
-    return {minimumSize: SHELL_PANEL_MIN_HEIGHT, maximumSize: panel.maximized ? SHELL_EDITOR_MAX_WIDTH : SHELL_PANEL_MAX_HEIGHT};
+    return {minimumSize: SHELL_PANEL_MIN_HEIGHT, maximumSize: SHELL_EDITOR_MAX_WIDTH};
 }
 
 /** 单叶夹取：最大值小于最小值时以最小值为准；非有限值按最小值，免得 NaN 进入分配。 */
@@ -116,14 +114,14 @@ export function clampLeafSize(size: number, limits: ShellLeafLimits): number {
     return Math.min(high, Math.max(low, Number.isFinite(size) ? size : low));
 }
 
-/** 面板高度意图的夹取（展开区间 80..600）；非有限值回落默认。 */
+/** 面板高度意图的夹取（只夹下限 80）；非有限值回落默认。 */
 export function clampPanelHeight(height: number): number {
-    return clampLeafSize(Number.isFinite(height) ? height : SHELL_PANEL_DEFAULT_HEIGHT, shellPanelAxisLimits("height", {collapsed: false, maximized: false}));
+    return clampLeafSize(Number.isFinite(height) ? height : SHELL_PANEL_DEFAULT_HEIGHT, shellPanelAxisLimits("height", {collapsed: false}));
 }
 
-/** 面板宽度意图的夹取（160..600）；非有限值回落默认。 */
+/** 面板宽度意图的夹取（只夹下限 160）；非有限值回落默认。 */
 export function clampPanelWidth(width: number): number {
-    return clampLeafSize(Number.isFinite(width) ? width : SHELL_PANEL_DEFAULT_WIDTH, shellPanelAxisLimits("width", {collapsed: false, maximized: false}));
+    return clampLeafSize(Number.isFinite(width) ? width : SHELL_PANEL_DEFAULT_WIDTH, shellPanelAxisLimits("width", {collapsed: false}));
 }
 
 // ── 值类型 ───────────────────────────────────────────────────────────────────
@@ -149,6 +147,8 @@ export interface ShellSizePatch {
     panelHeight?: number;
     panelWidth?: number;
     dragCollapsed?: ShellDragCollapseMap;
+    /** 编辑器被拖到零（true）或从零拖回（false）：面板的瞬时最大化，只在内存，不进尺寸记录（Spec 外壳一输出 7）。 */
+    panelMaximized?: boolean;
 }
 
 export const SHELL_SIZE_DEFAULTS: ShellSizePreferences = {

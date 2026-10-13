@@ -298,7 +298,7 @@ function isLowSurrogate(code: number): boolean {
                 <input
                     :id="inputId"
                     ref="inputRef"
-                    class="nb-ui-native-input nb-ui-control nb-ui-control-h-md nb-ui-control-px w-full shrink-0 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-sm)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
+                    class="nb-ui-native-input nb-ui-control nb-ui-control-h-md nb-ui-control-px w-full shrink-0 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[length:var(--text-sm)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
                     type="text"
                     role="combobox"
                     autocomplete="off"
@@ -321,7 +321,7 @@ function isLowSurrogate(code: number): boolean {
                             role="option"
                             :aria-selected="isActive(item) ? 'true' : 'false'"
                             :aria-disabled="item.disabled ? 'true' : undefined"
-                            class="nb-ui-popover-item flex items-center gap-[var(--space-2)] px-[var(--space-2)] py-1.5 text-[var(--text-sm)] select-none"
+                            class="nb-ui-popover-item flex items-center gap-[var(--space-2)] px-[var(--space-2)] py-1.5 text-[length:var(--text-sm)] select-none"
                             :class="item.disabled
                                 ? 'cursor-not-allowed text-[var(--text-muted)] opacity-60'
                                 : isActive(item)
@@ -341,7 +341,7 @@ function isLowSurrogate(code: number): boolean {
                                 </span>
                                 <span
                                     v-if="metaText(item) !== ''"
-                                    class="block truncate text-[var(--text-xs)] text-[var(--text-muted)]"
+                                    class="block truncate text-[length:var(--text-xs)] text-[var(--text-muted)]"
                                 >{{ metaText(item) }}</span>
                             </span>
                             <Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd>
@@ -349,11 +349,11 @@ function isLowSurrogate(code: number): boolean {
                     </ul>
                     <p
                         v-if="props.items.length === 0 && !props.loading"
-                        class="px-[var(--space-2)] py-3 text-center text-[var(--text-sm)] text-[var(--text-muted)]"
+                        class="px-[var(--space-2)] py-3 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]"
                     >{{ props.emptyText }}</p>
                 </div>
 
-                <div class="flex shrink-0 items-center gap-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-muted)]" role="status" aria-live="polite">
+                <div class="flex shrink-0 items-center gap-[var(--space-2)] text-[length:var(--text-xs)] text-[var(--text-muted)]" role="status" aria-live="polite">
                     <Spinner v-if="props.loading" size="sm" />
                     <span v-if="props.message !== ''">{{ props.message }}</span>
                 </div>

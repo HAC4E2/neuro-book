@@ -47,6 +47,13 @@ async function halfOf(page: Page, viewId: string, side: "before" | "after"): Pro
     return axis === "horizontal" ? {x: box.x + box.width * ratio, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + box.height * ratio};
 }
 
+/** 收起有形变动画：等这个分节缩成 32px 的细条再量它的位置，量到半路的几何会把指针放到别处。 */
+async function settledStrip(page: Page, viewId: string): Promise<void> {
+    const section = page.locator(`[data-view-section="${viewId}"]`);
+    await expect(section).toHaveAttribute("data-view-collapsed", "true");
+    await expect.poll(async () => Math.round((await section.boundingBox())!.height)).toBe(32);
+}
+
 /** 一次完整的指针拖放：拖到 `to` 松手，等拖影消失。 */
 async function dropAt(page: Page, source: Locator, to: {x: number; y: number}): Promise<void> {
     await dragTo(page, source, to);
@@ -349,22 +356,198 @@ test.describe("产品页：拖放", () => {
         await expect(host(page, `view:${F}`)).toHaveAttribute("data-container-axis", "vertical");
     });
 
-    test("全部可见视图收成细条：落点是细条之后的剩余区，拖入的视图展开、原有细条保持收起", async ({page}) => {
+    test("全部可见视图收成细条：剩余区与标题之间都是插入位，预览是插入线、提示贴在线的右端；放下后拖入的视图在插入位展开，原有的保持收起", async ({page}) => {
         await open(page);
         const sidebar = page.locator('[data-tool-part="sidebar"]');
         await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
         for (const id of [A, B]) await page.locator(`[data-view-section="${id}"] [data-view-toggle]`).click();
-        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+        for (const id of [A, B]) await settledStrip(page, id);
+        const sections = () => host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-view-section")));
+        const label = page.locator("[data-drop-feedback-label]");
+        const line = page.locator("[data-drop-feedback-line]");
+
+        // 剩余区：插在最后
         const box = (await sidebar.boundingBox())!;
         await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), {x: box.x + box.width / 2, y: box.y + box.height - 40});
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
-        const area = (await page.locator("[data-drop-feedback-area]").boundingBox())!;
+        await expect(line).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-area]")).toHaveCount(0);
+        await expect(label).toContainText("放在“样例乙”后");
+        const lineBox = (await line.boundingBox())!;
         const strips = (await page.locator(`[data-view-section="${B}"]`).boundingBox())!;
-        expect(area.y).toBeGreaterThanOrEqual(strips.y + strips.height - 1);
+        expect(lineBox.y).toBeGreaterThanOrEqual(strips.y + strips.height - 2);
+        const pill = (await label.boundingBox())!;
+        expect(Math.abs(pill.x + pill.width - (lineBox.x + lineBox.width))).toBeLessThan(4);
         await page.mouse.up();
         await expect(page.locator(`[data-view-section="${C}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        expect(await sections()).toEqual([A, B, C]);
         await expect(page.locator(`[data-view-section="${A}"]`)).toHaveAttribute("data-view-collapsed", "true");
         await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+
+        // 甲、乙两条标题之间：右栏的丁插到乙前面
+        await dragTo(page, tabOf(page, "auxiliarybar", `view:${D}`), await halfOf(page, B, "before"));
+        await expect(label).toContainText("放在“样例乙”前");
+        await page.mouse.up();
+        await expect.poll(sections).toEqual([A, D, B, C]);
+        await expect(page.locator(`[data-view-section="${D}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+    });
+
+    test("全部收起时键盘也能插在标题之间：Tab 到内容区后方向键经过每条标题之前与最后，Enter 插入并展开", async ({page}) => {
+        await open(page);
+        await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        for (const id of [A, B]) await page.locator(`[data-view-section="${id}"] [data-view-toggle]`).click();
+        for (const id of [A, B]) await settledStrip(page, id);
+        const label = page.locator("[data-drop-feedback-label]");
+        const labelText = () => page.evaluate(async () => {
+            await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+            return document.querySelector("[data-drop-feedback-label]")?.textContent ?? "";
+        });
+        await tabOf(page, "panel", `view:${E}`).focus();
+        await page.keyboard.press("Space");
+        await expect(ghost(page)).toBeVisible();
+        for (let step = 0; step < 8 && !(await labelText()).startsWith("放在"); step += 1) await page.keyboard.press("Tab");
+        // Tab 进区域时停在第一个位置；依次经过：甲之前、乙之前、乙之后
+        const seen: string[] = [];
+        for (let step = 0; step < 3; step += 1) {
+            seen.push((await labelText()).trim());
+            await page.keyboard.press("ArrowDown");
+        }
+        expect(seen).toEqual(["放在“样例甲”前", "放在“样例乙”前", "放在“样例乙”后"]);
+        // 末尾再按下也停在最后；往回一格是乙之前
+        await page.keyboard.press("ArrowUp");
+        await expect(label).toHaveText("放在“样例乙”前");
+        await page.keyboard.press("Enter");
+        await expect.poll(() => host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-view-section")))).toEqual([A, E, B]);
+        await expect(page.locator(`[data-view-section="${E}"]`)).toHaveAttribute("data-view-collapsed", "false");
+    });
+
+    test("一个展开、其余收起：拖到收起分栏的前半插在它前面、不拆细条；挨着展开的分栏时与它平分", async ({page}) => {
+        await open(page);
+        await dropAt(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        await page.locator(`[data-view-section="${B}"] [data-view-toggle]`).click();
+        await settledStrip(page, B);
+        await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), await halfOf(page, B, "before"));
+        await expect(page.locator("[data-drop-feedback-line]")).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-area]")).toHaveCount(0);
+        await expect(page.locator("[data-drop-feedback-label]")).toContainText("放在“样例乙”前");
+        await page.mouse.up();
+        await expect.poll(() => host(page, `view:${A}`).locator("[data-view-section]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-view-section")))).toEqual([A, C, B]);
+        await expect(page.locator(`[data-view-section="${C}"]`)).toHaveAttribute("data-view-collapsed", "false");
+        await expect(page.locator(`[data-view-section="${B}"]`)).toHaveAttribute("data-view-collapsed", "true");
+        const heightOf = async (id: string) => (await page.locator(`[data-view-section="${id}"]`).boundingBox())!.height;
+        await expect.poll(async () => Math.abs((await heightOf(A)) - (await heightOf(C)))).toBeLessThan(2);
+    });
+
+    test("面板收成标题头：从侧栏拖进面板的标签带，面板展开并显示拖进来的容器", async ({page}) => {
+        await open(page);
+        const panel = page.locator('[data-leaf="panel"]');
+        await page.locator('[data-panel-action="nbook.view.set-panel-collapsed"]').click();
+        await expect.poll(async () => (await panel.boundingBox())!.height).toBe(32);
+        const last = (await tabOf(page, "panel", `view:${F}`).boundingBox())!;
+        await dropAt(page, page.locator(`[data-activity-container="view:${C}"]`), {x: last.x + last.width + 30, y: last.y + last.height / 2});
+        await expect(tabOf(page, "panel", `view:${C}`)).toHaveAttribute("aria-selected", "true");
+        await expect.poll(async () => (await panel.boundingBox())!.height).toBeGreaterThan(32);
+        await expect(page.locator(`[data-sample-view="${C}"]`)).toBeVisible();
+    });
+
+    test("右栏与面板都隐藏时拖动：浮出两块预备区，真实落点照常；放到右栏的预备区，右栏显示并装着拖进来的容器，只写一次；拖动结束预备区消失", async ({page}) => {
+        await open(page);
+        for (const part of ["auxiliarybar", "panel"]) await page.locator(`[data-titlebar-layout="${part}"]`).click();
+        await expect(page.locator('[data-leaf="auxiliarybar"]')).toHaveCount(0);
+        await expect(page.locator('[data-leaf="panel"]')).toHaveCount(0);
+        const zone = (part: string) => page.locator(`[data-reveal-zone="${part}"]`);
+        const writes = await writesOf(page);
+        await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), await centerOf(page.locator(`[data-view-section="${A}"]`)));
+        await expect(zone("auxiliarybar")).toBeVisible();
+        await expect(zone("panel")).toBeVisible();
+        await expect(zone("sidebar")).toHaveCount(0);
+        // 侧栏是真实落点：预备区不抢它
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
+        await page.mouse.move(...Object.values(await centerOf(zone("auxiliarybar"))) as [number, number], {steps: 6});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "move-container");
+        await expect(page.locator("[data-drop-feedback-label]")).toContainText("放到右栏");
+        await expect(zone("auxiliarybar")).toHaveAttribute("data-reveal-active", "true");
+        await page.mouse.up();
+        await expect(tabOf(page, "auxiliarybar", `view:${C}`)).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator(`[data-sample-view="${C}"]`)).toBeVisible();
+        await expect(page.locator("[data-reveal-zone]")).toHaveCount(0);
+        await expect(page.locator('[data-leaf="panel"]')).toHaveCount(0);
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+    });
+
+    test("侧栏拖到零：预备区按记住的宽度浮出，盖住的真实落点（含落点里的工具区）照常优先；键盘拿起面板的标签，Tab 经过可见落点后到预备区，Enter 放进去，侧栏按记忆宽度回来并选中它", async ({page}) => {
+        await open(page);
+        // 面板并成甲、乙两个分栏：分栏标题行的“移动到”是落点里的工具区。
+        await dropAt(page, tabOf(page, "panel", `view:${F}`), await halfOf(page, E, "after"));
+        // 侧栏先拖宽（到上限）再拖到零：预备区按记住的宽度浮出，盖住面板左边那一段。
+        const sash = page.getByRole("separator", {name: "调整 sidebar 与 panel-stack 的宽度"});
+        const drag = async (dx: number) => {
+            const box = (await sash.boundingBox())!;
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, {steps: 6});
+            await page.mouse.up();
+        };
+        await drag(260);
+        await expect.poll(async () => (await page.locator('[data-leaf="sidebar"]').boundingBox())!.width).toBeGreaterThan(500);
+        const wide = Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width);
+        await drag(-1000);
+        await expect.poll(async () => (await page.locator('[data-leaf="sidebar"]').boundingBox())!.width).toBe(0);
+
+        await dragTo(page, page.locator(`[data-activity-container="view:${C}"]`), {x: 300, y: 400});
+        const zone = (await page.locator('[data-reveal-zone="sidebar"]').boundingBox())!;
+        expect(Math.round(zone.width)).toBe(wide);
+        // 编辑器上方：预备区
+        await expect(page.locator("[data-drop-feedback-label]")).toContainText("放到侧栏");
+        // 面板的内容：真实落点
+        const section = (await page.locator(`[data-view-section="${E}"]`).boundingBox())!;
+        await page.mouse.move(section.x + 40, section.y + section.height / 2, {steps: 6});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "merge-container");
+        // 分栏标题行的“移动到”：工具区不接收，也不让给预备区
+        const tools = (await page.locator(`[data-view-section="${E}"] [data-move-view]`).boundingBox())!;
+        expect(tools.x + tools.width).toBeLessThan(zone.x + zone.width);
+        await page.mouse.move(tools.x + tools.width / 2, tools.y + tools.height / 2, {steps: 6});
+        await expect(page.locator("[data-drop-kind]")).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+
+        await tabOf(page, "panel", `view:${E}`).focus();
+        await page.keyboard.press("Space");
+        await expect(page.locator('[data-reveal-zone="sidebar"]')).toBeVisible();
+        const label = page.locator("[data-drop-feedback-label]");
+        // 每按一次 Tab 等下一帧渲染完再读提示：Tab 的个数取决于此刻可见的落点，不写死。
+        const labelText = () => page.evaluate(async () => {
+            await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+            return document.querySelector("[data-drop-feedback-label]")?.textContent ?? "";
+        });
+        for (let step = 0; step < 8 && !(await labelText()).includes("放到侧栏"); step += 1) await page.keyboard.press("Tab");
+        await expect(label).toContainText("放到侧栏");
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width)).toBe(wide);
+        await expect(page.locator(`[data-activity-container="view:${E}"]`)).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator(`[data-sample-view="${E}"]`)).toBeVisible();
+    });
+
+    test("放下后的收尾：高亮从落点滑到视图最终所在的位置再淡出，之后不留反馈；减少动效时同样收掉", async ({page}) => {
+        await open(page);
+        await dragTo(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
+        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
+        await page.mouse.up();
+        const area = page.locator("[data-drop-feedback-area]");
+        // 区域滑到乙最终的分节上（绘制盒四边内缩 6px）
+        await expect.poll(async () => {
+            const section = (await page.locator(`[data-view-section="${B}"]`).boundingBox())!;
+            const box = (await area.boundingBox().catch(() => null)) ?? {x: 0, y: 0, width: 0, height: 0};
+            return Math.max(Math.abs(box.x - section.x - 6), Math.abs(box.y - section.y - 6), Math.abs(box.width - section.width + 12), Math.abs(box.height - section.height + 12));
+        }, {intervals: [20]}).toBeLessThan(2);
+        await expect(page.locator("[data-drop-feedback]")).toHaveCount(0);
+
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await dropAt(page, page.locator(`[data-activity-container="view:${C}"]`), await halfOf(page, B, "after"));
+        await expect(page.locator(`[data-view-section="${C}"]`)).toBeVisible();
+        await expect(page.locator("[data-drop-feedback]")).toHaveCount(0);
     });
 
     test("多视图的面板容器搬到侧栏再搬回面板：成员顺序不变，轴随区域横转纵、纵转横", async ({page}) => {

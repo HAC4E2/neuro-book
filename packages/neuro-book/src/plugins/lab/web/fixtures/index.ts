@@ -7,6 +7,7 @@ import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
+import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
 import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
 import type PathPickerDialog from "nbook/plugins/projects/web/components/PathPickerDialog.vue";
@@ -19,6 +20,7 @@ import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
 import type SettingsControl from "nbook/plugins/settings/web/components/SettingsControl.vue";
 import type SettingsWindow from "nbook/plugins/settings/web/components/SettingsWindow.vue";
 import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
+import type NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
@@ -35,6 +37,7 @@ import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/Workb
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
 import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/components/WorkbenchViewContainerHost.vue";
 import type WorkbenchViewFrame from "nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue";
+import type WorkbenchViewActions from "nbook/plugins/workbench/web/components/WorkbenchViewActions.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
@@ -343,6 +346,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
                 {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
                 {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
+                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, locale: "en-US" as const, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue"),
@@ -416,6 +420,31 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchViewActions>({
+        component: "WorkbenchViewActions",
+        events: ["run"],
+        scenes: (() => {
+            const entry = (command: string, icon: string, title: string, extra: {disabledReason?: string; pressed?: boolean} = {}) => ({
+                action: {command, icon, title: {"zh-CN": title, "en-US": title}},
+                title,
+                disabledReason: extra.disabledReason ?? null,
+                ...(extra.pressed === undefined ? {} : {pressed: extra.pressed}),
+            });
+            const actions = (manifests: boolean, canCreate: boolean) => [
+                entry("nbook.files.new-file", "i-lucide-file-plus", "新建文件", canCreate ? {} : {disabledReason: "没有可以新建的位置"}),
+                entry("nbook.files.new-folder", "i-lucide-folder-plus", "新建文件夹", canCreate ? {} : {disabledReason: "没有可以新建的位置"}),
+                entry("nbook.view.refresh-files", "i-lucide-refresh-cw", "刷新"),
+                entry("nbook.files.collapse-all", "i-lucide-copy-minus", "全部收起"),
+                entry("nbook.files.toggle-manifests", "i-lucide-file-code", "显示清单文件", {pressed: manifests}),
+            ];
+            return [
+                {id: "default", label: "资源管理器的五个动作", input: {props: {actions: actions(false, true)}}},
+                {id: "pressed", label: "开关按下", input: {props: {actions: actions(true, true)}}},
+                {id: "disabled", label: "不可用：禁用并给出原因", input: {props: {actions: actions(false, false)}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchViewActions.vue"),
     }),
     defineSubjectFixture<typeof WorkbenchDragFeedback>({
         component: "WorkbenchDragFeedback",
@@ -529,13 +558,13 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof FilesExplorerView>({
         component: "FilesExplorerView",
         scenes: (() => {
-            const base = {locale: "zh-CN" as const, rows: EXPLORER_ROWS, selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null};
+            const base = {locale: "zh-CN" as const, rows: EXPLORER_ROWS, selected: [], focus: null, ready: true, notice: null, problem: null};
             return [
                 // 集成场景：真实的视图宿主、控制器与命令，文件换成内存适配器；输入只是占位，场景不读它。
                 {id: "live", label: "内存数据：真实控制器与命令", input: {props: base}},
                 {id: "default", label: "浏览", input: {props: base}},
                 {id: "unbound", label: "未打开项目、用户资产停止同步", input: {props: {...base, rows: UNBOUND_ROWS}}},
-                {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, showManifests: true, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
+                {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
                 {id: "loading", label: "偏好还在读取", input: {props: {...base, ready: false}}},
                 {id: "delete", label: "删除确认：多项与长路径", input: {props: {...base, dialog: {kind: "delete" as const, items: Array.from({length: 12}, (_, index) => ({address: `project://一个很深的目录/第${String(index + 1)}章 一个相当长的章节标题.md`, token: `t${String(index)}`})), busy: false, unsaved: ["project://一个很深的目录/第1章 一个相当长的章节标题.md"]}}}},
                 {id: "dirty-copy", label: "复制有未保存修改的文件", input: {props: {...base, dialog: {kind: "dirty-copy" as const, documents: ["project://chapters/第一章.md", "project://chapters/第二章.md"]}}}},
@@ -566,6 +595,7 @@ export const labFixtures: LabFixture[] = [
             {id: "live", label: "内存数据：两个标签", input: {props: {locale: "zh-CN"}}},
             {id: "split", label: "向右拆分的两组", input: {props: {locale: "zh-CN"}}},
             {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
+            {id: "empty", label: "没有标签：标志与提示", input: {props: {locale: "zh-CN"}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),
@@ -602,6 +632,15 @@ export const labFixtures: LabFixture[] = [
         ],
         subject: () => import("nbook/ui/brand/NeuroBookLockup.vue"),
         class: "h-[26px] text-[var(--text-main)]",
+    }),
+    defineSubjectFixture<typeof NeuroBookMark>({
+        component: "NeuroBookMark",
+        noInput: "图形标志没有 prop：大小由使用方的 class 给，颜色跟随文字色。",
+        scenes: [
+            {id: "titlebar", label: "窄标题栏大小（18px）"},
+        ],
+        subject: () => import("nbook/ui/brand/NeuroBookMark.vue"),
+        class: "h-[18px] text-[var(--text-main)]",
     }),
     defineSubjectFixture<typeof NeuroBookMood>({
         component: "NeuroBookMood",
@@ -686,6 +725,27 @@ function shelfFixtures(): LabFixture[] {
                 {id: "long", label: "长书名", input: {props: {locale: "zh-CN", item: long, now: SHELF_NOW, coverSrc: null, active: false}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/BookCard.vue"),
+        }),
+        defineSubjectFixture<typeof WelcomePage>({
+            component: "WelcomePage",
+            events: ["new-chapter", "open", "reveal", "shelf"],
+            class: "w-full",
+            scenes: (() => {
+                const quick = [
+                    {address: "project://大纲.md", name: "大纲.md", kind: "file" as const},
+                    {address: "project://设定", name: "设定", kind: "folder" as const},
+                ];
+                const recent = ["project://正文/第一卷/第一章 灯塔.md", "project://设定/人物.md", "project://大纲.md"];
+                const page = {locale: "zh-CN" as const, title: first.title ?? first.name, description: first.description, stats: first.stats, now: SHELF_NOW, quick, recent, shortcut: "Ctrl+Shift+P"};
+                return [
+                    {id: "book", label: "写过一阵的作品", input: {props: page}},
+                    {id: "new", label: "新作品：没有简介、尚未统计、没有最近打开", input: {props: {...page, title: "新的一本", description: null, stats: SHELF_ITEMS[3]!.stats, quick: [], recent: []}}},
+                    {id: "problem", label: "新建章节失败", input: {props: {...page, problem: "新建章节失败：permission-denied"}}},
+                    {id: "unbound", label: "没有打开作品", input: {props: {...page, title: null}}},
+                    {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US" as const}}},
+                ];
+            })(),
+            subject: () => import("nbook/plugins/projects/web/components/WelcomePage.vue"),
         }),
         defineSubjectFixture<typeof BookCover>({
             component: "BookCover",

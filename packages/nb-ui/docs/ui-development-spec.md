@@ -158,6 +158,7 @@
 - **受控尺寸**：几何只有 CSS px 一种口径。`Splitter` 的 `sizesPx` 是受控呈现（合计 = 面板空间，不含 sash），`panels` 用 `defaultSizePx` / `minSizePx` / `maxSizePx` / `sizing` / `collapse`；没有百分比往返，也没有 `autoSaveId`（原语不写存储）。等值发布被忽略，程序发布只改呈现、不产生用户提交。
 - **sash 几何**：默认每条占主轴 1px；`sashSizes` 按边界提供实际像素。零值不占布局且不可交互，也不渲染装饰；非法值诊断后回退，主轴守恒不依赖 CSS 隐藏。设备像素对齐只作用在装饰层的内联几何上，**不移动 separator 的命中盒**，也不改子节点布局。常驻接缝厚度为 1 CSS px、近端边对齐设备像素；交互装饰带最多 3px，按相邻面板与 sash 可用空间夹紧，收起边界不因 overflow 裁窄。
 - **拖拽触感**：静止态为常驻的 1px `--divider` 分界线，悬浮/拖动时在其上点亮品牌色指示带；命中边距 fine 5px / coarse 15px，且 hover、光标、按下与高亮读同一份命中结果——T/十字处两条线会一起点亮。相同命中 scope 连续停留约 250ms 后渐显，离开淡出；`prefers-reduced-motion: reduce` 保留延迟但取消中间渐变。
+- **悬停线的样子归主题**：线芯的颜色、厚度、圆角与发光取 `--sash-line-color`、`--sash-line-size`、`--sash-line-radius`、`--sash-line-glow`，缺省是铺满装饰带的 3px 强调色实线；比装饰带细的线芯对齐静止接缝（近端边对齐设备像素），不在装饰带里居中。长轴两端：自由端按 `--sash-line-inset` 缩进，碰到另一条同时亮着的线的一端连着（T 形交汇时两条连成一体，只亮一条时两端都缩）。网格按树结构把每个分支的线两端挨着哪条外层边界传给 `Splitter`（`sashLineEnds`）。
 - **手势边界**：一个公开 `GridRenderer` 独占一份会话，一次按下命中的最多两根轴（一根 width + 一根 height）属于同一场手势：`gesture-update` 携带预览布局让整棵子树按父盒实时变化，松手只发一次 `gesture-end(commit)`，`commit.changes` 里每项是该分支全部直接子节点沿主轴的 px（`baseline`/`target`/`active`/`compensated`/`collapsed`），宿主用 `grid.resizeBranches(changes)` 一次原子落账。独立 `Splitter` 仍用单分支 `SplitterGestureState`（`sizesPx` + `collapsed`）。
 - **边界规则**：基线在用户开始时捕获，一次指针操作或一次键盘连发只结束一次；`keyup` 或失焦结束键盘手势；
 -  `Escape`、`pointercancel`、窗口失焦、卸载与 panel 身份/约束/方向/禁用变化取消且不产生保存意图，并同时复位上游拖动状态；挂载、约束变化与视口重算仍只发 `layout`。
@@ -170,8 +171,8 @@
 - 前两个原语只渲染，不拥有手势、落点登记、业务状态或 Teleport；position、坐标、宽高与 z-index 由宿主提供。根均为 `aria-hidden`、不可选且不接管指针。
 - `DropFeedbackPreview` 是宿主落点解析器给出的**语义命中几何**（viewport client 坐标）：`areaRect`（边缘插入带 / 中央整片叶 / 空容器整个内容盒）、`entryRect`（高亮条目）、`indicator`（插入线）、`orientation`（容器主轴）。覆盖层只画，不改写这份几何：内缩只进绘制盒，命中、序位与提交都用原始矩形。
 - 覆盖层合同：`preview` 里一份有效几何都没有就不渲染；有有效 `areaRect` 时**不画插线**（区域已承诺落点，两条边叠起来会被读成两个落点），只有拿不出区域、只剩插入位的落点（列表插入位、原位锚点）才画线；中央保持布局的 `keep` 只给整片叶区域、没有锚点与插入线，调用方释放时也不提交。区域四边内缩 `min(6, 尺寸/4)`、插线只缩长轴 `min(2, 长轴/4)` 以保住窄/折叠目标的正面积。公共标记为 `data-drop-feedback` 与 `data-drop-feedback-area|-line|-entry|-label|-live`；attrs 透传到覆盖层根（`<Teleport>` 不会自动继承，组件内手动 `useAttrs`），落点种类、轴、并入数量一类业务语义由调用方写成 `data-*`。
-- 提示药丸放在独立 fixed 包装里（不嵌进 2px 线或小条目盒，不被裁掉），有合法反馈且文案非空就显示：区域容得下「药丸 + 16px」时居中，否则贴锚点外侧并夹紧进视口 8px；尺寸由 `ResizeObserver` 缓存，坐标变化只重排不重读布局，反馈消失即断开观察。无障碍播报是独立的 `aria-live="polite"` 区域，只随文案变化更新，不逐像素播报。
-- area/entry 使用1px accent 70%描边、12%底色、`--radius-control` 与 `--elevation-raised`；原语只提供opacity过渡，区域几何过渡由共享覆盖层负责。line 使用实色 accent、`--radius-pill` 与4px accent光晕，无几何过渡；宿主保留2px实体厚度，不能与3px sash规则混用。
+- 提示药丸放在独立 fixed 包装里（不嵌进 2px 线或小条目盒，不被裁掉），有合法反馈且文案非空就显示：区域容得下「药丸 + 16px」时居中，否则贴锚点外侧并夹紧进视口 8px；只有插入线时宿主可给 `labelAt: "line-end"`，药丸贴在线的末端，用在线下方紧挨着一行标题的地方；提交后宿主可给 `settling: true` 的预览做收尾，区域滑到最终矩形再淡出，淡完（或减少动效、没有区域时立即）发 `settled`；尺寸由 `ResizeObserver` 缓存，坐标变化只重排不重读布局，反馈消失即断开观察。无障碍播报是独立的 `aria-live="polite"` 区域，只随文案变化更新，不逐像素播报。
+- area/entry 使用 1px `--drop-area-border` 描边（缺省 accent 70%）、`--drop-area-fill` 底色（缺省 accent 12%）、`--radius-control` 与 `--elevation-raised`，深浅由主题定；原语只提供opacity过渡，区域几何过渡由共享覆盖层负责。line 使用实色 accent、`--radius-pill` 与4px accent光晕，无几何过渡；宿主保留2px实体厚度，不能与3px sash规则混用。
 - 药丸使用6px图文间距、4px×12px内边距、14px图标、accent 40%描边、90% `--panel-surface` 底、`--accent-text`，字体与阴影/模糊均消费主题token。文字单行截断；减少透明或增强对比时改实色面板底并关闭模糊，减少动效时取消过渡。
 - 几何入口在 `@notnotype/nb-ui/layout`：`resolveGridInsertion` 沿目标轴前/后 20% 返回插入位、`targetId`（命中叶）和 `halfRect`（该叶对应半区），中央 60% 返回 `keep`；是否呈现 keep 由宿主行为决定。叶间隙归后一叶，非末叶后缘仍归它自己。`resolveListInsertion` 给列表插入位，一位一线；前一项后半、间隙、后一项前半归同一位。内部线居中、追加锚末个可用成员后缘、空列表锚内容盒前缘。
 - `resolveListInsertion` 可选 `edgeGap`（默认0）仅给首个可见成员前与末个可见成员后留白，内部间隙仍居中，空列表不偏移；空间不足时夹紧，负数/非有限退为0。Editor 标签带与 Workbench 容器切换器条目带都传4px（Editor 配合标签左右6px外边距、内部为5px/2px/5px；Workbench 条目相邻、只在首尾留白）；内容区的边缘插入带不消费它，默认几何不变。
@@ -415,6 +416,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
    - 统一消费 `backdrop-filter: blur(8px) saturate(130%) brightness(1.0);`，避免大半径模糊与复杂 SVG 折射引发的边缘文字走样或错位。
 3. **4 阶立体微反光环境柔影**：
    - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
+   - 菜单与下拉（`.nb-ui-menu-surface`）改读 `--elevation-menu`，缺省等于 `--elevation-popover`；主题可以给菜单单独收小投影（nbook：一圈 0.5px 细边加一层 4px 偏移、14px 模糊的近投影，圆角 `--radius-menu` 为 8px，与菜单按钮相配）。
 4. **单一样式源与组合子（`useDropdownFloating` / `useDropdownSurfaceStyle`）**：
    - 任何涉及下拉与浮层的组件，严禁在模板中重复书写内联样式，统一调用 `useDropdownFloating` 或 `useDropdownSurfaceStyle`，自动注入标准 `popoverClasses`、`popoverStyle`、同心圆角视口与避让 Trigger 发光圈的 `side-offset: 7`。
 
@@ -430,5 +432,6 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
 - [ ] **Tab 滚动权按页隔离**：多 Tab 容器严禁由外层统一声明 `overflow-y: auto`；各 Tab 独立控制滚动，固定高度的 Tab 必须显式声明 `overflow-hidden`，防止微溢出触发误滚动；
 - [ ] **Agent 交互与工具调用留痕契约**：前端工具卡片必须对照底层真实 Schema（`server/agent/tools/`），严禁凭空臆造字段；严格按底层数据形状区分开放式与选项式提问；交互决策留痕组件应声明为 `mode: "message"` 顶级消息卡片，杜绝嵌套在普通执行工具的 `mode: "block"` 折叠灰盒内产生外壳套内盒；
 - [ ] **同类交互状态一致与外扩阴影防裁切**：自定义交互元素与基础控件表达同类状态（hover / focus / active / selected）时，复用同一基座类或状态 token，不手写近似的局部边框或阴影；外层带 `overflow` 裁切时，确认外扩阴影（如焦点光环）留有内边距冗余，不被容器边缘切边；填满所在条、四周没有余地的控件改用内嵌焦点线；只为动画裁切的容器只在动画进行中裁（见 design-language 坑 48），不用“内边距加等量负外边距”把裁切盒往外放（外框会比父容器宽，在可横向滚动的父容器里多出滚动距离）；工具条、表单行这类只有一行控件高的容器不设 `overflow: hidden`（不横向滚动靠换行与收缩），余量按主题 `--focus-ring` 的实色部分算（不偏移那几圈的扩散量，nbook、macos 是 3.5px；带偏移的模糊光切掉一截看不出，不算）；`lab:shot` 机检这一条（按样式表里的焦点规则找会画焦点环的元素，环画在外框上时按外框算；离裁切祖先的边比实色部分近就报）；
+- [ ] **测量层的复本只复刻尺寸**：为了量宽度而放在不可见测量层里的复本（逐级让位、宽度适配用）不带 `role`、`id`，也不用被测试或样式引用的真元素类名（样式经测量层自己的类共用），否则文档里出现重复 `id`，按角色、类名或文字找真元素的地方会碰到复本；
 - [ ] **可点击卡片内嵌操作防按钮嵌套**：卡片同时具备“点击主区域选中/展开”与“行内局部操作按钮（`IconButton` / `Button`）”时，主触发区与操作按钮组并列为兄弟节点（或外层容器配键盘回车/空格监听），禁止在 `<button>` 内嵌套 `<button>`。
 

@@ -166,3 +166,5 @@ export const commandsRemoteContract = defineRemoteService({
     },
 });
 
+export {currentKeyPlatform, formatKeybinding, parseKeybinding} from "./keybinding";
+export type {KeyModifiers, KeyPlatform, ParsedKeybinding} from "./keybinding";

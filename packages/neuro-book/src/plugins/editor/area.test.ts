@@ -7,6 +7,8 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {shallowRef} from "@vue/reactivity";
+
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -20,6 +22,7 @@ import type {LinkTap} from "nbook/plugins/files/testing/tap";
 import {createEditorArea, defaultEditor} from "./web/area";
 import type {EditorArea, EditorControlHandle} from "./web/area";
 import {createEditorGroups} from "./web/groups/groups";
+import {editorStateValues} from "./web/state";
 import type {GroupsSnapshot} from "./web/groups/groups";
 
 let tmp = "";
@@ -44,6 +47,8 @@ interface World {
     readonly clock: ManualClock;
     readonly area: EditorArea;
     readonly saved: GroupsSnapshot[];
+    /** `opened` 交出的地址（最近打开）。 */
+    readonly opened: string[];
 }
 
 async function world(initial: GroupsSnapshot | null = null): Promise<World> {
@@ -52,7 +57,8 @@ async function world(initial: GroupsSnapshot | null = null): Promise<World> {
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.json": "{}"}}, {wrapLink: tap.wrap});
     const clock = new ManualClock();
     const saved: GroupsSnapshot[] = [];
-    const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, initial, persist: (snapshot) => saved.push(snapshot), report: (error) => {
+    const opened: string[] = [];
+    const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, initial, persist: (snapshot) => saved.push(snapshot), opened: (address) => opened.push(address), report: (error) => {
         throw error;
     }});
     closers.push(async () => {
@@ -60,7 +66,7 @@ async function world(initial: GroupsSnapshot | null = null): Promise<World> {
         await scene.world.close();
         await rm(scene.root, {recursive: true, force: true});
     });
-    return {scene, tap, clock, area, saved};
+    return {scene, tap, clock, area, saved, opened};
 }
 
 async function until(at: World, description: string, check: () => boolean): Promise<void> {
@@ -222,6 +228,132 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         expect(restored.area.documents.get("project://a.md")).toBeNull();
         restored.area.activate(restored.area.groups.groups.value[0]?.tabs[0]?.id ?? "");
         await until(restored, "a 就绪", () => restored.area.binding(groupId(restored))?.document.text.value === "A");
+    });
+});
+
+describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开", () => {
+    const tabsOf = (snapshot: GroupsSnapshot | undefined) => snapshot?.groups.flatMap((group) => group.tabs) ?? [];
+
+    it("控件交出的光标记到标签上、随快照保存；写法与编辑器对不上、与记下的相同都不写；换下之后迟到的照记", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        const a = at.area.binding(groupId(at))!;
+        expect(a.cursor).toBeNull();
+        a.remember({offset: 5});
+        expect(tabsOf(at.saved.at(-1))[0]?.cursor).toEqual({offset: 5});
+        const count = at.saved.length;
+        a.remember({offset: 5});
+        a.remember({line: 2, column: 3});
+        expect(at.saved.length).toBe(count);
+
+        // 换到 b 之后 a 的控件才交出离开时的光标：仍记到 a 的标签上。
+        at.area.open("project://b.md", {mode: "permanent"});
+        a.remember({offset: 7});
+        expect(tabsOf(at.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 7}, undefined]);
+    });
+
+    it("按快照恢复后，第一次绑定带着记下的光标；拆分出的标签带过去的是拆分这一刻的光标（先让控件交出）；换编辑器丢掉", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        at.area.binding(groupId(at))!.remember({offset: 1});
+
+        const restored = await world(at.saved.at(-1) ?? null);
+        await ready(restored);
+        const binding = restored.area.binding(groupId(restored))!;
+        expect(binding.cursor).toEqual({offset: 1});
+        // 光标已移到 4，控件还没到“停下 1 秒”交出：拆分时先让活动控件交出这一刻的光标。
+        restored.area.registerHandle(groupId(restored), "markdown", {focus: () => undefined, flushPendingChange: () => undefined, rememberCursor: () => binding.remember({offset: 4})});
+        expect(restored.area.split("right")).toMatchObject({ok: true});
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, {offset: 4}]);
+        expect(restored.area.reopenWith("code")).toMatchObject({ok: true});
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, undefined]);
+    });
+
+    it("恢复的会话：活动标签就绪、控件交出句柄后聚焦一次，不定位到末尾；就绪前、或就绪后定位执行前焦点离开编辑器区就不聚焦；读取失败不另提示", async () => {
+        const seed = await world();
+        seed.area.open("project://a.md", {mode: "permanent"});
+        await ready(seed);
+        const snapshot = seed.saved.at(-1) ?? null;
+        const handle = (calls: string[]): EditorControlHandle => ({focus: () => void calls.push("focus"), flushPendingChange: () => undefined, revealEnd: () => void calls.push("revealEnd")});
+
+        const restored = await world(snapshot);
+        const calls: string[] = [];
+        restored.area.registerHandle(groupId(restored), "markdown", handle(calls));
+        await ready(restored);
+        restored.clock.advance(0);
+        expect(calls).toEqual(["focus"]);
+        restored.area.registerHandle(groupId(restored), "markdown", handle(calls));
+        restored.clock.advance(0);
+        expect(calls).toEqual(["focus"]);
+
+        const left = await world(snapshot);
+        const leftCalls: string[] = [];
+        left.area.focusLeft();
+        left.area.registerHandle(groupId(left), "markdown", handle(leftCalls));
+        await ready(left);
+        left.clock.advance(0);
+        expect(leftCalls).toEqual([]);
+
+        // 就绪、定位已排进时钟，执行前焦点离开：不再聚焦。
+        const late = await world(snapshot);
+        const lateCalls: string[] = [];
+        late.area.registerHandle(groupId(late), "markdown", handle(lateCalls));
+        await ready(late);
+        late.area.focusLeft();
+        late.clock.advance(0);
+        expect(lateCalls).toEqual([]);
+
+        const gone = await world({...snapshot!, groups: snapshot!.groups.map((group) => ({...group, tabs: group.tabs.map((tab) => ({...tab, address: "project://missing.md"}))}))});
+        await until(gone, "读取失败", () => gone.area.documentOf(groupId(gone))?.status.value === "failed");
+        gone.clock.advance(0);
+        expect(gone.area.notice.value).toBeNull();
+    });
+
+    it("打开时交出地址（最近打开），preview 与 permanent 都算；切换已打开的标签与恢复出来的标签不算", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "preview"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        await ready(at);
+        at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
+        expect(at.opened).toEqual(["project://a.md", "project://b.md"]);
+
+        const restored = await world(at.saved.at(-1) ?? null);
+        await ready(restored);
+        expect(restored.opened).toEqual([]);
+    });
+});
+
+describe("Spec workbench.editor 输出 33：页面标签", () => {
+    it("打开页面：活动组开一个正式标签，没有文档与绑定；再开同一页面切到已开的那个（在别的组也一样）；页面不拆分、不换编辑器，可以关闭；资源打开不接受页面地址", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        const opened = at.area.openPage("nbook.test.welcome");
+        expect(opened).toMatchObject({ok: true});
+        const tab = at.area.groups.activeTab()!;
+        expect([tab.address, tab.editor, tab.preview]).toEqual(["page://nbook.test.welcome", "page", false]);
+        expect(at.area.binding(groupId(at))).toBeNull();
+        expect(at.area.documentOf(groupId(at))).toBeNull();
+        expect(at.area.activeDocument.value).toBeNull();
+        // 公开键 activeDocument 只给文件的地址：页面不是资源管理器能揭示的东西。
+        expect(editorStateValues(shallowRef(at.area)).activeDocument.value).toBe("");
+        expect(at.area.split("right")).toEqual({ok: false, reason: "页面只开一个，不能拆分"});
+        expect(at.area.reopenWith("code")).toEqual({ok: false, reason: "页面不是文件，不能换编辑器"});
+        expect(at.area.open("page://nbook.test.welcome", {mode: "permanent"})).toMatchObject({ok: false});
+        expect(at.opened).toEqual(["project://a.md"]);
+        expect(at.saved.at(-1)?.groups[0]?.tabs.map((saved) => saved.address)).toEqual(["project://a.md"]);
+
+        // 切到 a，拆分出新组，再从新组打开同一页面：回到原来的组里的那一个。
+        at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
+        expect(at.area.split("right")).toMatchObject({ok: true});
+        const first = at.area.groups.groups.value[0]!.id;
+        expect(at.area.openPage("nbook.test.welcome")).toEqual({ok: true, tabId: tab.id});
+        expect(at.area.groups.activeGroup.value).toBe(first);
+        expect(at.area.groups.activeTab()?.id).toBe(tab.id);
+        expect(await at.area.close(tab.id)).toBe("closed");
+        expect(at.area.groups.groups.value.flatMap((group) => group.tabs).some((candidate) => candidate.editor === "page")).toBe(false);
     });
 });
 

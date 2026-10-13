@@ -7,7 +7,7 @@
  * 注册表与内核撤回的串行窗口（`views/registry.test.ts`）、命令的参数与过期（`commands/view-commands.test.ts`）。
  */
 
-import {mkdir, rm} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
@@ -121,6 +121,33 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
     }
 
+    test("面板拖到零后刷新、视图还没加载过：按住往外拉，松手前视图就加载并可见（外壳一输出 8）", async ({page}) => {
+        await open(page);
+        await expect(sample(page, E)).toBeVisible();
+        const sash = page.getByRole("separator", {name: "调整 editor 与 panel 的高度"});
+        const press = async (): Promise<{x: number; y: number}> => {
+            const found = await sash.boundingBox();
+            if (found === null) throw new Error("没有面板与编辑器之间的边界");
+            const start = {x: found.x + found.width / 2, y: found.y + found.height / 2};
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            return start;
+        };
+        let start = await press();
+        await page.mouse.move(start.x, start.y + 700, {steps: 6});
+        await page.mouse.up();
+        await expect(sample(page, E)).toBeHidden();
+        await page.reload();
+        await open(page);
+        // 刷新后面板仍拖到零：面板里的视图一次都没加载
+        await expect(sample(page, E)).toHaveCount(0);
+        start = await press();
+        await page.mouse.move(start.x, start.y - 220, {steps: 10});
+        await expect(sample(page, E)).toBeVisible();
+        await page.mouse.up();
+        await expect(sample(page, E)).toBeVisible();
+    });
+
     test("全链路：视图按声明出现在默认位置，第一次有效可见才加载，代际为 1", async ({page}) => {
         await open(page);
         await expect(sample(page, A)).toBeVisible();
@@ -130,6 +157,23 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 侧栏的乙、丙在没选中的容器里：还没加载。
         await expect(page.locator(`[data-view-frame="${B}"]`)).toHaveCount(0);
         await expect(page.locator("[data-activity-container]")).toHaveCount(3);
+    });
+
+    test("视图的内边距只有外框一个来源：fill 的样例甲与 scroll 的样例丁，第一行文字离各自外框的距离相同且不为零", async ({page}) => {
+        await open(page);
+        const offset = (viewId: string) => page.locator(`[data-view-frame="${viewId}"]`).evaluate((frame) => {
+            const line = frame.querySelector("[data-sample-view] > :first-child");
+            if (line === null) throw new Error("样例视图没有第一行");
+            const outer = frame.getBoundingClientRect();
+            const inner = line.getBoundingClientRect();
+            return {left: inner.left - outer.left, top: inner.top - outer.top};
+        });
+        await expect(sample(page, A)).toBeVisible();
+        await expect(sample(page, D)).toBeVisible();
+        const fill = await offset(A);
+        expect(fill.left).toBeGreaterThan(0);
+        expect(fill.top).toBeGreaterThan(0);
+        expect(await offset(D)).toEqual(fill);
     });
 
     test("编辑器槽：挂测试插件贡献的内容；面板最大化时停放（visible 为假）不重挂，还原后同一实例", async ({page}) => {
@@ -229,12 +273,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(before);
     });
 
-    test("收起：multiple 收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
+    test("收起：multiple 点标题行收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
         const section = (viewId: string) => page.locator(`[data-view-section="${viewId}"]`);
-        await section(A).locator("[data-view-toggle]").click();
+        // 标题行整行可点：点标题文字，不点展开标记。
+        await section(A).locator(".workbench-view-section__title").click();
         await expect(section(A)).toHaveAttribute("data-view-collapsed", "true");
         await expect.poll(async () => (((await customizations(page)).value?.views as Record<string, {collapsed?: boolean}> | undefined)?.[A]?.collapsed)).toBe(true);
 
@@ -435,7 +480,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 
-    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；外壳平铺，部件不画外框、圆角与标题行底线", async ({page}) => {
+    test("活动栏、工具区域、视图标题行与选中标记的颜色取主题 token 的解析值；部件自己不画外框、圆角与标题行底线；nbook 是卡片外壳、分栏之间是两端缩进的开放式分割线，macos 平铺、分栏线贯穿（外壳验收 41）", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await moveVia(page, '[data-tool-part="sidebar"]', B, "样例甲");
@@ -466,6 +511,196 @@ test.describe("产品页：测试插件贡献的视图", () => {
             return widths.some((width) => width !== "0px") || style.borderRadius !== "0px" ? [{selector, widths, radius: style.borderRadius}] : [];
         }));
         expect(drawn).toEqual([]);
+
+        // 外壳的分隔方式：卡片的矩形、圆角与相连处，标题栏底线与网格接缝的颜色；卡片里分栏之间的线（侧栏此刻是甲、乙两个分栏）。
+        const shellLook = () => page.evaluate(() => {
+            const card = (part: string) => document.querySelector(`[data-shell-card="${part}"]`)!;
+            const box = (part: string) => card(part).getBoundingClientRect();
+            const probe = document.createElement("div");
+            probe.style.backgroundColor = "var(--divider)";
+            document.body.append(probe);
+            const divider = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return {
+                titlebarBottom: document.querySelector("[data-workbench-titlebar]")!.getBoundingClientRect().bottom,
+                activitybar: box("activitybar").toJSON() as DOMRect,
+                sidebar: box("sidebar").toJSON() as DOMRect,
+                editor: box("editor").toJSON() as DOMRect,
+                editorRadius: getComputedStyle(card("editor")).borderTopLeftRadius,
+                activityCorners: [getComputedStyle(card("activitybar")).borderTopLeftRadius, getComputedStyle(card("activitybar")).borderTopRightRadius],
+                sidebarCorners: [getComputedStyle(card("sidebar")).borderTopLeftRadius, getComputedStyle(card("sidebar")).borderTopRightRadius],
+                joinLine: getComputedStyle(card("activitybar"), "::after").backgroundColor,
+                titlebarLine: getComputedStyle(document.querySelector("[data-workbench-titlebar]")!).borderBottomColor,
+                seams: [...new Set([...document.querySelectorAll("[data-workbench-shell] .sash-seam")].filter((seam) => seam.closest("[data-container-host]") === null).map((seam) => getComputedStyle(seam).backgroundColor))],
+                paneSeams: [...document.querySelectorAll("[data-container-host] .sash-seam")].map((seam) => {
+                    const style = getComputedStyle(seam);
+                    const [start, end] = (seam as HTMLElement).dataset.axis === "width" ? [style.top, style.bottom] : [style.left, style.right];
+                    return {color: style.backgroundColor, start, end};
+                }),
+                divider,
+            };
+        });
+        const nbook = await shellLook();
+        expect(nbook.editorRadius).toBe("12px");
+        expect(nbook.activityCorners).toEqual(["12px", "0px"]);
+        expect(nbook.sidebarCorners).toEqual(["0px", "12px"]);
+        expect(nbook.activitybar.left).toBeCloseTo(4, 0);
+        expect(nbook.activitybar.width).toBeCloseTo(48, 0);
+        expect(nbook.activitybar.top - nbook.titlebarBottom).toBeCloseTo(4, 0);
+        expect(nbook.sidebar.left).toBeCloseTo(nbook.activitybar.right, 1);
+        expect(nbook.editor.left - nbook.sidebar.right).toBeCloseTo(4, 0);
+        expect(nbook.joinLine).toBe(nbook.divider);
+        expect(nbook.titlebarLine).toBe("rgba(0, 0, 0, 0)");
+        expect(nbook.seams).toEqual(["rgba(0, 0, 0, 0)"]);
+        expect(nbook.paneSeams).toEqual([{color: nbook.divider, start: "10px", end: "10px"}]);
+
+        const settings = join(tmp, "state", "settings.json");
+        try {
+            await writeFile(settings, JSON.stringify({"nbook.workbench/theme": "macos"}));
+            await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "macos");
+            const macos = await shellLook();
+            expect(macos.editorRadius).toBe("0px");
+            expect(macos.activitybar.left).toBe(0);
+            expect(macos.activitybar.width).toBe(48);
+            expect(macos.activitybar.top).toBe(macos.titlebarBottom);
+            expect(macos.sidebar.left).toBe(macos.activitybar.right);
+            expect(macos.editor.left - macos.sidebar.right).toBe(1);
+            expect(macos.joinLine).toBe("rgba(0, 0, 0, 0)");
+            expect(macos.titlebarLine).toBe(macos.divider);
+            expect(macos.seams).toEqual([macos.divider]);
+            expect(macos.paneSeams).toEqual([{color: macos.divider, start: "0px", end: "0px"}]);
+        } finally {
+            await rm(settings, {force: true});
+        }
+    });
+
+    test("拖动边界的悬停线取主题 token：nbook 是 3px 实线、不发光、自由端缩进 16px，交汇处两条同时亮时连着，线芯设细时对齐接缝；macos 是贴满的 3px 实线", async ({page}) => {
+        await open(page);
+        const sidebarSash = page.locator('[data-sash="body:0"]');
+        const panelSash = page.locator('[data-sash="panel-stack:0"]');
+        await expect(sidebarSash).toBeVisible();
+        await expect(panelSash).toBeVisible();
+        // 线盒沿长轴的两端（相对分隔盒）与线芯：线芯的位置按线盒加 ::before 的偏移算，与静止接缝比。
+        const lineOf = (key: string) => page.evaluate((sashKey) => {
+            const sash = document.querySelector(`[data-sash="${sashKey}"]`)!;
+            const line = sash.querySelector<HTMLElement>(".sash-line")!;
+            const seam = sash.querySelector<HTMLElement>(".sash-seam")!.getBoundingClientRect();
+            const box = line.getBoundingClientRect();
+            const style = getComputedStyle(line);
+            const core = getComputedStyle(line, "::before");
+            const vertical = line.dataset.axis === "width";
+            return {
+                ends: vertical ? [style.top, style.bottom] : [style.left, style.right],
+                coreSize: vertical ? core.width : core.height,
+                coreAtSeam: vertical ? box.left + Number.parseFloat(core.left) - seam.left : box.top + Number.parseFloat(core.top) - seam.top,
+                glow: core.boxShadow !== "none",
+            };
+        }, key);
+        const centre = async (locator: typeof sidebarSash) => {
+            const box = (await locator.boundingBox())!;
+            return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+        };
+
+        // 只悬停竖线（离交汇处远）：停够时长亮起，两端都是自由端
+        const vertical = await centre(sidebarSash);
+        const horizontal = await centre(panelSash);
+        await page.mouse.move(vertical.x, (await sidebarSash.boundingBox())!.y + 120);
+        await expect(sidebarSash).toHaveAttribute("data-sash-revealed", "true");
+        expect(await lineOf("body:0")).toMatchObject({ends: ["16px", "16px"], coreSize: "3px", glow: false});
+        // 主题把线芯设细时，细线芯对齐静止接缝（不在 3px 装饰带里居中，否则摊成两条半透明的线）
+        await page.evaluate(() => document.documentElement.style.setProperty("--sash-line-size", "1px"));
+        await page.setViewportSize({width: 1441, height: 900});
+        await expect.poll(async () => (await lineOf("body:0")).coreSize).toBe("1px");
+        expect((await lineOf("body:0")).coreAtSeam).toBeCloseTo(0, 3);
+        await page.evaluate(() => document.documentElement.style.removeProperty("--sash-line-size"));
+        await page.setViewportSize({width: 1440, height: 900});
+
+        // 交汇处按下：两条一起亮，横线挨着竖线的左端连着，右端仍缩进
+        await page.mouse.move(vertical.x, horizontal.y);
+        await page.mouse.down();
+        await expect(panelSash).toHaveAttribute("data-sash-active", "true");
+        await expect(sidebarSash).toHaveAttribute("data-sash-active", "true");
+        expect((await lineOf("panel-stack:0")).ends).toEqual(["0px", "16px"]);
+        await page.mouse.up();
+
+        const settings = join(tmp, "state", "settings.json");
+        try {
+            await writeFile(settings, JSON.stringify({"nbook.workbench/theme": "macos"}));
+            await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "macos");
+            await page.mouse.move(vertical.x, (await sidebarSash.boundingBox())!.y + 160);
+            await expect(sidebarSash).toHaveAttribute("data-sash-revealed", "true");
+            const macos = await lineOf("body:0");
+            expect(macos.ends).toEqual(["0px", "0px"]);
+            expect(macos.coreSize).toBe("3px");
+            expect(macos.glow).toBe(false);
+        } finally {
+            await rm(settings, {force: true});
+        }
+    });
+
+    test("面板标签带变窄时逐级让位：完整 → 截断 → 选中的留标题其余只留图标 → 收进“更多”，选中的始终带标题；从“更多”选中后它回到标签带", async ({page}) => {
+        await open(page);
+        // 面板里三个容器：戊、己（长标题）与从右栏搬来的丁
+        await moveVia(page, '[data-tool-part="auxiliarybar"]', D, "新建容器（在面板）");
+        const band = page.locator('.workbench-panel-surface [data-tabs-level]');
+        const level = () => band.getAttribute("data-tabs-level");
+        const selectedLabel = () => page.locator('.workbench-panel-surface [role="tab"][aria-selected="true"]').innerText();
+        await expect(page.locator('.workbench-panel-surface [role="tab"]')).toHaveCount(3);
+        const seen = new Set<string>();
+        for (const width of [1920, 1700, 1500, 1440, 1360, 1280, 1200, 1120, 1040, 980, 920, 860]) {
+            await page.setViewportSize({width, height: 900});
+            await expect.poll(async () => (await band.boundingBox())?.width ?? 0).toBeGreaterThan(0);
+            const current = (await level())!;
+            seen.add(current);
+            // 选中的始终带标题
+            expect((await selectedLabel()).trim().length).toBeGreaterThan(0);
+            if (current === "3") {
+                const more = page.locator('.workbench-panel-surface [data-tabs-more]');
+                await expect(more).toBeVisible();
+                const shown = await page.locator('.workbench-panel-surface [role="tab"]').count();
+                await expect(more).toContainText(`更多 ${String(3 - shown)}`);
+            }
+        }
+        expect([...seen].sort()).toEqual(["0", "1", "2", "3"]);
+        // 最窄时键盘移到收起来的标签：它被选中、换到标签带里，焦点落在它身上
+        const selectedTab = page.locator('.workbench-panel-surface [role="tab"][aria-selected="true"]');
+        await selectedTab.focus();
+        for (const key of ["Home", "End"]) {
+            const before = await selectedTab.getAttribute("data-tab-value");
+            await page.keyboard.press(key);
+            await expect(selectedTab).not.toHaveAttribute("data-tab-value", before!);
+            await expect(selectedTab).toBeFocused();
+        }
+        // 最窄时从“更多”选一个收起来的：它被选中，回到标签带（收起来的换成别的）
+        await page.locator('.workbench-panel-surface [data-tabs-more]').click();
+        const hiddenOne = page.getByRole("menu").getByRole("menuitem").first();
+        const name = (await hiddenOne.innerText()).trim();
+        await hiddenOne.click();
+        await expect(page.locator('.workbench-panel-surface [role="tab"][aria-selected="true"]')).toContainText(name.slice(0, 2));
+    });
+
+    test("活动栏放不下时，末尾的条目收进底部的“更多”，选中的总在外面；从“更多”选中后它回到活动栏", async ({page}) => {
+        await open(page);
+        // 侧栏里放六个容器
+        for (const [scope, viewId] of [['[data-tool-part="auxiliarybar"]', D], [".workbench-panel-surface", E], [".workbench-panel-surface", F]] as const) await moveVia(page, scope, viewId, "新建容器（在侧栏）");
+        const entries = page.locator("[data-activity-container]");
+        await expect(entries).toHaveCount(6);
+        await expect(page.locator("[data-activity-more]")).toHaveCount(0);
+        await page.setViewportSize({width: 1440, height: 300});
+        const more = page.locator("[data-activity-more]");
+        await expect(more).toBeVisible();
+        await expect.poll(() => entries.count()).toBeLessThan(6);
+        const shown = await entries.count();
+        // 条目与“更多”都在活动栏里，不滚动
+        const band = await page.locator('[data-switcher-band="sidebar"]').evaluate((element) => ({scroll: element.scrollHeight, client: element.clientHeight}));
+        expect(band.scroll).toBeLessThanOrEqual(band.client);
+        await more.click();
+        const menu = page.getByRole("menu").getByRole("menuitem");
+        await expect(menu).toHaveCount(6 - shown);
+        await menu.last().click();
+        const lastId = await page.evaluate(() => [...document.querySelectorAll("[data-activity-container]")].map((element) => element.getAttribute("data-activity-container")));
+        await expect(page.locator('[data-activity-container][aria-pressed="true"]')).toHaveCount(1);
+        expect(lastId.length).toBe(shown);
     });
 
     test("容器网格（Panel 横向）：拖动视图之间的边界只写宽度；收成 32px 竖条再展开回到记忆宽度", async ({page}) => {

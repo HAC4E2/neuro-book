@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 设置窗口“作品”分区的页面（同名 .md）：作品目录一行，“更改…”打开书架同一个目录选择器，选定后写进用户层；没设时显示
- * 服务端实际会用的缺省目录（docs/specs/workbench/bookshelf.md 输出 18）。
+ * 服务端实际会用的缺省目录（docs/specs/workbench/bookshelf.md 输出 21）。
  */
 import {Button} from "@notnotype/nb-ui/components";
 import {ref, watch} from "vue";

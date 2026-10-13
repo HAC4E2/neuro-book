@@ -47,11 +47,11 @@ const stepButtonClass = "nb-ui-focus-ring inline-flex h-[var(--control-h-sm)] w-
             <span class="i-lucide-chevron-left h-[1.15em] w-[1.15em]"></span>
         </button>
         <template v-for="item in items" :key="String(item)">
-            <span v-if="typeof item === 'string'" class="inline-flex h-[var(--control-h-sm)] w-[calc(var(--control-h-sm)*0.75)] items-center justify-center text-[var(--text-sm)] text-[var(--text-muted)]">…</span>
+            <span v-if="typeof item === 'string'" class="inline-flex h-[var(--control-h-sm)] w-[calc(var(--control-h-sm)*0.75)] items-center justify-center text-[length:var(--text-sm)] text-[var(--text-muted)]">…</span>
             <button
                 v-else
                 type="button"
-                class="nb-ui-focus-ring inline-flex h-[var(--control-h-sm)] min-w-[var(--control-h-sm)] items-center justify-center rounded-[var(--radius-control)] px-[var(--space-1)] text-[var(--text-sm)] transition-[background-color,color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.93] cursor-pointer"
+                class="nb-ui-focus-ring inline-flex h-[var(--control-h-sm)] min-w-[var(--control-h-sm)] items-center justify-center rounded-[var(--radius-control)] px-[var(--space-1)] text-[length:var(--text-sm)] transition-[background-color,color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.93] cursor-pointer"
                 :class="item === props.page
                     ? 'bg-[var(--accent-main)] [font-weight:var(--weight-medium)] text-[var(--text-inverse)] shadow-[0_1px_3px_color-mix(in_srgb,var(--accent-main)_35%,transparent)]'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"

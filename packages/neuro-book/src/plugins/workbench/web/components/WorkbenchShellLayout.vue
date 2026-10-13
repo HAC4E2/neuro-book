@@ -5,11 +5,15 @@
  * 落账前的整批核对与落账后的补丁、Part 内容的稳定寿命与焦点策略。
  */
 import {GridRenderer} from "@notnotype/nb-ui/layout";
-import type {GridGestureCommit} from "@notnotype/nb-ui/layout";
+import type {GridGestureCommit, GridGesturePreview} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
-import {computed, nextTick, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
-import {createShellGrid, projectShell, shellGestureProblem, shellPatch} from "../shell/layout";
+import {SHELL_CARD_PARTS, shellCardInset, shellCards} from "../shell/cards";
+import type {ShellCardPart} from "../shell/cards";
+import {createShellGrid, projectShell, SHELL_ROOT_ID, shellGestureProblem, shellPatch} from "../shell/layout";
+import {revealZones} from "../shell/reveal";
+import type {RevealPart} from "../shell/reveal";
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {PanelState} from "../shell/panel-state";
 import {SHELL_DRAG_COLLAPSIBLE_IDS, SHELL_PART_IDS, SHELL_STATUSBAR_HEIGHT, SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
@@ -31,6 +35,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (event: "resize", payload: {contextKey: string; patch: ShellSizePatch}): void;
     (event: "layout", facts: ShellLayoutFacts): void;
+    /** 手势预览里已经被拉出来、投影里还收着的部件（拖到零的 Part、最大化下的编辑器）；手势结束或预览撤回时发空集。 */
+    (event: "preview", parts: ReadonlyArray<ShellPartId>): void;
 }>();
 
 interface PartSlotProps {
@@ -53,12 +59,32 @@ const rootEl = ref<HTMLElement | null>(null);
 const parkingEl = ref<HTMLElement | null>(null);
 const extent = useLayoutExtent(rootEl);
 
+/**
+ * 主题的缝宽（`--shell-gap`）进几何：活动栏叶宽要加上它（`projectShell` 的 `cardGap`）。主题写在文档根上，换主题或明暗时
+ * 文档根的属性与内联变量会变，这时重读。
+ */
+const cardGap = ref(0);
+function readCardGap(): void {
+    const root = rootEl.value;
+    if (root === null) return;
+    const value = Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-gap"));
+    cardGap.value = Number.isFinite(value) ? value : 0;
+}
+let themeObserver: MutationObserver | null = null;
+onMounted(() => {
+    readCardGap();
+    themeObserver = new MutationObserver(readCardGap);
+    themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["data-nb-theme", "data-nb-appearance", "style"]});
+});
+onBeforeUnmount(() => themeObserver?.disconnect());
+
 const projection = computed(() => projectShell({
     extent: extent.value ?? {width: 0, height: 0},
     preferences: props.sizes,
     panel: props.panel,
     hiddenParts: props.hiddenParts,
     dragCollapsedParts: props.dragCollapsedParts,
+    cardGap: cardGap.value,
 }));
 const grid = computed(() => createShellGrid(projection.value));
 const gestureIssues = ref<readonly string[]>([]);
@@ -145,10 +171,52 @@ function focusTarget(target: "panel-toggle" | "panel-title"): void {
  * 呈现为 0 的 Part 内容也要停放：最大化时的编辑器、拖到零的 Part 只是被压成 0 尺寸，内容若留在落点里，Tab 仍能进去、
  * 读屏仍会读到。停放区是 `inert` 的，放进去就不可交互（Spec 外壳一输出 10）。
  */
-function parkedParts(): ReadonlySet<ShellPartId> {
+function projectedParked(): ReadonlySet<ShellPartId> {
     const parked = new Set<ShellPartId>();
     if (projection.value.effectivePanel.maximized) parked.add("editor");
     for (const part of SHELL_DRAG_COLLAPSIBLE_IDS) if (projection.value.dragCollapsed[part] === true) parked.add(part);
+    return parked;
+}
+
+/**
+ * 拖动中已经被拉出来的部件：投影里还是拖到零（或最大化下的编辑器），但手势预览已经给了它尺寸，内容先搬回落点，拖的过程中
+ * 就看得到（输出 8）。只在拉出时提前搬，往零拖时等落账再停放：拖过阈值又拖回来，内容不闪。手势结束或取消时清空——落账后
+ * 投影已经展开它；取消则回到停放区。
+ */
+const previewShown = shallowRef<ReadonlySet<ShellPartId>>(new Set());
+
+function onGesturePreview(preview: GridGesturePreview<unknown>): void {
+    const shown = new Set<ShellPartId>();
+    for (const part of projectedParked()) {
+        const size = preview.layout.sizes[part];
+        if (size !== undefined && size.width > 0 && size.height > 0) shown.add(part);
+    }
+    if (shown.size === previewShown.value.size && [...shown].every((part) => previewShown.value.has(part))) return;
+    setPreviewShown(shown);
+}
+
+function onGestureSettled(): void {
+    if (previewShown.value.size === 0) return;
+    setPreviewShown(new Set());
+}
+
+/**
+ * 换预览集合并搬内容：与投影变化同一套先后——先记下滚动与焦点，下一轮按新落点搬，再下一轮恢复。宿主同时拿到集合，让视图
+ * 的首次加载与“可见”跟着预览走（第一次拉出拖到零的面板时视图就加载，不等松手），持久的拖到零位仍等落账。
+ */
+function setPreviewShown(shown: ReadonlySet<ShellPartId>): void {
+    const focus = memory.capture(rootEl.value);
+    previewShown.value = shown;
+    emit("preview", [...shown]);
+    void nextTick(() => {
+        syncTargets();
+        void nextTick(() => memory.restore(focus, rootEl.value));
+    });
+}
+
+function parkedParts(): ReadonlySet<ShellPartId> {
+    const parked = new Set(projectedParked());
+    for (const part of previewShown.value) parked.delete(part);
     return parked;
 }
 
@@ -186,6 +254,48 @@ watch(projection, (next) => {
 
 watch(rootEl, () => void nextTick(syncTargets));
 
+// ── 卡片 ──────────────────────────────────────────────────────────────────────
+
+/** 各部件四边挨着什么；缝宽与卡片样式是主题变量，平铺的主题缝宽为 0，下面的内边距都是 0。 */
+const cards = computed(() => shellCards(projection.value));
+
+/**
+ * 哪些部件套卡片包装按部件身份定，不看当前投影：包装随隐藏、拖到零出现或消失的话，插槽会换到另一处渲染，
+ * 部件内容被销毁重建（资源管理器的展开状态、编辑器都会丢）。
+ */
+const CARD_PARTS: ReadonlySet<ShellPartId> = new Set(SHELL_CARD_PARTS);
+
+function cardOf(part: ShellPartId) {
+    return cards.value[part as ShellCardPart];
+}
+
+function slotStyle(part: ShellPartId): Record<string, string> {
+    const edges = cardOf(part);
+    if (edges === undefined) return {};
+    return {padding: [edges.top, edges.right, edges.bottom, edges.left].map(shellCardInset).join(" ")};
+}
+
+/** 活动栏与侧栏相连时，两张卡片相接的一侧不圆、不留缝（活动栏是 start，侧栏是 end）。 */
+function joinOf(part: ShellPartId): "start" | "end" | undefined {
+    const edges = cardOf(part);
+    if (edges?.right.kind === "joined") return "start";
+    if (edges?.left.kind === "joined") return "end";
+    return undefined;
+}
+
+/**
+ * 拖动时浮出的预备区（docs/specs/ui/workbench-shell.md 外壳三输出 20）：此刻没显示的侧栏、右栏、面板显示出来会在的矩形，
+ * 换成视口坐标。拖动会话在拿起时取一次；网格根量不出来（紧凑呈现、还没挂上）时没有。
+ */
+function revealZoneRects(): Array<{part: RevealPart; rect: {left: number; top: number; right: number; bottom: number}}> {
+    const measured = extent.value;
+    const origin = rootEl.value?.querySelector<HTMLElement>(`[data-splitter="${SHELL_ROOT_ID}"]`)?.getBoundingClientRect();
+    if (measured === null || origin === undefined) return [];
+    const zones = revealZones({extent: measured, preferences: props.sizes, panel: props.panel, hiddenParts: props.hiddenParts, dragCollapsedParts: props.dragCollapsedParts, cardGap: cardGap.value});
+    return zones.map(({part, rect}) => ({part, rect: {left: origin.left + rect.left, top: origin.top + rect.top, right: origin.left + rect.right, bottom: origin.top + rect.bottom}}));
+}
+
+defineExpose({revealZoneRects});
 </script>
 
 <template>
@@ -206,6 +316,9 @@ watch(rootEl, () => void nextTick(syncTargets));
             :revision="host.revision.value"
             :on-gesture-commit="acceptGesture"
             :on-issues="noteIssues"
+            @gesture-update="onGesturePreview"
+            @gesture-end="onGestureSettled"
+            @gesture-cancel="onGestureSettled"
         />
 
         <!-- 紧凑呈现：activitybar 仍是主体左侧通高列，其余 Part 在它右侧纵向排布，没有可拖边界。 -->
@@ -223,10 +336,57 @@ watch(rootEl, () => void nextTick(syncTargets));
         <!-- 停放区：没有落点的 Part 内容留在这里，保持挂载，不进焦点顺序与读屏。 -->
         <div ref="parkingEl" class="hidden" aria-hidden="true" inert data-shell-parking>
             <Teleport v-for="part in SHELL_PART_IDS" :key="part" :to="targets[part] ?? undefined" :disabled="targets[part] === undefined">
-                <div :data-shell-slot="part" class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden">
-                    <slot :name="part" :collapsed="part === 'panel' && effectivePanel.collapsed" :effective-panel="effectivePanel" :mode="mode"></slot>
+                <div :data-shell-slot="part" class="box-border flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden" :style="slotStyle(part)">
+                    <div v-if="CARD_PARTS.has(part)" class="workbench-shell-card" :data-shell-card="part" :data-shell-join="joinOf(part)">
+                        <slot :name="part" :collapsed="part === 'panel' && effectivePanel.collapsed" :effective-panel="effectivePanel" :mode="mode"></slot>
+                    </div>
+                    <slot v-else :name="part" :collapsed="part === 'panel' && effectivePanel.collapsed" :effective-panel="effectivePanel" :mode="mode"></slot>
                 </div>
             </Teleport>
         </div>
     </div>
 </template>
+
+<style scoped>
+/*
+ * 卡片外壳（docs/specs/ui/workbench-shell.md 输出 38）：缝、圆角、投影与接缝颜色都是主题变量，缺省即平铺（缝 0、无圆角、
+ * 接缝是 --divider）。部件自己画面板底色，卡片包装只负责把它裁成圆角并投影。
+ */
+.workbench-shell-layout {
+    --nb-splitter-seam: var(--shell-seam, var(--divider));
+}
+
+.workbench-shell-card {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: var(--shell-card-radius, 0px);
+    box-shadow: var(--shell-card-shadow, none);
+}
+
+.workbench-shell-card[data-shell-join="start"] {
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+}
+
+.workbench-shell-card[data-shell-join="end"] {
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
+}
+
+/* 相连的活动栏与侧栏之间一条两端不碰顶底的短线；不需要时主题把颜色设成透明。 */
+.workbench-shell-card[data-shell-join="start"]::after {
+    content: "";
+    position: absolute;
+    inset-block: 10px;
+    inset-inline-end: 0;
+    z-index: 1;
+    width: var(--border-w);
+    background: var(--shell-join-divider, transparent);
+    pointer-events: none;
+}
+</style>

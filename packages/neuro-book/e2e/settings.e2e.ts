@@ -90,10 +90,10 @@ async function choose(page: Page, text: string): Promise<void> {
 const html = (page: Page, name: "lang" | "data-nb-theme" | "data-nb-appearance") => page.locator("html").getAttribute(name);
 const pageBackground = (page: Page) => page.locator("[data-workbench-shell]").evaluate((element) => getComputedStyle(element).backgroundColor);
 
-/** 首页的背景、文字颜色与字体，以及同一位置上 `--panel-surface`、`--text-main`、`--font-ui` 解析出的值（用探针元素求出；外壳平铺后底色是面板底色）。 */
+/** 首页的背景、文字颜色与字体，以及同一位置上外壳底色（主题的 `--shell-ground`，平铺的主题是面板底色）、`--text-main`、`--font-ui` 解析出的值（用探针元素求出）。 */
 const pageTokens = (page: Page) => page.locator("[data-workbench-shell]").evaluate((element) => {
     const probe = document.createElement("div");
-    probe.style.cssText = "background-color: var(--panel-surface); color: var(--text-main); font-family: var(--font-ui)";
+    probe.style.cssText = "background-color: var(--shell-ground, var(--panel-surface)); color: var(--text-main); font-family: var(--font-ui)";
     element.append(probe);
     const own = getComputedStyle(element);
     const token = getComputedStyle(probe);
@@ -115,13 +115,13 @@ test("两个窗口：一处用命令面板切换界面语言，另一处即时�
     await open(a);
     await open(b);
     expect(await html(b, "lang")).toBe("zh-CN");
-    await expect(b.getByText("在资源管理器里打开一个文件")).toBeVisible();
+    await expect(b.getByText("显示所有命令")).toBeVisible();
 
     await runCommand(a, "切换界面语言");
     await choose(a, "English");
     await expect.poll(() => html(b, "lang")).toBe("en-US");
-    await expect(b.getByText("Open a file from the explorer")).toBeVisible();
-    await expect(a.getByText("Open a file from the explorer")).toBeVisible();
+    await expect(b.getByText("Show All Commands")).toBeVisible();
+    await expect(a.getByText("Show All Commands")).toBeVisible();
 
     // 面板自己的文字按当前语言。
     await expect(async () => {
@@ -132,7 +132,7 @@ test("两个窗口：一处用命令面板切换界面语言，另一处即时�
 
     await b.reload();
     await expect(b.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
-    await expect(b.getByText("Open a file from the explorer")).toBeVisible();
+    await expect(b.getByText("Show All Commands")).toBeVisible();
 
     const written = await readFile(userFile(), "utf8");
     expect(written).toContain("// 我的设置");

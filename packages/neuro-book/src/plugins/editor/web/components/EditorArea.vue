@@ -9,15 +9,17 @@ import type {Component} from "vue";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorArea} from "../area";
-import type {EditorKind} from "../groups/groups";
+import type {EmptyTip} from "../empty-tips";
+import type {FileEditorKind} from "../groups/groups";
+import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorGroup from "./EditorGroup.vue";
 
 /** 编辑器区内的键位对应的意图：宿主把它换成命令执行（组件不认识命令）。 */
 export type EditorIntent = "save" | "close" | "split-right";
 
-const props = defineProps<{area: EditorArea; locale: DisplayLocale; control: (kind: EditorKind) => Component}>();
-const emit = defineEmits<{(event: "intent", intent: EditorIntent): void}>();
+const props = defineProps<{area: EditorArea; locale: DisplayLocale; control: (kind: FileEditorKind) => Component; pages?: EditorPageSource | null; emptyTips?: ReadonlyArray<EmptyTip>}>();
+const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
 const extent = useLayoutExtent(root);
@@ -59,7 +61,7 @@ const dialog = computed(() => props.area.dialog.value);
 <template>
     <div
         ref="root"
-        class="h-full min-h-0 w-full min-w-0 overflow-hidden bg-[var(--bg-main)]"
+        class="h-full min-h-0 w-full min-w-0 overflow-hidden bg-[var(--panel-surface)]"
         data-editor-area
         @keydown="onKeydown"
         @focusin="area.focused.value = true"
@@ -79,7 +81,7 @@ const dialog = computed(() => props.area.dialog.value);
             :on-gesture-commit="host.onGestureCommit"
         >
             <template #leaf="{node}">
-                <EditorGroup :area="area" :group-id="node.id" :locale="locale" :control="control" />
+                <EditorGroup :area="area" :group-id="node.id" :locale="locale" :control="control" :pages="pages ?? null" :empty-tips="emptyTips ?? []" @run-tip="(command) => emit('run-tip', command)" />
             </template>
         </GridRenderer>
         <Dialog

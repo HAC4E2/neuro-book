@@ -5,7 +5,7 @@
 
 # WorksSettingsPage
 
-设置窗口里“作品”分区的页面（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 的 page 分区，[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 18）：`nbook.projects` 贡献的 column 页面，只在“用户”标签下可用。现在只有一行“作品目录”：新作品缺省放在哪。作品目录是路径，通用列表画不了“选一个服务端上的目录”，所以由书架所在的插件自己画，选目录用书架同一个目录选择器 [`PathPickerDialog`](PathPickerDialog.md)（选目录模式）。设置窗口画分区的标题与说明，这里从第一行开始画。
+设置窗口里“作品”分区的页面（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 的 page 分区，[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 21）：`nbook.projects` 贡献的 column 页面，只在“用户”标签下可用。现在只有一行“作品目录”：新作品缺省放在哪。作品目录是路径，通用列表画不了“选一个服务端上的目录”，所以由书架所在的插件自己画，选目录用书架同一个目录选择器 [`PathPickerDialog`](PathPickerDialog.md)（选目录模式）。设置窗口画分区的标题与说明，这里从第一行开始画。
 
 ## 布局
 

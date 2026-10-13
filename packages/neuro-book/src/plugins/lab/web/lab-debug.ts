@@ -81,17 +81,20 @@ function fullyTransparent(token: string): boolean {
     return alpha !== undefined && Number.parseFloat(alpha) === 0;
 }
 
-/** box-shadow 拆成层，每层按顶层空白切词：长度依次是偏移、模糊、扩散；其余是颜色与 inset。 */
+/** box-shadow 的一层按顶层空白切词：长度依次是偏移、模糊、扩散；其余是颜色与 inset。读不出两个长度（`var()` 一类）为 null。 */
+function shadowLayer(part: string): ShadowLayer | null {
+    const tokens = splitTopLevel(part.trim(), (char) => /\s/u.test(char)).filter((token) => token !== "");
+    const lengths = tokens.filter((token) => SHADOW_LENGTH.test(token) && (token.endsWith("px") || Number.parseFloat(token) === 0)).map((token) => Number.parseFloat(token));
+    if (lengths.length < 2) return null;
+    const [x = 0, y = 0, blur = 0, spread = 0] = lengths;
+    return {x, y, blur, spread, inset: tokens.includes("inset"), transparent: tokens.some(fullyTransparent)};
+}
+
+const shadowParts = (value: string): string[] => splitTopLevel(value, (char) => char === ",");
+
+/** box-shadow 拆成读得出的层（见 shadowLayer），读不出的层略过。 */
 function shadowLayers(value: string): ShadowLayer[] {
-    const layers: ShadowLayer[] = [];
-    for (const part of splitTopLevel(value, (char) => char === ",")) {
-        const tokens = splitTopLevel(part.trim(), (char) => /\s/u.test(char)).filter((token) => token !== "");
-        const lengths = tokens.filter((token) => SHADOW_LENGTH.test(token) && (token.endsWith("px") || Number.parseFloat(token) === 0)).map((token) => Number.parseFloat(token));
-        if (lengths.length < 2) continue;
-        const [x = 0, y = 0, blur = 0, spread = 0] = lengths;
-        layers.push({x, y, blur, spread, inset: tokens.includes("inset"), transparent: tokens.some(fullyTransparent)});
-    }
-    return layers;
+    return shadowParts(value).map(shadowLayer).filter((layer): layer is ShadowLayer => layer !== null);
 }
 
 /**
@@ -131,14 +134,19 @@ function drawnRingExtent(style: CSSStyleDeclaration): number {
     return extent;
 }
 
-/** 这条规则聚焦后画不画得出东西：box-shadow 或看得见的 outline。透明的 outline（Tailwind 的 outline-hidden）不算。 */
+/**
+ * 这条规则聚焦后画不画得出东西：box-shadow 或看得见的 outline。透明的 outline（Tailwind 的 outline-hidden）不算。规则里的
+ * `var()` 要到元素上才展开：读不出的阴影层按外扩算，和内阴影写在一起也一样；outline 简写里有 `var()` 时三个长写法读出来是
+ * 空的，看简写本身。
+ */
 function drawsRing(style: CSSStyleDeclaration): boolean {
     const shadow = style.getPropertyValue("box-shadow");
     if (shadow !== "" && shadow !== "none") {
-        // 只有内阴影（内嵌焦点线）画在元素里面，不会被裁；读不出层的写法（`var(--focus-ring)`）按外扩算。
-        const layers = shadowLayers(shadow);
-        return layers.length === 0 || layers.some((layer) => !layer.inset);
+        // 只有内阴影（内嵌焦点线）画在元素里面，不会被裁。
+        return shadowParts(shadow).some((part) => shadowLayer(part)?.inset !== true);
     }
+    const outline = style.getPropertyValue("outline").trim();
+    if (outline.includes("var(")) return true;
     const outlineStyle = style.getPropertyValue("outline-style");
     const outlineWidth = style.getPropertyValue("outline-width");
     const outlineColor = style.getPropertyValue("outline-color");

@@ -131,6 +131,9 @@
 .left-2\.5 {
   left: calc(var(--spacing) * 2.5);
 }
+.left-\[2px\] {
+  left: 2px;
+}
 .z-10 {
   z-index: 10;
 }
@@ -236,6 +239,9 @@
 .inline-flex {
   display: inline-flex;
 }
+.inline-grid {
+  display: inline-grid;
+}
 .h-0\.5 {
   height: calc(var(--spacing) * 0.5);
 }
@@ -307,6 +313,9 @@
 }
 .h-\[1px\] {
   height: 1px;
+}
+.h-\[14px\] {
+  height: 14px;
 }
 .h-\[18px\] {
   height: 18px;
@@ -476,6 +485,9 @@
 .w-\[1px\] {
   width: 1px;
 }
+.w-\[14px\] {
+  width: 14px;
+}
 .w-\[18px\] {
   width: 18px;
 }
@@ -587,6 +599,9 @@
 .flex-1 {
   flex: 1;
 }
+.shrink {
+  flex-shrink: 1;
+}
 .shrink-0 {
   flex-shrink: 0;
 }
@@ -683,6 +698,12 @@
 }
 .list-none {
   list-style-type: none;
+}
+.auto-cols-\[minmax\(0\,1fr\)\] {
+  grid-auto-columns: minmax(0,1fr);
+}
+.grid-flow-col {
+  grid-auto-flow: column;
 }
 .grid-cols-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1501,8 +1522,20 @@
 .text-\[20px\] {
   font-size: 20px;
 }
+.text-\[length\:9\.6px\] {
+  font-size: 9.6px;
+}
+.text-\[length\:var\(--text-2xs\)\] {
+  font-size: var(--text-2xs);
+}
+.text-\[length\:var\(--text-md\)\] {
+  font-size: var(--text-md);
+}
 .text-\[length\:var\(--text-sm\)\] {
   font-size: var(--text-sm);
+}
+.text-\[length\:var\(--text-xs\)\] {
+  font-size: var(--text-xs);
 }
 .leading-none {
   --tw-leading: 1;
@@ -1595,29 +1628,17 @@
 .text-\[var\(--status-warning\)\] {
   color: var(--status-warning);
 }
-.text-\[var\(--text-2xs\)\] {
-  color: var(--text-2xs);
-}
 .text-\[var\(--text-inverse\)\] {
   color: var(--text-inverse);
 }
 .text-\[var\(--text-main\)\] {
   color: var(--text-main);
 }
-.text-\[var\(--text-md\)\] {
-  color: var(--text-md);
-}
 .text-\[var\(--text-muted\)\] {
   color: var(--text-muted);
 }
 .text-\[var\(--text-secondary\)\] {
   color: var(--text-secondary);
-}
-.text-\[var\(--text-sm\)\] {
-  color: var(--text-sm);
-}
-.text-\[var\(--text-xs\)\] {
-  color: var(--text-xs);
 }
 .text-transparent {
   color: transparent;
@@ -2616,13 +2637,12 @@
 .data-\[selected\]\:bg-\[var\(--accent-main\)\][data-selected] {
   background-color: var(--accent-main);
 }
-.data-\[selected\]\:font-\[var\(--weight-medium\)\][data-selected] {
-  --tw-font-weight: var(--weight-medium);
-  font-weight: var(--weight-medium);
-}
 .data-\[selected\]\:font-medium[data-selected] {
   --tw-font-weight: var(--font-weight-medium);
   font-weight: var(--font-weight-medium);
+}
+.data-\[selected\]\:\[font-weight\:var\(--weight-medium\)\][data-selected] {
+  font-weight: var(--weight-medium);
 }
 .data-\[selected\]\:text-\[var\(--accent-main\)\][data-selected] {
   color: var(--accent-main);
@@ -2784,6 +2804,7 @@
   @supports (color: color-mix(in lab, red, red)) {
     --elevation-popover: 0 0 0 1px color-mix(in srgb, var(--text-main, #000) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color, #000) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color, #000) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color, #000) 20%, transparent);
   }
+  --elevation-menu: var(--elevation-popover);
   --elevation-dialog: 0 16px 40px var(--shadow-color, #000);
   @supports (color: color-mix(in lab, red, red)) {
     --elevation-dialog: 0 16px 40px color-mix(in srgb, var(--shadow-color, #000) 14%, transparent);
@@ -2832,6 +2853,19 @@
   --overlay-item-active: var(--bg-hover);
   --strip-surface: var(--bg-subtle);
   --divider: var(--border-color);
+  --sash-line-color: var(--accent-main);
+  --sash-line-size: 3px;
+  --sash-line-inset: 0px;
+  --sash-line-radius: 0px;
+  --sash-line-glow: none;
+  --drop-area-fill: var(--accent-main);
+  @supports (color: color-mix(in lab, red, red)) {
+    --drop-area-fill: color-mix(in srgb, var(--accent-main) 12%, transparent);
+  }
+  --drop-area-border: var(--accent-main);
+  @supports (color: color-mix(in lab, red, red)) {
+    --drop-area-border: color-mix(in srgb, var(--accent-main) 70%, transparent);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
@@ -2917,8 +2951,8 @@ input.nb-ui-native-input[type="number"] {
   background-color: var(--overlay-surface);
   background-image: none;
   box-shadow: var(--elevation-popover);
-  backdrop-filter: var(--overlay-blur);
   -webkit-backdrop-filter: var(--overlay-blur);
+  backdrop-filter: var(--overlay-blur);
   --nb-popover-pad: var(--space-3);
   --nb-popover-inner-radius: max(2px, calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad)));
 }
@@ -2927,8 +2961,8 @@ input.nb-ui-native-input[type="number"] {
   border-radius: var(--radius-control);
   background-color: var(--bg-panel);
   background-image: none;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   color: var(--text-main);
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
@@ -2940,6 +2974,7 @@ input.nb-ui-native-input[type="number"] {
 }
 .nb-ui-menu-surface {
   --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+  box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 .nb-ui-surface-rim {
   background-image: var(--overlay-sheen);
@@ -3180,15 +3215,9 @@ input.nb-ui-native-input[type="number"] {
   user-select: none;
 }
 .nb-ui-drop-indicator[data-drop-indicator="area"], .nb-ui-drop-indicator[data-drop-indicator="entry"] {
-  border: 1px solid var(--accent-main);
-  @supports (color: color-mix(in lab, red, red)) {
-    border: 1px solid color-mix(in srgb, var(--accent-main) 70%, transparent);
-  }
+  border: 1px solid var(--drop-area-border);
   border-radius: var(--radius-control);
-  background: var(--accent-main);
-  @supports (color: color-mix(in lab, red, red)) {
-    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
-  }
+  background: var(--drop-area-fill);
   box-shadow: var(--elevation-raised);
   transition: opacity var(--motion-fast) var(--ease-standard);
 }
@@ -3219,8 +3248,8 @@ input.nb-ui-native-input[type="number"] {
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   box-shadow: var(--elevation-raised);
-  backdrop-filter: var(--overlay-blur);
   -webkit-backdrop-filter: var(--overlay-blur);
+  backdrop-filter: var(--overlay-blur);
 }
 .nb-ui-drop-indicator-label__icon {
   flex: none;
@@ -3242,8 +3271,8 @@ input.nb-ui-native-input[type="number"] {
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .nb-ui-drop-indicator-label {
     background: var(--panel-surface);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 @property --tw-translate-x {

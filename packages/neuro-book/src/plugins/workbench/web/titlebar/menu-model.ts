@@ -6,12 +6,11 @@
  * 不在目录里，这一项自然不画。
  */
 
-import type {CommandMetadata, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import {formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import type {CommandMetadata, CommandResult, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-import {formatKeybinding} from "../commands/keymap";
-import type {KeyPlatform} from "../commands/keymap";
 
 export interface MenuEntryDefinition {
     readonly command: string;
@@ -144,6 +143,6 @@ export const TITLEBAR_MENUS: ReadonlyArray<MenuGroupDefinition> = [
     {
         id: "help",
         title: {"zh-CN": "帮助", "en-US": "Help"},
-        sections: [[{command: "nbook.help.documentation"}]],
+        sections: [[{command: "nbook.help.welcome"}, {command: "nbook.help.documentation"}]],
     },
 ];

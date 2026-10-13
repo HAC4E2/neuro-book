@@ -248,6 +248,28 @@ describe("Spec workbench.files-explorer 增量刷新的依赖", () => {
         expect(controller.model.expanded.value.has("project://plain/sub2")).toBe(true);
     });
 
+    it("揭示一个地址：展开各级祖先，列出之后选中它、焦点给它；行出现之前点了别的行，揭示作废", async () => {
+        const at = await world();
+        const controller = explorer(at, {expanded: ["project://"]});
+        await until(at, "根列出", () => row(controller, "project://plain") !== undefined);
+        controller.reveal("project://plain/sub/x.md");
+        expect(controller.model.expanded.value.has("project://plain")).toBe(true);
+        expect(controller.model.expanded.value.has("project://plain/sub")).toBe(true);
+        await until(at, "x.md 列出", () => row(controller, "project://plain/sub/x.md") !== undefined);
+        await until(at, "选中 x.md", () => controller.selection.value.focus === "project://plain/sub/x.md");
+        expect(controller.selection.value.selected).toEqual(["project://plain/sub/x.md"]);
+
+        const late = await world();
+        const other = explorer(late, {expanded: ["project://"]});
+        await until(late, "根列出", () => row(other, "project://plain") !== undefined);
+        other.reveal("project://plain/sub/x.md");
+        // 右键选中另一行（单击目录会收起它）：用户自己选了，揭示作废。
+        other.contextSelect("project://plain");
+        await until(late, "x.md 列出", () => row(other, "project://plain/sub/x.md") !== undefined);
+        await Promise.resolve();
+        expect(other.selection.value.selected).toEqual(["project://plain"]);
+    });
+
     it("列出在途时外部新建：旧回复到达后再列一次，不漏新项", async () => {
         const at = await world();
         const controller = explorer(at, {expanded: ["project://"]});

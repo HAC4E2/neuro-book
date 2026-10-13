@@ -6,10 +6,13 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
+import {DatabaseSync} from "node:sqlite";
 
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
 import {startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
@@ -63,6 +66,9 @@ test.beforeAll(async () => {
         "notes/w.md": "尾\n",
         "data/mixed.txt": "甲\r\n乙\n丙\r\n",
         "data/late.json": "{\"late\": 1}\n",
+        "notes/cursor.md": "一二三四五\n",
+        "notes/clamp.md": "一二三四五六七八九十\n",
+        "data/cursor.txt": "甲行\n乙行之二\n丙\n",
     };
     for (const [path, text] of Object.entries(files)) {
         await mkdir(dirname(join(projectDir, path)), {recursive: true});
@@ -90,6 +96,24 @@ async function atEnd(page: Page, editable = prose(page)): Promise<void> {
     await page.keyboard.press("Control+End");
 }
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
+
+/** 本页客户端在项目分区里的一条记录（`local`，按客户端分行）；还没写过为 null。 */
+async function projectRecord(page: Page, key: "editor.session" | "editor.recent" | "explorer.expanded", owner = key.startsWith("explorer.") ? "nbook.explorer" : "nbook.editor"): Promise<Record<string, unknown> | null> {
+    const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
+    const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
+    try {
+        const row = db.prepare("SELECT value FROM records WHERE owner = ?3 AND key = ?1 AND client = ?2").get(key, client, owner) as {value: string} | undefined;
+        return row === undefined ? null : JSON.parse(row.value) as Record<string, unknown>;
+    } finally {
+        db.close();
+    }
+}
+
+/** 会话记录里这个地址的标签记下的光标。 */
+async function savedCursor(page: Page, address: string): Promise<unknown> {
+    const session = await projectRecord(page, "editor.session") as {groups?: Array<{tabs: Array<{address: string; cursor?: unknown}>}>} | null;
+    return session?.groups?.flatMap((group) => group.tabs).find((tab) => tab.address === address)?.cursor ?? null;
+}
 
 async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
@@ -132,6 +156,8 @@ test("单击以预览打开、再单击替换预览、双击转正；编辑后 C
     });
     const settled = await looks();
     expect(settled).toMatchObject({lines: [], weights: ["400", "600"]});
+    // 加粗副本看不见，也不进可访问名称：标签的名字就是文件名。
+    await expect(page.getByRole("tab", {name: "b.md", exact: true})).toHaveCount(1);
     await tabs(page).first().click();
     await expect.poll(async () => (await looks()).weights).toEqual(["600", "400"]);
     expect((await looks()).widths).toEqual(settled.widths);
@@ -550,6 +576,129 @@ test("状态栏条目：Markdown 有字数、没有光标位置；输入后出�
     // 切回 Markdown：光标位置不再显示。
     await page.locator("[data-editor-tab-label]", {hasText: "h.md"}).click();
     await expect(status("nbook.editor.cursor")).toHaveCount(0);
+    await closeAll(page);
+});
+
+test("纸面与空态：没有标签时正中是淡色标志与三行提示，点提示执行对应命令；Markdown 正文在 720px 版心里、17px、行距 1.95，编辑区是面板底色、外壳根是主题的窗体底", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    const empty = page.locator("[data-editor-group-active] [data-editor-empty]");
+    const tips = empty.locator("[data-editor-empty-tip]");
+    await expect(empty.locator(".editor-group__mark")).toBeVisible();
+    await expect(tips).toHaveText(["显示所有命令CtrlShiftP", "新建文件资源管理器标题行的“新建文件”", "打开欢迎页帮助 › 欢迎"]);
+    await expect(empty.locator("kbd")).toHaveText(["Ctrl", "Shift", "P"]);
+    const centered = await page.locator("[data-editor-group-active] [data-editor-content]").evaluate((content) => {
+        const mark = content.querySelector("[data-editor-empty] .editor-group__mark")!;
+        const [box, logo] = [content.getBoundingClientRect(), mark.getBoundingClientRect()];
+        return {offset: Math.abs(box.x + box.width / 2 - (logo.x + logo.width / 2)), size: logo.width};
+    });
+    expect(centered.offset).toBeLessThan(1);
+    expect(centered.size).toBe(132);
+
+    // 点提示执行它的命令：命令面板打开；欢迎页以标签打开（关掉回到空态）。
+    await tips.filter({hasText: "显示所有命令"}).click();
+    await expect(page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"})).toBeFocused();
+    await page.keyboard.press("Escape");
+    await tips.filter({hasText: "打开欢迎页"}).click();
+    await expect(page.locator("[data-welcome-page]")).toBeVisible();
+    await closeAll(page);
+    await expect(empty).toBeVisible();
+
+    // 前面的用例可能改过 a.md：只看开头。
+    await item(page, "project://notes/a.md").dblclick();
+    await expect(prose(page)).toContainText("第一章");
+    const paper = await page.locator("[data-editor-group-active]").evaluate((group) => {
+        const probe = document.createElement("div");
+        probe.style.backgroundColor = "var(--panel-surface)";
+        group.append(probe);
+        const surface = getComputedStyle(probe).backgroundColor;
+        probe.style.backgroundColor = "var(--shell-ground, var(--panel-surface))";
+        const ground = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        const control = group.querySelector(".markdown-control:not([hidden])")!;
+        const text = getComputedStyle(group.querySelector("[data-editor-prose]")!);
+        return {
+            group: getComputedStyle(group).backgroundColor === surface,
+            shell: getComputedStyle(document.querySelector("[data-workbench-shell]")!).backgroundColor === ground,
+            measure: getComputedStyle(control).maxWidth,
+            size: text.fontSize,
+            leading: text.lineHeight,
+        };
+    });
+    expect(paper).toEqual({group: true, shell: true, measure: "720px", size: "17px", leading: "33.15px"});
+    await closeAll(page);
+});
+
+test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可以直接接着写；源码编辑器回到行列，正文变短时夹到末尾；最近打开记下打开过的文件", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    const status = (id: string) => page.locator(`[data-workbench-status-bar] [data-workbench-item="${id}"]`);
+    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await item(page, "project://data/cursor.txt").dblclick();
+    const code = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    await expect(code).toBeVisible();
+    await code.click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("ArrowDown");
+    for (let step = 0; step < 3; step += 1) await page.keyboard.press("ArrowRight");
+    await expect(status("nbook.editor.cursor")).toHaveText("第 2 行，第 4 列");
+    // 光标停下一秒后记到标签上、随会话记录保存。
+    await expect.poll(() => savedCursor(page, "project://data/cursor.txt")).toEqual({line: 2, column: 4});
+
+    await item(page, "project://notes/clamp.md").dblclick();
+    await atEnd(page);
+    await expect.poll(() => savedCursor(page, "project://notes/clamp.md")).toEqual({offset: 11});
+
+    await item(page, "project://notes/cursor.md").dblclick();
+    await prose(page).click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => savedCursor(page, "project://notes/cursor.md")).toEqual({offset: 3});
+    await expect.poll(async () => (await projectRecord(page, "editor.recent"))?.addresses).toEqual(["project://notes/cursor.md", "project://notes/clamp.md", "project://data/cursor.txt"]);
+
+    // 刷新前外部把两个不活动的文件改短：记下的第 2 行、第 11 个位置都已不在。
+    await writeFile(join(projectDir, "data/cursor.txt"), "甲");
+    await writeFile(join(projectDir, "notes/clamp.md"), "一\n");
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+    });
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await expect.poll(() => focusInEditor(page)).toBe(true);
+    await page.keyboard.type("X");
+    await expect(prose(page)).toHaveText("一二X三四五");
+    await page.locator("[data-editor-tab-label]", {hasText: "cursor.txt"}).click();
+    await expect(status("nbook.editor.cursor")).toHaveText("第 1 行，第 2 列");
+    await page.locator("[data-editor-tab-label]", {hasText: "clamp.md"}).click();
+    await expect(prose(page)).toHaveText("一");
+    expect(errors).toEqual([]);
+    await closeAll(page);
+});
+
+test("打开作品时资源管理器揭示一次恢复出的活动文件：展开它所在的目录并选中它；之后切换标签不跟着揭示", async ({page}) => {
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/b.md").dblclick();
+    await item(page, "project://notes/c.md").dblclick();
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).toContainText("c.md");
+    // 收起 notes 并等它记下：刷新后它要靠揭示重新展开。
+    await item(page, "project://notes").click();
+    await expect(item(page, "project://notes")).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(async () => ((await projectRecord(page, "explorer.expanded"))?.paths as string[] | undefined)?.includes("notes")).toBe(false);
+
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await expect(item(page, "project://notes")).toHaveAttribute("aria-expanded", "true");
+    await expect(item(page, "project://notes/c.md")).toHaveAttribute("aria-selected", "true");
+    await expect(item(page, "project://notes/b.md")).toHaveAttribute("aria-selected", "false");
+
+    await page.locator("[data-editor-tab-label]", {hasText: "b.md"}).click();
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).toContainText("b.md");
+    expect(await item(page, "project://notes/c.md").getAttribute("aria-selected")).toBe("true");
+    expect(await item(page, "project://notes/b.md").getAttribute("aria-selected")).toBe("false");
     await closeAll(page);
 });
 

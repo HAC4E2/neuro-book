@@ -108,8 +108,8 @@ test("打开 Lab：组件树、画布与五个检视面板；地址参数直达�
         await expect(page.locator("[data-lab-panel]")).toHaveCount(1);
     }
     expect(apiRequests).toEqual(["/api/runtime/browser-bootstrap"]);
-    // 宿主每个窗口都写客户端身份（runtime.browser-host），它不是 Lab 的存储；Lab 不写浏览器存储。
-    expect(await page.evaluate(() => [...Array(localStorage.length).keys()].map((index) => localStorage.key(index)))).toEqual(["nbook.client-identity"]);
+    // 宿主每个窗口都写客户端身份与加载页的明暗提示（runtime.browser-host），它们不是 Lab 的存储；Lab 不写浏览器存储。
+    expect((await page.evaluate(() => [...Array(localStorage.length).keys()].map((index) => localStorage.key(index)))).sort()).toEqual(["nbook.client-identity", "nbook.host-appearance"]);
     expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
 
     // 刷新：地址栏里就是当前画面。

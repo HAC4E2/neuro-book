@@ -79,6 +79,13 @@ const SEGMENTS = [
     {value: "phone", label: "手机"},
 ];
 
+/** 标签长短不一：宽度随内容时最长的“跟随系统”也要完整显示。 */
+const APPEARANCES = [
+    {value: "light", label: "浅色"},
+    {value: "dark", label: "深色"},
+    {value: "system", label: "跟随系统"},
+];
+
 export const controlsFixtures: LabFixture[] = [
     defineSubjectFixture<typeof Button>({
         component: "Button",
@@ -156,6 +163,7 @@ export const controlsFixtures: LabFixture[] = [
         scenes: [
             {id: "default", label: "三档", input: {props: {options: SEGMENTS, ariaLabel: "画布尺寸", size: "sm"}, model: {modelValue: "free"}}},
             {id: "counts", label: "带计数与强调色", input: {props: {options: [{value: "all", label: "全部", count: 128}, {value: "dirty", label: "未保存", count: 3, tone: "warning" as const}, {value: "conflict", label: "冲突", count: 0, disabled: true}], ariaLabel: "筛选", tone: "accent", size: "sm"}, model: {modelValue: "all"}}},
+            {id: "uneven", label: "长短不一：段宽取最长一项", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm"}, model: {modelValue: "system"}}},
             {id: "full-width", label: "撑满等分", input: {props: {options: SEGMENTS, ariaLabel: "画布尺寸", size: "sm", fullWidth: true}, model: {modelValue: "phone"}}},
             {id: "xs", label: "最小号", input: {props: {options: SEGMENTS, ariaLabel: "画布尺寸", size: "xs"}, model: {modelValue: "tablet"}}},
         ],
@@ -198,6 +206,13 @@ export const controlsFixtures: LabFixture[] = [
             {id: "default", label: "带计数与不可用项", input: {props: {items: TABS, ariaLabel: "检视", size: "md"}, model: {modelValue: "doc"}}},
             {id: "small", label: "小号", input: {props: {items: TABS, ariaLabel: "检视", size: "sm"}, model: {modelValue: "events"}}},
             {id: "overflow", label: "放不下时横向滚动", input: {props: {items: Array.from({length: 16}, (_, index) => ({value: `ch-${String(index)}`, label: `第 ${String(index + 1)} 章`, iconClass: "i-lucide-file-text"})), ariaLabel: "章节", size: "sm"}, model: {modelValue: "ch-0"}}},
+            // 拖画布宽度看四档：完整、截断到 96px、只留图标、收进“更多”。
+            {id: "adapt", label: "放不下时逐级让位", input: {props: {items: [
+                {value: "terminal", label: "终端", iconClass: "i-lucide-terminal"},
+                {value: "output", label: "输出：一个很长的面板标题", iconClass: "i-lucide-scroll-text"},
+                {value: "problems", label: "问题", iconClass: "i-lucide-circle-alert", count: 3},
+                {value: "history", label: "历史记录", iconClass: "i-lucide-history"},
+            ], ariaLabel: "面板", size: "sm", overflow: "adapt"}, model: {modelValue: "problems"}}},
         ],
         subject: nbUiSubject("Tabs"),
     }),
