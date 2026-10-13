@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-cross-device
-status: active
+status: shelved
 updated: 2026-10-13
 ---
 
