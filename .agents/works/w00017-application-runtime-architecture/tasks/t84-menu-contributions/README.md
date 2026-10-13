@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t84-menu-contributions
-status: planned
+status: active
 updated: 2026-10-13
 ---
 
