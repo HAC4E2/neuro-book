@@ -42,6 +42,7 @@ function jobLine(job: NotifyJob): {tone: Tone; text: string} {
     case "waiting_blocked": return {tone: "warning", text: `已排队：${asker} 在等确认，排着`};
     case "unknown_status": return {tone: "warning", text: `已排队：${asker} 的状态未知，空闲之后自动判定`};
     case "waiting_input": return {tone: "warning", text: `已排队：等 ${asker} 的输入框清空（${job.waitReason ?? "认不出输入框"}）`};
+    case "waiting_takeover": return {tone: "accent", text: `已排队：你正在面板里接管 ${asker} 的键盘，释放之后再通知`};
     case "ready": return {tone: "accent", text: `${asker} 空闲，几秒内通知`};
     }
 }

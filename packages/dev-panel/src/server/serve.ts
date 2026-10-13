@@ -13,6 +13,7 @@ import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotRea
 import {createWriteHandler} from "./writes.js";
 import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
 import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
+import {ControlRegistry} from "./control-registry.js";
 import {createSessionIo} from "./session-io.js";
 
 /**
@@ -117,9 +118,10 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
 
     const audit = createAuditWriter(auditPaths(options.env), state.instanceId);
     const locks = new PaneLocks();
-    const notifier = new Notifier({state, client: options.herdr, audit, locks, log, onChange: () => state.notifyChanged()});
+    const controls = new ControlRegistry();
+    const notifier = new Notifier({state, client: options.herdr, audit, locks, controls, log, onChange: () => state.notifyChanged()});
     const writes = createWriteHandler({state, envelope, log, audit, afterWrite: () => void notifier.tick()});
-    const sessionIo = createSessionIo({state, notifier, locks, audit, client: options.herdr, envelope, log});
+    const sessionIo = createSessionIo({state, notifier, locks, controls, audit, client: options.herdr, envelope, log});
     // 记录、活动、会话变了就重算通知（通知自己的变化不再触发，免得打转）。
     const stopNotifyTrigger = state.onChange((part) => {
         if (part !== "notify" && ready) void notifier.tick();

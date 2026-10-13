@@ -14,7 +14,7 @@ import {spawnSync} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {lstat, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {basename, join, resolve} from "node:path";
+import {basename, isAbsolute, join, resolve} from "node:path";
 import {parseArgs} from "node:util";
 import {emit, toNbdevError, type CliIo} from "./cli/output.js";
 import {NbdevError, systemErrorCode, type ExitCode} from "./core/errors.js";
@@ -38,7 +38,8 @@ function execArg(value: string): string {
     return /[\s"'\\]/u.test(escaped) ? `"${escaped.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"` : escaped;
 }
 
-export function serviceUnit(input: {mainRoot: string; bun: string; port: number; artifactPort: number}): string {
+/** `herdrBin`：安装时找到的 herdr 绝对路径（终端流的子进程要它；用户管理器的 `PATH` 不保证有 `~/.local/bin`），找不到为 null。 */
+export function serviceUnit(input: {mainRoot: string; bun: string; port: number; artifactPort: number; herdrBin: string | null}): string {
     const unit = serviceUnitName(input.mainRoot);
     const cli = join(input.mainRoot, "packages", "dev-panel", "src", "cli.ts");
     return [
@@ -52,12 +53,15 @@ export function serviceUnit(input: {mainRoot: string; bun: string; port: number;
         "Type=simple",
         `WorkingDirectory=${unitValue(input.mainRoot)}`,
         `Environment=NBDEV_PANEL_UNIT=${unit}`,
+        input.herdrBin === null ? "# 安装时找不到 herdr：要网页终端就加一行 Environment=NBDEV_HERDR_BIN=<herdr 的绝对路径>" : `Environment=${execArg(`NBDEV_HERDR_BIN=${input.herdrBin}`)}`,
         `ExecStart=${[input.bun, cli, "panel", "serve", "--port", String(input.port), "--artifact-port", String(input.artifactPort)].map(execArg).join(" ")}`,
         "Restart=on-failure",
         "RestartSec=5",
         "# 用法错误与冲突（unsafe_host、port_in_use、panel_running）重启也不会好，不要重启风暴。",
         "RestartPreventExitStatus=2 3",
         "KillSignal=SIGTERM",
+        "# 只给面板 SIGTERM，等它先释放网页终端的接管、改回终端尺寸、收掉子进程，再 SIGKILL 剩下的；缺省的 control-group 会同时给子进程 SIGTERM。",
+        "KillMode=mixed",
         "# 收到 SIGTERM 先等进行中的投递结束（上限 12 秒），再收口。",
         "TimeoutStopSec=30",
         `# stdout、stderr 进 journal：journalctl --user -u ${unit}`,
@@ -128,7 +132,7 @@ export async function installService(argv: readonly string[], io: CliIo): Promis
         const artifactPort = portOption(values["artifact-port"], 4401, "artifact-port");
         const cliPath = join(mainRoot, "packages", "dev-panel", "src", "cli.ts");
         if (!await readIfExists(cliPath)) throw new NbdevError("shim_target_not_found", `主工作区里没有 nbdev：${cliPath}`, {details: {mainRoot, cliPath}});
-        const content = serviceUnit({mainRoot, bun: process.execPath, port, artifactPort});
+        const content = serviceUnit({mainRoot, bun: process.execPath, port, artifactPort, herdrBin: io.env.NBDEV_HERDR_BIN && isAbsolute(io.env.NBDEV_HERDR_BIN) ? io.env.NBDEV_HERDR_BIN : Bun.which("herdr")});
         const commands = [["daemon-reload"], ["enable", "--now", unit]];
         if (existing?.kind === "other") throw new NbdevError("service_exists", `${unitPath} 不是普通文件（目录或符号链接），不覆盖`, {details: {unitPath}});
         if (existing && !ours && !values.force) throw new NbdevError("service_exists", `${unitPath} 已存在且不是本脚本写的；确认覆盖时加 --force`, {details: {unitPath}});

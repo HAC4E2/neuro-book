@@ -11,12 +11,13 @@ import type {NotifyResult} from "../core/notify.js";
  */
 
 export type DeliveryTarget = {paneId: string; sessionKey: string};
-export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]; sleep?: (ms: number) => Promise<void>};
+/** `controlled`：这个终端正被本面板接管时为真（t12）；接管期间文字与按键都不发（herdr 不拦 API 写入）。 */
+export type DeliveryContext = {client: HerdrClient; repoRoots: readonly string[]; sleep?: (ms: number) => Promise<void>; controlled?: (terminalId: string) => boolean};
 
 export type CheckFailure = {
     ok: false;
     /** `not_stable`：状态序号变了（之前记下的“空闲”作废）；`settling`：序号没变、只是还不到稳定时长（记下的照样有效）。 */
-    code: "not_found" | "session_changed" | "not_in_repository" | "agent_busy" | "agent_blocked" | "status_unknown" | "not_stable" | "settling" | "not_deliverable" | "herdr_unavailable";
+    code: "not_found" | "session_changed" | "not_in_repository" | "pane_controlled" | "agent_busy" | "agent_blocked" | "status_unknown" | "not_stable" | "settling" | "not_deliverable" | "herdr_unavailable";
     detail: string;
     /** 不可投时屏幕末尾的样子（纯文字），界面拿它给开发者看。 */
     screen: string | null;
@@ -67,6 +68,7 @@ async function identity(context: DeliveryContext, target: DeliveryTarget, requir
     if (!agent) return fail("not_found", `${target.paneId} 上没有 herdr 认得的 Agent`);
     if (sessionKeyOf(agent) !== target.sessionKey) return fail("session_changed", `${target.paneId} 上现在是 ${sessionKeyOf(agent) ?? "（没有会话）"}，不是 ${target.sessionKey}`, agent);
     if (!within(agent.cwd, context.repoRoots) && !within(agent.foregroundCwd, context.repoRoots)) return fail("not_in_repository", `${target.paneId} 不在本仓库的 checkout 里`, agent);
+    if (context.controlled?.(agent.terminalId)) return fail("pane_controlled", `${target.paneId} 正被你在面板里接管键盘：释放之后再发，或直接在终端里打`, agent);
     if (!requireIdle) return {ok: true, agent};
     if (agent.status === "working") return fail("agent_busy", "会话在工作", agent);
     if (agent.status === "blocked") return fail("agent_blocked", "会话在等确认", agent);

@@ -119,12 +119,12 @@ export type EditableFileData = {
 /** 通知（t11）：`/api/notify` 的任务与最近 24 小时的尝试，见 docs/panel.md 的“通知”。 */
 export type NotifyJobState =
     | "audit_unavailable" | "legacy" | "waiting_herdr" | "no_target" | "replaced" | "not_in_repository" | "manual_only"
-    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "ready";
+    | "waiting_idle" | "waiting_blocked" | "unknown_status" | "waiting_input" | "waiting_takeover" | "ready";
 export type NotifyCandidate = {sessionKey: string; paneId: string; agent: string | null; status: string; asker: boolean};
 export type NotifyJob = {
     workId: string; taskId: string; sessionKey: string; askerPaneId: string | null;
     answers: Array<{answerId: string; artifactId: string}>; legacy: Array<{answerId: string; artifactId: string}>; artifacts: string[]; questions: number;
-    state: NotifyJobState; paneId: string | null; agent: string | null; replacedBy: NotifyCandidate | null; alternatives: NotifyCandidate[];
+    state: NotifyJobState; paneId: string | null; terminalId: string | null; agent: string | null; replacedBy: NotifyCandidate | null; alternatives: NotifyCandidate[];
     waitReason: string | null; screen: string | null; message: string; manualMessage: string; developerMessage: string;
 };
 export type NotifyResult = "pending" | "delivered" | "delivered_into_blocked" | "delivered_maybe_wrong_session" | "uncertain" | "skipped" | "agent_blocked" | "not_deliverable" | "session_changed" | "failed";
