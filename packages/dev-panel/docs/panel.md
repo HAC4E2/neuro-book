@@ -106,7 +106,7 @@
 
 产物不入库（根 `.gitignore` 已忽略 `dist/`），`panel serve` 发现输入变了就先构建：
 
-- 输入：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 的 `src/` 与 `package.json`（面板直接用 nb-ui 的源码），根 `bun.lock`。哈希写进 `dist/web/.build-hash`，一致就不构建。
+- 输入：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 整个包目录（排除 `node_modules`、`.nuxt`、`.output`、`playground`；面板直接用 nb-ui 的源码，还用到它的 `themes/` 与提交在包里的 `dist/nb-ui.css`），根 `bun.lock`。哈希写进 `dist/web/.build-hash`，一致就不构建。
 - 输出到临时目录，成功后改名替换 `dist/web`：正在跑的面板的页面不会指向已被删掉的资源。
 - 失败时有旧产物就用旧的（`/api/meta` 的 `build.failed`、命令的 `build_failed` 警告）；没有旧产物报 `build_failed`（退出码 1）。
 - 合入 `master` 后由主工作区的代码运行，构建产物也在主工作区的包目录里；常驻与 systemd 单元在 t11。
