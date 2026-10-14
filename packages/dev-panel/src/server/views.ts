@@ -2,7 +2,7 @@ import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {Activity} from "../core/activity.js";
 import {artifactContentHash, artifactDirPath, QUESTIONS_ARTIFACT, questionStates, readArtifact, type ArtifactRef} from "../core/artifacts.js";
-import {branchChangedDocs, listDocPaths, readDocFile, readDocTree} from "../core/docs.js";
+import {branchChangedDocs, listDocPaths, readDocDiff, readDocFile, readDocTree} from "../core/docs.js";
 import {readEditableFile} from "../core/edit-ops.js";
 import {readGovernanceLineLimits} from "../core/governance-limits.js";
 import {guardedFile} from "../core/paths.js";
@@ -292,6 +292,22 @@ export async function docFileView(state: PanelState, checkoutKey: string, path: 
         if ((await branchDocs(other)).has(path)) changedIn.push(state.keyOf(other.root)!);
     }
     return {data: {checkout: {key: checkoutKey, branch: checkout.branch, isMain: checkout.isMain}, ...file, changedIn}, warnings: []};
+}
+
+/**
+ * 一份文档与 master 的差异（t15 阶段 4 第 4 批）：白名单是这个 checkout 的文档树、它与 master 的差异、记录里的文档三者之并
+ * （删去的与“master 才有”的文件不在文档树里，照 `/api/docs/file` 的白名单会 404）。差异的类型取自同一份文档树，两边口径一致。
+ */
+export async function docDiffView(state: PanelState, checkoutKey: string, path: string): Promise<{data: unknown; warnings: Warning[]} | null> {
+    const checkout = state.checkoutByKey(checkoutKey);
+    if (!checkout) return null;
+    const mainDocs = await listDocPaths(state.context.mainRoot);
+    const tree = await readDocTree(checkout.root, checkout.isMain, mainDocs, checkout.isMain ? undefined : await branchDocs(checkout));
+    const change = tree.changes.find((entry) => entry.path === path)?.change ?? null;
+    const allowed = change !== null || tree.docs.some((doc) => doc.path === path) || recordDocuments(state, checkout.root).has(path);
+    if (!allowed) return null;
+    const diff = await readDocDiff(checkout.root, state.context.mainRoot, path, change);
+    return {data: {checkout: {key: checkoutKey, branch: checkout.branch, isMain: checkout.isMain}, ...diff}, warnings: []};
 }
 
 /**

@@ -62,10 +62,12 @@
 | `/api/artifact/:workId/:taskId/:artifactId?version=` | 产物页：版本列表、题与状态（`version` 只切换题表）、答复、确认、iframe 地址（产物来源上磁盘里的当前页面）、`unpublishedChanges`（磁盘内容与最新一版的 `contentHash` 不同）、记录来源（`source`、`branch`）。Work 级产物的 `taskId` 写 `-` |
 | `/api/docs/tree?checkout=` | 文档树（按类型分组）；不是主工作区时附与 master 的差异（见下） |
 | `/api/docs/file?checkout=&path=` | 一份文档：原文、frontmatter、标题、这个 checkout 上最近 5 次提交、哪些已检出的分支改了它（`changedIn`） |
+| `/api/docs/diff?checkout=&path=` | 一份文档与 master 的差异（t15 阶段 4 第 4 批），与文档树的“改动”同口径：`change` 取自同一份文档树（新增、改动、删去、`master_only`，不在差异里为 null）；新增、改动、删去是合并基点（`mergeBase`）到这个 checkout 工作区的 `git diff`，含未提交，未跟踪的新文件整份当新增；`master_only` 是主工作区里那一份整份当新增。白名单是这个 checkout 的文档树、它的差异与记录里的文档之并，其余 404 |
 | `/api/files?path=` | 编辑页：主工作区里一个文件的原文与 sha256、种类（Work README、Task README、文档类产物、主工作区文档）、能不能编辑与原因、未提交的改动（已暂存与工作区分开）、是不是暂存区里一次改名的一端、改过它的分支、根级治理入口的非空行上限。编辑白名单之外的路径回 404 |
 | `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里、`scrollback` 能往回翻多少行，全屏程序或备用屏时是 0；`history` 是能读更早的输出时走哪个接口：`session` 是 `/api/sessions/:paneId/history`（只给 omp，回滚不是 0），`pane` 是 `/api/panes/:paneId/history`（没有会话键、回滚大于 0），读不到为 null，见 `src/server/delivery.ts` 的 `historySource`）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree）。pane 与会话各带 `title: {text, source} \| null`（t15 阶段 4 第 3 批，决定点 19）：从本机 Agent 的会话文件里读，Claude Code 取会话文件末尾一段里的 `custom-title`、`agent-name`、`ai-title`（先后如此），Codex 取 `session_index.jsonl` 的 `thread_name`，omp 取会话文件第一行的 `title`；只读、按文件大小与修改时间缓存、不写审计，读不出为 null（见 `src/server/session-titles.ts`） |
 | `/api/runs` | “在跑”（t14）：经 nbdev 起的服务（`procs`，登记加现算的状态，还活着的与 24 小时内结束的）、会话派出的运行、无主的运行；后两块按登记的 pid 去重 |
-| `/api/checkouts` | checkout 页（t14）：分支、HEAD、执行 worktree，加未提交条数、相对 master 的领先落后、在跑的服务、`home` 是它的 Task；请求时现算，每个 checkout 留 10 秒 |
+| `/api/checkouts` | checkout 页（t14）：分支、HEAD、执行 worktree，加未提交（`tracked` 已跟踪的改动、`untracked` 未跟踪的条数，t15 阶段 4 第 4 批）、相对 master 的领先落后、在跑的服务、`home` 是它的 Task 与它是哪些 Task 的（`tasks`：`home` 加目录名认出的）；请求时现算，每个 checkout 留 10 秒，git 调用各自限时 3 秒，到点的标 `timedOut`、计数为 null |
+| `/api/checkouts/:key/files` | 一个 checkout 的未提交文件（t15 阶段 4 第 4 批）：`staged`、`unstaged`（各带一个状态字母）、`untracked`（未跟踪的目录算一条，带末尾的 `/`），每段最多 300 条（`truncated`）；同样限时、只读，不缓存；key 不认识 404 |
 | `/api/github` | GitHub 只读页（t14）：开着的 PR（检查汇总）与 Issue、状态与取的时刻；见“现场” |
 | `/api/notify?workId=&taskId=` | 通知任务（`jobs`）与最近 24 小时的尝试（`recent`，同一次尝试的意图与结果合成一条，只有意图的标 `intentOnly`）、审计状态、这个 herdr 版本是否自动投递；两个参数可选（见“通知与会话页”） |
 | `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed`；这格正被接管时照常能读 |
@@ -267,12 +269,12 @@ herdr 不拦 API 写入（见 [herdr.md](herdr.md#终端流t12)），互斥由�
   - 第二、三块是 t07 认出的会话的运行与无主的运行。运行树里（根或任何后代）含有登记的监管进程、组长或后代快照里的 pid，整棵从这两块去掉（核对启动时刻），只在第一块出现。
   - 随“活动”这一块（有浏览器连着时 5 秒）刷新。
 - **checkout**（`/live/checkouts`）：分支、HEAD、执行 worktree，加：
-  - 未提交：`git status --porcelain=v1 -uno` 的条数，只算已跟踪的文件；
+  - 未提交：`git status --porcelain=v1 -unormal` 分成两个数，已跟踪的改动（含暂存）与未跟踪（未跟踪的目录算一条，t15 阶段 4 第 4 批；以前是 `-uno`，新文件不算，会显示成“干净”）；点开看文件清单（`/api/checkouts/:key/files`）；
   - 领先、落后：`rev-list --left-right --count master...HEAD`；
   - 在跑：这个 checkout 上还活着的登记服务；
   - `home` 是它的 Task（登记表）。
 
-  未提交与领先落后在请求时现算，4 路并行，每个 checkout 留 10 秒（HEAD 变了就重算）。页面开着时每 10 秒自己重取一次（改文件不改变“活动”，只随推送重取会一直显示旧值），标“N 秒前算的”、按秒走。不按 HEAD 与 index 的 mtime 缓存：没 `add` 的改动不改 index（面板的 Git 读操作带 `--no-optional-locks`），会一直显示“干净”。不做“可清理”。
+  未提交与领先落后在请求时现算，4 路并行，每个 checkout 留 10 秒（HEAD 变了就重算）；每个 checkout 的 git 调用各自限时 3 秒，冷的大 worktree 不拖住整页，到点的写“没算完”。页面开着时每 10 秒自己重取一次（改文件不改变“活动”，只随推送重取会一直显示旧值），标“N 秒前算的”、按秒走。不按 HEAD 与 index 的 mtime 缓存：没 `add` 的改动不改 index（面板的 Git 读操作带 `--no-optional-locks`），会一直显示“干净”。不做“可清理”。
 - **GitHub**（`/live/github`）：
   - 面板只调白名单里写死的两条命令：`gh pr list --state open --limit 100 --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url` 与 `gh issue list --state open --limit 100 --json number,title,labels,updatedAt,url`，cwd 是主工作区。按仓库维护流程，不取 `body`、`comments`、`reviews`。条数到上限时页面写“只列最近更新的 N 个，可能还有更多”。
   - 检查汇总按 `__typename` 分：`CheckRun` 看 `status` 与 `conclusion`，`StatusContext` 看 `state`；失败的逐个列出，`CheckRun` 写成“工作流 / 检查名”（`workflowName`，不同工作流里可能有同名的检查）。分支名是 `<type>/<Work 编号>-<Task 编号>-…` 且找得到 Task 时链到面板的 Task 页。

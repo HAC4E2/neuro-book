@@ -7,8 +7,9 @@ import {setTimeout as sleep} from "node:timers/promises";
 import {locateRepository} from "../src/core/repo.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {GH_COMMANDS} from "../src/server/github.js";
+import {CheckoutStatusCache} from "../src/server/live-views.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
-import {cleanupFixtures, CLI_PATH, createFixture, panelEnv, type Fixture} from "./git-fixture.js";
+import {cleanupFixtures, CLI_PATH, createFixture, git, panelEnv, type Fixture} from "./git-fixture.js";
 import {startFakeClaude} from "./processes.js";
 
 /**
@@ -198,7 +199,7 @@ describe("“在跑”与 checkout 页", () => {
         expect(sessionPids).not.toContain(supervisor);
     }, 60_000);
 
-    test("checkout 页：没 add 的改动当场算进未提交；领先落后相对 master；Task 的 home 与在跑的服务", async () => {
+    test("checkout 页：没 add 的改动当场算进未提交，已跟踪与未跟踪分开数（未跟踪的目录算一条）；领先落后相对 master；Task 的 home 与在跑的服务；文件清单分三段", async () => {
         const fixture = await createFixture("checkouts-view");
         await fixture.write("docs/a.md", "一\n");
         await fixture.commit("a");
@@ -207,9 +208,25 @@ describe("“在跑”与 checkout 页", () => {
         await fixture.write("docs/b.md", "二\n", worktree);
         await fixture.commit("b", worktree);
         await fixture.write("docs/a.md", "一改了\n");
+        await fixture.write("notes/new-1.txt", "新\n");
+        await fixture.write("notes/new-2.txt", "新\n");
+        await fixture.write("scratch.txt", "新\n");
         const panel = await startPanel(fixture, {});
         const rows = ((await panel.get("/api/checkouts")).body.data as {checkouts: Array<Record<string, unknown>>}).checkouts;
-        expect(rows.find((row) => row.isMain)).toMatchObject({key: "main", dirty: 1, ahead: 0, behind: 0});
-        expect(rows.find((row) => !row.isMain)).toMatchObject({key: "w00001-t01-seed", dirty: 0, ahead: 1, behind: 0, homeOf: [{workId: "w00001-seed", taskId: "t01-seed"}], runs: []});
+        expect(rows.find((row) => row.isMain)).toMatchObject({key: "main", tracked: 1, untracked: 2, ahead: 0, behind: 0, timedOut: false, tasks: []});
+        expect(rows.find((row) => !row.isMain)).toMatchObject({key: "w00001-t01-seed", tracked: 0, untracked: 0, ahead: 1, behind: 0, homeOf: [{workId: "w00001-seed", taskId: "t01-seed"}], tasks: [{workId: "w00001-seed", taskId: "t01-seed"}], runs: []});
+        const files = await panel.get("/api/checkouts/main/files");
+        expect(files.body.data).toMatchObject({key: "main", staged: [], unstaged: [{path: "docs/a.md", code: "M"}], untracked: ["notes/", "scratch.txt"], truncated: false, timedOut: false});
+        expect((await panel.get("/api/checkouts/nope/files")).status).toBe(404);
     }, 60_000);
+
+    test("checkout 的 git 调用各自限时：到点的那个标 timedOut、计数为 null，不拖住别的", async () => {
+        const fixture = await createFixture("checkouts-timeout");
+        await fixture.write("docs/a.md", "一\n");
+        await fixture.commit("a");
+        const head = (await git(fixture.main, "rev-parse", "HEAD")).trim();
+        const statuses = await new CheckoutStatusCache(1).statuses([{root: fixture.main, head}]);
+        expect(statuses.get(fixture.main)).toMatchObject({timedOut: true, tracked: null, untracked: null, ahead: null, behind: null});
+        expect((await new CheckoutStatusCache().statuses([{root: fixture.main, head}])).get(fixture.main)).toMatchObject({timedOut: false, tracked: 0, untracked: 0});
+    }, 30_000);
 });

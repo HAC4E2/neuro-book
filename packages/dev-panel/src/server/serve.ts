@@ -9,7 +9,7 @@ import {createPanelAuth, type PanelAuth} from "./auth.js";
 import {allowedHosts, contentType, decodePath, guardedFile, rejectForwarded, rejectHost, sameHostOn, type Rejection} from "./guard.js";
 import {PanelState, type PartName} from "./state.js";
 import {assertMainWritable} from "../core/repo.js";
-import {artifactsView, artifactView, docFileView, docsTreeView, fileView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
+import {artifactsView, artifactView, docDiffView, docFileView, docsTreeView, fileView, NotReady, overviewView, recordMatches, sessionsView, taskView, workView} from "./views.js";
 import {createWriteHandler, readFields, statusOf} from "./writes.js";
 import {auditPaths, createAuditWriter, readAuditStatus} from "../core/audit.js";
 import {AUTO_NOTIFY_VERSIONS, Notifier, PaneLocks} from "./notifier.js";
@@ -217,6 +217,12 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 const view = await docFileView(state, url.searchParams.get("checkout") ?? "main", path);
                 return view ? envelope(view.data, view.warnings, null) : notFound();
             }
+            if (route === "docs" && rest.length === 1 && rest[0] === "diff") {
+                const path = url.searchParams.get("path");
+                if (path === null) return notFound();
+                const view = await docDiffView(state, url.searchParams.get("checkout") ?? "main", path);
+                return view ? envelope(view.data, view.warnings, null) : notFound();
+            }
             if (route === "files" && rest.length === 0) {
                 const path = url.searchParams.get("path");
                 if (path === null) return notFound();
@@ -235,6 +241,11 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             if (route === "checkouts" && rest.length === 0) {
                 const {data, warnings} = await checkoutsView(state, checkoutStatuses);
                 return envelope(data, warnings, null);
+            }
+            if (route === "checkouts" && rest.length === 2 && rest[1] === "files") {
+                const checkout = state.checkoutByKey(rest[0]!);
+                if (!checkout || checkout.prunable) return notFound();
+                return envelope({key: rest[0], ...await checkoutStatuses.files(checkout.root)}, [], null);
             }
             // 只读当前这一份，不触发取数：页面收到“github 变了”就重取这里（t14 实现审查 B1）。
             if (route === "github" && rest.length === 0) {
