@@ -8,6 +8,7 @@ import {
     answerPath,
     answersAfter,
     artifactContentHash,
+    awaitsAnswer,
     closeQuestions,
     listArtifactFiles,
     listDocuments,
@@ -80,11 +81,11 @@ describe("新版本的题表（nextQuestions）", () => {
         expect([result.dropped, result.retiredInPage, result.restored, result.problems]).toEqual([["gone-open"], [], [], []]);
     });
 
-    test("--keep 保留暂时删掉的题；不适用的 --keep 报出来；与 ask 登记的题同号报 duplicate_question", () => {
-        const previous = version(1, [question("temp"), question("asked", {origin: "ask", page: null})]);
-        const result = nextQuestions({previous, markup: [markup("asked")], version: 2, keep: ["temp", "nope"], answeredIds: new Set()});
+    test("--keep 保留暂时删掉的题；不适用的 --keep 报出来（含之前几版的题）；与 ask 登记的题同号报 duplicate_question", () => {
+        const previous = version(1, [question("temp"), question("asked", {origin: "ask", page: null}), question("earlier", {page: null})]);
+        const result = nextQuestions({previous, markup: [markup("asked")], version: 2, keep: ["temp", "nope", "earlier"], answeredIds: new Set(["earlier"])});
         expect(result.questions.find((entry) => entry.id === "temp")?.outcome).toBeNull();
-        expect(result.problems.map((problem) => [problem.code, problem.questionId])).toEqual([["duplicate_question", "asked"], ["keep_not_applicable", "nope"]]);
+        expect(result.problems.map((problem) => [problem.code, problem.questionId])).toEqual([["duplicate_question", "asked"], ["keep_not_applicable", "nope"], ["keep_not_applicable", "earlier"]]);
     });
 
     test("已撤回或已取代的题号又出现在页面里：保持原结局，不复活", () => {
@@ -145,6 +146,23 @@ describe("题的状态与未确认的答复", () => {
         const broken = [...answers, answer(id("20261012T100002000Z"), {pick: "zzz"}, {artifactVersion: 2})];
         expect(questionStates(v4, broken, new Map([[2, v2]]))[0]?.stale?.code).toBe("invalid_value");
         expect(questionStates(v4, answers, new Map())[0]?.stale?.code).toBe("invalid_value");
+    });
+
+    test("待答（awaitsAnswer）：open 的必答题与 ask 登记的 open 题算；选答、之前几版的题（答复作废后也是 open）不算", () => {
+        const current = version(3, [
+            question("required"),
+            question("optional", {required: false}),
+            question("earlier", {page: null}),
+            question("asked", {origin: "ask", page: null, type: "text", options: []}),
+        ]);
+        // 之前几版的题的答复按它那一版也不合法（手改坏的文件）：作废，状态回到 open。
+        const states = questionStates(current, [answer(id("20261012T100000000Z"), {earlier: "zzz"})], new Map());
+        expect(states.map((state) => [state.question.id, state.state, awaitsAnswer(state)])).toEqual([
+            ["required", "open", true],
+            ["optional", "open", false],
+            ["earlier", "open", false],
+            ["asked", "open", true],
+        ]);
     });
 
     test("未确认按集合差算：落位晚、id 小的答复也不会被漏掉；through 不参与判断", () => {

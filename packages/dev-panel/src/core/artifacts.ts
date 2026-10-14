@@ -555,7 +555,10 @@ export function nextQuestions(input: NextQuestionsInput): NextQuestionsResult {
     }
     for (const id of input.keep) {
         const prior = previous?.questions.find((question) => question.id === id);
-        if (!prior || prior.outcome || prior.origin !== "markup" || markupById.has(id)) {
+        if (prior && !prior.outcome && isEarlierPageQuestion(prior) && !markupById.has(id)) {
+            // --keep 只是原样保留，留不回页面：之前几版的题保留下来仍不收答复，开发者会以为它又能答了。
+            result.problems.push({code: "keep_not_applicable", questionId: id, message: `--keep ${id} 不适用：它是之前几版的题（已答、页面上早就没有了），保留了也不能再答；要重新问，就把它放回页面`});
+        } else if (!prior || prior.outcome || prior.origin !== "markup" || markupById.has(id)) {
             result.problems.push({code: "keep_not_applicable", questionId: id, message: `--keep ${id} 不适用：只能保留上一版来自页面、还活着、这次页面里没有的题`});
         }
     }
