@@ -155,7 +155,7 @@ const inputLabel = computed(() => {
         v-if="row.kind === 'edit' || (row.kind === 'entry' && edit != null)"
         :id="domId"
         :role="row.kind === 'edit' ? 'none' : 'treeitem'"
-        class="relative flex w-full min-w-0 items-center gap-1 pr-2 text-sm"
+        class="explorer-edit flex w-full min-w-0 items-center gap-1 pr-2 text-sm"
         :style="{height: `${height}px`, paddingLeft: indent}"
         :data-explorer-edit="row.id"
         :aria-level="row.depth + 1"
@@ -168,7 +168,7 @@ const inputLabel = computed(() => {
         <span v-for="level in guides" :key="level" class="explorer-guide" :data-guide-active="level === guideActive ? '' : undefined" :style="{left: guideLeft(level)}" aria-hidden="true"></span>
         <span class="h-4 w-4 shrink-0" aria-hidden="true"></span>
         <FileIcon v-if="icon" :icon="icon" />
-        <div ref="inputBox" class="min-w-0 flex-1" @keydown="onEditKeydown" @focusout="emit('edit-commit')" @click.stop @dblclick.stop>
+        <div ref="inputBox" class="explorer-edit__box relative min-w-0 flex-1" @keydown="onEditKeydown" @focusout="emit('edit-commit')" @click.stop @dblclick.stop>
             <FormInput
                 size="sm"
                 :model-value="edit?.name ?? ''"
@@ -179,14 +179,14 @@ const inputLabel = computed(() => {
                 data-explorer-input
                 @update:model-value="(value: string) => emit('edit-input', value)"
             />
+            <span
+                v-if="edit?.error"
+                :id="errorId"
+                role="alert"
+                class="explorer-edit__error pointer-events-none absolute inset-x-0 top-full z-10 truncate px-1.5 py-0.5 text-xs"
+                data-explorer-input-error
+            >{{ edit.error }}</span>
         </div>
-        <span
-            v-if="edit?.error"
-            :id="errorId"
-            role="alert"
-            class="pointer-events-none absolute left-8 right-2 top-full z-10 truncate rounded bg-[var(--status-danger)] px-1.5 py-0.5 text-xs text-white"
-            data-explorer-input-error
-        >{{ edit.error }}</span>
     </div>
     <div
         v-else
@@ -195,7 +195,6 @@ const inputLabel = computed(() => {
         class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 rounded-[var(--radius-control)] pr-2 transition-colors [transition-duration:var(--motion-fast)]"
         :class="[
             row.kind === 'root' ? 'explorer-row--root' : 'text-sm',
-            selected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : row.kind === 'root' ? 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]',
             row.kind === 'entry' && (row.type === 'missing' || row.cut) ? 'opacity-60' : '',
         ]"
         :data-explorer-cut="row.kind === 'entry' && row.cut ? '' : undefined"
@@ -257,8 +256,57 @@ const inputLabel = computed(() => {
 
 <style scoped>
 /*
- * 选中只用浅底与强调色文字，不描边（docs/specs/workbench/files-explorer.md）。键盘焦点所在的行画内嵌焦点线，只在树是键盘
- * 带来的焦点时画：用鼠标点了一行，树也拿到焦点，但不该多出一圈线。
+ * 选中不描边，按树有没有焦点分两种（docs/specs/workbench/files-explorer.md 的“行的样子”）：焦点在树里是强调色浅底与强调色
+ * 文字，焦点在别处（编辑区、对话框）是比悬停深一档的灰底。看的是 `:focus-within`：内联输入框也在树里，编辑时仍算树有焦点。
+ */
+.explorer-row {
+    color: var(--text-main);
+}
+
+.explorer-row:hover {
+    background: var(--bg-hover);
+}
+
+.explorer-row[aria-selected="true"] {
+    background: var(--accent-bg);
+    color: var(--accent-text);
+}
+
+[data-explorer-tree]:not(:focus-within) .explorer-row[aria-selected="true"] {
+    background: color-mix(in srgb, var(--text-main) 9%, transparent);
+    color: var(--text-main);
+}
+
+/* 内联输入：这一行铺选中底色，输入框收在行里，没有表单控件的外扩光环；报错贴在输入框下沿。 */
+.explorer-edit {
+    border-radius: var(--radius-control);
+    background: var(--accent-bg);
+}
+
+.explorer-edit__box :deep(input[data-explorer-input]) {
+    height: 22px;
+    min-height: 0;
+    padding-inline: 6px;
+    border-radius: 6px;
+    border-color: var(--focus-outline);
+    font-size: 13px;
+    box-shadow: none;
+}
+
+.explorer-edit__box :deep(input[data-explorer-input][aria-invalid="true"]) {
+    border-color: var(--status-danger);
+}
+
+.explorer-edit__error {
+    margin-top: -1px;
+    border: 1px solid var(--status-danger);
+    border-radius: 0 0 6px 6px;
+    background: color-mix(in srgb, var(--status-danger) 12%, var(--bg-panel));
+    color: var(--status-danger);
+}
+
+/*
+ * 键盘焦点所在的行画内嵌焦点线，只在树是键盘带来的焦点时画：用鼠标点了一行，树也拿到焦点，但不该多出一圈线。
  */
 [data-explorer-tree]:focus-visible .explorer-row[data-active="true"] {
     box-shadow: inset 0 0 0 1.5px var(--focus-outline);
@@ -266,6 +314,7 @@ const inputLabel = computed(() => {
 
 /* 根是分节标题：小一号、加粗，没有图标。 */
 .explorer-row--root {
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.02em;

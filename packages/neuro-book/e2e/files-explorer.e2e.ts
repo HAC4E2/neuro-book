@@ -412,7 +412,7 @@ test("只用键盘：F2 改名（Escape 取消不写）、Delete 删除（确认
     expect(sent).toEqual(["rename", "delete"]);
 });
 
-test("工具栏新建：输入行出现在选中的目录里，Enter 后排他新建空文件并选中它", async ({page}) => {
+test("工具栏新建（验收 29）：输入行出现在选中的目录里、输入框收在行里，Enter 后排他新建空文件并选中它", async ({page}) => {
     await open(page);
     if (await item(page, "project://ops").getAttribute("aria-expanded") !== "true") await item(page, "project://ops").click();
     await pick(page, "project://ops/keep.md");
@@ -423,6 +423,20 @@ test("工具栏新建：输入行出现在选中的目录里，Enter 后排他�
     await page.keyboard.press("Enter");
     await expect(page.locator("[data-explorer-input-error]")).toContainText("已存在同名项");
     expect(await readFile(join(projectDir, "ops", "keep.md"), "utf8")).toBe("K");
+    // 输入框收在行里（比行矮、没有外扩光环），原因贴在输入框正下方、左右与它对齐（验收 29）。
+    const looks = await page.locator("[data-explorer-edit]").evaluate((edit) => {
+        const field = edit.querySelector("input")!;
+        const error = edit.querySelector("[data-explorer-input-error]")!;
+        const row = edit.getBoundingClientRect();
+        const box = field.getBoundingClientRect();
+        const note = error.getBoundingClientRect();
+        return {rowHeight: row.height, boxHeight: box.height, shadow: getComputedStyle(field).boxShadow, gapTop: note.top - box.bottom, left: note.left - box.left, right: note.right - box.right};
+    });
+    expect(looks.boxHeight).toBeLessThan(looks.rowHeight);
+    expect(looks.shadow).toBe("none");
+    expect(Math.abs(looks.gapTop)).toBeLessThanOrEqual(1);
+    expect(Math.abs(looks.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(looks.right)).toBeLessThanOrEqual(1);
     await page.keyboard.press("Control+A");
     await page.keyboard.type("fresh.md");
     await page.keyboard.press("Enter");
@@ -568,7 +582,7 @@ test("拖动（验收 25、26）：拖到别的文件夹里的文件上移入它
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
-test("行的样子与设置（验收 21、23）：中文数字排序、内容文件夹去后缀、叶子节点没有展开控件、有类型图标；改设置后参考线与隐藏 .md 即时生效", async ({page}) => {
+test("行的样子与设置（验收 21、23、29）：中文数字排序、内容文件夹去后缀、叶子节点没有展开控件、有类型图标；改设置后参考线与隐藏 .md 即时生效", async ({page}) => {
     await open(page);
     await item(page, "project://卷").click();
     await expect(item(page, "project://卷/第三章.md")).toBeVisible();
@@ -584,6 +598,19 @@ test("行的样子与设置（验收 21、23）：中文数字排序、内容文
     });
     expect(insets.left).toBeGreaterThan(0);
     expect(Math.abs(insets.right - insets.left)).toBeLessThanOrEqual(1);
+    // 选中按树有没有焦点分两种：焦点到编辑区后换成灰底与普通字色，回到树里换回强调色（验收 29）。
+    const paint = () => item(page, "project://卷").evaluate((row) => ({background: getComputedStyle(row).backgroundColor, color: getComputedStyle(row).color}));
+    await expect(tree(page)).toBeFocused();
+    const focused = await paint();
+    await page.locator("[data-workbench-editor-area]").click();
+    await expect(tree(page)).not.toBeFocused();
+    // 底色与字色有过渡：等到字色与没选中的行相同，再比底色。
+    const plain = await item(page, "project://卷/第三章.md").evaluate((row) => getComputedStyle(row).color);
+    await expect.poll(async () => (await paint()).color).toBe(plain);
+    expect(plain).not.toBe(focused.color);
+    expect((await paint()).background).not.toBe(focused.background);
+    await tree(page).focus();
+    await expect.poll(paint).toEqual(focused);
     // 视图标题的“移动到”菜单盖在选中的行上：树里给行与落点反馈分的层不越出树，菜单项上最上面的元素属于菜单。
     await page.locator('[data-tool-part="sidebar"]').getByRole("button", {name: "移动到", exact: true}).click();
     const menu = page.getByRole("menu");
