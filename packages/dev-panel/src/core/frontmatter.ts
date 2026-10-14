@@ -1,6 +1,8 @@
 import {parse as parseYaml} from "yaml";
 import {NbdevError} from "./errors.js";
 
+export {readSection} from "./sections.js";
+
 /** 与治理检查 `readTaskFrontmatter` 相同的定界。 */
 const FRONTMATTER_PATTERN = /^---(\r?\n)([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
 
@@ -58,20 +60,6 @@ export function readTitle(body: string): string | null {
         if (line.startsWith("# ")) return line.slice(2).trim() || null;
     }
     return null;
-}
-
-/** `## <heading>` 一节的正文（到下一个一级或二级标题为止），去掉首尾空白；没有这一节或为空时返回 null。 */
-export function readSection(body: string, heading: string): string | null {
-    const lines = body.split(/\r?\n/u);
-    const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
-    if (start < 0) return null;
-    const collected: string[] = [];
-    for (const line of lines.slice(start + 1)) {
-        if (/^#{1,2} /u.test(line)) break;
-        collected.push(line);
-    }
-    const text = collected.join("\n").trim();
-    return text === "" ? null : text;
 }
 
 /** 一级标题之后的第一段正文（不含标题、表格与代码块）。 */

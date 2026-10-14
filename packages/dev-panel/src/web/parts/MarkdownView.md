@@ -12,6 +12,8 @@
 interface MarkdownViewProps {
     /** 清洗过的 HTML；必填。只接受 host/markdown.ts 的输出，不要传未清洗的内容 */
     html: string;
+    /** 行内：`renderInlineMarkdown` 的结果放进 span，不带正文排版（表格里一行字的“当前情况”）；可选，默认 false */
+    inline?: boolean;
 }
 interface MarkdownViewEmits {
     /** 点了站内链接（文档页、产物页）；参数是面板内的地址 */

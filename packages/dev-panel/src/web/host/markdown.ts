@@ -48,7 +48,15 @@ export function panelLinkFor(repoPath: string, checkoutKey: string, artifactBase
 }
 
 export function renderMarkdown(text: string, context: MarkdownContext): string {
-    const html = marked.parse(text, {async: false, gfm: true}) as string;
+    return sanitize(marked.parse(text, {async: false, gfm: true}) as string, context);
+}
+
+/** 行内 Markdown（表格里的“当前情况”这类一行字）：只认行内语法，不出段落；清洗与链接改写同 renderMarkdown。 */
+export function renderInlineMarkdown(text: string, context: MarkdownContext): string {
+    return sanitize(marked.parseInline(text, {async: false, gfm: true}) as string, context);
+}
+
+function sanitize(html: string, context: MarkdownContext): string {
     DOMPurify.addHook("afterSanitizeAttributes", (node) => {
         if (node.tagName === "A") {
             const href = node.getAttribute("href") ?? "";
