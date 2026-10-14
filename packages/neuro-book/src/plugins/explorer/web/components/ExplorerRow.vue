@@ -272,8 +272,9 @@ const inputLabel = computed(() => {
     color: var(--accent-text);
 }
 
+/* 失焦的选中在悬停色上再混一档文字色：任何主题里都比悬停深一档，亮色更暗、暗色更亮。 */
 [data-explorer-tree]:not(:focus-within) .explorer-row[aria-selected="true"] {
-    background: color-mix(in srgb, var(--text-main) 9%, transparent);
+    background: color-mix(in srgb, var(--text-main) 8%, var(--bg-hover));
     color: var(--text-main);
 }
 
