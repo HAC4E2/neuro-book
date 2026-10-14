@@ -418,6 +418,124 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
 - 14 个页面同时换骨架，改动面大，按页分提交，每个提交单独截图对比；
 - 不要建通用页面框架或 `useApp` 那样的万能宿主（omp 建议 2、3），只做页头、分节与资源状态这几样。
 
+### 阶段 3 的实施细节（编码子代理 2026-10-14 补）
+
+新零件都放 `parts/`，带同名 `.md`，只经 `@notnotype/nb-ui` 的公开入口用 nb-ui 零件，不改 nb-ui、不改主应用。零件只做页头、分节、写入结果与资源状态这几样：不取数、不读路由、不建通用页面框架或万能宿主。
+
+**3a 语义类**（`app.css`，都带 `nbdev-` 前缀，与面板的原子类一样不分层）：
+
+| 类 | 内容 | 替换的是 |
+|---|---|---|
+| `nbdev-title` | 页标题：`--text-xl`、600 | 各页 h1 的 `font-size: var(--text-xl)` |
+| `nbdev-heading` | 区标题（页面分节、侧栏小节、卡片小节）：`--text-md`、600 | h2 的 `--text-lg` 与没写字号的 `font-semibold` |
+| `nbdev-body` | 正文：`--text-sm`、`--text-main`（把局部改回正文） | 少数显式写正文字号的地方 |
+| `nbdev-note` | 说明：`--text-xs`、`--text-secondary` | `font-size: var(--text-xs)` 加 `--text-secondary` 的各种写法 |
+| `nbdev-caption` | 标注：`--text-2xs`、`--text-secondary` | `--text-2xs` 的小字 |
+| `nbdev-empty` | 空状态与占位：`--text-muted` | “没有”“未标”“—” 的 `color: var(--text-muted)` |
+| `nbdev-warn`、`nbdev-danger` | 状态色文字：`--status-warning`、`--status-danger` | 对应的内联颜色 |
+| `nbdev-stack-page`、`nbdev-stack`、`nbdev-stack-tight` | 竖排，间距三档：区与区之间 1.25rem、区内 0.5rem、列表项之间 0.25rem | `flex flex-col gap-5/gap-2/gap-1` 的各种组合 |
+| `nbdev-surface` | 面层：`--panel-surface`、1px `--divider` 边框、`--radius-panel` | 九处 `background: var(--panel-surface); border: …` |
+| `nbdev-hint` | 浅底提示块：`--bg-subtle`、`--radius-control`、小内边距、`--text-xs` | 编辑页等处重复的 `bg-subtle` 提示块 |
+| `nbdev-num` | 等宽数字（`tabular-nums`） | 计数、版本号、行数 |
+
+内联 `style` 只留真正随数据变的（比例条的宽度、状态色映射）与 iframe 的 `color-scheme`。验收按 `grep` 计数前后对比（基线：静态 241 处、绑定 18 处，`accept/phase3/style-count-before.txt`）。
+
+**3b `PageShell`**：
+
+```ts
+interface PageShellProps {
+    /** 面包屑，从外到内；最后一项是当前页，不必给 href；可选，默认 []（首页不给） */
+    crumbs?: Array<{label: string; href?: string}>;
+    /** 页标题（唯一的 h1）；必填。插槽 title 只换显示，读屏与换页挪焦点仍靠这个 h1 */
+    title: string;
+    /** 内容宽度：reading 按正文阅读宽度收、居中；list 最宽 90rem、居中；full 满铺；可选，默认 list */
+    width?: "reading" | "list" | "full";
+}
+interface PageShellEmits {
+    /** 面包屑的普通左键点击（零件已 preventDefault）；中键与带修饰键的交给浏览器 */
+    (event: "navigate", href: string): void;
+}
+interface PageShellSlots {
+    title?: () => unknown;    // 替换标题的显示（编辑页的等宽路径）
+    status?: () => unknown;   // 标题前：状态徽章
+    actions?: () => unknown;  // 标题行右侧：操作（3f 的两级操作）
+    meta?: () => unknown;     // 标题下一行：编号、更新时间、来源
+    feedback?: () => unknown; // 页头下：这一页的写入结果（3c）
+    default?: () => unknown;  // 正文
+}
+```
+
+- 页头（面包屑、标题行、meta、feedback）在数据到之前就渲染：标题先用编号或页面名，数据到了换成真标题，标题的顶边与高度不跳；各页的内边距与顶边都由它给，标题顶边位置一致。
+- 阅读档：容器 `width: fit-content`、最大 100%、居中；页头 `contain: inline-size`，不撑宽容器。正文卡片用 `nbdev-reading-card`（字号取 `--reading-size`，宽度是 `--reading-measure` 加卡片内边距），卡片宽度就是正文的阅读宽度，右边不再空一片；有侧栏（Task 页）时容器宽度是卡片加侧栏。速览面板（决定点 17）推开正文时，容器跟着可用宽度收，不另算。
+- 不支持：不取数、不读路由、不管加载与失败（3d 的 `LoadState`）、不管滚动（流式页面由 `main` 滚，铺满页面自己分栏）、不放速览面板（阶段 4）。
+- 14 个页面都套：首页不给面包屑；文档页套在右边正文那一栏里（铺满型页面的左栏是文档树）；编辑页的面包屑按路径推出所属的 Work、Task；找不到的页面给“首页”。
+
+**3c `WriteResult`**（替换 `WriteNotice`；`host/writes.ts` 的 `Notice` 改形状）：
+
+```ts
+type NoticeOutcome = "success" | "failure" | "conflict" | "unknown" | "info";
+type Notice = {
+    outcome: NoticeOutcome;   // 结果：颜色与图标只由它决定（成功绿、失败红、冲突与结果未知黄、提示灰）
+    title: string;            // 一句话的结果
+    message: string;          // 原因或下一步；与 title 重复时留空
+    items: string[];          // 结果的明细（没锚到字段的问题、写入了没提交的路径），已与 message 去重
+    notes: string[];          // 附注：服务端的警告；缩进、默认折叠，不改变结果的颜色
+    retry: boolean;           // 只在确定什么都没写的失败给“重试”
+};
+interface WriteResultProps { notice: Notice }
+interface WriteResultEmits { (event: "dismiss"): void; (event: "retry"): void }
+```
+
+- 不自己消失、不计时；位置由宿主放：有操作栏的页面（编辑页、新建页）放在操作栏里，出现时不推动编辑器与表单；其余放在 `PageShell` 的 `feedback` 插槽。
+- 字段错误只报一次：`failureNotice` 多一个参数，表单能锚到的字段（新建页的 `details.problems[].field` 与 `details.field`）交给表单显示，结果里只写“表单里标出了 N 处”；锚不到的才进 `items`。
+- 成功带警告不再变黄：`successNotice` 的结果是 success，警告进 `notes`。
+
+**3d `LoadState`**（收进 `StaleNotice`，删掉后者）：
+
+```ts
+interface LoadStateProps {
+    loading: boolean;                                   // 宿主已延时过的加载信号
+    error?: {message: string; status?: number} | null;
+    hasData?: boolean;                                  // 已有数据：error 只画一行“旧数据”提示（原 StaleNotice）；默认 false
+    receivedAt?: string | null;                         // 旧数据是什么时候读到的
+    label?: string;                                     // 加载说明，默认“正在读取”
+    retryable?: boolean;                                // 默认 true
+    upHref?: string | null;                             // 404 时“回到上一级”去哪里；没有就不给链接
+    upLabel?: string;                                   // 默认“回到上一级”
+}
+interface LoadStateEmits { (event: "retry"): void; (event: "navigate", href: string): void }
+```
+
+- 四种形态：加载（转动的指示加说明）、找不到（404：说明加回上一级的链接，不给重试）、失败（原因加重试）、旧数据（一行提示，404 时同样不给重试）。没有数据时占一块固定的最小高度。
+- 不做骨架屏：nb-ui 界面开发规范第 4.3 节第 8 条“不做骨架”（占位形状会暗示一个还不知道的结构），与阶段 3 表格里“骨架屏变体”冲突，以规范为准。“加载时不跳”改由页头先渲染、加载块占固定最小高度做到。
+- 宿主用 `host/panel-data.ts` 新增的 `loadStateOf(resource)` 拿到前四个属性，页面只补 label 与上一级。
+
+**3e `TruncatedText`**：
+
+```ts
+interface TruncatedTextProps {
+    text: string;          // 全文；必填
+    mono?: boolean;        // 等宽（路径、id、分支名、sha）；默认 false
+    copyable?: boolean;    // 点击复制；默认 true。为 false 时只截断加悬停全文
+}
+```
+
+- 单行截断，被截断时悬停或聚焦用 nb-ui `Tooltip` 显示全文；可复制时是一个按钮，点了复制全文，提示改成“已复制”。`env:clipboard` 是它自己的隐藏通道（配方偏离，理由写进 `.md`：复制是这个零件存在的目的，每个用到它的宿主各写一遍复制更乱）。
+- 不支持：多行截断、可编辑、链接（链接里的长标题用 `Tooltip` 包链接，不用它）。
+
+**3f `ActionLink`**：去别的页的操作（编辑 README、新建 Task、看文档、单独打开）是带图标与文字的链接，样子是 ghost 按钮：
+
+```ts
+interface ActionLinkProps { href: string; icon?: string; external?: boolean }
+interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普通左键点击；external 时不发，交给浏览器
+```
+
+- 用链接而不是 nb-ui `Button`：`Button` 只渲染 `<button>`，不能中键开新标签页、复制地址，面板的约定是去别的页的入口都是真实链接。主要操作（写入）仍是 nb-ui `Button`。
+
+**3g 临时框收敛**：会话、在跑页整页是临时内容，分区标题旁放一个“临时”小徽标（`nbdev-ephemeral-tag`），不再整页虚线框；虚线框（`EphemeralFrame`）只留给混在持久页里的临时片段（Work 页的“现在谁在动”、Task 页的“谁在动”）；会话页的“无主的运行”只留一个去“在跑”的入口。
+
+**提交的切法**：3a、3b、3c、3d、3e 与 3f 的零件各一个提交（3c 连同 `Notice` 改形状与各页换零件一起提交，接口变了不能分开）；14 个页面换骨架按页分提交，每个页面的提交里同时用上 3a 的语义类、3d、3e、3f 与 3g；最后一个提交删掉不再用的 `StaleNotice`、`WriteNotice`。
+
 ## 阶段 4：逐页改进（轮廓）
 
 按页切片，每页一个或几个提交，彼此基本独立；涉及服务端的单列在后面，**先于对应的前端片单独提交**，审查时能单独看安全面（审查建议 10）。
