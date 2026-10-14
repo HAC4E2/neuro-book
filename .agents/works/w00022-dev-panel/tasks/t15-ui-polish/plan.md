@@ -942,3 +942,9 @@ interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普�
     - 只看了 Chrome。
   - master 同步：master 到 `9e9d69fc6`，新增的都是文档提交，`packages/`、`bun.lock`、`package.json` 没有差异，没有同步。
   - 收尾：4490 的面板已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删，克隆是干净的；herdr 的 `w4:p1`、`w5:p1` 没动。
+- 2026-10-14：阶段 3 合入 `master`，开发者授权。
+  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `3adabdc02`（集成分支 `f86ecdc08`）；主工作区 `merge --ff-only` 快进过去。
+  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支相同；全量 `test` 在 `f86ecdc08` 上由主 Agent 复跑：387 过、0 失败。
+  - `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建完成。
+  - 审查 worktree `.worktree/w00022-t15-review3` 与临时 worktree 已删除。没有 push。
+  - 开发者没有选“先修多选题”，多选题点了页面变空白的问题放到阶段 4 的产物页（[后续清单](../../followups.md)）。
