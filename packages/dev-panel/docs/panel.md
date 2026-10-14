@@ -416,7 +416,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | 409 `hash_mismatch` | 状态切换：重新取数并说明；编辑：取现在的版本，与打开时的原文按行比（前端算，`host/line-diff.ts`），显示“别人改了什么”，给“载入新版本（丢掉我的改动）”与“复制我的改动” |
 | 409 `uncommitted_changes` | 差异对话框（已暂存与工作区分两段），“取消”与“连同这些改动一起提交” |
 | 409 `staged_rename`、`changed_after_write` | 说明原因，不给提交；后者列出已写入未提交的路径 |
-| 409 其它（`branch_maintained_record`、`main_not_on_master`、`main_busy`、`work_not_committed`、`task_not_committed`、`task_closed`、`question_closed`、`artifact_closed`、`stale_version`、`not_editable`） | 显示错误说明；数据已过时的（`stale_version`、`question_closed` 等）重新取数 |
+| 409 其它（`branch_maintained_record`、`main_not_on_master`、`main_busy`、`work_not_committed`、`task_not_committed`、`task_closed`、`question_closed`、`question_retired`、`artifact_closed`、`stale_version`、`not_editable`） | 显示错误说明；数据已过时的（`stale_version`、`question_closed` 等）重新取数 |
 | 503 `lock_timeout`、`warming_up` | 什么都没写，给“重试” |
 | 500 `commit_failed` | “已写入、没有提交”，列出路径与补救办法 |
 | 网络错误、连接被断开 | “结果未知”，不给“重试”，按页面核对一次：产物页与状态切换重新取数；编辑页重取文件，变了就显示差异并写明“多半是你刚才那次保存已经生效”，没变就写“没有生效，可以再保存”；新建页锁住表单，直到开发者确认上一次建好了没有 |

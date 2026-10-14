@@ -109,6 +109,10 @@ describe("发布", () => {
             ["approve", null, null, 1],
             ["layout-v2", null, "index.html", 2],
         ]);
+        // 留下来的 approve 是之前几版的题：只为答案查得到，不再收答复；这一版页面上的题照常能答。
+        await expect(submitAnswer(context, {...TARGET, values: {approve: false}, submittedBy: {kind: "agent-transcribed"}}, asBob)).rejects.toMatchObject({code: "question_retired", details: {questionId: "approve", since: 1}});
+        await submitAnswer(context, {...TARGET, values: {"layout-v2": "cards"}, submittedBy: {kind: "agent-transcribed"}}, asBob);
+        expect((await readArtifact(fixture.main, REF)).answers.map((answer) => Object.keys(answer.values))).toEqual([["approve"], ["layout-v2"]]);
     });
 
     test("关闭撤回未答的题；关闭后不能再 ask；重新发布打开它，恢复因关闭而撤回的题", async () => {

@@ -42,7 +42,7 @@ import {touchCallerLease, type LeaseOptions} from "./lease-ops.js";
 import type {LeaseRecord} from "./leases.js";
 import {resolveWritableTask} from "./operations.js";
 import {verifiedProvenance, writeProvenance, type ProvenanceAction} from "./provenance.js";
-import {parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
+import {isRetiredFromPage, parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
 import {listTaskIds, listWorkIds} from "./records.js";
 import {WORKS_ROOT, type RepoContext} from "./repo.js";
 import {chooseExecutionCheckout, taskSourceInBranchWork} from "./sources.js";
@@ -611,7 +611,10 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
         for (const [questionId, value] of Object.entries(values)) {
             const definition = target.questions.find((question) => question.id === questionId);
             if (!definition) throw new NbdevError("question_not_found", `v${targetVersion} 里没有题 ${questionId}`, {details: {...ref, questionId}});
-            liveQuestion({...snapshot, latest}, questionId);
+            const live = liveQuestion({...snapshot, latest}, questionId);
+            if (isRetiredFromPage(live)) {
+                throw new NbdevError("question_retired", `题 ${questionId} 是 v${live.since} 的题，已经答过，v${latest.version} 的页面上没有了，不能再改答`, {details: {...ref, questionId, since: live.since}});
+            }
             const reason = validateAnswerValue(definition, value);
             if (reason) problems.push({questionId, reason});
         }

@@ -45,6 +45,7 @@ export const ERROR_EXIT_CODES = {
     duplicate_question: 3,
     artifact_closed: 3,
     question_closed: 3,
+    question_retired: 3,
     hash_mismatch: 3,
     uncommitted_changes: 3,
     unsafe_path: 3,
