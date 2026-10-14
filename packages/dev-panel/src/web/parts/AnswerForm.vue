@@ -88,6 +88,7 @@ const ready = computed(() => chosen.value.length > 0 && Object.keys(problems.val
 /** 还没填好的必答题（填了但不合法的也算没填好）。 */
 const requiredLeft = computed(() => groups.value.pending.filter((state) => state.question.required && !(touched.value[state.question.id] && validateAnswerValue(state.question, values.value[state.question.id]) === null)).length);
 const hasControls = computed(() => editable.value.length > 0);
+const pendingRequired = computed(() => groups.value.pending.filter((state) => state.question.required).length);
 
 function submit(): void {
     if (!ready.value || props.pending || props.disabledReason) return;
@@ -107,7 +108,8 @@ function submit(): void {
     <form class="flex flex-col gap-4" @submit.prevent="submit">
         <p v-if="disabledReason" class="nbdev-hint">{{ disabledReason }}</p>
         <section class="nbdev-stack" aria-label="待答">
-            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}</span></h3>
+            <!-- 必答与选答分开数：首页收件箱只收必答题，写的是“必答 N”，两边对得上。 -->
+            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">必答 {{ pendingRequired }}<template v-if="groups.pending.length > pendingRequired"> · 选答 {{ groups.pending.length - pendingRequired }}</template></span></h3>
             <p v-if="groups.pending.length === 0" class="nbdev-empty">没有待答的题</p>
             <fieldset v-for="state in groups.pending" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
@@ -158,7 +160,10 @@ function submit(): void {
         </FormField>
         <!-- 提交栏贴在侧栏底部：题多时人在下面填，按钮与结果都要看得到。 -->
         <div v-if="hasControls || $slots.result" class="nbdev-submit-bar nbdev-divider sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t px-4 py-3">
-            <slot name="result" />
+            <!-- 结果与这次答复的通知可能很长：限高、自己滚，按钮总在栏里。 -->
+            <div v-if="$slots.result" class="relative flex max-h-[40vh] flex-col gap-2 overflow-y-auto">
+                <slot name="result" />
+            </div>
             <div v-if="hasControls" class="flex flex-wrap items-center gap-2">
                 <Button type="submit" :loading="pending" :disabled="!ready || disabledReason !== null">提交 {{ chosen.length }} 题</Button>
                 <span v-if="slow" class="nbdev-note">在等别的写入完成…</span>

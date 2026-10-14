@@ -134,21 +134,22 @@ const navigate = (href: string) => void router.push(href);
             </template>
             <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
             <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)]">
-                <ArtifactFrame v-if="data.pageUrl" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" />
+                <ArtifactFrame v-if="data.pageUrl" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" note="页面是当前版本（磁盘上的），切换版本只切换题表" />
                 <!-- 有表单时不留下内边距：表单的提交栏贴底，滚动容器的下内边距会让它离底边一截、后面的内容从缝里露出来。 -->
                 <aside class="nbdev-surface relative min-w-0 px-4 pt-4 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
                     <div class="flex flex-col gap-4">
-                        <section v-if="lastAnswerId" class="nbdev-stack-tight" aria-label="这份答复的通知">
-                            <h2 class="nbdev-card-title">通知</h2>
-                            <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
-                            <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
-                        </section>
                         <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer">
                             <template #readonly>
                                 <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" answering />
                             </template>
-                            <template v-if="notice" #result>
-                                <WriteResult :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
+                            <!-- 提交的结果与这份答复的通知都在贴底栏里：提交时人在侧栏底部，要手动发送、不通知的按钮也要看得到。 -->
+                            <template v-if="notice || lastAnswerId" #result>
+                                <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
+                                <section v-if="lastAnswerId" class="nbdev-stack-tight" aria-label="这份答复的通知">
+                                    <h2 class="nbdev-card-title">通知</h2>
+                                    <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
+                                    <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                                </section>
                             </template>
                         </AnswerForm>
                         <template v-else>

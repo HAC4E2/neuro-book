@@ -378,7 +378,7 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | `/work/:workId` | Work 页：目标、Task 表、现在谁在动、Work 级的文档与产物；状态切换、编辑 README、新建 Task 的入口 | t03 第三轮 Work 页 |
 | `/work/:workId/task/:taskId` | Task 页：当前情况、README、执行 checkout 的候选与它上面的提交、产物与文档类产物、链到的 Spec、证据、谁在动；状态切换、编辑 README 的入口 | Proposal 第九节 |
 | `/artifacts` | 产物列表：按类分组，可过滤 | t03 第二轮产物页 |
-| `/artifact/:workId/:taskId/:artifactId` | 产物页（铺满）：左边是产物来源上的沙箱 iframe（零件 `ArtifactFrame`：`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复侧栏：待答（这一版新加的题标“新”）、已答（只读，点“改答”才给控件）、之前几版的题（页面上已没有，只读，不再收答复）、已取代与撤回，提交栏贴在侧栏底部，写“已改几题、还有几道必答”，提交的结果也在栏里、逐题写答了什么（t15 阶段 4）；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-`。答复成功后侧栏多一块“通知”：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次（t11） | t03 第二轮产物页 |
+| `/artifact/:workId/:taskId/:artifactId` | 产物页（铺满）：左边是产物来源上的沙箱 iframe（零件 `ArtifactFrame`：`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复侧栏：待答（标题写“必答 N · 选答 M”，与首页收件箱的“必答 N”同一口径；这一版新加的题标“新”）、已答（只读，点“改答”才给控件）、之前几版的题（页面上已没有，只读，不再收答复）、已取代与撤回，提交栏贴在侧栏底部，写“已改几题、还有几道必答”，提交的结果也在栏里、逐题写答了什么（t15 阶段 4）；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-`。答复成功后提交栏里多一块“通知”（t15 阶段 4 起在结果下面，原来在侧栏顶上，提交时人在底部看不到）：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次（t11） | t03 第二轮产物页 |
 | `/docs?checkout=&path=&prefer=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选 | t03 第二轮文档页 |
 | `/live/sessions?pane=` | 会话：最上面是通知（排队的、要处理的、最近 24 小时发过的，t11）；持有租约或运行的会话（状态与运行分开列）、无主的运行、本仓库里的其它 Agent pane、不在本仓库的会话、herdr 的状态。`?pane=` 选中一格会话，显示实时终端（观看与接管，t12；手机上是文字视图）、输入框与按键（t11）；网页终端不可用时显示屏幕末尾（打开时与每次发送后各读一次，不轮询） | t03 第三轮会话页（“观看中”“你已接管键盘”两种状态条） |
 | `/live/runs` | 在跑：经 nbdev 起的服务、会话的运行、无主的运行（t14） | Proposal 第九节 |

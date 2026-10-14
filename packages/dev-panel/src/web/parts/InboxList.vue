@@ -28,7 +28,8 @@ function follow(event: MouseEvent, href: string): void {
                 <span class="flex min-w-0 items-center gap-2">
                     <span class="i-lucide-message-circle-question size-4 shrink-0 nbdev-warn" aria-hidden="true" />
                     <span class="truncate font-medium">{{ row.title ?? row.artifactId }}</span>
-                    <Badge class="shrink-0" tone="warning" variant="soft" size="sm">{{ row.questions.length }} 道待答</Badge>
+                    <!-- 收件箱只收必答题；产物页的“待答”也把必答单独数出来，两边都是“必答 N”。 -->
+                    <Badge class="shrink-0" tone="warning" variant="soft" size="sm">必答 {{ row.questions.length }}</Badge>
                 </span>
                 <span class="nbdev-secondary min-w-0 pl-6 break-words">
                     {{ row.questions.slice(0, SHOWN).map((question) => question.label).join("；") }}<template v-if="row.questions.length > SHOWN">；等 {{ row.questions.length }} 道</template>
