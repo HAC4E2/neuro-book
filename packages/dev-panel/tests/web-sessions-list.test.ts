@@ -67,6 +67,18 @@ describe("左列表的行", () => {
     });
 });
 
+describe("按会话键分（第 3 批审查重要 5）", () => {
+    test("认出了 Agent 但没报会话的 pane：本仓库里的进“其它 pane”（只读，有回滚时能读更早的输出），不在本仓库的只列出", () => {
+        const rows = sessionRows(data([
+            pane("w6:p1", {agent: "codex", session: null, scrollback: 120}),
+            pane("w6:p2", {agent: "claude", session: null, inRepository: false, foregroundCwd: "/elsewhere"}),
+        ]));
+        expect(rows.agents).toEqual([]);
+        expect(rows.panes.map((row) => [row.paneId, row.title, row.agent, row.scrollback, row.selectable])).toEqual([["w6:p1", "codex（没有报会话）", "codex", true, true]]);
+        expect(rows.elsewhere.map((row) => [row.paneId, row.title, row.selectable])).toEqual([["w6:p2", "claude（没有报会话）", false]]);
+    });
+});
+
 describe("自动选中", () => {
     test("选第一个能打开的 Agent 会话（排序已让等确认、工作中在前）；没有能打开的就不选", () => {
         const rows = sessionRows(data([pane("w1:p1", {status: "idle"}), pane("w1:p2", {status: "working"})], [session("claude:gone", {alive: false})]));

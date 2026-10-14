@@ -3,10 +3,12 @@ import type {PaneView, RunView, SessionsData, SessionView} from "./types.js";
 
 /**
  * 会话页左列表的行（t15 阶段 4 第 3 批）：从 `/api/sessions` 算出来，页面与零件都不再各自拼。
- * - Agent 会话：本仓库里 herdr 认得出会话的 pane，加上持有租约或运行、但 herdr 里找不到的会话（不在 herdr 里、进程已退出，不能打开）；
- * - 其它 pane（只读）：本仓库里没有 Agent 会话的 pane（开发服务、日志、shell），D2；
- * - 不在本仓库的 Agent 会话只列出、不能打开（决定点 20）。
- * 标题：会话文件里的标题；取不到用租约的 Task；再取不到用短号（决定点 19）。非 Agent 的 pane 取这格里登记过的运行的命令，没有就写 pane 号加目录名。
+ * 按会话键分，与服务端一致（接管、文字、按键、更早的输出都按会话键判断）：
+ * - Agent 会话：本仓库里有会话键的 pane，加上持有租约或运行、但 herdr 里找不到的会话（不在 herdr 里、进程已退出，不能打开）；
+ * - 其它 pane（只读）：本仓库里没有会话键的 pane（开发服务、日志、shell，D2），herdr 认出了 Agent 但还没报会话的也在这里；
+ * - 不在本仓库的、herdr 认出了 Agent 的 pane 只列出、不能打开（决定点 20）。
+ * 标题：会话文件里的标题；取不到用租约的 Task；再取不到用短号（决定点 19）。其它 pane 取这格里登记过的运行的命令，没有就写 pane 号加目录名；
+ * 认出了 Agent 的写成“codex（没有报会话）”。
  */
 export type SessionTone = "blocked" | "working" | "done" | "idle" | "unknown" | "absent" | "ended" | "pane";
 export type SessionRow = {
@@ -54,7 +56,11 @@ export function sessionRows(data: SessionsData): {agents: SessionRow[]; panes: S
     const seen = new Set<string>();
     for (const pane of data.panes) {
         const key = keyOf(pane);
-        if (pane.agent === null || key === null) continue;
+        if (pane.agent === null) continue;
+        if (key === null) {
+            if (!pane.inRepository) elsewhere.push({key: pane.paneId, paneId: pane.paneId, kind: "agent", title: `${pane.agent}（没有报会话）`, titleFrom: "pane", agent: pane.agent, tone: "unknown", stateLabel: HERDR_STATUS_LABEL[pane.status] ?? pane.status, tasks: [], runs: 0, scrollback: false, detail: pane.foregroundCwd ?? pane.cwd ?? "目录未知", selectable: false});
+            continue;
+        }
         seen.add(key);
         const session = byKey.get(key);
         const tone = toneOf(pane.status);
@@ -81,13 +87,14 @@ export function sessionRows(data: SessionsData): {agents: SessionRow[]; panes: S
     for (const run of [...data.unownedRuns, ...data.sessions.flatMap((session) => session.runs)]) {
         if (run.paneId && !runsByPane.has(run.paneId)) runsByPane.set(run.paneId, run);
     }
-    const panes: SessionRow[] = data.panes.filter((pane) => pane.agent === null && pane.inRepository).map((pane) => {
+    const panes: SessionRow[] = data.panes.filter((pane) => keyOf(pane) === null && pane.inRepository).map((pane) => {
         const run = runsByPane.get(pane.paneId);
         const dir = base(pane.foregroundCwd ?? pane.cwd);
+        const title = pane.agent !== null ? `${pane.agent}（没有报会话）` : run ? `${run.command}${dir ? `（${dir}）` : ""}` : `pane ${pane.paneId}${dir ? ` · ${dir}` : ""}`;
         return {
             key: pane.paneId, paneId: pane.paneId, kind: "pane",
-            title: run ? `${run.command}${dir ? `（${dir}）` : ""}` : `pane ${pane.paneId}${dir ? ` · ${dir}` : ""}`, titleFrom: run ? "run" : "pane",
-            agent: null, tone: "pane", stateLabel: "只看", tasks: [], runs: 0, scrollback: (pane.scrollback ?? 0) > 0,
+            title, titleFrom: pane.agent === null && run ? "run" : "pane",
+            agent: pane.agent, tone: "pane", stateLabel: "只看", tasks: [], runs: 0, scrollback: (pane.scrollback ?? 0) > 0,
             detail: (pane.scrollback ?? 0) > 0 ? null : "全屏程序或没有回滚，不能往回翻", selectable: true,
         };
     });
