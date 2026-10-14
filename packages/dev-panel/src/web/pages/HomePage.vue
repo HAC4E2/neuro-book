@@ -51,7 +51,7 @@ const navigate = (href: string) => void router.push(href);
                 </h2>
                 <p v-if="attention > 0" class="nbdev-hint nbdev-hint-warn flex flex-wrap items-center gap-2">
                     <span class="i-lucide-bell nbdev-warn size-3.5" aria-hidden="true" />通知要处理 {{ attention }} 条（会话换了、找不到要通知的会话，或投递没成功）
-                    <ActionLink href="/live/sessions#notify" icon="i-lucide-arrow-right" @navigate="navigate">去处理</ActionLink>
+                    <ActionLink href="/live/sessions?view=notify" icon="i-lucide-arrow-right" @navigate="navigate">去处理</ActionLink>
                 </p>
                 <div class="nbdev-surface px-3 py-1">
                     <InboxList :items="overview.data.value.inbox" @navigate="navigate" />

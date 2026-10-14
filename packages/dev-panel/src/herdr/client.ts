@@ -12,7 +12,7 @@ import {systemErrorCode} from "../core/errors.js";
  */
 export const HERDR_READ_METHODS: readonly string[] = ["ping", "pane.list", "pane.process_info"];
 export const HERDR_PANEL_READ_METHODS: readonly string[] = [...HERDR_READ_METHODS, "session.snapshot", "events.subscribe"];
-export const HERDR_PANEL_METHODS: readonly string[] = [...HERDR_PANEL_READ_METHODS, "agent.get", "agent.explain", "agent.read", "agent.prompt", "agent.send_keys"];
+export const HERDR_PANEL_METHODS: readonly string[] = [...HERDR_PANEL_READ_METHODS, "agent.get", "agent.explain", "agent.read", "agent.prompt", "agent.send_keys", "pane.read"];
 export const HERDR_CLI_METHODS: readonly string[] = [...HERDR_READ_METHODS, "pane.report_metadata"];
 
 const TAG_SOURCE = "nbdev";
@@ -22,7 +22,11 @@ const DEFAULT_CALL_TIMEOUT_MS = 2_000;
 export type HerdrStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 export type HerdrAgentSession = {agent: string; kind: string; value: string};
 /** `cwd` 是 pane 的 shell 所在目录，`foregroundCwd` 是前台进程所在目录；herdr 不知道时为 null。`focused`：herdr 当前聚焦的那一格（开发者的键盘最可能在那里）。 */
-export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null; cwd: string | null; foregroundCwd: string | null; focused: boolean};
+/**
+ * `scrollback`：herdr 的 `scroll.max_offset_from_bottom`，这格能往回翻多少行；前台程序在备用屏（less、vim、带 TUI 的程序）时是 0，
+ * 读不到时为 null（会话页据此决定给不给“更早的输出”，t15 阶段 4 第 3 批）。
+ */
+export type HerdrPane = {paneId: string; terminalId: string; agent: string | null; status: HerdrStatus; session: HerdrAgentSession | null; cwd: string | null; foregroundCwd: string | null; focused: boolean; scrollback: number | null};
 /**
  * `agent.get` 与 `agent.prompt` 返回的一个 Agent：比 pane 多一个状态序号。序号是 herdr 全服务器共用的一个计数，这格最后一次变状态时
  * 取下一个值记在它身上：同一格前后相等就是没变过，差值却数不出这格变了几次（别的 pane 变状态也会推高它）。
@@ -69,6 +73,11 @@ export type HerdrClient = {
      * `recent` 加行数会滚动它的界面、工作中直接报错；`recent_unwrapped` 加 `lines` 只给 omp（普通回滚，读它没有副作用）。
      */
     agentRead(target: string, source: "visible" | "detection" | "recent_unwrapped", format?: "text" | "ansi", lines?: number): Promise<string>;
+    /**
+     * `pane.read`（t15 阶段 4 第 3 批）：读任意 pane 的输出，会话页给非 Agent 的 pane“更早的输出”。只用 `recent_unwrapped` 加 `lines`：
+     * 普通回滚，读它不改 pane 的滚动位置（0.9.3 实测）；前台程序在备用屏时调用方不调它（`scrollback` 为 0）。
+     */
+    paneRead(paneId: string, source: "visible" | "recent_unwrapped", lines?: number): Promise<string>;
     /** `agent.prompt`：单次时限是等待时限加 2 秒。返回体里的 `agent` 是 herdr 回应时看到的状态（可能是旧值）。 */
     agentPrompt(target: string, text: string, wait: {until: HerdrStatus[]; timeoutMs: number}): Promise<{type: string; agent: HerdrAgentInfo | null}>;
     agentSendKeys(target: string, keys: readonly string[]): Promise<void>;
@@ -102,6 +111,7 @@ function toPane(value: unknown): HerdrPane | null {
         cwd: typeof value.cwd === "string" ? value.cwd : null,
         foregroundCwd: typeof value.foreground_cwd === "string" ? value.foreground_cwd : null,
         focused: value.focused === true,
+        scrollback: isRecord(value.scroll) && typeof value.scroll.max_offset_from_bottom === "number" ? value.scroll.max_offset_from_bottom : null,
     };
 }
 
@@ -290,6 +300,12 @@ export function createHerdrClient(options: {socketPath: string; allow: readonly 
             const result = await call("agent.read", {target, source, format, strip_ansi: format === "text", ...(lines === undefined ? {} : {lines})});
             const read = isRecord(result) && isRecord(result.read) ? result.read : null;
             if (!read || typeof read.text !== "string") throw new HerdrError("protocol_error", "agent.read 的响应缺少 read.text");
+            return read.text;
+        },
+        async paneRead(paneId, source, lines) {
+            const result = await call("pane.read", {pane_id: paneId, source, format: "text", strip_ansi: true, ...(lines === undefined ? {} : {lines})});
+            const read = isRecord(result) && isRecord(result.read) ? result.read : null;
+            if (!read || typeof read.text !== "string") throw new HerdrError("protocol_error", "pane.read 的响应缺少 read.text");
             return read.text;
         },
         async agentPrompt(target, text, wait) {

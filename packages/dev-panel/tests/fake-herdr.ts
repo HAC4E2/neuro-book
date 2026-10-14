@@ -22,8 +22,10 @@ export type FakePane = {
     explain?: {matched: string | null; fallback: string | null; preview?: string};
     /** `agent.read source=visible` 的屏幕（带 ANSI）。 */
     visible?: string;
-    /** `agent.read source=recent_unwrapped` 的文字（缺省同 `visible`）。 */
+    /** `agent.read`、`pane.read` 的 `source=recent_unwrapped` 的文字（缺省同 `visible`）。 */
     history?: string;
+    /** `pane.list` 的滚动信息：`max_offset_from_bottom` 是能往回翻的行数，前台程序在备用屏时是 0（真实 herdr 0.9.3 实测）。 */
+    scroll?: {max_offset_from_bottom: number; offset_from_bottom: number; viewport_rows: number};
     /** `agent.prompt` 时这格 pane 怎么反应：进入工作（缺省）、没反应（herdr 等到点回 `agent_prompt_stalled`）、
      * 回车前后弹出确认界面（回应里状态是旧的 working，之后变 blocked）、投递的瞬间换了会话、
      * 弹出的确认界面又被回车确认了（先 blocked 再 working，各推一条状态事件，回应里是 working）、
@@ -206,6 +208,12 @@ function respond(fake: FakeHerdr, request: {id: string; method: string; params: 
         const pane = paneById(params.target);
         if (!pane?.agent) return {id, error: {code: "agent_not_found", message: "agent not found"}};
         return {id, result: {type: "pane_read", read: {pane_id: pane.pane_id, source: params.source, format: params.format, text: (params.source === "recent_unwrapped" ? pane.history : undefined) ?? pane.visible ?? EMPTY_CLAUDE_SCREEN, truncated: false}}};
+    }
+    case "pane.read": {
+        // 任意 pane 都能读（不要求 Agent），与真实 herdr 相同。
+        const pane = fake.panes.find((entry) => entry.pane_id === params.pane_id);
+        if (!pane) return {id, error: {code: "pane_not_found", message: "pane not found"}};
+        return {id, result: {type: "pane_read", read: {pane_id: pane.pane_id, source: params.source, format: params.format, text: (params.source === "recent_unwrapped" ? pane.history : undefined) ?? pane.visible ?? "", truncated: false}}};
     }
     case "agent.send_keys": {
         const pane = paneById(params.target);

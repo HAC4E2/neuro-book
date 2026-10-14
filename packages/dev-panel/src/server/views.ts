@@ -8,12 +8,14 @@ import {readGovernanceLineLimits} from "../core/governance-limits.js";
 import {guardedFile} from "../core/paths.js";
 import {sha256} from "../core/transaction.js";
 import {isNbdevError, systemErrorCode, type Warning} from "../core/errors.js";
+import {historySource} from "./delivery.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
 import {withActivity, type ProjectStatus, type TaskView, type WorkView} from "../core/status.js";
 import {matchRecords} from "../core/search.js";
 import {readTaskDetail} from "../core/task-detail.js";
 import type {PanelState} from "./state.js";
+import type {SessionTitles} from "./session-titles.js";
 
 /**
  * 各接口的数据：只读缓存（记录、活动、herdr），少数按需读文件（Task 详情、产物、文档）。
@@ -307,8 +309,11 @@ export async function fileView(state: PanelState, path: string): Promise<{data: 
     return {data: {...file, changedIn, lineLimit: limits?.[path] ?? null}, warnings: []};
 }
 
-/** 会话页：herdr 的 pane（会话 id、Agent、状态、是否开在本仓库里）、会话持有的租约与它的运行、无主的运行、checkout 列表。 */
-export function sessionsView(state: PanelState): {data: unknown; warnings: Warning[]} {
+/**
+ * 会话页：herdr 的 pane（会话 id、Agent、状态、是否开在本仓库里、能往回翻多少行）、会话持有的租约与它的运行、无主的运行、checkout 列表。
+ * pane 与会话各带 `title`（t15 阶段 4 第 3 批）：从本机 Agent 的会话文件里读，读不出为 null。
+ */
+export async function sessionsView(state: PanelState, titles: SessionTitles): Promise<{data: unknown; warnings: Warning[]}> {
     const herdr = state.herdr.current();
     const activity = state.activity.part.value;
     const roots = state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root);
@@ -323,8 +328,8 @@ export function sessionsView(state: PanelState): {data: unknown; warnings: Warni
     return {
         data: {
             herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, missedEvents: herdr.missedEvents, reconnects: herdr.reconnects, retries: herdr.retries},
-            panes: herdr.panes.map((pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd)})),
-            sessions: activity?.activity.sessions ?? [],
+            panes: await Promise.all(herdr.panes.map(async (pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd), history: historySource(pane), title: pane.session ? await titles.titleOf(pane.session.agent, pane.session.value) : null}))),
+            sessions: await Promise.all((activity?.activity.sessions ?? []).map(async (session) => ({...session, title: session.sessionId ? await titles.titleOf(session.agent, session.sessionId) : null}))),
             unownedRuns: activity?.activity.unownedRuns ?? [],
             ignoredProcesses: activity?.activity.ignoredProcesses ?? 0,
             checkouts: checkoutList(state).map((checkout) => ({...checkout, executionOf: executionOf.get(checkout.key) ?? []})),

@@ -31,7 +31,7 @@ describe("herdr 客户端", () => {
         const herdr = await fake();
         const client = createHerdrClient({socketPath: herdr.socketPath, allow: HERDR_CLI_METHODS});
         expect(await client.availability()).toEqual({ok: true, version: "fake", socketPath: herdr.socketPath});
-        expect(await client.listPanes()).toEqual([{paneId: "w9:p1", terminalId: "term_w9:p1", agent: "claude", status: "idle", session: {agent: "claude", kind: "id", value: "11111111-1111-4111-8111-111111111111"}, cwd: null, foregroundCwd: null, focused: false}]);
+        expect(await client.listPanes()).toEqual([{paneId: "w9:p1", terminalId: "term_w9:p1", agent: "claude", status: "idle", session: {agent: "claude", kind: "id", value: "11111111-1111-4111-8111-111111111111"}, cwd: null, foregroundCwd: null, focused: false, scrollback: null}]);
         expect(await client.processInfo("w9:p1")).toEqual({paneId: "w9:p1", shellPid: 10, foregroundGroupId: 11, foregroundPids: [11, 12]});
         expect(await client.processInfo("w9:missing")).toBeNull();
         await client.reportTaskTokens("w9:p1", {work: "w00022", task: "t07"});

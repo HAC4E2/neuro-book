@@ -12,9 +12,18 @@
 interface RunListProps {
     /** 运行；必填 */
     runs: RunView[];
-    /** 是否写出所在 pane（无主的运行用）；可选，默认 false */
+    /** 是否写出所在 pane（“在跑”页用，pane 号链到会话页）；可选，默认 false */
     showPane?: boolean;
 }
 ```
 
-没有事件、插槽与 expose。命令行过长时截断，悬停看全文。
+## 事件
+
+```ts
+interface RunListEmits {
+    /** 点了 pane 号（普通左键）：去会话页看这一格，`/live/sessions?pane=<pane>`；带修饰键的点击交给浏览器 */
+    navigate: [href: string];
+}
+```
+
+没有插槽与 expose。命令行过长时截断，悬停看全文。

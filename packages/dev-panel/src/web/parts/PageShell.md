@@ -29,6 +29,8 @@ interface PageShellProps {
     title: string;
     /** 内容宽度；可选，默认 "list" */
     width?: "reading" | "list" | "full";
+    /** 收起页头、去掉内边距，只留正文（会话页手机上的详情一屏，t15 阶段 4 第 3 批）；可选，默认 false。根与正文不换，切换时正文里的零件不重建 */
+    bare?: boolean;
 }
 interface PageShellEmits {
     /** 面包屑的普通左键点击；参数是面板内的地址 */

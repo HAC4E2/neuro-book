@@ -19,7 +19,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `HERDR_READ_METHODS` | `ping`、`pane.list`、`pane.process_info` | `status`、`lease list` |
 | `HERDR_CLI_METHODS` | 上面三个加 `pane.report_metadata` | 写命令（只为写调用者自己 pane 的标签） |
 | `HERDR_PANEL_READ_METHODS` | `HERDR_READ_METHODS` 加 `session.snapshot`、`events.subscribe` | 面板的只读部分（测试里核对面板没有越过它） |
-| `HERDR_PANEL_METHODS` | `HERDR_PANEL_READ_METHODS` 加 `agent.get`、`agent.explain`、`agent.read`、`agent.prompt`、`agent.send_keys`；Proposal 第八节第 7 条的其余几个（`agent.list`、`agent.wait`、`pane.get`、`pane.read`）等用到时再加 | 面板（t11 起） |
+| `HERDR_PANEL_METHODS` | `HERDR_PANEL_READ_METHODS` 加 `agent.get`、`agent.explain`、`agent.read`、`agent.prompt`、`agent.send_keys`，t15 阶段 4 再加只读的 `pane.read`（会话页非 Agent 的 pane 的“更早的输出”）；Proposal 第八节第 7 条的其余几个（`agent.list`、`agent.wait`、`pane.get`）等用到时再加 | 面板（t11 起） |
 | `HERDR_PANEL_STREAMS` | 命令行的 `terminal session observe`、`terminal session control`（不在 socket 的 JSON 接口里，见“终端流”） | 面板的网页终端（t12） |
 
 `pane.run`、`pane.send_text`、`pane.send_input`、`server.*`、`workspace.*`、`pane.report_metadata` 都不在面板的清单里，在客户端就被拒绝（`tests/delivery.test.ts` 钉住清单的内容）。终端流是命令行子进程，socket 的白名单管不到它发给 server 的内容，只能靠适配层只拼这两种参数（`streamArgs`：target 只收 terminal id 的写法、尺寸是夹过的整数、takeover 是布尔）。
@@ -38,6 +38,7 @@ herdr 的 socket 没有鉴权，连上就能调全部方法（含 `server.stop`�
 | `agent.explain`（面板） | Claude 的输入框是不是认得出的空（正向白名单） | `explain.matched_rule` 是对象 `{id, priority, region, state}`；`fallback_reason`；`evaluated_rules[]` 里 `live_prompt_box` 的 `evidence.region_preview`；omp 没有检测清单，`screen_detection_skipped: true` |
 | `agent.read`（面板） | 读屏：交叉核对与会话页的屏幕末尾；omp 的更早输出（t12） | `source: "visible"`、`format: "ansi"`，不带 `lines`（`recent` 加行数会滚动 Claude 的界面，工作中还会报错）；回 `{type: "pane_read", read: {text, …}}`。只对 omp：`source: "recent_unwrapped"`、`lines: 1000`（omp 是普通回滚，读它没有副作用） |
 | `agent.prompt`（面板） | 投一行文字：粘贴、约 300 毫秒后回车 | `text`、`wait: {until: ["working", "blocked"], timeout_ms: 10000}`；在 `blocked` 时回 `agent_blocked` 且一个字节都不写；等到点回 `agent_prompt_stalled` 或 `timeout`；成功回 `{type: "agent_prompted", agent}` |
+| `pane.read`（面板，t15 阶段 4） | 非 Agent 的 pane 的“更早的输出” | `source: "recent_unwrapped"`、`lines: 1000`、`format: "text"`；回 `{type: "pane_read", read: {text, …}}`。0.9.3 实测：读它不改 pane 的滚动位置（`scroll.offset_from_bottom` 照旧）；前台程序在备用屏（less、vim）时 `pane.list` 的 `scroll.max_offset_from_bottom` 是 0，读出来只有当前屏，面板这时不给“更早的输出”。0.9.1 没有实测 |
 | `agent.send_keys`（面板） | 发按键 | `keys: [逻辑键名]`；一批里有不认识的键名整批回 `invalid_key`、都不发 |
 
 认调用者与 `status` 都直接用 `pane.list` 带的 `agent`、`agent_session`、`agent_status`，不调 `agent.list`、`agent.get`；各 pane 的 `process_info` 并发调用，单个失败就跳过这格并给 `herdr_partial` 警告。`agent.*` 只有面板在投递时用。
