@@ -1,4 +1,4 @@
-import {basename} from "node:path";
+import {checkoutNamedForTask} from "../core/checkouts.js";
 import type {Warning} from "../core/errors.js";
 import {runGit} from "../core/git.js";
 import {MASTER_REF} from "../core/repo.js";
@@ -114,13 +114,12 @@ export async function checkoutsView(state: PanelState, cache: CheckoutStatusCach
     }
     const procs = state.activity.part.value?.procs ?? [];
     const checkouts = state.checkouts.filter((checkout) => !checkout.prunable);
-    /** 这个 checkout 是哪些 Task 的：登记表的 `home`，加目录名按 `<Work 编号>-<Task 编号>-` 认出的（与 Task 执行 checkout 的第 2 条规则同一个判据）。 */
+    /** 这个 checkout 是哪些 Task 的：登记表的 `home`，加目录名认出的（`checkoutNamedForTask`，与 Task 执行 checkout 的第 2 条规则同一个判据）。 */
     const tasksOf = (root: string): Array<{workId: string; taskId: string}> => {
         const found = [...(homes.get(root) ?? [])];
-        const name = basename(root);
         for (const work of records?.records.works ?? []) {
             for (const task of work.tasks) {
-                if (name.startsWith(`${work.workId.slice(0, 6)}-${task.taskId.slice(0, task.taskId.indexOf("-"))}-`) && !found.some((entry) => entry.workId === work.workId && entry.taskId === task.taskId)) found.push({workId: work.workId, taskId: task.taskId});
+                if (checkoutNamedForTask(root, work.workId, task.taskId) && !found.some((entry) => entry.workId === work.workId && entry.taskId === task.taskId)) found.push({workId: work.workId, taskId: task.taskId});
             }
         }
         return found;

@@ -10,7 +10,11 @@ export type GitOptions = {
     input?: string;
     /** 用这个 git 可执行文件（绝对路径），不经 `PATH` 查找：`worktree new` 的 `worktree add` 一律用 `/usr/bin/git`（omp 会接管会话 shell 里的 `git worktree add`）。 */
     binary?: string;
-    /** 到点 SIGKILL 子进程，结果标 `timedOut`（面板现算各 checkout 的状态时用，一个慢的不拖住整页）。 */
+    /**
+     * 到点 SIGKILL 子进程，结果标 `timedOut`（面板现算各 checkout 的状态时用，一个慢的不拖住整页）。
+     * 只结束 git 本身：git 派生的子进程（fsmonitor 钩子、子模块的 status）继承了输出管道时，要等它们退出才回，限时就不生效。
+     * 本仓库没有子模块、没开 fsmonitor，所以不按进程组结束（第 4 批审查第 9 条）。
+     */
     timeoutMs?: number;
 };
 

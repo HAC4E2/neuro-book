@@ -220,13 +220,30 @@ describe("“在跑”与 checkout 页", () => {
         expect((await panel.get("/api/checkouts/nope/files")).status).toBe(404);
     }, 60_000);
 
-    test("checkout 的 git 调用各自限时：到点的那个标 timedOut、计数为 null，不拖住别的", async () => {
+    test("checkout 的 git 调用各自限时：一个慢的到点标 timedOut、计数为 null，同一次算的另一个照常有数，整次不等慢的那个", async () => {
         const fixture = await createFixture("checkouts-timeout");
         await fixture.write("docs/a.md", "一\n");
         await fixture.commit("a");
         const head = (await git(fixture.main, "rev-parse", "HEAD")).trim();
-        const statuses = await new CheckoutStatusCache(1).statuses([{root: fixture.main, head}]);
-        expect(statuses.get(fixture.main)).toMatchObject({timedOut: true, tracked: null, untracked: null, ahead: null, behind: null});
-        expect((await new CheckoutStatusCache().statuses([{root: fixture.main, head}])).get(fixture.main)).toMatchObject({timedOut: false, tracked: 0, untracked: 0});
+        expect((await fixture.cli(["worktree", "new", "w00001", "t01", "--json"])).exitCode).toBe(0);
+        const slow = join(fixture.main, ".worktree", "w00001-t01-seed");
+        // git 替身：对慢的那个 checkout 换成 sleep（exec，到点 SIGKILL 结束的就是它，不留占着管道的子进程），其余交给真的 git。
+        const bin = join(fixture.root, "slow-git-bin");
+        await mkdir(bin, {recursive: true});
+        const realGit = Bun.which("git")!;
+        await writeFile(join(bin, "git"), `#!/bin/sh\ncase "$*" in *"${slow}"*) exec sleep 10;; esac\nexec ${realGit} "$@"\n`);
+        await chmod(join(bin, "git"), 0o755);
+        const path = process.env.PATH;
+        process.env.PATH = `${bin}:${path}`;
+        try {
+            const started = Date.now();
+            const statuses = await new CheckoutStatusCache(500).statuses([{root: slow, head}, {root: fixture.main, head}]);
+            const elapsed = Date.now() - started;
+            expect(statuses.get(slow)).toMatchObject({timedOut: true, tracked: null, untracked: null, ahead: null, behind: null});
+            expect(statuses.get(fixture.main)).toMatchObject({timedOut: false, tracked: 0, untracked: 0, ahead: 0, behind: 0});
+            expect(elapsed).toBeLessThan(3_000);
+        } finally {
+            process.env.PATH = path;
+        }
     }, 30_000);
 });
