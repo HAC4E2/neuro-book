@@ -720,3 +720,9 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
     - 新建页的分段控件能切换，`aria-checked` 正确。
     - 另外在同步后的构建上重跑了阶段 2 的 48 条与审查修正的 21 条，全过，控制台没有错误与警告。
   - 收尾：4490 的面板已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删，克隆是干净的；herdr 的 `w4:p1`、`w5:p1` 没动。
+- 2026-10-14：阶段 2 合入 `master`，开发者授权。
+  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `a6b7a7c9a`（集成分支 `97feb871a`，已含 w00017 合入后的 `master`）；主工作区 `merge --ff-only` 快进过去。
+  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支相同；全量 `test` 在 `97feb871a` 上由主 Agent 复跑：380 过、0 失败。
+  - 主工作区 `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建、预热完成。
+  - 临时 worktree 与审查 worktree `.worktree/w00022-t15-review2` 已删除。没有 push。
+  - 主 Agent 接受 `2243f6953` 的取舍：左栏收起后分隔线禁用，只能用顶栏的“展开左栏”展开。
