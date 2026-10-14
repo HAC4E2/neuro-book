@@ -289,7 +289,8 @@ describe("FilesExplorerView：结果未知与剪切标记", () => {
         const wrapper = view({rows: cut});
         const row = wrapper.get("[data-explorer-row=\"project://a.md\"]");
         expect(row.attributes("data-explorer-cut")).toBe("");
-        expect(row.text()).toContain("剪切中");
+        expect(row.find("[data-explorer-mark=\"剪切中\"]").exists()).toBe(true);
+        expect(row.attributes("aria-description")).toContain("剪切中");
         expect(wrapper.get("[data-explorer-row=\"project://plain\"]").attributes("data-explorer-cut")).toBeUndefined();
     });
 });

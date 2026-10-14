@@ -24,7 +24,10 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
+import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/sections";
+
 import {EXPLORER_CONTEXT_POINT, validateExplorerContextItem} from "../shared/contracts";
+import {EXPLORER_SECTION, EXPLORER_SECTION_DECLARATION, hideMarkdownExtensionSetting, indentGuidesSetting} from "../shared/settings";
 import type {ExplorerContextItemDeclaration} from "../shared/contracts";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
 import {explorerLocalized} from "./messages";
@@ -88,6 +91,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
         receives: [EXPLORER_CONTEXT_POINT],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
+            {capability: SETTINGS_SECTIONS_POINT, id: EXPLORER_SECTION, declaration: EXPLORER_SECTION_DECLARATION},
             ...Object.entries(EXPLORER_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...explorerState.contributions,
         ],
@@ -132,6 +136,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     contextMenu,
                     locale,
                     projectTitle: context.services.require(windowProjectKey).project?.title ?? null,
+                    display: computed(() => ({indentGuides: settings.get(indentGuidesSetting), hideMarkdownExtension: settings.get(hideMarkdownExtensionSetting)})),
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
                 }),
             };
@@ -140,6 +145,8 @@ export const explorerBrowserPlugin: PluginDefinition = {
                 receivers: {[EXPLORER_CONTEXT_POINT]: contextMenu.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[EXPLORER_VIEW_ID]: view},
+                    // list 分区没有要实现的东西，设置窗口照声明画配置项（docs/specs/settings/settings-window.md）。
+                    [SETTINGS_SECTIONS_POINT]: {[EXPLORER_SECTION]: Object.freeze({})},
                     [COMMANDS_POINT]: explorerCommands(session, () => locale.value),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                 },

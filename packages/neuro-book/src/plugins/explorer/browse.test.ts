@@ -170,10 +170,12 @@ describe("Spec workbench.files-explorer 验收 1、2：浏览", () => {
         expect(entry(controller, "project://plain/index.md")).toMatchObject({label: "index.md", opens: "project://plain/index.md"});
         expect(entry(controller, "project://lore.content/alice")).toMatchObject({label: "爱丽丝", subtitle: "alice", node: true, body: false});
         expect(entry(controller, "project://lore.content/bob")).toMatchObject({label: "鲍勃", body: true, opens: "project://lore.content/bob/index.md"});
-        expect(entry(controller, "project://lore.content/bob/sword")).toMatchObject({label: "宝剑", node: true});
+        // sword 里只有正文：真实 Files 标为叶子，没有展开控件；bob 另有子目录，可展开。
+        expect(entry(controller, "project://lore.content/bob/sword")).toMatchObject({label: "宝剑", node: true, expandable: false});
+        expect(entry(controller, "project://lore.content/bob")).toMatchObject({expandable: true});
         expect(row(controller, "project://lore.content/bob/index.md")).toBeUndefined();
         expect(entry(controller, "project://broken.content/child")).toMatchObject({node: false});
-        expect(row(controller, "project://broken.content#manifest")).toMatchObject({status: "manifest", code: "invalid"});
+        expect(entry(controller, "project://broken.content")).toMatchObject({label: "broken", subtitle: ".content", problem: {kind: "manifest", code: "invalid"}});
         expect(entry(controller, "project://story.binder")).toMatchObject({binder: true});
         expect(entry(controller, "project://story.binder/binder.xml")).toMatchObject({manifest: false});
         expect(row(controller, "user://")).toMatchObject({expanded: false});
@@ -200,17 +202,23 @@ describe("Spec workbench.files-explorer 验收 1、2：浏览", () => {
         expect(controller.rows.value.filter((candidate) => candidate.id.startsWith("project://") && candidate.id !== "project://")).toEqual([]);
     });
 
-    it.skipIf(privileged)("读取失败与空目录分开显示", async () => {
+    it.skipIf(privileged)("读取失败与空目录分开显示：失败挂在目录行上，重新列出在恢复权限后列出子项；空目录展开后没有行", async () => {
         const at = await world({"plain/a.md": "A", "empty/.keep": "", "locked/a.md": "L"});
         await rm(join(at.scene.project, "empty", ".keep"));
         await chmod(join(at.scene.project, "locked"), 0o000);
         const controller = explorer(at, {expanded: ["project://", "project://empty", "project://locked", "project://ghost"]});
-        await until(at, "empty 与 locked 列出", () => row(controller, "project://empty#empty") !== undefined && row(controller, "project://locked#error") !== undefined);
-        expect(row(controller, "project://locked#error")).toMatchObject({status: "error", code: "permission-denied"});
-        expect(row(controller, "project://locked#empty")).toBeUndefined();
+        await until(at, "empty 列出、locked 失败", () => controller.model.slots.value.get("project://empty")?.listing != null && entry(controller, "project://locked").problem?.kind === "error");
+        expect(entry(controller, "project://locked").problem).toMatchObject({kind: "error", code: "permission-denied"});
+        expect(entry(controller, "project://empty")).toMatchObject({expanded: true, problem: null});
+        expect(controller.rows.value.filter((candidate) => candidate.id.startsWith("project://empty/") || candidate.id.startsWith("project://locked/"))).toEqual([]);
         // 展开记录里的 ghost 在父目录列出后确认不存在：从展开集合去掉，不当作读取失败显示。
         expect(controller.model.expanded.value.has("project://ghost")).toBe(false);
-        expect(row(controller, "project://ghost#error")).toBeUndefined();
+        expect(row(controller, "project://ghost")).toBeUndefined();
+
+        await chmod(join(at.scene.project, "locked"), 0o755);
+        controller.model.retry("project://locked");
+        await until(at, "重新列出后 locked 有子项", () => row(controller, "project://locked/a.md") !== undefined);
+        expect(entry(controller, "project://locked").problem).toBeNull();
     });
 });
 

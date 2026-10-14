@@ -143,10 +143,10 @@ test("三类文件夹按呈现规则显示；点普通目录展开、点文件�
     await expect(item(page, "user://")).toHaveAttribute("aria-expanded", "false");
     await item(page, "project://lore.content").click();
     await expect(item(page, "project://lore.content/alice")).toContainText("爱丽丝");
-    await expect(item(page, "project://lore.content/alice")).toContainText("无正文");
+    await expect(item(page, "project://lore.content/alice")).toHaveAttribute("aria-description", /无正文/u);
     await expect(item(page, "project://lore.content/bob")).toContainText("鲍勃");
     await expect(item(page, "project://lore.content/content.xml")).toHaveCount(0);
-    await expect(item(page, "project://story.binder")).toContainText("需要剧情插件");
+    await expect(item(page, "project://story.binder")).toHaveAttribute("aria-description", /需要剧情插件/u);
     await item(page, "project://plain").click();
     await expect(item(page, "project://plain/index.md")).toBeVisible();
     await item(page, "project://plain/a.md").click();
@@ -308,7 +308,7 @@ test("只用键盘：创建内容、修改展示名、加入清单、上移，�
     await pick(page, "project://lore.content/alice");
     await menuByKeyboard(page, "创建内容");
     await expect.poll(() => exists(join(projectDir, "lore.content", "alice", "index.md"))).toBe(true);
-    await expect(item(page, "project://lore.content/alice")).not.toContainText("无正文");
+    await expect(item(page, "project://lore.content/alice")).not.toHaveAttribute("aria-description", /无正文/u);
 
     await menuByKeyboard(page, "修改展示名与图标");
     const title = page.getByRole("dialog").locator("[data-explorer-display-title] input, input[data-explorer-display-title]").first();
@@ -323,7 +323,7 @@ test("只用键盘：创建内容、修改展示名、加入清单、上移，�
     await pick(page, "project://lore.content/stray.md");
     await menuByKeyboard(page, "加入清单");
     await expect.poll(manifest).toContain('name="stray.md"');
-    await expect(item(page, "project://lore.content/stray.md")).not.toContainText("未列入");
+    await expect(item(page, "project://lore.content/stray.md")).not.toHaveAttribute("aria-description", /未列入/u);
 
     await page.keyboard.press("Alt+ArrowUp");
     await expect.poll(async () => [...(await manifest()).matchAll(/name="([^"]+)"/gu)].map((match) => match[1])).toEqual(["alice", "stray.md", "bob"]);

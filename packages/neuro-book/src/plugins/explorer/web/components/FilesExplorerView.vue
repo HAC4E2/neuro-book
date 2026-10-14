@@ -41,6 +41,10 @@ const props = defineProps<{
     drag?: {readonly action: DropAction} | null;
     /** 每次变化都把焦点放回树上（编辑与确认结束后）。 */
     focusRequest?: number;
+    /** 设置的缩进参考线档位；默认 `hover`。 */
+    indentGuides?: "none" | "hover" | "always";
+    /** 设置“隐藏 Markdown 扩展名”；默认 false。 */
+    hideMarkdownExtension?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -164,6 +168,8 @@ defineExpose({focusTree});
             :label="explorerText(locale, 'tree')"
             :handle-key="handleKey"
             :project-title="projectTitle ?? null"
+            :indent-guides="indentGuides ?? 'hover'"
+            :hide-markdown-extension="hideMarkdownExtension === true"
             :editing="editing ?? null"
             :start-drag="startDrag"
             :drag="drag ?? null"

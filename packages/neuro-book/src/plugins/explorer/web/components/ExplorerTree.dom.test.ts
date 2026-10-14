@@ -36,12 +36,12 @@ const handleKey = (key: TreeKey): KeyOutcome => {
     return key.key === "ArrowDown" ? "handled" : "none";
 };
 
-function tree(props: Partial<{rows: ReturnType<typeof rowsOf>; selected: string[]; focus: string | null}> = {}) {
-    return mount(ExplorerTree, {props: {rows: props.rows ?? rowsOf(3), selected: props.selected ?? [], focus: props.focus ?? null, locale: "zh-CN", label: "文件", handleKey}, attachTo: document.body});
+function tree(props: Partial<{rows: ReturnType<typeof rowsOf>; selected: string[]; focus: string | null; indentGuides: "none" | "hover" | "always"; hideMarkdownExtension: boolean}> = {}) {
+    return mount(ExplorerTree, {props: {rows: props.rows ?? rowsOf(3), selected: props.selected ?? [], focus: props.focus ?? null, locale: "zh-CN", label: "文件", handleKey, ...(props.indentGuides === undefined ? {} : {indentGuides: props.indentGuides}), ...(props.hideMarkdownExtension === undefined ? {} : {hideMarkdownExtension: props.hideMarkdownExtension})}, attachTo: document.body});
 }
 
 describe("ExplorerTree", () => {
-    it("树与行的角色和属性：多选树、层级、同层位置与总数、选中、可展开；状态行不是 treeitem", () => {
+    it("树与行的角色和属性：多选树、层级、同层位置与总数、选中、可展开；读取失败挂在目录行上，原因在可访问描述与重试按钮的名称里", () => {
         const rows = rowsOf(3, [["project://broken", {listing: null, error: {code: "permission-denied", detail: "没有权限"}, loading: false, stale: false}]], ["project://broken"]);
         const wrapper = tree({rows, selected: ["project://chapter-0001.md"]});
         const root = wrapper.get("[role=tree]");
@@ -51,10 +51,38 @@ describe("ExplorerTree", () => {
         expect(item.attributes("aria-expanded")).toBeUndefined();
         expect(wrapper.get("[data-explorer-row=\"project://broken\"]").attributes("aria-expanded")).toBe("true");
         expect(wrapper.get("[data-explorer-row=\"project://\"]").attributes()).toMatchObject({"aria-level": "1", "aria-expanded": "true"});
-        const status = wrapper.get("[data-explorer-status=\"error\"]");
-        expect(status.attributes("role")).toBe("none");
-        expect(status.text()).toContain("读取失败：没有权限");
+        const broken = wrapper.get("[data-explorer-row=\"project://broken\"]");
+        expect(broken.attributes("data-explorer-problem")).toBe("error");
+        expect(broken.attributes("aria-description")).toContain("读取失败：没有权限");
+        expect(broken.get("[data-explorer-retry]").attributes("aria-label")).toContain("读取失败：没有权限");
+        expect(wrapper.findAll("[role=none]")).toEqual([]);
         wrapper.unmount();
+    });
+
+    it("缩进参考线：每行画到上一层（根的子项不画），焦点行连续的同层兄弟加深上级那一层；档位写在树上；隐藏 .md 只改显示", () => {
+        const nested = (name: string): DirectoryEntry => ({name, kind: "directory"});
+        const slots: Array<[string, DirectorySlot]> = [
+            ["project://broken", loaded({folder: "plain", contentRoot: null, entries: [nested("sub"), file("a.md"), file("b.md")]})],
+            ["project://broken/sub", loaded({folder: "plain", contentRoot: null, entries: [file("deep.md")]})],
+        ];
+        const rows = rowsOf(1, slots, ["project://broken", "project://broken/sub"]);
+        const wrapper = tree({rows, focus: "project://broken/a.md", indentGuides: "always", hideMarkdownExtension: true});
+        expect(wrapper.get("[role=tree]").attributes("data-guides")).toBe("always");
+        const guidesOf = (id: string) => wrapper.get(`[data-explorer-row="${id}"]`).findAll(".explorer-guide");
+        expect(guidesOf("project://broken")).toHaveLength(0);
+        expect(guidesOf("project://broken/a.md")).toHaveLength(1);
+        expect(guidesOf("project://broken/sub/deep.md")).toHaveLength(2);
+        // a.md 的同层兄弟（含 sub 与夹在中间的 deep.md）加深第 1 层；别的层不加深。
+        for (const id of ["project://broken/sub", "project://broken/sub/deep.md", "project://broken/a.md", "project://broken/b.md"]) {
+            expect(guidesOf(id)[0]?.attributes("data-guide-active")).toBe("");
+        }
+        expect(guidesOf("project://broken/sub/deep.md")[1]?.attributes("data-guide-active")).toBeUndefined();
+        expect(wrapper.get("[data-explorer-row=\"project://broken/a.md\"] [data-explorer-label]").text()).toBe("a");
+        expect(wrapper.get("[data-explorer-row=\"project://broken/a.md\"]").attributes("title")).toBe("project://broken/a.md");
+        wrapper.unmount();
+        const plainTree = tree();
+        expect(plainTree.get("[role=tree]").attributes("data-guides")).toBe("hover");
+        plainTree.unmount();
     });
 
     it("几千行只渲染视口附近；远处的焦点行也保持挂载，aria-activedescendant 指向现存的元素", () => {

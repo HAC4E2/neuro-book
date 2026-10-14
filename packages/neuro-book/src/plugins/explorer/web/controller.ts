@@ -328,7 +328,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     };
     const find = (id: string): Row | undefined => rows.value.find((row) => row.id === id);
     const toggle = (row: Row): void => {
-        if (row.kind === "status" || row.kind === "edit" || (row.kind === "root" && row.status.kind === "unbound") || (row.kind === "entry" && !row.expandable)) return;
+        if (row.kind === "edit" || (row.kind === "root" && row.status.kind === "unbound") || (row.kind === "entry" && !row.expandable)) return;
         if (row.expanded) model.collapse(row.id);
         else model.expand(row.id);
     };
@@ -710,7 +710,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         },
         click: (id, modifiers, part) => {
             const row = find(id);
-            if (row === undefined || row.kind === "status" || row.kind === "edit") return;
+            if (row === undefined || row.kind === "edit") return;
             if (part === "twisty") {
                 toggle(row);
                 return;

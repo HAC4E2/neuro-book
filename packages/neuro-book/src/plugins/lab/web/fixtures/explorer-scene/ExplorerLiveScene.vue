@@ -108,6 +108,8 @@ const Host = createExplorerViewHost(FilesExplorerView, {
     locale: computed(() => LAB_LOCALE),
     // 产品里是窗口绑定的作品的书名。
     projectTitle: "雾港",
+    // 产品里来自设置；场景取缺省值。
+    display: computed(() => ({indentGuides: "hover" as const, hideMarkdownExtension: false})),
     report: (id, reason) => record("command-failed", `${id}：${reason}`),
 });
 const context: ViewContext = {id: "nbook.explorer", generation: 1, visible: ref(true), location: ref("sidebar")};

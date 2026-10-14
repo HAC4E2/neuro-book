@@ -36,6 +36,7 @@ export const CUT_COMMAND = "nbook.files.cut";
 export const PASTE_COMMAND = "nbook.files.paste";
 export const CLEAR_CUT_COMMAND = "nbook.files.clear-cut";
 export const REVEAL_COMMAND = "nbook.files.reveal";
+export const RETRY_LIST_COMMAND = "nbook.files.retry-list";
 
 const CATEGORY = {"zh-CN": "文件", "en-US": "Files"};
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
@@ -70,6 +71,7 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
     [CUT_COMMAND]: onSelection("cut", "Put the selected files and folders on this window's file clipboard for moving; their identity is frozen now.", "read", ["ready", "hasSelection"]),
     [PASTE_COMMAND]: onSelection("paste", "Copy or move the clipboard items into the explorer's target folder, asking about name collisions.", "write", ["ready", "canPaste"]),
     [CLEAR_CUT_COMMAND]: onSelection("clearCut", "Clear the cut items from this window's file clipboard.", "read", ["ready"]),
+    [RETRY_LIST_COMMAND]: onSelection("retry", "List again the focused folder whose listing failed.", "read", ["ready"]),
     [REFRESH_FILES_COMMAND]: {
         title: explorerLocalized("refresh"),
         category: CATEGORY,
@@ -131,6 +133,14 @@ export function explorerCommands(session: ExplorerSession, locale: () => Display
         [CUT_COMMAND]: action(CUT_COMMAND, (controller) => controller.cut()),
         [PASTE_COMMAND]: action(PASTE_COMMAND, (controller) => controller.paste()),
         [CLEAR_CUT_COMMAND]: action(CLEAR_CUT_COMMAND, (controller) => controller.clearCut()),
+        // 读取失败挂在目录行上（行尾的标记点了也是重新列出）：作用于焦点行。
+        [RETRY_LIST_COMMAND]: action(RETRY_LIST_COMMAND, (controller) => {
+            const focus = controller.selection.value.focus;
+            const row = focus === null ? undefined : controller.rows.value.find((candidate) => candidate.id === focus);
+            if (row === undefined || row.kind === "edit" || row.problem?.kind !== "error") return {ok: false, reason: "not-applicable"};
+            controller.model.retry(row.id);
+            return done;
+        }),
         [REVEAL_COMMAND]: {
             run: (args) => {
                 const {address, expand} = args as {address: string; expand?: boolean};

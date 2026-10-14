@@ -48,6 +48,9 @@ type Props = {
     drag?: {action: DropAction} | null;
     /** 每次变化都把焦点放回树上（编辑与确认结束后）；默认 0。 */
     focusRequest?: number;
+    /** 设置的缩进参考线档位与“隐藏 Markdown 扩展名”，原样交给树；默认 `hover` 与 false。 */
+    indentGuides?: "none" | "hover" | "always";
+    hideMarkdownExtension?: boolean;
 };
 
 type Emits = {

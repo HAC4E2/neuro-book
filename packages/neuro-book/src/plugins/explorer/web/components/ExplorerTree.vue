@@ -14,6 +14,7 @@ import {explorerText} from "../messages";
 import {createTreeDrag} from "../tree-drag";
 import type {TreeDrag, TreeDragPoint} from "../tree-drag";
 import type {TreeKey} from "../tree/keys";
+import {displayLabel} from "../tree/rows";
 import type {Row} from "../tree/rows";
 import type {Modifiers} from "../tree/selection";
 import {clampTop, renderedRows, revealTop} from "../tree/window";
@@ -34,6 +35,10 @@ const props = defineProps<{
     startDrag?: (id: string) => boolean;
     /** 拖动中最后显示的落点动作；不在拖动为 null。 */
     drag?: {readonly action: DropAction} | null;
+    /** 缩进参考线：不画、悬停或有焦点时画、一直画；默认 `hover`。 */
+    indentGuides?: "none" | "hover" | "always";
+    /** 设置“隐藏 Markdown 扩展名”；默认 false。 */
+    hideMarkdownExtension?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -77,6 +82,26 @@ const rendered = computed(() => renderedRows({count: props.rows.length, rowHeigh
 const page = computed(() => Math.max(1, Math.floor(viewport.value / rowHeight.value)));
 
 const domId = (id: string): string => `${prefix}-${encodeURIComponent(id)}`;
+
+/**
+ * 加深的那一段参考线：焦点行（没有焦点时取第一个选中行）与它连续的同层兄弟（中间夹着的更深的行也算），加深的是它们上级
+ * 的那一层。焦点在根或根的直接子项上时没有可加深的线。
+ */
+const guideRange = computed((): {readonly lo: number; readonly hi: number; readonly level: number} | null => {
+    let anchor = focusIndex.value;
+    if (anchor < 0) anchor = props.selected.length === 0 ? -1 : props.rows.findIndex((row) => row.id === props.selected[0]);
+    const row = anchor < 0 ? undefined : props.rows[anchor];
+    if (row === undefined || row.depth < 2) return null;
+    let lo = anchor;
+    let hi = anchor;
+    while (lo > 0 && (props.rows[lo - 1] as Row).depth >= row.depth) lo -= 1;
+    while (hi < props.rows.length - 1 && (props.rows[hi + 1] as Row).depth >= row.depth) hi += 1;
+    return {lo, hi, level: row.depth - 1};
+});
+const guideActiveAt = (index: number): number | null => {
+    const range = guideRange.value;
+    return range !== null && index >= range.lo && index <= range.hi ? range.level : null;
+};
 const activeDescendant = computed(() => (focusIndex.value < 0 ? undefined : domId(props.focus as string)));
 
 /** 滚动锚点：首个可见行与行内偏移。行变了时按它还原阅读位置。 */
@@ -175,7 +200,7 @@ const onBlur = (event: FocusEvent): void => {
 
 const press = (row: Row, event: MouseEvent, part: "twisty" | "row"): void => {
     focusTree();
-    if (row.kind === "status" || row.kind === "edit") return;
+    if (row.kind === "edit") return;
     emit("row-press", row.id, {toggle: event.ctrlKey || event.metaKey, range: event.shiftKey}, part);
 };
 
@@ -264,7 +289,7 @@ const dropLabel = computed(() => {
     if (action === undefined || action.kind === "none") return "";
     if (action.kind === "reorder") return explorerText(props.locale, "dropReorder");
     const row = props.rows.find((candidate) => candidate.id === action.target);
-    const name = row?.kind === "entry" ? row.label : row?.kind === "root" ? (row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot")) : action.target;
+    const name = row?.kind === "entry" ? displayLabel(row, props.hideMarkdownExtension === true) : row?.kind === "root" ? (row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot")) : action.target;
     return explorerText(props.locale, "dropInto", {name});
 });
 
@@ -283,6 +308,7 @@ defineExpose({focus: focusTree});
         :style="{'--explorer-row-height': `${String(rowHeight)}px`}"
         data-explorer-tree
         :data-expanding="expanding ? '' : undefined"
+        :data-guides="indentGuides ?? 'hover'"
         @scroll="onScroll"
         @keydown="onKeydown"
         @focus="onFocus"
@@ -304,13 +330,15 @@ defineExpose({focus: focusTree});
                 :active="treeFocused && item.row.id === focus"
                 :height="rowHeight"
                 :edit="editing != null && editing.id === item.row.id ? editing : null"
+                :hide-markdown-extension="hideMarkdownExtension === true"
+                :guide-active="guideActiveAt(item.index)"
                 @edit-input="(name) => emit('edit-input', name)"
                 @edit-commit="emit('edit-commit')"
                 @edit-cancel="emit('edit-cancel')"
                 @press="(event, part) => press(item.row, event, part)"
                 @activate="(item.row.kind === 'root' || item.row.kind === 'entry') && emit('row-activate', item.row.id)"
                 @context="(event) => context(item.row, event)"
-                @retry="item.row.kind === 'status' && emit('retry', item.row.parent)"
+                @retry="item.row.kind !== 'edit' && emit('retry', item.row.id)"
             />
         </TransitionGroup>
         <DropFeedbackOverlay :preview="dropPreview" :label="dropLabel" :data-explorer-drop="drag?.action.kind" />
@@ -335,6 +363,13 @@ defineExpose({focus: focusTree});
 .explorer-tree[data-expanding] .explorer-row-leave-to {
     opacity: 0;
     transform: translateY(calc(-1 * var(--explorer-row-height)));
+}
+
+/* 缩进参考线的显示（行里的 `.explorer-guide` 读这个变量）：悬停档在鼠标位于树上或树里有焦点时显示。 */
+.explorer-tree[data-guides="always"],
+.explorer-tree[data-guides="hover"]:hover,
+.explorer-tree[data-guides="hover"]:focus-within {
+    --explorer-guide-opacity: 1;
 }
 
 .explorer-tree {
