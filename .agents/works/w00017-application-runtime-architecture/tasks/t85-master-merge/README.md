@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t85-master-merge
-status: active
-updated: 2026-10-13
+status: done
+updated: 2026-10-14
 ---
 
 # 合并回 master
