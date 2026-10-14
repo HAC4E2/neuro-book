@@ -78,6 +78,10 @@ describe("命令行合同", () => {
         expect(conflicts.map((conflict) => [conflict.label, conflict.live, conflict.ids.map((entry) => entry.id)])).toEqual([["w00003", true, ["w00003-mine", "w00003-theirs"]]]);
         expect(conflicts[0]!.ids[1]!.locations.map((location) => location.source).sort()).toEqual(["ref", "worktree"]);
         expect(result.json?.warnings.map((warning) => warning.code)).toContain("number_conflicts");
+        // 收件箱里的撞号也带各个 id 与位置：首页据此写明原因。
+        const status = await fixture.cli(["status", "--json"]);
+        const inbox = (status.json?.data?.inbox as Array<{kind: string; label: string; ids?: Array<{id: string}>}>).filter((item) => item.kind === "number_conflict");
+        expect(inbox.map((item) => [item.label, item.ids?.map((entry) => entry.id)])).toEqual([["w00003", ["w00003-mine", "w00003-theirs"]]]);
     });
 
     test("场景 7：分支上较新的 Work 标 branch（带分支名），只在 master 上的 Task 标 master；改分支上的记录退出码 3", async () => {

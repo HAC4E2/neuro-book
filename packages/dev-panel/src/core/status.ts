@@ -21,7 +21,7 @@ import {
 } from "./records.js";
 import {readRegistry, type Registry} from "./registry.js";
 import {listCheckouts, MASTER_REF, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "./repo.js";
-import {findConflicts, nextWorkNumber, scanNumbers, type NumberConflict} from "./scan.js";
+import {findConflicts, nextWorkNumber, scanNumbers, type ConflictId, type NumberConflict} from "./scan.js";
 import {chooseExecutionCheckout, findBranchRecordChanges, taskSourceInBranchWork, type BranchChangesCache, type ExecutionCheckout} from "./sources.js";
 
 /** 记录从哪里读：`master` 是主工作区（已提交的或标了 `uncommitted` 的）；`branch` 是过渡期的执行 worktree。 */
@@ -45,7 +45,7 @@ export type ArtifactSummary = {
 /** 收件箱：只放要开发者动手的事。`askedBy` 是运行时的会话键（provenance），读不到为 null。 */
 export type InboxItem =
     | {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null}
-    | {kind: "number_conflict"; label: string; live: boolean};
+    | {kind: "number_conflict"; label: string; live: boolean; ids: ConflictId[]};
 
 export type TaskView = TaskRecord & RecordSource & {uncommitted: boolean; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[]};
 export type WorkView = WorkRecord & RecordSource & {
@@ -286,7 +286,7 @@ export async function readProjectRecords(context: RepoContext, transition: Trans
     const workPrefixes = filter.workRef === undefined ? null : works.map((work) => work.workId.slice(0, 6));
     for (const conflict of conflicts) {
         if (workPrefixes && !workPrefixes.some((prefix) => conflict.label.startsWith(prefix))) continue;
-        inbox.push({kind: "number_conflict", label: conflict.label, live: conflict.live});
+        inbox.push({kind: "number_conflict", label: conflict.label, live: conflict.live, ids: conflict.ids});
     }
     return {
         records: {

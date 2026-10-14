@@ -18,7 +18,8 @@ export type OverviewWork = {
     taskCounts: Record<TaskStatus | "unset" | "invalid", number>; openRequired: number; activeLeases: ActiveLease[]; tasks: OverviewTask[];
 };
 export type InboxQuestion = {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null; askerActive: boolean | null};
-export type InboxConflict = {kind: "number_conflict"; label: string; live: boolean};
+export type ConflictLocation = {source: "main" | "worktree" | "ref"; checkout?: string; ref?: string; head?: string};
+export type InboxConflict = {kind: "number_conflict"; label: string; live: boolean; ids: Array<{id: string; live: boolean; locations: ConflictLocation[]}>};
 export type InboxItem = InboxQuestion | InboxConflict;
 export type Overview = {
     works: OverviewWork[];

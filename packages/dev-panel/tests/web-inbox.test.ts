@@ -9,7 +9,7 @@ describe("收件箱按产物合并", () => {
     test("同一产物的题合成一行，按第一次出现的位置排；撞号照旧一条一行；提问的会话去重，有一道还在就算在", () => {
         const rows = groupInbox([
             question("uxq", "q1", "claude:a", false),
-            {kind: "number_conflict", label: "w00003/t05", live: false},
+            {kind: "number_conflict", label: "w00003/t05", live: false, ids: []},
             question("review", "r1"),
             question("uxq", "q2", "claude:a", true),
             question("uxq", "q3", "claude:b", null),
