@@ -156,6 +156,10 @@ body {
     border-radius: var(--radius-panel);
     background: var(--panel-surface);
 }
+/* 要开发者先处理的面层（新建页“结果未知”锁住表单、编辑页的冲突差异）：边框用警告色。 */
+.nbdev-surface.nbdev-surface-warn {
+    border-color: var(--status-warning);
+}
 /* 浅底提示块：页面里一两句需要注意的说明。 */
 .nbdev-hint {
     border-radius: var(--radius-control);

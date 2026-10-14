@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
-import {RouterLink, useRoute} from "vue-router";
+import {useRoute, useRouter} from "vue-router";
 import {ApiError, sendJson} from "../host/api.js";
 import {useResource} from "../host/panel-data.js";
 import {taskHref, workHref} from "../host/routes.js";
+import {workLabel} from "../host/format.js";
 import type {CreatePreviewData, Meta, Overview, PreviewProblem, WriteData} from "../host/types.js";
 import {TASK_FORM_FIELDS, WORK_FORM_FIELDS} from "../host/create-fields.js";
 import {failureNotice, fieldProblems, successNotice, useWrite, type Notice} from "../host/writes.js";
+import ActionLink from "../parts/ActionLink.vue";
 import CreatePreview from "../parts/CreatePreview.vue";
 import NewTaskForm, {type TaskFormValue} from "../parts/NewTaskForm.vue";
 import NewWorkForm, {type WorkFormValue} from "../parts/NewWorkForm.vue";
+import PageShell from "../parts/PageShell.vue";
 import WriteResult from "../parts/WriteResult.vue";
 
 /**
@@ -18,6 +21,8 @@ import WriteResult from "../parts/WriteResult.vue";
  * 号以提交时为准；提交成功后结果区写实际领到的 id，与预览不同时多一行说明。从 Work 页进来（`?workId=`）时默认新建 Task。
  */
 const route = useRoute();
+const router = useRouter();
+const navigate = (href: string) => void router.push(href);
 const overview = useResource<Overview>(() => "/api/overview", ["records"]);
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 const presetWork = typeof route.query.workId === "string" ? route.query.workId : "";
@@ -134,30 +139,32 @@ const actualId = computed(() => (created.value ? (submittedMode.value === "work"
 </script>
 
 <template>
-    <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-4 p-4 md:p-6">
-        <h1 class="font-semibold" style="font-size: var(--text-xl)">新建</h1>
-        <SegmentedControl :model-value="mode" :options="modeOptions" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
-        <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
-        <section v-if="unconfirmed" class="flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] p-3" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--status-warning)">
+    <PageShell :crumbs="[{label: '首页', href: '/'}, ...(presetWork ? [{label: workLabel(presetWork), href: workHref(presetWork)}] : []), {label: '新建'}]" title="新建" @navigate="navigate">
+        <SegmentedControl class="self-start" :model-value="mode" :options="modeOptions" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
+        <section v-if="unconfirmed" class="nbdev-surface nbdev-surface-warn flex flex-wrap items-center gap-2 p-3">
             <span>表单已锁住：确认上一次建好了没有再继续。</span>
             <Button size="sm" variant="secondary" @click="confirmUnknown(true)">已经建好了，清空表单</Button>
             <Button size="sm" variant="ghost" @click="confirmUnknown(false)">没有建成，还要再建</Button>
         </section>
-        <section v-if="created" class="flex flex-col gap-1 rounded-[var(--radius-panel)] p-3" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
-            <p v-if="created.previewed && created.previewed !== actualId" style="color: var(--status-warning)">预览时是 {{ created.previewed }}，提交时它已被领走，实际领到 {{ actualId }}</p>
-            <div class="flex flex-wrap gap-3">
-                <RouterLink :to="workHref(created.workId)">打开 {{ created.workId }}</RouterLink>
-                <RouterLink :to="taskHref(created.workId, created.taskId)">打开 {{ created.taskId }}</RouterLink>
-                <Button size="sm" variant="ghost" @click="created = null; notice = null">再建一个</Button>
-            </div>
-        </section>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_28rem]">
             <NewWorkForm v-if="mode === 'work'" v-model="workForm" :problems="formProblems" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
             <NewTaskForm v-else v-model="taskForm" :works="works" :problems="formProblems" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
-            <aside class="min-w-0 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
-                <p v-if="disabledReason" class="mb-2" style="color: var(--status-warning)">{{ disabledReason }}</p>
-                <CreatePreview :preview="preview" :loading="previewLoading" />
+            <!-- 结果放在右栏顶上：出现时不推动左边的表单（t15 阶段 3c）。 -->
+            <aside class="nbdev-stack min-w-0">
+                <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
+                <section v-if="created" class="nbdev-surface nbdev-stack-tight p-3" aria-label="新建的结果">
+                    <p v-if="created.previewed && created.previewed !== actualId" class="nbdev-warn">预览时是 {{ created.previewed }}，提交时它已被领走，实际领到 {{ actualId }}</p>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <ActionLink :href="workHref(created.workId)" icon="i-lucide-folder-open" @navigate="navigate">打开 {{ created.workId }}</ActionLink>
+                        <ActionLink :href="taskHref(created.workId, created.taskId)" icon="i-lucide-file-text" @navigate="navigate">打开 {{ created.taskId }}</ActionLink>
+                        <Button size="sm" variant="ghost" icon-class="i-lucide-plus" @click="created = null; notice = null">再建一个</Button>
+                    </div>
+                </section>
+                <div class="nbdev-surface p-4">
+                    <p v-if="disabledReason" class="nbdev-warn mb-2">{{ disabledReason }}</p>
+                    <CreatePreview :preview="preview" :loading="previewLoading" />
+                </div>
             </aside>
         </div>
-    </div>
+    </PageShell>
 </template>
