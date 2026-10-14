@@ -82,7 +82,13 @@ function sanitize(html: string, context: MarkdownContext): string {
             }
         } else if (node.tagName === "IMG") {
             const src = node.getAttribute("src") ?? "";
-            if (/^(?:https?:|data:)/iu.test(src)) return;
+            if (/^data:/iu.test(src)) return;
+            if (/^https?:/iu.test(src)) {
+                // 外站图片不加载（面板的 CSP 也拦着）：打开文档就发请求，会把“开发者在看”与本机地址带给外站；渲染后换成链接，见 `replaceExternalImages`。
+                node.setAttribute("data-nbdev-external", src);
+                node.removeAttribute("src");
+                return;
+            }
             const repoPath = src.startsWith("/") ? decode(src.slice(1)) : resolveRepoPath(context.path, decode(src.split(/[?#]/u)[0] ?? ""));
             if (repoPath !== null && repoPath.startsWith(".agents/works/") && context.artifactBase) {
                 node.setAttribute("src", `${context.artifactBase}/${encodeURIComponent(context.checkoutKey)}/${repoPath.split("/").map(encodeURIComponent).join("/")}`);
@@ -92,8 +98,44 @@ function sanitize(html: string, context: MarkdownContext): string {
         }
     });
     try {
-        return DOMPurify.sanitize(html, {FORBID_TAGS, FORBID_ATTR: ["style"]});
+        return replaceExternalImages(DOMPurify.sanitize(html, {FORBID_TAGS, FORBID_ATTR: ["style"]}));
     } finally {
         DOMPurify.removeHook("afterSanitizeAttributes");
     }
+}
+
+/**
+ * 外站图片换成一个链接“外站图片：<alt 或文件名>（<域名>）”，新标签页打开原图；外面已经是链接的只换成文字（t15 阶段 4 第 4 批，后续清单的推迟事项）。
+ * 不放宽面板的 CSP：文档来自各个 worktree，Agent 写进去的外站图片一打开就会发请求；徽章这类图片在面板里也没有信息量。
+ * 链接用 DOM 接口拼，文字走 `textContent`，不拼 HTML 字符串。
+ */
+function replaceExternalImages(html: string): string {
+    if (!html.includes("data-nbdev-external")) return html;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    for (const image of template.content.querySelectorAll("img[data-nbdev-external]")) {
+        const src = image.getAttribute("data-nbdev-external") ?? "";
+        let host = "";
+        let name = "";
+        try {
+            const url = new URL(src);
+            host = url.host;
+            name = decodeURIComponent(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
+        } catch (error) {
+            if (!(error instanceof TypeError || error instanceof URIError)) throw error;
+            host = src;
+        }
+        // 徽章常套在链接里（`[![…](图)](链接)`）：外面已经是链接时只换成文字，链接里不能再套链接。
+        const insideLink = image.closest("a") !== null;
+        const replacement = document.createElement(insideLink ? "span" : "a");
+        if (replacement instanceof HTMLAnchorElement) {
+            replacement.href = src;
+            replacement.target = "_blank";
+            replacement.rel = "noopener noreferrer";
+        }
+        replacement.className = "nbdev-external-image";
+        replacement.textContent = `外站图片：${image.getAttribute("alt") || name || "图片"}（${host}）`;
+        image.replaceWith(replacement);
+    }
+    return template.innerHTML;
 }
