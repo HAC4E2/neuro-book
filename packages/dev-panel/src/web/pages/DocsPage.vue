@@ -4,14 +4,16 @@ import {computed, ref} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {relativeDay} from "../host/format.js";
 import {renderMarkdown} from "../host/markdown.js";
-import {useResource} from "../host/panel-data.js";
+import {loadStateOf, useResource} from "../host/panel-data.js";
 import {editHref} from "../host/routes.js";
 import type {DocFileData, DocTreeData, Meta} from "../host/types.js";
+import ActionLink from "../parts/ActionLink.vue";
 import CheckoutSwitch from "../parts/CheckoutSwitch.vue";
 import DocTree from "../parts/DocTree.vue";
 import LoadState from "../parts/LoadState.vue";
 import MarkdownView from "../parts/MarkdownView.vue";
-import StaleNotice from "../parts/StaleNotice.vue";
+import PageShell from "../parts/PageShell.vue";
+import TruncatedText from "../parts/TruncatedText.vue";
 
 /**
  * 文档页（t03 第二轮文档页）：左边按类型的树，顶部切 checkout（缺省主工作区；从 Task 进入时是它的执行 checkout，`prefer` 带上候选），
@@ -29,7 +31,16 @@ const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 const treeHref = computed(() => `/docs?checkout=${encodeURIComponent(checkout.value)}`);
 const changedOnly = ref(false);
 
-const html = computed(() => (file.data.value ? renderMarkdown(file.data.value.body, {checkoutKey: checkout.value, path: file.data.value.path, artifactBase: meta.data.value?.artifactBase ?? null}) : ""));
+/** 文档开头的一级标题当页标题（页头已经是 h1，正文里不再重复）；没有就用文件名。 */
+const LEADING_H1 = /^\s*# (.+)\n?/u;
+const docTitle = computed(() => {
+    const data = file.data.value;
+    if (!data) return path.value ? path.value.slice(path.value.lastIndexOf("/") + 1) : "文档";
+    return LEADING_H1.exec(data.body)?.[1]?.trim() ?? data.path.slice(data.path.lastIndexOf("/") + 1);
+});
+const html = computed(() => (file.data.value ? renderMarkdown(file.data.value.body.replace(LEADING_H1, ""), {checkoutKey: checkout.value, path: file.data.value.path, artifactBase: meta.data.value?.artifactBase ?? null}) : ""));
+const crumbs = computed(() => [{label: "首页", href: "/"}, {label: "文档", href: treeHref.value}, ...(path.value ? [{label: path.value.slice(path.value.lastIndexOf("/") + 1)}] : [])]);
+const navigate = (href: string) => void router.push(href);
 const otherBranches = computed(() => (file.data.value?.changedIn ?? []).filter((key) => key !== checkout.value));
 const frontmatter = computed(() => Object.entries(file.data.value?.frontmatter ?? {}).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 8));
 
@@ -41,41 +52,46 @@ function go(query: Record<string, string | undefined>): void {
 <template>
     <!-- 铺满型页面（路由 layout: fill）：宽屏上树与正文各自滚动；窄屏上下堆叠，整页由根滚动，仍只有一个竖向滚动者。 -->
     <div class="grid h-full min-h-0 grid-cols-1 overflow-y-auto [scrollbar-gutter:stable] md:grid-cols-[18rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden md:[scrollbar-gutter:auto]">
-        <aside class="flex min-h-0 flex-col gap-3 border-b p-3 md:overflow-y-auto md:border-b-0 md:border-r md:[scrollbar-gutter:stable]" style="border-color: var(--divider)" aria-label="文档树">
+        <aside class="nbdev-stack nbdev-divider min-h-0 gap-3 border-b p-3 md:overflow-y-auto md:border-b-0 md:border-r md:[scrollbar-gutter:stable]" aria-label="文档树">
             <CheckoutSwitch v-if="tree.data.value" :checkouts="tree.data.value.checkouts" :model-value="checkout" :preferred="prefer" @update:model-value="(key) => go({checkout: key})" />
-            <div v-if="tree.data.value && !tree.data.value.checkout.isMain" class="flex flex-col gap-1.5" style="font-size: var(--text-xs)">
-                <p style="color: var(--text-secondary)">与主工作区（master）的差异 {{ tree.data.value.changes.length }} 处</p>
+            <div v-if="tree.data.value && !tree.data.value.checkout.isMain" class="nbdev-stack-tight nbdev-small">
+                <p class="nbdev-secondary">与主工作区（master）的差异 {{ tree.data.value.changes.length }} 处</p>
                 <label class="flex items-center gap-2"><Switch v-model="changedOnly" aria-label="只看有差异的" />只看有差异的</label>
             </div>
-            <StaleNotice v-if="tree.stale.value" :error="tree.error.value!" :received-at="tree.receivedAt.value" @retry="tree.reload()" />
-            <LoadState v-if="!tree.data.value" :loading="tree.loading.value" :error="tree.error.value" label="正在读取文档树" @retry="tree.reload()" />
-            <DocTree v-else :docs="tree.data.value.docs" :changes="tree.data.value.changes" :selected="path" :changed-only="changedOnly" @open="(value) => go({path: value})" />
+            <LoadState v-bind="loadStateOf(tree)" label="正在读取文档树" @retry="tree.reload()" />
+            <DocTree v-if="tree.data.value" :docs="tree.data.value.docs" :changes="tree.data.value.changes" :selected="path" :changed-only="changedOnly" @open="(value) => go({path: value})" />
         </aside>
-        <section class="min-h-0 min-w-0 p-4 md:overflow-y-auto md:p-6 md:[scrollbar-gutter:stable]">
-            <StaleNotice v-if="file.stale.value" :error="file.error.value!" :received-at="file.receivedAt.value" :up-href="treeHref" up-label="回到文档树" @navigate="(href) => router.push(href)" @retry="file.reload()" />
-            <p v-if="!path" style="color: var(--text-muted)">在左边选一份文档</p>
-            <LoadState v-else-if="!file.data.value" :loading="file.loading.value" :error="file.error.value" label="正在读取文档" @retry="file.reload()" />
-            <article v-else class="flex flex-col gap-3">
-                <div class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
-                    <code>{{ file.data.value.path }}</code>
+        <!-- 正文一栏套 PageShell 的阅读档：Markdown 按阅读宽度收窄并居中，右边不再空一片。 -->
+        <section class="min-h-0 min-w-0 md:overflow-y-auto md:[scrollbar-gutter:stable]">
+            <PageShell width="reading" :crumbs="crumbs" :title="docTitle" @navigate="navigate">
+                <template v-if="file.data.value" #actions>
+                    <!-- 只编辑主工作区的文件：worktree 的暂存区与分支属于别的会话，面板的写事务管不到。能不能改以编辑页的判定为准。 -->
+                    <ActionLink v-if="file.data.value.checkout.isMain && meta.data.value?.mainWritable.ok" :href="editHref(file.data.value.path)" icon="i-lucide-pencil" @navigate="navigate">编辑</ActionLink>
+                </template>
+                <template v-if="file.data.value" #meta>
+                    <TruncatedText :text="file.data.value.path" mono />
                     <Badge v-if="!file.data.value.checkout.isMain" tone="warning" variant="soft" size="sm">{{ file.data.value.checkout.key }}（{{ file.data.value.checkout.branch ?? "分离 HEAD" }}）</Badge>
                     <Badge v-for="[key, value] in frontmatter" :key="key" tone="neutral" variant="outline" size="sm">{{ key }}：{{ value }}</Badge>
-                    <!-- 只编辑主工作区的文件：worktree 的暂存区与分支属于别的会话，面板的写事务管不到。能不能改以编辑页的判定为准。 -->
-                    <RouterLink v-if="file.data.value.checkout.isMain && meta.data.value?.mainWritable.ok" class="ml-auto" :to="editHref(file.data.value.path)">编辑</RouterLink>
-                </div>
-                <p v-if="otherBranches.length > 0" style="font-size: var(--text-xs); color: var(--status-warning)">
-                    {{ file.data.value.checkout.isMain ? "这些分支改了它" : "别的分支也改了它" }}：<button v-for="key in otherBranches" :key="key" type="button" class="mr-2 underline" @click="go({checkout: key})">{{ key }}</button>
-                </p>
-                <MarkdownView :html="html" @navigate="(href) => router.push(href)" />
-                <section v-if="file.data.value.recent.length > 0" class="flex flex-col gap-1 border-t pt-3" style="border-color: var(--divider); font-size: var(--text-xs)">
-                    <h2 class="font-semibold">最近的改动</h2>
-                    <ol class="flex flex-col gap-0.5">
-                        <li v-for="commit in file.data.value.recent" :key="commit.sha" class="flex min-w-0 gap-2">
-                            <code style="color: var(--text-muted)">{{ commit.sha.slice(0, 9) }}</code><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span style="color: var(--text-secondary)">{{ relativeDay(commit.date) }}</span>
-                        </li>
-                    </ol>
-                </section>
-            </article>
+                </template>
+                <p v-if="!path" class="nbdev-empty">在左边选一份文档</p>
+                <template v-else>
+                    <LoadState v-bind="loadStateOf(file)" label="正在读取文档" :up-href="treeHref" up-label="回到文档树" @navigate="navigate" @retry="file.reload()" />
+                    <article v-if="file.data.value" class="nbdev-stack nbdev-reading-column">
+                        <p v-if="otherBranches.length > 0" class="nbdev-warn nbdev-small">
+                            {{ file.data.value.checkout.isMain ? "这些分支改了它" : "别的分支也改了它" }}：<button v-for="key in otherBranches" :key="key" type="button" class="mr-2 underline" @click="go({checkout: key})">{{ key }}</button>
+                        </p>
+                        <MarkdownView :html="html" @navigate="navigate" />
+                        <section v-if="file.data.value.recent.length > 0" class="nbdev-stack-tight nbdev-divider nbdev-small border-t pt-3">
+                            <h2 class="nbdev-heading">最近的改动</h2>
+                            <ol class="nbdev-stack-tight">
+                                <li v-for="commit in file.data.value.recent" :key="commit.sha" class="flex min-w-0 items-center gap-2">
+                                    <TruncatedText class="nbdev-secondary shrink-0" :text="commit.sha.slice(0, 9)" mono /><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span class="nbdev-secondary shrink-0">{{ relativeDay(commit.date) }}</span>
+                                </li>
+                            </ol>
+                        </section>
+                    </article>
+                </template>
+            </PageShell>
         </section>
     </div>
 </template>

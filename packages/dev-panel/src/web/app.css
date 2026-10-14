@@ -196,6 +196,12 @@ body {
         padding: 1rem;
     }
 }
+/* 不带卡片的阅读栏（文档页的正文）：宽度就是阅读宽度，里面长的一行（最近改动的提交说明）不会把它撑宽。 */
+.nbdev-reading-column {
+    font-size: var(--reading-size, var(--text-md));
+    width: var(--reading-measure, 34em);
+    max-width: 100%;
+}
 
 /* Markdown 正文（MarkdownView）：阅读排版消费主题的阅读刻度。 */
 .nbdev-markdown {
