@@ -11,7 +11,7 @@ const props = defineProps<{
 
 /** 轨道宽 10px，8px 的滑块靠右留 1px。 */
 const TRACK_PX = 10;
-/** 最后一次滚动之后多久算“不在滚动”；之后的 500ms 等待与 800ms 淡出由样式的过渡负责。 */
+/** 最后一次滚动之后多久算“不在滚动”；之后的停留与淡出由样式的过渡负责。 */
 const SCROLL_SETTLE_MS = 100;
 
 const metrics = shallowRef<ScrollMetrics>({scrollTop: 0, clientHeight: 0, scrollHeight: 0});
@@ -162,21 +162,21 @@ function onTrackDown(event: PointerEvent): void {
 
 <style scoped>
 /*
- * 显隐的时机照 VS Code：出现 100ms 淡入；消失先等 500ms 再 800ms 淡出（过渡延迟写在隐藏态上，显示态没有延迟）。看不见时不接
- * 指针，免得挡住下面的内容。
+ * 显隐的时机照 VS Code（`--motion-reveal-*`）：出现时淡入；消失先停一会儿再淡出（过渡延迟写在隐藏态上，显示态没有
+ * 延迟）。看不见时不接指针，免得挡住下面的内容。系统减少动画时这几个时长都是 0。
  */
 .nb-ui-overlay-scrollbar {
     position: absolute;
     width: 10px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 800ms linear 500ms;
+    transition: opacity var(--motion-reveal-out) linear var(--motion-reveal-hold);
 }
 
 .nb-ui-overlay-scrollbar[data-shown] {
     opacity: 1;
     pointer-events: auto;
-    transition: opacity 100ms linear;
+    transition: opacity var(--motion-reveal-in) linear;
 }
 
 .nb-ui-overlay-scrollbar__thumb {
@@ -195,13 +195,5 @@ function onTrackDown(event: PointerEvent): void {
 
 .nb-ui-overlay-scrollbar[data-dragging] .nb-ui-overlay-scrollbar__thumb {
     background: color-mix(in srgb, var(--text-main) 55%, transparent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .nb-ui-overlay-scrollbar,
-    .nb-ui-overlay-scrollbar[data-shown],
-    .nb-ui-overlay-scrollbar__thumb {
-        transition: none;
-    }
 }
 </style>

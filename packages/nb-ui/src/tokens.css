@@ -87,6 +87,10 @@
     --motion-fast: 120ms;
     --motion-base: 180ms;
     --motion-enter: 220ms;
+    /* 悬停才出现的东西（叠加滚动条、视图标题动作）：出现快、离开后先停一会儿再慢慢淡出，照 VS Code 的列表。 */
+    --motion-reveal-in: 100ms;
+    --motion-reveal-hold: 500ms;
+    --motion-reveal-out: 800ms;
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
     /* ==== 主题层基线 ========================================================
@@ -193,7 +197,7 @@
  * `:root[data-nb-theme="x"]`（0,2,0）里，特异性天然更高；主题包又来自第三方、选择器可以再往上加，
  * 靠特异性或引入顺序都没有稳赢的写法。系统级无障碍偏好压过任意主题，是唯一正确的裁决方向。
  *
- * 边界：只覆盖这三个时长。缓动曲线、以及主题自己新增的动效变量（例 macOS 的 --glass-lift）
+ * 边界：只覆盖这几个时长。缓动曲线、以及主题自己新增的动效变量（例 macOS 的 --glass-lift）
  * 由主题在自己的 vars.css 里处理——库不知道它们叫什么。
  */
 @media (prefers-reduced-motion: reduce) {
@@ -201,5 +205,8 @@
         --motion-fast: 0ms !important;
         --motion-base: 0ms !important;
         --motion-enter: 0ms !important;
+        --motion-reveal-in: 0ms !important;
+        --motion-reveal-hold: 0ms !important;
+        --motion-reveal-out: 0ms !important;
     }
 }

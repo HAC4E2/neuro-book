@@ -2818,6 +2818,9 @@
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-enter: 220ms;
+  --motion-reveal-in: 100ms;
+  --motion-reveal-hold: 500ms;
+  --motion-reveal-out: 800ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --font-display: var(--font-ui);
   --tracking-ui: 0;
@@ -2878,6 +2881,9 @@
     --motion-fast: 0ms !important;
     --motion-base: 0ms !important;
     --motion-enter: 0ms !important;
+    --motion-reveal-in: 0ms !important;
+    --motion-reveal-hold: 0ms !important;
+    --motion-reveal-out: 0ms !important;
   }
 }
 html {
@@ -2888,6 +2894,13 @@ html {
 }
 .nb-ui-scrollbar-center {
   scrollbar-gutter: stable both-edges;
+}
+.nb-ui-scrollbar-none {
+  scrollbar-width: none;
+  isolation: isolate;
+}
+.nb-ui-scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 .nb-ui-colorway {
   color-scheme: var(--color-scheme, light dark);
