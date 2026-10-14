@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t89-explorer-polish-2",
+    "artifactId": "review",
+    "ackId": "20261014T114820890Z-473bfa8f",
+    "answers": [
+        "20261014T114744029Z-38fec919"
+    ],
+    "through": "20261014T114744029Z-38fec919",
+    "included": [
+        ".agents/works/w00017-application-runtime-architecture/tasks/t89-explorer-polish-2/README.md"
+    ],
+    "ackedAt": "2026-10-14T11:48:20.890Z"
+}
