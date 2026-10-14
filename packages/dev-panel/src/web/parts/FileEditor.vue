@@ -31,8 +31,8 @@ const lines = computed(() => (props.lineLimit === null ? 0 : countNonEmptyLines(
                 非空行 {{ lines }} / {{ lineLimit }}{{ lines > lineLimit ? "：超过治理检查的上限，提交后 master 过不了 governance:check" : "" }}
             </span>
         </div>
-        <FormTextarea v-if="mode === 'edit'" :model-value="modelValue" :rows="28" :readonly="readonly" class="font-mono" aria-label="文件内容" style="font-size: var(--text-sm)" @update:model-value="(value: string) => emit('update:modelValue', value)" />
-        <div v-else class="min-h-[20rem] rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
+        <FormTextarea v-if="mode === 'edit'" :model-value="modelValue" :rows="28" :readonly="readonly" class="font-mono nbdev-body" aria-label="文件内容" @update:model-value="(value: string) => emit('update:modelValue', value)" />
+        <div v-else class="min-h-[20rem] rounded-[var(--radius-panel)] p-4 nbdev-surface">
             <MarkdownView :html="previewHtml" @navigate="(href) => emit('navigate', href)" />
         </div>
     </div>

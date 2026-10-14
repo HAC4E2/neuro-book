@@ -22,8 +22,8 @@ function follow(event: MouseEvent): void {
 </script>
 
 <template>
-    <p role="status" class="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] px-2 py-1" style="background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--text-xs)">
-        <span class="i-lucide-history size-3.5" style="color: var(--status-warning)" aria-hidden="true" />
+    <p role="status" class="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] px-2 py-1 nbdev-hint">
+        <span class="i-lucide-history size-3.5 nbdev-warn" aria-hidden="true" />
         <span v-if="missing">已经找不到了（可能被删或改了名）；下面是{{ when }}读到的内容</span>
         <span v-else>显示的是{{ when }}读到的内容；这次重取失败：{{ error.message }}</span>
         <a v-if="missing && upHref" :href="upHref" @click="follow">{{ upLabel }}</a>

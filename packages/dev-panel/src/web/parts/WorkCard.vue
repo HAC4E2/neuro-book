@@ -19,11 +19,11 @@ function follow(event: MouseEvent, href: string): void {
 </script>
 
 <template>
-    <article class="flex min-w-0 flex-col gap-3 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
+    <article class="flex min-w-0 flex-col gap-3 rounded-[var(--radius-panel)] p-4 nbdev-surface">
         <header class="flex min-w-0 items-start gap-2">
             <StatusChip :status="work.status" />
-            <a :href="workHref(work.workId)" class="min-w-0 flex-1 font-semibold hover:underline focus-visible:underline" style="font-size: var(--text-md)" @click="follow($event, workHref(work.workId))">
-                <span style="color: var(--text-secondary)">{{ workLabel(work.workId) }}</span>
+            <a :href="workHref(work.workId)" class="min-w-0 flex-1 font-semibold hover:underline focus-visible:underline nbdev-heading" @click="follow($event, workHref(work.workId))">
+                <span class="nbdev-secondary">{{ workLabel(work.workId) }}</span>
                 {{ work.title ?? work.workId }}
             </a>
         </header>
@@ -31,10 +31,10 @@ function follow(event: MouseEvent, href: string): void {
             {{ work.goal.value ?? "目标：未标" }}
         </p>
         <StatusBar :counts="work.taskCounts" />
-        <div class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
+        <div class="flex flex-wrap items-center gap-2 nbdev-note">
             <Badge v-if="work.openRequired > 0" tone="warning" variant="soft" size="sm" icon-class="i-lucide-message-circle-question">待答 {{ work.openRequired }}</Badge>
             <span v-if="work.updated.value">最近更新 {{ relativeDay(work.updated.value) }}</span>
-            <span v-else style="color: var(--text-muted)">最近更新：未标</span>
+            <span class="nbdev-empty" v-else>最近更新：未标</span>
             <span v-if="work.uncommitted">· 有未提交的改动</span>
         </div>
         <BranchNote v-if="work.source === 'branch'" :branch="work.branch" :checkout-key="work.checkoutKey" />

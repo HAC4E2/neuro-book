@@ -31,26 +31,26 @@ function outcomeText(state: QuestionState): string {
 
 <template>
     <div class="flex flex-col gap-4">
-        <p v-if="version !== latestVersion && !answering" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--text-xs)">
+        <p v-if="version !== latestVersion && !answering" class="rounded-[var(--radius-control)] px-2 py-1 nbdev-hint">
             看的是 v{{ version }} 的题表（最新是 v{{ latestVersion }}）；状态按全部答复现算
         </p>
         <section v-if="!answering" class="flex flex-col gap-2">
             <h3 class="font-semibold">未答 {{ open.length }}</h3>
-            <p v-if="open.length === 0" style="color: var(--text-muted)">没有未答的题</p>
-            <article v-for="state in open" :key="state.question.id" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0" style="border-color: var(--divider)">
+            <p class="nbdev-empty" v-if="open.length === 0">没有未答的题</p>
+            <article v-for="state in open" :key="state.question.id" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0 nbdev-divider">
                 <div class="flex flex-wrap items-center gap-1.5">
                     <Badge tone="neutral" variant="outline" size="sm">{{ TYPE_LABEL[state.question.type] }}</Badge>
                     <Badge v-if="!state.question.required" tone="neutral" variant="soft" size="sm">选答</Badge>
-                    <span style="color: var(--text-secondary); font-size: var(--text-xs)">#{{ state.question.id }} · 自 v{{ state.question.since }}</span>
+                    <span class="nbdev-note">#{{ state.question.id }} · 自 v{{ state.question.since }}</span>
                 </div>
                 <p class="font-medium">{{ state.question.label }}</p>
-                <ul v-if="state.question.options.length > 0" class="flex flex-col gap-0.5 pl-1" style="font-size: var(--text-xs); color: var(--text-secondary)">
+                <ul v-if="state.question.options.length > 0" class="flex flex-col gap-0.5 pl-1 nbdev-note">
                     <li v-for="option in state.question.options" :key="option.value" class="flex items-center gap-1.5">
                         <span class="i-lucide-circle size-3" aria-hidden="true" />{{ option.label }}
                         <Badge v-if="state.question.recommend.includes(option.value)" tone="accent" variant="soft" size="sm">推荐</Badge>
                     </li>
                 </ul>
-                <p v-if="state.question.about" style="color: var(--text-secondary); font-size: var(--text-xs)">关于 {{ state.question.about }}</p>
+                <p class="nbdev-note" v-if="state.question.about">关于 {{ state.question.about }}</p>
                 <p v-if="state.stale" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--status-warning-bg, var(--bg-subtle)); font-size: var(--text-xs); color: var(--text-secondary)">
                     旧答复“{{ valueText(state.question, state.stale.value) }}”{{ state.stale.code === "stale_value" ? `按 v${state.stale.artifactVersion} 合法，但选项后来改了` : "本身就不合法" }}，要重新答
                 </p>
@@ -65,7 +65,7 @@ function outcomeText(state: QuestionState): string {
             <div class="mt-2 flex flex-col gap-2">
                 <article v-for="state in answered" :key="state.question.id" class="flex flex-col gap-0.5">
                     <p class="font-medium">{{ state.question.label }}</p>
-                    <p style="font-size: var(--text-xs); color: var(--text-secondary)">
+                    <p class="nbdev-note">
                         {{ valueText(state.question, state.answer?.value) }} · 针对 v{{ state.answer?.artifactVersion }}<template v-if="state.answer?.comment"> · {{ state.answer.comment }}</template>
                     </p>
                 </article>
@@ -73,14 +73,14 @@ function outcomeText(state: QuestionState): string {
         </Collapsible>
         <Collapsible v-if="retired.length > 0" v-model:open="retiredOpen">
             <template #trigger>
-                <button type="button" class="flex items-center gap-1 font-semibold" style="color: var(--text-secondary)" :aria-expanded="retiredOpen">
+                <button type="button" class="flex items-center gap-1 font-semibold nbdev-secondary" :aria-expanded="retiredOpen">
                     <span :class="retiredOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" aria-hidden="true" />已取代与撤回 {{ retired.length }}
                 </button>
             </template>
-            <ul class="mt-2 flex flex-col gap-1.5" style="color: var(--text-muted)">
+            <ul class="mt-2 flex flex-col gap-1.5 nbdev-empty">
                 <li v-for="state in retired" :key="state.question.id">
                     <span class="line-through">{{ state.question.label }}</span>
-                    <span style="font-size: var(--text-xs)"> · {{ outcomeText(state) }}</span>
+                    <span class="nbdev-small"> · {{ outcomeText(state) }}</span>
                 </li>
             </ul>
         </Collapsible>

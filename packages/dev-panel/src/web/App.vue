@@ -344,10 +344,10 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
 <template>
     <!-- 登录失效时页面不卸载（草稿、填了一半的答复都还在），盖一层提示、整个外壳 inert；重新登录后点按钮接着用（t15）。 -->
     <div v-if="panelState.unauthorized" class="fixed inset-0 z-50 flex items-center justify-center p-6" style="background: color-mix(in srgb, var(--bg-main) 75%, transparent)">
-        <section ref="authDialog" role="alertdialog" aria-modal="true" aria-labelledby="auth-lost-title" aria-describedby="auth-lost-message" class="flex max-w-md flex-col gap-3 rounded-[var(--radius-panel)] p-5" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
+        <section ref="authDialog" role="alertdialog" aria-modal="true" aria-labelledby="auth-lost-title" aria-describedby="auth-lost-message" class="flex max-w-md flex-col gap-3 rounded-[var(--radius-panel)] p-5 nbdev-surface">
             <h2 id="auth-lost-title" class="font-semibold">没有登录，或登录已失效</h2>
-            <p id="auth-lost-message" style="color: var(--text-secondary)">在终端运行 <code>nbdev panel open</code>，用它给的一次性链接登录（在这个浏览器的另一个标签页里打开也行；面板重启后要重新登录）。这一页还开着，没保存的改动都在；登录后点下面的按钮接着用。</p>
-            <p v-if="reloginError" role="status" style="color: var(--status-warning); font-size: var(--text-xs)">{{ reloginError }}</p>
+            <p class="nbdev-secondary" id="auth-lost-message">在终端运行 <code>nbdev panel open</code>，用它给的一次性链接登录（在这个浏览器的另一个标签页里打开也行；面板重启后要重新登录）。这一页还开着，没保存的改动都在；登录后点下面的按钮接着用。</p>
+            <p class="nbdev-warn nbdev-small" v-if="reloginError" role="status">{{ reloginError }}</p>
             <Button variant="primary" :loading="relogging" @click="relogin">我已重新登录</Button>
         </section>
     </div>
@@ -370,18 +370,18 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
                     <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
                         <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
-                    <div class="ml-auto flex items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
+                    <div class="ml-auto flex items-center gap-2 nbdev-note">
                         <RouterLink v-if="attention > 0" to="/live/sessions#notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
                         <Popover side="bottom" align="end">
                             <template #trigger>
                                 <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
                                     <span class="size-2 rounded-full" :style="{background: statusProblem ? 'var(--status-warning)' : 'var(--status-success)'}" aria-hidden="true" />
-                                    <span v-if="statusProblem" class="max-w-[24rem] truncate" style="color: var(--status-warning)">{{ statusProblem.label }}{{ statusProblem.text }}</span>
+                                    <span v-if="statusProblem" class="max-w-[24rem] truncate nbdev-warn">{{ statusProblem.label }}{{ statusProblem.text }}</span>
                                 </button>
                             </template>
-                            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1" style="font-size: var(--text-xs)">
+                            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 nbdev-small">
                                 <template v-for="line in statusLines" :key="line.label">
-                                    <dt style="color: var(--text-secondary)">{{ line.label }}</dt>
+                                    <dt class="nbdev-secondary">{{ line.label }}</dt>
                                     <dd :style="{color: line.ok ? 'var(--text-main)' : 'var(--status-warning)'}">{{ line.text }}</dd>
                                 </template>
                             </dl>

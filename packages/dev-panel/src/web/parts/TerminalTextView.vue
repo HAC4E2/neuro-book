@@ -43,5 +43,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <pre class="max-h-[60vh] min-h-24 overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="终端的当前屏幕（文字）">{{ text || "还没有画面" }}</pre>
+    <pre class="max-h-[60vh] min-h-24 overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2 nbdev-pre nbdev-small" aria-label="终端的当前屏幕（文字）">{{ text || "还没有画面" }}</pre>
 </template>

@@ -22,7 +22,7 @@ const summary = computed(() => (total.value === 0 ? "还没有 Task" : segments.
         <div class="flex h-1.5 w-full overflow-hidden rounded-full" style="background: var(--bg-subtle)" role="img" :aria-label="`Task 状态：${summary}`">
             <span v-for="segment in segments" :key="segment.key" class="h-full" :style="{width: `${segment.share * 100}%`, background: segment.color}" />
         </div>
-        <div class="flex flex-wrap gap-x-3 gap-y-1" style="font-size: var(--text-xs); color: var(--text-secondary)">
+        <div class="flex flex-wrap gap-x-3 gap-y-1 nbdev-note">
             <span v-if="total === 0">还没有 Task</span>
             <span v-for="segment in segments" :key="segment.key" class="inline-flex items-center gap-1">
                 <span class="inline-block size-2 rounded-full" :style="{background: segment.color}" aria-hidden="true" />{{ segment.label }} {{ segment.count }}

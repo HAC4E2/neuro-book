@@ -33,26 +33,26 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string; al
     <Table class="nbdev-table" :columns="columns" :rows="rows" row-key="taskId" density="compact" :hoverable="false" empty-text="这个 Work 还没有 Task">
         <template #cell-title="{row}">
             <a :href="taskHref(workId, row.task.taskId)" class="hover:underline focus-visible:underline" @click="follow($event, taskHref(workId, row.task.taskId))">
-                <span style="color: var(--text-secondary)">{{ taskLabel(row.task.taskId) }}</span> {{ row.task.title ?? row.task.taskId }}
+                <span class="nbdev-secondary">{{ taskLabel(row.task.taskId) }}</span> {{ row.task.title ?? row.task.taskId }}
             </a>
         </template>
         <template #cell-status="{row}"><StatusChip :status="row.task.status" /></template>
         <template #cell-current="{row}">
-            <span v-if="row.task.currentState" class="line-clamp-2" style="color: var(--text-secondary)">{{ row.task.currentState }}</span>
-            <span v-else style="color: var(--text-muted)">未标</span>
+            <span v-if="row.task.currentState" class="line-clamp-2 nbdev-secondary">{{ row.task.currentState }}</span>
+            <span class="nbdev-empty" v-else>未标</span>
         </template>
         <template #cell-updated="{row}">
-            <span v-if="row.task.updated.value" style="color: var(--text-secondary)">{{ relativeDay(row.task.updated.value) }}</span>
-            <span v-else style="color: var(--text-muted)">未标</span>
+            <span class="nbdev-secondary" v-if="row.task.updated.value">{{ relativeDay(row.task.updated.value) }}</span>
+            <span class="nbdev-empty" v-else>未标</span>
         </template>
-        <template #cell-artifacts="{row}"><span style="color: var(--text-secondary)">{{ row.task.artifacts.length + row.task.documents.length }}</span></template>
+        <template #cell-artifacts="{row}"><span class="nbdev-secondary">{{ row.task.artifacts.length + row.task.documents.length }}</span></template>
         <template #cell-open="{row}">
             <Badge v-if="row.task.openRequired > 0" tone="warning" variant="soft" size="sm">{{ row.task.openRequired }}</Badge>
-            <span v-else style="color: var(--text-muted)">0</span>
+            <span class="nbdev-empty" v-else>0</span>
         </template>
         <template #cell-source="{row}">
-            <span style="color: var(--text-secondary)">{{ row.task.source === "branch" ? "分支" : "master" }}</span>
-            <span v-if="row.task.uncommitted" style="color: var(--status-warning)"> · 未提交</span>
+            <span class="nbdev-secondary">{{ row.task.source === "branch" ? "分支" : "master" }}</span>
+            <span class="nbdev-warn" v-if="row.task.uncommitted"> · 未提交</span>
         </template>
         <template #cell-leases="{row}">
             <div class="flex flex-wrap gap-1">

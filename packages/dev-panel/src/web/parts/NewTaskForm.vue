@@ -50,7 +50,7 @@ const complete = computed(() => props.modelValue.workId !== "" && props.modelVal
         </fieldset>
         <div class="flex flex-wrap items-center gap-2">
             <Button type="submit" :loading="pending" :disabled="!complete || disabledReason !== null">新建 Task</Button>
-            <span v-if="slow" style="color: var(--text-secondary); font-size: var(--text-xs)">在等别的写入完成…</span>
+            <span class="nbdev-note" v-if="slow">在等别的写入完成…</span>
         </div>
     </form>
 </template>

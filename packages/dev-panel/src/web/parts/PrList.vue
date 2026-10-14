@@ -17,9 +17,9 @@ const REVIEW: Record<string, string> = {APPROVED: "已批准", CHANGES_REQUESTED
 </script>
 
 <template>
-    <p v-if="prs.length === 0" style="color: var(--text-muted)">没有开着的 PR</p>
+    <p class="nbdev-empty" v-if="prs.length === 0">没有开着的 PR</p>
     <ul v-else class="flex flex-col gap-2">
-        <li v-for="pr in prs" :key="pr.number" class="flex flex-col gap-1 border-b pb-2 last:border-b-0" style="border-color: var(--divider)">
+        <li v-for="pr in prs" :key="pr.number" class="flex flex-col gap-1 border-b pb-2 last:border-b-0 nbdev-divider">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <a v-if="pr.url" :href="pr.url" target="_blank" rel="noopener noreferrer" class="font-medium">#{{ pr.number }}</a>
                 <span v-else class="font-medium">#{{ pr.number }}</span>
@@ -27,15 +27,15 @@ const REVIEW: Record<string, string> = {APPROVED: "已批准", CHANGES_REQUESTED
                 <Badge v-if="pr.draft" tone="neutral" variant="soft" size="sm">草稿</Badge>
                 <Badge v-if="pr.reviewDecision" :tone="pr.reviewDecision === 'APPROVED' ? 'success' : 'warning'" variant="soft" size="sm">{{ REVIEW[pr.reviewDecision] ?? pr.reviewDecision }}</Badge>
             </div>
-            <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" style="font-size: var(--text-xs); color: var(--text-secondary)">
+            <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 nbdev-note">
                 <code class="break-all">{{ pr.branch }}</code>
                 <a v-if="pr.task" :href="taskHref(pr.task.workId, pr.task.taskId)" @click="follow($event, taskHref(pr.task.workId, pr.task.taskId))">{{ pr.task.workId.slice(0, 6) }}/{{ pr.task.taskId.slice(0, pr.task.taskId.indexOf("-")) }}</a>
                 <span>· {{ relativeTime(pr.updatedAt) }}更新</span>
-                <span>· 检查：<span style="color: var(--status-success)">{{ pr.checks.success }} 过</span><template v-if="pr.checks.failure > 0">，<span style="color: var(--status-danger)">{{ pr.checks.failure }} 失败</span></template><template v-if="pr.checks.pending > 0">，{{ pr.checks.pending }} 进行中</template></span>
+                <span>· 检查：<span class="nbdev-ok">{{ pr.checks.success }} 过</span><template v-if="pr.checks.failure > 0">，<span class="nbdev-danger">{{ pr.checks.failure }} 失败</span></template><template v-if="pr.checks.pending > 0">，{{ pr.checks.pending }} 进行中</template></span>
             </div>
-            <ul v-if="pr.checks.failed.length > 0" class="flex flex-wrap gap-x-3" style="font-size: var(--text-xs)">
+            <ul v-if="pr.checks.failed.length > 0" class="flex flex-wrap gap-x-3 nbdev-small">
                 <li v-for="(check, index) in pr.checks.failed" :key="index">
-                    <span class="i-lucide-x size-3 align-middle" style="color: var(--status-danger)" aria-hidden="true" />
+                    <span class="i-lucide-x size-3 align-middle nbdev-danger" aria-hidden="true" />
                     <a v-if="check.url" :href="check.url" target="_blank" rel="noopener noreferrer">{{ checkLabel(check) }}</a>
                     <span v-else>{{ checkLabel(check) }}</span>
                 </li>
