@@ -13,7 +13,7 @@ updated: 2026-10-14
 
 合同：[`workbench/files-explorer.md`](../../../../../docs/specs/workbench/files-explorer.md)；要改哪些等第一轮评审定。组件文档 `packages/neuro-book/src/plugins/explorer/web/components/` 的 `ExplorerRow`、`ExplorerTree`、`FilesExplorerView`。
 
-执行位置：`.worktree/w00017-t86-explorer-polish`，分支 `feat/w00017-t86-explorer-polish`（经 `nbdev worktree new` 从 `master` 创建）。评审板：[artifacts/review](artifacts/review/index.html)。
+执行位置：`.worktree/w00017-t86-explorer-polish`，分支 `feat/w00017-t86-explorer-polish`（经 `nbdev worktree new` 从 `master` 创建）。评审板：[artifacts/review](artifacts/review/index.html)。实施计划：[plan.md](plan.md)（开发者 2026-10-14 确认）。
 
 ## 当前状态
 
@@ -60,4 +60,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-设计定稿。写 Spec 修订与 `plan.md`，交开发者确认后实施。
+按 [plan.md](plan.md) 从 S0 开始实施。
