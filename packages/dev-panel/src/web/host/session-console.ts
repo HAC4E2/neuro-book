@@ -125,7 +125,8 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
     /** 读一次屏幕；只有最后发起的那次写进状态，但每次都把自己的结果交回调用方（确认框要的是这一次读到的）。 */
     async function readScreen(): Promise<ScreenRead> {
         const target = current.value;
-        if (!target) return null;
+        // 会话键为空的是非 Agent 的 pane（只读观看，D2）：读屏接口按会话核对目标，没有会话可核对。
+        if (!target || target.sessionKey === "") return null;
         const mine = ++readSequence;
         try {
             const body = await getJson<ScreenData>(`/api/sessions/${encodeURIComponent(target.paneId)}/screen?session=${encodeURIComponent(target.sessionKey)}`);

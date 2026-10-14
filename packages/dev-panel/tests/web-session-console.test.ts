@@ -203,6 +203,16 @@ describe("终端连接与接管（重要 3、阻断 1 的接管）", () => {
         stop();
     });
 
+    test("非 Agent 的 pane（会话键为空，只读观看）：建终端连接，不读屏", async () => {
+        web.env.respond(screenOf);
+        const {host, stop} = mount({paneId: "w9:p2", terminalId: "term_log", sessionKey: "", agent: null, status: "unknown"}, true);
+        await nextTick();
+        expect(web.env.sockets().map((socket) => socket.url.includes("terminal=term_log"))).toEqual([true]);
+        expect(web.env.calls.filter((call) => call.url.includes("/screen"))).toEqual([]);
+        expect(await host.readScreen()).toBeNull();
+        stop();
+    });
+
     test("接管小窗打开期间目标变了：确认不发接管；need_confirm 之后目标变了：不再开“抢过来”", async () => {
         web.env.respond(screenOf);
         const {selected, host, stop} = mount(A, true);

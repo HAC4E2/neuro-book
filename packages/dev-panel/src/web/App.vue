@@ -383,7 +383,7 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
                         <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
                     <div class="ml-auto flex items-center gap-2 nbdev-note">
-                        <RouterLink v-if="attention > 0" to="/live/sessions#notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
+                        <RouterLink v-if="attention > 0" to="/live/sessions?view=notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
                         <Popover side="bottom" align="end">
                             <template #trigger>
                                 <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">

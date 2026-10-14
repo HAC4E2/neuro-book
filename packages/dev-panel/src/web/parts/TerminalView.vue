@@ -20,15 +20,21 @@ const props = withDefaults(defineProps<{
     takeoverBlocked: string | null;
     controllerNote?: string | null;
     pending?: boolean;
-}>(), {controllerNote: null, pending: false});
+    /** 只读观看的原因（非 Agent 的 pane）：有值时模式条在“只读”后面括号里写这句，不给接管（t15 阶段 4 第 3 批，D2）。 */
+    readOnly?: string | null;
+}>(), {controllerNote: null, pending: false, readOnly: null});
 const emit = defineEmits<{takeover: [cols: number, rows: number]; release: []; input: [data: string, paste: boolean]; resize: [cols: number, rows: number]; "open-link": [url: string]}>();
 
 const CONTROL_FONT = 13;
 /** 观看时字号的范围：再窄的容器（手机的终端画面）也尽量放下整屏，放不下就在框里横向滚动。 */
 const WATCH_FONT_MIN = 5;
 const WATCH_FONT_MAX = 14;
-/** 接管时终端框的高度（观看时框高随行数）。接管尺寸按这个高度算，接上之后不必再 resize 一次。 */
-const CONTROL_BOX = {height: "70vh", minHeight: "16rem"} as const;
+/**
+ * 回滚的行数（t15 阶段 4 第 3 批，决定点 23：这一批只靠终端回滚，能翻到开始观看之后的输出）。
+ * 有回滚时 xterm 的自绘滑块（14px）盖在终端右缘：量列数时先减掉，否则最后一列有一半在滑块下面、选不中（阶段 2 实测）。
+ */
+const SCROLLBACK = 5000;
+const SLIDER_WIDTH = 14;
 const host = ref<HTMLDivElement | null>(null);
 const frameBox = ref<HTMLDivElement | null>(null);
 let term: Terminal | null = null;
@@ -42,7 +48,7 @@ let cellRatio = 0.6;
 /** 观看时字号按容器宽度与列数缩放，控制在 `WATCH_FONT_MIN` 到 `WATCH_FONT_MAX`。 */
 function watchFontSize(cols: number): number {
     const width = frameBox.value?.clientWidth ?? 800;
-    return Math.max(WATCH_FONT_MIN, Math.min(WATCH_FONT_MAX, Math.floor((width - 16) / (cols * cellRatio))));
+    return Math.max(WATCH_FONT_MIN, Math.min(WATCH_FONT_MAX, Math.floor((width - 16 - SLIDER_WIDTH) / (cols * cellRatio))));
 }
 
 function fitWatchFont(): void {
@@ -83,24 +89,23 @@ function proposeSize(box: HTMLElement): {cols: number; rows: number} | null {
     box.style.overflow = "hidden";
     const outer = getComputedStyle(parent);
     const inner = getComputedStyle(element);
-    const width = Math.max(0, parseInt(outer.width)) - parseInt(inner.paddingLeft) - parseInt(inner.paddingRight);
+    const width = Math.max(0, parseInt(outer.width) - SLIDER_WIDTH) - parseInt(inner.paddingLeft) - parseInt(inner.paddingRight);
     const height = parseInt(outer.height) - parseInt(inner.paddingTop) - parseInt(inner.paddingBottom);
     box.style.overflow = overflow;
     return {cols: Math.max(2, Math.floor(width / (cell.width / dpr))), rows: Math.max(1, Math.floor(height / (cell.height / dpr)))};
 }
 
-/** 按接管后的样子量：框临时套上接管时的高度、字号换成 13px，量完同步改回（中间不会画到屏幕上）。 */
+/**
+ * 按接管后的样子量：字号换成 13px，量完同步改回（中间不会画到屏幕上）。框的高度由会话页的布局给定（铺满页里占满剩下的高度），
+ * 观看与接管时一样，所以不再临时套高度（以前观看时框高随行数，要先套上接管时的 70vh）。
+ */
 function proposeControlSize(): {cols: number; rows: number} | null {
     const box = frameBox.value;
     if (!term || !box) return null;
-    const before = {fontSize: term.options.fontSize, height: box.style.height, minHeight: box.style.minHeight};
-    box.style.height = CONTROL_BOX.height;
-    box.style.minHeight = CONTROL_BOX.minHeight;
+    const before = term.options.fontSize;
     term.options.fontSize = CONTROL_FONT;
     const proposed = proposeSize(box);
-    term.options.fontSize = before.fontSize;
-    box.style.height = before.height;
-    box.style.minHeight = before.minHeight;
+    term.options.fontSize = before;
     return proposed;
 }
 
@@ -121,7 +126,7 @@ onMounted(() => {
     }
     if (ratio !== null && ratio > 0) cellRatio = ratio;
     term = new Terminal({
-        scrollback: 0,
+        scrollback: SCROLLBACK,
         disableStdin: props.mode !== "control",
         cursorBlink: false,
         fontFamily,
@@ -135,7 +140,17 @@ onMounted(() => {
     });
     term.open(element);
     if (props.bracketedPaste) term.write("\u001b[?2004h");
-    term.attachCustomKeyEventHandler((event) => !letBrowserCopy(event, term?.hasSelection() ?? false));
+    term.attachCustomKeyEventHandler((event) => {
+        // Ctrl+] 是接管时固定的退出键（终稿第 11 条）：面板拦下当“释放”，不发给这一格。接管中 Tab、Esc 都交给终端，没有它就是键盘陷阱。
+        if (props.mode === "control" && event.ctrlKey && !event.altKey && !event.metaKey && (event.code === "BracketRight" || event.key === "]")) {
+            if (event.type === "keydown") {
+                event.preventDefault();
+                emit("release");
+            }
+            return false;
+        }
+        return !letBrowserCopy(event, term?.hasSelection() ?? false);
+    });
     term.onData((data) => {
         if (props.mode === "control") emit("input", data, pasting);
     });
@@ -188,24 +203,48 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
 </script>
 
 <template>
-    <section class="flex flex-col gap-2" aria-label="实时终端">
-        <div class="nbdev-small flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] px-3 py-2" :class="mode === 'control' ? 'bg-[var(--accent-bg)]' : 'bg-[var(--bg-hover)]'">
-            <template v-if="mode === 'watch'">
-                <span class="i-lucide-eye size-4" aria-hidden="true" />
-                <span class="min-w-0 flex-1"><b>观看中</b>：只读的实时画面，键盘在别处（herdr 客户端或其它设备）<template v-if="!sizeKnown">；尺寸不确定，可能裁切</template><template v-if="controllerNote">；{{ controllerNote }}</template></span>
+    <section class="flex min-h-0 flex-1 flex-col" aria-label="实时终端">
+        <!-- 模式条：一眼看出是只读观看还是你在接管（ux-b F13）；接管时整条换成强调色实底，写明 Ctrl+] 退出。 -->
+        <div v-if="mode === 'watch'" class="nbdev-term-bar nbdev-small flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
+            <span class="i-lucide-eye size-4 shrink-0" aria-hidden="true" />
+            <span class="min-w-0 flex-1"><b>观看中</b> · {{ readOnly ? `实时画面，只读（${readOnly}）` : "实时画面，只读；键盘在 herdr 那边" }}<template v-if="!sizeKnown">；尺寸不确定，可能裁切</template><template v-if="controllerNote">；{{ controllerNote }}</template></span>
+            <slot name="actions" />
+            <template v-if="!readOnly">
+                <span v-if="canTakeover" class="nbdev-secondary">接管后按 <kbd class="nbdev-kbd">Ctrl+]</kbd> 退出</span>
                 <Button v-if="canTakeover" size="sm" variant="primary" icon-class="i-lucide-keyboard" :loading="pending" @click="requestTakeover">接管键盘</Button>
-                <span class="nbdev-empty" v-else>{{ takeoverBlocked }}</span>
-            </template>
-            <template v-else>
-                <span class="i-lucide-keyboard size-4" aria-hidden="true" />
-                <span class="min-w-0 flex-1"><b>你已接管键盘</b>：按键原样发给会话；终端按网页尺寸 {{ sizeLabel }}；切到别的标签页或离开会自动释放</span>
-                <Button size="sm" variant="secondary" :loading="pending" @click="emit('release')">释放</Button>
+                <span v-else class="nbdev-empty">{{ takeoverBlocked }}</span>
             </template>
         </div>
-        <p class="nbdev-caption" v-if="mode === 'control'">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。herdr 那边（键盘与其它程序）照样能写进来。</p>
-        <!-- 接管时的框高与量列数用的是同一份 CONTROL_BOX（proposeSize 先按它撑开再量），所以这里绑定它，不改成类。 -->
-        <div ref="frameBox" class="relative overflow-x-auto rounded-[var(--radius-panel)] bg-[var(--bg-main)] p-2" :style="mode === 'control' ? CONTROL_BOX : undefined">
+        <div v-else class="nbdev-term-bar nbdev-term-bar-control nbdev-small flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2" role="status">
+            <span class="i-lucide-keyboard size-4 shrink-0" aria-hidden="true" />
+            <span class="min-w-0 flex-1"><b>你在接管键盘</b> · 你打的字直接进这一格，herdr 那边的输入照样能写进来；终端按网页尺寸 {{ sizeLabel }}；切到别的标签页或离开会自动释放</span>
+            <span>按 <kbd class="nbdev-kbd">Ctrl+]</kbd> 退出</span>
+            <Button size="sm" variant="secondary" :loading="pending" @click="emit('release')">释放</Button>
+        </div>
+        <p v-if="mode === 'control'" class="nbdev-caption px-3 py-1">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。</p>
+        <!-- 终端占满剩下的高度（会话页是铺满页），观看与接管时框高一样，接管尺寸就按它量。 -->
+        <div ref="frameBox" class="relative min-h-64 flex-1 overflow-auto bg-[var(--bg-main)] p-2">
             <div ref="host" class="h-full" />
         </div>
     </section>
 </template>
+
+<style scoped>
+.nbdev-term-bar {
+    background: var(--bg-hover);
+    border-bottom: var(--border-w, 1px) solid var(--divider);
+}
+/* 接管中：强调色实底、白字，与观看中的浅底一眼分得开（高危状态更醒目）。 */
+.nbdev-term-bar-control {
+    background: var(--accent-main);
+    color: var(--text-inverse);
+}
+.nbdev-kbd {
+    border: 1px solid currentColor;
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 0.3em;
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+}
+</style>

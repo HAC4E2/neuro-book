@@ -93,8 +93,11 @@ export type DocFileData = {checkout: CheckoutRef; path: string; text: string; ti
 
 export type RunView = {pid: number; startedAt: string; command: string; cwd: string; checkout: string; ownerVia: string | null; paneId: string | null; unit: string | null; sessionHint: string | null; sessionAlive: boolean | null; descendants: Array<{pid: number; command: string}>};
 export type SessionLease = {workId: string; taskId: string; acquiredAt: string; lastActivityAt: string; lastAction: string; stale: boolean};
-export type SessionView = {key: string; agent: string; sessionId: string | null; label: string | null; alive: boolean | null; managed: boolean; herdr: {paneId: string; status: string} | null; leases: SessionLease[]; runs: RunView[]};
-export type PaneView = {paneId: string; terminalId: string; agent: string | null; status: string; session: {agent: string; value: string} | null; cwd: string | null; foregroundCwd: string | null; workspaceLabel: string | null; inRepository: boolean};
+/** 会话标题（t15 阶段 4 第 3 批）：从本机 Agent 的会话文件里读，读不出为 null。 */
+export type SessionTitle = {text: string; source: "claude-custom" | "claude-agent-name" | "claude-ai-title" | "codex" | "omp"};
+export type SessionView = {key: string; agent: string; sessionId: string | null; label: string | null; alive: boolean | null; managed: boolean; herdr: {paneId: string; status: string} | null; leases: SessionLease[]; runs: RunView[]; title: SessionTitle | null};
+/** `scrollback`：能往回翻多少行（前台是全屏程序时是 0，读不到为 null）。 */
+export type PaneView = {paneId: string; terminalId: string; agent: string | null; status: string; session: {agent: string; value: string} | null; cwd: string | null; foregroundCwd: string | null; workspaceLabel: string | null; inRepository: boolean; scrollback: number | null; title: SessionTitle | null};
 export type SessionsData = {
     herdr: {available: boolean; mode: string; version: string | null; at: string | null; error: string | null; missedEvents: number; reconnects: number};
     panes: PaneView[]; sessions: SessionView[]; unownedRuns: RunView[]; ignoredProcesses: number;
