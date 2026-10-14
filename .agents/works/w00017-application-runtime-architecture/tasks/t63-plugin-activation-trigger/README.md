@@ -22,3 +22,5 @@ taskId: t63-plugin-activation-trigger
 ## 当前状态
 
 未开工：2026-10-08 先建，记下已确认的方向。开工时按当时的代码与 Spec 修订范围，按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写 `plan.md`，交开发者确认后再实施。
+
+2026-10-14 w00017 收尾时开发者同意把它挪到之后的第三方插件 Work 一起做，本 Work 里搁置。

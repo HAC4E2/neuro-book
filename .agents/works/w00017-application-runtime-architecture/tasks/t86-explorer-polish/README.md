@@ -87,4 +87,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-完成。开发者 2026-10-14 在页面上验收第四轮、同意合入：master 快进到合并提交 `5bfe8c550`（父提交 `657292f8b`、`0a2b4526f`；合并前 master 的改动只在开发者面板与记录，无冲突；合并结果 typecheck、`docs:check`、`governance:check` 0 失败）。验收时新提的三条（内联新建与改名的样式、选中与悬停的行样式、滚动条与视图标题动作随鼠标显示）另开 Task。待清理：`.worktree/w00017-t86-explorer-polish`、分支 `feat/w00017-t86-explorer-polish`。
+完成。开发者 2026-10-14 在页面上验收第四轮、同意合入：master 快进到合并提交 `5bfe8c550`（父提交 `657292f8b`、`0a2b4526f`；合并前 master 的改动只在开发者面板与记录，无冲突；合并结果 typecheck、`docs:check`、`governance:check` 0 失败）。验收时新提的三条（内联新建与改名的样式、选中与悬停的行样式、滚动条与视图标题动作随鼠标显示）另开 Task。`.worktree/w00017-t86-explorer-polish` 与分支 `feat/w00017-t86-explorer-polish` 已于同日经开发者同意删除。

@@ -2,6 +2,8 @@
 
 第 5 步 K1–K6（内核实例与远程服务、RPC 端口、项目子进程、Storage、插件状态与公开状态、配置）已全部实现并通过各自的三方审查。开发者 2026-10-08 决定一起验收、不阻塞后续（见 [待确认清单](pending-confirmations.md) 第一行）。本文给出验收时看什么、怎么跑；发现的问题另建 Task。
 
+2026-10-14 w00017 收尾时开发者同意 K1–K6 验收通过（之后的外壳、Files、编辑器都建在它们之上并持续使用）。
+
 | 步 | Task | 行为合同 |
 |---|---|---|
 | K1 内核：开放运行位置、按调用方门面、委托、远程服务、子实例租约 | [t52](tasks/t52-kernel-instances-remote/README.md)，后续 [t58](tasks/t58-service-ids-backend-dir/README.md)–[t61](tasks/t61-kernel-catalog-failure-codes/README.md) | `docs/specs/runtime/` 下 services、plugins、plugin-channel、application、plugin-manifest |
@@ -15,7 +17,7 @@
 
 ## 自动检查
 
-在 worktree `.worktree/w00017-runtime-foundation` 根执行：
+在仓库根执行（原 worktree `.worktree/w00017-runtime-foundation` 已随 t85 合入 master 后删除）：
 
 ```bash
 bun run test:affected --typecheck --since master   # 内核与新应用的单元、合同、组件测试与三份 typecheck
