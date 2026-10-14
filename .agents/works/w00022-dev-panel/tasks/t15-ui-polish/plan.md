@@ -1589,3 +1589,35 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
       - `.agents/tasks` 的命中折叠时 0 条，展开后列出。
   - 验收环境：克隆 master 上多了几次编辑 `docs/specs/ui/workbench-shell.md` 的提交（脚本每跑一次 Ctrl+S 那条，就提交一次）。4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 仍在 `7cd983c9e`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
   - 没有验证到的地方：Mac 上的 ⌘+S（只在 Linux 的 Chrome 上按了 Ctrl+S）；只看了 Chrome。
+- 2026-10-14：第 5 批两份实现审查的处理。前端（Sonnet，`evidences/impl-review-phase4-batch5-ui.txt`）重要 2、建议 8；服务端（omp，`impl-review-phase4-batch5-server.txt`）重要 1。都按主 Agent 的处理意见改了，在集成分支上，未 push。jsdom 依赖、`tests/web-markdown.test.ts`、dev-panel 的 `package.json` 与 `bun.lock` 由另一个子代理在别的分支上处理，这一轮没碰。
+  - 提交（`b8c72ab3e..8de4f4d92`，2 个）：
+    - `016c44674` 服务端，审查第 1 条：
+      - 短号只在 `kind` 是 work 或 task 时提取，产物、会话只按完整编号比；
+      - “先排再截 50 条”抽成纯函数 `topRecordMatches`，`recordMatches` 调它；
+      - 单测补“`t15-review`、`w00022-report` 排不过标题以搜索词开头的 Work”与“51 个产物加 1 个 Work 时 Work 留在 50 条里”。
+    - `8de4f4d92` 前端，审查第 1 到 10 条：
+      - 离开确认框：
+        - 另设 `leaveOpen`，`confirm`、`cancel` 各自结算，`@closed` 兜住 Esc，不再用 `setTimeout(0)`；
+        - 留下时焦点回到打开框之前的元素，没有（或已不在页面上）就回到编辑框；
+        - 页面注册 `router.beforeEach`：回到这一页同一个文件的导航（后退之后再前进）会取消框在等的那一次，这时按“留下”结算并关框；
+        - 连按两次后退的错位写进 `docs/panel.md` 的已知限制；文档改成“Esc 算留下，点遮罩不会关”。
+      - Ctrl+S：保存在途、按住重复、对话框开着时都不处理，不再写“正在保存”；提示放进常驻的 `role="status"` 容器。
+      - `snippetAround`：用 `Intl.Segmenter` 按字素数前导字数，起点不会落在代理对或组合符号中间；`tests/web-highlight.test.ts` 补用例。
+      - 第 7 条实测属实，而且原因不止前导字数：
+        - 旧构建在 390 宽下搜“决定点”，199 行内容命中里 129 行看不见；只把前导改成 6 个字还有 117 行看不见；
+        - 截图看出主因是内容那一行（`min-w-0 flex-1`）挤在长路径旁边，只剩几个字宽；
+        - 改成内容行至少 16rem、放不下就换到路径下面独占一行，窄屏前导 6 个字、宽屏 30 个字，之后 0 行看不见（`review-fixes/final/probe-snippet-*.json`、`.png`）。
+      - 搜索页记下 `searchedQ`（开始搜时才换），作为 `SearchResults` 的 `q` 与 `key`：换词时历史收起，去抖期间旧结果不按新词高亮。
+      - `SearchResults.md` 的标签改成 `["state:local"]`；`up` 的注释与实现一致；`app.css` 里 `.nbdev-pre` 的注释搬回它前面。
+  - 门禁（在 `8de4f4d92` 上）：
+    - 包的 `typecheck`、`build:web` 通过；
+    - 全量 `test` 428 条里 427 过、1 失败。失败的是 `web-build.test.ts`：全量负载下 vite 的构建慢，stderr 多了一段 `PLUGIN_TIMINGS` 提示，与这次改动无关；单独重跑 1 过（`review-fixes/gate-test-rerun-web-build.log`）；
+    - `git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch5/review-fixes/review.ts`，10 条全过加 2 条记录（`review-fixes/final/results.txt`），控制台没有错误与警告：
+    - 留下与 Esc 之后，焦点回到打开框之前的左栏链接；后退触发、打开前焦点不在任何元素上时，回到编辑框；
+    - 后退一次（框开着）再前进：框关上，还在编辑页，草稿还在；之后再点左栏，框照常弹，“离开”照常跳走；
+    - 记录连按两次后退的实际行为：这次选“留下”还在编辑页；选“离开”时地址是 `/docs`、页面却是首页，就是已知限制里写的错位；
+    - 连按三次 Ctrl+S：保存一次，结束后操作栏没有残留提示；
+    - 搜索：展开历史之后换词，去抖期间旧结果仍按旧词高亮；新结果出来后历史收起，高亮是新词。
+    - 回归：第 5 批的 `accept.ts` 13 条全过（`review-fixes/rerun-batch5/`）。
+  - 验收环境：克隆 master 上又多了几次编辑 `workbench-shell.md` 的提交（Ctrl+S 用例）；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `a54340499`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
