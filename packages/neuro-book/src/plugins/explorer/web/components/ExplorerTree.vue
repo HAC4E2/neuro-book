@@ -243,9 +243,10 @@ const clearExpand = (): void => {
     expandTimer = null;
     expandFor = "";
 };
-watch(hovered, (next) => {
+// 只在落点动作是“移入这个目录”时计时：拖着目录停在它自己身上（没有落点）不展开。
+watch([hovered, () => props.drag?.action], ([next, action]) => {
     const over = next?.over;
-    const row = over?.kind === "row" && over.zone === "inside" ? props.rows.find((candidate) => candidate.id === over.id) : undefined;
+    const row = over?.kind === "row" && over.zone === "inside" && action?.kind === "move" && action.target === over.id ? props.rows.find((candidate) => candidate.id === over.id) : undefined;
     const waiting = row !== undefined && (row.kind === "root" || row.kind === "entry") && !row.expanded && (row.kind === "root" || row.expandable) ? row.id : "";
     if (waiting === expandFor) return;
     clearExpand();
@@ -399,7 +400,7 @@ defineExpose({focus: focusTree});
         @blur="onBlur"
     >
         <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
-        <TransitionGroup name="explorer-row" tag="div" class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}">
+        <TransitionGroup name="explorer-row" tag="div" class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows>
             <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
             <ExplorerRow
                 v-for="item in rendered"

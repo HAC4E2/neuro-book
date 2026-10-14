@@ -114,7 +114,7 @@ const MESSAGES = {
     unavailableUnknown: {"zh-CN": "上一次批量操作的结果未知：先核对，再在结果区放弃它", "en-US": "The last batch outcome is unknown: check it, then dismiss it in the results area"},
     unavailableEmptyClipboard: {"zh-CN": "剪贴板是空的", "en-US": "The clipboard is empty"},
     unavailableCrossRoot: {"zh-CN": "不能在项目与用户资产之间复制或移动", "en-US": "Cannot copy or move between the project and user assets"},
-    unavailableCopyFailed: {"zh-CN": "没能把路径写进剪贴板", "en-US": "Could not copy the path to the clipboard"},
+    unavailableCopyFailed: {"zh-CN": "没能复制路径", "en-US": "Could not copy the path"},
     unknownTitle: {"zh-CN": "{action} {count} 项的结果未知。在放弃之前，复制、剪切、粘贴、拖动与删除都不可用。", "en-US": "The outcome of {action} for {count} items is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it."},
     recheck: {"zh-CN": "重新列出", "en-US": "Refresh"},
     abandon: {"zh-CN": "放弃", "en-US": "Dismiss"},

@@ -63,6 +63,8 @@ interface Pending {
 
 const ROW_SELECTOR = "[data-explorer-row]";
 const EDITOR_GROUP_SELECTOR = "[data-editor-group]";
+/** 装行的容器：它的底边之下才是“树里行以外的空白”。 */
+const ROWS_SELECTOR = "[data-explorer-rows]";
 /** 边缘滚动：离边缘多近开始滚、最快每帧滚多少。 */
 const EDGE_PX = 24;
 const EDGE_MAX_STEP_PX = 16;
@@ -86,12 +88,20 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
     function pointAt(x: number, y: number): TreeDragTarget | null {
         const hit = document.elementFromPoint(x, y);
         if (hit === null) return null;
+        const asRow = (element: HTMLElement): TreeDragTarget => {
+            const rect = element.getBoundingClientRect();
+            return {kind: "row", id: element.dataset.explorerRow as string, offset: rect.height > 0 ? (y - rect.top) / rect.height : 0.5, rect};
+        };
         const row = hit.closest<HTMLElement>(ROW_SELECTOR);
-        if (row !== null && root.contains(row)) {
-            const rect = row.getBoundingClientRect();
-            return {kind: "row", id: row.dataset.explorerRow as string, offset: rect.height > 0 ? (y - rect.top) / rect.height : 0.5, rect};
+        if (row !== null && root.contains(row)) return asRow(row);
+        if (root.contains(hit)) {
+            // 只有最后一行之下才是空白；行左右的内边距与滚动条那一条按同一高度的行算（取树中线上的那一行）。
+            const tree = root.getBoundingClientRect();
+            const rowsBottom = root.querySelector<HTMLElement>(ROWS_SELECTOR)?.getBoundingClientRect().bottom ?? tree.top;
+            if (y >= rowsBottom) return {kind: "blank", rect: tree};
+            const beside = document.elementFromPoint(tree.left + tree.width / 2, y)?.closest<HTMLElement>(ROW_SELECTOR);
+            return beside != null && root.contains(beside) ? asRow(beside) : null;
         }
-        if (root.contains(hit)) return {kind: "blank", rect: root.getBoundingClientRect()};
         const group = hit.closest<HTMLElement>(EDITOR_GROUP_SELECTOR);
         const id = group?.dataset.editorGroup;
         return group == null || id === undefined || id === "" ? null : {kind: "editor", group: id, rect: group.getBoundingClientRect()};
@@ -237,6 +247,23 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
         if (pending !== null && event.pointerId === pending.pointerId) clearPending();
         const current = active;
         if (current === null || event.pointerId !== current.pointerId) return;
+        if (autoScrolling) {
+            // 边缘滚动中松手：显示的落点是上一帧滚动之前判的，这一刻指针下的行可能已经换了。先停滚，等虚拟列表按最后的
+            // 滚动位置渲染完，再交一次落点让它显示出来，然后按同一个落点放下，不让这次放下因为“与显示的不同”而静默不写。
+            if (scrollFrame !== 0) cancelAnimationFrame(scrollFrame);
+            scrollFrame = 0;
+            autoScrolling = false;
+            swallowClick = true;
+            const at = {x: event.clientX, y: event.clientY};
+            requestAnimationFrame(() => {
+                if (active !== current) return;
+                const target = pointAt(at.x, at.y);
+                options.hover(target, at);
+                end();
+                options.drop(target);
+            });
+            return;
+        }
         const target = pointAt(event.clientX, event.clientY);
         end();
         options.drop(target);

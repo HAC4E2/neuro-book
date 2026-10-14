@@ -35,12 +35,14 @@ const MANY = 400;
 
 let tmp = "";
 let projectDir = "";
+let stateDir = "";
 let server: ProductServer;
 
 test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "files-explorer");
     projectDir = join(tmp, "Book");
     const stateRoot = join(tmp, "state");
+    stateDir = stateRoot;
     const id = randomUUID();
     const files: Record<string, string> = {
         ".nbook/project.json": JSON.stringify({schema: 1, id}),
@@ -63,6 +65,10 @@ test.beforeAll(async () => {
         "drags/d2.md": "D2",
         "drags/shut/s.md": "S",
         "drags/folder/f.md": "F",
+        "卷/第二卷/a.md": "A2",
+        "卷/第一卷/a.md": "A1",
+        "卷/第十二章.md": "12",
+        "卷/第三章.md": "3",
         "order.content/content.xml": ORDER,
         "order.content/x/index.md": "X",
         "order.content/y/index.md": "Y",
@@ -532,6 +538,66 @@ test("拖动（验收 25、26）：拖到别的文件夹里的文件上移入它
     await expect.poll(() => tree(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(before + 100);
     await page.keyboard.press("Escape");
     await page.mouse.up();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("行的样子与设置（验收 21、23）：中文数字排序、内容文件夹去后缀、叶子节点没有展开控件、有类型图标；改设置后参考线与隐藏 .md 即时生效", async ({page}) => {
+    await open(page);
+    await item(page, "project://卷").click();
+    await expect(item(page, "project://卷/第三章.md")).toBeVisible();
+    const names = await page.locator("[data-explorer-row^=\"project://卷/\"]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-explorer-row")));
+    expect(names).toEqual(["project://卷/第一卷", "project://卷/第二卷", "project://卷/第三章.md", "project://卷/第十二章.md"]);
+    await expect(item(page, "project://卷/第三章.md").locator("[data-file-icon]")).toHaveAttribute("data-icon", "markdown");
+
+    await item(page, "project://lore.content").click();
+    await expect(item(page, "project://lore.content").locator("[data-explorer-label]")).toHaveText("lore");
+    await expect(item(page, "project://lore.content").locator("[data-explorer-subtitle]")).toHaveText(".content");
+    // bob 里只有正文：叶子，没有展开控件；alice 另有文件，可展开。
+    await expect(item(page, "project://lore.content/bob")).not.toHaveAttribute("aria-expanded");
+    await expect(item(page, "project://lore.content/alice")).toHaveAttribute("aria-expanded", "false");
+
+    // 设置写进用户层的 settings.json：一直显示参考线、隐藏 .md；改回缺省后复原。
+    await expect(tree(page)).toHaveAttribute("data-guides", "hover");
+    await writeFile(join(stateDir, "settings.json"), JSON.stringify({"nbook.explorer/indentGuides": "always", "nbook.explorer/hideMarkdownExtension": true}));
+    await expect(tree(page)).toHaveAttribute("data-guides", "always");
+    await expect(item(page, "project://卷/第三章.md").locator("[data-explorer-label]")).toHaveText("第三章");
+    await expect(item(page, "project://卷/第一卷/a.md")).toHaveCount(0);
+    await writeFile(join(stateDir, "settings.json"), "{}");
+    await expect(tree(page)).toHaveAttribute("data-guides", "hover");
+    await expect(item(page, "project://卷/第三章.md").locator("[data-explorer-label]")).toHaveText("第三章.md");
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("右键菜单（验收 24、26）：在侧边打开拆出右边的组；复制相对路径写进系统剪贴板；把文件拖到右边的组在那一组打开", async ({page, context}) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/index.md")).toBeVisible();
+
+    await item(page, "project://plain/index.md").click({button: "right"});
+    await page.getByRole("menuitem", {name: "复制相对路径"}).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("plain/index.md");
+
+    const groups = page.locator("[data-editor-group]");
+    const before = await groups.count();
+    await item(page, "project://plain/index.md").click({button: "right"});
+    await page.getByRole("menuitem", {name: /在侧边打开/u}).click();
+    await expect(groups).toHaveCount(before + 1);
+    await expect(page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("index.md");
+
+    // 把另一个文件拖到右边的组（不是活动组的那一个也行）：在那一组打开、它成为活动组。
+    const right = groups.last();
+    const box = await right.boundingBox();
+    if (box === null) throw new Error("右边的组不在页面上");
+    const from = await center(page, "project://plain/a.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + 8, {steps: 2});
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
+    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect(right).toHaveAttribute("data-editor-group-active", "");
+    await expect(right.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 

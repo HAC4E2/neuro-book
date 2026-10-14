@@ -89,6 +89,8 @@ export interface EditorGroups {
      * 空组（不带走活动标签）。返回组 id；只建组、不改活动组，打开时再切过去。
      */
     sideGroup(): string;
+    /** 组右侧相邻的组；没有为 null。只查不建。 */
+    rightOf(groupId: string): string | null;
     /** 同组里移动一位（键盘排序）。 */
     move(tabId: string, delta: -1 | 1): void;
     /** 用另一种编辑器打开同一标签；上次的光标是另一种写法，随之丢掉。 */
@@ -226,6 +228,10 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
             layoutVersion.value += 1;
             return tab;
         },
+        rightOf: (groupId) => {
+            const right = rightNeighbor(grid.root(), groupId);
+            return right !== null && groupOf(right) !== undefined ? right : null;
+        },
         sideGroup: () => {
             const right = rightNeighbor(grid.root(), activeGroup.value);
             if (right !== null && groupOf(right) !== undefined) return right;
@@ -298,7 +304,6 @@ function activeFileIndex(group: EditorGroup): number | null {
     return nearest === undefined ? null : files.findIndex((tab) => tab.id === nearest.id);
 }
 
-/** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
 /**
  * 叶 `id` 右侧相邻的叶：自下而上找第一个横向分支里它后面还有兄弟的祖先，再从那个兄弟里取最左（横向取第一个、纵向取第一个）
  * 的叶。没有右侧的组时为 null。
@@ -324,6 +329,7 @@ function rightNeighbor(root: GridNode<string> | null, id: string): string | null
     return null;
 }
 
+/** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
 function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
     const ids = new Set(snapshot.groups.map((group) => group.id));
     if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;

@@ -13,7 +13,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -24,8 +24,6 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/sections";
-
 import {EXPLORER_CONTEXT_POINT, validateExplorerContextItem} from "../shared/contracts";
 import {EXPLORER_SECTION, EXPLORER_SECTION_DECLARATION, hideMarkdownExtensionSetting, indentGuidesSetting} from "../shared/settings";
 import type {ExplorerContextItemDeclaration} from "../shared/contracts";

@@ -56,9 +56,8 @@ export function menuEntries(row: Row, available: Availability, locale: DisplayLo
         item(MENU_COMMANDS.copy, "copy", available.copy, {shortcut: "Ctrl+C"}),
         paste,
         separator,
-        item(MENU_COMMANDS.copyPath, "copyPath", true),
-        item(MENU_COMMANDS.copyRelativePath, "copyRelativePath", true),
-        separator,
+        // 缺失条目在磁盘上没有，没有路径可复制。
+        ...(row.type === "missing" ? [] : [item(MENU_COMMANDS.copyPath, "copyPath", true), item(MENU_COMMANDS.copyRelativePath, "copyRelativePath", true), separator]),
         item(MENU_COMMANDS.rename, "rename", available.rename, {shortcut: "F2"}),
     ];
     if (row.node && !row.body) entries.push(item(MENU_COMMANDS.createContent, "createContent", available.createContent));

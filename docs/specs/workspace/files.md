@@ -68,7 +68,7 @@ owners:
 | 方法 | 输入 | 结果 |
 |---|---|---|
 | `identify`（读） | `{paths}` | 逐项 `{kind, token}` 或失败：冻结操作意图用的目录项身份令牌 |
-| `realPath`（读） | `{path}` | 资源在服务端机器上的绝对路径（给“复制路径”）；控制目录与根外为 `protected-path`、不存在为 `not-found`。跨机器访问时它是服务端的路径 |
+| `realPath`（读） | `{path}` | 资源在服务端机器上的绝对路径（给“复制路径”）；控制目录为 `protected-path`，经链接到根外为 `outside-root`，不存在为 `not-found`。跨机器访问时它是服务端的路径 |
 | `create` | `{path, kind: "file" \| "directory", before?}` | 排他新建；文件为空 |
 | `createContent` | `{path}`（内容树里的节点目录） | 排他新建空白 `index.md`，已有为 `conflict` |
 | `rename` | `{path, name, expected?}` | 同目录改名 |

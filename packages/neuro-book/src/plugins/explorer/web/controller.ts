@@ -760,7 +760,8 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         },
         copyPaths: async (relative) => {
             const chosen = new Set(selection.value.selected);
-            const addresses = rows.value.flatMap((row) => (row.kind === "entry" && chosen.has(row.id) ? [row.address] : []));
+            // 缺失条目（清单里有、磁盘上没有）没有路径，跳过。
+            const addresses = rows.value.flatMap((row) => (row.kind === "entry" && chosen.has(row.id) && row.type !== "missing" ? [row.address] : []));
             if (addresses.length === 0) return {ok: false, reason: chosen.size === 0 ? "no-selection" : "not-applicable"};
             if (options.clipboard === undefined) return {ok: false, reason: "copy-failed"};
             const lines: string[] = [];
@@ -956,6 +957,11 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (current === null || items === null) return;
             const action = dropAction(current.sources, over);
             if (action.kind === "none" || !sameDrop(action, current.action)) return;
+            // 在编辑组打开不是文件操作：不等拿起时冻结的令牌（docs/specs/workbench/files-explorer.md 的“拖动”）。
+            if (action.kind === "open") {
+                openDropped(action.group, action.addresses);
+                return;
+            }
             const token = {sources: current.sources};
             dropping = token;
             const frozen = await items;
@@ -964,7 +970,6 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             dropping = null;
             if (action.kind === "move") await transfer("move", frozen, action.target, null);
             else if (action.kind === "reorder") settle("reorder", action.parent, await files.reorder(action.parent, action.names));
-            else openDropped(action.group, action.addresses);
         },
         cancelDrag,
 

@@ -414,10 +414,30 @@ describe("Spec workbench.files-explorer 验收 2、3：点击与打开", () => {
         const real = await realpath(at.scene.project);
         expect(copied).toEqual(["plain/sub\nplain/a.md\nplain/index.md", [join(real, "plain", "sub"), join(real, "plain", "a.md"), join(real, "plain", "index.md")].join("\n")]);
 
-        // 只选了目录：打开不可用；没有剪贴板时复制路径不可用。
+        // 只选了目录：打开不可用。
         controller.click("project://plain/sub", {toggle: false, range: false}, "row");
         expect(controller.openSelection(false)).toEqual({ok: false, reason: "not-applicable"});
-        expect(await explorer(at).copyPaths(true)).toEqual({ok: false, reason: "no-selection"});
+
+        // 没有选择；没有系统剪贴板；剪贴板拒绝写入：都不可用，不写半截。
+        const bare = explorer(at, {expanded: ["project://", "project://plain"]});
+        expect(await bare.copyPaths(true)).toEqual({ok: false, reason: "no-selection"});
+        await until(at, "plain 列出", () => row(bare, "project://plain/a.md") !== undefined);
+        bare.click("project://plain/a.md", {toggle: false, range: false}, "row");
+        expect(await bare.copyPaths(true)).toEqual({ok: false, reason: "copy-failed"});
+        const reported: unknown[] = [];
+        const refusing = createExplorerController({
+            files: at.client,
+            commands: registry(),
+            bound: true,
+            expanded: ["project://", "project://plain"],
+            clipboard: {writeText: () => Promise.reject(new Error("剪贴板不可用"))},
+            report: (error) => reported.push(error),
+        });
+        controllers.push(refusing);
+        await until(at, "plain 列出", () => row(refusing, "project://plain/a.md") !== undefined);
+        refusing.click("project://plain/a.md", {toggle: false, range: false}, "row");
+        expect(await refusing.copyPaths(false)).toEqual({ok: false, reason: "copy-failed"});
+        expect(reported).toEqual([new Error("剪贴板不可用")]);
     });
 
     it("编辑器区还没有：打开显示“编辑器尚未接入”，不伪装成功", async () => {

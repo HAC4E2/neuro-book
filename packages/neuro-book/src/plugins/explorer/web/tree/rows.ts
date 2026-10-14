@@ -123,7 +123,9 @@ export function projectRows(input: ProjectionInput): Row[] {
  */
 function problemOf(input: ProjectionInput, address: string): Problem | null {
     const slot = input.slots.get(address);
-    if (slot?.error != null) return {kind: "error", code: slot.error.code, detail: slot.error.detail};
+    // 读取失败后重新列出：列出期间显示转圈，不再显示上一次的失败。
+    if (slot?.error != null && !slot.loading) return {kind: "error", code: slot.error.code, detail: slot.error.detail};
+    if (slot?.error != null) return {kind: "loading"};
     if (slot === undefined || slot.listing === null) return {kind: "loading"};
     const {listing} = slot;
     if (listing.contentRoot !== null && listing.contentRoot === resourceOf(address).path && listing.manifest !== undefined && listing.manifest.status !== "ok" && listing.manifest.status !== "absent") {

@@ -133,6 +133,9 @@ describe("Spec workbench.files-explorer 文件夹类型呈现：投影", () => {
         expect(entry(all, "project://plain/sub").problem).toEqual({kind: "loading"});
         expect(entry(all, "project://story.binder").problem).toEqual({kind: "error", code: "permission-denied", detail: "没有权限"});
         expect(entry(all, "project://lore.content").problem).toEqual({kind: "error", code: "unknown-outcome", detail: "断线"});
+        // 失败后重新列出：列出期间是转圈。
+        slots.set("project://story.binder", {listing: null, error: {code: "permission-denied", detail: "没有权限"}, loading: true, stale: false});
+        expect(entry(rows({slots, expanded: new Set([...EXPANDED, "project://plain/sub"])}), "project://story.binder").problem).toEqual({kind: "loading"});
         expect(ids(all)).toContain("project://lore.content/alice");
         expect(ids(all).filter((id) => id.startsWith("project://plain/sub/") || id.startsWith("project://story.binder/"))).toEqual([]);
         expect(entry(rows({slots}), "project://plain/sub").problem).toBeNull();
