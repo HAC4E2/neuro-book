@@ -124,7 +124,10 @@ onBeforeUnmount(() => observer?.disconnect());
 <template>
     <nav class="flex h-full min-h-0 flex-col" aria-label="面板导航">
         <div class="flex shrink-0 flex-col gap-3 px-3 pt-3 pb-2">
-            <a href="/" class="flex items-center gap-2 px-2 font-semibold" @click="follow($event, '/')"><span class="i-lucide-layout-dashboard size-4" aria-hidden="true" />nbdev 面板</a>
+            <div class="flex min-h-7 items-center gap-1">
+                <a href="/" class="flex min-w-0 flex-1 items-center gap-2 px-2 font-semibold" @click="follow($event, '/')"><span class="i-lucide-layout-dashboard size-4" aria-hidden="true" />nbdev 面板</a>
+                <slot name="actions" />
+            </div>
             <section v-for="group in NAV_GROUPS" :key="group.title ?? 'top'" class="flex flex-col gap-0.5" :aria-label="group.title ?? undefined">
                 <h2 v-if="group.title" class="nbdev-nav-heading">{{ group.title }}</h2>
                 <template v-for="entry in group.entries" :key="entry.key">

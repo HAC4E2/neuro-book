@@ -1,5 +1,5 @@
 /**
- * 面板的偏好（明暗、左栏各组的展开、通知里“知道了”的尝试）：只在这一处读写 localStorage，组件不碰浏览器存储。
+ * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、通知里“知道了”的尝试）：只在这一处读写 localStorage，组件不碰浏览器存储。
  * 键都带 `nbdev-panel:` 前缀；读写都包 try/catch（隐私模式、存储被禁用时照常工作，只是记不住）。
  * localStorage 按来源分开：`127.0.0.1:4400` 与 `localhost:4400` 各有一份，可以接受。
  */
@@ -49,6 +49,26 @@ export function readNavOpen(): Record<string, boolean> {
 
 export function writeNavOpen(value: Record<string, boolean>): void {
     write("nav-open", JSON.stringify(value));
+}
+
+/** 左栏的宽度（用户拖出来的，CSS px）：缺省 300（D4）；读到的不是正数时按缺省。夹在上下限之内由外壳做。 */
+export const NAV_WIDTH_DEFAULT = 300;
+export function readNavWidth(): number {
+    const value = Number(read("nav-width"));
+    return Number.isFinite(value) && value > 0 ? value : NAV_WIDTH_DEFAULT;
+}
+
+export function writeNavWidth(value: number): void {
+    write("nav-width", String(Math.round(value)));
+}
+
+/** 左栏是否收起（决定点 8：完全收起，顶栏左侧给展开按钮）。 */
+export function readNavCollapsed(): boolean {
+    return read("nav-collapsed") === "true";
+}
+
+export function writeNavCollapsed(value: boolean): void {
+    write("nav-collapsed", String(value));
 }
 
 /** 通知里“知道了”的尝试（attemptId）：只在本浏览器记住，最多留最近 200 个。 */
