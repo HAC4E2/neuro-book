@@ -1,0 +1,101 @@
+# t15 阶段 3 实现审查（页面骨架与共用零件）
+
+- 范围：`git diff e80ca1fa2..b94ea7b11`（审查 worktree `.worktree/w00022-t15-review3`，`73a14c144` 合并只带文档，未看）。
+- 依据：`plan.md` 阶段 3 与实施细节、决定点 17、实施进度的阶段 3 一段；`ui-development` Skill、`docs/standards/code/components.md`、nb-ui 界面开发规范、`packages/dev-panel/docs/panel.md` 的“前端”；新零件与所用 nb-ui 零件（`Breadcrumb`、`Notification`、`Tooltip`、`Button`、`EmptyState`）的同名 `.md`。
+- 证据：`accept/phase3/` 的改前改后截图（首页、Work、Task、文档、编辑、新建、会话、checkout，明暗，390 与 1440）与 `checks/`。
+- 实验：在集成 worktree 跑了 `bun test --isolate tests/web-writes.test.ts`（5 过）；在 `/dev/shm/t15-impl-review3/` 用静态 HTML 加无头 Chrome（`file://`，不起服务、不占端口）复现了两处布局问题，用完已删。没有起面板。
+
+## 发现
+
+### 1. 重要：文档页的阅读档在“没选文档”“加载中”“出错”时缩成正文中间一条窄栏，数据到了再弹开，标题横移、高度变化
+
+- 位置：`packages/dev-panel/src/web/pages/DocsPage.vue:66-79`，`packages/dev-panel/src/web/parts/PageShell.vue:58-66`。
+- 场景：阅读档的容器是 `width: fit-content`，页头 `contain: inline-size` 不贡献宽度，容器宽度只由正文决定。文档页只有 `article.nbdev-reading-column` 是定宽的，而它只在 `file.data` 到了之后才渲染。于是：
+  - 从左栏点“文档”进 `/docs`（没有 `path`，最常见的入口）：正文只有一行“在左边选一份文档”，整页缩成约 150px 宽、在右栏正中，面包屑与标题“文档”挤在这条窄栏里；
+  - 打开一份文档的头 200 毫秒：正文是 `LoadState` 的空占位（只有 `w-full`，没有固有宽度），容器只剩内边距，面包屑与标题几乎按字折行；之后转圈出现，容器变成“正在读取文档”那么宽（约 160px），长标题折成三四行；
+  - 数据到了容器一下变成阅读宽度、靠左对齐，标题从中间跳到左边、行数从几行变一行，页头下面的内容整体上移；
+  - 404、网络错误时同样是窄栏。
+  这和 3b、3d 的验收点“页头先出、标题的顶边与高度不跳”相反，`PageShell.md` 的“注意事项”也写了“正文里要有一块定宽的东西”，文档页在这几种状态下没有。验收只拍了带 `path`、数据已到的文档页，Task 页的 `LoadState` 放在定宽卡片里，所以没暴露。
+- 实测与推断：用同样的 CSS 做静态复现（无头 Chrome，右栏 860px）：加载态容器 158px 宽、标题高 78px（三行）；数据到后容器 592px、标题 26px、左缘从 x=375 移到 x=158；没有 `path` 时容器 152px。真实页面里的具体像素未在面板里实测。
+- 建议：文档页把 `p.nbdev-empty`、`LoadState` 与 `article` 一起放进同一个 `nbdev-reading-column` 包装里（包装始终渲染），各种状态下容器都是阅读宽度；或者给 `.nbdev-page-reading` 一个下限 `min-width: min(100%, var(--reading-measure) + 3rem)`，让所有阅读档页面都不依赖正文自己撑宽。改完补拍 `/docs`（无 path）与慢网络下打开文档的截图。
+
+### 2. 重要：首页“会话”入口改成 `ActionLink` 后不换行，会话状态多几种时 390 宽横向溢出
+
+- 位置：`packages/dev-panel/src/web/pages/HomePage.vue:53`，`packages/dev-panel/src/web/parts/ActionLink.vue:32`（`white-space: nowrap`）。
+- 场景：首页 Work 标题旁的入口文字是动态的 `sessionLine`，按 herdr 状态逐项列出，例如“3 个会话（工作中 1、空闲 1、不在 herdr 里 1），1 个无主的运行”。改前是会换行的 `RouterLink`；改成 `ActionLink` 后整句 `nowrap`，所在行虽然 `flex-wrap`，单独一行也放不下。手机上开着三四个状态不同的 Agent 是常态，这时首页出现横向滚动，违反 nb-ui 规范第 3 节第 5 条“390px 宽度必须无页面级横向溢出”。验收截图里只有“1 个会话（不在 herdr 里 1），2 个无主的运行”，所以没暴露。
+- 实测与推断：静态复现（12px、内容宽 358px）：上面那句 385px，溢出 27px；“6 个会话（工作中 2、空闲 1、受阻 1、完成一轮 1、不在 herdr 里 1），3 个无主的运行”501px。字体与面板不完全相同，数值是近似。
+- 建议：`ActionLink` 去掉 `nowrap`，改成 `min-width: 0` 加正常换行（短入口照样一行）；或者首页这一处不用 `ActionLink`，入口只写“会话”两个字，状态统计放在旁边的说明文字里。`ActionLink.md` 的“不换行”同步改。
+
+### 3. 建议：`TruncatedText` 上写的 `class` 被吞掉，提交号从灰字变成了正文色
+
+- 位置：`packages/dev-panel/src/web/pages/TaskPage.vue:104`、`packages/dev-panel/src/web/pages/DocsPage.vue:88`（`<TruncatedText class="nbdev-secondary shrink-0" …>`）；`packages/dev-panel/src/web/parts/TruncatedText.vue:46`。
+- 场景：`TruncatedText` 的根是 nb-ui `Tooltip`，`Tooltip` 的根是 reka 的 `TooltipProvider`，它 `inheritAttrs: false` 且不转发 attrs（已查 `node_modules/reka-ui/dist/Tooltip/TooltipProvider.js:9`）。`TruncatedText.md` 也写了“attrs 不保证透到文字元素上”，两个页面却照样传了 `class`，`nbdev-secondary` 与 `shrink-0` 都没生效。结果是“碰过这个 Task 的提交”“最近的改动”里的 sha 用了正文色，和提交说明一样醒目，改前它们是次要色。
+- 实测：对比 `before/before-docs-1440-dark.png` 与 `after/after-docs-1440-dark.png`，改后 sha 的亮度与提交说明相同，改前明显更暗。Task 页同理（从代码推断）。
+- 建议：在两个页面里把它包进带类的 `span`（与 CheckoutsPage 第 80 行的写法一致）；或者让零件 `defineOptions({inheritAttrs: false})` 并把 `$attrs` 绑到按钮或外层 `span` 上，`.md` 改成“attrs 落到文字元素”。前者改动小、与零件合同一致。
+
+### 4. 建议：产物页的答复被拒时，同一条题目的原因仍报三遍（3c“字段错误只报一次”没覆盖到产物页）
+
+- 位置：`packages/dev-panel/src/web/pages/ArtifactPage.vue:94-99`；`packages/dev-panel/src/web/host/writes.ts:115-140`；服务端 `packages/dev-panel/src/core/artifact-ops.ts:623`。
+- 场景：服务端拒答复时抛 `invalid_answer`，`message` 是把各题拼起来的“q1：原因；q2：原因”，`details.problems` 是 `[{questionId, reason}]`。产物页：
+  1. 把 `problems` 交给 `AnswerForm`，各题下面显示一次；
+  2. `failureNotice("答复没有提交", failure)` 不带锚点，`message` 原样显示整串；
+  3. `items` 再按题列一遍“q1：原因”（去重只比较与整串 `message` 是否相等，逐题的不相等）。
+  这正是 3c 要在编辑页消掉的“重复三遍”。表单用核心的同一套校验，多数问题提交前就挡住了，所以只在服务端独有的拒绝（题表在打开后变了等）时出现，频率不高。
+- 推断：从代码推断，未在浏览器里造。
+- 建议：`failureNotice` 的锚点按 `questionId` 也能认（或产物页传入当前题号集合），锚到题目的问题不进 `items`，`message` 换成“表单里标出了 N 处”，与新建页一致；补一条 `tests/web-writes.test.ts` 用例。
+
+### 5. 建议：checkout 已被删掉时，文档页的“回到文档树”和面包屑“文档”都指回同一个 404，绕不出去
+
+- 位置：`packages/dev-panel/src/web/pages/DocsPage.vue:31,42,56,61,78`；服务端 `packages/dev-panel/src/server/views.ts:249-251`（未知 checkout 的文档树回 null，即 404）。
+- 场景：worktree 合并后删掉是常态，从 Task 页、浏览器历史或书签打开 `/docs?checkout=<已删的 key>&path=…`：
+  - 文档树回 404：左栏 `LoadState` 显示“找不到了”，没给 `upHref`，3d 之后也不再给“重试”；`CheckoutSwitch` 只在树有数据时渲染，也切不了 checkout；
+  - 文档回 404：正文的“回到文档树”与面包屑“文档”都是 `treeHref`，即 `/docs?checkout=<已删的 key>`，点了还是同一个 404。
+  只能靠外壳左栏的“文档”出去。阶段 1 时同样切不了，但至少有个（无用的）“重试”；这次 404 分开之后，页面自己给的出口变成了原地打转。
+- 推断：从代码推断，未在浏览器里造。
+- 建议：文档树 404 时 `upHref` 给主工作区的文档树 `/docs`（文字“回到主工作区的文档”）；`treeHref` 在树 404 时也改指 `/docs`。顺带：编辑页（`EditPage.vue:98`）找不到文件时同样没给 `upHref`，可以给面包屑的上一级（所属 Task、Work，或 `/docs`），与 3d“404 给回到上一级”一致。
+
+### 6. 建议：区标题统一用 `--text-lg` 后，卡片里的标题也放大了，与 nb-ui “卡片标题与正文同字号、靠字重区分”相冲突
+
+- 位置：`packages/dev-panel/src/web/app.css` 的 `.nbdev-heading`（`b94ea7b11`）；用在卡片里的：`parts/WorkCard.vue:25`（卡片标题，原来是 `--text-md`）、`parts/CreatePreview.vue:13`（“预览”卡片）、`pages/SessionsPage.vue:131`（“会话详情”面层）、`pages/ArtifactPage.vue:137`（侧栏面层里的“通知”）。
+- 场景：偏离记录的理由成立：nbook 主题里 `--text-md` 与正文 `--text-sm` 都是 13px，页面分节的 h2 和正文一样大，层次出不来，页面级区标题改用 `--text-lg` 合理。但 nb-ui 界面开发规范第 4 节的检查项“去框化流式卡片”写的是展示卡片里“标题与正文同字号（13px）依靠字重和色阶区分”；`nbdev-heading` 一档同时用在页面分节与卡片内，卡片标题跟着变成 15 到 16px。首页 390 宽的 Work 卡片标题因此常折成两行（`after/after-home-390-dark.png`），卡片里标题、目标、计数条的层次变成“大标题加小正文”，与 nb-ui 产品里的卡片不一致。
+- 实测：截图比对；规范条文见 `packages/nb-ui/docs/ui-development-spec.md` 第 431 行。
+- 建议：语义类分开两档用途：页面分节保留 `nbdev-heading`（`--text-lg`）；面层或卡片内的小节标题改用正文字号加 600 字重（例如 `nbdev-body font-semibold`，或新加 `nbdev-card-title`），`panel.md` 的“语义类”写明各用在哪里。若开发者认为面板要整体放大区标题，就在偏离里写明与 nb-ui 这一条的取舍，交开发者定。
+
+### 7. 建议：剩下的 13 处静态 style 与几处“常量写成绑定”的 style，多半不是记录里说的“按数据算的值”；有两处正是 3a 要收的重复提示块
+
+- 位置：
+  - 重复的浅底提示块（3a 表格里点名要换成 `nbdev-hint` 的那类）：`parts/BranchNote.vue:6`、`parts/QuestionPanel.vue:54`，两处一字不差都是 `background: var(--status-warning-bg, var(--bg-subtle)); color: var(--text-secondary); font-size: var(--text-xs)`；`parts/DiffView.vue:14` 与 `nbdev-hint`/`nbdev-pre` 只差行高；
+  - 写成绑定、值其实是常量的：`parts/LeaseChip.vue:9`（三项都是常量）、`parts/FileEditor.vue:30` 的 `fontSize`、`parts/WorkCard.vue:30`（按有无切 `--text-secondary`/`--text-muted`，别处已改成 `nbdev-secondary`/`nbdev-empty` 两个类）；
+  - 其余静态的：`parts/ArtifactList.vue:57`、`parts/EphemeralFrame.vue:6-7`、`parts/StatusBar.vue:22`、`App.vue:346,357,367,392,395`，都是固定值，只有 `pages/ArtifactPage.vue:131` 的 iframe `color-scheme` 是计划里允许留的那种。
+- 场景：不影响行为。问题在于验收数字（静态 241 降到 13）和记录的说法（“剩下的是宽度、栅格这类按数据算的值与 App.vue 外壳里的布局”）、`panel.md` 的“内联 style 只留随数据变的……与少数一处一用的面层底色”与代码不符，后来的人会以为剩下的都有理由；而常量写成 `:style` 会躲过按 `style="` 计数的检查。
+- 实测：`grep -rn ' style="'` 与 `':style='` 的结果见上；与 `accept/phase3/style-count-after.txt` 一致。
+- 建议：BranchNote 与 QuestionPanel 提一个 `nbdev-hint-warn`（或给 `nbdev-hint` 加警告变体），LeaseChip、FileEditor、WorkCard 改用已有的类；App.vue 外壳与 EphemeralFrame 若有意保留，在记录与 `panel.md` 里把理由写准（例如“外壳的三块面层底色各只用一次”），不要笼统说“按数据算”。
+
+### 8. 建议：“找不到”区块的文字重复，“回到上一级”看不出是可点的
+
+- 位置：`packages/dev-panel/src/web/parts/LoadState.vue:48-53`；服务端所有 404 的 `message` 都是“找不到”（`packages/dev-panel/src/server/serve.ts:124`）。
+- 场景：任何页面首次就 404 时，区块显示“找不到了”，下一行是“找不到（可能被删或改了名）”，两行说的是同一件事，也没说是什么找不到；“回到首页”是不带样式的普通链接，暗色下与正文同色、没有下划线（`after/after-work-404-390-dark.png`），3f 刚把页头里的次要入口都改成按钮形态，这里是页面上唯一的出路却最不像入口。
+- 实测：截图。
+- 建议：404 区块不再拼服务端的通用文案，改由宿主给一句对象明确的说明（例如加一个可选 prop `missingLabel`，Work 页传“没有 w99999-not-there 这个 Work”），缺省时只写“可能被删或改了名”；“回到上一级”改用 `ActionLink`（带图标的 ghost 形态），旧数据那一行里的链接同样处理。
+
+### 9. 建议：几处说明与实现对不上（一次改掉）
+
+- `packages/dev-panel/src/web/parts/WriteResult.md` 的“布局”与开头、`plan.md` 3c：写“提示灰”，实际 `info` 映射到 nb-ui `Notification` 的 `info` 色调，用的是 `--accent-main`（蓝）。改文档或改映射二选一。
+- `packages/dev-panel/src/web/host/writes.ts:84-86` 注释把 `failure` 定义成“失败（确定没生效）”，但 `commit_failed`、`changed_after_write` 也落在 `failure`，这两种是“已写入工作区、没有提交”。颜色用红没问题，注释要写成“失败（没有完成；是否写入看 message 与 items）”，免得以后有人按“确定没生效”加重试。
+- `packages/dev-panel/docs/panel.md` “数据宿主”一段仍写“编辑页不订阅推送，不放”，而 `EditPage.vue:98` 现在用 `loadStateOf(file)`，重新登录或重连后全部重取失败时会显示旧数据提示。这是好的变化，文档跟着改。
+- `plan.md` 实施进度的偏离记录写“其余页面放在 PageShell 的 `feedback` 槽”，会话页的两条结果（通知区、会话详情区）仍放在各自的分区里，产物页之外这一页也该列上。位置本身合理：按键结果贴着终端，比放到页头更好找。
+
+## 核对过、没有问题的地方
+
+- 零件合同：`PageShell`（3 个 props、1 个事件、6 个插槽）、`WriteResult`（1 个 prop、2 个事件）、`LoadState`（8 个 props、2 个事件）、`TruncatedText`、`ActionLink` 都只经 props、emits 与插槽，不取数、不读路由，没有滑向通用页面框架或万能宿主；`.md` 与实现一致（第 3、9 条除外）。复用上：面包屑用 nb-ui `Breadcrumb`，结果卡用 `Notification`，截断提示用 `Tooltip`；`ActionLink` 另写的理由成立（nb-ui `Button` 只渲染 `<button>`，已核对 `Button.vue`）。
+- 14 个页面都套了 `PageShell`，每页一个 `h1`（`grep "<h1"` 只在 `PageShell.vue`），首页之外的面包屑都能回上一级；没有页面另写一套页头。
+- 阶段 1 的行为在换骨架后都还在：页面按路由参数重建（`pageKey` 未动）；旧数据提示在改前有 `StaleNotice` 的 12 处全部换成 `loadStateOf`，编辑页还多了一处；404 不给重试；编辑页保存在途只读与离开拦截、哈希冲突的差异、提交号反馈（`successNotice` 的“已提交 sha”）；新建页的预览、提交在途锁模式、切模式收起带“重试”的提示。
+- 3c：成功带警告进附注、颜色只看结果（`tests/web-writes.test.ts` 5 过）；新建页提交期的 `details.field` 与 `problems[].field` 锚到表单，表单一改就清；编辑页的结果放进贴底操作栏，出现时不推编辑器（`checks/3c-edit-error-once.png`）。Work、Task 页把结果放在页头的 `feedback` 槽会把正文往下推，但那里的写入口（状态切换）就在页头，正文只读，可以接受。
+- 字号收敛到五档（`--text-xl`、`--text-lg`、`--text-sm`、`--text-xs`、`--text-2xs`），组件里没有别的字号；间距三档。
+- 禁止清单：没有按错误文案分支（`failure.message.includes(path)` 只用于显示去重，比的是本模块自己拼的文案）；新增的 `catch` 都有诊断；只经 `@notnotype/nb-ui/components` 用 nb-ui；零件的改动只是 style 换类，没有删掉任务之外的代码或注释；测试只把 `tone` 换成 `outcome`，没有放宽断言。
+- 截图对比：页头结构各页一致，操作挪到标题行右侧、编号与时间收进说明行之后层次明显更清楚；Task 页卡片右边的空白没了；会话、在跑页去掉整页虚线框后安静很多。没有看到明暗或 390 宽的新退步（第 1、2 条是验收截图没覆盖到的状态）。
+
+## 结论
+
+- 阻断 0、重要 2、建议 7。
+- 重要 1（文档页阅读档在无文档、加载、出错时缩成窄栏并在数据到后跳动）和重要 2（首页会话入口在 390 宽横向溢出）改掉、补拍对应状态的截图之后可以合入；建议 3（提交号颜色）改动只有两行，建议一起改。其余建议可以合入后再处理。
