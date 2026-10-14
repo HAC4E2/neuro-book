@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Button, FormSelect} from "@notnotype/nb-ui/components";
-import {computed, ref, watch} from "vue";
+import {computed, nextTick, ref, watch} from "vue";
 import {statusLabel} from "../host/format.js";
 
 /**
@@ -24,25 +24,34 @@ const emit = defineEmits<{confirm: [status: string]}>();
 const choice = ref<string | null>(null);
 /** 点了“改状态”：出下拉。状态变了（改成功、推送来了新状态）就收起。 */
 const editing = ref(false);
-watch(() => props.status, () => {
-    choice.value = null;
-    editing.value = false;
-});
-function cancel(): void {
-    choice.value = null;
-    editing.value = false;
+const root = ref<HTMLElement | null>(null);
+const selectBox = ref<HTMLElement | null>(null);
+/**
+ * 换形态时焦点所在的按钮会被 v-if 换掉、掉到 body：打开时把焦点给下拉；收起时焦点原本在这块里，就放回“改状态”按钮。
+ */
+function startEdit(): void {
+    editing.value = true;
+    void nextTick(() => selectBox.value?.querySelector<HTMLElement>("button, [role='combobox'], select, input")?.focus());
 }
+function collapse(): void {
+    const hadFocus = root.value?.contains(document.activeElement) === true;
+    choice.value = null;
+    editing.value = false;
+    if (hadFocus) void nextTick(() => root.value?.querySelector<HTMLElement>("[data-status-toggle]")?.focus());
+}
+watch(() => props.status, collapse);
+const cancel = collapse;
 const selectOptions = computed(() => props.options.map((value) => ({value, label: statusLabel(value)})));
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center gap-2 nbdev-small">
+    <div ref="root" class="flex flex-wrap items-center gap-2 nbdev-small">
         <template v-if="disabledReason">
             <span class="nbdev-empty">{{ disabledReason }}</span>
         </template>
-        <Button v-else-if="!editing" size="sm" variant="ghost" icon-class="i-lucide-pencil-line" @click="editing = true">改状态</Button>
+        <Button v-else-if="!editing" data-status-toggle size="sm" variant="ghost" icon-class="i-lucide-pencil-line" @click="startEdit">改状态</Button>
         <template v-else>
-            <div class="w-32">
+            <div ref="selectBox" class="w-32">
                 <FormSelect :model-value="choice ?? status ?? ''" :options="selectOptions" aria-label="改状态" placeholder="未标" size="sm" :disabled="pending" @update:model-value="(value: string) => (choice = value === status ? null : value)" />
             </div>
             <template v-if="choice">
