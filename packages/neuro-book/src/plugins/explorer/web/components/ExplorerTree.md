@@ -19,7 +19,7 @@
 - Shift+F10 与 ContextMenu 键经 `handleKey` 返回要开菜单的行，树按那一行的位置发出 `row-context`。
 - 树获得与失去焦点时发出 `focus-change`。
 - 展开与收起的动画（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“行的样子”）：展开的目录集合变了之后的一个 `--motion-base`（另加 100ms 余量）里根上打 `data-expanding`，只在这时新出现的行从上方滑下一行高并淡入、离开的行反向、其余行的位置过渡（`TransitionGroup`，名字 `explorer-row`）；滚动时窗口两端进出的行不动画。`--motion-base` 为 0（系统减少动画）时不打。
-- 拖动（手势在 `web/tree-drag.ts`）：在资源行上按下，鼠标与笔移动 6px、触摸按住 200ms 后经 `startDrag` 问宿主能不能拖；能拖时捕获指针，每帧把指针下的行与它在行里的位置（目录行上中下三段、其余行上下两半）经 `drag-hover` 交出，宿主算出动作后经 `drag` 传回，树按它画落点反馈（nb-ui `DropFeedbackOverlay`：移入画整行、调整顺序画插入线，标签说明动作）；松手时把那一刻的落点经 `drag-drop` 交出，由宿主决定提交与否。滚动或行变了而指针没动时撤下落点，原地松手不提交。Escape、指针取消、失去捕获、窗口失焦、页面隐藏发出 `drag-cancel`；`drag` 变为 null（宿主那边取消了）时手势随之收场。拖动结束吞掉末尾的 click。
+- 拖动（手势在 `web/tree-drag.ts`，[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“拖动”）：在资源行上按下，鼠标与笔移动 6px、触摸按住 200ms 后经 `startDrag` 问宿主能不能拖；能拖时捕获指针，每帧把指针下的落点经 `drag-hover` 交出：一行与它在行里的位置（目录行上中下三段、其余行上下两半）、树里行以外的空白，或树外的编辑组（`[data-editor-group]`）。宿主算出动作后经 `drag` 传回，树按它画落点反馈（nb-ui `DropFeedbackOverlay`）：移入画目标目录与它展开的子行那一整段，调整顺序画插入线，在编辑组打开画整个编辑组。指针右下有一个拖影（`body` 上），写被拖的名字（多项写“N 项”）与动作；被拖的行淡化（`data-explorer-drag-source`）；动作另经隐藏的 `aria-live` 区域播报。指针停在收起的目录行中段 600ms 发出 `drag-expand`；落点换了重新计时。指针在树的横向范围内、离上下边缘不到 24px 时逐帧滚动，越靠边越快，每帧先按滚动后重新渲染的行判一次落点。松手时把那一刻的落点经 `drag-drop` 交出，由宿主决定提交与否。用户自己滚动或行变了而指针没动时撤下落点，原地松手不提交。Escape、指针取消、失去捕获、窗口失焦、页面隐藏发出 `drag-cancel`；`drag` 变为 null（宿主那边取消了）时手势随之收场。拖动结束吞掉末尾的 click。
 
 ## 数据
 
@@ -42,7 +42,7 @@ type Props = {
     /** 拖动过了门槛：返回 false 时不起拖；默认不能拖。 */
     startDrag?: (id: string) => boolean;
     /** 拖动中最后显示的落点动作（`web/actions/drop.ts` 的 `DropAction`）；不在拖动为 null。 */
-    drag?: {action: DropAction} | null;
+    drag?: {sources: ReadonlyArray<string>; action: DropAction} | null;
     /** 缩进参考线的档位（设置 `nbook.explorer/indentGuides`）；默认 `hover`。 */
     indentGuides?: "none" | "hover" | "always";
     /** 设置“隐藏 Markdown 扩展名”，交给每一行，落点标签里的名字同样处理；默认 false。 */
@@ -60,9 +60,12 @@ type Emits = {
     (event: "edit-commit"): void;
     (event: "edit-cancel"): void;
     /** 拖动中指针下的行与位置；null 是不在行上或撤下落点。 */
-    (event: "drag-hover", over: {id: string; zone: "before" | "inside" | "after"} | null): void;
-    (event: "drag-drop", over: {id: string; zone: "before" | "inside" | "after"} | null): void;
+    /** 落点（`web/actions/drop.ts` 的 `DropOver`）：一行与位置、空白或编辑组；null 是哪儿都不是或撤下落点。 */
+    (event: "drag-hover", over: DropOver | null): void;
+    (event: "drag-drop", over: DropOver | null): void;
     (event: "drag-cancel"): void;
+    /** 拖动中停在收起的目录行中段 600ms：展开它。 */
+    (event: "drag-expand", id: string): void;
 };
 ```
 
@@ -71,10 +74,10 @@ type Emits = {
 
 ## 隐藏通道理由
 
-- `env:portal`：拖动的落点反馈经 nb-ui `DropFeedbackOverlay` 渲染到 `body`，坐标是视口坐标，要脱离侧栏的裁剪与层叠上下文。
-- `env:timer`：触摸按住 200ms 才起拖，用一个计时器；抬起、移动超过容差、取消或卸载时清掉。
-- `env:global`：拖动期间在窗口上监听指针移动、松手、Escape、失焦与页面隐藏，并用 `document.elementFromPoint` 找指针下的行：指针捕获在树上，移出树与窗口后的移动与松手只有窗口收得到。拖动结束或组件卸载即拆掉。
+- `env:portal`：拖动的落点反馈（nb-ui `DropFeedbackOverlay`）、拖影与播报区渲染到 `body`，坐标是视口坐标，要脱离侧栏的裁剪与层叠上下文。
+- `env:timer`：触摸按住 200ms 才起拖、停留 600ms 展开，各用一个计时器；抬起、移动、落点换了、取消或卸载时清掉。
+- `env:global`：拖动期间在窗口上监听指针移动、松手、Escape、失焦与页面隐藏，并用 `document.elementFromPoint` 找指针下的行或编辑组：指针捕获在树上，移出树与窗口后的移动与松手只有窗口收得到；编辑组是别的插件的元素，只认它的公开标记 `data-editor-group`。拖动结束或组件卸载即拆掉。
 
 ## 不支持
 
-不支持变高行；不支持键盘拖动（键盘用剪切粘贴与上移下移达成同样的结果）；拖到视口边缘不自动滚动。
+不支持变高行；不支持键盘拖动（键盘用剪切粘贴与上移下移达成同样的结果）；不接收从系统文件管理器拖进来的文件（另有 Task）。

@@ -15,7 +15,7 @@ import {OPEN_PROJECT_COMMAND} from "nbook/plugins/projects/shared/contracts";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {DropZone} from "./actions/drop";
+import type {DropOver} from "./actions/drop";
 import type {CollisionChoice} from "./actions/paste-plan";
 import type {KeyOutcome} from "./controller";
 import {nameErrorText} from "./feedback-text";
@@ -174,8 +174,9 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     onDirtyCopy: (choice: "save" | "disk" | "cancel") => controller?.answerDirtyCopy(choice),
                     onRecheck: () => controller?.recheck(),
                     onAbandon: () => controller?.abandon(),
-                    onDragHover: (over: {readonly id: string; readonly zone: DropZone} | null) => controller?.hoverDrag(over),
-                    onDragDrop: (over: {readonly id: string; readonly zone: DropZone} | null) => void controller?.dropDrag(over),
+                    onDragHover: (over: DropOver | null) => controller?.hoverDrag(over),
+                    onDragDrop: (over: DropOver | null) => void controller?.dropDrag(over),
+                    onDragExpand: (id: string) => controller?.model.expand(id),
                     onDragCancel: () => controller?.cancelDrag(),
                 });
             };

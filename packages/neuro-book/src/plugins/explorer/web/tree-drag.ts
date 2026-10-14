@@ -5,7 +5,11 @@
  *
  * - 激活门槛：鼠标与笔移动 6px；触摸按住 200ms 且不超过 6px（先动了就让给滚动）。没过门槛的按下照常是点击。
  * - 每次指针移动（一帧一次）按当下坐标交一次落点，控制器据此算出并显示动作；放下时按那一刻的坐标再交一次，控制器只提交
- *   与最后显示相同的动作。滚动或行变了而指针没动时撤下显示的落点：指针下已经不是用户看到的那一行，放下不写。
+ *   与最后显示相同的动作。用户自己滚动或行变了而指针没动时撤下显示的落点：指针下已经不是用户看到的那一行，放下不写。
+ * - 落点有三类：树里的一行、树里行以外的空白、树外的编辑组（`data-editor-group`，docs/specs/workbench/editor.md 输出 35）。
+ * - 边缘滚动：指针在树的横向范围内、离树的上下边缘不到 24px（或已经越过边缘）时逐帧滚动，越靠边越快。每一帧先按上一帧
+ *   滚动后重新渲染出的行判一次落点，再滚这一帧：虚拟列表在滚动事件之后才补上新进视口的行，同一帧里判会落在空白上。
+ *   自己滚出来的滚动不撤落点（每帧都重新交了）。
  * - Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、销毁都取消且不写。结束时吞掉同一手势末尾的那次 click。
  *
  * 树里的按下不进外壳的拖动会话：外壳只认视图标题与标签上的拖动源标记。
@@ -15,11 +19,16 @@ const DRAG_DISTANCE_PX = 6;
 const TOUCH_DELAY_MS = 200;
 const TOUCH_TOLERANCE_PX = 6;
 
-/** 指针下的行：行 id 与指针相对行顶的比例（0 到 1）。 */
-export interface TreeDragPoint {
-    readonly id: string;
-    readonly offset: number;
-    readonly rect: DOMRect;
+/** 指针下的落点：一行（行 id 与指针相对行顶的比例 0 到 1）、树里行以外的空白，或树外的一个编辑组；`rect` 是它的视口矩形。 */
+export type TreeDragTarget =
+    | {readonly kind: "row"; readonly id: string; readonly offset: number; readonly rect: DOMRect}
+    | {readonly kind: "blank"; readonly rect: DOMRect}
+    | {readonly kind: "editor"; readonly group: string; readonly rect: DOMRect};
+
+/** 指针的视口坐标（画拖影用）。 */
+export interface TreeDragPointer {
+    readonly x: number;
+    readonly y: number;
 }
 
 export interface TreeDragOptions {
@@ -27,10 +36,10 @@ export interface TreeDragOptions {
     readonly root: HTMLElement;
     /** 过了门槛：控制器冻结源；返回 false 时不起拖（源不能拖、在编辑或有批量在途）。 */
     start(id: string): boolean;
-    /** 指针下的行变了；`null` 是不在任何行上，或要撤下显示的落点。 */
-    hover(point: TreeDragPoint | null): void;
-    /** 放下：那一刻指针下的行。 */
-    drop(point: TreeDragPoint | null): void;
+    /** 每帧交一次指针下的落点与指针坐标；落点 `null` 是哪儿都不是，或要撤下显示的落点。 */
+    hover(target: TreeDragTarget | null, pointer: TreeDragPointer): void;
+    /** 放下：那一刻指针下的落点。 */
+    drop(target: TreeDragTarget | null): void;
     /** 手势被取消（Escape、指针取消、失焦等）。 */
     cancel(): void;
 }
@@ -53,6 +62,10 @@ interface Pending {
 }
 
 const ROW_SELECTOR = "[data-explorer-row]";
+const EDITOR_GROUP_SELECTOR = "[data-editor-group]";
+/** 边缘滚动：离边缘多近开始滚、最快每帧滚多少。 */
+const EDGE_PX = 24;
+const EDGE_MAX_STEP_PX = 16;
 /** 行里的输入框与按钮自己处理指针。 */
 const BLOCKING_SELECTOR = "input, textarea, button, [contenteditable='true'], [contenteditable='']";
 
@@ -66,17 +79,58 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
     /** 拖动刚结束：同一手势末尾的 click 要吞掉。被吞掉或下一次按下时清。 */
     let swallowClick = false;
     let detach: (() => void) | null = null;
+    let scrollFrame = 0;
+    /** 边缘滚动正在滚：这期间的滚动事件是自己滚的，不撤落点。 */
+    let autoScrolling = false;
 
-    function pointAt(x: number, y: number): TreeDragPoint | null {
-        const element = document.elementFromPoint(x, y)?.closest<HTMLElement>(ROW_SELECTOR);
-        if (element === null || element === undefined || !root.contains(element)) return null;
-        const rect = element.getBoundingClientRect();
-        return {id: element.dataset.explorerRow as string, offset: rect.height > 0 ? (y - rect.top) / rect.height : 0.5, rect};
+    function pointAt(x: number, y: number): TreeDragTarget | null {
+        const hit = document.elementFromPoint(x, y);
+        if (hit === null) return null;
+        const row = hit.closest<HTMLElement>(ROW_SELECTOR);
+        if (row !== null && root.contains(row)) {
+            const rect = row.getBoundingClientRect();
+            return {kind: "row", id: row.dataset.explorerRow as string, offset: rect.height > 0 ? (y - rect.top) / rect.height : 0.5, rect};
+        }
+        if (root.contains(hit)) return {kind: "blank", rect: root.getBoundingClientRect()};
+        const group = hit.closest<HTMLElement>(EDITOR_GROUP_SELECTOR);
+        const id = group?.dataset.editorGroup;
+        return group == null || id === undefined || id === "" ? null : {kind: "editor", group: id, rect: group.getBoundingClientRect()};
     }
 
     function publish(): void {
         frame = 0;
-        if (active !== null) options.hover(pointAt(active.x, active.y));
+        if (active !== null) options.hover(pointAt(active.x, active.y), {x: active.x, y: active.y});
+    }
+
+    /** 这一刻该滚多快（负数向上）；指针不在树的横向范围内时不滚。 */
+    function edgeStep(x: number, y: number): number {
+        const rect = root.getBoundingClientRect();
+        if (x < rect.left || x > rect.right || rect.height <= EDGE_PX * 2) return 0;
+        const fromTop = y - rect.top;
+        const fromBottom = rect.bottom - y;
+        if (fromTop < EDGE_PX) return -Math.ceil(Math.min(1, (EDGE_PX - fromTop) / EDGE_PX) * EDGE_MAX_STEP_PX);
+        if (fromBottom < EDGE_PX) return Math.ceil(Math.min(1, (EDGE_PX - fromBottom) / EDGE_PX) * EDGE_MAX_STEP_PX);
+        return 0;
+    }
+
+    function autoScroll(): void {
+        scrollFrame = 0;
+        const current = active;
+        const step = current === null ? 0 : edgeStep(current.x, current.y);
+        const before = root.scrollTop;
+        if (current === null || step === 0) {
+            autoScrolling = false;
+            return;
+        }
+        options.hover(pointAt(current.x, current.y), {x: current.x, y: current.y});
+        autoScrolling = true;
+        root.scrollTop = before + step;
+        // 已经滚到头：停下，等指针再动。
+        if (root.scrollTop === before) {
+            autoScrolling = false;
+            return;
+        }
+        scrollFrame = requestAnimationFrame(autoScroll);
     }
 
     function clearPending(): void {
@@ -89,6 +143,9 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
         clearPending();
         if (frame !== 0) cancelAnimationFrame(frame);
         frame = 0;
+        if (scrollFrame !== 0) cancelAnimationFrame(scrollFrame);
+        scrollFrame = 0;
+        autoScrolling = false;
         const current = active;
         active = null;
         detach?.();
@@ -126,7 +183,7 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
             if (event.pointerId === active?.pointerId) cancel();
         };
         const onScroll = (): void => {
-            if (active !== null) options.hover(null);
+            if (active !== null && !autoScrolling) options.hover(null, {x: active.x, y: active.y});
         };
         // 触摸拖动中不让页面滚动。
         const onTouchMove = (event: TouchEvent): void => event.preventDefault();
@@ -172,6 +229,7 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
             active.x = event.clientX;
             active.y = event.clientY;
             if (frame === 0) frame = requestAnimationFrame(publish);
+            if (scrollFrame === 0 && edgeStep(active.x, active.y) !== 0) scrollFrame = requestAnimationFrame(autoScroll);
         }
     }
 
@@ -179,9 +237,9 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
         if (pending !== null && event.pointerId === pending.pointerId) clearPending();
         const current = active;
         if (current === null || event.pointerId !== current.pointerId) return;
-        const point = pointAt(event.clientX, event.clientY);
+        const target = pointAt(event.clientX, event.clientY);
         end();
-        options.drop(point);
+        options.drop(target);
     }
 
     function onPointerCancel(event: PointerEvent): void {
@@ -207,7 +265,7 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
             if (active === null) return;
             if (frame !== 0) cancelAnimationFrame(frame);
             frame = 0;
-            options.hover(null);
+            options.hover(null, {x: active.x, y: active.y});
         },
         abort: () => {
             end();

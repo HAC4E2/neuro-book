@@ -14,8 +14,8 @@ import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DocumentCoordinator, DocumentLease} from "nbook/plugins/editor/shared/contracts";
 import type {BatchHandle, BatchResult, FilesResult, FilesService, ItemResult, ManifestIssue, OperationDone, Scheme} from "nbook/plugins/files/shared/contracts";
 
-import {resolveDrop} from "./actions/drop";
-import type {DropAction, DropZone} from "./actions/drop";
+import {resolveBlankDrop, resolveDrop, resolveEditorDrop} from "./actions/drop";
+import type {DropAction, DropOver} from "./actions/drop";
 import {candidateName, planNames} from "./actions/paste-plan";
 import type {CollisionChoice, PlanSource} from "./actions/paste-plan";
 import {shiftNames} from "./actions/reorder-plan";
@@ -116,7 +116,7 @@ export interface Unknown {
 /** 拖动中：冻结的源与最后显示过的落点动作。放下时只提交与它相同的动作。 */
 export interface DragState {
     readonly sources: ReadonlyArray<string>;
-    readonly over: {readonly id: string; readonly zone: DropZone} | null;
+    readonly over: DropOver | null;
     readonly action: DropAction;
 }
 
@@ -218,8 +218,8 @@ export interface ExplorerController {
     abandon(): void;
     // 拖动：手势归视图，判定与提交归控制器。
     startDrag(id: string): boolean;
-    hoverDrag(over: {readonly id: string; readonly zone: DropZone} | null): void;
-    dropDrag(over: {readonly id: string; readonly zone: DropZone} | null): Promise<void>;
+    hoverDrag(over: DropOver | null): void;
+    dropDrag(over: DropOver | null): Promise<void>;
     cancelDrag(): void;
     // 内联输入与确认框。
     editName(name: string): void;
@@ -246,6 +246,8 @@ function sameDrop(a: DropAction, b: DropAction): boolean {
             return b.kind === "move" && a.target === b.target;
         case "reorder":
             return b.kind === "reorder" && a.parent === b.parent && a.anchor === b.anchor && a.zone === b.zone && a.names.length === b.names.length && a.names.every((name, index) => name === b.names[index]);
+        case "open":
+            return b.kind === "open" && a.group === b.group && a.addresses.length === b.addresses.length && a.addresses.every((address, index) => address === b.addresses[index]);
     }
 }
 
@@ -323,7 +325,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             pruned = next;
             // 拖动的源或落点行不在了：取消，不写。
             const current = drag.value;
-            if (current !== null && !current.sources.concat(current.over === null ? [] : [current.over.id]).every((id) => next.some((row) => row.id === id))) drag.value = null;
+            if (current !== null && !current.sources.concat(current.over?.kind === "row" ? [current.over.id] : []).every((id) => next.some((row) => row.id === id))) drag.value = null;
         });
     });
 
@@ -334,6 +336,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         // 迟到的结果不覆盖之后的打开意图。
         if (seq !== openSeq || result.ok) return;
         notice.value = result.code === "unknown-command" ? {kind: "editor-missing", address} : {kind: "open-failed", address, reason: result.reason};
+    };
+    /** 拖到编辑组：依次以常驻方式在那一组打开（第一项让它成为活动组，其余落在同一组）。 */
+    const openDropped = (group: string, addresses: ReadonlyArray<string>): void => {
+        for (const address of addresses) void open(address, "permanent", group);
     };
     const find = (id: string): Row | undefined => rows.value.find((row) => row.id === id);
     const toggle = (row: Row): void => {
@@ -667,7 +673,12 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         dropping = null;
     };
     const NO_DROP: DropAction = {kind: "none"};
-    const dropAction = (sources: ReadonlyArray<string>, over: {readonly id: string; readonly zone: DropZone} | null): DropAction => (over === null ? NO_DROP : resolveDrop(sources, find(over.id), over.zone, manifestOrder));
+    const dropAction = (sources: ReadonlyArray<string>, over: DropOver | null): DropAction => {
+        if (over === null) return NO_DROP;
+        if (over.kind === "blank") return resolveBlankDrop(sources, find);
+        if (over.kind === "editor") return resolveEditorDrop(sources, over.group, find);
+        return resolveDrop(sources, find(over.id), over.zone, manifestOrder);
+    };
 
     /**
      * 根结束（项目代次结束、订阅终止）：属于它的未提交意图全部作废——剪贴板、内联输入、确认框与碰撞对话框、拖动与
@@ -952,7 +963,8 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (dropping !== token || frozen === null || disposed || !idle.value || !sameDrop(dropAction(current.sources, over), action)) return;
             dropping = null;
             if (action.kind === "move") await transfer("move", frozen, action.target, null);
-            else settle("reorder", action.parent, await files.reorder(action.parent, action.names));
+            else if (action.kind === "reorder") settle("reorder", action.parent, await files.reorder(action.parent, action.names));
+            else openDropped(action.group, action.addresses);
         },
         cancelDrag,
 

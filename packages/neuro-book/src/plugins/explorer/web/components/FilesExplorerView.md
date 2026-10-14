@@ -45,7 +45,7 @@ type Props = {
     unknown?: Unknown | null;
     /** 见 ExplorerTree。 */
     startDrag?: (id: string) => boolean;
-    drag?: {action: DropAction} | null;
+    drag?: {sources: ReadonlyArray<string>; action: DropAction} | null;
     /** 每次变化都把焦点放回树上（编辑与确认结束后）；默认 0。 */
     focusRequest?: number;
     /** 设置的缩进参考线档位与“隐藏 Markdown 扩展名”，原样交给树；默认 `hover` 与 false。 */
@@ -83,9 +83,10 @@ type Emits = {
     (event: "recheck"): void;
     (event: "abandon"): void;
     /** 见 ExplorerTree。 */
-    (event: "drag-hover", over: {id: string; zone: DropZone} | null): void;
-    (event: "drag-drop", over: {id: string; zone: DropZone} | null): void;
+    (event: "drag-hover", over: DropOver | null): void;
+    (event: "drag-drop", over: DropOver | null): void;
     (event: "drag-cancel"): void;
+    (event: "drag-expand", id: string): void;
 };
 ```
 

@@ -6,7 +6,7 @@ import {computed, nextTick, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {DropAction, DropZone} from "../actions/drop";
+import type {DropAction, DropOver} from "../actions/drop";
 import type {CollisionChoice} from "../actions/paste-plan";
 import type {BatchAction, Dialog as ExplorerDialog, KeyOutcome, Notice, OperationReport, Unknown} from "../controller";
 import {nameErrorText} from "../feedback-text";
@@ -38,7 +38,7 @@ const props = defineProps<{
     running?: {readonly action: BatchAction; readonly count: number} | null;
     unknown?: Unknown | null;
     startDrag?: (id: string) => boolean;
-    drag?: {readonly action: DropAction} | null;
+    drag?: {readonly sources: ReadonlyArray<string>; readonly action: DropAction} | null;
     /** 每次变化都把焦点放回树上（编辑与确认结束后）。 */
     focusRequest?: number;
     /** 设置的缩进参考线档位；默认 `hover`。 */
@@ -72,9 +72,10 @@ const emit = defineEmits<{
     (event: "dirty-copy", choice: "save" | "disk" | "cancel"): void;
     (event: "recheck"): void;
     (event: "abandon"): void;
-    (event: "drag-hover", over: {readonly id: string; readonly zone: DropZone} | null): void;
-    (event: "drag-drop", over: {readonly id: string; readonly zone: DropZone} | null): void;
+    (event: "drag-hover", over: DropOver | null): void;
+    (event: "drag-drop", over: DropOver | null): void;
     (event: "drag-cancel"): void;
+    (event: "drag-expand", id: string): void;
 }>();
 
 const tree = ref<InstanceType<typeof ExplorerTree> | null>(null);
@@ -184,6 +185,7 @@ defineExpose({focusTree});
             @drag-hover="(over) => emit('drag-hover', over)"
             @drag-drop="(over) => emit('drag-drop', over)"
             @drag-cancel="emit('drag-cancel')"
+            @drag-expand="(id) => emit('drag-expand', id)"
         />
         <div v-else role="status" aria-busy="true" class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ explorerText(locale, "loading") }}</div>
         <ExplorerFeedback
