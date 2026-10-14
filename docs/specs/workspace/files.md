@@ -40,7 +40,7 @@ owners:
 
 | 能力 | 可观察结果 |
 |---|---|
-| 目录/树查询 | 按需返回一层实际目录项，不读取文件内容、不解析 frontmatter；内容文件夹与活页夹的展示名、顺序与编排来自其清单（[workspace.folder-kinds](folder-kinds.md)）；不存在、访问失败和空目录可区分，呈现方式不改变文件事实 |
+| 目录/树查询 | 按需返回一层实际目录项，不读取文件内容、不解析 frontmatter；内容树里的子目录带“有无正文”与“是不是叶子”（[workspace.folder-kinds](folder-kinds.md) 的“正文入口”）；内容文件夹与活页夹的展示名、顺序与编排来自其清单（[workspace.folder-kinds](folder-kinds.md)）；不存在、访问失败和空目录可区分，呈现方式不改变文件事实 |
 | 内容读取 | 返回指定资源的内容及磁盘基线，或明确失败；旧绑定结果不得成为新项目内容 |
 | 内容保存 | 成功确认本次提交的内容；基线冲突明确返回，不以覆盖替代冲突；正文保存期间的新输入仍由文档会话保留 |
 | 创建文件/目录 | 用户明确意图产生实际文件/目录，失败不返回虚假的新节点；单纯浏览和展开不创建文件。已有目录中的“创建内容”仅排他创建缺失的 `index.md`，初始为空 Markdown，不注入模板；已存在时冲突，不覆盖或修改目录其余内容 |
@@ -68,6 +68,7 @@ owners:
 | 方法 | 输入 | 结果 |
 |---|---|---|
 | `identify`（读） | `{paths}` | 逐项 `{kind, token}` 或失败：冻结操作意图用的目录项身份令牌 |
+| `realPath`（读） | `{path}` | 资源在服务端机器上的绝对路径（给“复制路径”）；控制目录与根外为 `protected-path`、不存在为 `not-found`。跨机器访问时它是服务端的路径 |
 | `create` | `{path, kind: "file" \| "directory", before?}` | 排他新建；文件为空 |
 | `createContent` | `{path}`（内容树里的节点目录） | 排他新建空白 `index.md`，已有为 `conflict` |
 | `rename` | `{path, name, expected?}` | 同目录改名 |
@@ -146,5 +147,6 @@ owners:
 
 ## 证据
 
+- 批准依据：目录项的叶子标记与 `realPath`来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。“读取与保存”一节（基线、文本、正文上限、只保存已有文件）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。“文件操作”一节（只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）：同一清单 2026-10-09 的 t69 条目（按推荐先做，待开发者追认）。
 - 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)，含隔离磁盘/History、HTTP 失败、双窗口、Lab、切换性能与本机逐条复核。路径 move/rename 改用平台原子 no-replace 提交；Windows 在预检后抢占文件/目录目标时确认源与目标不变，未知平台和模拟 Linux 原语不支持会拒绝。完整 Windows 产品镜像构建成功，包含 Koffi 平台原生包；Linux/macOS 及其它文件系统未实测，跨机器基础操作尚未验证，保持 `planned`。
