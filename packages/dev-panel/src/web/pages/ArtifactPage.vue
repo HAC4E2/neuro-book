@@ -91,7 +91,7 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
             const question = current.questions.find((state) => state.question.id === id)?.question;
             return question ? `${question.label}：${answerText(question, value)}` : `${id}：${String(value)}`;
         });
-        notice.value = {...successNotice(`已提交 ${summary.length} 题`, outcome.body), items: summary};
+        notice.value = {...successNotice(`答了 ${summary.length} 题`, outcome.body), items: summary};
         lastAnswerId.value = (outcome.body.data as WriteData & {answer?: {answerId: string}}).answer?.answerId ?? null;
         notify.reload();
         resetKey.value += 1;
