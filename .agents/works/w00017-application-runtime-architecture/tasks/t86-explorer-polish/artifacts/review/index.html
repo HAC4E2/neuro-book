@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资源管理器打磨</title>
+<style>
+:root { --bg: #faf8f3; --card: #ffffff; --text: #24221e; --muted: #6f6a60; --line: #e3ded3; --accent: #1f6feb; --badge: #fde68a; --rec: #e7f0ff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1d1c1a; --card: #262522; --text: #ebe7df; --muted: #a39d92; --line: #3a3833; --accent: #6ea8ff; --badge: #6b5a1c; --rec: #1f2c44; } }
+:root[data-theme="dark"] { --bg: #1d1c1a; --card: #262522; --text: #ebe7df; --muted: #a39d92; --line: #3a3833; --accent: #6ea8ff; --badge: #6b5a1c; --rec: #1f2c44; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 0 0 8px; }
+h3 { font-size: 15px; margin: 0 0 4px; }
+.lead { color: var(--muted); margin: 0 0 24px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+.badge { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 4px; background: var(--badge); margin-right: 8px; vertical-align: 2px; }
+.shots { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+figure { margin: 0; flex: 0 1 auto; max-width: 100%; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; max-width: 360px; }
+.items { display: grid; gap: 12px; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 0; }
+.item p { margin: 4px 0; }
+.rec { background: var(--rec); border-radius: 6px; padding: 6px 10px; margin-top: 8px; font-size: 14px; }
+.tag { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 6px; font-weight: normal; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>资源管理器打磨 · 第一轮：现状与要改什么</h1>
+<p class="lead">t86。先看现状、定这次改哪些，定了再出静态稿。截图来自开发服务里的样例作品“雾港”（三层正文、一个内容文件夹、图片与长文件名）与 Lab 的状态场景。每条可以选“改”“不改”“要讨论”，也可以写意见。</p>
+
+<section>
+<h2>现状</h2>
+<div class="shots">
+  <figure><img src="r1/now-tree.webp" alt="展开几层后的资源管理器" width="346" height="900"><figcaption>展开几层、选中第 3 章（亮色，1440×900 窗口的侧栏）</figcaption></figure>
+  <figure><img src="r1/now-menu.webp" alt="右键菜单" width="400" height="800"><figcaption>章节上的右键菜单</figcaption></figure>
+  <figure><img src="r1/now-opened.webp" alt="刚打开作品" width="400" height="300"><figcaption>刚打开作品：标题行 6 个按钮</figcaption></figure>
+  <figure><img src="r1/now-states-dark.webp" alt="Lab 状态场景（暗色）" width="358" height="440"><figcaption>Lab 的状态行：清单不合法、读取中、读取失败、空目录（暗色）</figcaption></figure>
+</div>
+</section>
+
+<h2 style="margin-top:32px">看到的问题</h2>
+<div class="items">
+
+<section class="item" data-nbdev-question="indent-guides" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>1. 缩进没有参考线<span class="tag" data-nbdev-skip>外观</span></h3>
+  <p>“设定 / 人物 / 沈屿”三四层以后只靠缩进认层级，长列表里看不出谁是谁的子项。</p>
+  <p class="rec" data-nbdev-skip>推荐改：每层一条淡竖线，焦点或选中行所在的那一层加深（VS Code 的做法）；减少动态时不做过渡。</p>
+</section>
+
+<section class="item" data-nbdev-question="natural-sort" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>2. 排序把“第二卷”排在“第一卷”前<span class="tag" data-nbdev-skip>行为，改 Spec</span></h3>
+  <p>现在按拼音或码点比较，中文数字不按数值排：二 &lt; 一，十二 &lt; 三。小说目录几乎都用中文数字。</p>
+  <p class="rec" data-nbdev-skip>推荐改：普通文件夹的排序认“第 N 卷 / 章 / 回 / 节”里的中文数字与阿拉伯数字，按数值比，其余按现在的规则。只影响普通文件夹；内容文件夹仍按清单，活页夹归剧情插件。</p>
+</section>
+
+<section class="item" data-nbdev-question="md-extension" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="discuss">
+  <h3>3. 每个章节都带 <code>.md</code><span class="tag" data-nbdev-skip>行为，改 Spec</span></h3>
+  <p>正文目录里一整列 <code>.md</code>，读起来吵。Spec 现在规定普通文件夹显示真实文件名。</p>
+  <p class="rec" data-nbdev-skip>倾向讨论：可以只对 Markdown 文件不显示扩展名（改名框里仍是完整名字，悬停提示完整路径），其它文件照旧；代价是和磁盘上的名字不完全一致，同名的 <code>a.md</code> 与 <code>a.txt</code> 要靠图标区分。</p>
+</section>
+
+<section class="item" data-nbdev-question="file-icons" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>4. 所有文件同一个图标<span class="tag" data-nbdev-skip>外观</span></h3>
+  <p>章节、图片、JSON 都是一张白纸，<code>资料/</code> 里分不出来。</p>
+  <p class="rec" data-nbdev-skip>推荐改：按类型给少量图标（Markdown 文本、图片、数据 / 代码、其它），颜色仍是弱化的单色，不做彩色文件图标。</p>
+</section>
+
+<section class="item" data-nbdev-question="empty-node" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>5. 只有正文的内容节点也能展开，展开后是一行“空目录”<span class="tag" data-nbdev-skip>外观</span></h3>
+  <p>“沈屿”“林晓”只有自己的正文，箭头点开只有“空目录”。</p>
+  <p class="rec" data-nbdev-skip>推荐改：列出后没有子项的节点去掉箭头、不显示“空目录”行；普通的空文件夹照旧显示“空目录”。</p>
+</section>
+
+<section class="item" data-nbdev-question="content-folder-look" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>6. 内容文件夹显示成 <code>人物.content</code> 加一个书架图标<span class="tag" data-nbdev-skip>外观</span></h3>
+  <p>后缀是给程序认的，作者看到的是“人物”；书架图标像一串竖线，不像文件夹。</p>
+  <p class="rec" data-nbdev-skip>推荐改：显示“人物”，后缀作淡色副标题（与节点的真实名字同一种写法）；图标换成带标记的文件夹，与普通文件夹同一家族。</p>
+</section>
+
+<section class="item" data-nbdev-question="root-rows" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="discuss">
+  <h3>7. 两个根和普通目录长得一样<span class="tag" data-nbdev-skip>版式</span></h3>
+  <p>“雾港”“用户资产”是同一棵树里的两行，“用户资产”在项目树展开后被挤到很下面，要滚动才找得到。</p>
+  <p class="rec" data-nbdev-skip>倾向讨论：A 根行改成小号的分节标题（不缩进、字重加粗），仍在一棵树里；B 拆成两个可折叠的分节，各自滚动（VS Code 的“打开的编辑器 / 项目 / 大纲”）。B 改动大，涉及键盘在两节之间移动。</p>
+</section>
+
+<section class="item" data-nbdev-question="title-actions" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>8. 标题行 6 个按钮一直显示<span class="tag" data-nbdev-skip>外观</span></h3>
+  <p>新建文件、新建文件夹、刷新、全部收起、显示清单文件等挤在“资源管理器”几个字后面，含义靠悬停。</p>
+  <p class="rec" data-nbdev-skip>推荐改：只在鼠标在侧栏内或侧栏有焦点时显示（VS Code 的做法），常用的新建文件、新建文件夹、全部收起留在外面，刷新与显示清单文件收进“⋯”。这是外壳画的标题动作，改在外壳，其它视图一起受益。</p>
+</section>
+
+<section class="item" data-nbdev-question="context-menu" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix">
+  <h3>9. 右键菜单：快捷键贴着文字、阴影淡、缺常用项<span class="tag" data-nbdev-skip>外观 + 动作</span></h3>
+  <p>快捷键提示是等宽小字、紧跟在名字后面而不是右对齐；菜单和背景几乎分不开；没有“打开”“在侧边打开”“复制路径”“复制相对路径”。</p>
+  <p class="rec" data-nbdev-skip>推荐改：快捷键右对齐、用正文字体的弱化色；阴影按 nb-ui 浮层规范（菜单是 nb-ui 的 <code>ContextMenu</code>，改在 nb-ui）；补“打开”“在侧边打开”“复制路径”“复制相对路径”。</p>
+</section>
+
+<section class="item" data-nbdev-question="filter" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="skip">
+  <h3>10. 没有过滤框<span class="tag" data-nbdev-skip>新功能</span></h3>
+  <p>旧应用的资源管理器顶上有搜索框；现在找文件只能靠命令面板的快速打开。</p>
+  <p class="rec" data-nbdev-skip>推荐这次不做：快速打开已经能按名字找；树内过滤（输入即筛、保留祖先）是单独的一块功能，值得另开 Task。</p>
+</section>
+
+<section class="item" data-nbdev-question="chapter-count" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="skip">
+  <h3>11. 章节行不显示字数<span class="tag" data-nbdev-skip>新功能</span></h3>
+  <p>写作软件常在章节旁显示字数（欢迎页已经有全书字数）。</p>
+  <p class="rec" data-nbdev-skip>推荐这次不做：要给每个文件算字数并跟着保存更新，牵涉 Files 的统计接口；先记下，和活页夹一起考虑。</p>
+</section>
+
+</div>
+
+<section data-nbdev-question="own-notes" data-nbdev-type="text" data-nbdev-optional>
+  <h2>你自己注意到、想改的地方</h2>
+  <p>上面没列到的：手感、动画、拖动、键盘、窄屏、某个主题下的颜色都可以写。</p>
+</section>
+
+</main>
+</body>
+</html>
