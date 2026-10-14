@@ -844,3 +844,50 @@ interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普�
   - 主工作区 `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建、预热完成。
   - 临时 worktree 与审查 worktree `.worktree/w00022-t15-review2` 已删除。没有 push。
   - 主 Agent 接受 `8794881ad` 的取舍：左栏收起后分隔线禁用，只能用顶栏的“展开左栏”展开。
+- 2026-10-14：阶段 3（页面骨架与共用零件）做完，在集成分支 `feat/w00022-dev-panel` 上，未 push。w00017 重写 master 历史之后，本节之前记的提交号都已失效，要引用先按提交说明 `git log` 查新号。
+  - 提交（`e80ca1fa2..b94ea7b11`，24 个，含暂停时的 `f282453cc` wip 与主 Agent 的同步 `73a14c144`）：
+    - 零件与共用：`6e015ba9e` 3a 语义类、`2bd3487ee` 3b PageShell 与阅读卡片、`0d217bca4` 3c、`086a80dde` 3d、`2f40f61fc` 3e、3f 零件（TruncatedText、ActionLink）、`46ecebbb5` 删掉 StaleNotice；
+    - 逐页换骨架，一页一个：`af4397ac1` 首页、`b2ffabc4c` Work、`ff81bd065` Task、`77962f157` 产物列表、`a4be29900` 产物页、`c94c63f3a` 文档页、`56de99a52` 会话页、`2ceca4ae3` 在跑、`816814c99` checkout、`654d964c0` GitHub、`9144b1cc0` 搜索、`e13a63582` 找不到的页面、`5be8fde35` 新建、`679cc4c09` 编辑；
+    - 验收发现：`3273e5cc5`（标题顶边各页一致、区标题只剩一档、复制结果念给读屏器）、`b94ea7b11`（区标题用 `--text-lg`）。
+  - 门禁（在 `b94ea7b11` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 386 过、0 失败、0 跳过，用时 6 分 26 秒；`git diff --check e80ca1fa2..HEAD` 干净。新增的测试：`tests/web-writes.test.ts`（写入结果的两层与字段锚点）、LoadState 的 `loadStateOf` 用例。日志在 `accept/phase3/gate-*.log`。
+  - 内联 style：静态 241 处降到 13 处，绑定 18 处降到 15 处（`accept/phase3/style-count-before.txt`、`style-count-after.txt`；基线记的是重写前的旧号）。剩下的是宽度、栅格这类按数据算的值与 App.vue 外壳里的布局。
+  - 浏览器验收：在 4490 上用集成分支的构建起面板，脚本是 `accept/phase3/accept.ts`，23 条全过，结果在 `accept/phase3/checks/results-all.txt`。改前、改后的截图各 64 张（14 页，明暗两套，390 与 1440；Task、文档页另有 1280 与 1920），在 `before/`、`after/`，脚本 `shots.ts`、页面清单 `pages.ts`。
+    - 3a：各页页标题一档 19px、区标题一档 15px。
+    - 3b：
+      - 14 页的页标题顶边都在 101px，每页一个 `h1`；首页之外都有能回上一级的面包屑；
+      - Task 页在 1280、1440、1920 下卡片右缘到正文右缘只剩内边距（25px），整页居中；文档页正文一栏就是阅读宽度、居中，右边不再空一片。
+    - 3c：
+      - 新建成功但带警告时，结果是成功的绿色，警告收在“附注 1 条”里，表单不移动；
+      - 编辑页把 `taskId` 改掉，被拒的原因只出现一次，编辑器不被推下去。
+    - 3d：加载时页头先出（标题先用编号），数据到了之后标题顶边与左栏都不跳；不存在的 Work 显示“找不到了”与“回到首页”，不给重试；网络错误且没有数据时给“重试”。
+    - 3e：1440 下 checkout 页不必横向滚动；截断的路径悬停看全文，点一下复制全文，读屏器经 live 区念“已复制”；Task 表的长标题换行显示全文。
+    - 3f：编辑 README、新建 Task、编辑、去“在跑”这些入口都是按钮形态，页头里不再有当按钮用的小字链接。
+    - 3g：会话页、在跑页不再整页虚线框，临时的分区在标题旁带“临时”徽标；Task 页的“谁在动”仍是虚线框；会话页的“无主的运行”只留数目与去“在跑”的入口。
+    - 控制台只有预期的报错：编辑页改 `taskId` 被拒的 400、不存在的 Work 的 404、注入的 503。
+  - 验收发现并修掉的问题（`3273e5cc5`、`b94ea7b11`）：
+    - 有标题行带按钮、有的不带，页标题顶边差几像素：PageShell 的标题行给了 `min-h-8`；
+    - 首页没有面包屑，标题比别的页高：给一项“首页”；
+    - 零件里的 `h2` 各写各的字号：统一用 `nbdev-heading`；
+    - nb-ui 的主题 nbook 里 `--text-md` 与 `--text-sm` 都是 13px，区标题和正文一样大：改用 `--text-lg`；
+    - nb-ui `Tooltip` 给读屏器的 `role=tooltip` 副本在打开时就定死了，“已复制”念不出来：TruncatedText 另加一个 `sr-only` 的 live 区。
+  - 偏离计划的地方：
+    - 3d 不做骨架屏，加载时先出页头与转圈（规范第 4.3 节第 8 条，主 Agent 已认可）；
+    - 区标题用 `--text-lg`，计划写的是 md，原因见上；
+    - 首页也给面包屑，只有一项“首页”；
+    - 3c 的结果位置按页不同：编辑页放进贴底的操作栏 `.nbdev-edit-bar`（冲突的差异放在编辑器下面），新建页放在右栏顶上（带警告时用 `nbdev-surface-warn`），其余页面放在 PageShell 的 `feedback` 槽；产物页的答复结果仍在侧栏里，跟着答复表单；
+    - Notice 换成 `{outcome, title, message, items, notes, retry}`，`outcome` 分成功、失败、冲突、不确定、提示五种，字段问题用 `fieldProblems` 锚到表单；删掉了 WriteNotice 与 StaleNotice，旧数据提示收进 LoadState（`hasData`、`receivedAt`、`upHref`、`upLabel`）；
+    - Task 表的长标题换行显示全文，没有截断；截断只用在路径、分支这类不能换行的值上；
+    - 文档页只有正文一栏套阅读宽度（`nbdev-reading-column`），树仍贴左；标题取文档开头的 `h1`；
+    - 编辑页的面包屑按文件路径推出所属的 Work 与 Task；
+    - 表单字段的定义挪进 `host/create-fields.ts`，新建页与表单零件共用。
+  - 验收环境：
+    - w00017 重写历史之后，审查克隆 `/dev/shm/nbdev-ui-review/repo`（alternates 指向主仓库的 objects）丢了对象，记录重算失败。在原目录重建：旧 `.git` 移到 `/dev/shm/nbdev-ui-review/broken-git-20261014`，用 `git clone --shared --no-checkout` 得到新的 `.git` 放回，`reset --hard` 到新 master，`git clean -fd`（保留 `.worktree`、t16-ux-b-probe 与 t15 的产物），再提交 `e56a5fef7 test(env): 验收环境带回旧克隆里的测试记录`。旧的集成 worktree 挪到 `.worktree/old-w00022-dev-panel`（herdr `w2:p1` 的 shell 在里面），重新 `git worktree add .worktree/w00022-dev-panel`；
+    - 所以改前截图拍在旧克隆上，数据和改后不同，前后只能比布局；
+    - 4490 的面板已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动；`broken-git-20261014` 与 `old-w00022-dev-panel` 留着，确认不用之后可删。
+  - master 同步：`HEAD...master` 之间 master 新增的都是文档提交，`packages/`、`bun.lock`、`package.json` 没有差异，这次没有同步。
+  - 没有验证到的地方：
+    - 只看了 Chrome，没看 Firefox、Safari；
+    - 没用真的读屏器听“已复制”与 LoadState 的状态，只核对了 live 区与角色；
+    - 编辑页的 Ctrl+S 保存没做；
+    - 慢网络下“页头先出、标题先用编号”只在 Work 页验过；
+    - 截图前后数据不同，见上。
