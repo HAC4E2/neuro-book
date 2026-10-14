@@ -44,8 +44,9 @@ type Conn = {
     device: string;
     terminalId: string;
     paneId: string;
-    sessionKey: string;
-    agent: string;
+    /** 打开时这格的 Agent 会话；非 Agent 的 pane 为 null（只能观看，D2）。 */
+    sessionKey: string | null;
+    agent: string | null;
     mode: "watch" | "handshake" | "control";
     stream: TerminalStream | null;
     watchSize: {cols: number; rows: number};
@@ -140,20 +141,20 @@ export class TerminalHub {
         const data = ws.data;
         const conn: Conn = {
             id: data.connectionId, ws, loginSession: data.loginSession, device: PANEL_DEVELOPER.device, terminalId: data.terminalId, paneId: data.paneId,
-            sessionKey: "", agent: "", mode: "watch", stream: null, watchSize: FALLBACK_SIZE, sizeKnown: false, watchTimer: null, failures: 0, control: null, closed: false, handshaking: false,
+            sessionKey: null, agent: null, mode: "watch", stream: null, watchSize: FALLBACK_SIZE, sizeKnown: false, watchTimer: null, failures: 0, control: null, closed: false, handshaking: false,
         };
         this.conns.set(conn.id, conn);
         if (this.exiting) return this.closeConn(conn, TERMINAL_CLOSE.panelExit, "面板正在退出");
         if (!this.options.tools.available) return this.closeConn(conn, TERMINAL_CLOSE.unavailable, this.options.tools.reason);
         const pane = this.paneOf(conn.terminalId);
         if (!pane || pane.paneId !== conn.paneId) return this.closeConn(conn, TERMINAL_CLOSE.gone, "这个终端不在了，或者 pane 换了；刷新会话页");
-        const sessionKey = keyOf(pane);
-        if (pane.agent === null || sessionKey === null || !this.inRepo(pane)) return this.closeConn(conn, TERMINAL_CLOSE.notAllowed, "只开放本仓库里 herdr 认得出 Agent 的 pane");
+        // 观看开放到本仓库里的任意 pane（D2，决定点 20）：没有 Agent 会话的 pane（开发服务、日志、shell）也能只读看；接管另有闸门。
+        if (!this.inRepo(pane)) return this.closeConn(conn, TERMINAL_CLOSE.notAllowed, "只开放本仓库里的 pane");
         const open = [...this.conns.values()].filter((entry) => !entry.closed && entry !== conn);
         if (open.length >= LIMIT_TOTAL || open.filter((entry) => entry.terminalId === conn.terminalId).length >= LIMIT_PER_TERMINAL) {
             return this.closeConn(conn, TERMINAL_CLOSE.limit, `终端连接超过上限（一个终端 ${LIMIT_PER_TERMINAL} 个、整个面板 ${LIMIT_TOTAL} 个）`);
         }
-        conn.sessionKey = sessionKey;
+        conn.sessionKey = keyOf(pane);
         conn.agent = pane.agent;
         void this.startWatch(conn);
     }
@@ -305,6 +306,11 @@ export class TerminalHub {
         const audit = await readAuditStatus(this.options.audit.paths);
         if (!audit.enabled) return this.error(conn, "audit_unavailable", `审计不可用，不能接管：${audit.detail}`);
         const pane = this.paneOf(conn.terminalId);
+        // 接管的闸门显式要求 Agent 会话（D2）：观看放开到任意 pane 之后，非 Agent 的 pane 两边都是 null，不能靠“会话没变”放行。
+        // 回错误、不关连接，照常观看。
+        if (pane && (pane.agent === null || keyOf(pane) === null || typeof message.expectedSession !== "string" || message.expectedSession === "")) {
+            return this.error(conn, "not_allowed", "只有 Agent 会话能接管键盘；这一格只能看");
+        }
         if (!pane || keyOf(pane) !== message.expectedSession) return this.error(conn, "session_changed", "这个 pane 上的会话换了，刷新之后再接管");
         conn.paneId = pane.paneId;
         const other = [...this.conns.values()].find((entry) => entry !== conn && entry.terminalId === conn.terminalId && entry.mode === "control" && entry.control);

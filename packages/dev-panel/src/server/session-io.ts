@@ -3,7 +3,7 @@ import {isNbdevError, NbdevError} from "../core/errors.js";
 import {PANEL_DEVELOPER} from "../core/identity.js";
 import {assertPlainText} from "../core/text-rules.js";
 import type {HerdrClient} from "../herdr/client.js";
-import {checkDeliverable, checkSession, deliverKeys, deliverText, readHistory, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
+import {checkDeliverable, checkSession, deliverKeys, deliverText, readHistory, readPaneHistory, readScreen, screenDigest, type DeliveryContext, type DeliveryTarget} from "./delivery.js";
 import {lockKeyOf, type ControlRegistry} from "./control-registry.js";
 import {AUTO_NOTIFY_VERSIONS, auditUnavailable, checkError, type Notifier, type PaneLocks} from "./notifier.js";
 import type {PanelState} from "./state.js";
@@ -84,6 +84,13 @@ export function createSessionIo(deps: SessionIoDeps) {
         const read = await readHistory(context(), target, HISTORY_LINES);
         if (!read.ok) throw checkError(read);
         return envelope({paneId, sessionKey: target.sessionKey, lines: HISTORY_LINES, text: read.text}, [], null);
+    }
+
+    /** 非 Agent 的 pane 的更早输出（t15 阶段 4 第 3 批）：没有会话可核对，按 pane 读；不写审计。 */
+    async function paneHistory(paneId: string): Promise<Response> {
+        const read = await readPaneHistory(context(), paneId, HISTORY_LINES);
+        if (!read.ok) throw checkError(read);
+        return envelope({paneId, lines: HISTORY_LINES, text: read.text}, [], null);
     }
 
     /** 输入框：只发给空闲的会话；正向白名单不过时回 409 带屏幕末尾与摘要，开发者看过之后带回摘要（`confirmScreen`）再发，屏幕变了就再回 409。 */
@@ -169,6 +176,7 @@ export function createSessionIo(deps: SessionIoDeps) {
             if (first === "notify" && second === undefined) return notifyView(url);
             if (first === "sessions" && second !== undefined && third === "screen") return screen(paneOf(second), url);
             if (first === "sessions" && second !== undefined && third === "history") return history(paneOf(second), url);
+            if (first === "panes" && second !== undefined && third === "history") return paneHistory(paneOf(second));
             return null;
         }
         if (req.method === "POST") {

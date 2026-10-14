@@ -232,7 +232,7 @@ describe("面板订阅的观察（watchStatus）", () => {
 describe("白名单（场景 6）", () => {
     test("面板的名单里没有 pane.run、server.stop 等；不在名单里的方法在客户端就被拒绝，不到达 herdr", async () => {
         for (const method of ["pane.run", "pane.send_text", "pane.send_input", "server.stop", "pane.report_metadata", "workspace.create"]) expect([method, HERDR_PANEL_METHODS.includes(method)]).toEqual([method, false]);
-        expect([...HERDR_PANEL_METHODS].sort()).toEqual(["agent.explain", "agent.get", "agent.prompt", "agent.read", "agent.send_keys", "events.subscribe", "pane.list", "pane.process_info", "ping", "session.snapshot"]);
+        expect([...HERDR_PANEL_METHODS].sort()).toEqual(["agent.explain", "agent.get", "agent.prompt", "agent.read", "agent.send_keys", "events.subscribe", "pane.list", "pane.process_info", "pane.read", "ping", "session.snapshot"]);
         const {fake} = await setup({}, {watched: false});
         const readOnly = createHerdrClient({socketPath: fake.socketPath, allow: HERDR_PANEL_READ_METHODS});
         await expect(readOnly.agentPrompt("w9:p1", "x", {until: ["working"], timeoutMs: 1_000})).rejects.toMatchObject({code: "method_not_allowed"});

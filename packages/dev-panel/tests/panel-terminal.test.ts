@@ -207,8 +207,8 @@ describe("观看", () => {
         expect(await client.next("frame")).toMatchObject({w: 77, h: 23});
     }, 30_000);
 
-    test("升级之后用关闭码回原因：不是 Agent 的 pane 4403、terminal 对不上 4404、超过上限 4409", async () => {
-        const {connect} = await setup("term-reject", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main}), shellPane("w9:p2", {cwd: main, foreground_cwd: main})], terminals: {[TERMINAL]: {}, "term_w9:p2": {}}});
+    test("升级之后用关闭码回原因：不在本仓库的 pane 4403、terminal 对不上 4404、超过上限 4409", async () => {
+        const {connect} = await setup("term-reject", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main}), shellPane("w9:p2", {cwd: "/tmp", foreground_cwd: "/tmp"})], terminals: {[TERMINAL]: {}, "term_w9:p2": {}}});
         expect((await (await connect("w9:p2", "term_w9:p2")).closed).code).toBe(4403);
         expect((await (await connect("w9:p1", "term_other")).closed).code).toBe(4404);
         const open = [];
@@ -218,6 +218,22 @@ describe("观看", () => {
             open.push(client);
         }
         expect((await (await connect()).closed).code).toBe(4409);
+    }, 30_000);
+
+    test("本仓库里没有 Agent 会话的 pane 能只读观看（D2）；接管不论带什么会话都回 not_allowed、连接照常；审计里没有任何一行", async () => {
+        const {connect, audit} = await setup("term-shell-watch", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main}), shellPane("w9:p2", {cwd: main, foreground_cwd: main})], terminals: {[TERMINAL]: {}, "term_w9:p2": {}}});
+        const client = await connect("w9:p2", "term_w9:p2");
+        expect(await client.next("state")).toMatchObject({mode: "watch", paneId: "w9:p2", terminalId: "term_w9:p2", agent: null});
+        await client.next("frame");
+        for (const expectedSession of [null, "", KEY_A, "shell:forged"]) {
+            const from = client.messages.length;
+            client.send({t: "takeover", cols: 100, rows: 30, expectedSession, force: false});
+            expect(await client.next("error", from)).toMatchObject({code: "not_allowed"});
+        }
+        client.send({t: "resync"});
+        expect(await client.next("frame", client.messages.length)).toMatchObject({full: true});
+        expect(client.ws.readyState).toBe(WebSocket.OPEN);
+        expect(await audit()).toEqual([]);
     }, 30_000);
 
     test("升级前只做安全校验：没登录、跨来源都拒绝升级", async () => {
@@ -431,6 +447,45 @@ describe("更早的输出（手机的文字视图）", () => {
         const refused = await fetch(`${server.url}/api/sessions/w9:p1/history?session=${encodeURIComponent(KEY_A)}`, {headers: {Cookie: cookie}});
         expect([refused.status, (await refused.json() as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([409, "history_unavailable"]);
         expect(fake.requests.filter((request) => request.method === "agent.read")).toHaveLength(1);
+    }, 30_000);
+
+    test("非 Agent 的 pane（D2）：有回滚时按 pane 读 recent_unwrapped；全屏程序（没有回滚）、Agent 的 pane、不在本仓库的回 409；都不写审计", async () => {
+        const scroll = (rows: number) => ({max_offset_from_bottom: rows, offset_from_bottom: 0, viewport_rows: 40});
+        const {server, cookie, fake, audit} = await setup("term-pane-history", {panes: (main) => [
+            claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main}),
+            shellPane("w9:p2", {cwd: main, foreground_cwd: main, history: "构建第 1 行\n构建第 2 行\n", scroll: scroll(361)}),
+            shellPane("w9:p3", {cwd: main, foreground_cwd: main, history: "less 的当前屏", scroll: scroll(0)}),
+            shellPane("w9:p4", {cwd: "/tmp", foreground_cwd: "/tmp", history: "别处", scroll: scroll(10)}),
+        ]});
+        const get = async (pane: string) => {
+            const reply = await fetch(`${server.url}/api/panes/${pane}/history`, {headers: {Cookie: cookie}});
+            const body = await reply.json() as {data: {text: string; lines: number} | null; errors: Array<{code: string; details?: {reason?: string}}>};
+            return {status: reply.status, body};
+        };
+        const read = await get("w9:p2");
+        expect([read.status, read.body.data]).toEqual([200, {paneId: "w9:p2", lines: 1000, text: "构建第 1 行\n构建第 2 行"}]);
+        expect(fake.requests.filter((request) => request.method === "pane.read").map((request) => request.params)).toEqual([{pane_id: "w9:p2", source: "recent_unwrapped", format: "text", strip_ansi: true, lines: 1000}]);
+        for (const [pane, code] of [["w9:p3", "history_unavailable"], ["w9:p1", "history_unavailable"], ["w9:p4", "not_in_repository"]] as const) {
+            const refused = await get(pane);
+            expect([pane, refused.status, refused.body.errors[0]?.code]).toEqual([pane, 409, code]);
+        }
+        expect(fake.requests.filter((request) => request.method === "pane.read")).toHaveLength(1);
+        expect(await audit()).toEqual([]);
+    }, 30_000);
+
+    test("非 Agent 的 pane 发文字、按键都被拒（没有会话可核对），不调 herdr 的写方法、不写审计的结果行", async () => {
+        const {server, cookie, csrf, fake, audit} = await setup("term-pane-write", {panes: (main) => [claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main}), shellPane("w9:p2", {cwd: main, foreground_cwd: main})]});
+        const post = async (path: string, body: unknown) => {
+            const reply = await fetch(`${server.url}${path}`, {method: "POST", headers: {Cookie: cookie, Origin: server.url, "X-Nbdev-Csrf": csrf, "Content-Type": "application/json"}, body: JSON.stringify(body)});
+            return {status: reply.status, body: await reply.json() as {errors: Array<{code: string; details?: {reason?: string}}>}};
+        };
+        for (const expectedSession of [KEY_A, "shell:forged"]) {
+            const prompt = await post("/api/sessions/w9:p2/prompt", {text: "ls", expectedSession, confirmScreen: null});
+            const keys = await post("/api/sessions/w9:p2/keys", {keys: ["enter"], expectedSession, confirmed: true});
+            expect([prompt.status, prompt.body.errors[0]?.details?.reason, keys.status, keys.body.errors[0]?.details?.reason]).toEqual([409, "not_found", 409, "not_found"]);
+        }
+        expect(fake.requests.filter((request) => request.method === "agent.prompt" || request.method === "agent.send_keys")).toEqual([]);
+        expect((await audit()).filter((line: {phase?: string}) => line.phase === "result")).toEqual([]);
     }, 30_000);
 });
 

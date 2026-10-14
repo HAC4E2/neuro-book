@@ -70,6 +70,7 @@
 | `/api/notify?workId=&taskId=` | 通知任务（`jobs`）与最近 24 小时的尝试（`recent`，同一次尝试的意图与结果合成一条，只有意图的标 `intentOnly`）、审计状态、这个 herdr 版本是否自动投递；两个参数可选（见“通知与会话页”） |
 | `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed`；这格正被接管时照常能读 |
 | `/api/sessions/:paneId/history?session=` | omp 的更早输出（t12，手机的文字视图用）：`agent.read` 的 `recent_unwrapped` 最近 1000 行；Claude 回 409 `history_unavailable`（见“网页终端”的手机一条） |
+| `/api/panes/:paneId/history` | 非 Agent 的 pane（开发服务、构建日志、shell）的更早输出（t15 阶段 4 第 3 批，D2）：`pane.read` 的 `recent_unwrapped` 最近 1000 行。只给本仓库里的 pane（否则 409 `not_in_repository`）；Agent 的 pane、前台是全屏程序（`scrollback` 为 0）的回 409 `history_unavailable`；不写审计 |
 | `/api/search?q=&checkout=` | 搜索，NDJSON 流（见下） |
 | `/ws` | 先推 `{type: "hello", instance, revisions}`，之后每块数据变了推 `{type: "changed", instance, parts, revisions}` |
 | `/ws/terminal?pane=&terminal=` | 网页终端，一个终端视图一条（见“网页终端”） |
@@ -190,7 +191,7 @@
 | 1001 | 面板退出 | 重连 |
 | 4400 | 消息不对：不是 JSON 对象、不认识的类型、尺寸不是整数、输入不是文字或超过 64 KiB、键名不在清单里 | 不重连，显示原因 |
 | 4401 | 登录失效（t13 吊销设备时用） | 不重连，显示原因 |
-| 4403 | 不是本仓库里 herdr 认得出 Agent 的 pane | 不重连，显示原因 |
+| 4403 | 不是本仓库里的 pane（t15 阶段 4 起，本仓库里没有 Agent 会话的 pane 也能只读观看，D2） | 不重连，显示原因 |
 | 4404 | 终端不在了（pane 关了或换了 id），或观看的流连续 3 次没出一帧就结束 | 不重连，显示原因 |
 | 4409 | 超过上限 | 不重连，显示原因 |
 | 4410 | 积压太多、Bun 丢了帧 | 重连（第一帧就是整屏） |
@@ -202,7 +203,7 @@
   - `{t: "frame", seq, full, w, h, b}`：herdr 的帧，`b` 是 base64，原样转发。
   - `{t: "need_confirm", reason: "controlled_elsewhere" | "other_browser", detail}`：接管要先确认（见下）。
   - `{t: "released", reason, restored, notRestored}`：释放了，之后回到观看。
-  - `{t: "error", code, message}`：`audit_unavailable`、`session_changed`、`busy`（正在接管或握手）、`takeover_timeout`、`takeover_failed`、`herdr_unavailable`（按钮没发出去）。
+  - `{t: "error", code, message}`：`not_allowed`（这一格没有 Agent 会话，只能看，不能接管；接管的闸门先要求 Agent 会话与非空的 `expectedSession`，再比会话，t15 阶段 4）、`audit_unavailable`、`session_changed`、`busy`（正在接管或握手）、`takeover_timeout`、`takeover_failed`、`herdr_unavailable`（按钮没发出去）。
 - **页面 → 服务端**：`{t: "takeover", cols, rows, expectedSession, force}`；`{t: "input", data, paste?}`、`{t: "resize", cols, rows}`、`{t: "key", key}`（这三种只在接管时收，尺寸夹到 20 到 400 列、5 到 200 行，键名同 t11 的按键清单）；`{t: "release", reason?: "hidden"}`；`{t: "alive"}`（接管期间每 5 秒）；`{t: "resync"}`（观看时，连接推过帧之后才挂上的视图要整屏：服务端重起 observe）。
 
 ### 观看

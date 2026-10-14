@@ -209,6 +209,31 @@ export async function readScreen(context: DeliveryContext, target: DeliveryTarge
 }
 
 /**
+ * 非 Agent 的 pane 的更早输出（t15 阶段 4 第 3 批，D2）：开发服务、构建日志、shell。只读本仓库里的 pane；
+ * 前台程序在备用屏（less、vim、带 TUI 的程序）时没有回滚（`scrollback` 为 0），读出来只是当前屏，回 `history_unavailable`。
+ * Agent 的 pane 走 `readHistory`（只给 omp）。不写审计（终稿第 16 条）。
+ */
+export async function readPaneHistory(context: DeliveryContext, paneId: string, lines: number): Promise<{ok: true; text: string} | CheckFailure> {
+    let pane;
+    try {
+        pane = (await context.client.listPanes()).find((entry) => entry.paneId === paneId) ?? null;
+    } catch (error) {
+        if (!(error instanceof HerdrError)) throw error;
+        return fail("herdr_unavailable", `herdr 不可用（${error.code}）：${error.message}`);
+    }
+    if (!pane) return fail("not_found", `没有 pane ${paneId}`);
+    if (!within(pane.cwd, context.repoRoots) && !within(pane.foregroundCwd, context.repoRoots)) return fail("not_in_repository", `${paneId} 不在本仓库的 checkout 里`);
+    if (pane.agent !== null) return fail("history_unavailable", `${paneId} 上是 ${pane.agent} 会话：Agent 会话的更早输出走会话的接口`);
+    if (!pane.scrollback) return fail("history_unavailable", `${paneId} 没有可往回翻的输出（前台是全屏程序，或还没有超出一屏）`);
+    try {
+        return {ok: true, text: (await context.client.paneRead(paneId, "recent_unwrapped", lines)).replace(/\s+$/u, "")};
+    } catch (error) {
+        if (!(error instanceof HerdrError)) throw error;
+        return fail("herdr_unavailable", `读更早的输出失败（${error.code}）：${error.message}`);
+    }
+}
+
+/**
  * 更早的输出（手机的文字视图，t12）：`recent_unwrapped` 加行数，只给 omp。Claude 在备用屏上，读多于可见行要滚动它的界面、
  * 工作中直接报错（t11 设计审查 S4），所以不给；它的完整历史在会话的 transcript 里。
  */
