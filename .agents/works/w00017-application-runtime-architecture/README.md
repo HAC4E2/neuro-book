@@ -2,7 +2,7 @@
 schema: nbook.work/v1
 workId: w00017-application-runtime-architecture
 issueId: null
-status: active
+status: done
 ---
 
 # 应用运行时与内置插件架构
@@ -127,18 +127,20 @@ status: active
 | [t86](tasks/t86-explorer-polish/README.md) | 资源管理器打磨：四轮评审（行的样子与设置、右键菜单与在侧边打开、拖动的落点规则与指示、结构变化的动画）后实施，Files 的移动可带位置（合同版本 5）；开发者在页面上验收，2026-10-14 合入 master（`5bfe8c550`），完成 |
 | [t87](tasks/t87-explorer-os-import/README.md) | 资源管理器从系统拖入文件；2026-10-14 建立，同日开发者决定暂时搁置 |
 | [t88](tasks/t88-search-plugin/README.md) | 搜索服务插件（名字列表、正文全文搜索，过滤框、快速打开与搜索视图建在它上面）；2026-10-14 建立，同日开发者决定暂时搁置 |
+| [t89](tasks/t89-explorer-polish-2/README.md) | 资源管理器打磨（二）：内联输入、选中两种样子、视图的叠加悬停滚动条（nb-ui `OverlayScrollbar`）与随鼠标显示的标题动作，修侧栏拖到零与拉出时活动栏的相连、行底色右端被裁、“移动到”菜单被行盖住，再点活动栏当前项收起侧栏；开发者在页面上验收，2026-10-14 合入 master（`8685972a6`），完成 |
+| [t90](tasks/t90-spec-promotion/README.md) | 本 Work 收尾的 Spec 晋升：9 份对照实现晋升 `implemented`，plugin-channel 的逐条 HTTP 路由一节移到 `runtime/api-docs.md`，三份 Spec 的“待开发者追认”改为已追认；2026-10-14 合入 master（`4d382ba33`），完成 |
 
-**下一阶段（开发者 2026-10-13 定）**：先把 workbench 打磨完成，期间不接新的产品功能；打磨完成后把 w00017 合并到 `master`，再同步各分支、按 `master` 上的新工作流（记录只放主工作区、nbdev 与开发者面板）治理项目。workbench 与插件化改造已基本跑通。
+**收尾（2026-10-14）**：workbench 打磨完成，w00017 已在 t85 合入 `master`，此后的 t86、t89、t90 也已合入；开发者整体追认了 [待开发者确认](pending-confirmations.md) 的全部事项，K1–K6 验收通过。t87（从系统拖入文件）、t88（搜索插件）暂时搁置，以后另开 Work 时再取；t63 与插件清单移到“第三方插件规范与示例”的 Work。下一个 Work 是编辑器。
+
+已收尾：`8685972a6`；待清理：`.worktree/w00017-t89-explorer-polish-2`、`feat/w00017-t89-explorer-polish-2`，`.worktree/w00017-t90-spec-promotion`、`docs/w00017-t90-spec-promotion`（2026-10-14 已按开发者授权清理）。
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
 ## 执行位置与版本
 
-实现 checkout：`.worktree/w00017-runtime-foundation`（2026-09-28 `governance:context` 核实的实际路径），分支 `refactor/w00017-runtime-foundation`，基线 `411449ec4c1fbc57cceaeb7aa9d2385132a0d3e0`（master，含 w00003 合并 `bb688931` 与本 Work 七项 Spec 提交 `bc144b2d`）。分支上依次有 t05 提交 `a03c7169`、`3defd3dc`，t06 提交 `c8d7000e`、`b7e7b41c`，规则调整 `e457375d`，t07 提交 `e6ef6f19`、`492bc849`，t08 提交 `0e938172`、`2a17e85f`，t09 提交 `4d0b3c84`、`728acd40`、`b53753b9` 与文档提交 `d8956662`、`eeeec16b`，t10–t13 第二片提交。各 Task 的 `governance:context` 在该 checkout 核实身份，原始输出见各自 evidences。
+到 t85 为止的实现在分支 `refactor/w00017-runtime-foundation`（`.worktree/w00017-runtime-foundation`）上，t85 把它合入 `master` 后连同 worktree 一起清理。之后的 Task 各自从 `master` 开 worktree，做完合回 `master`。
 
-Work／Task 进度只在实现分支维护；主工作区保持 `master`，其 Work 目录副本是 `bc144b2d` 的占号记录，不回填进度、不在主树切分支。登记按 [编号合同](../README.md#编号分配与记录位置) 本地协调，不要求独立登记 PR 或非 squash 祖先关系。
-
-2026-10-12 起 Work 与 Task 的记录只放主工作区（[记录只放主工作区](../README.md#记录只放主工作区)）。t80、t81 的记录已从各自分支迁到这里，t84 起新建的 Task 直接建在这里，此后在这里维护；本 Work 其余 Task 迁移之前仍在实现分支维护（[w00022 t05](../w00022-dev-panel/tasks/t05-migrate-records/README.md)）。上表到 t28 为止，之后的 Task（t80、t81、t84 除外）以分支 `refactor/w00017-runtime-foundation` 上的副本为准。
+2026-10-12 起 Work 与 Task 的记录只放主工作区（[记录只放主工作区](../README.md#记录只放主工作区)），本 Work 全部 Task 的记录现在都在这里。
 
 ## 不变的产品边界
 
@@ -147,7 +149,7 @@ Work／Task 进度只在实现分支维护；主工作区保持 `master`，其 W
 - 服务实例寿命不等于持久记录寿命；不改变现有用户格式、数据库布局或迁移策略。
 - 小内核不依赖具体领域、框架、文件/数据库驱动；代理/服务发现不代替服务端授权。
 - Lab只做组件展示与局部显式依赖，不形成第二产品宿主或通用插件Lab。
-- 当前 Files 首版实施按批准范围进行，保留已有未提交文档；远端 Issue/Project/PR 写入、push、合并、发布仍未授权；`issueId: null`。历史交付与其授权见各 Task。
+- 远端 Issue/Project/PR 写入、push、合并、发布逐次经开发者授权；`issueId: null`。历史交付与其授权见各 Task。
 
 ## 质量与证据
 

@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t89-explorer-polish-2
-status: active
+status: done
 updated: 2026-10-14
 ---
 
@@ -33,6 +33,8 @@ t86 验收时开发者新提的三条：新建与改名的内联输入框样式�
   - 滚动条太宽：滑块由 8px 收窄到 6px，与 nb-ui `ScrollArea` 的滑块同宽，views 输出 12 随之改（`1e2226d30`）。开发者问 nb-ui 是否已有滚动条：有 `ScrollArea`（Reka），但它自建视口、把内容包进去，资源管理器的树本身是滚动元素又是带焦点的 `role="tree"`，虚拟列表直接读写它的 `scrollTop`，所以另做了接到已有滚动元素上的 `OverlayScrollbar`；nbdev 页面用的是 `dev-panel/src/web/app.css` 里的原生细滚动条样式，不是 nb-ui 组件。
   - 侧栏往零拖时活动栏要等松手才变回四角都圆的独立卡片：卡片按拖动预览算时只补了“拉出”，没补“拖到零”；补上，`ui/workbench-shell.md` 输出 38 那句改为两个方向都不等松手，e2e 加“拖到零、松手前活动栏已不相连”的断言，去掉修复时失败（`78baf37d4`）。验证：`workbench-views`、`files-explorer`、`workbench-shell` 三个 e2e 文件 58 例通过（Lab 两例首屏超时，单独重跑通过），nb-ui 581 例、外壳布局组件测试通过，vue-tsc web 0 错误，`docs:check`、`governance:check` 0 失败。
 - neuro-book `tsc` 的 5 个错误开发者已交给 w00022 处理。
+- 2026-10-14 开发者确认这两处没问题，另加一条，已改：再点活动栏的当前项时，侧栏看得见就收起（隐藏），看不见就打开，选择不变；`ui/workbench-shell.md` 外壳二输出 15 与验收 14 随之改，活动栏 e2e 加“再点收起、再点以同宽打开”（`ef4689ee0`）。验证：四个工作台 e2e 文件 85 例，三例首次失败（Lab 首屏动态导入失败、拖放与实例保留各一例），单独重跑通过；活动栏组件测试 9 例通过。
+- 2026-10-14 合入 master（`8685972a6`）：合入后 neuro-book `typecheck` 0 错误（w00022 已去掉 `@types/jsdom`），Bun 1141 例、Vitest 209 例通过。
 
 ## 决定
 
@@ -44,4 +46,4 @@ t86 验收时开发者新提的三条：新建与改名的内联输入框样式�
 
 ## 下一步
 
-验收第一轮的两条已改，等开发者再看一眼；开发者已同意验收通过后合入 master、push，并收尾 Work（改写 README 过时处、标完成、删 t89 与 t90 的 worktree 和分支）。
+已完成。worktree 与分支随 Work 收尾清理。
