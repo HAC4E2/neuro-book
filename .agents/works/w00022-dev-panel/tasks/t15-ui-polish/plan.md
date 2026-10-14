@@ -1505,3 +1505,4 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 第 6 条：删去的长文档的差异在 1440 与 390 下都不限高、不在框里滚、按行折行（截图 `rf-diff-*.png`）。
     - 回归：第 4 批的 `accept.ts` 23 条全过（`review-fixes/rerun-batch4/`）。因为复制按钮现在点了不跳，脚本里点行的位置从 HEAD 格换成“相对 master”格。
   - 验收环境：克隆的 `b4-service` 多了一份未跟踪的 `b4-images.md`；开发服务验完已经 `dev stop --force`（是验收自己起的），4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `5702de26a`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步；集成分支自己多了上面两个开发依赖。
+- 2026-10-14：阶段 4 第 4 批合入 `master`（合并提交 `23609bdc2`，集成分支 `460ef97c3`），按开发者的长期授权直接合入。合入前主 Agent 在 `460ef97c3` 上复跑门禁：typecheck、build:web 通过，全量测试 421 过、0 失败，`git diff --check` 干净；合并结果与集成分支在 `packages/`、`scripts/`、`package.json`、`bun.lock` 下没有差异，不用另测。合入后 `bun install --frozen-lockfile`（装上 `jsdom`、`@types/jsdom`），`service:restart` 重启 4400，回 200。
