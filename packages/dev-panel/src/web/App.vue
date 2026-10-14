@@ -113,7 +113,8 @@ const panels = computed<SplitterPanelConfig[]>(() => [
         minSizePx: 200,
         maxSizePx: Math.min(480, Math.floor(viewportWidth.value * 0.4)),
         sizing: "fixed",
-        // 拖到最小宽度以内再过 80px 就收起，从收起处往外拖 80px 恢复（D4）。
+        // 拖到最小宽度以内再过 80px 就收起（D4）。收起后分隔线禁用（不可拖、不进 Tab 顺序），由顶栏的“展开左栏”展开（决定点 8）：
+        // 否则收起时键盘要先经过一条看不见的分隔线才到“展开左栏”。expandThreshold 只在拖动中途反悔时用到。
         collapse: {collapsedSize: 0, restoreSize: navWidth.value, collapseThreshold: 80, expandThreshold: 80, collapsed: narrow.value || navCollapsed.value} satisfies NavCollapse,
     },
     {id: CONTENT, minSizePx: 360, sizing: "weight"},
@@ -351,7 +352,7 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
         </section>
     </div>
     <a href="#nbdev-main" class="nbdev-skip" :inert="panelState.unauthorized || undefined" @click.prevent="skipToMain">跳到主内容</a>
-    <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="narrow" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
+    <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="navHidden" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
             <aside class="h-full overflow-hidden" style="background: var(--sidebar-surface, var(--bg-sidebar))" :inert="navHidden || undefined">
                 <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork">
