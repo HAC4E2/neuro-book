@@ -145,7 +145,9 @@ watch(peek, (current) => {
     pushed = false;
     // 没有记下打开它的链接（从 Work 页的速览链接进来、刷新、分享来的网址）：退回页标题，与换页时外壳挪焦点的落点相同。
     const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>("#nbdev-main h1");
-    target?.focus();
+    // 页标题本来不可聚焦：与外壳 focusHeading 一样先给 tabindex="-1"。
+    if (target && !opener && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+    target?.focus({preventScroll: true});
     opener = null;
 }, {flush: "post"});
 /** 浮层与整屏时遮罩下面的正文不能点、也 Tab 不进去（并排时正文照常可用）。 */
