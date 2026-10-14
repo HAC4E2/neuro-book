@@ -274,7 +274,7 @@ artifacts/<artifactId>/
 - **答复 id**：`<UTC 时间，精确到毫秒>-<8 位 hex>`。在写事务的锁内重新读时钟生成并保证单调：时间取 `max(当下, 这个 answers/ 目录里最大的 id + 1 毫秒)`，所以字典序就是落位的顺序。`submittedAt` 是开发者按下提交的时刻，与 id 分开。
 - `submittedBy`：`{kind: "developer", device}`（面板），或 `{kind: "agent-transcribed"}`（`answers record` 代录）。入库的答复里没有会话；谁代录的记在 provenance 里。
 - `values` 只含这次填的题；`comments` 可选，逐题写理由。改答案就再写一份，旧的不删。
-- 写入时取值按答复针对的那一版校验（`single` 是选项值；`multi` 是不重复的选项值数组、至少一个；`text` 非空、最长 10000 字；`confirm` 是布尔值），只能答活的题，而且只能答这一版里的题：之前几版的题（来自页面、已答、后来的页面里没有了，`page` 为 `null`）留在题表里只为答案查得到，再答报 `question_retired`（t15 阶段 4）。`ask` 登记的题与 `--keep` 保留的题照常能答。
+- 写入时取值按答复针对的那一版校验（`single` 是选项值；`multi` 是不重复的选项值数组、至少一个；`text` 非空、最长 10000 字；`confirm` 是布尔值），只能答活的题，而且只能答这一版里的题：之前几版的题（来自页面、已答、后来的页面里没有了，`page` 为 `null`）留在题表里只为答案查得到，再答报 `question_earlier`（t15 阶段 4）。`ask` 登记的题与 `--keep` 保留的题照常能答。
 
 ### 确认 `answers/ack-<id>.json`
 

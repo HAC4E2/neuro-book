@@ -12,7 +12,7 @@ import type {QuestionState, VersionQuestion} from "../host/types.js";
 const props = withDefaults(defineProps<{questions: QuestionState[]; version: number; latestVersion: number; answering?: boolean}>(), {answering: false});
 const answeredOpen = ref(false);
 const earlierOpen = ref(false);
-const retiredOpen = ref(false);
+const closedOpen = ref(false);
 
 const groups = computed(() => groupQuestions(props.questions));
 const TYPE_LABEL: Record<VersionQuestion["type"], string> = {single: "单选", multi: "多选", text: "文字", confirm: "确认"};
@@ -84,14 +84,14 @@ function outcomeText(state: QuestionState): string {
                 </article>
             </div>
         </Collapsible>
-        <Collapsible v-if="groups.retired.length > 0" v-model:open="retiredOpen">
+        <Collapsible v-if="groups.closed.length > 0" v-model:open="closedOpen">
             <template #trigger>
-                <button type="button" class="nbdev-card-title nbdev-secondary flex items-center gap-1" :aria-expanded="retiredOpen">
-                    <span :class="retiredOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" aria-hidden="true" />已取代与撤回 {{ groups.retired.length }}
+                <button type="button" class="nbdev-card-title nbdev-secondary flex items-center gap-1" :aria-expanded="closedOpen">
+                    <span :class="closedOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" aria-hidden="true" />已取代与撤回 {{ groups.closed.length }}
                 </button>
             </template>
             <ul class="nbdev-empty mt-2 flex flex-col gap-1.5">
-                <li v-for="state in groups.retired" :key="state.question.id">
+                <li v-for="state in groups.closed" :key="state.question.id">
                     <span class="line-through">{{ state.question.label }}</span>
                     <span class="nbdev-small"> · {{ outcomeText(state) }}</span>
                 </li>

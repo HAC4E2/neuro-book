@@ -1,4 +1,4 @@
-import {isRetiredFromPage} from "../../core/questions.js";
+import {isEarlierPageQuestion} from "../../core/questions.js";
 import type {QuestionState, VersionQuestion} from "./types.js";
 
 /**
@@ -21,15 +21,15 @@ export type QuestionGroups = {
     answered: QuestionState[];
     /** 之前几版的题：页面上已经没有、只为答案还查得到，只读 */
     earlier: QuestionState[];
-    /** 已取代与撤回 */
-    retired: QuestionState[];
+    /** 已取代与撤回（服务端拒答时报 question_closed） */
+    closed: QuestionState[];
 };
 
 export function groupQuestions(questions: readonly QuestionState[]): QuestionGroups {
-    const groups: QuestionGroups = {pending: [], answered: [], earlier: [], retired: []};
+    const groups: QuestionGroups = {pending: [], answered: [], earlier: [], closed: []};
     for (const state of questions) {
-        if (state.state === "withdrawn" || state.state === "superseded") groups.retired.push(state);
-        else if (isRetiredFromPage(state.question)) groups.earlier.push(state);
+        if (state.state === "withdrawn" || state.state === "superseded") groups.closed.push(state);
+        else if (isEarlierPageQuestion(state.question)) groups.earlier.push(state);
         else if (state.state === "answered") groups.answered.push(state);
         else groups.pending.push(state);
     }

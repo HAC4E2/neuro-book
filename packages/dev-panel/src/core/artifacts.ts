@@ -4,7 +4,7 @@ import {join, resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {gitOutput, splitNul} from "./git.js";
 import {isIsoTime, isNullableString, isOtherSchemaVersion, isRecord, isStringArray} from "./json.js";
-import {isRetiredFromPage, QUESTION_ID_PATTERN, QUESTION_TYPES, validateAnswerValue, type MarkupQuestion, type QuestionDefinition, type QuestionOption, type QuestionType} from "./questions.js";
+import {isEarlierPageQuestion, QUESTION_ID_PATTERN, QUESTION_TYPES, validateAnswerValue, type MarkupQuestion, type QuestionDefinition, type QuestionOption, type QuestionType} from "./questions.js";
 import {readTitle} from "./frontmatter.js";
 import {WORKS_ROOT} from "./repo.js";
 
@@ -436,11 +436,11 @@ export function questionStates(version: ArtifactVersion, answers: readonly Answe
 }
 
 /**
- * 等开发者答的题：open、必答、属于这一版。之前几版留下的题（`isRetiredFromPage`）答复作废时也是 open，但它不再收答复，
+ * 等开发者答的题：open、必答、属于这一版。之前几版留下的题（`isEarlierPageQuestion`）答复作废时也是 open，但它不再收答复，
  * 不能算待答。收件箱、产物的 `openRequired`、`answers --pending` 与 Task 收尾的提醒共用这一条。
  */
 export function awaitsAnswer(state: QuestionState): boolean {
-    return state.state === "open" && state.question.required && !isRetiredFromPage(state.question);
+    return state.state === "open" && state.question.required && !isEarlierPageQuestion(state.question);
 }
 
 function staleCode(questionId: string, use: AnswerUse, latest: ArtifactVersion, answeredVersions: ReadonlyMap<number, ArtifactVersion>): StaleCode {

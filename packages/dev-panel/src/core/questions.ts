@@ -15,7 +15,7 @@ export type QuestionDefinition = {id: string; type: QuestionType; label: string;
  * 之前几版的题：来自页面、已经答过、后来的页面里没有了。发新版时这种题留在题表里（`page` 记成 `null`，见 docs/file-formats.md
  * 的“新版本的题表”），只为答案还查得到；它不属于这一版，不再收答复，界面只读显示。`ask` 登记的题本来就不在页面里，不算。
  */
-export function isRetiredFromPage(question: {origin: "markup" | "ask"; page: string | null}): boolean {
+export function isEarlierPageQuestion(question: {origin: "markup" | "ask"; page: string | null}): boolean {
     return question.origin === "markup" && question.page === null;
 }
 

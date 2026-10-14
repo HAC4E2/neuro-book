@@ -20,7 +20,7 @@ export type WriteFailure = {
 
 const SLOW_MS = 2_000;
 /** 拿到这些就重新取数：页面上的数据已经过时。 */
-const RELOAD_CODES = new Set(["stale_version", "question_closed", "question_retired", "artifact_closed", "task_closed", "work_not_found", "task_not_found", "artifact_not_found", "question_not_found"]);
+const RELOAD_CODES = new Set(["stale_version", "question_closed", "question_earlier", "artifact_closed", "task_closed", "work_not_found", "task_not_found", "artifact_not_found", "question_not_found"]);
 
 export function describeFailure(error: unknown): WriteFailure {
     if (!(error instanceof ApiError)) {

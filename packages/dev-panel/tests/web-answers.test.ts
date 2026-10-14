@@ -17,7 +17,7 @@ describe("产物页侧栏的分组", () => {
             state(question("gone", {outcome: {kind: "superseded", in: 2, by: null}}), "superseded"),
         ]);
         const ids = (list: QuestionState[]) => list.map((entry) => entry.question.id);
-        expect([ids(groups.pending), ids(groups.answered), ids(groups.earlier), ids(groups.retired)]).toEqual([["asked", "optional"], ["kept"], ["old"], ["gone"]]);
+        expect([ids(groups.pending), ids(groups.answered), ids(groups.earlier), ids(groups.closed)]).toEqual([["asked", "optional"], ["kept"], ["old"], ["gone"]]);
     });
 
     test("“新”只标最新一版第一次出现的题，第一版不标", () => {
