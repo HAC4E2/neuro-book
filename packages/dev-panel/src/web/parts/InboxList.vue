@@ -14,9 +14,20 @@ const emit = defineEmits<{navigate: [href: string]}>();
 const rows = computed(() => groupInbox(props.items));
 /** 撞号的处理办法写在 .agents/works/README.md（先定保留哪个，另一个领新号）。 */
 const CONFLICT_HELP = docHref("main", ".agents/works/README.md");
+/** 位置写短：worktree 只写目录名；已提交的 ref 只列两个本地分支，其余（远端、别的分支）记个数。 */
 function conflictPlaces(locations: readonly ConflictLocation[]): string {
-    const places = locations.map((location) => (location.source === "main" ? "主工作区" : location.source === "worktree" ? `worktree ${location.checkout ?? ""}` : `${location.ref ?? "某个 ref"} 上已提交`));
-    return [...new Set(places)].join("、") || "位置未知";
+    const places = new Set<string>();
+    const branches: string[] = [];
+    let otherRefs = 0;
+    for (const location of locations) {
+        if (location.source === "main") places.add("主工作区");
+        else if (location.source === "worktree") places.add(`worktree ${(location.checkout ?? "").split("/").filter(Boolean).at(-1) ?? ""}`);
+        else if (location.ref?.startsWith("refs/heads/") && branches.length < 2) branches.push(location.ref.slice("refs/heads/".length));
+        else otherRefs += 1;
+    }
+    if (branches.length > 0) places.add(`已提交在 ${branches.join("、")}${otherRefs > 0 ? ` 等 ${branches.length + otherRefs} 个 ref` : ""}`);
+    else if (otherRefs > 0) places.add(`已提交在 ${otherRefs} 个 ref`);
+    return [...places].join("、") || "位置未知";
 }
 /** 一行里列出的题数上限，其余写“等 N 道”。 */
 const SHOWN = 3;
