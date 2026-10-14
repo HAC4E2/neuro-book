@@ -23,6 +23,12 @@ updated: 2026-10-14
 
 - 第三轮评审板：catppuccin 的亮色（Latte、降饱和）与三种暗色（Frappé、Macchiato、Mocha）放进 nbook、macos 两个主题 × 明暗截图（设置写开发服务的 `.dev-state/settings.json` 实时切换）；短标记改成行尾的 lucide 状态图标；搜索与过滤的分工。更正第一轮的一句误述：新应用没有按文件名的快速打开（`workbench/quick-open.md` 把它列为非目标），也没有正文搜索。
 
+- 2026-10-14 实施（分支 `feat/w00017-t86-explorer-polish`）：
+  - S0 Spec 修订（`85cb3f2b2`）：files-explorer、folder-kinds、files、editor 四份。
+  - S1 Files（`c1bc726b7`）：“第 N 卷 / 章”里的中文数字按数值排序（比较放到 `files/shared/names.ts`，Lab 内存适配器共用）、内容树目录的 `leaf`、只读方法 `realPath`，远程合同版本 4。files 测试 106 例与新增的排序单测通过。按计划用 `perf:files` 在本机对照展开内容文件夹（D2）：master 首次展开 p50 85 ms，本分支 65 ms，没有变慢（本机噪声范围内；原始结果在本地 `perf/`）。
+  - S2 图标（`2004eca19`）：`gen:file-icons` 从 `@iconify-json/catppuccin` 生成 36 个图标，`FileIcon` 内联 SVG、亮 Latte 暗 Macchiato；Lab `FileIcon` 场景明暗截图核对。
+  - S3 行的样子（`192b1a601`）：状态挂在目录行上、状态图标、后缀副标题、叶子不可展开、根的分节标题、缩进参考线，两个设置项归新分区“资源管理器”，`retry-list` 命令；explorer、lab、files、settings 的 Bun 366 例与 Vitest 209 例通过，`files-explorer`、`lab-explorer`、`settings` 三组 e2e 23 例通过；真实工作台（雾港）截图核对排序、图标、参考线与设置窗口。
+
 ## 决定
 
 第一轮（2026-10-14，评审板 v1 的答复 `20261014T034813624Z-cf13a7aa`）：
