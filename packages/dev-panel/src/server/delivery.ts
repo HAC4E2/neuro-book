@@ -235,6 +235,17 @@ export async function readPaneHistory(context: DeliveryContext, paneId: string, 
 }
 
 /**
+ * 这一格能读更早的输出时走哪个接口，读不到为 null（会话页据此给“更早的输出”，或写“只能看当前屏”；决定点 23）：
+ * - 有会话键：只给 omp（见 `readHistory`），并且 herdr 报的回滚（`max_offset_from_bottom`）不是 0。Claude 这类在备用屏上的会话
+ *   回滚是 0，`pane.read` 也只能读到当前屏（2026-10-14 实测），面板里往回翻不了；
+ * - 没有会话键：回滚大于 0（见 `readPaneHistory`）。
+ */
+export function historySource(pane: {session: {agent: string} | null; scrollback: number | null}): "session" | "pane" | null {
+    if (pane.session !== null) return pane.session.agent === "omp" && pane.scrollback !== 0 ? "session" : null;
+    return pane.scrollback ? "pane" : null;
+}
+
+/**
  * 更早的输出（手机的文字视图，t12）：`recent_unwrapped` 加行数，只给 omp。Claude 在备用屏上，读多于可见行要滚动它的界面、
  * 工作中直接报错（t11 设计审查 S4），所以不给；它的完整历史在会话的 transcript 里。
  */
@@ -242,6 +253,7 @@ export async function readHistory(context: DeliveryContext, target: DeliveryTarg
     const checked = await identity(context, target, "read");
     if (!checked.ok) return checked;
     if (checked.agent.agent !== "omp") return fail("history_unavailable", `${checked.agent.agent} 的更早输出不能从终端读（读多于可见行会滚动它的界面）；看会话的 transcript`, checked.agent);
+    if (historySource(checked.agent) !== "session") return fail("history_unavailable", `${target.paneId} 没有可往回翻的输出（前台在备用屏上）`, checked.agent);
     try {
         return {ok: true, agent: checked.agent, text: (await context.client.agentRead(target.paneId, "recent_unwrapped", "text", lines)).replace(/\s+$/u, "")};
     } catch (error) {

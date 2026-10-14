@@ -30,11 +30,11 @@ const CONTROL_FONT = 13;
 const WATCH_FONT_MIN = 5;
 const WATCH_FONT_MAX = 14;
 /**
- * 回滚的行数（t15 阶段 4 第 3 批，决定点 23：这一批只靠终端回滚，能翻到开始观看之后的输出）。
- * 有回滚时 xterm 的自绘滑块（14px）盖在终端右缘：量列数时先减掉，否则最后一列有一半在滑块下面、选不中（阶段 2 实测）。
+ * 不开回滚（决定点 23）：herdr 的观察流在增量帧里按光标定位逐行改写整屏、不换行滚屏，xterm 攒不下回滚（2026-10-14 实测）。
+ * 没有回滚 xterm 就不画自绘滑块，量列数不用给它让 14px。以后 herdr 的帧改成滚屏、要开回滚时，量列数要先减掉滑块的宽度，
+ * 否则最后一列落在滑块下面、选不中（阶段 2 实测）。
  */
-const SCROLLBACK = 5000;
-const SLIDER_WIDTH = 14;
+const SCROLLBACK = 0;
 const host = ref<HTMLDivElement | null>(null);
 const frameBox = ref<HTMLDivElement | null>(null);
 let term: Terminal | null = null;
@@ -65,7 +65,7 @@ function cellSize(): {width: number; height: number} | null {
 function fitWatchFont(): void {
     const box = frameBox.value;
     if (!term || !box || props.mode !== "watch") return;
-    const width = box.clientWidth - BOX_PADDING - SLIDER_WIDTH;
+    const width = box.clientWidth - BOX_PADDING;
     const height = box.clientHeight - BOX_PADDING;
     let size = Math.max(WATCH_FONT_MIN, Math.min(WATCH_FONT_MAX, Math.floor(width / (term.cols * cellRatio)), Math.floor(height / (term.rows * rowRatio))));
     if (term.options.fontSize !== size) term.options.fontSize = size;
@@ -122,7 +122,7 @@ function proposeSize(box: HTMLElement): {cols: number; rows: number} | null {
     box.style.overflow = "hidden";
     const outer = getComputedStyle(parent);
     const inner = getComputedStyle(element);
-    const width = Math.max(0, parseInt(outer.width) - SLIDER_WIDTH) - parseInt(inner.paddingLeft) - parseInt(inner.paddingRight);
+    const width = parseInt(outer.width) - parseInt(inner.paddingLeft) - parseInt(inner.paddingRight);
     const height = parseInt(outer.height) - parseInt(inner.paddingTop) - parseInt(inner.paddingBottom);
     box.style.overflow = overflow;
     return {cols: Math.max(2, Math.floor(width / cell.width)), rows: Math.max(1, Math.floor(height / cell.height))};

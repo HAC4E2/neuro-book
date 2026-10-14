@@ -196,6 +196,12 @@ async function readPaneHistory(): Promise<void> {
         paneHistoryPending.value = false;
     }
 }
+/**
+ * Agent 会话能不能读更早的输出由服务端按 herdr 的回滚与已有的接口定（`history`，见 `historySource`）。读不到的（Claude 这类在备用屏上的会话）
+ * 写明只能看当前屏（决定点 23：这一批不承诺在面板里往回翻）。
+ */
+const sessionHistory = computed(() => pane.value?.history === "session");
+const NO_HISTORY_NOTE = "只能看当前屏；更早的输出去 herdr 里翻";
 /** 只读的原因：没有会话键（开发服务、shell，或认出了 Agent 但还没报会话）。 */
 const readOnlyReason = computed(() => (selected.value?.agent ? `${selected.value.agent} 还没报会话` : "没有 Agent 会话"));
 /**
@@ -283,12 +289,16 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                                     <TerminalTextView :key="host.connection.value" :source="terminal.source" />
                                     <div class="flex flex-wrap gap-2">
                                         <Button size="sm" variant="ghost" icon-class="i-lucide-monitor" @click="showTerminalOnPhone = true">终端画面（只看）</Button>
-                                        <Button v-if="selected.agent === 'omp'" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="host.historyPending.value" @click="host.readHistory">{{ host.history.value ? "重读更早的输出" : "更早的输出" }}</Button>
+                                        <Button v-if="sessionHistory" size="sm" variant="ghost" icon-class="i-lucide-history" :disabled="host.historyPending.value" @click="host.readHistory">{{ host.history.value ? "重读更早的输出" : "更早的输出" }}</Button>
                                     </div>
+                                    <p v-if="!sessionHistory" class="nbdev-note">{{ NO_HISTORY_NOTE }}</p>
                                 </div>
                                 <template v-else>
                                     <TerminalView :key="host.connection.value" :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="selected.agent === 'claude' || selected.agent === 'omp'" :can-takeover="takeoverBlocked === null" :takeover-blocked="takeoverBlocked" :controller-note="controllerNote" :pending="terminal.state.pending" @takeover="host.askTakeover" @release="terminal.release()" @input="(input, paste) => terminal?.input(input, paste)" @resize="(cols, rows) => terminal?.resize(cols, rows)" @open-link="openLink">
-                                        <template v-if="narrow && !controlling" #actions><Button size="sm" variant="ghost" icon-class="i-lucide-text" @click="showTerminalOnPhone = false">回到文字视图</Button></template>
+                                        <template v-if="(narrow && !controlling) || !sessionHistory" #actions>
+                                            <span v-if="!sessionHistory" class="nbdev-secondary">{{ NO_HISTORY_NOTE }}</span>
+                                            <Button v-if="narrow && !controlling" size="sm" variant="ghost" icon-class="i-lucide-text" @click="showTerminalOnPhone = false">回到文字视图</Button>
+                                        </template>
                                     </TerminalView>
                                 </template>
                             </template>
@@ -311,7 +321,7 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                             <TerminalTextView v-else-if="narrow" :key="`text-${host.connection.value}`" :source="terminal.source" />
                             <TerminalView v-else :key="host.connection.value" :source="terminal.source" :mode="terminal.state.mode" :cols="terminal.state.cols" :rows="terminal.state.rows" :size-known="terminal.state.sizeKnown" :bracketed-paste="false" :can-takeover="false" :takeover-blocked="null" :read-only="readOnlyReason" :pending="terminal.state.pending" @open-link="openLink">
                                 <template #actions>
-                                    <Button v-if="pane?.scrollback" size="sm" variant="secondary" icon-class="i-lucide-history" :loading="paneHistoryPending" @click="readPaneHistory">{{ paneHistory ? "重读更早的输出" : `更早的输出（${Math.min(1000, pane.scrollback)} 行）` }}</Button>
+                                    <Button v-if="pane?.history === 'pane' && pane.scrollback" size="sm" variant="secondary" icon-class="i-lucide-history" :loading="paneHistoryPending" @click="readPaneHistory">{{ paneHistory ? "重读更早的输出" : `更早的输出（${Math.min(1000, pane.scrollback)} 行）` }}</Button>
                                     <span v-else class="nbdev-empty">全屏程序或没有回滚：只能看当前屏</span>
                                 </template>
                             </TerminalView>

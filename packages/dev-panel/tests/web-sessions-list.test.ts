@@ -5,7 +5,7 @@ import type {PaneView, RunView, SessionsData, SessionView} from "../src/web/host
 /** 会话页左列表的行与自动选中（`host/sessions-list.ts`，t15 阶段 4 第 3 批，决定点 19 到 21）。 */
 const REPO = "/repo";
 function pane(paneId: string, over: Partial<PaneView> = {}): PaneView {
-    return {paneId, terminalId: `term_${paneId}`, agent: "claude", status: "idle", session: {agent: "claude", value: `id-${paneId}`}, cwd: REPO, foregroundCwd: REPO, workspaceLabel: null, inRepository: true, scrollback: 0, title: null, ...over};
+    return {paneId, terminalId: `term_${paneId}`, agent: "claude", status: "idle", session: {agent: "claude", value: `id-${paneId}`}, cwd: REPO, foregroundCwd: REPO, workspaceLabel: null, inRepository: true, scrollback: 0, history: null, title: null, ...over};
 }
 function session(key: string, over: Partial<SessionView> = {}): SessionView {
     return {key, agent: key.split(":")[0]!, sessionId: null, label: null, alive: true, managed: false, herdr: null, leases: [], runs: [], title: null, ...over};

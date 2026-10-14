@@ -469,6 +469,23 @@ describe("更早的输出（手机的文字视图）", () => {
         expect(fake.requests.filter((request) => request.method === "agent.read")).toHaveLength(1);
     }, 30_000);
 
+    test("会话页按 /api/sessions 的 history 给“更早的输出”或写只能看当前屏（决定点 23）：omp 有回滚走会话接口；回滚为 0（备用屏）的会话与 Claude 都读不到；没有会话键的按回滚", async () => {
+        const scroll = (rows: number) => ({max_offset_from_bottom: rows, offset_from_bottom: 0, viewport_rows: 40});
+        const ompPane = (paneId: string, rows: number): FakePane => ({...claudePane(paneId, SESSION_A), agent: "omp", agent_session: {agent: "omp", kind: "path", source: "herdr:omp", value: `/s/${paneId}.jsonl`}, history: "omp 的输出", scroll: scroll(rows)});
+        const {server, cookie, fake} = await setup("term-history-source", {panes: (main) => [
+            claudePane("w9:p1", SESSION_A, {cwd: main, foreground_cwd: main, scroll: scroll(0)}),
+            {...ompPane("w9:p2", 444), cwd: main, foreground_cwd: main},
+            {...ompPane("w9:p3", 0), cwd: main, foreground_cwd: main},
+            shellPane("w9:p4", {cwd: main, foreground_cwd: main, scroll: scroll(361)}),
+            shellPane("w9:p5", {cwd: main, foreground_cwd: main, scroll: scroll(0)}),
+        ]});
+        const sessions = await (await fetch(`${server.url}/api/sessions`, {headers: {Cookie: cookie}})).json() as {data: {panes: Array<{paneId: string; history: string | null}>}};
+        expect(sessions.data.panes.map((pane) => [pane.paneId, pane.history])).toEqual([["w9:p1", null], ["w9:p2", "session"], ["w9:p3", null], ["w9:p4", "pane"], ["w9:p5", null]]);
+        const refused = await fetch(`${server.url}/api/sessions/w9:p3/history?session=${encodeURIComponent("omp:/s/w9:p3.jsonl")}`, {headers: {Cookie: cookie}});
+        expect([refused.status, (await refused.json() as {errors: Array<{code: string}>}).errors[0]?.code]).toEqual([409, "history_unavailable"]);
+        expect(fake.requests.filter((request) => request.method === "agent.read")).toEqual([]);
+    }, 30_000);
+
     test("没有会话键的 pane（D2）：有回滚时按 pane 读 recent_unwrapped，认出了 Agent 但没报会话的也一样；全屏程序（没有回滚）、有会话的 Agent pane、不在本仓库的回 409，不在的 pane 回 404；都不写审计", async () => {
         const scroll = (rows: number) => ({max_offset_from_bottom: rows, offset_from_bottom: 0, viewport_rows: 40});
         const {server, cookie, fake, audit} = await setup("term-pane-history", {panes: (main) => [

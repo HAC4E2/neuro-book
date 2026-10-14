@@ -8,6 +8,7 @@ import {readGovernanceLineLimits} from "../core/governance-limits.js";
 import {guardedFile} from "../core/paths.js";
 import {sha256} from "../core/transaction.js";
 import {isNbdevError, systemErrorCode, type Warning} from "../core/errors.js";
+import {historySource} from "./delivery.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
 import {withActivity, type ProjectStatus, type TaskView, type WorkView} from "../core/status.js";
@@ -327,7 +328,7 @@ export async function sessionsView(state: PanelState, titles: SessionTitles): Pr
     return {
         data: {
             herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, missedEvents: herdr.missedEvents, reconnects: herdr.reconnects, retries: herdr.retries},
-            panes: await Promise.all(herdr.panes.map(async (pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd), title: pane.session ? await titles.titleOf(pane.session.agent, pane.session.value) : null}))),
+            panes: await Promise.all(herdr.panes.map(async (pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd), history: historySource(pane), title: pane.session ? await titles.titleOf(pane.session.agent, pane.session.value) : null}))),
             sessions: await Promise.all((activity?.activity.sessions ?? []).map(async (session) => ({...session, title: session.sessionId ? await titles.titleOf(session.agent, session.sessionId) : null}))),
             unownedRuns: activity?.activity.unownedRuns ?? [],
             ignoredProcesses: activity?.activity.ignoredProcesses ?? 0,
