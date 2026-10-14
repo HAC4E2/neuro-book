@@ -1073,3 +1073,6 @@ interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普�
   - 没有验证到的地方：第 1 条的“别处答了（代录、另一个标签页）再改答”没有在浏览器里造，与“刚交完再改答”走同一条取值路径；第 7 条只看了产物页的说明文字照旧，宿主传别的文字要到第 2 批速览面板才用上。
   - 后续清单：主 Agent 10-14 在“试用建议”末尾加的 4 行（左栏 Work 快速查找、首页撞号原因、分支与 worktree 与开发服务的对应、会话标题）没动，排第 2、3、4 批时并进去。
   - 收尾：4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动。master 是 `32d979fd3`（只多了审查报告），`packages/`、`bun.lock`、`package.json` 没有差异，不用同步。
+- 2026-10-14：阶段 4 第 1 批合入 `master`（合并提交 `b976c54da`，集成分支 `25f0361c0`），开发者授权，并说 t15 后续各批都直接合入、重启，不用再问。
+  - 全量 `test` 在 `25f0361c0` 上由主 Agent 复跑：395 过、0 失败；合并提交的代码与依赖清单和集成分支相同。
+  - `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建完成。审查 worktree 与临时 worktree 已删除。没有 push。
