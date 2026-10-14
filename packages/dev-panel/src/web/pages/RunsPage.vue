@@ -41,7 +41,7 @@ const navigate = (href: string) => void router.push(href);
             <section class="nbdev-stack" aria-labelledby="unowned-title">
                 <h2 id="unowned-title" class="nbdev-heading flex items-center gap-2">无主的运行<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
                 <p v-if="data.unownedRuns.length === 0" class="nbdev-empty">没有</p>
-                <RunList v-else :runs="data.unownedRuns" show-pane />
+                <RunList v-else :runs="data.unownedRuns" show-pane @navigate="navigate" />
             </section>
         </template>
     </PageShell>
