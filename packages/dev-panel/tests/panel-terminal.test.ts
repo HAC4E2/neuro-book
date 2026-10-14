@@ -459,7 +459,7 @@ describe("更早的输出（手机的文字视图）", () => {
         ]});
         const get = async (pane: string) => {
             const reply = await fetch(`${server.url}/api/panes/${pane}/history`, {headers: {Cookie: cookie}});
-            const body = await reply.json() as {data: {text: string; lines: number} | null; errors: Array<{code: string; details?: {reason?: string}}>};
+            const body = await reply.json() as {data: {paneId: string; text: string; lines: number} | null; errors: Array<{code: string; details?: {reason?: string}}>};
             return {status: reply.status, body};
         };
         const read = await get("w9:p2");
