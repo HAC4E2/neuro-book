@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话页重新设计</title>
+<style>
+body { margin: 0; padding: 24px 16px 48px; background: #fbf8f2; color: #1f1c17; font: 15px/1.7 system-ui, "Noto Sans SC", sans-serif; }
+main { max-width: 960px; margin: 0 auto; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 32px 0 8px; }
+.lead { color: #5c564c; margin: 0 0 16px; }
+figure { margin: 16px 0; }
+figure img { display: block; max-width: 100%; border: 1px solid #d9d2c4; border-radius: 6px; }
+figcaption { color: #5c564c; font-size: 13px; margin-top: 4px; }
+.phones { display: flex; gap: 16px; flex-wrap: wrap; }
+.phones figure { flex: 0 1 300px; }
+li { margin: 4px 0; }
+code { font-size: 13px; background: #ece6da; padding: 1px 4px; border-radius: 3px; }
+.q { border: 1px solid #d9d2c4; border-radius: 8px; padding: 12px 16px; margin: 16px 0; background: #fff; }
+.q h3 { margin: 0 0 6px; font-size: 16px; }
+.q p { margin: 4px 0; color: #5c564c; }
+</style>
+</head>
+<body>
+<main>
+<h1>会话页重新设计</h1>
+<p class="lead">t15 阶段 4 第 3 批。线框稿里的会话名、Task、终端画面都是示意用的假数据。可交互的线框稿：<a href="wireframe.html#watch-notes">wireframe.html</a>（地址后面换成 <code>#watch</code>、<code>#control</code>、<code>#pane</code>、<code>#phone-list</code>、<code>#phone-detail</code> 看各种状态，加 <code>-notes</code> 带标注）。</p>
+
+<h2>要点</h2>
+<ul>
+<li><b>铺满的两栏</b>：左边会话列表，右边详情，各自滚动，页面本身不滚；终端占满剩下的高度，输入区不会被挤出屏幕，滚轮也不会被终端吞掉。</li>
+<li><b>不再有单独的“屏幕与输入”</b>：列表每一行整行可点、选中高亮；选中后右边直接是终端和输入区，同一屏里能看、能打字。</li>
+<li><b>列表行</b>：状态点、标题、状态字；第二行是 Agent、pane 号、所属 Task、运行数。按“等确认、工作中、空闲、已结束”排序。没有 Agent 会话的 pane 单独一组“其它 pane（只读）”。</li>
+<li><b>模式条</b>：观看时浅底一行“观看中 · 只读”，主按钮“接管键盘”，旁边写“接管后按 Ctrl+] 退出”；接管时整条换成醒目的蓝底“你在接管键盘”。</li>
+<li><b>输入区贴在终端下面</b>：投递结果、能不能发和原因、输入框与“发送”（按钮上写 Ctrl+Enter，Enter 换行）、按键一行（要先确认的键带“确认”标记）。</li>
+<li><b>会话标题</b>（已定）：读本机会话文件里 Agent 起的标题；读不到用租约的 Task，再不行才用 <code>claude c38df555</code> 这样的短号。</li>
+<li><b>只读观看</b>（已定）：本仓库里任意 pane 都能看，非 Agent 的 pane 可以往回翻；发消息和接管仍只对 Agent 会话。Agent 会话这一批只靠终端回滚。</li>
+<li><b>手机</b>：先是整屏列表，点一行进整屏详情，后退回列表；不给接管。</li>
+</ul>
+
+<h2>桌面 1440：观看中（带标注）</h2>
+<figure><img src="img/desktop-1440-watch-notes.png" alt="桌面观看中，带标注"><figcaption>① 左列表整行可点 ② 标题来源 ③ 模式条 ④ 终端占满、可回滚 ⑤ 输入区贴底</figcaption></figure>
+
+<h2>桌面 1440：接管中</h2>
+<figure><img src="img/desktop-1440-control.png" alt="桌面接管中"></figure>
+
+<h2>桌面 1440：非 Agent 的 pane，只读</h2>
+<figure><img src="img/desktop-1440-pane-readonly.png" alt="非 Agent 的 pane 只读观看"></figure>
+
+<h2>手机 390</h2>
+<div class="phones">
+<figure><img src="img/phone-390-list.png" alt="手机列表"><figcaption>列表</figcaption></figure>
+<figure><img src="img/phone-390-detail.png" alt="手机详情"><figcaption>详情</figcaption></figure>
+</div>
+
+<h2>请你定</h2>
+
+<div class="q" data-nbdev-question="sessions-design-go" data-nbdev-type="single" data-nbdev-label="会话页按这份设计稿实现吗" data-nbdev-options="go:按设计稿实现|revise:按我的说明改了再给我看" data-nbdev-recommend="go">
+<h3>会话页按这份设计稿实现吗</h3>
+<p>选“改了再给我看”时，在说明里写要改什么。</p>
+</div>
+
+<div class="q" data-nbdev-question="sessions-auto-select" data-nbdev-type="confirm" data-nbdev-label="桌面上没选会话时，自动选中最需要看的那个（等确认，其次工作中，再其次最近活动的）" data-nbdev-optional>
+<h3>没选会话时自动选中最需要看的那个</h3>
+<p>主 Agent 已按推荐定；不同意就选“否”，那样右栏只写一句引导。手机上都不自动进详情。</p>
+</div>
+
+<div class="q" data-nbdev-question="sessions-notify-place" data-nbdev-type="confirm" data-nbdev-label="通知放在左列表最上面一行“通知 · N 条要处理”，点了在右栏显示" data-nbdev-optional>
+<h3>通知放在左列表最上面一行</h3>
+<p>主 Agent 已按推荐定；不同意就选“否”，那样保持在页面顶部，会挤占终端的高度。</p>
+</div>
+
+<div class="q" data-nbdev-question="sessions-remarks" data-nbdev-type="text" data-nbdev-label="其它意见" data-nbdev-optional>
+<h3>其它意见</h3>
+</div>
+</main>
+</body>
+</html>

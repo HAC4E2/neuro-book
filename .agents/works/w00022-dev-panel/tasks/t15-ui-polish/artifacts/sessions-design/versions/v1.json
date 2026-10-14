@@ -1,0 +1,80 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t15-ui-polish",
+    "artifactId": "sessions-design",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "会话页重新设计",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "85718d0b00a6ed7c6dc366b163dd6f11227e288f7f1e296664e3b6fd5be52a05",
+    "questions": [
+        {
+            "id": "sessions-design-go",
+            "type": "single",
+            "label": "会话页按这份设计稿实现吗",
+            "options": [
+                {
+                    "value": "go",
+                    "label": "按设计稿实现"
+                },
+                {
+                    "value": "revise",
+                    "label": "按我的说明改了再给我看"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "go"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sessions-auto-select",
+            "type": "confirm",
+            "label": "桌面上没选会话时，自动选中最需要看的那个（等确认，其次工作中，再其次最近活动的）",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sessions-notify-place",
+            "type": "confirm",
+            "label": "通知放在左列表最上面一行“通知 · N 条要处理”，点了在右栏显示",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sessions-remarks",
+            "type": "text",
+            "label": "其它意见",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-14T07:19:49.592Z"
+}

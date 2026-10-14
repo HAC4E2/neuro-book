@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话页线框稿（t15 阶段 4 第 3 批）</title>
+<!--
+  静态线框稿：只为给开发者看结构与状态，不是实现。颜色近似面板的 nbook 亮色主题。
+  用法：file://…/wireframe.html#watch | #control | #pane | #phone-list | #phone-detail；加 -notes 后缀（如 #watch-notes）带标注
+-->
+<style>
+:root {
+    --bg: #f2eee6; --side: #ebe6dc; --panel: #fbf8f2; --subtle: #e9e3d8; --hover: #e4ddd0;
+    --text: #1f1c17; --text2: #57534b; --muted: #8a8478; --divider: #ddd6c9;
+    --accent: #0a66d6; --accent-bg: rgba(0, 122, 255, .10); --warn: #9a5b00; --warn-bg: #f6e7c9;
+    --ok: #2c7a39; --ok-bg: #dcefdc; --danger: #b3261e; --term: #1d1b18; --term-text: #e8e3d8;
+    --radius: 10px; --r-ctl: 6px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 13px/1.5 "Noto Sans CJK SC", "PingFang SC", system-ui, sans-serif; color: var(--text); background: var(--bg); }
+.shell { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+.nav { background: var(--side); border-right: 1px solid var(--divider); padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.nav .brand { font-weight: 600; padding: 4px 8px 10px; }
+.nav .item { padding: 5px 8px; border-radius: var(--r-ctl); color: var(--text2); display: flex; gap: 8px; align-items: center; }
+.nav .item.cur { background: var(--accent-bg); color: var(--text); }
+.nav .h { font-size: 11px; color: var(--text2); padding: 10px 8px 2px; }
+.nav .count { margin-left: auto; font-size: 11px; color: var(--text2); }
+.content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.topbar { height: 48px; border-bottom: 1px solid var(--divider); display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--bg); }
+.search { flex: 0 1 560px; height: 30px; border: 1px solid var(--divider); border-radius: var(--r-ctl); background: var(--panel); color: var(--muted); padding: 5px 10px; font-size: 12px; }
+.topbar .right { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.acc { background: var(--accent-bg); color: var(--accent); }
+.pill.mute { background: var(--subtle); color: var(--text2); }
+.page { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 24px 16px; gap: 12px; }
+.crumb { font-size: 12px; color: var(--text2); }
+.titlerow { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 19px; margin: 0; }
+.meta { font-size: 12px; color: var(--text2); display: flex; gap: 10px; align-items: center; }
+.cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; }
+.list { background: var(--panel); border: 1px solid var(--divider); border-radius: var(--radius); overflow: auto; display: flex; flex-direction: column; }
+.lsec { padding: 10px 10px 4px; font-size: 11px; color: var(--text2); display: flex; gap: 6px; align-items: center; }
+.row { margin: 2px 6px; padding: 8px 10px; border-radius: var(--r-ctl); display: grid; grid-template-columns: 10px 1fr auto; column-gap: 8px; row-gap: 2px; cursor: pointer; border: 1px solid transparent; }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.dot { width: 8px; height: 8px; border-radius: 99px; margin-top: 6px; }
+.dot.work { background: var(--accent); box-shadow: 0 0 0 3px rgba(0,122,255,.18); }
+.dot.block { background: var(--warn); }
+.dot.idle { background: transparent; border: 1.5px solid var(--muted); }
+.dot.gone { background: var(--divider); }
+.dot.pane { background: transparent; border: 1.5px dashed var(--text2); border-radius: 2px; }
+.rtitle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rstate { font-size: 11px; white-space: nowrap; }
+.rsub { grid-column: 2 / 4; font-size: 11.5px; color: var(--text2); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { border: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 999px; padding: 0 7px; font-size: 11px; color: var(--text2); }
+.mono { font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace; font-size: 11.5px; }
+.notifyrow { margin: 8px 6px 4px; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--warn-bg); color: var(--warn); display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.foot { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--divider); font-size: 12px; color: var(--text2); display: flex; flex-direction: column; gap: 6px; }
+.link { color: var(--accent); }
+.detail { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--divider); border-radius: var(--radius); overflow: hidden; }
+.dhead { padding: 12px 16px 10px; border-bottom: 1px solid var(--divider); display: flex; flex-direction: column; gap: 4px; }
+.dtitle { display: flex; align-items: center; gap: 10px; }
+.dtitle h2 { font-size: 15px; margin: 0; }
+.dmeta { font-size: 12px; color: var(--text2); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.mode { display: flex; align-items: center; gap: 10px; padding: 8px 16px; font-size: 12.5px; border-bottom: 1px solid var(--divider); background: var(--subtle); }
+.mode.ctl { background: #0a5bd0; color: white; }
+.mode .grow { flex: 1; }
+.kbd { font-family: ui-monospace, monospace; font-size: 11px; border: 1px solid currentColor; border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; opacity: .9; }
+.btn { border: 1px solid var(--divider); background: var(--panel); border-radius: var(--r-ctl); padding: 4px 12px; font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text2); }
+.btn.inv { background: white; color: #0a5bd0; border-color: white; }
+.btn[disabled] { opacity: .45; }
+.termwrap { flex: 1; min-height: 0; background: var(--term); position: relative; padding: 10px 26px 10px 12px; }
+.term { color: var(--term-text); font: 12.5px/1.45 "JetBrains Mono", ui-monospace, monospace; white-space: pre; overflow: hidden; height: 100%; }
+.term .dim { color: #8f887b; } .term .acc { color: #7fb3ff; } .term .ok { color: #8bd18b; } .term .warn { color: #f0c46b; }
+.slider { position: absolute; right: 4px; top: 40%; width: 14px; height: 30%; border-radius: 7px; background: rgba(232, 227, 216, .25); }
+.slidernote { position: absolute; right: 22px; top: 38%; font-size: 10.5px; color: #c9c1b2; background: rgba(0,0,0,.35); padding: 1px 6px; border-radius: 4px; }
+.dock { border-top: 1px solid var(--divider); padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+.state { font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.result { font-size: 12px; color: var(--ok); display: flex; gap: 6px; align-items: center; }
+.compose { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.ta { border: 1px solid var(--divider); border-radius: var(--r-ctl); background: white; min-height: 44px; padding: 7px 10px; color: var(--muted); font-size: 12.5px; }
+.keys { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--text2); }
+.key { white-space: nowrap; flex-shrink: 0; border: 1px solid var(--divider); background: var(--bg); border-radius: var(--r-ctl); padding: 2px 9px; font: 12px ui-monospace, monospace; color: var(--text); }
+.key.confirm::after { content: "·确认"; font-size: 10px; color: var(--warn); margin-left: 3px; font-family: system-ui; }
+.callout { position: absolute; background: #fff4b8; border: 1px solid #e1c75a; color: #5d4a00; font-size: 11.5px; padding: 4px 8px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.12); max-width: 230px; z-index: 5; }
+.callout b { color: #3b2f00; }
+.hist { border-top: 1px dashed var(--divider); }
+.empty { color: var(--muted); }
+/* 手机 */
+.phone .shell { grid-template-columns: 1fr; }
+.phone .nav { display: none; }
+.phone .page { padding: 10px 12px; gap: 8px; }
+.phone .cols { grid-template-columns: 1fr; }
+.phone .search { display: none; }
+.phone .row { margin: 2px 4px; }
+.back { font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const raw = (location.hash || "#watch").slice(1);
+const annotated = raw.endsWith("-notes");
+const state = raw.replace(/-notes$/u, "");
+const phone = state.startsWith("phone");
+if (phone) document.body.classList.add("phone");
+
+const nav = `
+<nav class="nav">
+  <div class="brand">▦ nbdev 面板</div>
+  <div class="item">▢ 首页与收件箱 <span class="count pill warn">4</span></div>
+  <div class="item">＋ 新建 Work 或 Task</div>
+  <div class="h">资料</div><div class="item">▤ 产物</div><div class="item">▥ 文档</div>
+  <div class="h">现场</div>
+  <div class="item cur">›_ 会话 <span class="count">3</span></div><div class="item">∿ 在跑 <span class="count">2</span></div>
+  <div class="item">⑂ checkout</div><div class="item">⎇ GitHub</div>
+  <div class="h">工作</div>
+  <div class="item">● w00017 应用运行时与内置插件架构</div><div class="item">● w00022 开发者项目面板…</div><div class="item">○ w00024 nb-story 剧情图谱</div>
+</nav>`;
+
+const listRows = (sel) => `
+  <div class="notifyrow">🔔 通知 · 1 条要处理 <span style="margin-left:auto;font-weight:400">查看 ›</span></div>
+  <div class="lsec">Agent 会话 · 3 <span class="pill mute" style="font-weight:400">临时</span></div>
+  <div class="row ${sel === "a" ? "sel" : ""}"><span class="dot block"></span><span class="rtitle">面板界面打磨：会话页重做</span><span class="rstate" style="color:var(--warn)">等确认</span>
+     <span class="rsub">omp · <span class="mono">w6:p1</span> <span class="chip">w00022/t15</span></span></div>
+  <div class="row ${sel === "b" ? "sel" : ""}"><span class="dot work"></span><span class="rtitle">k1-kernel-multi-instance-runtime</span><span class="rstate" style="color:var(--accent)">工作中</span>
+     <span class="rsub">claude · <span class="mono">w4:p1</span> <span class="chip">w00017/t86</span> · 1 个运行</span></div>
+  <div class="row ${sel === "c" ? "sel" : ""}"><span class="dot idle"></span><span class="rtitle">V9 评测：管线短上下文加中档</span><span class="rstate" style="color:var(--text2)">空闲</span>
+     <span class="rsub">codex · <span class="mono">w7:p1</span> · 没有租约</span></div>
+  <div class="row"><span class="dot gone"></span><span class="rtitle" style="text-decoration:line-through;color:var(--muted)">claude 0be1c2d3</span><span class="rstate" style="color:var(--muted)">已结束</span>
+     <span class="rsub">会话进程已退出 · 租约 <span class="chip">w00005/t29</span> 待回收</span></div>
+  <div class="lsec">其它 pane（只读）· 2</div>
+  <div class="row ${sel === "p" ? "sel" : ""}"><span class="dot pane"></span><span class="rtitle">bun run dev（w00022-dev-panel）</span><span class="rstate" style="color:var(--text2)">只看</span>
+     <span class="rsub"><span class="mono">w2:p1</span> · worktree w00022-dev-panel</span></div>
+  <div class="row"><span class="dot pane"></span><span class="rtitle">less build.log</span><span class="rstate" style="color:var(--text2)">只看</span>
+     <span class="rsub"><span class="mono">w3:p1</span> · 主工作区 · 全屏程序，不能往回翻</span></div>
+  <div class="foot">
+    <span>2 个无主的运行 <span class="link">去“在跑”看 ›</span></span>
+    <span>▸ 不在本仓库的会话 · 3（只列出）</span>
+  </div>`;
+
+const termLines = `<span class="dim">⏺ Read(packages/dev-panel/src/web/pages/SessionsPage.vue)</span>
+  ⎿  Read 189 lines
+
+<span class="acc">⏺</span> 会话页的两栏布局已经拆好，接下来把输入区贴到终端下面。
+
+<span class="dim">⏺ Update(packages/dev-panel/src/web/parts/SessionConsole.vue)</span>
+  ⎿  Updated with 24 additions and 9 removals
+
+<span class="ok">✻ Brewing… (38s · ↓ 2.1k tokens · esc to interrupt)</span>
+
+──────────────────────────────────────────────────────────────────────
+<span class="acc">❯</span>
+──────────────────────────────────────────────────────────────────────
+  <span class="dim">⏵⏵ accept edits on (shift+tab to cycle)</span>`;
+
+function detailAgent(control) {
+    const mode = control
+        ? `<div class="mode ctl">⌨ <b>你在接管键盘</b> · 你打的字直接进这一格，herdr 那边的输入照样能写进来 <span class="grow"></span><span>按 <span class="kbd">Ctrl+]</span> 退出</span><button class="btn inv">释放</button></div>`
+        : `<div class="mode">👁 <b>观看中</b> · 实时画面，只读；键盘在 herdr 那边 <span class="grow"></span><span style="color:var(--text2)">接管后按 <span class="kbd">Ctrl+]</span> 退出</span><button class="btn primary">接管键盘</button></div>`;
+    const dock = control
+        ? `<div class="dock"><div class="keys">按键（接管中单击即发）：<span class="key">↑</span><span class="key">↓</span><span class="key">Enter</span><span class="key">Esc</span><span class="key">Ctrl+C</span><span class="key">Shift+Tab</span><span class="key">y</span><span class="key">n</span></div>
+           <div class="state" style="color:var(--text2)">接管中输入框收起：直接在上面的终端里打字。15 分钟没有输入自动释放。</div></div>`
+        : `<div class="dock">
+             <div class="result">✓ 已投递“先把输入区贴到终端下面”· 12 秒前 · 会话变成工作中</div>
+             <div class="state"><span class="pill acc">工作中</span><span style="color:var(--text2)">空闲之后才能发文字（不排队）；要打断用下面的 Esc</span></div>
+             <div class="compose"><div class="ta">发给这个会话的文字：替你在它的输入框里打字并回车 …</div><button class="btn primary" disabled>发送 <span class="kbd" style="border-color:rgba(255,255,255,.7)">Ctrl+Enter</span></button></div>
+             <div class="keys">按键：<span class="key">↑</span><span class="key">↓</span><span class="key confirm">Enter</span><span class="key confirm">Esc</span><span class="key confirm">Ctrl+C</span><span class="key confirm">Shift+Tab</span><span class="key confirm">y</span><span class="key confirm">n</span><span style="margin-left:6px">带“确认”的键先给你看屏幕再发</span></div>
+           </div>`;
+    return `
+    <section class="detail" style="position:relative">
+      <div class="dhead">
+        <div class="dtitle"><h2>k1-kernel-multi-instance-runtime</h2><span class="pill acc">工作中</span></div>
+        <div class="dmeta">claude · pane <span class="mono">w4:p1</span> · 会话 <span class="mono">c38df555 ⧉</span> · 租约 <span class="chip">w00017/t86 资源管理器打磨</span> · 1 个运行 · 标题取自 Claude Code（ai-title）</div>
+      </div>
+      ${mode}
+      <div class="termwrap"><div class="term">${termLines}</div><div class="slider"></div><div class="slidernote">往回翻（回滚 5000 行）</div></div>
+      ${dock}
+    </section>`;
+}
+
+function detailPane() {
+    return `
+    <section class="detail">
+      <div class="dhead">
+        <div class="dtitle"><h2>bun run dev（w00022-dev-panel）</h2><span class="pill mute">只看</span></div>
+        <div class="dmeta">pane <span class="mono">w2:p1</span> · 前台进程 bun · 目录 worktree w00022-dev-panel · 不是 Agent 会话：不能发消息、不能接管</div>
+      </div>
+      <div class="mode">👁 <b>观看中</b> · 实时画面，只读 <span class="grow"></span><button class="btn">更早的输出（1000 行）</button></div>
+      <div class="termwrap"><div class="term"><span class="dim">$ bun run dev</span>
+  VITE v6.3.5  ready in 812 ms
+
+  ➜  Local:   http://127.0.0.1:3310/
+<span class="dim">12:04:11</span> [vite] hmr update /src/pages/SessionsPage.vue
+<span class="dim">12:04:19</span> [vite] hmr update /src/parts/SessionConsole.vue
+<span class="warn">12:05:02</span> [vite] warning: unused import "ref"</div><div class="slider"></div></div>
+      <div class="dock hist"><div class="state" style="color:var(--text2)">只读观看不写审计（决定点 16）。要在这一格里操作，回 herdr。</div></div>
+    </section>`;
+}
+
+const callouts = (state) => !annotated ? "" : state === "watch" ? `
+  <div class="callout" style="left:330px;top:150px">① 左列表：整行可点，选中高亮；状态点 + 标题 + Agent · pane · Task</div>
+  <div class="callout" style="left:700px;top:132px">② 标题取会话文件（Claude Code 的 ai-title、Codex 的 thread_name、omp 的 title）；取不到用租约的 Task，再不行用“claude c38df555”</div>
+  <div class="callout" style="left:980px;top:262px">③ 模式条：一眼看出“只读观看”还是“你在接管”，接管按钮是主按钮，写明退出键</div>
+  <div class="callout" style="left:1180px;top:430px">④ 终端占满剩下的高度，自带回滚；量列数先减掉 14px 滑块</div>
+  <div class="callout" style="left:700px;top:700px">⑤ 输入区贴在终端下面：投递结果、能不能发、输入框、发送快捷键、按键，一屏内都看得到</div>` : state === "control" ? `
+  <div class="callout" style="left:900px;top:175px">接管中模式条换成醒目的蓝底，写明 <b>Ctrl+]</b> 退出；“释放”仍是主要入口</div>` : state === "pane" ? `
+  <div class="callout" style="left:420px;top:560px">非 Agent 的 pane 在单独一组，虚线方块表示“只看”；全屏程序（less、vim）不给往回翻</div>
+  <div class="callout" style="left:1060px;top:180px">只读：没有输入区与接管；“更早的输出”读 pane.read，全屏程序不给</div>` : "";
+
+let html;
+if (state === "phone-list") {
+    html = `<div class="shell"><div class="content">
+      <div class="topbar"><span>☰</span><span class="search" style="display:block;flex:1">搜索…</span><span class="pill warn">通知要处理 1</span></div>
+      <div class="page"><div class="crumb">首页 › 会话</div><div class="titlerow"><h1>会话</h1><span class="meta"><span class="pill ok">herdr 0.9.3</span> 已订阅推送</span></div>
+      <div class="list" style="flex:1">${listRows("")}</div></div></div></div>`;
+} else if (state === "phone-detail") {
+    html = `<div class="shell"><div class="content">
+      <div class="topbar"><span class="back">‹ 会话</span><span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">k1-kernel-multi-instance-runtime</span></div>
+      <div class="page" style="padding:0">
+      <section class="detail" style="border-radius:0;border-left:0;border-right:0;flex:1">
+        <div class="dhead"><div class="dtitle"><span class="pill acc">工作中</span><span class="dmeta">claude · <span class="mono">w4:p1</span> · <span class="chip">w00017/t86</span></span></div></div>
+        <div class="mode" style="font-size:12px">📄 文字视图（实时） <span class="grow"></span><button class="btn ghost">终端画面</button></div>
+        <div class="termwrap" style="padding-right:12px"><div class="term" style="font-size:11px;white-space:pre-wrap">${termLines}</div></div>
+        <div class="dock">
+          <div class="state"><span style="color:var(--text2)">工作中：空闲之后才能发文字</span></div>
+          <div class="compose"><div class="ta">发给这个会话的文字 …</div><button class="btn primary" disabled>发送</button></div>
+          <div class="keys" style="flex-wrap:nowrap;overflow:hidden"><span class="key">↑</span><span class="key">↓</span><span class="key confirm">Enter</span><span class="key confirm">Esc</span><span class="key confirm">Ctrl+C</span><span class="key confirm">y</span> …</div>
+          <div class="state" style="color:var(--muted);font-size:11px">手机上不给接管；按键一行横向滑动</div>
+        </div>
+      </section></div></div></div>`;
+} else {
+    const sel = state === "pane" ? "p" : "b";
+    html = `<div class="shell">${nav}<div class="content">
+      <div class="topbar"><span class="search">搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）</span><span class="right"><span class="pill warn">🔔 通知要处理 1</span><span style="color:var(--ok)">●</span>☼</span></div>
+      <div class="page">
+        <div><div class="crumb">首页 › 会话</div>
+        <div class="titlerow"><h1>会话</h1><span class="meta"><span class="pill ok">herdr 0.9.3</span> 已订阅推送 · 刚刚更新</span></div></div>
+        <div class="cols"><aside class="list">${listRows(sel)}</aside>${state === "pane" ? detailPane() : detailAgent(state === "control")}</div>
+      </div></div></div>${callouts(state)}`;
+}
+document.getElementById("root").innerHTML = html;
+</script>
+</body>
+</html>
