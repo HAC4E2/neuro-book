@@ -16,7 +16,7 @@ import NotifyStatus from "../parts/NotifyStatus.vue";
 import QuestionPanel from "../parts/QuestionPanel.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
 import StaleNotice from "../parts/StaleNotice.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 产物页（t03 第二轮产物页）：左边是产物来源上的原页（沙箱 iframe，不给同源），右边是问题侧栏与答复表单（t10）。
@@ -134,11 +134,11 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                 </section>
                 <aside class="min-w-0 rounded-[var(--radius-panel)] p-4" :class="{'lg:col-span-2': !data.pageUrl}" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="问题">
                     <div class="flex flex-col gap-4">
-                        <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
+                        <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
                         <section v-if="lastAnswerId" class="flex flex-col gap-1.5" aria-label="这份答复的通知">
                             <h2 class="font-semibold" style="font-size: var(--text-xs)">通知</h2>
                             <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
-                            <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                            <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
                         </section>
                         <AnswerForm v-if="showForm" :questions="data.questions" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer" />
                         <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" :answering="showForm" />

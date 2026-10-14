@@ -24,12 +24,12 @@ export function attentionCount(data: NotifyData | null): number {
 export function deliveryNotice(result: DeliveryData, target: string): Notice {
     switch (result.result) {
     case "delivered": return result.code === "unwatched"
-        ? {tone: "warning", title: "已投递，没核对确认界面", message: `已发给 ${target}；面板这时没订阅到它的状态事件，看不出回车前后有没有弹出过确认界面，看一眼终端`, items: [], retry: false}
-        : {tone: "success", title: "已投递", message: `已发给 ${target}`, items: [], retry: false};
-    case "delivered_into_blocked": return {tone: "error", title: result.code === "passed_blocked" ? "投递后会话经过了确认界面" : "投递时会话弹出了确认界面", message: "回车可能确认了它，请马上看终端", items: [], retry: false};
-    case "delivered_maybe_wrong_session": return {tone: "warning", title: "投递的瞬间换了会话", message: "消息可能进了别的会话，请看终端", items: [], retry: false};
-    case "uncertain": return {tone: "warning", title: "结果未知", message: "已写入，但没看到会话开始工作；请看终端，不要重发", items: [], retry: false};
-    default: return {tone: "warning", title: "没有发出去", message: `${result.message}（${result.code ?? result.result}）`, items: [], retry: false};
+        ? {outcome: "success", title: "已投递，没核对确认界面", message: `已发给 ${target}；面板这时没订阅到它的状态事件，看不出回车前后有没有弹出过确认界面，看一眼终端`, items: [], notes: [], retry: false}
+        : {outcome: "success", title: "已投递", message: `已发给 ${target}`, items: [], notes: [], retry: false};
+    case "delivered_into_blocked": return {outcome: "failure", title: result.code === "passed_blocked" ? "投递后会话经过了确认界面" : "投递时会话弹出了确认界面", message: "回车可能确认了它，请马上看终端", items: [], notes: [], retry: false};
+    case "delivered_maybe_wrong_session": return {outcome: "unknown", title: "投递的瞬间换了会话", message: "消息可能进了别的会话，请看终端", items: [], notes: [], retry: false};
+    case "uncertain": return {outcome: "unknown", title: "结果未知", message: "已写入，但没看到会话开始工作；请看终端，不要重发", items: [], notes: [], retry: false};
+    default: return {outcome: "failure", title: "没有发出去", message: `${result.message}（${result.code ?? result.result}）`, items: [], notes: [], retry: false};
     }
 }
 
@@ -95,14 +95,14 @@ export function useNotifyActions(reload: () => void) {
             return;
         }
         const failure = describeFailure(error);
-        notice.value = {tone: "error", title: "通知没有发出去", message: failure.message, items: [], retry: false};
+        notice.value = {outcome: "failure", title: "通知没有发出去", message: failure.message, items: [], notes: [], retry: false};
     }
 
     async function skip(job: NotifyJob): Promise<void> {
         notice.value = null;
         const outcome = await post("/api/notify/skip", {workId: job.workId, taskId: job.taskId, sessionKey: job.sessionKey});
         compose.value = null;
-        notice.value = outcome.ok ? {tone: "info", title: "不通知", message: "这些答复不再通知这个会话", items: [], retry: false} : {tone: "error", title: "没有记下“不通知”", message: outcome.error.message, items: [], retry: false};
+        notice.value = outcome.ok ? {outcome: "info", title: "不通知", message: "这些答复不再通知这个会话", items: [], notes: [], retry: false} : {outcome: "failure", title: "没有记下“不通知”", message: outcome.error.message, items: [], notes: [], retry: false};
     }
 
     async function confirmRun(): Promise<void> {

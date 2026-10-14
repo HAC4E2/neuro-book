@@ -9,7 +9,7 @@ import {useStatusChange} from "../host/status-change.js";
 import type {Meta, WorkView} from "../host/types.js";
 import StatusSwitch from "../parts/StatusSwitch.vue";
 import UncommittedDialog from "../parts/UncommittedDialog.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 import BranchNote from "../parts/BranchNote.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
@@ -60,7 +60,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                         <RouterLink :to="newHref(work.data.value.workId)" style="font-size: var(--text-xs)">新建 Task</RouterLink>
                     </template>
                 </div>
-                <WriteNotice v-if="status.notice.value" :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
+                <WriteResult v-if="status.notice.value" :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
                 <p :style="{color: work.data.value.goal.value ? 'var(--text-secondary)' : 'var(--text-muted)'}" class="max-w-[72ch] whitespace-pre-line">{{ work.data.value.goal.value ?? "目标：未标" }}</p>
                 <div class="flex flex-wrap gap-3" style="font-size: var(--text-xs); color: var(--text-secondary)">
                     <span>{{ work.data.value.workId }}</span>

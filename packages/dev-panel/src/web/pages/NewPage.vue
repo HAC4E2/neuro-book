@@ -10,7 +10,7 @@ import {failureNotice, successNotice, useWrite, type Notice} from "../host/write
 import CreatePreview from "../parts/CreatePreview.vue";
 import NewTaskForm, {type TaskFormValue} from "../parts/NewTaskForm.vue";
 import NewWorkForm, {type WorkFormValue} from "../parts/NewWorkForm.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 新建 Work 与 Task（第三轮稿 `r3/new.html`）：左边表单，右边随填随变的预览（300 毫秒去抖，预览不取锁、不写文件）。
@@ -124,7 +124,7 @@ const actualId = computed(() => (created.value ? (submittedMode.value === "work"
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-4 p-4 md:p-6">
         <h1 class="font-semibold" style="font-size: var(--text-xl)">新建</h1>
         <SegmentedControl :model-value="mode" :options="modeOptions" aria-label="新建什么" @update:model-value="(value) => (mode = value as 'work' | 'task')" />
-        <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
+        <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
         <section v-if="unconfirmed" class="flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] p-3" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--status-warning)">
             <span>表单已锁住：确认上一次建好了没有再继续。</span>
             <Button size="sm" variant="secondary" @click="confirmUnknown(true)">已经建好了，清空表单</Button>

@@ -19,7 +19,7 @@ import StaleNotice from "../parts/StaleNotice.vue";
 import TakeoverDialog from "../parts/TakeoverDialog.vue";
 import TerminalTextView from "../parts/TerminalTextView.vue";
 import TerminalView from "../parts/TerminalView.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 会话页（t03 第三轮会话页的左半边；终端在 t12）：会话以会话 id 加 Agent 名称认，状态与它的运行分开列，附租约；
@@ -125,7 +125,7 @@ function cancelConfirm(): void {
                 <p v-if="audit && !audit.enabled && audit.reason === 'not_initialized'" style="font-size: var(--text-xs); color: var(--status-warning)">审计还没初始化：不发通知，也不能替你打字或按键。在终端运行 <code>bun run --cwd packages/dev-panel audit-init</code>（建 {{ audit.path }}）。</p>
                 <p v-else-if="audit && !audit.enabled" style="font-size: var(--text-xs); color: var(--status-warning)">审计不可用：不发通知，也不能替你打字或按键。{{ audit.detail }}</p>
                 <NotifyStatus :jobs="notify.data.value?.jobs ?? []" :attempts="recent" show-task :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有排队的通知，最近 24 小时也没有发过" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
-                <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
             </section>
             <section v-if="paneId" class="flex flex-col gap-2 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="会话详情">
                 <div class="flex items-center gap-2">
@@ -155,7 +155,7 @@ function cancelConfirm(): void {
                     </template>
                 </SessionConsole>
                 <p v-else style="color: var(--text-muted)">pane {{ paneId }} 上没有 herdr 认得出的会话，或它不在本仓库里</p>
-                <WriteNotice v-if="host.notice.value" :notice="host.notice.value" @dismiss="host.notice.value = null" />
+                <WriteResult v-if="host.notice.value" :notice="host.notice.value" @dismiss="host.notice.value = null" />
             </section>
             <EphemeralFrame title="持有租约或运行的会话">
                 <SessionList :sessions="data.sessions" openable @open="open" />

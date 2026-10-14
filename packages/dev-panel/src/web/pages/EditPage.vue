@@ -11,7 +11,7 @@ import DiffView from "../parts/DiffView.vue";
 import FileEditor from "../parts/FileEditor.vue";
 import LoadState from "../parts/LoadState.vue";
 import UncommittedDialog from "../parts/UncommittedDialog.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 编辑页（`/edit?path=`）：只编辑主工作区里的文件（Work 与 Task 的 README、文档类产物、文档树上的文档），保存即在 master 上提交这一个路径。
@@ -39,10 +39,10 @@ const previewHtml = computed(() => (path.value ? renderMarkdown(draft.value.repl
 async function copyDraft(): Promise<void> {
     try {
         await navigator.clipboard.writeText(draft.value);
-        notice.value = {tone: "info", title: "已复制你的改动", message: "载入新版本之后可以对照着重新改", items: [], retry: false};
+        notice.value = {outcome: "info", title: "已复制你的改动", message: "载入新版本之后可以对照着重新改", items: [], notes: [], retry: false};
     } catch (error) {
         console.error("复制失败", error);
-        notice.value = {tone: "error", title: "复制失败", message: "浏览器不让写剪贴板；手动全选编辑框里的文字复制", items: [], retry: false};
+        notice.value = {outcome: "failure", title: "复制失败", message: "浏览器不让写剪贴板；手动全选编辑框里的文字复制", items: [], notes: [], retry: false};
     }
 }
 
@@ -50,7 +50,7 @@ const LEAVE = "有未保存的改动，离开会丢掉。确定离开？";
 /** 站内离开：保存在途时直接拒绝（这次保存照样会提交，离开不会丢掉它，等结果回来再走）；有未保存的改动时确认。 */
 function mayLeave(): boolean {
     if (saving.value) {
-        notice.value = {tone: "warning", title: "正在保存", message: "等它完成再离开（等别的写入最长 30 秒）", items: [], retry: false};
+        notice.value = {outcome: "info", title: "正在保存", message: "等它完成再离开（等别的写入最长 30 秒）", items: [], notes: [], retry: false};
         return false;
     }
     return !dirty.value || window.confirm(LEAVE);
@@ -86,7 +86,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
                 frontmatter 的 schema、id、issueId 与 status 不能在这里改（改状态用 Work 或 Task 页的状态切换）；保存时 updated 会改成今天。
             </p>
             <p v-if="blocked" style="color: var(--status-warning)">{{ blocked }}</p>
-            <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="session.save()" />
+            <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="session.save()" />
             <section v-if="mismatch" class="flex flex-col gap-2 rounded-[var(--radius-panel)] p-3" style="border: var(--border-w, 1px) solid var(--status-warning)">
                 <p class="font-semibold">{{ mismatch.maybeMine ? "文件变了，多半是你刚才那次保存已经生效。与打开时相比：" : "文件在你打开之后被改过，没有保存。别人改了什么：" }}</p>
                 <DiffView :text="mismatch.diff || '（只有空白不同）'" />

@@ -10,7 +10,7 @@ import {useStatusChange} from "../host/status-change.js";
 import type {Meta, TaskPageData} from "../host/types.js";
 import StatusSwitch from "../parts/StatusSwitch.vue";
 import UncommittedDialog from "../parts/UncommittedDialog.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
 import LoadState from "../parts/LoadState.vue";
@@ -77,7 +77,7 @@ function evidenceUrl(path: string): string | null {
                     <StatusSwitch :status="page.data.value.task.status.value" :options="TASK_STATUSES" :subject="taskLabel(props.taskId)" :disabled-reason="writeBlocked" :pending="status.write.pending.value" :slow="status.write.slow.value" @confirm="status.change" />
                     <RouterLink v-if="!writeBlocked" :to="editHref(page.data.value.task.readmePath)" style="font-size: var(--text-xs)">编辑 README</RouterLink>
                 </div>
-                <WriteNotice v-if="status.notice.value" :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
+                <WriteResult v-if="status.notice.value" :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
                 <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
                 <p :style="{color: page.data.value.task.currentState ? 'var(--text-secondary)' : 'var(--text-muted)'}">当前情况：{{ page.data.value.task.currentState ?? "未标" }}</p>
                 <div class="flex flex-wrap gap-3" style="font-size: var(--text-xs); color: var(--text-secondary)">
