@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t63-plugin-activation-trigger
+status: shelved
+updated: 2026-10-14
 ---
 
 # 插件触发自己定义的激活事件
