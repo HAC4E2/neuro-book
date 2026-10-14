@@ -73,10 +73,11 @@ function go(query: Record<string, string | undefined>): void {
                     <Badge v-if="!file.data.value.checkout.isMain" tone="warning" variant="soft" size="sm">{{ file.data.value.checkout.key }}（{{ file.data.value.checkout.branch ?? "分离 HEAD" }}）</Badge>
                     <Badge v-for="[key, value] in frontmatter" :key="key" tone="neutral" variant="outline" size="sm">{{ key }}：{{ value }}</Badge>
                 </template>
-                <p v-if="!path" class="nbdev-empty">在左边选一份文档</p>
-                <template v-else>
-                    <LoadState v-bind="loadStateOf(file)" label="正在读取文档" :up-href="treeHref" up-label="回到文档树" @navigate="navigate" @retry="file.reload()" />
-                    <article v-if="file.data.value" class="nbdev-stack nbdev-reading-column">
+                <!-- 阅读档的宽度由正文里定宽的东西撑开：没选文档、加载、出错时也放在同一个阅读栏里，数据到了标题不横移。 -->
+                <div class="nbdev-stack nbdev-reading-column">
+                    <p v-if="!path" class="nbdev-empty">在左边选一份文档</p>
+                    <LoadState v-else v-bind="loadStateOf(file)" label="正在读取文档" :up-href="treeHref" up-label="回到文档树" @navigate="navigate" @retry="file.reload()" />
+                    <article v-if="path && file.data.value" class="nbdev-stack">
                         <p v-if="otherBranches.length > 0" class="nbdev-warn nbdev-small">
                             {{ file.data.value.checkout.isMain ? "这些分支改了它" : "别的分支也改了它" }}：<button v-for="key in otherBranches" :key="key" type="button" class="mr-2 underline" @click="go({checkout: key})">{{ key }}</button>
                         </p>
@@ -90,7 +91,7 @@ function go(query: Record<string, string | undefined>): void {
                             </ol>
                         </section>
                     </article>
-                </template>
+                </div>
             </PageShell>
         </section>
     </div>

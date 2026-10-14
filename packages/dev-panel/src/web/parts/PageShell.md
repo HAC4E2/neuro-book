@@ -61,4 +61,4 @@ interface PageShellSlots {
 
 ## 注意事项
 
-- 阅读档的容器按内容收窄：正文里要有一块定宽的东西（`nbdev-reading-card`，或宽度受 `--reading-measure` 限制的 Markdown），否则内容很短时页面会跟着变窄。
+- 阅读档的容器按内容收窄：正文里要有一块定宽的东西（`nbdev-reading-card` 或 `nbdev-reading-column`），否则内容很短时页面会跟着变窄。这块东西要在没数据、加载、出错时也渲染，空状态与 `LoadState` 放在它里面；只在数据到了才出现的话，页面先缩成一条窄栏、数据到了再弹开，标题跟着横移（文档页踩过）。
