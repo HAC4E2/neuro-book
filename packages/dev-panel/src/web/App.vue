@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Button, Drawer, FormInput, IconButton, Splitter, Tooltip, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
+import {Badge, Button, Drawer, FormInput, IconButton, Popover, Splitter, Tooltip, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime} from "./host/format.js";
@@ -8,6 +8,7 @@ import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} 
 import {readAppearance, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
+import {wantsSearchFocus} from "./host/shortcuts.js";
 import PanelNav from "./parts/PanelNav.vue";
 import type {Meta, NotifyData, Overview} from "./host/types.js";
 
@@ -141,6 +142,19 @@ function submitSearch(): void {
     const q = query.value.trim();
     if (q.length >= 2) void router.push({name: "search", query: {q}});
 }
+/** `/` 与 Ctrl+K 聚焦搜索框（判定见 host/shortcuts.ts）：冒泡阶段监听，焦点在可编辑的地方或对话框里时不处理。 */
+const searchForm = ref<HTMLFormElement | null>(null);
+function onShortcut(event: KeyboardEvent): void {
+    if (panelState.unauthorized) return;
+    if (!wantsSearchFocus(event, event.target instanceof HTMLElement ? event.target : null)) return;
+    const input = searchForm.value?.querySelector("input");
+    if (!input) return;
+    event.preventDefault();
+    input.focus();
+    input.select();
+}
+onMounted(() => document.addEventListener("keydown", onShortcut));
+onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
 
 const tick = ref(Date.now());
 const ticker = setInterval(() => {
@@ -150,17 +164,44 @@ onBeforeUnmount(() => clearInterval(ticker));
 const freshness = computed(() => {
     void tick.value;
     const at = meta.data.value?.parts.records?.at;
-    return at ? `数据 ${relativeTime(at)}` : "数据还没有读到";
+    return at ? `${relativeTime(at)}读到` : "还没有读到";
 });
 const PART_LABEL: Record<string, string> = {records: "记录", activity: "活动"};
-/** 后台重算失败的块：服务端保留上一份，页面显示的就是它（t15；阶段 2 改成横幅）。 */
-const failedParts = computed(() => Object.entries(meta.data.value?.parts ?? {}).filter(([, part]) => part.error !== null).map(([name, part]) => ({name, label: PART_LABEL[name] ?? name, error: part.error!})));
-const herdrLabel = computed(() => {
+
+/**
+ * 顶栏的状态点（t15 阶段 2d）：推送、herdr、数据新旧这几样正常时只是一个绿点，点开看详情；有一样不正常时点变黄，旁边写出是哪一样。
+ */
+type StatusLine = {label: string; text: string; ok: boolean};
+const statusLines = computed<StatusLine[]>(() => {
+    const connection = panelState.connection;
     const herdr = meta.data.value?.herdr;
-    if (!herdr) return null;
-    if (!herdr.available) return {text: "herdr 不可用", tone: "warning" as const};
-    return {text: herdr.mode === "subscribed" ? "herdr 已订阅" : "herdr 轮询中", tone: "neutral" as const};
+    const lines: StatusLine[] = [
+        {label: "推送", text: connection === "open" ? "已连接" : connection === "connecting" ? "正在连接" : "断开了，正在重连", ok: connection === "open"},
+    ];
+    if (herdr) lines.push({label: "herdr", text: !herdr.available ? `不可用${herdr.error ? `：${herdr.error}` : ""}` : herdr.mode === "subscribed" ? `已订阅${herdr.version ? `（${herdr.version}）` : ""}` : "轮询中", ok: herdr.available});
+    lines.push({label: "数据", text: freshness.value, ok: true});
+    return lines;
 });
+const statusProblem = computed(() => statusLines.value.find((line) => !line.ok) ?? null);
+const statusLabel = computed(() => (statusProblem.value ? `状态：${statusProblem.value.label}${statusProblem.value.text}` : "状态：正常"));
+
+/**
+ * 顶栏下面的横幅（t15 阶段 2d）：要开发者做点什么、或者显示的东西可能不对的情形。正常时没有横幅。
+ */
+type Banner = {key: string; tone: "accent" | "danger" | "warning"; icon: string; text: string};
+const banners = computed<Banner[]>(() => {
+    const data = meta.data.value;
+    const list: Banner[] = [];
+    if (data?.codeChanged) list.push({key: "code", tone: "accent", icon: "i-lucide-refresh-cw", text: restartHint.value});
+    if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
+    if (data && !data.audit.enabled) list.push({key: "audit", tone: "warning", icon: "i-lucide-shield-off", text: data.audit.reason === "not_initialized" ? "审计未开启：不发通知，也不能替你打字或按键。运行 bun run --cwd packages/dev-panel audit-init 开启" : `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
+    for (const [name, part] of Object.entries(data?.parts ?? {})) {
+        // 后台重算失败：服务端保留上一份，页面显示的就是它。
+        if (part.error !== null) list.push({key: `part-${name}`, tone: "warning", icon: "i-lucide-history", text: `后台重算${PART_LABEL[name] ?? name}失败，显示的是上一份：${part.error}`});
+    }
+    return list;
+});
+const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main)", danger: "var(--status-danger)", warning: "var(--status-warning)"};
 </script>
 
 <template>
@@ -188,21 +229,34 @@ const herdrLabel = computed(() => {
                 <header class="flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2" style="background: var(--toolbar-surface, var(--bg-main)); border-color: var(--divider)">
                     <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" @click="drawerOpen = true" />
                     <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" @click="setNavCollapsed(false)" /></Tooltip>
-                    <form class="min-w-0 flex-1 basis-48" role="search" @submit.prevent="submitSearch">
-                        <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与 checkout 里的文件" aria-label="搜索" />
+                    <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
+                        <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
-                    <div class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
-                        <Badge v-if="meta.data.value?.codeChanged" tone="accent" variant="soft" size="sm" icon-class="i-lucide-refresh-cw">{{ restartHint }}</Badge>
+                    <div class="ml-auto flex items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
                         <RouterLink v-if="attention > 0" to="/live/sessions#notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
-                        <Tooltip v-if="meta.data.value && !meta.data.value.audit.enabled" :text="meta.data.value.audit.reason === 'not_initialized' ? '不发通知，也不能替你打字或按键：运行 bun run --cwd packages/dev-panel audit-init' : `不发通知，也不能替你打字或按键：${meta.data.value.audit.detail}`"><Badge tone="neutral" variant="outline" size="sm">审计未开启</Badge></Tooltip>
-                        <Badge v-if="meta.data.value?.build.failed" tone="danger" variant="soft" size="sm">前端构建失败，用的是旧版</Badge>
-                        <Badge v-if="panelState.connection !== 'open'" tone="warning" variant="soft" size="sm">{{ panelState.connection === "connecting" ? "正在连接" : "推送断开，正在重连" }}</Badge>
-                        <Badge v-if="herdrLabel" :tone="herdrLabel.tone" variant="outline" size="sm">{{ herdrLabel.text }}</Badge>
-                        <span>{{ freshness }}</span>
+                        <Popover side="bottom" align="end">
+                            <template #trigger>
+                                <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
+                                    <span class="size-2 rounded-full" :style="{background: statusProblem ? 'var(--status-warning)' : 'var(--status-success)'}" aria-hidden="true" />
+                                    <span v-if="statusProblem" style="color: var(--status-warning)">{{ statusProblem.label }}{{ statusProblem.text }}</span>
+                                </button>
+                            </template>
+                            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1" style="font-size: var(--text-xs)">
+                                <template v-for="line in statusLines" :key="line.label">
+                                    <dt style="color: var(--text-secondary)">{{ line.label }}</dt>
+                                    <dd :style="{color: line.ok ? 'var(--text-main)' : 'var(--status-warning)'}">{{ line.text }}</dd>
+                                </template>
+                            </dl>
+                        </Popover>
                         <Tooltip :text="appearanceLabel"><IconButton :icon-class="appearance === 'dark' ? 'i-lucide-moon' : appearance === 'light' ? 'i-lucide-sun' : 'i-lucide-sun-moon'" :aria-label="appearanceLabel" @click="cycleAppearance" /></Tooltip>
                     </div>
                 </header>
-                <p v-for="part in failedParts" :key="part.name" role="status" class="border-b px-3 py-1" style="background: var(--bg-subtle); border-color: var(--divider); color: var(--status-warning); font-size: var(--text-xs)">后台重算{{ part.label }}失败，显示的是上一份：{{ part.error }}</p>
+                <div v-if="banners.length > 0" role="status" class="flex flex-col border-b" style="background: var(--bg-subtle); border-color: var(--divider); font-size: var(--text-xs)">
+                    <p v-for="banner in banners" :key="banner.key" class="flex items-start gap-2 px-3 py-1.5">
+                        <span :class="banner.icon" class="mt-0.5 size-3.5 shrink-0" :style="{color: BANNER_COLOR[banner.tone]}" aria-hidden="true" />
+                        <span class="min-w-0 break-words" style="color: var(--text-main)">{{ banner.text }}</span>
+                    </p>
+                </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
                 <main class="min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
                     <!-- 按路由名与路径参数重建页面实例，查询参数变化不重建（t15）。 -->
@@ -217,3 +271,9 @@ const herdrLabel = computed(() => {
         <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork" />
     </Drawer>
 </template>
+
+<style scoped>
+.nbdev-status:hover, .nbdev-status:focus-visible {
+    background: var(--bg-hover);
+}
+</style>
