@@ -53,3 +53,59 @@ describe("按 Agent 找会话文件", () => {
         expect(logs).toEqual([]);
     });
 });
+
+describe("第 3 批实现审查的建议 7 到 9", () => {
+    test("末尾一段里只有一条大记录：往前读到标题；超出能读的范围时沿用上次读到的，文件变短了不沿用", async () => {
+        const fixture = await createFixture("session-titles-big");
+        const home = join(fixture.root, "home");
+        const project = join(home, ".claude", "projects", "-repo");
+        await mkdir(project, {recursive: true});
+        const file = join(project, `${CLAUDE_ID}.jsonl`);
+        await writeFile(file, line({type: "ai-title", aiTitle: "会话页重做"}));
+        const titles = createSessionTitles({HOME: home});
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toEqual({text: "会话页重做", source: "claude-ai-title"});
+        // 一条 300KB 的图片记录：末尾 256KB 里没有标题行，往前加读能读到。
+        await appendFile(file, line({type: "user", image: "x".repeat(300 * 1024)}));
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toEqual({text: "会话页重做", source: "claude-ai-title"});
+        // 再来一条 5MB 的：超出 4MB 的加读范围，沿用上次读到的标题，不退回 null。
+        await appendFile(file, line({type: "user", image: "y".repeat(5 * 1024 * 1024)}));
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toEqual({text: "会话页重做", source: "claude-ai-title"});
+        // 换成一份更短、没有标题的文件：不沿用。
+        await writeFile(file, line({type: "user", message: "新会话"}));
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toBeNull();
+    });
+
+    test("找不到的会话文件记 60 秒：期间新建的文件不会被扫到，过期后找得到", async () => {
+        const fixture = await createFixture("session-titles-miss");
+        const home = join(fixture.root, "home");
+        const project = join(home, ".claude", "projects", "-repo");
+        await mkdir(project, {recursive: true});
+        let clock = 1_000_000;
+        const titles = createSessionTitles({HOME: home}, () => undefined, () => clock);
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toBeNull();
+        await writeFile(join(project, `${CLAUDE_ID}.jsonl`), line({type: "ai-title", aiTitle: "后来建的"}));
+        clock += 59_000;
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toBeNull();
+        clock += 2_000;
+        expect(await titles.titleOf("claude", CLAUDE_ID)).toEqual({text: "后来建的", source: "claude-ai-title"});
+    });
+
+    test("omp 的会话值是绝对路径：只认 omp 会话目录里的普通文件，目录外、带 .. 越出去的、FIFO 都是 null", async () => {
+        const fixture = await createFixture("session-titles-omp-bounds");
+        const home = join(fixture.root, "home");
+        const sessions = join(home, ".omp", "agent", "sessions", "-repo");
+        await mkdir(sessions, {recursive: true});
+        const titleLine = line({type: "title", v: 1, title: "不该读到", source: "auto"});
+        const outside = join(fixture.root, "elsewhere.jsonl");
+        await writeFile(outside, titleLine);
+        const fifo = join(sessions, "2026-10-14T01-00-00-000Z_fifo.jsonl");
+        const made = Bun.spawnSync(["mkfifo", fifo]);
+        expect(made.exitCode).toBe(0);
+        const logs: string[] = [];
+        const titles = createSessionTitles({HOME: home}, (entry) => void logs.push(entry));
+        expect(await titles.titleOf("omp", outside)).toBeNull();
+        expect(await titles.titleOf("omp", `${sessions}/../../../../../elsewhere.jsonl`)).toBeNull();
+        expect(await titles.titleOf("omp", fifo)).toBeNull();
+        expect(logs).toEqual([`读不出会话标题 ${fifo}：不是普通文件`]);
+    });
+});
