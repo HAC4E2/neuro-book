@@ -18,7 +18,8 @@ export type OverviewWork = {
     taskCounts: Record<TaskStatus | "unset" | "invalid", number>; openRequired: number; activeLeases: ActiveLease[]; tasks: OverviewTask[];
 };
 export type InboxQuestion = {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null; askerActive: boolean | null};
-export type InboxConflict = {kind: "number_conflict"; label: string; live: boolean};
+export type ConflictLocation = {source: "main" | "worktree" | "ref"; checkout?: string; ref?: string; head?: string};
+export type InboxConflict = {kind: "number_conflict"; label: string; live: boolean; ids: Array<{id: string; live: boolean; locations: ConflictLocation[]}>};
 export type InboxItem = InboxQuestion | InboxConflict;
 export type Overview = {
     works: OverviewWork[];
@@ -47,7 +48,8 @@ export type Meta = {
 
 export type ArtifactSummary = {artifactId: string; kind: string | null; title: string | null; version: number | null; state: "open" | "closed" | "unpublished"; publishedAt: string | null; openRequired: number; adoption: "none" | "waiting" | "adopted" | null};
 export type DocumentEntry = {path: string; title: string | null};
-export type TaskView = OverviewTask & {
+/** `/api/work` 的 Task：概览里的字段加上记录来源、租约与产物；不带概览才有的 `artifactCount`、`leaseCount`。 */
+export type TaskView = Omit<OverviewTask, "artifactCount" | "leaseCount"> & {
     workId: string; readmePath: string; branch: string | null; checkout: string; checkoutKey: string | null; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[];
 };
 export type WorkSession = {key: string; agent: string; label: string | null; alive: boolean | null; herdr: {paneId: string; status: string} | null; leases: Array<{taskId: string; lastActivityAt: string; stale: boolean}>; runs: number};

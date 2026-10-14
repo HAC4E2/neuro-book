@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import {Badge, Button, Drawer, FormInput, IconButton, Popover, Splitter, Tooltip, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
+import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime} from "./host/format.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
-import {readAppearance, readDismissedAudit, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
+import {readAppearance, readDismissedAudit, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
-import {pageTitle} from "./host/nav.js";
+import {pageTitle, type NavArrange} from "./host/nav.js";
 import {isEditableTarget, wantsSearchFocus} from "./host/shortcuts.js";
 import PanelNav from "./parts/PanelNav.vue";
 import type {Meta, NotifyData, Overview} from "./host/types.js";
@@ -35,6 +36,11 @@ const restartHint = computed(() => {
 
 /** 登录失效的提示：出现时把焦点放进去；“我已重新登录”重探之后解除，失败写明原因。 */
 const authDialog = ref<HTMLElement | null>(null);
+/**
+ * 登录失效的阻挡层压在一切浮层之上：页面的速览面板（z-30、z-40）、nb-ui 的抽屉与对话框（NB_Z_INDEX.dialog 起，多个模态按打开顺序往上）。
+ * 留出几层给同时开着的模态，仍低于右下角的通知。层级取 nb-ui 的登记常量，所以写成绑定的 style。
+ */
+const AUTH_LAYER = {zIndex: NB_Z_INDEX.dialog + 40};
 const relogging = ref(false);
 const reloginError = ref<string | null>(null);
 watch(() => panelState.unauthorized, (lost) => {
@@ -64,6 +70,12 @@ onMounted(() => {
 onBeforeUnmount(() => unfollow());
 
 const navOpen = ref<Record<string, boolean>>(readNavOpen());
+/** 左栏 Work 列表的排列方式（桌面左栏与抽屉共用一份）。 */
+const navArrange = ref<NavArrange>(readNavArrange());
+function setNavArrange(value: NavArrange): void {
+    navArrange.value = value;
+    writeNavArrange(value);
+}
 function toggleWork(workId: string, open: boolean): void {
     navOpen.value = {...navOpen.value, [workId]: open};
     writeNavOpen(navOpen.value);
@@ -343,7 +355,7 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
 
 <template>
     <!-- 登录失效时页面不卸载（草稿、填了一半的答复都还在），盖一层提示、整个外壳 inert；重新登录后点按钮接着用（t15）。 -->
-    <div v-if="panelState.unauthorized" class="shell-scrim fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div v-if="panelState.unauthorized" class="shell-scrim fixed inset-0 flex items-center justify-center p-6" :style="AUTH_LAYER">
         <section ref="authDialog" role="alertdialog" aria-modal="true" aria-labelledby="auth-lost-title" aria-describedby="auth-lost-message" class="flex max-w-md flex-col gap-3 rounded-[var(--radius-panel)] p-5 nbdev-surface">
             <h2 id="auth-lost-title" class="font-semibold">没有登录，或登录已失效</h2>
             <p class="nbdev-secondary" id="auth-lost-message">在终端运行 <code>nbdev panel open</code>，用它给的一次性链接登录（在这个浏览器的另一个标签页里打开也行；面板重启后要重新登录）。这一页还开着，没保存的改动都在；登录后点下面的按钮接着用。</p>
@@ -355,7 +367,7 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
     <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="navHidden" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
             <aside class="shell-nav h-full overflow-hidden" :inert="navHidden || undefined">
-                <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork">
+                <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" :arrange="navArrange" @navigate="(href) => router.push(href)" @toggle="toggleWork" @arrange="setNavArrange">
                     <template #actions>
                         <Tooltip text="收起左栏"><IconButton icon-class="i-lucide-panel-left-close" aria-label="收起左栏" data-shell="collapse-nav" @click="setNavCollapsed(true, true)" /></Tooltip>
                     </template>
@@ -408,7 +420,7 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
     </Splitter>
     <Drawer v-model:open="drawerOpen" direction="left" title="导航" content-class="nbdev-drawer">
         <!-- 抽屉正文自己有左右内边距，导航不再叠一层。 -->
-        <PanelNav :inset="false" :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork" />
+        <PanelNav :inset="false" :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" :arrange="navArrange" @navigate="(href) => router.push(href)" @toggle="toggleWork" @arrange="setNavArrange" />
     </Drawer>
 </template>
 

@@ -4,7 +4,9 @@ import {computed, ref} from "vue";
 import {useRouter} from "vue-router";
 import {daysSince, HERDR_STATUS_LABEL} from "../host/format.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
-import type {Overview, OverviewWork} from "../host/types.js";
+import {byAttention} from "../host/nav.js";
+import {attentionCount} from "../host/notify-actions.js";
+import type {NotifyData, Overview, OverviewWork} from "../host/types.js";
 import InboxList from "../parts/InboxList.vue";
 import ActionLink from "../parts/ActionLink.vue";
 import LoadState from "../parts/LoadState.vue";
@@ -12,7 +14,8 @@ import PageShell from "../parts/PageShell.vue";
 import WorkCard from "../parts/WorkCard.vue";
 
 /**
- * 首页（t03 第三轮首页 A）：收件箱在上，Work 卡片在下。只为进行中与未标的 Work 列卡片，按最近更新排序；
+ * 首页（t03 第三轮首页 A）：收件箱在上（上面一行是要处理的通知），Work 卡片在下。只为进行中与未标的 Work 列卡片，
+ * 有事等我的在前、其次进行中、再按最近更新（t15 阶段 4 第 2 批）；
  * 超过 30 天没有更新的、done 与 shelved 的收进“其余 N 个”（不做状态推断，见 t09 计划“与 Proposal、实施计划的不一致”）。
  */
 const router = useRouter();
@@ -20,8 +23,11 @@ const overview = useResource<Overview>(() => "/api/overview", ["records", "activ
 const STALE_DAYS = 30;
 const showRest = ref(false);
 
-const updatedOf = (work: OverviewWork) => work.updated.value ?? "";
-const sorted = computed(() => [...(overview.data.value?.works ?? [])].sort((left, right) => updatedOf(right).localeCompare(updatedOf(left)) || left.workId.localeCompare(right.workId)));
+// 有事等我的（有待答题）在前，其次进行中，再按最近更新（与左栏的“有事等我在前”同一个顺序）。
+const sorted = computed(() => [...(overview.data.value?.works ?? [])].sort(byAttention));
+const notify = useResource<NotifyData>(() => "/api/notify", ["notify"]);
+/** 要处理的通知（与顶栏的计数同一个口径）：“等我”的一部分，放在收件箱上面。 */
+const attention = computed(() => attentionCount(notify.data.value));
 const isCurrent = (work: OverviewWork) => (work.status.value === null || work.status.value === "active") && work.updated.value !== null && daysSince(work.updated.value) <= STALE_DAYS;
 const current = computed(() => sorted.value.filter(isCurrent));
 const rest = computed(() => sorted.value.filter((work) => !isCurrent(work)));
@@ -43,6 +49,10 @@ const navigate = (href: string) => void router.push(href);
                 <h2 id="inbox-title" class="nbdev-heading flex items-center gap-2">
                     收件箱<span class="nbdev-secondary nbdev-num font-normal">{{ overview.data.value.inbox.length }}</span>
                 </h2>
+                <p v-if="attention > 0" class="nbdev-hint nbdev-hint-warn flex flex-wrap items-center gap-2">
+                    <span class="i-lucide-bell nbdev-warn size-3.5" aria-hidden="true" />通知要处理 {{ attention }} 条（会话换了、找不到要通知的会话，或投递没成功）
+                    <ActionLink href="/live/sessions#notify" icon="i-lucide-arrow-right" @navigate="navigate">去处理</ActionLink>
+                </p>
                 <div class="nbdev-surface px-3 py-1">
                     <InboxList :items="overview.data.value.inbox" @navigate="navigate" />
                 </div>

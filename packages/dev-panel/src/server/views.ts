@@ -31,6 +31,11 @@ export function currentStatus(state: PanelState): {status: ProjectStatus; warnin
     return {status: withActivity(records.records, activity?.activity ?? EMPTY_ACTIVITY, null), warnings: [...records.warnings, ...(activity?.warnings ?? [])]};
 }
 
+/** 一个 Task 的待答必答题数（它各个产物的 openRequired 之和）；首页与 Work 页的 Task 表同一个口径。 */
+function taskOpenRequired(task: TaskView): number {
+    return task.artifacts.reduce((sum, artifact) => sum + artifact.openRequired, 0);
+}
+
 function openRequiredOf(work: WorkView): number {
     return [...work.artifacts, ...work.tasks.flatMap((task) => task.artifacts)].reduce((sum, artifact) => sum + artifact.openRequired, 0);
 }
@@ -70,7 +75,7 @@ export function overviewView(state: PanelState): {data: unknown; warnings: Warni
                     currentState: task.currentState,
                     source: task.source,
                     uncommitted: task.uncommitted,
-                    openRequired: task.artifacts.reduce((sum, artifact) => sum + artifact.openRequired, 0),
+                    openRequired: taskOpenRequired(task),
                     artifactCount: task.artifacts.length,
                     leaseCount: task.leases.length,
                 })),
@@ -113,7 +118,7 @@ export async function workView(state: PanelState, workId: string): Promise<{data
             checkoutKey: state.keyOf(work.checkout),
             readmeHash: await readmeHashOf(work.checkout, workReadmePath(work.workId)),
             openRequired: openRequiredOf(work),
-            tasks: work.tasks.map((task) => ({...task, checkoutKey: state.keyOf(task.checkout)})),
+            tasks: work.tasks.map((task) => ({...task, checkoutKey: state.keyOf(task.checkout), openRequired: taskOpenRequired(task)})),
             sessions: sessions.map((session) => ({key: session.key, agent: session.agent, label: session.label, alive: session.alive, herdr: session.herdr, leases: session.leases.filter((lease) => lease.workId === workId), runs: session.runs.length})),
         },
         warnings,

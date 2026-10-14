@@ -73,6 +73,7 @@ describe("文档树与差异", () => {
         await fixture.write("packages/demo/docs/adr/0001-x.md", "# 决定\n");
         await fixture.write("packages/demo/src/readme.md", "# 不是文档\n");
         await fixture.write(".agents/skills/s/SKILL.md", "# 技能\n");
+        await fixture.write(".agents/works/README.md", "# Work 与 Task\n");
         await fixture.write("docs/specs/ui/evidences/x.md", "# 证据里的\n");
         await fixture.commit("docs");
         const worktree = await fixture.addWorktree("w00001-line", "feat/w00001");
@@ -87,7 +88,7 @@ describe("文档树与差异", () => {
         await fixture.commit("master adds later");
 
         const mainDocs = await listDocPaths(fixture.main);
-        expect(mainDocs).toEqual([".agents/skills/s/SKILL.md", "docs/proposals/p.md", "docs/specs/ui/later.md", "docs/specs/ui/old.md", "docs/specs/ui/shell.md", "packages/demo/docs/a.md", "packages/demo/docs/adr/0001-x.md"]);
+        expect(mainDocs).toEqual([".agents/skills/s/SKILL.md", ".agents/works/README.md", "docs/proposals/p.md", "docs/specs/ui/later.md", "docs/specs/ui/old.md", "docs/specs/ui/shell.md", "packages/demo/docs/a.md", "packages/demo/docs/adr/0001-x.md"]);
         expect([classifyDoc("docs/specs/ui/shell.md"), classifyDoc("packages/demo/docs/adr/0001-x.md"), classifyDoc("AGENTS.md"), classifyDoc("packages/demo/src/readme.md")]).toEqual([
             {group: "spec", section: "specs/ui"}, {group: "adr", section: "packages/demo"}, {group: "entry", section: ""}, null,
         ]);

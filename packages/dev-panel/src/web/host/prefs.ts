@@ -1,5 +1,7 @@
+import {NAV_ARRANGES, type NavArrange} from "./nav.js";
+
 /**
- * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、通知里“知道了”的尝试、审计横幅的“知道了”）：只在这一处读写 localStorage，组件不碰浏览器存储。
+ * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、左栏 Work 列表的排列方式、通知里“知道了”的尝试、审计横幅的“知道了”）：只在这一处读写 localStorage，组件不碰浏览器存储。
  * 键都带 `nbdev-panel:` 前缀；读写都包 try/catch（隐私模式、存储被禁用时照常工作，只是记不住）。
  * localStorage 按来源分开：`127.0.0.1:4400` 与 `localhost:4400` 各有一份，可以接受。
  */
@@ -69,6 +71,16 @@ export function readNavCollapsed(): boolean {
 
 export function writeNavCollapsed(value: boolean): void {
     write("nav-collapsed", String(value));
+}
+
+/** 左栏 Work 列表的排列方式（t15 阶段 4 第 2 批）；读到不认识的值按缺省（按编号）。 */
+export function readNavArrange(): NavArrange {
+    const value = read("nav-arrange");
+    return NAV_ARRANGES.some((entry) => entry.value === value) ? (value as NavArrange) : "number";
+}
+
+export function writeNavArrange(value: NavArrange): void {
+    write("nav-arrange", value);
 }
 
 /**

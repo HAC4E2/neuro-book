@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import {useRouter} from "vue-router";
 import {HERDR_STATUS_LABEL, relativeDay, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
-import {computed} from "vue";
+import {computed, ref} from "vue";
+import {readSection} from "../../core/sections.js";
+import {renderInlineMarkdown, renderMarkdown} from "../host/markdown.js";
+import {taskPeekHref} from "../host/peek.js";
+import {emptyExpansion, MAX_EXPANDED, toggleExpansion, type TaskTableDetail} from "../host/task-expand.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {docHref, editHref, newHref} from "../host/routes.js";
 import {useStatusChange} from "../host/status-change.js";
-import type {Meta, WorkView} from "../host/types.js";
+import type {Meta, TaskPageData, WorkView} from "../host/types.js";
 import ActionLink from "../parts/ActionLink.vue";
 import PageShell from "../parts/PageShell.vue";
 import StatusSwitch from "../parts/StatusSwitch.vue";
@@ -35,6 +39,52 @@ const writeBlocked = computed(() => {
 });
 const status = useStatusChange(() => `/api/works/${encodeURIComponent(props.workId)}/status`, () => work.data.value?.readmeHash ?? null, () => work.reload());
 const navigate = (href: string) => void router.push(href);
+
+// ---- 就地展开 Task（决定点 9）：3 个固定的资源槽，展开时才取 Task 接口 ----
+const expansion = ref(emptyExpansion());
+const slotResources = Array.from({length: MAX_EXPANDED}, (_, index) => useResource<TaskPageData>(() => {
+    const taskId = expansion.value.slots[index];
+    return taskId ? `/api/task/${encodeURIComponent(props.workId)}/${encodeURIComponent(taskId)}` : null;
+}, ["records", "activity"]));
+const artifactBase = computed(() => meta.data.value?.artifactBase ?? null);
+const FRONTMATTER = /^---\n[\s\S]*?\n---\n/u;
+/** 展开行的内容。槽刚换给另一个 Task 时，资源里还是上一个 Task 的数据：按 taskId 核对，不对就当还没取到。 */
+const details = computed<Record<string, TaskTableDetail>>(() => {
+    const result: Record<string, TaskTableDetail> = {};
+    expansion.value.slots.forEach((taskId, index) => {
+        if (!taskId) return;
+        const resource = slotResources[index]!;
+        const data = resource.data.value?.task.taskId === taskId ? resource.data.value : null;
+        const state = {...loadStateOf(resource), hasData: data !== null};
+        if (!data) {
+            result[taskId] = {state, currentHtml: null, nextHtml: null, artifacts: [], evidences: []};
+            return;
+        }
+        const checkoutKey = data.task.checkoutKey ?? "main";
+        const body = (data.detail.readme.text ?? "").replace(FRONTMATTER, "");
+        const section = (heading: string) => {
+            const text = readSection(body, heading);
+            return text ? renderMarkdown(text, {checkoutKey, path: data.detail.readme.path, artifactBase: artifactBase.value}) : null;
+        };
+        result[taskId] = {
+            state,
+            currentHtml: section("当前状态"),
+            nextHtml: section("下一步"),
+            artifacts: [
+                ...data.task.artifacts.map((artifact) => ({key: `a:${artifact.artifactId}`, label: artifact.title ?? artifact.artifactId, href: taskPeekHref(props.workId, taskId, {kind: "artifact", artifactId: artifact.artifactId}), openRequired: artifact.openRequired})),
+                ...data.task.documents.map((document) => ({key: `d:${document.path}`, label: document.title ?? document.path.slice(document.path.lastIndexOf("/") + 1), href: taskPeekHref(props.workId, taskId, {kind: "doc", checkout: checkoutKey, path: document.path}), openRequired: 0})),
+            ],
+            evidences: data.detail.evidences.map((evidence) => ({key: evidence.path, label: `${evidence.name}${evidence.kind === "dir" ? "/" : ""}`, href: evidence.kind === "file" ? taskPeekHref(props.workId, taskId, {kind: "evidence", path: evidence.path}) : null})),
+        };
+    });
+    return result;
+});
+function retryDetail(taskId: string): void {
+    const index = expansion.value.slots.indexOf(taskId);
+    if (index >= 0) slotResources[index]!.reload();
+}
+/** Task 表的“当前情况”按行内 Markdown 渲染（不再露出 `[链接](…)` 源码）。 */
+const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((work.data.value?.tasks ?? []).filter((task) => task.currentState).map((task) => [task.taskId, renderInlineMarkdown(task.currentState!, {checkoutKey: task.checkoutKey ?? "main", path: task.readmePath, artifactBase: artifactBase.value})])));
 </script>
 
 <template>
@@ -65,7 +115,7 @@ const navigate = (href: string) => void router.push(href);
             </section>
             <section class="nbdev-stack" aria-labelledby="tasks-title">
                 <h2 id="tasks-title" class="nbdev-heading">Task</h2>
-                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" @navigate="navigate" />
+                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" :expanded="expansion.order" :details="details" :current-html="currentHtml" @navigate="navigate" @toggle="(taskId) => (expansion = toggleExpansion(expansion, taskId))" @retry="retryDetail" />
             </section>
             <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
             <!-- 持久页里混着的临时片段，仍用虚线框标出（t15 阶段 3g）。 -->
