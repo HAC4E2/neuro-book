@@ -128,7 +128,7 @@ function cancelConfirm(): void {
             </section>
             <section v-if="paneId" class="nbdev-surface nbdev-stack p-4" aria-label="会话详情">
                 <div class="flex items-center gap-2">
-                    <h2 class="nbdev-heading">会话详情</h2>
+                    <h2 class="nbdev-card-title">会话详情</h2>
                     <Button class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-x" @click="close">关闭</Button>
                 </div>
                 <SessionConsole v-if="selected" :session="selected" :screen="host.screen.value?.screen ?? null" :screen-at="host.screenAt.value" :disabled-reason="consoleDisabled" :pending="host.pending.value" :reset-key="host.resetKey.value" :session-change="sessionChangeNote" :live="terminal !== null" :controlling="controlling" @refresh="host.readScreen" @prompt="(text) => host.sendPrompt(text)" @key="host.pressKey">

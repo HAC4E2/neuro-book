@@ -22,7 +22,7 @@ function follow(event: MouseEvent, href: string): void {
     <article class="flex min-w-0 flex-col gap-3 rounded-[var(--radius-panel)] p-4 nbdev-surface">
         <header class="flex min-w-0 items-start gap-2">
             <StatusChip :status="work.status" />
-            <a :href="workHref(work.workId)" class="min-w-0 flex-1 font-semibold hover:underline focus-visible:underline nbdev-heading" @click="follow($event, workHref(work.workId))">
+            <a :href="workHref(work.workId)" class="nbdev-card-title min-w-0 flex-1 hover:underline focus-visible:underline" @click="follow($event, workHref(work.workId))">
                 <span class="nbdev-secondary">{{ workLabel(work.workId) }}</span>
                 {{ work.title ?? work.workId }}
             </a>

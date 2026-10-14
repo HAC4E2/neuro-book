@@ -10,7 +10,7 @@ const open = ref<Record<string, boolean>>({});
 
 <template>
     <section class="flex flex-col gap-3" aria-label="预览">
-        <h2 class="flex items-center gap-2 nbdev-heading">预览<Spinner v-if="loading" size="sm" label="正在预览" /></h2>
+        <h2 class="nbdev-card-title flex items-center gap-2">预览<Spinner v-if="loading" size="sm" label="正在预览" /></h2>
         <p class="nbdev-empty" v-if="!preview">填了短名与标题之后在这里看会写什么</p>
         <template v-else>
             <p>
