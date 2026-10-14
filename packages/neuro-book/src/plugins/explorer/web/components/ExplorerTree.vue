@@ -677,8 +677,12 @@ defineExpose({focus: focusTree});
 
 /*
  * 落点反馈与行同一坐标系：浅底在行的下面（不压字），插入线在行的上面。行容器是 z-index 1 的层，反馈层不建层，浅底 0、
- * 插入线 2 与它比较。
+ * 插入线 2 与它比较。这些层级只在树里比：树自成层叠上下文，否则行会盖住挂在 body 上、没有 z-index 的菜单与浮层。
  */
+.explorer-tree {
+    isolation: isolate;
+}
+
 .explorer-tree__rows {
     z-index: 1;
 }

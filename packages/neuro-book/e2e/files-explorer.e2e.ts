@@ -584,6 +584,18 @@ test("行的样子与设置（验收 21、23）：中文数字排序、内容文
     });
     expect(insets.left).toBeGreaterThan(0);
     expect(Math.abs(insets.right - insets.left)).toBeLessThanOrEqual(1);
+    // 视图标题的“移动到”菜单盖在选中的行上：树里给行与落点反馈分的层不越出树，菜单项上最上面的元素属于菜单。
+    await page.locator('[data-tool-part="sidebar"]').getByRole("button", {name: "移动到", exact: true}).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const covered = await menu.getByRole("menuitem").evaluateAll((items) => items.filter((entry) => {
+        const box = entry.getBoundingClientRect();
+        const top = document.elementFromPoint(box.left + 12, box.top + box.height / 2);
+        return top === null || !entry.contains(top);
+    }).length);
+    expect(covered).toBe(0);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
 
     await item(page, "project://lore.content").click();
     await expect(item(page, "project://lore.content").locator("[data-explorer-label]")).toHaveText("lore");
