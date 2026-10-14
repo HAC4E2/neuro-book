@@ -29,7 +29,9 @@ function follow(event: MouseEvent): void {
     color: var(--text-main);
     font-size: var(--text-xs);
     font-weight: 500;
-    white-space: nowrap;
+    /* 文字是动态的（首页的会话统计），放不下就换行：390 宽时整句不换行会把页面撑出横向滚动。 */
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 .nbdev-action-link:hover {
     background: var(--bg-hover);
