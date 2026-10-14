@@ -39,7 +39,9 @@ function onKey(event: KeyboardEvent): void {
 
 <template>
     <div v-if="mode === 'overlay'" class="nbdev-peek-scrim fixed z-30" :style="scrimStyle" aria-hidden="true" @click="emit('close')" />
-    <section class="nbdev-peek nbdev-divider fixed flex flex-col" :class="mode === 'full' ? 'z-50' : 'z-30 border-l'" :style="panelStyle" role="dialog" :aria-modal="mode === 'side' ? undefined : 'true'" :aria-label="title" @keydown="onKey">
+    <!-- 层级低于外壳的阻挡层（登录失效）与 nb-ui 的抽屉、对话框：整屏用 z-40，盖住顶栏但不盖住它们。
+         只有整屏是模态：浮层时左栏、顶栏仍能操作，按非模态对话框读（遮罩下面的正文由宿主设 inert）。 -->
+    <section class="nbdev-peek nbdev-divider fixed flex flex-col" :class="mode === 'full' ? 'z-40' : 'z-30 border-l'" :style="panelStyle" role="dialog" :aria-modal="mode === 'full' ? 'true' : undefined" :aria-label="title" @keydown="onKey">
         <header class="nbdev-divider flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2.5">
             <h2 ref="heading" tabindex="-1" class="nbdev-card-title min-w-0 flex-1 truncate outline-none" :title="title">{{ title }}</h2>
             <slot name="actions" />

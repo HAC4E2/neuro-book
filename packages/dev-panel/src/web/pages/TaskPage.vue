@@ -139,18 +139,33 @@ function closePeek(): void {
 }
 /** 并排时给正文让出面板的宽度（随测量算，所以是绑定的 style）。 */
 const contentStyle = computed(() => (peek.value && peekMode.value === "side" ? {paddingRight: `${peekWidth.value}px`} : undefined));
+// flush: post：正文在浮层、整屏时带 inert，要等 DOM 去掉它之后才能把焦点放回去。
 watch(peek, (current) => {
     if (current) return;
     pushed = false;
-    if (opener?.isConnected) opener.focus();
+    // 没有记下打开它的链接（从 Work 页的速览链接进来、刷新、分享来的网址）：退回页标题，与换页时外壳挪焦点的落点相同。
+    const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>("#nbdev-main h1");
+    target?.focus();
     opener = null;
+}, {flush: "post"});
+/** 浮层与整屏时遮罩下面的正文不能点、也 Tab 不进去（并排时正文照常可用）。 */
+const contentInert = computed(() => (peek.value && peekMode.value !== "side" ? true : undefined));
+/**
+ * 速览的证据只认这个 Task 列出的证据文件：别的路径（别的 Work 的证据、产物里的文件）不以“证据”的名义显示。
+ * Task 数据还没到时是 undefined（显示加载），到了没有就是 null。
+ */
+const peekEvidence = computed(() => {
+    const current = peek.value;
+    const data = page.data.value;
+    if (current?.kind !== "evidence" || !data) return undefined;
+    return data.detail.evidences.find((evidence) => evidence.kind === "file" && evidence.path === current.path) ?? null;
 });
 </script>
 
 <template>
     <!-- 阅读档：README 卡片的宽度就是正文的阅读宽度，旁边是 22rem 的侧栏；加载时两栏先占住位置，页头不跳（t15 阶段 3b）。 -->
     <div :style="contentStyle">
-        <PageShell width="reading" :crumbs="[{label: '首页', href: '/'}, {label: workLabel(props.workId), href: workHref(props.workId)}, {label: taskLabel(props.taskId)}]" :title="page.data.value?.task.title ?? taskLabel(props.taskId)" @navigate="navigate">
+        <PageShell width="reading" :inert="contentInert" :crumbs="[{label: '首页', href: '/'}, {label: workLabel(props.workId), href: workHref(props.workId)}, {label: taskLabel(props.taskId)}]" :title="page.data.value?.task.title ?? taskLabel(props.taskId)" @navigate="navigate">
             <template v-if="page.data.value" #status><StatusChip :status="page.data.value.task.status" size="md" /></template>
             <template v-if="page.data.value" #actions>
                 <StatusSwitch :status="page.data.value.task.status.value" :options="TASK_STATUSES" :subject="taskLabel(props.taskId)" :disabled-reason="writeBlocked" :pending="status.write.pending.value" :slow="status.write.slow.value" @confirm="status.change" />
@@ -265,8 +280,9 @@ watch(peek, (current) => {
                 <MarkdownView v-if="peekDoc.data.value" :html="peekDocHtml" @navigate="navigate" />
             </template>
             <template v-else>
-                <ArtifactFrame v-if="evidenceUrl(peek.path)" :src="evidenceUrl(peek.path)!" :title="`证据 ${peekTitle}`" note="证据文件，原样显示" />
-                <p v-else class="nbdev-empty">读不到证据的地址（面板还没取到产物来源）</p>
+                <p v-if="peekEvidence === null" class="nbdev-empty">这个 Task 没有这份证据</p>
+                <ArtifactFrame v-else-if="peekEvidence && evidenceUrl(peek.path)" :src="evidenceUrl(peek.path)!" :title="`证据 ${peekTitle}`" note="证据文件，原样显示" />
+                <LoadState v-else :loading="true" label="正在读取证据" />
             </template>
         </PeekPanel>
     </div>
