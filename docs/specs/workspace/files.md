@@ -74,7 +74,8 @@ owners:
 | `rename` | `{path, name, expected?}` | 同目录改名 |
 | `convert` | `{path, to: "content" \| "plain", expected?}` | 加或去 `.content` 后缀（[workspace.folder-kinds](folder-kinds.md) 的“转换”） |
 | `reorder`、`display`、`include`、`drop` | 见 [workspace.folder-kinds](folder-kinds.md) 的“清单编辑” | 只改清单 |
-| `move`、`copy` | `{operation, items: [{source, target, expected?}]}` | 逐项结果 |
+| `move` | `{operation, items: [{source, target, expected?, before?}]}` | 逐项结果；`before` 见下文“移动到指定位置” |
+| `copy` | `{operation, items: [{source, target, expected?}]}` | 逐项结果 |
 | `delete` | `{operation, items: [{path, expected?}]}` | 逐项结果 |
 | `cancel` | `{operation}` | `{found}`：是否命中本调用方在途的批量 |
 
@@ -84,7 +85,8 @@ owners:
 - **源身份：** 调用方冻结一次操作意图（剪贴板、拖动）时用 `identify` 取得源的令牌（目录项的设备号、inode、创建时间与类型的摘要，不含宿主路径；同一 inode 的两个硬链接名是两个目录项），提交时带 `expected`；服务端在执行前与提交前各核对一次，不符或冻结的源已不在为 `source-changed`（同目标移动也先核对）。最后一次核对与系统调用之间仍有窗口，沿 [platform.files](../platform/files.md) 不承诺抵御恶意的并发替换。
 - **复制：** 源不变。文件先写到目标目录里带实例标记的临时名（复制字节与权限位），再排他改名到目标名，失败不留半个文件。目录先排他创建目标目录，再按名字次序逐项复制；中途失败停下，已产生的部分留在目标处并作为残留范围报告。链接复制为链接（复制链接原文，不跟随，不把根外内容拷进来）；设备、FIFO、套接字让该项失败为 `unsupported`。复制到源自身或其后代按真实路径判定，在产生任何东西之前拒绝为 `into-itself`。
 - **删除：** 文件先核对可写，只读为 `permission-denied`（与“显示为只读的资源仍在服务端拒绝”一致，不依赖操作系统只看父目录权限的 `unlink`）。目录递归删除，遇到第一个失败就停，不改权限、不强删，报告已删除的最外层范围；目录仍在时不宣称它已删除。
-- **批量预处理：** 任何副作用之前：源按目录项（父目录真实路径加名字）去重，重复为跳过（`duplicate`），被另一源目录覆盖的为跳过（`covered`）；移动的目标就是源本身为完成且无事件，复制的目标就是源本身照常提交而得到 `conflict`；移动或复制到自身或后代为 `into-itself`。
+- **批量预处理：** 任何副作用之前：源按目录项（父目录真实路径加名字）去重，重复为跳过（`duplicate`），被另一源目录覆盖的为跳过（`covered`）；移动的目标就是源本身为完成且无事件（带 `before` 时见下一条），复制的目标就是源本身照常提交而得到 `conflict`；移动或复制到自身或后代为 `into-itself`。
+- **移动到指定位置：** 移动的一项可带 `before`：目标所在那一层另一项的名字，只对目标在内容树里的移动有意义（[workspace.folder-kinds](folder-kinds.md) 的“经文件服务的操作同步清单”），条目插到它之前；名字不在那一层时放到末尾；目标在普通文件夹里时忽略（普通文件夹按名字排序，没有位置）。源与目标是同一个目录项时，带 `before` 只在清单里把这一项挪到它之前，仍取同一把操作锁、发出清单的变更事件，不动文件。一批里多项带同一个 `before` 时按下标依次插入，结果连成一串，每一项各自原子。远程合同版本 5。
 - **逐项结果：** 与输入按下标对齐：`done`；`failed`（码、详情，部分完成时带 `partial.removed` 或 `partial.residual` 范围）；`skipped`（`duplicate`、`covered`）；`not-run`（`root-gone`、`stopped`）；`cancelled`。完成与失败的项都可能涉及没改成的清单（文件已改而清单没改成，[workspace.folder-kinds](folder-kinds.md)）：单项操作的结果直接带 `manifests`（哪份清单、为什么）；批量结果另有一张按清单去重的 `manifests` 表，项里的 `manifests` 是表的下标。
 - **停止与取消：** 每项开始前检查三件事：业务取消、根身份、请求的终止信号（调用方断线、调用方入口停止、提供入口停止、项目代次结束）。正在执行的项按实际结果结算，之后的项分别为 `cancelled`、`not-run: root-gone`、`not-run: stopped`；已完成的项不回滚。单项业务失败记下后继续。取消用单独的 `cancel` 方法，只命中同一调用方在途的操作 id；不用调用方中止写请求来取消（中止已发出的写请求只能得到结果未知，拿不到逐项结果）。提供入口停止时等在途操作结算后才关闭。
 - **大小上限：** 一次批量最多 1000 项，输入经 JSON 编码后不超过与正文相同的预算；客户端按要发出的完整请求（字段名、令牌都算）在发出前核对、提供者再核一次，超过为 `too-large`、不发出。结果编码后超过预算时，依次省略范围里的路径（范围标 `truncated`）、把详情按编码字节截短、省略清单表（结果标 `truncated`），每一步之后重新核对，保证装进一条消息；看到 `truncated` 的调用方重新列出核对。
@@ -147,6 +149,6 @@ owners:
 
 ## 证据
 
-- 批准依据：目录项的叶子标记与 `realPath`来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
+- 批准依据：目录项的叶子标记、`realPath` 与移动到指定位置来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。“读取与保存”一节（基线、文本、正文上限、只保存已有文件）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。“文件操作”一节（只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）：同一清单 2026-10-09 的 t69 条目（按推荐先做，待开发者追认）。
 - 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)，含隔离磁盘/History、HTTP 失败、双窗口、Lab、切换性能与本机逐条复核。路径 move/rename 改用平台原子 no-replace 提交；Windows 在预检后抢占文件/目录目标时确认源与目标不变，未知平台和模拟 Linux 原语不支持会拒绝。完整 Windows 产品镜像构建成功，包含 Koffi 平台原生包；Linux/macOS 及其它文件系统未实测，跨机器基础操作尚未验证，保持 `planned`。
