@@ -1346,3 +1346,7 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 审查修正 `review.ts` 15 条全过（`review-fixes/rerun2-review/`）。窄而高的 pane 重开成 `w3:p4`，脚本加了环境变量 `TALL_PANE`；
     - 阶段 1 的 s1、s2、s8 共 16 条全过（`review-fixes/rerun2-stage1/`），控制台只有场景本身造的 409 `session_changed`。
   - 验收环境：`w3:p3`、`w3:p4` 用完已关，`fake-omp/`、`fake3/` 已删，herdr 审查会话回到 `w2:p1`、`w3:p1`、`w4:p1`、`w5:p1` 四格；4490 已 SIGTERM，浏览器已关。master 到 `bc1d95e8c`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
+- 2026-10-14：阶段 4 第 3 批合入 `master`（合并提交 `285226f31`，集成分支 `8ac72388d`），按开发者的长期授权直接合入。
+  - 全量 `test` 在 `8ac72388d` 上由主 Agent 复跑：416 过、0 失败。
+  - 合入时 `master` 已带进别的会话的代码改动（w00017 t86 资源管理器，含 nb-ui 的菜单投影、`Dropdown`、`ContextMenu` 与 `bun.lock`），合并提交与集成分支在 `packages/` 下差 64 个文件；`bun install` 装了 1 个包。合入后在主工作区补跑面板的 `typecheck` 与全量 `test`，结果见下一条。教训：合入前要按合并结果、不是按集成分支判断“`packages/` 有没有变化”。
+  - `service:restart` 后 4400 回 200，前端重新构建完成。审查 worktree 与临时 worktree 已删除。没有 push。
