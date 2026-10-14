@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资源管理器打磨二</title>
+<style>
+:root { --bg: #faf8f3; --card: #ffffff; --text: #24221e; --muted: #6f6a60; --line: #e3ded3; --accent: #1f6feb; --badge: #fde68a; --done: #d9f0d3; --rec: #e7f0ff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1d1c1a; --card: #262522; --text: #ebe7df; --muted: #a39d92; --line: #3a3833; --accent: #6ea8ff; --badge: #6b5a1c; --done: #29452a; --rec: #1f2c44; } }
+:root[data-theme="dark"] { --bg: #1d1c1a; --card: #262522; --text: #ebe7df; --muted: #a39d92; --line: #3a3833; --accent: #6ea8ff; --badge: #6b5a1c; --done: #29452a; --rec: #1f2c44; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 0 0 8px; }
+h3 { font-size: 15px; margin: 0 0 4px; }
+.lead { color: var(--muted); margin: 0 0 16px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+.badge { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 4px; background: var(--badge); margin-right: 8px; vertical-align: 2px; }
+.badge.done { background: var(--done); }
+.shots { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin: 8px 0; }
+figure { margin: 0; flex: 0 1 auto; max-width: 100%; }
+.shots > img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; max-width: 360px; }
+.cand { border: 1px dashed var(--line); border-radius: 8px; padding: 10px; }
+.cand h3 { margin-bottom: 6px; }
+.rec { background: var(--rec); border-radius: 6px; padding: 6px 10px; margin-top: 8px; font-size: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+.item p { margin: 2px 0; }
+code { font-size: 13px; }
+ol.done li { margin: 2px 0; }
+
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.rules li { margin: 4px 0; }
+.note { color: var(--muted); font-size: 14px; }
+.three { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.three figure img { width: 100%; }
+</style>
+</head>
+<body>
+<main>
+<h1>资源管理器打磨（二）</h1>
+<p class="lead">t86 验收时提的三条，加上之后发现的两个 bug。截图都在开发服务的雾港里拍（nbook 浅色），候选是在真实页面上注入样式示意的，不是最终代码。VS Code 的做法见 Task 目录里的 <code>vscode-research.md</code>。</p>
+
+<section data-nbdev-question="r1-input" data-nbdev-type="single" data-nbdev-recommend="thin">
+  <h2><span class="badge" data-nbdev-skip>待定</span>新建与改名的输入框</h2>
+  <p>现在用的是表单里的输入框：胶囊圆角、外面一圈 3.5px 的光环加投影，和行一样高，看起来像一个浮在树上的控件；同名报错是一条整块的红底白字。上排是新建文件，下排是改名成已有的名字后按回车。</p>
+  <div class="three">
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="A 现状">
+      <h3 data-nbdev-skip>A 现状</h3>
+      <figure><img src="r1/now-new.webp" alt="现状：新建"><img src="r1/now-error.webp" alt="现状：报错" style="margin-top:8px"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="thin" data-nbdev-label="B 行里的细框：整行铺选中底色，输入框 22px 高、6px 圆角、1px 焦点色描边，没有光环；报错是贴在输入框下面的一条浅红底、红字、红框">
+      <h3 data-nbdev-skip>B 行里的细框</h3>
+      <figure><img src="r1/thin-new.webp" alt="B：新建"><img src="r1/thin-error.webp" alt="B：报错" style="margin-top:8px"></figure>
+      <figcaption>整行仍是选中块的样子，输入框收在块里，比行矮 4px，与选中块同一套圆角。</figcaption>
+    </div>
+    <div class="cand" data-nbdev-option="square" data-nbdev-label="C VS Code：直角细框，不铺底色；报错同 B 但直角">
+      <h3 data-nbdev-skip>C VS Code 的直角细框</h3>
+      <figure><img src="r1/square-new.webp" alt="C：新建"><img src="r1/square-error.webp" alt="C：报错" style="margin-top:8px"></figure>
+      <figcaption>VS Code：输入框占满图标后的剩余宽度，22px 高，1px 焦点色描边代替边框，报错是输入框下方等宽的浮条。</figcaption>
+    </div>
+  </div>
+  <p class="rec" data-nbdev-skip>推荐 B：和选中块、右键菜单项是同一套圆角与底色，输入时这一行仍然像树里的一行；C 的直角在这套圆角界面里显得突兀。B、C 的报错都改成贴着输入框的浅色条，不再是整块红底。</p>
+</section>
+
+<section data-nbdev-question="r1-select" data-nbdev-type="single" data-nbdev-recommend="gray">
+  <h2><span class="badge" data-nbdev-skip>待定</span>选中的样子，以及关掉文件之后</h2>
+  <p>现在选中只有一种样子：浅蓝底、蓝字。关掉编辑器里的文件之后，树里那一项还是浅蓝底，看上去像还开着。上排是在树里点选、鼠标停在“沈屿”上；下排是打开“林晓”、用标签上的关闭按钮关掉之后。</p>
+  <div class="three">
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="A 现状：一直是浅蓝底蓝字">
+      <h3 data-nbdev-skip>A 现状</h3>
+      <figure><img src="r1/now-focused.webp" alt="现状：树有焦点"><img src="r1/now-closed.webp" alt="现状：关掉之后" style="margin-top:8px"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="gray" data-nbdev-label="B VS Code：选中保留；焦点在树里时浅蓝底蓝字，焦点不在树里时换成灰底、普通字色">
+      <h3 data-nbdev-skip>B 焦点不在树里时变灰</h3>
+      <figure><img src="r1/gray-focused.webp" alt="B：树有焦点"><img src="r1/gray-closed.webp" alt="B：关掉之后" style="margin-top:8px"></figure>
+      <figcaption>VS Code 关掉编辑器（包括最后一个）不清选中；焦点通常已不在树上，选中行自然变成灰色的“非活动选中”。</figcaption>
+    </div>
+    <div class="cand" data-nbdev-option="follow" data-nbdev-label="C 选中跟着编辑器：焦点不在树里时不画选中">
+      <h3 data-nbdev-skip>C 焦点不在树里时不画</h3>
+      <figure><img src="r1/follow-focused.webp" alt="C：树有焦点"><img src="r1/follow-closed.webp" alt="C：关掉之后" style="margin-top:8px"></figure>
+      <figcaption>选中仍在（键盘操作、右键菜单照旧作用于它），只是焦点离开树就不显示。</figcaption>
+    </div>
+  </div>
+  <p class="rec" data-nbdev-skip>推荐 B：关掉文件后不再像“还开着”，又保留“我刚才在哪”的位置感，新建、粘贴这类按选中定位的操作也看得到落点；C 看不出选中，焦点回到树里时选中突然冒出来。灰底要和悬停区分开：比悬停深一档。</p>
+</section>
+
+<section data-nbdev-question="r1-hover" data-nbdev-type="single" data-nbdev-recommend="views">
+  <h2><span class="badge" data-nbdev-skip>待定</span>滚动条与标题动作只在鼠标进来时出现：用在哪里</h2>
+  <p>做法照 VS Code：滚动条叠在内容上、不占宽度，8px 宽的半透明滑块，没有轨道；鼠标进入视图、滚动或拖滑块时 100ms 淡入，离开后等 500ms 再用 800ms 淡出。视图标题右边的动作（新建、刷新、收起、“移动到”等）在鼠标位于整个视图上、或焦点在视图里时出现，键盘用户 Tab 进去也看得到。左：鼠标在别处；右：鼠标在树上（滑块是注入的示意）。</p>
+  <div class="pair">
+    <figure><img src="r1/away.webp" alt="鼠标在别处"><figcaption>鼠标在别处、焦点不在视图里：只剩标题，没有滑块。</figcaption></figure>
+    <figure><img src="r1/hover.webp" alt="鼠标在树上"><figcaption>鼠标在树上：动作与滑块出现。</figcaption></figure>
+  </div>
+  <p>现状：标题动作一直显示；滚动条是系统的细滚动条，一直占着右边的槽位（这张示意图里看不到现状的滚动条：无头浏览器把系统滚动条藏了）。</p>
+  <div class="pair">
+    <div class="cand" data-nbdev-option="explorer" data-nbdev-label="A 只用在资源管理器">
+      <h3 data-nbdev-skip>A 只用在资源管理器</h3>
+      <p class="note">别的视图仍是常显动作与系统滚动条。</p>
+    </div>
+    <div class="cand" data-nbdev-option="views" data-nbdev-label="B 用在所有视图（侧栏、右栏、面板里的视图）；编辑器正文与弹出的列表不变">
+      <h3 data-nbdev-skip>B 所有视图</h3>
+      <p class="note">滚动条做成 nb-ui 的一个组件，视图外框统一用；标题动作的显示规则写进视图标题的合同。</p>
+    </div>
+  </div>
+  <p class="rec" data-nbdev-skip>推荐 B：只改资源管理器的话，同一个侧栏里换个视图滚动条和标题就变了样。nb-ui 规范里“动态列表用 <code>scrollbar-gutter: stable</code> 的系统细滚动条”一条要改成：工作台视图用叠加的悬停滚动条。</p>
+</section>
+
+<section>
+  <h2><span class="badge done" data-nbdev-skip>已修</span>验收时发现的 bug</h2>
+  <div class="item">
+    <p><strong>选中与悬停的底色右端被截掉</strong>：行左右各让出 6px，但行组件本身又是 100% 宽，右端越出 6px、压进滚动条的槽位被裁掉。改成宽度由左右两边定（<code>c7cf1b6a0</code>），e2e 量左右两边离树的距离相等。</p>
+  </div>
+  <div class="item">
+    <p><strong>侧栏从收起状态往外拉时，活动栏与侧栏分成两张卡片，松手后才连上</strong>：是否相连看的是已落账的侧栏宽度，拖动中它还是 0。改成拖动中已拉出的部件按有宽度算（<code>4b57e56b1</code>）。左：修之前拖到一半；右：修之后。</p>
+    <div class="pair"><figure><img src="r1/join-before.webp" alt="修之前"></figure><figure><img src="r1/join-after.webp" alt="修之后"></figure></div>
+  </div>
+  <div class="item">
+    <p><strong>“移动到”菜单被资源管理器选中的行盖住</strong>：t86 第四轮给树里的行容器加了 <code>z-index: 1</code>（落点浅底在行下、插入线在行上），这个层级越出了树，盖住了挂在页面末尾、没有 z-index 的菜单。树改成自成层叠上下文（<code>5c22c4ec1</code>），e2e 检查菜单项上最上层的元素属于菜单。</p>
+    <div class="pair"><figure><img src="r1/menu-after.webp" alt="修之后：菜单在行上"></figure></div>
+  </div>
+</section>
+</main>
+</body>
+</html>
