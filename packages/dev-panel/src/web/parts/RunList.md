@@ -12,7 +12,7 @@
 interface RunListProps {
     /** 运行；必填 */
     runs: RunView[];
-    /** 是否写出所在 pane（无主的运行用）；可选，默认 false */
+    /** 是否写出所在 pane（“在跑”页用，pane 号链到会话页）；可选，默认 false */
     showPane?: boolean;
 }
 ```

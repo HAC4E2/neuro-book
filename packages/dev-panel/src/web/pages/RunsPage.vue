@@ -35,7 +35,7 @@ const navigate = (href: string) => void router.push(href);
                 <p v-if="data.sessions.length === 0" class="nbdev-empty">没有</p>
                 <section v-for="session in data.sessions" :key="session.key" class="nbdev-stack-tight">
                     <h3 class="nbdev-body font-medium" :class="{'line-through': session.alive === false}">{{ shortSession(session.key, session.label) }}</h3>
-                    <RunList :runs="session.runs" />
+                    <RunList :runs="session.runs" show-pane @navigate="navigate" />
                 </section>
             </section>
             <section class="nbdev-stack" aria-labelledby="unowned-title">
