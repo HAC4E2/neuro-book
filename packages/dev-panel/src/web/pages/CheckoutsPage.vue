@@ -67,22 +67,31 @@ function attention(checkout: CheckoutRow): string[] {
 }
 const hasChanges = (checkout: CheckoutRow) => (checkout.tracked ?? 0) + (checkout.untracked ?? 0) > 0;
 
-/** 行里的链接与按钮自己处理点击，不再冒泡成“点了整行”；带修饰键的点击交给浏览器（新标签页）。 */
+/** 行里的链接：普通左键在本页跳，带修饰键的交给浏览器（新标签页）。整行点击见 `onTableClick`，点在链接上它不处理。 */
 function followLink(event: MouseEvent, href: string): void {
-    event.stopPropagation();
     if (!isPlainClick(event)) return;
     event.preventDefault();
     navigate(href);
 }
-function onRowClick(row: Row): void {
-    navigate(targetOf(row.checkout));
+/**
+ * 整行可点（第 4 批审查第 2、8 条）：在表格外层自己判断，不用 nb-ui `Table` 的 `row-click`（它拿不到事件，行里的复制按钮、
+ * 修饰键、拖选文字都会冒泡成跳转）。点在链接或按钮上（第一格的链接、分支与 HEAD 的复制、“改 N · 新 M”）、带修饰键或不是左键、
+ * 松手时有选中的文字（拖选想复制），都不跳。行由第一格的 `id` 认。
+ */
+function onTableClick(event: MouseEvent): void {
+    const target = event.target instanceof Element ? event.target : null;
+    const row = target?.closest("tbody tr");
+    if (!target || !row || target.closest("a, button, [role=button]")) return;
+    if (!isPlainClick(event) || (window.getSelection()?.toString() ?? "") !== "") return;
+    const key = row.querySelector("[id^='checkout-']")?.id.slice("checkout-".length);
+    const checkout = checkouts.data.value?.checkouts.find((entry) => entry.key === key);
+    if (checkout) navigate(targetOf(checkout));
 }
 function setQuery(patch: Record<string, string | undefined>): void {
     const query = Object.fromEntries(Object.entries({...route.query, ...patch}).filter(([, value]) => typeof value === "string")) as Record<string, string>;
     void router.replace({query});
 }
-function toggleFiles(event: MouseEvent, key: string): void {
-    event.stopPropagation();
+function toggleFiles(key: string): void {
     setQuery({files: filesKey.value === key ? undefined : key});
 }
 const filesSection = ref<HTMLElement | null>(null);
@@ -91,9 +100,14 @@ watch(filesKey, async (key) => {
     await nextTick();
     filesSection.value?.scrollIntoView({block: "nearest"});
 });
-/** 从“在跑”页过来（`?focus=`）：数据到了就把那一行滚进视野。 */
+/**
+ * 从“在跑”页过来（`?focus=`）：数据到了就把那一行滚进视野，每个 key 只滚一次。这一页每 10 秒与每次推送都重取，
+ * 每次都滚会把正在看文件清单、横向滚表格的人拉回来（第 4 批审查第 3 条）；框照旧留着。
+ */
+let scrolledFor: string | null = null;
 watch(() => [focusKey.value, checkouts.data.value] as const, async ([key, data]) => {
-    if (!key || !data) return;
+    if (!key || !data || key === scrolledFor) return;
+    scrolledFor = key;
     await nextTick();
     document.getElementById(`checkout-${key}`)?.scrollIntoView({block: "center"});
 }, {immediate: true});
@@ -105,9 +119,9 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
         <template v-if="computedAgo" #meta><span>未提交与领先落后是 {{ computedAgo }}算的</span><span>点一行去它的 Task，没有 Task 的去它的文档</span></template>
         <LoadState v-bind="loadStateOf(checkouts)" label="正在读取 checkout" @retry="checkouts.reload()" />
         <!-- 列多：窄屏上整张表横向滚动，不把每列挤成一字一行；路径截断（悬停看全文、点一下复制），宽屏不必横向滚动。 -->
-        <div v-if="checkouts.data.value" class="relative overflow-x-auto">
+        <div v-if="checkouts.data.value" class="relative overflow-x-auto" @click="onTableClick">
             <div class="min-w-[56rem]">
-            <Table class="nbdev-table nbdev-checkout-table" :columns="columns" :rows="rows" row-key="key" density="compact" hoverable @row-click="onRowClick">
+            <Table class="nbdev-table nbdev-checkout-table" :columns="columns" :rows="rows" row-key="key" density="compact" hoverable>
                 <template #cell-key="{row}">
                     <span :id="`checkout-${row.checkout.key}`" class="flex items-center gap-1.5" :class="{'nbdev-checkout-focus': focusKey === row.checkout.key}">
                         <span class="nbdev-attention-dot" :class="{'nbdev-attention-on': attention(row.checkout).length > 0}" aria-hidden="true" />
@@ -121,7 +135,7 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
                 <template #cell-dirty="{row}">
                     <span v-if="row.checkout.error" class="nbdev-warn" :title="row.checkout.error">读不出</span>
                     <span v-else-if="row.checkout.timedOut" class="nbdev-empty" title="git 3 秒内没算完（冷的大 worktree），下一轮再算">没算完</span>
-                    <button v-else-if="hasChanges(row.checkout)" type="button" class="nbdev-warn nbdev-num whitespace-nowrap underline-offset-2 hover:underline" :aria-expanded="filesKey === row.checkout.key" :aria-label="`${row.checkout.key} 的未提交文件：改了 ${row.checkout.tracked}、新 ${row.checkout.untracked}`" @click="toggleFiles($event, row.checkout.key)">改 {{ row.checkout.tracked }} · 新 {{ row.checkout.untracked }}</button>
+                    <button v-else-if="hasChanges(row.checkout)" type="button" class="nbdev-warn nbdev-num whitespace-nowrap underline-offset-2 hover:underline" :aria-expanded="filesKey === row.checkout.key" :aria-label="`${row.checkout.key} 的未提交文件：改了 ${row.checkout.tracked}、新 ${row.checkout.untracked}`" @click="toggleFiles(row.checkout.key)">改 {{ row.checkout.tracked }} · 新 {{ row.checkout.untracked }}</button>
                     <span v-else class="nbdev-empty">干净</span>
                 </template>
                 <template #cell-sync="{row}">
@@ -142,7 +156,7 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
                         <span v-if="row.checkout.executionOf.length > 0" class="nbdev-secondary">{{ row.checkout.executionOf.map(workLabel).join("、") }} 的执行 worktree</span>
                     </span>
                 </template>
-                <template #cell-root="{row}"><span class="nbdev-note block max-w-[9rem]" @click.stop><TruncatedText :text="row.checkout.root" mono /></span></template>
+                <template #cell-root="{row}"><span class="nbdev-note block max-w-[9rem]"><TruncatedText :text="row.checkout.root" mono /></span></template>
             </Table>
             </div>
         </div>

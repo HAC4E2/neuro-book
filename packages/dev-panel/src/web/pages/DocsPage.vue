@@ -80,9 +80,12 @@ function go(query: Record<string, string | undefined>, replace = false): void {
     const next = {name: "docs", query: Object.fromEntries(Object.entries({...route.query, ...query}).filter(([, value]) => value !== undefined)) as Record<string, string>};
     void (replace ? router.replace(next) : router.push(next));
 }
-/** 换 checkout 时差异视图与网址里的路径都不一定还在：只留 checkout 与“只看有差异的”。 */
+/**
+ * 下拉切 checkout：与“别的分支也改了它”的按钮一样保留 `prefer`（从 Task 来的候选标记）与正在看的文档，在几个 checkout 之间比同一份；
+ * 这份文档在新 checkout 里没有时，文档接口回 404，页面给“回到文档树”。`view` 也留着：不在差异里时本来就退回渲染。
+ */
 function switchCheckout(key: string): void {
-    void router.push({name: "docs", query: {checkout: key, ...(changedOnly.value ? {changed: "1"} : {})}});
+    go({checkout: key});
 }
 </script>
 
@@ -117,7 +120,7 @@ function switchCheckout(key: string): void {
                     <template v-else-if="showDiff">
                         <p class="nbdev-note">{{ change ? CHANGE_NOTE[change] : "" }}<template v-if="diffBase"> · {{ diffBase }}</template></p>
                         <LoadState v-bind="loadStateOf(diff)" label="正在读取差异" :subject="`${path} 的差异`" :up-href="treeHref" up-label="回到文档树" @navigate="navigate" @retry="diff.reload()" />
-                        <DiffView v-if="diff.data.value" :text="diff.data.value.text || '没有差异'" />
+                        <DiffView v-if="diff.data.value" :text="diff.data.value.text || '没有差异'" fill />
                     </template>
                     <LoadState v-else v-bind="loadStateOf(file)" label="正在读取文档" :subject="`${path} 这份文档`" :up-href="treeHref" :up-label="treeMissing ? '去主工作区的文档' : '回到文档树'" @navigate="navigate" @retry="file.reload()" />
                     <article v-if="path && !showDiff && file.data.value" class="nbdev-stack">
