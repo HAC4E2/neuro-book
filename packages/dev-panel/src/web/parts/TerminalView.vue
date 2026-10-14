@@ -204,7 +204,7 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
         </div>
         <p class="nbdev-caption" v-if="mode === 'control'">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。herdr 那边（键盘与其它程序）照样能写进来。</p>
         <!-- 接管时的框高与量列数用的是同一份 CONTROL_BOX（proposeSize 先按它撑开再量），所以这里绑定它，不改成类。 -->
-        <div ref="frameBox" class="overflow-x-auto rounded-[var(--radius-panel)] bg-[var(--bg-main)] p-2" :style="mode === 'control' ? CONTROL_BOX : undefined">
+        <div ref="frameBox" class="relative overflow-x-auto rounded-[var(--radius-panel)] bg-[var(--bg-main)] p-2" :style="mode === 'control' ? CONTROL_BOX : undefined">
             <div ref="host" class="h-full" />
         </div>
     </section>

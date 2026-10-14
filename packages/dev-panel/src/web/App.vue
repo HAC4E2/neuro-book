@@ -397,7 +397,7 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
                     </div>
                 </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
-                <main id="nbdev-main" ref="mainEl" tabindex="-1" class="min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
+                <main id="nbdev-main" ref="mainEl" tabindex="-1" class="relative min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
                     <!-- 按路由名与路径参数重建页面实例，查询参数变化不重建（t15）。 -->
                     <RouterView v-slot="{Component, route: viewRoute}">
                         <component :is="Component" :key="pageKey(viewRoute)" />
