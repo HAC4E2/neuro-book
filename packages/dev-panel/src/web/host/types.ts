@@ -156,11 +156,14 @@ export type ProcRunView = {
     state: "starting" | "running" | "orphaned" | "ended"; reason: string | null; supervisorAlive: boolean;
 };
 export type RunsData = {procs: ProcRunView[]; sessions: Array<{key: string; agent: string; label: string | null; alive: boolean | null; runs: RunView[]}>; unownedRuns: RunView[]};
+/** `tracked` 已跟踪的改动、`untracked` 未跟踪的条数；`timedOut` 时计数都是 null（t15 阶段 4 第 4 批）。`tasks` 是它是哪些 Task 的（`home` 加目录名认出的）。 */
 export type CheckoutRow = {
-    key: string; root: string; branch: string | null; head: string; isMain: boolean; executionOf: string[]; homeOf: Array<{workId: string; taskId: string}>;
+    key: string; root: string; branch: string | null; head: string; isMain: boolean; executionOf: string[]; homeOf: Array<{workId: string; taskId: string}>; tasks: Array<{workId: string; taskId: string}>;
     runs: Array<{runId: string; package: string; script: string; state: string; url: string | null}>;
-    dirty: number | null; ahead: number | null; behind: number | null; error: string | null; at: string;
+    tracked: number | null; untracked: number | null; ahead: number | null; behind: number | null; error: string | null; timedOut: boolean; at: string;
 };
+export type CheckoutFilesData = {key: string; staged: Array<{path: string; code: string}>; unstaged: Array<{path: string; code: string}>; untracked: string[]; truncated: boolean; timedOut: boolean; error: string | null};
+export type DocDiffData = {checkout: {key: string; branch: string | null; isMain: boolean}; path: string; change: "added" | "modified" | "deleted" | "master_only" | null; mergeBase: string | null; text: string};
 export type CheckoutsData = {checkouts: CheckoutRow[]};
 export type CheckSummary = {success: number; failure: number; pending: number; failed: Array<{name: string; workflow: string | null; url: string | null}>};
 export type PrView = {number: number; title: string; branch: string; draft: boolean; reviewDecision: string | null; updatedAt: string; url: string | null; checks: CheckSummary; task: {workId: string; taskId: string} | null};
