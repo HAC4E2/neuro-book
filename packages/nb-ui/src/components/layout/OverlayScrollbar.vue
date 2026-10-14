@@ -9,7 +9,7 @@ const props = defineProps<{
     target: HTMLElement | null;
 }>();
 
-/** 轨道宽 10px，8px 的滑块靠右留 1px。 */
+/** 轨道宽 10px，6px 的滑块靠右留 2px（与 `ScrollArea` 的滑块同宽）。 */
 const TRACK_PX = 10;
 /** 最后一次滚动之后多久算“不在滚动”；之后的停留与淡出由样式的过渡负责。 */
 const SCROLL_SETTLE_MS = 100;
@@ -182,9 +182,9 @@ function onTrackDown(event: PointerEvent): void {
 .nb-ui-overlay-scrollbar__thumb {
     position: absolute;
     top: 0;
-    right: 1px;
-    width: 8px;
-    border-radius: 4px;
+    right: 2px;
+    width: 6px;
+    border-radius: 3px;
     background: color-mix(in srgb, var(--text-main) 32%, transparent);
     transition: background-color var(--motion-fast) var(--ease-standard);
 }
