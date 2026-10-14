@@ -88,9 +88,9 @@ function submit(): void {
                 <Badge v-if="state.state === 'answered'" tone="success" variant="soft" size="sm">已答</Badge>
                 <Badge v-else-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
                 <Badge v-else tone="neutral" variant="soft" size="sm">选答</Badge>
-                <span style="color: var(--text-muted); font-size: var(--text-xs)">#{{ state.question.id }}</span>
+                <span style="color: var(--text-secondary); font-size: var(--text-xs)">#{{ state.question.id }}</span>
             </legend>
-            <p v-if="state.question.about" style="color: var(--text-muted); font-size: var(--text-xs)">关于 {{ state.question.about }}</p>
+            <p v-if="state.question.about" style="color: var(--text-secondary); font-size: var(--text-xs)">关于 {{ state.question.about }}</p>
             <RadioGroup v-if="state.question.type === 'single'" :model-value="typeof values[state.question.id] === 'string' ? (values[state.question.id] as string) : ''" :options="optionsOf(state.question)" size="sm" @update:model-value="(value: string) => set(state.question.id, value)" />
             <CheckboxGroup v-else-if="state.question.type === 'multi'" :model-value="Array.isArray(values[state.question.id]) ? (values[state.question.id] as string[]) : []" :options="optionsOf(state.question)" @update:model-value="(value: string[]) => set(state.question.id, value)" />
             <RadioGroup v-else-if="state.question.type === 'confirm'" :model-value="values[state.question.id] === undefined ? '' : String(values[state.question.id])" :options="CONFIRM_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => set(state.question.id, value === 'true')" />

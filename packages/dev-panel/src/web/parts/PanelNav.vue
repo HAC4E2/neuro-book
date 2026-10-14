@@ -139,7 +139,7 @@ onBeforeUnmount(() => observer?.disconnect());
                         <span class="min-w-0 truncate">{{ entry.label }}</span>
                         <template v-if="entry.count && counts[entry.count] !== undefined">
                             <Badge v-if="entry.count === 'inbox' && (counts.inbox ?? 0) > 0" tone="warning" variant="soft" size="sm" class="ml-auto">{{ counts.inbox }}</Badge>
-                            <span v-else-if="entry.count !== 'inbox'" class="ml-auto" style="color: var(--text-muted); font-size: var(--text-xs)">{{ counts[entry.count] }}</span>
+                            <span v-else-if="entry.count !== 'inbox'" class="ml-auto" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ counts[entry.count] }}</span>
                         </template>
                     </a>
                 </template>
@@ -161,7 +161,7 @@ onBeforeUnmount(() => observer?.disconnect());
                     </button>
                     <Tooltip :text="`${row.number} ${row.title}`" placement="right" :disabled="!truncated.has(row.key)">
                         <a :href="row.href" class="nbdev-nav-item min-w-0 flex-1" :class="{'nbdev-nav-current': row.current, 'nbdev-nav-ancestor': row.ancestor}" :aria-current="row.current ? 'page' : undefined" :aria-expanded="row.kind === 'work' ? row.open : undefined" :data-ancestor="row.ancestor || undefined" :data-row-key="row.key" :tabindex="row.key === rovingKey ? 0 : -1" @focus="focusKey = row.key" @click="follow($event, row.href)">
-                            <span class="min-w-0 truncate" :data-label-key="row.key"><span style="color: var(--text-muted)">{{ row.number }}</span> {{ row.title }}</span>
+                            <span class="min-w-0 truncate" :data-label-key="row.key"><span style="color: var(--text-secondary)">{{ row.number }}</span> {{ row.title }}</span>
                         </a>
                     </Tooltip>
                 </div>
@@ -199,7 +199,7 @@ onBeforeUnmount(() => observer?.disconnect());
 .nbdev-nav-heading {
     padding: 0 0.5rem 0.25rem;
     font-size: var(--text-2xs);
-    color: var(--text-muted);
+    color: var(--text-secondary);
 }
 .nbdev-nav-toggle {
     display: inline-flex;

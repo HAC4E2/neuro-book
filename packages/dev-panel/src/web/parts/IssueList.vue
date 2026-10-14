@@ -15,7 +15,7 @@ defineProps<{issues: IssueView[]}>();
             <span v-else>#{{ issue.number }}</span>
             <span class="min-w-0 break-all">{{ issue.title }}</span>
             <Badge v-for="label in issue.labels" :key="label" tone="neutral" variant="soft" size="sm">{{ label }}</Badge>
-            <span style="color: var(--text-muted); font-size: var(--text-xs)">{{ relativeTime(issue.updatedAt) }}更新</span>
+            <span style="color: var(--text-secondary); font-size: var(--text-xs)">{{ relativeTime(issue.updatedAt) }}更新</span>
         </li>
     </ul>
 </template>

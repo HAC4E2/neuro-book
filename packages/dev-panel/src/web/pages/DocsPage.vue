@@ -71,7 +71,7 @@ function go(query: Record<string, string | undefined>): void {
                     <h2 class="font-semibold">最近的改动</h2>
                     <ol class="flex flex-col gap-0.5">
                         <li v-for="commit in file.data.value.recent" :key="commit.sha" class="flex min-w-0 gap-2">
-                            <code style="color: var(--text-muted)">{{ commit.sha.slice(0, 9) }}</code><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span style="color: var(--text-muted)">{{ relativeDay(commit.date) }}</span>
+                            <code style="color: var(--text-muted)">{{ commit.sha.slice(0, 9) }}</code><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span style="color: var(--text-secondary)">{{ relativeDay(commit.date) }}</span>
                         </li>
                     </ol>
                 </section>

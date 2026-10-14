@@ -30,10 +30,10 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string; al
 </script>
 
 <template>
-    <Table :columns="columns" :rows="rows" row-key="taskId" density="compact" :hoverable="false" empty-text="这个 Work 还没有 Task">
+    <Table class="nbdev-table" :columns="columns" :rows="rows" row-key="taskId" density="compact" :hoverable="false" empty-text="这个 Work 还没有 Task">
         <template #cell-title="{row}">
             <a :href="taskHref(workId, row.task.taskId)" class="hover:underline focus-visible:underline" @click="follow($event, taskHref(workId, row.task.taskId))">
-                <span style="color: var(--text-muted)">{{ taskLabel(row.task.taskId) }}</span> {{ row.task.title ?? row.task.taskId }}
+                <span style="color: var(--text-secondary)">{{ taskLabel(row.task.taskId) }}</span> {{ row.task.title ?? row.task.taskId }}
             </a>
         </template>
         <template #cell-status="{row}"><StatusChip :status="row.task.status" /></template>

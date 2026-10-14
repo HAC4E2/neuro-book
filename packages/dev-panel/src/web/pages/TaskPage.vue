@@ -98,7 +98,7 @@ function evidenceUrl(path: string): string | null {
                             <li v-for="candidate in page.data.value.detail.execution.candidates" :key="candidate.key" class="flex flex-wrap items-center gap-1.5">
                                 <Badge v-if="candidate.key === executionKey" tone="accent" variant="soft" size="sm">选中</Badge>
                                 <RouterLink :to="{name: 'docs', query: {checkout: candidate.key, prefer: preferKeys}}">{{ candidate.key }}</RouterLink>
-                                <span style="color: var(--text-muted)">{{ candidate.branch ?? "分离 HEAD" }} · 按{{ RULE_LABEL[candidate.rule] }}</span>
+                                <span style="color: var(--text-secondary)">{{ candidate.branch ?? "分离 HEAD" }} · 按{{ RULE_LABEL[candidate.rule] }}</span>
                             </li>
                         </ul>
                     </section>
@@ -107,9 +107,9 @@ function evidenceUrl(path: string): string | null {
                         <p v-if="page.data.value.detail.commits.entries.length === 0" style="color: var(--text-muted)">没有</p>
                         <ol v-else class="flex flex-col gap-1" style="font-size: var(--text-xs)">
                             <li v-for="commit in page.data.value.detail.commits.entries" :key="commit.sha" class="flex min-w-0 gap-2">
-                                <code style="color: var(--text-muted)">{{ commit.sha.slice(0, 9) }}</code>
+                                <code style="color: var(--text-secondary)">{{ commit.sha.slice(0, 9) }}</code>
                                 <span class="min-w-0 flex-1 truncate" :title="commit.subject">{{ commit.subject }}</span>
-                                <span class="shrink-0" style="color: var(--text-muted)">{{ relativeDay(commit.date) }}</span>
+                                <span class="shrink-0" style="color: var(--text-secondary)">{{ relativeDay(commit.date) }}</span>
                             </li>
                         </ol>
                     </section>

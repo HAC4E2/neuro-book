@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge, Button, Drawer, FormInput, IconButton, Popover, Splitter, Tooltip, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime} from "./host/format.js";
 import {pageKey} from "./host/routes.js";
@@ -8,7 +8,8 @@ import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} 
 import {readAppearance, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
-import {wantsSearchFocus} from "./host/shortcuts.js";
+import {pageTitle} from "./host/nav.js";
+import {isEditableTarget, wantsSearchFocus} from "./host/shortcuts.js";
 import PanelNav from "./parts/PanelNav.vue";
 import type {Meta, NotifyData, Overview} from "./host/types.js";
 
@@ -156,6 +157,66 @@ function onShortcut(event: KeyboardEvent): void {
 onMounted(() => document.addEventListener("keydown", onShortcut));
 onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
 
+// ---- 可访问性（t15 阶段 2e） ----
+const mainEl = ref<HTMLElement | null>(null);
+/** 页标题（main 里的 h1）拿得到焦点；它是程序挪过去的落点，不进 Tab 顺序。 */
+function focusHeading(heading: HTMLElement): void {
+    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+    heading.focus({preventScroll: true});
+}
+function skipToMain(): void {
+    const main = mainEl.value;
+    if (!main) return;
+    const heading = main.querySelector<HTMLElement>("h1");
+    if (heading) focusHeading(heading);
+    else main.focus();
+}
+let headingObserver: MutationObserver | null = null;
+let headingTimer: ReturnType<typeof setTimeout> | null = null;
+function stopHeadingWait(): void {
+    headingObserver?.disconnect();
+    headingObserver = null;
+    if (headingTimer) clearTimeout(headingTimer);
+    headingTimer = null;
+}
+/**
+ * 换了页（路由名或路径参数变了）：正文回到顶上，焦点放到新页面的标题，读屏器从这里读起。标题常在数据到了之后才出现，
+ * 最多等 5 秒；这期间开发者已经把焦点挪到别处（点进文档树、在输入框里打字）就不抢。查询参数变化（会话页选会话、文档页选文档）
+ * 不走这里，焦点留在原处。
+ */
+function focusPageHeading(): void {
+    stopHeadingWait();
+    const main = mainEl.value;
+    if (!main) return;
+    main.scrollTop = 0;
+    const origin = document.activeElement;
+    const attempt = (): boolean => {
+        const active = document.activeElement;
+        if (active !== origin && active !== null && active !== document.body) return true;
+        if (active instanceof HTMLElement && isEditableTarget(active)) return true;
+        const heading = main.querySelector<HTMLElement>("h1");
+        if (!heading) return false;
+        focusHeading(heading);
+        return true;
+    };
+    if (attempt()) return;
+    headingObserver = new MutationObserver(() => {
+        if (attempt()) stopHeadingWait();
+    });
+    headingObserver.observe(main, {childList: true, subtree: true});
+    headingTimer = setTimeout(stopHeadingWait, 5_000);
+}
+// 打开面板时路由先是没有名字的起始位置，第一次解析到页面不算“换页”：焦点留在文档开头，第一次 Tab 是“跳到主内容”。
+watch(() => ({key: pageKey(route), named: route.name !== undefined && route.name !== null}), (next, previous) => {
+    if (previous?.named && next.key !== previous.key) void nextTick(focusPageHeading);
+});
+onBeforeUnmount(stopHeadingWait);
+/** 标签页标题“页面名 · nbdev”（host/nav.ts 的 pageTitle）。 */
+const asStrings = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+watchEffect(() => {
+    document.title = pageTitle({name: typeof route.name === "string" ? route.name : null, params: asStrings(route.params), query: asStrings(route.query)}, overview.data.value?.works ?? null);
+});
+
 const tick = ref(Date.now());
 const ticker = setInterval(() => {
     tick.value = Date.now();
@@ -214,6 +275,7 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
             <Button variant="primary" :loading="relogging" @click="relogin">我已重新登录</Button>
         </section>
     </div>
+    <a href="#nbdev-main" class="nbdev-skip" :inert="panelState.unauthorized || undefined" @click.prevent="skipToMain">跳到主内容</a>
     <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="narrow" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
             <aside class="h-full overflow-hidden" style="background: var(--sidebar-surface, var(--bg-sidebar))">
@@ -258,7 +320,7 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
                     </p>
                 </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
-                <main class="min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
+                <main id="nbdev-main" ref="mainEl" tabindex="-1" class="min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
                     <!-- 按路由名与路径参数重建页面实例，查询参数变化不重建（t15）。 -->
                     <RouterView v-slot="{Component, route: viewRoute}">
                         <component :is="Component" :key="pageKey(viewRoute)" />

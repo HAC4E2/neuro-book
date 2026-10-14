@@ -58,3 +58,24 @@ export function splitNavWorks(works: readonly OverviewWork[], now: Date = new Da
     }
     return {shown, more};
 }
+
+/** 没有参数的页面在标签页标题里叫什么。 */
+const PAGE_NAMES: Record<string, string> = {home: "首页", artifacts: "产物", docs: "文档", sessions: "会话", runs: "在跑", checkouts: "checkout", github: "GitHub", search: "搜索", new: "新建", edit: "编辑", missing: "找不到这一页"};
+
+/**
+ * 标签页标题（t15 阶段 2e）：“页面名 · nbdev”。Work、Task 页取 `/api/overview` 里的标题（还没读到时用编号）；
+ * 文档页与编辑页带上文件名，搜索页带上搜索词。
+ */
+export function pageTitle(route: {name: string | null; params: Record<string, string | undefined>; query: Record<string, string | undefined>}, works: readonly OverviewWork[] | null): string {
+    const {workId, taskId, artifactId} = route.params;
+    const work = workId ? works?.find((entry) => entry.workId === workId) : undefined;
+    const base = (path: string | undefined) => path?.split("/").filter(Boolean).at(-1);
+    let name: string;
+    if (route.name === "work" && workId) name = work?.title ?? workId;
+    else if (route.name === "task" && workId && taskId) name = work?.tasks.find((task) => task.taskId === taskId)?.title ?? `${workId}/${taskId}`;
+    else if (route.name === "artifact" && artifactId) name = artifactId;
+    else if ((route.name === "docs" || route.name === "edit") && base(route.query.path)) name = `${route.name === "edit" ? "编辑 " : ""}${base(route.query.path)}`;
+    else if (route.name === "search" && route.query.q) name = `搜索 ${route.query.q}`;
+    else name = PAGE_NAMES[route.name ?? ""] ?? "nbdev";
+    return name === "nbdev" ? name : `${name} · nbdev`;
+}

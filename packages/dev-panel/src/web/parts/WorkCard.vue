@@ -23,7 +23,7 @@ function follow(event: MouseEvent, href: string): void {
         <header class="flex min-w-0 items-start gap-2">
             <StatusChip :status="work.status" />
             <a :href="workHref(work.workId)" class="min-w-0 flex-1 font-semibold hover:underline focus-visible:underline" style="font-size: var(--text-md)" @click="follow($event, workHref(work.workId))">
-                <span style="color: var(--text-muted)">{{ workLabel(work.workId) }}</span>
+                <span style="color: var(--text-secondary)">{{ workLabel(work.workId) }}</span>
                 {{ work.title ?? work.workId }}
             </a>
         </header>

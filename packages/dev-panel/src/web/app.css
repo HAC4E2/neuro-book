@@ -56,6 +56,38 @@ body {
     font-size: var(--text-sm);
 }
 
+/*
+ * 可访问性（t15 阶段 2e）。焦点环：面板自己的可交互元素用 nb-ui 的焦点令牌 --focus-outline；`:where` 不加优先级，
+ * nb-ui 控件自己的焦点样式（.nb-ui-focus-ring）照旧生效。程序挪过去的落点（页标题、main）不画焦点环。
+ */
+:where(a, button, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--focus-outline);
+    outline-offset: 2px;
+}
+:where(h1, main)[tabindex="-1"]:focus {
+    outline: none;
+}
+/* 跳到主内容：平时移出视口，键盘聚焦时出现在左上角。 */
+.nbdev-skip {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 60;
+    transform: translateY(-200%);
+    border-radius: var(--radius-control);
+    padding: 0.5rem 0.75rem;
+    background: var(--panel-surface);
+    color: var(--text-main);
+    box-shadow: var(--focus-ring);
+}
+.nbdev-skip:focus {
+    transform: none;
+}
+/* 表头承载信息，用 --text-secondary：nb-ui Table 的表头是 --text-muted，亮色页面底色上对比度只有 2.88:1（2026-10-14 实测）。 */
+.nbdev-table th {
+    color: var(--text-secondary);
+}
+
 /* Markdown 正文（MarkdownView）：阅读排版消费主题的阅读刻度。 */
 .nbdev-markdown {
     font-size: var(--reading-size, var(--text-md));

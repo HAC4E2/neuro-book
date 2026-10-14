@@ -55,7 +55,7 @@ function send(): void {
         <div class="flex flex-wrap items-center gap-2">
             <span class="font-medium">{{ shortSession(session.sessionKey) }}</span>
             <Badge tone="neutral" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[session.status] ?? session.status }}</Badge>
-            <span style="color: var(--text-muted); font-size: var(--text-xs)">{{ session.agent ?? "Agent" }} · pane {{ session.paneId }}<template v-if="screenAt && !live"> · 屏幕读于 {{ relativeTime(screenAt) }}</template></span>
+            <span style="color: var(--text-secondary); font-size: var(--text-xs)">{{ session.agent ?? "Agent" }} · pane {{ session.paneId }}<template v-if="screenAt && !live"> · 屏幕读于 {{ relativeTime(screenAt) }}</template></span>
             <Button v-if="!live" class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-rotate-cw" :disabled="pending || disabledReason !== null" @click="emit('refresh')">重读屏幕</Button>
         </div>
         <slot name="screen">

@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {entryActive, NAV_GROUPS, splitNavWorks} from "../src/web/host/nav.js";
+import {entryActive, NAV_GROUPS, pageTitle, splitNavWorks} from "../src/web/host/nav.js";
 import type {OverviewWork, RecordedValue} from "../src/web/host/types.js";
 
 /** 左栏的描述表与 Work 树的取舍（t15 阶段 2b，D4）。 */
@@ -29,5 +29,24 @@ describe("左栏条目的高亮", () => {
     test("首页只在 / 上；其余条目在它下面的页也算，但不认前缀相同的别的路径", () => {
         expect([entryActive(entry("home"), "/"), entryActive(entry("home"), "/work/w1")]).toEqual([true, false]);
         expect([entryActive(entry("sessions"), "/live/sessions"), entryActive(entry("artifacts"), "/artifacts"), entryActive(entry("artifacts"), "/artifactsx")]).toEqual([true, true, false]);
+    });
+});
+
+describe("标签页标题（2e）", () => {
+    const works = [{...work("w00022-dev-panel", "active", "2026-10-14"), title: "开发者面板", tasks: [{taskId: "t15-ui-polish", title: "面板界面打磨"}]}] as unknown as OverviewWork[];
+    const route = (name: string | null, params: Record<string, string> = {}, query: Record<string, string> = {}) => ({name, params, query});
+    test("“页面名 · nbdev”：Work、Task 取标题，还没读到时用编号；文档与编辑带文件名；搜索带搜索词", () => {
+        expect([
+            pageTitle(route("home"), works),
+            pageTitle(route("work", {workId: "w00022-dev-panel"}), works),
+            pageTitle(route("task", {workId: "w00022-dev-panel", taskId: "t15-ui-polish"}), works),
+            pageTitle(route("task", {workId: "w00022-dev-panel", taskId: "t15-ui-polish"}), null),
+            pageTitle(route("artifact", {workId: "w1", taskId: "-", artifactId: "uxq"}), works),
+            pageTitle(route("docs", {}, {path: "docs/specs/AGENTS.md"}), works),
+            pageTitle(route("docs"), works),
+            pageTitle(route("edit", {}, {path: "a/b/README.md"}), works),
+            pageTitle(route("search", {}, {q: "滚动"}), works),
+            pageTitle(route(null), works),
+        ]).toEqual(["首页 · nbdev", "开发者面板 · nbdev", "面板界面打磨 · nbdev", "w00022-dev-panel/t15-ui-polish · nbdev", "uxq · nbdev", "AGENTS.md · nbdev", "文档 · nbdev", "编辑 README.md · nbdev", "搜索 滚动 · nbdev", "nbdev"]);
     });
 });

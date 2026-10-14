@@ -41,7 +41,7 @@ const navigate = (href: string) => void router.push(href);
         <template v-else>
             <section class="flex flex-col gap-2" aria-labelledby="inbox-title">
                 <h1 id="inbox-title" class="flex items-center gap-2 font-semibold" style="font-size: var(--text-lg)">
-                    收件箱<span style="color: var(--text-muted); font-size: var(--text-sm)">{{ overview.data.value.inbox.length }}</span>
+                    收件箱<span style="color: var(--text-secondary); font-size: var(--text-sm)">{{ overview.data.value.inbox.length }}</span>
                 </h1>
                 <div class="rounded-[var(--radius-panel)] px-3 py-1" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
                     <InboxList :items="overview.data.value.inbox" @navigate="navigate" />

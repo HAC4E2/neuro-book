@@ -42,14 +42,14 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string}> =
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-4 p-4 md:p-6">
         <div class="flex flex-wrap items-baseline gap-2">
             <h1 class="font-semibold" style="font-size: var(--text-xl)">checkout</h1>
-            <span v-if="computedAgo" style="color: var(--text-muted); font-size: var(--text-xs)">未提交与领先落后是 {{ computedAgo }}算的</span>
+            <span v-if="computedAgo" style="color: var(--text-secondary); font-size: var(--text-xs)">未提交与领先落后是 {{ computedAgo }}算的</span>
         </div>
         <StaleNotice v-if="checkouts.stale.value" :error="checkouts.error.value!" :received-at="checkouts.receivedAt.value" @retry="checkouts.reload()" />
         <LoadState v-if="!checkouts.data.value" :loading="checkouts.loading.value" :error="checkouts.error.value" label="正在读取 checkout" @retry="checkouts.reload()" />
         <!-- 列多：窄屏上整张表横向滚动，不把每列挤成一字一行。 -->
         <div v-else class="overflow-x-auto">
             <div class="min-w-[64rem]">
-            <Table :columns="columns" :rows="rows" row-key="key" density="compact" :hoverable="false">
+            <Table class="nbdev-table" :columns="columns" :rows="rows" row-key="key" density="compact" :hoverable="false">
                 <template #cell-key="{row}">
                     <RouterLink :to="{name: 'docs', query: {checkout: row.checkout.key}}">{{ row.checkout.key }}</RouterLink>
                     <Badge v-if="row.checkout.isMain" tone="accent" variant="soft" size="sm" class="ml-1">主工作区</Badge>

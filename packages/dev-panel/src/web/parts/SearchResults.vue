@@ -41,7 +41,7 @@ function recordText(match: SearchRecordMatch): string {
         <section v-for="group in groups" :key="group.checkout" class="flex flex-col gap-1">
             <h2 class="flex flex-wrap items-center gap-2 font-semibold">
                 {{ group.checkout }}
-                <span style="color: var(--text-muted); font-weight: normal; font-size: var(--text-xs)">{{ group.hits.length }} 条<template v-if="group.done"> · {{ group.done.elapsedMs }} 毫秒</template></span>
+                <span style="color: var(--text-secondary); font-weight: normal; font-size: var(--text-xs)">{{ group.hits.length }} 条<template v-if="group.done"> · {{ group.done.elapsedMs }} 毫秒</template></span>
                 <Badge v-if="group.done?.truncated" tone="warning" variant="soft" size="sm">截断了</Badge>
                 <Badge v-if="group.done?.error" tone="danger" variant="soft" size="sm">出错</Badge>
             </h2>
