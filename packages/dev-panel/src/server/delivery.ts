@@ -209,9 +209,9 @@ export async function readScreen(context: DeliveryContext, target: DeliveryTarge
 }
 
 /**
- * 非 Agent 的 pane 的更早输出（t15 阶段 4 第 3 批，D2）：开发服务、构建日志、shell。只读本仓库里的 pane；
- * 前台程序在备用屏（less、vim、带 TUI 的程序）时没有回滚（`scrollback` 为 0），读出来只是当前屏，回 `history_unavailable`。
- * Agent 的 pane 走 `readHistory`（只给 omp）。不写审计（终稿第 16 条）。
+ * 没有会话键的 pane 的更早输出（t15 阶段 4 第 3 批，D2）：开发服务、构建日志、shell，以及认出了 Agent 但还没报会话的 pane。
+ * 只读本仓库里的 pane；前台程序在备用屏（less、vim、带 TUI 的程序）时没有回滚（`scrollback` 为 0），读出来只是当前屏，回 `history_unavailable`。
+ * 有会话键的 pane 走 `readHistory`（只给 omp）。不写审计（终稿第 16 条）。
  */
 export async function readPaneHistory(context: DeliveryContext, paneId: string, lines: number): Promise<{ok: true; text: string} | CheckFailure> {
     let pane;
@@ -223,7 +223,8 @@ export async function readPaneHistory(context: DeliveryContext, paneId: string, 
     }
     if (!pane) return fail("not_found", `没有 pane ${paneId}`);
     if (!within(pane.cwd, context.repoRoots) && !within(pane.foregroundCwd, context.repoRoots)) return fail("not_in_repository", `${paneId} 不在本仓库的 checkout 里`);
-    if (pane.agent !== null) return fail("history_unavailable", `${paneId} 上是 ${pane.agent} 会话：Agent 会话的更早输出走会话的接口`);
+    // 按会话键分（与会话页的分组一致）：认出了 Agent 却还没报会话的 pane 也算“其它 pane”，没有会话可核对，按 pane 读。
+    if (pane.session !== null) return fail("history_unavailable", `${paneId} 上是 ${pane.session.agent} 会话：Agent 会话的更早输出走会话的接口`);
     if (!pane.scrollback) return fail("history_unavailable", `${paneId} 没有可往回翻的输出（前台是全屏程序，或还没有超出一屏）`);
     try {
         return {ok: true, text: (await context.client.paneRead(paneId, "recent_unwrapped", lines)).replace(/\s+$/u, "")};

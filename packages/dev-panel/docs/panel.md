@@ -70,7 +70,7 @@
 | `/api/notify?workId=&taskId=` | 通知任务（`jobs`）与最近 24 小时的尝试（`recent`，同一次尝试的意图与结果合成一条，只有意图的标 `intentOnly`）、审计状态、这个 herdr 版本是否自动投递；两个参数可选（见“通知与会话页”） |
 | `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed`；这格正被接管时照常能读 |
 | `/api/sessions/:paneId/history?session=` | omp 的更早输出（t12，手机的文字视图用）：`agent.read` 的 `recent_unwrapped` 最近 1000 行；Claude 回 409 `history_unavailable`（见“网页终端”的手机一条） |
-| `/api/panes/:paneId/history` | 非 Agent 的 pane（开发服务、构建日志、shell）的更早输出（t15 阶段 4 第 3 批，D2）：`pane.read` 的 `recent_unwrapped` 最近 1000 行。只给本仓库里的 pane（否则 409 `not_in_repository`）；Agent 的 pane、前台是全屏程序（`scrollback` 为 0）的回 409 `history_unavailable`；不写审计 |
+| `/api/panes/:paneId/history` | 没有会话键的 pane（开发服务、构建日志、shell，以及认出了 Agent 但还没报会话的）的更早输出（t15 阶段 4 第 3 批，D2）：`pane.read` 的 `recent_unwrapped` 最近 1000 行。pane 不在回 404 `pane_not_found`；不在本仓库里回 409 `not_in_repository`；有会话键的 pane、前台是全屏程序（`scrollback` 为 0）的回 409 `history_unavailable`；不写审计 |
 | `/api/search?q=&checkout=` | 搜索，NDJSON 流（见下） |
 | `/ws` | 先推 `{type: "hello", instance, revisions}`，之后每块数据变了推 `{type: "changed", instance, parts, revisions}` |
 | `/ws/terminal?pane=&terminal=` | 网页终端，一个终端视图一条（见“网页终端”） |
@@ -176,7 +176,7 @@
 
 会话详情里的屏幕末尾换成实时终端：观看是只读的实时画面；需要时接管键盘直接操作，离开时把控制权交还。herdr 那边的两条流、尺寸与控制者的规则见 [herdr.md](herdr.md#终端流t12)。实现在 `src/server/terminal-hub.ts`（中枢）、`src/web/host/terminal-socket.ts`（页面的连接）与零件 `TerminalView`、`TerminalTextView`、`TakeoverDialog`。
 
-- **开放给谁**：观看给本仓库 checkout 里的所有 pane；接管、文字与按键只给 herdr 认得出 Agent（有会话键）的 pane（t15 阶段 4 第 3 批，D2）。Agent pane 有会话键，页面看到的与服务端核对的是同一个会话，换了会话（`/clear`）能发现；开发服务、构建日志、shell 这些 pane 没有会话键，核对不了“发给的是谁”，所以只读：接管回 `not_allowed`（连接照常观看），文字与按键回 409 `not_found`，都不调 herdr、不写审计。别的仓库的 pane 只在列表里列出（决定点 20）。
+- **开放给谁**：观看给本仓库 checkout 里的所有 pane；接管、文字与按键只给有会话键的 pane（t15 阶段 4 第 3 批，D2）。有会话键时页面看到的与服务端核对的是同一个会话，换了会话（`/clear`）能发现；开发服务、构建日志、shell，以及 herdr 认出了 Agent 但还没报会话的 pane 没有会话键，核对不了“发给的是谁”，所以只读：接管回 `not_allowed`（连接照常观看）；文字与按键回 409 `session_changed`（`details.reason` 是 `not_found`），之前只调了只读的 `agent.get` 核对，不调写方法、不写审计。连接按终端建，不随会话换：接管时用闸门核对过的 pane 刷新连接记下的会话键与 Agent，所以看着 shell 时里面起了 Agent、再接管，审计记的是这个会话。别的仓库的 pane 只在列表里列出（决定点 20）。
 - **能不能用**：`/api/meta` 的 `terminal`。找不到 herdr（`NBDEV_HERDR_BIN` 或 `PATH`）、`setpriv` 或 `setsid`，或面板没连 herdr 时不可用，会话页退回 t11 的屏幕末尾。
 
 ### 连接与消息

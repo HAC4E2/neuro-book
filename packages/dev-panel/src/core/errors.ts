@@ -30,6 +30,7 @@ export const ERROR_EXIT_CODES = {
     shim_target_not_found: 5,
     service_not_installed: 5,
     run_not_found: 5,
+    pane_not_found: 5,
     script_not_found: 5,
     dev_not_running: 5,
     main_not_on_master: 3,

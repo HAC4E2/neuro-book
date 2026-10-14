@@ -136,7 +136,7 @@ export class TerminalHub {
         return size;
     }
 
-    /** 升级之后：pane 是本仓库里 herdr 认得出 Agent 的 pane、terminal id 对得上、上限；不过就以关闭码告诉页面原因。 */
+    /** 升级之后：pane 在本仓库里（D2 起不要求 Agent）、terminal id 对得上、上限；不过就以关闭码告诉页面原因。 */
     open(ws: Socket): void {
         const data = ws.data;
         const conn: Conn = {
@@ -313,6 +313,9 @@ export class TerminalHub {
         }
         if (!pane || keyOf(pane) !== message.expectedSession) return this.error(conn, "session_changed", "这个 pane 上的会话换了，刷新之后再接管");
         conn.paneId = pane.paneId;
+        // 连接按终端建，不随会话换：开着时 shell 里起了 Agent，或同一格换了会话，审计与状态要记接管时核对过的这一个。
+        conn.sessionKey = keyOf(pane);
+        conn.agent = pane.agent;
         const other = [...this.conns.values()].find((entry) => entry !== conn && entry.terminalId === conn.terminalId && entry.mode === "control" && entry.control);
         if (other && !force) {
             this.send(conn, {t: "need_confirm", reason: "other_browser", detail: {since: new Date(other.control!.since).toISOString(), device: other.device}});

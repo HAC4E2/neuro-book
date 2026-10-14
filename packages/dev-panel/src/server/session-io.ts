@@ -86,9 +86,11 @@ export function createSessionIo(deps: SessionIoDeps) {
         return envelope({paneId, sessionKey: target.sessionKey, lines: HISTORY_LINES, text: read.text}, [], null);
     }
 
-    /** 非 Agent 的 pane 的更早输出（t15 阶段 4 第 3 批）：没有会话可核对，按 pane 读；不写审计。 */
+    /** 没有会话键的 pane 的更早输出（t15 阶段 4 第 3 批）：没有会话可核对，按 pane 读；不写审计。 */
     async function paneHistory(paneId: string): Promise<Response> {
         const read = await readPaneHistory(context(), paneId, HISTORY_LINES);
+        // 这个接口没有会话：pane 不在是“找不到”（404），不借会话接口的 session_changed。
+        if (!read.ok && read.code === "not_found") throw new NbdevError("pane_not_found", read.detail);
         if (!read.ok) throw checkError(read);
         return envelope({paneId, lines: HISTORY_LINES, text: read.text}, [], null);
     }
