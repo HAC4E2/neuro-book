@@ -48,11 +48,11 @@ updated: 2026-10-13
     - `kill(-pgid)` 打得到同组的孙进程，打不到另起进程组的后代；
     - TaskStop 先 SIGTERM，约 1.5 秒后 SIGKILL。
 
-- 2026-10-13 实施完成（集成分支 `23402f959..c5177bc56`）：S1 开发服务、S2 `worktree new`、S3 `find` 与 `shot`、S4 面板现场三页与 `NBDEV_GH_BIN`、S5 文档，另修窄屏 checkout 表。各片的提交、浏览器验收 16 项与偏离见 [plan.md](plan.md) 的“实施进度”。
-- 同一轮里修了 t11、t12 验收留下的两处（`c5177bc56..3be97d883`），见 [plan.md](plan.md) 的“追加修正”：
+- 2026-10-13 实施完成（集成分支 `16da3544b..6b80522d7`）：S1 开发服务、S2 `worktree new`、S3 `find` 与 `shot`、S4 面板现场三页与 `NBDEV_GH_BIN`、S5 文档，另修窄屏 checkout 表。各片的提交、浏览器验收 16 项与偏离见 [plan.md](plan.md) 的“实施进度”。
+- 同一轮里修了 t11、t12 验收留下的两处（`6b80522d7..9fc8cf009`），见 [plan.md](plan.md) 的“追加修正”：
   - 通知误报：改为在投递窗口里看这一格的状态事件，不再比全局序号的差值；
   - 接管后又改一次尺寸：量尺寸时先藏起终端框的溢出。
-- 主 Agent 在 `3be97d883` 上复跑，都通过：
+- 主 Agent 在 `9fc8cf009` 上复跑，都通过：
   - 包测试 322 个，含 herdr 0.9.3 与 0.9.1 两组 L4、`dev-live` 10 条；
   - typecheck 与 `build:web`；
   - 根上三个测试文件 177 个，`dev-panel-records` 在 Node 下 5 个；
@@ -81,10 +81,10 @@ updated: 2026-10-13
     - 包的浏览器验收规则补“去掉 `--hide-scrollbars`”。这一条是回写规范，等开发者批准。
   - 主 Agent 定为：重要 1 与前两条建议交编码子代理修正，第三条建议等开发者批准。
 
-- 两批审查意见的修正（集成分支 `3be97d883..8d644d118`，14 个提交，已 push）逐条见 [plan.md](plan.md) 的“实现审查的修正”。偏离处理意见的有两处：
+- 两批审查意见的修正（集成分支 `9fc8cf009..ca4c9bc89`，14 个提交，已 push）逐条见 [plan.md](plan.md) 的“实现审查的修正”。偏离处理意见的有两处：
   - 复用到连不上的地址时报 `dev_unresponsive`，不替别人停服务；
   - 终端改按 xterm 的 `device.cell` 算列数，不再用 `@xterm/addon-fit`。
-- 主 Agent 在 `8d644d118` 上复跑，都通过：
+- 主 Agent 在 `ca4c9bc89` 上复跑，都通过：
   - 包测试 338 个，含 herdr 0.9.3 与 0.9.1 两组 L4、`dev-live` 18 条；
   - typecheck、`build:web`；
   - 根上三个测试文件 177 个，`dev-panel-records` 在 Node 下 5 个；
@@ -93,7 +93,7 @@ updated: 2026-10-13
   试算合入 `master` 没有冲突，与主工作区未提交的改动没有交集。
 - 待开发者批准的回写：在 `packages/dev-panel/AGENTS.md` 的浏览器验收规则里补一句：涉及尺寸、溢出或滚动时，去掉 `--hide-scrollbars`。
 
-- 2026-10-13 开发者授权后，集成分支 `8d644d118` 本地合入 `master`（合并提交 `76a3da886`，没有 PR、没有 push master）。合并提交上复跑：包测试 327 个（herdr 的 L4 刚在内容相同的 `8d644d118` 上跑过，这次跳过）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
+- 2026-10-13 开发者授权后，集成分支 `ca4c9bc89` 本地合入 `master`（合并提交 `da3781d99`，没有 PR、没有 push master）。合并提交上复跑：包测试 327 个（herdr 的 L4 刚在内容相同的 `ca4c9bc89` 上跑过，这次跳过）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
 - 合入后：主工作区装了依赖（去掉了 `@xterm/addon-fit`），常驻服务按新单元重装，单元写入了 `NBDEV_GH_BIN`，前端构建完成，4400 回 200。
 - 在场核对（临时仓库，假开发脚本，经真实 `bun run`）：在本会话里用后台任务跑 `nbdev dev start`，打出 `READY`，属主认成本会话；用 Claude Code 的 TaskStop 停掉后：
   - `normal` 形态：监管进程、组长、开发脚本、孙进程都退出，登记在 17 毫秒内写成 `ended`（`stopped`，`stoppedBy: signal:SIGTERM`），地址不再回应；

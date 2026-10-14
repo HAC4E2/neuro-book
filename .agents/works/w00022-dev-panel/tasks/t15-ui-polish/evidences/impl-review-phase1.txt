@@ -1,6 +1,6 @@
 # t15 阶段 1 实现审查（只读）
 
-- 对象：detached worktree `.worktree/w00022-t15-review`，HEAD `16734c6fa`，范围 `git diff 8a1a2a105..16734c6fa`（11 个提交、40 个文件）。
+- 对象：detached worktree `.worktree/w00022-t15-review`，HEAD `86531ace4`，范围 `git diff f85157526..86531ace4`（11 个提交、40 个文件）。
 - 依据：`.agents/works/w00022-dev-panel/tasks/t15-ui-polish/plan.md` 阶段 1 与“实施进度”，设计审查 `evidences/design-review.txt`，原始缺陷报告 `omp-frontend-review.md`（阻断 1、重要 3 到 9），包规则 `packages/dev-panel/AGENTS.md`、`docs/panel.md` 与零件同名 `.md`。
 - 做法：按顺序读完全部改动与相关旧代码；在审查 worktree 里单独跑了 5 个新测试文件（`bun test --isolate`，31 过、0 失败）与 `tsc --noEmit -p tsconfig.web-tests.json`（通过）；需要实测的几条在 `/dev/shm/t15-impl-review/` 写了实验用例，复用 `tests/web-env.ts`，跑完已删。没有起面板、没有碰 4400、4401、4490 与 herdr，没有改仓库文件。
 - 级别：阻断（会发错目标、丢数据或写错）、重要（缺陷没修干净或留下明显可触发的错态）、建议（小的错态或一致性问题，改动成本低）。

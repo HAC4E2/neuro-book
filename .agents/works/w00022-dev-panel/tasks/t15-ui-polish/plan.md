@@ -4,7 +4,7 @@
 
 范围与决定以本目录的 [改动方案](design.md) 为准（含开发者定的 D1 到 D5）；任务见 [README](README.md)，开发者的试用建议见 [后续清单](../../followups.md)。依据的四份审查报告在本地 `.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/reports/`（`omp-frontend-review.md`、`ux-a.md`、`ux-b.md`、`ux-c.md`），截图在同目录的 `shots/`。
 
-执行位置：集成分支 `feat/w00022-dev-panel`（worktree `.worktree/w00022-dev-panel`），已快进到 master `8a1a2a105`。四份审查的基线是 `5cf816f1c`，此后 `packages/dev-panel/src/web/` 没有改动，报告里的行号仍然对得上。
+执行位置：集成分支 `feat/w00022-dev-panel`（worktree `.worktree/w00022-dev-panel`），已快进到 master `f85157526`。四份审查的基线是 `def03ea99`，此后 `packages/dev-panel/src/web/` 没有改动，报告里的行号仍然对得上。
 
 ## 计划前的核实（2026-10-13，只读）
 
@@ -418,6 +418,124 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
 - 14 个页面同时换骨架，改动面大，按页分提交，每个提交单独截图对比；
 - 不要建通用页面框架或 `useApp` 那样的万能宿主（omp 建议 2、3），只做页头、分节与资源状态这几样。
 
+### 阶段 3 的实施细节（编码子代理 2026-10-14 补）
+
+新零件都放 `parts/`，带同名 `.md`，只经 `@notnotype/nb-ui` 的公开入口用 nb-ui 零件，不改 nb-ui、不改主应用。零件只做页头、分节、写入结果与资源状态这几样：不取数、不读路由、不建通用页面框架或万能宿主。
+
+**3a 语义类**（`app.css`，都带 `nbdev-` 前缀，与面板的原子类一样不分层）：
+
+| 类 | 内容 | 替换的是 |
+|---|---|---|
+| `nbdev-title` | 页标题：`--text-xl`、600 | 各页 h1 的 `font-size: var(--text-xl)` |
+| `nbdev-heading` | 区标题（页面分节、侧栏小节、卡片小节）：`--text-md`、600 | h2 的 `--text-lg` 与没写字号的 `font-semibold` |
+| `nbdev-body` | 正文：`--text-sm`、`--text-main`（把局部改回正文） | 少数显式写正文字号的地方 |
+| `nbdev-note` | 说明：`--text-xs`、`--text-secondary` | `font-size: var(--text-xs)` 加 `--text-secondary` 的各种写法 |
+| `nbdev-caption` | 标注：`--text-2xs`、`--text-secondary` | `--text-2xs` 的小字 |
+| `nbdev-empty` | 空状态与占位：`--text-muted` | “没有”“未标”“—” 的 `color: var(--text-muted)` |
+| `nbdev-warn`、`nbdev-danger` | 状态色文字：`--status-warning`、`--status-danger` | 对应的内联颜色 |
+| `nbdev-stack-page`、`nbdev-stack`、`nbdev-stack-tight` | 竖排，间距三档：区与区之间 1.25rem、区内 0.5rem、列表项之间 0.25rem | `flex flex-col gap-5/gap-2/gap-1` 的各种组合 |
+| `nbdev-surface` | 面层：`--panel-surface`、1px `--divider` 边框、`--radius-panel` | 九处 `background: var(--panel-surface); border: …` |
+| `nbdev-hint` | 浅底提示块：`--bg-subtle`、`--radius-control`、小内边距、`--text-xs` | 编辑页等处重复的 `bg-subtle` 提示块 |
+| `nbdev-num` | 等宽数字（`tabular-nums`） | 计数、版本号、行数 |
+
+内联 `style` 只留真正随数据变的（比例条的宽度、状态色映射）与 iframe 的 `color-scheme`。验收按 `grep` 计数前后对比（基线：静态 241 处、绑定 18 处，`accept/phase3/style-count-before.txt`）。
+
+**3b `PageShell`**：
+
+```ts
+interface PageShellProps {
+    /** 面包屑，从外到内；最后一项是当前页，不必给 href；可选，默认 []（首页不给） */
+    crumbs?: Array<{label: string; href?: string}>;
+    /** 页标题（唯一的 h1）；必填。插槽 title 只换显示，读屏与换页挪焦点仍靠这个 h1 */
+    title: string;
+    /** 内容宽度：reading 按正文阅读宽度收、居中；list 最宽 90rem、居中；full 满铺；可选，默认 list */
+    width?: "reading" | "list" | "full";
+}
+interface PageShellEmits {
+    /** 面包屑的普通左键点击（零件已 preventDefault）；中键与带修饰键的交给浏览器 */
+    (event: "navigate", href: string): void;
+}
+interface PageShellSlots {
+    title?: () => unknown;    // 替换标题的显示（编辑页的等宽路径）
+    status?: () => unknown;   // 标题前：状态徽章
+    actions?: () => unknown;  // 标题行右侧：操作（3f 的两级操作）
+    meta?: () => unknown;     // 标题下一行：编号、更新时间、来源
+    feedback?: () => unknown; // 页头下：这一页的写入结果（3c）
+    default?: () => unknown;  // 正文
+}
+```
+
+- 页头（面包屑、标题行、meta、feedback）在数据到之前就渲染：标题先用编号或页面名，数据到了换成真标题，标题的顶边与高度不跳；各页的内边距与顶边都由它给，标题顶边位置一致。
+- 阅读档：容器 `width: fit-content`、最大 100%、居中；页头 `contain: inline-size`，不撑宽容器。正文卡片用 `nbdev-reading-card`（字号取 `--reading-size`，宽度是 `--reading-measure` 加卡片内边距），卡片宽度就是正文的阅读宽度，右边不再空一片；有侧栏（Task 页）时容器宽度是卡片加侧栏。速览面板（决定点 17）推开正文时，容器跟着可用宽度收，不另算。
+- 不支持：不取数、不读路由、不管加载与失败（3d 的 `LoadState`）、不管滚动（流式页面由 `main` 滚，铺满页面自己分栏）、不放速览面板（阶段 4）。
+- 14 个页面都套：首页不给面包屑；文档页套在右边正文那一栏里（铺满型页面的左栏是文档树）；编辑页的面包屑按路径推出所属的 Work、Task；找不到的页面给“首页”。
+
+**3c `WriteResult`**（替换 `WriteNotice`；`host/writes.ts` 的 `Notice` 改形状）：
+
+```ts
+type NoticeOutcome = "success" | "failure" | "conflict" | "unknown" | "info";
+type Notice = {
+    outcome: NoticeOutcome;   // 结果：颜色与图标只由它决定（成功绿、失败红、冲突与结果未知黄、提示灰）
+    title: string;            // 一句话的结果
+    message: string;          // 原因或下一步；与 title 重复时留空
+    items: string[];          // 结果的明细（没锚到字段的问题、写入了没提交的路径），已与 message 去重
+    notes: string[];          // 附注：服务端的警告；缩进、默认折叠，不改变结果的颜色
+    retry: boolean;           // 只在确定什么都没写的失败给“重试”
+};
+interface WriteResultProps { notice: Notice }
+interface WriteResultEmits { (event: "dismiss"): void; (event: "retry"): void }
+```
+
+- 不自己消失、不计时；位置由宿主放：有操作栏的页面（编辑页、新建页）放在操作栏里，出现时不推动编辑器与表单；其余放在 `PageShell` 的 `feedback` 插槽。
+- 字段错误只报一次：`failureNotice` 多一个参数，表单能锚到的字段（新建页的 `details.problems[].field` 与 `details.field`）交给表单显示，结果里只写“表单里标出了 N 处”；锚不到的才进 `items`。
+- 成功带警告不再变黄：`successNotice` 的结果是 success，警告进 `notes`。
+
+**3d `LoadState`**（收进 `StaleNotice`，删掉后者）：
+
+```ts
+interface LoadStateProps {
+    loading: boolean;                                   // 宿主已延时过的加载信号
+    error?: {message: string; status?: number} | null;
+    hasData?: boolean;                                  // 已有数据：error 只画一行“旧数据”提示（原 StaleNotice）；默认 false
+    receivedAt?: string | null;                         // 旧数据是什么时候读到的
+    label?: string;                                     // 加载说明，默认“正在读取”
+    retryable?: boolean;                                // 默认 true
+    upHref?: string | null;                             // 404 时“回到上一级”去哪里；没有就不给链接
+    upLabel?: string;                                   // 默认“回到上一级”
+}
+interface LoadStateEmits { (event: "retry"): void; (event: "navigate", href: string): void }
+```
+
+- 四种形态：加载（转动的指示加说明）、找不到（404：说明加回上一级的链接，不给重试）、失败（原因加重试）、旧数据（一行提示，404 时同样不给重试）。没有数据时占一块固定的最小高度。
+- 不做骨架屏：nb-ui 界面开发规范第 4.3 节第 8 条“不做骨架”（占位形状会暗示一个还不知道的结构），与阶段 3 表格里“骨架屏变体”冲突，以规范为准。“加载时不跳”改由页头先渲染、加载块占固定最小高度做到。
+- 宿主用 `host/panel-data.ts` 新增的 `loadStateOf(resource)` 拿到前四个属性，页面只补 label 与上一级。
+
+**3e `TruncatedText`**：
+
+```ts
+interface TruncatedTextProps {
+    text: string;          // 全文；必填
+    mono?: boolean;        // 等宽（路径、id、分支名、sha）；默认 false
+    copyable?: boolean;    // 点击复制；默认 true。为 false 时只截断加悬停全文
+}
+```
+
+- 单行截断，被截断时悬停或聚焦用 nb-ui `Tooltip` 显示全文；可复制时是一个按钮，点了复制全文，提示改成“已复制”。`env:clipboard` 是它自己的隐藏通道（配方偏离，理由写进 `.md`：复制是这个零件存在的目的，每个用到它的宿主各写一遍复制更乱）。
+- 不支持：多行截断、可编辑、链接（链接里的长标题用 `Tooltip` 包链接，不用它）。
+
+**3f `ActionLink`**：去别的页的操作（编辑 README、新建 Task、看文档、单独打开）是带图标与文字的链接，样子是 ghost 按钮：
+
+```ts
+interface ActionLinkProps { href: string; icon?: string; external?: boolean }
+interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普通左键点击；external 时不发，交给浏览器
+```
+
+- 用链接而不是 nb-ui `Button`：`Button` 只渲染 `<button>`，不能中键开新标签页、复制地址，面板的约定是去别的页的入口都是真实链接。主要操作（写入）仍是 nb-ui `Button`。
+
+**3g 临时框收敛**：会话、在跑页整页是临时内容，分区标题旁放一个“临时”小徽标（`nbdev-ephemeral-tag`），不再整页虚线框；虚线框（`EphemeralFrame`）只留给混在持久页里的临时片段（Work 页的“现在谁在动”、Task 页的“谁在动”）；会话页的“无主的运行”只留一个去“在跑”的入口。
+
+**提交的切法**：3a、3b、3c、3d、3e 与 3f 的零件各一个提交（3c 连同 `Notice` 改形状与各页换零件一起提交，接口变了不能分开）；14 个页面换骨架按页分提交，每个页面的提交里同时用上 3a 的语义类、3d、3e、3f 与 3g；最后一个提交删掉不再用的 `StaleNotice`、`WriteNotice`。
+
 ## 阶段 4：逐页改进（轮廓）
 
 按页切片，每页一个或几个提交，彼此基本独立；涉及服务端的单列在后面，**先于对应的前端片单独提交**，审查时能单独看安全面（审查建议 10）。
@@ -526,12 +644,12 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
   - 没有改代码，没有提交。
 - 2026-10-13：按设计审查改计划（全部采纳），加 1.0 与 1.9，决定点改成终稿。
 - 2026-10-13：阶段 1 做完，在集成分支 `feat/w00022-dev-panel` 上，未 push。
-  - 提交（`8a1a2a105..16734c6fa`，11 个）：`d5a0fd49a` 1.0、`a918d37a0` 1.1、`6911c1ee3` 1.2、`e6f6b86a8` 1.9、`7b32a6015` 1.3、`afed56cfa` 1.4、`fa30380e5` 1.5、`d81c92103` 1.6、`32145078a` 1.7、`a29c645be` 1.8，以及验收发现问题后的修正 `16734c6fa`（见下）。
-  - 门禁（在 `a29c645be` 上跑）：
+  - 提交（`f85157526..86531ace4`，11 个）：`7a771f21e` 1.0、`ff4389d2c` 1.1、`111398508` 1.2、`79550850c` 1.9、`a21bcbe94` 1.3、`399b32cc9` 1.4、`6dcb50f03` 1.5、`082edf839` 1.6、`ac856d967` 1.7、`5128e7ae9` 1.8，以及验收发现问题后的修正 `86531ace4`（见下）。
+  - 门禁（在 `5128e7ae9` 上跑）：
     - 包的 `typecheck`、`build:web` 通过；全量 `test` 369 过、0 失败、0 跳过，用时 6 分 29 秒，含 herdr L4 与 `--isolate` 下的前端宿主测试；
     - 根目录 `dev-panel-records` 在 Node 下 5 过；`governance:check`、`docs:check` 没有错误，警告都是存量，或是 worktree 里的记录比 master 旧，与本阶段无关；
     - `git diff --check` 干净。
-    - `16734c6fa` 只改 `NewPage.vue`，补跑了 `typecheck`、`build:web` 与 `git diff --check`。
+    - `86531ace4` 只改 `NewPage.vue`，补跑了 `typecheck`、`build:web` 与 `git diff --check`。
   - 浏览器验收：在 4490 上用集成分支的代码起面板，40 条全部通过。会话 A 是 `w4:p1`，B 是另起的 `w5:p1`，两格都是假 Claude，屏幕上分别写着 AAA 与 BBB。
     - 1.1：四个场景都过。按 Enter 开确认后 goBack 到 B；按 Esc 开确认后在同一格换会话；开着接管小窗时 goBack。三种情况下确认框或小窗都自己关了，有“目标变了，没有发送”的提示；A、B 的假 Claude 日志没有新字节，审计没有新的 `keys` 或 `takeover` 行。草稿在同一格换会话时保留，并提示“这格的会话换了”；换到 B 时清空。
     - 1.2：桌面上换到 B，2 秒内终端只剩 B 的画面。接管 B 后打的字进了 B 的日志，没进 A 的。接管 A 时换会话 id：仍是“你已接管键盘”，画面没被清空，焦点仍在 xterm，再打的字仍进 A 的日志。390 触屏的文字视图同样在 2 秒内换成 B 的画面。
@@ -548,7 +666,7 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
       - 20 张截图；
       - 两次起面板的日志 `panel-run1.log`、`panel-run2.log`，以及 `run-full.log`。
     - 控制台只有两类报错：注入的 409、503、404，与 1.5 里预期的 401。
-  - 验收发现并修正的问题：新建页的模式锁实际没有生效。nb-ui 的 `SegmentedControl` 没有整体的 `disabled`，`:disabled` 落到了根节点上，提交在途时仍能切到“新建 Task”。改为提交在途时按选项禁用另一项（`16734c6fa`），重跑通过。这层接线在 `.vue` 里，单元测试测不到。
+  - 验收发现并修正的问题：新建页的模式锁实际没有生效。nb-ui 的 `SegmentedControl` 没有整体的 `disabled`，`:disabled` 落到了根节点上，提交在途时仍能切到“新建 Task”。改为提交在途时按选项禁用另一项（`86531ace4`），重跑通过。这层接线在 `.vue` 里，单元测试测不到。
   - 偏离计划的地方：
     - 终端零件的 key 用这一条连接的序号（`host.connection`），没有用 paneId 加 terminalId：1.5 重新登录后，同一个终端也要重建连接；
     - `StaleNotice` 在首页、Work、Task 三页放在页面最上方，因为这三页的标题在数据块里面；其余页面放在标题下面。文档页的树与正文各放一条，两份都算主资源；
@@ -568,21 +686,21 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
     - herdr 换会话 id 要带比这一格已有值大的 `--seq`，否则静默丢弃；还要带 `--session-start-source clear`。herdr 不为这种变化推事件，面板靠有浏览器连着时的 500 毫秒轮询发现；
     - 有一轮在没有浏览器连着时改了会话 id，页面在面板第一次轮询之前读到了旧 id。读屏回 409 `session_changed`，“目标变了”的提示被这条覆盖。服务端的核对挡住了这次按键，没有发出去。
 - 2026-10-13：阶段 1 实现审查（`.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/reports/impl-review-phase1.md`）的结论是 0 阻断、0 重要、5 条建议，可以合入。主 Agent 五条都采纳，合入前在集成分支上改完，一条一个提交，未 push：
-  - 建议 1（`39149be2a`）：`readScreen` 把这一次读屏的结果交回调用方。按键的确认框读到了就用这一屏；没读到也照开（Esc、Ctrl+C 常在会话失控时用，不能因为读屏偶发失败就按不下去），说明里写出没读到的原因，以及框里是多久以前读到的画面。补了两条用例：没读到时写明旧画面，读到时用这一屏。
-  - 建议 2（`1d3cfdb4c`）：发文字成功后按格（pane 加终端）清草稿，不按会话。发的是 `/clear`、回包前这格换了会话时，照样清空输入框并收起“会话换了”的提示。补了一条用例。
-  - 建议 3（`152b46453`）：给 A 的文字判定不可投时已经换了目标，不再问“仍然发送”，提示“没有发出去”，带 A 的 pane 号；换了格时附上原文，因为输入框已经清空。补了一条用例。
-  - 建议 4（`b00d23a6e`）：新建页切换模式时收起带“重试”的失败提示，“重试”不会提交另一张表。接线在 `NewPage.vue` 里，单元测试测不到，只跑了 `typecheck` 与 `build:web`。
-  - 建议 5（`a4413f392`）：重新登录时面板连不上，原因直接用原文，不再重复“连不上面板”的前缀。补了一条用例。
+  - 建议 1（`ef4f41d43`）：`readScreen` 把这一次读屏的结果交回调用方。按键的确认框读到了就用这一屏；没读到也照开（Esc、Ctrl+C 常在会话失控时用，不能因为读屏偶发失败就按不下去），说明里写出没读到的原因，以及框里是多久以前读到的画面。补了两条用例：没读到时写明旧画面，读到时用这一屏。
+  - 建议 2（`d3ab3b617`）：发文字成功后按格（pane 加终端）清草稿，不按会话。发的是 `/clear`、回包前这格换了会话时，照样清空输入框并收起“会话换了”的提示。补了一条用例。
+  - 建议 3（`ee976a269`）：给 A 的文字判定不可投时已经换了目标，不再问“仍然发送”，提示“没有发出去”，带 A 的 pane 号；换了格时附上原文，因为输入框已经清空。补了一条用例。
+  - 建议 4（`0a1c02798`）：新建页切换模式时收起带“重试”的失败提示，“重试”不会提交另一张表。接线在 `NewPage.vue` 里，单元测试测不到，只跑了 `typecheck` 与 `build:web`。
+  - 建议 5（`4dbbf8b16`）：重新登录时面板连不上，原因直接用原文，不再重复“连不上面板”的前缀。补了一条用例。
   - 文档同步：`docs/panel.md` 的会话页一段与外壳一段，`parts/SessionConsole.md` 的 `resetKey` 说明。
   - 验证：包的 `typecheck`、`build:web` 通过，`tests/web-*.test.ts` 6 个文件 37 过、0 失败，`git diff --check` 干净。按主 Agent 的要求，没有再跑全量测试，也没有再做浏览器验收。日志在 `.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/accept/gate-review-fixes.log`。
 - 2026-10-14：阶段 1 合入 `master`，开发者授权。
-  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `81ddd9b68`（集成分支 `a4413f392`）；主工作区 `merge --ff-only` 快进过去。
-  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支完全相同，全量 `test` 在集成分支的 `a4413f392` 上跑：374 过、0 失败。
+  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `6e21cba2a`（集成分支 `4dbbf8b16`）；主工作区 `merge --ff-only` 快进过去。
+  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支完全相同，全量 `test` 在集成分支的 `4dbbf8b16` 上跑：374 过、0 失败。
   - 依赖没有变，服务单元也没有变，只做了 `service:restart`；4400 回 200，前端构建与预热完成。
   - 临时 worktree `.worktree/w00022-merge` 与审查 worktree `.worktree/w00022-t15-review` 已删除。没有 push。
 - 2026-10-14：按主 Agent 的转告，把“还要定的”速览面板布局移进终稿，记为第 17 条（开发者已定，按推荐）；阶段 3 表格里 3b 的依赖改指第 17 条。包的 `AGENTS.md` 不回写 `--isolate` 那两条（开发者定）。
 - 2026-10-14：阶段 2（外壳）做完，在集成分支 `feat/w00022-dev-panel` 上，未 push。
-  - 提交（`f6a42d536..71cb539cb`，5 个，一片一个）：`8ac8211c4` 2a、`d8a44b6a8` 2b、`dab6003ba` 2c、`9383499ae` 2d、`71cb539cb` 2e。
+  - 提交（`07550b3ad..5319aca19`，5 个，一片一个）：`814c4a936` 2a、`11d2492a9` 2b、`aa6fad6da` 2c、`d9038b372` 2d、`5319aca19` 2e。
   - 动手前的实测（脚本与输出在 `.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/accept/phase2/` 的 `probe1-xterm.ts`、`probe1.txt`、`probe2-splitter.ts`、`probe2.txt`）：
     - 第 1 条（xterm 的滚动条）：在会话页（1440×900，`w4:p1`）给空的 `.xterm-viewport` 加上 `scrollbar-width: none`，前后接管提议都是 163×32，列数不变；viewport 的 `offsetWidth − clientWidth` 从 15 变成 0。同一页另起一个带 1000 行回滚的探针终端（同一套暗色 token）：
       - 自绘滑块在暗色终端上看得见，悬停会加深；
@@ -592,8 +710,8 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
       - 窄屏沿用同一个 `Splitter`（sash 0、左栏收起、禁用）：编辑页在 390 与 1280 之间来回改两次，textarea 还是同一个元素、草稿在；会话页来回改两次，`/ws/terminal` 只握手一次；
       - `collapse` 能表达“拖到最小以下就收起”：最小 200、阈值 80 时拖到 x=100 收起（宽 0，读屏器读“已收起”），从收起处往外拖到 260 又展开；
       - 拖到 360 等 20 秒仍是 360；窗口 1100 时夹到 440，回到 1280 恢复 480；键盘方向键每步 10px，Esc 取消，Home、End 到上下限。
-  - 门禁（在 `71cb539cb` 上跑）：包的 `typecheck`、`build:web` 通过；全量 `test` 380 过、0 失败、0 跳过，用时 6 分 25 秒，含 herdr L4 与前端宿主测试；`git diff --check f6a42d536..HEAD` 干净。另外跑了 `docs:check`、`governance:check`，没有错误，也没有与 dev-panel 有关的警告。
-  - 浏览器验收：在 4490 上用集成分支的代码起面板，审查环境沿用，验收脚本是 `accept/phase2/accept.ts`。最终一轮在 `71cb539cb` 的构建上把 2a 到 2e 连着跑完，48 条全过，控制台没有错误与警告。证据在 `accept/phase2/final/`：`results-all.txt`、38 张截图（每片明暗两套、390 与 1440；左栏另有 1280、1920）、面板日志与门禁日志。
+  - 门禁（在 `5319aca19` 上跑）：包的 `typecheck`、`build:web` 通过；全量 `test` 380 过、0 失败、0 跳过，用时 6 分 25 秒，含 herdr L4 与前端宿主测试；`git diff --check 07550b3ad..HEAD` 干净。另外跑了 `docs:check`、`governance:check`，没有错误，也没有与 dev-panel 有关的警告。
+  - 浏览器验收：在 4490 上用集成分支的代码起面板，审查环境沿用，验收脚本是 `accept/phase2/accept.ts`。最终一轮在 `5319aca19` 的构建上把 2a 到 2e 连着跑完，48 条全过，控制台没有错误与警告。证据在 `accept/phase2/final/`：`results-all.txt`、38 张截图（每片明暗两套、390 与 1440；左栏另有 1280、1920）、面板日志与门禁日志。
     - 2a：
       - 窗口右缘没有空带（`innerWidth` 与 `clientWidth` 都是 1440）；首页、会话页的内容区各只有 main 一条竖向滚动条；
       - 长页（首页）与短页（在跑，不溢出）切换时，main 的内容宽度都是 1182；
@@ -656,31 +774,31 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
   - 与本阶段无关的观察：文档页渲染仓库根的 `README.md` 时，外站的徽章图片被面板的 CSP 拦下，控制台报错（`img-src` 只许本源与产物来源）。验收脚本改用别的文档绕开；要不要在 Markdown 改写时去掉外站图片，留给阶段 4 的文档页。
   - 验收环境的收尾：4490 的面板已经 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删，克隆的工作区是干净的（阶段 2 没有写入）。herdr 命名会话里的 `w4:p1`、`w5:p1` 没动，会话 id 还是 `71f9ae69-…` 与 `bbbb0002-…`。
 - 2026-10-14：阶段 2 实现审查（`evidences/impl-review-phase2.txt`）的结论是 0 阻断、2 重要、7 建议，另有一条委托的意见（审计横幅），修掉两条重要就能合入。主 Agent 全部采纳，在集成分支上改，未 push：
-  - 重要 1（`548354992`，验收中补了 `2243f6953`）：
+  - 重要 1（`db061d9cf`，验收中补了 `8794881ad`）：
     - 左栏收起或窄屏时，`<aside>` 加 `inert`，宽 0 的条目不再留在 Tab 顺序和读屏树里；
     - 点“收起左栏”后焦点交给“展开左栏”，点“展开左栏”后交给“收起左栏”；拖动分隔线收起时不挪焦点；
     - 验收发现收起后分隔线仍可聚焦，挡在“展开左栏”前面。改为收起时分隔线禁用，由顶栏按钮展开（决定点 8），收起后不能再从左缘拖出来。
-  - 重要 2（`548354992`）：Work 树只在当前页变了之后把当前行滚进可视区一次；那一行晚出现（数据刚到、所属 Work 刚展开）时等它出现再滚。推送带来新数据、展开别的 Work，都不再把树拽回当前行。
-  - 建议 3（`548354992`）：宿主在路由的 workId 变化时展开这个 Work，偏好里记成收起的也一样；在同一个 Work 里手动收起仍然有效。
-  - 建议 4（`548354992`）：当前 Work 在“更多”里时，“更多”只打开一次，之后能收起，`aria-expanded` 跟着变；展开后按钮文字是“收起 N 个”。
-  - 建议 5（`548354992`）：Work 树按 APG 的导航树标注：
+  - 重要 2（`db061d9cf`）：Work 树只在当前页变了之后把当前行滚进可视区一次；那一行晚出现（数据刚到、所属 Work 刚展开）时等它出现再滚。推送带来新数据、展开别的 Work，都不再把树拽回当前行。
+  - 建议 3（`db061d9cf`）：宿主在路由的 workId 变化时展开这个 Work，偏好里记成收起的也一样；在同一个 Work 里手动收起仍然有效。
+  - 建议 4（`db061d9cf`）：当前 Work 在“更多”里时，“更多”只打开一次，之后能收起，`aria-expanded` 跟着变；展开后按钮文字是“收起 N 个”。
+  - 建议 5（`db061d9cf`）：Work 树按 APG 的导航树标注：
     - 容器是 `tree`，名字取“工作”标题；Work 是第 1 层 `treeitem`，带 `aria-expanded`；Task 在 `group` 里，是第 2 层；
     - 展开按钮只给鼠标，加了 `aria-hidden`，展开状态只读一遍；“更多”挪到树外；
     - “一个 Tab 停靠点加方向键”保留；“工作”标题的 id 用 `useId` 拼，桌面与抽屉里各一份，不重复。
-  - 建议 6（`cc3d7166b`）：状态点的“数据”一行看外壳自己的三份数据（左栏与收件箱、面板状态、通知）。有一份重取失败，点就变黄，写出原因与显示的是什么时候读到的；`/api/meta` 第一次就失败时写“还没有读到过”。不按记录的年龄判断。
-  - 建议 7（`548354992`）：用 Esc、遮罩或关闭按钮关抽屉、路由没变时，等抽屉退场后焦点回到“打开导航”。从抽屉里换了页的，交给换页时挪到页标题的逻辑。
-  - 建议 8（`6c02b5ee5`）：
+  - 建议 6（`ba83204ee`）：状态点的“数据”一行看外壳自己的三份数据（左栏与收件箱、面板状态、通知）。有一份重取失败，点就变黄，写出原因与显示的是什么时候读到的；`/api/meta` 第一次就失败时写“还没有读到过”。不按记录的年龄判断。
+  - 建议 7（`db061d9cf`）：用 Esc、遮罩或关闭按钮关抽屉、路由没变时，等抽屉退场后焦点回到“打开导航”。从抽屉里换了页的，交给换页时挪到页标题的逻辑。
+  - 建议 8（`dfc70ac32`）：
     - 页面名挪进路由元信息 `meta.title`，`PAGE_NAMES` 删了；
     - `docs/panel.md` 的“前端”加了“加一个页面”的清单：路由名与 `meta`、一个 `h1`、不再套一层竖向滚动、`NAV_GROUPS`、`pageTitle`；
     - `App.vue` 顶部注释改成 2d 之后的样子。
-  - 建议 9（`6c02b5ee5`）：`docs/panel.md` 的“滚动”写明例外：有上限高度的预览块可以自己滚。也写明三种槽位写法各自的原因，`app.css` 的注释说明为什么不用 nb-ui 的 `nb-ui-scrollbar-stable`。
-  - 审计横幅（`cc3d7166b`）：
+  - 建议 9（`dfc70ac32`）：`docs/panel.md` 的“滚动”写明例外：有上限高度的预览块可以自己滚。也写明三种槽位写法各自的原因，`app.css` 的注释说明为什么不用 nb-ui 的 `nb-ui-scrollbar-stable`。
+  - 审计横幅（`ba83204ee`）：
     - `not_initialized` 的横幅给“知道了”，按“原因 + 审计文件路径”记进 `prefs.ts`，关掉后状态点详情里留一行“审计：未开启”，点不变黄；
     - `bad_owner`、`bad_mode`、`not_regular`、`unreadable` 的横幅常驻、不能关，状态点变黄。
-  - 两处观感（`548354992`）：
+  - 两处观感（`db061d9cf`）：
     - `PanelNav` 加 `inset` 属性，抽屉里传 false，不再叠两层左右内边距；
     - “工作”标题去掉负下边距，与树之间留 8px，树滚动后第一行不贴着标题。
-  - 门禁（在 `2243f6953` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 380 过、0 失败、0 跳过；`git diff --check 71cb539cb..HEAD` 干净。
+  - 门禁（在 `8794881ad` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 380 过、0 失败、0 跳过；`git diff --check 5319aca19..HEAD` 干净。
   - 浏览器验收在 4490 上做，脚本是 `accept/phase2/review.ts`，证据在 `accept/phase2/review-fixes/`，21 条全过：
     - 重要 1：
       - 390 时前三个 Tab 停靠点依次是“跳到主内容”“打开导航”、搜索框，左栏 `inert`；
@@ -703,10 +821,10 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
     - 没有用真的读屏器（NVDA、VoiceOver）听过 Work 树，只核对了角色、层级与可访问性快照；
     - r4、r6、审计这几条用的页面没挂控制台监听，注入的 500 不在控制台记录里，其余页面没有错误与警告。
   - 顺带发现：nb-ui `Drawer` 的关闭按钮没有可读名，读屏器读不出它是“关闭”（`Drawer.md` 已写明）。本 Task 不改 nb-ui（D3），记在这里，留给 nb-ui。
-- 2026-10-14：同步 master，提交 `97feb871a merge: 同步 master`。
+- 2026-10-14：同步 master，提交 `da076217c merge: 同步 master`。
   - 判断依据：主 Agent 给的判据 `git merge-base --is-ancestor chore/w00017-t85-master-merge master` 不成立，但 w00017 实际已经合入：
-    - master 上的 `7945d9326 merge: w00017 应用运行时与插件化重建合入 master`，第二个父提交是 w00017 的头 `e4cbd1248`；
-    - `chore/w00017-t85-master-merge` 分支上的那个合并提交是 `423b53a73`，合的是同一个 `e4cbd1248`；
+    - master 上的 `bc2081d8b merge: w00017 应用运行时与插件化重建合入 master`，第二个父提交是 w00017 的头 `e4cbd1248`；
+    - `chore/w00017-t85-master-merge` 分支上的那个合并提交是 `c820d1660`，合的是同一个 `e4cbd1248`；
     - 两个合并提交的内容只差一份入库的审查报告。
     所以按“已经合入”处理。
   - 同步过程：
@@ -721,8 +839,8 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
     - 另外在同步后的构建上重跑了阶段 2 的 48 条与审查修正的 21 条，全过，控制台没有错误与警告。
   - 收尾：4490 的面板已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删，克隆是干净的；herdr 的 `w4:p1`、`w5:p1` 没动。
 - 2026-10-14：阶段 2 合入 `master`，开发者授权。
-  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `a6b7a7c9a`（集成分支 `97feb871a`，已含 w00017 合入后的 `master`）；主工作区 `merge --ff-only` 快进过去。
-  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支相同；全量 `test` 在 `97feb871a` 上由主 Agent 复跑：380 过、0 失败。
+  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `8423c09ed`（集成分支 `da076217c`，已含 w00017 合入后的 `master`）；主工作区 `merge --ff-only` 快进过去。
+  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支相同；全量 `test` 在 `da076217c` 上由主 Agent 复跑：380 过、0 失败。
   - 主工作区 `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建、预热完成。
   - 临时 worktree 与审查 worktree `.worktree/w00022-t15-review2` 已删除。没有 push。
-  - 主 Agent 接受 `2243f6953` 的取舍：左栏收起后分隔线禁用，只能用顶栏的“展开左栏”展开。
+  - 主 Agent 接受 `8794881ad` 的取舍：左栏收起后分隔线禁用，只能用顶栏的“展开左栏”展开。

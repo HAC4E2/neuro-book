@@ -1,4 +1,4 @@
-# w00022/t14 实现审查报告（23402f959..c5177bc56，只读）
+# w00022/t14 实现审查报告（16da3544b..6b80522d7，只读）
 
 ## 结论
 
@@ -25,7 +25,7 @@
 
 **结束时的状态**：
 
-- 审查 worktree `.worktree/w00022-t14-review`：`git status --short` 为空，HEAD 仍是 `3be97d883`；前端是构建到 `/dev/shm` 的，没有写进 worktree。
+- 审查 worktree `.worktree/w00022-t14-review`：`git status --short` 为空，HEAD 仍是 `9fc8cf009`；前端是构建到 `/dev/shm` 的，没有写进 worktree。
 - 进程：实验起的假开发脚本、监管进程、面板（端口 4480 到 4485）、Chrome 都已结束，4480 到 4489 没有监听；没有碰常驻面板 `nbdev-panel-neuro-book.service`（4400、4401），没有调 herdr，真实 `gh` 一次也没跑。
 - 临时目录：`/dev/shm/review-t14-impl/`（临时仓库、前端产物、Chrome 用户数据）已删；实验脚本与输出留在审查目录的 `scripts/`、`logs/`；截图 13 张在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t14-runs-and-github/shots/review-*.png`。
 - 真实仓库上只做了只读的事（读文件；对 15 个真实 checkout 跑面板 checkout 页那两条只读 Git 命令量耗时），没有起开发服务、没有建 worktree、没有跑 nbdev 的写命令。

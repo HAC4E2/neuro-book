@@ -50,7 +50,7 @@ updated: 2026-10-13
 - 审查报的 EPIPE 在本机没能用旧代码直接复现；修好的依据是并发 2000 次 `git rev-parse` 的对照（改前 2 次未处理的 EPIPE，改后 0 次）。
 - nb-ui 里 `backdrop-filter` 的写法顺序没改（不带前缀的写在前面，Lightning CSS 会丢掉它）；主应用经 Nuxt 用 Vite 7、缺省 esbuild 压缩，不受影响。
 
-- 2026-10-13 开发者授权后，集成分支 `c896a742b` 本地合入 `master`（合并提交 `8b44f60ca`，没有 PR、没有 push master）。合并提交上复跑：包测试 199 个（两条 L4 在 `c896a742b` 上跑过，包内容与它相同，这次跳过以免与 t11 的命名会话冲突）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
+- 2026-10-13 开发者授权后，集成分支 `c896a742b` 本地合入 `master`（合并提交 `9df2f7d82`，没有 PR、没有 push master）。合并提交上复跑：包测试 199 个（两条 L4 在 `c896a742b` 上跑过，包内容与它相同，这次跳过以免与 t11 的命名会话冲突）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
 
 ## 下一步
 
