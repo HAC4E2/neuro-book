@@ -1,0 +1,93 @@
+# t15 阶段 4 第 3 批（会话页重新设计）实现审查
+
+- 审查对象：`git diff 71d649210..6628fc7e6`（5 个提交，`packages/dev-panel/`），只读审查。
+- 对照：`plan.md` 的“第 3 批”与“实施进度”第 3 批、终稿第 2、11、16 条，阶段 1 的 1.1、1.2、1.5、1.8；`docs/panel.md`、`docs/cli.md`、`docs/herdr.md`；零件同名 `.md`；验收证据 `accept/phase4/batch3/`（`final/`、`regress/`）。
+- 运行过的：在集成分支 worktree 上 `bun test --isolate tests/web-sessions-list.test.ts tests/session-titles.test.ts`（5 过）与 `tests/panel-terminal.test.ts -t "非 Agent|D2"`（3 过）；`/dev/shm` 里造假会话文件与假数据跑了 `session-titles.ts`、`sessions-list.ts` 的实验脚本（已删）。没有起面板、没有调 herdr。
+- 没问题的部分（核过，不再列）：接管闸门对 `null`、空串、伪造会话键都回 `not_allowed` 且不关连接、不写审计；观看与 `/api/panes/:pane/history` 不写审计；`input`、`key`、`resize` 帧只在接管中收；白名单只多了只读的 `pane.read`（`tests/delivery.test.ts` 钉住）；“本仓库”的判定是按 `root` 加 `/` 的前缀比，目录前缀相似（`repo` 与 `repo2`）不会误判，路径不做 realpath，符号链接只会判成“不在本仓库”（偏保守）；`/api/panes/*` 在登录检查之后；`Ctrl+]` 只在接管中截下、`keydown` 才发 `release`、不进 `onData`；草稿按 pane、`resetKey`、按 `paneId + terminalId` 建连接、登录失效重建、后台标签页建连这些宿主逻辑没有改动；自动选中只在桌面、什么都没选、会话与通知都读到之后才 `replace`，不会抢已选，也不会盖掉 `?view=notify`。
+
+## 发现
+
+### 1. 重要：观看时字号只按宽度算，框高固定之后终端下半屏被裁，最新的几行默认看不到
+
+- 位置：`packages/dev-panel/src/web/parts/TerminalView.vue:49`（`watchFontSize`）、`:226`（`frameBox`：`min-h-64 flex-1 overflow-auto`）。
+- 场景：改版前观看时框高随行数、整页滚动，整屏都能看到；现在框高由铺满布局定死，字号却只按 `clientWidth` 与列数缩放，pane 的行数乘行高超过框高时，下面的行落在框外、要在框里往下滚才看得到，而框的滚动位置停在顶上。herdr 里左右分开的 pane（窄而高，例如 90×45）在 1440×900 下就会这样：字号按宽度取到 13，45 行约 700px，框只有约 460px。看 Claude 时被裁掉的正是输入框与状态行，看开发服务日志时被裁掉的是最新输出。
+- 依据：实测（截图）。`final/b3-1440-watch.png`、`final/b3-1000-watch.png` 的终端框右侧是原生竖向滚动条，滑块约占轨道七成；`final/b3-1440-pane-history.png` 里 cat 的 pane 回滚 361 行、视口 40 行，框里只显示到第 377 行，后面二十多行在框下方。验收脚本没有检查“终端最后一行在视口内”。
+- 建议：观看字号取宽、高两个方向能放下的较小值（高度用 `frameBox` 的内容高除以行数与行高比），放不下 5px 时再让框滚动并把滚动位置贴底；验收加一条“观看时终端最后一行在视口内”，用窄而高的假 pane。
+
+### 2. 重要：详情列高度不够时终端框溢出，后面的输入区、说明行盖在终端最后几行上
+
+- 位置：`packages/dev-panel/src/web/parts/TerminalView.vue:206`（根 `section` 是 `min-h-0 flex-1`，没有 `overflow-hidden`）、`:226`（`frameBox` 的 `min-h-64`）；`packages/dev-panel/src/web/parts/SessionConsole.vue:72`（贴底输入区 `shrink-0`）；`packages/dev-panel/src/web/pages/SessionsPage.vue:298`、`:314`（“更早的输出”面板与只读说明行）。
+- 场景：`TerminalView` 的根允许被压到比内容矮，`frameBox` 却至少 16rem，于是框溢出到根的盒子外面，后面的兄弟元素按根的盒子排、画在框上面。非 Agent 的 pane 打开“更早的输出”（最高 45%）时已经发生；Agent 会话在视口高约 700px 以下（详情头约 66px、模式条约 44px、框 256px、输入区约 130px 到 150px）时，贴底输入区会盖住终端底部，常见的笔记本浏览器视口就在这个高度。接管时 `proposeSize` 量的是溢出后的框高，算出来的行数比看得见的多，最底下几行（光标所在的输入行）在输入区后面。
+- 依据：实测（截图）+ 从代码推断。`final/b3-1440-pane-history.png` 底部放大后，“只读观看不写审计。要在这一格里操作，回 herdr。”压在第 377 行上，两行文字重叠；Agent 会话在矮视口下的遮挡从布局推断，验收只在 900 与 800 高下截图。
+- 建议：`TerminalView` 根加 `overflow-hidden`、`frameBox` 去掉 `min-h-64`，最小高度放到详情列上并让详情列在放不下时自己竖向滚动（这样量列数量的就是看得见的框）；验收补一档矮视口（例如 1366×650）的观看、接管与“更早的输出”截图。
+
+### 3. 重要：视口跨过 768px 时整块详情重挂，草稿丢失，接管中终端变空白
+
+- 位置：`packages/dev-panel/src/web/pages/SessionsPage.vue:202`（`shell` 在 `PageShell` 与 `"div"` 之间切换）、`:208`（`<component :is="shell.is">` 包着整个列表与详情）；`packages/dev-panel/src/web/parts/SessionConsole.vue:32`（草稿是零件自己的 `ref`）；`packages/dev-panel/src/web/host/terminal-socket.ts:52`（只在观看时补发 `resync`）。
+- 场景：选中了会话时 `phoneDetail` 随 `tier === "phone"`（视口窄于 768px）变化，`component :is` 换了类型，下面的 `SessionConsole`、`TerminalView` 全部卸载重建。桌面上把浏览器窗口拖窄或贴半屏（1366 宽屏幕贴半屏约 683px）再拉回来：输入框里的草稿清空，违背终稿第 2 条“草稿按 pane 记、切到别的 pane 才清空”；接管中跨过断点时新挂的 xterm 不会补整屏（接管中不发 `resync`），在下一次输出之前是空白，焦点也不在终端里。原来模板里“接管中不换成文字视图（桌面窗口缩窄时）”那条注释要保护的正是这种情况，现在被外层的重挂绕过了。终端连接本身在宿主里，不会断。
+- 依据：从代码推断（Vue 对不同类型的 vnode 整棵替换）；验收的 390 是从头以手机尺寸打开，没有覆盖“同一个页面跨过断点”。
+- 建议：外层保持同一个组件，手机详情不要页头改成 `PageShell` 的一个属性或在它里面用 `v-if` 收起页头，让列表与详情的子树不随断点替换；补一条浏览器验收：桌面打草稿、接管中，把视口从 1000 拉到 700 再拉回，草稿还在、终端有画面。
+
+### 4. 重要：连接打开时记下的会话键不再更新，shell 里后来起的 Agent 被接管时审计的 `sessionKey` 是 null
+
+- 位置：`packages/dev-panel/src/server/terminal-hub.ts:157`（`conn.sessionKey`、`conn.agent` 只在 `open` 时赋值）、`:338`（接管意图行的 `target.sessionKey`）、`:483`（释放行）；`packages/dev-panel/src/web/host/session-console.ts:69`（连接按 `paneId + terminalId` 建，换会话不重建）。
+- 场景：D2 之后非 Agent 的 pane 也能开连接，`conn.sessionKey` 是 null。开发者在面板里看着一个 shell pane，在里面起了 `claude`：herdr 认出 Agent 与会话，页面换成 Agent 的详情，但连接不重建；点“接管键盘”带上新的会话键，闸门用的是 pane 的当前值，放行；写进审计的意图行与释放行却用 `conn.sessionKey`，是 null，状态消息里的 `agent` 也还是 null。审计是“谁接管了哪个会话”的记录，这一行认不出会话。同一格从会话 A 换到 B 再接管时记成 A，是改版前就有的同一个问题（阶段 1 回归的 1.2 也显示接管跨换会话继续），这次放开观看后多了 null 这种情形。
+- 依据：从代码推断。`grep` 确认 `conn.sessionKey` 只有 `open` 一处赋值；没有在真实运行时复现（需要让假 herdr 把一格从 shell 改成 Agent）。
+- 建议：接管闸门通过之后用核对过的 pane 刷新 `conn.sessionKey = keyOf(pane)`、`conn.agent = pane.agent`，再写意图行；`panel-terminal` 补一条：shell pane 开连接，假 herdr 把这格改成 Claude，带新会话键接管，审计的 `target.sessionKey` 等于新键。
+
+### 5. 重要：herdr 认出 Agent 但没有会话键的 pane 在左列表里消失，前后端对它的分类也不一致
+
+- 位置：`packages/dev-panel/src/web/host/sessions-list.ts:57`（`agent === null || key === null` 时跳过，不进 Agent 会话）、`:84`（“其它 pane”只收 `agent === null`）；`packages/dev-panel/src/server/delivery.ts:226`（`readPaneHistory` 对 `agent !== null` 回 `history_unavailable`）；`packages/dev-panel/src/web/pages/SessionsPage.vue:59`、`:310`（页面按会话键判断，没有会话键就当只读 pane，`scrollback > 0` 时给“更早的输出”）。
+- 场景：`agent` 有值、`session` 为 null（Agent 刚启动还没报会话，或没接 herdr 集成的 Agent）。这种 pane 既不在“Agent 会话”也不在“其它 pane”，不在本仓库时也不进“不在本仓库的会话”，列表里完全看不到；改版前的会话页把它列在“本仓库里的其它 Agent pane”里。服务端允许观看它（`open` 只看仓库），从“在跑”页的 pane 号或手写 `?pane=` 进来时页面显示只读详情，普通回滚的 Agent（例如 Codex）`scrollback > 0` 会出现“更早的输出”按钮，点了必定 409。决定点 20 与 `docs/panel.md` 写的是“观看给本仓库 checkout 里的所有 pane”。
+- 依据：实测（实验脚本给 `sessionRows` 两格 `agent: "claude"`、`"codex"`、`session: null` 的本仓库 pane，结果 `agents`、`panes`、`elsewhere` 都是 0）；按钮与 409 从代码推断。出现频率没有实测。
+- 建议：前后端统一按会话键分：没有会话键的都进“其它 pane”（标题可带上 Agent 名，例如“codex（没有报会话）”）；“更早的输出”要么服务端也按会话键判断（`keyOf(pane) === null` 且有回滚就用 `pane.read`），要么页面在 `agent !== null` 时不给按钮，二选一并写进 `docs/panel.md`；`web-sessions-list` 补这一格的用例。
+
+### 6. 重要：“xterm 回滚 5000 行，能往回翻开始观看之后的输出”没有验证，按 herdr 的帧格式多半攒不下回滚
+
+- 位置：`packages/dev-panel/src/web/parts/TerminalView.vue:36`（`SCROLLBACK`、`SLIDER_WIDTH`）、`:60`（`onFrame` 原样 `term.write`）；`packages/dev-panel/docs/panel.md` 会话页一行与 `TerminalView.md` 的“回滚与滚动条”；`docs/herdr.md:140`（帧的格式）。
+- 场景：xterm 只有在内容从屏幕底部换行滚上去时才进回滚。herdr 的观察流按自己的视口出帧：整屏帧以 `\e[2J\e[1;1H` 重画，之后是增量（`docs/herdr.md` 终端流一节）；xterm 6 的 `ED2` 缺省只清视口、不推进回滚（`scrollOnEraseInDisplay` 缺省 false，核过 `node_modules/@xterm/xterm` 6.0.0 的类型声明与缺省值），按光标定位写的增量也不会滚屏。若 herdr 的增量不用换行滚屏，Claude 会话的“往回翻”实际上是空的。决定点 23 定“这一批只靠终端回滚”，前提就是这一条；同时观看字号与接管尺寸都先减掉了 14px 滑块，没有回滚时这 14px 白白少掉一两列。
+- 依据：从代码推断，未验证。实施记录与 `final/results.txt` 里都没有“往回翻看到了更早的行”的检查，验收用的假终端也不代表真实 herdr 的增量格式。
+- 建议：在真实 herdr 的 pane 上观看一段持续输出（超过一屏），在页面里读 `term.buffer.active.baseY` 或往上滚，确认有没有回滚；攒不下时把事实交给开发者重新定决定点 23（例如 Claude 的“往回翻”改读会话文件，或这一批不承诺），并改掉 `docs/panel.md`、`TerminalView.md` 里的说法；滑块的扣减改成只在 xterm 真有回滚时生效。
+
+### 7. 建议：Claude 会话文件末尾一段里只有一条大记录时标题读成 null，列表标题会来回跳
+
+- 位置：`packages/dev-panel/src/server/session-titles.ts:18`、`:19`（注释“末尾一段里一定有最新的”与 `CLAUDE_TAIL_BYTES`）、`:180`（Claude 分支把这次读的结果按大小与修改时间缓存，读不到就缓存 null）。
+- 场景：Claude Code 的一行记录可以超过 256KB（读截图时的 base64 图片、大文件的工具结果，这个仓库的验收经常读截图）。这样的行写进去之后，末尾 256KB 里没有任何标题行，`titleOf` 回 null，列表与详情头从“会话页重做”退回租约的 Task 或短号，直到下一次写标题行又变回来。读不出时的降级本身是对的，问题是注释的断言不成立、标题会闪。
+- 依据：实测。`/dev/shm` 里造一份会话文件：先写一行 `ai-title`，读到“会话页重做”；再追加一行 300KB 的图片记录，同一个 `titleOf` 回 null。
+- 建议：按会话记住上一次读到的标题，末尾一段里没有标题行时沿用它（文件变短或换了才作废）；或者没找到时再往前读一段、设总上限。把注释改成实际的保证。
+
+### 8. 建议：找不到会话文件时没有负缓存，每次 `/api/sessions` 都重新扫目录
+
+- 位置：`packages/dev-panel/src/server/session-titles.ts:124`（`claudeFile`：`readdir(projects)` 后逐个项目目录 `stat`）、`:149`（`ompFile`：`readdir` 每个会话目录）；`packages/dev-panel/src/server/views.ts:330`、`:331`（每次请求对每格 pane 与每个会话各调一次）。
+- 场景：只缓存“找到了”的路径（`located`），找不到的每次重扫。面板以用户级服务运行，若它的环境里没有开发者在 shell 里设的 `CLAUDE_CONFIG_DIR`，或会话来自记录里早已删掉文件的会话，每个找不到的会话每次请求都扫一遍；`/api/sessions` 随 herdr 的状态推送重取，几个会话同时工作时一分钟几十次。
+- 依据：实测（tmpfs 上造 300 个 Claude 项目目录、omp 100 个目录各 200 个文件）：5 个找不到的 Claude id 每轮约 26ms，5 个找不到的 omp id 每轮约 50ms，三轮不变（没有负缓存）。单次不大，但随推送反复、随会话数线性增长。
+- 建议：记住未命中，给 30 到 60 秒的过期（新会话的文件建在已有的项目子目录里，只看 `projects/` 自身的修改时间判断不出来，所以用过期时间最简单）。
+
+### 9. 建议：omp 的会话值是绝对路径时不限在 omp 的会话目录里，也不查是不是普通文件
+
+- 位置：`packages/dev-panel/src/server/session-titles.ts:150`（`isAbsolute(value)` 时只要求以 `.jsonl` 结尾）、`:77` 起（`cached` 先 `stat`、不看 `isFile()`）、`:198` 起（omp 分支 `readHead` 读前 4KB）。
+- 场景：会话值来自 herdr，herdr 的 socket 没有鉴权，本机任何进程都能给一格报会话值，应当按不可信输入处理。Claude 分支用正则挡住了 `..` 与 `/`，并要求 `isFile()`；omp 分支对绝对路径照单全收：会话目录之外、带 `..` 的路径都会被打开并读第一行；值若指向一个以 `.jsonl` 结尾的 FIFO，`open` 会一直等写端，`/api/sessions` 的这次请求就挂住，并占着一个文件线程。能读出的只有第一行里 `type: "title"` 的 `title`，泄露面很小，主要是挂住的风险与两个分支的边界不一致。
+- 依据：实测：会话目录之外的 `/dev/shm/.../elsewhere.jsonl` 与 `.../sessions/../../../../elsewhere.jsonl` 都读出了标题；FIFO 挂住从代码推断，没有试。
+- 建议：`resolve` 之后要求在 `ompRoot` 下，`stat` 之后要求 `isFile()`（放进 `cached` 让三个分支共用）；`session-titles.test.ts` 补 omp 的越界路径用例（现有的越界用例只测了 Claude）。
+
+### 10. 建议：`cached` 把读取回调里的任何异常都当成“读不出”，编程错误也被吞成 null
+
+- 位置：`packages/dev-panel/src/server/session-titles.ts:88` 到 `:97`（`try { await read(...) } catch { report; return null }`），`:70` 起的 `report` 同一路径只记一次。
+- 场景：`parseLine` 特意只吞 `SyntaxError`，但外层 `cached` 的 `catch` 不分类型：`claudeTitleFromTail` 或 Codex 索引的解析里出现 `TypeError` 之类的编程错误，也会变成“这个会话没有标题”，面板日志里每个路径只留一行，之后同一路径再出任何错误都不再记。任务说明要求“读不到或格式不对时为 null，不吞掉真正的编程错误”。
+- 依据：从代码推断。
+- 建议：`catch` 里只处理带 `systemErrorCode` 的文件系统错误（`stat` 那段同样收窄），其它异常抛出，交给 `/api/sessions` 的统一错误处理；`report` 按“路径加错误码”去重，而不是只按路径。
+
+### 11. 建议：合同、注释与测试里几处与实现对不上
+
+- `packages/dev-panel/docs/panel.md:179`：写“文字与按键回 409 `not_found`，都不调 herdr、不写审计”。实际错误码是 `session_changed`（`details.reason` 才是 `not_found`，见 `src/server/notifier.ts:438` 的映射），并且先调了只读的 `agent.get`（`src/server/delivery.ts:70`，经 `session-io.ts` 的 `checkDeliverable`、`checkSession`）。实施记录里同样写了“都不调 herdr”。没有写操作、没有审计行这两点是对的。从代码推断。
+- 同一映射让 `GET /api/panes/:pane/history` 对不存在的 pane 回 409 `session_changed`，这个接口没有会话，`docs/panel.md:73` 也没列这个码；建议给 pane 级接口一个自己的码（例如沿用 `not_found` 回 404），或在接口表里写明。从代码推断。
+- `packages/dev-panel/docs/cli.md:166`：`history_unavailable` 的说明仍是“只有 omp 能读更早的输出，t12”，现在还包括 Agent 的 pane 与回滚为 0 的非 Agent pane。
+- `packages/dev-panel/src/server/terminal-hub.ts:139`：`open` 的注释仍写“pane 是本仓库里 herdr 认得出 Agent 的 pane”，D2 之后只要求在本仓库。
+- `packages/dev-panel/tests/panel-terminal.test.ts:488`：非 Agent 的 pane 发文字与按键的用例只断言没有 `result` 行；合同写的是“不写审计”，意图行也不该有，断言改成整份审计为空更贴合（现在的实现能过）。
+- 计划“服务端要改什么”第 6 条写“无主的运行”“会话派出的运行”里的 pane 号都链到会话页；实现只做了无主的运行（`src/web/pages/RunsPage.vue:38` 的会话运行没有 `show-pane`），实施记录的“与线框稿的差别”里没写这处收窄，补一句或补上。
+
+## 结论
+
+- 阻断 0 条，重要 6 条（第 1 到 6 条），建议 5 条（第 7 到 11 条）。
+- 安全与权限边界成立：非 Agent 的 pane 在接管、发文字、按键、WebSocket 输入帧上都被拒，被拒时不调 herdr 的写方法、不写审计；观看与读历史不写审计；白名单只多了只读的 `pane.read`。第 4 条是审计记录的准确性问题，不是越权。
+- 不建议按现状合入：第 1、2 条让铺满之后的终端在常见尺寸下看不到最新的几行或被输入区盖住，正是这一批要解决的“终端与输入一屏可见”；第 3 条破坏了终稿第 2 条的草稿保留；第 4、5 条是服务端与列表在 D2 放开之后漏掉的情形；第 6 条要先实测、必要时交开发者重新定决定点 23。修完第 1 到 5 条并补对应验收（窄而高的 pane、矮视口、跨 768px 断点、shell 变 Agent 后接管），第 6 条有了实测结论，再合入；第 7 到 11 条可以同批顺手改，也可以记入后续清单。
