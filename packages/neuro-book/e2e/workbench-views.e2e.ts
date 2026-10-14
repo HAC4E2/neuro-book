@@ -173,6 +173,56 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(activitybar).toHaveAttribute("data-shell-join", "start");
     });
 
+    test("标题动作与滚动条随鼠标显示：鼠标在外时动作透明、没有滑块、内容不让宽；移入、Tab 进入或菜单开着时动作可见；拖滑块按比例滚动（验收 9）", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        const frame = page.locator(`[data-view-frame="${B}"]`);
+        const scroller = frame.locator("[data-view-scroller]");
+        const bar = frame.locator("[data-overlay-scrollbar]");
+        const actions = page.locator('[data-tool-part="sidebar"] [data-hover-actions]');
+        await expect(scroller).toBeVisible();
+
+        // 鼠标在侧栏之外、焦点不在侧栏里。
+        await page.mouse.move(1000, 400);
+        await page.locator("body").evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await expect(actions).toHaveCSS("opacity", "0");
+        await expect(bar).not.toHaveAttribute("data-shown");
+        expect(await scroller.evaluate((element: HTMLElement) => element.offsetWidth - element.clientWidth)).toBe(0);
+        expect(await scroller.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+        await frame.hover();
+        await expect(actions).toHaveCSS("opacity", "1");
+        await expect(bar).toHaveAttribute("data-shown", "");
+
+        // 鼠标移开，焦点 Tab 到动作上：仍可见。
+        await page.mouse.move(1000, 400);
+        await actions.locator(`[data-move-view="${B}"]`).focus();
+        await expect(actions).toHaveCSS("opacity", "1");
+        // “移动到”的菜单开着、鼠标在菜单上：不消失。
+        await actions.locator(`[data-move-view="${B}"]`).click();
+        const menu = page.getByRole("menu");
+        await expect(menu).toBeVisible();
+        await menu.getByRole("menuitem").first().hover();
+        await expect(actions).toHaveCSS("opacity", "1");
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+
+        // 拖滑块：滑块走了多少比例，内容就滚多少比例。
+        await frame.hover();
+        const thumb = bar.locator("[data-overlay-scrollbar-thumb]");
+        const box = await thumb.boundingBox();
+        if (box === null) throw new Error("没有滑块");
+        expect(await scroller.evaluate((element) => element.scrollTop)).toBe(0);
+        await page.mouse.move(box.x + box.width / 2, box.y + 4);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2, box.y + 4 + 30, {steps: 4});
+        await page.mouse.up();
+        const moved = await scroller.evaluate((element) => ({scrollTop: element.scrollTop, range: element.scrollHeight - element.clientHeight, travel: element.clientHeight}));
+        const track = await bar.evaluate((element) => element.getBoundingClientRect().height);
+        const expected = (30 / (track - box.height)) * moved.range;
+        expect(Math.abs(moved.scrollTop - expected)).toBeLessThanOrEqual(2);
+    });
+
     test("全链路：视图按声明出现在默认位置，第一次有效可见才加载，代际为 1", async ({page}) => {
         await open(page);
         await expect(sample(page, A)).toBeVisible();

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 面板的外观（同名 .md）：标题头与框架按钮、内容区；按钮只发 `action`，命令由宿主执行。 */
 import {IconButton} from "@notnotype/nb-ui/components";
+import "./hover-actions.css";
 
 export interface PanelFrameAction {
     readonly id: string;
@@ -31,7 +32,7 @@ defineSlots<{
 </script>
 
 <template>
-    <section class="workbench-panel-surface" :aria-label="title" :data-panel-collapsed="collapsed ? 'true' : 'false'">
+    <section class="workbench-panel-surface" :aria-label="title" :data-panel-collapsed="collapsed ? 'true' : 'false'" data-hover-actions-scope>
         <header class="workbench-panel-surface__head">
             <!--
                 导航区常驻，占着标题行里框架按钮之外的部分：它是“拖到 Switcher”的落点（外壳三输出 20），面板里没有容器、

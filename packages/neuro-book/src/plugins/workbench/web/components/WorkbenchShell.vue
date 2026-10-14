@@ -505,7 +505,7 @@ const dropFeedback = computed(() => {
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。
                     -->
-                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || hasViewActions(singleViewOf(selectedOf('panel')!)!))" class="workbench-shell__panel-tools" data-no-drag>
+                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || hasViewActions(singleViewOf(selectedOf('panel')!)!))" class="workbench-shell__panel-tools" data-no-drag data-hover-actions>
                         <TitleActions v-if="hasViewActions(singleViewOf(selectedOf('panel')!)!)" :model="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" :identity="viewActionsIdentity(singleViewOf(selectedOf('panel')!)!)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(singleViewOf(selectedOf('panel')!)!, key)" />
                         <WorkbenchMoveViewMenu
                             v-if="moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
