@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workspace.folder-kinds
 owners:
   - workspace-files
@@ -121,7 +121,19 @@ owners:
 8. 把未列入项加入清单、移除缺失条目，磁盘不变；把带展示名子树的目录移到另一个内容文件夹，展示名随之过去；两个窗口交错改名同一内容树里的项，结束后清单与磁盘一致。
 9. 清单只读或不合法时经文件服务新建子项：文件已建，清单原字节不变，结果指明这份清单未更新；来回转换一个文件夹，原有清单字节不变。
 
+## 实现合同
+
+- 公开入口：清单解析与编辑在 `files/backend/manifests.ts`、`files/backend/manifest-edit.ts`；名字排序 `files/shared/names.ts` 的排序比较器（经 `files/shared/contracts.ts` 导出目录项 `EntrySchema` 的 `listed`/`body`/`leaf`/`role` 字段）；渲染贡献点随 [`workbench.files-explorer`](../workbench/files-explorer.md) 的后缀认领机制。
+- owner 与依赖方向：`workspace-files` 拥有类型识别、内容文件夹清单与渲染贡献点；依赖 [`workspace.files`](files.md) 的操作管道（经同一次操作提交文件与清单）；活页夹的清单维护、编号分配与渲染归属尚不存在的“剧情插件”，这是声明的未来依赖方向，不是当前实现的缺口。
+- 不变量：
+  - 一个内容文件夹只在根上放一份清单，子目录不再有自己的清单（`files.test.ts`）；
+  - 清单不合法或读不出时该文件夹退回普通文件夹显示，不改写清单（`operations.test.ts` 的“清单失败”系列）；
+  - 经文件服务的子项操作与清单更新在同一次操作内结算，任一步失败时清单原字节不变、结果标明哪份清单未更新（`operations.test.ts`、`batch.test.ts`）；
+  - 跨两个内容树的移动由整根跨进程操作锁覆盖，交错改名场景下清单与磁盘最终一致（`operations.test.ts` 的“清单失败的失败码与交错改名”）。
+
 ## 证据
 
-- 批准依据：名字排序里的中文数字、叶子标记与移动到指定位置来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
-- 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 2 节。名字排序与正文入口：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。清单编辑、操作锁与转换时保留已有清单：同一清单 2026-10-09 的 t69 条目（按推荐先做，待开发者追认）。
+- 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 2 节；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（名字排序与正文入口）与 t69 条目（清单编辑、操作锁与转换时保留已有清单）；2026-10-14 [t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)（名字排序中文数字、叶子标记、移动到指定位置）。
+- 实现入口：[`plugins/files/backend/folder-kinds.ts`](../../../packages/neuro-book/src/plugins/files/backend/folder-kinds.ts)、[`plugins/files/backend/manifests.ts`](../../../packages/neuro-book/src/plugins/files/backend/manifests.ts)、[`plugins/files/backend/manifest-edit.ts`](../../../packages/neuro-book/src/plugins/files/backend/manifest-edit.ts)、[`plugins/files/shared/names.ts`](../../../packages/neuro-book/src/plugins/files/shared/names.ts)
+- 合同测试：[`files/files.test.ts`](../../../packages/neuro-book/src/plugins/files/files.test.ts)、[`files/operations.test.ts`](../../../packages/neuro-book/src/plugins/files/operations.test.ts)、[`files/batch.test.ts`](../../../packages/neuro-book/src/plugins/files/batch.test.ts)、[`files/shared/names.test.ts`](../../../packages/neuro-book/src/plugins/files/shared/names.test.ts)
+- Smoke：不适用——本能力没有独立的 e2e 入口，经 [`workbench.files-explorer`](../workbench/files-explorer.md) 的 [`e2e/files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts) 间接覆盖（内容文件夹展示与拖动排序场景）
