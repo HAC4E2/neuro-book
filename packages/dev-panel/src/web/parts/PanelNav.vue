@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
 import {taskLabel, workLabel} from "../host/format.js";
 import {entryActive, NAV_GROUPS, NAV_RECENT_DAYS, splitNavWorks, type NavCount} from "../host/nav.js";
 import {isPlainClick, taskHref, workHref} from "../host/routes.js";
@@ -14,34 +14,39 @@ const props = withDefaults(defineProps<{
     counts?: Partial<Record<NavCount, number>>;
     writable: {ok: boolean; code: string | null} | null;
     now?: Date;
-}>(), {counts: () => ({}), now: undefined});
+    inset?: boolean;
+}>(), {counts: () => ({}), now: undefined, inset: true});
 const emit = defineEmits<{navigate: [href: string]; toggle: [workId: string, open: boolean]}>();
+/** 桌面左栏与抽屉里各有一份导航，“工作”标题的 id 要各自唯一。 */
+const worksHeadingId = `nbdev-nav-works-${useId()}`;
 
 type Row = {key: string; kind: "work" | "task"; workId: string; href: string; number: string; title: string; current: boolean; ancestor: boolean; open: boolean};
+/** 树里的一个 Work 与它展开后的 Task（读屏器按 tree、treeitem、group 读出层级）。 */
+type Branch = {work: Row; tasks: Row[]};
 
 const split = computed(() => splitNavWorks(props.works ?? [], props.now ?? new Date()));
-const moreOpenLocal = ref(false);
+const moreOpen = ref(false);
 const currentInMore = computed(() => split.value.more.some((work) => work.workId === props.current.workId));
-const moreOpen = computed(() => moreOpenLocal.value || currentInMore.value);
+// 当前 Work 在“更多”里时打开“更多”一次；之后开发者照样能收起它。
+watch(currentInMore, (inMore) => {
+    if (inMore) moreOpen.value = true;
+}, {immediate: true});
 const isOpen = (workId: string) => props.expanded[workId] ?? workId === props.current.workId;
 
-function rowsOf(works: readonly OverviewWork[]): Row[] {
-    const rows: Row[] = [];
-    for (const work of works) {
+function branchesOf(works: readonly OverviewWork[]): Branch[] {
+    return works.map((work) => {
         const href = workHref(work.workId);
         const open = isOpen(work.workId);
-        rows.push({key: `w:${work.workId}`, kind: "work", workId: work.workId, href, number: workLabel(work.workId), title: work.title ?? work.workId, current: props.current.path === href, ancestor: props.current.path !== href && props.current.workId === work.workId, open});
-        if (!open) continue;
-        for (const task of work.tasks) {
+        const tasks = open ? work.tasks.map((task): Row => {
             const taskPath = taskHref(work.workId, task.taskId);
-            rows.push({key: `t:${work.workId}/${task.taskId}`, kind: "task", workId: work.workId, href: taskPath, number: taskLabel(task.taskId), title: task.title ?? task.taskId, current: props.current.path === taskPath, ancestor: props.current.path !== taskPath && props.current.workId === work.workId && props.current.taskId === task.taskId, open: false});
-        }
-    }
-    return rows;
+            return {key: `t:${work.workId}/${task.taskId}`, kind: "task", workId: work.workId, href: taskPath, number: taskLabel(task.taskId), title: task.title ?? task.taskId, current: props.current.path === taskPath, ancestor: props.current.path !== taskPath && props.current.workId === work.workId && props.current.taskId === task.taskId, open: false};
+        }) : [];
+        return {work: {key: `w:${work.workId}`, kind: "work", workId: work.workId, href, number: workLabel(work.workId), title: work.title ?? work.workId, current: props.current.path === href, ancestor: props.current.path !== href && props.current.workId === work.workId, open}, tasks};
+    });
 }
-const shownRows = computed(() => rowsOf(split.value.shown));
-const moreRows = computed(() => (moreOpen.value ? rowsOf(split.value.more) : []));
-const allRows = computed(() => [...shownRows.value, ...moreRows.value]);
+/** 活跃的 Work 在前，“更多”展开时其余的接在后面；方向键在整棵树里走。 */
+const branches = computed(() => [...branchesOf(split.value.shown), ...(moreOpen.value ? branchesOf(split.value.more) : [])]);
+const allRows = computed(() => branches.value.flatMap((branch) => [branch.work, ...branch.tasks]));
 
 function follow(event: MouseEvent, href: string): void {
     if (!isPlainClick(event)) return;
@@ -51,6 +56,8 @@ function follow(event: MouseEvent, href: string): void {
 
 // ---- Work 树的键盘：整棵树只有一个 Tab 停靠点，方向键在行之间走 ----
 const tree = ref<HTMLElement | null>(null);
+/** Work 树的滚动者（树外面那一层：“更多”按钮也在里面一起滚）。 */
+const scroller = ref<HTMLElement | null>(null);
 const focusKey = ref<string | null>(null);
 const rovingKey = computed(() => {
     const rows = allRows.value;
@@ -95,24 +102,41 @@ function measure(): void {
 }
 let observer: ResizeObserver | null = null;
 
-/** 把当前那一行滚进 Work 树的可视区：只调树自己的 scrollTop，不用 scrollIntoView（它会连带滚动外面裁切溢出的面板）。 */
-function revealCurrent(): void {
-    const box = tree.value;
+/**
+ * 把当前那一行滚进 Work 树的可视区：只调树自己的 scrollTop，不用 scrollIntoView（它会连带滚动外面裁切溢出的面板）。
+ * 回答找没找到那一行。
+ */
+function revealCurrent(): boolean {
+    const box = scroller.value;
     // 先找当前页那一行（Task 页上是 Task），没有再找所属的那一行（产物页上是它的 Task 或 Work）。
     const row = box?.querySelector<HTMLElement>("[aria-current='page']") ?? box?.querySelector<HTMLElement>("[data-ancestor='true']:not([data-row-key^='w:'])") ?? box?.querySelector<HTMLElement>("[data-ancestor='true']");
-    if (!box || !row) return;
+    if (!box || !row) return false;
     const outer = box.getBoundingClientRect();
     const inner = row.getBoundingClientRect();
     if (inner.top < outer.top) box.scrollTop -= outer.top - inner.top;
     else if (inner.bottom > outer.bottom) box.scrollTop += inner.bottom - outer.bottom;
+    return true;
 }
-watch(() => [props.current.path, allRows.value.length], () => {
+/**
+ * 只在当前页变了之后滚一次（行第一次出现时：数据刚到、所属 Work 刚展开）。每次推送都会换一份 `works`、行会重算，
+ * 若每次都滚，开发者往上翻树找别的 Work、或展开别的 Work 时会被拽回当前行。量截断不改滚动，随行重算。
+ */
+let revealedFor: string | null = null;
+function revealOnce(): void {
+    if (revealedFor === props.current.path) return;
+    if (revealCurrent()) revealedFor = props.current.path;
+}
+watch(() => props.current.path, () => {
+    revealedFor = null;
+    revealOnce();
+}, {flush: "post"});
+watch(allRows, () => {
     measure();
-    revealCurrent();
+    revealOnce();
 }, {flush: "post"});
 onMounted(() => {
     measure();
-    revealCurrent();
+    revealOnce();
     if (tree.value) {
         observer = new ResizeObserver(() => measure());
         observer.observe(tree.value);
@@ -123,7 +147,7 @@ onBeforeUnmount(() => observer?.disconnect());
 
 <template>
     <nav class="flex h-full min-h-0 flex-col" aria-label="面板导航">
-        <div class="flex shrink-0 flex-col gap-3 px-3 pt-3 pb-2">
+        <div class="flex shrink-0 flex-col gap-3 pt-3 pb-2" :class="inset ? 'px-3' : ''">
             <div class="flex min-h-7 items-center gap-1">
                 <a href="/" class="flex min-w-0 flex-1 items-center gap-2 px-2 font-semibold" @click="follow($event, '/')"><span class="i-lucide-layout-dashboard size-4" aria-hidden="true" />nbdev 面板</a>
                 <slot name="actions" />
@@ -144,29 +168,39 @@ onBeforeUnmount(() => observer?.disconnect());
                     </a>
                 </template>
             </section>
-            <h2 class="nbdev-nav-heading -mb-2">工作</h2>
+            <h2 :id="worksHeadingId" class="nbdev-nav-heading">工作</h2>
         </div>
-        <section ref="tree" class="nbdev-scroll-y min-h-0 flex-1 px-3 pb-3" aria-label="工作" @keydown="onTreeKey">
+        <div ref="scroller" class="nbdev-scroll-y min-h-0 flex-1 pb-3" :class="inset ? 'px-3' : ''">
             <p v-if="works === null" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">正在读取</p>
-            <p v-else-if="shownRows.length === 0" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">没有进行中或 {{ NAV_RECENT_DAYS }} 天内更新过的 Work</p>
-            <!-- 两块：活跃的 Work，然后是“更多”按钮与展开出来的其余 Work；行的画法一样，键盘在两块之间照样能走。 -->
-            <template v-for="(rows, block) in [shownRows, moreRows]" :key="block">
-                <button v-if="block === 1 && works !== null && split.more.length > 0" type="button" class="nbdev-nav-item nbdev-nav-more mt-1 w-full" :aria-expanded="moreOpen" @click="moreOpenLocal = !moreOpen">
-                    <span :class="moreOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5 shrink-0" aria-hidden="true" />
-                    <span class="min-w-0 truncate">更多 {{ split.more.length }} 个（完成、搁置或 {{ NAV_RECENT_DAYS }} 天没有更新）</span>
-                </button>
-                <div v-for="row in rows" :key="row.key" class="flex items-center" :class="row.kind === 'task' ? 'pl-5' : ''">
-                    <button v-if="row.kind === 'work'" type="button" tabindex="-1" class="nbdev-nav-toggle" :aria-expanded="row.open" :aria-label="`${row.open ? '收起' : '展开'} ${row.workId} 的 Task`" @click="emit('toggle', row.workId, !row.open)">
-                        <span :class="row.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" aria-hidden="true" />
-                    </button>
-                    <Tooltip :text="`${row.number} ${row.title}`" placement="right" :disabled="!truncated.has(row.key)">
-                        <a :href="row.href" class="nbdev-nav-item min-w-0 flex-1" :class="{'nbdev-nav-current': row.current, 'nbdev-nav-ancestor': row.ancestor}" :aria-current="row.current ? 'page' : undefined" :aria-expanded="row.kind === 'work' ? row.open : undefined" :data-ancestor="row.ancestor || undefined" :data-row-key="row.key" :tabindex="row.key === rovingKey ? 0 : -1" @focus="focusKey = row.key" @click="follow($event, row.href)">
-                            <span class="min-w-0 truncate" :data-label-key="row.key"><span style="color: var(--text-secondary)">{{ row.number }}</span> {{ row.title }}</span>
-                        </a>
-                    </Tooltip>
+            <p v-else-if="split.shown.length === 0" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">没有进行中或 {{ NAV_RECENT_DAYS }} 天内更新过的 Work</p>
+            <!-- WAI-ARIA 的导航树：tree 里是 Work（第 1 层）与展开后的 Task（第 2 层，在 group 里）；整棵树一个 Tab 停靠点，方向键在行间走。 -->
+            <div ref="tree" role="tree" :aria-labelledby="worksHeadingId" @keydown="onTreeKey">
+                <div v-for="branch in branches" :key="branch.work.key" role="none" class="flex flex-col">
+                    <div role="none" class="flex items-center">
+                        <!-- 展开按钮只给鼠标：读屏器从 treeitem 的 aria-expanded 知道展开状态，键盘用左右键。 -->
+                        <button type="button" tabindex="-1" aria-hidden="true" class="nbdev-nav-toggle" @click="emit('toggle', branch.work.workId, !branch.work.open)">
+                            <span :class="branch.work.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" aria-hidden="true" />
+                        </button>
+                        <Tooltip :text="`${branch.work.number} ${branch.work.title}`" placement="right" :disabled="!truncated.has(branch.work.key)">
+                            <a role="treeitem" aria-level="1" :aria-expanded="branch.work.open" :href="branch.work.href" class="nbdev-nav-item min-w-0 flex-1" :class="{'nbdev-nav-current': branch.work.current, 'nbdev-nav-ancestor': branch.work.ancestor}" :aria-current="branch.work.current ? 'page' : undefined" :data-ancestor="branch.work.ancestor || undefined" :data-row-key="branch.work.key" :tabindex="branch.work.key === rovingKey ? 0 : -1" @focus="focusKey = branch.work.key" @click="follow($event, branch.work.href)">
+                                <span class="min-w-0 truncate" :data-label-key="branch.work.key"><span style="color: var(--text-secondary)">{{ branch.work.number }}</span> {{ branch.work.title }}</span>
+                            </a>
+                        </Tooltip>
+                    </div>
+                    <div v-if="branch.tasks.length > 0" role="group" class="flex flex-col pl-5">
+                        <Tooltip v-for="row in branch.tasks" :key="row.key" :text="`${row.number} ${row.title}`" placement="right" :disabled="!truncated.has(row.key)">
+                            <a role="treeitem" aria-level="2" :href="row.href" class="nbdev-nav-item min-w-0" :class="{'nbdev-nav-current': row.current, 'nbdev-nav-ancestor': row.ancestor}" :aria-current="row.current ? 'page' : undefined" :data-ancestor="row.ancestor || undefined" :data-row-key="row.key" :tabindex="row.key === rovingKey ? 0 : -1" @focus="focusKey = row.key" @click="follow($event, row.href)">
+                                <span class="min-w-0 truncate" :data-label-key="row.key"><span style="color: var(--text-secondary)">{{ row.number }}</span> {{ row.title }}</span>
+                            </a>
+                        </Tooltip>
+                    </div>
                 </div>
-            </template>
-        </section>
+            </div>
+            <button v-if="works !== null && split.more.length > 0" type="button" class="nbdev-nav-item nbdev-nav-more mt-1 w-full" :aria-expanded="moreOpen" @click="moreOpen = !moreOpen">
+                <span :class="moreOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 truncate">{{ moreOpen ? "收起" : "更多" }} {{ split.more.length }} 个（完成、搁置或 {{ NAV_RECENT_DAYS }} 天没有更新）</span>
+            </button>
+        </div>
     </nav>
 </template>
 

@@ -74,6 +74,11 @@ const navCurrent = computed(() => {
     const taskId = one(route.params.taskId);
     return {path: route.path, workId: one(route.params.workId), taskId: taskId === "-" ? null : taskId};
 });
+// 进入一个 Work（路由的 workId 变了）时展开它，哪怕偏好里记的是收起：否则当前 Task 不在树里、高亮不了。
+// 只在 workId 变化时做，开发者在同一个 Work 里手动收起仍然有效。
+watch(() => navCurrent.value.workId, (workId) => {
+    if (workId && navOpen.value[workId] === false) toggleWork(workId, true);
+}, {immediate: true});
 const drawerOpen = ref(false);
 
 // ---- 左栏的宽度与收起（D4、决定点 7、8） ----
@@ -113,9 +118,22 @@ const panels = computed<SplitterPanelConfig[]>(() => [
     },
     {id: CONTENT, minSizePx: 360, sizing: "weight"},
 ]);
-function setNavCollapsed(value: boolean): void {
+/** 左栏宽 0（收起、窄屏）时整块 inert：宽 0 与裁切不会把条目移出 Tab 顺序和读屏树。 */
+const navHidden = computed(() => narrow.value || navCollapsed.value);
+const shellButton = (name: "collapse-nav" | "expand-nav" | "open-nav") => document.querySelector<HTMLElement>(`[data-shell="${name}"]`);
+/**
+ * 点“收起左栏”“展开左栏”之后（`fromButton`），按下去的那个按钮或者被 inert、或者被移除，焦点交给对面的那个按钮；
+ * 拖动分隔线收起时不挪，焦点已经在别处时也不挪。
+ */
+function setNavCollapsed(value: boolean, fromButton = false): void {
     navCollapsed.value = value;
     writeNavCollapsed(value);
+    if (!fromButton) return;
+    void nextTick(() => {
+        const active = document.activeElement;
+        const lost = !active || active === document.body || active.closest("aside") !== null;
+        if (lost) shellButton(value ? "expand-nav" : "collapse-nav")?.focus();
+    });
 }
 /** 拖完（或键盘调完）：收起状态要回写，否则下一次重新分配又展开；展开着时记下新宽度。 */
 function onNavGestureEnd(state: SplitterGestureState): void {
@@ -129,6 +147,34 @@ function onNavGestureEnd(state: SplitterGestureState): void {
 }
 watch(() => route.fullPath, () => {
     drawerOpen.value = false;
+});
+/**
+ * 用 Esc、遮罩或关闭按钮关掉抽屉（路由没变）：焦点回到“打开导航”。nb-ui 的 Drawer 只把焦点还给它自己登记的触发器，
+ * 这里的按钮在顶栏，没有登记，不补的话焦点掉到 body。抽屉有退场动画，等它把焦点交出来（落到 body）再接；
+ * 换了页的交给 focusPageHeading。
+ */
+let drawerReturn: ReturnType<typeof setTimeout> | null = null;
+watch(drawerOpen, (open, wasOpen) => {
+    if (drawerReturn) clearTimeout(drawerReturn);
+    drawerReturn = null;
+    if (open || !wasOpen) return;
+    const path = route.fullPath;
+    let tries = 0;
+    const settle = () => {
+        drawerReturn = null;
+        if (route.fullPath !== path || drawerOpen.value) return;
+        const active = document.activeElement;
+        if (!active || active === document.body) {
+            shellButton("open-nav")?.focus();
+            return;
+        }
+        // 焦点还在退场中的抽屉里：再等一会儿；已经在别处（开发者点了页面）就不管。
+        if (active.closest(".nbdev-drawer") && (tries += 1) < 40) drawerReturn = setTimeout(settle, 50);
+    };
+    drawerReturn = setTimeout(settle, 50);
+});
+onBeforeUnmount(() => {
+    if (drawerReturn) clearTimeout(drawerReturn);
 });
 
 const mainWritable = computed(() => meta.data.value?.mainWritable ?? null);
@@ -278,10 +324,10 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
     <a href="#nbdev-main" class="nbdev-skip" :inert="panelState.unauthorized || undefined" @click.prevent="skipToMain">跳到主内容</a>
     <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="narrow" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
-            <aside class="h-full overflow-hidden" style="background: var(--sidebar-surface, var(--bg-sidebar))">
+            <aside class="h-full overflow-hidden" style="background: var(--sidebar-surface, var(--bg-sidebar))" :inert="navHidden || undefined">
                 <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork">
                     <template #actions>
-                        <Tooltip text="收起左栏"><IconButton icon-class="i-lucide-panel-left-close" aria-label="收起左栏" @click="setNavCollapsed(true)" /></Tooltip>
+                        <Tooltip text="收起左栏"><IconButton icon-class="i-lucide-panel-left-close" aria-label="收起左栏" data-shell="collapse-nav" @click="setNavCollapsed(true, true)" /></Tooltip>
                     </template>
                 </PanelNav>
             </aside>
@@ -289,8 +335,8 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
         <template #[CONTENT_SLOT]>
             <div class="flex h-full min-h-0 min-w-0 flex-col">
                 <header class="flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2" style="background: var(--toolbar-surface, var(--bg-main)); border-color: var(--divider)">
-                    <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" @click="drawerOpen = true" />
-                    <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" @click="setNavCollapsed(false)" /></Tooltip>
+                    <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" data-shell="open-nav" @click="drawerOpen = true" />
+                    <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
                     <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
                         <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
@@ -329,8 +375,9 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
             </div>
         </template>
     </Splitter>
-    <Drawer v-model:open="drawerOpen" direction="left" title="导航">
-        <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork" />
+    <Drawer v-model:open="drawerOpen" direction="left" title="导航" content-class="nbdev-drawer">
+        <!-- 抽屉正文自己有左右内边距，导航不再叠一层。 -->
+        <PanelNav :inset="false" :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork" />
     </Drawer>
 </template>
 
