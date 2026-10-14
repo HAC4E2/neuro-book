@@ -580,3 +580,8 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
   - 建议 5（`a4413f392`）：重新登录时面板连不上，原因直接用原文，不再重复“连不上面板”的前缀。补了一条用例。
   - 文档同步：`docs/panel.md` 的会话页一段与外壳一段，`parts/SessionConsole.md` 的 `resetKey` 说明。
   - 验证：包的 `typecheck`、`build:web` 通过，`tests/web-*.test.ts` 6 个文件 37 过、0 失败，`git diff --check` 干净。按主 Agent 的要求，没有再跑全量测试，也没有再做浏览器验收。日志在 `.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/accept/gate-review-fixes.log`。
+- 2026-10-14：阶段 1 合入 `master`，开发者授权。
+  - 在临时 worktree 里 `merge --no-ff`，得到合并提交 `81ddd9b68`（集成分支 `a4413f392`）；主工作区 `merge --ff-only` 快进过去。
+  - 合并提交的 `packages/`、`scripts/` 与依赖清单和集成分支完全相同，全量 `test` 在集成分支的 `a4413f392` 上跑：374 过、0 失败。
+  - 依赖没有变，服务单元也没有变，只做了 `service:restart`；4400 回 200，前端构建与预热完成。
+  - 临时 worktree `.worktree/w00022-merge` 与审查 worktree `.worktree/w00022-t15-review` 已删除。没有 push。
