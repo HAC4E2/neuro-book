@@ -148,7 +148,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, E)).toBeVisible();
     });
 
-    test("侧栏拖到零后按住往外拉：松手前活动栏与侧栏就相连成一张卡片（外壳一输出 8、38）", async ({page}) => {
+    test("侧栏拖到零与从零拉出：松手前活动栏就随之独立或与侧栏相连（外壳一输出 8、38）", async ({page}) => {
         await open(page);
         const activitybar = page.locator("[data-shell-card=\"activitybar\"]");
         await expect(activitybar).toHaveAttribute("data-shell-join", "start");
@@ -159,6 +159,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await page.mouse.move(found.x + found.width / 2, y);
         await page.mouse.down();
         await page.mouse.move(0, y, {steps: 8});
+        await expect(activitybar).not.toHaveAttribute("data-shell-join");
         await page.mouse.up();
         await expect(activitybar).not.toHaveAttribute("data-shell-join");
         const zero = await sash.boundingBox();

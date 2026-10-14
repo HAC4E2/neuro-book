@@ -185,19 +185,33 @@ function projectedParked(): ReadonlySet<ShellPartId> {
  */
 const previewShown = shallowRef<ReadonlySet<ShellPartId>>(new Set());
 
+/** 拖动中已经拖到零、投影里还有尺寸的部件：只影响卡片（下面的 `cards`），内容照旧等落账再停放。 */
+const previewZeroed = shallowRef<ReadonlySet<ShellPartId>>(new Set());
+
 function onGesturePreview(preview: GridGesturePreview<unknown>): void {
     const shown = new Set<ShellPartId>();
     for (const part of projectedParked()) {
         const size = preview.layout.sizes[part];
         if (size !== undefined && size.width > 0 && size.height > 0) shown.add(part);
     }
-    if (shown.size === previewShown.value.size && [...shown].every((part) => previewShown.value.has(part))) return;
+    const zeroed = new Set<ShellPartId>();
+    for (const part of SHELL_DRAG_COLLAPSIBLE_IDS) {
+        const size = preview.layout.sizes[part];
+        if ((projection.value.sizes[part] ?? 0) > 0 && size !== undefined && (size.width <= 0 || size.height <= 0)) zeroed.add(part);
+    }
+    if (!sameParts(zeroed, previewZeroed.value)) previewZeroed.value = zeroed;
+    if (sameParts(shown, previewShown.value)) return;
     setPreviewShown(shown);
 }
 
 function onGestureSettled(): void {
+    if (previewZeroed.value.size > 0) previewZeroed.value = new Set();
     if (previewShown.value.size === 0) return;
     setPreviewShown(new Set());
+}
+
+function sameParts(a: ReadonlySet<ShellPartId>, b: ReadonlySet<ShellPartId>): boolean {
+    return a.size === b.size && [...a].every((part) => b.has(part));
 }
 
 /**
@@ -257,14 +271,17 @@ watch(rootEl, () => void nextTick(syncTargets));
 // ── 卡片 ──────────────────────────────────────────────────────────────────────
 
 /**
- * 各部件四边挨着什么；缝宽与卡片样式是主题变量，平铺的主题缝宽为 0，下面的内边距都是 0。拖动中已经拉出来的部件（预览
- * 集合）按有尺寸算：投影里它还是拖到零，不这样算的话从零拉出侧栏时活动栏与侧栏要等松手才相连。
+ * 各部件四边挨着什么；缝宽与卡片样式是主题变量，平铺的主题缝宽为 0，下面的内边距都是 0。卡片跟着拖动中的预览走：已经
+ * 拉出来的部件按有尺寸算，已经拖到零的按零算。投影要等松手才落账，不这样算的话侧栏从零拉出时活动栏要等松手才与它相连，
+ * 拖到零时活动栏要等松手才变回四角都圆的独立卡片。
  */
 const cards = computed(() => {
     const shown = previewShown.value;
-    if (shown.size === 0) return shellCards(projection.value);
+    const zeroed = previewZeroed.value;
+    if (shown.size === 0 && zeroed.size === 0) return shellCards(projection.value);
     const sizes = {...projection.value.sizes};
     for (const part of shown) if ((sizes[part] ?? 0) <= 0) sizes[part] = 1;
+    for (const part of zeroed) sizes[part] = 0;
     return shellCards({...projection.value, sizes});
 });
 
