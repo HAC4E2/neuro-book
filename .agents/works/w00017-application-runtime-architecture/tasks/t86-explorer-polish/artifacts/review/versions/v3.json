@@ -1,0 +1,884 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t86-explorer-polish",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "资源管理器打磨：配色、状态图标与搜索",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "7fc3ecfe6c8f934b23b1e72c04161a0a2933eaff7d6fd4029aef02574008b759",
+    "questions": [
+        {
+            "id": "indent-guides",
+            "type": "single",
+            "label": "1. 缩进没有参考线",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "natural-sort",
+            "type": "single",
+            "label": "2. 排序把“第二卷”排在“第一卷”前",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "md-extension",
+            "type": "single",
+            "label": "3. 每个章节都带 .md",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "discuss"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "file-icons",
+            "type": "single",
+            "label": "4. 所有文件同一个图标",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "empty-node",
+            "type": "single",
+            "label": "5. 只有正文的内容节点也能展开，展开后是一行“空目录”",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "content-folder-look",
+            "type": "single",
+            "label": "6. 内容文件夹显示成 人物.content 加一个书架图标",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "root-rows",
+            "type": "single",
+            "label": "7. 两个根和普通目录长得一样",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "discuss"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "title-actions",
+            "type": "single",
+            "label": "8. 标题行 6 个按钮一直显示",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "context-menu",
+            "type": "single",
+            "label": "9. 右键菜单：快捷键贴着文字、阴影淡、缺常用项",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "filter",
+            "type": "single",
+            "label": "10. 没有过滤框",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "skip"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "chapter-count",
+            "type": "single",
+            "label": "11. 章节行不显示字数",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "skip"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "own-notes",
+            "type": "text",
+            "label": "你自己注意到、想改的地方",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-icons",
+            "type": "single",
+            "label": "行的样子：catppuccin 彩色还是单色",
+            "options": [
+                {
+                    "value": "color",
+                    "label": "A 彩色（catppuccin 原色）"
+                },
+                {
+                    "value": "mono",
+                    "label": "B 单色（同一套图形去色）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "color"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-states",
+            "type": "single",
+            "label": "状态不再占一行",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "就这样"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "yes"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-roots",
+            "type": "single",
+            "label": "两个根：A 还是 B",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 分节标题，仍是一棵树"
+                },
+                {
+                    "value": "b",
+                    "label": "B 用户资产固定在底部"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "a"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-filter",
+            "type": "single",
+            "label": "过滤框放在哪里",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 固定在树上方"
+                },
+                {
+                    "value": "b",
+                    "label": "B 浮在右上角，Ctrl+F 呼出"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "a"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-guides",
+            "type": "single",
+            "label": "缩进参考线：样子与缺省值",
+            "options": [
+                {
+                    "value": "hover",
+                    "label": "悬停时显示"
+                },
+                {
+                    "value": "always",
+                    "label": "一直显示"
+                },
+                {
+                    "value": "none",
+                    "label": "不显示"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "hover"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-md",
+            "type": "single",
+            "label": "隐藏 .md：缺省值",
+            "options": [
+                {
+                    "value": "show",
+                    "label": "缺省显示 .md"
+                },
+                {
+                    "value": "hide",
+                    "label": "缺省隐藏 .md"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "show"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-menu",
+            "type": "single",
+            "label": "右键菜单",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "就这样"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "yes"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-parent",
+            "type": "single",
+            "label": "1. 拖到文件上或两行之间：移入那个文件所在的文件夹，高亮整个目标文件夹",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-blank",
+            "type": "single",
+            "label": "2. 拖到空白：移到项目根",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-expand",
+            "type": "single",
+            "label": "3. 停在收起的文件夹上自动展开",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-scroll",
+            "type": "single",
+            "label": "4. 边缘自动滚动",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-ghost",
+            "type": "single",
+            "label": "5. 指针旁的拖影与源行淡化，落点标签跟着指针",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-editor",
+            "type": "single",
+            "label": "6. 拖到编辑区打开",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-drag-import",
+            "type": "single",
+            "label": "7. 从系统拖文件进来（建议另开 Task）",
+            "options": [
+                {
+                    "value": "fix",
+                    "label": "改"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                },
+                {
+                    "value": "discuss",
+                    "label": "要讨论"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "skip"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-notes",
+            "type": "text",
+            "label": "其它意见",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "r3-palette-light",
+            "type": "single",
+            "label": "亮色用哪种配色",
+            "options": [
+                {
+                    "value": "latte",
+                    "label": "Latte 原色"
+                },
+                {
+                    "value": "latte-soft",
+                    "label": "Latte 柔和（饱和度 60%）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "latte"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-palette-dark",
+            "type": "single",
+            "label": "暗色用哪种配色",
+            "options": [
+                {
+                    "value": "frappe",
+                    "label": "Frappé"
+                },
+                {
+                    "value": "macchiato",
+                    "label": "Macchiato"
+                },
+                {
+                    "value": "mocha",
+                    "label": "Mocha"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "macchiato"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-marks",
+            "type": "single",
+            "label": "短标记改成状态图标",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "就这样"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-search-split",
+            "type": "single",
+            "label": "怎么分",
+            "options": [
+                {
+                    "value": "split",
+                    "label": "A 三样分开：t86 只做过滤框，另开快速打开与搜索视图"
+                },
+                {
+                    "value": "unified",
+                    "label": "B 一个搜索入口：过滤框兼搜正文"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "split"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-filter-match",
+            "type": "multi",
+            "label": "过滤框匹配什么",
+            "options": [
+                {
+                    "value": "name",
+                    "label": "文件名"
+                },
+                {
+                    "value": "title",
+                    "label": "展示名（内容文件夹的标题）"
+                },
+                {
+                    "value": "pinyin",
+                    "label": "拼音全拼与首字母"
+                },
+                {
+                    "value": "whole",
+                    "label": "整个作品（不只已展开的目录）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "name",
+                "title",
+                "pinyin",
+                "whole"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-search-scenes",
+            "type": "text",
+            "label": "“不能像普通 IDE 那么简单”指哪些场景",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-notes",
+            "type": "text",
+            "label": "其它意见",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-14T04:22:46.004Z"
+}

@@ -20,6 +20,7 @@ section { background: var(--card); border: 1px solid var(--line); border-radius:
 .badge.done { background: var(--done); }
 .shots { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin: 8px 0; }
 figure { margin: 0; flex: 0 1 auto; max-width: 100%; }
+.shots > img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
 figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
 figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; max-width: 360px; }
 .cand { border: 1px dashed var(--line); border-radius: 8px; padding: 10px; }
@@ -36,148 +37,120 @@ ol.done li { margin: 2px 0; }
 </head>
 <body>
 <main>
-<h1>资源管理器打磨 · 第二轮：静态稿与拖动</h1>
-<p class="lead">t86。第一轮定了要改的范围（见页末“已定”）。这一轮的图都是在开发服务的真实工作台（样例作品“雾港”）与 Lab 场景上注入候选样式截的，没有改源码；配色是亮色。图标用 catppuccin 的 Iconify 版（<code>@iconify-json/catppuccin</code>，MIT，与现在的 lucide 同一种接法），亮色主题取 Latte 色，暗色取 Macchiato 色。</p>
+<h1>资源管理器打磨 · 第三轮：配色、状态图标与搜索</h1>
+<p class="lead">t86。第二轮的决定见页末“已定”。这一轮三件事：catppuccin 的几种配色放进两个主题 × 明暗里看；“需要剧情插件”这类短标记改成状态图标；搜索与过滤怎么分工。图仍是在开发服务的真实工作台（雾港）与 Lab 场景上注入样式截的，没有改源码。</p>
 
-<section data-nbdev-question="r2-icons" data-nbdev-type="single" data-nbdev-recommend="color">
-  <h2><span class="badge" data-nbdev-skip>待定</span>行的样子：catppuccin 彩色还是单色</h2>
-  <p>两版都包含第一轮定下的三件事：按类型的文件图标；内容文件夹显示“人物”，<code>.content</code> 作淡色副标题、图标换成内容文件夹；只有正文的“沈屿”“林晓”没有箭头，也没有“空目录”行。左边是第一轮的现状作对照。</p>
+<section data-nbdev-question="r3-palette-light" data-nbdev-type="single" data-nbdev-recommend="latte">
+  <h2><span class="badge" data-nbdev-skip>待定</span>亮色用哪种配色</h2>
+  <p>catppuccin 给亮色的只有 Latte 一种；另做了一版把饱和度降到 60% 的“柔和”。每张图左上是 nbook 主题，右边是 macos 主题。</p>
   <div class="shots">
-    <figure><img src="r1/now-tree.webp" alt="现状" width="346" height="900" style="max-height:620px;width:auto"><figcaption>现状</figcaption></figure>
-    <div class="cand" data-nbdev-option="color" data-nbdev-label="A 彩色（catppuccin 原色）">
-      <h3 data-nbdev-skip>A 彩色</h3>
-      <figure><img src="r2/rows-color.webp" alt="彩色图标" width="342" height="760" style="max-height:620px;width:auto"><figcaption>catppuccin 原色：Markdown 青色、图片绿色、JSON 黄色，文件夹是线框</figcaption></figure>
+    <div class="cand" data-nbdev-option="latte" data-nbdev-label="Latte 原色">
+      <h3 data-nbdev-skip>Latte 原色</h3>
+      <div class="shots"><img src="r3/pal-nbook-light-latte.webp" alt="nbook 亮色 Latte" width="300" height="520"><img src="r3/pal-macos-light-latte.webp" alt="macos 亮色 Latte" width="300" height="520"></div>
     </div>
-    <div class="cand" data-nbdev-option="mono" data-nbdev-label="B 单色（同一套图形去色）">
-      <h3 data-nbdev-skip>B 单色</h3>
-      <figure><img src="r2/rows-mono.webp" alt="单色图标" width="342" height="760" style="max-height:620px;width:auto"><figcaption>同一套图形，去色后与现在的弱化灰一致</figcaption></figure>
-    </div>
-  </div>
-  <p class="rec" data-nbdev-skip>推荐 A：类型靠颜色一眼能分开，选 catppuccin 就是为了这个；整列章节都是同一个青色，不会花。B 只靠图形区分，16px 下 Markdown、文本、JSON 不容易认。</p>
-</section>
-
-<section data-nbdev-question="r2-states" data-nbdev-type="single" data-nbdev-options="yes:就这样|adjust:要调整" data-nbdev-recommend="yes">
-  <h2><span class="badge" data-nbdev-skip>待定</span>状态不再占一行</h2>
-  <div class="shots">
-    <figure><img src="r2/states-now.webp" alt="现状" width="358" height="440"><figcaption>现状（Lab 场景）：清单不合法、正在读取、读取失败、空目录各占一行</figcaption></figure>
-    <figure><img src="r2/states-new.webp" alt="候选" width="358" height="440"><figcaption>候选：问题挂在文件夹行上</figcaption></figure>
-  </div>
-  <ul>
-    <li>清单不合法：文件夹名标黄，行尾一个警告标记，悬停说明原因；子项照常按普通文件夹显示。</li>
-    <li>读取失败：文件夹名标红，行尾一个错误标记，点标记或右键“重试”，悬停说明原因。</li>
-    <li>读取中：箭头换成转圈，不加行。</li>
-    <li>空文件夹：展开后什么也不显示（VS Code 也是这样）。</li>
-  </ul>
-  <p class="rec" data-nbdev-skip>推荐就这样。读屏仍能读到原因：标记带可访问名称，行的描述里加上状态。</p>
-</section>
-
-<section data-nbdev-question="r2-roots" data-nbdev-type="single" data-nbdev-recommend="a">
-  <h2><span class="badge" data-nbdev-skip>待定</span>两个根：A 还是 B</h2>
-  <div class="shots">
-    <div class="cand" data-nbdev-option="a" data-nbdev-label="A 分节标题，仍是一棵树">
-      <h3 data-nbdev-skip>A 分节标题</h3>
-      <figure><img src="r2/roots-A.webp" alt="A" width="342" height="840" style="max-height:620px;width:auto"><figcaption>根行改成小号加粗的弱化标题、去掉图标、不缩进；“用户资产”仍在项目树后面</figcaption></figure>
-    </div>
-    <div class="cand" data-nbdev-option="b" data-nbdev-label="B 用户资产固定在底部">
-      <h3 data-nbdev-skip>B 两个分节</h3>
-      <figure><img src="r2/roots-B.webp" alt="B" width="342" height="840" style="max-height:620px;width:auto"><figcaption>标题同 A；“用户资产”固定在视图底部，展开后与项目分两块、各自滚动</figcaption></figure>
+    <div class="cand" data-nbdev-option="latte-soft" data-nbdev-label="Latte 柔和（饱和度 60%）">
+      <h3 data-nbdev-skip>Latte 柔和</h3>
+      <div class="shots"><img src="r3/pal-nbook-light-latte-soft.webp" alt="nbook 亮色 柔和" width="300" height="520"><img src="r3/pal-macos-light-latte-soft.webp" alt="macos 亮色 柔和" width="300" height="520"></div>
     </div>
   </div>
-  <p class="rec" data-nbdev-skip>推荐 A：改动只在行的样式，键盘、选择、拖动都不变。B 解决“用户资产被挤到很下面”，但两块分别滚动、键盘在两块之间跳、拖动跨两块，都要另做；用户资产用得不多时它一直占一行。</p>
+  <p class="rec" data-nbdev-skip>推荐 Latte 原色：16px 的小图标颜色本来就占得少，降饱和后青色和绿色在暖白底上发灰。</p>
 </section>
 
-<section data-nbdev-question="r2-filter" data-nbdev-type="single" data-nbdev-recommend="a">
-  <h2><span class="badge" data-nbdev-skip>待定</span>过滤框放在哪里</h2>
-  <p>两版行为相同：输入即过滤，保留命中项的上级目录并展开，命中的字高亮，右侧显示命中数；Esc 或 ✕ 清空，回到过滤前的展开状态。只过滤已经列出过的目录，没列出的不去读磁盘（要全量搜就用命令面板的快速打开）。</p>
+<section data-nbdev-question="r3-palette-dark" data-nbdev-type="single" data-nbdev-recommend="macchiato">
+  <h2><span class="badge" data-nbdev-skip>待定</span>暗色用哪种配色</h2>
+  <p>catppuccin 的三种暗色：Frappé 最柔、Macchiato 居中、Mocha 最亮最饱和。上排 nbook 暗色，下排 macos 暗色。</p>
   <div class="shots">
-    <div class="cand" data-nbdev-option="a" data-nbdev-label="A 固定在树上方">
-      <h3 data-nbdev-skip>A 固定在树上方</h3>
-      <figure><img src="r2/filter-A.webp" alt="A" width="342" height="400"><figcaption>一直在，旧应用的位置</figcaption></figure>
+    <div class="cand" data-nbdev-option="frappe" data-nbdev-label="Frappé">
+      <h3 data-nbdev-skip>Frappé</h3>
+      <div class="shots"><img src="r3/pal-nbook-dark-frappe.webp" alt="nbook 暗色 Frappé" width="300" height="520"><img src="r3/pal-macos-dark-frappe.webp" alt="macos 暗色 Frappé" width="300" height="520"></div>
     </div>
-    <div class="cand" data-nbdev-option="b" data-nbdev-label="B 浮在右上角，Ctrl+F 呼出">
-      <h3 data-nbdev-skip>B 浮层</h3>
-      <figure><img src="r2/filter-B.webp" alt="B" width="342" height="400"><figcaption>树有焦点时 Ctrl+F 呼出，VS Code 的做法；不用时不占地方</figcaption></figure>
+    <div class="cand" data-nbdev-option="macchiato" data-nbdev-label="Macchiato">
+      <h3 data-nbdev-skip>Macchiato</h3>
+      <div class="shots"><img src="r3/pal-nbook-dark-macchiato.webp" alt="nbook 暗色 Macchiato" width="300" height="520"><img src="r3/pal-macos-dark-macchiato.webp" alt="macos 暗色 Macchiato" width="300" height="520"></div>
+    </div>
+    <div class="cand" data-nbdev-option="mocha" data-nbdev-label="Mocha">
+      <h3 data-nbdev-skip>Mocha</h3>
+      <div class="shots"><img src="r3/pal-nbook-dark-mocha.webp" alt="nbook 暗色 Mocha" width="300" height="520"><img src="r3/pal-macos-dark-mocha.webp" alt="macos 暗色 Mocha" width="300" height="520"></div>
     </div>
   </div>
-  <p class="rec" data-nbdev-skip>推荐 A：作者不一定知道 Ctrl+F，看得见的框更好找；它只占 32px。树有焦点时 Ctrl+F 同样聚焦到这个框。</p>
+  <p class="rec" data-nbdev-skip>推荐 Macchiato：在 nbook 偏暖的暗底上不刺眼，在 macos 的冷灰底上也够分得开。三种差别不大，如果你想以后让作者自己选，可以做成设置项（缺省 Macchiato），这次先不做。</p>
 </section>
 
-<section data-nbdev-question="r2-guides" data-nbdev-type="single" data-nbdev-options="hover:悬停时显示|always:一直显示|none:不显示" data-nbdev-recommend="hover">
-  <h2><span class="badge" data-nbdev-skip>待定</span>缩进参考线：样子与缺省值</h2>
+<section data-nbdev-question="r3-marks" data-nbdev-type="single" data-nbdev-options="yes:就这样|adjust:要调整" data-nbdev-recommend="yes">
+  <h2><span class="badge" data-nbdev-skip>待定</span>短标记改成状态图标</h2>
   <div class="shots">
-    <figure><img src="r2/guides.webp" alt="参考线" width="342" height="760" style="max-height:620px;width:auto"><figcaption>每层一条淡线，对齐上级的箭头；选中行所在那一层加深</figcaption></figure>
-  </div>
-  <p>设置项三档，照 VS Code：不显示、悬停时显示（鼠标在资源管理器里或它有焦点时）、一直显示。这里选缺省值。</p>
-  <p class="rec" data-nbdev-skip>推荐缺省“悬停时显示”，与 VS Code 一致：平时安静，找层级时自然出现。</p>
-</section>
-
-<section data-nbdev-question="r2-md" data-nbdev-type="single" data-nbdev-options="show:缺省显示 .md|hide:缺省隐藏 .md" data-nbdev-recommend="show">
-  <h2><span class="badge" data-nbdev-skip>待定</span>隐藏 <code>.md</code>：缺省值</h2>
-  <div class="shots">
-    <figure><img src="r2/rows-color-nomd.webp" alt="隐藏 .md" width="342" height="760" style="max-height:620px;width:auto"><figcaption>打开“隐藏 Markdown 扩展名”后（只隐藏 .md，其它扩展名照旧）</figcaption></figure>
-  </div>
-  <p>说明：VS Code 本身没有这一项（它的文件名一律完整显示），这是我们自己加的设置。打开后：改名框里仍是完整名字，悬停提示完整路径；同一文件夹里同时有 <code>a.md</code> 与 <code>a</code> 时靠图标区分。</p>
-  <p class="rec" data-nbdev-skip>推荐缺省显示：和磁盘上的名字一致、和别的工具一致；觉得吵的作者在设置里打开。如果你觉得作者大多不在意扩展名，选缺省隐藏也行。</p>
-</section>
-
-<section data-nbdev-question="r2-menu" data-nbdev-type="single" data-nbdev-options="yes:就这样|adjust:要调整" data-nbdev-recommend="yes">
-  <h2><span class="badge" data-nbdev-skip>待定</span>右键菜单</h2>
-  <div class="shots">
-    <figure><img src="r1/now-menu.webp" alt="现状" width="400" height="800" style="max-height:560px;width:auto"><figcaption>现状</figcaption></figure>
-    <figure><img src="r2/menu.webp" alt="候选" width="560" height="840" style="max-height:560px;width:auto"><figcaption>候选：快捷键右对齐、正文字体弱化色；阴影加深；文件上补“打开”“在侧边打开”“复制路径”“复制相对路径”</figcaption></figure>
-  </div>
-  <p>快捷键与阴影改在 nb-ui 的 <code>ContextMenu</code>，别处的菜单一起变。文件夹上没有“打开”“在侧边打开”，有“在此新建”。复制路径复制的是磁盘上的绝对路径，复制相对路径是相对作品目录。</p>
-</section>
-
-<section>
-  <h2><span class="badge" data-nbdev-skip>待定</span>拖动：现在、旧应用与建议</h2>
-  <p>在雾港上实测了 7 种拖法（按下、拖过门槛、停在目标上看落点），并读了旧应用的拖动代码（HTML5 拖放，<code>WorkspaceFileTree</code>）。</p>
-  <div class="shots">
-    <figure><img src="r2/drag-now.webp" alt="现在拖到文件夹上" width="400" height="330"><figcaption>现在拖到文件夹上：目标行描边，标签“移入 第二卷 潮汐”盖在下一行上；指针旁看不出拖的是什么，原来那行也没有变化</figcaption></figure>
+    <figure><img src="r3/marks-now.webp" alt="现状" width="358" height="330"><figcaption>现状（Lab 场景）：标记是跟在名字后面的小字</figcaption></figure>
+    <figure><img src="r3/marks-new.webp" alt="候选" width="358" height="330"><figcaption>候选：行尾一个弱化色的图标，悬停显示文字（图里画了“需要剧情插件”的提示）</figcaption></figure>
   </div>
   <table>
-    <thead><tr><th>拖法</th><th>现在</th><th>旧应用</th><th>建议</th></tr></thead>
+    <thead><tr><th>标记</th><th>图标</th><th>备注</th></tr></thead>
     <tbody>
-      <tr><td>拖到别的文件夹里的一个文件上</td><td>没有落点，放下什么也不发生</td><td>行上下画插入线，放下移到那个文件所在的文件夹</td><td>移入那个文件所在的文件夹；高亮整个目标文件夹的范围（VS Code），不画插入线</td></tr>
-      <tr><td>拖到普通文件夹里两行之间</td><td>没有落点</td><td>插入线，放到该文件夹（普通文件夹没有顺序，插入线不代表位置）</td><td>同上：普通文件夹只说“移入哪个文件夹”，插入线只留给能排序的内容文件夹</td></tr>
-      <tr><td>拖到树下方的空白</td><td>没有落点</td><td>移到根</td><td>移到项目根</td></tr>
-      <tr><td>在收起的文件夹上停一会儿</td><td>不展开</td><td>不展开</td><td>停约 0.6 秒自动展开，好继续往里拖</td></tr>
-      <tr><td>拖到视图上下边缘</td><td>不滚动</td><td>浏览器自带的边缘滚动</td><td>靠近边缘自动滚动，越近越快</td></tr>
-      <tr><td>拖动时指针旁</td><td>只有落点标签，位置固定在目标行下方</td><td>浏览器的拖影（文件名）</td><td>指针旁显示被拖的名字或“3 项”与动作；被拖的行淡化</td></tr>
-      <tr><td>拖到编辑区</td><td>没有落点</td><td>没有专门处理（浏览器会把路径当文字插进正文）</td><td>在放下的那个编辑组里打开（VS Code）</td></tr>
-      <tr><td>从系统文件管理器拖文件进来</td><td>不支持</td><td>不支持</td><td>这次不做，另开 Task（要上传与导入的服务端接口）</td></tr>
+      <tr><td>无正文</td><td>减号文件</td><td>内容节点还没有 index.md</td></tr>
+      <tr><td>缺失</td><td>禁止符号</td><td>行仍淡化</td></tr>
+      <tr><td>未列入</td><td>虚线圆</td><td>文件在内容文件夹里但清单没登记</td></tr>
+      <tr><td>需要剧情插件</td><td>拼图</td><td>活页夹</td></tr>
+      <tr><td>剪切中</td><td>剪刀</td><td>行仍淡化</td></tr>
+      <tr><td>清单不合法、读取失败</td><td>警告、错误（第二轮已定）</td><td>名字着色</td></tr>
     </tbody>
   </table>
-  <div class="item" data-nbdev-question="r2-drag-parent" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix"><h3>1. 拖到文件上或两行之间：移入那个文件所在的文件夹，高亮整个目标文件夹</h3></div>
-  <div class="item" data-nbdev-question="r2-drag-blank" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix"><h3>2. 拖到空白：移到项目根</h3></div>
-  <div class="item" data-nbdev-question="r2-drag-expand" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix"><h3>3. 停在收起的文件夹上自动展开</h3></div>
-  <div class="item" data-nbdev-question="r2-drag-scroll" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix"><h3>4. 边缘自动滚动</h3></div>
-  <div class="item" data-nbdev-question="r2-drag-ghost" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix"><h3>5. 指针旁的拖影与源行淡化，落点标签跟着指针</h3></div>
-  <div class="item" data-nbdev-question="r2-drag-editor" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="fix"><h3>6. 拖到编辑区打开</h3></div>
-  <div class="item" data-nbdev-question="r2-drag-import" data-nbdev-type="single" data-nbdev-options="@review" data-nbdev-recommend="skip"><h3>7. 从系统拖文件进来（建议另开 Task）</h3></div>
-</section>
-
-<section data-nbdev-question="r2-notes" data-nbdev-type="text" data-nbdev-optional>
-  <h2>其它意见</h2>
-  <p>拖动里你遇到、上表没列到的问题，或对哪张图的细节意见。</p>
+  <p>一行有几个标记时并排放在行尾；副标题（真实名字，如 alice、gone）仍是文字。读屏读行的描述，里面带标记的文字。</p>
 </section>
 
 <section>
-  <h2><span class="badge done" data-nbdev-skip>已定</span>第一轮</h2>
+  <h2><span class="badge" data-nbdev-skip>待定</span>搜索与过滤怎么分工</h2>
+  <p><b>先更正第一轮的一句话：</b>我当时说“快速打开已经能按名字找”，不对。新应用的快速输入现在只有命令面板（Ctrl+Shift+P）和跳到某行，<b>没有按文件名的快速打开（Ctrl+P），也没有任何正文搜索</b>（<code>workbench/quick-open.md</code> 把文件快速打开列为非目标）。所以现在新应用里找文件只能在树里一层层点开。</p>
+  <p>能做的有三样，常见的编辑器都是分开做的：</p>
+  <table>
+    <thead><tr><th></th><th>资源管理器的过滤框</th><th>快速打开 Ctrl+P</th><th>搜索视图</th></tr></thead>
+    <tbody>
+      <tr><td>找什么</td><td>名字：把树收窄到命中项与它们的上级</td><td>名字：输入几个字跳到文件，不动树</td><td>正文：哪些章节里出现了这几个字，每处带上下文</td></tr>
+      <tr><td>结果在哪</td><td>树里</td><td>浮层里</td><td>活动栏的一个视图，按文件分组</td></tr>
+      <tr><td>要的后端</td><td>列出整个作品的名字（新接口；3000 个文件的量级一次就够）</td><td>同左</td><td>服务端全文搜索；中文要考虑分词或直接逐字匹配，结果多时分批</td></tr>
+      <tr><td>大小</td><td>本 Task 能做</td><td>小，可以和过滤框共用名字列表</td><td>一块独立功能，值得单独设计</td></tr>
+    </tbody>
+  </table>
+  <div class="item" data-nbdev-question="r3-search-split" data-nbdev-type="single" data-nbdev-recommend="split">
+    <h3>怎么分</h3>
+    <div class="cand" data-nbdev-option="split" data-nbdev-label="A 三样分开：t86 只做过滤框，另开快速打开与搜索视图">
+      <p><b>A</b> 三样分开：t86 只做过滤框（按名字）；快速打开与搜索视图各开一个 Task，各自先做一轮设计。</p>
+    </div>
+    <div class="cand" data-nbdev-option="unified" data-nbdev-label="B 一个搜索入口：过滤框兼搜正文">
+      <p><b>B</b> 一个入口：过滤框输入后，树里既收窄名字命中的项，也在文件下面列出正文里命中的句子（像 Obsidian 的搜索），不另做搜索视图。</p>
+    </div>
+    <p class="rec" data-nbdev-skip>推荐 A：名字过滤每敲一个字都要即时，正文搜索要等服务端、结果可能上千条，两者放在一个框里，要么名字过滤被拖慢，要么正文结果挤爆树。你说的“专门的搜索视图”正好对应 A 的第三样。</p>
+  </div>
+  <div class="item" data-nbdev-question="r3-filter-match" data-nbdev-type="multi" data-nbdev-options="name:文件名|title:展示名（内容文件夹的标题）|pinyin:拼音全拼与首字母|whole:整个作品（不只已展开的目录）" data-nbdev-recommend="name,title,pinyin,whole">
+    <h3>过滤框匹配什么</h3>
+    <p>拼音：输入 <code>shenyu</code> 或 <code>sy</code> 能找到“沈屿”。整个作品：没展开过的目录也算，需要上面说的新接口；不选就只过滤已经列出过的目录。</p>
+  </div>
+  <div class="item" data-nbdev-question="r3-search-scenes" data-nbdev-type="text" data-nbdev-optional>
+    <h3>“不能像普通 IDE 那么简单”指哪些场景</h3>
+    <p>例如：按人物名找到他出场的所有章节；按章节标题而不是文件名找；只在正文或只在设定里找；找某段时间写的；搜 Agent 会话。写下你常用的几种，搜索视图的设计从这里开始。</p>
+  </div>
+</section>
+
+<section data-nbdev-question="r3-notes" data-nbdev-type="text" data-nbdev-optional>
+  <h2>其它意见</h2>
+</section>
+
+<section>
+  <h2><span class="badge done" data-nbdev-skip>已定</span>第二轮</h2>
   <ol class="done">
-    <li>缩进参考线：可选、可配置，照 VS Code。</li>
-    <li>普通文件夹按中文数字与阿拉伯数字的数值排序。</li>
-    <li>隐藏 <code>.md</code>：可选、可配置。</li>
-    <li>文件类型图标：引入 catppuccin 图标。</li>
-    <li>只有正文的节点不可展开；不要“空目录”“清单不合法”这种占一行的状态。</li>
-    <li>内容文件夹去后缀、换图标。</li>
-    <li>两个根要改，样式本轮定。</li>
-    <li>标题动作不改。</li>
-    <li>右键菜单要改。</li>
-    <li>这次做过滤框。</li>
-    <li>章节字数先不做。</li>
+    <li>图标用 catppuccin 彩色（配色本轮定）。</li>
+    <li>状态挂在文件夹行上；短标记也做成状态图标（本轮看样子）。</li>
+    <li>两个根取 A：分节标题，仍是一棵树（像 JetBrains 的项目视图）。</li>
+    <li>过滤框固定在树上方；搜索再设计一轮（本轮）。</li>
+    <li>缩进参考线缺省悬停时显示；隐藏 <code>.md</code> 缺省关闭。</li>
+    <li>右键菜单照候选改。</li>
+    <li>拖动：拖到文件上或两行之间移入那个文件所在的文件夹、拖到空白移到项目根、停留自动展开、边缘自动滚动、拖影与源行淡化、拖到编辑区打开，都改；从系统拖文件进来另开 t87。</li>
   </ol>
-  <p>另：拖动问题多，参考旧应用重做（本轮的拖动一节）。</p>
+  <h2 style="margin-top:16px"><span class="badge done" data-nbdev-skip>已定</span>第一轮</h2>
+  <ol class="done">
+    <li>缩进参考线、隐藏 <code>.md</code>：可选、可配置。</li>
+    <li>普通文件夹按中文数字与阿拉伯数字的数值排序。</li>
+    <li>只有正文的节点不可展开；内容文件夹去后缀、换图标。</li>
+    <li>标题动作不改；章节字数先不做。</li>
+  </ol>
 </section>
 
 </main>
