@@ -181,6 +181,22 @@ body {
     border-color: var(--divider);
 }
 
+/*
+ * 阅读卡片（t15 阶段 3b）：Task 页 README 这类正文卡片。字号取阅读字号，宽度是阅读宽度（--reading-measure，按阅读字号算的 em）
+ * 加卡片两侧内边距，卡片就不比正文宽，右边不再空一片；窄时收到 100%。放在 PageShell 的阅读档里。
+ */
+.nbdev-reading-card {
+    font-size: var(--reading-size, var(--text-md));
+    width: calc(var(--reading-measure, 34em) + 3rem);
+    max-width: 100%;
+    padding: 1.5rem;
+}
+@media (max-width: 767px) {
+    .nbdev-reading-card {
+        padding: 1rem;
+    }
+}
+
 /* Markdown 正文（MarkdownView）：阅读排版消费主题的阅读刻度。 */
 .nbdev-markdown {
     font-size: var(--reading-size, var(--text-md));
