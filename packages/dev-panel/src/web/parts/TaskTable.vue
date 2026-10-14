@@ -37,7 +37,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
 <template>
     <!-- 窄时整张表横向滚动，页面不变宽；滚动容器带 relative（见 tests/web-scroll-containers.test.ts）。 -->
     <div class="relative overflow-x-auto">
-        <div role="table" class="nbdev-task-grid nbdev-small" :aria-label="`${workId} 的 Task`" :aria-rowcount="tasks.length + 1">
+        <div role="table" class="nbdev-task-grid nbdev-small" :aria-label="`${workId} 的 Task`">
             <div role="row" class="nbdev-task-row nbdev-task-head nbdev-divider border-b">
                 <span role="columnheader"><span class="sr-only">展开</span></span>
                 <span v-for="(column, index) in COLUMNS" :key="column" role="columnheader" :class="{'nbdev-task-wide': index >= 2}">{{ column }}</span>
@@ -46,7 +46,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
             <template v-for="task in tasks" :key="task.taskId">
                 <div role="row" class="nbdev-task-row nbdev-divider border-b" :class="{'nbdev-task-open': isOpen(task.taskId)}">
                     <span role="cell">
-                        <button type="button" class="nbdev-task-toggle" :aria-expanded="isOpen(task.taskId)" :aria-controls="detailId(task.taskId)" :aria-label="`${isOpen(task.taskId) ? '收起' : '展开'} ${taskLabel(task.taskId)}`" @click="emit('toggle', task.taskId)">
+                        <button type="button" class="nbdev-task-toggle" :aria-expanded="isOpen(task.taskId)" :aria-controls="detailId(task.taskId)" :aria-label="`${taskLabel(task.taskId)} 的详情`" @click="emit('toggle', task.taskId)">
                             <span :class="isOpen(task.taskId) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" aria-hidden="true" />
                         </button>
                     </span>
@@ -79,7 +79,8 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                     </span>
                 </div>
                 <div v-if="isOpen(task.taskId)" :id="detailId(task.taskId)" role="row" class="nbdev-task-detail nbdev-divider border-b">
-                    <div role="cell" class="nbdev-stack">
+                    <!-- 展开内容占满一行：按表头的列数横跨（手机上多出的列是 display: none，读屏按看得见的列算）。 -->
+                    <div role="cell" :aria-colspan="COLUMNS.length + 1" class="nbdev-stack">
                         <LoadState v-if="!details[task.taskId]?.state.hasData" v-bind="details[task.taskId]?.state ?? {loading: true}" label="正在读取 Task" @retry="emit('retry', task.taskId)" />
                         <div v-if="details[task.taskId]?.state.hasData" class="nbdev-task-detail-grid">
                             <section class="nbdev-stack-tight min-w-0" aria-label="当前状态">

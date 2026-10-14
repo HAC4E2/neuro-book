@@ -41,4 +41,4 @@ interface TaskTableEmits {
 
 ## 无障碍
 
-展开按钮带 `aria-expanded` 与 `aria-controls`（指向展开内容那一行），可读名是“展开 t15”“收起 t15”。展开内容的三栏各有小标题。
+展开按钮带 `aria-expanded` 与 `aria-controls`（指向展开内容那一行），可读名固定是“t15 的详情”，展开与否只由 `aria-expanded` 表达（名字不随状态变，读出来不重复）。展开内容那一行只有一个格子，`aria-colspan` 横跨全部列。不写 `aria-rowcount`：所有行都在 DOM 里，读屏自己数得出。展开内容的三栏各有小标题。

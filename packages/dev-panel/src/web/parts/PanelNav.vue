@@ -195,8 +195,9 @@ onBeforeUnmount(() => observer?.disconnect());
             <!-- WAI-ARIA 的导航树：tree 里是 Work（第 1 层）与展开后的 Task（第 2 层，在 group 里）；整棵树一个 Tab 停靠点，方向键在行间走。
                  分组的标题不是树项（role="none"），收起的组只在树外留一个按钮。 -->
             <div ref="tree" role="tree" :aria-labelledby="worksHeadingId" @keydown="onTreeKey">
-                <div v-for="section in sections" :key="section.key" role="none" class="flex flex-col">
-                    <p v-if="section.label" role="none" class="nbdev-nav-heading mt-2">{{ section.label }}</p>
+                <!-- 带组名的组包一层 role="group"（tree 可以直接拥有 group），组名给读屏器；看得见的组名不重复读。Work 行仍是 aria-level 1。 -->
+                <div v-for="section in sections" :key="section.key" :role="section.label ? 'group' : 'none'" :aria-label="section.label ?? undefined" class="flex flex-col">
+                    <p v-if="section.label" aria-hidden="true" class="nbdev-nav-heading mt-2">{{ section.label }}</p>
                     <div v-for="branch in section.branches" :key="branch.work.key" role="none" class="flex flex-col">
                         <div role="none" class="flex items-center">
                             <!-- 展开按钮只给鼠标：读屏器从 treeitem 的 aria-expanded 知道展开状态，键盘用左右键。 -->
@@ -208,9 +209,10 @@ onBeforeUnmount(() => observer?.disconnect());
                                     <!-- 状态色点：与 StatusChip 同色；未标是空心。读屏器从标题后面的文字读状态。 -->
                                     <span class="nbdev-nav-dot shrink-0" :class="[TONE_CLASS[branch.work.tone ?? 'neutral'], branch.work.marked ? 'bg-current' : 'border border-current']" aria-hidden="true" />
                                     <span class="min-w-0 flex-1 truncate" :data-label-key="branch.work.key"><span class="nbdev-secondary">{{ branch.work.number }}</span> {{ branch.work.title }}</span>
-                                    <span class="sr-only">，{{ branch.work.statusText }}</span>
-                                    <span v-if="branch.work.moving" class="i-lucide-activity nbdev-accent size-3.5 shrink-0" title="有会话在动" aria-label="有会话在动" />
-                                    <Badge v-if="branch.work.waiting > 0" class="shrink-0" tone="warning" variant="soft" size="sm" :aria-label="`待答 ${branch.work.waiting}`">{{ branch.work.waiting }}</Badge>
+                                    <!-- 状态、在动与待答都用 sr-only 文字读出；图标与徽标只给眼睛看。 -->
+                                    <span class="sr-only">，{{ branch.work.statusText }}<template v-if="branch.work.moving">，有会话在动</template><template v-if="branch.work.waiting > 0">，待答 {{ branch.work.waiting }}</template></span>
+                                    <span v-if="branch.work.moving" class="i-lucide-activity nbdev-accent size-3.5 shrink-0" title="有会话在动" aria-hidden="true" />
+                                    <Badge v-if="branch.work.waiting > 0" class="shrink-0" tone="warning" variant="soft" size="sm" aria-hidden="true">{{ branch.work.waiting }}</Badge>
                                 </a>
                             </Tooltip>
                         </div>
