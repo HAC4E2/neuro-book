@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t87-explorer-os-import
-status: planned
+status: shelved
 updated: 2026-10-14
 ---
 
