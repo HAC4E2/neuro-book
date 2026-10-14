@@ -1,16 +1,15 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.plugin-channel
 owners:
   - runtime
-  - nbook.http
 ---
 
 # 远程服务与 RPC 协议
 
-2026-10-07 按 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（`accepted`）与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md) 原地改写：原“插件通道”（浏览器入口只能经本插件通道调用本插件服务端）由内核路由的远程服务取代，文件路径与 capability 保持不变。HTTP 路由贡献的合同暂留在本文末节，随 `nbook.http` 相关 Spec 移出。
+2026-10-07 按 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（`accepted`）与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md) 原地改写：原“插件通道”（浏览器入口只能经本插件通道调用本插件服务端）由内核路由的远程服务取代，文件路径与 capability 保持不变。
 
 ## 目标与非目标
 
@@ -174,7 +173,7 @@ owners:
 
 - **owner**：runtime（合同、节点、路由、协议、按需激活、绑定的握手）；传输由各宿主提供（WebSocket 随 K2，进程间通信随 K3）；项目的打开、租约与访问规则由服务端宿主的项目管理提供（[`runtime.projects`](projects.md)）。
 - **与服务装配的关系**：远程提供项的门面规则沿用 [`runtime.services`](services.md) 的按调用方门面，代理用的调用方身份由它签发；远程服务不进入依赖图（[`runtime.plugin-manifest`](plugin-manifest.md) 第 5 条）。
-- **与 HTTP 的关系**：插件之间不经 HTTP 通信；HTTP 只服务浏览器原生加载与外部调用方（见末节）。
+- **与 HTTP 的关系**：插件之间不经 HTTP 通信；HTTP 只服务浏览器原生加载与外部调用方。外部调用方使用的路由声明合同（方法、路径、鉴权方式、schema）见 [`runtime.api-docs`](api-docs.md)，与本文的远程服务无关；已实现的 `nbook.http` 贡献点 `http.routes` 见 [`runtime.server-host`](server-host.md)。
 - **安全**：第一版完全信任（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md)）；调用方身份与委托防误用、不防恶意代码。客户端互调的权限规则与登录接入时的使用者限制待后续补充。
 - **兼容**：合同 id、版本、提供方位置、失败码与目标写法是公开接口；帧格式与 wire 协议版本是内核内部协议，帧格式或结果的含义变更时提升 wire 版本（加入绑定字段时升为 2，调用方身份加入客户端身份时升为 3，加入 `not-provided`、写请求从帧发出起结果未知与提供方查询时升为 4：帧形状没变，但旧端会把新码当成未声明的码、仍按 ACK 结算写请求，而浏览器首次握手之前没有别的同构建核对）；`reject` 帧的形状与 `hello` 的 `wire` 字段跨版本不变。
 - **已知限制**：经代理转发到另一实例的委托只能用本实例签发的身份，不能链式跨第三个实例；合同版本只做整数精确匹配；等待环只沿单条激活链检测，跨链的互相等待只受激活期超时上限约束；激活链只记入口、不记代次，同一入口失败恢复后的新一代若正在激活，会被旧一代留下的链误判为环；`{project}` 目标的租约在建立请求或订阅时核对，订阅建立后租约释放不取消订阅，到该项目代次结束时才取消；拓扑稿第 10 节“服务端向项目推送事件不需要租约”由 `{project}` 的无租约访问规则承担（[`runtime.projects`](projects.md) 输出第 9 条）。传输不做发送背压与应用层心跳；同一实例重连时按描述一致接管旧链路，不核对凭据（鉴权随登录插件）。
@@ -207,16 +206,6 @@ owners:
 
 Smoke：场景 1–9、15、16、18–22 由内核合同测试以真实内核实例与进程内链路覆盖；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对；场景 17 与绑定由真实子进程与真实 Chrome 核对（`e2e/projects.e2e.ts`）；经代理的 Storage 访问在真实 Chrome 里由 `e2e/storage.e2e.ts` 核对。
 
-## HTTP 路由贡献（待移交 `nbook.http` 的 Spec）
-
-以下是 2026-09-30 已确认、仍然有效的 HTTP 路由贡献合同，属于 `nbook.http` 的对外 HTTP 边缘，与远程服务无关；随 `nbook.http` 相关 Spec 的修订整体移出本文。
-
-- **声明**：清单字段为方法、路径、鉴权方式（`session`：需要登录，默认；`none`：公开，由处理函数自行校验调用方，例如 webhook 签名）、可选的输入与输出 schema。第三方插件的路径必须位于 `/api/plugins/<插件 id>/raw/` 之下；内置插件可以保留现有路径。
-- **处理函数**：Web 标准的 `(request: Request, ctx) => Response`。
-- **生命周期**：路由随所属入口激活可用，随入口停止撤回；插件禁用后已登录请求得到 503 `plugin-unavailable`，未登录请求得到 401；卸载后已登录请求得到 404。
-- **冲突**：两条路由贡献方法与路径相同时，冲突的路由全部被拒绝并报告，不按登记顺序决定谁生效；插件的其它贡献照常。
-- **验收**：示例第三方插件在 `/api/plugins/<id>/raw/hook` 声明 `none` 鉴权的路由，未登录可访问；声明在该前缀之外的路径使该条贡献被拒绝；禁用、卸载与冲突按上述结果。
-
 ## 实现合同
 
 - **包入口**：`@notnotype/nb-runtime/remote`（合同、协议、节点、路由、`orThrow` 与 `RemoteCallError`）与 `@notnotype/nb-runtime/remote/testing`（进程内链路）。模块只依赖 TypeBox 与 lifecycle、services 入口，不依赖插件宿主与应用内核，由 `remote.test.ts` 的源码守卫锁定；插件宿主经 `RemoteHostBinding`、`RemoteProviderSource` 两个接口与它相接。
@@ -227,7 +216,7 @@ Smoke：场景 1–9、15、16、18–22 由内核合同测试以真实内核实
 
 ## 证据
 
-- 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、4、5、10 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`；审查与复审见 [t51 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/)）；原插件通道合同的依据为 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P5 与 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条，被取代的部分以 ADR 0024 为准，旧宿主上的 WebSocket 升级见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；绑定、合同的提供方位置与进程间链路由开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认；调用方的客户端身份与经代理的远程调用由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认；`orThrow`、同实例直接用合同与可达表由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；`not-provided`、提供方查询与写请求从帧发出起结果未知由开发者 2026-10-08 在 [t61 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t61-kernel-catalog-failure-codes/plan.md) 中确认。本文保持 `planned`，进程间链路实现后再评估晋升。
+- 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、4、5、10 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`；审查与复审见 [t51 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/)）；原插件通道合同的依据为 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P5 与 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条，被取代的部分以 ADR 0024 为准，旧宿主上的 WebSocket 升级见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；绑定、合同的提供方位置与进程间链路由开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认；调用方的客户端身份与经代理的远程调用由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认；`orThrow`、同实例直接用合同与可达表由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；`not-provided`、提供方查询与写请求从帧发出起结果未知由开发者 2026-10-08 在 [t61 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t61-kernel-catalog-failure-codes/plan.md) 中确认；2026-10-14 本次晋升复核确认进程间链路已实现（`ipc.ts` 由 2026-10-07 的提交引入，早于本文定稿），原末节“HTTP 路由贡献”移到 [`runtime.api-docs`](api-docs.md)（见该文“证据”）。
 - 实现入口：[`remote.ts`](../../../packages/nb-runtime/src/remote/remote.ts)、[`testing/in-process.ts`](../../../packages/nb-runtime/src/remote/testing/in-process.ts)
 - 合同测试：场景 1–9 由 [`protocol.test.ts`](../../../packages/nb-runtime/src/remote/protocol.test.ts)、[`routing.test.ts`](../../../packages/nb-runtime/src/remote/routing.test.ts)、[`activation.test.ts`](../../../packages/nb-runtime/src/remote/activation.test.ts) 与 [`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts) 覆盖；场景 10–14 由 `protocol.test.ts`、[`json-codec.test.ts`](../../../packages/nb-runtime/src/remote/json-codec.test.ts) 与 `routing.test.ts` 的握手、重连、协议违规与路由停止各组覆盖；场景 15、16 由 `routing.test.ts` 的绑定、项目代次结束与提供方位置各组及 `protocol.test.ts` 覆盖；场景 17 由新应用的 `src/server/projects/manager.test.ts`、`src/server/server-projects.test.ts` 覆盖；场景 18 由 `routing.test.ts` 的“帧上自报的运行位置与客户端身份不算数”，场景 19 由 [`delegation.test.ts`](../../../packages/nb-runtime/src/remote/delegation.test.ts) 覆盖，场景 20 由 [`result.test.ts`](../../../packages/nb-runtime/src/remote/result.test.ts) 覆盖；场景 4 的 ACK 在途中断（直连与两跳）与同实例调用的门面工厂重入、场景 21 与场景 22 由 `routing.test.ts` 的“输出 4”“输出 1–3、5”“输出 11”各组覆盖，`runtime/` 前缀由 `protocol.test.ts` 的合同校验组覆盖；模块依赖方向由 [`remote.test.ts`](../../../packages/nb-runtime/src/remote/remote.test.ts) 的源码守卫锁定。
 - Smoke：[`rpc.e2e.ts`](../../../packages/neuro-book/e2e/rpc.e2e.ts)、[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)、[`storage.e2e.ts`](../../../packages/neuro-book/e2e/storage.e2e.ts)（真实 Chrome 与真实服务端、真实项目子进程）

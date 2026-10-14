@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.files-explorer
 owners:
   - files-view
@@ -13,9 +13,11 @@ owners:
 
 在 NeuroBook 主页面左侧提供基础文件管理，按文件夹类型呈现（普通文件夹、内容文件夹、活页夹，见 [workspace.folder-kinds](../workspace/folder-kinds.md)），显示项目与用户资产两个根。支持浏览、新建、打开、重命名、删除、拖动移动、多选及复制/剪切/粘贴；打开后进入真实编辑与保存链，而不止展示文件树。用起来要和本地 IDE 一样流畅，见[打开与切换](#打开与切换)的性能标准。
 
-2026-09-26 开发者确认首版意图，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定面板展示、交互、确认与反馈；实际文件写入、服务端校验和逐项结果归 [workspace.files](../workspace/files.md)。单机实现与逐条复核记录见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；`planned` 表示全合同尚未验收。2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)：全局的普通/内容节点双模式由文件夹类型取代，新增用户资产根、按需加载、乐观切换与性能标准。
+2026-09-26 开发者确认首版意图，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定面板展示、交互、确认与反馈；实际文件写入、服务端校验和逐项结果归 [workspace.files](../workspace/files.md)。2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)：全局的普通/内容节点双模式由文件夹类型取代，新增用户资产根、按需加载、乐观切换与性能标准。
 
 非目标：角色/世界书等领域模板、明细和专用操作，两个独立并排文件树，第二套内容组织数据，Git、全文搜索、远程文件系统提供者、外部插件安装/公开 SDK/动态 API/沙箱/热卸载。首版不含回收站或文件操作全局撤销；Lab 仅作辅助验证，不能替代主页面真实链路。
+
+已知限制：跨机器访问的基础操作（浏览、新建、重命名、删除、拖动、复制/剪切/粘贴）尚未在隔离的第二宿主上验证，当前验证只在本机完成；排他改名等底层文件原语在非 Windows 平台上的验证状态见 [workspace.files](../workspace/files.md) 的已知限制。
 
 ## 术语与参与者
 
@@ -214,7 +216,7 @@ owners:
 
 ## 验收与 Smoke
 
-已运行的本机证据见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；下列完整合同还要求跨机器基础操作，在未取得隔离第二宿主前不视为已验证。
+浏览、操作、拖放、UI 细节、命令化、持久化与编辑器结算均已用真实内核、真实磁盘与真实 Chrome 验证；下列完整合同还要求跨机器基础操作，在未取得隔离第二宿主前仍是已知限制（见“目标与非目标”）。
 
 1. 准备普通文件夹、带清单的 `*.content/`（展示名与真实名不同、含嵌套节点、缺少 `index.md` 的节点）与 `*.binder/`：普通文件夹显示真实名称与 `index.md`、不读任何文件内容；内容文件夹按清单显示展示名与顺序且始终能辨路径，隐藏节点的 `index.md` 并从节点行打开同一正文；剧情插件未启用时活页夹按普通文件夹显示并提示；根不提供改名/移动/删除，用户资产根默认折叠。
 2. 普通文件夹的目录单击只展开；节点行拆分展开与打开区域，无正文节点行只选择，明确创建空白正文后可编辑保存，已有正文拒绝覆盖，浏览/展开不写磁盘。
@@ -246,10 +248,19 @@ owners:
 28. Given 上一条的树，When 把 `船老大.md` 拖到 `沈屿` 与 `林晓` 之间放下，Then 放下后的一个 `--motion-base` 里 `船老大` 行带着过渡标记从原位置移到新位置；When 收起 `港务局` 后把 `老温.md` 拖到它的中段放下，Then `港务局` 行被标记闪一下；When 拖动中按 Escape，Then 拖影在过渡之后卸载、磁盘不变；When 系统设置减少动态效果，Then 以上都没有过渡标记，结果相同。
 29. Given 资源管理器，When 新建文件与把一项改名成已有的名字，Then 输入框比行矮、没有外扩阴影，原因提示贴在输入框正下方、左右与它对齐；When 点选一项再把焦点移到编辑区，Then 那一行的底色由强调色浅底换成灰底，字色回到普通字色；When 焦点回到树，Then 换回强调色（2026-10-14 修订）。
 
+## 实现合同
+
+- 公开入口：浏览器插件 `nbook.explorer`（[`explorer/plugin.ts`](../../../packages/neuro-book/src/plugins/explorer/plugin.ts)、[`explorer/web/`](../../../packages/neuro-book/src/plugins/explorer/web/)）；命令表见 `explorer/web/commands.ts`；右键菜单贡献点 `explorer.context`、剪贴板与拖动模型、持久化记录 `explorer.preferences`/`explorer.expanded`/`explorer.user-expanded` 见 `explorer/shared/contracts.ts`。
+- owner 与依赖方向：`files-view`（资源管理器呈现）依赖 `workspace-files`（`nbook.files` 客户端，[`workspace.files`](../workspace/files.md)）与 `nbook.editor` 的文档协调服务（可选依赖，[`workbench.editor`](editor.md)）；资源管理器不持有文件字节或磁盘基线，只持有树投影、选择与剪贴板意图。
+- 不变量：
+  - 剪贴板与冻结的拖动/粘贴意图不跟随改名改写地址，源被改名或移走后旧意图失效（`transfer.test.ts` 的“冻结的意图”）；
+  - 批量结果未知时复制/剪切/粘贴/拖动/删除全部不可用，直到用户明确放弃（`transfer.test.ts` 的“验收 8、15：结果未知”）；
+  - 内容文件夹内的新建、改名、拖动排序只改清单、不移动或改名文件（`actions.test.ts` 的“内容文件夹的动作只改清单或排他创建”）；
+  - 控制器活到入口停止，视图停放/重建只解绑再绑定，不丢树、选择与进行中的操作（`view-host.ts` 的寿命规则，`browse.test.ts`）。
+
 ## 证据
 
-- 批准依据：“标题动作”“行的样子”“打开作品时揭示活动文件”与验收 17–19 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节，开发者 2026-10-12 确认；开发者于 2026-09-26 在访谈后确认整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：文件夹类型取代双模式、用户资产根、按需加载、乐观切换与性能标准。2026-10-03 开发者参照 VS Code 把进度条延迟由 100 毫秒改为 800 毫秒，此前编辑区保持空白。同日确定性能标准的参考机器，桌面版不单独测（依据 [t42](../../../.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/README.md) 测量）。“新应用的插件、命令与界面”一节与验收 14–16（独立插件、具名动作命令化、两份展开记录、结果未知门禁、剪贴板不跟随改名、行高与排序入口）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t70 条目（按推荐先做，待开发者追认）。
-- 批准依据：“行的样子”与“拖动”里 2026-10-14 修订的各条、命令表新增的五条与验收 21–28 来自 [t86 的四轮评审](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
-- 合同测试：右键菜单的贡献项为组件测试 `FilesExplorerActions.dom.test.ts` 的“别的插件贡献的项”一例；打开作品时揭示活动文件为 [`explorer/browse.test.ts`](../../../packages/neuro-book/src/plugins/explorer/browse.test.ts) 的“揭示一个地址”一例（真实 Files 场地）。
-- Smoke：验收 20 为 `files-explorer.e2e.ts` 的“贡献项排在固定动作之后……”一例（测试插件 `test.menus`）；验收 17 为 [`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts) 的“打开作品时资源管理器揭示一次恢复出的活动文件”，验收 18、19 为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts) 的“项目根是作品名、标题行五个动作……”一例；[`scripts/perf/files-perf.ts`](../../../packages/neuro-book/scripts/perf/files-perf.ts)（`bun run perf:files`，验收 12 的性能标准，生产构建、参考机器的本机 Chrome）
-- 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)。主页面双窗口与 Lab 已验证，t25 完成本机合同复核并修复原生拖动等缺口；服务侧路径 move/rename 在 Windows 本机的预检后目标抢占测试已保住源与目标，完整 Windows 产品镜像构建成功。Linux/macOS、其它文件系统及跨机器基础操作仍待验证，保持 `planned`。新应用（`packages/neuro-book` 的 `nbook.explorer` 插件）的实现与验收映射见 [t70](../../../.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/README.md)：验收 1–8、10、11（浏览部分）、13 的 Lab 部分与 14–16 有真实内核、真实磁盘与真实 Chrome 的测试；9（dirty 文档）随编辑器区，12（性能）随性能 Task，跨机器未验证。
+- 批准依据：2026-09-26 开发者“可以，就这么做，收口”批准 [首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)（F1–F9）；2026-10-02 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t70 条目（独立插件、具名动作命令化、两份展开记录、结果未知门禁、剪贴板不跟随改名、行高与排序入口）；2026-10-12 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节（标题动作、行的样子、打开作品时揭示活动文件）与进度条延迟改为 800 毫秒、性能标准参考机器的确定；2026-10-14 [t86 的四轮评审](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)（2026-10-14 修订的行的样子、拖动与命令表新增五条）。
+- 实现入口：[`plugins/explorer/plugin.ts`](../../../packages/neuro-book/src/plugins/explorer/plugin.ts)、[`plugins/explorer/web/`](../../../packages/neuro-book/src/plugins/explorer/web/)
+- 合同测试：[`explorer/browse.test.ts`](../../../packages/neuro-book/src/plugins/explorer/browse.test.ts)、[`explorer/actions.test.ts`](../../../packages/neuro-book/src/plugins/explorer/actions.test.ts)、[`explorer/transfer.test.ts`](../../../packages/neuro-book/src/plugins/explorer/transfer.test.ts)、[`explorer/session.test.ts`](../../../packages/neuro-book/src/plugins/explorer/session.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)、[`explorer/web/icons/file-icons.test.ts`](../../../packages/neuro-book/src/plugins/explorer/web/icons/file-icons.test.ts)、组件测试 `FilesExplorerActions.dom.test.ts` 的“别的插件贡献的项”一例
+- Smoke：[`e2e/files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)、[`e2e/editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（验收 17）；[`scripts/perf/files-perf.ts`](../../../packages/neuro-book/scripts/perf/files-perf.ts)（`bun run perf:files`，验收 12 的性能标准，生产构建、参考机器的本机 Chrome）：最近一次测量见 t72（2026-10-10，`final-3000` 批次，18 个场景全部达标，本次晋升未重新运行）

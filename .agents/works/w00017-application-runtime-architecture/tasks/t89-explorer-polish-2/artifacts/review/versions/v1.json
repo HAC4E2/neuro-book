@@ -1,0 +1,97 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t89-explorer-polish-2",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "资源管理器打磨二",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "1187f2c1104e553d3f29d344fb6569ff3ad0eb2de87721956e9ae35b9a6f0a7f",
+    "questions": [
+        {
+            "id": "r1-input",
+            "type": "single",
+            "label": "新建与改名的输入框",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "A 现状"
+                },
+                {
+                    "value": "thin",
+                    "label": "B 行里的细框：整行铺选中底色，输入框 22px 高、6px 圆角、1px 焦点色描边，没有光环；报错是贴在输入框下面的一条浅红底、红字、红框"
+                },
+                {
+                    "value": "square",
+                    "label": "C VS Code：直角细框，不铺底色；报错同 B 但直角"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "thin"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-select",
+            "type": "single",
+            "label": "选中的样子，以及关掉文件之后",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "A 现状：一直是浅蓝底蓝字"
+                },
+                {
+                    "value": "gray",
+                    "label": "B VS Code：选中保留；焦点在树里时浅蓝底蓝字，焦点不在树里时换成灰底、普通字色"
+                },
+                {
+                    "value": "follow",
+                    "label": "C 选中跟着编辑器：焦点不在树里时不画选中"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "gray"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-hover",
+            "type": "single",
+            "label": "滚动条与标题动作只在鼠标进来时出现：用在哪里",
+            "options": [
+                {
+                    "value": "explorer",
+                    "label": "A 只用在资源管理器"
+                },
+                {
+                    "value": "views",
+                    "label": "B 用在所有视图（侧栏、右栏、面板里的视图）；编辑器正文与弹出的列表不变"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "views"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-14T11:40:39.077Z"
+}

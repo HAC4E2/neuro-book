@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t89-explorer-polish-2",
+    "artifactId": "review",
+    "answerId": "20261014T114744029Z-38fec919",
+    "artifactVersion": 1,
+    "contentHash": "1187f2c1104e553d3f29d344fb6569ff3ad0eb2de87721956e9ae35b9a6f0a7f",
+    "submittedAt": "2026-10-14T11:47:43.590Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-input": "thin",
+        "r1-select": "gray",
+        "r1-hover": "views"
+    },
+    "comments": {},
+    "note": null
+}

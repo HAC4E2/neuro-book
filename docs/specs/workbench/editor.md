@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.editor
 owners:
   - nbook.editor
@@ -233,10 +233,21 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。
 
+## 实现合同
+
+- 公开入口：命令与参数（含 `reveal`）、地址参数 `open`、`at`、公开状态键、`documentCoordinatorKey`、贡献点 `workbench.editor-area`（见“边界与兼容”）；插件定义见 [`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)。
+- owner 与依赖方向：`nbook.editor` 拥有文档、编辑组、标题动作贡献点与会话记录（`editor.session`、`editor.recent`，project/local）；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置与宿主时钟/抢救能力（[`runtime.browser-host`](../runtime/browser-host.md)）。资源管理器经 `documentCoordinatorKey` 反向依赖它（可选依赖，[`workbench.files-explorer`](files-explorer.md)），不是本插件的依赖方向。
+- 不变量：
+  - 文档在第一个标签打开时建立、最后一个标签关闭前已结算（第 4 条），关闭后丢弃（`documents.test.ts`、`area.test.ts`）；
+  - 读取结果只在目标仍存活、输入修订未前进、不 dirty、无在途保存与冲突时替换正文，否则只标记“磁盘已变化”（`documents.test.ts` 的输出 16）；
+  - 同组同种编辑器的视图状态按“文档 × 组 × 编辑器”保留到标签关闭，只淘汰非活动、无 dirty/未裁决输入/在途保存的视图状态，每组每种最多 3 份（`groups.test.ts`）；
+  - 继续写作的定位绑定到打开时记下的标签与组：切换、关闭、焦点离开编辑器区、窗口停止即取消，迟到的就绪不再移动光标与焦点（`continue-writing.test.ts`、`area.test.ts` 的“继续写作”一组）；
+  - 项目换代时旧代的文档全部作废，标签按新代重新打开，旧代的读取与保存结果不应用到新代（`area.test.ts`）。
+
 ## 证据
 
 - 批准依据：输出 35（`group` 参数与 `data-editor-group` 公开标记）来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
-- 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）；输出 32 的空态改为标志与提示，为 t79 计划第二轮第 11 节，开发者 2026-10-12 选第五轮稿 E1。
+- 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，开发者 2026-10-14 整体追认）；输出 32 的空态改为标志与提示，为 t79 计划第二轮第 11 节，开发者 2026-10-12 选第五轮稿 E1。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
 - 合同测试：编辑区标题（输出 34）为 [`editor/title-actions.test.ts`](../../../packages/neuro-book/src/plugins/editor/title-actions.test.ts)（真实命令注册表与编辑组布局：自己的与贡献的项、按后缀、resource 参数、按钮上限、菜单身份）；空编辑组的提示（输出 32）为 [`editor/empty-tips.test.ts`](../../../packages/neuro-book/src/plugins/editor/empty-tips.test.ts)（真实命令系统：筛选、按键与位置、语言）；页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)
 - Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；验收 21 与编辑区标题在 390px 下的布局为“编辑区标题”一组，测试插件 `test.menus`；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 20：欢迎页自动打开、不恢复、只开一个）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）

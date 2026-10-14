@@ -1,0 +1,139 @@
+# t15 阶段 4 第 4 批实现审查（现场三页与文档页）
+
+- 审查对象：`git diff d2dd0652f..f1daeeb81`（`b9999889e`、`1da0683b3`、`f1daeeb81`），只读审查。
+- 实验：前端清洗用 jsdom 加载 `packages/dev-panel/src/web/host/markdown.ts` 实跑；git 口径在 `/dev/shm/t15-impl-review7/` 的临时仓库里调 `CheckoutStatusCache`、`readDocTree`、`readDocDiff` 实跑。浏览器行为没有起面板，标“从代码推断”。
+- 每条格式：级别；位置；场景；实测或从代码推断；建议改法。
+
+## 发现
+
+### 1. 重要：文档里自带的 `data-nbdev-external` 能绕过清洗，产出 `javascript:` 链接
+
+- 位置：`packages/dev-panel/src/web/host/markdown.ts:83-98`（钩子只在 `src` 是 `http(s):` 时写这个属性，不清掉作者写的），`packages/dev-panel/src/web/host/markdown.ts:112-140`（`replaceExternalImages` 在 DOMPurify 之后运行，按属性值拼 `href`，不再过清洗）。
+- 场景：Agent 写的文档里有一行原始 HTML `<img data-nbdev-external="javascript:alert(1)" alt="x">`。DOMPurify 默认放行 `data-*`；`src` 为空，钩子走仓库路径那一支，不碰这个属性；之后 `replaceExternalImages` 选中它，生成 `<a href="javascript:alert(1)" target="_blank" class="nbdev-external-image">外站图片：x（）</a>`。同样能放任意 `href` 冒充“外站图片”。面板 CSP 的 `script-src 'self'` 大概率拦下 `javascript:` 的执行，但这是清洗器的旁路，安全只剩 CSP 一层；`markdown.ts` 开头写明文档是 Agent 写的、要当不可信内容。另外这一步把 DOMPurify 的输出再解析、再序列化一轮，v-html 又解析一次，多出一轮“序列化后重新解析”，不在 DOMPurify 的保证范围里。
+- 依据：实测（jsdom 下调用 `renderMarkdown`，上面的输出原样得到；`<img src="./a.png" data-nbdev-external="javascript:…">` 同样）。浏览器里是否执行未实测。
+- 建议改法：
+  - 作者写的这个属性一律不认：把 `data-nbdev-external` 加进 `FORBID_ATTR`（属性过滤在 `afterSanitizeAttributes` 之前，钩子之后再写的不受影响），或在钩子开头对每个 `IMG` 先 `removeAttribute`；
+  - 替换时只接受 `new URL(src).protocol` 是 `http:` 或 `https:` 的值；
+  - 替换改在同一棵已清洗的 DOM 上做：`DOMPurify.sanitize(html, {…, RETURN_DOM_FRAGMENT: true})`，改完序列化一次，不再 `innerHTML` 往返；
+  - 给 `renderMarkdown` 补一个前端单测，钉住“外站图片换成链接、链接里的换成文字、伪造的标记属性不生效、`data:` 与 `.agents/works/` 图片照旧”。
+
+### 2. 重要：checkout 页点“分支”“HEAD”复制，同时整行跳走
+
+- 位置：`packages/dev-panel/src/web/pages/CheckoutsPage.vue:119-120`（分支、HEAD 两格的 `TruncatedText` 是复制按钮，缺省 `copyable: true`），`packages/dev-panel/src/web/pages/CheckoutsPage.vue:110`（`row-click`）；nb-ui `Table` 在 `<tr>` 上无条件发 `row-click`（`packages/nb-ui/src/components/display/Table.vue:101`）。
+- 场景：点分支名或 HEAD 想复制（提示写“点击复制”），`TruncatedText` 的 `copy` 不阻止冒泡，`<tr>` 的点击发 `row-click`，`onRowClick` 直接 `router.push` 去 Task 或文档页；复制结果的提示还没看到页面就换了。“路径”一格加了 `@click.stop`，这两格漏了。验收脚本只点了行里的空白处，没覆盖。
+- 依据：从代码推断。
+- 建议改法：分支、HEAD 两格与路径一格一样包一层 `@click.stop`；更稳的是 `onRowClick` 不靠各格自觉，改在表格外层监听点击，`event.target.closest("a, button, [role=button]")` 命中时不跳（顺带解决第 8 条的修饰键与选中文字）。
+
+### 3. 重要：带 `?focus=` 时每次重取都把那一行重新滚到正中
+
+- 位置：`packages/dev-panel/src/web/pages/CheckoutsPage.vue:95-99`。
+- 场景：watch 的来源是 `[focusKey, checkouts.data]`，`useResource` 每次重取都给 `data` 换新对象（`packages/dev-panel/src/web/host/panel-data.ts:230`），而这一页每 10 秒自己重取一次，`records`、`activity` 推送也重取。于是从“在跑”页点进来之后，网址里一直带着 `focus`，每 10 秒左右页面被拉回那一行：
+  - 点“改 N · 新 M”展开文件清单（`setQuery` 保留 `focus`），清单在表格下面，滚下去看到一半又被拉回；
+  - 390 宽时表格在 `overflow-x-auto` 里横向滚动，`scrollIntoView` 也会把横向位置拉回第一列。
+  表格短、整页不滚时看不出来（验收截图就是这种情况）。
+- 依据：从代码推断。
+- 建议改法：只在 `focus` 变化后第一次拿到数据时滚一次（记下已经滚过的 key，或用 `watch` 加 `once` 的写法），之后的重取不再滚；框可以照旧留着。
+
+### 4. 重要：文档页用下拉切 checkout 会丢掉 `prefer` 与正在看的文档（计划外的行为回退）
+
+- 位置：`packages/dev-panel/src/web/pages/DocsPage.vue:84-86`（`switchCheckout` 只留 `checkout` 与 `changed`），`packages/dev-panel/src/web/pages/DocsPage.vue:94`、`97`。
+- 场景：
+  - 改动前下拉走 `go({checkout: key})`，合并现有查询，`path`、`prefer` 都留着：从 Task 页进来（带 `prefer`），在几个候选 checkout 之间切换比较同一份文档；
+  - 现在切一次，`prefer` 没了，`CheckoutSwitch` 里“这个 Task”的候选标记与排序随之消失；正在看的文档也没了，要回树里重新找；
+  - 同一页上“别的分支也改了它”的按钮仍走 `go({checkout: key})`，保留 `path`（与 `view`），两种切法行为不一致；
+  - 计划、`docs/panel.md`、提交说明都没提这处变化。
+- 依据：从代码推断（对照 diff 前后的写法）。
+- 建议改法：`switchCheckout` 至少保留 `prefer` 与 `path`；`path` 在新 checkout 里不存在时已有 404 与“回到文档树”的去处。只需要清掉 `view`（新 checkout 上这份文档不一定在差异里；不在时 `showDiff` 本来也会退回渲染，清不清都行）。如果确实要换文档，写进 `docs/panel.md` 的文档页一行。
+
+### 5. 建议：树上标“改动”、差异却是空的两种情形
+
+- 位置：`packages/dev-panel/src/core/docs.ts:115-124`（树的口径：工作区未提交的状态优先，否则 `master...HEAD`），`packages/dev-panel/src/core/docs.ts:184-190`（差异的口径：合并基点到工作区；只有 `added` 才对空差异补整份）。
+- 场景（临时仓库里造出，差异接口都回 `text: ""`，页面显示“没有差异”）：
+  - 分支提交过对 `docs/c.md` 的改动，之后在工作区里改回合并基点的内容、没提交：未提交状态是 `M`，树标“改动”，合并基点到工作区其实没有差别；
+  - 分支工作区里有一份未跟踪的 `docs/later.md`，master 在分支分出之后也加了同名文件：树按“master 也有”标“改动”，`git diff <合并基点>` 不列未跟踪文件，差异为空，而两边内容不同。
+  两种都少见，前一种在 Agent 撤回自己改动时会出现。
+- 依据：实测（`/dev/shm/t15-impl-review7/` 的临时仓库，调用 `readDocTree` 与 `readDocDiff`）。
+- 建议改法：让树和差异用同一个基线算：树的“改动”改由 `git diff --name-status <合并基点> -- <范围>` 加未跟踪清单得出（与差异接口完全同源）；或者至少在 `readDocDiff` 里，未跟踪文件不论类型都用整份内容出差异（`modified` 时与 master 那一份比）。改不了的话，页面在“改动”且差异为空时写清楚原因，不只写“没有差异”。
+
+### 6. 建议：文档页的差异视图是 20rem 高、不折行的小框
+
+- 位置：`packages/dev-panel/src/web/pages/DocsPage.vue:120` 用 `DiffView`，`packages/dev-panel/src/web/parts/DiffView.vue:14`（`max-h-80 overflow-auto`、`whitespace-pre`）。
+- 场景：`DiffView` 原本是编辑页里的预览块；在文档页它就是正文。整份删去或“master 才有”的长文档挤在 320px 高的框里自己滚，Markdown 的长段落一行到底，要横向拖动才看得到后半句（`final/b4-docs-diff-1440-light.png` 里每行都被截在右边，框下面空着半屏）。`docs/panel.md` 的“滚动”一节允许差异这类预览块自己滚，但也写了“页面的主体不再套第二层竖向滚动”。
+- 依据：实测（看验收截图）。
+- 建议改法：给 `DiffView` 加一个 prop（例如 `fill` 或 `wrap`），文档页里不限高、按行折行（`whitespace-pre-wrap`、`break-words`），由页面的滚动者滚；同步 `DiffView.md`。
+
+### 7. 建议：`srcset`、`<picture><source>` 里的外站图片没有换掉
+
+- 位置：`packages/dev-panel/src/web/host/markdown.ts:83-98`。
+- 场景：钩子只看 `img` 的 `src`。`<img src="data:…" srcset="https://…/a.png 2x">` 原样留下 `srcset`；`<picture><source srcset="https://…">` 的 `source` 原样留下。GitHub 风格的 README 常用 `<picture>` 给明暗两套 logo。这些仍被 CSP 拦下（不会把请求发出去），只是控制台照旧报 CSP 错误、图片空着，与这一批“换成链接、控制台不报错”的目标不一致。
+- 依据：实测（jsdom 下 `renderMarkdown` 的输出）。
+- 建议改法：在钩子里对 `IMG` 去掉 `srcset`（或只留同源的项），对 `SOURCE` 去掉含 `http(s):` 的 `srcset`；`<picture>` 里的 `img` 已经会被换成链接。`svg` 的 `<image href>`、`video` 的 `poster` 少见，可以不管。
+
+### 8. 建议：整行点击不看修饰键，拖选文字也会跳
+
+- 位置：`packages/dev-panel/src/web/pages/CheckoutsPage.vue:77-79`（`onRowClick` 只拿到行，拿不到事件）。
+- 场景：
+  - 在行里非链接处 Ctrl 或 ⌘ 加点：本页直接跳走，没有开新标签页（第一格的真链接正常，验收只验了第一格）；
+  - 在行里拖动选中分支名、路径想手动复制：松开鼠标时发 `click`，页面跳走。
+- 依据：从代码推断。
+- 建议改法：与第 2 条一起改成在表格外层自己监听点击：带修饰键时 `window.open(href, "_blank", "noopener")` 或干脆不处理；`window.getSelection()?.toString()` 非空时不跳。
+
+### 9. 建议：限时的测试名写“不拖住别的”，测的只有一个 checkout
+
+- 位置：`packages/dev-panel/tests/panel-live.test.ts:702-710`。
+- 场景：用例给整个 `CheckoutStatusCache` 1 毫秒的限时，只放一个 checkout，断言它 `timedOut`；再用缺省限时另建一个缓存断言能算出来。验收要点是“每个 checkout 各自超时”，这里没有一个慢的与一个正常的同时出现，也没量整次调用的耗时，“不拖住别的”没被测到。
+- 依据：从代码推断。
+- 建议改法：两个 checkout 一起算，其中一个慢、一个正常，断言正常的有计数、慢的 `timedOut`、整次耗时不超过限时加余量。造慢 checkout 的两种办法：
+  - 测试里把 `PATH` 指到一个 `git` 替身，对某个 root 用 `exec sleep`；
+  - 给那个 checkout 配 `core.fsmonitor` 指向一个会 sleep 的脚本。
+  用后一种会测出一件事：`runGit` 只 SIGKILL git 本身，git 派生的子进程（fsmonitor 钩子、子模块的 status）继承了 stderr 管道，Node 的 `close` 要等它们结束，限时就不生效。我在临时仓库里实测过：限时 1 秒、钩子 sleep 6 秒，`runGit` 6 秒后才回，`timedOut: true`。本仓库没有子模块，也没开 fsmonitor，所以这里不单列成问题；要防的话，`spawn` 加 `detached: true`，到点 `process.kill(-pid, "SIGKILL")` 结束整个进程组。
+
+### 10. 建议：“目录名认出 Task”的判据复制了一份
+
+- 位置：`packages/dev-panel/src/server/live-views.ts:221-230`（`tasksOf`），原规则在 `packages/dev-panel/src/core/checkouts.ts:76`（`resolveTaskExecution` 的第 2 条）。
+- 场景：两处各自拼 `${workId.slice(0, 6)}-${taskId.slice(0, taskId.indexOf("-"))}-`，注释也写了“同一个判据”。以后改其中一处（例如允许别的分隔），checkout 页和 Task 页的执行 checkout 候选就会对不上。
+- 依据：从代码推断。
+- 建议改法：在 `core/checkouts.ts` 导出一个 `taskCheckoutPrefix(workId, taskId)`（或 `checkoutNamedFor(root, workId, taskId)`），两处共用。
+
+## 核实过、没有问题的地方
+
+- 未跟踪计数与文件清单的口径（实测，临时仓库）：
+  - `.gitignore` 里的文件、只含被忽略文件的目录、空目录都不算；
+  - 未跟踪目录算一条、带末尾 `/`；
+  - 同一文件暂存区和工作区都有改动（`MM`）时，“已暂存”“工作区改动”两段都列，`tracked` 只算一条；
+  - 暂存的改名因为 `--no-renames` 记成删去与新增两条，与文档树的口径一致。
+- 限时（从代码推断，第 9 条实测了一种例外）：
+  - 到点 SIGKILL git；读操作带 `--no-optional-locks`，不会留下 `index.lock`；
+  - 计时器在 `close` 与 `error` 两处都清掉；status 与 rev-list 各有一个计时器；
+  - 4 路并行，一个 checkout 超时最多占一路 3 秒；超时的结果按 10 秒缓存，下一轮再算。
+- 重算频率：推送只在显示用到的字段变了才增 revision；`/api/checkouts` 服务端每个 checkout 缓存 10 秒；文件清单不缓存，只在展开时随 10 秒重取与推送取。真实仓库上一次 `status -unormal` 是几十毫秒，开销可以接受。
+- 参数校验：
+  - `:key` 只按登记表查，不认识的与 prunable 的都回 404；
+  - `path` 先过白名单（文档树、差异、记录里的文档之并），git 的路径放在 `--` 之后，环境带 `GIT_LITERAL_PATHSPECS=1`，读文件经 `guardedFile`；测试覆盖了 `../outside.md` 与非文档路径的 404；
+  - 新接口只返回仓库相对路径与提交号。git 失败时错误的 `details` 带绝对路径，这是既有做法，不是这一批新加的。
+- 合并基点：分离 HEAD 照常能算；没有共同祖先时 `merge-base` 失败，但同一请求里文档树的 `master...HEAD` 会先失败，两边一致；主工作区的 `change` 一律为 null，页面不给切换。
+- 删去、master 才有、改名的处理与文档树一致（两边都 `--no-renames`）；文档只认 `.md`，不涉及二进制；超大文档没有上限，与 `/api/docs/file` 一样。
+- 差异渲染：`DiffView` 用文字插值，没有 `v-html`，差异文本里的 HTML 不会生效。
+- CSP：`packages/dev-panel/src/server/serve.ts` 的 `img-src` 没有改。
+- 外站图片：
+  - 套在链接里的徽章换成文字，外层链接仍可点、没有链接套链接；
+  - 引用式图片 `![x][ref]` 同样换掉；
+  - 仓库内图片的行为没变：相对路径照旧去掉 `src`，`.agents/works/` 下的照旧改写到产物来源（实测）。
+- 页面：
+  - 改查询参数不重建页面：`pageKey` 只看路由名与 params（`packages/dev-panel/src/web/App.vue:415`），焦点也只在 `pageKey` 变化时移动（`App.vue:269-270`），这一批没有自己移焦点；
+  - `?files=`、`?view=`、`?changed=` 的非法值都退回缺省；`files`、`view`、`changed` 用 replace，`path` 与 `focus` 用 push，后退行为合理；
+  - Drawer 是 reka-ui 的对话框：打开时焦点进抽屉，关上回到“文档树”按钮；选了文档就关上（从代码推断，验收脚本验了关上）；
+  - 新的滚动容器都带 `relative`；
+  - 警告色在明暗两套截图里都清楚，每种状态都有文字（“落后 N”“改 N · 新 M”、服务名），行首的点另有读屏文字。
+- 禁止清单：
+  - 没有按错误文案做分支；
+  - 新的 `catch` 都按错误类型或错误码分支，意外的照旧抛出；
+  - nb-ui 只经包名导入，没有跨包深导入；
+  - “执行 worktree 于”一列并进“它的 Task 与 Work”是计划内的，没有删无关代码或注释；
+  - 没有不可达代码；
+  - 注释大多写的是原因与约束。
+
+## 结论
+
+- 阻断 0 条，重要 4 条（第 1 到 4 条），建议 6 条（第 5 到 10 条）。
+- 没有阻断。建议先修 4 条重要再合入：改动都小，第 1 条要补一个前端单测；修完复核这 4 处即可，建议项可以随后处理。

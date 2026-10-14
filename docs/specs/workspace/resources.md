@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workspace.resources
 owners:
   - workspace-files
@@ -13,7 +13,7 @@ owners:
 
 用 `方案://路径` 统一寻址项目、用户资产、临时目录、Agent 会话工作目录与参考文档等资源。文件服务按方案把请求分派给提供者，提供者声明自己的能力；读写、列出、glob、grep、监视都经文件服务，写入记录来源并发出变更事件。资源管理器、编辑器、Agent 文件工具与 History 等插件都是它的使用方。
 
-实现顺序：Files 竖切（[v2 重建](../../proposals/neuro-book-v2-rebuild.md)推进顺序第 6 条）实现 `project://` 与 `user://` 两个真实目录型提供者的读、条件保存、列出与监视；其余方案、插件注册新方案的接口与虚拟提供者、glob 与 grep 随各自的第一个使用方实现（见下表“说明”一列）。
+实现顺序：Files 竖切（[v2 重建](../../proposals/neuro-book-v2-rebuild.md)推进顺序第 6 条）已实现 `project://` 与 `user://` 两个真实目录型提供者的读、条件保存、列出与监视（见“实现合同”“证据”）；其余方案、插件注册新方案的接口、glob 与 grep 仍是 `(planned)`，随各自的第一个使用方实现（见下表“说明”一列与下文各处 `(planned)` 标注）。
 
 非目标：远程文件系统提供者；全文索引与搜索服务；回收站与文件操作撤销；普通文件的稳定身份与引用维护（只有活页夹章节有稳定身份，见 [workspace.folder-kinds](folder-kinds.md)）；`chapter://`、`plot://` 的具体提供者（随剧情改造另定）。
 
@@ -38,39 +38,39 @@ owners:
   | 方案 | 根 | 类型 | 说明 |
   |---|---|---|---|
   | `project://` | 调用方绑定的项目的目录 | 真实目录型 | 由项目实例提供；客户端经 `project` 目标访问自己绑定的项目代次，不依赖“当前项目”状态 |
-  | `projects://` | 已登记项目的列表，`projects://<短名>/路径` 指向该项目目录下的资源 | 虚拟列表，项目内为真实目录型 | 供 Agent 跨项目使用；harness 在需要真实路径处替换为项目目录的绝对路径；随 nb-harness 实现 |
+  | `projects://`（planned） | 已登记项目的列表，`projects://<短名>/路径` 指向该项目目录下的资源 | 虚拟列表，项目内为真实目录型 | 供 Agent 跨项目使用；harness 在需要真实路径处替换为项目目录的绝对路径；缺口：`nb-harness` 还没有这个方案的提供者 |
   | `user://` | 状态根下的 `user/`（不存在时创建） | 真实目录型 | 跨项目共享；由服务端实例提供 |
-  | `tmp://` | 按系统映射的临时目录 | 真实目录型 | 使用方是 Agent 文件工具，随 nb-harness 实现 |
-  | `local://` | Agent 会话的工作目录 | 真实目录型 | 只在 Agent 会话上下文中有效；随 nb-harness 实现 |
-  | `docs://` | 产品参考文档目录 | 真实目录型，只读 | 随 nb-harness 实现 |
+  | `tmp://`（planned） | 按系统映射的临时目录 | 真实目录型 | 使用方是 Agent 文件工具；缺口：`nb-harness` 还没有这个方案的提供者 |
+  | `local://`（planned） | Agent 会话的工作目录 | 真实目录型 | 只在 Agent 会话上下文中有效；缺口：`nb-harness` 还没有这个方案的提供者 |
+  | `docs://`（planned） | 产品参考文档目录 | 真实目录型，只读 | 缺口：`nb-harness` 还没有这个方案的提供者 |
 
-- 插件可以注册新方案；同一方案只能有一个提供者，重复注册被拒绝。注册接口随第一个插件方案（剧情插件的 `plot://`）实现。
+- 插件可以注册新方案（planned：缺口是注册接口本身，全仓库还没有 `registerScheme`/`registerProvider` 一类入口，随第一个插件方案——剧情插件的 `plot://`——实现）；同一方案只能有一个提供者，重复注册被拒绝。
 - 访问 `project://` 需要有效的项目绑定（见 [workspace.files](files.md)）；绑定的项目代次结束时请求失败，不回退到其它根、不改投新代次。
 
 ## 输出与可观察行为
 
 **能力矩阵：** 每个操作只在提供者声明了对应能力时可用，否则返回“能力不支持”，不静默降级。
 
-glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../proposals/project-file-foundation.md#后续重构不在本次)）：本表虚拟提供者一列的写法在讨论结论前不实施。
+glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../proposals/project-file-foundation.md#后续重构不在本次)）：本表虚拟提供者一列的写法在讨论结论前不实施；glob、grep 与真实路径上的 bash 工具（planned）两行在真实目录型一列写的也是目标行为，缺口是 `nb-harness` 还没有 glob、grep、bash 三个工具（只有 `read`、`edit`），不是文件服务这一层缺方法。
 
 | 操作 | 真实目录型 | 虚拟提供者 |
 |---|---|---|
 | 读 | 返回内容与磁盘基线 | 返回实体的文本呈现 |
 | 写 | 经文件服务写入并记录来源 | 只接受结构化写入（专用工具或命令），不接受改文本后解析回写 |
 | 列出 | 返回一层目录项 | 由提供者枚举 |
-| glob | 支持 | 由提供者枚举后匹配 |
-| grep | 支持，可直接在真实路径上运行 | 由提供者实现，或声明不支持 |
+| glob（planned） | 支持 | 由提供者枚举后匹配 |
+| grep（planned） | 支持，可直接在真实路径上运行 | 由提供者实现，或声明不支持 |
 | 监视 | 文件监视 | 提供者自行发出事件 |
-| 真实路径（bash） | 可解析为真实路径 | 不可，见下 |
+| 真实路径（bash，planned） | 可解析为真实路径 | 不可，见下 |
 
-- **bash：** Agent 的 bash 工具只接受能解析为真实路径的方案，工作目录为 `local://`。对虚拟方案返回明确错误，提示改用读写工具；需要时可导出只读快照到 `tmp://`。
+- **bash（planned）：** Agent 的 bash 工具只接受能解析为真实路径的方案，工作目录为 `local://`。对虚拟方案返回明确错误，提示改用读写工具；需要时可导出只读快照到 `tmp://`。缺口：`nb-harness` 还没有 bash 工具。
 - **写入来源：** 每次经文件服务成功写入都带来源；bash 等绕过文件服务的写入由文件监视发现，来源记为外部，能按会话工作目录确定会话时记为该会话。来源按调用方身份确定：
 
   | 调用方 | 来源 |
   |---|---|
   | 窗口（浏览器、TUI）里的插件 | `{kind: "user", plugin}`（写作者） |
   | 服务端、项目实例里的插件 | `{kind: "system", plugin}` |
-  | Agent 会话 | `{kind: "agent", session}`，随 nb-harness 实现 |
+  | Agent 会话（planned） | `{kind: "agent", session}`；缺口：这个来源类型由 `nb-harness` 的 Agent 身份签发，`nb-harness` 还没有把会话身份接到文件服务的调用方身份上 |
   | 文件监视发现的变化 | `{kind: "external"}` |
 
   调用方身份证明的是哪个入口执行，不是谁发起：窗口里的插件替远程命令（例如 Agent 经命令系统触发的命令）执行的写入，在发起者沿命令调用链传到执行边界之前也记为写作者。
@@ -121,7 +121,7 @@ glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../pro
   | `io-failed` | 其它读写失败 | 可重试 |
 
   失败详情用资源地址描述，不带服务端绝对路径。路由层的失败（不可达、项目代次结束、写请求结果未知等）按 [远程服务](../runtime/plugin-channel.md) 原样交给调用方，不转成空结果。
-- 只读方案（`docs://`）拒绝写入；`user://` 对 Agent 默认只读，写入需 Profile 显式授权，未授权时拒绝而不是降级为其它根。
+- （planned）只读方案（`docs://`）拒绝写入；`user://` 对 Agent 默认只读，写入需 Profile 显式授权，未授权时拒绝而不是降级为其它根；缺口：`docs://` 本身未实现，Agent 的身份与 Profile 授权检查都随 `nb-harness` 实现。
 - 提供者异常不影响其它方案；监视中断时通知订阅方失同步，恢复后由订阅方重新核对。
 
 ## 边界与兼容
@@ -129,18 +129,30 @@ glob 与 grep 的能力模型待讨论（见[设计稿的后续讨论](../../pro
 - owner：workspace-files（文件服务与首批提供者，内置插件 `nbook.files`）。真实目录型提供者的根访问按 [platform.files](../platform/files.md) 的包含、链接与身份规则实现，由 `nbook.files` 自己的受根约束原语提供；独立的平台文件插件随第二个使用方出现。
 - 文件操作的语义（批量、冲突、逐项结果）沿 [workspace.files](files.md)；文件夹类型与清单沿 [workspace.folder-kinds](folder-kinds.md)。
 - 提供者注册与能力声明是插件接口，遵守 [插件公开 API](../runtime/plugin-api.md) 的远程形态约束；浏览器经 [远程服务](../runtime/plugin-channel.md) 调用。
-- Agent 文件工具（读、写、列出、glob、grep、bash）的入参改为资源地址；旧的路径参数随该切片迁移。
+- Agent 文件工具的入参改为资源地址，旧的路径参数随该切片迁移；`nb-harness` 目前只有 `read`、`edit` 两个工具，列出、glob、grep、bash 四个工具仍是 `(planned)`。
 
 ## 验收与 Smoke
 
-1. 对 `project://`、`user://`、`tmp://`、`local://`、`docs://` 分别读、列出、glob、grep；`docs://` 写入被拒；未注册的方案返回“方案不存在”。
+1. （planned，依赖 `tmp://`、`local://`、`docs://` 三个方案与 glob、grep）对 `project://`、`user://`、`tmp://`、`local://`、`docs://` 分别读、列出、glob、grep；`docs://` 写入被拒；未注册的方案返回“方案不存在”。
 2. 写作者、Agent 会话、系统分别写入同一 Project，订阅方收到的变更事件带正确来源；调用方无法冒充其它来源。
 3. Agent 用 bash 在 `local://` 修改 `project://` 下的文件：文件监视发出事件，来源为外部或按工作目录确定的会话。
-4. 一个测试插件注册虚拟方案，只声明读与列出：读、列出可用；写、grep 返回“能力不支持”；bash 返回明确错误。重复注册同一方案被拒；插件关闭后方案不可用。
+4. （planned，依赖插件注册新方案的接口）一个测试插件注册虚拟方案，只声明读与列出：读、列出可用；写、grep 返回“能力不支持”；bash 返回明确错误。重复注册同一方案被拒；插件关闭后方案不可用。
 5. 经文件服务改名产生带新旧地址的改名事件，目录改名覆盖其后代；外部改名产生旧地址删除、新地址修改。经文件服务的新建、移动、复制、删除各只产生自己的精确事件，没有外部来源的回声；之后外部替换同名目录或修改移入的文件仍以外部来源发出。
 6. 绑定的项目代次结束后，`project://` 的请求失败、订阅结束，迟到结果不投递；窗口重新加载后 `project://` 指向新绑定的项目。
 7. 列出 3000 个文件的项目根与任意一层目录，不读取文件内容（以读取计数或文件访问记录核对）。
 
+## 实现合同
+
+- 公开入口：`files/shared/resource.ts`（`parseResource`、`Resource`、`Scheme`、`SCHEMES`）；写入来源与变更事件经 `files/shared/contracts.ts` 的事件 schema。
+- owner 与依赖方向：`workspace-files`（内置插件 `nbook.files`）；真实目录型提供者的根访问按 [`platform.files`](../platform/files.md) 的包含、链接与身份规则，由 `nbook.files` 自己的受根约束原语提供（尚无独立的平台文件插件，随第二个使用方出现）。
+- 不变量：
+  - 调用方不能自称来源，来源完全由提供者按内核签发的调用方身份确定（`changes.test.ts` 的“写入来源：按调用方身份”）；
+  - 文件服务自己写入的回声按真实路径的预期状态判定、不重复以外部来源发出（`changes.test.ts` 的“自己写入的回声”）；
+  - 监视器报错、事件队列溢出或断线重连都推“失同步”而不是静默丢事件（`changes.test.ts` 的“订阅：共享、释放与失同步”）。
+
 ## 证据
 
-- 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 1、3、8 节。实现顺序、来源按调用方身份、外部事件只分修改与删除、根访问由 `nbook.files` 提供：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。文件操作的失败码与事件前缀规则：同一清单 2026-10-09 的 t69 条目（按推荐先做，待开发者追认）。 `project://` 按客户端绑定解析、`projects://` 与路径可见性：依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、9 节（2026-10-07 `accepted`）与开发者 2026-10-07 在 [w00017 t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认；提供者随 Files 竖切与 nb-harness 实现。
+- 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 1、3、8 节；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（实现顺序、来源按调用方身份、外部事件只分修改与删除、根访问由 `nbook.files` 提供）与 t69 条目（文件操作的失败码与事件前缀规则）；[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、9 节（2026-10-07 `accepted`）与开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认（`project://` 按客户端绑定解析、`projects://` 与路径可见性）；2026-10-14 本次晋升复核：glob、grep、bash、`tmp://`/`local://`/`docs://`/`projects://`、插件注册新方案的接口标 `(planned)`。
+- 实现入口：[`plugins/files/shared/resource.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.ts)、[`plugins/files/backend/changes.ts`](../../../packages/neuro-book/src/plugins/files/backend/changes.ts)
+- 合同测试：[`files/shared/resource.test.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)
+- Smoke：不适用——没有独立 e2e，经 [`workspace.files`](files.md)、[`workbench.files-explorer`](../workbench/files-explorer.md) 的 e2e 间接覆盖资源读写部分

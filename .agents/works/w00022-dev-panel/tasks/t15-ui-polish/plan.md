@@ -736,6 +736,82 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
 
 列表与详情两栏、选中高亮；终端定高、输入区在一屏内；Ctrl+Enter 发送；接管时模式条变色、`Ctrl+]` 释放（假 Claude 与 omp 各一次）；非 Agent 的 pane 能只读观看、全屏程序不给往回翻、`takeover` 被拒且审计里没有记录；标题显示与来源；手机上列表到详情两步、后退回列表；明暗、390、1280、1440。
 
+### 第 4 批：现场三页与文档页（2026-10-14 细化）
+
+出处：design.md 阶段 4 的“现场三页”“文档页”；分批表第 4 批（未跟踪计数与 `/api/checkouts/:key/files`、`/api/docs/diff`，验收要点“每个 checkout 各自超时”“差异与文档树同口径”）；“要改服务端的几处”里后两行；终稿第 12 条；后续清单 10-14 的“分支、worktree、开发服务一一对应”，推迟事项“文档页外站图片被 CSP 拦下”。
+
+#### 已查
+
+- 未跟踪扫描的耗时：在真实仓库的 6 个 checkout 上只读地量了 `git status --porcelain=v1 -unormal`，32 到 63 毫秒（`-uno` 是 7 毫秒）；冷的那个两种都要 0.5 秒。开销可以接受，但每个 checkout 仍要各自限时。
+- 文档树的“改动”口径（`readDocTree`）：checkout 里有的文件，看工作区未提交改动，没有再看 `master...HEAD`（三点 diff）。`A` 记新增，master 也有的记改动，`M`、`D` 记改动。master 有、这里没有的：分支删的记删去，否则记“master 才有”。
+- 文档页现在“只看有差异的”是页面状态，刷新就丢；删去与“master 才有”的条目在树里不能点（`/api/docs/file` 只认这个 checkout 的文档树，打开会 404）。
+- 外站图片：面板页的 CSP 是 `img-src 'self' data: <产物来源>`，Markdown 里 `https:` 的图片原样留着，被拦下、控制台报错。产物页的 iframe 由产物来源返回自己的 CSP（`sandbox …`），与面板页的 CSP 互不影响。
+- 分支、worktree、开发服务的关系：Git 本身保证一个分支只检出在一个 worktree 上；开发服务按（checkout、package、script）登记与复用，同一个 checkout 可以有几个（例如面板与应用各一个）。checkout 页已有“在跑”一列；“在跑”页的服务只写 checkout 的目录名。
+
+#### 改动
+
+1. **服务端：checkout 的未提交分两个数，每个 checkout 各自限时，加文件清单接口**。
+   - `CheckoutStatus` 的 `dirty` 换成 `tracked`（已跟踪的改动，含暂存）与 `untracked`（`-unormal`，未跟踪的目录算一条）；
+   - 每个 checkout 的 git 调用限时 3 秒：`runGit` 加 `timeoutMs`，到点 SIGKILL，结果标 `timedOut`；超时的 checkout 给 `timedOut: true`、计数为 null（页面写“没算完”），不拖住整页，同样缓存 10 秒；
+   - 新接口 `GET /api/checkouts/:key/files`：`git status --porcelain=v1 -z -unormal` 分成暂存、工作区、未跟踪三段，每段最多 300 条（`truncated`）；同样限时、只读（`--no-optional-locks`）、不缓存；key 不认识 404。
+   - `docs/panel.md` 接口表与“现场”一节同步；`panel-live` 的 checkout 用例补未跟踪、文件清单与超时（超时用注入的极短限时与一个慢的 git 替身，或在测试里直接调 `CheckoutStatusCache` 给小的限时）。
+2. **服务端：`GET /api/docs/diff?checkout=&path=`**，与文档树同口径（终稿第 12 条）：
+   - 先算这个 checkout 的文档树（同一个 `readDocTree`），在 `changes` 里找这个路径，按它的类型出差异：
+     - 新增、改动：`git diff <合并基点>` 加 `-- <路径>`，比的是工作区，含未提交；
+     - 未跟踪的新文件：`git diff` 不列，整份当新增，由服务端拼成统一差异；
+     - 删去：同第一条，`git diff <合并基点> -- <路径>` 出整份删除；
+     - master 才有：`git show master:<路径>` 整份当新增，写明“分支分出之后 master 新增的”；
+     - 不在 `changes` 里：回 `change: null`、空差异。
+   - 合并基点是 `git merge-base master HEAD`，随回应给出它的短号；
+   - 主工作区回 `change: null`；
+   - 白名单：这个 checkout 的文档树、它的 `changes`、记录里的文档三者之并，其余 404；路径照常过现有的守卫，git 参数用 `--` 隔开路径，只读调用都带 `--no-optional-locks`；
+   - 测试：在 fixture 里造出四种改动，逐个断言“树里标什么，差异接口就回什么类型、差异非空”，没改的回 null。
+3. **checkout 页**：
+   - 整行可点：第一格是真链接（键盘与中键照常），点行里别处也跳（nb-ui `Table` 的 `row-click`，点到行里的链接、按钮时不重复跳）。去哪：是某个 Task 的 `home` 或执行 worktree 时去那个 Task（有几个时取第一个，其余在格子里列出），否则去这个 checkout 的文档页；
+   - 需要注意的状态用同一种颜色（警告色）：落后 master、有未提交（已跟踪或未跟踪）、有服务在跑；行首加一个同色的点，读屏写“需要注意：落后 3、未跟踪 2、1 个服务在跑”；
+   - “未提交”一格写“改 N · 新 M”，是个按钮：点了在表格下面展开这个 checkout 的文件清单（暂存、工作区、未跟踪三段），网址带 `?files=<key>`，刷新还在；关闭按钮清掉；
+   - 超时的写“没算完”（灰色，悬停说明）；
+   - 一个 checkout 上有两个以上服务在跑时，“在跑”一格多一行提示“这个 checkout 上有 N 个服务”（只显示，见下面的“一一对应”）。
+4. **“在跑”页**：经 nbdev 起的服务写 checkout 的 key 与分支，链到 checkout 页（`/live/checkouts?files=` 不带，只带 `#` 锚到那一行）；会话派出的运行沿用第 3 批的 pane 链接。
+5. **文档页**：
+   - 不是主工作区、这份文档在差异里时，页头给“渲染 / 与 master 的差异”切换（nb-ui `SegmentedControl`），网址 `?view=diff`；差异用现有的 `DiffView`，上面一行写基线（“合并基点 abc1234 → 工作区，含未提交”，master 才有的写“分支分出之后 master 新增的”）；
+   - 删去与“master 才有”的条目在树里能点，直接进差异视图（这两种没有可渲染的文件）；
+   - “只看有差异的”写进网址 `?changed=1`；所选 checkout 已在网址里；
+   - 手机（窄于 768px）：文档树收进左侧抽屉（nb-ui `Drawer`），正文上方一个“文档树”按钮；选了文档就关抽屉；桌面不变。
+6. **外站图片**：渲染 Markdown 时把 `http(s):` 的图片换成一个链接，写“外站图片：<alt 或文件名>（<域名>）”，新标签页打开原图。不放宽 CSP，理由有三：
+   - 文档来自各个 worktree，Agent 写进去的外站图片一打开就发请求，会暴露“开发者在看”和本机地址；
+   - 徽章这类图片在面板里没有信息量；
+   - 不改 CSP 就不用核对它对其它页面的影响。产物页 iframe 的 CSP 由产物来源自己给，这里放不放宽都碰不到它；产物里的外站图片仍按产物沙箱的规则处理，这一批不动。
+   - `data:` 图片照旧显示，仓库内的图片照旧改写到产物来源。
+7. **分支、worktree、开发服务一一对应（后续清单 10-14）**：这一批只做显示，就是上面第 3、4 条：
+   - checkout 页一行就是分支加 worktree，再加它上面的服务，几个服务时提示；
+   - “在跑”页的服务链回它的 checkout 行。
+   - 不动运行登记，也不改 `dev start` 的行为（例如“一个 worktree 只许一个开发服务”），所以没有决定点；要做的话另议。
+
+#### 验收（4490，证据 `accept/phase4/batch4/`）
+
+在 `/dev/shm/nbdev-ui-review/repo` 的克隆里造数据，不碰真实仓库的 worktree：
+
+- 落后：在克隆的 master 上多提交一次；
+- 未跟踪：在一个 worktree 里放两个新文件、一个新目录；
+- 服务在跑：在一个 worktree 里用 `nbdev dev start`，起一个极小的脚本服务（`--ready-pattern`）。
+
+逐条验：
+
+- checkout 页：
+  - 三种状态都是同一种颜色，行首有点；
+  - 点行去 Task 或文档，中键开新标签页；
+  - 点“未提交”展开文件清单，网址带 `?files=`，刷新还在；
+  - 未跟踪的目录算一条；
+- “在跑”页：服务链到它的 checkout 行；
+- 文档页：
+  - 改动、新增、删去、master 才有四种各打开一次差异视图，与树上的标记一致；
+  - `?view=diff` 与 `?changed=1` 刷新还在；
+  - 主工作区没有切换；
+  - 390 上树在抽屉里，选了文档关抽屉；
+- 外站图片：仓库根 README 的徽章显示成链接，控制台没有 CSP 报错；
+- 明暗两套、390 与 1440 截图：checkout 页（含文件清单）、“在跑”页、文档页（渲染、差异、抽屉）。
+
 ### 各页的内容（原轮廓，各批引用）
 
 按页切片，每页一个或几个提交，彼此基本独立；涉及服务端的单列在后面，**先于对应的前端片单独提交**，审查时能单独看安全面（审查建议 10）。
@@ -1350,3 +1426,51 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
   - 全量 `test` 在 `8ac72388d` 上由主 Agent 复跑：416 过、0 失败。
   - 合入时 `master` 已带进别的会话的代码改动（w00017 t86 资源管理器，含 nb-ui 的菜单投影、`Dropdown`、`ContextMenu` 与 `bun.lock`），合并提交与集成分支在 `packages/` 下差 64 个文件；`bun install` 装了 1 个包。合入后在主工作区补跑面板的 `typecheck` 与全量 `test`，结果见下一条。教训：合入前要按合并结果、不是按集成分支判断“`packages/` 有没有变化”。
   - `service:restart` 后 4400 回 200，前端重新构建完成。审查 worktree 与临时 worktree 已删除。没有 push。
+- 2026-10-14：阶段 4 第 4 批（现场三页与文档页）按上面“第 4 批”一节实现，集成分支先 `merge --ff-only master` 到 `d2dd0652f`。没有要开发者定的决定点。未 push。
+  - 提交（`d2dd0652f..f1daeeb81`，3 个）：
+    - `b9999889e` 服务端：
+      - `runGit` 加 `timeoutMs`，到点 SIGKILL，结果标 `timedOut`；
+      - checkout 状态改成 `tracked` 与 `untracked`（`status -z -unormal --no-renames`），每个 checkout 的 git 调用限时 3 秒，超时的标 `timedOut`、计数为 null；行里加 `tasks`（`home` 加目录名认出的 Task）；
+      - 新接口 `/api/checkouts/:key/files`（暂存、工作区、未跟踪三段，每段 300 条）与 `/api/docs/diff`（`readDocDiff`：类型取自同一份 `readDocTree`，合并基点到工作区；未跟踪的新文件与 `master_only` 由服务端拼成整份新增）；
+      - 测试：`panel-live` 补未跟踪计数、文件清单、404 与各自限时；`panel-server` 新用例造出新增（已提交与未跟踪）、改动、删去、`master_only` 四种，逐个核对树上的标记与差异接口同类型、差异非空，没改的为 null，白名单之外 404；
+      - `docs/panel.md` 接口表与“现场”同步。
+    - `1da0683b3` checkout 页与“在跑”页：
+      - 整行可点：nb-ui `Table` 的 `row-click`；第一格是真链接，行里的链接与按钮自己处理点击、不冒泡；
+      - 落后、有未提交、有服务在跑都用 `nbdev-warn`，行首同色的点，读屏写原因；
+      - “改 N · 新 M”按钮展开文件清单（`?files=`）；
+      - 列宽收紧，“执行 worktree 于”并进“它的 Task 与 Work”一列，1440 下不再横向滚动；
+      - “在跑”页的服务链到 `?focus=<key>`，那一行有框并滚进视野（`ProcList` 加 `navigate` 事件）。
+      - 与计划的差别：计划写“在跑”页的服务写 checkout 的 key 与分支，登记里没有分支，只写 key、链到 checkout 行，分支在那一行看。
+    - `f1daeeb81` 文档页：
+      - 左栏抽成零件 `DocsSidebar`（带 `.md`），桌面在左栏、手机在 nb-ui `Drawer`；
+      - “渲染 / 与 master 的差异”切换用 nb-ui `SegmentedControl`（`?view=diff`），“只看有差异的”进网址（`?changed=1`）；
+      - `DocTree` 的删去与“master 才有”条目能点，直接进差异；
+      - 顺带修正 `DocTree` 给这两种条目找分组的办法（原来 `docs/specs/ui/x.md` 会被 `docs/README.md` 拉进“入口”）；
+      - `markdown.ts` 把外站图片换成虚线框的链接，套在链接里的换成文字，样式 `nbdev-external-image` 在 `app.css`。
+  - 门禁（在 `f1daeeb81` 的工作区上）：包的 `typecheck`、`build:web` 通过；全量 `test` 418 过、0 失败；`git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过（`accept/phase4/batch4/gate-*.log`）。
+  - 实测：未跟踪扫描在真实仓库的 6 个 checkout 上是 32 到 63 毫秒，冷的那个 0.5 秒（只读量的，见“已查”）。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch4/accept.ts`，23 条全过（`final/results.txt`，截图 `final/b4-*.png`），控制台没有错误与警告。
+    - checkout 页：
+      - 三种需要注意的状态颜色相同（都是 `rgb(154, 91, 0)`），行首两个点，主工作区没有；
+      - 未提交写“改 2 · 新 3”，未跟踪的目录算一条；
+      - 文件清单三段，`?files=` 刷新还在；
+      - 点没有 Task 的行去文档，点有 Task 的行去 Task，第一格是同一个地址的真链接；Ctrl 加点开新标签页。
+    - “在跑”页：服务链到 checkout 行，那一行有框。
+    - 文档页：
+      - `?changed=1` 刷新还在；
+      - 改动、新增（未跟踪）、删去、master 才有四种的差异都与树上的标记一致，后两种“渲染”不能选；
+      - `?view=diff` 刷新还在；主工作区没有切换；
+      - 390 上树在抽屉里，选了文档就关上，没有横向溢出。
+    - 外站图片：仓库根 README 的 7 个徽章都成了占位（链接里的 6 个是文字，单独的 1 个是链接），没有外站的 `img`，也没有链接套链接。
+    - 截图：明暗各一套，1440 与 390 都有，覆盖 checkout 页（含文件清单）、“在跑”页、文档页的渲染与差异、390 的抽屉。
+  - 验收环境（`/dev/shm/nbdev-ui-review/repo` 的克隆，不碰真实仓库的 worktree）：
+    - master 上多了一个提交（`docs/specs/ui/b4-later.md`）；
+    - 新开 worktree `b4-service`（分支 `b4/service`，两个提交，放了极小的开发服务 `packages/tiny-dev`）与 `w00022-t15-b4probe`（分支 `b4/probe`）；
+    - worktree `w00022-dev-panel` 里留着验收用的未提交改动（改 `nested-grid.md`、删 `component-lab-timeline.md`、新 `b4-draft.md`、`scratch-b4.txt`、`notes-b4/`）。这些留给审查用。
+    - 开发服务已经 `dev stop`（是验收脚本自己起的，用了 `--force`），4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。
+    - master 到 `a7ae9c0a4`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
+  - 没有验证到的地方：
+    - 超时的“没算完”只在单测里用 1 毫秒的限时造过，浏览器里没造出慢的 checkout；
+    - 文件清单 300 条的截断没造；
+    - 仓库内图片（例如 README 里 `./vitepress/...jpg`）不是这一批的范围，照旧不显示（只给 `.agents/works/` 下的图片改写到产物来源）；
+    - 只看了 Chrome。
