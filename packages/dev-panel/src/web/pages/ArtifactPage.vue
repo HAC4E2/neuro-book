@@ -8,9 +8,11 @@ import {loadStateOf, useResource} from "../host/panel-data.js";
 import {taskHref, workHref} from "../host/routes.js";
 import {useNotifyActions} from "../host/notify-actions.js";
 import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
+import {answerText, groupQuestions} from "../host/answers.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
 import ActionLink from "../parts/ActionLink.vue";
 import AnswerForm from "../parts/AnswerForm.vue";
+import ArtifactFrame from "../parts/ArtifactFrame.vue";
 import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
 import LoadState from "../parts/LoadState.vue";
 import NotifyStatus from "../parts/NotifyStatus.vue";
@@ -84,7 +86,12 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
     const body = {workId: current.ref.workId, taskId: current.ref.taskId, artifactId: current.ref.artifactId, version: current.latestVersion, ...answer};
     const outcome = await write.run(() => sendJson<WriteData>("POST", "/api/answers", body));
     if (outcome.ok) {
-        notice.value = successNotice("答复已提交", outcome.body);
+        // 结果写答了什么：逐题“题目：答案”，提交号放在说明里（成功只给提交号时，开发者看不出交上去的是哪几题）。
+        const summary = Object.entries(answer.values).map(([id, value]) => {
+            const question = current.questions.find((state) => state.question.id === id)?.question;
+            return question ? `${question.label}：${answerText(question, value)}` : `${id}：${String(value)}`;
+        });
+        notice.value = {...successNotice(`已提交 ${summary.length} 题`, outcome.body), items: summary};
         lastAnswerId.value = (outcome.body.data as WriteData & {answer?: {answerId: string}}).answer?.answerId ?? null;
         notify.reload();
         resetKey.value += 1;
@@ -94,10 +101,11 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
     const {failure} = outcome;
     const problems = Array.isArray(failure.details.problems) ? failure.details.problems as Array<{questionId: string; reason: string}> : [];
     formErrors.value = Object.fromEntries([...problems.map((problem) => [problem.questionId, problem.reason]), ...(typeof failure.details.questionId === "string" ? [[failure.details.questionId, failure.message]] : [])]);
-    // 表单只在还能答的题（未答、已答）下面显示问题；锚到这些题的原因只在题目下面报一次（3c）。
-    const answerable = new Set(current.questions.filter((state) => state.state === "open" || state.state === "answered").map((state) => state.question.id));
+    // 表单只在这一版里能答的题（待答、已答）下面显示问题；锚到这些题的原因只在题目下面报一次（3c）。
+    const {pending, answered} = groupQuestions(current.questions);
+    const answerable = new Set([...pending, ...answered].map((state) => state.question.id));
     notice.value = failure.action === "unknown"
-        ? {...failureNotice("结果未知", failure), message: `${failure.message}。已重新载入，看下面“已答”里有没有这次的答复`}
+        ? {...failureNotice("结果未知", failure), message: `${failure.message}。已重新载入，看上面“已答”里有没有这次的答复`}
         : failureNotice("答复没有提交", failure, answerable);
     if (failure.action === "reload" || failure.action === "unknown") artifact.reload();
 }
@@ -106,46 +114,52 @@ const navigate = (href: string) => void router.push(href);
 </script>
 
 <template>
-    <!-- 满铺：左边是产物的原页（iframe），右边是问题侧栏；390 宽时侧栏移到 iframe 下面。 -->
-    <PageShell width="full" :crumbs="crumbs" :title="data?.title ?? props.artifactId" @navigate="navigate">
-        <template v-if="data" #status>
-            <Badge v-if="data.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
-            <Badge v-if="data.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
-            <Badge v-if="data.unpublishedChanges" tone="warning" variant="soft" size="sm" icon-class="i-lucide-pencil">有未发布的改动</Badge>
-        </template>
-        <template v-if="data" #actions>
-            <div v-if="versionOptions.length > 1" class="w-40">
-                <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
-            </div>
-            <ActionLink v-if="data.pageUrl" :href="data.pageUrl" icon="i-lucide-external-link" external>单独打开</ActionLink>
-        </template>
-        <template v-if="data?.publishedAt" #meta>
-            <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
-        </template>
-        <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
-        <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-            <section v-if="data.pageUrl" class="nbdev-stack-tight flex min-h-[32rem] min-w-0">
-                <p class="nbdev-note flex flex-wrap items-center gap-1.5">
-                    <span class="i-lucide-info size-3.5" aria-hidden="true" />页面是当前版本（磁盘上的），切换版本只切换右边的题表
-                </p>
-                <!-- 产物页按亮色画、多半没有自己的底色。iframe 不用面板的主题色：Chrome 只在载入时按明暗是否一致垫白底，
-                     面板切到暗色不重算，就成了深底黑字（t11 实现审查第 5 条）。想支持暗色的产物页自己设底色。 -->
-                <iframe :src="data.pageUrl" sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer" class="min-h-[32rem] w-full flex-1 rounded-[var(--radius-panel)] border border-[var(--divider)]" style="color-scheme: light; background: #fff" :title="`${data.title ?? props.artifactId} 的页面`" />
-            </section>
-            <aside class="nbdev-surface min-w-0 p-4" :class="{'lg:col-span-2': !data.pageUrl}" aria-label="问题">
-                <div class="flex flex-col gap-4">
-                    <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
-                    <section v-if="lastAnswerId" class="nbdev-stack-tight" aria-label="这份答复的通知">
-                        <h2 class="nbdev-card-title">通知</h2>
-                        <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
-                        <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
-                    </section>
-                    <AnswerForm v-if="showForm" :questions="data.questions" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer" />
-                    <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" :answering="showForm" />
+    <!-- 铺满（路由 layout: fill）：宽屏时页头不动，左边产物的原页占满剩下的高度（iframe 自己滚），右边侧栏自己滚，两边不联动；
+         窄屏上下堆叠，整页由这一层滚，仍只有一个竖向滚动者。 -->
+    <div class="relative h-full min-h-0 overflow-y-auto [scrollbar-gutter:stable] lg:overflow-hidden lg:[scrollbar-gutter:auto]">
+        <PageShell width="full" class="lg:h-full lg:min-h-0" :crumbs="crumbs" :title="data?.title ?? props.artifactId" @navigate="navigate">
+            <template v-if="data" #status>
+                <Badge v-if="data.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
+                <Badge v-if="data.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
+                <Badge v-if="data.unpublishedChanges" tone="warning" variant="soft" size="sm" icon-class="i-lucide-pencil">有未发布的改动</Badge>
+            </template>
+            <template v-if="data" #actions>
+                <div v-if="versionOptions.length > 1" class="w-40">
+                    <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
                 </div>
-            </aside>
-        </div>
-        <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
-        <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
-    </PageShell>
+                <ActionLink v-if="data.pageUrl" :href="data.pageUrl" icon="i-lucide-external-link" external>单独打开</ActionLink>
+            </template>
+            <template v-if="data?.publishedAt" #meta>
+                <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
+            </template>
+            <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
+            <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)]">
+                <ArtifactFrame v-if="data.pageUrl" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" />
+                <!-- 有表单时不留下内边距：表单的提交栏贴底，滚动容器的下内边距会让它离底边一截、后面的内容从缝里露出来。 -->
+                <aside class="nbdev-surface relative min-w-0 px-4 pt-4 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
+                    <div class="flex flex-col gap-4">
+                        <section v-if="lastAnswerId" class="nbdev-stack-tight" aria-label="这份答复的通知">
+                            <h2 class="nbdev-card-title">通知</h2>
+                            <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
+                            <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                        </section>
+                        <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer">
+                            <template #readonly>
+                                <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" answering />
+                            </template>
+                            <template v-if="notice" #result>
+                                <WriteResult :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
+                            </template>
+                        </AnswerForm>
+                        <template v-else>
+                            <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" />
+                            <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" />
+                        </template>
+                    </div>
+                </aside>
+            </div>
+            <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
+            <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
+        </PageShell>
+    </div>
 </template>
