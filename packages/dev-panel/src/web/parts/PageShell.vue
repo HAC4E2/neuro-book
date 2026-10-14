@@ -22,8 +22,9 @@ function follow(item: {href?: string}, event: MouseEvent): void {
     <div class="nbdev-page nbdev-stack-page" :class="`nbdev-page-${width}`">
         <header class="nbdev-page-header nbdev-stack">
             <Breadcrumb v-if="items.length > 0" :items="items" @click="follow" />
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <div class="flex min-w-0 flex-1 basis-64 items-center gap-2">
+            <!-- 标题行至少 2rem 高：状态徽章、操作按钮有没有都不改变标题的位置，换页时标题停在同一处。 -->
+            <div class="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
+                <div class="flex min-h-8 min-w-0 flex-1 basis-64 items-center gap-2">
                     <slot name="status" />
                     <h1 class="nbdev-title min-w-0 break-words"><slot name="title">{{ title }}</slot></h1>
                 </div>

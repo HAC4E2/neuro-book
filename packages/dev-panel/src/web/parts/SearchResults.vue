@@ -29,7 +29,7 @@ function recordText(match: SearchRecordMatch): string {
 <template>
     <div class="flex flex-col gap-5">
         <section v-if="records.length > 0" class="flex flex-col gap-1">
-            <h2 class="font-semibold">Work、Task、产物与会话</h2>
+            <h2 class="nbdev-heading">Work、Task、产物与会话</h2>
             <ul class="flex flex-col">
                 <li v-for="(match, index) in records" :key="index">
                     <a :href="searchRecordHref(match)" class="flex w-full items-center gap-2 px-1 py-1 hover:bg-[var(--bg-hover)]" @click="follow($event, searchRecordHref(match))">
@@ -39,7 +39,7 @@ function recordText(match: SearchRecordMatch): string {
             </ul>
         </section>
         <section v-for="group in groups" :key="group.checkout" class="flex flex-col gap-1">
-            <h2 class="flex flex-wrap items-center gap-2 font-semibold">
+            <h2 class="flex flex-wrap items-center gap-2 nbdev-heading">
                 {{ group.checkout }}
                 <span class="nbdev-note font-normal">{{ group.hits.length }} 条<template v-if="group.done"> · {{ group.done.elapsedMs }} 毫秒</template></span>
                 <Badge v-if="group.done?.truncated" tone="warning" variant="soft" size="sm">截断了</Badge>

@@ -36,7 +36,7 @@ const navigate = (href: string) => void router.push(href);
 </script>
 
 <template>
-    <PageShell title="首页">
+    <PageShell :crumbs="[{label: '首页'}]" title="首页">
         <LoadState v-bind="loadStateOf(overview)" label="正在读取 Work 与收件箱" @retry="overview.reload()" />
         <template v-if="overview.data.value">
             <section class="nbdev-stack" aria-labelledby="inbox-title">
