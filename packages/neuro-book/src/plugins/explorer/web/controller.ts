@@ -245,7 +245,9 @@ function sameDrop(a: DropAction, b: DropAction): boolean {
         case "move":
             return b.kind === "move" && a.target === b.target;
         case "reorder":
-            return b.kind === "reorder" && a.parent === b.parent && a.anchor === b.anchor && a.zone === b.zone && a.names.length === b.names.length && a.names.every((name, index) => name === b.names[index]);
+            return b.kind === "reorder" && a.parent === b.parent && a.before === b.before && a.names.length === b.names.length && a.names.every((name, index) => name === b.names[index]);
+        case "place":
+            return b.kind === "place" && a.target === b.target && a.before === b.before;
         case "open":
             return b.kind === "open" && a.group === b.group && a.addresses.length === b.addresses.length && a.addresses.every((address, index) => address === b.addresses[index]);
     }
@@ -564,10 +566,15 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     /**
      * 把冻结的源复制或移动到目标目录（粘贴与拖动移入同一流程）：同目标的移动无操作；用目标此刻的列出结果预判同名，逐个
      * 问改名、跳过或取消剩余；提交仍由服务端排他重验。剪切粘贴按项从剪贴板移除成功的源，剪贴板在此期间换了时不动新的。
+     *
+     * `before`（只给移动）：放到内容树里这一层的指定位置（`null` 为末尾）。这时已在目标里的源也进这一批（目标是它自己，
+     * 服务端只挪清单），整批按源的先后插到同一个位置，连成一串（docs/specs/workspace/files.md 的“移动到指定位置”）。
      */
-    const transfer = async (action: "copy" | "move", sources: ReadonlyArray<ClipItem>, target: string, clip: Clipboard | null): Promise<void> => {
+    const transfer = async (action: "copy" | "move", sources: ReadonlyArray<ClipItem>, target: string, clip: Clipboard | null, before?: string | null): Promise<void> => {
+        const placing = action === "move" && before !== undefined;
         const moving = action === "move" ? sources.filter((item) => parentAddress(item.address) !== target) : sources;
-        if (moving.length === 0) return;
+        const staying = placing ? sources.filter((item) => parentAddress(item.address) === target) : [];
+        if (moving.length === 0 && staying.length === 0) return;
         preparing.value = true;
         let asked = false;
         let lease: DocumentLease | null = null;
@@ -605,11 +612,18 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 ...plan.skipped.map((source) => ({address: source.address, target: childAddress(target, source.name), result: {status: "declined", reason: "skip"} as const})),
                 ...plan.cancelled.map((source) => ({address: source.address, target: childAddress(target, source.name), result: {status: "declined", reason: "cancel"} as const})),
             ];
-            if (plan.items.length === 0) {
+            if (plan.items.length === 0 && staying.length === 0) {
                 report.value = declined.length === 0 ? null : {action, items: declined, manifests: [], truncated: false};
                 return;
             }
-            const items = plan.items.map((item) => ({address: item.source.address, target: childAddress(target, item.name)}));
+            // 按源的先后排：放到指定位置时，这一串在目标里的顺序就是这个顺序。
+            const named = new Map(plan.items.map((item) => [item.source.address, item.name]));
+            const ordered = sources.flatMap((source) => {
+                if (staying.includes(source)) return [{source, name: nameOf(source.address)}];
+                const name = named.get(source.address);
+                return name === undefined ? [] : [{source, name}];
+            });
+            const items = ordered.map((item) => ({address: item.source.address, target: childAddress(target, item.name)}));
             // 移动之前取租约：编辑器结算视图输入、等在途保存，再挡住这些文档的新保存，直到移动有结果（输出 24）。
             if (action === "move" && options.documents !== undefined) {
                 const begun = await options.documents.begin(items.map((item) => item.address));
@@ -620,7 +634,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 lease = begun.lease;
                 if (disposed || !live(target)) return;
             }
-            const batch = plan.items.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: translated(item.source.address, item.source.token)}));
+            const batch = ordered.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: translated(item.source.address, item.source.token), ...(placing ? {before: before ?? null} : {})}));
             const value = await runBatch(action, items, action === "copy" ? files.copy(batch) : files.move(batch), declined, clip?.id ?? null);
             if (lease !== null) {
                 if (value === null && unknown.value !== null) {
@@ -633,7 +647,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 lease = null;
             }
             if (value === null || clip?.mode !== "cut") return;
-            const moved = new Set(plan.items.filter((_, index) => value.items[index]?.status === "done").map((item) => item.source));
+            const moved = new Set(ordered.filter((_, index) => value.items[index]?.status === "done").map((item) => item.source));
             const now = clipboard.value;
             if (now?.id !== clip.id) return;
             const rest = now.items.filter((item) => !moved.has(item));
@@ -677,7 +691,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         if (over === null) return NO_DROP;
         if (over.kind === "blank") return resolveBlankDrop(sources, find);
         if (over.kind === "editor") return resolveEditorDrop(sources, over.group, find);
-        return resolveDrop(sources, find(over.id), over.zone, manifestOrder);
+        return resolveDrop(sources, rows.value, over, manifestOrder);
     };
 
     /**
@@ -969,6 +983,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (dropping !== token || frozen === null || disposed || !idle.value || !sameDrop(dropAction(current.sources, over), action)) return;
             dropping = null;
             if (action.kind === "move") await transfer("move", frozen, action.target, null);
+            else if (action.kind === "place") await transfer("move", frozen, action.target, null, action.before);
             else if (action.kind === "reorder") settle("reorder", action.parent, await files.reorder(action.parent, action.names));
         },
         cancelDrag,

@@ -19,9 +19,9 @@ const DRAG_DISTANCE_PX = 6;
 const TOUCH_DELAY_MS = 200;
 const TOUCH_TOLERANCE_PX = 6;
 
-/** 指针下的落点：一行（行 id 与指针相对行顶的比例 0 到 1）、树里行以外的空白，或树外的一个编辑组；`rect` 是它的视口矩形。 */
+/** 指针下的落点：一行（行 id、指针相对行顶的比例 0 到 1 与相对行左边的像素）、树里行以外的空白，或树外的一个编辑组；`rect` 是它的视口矩形。 */
 export type TreeDragTarget =
-    | {readonly kind: "row"; readonly id: string; readonly offset: number; readonly rect: DOMRect}
+    | {readonly kind: "row"; readonly id: string; readonly offset: number; readonly x: number; readonly rect: DOMRect}
     | {readonly kind: "blank"; readonly rect: DOMRect}
     | {readonly kind: "editor"; readonly group: string; readonly rect: DOMRect};
 
@@ -90,7 +90,7 @@ export function createTreeDrag(options: TreeDragOptions): TreeDrag {
         if (hit === null) return null;
         const asRow = (element: HTMLElement): TreeDragTarget => {
             const rect = element.getBoundingClientRect();
-            return {kind: "row", id: element.dataset.explorerRow as string, offset: rect.height > 0 ? (y - rect.top) / rect.height : 0.5, rect};
+            return {kind: "row", id: element.dataset.explorerRow as string, offset: rect.height > 0 ? (y - rect.top) / rect.height : 0.5, x: x - rect.left, rect};
         };
         const row = hit.closest<HTMLElement>(ROW_SELECTOR);
         if (row !== null && root.contains(row)) return asRow(row);

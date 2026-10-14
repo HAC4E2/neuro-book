@@ -7,7 +7,6 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from 
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {zoneOf} from "../actions/drop";
 import type {DropAction, DropOver} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
 import {explorerText} from "../messages";
@@ -231,7 +230,7 @@ const overOf = (target: TreeDragTarget | null): Hovered | null => {
     if (target.kind === "blank") return {over: {kind: "blank"}, ...geometry};
     if (target.kind === "editor") return {over: {kind: "editor", group: target.group}, ...geometry};
     const row = props.rows.find((candidate) => candidate.id === target.id);
-    return row === undefined ? null : {over: {kind: "row", id: target.id, zone: zoneOf(row, target.offset)}, ...geometry};
+    return row === undefined ? null : {over: {kind: "row", id: target.id, offset: target.offset, x: target.x}, ...geometry};
 };
 
 /** 停留展开：指针停在收起的目录行中段 600 毫秒（docs/specs/workbench/files-explorer.md 的“拖动”）。落点换了重新计时。 */
@@ -246,7 +245,7 @@ const clearExpand = (): void => {
 // 只在落点动作是“移入这个目录”时计时：拖着目录停在它自己身上（没有落点）不展开。
 watch([hovered, () => props.drag?.action], ([next, action]) => {
     const over = next?.over;
-    const row = over?.kind === "row" && over.zone === "inside" && action?.kind === "move" && action.target === over.id ? props.rows.find((candidate) => candidate.id === over.id) : undefined;
+    const row = over?.kind === "row" && action?.kind === "move" && action.target === over.id ? props.rows.find((candidate) => candidate.id === over.id) : undefined;
     const waiting = row !== undefined && (row.kind === "root" || row.kind === "entry") && !row.expanded && (row.kind === "root" || row.expandable) ? row.id : "";
     if (waiting === expandFor) return;
     clearExpand();
@@ -325,30 +324,46 @@ watch(() => props.drag == null, (ended) => {
 // 行变了而指针没动：指针下已经不是显示的那一行，撤下落点。
 watch(() => props.rows, () => gesture?.invalidate());
 
-/**
- * 落点反馈：移入时画目标目录与它展开的子行那一整段（不画插入线），调整顺序画插入线，在编辑组打开画整个编辑组。目录的整段
- * 按行下标与交出落点那一刻的树矩形换算，夹在树的可见范围里。
- */
+/** 在编辑组打开：画整个编辑组（树外，用编辑区共用的反馈层）。 */
 const dropPreview = computed((): DropFeedbackPreview | null => {
     const action = props.drag?.action;
     const at = hovered.value;
-    if (action === undefined || action.kind === "none" || at === null) return null;
+    if (action?.kind !== "open" || at === null) return null;
     const {left, right, top, bottom} = at.rect;
-    if (action.kind === "open") return {areaRect: {left, right, top, bottom}, entryRect: null, indicator: null, orientation: "vertical"};
-    if (action.kind === "reorder") {
-        const edge = action.zone === "before" ? top : bottom;
-        return {areaRect: null, entryRect: null, indicator: {left, right, top: edge - 1, bottom: edge + 1}, orientation: "vertical"};
-    }
-    const index = props.rows.findIndex((row) => row.id === action.target);
-    if (index < 0) return null;
-    const depth = (props.rows[index] as Row).depth;
-    let last = index;
+    return {areaRect: {left, right, top, bottom}, entryRect: null, indicator: null, orientation: "vertical"};
+});
+
+/** 缩进：与 `ExplorerRow` 的行内边距一致，第 d 层展开箭头的中线在行左边 16 + 12d 处。 */
+const LEVEL_X = (depth: number): number => 16 + depth * 12;
+
+/** 一行与它展开的全部子孙在行列表里占的范围（行内容坐标，与行的 `top` 同一坐标系）。 */
+const bandOf = (id: string): {readonly top: number; readonly height: number} | null => {
+    const first = props.rows.findIndex((row) => row.id === id);
+    if (first < 0) return null;
+    const depth = (props.rows[first] as Row).depth;
+    let last = first;
     while (last + 1 < props.rows.length && (props.rows[last + 1] as Row).depth > depth) last += 1;
-    const start = at.tree.top - at.scrollTop + index * rowHeight.value;
-    const end = at.tree.top - at.scrollTop + (last + 1) * rowHeight.value;
-    // 行左右的内边距取指针下那一行的边；指针在空白上时没有行，取树的边。
-    const edges = at.over.kind === "row" ? {left, right} : {left: at.tree.left, right: at.tree.right};
-    return {areaRect: {...edges, top: Math.max(start, at.tree.top), bottom: Math.min(end, at.tree.bottom)}, entryRect: null, indicator: null, orientation: "vertical"};
+    return {top: first * rowHeight.value, height: (last - first + 1) * rowHeight.value};
+};
+
+/**
+ * 树里的落点反馈（docs/specs/workbench/files-explorer.md 的“拖动”）：画在行的坐标系里，跟着行滚动、与行左右对齐。移入画
+ * 目标目录的整段浅底、目录行再深一档；调整顺序与放到某个位置画缩进到落点那一层的插入线，接收目录的整段铺很浅的底。
+ */
+const dropMarks = computed(() => {
+    const action = props.drag?.action;
+    if (action === undefined || hovered.value === null) return null;
+    if (action.kind === "move") {
+        const band = bandOf(action.target);
+        return band === null ? null : {kind: action.kind, band, header: {top: band.top, height: rowHeight.value}, line: null};
+    }
+    if (action.kind === "reorder" || action.kind === "place") {
+        const under = props.rows.findIndex((row) => row.id === action.line.row);
+        if (under < 0) return null;
+        const band = bandOf(action.kind === "reorder" ? action.parent : action.target);
+        return {kind: action.kind, band, header: null, line: {top: (under + 1) * rowHeight.value, left: LEVEL_X(action.line.depth)}};
+    }
+    return null;
 });
 
 const nameOfRow = (id: string): string => {
@@ -358,22 +373,31 @@ const nameOfRow = (id: string): string => {
     return id;
 };
 
-/** 跟着指针的说明：动作（移入哪里、调整顺序、在这一组打开）；没有落点时只写被拖的东西。 */
+/** 跟着指针的说明：动作（移入哪里、放到谁的前后、在这一组打开）；没有落点时只写被拖的东西。 */
 const dropLabel = computed(() => {
     const action = props.drag?.action;
     if (action === undefined || action.kind === "none") return "";
-    if (action.kind === "reorder") return explorerText(props.locale, "dropReorder");
     if (action.kind === "open") return explorerText(props.locale, action.skipped > 0 ? "dropOpenSome" : "dropOpen", {count: String(action.addresses.length), skipped: String(action.skipped)});
-    return explorerText(props.locale, "dropInto", {name: nameOfRow(action.target)});
+    if (action.kind === "move") return explorerText(props.locale, action.ordered ? "dropIntoLast" : "dropInto", {name: nameOfRow(action.target)});
+    const name = nameOfRow(action.anchor.id);
+    // 换了接收目录（有源不在这一层）才说移入哪里。
+    const into = action.kind === "place" && (props.drag?.sources ?? []).some((source) => parentOf(source) !== action.target);
+    if (into) return explorerText(props.locale, action.anchor.side === "after" ? "dropAfterInto" : "dropBeforeInto", {name, target: nameOfRow(action.target)});
+    return explorerText(props.locale, action.anchor.side === "after" ? "dropAfter" : "dropBefore", {name});
 });
+/** 行 id 的父目录：资源行带着；源都是资源行。 */
+const parentOf = (id: string): string | null => {
+    const row = props.rows.find((candidate) => candidate.id === id);
+    return row?.kind === "entry" ? row.parent : null;
+};
 
-/** 拖影：指针右下的小浮块，写被拖的名字（多项写“N 项”）与动作。 */
+/** 拖影：指针右侧偏下的小浮块，写被拖的名字（多项写“N 项”）与动作；贴近指针，又不挡住指针所指那一行的名字开头。 */
 const ghost = computed(() => {
     const sources = props.drag?.sources;
     const at = pointer.value;
     if (sources === undefined || sources.length === 0 || at === null) return null;
     const what = sources.length === 1 ? nameOfRow(sources[0] as string) : explorerText(props.locale, "dragItems", {count: String(sources.length)});
-    return {x: at.x + 14, y: at.y + 18, what, action: dropLabel.value};
+    return {x: at.x + 12, y: at.y + 4, what, action: dropLabel.value};
 });
 
 const dragSources = computed(() => new Set(props.drag?.sources ?? []));
@@ -400,7 +424,7 @@ defineExpose({focus: focusTree});
         @blur="onBlur"
     >
         <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
-        <TransitionGroup name="explorer-row" tag="div" class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows>
+        <TransitionGroup name="explorer-row" tag="div" class="explorer-tree__rows relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows>
             <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
             <ExplorerRow
                 v-for="item in rendered"
@@ -427,7 +451,17 @@ defineExpose({focus: focusTree});
                 @retry="item.row.kind !== 'edit' && emit('retry', item.row.id)"
             />
         </TransitionGroup>
-        <DropFeedbackOverlay :preview="dropPreview" label="" :data-explorer-drop="drag?.action.kind" />
+        <div
+            v-if="dropMarks"
+            class="explorer-drop pointer-events-none absolute top-0"
+            aria-hidden="true"
+            :data-explorer-drop="dropMarks.kind"
+        >
+            <div v-if="dropMarks.band" class="explorer-drop__band" :data-kind="dropMarks.kind" :style="{top: `${dropMarks.band.top}px`, height: `${dropMarks.band.height}px`}" data-explorer-drop-band></div>
+            <div v-if="dropMarks.header" class="explorer-drop__header" :style="{top: `${dropMarks.header.top}px`, height: `${dropMarks.header.height}px`}"></div>
+            <div v-if="dropMarks.line" class="explorer-drop__line" :style="{top: `${dropMarks.line.top - 1}px`, left: `${dropMarks.line.left}px`}" data-explorer-drop-line></div>
+        </div>
+        <DropFeedbackOverlay :preview="dropPreview" label="" :data-explorer-drop="dropPreview ? 'open' : undefined" />
         <Teleport to="body">
             <div v-if="ghost" class="explorer-drag-ghost" :style="{left: `${ghost.x}px`, top: `${ghost.y}px`}" aria-hidden="true" data-explorer-drag-ghost>
                 <div class="truncate font-medium">{{ ghost.what }}</div>
@@ -449,9 +483,68 @@ defineExpose({focus: focusTree});
     cursor: grabbing;
 }
 
-/* 被拖的行淡化，看得出拖走的是哪几行。 */
-.explorer-tree__row[data-explorer-drag-source] {
+/* 被拖的行淡化图标与文字，看得出拖走的是哪几行；缩进参考线不淡，竖线上不留缺口。 */
+.explorer-tree__row[data-explorer-drag-source] > :deep(:not(.explorer-guide)) {
     opacity: 0.45;
+}
+
+/*
+ * 落点反馈与行同一坐标系：浅底在行的下面（不压字），插入线在行的上面。行容器是 z-index 1 的层，反馈层不建层，浅底 0、
+ * 插入线 2 与它比较。
+ */
+.explorer-tree__rows {
+    z-index: 1;
+}
+
+.explorer-drop {
+    left: var(--view-inset-inline, 6px);
+    right: var(--view-inset-inline, 6px);
+}
+
+.explorer-drop__band,
+.explorer-drop__header {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 0;
+    border-radius: var(--radius-control);
+}
+
+.explorer-drop__band {
+    background: color-mix(in srgb, var(--accent-main) 9%, transparent);
+}
+
+/* 调整顺序与放到某个位置时，接收目录的浅底更浅：主角是插入线。 */
+.explorer-drop__band:not([data-kind="move"]) {
+    background: color-mix(in srgb, var(--accent-main) 7%, transparent);
+}
+
+.explorer-drop__header {
+    background: color-mix(in srgb, var(--accent-main) 9%, transparent);
+}
+
+.explorer-drop__line {
+    position: absolute;
+    right: 0;
+    z-index: 2;
+    height: 2px;
+    margin-left: 3px;
+    border-radius: 999px;
+    background: var(--accent-main);
+}
+
+/* 左端的空心圆标出层级：圆心在那一层展开箭头的中线上。 */
+.explorer-drop__line::before {
+    content: "";
+    position: absolute;
+    left: -7px;
+    top: -3px;
+    width: 8px;
+    height: 8px;
+    box-sizing: border-box;
+    border: 2px solid var(--accent-main);
+    border-radius: 50%;
+    background: var(--bg-panel, var(--bg-app));
 }
 
 .explorer-drag-live {
