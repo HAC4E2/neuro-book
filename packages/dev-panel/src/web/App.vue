@@ -338,12 +338,12 @@ const banners = computed<Banner[]>(() => {
     }
     return list;
 });
-const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main)", danger: "var(--status-danger)", warning: "var(--status-warning)"};
+const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", danger: "nbdev-danger", warning: "nbdev-warn"};
 </script>
 
 <template>
     <!-- 登录失效时页面不卸载（草稿、填了一半的答复都还在），盖一层提示、整个外壳 inert；重新登录后点按钮接着用（t15）。 -->
-    <div v-if="panelState.unauthorized" class="fixed inset-0 z-50 flex items-center justify-center p-6" style="background: color-mix(in srgb, var(--bg-main) 75%, transparent)">
+    <div v-if="panelState.unauthorized" class="shell-scrim fixed inset-0 z-50 flex items-center justify-center p-6">
         <section ref="authDialog" role="alertdialog" aria-modal="true" aria-labelledby="auth-lost-title" aria-describedby="auth-lost-message" class="flex max-w-md flex-col gap-3 rounded-[var(--radius-panel)] p-5 nbdev-surface">
             <h2 id="auth-lost-title" class="font-semibold">没有登录，或登录已失效</h2>
             <p class="nbdev-secondary" id="auth-lost-message">在终端运行 <code>nbdev panel open</code>，用它给的一次性链接登录（在这个浏览器的另一个标签页里打开也行；面板重启后要重新登录）。这一页还开着，没保存的改动都在；登录后点下面的按钮接着用。</p>
@@ -354,7 +354,7 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
     <a href="#nbdev-main" class="nbdev-skip" :inert="panelState.unauthorized || undefined" @click.prevent="skipToMain">跳到主内容</a>
     <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="navHidden" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
-            <aside class="h-full overflow-hidden" style="background: var(--sidebar-surface, var(--bg-sidebar))" :inert="navHidden || undefined">
+            <aside class="shell-nav h-full overflow-hidden" :inert="navHidden || undefined">
                 <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork">
                     <template #actions>
                         <Tooltip text="收起左栏"><IconButton icon-class="i-lucide-panel-left-close" aria-label="收起左栏" data-shell="collapse-nav" @click="setNavCollapsed(true, true)" /></Tooltip>
@@ -364,7 +364,7 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
         </template>
         <template #[CONTENT_SLOT]>
             <div class="flex h-full min-h-0 min-w-0 flex-col">
-                <header class="flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2" style="background: var(--toolbar-surface, var(--bg-main)); border-color: var(--divider)">
+                <header class="shell-toolbar nbdev-divider flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2">
                     <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" data-shell="open-nav" @click="drawerOpen = true" />
                     <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
                     <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
@@ -375,24 +375,24 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
                         <Popover side="bottom" align="end">
                             <template #trigger>
                                 <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
-                                    <span class="size-2 rounded-full" :style="{background: statusProblem ? 'var(--status-warning)' : 'var(--status-success)'}" aria-hidden="true" />
+                                    <span class="size-2 rounded-full" :class="statusProblem ? 'bg-[var(--status-warning)]' : 'bg-[var(--status-success)]'" aria-hidden="true" />
                                     <span v-if="statusProblem" class="max-w-[24rem] truncate nbdev-warn">{{ statusProblem.label }}{{ statusProblem.text }}</span>
                                 </button>
                             </template>
                             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 nbdev-small">
                                 <template v-for="line in statusLines" :key="line.label">
                                     <dt class="nbdev-secondary">{{ line.label }}</dt>
-                                    <dd :style="{color: line.ok ? 'var(--text-main)' : 'var(--status-warning)'}">{{ line.text }}</dd>
+                                    <dd :class="{'nbdev-warn': !line.ok}">{{ line.text }}</dd>
                                 </template>
                             </dl>
                         </Popover>
                         <Tooltip :text="appearanceLabel"><IconButton :icon-class="appearance === 'dark' ? 'i-lucide-moon' : appearance === 'light' ? 'i-lucide-sun' : 'i-lucide-sun-moon'" :aria-label="appearanceLabel" @click="cycleAppearance" /></Tooltip>
                     </div>
                 </header>
-                <div v-if="banners.length > 0" role="status" class="flex flex-col border-b" style="background: var(--bg-subtle); border-color: var(--divider); font-size: var(--text-xs)">
+                <div v-if="banners.length > 0" role="status" class="shell-banners nbdev-divider nbdev-small flex flex-col border-b">
                     <div v-for="banner in banners" :key="banner.key" class="flex items-start gap-2 px-3 py-1.5">
-                        <span :class="banner.icon" class="mt-0.5 size-3.5 shrink-0" :style="{color: BANNER_COLOR[banner.tone]}" aria-hidden="true" />
-                        <span class="min-w-0 flex-1 break-words" style="color: var(--text-main)">{{ banner.text }}</span>
+                        <span :class="[banner.icon, BANNER_CLASS[banner.tone]]" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                        <span class="min-w-0 flex-1 break-words">{{ banner.text }}</span>
                         <Button v-if="banner.dismiss" size="sm" variant="ghost" @click="banner.dismiss">知道了</Button>
                     </div>
                 </div>
@@ -413,6 +413,20 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
 </template>
 
 <style scoped>
+/* 外壳的几块面层底色各只用一次，写在这里，不进 app.css 的语义类。 */
+.shell-scrim {
+    background: color-mix(in srgb, var(--bg-main) 75%, transparent);
+}
+.shell-nav {
+    background: var(--sidebar-surface, var(--bg-sidebar));
+}
+.shell-toolbar {
+    background: var(--toolbar-surface, var(--bg-main));
+}
+.shell-banners {
+    background: var(--bg-subtle);
+    color: var(--text-main);
+}
 .nbdev-status:hover, .nbdev-status:focus-visible {
     background: var(--bg-hover);
 }

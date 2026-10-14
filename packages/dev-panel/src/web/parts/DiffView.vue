@@ -11,10 +11,11 @@ const lines = computed(() => props.text.split("\n").map((line) => ({
 </script>
 
 <template>
-    <pre class="max-h-80 overflow-auto rounded-[var(--radius-control)] p-2" style="background: var(--bg-subtle); font-size: var(--text-xs); line-height: 1.5"><code><span v-for="(entry, index) in lines" :key="index" class="block whitespace-pre" :class="`diff-${entry.kind}`">{{ entry.line || " " }}</span></code></pre>
+    <pre class="diff-view max-h-80 overflow-auto rounded-[var(--radius-control)] p-2"><code><span v-for="(entry, index) in lines" :key="index" class="block whitespace-pre" :class="`diff-${entry.kind}`">{{ entry.line || " " }}</span></code></pre>
 </template>
 
 <style scoped>
+.diff-view { background: var(--bg-subtle); font-size: var(--text-xs); line-height: 1.5; }
 .diff-add { background: var(--status-success-bg, color-mix(in srgb, var(--status-success) 14%, transparent)); }
 .diff-del { background: var(--status-danger-bg, color-mix(in srgb, var(--status-danger) 14%, transparent)); }
 .diff-hunk, .diff-meta { color: var(--text-muted); }

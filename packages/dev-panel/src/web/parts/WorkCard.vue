@@ -27,7 +27,7 @@ function follow(event: MouseEvent, href: string): void {
                 {{ work.title ?? work.workId }}
             </a>
         </header>
-        <p class="line-clamp-3" :style="{color: work.goal.value ? 'var(--text-secondary)' : 'var(--text-muted)'}">
+        <p class="line-clamp-3" :class="work.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">
             {{ work.goal.value ?? "目标：未标" }}
         </p>
         <StatusBar :counts="work.taskCounts" />

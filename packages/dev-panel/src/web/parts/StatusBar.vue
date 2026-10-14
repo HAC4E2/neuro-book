@@ -19,7 +19,8 @@ const summary = computed(() => (total.value === 0 ? "还没有 Task" : segments.
 
 <template>
     <div class="flex flex-col gap-1.5">
-        <div class="flex h-1.5 w-full overflow-hidden rounded-full" style="background: var(--bg-subtle)" role="img" :aria-label="`Task 状态：${summary}`">
+        <!-- 每段的宽度是占比、颜色跟着这段的状态（条与图例共用 ORDER 里的值），所以绑定 style。 -->
+        <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-subtle)]" role="img" :aria-label="`Task 状态：${summary}`">
             <span v-for="segment in segments" :key="segment.key" class="h-full" :style="{width: `${segment.share * 100}%`, background: segment.color}" />
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-1 nbdev-note">

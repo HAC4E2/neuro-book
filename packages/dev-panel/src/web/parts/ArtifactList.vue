@@ -54,7 +54,7 @@ const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${
             <h2 class="nbdev-heading">证据 <span class="nbdev-secondary">{{ evidences.length }} 个 Task</span></h2>
             <ul class="flex flex-wrap gap-2">
                 <li v-for="item in evidences" :key="`${item.workId}/${item.taskId}`">
-                    <a :href="taskHref(item.workId, item.taskId)" class="inline-block rounded-[var(--radius-control)] px-2 py-1 hover:bg-[var(--bg-hover)]" style="border: var(--border-w, 1px) solid var(--divider); font-size: var(--text-xs)" @click="follow($event, taskHref(item.workId, item.taskId))">
+                    <a :href="taskHref(item.workId, item.taskId)" class="nbdev-divider nbdev-small inline-block rounded-[var(--radius-control)] border px-2 py-1 hover:bg-[var(--bg-hover)]" @click="follow($event, taskHref(item.workId, item.taskId))">
                         {{ where(item.workId, item.taskId) }} · {{ item.count }} 份
                     </a>
                 </li>

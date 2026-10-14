@@ -51,7 +51,7 @@ function outcomeText(state: QuestionState): string {
                     </li>
                 </ul>
                 <p class="nbdev-note" v-if="state.question.about">关于 {{ state.question.about }}</p>
-                <p v-if="state.stale" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--status-warning-bg, var(--bg-subtle)); font-size: var(--text-xs); color: var(--text-secondary)">
+                <p v-if="state.stale" class="nbdev-hint nbdev-hint-warn">
                     旧答复“{{ valueText(state.question, state.stale.value) }}”{{ state.stale.code === "stale_value" ? `按 v${state.stale.artifactVersion} 合法，但选项后来改了` : "本身就不合法" }}，要重新答
                 </p>
             </article>

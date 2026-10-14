@@ -21,7 +21,7 @@ const emit = defineEmits<{
 }>();
 
 type Tone = "neutral" | "accent" | "success" | "warning" | "danger";
-const TONE_COLOR: Record<Tone, string> = {neutral: "var(--text-muted)", accent: "var(--accent-main)", success: "var(--status-success)", warning: "var(--status-warning)", danger: "var(--status-danger)"};
+const TONE_CLASS: Record<Tone, string> = {neutral: "nbdev-empty", accent: "nbdev-accent", success: "nbdev-ok", warning: "nbdev-warn", danger: "nbdev-danger"};
 const TONE_ICON: Record<Tone, string> = {neutral: "i-lucide-circle-dot", accent: "i-lucide-clock", success: "i-lucide-check", warning: "i-lucide-triangle-alert", danger: "i-lucide-octagon-alert"};
 
 const who = (paneId: string | null, sessionKey: string, agent: string | null = null) => `${paneId ? `${paneId}（${shortSession(sessionKey)}）` : shortSession(sessionKey)}${agent && !sessionKey.startsWith(`${agent}:`) ? ` ${agent}` : ""}`;
@@ -98,7 +98,7 @@ const attemptRows = computed(() => props.attempts.map((attempt) => {
         <li v-for="row in rows" :key="`${row.job.workId}/${row.job.taskId}/${row.job.sessionKey}`" class="flex flex-col gap-1.5">
             <div class="flex flex-wrap items-start gap-x-3 gap-y-1.5">
                 <span class="flex min-w-0 flex-1 basis-60 items-start gap-1.5">
-                    <span :class="TONE_ICON[row.tone]" class="mt-0.5 size-3.5 shrink-0" :style="{color: TONE_COLOR[row.tone]}" aria-hidden="true" />
+                    <span :class="[TONE_ICON[row.tone], TONE_CLASS[row.tone]]" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                     <span class="min-w-0 break-words">{{ prefix(row.job) }}{{ row.text }}</span>
                 </span>
                 <span class="flex flex-wrap gap-1.5">
@@ -114,7 +114,7 @@ const attemptRows = computed(() => props.attempts.map((attempt) => {
         </li>
         <li v-for="row in attemptRows" :key="row.attempt.attemptId" class="flex flex-wrap items-start gap-x-3 gap-y-1.5">
             <span class="flex min-w-0 flex-1 basis-60 items-start gap-1.5">
-                <span :class="TONE_ICON[row.tone]" class="mt-0.5 size-3.5 shrink-0" :style="{color: TONE_COLOR[row.tone]}" aria-hidden="true" />
+                <span :class="[TONE_ICON[row.tone], TONE_CLASS[row.tone]]" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 <span class="min-w-0 break-words" :class="{'font-medium': row.attention}">{{ prefix(row.attempt) }}{{ row.text }}</span>
             </span>
             <Button v-if="row.attention" size="sm" variant="ghost" @click="emit('dismiss', row.attempt.attemptId)">知道了</Button>

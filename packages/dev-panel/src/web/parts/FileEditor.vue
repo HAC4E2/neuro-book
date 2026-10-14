@@ -27,7 +27,7 @@ const lines = computed(() => (props.lineLimit === null ? 0 : countNonEmptyLines(
     <div class="flex min-h-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-3">
             <SegmentedControl :model-value="mode" :options="MODES" aria-label="编辑或预览" @update:model-value="(value) => (mode = value as 'edit' | 'preview')" />
-            <span v-if="lineLimit !== null" :style="{color: lines > lineLimit ? 'var(--status-danger)' : 'var(--text-secondary)', fontSize: 'var(--text-xs)'}">
+            <span v-if="lineLimit !== null" class="nbdev-small" :class="lines > lineLimit ? 'nbdev-danger' : 'nbdev-secondary'">
                 非空行 {{ lines }} / {{ lineLimit }}{{ lines > lineLimit ? "：超过治理检查的上限，提交后 master 过不了 governance:check" : "" }}
             </span>
         </div>
