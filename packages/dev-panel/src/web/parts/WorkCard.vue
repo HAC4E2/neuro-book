@@ -19,7 +19,7 @@ function follow(event: MouseEvent, href: string): void {
 </script>
 
 <template>
-    <article class="flex min-w-0 flex-col gap-3 rounded-[var(--radius-panel)] p-4 nbdev-surface">
+    <article class="flex min-w-0 flex-col gap-2 rounded-[var(--radius-panel)] px-3.5 py-3 nbdev-surface">
         <header class="flex min-w-0 items-start gap-2">
             <StatusChip :status="work.status" />
             <a :href="workHref(work.workId)" class="nbdev-card-title min-w-0 flex-1 hover:underline focus-visible:underline" @click="follow($event, workHref(work.workId))">
@@ -27,7 +27,7 @@ function follow(event: MouseEvent, href: string): void {
                 {{ work.title ?? work.workId }}
             </a>
         </header>
-        <p class="line-clamp-3" :class="work.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">
+        <p class="line-clamp-2" :class="work.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">
             {{ work.goal.value ?? "目标：未标" }}
         </p>
         <StatusBar :counts="work.taskCounts" />

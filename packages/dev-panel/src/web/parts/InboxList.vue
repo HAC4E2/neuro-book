@@ -3,14 +3,21 @@ import {Badge, EmptyState} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {shortSession, taskLabel, workLabel} from "../host/format.js";
 import {groupInbox} from "../host/inbox.js";
-import {artifactHref, isPlainClick} from "../host/routes.js";
-import type {InboxItem} from "../host/types.js";
+import {artifactHref, docHref, isPlainClick} from "../host/routes.js";
+import type {ConflictLocation, InboxItem} from "../host/types.js";
+import ActionLink from "./ActionLink.vue";
 import LeaseChip from "./LeaseChip.vue";
 
 /** 首页收件箱：待答的提问按产物合并成一行，撞号一条一行。契约见同名 .md。 */
 const props = defineProps<{items: InboxItem[]}>();
 const emit = defineEmits<{navigate: [href: string]}>();
 const rows = computed(() => groupInbox(props.items));
+/** 撞号的处理办法写在 .agents/works/README.md（先定保留哪个，另一个领新号）。 */
+const CONFLICT_HELP = docHref("main", ".agents/works/README.md");
+function conflictPlaces(locations: readonly ConflictLocation[]): string {
+    const places = locations.map((location) => (location.source === "main" ? "主工作区" : location.source === "worktree" ? `worktree ${location.checkout ?? ""}` : `${location.ref ?? "某个 ref"} 上已提交`));
+    return [...new Set(places)].join("、") || "位置未知";
+}
 /** 一行里列出的题数上限，其余写“等 N 道”。 */
 const SHOWN = 3;
 function follow(event: MouseEvent, href: string): void {
@@ -40,10 +47,20 @@ function follow(event: MouseEvent, href: string): void {
                     <span v-if="row.askers.length === 0" class="nbdev-empty">提问者未知</span>
                 </span>
             </a>
-            <div v-else class="flex items-center gap-2 px-1 py-2">
-                <span class="i-lucide-triangle-alert size-4 shrink-0 nbdev-danger" aria-hidden="true" />
-                <span class="font-medium">撞号 {{ row.label }}</span>
-                <Badge v-if="row.live" tone="danger" variant="soft" size="sm">正在发生</Badge>
+            <div v-else class="flex min-w-0 flex-col gap-1 px-1 py-2">
+                <span class="flex min-w-0 flex-wrap items-center gap-2">
+                    <span class="i-lucide-triangle-alert size-4 shrink-0 nbdev-danger" aria-hidden="true" />
+                    <span class="font-medium">撞号 {{ row.label }}</span>
+                    <Badge v-if="row.live" tone="danger" variant="soft" size="sm">正在发生</Badge>
+                </span>
+                <!-- 原因：同一个号被哪几个名字用了、各在哪里；只在改名或删除后留下的旧副本里的，标出来。 -->
+                <span class="nbdev-secondary min-w-0 pl-6 break-words">{{ row.ids.length }} 个名字用了同一个号：</span>
+                <ul class="nbdev-note min-w-0 pl-6">
+                    <li v-for="entry in row.ids" :key="entry.id" class="break-words">
+                        <span class="font-mono">{{ entry.id }}</span>：{{ conflictPlaces(entry.locations) }}<template v-if="!entry.live">（只在改名或删除后留下的旧副本里）</template>
+                    </li>
+                </ul>
+                <span class="pl-5"><ActionLink :href="CONFLICT_HELP" icon="i-lucide-book-open" @navigate="(href) => emit('navigate', href)">怎么处理</ActionLink></span>
             </div>
         </li>
     </ul>
