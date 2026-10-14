@@ -3,11 +3,12 @@ import {Button} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 import {useRouter} from "vue-router";
 import {daysSince, HERDR_STATUS_LABEL} from "../host/format.js";
-import {useResource} from "../host/panel-data.js";
+import {loadStateOf, useResource} from "../host/panel-data.js";
 import type {Overview, OverviewWork} from "../host/types.js";
 import InboxList from "../parts/InboxList.vue";
+import ActionLink from "../parts/ActionLink.vue";
 import LoadState from "../parts/LoadState.vue";
-import StaleNotice from "../parts/StaleNotice.vue";
+import PageShell from "../parts/PageShell.vue";
 import WorkCard from "../parts/WorkCard.vue";
 
 /**
@@ -35,28 +36,27 @@ const navigate = (href: string) => void router.push(href);
 </script>
 
 <template>
-    <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-6 p-4 md:p-6">
-        <StaleNotice v-if="overview.stale.value" :error="overview.error.value!" :received-at="overview.receivedAt.value" @retry="overview.reload()" />
-        <LoadState v-if="!overview.data.value" :loading="overview.loading.value" :error="overview.error.value" label="正在读取 Work 与收件箱" @retry="overview.reload()" />
-        <template v-else>
-            <section class="flex flex-col gap-2" aria-labelledby="inbox-title">
-                <h1 id="inbox-title" class="flex items-center gap-2 font-semibold" style="font-size: var(--text-lg)">
-                    收件箱<span style="color: var(--text-secondary); font-size: var(--text-sm)">{{ overview.data.value.inbox.length }}</span>
-                </h1>
-                <div class="rounded-[var(--radius-panel)] px-3 py-1" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
+    <PageShell :crumbs="[{label: '首页'}]" title="首页">
+        <LoadState v-bind="loadStateOf(overview)" label="正在读取 Work 与收件箱" @retry="overview.reload()" />
+        <template v-if="overview.data.value">
+            <section class="nbdev-stack" aria-labelledby="inbox-title">
+                <h2 id="inbox-title" class="nbdev-heading flex items-center gap-2">
+                    收件箱<span class="nbdev-secondary nbdev-num font-normal">{{ overview.data.value.inbox.length }}</span>
+                </h2>
+                <div class="nbdev-surface px-3 py-1">
                     <InboxList :items="overview.data.value.inbox" @navigate="navigate" />
                 </div>
             </section>
-            <section class="flex flex-col gap-3" aria-labelledby="works-title">
+            <section class="nbdev-stack" aria-labelledby="works-title">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 id="works-title" class="font-semibold" style="font-size: var(--text-lg)">Work</h2>
-                    <RouterLink to="/live/sessions" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ sessionLine }}</RouterLink>
+                    <h2 id="works-title" class="nbdev-heading">Work</h2>
+                    <ActionLink href="/live/sessions" icon="i-lucide-terminal" @navigate="navigate">{{ sessionLine }}</ActionLink>
                 </div>
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                     <WorkCard v-for="work in current" :key="work.workId" :work="work" @navigate="navigate" />
                 </div>
-                <p v-if="current.length === 0" style="color: var(--text-muted)">最近 {{ STALE_DAYS }} 天没有在动的 Work</p>
-                <div v-if="rest.length > 0" class="flex flex-col gap-3">
+                <p v-if="current.length === 0" class="nbdev-empty">最近 {{ STALE_DAYS }} 天没有在动的 Work</p>
+                <div v-if="rest.length > 0" class="nbdev-stack">
                     <Button variant="ghost" size="sm" :icon-class="showRest ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="self-start" :aria-expanded="showRest" @click="showRest = !showRest">
                         其余 {{ rest.length }} 个 Work（完成、搁置或超过 {{ STALE_DAYS }} 天没有更新）
                     </Button>
@@ -66,5 +66,5 @@ const navigate = (href: string) => void router.push(href);
                 </div>
             </section>
         </template>
-    </div>
+    </PageShell>
 </template>

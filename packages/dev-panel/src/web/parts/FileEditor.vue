@@ -27,12 +27,12 @@ const lines = computed(() => (props.lineLimit === null ? 0 : countNonEmptyLines(
     <div class="flex min-h-0 flex-col gap-2">
         <div class="flex flex-wrap items-center gap-3">
             <SegmentedControl :model-value="mode" :options="MODES" aria-label="编辑或预览" @update:model-value="(value) => (mode = value as 'edit' | 'preview')" />
-            <span v-if="lineLimit !== null" :style="{color: lines > lineLimit ? 'var(--status-danger)' : 'var(--text-secondary)', fontSize: 'var(--text-xs)'}">
+            <span v-if="lineLimit !== null" class="nbdev-small" :class="lines > lineLimit ? 'nbdev-danger' : 'nbdev-secondary'">
                 非空行 {{ lines }} / {{ lineLimit }}{{ lines > lineLimit ? "：超过治理检查的上限，提交后 master 过不了 governance:check" : "" }}
             </span>
         </div>
-        <FormTextarea v-if="mode === 'edit'" :model-value="modelValue" :rows="28" :readonly="readonly" class="font-mono" aria-label="文件内容" style="font-size: var(--text-sm)" @update:model-value="(value: string) => emit('update:modelValue', value)" />
-        <div v-else class="min-h-[20rem] rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
+        <FormTextarea v-if="mode === 'edit'" :model-value="modelValue" :rows="28" :readonly="readonly" class="font-mono nbdev-body" aria-label="文件内容" @update:model-value="(value: string) => emit('update:modelValue', value)" />
+        <div v-else class="min-h-[20rem] rounded-[var(--radius-panel)] p-4 nbdev-surface">
             <MarkdownView :html="previewHtml" @navigate="(href) => emit('navigate', href)" />
         </div>
     </div>

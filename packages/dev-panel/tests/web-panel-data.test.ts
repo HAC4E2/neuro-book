@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test";
 import {effectScope as createScope, ref, type EffectScope} from "vue";
 import {getJson, sendJson, streamLines} from "../src/web/host/api.js";
-import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "../src/web/host/panel-data.js";
+import {confirmRelogin, loadStateOf, panelState, startPanelData, stopPanelData, useResource} from "../src/web/host/panel-data.js";
 import {useWrite} from "../src/web/host/writes.js";
 import {until, useWebEnv} from "./web-env.js";
 
@@ -283,6 +283,22 @@ describe("已有数据时重取失败（1.7）", () => {
         await until(() => resource.data.value, (value) => value?.n === 3);
         expect([resource.stale.value, resource.error.value]).toEqual([false, null]);
         expect(resource.receivedAt.value! > first!).toBe(true);
+    });
+
+    test("loadStateOf 给 LoadState 的四项：先成功再失败时 hasData 为真、带着错误与读到的时刻（3d 的旧数据形态）", async () => {
+        let calls = 0;
+        web.env.respond((call) => {
+            if (call.url !== "/api/work/a") return undefined;
+            calls += 1;
+            return calls === 1 ? {data: {n: 1}} : {status: 404, errors: [{code: "not_found", message: "没有这个 Work"}]};
+        });
+        const scope = effectScope();
+        const resource = scope.run(() => useResource<{n: number}>(() => "/api/work/a", ["records"]))!;
+        await until(() => resource.data.value, (value) => value !== null);
+        expect(loadStateOf(resource)).toEqual({loading: false, error: null, hasData: true, receivedAt: resource.receivedAt.value});
+        resource.reload();
+        await until(() => resource.error.value, (value) => value !== null);
+        expect(loadStateOf(resource)).toMatchObject({hasData: true, error: {status: 404, message: "没有这个 Work"}});
     });
 
     test("首次就失败：没有数据，stale 为假（由 LoadState 处理）", async () => {

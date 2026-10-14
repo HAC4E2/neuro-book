@@ -1,22 +1,23 @@
 <script setup lang="ts">
-import {Badge, Breadcrumb, FormSelect} from "@notnotype/nb-ui/components";
+import {Badge, FormSelect} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
 import {sendJson} from "../host/api.js";
-import {useResource} from "../host/panel-data.js";
-import {isPlainClick, taskHref} from "../host/routes.js";
+import {loadStateOf, useResource} from "../host/panel-data.js";
+import {taskHref, workHref} from "../host/routes.js";
 import {useNotifyActions} from "../host/notify-actions.js";
 import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
+import ActionLink from "../parts/ActionLink.vue";
 import AnswerForm from "../parts/AnswerForm.vue";
 import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
 import LoadState from "../parts/LoadState.vue";
 import NotifyStatus from "../parts/NotifyStatus.vue";
+import PageShell from "../parts/PageShell.vue";
 import QuestionPanel from "../parts/QuestionPanel.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
-import StaleNotice from "../parts/StaleNotice.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 产物页（t03 第二轮产物页）：左边是产物来源上的原页（沙箱 iframe，不给同源），右边是问题侧栏与答复表单（t10）。
@@ -35,9 +36,9 @@ const data = computed(() => artifact.data.value);
 const versionOptions = computed(() => [...(data.value?.versions ?? [])].reverse().map((entry) => ({value: String(entry), label: entry === data.value?.latestVersion ? `v${entry}（最新）` : `v${entry}`})));
 const crumbs = computed(() => [
     {label: "产物", href: "/artifacts"},
-    {label: workLabel(props.workId), href: `/work/${props.workId}`},
-    ...(props.taskId === "-" ? [] : [{label: taskLabel(props.taskId), href: `/work/${props.workId}/task/${props.taskId}`}]),
-    {label: props.artifactId, current: true},
+    {label: workLabel(props.workId), href: workHref(props.workId)},
+    ...(props.taskId === "-" ? [] : [{label: taskLabel(props.taskId), href: taskHref(props.workId, props.taskId)}]),
+    {label: props.artifactId},
 ]);
 /** 产物找不到（404）时回到哪里：所属 Task，独立产物回到产物列表。 */
 const upHref = computed(() => (props.taskId === "-" ? "/artifacts" : taskHref(props.workId, props.taskId)));
@@ -93,60 +94,58 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
     const {failure} = outcome;
     const problems = Array.isArray(failure.details.problems) ? failure.details.problems as Array<{questionId: string; reason: string}> : [];
     formErrors.value = Object.fromEntries([...problems.map((problem) => [problem.questionId, problem.reason]), ...(typeof failure.details.questionId === "string" ? [[failure.details.questionId, failure.message]] : [])]);
+    // 表单只在还能答的题（未答、已答）下面显示问题；锚到这些题的原因只在题目下面报一次（3c）。
+    const answerable = new Set(current.questions.filter((state) => state.state === "open" || state.state === "answered").map((state) => state.question.id));
     notice.value = failure.action === "unknown"
         ? {...failureNotice("结果未知", failure), message: `${failure.message}。已重新载入，看下面“已答”里有没有这次的答复`}
-        : failureNotice("答复没有提交", failure);
+        : failureNotice("答复没有提交", failure, answerable);
     if (failure.action === "reload" || failure.action === "unknown") artifact.reload();
 }
 
-function followCrumb(item: {href?: string}, event: MouseEvent): void {
-    if (!item.href || !isPlainClick(event)) return;
-    event.preventDefault();
-    void router.push(item.href);
-}
+const navigate = (href: string) => void router.push(href);
 </script>
 
 <template>
-    <div class="flex min-h-full w-full flex-col gap-3 p-4 md:p-6">
-        <Breadcrumb :items="crumbs" @click="followCrumb" />
-        <StaleNotice v-if="artifact.stale.value" :error="artifact.error.value!" :received-at="artifact.receivedAt.value" :up-href="upHref" up-label="回到上一级" @navigate="(href) => router.push(href)" @retry="artifact.reload()" />
-        <LoadState v-if="!data" :loading="artifact.loading.value" :error="artifact.error.value" label="正在读取产物" @retry="artifact.reload()" />
-        <template v-else>
-            <header class="flex flex-wrap items-center gap-2">
-                <h1 class="font-semibold" style="font-size: var(--text-xl)">{{ data.title ?? props.artifactId }}</h1>
-                <Badge v-if="data.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
-                <Badge v-if="data.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
-                <Badge v-if="data.unpublishedChanges" tone="warning" variant="soft" size="sm" icon-class="i-lucide-pencil">有未发布的改动</Badge>
-                <span v-if="data.publishedAt" style="color: var(--text-secondary); font-size: var(--text-xs)">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
-                <div v-if="versionOptions.length > 1" class="ml-auto w-40">
-                    <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
-                </div>
-            </header>
-            <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-                <section v-if="data.pageUrl" class="flex min-h-[32rem] min-w-0 flex-col gap-1.5">
-                    <div class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
-                        <span class="i-lucide-info size-3.5" aria-hidden="true" />页面是当前版本（磁盘上的），切换版本只切换右边的题表
-                        <a class="ml-auto" :href="data.pageUrl" target="_blank" rel="noopener noreferrer">单独打开</a>
-                    </div>
-                    <!-- 产物页按亮色画、多半没有自己的底色。iframe 不用面板的主题色：Chrome 只在载入时按明暗是否一致垫白底，
-                         面板切到暗色不重算，就成了深底黑字（t11 实现审查第 5 条）。想支持暗色的产物页自己设底色。 -->
-                    <iframe :src="data.pageUrl" sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer" class="min-h-[32rem] w-full flex-1 rounded-[var(--radius-panel)]" style="border: var(--border-w, 1px) solid var(--divider); color-scheme: light; background: #fff" :title="`${data.title ?? props.artifactId} 的页面`" />
-                </section>
-                <aside class="min-w-0 rounded-[var(--radius-panel)] p-4" :class="{'lg:col-span-2': !data.pageUrl}" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="问题">
-                    <div class="flex flex-col gap-4">
-                        <WriteNotice v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
-                        <section v-if="lastAnswerId" class="flex flex-col gap-1.5" aria-label="这份答复的通知">
-                            <h2 class="font-semibold" style="font-size: var(--text-xs)">通知</h2>
-                            <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
-                            <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
-                        </section>
-                        <AnswerForm v-if="showForm" :questions="data.questions" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer" />
-                        <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" :answering="showForm" />
-                    </div>
-                </aside>
-            </div>
+    <!-- 满铺：左边是产物的原页（iframe），右边是问题侧栏；390 宽时侧栏移到 iframe 下面。 -->
+    <PageShell width="full" :crumbs="crumbs" :title="data?.title ?? props.artifactId" @navigate="navigate">
+        <template v-if="data" #status>
+            <Badge v-if="data.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
+            <Badge v-if="data.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
+            <Badge v-if="data.unpublishedChanges" tone="warning" variant="soft" size="sm" icon-class="i-lucide-pencil">有未发布的改动</Badge>
         </template>
+        <template v-if="data" #actions>
+            <div v-if="versionOptions.length > 1" class="w-40">
+                <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
+            </div>
+            <ActionLink v-if="data.pageUrl" :href="data.pageUrl" icon="i-lucide-external-link" external>单独打开</ActionLink>
+        </template>
+        <template v-if="data?.publishedAt" #meta>
+            <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
+        </template>
+        <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
+        <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
+            <section v-if="data.pageUrl" class="nbdev-stack-tight flex min-h-[32rem] min-w-0">
+                <p class="nbdev-note flex flex-wrap items-center gap-1.5">
+                    <span class="i-lucide-info size-3.5" aria-hidden="true" />页面是当前版本（磁盘上的），切换版本只切换右边的题表
+                </p>
+                <!-- 产物页按亮色画、多半没有自己的底色。iframe 不用面板的主题色：Chrome 只在载入时按明暗是否一致垫白底，
+                     面板切到暗色不重算，就成了深底黑字（t11 实现审查第 5 条）。想支持暗色的产物页自己设底色。 -->
+                <iframe :src="data.pageUrl" sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer" class="min-h-[32rem] w-full flex-1 rounded-[var(--radius-panel)] border border-[var(--divider)]" style="color-scheme: light; background: #fff" :title="`${data.title ?? props.artifactId} 的页面`" />
+            </section>
+            <aside class="nbdev-surface min-w-0 p-4" :class="{'lg:col-span-2': !data.pageUrl}" aria-label="问题">
+                <div class="flex flex-col gap-4">
+                    <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
+                    <section v-if="lastAnswerId" class="nbdev-stack-tight" aria-label="这份答复的通知">
+                        <h2 class="nbdev-card-title">通知</h2>
+                        <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
+                        <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                    </section>
+                    <AnswerForm v-if="showForm" :questions="data.questions" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer" />
+                    <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" :answering="showForm" />
+                </div>
+            </aside>
+        </div>
         <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
         <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
-    </div>
+    </PageShell>
 </template>

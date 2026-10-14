@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import {Badge} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
-import {useResource} from "../host/panel-data.js";
+import {useRouter} from "vue-router";
+import {loadStateOf, useResource} from "../host/panel-data.js";
 import type {RunsData} from "../host/types.js";
-import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LoadState from "../parts/LoadState.vue";
+import PageShell from "../parts/PageShell.vue";
 import ProcList from "../parts/ProcList.vue";
 import RunList from "../parts/RunList.vue";
-import StaleNotice from "../parts/StaleNotice.vue";
 import {shortSession} from "../host/format.js";
 
 /**
@@ -15,29 +16,33 @@ import {shortSession} from "../host/format.js";
  */
 const runs = useResource<RunsData>(() => "/api/runs", ["activity"]);
 const data = computed(() => runs.data.value);
+const router = useRouter();
+const navigate = (href: string) => void router.push(href);
 </script>
 
 <template>
-    <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-5 p-4 md:p-6">
-        <h1 class="font-semibold" style="font-size: var(--text-xl)">在跑</h1>
-        <StaleNotice v-if="runs.stale.value" :error="runs.error.value!" :received-at="runs.receivedAt.value" @retry="runs.reload()" />
-        <LoadState v-if="!data" :loading="runs.loading.value" :error="runs.error.value" label="正在读取在跑的进程" @retry="runs.reload()" />
-        <template v-else>
-            <EphemeralFrame title="经 nbdev 起的服务">
+    <!-- 现场页整页是临时内容：分区标题旁一个“临时”小徽标，不再整页虚线框（t15 阶段 3g）。 -->
+    <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '在跑'}]" title="在跑" @navigate="navigate">
+        <template #meta><span>停服务在终端运行 nbdev dev stop（别人起的要 --force）；面板这里只看不停。</span></template>
+        <LoadState v-bind="loadStateOf(runs)" label="正在读取在跑的进程" @retry="runs.reload()" />
+        <template v-if="data">
+            <section class="nbdev-stack" aria-labelledby="procs-title">
+                <h2 id="procs-title" class="nbdev-heading flex items-center gap-2">经 nbdev 起的服务<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
                 <ProcList :runs="data.procs" />
-                <p style="color: var(--text-muted); font-size: var(--text-2xs)">停服务在终端运行 nbdev dev stop（别人起的要 --force）；面板这里只看不停。</p>
-            </EphemeralFrame>
-            <EphemeralFrame title="会话派出的运行">
-                <p v-if="data.sessions.length === 0" style="color: var(--text-muted)">没有</p>
-                <section v-for="session in data.sessions" :key="session.key" class="flex flex-col gap-1">
-                    <h3 class="font-medium" :class="{'line-through': session.alive === false}" style="font-size: var(--text-sm)">{{ shortSession(session.key, session.label) }}</h3>
+            </section>
+            <section class="nbdev-stack" aria-labelledby="session-runs-title">
+                <h2 id="session-runs-title" class="nbdev-heading flex items-center gap-2">会话派出的运行<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
+                <p v-if="data.sessions.length === 0" class="nbdev-empty">没有</p>
+                <section v-for="session in data.sessions" :key="session.key" class="nbdev-stack-tight">
+                    <h3 class="nbdev-body font-medium" :class="{'line-through': session.alive === false}">{{ shortSession(session.key, session.label) }}</h3>
                     <RunList :runs="session.runs" />
                 </section>
-            </EphemeralFrame>
-            <EphemeralFrame title="无主的运行">
-                <p v-if="data.unownedRuns.length === 0" style="color: var(--text-muted)">没有</p>
+            </section>
+            <section class="nbdev-stack" aria-labelledby="unowned-title">
+                <h2 id="unowned-title" class="nbdev-heading flex items-center gap-2">无主的运行<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
+                <p v-if="data.unownedRuns.length === 0" class="nbdev-empty">没有</p>
                 <RunList v-else :runs="data.unownedRuns" show-pane />
-            </EphemeralFrame>
+            </section>
         </template>
-    </div>
+    </PageShell>
 </template>

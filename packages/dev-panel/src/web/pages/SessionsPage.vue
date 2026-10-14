@@ -4,22 +4,21 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {HERDR_STATUS_LABEL, relativeTime, shortSession} from "../host/format.js";
 import {useNotifyActions} from "../host/notify-actions.js";
-import {useResource} from "../host/panel-data.js";
+import {loadStateOf, useResource} from "../host/panel-data.js";
 import {useSessionConsoleHost} from "../host/session-console.js";
 import type {Meta, NotifyData, SessionsData} from "../host/types.js";
+import ActionLink from "../parts/ActionLink.vue";
 import DeveloperMessageDialog from "../parts/DeveloperMessageDialog.vue";
-import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LoadState from "../parts/LoadState.vue";
 import NotifyStatus from "../parts/NotifyStatus.vue";
-import RunList from "../parts/RunList.vue";
+import PageShell from "../parts/PageShell.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
 import SessionConsole from "../parts/SessionConsole.vue";
 import SessionList from "../parts/SessionList.vue";
-import StaleNotice from "../parts/StaleNotice.vue";
 import TakeoverDialog from "../parts/TakeoverDialog.vue";
 import TerminalTextView from "../parts/TerminalTextView.vue";
 import TerminalView from "../parts/TerminalView.vue";
-import WriteNotice from "../parts/WriteNotice.vue";
+import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 会话页（t03 第三轮会话页的左半边；终端在 t12）：会话以会话 id 加 Agent 名称认，状态与它的运行分开列，附租约；
@@ -32,6 +31,7 @@ import WriteNotice from "../parts/WriteNotice.vue";
  */
 const route = useRoute();
 const router = useRouter();
+const navigate = (href: string) => void router.push(href);
 const sessions = useResource<SessionsData>(() => "/api/sessions", ["activity", "sessions"]);
 const notify = useResource<NotifyData>(() => "/api/notify", ["notify", "sessions"]);
 const meta = useResource<Meta>(() => "/api/meta", ["notify"]);
@@ -109,37 +109,36 @@ function cancelConfirm(): void {
 </script>
 
 <template>
-    <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-5 p-4 md:p-6">
-        <h1 class="font-semibold" style="font-size: var(--text-xl)">会话</h1>
-        <StaleNotice v-if="sessions.stale.value" :error="sessions.error.value!" :received-at="sessions.receivedAt.value" @retry="sessions.reload()" />
-        <LoadState v-if="!data" :loading="sessions.loading.value" :error="sessions.error.value" label="正在读取会话" @retry="sessions.reload()" />
-        <template v-else>
-            <p class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs); color: var(--text-secondary)">
-                <Badge :tone="data.herdr.available ? 'success' : 'warning'" variant="soft" size="sm">{{ data.herdr.available ? `herdr ${data.herdr.version ?? ""}` : "herdr 不可用" }}</Badge>
-                <span v-if="data.herdr.available">{{ data.herdr.mode === "subscribed" ? "已订阅推送" : "轮询中" }}<template v-if="data.herdr.at"> · {{ relativeTime(data.herdr.at) }}更新</template><template v-if="data.herdr.missedEvents > 0"> · 对账补上了 {{ data.herdr.missedEvents }} 次漏掉的状态变化</template></span>
-                <span v-else>{{ data.herdr.error ?? "连不上 herdr" }}：租约照常按会话进程与 24 小时判断，看不到会话的状态</span>
-                <template v-if="notify.data.value && data.herdr.available && !notify.data.value.auto.enabled"> · 这个 herdr 版本不自动投递通知，只能手动发</template>
-            </p>
-            <section id="notify" class="flex flex-col gap-2" aria-label="通知">
-                <h2 class="font-semibold">通知</h2>
-                <p v-if="audit && !audit.enabled && audit.reason === 'not_initialized'" style="font-size: var(--text-xs); color: var(--status-warning)">审计还没初始化：不发通知，也不能替你打字或按键。在终端运行 <code>bun run --cwd packages/dev-panel audit-init</code>（建 {{ audit.path }}）。</p>
-                <p v-else-if="audit && !audit.enabled" style="font-size: var(--text-xs); color: var(--status-warning)">审计不可用：不发通知，也不能替你打字或按键。{{ audit.detail }}</p>
+    <!-- 现场页整页是临时内容：分区标题旁一个“临时”小徽标，不再整页虚线框（t15 阶段 3g）。 -->
+    <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '会话'}]" title="会话" @navigate="navigate">
+        <template v-if="data" #meta>
+            <Badge :tone="data.herdr.available ? 'success' : 'warning'" variant="soft" size="sm">{{ data.herdr.available ? `herdr ${data.herdr.version ?? ""}` : "herdr 不可用" }}</Badge>
+            <span v-if="data.herdr.available">{{ data.herdr.mode === "subscribed" ? "已订阅推送" : "轮询中" }}<template v-if="data.herdr.at"> · {{ relativeTime(data.herdr.at) }}更新</template><template v-if="data.herdr.missedEvents > 0"> · 对账补上了 {{ data.herdr.missedEvents }} 次漏掉的状态变化</template></span>
+            <span v-else>{{ data.herdr.error ?? "连不上 herdr" }}：租约照常按会话进程与 24 小时判断，看不到会话的状态</span>
+            <span v-if="notify.data.value && data.herdr.available && !notify.data.value.auto.enabled">这个 herdr 版本不自动投递通知，只能手动发</span>
+        </template>
+        <LoadState v-bind="loadStateOf(sessions)" label="正在读取会话" @retry="sessions.reload()" />
+        <template v-if="data">
+            <section id="notify" class="nbdev-stack" aria-label="通知">
+                <h2 class="nbdev-heading">通知</h2>
+                <p class="nbdev-warn nbdev-small" v-if="audit && !audit.enabled && audit.reason === 'not_initialized'">审计还没初始化：不发通知，也不能替你打字或按键。在终端运行 <code>bun run --cwd packages/dev-panel audit-init</code>（建 {{ audit.path }}）。</p>
+                <p class="nbdev-warn nbdev-small" v-else-if="audit && !audit.enabled">审计不可用：不发通知，也不能替你打字或按键。{{ audit.detail }}</p>
                 <NotifyStatus :jobs="notify.data.value?.jobs ?? []" :attempts="recent" show-task :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有排队的通知，最近 24 小时也没有发过" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
-                <WriteNotice v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
+                <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
             </section>
-            <section v-if="paneId" class="flex flex-col gap-2 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)" aria-label="会话详情">
+            <section v-if="paneId" class="nbdev-surface nbdev-stack p-4" aria-label="会话详情">
                 <div class="flex items-center gap-2">
-                    <h2 class="font-semibold">会话详情</h2>
+                    <h2 class="nbdev-card-title">会话详情</h2>
                     <Button class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-x" @click="close">关闭</Button>
                 </div>
                 <SessionConsole v-if="selected" :session="selected" :screen="host.screen.value?.screen ?? null" :screen-at="host.screenAt.value" :disabled-reason="consoleDisabled" :pending="host.pending.value" :reset-key="host.resetKey.value" :session-change="sessionChangeNote" :live="terminal !== null" :controlling="controlling" @refresh="host.readScreen" @prompt="(text) => host.sendPrompt(text)" @key="host.pressKey">
                     <template v-if="terminal" #screen>
-                        <p v-if="terminal.state.closedReason" style="color: var(--status-warning); font-size: var(--text-xs)">{{ terminal.state.closedReason }}</p>
+                        <p class="nbdev-warn nbdev-small" v-if="terminal.state.closedReason">{{ terminal.state.closedReason }}</p>
                         <!-- 接管中不换成文字视图（桌面窗口缩窄时）：释放的入口与“正在接管”的提示都在终端视图里。 -->
                         <template v-else-if="narrow && !showTerminalOnPhone && !controlling">
                             <template v-if="host.history.value">
-                                <p style="font-size: var(--text-xs); color: var(--text-secondary)">更早的输出（最近 {{ host.history.value.lines }} 行，{{ relativeTime(host.history.value.at) }}读取）</p>
-                                <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-xs)" aria-label="更早的输出">{{ host.history.value.text || "没有更早的输出" }}</pre>
+                                <p class="nbdev-note">更早的输出（最近 {{ host.history.value.lines }} 行，{{ relativeTime(host.history.value.at) }}读取）</p>
+                                <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-control)] p-2 nbdev-pre nbdev-small" aria-label="更早的输出">{{ host.history.value.text || "没有更早的输出" }}</pre>
                             </template>
                             <!-- key 是这一条连接：source 在零件实例的一生里不变，换连接就整体重建（t15）。 -->
                             <TerminalTextView :key="host.connection.value" :source="terminal.source" />
@@ -154,33 +153,37 @@ function cancelConfirm(): void {
                         </template>
                     </template>
                 </SessionConsole>
-                <p v-else style="color: var(--text-muted)">pane {{ paneId }} 上没有 herdr 认得出的会话，或它不在本仓库里</p>
-                <WriteNotice v-if="host.notice.value" :notice="host.notice.value" @dismiss="host.notice.value = null" />
+                <p class="nbdev-empty" v-else>pane {{ paneId }} 上没有 herdr 认得出的会话，或它不在本仓库里</p>
+                <WriteResult v-if="host.notice.value" :notice="host.notice.value" @dismiss="host.notice.value = null" />
             </section>
-            <EphemeralFrame title="持有租约或运行的会话">
+            <section class="nbdev-stack" aria-labelledby="leased-title">
+                <h2 id="leased-title" class="nbdev-heading flex items-center gap-2">持有租约或运行的会话<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
                 <SessionList :sessions="data.sessions" openable @open="open" />
-            </EphemeralFrame>
-            <EphemeralFrame title="无主的运行">
-                <p v-if="data.unownedRuns.length === 0" style="color: var(--text-muted)">没有</p>
-                <RunList v-else :runs="data.unownedRuns" show-pane />
-            </EphemeralFrame>
-            <EphemeralFrame v-if="idlePanes.length > 0" title="本仓库里的其它 Agent pane">
-                <ul class="flex flex-col gap-1" style="font-size: var(--text-xs)">
+            </section>
+            <!-- 无主的运行在“在跑”页列全；这里只留数目与入口。 -->
+            <p class="nbdev-secondary flex flex-wrap items-center gap-2">
+                {{ data.unownedRuns.length === 0 ? "没有无主的运行" : `${data.unownedRuns.length} 个无主的运行` }}
+                <ActionLink href="/live/runs" icon="i-lucide-activity" @navigate="navigate">去“在跑”看</ActionLink>
+            </p>
+            <section v-if="idlePanes.length > 0" class="nbdev-stack" aria-labelledby="idle-title">
+                <h2 id="idle-title" class="nbdev-heading flex items-center gap-2">本仓库里的其它 Agent pane<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
+                <ul class="nbdev-stack-tight nbdev-small">
                     <li v-for="pane in idlePanes" :key="pane.paneId" class="flex flex-wrap items-center gap-2">
                         <span>{{ pane.session ? shortSession(`${pane.session.agent}:${pane.session.value}`) : pane.agent }} · pane {{ pane.paneId }} · {{ HERDR_STATUS_LABEL[pane.status] ?? pane.status }}<template v-if="pane.workspaceLabel"> · {{ pane.workspaceLabel }}</template></span>
                         <Button v-if="pane.session" size="sm" variant="ghost" icon-class="i-lucide-terminal" @click="open(pane.paneId)">屏幕与输入</Button>
                     </li>
                 </ul>
-            </EphemeralFrame>
-            <EphemeralFrame v-if="otherPanes.length > 0" title="不在本仓库的会话">
-                <ul class="flex flex-col gap-1" style="font-size: var(--text-xs); color: var(--text-secondary)">
+            </section>
+            <section v-if="otherPanes.length > 0" class="nbdev-stack" aria-labelledby="other-title">
+                <h2 id="other-title" class="nbdev-heading flex items-center gap-2">不在本仓库的会话<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
+                <ul class="nbdev-stack-tight nbdev-note">
                     <li v-for="pane in otherPanes" :key="pane.paneId">{{ pane.agent }} · pane {{ pane.paneId }} · {{ HERDR_STATUS_LABEL[pane.status] ?? pane.status }} · {{ pane.foregroundCwd ?? pane.cwd ?? "目录未知" }}</li>
                 </ul>
-            </EphemeralFrame>
-            <p v-if="data.ignoredProcesses > 0" style="font-size: var(--text-xs); color: var(--text-muted)">另有 {{ data.ignoredProcesses }} 个短命或无关的进程没有列出</p>
+            </section>
+            <p v-if="data.ignoredProcesses > 0" class="nbdev-empty nbdev-small">另有 {{ data.ignoredProcesses }} 个短命或无关的进程没有列出</p>
         </template>
         <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
         <TakeoverDialog :open="host.takeoverAsk.value !== null" :current="{cols: terminal?.state.cols ?? 0, rows: terminal?.state.rows ?? 0, known: terminal?.state.sizeKnown ?? false}" :next="{cols: host.takeoverAsk.value?.cols ?? 0, rows: host.takeoverAsk.value?.rows ?? 0}" :conflict="host.takeoverAsk.value?.force ? host.lastConflict.value : null" :pending="terminal?.state.pending ?? false" @confirm="host.confirmTakeover" @cancel="host.cancelTakeover" />
         <ScreenConfirmDialog :open="activeConfirm !== null" :title="activeConfirm?.title ?? ''" :message="activeConfirm?.message ?? ''" :screen="activeConfirm?.screen ?? null" :confirm-label="activeConfirm?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value || host.pending.value" @confirm="runConfirm" @cancel="cancelConfirm" />
-    </div>
+    </PageShell>
 </template>

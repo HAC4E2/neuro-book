@@ -166,10 +166,15 @@ export type Resource<T> = {
     loading: Ref<boolean>;
     /** 最近一次接受数据的时刻（ISO）。 */
     receivedAt: Ref<string | null>;
-    /** 已有数据、这次重取却失败：页面显示的是上次读到的内容（`StaleNotice`，t15）。 */
+    /** 已有数据、这次重取却失败：页面显示的是上次读到的内容（`LoadState` 的旧数据形态，t15）。 */
     stale: ComputedRef<boolean>;
     reload(): void;
 };
+
+/** `LoadState` 要的几项（t15 阶段 3d）：页面写 `<LoadState v-bind="loadStateOf(resource)" …>`，只补说明与上一级。 */
+export function loadStateOf<T>(resource: Resource<T>): {loading: boolean; error: ResourceError | null; hasData: boolean; receivedAt: string | null} {
+    return {loading: resource.loading.value, error: resource.error.value, hasData: resource.data.value !== null, receivedAt: resource.receivedAt.value};
+}
 
 /**
  * 页面取一份数据：`path` 变了就重取；它依赖的几块数据（`parts`）变了也重取。

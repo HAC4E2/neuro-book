@@ -189,12 +189,12 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
 
 <template>
     <section class="flex flex-col gap-2" aria-label="实时终端">
-        <div class="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] px-3 py-2" :style="{background: mode === 'control' ? 'var(--accent-bg)' : 'var(--bg-hover)', fontSize: 'var(--text-xs)'}">
+        <div class="nbdev-small flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] px-3 py-2" :class="mode === 'control' ? 'bg-[var(--accent-bg)]' : 'bg-[var(--bg-hover)]'">
             <template v-if="mode === 'watch'">
                 <span class="i-lucide-eye size-4" aria-hidden="true" />
                 <span class="min-w-0 flex-1"><b>观看中</b>：只读的实时画面，键盘在别处（herdr 客户端或其它设备）<template v-if="!sizeKnown">；尺寸不确定，可能裁切</template><template v-if="controllerNote">；{{ controllerNote }}</template></span>
                 <Button v-if="canTakeover" size="sm" variant="primary" icon-class="i-lucide-keyboard" :loading="pending" @click="requestTakeover">接管键盘</Button>
-                <span v-else style="color: var(--text-muted)">{{ takeoverBlocked }}</span>
+                <span class="nbdev-empty" v-else>{{ takeoverBlocked }}</span>
             </template>
             <template v-else>
                 <span class="i-lucide-keyboard size-4" aria-hidden="true" />
@@ -202,8 +202,9 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
                 <Button size="sm" variant="secondary" :loading="pending" @click="emit('release')">释放</Button>
             </template>
         </div>
-        <p v-if="mode === 'control'" style="color: var(--text-muted); font-size: var(--text-2xs)">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。herdr 那边（键盘与其它程序）照样能写进来。</p>
-        <div ref="frameBox" class="overflow-x-auto rounded-[var(--radius-panel)] p-2" :style="{background: 'var(--bg-main)', ...(mode === 'control' ? CONTROL_BOX : {})}">
+        <p class="nbdev-caption" v-if="mode === 'control'">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。herdr 那边（键盘与其它程序）照样能写进来。</p>
+        <!-- 接管时的框高与量列数用的是同一份 CONTROL_BOX（proposeSize 先按它撑开再量），所以这里绑定它，不改成类。 -->
+        <div ref="frameBox" class="overflow-x-auto rounded-[var(--radius-panel)] bg-[var(--bg-main)] p-2" :style="mode === 'control' ? CONTROL_BOX : undefined">
             <div ref="host" class="h-full" />
         </div>
     </section>

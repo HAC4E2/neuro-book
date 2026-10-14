@@ -156,14 +156,14 @@ onBeforeUnmount(() => observer?.disconnect());
                 <h2 v-if="group.title" class="nbdev-nav-heading">{{ group.title }}</h2>
                 <template v-for="entry in group.entries" :key="entry.key">
                     <template v-if="entry.needsWritable && writable?.ok !== true">
-                        <p v-if="writable" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">主工作区现在不能写（{{ writable.code }}），写入口已隐藏</p>
+                        <p v-if="writable" class="px-2 nbdev-empty nbdev-small">主工作区现在不能写（{{ writable.code }}），写入口已隐藏</p>
                     </template>
                     <a v-else :href="entry.href" class="nbdev-nav-item" :class="{'nbdev-nav-current': entryActive(entry, current.path)}" :aria-current="entryActive(entry, current.path) ? 'page' : undefined" @click="follow($event, entry.href)">
                         <span :class="entry.icon" class="size-4 shrink-0" aria-hidden="true" />
                         <span class="min-w-0 truncate">{{ entry.label }}</span>
                         <template v-if="entry.count && counts[entry.count] !== undefined">
                             <Badge v-if="entry.count === 'inbox' && (counts.inbox ?? 0) > 0" tone="warning" variant="soft" size="sm" class="ml-auto">{{ counts.inbox }}</Badge>
-                            <span v-else-if="entry.count !== 'inbox'" class="ml-auto" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ counts[entry.count] }}</span>
+                            <span v-else-if="entry.count !== 'inbox'" class="ml-auto nbdev-note">{{ counts[entry.count] }}</span>
                         </template>
                     </a>
                 </template>
@@ -171,8 +171,8 @@ onBeforeUnmount(() => observer?.disconnect());
             <h2 :id="worksHeadingId" class="nbdev-nav-heading">工作</h2>
         </div>
         <div ref="scroller" class="nbdev-scroll-y min-h-0 flex-1 pb-3" :class="inset ? 'px-3' : ''">
-            <p v-if="works === null" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">正在读取</p>
-            <p v-else-if="split.shown.length === 0" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">没有进行中或 {{ NAV_RECENT_DAYS }} 天内更新过的 Work</p>
+            <p v-if="works === null" class="px-2 nbdev-empty nbdev-small">正在读取</p>
+            <p v-else-if="split.shown.length === 0" class="px-2 nbdev-empty nbdev-small">没有进行中或 {{ NAV_RECENT_DAYS }} 天内更新过的 Work</p>
             <!-- WAI-ARIA 的导航树：tree 里是 Work（第 1 层）与展开后的 Task（第 2 层，在 group 里）；整棵树一个 Tab 停靠点，方向键在行间走。 -->
             <div ref="tree" role="tree" :aria-labelledby="worksHeadingId" @keydown="onTreeKey">
                 <div v-for="branch in branches" :key="branch.work.key" role="none" class="flex flex-col">
@@ -183,14 +183,14 @@ onBeforeUnmount(() => observer?.disconnect());
                         </button>
                         <Tooltip :text="`${branch.work.number} ${branch.work.title}`" placement="right" :disabled="!truncated.has(branch.work.key)">
                             <a role="treeitem" aria-level="1" :aria-expanded="branch.work.open" :href="branch.work.href" class="nbdev-nav-item min-w-0 flex-1" :class="{'nbdev-nav-current': branch.work.current, 'nbdev-nav-ancestor': branch.work.ancestor}" :aria-current="branch.work.current ? 'page' : undefined" :data-ancestor="branch.work.ancestor || undefined" :data-row-key="branch.work.key" :tabindex="branch.work.key === rovingKey ? 0 : -1" @focus="focusKey = branch.work.key" @click="follow($event, branch.work.href)">
-                                <span class="min-w-0 truncate" :data-label-key="branch.work.key"><span style="color: var(--text-secondary)">{{ branch.work.number }}</span> {{ branch.work.title }}</span>
+                                <span class="min-w-0 truncate" :data-label-key="branch.work.key"><span class="nbdev-secondary">{{ branch.work.number }}</span> {{ branch.work.title }}</span>
                             </a>
                         </Tooltip>
                     </div>
                     <div v-if="branch.tasks.length > 0" role="group" class="flex flex-col pl-5">
                         <Tooltip v-for="row in branch.tasks" :key="row.key" :text="`${row.number} ${row.title}`" placement="right" :disabled="!truncated.has(row.key)">
                             <a role="treeitem" aria-level="2" :href="row.href" class="nbdev-nav-item min-w-0" :class="{'nbdev-nav-current': row.current, 'nbdev-nav-ancestor': row.ancestor}" :aria-current="row.current ? 'page' : undefined" :data-ancestor="row.ancestor || undefined" :data-row-key="row.key" :tabindex="row.key === rovingKey ? 0 : -1" @focus="focusKey = row.key" @click="follow($event, row.href)">
-                                <span class="min-w-0 truncate" :data-label-key="row.key"><span style="color: var(--text-secondary)">{{ row.number }}</span> {{ row.title }}</span>
+                                <span class="min-w-0 truncate" :data-label-key="row.key"><span class="nbdev-secondary">{{ row.number }}</span> {{ row.title }}</span>
                             </a>
                         </Tooltip>
                     </div>

@@ -80,17 +80,17 @@ function submit(): void {
 
 <template>
     <form class="flex flex-col gap-4" @submit.prevent="submit">
-        <p v-if="disabledReason" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--text-xs)">{{ disabledReason }}</p>
-        <p v-if="live.length === 0" style="color: var(--text-muted)">没有能答的题</p>
-        <fieldset v-for="state in live" :key="state.question.id" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0" style="border-color: var(--divider)" :disabled="disabledReason !== null || pending">
+        <p v-if="disabledReason" class="rounded-[var(--radius-control)] px-2 py-1 nbdev-hint">{{ disabledReason }}</p>
+        <p class="nbdev-empty" v-if="live.length === 0">没有能答的题</p>
+        <fieldset v-for="state in live" :key="state.question.id" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
             <legend class="flex flex-wrap items-center gap-1.5 pb-1">
                 <span class="font-medium">{{ state.question.label }}</span>
                 <Badge v-if="state.state === 'answered'" tone="success" variant="soft" size="sm">已答</Badge>
                 <Badge v-else-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
                 <Badge v-else tone="neutral" variant="soft" size="sm">选答</Badge>
-                <span style="color: var(--text-secondary); font-size: var(--text-xs)">#{{ state.question.id }}</span>
+                <span class="nbdev-note">#{{ state.question.id }}</span>
             </legend>
-            <p v-if="state.question.about" style="color: var(--text-secondary); font-size: var(--text-xs)">关于 {{ state.question.about }}</p>
+            <p class="nbdev-note" v-if="state.question.about">关于 {{ state.question.about }}</p>
             <RadioGroup v-if="state.question.type === 'single'" :model-value="typeof values[state.question.id] === 'string' ? (values[state.question.id] as string) : ''" :options="optionsOf(state.question)" size="sm" @update:model-value="(value: string) => set(state.question.id, value)" />
             <CheckboxGroup v-else-if="state.question.type === 'multi'" :model-value="Array.isArray(values[state.question.id]) ? (values[state.question.id] as string[]) : []" :options="optionsOf(state.question)" @update:model-value="(value: string[]) => set(state.question.id, value)" />
             <RadioGroup v-else-if="state.question.type === 'confirm'" :model-value="values[state.question.id] === undefined ? '' : String(values[state.question.id])" :options="CONFIRM_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => set(state.question.id, value === 'true')" />
@@ -98,16 +98,16 @@ function submit(): void {
             <FormField v-if="commenting[state.question.id]" label="说明（可选）">
                 <FormTextarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
             </FormField>
-            <button v-else type="button" class="self-start" style="color: var(--text-secondary); font-size: var(--text-xs)" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
-            <p v-if="problems[state.question.id] ?? errors[state.question.id]" role="alert" style="color: var(--status-danger); font-size: var(--text-xs)">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
+            <button v-else type="button" class="self-start nbdev-note" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
+            <p class="nbdev-danger nbdev-small" v-if="problems[state.question.id] ?? errors[state.question.id]" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
         </fieldset>
         <FormField v-if="live.length > 0" label="整份答复的备注（可选）" :error="noteProblem ?? ''">
             <FormTextarea v-model="note" :rows="2" :disabled="disabledReason !== null || pending" />
         </FormField>
         <div v-if="live.length > 0" class="flex flex-wrap items-center gap-2">
             <Button type="submit" :loading="pending" :disabled="!ready || disabledReason !== null">提交 {{ chosen.length }} 题</Button>
-            <span v-if="slow" style="color: var(--text-secondary); font-size: var(--text-xs)">在等别的写入完成…</span>
-            <span v-else-if="chosen.length === 0 && !disabledReason" style="color: var(--text-muted); font-size: var(--text-xs)">还没有改任何一题</span>
+            <span class="nbdev-note" v-if="slow">在等别的写入完成…</span>
+            <span class="nbdev-empty nbdev-small" v-else-if="chosen.length === 0 && !disabledReason">还没有改任何一题</span>
         </div>
     </form>
 </template>

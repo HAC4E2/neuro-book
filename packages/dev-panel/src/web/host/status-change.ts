@@ -40,7 +40,7 @@ export function useStatusChange(endpoint: () => string, expectedHash: () => stri
         }
         pending.value = null;
         notice.value = failure.action === "show_diff"
-            ? {tone: "warning", title: "没有改", message: "README 在你打开之后被改过，已重新载入；看过之后再改", items: [], retry: false}
+            ? {outcome: "conflict", title: "没有改", message: "README 在你打开之后被改过，已重新载入；看过之后再改", items: [], notes: [], retry: false}
             : failure.action === "unknown"
                 ? {...failureNotice("结果未知", failure), message: `${failure.message}。已重新载入，看状态有没有改过来`}
                 : failureNotice("没有改", failure);
@@ -50,7 +50,7 @@ export function useStatusChange(endpoint: () => string, expectedHash: () => stri
     async function change(status: string): Promise<void> {
         const hash = expectedHash();
         if (hash === null) {
-            notice.value = {tone: "error", title: "没有改", message: "读不出 README，刷新后再试", items: [], retry: false};
+            notice.value = {outcome: "failure", title: "没有改", message: "读不出 README，刷新后再试", items: [], notes: [], retry: false};
             return;
         }
         await send(status, hash, false);

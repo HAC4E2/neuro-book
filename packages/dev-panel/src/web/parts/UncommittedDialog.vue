@@ -15,7 +15,7 @@ const emit = defineEmits<{confirm: []; cancel: []}>();
     <Dialog :model-value="open" title="这个文件有别人没提交的改动" size="lg" :busy="pending" @request-close="emit('cancel')">
         <div v-if="changes" class="flex flex-col gap-3">
             <p><code>{{ path }}</code>（{{ changes.status.join("、") }}）</p>
-            <p style="color: var(--text-secondary); font-size: var(--text-xs)">路径限定的提交会把这些改动和你的这次改动一起提交进 master，提交作者是主工作区的 Git 身份。拿不准是谁改的，就先取消、在终端问清楚。</p>
+            <p class="nbdev-note">路径限定的提交会把这些改动和你的这次改动一起提交进 master，提交作者是主工作区的 Git 身份。拿不准是谁改的，就先取消、在终端问清楚。</p>
             <p v-if="changes.untracked">这个文件还没入库（未跟踪），整份内容会随这次提交入库。</p>
             <section v-if="changes.staged" class="flex flex-col gap-1">
                 <h3 class="font-semibold">已暂存的改动</h3>

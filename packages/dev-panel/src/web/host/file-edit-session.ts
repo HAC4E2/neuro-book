@@ -115,7 +115,7 @@ export function useFileEditSession(path: Ref<string | null>) {
         } catch (error) {
             if (!(error instanceof ApiError)) throw error;
             if (mine !== generation) return;
-            notice.value = {tone: "error", title: "没有保存", message: `文件在你打开之后被改过，取现在的版本也失败了：${error.message}`, items: [], retry: false};
+            notice.value = {outcome: "conflict", title: "没有保存", message: `文件在你打开之后被改过，取现在的版本也失败了：${error.message}`, items: [], notes: [], retry: false};
         }
     }
 

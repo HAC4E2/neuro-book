@@ -46,7 +46,7 @@ describe("两步确认绑定打开时的目标（阻断 1）", () => {
         await host.confirmRun();
         expect(posts("/keys")).toEqual([]);
         expect(host.confirm.value).toBeNull();
-        expect(host.notice.value).toMatchObject({tone: "warning", title: "目标变了，没有发送"});
+        expect(host.notice.value).toMatchObject({outcome: "conflict", title: "目标变了，没有发送"});
         stop();
     });
 
@@ -165,7 +165,7 @@ describe("阶段 1 实现审查的建议", () => {
         await sending;
         expect(host.confirm.value).toBeNull();
         // notice 是响应式代理，数组属性用 toMatchObject 比不上，拆成普通值比。
-        expect([host.notice.value?.tone, host.notice.value?.title, [...(host.notice.value?.items ?? [])]]).toEqual(["warning", "没有发出去", ["原文：给 A 的话"]]);
+        expect([host.notice.value?.outcome, host.notice.value?.title, [...(host.notice.value?.items ?? [])]]).toEqual(["failure", "没有发出去", ["原文：给 A 的话"]]);
         expect(host.notice.value?.message).toContain(`pane ${A.paneId}`);
         stop();
     });

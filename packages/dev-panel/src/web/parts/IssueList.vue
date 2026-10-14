@@ -8,14 +8,14 @@ defineProps<{issues: IssueView[]}>();
 </script>
 
 <template>
-    <p v-if="issues.length === 0" style="color: var(--text-muted)">没有开着的 Issue</p>
+    <p class="nbdev-empty" v-if="issues.length === 0">没有开着的 Issue</p>
     <ul v-else class="flex flex-col gap-1">
-        <li v-for="issue in issues" :key="issue.number" class="flex min-w-0 flex-wrap items-center gap-2" style="font-size: var(--text-sm)">
+        <li v-for="issue in issues" :key="issue.number" class="flex min-w-0 flex-wrap items-center gap-2 nbdev-body">
             <a v-if="issue.url" :href="issue.url" target="_blank" rel="noopener noreferrer">#{{ issue.number }}</a>
             <span v-else>#{{ issue.number }}</span>
             <span class="min-w-0 break-all">{{ issue.title }}</span>
             <Badge v-for="label in issue.labels" :key="label" tone="neutral" variant="soft" size="sm">{{ label }}</Badge>
-            <span style="color: var(--text-secondary); font-size: var(--text-xs)">{{ relativeTime(issue.updatedAt) }}更新</span>
+            <span class="nbdev-note">{{ relativeTime(issue.updatedAt) }}更新</span>
         </li>
     </ul>
 </template>

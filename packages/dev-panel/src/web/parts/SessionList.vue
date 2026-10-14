@@ -11,13 +11,13 @@ const TONE: Record<string, "neutral" | "accent" | "warning" | "success"> = {idle
 </script>
 
 <template>
-    <p v-if="sessions.length === 0" style="color: var(--text-muted)">没有会话持有租约或运行</p>
+    <p class="nbdev-empty" v-if="sessions.length === 0">没有会话持有租约或运行</p>
     <ul v-else class="flex flex-col gap-3">
-        <li v-for="session in sessions" :key="session.key" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0" style="border-color: var(--divider)">
+        <li v-for="session in sessions" :key="session.key" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0 nbdev-divider">
             <div class="flex flex-wrap items-center gap-2">
                 <span class="font-medium" :class="{'line-through': session.alive === false}">{{ shortSession(session.key, session.label) }}</span>
                 <Badge :tone="session.herdr ? TONE[session.herdr.status] ?? 'neutral' : 'neutral'" variant="soft" size="sm">{{ session.herdr ? HERDR_STATUS_LABEL[session.herdr.status] ?? session.herdr.status : "不在 herdr 里" }}</Badge>
-                <span style="color: var(--text-secondary); font-size: var(--text-xs)">{{ session.agent }}<template v-if="session.herdr"> · pane {{ session.herdr.paneId }}</template><template v-if="session.alive === false"> · 会话进程已退出</template></span>
+                <span class="nbdev-note">{{ session.agent }}<template v-if="session.herdr"> · pane {{ session.herdr.paneId }}</template><template v-if="session.alive === false"> · 会话进程已退出</template></span>
                 <Button v-if="openable && session.herdr" class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-terminal" @click="emit('open', session.herdr.paneId)">屏幕与输入</Button>
             </div>
             <div v-if="session.leases.length > 0" class="flex flex-wrap gap-1.5">

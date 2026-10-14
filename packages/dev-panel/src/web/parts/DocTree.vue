@@ -50,22 +50,22 @@ watch(() => [props.selected, props.changes] as const, () => {
 </script>
 
 <template>
-    <nav class="flex flex-col gap-1" aria-label="文档树" style="font-size: var(--text-xs)">
+    <nav class="flex flex-col gap-1 nbdev-small" aria-label="文档树">
         <section v-for="group in groups" :key="group.key">
             <button type="button" class="flex w-full items-center gap-1 rounded-[var(--radius-control)] px-1 py-1 font-semibold hover:bg-[var(--bg-hover)]" :aria-expanded="open[group.key] ?? false" @click="open = {...open, [group.key]: !(open[group.key] ?? false)}">
                 <span :class="open[group.key] ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" aria-hidden="true" />
                 {{ group.title }}
-                <span v-if="group.changed > 0" class="ml-auto" style="color: var(--status-warning)">{{ group.changed }} 处差异</span>
+                <span v-if="group.changed > 0" class="ml-auto nbdev-warn">{{ group.changed }} 处差异</span>
             </button>
             <div v-if="open[group.key]" class="ml-4 flex flex-col">
                 <div v-for="section in group.sections" :key="section.section" class="flex flex-col">
-                    <p v-if="section.section" class="truncate px-1 pt-1" style="color: var(--text-secondary)">{{ section.section }}</p>
+                    <p v-if="section.section" class="truncate px-1 pt-1 nbdev-secondary">{{ section.section }}</p>
                     <template v-for="row in section.rows" :key="row.path">
-                        <button v-if="row.present" type="button" class="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-control)] px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]" :style="row.path === selected ? {background: 'var(--accent-bg)'} : {}" :aria-current="row.path === selected ? 'page' : undefined" :title="row.path" @click="$emit('open', row.path)">
+                        <button v-if="row.present" type="button" class="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-control)] px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]" :class="{'bg-[var(--accent-bg)]': row.path === selected}" :aria-current="row.path === selected ? 'page' : undefined" :title="row.path" @click="$emit('open', row.path)">
                             <span class="min-w-0 flex-1 truncate">{{ row.name }}</span>
-                            <span v-if="row.change" class="shrink-0" :style="{color: row.change === 'added' ? 'var(--status-success)' : 'var(--status-warning)'}">{{ CHANGE_LABEL[row.change] }}</span>
+                            <span v-if="row.change" class="shrink-0" :class="row.change === 'added' ? 'nbdev-ok' : 'nbdev-warn'">{{ CHANGE_LABEL[row.change] }}</span>
                         </button>
-                        <span v-else class="flex min-w-0 items-center gap-1.5 px-1 py-0.5" style="color: var(--text-muted)" :title="row.path">
+                        <span v-else class="flex min-w-0 items-center gap-1.5 px-1 py-0.5 nbdev-empty" :title="row.path">
                             <span class="min-w-0 flex-1 truncate" :class="{'line-through': row.change === 'deleted'}">{{ row.name }}</span>
                             <span class="shrink-0">{{ row.change ? CHANGE_LABEL[row.change] : "" }}</span>
                         </span>

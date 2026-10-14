@@ -91,6 +91,136 @@ body {
     color: var(--text-secondary);
 }
 
+/*
+ * 语义类（t15 阶段 3a）：字号五档、几种文字颜色、竖排间距三档、面层与提示块。页面与零件用它们代替散落的内联 style，
+ * 改一处就是改全部。与上面的原子类一样不分层；类名都带 nbdev- 前缀，免得与 nb-ui 或 Tailwind 撞名。
+ */
+.nbdev-title {
+    font-size: var(--text-xl);
+    font-weight: 600;
+    line-height: 1.3;
+}
+/* 页面分节的区标题用 --text-lg：nbook 主题里 --text-md 与正文的 --text-sm 同为 13px，用它区标题就和正文一样大。 */
+.nbdev-heading {
+    font-size: var(--text-lg);
+    font-weight: 600;
+}
+/* 卡片与面层里的标题（Work 卡片、“预览”、“会话详情”）：与正文同字号，靠字重区分（nb-ui 界面开发规范“去框化流式卡片”）。 */
+.nbdev-card-title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+}
+.nbdev-body {
+    font-size: var(--text-sm);
+    color: var(--text-main);
+}
+.nbdev-note {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+.nbdev-caption {
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+.nbdev-secondary {
+    color: var(--text-secondary);
+}
+/* 空状态、占位与“未标”：不承载信息的灰字（承载信息的用 nbdev-note 或 nbdev-secondary）。 */
+.nbdev-empty {
+    color: var(--text-muted);
+}
+.nbdev-warn {
+    color: var(--status-warning);
+}
+.nbdev-danger {
+    color: var(--status-danger);
+}
+.nbdev-ok {
+    color: var(--status-success);
+}
+/* 强调色的文字与图标（进行中、排队中这类中性的提示）。 */
+.nbdev-accent {
+    color: var(--accent-main);
+}
+.nbdev-num {
+    font-variant-numeric: tabular-nums;
+}
+/* 竖排间距三档：页面里区与区之间、区内、列表项之间。 */
+.nbdev-stack-page, .nbdev-stack, .nbdev-stack-tight {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.nbdev-stack-page {
+    gap: 1.25rem;
+}
+.nbdev-stack {
+    gap: 0.5rem;
+}
+.nbdev-stack-tight {
+    gap: 0.25rem;
+}
+/* 面层：持久内容的卡片与面板。 */
+.nbdev-surface {
+    border: var(--border-w, 1px) solid var(--divider);
+    border-radius: var(--radius-panel);
+    background: var(--panel-surface);
+}
+/* 要开发者先处理的面层（新建页“结果未知”锁住表单、编辑页的冲突差异）：边框用警告色。 */
+.nbdev-surface.nbdev-surface-warn {
+    border-color: var(--status-warning);
+}
+/* 浅底提示块：页面里一两句需要注意的说明。 */
+.nbdev-hint {
+    border-radius: var(--radius-control);
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+}
+/* 要注意、但不是错误的提示（来自分支的记录、要重新答的旧答复）：浅的警告底。 */
+.nbdev-hint.nbdev-hint-warn {
+    background: var(--status-warning-bg, var(--bg-subtle));
+}
+/* 屏幕末尾、更早的输出这类等宽的预览块（有上限高度，可以自己滚，见 docs/panel.md 的“滚动”）。 */
+.nbdev-pre {
+    border-radius: var(--radius-control);
+    padding: 0.5rem;
+    background: var(--bg-hover);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+}
+
+/* 只取说明的字号、不改颜色（容器里各行自己定颜色时用）；放在最后，与 nbdev-pre 同用时以它为准。 */
+.nbdev-small {
+    font-size: var(--text-xs);
+}
+.nbdev-divider {
+    border-color: var(--divider);
+}
+
+/*
+ * 阅读卡片（t15 阶段 3b）：Task 页 README 这类正文卡片。字号取阅读字号，宽度是阅读宽度（--reading-measure，按阅读字号算的 em）
+ * 加卡片两侧内边距，卡片就不比正文宽，右边不再空一片；窄时收到 100%。放在 PageShell 的阅读档里。
+ */
+.nbdev-reading-card {
+    font-size: var(--reading-size, var(--text-md));
+    width: calc(var(--reading-measure, 34em) + 3rem);
+    max-width: 100%;
+    padding: 1.5rem;
+}
+@media (max-width: 767px) {
+    .nbdev-reading-card {
+        padding: 1rem;
+    }
+}
+/* 不带卡片的阅读栏（文档页的正文）：宽度就是阅读宽度，里面长的一行（最近改动的提交说明）不会把它撑宽。 */
+.nbdev-reading-column {
+    font-size: var(--reading-size, var(--text-md));
+    width: var(--reading-measure, 34em);
+    max-width: 100%;
+}
+
 /* Markdown 正文（MarkdownView）：阅读排版消费主题的阅读刻度。 */
 .nbdev-markdown {
     font-size: var(--reading-size, var(--text-md));

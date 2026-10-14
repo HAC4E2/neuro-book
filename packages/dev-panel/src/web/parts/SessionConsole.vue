@@ -55,18 +55,18 @@ function send(): void {
         <div class="flex flex-wrap items-center gap-2">
             <span class="font-medium">{{ shortSession(session.sessionKey) }}</span>
             <Badge tone="neutral" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[session.status] ?? session.status }}</Badge>
-            <span style="color: var(--text-secondary); font-size: var(--text-xs)">{{ session.agent ?? "Agent" }} · pane {{ session.paneId }}<template v-if="screenAt && !live"> · 屏幕读于 {{ relativeTime(screenAt) }}</template></span>
+            <span class="nbdev-note">{{ session.agent ?? "Agent" }} · pane {{ session.paneId }}<template v-if="screenAt && !live"> · 屏幕读于 {{ relativeTime(screenAt) }}</template></span>
             <Button v-if="!live" class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-rotate-cw" :disabled="pending || disabledReason !== null" @click="emit('refresh')">重读屏幕</Button>
         </div>
         <slot name="screen">
-            <pre class="max-h-96 min-h-24 overflow-auto rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-2xs)" aria-label="屏幕末尾">{{ screen ?? "还没读到屏幕" }}</pre>
+            <pre class="max-h-96 min-h-24 overflow-auto rounded-[var(--radius-control)] p-2 nbdev-pre" aria-label="屏幕末尾">{{ screen ?? "还没读到屏幕" }}</pre>
         </slot>
-        <p v-if="sessionChange && !controlling" role="status" style="color: var(--status-warning); font-size: var(--text-xs)">{{ sessionChange }}</p>
-        <p v-if="promptBlocked && !controlling" style="color: var(--text-secondary); font-size: var(--text-xs)">{{ promptBlocked }}</p>
+        <p class="nbdev-warn nbdev-small" v-if="sessionChange && !controlling" role="status">{{ sessionChange }}</p>
+        <p class="nbdev-note" v-if="promptBlocked && !controlling">{{ promptBlocked }}</p>
         <form v-if="!controlling" class="flex flex-col gap-2" @submit.prevent="send">
             <FormTextarea v-model="draft" :rows="4" :maxlength="MAX" :disabled="promptBlocked !== null" placeholder="发给这个会话的文字（替你在它的输入框里打字并回车）" aria-label="发给会话的文字" />
             <div class="flex items-center gap-2">
-                <span style="color: var(--text-muted); font-size: var(--text-2xs)">{{ draft.length }} / {{ MAX }}</span>
+                <span class="nbdev-caption">{{ draft.length }} / {{ MAX }}</span>
                 <Button class="ml-auto" type="submit" size="sm" variant="primary" :disabled="!canSend" :loading="pending">发送</Button>
             </div>
         </form>

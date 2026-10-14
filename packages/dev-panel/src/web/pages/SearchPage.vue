@@ -5,6 +5,7 @@ import {useRoute, useRouter} from "vue-router";
 import {streamLines} from "../host/api.js";
 import type {SearchCheckoutDone, SearchHit, SearchRecordMatch} from "../host/types.js";
 import LoadState from "../parts/LoadState.vue";
+import PageShell from "../parts/PageShell.vue";
 import SearchResults from "../parts/SearchResults.vue";
 
 /**
@@ -73,11 +74,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-4 p-4 md:p-6">
-        <h1 class="flex items-center gap-2 font-semibold" style="font-size: var(--text-xl)">
-            搜索“{{ route.query.q }}”<Spinner v-if="!finished && !error" size="sm" label="搜索中" />
-        </h1>
+    <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '搜索'}]" :title="`搜索“${route.query.q ?? ''}”`" @navigate="(href) => void router.push(href)">
+        <template v-if="!finished && !error" #status><Spinner size="sm" label="搜索中" /></template>
         <LoadState v-if="error" :loading="false" :error="error" @retry="run(String(route.query.q ?? ''))" />
         <SearchResults :records="records" :hits="hits" :done="done" :finished="finished" @navigate="(href) => router.push(href)" />
-    </div>
+    </PageShell>
 </template>

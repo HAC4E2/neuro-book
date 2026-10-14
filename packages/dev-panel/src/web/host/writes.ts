@@ -80,22 +80,69 @@ export function useWrite(): WriteRun {
     };
 }
 
-/** 写入之后给开发者看的一条结果（`WriteNotice` 显示它）。 */
-export type Notice = {tone: "success" | "warning" | "error" | "info"; title: string; message: string; items: string[]; retry: boolean};
+/**
+ * 写入（以及会话页的按键、文字、接管）之后给开发者看的一条结果，`WriteResult` 显示它（t15 阶段 3c）。
+ * - `outcome` 决定颜色与图标：成功、失败（没有完成；是否已经写入看 `message` 与 `items`：`commit_failed`、`changed_after_write`
+ *   已写进工作区、没有提交，也算失败）、冲突（状态在你操作期间变了，没生效）、结果未知、提示。能不能重试只看 `retry`，不看 `outcome`；
+ * - `items` 是结果的明细（没锚到字段的问题、写入了没提交的路径），已与 `message` 去重；
+ * - `notes` 是附注（服务端的警告），缩进、默认折叠，不改变结果的颜色：成功带警告仍是成功。
+ */
+export type NoticeOutcome = "success" | "failure" | "conflict" | "unknown" | "info";
+export type Notice = {outcome: NoticeOutcome; title: string; message: string; items: string[]; notes: string[]; retry: boolean};
+
+/** 只有标题与一句话的结果。 */
+export function plainNotice(outcome: NoticeOutcome, title: string, message: string): Notice {
+    return {outcome, title, message, items: [], notes: [], retry: false};
+}
 
 export function successNotice(title: string, body: Envelope<WriteData>): Notice {
     const {commit, changed} = body.data;
     const message = !changed || (!commit.committed && commit.reason === "nothing_to_commit") ? "内容没变，没有提交" : commit.committed ? `已提交 ${commit.sha.slice(0, 9)}` : "";
-    return {tone: body.warnings.length > 0 ? "warning" : "success", title, message, items: body.warnings.map((warning) => warning.message), retry: false};
+    return {outcome: "success", title, message, items: [], notes: body.warnings.map((warning) => warning.message), retry: false};
 }
 
-export function failureNotice(title: string, failure: WriteFailure): Notice {
-    const problems = Array.isArray(failure.details.problems) ? (failure.details.problems as Array<{reason?: string; questionId?: string; field?: string}>).map((problem) => [problem.questionId ?? problem.field, problem.reason].filter(Boolean).join("：")) : [];
+/** 失败里能锚到表单字段的问题：`details.problems[].field` 与 `details.field`（新建页交给表单显示，结果里不再列一遍）。 */
+export function fieldProblems(failure: WriteFailure): Array<{field: string; message: string}> {
+    const listed = Array.isArray(failure.details.problems) ? (failure.details.problems as Array<{field?: unknown; reason?: unknown; message?: unknown}>) : [];
+    const found = listed.filter((problem) => typeof problem.field === "string").map((problem) => ({field: problem.field as string, message: String(problem.reason ?? problem.message ?? failure.message)}));
+    if (typeof failure.details.field === "string" && !found.some((problem) => problem.field === failure.details.field)) found.push({field: failure.details.field, message: failure.message});
+    return found;
+}
+
+type ListedProblem = {reason?: unknown; message?: unknown; questionId?: unknown; field?: unknown};
+/** 问题锚在哪里：新建页、编辑页的表单按字段（`field`），产物页的答复表单按题号（`questionId`）。 */
+const anchorOf = (problem: ListedProblem): string | null => (typeof problem.field === "string" ? problem.field : typeof problem.questionId === "string" ? problem.questionId : null);
+
+/**
+ * 失败的结果。`anchored` 是这一页的表单能显示问题的字段或题号：落在其中的问题只在表单里报一次，结果里写“表单里标出了 N 处”。
+ * 其余问题进 `items`，与 `message` 相同的不再列；已写入未提交的路径若 `message` 里已经写了，也不再列。
+ */
+export function failureNotice(title: string, failure: WriteFailure, anchored: ReadonlySet<string> = new Set()): Notice {
+    const listed = Array.isArray(failure.details.problems) ? (failure.details.problems as ListedProblem[]) : [];
+    const isAnchored = (problem: ListedProblem) => {
+        const anchor = anchorOf(problem);
+        return anchor !== null && anchored.has(anchor);
+    };
+    const single = typeof failure.details.field === "string" ? failure.details.field : typeof failure.details.questionId === "string" ? failure.details.questionId : null;
+    const anchoredCount = listed.filter(isAnchored).length + (single !== null && anchored.has(single) && !listed.some((problem) => anchorOf(problem) === single) ? 1 : 0);
+    const items: string[] = [];
+    for (const problem of listed) {
+        if (isAnchored(problem)) continue;
+        const reason = String(problem.reason ?? problem.message ?? "");
+        if (reason === "" || reason === failure.message) continue;
+        const where = typeof problem.questionId === "string" ? problem.questionId : typeof problem.field === "string" ? problem.field : null;
+        items.push(where ? `${where}：${reason}` : reason);
+    }
+    for (const path of failure.writtenPaths) {
+        if (!failure.message.includes(path)) items.push(`已写入、未提交：${path}`);
+    }
+    const outcome: NoticeOutcome = failure.action === "unknown" ? "unknown" : failure.action === "show_diff" || failure.action === "confirm_uncommitted" || failure.action === "reload" ? "conflict" : "failure";
     return {
-        tone: failure.action === "unknown" || failure.action === "retry" ? "warning" : "error",
+        outcome,
         title,
-        message: failure.message,
-        items: [...problems, ...failure.writtenPaths.map((path) => `已写入、未提交：${path}`)],
+        message: anchoredCount > 0 ? `表单里标出了 ${anchoredCount} 处要改的地方` : failure.message,
+        items: [...new Set(items)],
+        notes: failure.warnings.map((warning) => warning.message),
         retry: failure.action === "retry",
     };
 }

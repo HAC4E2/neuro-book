@@ -10,8 +10,8 @@ const emit = defineEmits<{confirm: []; cancel: []}>();
     <Dialog :model-value="open" :title="title" size="md" :busy="pending" @request-close="emit('cancel')">
         <div class="flex flex-col gap-3">
             <p>{{ message }}</p>
-            <pre v-if="screen !== null" class="max-h-80 overflow-auto rounded-[var(--radius-control)] p-2" style="background: var(--bg-hover); font-size: var(--text-2xs)" aria-label="会话屏幕末尾">{{ screen }}</pre>
-            <p v-else style="color: var(--text-muted)">读不到屏幕</p>
+            <pre v-if="screen !== null" class="max-h-80 overflow-auto rounded-[var(--radius-control)] p-2 nbdev-pre" aria-label="会话屏幕末尾">{{ screen }}</pre>
+            <p class="nbdev-empty" v-else>读不到屏幕</p>
         </div>
         <template #footer>
             <div class="flex justify-end gap-2">

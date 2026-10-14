@@ -97,7 +97,7 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
     let readSequence = 0;
 
     function targetChanged(from: ConsoleTarget, to: ConsoleTarget | null): Notice {
-        return {tone: "warning", title: "目标变了，没有发送", message: `确认框打开期间目标从 ${label(from)} 变成了 ${to ? label(to) : "没有选中的会话"}；需要的话对现在的会话重新操作`, items: [], retry: false};
+        return {outcome: "conflict", title: "目标变了，没有发送", message: `确认框打开期间目标从 ${label(from)} 变成了 ${to ? label(to) : "没有选中的会话"}；需要的话对现在的会话重新操作`, items: [], notes: [], retry: false};
     }
 
     watch(current, (next, previous) => {
@@ -138,7 +138,7 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
         } catch (error) {
             if (!(error instanceof ApiError)) throw error;
             if (!sameTarget(target, current.value)) return null;
-            if (mine === readSequence) notice.value = {tone: "warning", title: "读不到屏幕", message: error.message, items: [], retry: false};
+            if (mine === readSequence) notice.value = {outcome: "failure", title: "读不到屏幕", message: error.message, items: [], notes: [], retry: false};
             return {ok: false, message: error.message};
         }
     }
@@ -155,7 +155,7 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
         } catch (error) {
             if (!(error instanceof ApiError)) throw error;
             if (!sameTarget(target, current.value)) return;
-            notice.value = {tone: "warning", title: "读不到更早的输出", message: error.message, items: [], retry: false};
+            notice.value = {outcome: "failure", title: "读不到更早的输出", message: error.message, items: [], notes: [], retry: false};
         } finally {
             historyPending.value = false;
         }
@@ -187,10 +187,10 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
                     };
                 } else {
                     // 目标已经换了：不再问“仍然发送”，但要说清这段没发出去；换了格时输入框也已清空，附上原文。
-                    notice.value = {tone: "warning", title: "没有发出去", message: `给 ${label(target)} 的文字没有发出去（${error.message}）；目标已经换了，没有再问`, items: samePane(target, current.value) ? [] : [`原文：${text}`], retry: false};
+                    notice.value = {outcome: "failure", title: "没有发出去", message: `给 ${label(target)} 的文字没有发出去（${error.message}）；目标已经换了，没有再问`, items: samePane(target, current.value) ? [] : [`原文：${text}`], notes: [], retry: false};
                 }
             } else {
-                notice.value = {tone: "error", title: "没有发出去", message: describeFailure(error).message, items: [], retry: false};
+                notice.value = {outcome: "failure", title: "没有发出去", message: describeFailure(error).message, items: [], notes: [], retry: false};
             }
         } finally {
             pending.value = false;
@@ -203,9 +203,9 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
         notice.value = null;
         try {
             await sendJson<{sent: string[]}>("POST", `/api/sessions/${encodeURIComponent(target.paneId)}/keys`, {keys: [key], expectedSession: target.sessionKey, ...(confirmed ? {confirmed: true} : {})});
-            notice.value = {tone: "success", title: "已按下", message: `${KEY_CONFIRM[key]?.label ?? key} → ${target.paneId}`, items: [], retry: false};
+            notice.value = {outcome: "success", title: "已按下", message: `${KEY_CONFIRM[key]?.label ?? key} → ${target.paneId}`, items: [], notes: [], retry: false};
         } catch (error) {
-            notice.value = {tone: "error", title: "没有按下", message: describeFailure(error).message, items: [], retry: false};
+            notice.value = {outcome: "failure", title: "没有按下", message: describeFailure(error).message, items: [], notes: [], retry: false};
         } finally {
             pending.value = false;
             if (sameTarget(target, current.value)) await readScreen();
@@ -285,9 +285,9 @@ export function useSessionConsoleHost(options: {selected: Ref<SelectedSession | 
                 lastConflict.value = {reason: terminalNotice.reason, text: terminalNotice.text, since: terminalNotice.since};
             }
         } else if (terminalNotice.kind === "released") {
-            notice.value = {tone: terminalNotice.reason === "user" ? "info" : "warning", title: "已释放键盘", message: `${RELEASE_WHY[terminalNotice.reason] ?? terminalNotice.reason}；${terminalNotice.restored ? "终端尺寸已改回" : NOT_RESTORED[terminalNotice.notRestored ?? ""] ?? "尺寸没有改回"}`, items: [], retry: false};
+            notice.value = {outcome: terminalNotice.reason === "user" ? "info" : "conflict", title: "已释放键盘", message: `${RELEASE_WHY[terminalNotice.reason] ?? terminalNotice.reason}；${terminalNotice.restored ? "终端尺寸已改回" : NOT_RESTORED[terminalNotice.notRestored ?? ""] ?? "尺寸没有改回"}`, items: [], notes: [], retry: false};
         } else {
-            notice.value = {tone: "error", title: "没有接管", message: terminalNotice.message, items: [], retry: false};
+            notice.value = {outcome: "failure", title: "没有接管", message: terminalNotice.message, items: [], notes: [], retry: false};
         }
         socket.dismissNotice();
     });

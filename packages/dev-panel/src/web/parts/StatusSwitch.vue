@@ -28,9 +28,9 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center gap-2" style="font-size: var(--text-xs)">
+    <div class="flex flex-wrap items-center gap-2 nbdev-small">
         <template v-if="disabledReason">
-            <span style="color: var(--text-muted)">{{ disabledReason }}</span>
+            <span class="nbdev-empty">{{ disabledReason }}</span>
         </template>
         <template v-else>
             <div class="w-32">
@@ -40,7 +40,7 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
                 <span>把 {{ subject }} 改成{{ statusLabel(choice) }}？</span>
                 <Button size="sm" :loading="pending" @click="emit('confirm', choice)">确认</Button>
                 <Button size="sm" variant="ghost" :disabled="pending" @click="choice = null">取消</Button>
-                <span v-if="slow" style="color: var(--text-secondary)">在等别的写入完成…</span>
+                <span class="nbdev-secondary" v-if="slow">在等别的写入完成…</span>
             </template>
         </template>
     </div>
