@@ -1285,3 +1285,41 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
   - 与线框稿的差别：通知一行右边只有箭头，没写“查看”；手机详情里的文字视图按内容高（沿用 `TerminalTextView` 的 60vh 上限），不铺满到输入区；详情头的会话键截断显示、点一下复制全文，没有单独的复制图标。
   - 没有验证到的地方：真实会话文件里的标题只在单测里验过（验收环境的假 Claude 没有会话文件，列表里是短号）；“不在本仓库的会话”折叠与“已结束”的行（验收环境里没有）；阶段 1 的其它场景（s3 到 s7、s9）与会话页无关，没重跑；只看了 Chrome。
   - 验收环境：克隆没有新写入；A（`w4:p1`）收到了一条验收文字与按键 q（状态成了“完成一轮”），回归脚本照阶段 1 的做法把 A 的会话 id 报成了 `aaaa0004…`；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `e3cef2a66`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。`governance:check` 仍因 worktree 里遗留的 `packages/neuro-book-manager/` 跑不成，没动。
+- 2026-10-14：第 3 批实现审查（`evidences/impl-review-phase4-batch3.txt`）的结论是 0 阻断、6 重要、5 建议。第 1 到 5 条与第 7 到 11 条照改，第 6 条实测后停在“待定”（见下），在集成分支上改，未 push。
+  - 提交（`6628fc7e6..535b80193`，5 个）：
+    - `b59241f04`（重要 4、5 的服务端，建议 11）：
+      - 接管闸门通过后用 pane 当前的会话键与 Agent 刷新连接记下的值，审计的意图、结果与释放行都记这个会话；`panel-terminal` 补了“看着 shell 时里面起了 Claude 再接管”的用例；
+      - `/api/panes/:pane/history` 按会话键分：没有会话键的（含认出了 Agent 但没报会话的）按 pane 读，有会话键的回 `history_unavailable`；pane 不在回 404 `pane_not_found`（新错误码，退出码 5），不再借会话接口的 `session_changed`；
+      - `panel.md` 的“开放给谁”改成实际的错误码（`session_changed`，`details.reason` 是 `not_found`），并写明之前调过只读的 `agent.get`；`cli.md` 的 `history_unavailable` 说明更新；`terminal-hub.ts` 的 `open` 注释改正；非 Agent pane 发文字、按键的用例改成整份审计为空；
+    - `db633f1c1`（建议 7 到 10）：
+      - Claude 会话文件末尾 256KB 没有标题行时往前加读，最多读到 4MB；还没有就沿用上次读到的（文件变短不沿用）；
+      - 找不到的会话文件记 60 秒；
+      - omp 的绝对路径只认 omp 会话目录里的文件，三种 Agent 都只读普通文件（FIFO 不再会挂住请求）；
+      - `cached` 只把文件系统错误当成读不出，日志按“路径加错误码”去重。
+      - `session-titles` 补了三条用例；`panel-server` 场景 1 改成先写会话文件再请求（找不到的会话会被记 60 秒）。
+    - `e04157a77`（重要 5 的前端）：左列表按会话键分组，认出了 Agent 但没报会话的进“其它 pane”，标题写“codex（没有报会话）”；不在本仓库的也只列出。
+    - `196b470f6`（重要 1、2、3）：
+      - 观看字号按框的宽、高两向取较小值（行高按挂载时量出的格高与字号之比），按比例估的放不下就再小一号；到 5px 仍放不下时框里滚动并贴底；
+      - `TerminalView` 的根 `overflow-hidden`，终端框去掉 `min-h-64`，屏幕快照的 `<pre>` 去掉 `min-h-24`；
+      - 手机详情改用 `PageShell` 的新属性 `bare` 收起页头，不再在 `PageShell` 与 `div` 之间换根。
+    - `535b80193`（建议 11）：“在跑”页会话派出的运行也写 pane 号并链到会话页。
+  - 重要 6 的实测：xterm 攒不下回滚，`pane.read` 也读不到 Claude 的更早输出。
+    - 证据一：在审查环境里抓 `herdr terminal session observe` 的帧（往 `w2:p1` 的 cat 里送 30 行）。增量帧用 `\e[行;列H` 逐行改写整屏，不用换行滚屏，所以 xterm 不进回滚。
+    - 证据二：在浏览器里往 70×60 的 shell pane 再打 120 行，`.xterm-viewport` 可滚的高度仍是 0（`review-fixes/final/results.txt` 第 3 条）。
+    - 证据三：开发者 herdr 里真实的 Claude pane（只读 `pane list`）`max_offset_from_bottom` 全是 0；omp 是 444，shell 有几千。Claude 在备用屏上，`pane.read` 读不到更早的输出，只能读当前屏；omp 可以，原有的 `/api/sessions/:pane/history` 已经在读。
+    - 按开发者说的条件，第 6 条到这里停下，等开发者再定 Claude 会话怎么往回翻；代码没动（回滚 5000 行和 14px 滑块的扣减都留着）。`docs/panel.md` 与 `TerminalView.md` 里“能往回翻”的说法已经改成实测结果，标了待定。
+  - 门禁（在 `535b80193` 的工作区上）：包的 `typecheck`、`build:web` 通过；全量 `test` 415 过、0 失败；`git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过。日志在 `accept/phase4/batch3/review-fixes/gate-*.log`。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch3/review-fixes/review.ts`，15 条全过（`final/results.txt`，截图 `final/rf-*.png`），控制台没有错误：
+    - 窄而高：审查环境里从 `w3:p1` 往右分出 `w3:p2`，经一次短暂的 control 改成 70×60，里面跑 `seq`。1440×900 与 1000×800 下 60 行都在框里，最后一行（提示符）看得见，终端不压说明行。
+    - 矮视口 1440×650：
+      - 观看时终端不压输入区；5px 仍放不下，框里贴底；
+      - 接管量出 109×11，xterm 正好 11 行、不用滚；
+      - 其它 pane 打开“更早的输出”时，说明行不压终端。
+    - 跨 768px：1000 → 700 → 1000，草稿都在；接管中来回两次，仍在接管、终端有画面。
+    - shell 起假 Claude 再接管：在 `w3:p2` 里起第三个假 Claude 并报会话后，同一页换成 Agent 详情，终端连接没重建；接管、释放三行审计的 `sessionKey` 都是这个会话。
+    - 回归：第 3 批的 `accept.ts` 39 条全过（`review-fixes/rerun-batch3/`）；阶段 1 的 s1、s2、s8 共 16 条全过（`review-fixes/rerun-stage1/`），控制台里的 409 `session_changed` 是场景本身造的。
+  - 验收环境：
+    - `w3:p2` 用完已关，`fake3/` 已删，4490 已 SIGTERM，浏览器已关；
+    - 往 `w2:p1` 的 cat 里送过 30 行 `probe-line-*`，A 收到验收文字与按键 q、z，回归脚本把 A 的会话 id 报成了 `aaaa0004…`；
+    - master 到 `3e55f78bc`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
+  - 没有验证到的地方：矮视口下 5px 仍放不下时贴底，假 Claude 的内容在屏幕上半，贴底后看到的是空行（真实 Claude 的输入框在下面，从代码推断没有这个问题）；只看了 Chrome。
