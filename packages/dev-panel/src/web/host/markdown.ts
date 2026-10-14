@@ -11,6 +11,14 @@ import {marked} from "marked";
 export type MarkdownContext = {checkoutKey: string; path: string; artifactBase: string | null};
 
 const FORBID_TAGS = ["style", "form", "input", "button", "textarea", "select", "iframe", "object", "embed"];
+/**
+ * 清洗时给外站图片做的记号（值是原地址），清洗完在同一棵 DOM 上换成链接。也列进 `FORBID_ATTR`：属性过滤在
+ * `afterSanitizeAttributes` 钩子之前，作者自己写的这个属性先被去掉，只有钩子写的留下（第 4 批审查第 1 条）。
+ */
+const EXTERNAL_MARK = "data-nbdev-external";
+const isWebUrl = (value: string) => /^https?:/iu.test(value.trim());
+/** `srcset` 里有没有外站的候选（逗号分隔，每项第一段是地址）。 */
+const hasWebCandidate = (srcset: string) => srcset.split(",").some((candidate) => isWebUrl(candidate.trim().split(/\s+/u)[0] ?? ""));
 
 function resolveRepoPath(fromPath: string, target: string): string | null {
     const parts = fromPath.split("/").slice(0, -1);
@@ -80,12 +88,17 @@ function sanitize(html: string, context: MarkdownContext): string {
                 node.setAttribute("target", "_blank");
                 node.setAttribute("rel", "noopener noreferrer");
             }
+        } else if (node.tagName === "SOURCE") {
+            // `<picture>` 里给明暗两套图的 `<source>`：外站的候选去掉，退回同一个 `<picture>` 里的 `<img>`（它会被换成链接）。
+            if (hasWebCandidate(node.getAttribute("srcset") ?? "")) node.removeAttribute("srcset");
         } else if (node.tagName === "IMG") {
+            // `srcset` 只在有外站候选时去掉；同源与 data: 的候选浏览器照常挑。
+            if (hasWebCandidate(node.getAttribute("srcset") ?? "")) node.removeAttribute("srcset");
             const src = node.getAttribute("src") ?? "";
             if (/^data:/iu.test(src)) return;
-            if (/^https?:/iu.test(src)) {
-                // 外站图片不加载（面板的 CSP 也拦着）：打开文档就发请求，会把“开发者在看”与本机地址带给外站；渲染后换成链接，见 `replaceExternalImages`。
-                node.setAttribute("data-nbdev-external", src);
+            if (isWebUrl(src)) {
+                // 外站图片不加载（面板的 CSP 也拦着）：打开文档就发请求，会把“开发者在看”与本机地址带给外站；清洗后换成链接，见 `replaceExternalImages`。
+                node.setAttribute(EXTERNAL_MARK, src);
                 node.removeAttribute("src");
                 return;
             }
@@ -98,7 +111,12 @@ function sanitize(html: string, context: MarkdownContext): string {
         }
     });
     try {
-        return replaceExternalImages(DOMPurify.sanitize(html, {FORBID_TAGS, FORBID_ATTR: ["style"]}));
+        // 在 DOMPurify 返回的同一棵 DOM 上换外站图片，最后只序列化一次，不多一轮“序列化再解析”。
+        const fragment = DOMPurify.sanitize(html, {FORBID_TAGS, FORBID_ATTR: ["style", EXTERNAL_MARK], RETURN_DOM_FRAGMENT: true});
+        replaceExternalImages(fragment);
+        const holder = fragment.ownerDocument.createElement("div");
+        holder.appendChild(fragment);
+        return holder.innerHTML;
     } finally {
         DOMPurify.removeHook("afterSanitizeAttributes");
     }
@@ -107,35 +125,32 @@ function sanitize(html: string, context: MarkdownContext): string {
 /**
  * 外站图片换成一个链接“外站图片：<alt 或文件名>（<域名>）”，新标签页打开原图；外面已经是链接的只换成文字（t15 阶段 4 第 4 批，后续清单的推迟事项）。
  * 不放宽面板的 CSP：文档来自各个 worktree，Agent 写进去的外站图片一打开就会发请求；徽章这类图片在面板里也没有信息量。
- * 链接用 DOM 接口拼，文字走 `textContent`，不拼 HTML 字符串。
+ * 记号只能是清洗钩子写的（作者写的已被 `FORBID_ATTR` 去掉），这里仍只认解析得出、协议是 http 或 https 的地址；文字走 `textContent`。
  */
-function replaceExternalImages(html: string): string {
-    if (!html.includes("data-nbdev-external")) return html;
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    for (const image of template.content.querySelectorAll("img[data-nbdev-external]")) {
-        const src = image.getAttribute("data-nbdev-external") ?? "";
-        let host = "";
-        let name = "";
+function replaceExternalImages(fragment: DocumentFragment): void {
+    const doc = fragment.ownerDocument;
+    for (const image of fragment.querySelectorAll(`img[${EXTERNAL_MARK}]`)) {
+        const src = image.getAttribute(EXTERNAL_MARK) ?? "";
+        let url: URL | null = null;
         try {
-            const url = new URL(src);
-            host = url.host;
-            name = decodeURIComponent(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
+            url = new URL(src);
         } catch (error) {
-            if (!(error instanceof TypeError || error instanceof URIError)) throw error;
-            host = src;
+            if (!(error instanceof TypeError)) throw error;
         }
+        if (url === null || (url.protocol !== "http:" && url.protocol !== "https:")) {
+            image.removeAttribute(EXTERNAL_MARK);
+            continue;
+        }
+        const name = decode(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
         // 徽章常套在链接里（`[![…](图)](链接)`）：外面已经是链接时只换成文字，链接里不能再套链接。
-        const insideLink = image.closest("a") !== null;
-        const replacement = document.createElement(insideLink ? "span" : "a");
-        if (replacement instanceof HTMLAnchorElement) {
-            replacement.href = src;
-            replacement.target = "_blank";
-            replacement.rel = "noopener noreferrer";
+        const replacement = doc.createElement(image.closest("a") === null ? "a" : "span");
+        if (replacement.tagName === "A") {
+            replacement.setAttribute("href", url.href);
+            replacement.setAttribute("target", "_blank");
+            replacement.setAttribute("rel", "noopener noreferrer");
         }
         replacement.className = "nbdev-external-image";
-        replacement.textContent = `外站图片：${image.getAttribute("alt") || name || "图片"}（${host}）`;
+        replacement.textContent = `外站图片：${image.getAttribute("alt") || name || "图片"}（${url.host}）`;
         image.replaceWith(replacement);
     }
-    return template.innerHTML;
 }
