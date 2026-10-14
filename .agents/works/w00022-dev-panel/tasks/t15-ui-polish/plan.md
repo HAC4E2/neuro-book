@@ -1267,3 +1267,21 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
   - 全量 `test` 在 `c0be6bed2` 上由主 Agent 复跑：401 过、0 失败；合并提交的代码与依赖清单和集成分支相同。
   - `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建完成。审查 worktree 与临时 worktree 已删除。没有 push。
 - 2026-10-14：阶段 4 第 3 批（会话页）第一步出设计稿，没有改代码：计划见“第 3 批”一节，线框稿是静态 HTML，截图在 `accept/phase4/batch3/design/`（桌面 1440 的观看、接管、只读 pane，手机 390 的列表与详情）。查了会话标题的来源：herdr 没有；Claude Code 的会话文件有 `ai-title`、`agent-name`（与 `/rename` 的 `custom-title`），Codex 的 `session_index.jsonl` 有 `thread_name`，omp 会话文件第一行有 `title`。决定点 19 到 23 等开发者定，确认后再实现。
+- 2026-10-14：阶段 4 第 3 批（会话页）按确认过的设计稿实现，在集成分支上、未 push。
+  - 提交（`22f6c4e25..6628fc7e6`，5 个）：
+    - 服务端（`22f6c4e25`、`9a5c5adef`）：观看放开到本仓库里的任意 pane；接管在 pane 没有 Agent、没有会话键或页面没带会话键时回 `not_allowed`、不关连接；文字与按键对非 Agent 的 pane 回 409 `not_found`，都不调 herdr、不写审计（`panel-terminal` 测试钉住）；新接口 `GET /api/panes/:pane/history`（`pane.read` 的 `recent_unwrapped` 最近 1000 行，白名单加 `pane.read`；Agent 的 pane 与回滚为 0 的回 `history_unavailable`）；`/api/sessions` 的 pane 带 `scrollback`。实测 herdr 0.9.3 的 `pane.read` 不改滚动位置；
+    - 会话标题（`01dd34201`，决定点 19）：`src/server/session-titles.ts` 从本机 Claude Code（会话文件末尾 256KB 的 `custom-title`、`agent-name`、`ai-title`）、Codex（`session_index.jsonl` 的 `thread_name`）、omp（会话文件第一行的 `title`）读，按大小与修改时间缓存，读不出为 null；
+    - “在跑”页（`361e288e2`）：无主的运行里 pane 号链到 `/live/sessions?pane=`；
+    - 会话页（`6628fc7e6`）：路由 `layout: "fill"`，左列表（零件 `SessionList` 重写，行由 `host/sessions-list.ts` 算）、右详情；`TerminalView` 加模式条、Ctrl+] 退出接管（零件截下、不发给 pane）、回滚 5000 行（量列数与观看字号减掉 14px 滑块）、`readOnly` 与 `actions` 插槽，去掉接管时临时套的框高；`SessionConsole` 改成屏幕加贴底输入区（两行输入框、Ctrl+Enter 或 ⌘+Enter 发送、要确认的键带“确认”标记、`result` 插槽）；非 Agent 的 pane 只读观看加“更早的输出”；自动选中（桌面上什么都没选时，有要处理的通知先显示通知，否则按等确认、工作中排第一的会话，replace）；宽度按内容区：1100 以上左栏 330px、900 以上 260px、再窄“切换会话”下拉，手机列表与详情两屏、详情不要页头；顶栏与首页的通知链到 `?view=notify`。验收中发现非 Agent 的 pane 也去读屏（400），`host/session-console.ts` 在会话键为空时不读，`web-session-console` 补了用例。零件 `.md` 与 `docs/panel.md`（接口表、开放给谁、释放原因、会话页一行、铺满的页、内联 style 的名单）同步。
+  - 门禁（在 `6628fc7e6` 的工作区上，提交前）：包的 `typecheck`、`build:web` 通过；全量 `test` 410 过、0 失败；`git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过。日志在 `accept/phase4/batch3/gate-*.log`。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch3/accept.ts`，39 条全过（`final/results.txt`，截图 `final/b3-*.png` 17 张），控制台没有错误：
+    - 自动选中：从左栏进会话页显示通知，历史只多一条；把 `/api/notify` 的回包在浏览器里换成空的，选中列表里排第一的会话；
+    - 观看：铺满（页面不滚，输入区贴在终端下面、在视口里）、模式条、按键的“确认”标记；Ctrl+Enter 发送，“已投递”在输入区里，会话变工作中后写明原因、发送不可用；
+    - 接管：模式条换成实底，输入框收起，打字进 A；按 Ctrl+] 释放回观看，A 的日志里没有 0x1d（假 Claude 收到它会退出），审计有接管与释放；
+    - 非 Agent 的 pane：`w2:p1` 只读、没有接管与输入，“更早的输出”读到第 1 行，不写审计；`w3:p1`（分页器）不给按钮；
+    - `?pane=` 指向不在的 pane 写“不在了”、不改选；不在 herdr 里的会话不是链接；
+    - 1000 宽左栏 260px、行里不写“没有租约”；880 宽收起左栏、下拉换到 B；390 不自动选、点行进详情（文字视图、不给接管、输入区在一屏内）、“‹ 会话”回列表；首页通知行与“在跑”页的 pane 号链接；暗色截图两张。
+    - 回归：阶段 1 的 s1、s2、s8 用 `regress-stage1.ts`（`accept/accept.ts` 的副本，模式条文字改成“你在接管键盘”、A 的屏幕标记改成“上一轮的回复”）重跑，16 条全过（`regress/results.txt`）；控制台里的 409 `session_changed` 是场景本身造的换会话。
+  - 与线框稿的差别：通知一行右边只有箭头，没写“查看”；手机详情里的文字视图按内容高（沿用 `TerminalTextView` 的 60vh 上限），不铺满到输入区；详情头的会话键截断显示、点一下复制全文，没有单独的复制图标。
+  - 没有验证到的地方：真实会话文件里的标题只在单测里验过（验收环境的假 Claude 没有会话文件，列表里是短号）；“不在本仓库的会话”折叠与“已结束”的行（验收环境里没有）；阶段 1 的其它场景（s3 到 s7、s9）与会话页无关，没重跑；只看了 Chrome。
+  - 验收环境：克隆没有新写入；A（`w4:p1`）收到了一条验收文字与按键 q（状态成了“完成一轮”），回归脚本照阶段 1 的做法把 A 的会话 id 报成了 `aaaa0004…`；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `e3cef2a66`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。`governance:check` 仍因 worktree 里遗留的 `packages/neuro-book-manager/` 跑不成，没动。
