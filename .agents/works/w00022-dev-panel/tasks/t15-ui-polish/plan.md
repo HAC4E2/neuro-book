@@ -475,7 +475,7 @@ interface PageShellSlots {
 ```ts
 type NoticeOutcome = "success" | "failure" | "conflict" | "unknown" | "info";
 type Notice = {
-    outcome: NoticeOutcome;   // 结果：颜色与图标只由它决定（成功绿、失败红、冲突与结果未知黄、提示灰）
+    outcome: NoticeOutcome;   // 结果：颜色与图标只由它决定（成功绿、失败红、冲突与结果未知黄、提示用强调色，即 nb-ui Notification 的 info 色调；审查后改正）
     title: string;            // 一句话的结果
     message: string;          // 原因或下一步；与 title 重复时留空
     items: string[];          // 结果的明细（没锚到字段的问题、写入了没提交的路径），已与 message 去重
@@ -874,7 +874,7 @@ interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普�
     - 3d 不做骨架屏，加载时先出页头与转圈（规范第 4.3 节第 8 条，主 Agent 已认可）；
     - 区标题用 `--text-lg`，计划写的是 md，原因见上；
     - 首页也给面包屑，只有一项“首页”；
-    - 3c 的结果位置按页不同：编辑页放进贴底的操作栏 `.nbdev-edit-bar`（冲突的差异放在编辑器下面），新建页放在右栏顶上（带警告时用 `nbdev-surface-warn`），其余页面放在 PageShell 的 `feedback` 槽；产物页的答复结果仍在侧栏里，跟着答复表单；
+    - 3c 的结果位置按页不同：编辑页放进贴底的操作栏 `.nbdev-edit-bar`（冲突的差异放在编辑器下面），新建页放在右栏顶上（带警告时用 `nbdev-surface-warn`），其余页面放在 PageShell 的 `feedback` 槽；产物页的答复结果仍在侧栏里，跟着答复表单；会话页的两条结果（通知、会话详情里的按键与文字）留在各自的分区里，贴着通知列表与终端（审查建议 9 补记）；
     - Notice 换成 `{outcome, title, message, items, notes, retry}`，`outcome` 分成功、失败、冲突、不确定、提示五种，字段问题用 `fieldProblems` 锚到表单；删掉了 WriteNotice 与 StaleNotice，旧数据提示收进 LoadState（`hasData`、`receivedAt`、`upHref`、`upLabel`）；
     - Task 表的长标题换行显示全文，没有截断；截断只用在路径、分支这类不能换行的值上；
     - 文档页只有正文一栏套阅读宽度（`nbdev-reading-column`），树仍贴左；标题取文档开头的 `h1`；
@@ -891,3 +891,54 @@ interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普�
     - 编辑页的 Ctrl+S 保存没做；
     - 慢网络下“页头先出、标题先用编号”只在 Work 页验过；
     - 截图前后数据不同，见上。
+- 2026-10-14：阶段 3 实现审查（`evidences/impl-review-phase3.txt`）的结论是 0 阻断、2 重要、7 建议。主 Agent 九条都采纳，在集成分支上改，未 push。
+  - 提交（`b94ea7b11..f86ecdc08`，8 个）：
+    - 重要 1（`af820270c`）：文档页没选文档、加载、出错时，正文一栏缩成一条窄栏，数据到了再弹开。改为空状态、`LoadState` 与正文都放进同一个始终渲染的 `nbdev-reading-column`；`PageShell.md` 写明定宽的那块要在各种状态下都渲染。
+    - 重要 2（`fa010c1e7`）：首页会话入口在 390 宽横向溢出。`ActionLink` 去掉不换行，最宽是所在的行、放不下就换行；`ActionLink.md` 同步。
+    - 建议 3（`d85959bb8`）：`TruncatedText` 上写的 `class` 被 reka 的 `TooltipProvider` 吞掉，提交号成了正文色。Task 页与文档页改为外面包一层带类的 `span`；`TruncatedText.md` 写明 attrs 不生效与包一层的做法。
+    - 建议 4（`c9c41f579`）：产物页答复被拒时原因报三遍。`failureNotice` 的锚点也认题号（`problems[].questionId`、`details.questionId`），产物页传入还能答的题；结果写“表单里标出了 N 处”，锚不到的题仍进明细。补了一条 `tests/web-writes.test.ts` 用例。
+    - 建议 5、8（`400bb0f7a`）：
+      - `LoadState` 加 `subject`，404 写“找不到”接上它（例如“找不到 w99999-not-there 这个 Work”），下一行“可能被删或改了名”，不再拼服务端的“找不到”；
+      - “回到上一级”与旧数据那一行的链接改用 `ActionLink`（带返回图标）；
+      - 文档页：checkout 已删、文档树 404 时，树、正文与面包屑都改去主工作区的文档 `/docs`；
+      - 编辑页：找不到文件时，记录的 README 回到所属 Task 或 Work，其余文件回到文档页；页头的“看文档”等文件读到了再出，不再指向同一个 404；
+      - Work、Task、产物页都传了 `subject`。
+    - 建议 6（`9400106a1`）：新加 `nbdev-card-title`（正文字号、600 字重），用在 Work 卡片标题、“预览”、“会话详情”、产物侧栏的“通知”。`nbdev-heading` 只给页面分节；`panel.md` 写明各用在哪里。
+    - 建议 7（`434625133`）：
+      - `BranchNote`、`QuestionPanel` 改用 `nbdev-hint nbdev-hint-warn`（新加的警告底变体）；
+      - 在几个 token 之间按状态选的 `:style` 改成 `:class`，新加 `nbdev-accent`；
+      - 外壳一处一用的面层底色挪进 `App.vue` 的 scoped 样式；`EphemeralFrame`、`DiffView` 用 scoped 类。
+      - 计数（`accept/phase3/style-count-review-before.txt`、`style-count-review-after.txt`，`style="` 与 `:style` 都统计并逐处列出）：静态 13 处降到 1 处，绑定 15 处降到 3 处。修正前的 15 处绑定里，纯常量 1 处，在几个 token 之间选 10 处，映射表取色 1 处，随数据算 2 处，与量尺寸共用常量 1 处。
+      - 留下的三处各有注释：产物页 iframe 定死亮色底、Task 状态条每段的占比宽度与状态色、终端接管时与量列数共用的框高。
+    - 建议 9（`f86ecdc08`）：
+      - `WriteResult.md` 的“提示灰”改成实际的强调色（nb-ui `Notification` 的 `info`）；本计划 3c 的同一句也改了；
+      - `writes.ts` 里“失败”的注释写明 `commit_failed`、`changed_after_write` 已写进工作区、没有提交也算失败，能否重试只看 `retry`；
+      - `panel.md` 里“编辑页不放旧数据提示”改成“只在重新登录或重连之后的全部重取失败时出现”；
+      - 阶段 3 偏离记录补上会话页写入结果的位置（留在通知与会话详情各自的分区里）。
+  - 门禁（在 `f86ecdc08` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 387 过、0 失败、0 跳过，用时 6 分 26 秒；`git diff --check b94ea7b11..HEAD` 干净。日志在 `accept/phase3/review-fixes/gate-*.log`。
+  - 浏览器验收：在 4490 上做，脚本是 `accept/phase3/review-fixes/review.ts`，15 条全过，结果在 `review-fixes/results-all.txt`，截图 14 张。
+    - 重要 1：1440 宽，文档页没选文档、加载中（挂起 `/api/docs/file`）、出错（注入 503）、正文四种状态下，正文一栏都是 626px、标题左缘都在 721px，顶边 101px 不变。截图 `r1-docs-empty`、`r1-docs-loading`、`r1-docs-error`、`r1-docs-loaded`。
+    - 重要 2：390 宽，改写 overview，让会话入口列出“6 个会话（工作中 2、空闲 1、受阻 1、完成一轮 1、不在 herdr 里 1），3 个无主的运行”。明暗两套下页面与 main 都不横向溢出，入口换成两行、右缘在 374px。截图 `r2-home-390-light`、`r2-home-390-dark`。
+    - 建议 3：Task 页与文档页的提交号与日期同为次要色，与提交说明不同色。
+    - 建议 4：注入 400 `invalid_answer`，原因只在 q5 下面出现一次，结果写“表单里标出了 1 处要改的地方”。截图 `r4-artifact-rejected`。
+    - 建议 5：
+      - `/docs?checkout=gone-checkout&path=AGENTS.md`：树写“找不到 gone-checkout 这个 checkout”，正文写“找不到 AGENTS.md 这份文档”，两处都给“去主工作区的文档”（`/docs`），面包屑“文档”也指 `/docs`；点了之后文档树能用；
+      - 主工作区里不存在的文档回到 `/docs?checkout=main`；
+      - 编辑页找不到普通文件时“回到文档”，找不到 Task README 时“回到 Task”，页头没有“看文档”。
+      - 截图 `r5-docs-checkout-gone-1440`、`r5-docs-404-1440`、`r5-edit-404-1440`。
+    - 建议 6：Work 卡片标题、“预览”、“会话详情”都是 13px、600 字重；首页“Work”、会话页“通知”这类分节仍是 15px。截图 `r6-home-cards-390`。
+    - 建议 7：两份计数文件对得上；文档树选中行、顶栏底色、状态点、Task 页“谁在动”的虚线框与标签，计算出的颜色与原来的 token 一致。
+    - 建议 8：
+      - Work 404 写“找不到 w99999-not-there 这个 Work”，“找不到”只出现一次，“回到首页”是 `ActionLink`（截图 `r8-work-404-1440-light`、`r8-work-404-390-dark`）；
+      - Work 页已有数据后再取回 404（在克隆里改 README 造一次推送，用完还原）：一行写“已经找不到 w00022-dev-panel 这个 Work 了”，表格还在，链接是 `ActionLink`（截图 `r8-work-stale-404-1440`）。
+    - 回归：在同一个构建上重跑阶段 3 脚本的 3b、3c、3e、3f、3g，18 条全过，结果在 `review-fixes/regress/`。3a 的“区标题只有一档”与 3d 的“找不到了”这两条按这次的改动作废，由上面的建议 6、8 代替。另拍了改后的首页、Task、文档、会话、在跑、新建、产物页（`review-fixes/after/`，32 张），控制台没有错误与警告。
+    - 控制台只有注入的 503、400 与 404。
+  - 偏离：
+    - 文档页的空状态、加载与找不到放进阅读栏后，字号跟着用阅读字号，比别的页的同类区块大一档；与 Task 页阅读卡片里的 `LoadState` 一致，没有再压回正文字号；
+    - 文档树 404 的区块在左栏里竖向居中（`LoadState` 原有的 `flex-1`），没有改。
+  - 没有验证到的地方：
+    - 产物侧栏的“通知”标题要答复成功才出现，只从代码核对（同一个类）；
+    - `LeaseChip`、`BranchNote`、`QuestionPanel` 的“要重新答”只在截图里看了有的那几处，没有逐个造数据；
+    - 只看了 Chrome。
+  - master 同步：master 到 `9e9d69fc6`，新增的都是文档提交，`packages/`、`bun.lock`、`package.json` 没有差异，没有同步。
+  - 收尾：4490 的面板已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删，克隆是干净的；herdr 的 `w4:p1`、`w5:p1` 没动。
