@@ -33,6 +33,7 @@ updated: 2026-10-14
   - S6（`d25976f43`、`1223b4906`）：Lab 实时场景加叶子节点与几种文件类型；一个 opus 子代理做了一轮实现审查，14 条（应改 4、建议 10），处理见 [evidences/impl-review.md](evidences/impl-review.md)：12 条改了或改了 Spec，R5 不改（理由在记录里），R12 记录取舍。
   - 验证（`1223b4906`）：typecheck 0；neuro-book Bun 1102 例与 Vitest 209 例通过（Files 订阅的一例在全量负载下偶发失败一次，单独跑与再跑两次全量都通过，与本次改动无关）；新应用全套 e2e 200 例通过（审查修正之前跑的），修正后资源管理器 e2e 16 例通过；`test:affected --typecheck --since master` 只剩已知的 llmlint 两项与 neuro-book-test-support 一项；`docs:check`、`governance:check` 0 失败。收口截图（开发服务里的雾港，nbook、macos × 明暗，无页面错误）：[final-themes.webp](evidences/final-themes.webp)、右键菜单 [context-menu.webp](evidences/context-menu.webp)。
   - 未验证：触摸设备上的停留展开与边缘滚动只看了代码；跨机器访问时“复制路径”给的是服务端机器上的路径（Spec 写明）。
+- 2026-10-14 验收时开发者要求拖动再设计一轮：内容文件夹（如 `.content`）里要能拖动排序；落点指示的样式与位置要改；看哪里适合加动画（例如放下后的移动）。第四轮评审板（review v5）在开发服务的雾港上按住拖动、藏掉现有反馈、注入候选截图（样例的 `设定/人物.content` 加了几项和一个有子项的节点“港务局”），动画用页内的 CSS 示意。实测现状：别的层拖到内容文件夹的两行之间显示“移入 人物”，放下后排在最后；子树末尾的缝只能进那个节点；插入线横贯整行、带光晕、看不出层级；移入的浅底四边内缩 6px，顶边压在目录行中间、底边截半行，收起的文件夹只剩细胶囊；被拖行淡化时左边的参考线出现缺口。文件服务的批量移动目前不带位置，选 A 要给它加“放到某项之前”。
 
 ## 决定
 
@@ -71,4 +72,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-等开发者验收（开发服务 `nbdev dev start` 起在 4217，样例作品“雾港”在本地 `.local/…/t86-explorer-polish/sample/`）。合入 master 要开发者授权。
+等开发者答第四轮评审板（落点规则、插入线、移入反馈、动画），定了以后补进 `plan.md` 与 Spec 再实施，之后重新验收。开发服务 `nbdev dev start` 起在 4217，样例作品“雾港”在本地 `.local/…/t86-explorer-polish/sample/`。合入 master 要开发者授权。
