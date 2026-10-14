@@ -28,7 +28,9 @@ updated: 2026-10-13
 - 2026-10-14 历史重写（开发者授权；w00022 先停下并核对无进行中的 git 操作）：从 `2cca6d3fa` 起 176 个提交换号，13 个旧文件版本删去账户名，`master`、`feat/w00022-dev-panel`、`archive/legacy-ui-tuning`、本 Task 分支与三处 ORIG_HEAD 一次性按旧号核对后移动，各分支末端的树不变；删去指向旧提交的 reflog 条目约 366 条（原文留在系统临时目录的审计里），gc 后核对旧根、全部旧提交与含账户名的对象都不存在，`fsck --connectivity-only` 通过；从全部引用、reflog 与暂存区可达的 37467 个文件版本与全部提交说明里没有账户名（图片里的随机字节不算）。新旧提交号对照见 [evidences/history-rewrite-map.txt](evidences/history-rewrite-map.txt)；记录里引用的旧号 166 处（25 个文件）已换成新号。
 - 空间清理第一批：删除 governance 标为“待清理”的 `.worktree/w00018-pre-nb-ui-baseline`、`.worktree/w00020-startup-exit-api-auth` 与本地分支 `chore/w00018-pre-nb-ui-baseline`、`fix/w00020-startup-exit-api-auth`（都已在 master，工作区干净）。
 
-## 下一步
+## 收尾（2026-10-14）
 
-1. w00022 的编码子代理停下、没有进行中的 git 操作时（脚本会检查）：正式重写历史（按旧号核对、一次性移动引用，删除指向旧提交的 reflog 条目并留审计，gc，核对旧对象已不存在）；更新 w00022 记录里的提交号；push `master`。
-2. 清理第二批：t80、t84 的 worktree 与分支，本地分支 `remote`、`backup/w00017-before-trailer-cleanup`。远端 89 个按祖先关系未合入的旧分支只列出，删除要开发者另行同意。
+- 推送：`master` 从 `6faecf815` 快进到 `2a08d0ef8`（推送前核对旧根已不存在、远端为快进）。
+- 清理第二批：删除 `.worktree/w00017-t80-settings-ui`、`w00017-t84-menu-contributions`、`w00017-t85-master-merge`、`w00017-t80-drafts`（3 个未提交的草稿文件随之丢弃，t80 已完成、决定已入记录），本地分支 `t80/settings-ui`、`t80/drafts`、`feat/w00017-t84-menu-contributions`、`chore/w00017-t85-master-merge`、`remote`（与 `origin/master` 同一提交）、`backup/w00017-before-trailer-cleanup`；再 gc 一次。`.git` 206 MB，`.worktree/` 从 12 GB 降到 9.6 GB。
+- 保留：`.worktree/w00017-runtime-foundation`（开发者的开发服务与编辑器正在用；分支已在 `master`，governance 标为待清理，开发者不用时再删），本地分支 `archive/legacy-ui-tuning`（旧 UI 改动的参照）。
+- 未做：远端分支只读核对，99 个里 10 个已合入（含 `feat/w00017-t84-menu-contributions`、`refactor/w00017-runtime-foundation`），89 个按祖先关系未合入（多为 8 月的旧分支，可能已 squash 合并）；删除远端分支要开发者另行同意。
