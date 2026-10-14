@@ -75,12 +75,12 @@ function evidenceUrl(path: string): string | null {
         <template v-if="status.notice.value" #feedback>
             <WriteResult :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
         </template>
-        <LoadState v-if="page.data.value" v-bind="loadStateOf(page)" :up-href="workHref(workId)" up-label="回到 Work" @navigate="navigate" @retry="page.reload()" />
+        <LoadState v-if="page.data.value" v-bind="loadStateOf(page)" :subject="`${taskId} 这个 Task`" :up-href="workHref(workId)" up-label="回到 Work" @navigate="navigate" @retry="page.reload()" />
         <p v-if="page.data.value" :class="page.data.value.task.currentState ? 'nbdev-secondary' : 'nbdev-empty'">当前情况：{{ page.data.value.task.currentState ?? "未标" }}</p>
         <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
         <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,max-content)_22rem]">
             <article class="nbdev-surface nbdev-reading-card min-w-0">
-                <LoadState v-if="!page.data.value" v-bind="loadStateOf(page)" label="正在读取 Task" :up-href="workHref(workId)" up-label="回到 Work" @navigate="navigate" @retry="page.reload()" />
+                <LoadState v-if="!page.data.value" v-bind="loadStateOf(page)" label="正在读取 Task" :subject="`${taskId} 这个 Task`" :up-href="workHref(workId)" up-label="回到 Work" @navigate="navigate" @retry="page.reload()" />
                 <MarkdownView v-else-if="readmeHtml" :html="readmeHtml" @navigate="navigate" />
                 <p v-else class="nbdev-empty">没有 README</p>
             </article>

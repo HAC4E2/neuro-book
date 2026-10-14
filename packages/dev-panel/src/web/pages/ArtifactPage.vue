@@ -122,7 +122,7 @@ const navigate = (href: string) => void router.push(href);
         <template v-if="data?.publishedAt" #meta>
             <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
         </template>
-        <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
+        <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
         <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
             <section v-if="data.pageUrl" class="nbdev-stack-tight flex min-h-[32rem] min-w-0">
                 <p class="nbdev-note flex flex-wrap items-center gap-1.5">

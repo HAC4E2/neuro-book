@@ -56,7 +56,7 @@ const navigate = (href: string) => void router.push(href);
         <template v-if="status.notice.value" #feedback>
             <WriteResult :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
         </template>
-        <LoadState v-bind="loadStateOf(work)" label="正在读取 Work" up-href="/" up-label="回到首页" @navigate="navigate" @retry="work.reload()" />
+        <LoadState v-bind="loadStateOf(work)" label="正在读取 Work" :subject="`${props.workId} 这个 Work`" up-href="/" up-label="回到首页" @navigate="navigate" @retry="work.reload()" />
         <template v-if="work.data.value">
             <section class="nbdev-stack">
                 <p class="max-w-[72ch] whitespace-pre-line" :class="work.data.value.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">{{ work.data.value.goal.value ?? "目标：未标" }}</p>

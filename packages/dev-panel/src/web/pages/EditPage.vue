@@ -26,19 +26,31 @@ import WriteResult from "../parts/WriteResult.vue";
 const route = useRoute();
 const router = useRouter();
 const path = computed(() => (typeof route.query.path === "string" ? route.query.path : null));
+/** 记录的 README（Work 或 Task 的）属于谁：面包屑与找不到时的出口按它推。 */
+const record = computed(() => (path.value ? /^\.agents\/works\/([^/]+)(?:\/tasks\/([^/]+))?\/README\.md$/u.exec(path.value) : null));
 /** 面包屑按路径推出所属的 Work、Task（记录的 README）；别的文件回到文档页里的它。 */
 const crumbs = computed(() => {
     const value = path.value;
-    const record = value ? /^\.agents\/works\/([^/]+)(?:\/tasks\/([^/]+))?\/README\.md$/u.exec(value) : null;
+    const owner = record.value;
     const items: Array<{label: string; href?: string}> = [{label: "首页", href: "/"}];
-    if (record?.[1]) {
-        items.push({label: workLabel(record[1]), href: workHref(record[1])});
-        if (record[2]) items.push({label: taskLabel(record[2]), href: taskHref(record[1], record[2])});
+    if (owner?.[1]) {
+        items.push({label: workLabel(owner[1]), href: workHref(owner[1])});
+        if (owner[2]) items.push({label: taskLabel(owner[2]), href: taskHref(owner[1], owner[2])});
     } else if (value) {
         items.push({label: "文档", href: "/docs"}, {label: value.slice(value.lastIndexOf("/") + 1), href: docHref("main", value)});
     }
     items.push({label: "编辑"});
     return items;
+});
+/**
+ * 文件找不到（404）时去哪里：记录的 README 回到它的 Task 或 Work；别的文件回到文档页。
+ * 不用面包屑里的“文档里的它”：那份文档同样找不到。
+ */
+const up = computed(() => {
+    const owner = record.value;
+    if (owner?.[1] && owner[2]) return {href: taskHref(owner[1], owner[2]), label: "回到 Task"};
+    if (owner?.[1]) return {href: workHref(owner[1]), label: "回到 Work"};
+    return {href: "/docs", label: "回到文档"};
 });
 const fileName = computed(() => (path.value ? path.value.slice(path.value.lastIndexOf("/") + 1) : "文件"));
 const navigate = (href: string) => void router.push(href);
@@ -89,13 +101,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
 <template>
     <PageShell :crumbs="crumbs" :title="`编辑 ${fileName}`" @navigate="navigate">
         <template v-if="dirty" #status><Badge tone="warning" variant="soft" size="sm">未保存</Badge></template>
-        <template v-if="path" #actions>
+        <template v-if="path && file.data.value" #actions>
             <ActionLink :href="docHref('main', path)" icon="i-lucide-book-open" @navigate="navigate">看文档</ActionLink>
         </template>
         <template v-if="path" #meta><TruncatedText :text="path" mono /></template>
         <LoadState v-if="!path" :loading="false" :error="{message: '没有指定要编辑的文件'}" :retryable="false" />
         <template v-else>
-            <LoadState v-bind="loadStateOf(file)" label="正在读取文件" @retry="file.reload()" />
+            <LoadState v-bind="loadStateOf(file)" label="正在读取文件" :subject="`${path} 这个文件`" :up-href="up.href" :up-label="up.label" @navigate="navigate" @retry="file.reload()" />
             <template v-if="file.data.value">
                 <p v-if="file.data.value.changedIn.length > 0" class="nbdev-hint">
                     这些分支改过它：{{ file.data.value.changedIn.map((entry) => entry.branch ?? entry.key).join("、") }}。在 master 上直接改，合并时可能与它们冲突。

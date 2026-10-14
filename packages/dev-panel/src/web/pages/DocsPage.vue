@@ -27,8 +27,13 @@ const prefer = computed(() => (typeof route.query.prefer === "string" ? route.qu
 const tree = useResource<DocTreeData>(() => `/api/docs/tree?checkout=${encodeURIComponent(checkout.value)}`, ["records"]);
 const file = useResource<DocFileData>(() => (path.value ? `/api/docs/file?checkout=${encodeURIComponent(checkout.value)}&path=${encodeURIComponent(path.value)}` : null), ["records"]);
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
+/**
+ * 这个 checkout 的文档树找不到（worktree 合并后删掉了，书签与历史里常见）：上一级改去主工作区的文档，
+ * 否则“回到文档树”与面包屑都指回同一个 404。
+ */
+const treeMissing = computed(() => tree.error.value?.status === 404 && checkout.value !== "main");
 /** 文档找不到（404）时回到同一 checkout 的文档树。 */
-const treeHref = computed(() => `/docs?checkout=${encodeURIComponent(checkout.value)}`);
+const treeHref = computed(() => (treeMissing.value ? "/docs" : `/docs?checkout=${encodeURIComponent(checkout.value)}`));
 const changedOnly = ref(false);
 
 /** 文档开头的一级标题当页标题（页头已经是 h1，正文里不再重复）；没有就用文件名。 */
@@ -58,7 +63,7 @@ function go(query: Record<string, string | undefined>): void {
                 <p class="nbdev-secondary">与主工作区（master）的差异 {{ tree.data.value.changes.length }} 处</p>
                 <label class="flex items-center gap-2"><Switch v-model="changedOnly" aria-label="只看有差异的" />只看有差异的</label>
             </div>
-            <LoadState v-bind="loadStateOf(tree)" label="正在读取文档树" @retry="tree.reload()" />
+            <LoadState v-bind="loadStateOf(tree)" label="正在读取文档树" :subject="`${checkout} 这个 checkout`" :up-href="checkout === 'main' ? '/' : '/docs'" :up-label="checkout === 'main' ? '回到首页' : '去主工作区的文档'" @navigate="navigate" @retry="tree.reload()" />
             <DocTree v-if="tree.data.value" :docs="tree.data.value.docs" :changes="tree.data.value.changes" :selected="path" :changed-only="changedOnly" @open="(value) => go({path: value})" />
         </aside>
         <!-- 正文一栏套 PageShell 的阅读档：Markdown 按阅读宽度收窄并居中，右边不再空一片。 -->
@@ -76,7 +81,7 @@ function go(query: Record<string, string | undefined>): void {
                 <!-- 阅读档的宽度由正文里定宽的东西撑开：没选文档、加载、出错时也放在同一个阅读栏里，数据到了标题不横移。 -->
                 <div class="nbdev-stack nbdev-reading-column">
                     <p v-if="!path" class="nbdev-empty">在左边选一份文档</p>
-                    <LoadState v-else v-bind="loadStateOf(file)" label="正在读取文档" :up-href="treeHref" up-label="回到文档树" @navigate="navigate" @retry="file.reload()" />
+                    <LoadState v-else v-bind="loadStateOf(file)" label="正在读取文档" :subject="`${path} 这份文档`" :up-href="treeHref" :up-label="treeMissing ? '去主工作区的文档' : '回到文档树'" @navigate="navigate" @retry="file.reload()" />
                     <article v-if="path && file.data.value" class="nbdev-stack">
                         <p v-if="otherBranches.length > 0" class="nbdev-warn nbdev-small">
                             {{ file.data.value.checkout.isMain ? "这些分支改了它" : "别的分支也改了它" }}：<button v-for="key in otherBranches" :key="key" type="button" class="mr-2 underline" @click="go({checkout: key})">{{ key }}</button>
