@@ -87,7 +87,7 @@ function common(item: T): Record<string, unknown> {
             </span>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right h-3.5 w-3.5 shrink-0"></span>
             <span v-else-if="item.checked" class="i-lucide-check h-3.5 w-3.5 shrink-0"></span>
-            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="font-mono text-[10px] text-[var(--text-muted)]">{{ item.shortcut }}</span></slot>
+            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="ml-auto shrink-0 pl-6 text-xs text-[var(--text-muted)]" data-menu-shortcut>{{ item.shortcut }}</span></slot>
         </component>
         <button
             v-else
@@ -105,7 +105,7 @@ function common(item: T): Record<string, unknown> {
             </span>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right h-3.5 w-3.5 shrink-0"></span>
             <span v-else-if="item.checked" class="i-lucide-check h-3.5 w-3.5 shrink-0"></span>
-            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="font-mono text-[10px] text-[var(--text-muted)]">{{ item.shortcut }}</span></slot>
+            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="ml-auto shrink-0 pl-6 text-xs text-[var(--text-muted)]" data-menu-shortcut>{{ item.shortcut }}</span></slot>
         </button>
     </template>
 </template>

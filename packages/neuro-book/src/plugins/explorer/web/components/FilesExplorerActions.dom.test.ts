@@ -102,7 +102,7 @@ describe("FilesExplorerView：右键菜单", () => {
         const wrapper = view({menu: {x: 10, y: 20, entries: menuEntries(alice, ALL, "zh-CN")}});
         await flushPromises();
         const labels = [...document.querySelectorAll("[role=menuitem]")].map((item) => item.textContent?.trim());
-        expect(labels).toEqual(["新建文件", "新建文件夹", "剪切Ctrl+X", "复制Ctrl+C", "粘贴Ctrl+V", "重命名F2", "创建内容", "修改展示名与图标", "上移Alt+↑", "下移Alt+↓", "删除Delete"]);
+        expect(labels).toEqual(["新建文件", "新建文件夹", "剪切Ctrl+X", "复制Ctrl+C", "粘贴Ctrl+V", "复制路径", "复制相对路径", "重命名F2", "创建内容", "修改展示名与图标", "上移Alt+↑", "下移Alt+↓", "删除Delete"]);
         const down = [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent?.includes("下移"));
         expect(down?.disabled).toBe(true);
         [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent?.includes("创建内容"))?.click();
@@ -111,6 +111,9 @@ describe("FilesExplorerView：右键菜单", () => {
 
         const root = rows().find((row) => row.id === "project://");
         expect(menuEntries(root!, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.key : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder", "-", "nbook.files.paste"]);
+        // 能打开的行在最前面多“打开”“在侧边打开”；无正文的节点（alice）没有。
+        const file = rows().find((row) => row.id === "project://a.md") as EntryRow;
+        expect(menuEntries(file, ALL, "zh-CN").slice(0, 3).map((entry) => (entry.kind === "item" ? `${entry.key} ${entry.shortcut ?? ""}` : "-"))).toEqual(["nbook.files.open Enter", "nbook.files.open-to-side Ctrl+Enter", "-"]);
         const gone = rows().find((row) => row.id === "project://lore.content/gone") as EntryRow;
         expect(menuEntries(gone, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.key : "-"))).toContain("nbook.files.drop-entry");
     });

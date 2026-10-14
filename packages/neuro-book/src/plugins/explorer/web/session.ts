@@ -33,6 +33,8 @@ export interface ExplorerSessionOptions {
     readonly commands: Pick<CommandService, "execute">;
     /** 编辑器的文档协调；编辑器没有加载时不给。 */
     readonly documents?: DocumentCoordinator;
+    /** 系统剪贴板（“复制路径”）；没有时复制路径不可用。 */
+    readonly clipboard?: {writeText(text: string): Promise<void>};
     readonly bound: boolean;
     /** 第一次挂上视图时调用：打开偏好记录。 */
     readonly createStore: () => ExplorerStore;
@@ -102,6 +104,7 @@ export function createExplorerSession(options: ExplorerSessionOptions): Explorer
         controller.value = createExplorerController({
             files: options.files,
             ...(options.documents === undefined ? {} : {documents: options.documents}),
+            ...(options.clipboard === undefined ? {} : {clipboard: options.clipboard}),
             commands: options.commands,
             bound: options.bound,
             expanded: initial,

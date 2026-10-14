@@ -140,7 +140,7 @@ export interface Availability {
 /** 动作的结果：做不了时给出原因的键（见 `messages.ts`），由命令转成 `unavailable`。 */
 export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: UnavailableReason};
 
-export type UnavailableReason = "no-target" | "no-selection" | "not-applicable" | "busy" | "stopped" | "unknown-outcome" | "empty-clipboard" | "cross-root";
+export type UnavailableReason = "no-target" | "no-selection" | "not-applicable" | "busy" | "stopped" | "unknown-outcome" | "empty-clipboard" | "cross-root" | "copy-failed";
 
 /** 树内按键的结果：没处理、处理了，或要在某一行打开右键菜单。 */
 export type KeyOutcome = "none" | "handled" | {readonly menu: string};
@@ -155,6 +155,8 @@ export interface ExplorerControllerOptions {
     readonly showManifests?: boolean;
     /** 编辑器的文档协调：复制、移动、改名与删除前结算未保存的修改；编辑器没有加载时为空，直接放行。 */
     readonly documents?: DocumentCoordinator;
+    /** 系统剪贴板（“复制路径”）；浏览器里是 `navigator.clipboard`，没有时复制路径不可用。 */
+    readonly clipboard?: {writeText(text: string): Promise<void>};
     readonly report: (error: unknown) => void;
 }
 
@@ -185,6 +187,13 @@ export interface ExplorerController {
     reveal(address: string): void;
     /** 双击：以常驻方式打开。 */
     activate(id: string): void;
+    /**
+     * 以常驻方式打开选中项里能打开的（文件与有正文的节点），按树里的顺序；`side` 时第一项打开到活动组右侧的组，其余跟着
+     * 打开在那一组（docs/specs/workbench/files-explorer.md 的 `open`、`open-to-side`）。
+     */
+    openSelection(side: boolean): ActionResult;
+    /** 把选中资源的路径按树里的顺序每行一个写进系统剪贴板：服务端机器上的绝对路径，或相对所在根的路径；根行不算。 */
+    copyPaths(relative: boolean): Promise<ActionResult>;
     contextSelect(id: string): void;
     key(key: TreeKey, page: number): KeyOutcome;
     setShowManifests(show: boolean): void;
@@ -319,9 +328,9 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     });
 
     let openSeq = 0;
-    const open = async (address: string, mode: OpenMode): Promise<void> => {
+    const open = async (address: string, mode: OpenMode, group?: string): Promise<void> => {
         const seq = ++openSeq;
-        const result = await options.commands.execute(OPEN_COMMAND, {address, mode});
+        const result = await options.commands.execute(OPEN_COMMAND, {address, mode, ...(group === undefined ? {} : {group})});
         // 迟到的结果不覆盖之后的打开意图。
         if (seq !== openSeq || result.ok) return;
         notice.value = result.code === "unknown-command" ? {kind: "editor-missing", address} : {kind: "open-failed", address, reason: result.reason};
@@ -727,6 +736,42 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         activate: (id) => {
             const row = find(id);
             if (row?.kind === "entry" && row.opens !== null) void open(row.opens, "permanent");
+        },
+        openSelection: (side) => {
+            const chosen = new Set(selection.value.selected);
+            const targets = rows.value.flatMap((row) => (row.kind === "entry" && chosen.has(row.id) && row.opens !== null ? [row.opens] : []));
+            if (targets.length === 0) return {ok: false, reason: chosen.size === 0 ? "no-selection" : "not-applicable"};
+            // 依次发出：编辑器按命令到达的顺序处理，第一项建出侧边的组并成为活动组，后面的不带 group 就落在它里面。
+            targets.forEach((address, index) => {
+                void open(address, "permanent", side && index === 0 ? "side" : undefined);
+            });
+            return {ok: true};
+        },
+        copyPaths: async (relative) => {
+            const chosen = new Set(selection.value.selected);
+            const addresses = rows.value.flatMap((row) => (row.kind === "entry" && chosen.has(row.id) ? [row.address] : []));
+            if (addresses.length === 0) return {ok: false, reason: chosen.size === 0 ? "no-selection" : "not-applicable"};
+            if (options.clipboard === undefined) return {ok: false, reason: "copy-failed"};
+            const lines: string[] = [];
+            for (const address of addresses) {
+                if (relative) {
+                    lines.push(resourceOf(address).path);
+                    continue;
+                }
+                const real = await options.files.realPath(address);
+                if (!real.ok) {
+                    options.report(new Error(`复制路径：${address} 取不到绝对路径（${real.code}：${real.detail}）`));
+                    return {ok: false, reason: "copy-failed"};
+                }
+                lines.push(real.value);
+            }
+            try {
+                await options.clipboard.writeText(lines.join("\n"));
+            } catch (error) {
+                options.report(error);
+                return {ok: false, reason: "copy-failed"};
+            }
+            return {ok: true};
         },
         contextSelect: (id) => {
             pendingFocus = null;

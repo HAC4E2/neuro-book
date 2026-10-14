@@ -121,6 +121,40 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
     });
 });
 
+describe("Spec workbench.editor 输出 35：在侧边打开", () => {
+    it("右侧没有组时在活动组右侧新建一个空组、不带走活动标签；有了以后再“侧边”就是它；在它里面打开后它成为活动组；从右边的组再侧边又新建", () => {
+        const groups = createEditorGroups();
+        groups.open("project://a.md", {mode: "permanent", ...md});
+        const side = groups.sideGroup();
+        expect(groups.groups.value.map((group) => group.id)).toEqual([groups.groups.value[0]?.id, side]);
+        expect(addresses(groups, 1)).toEqual([]);
+        expect(addresses(groups, 0)).toEqual(["project://a.md"]);
+        groups.open("project://b.md", {mode: "permanent", ...md, group: side});
+        expect(groups.activeGroup.value).toBe(side);
+        expect(addresses(groups, 1)).toEqual(["project://b.md"]);
+        // 回到左边的组：再侧边仍是同一个右侧组，不再新建。
+        groups.focusGroup(groups.groups.value[0]?.id as string);
+        expect(groups.sideGroup()).toBe(side);
+        expect(groups.groups.value).toHaveLength(2);
+        // 活动的是最右的组：再侧边在它右侧新建。
+        groups.focusGroup(side);
+        const third = groups.sideGroup();
+        expect(third).not.toBe(side);
+        expect(groups.groups.value.map((group) => group.id)).toEqual([groups.groups.value[0]?.id, side, third]);
+    });
+
+    it("右侧的是一列上下拆开的组：取那一列最上面的组", () => {
+        const groups = createEditorGroups();
+        groups.open("project://a.md", {mode: "permanent", ...md});
+        const left = groups.activeGroup.value;
+        groups.split(groups.activeTab()?.id as string, "right");
+        const top = groups.activeGroup.value;
+        groups.split(groups.activeTab()?.id as string, "down");
+        groups.focusGroup(left);
+        expect(groups.sideGroup()).toBe(top);
+    });
+});
+
 describe("Spec workbench.editor 输出 5：会话快照", () => {
     it("快照恢复出同样的组、布局、标签与活动项；新建的组不与恢复的 id 冲突", () => {
         const groups = createEditorGroups();

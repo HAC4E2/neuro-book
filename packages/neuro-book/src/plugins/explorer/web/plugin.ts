@@ -78,6 +78,14 @@ function revealOnOpen(state: {read(key: string): PublicStateRead}, controller: (
     signal.addEventListener("abort", stop, {once: true});
 }
 
+/**
+ * 系统剪贴板：只在安全上下文里有（本机服务的 http://127.0.0.1 算）；没有时“复制路径”不可用。这个文件也由不带 DOM 类型的
+ * tsc 检查，所以按需要的那一个方法取，不引用 `Navigator` 的完整类型。
+ */
+function systemClipboard(): {writeText(text: string): Promise<void>} | undefined {
+    return (globalThis as {readonly navigator?: {readonly clipboard?: {writeText(text: string): Promise<void>}}}).navigator?.clipboard;
+}
+
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 右键菜单的贡献点：菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
@@ -109,6 +117,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
             const session = createExplorerSession({
                 files: context.services.require(filesKey),
                 ...(documents.status === "resolved" ? {documents: documents.instance} : {}),
+                ...(systemClipboard() === undefined ? {} : {clipboard: systemClipboard()}),
                 commands,
                 bound,
                 createStore: () => explorerStoreFor(bound).create(context, {storage, diagnostics}),

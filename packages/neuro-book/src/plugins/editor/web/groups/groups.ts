@@ -84,6 +84,11 @@ export interface EditorGroups {
     closeOthers(tabId: string): ReadonlyArray<EditorTab>;
     /** 在标签所在组的右侧或下方新建组、打开同一文档（permanent），新组成为活动组。页面标签不拆分（同一页面只开一个），返回 null。 */
     split(tabId: string, direction: SplitDirection): EditorTab | null;
+    /**
+     * “在侧边打开”的目标组（docs/specs/workbench/editor.md 输出 35）：活动组右侧相邻的组；右侧没有组时在活动组右侧新建一个
+     * 空组（不带走活动标签）。返回组 id；只建组、不改活动组，打开时再切过去。
+     */
+    sideGroup(): string;
     /** 同组里移动一位（键盘排序）。 */
     move(tabId: string, delta: -1 | 1): void;
     /** 用另一种编辑器打开同一标签；上次的光标是另一种写法，随之丢掉。 */
@@ -221,6 +226,19 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
             layoutVersion.value += 1;
             return tab;
         },
+        sideGroup: () => {
+            const right = rightNeighbor(grid.root(), activeGroup.value);
+            if (right !== null && groupOf(right) !== undefined) return right;
+            const id = newId("g");
+            const result = grid.splitLeaf(activeGroup.value, {branchId: newId("b"), orientation: "horizontal", side: "after", leaf: {kind: "leaf", id, ref: id}});
+            if (!result.ok) return activeGroup.value;
+            const index = groups.value.findIndex((group) => group.id === activeGroup.value);
+            const next = [...groups.value];
+            next.splice(index + 1, 0, {id, tabs: [], active: null});
+            groups.value = next;
+            layoutVersion.value += 1;
+            return id;
+        },
         move: (tabId, delta) => {
             const found = locate(tabId);
             if (found === null) return;
@@ -281,6 +299,31 @@ function activeFileIndex(group: EditorGroup): number | null {
 }
 
 /** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
+/**
+ * 叶 `id` 右侧相邻的叶：自下而上找第一个横向分支里它后面还有兄弟的祖先，再从那个兄弟里取最左（横向取第一个、纵向取第一个）
+ * 的叶。没有右侧的组时为 null。
+ */
+function rightNeighbor(root: GridNode<string> | null, id: string): string | null {
+    const path: GridNode<string>[] = [];
+    const walk = (node: GridNode<string>): boolean => {
+        path.push(node);
+        if (node.kind === "leaf" ? node.id === id : node.children.some(walk)) return true;
+        path.pop();
+        return false;
+    };
+    if (root === null || !walk(root)) return null;
+    for (let at = path.length - 2; at >= 0; at -= 1) {
+        const branch = path[at] as GridNode<string>;
+        if (branch.kind !== "branch" || branch.orientation !== "horizontal") continue;
+        const index = branch.children.indexOf(path[at + 1] as GridNode<string>);
+        let next = branch.children[index + 1];
+        if (next === undefined) continue;
+        while (next.kind === "branch") next = next.children[0] as GridNode<string>;
+        return next.id;
+    }
+    return null;
+}
+
 function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
     const ids = new Set(snapshot.groups.map((group) => group.id));
     if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;

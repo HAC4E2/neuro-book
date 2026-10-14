@@ -8,7 +8,7 @@
  * 无修饰的方向键同时移动焦点与选择；Ctrl/Meta 加方向键只移动焦点，再用 Space 切换选择。
  */
 
-import {CLEAR_CUT_COMMAND, COPY_COMMAND, CUT_COMMAND, DELETE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, PASTE_COMMAND, RENAME_COMMAND} from "../commands";
+import {CLEAR_CUT_COMMAND, COPY_COMMAND, CUT_COMMAND, DELETE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, OPEN_TO_SIDE_COMMAND, PASTE_COMMAND, RENAME_COMMAND} from "../commands";
 import {parentAddress} from "./address";
 import type {Row} from "./rows";
 import {range, selectable, selectAll, toggleFocused} from "./selection";
@@ -82,6 +82,8 @@ export function treeKey(rows: ReadonlyArray<Row>, selection: Selection, key: Tre
         case " ":
             return key.shift || focused === null ? NONE : {kind: "select", selection: toggleFocused(selection)};
         case "Enter": {
+            // Ctrl/Meta+Enter：在侧边打开选中项（命令作用于选择）。
+            if (key.toggle) return key.shift || focused?.kind !== "entry" || focused.opens === null ? NONE : {kind: "command", id: OPEN_TO_SIDE_COMMAND};
             if (focused?.kind === "entry" && focused.opens !== null) return {kind: "open", address: focused.opens};
             if (focused?.kind === "entry" && focused.expandable) return {kind: focused.expanded ? "collapse" : "expand", address: focused.id};
             return NONE;

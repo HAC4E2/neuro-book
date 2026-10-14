@@ -286,10 +286,14 @@
         0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent),
         0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent),
         0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent);
-    /* 菜单比一般浮层贴近触发它的按钮，投影收小、只留一圈细边和一层近投影（t79 第五轮稿 M1），明暗共用 */
+    /*
+     * 菜单比一般浮层贴近触发它的按钮，投影比浮层小：一圈细边、一层近投影、一层远投影，明暗共用。t79 第五轮稿 M1 只留细边
+     * 与一层近投影，右键菜单在暖白的侧栏上几乎看不出浮起（t86 评审），加了远投影、近投影加深一点。
+     */
     --elevation-menu:
-        0 0 0 0.5px color-mix(in srgb, var(--shadow-color) 12%, transparent),
-        0 4px 14px -2px color-mix(in srgb, var(--shadow-color) 18%, transparent);
+        0 0 0 0.5px color-mix(in srgb, var(--shadow-color) 16%, transparent),
+        0 2px 6px color-mix(in srgb, var(--shadow-color) 10%, transparent),
+        0 10px 28px -6px color-mix(in srgb, var(--shadow-color) 24%, transparent);
 
     /*
      * 工作台外壳是卡片（新应用 docs/specs/ui/workbench-shell.md 输出 38，t79 第七轮稿 K2）：部件是窗体底上的圆角卡片，

@@ -8,7 +8,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, realpath, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {Type} from "typebox";
@@ -103,19 +103,19 @@ function registry(): CommandRegistry {
 }
 
 /** 登记一条记录调用的 `nbook.editor.open`；返回记录。 */
-function editor(commands: CommandRegistry): Array<{address: string; mode: string}> {
-    const opened: Array<{address: string; mode: string}> = [];
+function editor(commands: CommandRegistry): Array<{address: string; mode: string; group?: string}> {
+    const opened: Array<{address: string; mode: string; group?: string}> = [];
     const registered = commands.register({
         id: OPEN_COMMAND,
         source: "nbook.test-editor",
         declaration: {
             title: {"zh-CN": "打开", "en-US": "Open"},
             description: "Open a resource in the editor.",
-            args: Type.Object({address: Type.String(), mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")])}, {additionalProperties: false}),
+            args: Type.Object({address: Type.String(), mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")]), group: Type.Optional(Type.String())}, {additionalProperties: false}),
             effect: "read",
         },
         run: (args) => {
-            opened.push(args as {address: string; mode: string});
+            opened.push(args as {address: string; mode: string; group?: string});
             return {ok: true, value: null};
         },
     });
@@ -123,9 +123,10 @@ function editor(commands: CommandRegistry): Array<{address: string; mode: string
     return opened;
 }
 
-function explorer(at: World, options: {expanded?: string[]; commands?: CommandRegistry; client?: FilesService; bound?: boolean} = {}): ExplorerController {
+function explorer(at: World, options: {expanded?: string[]; commands?: CommandRegistry; client?: FilesService; bound?: boolean; clipboard?: {writeText(text: string): Promise<void>}} = {}): ExplorerController {
     const controller = createExplorerController({
         files: options.client ?? at.client,
+        ...(options.clipboard === undefined ? {} : {clipboard: options.clipboard}),
         commands: options.commands ?? registry(),
         bound: options.bound ?? true,
         ...(options.expanded === undefined ? {} : {expanded: options.expanded}),
@@ -383,6 +384,40 @@ describe("Spec workbench.files-explorer 验收 2、3：点击与打开", () => {
         await until(at, "bob 展开", () => row(controller, "project://lore.content/bob/sword") !== undefined);
         expect(opened).toHaveLength(4);
         expect(controller.notice.value).toBeNull();
+    });
+
+    it("打开、在侧边打开作用于选择里能打开的项（目录跳过），侧边只有第一项带 group；复制路径与相对路径按树里的顺序每行一个", async () => {
+        const at = await world();
+        const commands = registry();
+        const opened = editor(commands);
+        const copied: string[] = [];
+        const controller = explorer(at, {expanded: ["project://", "project://plain"], commands, clipboard: {writeText: async (text) => {
+            copied.push(text);
+        }}});
+        await until(at, "plain 列出", () => row(controller, "project://plain/index.md") !== undefined);
+        controller.click("project://plain/sub", {toggle: false, range: false}, "row");
+        controller.click("project://plain/index.md", {toggle: false, range: true}, "row");
+        expect(controller.selection.value.selected).toEqual(["project://plain/sub", "project://plain/a.md", "project://plain/index.md"]);
+
+        expect(controller.openSelection(false)).toEqual({ok: true});
+        expect(controller.openSelection(true)).toEqual({ok: true});
+        await waitUntil("四次打开执行完", () => opened.length === 4);
+        expect(opened).toEqual([
+            {address: "project://plain/a.md", mode: "permanent"},
+            {address: "project://plain/index.md", mode: "permanent"},
+            {address: "project://plain/a.md", mode: "permanent", group: "side"},
+            {address: "project://plain/index.md", mode: "permanent"},
+        ]);
+
+        expect(await controller.copyPaths(true)).toEqual({ok: true});
+        expect(await controller.copyPaths(false)).toEqual({ok: true});
+        const real = await realpath(at.scene.project);
+        expect(copied).toEqual(["plain/sub\nplain/a.md\nplain/index.md", [join(real, "plain", "sub"), join(real, "plain", "a.md"), join(real, "plain", "index.md")].join("\n")]);
+
+        // 只选了目录：打开不可用；没有剪贴板时复制路径不可用。
+        controller.click("project://plain/sub", {toggle: false, range: false}, "row");
+        expect(controller.openSelection(false)).toEqual({ok: false, reason: "not-applicable"});
+        expect(await explorer(at).copyPaths(true)).toEqual({ok: false, reason: "no-selection"});
     });
 
     it("编辑器区还没有：打开显示“编辑器尚未接入”，不伪装成功", async () => {
