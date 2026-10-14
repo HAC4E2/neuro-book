@@ -41,7 +41,7 @@ describe("换文件之后不留旧文件的状态（1.3）", () => {
         const {path, session, stop} = mount("a.md");
         await until(() => session.base.value, (value) => value !== null);
         session.draft.value = "A 改了";
-        session.notice.value = {tone: "info", title: "旧提示", message: "", items: [], retry: false};
+        session.notice.value = {outcome: "info", title: "旧提示", message: "", items: [], notes: [], retry: false};
         path.value = "b.md";
         await nextTick();
         await until(() => session.base.value, (value) => value?.hash === "hb");

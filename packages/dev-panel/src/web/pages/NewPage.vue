@@ -5,8 +5,9 @@ import {RouterLink, useRoute} from "vue-router";
 import {ApiError, sendJson} from "../host/api.js";
 import {useResource} from "../host/panel-data.js";
 import {taskHref, workHref} from "../host/routes.js";
-import type {CreatePreviewData, Meta, Overview, WriteData} from "../host/types.js";
-import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
+import type {CreatePreviewData, Meta, Overview, PreviewProblem, WriteData} from "../host/types.js";
+import {TASK_FORM_FIELDS, WORK_FORM_FIELDS} from "../host/create-fields.js";
+import {failureNotice, fieldProblems, successNotice, useWrite, type Notice} from "../host/writes.js";
 import CreatePreview from "../parts/CreatePreview.vue";
 import NewTaskForm, {type TaskFormValue} from "../parts/NewTaskForm.vue";
 import NewWorkForm, {type WorkFormValue} from "../parts/NewWorkForm.vue";
@@ -87,10 +88,20 @@ function confirmUnknown(clear: boolean): void {
     if (submittedMode.value === "work") workForm.value = {...EMPTY_WORK};
     else taskForm.value = {...EMPTY_TASK, workId: taskForm.value.workId};
 }
+/**
+ * 提交时服务端报的字段问题（`details.field`、`problems[].field`）：交给表单显示在字段旁边，结果里只写“表单里标出了 N 处”。
+ * 表单一改就清掉，免得旧问题一直挡着提交。
+ */
+const submitProblems = ref<PreviewProblem[]>([]);
+watch([workForm, taskForm], () => {
+    submitProblems.value = [];
+}, {deep: true});
+const formProblems = computed(() => [...(preview.value?.problems ?? []), ...submitProblems.value]);
 async function submit(): Promise<void> {
     if (unconfirmed.value) return;
     notice.value = null;
     created.value = null;
+    submitProblems.value = [];
     const submitting = mode.value;
     submittedMode.value = submitting;
     const previewed = submitting === "work" ? preview.value?.workId ?? null : preview.value?.taskId ?? null;
@@ -104,7 +115,9 @@ async function submit(): Promise<void> {
             notice.value = {...failureNotice("结果未知", outcome.failure), message: `${outcome.failure.message}。先刷新看看建好了没有：左栏与首页随推送更新，看有没有新的 Work 或 Task`};
             return;
         }
-        notice.value = failureNotice("没有新建", outcome.failure);
+        const anchored = submitting === "work" ? WORK_FORM_FIELDS : TASK_FORM_FIELDS;
+        submitProblems.value = fieldProblems(outcome.failure).filter((problem) => anchored.has(problem.field)).map((problem) => ({field: problem.field, code: outcome.failure.code, message: problem.message}));
+        notice.value = failureNotice("没有新建", outcome.failure, anchored);
         return;
     }
     const {workId, taskId} = outcome.body.data;
@@ -139,8 +152,8 @@ const actualId = computed(() => (created.value ? (submittedMode.value === "work"
             </div>
         </section>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_28rem]">
-            <NewWorkForm v-if="mode === 'work'" v-model="workForm" :problems="preview?.problems ?? []" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
-            <NewTaskForm v-else v-model="taskForm" :works="works" :problems="preview?.problems ?? []" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
+            <NewWorkForm v-if="mode === 'work'" v-model="workForm" :problems="formProblems" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
+            <NewTaskForm v-else v-model="taskForm" :works="works" :problems="formProblems" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
             <aside class="min-w-0 rounded-[var(--radius-panel)] p-4" style="background: var(--panel-surface); border: var(--border-w, 1px) solid var(--divider)">
                 <p v-if="disabledReason" class="mb-2" style="color: var(--status-warning)">{{ disabledReason }}</p>
                 <CreatePreview :preview="preview" :loading="previewLoading" />
