@@ -23,13 +23,22 @@ owners:
 
 ## 术语与参与者
 
-- **路由声明**：`http.routes` 贡献的方法、路径、鉴权方式与可选的输入、输出 schema（合同暂在 [`runtime.plugin-channel`](plugin-channel.md) 末节，随 `nbook.http` 相关 Spec 移出）。外部调用方使用的接口（webhook、OAuth 回调、脚本）都以路由声明给出。
+- **路由声明**：清单字段为方法、路径、鉴权方式与可选的输入、输出 schema（见下文“输入与前置条件”的完整形状）。外部调用方使用的接口（webhook、OAuth 回调、脚本）都以路由声明给出；插件之间的远程服务不经这条路径，与 [`runtime.plugin-channel`](plugin-channel.md) 无关。
 - **OpenAPI 文档**：由全部已登记路由声明生成的 OpenAPI 3.1 JSON。
 
 ## 输入与前置条件
 
-- 输入是有效插件集合中全部已登记插件的 `http.routes` 声明（[`runtime.plugin-manifest`](plugin-manifest.md)）；受阻入口的声明同样收集。
+- 输入是有效插件集合中全部已登记插件的路由声明（[`runtime.plugin-manifest`](plugin-manifest.md)）；受阻入口的声明同样收集。
 - 导出与展示都要求已登录。
+
+### 路由声明的合同（2026-09-30 已确认，待实现）
+
+- **声明**：清单字段为方法、路径、鉴权方式（`session`：需要登录，默认；`none`：公开，由处理函数自行校验调用方，例如 webhook 签名）、可选的输入与输出 schema。第三方插件的路径必须位于 `/api/plugins/<插件 id>/raw/` 之下；内置插件可以保留现有路径。
+- **处理函数**：Web 标准的 `(request: Request, ctx) => Response`。
+- **生命周期**：路由随所属入口激活可用，随入口停止撤回；插件禁用后已登录请求得到 503 `plugin-unavailable`，未登录请求得到 401；卸载后已登录请求得到 404。
+- **冲突**：两条路由贡献方法与路径相同时，冲突的路由全部被拒绝并报告，不按登记顺序决定谁生效；插件的其它贡献照常。
+- **验收**：示例第三方插件在 `/api/plugins/<id>/raw/hook` 声明 `none` 鉴权的路由，未登录可访问；声明在该前缀之外的路径使该条贡献被拒绝；禁用、卸载与冲突按上述结果。
+- **与已实现的 `http.routes` 的关系**：当前 `nbook.http` 的贡献点 `http.routes`（[`runtime.server-host`](server-host.md)）是粗粒度的“每插件一个处理器”模型（插件提交一个 Hono 应用，挂到 `/api/<插件 id>/`），不是本节描述的逐路由声明；本能力落地时需要选定其中一种模型，或在粗粒度处理器之上另加一层按路由的 schema 声明供 OpenAPI 生成——这是实现时要做的选择，不是当前 Spec 的既定结论。
 
 ## 输出与可观察行为
 
@@ -72,6 +81,5 @@ Smoke：有第一个对外路由的插件后，在真实服务端与 Chromium �
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11“端点与 API 文档”与评审问题 2（2026-09-28 开发者批准：内核收集 SDK 端点声明生成 API 文档，并可由 API 文档插件展示）。
-- 2026-10-07 按 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3 节（`accepted`）修订：只覆盖显式对外的 HTTP 路由，去掉由插件合同生成的 `http.endpoints` 端点（[w00017 t53](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/README.md)）。
-- 导出路径 `/api/openapi.json`、OpenAPI 3.1 版本与排序规则由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P11“端点与 API 文档”与评审问题 2（2026-09-28 开发者批准：内核收集 SDK 端点声明生成 API 文档，并可由 API 文档插件展示）；2026-10-07 按 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3 节（`accepted`）修订：只覆盖显式对外的 HTTP 路由，去掉由插件合同生成的 `http.endpoints` 端点（[w00017 t53](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/README.md)）；导出路径 `/api/openapi.json`、OpenAPI 3.1 版本与排序规则由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认，这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
+- 批准依据：“路由声明的合同”一节是 2026-09-30 已确认的 HTTP 路由贡献合同，原暂留在 [`runtime.plugin-channel`](plugin-channel.md) 末节（该文晋升 `implemented` 时移出，因为这段内容仍未实现、不能留在已实现 Spec 里）；2026-10-14 随 Spec 晋升复核移到本文，内容未改写。
