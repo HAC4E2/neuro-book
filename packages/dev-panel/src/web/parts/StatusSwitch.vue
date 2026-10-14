@@ -33,8 +33,23 @@ function startEdit(): void {
     editing.value = true;
     void nextTick(() => selectBox.value?.querySelector<HTMLElement>("button, [role='combobox'], select, input")?.focus());
 }
+/**
+ * 按“确认”之后按钮进入 loading、被禁用，焦点会先掉到 body；所以记下“是在这里确认的”，写完收起时照样把焦点放回“改状态”。
+ * 写失败（状态没变、还开着下拉）时把焦点还给下拉。
+ */
+let confirmedHere = false;
+function confirm(value: string): void {
+    confirmedHere = true;
+    emit("confirm", value);
+}
+watch(() => props.pending, (now, was) => {
+    if (!was || now || !editing.value) return;
+    confirmedHere = false;
+    if (document.activeElement === document.body) void nextTick(() => selectBox.value?.querySelector<HTMLElement>("button, [role='combobox'], select, input")?.focus());
+});
 function collapse(): void {
-    const hadFocus = root.value?.contains(document.activeElement) === true;
+    const hadFocus = confirmedHere || root.value?.contains(document.activeElement) === true;
+    confirmedHere = false;
     choice.value = null;
     editing.value = false;
     if (hadFocus) void nextTick(() => root.value?.querySelector<HTMLElement>("[data-status-toggle]")?.focus());
@@ -56,7 +71,7 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
             </div>
             <template v-if="choice">
                 <span>把 {{ subject }} 改成{{ statusLabel(choice) }}？</span>
-                <Button size="sm" :loading="pending" @click="emit('confirm', choice)">确认</Button>
+                <Button size="sm" :loading="pending" @click="confirm(choice)">确认</Button>
                 <span class="nbdev-secondary" v-if="slow">在等别的写入完成…</span>
             </template>
             <Button size="sm" variant="ghost" :disabled="pending" @click="cancel">取消</Button>
