@@ -21,7 +21,14 @@ t86 验收时开发者新提的三条：新建与改名的内联输入框样式�
   - 行的选中与悬停底色右端被滚动条槽位裁掉：行左右各让 6px 又是 100% 宽，改为宽度由左右两边定（`c7cf1b6a0`）。
   - 侧栏从零拉出时活动栏与侧栏松手才相连：相连按已落账的宽度判断，改为拖动中已拉出的部件按有宽度算；`ui/workbench-shell.md` 输出 38 补一句（`4b57e56b1`）。
   - “移动到”菜单被选中的行盖住：t86 给行容器的 `z-index: 1` 越出了树，树改为自成层叠上下文（`5c22c4ec1`）。
-- 评审板第一轮（[review](artifacts/review/index.html) v1）：输入框样式、选中与关掉文件之后、悬停滚动条与标题动作的范围三道题，等开发者答。
+- 评审板第一轮（[review](artifacts/review/index.html) v1）：输入框样式、选中与关掉文件之后、悬停滚动条与标题动作的范围三道题，开发者都取推荐（见“决定”）。
+- 2026-10-14 实施（[plan.md](plan.md)，S0–S4，分支上）：
+  - S0 Spec（`e93e41c40`、`184b1d6d0`、`d6dc180ff`）：files-explorer“行的样子”的选中两种样子、新增“内联输入”“滚动条”两条与验收 29；views 输出 10 的显示规则、新增输出 12“滚动条”与验收 9；nb-ui 规范第 15 条加场景 C（工作台视图用叠加的悬停滚动条）。
+  - S1（`26406d9f5`、`93d5ad772`）：输入行铺选中底色，输入框 22px、6px 圆角、1px 焦点色描边、无光环，报错贴在输入框下沿；选中按 `:focus-within` 分强调色与灰底，灰底是悬停色再混 8% 文字色（只混文字色时与悬停一样深，收口截图里看出来后改）。顺带修了编辑行同时带 `relative` 与 `absolute`、宽度按整行算的问题。
+  - S2（`d8bd84369`、`69965b013`）：nb-ui 新组件 `OverlayScrollbar`（几何是纯函数并有单测，Lab 场景与 `lab:shot` 无问题）；资源管理器的树与视图外框的 `scroll` 布局改用它，外框不再用 Reka `ScrollArea`。
+  - S3（`b8a2a722b`）：视图标题动作在三处位置（ToolPart 标题行、面板标签带旁、各视图标题行）随鼠标显示，规则在 `hover-actions.css`。
+  - 收尾修正（`fe3cffcba`）：nb-ui 的 token 扫描要求动效时长走 `--motion-*`，新增 `--motion-reveal-in/hold/out`（100/500/800ms，减少动画时归零），`dist/nb-ui.css` 重新生成。
+  - 验证：nb-ui 581 例、dev-panel 416 例、neuro-book Bun 1141 例与 Vitest 209 例通过；vue-tsc 两项 0 错误；`files-explorer.e2e.ts` 与 `workbench-views.e2e.ts` 44 例通过，`workbench-shell`、`workbench-dnd` 各一例失败是 Lab 首屏超时与 Chrome 崩溃，单独重跑通过；`docs:check`、`governance:check` 0 失败。neuro-book 的 `tsc` 有 5 个错误，不是本 Task 引入的：w00022 给 dev-panel 加的 `@types/jsdom`（`ca27fa192`）装进了主仓库的 `node_modules`，vitest 的可选类型声明 import `jsdom` 时沿父目录找到它，带进 DOM 库，`WebSocket`、`Blob` 的类型与 Bun 的冲突；master 主工作区同样报这 5 个，worktree 在主仓库目录之下，所以也受影响。收口截图（nbook、macos × 明暗；上排改名报错，下排关掉文件后的灰底选中与悬停时的滑块、标题动作）：[t89-final-themes.webp](evidences/t89-final-themes.webp)。
 
 ## 决定
 
@@ -33,4 +40,4 @@ t86 验收时开发者新提的三条：新建与改名的内联输入框样式�
 
 ## 下一步
 
-按决定写 [plan.md](plan.md) 与 Spec，再实施。
+已实施，等开发者在页面上验收（开发服务 4217，书架里点“雾港”）。合入 master 要开发者同意。
