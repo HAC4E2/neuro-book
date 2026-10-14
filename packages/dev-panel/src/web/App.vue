@@ -14,7 +14,7 @@ import PanelNav from "./parts/PanelNav.vue";
 import type {Meta, NotifyData, Overview} from "./host/types.js";
 
 /**
- * 外壳：左栏（`PanelNav`）、顶栏（搜索、数据新旧、代码已更新、通知要处理的计数、审计、herdr、明暗）、页面。
+ * 外壳：左栏（`PanelNav`）、顶栏（搜索、状态点、通知要处理的计数、明暗）、顶栏下的横幅（代码已更新、前端构建失败、审计、后台重算失败）、页面。
  * 外壳与页面按组件规范豁免（它们是宿主）；左栏的展开、宽度、收起与明暗经 host/prefs.ts 记住。
  * 左栏与正文是 nb-ui 的 `Splitter` 的两块面板（t15 阶段 2c）：可拖宽度、可收起；窄于 1024px 时同一个 Splitter 把左栏收成 0、禁用拖动，
  * 导航改由抽屉显示。面板按 id 渲染，断点来回切换时正文（RouterView 与页面实例）不重挂。
@@ -260,7 +260,7 @@ onBeforeUnmount(stopHeadingWait);
 /** 标签页标题“页面名 · nbdev”（host/nav.ts 的 pageTitle）。 */
 const asStrings = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 watchEffect(() => {
-    document.title = pageTitle({name: typeof route.name === "string" ? route.name : null, params: asStrings(route.params), query: asStrings(route.query)}, overview.data.value?.works ?? null);
+    document.title = pageTitle({name: typeof route.name === "string" ? route.name : null, title: route.meta.title ?? null, params: asStrings(route.params), query: asStrings(route.query)}, overview.data.value?.works ?? null);
 });
 
 const tick = ref(Date.now());

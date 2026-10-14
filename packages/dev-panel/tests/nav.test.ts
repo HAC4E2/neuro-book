@@ -34,19 +34,21 @@ describe("左栏条目的高亮", () => {
 
 describe("标签页标题（2e）", () => {
     const works = [{...work("w00022-dev-panel", "active", "2026-10-14"), title: "开发者面板", tasks: [{taskId: "t15-ui-polish", title: "面板界面打磨"}]}] as unknown as OverviewWork[];
-    const route = (name: string | null, params: Record<string, string> = {}, query: Record<string, string> = {}) => ({name, params, query});
-    test("“页面名 · nbdev”：Work、Task 取标题，还没读到时用编号；文档与编辑带文件名；搜索带搜索词", () => {
+    // 页面名来自路由元信息（router.ts 的 meta.title），这里按路由表的写法给。
+    const route = (name: string | null, title: string | null, params: Record<string, string> = {}, query: Record<string, string> = {}) => ({name, title, params, query});
+    test("“页面名 · nbdev”：页面名取路由元信息；Work、Task 取标题，还没读到时用编号；文档与编辑带文件名；搜索带搜索词", () => {
         expect([
-            pageTitle(route("home"), works),
-            pageTitle(route("work", {workId: "w00022-dev-panel"}), works),
-            pageTitle(route("task", {workId: "w00022-dev-panel", taskId: "t15-ui-polish"}), works),
-            pageTitle(route("task", {workId: "w00022-dev-panel", taskId: "t15-ui-polish"}), null),
-            pageTitle(route("artifact", {workId: "w1", taskId: "-", artifactId: "uxq"}), works),
-            pageTitle(route("docs", {}, {path: "docs/specs/AGENTS.md"}), works),
-            pageTitle(route("docs"), works),
-            pageTitle(route("edit", {}, {path: "a/b/README.md"}), works),
-            pageTitle(route("search", {}, {q: "滚动"}), works),
-            pageTitle(route(null), works),
-        ]).toEqual(["首页 · nbdev", "开发者面板 · nbdev", "面板界面打磨 · nbdev", "w00022-dev-panel/t15-ui-polish · nbdev", "uxq · nbdev", "AGENTS.md · nbdev", "文档 · nbdev", "编辑 README.md · nbdev", "搜索 滚动 · nbdev", "nbdev"]);
+            pageTitle(route("home", "首页"), works),
+            pageTitle(route("work", "Work", {workId: "w00022-dev-panel"}), works),
+            pageTitle(route("task", "Task", {workId: "w00022-dev-panel", taskId: "t15-ui-polish"}), works),
+            pageTitle(route("task", "Task", {workId: "w00022-dev-panel", taskId: "t15-ui-polish"}), null),
+            pageTitle(route("artifact", "产物", {workId: "w1", taskId: "-", artifactId: "uxq"}), works),
+            pageTitle(route("docs", "文档", {}, {path: "docs/specs/AGENTS.md"}), works),
+            pageTitle(route("docs", "文档"), works),
+            pageTitle(route("edit", "编辑", {}, {path: "a/b/README.md"}), works),
+            pageTitle(route("search", "搜索", {}, {q: "滚动"}), works),
+            pageTitle(route("runs", "在跑"), works),
+            pageTitle(route(null, null), works),
+        ]).toEqual(["首页 · nbdev", "开发者面板 · nbdev", "面板界面打磨 · nbdev", "w00022-dev-panel/t15-ui-polish · nbdev", "uxq · nbdev", "AGENTS.md · nbdev", "文档 · nbdev", "编辑 README.md · nbdev", "搜索 滚动 · nbdev", "在跑 · nbdev", "nbdev"]);
     });
 });

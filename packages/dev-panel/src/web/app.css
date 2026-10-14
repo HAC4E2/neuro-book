@@ -34,7 +34,10 @@ html {
 *:hover {
     scrollbar-color: var(--text-muted) transparent;
 }
-/* 竖向滚动者：内容长短变化时宽度不跳（会动态溢出的容器，nb-ui 界面开发规范第 15 条的场景 B）。 */
+/*
+ * 竖向滚动者：内容长短变化时宽度不跳（会动态溢出的容器，nb-ui 界面开发规范第 15 条的场景 B）。滚动与槽位一起声明，
+ * 不用 nb-ui 的 nb-ui-scrollbar-stable（它只管槽位）；要带断点前缀的地方（文档页）用 Tailwind 的 [scrollbar-gutter:stable]。
+ */
 .nbdev-scroll-y {
     overflow-y: auto;
     scrollbar-gutter: stable;

@@ -7,26 +7,28 @@ declare module "vue-router" {
          * 一页只有一个竖向滚动者，见 docs/panel.md 的“前端”。
          */
         layout?: "flow" | "fill";
+        /** 页面名：标签页标题“页面名 · nbdev”用它（带参数的 Work、Task、产物、文档、编辑、搜索页另由 host/nav.ts 的 pageTitle 拼）。 */
+        title?: string;
     }
 }
 
-/** 路由与页面的对应见 docs/panel.md 的“前端”。页面按需加载：首页先出来，其余页面点到才取。 */
+/** 路由与页面的对应见 docs/panel.md 的“前端”，加一个页面照那里的清单做。页面按需加载：首页先出来，其余页面点到才取。 */
 export const router = createRouter({
     history: createWebHistory(),
     routes: [
-        {path: "/", name: "home", component: () => import("./pages/HomePage.vue")},
-        {path: "/work/:workId", name: "work", component: () => import("./pages/WorkPage.vue"), props: true},
-        {path: "/work/:workId/task/:taskId", name: "task", component: () => import("./pages/TaskPage.vue"), props: true},
-        {path: "/artifacts", name: "artifacts", component: () => import("./pages/ArtifactsPage.vue")},
-        {path: "/artifact/:workId/:taskId/:artifactId", name: "artifact", component: () => import("./pages/ArtifactPage.vue"), props: true},
-        {path: "/docs", name: "docs", component: () => import("./pages/DocsPage.vue"), meta: {layout: "fill"}},
-        {path: "/live/sessions", name: "sessions", component: () => import("./pages/SessionsPage.vue")},
-        {path: "/live/checkouts", name: "checkouts", component: () => import("./pages/CheckoutsPage.vue")},
-        {path: "/live/runs", name: "runs", component: () => import("./pages/RunsPage.vue")},
-        {path: "/live/github", name: "github", component: () => import("./pages/GithubPage.vue")},
-        {path: "/search", name: "search", component: () => import("./pages/SearchPage.vue")},
-        {path: "/new", name: "new", component: () => import("./pages/NewPage.vue")},
-        {path: "/edit", name: "edit", component: () => import("./pages/EditPage.vue")},
-        {path: "/:rest(.*)*", name: "missing", component: () => import("./pages/MissingPage.vue")},
+        {path: "/", name: "home", component: () => import("./pages/HomePage.vue"), meta: {title: "首页"}},
+        {path: "/work/:workId", name: "work", component: () => import("./pages/WorkPage.vue"), props: true, meta: {title: "Work"}},
+        {path: "/work/:workId/task/:taskId", name: "task", component: () => import("./pages/TaskPage.vue"), props: true, meta: {title: "Task"}},
+        {path: "/artifacts", name: "artifacts", component: () => import("./pages/ArtifactsPage.vue"), meta: {title: "产物"}},
+        {path: "/artifact/:workId/:taskId/:artifactId", name: "artifact", component: () => import("./pages/ArtifactPage.vue"), props: true, meta: {title: "产物"}},
+        {path: "/docs", name: "docs", component: () => import("./pages/DocsPage.vue"), meta: {layout: "fill", title: "文档"}},
+        {path: "/live/sessions", name: "sessions", component: () => import("./pages/SessionsPage.vue"), meta: {title: "会话"}},
+        {path: "/live/checkouts", name: "checkouts", component: () => import("./pages/CheckoutsPage.vue"), meta: {title: "checkout"}},
+        {path: "/live/runs", name: "runs", component: () => import("./pages/RunsPage.vue"), meta: {title: "在跑"}},
+        {path: "/live/github", name: "github", component: () => import("./pages/GithubPage.vue"), meta: {title: "GitHub"}},
+        {path: "/search", name: "search", component: () => import("./pages/SearchPage.vue"), meta: {title: "搜索"}},
+        {path: "/new", name: "new", component: () => import("./pages/NewPage.vue"), meta: {title: "新建"}},
+        {path: "/edit", name: "edit", component: () => import("./pages/EditPage.vue"), meta: {title: "编辑"}},
+        {path: "/:rest(.*)*", name: "missing", component: () => import("./pages/MissingPage.vue"), meta: {title: "找不到这一页"}},
     ],
 });
