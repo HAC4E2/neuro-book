@@ -32,5 +32,5 @@ updated: 2026-10-14
 
 - 推送：`master` 从 `6faecf815` 快进到 `2a08d0ef8`（推送前核对旧根已不存在、远端为快进）。
 - 清理第二批：删除 `.worktree/w00017-t80-settings-ui`、`w00017-t84-menu-contributions`、`w00017-t85-master-merge`、`w00017-t80-drafts`（3 个未提交的草稿文件随之丢弃，t80 已完成、决定已入记录），本地分支 `t80/settings-ui`、`t80/drafts`、`feat/w00017-t84-menu-contributions`、`chore/w00017-t85-master-merge`、`remote`（与 `origin/master` 同一提交）、`backup/w00017-before-trailer-cleanup`；再 gc 一次。`.git` 206 MB，`.worktree/` 从 12 GB 降到 9.6 GB。
-- 保留：`.worktree/w00017-runtime-foundation`（开发者的开发服务与编辑器正在用；分支已在 `master`，governance 标为待清理，开发者不用时再删），本地分支 `archive/legacy-ui-tuning`（旧 UI 改动的参照）。
+- 开发者关掉编辑器与开发服务后，同日删除 `.worktree/w00017-runtime-foundation` 与本地分支 `refactor/w00017-runtime-foundation`（已在 `master`；远端同名分支保留）。保留本地分支 `archive/legacy-ui-tuning`（旧 UI 改动的参照）。
 - 未做：远端分支只读核对，99 个里 10 个已合入（含 `feat/w00017-t84-menu-contributions`、`refactor/w00017-runtime-foundation`），89 个按祖先关系未合入（多为 8 月的旧分支，可能已 squash 合并）；删除远端分支要开发者另行同意。
