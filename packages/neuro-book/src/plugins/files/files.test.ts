@@ -7,7 +7,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, readFile, rm, symlink} from "node:fs/promises";
+import {chmod, readFile, realpath, rm, symlink} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -94,6 +94,19 @@ describe("Spec workspace.resources 读与列出：三种调用方经同一份合
         expect(await readFile(join(project, "a.md"), "utf8")).toBe("A");
     });
 
+    it("realPath 给服务端机器上的绝对路径：两个根与根本身；最后一段是链接时不跟随；控制目录与不存在的可区分", async () => {
+        const {project, user, window} = await scene({project: {"正文/第一章.md": "", ".nbook/project.json": "{}"}, user: {"notes.md": ""}});
+        await symlink(join(project, "正文"), join(project, "link"));
+        const client = files(window);
+        const real = await realpath(project);
+        expect(await client.realPath("project://正文/第一章.md")).toEqual({ok: true, value: join(real, "正文", "第一章.md")});
+        expect(await client.realPath("project://")).toEqual({ok: true, value: real});
+        expect(await client.realPath("project://link")).toEqual({ok: true, value: join(real, "link")});
+        expect(await client.realPath("user://notes.md")).toEqual({ok: true, value: join(await realpath(user), "notes.md")});
+        expect(await client.realPath("project://.nbook/project.json")).toMatchObject({ok: false, code: "protected-path"});
+        expect(await client.realPath("project://none.md")).toMatchObject({ok: false, code: "not-found"});
+    });
+
     it("未绑定项目的窗口访问 project:// 得到路由层的失败，不是空目录；订阅建立失败以一次 ended 结束", async () => {
         const created = await scene();
         const free = await extraWindow(created, "free", {bound: false});
@@ -130,16 +143,22 @@ describe("Spec workspace.folder-kinds 列出：三类文件夹", () => {
   <item name="ghost" title="已删除"/>
 </content>`;
 
-    it("普通文件夹：目录在前，中文自然排序，相等按码元；只看后缀分类", async () => {
-        const {window} = await scene({project: {"chapter-10.md": "", "chapter-2.md": "", "a.md": "", "A.md": "", "第10章.md": "", "第2章.md": "", "zz/x.md": "", "lorebook.content/x.md": "", "manuscripts.binder/00001-a.md": ""}});
+    it("普通文件夹：目录在前，中文自然排序（“第 N 章”里的中文数字按数值），相等按码元；只看后缀分类", async () => {
+        const {window} = await scene({project: {
+            "chapter-10.md": "", "chapter-2.md": "", "a.md": "", "A.md": "", "第10章.md": "", "第2章.md": "", "第三章.md": "", "第十二章.md": "", "第12章.md": "",
+            "第二卷/x.md": "", "第一卷/x.md": "", "zz/x.md": "", "lorebook.content/x.md": "", "manuscripts.binder/00001-a.md": "",
+        }});
         const listed = await files(window).list("project://");
-        // zh-CN 的排序把汉字排在拉丁字母前。
-        expect(names(listed)).toEqual(["lorebook.content", "manuscripts.binder", "zz", "第2章.md", "第10章.md", "A.md", "a.md", "chapter-2.md", "chapter-10.md"]);
+        // zh-CN 的排序把汉字排在拉丁字母前；“第12章”与“第十二章”比较键相同，按码元 1 在十之前。
+        expect(names(listed)).toEqual([
+            "第一卷", "第二卷", "lorebook.content", "manuscripts.binder", "zz",
+            "第2章.md", "第三章.md", "第10章.md", "第12章.md", "第十二章.md", "A.md", "a.md", "chapter-2.md", "chapter-10.md",
+        ]);
         expect(listed.ok && listed.value.folder).toBe("plain");
-        expect(listed.ok && listed.value.entries.slice(0, 3).map((entry) => entry.folder)).toEqual(["content", "binder", "plain"]);
+        expect(listed.ok && listed.value.entries.slice(1, 4).map((entry) => entry.folder)).toEqual(["plain", "content", "binder"]);
     });
 
-    it("内容文件夹：清单顺序与展示名，未列入项排在末尾，缺失条目标出；子目录带有无正文；清单文件标出", async () => {
+    it("内容文件夹：清单顺序与展示名，未列入项排在末尾，缺失条目标出；子目录带有无正文与是不是叶子；清单文件标出", async () => {
         const {window} = await scene({project: {
             "lorebook.content/content.xml": manifest,
             "lorebook.content/chen-yao/index.md": "陈瑶正文",
@@ -155,7 +174,7 @@ describe("Spec workspace.folder-kinds 列出：三类文件夹", () => {
             {name: "lin-feng", kind: "directory", folder: "plain", body: false, title: "林峰", listed: true},
             {name: "chen-yao", kind: "directory", folder: "plain", body: true, title: "陈瑶", icon: "user", listed: true},
             {name: "ghost", kind: "missing", title: "已删除", listed: true},
-            {name: "zeta", kind: "directory", folder: "plain", body: true, listed: false},
+            {name: "zeta", kind: "directory", folder: "plain", body: true, leaf: true, listed: false},
             {name: "a.md", kind: "file", listed: false},
             {name: "content.xml", kind: "file", role: "manifest", listed: false},
         ]);

@@ -52,6 +52,7 @@ export type FolderKind = Static<typeof FolderSchema>;
  * - `title`、`icon`：清单给的展示名与图标；
  * - `listed`：内容文件夹里是否列在清单中（未列入项为 false）；
  * - `body`：内容树里的子目录有没有正文（`index.md` 是普通文件）；
+ * - `leaf`：内容树里的子目录除了 `index.md` 没有别的目录项（视图不给展开控件）；只在为真时给出；
  * - `role`：内容节点自己的 `index.md` 为 `body`，内容根上的 `content.xml` 为 `manifest`。
  */
 const EntrySchema = Type.Object({
@@ -62,6 +63,7 @@ const EntrySchema = Type.Object({
     icon: Type.Optional(Type.String()),
     listed: Type.Optional(Type.Boolean()),
     body: Type.Optional(Type.Boolean()),
+    leaf: Type.Optional(Type.Boolean()),
     role: Type.Optional(Type.Union([Type.Literal("body"), Type.Literal("manifest")])),
 }, {additionalProperties: false});
 export type DirectoryEntry = Static<typeof EntrySchema>;
@@ -174,6 +176,7 @@ const Display = Type.Optional(Type.Union([Type.String(), Type.Null()]));
 const methods = {
     list: {input: PathInput, output: ListingSchema, effect: "read", errors},
     read: {input: PathInput, output: FileTextSchema, effect: "read", errors},
+    realPath: {input: PathInput, output: Type.Object({path: Type.String()}, {additionalProperties: false}), effect: "read", errors},
     write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema}, {additionalProperties: false}), output: Saved, effect: "write", errors},
     identify: {input: Type.Object({paths: Type.Array(Type.String(), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: IdentifySchema, effect: "read", errors},
     create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
@@ -225,10 +228,10 @@ const events = {changes: {filter: Type.Object({}, {additionalProperties: false})
 
 const CALLERS = ["browser", "tui", "project", "server"];
 
-/** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。 */
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 3, provider: "project", callers: CALLERS, methods, events});
+/** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。版本 4：t86 加了 `realPath` 与目录项的 `leaf`。 */
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 4, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 3, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 4, provider: "server", callers: CALLERS, methods, events});
 
 export type FilesContract = typeof projectFilesContract | typeof userFilesContract;
 
@@ -270,6 +273,8 @@ export interface FilesService {
     write(address: string, text: string, baseline: Baseline): Promise<FilesResult<SavedText>>;
     /** 冻结一组目录项的身份（剪贴板、拖动）；地址必须同一方案。结果与输入按下标对齐。 */
     identify(addresses: ReadonlyArray<string>): Promise<FilesResult<Identified>>;
+    /** 资源在服务端机器上的绝对路径（“复制路径”用）；跨机器访问时是服务端的路径。 */
+    realPath(address: string): Promise<FilesResult<string>>;
     /** 排他新建空文件或目录；`before` 是内容文件夹里同层另一项的名字。 */
     create(address: string, kind: "file" | "directory", options?: {readonly before?: string}): Promise<FilesResult<OperationDone>>;
     /** 在内容文件夹的节点目录里排他新建空白 `index.md`。 */

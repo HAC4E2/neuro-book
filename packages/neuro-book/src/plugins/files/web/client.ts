@@ -71,6 +71,12 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
             const result = await client(parsed.resource.scheme).write({path: parsed.resource.path, text, baseline});
             return result.ok ? result : fromRemote(result);
         },
+        realPath: async (address) => {
+            const parsed = parseResource(address);
+            if (!parsed.ok) return parsed;
+            const result = await client(parsed.resource.scheme).realPath({path: parsed.resource.path});
+            return result.ok ? {ok: true, value: result.value.path} : fromRemote(result);
+        },
         identify: async (addresses) => {
             const batch = sameScheme(addresses);
             if (!batch.ok) return batch;

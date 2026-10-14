@@ -28,6 +28,7 @@ import type {
     OperationDone,
     Scheme,
 } from "nbook/plugins/files/shared/contracts";
+import {compareEntries} from "nbook/plugins/files/shared/names";
 
 /** 场景的初始数据：路径到正文（目录以 `/` 结尾），内容层的有序条目，以及声明为损坏的清单。 */
 export interface MemorySeed {
@@ -87,9 +88,6 @@ const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 const join = (directory: string, name: string): string => (directory === "" ? name : `${directory}/${name}`);
 const within = (path: string, ancestor: string): boolean => ancestor === "" || path === ancestor || path.startsWith(`${ancestor}/`);
 const folderOf = (name: string): FolderKind => (name.endsWith(".content") ? "content" : name.endsWith(".binder") ? "binder" : "plain");
-/** 与真实实现一致：目录在前，同类按名字。 */
-const compare = (left: {readonly name: string; readonly kind: string}, right: {readonly name: string; readonly kind: string}): number =>
-    Number(right.kind === "directory") - Number(left.kind === "directory") || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
 
 function parse(address: string): {readonly scheme: Scheme; readonly path: string} | null {
     const match = /^(project|user):\/\/(.*)$/u.exec(address);
@@ -230,17 +228,21 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
             const entry = root.nodes.get(child) as Node;
             return entry.kind === "directory" ? {name: nameOf(child), kind: "directory", folder: folderOf(nameOf(child))} : {name: nameOf(child), kind: "file"};
         });
-        if (contentRoot === null) return {ok: true, value: {folder, contentRoot: null, entries: disk.sort(compare)}};
+        if (contentRoot === null) return {ok: true, value: {folder, contentRoot: null, entries: disk.sort(compareEntries)}};
         const atRoot = contentRoot === path;
         const marked = disk.map((entry): DirectoryEntry => {
-            if (entry.kind === "directory") return {...entry, body: root.nodes.get(join(join(path, entry.name), "index.md"))?.kind === "file"};
+            if (entry.kind === "directory") {
+                const directory = join(path, entry.name);
+                const leaf = children(root, directory).every((child) => nameOf(child) === "index.md");
+                return {...entry, body: root.nodes.get(join(directory, "index.md"))?.kind === "file", ...(leaf ? {leaf} : {})};
+            }
             if (atRoot && entry.name === "content.xml") return {...entry, role: "manifest"};
             if (!atRoot && entry.name === "index.md") return {...entry, role: "body"};
             return entry;
         });
         const broken = root.broken.get(contentRoot);
-        if (broken !== undefined) return {ok: true, value: {folder, contentRoot, manifest: {status: "invalid", detail: broken}, entries: marked.sort(compare)}};
-        if (!root.manifests.has(contentRoot)) return {ok: true, value: {folder, contentRoot, manifest: {status: "absent", detail: `${contentRoot}/content.xml 不存在`}, entries: marked.sort(compare)}};
+        if (broken !== undefined) return {ok: true, value: {folder, contentRoot, manifest: {status: "invalid", detail: broken}, entries: marked.sort(compareEntries)}};
+        if (!root.manifests.has(contentRoot)) return {ok: true, value: {folder, contentRoot, manifest: {status: "absent", detail: `${contentRoot}/content.xml 不存在`}, entries: marked.sort(compareEntries)}};
         const items = layer(root, path) ?? [];
         const byName = new Map(marked.map((entry) => [entry.name, entry]));
         const ordered = items.map((item): DirectoryEntry => {
@@ -249,7 +251,7 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
             byName.delete(item.name);
             return entry === undefined ? {name: item.name, kind: "missing", ...display, listed: true} : {...entry, ...display, listed: true};
         });
-        const unlisted = [...byName.values()].sort(compare).map((entry): DirectoryEntry => ({...entry, listed: false}));
+        const unlisted = [...byName.values()].sort(compareEntries).map((entry): DirectoryEntry => ({...entry, listed: false}));
         return {ok: true, value: {folder, contentRoot, manifest: {status: "ok"}, entries: [...ordered, ...unlisted]}};
     };
 
@@ -286,7 +288,7 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
         if (convertTo === "content" && !at.root.manifests.has(target)) {
             // 转为内容文件夹：按现有的子项（与列出同序）建一份清单。
             const existing = children(at.root, target).map((child) => ({name: nameOf(child), kind: (at.root.nodes.get(child) as Node).kind}));
-            at.root.manifests.set(target, existing.sort(compare).map((entry) => ({name: entry.name})));
+            at.root.manifests.set(target, existing.sort(compareEntries).map((entry) => ({name: entry.name})));
             at.root.nodes.set(join(target, "content.xml"), {kind: "file", ino: ++ino, text: ""});
             events.push({type: "created", path: join(target, "content.xml"), source: SOURCE});
         }
@@ -444,6 +446,13 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
         },
         read: (address) => readText(address),
         write: (address, text, baseline) => writeText(address, text, baseline),
+        // 内存里没有磁盘：给一个看得出来源的假路径，“复制路径”在 Lab 里照样能走通。
+        realPath: (address) => {
+            const at = resolve(address);
+            if ("ok" in at) return later(at);
+            if (!at.root.nodes.has(at.path)) return later(fail("not-found", `${address} 不存在`));
+            return later({ok: true, value: `/lab-memory/${at.scheme}${at.path === "" ? "" : `/${at.path}`}`});
+        },
         identify: (addresses) => {
             const items: Identified["items"] = addresses.map((address) => {
                 const at = resolve(address);

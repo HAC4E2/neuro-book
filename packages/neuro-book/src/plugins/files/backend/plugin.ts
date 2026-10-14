@@ -83,6 +83,7 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
         methods: {
             list: (input) => service.list(input.path),
             read: (input) => service.read(input.path),
+            realPath: (input) => service.realPath(input.path),
             write: (input) => tracked(scope, "files.write", async () => {
                 const saved = await service.write(input.path, input.text, input.baseline, changes.temporaryPath);
                 if (!saved.ok) return saved;

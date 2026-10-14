@@ -7,7 +7,7 @@
  */
 
 import {createHash} from "node:crypto";
-import {lstat} from "node:fs/promises";
+import {lstat, opendir} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {Baseline, DirectoryEntry, FileText, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
@@ -48,6 +48,8 @@ export interface FilesService {
     list(path: string): Promise<Outcome<Listing>>;
     read(path: string): Promise<Outcome<FileText>>;
     write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string): Promise<Outcome<SavedFile>>;
+    /** 资源在服务端机器上的绝对路径；最后一段不跟随符号链接，根本身是根的真实路径。 */
+    realPath(path: string): Promise<Outcome<{readonly path: string}>>;
 }
 
 export function hashOf(bytes: Uint8Array): string {
@@ -112,7 +114,11 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             const contentRoot = segments.slice(0, index + 1).join("/");
             const atContentRoot = index === segments.length - 1;
             const marked = await Promise.all(disk.map(async (entry): Promise<DirectoryEntry> => {
-                if (entry.kind === "directory") return {...entry, body: await hasBody(join(listed.resolved.real, entry.name))};
+                if (entry.kind === "directory") {
+                    const directory = join(listed.resolved.real, entry.name);
+                    const [body, leaf] = await Promise.all([hasBody(directory), isLeaf(directory)]);
+                    return {...entry, body, ...(leaf ? {leaf} : {})};
+                }
                 if (entry.kind === "file" && atContentRoot && entry.name === MANIFEST_NAME) return {...entry, role: "manifest"};
                 if (entry.kind === "file" && !atContentRoot && entry.name === BODY_NAME) return {...entry, role: "body"};
                 return entry;
@@ -129,6 +135,15 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             });
             const unlisted = [...byName.values()].sort(compareEntries).map((entry): DirectoryEntry => ({...entry, listed: false}));
             return {ok: true, value: {folder, contentRoot, manifest: manifest.state, entries: [...ordered, ...unlisted]}};
+        },
+
+        realPath: async (path) => {
+            const bad = invalid(path);
+            if (bad !== null) return bad;
+            if (path === "") return {ok: true, value: {path: root.real}};
+            const entry = await root.resolveEntry(path);
+            if ("ok" in entry) return failed(entry, "files.real-path.failed");
+            return {ok: true, value: {path: entry.absolute}};
         },
 
         read: async (path) => {
@@ -161,6 +176,23 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             return {ok: true, value: {baseline: {hash: hashOf(bytes)}, realPath: replaced.resolved.realPath, bytes, ...(identity === null ? {} : {identity})}};
         },
     };
+}
+
+/**
+ * 叶子：目录里除了 `index.md` 没有别的目录项（docs/specs/workspace/folder-kinds.md 的“正文入口”）。读到第一个别的项就停，
+ * 节点目录里附件再多也只读一项。读不了时不算叶子：视图照常给展开控件，展开时列出会给出确切原因。
+ */
+async function isLeaf(directory: string): Promise<boolean> {
+    try {
+        // for await 结束时（含提前 return）自动关闭目录句柄。
+        for await (const entry of await opendir(directory)) {
+            if (entry.name !== BODY_NAME) return false;
+        }
+        return true;
+    } catch {
+        // 不存在或无权读：同 hasBody，只决定有没有展开控件。
+        return false;
+    }
 }
 
 async function hasBody(directory: string): Promise<boolean> {
