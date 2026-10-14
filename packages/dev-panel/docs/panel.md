@@ -56,7 +56,7 @@
 |---|---|
 | `/api/meta` | 实例 id、启动时刻、是否预热完成、`codeChanged`（面板代码已更新，重启后生效）、`service`（`{unit, restartCommand}`：作为 systemd 服务运行时的单元名与重启命令，前台运行时都是 null，见“常驻”）、前端构建是否失败、herdr 的状态（含 `autoNotify`：这个版本是否自动投递通知）、`audit`（`{enabled, initAt}` 或 `{enabled: false, reason, detail}`）、`notify`（`{pending, attention}`：排队的与要开发者处理的任务数）、各块数据的刷新时刻与错误、产物来源的地址、`mainWritable`（`{ok, code, message}`：主工作区现在能不能写，不在 master 或正在合并、变基时不能，前端据此隐藏写入口）、`terminal`（`{available, reason}`：网页终端能不能用，t12） |
 | `/api/overview` | 首页与左栏：各 Work 与 Task 的摘要（状态、目标、最近更新、当前情况、来源、待答数、谁在动）、收件箱（提问带 `askedBy` 与 `askerActive`：提问者的租约是否还有效）、会话的计数（明细在 `/api/sessions`） |
-| `/api/work/:workId` | Work 页：完整的 Work（Task 表、产物与文档类产物、谁在动）与相关会话；`readmeHash`（README 的 sha256，状态切换带它） |
+| `/api/work/:workId` | Work 页：完整的 Work（Task 表、产物与文档类产物、谁在动）与相关会话；`readmeHash`（README 的 sha256，状态切换带它）；每个 Task 带 `openRequired`（与 `/api/overview` 同一个口径） |
 | `/api/task/:workId/:taskId` | Task 页：Task 摘要（含 `readmeHash`）、README 原文、证据（第一层）、链到的 Spec、执行 checkout 的候选与选中的、执行 checkout 上的提交 |
 | `/api/artifacts` | 产物列表：有发布记录的（设计稿、讲解与报告、审查、提问集）与没发布的、文档类产物、各 Task 的证据数 |
 | `/api/artifact/:workId/:taskId/:artifactId?version=` | 产物页：版本列表、题与状态（`version` 只切换题表）、答复、确认、iframe 地址（产物来源上磁盘里的当前页面）、`unpublishedChanges`（磁盘内容与最新一版的 `contentHash` 不同）、记录来源（`source`、`branch`）。Work 级产物的 `taskId` 写 `-` |

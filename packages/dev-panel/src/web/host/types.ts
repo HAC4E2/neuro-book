@@ -48,7 +48,8 @@ export type Meta = {
 
 export type ArtifactSummary = {artifactId: string; kind: string | null; title: string | null; version: number | null; state: "open" | "closed" | "unpublished"; publishedAt: string | null; openRequired: number; adoption: "none" | "waiting" | "adopted" | null};
 export type DocumentEntry = {path: string; title: string | null};
-export type TaskView = OverviewTask & {
+/** `/api/work` 的 Task：概览里的字段加上记录来源、租约与产物；不带概览才有的 `artifactCount`、`leaseCount`。 */
+export type TaskView = Omit<OverviewTask, "artifactCount" | "leaseCount"> & {
     workId: string; readmePath: string; branch: string | null; checkout: string; checkoutKey: string | null; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[];
 };
 export type WorkSession = {key: string; agent: string; label: string | null; alive: boolean | null; herdr: {paneId: string; status: string} | null; leases: Array<{taskId: string; lastActivityAt: string; stale: boolean}>; runs: number};
