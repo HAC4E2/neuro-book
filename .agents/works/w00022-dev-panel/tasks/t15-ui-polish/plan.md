@@ -1474,3 +1474,34 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 文件清单 300 条的截断没造；
     - 仓库内图片（例如 README 里 `./vitepress/...jpg`）不是这一批的范围，照旧不显示（只给 `.agents/works/` 下的图片改写到产物来源）；
     - 只看了 Chrome。
+- 2026-10-14：第 4 批实现审查（`evidences/impl-review-phase4-batch4.txt`）的结论是 0 阻断、4 重要、6 建议。按主 Agent 的处理意见：除第 5 条外都改，在集成分支上改，未 push。
+  - 提交（`f1daeeb81..460ef97c3`，3 个）：
+    - `ca27fa192`（第 1、7 条）：
+      - `markdown.ts` 把记号属性 `data-nbdev-external` 列进 `FORBID_ATTR`，作者写的先被去掉，只认清洗钩子写的；
+      - 替换只接受解析得出、协议是 http 或 https 的地址；清洗改用 `RETURN_DOM_FRAGMENT`，替换在 DOMPurify 返回的同一棵 DOM 上做，只序列化一次；
+      - `img` 的 `srcset` 与 `<picture><source>` 的 `srcset` 里有外站候选时去掉；
+      - 新单测 `tests/web-markdown.test.ts`（jsdom、真的 DOMPurify 与 marked）：外站图片换链接、套在链接里的换文字、作者写的记号属性加 `javascript:` 不生效、`srcset` 与 `picture`、`data:` 与 `.agents/works/` 图片照旧；
+      - 为此 dev-panel 加了两个开发依赖：`jsdom`（与根上同一个 `^29.1.1`）和 `@types/jsdom`（`^30`，没有 29 的版本）。`bun.lock` 有变化，合入后要 `bun install`。
+    - `442479c83`（第 2、3、4、6、8 条）：
+      - checkout 页不用 nb-ui `Table` 的 `row-click`（拿不到事件），改在表格外层判断：点在 `a`、`button`、`[role=button]` 上，带修饰键或不是左键，或松手时有选中的文字，都不跳；
+      - `?focus=` 每个 key 只滚一次，之后的重取不再拉回；
+      - 文档页下拉切 checkout 改走 `go({checkout})`，保留 `prefer`、`path`（和 `view`），与“别的分支也改了它”一致；
+      - `DiffView` 加 `fill`：不限高、按行折行，由页面滚；文档页的差异用它，`DiffView.md` 与 `docs/panel.md` 同步。
+    - `460ef97c3`（第 9、10 条）：
+      - `core/checkouts.ts` 导出 `checkoutNamedForTask`，Task 执行 checkout 的第 2 条规则与 checkout 页的 `tasksOf` 都用它；
+      - 限时用例改成一慢一快两个 checkout 同时算：慢的用 PATH 里的 git 替身，`exec sleep`；断言慢的 `timedOut`、快的有数、整次不到 3 秒；
+      - `runGit` 的 `timeoutMs` 注释写明 git 派生的子进程占着管道时限时不生效（fsmonitor、子模块），本仓库没有这两样，不按进程组结束。
+  - 不改第 5 条（树上标“改动”、差异却是空的两种情形：分支改过又在工作区改回、未跟踪文件与 master 后来加的同名）：两种都少见，收益小。
+  - 门禁（在 `460ef97c3` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 421 过、0 失败；`git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过（`accept/phase4/batch4/review-fixes/gate-*.log`）。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch4/review-fixes/review.ts`，14 条全过（`review-fixes/final/`），控制台没有错误与警告：
+    - 第 1、7 条：克隆的 worktree `b4-service` 里放了一份未跟踪的 `docs/specs/ui/b4-images.md`。打开后没有 `javascript:` 链接、没有记号属性，外站 `srcset` 与 `<source>` 都去掉，`data:` 图片照旧，`picture` 里的 logo 与普通徽章换成链接；
+    - 第 2、8 条：
+      - 点分支、HEAD 复制不跳；
+      - Ctrl 加点、Shift 加点行里的非链接处都不跳，也不开新标签页；
+      - 拖选“领先 · 落后”那一格的文字松手不跳；
+      - 普通点击照常去文档；
+    - 第 3 条：390 宽、带 `?focus=` 与文件清单，把页面滚到底、表格横向滚开，等过一轮 10 秒重取，位置没变；
+    - 第 4 条：从 `prefer=w00022-dev-panel` 的主工作区文档下拉切到 `w00022-dev-panel`，`prefer` 与 `path` 都在，正文是那个 checkout 上的版本；
+    - 第 6 条：删去的长文档的差异在 1440 与 390 下都不限高、不在框里滚、按行折行（截图 `rf-diff-*.png`）。
+    - 回归：第 4 批的 `accept.ts` 23 条全过（`review-fixes/rerun-batch4/`）。因为复制按钮现在点了不跳，脚本里点行的位置从 HEAD 格换成“相对 master”格。
+  - 验收环境：克隆的 `b4-service` 多了一份未跟踪的 `b4-images.md`；开发服务验完已经 `dev stop --force`（是验收自己起的），4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `5702de26a`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步；集成分支自己多了上面两个开发依赖。
