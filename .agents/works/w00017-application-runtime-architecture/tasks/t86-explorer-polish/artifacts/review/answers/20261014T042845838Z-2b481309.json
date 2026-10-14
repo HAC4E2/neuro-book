@@ -1,0 +1,28 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t86-explorer-polish",
+    "artifactId": "review",
+    "answerId": "20261014T042845838Z-2b481309",
+    "artifactVersion": 3,
+    "contentHash": "7fc3ecfe6c8f934b23b1e72c04161a0a2933eaff7d6fd4029aef02574008b759",
+    "submittedAt": "2026-10-14T04:28:45.838Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "r3-palette-light": "latte",
+        "r3-palette-dark": "macchiato",
+        "r3-marks": "yes",
+        "r3-search-split": "split",
+        "r3-filter-match": [
+            "name",
+            "title",
+            "pinyin",
+            "whole"
+        ],
+        "r3-search-scenes": "先不做；搜索适合单独开一个搜索服务插件"
+    },
+    "comments": {},
+    "note": "开发者在会话里口头答复（面板的多选题无法作答，开发者已记录该 bug）：全部同意推荐；搜索先不做，适合单独开一个搜索服务插件。"
+}
