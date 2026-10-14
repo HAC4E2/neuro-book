@@ -146,11 +146,11 @@ stdout 只有一个对象，诊断走 stderr：
   - `sessions[]`：有有效租约或有运行的会话，`{key, agent, sessionId, label, parentSessionId, nestedSessionId, alive, managed, herdr: {paneId, status}, leases, runs}`；`alive` 是会话进程是否还在（不知道时为 `null`），`managed` 表示 herdr 现在的列表里有它（能通知）；
   - 运行 `{pid, startedAt, command, cwd, checkout, owner, ownerVia, paneId, unit, sessionHint, sessionAlive, descendants}`；`unownedRuns` 是普通 shell pane 里起的进程、systemd 服务单元（`systemd-run`）里的进程，以及会话已不在、但带着它的工具标记的进程（`sessionHint` 为标记里的会话键，`sessionAlive` 为 `false`）。归属规则见 [herdr 适配](herdr.md#运行的归属)。
 - `status` 的 `data` 另有：
-  - `inbox[]`：只放要开发者动手的事，`{kind: "question", workId, taskId, artifactId, artifactTitle, questionId, label, type, version, since, askedBy}`（`open` 的必答题；`artifactTitle` 是产物最新一版的标题，可能为 `null`；`askedBy` 是运行时的会话键，读不到为 `null`）与 `{kind: "number_conflict", label, live}`；带 `--work` 时只列范围内的；
+  - `inbox[]`：只放要开发者动手的事，`{kind: "question", workId, taskId, artifactId, artifactTitle, questionId, label, type, version, since, askedBy}`（待答的必答题（`open`、必答、不是之前几版的题；口径见 [文件格式](file-formats.md#状态现算)）；`artifactTitle` 是产物最新一版的标题，可能为 `null`；`askedBy` 是运行时的会话键，读不到为 `null`）与 `{kind: "number_conflict", label, live}`；带 `--work` 时只列范围内的；
   - Task 的 `artifacts[]`：`{artifactId, kind, title, version, state, publishedAt, openRequired, adoption}`，没有发布记录的 `state` 为 `unpublished`；Task 与 Work 的 `documents[]`：`{path, title}`；Work 的 `artifacts[]`（Work 级产物，只索引）；
   - Task 的 `updated`：frontmatter 的 `updated`、产物目录与 Task 目录第一层文档（README 之外的 `.md`）最后一次提交的日期中最晚的那个；frontmatter 的值不合规（`origin: invalid`）时原样给出。
 - `artifact publish` 的 `data`：`workId`、`taskId`、`artifactId`、`unchanged`、`version`、`path`、`questions`（新版本的全部题）、`dropped`（被这一版取代的题）、`retiredInPage`、`restored`、`committedFiles`、`previous`（`{version, publishedAt, publishedBy}`，`publishedBy` 读 provenance）、`lease`、`commit`。`artifact close`、`ask`、`ask withdraw`、`ask supersede` 的 `data`：`workId`、`taskId`、`artifactId`、`unchanged`、`version`、`path`、`questions`、`affected`、`lease`、`commit`。
-- `answers` 的 `data`：`artifacts[]` 与 `cursor`（范围内最大的答复 id）。每个产物：`workId`、`taskId`、`artifactId`、`kind`、`title`、`version`、`state`、`publishedAt`、`openRequired`、`adoption`（`none`、`waiting`、`adopted`）、`questions[]`（`{question, state, answer, stale}`，`answer` 带 `answerId`、`value`、`artifactVersion`、`submittedAt`、`comment`；`stale` 是按最新一版不合法、作废了的最新答复，字段同 `answer` 外加 `reason`（文案）与 `code`（`stale_value`：按它针对的那一版合法、选项后来改了；`invalid_value`：按那一版也不合法），没有时为 `null`，按 `code` 分支）、`answers[]`、`acks[]`、`unacked[]`、`cursor`。`--pending` 只留有 `open` 必答题的产物、题也只留这些；`--unacked` 只留有未确认答复的产物；`--since` 只留有更新答复的产物、答复也只留这些。指定了 Task 时续期调用者的租约。
+- `answers` 的 `data`：`artifacts[]` 与 `cursor`（范围内最大的答复 id）。每个产物：`workId`、`taskId`、`artifactId`、`kind`、`title`、`version`、`state`、`publishedAt`、`openRequired`、`adoption`（`none`、`waiting`、`adopted`）、`questions[]`（`{question, state, answer, stale}`，`answer` 带 `answerId`、`value`、`artifactVersion`、`submittedAt`、`comment`；`stale` 是按最新一版不合法、作废了的最新答复，字段同 `answer` 外加 `reason`（文案）与 `code`（`stale_value`：按它针对的那一版合法、选项后来改了；`invalid_value`：按那一版也不合法），没有时为 `null`，按 `code` 分支）、`answers[]`、`acks[]`、`unacked[]`、`cursor`。`--pending` 只留有待答的必答题（`open`、必答、不是之前几版的题；口径见 [文件格式](file-formats.md#状态现算)）的产物、题也只留这些；`--unacked` 只留有未确认答复的产物；`--since` 只留有更新答复的产物、答复也只留这些。指定了 Task 时续期调用者的租约。
 - `answers ack` 的 `data`：`acked`、`ack`、`path`、`newer`（比 `--through` 新、没有确认的答复 id）、`lease`、`commit`；`answers record` 的 `data`：`answer`、`path`、`lease`、`commit`。
 - **提交失败后的补救**：写入的文件已经在主工作区，`data.commit.writtenPaths` 列出它们。`versions/`、`answers/` 只由 nbdev 写，那里还没进 HEAD 的文件（未跟踪或已暂存未提交）只可能是提交失败的残留，所以之后每次写同一个产物（发布、关闭、登记、撤回、取代、代录、确认）都把它们顺带提交，给 `residual_records_committed`。发布、关闭与确认重跑同一条命令即可：内容没变、已经关闭、或答复都已确认时不写新记录，只补交残留（发布连同有变化的页面文件，确认连同 `--include` 的文件）。`ask`、`ask withdraw`、`ask supersede`、`answers record` 不要重跑（会报题号重复、已撤回、已取代，或再写一份），等下一次写这个产物时补交，或手动提交这些路径（`git commit -- <路径>`）。
 - `registry import` 的 `data`：`added`、`nextWorkNumber`、`nextTaskNumbers`（按 Work id）、`conflicts`、`registryOnly`。
@@ -216,7 +216,7 @@ stdout 只有一个对象，诊断走 stderr：
 | `newer_answers_unacked` | 有比 `--through` 新的未确认答复，这次没有确认它们；先读再确认 |
 | `ack_without_through` | 没给 `--through`，确认了锁内看到的全部未确认答复，其中可能有会话没读过的 |
 | `about_not_found` | `--about` 的文件在主工作区与当前 checkout 里都找不到 |
-| `open_questions` | Task 改成 `done` 或 `shelved` 时还有 `open` 的必答题（不自动撤回） |
+| `open_questions` | Task 改成 `done` 或 `shelved` 时还有待答的必答题（`open`、必答、不是之前几版的题；口径见 [文件格式](file-formats.md#状态现算)）（不自动撤回） |
 | `provenance_write_failed` | 记 provenance 失败，只影响“谁问的”这条线索 |
 | `unreadable_artifact_record` | 某个发布记录、答复或确认读不出，已跳过 |
 | `unreadable_provenance` | 某个 provenance 文件读不出，按没有处理 |
