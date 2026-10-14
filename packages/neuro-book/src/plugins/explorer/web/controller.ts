@@ -26,6 +26,7 @@ import {createTreeModel} from "./tree/model";
 import type {RootState, TreeModel} from "./tree/model";
 import {creatingId, projectRows} from "./tree/rows";
 import type {Creating, EntryRow, Row} from "./tree/rows";
+import type {MotionNote} from "./tree/motion";
 import {click, contextSelect, EMPTY_SELECTION, followPaths, prune} from "./tree/selection";
 import type {Modifiers, Selection} from "./tree/selection";
 
@@ -176,6 +177,8 @@ export interface ExplorerController {
     readonly clipboard: Readonly<ShallowRef<Clipboard | null>>;
     readonly unknown: Readonly<ShallowRef<Unknown | null>>;
     readonly drag: Readonly<ShallowRef<DragState | null>>;
+    /** 最近一次提交的结构变化预告（树据此放动画）；没有过为 null。 */
+    readonly motion: Readonly<ShallowRef<MotionNote | null>>;
     readonly available: ComputedRef<Availability>;
     /** 树要重新拿到焦点（编辑或确认结束）：视图看到它变化就把焦点放回树上。 */
     readonly focusRequest: Readonly<ShallowRef<number>>;
@@ -271,6 +274,12 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     const clipboard = shallowRef<Clipboard | null>(null);
     const unknown = shallowRef<Unknown | null>(null);
     const drag = shallowRef<DragState | null>(null);
+    const motion = shallowRef<MotionNote | null>(null);
+    let motionSeq = 0;
+    /** 提交之前发出预告：结果到达后的刷新才认得出来。 */
+    const noteMotion = (part: Partial<Omit<MotionNote, "id">>): void => {
+        motion.value = {id: ++motionSeq, moves: [], arrivals: [], departures: [], ...part};
+    };
     /** 粘贴或拖动移入在预判同名（列出目标、问用户）：这期间不能再起一个批量。 */
     const preparing = shallowRef(false);
     let clipSeq = 0;
@@ -635,6 +644,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 if (disposed || !live(target)) return;
             }
             const batch = ordered.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: translated(item.source.address, item.source.token), ...(placing ? {before: before ?? null} : {})}));
+            noteMotion(action === "move" ? {moves: items.map((item) => ({from: item.address, to: item.target}))} : {arrivals: items.map((item) => item.target)});
             const value = await runBatch(action, items, action === "copy" ? files.copy(batch) : files.move(batch), declined, clip?.id ?? null);
             if (lease !== null) {
                 if (value === null && unknown.value !== null) {
@@ -730,6 +740,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         clipboard,
         unknown,
         drag,
+        motion,
         available,
         focusRequest,
         reveal: (address) => {
@@ -906,6 +917,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         move: async (direction) => {
             const plan = available.value[direction === "up" ? "moveUp" : "moveDown"] ? reorderOf(direction) : null;
             if (plan === null) return unavailable("not-applicable");
+            noteMotion({moves: selectedEntries.value.map((row) => ({from: row.address, to: row.address}))});
             settle("reorder", plan.parent, await files.reorder(plan.parent, plan.names));
             return OK;
         },
@@ -984,7 +996,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             dropping = null;
             if (action.kind === "move") await transfer("move", frozen, action.target, null);
             else if (action.kind === "place") await transfer("move", frozen, action.target, null, action.before);
-            else if (action.kind === "reorder") settle("reorder", action.parent, await files.reorder(action.parent, action.names));
+            else if (action.kind === "reorder") {
+                noteMotion({moves: current.sources.map((source) => ({from: source, to: source}))});
+                settle("reorder", action.parent, await files.reorder(action.parent, action.names));
+            }
         },
         cancelDrag,
 
@@ -1029,6 +1044,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 }
             }
             const renamedTo = current.mode === "rename" ? childAddress(parentAddress(current.address) as string, name) : null;
+            if (current.mode === "create") noteMotion({arrivals: [childAddress(current.creating.parent, name)]});
             let result: FilesResult<OperationDone>;
             try {
                 result = current.mode === "create"
@@ -1068,6 +1084,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             dialog.value = null;
             refocus();
             if (focusAfter !== null) selection.value = {selected: [focusAfter], focus: focusAfter, anchor: focusAfter};
+            noteMotion({departures: current.items.map((item) => item.address)});
             const handle = files.delete(current.items.map((item) => ({address: item.address, expected: item.token})));
             const value = await runBatch("delete", current.items.map((item) => ({address: item.address, target: null})), handle, [], null);
             // 用户在确认框里看到了“未保存的修改会丢失”：删除成功的项连同打开的文档一起关闭（输出 25）。

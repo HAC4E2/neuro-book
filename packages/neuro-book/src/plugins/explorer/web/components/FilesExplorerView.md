@@ -51,6 +51,8 @@ type Props = {
     /** 设置的缩进参考线档位与“隐藏 Markdown 扩展名”，原样交给树；默认 `hover` 与 false。 */
     indentGuides?: "none" | "hover" | "always";
     hideMarkdownExtension?: boolean;
+    /** 宿主最近一次提交的结构变化预告（`../tree/motion.ts`），树据此放动画；默认 null。 */
+    motion?: MotionNote | null;
 };
 
 type Emits = {

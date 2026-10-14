@@ -14,6 +14,7 @@ import type {MenuEntry} from "../menu";
 import {explorerText} from "../messages";
 import type {FieldProblem} from "nbook/shared/store/problem";
 import type {TreeKey} from "../tree/keys";
+import type {MotionNote} from "../tree/motion";
 import type {Row} from "../tree/rows";
 import type {Modifiers} from "../tree/selection";
 import ExplorerFeedback from "./ExplorerFeedback.vue";
@@ -39,6 +40,8 @@ const props = defineProps<{
     unknown?: Unknown | null;
     startDrag?: (id: string) => boolean;
     drag?: {readonly sources: ReadonlyArray<string>; readonly action: DropAction} | null;
+    /** 最近一次提交的结构变化预告，交给树放动画。 */
+    motion?: MotionNote | null;
     /** 每次变化都把焦点放回树上（编辑与确认结束后）。 */
     focusRequest?: number;
     /** 设置的缩进参考线档位；默认 `hover`。 */
@@ -174,6 +177,7 @@ defineExpose({focusTree});
             :editing="editing ?? null"
             :start-drag="startDrag"
             :drag="drag ?? null"
+            :motion="motion ?? null"
             @row-press="(id, modifiers, part) => emit('row-press', id, modifiers, part)"
             @row-activate="(id) => emit('row-activate', id)"
             @row-context="(id, x, y) => emit('row-context', id, x, y)"

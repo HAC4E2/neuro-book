@@ -140,6 +140,7 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     running: controller?.running.value ?? null,
                     unknown: controller?.unknown.value ?? null,
                     drag: controller?.drag.value ?? null,
+                    motion: controller?.motion.value ?? null,
                     startDrag: (id: string): boolean => controller?.startDrag(id) ?? false,
                     focusRequest: controller?.focusRequest.value ?? 0,
                     handleKey: (key: TreeKey, page: number): KeyOutcome => controller?.key(key, page) ?? "none",
