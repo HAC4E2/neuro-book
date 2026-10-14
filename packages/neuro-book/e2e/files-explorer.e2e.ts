@@ -575,6 +575,15 @@ test("行的样子与设置（验收 21、23）：中文数字排序、内容文
     const names = await page.locator("[data-explorer-row^=\"project://卷/\"]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-explorer-row")));
     expect(names).toEqual(["project://卷/第一卷", "project://卷/第二卷", "project://卷/第三章.md", "project://卷/第十二章.md"]);
     await expect(item(page, "project://卷/第三章.md").locator("[data-file-icon]")).toHaveAttribute("data-icon", "markdown");
+    // 选中块左右离树的内容区一样远，右端不压进滚动条的槽位被裁掉。
+    const insets = await item(page, "project://卷").evaluate((row) => {
+        const scroller = row.closest("[data-explorer-tree]")!;
+        const box = row.getBoundingClientRect();
+        const left = scroller.getBoundingClientRect().left;
+        return {left: box.left - left, right: left + scroller.clientWidth - box.right};
+    });
+    expect(insets.left).toBeGreaterThan(0);
+    expect(Math.abs(insets.right - insets.left)).toBeLessThanOrEqual(1);
 
     await item(page, "project://lore.content").click();
     await expect(item(page, "project://lore.content").locator("[data-explorer-label]")).toHaveText("lore");

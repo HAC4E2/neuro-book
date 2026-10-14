@@ -655,9 +655,11 @@ defineExpose({focus: focusTree});
 </template>
 
 <style scoped>
+/* 宽度由左右两边定：行组件根上的 `w-full` 会让右边越出 6px，压进滚动条的槽位被裁掉。 */
 .explorer-tree__row {
     left: var(--view-inset-inline, 6px);
     right: var(--view-inset-inline, 6px);
+    width: auto;
 }
 
 .explorer-tree[data-explorer-dragging] {
