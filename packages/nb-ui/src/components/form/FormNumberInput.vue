@@ -41,7 +41,7 @@ const emit = defineEmits<{
 }>();
 
 const field = useFormFieldContext();
-const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[var(--text-xs)]" : "nb-ui-control-h-md nb-ui-control-px text-[var(--text-sm)]");
+const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]" : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
 const stepAmount = computed(() => {
     const parsed = Number.parseFloat(props.step || "1");
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;

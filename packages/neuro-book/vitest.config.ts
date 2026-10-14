@@ -1,85 +1,28 @@
-import {fileURLToPath} from "node:url";
-import {configDefaults, defineConfig} from "vitest/config";
-import vue from "@vitejs/plugin-vue";
-
-const rootDir = fileURLToPath(new URL("./", import.meta.url));
-
 /**
- * 当前测试以 Node 环境为默认值，前端纯逻辑测试不引入 Nuxt 浏览器运行时。
- * 真实 Vue SFC 由现有 Vue 插件转换；需要 DOM 的组件测试按文件显式声明 jsdom。
+ * Vue 组件测试（`*.dom.test.ts`）：沿用前端的 Vite 配置（别名、Vue 插件），在 happy-dom 里挂载组件。
+ * 其余测试由 `bun test` 运行，包内 `bunfig.toml` 排除了这些文件：Bun 不能加载 `.vue`，也没有 `import.meta.glob`。
+ * 需要真实布局的交互（尺寸、拖放、滚动）不在这里测，走 Playwright（`e2e/`）。
  */
-export default defineConfig({
-    plugins: [vue()],
-    root: rootDir,
-    resolve: {
-        alias: {
-            nbook: rootDir,
-            "#scripts": fileURLToPath(new URL("../../scripts/", import.meta.url)),
-        },
-    },
+
+import {fileURLToPath} from "node:url";
+
+import {defineConfig, mergeConfig} from "vitest/config";
+
+import viteConfig from "./vite.config";
+
+const packageRoot = fileURLToPath(new URL(".", import.meta.url));
+const testSupport = "@notnotype/neuro-book-test-support/vitest";
+
+export default mergeConfig(viteConfig, defineConfig({
+    root: packageRoot,
     test: {
-        environment: "node",
-        globals: true,
-        // Product bundle 与隔离 workspace fixture 会显著抬高单 worker 内存；
-        // Windows 实测 4 workers 会触发进程池异常退出，2 workers 能保持完整门禁稳定。
-        maxWorkers: 2,
-        // 默认 10s 不够：beforeEach 里开 Project 会加载 14 个 profile artifact，
-        // 而单个 artifact 目前有 27.3 MiB（宿主实现被打进 bundle，见 Task 125 Phase 3）。
-        // 这是承认当前 artifact 体积的真实成本，不是掩盖挂起——真正的修复是把 artifact 压小。
-        hookTimeout: 60_000,
-        // run 级：先由 Agent fixture 设置 runId，再注册受控临时根清理；teardown 逆序执行。
-        globalSetup: [
-            "server/agent/test/global-setup.ts",
-            "@notnotype/neuro-book-test-support/vitest",
-        ],
-        setupFiles: [
-            "@notnotype/neuro-book-test-support/vitest",
-            "server/agent/test/setup.ts",
-        ],
-        include: [
-            "app/composables/**/*.test.ts",
-            "app/component-lab/**/*.test.ts",
-            "app/features/files/**/*.test.ts",
-            "app/runtime/product-browser-runtime.test.ts",
-            "app/components/agent/**/*.test.ts",
-            "app/components/novel-ide/**/*.test.ts",
-            "app/components/common/**/*.test.ts",
-            "app/components/workbench/**/*.test.ts",
-            "app/components/workbench-spike/**/*.test.ts",
-            "app/components/markdown-studio/**/*.test.ts",
-            "app/components/editor-workbench/**/*.test.ts",
-            "app/components/profile-template-editor/**/*.test.ts",
-            "app/utils/theme/**/*.test.ts",
-            "app/utils/storage/**/*.test.ts",
-            "app/utils/workbench/**/*.test.ts",
-            "app/utils/editor-workbench/**/*.test.ts",
-            "app/stores/**/*.test.ts",
-            "app/utils/novel-ide-settings-responsive.contract.test.ts",
-            "app/utils/novel-ide-settings-current-project.contract.test.ts",
-            "app/utils/project-picker-recovery.contract.test.ts",
-            "app/utils/project-route-progress.test.ts",
-            "app/utils/project-route-transition.contract.test.ts",
-            "app/utils/world-engine-ide-entry.test.ts",
-            "app/utils/world-engine-workbench-preview.test.ts",
-            "app/utils/workbench-chrome.test.ts",
-            "server/**/*.test.ts",
-            "server/**/*.test.tsx",
-            "shared/**/*.test.ts",
-            "scripts/**/*.test.ts",
-            "scripts/**/*.test.tsx",
-        ],
-        exclude: [
-            // 真实模型 smoke 需要真实凭据与外部服务，只在 `bun run test:real-model` 中运行。
-            ...configDefaults.exclude,
-            "scripts/smoke/real-model/**",
-        ],
-        coverage: {
-            provider: "v8",
-            reporter: ["text", "html"],
-            include: [
-                "server/agent/**/*.ts",
-                "shared/dto/agent-chat.dto.ts",
-            ],
-        },
+        environment: "happy-dom",
+        // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时只打印实验警告；关掉它，页面里的 localStorage
+        // 由 happy-dom 提供。
+        execArgv: ["--no-experimental-webstorage"],
+        // 示例插件的界面组件同样在这里测（`examples/README.md` 的“运行”）。
+        include: ["src/**/*.dom.test.ts", "examples/**/*.dom.test.ts"],
+        setupFiles: [testSupport],
+        globalSetup: [testSupport],
     },
-});
+}));

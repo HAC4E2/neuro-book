@@ -4,11 +4,11 @@
 
 # Notification
 
-`Notification` 是一条内联状态通知，使用 `info`、`success`、`warning` 或 `error` 色调呈现图标与内容；它只展示信息并上报用户动作，不负责入队、自动消失或自身关闭。
+`Notification` 是一条内联状态通知，使用 `info`、`success`、`warning` 或 `error` 色调呈现图标与内容；它只展示信息并上报用户动作，不负责入队、自动消失或自身关闭。可以带一条进度条，给长任务用。
 
 ## 布局与状态
 
-通知从左到右显示色调图标、可伸缩的标题/正文、可选动作按钮和可选关闭按钮。标题仅在标题文字非空或提供 `title` 插槽时出现；正文容器始终存在，默认文字来自 `message`。动作按钮在 `actionLabel` 非空或提供 `action` 插槽时出现。`dismissible=true` 才显示关闭按钮。
+通知从左到右显示色调图标、可伸缩的标题/正文、可选动作按钮和可选关闭按钮。标题仅在标题文字非空或提供 `title` 插槽时出现；正文容器始终存在，默认文字来自 `message`。给了 `progress` 时正文下多一条进度条：数值画确定进度（`Progress`，`sm` 档，色调随通知），`null` 画一条自己来回滑动的短条表示不确定进度（系统设了减少动画时停住）。动作按钮在 `actionLabel` 非空或提供 `action` 插槽时出现。`dismissible=true` 才显示关闭按钮。
 
 根节点为 `role="status"`。色调同时决定图标与状态颜色；通知没有禁用、加载或错误覆盖态，`error` 是通知色调而非组件错误状态。窄空间下正文列可收缩，按钮保持自身宽度。
 
@@ -30,6 +30,8 @@ interface NotificationProps {
     actionLabel?: string;
     /** 关闭按钮的可访问名称及 title；可选，默认 "关闭通知" */
     closeLabel?: string;
+    /** 进度（0 到 100）；null 为不确定进度；不给就没有进度条 */
+    progress?: number | null;
 }
 
 interface NotificationEmits {

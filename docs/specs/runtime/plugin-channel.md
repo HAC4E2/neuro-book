@@ -8,113 +8,226 @@ owners:
   - nbook.http
 ---
 
-# 插件通道与 HTTP 入口
+# 远程服务与 RPC 协议
+
+2026-10-07 按 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（`accepted`）与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md) 原地改写：原“插件通道”（浏览器入口只能经本插件通道调用本插件服务端）由内核路由的远程服务取代，文件路径与 capability 保持不变。HTTP 路由贡献的合同暂留在本文末节，随 `nbook.http` 相关 Spec 移出。
 
 ## 目标与非目标
 
-插件的浏览器入口经插件通道访问本插件的服务端入口：调用与带参数的订阅，统一鉴权、取消、断线重连、错误格式与请求日志。宿主只统一通道本身，请求什么、缓存什么由插件决定。另外提供两层 HTTP 入口：由合同生成的端点（默认）与向 `nbook.http` 贡献的路由（用于迁移现有路由、webhook、OAuth 回调与外部协议）。
+插件之间跨运行实例的通信只有一种方式：远程服务。任意两个内核实例之间（服务端、项目、浏览器、TUI；客户端之间经服务端转发）都能调用与订阅对方声明的远程服务。内核负责路由、调用方标记、按需激活、超时、取消与失败结算；所有跨实例的边使用同一套对称协议，传输可替换。
 
 明确不承诺：
 
-- 不提供流原语（上行流、双向流）的传输。合同模块可以声明流，传输在第一个需要上行的功能（例如语音输入）落地时由另一份能力 Spec 定义，届时调用与订阅不迁移。
-- 不提供服务端向浏览器发请求并等待回复（waterfall）。服务端需要用户回答时，把待处理事项持久化并推送事件，用户经普通调用回答。
-- 不让一个插件的浏览器入口直接调用另一个插件的通道；跨插件时先经自己的通道到自己的服务端入口，再调用对方在服务端的服务，或调用对方在浏览器端的服务。
-- 不定义事件流与引导接口的传输细节；它们是宿主内部协议，插件作者不可见，不承诺稳定。
+- 不提供流原语（上行流、双向流）；合同可以以后增加流，届时调用与订阅不迁移。
+- 不经远程服务传二进制；二进制经有时效的 HTTP 资源地址传递（[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 7 节做法 B）。
+- 不把等待用户回答的长交互挂在一次调用上；这类事项由插件持久化为待办，用户经普通调用回答。
+- 不自动重放结果未知的写请求。
+- 登录与鉴权随登录插件接入；未加载鉴权时 RPC 端口与 HTTP 端口同等信任本机进程。
+- 不做发送背压与应用层心跳：服务端靠 WebSocket 的 ping 发现失联客户端，客户端靠关闭事件发现断线。
 
 ## 术语与参与者
 
-- **合同模块**：插件的一份 zod 合同，列出方法：调用 `call`、订阅 `subscription`（以及暂不传输的流 `stream`）。每个方法的参数是一个输入对象，结果与事件各有 schema。
-- **通道入口**：清单中声明 `"channel": true` 的服务端入口，用 `ctx.channel.handle`、`ctx.channel.subscribe` 交出实现；首次调用按 `onChannel` 激活它。
-- **合同端点**：`POST /api/plugins/<插件 id>/rpc/<方法名>`，由合同生成。
-- **事件流**：每个窗口一条多路复用的服务端推送连接，承载订阅事件与插件集合变化。
-- **连接作用域**：服务端为每个窗口的事件流建立的作用域；订阅同时登记在插件入口的作用域与连接作用域上，任一关闭即结束。
-- **路由贡献 `http.routes`**：清单中声明方法、路径与鉴权方式，激活时交出处理函数的路由。
+- **实例种类**：`server`、`project`、`browser`、`tui`（运行位置，见 [`runtime.plugin-manifest`](plugin-manifest.md)）。
+- **拓扑角色**：实例在路由拓扑里的位置：`hub`（服务端实例）、`project`（项目实例）、`client`（浏览器、TUI 这类客户端实例）。
+- **远程服务合同**：插件共享模块里用 TypeBox 声明的合同：合同 id（以插件 id 加 `/` 开头）、整数版本、提供方位置、允许调用的实例种类、方法（输入、输出、读或写、业务失败码）、事件（订阅过滤参数、事件内容）。合同同时被提供方与调用方引用。
+- **提供方位置**（合同的 `provider`）：哪种角色的实例提供这份合同：`server`（服务端实例）、`project`（项目实例）、`client`（客户端实例）、`any`（每个实例各有一份，例如命令系统的跨实例执行）。
+- **远程提供项**：提供入口激活时以 `provideRemote(合同, (调用方) => 门面)` 交出的实现；本地调用与跨实例调用共用这一个工厂，门面规则同 [`runtime.services`](services.md) 的按调用方门面。
+- **调用方身份**：运行实例、运行位置、插件、入口、入口激活代次与客户端身份，委托时另附代理身份；只由内核填写。
+- **目标**：`project`（本客户端绑定的项目代次）、`server`、`{project}`（指定项目当前运行的代次；能否到达由宿主的项目管理决定，路由按帧上的调用方身份经宿主给的访问回调询问，未提供时一律 `denied`；访问本身不打开项目，规则见 [`runtime.projects`](projects.md)）、`{client}`（指定客户端实例）。
+- **绑定**：客户端实例一生绑定的项目代次，或不绑定；在握手时由服务端宿主决定（见下文“WebSocket 传输与握手”第 3 条），之后不变。
+- **节点**：每个内核实例里负责远程服务的部分：登记本地提供项、发出与接收请求。
+- **路由**：服务端实例里的节点额外维护实例登记表（种类、绑定的项目代次、连接代次）并转发请求；客户端只连服务端。
+- **链路**：两个节点之间的传输，接口为 `{send(帧), onFrame(监听), onClose(监听), close()}`；帧无法编码（含不能序列化的值）时 `send` 同步抛错，链路已关闭时 `send` 丢弃帧；客户端与服务端之间是 WebSocket（见下文“WebSocket 传输与握手”），服务端与项目子进程之间是进程间通信（见下文“进程间链路”），测试与组合验证使用进程内链路。
+- **连接代次**：一条链路建立时分配；链路断开即结算该链路上的全部在途请求与订阅。
+- **内核 RPC 端口**：服务端宿主为远程服务单独监听的 WebSocket 端口，与 HTTP 端口分离（[`runtime.server-host`](server-host.md)）；浏览器经引导接口得知端口（[`runtime.browser-host`](browser-host.md)）。
+- **客户端身份**：客户端实例跨重新加载稳定的标识（浏览器存在本地存储里），与每次启动都不同的实例 id 区分；服务端与项目实例没有。调用方身份带它，Storage 的 `local` 记录按它分开（[`storage.persistence`](../storage/persistence.md)）。
+- **服务端进程标识（`boot`）**：服务端每次进程启动时生成，经握手告诉客户端；客户端据此区分“同一服务端进程的重连”与“服务端已重启”。
+- **激活链**：请求触发了哪些入口的按需激活，由路由帧携带，用于发现等待环。
+- **内核保留的合同 id**：以 `runtime/` 开头的合同 id 留给内核自带的查询（实例查询 `runtime/instances`、提供方查询 `runtime/catalog`），插件的合同不能用，定义时即被拒。
 
 ## 输入与前置条件
 
-- 每次调用与订阅都经过现有认证中间件；未登录时返回 401。
-- 调用的输入是一个 JSON 对象；两端都按合同 schema 严格校验，多余字段被拒绝。
-- 浏览器宿主发出的调用与订阅携带插件版本；外部调用方（例如 API 文档页面、脚本）可以不带版本。
-- 涉及 Project 的方法在参数中显式携带 Project 身份与代次；服务端重新校验，不依赖“当前 Project”。
-- 路由贡献的清单字段：方法、路径、鉴权方式（`session`：需要登录，默认；`none`：公开，由处理函数自行校验调用方，例如 webhook 签名）、可选的输入与输出 schema。第三方插件的路径必须位于 `/api/plugins/<插件 id>/raw/` 之下；内置插件可以保留现有路径。
+- 输入与输出按合同 schema 严格校验，多余字段被拒绝；校验在提供方执行一次（输入）、调用方执行一次（输出）。
+- 帧上的调用方身份（含委托身份）与激活链只由内核填写，放在以 `$nb` 开头的帧字段里，与业务参数分开传递；业务参数（调用的输入、订阅的过滤参数）出现 `$nb` 开头的键，请求在未派发阶段以 `invalid-input` 拒绝。
+- 握手时双方核对 wire 协议版本；不兼容时在处理任何业务帧、激活任何入口之前拒绝该链路（握手帧见下文“WebSocket 传输与握手”）。
+- 合同版本：请求携带调用方编译时依赖的合同版本，提供方以自己提供的合同版本核对；第一版按整数精确匹配，兼容范围以后再加。
+- 客户端实例一生只绑定一个项目代次或不绑定；`project` 目标按调用方绑定解析，不读取“当前项目”；没有绑定的调用方用 `project` 目标为 `target-gone`。
+- 调用方身份里不带项目代次：发往 `project` 目标的请求由路由按调用方的绑定送到那一个代次，绑定的代次结束后在未派发阶段为 `target-gone`，不改投新代次。[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节的消费上下文因此不带项目代次。
 
 ## 输出与可观察行为
 
-1. **调用。** 浏览器经 `ctx.channel.call(method, input, {signal})` 发出，服务端处理函数收到已校验的输入、已鉴权的用户身份与终止信号，返回值按结果 schema 校验后返回。浏览器中止即服务端处理函数的终止信号触发，并与内核合成的信号合并（[`runtime.plugin-hot-plug`](plugin-hot-plug.md)）。
-2. **订阅。** `ctx.channel.subscribe(method, input, onEvent)` 带参数，不是广播；返回可释放句柄，登记在浏览器入口的激活作用域上。事件经本窗口的事件流送达，不重放历史。
-3. **断线重连。** 事件流断开后宿主自动重连并重新建立本窗口全部有效订阅，并通知插件“需要重新查询基线”（例如按消息 id 游标补齐）；重连期间的事件不补发。
-4. **二进制。** 调用与事件不携带二进制；二进制经有时效、需鉴权的 URL 传递。
-5. **版本校验。** 带版本的请求与服务端当前生效版本不一致时，返回 `version-changed`，不执行处理函数；浏览器宿主等待插件集合变化事件后重新加载该插件（热升级见 [`runtime.plugin-install`](plugin-install.md)）。
-6. **错误格式。** 失败返回 JSON `{code, message}`，成功返回 200 与结果对象。浏览器端 `ctx.channel` 把失败转成结构化结果（[`runtime.plugin-api`](plugin-api.md)）。
+1. **调用。** `context.remote.use(合同).at(目标).方法(输入, {signal?, timeout?})` 返回 `{ok: true, value}` 或 `{ok: false, code, cause?, detail?}`，不抛出业务失败。提供方门面方法收到已校验的输入与终止信号（调用方中止、调用方入口停止、提供方入口停止任一触发即触发）。目标写法由合同的提供方位置决定，类型上按它区分：
 
-   | 情况 | 未登录 | 已登录 |
+   | `provider` | 可用的目标 | 省略 `.at()` |
    |---|---|---|
-   | 输入不符合 schema | 401 | 400 `invalid-input` |
-   | 插件已启用，方法存在 | 401（`none` 鉴权的路由除外） | 按处理结果 |
-   | 插件已启用，方法或路由不存在 | 401 | 404 `not-found` |
-   | 版本不一致 | 401 | 409 `version-changed` |
-   | 插件已安装但已禁用、受阻，或调用在三步停止中被放弃 | 401（路由的公开鉴权随禁用撤回） | 503 `plugin-unavailable` 或 503 `interrupted` |
-   | 插件未安装或从未存在 | 401 | 404 `not-found` |
-   | 处理函数未预期异常 | — | 500 `provider-error` |
+   | `server` | `server` | 等于 `.at("server")` |
+   | `project` | `project`、`{project}` | 等于 `.at("project")`（本客户端绑定的项目）；没有绑定的调用方（例如服务端插件）写 `{project: id}` |
+   | `client` | `{client}` | 不可省略 |
+   | `any` | 全部 | 不可省略 |
 
-7. **插件集合变化与修订号。** 有效插件集合每变化一次，修订号加一。引导接口返回集合与修订号；事件流每次建立（含重连）时，服务端先发送当前修订号，窗口已知的修订号与之不同时，窗口重新取得集合并对齐。此后的集合变化经同一条事件流推送，并携带修订号。
-8. **路由贡献。** 请求按声明的方法与路径分派到处理函数。第三方插件的处理函数是 Web 标准的 `(request: Request, ctx) => Response`，不暴露 h3 类型；内置插件迁移期可以交出现有 h3 处理函数，由 `nbook.http` 适配。
-9. **两层入口的共同点。** 都随插件禁用撤回（撤回后返回 503 `plugin-unavailable`）；在途请求都经内核调用包装记账；都进入 API 文档（[`runtime.api-docs`](api-docs.md)）。
-10. **请求日志。** 每次调用记录插件 id、方法、耗时、结果码；不记录输入与输出内容。
+   运行时同样核对：目标与合同的提供方位置不符的调用在未派发阶段以 `invalid-input` 失败（说明目标与提供方位置不符），不发出请求。
+
+   只想要值的调用方可以写 `orThrow(await 调用)`：成功返回值，失败抛 `RemoteCallError`，失败结果原样放在它的 `failure` 里（`code` 是 `failure.code` 的简写）。抛出不改变失败的含义：写请求的 `unknown-outcome` 被抛出后，调用方仍不能把它当作确定失败去重试。
+2. **任意实例可达。** 客户端到服务端、到项目实例、到另一个客户端都由内核经服务端路由转发；插件不写转发代码。同一实例内的调用不经链路：同样按调用方取门面、同样核对身份与代次，只是参数与结果不序列化；宿主开启本地校验（开发模式）时本地调用也按合同校验，传不可序列化的值被拒。同一实例里的调用方也直接用合同，不另包一层只转发的本地服务（选用规则见 [`runtime.plugin-api`](plugin-api.md)）。
+
+   哪种实例能到哪种实例（同一实例内总是可达，走本地路径）：
+
+   | 调用方 | 到服务端 | 到项目实例 | 到客户端 |
+   |---|---|---|---|
+   | 服务端 | 本地路径 | `{project: id}`：这一代处于运行中时 | `{client: id}` |
+   | 项目实例 | `server` | 别的项目：`denied`（项目实例之间不能取得租约） | `{client: id}`，经服务端转发 |
+   | 客户端 | `server` | `project`：本客户端绑定的那一代；别的项目经 `{project: id}` 为 `denied`（客户端只持有绑定那一份租约） | `{client: id}`，经服务端转发 |
+
+   另有两层限制：合同的 `provider` 决定能写哪些目标（第 1 条），`callers` 决定哪些种类的实例可以调用（第 4 条“不在允许的调用方种类”）。项目访问规则的完整写法见 [`runtime.projects`](projects.md) 输出第 9 条。
+3. **调用方不可伪造。** 提供方看到的调用方身份来自路由帧；委托时为原调用方并附代理身份。路由只转发调用方实例 id 等于发来链路所登记成员的帧（否则 `denied`），并把帧上调用方身份里由实例描述决定的两项（运行位置、客户端身份）置为该成员描述的 `kind` 与 `client`，节点自报不算数。
+4. **请求阶段与失败码。**
+
+   | 阶段 | 结果 |
+   |---|---|
+   | 未派发：本端在帧交给链路之前拒绝（目标与提供方位置不符、保留字段冲突、参数无法编码、没连上服务端、发出前已取消），或路由、目标在 ACK 之前回复拒绝（路由校验不过、目标不存在或不可用、没有提供方、`{project}` 访问被拒、不在允许的调用方种类、版本不兼容） | 确定失败：`invalid-input`、`denied`、`target-gone`、`unavailable`、`not-provided`、`version-changed`、`cancelled` |
+   | 已发出：帧开始交给链路（编码途中被取消也算：编码会同步运行业务值的 getter 与 `toJSON`，帧随后仍会发出），尚未收到 ACK 或结果 | 读方法：断开为 `unavailable`、超时为 `timeout`、取消为 `cancelled`，可以重试。写方法：一律 `unknown-outcome`，不自动重试 |
+   | 已确认：目标已 ACK，尚未收到结果 | 读方法：断开为 `target-gone`、超时为 `timeout`、取消为 `cancelled`，可以重试。写方法：一律 `unknown-outcome`，不自动重试 |
+   | 提供方执行完毕 | 成功；合同声明的业务失败码；未声明的异常或输出不符合合同为 `provider-error` |
+
+   写请求的 `unknown-outcome` 附 `cause`：`target-gone`、`timeout`、`cancelled` 或 `disconnected`。ACK 只表示目标收到请求并开始执行，不证明没有副作用；没收到 ACK 也不证明没有执行，链路中断时 ACK 可能丢在路上。所以写请求从帧交给链路起被中断，结果就是未知。经服务端转发的请求两跳各自按这张表结算，服务端到目标那一跳的结果原样交回调用方。同一实例内的调用不经链路，ACK 与开始执行在同一步，中断时还没 ACK 的请求确定没有执行，按未派发结算。
+5. **按需激活与没有提供方。** 请求到达时目标实例上声明了该合同的入口未激活，内核按 `onRemote:<合同 id>` 激活它后再派发；激活失败或受阻得到 `unavailable` 并附原因。目标实例上没有已登记的插件在本运行位置的入口里声明该合同（没装、已停用或已卸载）为 `not-provided`；声明它的插件正在停止、多个入口声明同一合同为 `unavailable`。两者都是未派发阶段的确定失败：`not-provided` 表示这项功能在目标实例上不存在，`unavailable` 表示存在但此刻不能用。订阅同样。
+6. **激活期调用与等待环。** 入口激活期间发出的远程调用，超时取作者给的值与内核上限（默认 10 秒，宿主可配置）中较小的一个。入站请求触发入口 E 激活时，E 激活期间发出的调用携带“入站激活链 + E”；任何节点发现需要等待的入口仍在激活中且已在链中，立即以 `unavailable`（`cause: activation-cycle`）失败并记诊断，不挂起；链上的入口若已结束激活（例如它激活期间发出调用但没有等待结果），不必等它，调用照常进行。环只沿同一条激活链检测：两条独立触发的激活互相等待时（例如两个启动激活的入口各自调用对方），由上面的超时上限兜底，调用方得到 `timeout`。
+7. **订阅。** `use(合同).at(目标).事件.subscribe(过滤参数, 监听, {onResync?})` 返回可释放句柄，登记在订阅方的激活作用域上。提供方的 `subscribe(过滤参数, sink, {signal})` 每个订阅调用一次，过滤由提供方完成。订阅绑定两端精确的入口激活代次与所经连接代次：订阅方释放、任一入口开始停止、提供项撤回、任一实例失效或所经连接结束，都取消订阅、触发提供方的 `signal` 并丢弃迟到事件。订阅建立期间订阅方入口开始停止的，订阅以 `cancelled` 结算并随即退订，同实例订阅不再调用提供方的 `subscribe`；订阅方开始停止之后到达的事件都按迟到事件丢弃。同一订阅内按序送达；断线期间的事件不补发；连回同一服务端进程、同一项目代次时只重建仍有效的订阅，并调用 `onResync`，订阅方据此重取基线；服务端已换进程时不重建，订阅以 `server-restarted` 结束，绑定的项目代次已结束时以 `project-gone` 结束（见下文“WebSocket 传输与握手”第 4、7 条）。订阅的建立与首个事件不受第 6 条的激活期调用上限约束，没有内核截止；建立失败（含建立期间断开）的订阅不进入重建集合。把首个事件当作启动前提的订阅方自己定截止、降级与重新订阅的时机（例如 [`settings.configuration`](../settings/configuration.md) 输出 16、17）。
+8. **实例查询。** `context.remote.instances()` 列出当前在线的实例：种类、绑定的项目代次；不含连接细节。
+9. **诊断。** 每次调用记录合同 id、方法、调用方插件、目标种类、耗时与结果码；不记录输入、输出与事件内容。
+10. **经代理的远程调用**。代理入口在它交出的按调用方门面里，以收到的调用方身份调用 `context.remote.on(调用方身份).use(合同)`，发出的调用与订阅以原调用方的身份到达提供方，另附代理身份（`via` 为代理的插件、入口与激活代次）。
+    - 核对按 [`runtime.services`](services.md) 输出第 13 条的签发记录：身份是本实例装配签发给本入口门面的、签发它的门面还没释放、插件在代理允许清单内；另外合同必须在入口的 `remoteDelegates` 里。不满足时调用与订阅得到 `denied`，不发出请求。
+    - 经代理建立的远程门面与订阅挂在签发记录下：签发该身份的门面释放时（原调用方入口停止、代理入口停止），先运行代理门面自己的释放函数（期间经代理的调用仍可用），再结束这些订阅、通知提供方释放为该身份生成的门面。经代理的身份带 `via`，提供方为它生成的门面与原调用方直接调用时的门面互不相干。
+    - 只有本实例签发的身份能用：提供方收到的远程调用方身份不是签发出去的，不能再经它代理到第三个实例。
+    - 经代理的访问只代调用与订阅，不提供第 11 条的查询。
+11. **查询提供方。** `context.remote.lookup(合同, 目标?)` 回答目标实例此刻是否提供这份合同，不激活提供方、不生成门面、不建立订阅。目标写法与调用相同，`server`、`project` 合同可以省略目标（第 1 条的表）。成功时 `value` 为：
+    - `{status: "provided", state}`：有入口声明这份合同、版本一致、调用方种类在 `callers` 内。`state` 是提供入口此刻的状态：`registered`（还没激活，调用时按需激活）、`activating`、`available`，或 `blocked`、`failed`、`stopping`、`closed`（这四种时调用得到 `unavailable`）；声明它的插件正在停止时为 `stopping`。
+    - `{status: "not-provided"}`：条件与第 5 条的 `not-provided` 相同。
+    - `{status: "version-changed", version}`：提供方的合同版本与调用方的不同，`version` 是提供方的版本。
+
+    查询按读请求结算，路由与访问规则与调用相同：目标不在为 `target-gone`，`{project}` 无权访问、调用方种类不在 `callers` 内为 `denied`，多个入口声明同一合同为 `unavailable`，本端没连上为 `unavailable`。调用方种类先于版本核对：不允许调用的实例看不到版本。结果只是此刻的信息，不是引用：查到 `provided` 之后的调用照样可能得到 `not-provided` 或 `unavailable`，调用方照常处理失败。查询是发往目标实例的普通请求帧，合同为内核保留的 `runtime/catalog`，由目标节点直接回答。
+
+## WebSocket 传输与握手
+
+客户端（浏览器，以后的 TUI）与服务端之间的链路。
+
+1. **编码。** 每帧一条 JSON 文本消息。只接受 JSON 能如实表示的值：`null`、布尔、有限数、字符串、数组、原型为 `Object.prototype` 或 `null` 的普通对象；对象上值为 `undefined` 的属性省略（与可选字段缺省同义）。其它值（函数、symbol、bigint、`NaN` 与无穷、数组里的 `undefined`、`Date`、`Map` 等非普通对象、循环引用）使 `send` 同步抛错，按“失败与恢复”中业务值无法编码的规则结算。无法解析为 JSON 的消息是无效帧。
+2. **端口与来源。** 服务端在内核 RPC 端口接受 WebSocket 升级，只接受路径 `/`，其它路径 404。升级请求带 `Origin` 头时必须在宿主给出的允许来源集合内（[`runtime.server-host`](server-host.md)），否则 403；不带 `Origin` 头的放行：浏览器发起的 WebSocket 握手总会带 `Origin`，网页无法省略，不带的只有本机的非浏览器客户端。单条消息上限 1 MiB，超过即断开；二进制经 HTTP 资源地址传递。
+3. **握手。** 链路建立后客户端先发 `hello {wire, instance: {id, kind, role, project, client}, bind, boot}`，其中 `client` 是客户端身份（服务端与项目实例为 `null`）；`boot` 是上次握手得到的服务端进程标识，第一次连接为 `null`；`instance.project` 对客户端恒为 `null`，绑定由服务端决定；`bind` 是绑定请求：不绑定为 `null`，首次连接为 `{project: 项目引用}`（短名或 id），重连为已绑定的 `{project: id, generation}`，只有客户端（`role: client`）可以带。hello 不带各插件版本：每个请求帧已带调用方期望的合同版本，由提供方逐个请求核对。服务端依次判定：
+   - **wire 版本先于一切。** `hello` 的 `wire` 是整数但与本端不同时，不校验其余字段（另一版本的 hello 可能是另一种形状），直接回 `reject {reason: "wire-version"}` 并关闭。`reject` 帧的形状 `{type: "reject", reason, message}` 跨 wire 版本不变，任何版本的客户端都读得懂新服务端的拒绝。
+   - **服务端已换进程。** `boot` 不为 `null` 且与本进程的不同时回 `reject {reason: "server-restarted"}`，不再判定其余各项：项目代次号在新进程里从头编号，按旧进程的代次判断绑定可能撞上新进程里的同号代次。
+   - **停止中。** 服务端已停止接纳时回 `reject {reason: "stopping"}`。
+   - **实例 id。** 等于服务端自己的 id、`role` 为 `hub`、或不是客户端却带了 `bind` 的，以 `role` 拒绝。id 已在线时：种类、角色与客户端身份都与已登记的一致，且绑定一致（已登记的成员没有绑定时 `bind` 为 `null`；有绑定时 `bind` 是同一个 `{project: id, generation}`），视为同一实例重连，服务端关闭旧链路（其上在途请求与订阅按断开结算）、登记新链路，使服务端还没察觉旧连接断开时客户端也能重连；任一不一致回 `reject {reason: "duplicate-instance"}`。
+   - **绑定。** `bind` 不为 `null` 时，路由交给宿主的绑定回调（[`runtime.projects`](projects.md) 输出第 7 条），等它的结果，期间不登记成员：首次连接按引用打开项目并取得租约；重连只在原代次仍在运行（含宽限期中）时取得，否则以 `project-gone` 拒绝，不改投新代次；项目不存在、未登记、创建失败或服务端正在停止，以 `project-unavailable` 拒绝并附说明；宿主没有提供绑定回调时同样是 `project-unavailable`。等待期间链路关闭的，绑定一出结果就释放租约。同一实例重连接管旧链路时，先为新链路取得租约，再关闭旧链路释放旧租约，使用者计数不会中途落到 0。
+   - 通过后回 `welcome {wire, boot, binding}`，`binding` 为 `{id, name, generation}` 或 `null`；该成员的实例描述随之带上项目代次，`project` 目标与 `{project}` 访问都按它解析。成员链路关闭时释放绑定的租约。
+4. **服务端重启与项目已结束。** 客户端节点记住第一次握手得到的 `boot` 与绑定，之后重连都带 `{project: id, generation}`。之后重连被以 `server-restarted` 拒绝（或 `welcome` 的 `boot` 与记下的不同，作为第二道防线），说明服务端已换进程，旧进程里与本实例有关的门面、订阅与等待都已不在：本节点的全部远程订阅以 `server-restarted` 结束、不重建，这条链路关闭，连接结果为 `server-restarted`；此后本节点的远程调用为 `unavailable`、再次连接仍返回 `server-restarted`。重连以 `project-gone` 被拒，或 `welcome` 里绑定的 id、代次与记下的不同（第二道防线，不接受改投），同样进入终态：订阅以 `project-gone` 结束、不重建，链路关闭，连接结果为 `project-gone`，之后调用为 `unavailable`。客户端宿主据此要求重新加载（浏览器见 [`runtime.browser-host`](browser-host.md)）。`boot` 与绑定都相同时按输出第 7 条重建订阅。
+5. **协议违规。** 握手完成前收到 `hello` 以外的帧，或任何时候收到无法解析的帧，服务端记诊断并关闭这条链路；对端的在途请求随即按断开结算，不必等到超时。
+6. **停止。** 服务端宿主停止时，路由依次：
+   1. **停止接纳**：新的客户端 `hello` 以 `stopping` 拒绝；客户端成员发来的新请求与新订阅为 `unavailable`（说明服务端正在停止）。项目成员与宿主带 `expect` 交来的项目链路不受影响：项目子实例停止时还要经远程服务收口，正在创建的项目子实例也要能完成握手、再按停止序列收口。
+   2. **排空**：等路由已接纳的在途请求（发给服务端插件的与转发给其它实例的）全部结算，有截止时间，到期返回“截止”。
+   3. **关闭**：关闭全部成员链路，其上的请求与订阅按断开结算。
+   三步都幂等。宿主怎样安排这三步与 HTTP 排空、插件关闭的先后见 [`runtime.server-host`](server-host.md)。
+7. **绑定的项目代次结束。** 某个项目代次结束（宽限期满后停止、崩溃、服务端停止）时，路由关闭绑定它的客户端链路；客户端重连得到 `project-gone`，按第 4 条进入终态。
+
+## 进程间链路
+
+服务端与项目子进程之间的链路（[`runtime.projects`](projects.md)）。
+
+1. **传输。** Bun 的进程间通信（`serialization: "json"`）。帧仍按“WebSocket 传输与握手”第 1 条编码为 JSON 文本，进程间通信只搬运这段文本，不因为它能传 `Date`、`Map` 而放宽编码；三种链路（进程内、WebSocket、进程间）的编码语义一致。服务端宿主与项目宿主之间的控制消息（启动结果、停止请求）与帧共用这条进程间通信，但不进入链路。
+2. **寿命。** 子进程退出或进程间通信断开即链路关闭，其上在途请求与订阅按断开结算。链路关闭不等于知道了退出码：退出码要等子进程真正结束后才可靠，由宿主写进诊断。
+3. **接受。** 宿主以 `router.accept(link, {expect})` 把子进程的链路交给路由，`expect` 是这个子进程应有的实例描述（`{id: "project:<id>#<代次>", kind: "project", role: "project", project: {id, generation}, client: null}`）；hello 的实例描述与它不完全一致时以 `role` 拒绝。链路上因此不会出现别的项目或别的代次。项目实例的 hello 不带 `bind`。
+4. **方向。** 项目子进程只连服务端；它与客户端、与其它项目实例之间的调用都经服务端路由转发。
 
 ## 状态与转换
 
 | 对象 | 状态与转换 |
 |---|---|
-| 调用 | 已接纳 → 执行中 → 已结算（成功或一种错误）；只结算一次；中止后迟到的结果丢弃 |
-| 插件集合修订号 | 单调递增；窗口以它判断是否需要重新取得集合 |
-| 订阅 | 已建立 → 活动 → 已结束（浏览器释放、插件入口停止、连接作用域关闭任一发生）；重连时以新订阅替代，插件收到重新查询基线通知 |
-| 事件流 | 连接 → 断开 → 重连；每个窗口同时只有一条 |
-| 路由 | 随所属入口激活可用，随入口停止撤回 |
+| 请求 | 未派发 → 已发出（帧交给链路）→ 已确认（ACK）→ 已结算；只结算一次；结算后的迟到结果丢弃 |
+| 订阅 | 建立中 → 活动 → 已取消（见输出第 7 条的取消条件）；重连时以新订阅替代，旧订阅不复活 |
+| 链路 | 连接 → 握手（等绑定结果，`welcome` 或 `reject`）→ 已登记 → 断开；每次连接分配新的连接代次；断开即结算其上全部在途请求与订阅并释放绑定的租约；同一实例重连时旧链路被关闭；绑定的项目代次结束时被关闭 |
+| 路由 | 接纳 → 停止接纳 → 已关闭；只前进不回退 |
+| 客户端节点的服务端进程与绑定 | 未连接 → 已知 `boot` 与绑定 → 服务端已重启或项目已结束（终态：不再重连成功，远程调用为 `unavailable`） |
+| 远程提供项 | 随提供入口激活可用，随入口停止撤回；撤回后新请求为 `unavailable`，在途请求按第 4 条阶段规则结算 |
 
 - 同一方法的并发调用互不合并，各自执行。
-- 调用到达时通道入口尚未激活，先按 `onChannel` 激活再处理；激活失败返回 `plugin-unavailable` 并附原因。
+- 目标实例代次结束后，发往旧代次的请求一律在未派发阶段失败，不改投新代次。
 
 ## 副作用与数据
 
-- 通道本身不持久化任何数据；待处理事项由各插件在自己的存储中持久化。
-- 连接作用域随窗口的事件流建立与关闭；窗口关闭或断线超过重连宽限时，服务端结束该窗口的全部订阅。
-- 请求日志进入运行时诊断。
+- 远程服务本身不持久化任何数据；需要跨断线、跨重启保留的事项由提供插件自己持久化。
+- 路由的实例登记表、在途请求表与订阅表是服务端实例内的内存状态。
+- 诊断进入运行时诊断，不含业务内容。
 
 ## 失败与恢复
 
-- 输入不符合 schema：400，不调用处理函数。
-- 处理函数返回值不符合结果 schema：记录为提供方错误并返回 500 `provider-error`，不把不合格的数据交给浏览器。
-- 插件在处理过程中被禁用：调用按三步停止结算，浏览器得到 503 `interrupted`；禁用之后到达的调用得到 503 `plugin-unavailable`。
-- 连接断开不证明服务端已取消执行中的调用；浏览器不自动重放非幂等调用。
-- 事件流长时间无法重连时，浏览器宿主显示连接状态，订阅方的视图保持最后状态并标注离线。
+- 输入不符合合同：`invalid-input`，不调用提供方。
+- 提供方返回值不符合合同或抛出未声明异常：`provider-error`，不把不合格数据交给调用方。
+- 提供入口在处理过程中停止：调用方得到第 4 条已确认阶段的结果；之后到达的请求为 `unavailable`。
+- 目标实例上没有这份合同的提供方：`not-provided`，调用方按“没有这项功能”处理（隐藏入口或降级），重试没有意义；`unavailable` 表示有提供方但此刻不可用，可以稍后重试。想在调用前知道又不想激活提供方时用第 11 条的查询。
+- 链路断开不证明对方已取消执行中的请求；内核不重放未确认的请求，写请求的结果由领域按自己的合同核对（例如按任务 id 幂等处理）。
+- 激活等待环与激活期超时都返回结构化失败并记诊断，不挂起调用方。
+- 业务值无法经链路编码（插件传了不能序列化的值）：参数或过滤参数为 `invalid-input`，结果为 `provider-error`，事件内容使订阅以 `provider-error` 结束；都立即结算，不等超时。
+- 远程实现工厂必须同步返回对象；抛错、返回非对象或 Promise 时这次调用为 `provider-error` 并记诊断。
+- 握手被拒：连接结果带 `reason`（`wire-version`、`server-restarted`、`stopping`、`duplicate-instance`、`role`、`project-unavailable`、`project-gone`）与说明，链路关闭；客户端宿主按原因决定提示刷新、稍后重连、显示无法打开项目或报告启动失败。
 
 ## 边界与兼容
 
-- **owner**：runtime（合同、`ctx.channel`、调用包装）与 `nbook.http`（传输、路由分派、事件流）。
-- **鉴权**：沿用现有 Cookie 会话；认证中间件对 `/api/` 只按白名单公开，插件通道与插件路由没有例外（`none` 鉴权方式的路由由 `nbook.http` 登记为显式公开）。
-- **路由冲突**：两条路由贡献，或路由贡献与现有 Nitro 文件路由，方法与路径相同时，冲突的路由贡献全部被拒绝并报告，不按登记顺序决定谁生效；插件的其它贡献照常。内置插件把旧路由迁为路由贡献时，同一变更中删除旧的文件路由。
-- **传输选择**：事件共用每个窗口一条连接，因为本机服务是 HTTP/1.1，浏览器对同一来源的并发连接有上限。
-- **迁移**：竖切中的 Files 与之后新内置插件的新端点走合同端点；现有 Nitro 文件路由随所属功能迁入插件时，可以先以路由贡献保持 URL 不变，再在功能改动时改为合同端点。不做一次性横向迁移。
-- **兼容**：合同端点路径、错误码与 HTTP 状态是公开接口；事件流与引导接口是宿主内部协议。
+- **owner**：runtime（合同、节点、路由、协议、按需激活、绑定的握手）；传输由各宿主提供（WebSocket 随 K2，进程间通信随 K3）；项目的打开、租约与访问规则由服务端宿主的项目管理提供（[`runtime.projects`](projects.md)）。
+- **与服务装配的关系**：远程提供项的门面规则沿用 [`runtime.services`](services.md) 的按调用方门面，代理用的调用方身份由它签发；远程服务不进入依赖图（[`runtime.plugin-manifest`](plugin-manifest.md) 第 5 条）。
+- **与 HTTP 的关系**：插件之间不经 HTTP 通信；HTTP 只服务浏览器原生加载与外部调用方（见末节）。
+- **安全**：第一版完全信任（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md)）；调用方身份与委托防误用、不防恶意代码。客户端互调的权限规则与登录接入时的使用者限制待后续补充。
+- **兼容**：合同 id、版本、提供方位置、失败码与目标写法是公开接口；帧格式与 wire 协议版本是内核内部协议，帧格式或结果的含义变更时提升 wire 版本（加入绑定字段时升为 2，调用方身份加入客户端身份时升为 3，加入 `not-provided`、写请求从帧发出起结果未知与提供方查询时升为 4：帧形状没变，但旧端会把新码当成未声明的码、仍按 ACK 结算写请求，而浏览器首次握手之前没有别的同构建核对）；`reject` 帧的形状与 `hello` 的 `wire` 字段跨版本不变。
+- **已知限制**：经代理转发到另一实例的委托只能用本实例签发的身份，不能链式跨第三个实例；合同版本只做整数精确匹配；等待环只沿单条激活链检测，跨链的互相等待只受激活期超时上限约束；激活链只记入口、不记代次，同一入口失败恢复后的新一代若正在激活，会被旧一代留下的链误判为环；`{project}` 目标的租约在建立请求或订阅时核对，订阅建立后租约释放不取消订阅，到该项目代次结束时才取消；拓扑稿第 10 节“服务端向项目推送事件不需要租约”由 `{project}` 的无租约访问规则承担（[`runtime.projects`](projects.md) 输出第 9 条）。传输不做发送背压与应用层心跳；同一实例重连时按描述一致接管旧链路，不核对凭据（鉴权随登录插件）。
+- **开发模式**：页面经引导接口得知 RPC 端口后直连后端，不经页面服务代理 WebSocket；后端每次重启对已打开的页面都是服务端重启（[`runtime.server-host`](server-host.md)）。
 
 ## 验收与 Smoke
 
-1. **调用与取消。** 资源管理器调用 Files 的读取目录方法得到结果；浏览器中止一次长调用，服务端处理函数的终止信号触发，浏览器得到 `interrupted`。
-2. **订阅与重连。** 订阅文件变更后断开事件流，重连后订阅自动恢复，插件收到重新查询基线通知，之后的变更正常送达。
-3. **校验。** 多余字段或类型错误的输入返回 400，处理函数未被调用。
-4. **鉴权。** 未登录调用返回 401；处理函数收到的用户身份与登录用户一致。
-5. **版本校验。** 热升级切换瞬间带旧版本号的调用返回 409 `version-changed`，浏览器重新加载插件后调用成功。
-6. **禁用中的调用。** 插件禁用后调用返回 503 `plugin-unavailable`。
-7. **多窗口。** 两个窗口各订阅同一方法不同参数，只收到各自参数的事件；关闭一个窗口只结束它的订阅。
-8. **路由贡献。** 示例第三方插件在 `/api/plugins/<id>/raw/hook` 声明 `none` 鉴权的路由，未登录可访问；声明在该前缀之外的路径使该条贡献被拒绝；禁用后已登录请求得到 503，未登录请求得到 401；卸载后已登录请求得到 404。
-9. **集合修订号。** 窗口取得引导结果后、事件流建立前，服务端禁用一个插件；事件流建立时窗口发现修订号不同，重新取得集合，该插件被移除。
-10. **路由冲突。** 两个插件贡献相同方法与路径的路由时，两条都被拒绝并报告，其余贡献照常。
+1. **调用与校验。** 调用方经进程内链路调用另一实例的远程服务得到结果；多余字段或类型错误的输入为 `invalid-input`，提供方未被调用；提供方返回不合格数据为 `provider-error`。
+2. **任意实例可达。** 三个真实内核实例（服务端与两个客户端，或服务端、客户端与项目）互调；客户端到客户端经服务端转发；同实例调用与跨实例调用结果一致；开启本地校验时本地调用传不可序列化值被拒。
+3. **调用方不可伪造。** 提供方看到的调用方是真实发起入口与激活代次；业务参数含保留字段被拒；经代理时为原调用方并附代理身份。
+4. **请求阶段。** 每个阶段的失败码各一例；写请求在帧发出后、ACK 到达前（ACK 在途时链路中断，或超时）与 ACK 之后被中断，都得到 `unknown-outcome` 附 `cause`；读请求同样情况按原因报告；直连与经服务端转发的两跳各一例。
+5. **版本。** wire 协议版本不兼容时链路在业务帧前被拒；合同版本不一致为 `version-changed`。
+6. **按需激活。** 首次远程调用按 `onRemote:<合同 id>` 激活懒入口并成功；激活失败为 `unavailable` 附原因。
+7. **等待环与激活期超时。** 两个入口激活期间互相远程调用：双方得到 `unavailable`（`activation-cycle`）而不是挂起；激活期间只发出调用、不等待结果的入口先结束激活后，被它触发的入口再调用它照常成功；激活期调用的超时上限生效（注入时钟）。
+8. **订阅。** 四种取消条件（订阅方释放、任一入口停止、提供项撤回、连接结束）各一例；迟到事件被丢弃；同一项目代次内重连后订阅重建并收到 `onResync`；旧代次订阅不复活。
+9. **`{project}` 目标。** 访问回调拒绝时为 `denied`，没有访问回调时一律 `denied`；项目代次结束后发往它的请求为 `target-gone`。
+10. **握手与来源。** 带不允许 `Origin` 的升级得到 403、不带 `Origin` 的放行；`wire` 不同的 hello（其余字段是另一版本的形状）得到 `wire-version` 拒绝；`welcome` 带 `boot`；hello 带客户端身份。
+11. **重连与服务端重启。** 连回同一 `boot`：订阅重建并收到 `onResync`。连到另一个服务端进程：hello 带的 `boot` 不同即以 `server-restarted` 拒绝，订阅以 `server-restarted` 结束且不重建，连接结果为 `server-restarted`，之后的调用为 `unavailable`。同一实例重连接管旧链路，旧链路上已发出的写请求为 `unknown-outcome`；描述不一致为 `duplicate-instance`。
+12. **协议违规。** 握手前的业务帧、无法解析的帧使链路关闭并留诊断，对端在途请求立即结算。
+13. **停止。** 停止接纳后新 hello 以 `stopping` 拒绝，客户端新请求为 `unavailable`，项目成员照常；排空等在途请求结算，到截止时间返回截止；关闭断开全部成员。
+14. **编码。** JSON 编码遇函数、symbol、bigint、非有限数、数组里的 `undefined`、非普通对象与循环引用时抛错，请求、结果与事件按阶段结算。
+15. **绑定。** 带 `bind` 的 hello 得到带 `binding` 的 `welcome`，`project` 目标到达绑定的代次；绑定回调拒绝时为 `project-unavailable`；重连带原代次，在代次仍在时恢复绑定、订阅重建并收到 `onResync`，代次已结束时为 `project-gone`，节点进入终态、订阅以 `project-gone` 结束；`welcome` 的绑定与记下的不同同样进入终态。绑定的客户端重连按同一实例接管，不是 `duplicate-instance`；同 id 但绑定不同仍是 `duplicate-instance`；非客户端带 `bind` 以 `role` 拒绝。绑定期间链路关闭，租约随即释放；绑定的项目代次结束时客户端链路被关闭。
+16. **提供方位置。** `provider: "server"` 的合同省略 `.at()` 到达服务端；`provider: "project"` 的合同省略 `.at()` 到达绑定的项目；目标与提供方位置不符为 `invalid-input` 且没有发出请求。
+17. **进程间链路。** 真实子进程经进程间通信与服务端互相调用；`expect` 不符的 hello 以 `role` 拒绝；子进程退出后其上写请求为 `unknown-outcome`、订阅以断开结束。
+18. **客户端身份与路由覆盖**。客户端实例里插件的调用到达提供方时带该客户端的客户端身份；客户端节点自报另一个客户端身份或运行位置时，提供方看到的是登记的成员描述里的值。
+19. **经代理的远程调用**。代理以签发给它的身份调用另一实例的服务，提供方看到原调用方与 `via`；伪造或签发给别的入口的身份、未在 `remoteDelegates` 里的合同、不在允许清单的插件各自为 `denied`；原调用方入口停止（代理入口仍在）后经代理建立的订阅结束、提供方为它生成的门面释放，代理门面的释放函数运行期间经代理的调用仍可用。
+20. **只取值。** `orThrow` 对成功结果返回值；对路由层失败、带 `cause` 的 `unknown-outcome` 与合同声明的业务失败都抛 `RemoteCallError`，`failure` 与原结果相同。
+21. **没有提供方。** 目标实例没有入口声明合同时，调用与订阅为 `not-provided`；声明它的插件停用后同样为 `not-provided`；提供入口激活失败、受阻时仍为 `unavailable`；`runtime/` 开头的合同 id 在定义时被拒。
+22. **查询提供方。** 提供方未激活时查询得到 `provided` 与 `registered`，且查询后提供方仍未激活；激活后为 `available`；声明它的插件正在停止为 `stopping`，停用后为 `not-provided`；激活失败为 `failed`；没有提供方为 `not-provided`；版本不同为 `version-changed` 并带提供方的版本；调用方种类不在 `callers` 内为 `denied`；多个入口声明同一合同为 `unavailable`；经服务端到达项目实例与另一客户端；`{project}` 无权访问为 `denied`；没连上服务端为 `unavailable`；同实例查询与跨实例查询结果一致。
 
-Smoke：Files 竖切（阶段 2）在真实服务端与 Chromium 上核对场景 1、2、7；阶段 3 的示例外部插件核对场景 5、6、8。
+Smoke：场景 1–9、15、16、18–22 由内核合同测试以真实内核实例与进程内链路覆盖；场景 10–14 由内核合同测试与服务端宿主的真实 Bun WebSocket 测试覆盖，真实 Chrome 上的连接、断线重连、刷新与服务端重启由 `packages/neuro-book/e2e/rpc.e2e.ts` 核对；场景 17 与绑定由真实子进程与真实 Chrome 核对（`e2e/projects.e2e.ts`）；经代理的 Storage 访问在真实 Chrome 里由 `e2e/storage.e2e.ts` 核对。
+
+## HTTP 路由贡献（待移交 `nbook.http` 的 Spec）
+
+以下是 2026-09-30 已确认、仍然有效的 HTTP 路由贡献合同，属于 `nbook.http` 的对外 HTTP 边缘，与远程服务无关；随 `nbook.http` 相关 Spec 的修订整体移出本文。
+
+- **声明**：清单字段为方法、路径、鉴权方式（`session`：需要登录，默认；`none`：公开，由处理函数自行校验调用方，例如 webhook 签名）、可选的输入与输出 schema。第三方插件的路径必须位于 `/api/plugins/<插件 id>/raw/` 之下；内置插件可以保留现有路径。
+- **处理函数**：Web 标准的 `(request: Request, ctx) => Response`。
+- **生命周期**：路由随所属入口激活可用，随入口停止撤回；插件禁用后已登录请求得到 503 `plugin-unavailable`，未登录请求得到 401；卸载后已登录请求得到 404。
+- **冲突**：两条路由贡献方法与路径相同时，冲突的路由全部被拒绝并报告，不按登记顺序决定谁生效；插件的其它贡献照常。
+- **验收**：示例第三方插件在 `/api/plugins/<id>/raw/hook` 声明 `none` 鉴权的路由，未登录可访问；声明在该前缀之外的路径使该条贡献被拒绝；禁用、卸载与冲突按上述结果。
+
+## 实现合同
+
+- **包入口**：`@notnotype/nb-runtime/remote`（合同、协议、节点、路由、`orThrow` 与 `RemoteCallError`）与 `@notnotype/nb-runtime/remote/testing`（进程内链路）。模块只依赖 TypeBox 与 lifecycle、services 入口，不依赖插件宿主与应用内核，由 `remote.test.ts` 的源码守卫锁定；插件宿主经 `RemoteHostBinding`、`RemoteProviderSource` 两个接口与它相接。
+- **编码与 WebSocket**：`json-codec.ts` 的 `encodeJsonFrame`、`decodeJsonFrame`、`encodeJsonValue`、`FrameEncodingError`（进程内测试链路也用它）；`protocol.ts` 的 `wireMismatch`；路由的 `boot` 选项与 `stopAdmission`、`drain`、`close`；节点识别服务端重启。宿主一侧的端口、来源与套接字适配见 [`runtime.server-host`](server-host.md)、[`runtime.browser-host`](browser-host.md)。
+- **绑定、提供方位置与进程间链路**：`contract.ts` 的 `provider`、`RemoteTargetFor`、`RemoteUse` 与 `providerAccepts`；`protocol.ts` 的 `BindRequestSchema`、`ProjectBindingSchema`、hello 的 `bind` 与 `boot`、`leaseHolderOf`；路由的 `bindProject`、`projectAccess` 与 `accept(link, {expect})`；节点的 `bind` 选项、`binding` 与 `project-gone` 终态；宿主一侧的进程间链路在 `packages/neuro-book/src/server/projects/ipc.ts`。
+- **调用方身份与委托**：`protocol.ts` 的 `CallerFrameSchema.client`（wire 升为 3）；路由按成员描述覆盖 `location` 与 `client`（请求、订阅、释放三处）；插件宿主的 `context.remote.on` 与入口字段 `remoteDelegates`；服务装配的 `issuedTo`。
+- **请求阶段、`not-provided` 与查询**：`protocol.ts` 的 `RequestPhase`（`undispatched`、`sent`、`acked`）与 `failureFor`、失败码 `not-provided`、`KERNEL_CONTRACT_PREFIX`、`CATALOG_CONTRACT` 与 `RemoteProviderInfoSchema`；`Peer.request` 登记请求时就记为 `sent`（编码会运行业务值的 getter，取消可能发生在帧发出的途中）；同实例订阅把订阅方的停止信号接到本地终止信号上；节点在 `handleRequest` 里回答 `runtime/catalog`，并在门面工厂返回后再核对一次终止信号（同实例调用没有 `sent` 阶段，靠它保证“没 ACK 就没执行”）；插件宿主的 `RemoteProviderSource.describe`，以及声明合同的插件正在停止时判为 `unavailable`；`contract.ts` 的 `LookupTarget` 与对 `runtime/` 前缀的拒绝；进程内链路的 `cut()`；`WIRE_PROTOCOL_VERSION` 4。
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P5（2026-09-30 确认合同三种原语、HTTP 入口两层、不采用 waterfall、流的传输在首个需要的功能落地时实现、版本校验）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条。
-- 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)（自有入口下的请求处理与会话鉴权）。
-- 错误码与 HTTP 状态的对应、路由鉴权方式的两种取值、插件集合修订号、路由冲突规则、请求日志字段由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
+- 批准依据：[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、4、5、10 节与 [ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)（2026-10-07 `accepted`；审查与复审见 [t51 证据](../../../.agents/works/w00017-application-runtime-architecture/tasks/t51-runtime-topology-design/evidences/)）；原插件通道合同的依据为 [可扩展应用平台设计](../../proposals/extensible-application-platform.md) P5 与 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条，被取代的部分以 ADR 0024 为准，旧宿主上的 WebSocket 升级见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；绑定、合同的提供方位置与进程间链路由开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中确认；调用方的客户端身份与经代理的远程调用由开发者 2026-10-07 在 [t55 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t55-plugin-storage/plan.md) 中确认；`orThrow`、同实例直接用合同与可达表由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；`not-provided`、提供方查询与写请求从帧发出起结果未知由开发者 2026-10-08 在 [t61 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t61-kernel-catalog-failure-codes/plan.md) 中确认。本文保持 `planned`，进程间链路实现后再评估晋升。
+- 实现入口：[`remote.ts`](../../../packages/nb-runtime/src/remote/remote.ts)、[`testing/in-process.ts`](../../../packages/nb-runtime/src/remote/testing/in-process.ts)
+- 合同测试：场景 1–9 由 [`protocol.test.ts`](../../../packages/nb-runtime/src/remote/protocol.test.ts)、[`routing.test.ts`](../../../packages/nb-runtime/src/remote/routing.test.ts)、[`activation.test.ts`](../../../packages/nb-runtime/src/remote/activation.test.ts) 与 [`children.test.ts`](../../../packages/nb-runtime/src/application/children.test.ts) 覆盖；场景 10–14 由 `protocol.test.ts`、[`json-codec.test.ts`](../../../packages/nb-runtime/src/remote/json-codec.test.ts) 与 `routing.test.ts` 的握手、重连、协议违规与路由停止各组覆盖；场景 15、16 由 `routing.test.ts` 的绑定、项目代次结束与提供方位置各组及 `protocol.test.ts` 覆盖；场景 17 由新应用的 `src/server/projects/manager.test.ts`、`src/server/server-projects.test.ts` 覆盖；场景 18 由 `routing.test.ts` 的“帧上自报的运行位置与客户端身份不算数”，场景 19 由 [`delegation.test.ts`](../../../packages/nb-runtime/src/remote/delegation.test.ts) 覆盖，场景 20 由 [`result.test.ts`](../../../packages/nb-runtime/src/remote/result.test.ts) 覆盖；场景 4 的 ACK 在途中断（直连与两跳）与同实例调用的门面工厂重入、场景 21 与场景 22 由 `routing.test.ts` 的“输出 4”“输出 1–3、5”“输出 11”各组覆盖，`runtime/` 前缀由 `protocol.test.ts` 的合同校验组覆盖；模块依赖方向由 [`remote.test.ts`](../../../packages/nb-runtime/src/remote/remote.test.ts) 的源码守卫锁定。
+- Smoke：[`rpc.e2e.ts`](../../../packages/neuro-book/e2e/rpc.e2e.ts)、[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)、[`storage.e2e.ts`](../../../packages/neuro-book/e2e/storage.e2e.ts)（真实 Chrome 与真实服务端、真实项目子进程）

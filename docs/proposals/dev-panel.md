@@ -1,6 +1,15 @@
-# 开发者项目面板与命令行 nbdev
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-10-12
+decided: 2026-10-12
+supersedes: []
+superseded-by: null
+specs: []
+adrs: []
+---
 
-状态：accepted（2026-10-12）
+# 开发者项目面板与命令行 nbdev
 
 关联 Work：[w00022](../../.agents/works/w00022-dev-panel/README.md)。依据 t01 的[需求分析](../../.agents/works/w00022-dev-panel/tasks/t01-requirements/requirements.md)与[需求补充分析](../../.agents/works/w00022-dev-panel/tasks/t01-requirements/analysis-supplement.md)、t03 的[领域模型第二版](../../.agents/works/w00022-dev-panel/tasks/t03-design/domain-model.md)、[会话托管调研](../../.agents/works/w00022-dev-panel/tasks/t03-design/session-hosting-research.md)、[开发者的决定](../../.agents/works/w00022-dev-panel/tasks/t03-design/README.md)与[第三轮评审板](../../.agents/works/w00022-dev-panel/tasks/t03-design/artifacts/review/index.html)。需求分析与补充分析里“本地 Work”“产物与答复留在 `.local`”“面板只读仓库”“命令行不提交”“验收截图默认不入库”几条已被领域模型第二版取代，以第二版和 2026-10-12 起生效的 [Work 规则](../../.agents/works/README.md) 为准。实施切片见[实施计划](../../.agents/works/w00022-dev-panel/tasks/t03-design/plan.md)。
 

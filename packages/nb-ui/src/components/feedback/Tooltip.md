@@ -45,7 +45,7 @@ interface TooltipSlots {
 
 ## 状态与边界
 
-`delay` 后悬停显示，键盘聚焦即时显示；`disabled` 时上游禁用 Tooltip。空文本且无 `content` 时提示没有可见文字，浮层是否呈现空白外框由上游决定。
+`delay` 后悬停显示，键盘聚焦即时显示；`disabled` 时不再打开：已经开着的提示随即关上，悬停时已经排好的延时打开也作废（例如点触发器打开了旁边的面板，提示不会过一会儿冒出来压在面板上）。空文本且无 `content` 时提示没有可见文字，浮层是否呈现空白外框由上游决定。
 
 ## 不支持
 
@@ -60,7 +60,7 @@ Reka UI Tooltip 管理 hover/focus 状态、Provider 延迟、Escape 关闭及 P
 
 `state:local`：TooltipRoot 在组件实例内维护当前提示的展开状态；组件不把该临时状态回传给父级。
 
-`state:inject`：读取可选的 `NB_POPOVER_Z_INDEX`，使 Tooltip 位于 DialogWindow 内容树时显示在所属窗口上方；未注入时回退普通浮层层级。该窗口层级是宿主上下文。
+`state:inject`：读取可选的 `NB_POPOVER_Z_INDEX`，使 Tooltip 位于 Dialog 内容树时显示在所属窗口上方；未注入时回退普通浮层层级。该窗口层级是宿主上下文。
 
 `env:portal`：说明浮层必须不受触发器祖先的裁剪与局部层叠上下文影响，故使用 Reka `TooltipPortal`。Portal 目标由上游管理，本组件没有目标 prop；目标缺失时的表现遵循 Reka UI。
 

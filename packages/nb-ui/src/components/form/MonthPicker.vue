@@ -48,7 +48,7 @@ const emit = defineEmits<{
                 <span class="i-lucide-chevron-left h-4 w-4" aria-hidden="true" />
             </MonthPickerPrev>
 
-            <MonthPickerHeading class="text-[var(--text-sm)] font-semibold text-[var(--text-main)]" />
+            <MonthPickerHeading class="text-[length:var(--text-sm)] font-semibold text-[var(--text-main)]" />
 
             <MonthPickerNext class="nb-ui-focus-ring flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40">
                 <span class="i-lucide-chevron-right h-4 w-4" aria-hidden="true" />
@@ -71,7 +71,7 @@ const emit = defineEmits<{
                         >
                             <MonthPickerCellTrigger
                                 :month="monthDate"
-                                class="nb-ui-focus-ring flex h-9 w-full items-center justify-center rounded-[var(--radius-control)] px-2 text-[var(--text-xs)] font-medium text-[var(--text-main)] transition-[background-color,color] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] data-[selected]:bg-[var(--accent-main)] data-[selected]:text-[var(--text-inverse)] data-[disabled]:opacity-30 data-[disabled]:cursor-not-allowed cursor-pointer"
+                                class="nb-ui-focus-ring flex h-9 w-full items-center justify-center rounded-[var(--radius-control)] px-2 text-[length:var(--text-xs)] font-medium text-[var(--text-main)] transition-[background-color,color] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] data-[selected]:bg-[var(--accent-main)] data-[selected]:text-[var(--text-inverse)] data-[disabled]:opacity-30 data-[disabled]:cursor-not-allowed cursor-pointer"
                             />
                         </MonthPickerCell>
                     </MonthPickerGridRow>

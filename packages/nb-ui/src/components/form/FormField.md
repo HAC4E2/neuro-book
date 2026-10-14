@@ -8,7 +8,7 @@
 
 ## 布局
 
-根节点是一个 block 级 `label`，内部依次是可选字段标题、默认 slot 内容，以及错误或描述文字。标题和文案各占一行，默认间距由 `space-y-1.5` 提供；`error` 存在时替代 `description`，避免同一字段同时出现两条辅助文案。标题过长或辅助文案过长时由父级宽度决定换行，组件不设置固定宽度。
+根节点是一个 block 级 `label`，内部依次是可选字段标题、默认 slot 内容与可选描述文字。标题和描述各占一行，默认间距由 `space-y-1.5` 提供。`error` 不显示成文字：出错时字段的排版不变，只有控件标红，原因放在视觉隐藏的元素里给读屏；看得见的原因由宿主写在固定位置（对话框里是页脚左侧的状态行），规则见 [UI 开发规范](../../../docs/ui-development-spec.md) 的“表单与无障碍”。标题过长或辅助文案过长时由父级宽度决定换行，组件不设置固定宽度。
 
 `390×844` 下布局仍是单列结构，字段控件由默认 slot 决定宽度；FormField 自身不创建横向滚动区域，也不改变 slot 内容的尺寸。
 
@@ -16,7 +16,7 @@
 
 - 点击标题或 label 区域会按原生 `<label>` 语义把焦点交给关联控件；关联 id 来自 `for` prop 或组件生成的 id。
 - `required` 为 true 时标题后显示红色 `*`，并通过上下文让支持它的子控件设置原生 required 语义。
-- `error` 为非空字符串时显示错误文案，生成错误 id，并让子控件收到 `aria-invalid` 与错误 `aria-describedby`；没有 error 且有 description 时使用描述 id。
+- `error` 为非空字符串时生成视觉隐藏的错误元素与 id，子控件收到 `aria-invalid`，`aria-describedby` 先列错误 id、再列描述 id（有描述时）。
 - 组件本身没有键盘快捷键、提交动作或焦点事件；字段控件的键盘行为由 slot 内容负责。
 
 ## 数据
@@ -25,9 +25,9 @@
 type FormFieldProps = {
     /** 字段标题；默认空字符串，空时不渲染标题。 */
     label?: string;
-    /** 辅助描述；默认空字符串；有 error 时不渲染。 */
+    /** 辅助描述；默认空字符串；有 error 时照常显示。 */
     description?: string;
-    /** 错误文案；默认空字符串；非空时优先于 description。 */
+    /** 错误原因；默认空字符串；只给读屏，字段据此标红。 */
     error?: string;
     /** 显式关联控件 id；默认空字符串；为空时生成 nb-field-* id。 */
     for?: string;
@@ -63,7 +63,7 @@ FormField 通过 `NB_FORM_FIELD_CONTEXT_KEY` provide 下列只读计算值给后
 
 - **默认**：按 `label`、slot 和 description 的组合渲染字段结构。
 - **必填**：显示 `*`，并向支持上下文的子控件传递 required。
-- **出错**：显示 error，隐藏 description，`invalid` 为 true，子控件可据此切换错误外观和 aria 属性。
+- **出错**：排版不变（描述照常显示），`invalid` 为 true，子控件据此标红并设 aria 属性；错误原因只在视觉隐藏的元素里。
 - **空标签**：不渲染标题，但根 label 与上下文仍存在。
 - **只读、禁用、加载中、空数据**：容器没有这些专用状态；由默认 slot 的字段控件表达。
 

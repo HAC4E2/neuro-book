@@ -1,0 +1,86 @@
+<script setup lang="ts">
+/**
+ * 宿主页：窗口还没有可挂载的工作台、或已不能继续使用时显示。连接失败与无法打开项目可以原地重试；协议或插件
+ * 版本不一致、启动失败要刷新页面（取得与服务端同一次构建的外壳）才可能恢复，服务端已重启要刷新页面与新的服务端
+ * 进程重新握手，所以都只给刷新。服务端重启、项目关闭后都不自动刷新：页面上以后可能有未保存的内容。
+ * 与项目有关的两页另给“不打开项目”：回到 `/`，窗口不绑定项目。终态页另列出插件交出的未保存正文，可以选中或复制。
+ */
+import {computed, ref} from "vue";
+
+import type {WindowState} from "./host/window";
+
+const props = defineProps<{state: Exclude<WindowState, {status: "ready"}>}>();
+const emit = defineEmits<{retry: []; reload: []}>();
+
+interface PageView {
+    readonly title: string;
+    readonly hint: string;
+    readonly reason: string | null;
+    readonly action: "retry" | "reload" | null;
+    /** 给“不打开项目”的链接（整页加载 `/`）。 */
+    readonly home: boolean;
+}
+
+const view = computed<PageView>(() => {
+    const state = props.state;
+    switch (state.status) {
+        case "idle":
+        case "starting":
+            return {title: "正在连接服务端…", hint: "", reason: null, action: null, home: false};
+        case "connection-failed":
+            return {title: "无法连接服务端", hint: "服务端可能正在重启或网络中断，稍后重试。", reason: state.reason, action: "retry", home: false};
+        case "project-unavailable":
+            return {title: "无法打开项目", hint: "项目可能还没有登记、目录不可用或服务端正在停止。可以重试，或不打开项目。", reason: state.reason, action: "retry", home: true};
+        case "incompatible":
+            return {title: "页面与服务端版本不一致", hint: "刷新页面以加载与服务端匹配的版本。", reason: state.reason, action: "reload", home: false};
+        case "startup-failed":
+            return {title: "工作台启动失败", hint: "刷新页面重试；仍然失败时请查看服务端日志。", reason: state.reason, action: "reload", home: false};
+        case "server-restarted":
+            return {title: "服务端已重启", hint: "刷新页面以重新连接服务端。", reason: state.reason, action: "reload", home: false};
+        case "project-gone":
+            return {title: "项目已关闭", hint: "项目已在服务端关闭（长时间没有窗口使用、意外退出或服务端重启）。刷新页面重新打开它，或不打开项目。", reason: state.reason, action: "reload", home: true};
+        case "closed":
+            return {title: "窗口已关闭", hint: "", reason: null, action: "reload", home: false};
+    }
+});
+const loadingTitle = computed(() => (props.state.status === "starting" ? props.state.projectTitle ?? "" : ""));
+const rescued = computed(() => ("rescued" in props.state ? props.state.rescued ?? [] : []));
+const copied = ref<number | null>(null);
+const copy = async (index: number, text: string): Promise<void> => {
+    try {
+        await navigator.clipboard.writeText(text);
+        copied.value = index;
+    } catch {
+        // 剪贴板不可用（权限、非安全上下文）：正文仍在下面的文本框里，可以手动选中复制。
+        copied.value = null;
+    }
+};
+</script>
+
+<template>
+    <!-- 启动中与 index.html 的静态加载页同一个样子（host-loading.css），失败后重试时不换版式。 -->
+    <main v-if="state.status === 'idle' || state.status === 'starting'" class="nb-host-loading" :data-browser-host-status="state.status" role="status" aria-label="正在启动 NeuroBook">
+        <p class="nb-host-loading__title">{{ loadingTitle }}</p>
+        <div class="nb-host-loading__bar"></div>
+        <p class="nb-host-loading__hint">{{ loadingTitle === "" ? "正在连接服务端" : "正在打开" }}</p>
+    </main>
+    <main v-else class="nb-host-page" :data-browser-host-status="state.status" role="alert">
+        <h1>{{ view.title }}</h1>
+        <p v-if="view.reason" class="nb-host-reason">{{ view.reason }}</p>
+        <p v-if="view.hint">{{ view.hint }}</p>
+        <button v-if="view.action === 'retry'" type="button" @click="emit('retry')">重试</button>
+        <button v-else-if="view.action === 'reload'" type="button" @click="emit('reload')">刷新页面</button>
+        <a v-if="view.home" class="nb-host-home" href="/">不打开项目</a>
+        <section v-if="rescued.length > 0" class="nb-host-rescued" data-host-rescued>
+            <h2>未保存的修改</h2>
+            <p>刷新之前复制下面的正文；刷新后它们不会保留。</p>
+            <div v-for="(item, index) in rescued" :key="index" class="nb-host-rescued-item" data-host-rescued-item>
+                <div class="nb-host-rescued-head">
+                    <code>{{ item.path }}</code>
+                    <button type="button" @click="copy(index, item.text)">{{ copied === index ? "已复制" : "复制正文" }}</button>
+                </div>
+                <textarea readonly :value="item.text" :aria-label="`${item.path} 未保存的正文`" rows="6" />
+            </div>
+        </section>
+    </main>
+</template>

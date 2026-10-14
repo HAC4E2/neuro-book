@@ -1,0 +1,205 @@
+/**
+ * 设置窗口的局部宿主：产品里同一个配置实例（`shared/instance.ts`）、分区注册表、窗口数据来源与窗口模型，配置层换成内存里的
+ * 拥有者（`memory-layers.ts`），page 分区的交付由场景按句柄发布、撤回，入口状态由场景给出。场景之间互不影响，卸载时
+ * 一起释放。Lab 与设置窗口的组件测试共用。
+ */
+
+import {ref} from "vue";
+import type {Component} from "vue";
+
+import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
+import type {ContributionDescriptor, ContributionHandle, EntryState, RevokeReason} from "@notnotype/nb-runtime/plugins";
+
+import type {SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+import {createSettingsInstance} from "nbook/plugins/settings/shared/instance";
+import type {SettingsInstance} from "nbook/plugins/settings/shared/instance";
+import type {DeclaredSetting} from "nbook/plugins/settings/shared/layers";
+import type {SettingsSectionImplementation} from "nbook/plugins/settings/web/contracts";
+import {SettingsSectionRegistry} from "nbook/plugins/settings/web/sections";
+import {createSettingsWindow} from "nbook/plugins/settings/web/settings-window";
+import type {SettingsWindow, SettingsWindowSize} from "nbook/plugins/settings/web/settings-window";
+import {createSettingsWindowSource} from "nbook/plugins/settings/web/window-source";
+import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
+import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
+import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
+
+import {memoryConnection, memoryLayer} from "./memory-layers";
+import type {MemoryLayer} from "./memory-layers";
+
+/** 一层的初始内容。 */
+export interface HostLayer {
+    readonly values?: Readonly<Record<string, unknown>>;
+    readonly invalid?: string;
+    readonly unreachable?: boolean;
+    readonly path?: string;
+}
+
+export interface HostSection {
+    readonly id: string;
+    readonly plugin: string;
+    readonly declaration: SettingsSectionDeclaration;
+}
+
+export interface SettingsHostOptions {
+    /** 已接受的配置项：声明者插件与定义。 */
+    readonly settings: ReadonlyArray<{readonly plugin: string; readonly definition: SettingDefinition<unknown>}>;
+    readonly sections: ReadonlyArray<HostSection>;
+    readonly user?: HostLayer;
+    /** 给了就是绑定作品的窗口。 */
+    readonly project?: HostLayer;
+    readonly projectTitle?: string;
+    readonly locale?: DisplayLocale;
+    readonly notify: (input: NotificationInput) => void;
+    readonly report: (message: string) => void;
+}
+
+/** page 分区所属入口的状态：场景直接给出，交付状态从它与句柄算出。 */
+export type HostEntryStatus = "activating" | "blocked" | "failed" | "available";
+
+export interface SettingsHost {
+    readonly window: SettingsWindow;
+    readonly instance: SettingsInstance;
+    readonly user: MemoryLayer;
+    readonly project: MemoryLayer | null;
+    /** 按插件取配置服务（页面用自己插件的）。 */
+    service(plugin: string): SettingsService;
+    /** 交付一个 page 分区的实现：入口转为可用，句柄发布；已有句柄时先撤回它（入口换了一代）。 */
+    publish(sectionId: string, load: () => Promise<Component>): void;
+    /** 撤回已交付的实现。 */
+    revoke(sectionId: string, reason: RevokeReason): void;
+    /** 分区所属入口的状态（没有句柄时决定交付状态）。 */
+    entry(sectionId: string, status: HostEntryStatus, reason?: string): void;
+    /** “重试”时要做的事；缺省什么都不做、报告失败。 */
+    onRetry(handler: (sectionId: string) => Promise<WindowPluginRetry>): void;
+    dispose(): void;
+}
+
+const consumer = (plugin: string): ConsumerIdentity => ({instanceId: "lab", location: "browser", client: "lab", plugin, entry: "browser", generation: 1, via: null});
+
+export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
+    const declarations = new Map<string, DeclaredSetting>(options.settings.map((setting) => [setting.definition.key, {plugin: setting.plugin, declaration: setting.definition.declaration}]));
+    const connection = memoryConnection();
+    const user = memoryLayer({layer: "user", declarations, connection, ...options.user});
+    const project = options.project === undefined ? null : memoryLayer({layer: "project", declarations, connection, ...options.project});
+    const instance = createSettingsInstance({
+        layers: {user: user.link, ...(project === null ? {} : {project: project.link})},
+        declarations,
+        clock: systemClock,
+        firstSnapshotMs: 3_000,
+        connection: connection.connection,
+        record: (_level, _event, message) => options.report(message),
+    });
+
+    // page 分区所属入口的状态与“重试”。
+    const states = new Map<string, EntryState>();
+    const listeners = new Set<() => void>();
+    let retry: (sectionId: string) => Promise<WindowPluginRetry> = async () => ({status: "failed", reason: "场景没有给重试"});
+    const sectionOf = new Map(options.sections.map((section) => [section.plugin, section.id]));
+    const plugins: WindowPlugins = {
+        entryState: (ref) => states.get(ref.plugin) ?? null,
+        onChange: (listener) => {
+            listeners.add(listener);
+            return () => void listeners.delete(listener);
+        },
+        retry: (ref) => retry(sectionOf.get(ref.plugin) ?? ""),
+    };
+    const changed = (): void => {
+        for (const listener of [...listeners]) listener();
+    };
+
+    const abort = new AbortController();
+    const descriptors: ContributionDescriptor<SettingsSectionDeclaration>[] = options.sections.map((section) => ({capability: "settings.sections", id: section.id, plugin: section.plugin, entry: "browser", location: "browser", declaration: section.declaration}));
+    const registry = new SettingsSectionRegistry(descriptors, plugins, options.report, abort.signal);
+    const receiver = registry.receiver();
+    const handles = new Map<string, ContributionHandle<SettingsSectionDeclaration, SettingsSectionImplementation> & {published: boolean}>();
+    let generation = 0;
+
+    const source = createSettingsWindowSource({
+        sections: registry,
+        declarations,
+        editors: {user: user.editor, ...(project === null ? {} : {project: project.editor})},
+        instance,
+    });
+    const facades = new Map<string, SettingsService>();
+    const service = (plugin: string): SettingsService => {
+        let found = facades.get(plugin);
+        if (found === undefined) {
+            found = instance.facade(consumer(plugin)).service;
+            facades.set(plugin, found);
+        }
+        return found;
+    };
+    const size = ref<SettingsWindowSize | null>(null);
+    const settingsWindow = createSettingsWindow({
+        source,
+        settings: service("nbook.settings"),
+        bound: project !== null,
+        projectTitle: project === null ? null : options.projectTitle ?? null,
+        locale: ref(options.locale ?? "zh-CN"),
+        size: {remembered: size, remember: (next) => {
+            size.value = next;
+        }},
+        notify: options.notify,
+        report: options.report,
+    });
+
+    const setEntry = (plugin: string, status: EntryState["status"], reason: string | null): void => {
+        states.set(plugin, {
+            plugin,
+            entry: "browser",
+            location: "browser",
+            status,
+            generation: null,
+            scopeId: null,
+            failure: status === "failed" ? {status: "failed", plugin, entry: "browser", generation: 1, stage: "activate", reason: "activation-threw", capability: null, contribution: null, key: null, error: {name: "Error", message: reason ?? "激活失败"}, path: []} : null,
+            blocked: status === "blocked" ? {reason: "missing-service", key: reason ?? "", path: []} : null,
+            closeout: null,
+        });
+        changed();
+    };
+
+    const revoke = (sectionId: string, reason: RevokeReason): void => {
+        const handle = handles.get(sectionId);
+        if (handle === undefined) return;
+        handle.published = false;
+        handles.delete(sectionId);
+        receiver.revoke?.(handle, undefined, reason);
+    };
+
+    return {
+        window: settingsWindow,
+        instance,
+        user,
+        project,
+        service,
+        publish: (sectionId, load) => {
+            const section = options.sections.find((candidate) => candidate.id === sectionId);
+            if (section === undefined) throw new Error(`场景没有分区 ${sectionId}`);
+            revoke(sectionId, "scope-closed");
+            setEntry(section.plugin, "available", null);
+            generation += 1;
+            const implementation: SettingsSectionImplementation = {load};
+            const handle = {capability: "settings.sections", id: sectionId, plugin: section.plugin, entry: "browser", generation, kind: "entry" as const, declaration: section.declaration, published: true, implementation: () => {
+                if (!handle.published) throw new Error("句柄已撤回");
+                return implementation;
+            }};
+            handles.set(sectionId, handle);
+            receiver.published?.(handle, undefined);
+        },
+        revoke,
+        entry: (sectionId, status, reason) => {
+            const section = options.sections.find((candidate) => candidate.id === sectionId);
+            if (section !== undefined) setEntry(section.plugin, status, reason ?? null);
+        },
+        onRetry: (handler) => {
+            retry = handler;
+        },
+        dispose: () => {
+            settingsWindow.dispose();
+            abort.abort();
+            instance.close();
+        },
+    };
+}

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拖放与标题栏差距</title>
+<style>
+:root { --bg: #f6f3ec; --card: #fffcf5; --text: #2b2723; --muted: #6f675d; --line: #ddd5c8; --accent: #0a6cff; --tag: #efe7d8; }
+@media (prefers-color-scheme: dark) { :root { --bg: #201d1a; --card: #2d2925; --text: #efe9df; --muted: #a39a8d; --line: #3d3833; --accent: #5aa2ff; --tag: #3a342e; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+main { max-width: 1520px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin: 36px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 22px 0 6px; }
+p, li { max-width: 860px; }
+.meta { color: var(--muted); font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 10px 0; }
+.tag { display: inline-block; background: var(--tag); border-radius: 6px; padding: 0 6px; font-size: 12px; margin-right: 6px; }
+figure { margin: 10px 0 16px; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 4px; }
+table { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+th, td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; vertical-align: top; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>拖放与标题栏：新旧应用差距</h1>
+<p class="meta">t83 调研，2026-10-13。旧应用取 master <code>c3c47d5d</code>（临时 worktree、临时状态目录），新应用取分支 <code>refactor/w00017-runtime-foundation</code> 的 <code>158f999d</code>。两边都新建“雾港”作品、1440×900、nbook 亮色，用同一个 Playwright 脚本做同样的拖动并录下屏幕流。图里都是左旧右新。</p>
+
+<div class="card">
+<b>结论</b>：拖放判定与落点覆盖层两边几乎是同一套（新应用从旧应用移植，nb-ui 的 <code>DropFeedbackOverlay</code> 两边只差 z-index），淡入与换目标时的过渡两边都有，松手后两边都没有动画。新应用“没有落点指示”的主要原因是默认布局里根本没有可放的地方：空着的右栏与面板缺省不显示（Spec 输出 39），拖资源管理器全程只有拖影。其次是空区域不像落点、高亮偏浅。面板里多个容器、容器内分栏、拖到半区并入，新应用都有且与旧应用一致（D6），只是新产品里只有一个视图，体验不到。标题栏旧应用是逐级让位、搜索占满中间，新应用只有三档。多级菜单在旧应用里只出现在窄宽度的收拢菜单。
+</div>
+
+<h2>一、移动视图与容器</h2>
+
+<h3>D1 默认布局里没有可放的地方（最主要）</h3>
+<p><span class="tag">新应用</span>Spec <code>ui/workbench-shell.md</code> 输出 39 规定空着的右栏与面板缺省不显示。产品里只有资源管理器一个视图容器，它所在的活动栏和侧栏是原位，所以默认布局下拖它，整个过程看不到任何落点。<span class="tag">旧应用</span>面板与右栏默认显示，是两块“将视图拖动到此处显示”的空区，拖进去整块高亮并提示“移动容器”。</p>
+<figure><img src="d1-default-layout.webp" alt="左旧右新：拖到面板位置时，旧应用面板整块高亮，新应用没有落点"><figcaption>拖到编辑区下方（面板的位置）。左：旧应用面板整块高亮。右：新应用默认布局，只有拖影。</figcaption></figure>
+<p>可选做法：</p>
+<ul>
+<li><b>a（推荐）</b>：拖动开始时，把隐藏的空右栏与面板临时显示成落点（淡入并让出位置）；放进去就留下，取消或放到别处就收回。保留输出 39 的整洁默认，又有地方可放。“动画”也可以加在这里。</li>
+<li><b>b</b>：撤销输出 39，空右栏与面板默认显示（同旧应用）。</li>
+<li><b>c</b>：编辑区边缘出现“放到右栏”“放到面板”的投放带（类似 VS Code 拖编辑器时的分屏区）。</li>
+</ul>
+
+<h3>D2 空区域不像落点</h3>
+<p>旧应用的空 Part 是整块虚线框、文字居中；新应用只在左上角有一行小灰字，空着的侧栏看起来像没加载好。</p>
+<figure><img src="d2-empty-part.webp" alt="左旧右新：资源管理器移走后左侧空侧栏的样子"><figcaption>把容器拖走之后的空侧栏。左：虚线框、文字居中。右：左上角一行小字。</figcaption></figure>
+<p>建议：空 Part 的占位改为整块虚线框、文字居中。</p>
+
+<h3>D3 高亮偏浅</h3>
+<p>同一个覆盖层，同一种半透明蓝。旧应用的底是灰的，叠上去明显变深（实测像素 227,228,230 → 199,215,233）；新应用 nbook 的卡片是象牙白，叠出来很浅（255,252,245 → 224,236,246）。</p>
+<figure><img src="d3-highlight.webp" alt="左旧右新：拖到右栏时的高亮深浅"><figcaption>拖到右栏。左：高亮深。右：高亮浅。</figcaption></figure>
+<p>建议：nbook 主题下把落点高亮加深一档（覆盖层的颜色走主题变量，只改 nbook 的值），或加粗区域描边。</p>
+
+<h3>D4 放下与换目标的动画：两边一样</h3>
+<p>覆盖层淡入、换目标时区域与提示的过渡两边相同（同一个组件）。松手后两边都是直接换成新布局；旧应用跟手的拖影也关掉了落下动画（<code>drop-animation</code> 为 null）。所以在新应用里看不到动画，是因为默认布局下落点出不来（D1）。</p>
+<figure><img src="d4-drop-frames.webp" alt="松手前后的帧：两边都没有过渡"><figcaption>拖到右栏松手前后的帧（相对松手的毫秒数）。上旧下新，都是一帧就换好。</figcaption></figure>
+<p>要不要新增“放下后布局过渡”（部件滑入、让位）由你定：旧应用没有，属于新增。</p>
+
+<h3>D5（小）空右栏顶部</h3>
+<p>旧应用把整块空右栏当落点；新应用顶部是标签带，画插入线，提示药丸压在线上。两种都能放，可以不改。</p>
+<figure><img src="d5-aux-top.webp" alt="左旧右新：拖到空右栏顶部"><figcaption>拖到空右栏顶部。</figcaption></figure>
+
+<h3>D6 面板里的分栏：两边都有，新产品里看不到</h3>
+<p>面板的标签带是 Switcher，每个标签是一个 ViewContainer；容器里有多个视图时横排成多栏，每栏有自己的标题、收起箭头与菜单。把视图拖到某一栏的前半或后半，高亮那一半，松手后插成新的一栏，命中的那栏让出一半（Spec 输出 16、20、21）。</p>
+<p>对照方式：旧应用用 Lab 的“多容器单选”场景（面板容器 A、B 两栏，右栏两个视图上下分栏）；新应用用 e2e 的测试插件起了一个带六个样例视图的服务（侧栏三个、右栏一个、面板两个标签）。新产品本身只有“资源管理器”一个视图，所以平常拖不出分栏。</p>
+<figure><img src="d6-panel-split.webp" alt="左旧右新：拖到面板一栏的右半时的高亮，与松手后的分栏"><figcaption>上：拖到面板一栏的右半，那一半高亮。下：松手后的分栏。左：旧应用 Lab，视图 C 插在 A 与 B 之间成三栏。右：新应用，样例乙并进样例戊成两栏。</figcaption></figure>
+<figure><img src="d6-split-overview.webp" alt="两边拖动前、拖到左半、拖到右半的整页"><figcaption>整页：拖动前、拖到左半、拖到右半。左旧（Lab 是暗色）右新。</figcaption></figure>
+<p>结论：分栏、半区预览、标签带插入线、右栏上下分栏的落点两边都有，行为一致。差别只在新产品里没有第二个视图，体验不到；这和 D1 是同一个原因，等以后有更多视图（大纲、Agent 等）进来就会出现。</p>
+
+<h2>二、标题栏宽度自适应</h2>
+<figure><img src="t1-titlebar-widths.webp" alt="14 个宽度下的标题栏，每个宽度上旧下新"><figcaption>从宽往窄拖窗口时的标题栏，每个宽度上旧下新。</figcaption></figure>
+<table>
+<tr><th>宽度</th><th>旧应用</th><th>新应用</th></tr>
+<tr><td>≥ 960</td><td>品牌字、完整菜单、书架、项目</td><td>横排标志、项目、完整菜单</td></tr>
+<tr><td>860–900</td><td>先收品牌字（只留图标），菜单仍完整</td><td>菜单收成“≡ 菜单”，横排标志保留</td></tr>
+<tr><td>≤ 800（840 展开，有回差）</td><td>菜单收成 ≡ 图标</td><td>同上</td></tr>
+<tr><td>600</td><td>收快捷键提示与侧栏、面板两个布局按钮（Agent 留着）</td><td>不变</td></tr>
+<tr><td>&lt; 600</td><td>500 项目名只留图标；390 收书架与项目切换；搜索始终是可输入的长条</td><td>标志换图形；菜单只留图标；搜索变图标按钮；三个布局按钮全没</td></tr>
+<tr><td>搜索</td><td>占满中间剩余（1440 时约 440px）</td><td>最宽 360px，居中</td></tr>
+</table>
+<p>差距：新应用宁可先收菜单也保留完整标志；搜索不随宽度伸缩；600 以下一次收掉太多（布局按钮、搜索输入）；档位没有回差，窗口宽在 960 附近来回拖会跳。</p>
+<p>建议：按优先级逐级让位：横排标志换成图形 → 菜单收成 ≡ → 收快捷键提示 → 收布局按钮 → 项目名只留图标；搜索取中间的剩余宽度（设上限，例如 560px）；每档加回差。</p>
+
+<h2>三、多级菜单</h2>
+<p>旧应用四个顶层菜单本身是平的（文件 2 项、编辑 6 项、查看 1 项、帮助 2 项）。多级只出现在窄宽度的 ≡ 收拢菜单里：四组各是一个子菜单，悬停展开。新应用的收拢菜单把四组摊成一整列 36 行（组名做小标题），浮层约 240px 高，要滚动才找得到“视图”的项。</p>
+<figure><img src="m1-compact-menu.webp" alt="左旧右新：窄宽度下的收拢菜单"><figcaption>760px 宽时打开收拢菜单。左：四组子菜单。右：一整列要滚动。</figcaption></figure>
+<ul>
+<li><b>M1</b>：收拢菜单改成按组的子菜单。nb-ui 的 <code>Menubar</code> 与 <code>Dropdown</code> 已经支持 <code>children</code> 级联，现在的菜单模型（<code>titlebar/menu-model.ts</code>）没用上。</li>
+<li><b>M2（顺带，可选）</b>：新应用“视图”里的“面板位置”“切换主题”“切换明暗”“切换界面语言”适合做成带单选标记的子菜单。旧应用没有这些项。</li>
+</ul>
+
+<h2>要你定的</h2>
+<ol>
+<li>D1 选 a、b 还是 c（推荐 a）。</li>
+<li>D2 空区域改成虚线框、文字居中（推荐做）。</li>
+<li>D3 nbook 下加深落点高亮（推荐做）。</li>
+<li>D4 是否新增放下后的布局过渡（旧应用没有；推荐先不做，D1 做完再看）。</li>
+<li>标题栏的让位顺序与“搜索占满中间”（推荐按上面的顺序，搜索上限 560px）。</li>
+<li>M1 做；M2 要不要顺带做。</li>
+</ol>
+</main>
+</body>
+</html>

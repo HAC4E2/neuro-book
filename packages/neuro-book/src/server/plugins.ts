@@ -1,0 +1,82 @@
+/**
+ * 后端插件装配（docs/adr/0026-plugin-definitions-as-constants.md）：清单里每个有后端入口的插件，在这里对应一份
+ * 定义。普通插件的定义是常量，宿主的东西经宿主能力取得；只有宿主适配器（诊断、HTTP）是工厂，拿宿主上下文
+ * （诊断存储、HTTP 准入、启动参数、本进程加载的清单）产出定义。
+ */
+
+import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+
+import {definitionAt, pluginsAt} from "nbook/manifest";
+import type {PluginDescriptor} from "nbook/manifest";
+import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
+import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
+import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
+import {createHttpPlugin} from "nbook/plugins/http/backend/plugin";
+import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
+import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
+import {statePlugin} from "nbook/plugins/state/shared/plugin";
+import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
+import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
+
+import {createBrowserBootstrapRoute} from "./browser-bootstrap";
+import type {ServerConfig} from "./config";
+
+export interface ServerPluginContext {
+    readonly config: ServerConfig;
+    /** 本进程加载的插件：产品清单，开发入口另加开发清单。引导接口按它列出浏览器插件。 */
+    readonly manifest: ReadonlyArray<PluginDescriptor>;
+    readonly store: DiagnosticsStore;
+    readonly admission: HttpAdmission;
+    readonly onListening: (url: string) => void;
+    /** 内核 RPC 端口（已在监听）；引导接口据此告知浏览器。 */
+    readonly rpc: BrowserBootstrap["rpc"];
+    /** 按项目引用取显示名，引导接口附给窗口；项目管理器还没建好、没有登记时为 null。 */
+    readonly projectTitle: (reference: string) => Promise<string | null>;
+}
+
+export type ServerHostPluginFactory = (context: ServerPluginContext) => PluginDefinition;
+
+/** 服务端的宿主适配器只有这两个；表的键收窄到它们，普通插件进不了这张表。 */
+export type ServerHostPluginId = "nbook.diagnostics" | "nbook.http";
+
+/** 普通插件：只能放定义常量。 */
+export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
+    "nbook.state": statePlugin,
+    "nbook.commands": commandsPlugin,
+    "nbook.projects": projectsBackendPlugin,
+    "nbook.settings": settingsBackendPlugin,
+    "nbook.storage": storageBackendPlugin,
+    "nbook.files": filesBackendPlugin,
+};
+
+/**
+ * 宿主适配器：诊断要在内核启动之前就能记录，HTTP 的准入与监听结果参与宿主就绪和停机前的排空，所以随宿主装配、
+ * 配置随工厂传入（ADR 0026 决策第 5 条）。新增一项要说明同样的启动或停机依赖。
+ */
+export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPluginFactory>> = {
+    "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
+    "nbook.http": (context) => createHttpPlugin({
+        admission: context.admission,
+        host: context.config.host,
+        port: context.config.port,
+        onListening: context.onListening,
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.rpc, context.projectTitle)],
+        staticRoot: context.config.webRoot,
+    }),
+};
+
+/** 清单里一个有后端入口的插件对应的定义（还没并上描述的顶层贡献）；两张表都没有时为 undefined。 */
+export function serverPlugin(id: string, context: ServerPluginContext): PluginDefinition | undefined {
+    return isServerHostPlugin(id) ? serverHostPlugins[id](context) : serverPluginDefinitions[id];
+}
+
+function isServerHostPlugin(id: string): id is ServerHostPluginId {
+    return Object.hasOwn(serverHostPlugins, id);
+}
+
+/** 按清单装配服务端实例的插件：有后端入口的，加上只有顶层声明式贡献的；有后端入口而两张表都没有时直接失败。 */
+export function manifestServerPlugins(context: ServerPluginContext): PluginDefinition[] {
+    return pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
+}

@@ -19,7 +19,7 @@ Issue 承载重大或长期交付的公开目标、总体范围与验收；Propo
 
 一个 Work 引用 `0..1` 个 Issue 并直接包含 `1..N` 个 Task；一个 Task 只属于其目录父 Work。Proposal 独立存在，可被多个 Work 引用，不维护反向索引。Task 快照保存当前范围、授权与证据链接，不设置正式角色或机器状态门禁。
 
-只按当前已知结果创建 Task，不预建依赖未知结果的链。主 Agent 可以自行实现或委派独立切片；产品决定、风险接受和受限动作仍向开发者请求。文件足以恢复时不等待另一角色在线。
+按当前已知结果创建 Task；开发者确认要做、还没开工的后续工作可以先建 Task 防止遗忘，开工时再修订（[Work 规则](../../.agents/works/README.md#创建与执行)），不为依赖未知结果的设想预建 Task 链。主 Agent 可以自行实现或委派独立切片；产品决定、风险接受和受限动作仍向开发者请求。文件足以恢复时不等待另一角色在线。
 
 ## Worktree 与分支
 
@@ -30,6 +30,8 @@ Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主
 - 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
 - Task 有依赖时顺序推进；已知独立任务在 owner、文件和合同不冲突时并行，不为并行而拆 Task。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
+- 用 `git rm`、`git mv` 改过暂存区后，提交别的片之前先用 `git diff --cached --stat` 核对暂存区只有本片的文件。
+- 删除合进非 master 分支的本地分支时，先用 `git merge-base --is-ancestor <分支> <目标分支>` 确认已包含，再用 `git branch -D`：`-d` 只和该分支的上游比较，没有上游时和执行命令处检出的分支比较，在主工作区执行就是拿 master 比。
 - push和PR属于远端写入，分别获授权后执行。
 
 ## 敏感本地历史与生成物
@@ -72,4 +74,4 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 
 ## 发布授权
 
-外部贡献者默认不改 `RELEASE.md`。维护者在发布流程中汇总已合并 PR；完整发布门禁见 [`../../scripts/release/AGENTS.md`](../../scripts/release/AGENTS.md)。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+当前分支没有发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。

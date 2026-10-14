@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="light dark" />
+        <link rel="icon" href="data:," />
+        <title>NeuroBook（e2e 测试外壳）</title>
+        <link rel="stylesheet" href="../host-loading.css" />
+        <!-- 加载页的明暗提示（src/web/host/appearance-hint.ts 记下）：第一帧前取上一次的明暗与颜色；读不到或不合法时按系统明暗。 -->
+        <script>
+            (function () {
+                try {
+                    var hint = JSON.parse(localStorage.getItem("nbook.host-appearance") || "null");
+                    if (hint === null || (hint.appearance !== "light" && hint.appearance !== "dark")) return;
+                    var color = /^(#[0-9a-f]{3,8}|rgba?\([0-9., /%]+\))$/i;
+                    var names = ["background", "text", "muted", "accent"];
+                    // 有一项颜色不合格就整条不认：只用一部分会让底色跟系统、文字跟记录，明暗混在一起。
+                    if (!names.every(function (name) { return typeof hint[name] === "string" && color.test(hint[name]); })) return;
+                    var root = document.documentElement;
+                    root.setAttribute("data-host-appearance", hint.appearance);
+                    root.style.colorScheme = hint.appearance;
+                    names.forEach(function (name) {
+                        root.style.setProperty("--host-loading-" + name, hint[name]);
+                    });
+                } catch (error) {
+                    console.warn("[nbook] 读不出加载页的明暗提示", error);
+                }
+            })();
+        </script>
+    </head>
+    <body>
+        <div id="app">
+            <!-- 加载页：书名与提示由前端入口在引导给出书名后写进来（boot.ts），进度条一直在正中。 -->
+            <main class="nb-host-loading" data-browser-host-status="loading" role="status" aria-label="正在启动 NeuroBook">
+                <p class="nb-host-loading__title" data-host-loading-title></p>
+                <div class="nb-host-loading__bar"></div>
+                <p class="nb-host-loading__hint" data-host-loading-hint></p>
+            </main>
+        </div>
+        <script type="module" src="./e2e-main.ts"></script>
+    </body>
+</html>

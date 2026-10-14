@@ -22,6 +22,17 @@
  * Apple 没有公开 blur 半径与折射率，下面的取值是视觉近似。
  */
 
+/*
+ * 字标所用的 Fraunces（可变字体：opsz 9–144、wght 100–900、SOFT、WONK），裁成拉丁子集随主题带着，许可见 assets/fonts/OFL-Fraunces.txt。
+ * 它没有汉字：栈里排在中文宋体前面，拉丁字母与数字取它，汉字自然落到后面的宋体。
+ */
+@font-face {
+    font-family: "Fraunces";
+    src: url("./assets/fonts/fraunces-latin.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+}
+
 :root[data-nb-theme="nbook"] {
     /* ---- 排版：中文优先 -------------------------------------------------- */
     /*
@@ -29,8 +40,12 @@
      * Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境——三条合起来才算兜住三大平台。
      */
     --font-ui: -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
-    /* 稿面用宋。界面用黑体、正文用宋体是中文出版的默认分工，也是「器械 / 稿面」两种材质的字面证据 */
-    --font-display: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+    /*
+     * 稿面用宋。界面用黑体、正文用宋体是中文出版的默认分工，也是「器械 / 稿面」两种材质的字面证据。
+     * 拉丁取品牌字标的 Fraunces（上面的 @font-face）；中文宋体按平台列全：Noto Serif CJK 在 Linux 常以 HK、TC、JP 的名字装，
+     * 只写 SC 会一个都命中不了而退成黑体。
+     */
+    --font-display: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK HK", "Noto Serif CJK TC", "Noto Serif CJK JP", "Songti SC", "STSong", "FZShuSong-Z01", "SimSun", serif;
     --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
     /* 中文没有斜体：italic 是把字形剪切变形，看起来像渲染故障，所以强调换字面不换字形 */
     --font-emphasis: KaiTi, STKaiti, "楷体", "Kaiti SC", "Noto Serif SC", serif;
@@ -79,7 +94,8 @@
     --radius-control: 10px;
     --radius-control-lg: var(--radius-pill);
     --radius-panel: 20px;
-    --radius-menu: 12px;
+    /* 菜单与触发它的按钮（控件圆角的 0.75，约 7.5px）是一对：12px 时浮层比按钮圆一大圈，看着不是一家（t79 第五轮稿选了 8px） */
+    --radius-menu: 8px;
     --radius-pill: 999px;
     /*
      * 对话框比菜单大一个数量级，圆角单列一档。26px 是 Apple 官方 macOS 27 UI Kit 里
@@ -177,14 +193,14 @@
     --chrome-surface: var(--sidebar-surface);
     --chrome-seam: 1px 0 0 var(--divider);
 
-    /* ---- 角色映射：冷暖分家就在这一层落地 -------------------------------- */
+    /* ---- 角色映射：器械与纸在这一层分开 ---------------------------------- */
     /*
-     * 一条规矩管住整层：**器械一律从 --bg-sidebar 派生（冷），只有内容面板从 --bg-panel 派生（暖）**。
+     * 一条规矩管住整层：**器械一律从 --bg-sidebar 派生，只有内容面板从 --bg-panel 派生**。
      *
      * 这是「玻璃是器械、纸不是玻璃」从论点变成取值的地方，也是与 macos 唯一一处结构性差异——
      * macos 的工具栏 / 浮层 / 按钮都从 --bg-panel 取，因为它整套通体冷中性，取哪个都一样。
-     * nbook 的 --bg-panel 是暖的，再让 chrome 从它取，暖色就会糊满全屏，冷暖对比归零。
-     * （第一版正是这么写的，实测出来和 macOS 看不出区别。）
+     * nbook 的器械比纸暗一档（配色里 --bg-sidebar 低于 --bg-panel），再让 chrome 从 --bg-panel 取，
+     * 器械与纸就没有了分层。
      */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 26%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 30%, transparent);
@@ -270,6 +286,34 @@
         0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent),
         0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent),
         0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent);
+    /* 菜单比一般浮层贴近触发它的按钮，投影收小、只留一圈细边和一层近投影（t79 第五轮稿 M1），明暗共用 */
+    --elevation-menu:
+        0 0 0 0.5px color-mix(in srgb, var(--shadow-color) 12%, transparent),
+        0 4px 14px -2px color-mix(in srgb, var(--shadow-color) 18%, transparent);
+
+    /*
+     * 工作台外壳是卡片（新应用 docs/specs/ui/workbench-shell.md 输出 38，t79 第七轮稿 K2）：部件是窗体底上的圆角卡片，
+     * 标题栏与状态栏直接落在窗体底上、不画线；卡片之间的缝本身就是边界，网格接缝不画；活动栏与侧栏相连处画一条短线。
+     * 卡片不带外框，浅色只靠一层很淡的投影，深色换成一圈淡外框（见暗色块）。不写这些变量的主题（macos）是平铺。
+     */
+    --shell-gap: 4px;
+    --shell-ground: var(--bg-main);
+    --shell-card-radius: 12px;
+    --shell-card-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
+    --shell-chrome-surface: transparent;
+    --shell-chrome-line: transparent;
+    --shell-seam: transparent;
+    --shell-join-divider: var(--divider);
+    /* 卡片里容器分栏之间的线：两端各缩进 10px 的开放式分割线，与活动栏、侧栏之间那条短线同一种。 */
+    --shell-pane-divider: var(--divider);
+    --shell-pane-divider-inset: 10px;
+    /*
+     * 拖动边界的悬停线（t83 第三轮稿 R3-1）：沿用缺省的 3px 强调色实线、不发光，自由端缩进 16px（缝加卡片圆角），
+     * 正好不碰卡片的圆角，碰到另一条亮着的线的一端照旧连着。落点高亮比缺省深：卡片底色偏暖，12% 看不清。
+     */
+    --sash-line-inset: 16px;
+    --drop-area-fill: color-mix(in srgb, var(--accent-main) 20%, transparent);
+    --drop-area-border: var(--accent-main);
     /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。
@@ -337,6 +381,8 @@
  * 并且排在它后面。文件末尾那三个块就是这么写的，理由见那里。
  */
 :root[data-nb-theme="nbook"][data-nb-appearance="dark"] {
+    /* 暗色里淡投影看不见，卡片边缘改用一圈淡外框 */
+    --shell-card-shadow: 0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent);
     /* 浮层现在消费单独的 8px 纯 blur；完整的 14px 折射强档及其纯 blur fallback 只给大容器。
        暗色仍压暗而不是提亮，避免背后的颜色被一层灰板吞掉。 */
     --glass-blur: blur(8px) saturate(160%) brightness(0.62);

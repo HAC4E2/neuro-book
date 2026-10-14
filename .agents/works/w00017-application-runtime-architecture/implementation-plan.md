@@ -6,9 +6,9 @@
 
 第一、二片已按 t09、t13 的证据完成并将七项 Spec 晋升 `implemented`；第三片 Lab 在 t14 收回常驻产品命令宿主、隔离 `/lab` 文档启动并保留命令场景局部宿主。Files 已按 t16–t24 实施，当前 [t25](tasks/t25-files-contract-closure/README.md) 已逐条复核并完成本机修复验收；原子 no-replace move 在 Windows 单机抢占目标时保住源与目标，完整 Windows 产品镜像构建通过。Linux/macOS、其它文件系统与跨机器操作仍未闭合，两项 Files Spec 保持 `planned`。Settings / World/Plot 尚未实施。下面的模块与烟雾测试清单保留整体路径，不以局部运行证据代替完整验收。
 
-2026-09-26 开发者确认 Files 首版 F1–F9，批准首版实施计划并要求逐步执行、逐步验证；2026-09-27 又明确批准合同逐条复核、收口。第一版[独立设计](../../../packages/neuro-book/docs/proposals/files-explorer.md)与两项 `planned` 合同是本轮依据；[第二版](../../../packages/neuro-book/docs/proposals/files-explorer-v2.md)仍为 `draft`，不改变切片顺序，也不纳入本轮。仅允许既定本地可逆开发及自建 Temp/隔离服务验证，提交与远端动作仍需分别授权。
+2026-09-26 开发者确认 Files 首版 F1–F9，批准首版实施计划并要求逐步执行、逐步验证；2026-09-27 又明确批准合同逐条复核、收口。第一版[独立设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)与两项 `planned` 合同是本轮依据；[第二版](../../../packages/neuro-book-legacy/docs/proposals/files-explorer-v2.md)仍为 `draft`，不改变切片顺序，也不纳入本轮。仅允许既定本地可逆开发及自建 Temp/隔离服务验证，提交与远端动作仍需分别授权。
 
-2026-09-28 开发者重做需求并接受 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。此后的推进路线（地基 → Files 竖切 → 扩展点 → 文生图验收）以[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md)为准，该设计已于 2026-09-30 接受；下文 Settings、World/Plot 的功能切片不再是既定顺序，第一、二片与 Lab、Files 的记录保留为已执行的实施路径。
+2026-09-28 开发者重做需求并接受 [ADR 0022](../../../docs/adr/0022-extensible-platform-and-plugin-trust.md)。此后的推进路线（地基 → Files 竖切 → 扩展点 → 文生图验收）以[可扩展应用平台设计](../../../docs/proposals/extensible-application-platform.md)为准，该设计已于 2026-09-30 接受；下文 Settings、World/Plot 的功能切片不再是既定顺序，第一、二片与 Lab、Files 的记录保留为已执行的实施路径。
 
 ## 分段原则
 
@@ -120,11 +120,37 @@
 
 ### Files
 
-入口条件已满足：Lab 边界已有专项验证与开发者体验反馈，Files 首版 F1–F9 已确认。设计见 [t15](tasks/t15-files-explorer-design/README.md)，实施及运行证据见 t16–t24，合同逐条复核与本机修复验收见 [t25](tasks/t25-files-contract-closure/README.md)。[workspace.files](../../../docs/specs/workspace/files.md) 与 [workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md) 仍为 `planned`：Windows 单机 no-replace 提交及完整产品镜像构建已验，Linux/macOS、其它文件系统及跨机器基础操作尚未闭合。身份/配置/Project 接入见[产品装配设计](../../../packages/neuro-book/docs/proposals/application-runtime-product-integration.md)，不先水平迁移整个产品。
+入口条件已满足：Lab 边界已有专项验证与开发者体验反馈，Files 首版 F1–F9 已确认。设计见 [t15](tasks/t15-files-explorer-design/README.md)，实施及运行证据见 t16–t24，合同逐条复核与本机修复验收见 [t25](tasks/t25-files-contract-closure/README.md)。[workspace.files](../../../docs/specs/workspace/files.md) 与 [workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md) 仍为 `planned`：Windows 单机 no-replace 提交及完整产品镜像构建已验，Linux/macOS、其它文件系统及跨机器基础操作尚未闭合。身份/配置/Project 接入见[产品装配设计](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)，不先水平迁移整个产品。
 
 实际接线覆盖 `server/runtime/product-startup.ts` / shutdown、唯一 Project owner `server/runtime/product-project.ts`、`server/workspace-files/`、`server/api/workspace-files/`、Storage/命令与 Workbench Host，以及 `app/stores/novel-ide.ts` 的文件/正文职责、`WorkspaceFilePanel`、EditorViewHost 与实际编辑器。资源管理器领域明细/模板耦合已退出，独立领域功能和用户数据不属删除范围。每条实现链必须迁移所有相关调用者和 owner，不能用 dynamic import 或兼容壳隐藏循环依赖。
 
 退出证据以两项 Files Spec 为准：主页面双模式、基础/多选操作及打开编辑保存；同条件冷开/热切换测量；冲突/部分失败/dirty/旧代次与多窗口；同一基础面板 Lab 场景及跨机器基础操作。HTTP + SSE 先沿用，协议替换不作为提速前提；复用现有索引与正文缓冲，不放宽路径/权限/History 保护。t16 冻结预算，t24 热切换与资源释放已实测；t25 验证本机多选拖动、同目录复制、批量删除、结果未知及事件断开。路径 move 的 no-replace 提交已在 Windows 本机验证文件/目录同名抢占，原语不支持则失败关闭；完整 Windows 产品镜像构建通过。Linux/macOS 和其它文件系统尚未实测，跨机器仍缺第二隔离宿主；未因局部通过晋升 Spec。
+
+### 阶段 2：Files 竖切（项目文件底座）
+
+依据：[项目文件底座与 Files 竖切](../../../docs/proposals/project-file-foundation.md)（2026-10-02 `accepted`，需求讨论见 [t41](tasks/t41-files-vertical-design/README.md)）；行为合同为 [workspace.resources](../../../docs/specs/workspace/resources.md)、[workspace.folder-kinds](../../../docs/specs/workspace/folder-kinds.md)、[workspace.files](../../../docs/specs/workspace/files.md) 与 [workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md)（均为 `planned`）。退出条件：上述合同的验收场景通过，资源管理器的性能标准在生产构建、本机浏览器与桌面版上达标，首版 F1–F9 不回退，History 作为内置插件只依赖底座事件独立工作。
+
+切片顺序（按真实结果逐个开 Task，不预建）：
+
+1. **测量与调研**（[t42](tasks/t42-files-baseline-research/README.md)）：在约 3000 个文件的隔离样本上，拆解打开项目与切换文件的耗时；针对性调研 VS Code 的文件系统提供者能力、资源管理器按需展开、长列表虚拟化与文件监视。不改产品行为。
+2. **资源层底座**：文件服务、提供者框架与能力声明、`project://`、`user://`、`tmp://`、`local://`、`docs://` 提供者、写入来源与变更事件；`nbook.platform-files` 进入产品清单；`nbook.project` 浏览器部分（本窗口当前 Project 与切换事件）。
+3. **三类文件夹与资源管理器按需加载**：XML 清单（新增解析库依赖）、内容文件夹、渲染贡献点、按需列目录与虚拟滚动、两个根。**依赖**：本片上线后，资源管理器只认后缀与清单。现有项目要保留展示名与顺序，必须把 frontmatter 展示信息迁入清单、目录加后缀（`lorebook/` → `lorebook.content/`）；而目录一改名，内置资产与代码中写死的旧路径（`lorebook/` 在内置资产中 237 处）必须同时替换，否则 Agent 找不到资料库。因此“路径迁移”这项后续重构与本片不能拆开。开工前请开发者二选一：把项目迁移脚本与内置资产路径替换并入本片；或本片先上线、现有项目在过渡期只显示真实文件名，等路径迁移时再恢复展示名。
+4. **打开与切换**：按第 1 片的测量结果优化，乐观切换与加载状态、控件与模型复用，外部修改同步到已打开编辑器。
+5. **Files 插件化**：合并两个 Files 插件为 `nbook.files`，读写与事件走插件通道，贡献视图与命令、`explorer/context` 菜单位置、`nbook.editor.open`。
+6. **History 插件**：`nbook.history` 订阅底座变更事件，复用 `@notnotype/nb-history`。
+7. **Agent 文件工具**：读、写、列出、glob、grep 改为资源地址入参，bash 只接受真实路径方案、在 `local://` 运行。
+
+不在阶段 2 主线（记为后续重构）：剧情模型改造与 `chapter://`、`plot://` 提供者；`lorebook/`、`manuscript/` 等内置资产路径的批量替换；用户资产目录布局；预读策略。
+
+#### 2026-10-03 暂停：改为并排新建应用
+
+第 1 片（t42）完成后，开发者决定不再在 `packages/neuro-book` 上继续 Files 竖切，上面第 2–7 片按原路径不再执行：
+
+- 在同一仓库并排新建一个干净的应用包，从零构建；`packages/neuro-book` 保持只读，作为原始代码与行为的参照，只接受 master 同步。w00017 成为长期分支，暂不合入 master。
+- 新应用先只有**运行时底座 + workbench 底座**；Files 竖切在这个壳子上验证：工作台、一个文件资源管理器视图、Lab 中已有的编辑器组件。账户与登录作为可选的内置插件；Lab 作为只在开发模式加载的插件。现有其它功能暂不迁移，以后逐个作为插件迁回。
+- 保留为新应用的目标与依据：[项目文件底座](../../../docs/proposals/project-file-foundation.md)设计稿与四项 `planned` 合同（`workspace.resources`、`workspace.folder-kinds`、`workspace.files`、`workbench.files-explorer`）；[t42](tasks/t42-files-baseline-research/README.md) 的测量结论与脚本。t42 发现的 store 深度订阅不在旧包修复，作为新应用资源管理器与编辑器状态的设计约束：大块状态不进入被深度监听或整体持久化的全局 store。
+- 原第 6 片（History 插件）与第 7 片（Agent 文件工具）不在壳子范围，移出本次竖切。
+- 新应用的技术选型、包划分、仓库整理清单与推进顺序见 [NeuroBook v2：并排重建应用](../../../docs/proposals/neuro-book-v2-rebuild.md)（2026-10-03 `accepted`）：去掉 Nuxt，前端 Vue + Vite，后端 Bun + Hono，校验统一 TypeBox；旧包改名 `neuro-book-legacy`，新应用占用原路径 `packages/neuro-book`。推进顺序：仓库整理（[t43](tasks/t43-repository-reorganization/README.md)）→ 内核包 → 应用骨架 → workbench 底座 → Files 竖切；Files 竖切的资源层在新应用上做 Opus 与 omp 的对照实验。
 
 ### Settings
 

@@ -17,7 +17,7 @@
 - 点击按原生按钮语义触发；`type` 决定它是普通按钮、提交按钮还是重置按钮。
 - `variant` 只改变材质与语义颜色：`primary` 为主操作，`secondary` 为次操作，`subtle` 为低强调操作，`danger` 为危险操作，`ghost` 为透明背景操作。
 - `loading` 显示旋转加载图标，并把按钮置为原生 disabled；加载时不显示 `iconClass` 图标，也不接受点击。加载时根节点带 `aria-busy="true"`。
-- `disabled` 或 `loading` 时显示禁用样式、不可聚焦操作；两者都为假时保留可见焦点环和按下反馈。
+- `disabled` 或 `loading` 时显示禁用样式、不可聚焦操作；两者都为假时保留可见焦点环和按下反馈。焦点缺省画外扩光晕；`focusRing="inset"` 时画内嵌焦点线，给填满所在的条、四周没有余地的按钮用（例如状态栏条目）。
 - 键盘行为由原生 `<button>` 提供：聚焦后可用 Enter 或 Space 触发。组件出现或消失不主动移动焦点。
 
 ## 数据
@@ -41,6 +41,8 @@ type ButtonProps = {
     iconClass?: string;
     /** 原生 button type；默认 "button" */
     type?: "button" | "submit" | "reset";
+    /** 焦点画法；默认 "outer"（外扩光晕），"inset" 画内嵌焦点线 */
+    focusRing?: "outer" | "inset";
 };
 
 type ButtonEmits = {};

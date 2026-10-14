@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal, env:timer]
+标签: [state:local, env:portal, env:global, env:timer]
 ---
 
 # AlertDialog
@@ -10,7 +10,7 @@
 
 内容以 Portal 放在页面上方，最大宽度为 420px，居中显示并带全屏遮罩。标题始终显示；描述仅在 `description` 非空或提供 `description` 插槽时显示。底部固定为取消、确认两颗按钮。`tone="danger"` 时确认按钮使用危险样式，`warning` 与 `accent` 使用主按钮样式。
 
-可选 `trigger` 插槽作为触发器。点击取消发出 `cancel`，点击确认发出 `confirm`；两者的关闭与受控状态同步由 Reka Alert Dialog 管理，关闭后发出 `update:open`。没有触发器时不执行 Reka 的自动焦点归还。组件不提供 outside-click 或 Escape 关闭流程。
+可选 `trigger` 插槽作为触发器。点击取消发出 `cancel`，点击确认发出 `confirm`；两者的关闭与受控状态同步由 Reka Alert Dialog 管理，`update:open(false)` 先于 `confirm`、`cancel` 发出。宿主不要在关闭事件里清掉确认要用的目标（例如待删除的条目），等 `confirm` 或 `cancel` 处理完再清，否则确认分支拿到的是空目标。没有触发器时不执行 Reka 的自动焦点归还。组件不提供 outside-click 或 Escape 关闭流程。
 
 ## 数据
 
@@ -67,5 +67,6 @@ Reka UI 负责 Alert Dialog 的模态语义、焦点管理、Portal、受控/非
 
 ## 隐藏通道理由
 
-- `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop。目标位置与目标缺失时的表现由 Reka 决定，当前组件及测试未核实其细节。
+- `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
+- `env:global`：与 `Dialog` 共用全应用一份的已打开模态列表，按打开顺序叠放（后打开的在上面）；它只做叠放协调、不承载数据，理由见 [`Dialog.md`](Dialog.md) 的隐藏通道理由。
 - `env:timer`：`closed` 需等 Reka 的卸载清理结束后才上报；关闭交接使用一次零延迟定时器，并在重开或卸载时作废，避免宿主过早激活下一交互层。

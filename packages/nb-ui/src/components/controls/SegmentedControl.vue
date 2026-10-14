@@ -60,6 +60,23 @@ const selectedIndex = computed(() => props.options.findIndex((opt) => opt.value 
 
 const enabledOptions = computed(() => props.options.filter((opt) => !opt.disabled));
 
+/**
+ * 段宽规则：各段等宽，宽度随内容时取最宽一段的自然宽度。指示块按「内容宽 ÷ 段数」定宽、按整段平移，
+ * 只有段段等宽它才对得上。
+ *
+ * 不用 flex 等分：`flex: 1 1 0%` 的组宽度随内容时是各段自然宽度之和，再平分给每段，最长的那段必然放不下被截断。
+ * 网格的 `1fr` 列在组宽度随内容时取各段里最大的自然宽度，给了宽度（`fullWidth` 或宿主定宽）时平分那个宽度；
+ * 列的下限写 0：宽度不够时各段一起收窄、截断标签，组不撑出父级。
+ * 指示块是绝对定位，不占网格单元；网格里绝对定位子元素的静态位置在内边距外沿（flex 里在内容框），所以它的
+ * `left` 显式写成与内边距相同的 2px。`wrap` 要换行，网格做不到，仍用 flex。
+ */
+const segmentLayoutClass = computed(() => {
+    if (props.wrap) {
+        return [props.fullWidth ? "flex w-full" : "inline-flex", "flex-wrap"];
+    }
+    return [props.fullWidth ? "grid w-full" : "inline-grid", "grid-flow-col auto-cols-[minmax(0,1fr)]"];
+});
+
 function selectOption(option: SegmentedControlOption): void {
     if (option.disabled) {
         return;
@@ -105,17 +122,14 @@ function handleKeydown(event: KeyboardEvent): void {
         ref="rootRef"
         role="group"
         :aria-label="props.ariaLabel || undefined"
-        class="relative inline-flex max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
-        :class="[
-            props.fullWidth ? 'w-full flex' : 'inline-flex',
-            props.wrap ? 'flex-wrap' : 'flex-nowrap',
-        ]"
+        class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
+        :class="segmentLayoutClass"
         @keydown="handleKeydown"
     >
         <!-- 舒缓平滑滑动背景指示块（单选且选项固定等分时连续 GPU 硬件滑动） -->
         <div
             v-if="selectedIndex >= 0 && !props.wrap"
-            class="absolute top-[2px] bottom-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] will-change-transform"
+            class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] will-change-transform"
             :style="{
                 width: `calc((100% - 4px) / ${props.options.length})`,
                 transform: `translateX(calc(${selectedIndex} * 100%))`,
@@ -136,8 +150,9 @@ function handleKeydown(event: KeyboardEvent): void {
             :aria-label="option.title || option.label || undefined"
             :title="option.title || option.label"
             :data-testid="option.testId"
-            class="nb-ui-focus-ring relative z-10 flex-1 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent cursor-pointer"
+            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent cursor-pointer"
             :class="[
+                props.wrap ? 'flex-1' : '',
                 props.size === 'xs'
                     ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[11px]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[11px]')
                     : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),

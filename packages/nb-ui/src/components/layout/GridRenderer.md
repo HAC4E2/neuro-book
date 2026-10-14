@@ -1,5 +1,6 @@
 ---
 标签: [state:local, state:inject, env:global]
+验证入口: WorkbenchShellLayout
 ---
 
 # GridRenderer
@@ -12,7 +13,7 @@
 
 ## 交互
 
-指针在分隔线命中带内按下会开始一次会话；细指针命中边距为 5px，触摸粗指针为 15px。交叉处最多同时调整一条宽度轴和一条高度轴。拖动期间只从按下时冻结的树、布局、容器尺寸、contextKey 与 revision 求解预览，所有受影响的子树尺寸实时跟随；松手仅提交一次。没有有效变化不会提交。提交由 `onGestureCommit` 同步接纳；拒绝会回滚预览并报告诊断。接纳后宿主应发布与提交匹配的新 `layout`，否则下一 tick 回到已发布布局并报告问题。
+指针在分隔线命中带内按下会开始一次会话；细指针命中边距为 5px，触摸粗指针为 15px。交叉处最多同时调整一条宽度轴和一条高度轴，两条线一起亮，交汇的一端连着（悬停线的两端规则见 [Splitter](Splitter.md)，网格按树结构给每个分支算出两端挨着的外层分隔线）。拖动期间只从按下时冻结的树、布局、容器尺寸、contextKey 与 revision 求解预览，所有受影响的子树尺寸实时跟随；松手仅提交一次。没有有效变化不会提交。提交由 `onGestureCommit` 同步接纳；拒绝会回滚预览并报告诊断。接纳后宿主应发布与提交匹配的新 `layout`，否则下一 tick 回到已发布布局并报告问题。
 
 分隔线可聚焦。与主轴同向的方向键每次调整 10px，Shift 调整 1px；Home / End 跳到可行范围端点，Enter 切换相邻可收起面板。键盘按键抬起时结束该手势。Escape、pointercancel、窗口失焦、上下文变化和卸载会取消，不结算旧基线；分隔线失去焦点时结束键盘会话。禁用时不启动手势。数据、约束、上下文或 revision 变化会使现有手势失效。点击非分隔区域不由渲染器处理；焦点不被组件搬移。
 
@@ -44,7 +45,7 @@ type GridRendererProps = {
 type GridRendererEmits = {
     /** 手势建立并冻结上下文时发出。 */
     (event: "gesture-start", info: {sessionId: string; contextKey: string; source: SplitterGestureSource; revision: number; sashes: readonly GridSashRef[]}): void;
-    /** 每次产生新几何预览时发出。 */
+    /** 每次产生新几何预览时发出；预览撤回、画面回到已发布的布局时（拖回基线、无变化松手、取消、提交被拒）也发一次，`changes` 为空、`layout` 是已发布的布局。 */
     (event: "gesture-update", preview: GridGesturePreview<unknown>): void;
     /** 手势正常结束时发出最终提交；无变化时没有提交。 */
     (event: "gesture-end", commit: GridGestureCommit): void;

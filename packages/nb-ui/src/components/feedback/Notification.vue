@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import Progress from "../display/Progress.vue";
 
 export type NotificationTone = "info" | "success" | "warning" | "error";
 
@@ -10,6 +11,8 @@ const props = withDefaults(defineProps<{
     dismissible?: boolean;
     actionLabel?: string;
     closeLabel?: string;
+    /** 进度（0 到 100）：画一条进度条；null 为不确定进度（来回滑动的条）；不给就没有。 */
+    progress?: number | null;
 }>(), {
     tone: "info",
     title: "",
@@ -17,6 +20,7 @@ const props = withDefaults(defineProps<{
     dismissible: false,
     actionLabel: "",
     closeLabel: "关闭通知",
+    progress: undefined,
 });
 
 const emit = defineEmits<{
@@ -37,6 +41,12 @@ const iconClass = computed(() => {
     }
     return "i-lucide-info";
 });
+const progressTone = computed(() => {
+    if (props.tone === "success") return "success";
+    if (props.tone === "warning") return "warning";
+    if (props.tone === "error") return "danger";
+    return "accent";
+});
 </script>
 
 <template>
@@ -48,6 +58,13 @@ const iconClass = computed(() => {
             </span>
             <span class="block leading-relaxed text-[var(--text-secondary)]">
                 <slot>{{ props.message }}</slot>
+            </span>
+            <!-- 进度在正文下：确定进度用 Progress；不确定进度是一条自己滑动的短条，减少动画时停在左边。 -->
+            <span v-if="props.progress !== undefined" class="mt-2 block" data-notification-progress>
+                <Progress v-if="props.progress !== null" :model-value="props.progress" size="sm" :tone="progressTone" />
+                <span v-else class="nb-notification__indeterminate block h-1.5 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)]" role="progressbar" aria-valuetext="进行中">
+                    <span class="nb-ui-indeterminate-runner block h-full rounded-full bg-[var(--nb-notification-tone)]"></span>
+                </span>
             </span>
         </span>
         <button v-if="$slots.action || props.actionLabel" type="button" class="shrink-0 text-sm font-medium text-[var(--nb-notification-tone)] hover:underline cursor-pointer" @click="emit('action')">

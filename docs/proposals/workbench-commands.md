@@ -1,8 +1,20 @@
+---
+schema: nbook.proposal/v1
+status: accepted
+created: 2026-09-14
+decided: 2026-09-19
+supersedes: []
+superseded-by: null
+specs:
+  - docs/specs/workbench/commands.md
+  - docs/specs/workbench/quick-open.md
+adrs: []
+---
+
 # Workbench 命令系统与 Live 操作面提案
 
-- **状态**：draft（2026-09-14 起草；2026-09-18 依据需求讨论修订，待评审；2026-09-19 批准分批实施，首批范围见决策记录）
 - **对应 Issue**：[#192 建立类 VS Code 的 Workbench 与 View Host 抽象](https://github.com/notnotype/neuro-book/issues/192)（硬前置 #191 主应用 nb-ui 底座迁移）
-- **相关提案**：[`workbench-view-host.md`](../../packages/neuro-book/docs/proposals/workbench-view-host.md)（Workbench 与 View Host 抽象，状态 `accepted`；其阶段 5「命令与只读描述快照桥接」由本提案承接）
+- **相关提案**：[`workbench-view-host.md`](workbench-view-host.md)（Workbench 与 View Host 抽象，状态 `accepted`；其阶段 5「命令与只读描述快照桥接」由本提案承接）
 
 ---
 
@@ -104,7 +116,7 @@ NeuroBook 的产品界面目前缺乏统一的命令（Command）抽象与注册
 | 9 | **输入触发的浮层** | `agent/tiptap/agent-suggestion.ts`、`ReferencePlainTextEditor.vue`、`ReferenceSelectorPopover.vue` | TipTap Suggestion 实现输入 `@` 或 `/` 的候选浮层；属富文本内补全，非全局快速打开。 |
 | 10 | **既有类注册表设计** | `app/utils/workbench/descriptors.ts:163-200`、`:226-283`<br>`app/composables/useWorkbenchChrome.ts:10-23` | `WorkbenchRegistry` 含 `when.requires`（`project`/`selection`/`desktop` 等）与 `requiredAuthority` 结构化求值；管控对象是**视图与页面**，无「命令」实体。 |
 | 11 | **视图描述符字段缺位** | `app/utils/workbench/descriptors.ts:283-300` | `ViewDescriptor` 有 `factoryKey`、`when`、`requiredAuthority`、`canMoveView`，但没有命令关联，无法被命令系统统一索引。 |
-| 12 | **nb-ui 基础原语** | `packages/nb-ui/src/components/form/Combobox.vue`、`form/option-highlight.ts`、`navigation/`（Dropdown/Menubar/ContextMenu）、`feedback/DialogWindow.vue` | 键盘导航输入框、弹出层、列表与高亮算法齐备，具备组装命令面板的核心原料，未封装 QuickPick / CommandPalette。 |
+| 12 | **nb-ui 基础原语** | `packages/nb-ui/src/components/form/Combobox.vue`、`form/option-highlight.ts`、`navigation/`（Dropdown/Menubar/ContextMenu）、`feedback/Dialog.vue` | 键盘导航输入框、弹出层、列表与高亮算法齐备，具备组装命令面板的核心原料，未封装 QuickPick / CommandPalette。 |
 | 13 | **无命令系统（否定证据）** | 全仓（`app/` 范围） | `CommandRegistry` / `registerCommand` / `executeCommand` **零命中**（2026-09-18 验证）——不存在任何命令注册或执行机制。 |
 | 14 | **Agent 工具面现状** | `server/agent/tools/` | 已有丰富工具：`file-tools`（bash/读写）、`apply-patch`（编辑）、`web-tools`、`plot-tools`、`world-engine-tools`、`subject-memory-tools`、`agent-sql-project-module`、`workflow/task/job-tools`、`agent-collaboration-tools`、`control-tools`（`report_result` / `request_user_input` / `switch_mode`），并有 `approval` 审批机制；形态为 TypeBox schema + `defineAgentTool`。**没有任何操作前端工作台的通道**——“agent 操作 UI”是空白（前端 agent 目录无 `executeCommand` 类命中）。 |
 | 15 | **Lab 与组件标准** | `app/component-lab/`（`EventLogPanel`、`inspect.ts`、`CollapsibleSidePanel`）<br>`docs/standards/code/components.md` | Lab 已有事件日志与元素检视体系，可扩展命令调试 tab；组件标准定义明面通道（props/emits/slots）与隐藏通道、能力标签与推荐配方，命令契约节待扩展。 |
@@ -237,7 +249,7 @@ export interface ICommandRegistry {
 
 ### 4. 命令面板与 Quick Open（Lab 先行，nb-ui 驱动）
 
-1. **底层原语复用**：浮层容器用 nb-ui `DialogWindow` / `Popover`；结果列表复用 `Combobox` / `Listbox` 的键盘导航与焦点管理；高亮复用 `option-highlight.ts` 的 `highlightMatch`。
+1. **底层原语复用**：浮层容器用 nb-ui `Dialog`（`modal=false` 为浮动窗口）/ `Popover`；结果列表复用 `Combobox` / `Listbox` 的键盘导航与焦点管理；高亮复用 `option-highlight.ts` 的 `highlightMatch`。
 2. **双模路由**：`Ctrl+P` 默认模式；`Ctrl+Shift+P` 命令模式（输入框以 `>` 起始，列出满足 `when` 的命令，按 `category` 分组）。第一版默认模式匹配的工作区实体集见待决策点 6。
 3. **模糊匹配与 MRU**：内存 LRU 账本记录最近执行的命令 ID 与时间戳；评分 = 字符连续匹配分 + 前缀命中分 + MRU 衰减权重。持久化按 Storage 规范（≤30 条、user 归属，见影响章节）。
 4. **Lab 先行**：先在 Component Lab 构建 `CommandPalette` / `QuickOpen` fixture 完成四主题与键盘交互验收，再接入主页面。

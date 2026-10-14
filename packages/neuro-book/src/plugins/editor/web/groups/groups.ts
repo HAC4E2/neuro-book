@@ -1,0 +1,310 @@
+/**
+ * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型，不打开文档。组按 nb-ui 的 grid 排列（叶的引用是组
+ * id），每组一列标签与活动标签；活动组是最近获得焦点或执行过打开的组。打开文档与释放引用由控制器按这里的结果做，
+ * 所以每个会让标签消失的动作都返回消失的标签。
+ */
+
+import {shallowRef} from "@vue/reactivity";
+import type {ShallowRef} from "@vue/reactivity";
+
+// 只要 grid 的结构与快照，不要渲染器：`./grid` 不依赖 Vue 与 DOM，插件激活时就能用、Bun 里也能测。
+import {createGrid} from "@notnotype/nb-ui/grid";
+import type {Grid, GridNode, GridSnapshot} from "@notnotype/nb-ui/grid";
+
+import {isWithin, rebase} from "../documents/address";
+
+/** 打开文件的两种编辑器；会话记录里只有它们。 */
+export type FileEditorKind = "markdown" | "code";
+
+/** `page`：不对应文件的页面标签（输出 33），地址是 `page://<页面 id>`，不进会话记录。 */
+export type EditorKind = FileEditorKind | "page";
+
+/**
+ * 标签上次的光标（输出 30）：Markdown 富文本记文档里的位置，源码编辑器记行与列（都从 1 起）。两种写法分开，换了编辑器
+ * 的标签不会把一种当成另一种。
+ */
+export type TabCursor = {readonly offset: number} | {readonly line: number; readonly column: number};
+
+export interface EditorTab {
+    readonly id: string;
+    readonly address: string;
+    readonly editor: EditorKind;
+    readonly preview: boolean;
+    readonly cursor?: TabCursor;
+}
+
+/** 光标的写法与编辑器种类对得上；页面没有光标。 */
+function cursorFits(editor: EditorKind, cursor: TabCursor): boolean {
+    if (editor === "page") return false;
+    return editor === "markdown" ? "offset" in cursor : "line" in cursor;
+}
+
+function sameCursor(left: TabCursor | undefined, right: TabCursor): boolean {
+    if (left === undefined) return false;
+    if ("offset" in left) return "offset" in right && left.offset === right.offset;
+    return "line" in right && left.line === right.line && left.column === right.column;
+}
+
+export interface EditorGroup {
+    readonly id: string;
+    readonly tabs: ReadonlyArray<EditorTab>;
+    /** 活动标签的 id；空组为 null。 */
+    readonly active: string | null;
+}
+
+/** 存进记录的形状：布局是 grid 快照，标签只有地址、编辑器、preview 与上次的光标。 */
+export interface GroupsSnapshot {
+    readonly layout: GridSnapshot;
+    readonly groups: ReadonlyArray<{readonly id: string; readonly tabs: ReadonlyArray<{readonly address: string; readonly editor: FileEditorKind; readonly preview: boolean; readonly cursor?: TabCursor}>; readonly active: number | null}>;
+    readonly activeGroup: string;
+}
+
+export type SplitDirection = "right" | "down";
+
+export interface EditorGroups {
+    readonly groups: Readonly<ShallowRef<ReadonlyArray<EditorGroup>>>;
+    readonly activeGroup: Readonly<ShallowRef<string>>;
+    /** 布局的 grid；结构变化时 `layoutVersion` 加一。 */
+    readonly grid: Grid<string>;
+    readonly layoutVersion: Readonly<ShallowRef<number>>;
+    /** 活动组的活动标签。 */
+    activeTab(): EditorTab | null;
+    find(tabId: string): {readonly group: EditorGroup; readonly tab: EditorTab} | null;
+    /**
+     * 在组里打开（缺省活动组）：已在本组的只激活（`permanent` 时转正）；`preview` 替换本组已有的 preview 标签；否则插在
+     * 活动标签之后。`replaced` 是被替换掉的 preview 标签。
+     */
+    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor: EditorKind; readonly group?: string}): {readonly tab: EditorTab; readonly replaced: EditorTab | null};
+    /** preview 转为 permanent。 */
+    pin(tabId: string): void;
+    activate(tabId: string): void;
+    focusGroup(groupId: string): void;
+    /** 关闭标签：同组激活右侧的（没有时左侧）；组空了且还有别的组时组随之关闭。返回被关的标签。 */
+    close(tabId: string): EditorTab | null;
+    closeOthers(tabId: string): ReadonlyArray<EditorTab>;
+    /** 在标签所在组的右侧或下方新建组、打开同一文档（permanent），新组成为活动组。页面标签不拆分（同一页面只开一个），返回 null。 */
+    split(tabId: string, direction: SplitDirection): EditorTab | null;
+    /** 同组里移动一位（键盘排序）。 */
+    move(tabId: string, delta: -1 | 1): void;
+    /** 用另一种编辑器打开同一标签；上次的光标是另一种写法，随之丢掉。 */
+    setEditor(tabId: string, editor: EditorKind): void;
+    /** 记下标签的光标；标签已关、写法与编辑器对不上或与记下的相同时不变。 */
+    setCursor(tabId: string, cursor: TabCursor): void;
+    /** 地址改名或移动：标签跟到新地址；`kept` 里的地址留在原处。 */
+    rebind(from: string, to: string, kept?: ReadonlyArray<string>): void;
+    /** 关闭这些地址及其后代的标签，返回被关的标签。 */
+    closeWithin(addresses: ReadonlyArray<string>): ReadonlyArray<EditorTab>;
+    snapshot(): GroupsSnapshot;
+}
+
+/** 至少一组；记录坏了或组不对应布局时从一个空组开始。 */
+export function createEditorGroups(initial: GroupsSnapshot | null = null): EditorGroups {
+    let nextId = 0;
+    /** 新的组、分支与标签 id：跳过恢复出来的布局里已有的。 */
+    const newId = (prefix: string): string => {
+        for (;;) {
+            nextId += 1;
+            const id = `${prefix}${String(nextId)}`;
+            if (restored === null || restored.grid.find(id) === null) return id;
+        }
+    };
+    const restored = initial === null ? null : restore(initial);
+    const grid = restored?.grid ?? createGrid<string>({kind: "leaf", id: "g0", ref: "g0"});
+    const groups = shallowRef<ReadonlyArray<EditorGroup>>(restored?.groups ?? [{id: "g0", tabs: [], active: null}]);
+    const activeGroup = shallowRef(restored?.activeGroup ?? groups.value[0]?.id ?? "g0");
+    const layoutVersion = shallowRef(0);
+
+    const groupOf = (id: string): EditorGroup | undefined => groups.value.find((group) => group.id === id);
+    const replace = (group: EditorGroup): void => {
+        groups.value = groups.value.map((candidate) => (candidate.id === group.id ? group : candidate));
+    };
+    const locate = (tabId: string): {group: EditorGroup; tab: EditorTab; index: number} | null => {
+        for (const group of groups.value) {
+            const index = group.tabs.findIndex((tab) => tab.id === tabId);
+            if (index >= 0) return {group, tab: group.tabs[index] as EditorTab, index};
+        }
+        return null;
+    };
+
+    /** 组空了且还有别的组：从布局与列表里去掉，活动组换到列表里的相邻组。 */
+    const dropIfEmpty = (group: EditorGroup): void => {
+        if (group.tabs.length > 0 || groups.value.length <= 1) return;
+        const index = groups.value.findIndex((candidate) => candidate.id === group.id);
+        const removed = grid.removeLeaf(group.id);
+        if (!removed.ok) return;
+        groups.value = groups.value.filter((candidate) => candidate.id !== group.id);
+        layoutVersion.value += 1;
+        if (activeGroup.value === group.id) activeGroup.value = (groups.value[Math.min(index, groups.value.length - 1)] as EditorGroup).id;
+    };
+
+    const remove = (tabId: string): EditorTab | null => {
+        const found = locate(tabId);
+        if (found === null) return null;
+        const tabs = found.group.tabs.filter((tab) => tab.id !== tabId);
+        let active = found.group.active;
+        if (active === tabId) active = (tabs[found.index] ?? tabs[found.index - 1])?.id ?? null;
+        const next = {...found.group, tabs, active};
+        replace(next);
+        dropIfEmpty(next);
+        return found.tab;
+    };
+
+    return {
+        groups,
+        activeGroup,
+        grid,
+        layoutVersion,
+        activeTab: () => {
+            const group = groupOf(activeGroup.value);
+            return group?.tabs.find((tab) => tab.id === group.active) ?? null;
+        },
+        find: (tabId) => {
+            const found = locate(tabId);
+            return found === null ? null : {group: found.group, tab: found.tab};
+        },
+        open: (address, options) => {
+            const group = groupOf(options.group ?? activeGroup.value) ?? (groups.value[0] as EditorGroup);
+            activeGroup.value = group.id;
+            const existing = group.tabs.find((tab) => tab.address === address);
+            if (existing !== undefined) {
+                const tab = options.mode === "permanent" && existing.preview ? {...existing, preview: false} : existing;
+                replace({...group, tabs: group.tabs.map((candidate) => (candidate.id === existing.id ? tab : candidate)), active: tab.id});
+                return {tab, replaced: null};
+            }
+            const tab: EditorTab = {id: newId("t"), address, editor: options.editor, preview: options.mode === "preview"};
+            const preview = options.mode === "preview" ? group.tabs.find((candidate) => candidate.preview) : undefined;
+            if (preview !== undefined) {
+                replace({...group, tabs: group.tabs.map((candidate) => (candidate.id === preview.id ? tab : candidate)), active: tab.id});
+                return {tab, replaced: preview};
+            }
+            const at = group.tabs.findIndex((candidate) => candidate.id === group.active);
+            const tabs = [...group.tabs];
+            tabs.splice(at < 0 ? tabs.length : at + 1, 0, tab);
+            replace({...group, tabs, active: tab.id});
+            return {tab, replaced: null};
+        },
+        pin: (tabId) => {
+            const found = locate(tabId);
+            if (found === null || !found.tab.preview) return;
+            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, preview: false} : tab))});
+        },
+        activate: (tabId) => {
+            const found = locate(tabId);
+            if (found === null) return;
+            activeGroup.value = found.group.id;
+            if (found.group.active !== tabId) replace({...found.group, active: tabId});
+        },
+        focusGroup: (groupId) => {
+            if (groupOf(groupId) !== undefined) activeGroup.value = groupId;
+        },
+        close: (tabId) => remove(tabId),
+        closeOthers: (tabId) => {
+            const found = locate(tabId);
+            if (found === null) return [];
+            const closed = found.group.tabs.filter((tab) => tab.id !== tabId);
+            replace({...found.group, tabs: [found.tab], active: tabId});
+            return closed;
+        },
+        split: (tabId, direction) => {
+            const found = locate(tabId);
+            if (found === null || found.tab.editor === "page") return null;
+            const id = newId("g");
+            const result = grid.splitLeaf(found.group.id, {branchId: newId("b"), orientation: direction === "right" ? "horizontal" : "vertical", side: "after", leaf: {kind: "leaf", id, ref: id}});
+            if (!result.ok) return null;
+            // 新组的视图从原标签记下的光标开始。
+            const tab: EditorTab = {id: newId("t"), address: found.tab.address, editor: found.tab.editor, preview: false, ...(found.tab.cursor === undefined ? {} : {cursor: found.tab.cursor})};
+            const index = groups.value.findIndex((group) => group.id === found.group.id);
+            const next = [...groups.value];
+            next.splice(index + 1, 0, {id, tabs: [tab], active: tab.id});
+            groups.value = next;
+            activeGroup.value = id;
+            layoutVersion.value += 1;
+            return tab;
+        },
+        move: (tabId, delta) => {
+            const found = locate(tabId);
+            if (found === null) return;
+            const target = found.index + delta;
+            if (target < 0 || target >= found.group.tabs.length) return;
+            const tabs = [...found.group.tabs];
+            tabs.splice(found.index, 1);
+            tabs.splice(target, 0, found.tab);
+            replace({...found.group, tabs});
+        },
+        setEditor: (tabId, editor) => {
+            const found = locate(tabId);
+            if (found === null || found.tab.editor === editor || found.tab.editor === "page" || editor === "page") return;
+            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {id: tab.id, address: tab.address, editor, preview: tab.preview} : tab))});
+        },
+        setCursor: (tabId, cursor) => {
+            const found = locate(tabId);
+            if (found === null || !cursorFits(found.tab.editor, cursor) || sameCursor(found.tab.cursor, cursor)) return;
+            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, cursor} : tab))});
+        },
+        rebind: (from, to, kept = []) => {
+            const follows = (address: string): boolean => isWithin(address, from) && !kept.includes(address);
+            groups.value = groups.value.map((group) => (group.tabs.some((tab) => follows(tab.address))
+                ? {...group, tabs: group.tabs.map((tab) => (follows(tab.address) ? {...tab, address: rebase(tab.address, from, to)} : tab))}
+                : group));
+        },
+        closeWithin: (addresses) => {
+            const doomed = groups.value.flatMap((group) => group.tabs.filter((tab) => addresses.some((address) => isWithin(tab.address, address))));
+            return doomed.flatMap((tab) => {
+                const removed = remove(tab.id);
+                return removed === null ? [] : [removed];
+            });
+        },
+        snapshot: () => ({
+            layout: grid.serialize(),
+            groups: groups.value.map((group) => ({
+                id: group.id,
+                tabs: filesOf(group).map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.cursor === undefined ? {} : {cursor: tab.cursor})})),
+                active: activeFileIndex(group),
+            })),
+            activeGroup: activeGroup.value,
+        }),
+    };
+}
+
+/** 组里打开文件的标签：页面标签不进会话记录（输出 33）。 */
+function filesOf(group: EditorGroup): Array<EditorTab & {readonly editor: FileEditorKind}> {
+    return group.tabs.filter((tab): tab is EditorTab & {readonly editor: FileEditorKind} => tab.editor !== "page");
+}
+
+/** 记录里的活动项：活动的是页面时取它左边最近的文件标签，没有就取右边的；组里没有文件标签为 null。 */
+function activeFileIndex(group: EditorGroup): number | null {
+    const files = filesOf(group);
+    const at = group.tabs.findIndex((tab) => tab.id === group.active);
+    if (at < 0) return null;
+    const nearest = [...group.tabs.slice(0, at + 1)].reverse().find((tab) => tab.editor !== "page") ?? group.tabs.slice(at).find((tab) => tab.editor !== "page");
+    return nearest === undefined ? null : files.findIndex((tab) => tab.id === nearest.id);
+}
+
+/** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
+function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
+    const ids = new Set(snapshot.groups.map((group) => group.id));
+    if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;
+    const grid = createGrid<string>(null);
+    const restored = grid.restore(snapshot.layout, (ref) => (ids.has(ref) ? {ref} : null));
+    if (!restored.ok || restored.dropped.length > 0) return null;
+    // 渲染按叶的 id 找组：叶的 id 与 ref 不一致的记录同样当作坏了。
+    const leaves = leafNodesOf(grid.root());
+    if (leaves.length !== ids.size || leaves.some((leaf) => leaf.id !== leaf.ref || !ids.has(leaf.ref))) return null;
+    let tab = 0;
+    const groups = snapshot.groups.map((group): EditorGroup => {
+        const tabs = group.tabs.map((saved): EditorTab => {
+            tab += 1;
+            const restored: EditorTab = {id: `r${String(tab)}`, address: saved.address, editor: saved.editor, preview: saved.preview};
+            return saved.cursor !== undefined && cursorFits(saved.editor, saved.cursor) ? {...restored, cursor: saved.cursor} : restored;
+        });
+        const active = group.active === null ? null : (tabs[group.active]?.id ?? tabs[0]?.id ?? null);
+        return {id: group.id, tabs, active};
+    });
+    return {grid, groups, activeGroup: snapshot.activeGroup};
+}
+
+function leafNodesOf(node: GridNode<string> | null): Array<{readonly id: string; readonly ref: string}> {
+    if (node === null) return [];
+    if (node.kind === "leaf") return [{id: node.id, ref: node.ref}];
+    return node.children.flatMap(leafNodesOf);
+}

@@ -1,0 +1,260 @@
+/**
+ * `Dialog` 非模态用法（浮动窗口）的定位、标题栏拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，标题栏总能
+ * 再抓住；缩放有六个手柄（右、下两条边加四个角），鼠标在松开时提交尺寸，方向键按 10px（Shift 1px）调整。
+ *
+ * 容器：传送目标不是 body 时（例如组件 Lab 的画布）按目标的大小算，否则按浏览器窗口。尺寸按渲染后的实际大小夹紧，
+ * 所以宽度可以写成 CSS 字符串。
+ */
+
+import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
+import type {CSSProperties, Ref} from "vue";
+import {useElementSize, useWindowSize} from "@vueuse/core";
+
+/** 缩放方向：正号表示拖动时右/下边界跟随指针，负号表示左/上边界跟随指针。 */
+export type FloatingWindowResizeDirection = {
+    width: 0 | 1 | -1;
+    height: 0 | 1 | -1;
+};
+
+export type FloatingWindowResizeHandle = {
+    id: string;
+    label: string;
+    orientation?: "vertical" | "horizontal";
+    direction: FloatingWindowResizeDirection;
+    class: string;
+};
+
+/** 角落要能任意拖，所以四个角都在；负方向（左/上）拖动时同时改写窗口的 x / y。 */
+export const FLOATING_WINDOW_RESIZE_HANDLES: ReadonlyArray<FloatingWindowResizeHandle> = [
+    {id: "right", label: "调整窗口宽度", orientation: "vertical", direction: {width: 1, height: 0}, class: "inset-y-0 right-0 w-2 cursor-ew-resize"},
+    {id: "bottom", label: "调整窗口高度", orientation: "horizontal", direction: {width: 0, height: 1}, class: "inset-x-0 bottom-0 h-2 cursor-ns-resize"},
+    {id: "bottom-right", label: "调整窗口大小", direction: {width: 1, height: 1}, class: "bottom-0 right-0 h-3 w-3 cursor-nwse-resize"},
+    {id: "bottom-left", label: "调整窗口大小", direction: {width: -1, height: 1}, class: "bottom-0 left-0 h-3 w-3 cursor-nesw-resize"},
+    {id: "top-right", label: "调整窗口大小", direction: {width: 1, height: -1}, class: "top-0 right-0 h-3 w-3 cursor-nesw-resize"},
+    {id: "top-left", label: "调整窗口大小", direction: {width: -1, height: -1}, class: "top-0 left-0 h-3 w-3 cursor-nwse-resize"},
+];
+
+export interface FloatingWindowOptions {
+    /** 是否用浮动窗口的定位（非模态时为真）；为假时本组合函数不做任何事。 */
+    readonly enabled: () => boolean;
+    readonly open: () => boolean;
+    /** 传送目标选择器；false 表示不传送（定位按 offsetParent）。 */
+    readonly target: () => string | false;
+    readonly resizable: () => boolean;
+    readonly busy: () => boolean;
+    readonly minWidth: () => number;
+    readonly minHeight: () => number;
+    /** 宿主声明的数字尺寸（px）；量不到实际尺寸时（刚挂上还没布局）按它。 */
+    readonly declared: () => {readonly width: number | null; readonly height: number | null};
+    readonly windowRef: Ref<HTMLElement | null>;
+    readonly dragHandleRef: Ref<HTMLElement | null>;
+    readonly onResize: (dimension: "width" | "height", value: number) => void;
+}
+
+export function useFloatingWindow(options: FloatingWindowOptions) {
+    const positioned = ref(false);
+    /** 缩放拖动中的尺寸（px）；松开时提交，之后由宿主经 width / height 给回来。 */
+    const draftWidth = ref<number | null>(null);
+    const draftHeight = ref<number | null>(null);
+    const x = ref(24);
+    const y = ref(24);
+    let resizeCleanup: (() => void) | null = null;
+    let dragCleanup: (() => void) | null = null;
+
+    const {width: viewportWidth, height: viewportHeight} = useWindowSize();
+    const portalElement = shallowRef<HTMLElement | null>(null);
+    const portalSize = ref({width: 0, height: 0});
+    const {width: observedWidth, height: observedHeight} = useElementSize(portalElement);
+    watch([observedWidth, observedHeight], ([width, height]) => {
+        if (width > 0) portalSize.value = {width, height};
+    });
+
+    // 打开时才查：宿主的目标元素要等整棵树插进文档才在。
+    function resolvePortal(): void {
+        const target = options.target();
+        const element = target === false || target === "body" ? null : document.querySelector<HTMLElement>(target);
+        portalElement.value = element;
+        portalSize.value = element === null ? {width: 0, height: 0} : {width: element.clientWidth, height: element.clientHeight};
+    }
+
+    const containerSize = computed(() => {
+        const element = options.windowRef.value;
+        if (options.target() === false && element !== null) {
+            const parent = element.offsetParent;
+            if (parent instanceof HTMLElement && parent !== document.body && parent.clientWidth > 0) return {width: parent.clientWidth, height: parent.clientHeight};
+        }
+        if (portalElement.value !== null && portalSize.value.width > 0) return portalSize.value;
+        return {width: viewportWidth.value, height: viewportHeight.value};
+    });
+
+    /** 渲染后的实际尺寸（不含缩放中的草稿），夹紧与缩放起点都按它；量不到时按声明的尺寸，再不行按最小尺寸。 */
+    function measured(): {width: number; height: number} {
+        const element = options.windowRef.value;
+        const declared = options.declared();
+        const width = element !== null && element.offsetWidth > 0 ? element.offsetWidth : declared.width ?? options.minWidth();
+        const height = element !== null && element.offsetHeight > 0 ? element.offsetHeight : declared.height ?? options.minHeight();
+        return {width, height};
+    }
+
+    /** 拖动边界：窗口至少保留一角在容器内，标题栏始终可再次抓取。 */
+    const clampedX = computed(() => {
+        const width = draftWidth.value ?? measured().width;
+        const minX = 16 - width + 72;
+        const maxX = Math.max(containerSize.value.width - 72, minX);
+        return Math.min(Math.max(x.value, minX), maxX);
+    });
+    const clampedY = computed(() => {
+        const maxY = Math.max(containerSize.value.height - 48, 8);
+        return Math.min(Math.max(y.value, 8), maxY);
+    });
+
+    const style = computed<CSSProperties>(() => ({
+        position: "fixed",
+        left: `${String(clampedX.value)}px`,
+        top: `${String(clampedY.value)}px`,
+        // 没量到位置前先藏起来：第一帧不在左上角闪一下。
+        visibility: positioned.value ? undefined : "hidden",
+        ...(draftWidth.value === null ? {} : {width: `${String(draftWidth.value)}px`}),
+        ...(draftHeight.value === null ? {} : {height: `${String(draftHeight.value)}px`}),
+    }));
+
+    /** 渲染时（如有 transform 缩放）指针位移要换算回 CSS 像素。 */
+    function scaleOf(element: HTMLElement): {x: number; y: number} {
+        const rect = element.getBoundingClientRect();
+        return {
+            x: element.offsetWidth > 0 && rect.width > 0 ? rect.width / element.offsetWidth : 1,
+            y: element.offsetHeight > 0 && rect.height > 0 ? rect.height / element.offsetHeight : 1,
+        };
+    }
+
+    function startDrag(event: PointerEvent): void {
+        if (!options.enabled() || event.button !== 0 || options.busy()) return;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("button, input, textarea, a, select, [data-interactive]")) return;
+        const handle = options.dragHandleRef.value;
+        const element = options.windowRef.value;
+        if (handle === null || element === null) return;
+        dragCleanup?.();
+        event.preventDefault();
+        handle.setPointerCapture?.(event.pointerId);
+        const startClientX = event.clientX;
+        const startClientY = event.clientY;
+        const startLeft = clampedX.value;
+        const startTop = clampedY.value;
+        const scale = scaleOf(element);
+        const move = (moveEvent: PointerEvent): void => {
+            x.value = startLeft + (moveEvent.clientX - startClientX) / scale.x;
+            y.value = startTop + (moveEvent.clientY - startClientY) / scale.y;
+        };
+        const finish = (): void => {
+            try {
+                handle.releasePointerCapture?.(event.pointerId);
+            } catch {
+                // 已经释放过了
+            }
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", finish);
+            handle.removeEventListener("pointercancel", finish);
+            dragCleanup = null;
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", finish);
+        handle.addEventListener("pointercancel", finish);
+        dragCleanup = finish;
+    }
+
+    function startResize(direction: FloatingWindowResizeDirection, event: PointerEvent): void {
+        if (!options.resizable() || options.busy()) return;
+        const element = options.windowRef.value;
+        if (element === null) return;
+        resizeCleanup?.();
+        const handle = event.currentTarget as HTMLElement;
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const start = measured();
+        const startLeft = clampedX.value;
+        const startTop = clampedY.value;
+        const scale = scaleOf(element);
+        event.preventDefault();
+        handle.setPointerCapture?.(event.pointerId);
+        // 负方向手柄（左/上）拖动时，窗口的 x / y 跟着边界走：先算新尺寸，再由尺寸反推位置，触到最小尺寸时位置不再漂移。
+        const move = (moveEvent: PointerEvent): void => {
+            if (direction.width !== 0) {
+                const next = Math.max(options.minWidth(), Math.round(start.width + ((moveEvent.clientX - startX) / scale.x) * direction.width));
+                draftWidth.value = next;
+                if (direction.width < 0) x.value = startLeft + (start.width - next);
+            }
+            if (direction.height !== 0) {
+                const next = Math.max(options.minHeight(), Math.round(start.height + ((moveEvent.clientY - startY) / scale.y) * direction.height));
+                draftHeight.value = next;
+                if (direction.height < 0) y.value = startTop + (start.height - next);
+            }
+        };
+        const finish = (commit: boolean): void => {
+            try {
+                handle.releasePointerCapture?.(event.pointerId);
+            } catch {
+                // 已经释放过了
+            }
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", onPointerUp);
+            handle.removeEventListener("pointercancel", onPointerCancel);
+            if (commit) {
+                if (draftWidth.value !== null && draftWidth.value !== start.width) options.onResize("width", draftWidth.value);
+                if (draftHeight.value !== null && draftHeight.value !== start.height) options.onResize("height", draftHeight.value);
+            }
+            draftWidth.value = null;
+            draftHeight.value = null;
+            resizeCleanup = null;
+        };
+        const onPointerUp = (): void => finish(true);
+        const onPointerCancel = (): void => finish(false);
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", onPointerUp);
+        handle.addEventListener("pointercancel", onPointerCancel);
+        resizeCleanup = () => finish(false);
+    }
+
+    /** 方向键沿用“光标移动方向”：在负方向手柄上按向左键，左边界继续向左，也就是变大。 */
+    function resizeByKey(direction: FloatingWindowResizeDirection, event: KeyboardEvent): void {
+        if (!options.resizable() || options.busy()) return;
+        const step = event.shiftKey ? 1 : 10;
+        const horizontal = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
+        const vertical = event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0;
+        const wantsWidth = direction.width !== 0 && horizontal !== 0;
+        const wantsHeight = direction.height !== 0 && vertical !== 0;
+        if (!wantsWidth && !wantsHeight) return;
+        event.preventDefault();
+        const current = measured();
+        if (wantsWidth) {
+            const next = Math.max(options.minWidth(), current.width + horizontal * direction.width);
+            if (next !== current.width) options.onResize("width", next);
+        }
+        if (wantsHeight) {
+            const next = Math.max(options.minHeight(), current.height + vertical * direction.height);
+            if (next !== current.height) options.onResize("height", next);
+        }
+    }
+
+    // 打开时居中：量一次实际尺寸，按容器居中；量不到就用 64px 顶距。看的是面板元素而不只是“打开”：传送到 body 时
+    // reka 的 Teleport 自己挂载后才渲染内容，第一次就打开的窗口面板比“打开”晚一拍出现。渲染之后才运行，量的是挂好的面板。
+    watch(() => (options.enabled() && options.open() ? options.windowRef.value : null), (element) => {
+        if (element === null) {
+            positioned.value = false;
+            return;
+        }
+        resolvePortal();
+        const size = measured();
+        const container = containerSize.value;
+        x.value = Math.max(12, Math.round((container.width - size.width) / 2));
+        y.value = size.height > 0 ? Math.max(24, Math.round((container.height - size.height) / 2)) : 64;
+        positioned.value = true;
+    }, {immediate: true, flush: "post"});
+
+    onBeforeUnmount(() => {
+        resizeCleanup?.();
+        dragCleanup?.();
+    });
+
+    return {style, startDrag, startResize, resizeByKey, measured};
+}

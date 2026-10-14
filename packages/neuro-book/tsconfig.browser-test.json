@@ -1,0 +1,9 @@
+{
+    "extends": "./tsconfig.web.json",
+    "compilerOptions": {
+        "types": ["bun", "vite/client"],
+        "allowImportingTsExtensions": true
+    },
+    "include": ["src/**/*.dom.test.ts", "examples/**/*.dom.test.ts", "src/types/proper-lockfile.d.ts", "src/plugins/*/web/**/*.test.ts", "src/plugins/*/web/testing", "e2e", "scripts/lab-shot.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"],
+    "exclude": []
+}

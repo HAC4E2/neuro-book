@@ -1,39 +1,39 @@
 {
-  "extends": "./.nuxt/tsconfig.json",
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "jsx": "react-jsx",
-    "baseUrl": ".",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "paths": {
-      "nbook/*": [
-        "./*"
-      ],
-      "neuro_book/*": [
-        "./*"
-      ],
-      "#scripts/*": [
-        "../../scripts/*"
-      ]
-    }
-  },
-  "include": [
-    ".nuxt/**/*.d.ts",
-    "app/**/*",
-    "server/agent/**/*",
-    "server/api/storage/**/*",
-    "server/storage/**/*",
-    "shared/**/*",
-    "*.d.ts",
-    "nuxt.config.ts"
-  ],
-  "exclude": [
-    "server/agent-v2/**/*",
-    "assets/agent-v2/**/*"
-  ]
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ESNext"],
+        "types": ["bun"],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "paths": {
+            "nbook/*": ["./src/*"]
+        }
+    },
+    "include": [
+        "src/*.ts",
+        "src/server",
+        "src/project",
+        "src/shared",
+        "src/types",
+        "src/plugins/*/plugin.ts",
+        "src/plugins/*/backend",
+        "src/plugins/*/shared",
+        "src/**/*.test.ts",
+        "examples/shared",
+        "examples/testing",
+        "examples/scenarios",
+        "examples/plugins/*/plugin.ts",
+        "examples/plugins/*/backend",
+        "examples/plugins/*/shared",
+        "scripts",
+        "uno.config.ts",
+        "vite.config.ts",
+        "vite.e2e.config.ts",
+        "vitest.config.ts"
+    ],
+    "exclude": ["src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
 }

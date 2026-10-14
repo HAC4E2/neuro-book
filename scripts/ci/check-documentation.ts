@@ -7,13 +7,19 @@ import {fromMarkdown} from "mdast-util-from-markdown";
 import GithubSlugger from "github-slugger";
 import {parse as parseYaml} from "yaml";
 
-import {defaultRepoRoot, git} from "#scripts/ci/agent-governance-contract";
+import {git} from "#scripts/ci/agent-governance-contract";
+import {changedFiles, readChangeScopeArguments, scopeWarnings, type FileWarning, type ScopedWarnings} from "#scripts/ci/change-scope";
 
-export type DocumentationCheckReport = {
+export type DocumentationCheckReport = ScopedWarnings & {
     failures: string[];
-    /** 只报告不阻断的结果，例如 current Task 快照问题。 */
-    warnings: string[];
     checkedFiles: number;
+};
+
+export type DocumentationCheckOptions = {
+    /** 受管文件集合；省略时取 Git 跟踪与未忽略的文件。 */
+    paths?: readonly string[];
+    /** 警告只逐条列出这些文件的，其余合成一行计数；省略时全部列出。 */
+    warningScope?: ReadonlySet<string>;
 };
 
 const REQUIRED_DOC_INDEXES = [
@@ -22,19 +28,16 @@ const REQUIRED_DOC_INDEXES = [
     "docs/standards/code/README.md",
     "docs/proposals/README.md",
     "docs/testing/README.md",
-    "docs/testing/manual-eval/README.md",
-    "packages/neuro-book/docs/adr/README.md",
-    "packages/neuro-book/docs/migrations/README.md",
-    "packages/neuro-book/docs/runbooks/README.md",
-    "packages/neuro-book/docs/research/README.md",
-    "packages/neuro-book/docs/archived/README.md",
+    "docs/adr/README.md",
+    "docs/research/README.md",
+    "docs/archived/README.md",
 ] as const;
-const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md", "docs/specs/TEMPLATE.md"] as const;
-const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md", "TEMPLATE.md"]);
+const REQUIRED_SPEC_GOVERNANCE = ["docs/AGENTS.md", "docs/specs/AGENTS.md"] as const;
+const SPEC_SUPPORT_FILENAMES = new Set(["README.md", "AGENTS.md"]);
 const SPEC_KINDS = new Set(["behavior", "architecture", "glossary"]);
 const SPEC_STATUSES = new Set(["planned", "implemented"]);
-const SPEC_PLACEHOLDER_CAPABILITY = "replace.with-stable-capability";
-const SPEC_PLACEHOLDER_OWNER = "replace-with-owning-module";
+/** `writing-specs` 模板里的占位写法 `<…>`：照抄模板没有替换时拦下。 */
+const TEMPLATE_PLACEHOLDER_PATTERN = /[<>]/u;
 const BEHAVIOR_SPEC_HEADINGS = [
     "目标与非目标",
     "术语与参与者",
@@ -55,7 +58,16 @@ const SMOKE_NOT_APPLICABLE_PATTERN = /^不适用[—–-]{1,2}\s*\S/u;
 const WORK_TASK_README_PATTERN = /^\.agents\/works\/[^/]+\/tasks\/[^/]+\/README\.md$/u;
 const NB_UI_COMPONENT_BARREL = "packages/nb-ui/src/components/index.ts";
 const NB_UI_COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
-const APP_COMMON_COMPONENT_PREFIX = "packages/neuro-book/app/components/common/";
+const PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted", "rejected", "superseded"]);
+/** 这些状态的提案仍在活跃目录，必须登记在索引里；其余状态的应移入归档。 */
+const ACTIVE_PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted"]);
+const ADR_STATUSES = new Set(["accepted", "superseded"]);
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const PROPOSAL_INDEX = "docs/proposals/README.md";
+/** Spec 正文里的 Task 引用：`t52`、`w00017`（含“随 t55”、Task 目录链接）。 */
+const TASK_REFERENCE_PATTERN = /\b(?:t\d{2}|w\d{5})\b/gu;
+/** “证据”一节允许的固定标签行；批准依据之外的叙述属于 Task。 */
+const EVIDENCE_LINE_PATTERN = /^(?:[-*]\s+)?(?:\*\*)?(?:实现入口|合同测试|Smoke|批准依据)(?:\*\*)?[：:]/u;
 const COMPONENT_TAGS = new Set([
     "state:local", "state:shared-read", "state:shared-write", "state:inject",
     "persist:local", "persist:session", "persist:idb",
@@ -78,13 +90,12 @@ const ROOT_DOCUMENTS: Record<string, true> = {
     "PROJECT-STATUS.md": true,
     "README.md": true,
     "README.en.md": true,
-    "RELEASE.md": true,
     "WATCHDOG.md": true,
 };
 
-export function checkDocumentation(repoRoot: string, paths?: readonly string[]): DocumentationCheckReport {
+export function checkDocumentation(repoRoot: string, options: DocumentationCheckOptions = {}): DocumentationCheckReport {
     const normalizedRoot = resolve(repoRoot);
-    const candidates = paths ?? git(normalizedRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+    const candidates = options.paths ?? git(normalizedRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
         .split("\0")
         .filter(Boolean);
     const files = [...new Set(candidates.map(normalizeRepoPath))]
@@ -92,21 +103,19 @@ export function checkDocumentation(repoRoot: string, paths?: readonly string[]):
         .sort();
     const fileSet = new Set(files);
     const failures: string[] = [];
-    const warnings: string[] = [];
+    const warnings: FileWarning[] = [];
 
     checkRequiredIndexes(fileSet, failures);
     checkDocsRoot(files, failures);
-    checkRetiredDocumentationPaths(files, failures);
-    checkVitepressStructure(normalizedRoot, files, fileSet, failures);
     checkAdrs(normalizedRoot, files, failures);
+    checkProposals(normalizedRoot, files, fileSet, failures);
     checkActiveLinks(normalizedRoot, files, fileSet, failures, warnings);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
-    checkSpecs(normalizedRoot, files, fileSet, failures);
-    checkFrozenReference(normalizedRoot, files, failures);
-    checkComponentDocuments(normalizedRoot, files, fileSet, failures);
+    checkSpecs(normalizedRoot, files, fileSet, failures, warnings);
+    checkComponentDocuments(normalizedRoot, fileSet, failures);
     checkCurrentTaskContracts(normalizedRoot, files, fileSet, warnings);
 
-    return {failures, warnings, checkedFiles: files.length};
+    return {failures, ...scopeWarnings(warnings, options.warningScope ?? null), checkedFiles: files.length};
 }
 
 
@@ -139,63 +148,10 @@ function checkDocsRoot(files: readonly string[], failures: string[]): void {
     }
 }
 
-function checkRetiredDocumentationPaths(files: readonly string[], failures: string[]): void {
-    for (const path of files.filter((candidate) => candidate.startsWith("docs/manual-eval/"))) {
-        failures.push(`人工评测已迁入 docs/testing/manual-eval：${path}`);
-    }
-    if (files.includes("docs/standards/code.md")) {
-        failures.push("编码规范已按领域迁入 docs/standards/code/：docs/standards/code.md");
-    }
-}
-
-function checkVitepressStructure(
-    repoRoot: string,
-    files: readonly string[],
-    fileSet: ReadonlySet<string>,
-    failures: string[],
-): void {
-    const localeRoots = ["zh-Hans", "en-US"] as const;
-    const markdownByLocale = new Map(localeRoots.map((locale) => [locale, new Set<string>()]));
-
-    for (const path of files.filter((candidate) => candidate.startsWith("vitepress/"))) {
-        if (path.startsWith("vitepress/.vitepress/staged/")) {
-            failures.push(`VitePress staged 生成物不得跟踪：${path}`);
-        }
-        if (path.startsWith("vitepress/en/")) failures.push(`英文正文已迁入 locales/en-US：${path}`);
-        if (path.startsWith("vitepress/images/")) failures.push(`VitePress 静态图片必须位于 public/images：${path}`);
-        if (/^vitepress\/(?!locales\/|public\/|\.vitepress\/).+\.md$/u.test(path)) {
-            failures.push(`VitePress 正文必须位于 locales/<BCP47>：${path}`);
-        }
-        const localeMatch = /^vitepress\/locales\/([^/]+)\/(.+)$/u.exec(path);
-        if (!localeMatch) continue;
-        const [, locale, relativePath] = localeMatch;
-        if (!localeRoots.includes(locale as typeof localeRoots[number])) {
-            failures.push(`VitePress locale 未登记：${path}`);
-            continue;
-        }
-        if (relativePath.startsWith("public/")) failures.push(`VitePress locale 内不得包含 public：${path}`);
-        if (relativePath.endsWith(".md")) markdownByLocale.get(locale as typeof localeRoots[number])!.add(relativePath);
-    }
-
-    const zhPaths = markdownByLocale.get("zh-Hans")!;
-    const enPaths = markdownByLocale.get("en-US")!;
-    for (const path of zhPaths) if (!enPaths.has(path)) failures.push(`VitePress 英文 locale 缺少对等页面：${path}`);
-    for (const path of enPaths) if (!zhPaths.has(path)) failures.push(`VitePress 中文 locale 缺少对等页面：${path}`);
-
-    for (const source of files.filter((path) => /^vitepress\/locales\/(?:zh-Hans|en-US)\/.+\.md$/u.test(path))) {
-        const tree = fromMarkdown(readFileSync(resolve(repoRoot, source), "utf8"));
-        for (const url of collectImageUrls(tree)) {
-            if (!url.startsWith("/")) continue;
-            const target = `vitepress/public/${url.slice(1).split("#", 1)[0].split("?", 1)[0]}`;
-            if (!fileSet.has(target)) failures.push(`VitePress public 图片不存在：${source} -> ${url}（${target}）`);
-        }
-    }
-}
-
 function checkAdrs(repoRoot: string, files: readonly string[], failures: string[]): void {
     const byNumber = new Map<string, string[]>();
-    for (const path of files.filter((candidate) => candidate.startsWith("packages/neuro-book/docs/adr/") && candidate.endsWith(".md") && candidate !== "packages/neuro-book/docs/adr/README.md")) {
-        const filename = path.slice("packages/neuro-book/docs/adr/".length);
+    for (const path of files.filter((candidate) => candidate.startsWith("docs/adr/") && candidate.endsWith(".md") && candidate !== "docs/adr/README.md")) {
+        const filename = path.slice("docs/adr/".length);
         const match = /^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.exec(filename);
         if (!match) {
             failures.push(`ADR 文件名必须为 NNNN-kebab-case.md：${path}`);
@@ -205,24 +161,106 @@ function checkAdrs(repoRoot: string, files: readonly string[], failures: string[
         const sameNumber = byNumber.get(number) ?? [];
         sameNumber.push(path);
         byNumber.set(number, sameNumber);
-        const heading = readFileSync(resolve(repoRoot, path), "utf8").match(/^# ADR (\d{4})(?:\b|：)/mu)?.[1];
+        const text = readFileSync(resolve(repoRoot, path), "utf8");
+        const heading = text.match(/^# ADR (\d{4})(?:\b|：)/mu)?.[1];
         if (heading !== number) failures.push(`ADR 标题编号与文件名不一致：${path}（标题 ${heading ?? "缺失"}，文件名 ${number}）`);
+        checkDecisionFrontmatter(path, text, {kind: "ADR", schema: "nbook.adr/v1", statuses: ADR_STATUSES, decidedRequiredFor: ADR_STATUSES}, failures);
     }
     for (const [number, paths] of byNumber) {
         if (paths.length > 1) failures.push(`ADR 编号重复 ${number}：${paths.join(", ")}`);
     }
 }
 
-const VITEPRESS_PAGE_PATTERN = /^vitepress\/locales\/(?:zh-Hans|en-US)\/.+\.md$/u;
-const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
-const VITEPRESS_SLUG_SPECIAL = /[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/gu;
+/**
+ * 提案的 frontmatter 与索引登记（docs/proposals/README.md 的“frontmatter”）：状态只写在 frontmatter；
+ * draft、reviewing、accepted 的提案必须登记在索引里，rejected、superseded 的不留在活跃目录。
+ */
+function checkProposals(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
+    const proposals = files.filter((path) => path.startsWith("docs/proposals/") && path.endsWith(".md") && !SPEC_SUPPORT_FILENAMES.has(posix.basename(path)));
+    if (proposals.length === 0) return;
+    const indexed = new Set<string>();
+    if (fileSet.has(PROPOSAL_INDEX)) {
+        for (const url of collectLinkUrls(fromMarkdown(readFileSync(resolve(repoRoot, PROPOSAL_INDEX), "utf8")))) {
+            const target = resolveRelativeLink(PROPOSAL_INDEX, url);
+            const resolved = target === null ? null : resolveLinkTarget(target, fileSet);
+            if (resolved !== null) indexed.add(resolved);
+        }
+    }
+    for (const path of proposals) {
+        const status = checkDecisionFrontmatter(path, readFileSync(resolve(repoRoot, path), "utf8"), {
+            kind: "提案",
+            schema: "nbook.proposal/v1",
+            statuses: PROPOSAL_STATUSES,
+            decidedRequiredFor: new Set(["accepted", "rejected"]),
+        }, failures);
+        if (status === null) continue;
+        if (ACTIVE_PROPOSAL_STATUSES.has(status)) {
+            if (!indexed.has(path)) failures.push(`提案未登记在 ${PROPOSAL_INDEX}：${path}（${status}）`);
+        } else {
+            failures.push(`${status} 的提案应移入 docs/archived/proposals/：${path}`);
+        }
+    }
+}
 
-type AnchorRule = "github" | "vitepress";
+type DecisionDocumentRules = {
+    kind: "提案" | "ADR";
+    schema: string;
+    statuses: ReadonlySet<string>;
+    decidedRequiredFor: ReadonlySet<string>;
+};
+
+/** 提案与 ADR 共用的 frontmatter 校验；返回合法的 status，frontmatter 缺失或 status 非法时返回 null。 */
+function checkDecisionFrontmatter(path: string, text: string, rules: DecisionDocumentRules, failures: string[]): string | null {
+    // 中文与英文之间留空格：“提案的 schema”“ADR 的 schema”。
+    const subject = rules.kind === "ADR" ? "ADR " : rules.kind;
+    const frontmatter = readFrontmatter(text);
+    if (frontmatter.status === "missing") {
+        failures.push(`${subject}缺少 YAML frontmatter：${path}`);
+        return null;
+    }
+    if (frontmatter.status === "invalid") {
+        failures.push(`${subject}的 frontmatter ${frontmatter.message}：${path}`);
+        return null;
+    }
+    const fields = frontmatter.fields;
+    if (fields.schema !== rules.schema) failures.push(`${subject}的 schema 必须是 ${rules.schema}：${path}`);
+    const status = fields.status;
+    if (typeof status !== "string" || !rules.statuses.has(status)) {
+        failures.push(`${subject}的 status 必须是 ${[...rules.statuses].join("、")} 之一：${path}`);
+        return null;
+    }
+    if (rules.decidedRequiredFor.has(status) && !(typeof fields.decided === "string" && DATE_PATTERN.test(fields.decided))) {
+        failures.push(`${subject}的 status 为 ${status} 时 decided 必须是 YYYY-MM-DD 日期：${path}`);
+    }
+    if (status === "superseded" && !(typeof fields["superseded-by"] === "string" && fields["superseded-by"].trim() !== "")) {
+        failures.push(`${subject}的 status 为 superseded 时必须填写 superseded-by：${path}`);
+    }
+    return status;
+}
+
+type FrontmatterRead =
+    | {status: "missing"}
+    | {status: "invalid"; message: string}
+    | {status: "ok"; fields: Record<string, unknown>};
+
+function readFrontmatter(text: string): FrontmatterRead {
+    const match = FRONTMATTER_PATTERN.exec(text);
+    if (!match) return {status: "missing"};
+    let raw: unknown;
+    try {
+        raw = parseYaml(match[1]);
+    } catch (error) {
+        return {status: "invalid", message: `无法解析：${error instanceof Error ? error.message : String(error)}`};
+    }
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {status: "invalid", message: "必须是对象"};
+    return {status: "ok", fields: raw as Record<string, unknown>};
+}
+
+const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
 
 /**
  * 校验活跃文档的链接目标与 `#锚点`。
- * 锚点按来源的渲染方式计算：VitePress 站点页面用 VitePress 规则，其余仓库文档用 GitHub 规则；
- * 仅校验指向 Markdown 的锚点，站点绝对路径只在带锚点时解析到 locale 页面。
+ * 锚点按 GitHub 的标题 slug 规则计算，仅校验指向 Markdown 的锚点。
  * current Task 快照按其 v2 合同只是协作参考，命中问题进 `warnings` 而不阻断。
  */
 function checkActiveLinks(
@@ -230,32 +268,32 @@ function checkActiveLinks(
     files: readonly string[],
     fileSet: ReadonlySet<string>,
     failures: string[],
-    warnings: string[],
+    warnings: FileWarning[],
 ): void {
     const anchorCache = new Map<string, ReadonlySet<string>>();
-    const anchorsOf = (path: string, rule: AnchorRule): ReadonlySet<string> => {
-        const key = `${rule}:${path}`;
-        let anchors = anchorCache.get(key);
+    const anchorsOf = (path: string): ReadonlySet<string> => {
+        let anchors = anchorCache.get(path);
         if (anchors === undefined) {
-            anchors = collectAnchors(readFileSync(resolve(repoRoot, path), "utf8"), rule);
-            anchorCache.set(key, anchors);
+            anchors = collectAnchors(readFileSync(resolve(repoRoot, path), "utf8"));
+            anchorCache.set(path, anchors);
         }
         return anchors;
     };
     for (const source of files.filter((path) => isActiveMarkdown(path) || isCurrentTaskContract(repoRoot, path))) {
-        const report = isActiveMarkdown(source) ? failures : warnings;
+        const report = isActiveMarkdown(source)
+            ? (label: string, detail: string) => failures.push(`${label}：${detail}`)
+            : (label: string, detail: string) => warnings.push({path: source, label, detail});
         const text = readFileSync(resolve(repoRoot, source), "utf8");
         let tree: Root;
         try {
             tree = fromMarkdown(text);
         } catch (error) {
-            report.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
+            report("Markdown 无法解析", `${source}：${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
-        const rule: AnchorRule = VITEPRESS_PAGE_PATTERN.test(source) ? "vitepress" : "github";
         for (const url of collectLinkUrls(tree, true)) {
             if (url.includes("\\")) {
-                report.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
+                report("相对链接必须使用正斜杠", `${source} -> ${url}`);
                 continue;
             }
             const fragment = linkFragment(url);
@@ -263,27 +301,21 @@ function checkActiveLinks(
             let anchorTarget: string | null = null;
             if (target !== null) {
                 if (target.startsWith("../") || target === "..") {
-                    report.push(`相对链接越出仓库：${source} -> ${url}`);
+                    report("相对链接越出仓库", `${source} -> ${url}`);
                     continue;
                 }
                 const resolved = resolveLinkTarget(target, fileSet);
                 if (resolved === null) {
-                    report.push(`相对链接目标不存在：${source} -> ${url}（${target}）`);
+                    report("相对链接目标不存在", `${source} -> ${url}（${target}）`);
                     continue;
                 }
                 anchorTarget = resolved;
             } else if (fragment !== null && url.trim().startsWith("#")) {
                 anchorTarget = source;
-            } else if (fragment !== null && rule === "vitepress" && /^\/(?!\/)/u.test(url.trim())) {
-                anchorTarget = resolveVitepressRoute(url, fileSet);
-                if (anchorTarget === null) {
-                    report.push(`站内链接目标不存在：${source} -> ${url}`);
-                    continue;
-                }
             }
             if (fragment === null || anchorTarget === null || !anchorTarget.endsWith(".md")) continue;
-            if (!anchorsOf(anchorTarget, rule).has(fragment)) {
-                report.push(`链接锚点不存在：${source} -> ${url}（${anchorTarget}#${fragment}）`);
+            if (!anchorsOf(anchorTarget).has(fragment)) {
+                report("链接锚点不存在", `${source} -> ${url}（${anchorTarget}#${fragment}）`);
             }
         }
     }
@@ -302,24 +334,7 @@ function linkFragment(rawUrl: string): string | null {
     }
 }
 
-/** 解析 VitePress 站点绝对路径：`/` 对应 zh-Hans，`/en/` 对应 en-US，末尾 `/` 指向目录 index。 */
-function resolveVitepressRoute(rawUrl: string, fileSet: ReadonlySet<string>): string | null {
-    let route = rawUrl.trim().split("#", 1)[0].split("?", 1)[0];
-    try {
-        route = decodeURIComponent(route);
-    } catch {
-        // 保留原始路径，按不存在报告。
-    }
-    const english = route === "/en" || route.startsWith("/en/");
-    const localeRoot = `vitepress/locales/${english ? "en-US" : "zh-Hans"}`;
-    const page = route.slice(english ? 3 : 0).replace(/^\//u, "").replace(/\.(?:html|md)$/u, "");
-    const candidate = page === "" || page.endsWith("/")
-        ? `${localeRoot}/${page}index.md`
-        : `${localeRoot}/${page}.md`;
-    return fileSet.has(candidate) ? candidate : null;
-}
-
-function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
+function collectAnchors(text: string): ReadonlySet<string> {
     let tree: Root;
     try {
         tree = fromMarkdown(text.replace(FRONTMATTER_PATTERN, ""));
@@ -328,24 +343,8 @@ function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
     }
     const anchors = new Set<string>();
     const githubSlugger = new GithubSlugger();
-    const vitepressSlugCounts = new Map<string, number>();
     const visit = (node: Nodes | Root): void => {
-        if (node.type === "heading") {
-            const title = markdownNodeText(node);
-            if (rule === "github") {
-                anchors.add(githubSlugger.slug(title));
-            } else {
-                const custom = /\s*\{#([^}\s]+)\}\s*$/u.exec(title);
-                if (custom) {
-                    anchors.add(custom[1]);
-                } else {
-                    const slug = vitepressSlug(title);
-                    const count = vitepressSlugCounts.get(slug);
-                    vitepressSlugCounts.set(slug, (count ?? 0) + 1);
-                    anchors.add(count === undefined ? slug : `${slug}-${count}`);
-                }
-            }
-        }
+        if (node.type === "heading") anchors.add(githubSlugger.slug(markdownNodeText(node)));
         if (node.type === "html") {
             for (const match of node.value.matchAll(/\s(?:id|name)\s*=\s*["']([^"']+)["']/gu)) anchors.add(match[1]);
         }
@@ -355,28 +354,10 @@ function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
     return anchors;
 }
 
-/** 与 VitePress 默认 slugify 逐步一致；该函数未从 `vitepress` 公开导出，升级 VitePress 时需复核。 */
-function vitepressSlug(text: string): string {
-    return text
-        .normalize("NFKD")
-        .replace(/[\u0300-\u036F]/gu, "")
-        .replace(/[\u0000-\u001f]/gu, "")
-        .replace(VITEPRESS_SLUG_SPECIAL, "-")
-        .replace(/-{2,}/gu, "-")
-        .replace(/^-+|-+$/gu, "")
-        .replace(/^(\d)/u, "_$1")
-        .toLowerCase();
-}
-
 function isActiveMarkdown(path: string): boolean {
     if (!path.endsWith(".md")) return false;
     if (ROOT_DOCUMENTS[path] || path === ".omp/RULES.md") return true;
     if (path.startsWith("docs/")) return !path.startsWith("docs/archived/") && !path.startsWith("docs/research/");
-    if (path.startsWith("packages/neuro-book/assets/reference/")) return true;
-    if (path.startsWith("reference/")) return true;
-    if (path.startsWith("vitepress/locales/")) return !path.startsWith("vitepress/locales/zh-Hans/changelog/")
-        && !path.startsWith("vitepress/locales/en-US/changelog/");
-    if (path.startsWith("vitepress/")) return !path.startsWith("vitepress/public/");
     if (path === ".agents/README.md" || path === ".agents/AGENTS.md") return true;
     return path.startsWith(".agents/skills/");
 }
@@ -406,7 +387,7 @@ function checkCurrentTaskContracts(
     repoRoot: string,
     files: readonly string[],
     fileSet: ReadonlySet<string>,
-    warnings: string[],
+    warnings: FileWarning[],
 ): void {
     for (const path of files.filter((candidate) => isCurrentTaskContract(repoRoot, candidate))) {
         const text = readFileSync(resolve(repoRoot, path), "utf8");
@@ -418,7 +399,7 @@ function checkCurrentTaskContracts(
             return isSpecDocument(candidate) && fileSet.has(candidate);
         });
         if (!hasConcreteSpec && !text.includes("行为合同未变")) {
-            warnings.push(`新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：${path}`);
+            warnings.push({path, label: "新 Task 必须链接具体 Spec，或明确说明“行为合同未变”", detail: path});
         }
     }
 }
@@ -427,16 +408,6 @@ function collectLinkUrls(tree: Root, includeImages = false): string[] {
     const urls: string[] = [];
     const visit = (node: Nodes | Root): void => {
         if (node.type === "link" || node.type === "definition" || (includeImages && node.type === "image")) urls.push(node.url);
-        if ("children" in node) for (const child of node.children) visit(child);
-    };
-    visit(tree);
-    return urls;
-}
-
-function collectImageUrls(tree: Root): string[] {
-    const urls: string[] = [];
-    const visit = (node: Nodes | Root): void => {
-        if (node.type === "image") urls.push(node.url);
         if ("children" in node) for (const child of node.children) visit(child);
     };
     visit(tree);
@@ -479,13 +450,13 @@ function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failu
     for (const url of collectLinkUrls(fromMarkdown(frozenSection ?? ""))) {
         const target = resolveRelativeLink(registryPath, url);
         if (target === null) continue;
-        if (["docs/proposals/", "docs/research/", "docs/archived/", "packages/neuro-book/docs/proposals/", "packages/neuro-book/docs/research/", "packages/neuro-book/docs/archived/", ".agents/tasks/"].some((prefix) => target.startsWith(prefix))) {
+        if (["docs/proposals/", "docs/research/", "docs/archived/", "packages/neuro-book-legacy/docs/", ".agents/tasks/"].some((prefix) => target.startsWith(prefix))) {
             failures.push(`冻结过渡规范指向非规范资料：${registryPath} -> ${url}（${target}）`);
         }
     }
 }
 
-function checkSpecs(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
+function checkSpecs(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[], warnings: FileWarning[]): void {
     const registryPath = "docs/specs/README.md";
     if (!files.includes(registryPath)) return;
     const registry = readFileSync(resolve(repoRoot, registryPath), "utf8");
@@ -509,6 +480,7 @@ function checkSpecs(repoRoot: string, files: readonly string[], fileSet: Readonl
         if (!expectedTargets.has(path)) failures.push(`Spec 未登记在“${expectedSection}”：${path}`);
         if (otherTargets.has(path)) failures.push(`Spec 登记的成熟度与 frontmatter 不一致：${path}（${metadata.status}）`);
         if (text.includes("本模板中的说明在填写后删除")) failures.push(`Spec 仍包含模板说明：${path}`);
+        checkSpecProse(path, text, warnings);
 
         if (metadata.kind === "behavior") {
             const sections = markdownSections(text);
@@ -527,8 +499,42 @@ function checkSpecs(repoRoot: string, files: readonly string[], fileSet: Readonl
     }
 }
 
+/**
+ * Spec 只写行为（docs/specs/README.md 的“Spec 写什么、不写什么”）：历程属于 Task，所以正文里的 Task 引用、
+ * “证据”一节里固定标签与批准依据之外的叙述都给警告。存量 Spec 改到哪份清理哪份，所以不阻断。
+ */
+function checkSpecProse(path: string, text: string, warnings: FileWarning[]): void {
+    const body = text.replace(FRONTMATTER_PATTERN, "");
+    let tree: Root;
+    try {
+        tree = fromMarkdown(body);
+    } catch {
+        // 无法解析的 Markdown 已由 checkActiveLinks 报为失败，这里不重复报告。
+        return;
+    }
+    const headings = tree.children.filter((node) => node.type === "heading" && node.depth === 2);
+    const evidenceIndex = headings.findIndex((heading) => markdownNodeText(heading).trim() === "证据");
+    let prose = body;
+    if (evidenceIndex >= 0) {
+        const start = headings[evidenceIndex].position?.start.offset ?? body.length;
+        const evidenceStart = headings[evidenceIndex].position?.end.offset ?? body.length;
+        const end = headings[evidenceIndex + 1]?.position?.start.offset ?? body.length;
+        prose = body.slice(0, start) + body.slice(end);
+        const extraLines = body.slice(evidenceStart, end).split(/\r?\n/u)
+            .map((line) => line.trim())
+            .filter((line) => line !== "" && !EVIDENCE_LINE_PATTERN.test(line));
+        if (extraLines.length > 0) {
+            warnings.push({path, label: "Spec 的“证据”一节有固定标签与批准依据之外的行", detail: `${path}（${String(extraLines.length)} 行）`});
+        }
+    }
+    const references = [...new Set([...prose.matchAll(TASK_REFERENCE_PATTERN)].map((match) => match[0]))];
+    if (references.length > 0) {
+        warnings.push({path, label: "Spec 正文引用了 Task（只能出现在“证据”一节）", detail: `${path}（${references.slice(0, 5).join("、")}${references.length > 5 ? " 等" : ""}）`});
+    }
+}
+
 function isSpecDocument(path: string): boolean {
-    if (!(path.startsWith("docs/specs/") || path.startsWith("packages/neuro-book/docs/specs/")) || !path.endsWith(".md")) return false;
+    if (!path.startsWith("docs/specs/") || !path.endsWith(".md")) return false;
     return !SPEC_SUPPORT_FILENAMES.has(posix.basename(path));
 }
 
@@ -575,10 +581,12 @@ function checkImplementedEvidence(
     }
 }
 
-/** 受管组件 = nb-ui barrel 导出 + 应用公共组件；缺少同名契约文档时阻断 docs:check。 */
+/**
+ * 受管组件目前只有 nb-ui barrel 导出的组件；缺少同名契约文档时阻断 docs:check。
+ * 新应用的通用组件目录随 workbench 底座确定后加入。
+ */
 function checkComponentDocuments(
     repoRoot: string,
-    files: readonly string[],
     fileSet: ReadonlySet<string>,
     failures: string[],
 ): void {
@@ -587,9 +595,6 @@ function checkComponentDocuments(
         ? [...readFileSync(barrel, "utf8").matchAll(NB_UI_COMPONENT_EXPORT_PATTERN)].map((match) => `packages/nb-ui/src/components/${match[1]}.vue`)
         : [];
     const managed = new Set(exported.filter((path) => fileSet.has(path)));
-    for (const path of files) {
-        if (path.startsWith(APP_COMMON_COMPONENT_PREFIX) && path.endsWith(".vue")) managed.add(path);
-    }
     for (const path of [...managed].sort()) {
         const documentPath = `${path.slice(0, -".vue".length)}.md`;
         if (!fileSet.has(documentPath)) {
@@ -693,7 +698,7 @@ function registeredSpecTargets(
     const targets = new Set<string>();
     for (const url of collectLinkUrls(fromMarkdown(section))) {
         const resolved = resolveRelativeLink(registryPath, url);
-        if (resolved === null || !(resolved.startsWith("docs/specs/") || resolved.startsWith("packages/neuro-book/docs/specs/"))) continue;
+        if (resolved === null || !resolved.startsWith("docs/specs/")) continue;
         const candidates = resolved.endsWith(".md") ? [resolved] : [`${resolved}.md`];
         const target = candidates.find((candidate) => specPaths.has(candidate));
         if (target === undefined) {
@@ -732,33 +737,23 @@ function parseSpecMetadata(path: string, text: string, failures: string[]): Spec
     if (schema !== "nbook.spec/v1") failures.push(`Spec schema 必须是 nbook.spec/v1：${path}`);
     if (typeof kind !== "string" || !SPEC_KINDS.has(kind)) failures.push(`Spec kind 必须是 behavior、architecture 或 glossary：${path}`);
     if (typeof status !== "string" || !SPEC_STATUSES.has(status)) failures.push(`Spec status 必须是 planned 或 implemented：${path}`);
-    if (typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)) failures.push(`Spec capability 必须是稳定的点分小写标识：${path}`);
-    if (capability === SPEC_PLACEHOLDER_CAPABILITY) failures.push(`Spec capability 仍是模板占位值：${path}`);
-    if (!Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())) {
-        failures.push(`Spec owners 必须是非空模块列表：${path}`);
-    } else if (owners.includes(SPEC_PLACEHOLDER_OWNER)) {
-        failures.push(`Spec owners 仍包含模板占位值：${path}`);
-    }
+    const capabilityPlaceholder = typeof capability === "string" && TEMPLATE_PLACEHOLDER_PATTERN.test(capability);
+    if (capabilityPlaceholder) failures.push(`Spec capability 仍是模板占位值：${path}`);
+    else if (typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)) failures.push(`Spec capability 必须是稳定的点分小写标识：${path}`);
+    const ownersValid = Array.isArray(owners) && owners.length > 0 && owners.every((owner) => typeof owner === "string" && owner.trim() !== "");
+    const ownerPlaceholder = ownersValid && owners.some((owner: string) => TEMPLATE_PLACEHOLDER_PATTERN.test(owner));
+    if (!ownersValid) failures.push(`Spec owners 必须是非空模块列表：${path}`);
+    else if (ownerPlaceholder) failures.push(`Spec owners 仍包含模板占位值：${path}`);
     if (schema !== "nbook.spec/v1" || typeof kind !== "string" || !SPEC_KINDS.has(kind)
         || typeof status !== "string" || !SPEC_STATUSES.has(status)
-        || typeof capability !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)
-        || capability === SPEC_PLACEHOLDER_CAPABILITY
-        || !Array.isArray(owners) || owners.length === 0 || owners.some((owner) => typeof owner !== "string" || !owner.trim())
-        || owners.includes(SPEC_PLACEHOLDER_OWNER)) return null;
+        || typeof capability !== "string" || capabilityPlaceholder || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(capability)
+        || !ownersValid || ownerPlaceholder) return null;
     return {kind, status, capability};
 }
 
-function checkFrozenReference(_repoRoot: string, files: readonly string[], failures: string[]): void {
-    for (const path of files.filter((candidate) => candidate.startsWith("reference/"))) {
-        failures.push(`运行期 Reference 必须位于 packages/neuro-book/assets/reference：${path}`);
-    }
-}
-
 if (import.meta.main) {
-    const args = process.argv.slice(2);
-    const repoArgument = args.indexOf("--repo-root");
-    const repoRoot = resolve(repoArgument >= 0 ? args[repoArgument + 1] ?? "" : defaultRepoRoot(import.meta.url));
-    const report = checkDocumentation(repoRoot);
+    const {repoRoot, since, all} = readChangeScopeArguments(import.meta.url);
+    const report = checkDocumentation(repoRoot, {warningScope: all ? undefined : changedFiles(repoRoot, since)});
     console.log(JSON.stringify(report, null, 2));
     if (report.failures.length > 0) process.exitCode = 1;
 }

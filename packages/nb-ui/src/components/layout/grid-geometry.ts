@@ -280,6 +280,7 @@ export function normCollapse(value: SashCollapseState | undefined): SashCollapse
         collapseThreshold: Math.max(0, finite(value.collapseThreshold, 0)),
         expandThreshold: Math.max(0, finite(value.expandThreshold, 0)),
         collapsed: value.collapsed === true,
+        ...(value.toggleable === false ? {toggleable: false} : {}),
     };
 }
 

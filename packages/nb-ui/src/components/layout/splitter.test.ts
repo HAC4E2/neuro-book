@@ -898,9 +898,10 @@ describe("分界线像素对齐", () => {
         // 装饰带中心 400.9 → 设备像素网格 401：起点 -1（居中）+ 0.1（对齐），厚度仍是 3
         expect(line.style.width).toBe("3px");
         expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.9);
-        // 交叉轴铺满分隔盒，不再靠负 inset 外扩
-        expect(line.style.top).toBe("0px");
-        expect(line.style.bottom).toBe("0px");
+        // 交叉轴不写内联：两端由样式按 data-axis 贴满分隔盒（不再靠负 inset 外扩）
+        expect(line.dataset.axis).toBe("width");
+        expect(line.style.top).toBe("");
+        expect(line.style.bottom).toBe("");
         // 接缝自己不动：模型里仍是 1px，命中盒也仍在 400.4
         expect(sash.style.transform).toBe("");
         expect(sash.style.width).toBe("1px");
@@ -995,8 +996,9 @@ describe("分界线像素对齐", () => {
 
         expect(line.style.height).toBe("3px");
         expect(Number.parseFloat(line.style.top)).toBeCloseTo(-0.9);
-        expect(line.style.left).toBe("0px");
-        expect(line.style.right).toBe("0px");
+        expect(line.dataset.axis).toBe("height");
+        expect(line.style.left).toBe("");
+        expect(line.style.right).toBe("");
         expect(line.style.width).toBe("");
     });
 });
@@ -1014,9 +1016,10 @@ describe("静止接缝（常驻的 1px 分界线）", () => {
         // 线盒 [400, 401] 本来就落在整像素边界上：接缝原地不动，厚度 1px
         expect(seam.style.left).toBe("0px");
         expect(seam.style.width).toBe("1px");
-        // 交叉轴铺满分隔盒
-        expect(seam.style.top).toBe("0px");
-        expect(seam.style.bottom).toBe("0px");
+        // 交叉轴不写内联：两端由样式按 data-axis 取 `--nb-splitter-seam-inset`（缺省 0，铺满；开放式分割线时缩进）
+        expect(seam.dataset.axis).toBe("width");
+        expect(seam.style.top).toBe("");
+        expect(seam.style.bottom).toBe("");
         // 装饰层是绝对定位的裸元素：接缝自身的布局盒、命中盒与面板分配都不受影响
         expect(sash.style.width).toBe("1px");
         expect(sash.style.transform).toBe("");
@@ -1115,8 +1118,9 @@ describe("静止接缝（常驻的 1px 分界线）", () => {
 
         expect(seam.style.height).toBe("1px");
         expect(Number.parseFloat(seam.style.top)).toBeCloseTo(-0.4);
-        expect(seam.style.left).toBe("0px");
-        expect(seam.style.right).toBe("0px");
+        expect(seam.dataset.axis).toBe("height");
+        expect(seam.style.left).toBe("");
+        expect(seam.style.right).toBe("");
         expect(seam.style.width).toBe("");
     });
 });
@@ -1227,6 +1231,26 @@ describe("Splitter 会话的显式折叠与提交", () => {
         const commit = session.finish();
         // 若按最后一次位移重解，outline 会再次收起到 0
         expect(commit?.changes[0]).toMatchObject({target: {outline: 180, editor: 318}, collapsed: {outline: false}});
+    });
+
+    it("标了只经拖动（toggleable: false）的面板：拖过阈值照样收起，Enter 不切换它", () => {
+        const panels = sashPanelsOfConfig([{...COLLAPSIBLE_PANELS[0]!, collapse: {...COLLAPSIBLE_PANELS[0]!.collapse!, toggleable: false}}, ...COLLAPSIBLE_PANELS.slice(1)], [200, 298, 200]);
+        const open = (): SplitterGestureSession => createSplitterSession({
+            sessionId: "session-2",
+            contextKey: "outline",
+            source: "keyboard",
+            revision: 3,
+            branchId: "outline",
+            axis: "width",
+            ids: panels.map((panel) => panel.id),
+            panels,
+            baselinePx: [200, 298, 200],
+            sashIndex: 0,
+            extent: {width: 700, height: 0},
+        });
+        // 分隔条另一侧的 editor 没有收起意图：显式切换没有对象
+        expect(open().toggleCollapsed()).toBeNull();
+        expect(open().update({x: -150, y: 0})).toMatchObject({sizesPx: [0, 498, 200], collapsed: {outline: true}});
     });
 
     it("Home / End 从线的当前位置换算绝对位移，不落在最后一段位移上重解", () => {

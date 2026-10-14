@@ -65,7 +65,7 @@ Work 的五位序号在项目内唯一，名称不同也不能复用同一序号
 
 ## 创建与执行
 
-主 Agent 按当前已知结果创建 Work 与至少一个可执行 Task，可直接执行或按独立边界委派，不预建依赖未知结果的链。CLI 使用 `--work <workId>`，需要具体 Task 时追加 `--task <taskId>`；`governance:context` 输出 `nbook.governance-context/v2`，不再接受 `--role` 或返回角色字段。
+主 Agent 按当前已知结果创建 Work 与至少一个可执行 Task，可直接执行或按独立边界委派。开发者确认要做、还没开工的后续工作可以先建 Task 防止遗忘：快照写目标、来源、已知范围与前置，标明未开工；开工时按当时的结果修订范围再写计划。不为依赖未知结果的设想预建 Task 链。非平凡 Task 的实施计划按 [implementation-planning](../skills/implementation-planning/SKILL.md) 写在 Task 目录的 `plan.md`，开发者确认后再实施；Task README 只链接计划并记录进展。CLI 使用 `--work <workId>`，需要具体 Task 时追加 `--task <taskId>`；`governance:context` 输出 `nbook.governance-context/v2`，不再接受 `--role` 或返回角色字段。
 
 需要隔离代码改动时，一个 Task 一个 worktree：从具备所需源码的本地 `master` 创建 `.worktree/<Work 编号>-<Task 编号>-<短名>`，例如 `.worktree/w00017-t80-settings-ui`；branch 使用根规则的 `{type}/{refs}-{slug}`，`refs` 写 Work 与 Task 编号，例如 `feat/w00017-t80-settings-ui`。几个 Task 需要共用一条集成分支时，在 Work README 写明。恢复时在 worktree 里运行 `governance:context` 记录实际 worktree 与 branch；路径已属于其它仓库、Task 或不匹配 branch 时报告冲突并停止，不覆盖或另建第二身份。执行位置写在 Task README 正文，不写入 frontmatter。
 

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拖放与分栏评审板</title>
+<style>
+:root { --bg: #f6f3ec; --card: #fffcf5; --text: #2b2723; --muted: #6f675d; --line: #ddd5c8; --tag: #efe7d8; --todo: #b4570b; --done: #2f7d4f; }
+@media (prefers-color-scheme: dark) { :root { --bg: #201d1a; --card: #2d2925; --text: #efe9df; --muted: #a39a8d; --line: #3d3833; --tag: #3a342e; --todo: #f0a050; --done: #6fc48f; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+main { max-width: 1320px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin: 36px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+p, li { max-width: 900px; }
+.meta { color: var(--muted); font-size: 13px; }
+.badge { display: inline-block; font-size: 12px; border-radius: 6px; padding: 0 6px; margin-right: 6px; vertical-align: 2px; border: 1px solid currentColor; }
+.todo { color: var(--todo); }
+.done { color: var(--done); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 10px 0; }
+figure { margin: 10px 0 16px; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 4px; }
+table { border-collapse: collapse; margin: 8px 0; font-size: 14px; max-width: 100%; }
+th, td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; vertical-align: top; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>拖放与分栏：评审板</h1>
+<p class="meta">t83。第三轮 2026-10-13（悬停线的默认样子、分栏标题第二版）；第二轮 2026-10-13，对应开发者对 t82 收口后的 7 条反馈；稿是在带样例视图的探针页（t82 分支的代码）上注入样式与元素截的图，不是实现。第一轮的稿在 <a href="r1/index.html">r1</a>，调研的差距清单在 <a href="../gap-review/index.html">gap-review</a>，决定以 <a href="../../README.md">Task README</a> 为准。</p>
+
+<section>
+<h2><span class="badge todo">待定</span>R3-1 默认主题的悬停线</h2>
+<p>R2-1 定了做成主题变量。默认主题按开发者给的几种做法两两组合：相交处断开或连着，实线或像输入框聚焦那样发光（发光直接用 <code>--focus-ring</code>，中间一条 1px 的强调色细芯）。四种都在窗体两端缩进 16px。</p>
+<figure><img src="r3/sash.webp" alt="四种组合：断开实线、断开发光、连着实线、连着发光"><figcaption>上：编辑区卡片左上角。下：编辑区与面板相接处，两条线同时亮。从左到右：断开 + 实线；断开 + 发光；连着 + 实线；连着 + 发光。</figcaption></figure>
+<p><b>推荐“连着 + 发光”</b>：两条线同时亮只发生在指针停在交汇处、一次会同时拖动两条边界的时候，连成 T 形正好表达“这里两个方向都能拖”；断开像两件不相干的东西。只亮一条时，它的两端都按自由端缩进。发光与输入框聚焦同源，主题换了聚焦光环它也跟着换。</p>
+</section>
+
+<section>
+<h2><span class="badge todo">待定</span>R3-2 分栏标题行第二版</h2>
+<figure><img src="r3/pane-header.webp" alt="分栏标题：现在、第二轮、第三轮"><figcaption>左：现在。中：第二轮（箭头 14px，整行悬停底色贴边）。右：第三轮，箭头 12px、与图标间距 2px、标题行左边距 8px；悬停底色左右各留 4px、上下各留 3px，圆角 6px。</figcaption></figure>
+<p><b>推荐右边</b>。面板里收成的竖条同理：箭头 12px，悬停底色四周留 3px。</p>
+</section>
+
+<section>
+<h2><span class="badge done">已定</span>R2-1 拖动边界的悬停线（反馈第 1 条）</h2>
+<p>现在这条线是 nb-ui 写死的：颜色取 <code>--accent-main</code>，3px，沿交叉轴铺满整个分支，主题改不了。卡片外壳里它从窗体顶一直画到底，贴着卡片的圆角穿过去，所以突兀。</p>
+<figure><img src="r2/sash.webp" alt="三种悬停线：现在、细线缩进、染缝"><figcaption>上：编辑区卡片左上角。下：编辑区与面板相接处（两条线同时亮，和反馈截图里一样）。从左到右：A 现在；B 2px 强调色细线，两端各缩进 16px（缝 4px 加圆角 12px），圆头；C 同样的几何，改成把缝染一层 30% 的强调色。</figcaption></figure>
+<p><b>推荐 B</b>，并做成主题变量：<code>--nb-sash-line-color</code>、<code>--nb-sash-line-size</code>、<code>--nb-sash-line-inset</code>、<code>--nb-sash-line-radius</code>，缺省等于现在的样子（macos 平铺不变）；nbook 卡片主题设成 B。C 在浅色下几乎看不出来。B 在两条线相交处竖线仍是直穿的，这一处不再细分。</p>
+</section>
+
+<section>
+<h2><span class="badge done">已定</span>R2-2 分栏的标题行（反馈第 2 条）</h2>
+<figure><img src="r2/pane-header.webp" alt="分栏标题行：现在与紧凑"><figcaption>左：现在，展开按钮是 24px 的图标按钮，前后各有间距。右：箭头缩成 14px、不画按钮框，标题行左边距 6px；悬停在“样例丁”上，整行变悬停底色。</figcaption></figure>
+<p><b>推荐右边</b>：整行（除右侧动作区）点击就收起或展开，箭头只是状态标记；面板里收成 32px 的竖条同样整条可点、箭头 14px。键盘：标题行可聚焦，Enter 切换，空格仍是拿起拖动。拖动照旧，按住移动超过 6px 才算拖动，不会和点击冲突。</p>
+</section>
+
+<section>
+<h2><span class="badge done">已定</span>R2-3 往有收起分栏的容器里放视图（反馈第 3、4 条）</h2>
+<figure><img src="r2/pane-insert.webp" alt="插入：现在与插入线"><figcaption>上：甲展开，其余收起，把样例戊拖到“样例己”和“资源管理器”之间。左是现在，只亮一条约 16px 的细框，提示和拖影叠在一起；右是建议，两栏之间一条插入线，线的右端写“放在‘资源管理器’前”。下：四栏全部收起，拖到“样例丁”和“样例甲”之间。左是现在，只能放进下面的空白区；右是建议，同样画插入线。</figcaption></figure>
+<figure><img src="r2/pane-dropped-now.webp" alt="现在松手后的结果"><figcaption>现在全部收起时松手：不管指在哪里，新视图都追加到最后（样例戊排在样例甲后面）。</figcaption></figure>
+<p><b>推荐</b>：</p>
+<ul>
+<li>收起的分栏不按半区算，按指针在它的前半还是后半，给“插在它前面或后面”的插入线；展开的分栏仍按半区并入。</li>
+<li>全部收起时，标题之间、最后一个之后都是插入位；下面的空白区等于“插在最后”。</li>
+<li>放下后新视图在插入线的位置、展开；其余收起的保持收起。份额：相邻有展开的栏就从它那里分一半，都收着就占剩下的空间。</li>
+<li>面板里横排的分栏同理，插入线是竖线。</li>
+</ul>
+</section>
+
+<section>
+<h2><span class="badge done">已定</span>R2-4 右栏与面板的标签（反馈第 5 条）</h2>
+<p><b>字号偏大是 t81 修过的缺陷</b>：标签写的是 <code>text-[var(--text-xs)]</code>，Tailwind 把它编译成了颜色，字号落回 16px（图标 18px）。t81 在分支 <code>t81/nb-ui-fixes</code> 上已经改好，还没合进 w00017 主线；合入后标签是 <code>--text-xs</code>（11px），和侧栏的容器标题一样。下面的建议稿按 11px 画。</p>
+<figure><img src="r2/tabs.webp" alt="四种可用宽度下的标签：现在与逐级让位"><figcaption>粉色虚线是标签带的可用宽度（520、330、230、140px）。左：现在，16px，放不下就横向滚动，标签从字中间截断。右：建议。520 完整标题；330 每个标签最宽 96px、超出截断；230 选中的保留标题，其余只显示图标（悬停显示全名）；140 再放不下，收进“更多 N”。</figcaption></figure>
+<p><b>推荐右边的顺序</b>：先截断到 96px（保证收起前每个标签至少还能读出图标加四五个字），再变图标，最后进“更多”；选中的那个始终带标题。可选的另一种是变图标时连选中的也只留图标，标签带更省地方，但看不出现在是哪一组。做成 nb-ui <code>Tabs</code> 的通用能力，右栏与面板共用。</p>
+</section>
+
+<section>
+<h2><span class="badge done">答复</span>反馈第 6 条：样例甲与样例戊的内边距</h2>
+<p>不一致是声明不同：视图声明 <code>layout</code>，<code>scroll</code> 的由外框（<code>WorkbenchViewFrame</code>）包滚动区并统一加内边距（样例戊）；<code>fill</code> 的占满、自己滚动，外框不加（样例甲）。样例视图在 <code>fill</code> 时没给自己加，所以文字贴边。</p>
+<p>我的看法：<b>值由上层定，<code>fill</code> 视图自己用</b>。<code>scroll</code> 的内容（正文、表单）照旧由外框加；<code>fill</code> 的视图（树、编辑器、终端）需要整行铺满（选中底色要通到边），不能由外框整体加，但外框把同一个值作为变量（例如 <code>--view-inset</code>）交给它，视图用在行内的左右缩进上，这样两类视图的文字起点对齐、值随主题。要不要这样改、放在哪个 Task，由你定。</p>
+</section>
+
+<section>
+<h2><span class="badge done">答复</span>反馈第 7 条：菜单系统</h2>
+<table>
+<tr><th>菜单</th><th>现在</th><th>能不能由插件或视图贡献</th></tr>
+<tr><td>标题栏应用菜单</td><td>已做，四组</td><td>不能：工作台写死一份定义，只列命令 id；插件的命令加载了才出现，插件加不了新项</td></tr>
+<tr><td>视图标题动作</td><td>已做</td><td>能：视图声明 <code>actions</code>，画成标题行的图标按钮（<code>workbench/views.md</code> 输出 10）</td></tr>
+<tr><td>视图的“…”更多菜单</td><td>没做</td><td>旧应用有（次要动作收进“…”）；新应用没有</td></tr>
+<tr><td>右键菜单</td><td>资源管理器有自己的固定动作</td><td>不能：开放的 <code>explorer/context</code> 贡献点在 Spec 里写的是“随第一个消费者再做”</td></tr>
+<tr><td>标题栏与状态栏条目</td><td>已做</td><td>能（外壳四），放不下时收进“更多”</td></tr>
+</table>
+<p>建议另开一个 Task 设计“菜单贡献点”：一套位置（应用菜单的各组、视图标题与“…”、视图内的右键、编辑器标题等）、按命令 id 贡献、带分组与顺序和 <code>when</code>，先出设计稿再定范围。</p>
+</section>
+
+<section>
+<h2><span class="badge done">已定</span>第一轮剩下的几项（按推荐）</h2>
+<p>见 <a href="r1/index.html">r1</a>。第一轮的第 2、4、5 项被上面的 R2-3、R2-4 取代；还剩：</p>
+<ol>
+<li>拖动时浮出预备区，覆盖所有没显示的侧栏、右栏、面板（缺省不显示、被隐藏、拖到零）。推荐：覆盖。</li>
+<li>放进收起成标题头的面板时展开面板。推荐：展开。</li>
+<li>标题栏按测量逐级让位，不写死宽度。推荐：照表。</li>
+<li>放下后的过渡用“高亮滑到最终位置再淡出”。推荐：照 r1 第三节。</li>
+<li>活动栏条目放不下时也收进“更多”。推荐：收。</li>
+</ol>
+</section>
+</main>
+</body>
+</html>
