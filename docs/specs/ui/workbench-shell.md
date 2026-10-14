@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.workbench-shell
 owners:
   - nbook.workbench
@@ -62,7 +62,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
 
 ### 外壳一：外壳与布局
 
-外壳一的输出 1–14 已实现；本 Spec 仍为 `planned`，外壳二、三实现后整体晋升。
+外壳一的输出 1–14 已实现。
 
 1. **拓扑**：标题栏在顶、状态栏在底；ActivityBar 是主体左侧的通高列，主体（侧栏、编辑器、右栏、面板）永远在它右侧，任何面板位置与对齐都不跨过 ActivityBar。不出现双重边框、双重标题条或双重标签条。
 2. **面板位置与对齐**：位置 `bottom`、`top`、`left`、`right`，默认 `bottom`；水平位置的跨度 `center`（只在编辑器下）、`left`（含侧栏）、`right`（含右栏）、`justify`（含左右侧栏），默认 `center`；`justify` 不跨 ActivityBar。左右位置忽略保存的对齐，改回水平位置时再生效。

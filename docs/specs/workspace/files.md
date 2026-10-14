@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workspace.files
 owners:
   - workspace-files
@@ -13,11 +13,13 @@ owners:
 
 为主页面及其它合法文件消费者提供同一工作区下的文件查询、内容读写、目录操作与变更通知。后端能力由内置 Files 插件提供，浏览器经宿主 API 消费；不依赖资源管理器视图存活才能使用。
 
-2026-09-26 开发者确认首版目标，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定服务侧文件事实、批量结果和安全边界；展示、手势与确认交互归 [workbench.files-explorer](../workbench/files-explorer.md)。实现与单机验收证据见 [w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)；状态仍为 `planned`，不表示全合同已验收。
+2026-09-26 开发者确认首版目标，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定服务侧文件事实、批量结果和安全边界；展示、手势与确认交互归 [workbench.files-explorer](../workbench/files-explorer.md)。
 
 2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)：本能力建在 [workspace.resources](resources.md)（资源地址、提供者、写入来源与变更事件）与 [workspace.folder-kinds](folder-kinds.md)（普通、内容、活页夹三类文件夹与清单）之上；目录按需列出，不读取文件内容或 frontmatter；`user://` 用户资产根与 Project 并列；写入带来源。
 
 非目标：两种 UI 展示规则、角色/世界书适配、通用网络 API 动态注册、外部插件安装、恶意代码沙箱、多文件原子事务、远程文件系统提供者。也不迁移 Project 数据格式、删除用户领域数据或取代编辑器的未保存正文；首版不新增回收站或文件操作全局撤销。
+
+已知限制：跨机器访问的基础操作尚未在隔离的第二宿主上验证；排他改名的平台原语（Linux `renameat2`、macOS `renamex_np`、Windows `MoveFileExW`）已在 Linux 上实测，macOS、Windows 与非默认文件系统的回退路径按 `process.platform` 代码分支区分但未在对应平台实际跑过。
 
 ## 术语与参与者
 
@@ -135,7 +137,7 @@ owners:
 
 ## 验收与 Smoke
 
-以下是完整能力的可观察门禁；已运行与尚缺证据在 [w00017 t24](../../../.agents/works/w00017-application-runtime-architecture/tasks/t24-files-switch-performance/README.md#终态验证与剩余边界)分开记录。真实文件使用隔离 State/Cache/Project 根，遵守[测试与验收合同](../../testing/README.md)。
+以下是完整能力的可观察门禁；真实文件使用隔离 State/Cache/Project 根，遵守[测试与验收合同](../../testing/README.md)。
 
 1. 主页面打开隔离项目，读取文件树与正文、编辑并保存；重新读取磁盘确认提交内容，另一合法文件消费者取得同一结果。
 2. 对普通文件、含 `index.md` 和附件的目录执行创建、重命名、移动、复制、删除，核对实际路径和字节；目录操作涵盖隐藏正文与附件。空目录的“创建内容”写入空白 `index.md`，已有时冲突而保留原字节；内容格式缺字段可诊断但不能单独阻断创建，路径和权限拒绝仍生效。
@@ -147,8 +149,20 @@ owners:
 8. 主页面不激活角色/世界书等领域适配也能完成基础链；同名文件/目录目标不覆盖、不合并，同目录复制要求改名，预检后目标被占用时仍拒绝写入。
 9. 目录复制中途失败保留已产生的残留并报告范围；取消后已完成项不回滚、未开始项不执行，在途不能确认则标为结果未知；断线后先核对磁盘，绝不重复已确认成功的副作用。
 
+## 实现合同
+
+- 公开入口：`nbook/plugins/files/shared/contracts.ts`（远程合同 `filesUserContract`/`filesProjectContract`、方法表、失败码 `FILES_FAILURES`、`TEXT_BUDGET_BYTES`/`encodedTextBytes`/`encodedBytes`）；浏览器客户端 `files/web/client.ts`、`filesKey`。
+- owner 与依赖方向：`workspace-files` 拥有分区库之外的文件原语与远程服务；依赖内核的按调用方门面、远程服务与跨实例委托（同 `storage.persistence` 的依赖写法），服务端/项目入口依赖 [`platform.files`](../platform/files.md) 的受根约束原语与 `nbook.diagnostics`；浏览器入口只依赖 `filesKey`，不直接访问真实路径。
+- 不变量：
+  - 控制目录（项目根下 `.nbook`）在词法路径与解析符号链接后的真实路径两处都拒绝（`rooted.test.ts`）；
+  - 条件保存与排他改名在系统调用层核对身份，核对与系统调用之间的窗口不承诺抵御恶意并发替换（`rooted.test.ts`、`exclusive.test.ts`）；
+  - 批量操作的源按目录项去重、父子重叠只处理最外层一次，移动/复制到自身或后代在产生任何结果前拒绝（`batch.test.ts`）；
+  - 内容文件夹内的操作与清单更新在同一次操作里结算，文件已改而清单未改时返回部分完成并指明哪份清单（见 `workspace.folder-kinds` 的“经文件服务的操作同步清单”，`operations.test.ts`）；
+  - 结果编码超预算时按路径→详情→清单表的顺序截断，每步重新核对装进一条消息（`transport.test.ts`）。
+
 ## 证据
 
-- 批准依据：目录项的叶子标记、`realPath` 与移动到指定位置来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
-- 批准依据：开发者于 2026-09-26 经访谈确认首版整体意图，随后以“可以，就这么做，收口”批准 F1–F9；见[首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)。2026-10-02 接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)：按需列目录、三类文件夹、写入来源、用户资产根与插件通道。“读取与保存”一节（基线、文本、正文上限、只保存已有文件）：[w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t68 条目（按推荐先做，待开发者追认）。“文件操作”一节（只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）：同一清单 2026-10-09 的 t69 条目（按推荐先做，待开发者追认）。
-- 实施与单机验收记录：[w00017 t16–t25](../../../.agents/works/w00017-application-runtime-architecture/README.md#当前-task-与继续条件)，含隔离磁盘/History、HTTP 失败、双窗口、Lab、切换性能与本机逐条复核。路径 move/rename 改用平台原子 no-replace 提交；Windows 在预检后抢占文件/目录目标时确认源与目标不变，未知平台和模拟 Linux 原语不支持会拒绝。完整 Windows 产品镜像构建成功，包含 Koffi 平台原生包；Linux/macOS 及其它文件系统未实测，跨机器基础操作尚未验证，保持 `planned`。
+- 批准依据：2026-09-26 开发者“可以，就这么做，收口”批准 [首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)（F1–F9）；2026-10-02 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（“读取与保存”一节：基线、文本、正文上限、只保存已有文件）与 t69 条目（“文件操作”一节：只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）；2026-10-14 [t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)（目录项的叶子标记、`realPath`、移动到指定位置）。
+- 实现入口：[`plugins/files/backend/`](../../../packages/neuro-book/src/plugins/files/backend/)、[`plugins/files/web/`](../../../packages/neuro-book/src/plugins/files/web/)、[`plugins/files/shared/contracts.ts`](../../../packages/neuro-book/src/plugins/files/shared/contracts.ts)
+- 合同测试：[`files/files.test.ts`](../../../packages/neuro-book/src/plugins/files/files.test.ts)、[`files/operations.test.ts`](../../../packages/neuro-book/src/plugins/files/operations.test.ts)、[`files/batch.test.ts`](../../../packages/neuro-book/src/plugins/files/batch.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/transport.test.ts`](../../../packages/neuro-book/src/plugins/files/transport.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/backend/rooted.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/rooted.test.ts)、[`files/backend/entry-ops.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts)、[`files/backend/exclusive.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/exclusive.test.ts)
+- Smoke：不适用——没有独立的跨机器 e2e；单机双窗口、Lab 与切换性能的记录随 [workbench.files-explorer](../workbench/files-explorer.md) 的 `e2e/files-explorer.e2e.ts`、`scripts/perf/files-perf.ts`（最近一次测量见 t72，2026-10-10，未重新运行）
