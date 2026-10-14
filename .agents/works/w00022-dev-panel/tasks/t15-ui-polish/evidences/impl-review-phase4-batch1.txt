@@ -1,0 +1,99 @@
+# t15 阶段 4 第 1 批（产物页与收件箱）实现审查
+
+- 审查对象：`git diff ae389daaa..66cdf885f`（8 个提交，`packages/dev-panel/`），只读审查 worktree `.worktree/w00022-t15-review4`。
+- 依据：`plan.md` 的“阶段 4”与第 1 批细化、实施进度第 1 批一段；`packages/dev-panel/docs/`；零件同名 `.md`；验收证据 `accept/phase4/batch1/`。
+- 每条：级别；位置；场景；实测或从代码推断；建议改法。按核实顺序追加。
+
+## 发现
+
+### 1. 重要：刚答完（或别处答了）的题点“改答”，控件是空的；只加说明再交会丢取值
+
+- 位置：`packages/dev-panel/src/web/parts/AnswerForm.vue:39-50`（`reset` 只给 `groups.answered` 预填）、`:56-58`（`startEdit` 不预填）、`:97-101`（只写说明时按 `values[id]` 带取值）；`packages/dev-panel/src/web/pages/ArtifactPage.vue:96-98`（先 `resetKey += 1` 再 `artifact.reload()`）。
+- 场景：在待答里答了题 A、提交成功。父组件把 `resetKey` 加一，`reset()` 在下一次渲染前运行，此时 `props.questions` 仍是提交前的数据（`useResource.reload()` 保留旧数据，见 `host/panel-data.ts` 的 `restart(true)`），A 还在待答组，`reset` 把 `values` 换成“旧的已答组”的预填，A 的取值被清掉。重取回来后 A 进了“已答”，但 `values.A` 是 `undefined`。开发者此时点 A 的“改答”：`QuestionControl` 收到 `undefined`，单选、多选、确认都显示成没选，不是现在的答案。若他只点“加说明”写一句理由、不碰选项：`chosen` 因说明非空收进 A，`problems` 因 `!touched && state.answer` 跳过校验，`submit` 写 `answer.A = undefined`，`JSON.stringify` 把这个键丢掉。只交这一题时服务端回 `invalid_answer`（“答复里没有任何题的取值”）；和别的题一起交时，答复文件里 A 只有说明、没有取值，与第 99 行注释“这道题仍有取值”的意图相反。推送带来的“别处答了”（`answers record` 代录、另一个标签页）同样不会预填。
+- 依据：从代码推断（没有挂载 SFC 的测试环境；验收里的“改答”是对加载时就已答的 uxq 题做的，没有覆盖提交后改答）。
+- 建议：预填不要依赖 `reset` 时刻的题表。最小改法是在 `startEdit(state)` 里，这道题没 `touched` 时把 `values[id]` 设成 `state.answer?.value`（`cancelEdit` 已经这样做）；`submit` 里只写说明、没改取值的题直接取 `state.answer.value`，不读 `values`。`reset` 可以只清空本地状态，不再预填。
+
+### 2. 建议：多选题空白的修法对症，但根在 nb-ui `FormCheckbox`；静态测试挡不住 `:class` 写法，计划要求的“交 nb-ui”一笔没有落下
+
+- 位置：`packages/nb-ui/src/components/form/FormCheckbox.vue:53-67`（`<label>` 没有 `relative`，里面的 `<input class="peer sr-only">` 是绝对定位）；`packages/dev-panel/tests/web-scroll-containers.test.ts:23`（只扫静态 `class="..."`）；`.agents/works/w00022-dev-panel/followups.md`（没有 nb-ui 这一条）。
+- 场景与判断：
+  - 修法对症。`sr-only` input 的包含块落在滚动容器之外时，`main` 的滚动挪不动它，浏览器为了把聚焦的 input 滚进视野去滚外面 `overflow: hidden` 的格子；滚动容器带 `relative` 后，包含块回到滚动容器内。产物页宽屏时包含块是侧栏 `aside`（`relative`、自己滚），窄屏时是不滚的 `aside`，再往外是页面根（`relative`、滚），都对。dev-panel 里用到复选组的只有 `QuestionControl`，其余 `sr-only` 是不可聚焦的 `span`（`LeaseChip`、`TruncatedText`），没有别的受害点。要注意的是铺满页面下 `main` 本身是 `relative overflow-hidden`：铺满页面里任何自己开滚动却漏了 `relative` 的容器，聚焦时被滚走的会是 `main`，所以这条约定在铺满页面上更要紧。
+  - 测试：把 `ArtifactPage.vue` 侧栏的 `relative` 去掉，测试失败、报出这一处（实测，在 `/dev/shm` 的副本上）；把 `lg:overflow-y-auto` 挪进 `:class="{...}"`，测试照样通过（实测）。scoped `<style>` 里写的 `overflow: auto` 与 nb-ui 组件内部的滚动区也扫不到。它是约定检查，不只是数 class，但能挡住的只有“静态 class 写法”这一种回归。
+  - 更根本的修法在 nb-ui：`FormCheckbox` 的 `<label>` 加 `relative`（或 input 改 `clip` 而不绝对定位），input 的包含块就是它自己的 label，任何宿主都不再踩这个坑。计划写了“nb-ui 侧的同类风险记一笔，交 nb-ui”，后续清单里没有这一条。
+- 依据：根因与覆盖面从代码推断；测试的两种变体为实测。
+- 建议：后续清单补一条交 nb-ui：`FormCheckbox` 的 label 加 `relative`，并在 nb-ui 的组件测试里钉住，同时查 nb-ui 里其它用 `sr-only` 可聚焦元素的组件（`Dialog`、`QuickInput`、`FormField` 也用了 `sr-only`）。dev-panel 的测试注释里写明只覆盖静态 `class`，或把 `:class` 里的对象键与字符串字面量也纳入扫描；不必为此加浏览器测试。
+
+### 3. 建议：`cli.md` 三处仍写“`open` 的必答题”，与 `awaitsAnswer` 的新口径不一致
+
+- 位置：`packages/dev-panel/docs/cli.md:149`（`inbox[]` 的“`open` 的必答题”）、`:153`（`--pending` “只留有 `open` 必答题的产物”）、`:219`（警告 `open_questions`）。
+- 场景：`15633cce2` 让收件箱、`openRequired`、`answers --pending` 与 Task 收尾的 `open_questions` 都不再算之前几版的题（`awaitsAnswer`）。`file-formats.md:231` 已写明例外，`cli.md` 这三处没跟上；Agent 按 `cli.md` 读 `--pending` 时会以为答复作废的旧题也在里面。
+- 依据：从代码与文档对照推断。
+- 建议：三处改成“待答的必答题（`open`、必答、不是之前几版的题，口径见 file-formats.md 的状态现算）”，或直接链过去。
+
+### 4. 建议：“retired”一词同时指两组相反的题，维护者容易看反
+
+- 位置：`packages/dev-panel/src/web/host/answers.ts:17-26`（`QuestionGroups.retired` 是“已取代与撤回”，`earlier` 才是 `isRetiredFromPage` 的题）；`packages/dev-panel/src/core/questions.ts:18`（`isRetiredFromPage`）；错误码 `question_retired`（之前几版的题）；发布输出里原有的 `retiredInPage`（已取代或撤回、页面里又出现的题，`core/artifacts.ts:534`）。
+- 场景：同一个词在前端分组里指“已取代与撤回”（服务端对应的错误码是 `question_closed`），在判据函数和新错误码里指“之前几版的题”。`groupQuestions` 里先判 `withdrawn/superseded` 放进 `retired`、再判 `isRetiredFromPage` 放进 `earlier`，读起来正好相反。
+- 依据：从代码推断。
+- 建议：趁错误码还没进 master，把前端分组的 `retired` 改名为 `closed`（与 `question_closed` 对上）；`question_retired` 与 `isRetiredFromPage` 保持“之前几版的题”这一义，或者一并改成 `question_earlier`、`isEarlierPageQuestion`。只改名，不改行为。
+
+### 5. 建议：收件箱的“N 道待答”只数必答，点进去产物页的“待答”还含选答，两个数对不上
+
+- 位置：`packages/dev-panel/src/web/parts/InboxList.vue:31`（`row.questions.length`，收件箱只收必答题）；`packages/dev-panel/src/web/parts/AnswerForm.vue:111`（“待答”数含选答）。
+- 场景：验收截图 `final/shot-home-1440-light.png` 里 t86-review 一行写“5 道待答”，点进去 `final/shot-t86-1440-light.png` 侧栏标题是“待答 7”（另有 2 道选答），只有提交栏的“还有 5 道必答没答”对得上。开发者从首页数过来会以为少了题或多了题。
+- 依据：实测（两张验收截图）。
+- 建议：收件箱改写“5 道必答待答”，或产物页的“待答”标题写成“待答 7（必答 5）”。只改文字。
+
+### 6. 建议：提交结果挪到了贴底栏，但同一次提交的“通知”块仍在侧栏顶上，提交后看不到
+
+- 位置：`packages/dev-panel/src/web/pages/ArtifactPage.vue:141-145`（`lastAnswerId` 的“通知”在侧栏最上面）、`:150-152`（结果进提交栏）。
+- 场景：计划把结果放进提交栏的理由是“提交时人在底部，结果放顶上看不到”。答复成功后“这份答复要通知谁、发出去了没有”的块出现在侧栏顶部；t86 这种长表单提交时人在底部，看不到它。`NotifyStatus` 里要人处理的几种（投递时弹出确认界面、要手动“发送”或“不通知”）正是这一块。顶栏的“通知要处理 N”与“会话已更换”的小窗能兜住一部分，手动发送的按钮兜不住。
+- 依据：从代码推断（验收截图 `final/submit-result-in-bar.png` 里侧栏停在中部，顶部的“通知”块不在视野内）。
+- 建议：结果里加一行“通知：见侧栏顶部”并带一个跳过去的按钮，或把“通知”块也放进 `result` 插槽，位于结果下面。
+
+### 7. 建议：`ArtifactFrame` 能给速览面板复用，但说明文字只有“整句或不写”两种
+
+- 位置：`packages/dev-panel/src/web/parts/ArtifactFrame.vue:2,8-10`。
+- 场景：沙箱、`no-referrer`、亮色白底都在零件里，只经 props，没有事件，父级给高度即可，第 2 批的速览面板能直接用。但说明是固定的“页面是当前版本（磁盘上的），切换版本只切换题表”；速览面板没有版本切换，只能 `versionNote=false` 整句不写，“页面是当前版本”这半句在速览面板（状态行里有版本号）同样有用。
+- 依据：从代码与 `plan.md` 决定点 10 推断。
+- 建议：第 2 批接入时再改：把后半句交给宿主（例如 `versionNote` 改成文字 prop，或给一个说明插槽），零件里固定“页面是当前版本（磁盘上的）”。本批不必改。
+
+### 8. 建议：对已经是“之前几版的题”的题号写 `--keep`，不报错也不生效，与新文档“`--keep` 保留的题照常能答”冲突
+
+- 位置：`packages/dev-panel/src/core/artifacts.ts:542`（`--keep` 分支原样保留 `page: null`）、`:556-560`（`keep_not_applicable` 不查 `page`）；`packages/dev-panel/docs/file-formats.md:277`。
+- 场景：v1 的题 a 已答，v2 页面里没有它，a 成了之前几版的题（`page: null`）。开发者想改答，Agent 读到“`--keep` 保留的题照常能答”，发 v3 时写 `--keep a`：没有任何问题报出来，a 仍是 `page: null`，再答照样 `question_retired`。在 `/dev/shm` 用 `nextQuestions` 实测：`problems` 为空，a 的 `page` 仍为 `null`。反过来，页面里重新放上 a，`page` 恢复、能答，`since` 不变、不标“新”，这一路是对的（同一次实测）。
+- 依据：实测（直接调 `nextQuestions`，发布流程里 `keep` 原样传入，从代码看没有别的处理）。
+- 建议：`keep_not_applicable` 的条件加上 `prior.page === null`，提示“之前几版的题要重新答，就把它放回页面”；或在 `file-formats.md:277` 写明 `--keep` 不能让之前几版的题恢复可答。前者一行改动、并补一条测试。
+
+### 补充第 1 条
+
+- 对照 `ae389daaa` 的旧 `AnswerForm`：旧的 `reset` 同样按提交前的数据预填，刚答的题在旧表单里控件也是空的，问题早已存在；这一批把它变成了合同问题：`AnswerForm.md` 的“注意事项”写明“只写了说明、没改取值的已答题，交的时候带上现在的取值”，“改答”也以显示现在的答案为前提。
+- 多选题最容易出错：开发者点“改答”想在原答案上加一项，控件是空的，只勾新的一项就交上去，答复变成只有这一项，原来的选择丢了。所以维持“重要”。
+
+### 9. 建议：`docs/panel.md` 的零件清单没加 `ArtifactFrame` 与 `QuestionControl`
+
+- 位置：`packages/dev-panel/docs/panel.md:406`（“t15 加 …”只列到 `ActionLink`）。
+- 场景：两个新零件都有同名 `.md`，但前端合同里的零件总表没有它们；第 2 批找速览面板能复用的零件时，从这张表找不到 `ArtifactFrame`。
+- 依据：从文档推断（`grep` 只在产物页那一行提到 `ArtifactFrame`，`QuestionControl` 没有出现）。
+- 建议：在“t15 加”后面补上两个零件名。
+
+### 10. 建议：`awaitsAnswer` 改了四处的计数口径，却没有一条测试走到“之前几版的题答复作废”的分支
+
+- 位置：`packages/dev-panel/src/core/artifacts.ts:438-444`；`packages/dev-panel/tests/` 里没有 `awaitsAnswer` 的用例（实施进度也写了“没有造数据测，只从代码核对”）。
+- 场景：这个函数决定收件箱、`openRequired`、`answers --pending` 与 Task 收尾的 `open_questions` 算不算一道题，是 Agent 读答复时看到的口径。按 `answeredIds` 的算法（只认 `answered`），一道题要变成“之前几版的题”时答复必须有效，之后答复作废只能来自手改坏的答复文件或读不出的旧版本（`invalid_value`），所以真实触发面很窄；但这条分支一旦写错，收件箱就会多出一道答不了的题，或者漏掉该答的题。
+- 依据：从代码推断。
+- 建议：在 `core/artifacts.test.ts` 补一条纯函数用例：同一组题里 `open` 必答、`open` 选答、之前几版的题 `open`（`stale.code` 为 `invalid_value`）、`ask` 登记的 `open` 题，断言只有第一条与最后一条算待答。几行就够。
+
+## 核实过、没有问题的地方
+
+- “之前几版的题”的判据（`origin` 为 `markup`、`page` 为 `null`、`outcome` 为 `null`）与 `nextQuestions` 一致：页面标记里的题 `page` 恒为字符串；页面里重新出现的同一题 `page` 恢复、能答、不标“新”；没答过就从页面消失的题记为被取代，不会进这一组；被取代、撤回的题在前端先分进“已取代与撤回”；`ask` 登记的题与 `--keep` 保留的题 `page` 不为空，照常能答。在 `/dev/shm` 直接调 `nextQuestions` 实测了“已答后移出页面、再放回页面”“未答移出”“`--keep`”三种。用只读脚本扫了真实仓库的产物：只有 w00017 t86 review 有之前几版的题（最新一版 v4 里 26 道），它们都不在现在的页面里，没有误判。
+- 服务端与前端共用 `isRetiredFromPage`；`submitAnswer` 按最新一版判断（答复针对旧版本时也一样），代录走同一函数（`artifacts-write.test.ts` 新增断言）；错误码经 `ERROR_EXIT_CODES` 映射成退出码 3、HTTP 409，前端 `RELOAD_CODES` 按码判断，没有按文案分支。
+- 答复游标、`answers ack` 与 `answers` 的 `questions`、`answers`、`unacked`、`cursor` 都没有改动；Agent 一侧只有 `openRequired` 与 `--pending` 不再算之前几版的题。
+- 产物页路由声明 `layout: "fill"`，宽屏两栏各自滚动、窄屏由页面根滚动，与 `docs/panel.md` 的“滚动”一致；`ArtifactFrame` 的沙箱与原 iframe 逐项相同；收件箱合并按 `workId/taskId/artifactId` 分组、取第一次出现的位置，计数与左栏一致（题数加撞号，计划里写明保留）。
+- 在集成分支 worktree（`66cdf885f`）上跑了 `web-answers`、`web-inbox`、`web-scroll-containers`（6 过）与 `artifacts-write`（16 过）。
+
+## 结论
+
+- 阻断 0，重要 1，建议 9。
+- 第 1 条（刚答完的题“改答”时控件为空，多选题加一项会覆盖掉原答案，只加说明会丢取值）建议在合入前修：改动小（`startEdit` 时预填、只加说明时取 `state.answer.value`），且与 `AnswerForm.md` 写明的合同相反。修完后可以合入。
+- 建议各条可以随这一批顺手改，也可以记进后续清单；第 2 条里“交 nb-ui”那一笔是计划要求的，至少要落进后续清单。
