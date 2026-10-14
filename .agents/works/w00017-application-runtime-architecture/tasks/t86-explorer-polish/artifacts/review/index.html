@@ -33,108 +33,258 @@ th { color: var(--muted); font-weight: 600; }
 .item p { margin: 2px 0; }
 code { font-size: 13px; }
 ol.done li { margin: 2px 0; }
+
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.rules li { margin: 4px 0; }
+.note { color: var(--muted); font-size: 14px; }
+/* 动画示意：只示意运动，样子以上面的截图为准。 */
+.demo { --row: 26px; --acc: #1f6feb; position: relative; width: 260px; height: calc(var(--row) * 6 + 8px); padding: 4px 0; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; color: #24221e; font-size: 13px; overflow: hidden; }
+:root[data-theme="dark"] .demo { background: #22211f; color: #ebe7df; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo { background: #22211f; color: #ebe7df; } }
+.demo .r { position: absolute; left: 6px; right: 6px; height: var(--row); display: flex; align-items: center; gap: 6px; padding-left: calc(10px + var(--d, 0) * 12px); border-radius: 6px; }
+.demo .r::before { content: ""; width: 12px; height: 12px; border-radius: 3px; background: #04a5e5; opacity: .75; flex: none; }
+.demo .r.f::before { background: #8c8fa1; }
+.demo .tw { width: 10px; flex: none; text-align: center; color: var(--muted); display: inline-block; }
+.demo .line { position: absolute; left: 30px; right: 6px; height: 2px; border-radius: 2px; background: var(--acc); }
+.demo .line::before { content: ""; position: absolute; left: -7px; top: -3px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--acc); background: inherit; box-sizing: border-box; background: #fffdf8; }
+.demo .ghost { position: absolute; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); box-shadow: 0 4px 12px rgba(0,0,0,.18); font-size: 12px; white-space: nowrap; }
+.demo * { animation-duration: 3.2s; animation-iteration-count: infinite; animation-timing-function: cubic-bezier(.2,.8,.2,1); }
+/* 1 放下后滑到新位置 */
+@keyframes settle-src { 0%,40% { top: calc(4px + var(--row) * 4); opacity: .45; } 46% { opacity: 1; } 58%,100% { top: calc(4px + var(--row) * 1); opacity: 1; } }
+@keyframes settle-push { 0%,40% { transform: none; } 58%,100% { transform: translateY(var(--row)); } }
+@keyframes settle-line { 0%,40% { opacity: 1; } 42%,100% { opacity: 0; } }
+@keyframes settle-glow { 0%,50% { background: transparent; } 58% { background: color-mix(in srgb, var(--acc) 22%, transparent); } 100% { background: transparent; } }
+.demo-settle .src { animation-name: settle-src, settle-glow; }
+.demo-settle .push { animation-name: settle-push; }
+.demo-settle .line { top: calc(4px + var(--row) - 1px); animation-name: settle-line; }
+/* 2 落进收起的文件夹 */
+@keyframes land-src { 0%,40% { opacity: .45; height: var(--row); transform: none; } 55%,100% { opacity: 0; height: 0; transform: translateY(calc(var(--row) * -2)) scale(.9); } }
+@keyframes land-up { 0%,45% { transform: none; } 60%,100% { transform: translateY(calc(var(--row) * -1)); } }
+@keyframes land-flash { 0%,50% { background: color-mix(in srgb, var(--acc) 16%, transparent); } 58% { background: color-mix(in srgb, var(--acc) 34%, transparent); } 100% { background: transparent; } }
+.demo-land .src { animation-name: land-src; }
+.demo-land .up { animation-name: land-up; }
+.demo-land .target { animation-name: land-flash; }
+/* 3 取消时拖影飞回 */
+@keyframes ghost-back { 0%,35% { left: 150px; top: 120px; opacity: 1; } 60% { left: 40px; top: calc(4px + var(--row) * 2 + 2px); opacity: .9; } 66%,100% { left: 40px; top: calc(4px + var(--row) * 2 + 2px); opacity: 0; } }
+@keyframes ghost-src { 0%,58% { opacity: .45; } 66%,100% { opacity: 1; } }
+.demo-return .ghost { animation-name: ghost-back; }
+.demo-return .src { animation-name: ghost-src; }
+/* 4 停留展开的进度 */
+@keyframes hint-tw { 0%,15% { transform: rotate(0); } 55% { transform: rotate(90deg); } 100% { transform: rotate(90deg); } }
+@keyframes hint-kids { 0%,55% { opacity: 0; transform: translateY(calc(var(--row) * -1)); } 68%,100% { opacity: 1; transform: none; } }
+@keyframes hint-push { 0%,55% { transform: none; } 68%,100% { transform: translateY(calc(var(--row) * 2)); } }
+@keyframes hint-bg { 0%,15% { background: color-mix(in srgb, var(--acc) 16%, transparent); } 100% { background: color-mix(in srgb, var(--acc) 16%, transparent); } }
+.demo-hint .tw.go { animation-name: hint-tw; animation-timing-function: linear; }
+.demo-hint .kid { animation-name: hint-kids; }
+.demo-hint .push { animation-name: hint-push; }
+.demo-hint .target { animation-name: hint-bg; }
+/* 5 插入线滑动 */
+@keyframes glide { 0%,20% { top: calc(4px + var(--row) * 1 - 1px); } 30%,50% { top: calc(4px + var(--row) * 2 - 1px); } 60%,80% { top: calc(4px + var(--row) * 3 - 1px); } 90%,100% { top: calc(4px + var(--row) * 1 - 1px); } }
+.demo-glide .line { animation-name: glide; animation-timing-function: ease-out; }
+/* 6 新建、粘贴与删除 */
+@keyframes enter-row { 0%,20% { opacity: 0; transform: translateY(calc(var(--row) * -.5)); background: transparent; } 32% { opacity: 1; transform: none; background: color-mix(in srgb, var(--acc) 22%, transparent); } 60%,100% { opacity: 1; transform: none; background: transparent; } }
+@keyframes enter-push { 0%,20% { transform: translateY(calc(var(--row) * -1)); } 32%,100% { transform: none; } }
+.demo-enter .new { animation-name: enter-row; }
+.demo-enter .push { animation-name: enter-push; }
+/* 7 起拖 */
+@keyframes lift-ghost { 0%,25% { left: 40px; top: calc(4px + var(--row) * 2 + 2px); opacity: 0; transform: scale(.96); } 35% { opacity: 1; transform: scale(1); } 70% { left: 150px; top: 110px; opacity: 1; } 80%,100% { left: 150px; top: 110px; opacity: 0; } }
+@keyframes lift-src { 0%,25% { opacity: 1; } 35%,75% { opacity: .45; } 85%,100% { opacity: 1; } }
+.demo-lift .ghost { animation-name: lift-ghost; }
+.demo-lift .src { animation-name: lift-src; }
+@media (prefers-reduced-motion: reduce) { .demo * { animation: none !important; } }
 </style>
 </head>
 <body>
 <main>
-<h1>资源管理器打磨 · 第三轮：配色、状态图标与搜索</h1>
-<p class="lead">t86。第二轮的决定见页末“已定”。这一轮三件事：catppuccin 的几种配色放进两个主题 × 明暗里看；“需要剧情插件”这类短标记改成状态图标；搜索与过滤怎么分工。图仍是在开发服务的真实工作台（雾港）与 Lab 场景上注入样式截的，没有改源码。</p>
+<h1>资源管理器打磨 · 第四轮：拖动的排序、落点指示与动画</h1>
+<p class="lead">t86。你验收时提了三件事：内容文件夹（如 <code>.content</code>）里要能拖动排序；落点指示的样子和位置要改；看看哪里适合加动画，例如放下后的移动。下面的图是在开发服务的真实工作台（雾港）上按住拖动、藏掉现在的反馈、按候选画出来的，没有改源码；为了看排序，样例里的 <code>设定/人物.content</code> 加了几项和一个有子项的节点“港务局”。动画是在页里用几行示意的，只看怎么动，样子以截图为准。前三轮的决定见页末“已定”。</p>
 
-<section data-nbdev-question="r3-palette-light" data-nbdev-type="single" data-nbdev-recommend="latte">
-  <h2><span class="badge" data-nbdev-skip>待定</span>亮色用哪种配色</h2>
-  <p>catppuccin 给亮色的只有 Latte 一种；另做了一版把饱和度降到 60% 的“柔和”。每张图左上是 nbook 主题，右边是 macos 主题。</p>
-  <div class="shots">
-    <div class="cand" data-nbdev-option="latte" data-nbdev-label="Latte 原色">
-      <h3 data-nbdev-skip>Latte 原色</h3>
-      <div class="shots"><img src="r3/pal-nbook-light-latte.webp" alt="nbook 亮色 Latte" width="300" height="520"><img src="r3/pal-macos-light-latte.webp" alt="macos 亮色 Latte" width="300" height="520"></div>
-    </div>
-    <div class="cand" data-nbdev-option="latte-soft" data-nbdev-label="Latte 柔和（饱和度 60%）">
-      <h3 data-nbdev-skip>Latte 柔和</h3>
-      <div class="shots"><img src="r3/pal-nbook-light-latte-soft.webp" alt="nbook 亮色 柔和" width="300" height="520"><img src="r3/pal-macos-light-latte-soft.webp" alt="macos 亮色 柔和" width="300" height="520"></div>
+<section data-nbdev-question="r4-place" data-nbdev-type="single" data-nbdev-recommend="place">
+  <h2><span class="badge" data-nbdev-skip>待定</span>内容文件夹里，两行之间是什么意思</h2>
+  <p><b>现状</b>：只有和源同一层的两行之间才是“调整顺序”。别的层的源（比如把港务局里的“周局长”拖到老温和船老大之间），或者从普通文件夹拖进来的，都当作“移入这个文件夹”，整个文件夹铺底，放下后排在最后，不在你指的位置。子树末尾（巡查员阿七和老温之间）也一律算进港务局。</p>
+  <div class="pair">
+    <figure><img src="r4/c2-cross-layer.webp" alt="现状：别的层拖到两行之间" width="418" height="420"><figcaption>现状：周局长拖到老温与船老大之间，显示“移入 人物”，放下后排在最后</figcaption></figure>
+    <figure><img src="r4/c4-subtree-end.webp" alt="现状：子树末尾" width="418" height="420"><figcaption>现状：子树末尾只能进港务局</figcaption></figure>
+  </div>
+  <div class="cand" data-nbdev-option="place" data-nbdev-label="A 线在哪就放哪：别的层或外面拖来的也移动并放到那个位置">
+    <h3 data-nbdev-skip>A 线在哪就放哪</h3>
+    <ol class="rules">
+      <li>内容文件夹和它任意深度的子目录里，两行之间就是“放到这里”。同一层只改清单；别的层、普通文件夹或另一个内容文件夹拖来的，移动并放到这个位置，文件与清单在同一次操作里改。</li>
+      <li>子树末尾的缝同时属于几层：指针的横向位置选层，越往左越外层，插入线的起点缩进到那一层，标签写清放到谁后面。</li>
+      <li>节点行的中段仍是移入它，放在最后。</li>
+      <li>普通文件夹按名字排序，没有插入线：落在里面哪里都是移入这个文件夹（现状不变）。从内容文件夹拖到普通文件夹同理。</li>
+      <li>多选拖动：按它们在树里的先后连成一串放到那里。</li>
+    </ol>
+    <div class="pair">
+      <figure><img src="r4/q1-new.webp" alt="A：别的层放到两行之间" width="418" height="420"><figcaption>周局长放到老温之后，移出港务局</figcaption></figure>
+      <figure><img src="r4/q1-from-plain.webp" alt="A：从普通文件夹拖进来" width="418" height="420"><figcaption>从普通文件夹拖来的世界观，放到沈屿之后</figcaption></figure>
+      <figure><img src="r4/q1-deep.webp" alt="A：指针靠右" width="418" height="420"><figcaption>子树末尾，指针（品红圈）靠右：放进港务局、巡查员阿七之后</figcaption></figure>
+      <figure><img src="r4/q1-shallow.webp" alt="A：指针靠左" width="418" height="420"><figcaption>同一条缝，指针靠左：放到港务局之后，和港务局同层</figcaption></figure>
     </div>
   </div>
-  <p class="rec" data-nbdev-skip>推荐 Latte 原色：16px 的小图标颜色本来就占得少，降饱和后青色和绿色在暖白底上发灰。</p>
+  <div class="cand" data-nbdev-option="keep" data-nbdev-label="B 维持现状：只有同层调整顺序，别的移入后排在最后">
+    <h3 data-nbdev-skip>B 维持现状</h3>
+    <p>只有同层的两行之间调整顺序；其余情况移入后排在最后，要再拖一次排到想要的位置。</p>
+  </div>
+  <p class="rec" data-nbdev-skip>推荐 A：内容文件夹的顺序就是作者编排的顺序，指着哪里就该放到哪里；B 让跨层搬动变成两步，第一步还看不出会落在哪。A 要给文件服务的批量移动加一个“放到某项之前”的参数，Spec 里本来就写了“移入……放到指定位置”，清单与文件在同一把操作锁里一起改，不会出现文件到了、顺序没写上的中间态。</p>
 </section>
 
-<section data-nbdev-question="r3-palette-dark" data-nbdev-type="single" data-nbdev-recommend="macchiato">
-  <h2><span class="badge" data-nbdev-skip>待定</span>暗色用哪种配色</h2>
-  <p>catppuccin 的三种暗色：Frappé 最柔、Macchiato 居中、Mocha 最亮最饱和。上排 nbook 暗色，下排 macos 暗色。</p>
+<section data-nbdev-question="r4-line" data-nbdev-type="single" data-nbdev-recommend="indent">
+  <h2><span class="badge" data-nbdev-skip>待定</span>插入线的样子与位置</h2>
+  <p>同一个落点：把船老大拖到沈屿之后。</p>
   <div class="shots">
-    <div class="cand" data-nbdev-option="frappe" data-nbdev-label="Frappé">
-      <h3 data-nbdev-skip>Frappé</h3>
-      <div class="shots"><img src="r3/pal-nbook-dark-frappe.webp" alt="nbook 暗色 Frappé" width="300" height="520"><img src="r3/pal-macos-dark-frappe.webp" alt="macos 暗色 Frappé" width="300" height="520"></div>
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="A 现状：横贯整行，带光晕">
+      <h3 data-nbdev-skip>A 现状</h3>
+      <figure><img src="r4/c1-reorder.webp" alt="现状的插入线" width="300" height="301"><figcaption>横贯整行，左端伸出行外，带一圈光晕；看不出放到哪一层；画在共用的浮层上，滚动时要先撤下。</figcaption></figure>
     </div>
-    <div class="cand" data-nbdev-option="macchiato" data-nbdev-label="Macchiato">
-      <h3 data-nbdev-skip>Macchiato</h3>
-      <div class="shots"><img src="r3/pal-nbook-dark-macchiato.webp" alt="nbook 暗色 Macchiato" width="300" height="520"><img src="r3/pal-macos-dark-macchiato.webp" alt="macos 暗色 Macchiato" width="300" height="520"></div>
+    <div class="cand" data-nbdev-option="indent" data-nbdev-label="B 缩进到落点那一层，左端空心圆">
+      <h3 data-nbdev-skip>B 缩进 + 空心圆</h3>
+      <div class="shots"><img src="r4/q2-b.webp" alt="B 亮色" width="300" height="301"><img src="r4/q2-b-dark.webp" alt="B 暗色" width="300" height="301"></div>
+      <figcaption>2px 实线，不带光晕，压在两行正中的缝上；起点缩进到落点那一层，左端一个空心圆标出层级。画在树里，跟着行一起滚动。</figcaption>
     </div>
-    <div class="cand" data-nbdev-option="mocha" data-nbdev-label="Mocha">
-      <h3 data-nbdev-skip>Mocha</h3>
-      <div class="shots"><img src="r3/pal-nbook-dark-mocha.webp" alt="nbook 暗色 Mocha" width="300" height="520"><img src="r3/pal-macos-dark-mocha.webp" alt="macos 暗色 Mocha" width="300" height="520"></div>
+    <div class="cand" data-nbdev-option="indent-tint" data-nbdev-label="C 在 B 的基础上，接收的文件夹整段铺极浅底">
+      <h3 data-nbdev-skip>C B + 接收的文件夹铺底</h3>
+      <div class="shots"><img src="r4/q2-c.webp" alt="C 同层" width="300" height="301"><img src="r4/q2-c-cross.webp" alt="C 跨层" width="300" height="301"></div>
+      <figcaption>左：同层排序；右：从港务局里拖出来，铺底的是人物。</figcaption>
     </div>
   </div>
-  <p class="rec" data-nbdev-skip>推荐 Macchiato：在 nbook 偏暖的暗底上不刺眼，在 macos 的冷灰底上也够分得开。三种差别不大，如果你想以后让作者自己选，可以做成设置项（缺省 Macchiato），这次先不做。</p>
+  <p class="rec" data-nbdev-skip>推荐 B：放到哪一层已经由缩进和圆点说清，标签也写了放到谁后面；C 在最常见的同层排序里也铺一大片底，噪音比信息多。</p>
 </section>
 
-<section data-nbdev-question="r3-marks" data-nbdev-type="single" data-nbdev-options="yes:就这样|adjust:要调整" data-nbdev-recommend="yes">
-  <h2><span class="badge" data-nbdev-skip>待定</span>短标记改成状态图标</h2>
+<section data-nbdev-question="r4-into" data-nbdev-type="single" data-nbdev-recommend="tint">
+  <h2><span class="badge" data-nbdev-skip>待定</span>移入文件夹时怎么标出目标</h2>
+  <p>现状的问题：浅底、描边加投影，四边各内缩 6px，所以顶边压在目录行中间、底边截掉最后一行的一半；收起的文件夹只剩一条细胶囊；底色偏重，压着字。</p>
   <div class="shots">
-    <figure><img src="r3/marks-now.webp" alt="现状" width="358" height="330"><figcaption>现状（Lab 场景）：标记是跟在名字后面的小字</figcaption></figure>
-    <figure><img src="r3/marks-new.webp" alt="候选" width="358" height="330"><figcaption>候选：行尾一个弱化色的图标，悬停显示文字（图里画了“需要剧情插件”的提示）</figcaption></figure>
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="A 现状">
+      <h3 data-nbdev-skip>A 现状</h3>
+      <div class="shots"><img src="r4/c3-into-node.webp" alt="现状 展开的节点" width="300" height="301"><img src="r4/c5-plain-into.webp" alt="现状 收起的文件夹" width="300" height="301"></div>
+    </div>
+    <div class="cand" data-nbdev-option="tint" data-nbdev-label="B 整段浅底，与行对齐，目录行深一档，不描边">
+      <h3 data-nbdev-skip>B 整段浅底</h3>
+      <div class="shots"><img src="r4/q3-b.webp" alt="B 展开的节点" width="300" height="301"><img src="r4/q3-b-plain.webp" alt="B 收起的文件夹" width="300" height="301"><img src="r4/q3-b-dark.webp" alt="B 暗色" width="300" height="301"></div>
+    </div>
+    <div class="cand" data-nbdev-option="outline" data-nbdev-label="C 目录行描边，范围内的缩进参考线变成强调色">
+      <h3 data-nbdev-skip>C 描边 + 参考线</h3>
+      <div class="shots"><img src="r4/q3-c.webp" alt="C 展开的节点" width="300" height="301"><img src="r4/q3-c-plain.webp" alt="C 收起的文件夹" width="300" height="301"><img src="r4/q3-c-dark.webp" alt="C 暗色" width="300" height="301"></div>
+    </div>
   </div>
-  <table>
-    <thead><tr><th>标记</th><th>图标</th><th>备注</th></tr></thead>
-    <tbody>
-      <tr><td>无正文</td><td>减号文件</td><td>内容节点还没有 index.md</td></tr>
-      <tr><td>缺失</td><td>禁止符号</td><td>行仍淡化</td></tr>
-      <tr><td>未列入</td><td>虚线圆</td><td>文件在内容文件夹里但清单没登记</td></tr>
-      <tr><td>需要剧情插件</td><td>拼图</td><td>活页夹</td></tr>
-      <tr><td>剪切中</td><td>剪刀</td><td>行仍淡化</td></tr>
-      <tr><td>清单不合法、读取失败</td><td>警告、错误（第二轮已定）</td><td>名字着色</td></tr>
-    </tbody>
-  </table>
-  <p>一行有几个标记时并排放在行尾；副标题（真实名字，如 alice、gone）仍是文字。读屏读行的描述，里面带标记的文字。</p>
+  <p class="rec" data-nbdev-skip>推荐 B：范围一眼看清，边与行对齐，底色浅到不压字，和 VS Code 的做法一致。C 很轻，但收起的文件夹或子项少时几乎看不出范围。</p>
+</section>
+
+<section data-nbdev-question="r4-motion" data-nbdev-type="multi" data-nbdev-recommend="settle,land,return,hint,enter,lift">
+  <h2><span class="badge" data-nbdev-skip>待定</span>加哪些动画</h2>
+  <p>现在只有展开收起有动画。下面几处可以加，时长都取主题的 <code>--motion-fast</code> / <code>--motion-base</code>（nbook 是 120 / 200 毫秒，示意放慢了），系统设置了减少动态效果时全部不放。多选。</p>
+  <div class="pair">
+    <div class="cand" data-nbdev-option="settle" data-nbdev-label="放下后滑到新位置，其余行让位">
+      <h3 data-nbdev-skip>1 放下后滑到新位置</h3>
+      <div class="demo demo-settle" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r push" style="top:30px">林晓</div>
+        <div class="r push" style="top:56px">港务局</div>
+        <div class="r push" style="top:82px">老温</div>
+        <div class="r src" style="top:108px">船老大</div>
+        <div class="r" style="top:134px">灯塔看守</div>
+        <div class="line"></div>
+      </div>
+      <p class="note">被拖的行从原位滑到新位置并短暂亮一下，中间的行让开。排序与可见范围内的移动都这样；地址变了的行按“原地址 → 新地址”对上。</p>
+    </div>
+    <div class="cand" data-nbdev-option="land" data-nbdev-label="落进看不见的地方时，目标目录行闪一下">
+      <h3 data-nbdev-skip>2 落进收起的文件夹</h3>
+      <div class="demo demo-land" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r f target" style="top:30px"><span class="tw">›</span>港务局</div>
+        <div class="r" style="top:56px">老温</div>
+        <div class="r src" style="top:82px">船老大</div>
+        <div class="r up" style="top:108px">灯塔看守</div>
+        <div class="r up" style="top:134px">路人甲</div>
+      </div>
+      <p class="note">源行收起消失，接收的目录行闪一下再淡去，告诉你东西去了哪。落点在视口外时同理。</p>
+    </div>
+    <div class="cand" data-nbdev-option="return" data-nbdev-label="取消或没有落点时，拖影飞回原行">
+      <h3 data-nbdev-skip>3 取消时拖影飞回</h3>
+      <div class="demo demo-return" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r" style="top:30px">林晓</div>
+        <div class="r src" style="top:56px">港务局</div>
+        <div class="r" style="top:82px">老温</div>
+        <div class="r" style="top:108px">船老大</div>
+        <div class="ghost">港务局</div>
+      </div>
+      <p class="note">Escape 或放在没有落点的地方：拖影回到原行再淡出，源行恢复，看得出“什么都没发生”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="hint" data-nbdev-label="停留展开的等待里，箭头慢慢转过去">
+      <h3 data-nbdev-skip>4 停留展开的进度</h3>
+      <div class="demo demo-hint" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r f target" style="top:30px"><span class="tw go">›</span>港务局</div>
+        <div class="r kid" style="top:56px;--d:1">周局长</div>
+        <div class="r kid" style="top:82px;--d:1">巡查员阿七</div>
+        <div class="r push" style="top:56px">老温</div>
+        <div class="r push" style="top:82px">船老大</div>
+      </div>
+      <p class="note">停在收起的文件夹上的 600 毫秒里，箭头跟着时间转到朝下，转完就展开；移开就转回去。知道“再停一下它会打开”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="enter" data-nbdev-label="新建、粘贴的行出现时亮一下，删除的行收起">
+      <h3 data-nbdev-skip>5 新建、粘贴与删除</h3>
+      <div class="demo demo-enter" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r" style="top:30px">林晓</div>
+        <div class="r new" style="top:56px">新人物.md</div>
+        <div class="r push" style="top:82px">港务局</div>
+        <div class="r push" style="top:108px">老温</div>
+        <div class="r push" style="top:134px">船老大</div>
+      </div>
+      <p class="note">新出现的行从上方滑入并亮一下，下面的行让位；删除的行反过来收起。和展开收起用同一套。</p>
+    </div>
+    <div class="cand" data-nbdev-option="lift" data-nbdev-label="起拖时拖影从行上浮起，源行渐淡">
+      <h3 data-nbdev-skip>6 起拖</h3>
+      <div class="demo demo-lift" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r" style="top:30px">林晓</div>
+        <div class="r src" style="top:56px">港务局</div>
+        <div class="r" style="top:82px">老温</div>
+        <div class="r" style="top:108px">船老大</div>
+        <div class="ghost">港务局</div>
+      </div>
+      <p class="note">拖影从行的位置浮起（轻微放大、淡入），源行在 120 毫秒里淡下去，而不是一下变灰。</p>
+    </div>
+    <div class="cand" data-nbdev-option="glide" data-nbdev-label="插入线在两个缝之间滑过去而不是跳">
+      <h3 data-nbdev-skip>7 插入线滑动</h3>
+      <div class="demo demo-glide" data-nbdev-skip>
+        <div class="r" style="top:4px">沈屿</div>
+        <div class="r" style="top:30px">林晓</div>
+        <div class="r" style="top:56px">港务局</div>
+        <div class="r" style="top:82px">老温</div>
+        <div class="r" style="top:108px">船老大</div>
+        <div class="line"></div>
+      </div>
+      <p class="note">不推荐：指针移得快时线会落后于指针，看着发粘，VS Code、Finder 也都是跳的。</p>
+    </div>
+  </div>
+  <p class="rec" data-nbdev-skip>推荐 1–6，不做 7。1 和 2 是你说的“放下后的移动”，2 解决放进收起的文件夹后东西“消失”的问题；3–6 都很便宜。</p>
 </section>
 
 <section>
-  <h2><span class="badge" data-nbdev-skip>待定</span>搜索与过滤怎么分工</h2>
-  <p><b>先更正第一轮的一句话：</b>我当时说“快速打开已经能按名字找”，不对。新应用的快速输入现在只有命令面板（Ctrl+Shift+P）和跳到某行，<b>没有按文件名的快速打开（Ctrl+P），也没有任何正文搜索</b>（<code>workbench/quick-open.md</code> 把文件快速打开列为非目标）。所以现在新应用里找文件只能在树里一层层点开。</p>
-  <p>能做的有三样，常见的编辑器都是分开做的：</p>
-  <table>
-    <thead><tr><th></th><th>资源管理器的过滤框</th><th>快速打开 Ctrl+P</th><th>搜索视图</th></tr></thead>
-    <tbody>
-      <tr><td>找什么</td><td>名字：把树收窄到命中项与它们的上级</td><td>名字：输入几个字跳到文件，不动树</td><td>正文：哪些章节里出现了这几个字，每处带上下文</td></tr>
-      <tr><td>结果在哪</td><td>树里</td><td>浮层里</td><td>活动栏的一个视图，按文件分组</td></tr>
-      <tr><td>要的后端</td><td>列出整个作品的名字（新接口；3000 个文件的量级一次就够）</td><td>同左</td><td>服务端全文搜索；中文要考虑分词或直接逐字匹配，结果多时分批</td></tr>
-      <tr><td>大小</td><td>本 Task 能做</td><td>小，可以和过滤框共用名字列表</td><td>一块独立功能，值得单独设计</td></tr>
-    </tbody>
-  </table>
-  <div class="item" data-nbdev-question="r3-search-split" data-nbdev-type="single" data-nbdev-recommend="split">
-    <h3>怎么分</h3>
-    <div class="cand" data-nbdev-option="split" data-nbdev-label="A 三样分开：t86 只做过滤框，另开快速打开与搜索视图">
-      <p><b>A</b> 三样分开：t86 只做过滤框（按名字）；快速打开与搜索视图各开一个 Task，各自先做一轮设计。</p>
-    </div>
-    <div class="cand" data-nbdev-option="unified" data-nbdev-label="B 一个搜索入口：过滤框兼搜正文">
-      <p><b>B</b> 一个入口：过滤框输入后，树里既收窄名字命中的项，也在文件下面列出正文里命中的句子（像 Obsidian 的搜索），不另做搜索视图。</p>
-    </div>
-    <p class="rec" data-nbdev-skip>推荐 A：名字过滤每敲一个字都要即时，正文搜索要等服务端、结果可能上千条，两者放在一个框里，要么名字过滤被拖慢，要么正文结果挤爆树。你说的“专门的搜索视图”正好对应 A 的第三样。</p>
-  </div>
-  <div class="item" data-nbdev-question="r3-filter-match" data-nbdev-type="multi" data-nbdev-options="name:文件名|title:展示名（内容文件夹的标题）|pinyin:拼音全拼与首字母|whole:整个作品（不只已展开的目录）" data-nbdev-recommend="name,title,pinyin,whole">
-    <h3>过滤框匹配什么</h3>
-    <p>拼音：输入 <code>shenyu</code> 或 <code>sy</code> 能找到“沈屿”。整个作品：没展开过的目录也算，需要上面说的新接口；不选就只过滤已经列出过的目录。</p>
-  </div>
-  <div class="item" data-nbdev-question="r3-search-scenes" data-nbdev-type="text" data-nbdev-optional>
-    <h3>“不能像普通 IDE 那么简单”指哪些场景</h3>
-    <p>例如：按人物名找到他出场的所有章节；按章节标题而不是文件名找；只在正文或只在设定里找；找某段时间写的；搜 Agent 会话。写下你常用的几种，搜索视图的设计从这里开始。</p>
-  </div>
+  <h2>顺带要改的</h2>
+  <ul>
+    <li>被拖的行淡化时，它左边的缩进参考线也跟着淡了，竖线上出现缺口（图里船老大那一行）。改成只淡化图标和文字。</li>
+    <li>插入线和移入的底改画在树里，不再用编辑区共用的浮层：跟着行一起滚动，边与行对齐。</li>
+  </ul>
 </section>
 
-<section data-nbdev-question="r3-notes" data-nbdev-type="text" data-nbdev-optional>
+<section data-nbdev-question="r4-notes" data-nbdev-type="text" data-nbdev-optional>
   <h2>其它意见</h2>
+  <p class="note">例如拖影的位置（现在在指针右下，会盖住下面一两行的名字）、标签的说法。</p>
 </section>
 
 <section>
-  <h2><span class="badge done" data-nbdev-skip>已定</span>第二轮</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定</span>第三轮</h2>
+  <ol class="done">
+    <li>亮色用 Latte 原色，暗色用 Macchiato；不做配色设置项。</li>
+    <li>短标记改成行尾弱化色的状态图标，悬停显示文字。</li>
+    <li>搜索先不做，包括过滤框：单独开搜索服务插件 t88，过滤框、快速打开与搜索视图都建在它上面。</li>
+  </ol>
+  <h2 style="margin-top:16px"><span class="badge done" data-nbdev-skip>已定</span>第二轮</h2>
   <ol class="done">
     <li>图标用 catppuccin 彩色（配色本轮定）。</li>
     <li>状态挂在文件夹行上；短标记也做成状态图标（本轮看样子）。</li>
