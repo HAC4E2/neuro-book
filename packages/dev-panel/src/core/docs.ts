@@ -153,3 +153,39 @@ export async function readDocFile(root: string, path: string): Promise<DocFile |
     });
     return {path, text, title: readTitle(parsed.body), frontmatter: parsed.ok ? parsed.data : null, body: parsed.body, recent};
 }
+
+export type DocDiff = {path: string; change: DocChangeKind | null; mergeBase: string | null; text: string};
+
+/** 整份文件当新增的统一差异：未跟踪的新文件 `git diff` 不列，“master 才有”的文件在这个 checkout 里不存在。 */
+function wholeFileDiff(path: string, text: string): string {
+    const lines = text.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    return `${["--- /dev/null", `+++ b/${path}`, `@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`)].join("\n")}\n`;
+}
+
+async function readGuarded(root: string, path: string): Promise<string | null> {
+    const real = await guardedFile(root, path);
+    if (real === null) return null;
+    try {
+        return await readFile(real, "utf8");
+    } catch (error) {
+        if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "EISDIR") return null;
+        throw error;
+    }
+}
+
+/**
+ * 一份文档与 master 的差异，与文档树标的“改动”同口径（`change` 取自同一个 `readDocTree` 的结果，t15 阶段 4 第 4 批）：
+ * - 新增、改动、删去：合并基点到这个 checkout 的工作区（`git diff <merge-base>`，含未提交）；未跟踪的新文件 `git diff` 不列，整份当新增；
+ * - master 才有：主工作区里的那一份整份当新增（“master”指主工作区的工作区，与文档树一致）；
+ * - 不在差异里（`change` 为 null）：空差异。
+ * `path` 由调用方按白名单核对过；git 的路径一律放在 `--` 之后，环境按字面匹配路径（`gitEnvironment`）。
+ */
+export async function readDocDiff(root: string, mainRoot: string, path: string, change: DocChangeKind | null): Promise<DocDiff> {
+    if (change === null) return {path, change, mergeBase: null, text: ""};
+    if (change === "master_only") return {path, change, mergeBase: null, text: wholeFileDiff(path, await readGuarded(mainRoot, path) ?? "")};
+    const mergeBase = (await gitOutput(root, ["merge-base", MASTER_REF, "HEAD"], {readOnly: true})).trim();
+    const text = await gitOutput(root, ["diff", "--no-color", "--no-ext-diff", "--no-renames", mergeBase, "--", path], {readOnly: true});
+    if (text === "" && change === "added") return {path, change, mergeBase, text: wholeFileDiff(path, await readGuarded(root, path) ?? "")};
+    return {path, change, mergeBase, text};
+}

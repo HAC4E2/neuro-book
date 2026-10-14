@@ -207,6 +207,40 @@ describe("面板服务（场景）", () => {
         expect((await panel.get("/api/docs/tree?checkout=nope")).status).toBe(404);
     }, 30_000);
 
+    test("文档与 master 的差异（t15 阶段 4 第 4 批）：与文档树同口径，树上标的每一种改动差异接口回同一类型、差异非空；没改的回 null；白名单之外 404", async () => {
+        const fixture = await createFixture("panel-doc-diff");
+        await fixture.write("docs/specs/ui/shell.md", "# 外壳\n");
+        await fixture.write("docs/specs/ui/old.md", "# 旧\n");
+        await fixture.write("docs/specs/ui/same.md", "# 不变\n");
+        await fixture.commit("docs");
+        const worktree = await fixture.addWorktree("w00001-t02-impl", "t02/impl");
+        await fixture.write("docs/specs/ui/shell.md", "# 外壳 v2\n", worktree);
+        await fixture.write("docs/specs/ui/new.md", "# 新\n", worktree);
+        await rm(join(worktree, "docs/specs/ui/old.md"));
+        await fixture.commit("branch edits", worktree);
+        await fixture.write("docs/specs/ui/draft.md", "# 草稿\n还没提交\n", worktree);
+        await fixture.write("docs/specs/ui/later.md", "# 后来\n");
+        await fixture.commit("master later");
+        const panel = await startPanel(fixture, null);
+        const tree = await panel.json<{changes: Array<{path: string; change: string}>}>("/api/docs/tree?checkout=w00001-t02-impl");
+        expect(tree.body.data.changes.map((entry) => entry.change).sort()).toEqual(["added", "added", "deleted", "master_only", "modified"]);
+        for (const entry of tree.body.data.changes) {
+            const diff = await panel.json<{change: string | null; text: string; mergeBase: string | null}>(`/api/docs/diff?checkout=w00001-t02-impl&path=${encodeURIComponent(entry.path)}`);
+            expect([entry.path, diff.body.data.change, diff.body.data.text.includes("@@")]).toEqual([entry.path, entry.change, true]);
+            expect([entry.path, diff.body.data.mergeBase === null]).toEqual([entry.path, entry.change === "master_only"]);
+        }
+        const texts = async (path: string) => (await panel.json<{text: string}>(`/api/docs/diff?checkout=w00001-t02-impl&path=${encodeURIComponent(path)}`)).body.data.text;
+        expect(await texts("docs/specs/ui/draft.md")).toContain("+还没提交");
+        expect(await texts("docs/specs/ui/old.md")).toContain("-# 旧");
+        expect(await texts("docs/specs/ui/later.md")).toContain("+# 后来");
+        expect(await texts("docs/specs/ui/shell.md")).toContain("+# 外壳 v2");
+        expect((await panel.json<{change: string | null; text: string}>("/api/docs/diff?checkout=w00001-t02-impl&path=docs/specs/ui/same.md")).body.data).toMatchObject({change: null, text: ""});
+        expect((await panel.json<{change: string | null}>("/api/docs/diff?checkout=main&path=docs/specs/ui/shell.md")).body.data.change).toBeNull();
+        for (const path of ["package.json", "docs/specs/ui/nope.md", "../outside.md"]) {
+            expect([path, (await panel.get(`/api/docs/diff?checkout=w00001-t02-impl&path=${encodeURIComponent(path)}`)).status]).toEqual([path, 404]);
+        }
+    }, 30_000);
+
     test("文档接口走路径守卫：指向 .env 与仓库外的 .md 符号链接不进树、读不到；worktree 里没暂存的删除记成 deleted、不在树里", async () => {
         const fixture = await createFixture("panel-doc-guard");
         await fixture.write("docs/specs/ui/shell.md", "# 外壳\n");

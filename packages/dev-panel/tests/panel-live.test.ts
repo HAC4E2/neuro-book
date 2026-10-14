@@ -7,8 +7,9 @@ import {setTimeout as sleep} from "node:timers/promises";
 import {locateRepository} from "../src/core/repo.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {GH_COMMANDS} from "../src/server/github.js";
+import {CheckoutStatusCache} from "../src/server/live-views.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
-import {cleanupFixtures, CLI_PATH, createFixture, panelEnv, type Fixture} from "./git-fixture.js";
+import {cleanupFixtures, CLI_PATH, createFixture, git, panelEnv, type Fixture} from "./git-fixture.js";
 import {startFakeClaude} from "./processes.js";
 
 /**
@@ -198,7 +199,7 @@ describe("“在跑”与 checkout 页", () => {
         expect(sessionPids).not.toContain(supervisor);
     }, 60_000);
 
-    test("checkout 页：没 add 的改动当场算进未提交；领先落后相对 master；Task 的 home 与在跑的服务", async () => {
+    test("checkout 页：没 add 的改动当场算进未提交，已跟踪与未跟踪分开数（未跟踪的目录算一条）；领先落后相对 master；Task 的 home 与在跑的服务；文件清单分三段", async () => {
         const fixture = await createFixture("checkouts-view");
         await fixture.write("docs/a.md", "一\n");
         await fixture.commit("a");
@@ -207,9 +208,42 @@ describe("“在跑”与 checkout 页", () => {
         await fixture.write("docs/b.md", "二\n", worktree);
         await fixture.commit("b", worktree);
         await fixture.write("docs/a.md", "一改了\n");
+        await fixture.write("notes/new-1.txt", "新\n");
+        await fixture.write("notes/new-2.txt", "新\n");
+        await fixture.write("scratch.txt", "新\n");
         const panel = await startPanel(fixture, {});
         const rows = ((await panel.get("/api/checkouts")).body.data as {checkouts: Array<Record<string, unknown>>}).checkouts;
-        expect(rows.find((row) => row.isMain)).toMatchObject({key: "main", dirty: 1, ahead: 0, behind: 0});
-        expect(rows.find((row) => !row.isMain)).toMatchObject({key: "w00001-t01-seed", dirty: 0, ahead: 1, behind: 0, homeOf: [{workId: "w00001-seed", taskId: "t01-seed"}], runs: []});
+        expect(rows.find((row) => row.isMain)).toMatchObject({key: "main", tracked: 1, untracked: 2, ahead: 0, behind: 0, timedOut: false, tasks: []});
+        expect(rows.find((row) => !row.isMain)).toMatchObject({key: "w00001-t01-seed", tracked: 0, untracked: 0, ahead: 1, behind: 0, homeOf: [{workId: "w00001-seed", taskId: "t01-seed"}], tasks: [{workId: "w00001-seed", taskId: "t01-seed"}], runs: []});
+        const files = await panel.get("/api/checkouts/main/files");
+        expect(files.body.data).toMatchObject({key: "main", staged: [], unstaged: [{path: "docs/a.md", code: "M"}], untracked: ["notes/", "scratch.txt"], truncated: false, timedOut: false});
+        expect((await panel.get("/api/checkouts/nope/files")).status).toBe(404);
     }, 60_000);
+
+    test("checkout 的 git 调用各自限时：一个慢的到点标 timedOut、计数为 null，同一次算的另一个照常有数，整次不等慢的那个", async () => {
+        const fixture = await createFixture("checkouts-timeout");
+        await fixture.write("docs/a.md", "一\n");
+        await fixture.commit("a");
+        const head = (await git(fixture.main, "rev-parse", "HEAD")).trim();
+        expect((await fixture.cli(["worktree", "new", "w00001", "t01", "--json"])).exitCode).toBe(0);
+        const slow = join(fixture.main, ".worktree", "w00001-t01-seed");
+        // git 替身：对慢的那个 checkout 换成 sleep（exec，到点 SIGKILL 结束的就是它，不留占着管道的子进程），其余交给真的 git。
+        const bin = join(fixture.root, "slow-git-bin");
+        await mkdir(bin, {recursive: true});
+        const realGit = Bun.which("git")!;
+        await writeFile(join(bin, "git"), `#!/bin/sh\ncase "$*" in *"${slow}"*) exec sleep 10;; esac\nexec ${realGit} "$@"\n`);
+        await chmod(join(bin, "git"), 0o755);
+        const path = process.env.PATH;
+        process.env.PATH = `${bin}:${path}`;
+        try {
+            const started = Date.now();
+            const statuses = await new CheckoutStatusCache(500).statuses([{root: slow, head}, {root: fixture.main, head}]);
+            const elapsed = Date.now() - started;
+            expect(statuses.get(slow)).toMatchObject({timedOut: true, tracked: null, untracked: null, ahead: null, behind: null});
+            expect(statuses.get(fixture.main)).toMatchObject({timedOut: false, tracked: 0, untracked: 0, ahead: 0, behind: 0});
+            expect(elapsed).toBeLessThan(3_000);
+        } finally {
+            process.env.PATH = path;
+        }
+    }, 30_000);
 });

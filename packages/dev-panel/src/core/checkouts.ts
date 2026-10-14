@@ -30,6 +30,14 @@ export function checkoutKeys(checkouts: readonly CheckoutInfo[]): Map<string, st
     return keys;
 }
 
+/**
+ * worktree 的目录名是不是这个 Task 的：`<Work 编号>-<Task 编号>-…`（例如 `w00022-t15-ui`）。Task 执行 checkout 的第 2 条规则与
+ * checkout 页的“它的 Task”共用这一个判据，两处才对得上。
+ */
+export function checkoutNamedForTask(root: string, workId: string, taskId: string): boolean {
+    return basename(root).startsWith(`${workId.slice(0, 6)}-${taskId.slice(0, taskId.indexOf("-"))}-`);
+}
+
 export type ExecutionRule = "readme" | "name" | "home" | "work" | "master";
 export type ExecutionCandidate = {key: string; root: string; branch: string | null; rule: ExecutionRule};
 export type TaskExecution = {chosen: ExecutionCandidate; candidates: ExecutionCandidate[]};
@@ -73,8 +81,7 @@ export async function resolveTaskExecution(mainRoot: string, transition: Transit
             add(usable.find((checkout) => !checkout.isMain && (relative(mainRoot, checkout.root) === cleaned || checkout.root === cleaned || checkout.branch === cleaned)), "readme");
         }
     }
-    const prefix = `${workId.slice(0, 6)}-${taskId.slice(0, taskId.indexOf("-"))}-`;
-    for (const checkout of usable.filter((candidate) => !candidate.isMain && basename(candidate.root).startsWith(prefix)).sort((left, right) => left.root.localeCompare(right.root))) {
+    for (const checkout of usable.filter((candidate) => !candidate.isMain && checkoutNamedForTask(candidate.root, workId, taskId)).sort((left, right) => left.root.localeCompare(right.root))) {
         add(checkout, "name");
     }
     const home = findTask(transition.registry, workId, taskId)?.home ?? findWork(transition.registry, workId)?.home ?? null;

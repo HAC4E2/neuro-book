@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeTime, shortSession} from "../host/format.js";
+import {isPlainClick} from "../host/routes.js";
 import type {ProcRunView} from "../host/types.js";
 
 /** 经 nbdev 起的服务（`run/procs/` 的登记加现算的状态）；契约见同名 .md。 */
 defineProps<{runs: ProcRunView[]}>();
+const emit = defineEmits<{navigate: [href: string]}>();
+/** 服务链回它的 checkout 行（分支、worktree 与上面的服务在那一行对得上，后续清单 10-14 的“一一对应”）。 */
+const checkoutHref = (key: string) => `/live/checkouts?focus=${encodeURIComponent(key)}`;
+function follow(event: MouseEvent, href: string): void {
+    if (!isPlainClick(event)) return;
+    event.preventDefault();
+    emit("navigate", href);
+}
 const TONE: Record<ProcRunView["state"], "accent" | "success" | "warning" | "neutral"> = {starting: "accent", running: "success", orphaned: "warning", ended: "neutral"};
 const LABEL: Record<ProcRunView["state"], string> = {starting: "启动中", running: "在跑", orphaned: "没人监管", ended: "已结束"};
 const REASON: Record<string, string> = {
@@ -20,7 +29,7 @@ const safeUrl = (url: string | null) => (url && /^https?:\/\//u.test(url) ? url 
         <li v-for="run in runs" :key="run.runId" class="flex flex-col gap-0.5 border-b pb-2 last:border-b-0 nbdev-divider" :class="{'opacity-60': run.state === 'ended'}">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge :tone="TONE[run.state]" variant="soft" size="sm">{{ LABEL[run.state] }}</Badge>
-                <span class="font-medium">{{ run.checkoutKey }} · {{ run.package }} · {{ run.script }}</span>
+                <span class="font-medium"><a :href="checkoutHref(run.checkoutKey)" class="hover:underline" @click="follow($event, checkoutHref(run.checkoutKey))">{{ run.checkoutKey }}</a> · {{ run.package }} · {{ run.script }}</span>
                 <a v-if="safeUrl(run.url) && run.state !== 'ended'" :href="safeUrl(run.url)!" target="_blank" rel="noopener noreferrer" class="break-all nbdev-small">{{ run.url }}</a>
                 <span class="nbdev-empty nbdev-small" v-else-if="run.state !== 'ended'">地址未知</span>
             </div>

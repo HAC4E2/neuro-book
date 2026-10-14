@@ -28,7 +28,7 @@ const navigate = (href: string) => void router.push(href);
         <template v-if="data">
             <section class="nbdev-stack" aria-labelledby="procs-title">
                 <h2 id="procs-title" class="nbdev-heading flex items-center gap-2">经 nbdev 起的服务<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
-                <ProcList :runs="data.procs" />
+                <ProcList :runs="data.procs" @navigate="navigate" />
             </section>
             <section class="nbdev-stack" aria-labelledby="session-runs-title">
                 <h2 id="session-runs-title" class="nbdev-heading flex items-center gap-2">会话派出的运行<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>

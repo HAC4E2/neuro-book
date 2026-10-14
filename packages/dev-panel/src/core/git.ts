@@ -1,7 +1,8 @@
 import {spawn} from "node:child_process";
 import {NbdevError, systemErrorCode} from "./errors.js";
 
-export type GitResult = {exitCode: number; stdout: string; stderr: string};
+/** `timedOut`：给了 `timeoutMs` 且到点被结束（这时退出码是 128，输出不完整）。 */
+export type GitResult = {exitCode: number; stdout: string; stderr: string; timedOut?: boolean};
 
 export type GitOptions = {
     /** 读操作加 `--no-optional-locks`：不刷新、不写回 index，不与别的会话抢 index.lock。 */
@@ -9,6 +10,12 @@ export type GitOptions = {
     input?: string;
     /** 用这个 git 可执行文件（绝对路径），不经 `PATH` 查找：`worktree new` 的 `worktree add` 一律用 `/usr/bin/git`（omp 会接管会话 shell 里的 `git worktree add`）。 */
     binary?: string;
+    /**
+     * 到点 SIGKILL 子进程，结果标 `timedOut`（面板现算各 checkout 的状态时用，一个慢的不拖住整页）。
+     * 只结束 git 本身：git 派生的子进程（fsmonitor 钩子、子模块的 status）继承了输出管道时，要等它们退出才回，限时就不生效。
+     * 本仓库没有子模块、没开 fsmonitor，所以不按进程组结束（第 4 批审查第 9 条）。
+     */
+    timeoutMs?: number;
 };
 
 /**
@@ -50,12 +57,22 @@ export function runGit(root: string, args: readonly string[], options: GitOption
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
         let stdinNote: string | null = null;
+        let timedOut = false;
+        const timer = options.timeoutMs === undefined ? null : setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGKILL");
+        }, options.timeoutMs);
         child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
         child.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
-        child.on("error", (error) => rejectPromise(new NbdevError("git_failed", `无法启动 git：${error.message}`, {cause: error, details: {args: fullArgs}})));
+        child.on("error", (error) => {
+            if (timer) clearTimeout(timer);
+            rejectPromise(new NbdevError("git_failed", `无法启动 git：${error.message}`, {cause: error, details: {args: fullArgs}}));
+        });
         child.on("close", (code, signal) => {
+            if (timer) clearTimeout(timer);
             const errorText = Buffer.concat(stderr).toString("utf8");
             resolvePromise({
+                ...(timedOut ? {timedOut: true} : {}),
                 exitCode: code ?? (signal ? 128 : 1),
                 stdout: Buffer.concat(stdout).toString("utf8"),
                 stderr: stdinNote === null ? errorText : `${errorText}${errorText === "" || errorText.endsWith("\n") ? "" : "\n"}${stdinNote}\n`,

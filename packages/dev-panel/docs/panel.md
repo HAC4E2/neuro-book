@@ -62,10 +62,12 @@
 | `/api/artifact/:workId/:taskId/:artifactId?version=` | 产物页：版本列表、题与状态（`version` 只切换题表）、答复、确认、iframe 地址（产物来源上磁盘里的当前页面）、`unpublishedChanges`（磁盘内容与最新一版的 `contentHash` 不同）、记录来源（`source`、`branch`）。Work 级产物的 `taskId` 写 `-` |
 | `/api/docs/tree?checkout=` | 文档树（按类型分组）；不是主工作区时附与 master 的差异（见下） |
 | `/api/docs/file?checkout=&path=` | 一份文档：原文、frontmatter、标题、这个 checkout 上最近 5 次提交、哪些已检出的分支改了它（`changedIn`） |
+| `/api/docs/diff?checkout=&path=` | 一份文档与 master 的差异（t15 阶段 4 第 4 批），与文档树的“改动”同口径：`change` 取自同一份文档树（新增、改动、删去、`master_only`，不在差异里为 null）；新增、改动、删去是合并基点（`mergeBase`）到这个 checkout 工作区的 `git diff`，含未提交，未跟踪的新文件整份当新增；`master_only` 是主工作区里那一份整份当新增。白名单是这个 checkout 的文档树、它的差异与记录里的文档之并，其余 404 |
 | `/api/files?path=` | 编辑页：主工作区里一个文件的原文与 sha256、种类（Work README、Task README、文档类产物、主工作区文档）、能不能编辑与原因、未提交的改动（已暂存与工作区分开）、是不是暂存区里一次改名的一端、改过它的分支、根级治理入口的非空行上限。编辑白名单之外的路径回 404 |
 | `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里、`scrollback` 能往回翻多少行，全屏程序或备用屏时是 0；`history` 是能读更早的输出时走哪个接口：`session` 是 `/api/sessions/:paneId/history`（只给 omp，回滚不是 0），`pane` 是 `/api/panes/:paneId/history`（没有会话键、回滚大于 0），读不到为 null，见 `src/server/delivery.ts` 的 `historySource`）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree）。pane 与会话各带 `title: {text, source} \| null`（t15 阶段 4 第 3 批，决定点 19）：从本机 Agent 的会话文件里读，Claude Code 取会话文件末尾一段里的 `custom-title`、`agent-name`、`ai-title`（先后如此），Codex 取 `session_index.jsonl` 的 `thread_name`，omp 取会话文件第一行的 `title`；只读、按文件大小与修改时间缓存、不写审计，读不出为 null（见 `src/server/session-titles.ts`） |
 | `/api/runs` | “在跑”（t14）：经 nbdev 起的服务（`procs`，登记加现算的状态，还活着的与 24 小时内结束的）、会话派出的运行、无主的运行；后两块按登记的 pid 去重 |
-| `/api/checkouts` | checkout 页（t14）：分支、HEAD、执行 worktree，加未提交条数、相对 master 的领先落后、在跑的服务、`home` 是它的 Task；请求时现算，每个 checkout 留 10 秒 |
+| `/api/checkouts` | checkout 页（t14）：分支、HEAD、执行 worktree，加未提交（`tracked` 已跟踪的改动、`untracked` 未跟踪的条数，t15 阶段 4 第 4 批）、相对 master 的领先落后、在跑的服务、`home` 是它的 Task 与它是哪些 Task 的（`tasks`：`home` 加目录名认出的）；请求时现算，每个 checkout 留 10 秒，git 调用各自限时 3 秒，到点的标 `timedOut`、计数为 null |
+| `/api/checkouts/:key/files` | 一个 checkout 的未提交文件（t15 阶段 4 第 4 批）：`staged`、`unstaged`（各带一个状态字母）、`untracked`（未跟踪的目录算一条，带末尾的 `/`），每段最多 300 条（`truncated`）；同样限时、只读，不缓存；key 不认识 404 |
 | `/api/github` | GitHub 只读页（t14）：开着的 PR（检查汇总）与 Issue、状态与取的时刻；见“现场” |
 | `/api/notify?workId=&taskId=` | 通知任务（`jobs`）与最近 24 小时的尝试（`recent`，同一次尝试的意图与结果合成一条，只有意图的标 `intentOnly`）、审计状态、这个 herdr 版本是否自动投递；两个参数可选（见“通知与会话页”） |
 | `/api/sessions/:paneId/screen?session=` | 一格会话的屏幕末尾（`agent.read` 的 `visible`，去掉转义的最后 60 行）与状态；`session` 是页面看到的会话键，对不上回 409 `session_changed`；这格正被接管时照常能读 |
@@ -267,12 +269,12 @@ herdr 不拦 API 写入（见 [herdr.md](herdr.md#终端流t12)），互斥由�
   - 第二、三块是 t07 认出的会话的运行与无主的运行。运行树里（根或任何后代）含有登记的监管进程、组长或后代快照里的 pid，整棵从这两块去掉（核对启动时刻），只在第一块出现。
   - 随“活动”这一块（有浏览器连着时 5 秒）刷新。
 - **checkout**（`/live/checkouts`）：分支、HEAD、执行 worktree，加：
-  - 未提交：`git status --porcelain=v1 -uno` 的条数，只算已跟踪的文件；
+  - 未提交：`git status --porcelain=v1 -unormal` 分成两个数，已跟踪的改动（含暂存）与未跟踪（未跟踪的目录算一条，t15 阶段 4 第 4 批；以前是 `-uno`，新文件不算，会显示成“干净”）；点开看文件清单（`/api/checkouts/:key/files`）；
   - 领先、落后：`rev-list --left-right --count master...HEAD`；
   - 在跑：这个 checkout 上还活着的登记服务；
   - `home` 是它的 Task（登记表）。
 
-  未提交与领先落后在请求时现算，4 路并行，每个 checkout 留 10 秒（HEAD 变了就重算）。页面开着时每 10 秒自己重取一次（改文件不改变“活动”，只随推送重取会一直显示旧值），标“N 秒前算的”、按秒走。不按 HEAD 与 index 的 mtime 缓存：没 `add` 的改动不改 index（面板的 Git 读操作带 `--no-optional-locks`），会一直显示“干净”。不做“可清理”。
+  未提交与领先落后在请求时现算，4 路并行，每个 checkout 留 10 秒（HEAD 变了就重算）；每个 checkout 的 git 调用各自限时 3 秒，冷的大 worktree 不拖住整页，到点的写“没算完”。页面开着时每 10 秒自己重取一次（改文件不改变“活动”，只随推送重取会一直显示旧值），标“N 秒前算的”、按秒走。不按 HEAD 与 index 的 mtime 缓存：没 `add` 的改动不改 index（面板的 Git 读操作带 `--no-optional-locks`），会一直显示“干净”。不做“可清理”。
 - **GitHub**（`/live/github`）：
   - 面板只调白名单里写死的两条命令：`gh pr list --state open --limit 100 --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,updatedAt,url` 与 `gh issue list --state open --limit 100 --json number,title,labels,updatedAt,url`，cwd 是主工作区。按仓库维护流程，不取 `body`、`comments`、`reviews`。条数到上限时页面写“只列最近更新的 N 个，可能还有更多”。
   - 检查汇总按 `__typename` 分：`CheckRun` 看 `status` 与 `conclusion`，`StatusContext` 看 `state`；失败的逐个列出，`CheckRun` 写成“工作流 / 检查名”（`workflowName`，不同工作流里可能有同名的检查）。分支名是 `<type>/<Work 编号>-<Task 编号>-…` 且找得到 Task 时链到面板的 Task 页。
@@ -380,10 +382,10 @@ Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history �
 | `/work/:workId/task/:taskId` | Task 页：当前情况、README、执行 checkout 的候选与它上面的提交、产物与文档类产物、链到的 Spec、证据、谁在动；状态切换、编辑 README 的入口。侧栏里的产物、文档、Spec、证据点了在速览面板里打开（`?peek=`，能后退、能分享，中键照样开完整页；零件 `PeekPanel`）：内容区宽于 1100px 时并排、推开正文（正文改成一栏），窄于它浮在正文上（有遮罩），手机整屏；产物显示页面本身与状态行、“去答复”“打开完整页”，不放答复表单（决定点 10、17，t15 阶段 4）；状态只在标题旁显示一处 | Proposal 第九节 |
 | `/artifacts` | 产物列表：按类分组，可过滤 | t03 第二轮产物页 |
 | `/artifact/:workId/:taskId/:artifactId` | 产物页（铺满）：左边是产物来源上的沙箱 iframe（零件 `ArtifactFrame`：`sandbox="allow-scripts allow-forms allow-popups"`，不给同源），右边是答复侧栏：待答（标题写“必答 N · 选答 M”，与首页收件箱的“必答 N”同一口径；这一版新加的题标“新”）、已答（只读，点“改答”才给控件）、之前几版的题（页面上已没有，只读，不再收答复）、已取代与撤回，提交栏贴在侧栏底部，写“已改几题、还有几道必答”，提交的结果也在栏里、逐题写答了什么（t15 阶段 4）；切版本只切题表，iframe 上标“页面是当前版本”；Work 级产物的 `taskId` 写 `-`。答复成功后提交栏里多一块“通知”（t15 阶段 4 起在结果下面，原来在侧栏顶上，提交时人在底部看不到）：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次（t11） | t03 第二轮产物页 |
-| `/docs?checkout=&path=&prefer=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选 | t03 第二轮文档页 |
+| `/docs?checkout=&path=&prefer=&view=&changed=` | 文档页：左边按类型的树与 checkout 切换（不是主工作区时标出来、列出与 master 的差异，可以只看有差异的，`?changed=1`），右边渲染 Markdown；`prefer` 是从 Task 页带来的执行 checkout 候选。t15 阶段 4 第 4 批：在差异里的文档页头给“渲染 / 与 master 的差异”切换（`?view=diff`，`/api/docs/diff`，上面一行写基线；差异不限高、长行折行）；用下拉切 checkout 保留 `prefer` 与正在看的文档，删去的与 master 才有的在树里也能点、只给差异；手机（窄于 768px）上文档树收进左侧抽屉，页头一个“文档树”按钮，选了文档就关上。Markdown 里的外站图片（`http`、`https`）不加载，换成虚线框的链接“外站图片：<alt>（<域名>）”，套在链接里的只换成文字；不放宽 CSP（文档来自各个 worktree，外站图片一打开就会发请求） | t03 第二轮文档页；t15 design.md 阶段 4“文档页” |
 | `/live/sessions?pane=`、`?view=notify` | 会话（铺满，t15 阶段 4 第 3 批重做）：左列表、右详情。左列表最上面一行是通知（`?view=notify`，右栏显示排队的、要处理的、最近 24 小时发过的，t11；顶栏“通知要处理”与首页的通知行也链到这里），下面是本仓库的 Agent 会话（标题取自会话文件，取不到用租约的 Task、再用短号；按等确认、工作中、完成、空闲、未知、不在 herdr 里、已结束排；持有租约却不在 herdr 里的不能打开）、其它 pane（只读，D2）、无主的运行的入口、不在本仓库的会话（折叠，只列出）。`?pane=` 选中一格：头是标题、状态、Agent、pane、会话短号与租约的 Task；下面是实时终端（模式条写观看还是接管，接管中按 Ctrl+] 退出；观看时字号按宽、高两向放下整屏；手机上是文字视图。终端不开回滚：herdr 的观察流逐行改写整屏、不滚屏，xterm 攒不下（决定点 23）。读得到更早输出的会话（omp，手机的文字视图里点“更早的输出”）照旧；读不到的（`history` 为 null，Claude 这类在备用屏上的会话）写“只能看当前屏；更早的输出去 herdr 里翻”，这一批不承诺在面板里往回翻）与贴在终端下面的输入区（两行输入框，Ctrl+Enter 或 ⌘+Enter 发送，按键带“确认”标记的要两步确认，t11）；没有会话键的 pane（含认出了 Agent 但还没报会话的）进“其它 pane”，只读观看，可点“更早的输出”读最近 1000 行（`history` 为 `pane` 时给；全屏程序、没有回滚时不给）；网页终端不可用时显示屏幕末尾（打开时与每次发送后各读一次，不轮询）。桌面上没选时自动选一次（决定点 21：有要处理的通知先显示通知，否则等确认、工作中的会话优先；用 replace，不加历史）；手机上列表与详情分两屏，不自动选。宽度：内容区 1100 以上左栏 330px，900 以上 260px（行里只留标题、状态与 pane 号），再窄收起左栏、详情上方给“切换会话”下拉；手机上的详情收起页头，但不换页面的根，跨 768px 时详情、草稿与接管中的终端不重建；“在跑”页运行里的 pane 号链到这里 | t03 第三轮会话页；t15 阶段 4 第 3 批线框稿 |
 | `/live/runs` | 在跑：经 nbdev 起的服务、会话的运行、无主的运行（t14） | Proposal 第九节 |
-| `/live/checkouts` | checkout：分支、HEAD、是哪个 Work 的执行 worktree、路径；t14 加未提交、领先落后、在跑、`home` | Proposal 第九节 |
+| `/live/checkouts`、`?files=`、`?focus=` | checkout：分支、HEAD、是哪个 Work 的执行 worktree、路径；t14 加未提交、领先落后、在跑、`home`。t15 阶段 4 第 4 批：整行可点（是某个 Task 的就去第一个 Task，否则去它的文档；第一格是真链接；点在链接或按钮上、带修饰键、拖选了文字时不跳）；落后、有未提交、有服务在跑用同一种警告色，行首一个同色的点；未提交写“改 N · 新 M”，点了在表格下面列出暂存、工作区、未跟踪三段（`?files=<key>`）；git 没算完的写“没算完”；一个 checkout 上有两个以上服务时提示；“在跑”页的服务链到这里（`?focus=<key>`，对准那一行，每个 key 只滚一次，之后重取不再拉回） | Proposal 第九节；t15 design.md 阶段 4“现场三页” |
 | `/live/github` | GitHub 只读：开着的 PR（检查汇总）与 Issue（t14） | Proposal 待决问题 12 |
 | `/search?q=` | 搜索结果：流式出现，按 checkout 分组，截断时标出 | t03 第二轮顶栏 |
 | `/new?workId=` | 新建 Work 或 Task：表单与随填随变的预览（预计领到的号、要写的文件与内容、提交信息；号以提交时为准）；结果区写实际领到的 id，与预览不同时多一行说明 | t03 第三轮新建表单 |

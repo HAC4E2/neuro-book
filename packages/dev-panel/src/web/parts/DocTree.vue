@@ -28,7 +28,9 @@ const groups = computed(() => {
     const known = new Set(props.docs.map((entry) => entry.path));
     for (const change of props.changes) {
         if (known.has(change.path)) continue;
-        const guess = props.docs.find((entry) => change.path.startsWith(`${entry.path.slice(0, entry.path.lastIndexOf("/"))}/`));
+        // 这里没有这份文件（删去的、master 才有的）：归到目录最长的同目录文档那一组，否则 `docs/specs/ui/x.md` 会被 `docs/README.md` 拉进“入口”。
+        const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/"));
+        const guess = props.docs.filter((entry) => change.path.startsWith(`${dirOf(entry.path)}/`)).sort((left, right) => dirOf(right.path).length - dirOf(left.path).length)[0];
         add({path: change.path, group: guess?.group ?? "repo", section: guess?.section ?? change.path.slice(0, change.path.lastIndexOf("/"))}, false);
     }
     return ORDER.filter((group) => rows.has(group)).map((group) => ({
@@ -61,14 +63,11 @@ watch(() => [props.selected, props.changes] as const, () => {
                 <div v-for="section in group.sections" :key="section.section" class="flex flex-col">
                     <p v-if="section.section" class="truncate px-1 pt-1 nbdev-secondary">{{ section.section }}</p>
                     <template v-for="row in section.rows" :key="row.path">
-                        <button v-if="row.present" type="button" class="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-control)] px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]" :class="{'bg-[var(--accent-bg)]': row.path === selected}" :aria-current="row.path === selected ? 'page' : undefined" :title="row.path" @click="$emit('open', row.path)">
-                            <span class="min-w-0 flex-1 truncate">{{ row.name }}</span>
-                            <span v-if="row.change" class="shrink-0" :class="row.change === 'added' ? 'nbdev-ok' : 'nbdev-warn'">{{ CHANGE_LABEL[row.change] }}</span>
-                        </button>
-                        <span v-else class="flex min-w-0 items-center gap-1.5 px-1 py-0.5 nbdev-empty" :title="row.path">
+                        <!-- 删去的与 master 才有的文件这里没有正文，点了由页面直接打开差异（t15 阶段 4 第 4 批）。 -->
+                        <button type="button" class="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-control)] px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]" :class="{'bg-[var(--accent-bg)]': row.path === selected, 'nbdev-empty': !row.present}" :aria-current="row.path === selected ? 'page' : undefined" :title="row.path" @click="$emit('open', row.path)">
                             <span class="min-w-0 flex-1 truncate" :class="{'line-through': row.change === 'deleted'}">{{ row.name }}</span>
-                            <span class="shrink-0">{{ row.change ? CHANGE_LABEL[row.change] : "" }}</span>
-                        </span>
+                            <span v-if="row.change" class="shrink-0" :class="!row.present ? '' : row.change === 'added' ? 'nbdev-ok' : 'nbdev-warn'">{{ CHANGE_LABEL[row.change] }}</span>
+                        </button>
                     </template>
                 </div>
             </div>
