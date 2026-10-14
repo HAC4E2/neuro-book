@@ -1157,3 +1157,26 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 速览面板在真的读屏器里怎么读；浮层与整屏标了 `aria-modal` 但没有把焦点困在面板里（Tab 能走出去）；
     - 只看了 Chrome。
   - 验收环境：克隆没有新写入（本批不写记录）；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动。master 到 `ea95b1759`，只多了文档提交，不用同步。
+- 2026-10-14：第 2 批实现审查（`evidences/impl-review-phase4-batch2.txt`）的结论是 0 阻断、4 重要、6 建议；开发者把决定点 18 定为 A、另开 Task。十条全部采纳，在集成分支上改，未 push。
+  - 提交（`984a289b8..c0be6bed2`，7 个）：
+    - 重要 1（`4d06a249c`）：`/api/work` 的每个 Task 带 `openRequired`（与 `/api/overview` 同一个函数 `taskOpenRequired`），前端 `TaskView` 去掉 work 接口不给的 `artifactCount`、`leaseCount`；`panel-server` 场景 1 补一项（`t01-board` 的待答是 2）；`panel.md` 接口表同步。问题在第 1 批之前就有，这批把 0 淡化后更显眼；
+    - 重要 2（`83ef26088`，验收中补了 `c0be6bed2`）：`StatusSwitch` 点“改状态”后焦点给下拉；取消、写入成功收起时焦点原本在这块里就放回“改状态”。验收发现按“确认”后按钮进入加载、被禁用，焦点先掉到 body，于是零件记下“是在这里确认的”，写完收起照样放回；写失败时焦点还给下拉；
+    - 重要 3、4，建议 5、6（`4b1eb1b74`，验收中补了 `7720e4b2f`）：
+      - 浮层与整屏时正文 `PageShell` 加 `inert`；只有整屏是 `aria-modal`，浮层按非模态对话框读；归还焦点的 `watch` 改成 `flush: "post"`；
+      - 层级：整屏速览由 `z-50` 改成 `z-40`；外壳登录失效的阻挡层由 `z-50` 提到 `NB_Z_INDEX.dialog + 40`（取 `@notnotype/nb-ui/theme` 的层级常量），压在速览、nb-ui 抽屉与对话框（包括按键确认框、接管小窗这类 nb-ui 对话框）之上，仍低于右下角的通知；`PeekPanel.md` 写了层级与“整屏时顶栏没设 inert”的不支持；
+      - 没有打开它的链接时，关闭后焦点退回页标题（验收发现页标题本来不可聚焦，先给 `tabindex="-1"`，与外壳 `focusHeading` 一样）；
+      - `?peek=evidence/…` 只认本 Task 列出的证据文件，不是的写“这个 Task 没有这份证据”；Task 数据或产物来源还没到时显示加载，不显示错误句；
+    - 建议 7（`54093e9a2`）：`.agents/works` 根上的 `README.md`、`AGENTS.md` 按文档树的规则编辑（`kind: repo_doc`），不再被“记录目录里只能编辑……”拒绝；同一层别的文件仍拒；`panel-writes-core` 编辑白名单用例补两项；
+    - 建议 8、9、10（`9da538aba`）：Task 表去掉 `aria-rowcount`、展开行的格子加 `aria-colspan`、展开按钮名固定为“t15 的详情”；左栏带组名的组包 `role="group"`（`aria-label` 是组名，看得见的组名 `aria-hidden`），在动与待答改用 `sr-only` 文字、图标与徽标 `aria-hidden`；`docs/panel.md` 的“外壳”“偏好”与“查询参数不重建”、`prefs.ts` 文件头补上排列方式、左栏新行为与 `?peek=`。
+  - 门禁（在 `c0be6bed2` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 401 过、0 失败、0 跳过；`git diff --check 984a289b8..HEAD` 干净；`dev-panel-records` 5 过；`docs:check` 通过。日志在 `accept/phase4/batch2/review-fixes/gate-*.log`。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch2/review-fixes/review.ts`，11 条全过（`results-all.txt` 与 `results-r2.txt`、`results-r4.txt`，r2、r4 改脚本后单独重跑过）：
+    - 第 1 条：Work 页 t15 行的“待答”是 3，与接口、各产物之和相同（截图 `r1-work-open-required.png`）；
+    - 第 2 条：键盘按“改状态”，焦点到下拉（`aria-label` 改状态）；Tab 到“取消”按 Enter，焦点回到“改状态”；在 t16-ux-b-probe 上真改一次状态（进行中改成计划中）、确认写入成功后焦点在“改状态”，再改回进行中（克隆里多了改状态的提交，见下）；
+    - 第 3 条：1280 浮层时正文带 `inert`、面板没有 `aria-modal`，从面板标题 Shift+Tab 两次都进不了正文；关闭后 `inert` 去掉、焦点回到“侧栏宽度方案”链接；1920 并排时正文不 `inert`、面板不是模态；390 整屏时是 `aria-modal`、正文 `inert`；
+    - 第 4 条：390 宽、整屏速览开着，清掉 cookie、站内换一个速览触发 401：登录失效对话框在最上面，“我已重新登录”按钮在点击位置的最上层，焦点在对话框里（截图 `r4-auth-over-full-peek-390.png`）。原想顺带验“整屏速览上开抽屉”，但整屏速览盖住顶栏，点不到“打开导航”，两者不会同时出现，这一项去掉了；
+    - 第 5 条：直接打开带 `?peek=` 的网址后按 Esc，焦点落在页标题 `h1`；
+    - 第 6 条：刷新进本 Task 的证据，直接出 iframe，期间每 10 毫秒查一次，没出现过错误句；拿别的 Task 的文件当证据打开，写“这个 Task 没有这份证据”、没有 iframe。
+    - 回归：第 2 批脚本 `accept.ts` 在同一构建上重跑，28 条全过（`review-fixes/regress/`），控制台没有错误；脚本里展开按钮的名字随第 8 条改成“t15 的详情”、在动图标改按类名找。
+    - 控制台只有第 4 条预期的 401。
+  - 验收环境：第 2 条在克隆里给 t16-ux-b-probe 改了两轮状态（两次跑，共 4 个提交，最后仍是进行中）；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动。master 到 `6965d8203`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
+  - 没有验证到的地方：nb-ui 的对话框（按键确认、接管小窗）开着时登录失效，没在浏览器里造，层级从代码核对；读屏器的实际读法（分组、详情按钮、`aria-colspan`）；只看了 Chrome。
