@@ -1,0 +1,30 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t86-explorer-polish",
+    "artifactId": "review",
+    "answerId": "20261014T073443250Z-121f6433",
+    "artifactVersion": 5,
+    "contentHash": "64b6f446b9a061b25fee34dc43fdb7697ce28881c2decedf1da38a8c56d2a106",
+    "submittedAt": "2026-10-14T07:34:42.794Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r4-place": "place",
+        "r4-line": "indent-tint",
+        "r4-into": "tint",
+        "r4-motion": [
+            "settle",
+            "land",
+            "return",
+            "hint",
+            "enter",
+            "lift"
+        ],
+        "r4-notes": "还有一个：拖影的位置需要调整，要离鼠标近一点"
+    },
+    "comments": {},
+    "note": null
+}
