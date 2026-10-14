@@ -1054,3 +1054,22 @@ interface ActionLinkEmits { (event: "navigate", href: string): void }   // 普�
     - `question_retired` 的 HTTP 映射没有单独测（按退出码统一映射，浏览器验收里看到了 409）。
   - 验收环境：克隆里多了 `548524ef9`（复制的 t86-review）与两次真提交；4490 的面板已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动。
   - master 同步：master 仍是 `ae389daaa`，没有新提交，不用同步。
+- 2026-10-14：第 1 批实现审查（`evidences/impl-review-phase4-batch1.txt`）的结论是 0 阻断、1 重要、9 建议；领域判定、服务端 409 与收件箱合并核实无误。主 Agent 十条全部采纳，在集成分支上改，未 push。
+  - 提交（`66cdf885f..25f0361c0`，6 个）：
+    - 建议 4（`eb783c0e7`，先做，免得后面的提交再改名）：“之前几版的题”在代码里统一叫 earlier，判据 `isRetiredFromPage` 改名 `isEarlierPageQuestion`，错误码 `question_retired` 改名 `question_earlier`（服务端、`cli.md`、`file-formats.md`、`panel.md` 一起改）；前端分组里“已取代与撤回”由 `retired` 改名 `closed`，与 `question_closed` 对上。发布输出里原有的 `retiredInPage`、警告 `retired_question_in_page`（已取代或撤回的题号又出现在页面里）是已有合同，没动。只改名，不改行为；
+    - 重要 1（`7ceed3f07`）：表单不再在加载时预填已答的题；点“改答”时取现在的答案，提交时没改过取值（只写了说明）的题交现在的答案。两处共用 `host/answers.ts` 的 `editingValue` / `submittedValue`。用例补在 `tests/web-answers.test.ts`：先答多选、改答加一项，交的是原选项加新项；只写说明时交现在的答案。`AnswerForm.md` 的注意事项写明为什么不在加载时预填；
+    - 建议 8、10（`f7b2e2f7b`）：对之前几版的题写 `--keep` 报 `keep_not_applicable`，提示“要重新问就放回页面”，`file-formats.md` 的题表规则同步；`core/artifacts.test.ts` 的 `--keep` 用例补这一情形，另加一条 `awaitsAnswer` 的用例（open 必答、选答、之前几版的题答复作废后、`ask` 登记的题，只有第一与最后算待答）；
+    - 建议 3、9（`96383e1ae`）：`cli.md` 的收件箱、`--pending` 与警告 `open_questions` 三处改成“待答的必答题（`open`、必答、不是之前几版的题）”并链到“状态现算”；`panel.md` 的零件清单补 `ArtifactFrame`、`QuestionControl`；
+    - 建议 2（`da323e3cd`）：`tests/web-scroll-containers.test.ts` 按元素扫，`:class` 里的字符串字面量与对象键也认；注释写明 scoped `<style>` 与 nb-ui 内部的滚动区扫不到。自检：把产物页侧栏的 `lg:overflow-y-auto` 挪进 `:class` 并去掉 `relative`，测试失败、报出这一处，还原后通过。nb-ui `FormCheckbox` 的 label 缺 `relative` 记进后续清单的“推迟事项”，去向“交 nb-ui”；
+    - 建议 5、6、7（`25f0361c0`）：产物页“待答”标题写“必答 N · 选答 M”，首页收件箱的徽标改成“必答 N”（收件箱只收必答题），两边口径一致；“这份答复的通知”从侧栏顶上挪进贴底提交栏、放在结果下面，栏里的这一块限高 40vh、自己滚；`ArtifactFrame` 的说明改成宿主传的 `note`（缺省“页面是当前版本（磁盘上的）”，产物页传带“切换版本只切换题表”的整句），`versionNote` 去掉。相关 `.md` 与 `panel.md` 同步。
+  - 门禁（在 `25f0361c0` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 395 过、0 失败、0 跳过，用时 6 分 37 秒；`git diff --check 66cdf885f..HEAD` 干净；`dev-panel-records` 5 过；`docs:check` 通过。日志在 `accept/phase4/batch1/review-fixes/gate-*.log`。
+  - 浏览器验收在 4490 上做。为了让第 1 批的脚本按原来的数据跑，先把克隆重置回 `548524ef9`（丢掉第 1 批验收时的两次真提交）。
+    - 回归：第 1 批脚本 `accept.ts` 全部重跑（结果在 `review-fixes/regress/`），15 条通过。两处判据随这次的改动更新：收件箱的期望文字由“5 道待答”改成“必答 5”；旧题的错误码由 `question_retired` 改成 `question_earlier`（第一次跑时这一条按旧码判成“失败”，改脚本后单独重跑“old”一组，通过）。其中真提交又做了两次（克隆提交 `bd6a75805`、`c7553bc46`），这次提交栏里能看到“通知”一块。
+    - 逐条验（`review-fixes/review.ts`，结果 `review-fixes/results-review.txt`，5 条通过）：
+      - 第 5 条：产物页“待答 必答 4 · 选答 2”，首页那一行“必答 4”；
+      - 第 1 条：同一页里刚交了 `r3-marks` 的“要调整”，马上点“改答”，单选里选中的是“要调整”；多选题 `r3-filter-match`（已答 name、title）点“改答”时勾着原来两项，再勾“拼音”提交，答复文件是 `["name","title","pinyin"]`；再点“改答”只加说明、不碰选项，答复文件里取值仍是这三项、说明也在。这三次真提交是克隆提交 `400dac980`、`289975802`、`a7d20673b`；
+      - 第 6 条：提交后“通知”在贴底提交栏里、在视野内（栏顶 636px、通知块底 823px，视口 900），侧栏别处没有第二份。截图 `r1-multi-editing.png`、`r6-notify-in-bar.png`。
+    - 控制台只有预期的 409（直接调接口答旧题）。
+  - 没有验证到的地方：第 1 条的“别处答了（代录、另一个标签页）再改答”没有在浏览器里造，与“刚交完再改答”走同一条取值路径；第 7 条只看了产物页的说明文字照旧，宿主传别的文字要到第 2 批速览面板才用上。
+  - 后续清单：主 Agent 10-14 在“试用建议”末尾加的 4 行（左栏 Work 快速查找、首页撞号原因、分支与 worktree 与开发服务的对应、会话标题）没动，排第 2、3、4 批时并进去。
+  - 收尾：4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动。master 是 `32d979fd3`（只多了审查报告），`packages/`、`bun.lock`、`package.json` 没有差异，不用同步。
