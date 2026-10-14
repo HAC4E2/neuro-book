@@ -265,7 +265,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await area.getAttribute("data-instance")).toBe(instance);
     });
 
-    test("活动栏：选择互斥；Sidebar 被隐藏或拖到零时点容器同时打开它，拖到零的按记忆尺寸展开", async ({page}) => {
+    test("活动栏：选择互斥；再点当前项收起、再点又打开；Sidebar 被隐藏或拖到零时点容器同时打开它，拖到零的按记忆尺寸展开", async ({page}) => {
         await open(page);
         const item = (viewId: string) => page.locator(`[data-activity-container="view:${viewId}"]`);
         await expect(item(A)).toHaveAttribute("aria-pressed", "true");
@@ -294,6 +294,15 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
         await item(C).click();
         await expect(sample(page, C)).toBeVisible();
+        await expect.poll(async () => Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width)).toBe(Math.round(width));
+
+        // 再点当前项：收起；再点：以同一个容器、同样的宽度打开。
+        await item(C).click();
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
+        await expect(item(C)).toHaveAttribute("aria-pressed", "false");
+        await item(C).click();
+        await expect(sample(page, C)).toBeVisible();
+        await expect(item(C)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width)).toBe(Math.round(width));
     });
 

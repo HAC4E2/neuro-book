@@ -204,8 +204,15 @@ const shownParts = computed<ViewLocation[]>(() => {
 
 const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: text(item.title), icon: item.icon})));
 
-/** ActivityBar：切到这个容器；Sidebar 看不见时同时打开它（被隐藏的显示、拖到零的按记忆尺寸展开）。 */
+/**
+ * ActivityBar（Spec 外壳二输出 15）：点当前项且 Sidebar 看得见时收起它（隐藏）；否则切到这个容器，Sidebar 看不见时同时打开它
+ * （被隐藏的显示、拖到零的按记忆尺寸展开）。
+ */
 function selectSidebarContainer(containerId: string): void {
+    if (sidebarVisible.value && presentation.value.parts.sidebar.selected === containerId) {
+        props.layout.actions.setPartHidden("sidebar", true);
+        return;
+    }
     props.layout.actions.applyView({kind: "select-container", part: "sidebar", containerId});
     props.layout.actions.setPartHidden("sidebar", false);
 }
