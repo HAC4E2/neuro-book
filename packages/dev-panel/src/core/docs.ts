@@ -20,8 +20,11 @@ export type DocChange = {path: string; change: DocChangeKind};
 export type DocTree = {docs: DocEntry[]; changes: DocChange[]};
 export type DocFile = {path: string; text: string; title: string | null; frontmatter: Record<string, unknown> | null; body: string; recent: CommitEntry[]};
 
-/** 列文档时给 `git ls-files` 的目录（字面路径）；仓库根的 Markdown 另按根目录的文件名补上。 */
-const DOC_SCOPES = ["docs", "packages", ".agents/skills", "vitepress", "scripts", "desktop"];
+/**
+ * 列文档时给 `git ls-files` 的目录（字面路径）；仓库根的 Markdown 另按根目录的文件名补上。`.agents/works` 只列它根上的两份入口
+ * （Work 与 Task 的约定、撞号的处理办法，首页的撞号链到这里），下面的记录不进文档树。
+ */
+const DOC_SCOPES = ["docs", "packages", ".agents/skills", ".agents/works/README.md", ".agents/works/AGENTS.md", "vitepress", "scripts", "desktop"];
 
 /** 一个仓库根相对路径属于哪一组文档；不是文档时为 null。`section` 是组内的小节（Spec 的目录、包名、Skill 名）。 */
 export function classifyDoc(path: string): {group: DocGroup; section: string} | null {
@@ -44,6 +47,7 @@ export function classifyDoc(path: string): {group: DocGroup; section: string} | 
         return null;
     }
     if (segments[0] === ".agents" && segments[1] === "skills" && segments.length >= 4) return {group: "skill", section: segments[2]!};
+    if (segments[0] === ".agents" && segments[1] === "works" && segments.length === 3 && name === "README.md") return {group: "entry", section: ".agents/works"};
     if (segments[0] === "vitepress") return {group: "site", section: segments.slice(1, -1).join("/")};
     return null;
 }

@@ -80,7 +80,7 @@
 
 ### 文档树与差异
 
-- 文档是这些位置的 Markdown（`git ls-files --cached --others --exclude-standard`）：`docs/`（Spec、Proposal、模块、规范、测试、意图）、各处 `docs/adr/`、`packages/*/docs/` 与包根的 `CONTEXT.md`、`README.md`、`.agents/skills/`、`vitepress/`、各处 `AGENTS.md` 与 `CLAUDE.md`、仓库根的 Markdown；路径里有 `node_modules`、`evidences`、`experiments`、`dist` 的不算。Work 与 Task 目录里的 Markdown 由记录索引，不在树里。磁盘上不是普通文件的不列：符号链接（读文档也经路径守卫，指向 `.env` 或仓库外的链接读不到），以及工作区里已删掉、还没暂存删除的文件（差异里记成 `deleted`）。
+- 文档是这些位置的 Markdown（`git ls-files --cached --others --exclude-standard`）：`docs/`（Spec、Proposal、模块、规范、测试、意图）、各处 `docs/adr/`、`packages/*/docs/` 与包根的 `CONTEXT.md`、`README.md`、`.agents/skills/`、`.agents/works/` 根上的 `README.md` 与 `AGENTS.md`（t15 阶段 4：首页的撞号链到这里的处理办法；下面的记录不算文档）、`vitepress/`、各处 `AGENTS.md` 与 `CLAUDE.md`、仓库根的 Markdown；路径里有 `node_modules`、`evidences`、`experiments`、`dist` 的不算。Work 与 Task 目录里的 Markdown 由记录索引，不在树里。磁盘上不是普通文件的不列：符号链接（读文档也经路径守卫，指向 `.env` 或仓库外的链接读不到），以及工作区里已删掉、还没暂存删除的文件（差异里记成 `deleted`）。
 - 这里的“master”指主工作区的工作区（含未提交的文档），不是 `master` 引用。非主工作区的差异分两类：分支改的（`master...HEAD` 的三点 diff 加工作区里没提交的：`added`、`modified`、`deleted`）；master 有、这里没有、也不是分支删的（`master_only`，分支分出之后 master 新增的）。
 
 ### 搜索
