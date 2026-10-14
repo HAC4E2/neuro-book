@@ -1,0 +1,36 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t86-explorer-polish",
+    "artifactId": "review",
+    "answerId": "20261014T034813624Z-cf13a7aa",
+    "artifactVersion": 1,
+    "contentHash": "55b30057a8e1a0f24ef42bb1a874b163c8be6a1f3efa471d153b20cc89dcb754",
+    "submittedAt": "2026-10-14T03:48:13.214Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "indent-guides": "discuss",
+        "natural-sort": "fix",
+        "md-extension": "discuss",
+        "file-icons": "fix",
+        "empty-node": "fix",
+        "content-folder-look": "fix",
+        "root-rows": "fix",
+        "title-actions": "skip",
+        "context-menu": "fix",
+        "filter": "fix",
+        "chapter-count": "discuss",
+        "own-notes": "拖拽问题问题很多：\n现在拖拽没有做好，需要参考旧应用的拖拽行为。"
+    },
+    "comments": {
+        "indent-guides": "和 vscode 一样，可选，可配置",
+        "md-extension": "和 vscode 一样，可选，可配置",
+        "file-icons": "当前的图标可能不够用，需要添加更多的图标素材才行。例如：https://github.com/catppuccin/vscode-icons",
+        "empty-node": "不要空目录、清单不合法这种错误展示形式",
+        "chapter-count": "可改可不改，要改的话得系统性的改，不能给他加特例，看这个功能做起来难不难。我觉得先不改比较好"
+    },
+    "note": null
+}
