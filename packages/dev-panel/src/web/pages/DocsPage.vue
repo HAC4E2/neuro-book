@@ -56,8 +56,8 @@ function go(query: Record<string, string | undefined>): void {
 
 <template>
     <!-- 铺满型页面（路由 layout: fill）：宽屏上树与正文各自滚动；窄屏上下堆叠，整页由根滚动，仍只有一个竖向滚动者。 -->
-    <div class="grid h-full min-h-0 grid-cols-1 overflow-y-auto [scrollbar-gutter:stable] md:grid-cols-[18rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden md:[scrollbar-gutter:auto]">
-        <aside class="nbdev-stack nbdev-divider min-h-0 gap-3 border-b p-3 md:overflow-y-auto md:border-b-0 md:border-r md:[scrollbar-gutter:stable]" aria-label="文档树">
+    <div class="relative grid h-full min-h-0 grid-cols-1 overflow-y-auto [scrollbar-gutter:stable] md:grid-cols-[18rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden md:[scrollbar-gutter:auto]">
+        <aside class="nbdev-stack nbdev-divider relative min-h-0 gap-3 border-b p-3 md:overflow-y-auto md:border-b-0 md:border-r md:[scrollbar-gutter:stable]" aria-label="文档树">
             <CheckoutSwitch v-if="tree.data.value" :checkouts="tree.data.value.checkouts" :model-value="checkout" :preferred="prefer" @update:model-value="(key) => go({checkout: key})" />
             <div v-if="tree.data.value && !tree.data.value.checkout.isMain" class="nbdev-stack-tight nbdev-small">
                 <p class="nbdev-secondary">与主工作区（master）的差异 {{ tree.data.value.changes.length }} 处</p>
@@ -67,7 +67,7 @@ function go(query: Record<string, string | undefined>): void {
             <DocTree v-if="tree.data.value" :docs="tree.data.value.docs" :changes="tree.data.value.changes" :selected="path" :changed-only="changedOnly" @open="(value) => go({path: value})" />
         </aside>
         <!-- 正文一栏套 PageShell 的阅读档：Markdown 按阅读宽度收窄并居中，右边不再空一片。 -->
-        <section class="min-h-0 min-w-0 md:overflow-y-auto md:[scrollbar-gutter:stable]">
+        <section class="relative min-h-0 min-w-0 md:overflow-y-auto md:[scrollbar-gutter:stable]">
             <PageShell width="reading" :crumbs="crumbs" :title="docTitle" @navigate="navigate">
                 <template v-if="file.data.value" #actions>
                     <!-- 只编辑主工作区的文件：worktree 的暂存区与分支属于别的会话，面板的写事务管不到。能不能改以编辑页的判定为准。 -->

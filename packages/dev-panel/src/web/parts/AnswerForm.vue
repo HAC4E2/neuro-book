@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import {Badge, Button, CheckboxGroup, FormField, FormTextarea, RadioGroup} from "@notnotype/nb-ui/components";
+import {Badge, Button, FormField, FormTextarea} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
-import type {QuestionState, VersionQuestion} from "../host/types.js";
+import {answerText, editingValue, groupQuestions, isNewQuestion, staleText, submittedValue} from "../host/answers.js";
+import {relativeTime} from "../host/format.js";
+import type {QuestionState} from "../host/types.js";
+import QuestionControl from "./QuestionControl.vue";
 
 /**
- * 产物页侧栏的答复表单：每道活的题（未答与已答）给控件，已答的预填现在的取值。只交改过或新填的题；校验用核心的同一份规则。
- * 零件不发请求：按“提交”只发 `submit`，由页面发写请求、处理失败。
+ * 产物页侧栏的答复表单：待答的题给控件，已答的题只读、点“改答”才给控件；之前几版留下的题不进表单（宿主经 `readonly` 插槽放只读的列表）。
+ * 只交改过或新填的题；校验用核心的同一份规则。提交栏贴在侧栏底部。零件不发请求：按“提交”只发 `submit`。契约见同名 .md。
  */
 const props = defineProps<{
     questions: QuestionState[];
+    /** 最新一版：标“新”用。 */
+    latestVersion: number;
     pending: boolean;
     slow: boolean;
     /** 不能答的原因（来自分支、产物已关闭、主工作区不能写、看的不是最新一版）；有值时表单只读。 */
@@ -22,18 +27,21 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{submit: [answer: {values: Record<string, unknown>; comments: Record<string, string>; note: string | null}]}>();
 
-const live = computed(() => props.questions.filter((state) => state.state === "open" || state.state === "answered"));
+const groups = computed(() => groupQuestions(props.questions));
 const values = ref<Record<string, unknown>>({});
 const comments = ref<Record<string, string>>({});
 const commenting = ref<Record<string, boolean>>({});
 const touched = ref<Record<string, boolean>>({});
+/** 已答的题里点了“改答”的。 */
+const editing = ref<Record<string, boolean>>({});
 const note = ref("");
 
 function reset(): void {
-    values.value = Object.fromEntries(live.value.filter((state) => state.answer).map((state) => [state.question.id, state.answer!.value]));
+    values.value = {};
     comments.value = {};
     commenting.value = {};
     touched.value = {};
+    editing.value = {};
     note.value = "";
 }
 watch(() => props.resetKey, reset, {immediate: true});
@@ -42,12 +50,26 @@ function set(id: string, value: unknown): void {
     values.value = {...values.value, [id]: value};
     touched.value = {...touched.value, [id]: true};
 }
+function startEdit(state: QuestionState): void {
+    const id = state.question.id;
+    values.value = {...values.value, [id]: editingValue(state, values.value, touched.value)};
+    editing.value = {...editing.value, [id]: true};
+}
+/** 取消改答：取值回到已答的那份，说明也丢掉，这道题不再交。 */
+function cancelEdit(state: QuestionState): void {
+    const id = state.question.id;
+    const without = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== id));
+    editing.value = without(editing.value);
+    touched.value = without(touched.value);
+    comments.value = without(comments.value);
+    commenting.value = without(commenting.value);
+    values.value = without(values.value);
+}
 
-const CONFIRM_OPTIONS = [{value: "true", label: "同意"}, {value: "false", label: "不同意"}];
-const optionsOf = (question: VersionQuestion) => question.options.map((option) => ({value: option.value, label: question.recommend.includes(option.value) ? `${option.label}（推荐）` : option.label}));
-
+/** 能交的题：待答的，加上点了“改答”的已答题。 */
+const editable = computed(() => [...groups.value.pending, ...groups.value.answered.filter((state) => editing.value[state.question.id])]);
 /** 只交改过的题（含新填的）与写了说明的题。 */
-const chosen = computed(() => live.value.filter((state) => touched.value[state.question.id] || (comments.value[state.question.id] ?? "").trim() !== ""));
+const chosen = computed(() => editable.value.filter((state) => touched.value[state.question.id] || (comments.value[state.question.id] ?? "").trim() !== ""));
 const problems = computed(() => {
     const found: Record<string, string> = {};
     for (const state of chosen.value) {
@@ -63,6 +85,10 @@ const problems = computed(() => {
 });
 const noteProblem = computed(() => (note.value === "" ? null : controlCharProblem(note.value, true)));
 const ready = computed(() => chosen.value.length > 0 && Object.keys(problems.value).length === 0 && noteProblem.value === null);
+/** 还没填好的必答题（填了但不合法的也算没填好）。 */
+const requiredLeft = computed(() => groups.value.pending.filter((state) => state.question.required && !(touched.value[state.question.id] && validateAnswerValue(state.question, values.value[state.question.id]) === null)).length);
+const hasControls = computed(() => editable.value.length > 0);
+const pendingRequired = computed(() => groups.value.pending.filter((state) => state.question.required).length);
 
 function submit(): void {
     if (!ready.value || props.pending || props.disabledReason) return;
@@ -71,7 +97,7 @@ function submit(): void {
     for (const state of chosen.value) {
         const id = state.question.id;
         // 只写了说明、没改取值的已答题：带上现在的取值，答复文件里这道题仍有取值。
-        answer[id] = values.value[id];
+        answer[id] = submittedValue(state, values.value, touched.value);
         if ((comments.value[id] ?? "").trim() !== "") notes[id] = comments.value[id]!;
     }
     emit("submit", {values: answer, comments: notes, note: note.value.trim() === "" ? null : note.value});
@@ -80,34 +106,75 @@ function submit(): void {
 
 <template>
     <form class="flex flex-col gap-4" @submit.prevent="submit">
-        <p v-if="disabledReason" class="rounded-[var(--radius-control)] px-2 py-1 nbdev-hint">{{ disabledReason }}</p>
-        <p class="nbdev-empty" v-if="live.length === 0">没有能答的题</p>
-        <fieldset v-for="state in live" :key="state.question.id" class="flex flex-col gap-1.5 border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
-            <legend class="flex flex-wrap items-center gap-1.5 pb-1">
-                <span class="font-medium">{{ state.question.label }}</span>
-                <Badge v-if="state.state === 'answered'" tone="success" variant="soft" size="sm">已答</Badge>
-                <Badge v-else-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
-                <Badge v-else tone="neutral" variant="soft" size="sm">选答</Badge>
-                <span class="nbdev-note">#{{ state.question.id }}</span>
-            </legend>
-            <p class="nbdev-note" v-if="state.question.about">关于 {{ state.question.about }}</p>
-            <RadioGroup v-if="state.question.type === 'single'" :model-value="typeof values[state.question.id] === 'string' ? (values[state.question.id] as string) : ''" :options="optionsOf(state.question)" size="sm" @update:model-value="(value: string) => set(state.question.id, value)" />
-            <CheckboxGroup v-else-if="state.question.type === 'multi'" :model-value="Array.isArray(values[state.question.id]) ? (values[state.question.id] as string[]) : []" :options="optionsOf(state.question)" @update:model-value="(value: string[]) => set(state.question.id, value)" />
-            <RadioGroup v-else-if="state.question.type === 'confirm'" :model-value="values[state.question.id] === undefined ? '' : String(values[state.question.id])" :options="CONFIRM_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => set(state.question.id, value === 'true')" />
-            <FormTextarea v-else :model-value="typeof values[state.question.id] === 'string' ? (values[state.question.id] as string) : ''" :rows="3" :aria-label="state.question.label" @update:model-value="(value: string) => set(state.question.id, value)" />
-            <FormField v-if="commenting[state.question.id]" label="说明（可选）">
-                <FormTextarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
-            </FormField>
-            <button v-else type="button" class="self-start nbdev-note" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
-            <p class="nbdev-danger nbdev-small" v-if="problems[state.question.id] ?? errors[state.question.id]" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
-        </fieldset>
-        <FormField v-if="live.length > 0" label="整份答复的备注（可选）" :error="noteProblem ?? ''">
+        <p v-if="disabledReason" class="nbdev-hint">{{ disabledReason }}</p>
+        <section class="nbdev-stack" aria-label="待答">
+            <!-- 必答与选答分开数：首页收件箱只收必答题，写的是“必答 N”，两边对得上。 -->
+            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">必答 {{ pendingRequired }}<template v-if="groups.pending.length > pendingRequired"> · 选答 {{ groups.pending.length - pendingRequired }}</template></span></h3>
+            <p v-if="groups.pending.length === 0" class="nbdev-empty">没有待答的题</p>
+            <fieldset v-for="state in groups.pending" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
+                <legend class="flex flex-wrap items-center gap-1.5 pb-1">
+                    <span class="font-medium">{{ state.question.label }}</span>
+                    <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
+                    <Badge v-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
+                    <Badge v-else tone="neutral" variant="soft" size="sm">选答</Badge>
+                    <span class="nbdev-note">#{{ state.question.id }}</span>
+                </legend>
+                <p v-if="state.question.about" class="nbdev-note">关于 {{ state.question.about }}</p>
+                <p v-if="state.stale" class="nbdev-hint nbdev-hint-warn">{{ staleText(state) }}</p>
+                <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />
+                <FormField v-if="commenting[state.question.id]" label="说明（可选）">
+                    <FormTextarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
+                </FormField>
+                <button v-else type="button" class="nbdev-note self-start" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
+                <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
+            </fieldset>
+        </section>
+        <section v-if="groups.answered.length > 0" class="nbdev-stack" aria-label="已答">
+            <h3 class="nbdev-card-title">已答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.answered.length }}</span></h3>
+            <fieldset v-for="state in groups.answered" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
+                <legend class="flex flex-wrap items-center gap-1.5 pb-1">
+                    <span class="font-medium">{{ state.question.label }}</span>
+                    <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
+                    <span class="nbdev-note">#{{ state.question.id }}</span>
+                </legend>
+                <template v-if="editing[state.question.id]">
+                    <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />
+                    <FormField v-if="commenting[state.question.id]" label="说明（可选）">
+                        <FormTextarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
+                    </FormField>
+                    <button v-else type="button" class="nbdev-note self-start" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
+                    <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
+                    <Button class="self-start" size="sm" variant="ghost" icon-class="i-lucide-undo-2" @click="cancelEdit(state)">取消改答</Button>
+                </template>
+                <template v-else>
+                    <p class="break-words">{{ answerText(state.question, state.answer?.value) }}</p>
+                    <p class="nbdev-note">v{{ state.answer?.artifactVersion }} 答 · {{ state.answer ? relativeTime(state.answer.submittedAt) : "" }}<template v-if="state.answer?.comment"> · {{ state.answer.comment }}</template></p>
+                    <p v-if="errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ errors[state.question.id] }}</p>
+                    <Button v-if="!disabledReason" class="self-start" size="sm" variant="ghost" icon-class="i-lucide-pencil" @click="startEdit(state)">改答</Button>
+                </template>
+            </fieldset>
+        </section>
+        <slot name="readonly" />
+        <FormField v-if="hasControls" label="整份答复的备注（可选）" :error="noteProblem ?? ''">
             <FormTextarea v-model="note" :rows="2" :disabled="disabledReason !== null || pending" />
         </FormField>
-        <div v-if="live.length > 0" class="flex flex-wrap items-center gap-2">
-            <Button type="submit" :loading="pending" :disabled="!ready || disabledReason !== null">提交 {{ chosen.length }} 题</Button>
-            <span class="nbdev-note" v-if="slow">在等别的写入完成…</span>
-            <span class="nbdev-empty nbdev-small" v-else-if="chosen.length === 0 && !disabledReason">还没有改任何一题</span>
+        <!-- 提交栏贴在侧栏底部：题多时人在下面填，按钮与结果都要看得到。 -->
+        <div v-if="hasControls || $slots.result" class="nbdev-submit-bar nbdev-divider sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t px-4 py-3">
+            <!-- 结果与这次答复的通知可能很长：限高、自己滚，按钮总在栏里。 -->
+            <div v-if="$slots.result" class="relative flex max-h-[40vh] flex-col gap-2 overflow-y-auto">
+                <slot name="result" />
+            </div>
+            <div v-if="hasControls" class="flex flex-wrap items-center gap-2">
+                <Button type="submit" :loading="pending" :disabled="!ready || disabledReason !== null">提交 {{ chosen.length }} 题</Button>
+                <span v-if="slow" class="nbdev-note">在等别的写入完成…</span>
+                <span v-else class="nbdev-note nbdev-num">已改 {{ chosen.length }} 题<template v-if="requiredLeft > 0"> · 还有 {{ requiredLeft }} 道必答没答</template></span>
+            </div>
         </div>
     </form>
 </template>
+
+<style scoped>
+.nbdev-submit-bar {
+    background: var(--panel-surface);
+}
+</style>

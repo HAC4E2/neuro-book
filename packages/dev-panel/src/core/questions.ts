@@ -11,6 +11,14 @@ export type QuestionType = (typeof QUESTION_TYPES)[number];
 export type QuestionOption = {value: string; label: string};
 export type QuestionDefinition = {id: string; type: QuestionType; label: string; options: QuestionOption[]; required: boolean; recommend: string[]};
 
+/**
+ * 之前几版的题：来自页面、已经答过、后来的页面里没有了。发新版时这种题留在题表里（`page` 记成 `null`，见 docs/file-formats.md
+ * 的“新版本的题表”），只为答案还查得到；它不属于这一版，不再收答复，界面只读显示。`ask` 登记的题本来就不在页面里，不算。
+ */
+export function isEarlierPageQuestion(question: {origin: "markup" | "ask"; page: string | null}): boolean {
+    return question.origin === "markup" && question.page === null;
+}
+
 /** 题号与选项值的写法；题意变了就换题号。 */
 export const QUESTION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/u;
 export const MAX_LABEL_LENGTH = 200;

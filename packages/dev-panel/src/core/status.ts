@@ -1,5 +1,5 @@
 import type {HerdrClient} from "../herdr/client.js";
-import {adoptionOf, listArtifactIds, listDocuments, questionStates, readArtifact, versionPath, type Adoption, type ArtifactKind, type DocumentEntry} from "./artifacts.js";
+import {adoptionOf, awaitsAnswer, listArtifactIds, listDocuments, questionStates, readArtifact, versionPath, type Adoption, type ArtifactKind, type DocumentEntry} from "./artifacts.js";
 import {verifiedProvenance} from "./provenance.js";
 import {readActivity, type Activity, type SessionView} from "./activity.js";
 import {NbdevError, type Warning} from "./errors.js";
@@ -44,7 +44,7 @@ export type ArtifactSummary = {
 
 /** 收件箱：只放要开发者动手的事。`askedBy` 是运行时的会话键（provenance），读不到为 null。 */
 export type InboxItem =
-    | {kind: "question"; workId: string; taskId: string; artifactId: string; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null}
+    | {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null}
     | {kind: "number_conflict"; label: string; live: boolean};
 
 export type TaskView = TaskRecord & RecordSource & {uncommitted: boolean; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[]};
@@ -122,11 +122,11 @@ async function summarizeArtifacts(root: string, mainRoot: string, workId: string
             summaries.push({artifactId, kind: null, title: null, version: null, state: "unpublished", publishedAt: null, openRequired: 0, adoption: null});
             continue;
         }
-        const open = questionStates(latest, snapshot.answers, snapshot.answeredVersions).filter((state) => state.state === "open" && state.question.required);
+        const open = questionStates(latest, snapshot.answers, snapshot.answeredVersions).filter(awaitsAnswer);
         if (taskId !== null) {
             for (const {question} of open) {
                 const asker = root === mainRoot ? await verifiedProvenance(mainRoot, versionPath(ref, question.since), warnings) : null;
-                inbox.push({kind: "question", workId, taskId, artifactId, questionId: question.id, label: question.label, type: question.type, version: latest.version, since: question.since, askedBy: asker?.session.key ?? null});
+                inbox.push({kind: "question", workId, taskId, artifactId, artifactTitle: latest.title, questionId: question.id, label: question.label, type: question.type, version: latest.version, since: question.since, askedBy: asker?.session.key ?? null});
             }
         }
         summaries.push({artifactId, kind: latest.kind, title: latest.title, version: latest.version, state: latest.state, publishedAt: latest.publishedAt, openRequired: open.length, adoption: adoptionOf(snapshot.answers, snapshot.acks)});

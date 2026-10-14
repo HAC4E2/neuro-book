@@ -47,7 +47,7 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string}> =
         <template v-if="computedAgo" #meta><span>未提交与领先落后是 {{ computedAgo }}算的</span></template>
         <LoadState v-bind="loadStateOf(checkouts)" label="正在读取 checkout" @retry="checkouts.reload()" />
         <!-- 列多：窄屏上整张表横向滚动，不把每列挤成一字一行；路径截断（悬停看全文、点一下复制），宽屏不必横向滚动。 -->
-        <div v-if="checkouts.data.value" class="overflow-x-auto">
+        <div v-if="checkouts.data.value" class="relative overflow-x-auto">
             <div class="min-w-[56rem]">
             <Table class="nbdev-table" :columns="columns" :rows="rows" row-key="key" density="compact" :hoverable="false">
                 <template #cell-key="{row}">

@@ -50,7 +50,7 @@ async function claudeSession(): Promise<FakeClaude> {
     return host;
 }
 
-type InboxJson = Array<{kind: string; artifactId?: string; questionId?: string; askedBy?: string | null}>;
+type InboxJson = Array<{kind: string; artifactId?: string; artifactTitle?: string | null; questionId?: string; askedBy?: string | null}>;
 
 async function inbox(fixture: Fixture): Promise<InboxJson> {
     const status = await fixture.cli(["status", "--json"]);
@@ -100,7 +100,7 @@ describe("产物与答复的命令（场景）", () => {
         expect([published.version, published.questions.map((question) => [question.id, question.type, question.options.map((option) => option.value)])]).toEqual([1, [["home-layout", "single", ["cards", "table"]], ["docs-tree", "confirm", []]]]);
         expect(published.lease.session.key).toBe(`claude:${claude.sessionId}`);
         expect(await askerOf(fixture.main, REF, "docs-tree")).toMatchObject({leaseId: published.lease.leaseId, session: {key: `claude:${claude.sessionId}`}});
-        expect((await inbox(fixture)).map((item) => [item.questionId, item.askedBy])).toEqual([["docs-tree", `claude:${claude.sessionId}`], ["home-layout", `claude:${claude.sessionId}`]]);
+        expect((await inbox(fixture)).map((item) => [item.questionId, item.artifactTitle, item.askedBy])).toEqual([["docs-tree", "开发面板评审板", `claude:${claude.sessionId}`], ["home-layout", "开发面板评审板", `claude:${claude.sessionId}`]]);
     });
 
     test("场景 2：答了一道题后换掉另一道的题号：旧题号被取代，已答的题标针对 v1，收件箱不算被取代的题", async () => {

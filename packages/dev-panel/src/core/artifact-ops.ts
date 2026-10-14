@@ -23,6 +23,7 @@ import {
     unackedAnswers,
     versionPath,
     adoptionOf,
+    awaitsAnswer,
     type AckRecord,
     type Adoption,
     type AnswerRecord,
@@ -42,7 +43,7 @@ import {touchCallerLease, type LeaseOptions} from "./lease-ops.js";
 import type {LeaseRecord} from "./leases.js";
 import {resolveWritableTask} from "./operations.js";
 import {verifiedProvenance, writeProvenance, type ProvenanceAction} from "./provenance.js";
-import {parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
+import {isEarlierPageQuestion, parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
 import {listTaskIds, listWorkIds} from "./records.js";
 import {WORKS_ROOT, type RepoContext} from "./repo.js";
 import {chooseExecutionCheckout, taskSourceInBranchWork} from "./sources.js";
@@ -611,7 +612,10 @@ export async function submitAnswer(context: RepoContext, input: AnswerInput, opt
         for (const [questionId, value] of Object.entries(values)) {
             const definition = target.questions.find((question) => question.id === questionId);
             if (!definition) throw new NbdevError("question_not_found", `v${targetVersion} 里没有题 ${questionId}`, {details: {...ref, questionId}});
-            liveQuestion({...snapshot, latest}, questionId);
+            const live = liveQuestion({...snapshot, latest}, questionId);
+            if (isEarlierPageQuestion(live)) {
+                throw new NbdevError("question_earlier", `题 ${questionId} 是 v${live.since} 的题，已经答过，v${latest.version} 的页面上没有了，不能再改答`, {details: {...ref, questionId, since: live.since}});
+            }
             const reason = validateAnswerValue(definition, value);
             if (reason) problems.push({questionId, reason});
         }
@@ -745,7 +749,7 @@ function answersView(snapshot: ArtifactSnapshot & {latest: ArtifactVersion}): Ar
         version: latest.version,
         state: latest.state,
         publishedAt: latest.publishedAt,
-        openRequired: states.filter((state) => state.state === "open" && state.question.required).length,
+        openRequired: states.filter(awaitsAnswer).length,
         adoption: adoptionOf(snapshot.answers, snapshot.acks),
         questions: states,
         answers: snapshot.answers,
@@ -764,7 +768,7 @@ function select(views: readonly ArtifactAnswersView[], query: AnswersQuery): Art
         });
     }
     if (query.filter === "pending") {
-        return views.filter((view) => view.openRequired > 0).map((view) => ({...view, questions: view.questions.filter((state) => state.state === "open" && state.question.required)}));
+        return views.filter((view) => view.openRequired > 0).map((view) => ({...view, questions: view.questions.filter(awaitsAnswer)}));
     }
     if (query.filter === "unacked") return views.filter((view) => view.unacked.length > 0);
     return [...views];
