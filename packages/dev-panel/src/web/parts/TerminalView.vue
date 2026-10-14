@@ -44,24 +44,59 @@ let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 let pasting = false;
 /** 一格的宽度与字号之比，挂载时按实际字体量（拿不到时按等宽字常见的 0.6）。 */
 let cellRatio = 0.6;
+/** 一行的高度与字号之比：挂载后按 xterm 量出的格高算（拿不到时按 1.2）。 */
+let rowRatio = 1.2;
+/** 框的内边距（`p-2`）两边加起来。 */
+const BOX_PADDING = 16;
 
-/** 观看时字号按容器宽度与列数缩放，控制在 `WATCH_FONT_MIN` 到 `WATCH_FONT_MAX`。 */
-function watchFontSize(cols: number): number {
-    const width = frameBox.value?.clientWidth ?? 800;
-    return Math.max(WATCH_FONT_MIN, Math.min(WATCH_FONT_MAX, Math.floor((width - 16 - SLIDER_WIDTH) / (cols * cellRatio))));
+/** 一格的宽高（CSS 像素），取 xterm 不随列数变的 `device.cell`；还没量出来时为 null。 */
+function cellSize(): {width: number; height: number} | null {
+    if (!term) return null;
+    const cell = (term as unknown as XtermRenderDimensions)._core._renderService.dimensions.device.cell;
+    const dpr = window.devicePixelRatio || 1;
+    return cell.width > 0 && cell.height > 0 ? {width: cell.width / dpr, height: cell.height / dpr} : null;
 }
 
+/**
+ * 观看时字号按框的宽、高两个方向缩放，取放得下整屏的较小值，控制在 `WATCH_FONT_MIN` 到 `WATCH_FONT_MAX`（第 3 批审查重要 1）：
+ * 铺满页里框高是布局给的，只按宽度算时窄而高的 pane（左右分屏）下半屏落在框外，最新的输出与输入行默认看不到。
+ * 按比例估的字号放不下（行高取整）就再小一号；到最小字号仍放不下，框里滚动并贴着底。
+ */
 function fitWatchFont(): void {
-    if (!term || props.mode !== "watch") return;
-    const size = watchFontSize(term.cols);
+    const box = frameBox.value;
+    if (!term || !box || props.mode !== "watch") return;
+    const width = box.clientWidth - BOX_PADDING - SLIDER_WIDTH;
+    const height = box.clientHeight - BOX_PADDING;
+    let size = Math.max(WATCH_FONT_MIN, Math.min(WATCH_FONT_MAX, Math.floor(width / (term.cols * cellRatio)), Math.floor(height / (term.rows * rowRatio))));
     if (term.options.fontSize !== size) term.options.fontSize = size;
+    let cell = cellSize();
+    while (cell && size > WATCH_FONT_MIN && (cell.height * term.rows > height || cell.width * term.cols > width)) {
+        size -= 1;
+        term.options.fontSize = size;
+        const next = cellSize();
+        // xterm 改字号时同步重量格子；没量（格子没变）就不往下减，等下一帧或下一次尺寸变化再算。
+        if (!next || (next.width === cell.width && next.height === cell.height)) break;
+        cell = next;
+    }
+    stickToBottom();
+}
+
+/** 框放不下整屏时（最小字号）滚到底：最新的几行与输入行在最下面。开发者自己往上翻过就不动。 */
+let followBottom = true;
+function stickToBottom(): void {
+    const box = frameBox.value;
+    if (box && followBottom) box.scrollTop = box.scrollHeight;
+}
+function onBoxScroll(): void {
+    const box = frameBox.value;
+    if (box) followBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
 }
 
 function onFrame(frame: TerminalFrame): void {
     if (!term) return;
     if (term.cols !== frame.w || term.rows !== frame.h) term.resize(frame.w, frame.h);
     fitWatchFont();
-    term.write(frame.bytes);
+    term.write(frame.bytes, stickToBottom);
 }
 
 /**
@@ -81,10 +116,8 @@ type XtermRenderDimensions = {_core: {_renderService: {dimensions: {device: {cel
 function proposeSize(box: HTMLElement): {cols: number; rows: number} | null {
     const element = term?.element;
     const parent = element?.parentElement;
-    if (!term || !element || !parent) return null;
-    const cell = (term as unknown as XtermRenderDimensions)._core._renderService.dimensions.device.cell;
-    const dpr = window.devicePixelRatio || 1;
-    if (!(cell.width > 0 && cell.height > 0)) return null;
+    const cell = cellSize();
+    if (!term || !element || !parent || !cell) return null;
     const overflow = box.style.overflow;
     box.style.overflow = "hidden";
     const outer = getComputedStyle(parent);
@@ -92,7 +125,7 @@ function proposeSize(box: HTMLElement): {cols: number; rows: number} | null {
     const width = Math.max(0, parseInt(outer.width) - SLIDER_WIDTH) - parseInt(inner.paddingLeft) - parseInt(inner.paddingRight);
     const height = parseInt(outer.height) - parseInt(inner.paddingTop) - parseInt(inner.paddingBottom);
     box.style.overflow = overflow;
-    return {cols: Math.max(2, Math.floor(width / (cell.width / dpr))), rows: Math.max(1, Math.floor(height / (cell.height / dpr)))};
+    return {cols: Math.max(2, Math.floor(width / cell.width)), rows: Math.max(1, Math.floor(height / cell.height))};
 }
 
 /**
@@ -139,6 +172,8 @@ onMounted(() => {
         },
     });
     term.open(element);
+    const measured = cellSize();
+    if (measured) rowRatio = measured.height / CONTROL_FONT;
     if (props.bracketedPaste) term.write("\u001b[?2004h");
     term.attachCustomKeyEventHandler((event) => {
         // Ctrl+] 是接管时固定的退出键（终稿第 11 条）：面板拦下当“释放”，不发给这一格。接管中 Tab、Esc 都交给终端，没有它就是键盘陷阱。
@@ -203,7 +238,7 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
 </script>
 
 <template>
-    <section class="flex min-h-0 flex-1 flex-col" aria-label="实时终端">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden" aria-label="实时终端">
         <!-- 模式条：一眼看出是只读观看还是你在接管（ux-b F13）；接管时整条换成强调色实底，写明 Ctrl+] 退出。 -->
         <div v-if="mode === 'watch'" class="nbdev-term-bar nbdev-small flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
             <span class="i-lucide-eye size-4 shrink-0" aria-hidden="true" />
@@ -222,8 +257,9 @@ const sizeLabel = computed(() => `${props.cols}×${props.rows}`);
             <Button size="sm" variant="secondary" :loading="pending" @click="emit('release')">释放</Button>
         </div>
         <p v-if="mode === 'control'" class="nbdev-caption px-3 py-1">浏览器会拦下 Ctrl+W、Ctrl+T、Ctrl+N（删词用 Alt+Backspace）；有选中的文字时 Ctrl+C 是复制。</p>
-        <!-- 终端占满剩下的高度（会话页是铺满页），观看与接管时框高一样，接管尺寸就按它量。 -->
-        <div ref="frameBox" class="relative min-h-64 flex-1 overflow-auto bg-[var(--bg-main)] p-2">
+        <!-- 终端占满剩下的高度（会话页是铺满页），观看与接管时框高一样，接管尺寸就按它量。根与框都不设会溢出的最小高度：
+             放不下时宁可终端变矮，也不能盖到后面的输入区上，接管时量出的行数才等于看得见的行数（第 3 批审查重要 2）。 -->
+        <div ref="frameBox" class="relative min-h-0 flex-1 overflow-auto bg-[var(--bg-main)] p-2" @scroll.passive="onBoxScroll">
             <div ref="host" class="h-full" />
         </div>
     </section>

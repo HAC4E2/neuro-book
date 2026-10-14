@@ -8,7 +8,9 @@ const props = withDefaults(defineProps<{
     crumbs?: Array<{label: string; href?: string}>;
     title: string;
     width?: "reading" | "list" | "full";
-}>(), {crumbs: () => [], width: "list"});
+    /** 收起页头、不留内边距（会话页手机上的详情一屏）：根与正文不换，切换时正文里的零件不重建。 */
+    bare?: boolean;
+}>(), {crumbs: () => [], width: "list", bare: false});
 const emit = defineEmits<{navigate: [href: string]}>();
 const items = computed(() => props.crumbs.map((crumb, index) => (index === props.crumbs.length - 1 ? {label: crumb.label, current: true} : {label: crumb.label, href: crumb.href})));
 function follow(item: {href?: string}, event: MouseEvent): void {
@@ -19,8 +21,8 @@ function follow(item: {href?: string}, event: MouseEvent): void {
 </script>
 
 <template>
-    <div class="nbdev-page nbdev-stack-page" :class="`nbdev-page-${width}`">
-        <header class="nbdev-page-header nbdev-stack">
+    <div class="nbdev-page nbdev-stack-page" :class="[`nbdev-page-${width}`, {'nbdev-page-bare': bare}]">
+        <header v-if="!bare" class="nbdev-page-header nbdev-stack">
             <Breadcrumb v-if="items.length > 0" :items="items" @click="follow" />
             <!-- 标题行至少 2rem 高：状态徽章、操作按钮有没有都不改变标题的位置，换页时标题停在同一处。 -->
             <div class="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
@@ -66,5 +68,8 @@ function follow(item: {href?: string}, event: MouseEvent): void {
 }
 .nbdev-page-full {
     width: 100%;
+}
+.nbdev-page.nbdev-page-bare {
+    padding: 0;
 }
 </style>

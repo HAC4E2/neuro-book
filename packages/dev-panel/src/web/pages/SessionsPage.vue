@@ -196,16 +196,19 @@ async function readPaneHistory(): Promise<void> {
         paneHistoryPending.value = false;
     }
 }
-const readOnlyReason = "没有 Agent 会话";
-/** 手机上的详情一屏：不要页头（面包屑、标题、herdr 状态），顶上一条“‹ 会话”加标题，终端与输入区多占一些高度（线框稿 phone-390-detail）。 */
+/** 只读的原因：没有会话键（开发服务、shell，或认出了 Agent 但还没报会话）。 */
+const readOnlyReason = computed(() => (selected.value?.agent ? `${selected.value.agent} 还没报会话` : "没有 Agent 会话"));
+/**
+ * 手机上的详情一屏：收起页头（面包屑、标题、herdr 状态），顶上一条“‹ 会话”加标题，终端与输入区多占一些高度（线框稿 phone-390-detail）。
+ * 只经 `PageShell` 的 `bare` 收起，不换根：跨 768px 时详情、输入框的草稿与接管中的终端都是同一个实例（第 3 批审查重要 3）。
+ */
 const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.value);
-const shell = computed(() => (phoneDetail.value ? {is: "div", props: {class: "flex h-full min-h-0 flex-col"}} : {is: PageShell, props: {width: "full", class: "h-full min-h-0", crumbs: [{label: "首页", href: "/"}, {label: "会话"}], title: "会话", onNavigate: navigate}}));
 </script>
 
 <template>
     <!-- 铺满（路由 layout: fill）：页头下面左列表、右详情，各自滚动，页面本身不滚（ux-b F3、ux-c R4）。手机上列表与详情分两屏。 -->
     <div class="relative h-full min-h-0" :class="tier === 'phone' && !showDetailOnPhone ? 'overflow-y-auto' : 'overflow-hidden'">
-        <component :is="shell.is" v-bind="shell.props">
+        <PageShell width="full" class="h-full min-h-0" :bare="phoneDetail" :crumbs="[{label: '首页', href: '/'}, {label: '会话'}]" title="会话" @navigate="navigate">
             <template v-if="data" #meta>
                 <Badge :tone="data.herdr.available ? 'success' : 'warning'" variant="soft" size="sm">{{ data.herdr.available ? `herdr ${data.herdr.version ?? ""}` : "herdr 不可用" }}</Badge>
                 <span v-if="data.herdr.available">{{ data.herdr.mode === "subscribed" ? "已订阅推送" : "轮询中" }}<template v-if="data.herdr.at"> · {{ relativeTime(data.herdr.at) }}更新</template><template v-if="data.herdr.missedEvents > 0"> · 对账补上了 {{ data.herdr.missedEvents }} 次漏掉的状态变化</template></span>
@@ -254,7 +257,8 @@ const shell = computed(() => (phoneDetail.value ? {is: "div", props: {class: "fl
                                 <Badge v-else tone="neutral" variant="soft" size="sm">只看</Badge>
                             </div>
                             <div class="nbdev-note flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span>{{ selected.agent ?? "不是 Agent 会话：不能发消息、不能接管" }}</span>
+                                <span v-if="isAgent">{{ selected.agent }}</span>
+                                <span v-else>{{ selected.agent ? `${selected.agent}，还没报会话` : "不是 Agent 会话" }}：不能发消息、不能接管</span>
                                 <span>pane <span class="font-mono">{{ selected.paneId }}</span></span>
                                 <!-- 会话键很长：只露开头一截（够认出是哪个），点一下复制全文。 -->
                                 <span v-if="isAgent" class="flex min-w-0 items-center gap-1">会话 <span class="inline-flex min-w-0 max-w-40"><TruncatedText :text="selected.sessionKey" mono /></span></span>
@@ -319,7 +323,7 @@ const shell = computed(() => (phoneDetail.value ? {is: "div", props: {class: "fl
             <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
             <TakeoverDialog :open="host.takeoverAsk.value !== null" :current="{cols: terminal?.state.cols ?? 0, rows: terminal?.state.rows ?? 0, known: terminal?.state.sizeKnown ?? false}" :next="{cols: host.takeoverAsk.value?.cols ?? 0, rows: host.takeoverAsk.value?.rows ?? 0}" :conflict="host.takeoverAsk.value?.force ? host.lastConflict.value : null" :pending="terminal?.state.pending ?? false" @confirm="host.confirmTakeover" @cancel="host.cancelTakeover" />
             <ScreenConfirmDialog :open="activeConfirm !== null" :title="activeConfirm?.title ?? ''" :message="activeConfirm?.message ?? ''" :screen="activeConfirm?.screen ?? null" :confirm-label="activeConfirm?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value || host.pending.value" @confirm="runConfirm" @cancel="cancelConfirm" />
-        </component>
+        </PageShell>
     </div>
 </template>
 

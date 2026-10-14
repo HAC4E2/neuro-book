@@ -66,7 +66,7 @@ function send(): void {
             <Button class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-rotate-cw" :disabled="pending || disabledReason !== null" @click="emit('refresh')">重读屏幕</Button>
         </div>
         <slot name="screen">
-            <pre class="nbdev-pre min-h-24 flex-1 overflow-auto p-3" aria-label="屏幕末尾">{{ screen ?? "还没读到屏幕" }}</pre>
+            <pre class="nbdev-pre min-h-0 flex-1 overflow-auto p-3" aria-label="屏幕末尾">{{ screen ?? "还没读到屏幕" }}</pre>
         </slot>
         <!-- 输入区贴在终端下面：结果、能不能发、输入框、按键一屏内都看得到（ux-b F3）。 -->
         <div class="nbdev-dock nbdev-divider flex shrink-0 flex-col gap-2 border-t px-3 py-2.5">
