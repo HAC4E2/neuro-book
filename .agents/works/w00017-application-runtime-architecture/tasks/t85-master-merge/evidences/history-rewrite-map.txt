@@ -1,0 +1,177 @@
+# 2026-10-14 历史重写的新旧提交号对照（旧号 新号 提交时间 标题），按提交时间排序；旧对象已删除
+19e590c9d86795ad0645e1f91dc00cda8e1a4d4a ba09fcc97547e333511ef5e6f5207991aa2a896c  
+2cca6d3fac34f2349773da40f5342c84d047b299 8065e1aa28ee209249a446aa28a683754c683470 2026-10-12 23:58 docs(w00022): t09 设计审查报告（0 阻断、12 重要、8 建议）；撤回“t13 之前不登录”，改为 t09 做启动令牌登录
+a97d0a7ecec83a6760869adf5926c504d208d54a e1cb9c084d6d66c3826c28bca1133dba892a218e 2026-10-13 00:02 docs(w00022): t07 记默认 herdr 0.9.1 的标签写入已核实，以及临时仓库操作标到真实 pane 的问题
+84b630a494f4502163078fc6b297605f8e6d560c 73366ddf016d67d3991f3290c05b865cea717ede 2026-10-13 00:07 docs(w00022): t08 实现审查修正完成（集成分支 892b03cf..cde9f5c6）；Proposal 追加实施修正记录
+3cf45ade96372fa205c6693cce08d6c18d229b3b 03474d5acc40a2a4fb1158f710d08177e7fadfcb 2026-10-13 00:08 docs(w00022): t09 设计审查处理（20 条全部采纳），开始实施
+0998d73502fc0e70dfd660e5a9be4838162c18f9 b6c3c74d4fcf4c689b769e48acd8b753e794600e 2026-10-13 01:08 docs(w00022): t09 实施完成（集成分支 cde9f5c6..fe4358d4）；主 Agent 复跑验证并核对登录与请求校验
+8a9c32dbce54dce2f005ac9b650d4115539eb7b6 ca4f3b5b8a611a751ab7d3fe4a0c272f3dd97166 2026-10-13 01:10 docs(w00022): 建 t10 面板写入
+1ba3565cb4b75d8b83417d81eb9c3c4d7538d474 5da42c8dcc010662c7a5aff35e87e891fb384f8d 2026-10-13 01:18 docs(w00022): t10 实施计划草案，交设计审查
+c3c47d5d91f024dab6a80567860d4d6a4e220786 3ef4c7f2e73be207b96e92e66579352f89279866 2026-10-13 01:40 docs(w00022): t09 实现审查报告（0 阻断、4 重要、9 建议）；t10 设计审查报告（0 阻断、5 重要、13 建议），页内答复推迟
+ae4e31500c3e33b00ea9ec19b726b5910c954f2f ec741c80eff4d66c150c5f0009ac745144f86970 2026-10-13 02:10 docs(w00022): t09 实现审查 13 条修正完成（集成分支 fe4358d4..16cfb817）
+3ef00987abc8b5f7e2a1d0747a8012af0ad619ce 7e837bd8023e2da6d77d55a40d2fe3892e080099 2026-10-13 02:12 merge: 合入 w00022 开发者面板与 nbdev（t04 三位 Task 号、t06 到 t09，集成分支 16cfb817e）
+c302d7f5e6418f8ff882c1d028b76b248f4bac20 efa82caa02105582123fb71106e5e4178e99bce3 2026-10-13 02:39 docs(w00022): t04、t06 到 t09 合入 master（3ef00987a），记合入与 nbdev shim
+32d23fbc828c36f70bde36d3ffd1450eebc4fd92 6b98ca818d57d3fc3c68cf53e6cdd95c0f53710a 2026-10-13 02:40 docs(w00022): t04-rule-followups 状态改为 done
+367f4af9cf5a14659bc65ad17abeb6736dbe246c 400c3c68c936bc755ac494848c1061b6e35982ec 2026-10-13 02:41 docs(w00022): t06-cli-core 状态改为 done
+2438212741b6468a5f0a1af7a05d88d8f48045ef d1b299458e11d5a10d3915eb863e7bf9eeefa4a8 2026-10-13 02:41 docs(w00022): t07-session-leases 状态改为 done
+7c4e99b8cfbdb7fb2741383889b323482128cd7a ed9e60b80f1b6f0b57cbafd7e2f0ad52990d0f07 2026-10-13 02:41 docs(w00022): t08-artifacts-answers 状态改为 done
+49a8dc3469b09c1cf806185656c12afe0a762808 680b3e2f9bd1596ec72df9a63075c3007ca194e5 2026-10-13 02:41 docs(w00022): t09-panel-readonly 状态改为 done
+e6a6c40bdb49671463836bc8f11dd3d91b7ed24d 7ad43c78761f954f92aff33b64be9159a76e7332 2026-10-13 03:09 docs(w00022): t10 实施完成（集成分支 16cfb817..d734dd21）
+8a89f6254d295699c5e1e8ccb2a1a3aae3c8158e 478621b98e85d86faa1d05abf0c81df1e3475029 2026-10-13 03:09 docs(w00022): nbdev 新建 t11-notify
+9e8a34ce3d907a4ca97d46dd64d02ee37aecedc5 4d751f50ca73596efe574cd07ef20a0da3441914 2026-10-13 03:10 docs(w00022): 补全 t11 的范围与授权点
+a47379bf89ed4774dd19f5390779fbca2f4b8352 0ea2edc235e781818ea11cca1dc88c9c1be6c5fb 2026-10-13 03:20 docs(w00022): t11 实施计划草案，交设计审查
+5db6c3bdda591c20487106656ede0f9e480c66c3 ab9b9638511dc6c43b30ec6e868933e0cb0ccc93 2026-10-13 03:41 docs(w00022): t10 实现审查报告（0 阻断、2 重要、5 建议）
+d53da776c0265985b62c90eab201be6ab46a7796 29c962178740ef5611e79245b4bf54ea37e944e9 2026-10-13 03:51 docs(w00022): t11 设计审查报告（1 阻断、7 重要、12 建议），steer 先不做
+a628a9310977f77be2d27d9996cc63fb09bf348c 47086e162088daeee4088c579ffd41881e7135c8 2026-10-13 03:55 docs(w00022): t10 实现审查修正完成（集成分支 d734dd21..c896a742）
+8b44f60ca39607ecc8855a4154f4f1ffaa53cc29 9df2f7d82b0add41dda96ce60213f8c3bd916bb0 2026-10-13 04:05 merge: 合入 w00022 t10 面板写入（集成分支 c896a742b）
+745eb06cd47b8d3b8f0ac19d364168f57236e28b 3619338a4eda339d05b3515cef561efbf4ee99cb 2026-10-13 04:08 docs(w00022): t10 合入 master（8b44f60ca）
+cae619635350f63604280109a45f70b213d41c18 40ef1617506ec3afbdbf73f94922d59a281df5e4 2026-10-13 04:08 docs(w00022): t10-panel-writes 状态改为 done
+acfcb1b0e5ff26003375cf4b06ae94dc2cded678 3ffa76e81fff70be2756cbaccab3681e717a2688 2026-10-13 04:22 docs(w00022): Proposal 记开发者决定：先用 SSH 转发，跨设备访问 t11 之后做、与本机同权限
+7b7f92ff24f7d78701c7a43665f0c306ce8ba848 5f8819515b5c2df989f64c954f49227312cb6841 2026-10-13 05:08 docs(w00022): t11 实施完成（集成分支 c896a742..0e3a40c9）
+cd13ca6d7eef5d97f1ab29a3f95dd72dd02fb344 0a3e4027e1781df029b8e8c9c0e82e1e22cc01f1 2026-10-13 05:09 docs(w00022): nbdev 新建 t12-web-terminal
+11f5c5472b157fb8968107014835ea4eb5db63b1 835f55c991350789f3c6649f7d53b75d3024ff6f 2026-10-13 05:09 docs(w00022): 补全 t12 的范围
+7cca9cfd4e8584bb4f949ca5f17d832a690ef803 175829edf66ab5f21ad2ad955663701d2a02dcbd 2026-10-13 05:21 docs(w00022): 记开发者对 t11 的授权（AGENTS.md 一句、合入、审计初始化、常驻服务、场景 1）
+38b0b79ad981867c02b5a417e7a6686030a15a19 fb06404abc6c1216809fd65ac9f27273c12d66fb 2026-10-13 05:26 docs(w00022): t12 实施计划草案，交设计审查
+c345238a8c381de7f478b980494a7c98ecc85692 08e8ff2c76f703395da852276632a0d58f3948f7 2026-10-13 05:35 docs(w00022): 记开发者同意 t12 的 S0 对真实 pane 只读 observe
+86e36c1af3e66e09162b0b92308e6fc9834629d4 78c7f2b04a1778de4831401aca4fac57b6e9dd46 2026-10-13 05:42 docs(w00022): t11 实现审查报告（0 阻断、5 重要、4 建议）
+ef5b82287c77164e1cf771e16b546aebffecd95d 0693e4aa1450517333f600e47f37483121329673 2026-10-13 05:42 docs(w00022): t11 实现审查报告里的截图路径改成仓库相对路径
+57950d687c3c6b4c31ddca4e95d2ee32073dc7e5 6a2991fc93a4e19b382a977a891af6da33b28bc9 2026-10-13 05:57 docs(w00022): t12 设计审查报告（0 阻断、2 重要、17 建议），S0 改用复制出的 0.9.1 二进制
+8ba5c87aa3b03a2de70dd7e5d4a1f0212ef074f1 ad1ac6999b70faa038fffb2bf8c7feafcb48b55f 2026-10-13 06:08 docs(w00022): t11 实现审查修正完成
+23f604ebf575ecfd4e00f9c6c716901e4a59b9a4 137be5b5ae5a4c6d668bc7f646d065b9a6cdafe9 2026-10-13 06:09 merge: 合入 w00022 t11 通知、会话消息与常驻（集成分支 3f474ce4c）
+ec3173808e4d7511412a6b28296b0ab856f55ae1 a420bd3f58f02fec72955307e4484be15e9e8d25 2026-10-13 06:13 docs(w00022): t11 合入 master（23f604ebf），审计已初始化
+83096a0daa191b0434759ea9be60f25bc15731e5 86f67b555f08cc655965d7a49768dee3fe4bcfb9 2026-10-13 06:23 docs(w00022): t11 常驻服务已安装
+583c3d1cd81bbea95a93f599a711f0a59b9efc8f 9ac494df06d7821b3323feab47223a31fe897e54 2026-10-13 06:41 feat(dev-panel): 加管理面板服务的包脚本 service 与 service:status|start|stop|restart|logs（w00022 t11）
+c928ec8ad765b9bc0695b3e91213ec6eaf3078b5 7ca3eff54b370222b4dd02303566daab3867e289 2026-10-13 07:22 docs(w00022): t12 实施完成（集成分支 3f474ce4..305c3f1d4）
+0e2ea29b1be287f85d3c311905559bf03a6386b6 18daae1225fd89c27c447514238d9ed9bf58ea33 2026-10-13 07:23 docs(w00022): nbdev 新建 t13-cross-device
+9aa351cb92160cde41c07989521f182c55ff233b 0bb17b80cde4b5e4c24a12d3a6e62e91731a9661 2026-10-13 07:23 docs(w00022): 补全 t13 的范围
+012f1a1e4998dd0dab9d3e12018b2fafb8b88b6d ec09901716a243d3532e0ab69bcde8cf17d13d8a 2026-10-13 07:35 docs(w00022): t13 实施计划草案（去掉个人信息），交设计审查；记录里去掉本机其他账户的用户名
+aef5a10504f94e2718d213c7f8de87fb0b7b6928 7b42f879be099fbc72dd42a5718dc26543345809 2026-10-13 07:35 docs(w00022): 去掉替换用户名后多出的空格
+e6f9994881f6498439e8d217de460aec6483bcbe 8ce94965d0eec9b2f136214f1d6dd53986d24372 2026-10-13 07:39 docs(w00022): t13 跨设备访问搁置（开发者定先不做 Tailscale）
+ff5c7ef84f4f50545fd5bdd8a92cf546c710cc6c 090d0c128792fbf15b085b9beb9d16a44b69c781 2026-10-13 07:39 docs(w00022): t13-cross-device 状态改为 shelved
+51035459bec245c15c60509b352ab82a58cee0a6 b8ae05bdfc5515ac163eb9d36272f6a0a8e9c290 2026-10-13 07:49 docs(w00022): 记 push master 之前要重写含本机账户名的历史
+d820bf670fb7e96c538dfdb935c99a80f899f3da 13e182e47c200638cd633b781f88b15243e44cdb 2026-10-13 08:02 docs(w00022): t12 实现审查报告（0 阻断、2 重要、6 建议）
+328ce03afe54cd55a1515d67240db3cb8610a071 b38729ed9a4d563c0aa7eaf8c4bd90050133c85c 2026-10-13 08:33 docs(w00022): t12 实现审查修正完成（集成分支 305c3f1d..72799b957）
+5060bf5b2a7228e2e562115d01a8b9f6a49b377c 8f0a7b3968ac78919633d714637911b423ba70ee 2026-10-13 08:33 docs(w00022): nbdev 新建 t14-runs-and-github
+ef4e7cab0122033ebe74f540b0fa430db0f4c41b f19158f09a1721603a7cb9bb9b11096968199e38 2026-10-13 08:33 docs(w00022): 补全 t14 的范围
+23f27ec512b6bbe6e54574610bd4cea76b3c5483 a0cf26411b7e16cd9b0d574b4bd4b905c02ce352 2026-10-13 08:43 docs(w00022): t14 实施计划草案，交设计审查
+fcb2bddc55a809059212abf2c9d9f0d2beee6d52 66cc4d85daba9deb107a3a1b292b8466c3306b31 2026-10-13 09:01 merge: 合入 w00022 t11 面板服务的管理脚本（分支 feat/w00022-t11-service-scripts 583c3d1cd）
+98d3d459519ffc4ad0cff407c2a614b1d8580eb2 a9d2fac8404c4cb927330221a893ece8350361a6 2026-10-13 09:01 merge: 合入 w00022 t12 herdr 网页终端（集成分支 72799b957）
+d096bdd7f5b6c02791afe2a968db2c5c75c32b68 a6c6bac7f1bf38fcbea29562cd24653d622234b6 2026-10-13 09:07 docs(w00022): t12 与服务管理脚本合入 master（98d3d4595），常驻服务按新单元重装
+23402f9591d213e595515999f42ad5b8964166bd 16da3544bbf2a6f37fd0e8bddf38ee7f56e68ece 2026-10-13 09:09 docs(w00022): t14 设计审查报告（1 阻断、6 重要、12 建议）
+bfe20ff5137d8470e5a45a5e003da0680ddef7b6 8efb107b2145db1094e54e3d2c45c726465c7d48 2026-10-13 09:11 docs(w00022): t11 登记提问 notify-smoke
+328ba4e85a4c6d520fb71eac5ff8ecfe8c15f9d8 8195e69c9e99da2e588fcc3dc546bc35dbef0ba8 2026-10-13 09:12 docs(w00022): t11 面板记下 questions 的答复
+f8d0115651a6a0f17f1beac96ddb0bf74b107c45 422aa51163bdc4dbb01a89164efa2781abda8e78 2026-10-13 09:12 docs(w00022): t11 确认采纳 questions 的答复
+cd335e923506d912055101b447312d78002527ba dfb089faacdf10150f8fbf6c9a7682ebd2019621 2026-10-13 09:13 docs(w00022): t11 撤回提问 questions#notify-smoke
+867c98b45200714319085159c92f8f1ca7707387 ea0e1c5fa146b09d29b0e475a6cd88dd6aaf07f7 2026-10-13 09:23 feat(dev-panel): dev start、dev status、dev stop：前台监管、日志直写文件、就绪识别（\r 切行、去 ANSI、listhen 与 w00017 两种、HTTP 探测 5xx 不算）、同键复用（锁内起服务写好 pid）、进程登记 run/procs/、停法先组长后快照、还活着看监管进程组长进程组与快照、属主与 --force（w00022 t14 S1）
+0edee0a5ea39ca3e8f7bd8bcf53659d5a97d5088 6f8d049a2d6df767d380542105ff12a353a25229 2026-10-13 09:24 docs(w00022): t11、t12 开发者在场验收通过；记通知误报（state_change_seq 是全局计数）待修
+7b732eb6a6342e983e04bd611ffbee18fce635ae 1c60c7d4e00360be0b1f773b6fc0d2677c649ab8 2026-10-13 09:24 docs(w00022): t11-notify 状态改为 done
+926a04c0252adf30436a3da0fc4c0f6f8fa98f4f 79c70505c474f5f42be7e50b6a3125079e2136dc 2026-10-13 09:24 docs(w00022): t12-web-terminal 状态改为 done
+26263e3e70c39d14d8a5aa213d6d2d64611829ac 2ead23c0187f386e37def993604ab4c416421e96 2026-10-13 09:26 feat(dev-panel): worktree new：按 Work 规则命名、worktree add 只用 /usr/bin/git、登记表写绝对路径的 home（先补登）、已被占用或并发时报 target_exists、--type 与 CONTRIBUTING 一致、不装依赖只提示（w00022 t14 S2）
+427f16bd4613e1a89758d7d47c5435d781147c53 39fe47cc5e954736014e1f3970a660ff2c2b14f6 2026-10-13 09:28 feat(dev-panel): find（记录与文件，与面板搜索共用 matchRecords 与 searchCheckouts，每个 checkout 缺省 20 条、合计 200 条）与 shot（只包装地址、输出目录与 /dev/shm 的 TMPDIR，不注入浏览器路径）（w00022 t14 S3）
+fd9359deee717c40631a1c575ada4945bc9fff05 f5cb0334960213da9dcf184bf47f0a0479a82082 2026-10-13 09:39 feat(dev-panel): 面板现场：“在跑”页（登记的服务、会话的运行、无主的运行，按登记的 pid 去重）、checkout 页加未提交、领先落后、在跑、home（现算加 10 秒短缓存）、GitHub 只读页（白名单两条 gh list、15 秒时限、有人看才定时刷新、按退出码降级、StatusContext、纯文本渲染）；install-service 写 NBDEV_GH_BIN；procs 挪进核心（w00022 t14 S4）
+6b9376e62f0cfdb69e3153fa5c9b222b41c266a9 58f61aa118616a3a5c523add319fd564baa73085 2026-10-13 09:41 docs(dev-panel): t14：cli.md 的开发服务（起法、日志、就绪、按行事件、复用、停法、属主）、worktree new、find、shot 与错误码、警告；file-formats.md 的进程登记与 home 的绝对路径；panel.md 的现场三页、GitHub 的白名单与降级、单元的 NBDEV_GH_BIN（w00022 t14 S5）
+c5177bc56df6dd62bc397e6d3976f14ed7a174eb 6b80522d725b987f2bf94fc0c1337d5b5fafed7d 2026-10-13 09:45 fix(dev-panel): checkout 页在窄屏上整张表横向滚动，不把每列挤成一字一行；在跑一列的脚本名与地址分开（w00022 t14 浏览器验收）
+cbe883a0edb5bb5a88788212f66e40e43888a14c 660faa56e18d9ceef532a237248244f3f3c99d29 2026-10-13 10:02 fix(dev-panel): 投递后不再按状态序号的差值判“经过了确认界面”：state_change_seq 是 herdr 全服务器共用的计数，别的会话同时变状态就误报；改为投递窗口里看面板订阅收到的这一格的状态事件（passed_blocked），订阅没订着这一格时记 delivered 加 unwatched；假 herdr 改成全局计数，L4 钉住全局计数与按格的事件（w00022 t11 通知误报）
+85396c02d802291d23513f4a2c657c3c0e63fa22 6a6e44ad3efa69f6e3e009877e86acd9b1a5ee40 2026-10-13 10:08 fix(dev-panel): 接管尺寸量的时候先把终端框的溢出藏起来：框里还是旧尺寸的画面时 13px 下溢出、出滚动条，挤掉一行几列，接上之后滚动条消失又 resize 一次；接管中窗口变化同样处理（w00022 t12 接管后又改一次尺寸）
+3be97d883cf576d0f9d58c92b06a1789b6502e66 9fc8cf0092e5f3f1d15f3de1be5faa6563757b8d 2026-10-13 10:16 fix(dev-panel): L4 状态序号测试只要求 B 看到过 blocked（全量负载下 herdr 读屏会合并掉一次变化），并打印两格的序号与事件（w00022 t11 通知误报）
+7db37621aa728d1ecb7b7a28ae3da55797322790 6ea16e6eef6e474aa4222f62a21bfb4e8c373fcb 2026-10-13 10:28 docs(w00022): t14 实施完成与两处追加修正（集成分支 23402f959..3be97d883），主 Agent 复跑通过，交实现审查
+452641877b10461a5cf7eb4ff873cc9531de6662 846426099cf63ffc22a68bdd8ea3c63e239e559e 2026-10-13 10:54 docs(w00022): t14 实现审查报告（1 阻断、4 重要、6 建议），全部采纳交修正
+0b99f02e580a1618a95a28567189e72b775a7384 bd7e89f09f6cb9e99ea4368e1737c154ef5da48d 2026-10-13 10:58 docs(w00017): nbdev 新建 t84-menu-contributions
+ff781f43d1a1cc6e3b1a065f78024a39438db604 6f16fc1bbaac177f993ecbcf51bdbdfdf0f3488a 2026-10-13 10:59 fix(dev-panel): GitHub 页取不到数据时不再成环：GET /api/github 只读不取数，打开页面由页面发 ifStale；按上一次尝试的时刻判断（失败后至少隔 60 秒，刷新按钮不受限）；每次尝试只在结束时推送一次；github 的推送不触发通知重算（w00022 t14 实现审查 B1）
+0943afaa630f50ac52fb5f077d8bd4ca6783b634 2dab851b4d51854751813fa531d4270e10be45b6 2026-10-13 10:59 docs(w00017): t81-nb-ui-text-size-segmented 状态改为 done
+640071016e3aa835c9f01f3d13890d44c961105f 37dbb60f51b0df2afaefb059b7d25981c7ae0866 2026-10-13 10:59 docs(w00017): t81 合回并完成；登记 t84 菜单贡献点，补合同与下一步
+9f4f5e3dcb41355382585a3695e7bc209370e9a1 03191bccca244ab9119f14ae63d01f25ab564123 2026-10-13 11:03 fix(dev-panel): 进程组只在仍是我们那一组时才算活着、才发信号：/proc/<组号> 在而启动时刻对不上是号被复用，EPERM 是别人的组，组长与 /proc/<组号> 都不在时要有快照里的组员；组员在组长还在时与组长刚收尸时记进快照（w00022 t14 实现审查 I1）
+d10543f7bddb8296c550326587180be3e964e9c8 9c53f4629fe0bff1c43d10f247865778af47bfff 2026-10-13 11:04 docs(w00022): 两处追加修正的实现审查报告（0 阻断、1 重要、3 建议）
+46d1812f3d7e946d7d1c57f4c2bfc01a1809cd93 36fc4bfd96e9aa8c0210fed4c67230f5a3bfc611 2026-10-13 11:08 fix(dev-panel): 复用只认组长还活着的运行：leader_exited 先按停法收掉残留再起新的（leftovers_stopped）；已就绪的先探测地址，连不上报 dev_unresponsive；复用没人监管的给 supervisor_gone；shot 取地址用同一判据（w00022 t14 实现审查 I2）
+5569d619f94c8d14f6443299a577549d6a0e507b da50bc100bddba51995b32bff9e9d826388ab82d 2026-10-13 11:10 fix(dev-panel): 打出 NOT_READY 之后监管进程照样读日志与探测，就绪时补写 url、readyAt 并再打 READY；复用方认出就绪也写回登记（锁内、只在 readyAt 为空时）（w00022 t14 实现审查 I3）
+899762dd4e281604c36eb53a4cfe05b0ec3e5846 8b5148c1a734c8b2d4875f4c0c03b98c11a9219b 2026-10-13 11:11 fix(dev-panel): checkout 页开着时每 10 秒自己重取一次，“N 秒前算的”按秒走（w00022 t14 实现审查 I4）
+3dcaea80412237e36999664911c16a08f3a338ea 1e014209d6835280411a17f6773259311b707a01 2026-10-13 11:12 fix(dev-panel): 复用方等就绪时每秒重读登记，复用的服务就绪前结束就打 EXITED、以 1 退出，不再等满时限后打 NOT_READY（w00022 t14 实现审查 S1）
+18b15a8f47f04680cb4f5ae7937b172af6cd34ab 2318537808f4a30312d5039114fe6ba98429b679 2026-10-13 11:15 fix(dev-panel): 停完还有进程没收掉时不写 endedAt，残留带启动时刻并进快照、状态 orphaned、可再 dev stop；只是地址仍有回应时照记为结束、只在输出里报 stop_incomplete（w00022 t14 实现审查 S2）
+6820c1d850dbdf4535c314430133ccf56752deeb fa950868a20cb378fc08d66ff43589548ae34e23 2026-10-13 11:16 fix(dev-panel): find --name 跳过内容搜索，条数与截断只算文件名（searchCheckouts 加 namesOnly）（w00022 t14 实现审查 S3）
+c41e232267e26c5a7db41810134c1b13d84eec3d f18b8fedf93ca68c74ca4397333a1042c8d9b076 2026-10-13 11:17 fix(dev-panel): EXITED 的 leftovers 按 pid 去重，组里的进程不再与快照重复计数（w00022 t14 实现审查 S4）
+c5bd6c062f1597ad2526396b51cb5ecff7b1eb4b 615b4287c9659f10e9f88858d01fffebd3613e86 2026-10-13 11:18 fix(dev-panel): PR 的失败检查带上工作流名，显示成“工作流 / 检查名”，v-for 不再只用名字作 key（w00022 t14 实现审查 S5）
+372111f22e70b4ca481b09dc6854799c6698a23c fb552cde8d037f4620daa57b9decb2dc7851d6fc 2026-10-13 11:19 fix(dev-panel): resolveLeaseTarget 的注释放回原处；github.ts 引用的测试文件名改对；package.json 坏了时 dev 与 shot 都报带路径的 invalid_record（w00022 t14 实现审查 S6）
+6872ee37c864e815d642223daeb32cfa14894938 4d895360521eebe74e013478272651b2669f0846 2026-10-13 11:26 fix(dev-panel): 终端的列数与行数改按不随列数变的 device.cell 算，消掉奇数列时格宽进位造成的第二次 resize（1280 宽 138 变 139、1592×900 下 186 变 187）；不再用 fit 插件（w00022 t12 追加修正审查 重要 1）
+b821798e37e37550e4815414da6b46d1ccc2be02 acc8dbb0de60621edbf64fd66d56e937b8bb131d 2026-10-13 11:28 fix(dev-panel): 旧记录的 state_jumped 改用普通色调与“旧判据，可能误报”的文案、不算要处理的一条；delivered 加 unwatched 在尝试列表里也用 warning；醒目的判据合成一份 attemptNeedsAttention，去掉没用到的 ATTENTION（w00022 t11 追加修正审查 建议 1）
+8d644d118f2412a008c033b902ccb777c27cc7e8 ca4c9bc896d95f6cf4d5cbc5363898663eaca1cd 2026-10-13 11:34 test(dev-panel): 钉住通知投递的新判据：watchStatus 在轮询中与新 pane 换连接前回 null、投递窗口里换连接时留下的格 delivered 被去掉的格 unwatched、返回体是 blocked 的一支；L4 对 server 0.9.3 与 0.9.1 参数化，假 Claude 会对粘贴与回车作出反应，钉住真实 herdr 上的 passed_blocked 与别的会话同时变状态仍是 delivered（w00022 t11 追加修正审查 建议 2）
+4925822549c68d01a86933e7d29ba4855f57144a 0720acdcb773423a2e2e71a8396804e6f71dd8cb 2026-10-13 11:49 docs(w00022): t14 两批实现审查的修正（集成分支 3be97d883..8d644d118），主 Agent 复跑通过，等授权合入
+76a3da886e2f1c764ccb94d62c52ac16d003c60c da3781d99ff7abc3df71503771822bcb46a0a5b5 2026-10-13 13:24 merge: 合入 w00022 t14 运行登记、开发服务与现场补充，含 t11 通知误报与 t12 接管尺寸的修正（集成分支 8d644d118）
+f0fd9b5021801fb19882415eedddbee1f190a4c4 8001b3f5adfdc1eb1ca0f1f4d3630150e592df08 2026-10-13 13:32 docs(governance): w00007-workflow-message-only-invoke 因撞号改为 w00023（开发者定工作量小的改号）
+3c7dcf978aa2e17e724556bc0537353a79fd5afb 519f546cc2a0369e567e401c8017e04b121b04cd 2026-10-13 13:33 docs(dev-panel): 浏览器验收涉及尺寸、溢出或滚动时去掉 --hide-scrollbars（开发者 2026-10-13 批准的回写）
+1a5b071ba19844ea51e39205d5326fd4923ec3f4 19b661000c828de6e9e607c4d9e0e3731817e694 2026-10-13 13:33 docs(w00022): 待确认清单开发者 2026-10-13 全部追认；撞号定为工作量小的改号
+f24556f38eb76e23362b0ff73a4703c0d49611db ea739a59f1fdf6ca4c7788590386540a9bcdf6c9 2026-10-13 13:37 docs(w00022): t14 合入 master（76a3da886），服务重装，TaskStop 在场核对通过；集成分支历史外泄与远端分支删除
+7180bd4dc193a8fc30a57f555243bf02dc19767a 089e4e3cdda5cd13c29cdacd4fe5d14246455f53 2026-10-13 13:37 docs(w00022): t14-runs-and-github 状态改为 done
+75b5fdd4253a4a6bda13b64c778abd49195d713a fba8a893ec12afbda3fcf1ae5f82b9c721188ede 2026-10-13 13:59 docs(w00017): t80-settings-ui 状态改为 done
+15886832abbef50f5e248fd93f2bafa5164e499c 92c3cc1c6b76a5494b684820fa6c92147da139d7 2026-10-13 13:59 docs(w00017): t80 完成并合回；记下一阶段方向（先打磨完 workbench，再合 master、同步分支、治理）
+f8712d030ad16664267b992dcdadd29c99103f84 312821d3a0053197f87b2440dc3f6438b6442d78 2026-10-13 14:00 docs(w00017): t84-menu-contributions 状态改为 active
+4c85625b34507a333d106cb380a43a36c477d721 5f368d9fdbc7b5a01e2e6d77179918efc0f70afe 2026-10-13 14:12 docs(w00017): t84 调研与设计稿，开发者同意第一版做四处菜单位置
+a8430f16f3f0e7c43a200baf74bbecc71d1ca7ca 44f0897c39d12d6cbba800fdddf744274181fbad 2026-10-13 14:19 docs(w00017): t84 实施计划，开发者确认开工
+084bb8cb8b607de081ab72658fef03a17884cf9e a082606ab5e9a618d6c55831c8b64072d9543431 2026-10-13 14:44 docs(w00017): t84 计划审查 11 条与计划修订；S0、S1 进度
+b08bf8e99fd1126e31f5ca2b5c9d2d0790c15a1a 73c1b663dd5d7f4ce0ce1d47c002b3dce2df7ecf 2026-10-13 14:47 docs(w00022): nbdev 新建 t15-ui-polish
+5cf816f1c1b876a0428bbe7242a35fb0ac3c92e3 def03ea9904568d61476aae2d01f87c44f2cb2cc 2026-10-13 14:48 docs(w00024): nbdev 新建 Work w00024-nb-story 与 t01-ui-design
+40d68ac6b796877c5fd4c3541c7ec8070f352ae3 764153bc1588b678d899e7455146f5628af5bba5 2026-10-13 14:51 docs(w00024): t01 现状与参照清单，Task 目标与范围
+19c3ce08014fe2441a49e8e51f54c9d71a916991 8b798f2384ce43d91d1137c527d66c8f33eebed1 2026-10-13 14:52 docs(w00024): t01 发布 review v1
+56365391611f86c957af88247a519eac22d78547 332c8780d55dc16f0b1feeed69c5734565f7e498 2026-10-13 14:53 docs(w00022): t15 范围与审查安排
+1ce8c037891b18d436afa5e9354f30941c5fcd4c fdda19a27030e12546e53df9af1a73c7376040db 2026-10-13 14:53 docs(w00022): Task 表加 t15
+10ced135b4516710a98e58bee35c1a22085f5acc 6cb5a63a97a544d421fec2ed074fbf5f6487f9b5 2026-10-13 14:54 docs(w00022): 后续建议与推迟事项清单，记下 work new 只报相关撞号的建议
+616b5c8b6b2e1c07f913f471526cfe3a840f83c4 9692375c2be631971efffa963c2b6ed7b25cc2ab 2026-10-13 15:00 docs(w00022): 后续清单记下开发者试用面板的四条建议
+00113a8ce1e971da7686207f07cbb60f3a98f6c1 9cec617dbd80bbe217ecabea88156c4782d3e896 2026-10-13 15:08 docs(w00024): t01 面板记下 review 的答复
+2495d545439a81b2cbb3dd51f964bb7b24e8167f edaad70f0564134a609e6db3ff36c21158f75279 2026-10-13 15:09 docs(w00024): t01 确认采纳 review 的答复
+c23a206bcc0e474986d037c31f484bb7cae9c26a b27f73c6c493b65a1ed5d17b510ad3c64ae2e95d 2026-10-13 15:10 docs(w00024): t01 面板布局复用调研
+8a1a2a105687da88bf92ec5f2b1d75e2de7173b5 f851575262368ba8774cb0dd4d720429631a8d4f 2026-10-13 15:35 docs(w00022): t15 汇总四路审查的改动方案与开发者的决定
+3b8e8ddcf8f890ce829f2a996493f3bc961e5314 80a0a1ead91b195563c8340e9f44993ccac69a17 2026-10-13 16:00 docs(w00017): t84 S2–S6 进度
+98f260b00bec17438b6393a1519166182c0144cf 75bd52e50cdebe5555edc7827d3d5911131e4926 2026-10-13 16:13 docs(w00022): t15 计划草案、设计审查与处理意见
+d5a0fd49a7ffc93b70c1e900143789fabacd8d14 7a771f21e53bfe6cc1648ae6411ea43f8c4226be 2026-10-13 16:23 test(dev-panel): 前端宿主测试的环境（假 fetch、WebSocket、document 等，afterEach 拆除）与 --isolate；数据宿主加 stopPanelData（关推送、取消重连，外壳卸载时调），存下重连定时器；web 测试单独一份类型检查（w00022 t15 阶段 1.0）
+a918d37a0cfbf24fe5a4f698f30e85800ddfbc40 ff4389d2cd9ec3138c729224129cbeda4dd3fccb 2026-10-13 16:28 fix(dev-panel): 会话页的按键、文字两步确认与接管小窗绑定打开时的目标（pane、终端、会话），确认时目标变了就不发并提示；读屏、读历史回来时核对目标；草稿按 pane 记，同一格换会话保留并提示，给 A 的回包不清 B 的草稿；逻辑收进 host/session-console.ts（w00022 t15 阶段 1.1）
+6911c1ee3c412cf576cfacde97b84ca4ea4229a5 111398508e54d160ded5db6e5ace8ae9ad6e9492 2026-10-13 16:28 fix(dev-panel): 终端零件按“这一条连接”加 key，换 pane 时整体重建、不再停在旧终端的画面；同一格换会话不重建终端；零件合同写明 source 不变（w00022 t15 阶段 1.2）
+e6f6b86a85dcd8a8abe6f2cdb2fac169e2a9f709 79550850c006b34e59351368e5b8d9f16ab98341 2026-10-13 16:29 fix(dev-panel): 外壳按路由名与路径参数给页面加 key（不含查询参数），换 Task、Work、产物时不再复用实例，A 上的“重试”不会以 B 的端点与哈希提交；新建页提交在途时锁住模式切换，回包按提交时的模式处理（w00022 t15 阶段 1.9）
+37b69aed4bee1c31391af133700bb3f737d93d76 2bdd7ad9776d804548a6cee3a0d07521a1b4d94e 2026-10-13 16:32 docs(w00017): t84 实现审查 4 条与修正，交开发者验收
+7b32a6015009e929d6a7fb33e0cfe609e0366950 a21bcbe943cb356562cd4d3a26cd0f4b73ec2a8d 2026-10-13 16:32 fix(dev-panel): 编辑页换文件后基线、草稿、差异与提示换成新文件的，旧文件在途的保存与取版本回包按会话代号作废；编辑会话收进 host/file-edit-session.ts（w00022 t15 阶段 1.3）
+d53de0ab1172b799edbe98f19de3ae62c970d230 5666335944f1ed2e330a0940fea976c6b8afef85 2026-10-13 16:32 docs(w00017): t84 README 的进展与下一步分开
+afed56cfaad977f56b22585a1419b7a1971c8f60 399b32cc9d227df21a093dba8d7959a87553d931 2026-10-13 16:33 fix(dev-panel): 保存在途时编辑器只读、站内离开被拒绝并提示“正在保存”，回包只在草稿仍等于提交的文本时才替换草稿（w00022 t15 阶段 1.4）
+fa30380e559d9c48462af2df32da93e1901466f3 6dcb50f032298a93be32862441449b73e7a1300f 2026-10-13 16:37 fix(dev-panel): 任何 /api/* 回 401 都经同一出口进入登录失效（读、写、预览、探测、流式搜索，按状态码判断）：停推送、重连与取数，页面不卸载、盖一层提示；“我已重新登录”重探通过后全部重取、authEpoch 加一，会话页的终端重连（w00022 t15 阶段 1.5）
+45f5fc247be88f73549e29d894c080ee6e75c77b edb33117be2e7f2cd9d3d2b319980d2358a0f67e 2026-10-13 16:38 docs(w00017): t84-menu-contributions 状态改为 done
+d6a0000d7e4a7a2e57bdcb5d118a236a05deb01a f5d0b6fe3e0a7b8451368a4c6eb1ed76c40fe262 2026-10-13 16:38 docs(w00017): t84 晋升 menus.md 并合回，完成
+d81c921033c27e3138ca6c0d3d6d3167a8578edd 082edf839b7bede9eaceea9de1cb9f90cec1de20 2026-10-13 16:40 fix(dev-panel): 推送触发的重取单飞，在途时再有推送只记一笔、结束后至多补取一次，连续推送时慢资源不再一直被中止；显式重取与地址变化照旧中止在途（w00022 t15 阶段 1.6）
+32145078a7f58b1a8f036fc06cb2aa89934b141d ac856d967ef2efb86141dc6f036013bad35b7f2b 2026-10-13 16:50 fix(dev-panel): 已有数据时重取失败写明是旧数据（t15 1.7）
+a29c645be7fc8f45cb731c3c615c735b0a1e0b42 5128e7ae9819b55599ea2058186fe10ffa4feccb 2026-10-13 16:55 fix(dev-panel): 在后台建起的终端连接回到前台能连上（t15 1.8）
+c075b5e0f5a7e80d78a43dc3d7223c52ba373d0f a231c944adff015a960e31fd62c24aede807d7ee 2026-10-13 17:15 docs(w00022): t15 计划按设计审查修订
+8ff073401faef2d4bdc97f9e53f21cb273812bdf 865c9f59372adb78f2e28eac4c9b52677f6ff4a1 2026-10-13 17:18 chore(archive): 保存主工作区未提交的旧应用 UI 调整
+f1b78083ee4ccd44327d5ba8262e68e3b5dc7d57 35c889008c05c3aeb96fc0dc944b2a61f3f124ee 2026-10-13 17:19 docs(w00017): nbdev 新建 t85-master-merge
+16734c6fa222df4272dc361cec8293f895a427a2 86531ace454a1b8fb7dcb00b198f7a6fec6149a7 2026-10-13 17:38 fix(dev-panel): 新建页提交在途时按选项禁用另一种模式（t15 1.9 验收发现）
+e93a37fb109a8cd83d40067c988d4f42b0b3baa9 e96d3ca16f6facc57af0a766378eed3cb5d175bf 2026-10-13 17:38 docs(w00017): t85 合并、归档旧 UI 改动、历史重写演练与第一批清理
+1f2663734ecdf1c49db7cdf9b1ddd29567c9f4ca 24a225eaf8dcfc0c432f414571daf14a50ad02ee 2026-10-13 17:43 docs(w00022): t15 阶段 1 实施进度与验收记录
+6cd830746862160a6ddf86ef510980f244a30137 f368c5498bae66068c8b7372d32445fd0f200df1 2026-10-13 18:00 docs(w00017): t85 合并结果的 e2e 与开发者面板冒烟
+971c56dedf69bc84698b4ef039c5978033284147 48dfa030f7d7121450002b47833c74863d60afcf 2026-10-13 18:06 docs(w00022): t15 阶段 1 实现审查报告
+39149be2a5a1f6ab161c994d40b59ad7c2551cb9 ef4f41d43344346fbe3cdb7e0c30faf0c999bd4d 2026-10-13 18:07 fix(dev-panel): 按键确认前重读屏幕失败时，确认框写明没读到、框里是多久以前的画面（t15 阶段 1 实现审查建议 1）
+1d3cfdb4cde373d430536911e61432d1d9fa0cc7 d3ab3b617acd4c5a37c98aaf59e473599c0e0e34 2026-10-13 18:08 fix(dev-panel): 发文字成功后按格（pane 加终端）清草稿，同一格换了会话也清（t15 阶段 1 实现审查建议 2）
+152b46453c347cafacce9c66edbeb1751dc8a619 ee976a26948853ccfa6a1daaf672262844c959a0 2026-10-13 18:09 fix(dev-panel): 给 A 的文字判定不可投时已经换了目标，提示没有发出去并附原文（t15 阶段 1 实现审查建议 3）
+b00d23a6e30fee910a73011d829d363f872dde9e 0a1c02798327aca95d0a49b1037be5972c41595c 2026-10-13 18:09 fix(dev-panel): 新建页切换模式时收起带“重试”的失败提示（t15 阶段 1 实现审查建议 4）
+a4413f392369a2f634e051150a1c6f6c341b3888 4dbbf8b16d7eedafb9118d519d86c445f0a33462 2026-10-13 18:10 fix(dev-panel): 重新登录时面板连不上，原因不再重复“连不上面板”前缀（t15 阶段 1 实现审查建议 5）
+a8afc1a20237609fa6c9dd05178620b96b161f90 69e29e214003ee4c7341878e5574a4eb8984e162 2026-10-13 18:12 docs(w00022): t15 阶段 1 实现审查的处理
+81ddd9b68c4d42b37b1da45f0c32863aa24b9738 6e21cba2a8f86a4ba049df3c9f51bbefa610aff2 2026-10-14 01:51 merge: 合入 w00022 t15 阶段 1 行为缺陷修正（集成分支 a4413f392）
+f6a42d53697f24d517ebf017634c25d6b4b83a98 07550b3ad0cb661798e2e8ecf1b05938efb0e2c7 2026-10-14 01:59 docs(w00022): t15 阶段 1 合入记录
+3ee2978499d7e13100abfb7090ff031aafd1d71e 5de685fa51a6d0d4df797bb9771d659d43c3d49a 2026-10-14 02:01 docs(w00022): t15 阶段 1 合入与速览面板布局的决定
+8ac8211c475350dfc2dce45ccc1468436264ad9f 814c4a936114d4100d99433c486fc0dbd9152065 2026-10-14 02:10 feat(dev-panel): 细滚动条与“一页一个竖向滚动者”（t15 阶段 2a）
+d8a44b6a8c45d53414e58d0fe5326e4d683fc167 11d2492a9645c7a85f4f6613c5aad2ba7afb47e0 2026-10-14 02:16 feat(dev-panel): 导航抽成 PanelNav，桌面左栏与手机抽屉共用（t15 阶段 2b）
+dab6003bae45a7c46a9a8731e3e47f4dda12e0d8 aa6fad6dad6b4917f8a3365c8340210c2289fbe5 2026-10-14 02:19 feat(dev-panel): 左栏可调宽度、可收起，窄屏收进抽屉（t15 阶段 2c）
+9383499aeae73d8733df4e9f2eef47025483b693 d9038b372ad940c8419c9de4fef9007f36ca36aa 2026-10-14 02:23 feat(dev-panel): 顶栏收成搜索、状态点、通知与明暗，异常改成横幅（t15 阶段 2d）
+71cb539cb754fa976c9eeb02767cbfad1c2100b5 5319aca192c019258bc1e18ba6be3756c25900ae 2026-10-14 02:31 feat(dev-panel): 跳到主内容、换页时焦点到页标题、标签页标题与焦点环（t15 阶段 2e）
+97e36a9bd293fd1a25756045132c53ff8e167101 9de8ba1dbd671be6c2e0c13c182412ab932a356a 2026-10-14 02:42 docs(w00022): t15 阶段 2 实施进度与验收记录
+a5d38ea57f9097c37813f0558aaf4097f0ccccda 0d218f5deacbdf1aac1b2b055036bba18da94ac9 2026-10-14 02:43 docs(w00022): 后续清单记文档页外站图片被 CSP 拦下
+423b53a73a1f3dee51ee0ecaefd7a616e678e008 c820d1660af3722755039e26dd194382e5c8f03c 2026-10-14 03:00 merge: w00017 应用运行时与插件化重建合入 master
+779d9cd7b598087f984a12bb2128fbb100eb8a86 b9cc666ab259ac3ab2af84ef879c63bf0bed4df6 2026-10-14 03:01 docs(w00022): t15 阶段 2 实现审查报告
+548354992416d46ba1b9e635ca5019f862bf567e db061d9cfffdd0121dc4dd83d301d5db38fd87fb 2026-10-14 03:05 fix(dev-panel): 宽 0 的左栏移出 Tab 顺序，Work 树不再被拽回当前行（t15 阶段 2 实现审查重要 1、2，建议 3、4、5、7）
+cc3d7166ba791dd4345027369da72a5502c9d867 ba83204ee697c0ec0053a8f30a7a1b03a23a7a5d 2026-10-14 03:06 fix(dev-panel): 状态点的“数据”一行看外壳数据的取数结果；审计未初始化的横幅可以“知道了”（t15 阶段 2 实现审查建议 6 与审计横幅）
+6c02b5ee5518554abcb0ecc7031829af5d6f99ea dfc70ac32c76e645d988329ff62cfe83d54be756 2026-10-14 03:08 refactor(dev-panel): 页面名挪进路由元信息，写明加页面的清单与滚动的例外（t15 阶段 2 实现审查建议 8、9）
+2243f695333c50dbfa56c73a102aa8a09f5250e3 8794881ada924d7b061e1082a6de12d6d78d1275 2026-10-14 03:12 fix(dev-panel): 左栏收起时分隔线禁用，不再挡在“展开左栏”前面（t15 阶段 2 实现审查重要 1 的验收发现）
+7945d93265f2ea3c22d620fdede6a0b2960aa8f8 bc2081d8b5d2154a2f06a7a248dacb7f01a770f7 2026-10-14 03:16 merge: w00017 应用运行时与插件化重建合入 master
+30608c24a381ad002d22c502c57305023699a59e 2197bfd4a4244008d23b61d75722c59b9e169e90 2026-10-14 03:17 docs(w00017): t85 合入 master（7945d9326）
+97feb871a23e354967d2e9dbd213bbd45398bf18 da076217c905b74849f90230eb80f5cc47b1ca75 2026-10-14 03:22 merge: 同步 master
+a3cf9655148aa0e72736f3c8927f73bddd04af68 c4326811f03f3e095510bc343c1385b7418b22fd 2026-10-14 03:34 docs(w00022): t15 阶段 2 实现审查的处理与同步 master
+a6b7a7c9a72449ce26a3d2556eef02630baa27ce 8423c09ed44ceb4e66a670ac4c1e7cb99adca765 2026-10-14 03:46 merge: 合入 w00022 t15 阶段 2 外壳：细滚动条、PanelNav、可调宽度左栏、顶栏与横幅、可访问性（集成分支 97feb871a）
+82e6d7f6a12c2a5715a15abbcdb9c72294339ca6 04d7e53bcf9fac130a06f3d1b00b25068f586de3 2026-10-14 03:46 docs(w00022): t15 阶段 2 合入记录
+9cef87dfcbd0dc6ba100752441ae68be3931ac26 6e015ba9ea3fc08c2c96a6934b528539a5493367 2026-10-14 03:57 refactor(dev-panel): 语义类代替零件与外壳里散落的内联 style（t15 阶段 3a）
+f685e75302a7de0b60bf482e397231dc92edd8bd 2bd3487ee34852e66fe1b7dd44b42772e6287547 2026-10-14 03:58 feat(dev-panel): 页面骨架零件 PageShell 与阅读卡片（t15 阶段 3b）
+efacc5fdd2ff5c69606edc956d8d0673b0a1c388 f282453cc4954f830b1e8c2a01b73f970266ce6a 2026-10-14 04:01 wip(dev-panel): t15 阶段 3 进行中（暂停，等历史重写）
+98739c9095a87c85eba43d5afaeb204522c5708c ee80cf2fa82c19ce06b406a8a60e4746c05ebb8d 2026-10-14 04:01 docs(w00022): t15 阶段 3 实施细节（暂停前）

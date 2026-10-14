@@ -30,9 +30,9 @@ status: active
 
 - 实现 Task 严格先后依赖，共用一条集成分支 `feat/w00022-dev-panel`（worktree `.worktree/w00022-dev-panel`，从 `master` 分出）；互相独立的切片另开 worktree，再合回集成分支。
 - 集成分支每次提交后 push 到 `origin` 作备份；合入 `master` 要开发者授权。
-- 2026-10-13 漏出一次：t14 开工时集成分支快进到了 `master`（`23402f959`），带进了下一条说的含账户名的历史；主 Agent 10:28、11:49 两次 push 前没查，这段历史随分支进了公开仓库。开发者定先删远端分支，13:50 已删，远端已没有分支含 `2cca6d3fa`。这些提交在 GitHub 上仍可按提交号访问，直到 GitHub 回收；要彻底清掉，得由开发者向 GitHub 支持申请。此后集成分支不再 push，直到历史洗过；push 任何分支前先查 `git merge-base --is-ancestor 2cca6d3fa <分支>`。
+- 2026-10-13 漏出一次：t14 开工时集成分支快进到了 `master`（`16da3544b`），带进了下一条说的含账户名的历史；主 Agent 10:28、11:49 两次 push 前没查，这段历史随分支进了公开仓库。开发者定先删远端分支，13:50 已删，远端已没有分支含 `8065e1aa2`。这些提交在 GitHub 上仍可按提交号访问，直到 GitHub 回收；要彻底清掉，得由开发者向 GitHub 支持申请。此后集成分支不再 push，直到历史洗过；push 任何分支前先查 `git merge-base --is-ancestor 8065e1aa2 <分支>`。
 - 主会话调度，编码交给 opus 子代理；主会话审查 diff、自跑验证。
-- **push `master` 之前必做**（开发者 2026-10-13 定）：本地 `master` 从 `2cca6d3fa`（2026-10-12 23:58）起的历史里有本机另外两个账户的用户名，出现在 t09、t10 的几份记录与审查报告里；当前版本已删，历史里还在。push `master` 之前，按[仓库维护流程](../../../docs/standards/repository-workflow.md)里“本地未推送历史含隐私”那一段重写这段历史，并按新旧对照表更新记录里引用的 `master` 提交号（例如合并提交 `3ef00987a`、`8b44f60ca`、`23f604ebf`）。查找命令：`git log -G '<用户名>' master`，用户名用 `getent passwd 1001 1002` 查。
+- **push `master` 之前必做**（开发者 2026-10-13 定）：本地 `master` 从 `8065e1aa2`（2026-10-12 23:58）起的历史里有本机另外两个账户的用户名，出现在 t09、t10 的几份记录与审查报告里；当前版本已删，历史里还在。push `master` 之前，按[仓库维护流程](../../../docs/standards/repository-workflow.md)里“本地未推送历史含隐私”那一段重写这段历史，并按新旧对照表更新记录里引用的 `master` 提交号（例如合并提交 `7e837bd80`、`9df2f7d82`、`137be5b5a`）。查找命令：`git log -G '<用户名>' master`，用户名用 `getent passwd 1001 1002` 查。
 
 ## Task
 
@@ -43,13 +43,13 @@ status: active
 | [t03](tasks/t03-design/README.md) | 面板与命令行的设计：领域模型第二版、三轮静态稿（首页 Work 区用卡片）、Proposal 与实施计划；2026-10-12 完成，Proposal `accepted` |
 | [t04](tasks/t04-rule-followups/README.md) | 已确认的规则跟进：worktree 一个 Task 一个（已完成）、Task 号允许三位、omp 会话目录改放 `.local/agent`；2026-10-13 随集成分支合入 `master`，完成 |
 | [t05](tasks/t05-migrate-records/README.md) | 把实现分支上维护的记录迁到主工作区、`.local/agent` 里的产物搬进 `artifacts/`；开发者定先只迁本会话建的，w00017 的 t80、t81 已迁，其余分支暂不动 |
-| [t06](tasks/t06-cli-core/README.md) | 命令行核心：包骨架、写事务、记录读取与领号；2026-10-13 合入 `master`（`3ef00987a`），完成 |
-| [t07](tasks/t07-session-leases/README.md) | 会话身份、运行归属与租约；2026-10-13 合入 `master`（`3ef00987a`），完成 |
-| [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-13 合入 `master`（`3ef00987a`），完成 |
-| [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`3ef00987a`），完成 |
-| [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 实现审查修正后合入 `master`（`8b44f60ca`），完成 |
-| [t11](tasks/t11-notify/README.md) | 通知、会话消息与常驻；2026-10-13 合入 `master`（`23f604ebf`），服务已装、管理脚本已合入（`fcb2bddc5`），场景 1 验收通过，完成；通知误报随 t14 修正 |
-| [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 合入 `master`（`98d3d4595`），开发者在场验收通过，完成 |
+| [t06](tasks/t06-cli-core/README.md) | 命令行核心：包骨架、写事务、记录读取与领号；2026-10-13 合入 `master`（`7e837bd80`），完成 |
+| [t07](tasks/t07-session-leases/README.md) | 会话身份、运行归属与租约；2026-10-13 合入 `master`（`7e837bd80`），完成 |
+| [t08](tasks/t08-artifacts-answers/README.md) | 产物、提问与答复（命令行）；2026-10-13 合入 `master`（`7e837bd80`），完成 |
+| [t09](tasks/t09-panel-readonly/README.md) | 面板服务与只读视图；2026-10-13 实现审查修正后合入 `master`（`7e837bd80`），完成 |
+| [t10](tasks/t10-panel-writes/README.md) | 面板写入：答复、新建 Work 与 Task、状态切换、编辑记录与文档；2026-10-13 实现审查修正后合入 `master`（`9df2f7d82`），完成 |
+| [t11](tasks/t11-notify/README.md) | 通知、会话消息与常驻；2026-10-13 合入 `master`（`137be5b5a`），服务已装、管理脚本已合入（`66cc4d85d`），场景 1 验收通过，完成；通知误报随 t14 修正 |
+| [t12](tasks/t12-web-terminal/README.md) | herdr 网页终端；2026-10-13 合入 `master`（`a9d2fac84`），开发者在场验收通过，完成 |
 | [t13](tasks/t13-cross-device/README.md) | 跨设备访问；2026-10-13 写了计划后搁置：开发者定先不做 Tailscale，SSH 转发加常驻服务够用 |
-| [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充，含 t11 通知误报与 t12 接管尺寸的修正；2026-10-13 两轮实现审查修正后合入 `master`（`76a3da886`） |
+| [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充，含 t11 通知误报与 t12 接管尺寸的修正；2026-10-13 两轮实现审查修正后合入 `master`（`da3781d99`） |
 | [t15](tasks/t15-ui-polish/README.md) | 面板界面打磨：左栏可调宽度、细滚动条、系统审查 UI、UX 与前端设计后调优；2026-10-13 开工，先审查 |

@@ -547,62 +547,62 @@ POST /api/github/refresh    只是让面板立刻重取一次；不经 gh 写任
   - 读了 `node_modules` 里 listhen 与 get-port-please 的源码。
 
   没有起开发服务，没有建 worktree，没有残留进程。
-- 2026-10-13：设计审查的处理写进上面一节。集成分支先快进到 master（`23402f959`，带进服务脚本）。S1 `867c98b45`：`dev start`、`dev status`、`dev stop`。L4 共 10 条（`tests/dev-live.test.ts`，假开发脚本的四种形态，经真实 `bun run`），都只在临时仓库里起。
-- S2 `26263e3e7`：`worktree new`（L3 `tests/worktree-new.test.ts`，场景 4 按设计审查 I4 的测法）。S3 `427f16bd4`：`find`、`shot`（L3 `tests/find-shot.test.ts`）。S4 `fd9359dee`：面板现场三页、`install-service` 写 `NBDEV_GH_BIN`、`procs` 挪进核心（`src/core/procs.ts`，核心的活动要用它去重）；L3 `tests/panel-live.test.ts`（假 `gh`）。
-- S5 文档 `6b9376e62`。浏览器验收（临时仓库，假开发脚本加假 `gh`）发现 checkout 页在 390 宽时每列被挤成一字一行，改成整张表横向滚动：`c5177bc56`。
+- 2026-10-13：设计审查的处理写进上面一节。集成分支先快进到 master（`16da3544b`，带进服务脚本）。S1 `ea0e1c5fa`：`dev start`、`dev status`、`dev stop`。L4 共 10 条（`tests/dev-live.test.ts`，假开发脚本的四种形态，经真实 `bun run`），都只在临时仓库里起。
+- S2 `2ead23c01`：`worktree new`（L3 `tests/worktree-new.test.ts`，场景 4 按设计审查 I4 的测法）。S3 `39fe47cc5`：`find`、`shot`（L3 `tests/find-shot.test.ts`）。S4 `f5cb03349`：面板现场三页、`install-service` 写 `NBDEV_GH_BIN`、`procs` 挪进核心（`src/core/procs.ts`，核心的活动要用它去重）；L3 `tests/panel-live.test.ts`（假 `gh`）。
+- S5 文档 `58f61aa11`。浏览器验收（临时仓库，假开发脚本加假 `gh`）发现 checkout 页在 390 宽时每列被挤成一字一行，改成整张表横向滚动：`6b80522d7`。
 - 修完 checkout 列之后重启宿主、用最新构建复跑浏览器验收：16 项全过，控制台没有错误与警告；390 宽的 checkout 页整张表在框里横向滚动，页面本身不溢出。截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t14-runs-and-github/shots/`。
-- 全量验证（集成分支 `3be97d883`，含下面两件追加修正）：包里 `bun test` 322 条全过（含 L4：herdr 命名会话、server 0.9.3 与 0.9.1 两组，`dev-live` 10 条）；`typecheck`、`build:web` 通过；根上 `dev-panel-records`、`workspace-workflows`、`agent-governance` 三个测试文件 177 条通过，`dev-panel-records` 在 Node 下 5 条通过；`governance:check`、`docs:check` 没有失败（只有仓库存量的警告）；`git diff --check` 干净。第一次全量时新加的 L4 状态序号测试失败过一次（同时在跑根上的测试，herdr 读屏合并掉了 B 的一次变化），断言放宽为“B 看到过 blocked”（`3be97d883`）之后单独连跑三次、全量再跑一次都过。
+- 全量验证（集成分支 `9fc8cf009`，含下面两件追加修正）：包里 `bun test` 322 条全过（含 L4：herdr 命名会话、server 0.9.3 与 0.9.1 两组，`dev-live` 10 条）；`typecheck`、`build:web` 通过；根上 `dev-panel-records`、`workspace-workflows`、`agent-governance` 三个测试文件 177 条通过，`dev-panel-records` 在 Node 下 5 条通过；`governance:check`、`docs:check` 没有失败（只有仓库存量的警告）；`git diff --check` 干净。第一次全量时新加的 L4 状态序号测试失败过一次（同时在跑根上的测试，herdr 读屏合并掉了 B 的一次变化），断言放宽为“B 看到过 blocked”（`9fc8cf009`）之后单独连跑三次、全量再跑一次都过。
 
 ## 追加修正（t14 之后，各自单独提交）
 
-- **t11 通知误报** `cbe883a0e`：herdr 的 `state_change_seq` 是全服务器共用的一个计数，一格变状态时取下一个值记在它身上，所以只能比相等，差值数不出这一格变了几次。`delivery.ts` 原先用“投递前后序号差大于等于 2”判断经过了确认界面，别的会话同时变状态就误报。改为：
+- **t11 通知误报** `660faa56e`：herdr 的 `state_change_seq` 是全服务器共用的一个计数，一格变状态时取下一个值记在它身上，所以只能比相等，差值数不出这一格变了几次。`delivery.ts` 原先用“投递前后序号差大于等于 2”判断经过了确认界面，别的会话同时变状态就误报。改为：
   - 调 `agent.prompt` 之前向面板的 `HerdrMonitor` 要这一格的状态观察（`watchStatus`），投递窗口里收到的 `pane.agent_status_changed` 出现过 `blocked`，或返回体里是 `blocked`，记 `delivered_into_blocked`，`code: passed_blocked`（取代 `state_jumped`）；
   - 退路：订阅这时没订着这一格（没连上、重连中、pane 刚出现还没换连接）或窗口里订阅断过，记 `delivered` 加 `code: unwatched`，界面注明没核对确认界面；最后还停在 `blocked` 的那条照旧，不靠事件；
   - 逐处核对过：只比相等的地方（`delivery.ts` 的稳定与紧贴投递复核、notifier 的重读屏幕与稳定记录、monitor 的对账）照旧；`client.ts` 里“每次状态变化加 1”的注释改掉；
   - 文档：`docs/herdr.md` 加“状态序号”一条，“投递之后”改写；`docs/file-formats.md` 的 `result` 说明里加 `passed_blocked`、`unwatched`，注明旧记录里的 `state_jumped` 会误报；
-  - 测试：假 herdr 改成全局计数（`fake.setStatus` 推高全局序号并推事件，`duringPrompt` 模拟投递窗口里的别的事）；L3 断言别的 pane 在窗口里变两次状态时记 `delivered`（且序号差确实大于等于 2），这一格经过 `blocked` 时照报 `passed_blocked`，没订阅或订阅中途断开时记 `unwatched`；L4 在 0.9.3 命名会话里用两格假 Claude（信任确认界面判 `blocked`）钉住全局计数与按格的事件（`3be97d883` 放宽了对 B 事件条数的断言，并打印两格的序号：A 6、B 5，B 的事件是 blocked、idle、blocked、done）。另用一个一次性命名会话实测：两格各变一次状态，序号是 1 与 2；B 变四次之后 A 再变一次，A 是 7、B 是 6。
-- **t12 接管后又改一次尺寸** `85396c02d`：原因是量接管尺寸时终端框里还是旧尺寸的画面，13px 下溢出、出滚动条，把内容区挤掉一行几列；接上之后画面不再溢出、滚动条消失，ResizeObserver 又量出大一点的尺寸、再 resize 一次。无头 Chrome 缺省带 `--hide-scrollbars`，滚动条不占位，所以之前的验收（F3）看不出来。改为量的时候先把框的溢出藏起来，接管中窗口变化同样处理；`TerminalView.md` 写明。复现与复测（临时仓库加命名会话，去掉 `--hide-scrollbars`；A 用 2400×1500 先接管把 pty 变成 206×54，B 用 1280×800 抢过来）：修之前小窗写 136×27、接上后变成 139×28、B 的释放行 `resizes: 1`；修之后小窗 139×28、接上后与 2 秒后都是 139×28、`resizes: 0`；接管中把窗口缩到 900 宽只 resize 一次。t12 的验收脚本 `accept-review.ts` 15 项复跑全过。截图与脚本在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/`。
+  - 测试：假 herdr 改成全局计数（`fake.setStatus` 推高全局序号并推事件，`duringPrompt` 模拟投递窗口里的别的事）；L3 断言别的 pane 在窗口里变两次状态时记 `delivered`（且序号差确实大于等于 2），这一格经过 `blocked` 时照报 `passed_blocked`，没订阅或订阅中途断开时记 `unwatched`；L4 在 0.9.3 命名会话里用两格假 Claude（信任确认界面判 `blocked`）钉住全局计数与按格的事件（`9fc8cf009` 放宽了对 B 事件条数的断言，并打印两格的序号：A 6、B 5，B 的事件是 blocked、idle、blocked、done）。另用一个一次性命名会话实测：两格各变一次状态，序号是 1 与 2；B 变四次之后 A 再变一次，A 是 7、B 是 6。
+- **t12 接管后又改一次尺寸** `6a6e44ad3`：原因是量接管尺寸时终端框里还是旧尺寸的画面，13px 下溢出、出滚动条，把内容区挤掉一行几列；接上之后画面不再溢出、滚动条消失，ResizeObserver 又量出大一点的尺寸、再 resize 一次。无头 Chrome 缺省带 `--hide-scrollbars`，滚动条不占位，所以之前的验收（F3）看不出来。改为量的时候先把框的溢出藏起来，接管中窗口变化同样处理；`TerminalView.md` 写明。复现与复测（临时仓库加命名会话，去掉 `--hide-scrollbars`；A 用 2400×1500 先接管把 pty 变成 206×54，B 用 1280×800 抢过来）：修之前小窗写 136×27、接上后变成 139×28、B 的释放行 `resizes: 1`；修之后小窗 139×28、接上后与 2 秒后都是 139×28、`resizes: 0`；接管中把窗口缩到 900 宽只 resize 一次。t12 的验收脚本 `accept-review.ts` 15 项复跑全过。截图与脚本在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/`。
 
 ## 实现审查的修正
 
-t14 实现审查（`evidences/impl-review.txt`，范围 `23402f959..c5177bc56`，1 阻断、4 重要、6 建议）全部采纳，每条一个提交（集成分支，未 push）：
+t14 实现审查（`evidences/impl-review.txt`，范围 `16da3544b..6b80522d7`，1 阻断、4 重要、6 建议）全部采纳，每条一个提交（集成分支，未 push）：
 
-- **B1** `ff781f43d`：GitHub 页取不到数据时不再成环。
+- **B1** `6f16fc1bb`：GitHub 页取不到数据时不再成环。
   - `GET /api/github` 只读当前这一份，不再触发取数；页面打开时显式发 `POST /api/github/refresh`，带 `{"ifStale": true}`。
   - `GithubCache` 记上一次尝试结束的时刻，不论成败：上次取到了按 5 分钟、没取到按 60 秒判断要不要因打开页面再取；“刷新”按钮不带 `ifStale`，不受间隔限制。
   - 每次尝试只在结束时推一次 `github`，开始取时不推；`github` 的推送不触发 `notifier.tick()`。
   - L3（`panel-live`）加一条：连着 `/ws`、每次推送就重取 GET，没登录、找不到 `gh`、出错三种状态下 10 秒里 `gh` 只跑一轮（两条命令）、推送一到两次；失败后 60 秒内打开页面不重取，“刷新”照样立即取。浏览器复测（临时仓库，端口 4520）：`gh` 没登录时开着 GitHub 页 8 秒，`gh` 2 次、页面 GET 2 次。
-- **I1** `9f4f5e3dc`：进程组只在仍是我们那一组时才算活着、才发信号（`ownGroupAlive`）。`/proc/<组号>` 在而启动时刻与登记的组长不同，是号被复用；EPERM 是别的用户的组；组长与 `/proc/<组号>` 都不在、组却在时，要有快照里 pid 与启动时刻都对得上的组员。为此组员在组长还在时（快照定时器与停法）、以及监管进程刚给组长收尸时记进快照（`collectDescendants` 加 `group` 参数，只在确知组是我们的时给）。L4 场景 3 加一条：复用 pid 的进程本身是组长（`detached`），判 `ended`、`dev stop` 回 `skipped`、它仍活着。
-- **I2** `46d1812f3`：复用只认组长还活着的运行（`starting`、`running`、`supervisor_gone`）。
+- **I1** `03191bccc`：进程组只在仍是我们那一组时才算活着、才发信号（`ownGroupAlive`）。`/proc/<组号>` 在而启动时刻与登记的组长不同，是号被复用；EPERM 是别的用户的组；组长与 `/proc/<组号>` 都不在、组却在时，要有快照里 pid 与启动时刻都对得上的组员。为此组员在组长还在时（快照定时器与停法）、以及监管进程刚给组长收尸时记进快照（`collectDescendants` 加 `group` 参数，只在确知组是我们的时给）。L4 场景 3 加一条：复用 pid 的进程本身是组长（`detached`），判 `ended`、`dev stop` 回 `skipped`、它仍活着。
+- **I2** `36fc4bfd9`：复用只认组长还活着的运行（`starting`、`running`、`supervisor_gone`）。
   - `leader_exited` 先按停法收掉残留再起新的，给 `leftovers_stopped`；停法提成 `stopRun`，与 `dev stop` 共用。
   - 已就绪的先按就绪判据探测一次地址，连不上报新错误码 `dev_unresponsive`（3），不替别人停服务：停要过 `dev stop` 的属主判据。选了报错而不是“收掉再重起”，写进 `cli.md`。
   - 复用 `orphaned` 时加回 `supervisor_gone` 警告；`shot` 取地址用同一判据并探测。
   - L4 两条：`leader_exited` 不复用、收掉残留再起；已就绪地址连不上时 `dev_unresponsive` 与 `shot` 的 5，没人监管、地址连得上时复用加 `supervisor_gone`、`shot` 拿到地址。
-- **I3** `5569d619f`：打出 `NOT_READY` 之后监管进程照样读日志与探测（之后放慢到 2 秒一次），就绪时补写 `url`、`readyAt` 并再打 `READY`；复用方认出就绪也写回登记（锁内、只在 `readyAt` 为空时）。`cli.md` 写明 `NOT_READY` 之后可能还有 `READY`。L4 两条：晚就绪先 `NOT_READY` 后 `READY`，`dev status --wait-ready` 拿得到；复用方写回。
-- **I4** `899762dd4`：checkout 页开着时每 10 秒自己重取一次，“N 秒前算的”按秒走（一分钟以上回到原来的写法）。浏览器复测：改回文件之后 25 秒内显示“干净”，标签从 0 秒走到 1 秒以上。
-- **S1** `3dcaea804`：复用方等就绪时每秒重读登记，复用的服务就绪前结束就打 `EXITED`、以 1 退出，不再等满时限后打 `NOT_READY`。
-- **S2** `18b15a8f4`：停完还有进程没收掉时不写 `endedAt`，残留带启动时刻并进 `descendants`，状态 `orphaned`、可再 `dev stop`；`endedReason` 先写下，残留自己没了之后按它算。只是地址仍有回应、我们的进程都不在时，照记为结束，只在输出里报 `stop_incomplete`（`urlResponding: true`），写进 `file-formats.md`。L4 用不收尸的父进程留下的僵尸扮“停不掉的残留”。
-- **S3** `6820c1d85`：`searchCheckouts` 加 `namesOnly`，`find --name` 不跑 `git grep`，条数与截断只算文件名。
-- **S4** `c41e23226`：`EXITED` 的 `leftovers` 按 pid 去重（快照里与进程组里的），L4 断言只留孙进程时是 `leftovers=1`。
-- **S5** `c5bd6c062`：失败的检查带 `workflowName`，显示成“工作流 / 检查名”，`v-for` 按下标作 key；假 `gh` 加一个别的工作流里的同名检查。
-- **S6** `372111f22`：`resolveLeaseTarget` 的注释放回原处；`github.ts` 引用的测试文件名改对；`package.json` 不是合法 JSON 时 `dev start` 与 `shot` 都报带路径的 `invalid_record`（共用 `readPackageScripts`）。
+- **I3** `da50bc100`：打出 `NOT_READY` 之后监管进程照样读日志与探测（之后放慢到 2 秒一次），就绪时补写 `url`、`readyAt` 并再打 `READY`；复用方认出就绪也写回登记（锁内、只在 `readyAt` 为空时）。`cli.md` 写明 `NOT_READY` 之后可能还有 `READY`。L4 两条：晚就绪先 `NOT_READY` 后 `READY`，`dev status --wait-ready` 拿得到；复用方写回。
+- **I4** `8b5148c1a`：checkout 页开着时每 10 秒自己重取一次，“N 秒前算的”按秒走（一分钟以上回到原来的写法）。浏览器复测：改回文件之后 25 秒内显示“干净”，标签从 0 秒走到 1 秒以上。
+- **S1** `1e014209d`：复用方等就绪时每秒重读登记，复用的服务就绪前结束就打 `EXITED`、以 1 退出，不再等满时限后打 `NOT_READY`。
+- **S2** `231853780`：停完还有进程没收掉时不写 `endedAt`，残留带启动时刻并进 `descendants`，状态 `orphaned`、可再 `dev stop`；`endedReason` 先写下，残留自己没了之后按它算。只是地址仍有回应、我们的进程都不在时，照记为结束，只在输出里报 `stop_incomplete`（`urlResponding: true`），写进 `file-formats.md`。L4 用不收尸的父进程留下的僵尸扮“停不掉的残留”。
+- **S3** `fa950868a`：`searchCheckouts` 加 `namesOnly`，`find --name` 不跑 `git grep`，条数与截断只算文件名。
+- **S4** `f18b8fedf`：`EXITED` 的 `leftovers` 按 pid 去重（快照里与进程组里的），L4 断言只留孙进程时是 `leftovers=1`。
+- **S5** `615b4287c`：失败的检查带 `workflowName`，显示成“工作流 / 检查名”，`v-for` 按下标作 key；假 `gh` 加一个别的工作流里的同名检查。
+- **S6** `fb552cde8`：`resolveLeaseTarget` 的注释放回原处；`github.ts` 引用的测试文件名改对；`package.json` 不是合法 JSON 时 `dev start` 与 `shot` 都报带路径的 `invalid_record`（共用 `readPackageScripts`）。
   - 偏离计划：“接口与数据”写的“`src/index.ts` 导出登记的读取与 `worktree new` 的核心函数”没有做。这些只有命令行与面板在用，包外没有调用方，按“小而实用”不导出。
 
 验证（只跑点名的文件，herdr 的 L4 当时让给另一位审查者）：`dev-live`、`runs`、`find-shot`、`panel-live`、`ready` 都通过，`typecheck` 通过。浏览器复测（临时仓库加假 `gh`，端口 4520/4521）：B1、S5、I4 共 6 项通过，控制台没有错误。原有的 `accept.ts` 复跑时有两项按预期变了：假 `gh` 多了一个失败检查（“2 失败”变“3 失败”），复测里改回了 `docs/a.md`（主工作区不再有未提交）。截图 `shots/t14-fix-*.png`。
 
-追加修正的审查（`evidences/impl-review-fixes.txt`，范围 `c5177bc56..3be97d883`，0 阻断、1 重要、3 建议）的处理，接在上面之后，每条一个提交：
+追加修正的审查（`evidences/impl-review-fixes.txt`，范围 `6b80522d7..9fc8cf009`，0 阻断、1 重要、3 建议）的处理，接在上面之后，每条一个提交：
 
-- **重要 1** `6872ee37c`：从奇数列接管仍会再 resize 一次。原因是 xterm 的 DOM 渲染器先把整屏宽度取整再除回列数，fit 用的 `css.cell` 随当前列数变。改法：列数与行数按 `_core._renderService.dimensions.device.cell` 除以 dpr 来算，与当前列数无关，量几次都一样；去掉 `@xterm/addon-fit`，`bun.lock` 同步。`device.cell` 与 fit 读的是同一个私有对象，只是换了字段，注释与 `TerminalView.md` 写明升级 xterm 时要核对。没有用审查给的另一种改法（记下框尺寸、没变就不发）：它只挡住切模式那一次，量出的数仍随列数的奇偶差 1。浏览器验收用审查的 `t12-resize.ts` 改成本地路径与端口 4530、命名会话 `nbdev-t12-resize`，去掉 `--hide-scrollbars`，前后两个构建对比（`shots/t12-fix2-resize.log`）：
+- **重要 1** `4d8953605`：从奇数列接管仍会再 resize 一次。原因是 xterm 的 DOM 渲染器先把整屏宽度取整再除回列数，fit 用的 `css.cell` 随当前列数变。改法：列数与行数按 `_core._renderService.dimensions.device.cell` 除以 dpr 来算，与当前列数无关，量几次都一样；去掉 `@xterm/addon-fit`，`bun.lock` 同步。`device.cell` 与 fit 读的是同一个私有对象，只是换了字段，注释与 `TerminalView.md` 写明升级 xterm 时要核对。没有用审查给的另一种改法（记下框尺寸、没变就不发）：它只挡住切模式那一次，量出的数仍随列数的奇偶差 1。浏览器验收用审查的 `t12-resize.ts` 改成本地路径与端口 4530、命名会话 `nbdev-t12-resize`，去掉 `--hide-scrollbars`，前后两个构建对比（`shots/t12-fix2-resize.log`）：
   - 1280×800 从 119 列普通接管：修之前 138 再 139、释放行 `resizes: 1`；修之后只有 139、`resizes: 0`；
   - 1592×900：修之前 186 再 187；修之后只有 187；
   - 从 206 列抢过来：修之前与修之后都只变一次（139×28）；接管中缩到 900 宽也只变一次（80×28）。
-- **建议 1** `b821798e3`：旧记录的 `state_jumped` 改用普通色调，文案写“旧判据，可能误报，看一眼终端”，不算要处理的一条；`delivered` 加 `unwatched` 在尝试列表里也用 warning，与会话页的提示一致。醒目的判据合成一份 `attemptNeedsAttention`（`host/format.ts`），左栏计数与状态行共用；`NotifyStatus.vue` 里没用到的 `ATTENTION` 去掉。L1 `tests/notify-attention.test.ts`。
-- **建议 2** `8d644d118`：
+- **建议 1** `acc8dbb0d`：旧记录的 `state_jumped` 改用普通色调，文案写“旧判据，可能误报，看一眼终端”，不算要处理的一条；`delivered` 加 `unwatched` 在尝试列表里也用 warning，与会话页的提示一致。醒目的判据合成一份 `attemptNeedsAttention`（`host/format.ts`），左栏计数与状态行共用；`NotifyStatus.vue` 里没用到的 `ATTENTION` 去掉。L1 `tests/notify-attention.test.ts`。
+- **建议 2** `ca4c9bc89`：
   - L3：`watchStatus` 在轮询中、新 pane 还没换连接时回 null，换上之后才给；投递窗口里换订阅连接，留下的格记 `delivered`、`code: null`，被去掉的格记 `unwatched`；假 herdr 加 `blocked_in_reply`（回应里是 blocked），没有订阅时也报 `passed_blocked`。
   - L4：状态序号那条与新加的带观察的投递，都按 t12 的写法对 server 0.9.3 与 0.9.1 参数化。`fake-claude-tui.py` 加了可选的反应：`work` 回车后画“工作中”，`blocked_in_paste` 粘贴时先画信任确认，参照审查的 `react-claude.py`。两个版本上都是：正常进入工作记 `delivered`；别的会话在窗口里变两次（序号差 3）仍记 `delivered`；粘贴时弹出确认、回车确认了它，记 `passed_blocked`。正常进入工作的序号差在真实 herdr 上也是 2，旧判据连这条都会误报。
 - **建议 3**：不改（回写包的 `AGENTS.md` 要开发者批准，由 coordinator 去问）。
 
-全量验证（集成分支 `8d644d118`）：
+全量验证（集成分支 `ca4c9bc89`）：
 - 包里 `bun test` 338 条全过，含 L4：herdr 命名会话 0.9.3 与 0.9.1 两组、`dev-live` 18 条。
 - `typecheck`、`build:web` 通过。
 - 根上 `dev-panel-records`、`workspace-workflows`、`agent-governance` 177 条通过；`dev-panel-records` 在 Node 下 5 条通过。

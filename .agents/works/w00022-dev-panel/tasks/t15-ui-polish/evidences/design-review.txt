@@ -1,4 +1,4 @@
-# t15 计划设计审查（plan.md 草案，基线 8a1a2a105，只读）
+# t15 计划设计审查（plan.md 草案，基线 f85157526，只读）
 
 ## 结论
 
@@ -16,7 +16,7 @@
 
 **决定点**：13 条里同意 11 条（第 1 条有条件：要补重要 5），部分反对第 2 条（不同意用 key 实现，也不同意同一格换会话就清空草稿），反对第 12 条（基线应与文档树同口径）。主 Agent 对第 10 条的改法（速览面板里放产物页面的沙箱 iframe，不放表单）同意，条件是 iframe 与产物页共用一个零件。两件环境事项同意，重启 4490 时必须沿用原来的 XDG_CONFIG_HOME 等环境，否则审计会写进开发者真实的审计文件。
 
-审查对象：.agents/works/w00022-dev-panel/tasks/t15-ui-polish/plan.md（未提交草案）。依据：同目录 design.md（D1 到 D5）、README.md、../../followups.md，以及本地 .local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/reports/ 下四份审查报告。代码看集成分支 worktree .worktree/w00022-dev-panel（HEAD 8a1a2a105，工作区干净）。下文的代码路径都相对仓库根，packages/dev-panel/src/web/ 简写为 web/，packages/dev-panel/src/server/ 简写为 server/。
+审查对象：.agents/works/w00022-dev-panel/tasks/t15-ui-polish/plan.md（未提交草案）。依据：同目录 design.md（D1 到 D5）、README.md、../../followups.md，以及本地 .local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/reports/ 下四份审查报告。代码看集成分支 worktree .worktree/w00022-dev-panel（HEAD f85157526，工作区干净）。下文的代码路径都相对仓库根，packages/dev-panel/src/web/ 简写为 web/，packages/dev-panel/src/server/ 简写为 server/。
 做过的实验都是临时脚本（不入库），按绝对路径导入 worktree 里的模块，没有改被跟踪的文件，没有起面板、没有开浏览器、没有调 herdr。
 
 ## 条目（按核实顺序追加）

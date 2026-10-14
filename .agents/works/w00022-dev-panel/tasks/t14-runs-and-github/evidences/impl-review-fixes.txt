@@ -1,4 +1,4 @@
-# w00022 追加修正实现审查报告（c5177bc56..3be97d883，只读）
+# w00022 追加修正实现审查报告（6b80522d7..9fc8cf009，只读）
 
 ## 结论
 
@@ -10,7 +10,7 @@
 - **t12 接管后又改一次尺寸的修正部分成立。** 滚动条这个原因确实消掉了：抢过来的场景从“136×27 再变 139×28、释放行 `resizes: 3`”变成“一次到位、`resizes: 1`”；接管中缩窄只 resize 一次；手机与文字视图不受影响，溢出在所有路径上都改回。但还有一个原因没处理，就是**重要 1**：xterm 的格宽随当前列数取整。从奇数列的 pty 普通接管，在 1280 宽（七个高度）和 1592 宽下照样会再 resize 一次（138 变 139、186 变 187）。开发者原来报的“186 变 187”在修正后的构建里原样复现。
 - 建议 3：包的浏览器验收规则里没写“去掉 `--hide-scrollbars`”。
 - **结束时的状态**：
-  - 审查 worktree：HEAD 仍是 `3be97d883`，`git status --short` 为空。临时 worktree `/dev/shm/review-t14-fixes/before` 已经 `git worktree remove --force`，`/dev/shm/review-t14-fixes/` 已删。
+  - 审查 worktree：HEAD 仍是 `9fc8cf009`，`git status --short` 为空。临时 worktree `/dev/shm/review-t14-fixes/before` 已经 `git worktree remove --force`，`/dev/shm/review-t14-fixes/` 已删。
   - herdr：`herdr session list` 只剩 `default`；对默认 server 只调了 `ping` 与 `session.snapshot`。
   - 进程：本审查起的 herdr server、面板（端口 4490、4491）、Chrome 都已结束，按记下的 PID 核对过没有残留。开发者的常驻面板与真实的审计文件（`$XDG_CONFIG_HOME/nbdev/audit.jsonl` 的缺省位置）没碰过：审计文件最后修改是 09:21，早于本审查开始。
   - 截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/review-fix-*.png`；脚本与日志在本报告同目录的 `scripts/`、`logs/`。
@@ -65,7 +65,7 @@
 
 脚本与日志都在本审查的临时目录 `review-t14-fixes/` 下（`scripts/`、`logs/`）；截图在主工作区 `.local/agent/works/w00022-dev-panel/tasks/t12-web-terminal/shots/review-fix-*.png`。
 
-### t11 通知误报（`cbe883a0e`、`3be97d883`）
+### t11 通知误报（`660faa56e`、`9fc8cf009`）
 
 - **全局计数与按格的事件（实测）**：在命名会话 `nbdev-review-t14f` 里分别用 server 0.9.3 与 0.9.1 跑（`scripts/exp-window.ts` 的 E1），两个版本结果相同。开始时 A 3、B 6；B 换四次屏幕、A 换一次之后，A 11、B 10。A 的观察只有 `["blocked"]`，B 的是 `["blocked","done","blocked","done"]`，两者都 `intact`。默认 server（0.9.1）上只调了 `ping` 与 `session.snapshot`：九格 Agent 的序号互不重复、散在同一个区间。`docs/herdr.md` 的“状态序号”一条属实。
 - **观察窗口的边界（实测，0.9.3 与 0.9.1 结果相同）**：观察在紧贴投递的 `agent.get` 之后、`agent.prompt` 之前同步开始（`delivery.ts:135`），由 `finally` 在返回体与约 500 毫秒后的 `agent.get` 都看完后关闭（`:136`-`140`）。日志里“观察开始”和“prompt 发出”在同一毫秒。同一次状态变化的事件比反映它的 RPC 晚 2 到 30 毫秒，500 毫秒的等待足够。各场景的结果：
@@ -81,12 +81,12 @@
 - **两处同一判据**：`notifier.ts:172` 与 `session-io.ts:40` 都把 `state.herdr.watchStatus` 传进同一个 `deliverText`。
 - **序号只比相等**：`delivery.ts:104`、`:113`、`:134`、`:169`，`notifier.ts:193`、`:312`、`:324`，`herdr-monitor.ts:171`-`174` 都是同一格前后比相等。`src/` 全量搜过，没有别处还在用差值或跨 pane 比较；`client.ts` 的注释已改。
 - **兼容与文案**：`passed_blocked`、`unwatched` 的文案与 `docs/file-formats.md`、`docs/herdr.md` 一致；`unwatched` 不算要处理的一条（`isAttention`、`ATTENTION` 只看 `result`）。`state_jumped` 的显示见“建议 1”。
-- **测试没有被放宽**：原来五种行为的那条 L3 现在连 `code` 一起核对。新加的三条覆盖：别的 pane 变两次、这一格只进入工作；这一格经过 blocked、同时别的格也变状态；没订阅、订阅中途断开、最后停在 blocked。`panel-notify` 新加了“自动通知的记录 `code` 为 null”，钉住面板接线。`3be97d883` 的放宽仍然钉得住要钉的东西：B 至少看到一次 blocked，说明 B 至少变过一次；如果每格各算一份计数，A 只变了一次，序号不可能大于 B，所以 `A > B` 仍然证明是全局计数；A 的观察严格等于 `["blocked"]`，钉住事件按格到达。本审查单独跑这条 L4 通过（A 6 `["blocked"]`，B 5 `["blocked","idle","blocked","done"]`）。
+- **测试没有被放宽**：原来五种行为的那条 L3 现在连 `code` 一起核对。新加的三条覆盖：别的 pane 变两次、这一格只进入工作；这一格经过 blocked、同时别的格也变状态；没订阅、订阅中途断开、最后停在 blocked。`panel-notify` 新加了“自动通知的记录 `code` 为 null”，钉住面板接线。`9fc8cf009` 的放宽仍然钉得住要钉的东西：B 至少看到一次 blocked，说明 B 至少变过一次；如果每格各算一份计数，A 只变了一次，序号不可能大于 B，所以 `A > B` 仍然证明是全局计数；A 的观察严格等于 `["blocked"]`，钉住事件按格到达。本审查单独跑这条 L4 通过（A 6 `["blocked"]`，B 5 `["blocked","idle","blocked","done"]`）。
 - **全量**：审查 worktree 里 `bun test` 322 条全过（含 L4 的两个 server 版本），`typecheck` 通过。
 
-### t12 接管后又改一次尺寸（`85396c02d`）
+### t12 接管后又改一次尺寸（`6a6e44ad3`）
 
-- **复现与复测**：`scripts/t12-resize.ts`，用去掉 `--hide-scrollbars` 的 Chrome；修正前的 web 用 `c5177bc56` 的临时 worktree 构建（`logs/t12-steal.log`）。A 在 2400×1500 下先接管，把 pty 变成 206×54，B 在 1280×800 下抢过来：
+- **复现与复测**：`scripts/t12-resize.ts`，用去掉 `--hide-scrollbars` 的 Chrome；修正前的 web 用 `6b80522d7` 的临时 worktree 构建（`logs/t12-steal.log`）。A 在 2400×1500 下先接管，把 pty 变成 206×54，B 在 1280×800 下抢过来：
   - 修正前：小窗写 `136x27`，pty 先 `136x27`、0.2 秒后变 `139x28`；接管中缩到 900 宽变两次（`80x27` 再 `80x28`）；B 的释放行 `resizes: 3`。
   - 修正后：小窗写 `139x28`，pty 只变一次；缩窄也只变一次（`80x28`）；释放行 `resizes: 1`。
   - DPR 1.25、1.5、2 下抢过来同样只变一次。

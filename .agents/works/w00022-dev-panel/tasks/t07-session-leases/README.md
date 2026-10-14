@@ -34,7 +34,7 @@ updated: 2026-10-13
 - 发现一处小问题，并入下一轮修：`identity.test.ts` 里 `sh -c "sleep 30 & wait"` 的用例只结束外层 `sh`，留下两个被 PID 1 收养的 `sleep 30`。
 
 - 2026-10-13 主 Agent 的意外观察：t08 唤醒验证时，主会话对临时仓库运行了 `nbdev answers … --wait`（没加 `--as`），nbdev 给主会话在默认 herdr 上的 pane w1:p16 写了 `work=w00001`、`task=t01` 标签。由此核实：默认 server 0.9.1 能写入 tokens（`pane list` 里看得到），把值设为 null 能清掉（主 Agent 已经清掉）。暴露的问题：对别的仓库（临时仓库）的操作不该标到真实 pane 上。并入 t09：写标签前，确认 pane 的 cwd 在被操作仓库的某个 checkout 下，不在就不写。另外，herdr 0.9.3 的命令行 `pane report-metadata` 不认 `--source`，nbdev 走 socket 不受影响。
-- 2026-10-13 开发者授权后，集成分支 `16cfb817e` 本地合入 `master`（合并提交 `3ef00987a`，没有 PR、没有 push master）；合并提交上复跑包测试 173 个、typecheck、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check` 都通过。
+- 2026-10-13 开发者授权后，集成分支 `16cfb817e` 本地合入 `master`（合并提交 `7e837bd80`，没有 PR、没有 push master）；合并提交上复跑包测试 173 个、typecheck、`build:web`、根上三个测试文件 175 个、`governance:check`、`docs:check` 都通过。
 
 ## 下一步
 

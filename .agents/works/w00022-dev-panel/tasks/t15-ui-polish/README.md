@@ -27,7 +27,7 @@ updated: 2026-10-14
 - 审查环境：在 `/dev/shm` 里另起一个面板（端口 4490），数据来自主工作区记录的稀疏克隆，herdr 用命名会话 `nbdev-ui-review`（一格假 Claude、两格 shell）；在这个面板上的写入只进克隆。说明与登录方法在本地 `.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/reports/review-env.md`。
 - 已派出四路审查，报告与截图在同一本地目录的 `reports/`、`shots/`：
   - 三个 sonnet 子代理在浏览器里体验：信息架构与视觉层次（ux-a）、任务流程与交互反馈（ux-b）、滚动条、响应式与可访问性（ux-c）；
-  - 一个 omp 只读审查前端代码设计（worktree `.worktree/w00022-t15-review`，detached 在 `5cf816f1c`），并给出左栏可调宽度与滚动条的实现方案、重构路线。
+  - 一个 omp 只读审查前端代码设计（worktree `.worktree/w00022-t15-review`，detached 在 `def03ea99`），并给出左栏可调宽度与滚动条的实现方案、重构路线。
 
 - 2026-10-13 四路审查交回：
   - ux-a：重要 6、建议 7；
@@ -57,7 +57,7 @@ updated: 2026-10-14
     - 输入框草稿按 pane 记，同一格换会话（例如 `/compact`）时保留；
     - 观看非 Agent 的 pane、读它的历史不写审计，与现行“观看不写审计”的合同一致。
 
-- 2026-10-14 阶段 1 合入 `master`（合并提交 `81ddd9b68`）：
+- 2026-10-14 阶段 1 合入 `master`（合并提交 `6e21cba2a`）：
   - 十条行为缺陷都已修正，浏览器验收 40 条通过；
   - opus 实现审查 0 阻断、0 重要，5 条建议合入前都已改掉（[报告](evidences/impl-review-phase1.txt)）；
   - 全量测试 374 过；常驻服务已重启。过程见 [plan.md](plan.md) 的“实施进度”。

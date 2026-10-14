@@ -28,7 +28,7 @@ code { font-size: 13px; }
 <body>
 <main>
 <h1>拖放与标题栏：新旧应用差距</h1>
-<p class="meta">t83 调研，2026-10-13。旧应用取 master <code>c3c47d5d</code>（临时 worktree、临时状态目录），新应用取分支 <code>refactor/w00017-runtime-foundation</code> 的 <code>158f999d</code>。两边都新建“雾港”作品、1440×900、nbook 亮色，用同一个 Playwright 脚本做同样的拖动并录下屏幕流。图里都是左旧右新。</p>
+<p class="meta">t83 调研，2026-10-13。旧应用取 master <code>3ef4c7f2</code>（临时 worktree、临时状态目录），新应用取分支 <code>refactor/w00017-runtime-foundation</code> 的 <code>158f999d</code>。两边都新建“雾港”作品、1440×900、nbook 亮色，用同一个 Playwright 脚本做同样的拖动并录下屏幕流。图里都是左旧右新。</p>
 
 <div class="card">
 <b>结论</b>：拖放判定与落点覆盖层两边几乎是同一套（新应用从旧应用移植，nb-ui 的 <code>DropFeedbackOverlay</code> 两边只差 z-index），淡入与换目标时的过渡两边都有，松手后两边都没有动画。新应用“没有落点指示”的主要原因是默认布局里根本没有可放的地方：空着的右栏与面板缺省不显示（Spec 输出 39），拖资源管理器全程只有拖影。其次是空区域不像落点、高亮偏浅。面板里多个容器、容器内分栏、拖到半区并入，新应用都有且与旧应用一致（D6），只是新产品里只有一个视图，体验不到。标题栏旧应用是逐级让位、搜索占满中间，新应用只有三档。多级菜单在旧应用里只出现在窄宽度的收拢菜单。

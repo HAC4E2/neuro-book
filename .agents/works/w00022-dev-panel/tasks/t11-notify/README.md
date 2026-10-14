@@ -71,16 +71,16 @@ updated: 2026-10-13
   - 另加：没有桌面环境时，`panel open` 提示 SSH 转发，文档补上“从别的电脑用”。
 - 主 Agent 复跑：包测试 254 个（含 L4）、typecheck、`build:web`、根上三个测试文件 177 个、`dev-panel-records` 在 Node 下退出码 0、`governance:check`、`docs:check` 都通过。
 
-- 2026-10-13 按开发者授权，集成分支 `3f474ce4c` 本地合入 `master`（合并提交 `23f604ebf`，没有 PR、没有 push master），根 `AGENTS.md` 的 `[nbdev]` 一句随之生效。合并提交上复跑：包测试 251 个（L4 刚在 `3f474ce4c` 上跑过，包内容与它相同，这次跳过以免与 t12 的命名会话冲突）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
+- 2026-10-13 按开发者授权，集成分支 `3f474ce4c` 本地合入 `master`（合并提交 `137be5b5a`，没有 PR、没有 push master），根 `AGENTS.md` 的 `[nbdev]` 一句随之生效。合并提交上复跑：包测试 251 个（L4 刚在 `3f474ce4c` 上跑过，包内容与它相同，这次跳过以免与 t12 的命名会话冲突）、typecheck、`build:web`、根上三个测试文件 177 个、`governance:check`、`docs:check` 都通过。
 - 2026-10-13 运行审计初始化：`~/.config/nbdev/` 权限 700，`audit.jsonl` 与 `init.json` 权限 600，启用时刻 `2026-10-13T05:13:06Z`；这之前的答复不自动通知。
 
 - 2026-10-13 开发者停掉手动起的面板后，按授权运行 `install-service`：`~/.config/systemd/user/nbdev-panel-neuro-book.service` 已 `enable --now`，状态 `active`，约 1 秒预热完成，日志在 `journalctl --user -u nbdev-panel-neuro-book.service`。
 
-- 2026-10-13 按开发者要求，加了管理服务的包脚本 `service`、`service:status|start|stop|restart|logs`。它们在单独的分支 `feat/w00022-t11-service-scripts`（`583c3d1cd`）上完成，经开发者授权，与 t12 一起合入 `master`（合并提交 `fcb2bddc5`）。
+- 2026-10-13 按开发者要求，加了管理服务的包脚本 `service`、`service:status|start|stop|restart|logs`。它们在单独的分支 `feat/w00022-t11-service-scripts`（`9ac494df0`）上完成，经开发者授权，与 t12 一起合入 `master`（合并提交 `66cc4d85d`）。
 
-- 2026-10-13 场景 1（开发者在场）：`nbdev ask` 登记验收题 `notify-smoke`（questions v1，提交 `bfe20ff51`）；开发者答 `a`（甲），答复 `20261013T081222601Z-b5a6d4ed`，`[nbdev]` 通知送到本会话。这道题只用来验收通知，答案不带来任何决定。
+- 2026-10-13 场景 1（开发者在场）：`nbdev ask` 登记验收题 `notify-smoke`（questions v1，提交 `8efb107b2`）；开发者答 `a`（甲），答复 `20261013T081222601Z-b5a6d4ed`，`[nbdev]` 通知送到本会话。这道题只用来验收通知，答案不带来任何决定。
 
-- 2026-10-13 场景 1 验收通过（开发者在场）：登记 `bfe20ff51`、答复 `328ba4e85`、确认 `f8d011565`、撤回 `cd335e923`，各一个提交。答完 4 秒后 `[nbdev]` 通知送到，会话照着读答复并确认。“会话忙时排队、空闲后再发”这条路径没在真会话上走到：答题时会话已经空闲。
+- 2026-10-13 场景 1 验收通过（开发者在场）：登记 `8efb107b2`、答复 `8195e69c9`、确认 `422aa5116`、撤回 `dfb089faa`，各一个提交。答完 4 秒后 `[nbdev]` 通知送到，会话照着读答复并确认。“会话忙时排队、空闲后再发”这条路径没在真会话上走到：答题时会话已经空闲。
 - 已知问题（后续修）：
   - 这次的自动通知和会话页手动发的“你好”，两次投递都被记成 `delivered_into_blocked`（`state_jumped`），面板标红、要求“马上看终端”，但会话里没有弹过确认界面。
   - 主 Agent 用只读快照核实：herdr 的 `state_change_seq` 是全服务器共用的一个计数（各 pane 的值散落在同一区间、互不重复），不是每格 pane 各一份。`delivery.ts` 用“投递前后序号跳了 2 以上”判断经过了确认界面，别的会话同时变了状态就会误报。
