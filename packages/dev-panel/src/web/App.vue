@@ -2,12 +2,13 @@
 import {Badge, Button, Drawer, FormInput, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
-import {relativeTime, taskLabel, workLabel} from "./host/format.js";
+import {relativeTime} from "./host/format.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readNavOpen, writeAppearance, writeNavOpen, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
+import PanelNav from "./parts/PanelNav.vue";
 import type {Meta, NotifyData, Overview} from "./host/types.js";
 
 /**
@@ -59,18 +60,24 @@ onMounted(() => {
 onBeforeUnmount(() => unfollow());
 
 const navOpen = ref<Record<string, boolean>>(readNavOpen());
-function toggleWork(workId: string): void {
-    navOpen.value = {...navOpen.value, [workId]: !(navOpen.value[workId] ?? false)};
+function toggleWork(workId: string, open: boolean): void {
+    navOpen.value = {...navOpen.value, [workId]: open};
     writeNavOpen(navOpen.value);
 }
+/** 导航的“当前页”：路径不含查询参数；Work 级产物的 taskId 写成 `-`，不算 Task。 */
+const navCurrent = computed(() => {
+    const one = (value: unknown) => (typeof value === "string" ? value : null);
+    const taskId = one(route.params.taskId);
+    return {path: route.path, workId: one(route.params.workId), taskId: taskId === "-" ? null : taskId};
+});
 const drawerOpen = ref(false);
 watch(() => route.fullPath, () => {
     drawerOpen.value = false;
 });
 
 const mainWritable = computed(() => meta.data.value?.mainWritable ?? null);
-const navWorks = computed(() => (overview.data.value?.works ?? []).filter((work) => work.status.value === null || work.status.value === "active"));
-const inboxCount = computed(() => overview.data.value?.inbox.length ?? 0);
+const navCounts = computed(() => ({inbox: overview.data.value?.inbox.length ?? 0, sessions: overview.data.value?.sessions.total, runs: overview.data.value?.runs}));
+const navWritable = computed(() => (mainWritable.value ? {ok: mainWritable.value.ok, code: mainWritable.value.code} : null));
 
 const query = ref(typeof route.query.q === "string" ? route.query.q : "");
 watch(() => route.query.q, (value) => {
@@ -112,47 +119,9 @@ const herdrLabel = computed(() => {
             <Button variant="primary" :loading="relogging" @click="relogin">我已重新登录</Button>
         </section>
     </div>
-    <div class="grid h-full grid-cols-1 md:grid-cols-[15.5rem_minmax(0,1fr)]" :inert="panelState.unauthorized || undefined">
-        <aside class="nbdev-scroll-y hidden min-h-0 flex-col border-r md:flex" style="background: var(--sidebar-surface, var(--bg-sidebar)); border-color: var(--divider)" aria-label="面板导航">
-            <nav class="flex flex-col gap-4 p-3">
-                <RouterLink to="/" class="flex items-center gap-2 px-2 font-semibold"><span class="i-lucide-layout-dashboard size-4" aria-hidden="true" />nbdev 面板</RouterLink>
-                <section class="flex flex-col gap-0.5">
-                    <RouterLink to="/" class="nav-item" exact-active-class="nav-active"><span class="i-lucide-inbox size-4" aria-hidden="true" />首页与收件箱<Badge v-if="inboxCount > 0" tone="warning" variant="soft" size="sm" class="ml-auto">{{ inboxCount }}</Badge></RouterLink>
-                </section>
-                <section class="flex flex-col gap-0.5" aria-label="工作">
-                    <h2 class="nav-heading">工作</h2>
-                    <div v-for="work in navWorks" :key="work.workId" class="flex flex-col">
-                        <div class="flex items-center">
-                            <button type="button" class="nav-toggle" :aria-expanded="navOpen[work.workId] ?? false" :aria-label="`展开 ${work.workId} 的 Task`" @click="toggleWork(work.workId)">
-                                <span :class="navOpen[work.workId] ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" aria-hidden="true" />
-                            </button>
-                            <RouterLink :to="`/work/${work.workId}`" class="nav-item min-w-0 flex-1" active-class="nav-active"><span class="truncate"><span style="color: var(--text-muted)">{{ workLabel(work.workId) }}</span> {{ work.title ?? work.workId }}</span></RouterLink>
-                        </div>
-                        <div v-if="navOpen[work.workId]" class="ml-5 flex flex-col">
-                            <RouterLink v-for="task in work.tasks" :key="task.taskId" :to="`/work/${work.workId}/task/${task.taskId}`" class="nav-item" active-class="nav-active">
-                                <span class="truncate"><span style="color: var(--text-muted)">{{ taskLabel(task.taskId) }}</span> {{ task.title ?? task.taskId }}</span>
-                            </RouterLink>
-                        </div>
-                    </div>
-                    <p v-if="overview.data.value && navWorks.length === 0" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">没有进行中或未标的 Work</p>
-                </section>
-                <section class="flex flex-col gap-0.5">
-                    <RouterLink v-if="mainWritable?.ok" to="/new" class="nav-item" active-class="nav-active"><span class="i-lucide-plus size-4" aria-hidden="true" />新建 Work 或 Task</RouterLink>
-                    <p v-else-if="mainWritable" class="px-2" style="color: var(--text-muted); font-size: var(--text-xs)">主工作区现在不能写（{{ mainWritable.code }}），写入口已隐藏</p>
-                </section>
-                <section class="flex flex-col gap-0.5">
-                    <h2 class="nav-heading">资料</h2>
-                    <RouterLink to="/artifacts" class="nav-item" active-class="nav-active"><span class="i-lucide-files size-4" aria-hidden="true" />产物</RouterLink>
-                    <RouterLink to="/docs" class="nav-item" active-class="nav-active"><span class="i-lucide-book-open size-4" aria-hidden="true" />文档</RouterLink>
-                </section>
-                <section class="flex flex-col gap-0.5">
-                    <h2 class="nav-heading">现场</h2>
-                    <RouterLink to="/live/sessions" class="nav-item" active-class="nav-active"><span class="i-lucide-terminal size-4" aria-hidden="true" />会话<span v-if="overview.data.value" class="ml-auto" style="color: var(--text-muted); font-size: var(--text-xs)">{{ overview.data.value.sessions.total }}</span></RouterLink>
-                    <RouterLink to="/live/runs" class="nav-item" active-class="nav-active"><span class="i-lucide-activity size-4" aria-hidden="true" />在跑<span v-if="overview.data.value" class="ml-auto" style="color: var(--text-muted); font-size: var(--text-xs)">{{ overview.data.value.runs }}</span></RouterLink>
-                    <RouterLink to="/live/checkouts" class="nav-item" active-class="nav-active"><span class="i-lucide-git-fork size-4" aria-hidden="true" />checkout</RouterLink>
-                    <RouterLink to="/live/github" class="nav-item" active-class="nav-active"><span class="i-lucide-git-pull-request size-4" aria-hidden="true" />GitHub</RouterLink>
-                </section>
-            </nav>
+    <div class="grid h-full grid-cols-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[15.5rem_minmax(0,1fr)]" :inert="panelState.unauthorized || undefined">
+        <aside class="hidden min-h-0 overflow-hidden border-r md:block" style="background: var(--sidebar-surface, var(--bg-sidebar)); border-color: var(--divider)">
+            <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork" />
         </aside>
         <div class="flex min-h-0 min-w-0 flex-col">
             <header class="flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2" style="background: var(--toolbar-surface, var(--bg-main)); border-color: var(--divider)">
@@ -181,54 +150,7 @@ const herdrLabel = computed(() => {
             </main>
         </div>
         <Drawer v-model:open="drawerOpen" direction="left" title="导航">
-            <nav class="flex flex-col gap-1 p-2" aria-label="面板导航">
-                <RouterLink to="/" class="nav-item">首页与收件箱<Badge v-if="inboxCount > 0" tone="warning" variant="soft" size="sm" class="ml-auto">{{ inboxCount }}</Badge></RouterLink>
-                <RouterLink v-for="work in navWorks" :key="work.workId" :to="`/work/${work.workId}`" class="nav-item"><span class="truncate"><span style="color: var(--text-muted)">{{ workLabel(work.workId) }}</span> {{ work.title ?? work.workId }}</span></RouterLink>
-                <RouterLink v-if="mainWritable?.ok" to="/new" class="nav-item">新建 Work 或 Task</RouterLink>
-                <RouterLink to="/artifacts" class="nav-item">产物</RouterLink>
-                <RouterLink to="/docs" class="nav-item">文档</RouterLink>
-                <RouterLink to="/live/sessions" class="nav-item">会话</RouterLink>
-                <RouterLink to="/live/runs" class="nav-item">在跑</RouterLink>
-                <RouterLink to="/live/checkouts" class="nav-item">checkout</RouterLink>
-                <RouterLink to="/live/github" class="nav-item">GitHub</RouterLink>
-            </nav>
+            <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" @navigate="(href) => router.push(href)" @toggle="toggleWork" />
         </Drawer>
     </div>
 </template>
-
-<style scoped>
-.nav-item {
-    display: flex;
-    min-height: 1.875rem;
-    align-items: center;
-    gap: 0.5rem;
-    border-radius: var(--radius-control);
-    padding: 0.25rem 0.5rem;
-    color: var(--text-secondary);
-}
-.nav-item:hover, .nav-item:focus-visible {
-    background: var(--bg-hover);
-    color: var(--text-main);
-}
-.nav-active {
-    background: var(--accent-bg);
-    color: var(--text-main);
-}
-.nav-heading {
-    padding: 0 0.5rem 0.25rem;
-    font-size: var(--text-2xs);
-    color: var(--text-muted);
-}
-.nav-toggle {
-    display: inline-flex;
-    width: 1.25rem;
-    height: 1.25rem;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-control);
-    color: var(--text-muted);
-}
-.nav-toggle:hover {
-    background: var(--bg-hover);
-}
-</style>
