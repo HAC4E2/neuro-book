@@ -28,6 +28,11 @@ updated: 2026-10-14
   - S1 Files（`c1bc726b7`）：“第 N 卷 / 章”里的中文数字按数值排序（比较放到 `files/shared/names.ts`，Lab 内存适配器共用）、内容树目录的 `leaf`、只读方法 `realPath`，远程合同版本 4。files 测试 106 例与新增的排序单测通过。按计划用 `perf:files` 在本机对照展开内容文件夹（D2）：master 首次展开 p50 85 ms，本分支 65 ms，没有变慢（本机噪声范围内；原始结果在本地 `perf/`）。
   - S2 图标（`2004eca19`）：`gen:file-icons` 从 `@iconify-json/catppuccin` 生成 36 个图标，`FileIcon` 内联 SVG、亮 Latte 暗 Macchiato；Lab `FileIcon` 场景明暗截图核对。
   - S3 行的样子（`192b1a601`）：状态挂在目录行上、状态图标、后缀副标题、叶子不可展开、根的分节标题、缩进参考线，两个设置项归新分区“资源管理器”，`retry-list` 命令；explorer、lab、files、settings 的 Bun 366 例与 Vitest 209 例通过，`files-explorer`、`lab-explorer`、`settings` 三组 e2e 23 例通过；真实工作台（雾港）截图核对排序、图标、参考线与设置窗口。
+  - S4 右键菜单（`40cf4e1c1`）：命令 `open`、`open-to-side`、`copy-path`、`copy-relative-path`，`nbook.editor.open` 加 `group`（组 id 或 `side`）；nb-ui 菜单的快捷键靠右、正文字体。菜单阴影只改了 nbook 主题的 `--elevation-menu`（加一层远投影）：它是 t79 第五轮特意收小的，macos 的菜单本来就用较深的浮层阴影，没动；计划原写改全局浮层阴影，收窄到菜单。
+  - S5 拖动（`35ecd4d37`）：落点分行、树里的空白、编辑组三类；拖到文件上或两行之间移入所在文件夹、空白移入根、编辑组在那一组打开；移入画目标目录整段、拖影、源行淡化、`aria-live` 播报；停留 600 ms 展开；边缘滚动。
+  - S6（`d25976f43`、`1223b4906`）：Lab 实时场景加叶子节点与几种文件类型；一个 opus 子代理做了一轮实现审查，14 条（应改 4、建议 10），处理见 [evidences/impl-review.md](evidences/impl-review.md)：12 条改了或改了 Spec，R5 不改（理由在记录里），R12 记录取舍。
+  - 验证（`1223b4906`）：typecheck 0；neuro-book Bun 1102 例与 Vitest 209 例通过（Files 订阅的一例在全量负载下偶发失败一次，单独跑与再跑两次全量都通过，与本次改动无关）；新应用全套 e2e 200 例通过（审查修正之前跑的），修正后资源管理器 e2e 16 例通过；`test:affected --typecheck --since master` 只剩已知的 llmlint 两项与 neuro-book-test-support 一项；`docs:check`、`governance:check` 0 失败。收口截图（开发服务里的雾港，nbook、macos × 明暗，无页面错误）：[final-themes.webp](evidences/final-themes.webp)、右键菜单 [context-menu.webp](evidences/context-menu.webp)。
+  - 未验证：触摸设备上的停留展开与边缘滚动只看了代码；跨机器访问时“复制路径”给的是服务端机器上的路径（Spec 写明）。
 
 ## 决定
 
@@ -66,4 +71,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-按 [plan.md](plan.md) 从 S0 开始实施。
+等开发者验收（开发服务 `nbdev dev start` 起在 4217，样例作品“雾港”在本地 `.local/…/t86-explorer-polish/sample/`）。合入 master 要开发者授权。
