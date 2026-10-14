@@ -4,7 +4,8 @@ import {computed, ref, watch} from "vue";
 import {statusLabel} from "../host/format.js";
 
 /**
- * Work 页与 Task 页的状态切换：下拉选了不立即写，先在原地确认一次（“把 t09 改成完成”），确认后发 `confirm`，由页面发请求。
+ * Work 页与 Task 页的状态切换：平时只是一个“改状态”按钮（状态本身由标题旁的徽标显示，页面上只显示一处，t15 阶段 4 第 2 批）；
+ * 点了才出下拉，选了不立即写，先在原地确认一次（“把 t09 改成完成”），确认后发 `confirm`，由页面发请求。
  * 不能切换时（来自分支、主工作区不能写）只显示原因。
  */
 const props = defineProps<{
@@ -21,9 +22,16 @@ const props = defineProps<{
 const emit = defineEmits<{confirm: [status: string]}>();
 
 const choice = ref<string | null>(null);
+/** 点了“改状态”：出下拉。状态变了（改成功、推送来了新状态）就收起。 */
+const editing = ref(false);
 watch(() => props.status, () => {
     choice.value = null;
+    editing.value = false;
 });
+function cancel(): void {
+    choice.value = null;
+    editing.value = false;
+}
 const selectOptions = computed(() => props.options.map((value) => ({value, label: statusLabel(value)})));
 </script>
 
@@ -32,6 +40,7 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
         <template v-if="disabledReason">
             <span class="nbdev-empty">{{ disabledReason }}</span>
         </template>
+        <Button v-else-if="!editing" size="sm" variant="ghost" icon-class="i-lucide-pencil-line" @click="editing = true">改状态</Button>
         <template v-else>
             <div class="w-32">
                 <FormSelect :model-value="choice ?? status ?? ''" :options="selectOptions" aria-label="改状态" placeholder="未标" size="sm" :disabled="pending" @update:model-value="(value: string) => (choice = value === status ? null : value)" />
@@ -39,9 +48,9 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
             <template v-if="choice">
                 <span>把 {{ subject }} 改成{{ statusLabel(choice) }}？</span>
                 <Button size="sm" :loading="pending" @click="emit('confirm', choice)">确认</Button>
-                <Button size="sm" variant="ghost" :disabled="pending" @click="choice = null">取消</Button>
                 <span class="nbdev-secondary" v-if="slow">在等别的写入完成…</span>
             </template>
+            <Button size="sm" variant="ghost" :disabled="pending" @click="cancel">取消</Button>
         </template>
     </div>
 </template>
