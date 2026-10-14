@@ -23,6 +23,7 @@ import {
     unackedAnswers,
     versionPath,
     adoptionOf,
+    awaitsAnswer,
     type AckRecord,
     type Adoption,
     type AnswerRecord,
@@ -748,7 +749,7 @@ function answersView(snapshot: ArtifactSnapshot & {latest: ArtifactVersion}): Ar
         version: latest.version,
         state: latest.state,
         publishedAt: latest.publishedAt,
-        openRequired: states.filter((state) => state.state === "open" && state.question.required).length,
+        openRequired: states.filter(awaitsAnswer).length,
         adoption: adoptionOf(snapshot.answers, snapshot.acks),
         questions: states,
         answers: snapshot.answers,
@@ -767,7 +768,7 @@ function select(views: readonly ArtifactAnswersView[], query: AnswersQuery): Art
         });
     }
     if (query.filter === "pending") {
-        return views.filter((view) => view.openRequired > 0).map((view) => ({...view, questions: view.questions.filter((state) => state.state === "open" && state.question.required)}));
+        return views.filter((view) => view.openRequired > 0).map((view) => ({...view, questions: view.questions.filter(awaitsAnswer)}));
     }
     if (query.filter === "unacked") return views.filter((view) => view.unacked.length > 0);
     return [...views];
