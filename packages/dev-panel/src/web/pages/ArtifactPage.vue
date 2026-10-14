@@ -117,7 +117,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
                 <Badge v-if="data.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
                 <Badge v-if="data.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
                 <Badge v-if="data.unpublishedChanges" tone="warning" variant="soft" size="sm" icon-class="i-lucide-pencil">有未发布的改动</Badge>
-                <span v-if="data.publishedAt" style="color: var(--text-muted); font-size: var(--text-xs)">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
+                <span v-if="data.publishedAt" style="color: var(--text-secondary); font-size: var(--text-xs)">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
                 <div v-if="versionOptions.length > 1" class="ml-auto w-40">
                     <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
                 </div>

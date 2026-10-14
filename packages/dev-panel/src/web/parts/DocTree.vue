@@ -59,7 +59,7 @@ watch(() => [props.selected, props.changes] as const, () => {
             </button>
             <div v-if="open[group.key]" class="ml-4 flex flex-col">
                 <div v-for="section in group.sections" :key="section.section" class="flex flex-col">
-                    <p v-if="section.section" class="truncate px-1 pt-1" style="color: var(--text-muted)">{{ section.section }}</p>
+                    <p v-if="section.section" class="truncate px-1 pt-1" style="color: var(--text-secondary)">{{ section.section }}</p>
                     <template v-for="row in section.rows" :key="row.path">
                         <button v-if="row.present" type="button" class="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-control)] px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]" :style="row.path === selected ? {background: 'var(--accent-bg)'} : {}" :aria-current="row.path === selected ? 'page' : undefined" :title="row.path" @click="$emit('open', row.path)">
                             <span class="min-w-0 flex-1 truncate">{{ row.name }}</span>

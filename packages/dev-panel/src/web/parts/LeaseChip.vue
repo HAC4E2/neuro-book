@@ -11,7 +11,7 @@ withDefaults(defineProps<{session: string; task?: string | null; stale?: boolean
     >
         <span class="i-lucide-user-round size-3 shrink-0" aria-hidden="true" />
         <span class="truncate">{{ session }}</span>
-        <span v-if="task" class="shrink-0" style="color: var(--text-muted)">· {{ task }}</span>
+        <span v-if="task" class="shrink-0" style="color: var(--text-secondary)">· {{ task }}</span>
         <span v-if="ended" class="sr-only">（已失效）</span>
     </span>
 </template>

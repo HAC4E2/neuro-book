@@ -41,7 +41,7 @@ function outcomeText(state: QuestionState): string {
                 <div class="flex flex-wrap items-center gap-1.5">
                     <Badge tone="neutral" variant="outline" size="sm">{{ TYPE_LABEL[state.question.type] }}</Badge>
                     <Badge v-if="!state.question.required" tone="neutral" variant="soft" size="sm">选答</Badge>
-                    <span style="color: var(--text-muted); font-size: var(--text-xs)">#{{ state.question.id }} · 自 v{{ state.question.since }}</span>
+                    <span style="color: var(--text-secondary); font-size: var(--text-xs)">#{{ state.question.id }} · 自 v{{ state.question.since }}</span>
                 </div>
                 <p class="font-medium">{{ state.question.label }}</p>
                 <ul v-if="state.question.options.length > 0" class="flex flex-col gap-0.5 pl-1" style="font-size: var(--text-xs); color: var(--text-secondary)">
@@ -50,7 +50,7 @@ function outcomeText(state: QuestionState): string {
                         <Badge v-if="state.question.recommend.includes(option.value)" tone="accent" variant="soft" size="sm">推荐</Badge>
                     </li>
                 </ul>
-                <p v-if="state.question.about" style="color: var(--text-muted); font-size: var(--text-xs)">关于 {{ state.question.about }}</p>
+                <p v-if="state.question.about" style="color: var(--text-secondary); font-size: var(--text-xs)">关于 {{ state.question.about }}</p>
                 <p v-if="state.stale" class="rounded-[var(--radius-control)] px-2 py-1" style="background: var(--status-warning-bg, var(--bg-subtle)); font-size: var(--text-xs); color: var(--text-secondary)">
                     旧答复“{{ valueText(state.question, state.stale.value) }}”{{ state.stale.code === "stale_value" ? `按 v${state.stale.artifactVersion} 合法，但选项后来改了` : "本身就不合法" }}，要重新答
                 </p>

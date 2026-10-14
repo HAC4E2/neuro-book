@@ -39,8 +39,9 @@ function go(query: Record<string, string | undefined>): void {
 </script>
 
 <template>
-    <div class="grid h-full min-h-0 grid-cols-1 md:grid-cols-[18rem_minmax(0,1fr)]">
-        <aside class="flex min-h-0 flex-col gap-3 overflow-y-auto border-b p-3 md:border-b-0 md:border-r" style="border-color: var(--divider)" aria-label="文档树">
+    <!-- 铺满型页面（路由 layout: fill）：宽屏上树与正文各自滚动；窄屏上下堆叠，整页由根滚动，仍只有一个竖向滚动者。 -->
+    <div class="grid h-full min-h-0 grid-cols-1 overflow-y-auto [scrollbar-gutter:stable] md:grid-cols-[18rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden md:[scrollbar-gutter:auto]">
+        <aside class="flex min-h-0 flex-col gap-3 border-b p-3 md:overflow-y-auto md:border-b-0 md:border-r md:[scrollbar-gutter:stable]" style="border-color: var(--divider)" aria-label="文档树">
             <CheckoutSwitch v-if="tree.data.value" :checkouts="tree.data.value.checkouts" :model-value="checkout" :preferred="prefer" @update:model-value="(key) => go({checkout: key})" />
             <div v-if="tree.data.value && !tree.data.value.checkout.isMain" class="flex flex-col gap-1.5" style="font-size: var(--text-xs)">
                 <p style="color: var(--text-secondary)">与主工作区（master）的差异 {{ tree.data.value.changes.length }} 处</p>
@@ -50,7 +51,7 @@ function go(query: Record<string, string | undefined>): void {
             <LoadState v-if="!tree.data.value" :loading="tree.loading.value" :error="tree.error.value" label="正在读取文档树" @retry="tree.reload()" />
             <DocTree v-else :docs="tree.data.value.docs" :changes="tree.data.value.changes" :selected="path" :changed-only="changedOnly" @open="(value) => go({path: value})" />
         </aside>
-        <section class="min-h-0 min-w-0 overflow-y-auto p-4 md:p-6">
+        <section class="min-h-0 min-w-0 p-4 md:overflow-y-auto md:p-6 md:[scrollbar-gutter:stable]">
             <StaleNotice v-if="file.stale.value" :error="file.error.value!" :received-at="file.receivedAt.value" :up-href="treeHref" up-label="回到文档树" @navigate="(href) => router.push(href)" @retry="file.reload()" />
             <p v-if="!path" style="color: var(--text-muted)">在左边选一份文档</p>
             <LoadState v-else-if="!file.data.value" :loading="file.loading.value" :error="file.error.value" label="正在读取文档" @retry="file.reload()" />
@@ -70,7 +71,7 @@ function go(query: Record<string, string | undefined>): void {
                     <h2 class="font-semibold">最近的改动</h2>
                     <ol class="flex flex-col gap-0.5">
                         <li v-for="commit in file.data.value.recent" :key="commit.sha" class="flex min-w-0 gap-2">
-                            <code style="color: var(--text-muted)">{{ commit.sha.slice(0, 9) }}</code><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span style="color: var(--text-muted)">{{ relativeDay(commit.date) }}</span>
+                            <code style="color: var(--text-muted)">{{ commit.sha.slice(0, 9) }}</code><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span style="color: var(--text-secondary)">{{ relativeDay(commit.date) }}</span>
                         </li>
                     </ol>
                 </section>

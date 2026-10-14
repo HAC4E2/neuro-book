@@ -24,7 +24,7 @@ const safeUrl = (url: string | null) => (url && /^https?:\/\//u.test(url) ? url 
                 <a v-if="safeUrl(run.url) && run.state !== 'ended'" :href="safeUrl(run.url)!" target="_blank" rel="noopener noreferrer" class="break-all" style="font-size: var(--text-xs)">{{ run.url }}</a>
                 <span v-else-if="run.state !== 'ended'" style="color: var(--text-muted); font-size: var(--text-xs)">地址未知</span>
             </div>
-            <span class="min-w-0 break-all" style="color: var(--text-muted); font-size: var(--text-xs)">
+            <span class="min-w-0 break-all" style="color: var(--text-secondary); font-size: var(--text-xs)">
                 {{ run.startedBy ? shortSession(run.startedBy.key, run.startedBy.label) : "未认出的调用者" }}起 · {{ relativeTime(run.startedAt) }}<template v-if="run.workId && run.taskId"> · {{ run.workId.slice(0, 6) }}/{{ run.taskId.slice(0, run.taskId.indexOf("-")) }}</template><template v-if="run.reason"> · {{ REASON[run.reason] ?? run.reason }}</template><template v-if="run.state === 'ended' && run.exitCode !== null"> · 退出码 {{ run.exitCode }}</template> · 日志 <code>{{ run.logPath }}</code>
             </span>
         </li>

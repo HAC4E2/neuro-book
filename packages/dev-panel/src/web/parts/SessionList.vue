@@ -17,7 +17,7 @@ const TONE: Record<string, "neutral" | "accent" | "warning" | "success"> = {idle
             <div class="flex flex-wrap items-center gap-2">
                 <span class="font-medium" :class="{'line-through': session.alive === false}">{{ shortSession(session.key, session.label) }}</span>
                 <Badge :tone="session.herdr ? TONE[session.herdr.status] ?? 'neutral' : 'neutral'" variant="soft" size="sm">{{ session.herdr ? HERDR_STATUS_LABEL[session.herdr.status] ?? session.herdr.status : "不在 herdr 里" }}</Badge>
-                <span style="color: var(--text-muted); font-size: var(--text-xs)">{{ session.agent }}<template v-if="session.herdr"> · pane {{ session.herdr.paneId }}</template><template v-if="session.alive === false"> · 会话进程已退出</template></span>
+                <span style="color: var(--text-secondary); font-size: var(--text-xs)">{{ session.agent }}<template v-if="session.herdr"> · pane {{ session.herdr.paneId }}</template><template v-if="session.alive === false"> · 会话进程已退出</template></span>
                 <Button v-if="openable && session.herdr" class="ml-auto" size="sm" variant="ghost" icon-class="i-lucide-terminal" @click="emit('open', session.herdr.paneId)">屏幕与输入</Button>
             </div>
             <div v-if="session.leases.length > 0" class="flex flex-wrap gap-1.5">

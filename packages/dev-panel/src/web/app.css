@@ -18,12 +18,77 @@ html, body, #app {
     height: 100%;
 }
 
+/*
+ * 滚动条（t15，D3：先放在面板自己这里）。整页不滚：外壳铺满视口，滚的是左栏、`main` 或铺满型页面里的分栏，
+ * 所以 html 不预留槽位（nb-ui 的全局 `html { scrollbar-gutter: stable }` 在这里只会留下右缘一条空带）。
+ * 只用标准属性：Chrome 121 以后设了它们，`::-webkit-scrollbar` 就被忽略；thin 实际约 10 到 11px。
+ * 滑块颜色从 --text-muted 派生、随明暗换；指针在容器上时加深（标准属性没有“悬停在滑块上”）。
+ */
+html {
+    scrollbar-gutter: auto;
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+*:hover {
+    scrollbar-color: var(--text-muted) transparent;
+}
+/*
+ * 竖向滚动者：内容长短变化时宽度不跳（会动态溢出的容器，nb-ui 界面开发规范第 15 条的场景 B）。滚动与槽位一起声明，
+ * 不用 nb-ui 的 nb-ui-scrollbar-stable（它只管槽位）；要带断点前缀的地方（文档页）用 Tailwind 的 [scrollbar-gutter:stable]。
+ */
+.nbdev-scroll-y {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+/*
+ * xterm 的 `.xterm-viewport` 是个空 div，xterm.css 给了它 `overflow-y: scroll`，于是恒有一条原生轨道（约 15px）；
+ * 真正滚动的是 xterm 自绘的条（颜色走 ITheme.scrollbarSlider*，见 host/terminal-theme.ts）。藏掉原生轨道不改列数：
+ * 列数按 `.xterm` 的父元素量（2026-10-14 实测 163×32 前后一致）。
+ */
+.xterm .xterm-viewport {
+    scrollbar-width: none;
+}
+
 body {
     margin: 0;
     background: var(--bg-main);
     color: var(--text-main);
     font-family: var(--font-ui);
     font-size: var(--text-sm);
+}
+
+/*
+ * 可访问性（t15 阶段 2e）。焦点环：面板自己的可交互元素用 nb-ui 的焦点令牌 --focus-outline；`:where` 不加优先级，
+ * nb-ui 控件自己的焦点样式（.nb-ui-focus-ring）照旧生效。程序挪过去的落点（页标题、main）不画焦点环。
+ */
+:where(a, button, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--focus-outline);
+    outline-offset: 2px;
+}
+:where(h1, main)[tabindex="-1"]:focus {
+    outline: none;
+}
+/* 跳到主内容：平时移出视口，键盘聚焦时出现在左上角。 */
+.nbdev-skip {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 60;
+    transform: translateY(-200%);
+    border-radius: var(--radius-control);
+    padding: 0.5rem 0.75rem;
+    background: var(--panel-surface);
+    color: var(--text-main);
+    box-shadow: var(--focus-ring);
+}
+.nbdev-skip:focus {
+    transform: none;
+}
+/* 表头承载信息，用 --text-secondary：nb-ui Table 的表头是 --text-muted，亮色页面底色上对比度只有 2.88:1（2026-10-14 实测）。 */
+.nbdev-table th {
+    color: var(--text-secondary);
 }
 
 /* Markdown 正文（MarkdownView）：阅读排版消费主题的阅读刻度。 */
