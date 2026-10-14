@@ -375,7 +375,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         });
         const alpha = await instanceOf(page, A);
         // scroll 布局的视图由视图框负责滚动：滚动盒随实例一起搬动。
-        const scrollerOf = (viewId: string) => page.locator(`[data-view-frame="${viewId}"] [data-reka-scroll-area-viewport]`);
+        const scrollerOf = (viewId: string) => page.locator(`[data-view-frame="${viewId}"] [data-view-scroller]`);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await scrollerOf(B).evaluate((element) => {
             element.scrollTop = 200;

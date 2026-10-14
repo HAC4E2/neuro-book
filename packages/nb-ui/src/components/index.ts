@@ -39,6 +39,7 @@ export {default as CollapsibleSection} from "./layout/CollapsibleSection.vue";
 export {default as DropFeedbackOverlay} from "./layout/DropFeedbackOverlay.vue";
 export {default as DropIndicator} from "./layout/DropIndicator.vue";
 export {default as DropIndicatorLabel} from "./layout/DropIndicatorLabel.vue";
+export {default as OverlayScrollbar} from "./layout/OverlayScrollbar.vue";
 export {default as Panel} from "./layout/Panel.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";

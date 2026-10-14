@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 资源管理器的虚拟树（同名 .md）。 */
-import {DropFeedbackOverlay} from "@notnotype/nb-ui/components";
+import {DropFeedbackOverlay, OverlayScrollbar} from "@notnotype/nb-ui/components";
 import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 import {useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
@@ -574,83 +574,87 @@ defineExpose({focus: focusTree});
 </script>
 
 <template>
-    <div
-        ref="root"
-        role="tree"
-        tabindex="0"
-        aria-multiselectable="true"
-        :aria-label="label"
-        :aria-activedescendant="activeDescendant"
-        class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-none"
-        :style="{'--explorer-row-height': `${String(rowHeight)}px`, '--explorer-expand-delay': `${String(EXPAND_HOVER_MS)}ms`}"
-        data-explorer-tree
-        :data-motion="moving ? '' : undefined"
-        :data-guides="indentGuides ?? 'hover'"
-        @scroll="onScroll"
-        @keydown="onKeydown"
-        @focus="onFocus"
-        @blur="onBlur"
-    >
-        <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
-        <TransitionGroup name="explorer-row" tag="div" class="explorer-tree__rows relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows @before-leave="onRowLeave">
-            <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
-            <ExplorerRow
-                v-for="item in rendered"
-                :key="item.row.id"
-                class="explorer-tree__row absolute"
-                :style="{top: `${String(item.index * rowHeight)}px`, ...rowMotionStyle(item.row.id)}"
-                :row="item.row"
-                :locale="locale"
-                :project-title="projectTitle ?? null"
-                :dom-id="domId(item.row.id)"
-                :selected="selectedSet.has(item.row.id)"
-                :active="treeFocused && item.row.id === focus"
-                :height="rowHeight"
-                :edit="editing != null && editing.id === item.row.id ? editing : null"
-                :hide-markdown-extension="hideMarkdownExtension === true"
-                :guide-active="guideActiveAt(item.index)"
-                :data-explorer-drag-source="dragSources.has(item.row.id) ? '' : undefined"
-                :data-motion-moved="movedIds.has(item.row.id) ? '' : undefined"
-                :data-motion-glow="glowIds.has(item.row.id) ? '' : undefined"
-                :data-expand-pending="expandPending === item.row.id ? '' : undefined"
-                @edit-input="(name) => emit('edit-input', name)"
-                @edit-commit="emit('edit-commit')"
-                @edit-cancel="emit('edit-cancel')"
-                @press="(event, part) => press(item.row, event, part)"
-                @activate="(item.row.kind === 'root' || item.row.kind === 'entry') && emit('row-activate', item.row.id)"
-                @context="(event) => context(item.row, event)"
-                @retry="item.row.kind !== 'edit' && emit('retry', item.row.id)"
-            />
-        </TransitionGroup>
+    <!-- 滚动条叠在树上、不占宽度（docs/specs/workbench/views.md 输出 12）：树本身是滚动元素，滚动条是它的兄弟。 -->
+    <div class="explorer-tree-host relative h-full min-h-0">
         <div
-            v-if="dropMarks"
-            class="explorer-drop pointer-events-none absolute top-0"
-            aria-hidden="true"
-            :data-explorer-drop="dropMarks.kind"
+            ref="root"
+            role="tree"
+            tabindex="0"
+            aria-multiselectable="true"
+            :aria-label="label"
+            :aria-activedescendant="activeDescendant"
+            class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-none"
+            :style="{'--explorer-row-height': `${String(rowHeight)}px`, '--explorer-expand-delay': `${String(EXPAND_HOVER_MS)}ms`}"
+            data-explorer-tree
+            :data-motion="moving ? '' : undefined"
+            :data-guides="indentGuides ?? 'hover'"
+            @scroll="onScroll"
+            @keydown="onKeydown"
+            @focus="onFocus"
+            @blur="onBlur"
         >
-            <div v-if="dropMarks.band" class="explorer-drop__band" :data-kind="dropMarks.kind" :style="{top: `${dropMarks.band.top}px`, height: `${dropMarks.band.height}px`}" data-explorer-drop-band></div>
-            <div v-if="dropMarks.header" class="explorer-drop__header" :style="{top: `${dropMarks.header.top}px`, height: `${dropMarks.header.height}px`}"></div>
-            <div v-if="dropMarks.line" class="explorer-drop__line" :style="{top: `${dropMarks.line.top - 1}px`, left: `${dropMarks.line.left}px`}" data-explorer-drop-line></div>
-        </div>
-        <DropFeedbackOverlay :preview="dropPreview" label="" :data-explorer-drop="dropPreview ? 'open' : undefined" />
-        <Teleport to="body">
-            <div v-if="ghost" class="explorer-drag-ghost" :style="{left: `${ghost.x}px`, top: `${ghost.y}px`}" aria-hidden="true" data-explorer-drag-ghost>
-                <div class="truncate font-medium">{{ ghost.what }}</div>
-                <div v-if="ghost.action" class="truncate text-[var(--text-muted)]" data-explorer-drag-action>{{ ghost.action }}</div>
-            </div>
+            <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
+            <TransitionGroup name="explorer-row" tag="div" class="explorer-tree__rows relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows @before-leave="onRowLeave">
+                <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
+                <ExplorerRow
+                    v-for="item in rendered"
+                    :key="item.row.id"
+                    class="explorer-tree__row absolute"
+                    :style="{top: `${String(item.index * rowHeight)}px`, ...rowMotionStyle(item.row.id)}"
+                    :row="item.row"
+                    :locale="locale"
+                    :project-title="projectTitle ?? null"
+                    :dom-id="domId(item.row.id)"
+                    :selected="selectedSet.has(item.row.id)"
+                    :active="treeFocused && item.row.id === focus"
+                    :height="rowHeight"
+                    :edit="editing != null && editing.id === item.row.id ? editing : null"
+                    :hide-markdown-extension="hideMarkdownExtension === true"
+                    :guide-active="guideActiveAt(item.index)"
+                    :data-explorer-drag-source="dragSources.has(item.row.id) ? '' : undefined"
+                    :data-motion-moved="movedIds.has(item.row.id) ? '' : undefined"
+                    :data-motion-glow="glowIds.has(item.row.id) ? '' : undefined"
+                    :data-expand-pending="expandPending === item.row.id ? '' : undefined"
+                    @edit-input="(name) => emit('edit-input', name)"
+                    @edit-commit="emit('edit-commit')"
+                    @edit-cancel="emit('edit-cancel')"
+                    @press="(event, part) => press(item.row, event, part)"
+                    @activate="(item.row.kind === 'root' || item.row.kind === 'entry') && emit('row-activate', item.row.id)"
+                    @context="(event) => context(item.row, event)"
+                    @retry="item.row.kind !== 'edit' && emit('retry', item.row.id)"
+                />
+            </TransitionGroup>
             <div
-                v-if="returning"
-                class="explorer-drag-ghost explorer-drag-ghost--returning"
-                :data-flying="returning.flying ? '' : undefined"
-                :style="{left: `${returning.x}px`, top: `${returning.y}px`}"
+                v-if="dropMarks"
+                class="explorer-drop pointer-events-none absolute top-0"
                 aria-hidden="true"
-                data-explorer-drag-return
+                :data-explorer-drop="dropMarks.kind"
             >
-                <div class="truncate font-medium">{{ returning.what }}</div>
+                <div v-if="dropMarks.band" class="explorer-drop__band" :data-kind="dropMarks.kind" :style="{top: `${dropMarks.band.top}px`, height: `${dropMarks.band.height}px`}" data-explorer-drop-band></div>
+                <div v-if="dropMarks.header" class="explorer-drop__header" :style="{top: `${dropMarks.header.top}px`, height: `${dropMarks.header.height}px`}"></div>
+                <div v-if="dropMarks.line" class="explorer-drop__line" :style="{top: `${dropMarks.line.top - 1}px`, left: `${dropMarks.line.left}px`}" data-explorer-drop-line></div>
             </div>
-            <!-- 读屏播报落点动作：反馈层自己的标签不用（说明画在拖影里），播报放在这里。 -->
-            <span class="explorer-drag-live" aria-live="polite" aria-atomic="true" data-explorer-drop-live>{{ drag ? dropLabel : "" }}</span>
-        </Teleport>
+            <DropFeedbackOverlay :preview="dropPreview" label="" :data-explorer-drop="dropPreview ? 'open' : undefined" />
+            <Teleport to="body">
+                <div v-if="ghost" class="explorer-drag-ghost" :style="{left: `${ghost.x}px`, top: `${ghost.y}px`}" aria-hidden="true" data-explorer-drag-ghost>
+                    <div class="truncate font-medium">{{ ghost.what }}</div>
+                    <div v-if="ghost.action" class="truncate text-[var(--text-muted)]" data-explorer-drag-action>{{ ghost.action }}</div>
+                </div>
+                <div
+                    v-if="returning"
+                    class="explorer-drag-ghost explorer-drag-ghost--returning"
+                    :data-flying="returning.flying ? '' : undefined"
+                    :style="{left: `${returning.x}px`, top: `${returning.y}px`}"
+                    aria-hidden="true"
+                    data-explorer-drag-return
+                >
+                    <div class="truncate font-medium">{{ returning.what }}</div>
+                </div>
+                <!-- 读屏播报落点动作：反馈层自己的标签不用（说明画在拖影里），播报放在这里。 -->
+                <span class="explorer-drag-live" aria-live="polite" aria-atomic="true" data-explorer-drop-live>{{ drag ? dropLabel : "" }}</span>
+            </Teleport>
+        </div>
+        <OverlayScrollbar :target="root" />
     </div>
 </template>
 
@@ -827,9 +831,4 @@ defineExpose({focus: focusTree});
     --explorer-guide-opacity: 1;
 }
 
-.explorer-tree {
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
-}
 </style>
