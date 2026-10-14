@@ -323,6 +323,16 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
         const node = root.nodes.get(source.path);
         if (node === undefined) return {result: {status: "failed", code: "not-found", detail: `${item.source} 不存在`}, events: []};
         if (item.expected !== undefined && tokenOf(scheme, node) !== item.expected) return {result: {status: "failed", code: "source-changed", detail: `${item.source} 已被替换或移走`}, events: []};
+        // 与真实服务一致：同目标移动不动文件，带位置时只在清单里挪这一项。
+        if (!copy && target.path === source.path) {
+            const items = layer(root, parentOf(source.path) as string);
+            const at = items?.findIndex((entry) => entry.name === nameOf(source.path)) ?? -1;
+            if (items === null || item.before === undefined || at < 0) return {result: {status: "done"}, events: []};
+            const [moved] = items.splice(at, 1);
+            const before = items.findIndex((entry) => entry.name === item.before);
+            items.splice(before < 0 ? items.length : before, 0, moved as ManifestItem);
+            return {result: {status: "done"}, events: [{type: "changed", path: manifestPath(root, source.path) as string, source: SOURCE}]};
+        }
         if (within(target.path, source.path)) return {result: {status: "failed", code: "into-itself", detail: "不能放进自己或自己的后代"}, events: []};
         if (root.nodes.has(target.path)) return {result: {status: "failed", code: "conflict", detail: `${item.target} 已存在`}, events: []};
         if (root.nodes.get(parentOf(target.path) as string)?.kind !== "directory") return {result: {status: "failed", code: "not-found", detail: "目标目录不存在"}, events: []};
@@ -341,7 +351,7 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
             events.push({type: "renamed", path: target.path, from: source.path, source: SOURCE});
             if (removed !== null) events.push({type: "changed", path: removed, source: SOURCE});
         }
-        const added = list(root, target.path, null, display === undefined ? {name: nameOf(target.path)} : {...display, name: nameOf(target.path)});
+        const added = list(root, target.path, copy ? null : (item.before ?? null), display === undefined ? {name: nameOf(target.path)} : {...display, name: nameOf(target.path)});
         if (added !== null) events.push({type: "changed", path: added, source: SOURCE});
         return {result: {status: "done"}, events};
     };

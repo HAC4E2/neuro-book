@@ -187,7 +187,7 @@ const methods = {
     display: {input: Type.Object({path: Type.String(), title: Display, icon: Display}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     include: {input: Type.Object({path: Type.String(), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     drop: {input: PathInput, output: DoneSchema, effect: "write", errors},
-    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected, before: Type.Optional(Name)}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     copy: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     delete: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({path: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     /** 只命中同一调用方在途的批量；不等批量结束。 */
@@ -229,9 +229,9 @@ const events = {changes: {filter: Type.Object({}, {additionalProperties: false})
 const CALLERS = ["browser", "tui", "project", "server"];
 
 /** 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。版本 4：t86 加了 `realPath` 与目录项的 `leaf`。 */
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 4, provider: "project", callers: CALLERS, methods, events});
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 5, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 4, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 5, provider: "server", callers: CALLERS, methods, events});
 
 export type FilesContract = typeof projectFilesContract | typeof userFilesContract;
 
@@ -255,6 +255,11 @@ export interface BatchTransfer {
     readonly target: string;
     /** `identify` 的令牌：源被替换或移走时该项为 `source-changed`。 */
     readonly expected?: string;
+    /**
+     * 只用于移动：目标在内容树里时，清单条目插到同层这一项之前（docs/specs/workspace/files.md 的“移动到指定位置”）；
+     * 复制不看它。
+     */
+    readonly before?: string;
 }
 
 /**

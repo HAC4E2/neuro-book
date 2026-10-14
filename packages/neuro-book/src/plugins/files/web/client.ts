@@ -99,8 +99,8 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
         display: (address, display) => operate(address, (files, path) => files.display({path, ...(display.title === undefined ? {} : {title: display.title}), ...(display.icon === undefined ? {} : {icon: display.icon})})),
         include: (address, options) => operate(address, (files, path) => files.include({path, ...(options?.before === undefined ? {} : {before: options.before})})),
         drop: (address) => operate(address, (files, path) => files.drop({path})),
-        move: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (operation, paths) => transferInput(operation, items, paths), (files, input) => files.move(input)),
-        copy: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (operation, paths) => transferInput(operation, items, paths), (files, input) => files.copy(input)),
+        move: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (operation, paths) => transferInput(operation, items, paths, true), (files, input) => files.move(input)),
+        copy: (items) => batch(items.flatMap((item) => [item.source, item.target]), 2, (operation, paths) => transferInput(operation, items, paths, false), (files, input) => files.copy(input)),
         delete: (items) => batch(items.map((item) => item.address), 1, (operation, paths) => ({operation, items: items.map((item, at) => ({path: paths[at] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))}), (files, input) => files.delete(input)),
         watch: (scheme, listener) => {
             const release = watches.add(scheme, listener);
@@ -269,9 +269,17 @@ const BUSINESS: ReadonlySet<string> = new Set(FILES_FAILURES);
 const TOO_LARGE = "超过一次请求的上限";
 const tooLarge = {ok: false, code: "too-large", detail: TOO_LARGE} as const;
 
-/** 移动与复制的请求：`paths` 是源与目标交替的方案内路径。 */
-function transferInput(operation: string, items: ReadonlyArray<BatchTransfer>, paths: ReadonlyArray<string>) {
-    return {operation, items: items.map((item, at) => ({source: paths[2 * at] as string, target: paths[2 * at + 1] as string, ...(item.expected === undefined ? {} : {expected: item.expected})}))};
+/** 移动与复制的请求：`paths` 是源与目标交替的方案内路径；`placed` 为移动，才带 `before`（复制的合同没有这个字段）。 */
+function transferInput(operation: string, items: ReadonlyArray<BatchTransfer>, paths: ReadonlyArray<string>, placed: boolean) {
+    return {
+        operation,
+        items: items.map((item, at) => ({
+            source: paths[2 * at] as string,
+            target: paths[2 * at + 1] as string,
+            ...(item.expected === undefined ? {} : {expected: item.expected}),
+            ...(placed && item.before !== undefined ? {before: item.before} : {}),
+        })),
+    };
 }
 
 /**

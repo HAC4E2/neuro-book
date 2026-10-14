@@ -195,6 +195,31 @@ describe("Spec workspace.folder-kinds 批量的清单维护", () => {
 `);
     });
 
+    it("移动到指定位置：别层与普通文件夹来的插到 before 之前，已在这一层的只挪清单，一批连成一串；普通文件夹目标忽略位置", async () => {
+        const created = await scene();
+        const client = files(created.window);
+        const placed = await client.move([
+            {source: "project://lore.content/bob/sword", target: "project://lore.content/sword", before: "bob"},
+            {source: "project://lore.content/alice", target: "project://lore.content/alice", before: "bob"},
+            {source: "project://plain/a.md", target: "project://lore.content/a.md", before: "bob"},
+        ]).result;
+        expect(placed).toEqual(ok([{status: "done"}, {status: "done"}, {status: "done"}]));
+        expect(await text(at(created, "lore.content/content.xml"))).toBe(`<?xml version="1.0" encoding="UTF-8"?>
+<content>
+  <item name="sword" title="宝剑"/>
+  <item name="alice" title="爱丽丝" icon="person"/>
+  <item name="a.md"/>
+  <item name="bob" title="鲍勃"/>
+</content>
+`);
+        expect(await text(at(created, "lore.content/alice/notes.md"))).toBe("A");
+        expect(await client.move([{source: "project://solo.md", target: "project://plain/solo.md", before: "dir"}]).result).toEqual(ok([{status: "done"}]));
+        expect(await text(at(created, "plain/solo.md"))).toBe("SOLO");
+        // 名字不在那一层：放到末尾。
+        expect(await client.move([{source: "project://plain/dir/x.md", target: "project://other.content/x.md", before: "nobody"}]).result).toEqual(ok([{status: "done"}]));
+        expect(await text(at(created, "other.content/content.xml"))).toBe(`<content>\n  <item name="x.md"/>\n</content>\n`);
+    });
+
     it.skipIf(privileged)("跨内容树移动只一侧清单写不进：文件已移，该项 done 并指明那份清单，另一侧照常更新", async () => {
         const created = await scene();
         await chmod(at(created, "other.content/content.xml"), 0o444);

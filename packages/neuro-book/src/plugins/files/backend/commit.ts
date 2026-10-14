@@ -36,7 +36,8 @@ export interface Committer {
     target(path: string): Promise<ResolvedSlot | RootedFailure>;
     /** 改清单并收集结果；改成的清单记为 `changed` 事件。 */
     manifest(tree: string, edit: Parameters<typeof editManifest>[2], events: OperationEvent[], issues: ManifestIssue[]): Promise<ManifestWrite>;
-    move(input: {readonly source: string; readonly target: string; readonly expected?: string}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
+    /** `before`：目标在内容树里时清单条目放在同层这一项之前（docs/specs/workspace/files.md 的“移动到指定位置”）。 */
+    move(input: {readonly source: string; readonly target: string; readonly expected?: string; readonly before?: string}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
     copy(input: {readonly source: string; readonly target: string; readonly expected?: string}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
     remove(input: {readonly path: string; readonly expected?: string}, first: ResolvedEntry, origin: ChangeSource): Promise<ItemOutcome>;
 }
@@ -94,10 +95,20 @@ export function createCommitter(context: ManifestContext): Committer {
                 if ("ok" in entry) return failed(entry);
                 const fresh = await target(input.target);
                 if ("ok" in fresh) return failed(fresh);
-                // 同目标移动无操作（身份已核对过）。
-                if (fresh.absolute === entry.absolute) return {ok: true, manifests: []};
                 const from = listedPlace(entry.path);
                 const to = listedPlace(fresh.path);
+                const placed = input.before === undefined ? {} : {before: input.before};
+                if (fresh.absolute === entry.absolute) {
+                    // 同目标移动不动文件（身份已核对过）；带位置时只在清单里挪这一项，让多选里已在这一层的项也连成一串。
+                    if (input.before === undefined || to === null) return {ok: true, manifests: []};
+                    const lost = await held();
+                    if (lost !== null) return failed(lost);
+                    const events: OperationEvent[] = [];
+                    const issues: ManifestIssue[] = [];
+                    await manifest(to.root, {kind: "place", level: to.level, name: to.name, ...placed}, events, issues);
+                    changes.emit(events, origin);
+                    return {ok: true, manifests: issues};
+                }
                 const carried = from !== null && to !== null ? await captureItem(root, from) : null;
                 const lost = await held();
                 if (lost !== null) return failed(lost);
@@ -108,9 +119,10 @@ export function createCommitter(context: ManifestContext): Committer {
                 const issues: ManifestIssue[] = [];
                 if (from !== null && to !== null && from.root === to.root && from.level.join("/") === to.level.join("/")) {
                     await manifest(from.root, {kind: "rename", level: from.level, from: from.name, to: to.name}, events, issues);
+                    if (input.before !== undefined) await manifest(to.root, {kind: "place", level: to.level, name: to.name, ...placed}, events, issues);
                 } else {
                     if (from !== null) await manifest(from.root, {kind: "remove", level: from.level, name: from.name}, events, issues);
-                    if (to !== null) await manifest(to.root, {kind: "insert", level: to.level, item: carry(carried, to.name)}, events, issues);
+                    if (to !== null) await manifest(to.root, {kind: "insert", level: to.level, item: carry(carried, to.name), ...placed}, events, issues);
                 }
                 changes.emit(events, origin);
                 return {ok: true, manifests: issues};

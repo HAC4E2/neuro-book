@@ -35,7 +35,7 @@ export interface BatchControl {
     readonly signal: AbortSignal;
 }
 
-export type TransferItem = {readonly source: string; readonly target: string; readonly expected?: string};
+export type TransferItem = {readonly source: string; readonly target: string; readonly expected?: string; readonly before?: string};
 export type DeleteItem = {readonly path: string; readonly expected?: string};
 
 export interface Batch {
