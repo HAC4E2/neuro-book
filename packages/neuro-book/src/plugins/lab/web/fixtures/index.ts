@@ -6,6 +6,7 @@ import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
+import type FileIcon from "nbook/plugins/explorer/web/components/FileIcon.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -549,6 +550,15 @@ export const labFixtures: LabFixture[] = [
         ],
         runtimeProps: async () => ({handleKey: () => "none" as const}),
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
+    }),
+    defineLabFixture<typeof FileIcon>({
+        component: "FileIcon",
+        scenes: [
+            {id: "markdown", label: "Markdown 文件", input: {props: {icon: "markdown"}}},
+            {id: "content-open", label: "展开的内容文件夹", input: {props: {icon: "folder-content-open"}}},
+            {id: "image", label: "图片", input: {props: {icon: "image"}}},
+        ],
+        load: async () => (await import("./FileIconFixture.vue")).default,
     }),
     defineSubjectFixture<typeof ExplorerFeedback>({
         component: "ExplorerFeedback",
