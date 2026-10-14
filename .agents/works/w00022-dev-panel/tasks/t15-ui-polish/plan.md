@@ -1180,3 +1180,6 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 控制台只有第 4 条预期的 401。
   - 验收环境：第 2 条在克隆里给 t16-ux-b-probe 改了两轮状态（两次跑，共 4 个提交，最后仍是进行中）；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删；herdr 的 `w4:p1`、`w5:p1` 没动。master 到 `6965d8203`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
   - 没有验证到的地方：nb-ui 的对话框（按键确认、接管小窗）开着时登录失效，没在浏览器里造，层级从代码核对；读屏器的实际读法（分组、详情按钮、`aria-colspan`）；只看了 Chrome。
+- 2026-10-14：阶段 4 第 2 批合入 `master`（合并提交 `567723d19`，集成分支 `c0be6bed2`），按开发者的长期授权直接合入。
+  - 全量 `test` 在 `c0be6bed2` 上由主 Agent 复跑：401 过、0 失败；合并提交的代码与依赖清单和集成分支相同。
+  - `bun install --frozen-lockfile` 没有变化；`service:restart` 后 4400 回 200，前端重新构建完成。审查 worktree 与临时 worktree 已删除。没有 push。
