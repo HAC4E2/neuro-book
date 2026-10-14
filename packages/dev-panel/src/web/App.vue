@@ -113,7 +113,7 @@ const herdrLabel = computed(() => {
         </section>
     </div>
     <div class="grid h-full grid-cols-1 md:grid-cols-[15.5rem_minmax(0,1fr)]" :inert="panelState.unauthorized || undefined">
-        <aside class="hidden min-h-0 flex-col overflow-y-auto border-r md:flex" style="background: var(--sidebar-surface, var(--bg-sidebar)); border-color: var(--divider)" aria-label="面板导航">
+        <aside class="nbdev-scroll-y hidden min-h-0 flex-col border-r md:flex" style="background: var(--sidebar-surface, var(--bg-sidebar)); border-color: var(--divider)" aria-label="面板导航">
             <nav class="flex flex-col gap-4 p-3">
                 <RouterLink to="/" class="flex items-center gap-2 px-2 font-semibold"><span class="i-lucide-layout-dashboard size-4" aria-hidden="true" />nbdev 面板</RouterLink>
                 <section class="flex flex-col gap-0.5">
@@ -172,7 +172,8 @@ const herdrLabel = computed(() => {
                 </div>
             </header>
             <p v-for="part in failedParts" :key="part.name" role="status" class="border-b px-3 py-1" style="background: var(--bg-subtle); border-color: var(--divider); color: var(--status-warning); font-size: var(--text-xs)">后台重算{{ part.label }}失败，显示的是上一份：{{ part.error }}</p>
-            <main class="min-h-0 flex-1 overflow-y-auto">
+            <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
+            <main class="min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
                 <!-- 按路由名与路径参数重建页面实例，查询参数变化不重建（t15）。 -->
                 <RouterView v-slot="{Component, route: viewRoute}">
                     <component :is="Component" :key="pageKey(viewRoute)" />

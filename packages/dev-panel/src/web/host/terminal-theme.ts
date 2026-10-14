@@ -1,6 +1,7 @@
 import {applyColorway} from "@notnotype/nb-ui";
 import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 import type {ITheme} from "@xterm/xterm";
+import {hexWithAlpha} from "./terminal-colors.js";
 import {terminalFontFamily} from "./terminal-font.js";
 
 /**
@@ -26,6 +27,10 @@ export function readTerminalTheme(container: HTMLElement): ITheme {
         yellow: token("--status-warning"),
         blue: token("--accent-main"),
         cyan: token("--status-info"),
+        // 自绘滚动条（有回滚时才出现）：与页面的细滚动条同一个来源色，静止、悬停、拖动依次加深。
+        scrollbarSliderBackground: hexWithAlpha(token("--text-muted") ?? "", 0.45),
+        scrollbarSliderHoverBackground: hexWithAlpha(token("--text-muted") ?? "", 0.7),
+        scrollbarSliderActiveBackground: hexWithAlpha(token("--text-muted") ?? "", 0.9),
     };
 }
 
