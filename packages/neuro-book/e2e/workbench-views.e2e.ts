@@ -148,6 +148,31 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, E)).toBeVisible();
     });
 
+    test("侧栏拖到零后按住往外拉：松手前活动栏与侧栏就相连成一张卡片（外壳一输出 8、38）", async ({page}) => {
+        await open(page);
+        const activitybar = page.locator("[data-shell-card=\"activitybar\"]");
+        await expect(activitybar).toHaveAttribute("data-shell-join", "start");
+        const sash = page.getByRole("separator", {name: "调整 sidebar 与 panel-stack 的宽度"});
+        const found = await sash.boundingBox();
+        if (found === null) throw new Error("没有侧栏的边界");
+        const y = found.y + found.height / 2;
+        await page.mouse.move(found.x + found.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(0, y, {steps: 8});
+        await page.mouse.up();
+        await expect(activitybar).not.toHaveAttribute("data-shell-join");
+        const zero = await sash.boundingBox();
+        if (zero === null) throw new Error("侧栏拖到零后没有边界");
+        await page.mouse.move(zero.x + zero.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(zero.x + 260, y, {steps: 10});
+        await expect(sample(page, A)).toBeVisible();
+        await expect(activitybar).toHaveAttribute("data-shell-join", "start");
+        await expect(page.locator("[data-shell-card=\"sidebar\"]")).toHaveAttribute("data-shell-join", "end");
+        await page.mouse.up();
+        await expect(activitybar).toHaveAttribute("data-shell-join", "start");
+    });
+
     test("全链路：视图按声明出现在默认位置，第一次有效可见才加载，代际为 1", async ({page}) => {
         await open(page);
         await expect(sample(page, A)).toBeVisible();

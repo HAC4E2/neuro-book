@@ -256,8 +256,17 @@ watch(rootEl, () => void nextTick(syncTargets));
 
 // ── 卡片 ──────────────────────────────────────────────────────────────────────
 
-/** 各部件四边挨着什么；缝宽与卡片样式是主题变量，平铺的主题缝宽为 0，下面的内边距都是 0。 */
-const cards = computed(() => shellCards(projection.value));
+/**
+ * 各部件四边挨着什么；缝宽与卡片样式是主题变量，平铺的主题缝宽为 0，下面的内边距都是 0。拖动中已经拉出来的部件（预览
+ * 集合）按有尺寸算：投影里它还是拖到零，不这样算的话从零拉出侧栏时活动栏与侧栏要等松手才相连。
+ */
+const cards = computed(() => {
+    const shown = previewShown.value;
+    if (shown.size === 0) return shellCards(projection.value);
+    const sizes = {...projection.value.sizes};
+    for (const part of shown) if ((sizes[part] ?? 0) <= 0) sizes[part] = 1;
+    return shellCards({...projection.value, sizes});
+});
 
 /**
  * 哪些部件套卡片包装按部件身份定，不看当前投影：包装随隐藏、拖到零出现或消失的话，插槽会换到另一处渲染，
