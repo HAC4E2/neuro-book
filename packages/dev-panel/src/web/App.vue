@@ -5,7 +5,7 @@ import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime} from "./host/format.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
-import {readAppearance, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
+import {readAppearance, readDismissedAudit, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
 import {pageTitle} from "./host/nav.js";
@@ -279,6 +279,7 @@ const PART_LABEL: Record<string, string> = {records: "记录", activity: "活动
  * 顶栏的状态点（t15 阶段 2d）：推送、herdr、数据新旧这几样正常时只是一个绿点，点开看详情；有一样不正常时点变黄，旁边写出是哪一样。
  */
 type StatusLine = {label: string; text: string; ok: boolean};
+const shellResources = [{label: "左栏与收件箱", resource: overview}, {label: "面板状态", resource: meta}, {label: "通知", resource: notify}];
 const statusLines = computed<StatusLine[]>(() => {
     const connection = panelState.connection;
     const herdr = meta.data.value?.herdr;
@@ -286,7 +287,17 @@ const statusLines = computed<StatusLine[]>(() => {
         {label: "推送", text: connection === "open" ? "已连接" : connection === "connecting" ? "正在连接" : "断开了，正在重连", ok: connection === "open"},
     ];
     if (herdr) lines.push({label: "herdr", text: !herdr.available ? `不可用${herdr.error ? `：${herdr.error}` : ""}` : herdr.mode === "subscribed" ? `已订阅${herdr.version ? `（${herdr.version}）` : ""}` : "轮询中", ok: herdr.available});
-    lines.push({label: "数据", text: freshness.value, ok: true});
+    // 外壳自己的三份数据（左栏与收件箱、面板状态、通知）有一份重取失败，左栏、计数与横幅就停在上一份；第一次就失败时横幅根本出不来。
+    // 不按 parts.records.at 的年龄判断：没有变化时它本来就会很旧。
+    const failed = shellResources.find((entry) => entry.resource.error.value !== null);
+    if (failed) {
+        const {error, receivedAt} = failed.resource;
+        lines.push({label: "数据", text: `（${failed.label}）重取失败：${error.value!.message}${receivedAt.value ? `，显示的是${relativeTime(receivedAt.value)}读到的` : "，还没有读到过"}`, ok: false});
+    } else {
+        lines.push({label: "数据", text: freshness.value, ok: true});
+    }
+    const audit = meta.data.value?.audit;
+    if (audit && !audit.enabled) lines.push({label: "审计", text: audit.reason === "not_initialized" ? "未开启（运行 bun run --cwd packages/dev-panel audit-init 开启）" : `不可用：${audit.detail}`, ok: audit.reason === "not_initialized"});
     return lines;
 });
 const statusProblem = computed(() => statusLines.value.find((line) => !line.ok) ?? null);
@@ -295,13 +306,31 @@ const statusLabel = computed(() => (statusProblem.value ? `状态：${statusProb
 /**
  * 顶栏下面的横幅（t15 阶段 2d）：要开发者做点什么、或者显示的东西可能不对的情形。正常时没有横幅。
  */
-type Banner = {key: string; tone: "accent" | "danger" | "warning"; icon: string; text: string};
+type Banner = {key: string; tone: "accent" | "danger" | "warning"; icon: string; text: string; dismiss?: () => void};
+/**
+ * 审计有两类“没开”：`not_initialized` 是这台机器的配置（多半有意不用通知与代打字），横幅可以“知道了”，关掉后只在状态点的
+ * 详情里留一行；初始化过又坏了的（`bad_owner`、`bad_mode`、`not_regular`、`unreadable`）是故障，横幅常驻、不能关。
+ * “知道了”按“原因 + 审计文件路径”记，换了路径或原因会重新出现。
+ */
+const auditDismissed = ref(readDismissedAudit());
+const auditKey = computed(() => {
+    const audit = meta.data.value?.audit;
+    return audit && !audit.enabled ? `${audit.reason}:${audit.path}` : null;
+});
+function dismissAudit(): void {
+    if (!auditKey.value) return;
+    auditDismissed.value = auditKey.value;
+    writeDismissedAudit(auditKey.value);
+}
 const banners = computed<Banner[]>(() => {
     const data = meta.data.value;
     const list: Banner[] = [];
     if (data?.codeChanged) list.push({key: "code", tone: "accent", icon: "i-lucide-refresh-cw", text: restartHint.value});
     if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
-    if (data && !data.audit.enabled) list.push({key: "audit", tone: "warning", icon: "i-lucide-shield-off", text: data.audit.reason === "not_initialized" ? "审计未开启：不发通知，也不能替你打字或按键。运行 bun run --cwd packages/dev-panel audit-init 开启" : `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
+    if (data && !data.audit.enabled) {
+        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "danger", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
+        else if (auditDismissed.value !== auditKey.value) list.push({key: "audit", tone: "warning", icon: "i-lucide-shield-off", text: "审计未开启：不发通知，也不能替你打字或按键。运行 bun run --cwd packages/dev-panel audit-init 开启", dismiss: dismissAudit});
+    }
     for (const [name, part] of Object.entries(data?.parts ?? {})) {
         // 后台重算失败：服务端保留上一份，页面显示的就是它。
         if (part.error !== null) list.push({key: `part-${name}`, tone: "warning", icon: "i-lucide-history", text: `后台重算${PART_LABEL[name] ?? name}失败，显示的是上一份：${part.error}`});
@@ -346,7 +375,7 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
                             <template #trigger>
                                 <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
                                     <span class="size-2 rounded-full" :style="{background: statusProblem ? 'var(--status-warning)' : 'var(--status-success)'}" aria-hidden="true" />
-                                    <span v-if="statusProblem" style="color: var(--status-warning)">{{ statusProblem.label }}{{ statusProblem.text }}</span>
+                                    <span v-if="statusProblem" class="max-w-[24rem] truncate" style="color: var(--status-warning)">{{ statusProblem.label }}{{ statusProblem.text }}</span>
                                 </button>
                             </template>
                             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1" style="font-size: var(--text-xs)">
@@ -360,10 +389,11 @@ const BANNER_COLOR: Record<Banner["tone"], string> = {accent: "var(--accent-main
                     </div>
                 </header>
                 <div v-if="banners.length > 0" role="status" class="flex flex-col border-b" style="background: var(--bg-subtle); border-color: var(--divider); font-size: var(--text-xs)">
-                    <p v-for="banner in banners" :key="banner.key" class="flex items-start gap-2 px-3 py-1.5">
+                    <div v-for="banner in banners" :key="banner.key" class="flex items-start gap-2 px-3 py-1.5">
                         <span :class="banner.icon" class="mt-0.5 size-3.5 shrink-0" :style="{color: BANNER_COLOR[banner.tone]}" aria-hidden="true" />
-                        <span class="min-w-0 break-words" style="color: var(--text-main)">{{ banner.text }}</span>
-                    </p>
+                        <span class="min-w-0 flex-1 break-words" style="color: var(--text-main)">{{ banner.text }}</span>
+                        <Button v-if="banner.dismiss" size="sm" variant="ghost" @click="banner.dismiss">知道了</Button>
+                    </div>
                 </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
                 <main id="nbdev-main" ref="mainEl" tabindex="-1" class="min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
