@@ -187,7 +187,7 @@ const methods = {
     display: {input: Type.Object({path: Type.String(), title: Display, icon: Display}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     include: {input: Type.Object({path: Type.String(), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
     drop: {input: PathInput, output: DoneSchema, effect: "write", errors},
-    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected, before: Type.Optional(Name)}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected, before: Type.Optional(Type.Union([Name, Type.Null()]))}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     copy: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     delete: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({path: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     /** 只命中同一调用方在途的批量；不等批量结束。 */
@@ -256,10 +256,10 @@ export interface BatchTransfer {
     /** `identify` 的令牌：源被替换或移走时该项为 `source-changed`。 */
     readonly expected?: string;
     /**
-     * 只用于移动：目标在内容树里时，清单条目插到同层这一项之前（docs/specs/workspace/files.md 的“移动到指定位置”）；
-     * 复制不看它。
+     * 只用于移动：目标在内容树里时，清单条目插到同层这一项之前，`null` 为放到末尾（docs/specs/workspace/files.md 的
+     * “移动到指定位置”）；缺省不指定位置。复制不看它。
      */
-    readonly before?: string;
+    readonly before?: string | null;
 }
 
 /**

@@ -329,7 +329,7 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
             const at = items?.findIndex((entry) => entry.name === nameOf(source.path)) ?? -1;
             if (items === null || item.before === undefined || at < 0) return {result: {status: "done"}, events: []};
             const [moved] = items.splice(at, 1);
-            const before = items.findIndex((entry) => entry.name === item.before);
+            const before = item.before === null ? -1 : items.findIndex((entry) => entry.name === item.before);
             items.splice(before < 0 ? items.length : before, 0, moved as ManifestItem);
             return {result: {status: "done"}, events: [{type: "changed", path: manifestPath(root, source.path) as string, source: SOURCE}]};
         }

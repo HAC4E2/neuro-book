@@ -195,7 +195,7 @@ describe("Spec workspace.folder-kinds 批量的清单维护", () => {
 `);
     });
 
-    it("移动到指定位置：别层与普通文件夹来的插到 before 之前，已在这一层的只挪清单，一批连成一串；普通文件夹目标忽略位置", async () => {
+    it("移动到指定位置：别层与普通文件夹来的插到 before 之前，已在这一层的只挪清单，一批连成一串，null 放到末尾；普通文件夹目标忽略位置", async () => {
         const created = await scene();
         const client = files(created.window);
         const placed = await client.move([
@@ -213,6 +213,9 @@ describe("Spec workspace.folder-kinds 批量的清单维护", () => {
 </content>
 `);
         expect(await text(at(created, "lore.content/alice/notes.md"))).toBe("A");
+        // null 是放到末尾：已在这一层的也挪过去。
+        expect(await client.move([{source: "project://lore.content/sword", target: "project://lore.content/sword", before: null}]).result).toEqual(ok([{status: "done"}]));
+        expect(await text(at(created, "lore.content/content.xml"))).toContain(`<item name="bob" title="鲍勃"/>\n  <item name="sword" title="宝剑"/>\n</content>`);
         expect(await client.move([{source: "project://solo.md", target: "project://plain/solo.md", before: "dir"}]).result).toEqual(ok([{status: "done"}]));
         expect(await text(at(created, "plain/solo.md"))).toBe("SOLO");
         // 名字不在那一层：放到末尾。
