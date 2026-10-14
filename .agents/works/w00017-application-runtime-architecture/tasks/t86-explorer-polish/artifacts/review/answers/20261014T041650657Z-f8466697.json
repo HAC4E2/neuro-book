@@ -1,0 +1,39 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00017-application-runtime-architecture",
+    "taskId": "t86-explorer-polish",
+    "artifactId": "review",
+    "answerId": "20261014T041650657Z-f8466697",
+    "artifactVersion": 2,
+    "contentHash": "d8ca0d1fb0cc26974b7a605d3842a4d2663f52b20739c10b85b3e66a46719047",
+    "submittedAt": "2026-10-14T04:16:50.302Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "indent-guides": "discuss",
+        "r2-icons": "color",
+        "r2-states": "yes",
+        "r2-roots": "a",
+        "r2-filter": "a",
+        "r2-guides": "hover",
+        "r2-md": "show",
+        "r2-menu": "yes",
+        "r2-drag-parent": "fix",
+        "r2-drag-blank": "fix",
+        "r2-drag-expand": "fix",
+        "r2-drag-scroll": "fix",
+        "r2-drag-ghost": "fix",
+        "r2-drag-editor": "fix",
+        "r2-drag-import": "skip"
+    },
+    "comments": {
+        "r2-icons": "配色多做几种，包括暗色出来给我看看效果",
+        "r2-states": "需要剧情插件这种也做成这种状态图标。鼠标 hover 上去的时候能看到文字",
+        "r2-roots": "这里的设计就很像 jetbrains ide 里的设计。他那个还有 scratch 文件夹，第三方包文件夹的。",
+        "r2-filter": "这里还要设计一轮，我们这里的搜索可能不能像普通 ide 那么简单。是一个很常用的功能。同时也可以像 vscode 一样提供一个专门的搜索 view",
+        "r2-drag-import": "另开 Task"
+    },
+    "note": null
+}
